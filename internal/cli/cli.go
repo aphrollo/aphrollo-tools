@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/refactor"
 )
@@ -43,7 +44,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 const refactorUsage = `usage: aphrollo refactor <subcommand> [args]
 
 Subcommands:
-  rename-symbol   Rename a symbol and all its references across the project
+  rename-symbol     Rename a symbol and all its references across the project
+  find-references   List every reference to a symbol across the project
 `
 
 func runRefactor(args []string, stdout, stderr io.Writer) int {
@@ -57,6 +59,8 @@ func runRefactor(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "rename-symbol":
 		return runRenameSymbol(args[1:], stdout, stderr)
+	case "find-references":
+		return runFindReferences(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "aphrollo refactor: unknown subcommand %q\n\n%s", args[0], refactorUsage)
 		return 2
@@ -111,6 +115,50 @@ func runRenameSymbol(args []string, stdout, stderr io.Writer) int {
 	}
 	if res.Applied {
 		fmt.Fprintf(stdout, "\napplied to %d file(s)\n", len(res.Files))
+	}
+	return 0
+}
+
+func runFindReferences(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("find-references", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var (
+		file       = fs.String("file", "", "path to a file containing the symbol (required)")
+		line       = fs.Int("line", 0, "1-based line of the symbol (required)")
+		col        = fs.Int("col", 0, "1-based UTF-16 column of the symbol")
+		symbol     = fs.String("symbol", "", "symbol name to locate on the line (alternative to --col)")
+		includeDfn = fs.Bool("include-declaration", true, "include the declaration in results")
+	)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	switch {
+	case *file == "":
+		fmt.Fprintln(stderr, "aphrollo: --file is required")
+		return 2
+	case *line < 1:
+		fmt.Fprintln(stderr, "aphrollo: --line (1-based) is required")
+		return 2
+	case *col == 0 && *symbol == "":
+		fmt.Fprintln(stderr, "aphrollo: provide --col or --symbol to locate the target")
+		return 2
+	}
+
+	refs, err := refactor.FindReferences(context.Background(), refactor.RefRequest{
+		File:               *file,
+		Line:               *line,
+		Col:                *col,
+		Symbol:             *symbol,
+		IncludeDeclaration: *includeDfn,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+
+	for _, r := range refs {
+		fmt.Fprintf(stdout, "%s:%d:%d: %s\n", r.Path, r.Line, r.Col, strings.TrimSpace(r.Text))
 	}
 	return 0
 }

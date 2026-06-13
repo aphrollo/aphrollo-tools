@@ -63,6 +63,49 @@ func TestRename_Gopls_CrossFile(t *testing.T) {
 	}
 }
 
+// TestFindReferences_Gopls finds a symbol's references across files.
+func TestFindReferences_Gopls(t *testing.T) {
+	if _, err := exec.LookPath("gopls"); err != nil {
+		t.Skip("gopls not on PATH; skipping e2e")
+	}
+
+	dir := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module example.com/m\n\ngo 1.21\n")
+	write("a.go", "package m\n\nfunc Greet() string {\n\treturn \"hi\"\n}\n")
+	write("b.go", "package m\n\nfunc Caller() string {\n\treturn Greet()\n}\n")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	refs, err := FindReferences(ctx, RefRequest{
+		File:               filepath.Join(dir, "a.go"),
+		Line:               3,
+		Symbol:             "Greet",
+		IncludeDeclaration: true,
+	})
+	if err != nil {
+		t.Fatalf("FindReferences: %v", err)
+	}
+	if len(refs) < 2 {
+		t.Fatalf("got %d references, want >= 2 (decl + use)", len(refs))
+	}
+
+	var sawUse bool
+	for _, r := range refs {
+		if filepath.Base(r.Path) == "b.go" && r.Line == 4 {
+			sawUse = true
+		}
+	}
+	if !sawUse {
+		t.Fatalf("missing reference at b.go:4, got %+v", refs)
+	}
+}
+
 // TestRename_Gopls_Apply verifies --apply writes the change to disk.
 func TestRename_Gopls_Apply(t *testing.T) {
 	if _, err := exec.LookPath("gopls"); err != nil {

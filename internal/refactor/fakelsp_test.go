@@ -15,8 +15,9 @@ import (
 // the JSON result returned for textDocument/rename; check, if set, validates the
 // incoming rename request params.
 type fakeLSP struct {
-	renameResult string
-	check        func(uri string, line, char int, newName string)
+	renameResult     string
+	referencesResult string
+	check            func(uri string, line, char int, newName string)
 }
 
 func (f fakeLSP) serve(t *testing.T, in *bufio.Reader, out io.Writer) {
@@ -56,6 +57,8 @@ func (f fakeLSP) serve(t *testing.T, in *bufio.Reader, out io.Writer) {
 				f.check(p.TextDocument.URI, p.Position.Line, p.Position.Character, p.NewName)
 			}
 			f.reply(out, m.ID, f.renameResult)
+		case "textDocument/references":
+			f.reply(out, m.ID, f.referencesResult)
 		default:
 			if len(m.ID) > 0 { // a request we don't model — reply null so caller proceeds
 				f.reply(out, m.ID, `null`)

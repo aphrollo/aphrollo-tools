@@ -49,6 +49,17 @@ func TestRun_RenameSymbol_MissingLocator(t *testing.T) {
 	}
 }
 
+func TestRun_FindReferences_MissingLocator(t *testing.T) {
+	var out, errb bytes.Buffer
+	args := []string{"refactor", "find-references", "--file", "a.go", "--line", "3"}
+	if code := Run(args, &out, &errb); code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(errb.String(), "--col") && !strings.Contains(errb.String(), "--symbol") {
+		t.Fatalf("stderr should mention needing --col or --symbol:\n%s", errb.String())
+	}
+}
+
 func TestRun_Help_ExitsZero(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := Run([]string{"--help"}, &out, &errb); code != 0 {

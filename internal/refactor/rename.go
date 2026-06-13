@@ -52,7 +52,7 @@ func Rename(ctx context.Context, req RenameRequest) (*RenameResult, error) {
 	}
 	src := string(srcBytes)
 
-	pos, err := resolvePosition(src, req)
+	pos, err := resolvePosition(src, req.Line, req.Col, req.Symbol)
 	if err != nil {
 		return nil, err
 	}
@@ -112,28 +112,28 @@ func Rename(ctx context.Context, req RenameRequest) (*RenameResult, error) {
 	return result, nil
 }
 
-// resolvePosition converts the request's 1-based line plus explicit column or
-// named symbol into a 0-based LSP position.
-func resolvePosition(src string, req RenameRequest) (lsp.Position, error) {
-	if req.Line < 1 {
-		return lsp.Position{}, fmt.Errorf("line must be 1-based (got %d)", req.Line)
+// resolvePosition converts a 1-based line plus an explicit column or a named
+// symbol into a 0-based LSP position.
+func resolvePosition(src string, lineNo, col int, symbol string) (lsp.Position, error) {
+	if lineNo < 1 {
+		return lsp.Position{}, fmt.Errorf("line must be 1-based (got %d)", lineNo)
 	}
-	line := req.Line - 1
-	if req.Col > 0 {
-		return lsp.Position{Line: line, Character: req.Col - 1}, nil
+	line := lineNo - 1
+	if col > 0 {
+		return lsp.Position{Line: line, Character: col - 1}, nil
 	}
-	if req.Symbol == "" {
-		return lsp.Position{}, fmt.Errorf("provide --col or --symbol to locate the rename target")
+	if symbol == "" {
+		return lsp.Position{}, fmt.Errorf("provide --col or --symbol to locate the target")
 	}
 	lines := strings.Split(src, "\n")
-	if req.Line > len(lines) {
-		return lsp.Position{}, fmt.Errorf("line %d is past end of file (%d lines)", req.Line, len(lines))
+	if lineNo > len(lines) {
+		return lsp.Position{}, fmt.Errorf("line %d is past end of file (%d lines)", lineNo, len(lines))
 	}
-	col, err := symbolColumn(lines[line], req.Symbol)
+	c, err := symbolColumn(lines[line], symbol)
 	if err != nil {
-		return lsp.Position{}, fmt.Errorf("%w on line %d", err, req.Line)
+		return lsp.Position{}, fmt.Errorf("%w on line %d", err, lineNo)
 	}
-	return lsp.Position{Line: line, Character: col}, nil
+	return lsp.Position{Line: line, Character: c}, nil
 }
 
 func relOrAbs(path string) string {

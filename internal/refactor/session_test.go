@@ -56,3 +56,35 @@ func TestSession_Rename(t *testing.T) {
 		t.Fatalf("edit NewText = %q, want Bar", files[0].Edits[0].NewText)
 	}
 }
+
+func TestSession_References(t *testing.T) {
+	cr, sw := io.Pipe()
+	sr, cw := io.Pipe()
+	conn := lsp.NewConn(cw, cr)
+	defer conn.Close()
+
+	srv := fakeLSP{
+		referencesResult: `[` +
+			`{"uri":"file:///proj/a.go","range":{"start":{"line":2,"character":5},"end":{"line":2,"character":8}}},` +
+			`{"uri":"file:///proj/b.go","range":{"start":{"line":9,"character":1},"end":{"line":9,"character":4}}}]`,
+	}
+	go srv.serve(t, bufio.NewReader(sr), sw)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	sess := NewSession(conn, "/proj")
+	if err := sess.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	locs, err := sess.References(ctx, "/proj/a.go", lsp.Position{Line: 2, Character: 5}, true)
+	if err != nil {
+		t.Fatalf("References: %v", err)
+	}
+	if len(locs) != 2 {
+		t.Fatalf("got %d locations, want 2", len(locs))
+	}
+	if locs[0].URI != "file:///proj/a.go" || locs[0].Range.Start.Line != 2 {
+		t.Fatalf("loc[0] = %+v, unexpected", locs[0])
+	}
+}

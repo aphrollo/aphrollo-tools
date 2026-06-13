@@ -92,6 +92,28 @@ func (s *Session) Rename(ctx context.Context, path string, pos lsp.Position, new
 	return we, err
 }
 
+type referenceContext struct {
+	IncludeDeclaration bool `json:"includeDeclaration"`
+}
+
+type referenceParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
+	Position     lsp.Position           `json:"position"`
+	Context      referenceContext       `json:"context"`
+}
+
+// References issues textDocument/references for the symbol at pos in path.
+func (s *Session) References(ctx context.Context, path string, pos lsp.Position, includeDeclaration bool) ([]lsp.Location, error) {
+	p := referenceParams{
+		TextDocument: textDocumentIdentifier{URI: pathToURI(path)},
+		Position:     pos,
+		Context:      referenceContext{IncludeDeclaration: includeDeclaration},
+	}
+	var locs []lsp.Location
+	err := s.conn.Call(ctx, "textDocument/references", p, &locs)
+	return locs, err
+}
+
 // clientCapabilities advertises the minimum needed for rename with
 // document-change edits.
 func clientCapabilities() map[string]any {
