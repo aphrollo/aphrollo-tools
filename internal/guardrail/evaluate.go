@@ -36,9 +36,11 @@ type Decision struct {
 	Reason string
 }
 
-// maxBlockingWaitSeconds is the ceiling for a foreground sleep/wait in a
-// dispatch turn. Beyond this the agent should poll or background instead.
-const maxBlockingWaitSeconds = 300
+// blockSleepAtSeconds is the threshold at or above which a foreground
+// sleep/wait is blocked. A dispatch turn should not idle for seconds at a time;
+// brief sub-2s pacing is tolerated. Matches Claude Code's own Bash tool, which
+// blocks sleep >= 2s and pushes longer waits to background/poll.
+const blockSleepAtSeconds = 2
 
 var sleepRe = regexp.MustCompile(`\bsleep\s+([0-9]+(?:\.[0-9]+)?)([smhd]?)\b`)
 
@@ -60,15 +62,16 @@ func Evaluate(toolName, command string) Decision {
 func checkBlockingWait(command string) (Decision, bool) {
 	for _, m := range sleepRe.FindAllStringSubmatch(command, -1) {
 		secs := durationSeconds(m[1], m[2])
-		if secs > maxBlockingWaitSeconds {
+		if secs >= blockSleepAtSeconds {
 			return Decision{
 				Action: Block,
 				Reason: fmt.Sprintf(
-					"Blocking wait of %gs exceeds the %ds cap for a dispatch turn. "+
-						"A long foreground sleep ties up the session doing nothing. "+
+					"Blocking wait of %gs (>= %ds) is not allowed in a dispatch turn. "+
+						"A foreground sleep ties up the session doing nothing. "+
 						"Instead: run the work with run_in_background and poll its status, "+
-						"or poll the condition in a bounded loop across turns.",
-					secs, maxBlockingWaitSeconds),
+						"or poll the condition in a bounded loop across turns. "+
+						"For sub-second pacing, keep it under 2s.",
+					secs, blockSleepAtSeconds),
 			}, true
 		}
 	}

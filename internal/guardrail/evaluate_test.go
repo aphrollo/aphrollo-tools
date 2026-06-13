@@ -11,11 +11,12 @@ func TestEvaluate_BlocksLongSleep(t *testing.T) {
 		block   bool
 	}{
 		{"sleep 600", true},
-		{"sleep 301", true},
-		{"sleep 10m", true},  // 600s
-		{"sleep 0.5h", true}, // 1800s
-		{"sleep 300", false}, // boundary: not > 300
-		{"sleep 5", false},
+		{"sleep 5", true}, // a dispatch turn should not idle for seconds
+		{"sleep 2", true}, // threshold: >= 2s blocks
+		{"sleep 10m", true},
+		{"sleep 1", false}, // brief pacing under 2s is allowed
+		{"sleep 0.5", false},
+		{"sleep 1.5", false},
 		{"echo hi && sleep 900", true}, // nested in a compound command
 		{"ls -la", false},
 	}
