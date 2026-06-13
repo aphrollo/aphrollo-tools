@@ -23,17 +23,17 @@ func isLoadingError(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	for _, s := range []string{
-		"-32801",                        // ContentModified
-		"content modified",              //
-		"no references found",           // rust-analyzer pre-load
-		"waiting for cargo metadata",    //
-		"cargo metadata",                //
-		"still loading",                 //
-		"is loading",                    //
-		"loading",                       //
-		"not yet ready",                 //
-		"server is not ready",           //
-		"content is outdated",           //
+		"-32801",                     // ContentModified
+		"content modified",           //
+		"no references found",        // rust-analyzer pre-load
+		"waiting for cargo metadata", //
+		"cargo metadata",             //
+		"still loading",              //
+		"is loading",                 //
+		"loading",                    //
+		"not yet ready",              //
+		"server is not ready",        //
+		"content is outdated",        //
 	} {
 		if strings.Contains(msg, s) {
 			return true

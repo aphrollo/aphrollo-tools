@@ -57,6 +57,27 @@ func TestSession_Rename(t *testing.T) {
 	}
 }
 
+// A server that negotiates a non-UTF-16 position encoding must be rejected:
+// our edit application assumes UTF-16, so proceeding would silently corrupt
+// positions.
+func TestSession_Initialize_RejectsNonUTF16Encoding(t *testing.T) {
+	cr, sw := io.Pipe()
+	sr, cw := io.Pipe()
+	conn := lsp.NewConn(cw, cr)
+	defer conn.Close()
+
+	srv := fakeLSP{initializeResult: `{"capabilities":{"positionEncoding":"utf-8","renameProvider":true}}`}
+	go srv.serve(t, bufio.NewReader(sr), sw)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	sess := NewSession(conn, "/proj")
+	if err := sess.Initialize(ctx); err == nil {
+		t.Fatalf("Initialize: want error for utf-8 server, got nil")
+	}
+}
+
 func TestSession_References(t *testing.T) {
 	cr, sw := io.Pipe()
 	sr, cw := io.Pipe()

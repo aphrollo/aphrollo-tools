@@ -2,6 +2,7 @@ package refactor
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"os"
 
@@ -26,16 +27,27 @@ type initializeParams struct {
 	Capabilities map[string]any  `json:"capabilities"`
 }
 
-// Initialize performs the initialize/initialized handshake.
+type initializeResult struct {
+	Capabilities struct {
+		PositionEncoding string `json:"positionEncoding"`
+	} `json:"capabilities"`
+}
+
+// Initialize performs the initialize/initialized handshake. We advertise UTF-16
+// (the LSP default) and reject any server that negotiates a different position
+// encoding, since edit application assumes UTF-16 offsets.
 func (s *Session) Initialize(ctx context.Context) error {
 	p := initializeParams{
 		ProcessID:    os.Getpid(),
 		RootURI:      s.rootURI,
 		Capabilities: clientCapabilities(),
 	}
-	var ignored any
-	if err := s.conn.Call(ctx, "initialize", p, &ignored); err != nil {
+	var res initializeResult
+	if err := s.conn.Call(ctx, "initialize", p, &res); err != nil {
 		return err
+	}
+	if enc := res.Capabilities.PositionEncoding; enc != "" && enc != "utf-16" {
+		return fmt.Errorf("server negotiated position encoding %q; only utf-16 is supported", enc)
 	}
 	return s.conn.Notify("initialized", struct{}{})
 }
@@ -127,6 +139,9 @@ func clientCapabilities() map[string]any {
 			"rename": map[string]any{
 				"dynamicRegistration": false,
 			},
+		},
+		"general": map[string]any{
+			"positionEncodings": []string{"utf-16"},
 		},
 	}
 }

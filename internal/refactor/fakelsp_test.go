@@ -17,6 +17,7 @@ import (
 type fakeLSP struct {
 	renameResult     string
 	referencesResult string
+	initializeResult string // defaults to a utf-16 server when empty
 	check            func(uri string, line, char int, newName string)
 }
 
@@ -38,7 +39,11 @@ func (f fakeLSP) serve(t *testing.T, in *bufio.Reader, out io.Writer) {
 		}
 		switch m.Method {
 		case "initialize":
-			f.reply(out, m.ID, `{"capabilities":{"renameProvider":true}}`)
+			res := f.initializeResult
+			if res == "" {
+				res = `{"capabilities":{"renameProvider":true}}`
+			}
+			f.reply(out, m.ID, res)
 		case "shutdown":
 			f.reply(out, m.ID, `null`)
 		case "textDocument/rename":
