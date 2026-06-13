@@ -51,6 +51,9 @@ func Evaluate(toolName, command string) Decision {
 	if d, hit := checkBlockingWait(command); hit {
 		return d
 	}
+	if d, hit := checkUnboundedOutput(command); hit {
+		return d
+	}
 	return Decision{Action: Allow}
 }
 
