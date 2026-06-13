@@ -50,6 +50,35 @@ type renameParams struct {
 	NewName      string                 `json:"newName"`
 }
 
+type didOpenParams struct {
+	TextDocument struct {
+		URI        lsp.DocumentURI `json:"uri"`
+		LanguageID string          `json:"languageId"`
+		Version    int             `json:"version"`
+		Text       string          `json:"text"`
+	} `json:"textDocument"`
+}
+
+// DidOpen notifies the server that a document is open with the given contents,
+// a prerequisite for position-based requests on it.
+func (s *Session) DidOpen(path, languageID, text string) error {
+	var p didOpenParams
+	p.TextDocument.URI = pathToURI(path)
+	p.TextDocument.LanguageID = languageID
+	p.TextDocument.Version = 1
+	p.TextDocument.Text = text
+	return s.conn.Notify("textDocument/didOpen", p)
+}
+
+// Shutdown requests an orderly server shutdown and then sends exit.
+func (s *Session) Shutdown(ctx context.Context) error {
+	var ignored any
+	if err := s.conn.Call(ctx, "shutdown", nil, &ignored); err != nil {
+		return err
+	}
+	return s.conn.Notify("exit", nil)
+}
+
 // Rename issues textDocument/rename for the symbol at pos in path and returns
 // the resulting workspace edit.
 func (s *Session) Rename(ctx context.Context, path string, pos lsp.Position, newName string) (lsp.WorkspaceEdit, error) {
