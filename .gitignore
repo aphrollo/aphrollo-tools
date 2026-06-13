@@ -1,0 +1,4 @@
+/aphrollo
+/dist/
+*.test
+.DS_Store
