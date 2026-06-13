@@ -15,10 +15,11 @@ import (
 // the JSON result returned for textDocument/rename; check, if set, validates the
 // incoming rename request params.
 type fakeLSP struct {
-	renameResult     string
-	referencesResult string
-	initializeResult string // defaults to a utf-16 server when empty
-	check            func(uri string, line, char int, newName string)
+	renameResult         string
+	referencesResult     string
+	documentSymbolResult string
+	initializeResult     string // defaults to a utf-16 server when empty
+	check                func(uri string, line, char int, newName string)
 }
 
 func (f fakeLSP) serve(t *testing.T, in *bufio.Reader, out io.Writer) {
@@ -64,6 +65,8 @@ func (f fakeLSP) serve(t *testing.T, in *bufio.Reader, out io.Writer) {
 			f.reply(out, m.ID, f.renameResult)
 		case "textDocument/references":
 			f.reply(out, m.ID, f.referencesResult)
+		case "textDocument/documentSymbol":
+			f.reply(out, m.ID, f.documentSymbolResult)
 		default:
 			if len(m.ID) > 0 { // a request we don't model — reply null so caller proceeds
 				f.reply(out, m.ID, `null`)

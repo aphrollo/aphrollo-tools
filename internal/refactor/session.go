@@ -126,8 +126,21 @@ func (s *Session) References(ctx context.Context, path string, pos lsp.Position,
 	return locs, err
 }
 
+// DocumentSymbol issues textDocument/documentSymbol for path and returns the
+// hierarchical symbol tree. gopls and the other dev-env servers return the
+// hierarchical DocumentSymbol[] form when we advertise
+// hierarchicalDocumentSymbolSupport.
+func (s *Session) DocumentSymbol(ctx context.Context, path string) ([]lsp.DocumentSymbol, error) {
+	p := struct {
+		TextDocument textDocumentIdentifier `json:"textDocument"`
+	}{TextDocument: textDocumentIdentifier{URI: pathToURI(path)}}
+	var syms []lsp.DocumentSymbol
+	err := s.conn.Call(ctx, "textDocument/documentSymbol", p, &syms)
+	return syms, err
+}
+
 // clientCapabilities advertises the minimum needed for rename with
-// document-change edits.
+// document-change edits and hierarchical document symbols.
 func clientCapabilities() map[string]any {
 	return map[string]any{
 		"workspace": map[string]any{
@@ -138,6 +151,9 @@ func clientCapabilities() map[string]any {
 		"textDocument": map[string]any{
 			"rename": map[string]any{
 				"dynamicRegistration": false,
+			},
+			"documentSymbol": map[string]any{
+				"hierarchicalDocumentSymbolSupport": true,
 			},
 		},
 		"general": map[string]any{
