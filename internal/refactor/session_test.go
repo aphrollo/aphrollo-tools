@@ -120,6 +120,35 @@ func TestSession_DocumentSymbol(t *testing.T) {
 	}
 }
 
+// A server that ignores hierarchicalDocumentSymbolSupport and returns the flat
+// SymbolInformation[] form decodes into DocumentSymbol with zero-value ranges
+// (the range lives under "location" instead). That would silently produce
+// L1-1 outlines and wrong show output, so DocumentSymbol must reject it loudly.
+func TestSession_DocumentSymbol_RejectsFlatSymbolInformation(t *testing.T) {
+	cr, sw := io.Pipe()
+	sr, cw := io.Pipe()
+	conn := lsp.NewConn(cw, cr)
+	defer conn.Close()
+
+	srv := fakeLSP{
+		// SymbolInformation: name + kind present, but the range is nested under
+		// "location", so the top-level Range decodes to zero.
+		documentSymbolResult: `[{"name":"Greet","kind":12,"location":{"uri":"file:///proj/a.go","range":{"start":{"line":2,"character":0},"end":{"line":2,"character":5}}}}]`,
+	}
+	go srv.serve(t, bufio.NewReader(sr), sw)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	sess := NewSession(conn, "/proj")
+	if err := sess.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	if _, err := sess.DocumentSymbol(ctx, "/proj/a.go"); err == nil {
+		t.Fatalf("DocumentSymbol: want error for flat SymbolInformation, got nil")
+	}
+}
+
 func TestSession_References(t *testing.T) {
 	cr, sw := io.Pipe()
 	sr, cw := io.Pipe()

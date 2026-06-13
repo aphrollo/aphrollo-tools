@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 
 	"github.com/aphrollo/aphrollo-tools/internal/lsp"
 )
@@ -135,8 +136,28 @@ func (s *Session) DocumentSymbol(ctx context.Context, path string) ([]lsp.Docume
 		TextDocument textDocumentIdentifier `json:"textDocument"`
 	}{TextDocument: textDocumentIdentifier{URI: pathToURI(path)}}
 	var syms []lsp.DocumentSymbol
-	err := s.conn.Call(ctx, "textDocument/documentSymbol", p, &syms)
-	return syms, err
+	if err := s.conn.Call(ctx, "textDocument/documentSymbol", p, &syms); err != nil {
+		return nil, err
+	}
+	// Guard against a server that returns the flat SymbolInformation[] form
+	// (range nested under "location"): it decodes into DocumentSymbol with a
+	// zero-value Range, which would silently yield L1-1 outlines. A real
+	// hierarchical symbol always spans at least its name, so a named symbol with
+	// an empty range signals the wrong wire format.
+	if slices.ContainsFunc(syms, hasZeroRange) {
+		return nil, fmt.Errorf("server returned flat SymbolInformation; hierarchical documentSymbol required")
+	}
+	return syms, nil
+}
+
+// hasZeroRange reports whether sym (or any descendant) is a named symbol with an
+// empty zero-value range — the signature of a flat SymbolInformation decoded
+// into a DocumentSymbol.
+func hasZeroRange(sym lsp.DocumentSymbol) bool {
+	if sym.Name != "" && sym.Range == (lsp.Range{}) {
+		return true
+	}
+	return slices.ContainsFunc(sym.Children, hasZeroRange)
 }
 
 // clientCapabilities advertises the minimum needed for rename with
