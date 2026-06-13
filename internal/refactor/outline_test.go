@@ -26,7 +26,7 @@ func TestRenderOutline(t *testing.T) {
 		},
 	}
 
-	got := renderOutline(syms)
+	got := RenderOutline(syms)
 	want := "L3-5\tfunc Greet\n" +
 		"L7-10\tstruct Server\n" +
 		"  L8-8\tfield Addr\n"

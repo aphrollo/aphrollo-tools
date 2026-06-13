@@ -56,10 +56,10 @@ func Outline(ctx context.Context, file string) ([]lsp.DocumentSymbol, error) {
 	return syms, nil
 }
 
-// renderOutline formats a symbol tree as an indented, line-numbered listing.
+// RenderOutline formats a symbol tree as an indented, line-numbered listing.
 // Each line is "<indent>L<start>-<end>\t<kind> <name>", with two spaces of
 // indent per nesting level and 1-based inclusive line numbers.
-func renderOutline(syms []lsp.DocumentSymbol) string {
+func RenderOutline(syms []lsp.DocumentSymbol) string {
 	var b strings.Builder
 	var walk func(s lsp.DocumentSymbol, depth int)
 	walk = func(s lsp.DocumentSymbol, depth int) {

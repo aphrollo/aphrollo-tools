@@ -18,6 +18,8 @@ const rootUsage = `usage: aphrollo <command> [args]
 
 Commands:
   refactor    Language-server-backed code transformations
+  outline     List a file's symbols (kinds + line ranges) without reading it
+  show        Print the source of one named symbol in a file
   guardrail   PreToolUse policy hook for coder/devops sessions
 
 Run "aphrollo refactor" for refactor subcommands.
@@ -38,6 +40,10 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 0
 	case "refactor":
 		return runRefactor(args[1:], stdout, stderr)
+	case "outline":
+		return runOutline(args[1:], stdout, stderr)
+	case "show":
+		return runShow(args[1:], stdout, stderr)
 	case "guardrail":
 		return runGuardrail(args[1:], stdin, stdout, stderr)
 	default:
@@ -208,5 +214,55 @@ func runFindReferences(args []string, stdout, stderr io.Writer) int {
 	for _, r := range refs {
 		fmt.Fprintf(stdout, "%s:%d:%d: %s\n", r.Path, r.Line, r.Col, strings.TrimSpace(r.Text))
 	}
+	return 0
+}
+
+const outlineUsage = `usage: aphrollo outline <file>
+
+Prints the file's symbol outline — kind, name, and 1-based line range, nested by
+containment — so an agent can map a file's shape without reading its contents.
+`
+
+func runOutline(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
+		fmt.Fprint(stdout, outlineUsage)
+		return 0
+	}
+	if len(args) != 1 {
+		fmt.Fprint(stderr, outlineUsage)
+		return 2
+	}
+
+	syms, err := refactor.Outline(context.Background(), args[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, refactor.RenderOutline(syms))
+	return 0
+}
+
+const showUsage = `usage: aphrollo show <file> <symbol>
+
+Prints the source of the named symbol in the file, located via the language
+server, so an agent can read one definition without reading the whole file.
+`
+
+func runShow(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
+		fmt.Fprint(stdout, showUsage)
+		return 0
+	}
+	if len(args) != 2 {
+		fmt.Fprint(stderr, showUsage)
+		return 2
+	}
+
+	src, err := refactor.Show(context.Background(), args[0], args[1])
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, src)
 	return 0
 }
