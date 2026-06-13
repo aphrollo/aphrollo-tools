@@ -61,6 +61,42 @@ aphrollo refactor find-references --file internal/foo/bar.go --line 42 --symbol 
 
 Exit codes: `0` ok, `1` runtime error, `2` usage error.
 
+### Guardrail — PreToolUse policy hook (coder/devops sessions)
+
+`aphrollo guardrail pretooluse` is a [Claude Code PreToolUse
+hook](https://docs.claude.com/en/docs/claude-code/hooks): it reads the hook JSON
+on stdin, inspects Bash commands, and applies a thin lossless policy.
+
+```sh
+echo '{"tool_name":"Bash","tool_input":{"command":"sleep 600"}}' \
+  | aphrollo guardrail pretooluse   # exit 2, blocks with a fix suggestion
+```
+
+Policy (v1):
+
+| Check | Outcome |
+|---|---|
+| Foreground `sleep`/`wait` > 300s | **block** (exit 2) — suggests `run_in_background`+poll or a bounded poll across turns |
+| Noisy command missing its quiet form (`pytest`/`cargo`/`npm`/`pip`) | **warn** (exit 0, advisory) — suggests the quiet flag; output is never truncated |
+| Anything already piped/redirected, or non-Bash tools | **allow** (silent) |
+
+Design notes:
+
+- This is a **PreToolUse hook, not a dispatch-side check** — by design. The
+  agents dispatch validator only sees the profile + workspace roots; individual
+  Bash commands exist only *inside* the session turn, where a hook can see them.
+- Intended wiring: agentsd injects a `hooks` block into the coder/devops
+  `--settings` payload pointing at `aphrollo guardrail pretooluse`. `--settings`
+  loads independently of `--setting-sources ""`, so the hook fires even though
+  operator settings/hooks are otherwise disabled. (That agents change + putting
+  the binary on the coder PATH are separate follow-ups.)
+- **Pager-off** is handled separately as a coder shell-env default
+  (`PAGER=cat`, `GIT_PAGER=cat`) via infra — cheaper and more reliable than a
+  per-command hook.
+- Long blocking waits are **not** moved onto an agents async queue: no such
+  background-execution primitive exists (the send queue is editorial only). The
+  lossless answer is to block and point at poll/background patterns.
+
 ## Layout
 
 ```
@@ -69,6 +105,7 @@ internal/cli/        arg parsing + subcommand dispatch (testable Run)
 internal/refactor/   orchestration: detect lang → spawn server → rename/refs
 internal/lsp/        LSP types + JSON-RPC stdio client (framing, Conn, edits)
 internal/diff/       deterministic unified-diff renderer
+internal/guardrail/  PreToolUse policy (block long waits, warn on noisy output)
 ```
 
 ## Known limitations (v1)
