@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/guardrail"
 	"github.com/aphrollo/aphrollo-tools/internal/refactor"
 )
 
@@ -17,14 +18,16 @@ const rootUsage = `usage: aphrollo <command> [args]
 
 Commands:
   refactor    Language-server-backed code transformations
+  guardrail   PreToolUse policy hook for coder/devops sessions
 
 Run "aphrollo refactor" for refactor subcommands.
 `
 
 // Run dispatches args (excluding the program name) and returns a process exit
-// code. All output is written to the provided writers, never directly to the
-// process streams, so the entry point and tests share one path.
-func Run(args []string, stdout, stderr io.Writer) int {
+// code. All output is written to the provided writers, and stdin is read from
+// the provided reader, never directly from the process streams, so the entry
+// point and tests share one path.
+func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, rootUsage)
 		return 2
@@ -35,6 +38,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "refactor":
 		return runRefactor(args[1:], stdout, stderr)
+	case "guardrail":
+		return runGuardrail(args[1:], stdin, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "aphrollo: unknown command %q\n\n%s", args[0], rootUsage)
 		return 2
@@ -117,6 +122,49 @@ func runRenameSymbol(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "\napplied to %d file(s)\n", len(res.Files))
 	}
 	return 0
+}
+
+const guardrailUsage = `usage: aphrollo guardrail <subcommand>
+
+Subcommands:
+  pretooluse   Evaluate a Claude Code PreToolUse hook payload from stdin
+
+Intended to be wired as a PreToolUse hook for coder/devops sessions. Reads the
+hook JSON on stdin; on a blocked command it exits 2 with a deny envelope, on a
+noisy command it exits 0 with advisory context, otherwise it is silent.
+`
+
+func runGuardrail(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		w := stderr
+		code := 2
+		if len(args) > 0 {
+			w, code = stdout, 0
+		}
+		fmt.Fprint(w, guardrailUsage)
+		return code
+	}
+	if args[0] != "pretooluse" {
+		fmt.Fprintf(stderr, "aphrollo guardrail: unknown subcommand %q\n\n%s", args[0], guardrailUsage)
+		return 2
+	}
+
+	raw, err := io.ReadAll(stdin)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: reading hook input: %v\n", err)
+		return 1
+	}
+	decision, err := guardrail.DecideFromHookInput(raw)
+	if err != nil {
+		// Fail open: a parse error must not wedge the session.
+		fmt.Fprintf(stderr, "aphrollo guardrail: %v (allowing)\n", err)
+		return 0
+	}
+	payload, code := guardrail.Render(decision)
+	if len(payload) > 0 {
+		stdout.Write(payload)
+	}
+	return code
 }
 
 func runFindReferences(args []string, stdout, stderr io.Writer) int {
