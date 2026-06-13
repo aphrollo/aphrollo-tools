@@ -25,14 +25,15 @@ you need:
 | Language | Extensions | Server (must be on PATH) | e2e-validated |
 |---|---|---|---|
 | Go | `.go` | `gopls` | ✅ |
-| Rust | `.rs` | `rust-analyzer` | wired, not yet e2e'd |
-| Python | `.py` | `pyright-langserver` | wired, not yet e2e'd |
-| TS/JS | `.ts .tsx .js .jsx` | `typescript-language-server` | wired, not yet e2e'd |
+| Rust | `.rs` | `rust-analyzer` | ✅ |
+| Python | `.py` | `pyright-langserver` | ✅ |
+| TS/JS | `.ts .tsx .js .jsx` | `typescript-language-server` | ✅ |
 
 The architecture is language-agnostic (one LSP client, one registry entry per
-language). Go is covered by a real-`gopls` end-to-end test; the other three
-share the identical code path but still need their server installed and an e2e
-fixture before we claim them green.
+language). Each language has a real end-to-end test against its actual server
+(skipped automatically when the server isn't installed). Slow-loading servers
+(notably rust-analyzer, which waits on `cargo metadata`) are handled by a
+bounded retry on transient "still loading" responses.
 
 ## Usage
 

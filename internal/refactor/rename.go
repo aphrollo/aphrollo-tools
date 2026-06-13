@@ -75,7 +75,9 @@ func Rename(ctx context.Context, req RenameRequest) (*RenameResult, error) {
 	if err := sess.DidOpen(abs, lang.Name, src); err != nil {
 		return nil, err
 	}
-	we, err := sess.Rename(ctx, abs, pos, req.NewName)
+	we, err := retryWhileLoading(ctx, func() (lsp.WorkspaceEdit, error) {
+		return sess.Rename(ctx, abs, pos, req.NewName)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("rename: %w", err)
 	}

@@ -69,7 +69,9 @@ func FindReferences(ctx context.Context, req RefRequest) ([]Reference, error) {
 	if err := sess.DidOpen(abs, lang.Name, src); err != nil {
 		return nil, err
 	}
-	locs, err := sess.References(ctx, abs, pos, req.IncludeDeclaration)
+	locs, err := retryWhileLoading(ctx, func() ([]lsp.Location, error) {
+		return sess.References(ctx, abs, pos, req.IncludeDeclaration)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("references: %w", err)
 	}
