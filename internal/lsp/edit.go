@@ -52,6 +52,15 @@ func ApplyEdits(src string, edits []TextEdit) (string, error) {
 	}
 	sort.SliceStable(res, func(i, j int) bool { return res[i].start > res[j].start })
 
+	// res is sorted by start descending; res[i] sits after res[i+1]. Half-open
+	// ranges may touch (next.end == cur.start) but must not overlap.
+	for i := 0; i+1 < len(res); i++ {
+		if res[i+1].end > res[i].start {
+			return "", fmt.Errorf("overlapping edits: [%d,%d) and [%d,%d)",
+				res[i+1].start, res[i+1].end, res[i].start, res[i].end)
+		}
+	}
+
 	b := []byte(src)
 	for _, r := range res {
 		b = append(b[:r.start], append([]byte(r.newText), b[r.end:]...)...)
