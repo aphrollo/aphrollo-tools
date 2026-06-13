@@ -78,6 +78,77 @@ func TestSession_Initialize_RejectsNonUTF16Encoding(t *testing.T) {
 	}
 }
 
+func TestSession_DocumentSymbol(t *testing.T) {
+	cr, sw := io.Pipe()
+	sr, cw := io.Pipe()
+	conn := lsp.NewConn(cw, cr)
+	defer conn.Close()
+
+	srv := fakeLSP{
+		documentSymbolResult: `[` +
+			`{"name":"Greet","kind":12,"range":{"start":{"line":2,"character":0},"end":{"line":4,"character":1}},"selectionRange":{"start":{"line":2,"character":5},"end":{"line":2,"character":10}}},` +
+			`{"name":"Server","kind":23,"range":{"start":{"line":6,"character":0},"end":{"line":9,"character":1}},"selectionRange":{"start":{"line":6,"character":5},"end":{"line":6,"character":11}},"children":[` +
+			`{"name":"Addr","kind":8,"range":{"start":{"line":7,"character":1},"end":{"line":7,"character":12}},"selectionRange":{"start":{"line":7,"character":1},"end":{"line":7,"character":5}}}]}]`,
+	}
+	go srv.serve(t, bufio.NewReader(sr), sw)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	sess := NewSession(conn, "/proj")
+	if err := sess.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	syms, err := sess.DocumentSymbol(ctx, "/proj/a.go")
+	if err != nil {
+		t.Fatalf("DocumentSymbol: %v", err)
+	}
+	if len(syms) != 2 {
+		t.Fatalf("got %d top-level symbols, want 2", len(syms))
+	}
+	if syms[0].Name != "Greet" || syms[0].Kind != lsp.KindFunction {
+		t.Fatalf("sym[0] = %+v, want Greet/func", syms[0])
+	}
+	if syms[1].Name != "Server" || syms[1].Kind != lsp.KindStruct {
+		t.Fatalf("sym[1] = %+v, want Server/struct", syms[1])
+	}
+	if len(syms[1].Children) != 1 || syms[1].Children[0].Name != "Addr" {
+		t.Fatalf("Server children = %+v, want [Addr]", syms[1].Children)
+	}
+	if syms[1].Range.Start.Line != 6 {
+		t.Fatalf("Server range start line = %d, want 6", syms[1].Range.Start.Line)
+	}
+}
+
+// A server that ignores hierarchicalDocumentSymbolSupport and returns the flat
+// SymbolInformation[] form decodes into DocumentSymbol with zero-value ranges
+// (the range lives under "location" instead). That would silently produce
+// L1-1 outlines and wrong show output, so DocumentSymbol must reject it loudly.
+func TestSession_DocumentSymbol_RejectsFlatSymbolInformation(t *testing.T) {
+	cr, sw := io.Pipe()
+	sr, cw := io.Pipe()
+	conn := lsp.NewConn(cw, cr)
+	defer conn.Close()
+
+	srv := fakeLSP{
+		// SymbolInformation: name + kind present, but the range is nested under
+		// "location", so the top-level Range decodes to zero.
+		documentSymbolResult: `[{"name":"Greet","kind":12,"location":{"uri":"file:///proj/a.go","range":{"start":{"line":2,"character":0},"end":{"line":2,"character":5}}}}]`,
+	}
+	go srv.serve(t, bufio.NewReader(sr), sw)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	sess := NewSession(conn, "/proj")
+	if err := sess.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	if _, err := sess.DocumentSymbol(ctx, "/proj/a.go"); err == nil {
+		t.Fatalf("DocumentSymbol: want error for flat SymbolInformation, got nil")
+	}
+}
+
 func TestSession_References(t *testing.T) {
 	cr, sw := io.Pipe()
 	sr, cw := io.Pipe()

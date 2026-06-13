@@ -84,6 +84,43 @@ func TestRun_Guardrail_AllowsNormalCommand(t *testing.T) {
 	}
 }
 
+func TestRun_Outline_MissingFile(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"outline"}, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if strings.Contains(errb.String(), "unknown command") {
+		t.Fatalf("outline must be a recognized command, got:\n%s", errb.String())
+	}
+	if !strings.Contains(strings.ToLower(errb.String()), "file") {
+		t.Fatalf("stderr should mention the missing file argument:\n%s", errb.String())
+	}
+}
+
+func TestRun_Show_MissingSymbol(t *testing.T) {
+	var out, errb bytes.Buffer
+	// file given but no symbol
+	if code := Run([]string{"show", "a.go"}, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if strings.Contains(errb.String(), "unknown command") {
+		t.Fatalf("show must be a recognized command, got:\n%s", errb.String())
+	}
+	if !strings.Contains(strings.ToLower(errb.String()), "symbol") {
+		t.Fatalf("stderr should mention the missing symbol argument:\n%s", errb.String())
+	}
+}
+
+func TestRun_Help_ListsOutlineAndShow(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"--help"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(out.String(), "outline") || !strings.Contains(out.String(), "show") {
+		t.Fatalf("root usage should list outline and show:\n%s", out.String())
+	}
+}
+
 func TestRun_Help_ExitsZero(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := Run([]string{"--help"}, strings.NewReader(""), &out, &errb); code != 0 {
