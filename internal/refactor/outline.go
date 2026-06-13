@@ -14,10 +14,6 @@ import (
 // language server. It is the read-only counterpart to find-references: an agent
 // can map a file's shape without reading its full contents.
 func Outline(ctx context.Context, file string) ([]lsp.DocumentSymbol, error) {
-	lang, err := DetectLanguage(file)
-	if err != nil {
-		return nil, err
-	}
 	abs, err := filepath.Abs(file)
 	if err != nil {
 		return nil, err
@@ -26,8 +22,18 @@ func Outline(ctx context.Context, file string) ([]lsp.DocumentSymbol, error) {
 	if err != nil {
 		return nil, err
 	}
-	src := string(srcBytes)
+	return documentSymbols(ctx, abs, string(srcBytes))
+}
 
+// documentSymbols opens src as the contents of abs in a fresh language-server
+// session and returns its symbol tree. Callers pass the already-read source so
+// the bytes the server analyses and any byte-offset/line use by the caller
+// share one snapshot (no second read that could race a concurrent edit).
+func documentSymbols(ctx context.Context, abs, src string) ([]lsp.DocumentSymbol, error) {
+	lang, err := DetectLanguage(abs)
+	if err != nil {
+		return nil, err
+	}
 	root, err := FindProjectRoot(filepath.Dir(abs), lang.RootMarkers)
 	if err != nil {
 		root = filepath.Dir(abs)

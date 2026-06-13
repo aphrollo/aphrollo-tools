@@ -22,7 +22,11 @@ func Show(ctx context.Context, file, symbol string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	syms, err := Outline(ctx, file)
+	src := string(srcBytes)
+	// One read: the symbol ranges below are computed by the server against this
+	// exact src (via documentSymbols), and linesInRange slices the same src — so
+	// a concurrent edit can never misalign ranges against stale bytes.
+	syms, err := documentSymbols(ctx, abs, src)
 	if err != nil {
 		return "", err
 	}
@@ -30,7 +34,7 @@ func Show(ctx context.Context, file, symbol string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("symbol %q not found in %s", symbol, file)
 	}
-	return linesInRange(string(srcBytes), sym.Range), nil
+	return linesInRange(src, sym.Range), nil
 }
 
 // linesInRange returns the full source lines spanned by r (0-based, inclusive
