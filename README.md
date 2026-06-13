@@ -61,6 +61,35 @@ aphrollo refactor find-references --file internal/foo/bar.go --line 42 --symbol 
 
 Exit codes: `0` ok, `1` runtime error, `2` usage error.
 
+### Outline a file's symbols (without reading it)
+
+```sh
+aphrollo outline internal/refactor/session.go
+# L14-17  struct Session
+#   L15-15  field conn
+# L39-53  method (*Session).Initialize
+# L133-140 method (*Session).DocumentSymbol
+```
+
+One line per symbol — `L<start>-<end>\t<kind> <name>` — nested by containment,
+1-based inclusive line numbers. Backed by the language server's
+`textDocument/documentSymbol`, so it reflects what the compiler sees, not a
+regex. Lets an agent map a file's shape for a fraction of the tokens a full read
+costs.
+
+### Show one symbol's source (without reading the whole file)
+
+```sh
+aphrollo show internal/refactor/session.go DocumentSymbol
+# func (s *Session) DocumentSymbol(ctx context.Context, path string) (...) {
+#   ...
+# }
+```
+
+Prints just the named symbol's source span. Methods are reachable by their bare
+name (`DocumentSymbol`) or their receiver-qualified name
+(`(*Session).DocumentSymbol`); an exact match always wins over a bare-name match.
+
 ### Guardrail — PreToolUse policy hook (coder/devops sessions)
 
 `aphrollo guardrail pretooluse` is a [Claude Code PreToolUse
@@ -102,7 +131,7 @@ Design notes:
 ```
 cmd/aphrollo/        entry point (one-liner over internal/cli)
 internal/cli/        arg parsing + subcommand dispatch (testable Run)
-internal/refactor/   orchestration: detect lang → spawn server → rename/refs
+internal/refactor/   orchestration: detect lang → spawn server → rename/refs/outline/show
 internal/lsp/        LSP types + JSON-RPC stdio client (framing, Conn, edits)
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy (block long waits, warn on noisy output)
