@@ -12,21 +12,21 @@ import (
 // Position is a zero-based LSP position. Character counts UTF-16 code units,
 // per the LSP spec, not bytes or runes.
 type Position struct {
-	Line      int
-	Character int
+	Line      int `json:"line"`
+	Character int `json:"character"`
 }
 
 // Range is a half-open [Start, End) span of text.
 type Range struct {
-	Start Position
-	End   Position
+	Start Position `json:"start"`
+	End   Position `json:"end"`
 }
 
 // TextEdit replaces the text in Range with NewText, as returned by a language
 // server (e.g. inside a WorkspaceEdit from textDocument/rename).
 type TextEdit struct {
-	Range   Range
-	NewText string
+	Range   Range  `json:"range"`
+	NewText string `json:"newText"`
 }
 
 // ApplyEdits applies edits to src and returns the rewritten text. Edits are
