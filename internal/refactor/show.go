@@ -55,17 +55,37 @@ func linesInRange(src string, r lsp.Range) string {
 	return b.String()
 }
 
-// findSymbol returns the first symbol named name, searching the tree
-// depth-first (a parent before its children). The boolean is false if no
-// symbol matches.
+// findSymbol returns the first symbol matching name, searching the tree
+// depth-first (a parent before its children). An exact name match always wins;
+// failing that, name is matched against each symbol's bare identifier — the
+// part after the last "." — so a method like "(*Session).DocumentSymbol" is
+// reachable by its method name "DocumentSymbol". The boolean is false if
+// nothing matches.
 func findSymbol(syms []lsp.DocumentSymbol, name string) (lsp.DocumentSymbol, bool) {
+	if found, ok := findSymbolBy(syms, func(s lsp.DocumentSymbol) bool { return s.Name == name }); ok {
+		return found, true
+	}
+	return findSymbolBy(syms, func(s lsp.DocumentSymbol) bool { return bareName(s.Name) == name })
+}
+
+// findSymbolBy returns the first symbol satisfying match, depth-first.
+func findSymbolBy(syms []lsp.DocumentSymbol, match func(lsp.DocumentSymbol) bool) (lsp.DocumentSymbol, bool) {
 	for _, s := range syms {
-		if s.Name == name {
+		if match(s) {
 			return s, true
 		}
-		if found, ok := findSymbol(s.Children, name); ok {
+		if found, ok := findSymbolBy(s.Children, match); ok {
 			return found, true
 		}
 	}
 	return lsp.DocumentSymbol{}, false
+}
+
+// bareName strips any receiver/container qualifier from an LSP symbol name,
+// returning the identifier after the last ".".
+func bareName(name string) string {
+	if i := strings.LastIndex(name, "."); i >= 0 {
+		return name[i+1:]
+	}
+	return name
 }
