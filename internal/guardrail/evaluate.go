@@ -50,10 +50,13 @@ func Evaluate(toolName, command string) Decision {
 	if toolName != "Bash" {
 		return Decision{Action: Allow}
 	}
-	if d, hit := checkBlockingWait(command); hit {
+	// Match against a masked copy so a tool name or `sleep` inside a quoted
+	// string or comment never triggers the policy.
+	masked := mask(command)
+	if d, hit := checkBlockingWait(masked); hit {
 		return d
 	}
-	if d, hit := checkUnboundedOutput(command); hit {
+	if d, hit := checkUnboundedOutput(masked); hit {
 		return d
 	}
 	return Decision{Action: Allow}

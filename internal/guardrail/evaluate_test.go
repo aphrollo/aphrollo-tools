@@ -48,3 +48,33 @@ func TestEvaluate_IgnoresNonBash(t *testing.T) {
 		t.Fatalf("Edit tool should be allowed regardless of args, got %v", d.Action)
 	}
 }
+
+// A `sleep` mentioned inside a quoted string or a comment is not a real
+// command and must not be blocked — a false block would wedge the agent.
+func TestEvaluate_IgnoresSleepInStringsAndComments(t *testing.T) {
+	allowed := []string{
+		`echo "sleep 600"`,
+		`echo 'sleep 600'`,
+		`git commit -m "add sleep 600 helper"`,
+		`echo hi # then sleep 600 later`,
+	}
+	for _, cmd := range allowed {
+		if d := Evaluate("Bash", cmd); d.Action == Block {
+			t.Fatalf("Evaluate(Bash, %q) blocked, want not-blocked (sleep is quoted/commented)", cmd)
+		}
+	}
+
+	// A real sleep, including inside command substitution, still blocks.
+	for _, cmd := range []string{`sleep 600`, `echo $(sleep 600)`} {
+		if d := Evaluate("Bash", cmd); d.Action != Block {
+			t.Fatalf("Evaluate(Bash, %q) = %v, want Block", cmd, d.Action)
+		}
+	}
+}
+
+// Noisy-command detection also ignores matches inside strings.
+func TestEvaluate_IgnoresNoisyToolInString(t *testing.T) {
+	if d := Evaluate("Bash", `echo "run pytest tests/ now"`); d.Action != Allow {
+		t.Fatalf("quoted pytest mention should be allowed, got %v", d.Action)
+	}
+}
