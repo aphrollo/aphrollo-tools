@@ -26,7 +26,13 @@ var rootMarkers = []string{
 // FindProjectRoot walks up from a file path to the nearest directory holding a
 // project marker, returning "" if none is found (the gates then do nothing).
 func FindProjectRoot(file string) string {
-	dir := filepath.Dir(file)
+	return findRootFrom(filepath.Dir(file))
+}
+
+// findRootFrom walks up from a directory (inclusive) to the nearest project
+// root. The session hooks start here with a cwd; the edit hooks reach it via
+// FindProjectRoot with the edited file's directory.
+func findRootFrom(dir string) string {
 	for {
 		for _, m := range rootMarkers {
 			if _, err := os.Stat(filepath.Join(dir, m)); err == nil {

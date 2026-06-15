@@ -267,8 +267,16 @@ live where being wrong only costs a re-run):
 |---|---|---|
 | `tdd pretooluse` | Claude PreToolUse hook (stdin) | Blocks (exit 2) a **test-file** edit introducing an oracle smell — real-time sleep, tautological self-comparison, focused marker (`.only`/`fit`), or a disabled test (`.skip`/`xit`/`t.Skip`/`@pytest.mark.skip`). **Warns** (test or source) on a suppression that silences a quality gate (`//nolint`, `@ts-ignore`, `# type: ignore`, coverage-ignore). |
 | `tdd posttooluse` | Claude PostToolUse hook (stdin) | Runs the edited file's related tests; surfaces a RED summary. **Silent unless RED.** |
+| `tdd userpromptsubmit` | Claude UserPromptSubmit hook (stdin) | Intercepts `/tdd [status\|off\|on\|reset]` — the per-session enforcement escape hatch. On any other prompt, re-injects the last RED outcome for the cwd's project so the gate survives context compaction. **Silent unless RED.** |
+| `tdd sessionend` | Claude SessionEnd hook (stdin) | Deletes the per-session state file so the state dir doesn't accumulate. |
 | `tdd precommit` | git `pre-commit` | Blocks a newly-**added** suppression (anti-cheat). Then **fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. |
 | `tdd prepush` | git `pre-push` | Adversarial LLM review of the cumulative push diff; blocks on a critical/high finding. **Fails open** if the reviewer is unavailable. |
+
+`/tdd off` is the escape hatch for spikes and non-TDD work; `/tdd on` re-enables.
+The SessionStart baseline and `/tdd allow-main` from the Node original are
+deliberately **not** ported — a full suite on every session start costs more than
+the one first-edit false-RED it avoids, and there is no main-branch edit gate
+here to toggle.
 
 The gates share a small **policy engine**: each detector is a `policy` value in
 a slice, grouped by the integrity it protects. *Oracle smells* (the test can't

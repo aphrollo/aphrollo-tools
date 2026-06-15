@@ -139,3 +139,15 @@ func (s *sessionState) stamp(root string, ps projectState) {
 	ps.TS = time.Now().UTC().Format(time.RFC3339)
 	s.ByProject[root] = ps
 }
+
+// setOff persists the per-session enforcement override (the `/tdd off|on`
+// escape hatch). It loads, flips the flag, and saves, preserving any recorded
+// project outcomes. An empty session id has nowhere to persist, so it errors.
+func setOff(session string, off bool) error {
+	s, path := loadSession(session)
+	if s == nil {
+		return errNoSession
+	}
+	s.Overrides.Off = off
+	return s.save(path)
+}
