@@ -193,6 +193,7 @@ Subcommands:
   posttooluse   Run related tests after an edit and report RED/GREEN
   precommit     Git pre-commit gate: fail-first + mechanical (run in the repo)
   prepush       Git pre-push gate: adversarial review of the push diff
+  install       Install the git-hook shims into a repo (--repo, --apply)
 
 Autonomous TDD gates. pretooluse reads the hook JSON on stdin; on a smell in a
 test file (real-time sleep, tautological assertion, focused marker) it exits 2
@@ -222,6 +223,10 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprint(w, tddUsage)
 		return code
 	}
+	if args[0] == "install" {
+		return runTDDInstall(args[1:], stdout, stderr)
+	}
+
 	// precommit/prepush are git hooks: no stdin, exit non-zero to block.
 	if args[0] == "precommit" || args[0] == "prepush" {
 		root := tdd.RepoRoot(".")
@@ -277,6 +282,40 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		stdout.Write(payload)
 	}
 	return code
+}
+
+// runTDDInstall writes the git-hook shims into a single repo. Like the
+// workspace mutating commands, it defaults to a dry-run and requires --apply.
+func runTDDInstall(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("install", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var (
+		repo  = fs.String("repo", ".", "repository to install the hooks into")
+		apply = fs.Bool("apply", false, "write the hooks (default: print the plan and stop)")
+	)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	root := tdd.RepoRoot(*repo)
+	if root == "" {
+		fmt.Fprintf(stderr, "aphrollo: %s is not inside a git repository\n", *repo)
+		return 1
+	}
+	plan, err := tdd.BuildInstallPlan(root)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, plan.Render(*apply))
+	if !*apply {
+		return 0
+	}
+	if err := plan.Apply(); err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 func runFindReferences(args []string, stdout, stderr io.Writer) int {
