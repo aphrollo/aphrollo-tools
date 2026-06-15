@@ -22,11 +22,27 @@ package tdd
 // is acceptable because masking only ever makes a gate MORE permissive — it
 // can hide a real smell, never invent one — and the authoritative TDD wall
 // lives at commit/push, not at edit time.
-func mask(src string) string {
+//
+// mask blanks BOTH strings and comments. Detectors that match executable code
+// (a sleep call, a self-comparison, it.only) use it. Suppression detectors
+// need comments PRESERVED — //nolint, // @ts-ignore, # type: ignore all live
+// in comments — so they call maskStrings instead, which blanks strings only.
+func mask(src string) string { return maskTokens(src, true, true) }
+
+// maskStrings blanks string literals while leaving comments intact, for
+// detectors that look for directives written in comments. Strings are still
+// blanked so a directive quoted in a string (`"see // nolint"`) cannot trip.
+func maskStrings(src string) string { return maskTokens(src, true, false) }
+
+// maskTokens is the shared lexer. It always RECOGNISES strings and comments (so
+// a `//` inside a string is not mistaken for a comment, and a quote inside a
+// comment does not start a string), but only BLANKS the categories requested.
+// Recognition is mandatory; blanking is selective.
+func maskTokens(src string, blankStrings, blankComments bool) string {
 	b := []byte(src)
 	n := len(b)
-	blank := func(i int) {
-		if b[i] != '\n' {
+	blank := func(cond bool, i int) {
+		if cond && b[i] != '\n' {
 			b[i] = ' '
 		}
 	}
@@ -37,37 +53,37 @@ func mask(src string) string {
 			escapes := quote != '`' // backticks are raw strings
 			for i++; i < n && b[i] != quote; i++ {
 				if escapes && b[i] == '\\' {
-					blank(i) // blank the backslash AND the escaped byte, so an
-					i++       // escaped quote can't end the string early
-					if i < n {
-						blank(i)
+					blank(blankStrings, i) // blank the backslash AND the escaped
+					i++                    // byte, so an escaped quote can't end
+					if i < n {             // the string early
+						blank(blankStrings, i)
 					}
 					continue
 				}
-				blank(i)
+				blank(blankStrings, i)
 			}
 		case '/':
 			if i+1 < n && b[i+1] == '/' {
-				blank(i)
+				blank(blankComments, i)
 				for i++; i < n && b[i] != '\n'; i++ {
-					blank(i)
+					blank(blankComments, i)
 				}
 			} else if i+1 < n && b[i+1] == '*' {
-				blank(i)
-				blank(i + 1)
+				blank(blankComments, i)
+				blank(blankComments, i+1)
 				for i += 2; i < n; i++ {
 					if b[i] == '*' && i+1 < n && b[i+1] == '/' {
-						blank(i)
-						blank(i + 1)
+						blank(blankComments, i)
+						blank(blankComments, i+1)
 						i++
 						break
 					}
-					blank(i)
+					blank(blankComments, i)
 				}
 			}
 		case '#':
 			for ; i < n && b[i] != '\n'; i++ {
-				blank(i)
+				blank(blankComments, i)
 			}
 		}
 	}

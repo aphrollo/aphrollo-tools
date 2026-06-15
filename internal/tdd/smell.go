@@ -46,19 +46,30 @@ var focusedOnlyRe = regexp.MustCompile(`\b(?:it|test|describe|context|suite)\s*\
 // additionally rejects a match preceded by `.`.
 var focusedFnRe = regexp.MustCompile(`\b(?:fit|fdescribe|fcontext)\s*\(`)
 
-// smellCheck masks the new file content once and runs every blocking smell
-// detector against the masked copy. The first hit wins.
-func smellCheck(content string) Decision {
-	m := mask(content)
-	switch {
-	case sleepRe.MatchString(m):
-		return Decision{Action: Block, Reason: sleepReason}
-	case hasTautology(m):
-		return Decision{Action: Block, Reason: tautologyReason}
-	case hasFocused(m):
-		return Decision{Action: Block, Reason: focusedReason}
+// The test-oracle smells, as policies. Each runs against the code view (strings
+// and comments blanked) because every one matches executable test code, never a
+// directive in a comment.
+var (
+	sleepPolicy = policy{
+		name: "test-sleep", category: smellCat, reason: sleepReason,
+		hit: func(v view) bool { return sleepRe.MatchString(v.code) },
 	}
-	return Decision{Action: Allow}
+	tautologyPolicy = policy{
+		name: "tautology", category: smellCat, reason: tautologyReason,
+		hit: func(v view) bool { return hasTautology(v.code) },
+	}
+	focusedPolicy = policy{
+		name: "focused-test", category: smellCat, reason: focusedReason,
+		hit: func(v view) bool { return hasFocused(v.code) },
+	}
+)
+
+// smellCheck runs the test-oracle smell policies at edit phase against new test
+// content. It is the thin wrapper the test-file edit path uses; the broader
+// policy sets (which add suppressions, and gate source files too) compose the
+// same policies through evaluate.
+func smellCheck(content string) Decision {
+	return evaluate(content, []policy{sleepPolicy, tautologyPolicy, focusedPolicy}, editPhase)
 }
 
 // hasTautology reports whether masked source contains a self-comparison

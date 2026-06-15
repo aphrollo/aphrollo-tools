@@ -80,6 +80,52 @@ func TestMask_BlanksStringsAndComments(t *testing.T) {
 	}
 }
 
+func TestMaskStrings_KeepsCommentsBlanksStrings(t *testing.T) {
+	cases := []struct {
+		name   string
+		src    string
+		gone   []string // lived in a string → blanked
+		remain []string // a comment directive or real code → kept
+	}{
+		{
+			name:   "line comment survives, string blanked",
+			src:    `x := f() //nolint:errcheck` + "\n" + `s := "//nolint here"`,
+			gone:   []string{"//nolint here"},
+			remain: []string{"//nolint:errcheck", "x := f()"},
+		},
+		{
+			name:   "hash comment survives",
+			src:    "y = g()  # type: ignore",
+			gone:   nil,
+			remain: []string{"# type: ignore", "y = g()"},
+		},
+		{
+			name:   "block comment survives",
+			src:    "a() /* eslint-disable */ b()",
+			gone:   nil,
+			remain: []string{"eslint-disable", "a()", "b()"},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := maskStrings(c.src)
+			if len(got) != len(c.src) {
+				t.Fatalf("maskStrings changed length: got %d, want %d", len(got), len(c.src))
+			}
+			for _, g := range c.gone {
+				if strings.Contains(got, g) {
+					t.Errorf("maskStrings left string content %q:\n%s", g, got)
+				}
+			}
+			for _, r := range c.remain {
+				if !strings.Contains(got, r) {
+					t.Errorf("maskStrings dropped %q (comment or code):\n%s", r, got)
+				}
+			}
+		})
+	}
+}
+
 func TestMask_PreservesNewlines(t *testing.T) {
 	src := "line1 // c\nline2"
 	got := mask(src)
