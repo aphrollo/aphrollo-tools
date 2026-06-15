@@ -191,17 +191,22 @@ const tddUsage = `usage: aphrollo tdd <subcommand>
 Subcommands:
   pretooluse    Evaluate a Claude Code PreToolUse edit payload from stdin
   posttooluse   Run related tests after an edit and report RED/GREEN
+  precommit     Git pre-commit gate: fail-first + mechanical (run in the repo)
 
 Autonomous TDD gates. pretooluse reads the hook JSON on stdin; on a smell in a
 test file (real-time sleep, tautological assertion, focused marker) it exits 2
 with a deny envelope, otherwise it is silent. posttooluse runs the project's
 related tests after an edit and surfaces a failure summary (silent unless RED).
-Source edits always flow — the heavier TDD checks live at commit and push.
+precommit verifies fail-first and runs the suite, exiting non-zero to block a
+bad commit. Source edits always flow — the heavier checks live at commit/push.
 `
 
 // postEditTimeout bounds a PostToolUse suite run so a hung test can't wedge the
-// session.
-const postEditTimeout = 60 * time.Second
+// session. precommitTimeout is longer: the full suite runs at commit time.
+const (
+	postEditTimeout  = 60 * time.Second
+	precommitTimeout = 300 * time.Second
+)
 
 // runTDD dispatches the TDD hook subcommands. Like the guardrail hook, every
 // path reads from the provided reader and a parse error fails OPEN (exit 0) so
@@ -215,6 +220,20 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprint(w, tddUsage)
 		return code
 	}
+	// precommit is a git hook: no stdin, exit non-zero to block the commit.
+	if args[0] == "precommit" {
+		root := tdd.RepoRoot(".")
+		if root == "" {
+			return 0 // not in a git repo — nothing to gate
+		}
+		res := tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
+		if res.Blocked {
+			fmt.Fprintln(stderr, res.Message)
+			return 1
+		}
+		return 0
+	}
+
 	switch args[0] {
 	case "pretooluse", "posttooluse":
 	default:
