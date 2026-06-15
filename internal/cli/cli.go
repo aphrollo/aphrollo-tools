@@ -13,6 +13,7 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/dev"
 	"github.com/aphrollo/aphrollo-tools/internal/guardrail"
 	"github.com/aphrollo/aphrollo-tools/internal/refactor"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 	"github.com/aphrollo/aphrollo-tools/internal/workspace"
 )
 
@@ -25,6 +26,7 @@ Commands:
   workspace   Prepare/claim/list/remove git worktrees (safe.directory + deps + dev-tier)
   dev         Dev-tier control plane: up/down/restart/status/logs
   guardrail   PreToolUse policy hook for coder/devops sessions
+  tdd         Autonomous TDD gates (Claude + git hooks)
 
 Run "aphrollo refactor" for refactor subcommands.
 `
@@ -54,6 +56,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runDev(args[1:], stdout, stderr)
 	case "guardrail":
 		return runGuardrail(args[1:], stdin, stdout, stderr)
+	case "tdd":
+		return runTDD(args[1:], stdin, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "aphrollo: unknown command %q\n\n%s", args[0], rootUsage)
 		return 2
@@ -175,6 +179,51 @@ func runGuardrail(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 		return 0
 	}
 	payload, code := guardrail.Render(decision)
+	if len(payload) > 0 {
+		stdout.Write(payload)
+	}
+	return code
+}
+
+const tddUsage = `usage: aphrollo tdd <subcommand>
+
+Subcommands:
+  pretooluse   Evaluate a Claude Code PreToolUse edit payload from stdin
+
+Autonomous TDD gates. pretooluse reads the hook JSON on stdin; on a smell in a
+test file (real-time sleep, tautological assertion, focused marker) it exits 2
+with a deny envelope, otherwise it is silent. Source edits always flow — the
+heavier TDD checks live at commit and push.
+`
+
+// runTDD dispatches the TDD hook subcommands. Like the guardrail hook, every
+// path reads from the provided reader and a parse error fails OPEN (exit 0) so
+// a malformed payload can never wedge the session.
+func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		w, code := stderr, 2
+		if len(args) > 0 {
+			w, code = stdout, 0
+		}
+		fmt.Fprint(w, tddUsage)
+		return code
+	}
+	if args[0] != "pretooluse" {
+		fmt.Fprintf(stderr, "aphrollo tdd: unknown subcommand %q\n\n%s", args[0], tddUsage)
+		return 2
+	}
+
+	raw, err := io.ReadAll(stdin)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: reading hook input: %v\n", err)
+		return 1
+	}
+	decision, err := tdd.DecidePreEdit(raw)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo tdd: %v (allowing)\n", err)
+		return 0
+	}
+	payload, code := tdd.RenderPreToolUse(decision)
 	if len(payload) > 0 {
 		stdout.Write(payload)
 	}

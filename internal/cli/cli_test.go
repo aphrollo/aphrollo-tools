@@ -84,6 +84,38 @@ func TestRun_Guardrail_AllowsNormalCommand(t *testing.T) {
 	}
 }
 
+func TestRun_TDD_BlocksTautologyInTest(t *testing.T) {
+	var out, errb bytes.Buffer
+	stdin := strings.NewReader(`{"tool_name":"Write","tool_input":{"file_path":"a_test.go","content":"assert x == x"}}`)
+	code := Run([]string{"tdd", "pretooluse"}, stdin, &out, &errb)
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2 (blocked)", code)
+	}
+	if !strings.Contains(out.String(), `"decision":"block"`) {
+		t.Fatalf("stdout should carry the block decision:\n%s", out.String())
+	}
+}
+
+func TestRun_TDD_AllowsSourceEdit(t *testing.T) {
+	var out, errb bytes.Buffer
+	stdin := strings.NewReader(`{"tool_name":"Edit","tool_input":{"file_path":"a.go","new_string":"time.Sleep(2)"}}`)
+	code := Run([]string{"tdd", "pretooluse"}, stdin, &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (allowed)", code)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("allow should be silent, got: %s", out.String())
+	}
+}
+
+func TestRun_TDD_MalformedInputFailsOpen(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := Run([]string{"tdd", "pretooluse"}, strings.NewReader("{bad"), &out, &errb)
+	if code != 0 {
+		t.Fatalf("malformed input must fail open (exit 0), got %d", code)
+	}
+}
+
 func TestRun_Workspace_NoSub_ShowsUsage(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := Run([]string{"workspace"}, strings.NewReader(""), &out, &errb); code != 2 {
