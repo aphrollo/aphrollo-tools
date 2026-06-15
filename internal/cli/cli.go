@@ -276,6 +276,9 @@ const workspaceUsage = `usage: aphrollo workspace <subcommand> [args]
 Subcommands:
   prepare <repo> <branch>   Mark git-safe, create the worktree, install deps —
                             dry-run by default; pass --apply to execute
+  claim <repo> <branch>     Put a prepared worktree on the dev tier so it is
+                            viewable (dry-run; --apply to run). Wraps the
+                            privileged aphrollo-dev claim fence.
   list <repo>               List the repo's git worktrees
   remove <repo> <branch>    Remove a prepared worktree (dry-run; --apply to run)
 
@@ -294,6 +297,8 @@ func runWorkspace(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "prepare":
 		return runWorkspacePrepare(args[1:], stdout, stderr)
+	case "claim":
+		return runWorkspaceClaim(args[1:], stdout, stderr)
 	case "list":
 		return runWorkspaceList(args[1:], stdout, stderr)
 	case "remove":
@@ -360,6 +365,40 @@ func runWorkspacePrepare(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if err := workspace.Apply(plan, stdout, stderr); err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runWorkspaceClaim(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("claim", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var (
+		apply = fs.Bool("apply", false, "execute the claim (default: print it and stop)")
+		svc   = fs.String("svc", "", "dev service to claim: rlndx|api (default: derived from repo name)")
+		into  = fs.String("into", "", "base dir for worktrees (default: <repo-parent>/.worktrees/<repo-name>)")
+	)
+	pos, err := parseFlagsAnywhere(fs, args)
+	if err != nil {
+		return 2
+	}
+	if len(pos) != 2 {
+		fmt.Fprintln(stderr, "aphrollo: usage: workspace claim <repo> <branch>")
+		return 2
+	}
+	claim, err := workspace.ClaimPlan(pos[0], pos[1], *svc, *into)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	if !*apply {
+		fmt.Fprintf(stdout, "workspace claim: %s -> dev-%s\n  would run: %s\n\nrun again with --apply to execute (repoints the dev symlink + restarts dev-%s).\n",
+			claim.Worktree, claim.Service, claim.Display, claim.Service)
+		return 0
+	}
+	fmt.Fprintf(stdout, "claiming %s onto dev-%s\n  %s\n", claim.Worktree, claim.Service, claim.Display)
+	if err := claim.Run(stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}

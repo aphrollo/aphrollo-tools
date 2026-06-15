@@ -144,6 +144,36 @@ aphrollo workspace remove ~/spaces/aphrollo/aphrollo-web feat/kanban --apply
 
 Exit codes: `0` ok, `1` runtime error, `2` usage error.
 
+### Put a prepared worktree on the dev tier (claim)
+
+`prepare` gets you a ready worktree; `claim` makes it the one the **dev tier**
+serves, so the branch is viewable at rlndx (or driven by dev-api):
+
+```sh
+# dry-run: shows the exact privileged command it would run
+aphrollo workspace claim ~/spaces/aphrollo/aphrollo-web feat/kanban
+# workspace claim: …/.worktrees/aphrollo-web/feat-kanban -> dev-rlndx
+#   would run: sudo aphrollo-dev claim rlndx …/feat-kanban
+
+aphrollo workspace claim ~/spaces/aphrollo/aphrollo-web feat/kanban --apply
+```
+
+Claiming is **privileged** — it repoints the shared `.devclaim/<repo>` symlink
+the dev units follow and `systemctl restart`s the dev unit. That operation
+already lives behind a tightly argv-validated sudoers fence
+(`aphrollo-dev claim <svc> <worktree>`; the grant is `/usr/local/bin/aphrollo-dev *`
+and the script whitelists the service + confines the worktree). This subcommand
+does **not** reimplement any of that and needs no sudo grant of its own — it
+resolves the worktree from `<repo> <branch>` (symmetric with `prepare`, so you
+never paste a `.worktrees/…` path), derives the dev service (`web → rlndx`,
+`api → api`; override with `--svc`), and shells out to that existing fence. The
+privileged call only fires on `--apply`. If the worktree isn't there yet, it
+points you at `prepare` rather than half-claiming.
+
+Knobs: `--svc rlndx|api` (override the derived service), `--into` (match a
+non-default `prepare --into`). `APHROLLO_DEV_BIN` overrides the fence path (for
+tests); root skips the `sudo` prefix automatically.
+
 ### Guardrail — PreToolUse policy hook (coder/devops sessions)
 
 `aphrollo guardrail pretooluse` is a [Claude Code PreToolUse
@@ -189,7 +219,7 @@ internal/refactor/   orchestration: detect lang → spawn server → rename/refs
 internal/lsp/        LSP types + JSON-RPC stdio client (framing, Conn, edits)
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy (block long waits, warn on noisy output)
-internal/workspace/  worktree prepare/list/remove (safe.directory + deps, idempotent)
+internal/workspace/  worktree prepare/claim/list/remove (safe.directory + deps, dev-tier claim)
 ```
 
 ## Known limitations (v1)
