@@ -158,21 +158,27 @@ aphrollo workspace claim ~/spaces/aphrollo/aphrollo-web feat/kanban
 aphrollo workspace claim ~/spaces/aphrollo/aphrollo-web feat/kanban --apply
 ```
 
-Claiming is **privileged** — it repoints the shared `.devclaim/<repo>` symlink
-the dev units follow and `systemctl restart`s the dev unit. That operation
-already lives behind a tightly argv-validated sudoers fence
-(`aphrollo-dev claim <svc> <worktree>`; the grant is `/usr/local/bin/aphrollo-dev *`
-and the script whitelists the service + confines the worktree). This subcommand
-does **not** reimplement any of that and needs no sudo grant of its own — it
-resolves the worktree from `<repo> <branch>` (symmetric with `prepare`, so you
-never paste a `.worktrees/…` path), derives the dev service (`web → rlndx`,
-`api → api`; override with `--svc`), and shells out to that existing fence. The
-privileged call only fires on `--apply`. If the worktree isn't there yet, it
-points you at `prepare` rather than half-claiming.
+The orchestration runs **unprivileged, in this binary**: resolve the worktree
+from `<repo> <branch>` (symmetric with `prepare` — no `.worktrees/…` path to
+paste), `pnpm install` if the tree was never prepared, and repoint the
+`.devclaim/<repo>` symlink the dev units follow (the dir is `aphrollo-dev`
+group-writable, so a group member repoints it with no sudo). The **only**
+privileged atom is restarting the dev unit, which goes through the small
+already-fenced `sudo aphrollo-dev restart <svc>` primitive (that restart also
+clears the rlndx vite optimizer cache for the freshly-claimed tree).
 
-Knobs: `--svc rlndx|api` (override the derived service), `--into` (match a
-non-default `prepare --into`). `APHROLLO_DEV_BIN` overrides the fence path (for
-tests); root skips the `sudo` prefix automatically.
+This subcommand deliberately does **not** carry a sudo grant of its own —
+granting this general, frequently-redeployed binary privilege would be a far
+wider surface than the audited restart primitive. The privileged restart only
+fires on `--apply`; a missing worktree points you at `prepare` rather than
+half-claiming, and a re-claim whose symlink already points at the tree is
+reported `[skip]`.
+
+The dev service is derived from the repo (`web → rlndx`, `api → api`); override
+with `--svc`. `--into` matches a non-default `prepare --into`. Env overrides
+(for tests): `APHROLLO_DEV_BIN` (restart fence path), `APHROLLO_DEVCLAIM_DIR`
+(symlink dir), `APHROLLO_DEV_SUDO=0` (drop the `sudo` prefix; root drops it
+automatically).
 
 ### Guardrail — PreToolUse policy hook (coder/devops sessions)
 

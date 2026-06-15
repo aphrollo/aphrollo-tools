@@ -392,13 +392,11 @@ func runWorkspaceClaim(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
+	fmt.Fprint(stdout, claim.Render(*apply))
 	if !*apply {
-		fmt.Fprintf(stdout, "workspace claim: %s -> dev-%s\n  would run: %s\n\nrun again with --apply to execute (repoints the dev symlink + restarts dev-%s).\n",
-			claim.Worktree, claim.Service, claim.Display, claim.Service)
 		return 0
 	}
-	fmt.Fprintf(stdout, "claiming %s onto dev-%s\n  %s\n", claim.Worktree, claim.Service, claim.Display)
-	if err := claim.Run(stdout, stderr); err != nil {
+	if err := claim.Apply(stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}

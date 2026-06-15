@@ -25,15 +25,23 @@ func TestDeriveService(t *testing.T) {
 	}
 }
 
-// claimRepo builds a git repo with one prepared worktree and returns (repo,
-// branch). It points GIT_CONFIG_GLOBAL and APHROLLO_DEV_BIN at throwaways so no
-// real global config or sudo is touched.
+func TestRepoKeyForSvc(t *testing.T) {
+	if repoKeyForSvc("rlndx") != "web" {
+		t.Error("rlndx should map to the web claim key")
+	}
+	if repoKeyForSvc("api") != "api" {
+		t.Error("api should map to the api claim key")
+	}
+}
+
+// claimRepo builds a web-named git repo (so service derivation bites) with one
+// prepared worktree, and points GIT_CONFIG_GLOBAL at a throwaway. Returns the
+// repo path and the prepared branch.
 func claimRepo(t *testing.T) (string, string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
-	// Name the repo so service derivation (web -> rlndx) has something to bite.
 	repo := filepath.Join(t.TempDir(), "aphrollo-web")
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
@@ -50,62 +58,66 @@ func claimRepo(t *testing.T) (string, string) {
 	gitRun("add", ".")
 	gitRun("commit", "-qm", "init")
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
+
 	plan, err := BuildPlan(Request{Repo: repo, Branch: "feat/x", NoInstall: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var out, errb bytes.Buffer
 	if err := Apply(plan, &out, &errb); err != nil {
-		t.Fatalf("Apply: %v\n%s", err, errb.String())
+		t.Fatalf("prepare Apply: %v\n%s", err, errb.String())
 	}
 	return repo, "feat/x"
 }
 
-func TestClaimPlan_BuildsFencedCommand(t *testing.T) {
+func TestClaimPlan_ResolvesAndRenders(t *testing.T) {
 	repo, branch := claimRepo(t)
+	devclaim := t.TempDir()
+	t.Setenv("APHROLLO_DEVCLAIM_DIR", devclaim)
 	t.Setenv("APHROLLO_DEV_BIN", "/opt/fake/aphrollo-dev")
-	t.Setenv("APHROLLO_DEV_SUDO", "0") // deterministic: no sudo prefix in the assertion
+	t.Setenv("APHROLLO_DEV_SUDO", "0")
 
-	c, err := ClaimPlan(repo, branch, "", "") // svc derived
+	c, err := ClaimPlan(repo, branch, "", "") // svc derived from web repo name
 	if err != nil {
 		t.Fatalf("ClaimPlan: %v", err)
 	}
-	if c.Service != "rlndx" {
-		t.Errorf("derived service = %q, want rlndx", c.Service)
+	if c.Service != "rlndx" || c.RepoKey != "web" {
+		t.Errorf("got service=%q key=%q, want rlndx/web", c.Service, c.RepoKey)
 	}
-	for _, want := range []string{"/opt/fake/aphrollo-dev", "claim", "rlndx", c.Worktree} {
-		if !strings.Contains(c.Display, want) {
-			t.Errorf("Display %q missing %q", c.Display, want)
+	if c.Symlink != filepath.Join(devclaim, "web") {
+		t.Errorf("symlink = %q, want %s/web", c.Symlink, devclaim)
+	}
+	dry := c.Render(false)
+	for _, want := range []string{"dev-rlndx", "repoint", c.Worktree, "restart rlndx", "--apply"} {
+		if !strings.Contains(dry, want) {
+			t.Errorf("dry-run render missing %q:\n%s", want, dry)
 		}
-	}
-	if strings.HasPrefix(c.Display, "sudo") {
-		t.Errorf("APHROLLO_DEV_SUDO=0 should drop sudo prefix: %q", c.Display)
 	}
 }
 
 func TestClaimPlan_SudoPrefixedByDefault(t *testing.T) {
 	repo, branch := claimRepo(t)
+	t.Setenv("APHROLLO_DEVCLAIM_DIR", t.TempDir())
 	t.Setenv("APHROLLO_DEV_BIN", "/opt/fake/aphrollo-dev")
 	os.Unsetenv("APHROLLO_DEV_SUDO")
 	c, err := ClaimPlan(repo, branch, "rlndx", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Non-root test process => sudo is prefixed.
-	if os.Geteuid() != 0 && !strings.HasPrefix(c.Display, "sudo ") {
-		t.Errorf("expected sudo prefix for non-root: %q", c.Display)
+	if os.Geteuid() != 0 && !strings.Contains(c.Render(false), "sudo ") {
+		t.Errorf("expected a sudo-prefixed restart for non-root:\n%s", c.Render(false))
 	}
 }
 
 func TestClaimPlan_ExplicitSvcOverride(t *testing.T) {
 	repo, branch := claimRepo(t)
-	t.Setenv("APHROLLO_DEV_BIN", "/opt/fake/aphrollo-dev")
+	t.Setenv("APHROLLO_DEVCLAIM_DIR", t.TempDir())
 	c, err := ClaimPlan(repo, branch, "api", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Service != "api" {
-		t.Errorf("explicit --svc not honored: got %q", c.Service)
+	if c.Service != "api" || c.RepoKey != "api" {
+		t.Errorf("explicit --svc not honored: service=%q key=%q", c.Service, c.RepoKey)
 	}
 }
 
@@ -123,11 +135,8 @@ func TestClaimPlan_MissingWorktree_PointsToPrepare(t *testing.T) {
 	repo := initRepo(t) // no worktree prepared
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
 	_, err := ClaimPlan(repo, "never-prepared", "rlndx", "")
-	if err == nil {
-		t.Fatal("expected error for missing worktree")
-	}
-	if !strings.Contains(err.Error(), "prepare") {
-		t.Errorf("error should point at prepare: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "prepare") {
+		t.Fatalf("expected a missing-worktree error pointing at prepare, got: %v", err)
 	}
 }
 
@@ -135,9 +144,8 @@ func TestClaimPlan_CannotDeriveSvc(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
-	// repo basename has no web/api token => derivation fails, asks for --svc.
 	parent := t.TempDir()
-	repo := filepath.Join(parent, "aphrollo-lens")
+	repo := filepath.Join(parent, "aphrollo-lens") // no web/api token
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -152,22 +160,24 @@ func TestClaimPlan_CannotDeriveSvc(t *testing.T) {
 
 	_, err := ClaimPlan(repo, "br", "", "")
 	if err == nil || !strings.Contains(err.Error(), "--svc") {
-		t.Fatalf("expected derive failure asking for --svc, got: %v", err)
+		t.Fatalf("expected a derive failure asking for --svc, got: %v", err)
 	}
 }
 
-// TestClaim_Run_E2E drives Run against a fake dev script that records its argv,
-// proving the wrapper invokes the fence with the right arguments — without sudo
-// or a real dev tier.
-func TestClaim_Run_E2E(t *testing.T) {
+// TestClaim_Apply_E2E drives the full claim: repoint the symlink (real, in a
+// temp .devclaim) and restart via a fake dev script that records its argv —
+// proving the symlink lands on the worktree and the privileged atom is invoked
+// correctly, with no sudo or real dev tier.
+func TestClaim_Apply_E2E(t *testing.T) {
 	repo, branch := claimRepo(t)
+	devclaim := t.TempDir()
 	bin := t.TempDir()
-	marker := filepath.Join(bin, "called.txt")
+	marker := filepath.Join(bin, "restart.txt")
 	fake := filepath.Join(bin, "aphrollo-dev")
-	script := "#!/bin/sh\necho \"$@\" > " + marker + "\n"
-	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho \"$@\" > "+marker+"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("APHROLLO_DEVCLAIM_DIR", devclaim)
 	t.Setenv("APHROLLO_DEV_BIN", fake)
 	t.Setenv("APHROLLO_DEV_SUDO", "0")
 
@@ -176,15 +186,48 @@ func TestClaim_Run_E2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errb bytes.Buffer
-	if err := c.Run(&out, &errb); err != nil {
-		t.Fatalf("Run: %v\n%s", err, errb.String())
+	if err := c.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
 	}
-	got, err := os.ReadFile(marker)
+
+	// Symlink now resolves to the worktree.
+	got, err := os.Readlink(filepath.Join(devclaim, "web"))
 	if err != nil {
-		t.Fatalf("fake dev script not invoked: %v", err)
+		t.Fatalf("claim symlink not created: %v", err)
 	}
-	want := "claim rlndx " + c.Worktree
-	if strings.TrimSpace(string(got)) != want {
-		t.Errorf("fence called with %q, want %q", strings.TrimSpace(string(got)), want)
+	if got != c.Worktree {
+		t.Errorf("symlink -> %q, want %q", got, c.Worktree)
+	}
+	// The privileged restart was invoked with the right service.
+	rec, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("restart fence not invoked: %v", err)
+	}
+	if strings.TrimSpace(string(rec)) != "restart rlndx" {
+		t.Errorf("restart called with %q, want %q", strings.TrimSpace(string(rec)), "restart rlndx")
+	}
+
+	// Idempotent: a second plan sees the symlink already points here.
+	c2, err := ClaimPlan(repo, branch, "rlndx", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(c2.Render(false), "already points here") {
+		t.Errorf("re-claim should report the symlink already points here:\n%s", c2.Render(false))
+	}
+}
+
+func TestRepointSymlink_ReplacesExisting(t *testing.T) {
+	d := t.TempDir()
+	link := filepath.Join(d, "web")
+	if err := os.Symlink("/old/target", link); err != nil {
+		t.Fatal(err)
+	}
+	if err := repointSymlink(link, "/new/target"); err != nil {
+		t.Fatalf("repointSymlink: %v", err)
+	}
+	got, _ := os.Readlink(link)
+	if got != "/new/target" {
+		t.Errorf("symlink -> %q, want /new/target", got)
 	}
 }
