@@ -1,0 +1,187 @@
+package tdd
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+)
+
+// postToolUseInput is the subset of the PostToolUse payload the RED/GREEN
+// engine needs.
+type postToolUseInput struct {
+	SessionID string `json:"session_id"`
+	ToolName  string `json:"tool_name"`
+	ToolInput struct {
+		FilePath string `json:"file_path"`
+	} `json:"tool_input"`
+	ToolResponse struct {
+		// Success is a pointer so a missing field (unknown) is distinct from an
+		// explicit false (the tool itself failed — nothing to test).
+		Success *bool `json:"success"`
+	} `json:"tool_response"`
+}
+
+// SuiteResult is the outcome of executing a Runner.
+type SuiteResult struct {
+	Passed bool
+	Output string
+}
+
+// SuiteRunner executes a runner in a project root. It is injected so the
+// orchestration can be tested without spawning real test suites.
+type SuiteRunner func(r Runner, root string) SuiteResult
+
+var gatedPostTools = map[string]bool{"Edit": true, "Write": true, "MultiEdit": true}
+
+// PostEdit runs the relevant tests after an edit and returns the advisory text
+// to surface to the model — empty when there is nothing actionable to say. It
+// is SILENT unless the run is RED: a green/scaffolding/no-delta run still
+// updates state (for the next delta) but adds no noise to the model's context.
+// Any reason it cannot run (non-edit tool, no path, no project, no runner,
+// gate turned off) yields "" — PostToolUse never blocks and never errors out.
+func PostEdit(raw []byte, run SuiteRunner) string {
+	var in postToolUseInput
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return ""
+	}
+	if !gatedPostTools[in.ToolName] || in.ToolInput.FilePath == "" {
+		return ""
+	}
+	if in.ToolResponse.Success != nil && !*in.ToolResponse.Success {
+		return ""
+	}
+	target := in.ToolInput.FilePath
+	kind := ClassifyFile(target)
+	if kind == Ignore {
+		return ""
+	}
+	root := FindProjectRoot(target)
+	if root == "" {
+		return ""
+	}
+
+	state, statePath := loadSession(in.SessionID)
+	if state != nil && state.Overrides.Off {
+		return ""
+	}
+	runner, ok := DetectRunner(root)
+	if !ok {
+		return ""
+	}
+	runner = NarrowToRelatedTests(runner, target, root)
+
+	fp := computeFingerprint(root)
+	var prevFailing []string
+	if state != nil {
+		prevFailing = state.prevFailing(root, fp)
+	}
+
+	res := run(runner, root)
+	outcome := ClassifyOutcome(res.Passed, res.Output, kind, prevFailing)
+	failing := ExtractFailingTests(res.Output)
+
+	if state != nil {
+		state.stamp(root, projectState{
+			Outcome:      string(outcome),
+			FailingTests: failing,
+			Runner:       append([]string{runner.Cmd}, runner.Args...),
+			Fingerprint:  fp,
+		})
+		_ = state.save(statePath)
+	}
+
+	if !outcome.IsRed() {
+		return ""
+	}
+	return redSummary(runner, root, outcome, res.Output)
+}
+
+// redSummary composes the actionable message for a RED run: the headline, the
+// first failing test, the guidance for that outcome, and a bounded snippet of
+// the runner output.
+func redSummary(r Runner, root string, outcome Outcome, output string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "tdd: %s %s in %s → outcome=%s", r.Cmd, strings.Join(r.Args, " "), root, outcome)
+	if first := firstFailingName(output); first != "" {
+		fmt.Fprintf(&b, "\nfirst failure: %s", first)
+	}
+	if g := guidance(outcome); g != "" {
+		fmt.Fprintf(&b, "\n%s", g)
+	}
+	fmt.Fprintf(&b, "\n```\n%s\n```", snippet(output))
+	return b.String()
+}
+
+// guidance maps a RED outcome to a one-line next step.
+func guidance(o Outcome) string {
+	switch o {
+	case RedMissingImpl:
+		return "✓ Clean RED — the symbol under test is undefined. Write the minimum implementation."
+	case RedTautology:
+		return "✗ Test PASSED without an implementation. Rework it to exercise the missing behavior."
+	case RedBogus:
+		return "✗ Test setup is broken (syntax/import/collection). Fix the test before the implementation."
+	default:
+		return "✗ Tests failing. Make them green before moving on."
+	}
+}
+
+const maxSnippet = 2000
+
+// snippet bounds runner output so a huge failure dump doesn't flood context.
+func snippet(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= maxSnippet {
+		return s
+	}
+	return s[:maxSnippet] + "\n…[truncated]"
+}
+
+// firstFailingName returns the first failing test name in runner output, so a
+// RED summary can name the failure inline without the model scrolling output.
+func firstFailingName(output string) string {
+	if names := ExtractFailingTests(output); len(names) > 0 {
+		return names[0]
+	}
+	return ""
+}
+
+// RunSuite is the production SuiteRunner: it executes the test command with a
+// bounded timeout and a quiet, deterministic environment (CI=1, NO_COLOR=1),
+// combining stdout and stderr. A timeout or signal is reported as NOT passed.
+func RunSuite(timeout time.Duration) SuiteRunner {
+	return func(r Runner, root string) SuiteResult {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, r.Cmd, r.Args...)
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "CI=1", "NO_COLOR=1")
+		out, err := cmd.CombinedOutput()
+		return SuiteResult{Passed: err == nil, Output: string(out)}
+	}
+}
+
+// postToolUseOutput mirrors the PostToolUse hook output contract.
+type postToolUseOutput struct {
+	HookSpecificOutput struct {
+		HookEventName     string `json:"hookEventName"`
+		AdditionalContext string `json:"additionalContext"`
+	} `json:"hookSpecificOutput"`
+}
+
+// RenderPostToolUse turns advisory text into the hook payload. PostToolUse
+// never blocks, so the exit code is always 0; empty text is silent.
+func RenderPostToolUse(text string) ([]byte, int) {
+	if text == "" {
+		return nil, 0
+	}
+	var out postToolUseOutput
+	out.HookSpecificOutput.HookEventName = "PostToolUse"
+	out.HookSpecificOutput.AdditionalContext = text
+	b, _ := json.Marshal(out)
+	return b, 0
+}

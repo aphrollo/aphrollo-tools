@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/dev"
 	"github.com/aphrollo/aphrollo-tools/internal/guardrail"
@@ -188,13 +189,19 @@ func runGuardrail(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 const tddUsage = `usage: aphrollo tdd <subcommand>
 
 Subcommands:
-  pretooluse   Evaluate a Claude Code PreToolUse edit payload from stdin
+  pretooluse    Evaluate a Claude Code PreToolUse edit payload from stdin
+  posttooluse   Run related tests after an edit and report RED/GREEN
 
 Autonomous TDD gates. pretooluse reads the hook JSON on stdin; on a smell in a
 test file (real-time sleep, tautological assertion, focused marker) it exits 2
-with a deny envelope, otherwise it is silent. Source edits always flow — the
-heavier TDD checks live at commit and push.
+with a deny envelope, otherwise it is silent. posttooluse runs the project's
+related tests after an edit and surfaces a failure summary (silent unless RED).
+Source edits always flow — the heavier TDD checks live at commit and push.
 `
+
+// postEditTimeout bounds a PostToolUse suite run so a hung test can't wedge the
+// session.
+const postEditTimeout = 60 * time.Second
 
 // runTDD dispatches the TDD hook subcommands. Like the guardrail hook, every
 // path reads from the provided reader and a parse error fails OPEN (exit 0) so
@@ -208,7 +215,9 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprint(w, tddUsage)
 		return code
 	}
-	if args[0] != "pretooluse" {
+	switch args[0] {
+	case "pretooluse", "posttooluse":
+	default:
 		fmt.Fprintf(stderr, "aphrollo tdd: unknown subcommand %q\n\n%s", args[0], tddUsage)
 		return 2
 	}
@@ -218,6 +227,16 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: reading hook input: %v\n", err)
 		return 1
 	}
+
+	if args[0] == "posttooluse" {
+		// PostToolUse never blocks: it only ever emits advisory context.
+		payload, code := tdd.RenderPostToolUse(tdd.PostEdit(raw, tdd.RunSuite(postEditTimeout)))
+		if len(payload) > 0 {
+			stdout.Write(payload)
+		}
+		return code
+	}
+
 	decision, err := tdd.DecidePreEdit(raw)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo tdd: %v (allowing)\n", err)
