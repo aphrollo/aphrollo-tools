@@ -189,18 +189,23 @@ func runGuardrail(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 const tddUsage = `usage: aphrollo tdd <subcommand>
 
 Subcommands:
-  pretooluse    Evaluate a Claude Code PreToolUse edit payload from stdin
-  posttooluse   Run related tests after an edit and report RED/GREEN
-  precommit     Git pre-commit gate: fail-first + mechanical (run in the repo)
-  prepush       Git pre-push gate: adversarial review of the push diff
-  install       Install the git-hook shims into a repo (--repo, --apply)
+  pretooluse        Evaluate a Claude Code PreToolUse edit payload from stdin
+  posttooluse       Run related tests after an edit and report RED/GREEN
+  userpromptsubmit  Handle the /tdd command and re-inject a RED reminder
+  sessionend        Drop the session's state file
+  precommit         Git pre-commit gate: fail-first + mechanical (run in the repo)
+  prepush           Git pre-push gate: adversarial review of the push diff
+  install           Install the git-hook shims into a repo (--repo, --apply)
 
 Autonomous TDD gates. pretooluse reads the hook JSON on stdin; on a smell in a
-test file (real-time sleep, tautological assertion, focused marker) it exits 2
-with a deny envelope, otherwise it is silent. posttooluse runs the project's
-related tests after an edit and surfaces a failure summary (silent unless RED).
-precommit verifies fail-first and runs the suite; prepush reviews the cumulative
-diff. Both exit non-zero to block. Source edits always flow.
+test file (real-time sleep, tautological assertion, focused/disabled test) it
+exits 2 with a deny envelope, and warns on a suppression; otherwise it is
+silent. posttooluse runs the project's related tests after an edit and surfaces
+a failure summary (silent unless RED). userpromptsubmit intercepts
+/tdd [status|off|on|reset] and otherwise re-injects the last RED outcome.
+sessionend cleans up the per-session state file. precommit verifies fail-first,
+blocks a newly-added suppression, and runs the suite; prepush reviews the
+cumulative diff. Both exit non-zero to block. Source edits always flow.
 `
 
 // postEditTimeout bounds a PostToolUse suite run so a hung test can't wedge the
@@ -251,7 +256,7 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	switch args[0] {
-	case "pretooluse", "posttooluse":
+	case "pretooluse", "posttooluse", "userpromptsubmit", "sessionend":
 	default:
 		fmt.Fprintf(stderr, "aphrollo tdd: unknown subcommand %q\n\n%s", args[0], tddUsage)
 		return 2
@@ -263,13 +268,24 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	if args[0] == "posttooluse" {
+	switch args[0] {
+	case "posttooluse":
 		// PostToolUse never blocks: it only ever emits advisory context.
 		payload, code := tdd.RenderPostToolUse(tdd.PostEdit(raw, tdd.RunSuite(postEditTimeout)))
 		if len(payload) > 0 {
 			stdout.Write(payload)
 		}
 		return code
+	case "userpromptsubmit":
+		// Handles the /tdd command and the RED reminder; never errors the turn.
+		payload, code := tdd.RenderPrompt(tdd.HandlePrompt(raw))
+		if len(payload) > 0 {
+			stdout.Write(payload)
+		}
+		return code
+	case "sessionend":
+		tdd.EndSession(raw)
+		return 0
 	}
 
 	decision, err := tdd.DecidePreEdit(raw)

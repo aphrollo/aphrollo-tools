@@ -116,6 +116,28 @@ func TestRun_TDD_MalformedInputFailsOpen(t *testing.T) {
 	}
 }
 
+func TestRun_TDD_UserPromptSubmit_TddCommand(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var out, errb bytes.Buffer
+	stdin := strings.NewReader(`{"prompt":"/tdd off","session_id":"cli-sess"}`)
+	code := Run([]string{"tdd", "userpromptsubmit"}, stdin, &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(out.String(), `"decision":"block"`) || !strings.Contains(out.String(), "OFF") {
+		t.Fatalf("/tdd off should block-and-report:\n%s", out.String())
+	}
+}
+
+func TestRun_TDD_SessionEnd_Silent(t *testing.T) {
+	var out, errb bytes.Buffer
+	stdin := strings.NewReader(`{"session_id":"cli-sess"}`)
+	code := Run([]string{"tdd", "sessionend"}, stdin, &out, &errb)
+	if code != 0 || out.Len() != 0 {
+		t.Fatalf("sessionend should be silent exit 0, got code=%d out=%q", code, out.String())
+	}
+}
+
 func TestRun_Workspace_NoSub_ShowsUsage(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := Run([]string{"workspace"}, strings.NewReader(""), &out, &errb); code != 2 {
