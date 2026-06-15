@@ -27,10 +27,12 @@ var gatedEditTools = map[string]bool{
 	"Edit": true, "Write": true, "MultiEdit": true, "NotebookEdit": true,
 }
 
-// DecidePreEdit parses a PreToolUse payload and evaluates the edit-time smell
-// gate. Non-edit tools, edits with no path, and edits that touch no test file
-// all Allow — the smells only gate test files, because a smell in a test is
-// what makes the oracle untrustworthy.
+// DecidePreEdit parses a PreToolUse payload and evaluates the edit-time gate.
+// The policy set depends on the file kind: a test edit runs the oracle smells
+// AND the suppressions; a source edit runs the suppressions only (oracle smells
+// have no meaning in source). Non-edit tools, edits with no recognised code
+// path, and ignored files all Allow. Smells block; suppressions warn at edit
+// (the commit gate is where a new suppression actually stops a change).
 func DecidePreEdit(raw []byte) (Decision, error) {
 	var in preToolUseInput
 	if err := json.Unmarshal(raw, &in); err != nil {
@@ -40,16 +42,30 @@ func DecidePreEdit(raw []byte) (Decision, error) {
 		return Decision{Action: Allow}, nil
 	}
 
-	gatesTest := false
-	for _, p := range []string{in.ToolInput.FilePath, in.ToolInput.NotebookPath} {
-		if p != "" && ClassifyFile(p) == Test {
-			gatesTest = true
-		}
-	}
-	if !gatesTest {
+	switch editKind(in) {
+	case Test:
+		return evaluate(newContent(in), testPolicies, editPhase), nil
+	case Source:
+		return evaluate(newContent(in), sourcePolicies, editPhase), nil
+	default:
 		return Decision{Action: Allow}, nil
 	}
-	return smellCheck(newContent(in)), nil
+}
+
+// editKind classifies the file an edit targets, taking the strongest role among
+// the candidate paths (Test outranks Source outranks Ignore) so an edit naming
+// both a notebook and a file path is gated by the more meaningful one.
+func editKind(in preToolUseInput) Kind {
+	kind := Ignore
+	for _, p := range []string{in.ToolInput.FilePath, in.ToolInput.NotebookPath} {
+		if p == "" {
+			continue
+		}
+		if k := ClassifyFile(p); k > kind {
+			kind = k
+		}
+	}
+	return kind
 }
 
 // newContent concatenates every piece of new text an edit introduces, so the

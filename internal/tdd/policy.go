@@ -56,6 +56,27 @@ type policy struct {
 	hit      func(v view) bool
 }
 
+// The composed gate sets, by what a phase is looking at. oracleSmells lives in
+// smell.go and suppressionPolicies in suppress.go; here they are combined into
+// the sets the edit-time gate selects between by file kind.
+var (
+	// testPolicies gate a test-file edit: oracle smells AND suppressions.
+	testPolicies = concatPolicies(oracleSmells, suppressionPolicies)
+	// sourcePolicies gate a source-file edit: suppressions only, since the
+	// oracle smells have no meaning outside test code.
+	sourcePolicies = suppressionPolicies
+)
+
+// concatPolicies flattens policy sets into one slice (a fresh backing array, so
+// no set aliases another).
+func concatPolicies(sets ...[]policy) []policy {
+	var out []policy
+	for _, s := range sets {
+		out = append(out, s...)
+	}
+	return out
+}
+
 // phase is when a gate is evaluating: edit time (PreToolUse, advisory bias) vs
 // commit time (the authoritative wall).
 type phase int

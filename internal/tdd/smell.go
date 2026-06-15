@@ -11,6 +11,9 @@ const (
 		"so the oracle can never fail no matter what the implementation does. Assert the real value/state against an independent expected value."
 	focusedReason = "Test contains a focused marker (it.only / describe.only / fit / fdescribe). " +
 		"A focused test silently drops every other test from the run — the suite reports green while most of it never ran. Remove the focus."
+	disabledTestReason = "Test is disabled (it.skip / xit / t.Skip / @pytest.mark.skip). " +
+		"A skipped test reports green while proving nothing, so a disabled test is an oracle that can never fail. " +
+		"Delete the test or fix it — do not skip it to get a passing run."
 )
 
 // sleepRe matches the real-time sleep calls that show up in test code across
@@ -46,6 +49,24 @@ var focusedOnlyRe = regexp.MustCompile(`\b(?:it|test|describe|context|suite)\s*\
 // additionally rejects a match preceded by `.`.
 var focusedFnRe = regexp.MustCompile(`\b(?:fit|fdescribe|fcontext)\s*\(`)
 
+// skipDotRe matches the jest/vitest/mocha `.skip` method form. The leading
+// keyword set bounds it to test constructs, so `unit.skip(` (no boundary before
+// `it`) and unrelated `.skip(` chains do not match.
+var skipDotRe = regexp.MustCompile(`\b(?:it|test|describe|context|suite)\s*\.\s*skip\s*\(`)
+
+// skipXRe matches the x-prefixed disabled aliases (xit / xdescribe / …). Like
+// focusedFnRe it needs the member-access guard so `obj.xit(` is rejected.
+var skipXRe = regexp.MustCompile(`\b(?:xit|xdescribe|xcontext|xtest)\s*\(`)
+
+// skipGoRe matches Go's t.Skip / t.Skipf / t.SkipNow. The receiver is held to a
+// short lowercase handle (t, tt, b, tb) so a domain method like `reader.Skip(`
+// is not misread as a test skip — missing an oddly-named handle is a tolerable
+// false negative; a false edit-time block is not.
+var skipGoRe = regexp.MustCompile(`\b[a-z][a-z0-9]?\.Skip(?:Now|f)?\s*\(`)
+
+// skipPyRe matches the pytest / unittest skip decorators (skip and skipif).
+var skipPyRe = regexp.MustCompile(`@\s*(?:pytest\s*\.\s*mark\s*\.\s*skip(?:if)?|unittest\s*\.\s*skip)`)
+
 // The test-oracle smells, as policies. Each runs against the code view (strings
 // and comments blanked) because every one matches executable test code, never a
 // directive in a comment.
@@ -62,14 +83,22 @@ var (
 		name: "focused-test", category: smellCat, reason: focusedReason,
 		hit: func(v view) bool { return hasFocused(v.code) },
 	}
+	disabledTestPolicy = policy{
+		name: "disabled-test", category: smellCat, reason: disabledTestReason,
+		hit: func(v view) bool { return hasDisabledTest(v.code) },
+	}
 )
 
+// oracleSmells are the test-oracle integrity policies. They gate test files
+// only — a sleep or a focused marker has no meaning in source — and block at
+// every phase because each one is near-zero-false-positive.
+var oracleSmells = []policy{sleepPolicy, tautologyPolicy, focusedPolicy, disabledTestPolicy}
+
 // smellCheck runs the test-oracle smell policies at edit phase against new test
-// content. It is the thin wrapper the test-file edit path uses; the broader
-// policy sets (which add suppressions, and gate source files too) compose the
-// same policies through evaluate.
+// content. It is a thin wrapper over the engine; the broader policy sets (which
+// add suppressions, and gate source files too) compose the same policies.
 func smellCheck(content string) Decision {
-	return evaluate(content, []policy{sleepPolicy, tautologyPolicy, focusedPolicy}, editPhase)
+	return evaluate(content, oracleSmells, editPhase)
 }
 
 // hasTautology reports whether masked source contains a self-comparison
@@ -100,6 +129,20 @@ func hasFocused(masked string) bool {
 		return true
 	}
 	for _, loc := range focusedFnRe.FindAllStringIndex(masked, -1) {
+		if i := loc[0]; i == 0 || !isMemberAccess(masked[i-1]) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasDisabledTest reports whether masked source disables a test in any
+// recognised form, rejecting `xit(`/`xdescribe(` that are really method calls.
+func hasDisabledTest(masked string) bool {
+	if skipDotRe.MatchString(masked) || skipGoRe.MatchString(masked) || skipPyRe.MatchString(masked) {
+		return true
+	}
+	for _, loc := range skipXRe.FindAllStringIndex(masked, -1) {
 		if i := loc[0]; i == 0 || !isMemberAccess(masked[i-1]) {
 			return true
 		}

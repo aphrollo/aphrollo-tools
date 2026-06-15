@@ -109,11 +109,11 @@ func noNewFailures(curr, prev []string) bool {
 // `(123 ms)` duration WITHOUT truncating a name that itself contains
 // parentheses (the audit's non-greedy-capture fix).
 var failLineRes = []*regexp.Regexp{
-	regexp.MustCompile(`(?m)^\s*--- FAIL:\s+(\S+)`),                    // go test
-	regexp.MustCompile(`(?m)^FAILED\s+(\S+::\S+)`),                     // pytest: FAILED path::test
-	regexp.MustCompile(`(?m)^(\S+::\S+)\s+FAILED`),                     // pytest: path::test FAILED
+	regexp.MustCompile(`(?m)^\s*--- FAIL:\s+(\S+)`),                     // go test
+	regexp.MustCompile(`(?m)^FAILED\s+(\S+::\S+)`),                      // pytest: FAILED path::test
+	regexp.MustCompile(`(?m)^(\S+::\S+)\s+FAILED`),                      // pytest: path::test FAILED
 	regexp.MustCompile(`(?m)^\s*[✗×]\s+(.+?)(?:\s+\(\d+\s*m?s\))?\s*$`), // vitest/jest
-	regexp.MustCompile(`(?m)^test\s+(\S+)\s+\.\.\.\s+FAILED`),          // cargo
+	regexp.MustCompile(`(?m)^test\s+(\S+)\s+\.\.\.\s+FAILED`),           // cargo
 }
 
 // ExtractFailingTests returns the sorted, de-duplicated set of failing test

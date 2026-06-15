@@ -124,6 +124,36 @@ func TestPrecommit_FailFirst_AllowsTestThatNeedsImpl(t *testing.T) {
 	}
 }
 
+func TestPrecommit_BlocksNewlyAddedSuppression(t *testing.T) {
+	root := makeGoRepo(t)
+	// A compiling source file whose only sin is a freshly-added linter
+	// suppression: mechanical would pass, but the anti-cheat gate blocks first.
+	write(t, root, "gizmo.go", "package m\n\nfunc Gizmo() int { return 1 } //nolint:unused\n")
+	gitDo(t, root, "add", ".")
+
+	res := Precommit(root, RunSuite(precommitTestTimeout))
+	if !res.Blocked || !strings.Contains(res.Message, "anti-cheat") {
+		t.Fatalf("expected anti-cheat block for a new suppression, got %+v", res)
+	}
+}
+
+func TestPrecommit_IgnoresPreexistingSuppression(t *testing.T) {
+	root := makeGoRepo(t)
+	// Commit a file that already carries a suppression.
+	write(t, root, "old.go", "package m\n\nfunc Old() int { return 2 } //nolint:unused\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "old")
+	// Now stage an unrelated, clean change. The pre-existing suppression in
+	// old.go is NOT in this diff, so it must not block.
+	write(t, root, "clean.go", "package m\n\nfunc Clean() int { return 3 }\n")
+	gitDo(t, root, "add", ".")
+
+	res := Precommit(root, RunSuite(precommitTestTimeout))
+	if res.Blocked {
+		t.Fatalf("a pre-existing suppression must not block a clean commit, got %+v", res)
+	}
+}
+
 func TestPrecommit_Mechanical_BlocksFailingSuite(t *testing.T) {
 	root := makeGoRepo(t)
 	// Source-only change (no staged test) that breaks the build → mechanical
