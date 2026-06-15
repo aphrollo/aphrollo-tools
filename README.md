@@ -256,6 +256,36 @@ Design notes:
   background-execution primitive exists (the send queue is editorial only). The
   lossless answer is to block and point at poll/background patterns.
 
+### TDD gates (`aphrollo tdd`)
+
+Autonomous test-driven-development enforcement, ported from the retired
+`claude-code-tdd` Node hooks. Four gates across the edit→commit→push lifecycle,
+each near-zero false-positive (a false block wedges the agent, so the heavy
+checks live where being wrong only costs a re-run):
+
+| Subcommand | Wiring | What it does |
+|---|---|---|
+| `tdd pretooluse` | Claude PreToolUse hook (stdin) | Blocks (exit 2) a **test-file** edit that introduces a real-time sleep, a tautological self-comparison, or a focused marker (`.only`/`fit`). Source edits flow. |
+| `tdd posttooluse` | Claude PostToolUse hook (stdin) | Runs the edited file's related tests; surfaces a RED summary. **Silent unless RED.** |
+| `tdd precommit` | git `pre-commit` | **Fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. |
+| `tdd prepush` | git `pre-push` | Adversarial LLM review of the cumulative push diff; blocks on a critical/high finding. **Fails open** if the reviewer is unavailable. |
+
+Every detector runs against a masked copy of the source (string and comment
+contents blanked), so a smell mentioned only in a string or comment never
+blocks — the original's biggest false-positive class. Install the git hooks
+per-repo (never a global `core.hooksPath`):
+
+```sh
+aphrollo tdd install                 # dry-run: show what would be written
+aphrollo tdd install --apply         # write .git/hooks/{pre-commit,pre-push}
+```
+
+The Claude hooks are wired the same way as the guardrail — a `hooks` block in
+the session `--settings` payload pointing at `aphrollo tdd pretooluse` /
+`posttooluse`. Mutation testing is intentionally **not** ported: it was the
+documented false-positive/non-determinism offender, and the fail-first + review
+gates cover the same ground without the flakiness.
+
 ## Layout
 
 ```
@@ -265,6 +295,7 @@ internal/refactor/   orchestration: detect lang → spawn server → rename/refs
 internal/lsp/        LSP types + JSON-RPC stdio client (framing, Conn, edits)
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy (block long waits, warn on noisy output)
+internal/tdd/        TDD gates: edit smells, RED/GREEN, fail-first, review, install
 internal/workspace/  worktree prepare/claim/list/remove (safe.directory + deps, dev-tier claim)
 internal/dev/        dev-tier control plane: up/down/restart/status/logs (systemd)
 ```
