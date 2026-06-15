@@ -40,6 +40,13 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 	}
 	tests, srcs := splitKinds(staged)
 
+	// Anti-cheat: block a newly-INTRODUCED suppression before spending the suite
+	// on it. Scoped to added lines, so a suppression that already lived in the
+	// tree never blocks an unrelated later commit — only one this change adds.
+	if msg := newSuppression(repoRoot); msg != "" {
+		return GateResult{Blocked: true, Message: msg}
+	}
+
 	if len(tests) > 0 && len(srcs) > 0 {
 		if violated, conclusive := failFirstViolated(repoRoot, tests, run); conclusive && violated {
 			return GateResult{Blocked: true, Message: failFirstMessage}
@@ -53,6 +60,75 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		}
 	}
 	return GateResult{}
+}
+
+// suppressionCommitHeader prefixes a commit-time anti-cheat block; the policy's
+// own reason (naming the directive and the fix) follows.
+const suppressionCommitHeader = "TDD anti-cheat: this commit introduces a suppression that silences a quality gate."
+
+// newSuppression scans the staged diff's ADDED lines for a suppression and, on
+// the first hit in a source/test file, returns the block message. Only added
+// lines are considered, so a directive that already lived in the file does not
+// block an unrelated commit. Returns "" when there is nothing to block.
+func newSuppression(repoRoot string) string {
+	for _, fa := range stagedAddedLines(repoRoot) {
+		switch ClassifyFile(fa.path) {
+		case Source, Test:
+		default:
+			continue
+		}
+		if d := evaluate(fa.added, suppressionPolicies, commitPhase, langOf(fa.path)); d.Action == Block {
+			return suppressionCommitHeader + "\n  " + fa.path + ": " + d.Reason
+		}
+	}
+	return ""
+}
+
+// fileAdd is the added-line content for one file in a staged diff.
+type fileAdd struct {
+	path  string
+	added string
+}
+
+// stagedAddedLines parses `git diff --cached -U0` into the added lines per file.
+// It collects only `+` lines (the new content), keyed by the `+++ b/<path>`
+// header, and skips deletions (`+++ /dev/null`). Each added line is treated as
+// standalone for masking, which fits single-line suppression directives; a
+// directive split across a multi-line construct is a tolerable miss.
+func stagedAddedLines(repoRoot string) []fileAdd {
+	out, err := git(repoRoot, "diff", "--cached", "--unified=0", "--no-color")
+	if err != nil {
+		return nil
+	}
+	var (
+		adds []fileAdd
+		cur  string
+		buf  strings.Builder
+	)
+	flush := func() {
+		if cur != "" && buf.Len() > 0 {
+			adds = append(adds, fileAdd{path: cur, added: buf.String()})
+		}
+		buf.Reset()
+	}
+	for line := range strings.SplitSeq(out, "\n") {
+		if p, ok := strings.CutPrefix(line, "+++ b/"); ok {
+			flush()
+			cur = strings.TrimSpace(p)
+			continue
+		}
+		if strings.HasPrefix(line, "+++") { // +++ /dev/null (deletion)
+			flush()
+			cur = ""
+			continue
+		}
+		if strings.HasPrefix(line, "+") {
+			buf.WriteString(line[1:])
+			buf.WriteByte('\n')
+		}
+	}
+	flush()
+	return adds
 }
 
 // splitKinds partitions repo-relative staged paths into test and source files,

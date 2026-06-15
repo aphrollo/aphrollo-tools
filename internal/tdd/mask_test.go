@@ -80,6 +80,72 @@ func TestMask_BlanksStringsAndComments(t *testing.T) {
 	}
 }
 
+func TestMaskStrings_KeepsCommentsBlanksStrings(t *testing.T) {
+	cases := []struct {
+		name   string
+		src    string
+		gone   []string // lived in a string → blanked
+		remain []string // a comment directive or real code → kept
+	}{
+		{
+			name:   "line comment survives, string blanked",
+			src:    `x := f() //nolint:errcheck` + "\n" + `s := "//nolint here"`,
+			gone:   []string{"//nolint here"},
+			remain: []string{"//nolint:errcheck", "x := f()"},
+		},
+		{
+			name:   "hash comment survives",
+			src:    "y = g()  # type: ignore",
+			gone:   nil,
+			remain: []string{"# type: ignore", "y = g()"},
+		},
+		{
+			name:   "block comment survives",
+			src:    "a() /* eslint-disable */ b()",
+			gone:   nil,
+			remain: []string{"eslint-disable", "a()", "b()"},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := maskStrings(c.src)
+			if len(got) != len(c.src) {
+				t.Fatalf("maskStrings changed length: got %d, want %d", len(got), len(c.src))
+			}
+			for _, g := range c.gone {
+				if strings.Contains(got, g) {
+					t.Errorf("maskStrings left string content %q:\n%s", g, got)
+				}
+			}
+			for _, r := range c.remain {
+				if !strings.Contains(got, r) {
+					t.Errorf("maskStrings dropped %q (comment or code):\n%s", r, got)
+				}
+			}
+		})
+	}
+}
+
+func TestMaskTokens_HashComment(t *testing.T) {
+	// In a JS/TS file (#-is-code), the `#` must NOT make the lexer skip the rest
+	// of the line, so the string still gets blanked and its content cannot leak.
+	js := `this.#count = "use // nolint maybe"`
+	got := maskTokens(js, true, false, false) // directives view, # not a comment
+	if strings.Contains(got, "// nolint") {
+		t.Errorf("# treated as comment in JS: directive leaked:\n%s", got)
+	}
+	if !strings.Contains(got, "this.#count") {
+		t.Errorf("# not a comment should keep the private field intact:\n%s", got)
+	}
+
+	// In a Python file (#-is-comment), a `# type: ignore` directive stays visible
+	// in the directives view (comments preserved) so it can be detected.
+	py := `x = legacy()  # type: ignore`
+	if got := maskTokens(py, true, false, true); !strings.Contains(got, "# type: ignore") {
+		t.Errorf("python directive must survive the directives view:\n%s", got)
+	}
+}
+
 func TestMask_PreservesNewlines(t *testing.T) {
 	src := "line1 // c\nline2"
 	got := mask(src)

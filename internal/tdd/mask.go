@@ -22,11 +22,32 @@ package tdd
 // is acceptable because masking only ever makes a gate MORE permissive — it
 // can hide a real smell, never invent one — and the authoritative TDD wall
 // lives at commit/push, not at edit time.
-func mask(src string) string {
+//
+// mask blanks BOTH strings and comments, treating `#` as a line comment. The
+// bare helpers default to `#`-as-comment so direct callers and the masker's own
+// tests keep their existing behavior; the policy engine instead derives the
+// `#` rule per file via maskTokens (see lang in policy.go), because `#` is a
+// comment in Python/Ruby but a private-field sigil in JS/TS and absent in Go.
+func mask(src string) string { return maskTokens(src, true, true, true) }
+
+// maskStrings blanks string literals while leaving comments intact, for
+// detectors that look for directives written in comments. Strings are still
+// blanked so a directive quoted in a string (`"see // nolint"`) cannot trip.
+func maskStrings(src string) string { return maskTokens(src, true, false, true) }
+
+// maskTokens is the shared lexer. It always RECOGNISES strings and C-style
+// comments (so a `//` inside a string is not mistaken for a comment, and a
+// quote inside a comment does not start a string), but only BLANKS the
+// categories requested. `#` is treated as a line comment only when hashComment
+// is set — otherwise it is ordinary code, so a JS private field (`this.#x`)
+// does not make the masker skip the rest of the line and leak a quoted
+// directive past the string-blanking. Recognition is mandatory; blanking is
+// selective.
+func maskTokens(src string, blankStrings, blankComments, hashComment bool) string {
 	b := []byte(src)
 	n := len(b)
-	blank := func(i int) {
-		if b[i] != '\n' {
+	blank := func(cond bool, i int) {
+		if cond && b[i] != '\n' {
 			b[i] = ' '
 		}
 	}
@@ -37,37 +58,40 @@ func mask(src string) string {
 			escapes := quote != '`' // backticks are raw strings
 			for i++; i < n && b[i] != quote; i++ {
 				if escapes && b[i] == '\\' {
-					blank(i) // blank the backslash AND the escaped byte, so an
-					i++       // escaped quote can't end the string early
-					if i < n {
-						blank(i)
+					blank(blankStrings, i) // blank the backslash AND the escaped
+					i++                    // byte, so an escaped quote can't end
+					if i < n {             // the string early
+						blank(blankStrings, i)
 					}
 					continue
 				}
-				blank(i)
+				blank(blankStrings, i)
 			}
 		case '/':
 			if i+1 < n && b[i+1] == '/' {
-				blank(i)
+				blank(blankComments, i)
 				for i++; i < n && b[i] != '\n'; i++ {
-					blank(i)
+					blank(blankComments, i)
 				}
 			} else if i+1 < n && b[i+1] == '*' {
-				blank(i)
-				blank(i + 1)
+				blank(blankComments, i)
+				blank(blankComments, i+1)
 				for i += 2; i < n; i++ {
 					if b[i] == '*' && i+1 < n && b[i+1] == '/' {
-						blank(i)
-						blank(i + 1)
+						blank(blankComments, i)
+						blank(blankComments, i+1)
 						i++
 						break
 					}
-					blank(i)
+					blank(blankComments, i)
 				}
 			}
 		case '#':
+			if !hashComment {
+				continue // `#` is not a comment in this language (JS/TS/Go)
+			}
 			for ; i < n && b[i] != '\n'; i++ {
-				blank(i)
+				blank(blankComments, i)
 			}
 		}
 	}

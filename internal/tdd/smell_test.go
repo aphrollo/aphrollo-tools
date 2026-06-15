@@ -29,7 +29,7 @@ func TestSmell_Tautology(t *testing.T) {
 		"expect(actual).toBe(expected)", // distinct operands
 		"assert x == y",
 		"assert.equal(actual, expected)",
-		"// assert x == x",          // self-compare only in a comment
+		"// assert x == x",           // self-compare only in a comment
 		`msg = "assert x == x here"`, // self-compare only in a string
 		"expect(a).toBe(b)",
 	}
@@ -55,17 +55,52 @@ func TestSmell_FocusedTest(t *testing.T) {
 	}
 
 	allowed := []string{
-		"model.fit(data)",      // .fit method call, not the fit() alias
-		"prefit(data)",         // identifier ending in fit
-		"context.only = 5",     // property assignment, not a focused call
-		"// it.only is banned", // mention in a comment
-		`s = "use fit() for focus"`, // mention in a string
+		"model.fit(data)",             // .fit method call, not the fit() alias
+		"prefit(data)",                // identifier ending in fit
+		"context.only = 5",            // property assignment, not a focused call
+		"// it.only is banned",        // mention in a comment
+		`s = "use fit() for focus"`,   // mention in a string
 		`log("say \"it.only(\" now")`, // escaped quotes must not leak the marker as code
-		"it('x', () => {})",    // ordinary test
+		"it('x', () => {})",           // ordinary test
 	}
 	for _, src := range allowed {
 		if blocks(src) {
 			t.Errorf("false focused-test block for legitimate %q", src)
+		}
+	}
+}
+
+func TestSmell_DisabledTest(t *testing.T) {
+	blocked := []string{
+		"it.skip('x', () => {})",
+		"describe.skip('suite', fn)",
+		"test.skip('x', fn)",
+		"xit('x', () => {})",
+		"xdescribe('suite', fn)",
+		"func TestX(t *testing.T) { t.Skip() }",
+		"func TestX(t *testing.T) { t.Skipf(why) }",
+		"func BenchmarkX(b *testing.B) { b.SkipNow() }",
+		"@pytest.mark.skip / def test_x",
+		"@pytest.mark.skipif(cond) / def test_x",
+		"@unittest.skip('reason') / def test_x",
+	}
+	for _, src := range blocked {
+		if !blocks(src) {
+			t.Errorf("expected disabled-test block for %q", src)
+		}
+	}
+
+	allowed := []string{
+		"reader.Skip(4)",            // domain method, long receiver — not t.Skip
+		"obj.xit(data)",             // member access, not the xit() alias
+		"it('x', () => {})",         // ordinary test
+		"// it.skip is banned",      // mention in a comment
+		`s = "use it.skip to skip"`, // mention in a string
+		"results.skip = true",       // property assignment, no call
+	}
+	for _, src := range allowed {
+		if blocks(src) {
+			t.Errorf("false disabled-test block for legitimate %q", src)
 		}
 	}
 }
