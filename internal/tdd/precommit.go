@@ -8,9 +8,9 @@ import (
 	"strings"
 )
 
-// PrecommitResult is the verdict of the commit-time gate. A blocked commit
-// always carries a Message explaining what failed and how to proceed.
-type PrecommitResult struct {
+// GateResult is the verdict of a git-time gate (precommit, prepush). A blocked
+// action always carries a Message explaining what failed and how to proceed.
+type GateResult struct {
 	Blocked bool
 	Message string
 }
@@ -33,26 +33,26 @@ const failFirstMessage = "TDD fail-first: this commit adds tests AND implementat
 // Any inability to VERIFY fail-first (worktree/apply error) fails OPEN: the
 // gate never blocks because its own tooling tripped. run is injected so the
 // mechanical and worktree runs are testable.
-func Precommit(repoRoot string, run SuiteRunner) PrecommitResult {
+func Precommit(repoRoot string, run SuiteRunner) GateResult {
 	staged := stagedFiles(repoRoot)
 	if len(staged) == 0 {
-		return PrecommitResult{}
+		return GateResult{}
 	}
 	tests, srcs := splitKinds(staged)
 
 	if len(tests) > 0 && len(srcs) > 0 {
 		if violated, conclusive := failFirstViolated(repoRoot, tests, run); conclusive && violated {
-			return PrecommitResult{Blocked: true, Message: failFirstMessage}
+			return GateResult{Blocked: true, Message: failFirstMessage}
 		}
 	}
 
 	runner, ok := DetectRunner(repoRoot)
 	if ok {
 		if res := run(runner, repoRoot); !res.Passed {
-			return PrecommitResult{Blocked: true, Message: "TDD mechanical: tests failing — fix before committing.\n" + snippet(res.Output)}
+			return GateResult{Blocked: true, Message: "TDD mechanical: tests failing — fix before committing.\n" + snippet(res.Output)}
 		}
 	}
-	return PrecommitResult{}
+	return GateResult{}
 }
 
 // splitKinds partitions repo-relative staged paths into test and source files,

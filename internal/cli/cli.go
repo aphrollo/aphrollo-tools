@@ -192,13 +192,14 @@ Subcommands:
   pretooluse    Evaluate a Claude Code PreToolUse edit payload from stdin
   posttooluse   Run related tests after an edit and report RED/GREEN
   precommit     Git pre-commit gate: fail-first + mechanical (run in the repo)
+  prepush       Git pre-push gate: adversarial review of the push diff
 
 Autonomous TDD gates. pretooluse reads the hook JSON on stdin; on a smell in a
 test file (real-time sleep, tautological assertion, focused marker) it exits 2
 with a deny envelope, otherwise it is silent. posttooluse runs the project's
 related tests after an edit and surfaces a failure summary (silent unless RED).
-precommit verifies fail-first and runs the suite, exiting non-zero to block a
-bad commit. Source edits always flow — the heavier checks live at commit/push.
+precommit verifies fail-first and runs the suite; prepush reviews the cumulative
+diff. Both exit non-zero to block. Source edits always flow.
 `
 
 // postEditTimeout bounds a PostToolUse suite run so a hung test can't wedge the
@@ -206,6 +207,7 @@ bad commit. Source edits always flow — the heavier checks live at commit/push.
 const (
 	postEditTimeout  = 60 * time.Second
 	precommitTimeout = 300 * time.Second
+	prepushTimeout   = 120 * time.Second
 )
 
 // runTDD dispatches the TDD hook subcommands. Like the guardrail hook, every
@@ -220,15 +222,24 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprint(w, tddUsage)
 		return code
 	}
-	// precommit is a git hook: no stdin, exit non-zero to block the commit.
-	if args[0] == "precommit" {
+	// precommit/prepush are git hooks: no stdin, exit non-zero to block.
+	if args[0] == "precommit" || args[0] == "prepush" {
 		root := tdd.RepoRoot(".")
 		if root == "" {
 			return 0 // not in a git repo — nothing to gate
 		}
-		res := tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
-		if res.Blocked {
+		var res tdd.GateResult
+		if args[0] == "precommit" {
+			res = tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
+		} else {
+			res = tdd.Prepush(root, tdd.ClaudeReviewer(prepushTimeout))
+		}
+		// Surface the note (e.g. a fail-open skip) even when allowing — the gate
+		// is never silent about why it did or didn't run.
+		if res.Message != "" {
 			fmt.Fprintln(stderr, res.Message)
+		}
+		if res.Blocked {
 			return 1
 		}
 		return 0
