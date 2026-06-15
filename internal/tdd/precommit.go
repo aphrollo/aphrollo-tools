@@ -159,7 +159,7 @@ func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violat
 	if _, err := git(repoRoot, "worktree", "add", "--detach", wt, "HEAD"); err != nil {
 		return false, false
 	}
-	defer git(repoRoot, "worktree", "remove", "--force", wt)
+	defer func() { _, _ = git(repoRoot, "worktree", "remove", "--force", wt) }() // best-effort cleanup
 
 	// The staged test diff applied onto HEAD: tests present, new source absent.
 	diff, err := gitStaged(repoRoot, tests)

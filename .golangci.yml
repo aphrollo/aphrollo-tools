@@ -1,0 +1,19 @@
+version: "2"
+
+# CI lint baseline for aphrollo-tools. The high-value correctness set
+# (staticcheck, govet, unused, ineffassign, errcheck) gates every change.
+# Security/SAST coverage is provided by the dedicated opengrep job in
+# pipeline.yml, so gosec is not duplicated here — and gosec's G204 fires on
+# every exec.Command, which is this tool's whole job (orchestrating git and
+# test runners with controlled argv), so it would be pure noise.
+linters:
+  default: standard
+  exclusions:
+    presets:
+      - std-error-handling   # fmt.Fprint*/Write-to-stdout etc. are idiomatic
+    rules:
+      # Tests fabricate fixtures (loose file perms, ignored cleanup errors)
+      # that have no production analogue.
+      - path: _test\.go
+        linters:
+          - errcheck
