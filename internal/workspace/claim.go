@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/dev"
 )
 
 // claim puts a prepared worktree on the dev tier — it becomes the tree the dev
@@ -17,34 +19,13 @@ import (
 // a group-writable (aphrollo-dev) directory, so repointing it is unprivileged
 // for a group member. Dependency install and vite-cache clearing touch only
 // files the invoking user owns. The single privileged atom is restarting the
-// systemd unit, which is already permitted via the small argv-validated
-// `aphrollo-dev restart <svc>` fence (and that restart clears the rlndx vite
-// optimizer cache for the freshly-claimed tree as a side effect).
+// systemd unit, which dev.Restart performs via an exact-match `sudo systemctl
+// restart` grant (and that restart clears the rlndx vite optimizer cache for the
+// freshly-claimed tree as a side effect).
 //
-// So claim runs its whole sequence here in Go and shells out only for that one
-// restart. It does NOT reimplement systemctl behind a fresh sudo grant — that
-// would mean granting this general, frequently-redeployed binary privilege far
-// wider than the audited primitive. Dry-run by default; the privileged restart
-// fires only on Apply.
-
-// devBin is the privileged dev-tier control script. Overridable for tests.
-func devBin() string {
-	if b := os.Getenv("APHROLLO_DEV_BIN"); b != "" {
-		return b
-	}
-	return "/usr/local/bin/aphrollo-dev"
-}
-
-// useSudo reports whether to prefix sudo for the restart. Root doesn't need it;
-// tests force it off via APHROLLO_DEV_SUDO=0 to exercise the restart against a
-// fake script.
-func useSudo() bool {
-	switch strings.ToLower(os.Getenv("APHROLLO_DEV_SUDO")) {
-	case "0", "false", "no":
-		return false
-	}
-	return os.Geteuid() != 0
-}
+// So claim runs its whole sequence here in Go, calling the in-binary dev control
+// plane for the one privileged step. It does NOT carry a wildcard sudo grant of
+// its own. Dry-run by default; the privileged restart fires only on Apply.
 
 // deriveService maps a repo to its dev unit, mirroring the dev tier's wiring
 // (rlndx serves the web repo, api serves the api repo). Returns "" when the repo
@@ -171,18 +152,15 @@ func ClaimPlan(repo, branch, svc, into string) (*Claim, error) {
 		},
 	})
 
-	// 3. Restart the dev unit — the one privileged atom — via the existing
-	//    fence. This also clears the rlndx vite optimizer cache for the new tree.
-	restart := []string{devBin(), "restart", svc}
-	if useSudo() {
-		restart = append([]string{"sudo"}, restart...)
-	}
+	// 3. Restart the dev unit — the one privileged atom — via the in-binary dev
+	//    control plane (dev.Restart bounces aphrollo-dev-<svc> and, for rlndx,
+	//    clears the freshly-claimed tree's stale vite optimizer cache). The
+	//    privileged step is dev.Restart's own exact-match `sudo systemctl
+	//    restart`; claim itself stays unprivileged.
 	c.steps = append(c.steps, claimStep{
-		label: shellJoin(restart),
+		label: "restart dev-" + svc + " (aphrollo dev restart " + svc + ")",
 		run: func(stdout, stderr io.Writer) error {
-			cmd := exec.Command(restart[0], restart[1:]...)
-			cmd.Stdout, cmd.Stderr = stdout, stderr
-			return cmd.Run()
+			return dev.Restart(svc, stdout, stderr)
 		},
 	})
 

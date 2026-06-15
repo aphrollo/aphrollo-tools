@@ -95,20 +95,6 @@ func TestClaimPlan_ResolvesAndRenders(t *testing.T) {
 	}
 }
 
-func TestClaimPlan_SudoPrefixedByDefault(t *testing.T) {
-	repo, branch := claimRepo(t)
-	t.Setenv("APHROLLO_DEVCLAIM_DIR", t.TempDir())
-	t.Setenv("APHROLLO_DEV_BIN", "/opt/fake/aphrollo-dev")
-	os.Unsetenv("APHROLLO_DEV_SUDO")
-	c, err := ClaimPlan(repo, branch, "rlndx", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if os.Geteuid() != 0 && !strings.Contains(c.Render(false), "sudo ") {
-		t.Errorf("expected a sudo-prefixed restart for non-root:\n%s", c.Render(false))
-	}
-}
-
 func TestClaimPlan_ExplicitSvcOverride(t *testing.T) {
 	repo, branch := claimRepo(t)
 	t.Setenv("APHROLLO_DEVCLAIM_DIR", t.TempDir())
@@ -165,21 +151,23 @@ func TestClaimPlan_CannotDeriveSvc(t *testing.T) {
 }
 
 // TestClaim_Apply_E2E drives the full claim: repoint the symlink (real, in a
-// temp .devclaim) and restart via a fake dev script that records its argv —
-// proving the symlink lands on the worktree and the privileged atom is invoked
-// correctly, with no sudo or real dev tier.
+// temp .devclaim) and restart via dev.Restart, whose systemctl is faked to a
+// recorder — proving the symlink lands on the worktree and the privileged atom
+// is invoked with the exact unit, with no sudo or real dev tier. APHROLLO_SPACES
+// is isolated so dev.Restart's vite-cache clear can't touch real files.
 func TestClaim_Apply_E2E(t *testing.T) {
 	repo, branch := claimRepo(t)
 	devclaim := t.TempDir()
 	bin := t.TempDir()
 	marker := filepath.Join(bin, "restart.txt")
-	fake := filepath.Join(bin, "aphrollo-dev")
+	fake := filepath.Join(bin, "systemctl")
 	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho \"$@\" > "+marker+"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("APHROLLO_DEVCLAIM_DIR", devclaim)
-	t.Setenv("APHROLLO_DEV_BIN", fake)
+	t.Setenv("APHROLLO_SYSTEMCTL", fake)
 	t.Setenv("APHROLLO_DEV_SUDO", "0")
+	t.Setenv("APHROLLO_SPACES", t.TempDir())
 
 	c, err := ClaimPlan(repo, branch, "rlndx", "")
 	if err != nil {
@@ -198,13 +186,13 @@ func TestClaim_Apply_E2E(t *testing.T) {
 	if got != c.Worktree {
 		t.Errorf("symlink -> %q, want %q", got, c.Worktree)
 	}
-	// The privileged restart was invoked with the right service.
+	// The privileged restart hit the exact dev unit (via dev.Restart).
 	rec, err := os.ReadFile(marker)
 	if err != nil {
-		t.Fatalf("restart fence not invoked: %v", err)
+		t.Fatalf("restart not invoked: %v", err)
 	}
-	if strings.TrimSpace(string(rec)) != "restart rlndx" {
-		t.Errorf("restart called with %q, want %q", strings.TrimSpace(string(rec)), "restart rlndx")
+	if strings.TrimSpace(string(rec)) != "restart aphrollo-dev-rlndx.service" {
+		t.Errorf("restart called with %q, want %q", strings.TrimSpace(string(rec)), "restart aphrollo-dev-rlndx.service")
 	}
 
 	// Idempotent: a second plan sees the symlink already points here.

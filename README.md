@@ -130,9 +130,9 @@ clobbering it. The dependency step is auto-detected from the worktree root:
 | `package.json` | `npm install` | `node_modules/` |
 | `go.mod` | `go mod download` | — |
 
-The worktree lands at `<repo-parent>/.worktrees/<repo-name>/<branch-slug>` — the
-same layout the `aphrollo-dev` helper uses, so a prepared worktree can later be
-`claim`ed by the dev tier. Override the base dir with `--into`, skip steps with
+The worktree lands at `<repo-parent>/.worktrees/<repo-name>/<branch-slug>`, so a
+prepared worktree can later be `claim`ed onto the dev tier. Override the base dir
+with `--into`, skip steps with
 `--no-install` / `--no-safe-dir`, or force a re-install with `--reinstall`.
 
 Companion read/cleanup subcommands:
@@ -150,10 +150,11 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 serves, so the branch is viewable at rlndx (or driven by dev-api):
 
 ```sh
-# dry-run: shows the exact privileged command it would run
+# dry-run: shows the steps it would run
 aphrollo workspace claim ~/spaces/aphrollo/aphrollo-web feat/kanban
 # workspace claim: …/.worktrees/aphrollo-web/feat-kanban -> dev-rlndx
-#   would run: sudo aphrollo-dev claim rlndx …/feat-kanban
+#   1. [run] repoint …/.devclaim/web -> …/feat-kanban
+#   2. [run] restart dev-rlndx (aphrollo dev restart rlndx)
 
 aphrollo workspace claim ~/spaces/aphrollo/aphrollo-web feat/kanban --apply
 ```
@@ -163,16 +164,17 @@ from `<repo> <branch>` (symmetric with `prepare` — no `.worktrees/…` path to
 paste), `pnpm install` if the tree was never prepared, and repoint the
 `.devclaim/<repo>` symlink the dev units follow (the dir is `aphrollo-dev`
 group-writable, so a group member repoints it with no sudo). The **only**
-privileged atom is restarting the dev unit, which goes through the small
-already-fenced `sudo aphrollo-dev restart <svc>` primitive (that restart also
-clears the rlndx vite optimizer cache for the freshly-claimed tree).
+privileged atom is restarting the dev unit, delegated to the in-binary
+[`dev`](#dev-tier-control-plane-aphrollo-dev) control plane (`dev.Restart`),
+whose exact-match `sudo systemctl restart` is the one fenced step (and that
+restart also clears the rlndx vite optimizer cache for the freshly-claimed
+tree).
 
-This subcommand deliberately does **not** carry a sudo grant of its own —
-granting this general, frequently-redeployed binary privilege would be a far
-wider surface than the audited restart primitive. The privileged restart only
-fires on `--apply`; a missing worktree points you at `prepare` rather than
-half-claiming, and a re-claim whose symlink already points at the tree is
-reported `[skip]`.
+This subcommand deliberately does **not** carry a sudo grant of its own — the
+privilege stays the narrow exact-match systemctl grant in `dev`. The privileged
+restart only fires on `--apply`; a missing worktree points you at `prepare`
+rather than half-claiming, and a re-claim whose symlink already points at the
+tree is reported `[skip]`.
 
 The dev service is derived from the repo (`web → rlndx`, `api → api`); override
 with `--svc`. `--into` matches a non-default `prepare --into`. Env overrides
