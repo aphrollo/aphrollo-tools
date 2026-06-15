@@ -180,6 +180,44 @@ with `--svc`. `--into` matches a non-default `prepare --into`. Env overrides
 (symlink dir), `APHROLLO_DEV_SUDO=0` (drop the `sudo` prefix; root drops it
 automatically).
 
+### Dev-tier control plane (`aphrollo dev`)
+
+Start/stop/restart the `aphrollo-dev` systemd stack and read its status/logs.
+This replaces the retired `aphrollo-dev` bash wrapper — its tooling now lives in
+this binary.
+
+```sh
+aphrollo dev up                # start the whole dev tier
+aphrollo dev down [--all]      # stop api+rlndx (--all also stops infra)
+aphrollo dev restart rlndx     # restart one of: api | rlndx | infra
+aphrollo dev status            # unit status (unprivileged)
+aphrollo dev logs [rlndx] [-n 200]
+```
+
+Unlike the `workspace` commands (which mutate source/worktrees and default to
+dry-run), `dev` is a service control plane and **executes immediately**, like
+`systemctl` itself. A restart of `rlndx` first clears the claimed tree's stale
+vite optimizer cache (via the `.devclaim/web` symlink `workspace claim`
+repoints) so it's a clean reload.
+
+**Privilege model** — there is no wrapper script, and this binary carries **no
+wildcard sudo grant**. The privileged surface is the narrowest possible:
+
+| Verb | Privilege |
+|---|---|
+| `status` | none — `systemctl status` is readable by any user |
+| `logs` | none — the dev users are in the `systemd-journal` group |
+| `up` / `down` / `restart` | exact-match `systemctl` sudoers grants with **fixed unit names**, no wildcards |
+
+The command builds exactly those argv — the service token is whitelisted to
+`{api,rlndx,infra}` and unit names are always constructed, never caller input —
+so sudo can never be steered onto a unit outside the dev tier. Env overrides
+(for tests): `APHROLLO_SYSTEMCTL`, `APHROLLO_JOURNALCTL`, `APHROLLO_SPACES`,
+`APHROLLO_DEV_SUDO=0`.
+
+> The bash wrapper's `worktree add/list/remove` is subsumed by
+> `aphrollo workspace prepare/list/remove`; `claim` by `aphrollo workspace claim`.
+
 ### Guardrail — PreToolUse policy hook (coder/devops sessions)
 
 `aphrollo guardrail pretooluse` is a [Claude Code PreToolUse
@@ -226,6 +264,7 @@ internal/lsp/        LSP types + JSON-RPC stdio client (framing, Conn, edits)
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy (block long waits, warn on noisy output)
 internal/workspace/  worktree prepare/claim/list/remove (safe.directory + deps, dev-tier claim)
+internal/dev/        dev-tier control plane: up/down/restart/status/logs (systemd)
 ```
 
 ## Known limitations (v1)
