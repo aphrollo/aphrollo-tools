@@ -84,6 +84,37 @@ func TestRun_Guardrail_AllowsNormalCommand(t *testing.T) {
 	}
 }
 
+func TestRun_Workspace_NoSub_ShowsUsage(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"workspace"}, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(strings.ToLower(errb.String()), "usage") {
+		t.Fatalf("stderr missing usage:\n%s", errb.String())
+	}
+}
+
+func TestRun_Workspace_Prepare_MissingArgs(t *testing.T) {
+	var out, errb bytes.Buffer
+	// only the repo arg, missing <branch>
+	if code := Run([]string{"workspace", "prepare", "/some/repo"}, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(errb.String(), "prepare <repo> <branch>") {
+		t.Fatalf("stderr should show prepare usage:\n%s", errb.String())
+	}
+}
+
+func TestRun_Workspace_UnknownSub(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"workspace", "frob"}, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(errb.String(), "frob") {
+		t.Fatalf("stderr should name the unknown subcommand:\n%s", errb.String())
+	}
+}
+
 func TestRun_Outline_MissingFile(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := Run([]string{"outline"}, strings.NewReader(""), &out, &errb); code != 2 {

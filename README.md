@@ -90,6 +90,60 @@ Prints just the named symbol's source span. Methods are reachable by their bare
 name (`DocumentSymbol`) or their receiver-qualified name
 (`(*Session).DocumentSymbol`); an exact match always wins over a bare-name match.
 
+### Prepare a worktree to work in (one shot)
+
+Getting an isolated worktree to run tests or build a branch in otherwise costs
+the same mechanical sequence every time — mark the (often cross-owner) repo
+git-safe, `git worktree add`, mark the worktree git-safe, install dependencies
+(git worktrees do **not** share the main tree's gitignored `node_modules`). The
+agent paid for that dance in tool calls and tokens on every branch.
+
+`aphrollo workspace prepare` folds it into one deterministic, dry-run-by-default
+command:
+
+```sh
+# dry-run: print exactly what would happen, change nothing
+aphrollo workspace prepare ~/spaces/aphrollo/aphrollo-web feat/kanban
+# workspace prepare: aphrollo-web @ feat/kanban (new branch)
+#   worktree: ~/spaces/aphrollo/.worktrees/aphrollo-web/feat-kanban
+#
+# steps (dry-run — pass --apply to execute the [run] steps):
+#   1. [run] git config --global --add safe.directory .../aphrollo-web
+#   2. [run] git -C .../aphrollo-web worktree add -b feat/kanban .../feat-kanban
+#   3. [run] git config --global --add safe.directory .../feat-kanban
+#   4. [run] pnpm install   (cwd .../feat-kanban)
+
+# execute it
+aphrollo workspace prepare ~/spaces/aphrollo/aphrollo-web feat/kanban --apply
+```
+
+Every step is **idempotent** — an already-marked `safe.directory`, an existing
+worktree, or a present `node_modules` is reported `[skip]` rather than redone, so
+re-running `prepare` on a half-built workspace finishes the job without
+clobbering it. The dependency step is auto-detected from the worktree root:
+
+| Marker (priority order) | Install command | Skip when present |
+|---|---|---|
+| `pnpm-lock.yaml` | `pnpm install` | `node_modules/` |
+| `yarn.lock` | `yarn install` | `node_modules/` |
+| `package-lock.json` | `npm ci` | `node_modules/` |
+| `package.json` | `npm install` | `node_modules/` |
+| `go.mod` | `go mod download` | — |
+
+The worktree lands at `<repo-parent>/.worktrees/<repo-name>/<branch-slug>` — the
+same layout the `aphrollo-dev` helper uses, so a prepared worktree can later be
+`claim`ed by the dev tier. Override the base dir with `--into`, skip steps with
+`--no-install` / `--no-safe-dir`, or force a re-install with `--reinstall`.
+
+Companion read/cleanup subcommands:
+
+```sh
+aphrollo workspace list ~/spaces/aphrollo/aphrollo-web            # git worktree list
+aphrollo workspace remove ~/spaces/aphrollo/aphrollo-web feat/kanban --apply
+```
+
+Exit codes: `0` ok, `1` runtime error, `2` usage error.
+
 ### Guardrail — PreToolUse policy hook (coder/devops sessions)
 
 `aphrollo guardrail pretooluse` is a [Claude Code PreToolUse
@@ -135,6 +189,7 @@ internal/refactor/   orchestration: detect lang → spawn server → rename/refs
 internal/lsp/        LSP types + JSON-RPC stdio client (framing, Conn, edits)
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy (block long waits, warn on noisy output)
+internal/workspace/  worktree prepare/list/remove (safe.directory + deps, idempotent)
 ```
 
 ## Known limitations (v1)
