@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/dev"
 	"github.com/aphrollo/aphrollo-tools/internal/guardrail"
 	"github.com/aphrollo/aphrollo-tools/internal/refactor"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 	"github.com/aphrollo/aphrollo-tools/internal/workspace"
 )
 
@@ -25,6 +27,7 @@ Commands:
   workspace   Prepare/claim/list/remove git worktrees (safe.directory + deps + dev-tier)
   dev         Dev-tier control plane: up/down/restart/status/logs
   guardrail   PreToolUse policy hook for coder/devops sessions
+  tdd         Autonomous TDD gates (Claude + git hooks)
 
 Run "aphrollo refactor" for refactor subcommands.
 `
@@ -54,6 +57,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runDev(args[1:], stdout, stderr)
 	case "guardrail":
 		return runGuardrail(args[1:], stdin, stdout, stderr)
+	case "tdd":
+		return runTDD(args[1:], stdin, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "aphrollo: unknown command %q\n\n%s", args[0], rootUsage)
 		return 2
@@ -179,6 +184,138 @@ func runGuardrail(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 		stdout.Write(payload)
 	}
 	return code
+}
+
+const tddUsage = `usage: aphrollo tdd <subcommand>
+
+Subcommands:
+  pretooluse    Evaluate a Claude Code PreToolUse edit payload from stdin
+  posttooluse   Run related tests after an edit and report RED/GREEN
+  precommit     Git pre-commit gate: fail-first + mechanical (run in the repo)
+  prepush       Git pre-push gate: adversarial review of the push diff
+  install       Install the git-hook shims into a repo (--repo, --apply)
+
+Autonomous TDD gates. pretooluse reads the hook JSON on stdin; on a smell in a
+test file (real-time sleep, tautological assertion, focused marker) it exits 2
+with a deny envelope, otherwise it is silent. posttooluse runs the project's
+related tests after an edit and surfaces a failure summary (silent unless RED).
+precommit verifies fail-first and runs the suite; prepush reviews the cumulative
+diff. Both exit non-zero to block. Source edits always flow.
+`
+
+// postEditTimeout bounds a PostToolUse suite run so a hung test can't wedge the
+// session. precommitTimeout is longer: the full suite runs at commit time.
+const (
+	postEditTimeout  = 60 * time.Second
+	precommitTimeout = 300 * time.Second
+	prepushTimeout   = 120 * time.Second
+)
+
+// runTDD dispatches the TDD hook subcommands. Like the guardrail hook, every
+// path reads from the provided reader and a parse error fails OPEN (exit 0) so
+// a malformed payload can never wedge the session.
+func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		w, code := stderr, 2
+		if len(args) > 0 {
+			w, code = stdout, 0
+		}
+		fmt.Fprint(w, tddUsage)
+		return code
+	}
+	if args[0] == "install" {
+		return runTDDInstall(args[1:], stdout, stderr)
+	}
+
+	// precommit/prepush are git hooks: no stdin, exit non-zero to block.
+	if args[0] == "precommit" || args[0] == "prepush" {
+		root := tdd.RepoRoot(".")
+		if root == "" {
+			return 0 // not in a git repo — nothing to gate
+		}
+		var res tdd.GateResult
+		if args[0] == "precommit" {
+			res = tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
+		} else {
+			res = tdd.Prepush(root, tdd.ClaudeReviewer(prepushTimeout))
+		}
+		// Surface the note (e.g. a fail-open skip) even when allowing — the gate
+		// is never silent about why it did or didn't run.
+		if res.Message != "" {
+			fmt.Fprintln(stderr, res.Message)
+		}
+		if res.Blocked {
+			return 1
+		}
+		return 0
+	}
+
+	switch args[0] {
+	case "pretooluse", "posttooluse":
+	default:
+		fmt.Fprintf(stderr, "aphrollo tdd: unknown subcommand %q\n\n%s", args[0], tddUsage)
+		return 2
+	}
+
+	raw, err := io.ReadAll(stdin)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: reading hook input: %v\n", err)
+		return 1
+	}
+
+	if args[0] == "posttooluse" {
+		// PostToolUse never blocks: it only ever emits advisory context.
+		payload, code := tdd.RenderPostToolUse(tdd.PostEdit(raw, tdd.RunSuite(postEditTimeout)))
+		if len(payload) > 0 {
+			stdout.Write(payload)
+		}
+		return code
+	}
+
+	decision, err := tdd.DecidePreEdit(raw)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo tdd: %v (allowing)\n", err)
+		return 0
+	}
+	payload, code := tdd.RenderPreToolUse(decision)
+	if len(payload) > 0 {
+		stdout.Write(payload)
+	}
+	return code
+}
+
+// runTDDInstall writes the git-hook shims into a single repo. Like the
+// workspace mutating commands, it defaults to a dry-run and requires --apply.
+func runTDDInstall(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("install", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var (
+		repo  = fs.String("repo", ".", "repository to install the hooks into")
+		apply = fs.Bool("apply", false, "write the hooks (default: print the plan and stop)")
+	)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	root := tdd.RepoRoot(*repo)
+	if root == "" {
+		fmt.Fprintf(stderr, "aphrollo: %s is not inside a git repository\n", *repo)
+		return 1
+	}
+	plan, err := tdd.BuildInstallPlan(root)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, plan.Render(*apply))
+	if !*apply {
+		return 0
+	}
+	if err := plan.Apply(); err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 func runFindReferences(args []string, stdout, stderr io.Writer) int {
