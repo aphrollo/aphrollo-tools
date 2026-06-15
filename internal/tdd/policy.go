@@ -1,5 +1,10 @@
 package tdd
 
+import (
+	"path/filepath"
+	"strings"
+)
+
 // A gate is a list of policies evaluated against the new content of one edit.
 // This file is the engine; the individual detectors live in smell.go (test
 // oracle integrity) and suppress.go (silenced quality gates). Splitting the
@@ -39,12 +44,38 @@ type view struct {
 	directives string
 }
 
-func newView(content string) view {
+func newView(content string, l lang) view {
 	return view{
-		code:       mask(content),
-		directives: maskStrings(content),
+		code:       maskTokens(content, true, true, l.hashComment),
+		directives: maskTokens(content, true, false, l.hashComment),
 	}
 }
+
+// lang captures the lexical quirks the masker must know about the edited file.
+// Today that is exactly one: whether `#` begins a line comment. Getting it
+// wrong matters for the suppression detectors, which read the comment-preserving
+// view — a `#` wrongly treated as a comment stops the lexer skipping/scanning
+// the rest of the line, so a directive-looking string after a JS private field
+// could leak and trip a false suppression.
+type lang struct {
+	hashComment bool
+}
+
+// langOf derives the lexical quirks from a file path. `#` is a comment in
+// Python and Ruby; in Go it never appears and in JS/TS it is a private-field
+// sigil, so the default is `#`-is-code.
+func langOf(path string) lang {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".py", ".rb":
+		return lang{hashComment: true}
+	default:
+		return lang{hashComment: false}
+	}
+}
+
+// defaultLang is for content evaluated without a path (test helpers). It assumes
+// the C-family majority where `#` is not a comment.
+var defaultLang = lang{hashComment: false}
 
 // policy is one detector: a name (for tests and future telemetry), the
 // integrity category it protects, the reason+fix to surface on a hit, and the
@@ -103,8 +134,8 @@ func actionFor(c category, p phase) Action {
 // Taking the most severe — rather than the first hit — means a Block smell
 // always wins over a Warn suppression in the same edit regardless of ordering,
 // so the policy slices can be composed without ordering fragility.
-func evaluate(content string, policies []policy, p phase) Decision {
-	v := newView(content)
+func evaluate(content string, policies []policy, p phase, l lang) Decision {
+	v := newView(content, l)
 	best := Decision{Action: Allow}
 	for _, pol := range policies {
 		if !pol.hit(v) {

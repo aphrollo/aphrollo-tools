@@ -85,6 +85,19 @@ func TestDecidePreEdit(t *testing.T) {
 			payload: `{"tool_name":"Edit","tool_input":{"file_path":"src/widget.go","new_string":"msg := \"use //nolint to skip\""}}`,
 			want:    Allow,
 		},
+		{
+			// In JS/TS, `#` is a private field, NOT a comment — the masker must
+			// not skip the rest of the line, or the quoted directive leaks.
+			name:    "JS private field with directive-in-string does not trip",
+			payload: `{"tool_name":"Edit","tool_input":{"file_path":"src/widget.ts","new_string":"this.#count = \"use // nolint maybe\""}}`,
+			want:    Allow,
+		},
+		{
+			// In Python, `#` IS a comment, so a real directive there warns.
+			name:    "python type-ignore comment warns",
+			payload: `{"tool_name":"Edit","tool_input":{"file_path":"app.py","new_string":"x = legacy()  # type: ignore"}}`,
+			want:    Warn,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

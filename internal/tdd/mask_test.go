@@ -126,6 +126,26 @@ func TestMaskStrings_KeepsCommentsBlanksStrings(t *testing.T) {
 	}
 }
 
+func TestMaskTokens_HashComment(t *testing.T) {
+	// In a JS/TS file (#-is-code), the `#` must NOT make the lexer skip the rest
+	// of the line, so the string still gets blanked and its content cannot leak.
+	js := `this.#count = "use // nolint maybe"`
+	got := maskTokens(js, true, false, false) // directives view, # not a comment
+	if strings.Contains(got, "// nolint") {
+		t.Errorf("# treated as comment in JS: directive leaked:\n%s", got)
+	}
+	if !strings.Contains(got, "this.#count") {
+		t.Errorf("# not a comment should keep the private field intact:\n%s", got)
+	}
+
+	// In a Python file (#-is-comment), a `# type: ignore` directive stays visible
+	// in the directives view (comments preserved) so it can be detected.
+	py := `x = legacy()  # type: ignore`
+	if got := maskTokens(py, true, false, true); !strings.Contains(got, "# type: ignore") {
+		t.Errorf("python directive must survive the directives view:\n%s", got)
+	}
+}
+
 func TestMask_PreservesNewlines(t *testing.T) {
 	src := "line1 // c\nline2"
 	got := mask(src)

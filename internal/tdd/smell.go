@@ -98,7 +98,7 @@ var oracleSmells = []policy{sleepPolicy, tautologyPolicy, focusedPolicy, disable
 // content. It is a thin wrapper over the engine; the broader policy sets (which
 // add suppressions, and gate source files too) compose the same policies.
 func smellCheck(content string) Decision {
-	return evaluate(content, oracleSmells, editPhase)
+	return evaluate(content, oracleSmells, editPhase, defaultLang)
 }
 
 // hasTautology reports whether masked source contains a self-comparison

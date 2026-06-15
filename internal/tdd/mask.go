@@ -23,22 +23,27 @@ package tdd
 // can hide a real smell, never invent one — and the authoritative TDD wall
 // lives at commit/push, not at edit time.
 //
-// mask blanks BOTH strings and comments. Detectors that match executable code
-// (a sleep call, a self-comparison, it.only) use it. Suppression detectors
-// need comments PRESERVED — //nolint, // @ts-ignore, # type: ignore all live
-// in comments — so they call maskStrings instead, which blanks strings only.
-func mask(src string) string { return maskTokens(src, true, true) }
+// mask blanks BOTH strings and comments, treating `#` as a line comment. The
+// bare helpers default to `#`-as-comment so direct callers and the masker's own
+// tests keep their existing behavior; the policy engine instead derives the
+// `#` rule per file via maskTokens (see lang in policy.go), because `#` is a
+// comment in Python/Ruby but a private-field sigil in JS/TS and absent in Go.
+func mask(src string) string { return maskTokens(src, true, true, true) }
 
 // maskStrings blanks string literals while leaving comments intact, for
 // detectors that look for directives written in comments. Strings are still
 // blanked so a directive quoted in a string (`"see // nolint"`) cannot trip.
-func maskStrings(src string) string { return maskTokens(src, true, false) }
+func maskStrings(src string) string { return maskTokens(src, true, false, true) }
 
-// maskTokens is the shared lexer. It always RECOGNISES strings and comments (so
-// a `//` inside a string is not mistaken for a comment, and a quote inside a
-// comment does not start a string), but only BLANKS the categories requested.
-// Recognition is mandatory; blanking is selective.
-func maskTokens(src string, blankStrings, blankComments bool) string {
+// maskTokens is the shared lexer. It always RECOGNISES strings and C-style
+// comments (so a `//` inside a string is not mistaken for a comment, and a
+// quote inside a comment does not start a string), but only BLANKS the
+// categories requested. `#` is treated as a line comment only when hashComment
+// is set — otherwise it is ordinary code, so a JS private field (`this.#x`)
+// does not make the masker skip the rest of the line and leak a quoted
+// directive past the string-blanking. Recognition is mandatory; blanking is
+// selective.
+func maskTokens(src string, blankStrings, blankComments, hashComment bool) string {
 	b := []byte(src)
 	n := len(b)
 	blank := func(cond bool, i int) {
@@ -82,6 +87,9 @@ func maskTokens(src string, blankStrings, blankComments bool) string {
 				}
 			}
 		case '#':
+			if !hashComment {
+				continue // `#` is not a comment in this language (JS/TS/Go)
+			}
 			for ; i < n && b[i] != '\n'; i++ {
 				blank(blankComments, i)
 			}

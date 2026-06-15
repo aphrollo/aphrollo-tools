@@ -5,7 +5,7 @@ import "testing"
 // suppressAt reports the action the suppression policies take on content at a
 // given phase.
 func suppressAt(content string, p phase) Action {
-	return evaluate(content, suppressionPolicies, p).Action
+	return evaluate(content, suppressionPolicies, p, defaultLang).Action
 }
 
 func TestSuppress_Detected(t *testing.T) {

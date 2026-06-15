@@ -42,30 +42,32 @@ func DecidePreEdit(raw []byte) (Decision, error) {
 		return Decision{Action: Allow}, nil
 	}
 
-	switch editKind(in) {
+	kind, path := editTarget(in)
+	switch kind {
 	case Test:
-		return evaluate(newContent(in), testPolicies, editPhase), nil
+		return evaluate(newContent(in), testPolicies, editPhase, langOf(path)), nil
 	case Source:
-		return evaluate(newContent(in), sourcePolicies, editPhase), nil
+		return evaluate(newContent(in), sourcePolicies, editPhase, langOf(path)), nil
 	default:
 		return Decision{Action: Allow}, nil
 	}
 }
 
-// editKind classifies the file an edit targets, taking the strongest role among
-// the candidate paths (Test outranks Source outranks Ignore) so an edit naming
-// both a notebook and a file path is gated by the more meaningful one.
-func editKind(in preToolUseInput) Kind {
-	kind := Ignore
+// editTarget classifies the file an edit targets and returns its path, taking
+// the strongest role among the candidate paths (Test outranks Source outranks
+// Ignore) so an edit naming both a notebook and a file path is gated — and its
+// language resolved — by the more meaningful one.
+func editTarget(in preToolUseInput) (Kind, string) {
+	kind, path := Ignore, ""
 	for _, p := range []string{in.ToolInput.FilePath, in.ToolInput.NotebookPath} {
 		if p == "" {
 			continue
 		}
 		if k := ClassifyFile(p); k > kind {
-			kind = k
+			kind, path = k, p
 		}
 	}
-	return kind
+	return kind, path
 }
 
 // newContent concatenates every piece of new text an edit introduces, so the

@@ -38,21 +38,21 @@ func TestEvaluate_MostSevereWins(t *testing.T) {
 	}
 
 	// A Block outranks a Warn regardless of slice order.
-	if d := evaluate("x", []policy{warnPol, blockPol}, editPhase); d.Action != Block || d.Reason != "block" {
+	if d := evaluate("x", []policy{warnPol, blockPol}, editPhase, defaultLang); d.Action != Block || d.Reason != "block" {
 		t.Fatalf("warn-then-block: got %+v, want Block/block", d)
 	}
-	if d := evaluate("x", []policy{blockPol, warnPol}, editPhase); d.Action != Block || d.Reason != "block" {
+	if d := evaluate("x", []policy{blockPol, warnPol}, editPhase, defaultLang); d.Action != Block || d.Reason != "block" {
 		t.Fatalf("block-then-warn: got %+v, want Block/block", d)
 	}
 	// Only a suppression hits → Warn at edit, Block at commit.
-	if d := evaluate("x", []policy{missPol, warnPol}, editPhase); d.Action != Warn {
+	if d := evaluate("x", []policy{missPol, warnPol}, editPhase, defaultLang); d.Action != Warn {
 		t.Fatalf("edit suppression: got %+v, want Warn", d)
 	}
-	if d := evaluate("x", []policy{missPol, warnPol}, commitPhase); d.Action != Block {
+	if d := evaluate("x", []policy{missPol, warnPol}, commitPhase, defaultLang); d.Action != Block {
 		t.Fatalf("commit suppression: got %+v, want Block", d)
 	}
 	// Nothing hits → Allow.
-	if d := evaluate("x", []policy{missPol}, editPhase); d.Action != Allow {
+	if d := evaluate("x", []policy{missPol}, editPhase, defaultLang); d.Action != Allow {
 		t.Fatalf("no hit: got %+v, want Allow", d)
 	}
 }
@@ -71,10 +71,10 @@ func TestEvaluate_ViewSelection(t *testing.T) {
 	}
 	src := "f() // MARK"
 	// The marker lives only in a comment: invisible to code, visible to directives.
-	if d := evaluate(src, []policy{codeReader}, editPhase); d.Action != Allow {
+	if d := evaluate(src, []policy{codeReader}, editPhase, defaultLang); d.Action != Allow {
 		t.Fatalf("code view saw comment text: %+v", d)
 	}
-	if d := evaluate(src, []policy{dirReader}, editPhase); d.Action != Warn {
+	if d := evaluate(src, []policy{dirReader}, editPhase, defaultLang); d.Action != Warn {
 		t.Fatalf("directives view missed comment text: %+v", d)
 	}
 }

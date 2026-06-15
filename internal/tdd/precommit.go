@@ -77,7 +77,7 @@ func newSuppression(repoRoot string) string {
 		default:
 			continue
 		}
-		if d := evaluate(fa.added, suppressionPolicies, commitPhase); d.Action == Block {
+		if d := evaluate(fa.added, suppressionPolicies, commitPhase, langOf(fa.path)); d.Action == Block {
 			return suppressionCommitHeader + "\n  " + fa.path + ": " + d.Reason
 		}
 	}
