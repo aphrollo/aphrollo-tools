@@ -39,8 +39,8 @@ func TestPostEdit(t *testing.T) {
 		wantContain string
 	}{
 		{"green source is silent", postPayload("Edit", src), true, "ok\nPASS", true, ""},
+		{"passing test edit is silent", postPayload("Write", test), true, "ok\nPASS", true, ""},
 		{"failing source reports red", postPayload("Edit", src), false, "--- FAIL: TestThing\n want 1", false, "outcome=red"},
-		{"test passing is red-tautology", postPayload("Write", test), true, "ok\nPASS", false, "red-tautology"},
 		{"missing impl is clean red", postPayload("Edit", src), false, "undefined: NewWidget", false, "red-missing-impl"},
 	}
 	for _, c := range cases {

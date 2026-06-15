@@ -14,10 +14,9 @@ import (
 type Outcome string
 
 const (
-	Green             Outcome = "green"               // passed, source edit, clean output
-	GreenWithWarnings Outcome = "green-with-warnings" // passed, source edit, warnings present
+	Green             Outcome = "green"               // passed, clean output
+	GreenWithWarnings Outcome = "green-with-warnings" // passed, warnings present
 	WritingTest       Outcome = "writing-test"        // passed but NO tests actually ran (scaffolding)
-	RedTautology      Outcome = "red-tautology"       // passed on a test edit — the test can't be failing first
 	RedMissingImpl    Outcome = "red-missing-impl"    // failed: the symbol under test is undefined (clean RED)
 	RedBogus          Outcome = "red-bogus"           // failed: test setup is broken (syntax/import/collection)
 	Red               Outcome = "red"                 // failed: a plain assertion failure
@@ -54,15 +53,19 @@ var missingImplRe = regexp.MustCompile(`(?i)undefined: |is not defined|has no at
 // set recorded after the previous edit, used to recognise that a still-failing
 // run introduced NO new failures (no-delta) so the agent is not nagged about
 // pre-existing breakage.
-func ClassifyOutcome(passed bool, output string, kind Kind, prevFailing []string) Outcome {
+//
+// A PASSING run is never RED here — not even a freshly edited test that passes
+// immediately. Post-edit cannot know whether the implementation already existed
+// (backfilling coverage, splitting a case, and refactoring a test all pass
+// legitimately), so "passed test ⇒ tautology" would be a guess that fires
+// constantly on a mature codebase, breaking the silent-on-green contract. The
+// authoritative fail-first check is precommit, which runs the new tests in a
+// worktree WITHOUT the new source and can actually tell.
+func ClassifyOutcome(passed bool, output string, prevFailing []string) Outcome {
 	if passed {
 		switch {
 		case zeroTestsRe.MatchString(output):
 			return WritingTest
-		case kind == Test:
-			// A freshly written/edited test that passes immediately never
-			// went RED — it cannot be pinning the behavior it claims to.
-			return RedTautology
 		case warningRe.MatchString(output):
 			return GreenWithWarnings
 		default:

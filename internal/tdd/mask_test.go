@@ -51,6 +51,14 @@ func TestMask_BlanksStringsAndComments(t *testing.T) {
 			gone:   []string{"time.sleep(5)"},
 			remain: []string{"do_thing()"},
 		},
+		{
+			// An escaped quote must NOT terminate the string early and leak the
+			// smell that follows it as code (the false-block path).
+			name:   "escaped quote inside string",
+			src:    `log("say \"it.only(\" now")`,
+			gone:   []string{"it.only("},
+			remain: []string{"log("},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

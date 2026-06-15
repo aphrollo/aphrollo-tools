@@ -11,12 +11,17 @@ package tdd
 //
 // Handled: single quotes, double quotes, backticks (JS template / Go raw
 // strings), C-style line (//) and block (/* */) comments, and shell/Python
-// `#` line comments. This is a deliberately small lexer, not a full
-// multi-language parser: escaped quotes inside strings and the executable
-// `${...}` inside JS template literals are not special-cased. That is
-// acceptable because masking only ever makes a gate MORE permissive (it can
-// hide a real smell, never invent one), and the authoritative TDD wall lives
-// at commit/push, not at edit time.
+// `#` line comments. A backslash-escaped byte inside a '...' or "..." string
+// is skipped, so a string like "say \"x\"" does not terminate early at the
+// escaped quote and leak its tail as code — without that, an escaped quote
+// could EXPOSE a smell and cause a false edit-time block. Backticks are raw
+// (no escapes), so escapes are not processed there.
+//
+// This is a deliberately small lexer, not a full multi-language parser: the
+// executable `${...}` inside JS template literals is not special-cased. That
+// is acceptable because masking only ever makes a gate MORE permissive — it
+// can hide a real smell, never invent one — and the authoritative TDD wall
+// lives at commit/push, not at edit time.
 func mask(src string) string {
 	b := []byte(src)
 	n := len(b)
@@ -29,7 +34,16 @@ func mask(src string) string {
 		switch b[i] {
 		case '\'', '"', '`':
 			quote := b[i]
+			escapes := quote != '`' // backticks are raw strings
 			for i++; i < n && b[i] != quote; i++ {
+				if escapes && b[i] == '\\' {
+					blank(i) // blank the backslash AND the escaped byte, so an
+					i++       // escaped quote can't end the string early
+					if i < n {
+						blank(i)
+					}
+					continue
+				}
 				blank(i)
 			}
 		case '/':

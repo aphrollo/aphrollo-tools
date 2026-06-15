@@ -10,30 +10,30 @@ func TestClassifyOutcome(t *testing.T) {
 		name        string
 		passed      bool
 		output      string
-		kind        Kind
 		prevFailing []string
 		want        Outcome
 	}{
-		{"clean source pass", true, "ok  pkg  0.1s\nPASS", Source, nil, Green},
-		{"pass with warnings", true, "PASS\nwarning: unused import", Source, nil, GreenWithWarnings},
+		{"clean pass", true, "ok  pkg  0.1s\nPASS", nil, Green},
+		{"pass with warnings", true, "PASS\nwarning: unused import", nil, GreenWithWarnings},
+		// A passing test edit is GREEN, not a tautology guess — post-edit can't
+		// know if the impl pre-existed (backfill/split/refactor all pass).
+		{"passing test edit is green", true, "ok\nPASS", nil, Green},
 		// The 0-tests false-GREEN fix, across runners.
-		{"go no tests", true, "testing: warning: no tests to run\nPASS", Source, nil, WritingTest},
-		{"pytest 0 collected", true, "collected 0 items", Source, nil, WritingTest},
-		{"vitest 0 tests", true, "Test Files  no tests\n0 tests", Source, nil, WritingTest},
-		// A test that passes immediately never went RED first.
-		{"test edit passes", true, "ok\nPASS", Test, nil, RedTautology},
+		{"go no tests", true, "testing: warning: no tests to run\nPASS", nil, WritingTest},
+		{"pytest 0 collected", true, "collected 0 items", nil, WritingTest},
+		{"vitest 0 tests", true, "Test Files  no tests\n0 tests", nil, WritingTest},
 		// Failures.
-		{"missing impl is clean red", false, "./x_test.go:9: undefined: NewWidget", Source, nil, RedMissingImpl},
-		{"python import is bogus", false, "ERROR collecting tests/x.py\nModuleNotFoundError: no module named 'q'", Source, nil, RedBogus},
-		{"syntax error is bogus", false, "SyntaxError: invalid syntax", Source, nil, RedBogus},
-		{"plain assertion failure", false, "--- FAIL: TestThing\n  want 1 got 2", Source, nil, Red},
+		{"missing impl is clean red", false, "./x_test.go:9: undefined: NewWidget", nil, RedMissingImpl},
+		{"python import is bogus", false, "ERROR collecting tests/x.py\nModuleNotFoundError: no module named 'q'", nil, RedBogus},
+		{"syntax error is bogus", false, "SyntaxError: invalid syntax", nil, RedBogus},
+		{"plain assertion failure", false, "--- FAIL: TestThing\n  want 1 got 2", nil, Red},
 		// Pre-existing failure → no-delta (don't nag).
-		{"no new failures", false, "--- FAIL: TestOld\n want x", Source, []string{"TestOld"}, NoDelta},
-		{"a new failure breaks no-delta", false, "--- FAIL: TestNew\n want x", Source, []string{"TestOld"}, Red},
+		{"no new failures", false, "--- FAIL: TestOld\n want x", []string{"TestOld"}, NoDelta},
+		{"a new failure breaks no-delta", false, "--- FAIL: TestNew\n want x", []string{"TestOld"}, Red},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := ClassifyOutcome(c.passed, c.output, c.kind, c.prevFailing); got != c.want {
+			if got := ClassifyOutcome(c.passed, c.output, c.prevFailing); got != c.want {
 				t.Fatalf("ClassifyOutcome = %q, want %q", got, c.want)
 			}
 		})
@@ -62,7 +62,7 @@ func TestExtractFailingTests(t *testing.T) {
 }
 
 func TestOutcome_IsRed(t *testing.T) {
-	red := []Outcome{RedTautology, RedMissingImpl, RedBogus, Red}
+	red := []Outcome{RedMissingImpl, RedBogus, Red}
 	for _, o := range red {
 		if !o.IsRed() {
 			t.Errorf("%q should be red", o)

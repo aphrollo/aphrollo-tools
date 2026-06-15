@@ -60,6 +60,7 @@ func TestSmell_FocusedTest(t *testing.T) {
 		"context.only = 5",     // property assignment, not a focused call
 		"// it.only is banned", // mention in a comment
 		`s = "use fit() for focus"`, // mention in a string
+		`log("say \"it.only(\" now")`, // escaped quotes must not leak the marker as code
 		"it('x', () => {})",    // ordinary test
 	}
 	for _, src := range allowed {

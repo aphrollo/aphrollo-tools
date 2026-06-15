@@ -81,7 +81,7 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 	}
 
 	res := run(runner, root)
-	outcome := ClassifyOutcome(res.Passed, res.Output, kind, prevFailing)
+	outcome := ClassifyOutcome(res.Passed, res.Output, prevFailing)
 	failing := ExtractFailingTests(res.Output)
 
 	if state != nil {
@@ -121,8 +121,6 @@ func guidance(o Outcome) string {
 	switch o {
 	case RedMissingImpl:
 		return "✓ Clean RED — the symbol under test is undefined. Write the minimum implementation."
-	case RedTautology:
-		return "✗ Test PASSED without an implementation. Rework it to exercise the missing behavior."
 	case RedBogus:
 		return "✗ Test setup is broken (syntax/import/collection). Fix the test before the implementation."
 	default:
