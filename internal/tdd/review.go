@@ -155,12 +155,15 @@ func renderFindings(findings []Finding) string {
 }
 
 // ClaudeReviewer is the production Reviewer: it runs the Claude CLI in headless
-// print mode, feeding the prompt on stdin, with a bounded timeout.
+// print mode, feeding the prompt on stdin, with a bounded timeout. The model is
+// pinned to sonnet: the review is high-volume (every push) and the box shares a
+// single Max quota across operator + agent sessions, so the gate must not burn
+// the top-tier model on routine diffs.
 func ClaudeReviewer(timeout time.Duration) Reviewer {
 	return func(prompt string) (string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, "claude", "-p")
+		cmd := exec.CommandContext(ctx, "claude", "-p", "--model", "sonnet")
 		cmd.Stdin = strings.NewReader(prompt)
 		out, err := cmd.Output()
 		if err != nil {
