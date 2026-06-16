@@ -47,6 +47,9 @@ func TestCleanGitEnv_StripsGitVars(t *testing.T) {
 
 func gitInit(t *testing.T, dir string) {
 	t.Helper()
+	// Isolate git config so the operator box's global core.hooksPath (the
+	// aphrollo tdd gate) does not recurse into this fixture's setup commits.
+	isolateGitConfig(t)
 	for _, args := range [][]string{
 		{"init", "-q"},
 		{"config", "user.email", "t@t"},
