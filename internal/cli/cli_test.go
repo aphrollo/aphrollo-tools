@@ -3,17 +3,30 @@ package cli
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// `tdd init` writes the session hooks into the given config dir and is
+// isolateGit points git's global/system config at temp files so a test that
+// runs `tdd init` never mutates the runner's real ~/.gitconfig.
+func isolateGit(t *testing.T) {
+	t.Helper()
+	gc := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(gc, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", gc)
+	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+}
+
+// `tdd init --no-git` writes the session hooks into the given config dir and is
 // reversible with --uninstall.
 func TestRun_TDDInit(t *testing.T) {
 	dir := t.TempDir()
 	var out, errb bytes.Buffer
-	code := Run([]string{"tdd", "init", "--config-dir", dir, "--bin", "/usr/local/bin/aphrollo"},
+	code := Run([]string{"tdd", "init", "--config-dir", dir, "--bin", "/usr/local/bin/aphrollo", "--no-git"},
 		strings.NewReader(""), &out, &errb)
 	if code != 0 {
 		t.Fatalf("init exit = %d, want 0\nstderr: %s", code, errb.String())
@@ -28,7 +41,7 @@ func TestRun_TDDInit(t *testing.T) {
 
 	out.Reset()
 	errb.Reset()
-	code = Run([]string{"tdd", "init", "--config-dir", dir, "--uninstall"},
+	code = Run([]string{"tdd", "init", "--config-dir", dir, "--uninstall", "--no-git"},
 		strings.NewReader(""), &out, &errb)
 	if code != 0 {
 		t.Fatalf("uninstall exit = %d, want 0\nstderr: %s", code, errb.String())
@@ -36,6 +49,41 @@ func TestRun_TDDInit(t *testing.T) {
 	data, _ = os.ReadFile(filepath.Join(dir, "settings.json"))
 	if strings.Contains(string(data), "aphrollo tdd") {
 		t.Errorf("uninstall left hooks behind:\n%s", data)
+	}
+}
+
+// `tdd init` (no --no-git) also installs the git gate: shims plus a global
+// core.hooksPath. One command sets up everything.
+func TestRun_TDDInit_GitGate(t *testing.T) {
+	isolateGit(t)
+	cfg := t.TempDir()
+	hooks := filepath.Join(t.TempDir(), "githooks")
+	var out, errb bytes.Buffer
+	code := Run([]string{"tdd", "init", "--config-dir", cfg, "--git-hooks-dir", hooks, "--bin", "/usr/local/bin/aphrollo"},
+		strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("init exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	if _, err := os.Stat(filepath.Join(hooks, "pre-commit")); err != nil {
+		t.Errorf("pre-commit shim not installed: %v", err)
+	}
+	hp, _ := exec.Command("git", "config", "--global", "--get", "core.hooksPath").Output()
+	if strings.TrimSpace(string(hp)) != hooks {
+		t.Errorf("core.hooksPath = %q, want %q", strings.TrimSpace(string(hp)), hooks)
+	}
+
+	out.Reset()
+	errb.Reset()
+	if code := Run([]string{"tdd", "init", "--config-dir", cfg, "--git-hooks-dir", hooks, "--uninstall"},
+		strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("uninstall exit = %d: %s", code, errb.String())
+	}
+	if _, err := os.Stat(filepath.Join(hooks, "pre-commit")); !os.IsNotExist(err) {
+		t.Error("pre-commit shim survived uninstall")
+	}
+	hp, _ = exec.Command("git", "config", "--global", "--get", "core.hooksPath").Output()
+	if strings.TrimSpace(string(hp)) != "" {
+		t.Errorf("core.hooksPath still set after uninstall: %q", strings.TrimSpace(string(hp)))
 	}
 }
 
