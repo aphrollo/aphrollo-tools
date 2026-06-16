@@ -15,10 +15,8 @@ name: Pipeline
 # reaches that gate.
 
 on:
+  # No push trigger: PR-only repo (branch protection enforces PR), and tools deploys via aphrollo-infra, not on push — so a push-to-main re-run would be pure duplicate of the PR run.
   pull_request:
-    paths-ignore: ['**.md', 'docs/**', 'LICENSE*', '.gitignore']
-  push:
-    branches: [main]
     paths-ignore: ['**.md', 'docs/**', 'LICENSE*', '.gitignore']
   workflow_dispatch:
 
@@ -82,9 +80,26 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Install Opengrep
+        # Replaces the fragile `curl install.sh | bash` with a SHA-pinned binary download.
+        env:
+          OPENGREP_VERSION: v1.21.0
+          OPENGREP_SHA256: 9ed0ceee4a3a406d27d40894bcce85ea151be21e6d4b180689689224faff2a3e
         run: |
-          curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/v1.21.0/install.sh \
-            | bash -s -- -v v1.21.0
+          set -euo pipefail
+          DEST="$HOME/.opengrep/cli/${OPENGREP_VERSION}"
+          mkdir -p "$DEST"
+          if [ ! -x "$DEST/opengrep" ]; then
+            curl -fsSL --retry 3 --retry-delay 2 \
+              "https://github.com/opengrep/opengrep/releases/download/${OPENGREP_VERSION}/opengrep_manylinux_x86" \
+              -o "$DEST/opengrep.tmp"
+            echo "${OPENGREP_SHA256}  $DEST/opengrep.tmp" | sha256sum -c -
+            chmod +x "$DEST/opengrep.tmp"
+            mv "$DEST/opengrep.tmp" "$DEST/opengrep"
+          fi
+          # Verify on every run, not just first download — a binary pre-planted
+          # on the persistent self-hosted-runner $HOME would otherwise run unverified.
+          echo "${OPENGREP_SHA256}  $DEST/opengrep" | sha256sum -c -
+          ln -sfn "$DEST" "$HOME/.opengrep/cli/latest"
       - name: Opengrep scan
         run: |
           ~/.opengrep/cli/latest/opengrep scan \
