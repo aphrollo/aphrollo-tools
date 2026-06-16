@@ -182,6 +182,70 @@ with `--svc`. `--into` matches a non-default `prepare --into`. Env overrides
 (symlink dir), `APHROLLO_DEV_SUDO=0` (drop the `sudo` prefix; root drops it
 automatically).
 
+### Return the dev tier to the main clone (unclaim)
+
+`unclaim` is the inverse of `claim`: it repoints `.devclaim/<key>` back at the
+repo's **main clone** and restarts the dev unit, so the tier stops serving a
+worktree. Same privilege model as `claim` — the symlink repoint is unprivileged,
+the restart is the one fenced `dev.Restart` atom — and the same dry-run/`--apply`
+contract.
+
+```sh
+aphrollo workspace unclaim                       # cwd-aware (run from inside the worktree)
+aphrollo workspace unclaim ~/spaces/aphrollo/aphrollo-web feat/kanban --apply
+# unclaimed: dev-rlndx now serves ~/spaces/aphrollo/aphrollo-web
+```
+
+### Git verbs — commit / push / pr / ship
+
+These fold the mechanical git/`gh` dance into one command that emits **precise,
+deterministic feedback** (sha + delta, ahead-count + URL, PR number), so a coder
+session lands a change without spending a tool call each on `git add`, `git
+commit`, `git push`, parsing the output, and `gh pr create`. They default to the
+worktree you are **standing in** (zero args); pass `<repo> <branch>` to drive a
+prepared worktree from outside it (symmetric with `prepare`/`claim`). All are
+dry-run by default; `--apply` executes.
+
+```sh
+# commit: stage (-A) + commit, honoring the TDD pre-commit gate
+aphrollo workspace commit -m "feat: kanban drag-and-drop" --apply
+# committed a1b2c3d on feat/kanban: feat: kanban drag-and-drop
+#   3 files changed, 42 insertions(+), 7 deletions(-)
+
+aphrollo workspace push --apply          # git push -u origin HEAD
+# pushed feat/kanban -> origin (2 commit(s))
+#   https://github.com/aphrollo/aphrollo-web/tree/feat/kanban
+
+aphrollo workspace pr --apply            # open (or reuse) the GitHub PR
+# opened PR #321: https://github.com/aphrollo/aphrollo-web/pull/321  (main <- feat/kanban)
+
+aphrollo workspace ship -m "feat: kanban" --apply   # commit -> push -> pr in one shot
+```
+
+- **commit** stages `git add -A` by default (`--staged-only` to commit the index
+  as-is) and runs the [TDD pre-commit gate](#tdd-gates-aphrollo-tdd); `--no-verify`
+  is the documented escape for the gate's known false-positives. A clean tree is a
+  reported no-op, not an error.
+- **push** sets the upstream on a first push and reports the ahead-count and the
+  branch's github URL; `--force-with-lease` for a rebased branch.
+- **pr** is idempotent — an existing open PR for the branch is reported, never
+  duplicated. `--base` (default `main`), `--title`/`--body` (default: filled from
+  the commits by `gh`), `--draft`. Needs the branch pushed first (it points you at
+  `push` if not).
+- **ship** chains the three behind one command, stopping at the first failure so a
+  partial result (e.g. committed but not pushed) is resumable by the discrete verbs.
+
+### Clean up stale worktrees (prune)
+
+`prune` drops the admin records of worktrees whose directories are gone
+(`git worktree prune`). git's own `--dry-run` does the preview, so it maps onto
+the dry-run/`--apply` contract — and reports each stale entry by path:
+
+```sh
+aphrollo workspace prune                 # dry-run: "would prune N stale worktree(s)"
+aphrollo workspace prune --apply         # "pruned N stale worktree(s)"
+```
+
 ### Dev-tier control plane (`aphrollo dev`)
 
 Start/stop/restart the `aphrollo-dev` systemd stack and read its status/logs.
@@ -335,7 +399,7 @@ internal/lsp/        LSP types + JSON-RPC stdio client (framing, Conn, edits)
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy (block long waits, warn on noisy output)
 internal/tdd/        TDD gates: policy engine, edit smells, anti-cheat, RED/GREEN, fail-first, review, install
-internal/workspace/  worktree prepare/claim/list/remove (safe.directory + deps, dev-tier claim)
+internal/workspace/  worktree lifecycle (prepare/claim/unclaim/list/remove/prune) + git verbs (commit/push/pr/ship)
 internal/dev/        dev-tier control plane: up/down/restart/status/logs (systemd)
 ```
 
