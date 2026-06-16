@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 )
 
 // managedEvent is one Claude Code hook event aphrollo tdd installs into
@@ -104,6 +107,51 @@ func StripSettings(existing []byte) ([]byte, bool, error) {
 		return nil, false, err
 	}
 	return after, !bytes.Equal(before, after), nil
+}
+
+// InitSettings installs (or, with uninstall=true, removes) the aphrollo tdd
+// session hooks in configDir/settings.json, pointing them at the bin path. It
+// creates the file when installing into a fresh dir, backs up any existing file
+// before rewriting it, and is a no-op when nothing would change. Returns whether
+// the file was modified.
+func InitSettings(configDir, bin string, uninstall bool) (bool, error) {
+	path := filepath.Join(configDir, "settings.json")
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return false, fmt.Errorf("reading %s: %w", path, err)
+	}
+	existed := err == nil
+
+	var out []byte
+	var changed bool
+	if uninstall {
+		if !existed {
+			return false, nil
+		}
+		out, changed, err = StripSettings(existing)
+	} else {
+		out, changed, err = PatchSettings(existing, bin)
+	}
+	if err != nil {
+		return false, err
+	}
+	if !changed {
+		return false, nil
+	}
+
+	if existed {
+		backup := fmt.Sprintf("%s.pre-tdd-%d", path, time.Now().Unix())
+		if err := os.WriteFile(backup, existing, 0o644); err != nil {
+			return false, fmt.Errorf("writing backup %s: %w", backup, err)
+		}
+	}
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return false, err
+	}
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		return false, fmt.Errorf("writing %s: %w", path, err)
+	}
+	return true, nil
 }
 
 // group renders the canonical hook group for this event.
