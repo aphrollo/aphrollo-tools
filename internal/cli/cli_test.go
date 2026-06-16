@@ -250,6 +250,42 @@ func TestRun_Workspace_UnknownSub(t *testing.T) {
 	}
 }
 
+func TestRun_Workspace_Commit_MissingMessage(t *testing.T) {
+	var out, errb bytes.Buffer
+	// In this repo's worktree, cwd-resolution succeeds but the empty -m is rejected.
+	code := Run([]string{"workspace", "commit"}, strings.NewReader(""), &out, &errb)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1 (missing message)", code)
+	}
+	if !strings.Contains(errb.String(), "message") {
+		t.Fatalf("stderr should mention the missing commit message:\n%s", errb.String())
+	}
+}
+
+func TestRun_Workspace_GitVerb_TooManyPositionals(t *testing.T) {
+	var out, errb bytes.Buffer
+	// push accepts 0 or 2 positionals; three is a usage error.
+	code := Run([]string{"workspace", "push", "a", "b", "c"}, strings.NewReader(""), &out, &errb)
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(errb.String(), "<repo> <branch>") {
+		t.Fatalf("stderr should explain the addressing modes:\n%s", errb.String())
+	}
+}
+
+func TestRun_Workspace_Help_ListsNewVerbs(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"workspace", "help"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	for _, verb := range []string{"unclaim", "commit", "push", "pr", "ship", "prune"} {
+		if !strings.Contains(out.String(), verb) {
+			t.Errorf("workspace help missing %q:\n%s", verb, out.String())
+		}
+	}
+}
+
 func TestRun_Dev_NoSub_ShowsUsage(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := Run([]string{"dev"}, strings.NewReader(""), &out, &errb); code != 2 {
