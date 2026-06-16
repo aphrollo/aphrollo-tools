@@ -235,6 +235,37 @@ aphrollo workspace ship -m "feat: kanban" --apply   # commit -> push -> pr in on
 - **ship** chains the three behind one command, stopping at the first failure so a
   partial result (e.g. committed but not pushed) is resumable by the discrete verbs.
 
+### Close the loop — merge / cleanup
+
+After review, `merge` lands the branch's PR and `cleanup` tears down the local
+worktree, so a coder owns the change end-to-end without dropping to raw `gh` and
+`git worktree`:
+
+```sh
+aphrollo workspace merge --apply         # gh pr merge --squash --delete-branch
+# merged PR #321 (squash): https://github.com/aphrollo/aphrollo-web/pull/321
+#   deleted branch feat/kanban
+#   next: aphrollo workspace cleanup feat/kanban --apply
+
+aphrollo workspace cleanup feat/kanban --apply   # git worktree remove + prune
+# removed worktree …/.worktrees/aphrollo-web/feat-kanban
+```
+
+- **merge** resolves the branch's open PR (reusing the `pr` gh seam) and merges it,
+  **honoring GitHub's gates** — gh refuses a non-mergeable or red-CI PR, and `merge`
+  never passes `--admin`, so it cannot force past a failing check. `--squash`
+  (default) / `--merge` / `--rebase`; `--keep-branch` to skip the branch delete.
+  It deliberately does **not** touch the local worktree — that is `cleanup`'s job.
+- **cleanup** folds `git worktree remove` + `prune` into one post-merge call. It
+  takes `[repo] <branch>` (repo defaults to the cwd's main clone) and **refuses to
+  remove the worktree you are standing in** — it points you at the main clone
+  rather than yanking your own cwd out from under you. `--force` removes a tree
+  with local changes.
+
+> Merge stays a deliberate step: in the hub-and-spoke flow it is gated on the
+> operator's "ship" + green CI, so a coder runs `merge` on instruction, not
+> reflexively. The verb just makes the mechanical step one lossless call.
+
 ### Clean up stale worktrees (prune)
 
 `prune` drops the admin records of worktrees whose directories are gone
@@ -399,7 +430,7 @@ internal/lsp/        LSP types + JSON-RPC stdio client (framing, Conn, edits)
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy (block long waits, warn on noisy output)
 internal/tdd/        TDD gates: policy engine, edit smells, anti-cheat, RED/GREEN, fail-first, review, install
-internal/workspace/  worktree lifecycle (prepare/claim/unclaim/list/remove/prune) + git verbs (commit/push/pr/ship)
+internal/workspace/  worktree lifecycle (prepare/claim/unclaim/list/remove/prune/cleanup) + git verbs (commit/push/pr/ship/merge)
 internal/dev/        dev-tier control plane: up/down/restart/status/logs (systemd)
 ```
 

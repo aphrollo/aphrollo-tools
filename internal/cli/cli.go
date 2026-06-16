@@ -560,11 +560,18 @@ Git verbs (act on the CURRENT worktree, or pass [repo] [branch] to target one):
   pr                        Open (or reuse) a GitHub PR for the branch
                             (dry-run; --apply; --base, --title, --body, --draft)
   ship -m <msg>             commit → push → pr in one shot (dry-run; --apply)
+  merge                     Merge the branch's PR via gh, honoring CI/mergeable
+                            (dry-run; --apply; --squash|--merge|--rebase, --keep-branch)
+  cleanup [repo] <branch>   git worktree remove + prune in one call, post-merge
+                            (dry-run; --apply; --force)
 
 The worktree lands at <repo-parent>/.worktrees/<repo-name>/<branch-slug> — the
 same layout aphrollo-dev uses, so a prepared worktree can later be claimed. The
 git verbs default to the worktree you are standing in; an explicit <repo>
 <branch> targets the prepared worktree from outside it.
+
+A typical loop: prepare <repo> <branch> --apply → cd in → edit/test →
+ship -m "…" --apply → (review) → merge --apply → cleanup <branch> --apply.
 `
 
 func runWorkspace(args []string, stdout, stderr io.Writer) int {
@@ -596,10 +603,105 @@ func runWorkspace(args []string, stdout, stderr io.Writer) int {
 		return runWorkspacePR(args[1:], stdout, stderr)
 	case "ship":
 		return runWorkspaceShip(args[1:], stdout, stderr)
+	case "merge":
+		return runWorkspaceMerge(args[1:], stdout, stderr)
+	case "cleanup":
+		return runWorkspaceCleanup(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "aphrollo workspace: unknown subcommand %q\n\n%s", args[0], workspaceUsage)
 		return 2
 	}
+}
+
+func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("merge", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var (
+		apply  = fs.Bool("apply", false, "merge the PR (default: print the plan and stop)")
+		squash = fs.Bool("squash", false, "squash-merge (default)")
+		mergeC = fs.Bool("merge", false, "create a merge commit")
+		rebase = fs.Bool("rebase", false, "rebase-merge")
+		keep   = fs.Bool("keep-branch", false, "keep the PR branch (default: delete it)")
+		into   = fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
+	)
+	pos, err := parseFlagsAnywhere(fs, args)
+	if err != nil {
+		return 2
+	}
+	method := "squash"
+	switch {
+	case *mergeC && !*squash && !*rebase:
+		method = "merge"
+	case *rebase && !*squash && !*mergeC:
+		method = "rebase"
+	case boolCount(*squash, *mergeC, *rebase) > 1:
+		fmt.Fprintln(stderr, "aphrollo: choose one of --squash | --merge | --rebase")
+		return 2
+	}
+	t, ok := resolveVerbTarget(pos, *into, stderr)
+	if !ok {
+		return 2
+	}
+	m, err := workspace.MergePlan(t, method, !*keep)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, m.Render(*apply))
+	if !*apply {
+		return 0
+	}
+	if err := m.Apply(stdout, stderr); err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runWorkspaceCleanup(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("cleanup", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var (
+		apply = fs.Bool("apply", false, "remove the worktree and prune (default: print the plan)")
+		force = fs.Bool("force", false, "remove even with untracked/modified files")
+		into  = fs.String("into", "", "base dir for worktrees (with positional <repo>)")
+	)
+	pos, err := parseFlagsAnywhere(fs, args)
+	if err != nil {
+		return 2
+	}
+	var repo, branch string
+	switch len(pos) {
+	case 1:
+		branch = pos[0] // repo derived from the cwd's main clone
+	case 2:
+		repo, branch = pos[0], pos[1]
+	default:
+		fmt.Fprintln(stderr, "aphrollo: usage: workspace cleanup [repo] <branch>")
+		return 2
+	}
+	c, err := workspace.CleanupPlan(repo, branch, *into, *force)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	if err := c.Run(*apply, stdout, stderr); err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// boolCount counts how many of the given flags are set — used to reject
+// mutually-exclusive flag combinations.
+func boolCount(bs ...bool) int {
+	n := 0
+	for _, b := range bs {
+		if b {
+			n++
+		}
+	}
+	return n
 }
 
 // resolveVerbTarget resolves the worktree the git verbs act on from up to two
