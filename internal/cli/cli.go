@@ -8,6 +8,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -196,6 +198,7 @@ Subcommands:
   precommit         Git pre-commit gate: fail-first + mechanical (run in the repo)
   prepush           Git pre-push gate: adversarial review of the push diff
   install           Install the git-hook shims into a repo (--repo, --apply)
+  init              Wire the session hooks into settings.json (--config-dir, --bin, --uninstall)
 
 Autonomous TDD gates. pretooluse reads the hook JSON on stdin; on a smell in a
 test file (real-time sleep, tautological assertion, focused/disabled test) it
@@ -230,6 +233,9 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "install" {
 		return runTDDInstall(args[1:], stdout, stderr)
+	}
+	if args[0] == "init" {
+		return runTDDInit(args[1:], stdout, stderr)
 	}
 
 	// precommit/prepush are git hooks: no stdin, exit non-zero to block.
@@ -332,6 +338,74 @@ func runTDDInstall(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// runTDDInit wires (or, with --uninstall, removes) the aphrollo tdd session
+// hooks in a Claude config dir's settings.json. It is the native replacement
+// for the retired claude-code-tdd install.sh: idempotent, backs up any existing
+// file, and resolves the config dir + invoked binary from sensible defaults.
+func runTDDInit(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var (
+		configDir = fs.String("config-dir", "", "Claude config dir (default: $CLAUDE_CONFIG_DIR or ~/.claude)")
+		binPath   = fs.String("bin", "", "aphrollo binary the hooks invoke (default: this executable)")
+		uninstall = fs.Bool("uninstall", false, "remove the session hooks instead of installing them")
+	)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	dir := *configDir
+	if dir == "" {
+		dir = defaultClaudeDir()
+	}
+	binName := *binPath
+	if binName == "" {
+		binName = defaultBinPath()
+	}
+
+	changed, err := tdd.InitSettings(dir, binName, *uninstall)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	path := filepath.Join(dir, "settings.json")
+	switch {
+	case !changed:
+		fmt.Fprintf(stdout, "aphrollo tdd: session hooks already up to date in %s\n", path)
+	case *uninstall:
+		fmt.Fprintf(stdout, "aphrollo tdd: removed session hooks from %s\n", path)
+	default:
+		fmt.Fprintf(stdout, "aphrollo tdd: wired session hooks in %s\n", path)
+	}
+	return 0
+}
+
+// defaultClaudeDir resolves the Claude config dir the way the CLI hooks do:
+// $CLAUDE_CONFIG_DIR if set, else ~/.claude.
+func defaultClaudeDir() string {
+	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		return d
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ".claude"
+	}
+	return filepath.Join(home, ".claude")
+}
+
+// defaultBinPath is the absolute path of the running aphrollo binary, so the
+// installed hooks invoke the same binary that wrote them.
+func defaultBinPath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "/usr/local/bin/aphrollo"
+	}
+	if abs, err := filepath.Abs(exe); err == nil {
+		return abs
+	}
+	return exe
 }
 
 func runFindReferences(args []string, stdout, stderr io.Writer) int {

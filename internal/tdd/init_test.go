@@ -140,6 +140,54 @@ func TestPatchSettings_MigratesNodeHooks(t *testing.T) {
 	}
 }
 
+// The managed-hook marker must not assume the binary is named "aphrollo": when
+// init resolves to a differently-named path (os.Executable in tests, a renamed
+// install), re-patching must still recognise and replace its own entries rather
+// than append duplicates.
+func TestPatchSettings_IdempotentWithRenamedBinary(t *testing.T) {
+	const altbin = "/opt/custom/mytool"
+	first, _, err := PatchSettings(nil, altbin)
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	second, changed, err := PatchSettings(first, altbin)
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if changed {
+		t.Errorf("re-patch with renamed binary changed the file (duplicated hooks)\n%s", second)
+	}
+	var n int
+	for _, c := range commandStrings(t, second, "PreToolUse") {
+		if strings.Contains(c, "tdd pretooluse") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("expected exactly 1 pretooluse hook, got %d\n%s", n, second)
+	}
+}
+
+// Uninstall must also recognise a renamed binary's entries.
+func TestStripSettings_RenamedBinary(t *testing.T) {
+	installed, _, err := PatchSettings(nil, "/opt/custom/mytool")
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	out, changed, err := StripSettings(installed)
+	if err != nil {
+		t.Fatalf("strip: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true stripping renamed-binary hooks")
+	}
+	for _, ev := range []string{"PreToolUse", "PostToolUse", "SessionEnd", "UserPromptSubmit"} {
+		if hasCommandContaining(t, out, ev, "tdd ") {
+			t.Errorf("%s: renamed-binary tdd entry survived strip\n%s", ev, out)
+		}
+	}
+}
+
 // Uninstall strips every aphrollo tdd entry but leaves foreign hooks intact.
 func TestStripSettings_RemovesOnlyManaged(t *testing.T) {
 	installed, _, err := PatchSettings([]byte(`{

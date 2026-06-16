@@ -28,13 +28,24 @@ var managedEvents = []managedEvent{
 	{"SessionEnd", "", "sessionend", 10},
 }
 
-// managedCmdMarkers identify a hook command this tool (or the retired
-// claude-code-tdd Node plugin) owns, so a patch can replace it without
-// touching foreign hooks like caveman. A foreign command matches none of these.
-var managedCmdMarkers = []string{"aphrollo tdd", "/hooks/tdd-", "claude-code-tdd"}
+// legacyCmdMarkers identify a hook command from the retired claude-code-tdd
+// Node plugin, so init migrates it out regardless of the path it was installed
+// at. A foreign command (e.g. caveman) matches none of these.
+var legacyCmdMarkers = []string{"/hooks/tdd-", "claude-code-tdd"}
 
+// isManagedCmd reports whether a hook command is one this tool owns. It matches
+// on the `tdd <subcommand>` invocation rather than the binary name, so a patch
+// recognises (and replaces) its own entries no matter what path the aphrollo
+// binary lives at — os.Executable in tests, /usr/local/bin/aphrollo in prod, or
+// a renamed install. Legacy Node-plugin entries are matched too, so init
+// cleanly migrates them.
 func isManagedCmd(cmd string) bool {
-	for _, m := range managedCmdMarkers {
+	for _, me := range managedEvents {
+		if strings.Contains(cmd, "tdd "+me.sub) {
+			return true
+		}
+	}
+	for _, m := range legacyCmdMarkers {
 		if strings.Contains(cmd, m) {
 			return true
 		}
