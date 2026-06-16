@@ -76,13 +76,15 @@ type Claim struct {
 	RepoKey  string // .devclaim entry: web | api
 	Worktree string
 	Symlink  string // .devclaim/<key>
+	note     string // non-empty => build-before-claim advisory (web tier)
 	steps    []claimStep
 }
 
 // ClaimPlan resolves the worktree, the dev service, and the claim sequence
 // without executing anything. svc may be "" to derive it from the repo name. It
-// errors early when the worktree is missing, pointing at prepare.
-func ClaimPlan(repo, branch, svc, into string) (*Claim, error) {
+// errors early when the worktree is missing, pointing at prepare. noMigrate
+// suppresses the api dev-DB `goose up` step.
+func ClaimPlan(repo, branch, svc, into string, noMigrate bool) (*Claim, error) {
 	if repo == "" {
 		return nil, fmt.Errorf("repo path required")
 	}
@@ -121,7 +123,7 @@ func ClaimPlan(repo, branch, svc, into string) (*Claim, error) {
 	key := repoKeyForSvc(svc)
 	symlink := filepath.Join(devclaimDir(top), key)
 
-	c := &Claim{Service: svc, RepoKey: key, Worktree: wt, Symlink: symlink}
+	c := &Claim{Service: svc, RepoKey: key, Worktree: wt, Symlink: symlink, note: buildFirstNote(svc, wt)}
 
 	// 1. Install deps if the worktree was never prepared (node-style only; Go
 	//    worktrees share the module cache, nothing to do). Skipped when present.
@@ -152,7 +154,24 @@ func ClaimPlan(repo, branch, svc, into string) (*Claim, error) {
 		},
 	})
 
-	// 3. Restart the dev unit — the one privileged atom — via the in-binary dev
+	// 3. (api only) Apply the clone's migrations to the isolated dev DB BEFORE the
+	//    restart, so the dev-api boots against the migrated schema. Without this a
+	//    clone that advanced past the dev DB makes the handlers for new
+	//    columns/tables 500 while older endpoints 200. Suppressed by --no-migrate.
+	if svc == "api" && !noMigrate {
+		step := claimStep{
+			label: "goose up (dev db) " + filepath.Join(wt, "migrations"),
+			run: func(stdout, stderr io.Writer) error {
+				return gooseUp(wt, stdout, stderr)
+			},
+		}
+		if !dirExists(filepath.Join(wt, "migrations")) {
+			step.skip = "no migrations/ dir"
+		}
+		c.steps = append(c.steps, step)
+	}
+
+	// 4. Restart the dev unit — the one privileged atom — via the in-binary dev
 	//    control plane (dev.Restart bounces aphrollo-dev-<svc> and, for rlndx,
 	//    clears the freshly-claimed tree's stale vite optimizer cache). The
 	//    privileged step is dev.Restart's own exact-match `sudo systemctl
@@ -172,6 +191,9 @@ func ClaimPlan(repo, branch, svc, into string) (*Claim, error) {
 func (c *Claim) Render(apply bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "workspace claim: %s -> dev-%s\n", c.Worktree, c.Service)
+	if c.note != "" {
+		fmt.Fprintf(&b, "  note: %s\n", c.note)
+	}
 	if apply {
 		fmt.Fprintf(&b, "\n")
 		return b.String()

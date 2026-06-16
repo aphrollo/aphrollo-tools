@@ -545,7 +545,8 @@ Lifecycle (create → claim → work → ship → clean up):
                             dry-run by default; pass --apply to execute
   claim <repo> <branch>     Put a prepared worktree on the dev tier so it is
                             viewable (dry-run; --apply to run). Wraps the
-                            privileged aphrollo-dev claim fence.
+                            privileged aphrollo-dev claim fence. (api: runs
+                            goose up on the dev DB; --no-migrate to skip.)
   unclaim [repo] [branch]   Repoint the dev tier back at the main clone + restart
                             (dry-run; --apply). Inverse of claim.
   list <repo>               List the repo's git worktrees
@@ -1094,9 +1095,10 @@ func runWorkspaceClaim(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("claim", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		apply = fs.Bool("apply", false, "execute the claim (default: print it and stop)")
-		svc   = fs.String("svc", "", "dev service to claim: rlndx|api (default: derived from repo name)")
-		into  = fs.String("into", "", "base dir for worktrees (default: <repo-parent>/.worktrees/<repo-name>)")
+		apply     = fs.Bool("apply", false, "execute the claim (default: print it and stop)")
+		svc       = fs.String("svc", "", "dev service to claim: rlndx|api (default: derived from repo name)")
+		into      = fs.String("into", "", "base dir for worktrees (default: <repo-parent>/.worktrees/<repo-name>)")
+		noMigrate = fs.Bool("no-migrate", false, "skip the api dev-DB goose-up step")
 	)
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
@@ -1106,7 +1108,7 @@ func runWorkspaceClaim(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "aphrollo: usage: workspace claim <repo> <branch>")
 		return 2
 	}
-	claim, err := workspace.ClaimPlan(pos[0], pos[1], *svc, *into)
+	claim, err := workspace.ClaimPlan(pos[0], pos[1], *svc, *into, *noMigrate)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
