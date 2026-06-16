@@ -1,0 +1,182 @@
+package tdd
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
+// managedEvent is one Claude Code hook event aphrollo tdd installs into
+// settings.json, with the matcher (empty = all) and the tdd subcommand it runs.
+type managedEvent struct {
+	event   string
+	matcher string
+	sub     string
+	timeout int
+}
+
+// managedEvents is the canonical set of session hooks `aphrollo tdd init`
+// wires. Order is stable so the marshaled settings.json is deterministic.
+var managedEvents = []managedEvent{
+	{"PreToolUse", "Edit|Write|MultiEdit|NotebookEdit", "pretooluse", 10},
+	{"PostToolUse", "Edit|Write|MultiEdit", "posttooluse", 90},
+	{"UserPromptSubmit", "", "userpromptsubmit", 10},
+	{"SessionEnd", "", "sessionend", 10},
+}
+
+// managedCmdMarkers identify a hook command this tool (or the retired
+// claude-code-tdd Node plugin) owns, so a patch can replace it without
+// touching foreign hooks like caveman. A foreign command matches none of these.
+var managedCmdMarkers = []string{"aphrollo tdd", "/hooks/tdd-", "claude-code-tdd"}
+
+func isManagedCmd(cmd string) bool {
+	for _, m := range managedCmdMarkers {
+		if strings.Contains(cmd, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// PatchSettings injects the aphrollo tdd session hooks into a settings.json
+// document, replacing any prior tdd-managed entries (including the retired Node
+// hooks) and preserving every foreign hook and top-level key. It returns the
+// new document, whether anything changed, and an error only on malformed input.
+// The output is deterministic, so a second patch over it is a no-op.
+func PatchSettings(existing []byte, bin string) ([]byte, bool, error) {
+	root, err := parseSettings(existing)
+	if err != nil {
+		return nil, false, err
+	}
+	before, err := marshalSettings(root)
+	if err != nil {
+		return nil, false, err
+	}
+
+	hooks := childMap(root, "hooks")
+	for _, me := range managedEvents {
+		kept := stripManaged(toGroups(hooks[me.event]))
+		hooks[me.event] = append(kept, me.group(bin))
+	}
+	root["hooks"] = hooks
+
+	after, err := marshalSettings(root)
+	if err != nil {
+		return nil, false, err
+	}
+	return after, !bytes.Equal(before, after), nil
+}
+
+// StripSettings removes every aphrollo tdd (and legacy Node tdd) session hook,
+// dropping events left empty, while leaving foreign hooks and other keys alone.
+func StripSettings(existing []byte) ([]byte, bool, error) {
+	root, err := parseSettings(existing)
+	if err != nil {
+		return nil, false, err
+	}
+	before, err := marshalSettings(root)
+	if err != nil {
+		return nil, false, err
+	}
+
+	hooks := childMap(root, "hooks")
+	for _, me := range managedEvents {
+		groups, ok := hooks[me.event]
+		if !ok {
+			continue
+		}
+		kept := stripManaged(toGroups(groups))
+		if len(kept) == 0 {
+			delete(hooks, me.event)
+		} else {
+			hooks[me.event] = kept
+		}
+	}
+	if len(hooks) == 0 {
+		delete(root, "hooks")
+	} else {
+		root["hooks"] = hooks
+	}
+
+	after, err := marshalSettings(root)
+	if err != nil {
+		return nil, false, err
+	}
+	return after, !bytes.Equal(before, after), nil
+}
+
+// group renders the canonical hook group for this event.
+func (me managedEvent) group(bin string) any {
+	g := map[string]any{
+		"hooks": []any{map[string]any{
+			"type":    "command",
+			"command": fmt.Sprintf("%s tdd %s", bin, me.sub),
+			"timeout": me.timeout,
+		}},
+	}
+	if me.matcher != "" {
+		g["matcher"] = me.matcher
+	}
+	return g
+}
+
+// stripManaged drops every tdd-managed hook command from each group, removing a
+// group entirely once it holds no hooks. Foreign groups pass through untouched.
+func stripManaged(groups []any) []any {
+	var out []any
+	for _, g := range groups {
+		gm, ok := g.(map[string]any)
+		if !ok {
+			out = append(out, g)
+			continue
+		}
+		hs, _ := gm["hooks"].([]any)
+		var kept []any
+		for _, h := range hs {
+			if hm, ok := h.(map[string]any); ok {
+				if cmd, ok := hm["command"].(string); ok && isManagedCmd(cmd) {
+					continue
+				}
+			}
+			kept = append(kept, h)
+		}
+		if len(kept) == 0 {
+			continue
+		}
+		gm["hooks"] = kept
+		out = append(out, gm)
+	}
+	return out
+}
+
+func parseSettings(existing []byte) (map[string]any, error) {
+	if len(bytes.TrimSpace(existing)) == 0 {
+		return map[string]any{}, nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(existing, &m); err != nil {
+		return nil, fmt.Errorf("settings.json is not valid JSON: %w", err)
+	}
+	if m == nil {
+		m = map[string]any{}
+	}
+	return m, nil
+}
+
+func marshalSettings(m map[string]any) ([]byte, error) {
+	return json.MarshalIndent(m, "", "  ")
+}
+
+// childMap returns root[key] as a map, creating it if absent or the wrong type.
+func childMap(root map[string]any, key string) map[string]any {
+	if m, ok := root[key].(map[string]any); ok {
+		return m
+	}
+	return map[string]any{}
+}
+
+func toGroups(v any) []any {
+	g, _ := v.([]any)
+	return g
+}
