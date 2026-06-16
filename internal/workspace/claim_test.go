@@ -83,7 +83,7 @@ func TestClaimPlan_ResolvesAndRenders(t *testing.T) {
 	t.Setenv("APHROLLO_DEV_BIN", "/opt/fake/aphrollo-dev")
 	t.Setenv("APHROLLO_DEV_SUDO", "0")
 
-	c, err := ClaimPlan(repo, branch, "", "") // svc derived from web repo name
+	c, err := ClaimPlan(repo, branch, "", "", false) // svc derived from web repo name
 	if err != nil {
 		t.Fatalf("ClaimPlan: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestClaimPlan_ResolvesAndRenders(t *testing.T) {
 func TestClaimPlan_ExplicitSvcOverride(t *testing.T) {
 	repo, branch := claimRepo(t)
 	t.Setenv("APHROLLO_DEVCLAIM_DIR", t.TempDir())
-	c, err := ClaimPlan(repo, branch, "api", "")
+	c, err := ClaimPlan(repo, branch, "api", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestClaimPlan_ExplicitSvcOverride(t *testing.T) {
 
 func TestClaimPlan_BadSvcRejected(t *testing.T) {
 	repo, branch := claimRepo(t)
-	if _, err := ClaimPlan(repo, branch, "postgres", ""); err == nil {
+	if _, err := ClaimPlan(repo, branch, "postgres", "", false); err == nil {
 		t.Fatal("expected error for disallowed service")
 	}
 }
@@ -126,7 +126,7 @@ func TestClaimPlan_MissingWorktree_PointsToPrepare(t *testing.T) {
 	}
 	repo := initRepo(t) // no worktree prepared
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
-	_, err := ClaimPlan(repo, "never-prepared", "rlndx", "")
+	_, err := ClaimPlan(repo, "never-prepared", "rlndx", "", false)
 	if err == nil || !strings.Contains(err.Error(), "prepare") {
 		t.Fatalf("expected a missing-worktree error pointing at prepare, got: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestClaimPlan_CannotDeriveSvc(t *testing.T) {
 	exec.Command("git", "-C", repo, "add", ".").Run()
 	exec.Command("git", "-C", repo, "commit", "-qm", "i").Run()
 
-	_, err := ClaimPlan(repo, "br", "", "")
+	_, err := ClaimPlan(repo, "br", "", "", false)
 	if err == nil || !strings.Contains(err.Error(), "--svc") {
 		t.Fatalf("expected a derive failure asking for --svc, got: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestClaim_Apply_E2E(t *testing.T) {
 	t.Setenv("APHROLLO_DEV_SUDO", "0")
 	t.Setenv("APHROLLO_SPACES", t.TempDir())
 
-	c, err := ClaimPlan(repo, branch, "rlndx", "")
+	c, err := ClaimPlan(repo, branch, "rlndx", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestClaim_Apply_E2E(t *testing.T) {
 	}
 
 	// Idempotent: a second plan sees the symlink already points here.
-	c2, err := ClaimPlan(repo, branch, "rlndx", "")
+	c2, err := ClaimPlan(repo, branch, "rlndx", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}

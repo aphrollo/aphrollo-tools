@@ -182,6 +182,26 @@ with `--svc`. `--into` matches a non-default `prepare --into`. Env overrides
 (symlink dir), `APHROLLO_DEV_SUDO=0` (drop the `sudo` prefix; root drops it
 automatically).
 
+**Dev-tier reconciliation.** A claim repoints the dev units at a worktree that
+may have drifted from the dev tier's state, so claim reconciles two things
+before/around the restart:
+
+- **api: `goose up` on the dev DB, before the restart.** A claimed api clone can
+  carry migrations the isolated dev DB hasn't applied; without this the dev-api
+  boots against the old schema and the handlers for new columns/tables 500 while
+  older endpoints 200. claim runs `goose -dir <wt>/migrations postgres <dev-dsn>
+  up` *before* the restart so the api comes up clean. The DSN defaults to the
+  dev pg on `:5432` (`APHROLLO_DEV_DB_URL` to override), goose is resolved from
+  `APHROLLO_GOOSE_BIN` → `$PATH` → the operator's go-install path, and the whole
+  step is suppressed with `--no-migrate` or skipped when the clone has no
+  `migrations/`. Forward-only against the isolated dev pg — it never touches prod.
+- **rlndx: a build-before-claim advisory.** The dev-rlndx unit runs as `debian`
+  and generates `.svelte-kit`/`.vite`/paraglide on first serve; if the coder
+  hasn't built/tested the worktree first, those land debian-owned and EACCES the
+  coder's tooling. claim prints a one-line nudge when the worktree looks unbuilt
+  (no `.svelte-kit`). The root-cause fix is `UMask=0002` on the dev units
+  (aphrollo-infra); this advisory is the guardrail until that deploys.
+
 ### Return the dev tier to the main clone (unclaim)
 
 `unclaim` is the inverse of `claim`: it repoints `.devclaim/<key>` back at the
