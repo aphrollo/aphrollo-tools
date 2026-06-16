@@ -290,29 +290,36 @@ Every detector runs against a masked copy of the source. Smell detectors mask
 strings **and** comments (so a smell named in prose never trips); suppression
 detectors mask strings but **keep comments** (the directives live in comments).
 Either way a token mentioned only in a string never blocks — the original's
-biggest false-positive class. Install the git hooks per-repo (never a global
-`core.hooksPath`):
+biggest false-positive class.
+
+## Setup — `aphrollo tdd init`
+
+One command wires the whole gate — the native replacement for
+`claude-code-tdd`'s `install.sh`:
 
 ```sh
-aphrollo tdd install                 # dry-run: show what would be written
-aphrollo tdd install --apply         # write .git/hooks/{pre-commit,pre-push}
+aphrollo tdd init                    # session hooks + global git gate
+aphrollo tdd init --no-git           # session hooks only (skip the git gate)
+aphrollo tdd init --uninstall        # remove everything again
 ```
 
-The Claude session hooks (`pretooluse` / `posttooluse` / `userpromptsubmit` /
-`sessionend`) are wired into `settings.json` by one command — the native
-replacement for `claude-code-tdd`'s `install.sh`:
+`init` does two things:
 
-```sh
-aphrollo tdd init                    # patch ~/.claude/settings.json (or $CLAUDE_CONFIG_DIR)
-aphrollo tdd init --uninstall        # remove them again
-```
+1. **Session hooks** — patches `settings.json` (`$CLAUDE_CONFIG_DIR` or
+   `~/.claude`) so `pretooluse` / `posttooluse` / `userpromptsubmit` /
+   `sessionend` invoke the binary. Idempotent (a no-op re-run rewrites
+   nothing), backs up any existing file, preserves foreign hooks (caveman) and
+   other keys, and migrates out old Node `tdd-*.js` entries.
+2. **Git gate** — writes the `pre-commit` / `pre-push` shims into
+   `~/.config/git/hooks` (or `--git-hooks-dir`) and points git's global
+   `core.hooksPath` at them, so every repo is gated. Hand-written hooks are
+   never clobbered. `--no-git` skips this layer.
 
-`init` is idempotent (a re-run that changes nothing rewrites nothing), backs up
-any existing `settings.json` before patching, and preserves foreign hooks
-(caveman) and other keys. It resolves the invoking binary via `os.Executable`,
-so the installed hooks call the same binary that wrote them; ansible runs it
-once per session HOME (operator + coder + devops). Old Node `tdd-*.js` entries
-are migrated out automatically.
+It resolves the invoking binary via `os.Executable`, so the installed hooks
+call the same binary that wrote them; ansible runs it once per session HOME.
+
+For a single repo without the global gate, `aphrollo tdd install --apply` writes
+the same shims into that repo's `.git/hooks` instead (opt-in, no `core.hooksPath`).
 
 Mutation testing is intentionally **not** ported: it was the documented
 false-positive/non-determinism offender, and the fail-first + review gates cover

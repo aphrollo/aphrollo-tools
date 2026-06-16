@@ -198,7 +198,7 @@ Subcommands:
   precommit         Git pre-commit gate: fail-first + mechanical (run in the repo)
   prepush           Git pre-push gate: adversarial review of the push diff
   install           Install the git-hook shims into a repo (--repo, --apply)
-  init              Wire the session hooks into settings.json (--config-dir, --bin, --uninstall)
+  init              Set up TDD: session hooks in settings.json + the global git gate (--no-git, --uninstall)
 
 Autonomous TDD gates. pretooluse reads the hook JSON on stdin; on a smell in a
 test file (real-time sleep, tautological assertion, focused/disabled test) it
@@ -348,9 +348,11 @@ func runTDDInit(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		configDir = fs.String("config-dir", "", "Claude config dir (default: $CLAUDE_CONFIG_DIR or ~/.claude)")
-		binPath   = fs.String("bin", "", "aphrollo binary the hooks invoke (default: this executable)")
-		uninstall = fs.Bool("uninstall", false, "remove the session hooks instead of installing them")
+		configDir   = fs.String("config-dir", "", "Claude config dir (default: $CLAUDE_CONFIG_DIR or ~/.claude)")
+		binPath     = fs.String("bin", "", "aphrollo binary the hooks invoke (default: this executable)")
+		gitHooksDir = fs.String("git-hooks-dir", "", "git hooks dir for the global gate (default: $XDG_CONFIG_HOME/git/hooks or ~/.config/git/hooks)")
+		noGit       = fs.Bool("no-git", false, "skip the git pre-commit/pre-push gate; wire session hooks only")
+		uninstall   = fs.Bool("uninstall", false, "remove the hooks instead of installing them")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -379,7 +381,41 @@ func runTDDInit(args []string, stdout, stderr io.Writer) int {
 	default:
 		fmt.Fprintf(stdout, "aphrollo tdd: wired session hooks in %s\n", path)
 	}
+
+	if *noGit {
+		return 0
+	}
+	gdir := *gitHooksDir
+	if gdir == "" {
+		gdir = defaultGitHooksDir()
+	}
+	gchanged, err := tdd.InitGitGate(gdir, binName, *uninstall)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	switch {
+	case !gchanged:
+		fmt.Fprintf(stdout, "aphrollo tdd: git gate already up to date (%s)\n", gdir)
+	case *uninstall:
+		fmt.Fprintf(stdout, "aphrollo tdd: removed git gate from %s\n", gdir)
+	default:
+		fmt.Fprintf(stdout, "aphrollo tdd: installed git gate in %s (core.hooksPath)\n", gdir)
+	}
 	return 0
+}
+
+// defaultGitHooksDir is where the global git gate's shims live:
+// $XDG_CONFIG_HOME/git/hooks, else ~/.config/git/hooks.
+func defaultGitHooksDir() string {
+	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
+		return filepath.Join(x, "git", "hooks")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".config", "git", "hooks")
+	}
+	return filepath.Join(home, ".config", "git", "hooks")
 }
 
 // defaultClaudeDir resolves the Claude config dir the way the CLI hooks do:
