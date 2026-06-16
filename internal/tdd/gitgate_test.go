@@ -12,6 +12,19 @@ import (
 // the test never reads or writes the real ~/.gitconfig.
 func isolateGitConfig(t *testing.T) string {
 	t.Helper()
+	// Drop the repo-pointing GIT_* vars a git hook exports (GIT_DIR,
+	// GIT_INDEX_FILE, …). Under the aphrollo tdd pre-commit gate they point at
+	// the REAL repo; without this, fixture git ops would target (and can
+	// corrupt) the real .git. Restored on cleanup.
+	for _, k := range []string{
+		"GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE",
+		"GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR", "GIT_PREFIX",
+	} {
+		if v, ok := os.LookupEnv(k); ok {
+			os.Unsetenv(k)
+			t.Cleanup(func() { os.Setenv(k, v) })
+		}
+	}
 	gc := filepath.Join(t.TempDir(), "gitconfig")
 	if err := os.WriteFile(gc, nil, 0o644); err != nil {
 		t.Fatal(err)

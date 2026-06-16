@@ -42,6 +42,13 @@ func claimRepo(t *testing.T) (string, string) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
+	// Isolate git BEFORE the first commit: drop the global core.hooksPath
+	// (aphrollo tdd gate) so it can't recurse into this fixture's setup commit,
+	// and drop the hook's GIT_DIR/GIT_INDEX_FILE so git targets this throwaway,
+	// not the real repo.
+	scrubGitEnv(t)
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
+	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
 	repo := filepath.Join(t.TempDir(), "aphrollo-web")
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
@@ -57,7 +64,6 @@ func claimRepo(t *testing.T) (string, string) {
 	os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module x\n\ngo 1.26\n"), 0o644)
 	gitRun("add", ".")
 	gitRun("commit", "-qm", "init")
-	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
 
 	plan, err := BuildPlan(Request{Repo: repo, Branch: "feat/x", NoInstall: true})
 	if err != nil {
@@ -130,6 +136,9 @@ func TestClaimPlan_CannotDeriveSvc(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
+	scrubGitEnv(t)
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
+	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
 	parent := t.TempDir()
 	repo := filepath.Join(parent, "aphrollo-lens") // no web/api token
 	if err := os.MkdirAll(repo, 0o755); err != nil {

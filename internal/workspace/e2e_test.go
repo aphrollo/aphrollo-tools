@@ -9,9 +9,35 @@ import (
 	"testing"
 )
 
+// scrubGitEnv unsets the repo-pointing GIT_* variables a git hook exports
+// (GIT_DIR, GIT_INDEX_FILE, GIT_WORK_TREE, …). When the suite runs UNDER the
+// aphrollo tdd pre-commit gate, those point at the REAL repo — without this,
+// the fixtures' git ops and production Apply's `git worktree add` would target
+// (and can corrupt) the real .git instead of the throwaway. Restored on cleanup.
+func scrubGitEnv(t *testing.T) {
+	t.Helper()
+	for _, k := range []string{
+		"GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE",
+		"GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR", "GIT_PREFIX",
+	} {
+		if v, ok := os.LookupEnv(k); ok {
+			os.Unsetenv(k)
+			t.Cleanup(func() { os.Setenv(k, v) })
+		}
+	}
+}
+
 // initRepo builds a throwaway git repo with one commit and returns its path.
 func initRepo(t *testing.T) string {
 	t.Helper()
+	// Isolate git BEFORE the first commit. The operator box installs a global
+	// core.hooksPath (the aphrollo tdd gate); an empty GIT_CONFIG_GLOBAL +
+	// GIT_CONFIG_SYSTEM=/dev/null drops it so the fixture commit can't recurse
+	// into the gate. scrubGitEnv drops the hook's GIT_DIR/GIT_INDEX_FILE so git
+	// targets this throwaway, not the real repo.
+	scrubGitEnv(t)
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
+	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
 	dir := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
