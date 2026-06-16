@@ -15,10 +15,8 @@ name: Pipeline
 # reaches that gate.
 
 on:
+  # No push trigger: PR-only repo (branch protection enforces PR), and tools deploys via aphrollo-infra, not on push — so a push-to-main re-run would be pure duplicate of the PR run.
   pull_request:
-    paths-ignore: ['**.md', 'docs/**', 'LICENSE*', '.gitignore']
-  push:
-    branches: [main]
     paths-ignore: ['**.md', 'docs/**', 'LICENSE*', '.gitignore']
   workflow_dispatch:
 
@@ -98,6 +96,9 @@ jobs:
             chmod +x "$DEST/opengrep.tmp"
             mv "$DEST/opengrep.tmp" "$DEST/opengrep"
           fi
+          # Verify on every run, not just first download — a binary pre-planted
+          # on the persistent self-hosted-runner $HOME would otherwise run unverified.
+          echo "${OPENGREP_SHA256}  $DEST/opengrep" | sha256sum -c -
           ln -sfn "$DEST" "$HOME/.opengrep/cli/latest"
       - name: Opengrep scan
         run: |
