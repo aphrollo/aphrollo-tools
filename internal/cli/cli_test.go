@@ -2,9 +2,42 @@ package cli
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// `tdd init` writes the session hooks into the given config dir and is
+// reversible with --uninstall.
+func TestRun_TDDInit(t *testing.T) {
+	dir := t.TempDir()
+	var out, errb bytes.Buffer
+	code := Run([]string{"tdd", "init", "--config-dir", dir, "--bin", "/usr/local/bin/aphrollo"},
+		strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("init exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "settings.json"))
+	if err != nil {
+		t.Fatalf("settings.json not written: %v", err)
+	}
+	if !strings.Contains(string(data), "/usr/local/bin/aphrollo tdd pretooluse") {
+		t.Errorf("settings.json missing wired hook:\n%s", data)
+	}
+
+	out.Reset()
+	errb.Reset()
+	code = Run([]string{"tdd", "init", "--config-dir", dir, "--uninstall"},
+		strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("uninstall exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	data, _ = os.ReadFile(filepath.Join(dir, "settings.json"))
+	if strings.Contains(string(data), "aphrollo tdd") {
+		t.Errorf("uninstall left hooks behind:\n%s", data)
+	}
+}
 
 func TestRun_NoArgs_ShowsUsage(t *testing.T) {
 	var out, errb bytes.Buffer

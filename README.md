@@ -298,11 +298,25 @@ aphrollo tdd install                 # dry-run: show what would be written
 aphrollo tdd install --apply         # write .git/hooks/{pre-commit,pre-push}
 ```
 
-The Claude hooks are wired the same way as the guardrail — a `hooks` block in
-the session `--settings` payload pointing at `aphrollo tdd pretooluse` /
-`posttooluse`. Mutation testing is intentionally **not** ported: it was the
-documented false-positive/non-determinism offender, and the fail-first + review
-gates cover the same ground without the flakiness.
+The Claude session hooks (`pretooluse` / `posttooluse` / `userpromptsubmit` /
+`sessionend`) are wired into `settings.json` by one command — the native
+replacement for `claude-code-tdd`'s `install.sh`:
+
+```sh
+aphrollo tdd init                    # patch ~/.claude/settings.json (or $CLAUDE_CONFIG_DIR)
+aphrollo tdd init --uninstall        # remove them again
+```
+
+`init` is idempotent (a re-run that changes nothing rewrites nothing), backs up
+any existing `settings.json` before patching, and preserves foreign hooks
+(caveman) and other keys. It resolves the invoking binary via `os.Executable`,
+so the installed hooks call the same binary that wrote them; ansible runs it
+once per session HOME (operator + coder + devops). Old Node `tdd-*.js` entries
+are migrated out automatically.
+
+Mutation testing is intentionally **not** ported: it was the documented
+false-positive/non-determinism offender, and the fail-first + review gates cover
+the same ground without the flakiness.
 
 ## Layout
 
