@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
@@ -33,6 +34,25 @@ Commands:
 
 Run "aphrollo refactor" for refactor subcommands.
 `
+
+// commandTimeout bounds a single language-server-backed command end to end —
+// the initialize handshake and graceful shutdown included, which sit OUTSIDE
+// the per-request loading-retry budget. A hung-but-alive server (rust-analyzer
+// cold start is the canonical case) keeps its stdout open, so without a deadline
+// the JSON-RPC read loop never unblocks and the CLI wedges forever.
+const commandTimeout = 120 * time.Second
+
+// commandContext derives the context for a refactor command: cancelled on the
+// first interrupt (Ctrl-C) and bounded by commandTimeout so nothing hangs
+// indefinitely. The returned cancel func must be deferred.
+func commandContext() (context.Context, context.CancelFunc) {
+	ctx, stopSignal := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancelTimeout := context.WithTimeout(ctx, commandTimeout)
+	return ctx, func() {
+		cancelTimeout()
+		stopSignal()
+	}
+}
 
 // Run dispatches args (excluding the program name) and returns a process exit
 // code. All output is written to the provided writers, and stdin is read from
@@ -123,7 +143,9 @@ func runRenameSymbol(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	res, err := refactor.Rename(context.Background(), refactor.RenameRequest{
+	ctx, cancel := commandContext()
+	defer cancel()
+	res, err := refactor.Rename(ctx, refactor.RenameRequest{
 		File:    *file,
 		Line:    *line,
 		Col:     *col,
@@ -484,7 +506,9 @@ func runFindReferences(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	refs, err := refactor.FindReferences(context.Background(), refactor.RefRequest{
+	ctx, cancel := commandContext()
+	defer cancel()
+	refs, err := refactor.FindReferences(ctx, refactor.RefRequest{
 		File:               *file,
 		Line:               *line,
 		Col:                *col,
@@ -518,7 +542,9 @@ func runOutline(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	syms, err := refactor.Outline(context.Background(), args[0])
+	ctx, cancel := commandContext()
+	defer cancel()
+	syms, err := refactor.Outline(ctx, args[0])
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
@@ -543,7 +569,9 @@ func runShow(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	src, err := refactor.Show(context.Background(), args[0], args[1])
+	ctx, cancel := commandContext()
+	defer cancel()
+	src, err := refactor.Show(ctx, args[0], args[1])
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
