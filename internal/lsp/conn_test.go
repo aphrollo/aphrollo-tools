@@ -94,6 +94,54 @@ func TestConn_RepliesToServerRequest(t *testing.T) {
 	}
 }
 
+// When a Call's context is cancelled before the server replies, its pending
+// correlation entry must be removed — otherwise the map retains an orphaned
+// channel for a response that, if it ever arrives, has no waiter.
+func TestConn_Call_CancelCleansPending(t *testing.T) {
+	c, in, _ := pipeConn(t)
+	// Drain the request so the synchronous pipe write completes, but never send a
+	// response — the Call then blocks waiting for a reply until its ctx fires.
+	go func() {
+		for {
+			if _, err := readFrame(in); err != nil {
+				return
+			}
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := c.Call(ctx, "ping", nil, nil); err == nil {
+		t.Fatalf("Call: want context error, got nil")
+	}
+
+	c.mu.Lock()
+	n := len(c.pending)
+	c.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("pending entries after cancelled Call = %d, want 0", n)
+	}
+}
+
+// Wait must return once the read loop ends, so teardown can join the goroutine
+// instead of leaking it. Closing the server->client write end gives the reader
+// EOF, which is exactly what killing the server process does to its stdout.
+func TestConn_WaitJoinsReadLoop(t *testing.T) {
+	cr, sw := io.Pipe() // server -> client
+	_, cw := io.Pipe()  // client -> server (unused)
+	c := NewConn(cw, cr)
+
+	_ = sw.Close() // EOF to the read loop
+
+	done := make(chan struct{})
+	go func() { c.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Wait did not return after the read loop exited")
+	}
+}
+
 // An RPC error from the server must surface as a Go error, not a silent
 // zero-value result.
 func TestConn_Call_ServerError(t *testing.T) {
