@@ -191,6 +191,7 @@ func runGuardrail(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 const tddUsage = `usage: aphrollo tdd <subcommand>
 
 Subcommands:
+  sessionstart      Inject the build-skill nudge at session start
   pretooluse        Evaluate a Claude Code PreToolUse edit payload from stdin
   posttooluse       Run related tests after an edit and report RED/GREEN
   userpromptsubmit  Handle the /tdd command and re-inject a RED reminder
@@ -262,7 +263,7 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	switch args[0] {
-	case "pretooluse", "posttooluse", "userpromptsubmit", "sessionend":
+	case "sessionstart", "pretooluse", "posttooluse", "userpromptsubmit", "sessionend":
 	default:
 		fmt.Fprintf(stderr, "aphrollo tdd: unknown subcommand %q\n\n%s", args[0], tddUsage)
 		return 2
@@ -275,6 +276,13 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	switch args[0] {
+	case "sessionstart":
+		// SessionStart only ever emits advisory context; it never blocks.
+		payload, code := tdd.RenderSessionStart(tdd.HandleSessionStart(raw))
+		if len(payload) > 0 {
+			stdout.Write(payload)
+		}
+		return code
 	case "posttooluse":
 		// PostToolUse never blocks: it only ever emits advisory context.
 		payload, code := tdd.RenderPostToolUse(tdd.PostEdit(raw, tdd.RunSuite(postEditTimeout)))
@@ -298,6 +306,12 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo tdd: %v (allowing)\n", err)
 		return 0
+	}
+	// When the content gate allows the edit, fall through to the worktree
+	// advisory: a once-per-session nudge when the edit lands in a main clone
+	// rather than a prepared worktree. A content Block/Warn takes precedence.
+	if decision.Action == tdd.Allow {
+		decision = tdd.WorktreeAdvisory(raw)
 	}
 	payload, code := tdd.RenderPreToolUse(decision)
 	if len(payload) > 0 {
