@@ -605,10 +605,15 @@ Git verbs (act on the CURRENT worktree, or pass [repo] [branch] to target one):
                             sha + delta (dry-run; --apply; --no-verify; --staged-only)
   push                      git push -u origin HEAD; reports ahead-count + URL
                             (dry-run; --apply; --force-with-lease)
-  pr                        Open (or reuse) a GitHub PR for the branch
-                            (dry-run; --apply; --base, --title, --body, --draft)
-  ship -m <msg>             commit → push → pr in one shot (dry-run; --apply)
-  status                    One terse line: PR state (merged/open), mergeability
+  pr                        Open (or reuse) a GitHub PR for the branch — draft by
+                            default so an in-progress card shows it; --ready opens
+                            it ready (dry-run; --apply; --base, --title, --body)
+  ship -m <msg>             commit → push → pr in one shot; the PR opens as a draft
+                            (--ready to open it ready) (dry-run; --apply)
+  ready                     Flip the branch's draft PR to ready-for-review — the
+                            git side of moving a card in_progress → review
+                            (dry-run; --apply)
+  status                    One terse line: PR state (merged/open/draft), mergeability
                             gate, and a pass/total check tally (read-only)
   merge                     Merge the branch's PR via gh, honoring CI/mergeable
                             (dry-run; --apply; --squash|--merge|--rebase, --keep-branch)
@@ -653,6 +658,8 @@ func runWorkspace(args []string, stdout, stderr io.Writer) int {
 		return runWorkspacePR(args[1:], stdout, stderr)
 	case "ship":
 		return runWorkspaceShip(args[1:], stdout, stderr)
+	case "ready":
+		return runWorkspaceReady(args[1:], stdout, stderr)
 	case "status":
 		return runWorkspaceStatus(args[1:], stdout, stderr)
 	case "merge":
@@ -872,7 +879,7 @@ func runWorkspacePR(args []string, stdout, stderr io.Writer) int {
 		base  = fs.String("base", "main", "base branch for the PR")
 		title = fs.String("title", "", "PR title (default: filled from the commits)")
 		body  = fs.String("body", "", "PR body")
-		draft = fs.Bool("draft", false, "open the PR as a draft")
+		ready = fs.Bool("ready", false, "open the PR ready for review instead of as a draft")
 		into  = fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
 	)
 	pos, err := parseFlagsAnywhere(fs, args)
@@ -883,7 +890,7 @@ func runWorkspacePR(args []string, stdout, stderr io.Writer) int {
 	if !ok {
 		return 2
 	}
-	pr, err := workspace.PRPlan(t, *base, *title, *body, *draft)
+	pr, err := workspace.PRPlan(t, *base, *title, *body, !*ready)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
@@ -910,7 +917,7 @@ func runWorkspaceShip(args []string, stdout, stderr io.Writer) int {
 		base       = fs.String("base", "main", "base branch for the PR")
 		title      = fs.String("title", "", "PR title (default: filled from the commits)")
 		body       = fs.String("body", "", "PR body")
-		draft      = fs.Bool("draft", false, "open the PR as a draft")
+		ready      = fs.Bool("ready", false, "open the PR ready for review instead of as a draft")
 		into       = fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
 	)
 	pos, err := parseFlagsAnywhere(fs, args)
@@ -928,7 +935,7 @@ func runWorkspaceShip(args []string, stdout, stderr io.Writer) int {
 		Base:     *base,
 		Title:    *title,
 		Body:     *body,
-		Draft:    *draft,
+		Draft:    !*ready,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
@@ -939,6 +946,37 @@ func runWorkspaceShip(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if err := s.Apply(stdout, stderr); err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runWorkspaceReady(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("ready", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var (
+		apply = fs.Bool("apply", false, "flip the draft PR to ready (default: print the plan and stop)")
+		into  = fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
+	)
+	pos, err := parseFlagsAnywhere(fs, args)
+	if err != nil {
+		return 2
+	}
+	t, ok := resolveVerbTarget(pos, *into, stderr)
+	if !ok {
+		return 2
+	}
+	r, err := workspace.ReadyPlan(t)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, r.Render(*apply))
+	if !*apply {
+		return 0
+	}
+	if err := r.Apply(stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}

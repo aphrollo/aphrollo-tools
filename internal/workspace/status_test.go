@@ -44,6 +44,16 @@ func TestStatus_OpenAllPass(t *testing.T) {
 	}
 }
 
+func TestStatus_OpenDraft(t *testing.T) {
+	stubStatus(t, func(wt, branch string) (*PRStatus, error) {
+		return &PRStatus{Number: 7, State: "OPEN", IsDraft: true, Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN", Pass: 5}, nil
+	})
+	got, _ := Status(targetFor("/x", "feat/z"))
+	if want := "#7 OPEN draft mergeable=MERGEABLE gate=CLEAN checks=5/5\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 func TestStatus_OpenWithFailures(t *testing.T) {
 	stubStatus(t, func(wt, branch string) (*PRStatus, error) {
 		return &PRStatus{Number: 9, State: "OPEN", Mergeable: "MERGEABLE", MergeStateStatus: "BLOCKED", Pass: 3, Fail: 2, Pending: 1}, nil
