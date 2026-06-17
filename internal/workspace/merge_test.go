@@ -6,22 +6,26 @@ import (
 	"testing"
 )
 
-// stubMerge swaps the gh merge seam (and the view seam it depends on) for a test.
-func stubMerge(t *testing.T, view func(wt, branch string) (*PRInfo, error), merge func(wt, branch, method string, del bool) error) {
+// stubMerge swaps the gh merge seam, the remote-branch-delete seam, and the
+// view seam they depend on for a test. Branch deletion is a remote-only step
+// (git push origin --delete) so the merge never checks out the default branch —
+// see the comment on ghDeleteRemoteBranch.
+func stubMerge(t *testing.T, view func(wt, branch string) (*PRInfo, error), merge func(wt, branch, method string) error, del func(wt, branch string) error) {
 	t.Helper()
-	ov, om := ghViewPR, ghMergePR
-	ghViewPR, ghMergePR = view, merge
-	t.Cleanup(func() { ghViewPR, ghMergePR = ov, om })
+	ov, om, od := ghViewPR, ghMergePR, ghDeleteRemoteBranch
+	ghViewPR, ghMergePR, ghDeleteRemoteBranch = view, merge, del
+	t.Cleanup(func() { ghViewPR, ghMergePR, ghDeleteRemoteBranch = ov, om, od })
 }
 
 func TestMerge_MergesOpenPR(t *testing.T) {
 	var gotMethod string
-	var gotDelete bool
+	var deletedBranch string
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) {
 			return &PRInfo{Number: 18, URL: "https://github.com/o/r/pull/18", State: "OPEN"}, nil
 		},
-		func(wt, branch, method string, del bool) error { gotMethod, gotDelete = method, del; return nil },
+		func(wt, branch, method string) error { gotMethod = method; return nil },
+		func(wt, branch string) error { deletedBranch = branch; return nil },
 	)
 	m, err := MergePlan(targetFor("/x", "feat/z"), "squash", true)
 	if err != nil {
@@ -31,8 +35,11 @@ func TestMerge_MergesOpenPR(t *testing.T) {
 	if err := m.Apply(&out, &errb); err != nil {
 		t.Fatalf("Apply: %v\n%s", err, errb.String())
 	}
-	if gotMethod != "squash" || !gotDelete {
-		t.Errorf("merge called method=%q delete=%v, want squash/true", gotMethod, gotDelete)
+	if gotMethod != "squash" {
+		t.Errorf("merge called method=%q, want squash", gotMethod)
+	}
+	if deletedBranch != "feat/z" {
+		t.Errorf("remote delete called for %q, want feat/z", deletedBranch)
 	}
 	if !strings.Contains(out.String(), "merged PR #18 (squash)") {
 		t.Errorf("output missing merge confirmation:\n%s", out.String())
@@ -45,10 +52,11 @@ func TestMerge_MergesOpenPR(t *testing.T) {
 func TestMerge_NoPR(t *testing.T) {
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return nil, nil },
-		func(wt, branch, method string, del bool) error {
+		func(wt, branch, method string) error {
 			t.Fatal("merge must not run without a PR")
 			return nil
 		},
+		func(wt, branch string) error { t.Fatal("delete must not run without a PR"); return nil },
 	)
 	m, _ := MergePlan(targetFor("/x", "feat/z"), "squash", true)
 	var out, errb bytes.Buffer
@@ -70,18 +78,19 @@ func TestMergePlan_BadMethod(t *testing.T) {
 }
 
 func TestMerge_KeepBranch(t *testing.T) {
-	var gotDelete = true
+	deleteCalled := false
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 5, URL: "u"}, nil },
-		func(wt, branch, method string, del bool) error { gotDelete = del; return nil },
+		func(wt, branch, method string) error { return nil },
+		func(wt, branch string) error { deleteCalled = true; return nil },
 	)
 	m, _ := MergePlan(targetFor("/x", "feat"), "merge", false /*deleteBranch*/)
 	var out, errb bytes.Buffer
 	if err := m.Apply(&out, &errb); err != nil {
 		t.Fatal(err)
 	}
-	if gotDelete {
-		t.Error("--keep-branch should pass delete=false to gh")
+	if deleteCalled {
+		t.Error("--keep-branch must not delete the remote branch")
 	}
 	if strings.Contains(out.String(), "deleted branch") {
 		t.Errorf("keep-branch output should not claim a deletion:\n%s", out.String())
