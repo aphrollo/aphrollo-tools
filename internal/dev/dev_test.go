@@ -130,6 +130,18 @@ func TestRestart_ClearsRlndxCache_E2E(t *testing.T) {
 	}
 }
 
+// An unsafe APHROLLO_SPACES (filesystem root or a relative path) must yield no
+// cache dirs, so a cache bounce can never feed a destructive path to
+// os.RemoveAll. An empty value is fine — it falls back to the safe default root.
+func TestRlndxCacheDirs_RefusesUnsafeRoot(t *testing.T) {
+	for _, bad := range []string{"/", "relative/path"} {
+		t.Setenv("APHROLLO_SPACES", bad)
+		if got := rlndxCacheDirs(); got != nil {
+			t.Errorf("rlndxCacheDirs() with APHROLLO_SPACES=%q = %v, want nil", bad, got)
+		}
+	}
+}
+
 // A non-rlndx restart must NOT touch the rlndx cache dirs.
 func TestRestart_ApiLeavesCache_E2E(t *testing.T) {
 	rec := withFakes(t)

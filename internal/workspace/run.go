@@ -164,6 +164,11 @@ func RemovePlan(repo, branch, into string) (*Removal, error) {
 		base = DefaultWorktreeBase(top)
 	}
 	wt := filepath.Join(base, slug)
+	// git worktree remove refuses to drop the cwd with a cryptic error; surface a
+	// clear one first, matching the guard in cleanup.go.
+	if cwd, err := os.Getwd(); err == nil && pathWithin(cwd, wt) {
+		return nil, fmt.Errorf("refusing to remove the worktree you're standing in — cd out first:\n  cd %s && aphrollo workspace remove %s", top, branch)
+	}
 	argv := []string{"git", "-C", top, "worktree", "remove", wt}
 	return &Removal{Display: shellJoin(argv), argv: argv}, nil
 }
