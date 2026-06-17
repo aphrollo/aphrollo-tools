@@ -604,6 +604,8 @@ Git verbs (act on the CURRENT worktree, or pass [repo] [branch] to target one):
   pr                        Open (or reuse) a GitHub PR for the branch
                             (dry-run; --apply; --base, --title, --body, --draft)
   ship -m <msg>             commit → push → pr in one shot (dry-run; --apply)
+  status                    One terse line: PR state (merged/open), mergeability
+                            gate, and a pass/total check tally (read-only)
   merge                     Merge the branch's PR via gh, honoring CI/mergeable
                             (dry-run; --apply; --squash|--merge|--rebase, --keep-branch)
   cleanup [repo] <branch>   git worktree remove + prune in one call, post-merge
@@ -647,6 +649,8 @@ func runWorkspace(args []string, stdout, stderr io.Writer) int {
 		return runWorkspacePR(args[1:], stdout, stderr)
 	case "ship":
 		return runWorkspaceShip(args[1:], stdout, stderr)
+	case "status":
+		return runWorkspaceStatus(args[1:], stdout, stderr)
 	case "merge":
 		return runWorkspaceMerge(args[1:], stdout, stderr)
 	case "cleanup":
@@ -655,6 +659,27 @@ func runWorkspace(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo workspace: unknown subcommand %q\n\n%s", args[0], workspaceUsage)
 		return 2
 	}
+}
+
+func runWorkspaceStatus(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	into := fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
+	pos, err := parseFlagsAnywhere(fs, args)
+	if err != nil {
+		return 2
+	}
+	t, ok := resolveVerbTarget(pos, *into, stderr)
+	if !ok {
+		return 2
+	}
+	line, err := workspace.Status(t)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, line)
+	return 0
 }
 
 func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
