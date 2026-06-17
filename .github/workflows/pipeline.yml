@@ -4,31 +4,37 @@ name: Pipeline
 # every Go repo on the box is gated the same way. Runs on the org's self-hosted
 # runner (serial across jobs).
 #
-# NOTE ON DEPLOY: this workflow does NOT install the binary. /usr/local/bin/aphrollo
-# is built and installed by aphrollo-infra (ansible site.yml, task "build aphrollo
-# dev-env CLI") behind the manual deploy-infra.yml gate, from the operator clone
-# at ~/spaces/aphrollo/aphrollo-tools. To ship a merged change:
-#   1. pull the operator clone to the intended commit (it is update:false)
-#   2. gh workflow run deploy-infra.yml -f check_mode=true   # dry-run first
-#   3. gh workflow run deploy-infra.yml                      # real
-# The `build` job below proves the binary compiles so a broken build never
-# reaches that gate.
+# DEPLOY: this workflow installs /usr/local/bin/aphrollo on merge to main, the
+# same way the Go services deploy themselves. On a PR the check jobs run; on
+# push-to-main (post-merge) the checks are skipped and the `deploy` job builds
+# the binary + runs deploy/deploy-prod.sh, which stages a release under
+# /opt/aphrollo-cli, smoke-tests it, and atomically swaps the `current` symlink.
+# No daemon, no sudo, no manual deploy-infra step. See deploy/README.md for the
+# release layout and the one-time aphrollo-infra prerequisites.
 
 on:
-  # No push trigger: PR-only repo (branch protection enforces PR), and tools deploys via aphrollo-infra, not on push — so a push-to-main re-run would be pure duplicate of the PR run.
   pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE*', '.gitignore']
+  push:
+    branches: [main]
     paths-ignore: ['**.md', 'docs/**', 'LICENSE*', '.gitignore']
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Cancel superseded PR runs. Push-to-main runs are NOT cancelled so a deploy in
+# flight is not preempted by a follow-up commit; the deploy job has its own
+# cancel-in-progress: false group below.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
+    # Checks gate PRs; on push-to-main they're skipped and `deploy` runs behind
+    # an always()+needs-result guard (mirrors aphrollo-api/pipeline.yml).
+    if: github.event_name != 'push'
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -52,6 +58,7 @@ jobs:
         run: go test -race -count=1 -shuffle=on -timeout=180s ./...
 
   lint:
+    if: github.event_name != 'push'
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -68,6 +75,7 @@ jobs:
           golangci-lint run ./...
 
   vulncheck:
+    if: github.event_name != 'push'
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -79,6 +87,7 @@ jobs:
       - run: govulncheck ./...
 
   sast:
+    if: github.event_name != 'push'
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -112,6 +121,7 @@ jobs:
             .
 
   secret-scan:
+    if: github.event_name != 'push'
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -131,10 +141,10 @@ jobs:
       - name: gitleaks
         run: ./gitleaks detect --no-banner --redact -v --exit-code 1
 
+  # PR deploy-readiness: prove the binary compiles + runs with the same flags
+  # the deploy uses, so a broken build can't merge. Does NOT install (PR-only).
   build:
-    # Deploy-readiness: prove the binary compiles with the same flags
-    # aphrollo-infra uses to install it, so a broken build never reaches the
-    # deploy-infra gate. This does NOT install — see the header note.
+    if: github.event_name != 'push'
     needs: [test, lint, vulncheck, sast, secret-scan]
     runs-on: self-hosted
     steps:
@@ -147,3 +157,29 @@ jobs:
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
       - name: Smoke the binary
         run: ./bin/aphrollo tdd --help >/dev/null && ./bin/aphrollo --help >/dev/null
+
+  # On merge to main (and manual dispatch), build + install /usr/local/bin/aphrollo.
+  # Checks are skipped on push, so this uses the same always()+needs-result guard
+  # as aphrollo-api: run after a green-PR merge, but a red required check that
+  # blocked the merge means this never fires. A manual workflow_dispatch stays
+  # gated behind the same guard.
+  deploy:
+    needs: [test, lint, vulncheck, sast, secret-scan]
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    runs-on: self-hosted
+    timeout-minutes: 10
+    concurrency:
+      group: deploy-prod-aphrollo-cli
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build
+        run: go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/aphrollo ./cmd/aphrollo
+      - name: Deploy
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        run: ./deploy/deploy-prod.sh
