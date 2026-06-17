@@ -157,6 +157,34 @@ func TestPrecommit_IgnoresPreexistingSuppression(t *testing.T) {
 	}
 }
 
+// A crafted multi-line edit must not smuggle a suppression past the anti-cheat
+// gate. The added-only diff buffer, masked standalone, sees an unbalanced quote
+// on the first added line and blanks everything after it — including a //nolint
+// on a LATER added line. Masking the full post-image instead keeps the quote
+// balanced (its partner is an unchanged line) so the suppression stays visible
+// and blocks. The inert quote lives inside a pre-existing block comment, so the
+// file still compiles and mechanical alone would let it through.
+func TestPrecommit_MaskingBypass_FullFilePostImage(t *testing.T) {
+	root := makeGoRepo(t)
+	// Base: a func carrying an empty block comment whose */ closer is committed.
+	write(t, root, "gizmo.go", "package m\n\nfunc Gizmo() int {\n\t/* note\n\t*/\n\treturn 1\n}\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "gizmo")
+
+	// Stage: insert a line bearing a lone " INSIDE the existing comment (inert,
+	// still compiles), then add a //nolint line AFTER the comment closes. In the
+	// added-only buffer the lone " opens an unterminated string that hides the
+	// //nolint; in the full file the " sits inside the comment and the //nolint
+	// is live code.
+	write(t, root, "gizmo.go", "package m\n\nfunc Gizmo() int {\n\t/* note\nstray \"\n\t*/\n\t_ = 0 //nolint:unused\n\treturn 1\n}\n")
+	gitDo(t, root, "add", ".")
+
+	res := Precommit(root, RunSuite(precommitTestTimeout))
+	if !res.Blocked || !strings.Contains(res.Message, "anti-cheat") {
+		t.Fatalf("crafted multi-line edit bypassed the suppression gate, got %+v", res)
+	}
+}
+
 func TestPrecommit_Mechanical_BlocksFailingSuite(t *testing.T) {
 	root := makeGoRepo(t)
 	// Source-only change (no staged test) that breaks the build → mechanical

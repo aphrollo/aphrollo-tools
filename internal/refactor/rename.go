@@ -91,27 +91,115 @@ func Rename(ctx context.Context, req RenameRequest) (*RenameResult, error) {
 		return nil, fmt.Errorf("no edits produced: symbol may not be renameable at %s:%d:%d", req.File, req.Line, pos.Character+1)
 	}
 
-	result := &RenameResult{Applied: req.Apply}
+	return applyFileEdits(fileEdits, root, abs, src, req.Apply)
+}
+
+// applyFileEdits turns a rename's per-file edits into diffs and, when apply is
+// set, writes them. It is two-phase by design (LOSSLESS / idempotent contract):
+//
+//   - Phase 1 computes every file's new content in memory. The target file
+//     (mainPath) is edited against mainSrc — the exact bytes the server
+//     indexed — instead of being re-read from disk, closing the TOCTOU window
+//     where a concurrent edit between the rename request and the write would
+//     resolve server offsets against stale content.
+//   - Phase 2 writes only after all edits computed cleanly, each file flipped
+//     atomically (temp file + rename) so no file is ever left half-written. A
+//     single failing edit aborts the whole batch before any disk mutation.
+//
+// Cross-file atomicity is not achievable without a transaction, but this
+// guarantees all-or-nothing at the point of computation and per-file atomicity
+// on write.
+//
+// root is the project root the rename is scoped to. Every target path is a
+// server-supplied WorkspaceEdit path, so each is checked to live within root
+// before any write — a buggy or hostile server cannot redirect a rename onto an
+// arbitrary file outside the project (e.g. ~/.bashrc). The whole batch is
+// refused on the first out-of-root path, before phase 2 mutates anything.
+func applyFileEdits(fileEdits []lsp.FileEdit, root, mainPath, mainSrc string, apply bool) (*RenameResult, error) {
+	type pendingWrite struct {
+		path, content string
+	}
+	result := &RenameResult{Applied: apply}
+	writes := make([]pendingWrite, 0, len(fileEdits))
+
 	for _, fe := range fileEdits {
-		before, err := os.ReadFile(fe.Path)
-		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", fe.Path, err)
+		if root != "" && !withinRoot(fe.Path, root) {
+			return nil, fmt.Errorf("refusing edit outside project root: %s is not within %s", fe.Path, root)
 		}
-		after, err := lsp.ApplyEdits(string(before), fe.Edits)
+		before := mainSrc
+		if fe.Path != mainPath {
+			b, err := os.ReadFile(fe.Path)
+			if err != nil {
+				return nil, fmt.Errorf("read %s: %w", fe.Path, err)
+			}
+			before = string(b)
+		}
+		after, err := lsp.ApplyEdits(before, fe.Edits)
 		if err != nil {
 			return nil, fmt.Errorf("apply edits to %s: %w", fe.Path, err)
 		}
 		result.Files = append(result.Files, FileDiff{
 			Path: fe.Path,
-			Diff: diff.Unified(relOrAbs(fe.Path), string(before), after),
+			Diff: diff.Unified(relOrAbs(fe.Path), before, after),
 		})
-		if req.Apply {
-			if err := os.WriteFile(fe.Path, []byte(after), 0o644); err != nil {
-				return nil, fmt.Errorf("write %s: %w", fe.Path, err)
+		writes = append(writes, pendingWrite{path: fe.Path, content: after})
+	}
+
+	if apply {
+		for _, w := range writes {
+			if err := writeFileAtomic(w.path, w.content); err != nil {
+				return nil, fmt.Errorf("write %s: %w", w.path, err)
 			}
 		}
 	}
 	return result, nil
+}
+
+// writeFileAtomic writes content to path via a same-directory temp file and a
+// rename, so a reader never observes a partially written file and an aborted
+// write leaves the original intact. The existing file's permission bits are
+// preserved (falling back to 0644 for a new file).
+func writeFileAtomic(path, content string) error {
+	mode := os.FileMode(0o644)
+	if fi, err := os.Stat(path); err == nil {
+		mode = fi.Mode().Perm()
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".aphrollo-rename-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // no-op once the rename succeeds
+	if _, err := tmp.WriteString(content); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpName, mode); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
+}
+
+// withinRoot reports whether path is root itself or lies beneath it, comparing
+// cleaned absolute paths so "." / ".." segments and a missing leading slash
+// can't smuggle an escape past the check.
+func withinRoot(path, root string) bool {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(absRoot, absPath)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 // resolvePosition converts a 1-based line plus an explicit column or a named

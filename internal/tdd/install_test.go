@@ -7,9 +7,30 @@ import (
 	"testing"
 )
 
+// testBin stands in for the resolved aphrollo binary path the hooks should exec.
+const testBin = "/opt/aphrollo/bin/aphrollo"
+
 func TestBuildInstallPlan_RequiresGitRepo(t *testing.T) {
-	if _, err := BuildInstallPlan(t.TempDir()); err == nil {
+	if _, err := BuildInstallPlan(t.TempDir(), testBin); err == nil {
 		t.Fatal("expected an error for a non-git directory")
+	}
+}
+
+// The installed shim must exec the RESOLVED binary path, not a bare `aphrollo`
+// that depends on the hook process's PATH (mirroring the global git gate).
+func TestInstallPlan_ShimUsesResolvedBinPath(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git", "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildInstallPlan(root, testBin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range plan.Hooks {
+		if !strings.Contains(h.Content, "exec "+testBin+" tdd ") {
+			t.Fatalf("shim does not exec the resolved bin %q:\n%s", testBin, h.Content)
+		}
 	}
 }
 
@@ -18,7 +39,7 @@ func TestInstallPlan_ApplyWritesExecutableShims(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".git", "hooks"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	plan, err := BuildInstallPlan(root)
+	plan, err := BuildInstallPlan(root, testBin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +75,7 @@ func TestInstallPlan_DoesNotClobberForeignHook(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plan, err := BuildInstallPlan(root)
+	plan, err := BuildInstallPlan(root, testBin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,10 +102,10 @@ func TestInstallPlan_ReinstallOverOwnHook(t *testing.T) {
 	if err := os.MkdirAll(hooks, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(hooks, "pre-commit"), []byte(shim("precommit")), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(hooks, "pre-commit"), []byte(shim(testBin, "precommit")), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	plan, _ := BuildInstallPlan(root)
+	plan, _ := BuildInstallPlan(root, testBin)
 	if plan.Hooks[0].Conflict {
 		t.Fatal("our own managed hook must not count as a conflict")
 	}

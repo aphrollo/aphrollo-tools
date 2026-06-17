@@ -46,20 +46,31 @@ type Conn struct {
 
 	// OnServerRequest handles server->client requests; if nil, they are
 	// answered with null. OnNotification observes server notifications.
+	//
+	// The read loop dispatches each server request in its OWN goroutine
+	// (serveRequest) so a slow handler can't stall delivery of the response the
+	// caller is blocked on. Those goroutines are not joined by Wait, so the
+	// handler MUST return promptly: one that blocks indefinitely leaks its
+	// goroutine for the process's lifetime. The handlers we register
+	// (workspace/configuration, client/registerCapability) just return canned
+	// data, so they never block.
 	OnServerRequest ServerRequestHandler
 	OnNotification  func(method string, params json.RawMessage)
 
 	closeOnce sync.Once
 	closed    chan struct{}
 	readErr   error
+
+	loopDone chan struct{} // closed when readLoop returns
 }
 
 // NewConn starts a Conn reading framed messages from r and writing to w.
 func NewConn(w io.Writer, r io.Reader) *Conn {
 	c := &Conn{
-		w:       w,
-		pending: map[int]chan *message{},
-		closed:  make(chan struct{}),
+		w:        w,
+		pending:  map[int]chan *message{},
+		closed:   make(chan struct{}),
+		loopDone: make(chan struct{}),
 	}
 	go c.readLoop(bufio.NewReader(r))
 	return c
@@ -70,7 +81,13 @@ func (c *Conn) Close() {
 	c.closeOnce.Do(func() { close(c.closed) })
 }
 
+// Wait blocks until the background read loop has exited. Once the server
+// process is killed its stdout closes, readFrame sees EOF, and the loop
+// returns; joining it on teardown guarantees no goroutine outlives cleanup.
+func (c *Conn) Wait() { <-c.loopDone }
+
 func (c *Conn) readLoop(r *bufio.Reader) {
+	defer close(c.loopDone)
 	for {
 		body, err := readFrame(r)
 		if err != nil {
@@ -167,6 +184,9 @@ func (c *Conn) Call(ctx context.Context, method string, params, out any) error {
 
 	select {
 	case <-ctx.Done():
+		c.mu.Lock()
+		delete(c.pending, id)
+		c.mu.Unlock()
 		return ctx.Err()
 	case <-c.closed:
 		if c.readErr != nil {

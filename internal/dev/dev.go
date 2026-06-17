@@ -131,7 +131,15 @@ func logsArgv(svc string, lines int) ([]string, error) {
 // restart. They hang off the .devclaim/web symlink that `aphrollo workspace
 // claim` repoints, so a bounce clears the CLAIMED tree's cache.
 func rlndxCacheDirs() []string {
-	base := filepath.Join(spacesRoot(), ".devclaim", "web", "apps", "rlndx")
+	// These paths are fed to os.RemoveAll, so refuse to derive them from an
+	// unsafe spaces root (empty, relative, or "/"): a misconfigured
+	// APHROLLO_SPACES must never let a cache bounce delete from the filesystem
+	// root. Skipping is harmless — the cache simply isn't pre-cleared.
+	root := filepath.Clean(spacesRoot())
+	if !filepath.IsAbs(root) || root == "/" {
+		return nil
+	}
+	base := filepath.Join(root, ".devclaim", "web", "apps", "rlndx")
 	return []string{filepath.Join(base, ".svelte-kit"), filepath.Join(base, "node_modules", ".vite")}
 }
 

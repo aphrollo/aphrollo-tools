@@ -28,14 +28,19 @@ type InstallPlan struct {
 	Hooks    []HookFile
 }
 
-// shim is the hook script body; sub is the matching `aphrollo tdd` subcommand.
-func shim(sub string) string {
-	return "#!/bin/sh\n" + installMarker + "\nexec aphrollo tdd " + sub + "\n"
+// shim is the hook script body; bin is the absolute aphrollo binary path and sub
+// the matching `aphrollo tdd` subcommand. Using the resolved path (not a bare
+// `aphrollo`) means the hook invokes the exact binary that installed it, so it
+// works even when aphrollo is not on the hook process's PATH — matching the
+// global gate's binShim.
+func shim(bin, sub string) string {
+	return "#!/bin/sh\n" + installMarker + "\nexec " + bin + " tdd " + sub + "\n"
 }
 
-// BuildInstallPlan computes the hooks to install for the repo at repoRoot. It
-// returns an error if repoRoot is not a git repository.
-func BuildInstallPlan(repoRoot string) (InstallPlan, error) {
+// BuildInstallPlan computes the hooks to install for the repo at repoRoot, whose
+// shims invoke the binary at bin. It returns an error if repoRoot is not a git
+// repository.
+func BuildInstallPlan(repoRoot, bin string) (InstallPlan, error) {
 	hooksDir := filepath.Join(repoRoot, ".git", "hooks")
 	if fi, err := os.Stat(filepath.Join(repoRoot, ".git")); err != nil || !fi.IsDir() {
 		return InstallPlan{}, fmt.Errorf("%s is not a git repository (no .git directory)", repoRoot)
@@ -49,7 +54,7 @@ func BuildInstallPlan(repoRoot string) (InstallPlan, error) {
 		path := filepath.Join(hooksDir, h.name)
 		plan.Hooks = append(plan.Hooks, HookFile{
 			Path:     path,
-			Content:  shim(h.sub),
+			Content:  shim(bin, h.sub),
 			Conflict: foreignHookExists(path),
 		})
 	}

@@ -82,6 +82,13 @@ func Slugify(branch string) (string, error) {
 	if !slugOK.MatchString(s) {
 		return "", fmt.Errorf("bad branch name: %s", branch)
 	}
+	// A leading dash makes the slug parse as an OPTION rather than a positional
+	// in every argv sink it reaches (git push -u origin <slug>, gh pr merge
+	// <slug>, git worktree add <slug>). slugOK permits '-', so reject the prefix
+	// explicitly — this is the one-line containment for option injection.
+	if strings.HasPrefix(s, "-") {
+		return "", fmt.Errorf("bad branch name (leading dash): %s", branch)
+	}
 	return s, nil
 }
 

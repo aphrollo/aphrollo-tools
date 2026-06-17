@@ -17,6 +17,11 @@ func TestDeriveService(t *testing.T) {
 		"api":          "api",
 		"askdoc":       "",
 		"lens":         "",
+		// Substring matching mis-mapped these: "webhooks" merely contains "web",
+		// "api-gateway" merely contains "api". Neither is a dev-tier repo.
+		"aphrollo-webhooks": "",
+		"webhooks":          "",
+		"api-gateway":       "",
 	}
 	for name, want := range cases {
 		if got := deriveService(name); got != want {

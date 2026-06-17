@@ -23,6 +23,19 @@ func TestURIToPath(t *testing.T) {
 	if _, err := URIToPath("https://example.com/x"); err == nil {
 		t.Fatalf("URIToPath of non-file scheme: want error, got nil")
 	}
+
+	// A file URI with a non-empty authority (host) is not a plain local path; the
+	// host must not be silently dropped, turning file://evil/etc/passwd into
+	// /etc/passwd. And a percent-encoded traversal must be rejected, not decoded
+	// into a path that climbs out of the project.
+	for _, bad := range []DocumentURI{
+		"file://evil.example.com/etc/passwd",    // non-empty host
+		"file:///proj/%2e%2e/%2e%2e/etc/passwd", // encoded ".." traversal
+	} {
+		if _, err := URIToPath(bad); err == nil {
+			t.Fatalf("URIToPath(%q): want error, got nil", bad)
+		}
+	}
 }
 
 // A WorkspaceEdit's per-file edits must come back grouped by path and sorted

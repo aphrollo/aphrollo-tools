@@ -15,10 +15,13 @@ var mergeMethods = map[string]bool{"squash": true, "merge": true, "rebase": true
 // logic without gh or the network. The real implementation merges in the
 // worktree (gh resolves the repo from its origin).
 var ghMergePR = func(wt, branch, method string, deleteBranch bool) error {
-	args := []string{"pr", "merge", branch, "--" + method}
+	// Flags first, then "--" so the branch is always a positional and never
+	// parsed as an option (defense in depth behind Slugify).
+	args := []string{"pr", "merge", "--" + method}
 	if deleteBranch {
 		args = append(args, "--delete-branch")
 	}
+	args = append(args, "--", branch)
 	cmd := exec.Command("gh", args...)
 	cmd.Dir = wt
 	out, err := cmd.CombinedOutput()

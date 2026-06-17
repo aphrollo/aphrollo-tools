@@ -31,10 +31,14 @@ import (
 // (rlndx serves the web repo, api serves the api repo). Returns "" when the repo
 // has no dev unit, so the caller can ask for an explicit --svc.
 func deriveService(repoName string) string {
+	// Match the repo's basename exactly or by its "-<svc>" suffix, NOT a bare
+	// substring: "aphrollo-webhooks" / "api-gateway" merely contain "web"/"api"
+	// but are not the dev-tier web/api repos.
+	name := filepath.Base(repoName)
 	switch {
-	case strings.Contains(repoName, "web"):
+	case name == "web" || strings.HasSuffix(name, "-web"):
 		return "rlndx"
-	case strings.Contains(repoName, "api"):
+	case name == "api" || strings.HasSuffix(name, "-api"):
 		return "api"
 	default:
 		return ""

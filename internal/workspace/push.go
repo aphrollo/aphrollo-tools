@@ -53,7 +53,9 @@ func (p *Push) Render(apply bool) string {
 // the branch URL.
 func (p *Push) Apply(stdout, stderr io.Writer) error {
 	wt, branch := p.Target.Worktree, p.Target.Branch
-	args := []string{"-C", wt, "push", "-u", "origin", branch}
+	// "--" terminates options so a branch name can never be parsed as a git
+	// flag (defense in depth behind Slugify's leading-dash rejection).
+	args := []string{"-C", wt, "push", "-u", "origin", "--", branch}
 	if p.ForceWithLease {
 		args = append(args, "--force-with-lease")
 	}

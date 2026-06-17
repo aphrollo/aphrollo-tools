@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -66,69 +67,105 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 // own reason (naming the directive and the fix) follows.
 const suppressionCommitHeader = "TDD anti-cheat: this commit introduces a suppression that silences a quality gate."
 
-// newSuppression scans the staged diff's ADDED lines for a suppression and, on
-// the first hit in a source/test file, returns the block message. Only added
-// lines are considered, so a directive that already lived in the file does not
-// block an unrelated commit. Returns "" when there is nothing to block.
+// newSuppression scans the lines this commit ADDS for a suppression and, on the
+// first hit in a source/test file, returns the block message. Only added lines
+// are judged, so a directive that already lived in the file does not block an
+// unrelated commit. The check masks each file's full staged post-image and then
+// restricts to the added line numbers, so the masking sees balanced
+// string/comment context and a crafted multi-line edit cannot hide a later
+// added directive behind an unbalanced opener. Returns "" when nothing blocks.
 func newSuppression(repoRoot string) string {
-	for _, fa := range stagedAddedLines(repoRoot) {
+	for _, fa := range stagedAdds(repoRoot) {
 		switch ClassifyFile(fa.path) {
 		case Source, Test:
 		default:
 			continue
 		}
-		if d := evaluate(fa.added, suppressionPolicies, commitPhase, langOf(fa.path)); d.Action == Block {
+		post, err := git(repoRoot, "show", ":"+fa.path)
+		if err != nil {
+			continue // file not in the index (e.g. deletion) → nothing to judge
+		}
+		v := addedView(post, fa.added, langOf(fa.path))
+		if d := evaluateView(v, suppressionPolicies, commitPhase); d.Action == Block {
 			return suppressionCommitHeader + "\n  " + fa.path + ": " + d.Reason
 		}
 	}
 	return ""
 }
 
-// fileAdd is the added-line content for one file in a staged diff.
+// fileAdd is the set of added line numbers (1-based, in the post-image) for one
+// file in a staged diff.
 type fileAdd struct {
 	path  string
-	added string
+	added map[int]bool
 }
 
-// stagedAddedLines parses `git diff --cached -U0` into the added lines per file.
-// It collects only `+` lines (the new content), keyed by the `+++ b/<path>`
-// header, and skips deletions (`+++ /dev/null`). Each added line is treated as
-// standalone for masking, which fits single-line suppression directives; a
-// directive split across a multi-line construct is a tolerable miss.
-func stagedAddedLines(repoRoot string) []fileAdd {
+// stagedAdds parses `git diff --cached -U0` into the added line NUMBERS per
+// file, keyed by the `+++ b/<path>` header and skipping deletions
+// (`+++ /dev/null`). Line numbers come from each hunk's `@@ … +start[,count] @@`
+// new-side range, advanced as `+` lines are consumed, so the caller can mask the
+// full post-image and judge only these lines — far more robust than the old
+// approach of masking the deletion-stripped added-line text on its own.
+func stagedAdds(repoRoot string) []fileAdd {
 	out, err := git(repoRoot, "diff", "--cached", "--unified=0", "--no-color")
 	if err != nil {
 		return nil
 	}
 	var (
-		adds []fileAdd
-		cur  string
-		buf  strings.Builder
+		adds  []fileAdd
+		cur   string
+		lines map[int]bool
+		newNo int // next new-file line number within the current hunk
 	)
 	flush := func() {
-		if cur != "" && buf.Len() > 0 {
-			adds = append(adds, fileAdd{path: cur, added: buf.String()})
+		if cur != "" && len(lines) > 0 {
+			adds = append(adds, fileAdd{path: cur, added: lines})
 		}
-		buf.Reset()
+		lines = nil
 	}
 	for line := range strings.SplitSeq(out, "\n") {
-		if p, ok := strings.CutPrefix(line, "+++ b/"); ok {
+		switch {
+		case strings.HasPrefix(line, "+++ b/"):
 			flush()
-			cur = strings.TrimSpace(p)
-			continue
-		}
-		if strings.HasPrefix(line, "+++") { // +++ /dev/null (deletion)
+			cur = strings.TrimSpace(strings.TrimPrefix(line, "+++ b/"))
+			lines = map[int]bool{}
+		case strings.HasPrefix(line, "+++"): // +++ /dev/null (deletion)
 			flush()
 			cur = ""
-			continue
-		}
-		if strings.HasPrefix(line, "+") {
-			buf.WriteString(line[1:])
-			buf.WriteByte('\n')
+		case strings.HasPrefix(line, "@@"):
+			newNo = hunkNewStart(line)
+		case strings.HasPrefix(line, "+"):
+			if lines != nil && newNo > 0 {
+				lines[newNo] = true
+				newNo++
+			}
+		case strings.HasPrefix(line, "-"):
+			// deletions don't advance the new-file line counter
+		default:
+			// context line (none at -U0) advances the new-file counter
+			if newNo > 0 {
+				newNo++
+			}
 		}
 	}
 	flush()
 	return adds
+}
+
+// hunkNewStart returns the new-file starting line of a `@@ -a,b +c,d @@` header,
+// or 0 if it can't be parsed.
+func hunkNewStart(header string) int {
+	_, field, ok := strings.Cut(header, "+")
+	if !ok {
+		return 0
+	}
+	field, _, _ = strings.Cut(field, " ") // drop " @@ …"
+	field, _, _ = strings.Cut(field, ",") // drop ",count"
+	n, err := strconv.Atoi(field)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // splitKinds partitions repo-relative staged paths into test and source files,

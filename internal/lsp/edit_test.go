@@ -52,6 +52,20 @@ func TestApplyEdits_UTF16Offsets(t *testing.T) {
 	}
 }
 
+// A single edit whose Start is after its End is malformed; splicing it would
+// silently DUPLICATE the [End,Start) bytes (a LOSSLESS-contract violation), so
+// ApplyEdits must reject it rather than emit corrupt text.
+func TestApplyEdits_InvertedRangeIsError(t *testing.T) {
+	src := "hello world"
+	edits := []TextEdit{
+		{Range: Range{Start: Position{Line: 0, Character: 8}, End: Position{Line: 0, Character: 3}}, NewText: "X"},
+	}
+
+	if _, err := ApplyEdits(src, edits); err == nil {
+		t.Fatalf("ApplyEdits with inverted range: want error, got nil")
+	}
+}
+
 // Overlapping edits cannot be applied coherently; rather than splice them into
 // garbage, ApplyEdits must fail loud (LOSSLESS/VISIBLE principle).
 func TestApplyEdits_OverlappingIsError(t *testing.T) {

@@ -33,6 +33,7 @@ func Spawn(ctx context.Context, lang Language) (*lsp.Conn, func(), error) {
 		_ = stdin.Close()
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
+		conn.Wait() // join the read-loop goroutine: Kill closed stdout, so it has seen EOF
 	}
 	return conn, cleanup, nil
 }

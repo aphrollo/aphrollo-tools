@@ -22,6 +22,14 @@ func TestSlugify(t *testing.T) {
 		{in: "trailing/", wantErr: true},
 		{in: "has space", wantErr: true},
 		{in: "semi;rm", wantErr: true},
+		// A leading dash would be parsed as a FLAG, not a positional, by every
+		// git/gh sink the slug flows into (`git push -u origin <slug>`,
+		// `gh pr merge <slug>`, `git worktree add … <slug>`). Reject it so a
+		// branch like "-D", "--force", or "--delete/x" can't inject an option.
+		{in: "-D", wantErr: true},
+		{in: "--force", wantErr: true},
+		{in: "--delete/x", wantErr: true},
+		{in: "-leadingdash", wantErr: true},
 	}
 	for _, c := range cases {
 		got, err := Slugify(c.in)

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -26,6 +27,54 @@ func TestFrame_RoundTrip(t *testing.T) {
 	}
 	if !bytes.Equal(got, body) {
 		t.Fatalf("readFrame = %q, want %q", got, body)
+	}
+}
+
+// A present-but-negative Content-Length is a distinct protocol violation from a
+// missing header; the error must say so (naming the bad value) rather than the
+// misleading "missing Content-Length header".
+func TestFrame_NegativeContentLength(t *testing.T) {
+	r := bufio.NewReader(strings.NewReader("Content-Length: -5\r\n\r\n"))
+	_, err := readFrame(r)
+	if err == nil {
+		t.Fatalf("readFrame: want error for negative Content-Length, got nil")
+	}
+	if msg := err.Error(); !strings.Contains(msg, "-5") || strings.Contains(msg, "missing") {
+		t.Fatalf("error = %q, want it to name the negative value -5 and not claim 'missing'", msg)
+	}
+}
+
+// A Content-Length larger than the frame cap must be rejected up front, before
+// make([]byte, length) tries to allocate it — a malicious/buggy server claiming
+// a multi-gigabyte body must not OOM the process.
+func TestFrame_OversizedContentLength(t *testing.T) {
+	hdr := fmt.Sprintf("Content-Length: %d\r\n\r\n", maxFrameBytes+1)
+	r := bufio.NewReader(strings.NewReader(hdr))
+	if _, err := readFrame(r); err == nil {
+		t.Fatalf("readFrame: want error for oversized Content-Length, got nil")
+	}
+}
+
+// A header line with no terminating newline must not be read unboundedly into
+// memory. The reader caps a single header line and errors past the cap.
+func TestFrame_OversizedHeaderLine(t *testing.T) {
+	huge := strings.Repeat("A", maxHeaderLineBytes+10) // no "\n"
+	r := bufio.NewReader(strings.NewReader(huge))
+	if _, err := readFrame(r); err == nil {
+		t.Fatalf("readFrame: want error for over-long header line, got nil")
+	}
+}
+
+// A flood of header lines (never reaching the blank terminator) must be capped
+// rather than looped forever accumulating allocations.
+func TestFrame_TooManyHeaders(t *testing.T) {
+	var b strings.Builder
+	for i := range maxHeaders + 10 {
+		fmt.Fprintf(&b, "X-Pad-%d: y\r\n", i)
+	}
+	r := bufio.NewReader(strings.NewReader(b.String()))
+	if _, err := readFrame(r); err == nil {
+		t.Fatalf("readFrame: want error for header flood, got nil")
 	}
 }
 
