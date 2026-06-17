@@ -407,6 +407,62 @@ detectors mask strings but **keep comments** (the directives live in comments).
 Either way a token mentioned only in a string never blocks — the original's
 biggest false-positive class.
 
+### sqlc drift guard (`aphrollo sqlc`)
+
+Keeps sqlc-generated Go in sync with its `queries/*.sql` source **without** the
+diff pollution that a naive `sqlc generate` produces. The pollution has a single
+root cause worth internalising:
+
+> **The whole-schema `models.go` gotcha.** sqlc emits `models.go` from the
+> **entire** `migrations/` schema, so *any* unrelated migration — a new column on
+> another table, a brand-new table — rewrites `models.go` even when your query is
+> untouched. Run a plain `sqlc generate` to land one column and you get a diff
+> carrying a backlog of unrelated drift (e.g. `CrmTicket*` structs,
+> `AiEventLog.SrcOff`, an `int64 → *int64` param flip), some of which forces
+> out-of-scope wrapper edits. These two commands separate *your* hunks from that
+> drift.
+
+```sh
+# CI gate (run on main): regenerate every config into a temp dir, diff against the
+# committed tree, exit non-zero on drift in a GATED config.
+aphrollo sqlc check --repo ~/spaces/aphrollo/aphrollo-api
+
+# ✗ sqlc-ai.yaml (gated): DRIFT — committed output differs from a clean regen
+#     internal/store/postgres/aigen/models.go:  + SrcOff *int64 …  + type CrmTicketType …
+
+# Land one query's change: regenerate, apply ONLY the hunks deriving from a query
+# you changed (vs origin/main), and report the rest as pre-existing drift.
+aphrollo sqlc regen sqlc-ai.yaml --scoped              # dry-run: show in-scope hunks + drift
+aphrollo sqlc regen sqlc-ai.yaml --scoped --apply      # write the in-scope hunks only
+```
+
+`regen --scoped` classifies each generated symbol (func / struct / const) by
+whether its name derives from a query whose text changed in the working tree
+(`GetWidget` ⇒ `GetWidget`, `GetWidgetParams`, `GetWidgetRow`, `getWidget`).
+Table structs in `models.go` derive from the schema, never a query, so the
+whole-schema drift above is always classified **PRE-EXISTING DRIFT** and left for
+a separate PR. Like the `workspace` verbs, it is **dry-run by default**; `--apply`
+writes.
+
+**Gating — clean vs intentionally post-edited.** Some generated trees are
+hand-post-edited on top of sqlc's output (aphrollo-api's `sqlcgen` — see the
+header of its `sqlc.yaml`), so a clean regen *always* differs and `check` must not
+fail on them. The mechanism is an explicit per-config `clean: true|false` flag in
+a committed sidecar `.aphrollo-sqlc.yaml` at the repo root (a **separate** file —
+the sqlc configs keep their exact semantics):
+
+```yaml
+configs:
+  - file: sqlc.yaml      # post-edited → reported-only: drift printed, never fails check
+    clean: false
+  - file: sqlc-ai.yaml   # meant to be clean → gated (the default)
+    clean: true
+```
+
+A config absent from the sidecar defaults to **gated** (`clean: true`), so a newly
+added config can never silently skip the gate. The external `sqlc` binary is
+resolved via `APHROLLO_SQLC_BIN`, then `$PATH`, then the operator go-install path.
+
 ## Setup — `aphrollo tdd init`
 
 One command wires the whole gate — the native replacement for
@@ -452,6 +508,7 @@ internal/guardrail/  PreToolUse policy (block long waits, warn on noisy output)
 internal/tdd/        TDD gates: policy engine, edit smells, anti-cheat, RED/GREEN, fail-first, review, install
 internal/workspace/  worktree lifecycle (prepare/claim/unclaim/list/remove/prune/cleanup) + git verbs (commit/push/pr/ship/merge)
 internal/dev/        dev-tier control plane: up/down/restart/status/logs (systemd)
+internal/sqlc/       sqlc drift guard: config discovery, regen-into-temp, check, scoped-by-symbol regen
 ```
 
 ## Known limitations (v1)
