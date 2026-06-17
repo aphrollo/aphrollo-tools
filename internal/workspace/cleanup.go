@@ -72,6 +72,12 @@ func (c *Cleanup) Run(apply bool, stdout, stderr io.Writer) error {
 		return fmt.Errorf("git worktree remove: %w (use --force if the tree has local changes)", err)
 	}
 	fmt.Fprintf(stdout, "removed worktree %s\n", c.Worktree)
+	// The worktree's files (and its node_modules) are gone now, so any LSP or
+	// editor diagnostics still pointing under that path are phantom — unresolved
+	// imports against a directory that no longer exists. Say so explicitly,
+	// naming the path, so a running session does not act on the stale diagnostics
+	// that surface right after removal. The merged code is unaffected.
+	fmt.Fprintf(stdout, "note: any LSP/editor diagnostics under %s are now stale (its files are gone) — ignore them; they clear on their own.\n", c.Worktree)
 
 	// Reuse the prune verb so any other stale records are swept in the same call.
 	return (&Prune{Repo: c.Repo}).Run(true, stdout, stderr)
