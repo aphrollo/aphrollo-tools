@@ -174,3 +174,57 @@ func EndSession(raw []byte) {
 		_ = os.Remove(path)
 	}
 }
+
+// --- SessionStart: surface the build skills the gates can't encode -----------
+
+type sessionStartInput struct {
+	SessionID string `json:"session_id"`
+}
+
+// skillNudge is injected at session start. The commit gate enforces the
+// RED→GREEN OUTCOME, but a gated session otherwise trains the model to lean on
+// the gate and skip the skills entirely — and the nuances the gate can't check
+// (test sizing, the pyramid ratio, DAMP-over-DRY, thin vertical slices) live
+// only in those skills. So the directive is to INVOKE them, not a paraphrase of
+// their contents: the skill bodies stay out of context until the model reads
+// them on demand.
+const skillNudge = "tdd: before writing or changing any code this session, invoke the " +
+	"`test-driven-development` and `incremental-implementation` skills (read their SKILL.md). " +
+	"The commit gate enforces RED→GREEN; the skills carry what it cannot check — test sizing, the " +
+	"80/15/5 pyramid, DAMP-over-DRY, thin vertical slices. Treat reading them as a step, not a suggestion."
+
+// HandleSessionStart returns the context injected at session start. It is silent
+// when the session has TDD enforcement turned off (`/tdd off`), matching the
+// rest of the gate — a session that opted out of the gate should not be nudged
+// by it either.
+func HandleSessionStart(raw []byte) string {
+	var in sessionStartInput
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return ""
+	}
+	if s, _ := loadSession(in.SessionID); s != nil && s.Overrides.Off {
+		return ""
+	}
+	return skillNudge
+}
+
+// RenderSessionStart turns the nudge into the SessionStart hook payload: a
+// non-empty message becomes additionalContext; empty is silent. The exit code
+// is always 0 — a session-start hook never errors the session.
+func RenderSessionStart(msg string) ([]byte, int) {
+	if msg == "" {
+		return nil, 0
+	}
+	out := sessionStartOutput{}
+	out.HookSpecificOutput.HookEventName = "SessionStart"
+	out.HookSpecificOutput.AdditionalContext = msg
+	b, _ := json.Marshal(out)
+	return b, 0
+}
+
+type sessionStartOutput struct {
+	HookSpecificOutput struct {
+		HookEventName     string `json:"hookEventName"`
+		AdditionalContext string `json:"additionalContext"`
+	} `json:"hookSpecificOutput"`
+}

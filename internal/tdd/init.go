@@ -22,6 +22,7 @@ type managedEvent struct {
 // managedEvents is the canonical set of session hooks `aphrollo tdd init`
 // wires. Order is stable so the marshaled settings.json is deterministic.
 var managedEvents = []managedEvent{
+	{"SessionStart", "", "sessionstart", 10},
 	{"PreToolUse", "Edit|Write|MultiEdit|NotebookEdit", "pretooluse", 10},
 	{"PostToolUse", "Edit|Write|MultiEdit", "posttooluse", 90},
 	{"UserPromptSubmit", "", "userpromptsubmit", 10},
