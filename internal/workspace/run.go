@@ -40,6 +40,13 @@ func Render(p *Plan, apply bool) string {
 		}
 	}
 	if !apply {
+		if p.StartPoint != "" {
+			if p.BranchExists {
+				fmt.Fprintf(&b, "\nbase: existing branch %s; fetch refreshes %s (rebase target if behind).\n", p.Branch, p.StartPoint)
+			} else {
+				fmt.Fprintf(&b, "\nbase: %s — the new branch starts here, after the fetch.\n", p.StartPoint)
+			}
+		}
 		fmt.Fprintf(&b, "\nrun again with --apply to execute.\n")
 	}
 	return b.String()
@@ -67,11 +74,43 @@ func Apply(p *Plan, stdout, stderr io.Writer) error {
 		cmd.Stdout = stdout
 		cmd.Stderr = stderr
 		if err := cmd.Run(); err != nil {
+			if s.NonFatal {
+				// e.g. an offline `fetch origin` — warn, keep going (the worktree
+				// falls back to the local tip), don't abort the whole prepare.
+				fmt.Fprintf(stdout, "  [warn] %s failed (continuing): %v\n", s.Title, err)
+				continue
+			}
 			return fmt.Errorf("step %d (%s) failed: %w", i+1, s.Title, err)
 		}
 	}
 	fmt.Fprintf(stdout, "\nready: %s\n", p.Worktree)
+	reportBase(p, stdout)
 	return nil
+}
+
+// reportBase prints the worktree's base commit and, when a default remote branch
+// resolved, how far behind it the worktree is — computed AFTER the fetch step so
+// the count reflects the live upstream. A fresh new branch reads 0; an existing
+// branch that has fallen behind gets a rebase nudge. Best-effort: silent on the
+// base detail if the worktree or refs can't be read.
+func reportBase(p *Plan, stdout io.Writer) {
+	out, err := exec.Command("git", "-C", p.Worktree, "rev-parse", "--short", "HEAD").Output()
+	if err != nil {
+		return
+	}
+	base := strings.TrimSpace(string(out))
+	n, ok := 0, false
+	if p.StartPoint != "" {
+		n, ok = gitBehindCount(p.Worktree, "HEAD", p.StartPoint)
+	}
+	switch {
+	case !ok:
+		fmt.Fprintf(stdout, "  base: %s\n", base)
+	case n == 0:
+		fmt.Fprintf(stdout, "  base: %s (up to date with %s)\n", base, p.StartPoint)
+	default:
+		fmt.Fprintf(stdout, "  base: %s — %d commit(s) behind %s; rebase before working\n", base, n, p.StartPoint)
+	}
 }
 
 // List returns `git worktree list` output for the repo (resolved to its

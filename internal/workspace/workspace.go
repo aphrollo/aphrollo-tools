@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -39,10 +40,11 @@ type Request struct {
 // satisfied and will not run on --apply; its Cmd is still shown so the plan is a
 // complete, honest record of what prepare considered.
 type Step struct {
-	Title string   // human label
-	Cmd   []string // argv; nil for a purely informational step
-	Dir   string   // working directory for Cmd ("" => inherit)
-	Skip  string   // non-empty => already satisfied, won't execute
+	Title    string   // human label
+	Cmd      []string // argv; nil for a purely informational step
+	Dir      string   // working directory for Cmd ("" => inherit)
+	Skip     string   // non-empty => already satisfied, won't execute
+	NonFatal bool     // a failure warns and continues instead of aborting the plan
 }
 
 // Plan is the fully-resolved prepare sequence for one repo+branch.
@@ -53,7 +55,14 @@ type Plan struct {
 	Slug         string
 	Worktree     string
 	BranchExists bool
-	Steps        []Step
+	// DefaultBranch is the repo's default remote branch short name (read from
+	// origin/HEAD, "main" as a last resort) — never hardcoded.
+	DefaultBranch string
+	// StartPoint is the remote-tracking ref a NEW branch is based on
+	// (e.g. "origin/main"); "" when no origin ref resolves (offline / no remote),
+	// in which case prepare falls back to the local HEAD as before.
+	StartPoint string
+	Steps      []Step
 }
 
 var slugOK = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
@@ -143,22 +152,47 @@ func BuildPlan(req Request) (*Plan, error) {
 	branchExists := gitBranchExists(top, req.Branch)
 	wtExists := dirExists(wt)
 
+	// The operator's clones are seeded one-shot (ansible update:false) and drift
+	// behind origin as PRs merge on GitHub. Resolve the default remote branch and
+	// the start-point a NEW branch should fork from so prepare bases work on the
+	// fresh upstream tip, not a stale local HEAD. Both are read from origin/HEAD
+	// (never hardcoded "main"); StartPoint stays "" when no origin ref exists so
+	// offline prepare falls back to local HEAD.
+	defaultBranch := resolveDefaultBranch(top)
+	startPoint := "origin/" + defaultBranch
+	if !gitRefExists(top, startPoint) {
+		startPoint = ""
+	}
+
 	p := &Plan{
-		Repo:         top,
-		RepoName:     filepath.Base(top),
-		Branch:       req.Branch,
-		Slug:         slug,
-		Worktree:     wt,
-		BranchExists: branchExists,
+		Repo:          top,
+		RepoName:      filepath.Base(top),
+		Branch:        req.Branch,
+		Slug:          slug,
+		Worktree:      wt,
+		BranchExists:  branchExists,
+		DefaultBranch: defaultBranch,
+		StartPoint:    startPoint,
 	}
 
 	// 1. Mark the main repo git-safe so cross-owner worktree ops don't trip
-	//    "dubious ownership". Must precede the worktree add.
+	//    "dubious ownership". Must precede the fetch and the worktree add.
 	if !req.NoSafeDir {
 		p.Steps = append(p.Steps, safeDirStep(top))
 	}
 
-	// 2. Create the worktree (reuse the branch if it exists, else create it).
+	// 2. Refresh origin so the start-point below is the live upstream tip rather
+	//    than whatever the one-shot clone last saw. Best-effort: an offline box
+	//    or a remote-less repo warns and continues (the worktree still lands on
+	//    local HEAD) instead of breaking prepare.
+	p.Steps = append(p.Steps, Step{
+		Title:    "fetch origin",
+		Cmd:      []string{"git", "-C", top, "fetch", "origin", "--quiet"},
+		NonFatal: true,
+	})
+
+	// 3. Create the worktree. Reuse the branch if it exists (never moving it),
+	//    else create it FROM the fresh default remote branch when we have one.
 	add := Step{
 		Title: "create worktree",
 		Cmd:   []string{"git", "-C", top, "worktree", "add"},
@@ -167,6 +201,9 @@ func BuildPlan(req Request) (*Plan, error) {
 		add.Cmd = append(add.Cmd, wt, req.Branch)
 	} else {
 		add.Cmd = append(add.Cmd, "-b", req.Branch, wt)
+		if startPoint != "" {
+			add.Cmd = append(add.Cmd, startPoint)
+		}
 	}
 	if wtExists {
 		add.Skip = "worktree already exists"
@@ -211,6 +248,42 @@ func gitToplevel(path string) (string, error) {
 func gitBranchExists(repo, branch string) bool {
 	// show-ref exits 0 iff the ref resolves; quiet keeps it silent.
 	return exec.Command("git", "-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch).Run() == nil
+}
+
+// resolveDefaultBranch returns the repo's default remote branch short name —
+// the branch behind origin/HEAD, e.g. "main" or "trunk". Falls back to "main"
+// only when origin/HEAD is unset (no remote, or never resolved); we never assume
+// the default is literally "main" beyond that last resort.
+func resolveDefaultBranch(repo string) string {
+	out, err := exec.Command("git", "-C", repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").Output()
+	if err != nil {
+		return "main"
+	}
+	ref := strings.TrimSpace(string(out)) // e.g. "origin/main"
+	if i := strings.IndexByte(ref, '/'); i >= 0 && i+1 < len(ref) {
+		return ref[i+1:]
+	}
+	return "main"
+}
+
+// gitRefExists reports whether ref resolves in repo (quiet, no output).
+func gitRefExists(repo, ref string) bool {
+	return exec.Command("git", "-C", repo, "rev-parse", "--verify", "--quiet", ref).Run() == nil
+}
+
+// gitBehindCount returns how many commits `to` has that `from` lacks — i.e. the
+// commits `from` would gain by rebasing onto `to`. ok=false when either rev
+// can't be resolved.
+func gitBehindCount(repo, from, to string) (int, bool) {
+	out, err := exec.Command("git", "-C", repo, "rev-list", "--count", from+".."+to).Output()
+	if err != nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 // safeDirSet returns true if path is already a global safe.directory entry.
