@@ -51,6 +51,32 @@ func newView(content string, l lang) view {
 	}
 }
 
+// addedView masks the FULL post-image of a file (so the lexer sees balanced
+// string/comment context across every line) and then keeps only the lines this
+// change added. Detectors thus judge solely the introduced lines while the
+// masking can never be fooled by an opener whose partner sits on an unchanged
+// line. added holds 1-based line numbers in postImage.
+func addedView(postImage string, added map[int]bool, l lang) view {
+	full := newView(postImage, l)
+	return view{
+		code:       keepLines(full.code, added),
+		directives: keepLines(full.directives, added),
+	}
+}
+
+// keepLines returns masked restricted to the 1-based line numbers in keep,
+// preserving their content (already masked) and order.
+func keepLines(masked string, keep map[int]bool) string {
+	var b strings.Builder
+	for i, line := range strings.Split(masked, "\n") {
+		if keep[i+1] {
+			b.WriteString(line)
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
 // lang captures the lexical quirks the masker must know about the edited file.
 // Today that is exactly one: whether `#` begins a line comment. Getting it
 // wrong matters for the suppression detectors, which read the comment-preserving
@@ -135,7 +161,15 @@ func actionFor(c category, p phase) Action {
 // always wins over a Warn suppression in the same edit regardless of ordering,
 // so the policy slices can be composed without ordering fragility.
 func evaluate(content string, policies []policy, p phase, l lang) Decision {
-	v := newView(content, l)
+	return evaluateView(newView(content, l), policies, p)
+}
+
+// evaluateView is evaluate over a pre-built view. The commit gate uses it so it
+// can mask a file's FULL post-image (balanced quote/comment context) and then
+// restrict the view to added lines, instead of masking the deletion-stripped
+// added-only buffer — where an unbalanced quote on one added line would blank a
+// later added line's directive to EOF and smuggle it past the gate.
+func evaluateView(v view, policies []policy, p phase) Decision {
 	best := Decision{Action: Allow}
 	for _, pol := range policies {
 		if !pol.hit(v) {

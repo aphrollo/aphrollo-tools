@@ -56,12 +56,35 @@ func installGitGate(hooksDir, bin string) (bool, error) {
 
 	cur, _ := gitConfigGet("core.hooksPath")
 	if cur != hooksDir {
+		// Never clobber a foreign global core.hooksPath: the user has their own
+		// global hooks. We could not restore it on uninstall (we only know our own
+		// dir), so refuse and tell them how to proceed. A path we already manage
+		// (its shims carry installMarker) is safe to repoint.
+		if cur != "" && !managedHooksDir(cur) {
+			return false, fmt.Errorf(
+				"refusing to overwrite existing global core.hooksPath %q.\n"+
+					"  It points at hooks this tool does not manage. To install the gate, either\n"+
+					"  merge your hooks into %s and run again, or unset it first:\n"+
+					"    git config --global --unset core.hooksPath",
+				cur, hooksDir)
+		}
 		if err := gitConfigSet("core.hooksPath", hooksDir); err != nil {
 			return false, err
 		}
 		changed = true
 	}
 	return changed, nil
+}
+
+// managedHooksDir reports whether dir holds hooks this tool wrote — i.e. its
+// pre-commit shim carries installMarker. Used so a re-install can safely repoint
+// core.hooksPath from one of our own dirs, while still refusing a foreign one.
+func managedHooksDir(dir string) bool {
+	data, err := os.ReadFile(filepath.Join(dir, "pre-commit"))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), installMarker)
 }
 
 func uninstallGitGate(hooksDir string) (bool, error) {

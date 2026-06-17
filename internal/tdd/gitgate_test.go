@@ -107,6 +107,27 @@ func TestInitGitGate_PreservesForeignHook(t *testing.T) {
 	}
 }
 
+// A pre-existing FOREIGN global core.hooksPath must not be silently clobbered:
+// the user has their own global hooks. Install refuses with an error and leaves
+// the existing value intact, rather than overwriting a path it could never
+// restore on uninstall.
+func TestInitGitGate_RefusesForeignHooksPath(t *testing.T) {
+	isolateGitConfig(t)
+	foreignPath := filepath.Join(t.TempDir(), "their-hooks")
+	if out, err := exec.Command("git", "config", "--global", "core.hooksPath", foreignPath).CombinedOutput(); err != nil {
+		t.Fatalf("seed core.hooksPath: %v: %s", err, out)
+	}
+
+	hooksDir := filepath.Join(t.TempDir(), "hooks")
+	_, err := InitGitGate(hooksDir, "/usr/local/bin/aphrollo", false)
+	if err == nil {
+		t.Fatal("InitGitGate: want error refusing to clobber a foreign core.hooksPath, got nil")
+	}
+	if got := globalHooksPath(t); got != foreignPath {
+		t.Errorf("foreign core.hooksPath was changed to %q, want preserved %q", got, foreignPath)
+	}
+}
+
 // Uninstall removes the managed shims and unsets core.hooksPath when it points
 // at our dir.
 func TestInitGitGate_Uninstall(t *testing.T) {

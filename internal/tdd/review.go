@@ -32,6 +32,14 @@ type Reviewer func(prompt string) (string, error)
 // blocking. The review is high signal but non-deterministic and external; a
 // gate must not wedge a push because the reviewer was unavailable. The original
 // silently skipped when it could not resolve a base; here that case is surfaced.
+//
+// This gate is ADVISORY, not a security boundary. The diff it reviews is
+// untrusted, so an attacker can defeat it two ways and we accept both: prompt
+// injection in the diff text can steer the reviewer to report no findings (fails
+// open by design), and a real security review must not lean on it. The
+// authoritative correctness wall is the deterministic commit-time gate
+// (fail-first + mechanical suite + suppression anti-cheat); this LLM pass only
+// adds opportunistic signal on top.
 func Prepush(repoRoot string, review Reviewer) GateResult {
 	base := resolveDiffBase(repoRoot)
 	if base == "" {
