@@ -324,7 +324,7 @@ func TestRun_Workspace_Help_ListsNewVerbs(t *testing.T) {
 	if code := Run([]string{"workspace", "help"}, strings.NewReader(""), &out, &errb); code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
-	for _, verb := range []string{"unclaim", "commit", "push", "pr", "ship", "prune", "merge", "cleanup"} {
+	for _, verb := range []string{"unclaim", "commit", "push", "pr", "ship", "status", "prune", "merge", "cleanup"} {
 		if !strings.Contains(out.String(), verb) {
 			t.Errorf("workspace help missing %q:\n%s", verb, out.String())
 		}
