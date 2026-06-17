@@ -46,6 +46,14 @@ type Conn struct {
 
 	// OnServerRequest handles server->client requests; if nil, they are
 	// answered with null. OnNotification observes server notifications.
+	//
+	// The read loop dispatches each server request in its OWN goroutine
+	// (serveRequest) so a slow handler can't stall delivery of the response the
+	// caller is blocked on. Those goroutines are not joined by Wait, so the
+	// handler MUST return promptly: one that blocks indefinitely leaks its
+	// goroutine for the process's lifetime. The handlers we register
+	// (workspace/configuration, client/registerCapability) just return canned
+	// data, so they never block.
 	OnServerRequest ServerRequestHandler
 	OnNotification  func(method string, params json.RawMessage)
 

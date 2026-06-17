@@ -5,6 +5,7 @@ package lsp
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
 )
@@ -64,11 +65,27 @@ func ApplyEdits(src string, edits []TextEdit) (string, error) {
 		}
 	}
 
-	b := []byte(src)
+	// Build the result in a single forward pass. res is sorted by start
+	// descending, so iterating it in reverse visits edits in ascending start
+	// order; writing each unchanged gap then the replacement into a preallocated
+	// buffer is O(n+total-edit-text), not the O(n·k) of splicing the tail per edit.
+	final := len(src)
 	for _, r := range res {
-		b = append(b[:r.start], append([]byte(r.newText), b[r.end:]...)...)
+		final += len(r.newText) - (r.end - r.start)
 	}
-	return string(b), nil
+	var sb strings.Builder
+	if final > 0 {
+		sb.Grow(final)
+	}
+	prev := 0
+	for i := len(res) - 1; i >= 0; i-- {
+		r := res[i]
+		sb.WriteString(src[prev:r.start])
+		sb.WriteString(r.newText)
+		prev = r.end
+	}
+	sb.WriteString(src[prev:])
+	return sb.String(), nil
 }
 
 // byteOffset converts an LSP Position into a byte offset into src.

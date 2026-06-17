@@ -22,15 +22,19 @@ func isLoadingError(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
+	// Match SPECIFIC not-ready signals only. "no references found" is omitted on
+	// purpose: it is the legitimate empty result for a zero-reference symbol, so
+	// retrying it would burn the whole 25s budget and then error instead of
+	// returning empty. Bare "loading" is omitted too — it would match unrelated
+	// failures that merely mention the word ("failed loading workspace: …"); the
+	// real not-ready phrasings ("still loading", "is loading") are kept.
 	for _, s := range []string{
 		"-32801",                     // ContentModified
 		"content modified",           //
-		"no references found",        // rust-analyzer pre-load
 		"waiting for cargo metadata", //
 		"cargo metadata",             //
 		"still loading",              //
 		"is loading",                 //
-		"loading",                    //
 		"not yet ready",              //
 		"server is not ready",        //
 		"content is outdated",        //

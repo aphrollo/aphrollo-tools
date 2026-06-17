@@ -80,7 +80,17 @@ func writeHunk(b *strings.Builder, hunk []op) {
 			newCount++
 		}
 	}
-	fmt.Fprintf(b, "@@ -%d,%d +%d,%d @@\n", hunk[0].oldPos, oldCount, hunk[0].newPos, newCount)
+	// git's convention for a zero-line range is to point at the line BEFORE the
+	// change (e.g. a pure insertion at the top is "-0,0", not "-1,0"), so step the
+	// start back by one when its count is zero.
+	oldStart, newStart := hunk[0].oldPos, hunk[0].newPos
+	if oldCount == 0 {
+		oldStart--
+	}
+	if newCount == 0 {
+		newStart--
+	}
+	fmt.Fprintf(b, "@@ -%d,%d +%d,%d @@\n", oldStart, oldCount, newStart, newCount)
 	for _, o := range hunk {
 		b.WriteByte(o.kind)
 		b.WriteString(o.line)
@@ -101,8 +111,74 @@ func splitLines(s string) []string {
 	return lines
 }
 
-// diffOps computes a line-level diff via a longest-common-subsequence table.
+// maxLCSCells bounds the longest-common-subsequence dynamic-programming table.
+// The table is len(midA)·len(midB) ints, so an unbounded matrix on a
+// multi-thousand-line file would allocate hundreds of MB on every rename diff.
+// Once the changed region (after trimming the common head and tail) would exceed
+// this many cells, diffOps falls back to a coarse delete-all/add-all block:
+// still LOSSLESS (every old and new line is shown), just not minimal. 8M cells ≈
+// 64 MB, generous against real edits but finite. Common edits trim to a tiny
+// middle and never reach this.
+const maxLCSCells = 8 << 20
+
+// diffOps computes a line-level diff. It first strips the common prefix and
+// suffix (emitted as context) so the expensive LCS runs only on the genuinely
+// changed middle — which both bounds memory for the typical localized edit and
+// keeps the diff minimal. The middle is diffed via an LCS table, or, if that
+// table would exceed maxLCSCells, via a coarse full-replacement fallback.
 func diffOps(a, b []string) []op {
+	var ops []op
+	oldNo, newNo := 1, 1
+	emit := func(kind byte, line string) {
+		ops = append(ops, op{kind: kind, line: line, oldPos: oldNo, newPos: newNo})
+		switch kind {
+		case ' ':
+			oldNo++
+			newNo++
+		case '-':
+			oldNo++
+		case '+':
+			newNo++
+		}
+	}
+
+	// Common prefix.
+	lo := 0
+	for lo < len(a) && lo < len(b) && a[lo] == b[lo] {
+		emit(' ', a[lo])
+		lo++
+	}
+	// Common suffix (not overlapping the prefix).
+	ea, eb := len(a), len(b)
+	for ea > lo && eb > lo && a[ea-1] == b[eb-1] {
+		ea--
+		eb--
+	}
+
+	midA, midB := a[lo:ea], b[lo:eb]
+	if len(midA)*len(midB) > maxLCSCells {
+		// Coarse fallback: delete every changed-region old line, then add every
+		// changed-region new line. Lossless, bounded memory, non-minimal.
+		for _, l := range midA {
+			emit('-', l)
+		}
+		for _, l := range midB {
+			emit('+', l)
+		}
+	} else {
+		emitLCS(midA, midB, emit)
+	}
+
+	// Common suffix, emitted as context.
+	for k := ea; k < len(a); k++ {
+		emit(' ', a[k])
+	}
+	return ops
+}
+
+// emitLCS diffs a and b via a longest-common-subsequence table, calling emit in
+// order with ' ', '-', and '+' ops. Caller bounds len(a)·len(b).
+func emitLCS(a, b []string, emit func(kind byte, line string)) {
 	n, m := len(a), len(b)
 	dp := make([][]int, n+1)
 	for i := range dp {
@@ -120,21 +196,7 @@ func diffOps(a, b []string) []op {
 		}
 	}
 
-	var ops []op
-	i, j, oldNo, newNo := 0, 0, 1, 1
-	emit := func(kind byte, line string) {
-		o := op{kind: kind, line: line, oldPos: oldNo, newPos: newNo}
-		switch kind {
-		case ' ':
-			oldNo++
-			newNo++
-		case '-':
-			oldNo++
-		case '+':
-			newNo++
-		}
-		ops = append(ops, o)
-	}
+	i, j := 0, 0
 	for i < n && j < m {
 		switch {
 		case a[i] == b[j]:
@@ -154,5 +216,4 @@ func diffOps(a, b []string) []op {
 	for ; j < m; j++ {
 		emit('+', b[j])
 	}
-	return ops
 }
