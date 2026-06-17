@@ -40,6 +40,9 @@ func readFrame(r *bufio.Reader) ([]byte, error) {
 			if err != nil {
 				return nil, fmt.Errorf("invalid Content-Length %q: %w", value, err)
 			}
+			if n < 0 {
+				return nil, fmt.Errorf("invalid Content-Length: negative value %d", n)
+			}
 			length = n
 		}
 	}

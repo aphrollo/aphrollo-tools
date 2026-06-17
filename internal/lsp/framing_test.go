@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -26,6 +27,20 @@ func TestFrame_RoundTrip(t *testing.T) {
 	}
 	if !bytes.Equal(got, body) {
 		t.Fatalf("readFrame = %q, want %q", got, body)
+	}
+}
+
+// A present-but-negative Content-Length is a distinct protocol violation from a
+// missing header; the error must say so (naming the bad value) rather than the
+// misleading "missing Content-Length header".
+func TestFrame_NegativeContentLength(t *testing.T) {
+	r := bufio.NewReader(strings.NewReader("Content-Length: -5\r\n\r\n"))
+	_, err := readFrame(r)
+	if err == nil {
+		t.Fatalf("readFrame: want error for negative Content-Length, got nil")
+	}
+	if msg := err.Error(); !strings.Contains(msg, "-5") || strings.Contains(msg, "missing") {
+		t.Fatalf("error = %q, want it to name the negative value -5 and not claim 'missing'", msg)
 	}
 }
 
