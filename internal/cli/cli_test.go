@@ -87,6 +87,33 @@ func TestRun_TDDInit_GitGate(t *testing.T) {
 	}
 }
 
+func TestRun_Sqlc_NoSub_ShowsUsage(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"sqlc"}, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Fatalf("bare `sqlc` should be a usage error (2), got %d", code)
+	}
+	if !strings.Contains(errb.String(), "check") || !strings.Contains(errb.String(), "regen") {
+		t.Errorf("usage should list check + regen:\n%s", errb.String())
+	}
+}
+
+func TestRun_Sqlc_Help(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"sqlc", "--help"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("`sqlc --help` should exit 0, got %d", code)
+	}
+	if !strings.Contains(out.String(), "models.go") {
+		t.Errorf("sqlc help should document the whole-schema models.go gotcha:\n%s", out.String())
+	}
+}
+
+func TestRun_Sqlc_UnknownSub(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"sqlc", "frobnicate"}, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Fatalf("unknown sqlc subcommand should be 2, got %d", code)
+	}
+}
+
 func TestRun_NoArgs_ShowsUsage(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := Run(nil, strings.NewReader(""), &out, &errb); code != 2 {
