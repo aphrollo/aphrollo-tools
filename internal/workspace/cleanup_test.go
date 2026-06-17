@@ -43,6 +43,12 @@ func TestCleanup_RemovesWorktreeAndPrunes(t *testing.T) {
 	if !strings.Contains(out.String(), "removed worktree") {
 		t.Errorf("output missing removal confirmation:\n%s", out.String())
 	}
+	// The removed path's LSP/editor diagnostics go stale once its files (and
+	// node_modules) vanish; cleanup says so explicitly, naming the path, so the
+	// agent does not act on the phantom diagnostics that follow.
+	if !strings.Contains(out.String(), "diagnostics") || !strings.Contains(out.String(), wt) {
+		t.Errorf("output should warn that diagnostics under %s are now stale:\n%s", wt, out.String())
+	}
 }
 
 func TestCleanup_RefusesToRemoveCwd(t *testing.T) {
