@@ -48,6 +48,9 @@ func ApplyEdits(src string, edits []TextEdit) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		if start > end {
+			return "", fmt.Errorf("invalid edit range: start %d is after end %d", start, end)
+		}
 		res = append(res, resolved{start: start, end: end, newText: e.NewText})
 	}
 	sort.SliceStable(res, func(i, j int) bool { return res[i].start > res[j].start })
