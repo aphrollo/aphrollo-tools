@@ -26,7 +26,7 @@ var (
 		// gh resolves the repo from the worktree's origin. It exits non-zero when
 		// no PR exists for the branch — absence, not a failure: return (nil, nil)
 		// so Apply creates one. A real PR with malformed JSON is the only error.
-		cmd := exec.Command("gh", "pr", "view", branch, "--json", "number,url,state")
+		cmd := exec.Command("gh", "pr", "view", "--json", "number,url,state", "--", branch)
 		cmd.Dir = wt
 		out, err := cmd.Output()
 		if err != nil {
@@ -43,7 +43,11 @@ var (
 	}
 
 	ghCreatePR = func(wt string, req PRCreate) (*PRInfo, error) {
-		args := []string{"pr", "create", "--base", req.Base, "--head", req.Branch}
+		// "--base=" / "--head=" attach the value to the flag so a branch name
+		// can't be misparsed as a separate option (defense in depth behind
+		// Slugify). --title/--body stay separate: their values are free text, not
+		// branch names, and gh accepts a leading-dash value after a space.
+		args := []string{"pr", "create", "--base=" + req.Base, "--head=" + req.Branch}
 		switch {
 		case req.Title != "":
 			args = append(args, "--title", req.Title, "--body", req.Body)

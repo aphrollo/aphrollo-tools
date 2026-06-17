@@ -44,6 +44,40 @@ func TestFrame_NegativeContentLength(t *testing.T) {
 	}
 }
 
+// A Content-Length larger than the frame cap must be rejected up front, before
+// make([]byte, length) tries to allocate it — a malicious/buggy server claiming
+// a multi-gigabyte body must not OOM the process.
+func TestFrame_OversizedContentLength(t *testing.T) {
+	hdr := fmt.Sprintf("Content-Length: %d\r\n\r\n", maxFrameBytes+1)
+	r := bufio.NewReader(strings.NewReader(hdr))
+	if _, err := readFrame(r); err == nil {
+		t.Fatalf("readFrame: want error for oversized Content-Length, got nil")
+	}
+}
+
+// A header line with no terminating newline must not be read unboundedly into
+// memory. The reader caps a single header line and errors past the cap.
+func TestFrame_OversizedHeaderLine(t *testing.T) {
+	huge := strings.Repeat("A", maxHeaderLineBytes+10) // no "\n"
+	r := bufio.NewReader(strings.NewReader(huge))
+	if _, err := readFrame(r); err == nil {
+		t.Fatalf("readFrame: want error for over-long header line, got nil")
+	}
+}
+
+// A flood of header lines (never reaching the blank terminator) must be capped
+// rather than looped forever accumulating allocations.
+func TestFrame_TooManyHeaders(t *testing.T) {
+	var b strings.Builder
+	for i := range maxHeaders + 10 {
+		fmt.Fprintf(&b, "X-Pad-%d: y\r\n", i)
+	}
+	r := bufio.NewReader(strings.NewReader(b.String()))
+	if _, err := readFrame(r); err == nil {
+		t.Fatalf("readFrame: want error for header flood, got nil")
+	}
+}
+
 // The reader must consume exactly one frame so a second frame on the same
 // stream reads back independently.
 func TestFrame_SequentialFrames(t *testing.T) {

@@ -38,8 +38,8 @@ func TestApplyFileEdits_TransactionalOnComputeError(t *testing.T) {
 		{Path: bad, Edits: []lsp.TextEdit{edit(0, 40, 50, "boom")}}, // out of range → ApplyEdits errors
 	}
 
-	// mainPath empty so both files are read from disk.
-	if _, err := applyFileEdits(fileEdits, "", "", true); err == nil {
+	// mainPath empty so both files are read from disk; root=dir contains both.
+	if _, err := applyFileEdits(fileEdits, dir, "", "", true); err == nil {
 		t.Fatalf("applyFileEdits: want compute error, got nil")
 	}
 
@@ -67,7 +67,7 @@ func TestApplyFileEdits_TargetUsesIndexedSource(t *testing.T) {
 		{Path: main, Edits: []lsp.TextEdit{edit(0, 0, 4, "Z")}}, // valid vs "AAAA", out of range vs "B"
 	}
 
-	res, err := applyFileEdits(fileEdits, main, indexed, true)
+	res, err := applyFileEdits(fileEdits, dir, main, indexed, true)
 	if err != nil {
 		t.Fatalf("applyFileEdits: %v", err)
 	}
@@ -80,5 +80,32 @@ func TestApplyFileEdits_TargetUsesIndexedSource(t *testing.T) {
 	}
 	if string(got) != "Z" {
 		t.Fatalf("main.txt = %q, want %q (edit applied against indexed source)", got, "Z")
+	}
+}
+
+// A WorkspaceEdit is server-controlled. A buggy or hostile language server can
+// return an edit for a path OUTSIDE the project root; applyFileEdits must refuse
+// the whole batch before writing anything, so a rename can never clobber an
+// arbitrary file like ~/.bashrc.
+func TestApplyFileEdits_RejectsEditOutsideRoot(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "victim.txt") // a sibling temp dir, not under root
+	if err := os.WriteFile(outside, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fileEdits := []lsp.FileEdit{
+		{Path: outside, Edits: []lsp.TextEdit{edit(0, 0, 8, "PWNED")}},
+	}
+
+	if _, err := applyFileEdits(fileEdits, root, "", "", true); err == nil {
+		t.Fatalf("applyFileEdits: want containment error for path outside root, got nil")
+	}
+	got, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "original" {
+		t.Fatalf("victim.txt = %q, want unchanged %q — an out-of-root edit must not be written", got, "original")
 	}
 }

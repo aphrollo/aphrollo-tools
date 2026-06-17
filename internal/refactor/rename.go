@@ -91,7 +91,7 @@ func Rename(ctx context.Context, req RenameRequest) (*RenameResult, error) {
 		return nil, fmt.Errorf("no edits produced: symbol may not be renameable at %s:%d:%d", req.File, req.Line, pos.Character+1)
 	}
 
-	return applyFileEdits(fileEdits, abs, src, req.Apply)
+	return applyFileEdits(fileEdits, root, abs, src, req.Apply)
 }
 
 // applyFileEdits turns a rename's per-file edits into diffs and, when apply is
@@ -109,7 +109,13 @@ func Rename(ctx context.Context, req RenameRequest) (*RenameResult, error) {
 // Cross-file atomicity is not achievable without a transaction, but this
 // guarantees all-or-nothing at the point of computation and per-file atomicity
 // on write.
-func applyFileEdits(fileEdits []lsp.FileEdit, mainPath, mainSrc string, apply bool) (*RenameResult, error) {
+//
+// root is the project root the rename is scoped to. Every target path is a
+// server-supplied WorkspaceEdit path, so each is checked to live within root
+// before any write — a buggy or hostile server cannot redirect a rename onto an
+// arbitrary file outside the project (e.g. ~/.bashrc). The whole batch is
+// refused on the first out-of-root path, before phase 2 mutates anything.
+func applyFileEdits(fileEdits []lsp.FileEdit, root, mainPath, mainSrc string, apply bool) (*RenameResult, error) {
 	type pendingWrite struct {
 		path, content string
 	}
@@ -117,6 +123,9 @@ func applyFileEdits(fileEdits []lsp.FileEdit, mainPath, mainSrc string, apply bo
 	writes := make([]pendingWrite, 0, len(fileEdits))
 
 	for _, fe := range fileEdits {
+		if root != "" && !withinRoot(fe.Path, root) {
+			return nil, fmt.Errorf("refusing edit outside project root: %s is not within %s", fe.Path, root)
+		}
 		before := mainSrc
 		if fe.Path != mainPath {
 			b, err := os.ReadFile(fe.Path)
@@ -172,6 +181,25 @@ func writeFileAtomic(path, content string) error {
 		return err
 	}
 	return os.Rename(tmpName, path)
+}
+
+// withinRoot reports whether path is root itself or lies beneath it, comparing
+// cleaned absolute paths so "." / ".." segments and a missing leading slash
+// can't smuggle an escape past the check.
+func withinRoot(path, root string) bool {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(absRoot, absPath)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 // resolvePosition converts a 1-based line plus an explicit column or a named

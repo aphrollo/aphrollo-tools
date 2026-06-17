@@ -3,6 +3,7 @@ package lsp
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -76,6 +77,18 @@ func URIToPath(uri DocumentURI) (string, error) {
 	}
 	if !strings.EqualFold(u.Scheme, "file") {
 		return "", fmt.Errorf("not a file URI: %q", uri)
+	}
+	// A non-empty authority (file://host/path) is not a plain local path. Returning
+	// u.Path alone would silently drop the host and turn file://evil/etc/passwd
+	// into /etc/passwd, so reject it instead. "localhost" is the one spec-allowed
+	// authority and is treated as empty.
+	if u.Host != "" && !strings.EqualFold(u.Host, "localhost") {
+		return "", fmt.Errorf("file URI with non-empty host not supported: %q", uri)
+	}
+	// u.Path is already percent-decoded; reject any traversal segment so an
+	// encoded "%2e%2e" can't climb out of the project once written.
+	if slices.Contains(strings.Split(u.Path, "/"), "..") {
+		return "", fmt.Errorf("file URI contains a .. path segment: %q", uri)
 	}
 	return u.Path, nil
 }
