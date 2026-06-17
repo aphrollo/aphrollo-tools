@@ -178,14 +178,32 @@ func TestRun_TDD_BlocksTautologyInTest(t *testing.T) {
 }
 
 func TestRun_TDD_AllowsSourceEdit(t *testing.T) {
+	// An absolute path under no git repo so the worktree advisory stays silent
+	// (it warns once per session in a main clone) — this asserts the CONTENT
+	// gate lets a sleep in a source file flow, independent of where tests run.
+	file := filepath.Join(t.TempDir(), "a.go")
 	var out, errb bytes.Buffer
-	stdin := strings.NewReader(`{"tool_name":"Edit","tool_input":{"file_path":"a.go","new_string":"time.Sleep(2)"}}`)
+	stdin := strings.NewReader(`{"tool_name":"Edit","tool_input":{"file_path":"` + file + `","new_string":"time.Sleep(2)"}}`)
 	code := Run([]string{"tdd", "pretooluse"}, stdin, &out, &errb)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (allowed)", code)
 	}
 	if out.Len() != 0 {
 		t.Fatalf("allow should be silent, got: %s", out.String())
+	}
+}
+
+func TestRun_TDD_SessionStart_NudgesSkills(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var out, errb bytes.Buffer
+	stdin := strings.NewReader(`{"session_id":"cli-ss"}`)
+	code := Run([]string{"tdd", "sessionstart"}, stdin, &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(out.String(), "test-driven-development") ||
+		!strings.Contains(out.String(), `"hookEventName":"SessionStart"`) {
+		t.Fatalf("sessionstart should inject the skill nudge:\n%s", out.String())
 	}
 }
 

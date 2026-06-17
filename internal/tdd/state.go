@@ -35,6 +35,11 @@ type sessionState struct {
 	Overrides struct {
 		Off bool `json:"off"`
 	} `json:"overrides"`
+	// Notices records one-shot advisories that must fire at most once per
+	// session, so re-firing them on every edit never becomes noise.
+	Notices struct {
+		WorktreeWarned bool `json:"worktree_warned"`
+	} `json:"notices,omitempty"`
 }
 
 // stateDir is where per-session state files live. It honours CLAUDE_CONFIG_DIR
@@ -138,6 +143,24 @@ func gitOut(root string, args ...string) string {
 func (s *sessionState) stamp(root string, ps projectState) {
 	ps.TS = time.Now().UTC().Format(time.RFC3339)
 	s.ByProject[root] = ps
+}
+
+// markWorktreeWarned records that the once-per-session main-clone worktree
+// warning has fired, returning true ONLY the first time so the caller warns
+// exactly once. An empty session id has nowhere to persist the flag, so it
+// returns true every call — the warning still fires, it just isn't deduped (a
+// real hook payload always carries a session id, so this path is the rare one).
+func markWorktreeWarned(session string) bool {
+	s, path := loadSession(session)
+	if s == nil {
+		return true
+	}
+	if s.Notices.WorktreeWarned {
+		return false
+	}
+	s.Notices.WorktreeWarned = true
+	_ = s.save(path)
+	return true
 }
 
 // setOff persists the per-session enforcement override (the `/tdd off|on`

@@ -46,9 +46,9 @@ func hasCommandContaining(t *testing.T, data []byte, event, sub string) bool {
 
 const bin = "/usr/local/bin/aphrollo"
 
-// Installing into an empty settings file wires all four session-hook events to
-// the aphrollo tdd subcommands.
-func TestPatchSettings_InstallsAllFourEvents(t *testing.T) {
+// Installing into an empty settings file wires all session-hook events to the
+// aphrollo tdd subcommands.
+func TestPatchSettings_InstallsAllEvents(t *testing.T) {
 	out, changed, err := PatchSettings(nil, bin)
 	if err != nil {
 		t.Fatalf("PatchSettings: %v", err)
@@ -57,6 +57,7 @@ func TestPatchSettings_InstallsAllFourEvents(t *testing.T) {
 		t.Fatal("expected changed=true installing into empty settings")
 	}
 	for _, want := range []struct{ event, sub string }{
+		{"SessionStart", "aphrollo tdd sessionstart"},
 		{"PreToolUse", "aphrollo tdd pretooluse"},
 		{"PostToolUse", "aphrollo tdd posttooluse"},
 		{"SessionEnd", "aphrollo tdd sessionend"},
@@ -181,7 +182,7 @@ func TestStripSettings_RenamedBinary(t *testing.T) {
 	if !changed {
 		t.Fatal("expected changed=true stripping renamed-binary hooks")
 	}
-	for _, ev := range []string{"PreToolUse", "PostToolUse", "SessionEnd", "UserPromptSubmit"} {
+	for _, ev := range []string{"SessionStart", "PreToolUse", "PostToolUse", "SessionEnd", "UserPromptSubmit"} {
 		if hasCommandContaining(t, out, ev, "tdd ") {
 			t.Errorf("%s: renamed-binary tdd entry survived strip\n%s", ev, out)
 		}
@@ -205,7 +206,7 @@ func TestStripSettings_RemovesOnlyManaged(t *testing.T) {
 	if !changed {
 		t.Fatal("expected changed=true stripping installed settings")
 	}
-	for _, ev := range []string{"PreToolUse", "PostToolUse", "SessionEnd", "UserPromptSubmit"} {
+	for _, ev := range []string{"SessionStart", "PreToolUse", "PostToolUse", "SessionEnd", "UserPromptSubmit"} {
 		if hasCommandContaining(t, out, ev, "aphrollo tdd") {
 			t.Errorf("%s: aphrollo entry survived strip\n%s", ev, out)
 		}
