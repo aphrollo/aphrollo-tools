@@ -10,9 +10,27 @@ import (
 
 // PRInfo is the subset of a GitHub PR the verbs care about.
 type PRInfo struct {
-	Number int    `json:"number"`
-	URL    string `json:"url"`
-	State  string `json:"state"`
+	Number  int    `json:"number"`
+	URL     string `json:"url"`
+	State   string `json:"state"` // OPEN | MERGED | CLOSED
+	IsDraft bool   `json:"isDraft"`
+}
+
+// prStateWord maps a gh PR to the canonical lifecycle word the rlndx kanban git
+// indicator renders: draft | open | merged | closed. A draft is OPEN on
+// GitHub's side but a distinct card state, so it is split out here.
+func prStateWord(info *PRInfo) string {
+	switch strings.ToUpper(info.State) {
+	case "MERGED":
+		return "merged"
+	case "CLOSED":
+		return "closed"
+	default: // OPEN
+		if info.IsDraft {
+			return "draft"
+		}
+		return "open"
+	}
 }
 
 // ghViewPR and ghCreatePR are the seam over the `gh` CLI. They are package vars
@@ -26,7 +44,7 @@ var (
 		// gh resolves the repo from the worktree's origin. It exits non-zero when
 		// no PR exists for the branch — absence, not a failure: return (nil, nil)
 		// so Apply creates one. A real PR with malformed JSON is the only error.
-		cmd := exec.Command("gh", "pr", "view", "--json", "number,url,state", "--", branch)
+		cmd := exec.Command("gh", "pr", "view", "--json", "number,url,state,isDraft", "--", branch)
 		cmd.Dir = wt
 		out, err := cmd.Output()
 		if err != nil {
@@ -64,7 +82,7 @@ var (
 			return nil, fmt.Errorf("gh pr create: %v\n%s", err, strings.TrimSpace(string(out)))
 		}
 		url := firstURL(string(out))
-		return &PRInfo{URL: url, Number: prNumberFromURL(url), State: "OPEN"}, nil
+		return &PRInfo{URL: url, Number: prNumberFromURL(url), State: "OPEN", IsDraft: req.Draft}, nil
 	}
 )
 
@@ -129,18 +147,31 @@ func (p *PR) Apply(stdout, stderr io.Writer) error {
 		return err
 	} else if existing != nil {
 		fmt.Fprintf(stdout, "PR #%d already open: %s\n", existing.Number, existing.URL)
+		reportPRState(stdout, existing)
 		return nil
 	}
 	info, err := ghCreatePR(p.Target.Worktree, p.Create)
 	if err != nil {
 		return err
 	}
-	if info.Number > 0 {
-		fmt.Fprintf(stdout, "opened PR #%d: %s  (%s <- %s)\n", info.Number, info.URL, p.Create.Base, p.Create.Branch)
-	} else {
-		fmt.Fprintf(stdout, "opened PR: %s  (%s <- %s)\n", info.URL, p.Create.Base, p.Create.Branch)
+	draftWord := ""
+	if info.IsDraft {
+		draftWord = "draft "
 	}
+	if info.Number > 0 {
+		fmt.Fprintf(stdout, "opened %sPR #%d: %s  (%s <- %s)\n", draftWord, info.Number, info.URL, p.Create.Base, p.Create.Branch)
+	} else {
+		fmt.Fprintf(stdout, "opened %sPR: %s  (%s <- %s)\n", draftWord, info.URL, p.Create.Base, p.Create.Branch)
+	}
+	reportPRState(stdout, info)
 	return nil
+}
+
+// reportPRState prints the two machine-readable lines a coder relays into
+// tickets_update(pr_url, pr_state) so the rlndx card's git indicator tracks the
+// PR through draft → open → merged without a webhook.
+func reportPRState(stdout io.Writer, info *PRInfo) {
+	fmt.Fprintf(stdout, "pr-url: %s\npr-state: %s\n", info.URL, prStateWord(info))
 }
 
 // firstURL returns the first whitespace-delimited token that looks like a URL —

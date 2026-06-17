@@ -13,6 +13,7 @@ import (
 type PRStatus struct {
 	Number           int
 	State            string // OPEN | MERGED | CLOSED
+	IsDraft          bool   // OPEN PR still a draft (not yet ready for review)
 	MergedAt         string // RFC3339 when State==MERGED, else ""
 	Mergeable        string // MERGEABLE | CONFLICTING | UNKNOWN
 	MergeStateStatus string // CLEAN | BLOCKED | BEHIND | UNSTABLE | DIRTY | …
@@ -33,7 +34,7 @@ type checkEntry struct {
 // no PR — the "nothing to report" signal, not an error (mirrors ghViewPR).
 var ghViewPRStatus = func(wt, branch string) (*PRStatus, error) {
 	cmd := exec.Command("gh", "pr", "view",
-		"--json", "number,state,mergedAt,mergeable,mergeStateStatus,statusCheckRollup", "--", branch)
+		"--json", "number,state,isDraft,mergedAt,mergeable,mergeStateStatus,statusCheckRollup", "--", branch)
 	cmd.Dir = wt
 	out, err := cmd.Output()
 	if err != nil {
@@ -42,6 +43,7 @@ var ghViewPRStatus = func(wt, branch string) (*PRStatus, error) {
 	var raw struct {
 		Number           int          `json:"number"`
 		State            string       `json:"state"`
+		IsDraft          bool         `json:"isDraft"`
 		MergedAt         string       `json:"mergedAt"`
 		Mergeable        string       `json:"mergeable"`
 		MergeStateStatus string       `json:"mergeStateStatus"`
@@ -56,6 +58,7 @@ var ghViewPRStatus = func(wt, branch string) (*PRStatus, error) {
 	s := &PRStatus{
 		Number:           raw.Number,
 		State:            raw.State,
+		IsDraft:          raw.IsDraft,
 		MergedAt:         raw.MergedAt,
 		Mergeable:        raw.Mergeable,
 		MergeStateStatus: raw.MergeStateStatus,
@@ -117,6 +120,9 @@ func (s *PRStatus) Line(branch string) string {
 			fmt.Fprintf(&b, " merged=%s", s.MergedAt)
 		}
 	case "OPEN":
+		if s.IsDraft {
+			b.WriteString(" draft")
+		}
 		if s.Mergeable != "" {
 			fmt.Fprintf(&b, " mergeable=%s", s.Mergeable)
 		}

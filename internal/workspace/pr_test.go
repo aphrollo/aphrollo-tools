@@ -40,6 +40,50 @@ func TestPR_CreatesWhenNoneExists(t *testing.T) {
 	}
 }
 
+func TestPR_DraftReportsState(t *testing.T) {
+	repo := repoWithRemote(t)
+	stubGH(t,
+		func(wt, branch string) (*PRInfo, error) { return nil, nil },
+		func(wt string, req PRCreate) (*PRInfo, error) {
+			return &PRInfo{Number: 42, URL: "https://github.com/o/r/pull/42", State: "OPEN", IsDraft: req.Draft}, nil
+		},
+	)
+	pr, err := PRPlan(targetFor(repo, "main"), "main", "", "", true) // draft
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if err := pr.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
+	}
+	if !strings.Contains(out.String(), "draft PR #42") {
+		t.Errorf("draft create should say so:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "pr-state: draft") {
+		t.Errorf("output must carry pr-state: draft for the relay:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "pr-url: https://github.com/o/r/pull/42") {
+		t.Errorf("output must carry pr-url for the relay:\n%s", out.String())
+	}
+}
+
+func TestPRStateWord(t *testing.T) {
+	cases := []struct {
+		info PRInfo
+		want string
+	}{
+		{PRInfo{State: "OPEN", IsDraft: true}, "draft"},
+		{PRInfo{State: "OPEN", IsDraft: false}, "open"},
+		{PRInfo{State: "MERGED"}, "merged"},
+		{PRInfo{State: "CLOSED"}, "closed"},
+	}
+	for _, c := range cases {
+		if got := prStateWord(&c.info); got != c.want {
+			t.Errorf("prStateWord(%+v) = %q, want %q", c.info, got, c.want)
+		}
+	}
+}
+
 func TestPR_ReusesExisting(t *testing.T) {
 	repo := repoWithRemote(t)
 	createCalled := false
