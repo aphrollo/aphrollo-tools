@@ -50,6 +50,42 @@ func TestParseConfigExtractsEntry(t *testing.T) {
 	}
 }
 
+// A real config nests an `overrides:` list whose `- db_type:` items must NOT be
+// mistaken for new top-level sql entries.
+const aiCfgWithOverrides = `version: "2"
+sql:
+  - engine: "postgresql"
+    queries: "queries/ai.sql"
+    schema: "migrations"
+    gen:
+      go:
+        package: "aigen"
+        out: "internal/store/postgres/aigen"
+        sql_package: "pgx/v5"
+        overrides:
+          - db_type: "uuid"
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
+          - db_type: "timestamptz"
+            go_type:
+              import: "time"
+              type: "Time"
+`
+
+func TestParseConfigIgnoresNestedOverrideLists(t *testing.T) {
+	entries, err := parseConfig([]byte(aiCfgWithOverrides))
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("overrides list items leaked into entries: got %d, want 1", len(entries))
+	}
+	if entries[0].Out != "internal/store/postgres/aigen" {
+		t.Errorf("out = %q, want internal/store/postgres/aigen", entries[0].Out)
+	}
+}
+
 func TestDiscoverConfigsFindsBoth(t *testing.T) {
 	repo := t.TempDir()
 	mustWrite(t, filepath.Join(repo, "sqlc.yaml"), mainCfg)

@@ -118,6 +118,7 @@ func parseConfig(data []byte) ([]SQLEntry, error) {
 	var entries []SQLEntry
 	inSQL := false
 	cur := -1
+	entryIndent := -1 // indent of the sql: list items; deeper "- " lines are nested
 	for _, raw := range strings.Split(string(data), "\n") {
 		line := stripComment(raw)
 		trimmed := strings.TrimSpace(line)
@@ -129,15 +130,26 @@ func parseConfig(data []byte) ([]SQLEntry, error) {
 		// Top-level key (indent 0): enter/leave the sql block.
 		if indent == 0 {
 			inSQL = strings.HasPrefix(trimmed, "sql:")
+			entryIndent = -1
 			continue
 		}
 		if !inSQL {
 			continue
 		}
-		// A list item ("- ...") opens a new sql entry.
-		if strings.HasPrefix(trimmed, "- ") || trimmed == "-" {
+		isItem := strings.HasPrefix(trimmed, "- ") || trimmed == "-"
+		// A list item at the sql: list's own indent opens a new sql entry. A
+		// list item that is MORE indented (e.g. gen.go.overrides' "- db_type:")
+		// belongs to a nested list and must not be mistaken for a new entry — we
+		// strip its dash and let its keys (db_type/type/…) fall through as ignored.
+		if isItem && (entryIndent == -1 || indent <= entryIndent) {
+			entryIndent = indent
 			entries = append(entries, SQLEntry{})
 			cur = len(entries) - 1
+			trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
+			if trimmed == "" {
+				continue
+			}
+		} else if isItem {
 			trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
 			if trimmed == "" {
 				continue
