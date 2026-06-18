@@ -57,4 +57,12 @@ mv -Tf "${CURRENT}.new" "$CURRENT"
 ok "aphrollo now ${RELEASE_NAME} ($([ -n "$PREV_TARGET" ] && basename "$PREV_TARGET" || echo 'first release') → ${RELEASE_NAME})"
 
 say "prune old releases (keep last 5)"
-ls -1dt "$RELEASES"/*/ 2>/dev/null | tail -n +6 | xargs -r rm -rf
+# Skip directories the runner cannot delete (e.g. bootstrap/ provisioned by root).
+# `-writable` is a GNU find extension that tests whether the current user can
+# write the directory entry; non-writable dirs (different owner, read-only) are
+# silently left alone.
+find "$RELEASES" -maxdepth 1 -mindepth 1 -type d -writable -printf '%T@ %p\0' \
+  | sort -rnz \
+  | cut -d' ' -f2- -z \
+  | tail -n +6 -z \
+  | xargs -0 -r rm -rf
