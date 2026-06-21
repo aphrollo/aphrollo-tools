@@ -68,6 +68,12 @@ func TestPrepareApply_E2E(t *testing.T) {
 	repo := initRepo(t)
 	gitcfg := filepath.Join(t.TempDir(), "gitconfig")
 	t.Setenv("GIT_CONFIG_GLOBAL", gitcfg)
+	// safe.directory now lands in a dedicated runtime config (git-[include]d
+	// from the ansible-managed ~/.gitconfig), NOT the global file ansible owns,
+	// so the two writers never clobber each other. Point it at a not-yet-
+	// existing dir so the plan's mkdir step is exercised too.
+	runtimecfg := filepath.Join(t.TempDir(), "git", "aphrollo-runtime.cfg")
+	t.Setenv("APHROLLO_GIT_RUNTIME_CONFIG", runtimecfg)
 
 	req := Request{Repo: repo, Branch: "feat/work", NoInstall: true}
 
@@ -80,6 +86,16 @@ func TestPrepareApply_E2E(t *testing.T) {
 		if s.Skip != "" {
 			t.Fatalf("fresh plan should have no skips, got skip on %q: %s", s.Title, s.Skip)
 		}
+	}
+	// The plan ensures the runtime-config dir before marking safe.directory.
+	var hasDirStep bool
+	for _, s := range plan.Steps {
+		if s.Title == "ensure git config dir" {
+			hasDirStep = true
+		}
+	}
+	if !hasDirStep {
+		t.Fatal("plan should include the runtime-config dir-ensure step")
 	}
 
 	var out, errb bytes.Buffer
@@ -96,10 +112,14 @@ func TestPrepareApply_E2E(t *testing.T) {
 		t.Fatalf("%s is not a git worktree: %v", wt, err)
 	}
 
-	// safe.directory landed in the isolated global config (not real ~/.gitconfig).
-	cfg, _ := os.ReadFile(gitcfg)
-	if !strings.Contains(string(cfg), plan.Repo) || !strings.Contains(string(cfg), wt) {
-		t.Fatalf("safe.directory not written for repo+worktree:\n%s", cfg)
+	// safe.directory landed in the dedicated runtime config, NOT the
+	// ansible-owned global file — the whole point of the include split.
+	rcfg, _ := os.ReadFile(runtimecfg)
+	if !strings.Contains(string(rcfg), plan.Repo) || !strings.Contains(string(rcfg), wt) {
+		t.Fatalf("safe.directory not written to runtime config for repo+worktree:\n%s", rcfg)
+	}
+	if gcfg, _ := os.ReadFile(gitcfg); strings.Contains(string(gcfg), "safe.directory") {
+		t.Fatalf("global config must not carry safe.directory (ansible owns it):\n%s", gcfg)
 	}
 
 	// Idempotency: rebuild — safe.directory + worktree-add now skipped.

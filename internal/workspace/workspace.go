@@ -3,9 +3,13 @@
 // or build a branch otherwise spends a fistful of tool calls (and tokens) on
 // the same mechanical steps every time:
 //
-//  1. git config --global --add safe.directory <repo>   (cross-owner repos)
+//  1. git config --file <runtime cfg> --add safe.directory <repo>  (cross-owner)
 //  2. git worktree add [-b] <branch> <wt>
-//  3. git config --global --add safe.directory <wt>
+//  3. git config --file <runtime cfg> --add safe.directory <wt>
+//
+// The safe.directory entries go in a dedicated runtime config (see
+// runtimeGitConfig) git-`[include]`d from ~/.gitconfig, not the global file
+// ansible owns — so prepare and an infra apply never clobber each other.
 //  4. pnpm install (or npm / go mod download) inside the fresh worktree
 //
 // `aphrollo workspace prepare` computes that sequence as a Plan, prints it
@@ -183,9 +187,11 @@ func BuildPlan(req Request) (*Plan, error) {
 	}
 
 	// 1. Mark the main repo git-safe so cross-owner worktree ops don't trip
-	//    "dubious ownership". Must precede the fetch and the worktree add.
+	//    "dubious ownership". Must precede the fetch and the worktree add. The
+	//    entries go in a dedicated runtime config (git-[include]d from the
+	//    ansible-managed ~/.gitconfig); ensure its dir exists first.
 	if !req.NoSafeDir {
-		p.Steps = append(p.Steps, safeDirStep(top))
+		p.Steps = append(p.Steps, safeDirDirStep(), safeDirStep(top))
 	}
 
 	// 2. Refresh origin so the start-point below is the live upstream tip rather
@@ -293,24 +299,57 @@ func gitBehindCount(repo, from, to string) (int, bool) {
 	return n, true
 }
 
-// safeDirSet returns true if path is already a global safe.directory entry.
+// runtimeGitConfig is the dedicated git config file that `aphrollo workspace`
+// owns for dynamic safe.directory entries. The ansible-managed ~/.gitconfig
+// git-`[include]`s it (see the agent ~/.gitconfig task in aphrollo-infra), so
+// the two writers never clobber each other: ansible rewrites ~/.gitconfig
+// (identity + credential helper) idempotently, while prepare appends here.
+// Override with APHROLLO_GIT_RUNTIME_CONFIG (tests, non-standard homes).
+func runtimeGitConfig() string {
+	if p := os.Getenv("APHROLLO_GIT_RUNTIME_CONFIG"); p != "" {
+		return p
+	}
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if base == "" {
+		home, _ := os.UserHomeDir()
+		base = filepath.Join(home, ".config")
+	}
+	return filepath.Join(base, "git", "aphrollo-runtime.cfg")
+}
+
+// safeDirSet returns true if path is already a safe.directory entry in the
+// runtime config (or that file blanket-allows everything with "*").
 func safeDirSet(path string) bool {
-	out, err := exec.Command("git", "config", "--global", "--get-all", "safe.directory").Output()
+	out, err := exec.Command("git", "config", "--file", runtimeGitConfig(), "--get-all", "safe.directory").Output()
 	if err != nil {
-		return false // no entries (or no global config) => not set
+		return false // no entries (or no runtime config) => not set
 	}
 	for line := range strings.SplitSeq(string(out), "\n") {
-		if strings.TrimSpace(line) == path || strings.TrimSpace(line) == "*" {
+		if t := strings.TrimSpace(line); t == path || t == "*" {
 			return true
 		}
 	}
 	return false
 }
 
+// safeDirDirStep ensures the runtime config's parent dir exists — `git config
+// --file` refuses to create a config in a missing directory.
+func safeDirDirStep() Step {
+	dir := filepath.Dir(runtimeGitConfig())
+	s := Step{
+		Title: "ensure git config dir",
+		Cmd:   []string{"mkdir", "-p", dir},
+	}
+	if dirExists(dir) {
+		s.Skip = "dir exists"
+	}
+	return s
+}
+
 func safeDirStep(path string) Step {
 	s := Step{
 		Title: "mark git-safe",
-		Cmd:   []string{"git", "config", "--global", "--add", "safe.directory", path},
+		Cmd:   []string{"git", "config", "--file", runtimeGitConfig(), "--add", "safe.directory", path},
 	}
 	if safeDirSet(path) {
 		s.Skip = "already a safe.directory"
