@@ -44,6 +44,23 @@ const blockSleepAtSeconds = 2
 
 var sleepRe = regexp.MustCompile(`\bsleep\s+([0-9]+(?:\.[0-9]+)?)([smhd]?)\b`)
 
+// pollFix is the shared fix hint for any foreground blocking wait — a long
+// sleep or a watch/follow command. The sleep it recommends is sub-threshold
+// (1s < blockSleepAtSeconds) so the suggestion does not itself trip the block.
+const pollFix = "Instead: poll the condition in a bounded loop " +
+	"(`until <condition>; do sleep 1; done`) or run the work with " +
+	"run_in_background: true and poll its status."
+
+// watchRes match foreground watch/follow commands that idle a dispatch turn the
+// same way a long sleep does — they never return on their own. Matched
+// case-insensitively against the masked command.
+var watchRes = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\bgh\b.*\s--watch\b`),               // gh ... --watch (e.g. gh pr checks --watch)
+	regexp.MustCompile(`(?i)\btail\s+(-f|--follow)\b`),          // tail -f / tail --follow
+	regexp.MustCompile(`(?i)\bjournalctl\b.*\s(-f|--follow)\b`), // journalctl -f / --follow
+	regexp.MustCompile(`(?i)\bwatch\s+`),                        // the watch(1) command
+}
+
 // Evaluate applies the guardrail policy to a tool call. Only Bash commands are
 // inspected; everything else is allowed.
 func Evaluate(toolName, command string) Decision {
@@ -54,6 +71,9 @@ func Evaluate(toolName, command string) Decision {
 	// string or comment never triggers the policy.
 	masked := mask(command)
 	if d, hit := checkBlockingWait(masked); hit {
+		return d
+	}
+	if d, hit := checkBlockingWatch(masked); hit {
 		return d
 	}
 	if d, hit := checkUnboundedOutput(masked); hit {
@@ -70,11 +90,26 @@ func checkBlockingWait(command string) (Decision, bool) {
 				Action: Block,
 				Reason: fmt.Sprintf(
 					"Blocking wait of %gs (>= %ds) is not allowed in a dispatch turn. "+
-						"A foreground sleep ties up the session doing nothing. "+
-						"Instead: run the work with run_in_background and poll its status, "+
-						"or poll the condition in a bounded loop across turns. "+
-						"For sub-second pacing, keep it under 2s.",
-					secs, blockSleepAtSeconds),
+						"A foreground sleep ties up the session doing nothing. %s "+
+						"For sub-second pacing, keep it under %ds.",
+					secs, blockSleepAtSeconds, pollFix, blockSleepAtSeconds),
+			}, true
+		}
+	}
+	return Decision{}, false
+}
+
+// checkBlockingWatch blocks foreground watch/follow commands (gh --watch, tail
+// -f, journalctl -f, watch(1)). Like a long sleep they never return on their
+// own and idle the whole dispatch turn; the fix is the same bounded poll loop.
+func checkBlockingWatch(command string) (Decision, bool) {
+	for _, re := range watchRes {
+		if re.MatchString(command) {
+			return Decision{
+				Action: Block,
+				Reason: "Blocking watch/follow command is not allowed in a dispatch turn. " +
+					"It never returns on its own and ties up the session doing nothing. " +
+					pollFix,
 			}, true
 		}
 	}

@@ -42,6 +42,79 @@ func TestEvaluate_LongSleepReasonSuggestsFix(t *testing.T) {
 	}
 }
 
+// Blocking watch/follow commands idle a dispatch turn just as badly as a long
+// sleep, so they are blocked with the same poll-loop/background fix hint.
+func TestEvaluate_BlocksBlockingWatch(t *testing.T) {
+	cases := []struct {
+		command string
+		block   bool
+	}{
+		{"gh pr checks 308 --watch --interval 20", true},
+		{"gh pr checks 308 --watch", true},
+		{"tail -f /tmp/foo", true},
+		{"tail --follow=name /var/log/syslog", true},
+		{"journalctl -f -u aphrollo-api", true},
+		{"journalctl -u aphrollo-api --follow", true},
+		{"watch gh pr checks 308", true},
+		{"watch -n5 ls", true},
+		// A bounded poll loop is the blessed form — sub-threshold sleep, no
+		// --watch/-f, so neither the watch nor the sleep block must misfire.
+		{"until gh pr checks 308; do sleep 1; done", false},
+		{"gh pr checks 308", false},     // a one-shot check is fine
+		{"tail -n 50 /tmp/foo", false},  // bounded tail is fine
+		{"git stopwatch", false},        // not the watch(1) command
+		{"ls -la", false},
+	}
+	for _, c := range cases {
+		d := Evaluate("Bash", c.command)
+		if (d.Action == Block) != c.block {
+			t.Fatalf("Evaluate(Bash, %q).Action = %v, want block=%v", c.command, d.Action, c.block)
+		}
+		if c.block && d.Reason == "" {
+			t.Fatalf("Evaluate(Bash, %q) blocked without a reason", c.command)
+		}
+	}
+}
+
+// A watch/follow command mentioned inside a quoted string or comment is not a
+// real blocking wait and must not be blocked.
+func TestEvaluate_IgnoresWatchInStringsAndComments(t *testing.T) {
+	allowed := []string{
+		`echo "gh pr checks 308 --watch"`,
+		`git commit -m "tail -f log helper"`,
+		`echo hi # then journalctl -f later`,
+	}
+	for _, cmd := range allowed {
+		if d := Evaluate("Bash", cmd); d.Action == Block {
+			t.Fatalf("Evaluate(Bash, %q) blocked, want not-blocked (watch is quoted/commented)", cmd)
+		}
+	}
+}
+
+// The blocking-watch block, like the sleep block, must point at a concrete fix.
+func TestEvaluate_BlockingWatchReasonSuggestsFix(t *testing.T) {
+	d := Evaluate("Bash", "gh pr checks 308 --watch")
+	if d.Action != Block {
+		t.Fatalf("expected Block, got %v", d.Action)
+	}
+	r := strings.ToLower(d.Reason)
+	if !strings.Contains(r, "until") && !strings.Contains(r, "background") {
+		t.Fatalf("block reason should suggest a poll/background fix, got: %s", d.Reason)
+	}
+}
+
+// The sleep block's recommended poll loop must use a sub-threshold sleep so the
+// fix it suggests does not itself trip the block (sleep 2 == blockSleepAtSeconds).
+func TestEvaluate_LongSleepFixIsNotSelfBlocking(t *testing.T) {
+	d := Evaluate("Bash", "sleep 600")
+	if d.Action != Block {
+		t.Fatalf("expected Block, got %v", d.Action)
+	}
+	if strings.Contains(d.Reason, "sleep 2") {
+		t.Fatalf("sleep block reason recommends sleep 2, which is itself blocked: %s", d.Reason)
+	}
+}
+
 // Non-Bash tools are never the guardrail's concern.
 func TestEvaluate_IgnoresNonBash(t *testing.T) {
 	if d := Evaluate("Edit", "sleep 600"); d.Action != Allow {
