@@ -49,17 +49,25 @@ func (p *Push) Render(apply bool) string {
 	return b.String()
 }
 
+// pushArgs builds the `git push` argv. --force-with-lease must come before the
+// "--" end-of-options terminator: after "--" git treats every token as a
+// refspec, so a trailing flag would be read as the literal refspec
+// "--force-with-lease" and fail with "src refspec ... does not match any". The
+// "--" still guards the branch name from being parsed as a flag (defense in
+// depth behind Slugify's leading-dash rejection).
+func pushArgs(wt, branch string, forceWithLease bool) []string {
+	args := []string{"-C", wt, "push", "-u"}
+	if forceWithLease {
+		args = append(args, "--force-with-lease")
+	}
+	return append(args, "origin", "--", branch)
+}
+
 // Apply pushes HEAD to origin (setting upstream), then prints the outcome plus
 // the branch URL.
 func (p *Push) Apply(stdout, stderr io.Writer) error {
 	wt, branch := p.Target.Worktree, p.Target.Branch
-	// "--" terminates options so a branch name can never be parsed as a git
-	// flag (defense in depth behind Slugify's leading-dash rejection).
-	args := []string{"-C", wt, "push", "-u", "origin", "--", branch}
-	if p.ForceWithLease {
-		args = append(args, "--force-with-lease")
-	}
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", pushArgs(wt, branch, p.ForceWithLease)...)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("git push: %w", err)
