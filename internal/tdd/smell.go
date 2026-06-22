@@ -19,7 +19,23 @@ const (
 // sleepRe matches the real-time sleep calls that show up in test code across
 // the supported languages. It runs against masked source, so a `sleep`
 // mentioned in a string or comment is already blanked and cannot match.
-var sleepRe = regexp.MustCompile(`(?:time\.[Ss]leep|asyncio\.sleep|[Tt]hread\.sleep|(?:std::)?thread::sleep|setTimeout)\s*\(`)
+//
+//   - time.[Ss]leep    — Go time.Sleep AND Python time.sleep (sync)
+//   - time.(After|NewTimer|Tick) — Go channel-based waits; just as real-time as
+//     Sleep. Matched without requiring a leading `<-` so the bare constructor
+//     `time.NewTimer(d)` is caught too. AfterFunc/NewTicker are deliberately not
+//     matched: AfterFunc schedules a callback rather than blocking, and Tick (the
+//     wait func) is the smell, not Ticker construction.
+//   - asyncio.sleep    — Python async sleep
+//   - Thread.sleep / thread::sleep — Java / Rust
+//   - setTimeout       — JS/TS. This also covers the promisified-sleep idiom
+//     `await new Promise(r => setTimeout(r, ms))`: the masked code still contains
+//     a literal `setTimeout(`, so no separate `new Promise` regex is needed (and
+//     adding one would falsely block legitimate non-timer promises).
+//
+// The check gates test files only (see oracleSmells / smellCheck), so matching
+// these broadly cannot block ordinary source.
+var sleepRe = regexp.MustCompile(`(?:time\.[Ss]leep|time\.(?:After|NewTimer|Tick)|asyncio\.sleep|[Tt]hread\.sleep|(?:std::)?thread::sleep|setTimeout)\s*\(`)
 
 // selfCompareRe matches an equality whose two operands are simple expressions
 // (identifier, member access, index, or literal — note the char class has no
