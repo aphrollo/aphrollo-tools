@@ -613,6 +613,10 @@ Git verbs (act on the CURRENT worktree, or pass [repo] [branch] to target one):
   ready                     Flip the branch's draft PR to ready-for-review — the
                             git side of moving a card in_progress → review
                             (dry-run; --apply)
+  verify                    Run the affected app's {test, typecheck, lint} trio —
+                            the typecheck/lint the commit gate does NOT cover
+                            (dry-run lists the commands; --apply runs them, stops
+                            at the first failure)
   status                    One terse line: PR state (merged/open/draft), mergeability
                             gate, and a pass/total check tally (read-only)
   merge                     Merge the branch's PR via gh, honoring CI/mergeable
@@ -662,6 +666,8 @@ func runWorkspace(args []string, stdout, stderr io.Writer) int {
 		return runWorkspaceReady(args[1:], stdout, stderr)
 	case "status":
 		return runWorkspaceStatus(args[1:], stdout, stderr)
+	case "verify":
+		return runWorkspaceVerify(args[1:], stdout, stderr)
 	case "merge":
 		return runWorkspaceMerge(args[1:], stdout, stderr)
 	case "cleanup":
@@ -690,6 +696,39 @@ func runWorkspaceStatus(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprint(stdout, line)
+	return 0
+}
+
+func runWorkspaceVerify(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	apply := fs.Bool("apply", false, "execute the verify commands (default: print the plan and stop)")
+	into := fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
+	pos, err := parseFlagsAnywhere(fs, args)
+	if err != nil {
+		return 2
+	}
+	t, ok := resolveVerbTarget(pos, *into, stderr)
+	if !ok {
+		return 2
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = t.Worktree
+	}
+	v, err := workspace.BuildVerify(t, cwd)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, v.Render(*apply))
+	if !*apply {
+		return 0
+	}
+	if err := v.Apply(stdout, stderr); err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
 	return 0
 }
 
