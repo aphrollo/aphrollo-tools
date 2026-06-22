@@ -108,11 +108,20 @@ func TestSmell_DisabledTest(t *testing.T) {
 func TestSmell_TestSleep(t *testing.T) {
 	blocked := []string{
 		"time.Sleep(2 * time.Second)",
-		"time.sleep(5)",
+		"time.sleep(5)", // Python sync sleep (time.[Ss]leep covers it)
 		"asyncio.sleep(1)",
 		"Thread.sleep(100)",
 		"setTimeout(done, 500)",
 		"std::thread::sleep(d)",
+		// Go channel-based real-time waits — just as real-time as Sleep.
+		"<-time.After(5 * time.Second)",
+		"case <-time.After(time.Second):", // the idiomatic select-timeout fixture
+		"time.NewTimer(2 * time.Second)",   // constructor alone is the marker (no `<-` needed)
+		"<-time.Tick(time.Second)",
+		"time.Tick(50 * time.Millisecond)",
+		// JS/TS promisified sleep — the setTimeout inside the Promise wrapper trips it.
+		"await new Promise((resolve) => setTimeout(resolve, 500))",
+		"await new Promise(r => setTimeout(r, ms))",
 	}
 	for _, src := range blocked {
 		if !blocks(src) {
@@ -125,6 +134,11 @@ func TestSmell_TestSleep(t *testing.T) {
 		`log("time.sleep(5)")`,       // string
 		"sleepCount += 1",            // identifier containing 'sleep'
 		"clock.Advance(time.Second)", // fake clock, not a real sleep
+		"// <-time.After(5) is a wait",       // channel wait only in a comment
+		`s := "case <-time.After(d):"`,       // channel wait only in a string
+		"time.AfterFunc(d, cb)",              // schedules a callback, does not block the goroutine
+		"time.NewTicker(time.Second)",        // ticker construction, not the Tick() wait func
+		"await new Promise(r => r(data))",    // a real promise, no setTimeout — not a sleep
 	}
 	for _, src := range allowed {
 		if blocks(src) {
