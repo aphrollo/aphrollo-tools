@@ -255,6 +255,41 @@ aphrollo workspace ship -m "feat: kanban" --apply   # commit -> push -> pr in on
 - **ship** chains the three behind one command, stopping at the first failure so a
   partial result (e.g. committed but not pushed) is resumable by the discrete verbs.
 
+### Verify — the typecheck/lint the commit gate misses
+
+The TDD pre-commit gate runs the mechanical test suite (plus the anti-cheat and
+fail-first checks), but **not** typecheck or lint. So a type regression
+(`svelte-check`) or a lint failure sails past `commit`/`ship` and only turns up in
+CI. `verify` closes that gap: it resolves the **affected app** and runs that app's
+`{test, typecheck, lint}` trio. It is verification only — it never commits,
+pushes, or mutates source. Like the other verbs it addresses the cwd's worktree
+(or `<repo> <branch>`) and is dry-run by default.
+
+```sh
+# from inside aphrollo-web/apps/rlndx (or with rlndx files changed on the branch)
+aphrollo workspace verify
+# workspace verify: aphrollo-web @ feat/kanban  (worktree …/aphrollo-web)
+#   app rlndx (apps/rlndx)
+#     1. test      npx vitest run
+#     2. typecheck npx svelte-check --tsconfig ./tsconfig.json
+#     3. lint      npx eslint --no-error-on-unmatched-pattern src
+#
+# run again with --apply to execute (stops at the first failure).
+
+aphrollo workspace verify --apply        # runs test -> typecheck -> lint in order
+```
+
+- **dry-run by default** lists the exact ordered commands it would run, per app,
+  and exits 0 without running them; `--apply` executes them in order, **stops at
+  the first failure**, and surfaces that tool's own output.
+- **App resolution** is table-driven (start: rlndx). The affected app is scoped
+  from the branch's changed paths; when nothing changed resolves one, it falls
+  back to the app the cwd sits in — it never runs the whole monorepo's every-app
+  matrix unasked. Adding another app is a table entry, not new branching.
+- The **test** command is reused from the [TDD runner detection](#tdd-gates-aphrollo-tdd)
+  (so the two never drift); only the per-app typecheck and lint commands are
+  table data. rlndx resolves to `vitest run` + `svelte-check` + `eslint`.
+
 ### Close the loop — merge / cleanup
 
 After review, `merge` lands the branch's PR and `cleanup` tears down the local
