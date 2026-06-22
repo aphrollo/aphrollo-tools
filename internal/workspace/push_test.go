@@ -103,6 +103,49 @@ func TestPush_AheadCount(t *testing.T) {
 	}
 }
 
+// indexOf returns the position of v in args, or -1 if absent.
+func indexOf(args []string, v string) int {
+	for i, a := range args {
+		if a == v {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestPushArgs_ForceWithLeaseBeforeTerminator(t *testing.T) {
+	args := pushArgs("/wt", "feat/x", true)
+
+	flag := indexOf(args, "--force-with-lease")
+	term := indexOf(args, "--")
+	if flag < 0 {
+		t.Fatalf("--force-with-lease missing from args: %v", args)
+	}
+	if term < 0 {
+		t.Fatalf("-- terminator missing from args: %v", args)
+	}
+	// After "--" git reads every token as a refspec, so the flag MUST precede
+	// it — otherwise git sees the literal refspec "--force-with-lease".
+	if flag > term {
+		t.Errorf("--force-with-lease (idx %d) must come before -- (idx %d): %v", flag, term, args)
+	}
+	// And before "origin" too, where push flags belong.
+	if origin := indexOf(args, "origin"); flag > origin {
+		t.Errorf("--force-with-lease (idx %d) must come before origin (idx %d): %v", flag, origin, args)
+	}
+}
+
+func TestPushArgs_NoForceWithLeaseWhenDisabled(t *testing.T) {
+	args := pushArgs("/wt", "feat/x", false)
+	if i := indexOf(args, "--force-with-lease"); i >= 0 {
+		t.Errorf("--force-with-lease should be absent when disabled: %v", args)
+	}
+	// Branch still guarded behind the terminator.
+	if term, branch := indexOf(args, "--"), indexOf(args, "feat/x"); term < 0 || branch != term+1 {
+		t.Errorf("branch must immediately follow -- : %v", args)
+	}
+}
+
 func TestPush_DetachedHEADRejected(t *testing.T) {
 	if _, err := PushPlan(&Target{Worktree: "/x", Branch: "HEAD"}, false); err == nil {
 		t.Fatal("expected detached-HEAD push to be rejected")
