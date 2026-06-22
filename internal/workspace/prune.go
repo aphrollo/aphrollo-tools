@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
@@ -22,11 +21,7 @@ func PrunePlan(repoArg string) (*Prune, error) {
 	if path == "" {
 		path = "."
 	}
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return nil, err
-	}
-	top, err := gitToplevel(abs)
+	top, err := resolveMainRepo(path)
 	if err != nil {
 		return nil, err
 	}

@@ -30,7 +30,13 @@ mutates source and defers; `dev` controls running units and acts now.
 - `workspace` — worktree lifecycle (`prepare`/`claim`/`unclaim`/`list`/`remove`/
   `prune`/`cleanup`) + git verbs (`commit`/`push`/`pr`/`ship`/`merge`) + `verify`
   (run the affected app's `{test, typecheck, lint}` trio — the typecheck/lint the
-  commit gate does not cover).
+  commit gate does not cover). Every `<repo>` arg accepts a **bare name**
+  (`aphrollo-web`) resolved from anywhere under the spaces tree (`resolveMainRepo`
+  in `internal/workspace/target.go`): the clone you stand in, one of its
+  worktrees, or a unique `~/spaces/*/<name>` sibling — never double-joined against
+  cwd. A real abs/rel path still wins as-is; an ambiguous name (matches >1 clone)
+  errors and lists the candidates. Override the spaces root with
+  `APHROLLO_SPACES_ROOT`.
 - `dev` — `up`/`down`/`restart`/`status`/`logs` (replaces the retired
   `aphrollo-dev` bash wrapper).
 - `guardrail pretooluse` — Claude PreToolUse policy hook (block long fg waits, warn noisy cmds).

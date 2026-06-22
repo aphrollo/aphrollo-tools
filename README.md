@@ -135,10 +135,31 @@ prepared worktree can later be `claim`ed onto the dev tier. Override the base di
 with `--into`, skip steps with
 `--no-install` / `--no-safe-dir`, or force a re-install with `--reinstall`.
 
+#### Addressing a repo by name
+
+Every `<repo>`-arg verb (`prepare`, `commit`, `push`, `pr`, `ship`, `merge`,
+`unclaim`, `list`, `remove`, `cleanup`, `prune`, `claim`) accepts a **bare repo
+name** — `aphrollo-web`, not just a path — and resolves it the same from
+**anywhere under the spaces tree**: from inside the clone, from one of its
+worktrees, or from a sibling clone under the same owner. A bare name is resolved
+in order: a path that is itself a git repo wins as-is; else the clone you are
+standing in (when its name matches); else a unique `~/spaces/*/<name>` git repo.
+A genuine absolute/relative path still resolves exactly as before — so
+`prepare aphrollo-web feat/x` run *from inside* `~/spaces/aphrollo/aphrollo-web`
+no longer double-joins into `…/aphrollo-web/aphrollo-web`. Override the spaces
+root with `APHROLLO_SPACES_ROOT`.
+
+A name matching **more than one** clone (e.g. `~/spaces/a/shared` and
+`~/spaces/b/shared`) is an **ambiguity error** that lists the candidates rather
+than silently picking one — pass an absolute path to disambiguate. An
+unresolvable name fails with an actionable message naming what was tried and the
+fixes, not a bare "is not a git repository".
+
 Companion read/cleanup subcommands:
 
 ```sh
-aphrollo workspace list ~/spaces/aphrollo/aphrollo-web            # git worktree list
+aphrollo workspace list aphrollo-web                             # bare name, from anywhere under the spaces tree
+aphrollo workspace list ~/spaces/aphrollo/aphrollo-web           # or an explicit path
 aphrollo workspace remove ~/spaces/aphrollo/aphrollo-web feat/kanban --apply
 ```
 
@@ -223,8 +244,9 @@ deterministic feedback** (sha + delta, ahead-count + URL, PR number), so a coder
 session lands a change without spending a tool call each on `git add`, `git
 commit`, `git push`, parsing the output, and `gh pr create`. They default to the
 worktree you are **standing in** (zero args); pass `<repo> <branch>` to drive a
-prepared worktree from outside it (symmetric with `prepare`/`claim`). All are
-dry-run by default; `--apply` executes.
+prepared worktree from outside it (symmetric with `prepare`/`claim`), where
+`<repo>` may be a [bare name](#addressing-a-repo-by-name) resolved from anywhere
+under the spaces tree. All are dry-run by default; `--apply` executes.
 
 ```sh
 # commit: stage (-A) + commit, honoring the TDD pre-commit gate

@@ -94,11 +94,7 @@ func resolveMainClone(repoArg string) (string, error) {
 		}
 		return mainWorktree(top)
 	}
-	abs, err := filepath.Abs(repoArg)
-	if err != nil {
-		return "", err
-	}
-	top, err := gitToplevel(abs)
+	top, err := resolveMainRepo(repoArg)
 	if err != nil {
 		return "", err
 	}

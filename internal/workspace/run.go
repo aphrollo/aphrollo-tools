@@ -119,11 +119,7 @@ func List(repo string) (string, error) {
 	if repo == "" {
 		return "", fmt.Errorf("repo path required")
 	}
-	abs, err := filepath.Abs(repo)
-	if err != nil {
-		return "", err
-	}
-	top, err := gitToplevel(abs)
+	top, err := resolveMainRepo(repo)
 	if err != nil {
 		return "", err
 	}
@@ -151,11 +147,7 @@ func RemovePlan(repo, branch, into string) (*Removal, error) {
 	if err != nil {
 		return nil, err
 	}
-	abs, err := filepath.Abs(repo)
-	if err != nil {
-		return nil, err
-	}
-	top, err := gitToplevel(abs)
+	top, err := resolveMainRepo(repo)
 	if err != nil {
 		return nil, err
 	}

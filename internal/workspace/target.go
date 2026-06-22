@@ -2,8 +2,10 @@ package workspace
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -60,11 +62,7 @@ func resolveFromArgs(repoArg, branchArg, into string) (*Target, error) {
 	if err != nil {
 		return nil, err
 	}
-	abs, err := filepath.Abs(repoArg)
-	if err != nil {
-		return nil, err
-	}
-	top, err := gitToplevel(abs)
+	top, err := resolveMainRepo(repoArg)
 	if err != nil {
 		return nil, err
 	}
@@ -99,6 +97,99 @@ func mainWorktree(path string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("could not determine main worktree for %s", path)
+}
+
+// resolveMainRepo turns a <repo> POSITIONAL into the toplevel of the repo's
+// main (non-linked) working tree, tolerant of where the caller stands. Every
+// arg-addressed verb (prepare + the git verbs) routes its <repo> through here so
+// a bare name like "aphrollo-web" resolves the SAME from inside the clone, from
+// one of its worktrees, or from a sibling clone — never double-joining the name
+// against cwd via filepath.Abs (the bug this centralizes away).
+//
+// Resolution order:
+//  1. A path (absolute, or relative to cwd) that is itself a git repo wins as
+//     its toplevel — genuine path args keep working unchanged. A bare name run
+//     from inside its own clone fails here (cwd/<name> is not a repo) and falls
+//     through, which is exactly the double-join case the old code mishandled.
+//  2. A bare NAME matching the clone the caller stands in (or whose linked
+//     worktree they stand in) — the natural "run it from inside the repo".
+//  3. A bare NAME with exactly one git-repo match under the spaces tree
+//     (<spacesParent>/*/<repo>). More than one is an ambiguity error listing the
+//     candidates; the caller disambiguates with an absolute path.
+//  4. Otherwise an actionable error naming what was tried and the fixes.
+func resolveMainRepo(repoArg string) (string, error) {
+	if repoArg == "" {
+		return "", fmt.Errorf("repo path required")
+	}
+	// 1. A real path (abs or cwd-relative) that resolves to a git repo.
+	if abs, err := filepath.Abs(repoArg); err == nil {
+		if top, err := gitToplevel(abs); err == nil {
+			return top, nil
+		}
+	}
+	// Only a bare name (no path separator) gets the by-name treatment; a
+	// separator-bearing arg that failed (1) is a genuine bad path.
+	if !strings.ContainsRune(repoArg, filepath.Separator) {
+		// 2. The clone the caller stands in (mainWorktree resolves a linked
+		//    worktree back to its main clone, so both cases are covered).
+		if cwdTop, err := gitToplevel("."); err == nil {
+			if main, err := mainWorktree(cwdTop); err == nil && filepath.Base(main) == repoArg {
+				return main, nil
+			}
+		}
+		// 3. A unique match under the spaces tree.
+		matches, err := spacesClones(repoArg)
+		if err != nil {
+			return "", err
+		}
+		if len(matches) == 1 {
+			return matches[0], nil
+		}
+	}
+	// 4. Unresolvable — name what was tried and how to fix it.
+	return "", fmt.Errorf("could not resolve repo %q: not a git repo at that path, "+
+		"not the clone you're standing in, and no unique match under %s\n"+
+		"  fix: run from the worktree with no args, pass an absolute path, "+
+		"or run from the spaces parent", repoArg, spacesParent())
+}
+
+// spacesParent is the dir holding the per-owner spaces dirs (~/spaces). A bare
+// <repo> name resolves by globbing <spacesParent>/*/<repo> for a git repo of
+// that name. Overridable with APHROLLO_SPACES_ROOT (tests, non-standard homes).
+func spacesParent() string {
+	if d := os.Getenv("APHROLLO_SPACES_ROOT"); d != "" {
+		return d
+	}
+	return "/home/debian/spaces"
+}
+
+// spacesClones returns every git-repo toplevel named repo under the spaces tree
+// (<spacesParent>/*/<repo>), sorted and de-duplicated. More than one is an
+// ambiguity error that LISTS the candidates rather than silently picking one —
+// the caller disambiguates with an absolute path. Zero matches returns
+// (nil, nil) so resolveMainRepo can fall through to its actionable not-found.
+func spacesClones(repo string) ([]string, error) {
+	hits, _ := filepath.Glob(filepath.Join(spacesParent(), "*", repo))
+	var tops []string
+	seen := map[string]bool{}
+	for _, h := range hits {
+		top, err := gitToplevel(h)
+		// Keep only true clone roots: the hit's own toplevel must still carry the
+		// name (rejects a dir merely TRACKED by a parent repo, whose toplevel is
+		// the differently-named ancestor). Comparing the basename — not top == h —
+		// stays correct when the spaces root is a symlink (gitToplevel canonicalizes).
+		if err != nil || filepath.Base(top) != repo || seen[top] {
+			continue
+		}
+		seen[top] = true
+		tops = append(tops, top)
+	}
+	sort.Strings(tops)
+	if len(tops) > 1 {
+		return nil, fmt.Errorf("ambiguous repo name %q — matches %d clones under %s:\n  %s\n  pass an absolute path to pick one",
+			repo, len(tops), spacesParent(), strings.Join(tops, "\n  "))
+	}
+	return tops, nil
 }
 
 // currentBranch returns the branch checked out at top, or "HEAD" when detached.

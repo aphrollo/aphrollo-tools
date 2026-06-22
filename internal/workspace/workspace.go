@@ -146,11 +146,7 @@ func BuildPlan(req Request) (*Plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	abs, err := filepath.Abs(req.Repo)
-	if err != nil {
-		return nil, err
-	}
-	top, err := gitToplevel(abs)
+	top, err := resolveMainRepo(req.Repo)
 	if err != nil {
 		return nil, err
 	}
