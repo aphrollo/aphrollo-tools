@@ -13,7 +13,15 @@ name: Pipeline
 # release layout and the one-time aphrollo-infra prerequisites.
 
 on:
+  # Draft PRs run NO CI: the check jobs below gate on `pull_request.draft != true`,
+  # so a coder's in-progress draft pushes burn zero runner. CI fires when the PR
+  # leaves draft — the `ready_for_review` activity, added explicitly here since it
+  # is NOT in the default opened/synchronize/reopened set — and on every push
+  # while ready (the reviewer loop). A draft PR is unmergeable by its draft status,
+  # so checks that are skipped while draft never deadlock the required-check gate;
+  # the ready_for_review run reports them fresh.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore: ['**.md', 'docs/**', 'LICENSE*', '.gitignore']
   push:
     branches: [main]
@@ -34,7 +42,7 @@ jobs:
   test:
     # Checks gate PRs; on push-to-main they're skipped and `deploy` runs behind
     # an always()+needs-result guard (mirrors aphrollo-api/pipeline.yml).
-    if: github.event_name != 'push'
+    if: github.event_name != 'push' && github.event.pull_request.draft != true
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -58,7 +66,7 @@ jobs:
         run: go test -race -count=1 -shuffle=on -timeout=180s ./...
 
   lint:
-    if: github.event_name != 'push'
+    if: github.event_name != 'push' && github.event.pull_request.draft != true
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -75,7 +83,7 @@ jobs:
           golangci-lint run ./...
 
   vulncheck:
-    if: github.event_name != 'push'
+    if: github.event_name != 'push' && github.event.pull_request.draft != true
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -87,7 +95,7 @@ jobs:
       - run: govulncheck ./...
 
   sast:
-    if: github.event_name != 'push'
+    if: github.event_name != 'push' && github.event.pull_request.draft != true
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -121,7 +129,7 @@ jobs:
             .
 
   secret-scan:
-    if: github.event_name != 'push'
+    if: github.event_name != 'push' && github.event.pull_request.draft != true
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -144,7 +152,7 @@ jobs:
   # PR deploy-readiness: prove the binary compiles + runs with the same flags
   # the deploy uses, so a broken build can't merge. Does NOT install (PR-only).
   build:
-    if: github.event_name != 'push'
+    if: github.event_name != 'push' && github.event.pull_request.draft != true
     needs: [test, lint, vulncheck, sast, secret-scan]
     runs-on: self-hosted
     steps:
