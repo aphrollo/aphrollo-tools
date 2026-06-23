@@ -583,9 +583,8 @@ aphrollo tdd init --uninstall        # remove everything again
 2. **Git gate** — writes the `pre-commit` shim into `~/.config/git/hooks` (or
    `--git-hooks-dir`) and points git's global `core.hooksPath` at it, so every
    repo is gated. Hand-written hooks are never clobbered. `--no-git` skips this
-   layer. A re-init also **prunes** any stranded managed `pre-push` shim a box
-   still carries from before the pre-push review was removed, so a lingering
-   shim stops firing.
+   layer. tdd has no pre-push gate, so a re-init also **prunes** any managed
+   `pre-push` shim it finds, leaving hand-written hooks untouched.
 
 It resolves the invoking binary via `os.Executable`, so the installed hooks
 call the same binary that wrote them; ansible runs it once per session HOME.
@@ -593,14 +592,11 @@ call the same binary that wrote them; ansible runs it once per session HOME.
 For a single repo without the global gate, `aphrollo tdd install --apply` writes
 the same shims into that repo's `.git/hooks` instead (opt-in, no `core.hooksPath`).
 
-Mutation testing is intentionally **not** ported: it was the documented
-false-positive/non-determinism offender, and the fail-first + mechanical suite
-gates cover the same ground without the flakiness. The pre-push **LLM
-adversarial review was also removed on purpose** — it was non-deterministic and
-could hang `git push`, and it is redundant with CI plus the separate reviewer
-agent. The tdd gate is now **solely mechanical**: edit-time smell blocks +
-commit-time anti-cheat/fail-first/suite. Adversarial review lives in the
-reviewer agent, not this binary.
+The tdd gate is **solely mechanical**: edit-time smell blocks + commit-time
+anti-cheat/fail-first/suite. It carries no LLM or non-deterministic step —
+adversarial review lives in the reviewer agent, not this binary. Mutation
+testing is intentionally **not** ported (false-positive/non-determinism prone);
+the fail-first + mechanical suite cover the same ground without the flakiness.
 
 ## Layout
 

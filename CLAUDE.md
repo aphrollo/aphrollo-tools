@@ -94,7 +94,7 @@ internal/dev/        dev-tier control plane (systemd)
   comments; suppression detectors mask strings, keep comments) — a token only in
   a string never blocks. Keep edit-time blocks near-zero-FP; the heavy mechanical
   check (fail-first + suite) lives at commit where a false block only costs a
-  re-run. (Pre-push no longer runs anything — see Don't.)
+  re-run. (The only git gate is pre-commit; there is no pre-push gate.)
 - **Attribution: honest here.** This is first-party tooling, not a client-facing
   undercover repo — the `🤖 Generated with Claude Code` footer + `Co-Authored-By`
   are fine (matches aphrollo-agents; per the box `~/CLAUDE.md` per-repo rule).
@@ -113,13 +113,14 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   (`--dry` to preview), while `refactor`/`tdd` mutations stay **dry-run by
   default** (`--apply` to execute). `dev` always acts now. Each kept its model on
   purpose — don't homogenize them.
-- Don't re-port what was deliberately dropped: **mutation testing** (the
-  documented FP/non-determinism offender), the SessionStart full-suite baseline,
+- Don't re-port the offenders this gate excludes: **mutation testing**
+  (false-positive/non-determinism prone), the SessionStart full-suite baseline,
   or `/tdd allow-main` — the fail-first + mechanical suite cover the ground
-  without the flakiness. The **pre-push LLM adversarial review was removed on
-  purpose** (non-deterministic, could hang `git push`, redundant with CI + the
-  reviewer agent): the gate is **mechanical-only** now and `prepush` is a no-op.
-  Don't reintroduce an LLM call in this binary's gate.
+  without the flakiness.
+- **tdd is solely mechanical.** Edit-time smell blocks + commit-time
+  anti-cheat/fail-first/suite; `prepush` is a no-op. Don't add an LLM or any
+  non-deterministic call to this binary's gate — adversarial review belongs to
+  the reviewer agent, not here.
 - Don't add a sudo wrapper or wildcard grant — the narrow exact-match systemctl
   fence is the whole security story.
 - Don't duplicate README usage here — this file is dev context only.
