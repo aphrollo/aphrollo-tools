@@ -30,11 +30,6 @@ package tdd
 // comment in Python/Ruby but a private-field sigil in JS/TS and absent in Go.
 func mask(src string) string { return maskTokens(src, true, true, true) }
 
-// maskStrings blanks string literals while leaving comments intact, for
-// detectors that look for directives written in comments. Strings are still
-// blanked so a directive quoted in a string (`"see // nolint"`) cannot trip.
-func maskStrings(src string) string { return maskTokens(src, true, false, true) }
-
 // maskTokens is the shared lexer. It always RECOGNISES strings and C-style
 // comments (so a `//` inside a string is not mistaken for a comment, and a
 // quote inside a comment does not start a string), but only BLANKS the

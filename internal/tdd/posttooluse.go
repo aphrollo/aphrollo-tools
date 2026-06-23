@@ -63,13 +63,56 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 		return ""
 	}
 
-	state, statePath := loadSession(in.SessionID)
-	if state != nil && state.Overrides.Off {
+	snap, ok := captureStateSnapshot(in.SessionID, target, root)
+	if !ok {
 		return ""
+	}
+
+	res := run(snap.runner, root)
+	outcome := ClassifyOutcome(res.Passed, res.Output, snap.prevFailing)
+	failing := ExtractFailingTests(res.Output)
+
+	if snap.state != nil {
+		snap.state.stamp(root, projectState{
+			Outcome:      string(outcome),
+			FailingTests: failing,
+			Runner:       append([]string{snap.runner.Cmd}, snap.runner.Args...),
+			Fingerprint:  snap.fingerprint,
+		})
+		_ = snap.state.save(snap.statePath)
+	}
+
+	if !outcome.IsRed() {
+		return ""
+	}
+	return redSummary(snap.runner, root, outcome, res.Output)
+}
+
+// stateSnapshot is the per-edit state plumbing PostEdit needs to run the suite
+// and stamp the outcome: the loaded session (nil when there is no session id),
+// where it persists, the narrowed runner, the git fingerprint at this edit, and
+// the previously-recorded failing set under that fingerprint.
+type stateSnapshot struct {
+	state       *sessionState
+	statePath   string
+	runner      Runner
+	fingerprint *fingerprint
+	prevFailing []string
+}
+
+// captureStateSnapshot loads the session, resolves the narrowed runner for the
+// edited target, and computes the git fingerprint and prior failing set. It
+// reports false when the edit cannot be tested — enforcement is off for this
+// session, or the project uses a toolchain the gates don't know — so PostEdit
+// stays silent.
+func captureStateSnapshot(session, target, root string) (stateSnapshot, bool) {
+	state, statePath := loadSession(session)
+	if state != nil && state.Overrides.Off {
+		return stateSnapshot{}, false
 	}
 	runner, ok := DetectRunner(root)
 	if !ok {
-		return ""
+		return stateSnapshot{}, false
 	}
 	runner = NarrowToRelatedTests(runner, target, root)
 
@@ -78,25 +121,13 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 	if state != nil {
 		prevFailing = state.prevFailing(root, fp)
 	}
-
-	res := run(runner, root)
-	outcome := ClassifyOutcome(res.Passed, res.Output, prevFailing)
-	failing := ExtractFailingTests(res.Output)
-
-	if state != nil {
-		state.stamp(root, projectState{
-			Outcome:      string(outcome),
-			FailingTests: failing,
-			Runner:       append([]string{runner.Cmd}, runner.Args...),
-			Fingerprint:  fp,
-		})
-		_ = state.save(statePath)
-	}
-
-	if !outcome.IsRed() {
-		return ""
-	}
-	return redSummary(runner, root, outcome, res.Output)
+	return stateSnapshot{
+		state:       state,
+		statePath:   statePath,
+		runner:      runner,
+		fingerprint: fp,
+		prevFailing: prevFailing,
+	}, true
 }
 
 // redSummary composes the actionable message for a RED run: the headline, the

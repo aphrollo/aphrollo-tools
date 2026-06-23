@@ -26,7 +26,23 @@ type HookFile struct {
 type InstallPlan struct {
 	RepoRoot string
 	Hooks    []HookFile
+	// Prune holds paths of managed shims this install removes — the per-repo
+	// mirror of the global gate's pruned hooks. A stranded managed pre-push shim
+	// is removed so a repo runs only the hooks Apply writes.
+	Prune []string
 }
+
+// perRepoHooks are the git hooks per-repo install writes, paired with the
+// `aphrollo tdd` subcommand each shim invokes. The gate is mechanical-only, so
+// pre-commit is the sole installed hook.
+var perRepoHooks = []struct{ name, sub string }{
+	{"pre-commit", "precommit"},
+}
+
+// perRepoPrunedHooks are hook names per-repo install removes but never writes. A
+// managed shim by one of these names (marker-based) is pruned so a stranded
+// shim stops firing; a foreign hook by that name is left untouched.
+var perRepoPrunedHooks = []string{"pre-push"}
 
 // shim is the hook script body; bin is the absolute aphrollo binary path and sub
 // the matching `aphrollo tdd` subcommand. Using the resolved path (not a bare
@@ -47,16 +63,22 @@ func BuildInstallPlan(repoRoot, bin string) (InstallPlan, error) {
 	}
 
 	plan := InstallPlan{RepoRoot: repoRoot}
-	for _, h := range []struct{ name, sub string }{
-		{"pre-commit", "precommit"},
-		{"pre-push", "prepush"},
-	} {
+	for _, h := range perRepoHooks {
 		path := filepath.Join(hooksDir, h.name)
 		plan.Hooks = append(plan.Hooks, HookFile{
 			Path:     path,
 			Content:  shim(bin, h.sub),
 			Conflict: foreignHookExists(path),
 		})
+	}
+	for _, name := range perRepoPrunedHooks {
+		path := filepath.Join(hooksDir, name)
+		if foreignHookExists(path) {
+			continue // never remove a hand-written hook
+		}
+		if _, err := os.Stat(path); err == nil {
+			plan.Prune = append(plan.Prune, path)
+		}
 	}
 	return plan, nil
 }
@@ -85,14 +107,22 @@ func (p InstallPlan) Render(apply bool) string {
 		}
 		fmt.Fprintf(&b, "  %s\n", h.Path)
 	}
+	pruneVerb := "would prune"
+	if apply {
+		pruneVerb = "pruning"
+	}
+	for _, path := range p.Prune {
+		fmt.Fprintf(&b, "  %s stranded shim %s\n", pruneVerb, path)
+	}
 	if !apply {
 		b.WriteString("run again with --apply to write them.\n")
 	}
 	return b.String()
 }
 
-// Apply writes the non-conflicting hooks, making them executable. Conflicting
-// hooks are left untouched so a hand-written hook is never destroyed.
+// Apply writes the non-conflicting hooks, making them executable, and removes
+// any stranded managed shim in Prune. Conflicting hooks are left untouched so a
+// hand-written hook is never destroyed.
 func (p InstallPlan) Apply() error {
 	for _, h := range p.Hooks {
 		if h.Conflict {
@@ -102,6 +132,11 @@ func (p InstallPlan) Apply() error {
 			return err
 		}
 		if err := os.WriteFile(h.Path, []byte(h.Content), 0o755); err != nil {
+			return err
+		}
+	}
+	for _, path := range p.Prune {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}

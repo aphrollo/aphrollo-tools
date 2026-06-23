@@ -129,6 +129,9 @@ func computeFingerprint(root string) *fingerprint {
 	return &fingerprint{Branch: branch, HeadSHA: head, IndexMtime: mtime}
 }
 
+// gitOut reads a git value from root. It runs outside the hook context (the
+// PostToolUse fingerprint, not a pre-commit worktree), so it intentionally skips
+// cleanGitEnv() — no inherited GIT_* vars to scrub here.
 func gitOut(root string, args ...string) string {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = root

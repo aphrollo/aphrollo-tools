@@ -47,7 +47,7 @@ func TestInstallPlan_ApplyWritesExecutableShims(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for name, sub := range map[string]string{"pre-commit": "precommit", "pre-push": "prepush"} {
+	for name, sub := range map[string]string{"pre-commit": "precommit"} {
 		p := filepath.Join(root, ".git", "hooks", name)
 		fi, err := os.Stat(p)
 		if err != nil {
@@ -60,6 +60,64 @@ func TestInstallPlan_ApplyWritesExecutableShims(t *testing.T) {
 		if !strings.Contains(string(data), "aphrollo tdd "+sub) {
 			t.Fatalf("%s does not invoke the subcommand:\n%s", name, data)
 		}
+	}
+
+	// pre-push is mechanical-only; install never writes it.
+	if _, err := os.Stat(filepath.Join(root, ".git", "hooks", "pre-push")); !os.IsNotExist(err) {
+		t.Fatalf("pre-push should not be installed: err=%v", err)
+	}
+}
+
+// A stranded managed pre-push shim (from an earlier install) is pruned, while a
+// foreign pre-push hook is left untouched.
+func TestInstallPlan_PrunesStrandedManagedPrePush(t *testing.T) {
+	root := t.TempDir()
+	hooks := filepath.Join(root, ".git", "hooks")
+	if err := os.MkdirAll(hooks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prePush := filepath.Join(hooks, "pre-push")
+	if err := os.WriteFile(prePush, []byte(shim(testBin, "prepush")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := BuildInstallPlan(root, testBin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(prePush); !os.IsNotExist(err) {
+		t.Fatalf("stranded managed pre-push should be pruned: err=%v", err)
+	}
+	if !strings.Contains(plan.Render(false), "prune") {
+		t.Fatalf("render should report the pruned shim:\n%s", plan.Render(false))
+	}
+}
+
+// A foreign pre-push hook (no marker) is never pruned.
+func TestInstallPlan_LeavesForeignPrePush(t *testing.T) {
+	root := t.TempDir()
+	hooks := filepath.Join(root, ".git", "hooks")
+	if err := os.MkdirAll(hooks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	foreign := "#!/bin/sh\necho my own pre-push\n"
+	prePush := filepath.Join(hooks, "pre-push")
+	if err := os.WriteFile(prePush, []byte(foreign), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := BuildInstallPlan(root, testBin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(prePush); string(got) != foreign {
+		t.Fatalf("foreign pre-push was clobbered:\n%s", got)
 	}
 }
 
@@ -83,15 +141,12 @@ func TestInstallPlan_DoesNotClobberForeignHook(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The hand-written pre-commit must be preserved; pre-push still installed.
+	// The hand-written pre-commit must be preserved.
 	if got, _ := os.ReadFile(preCommit); string(got) != foreign {
 		t.Fatalf("foreign pre-commit was clobbered:\n%s", got)
 	}
 	if !strings.Contains(plan.Render(false), "SKIP") {
 		t.Fatal("render should report the skipped conflicting hook")
-	}
-	if _, err := os.Stat(filepath.Join(hooks, "pre-push")); err != nil {
-		t.Fatalf("pre-push should still be installed: %v", err)
 	}
 }
 

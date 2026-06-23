@@ -68,6 +68,7 @@ func tddCommand(sub, session string) string {
 		}
 		return "TDD enforcement OFF for this session — edits are no longer gated. Run `/tdd on` to re-enable."
 	case "on", "reset":
+		// reset clears any override, which is identical to turning enforcement on.
 		if err := setOff(session, false); err != nil {
 			return "tdd: could not persist the override (" + err.Error() + ")"
 		}

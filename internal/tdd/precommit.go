@@ -2,9 +2,11 @@ package tdd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -152,16 +154,18 @@ func stagedAdds(repoRoot string) []fileAdd {
 	return adds
 }
 
+// hunkNewStartRe captures the new-file start line from a `@@ -a,b +c,d @@`
+// header — the digits right after the `+`, before any `,count`.
+var hunkNewStartRe = regexp.MustCompile(`\+(\d+)`)
+
 // hunkNewStart returns the new-file starting line of a `@@ -a,b +c,d @@` header,
 // or 0 if it can't be parsed.
 func hunkNewStart(header string) int {
-	_, field, ok := strings.Cut(header, "+")
-	if !ok {
+	m := hunkNewStartRe.FindStringSubmatch(header)
+	if m == nil {
 		return 0
 	}
-	field, _, _ = strings.Cut(field, " ") // drop " @@ …"
-	field, _, _ = strings.Cut(field, ",") // drop ",count"
-	n, err := strconv.Atoi(field)
+	n, err := strconv.Atoi(m[1])
 	if err != nil {
 		return 0
 	}
@@ -235,9 +239,17 @@ func cleanGitEnv() []string {
 }
 
 func git(dir string, args ...string) (string, error) {
+	return gitStdin(dir, nil, args...)
+}
+
+// gitStdin runs git in dir with a scrubbed environment, optionally feeding stdin
+// (nil for none), and returns the combined output. It is the single place the
+// exec/clean-env/CombinedOutput pattern lives.
+func gitStdin(dir string, stdin io.Reader, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = cleanGitEnv()
+	cmd.Stdin = stdin
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -266,12 +278,8 @@ func gitStaged(repoRoot string, paths []string) (string, error) {
 
 // gitApply applies a unified diff to a worktree via `git apply` on stdin.
 func gitApply(wt, diff string) error {
-	cmd := exec.Command("git", "apply", "--whitespace=nowarn")
-	cmd.Dir = wt
-	cmd.Env = cleanGitEnv()
-	cmd.Stdin = strings.NewReader(diff)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git apply: %s", strings.TrimSpace(string(out)))
+	if out, err := gitStdin(wt, strings.NewReader(diff), "apply", "--whitespace=nowarn"); err != nil {
+		return fmt.Errorf("git apply: %s", strings.TrimSpace(out))
 	}
 	return nil
 }
