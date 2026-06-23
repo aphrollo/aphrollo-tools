@@ -55,6 +55,15 @@ func TestPush_NewBranchSetsUpstream(t *testing.T) {
 	run("add", ".")
 	run("commit", "-qm", "work")
 
+	// push folds the draft-PR open, so stub the gh + CI seams.
+	stubGH(t,
+		func(wt, branch string) (*PRInfo, error) { return nil, nil },
+		func(wt string, req PRCreate) (*PRInfo, error) {
+			return &PRInfo{Number: 1, URL: "https://github.com/o/r/pull/1", State: "OPEN", IsDraft: req.Draft}, nil
+		},
+	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "none"}, nil })
+
 	p, err := PushPlan(targetFor(repo, "feat/y"), false)
 	if err != nil {
 		t.Fatalf("PushPlan: %v", err)
@@ -149,5 +158,96 @@ func TestPushArgs_NoForceWithLeaseWhenDisabled(t *testing.T) {
 func TestPush_DetachedHEADRejected(t *testing.T) {
 	if _, err := PushPlan(&Target{Worktree: "/x", Branch: "HEAD"}, false); err == nil {
 		t.Fatal("expected detached-HEAD push to be rejected")
+	}
+}
+
+// stubCI swaps the gh pr checks seam for the duration of a test.
+func stubCI(t *testing.T, ci func(wt, branch string) (CIStatus, error)) {
+	t.Helper()
+	o := ghCIStatus
+	ghCIStatus = ci
+	t.Cleanup(func() { ghCIStatus = o })
+}
+
+// push now folds the draft-PR open: after pushing, it ensures a DRAFT PR exists
+// (opening it when absent) and reports the stateful receipt — pushed line, the
+// pr #N draft [opened] line, and the ci line — so the coder needs no follow-up.
+func TestPush_OpensDraftPRAndReportsState(t *testing.T) {
+	repo := repoWithRemote(t)
+	run := func(args ...string) {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	run("checkout", "-q", "-b", "feat/y")
+	writeFile(t, repo, "f.txt", "x\n")
+	run("add", ".")
+	run("commit", "-qm", "work")
+
+	var created *PRCreate
+	stubGH(t,
+		func(wt, branch string) (*PRInfo, error) { return nil, nil }, // no existing PR
+		func(wt string, req PRCreate) (*PRInfo, error) {
+			created = &req
+			return &PRInfo{Number: 9, URL: "https://github.com/o/r/pull/9", State: "OPEN", IsDraft: req.Draft}, nil
+		},
+	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "pending"}, nil })
+
+	p, err := PushPlan(targetFor(repo, "feat/y"), false)
+	if err != nil {
+		t.Fatalf("PushPlan: %v", err)
+	}
+	var out, errb bytes.Buffer
+	if err := p.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
+	}
+	s := out.String()
+	if created == nil || !created.Draft {
+		t.Fatalf("push must open a DRAFT PR, got: %+v", created)
+	}
+	if !strings.Contains(s, "pushed feat/y -> origin") {
+		t.Errorf("receipt missing pushed line:\n%s", s)
+	}
+	if !strings.Contains(s, "pr #9 draft") || !strings.Contains(s, "opened") {
+		t.Errorf("receipt missing pr draft/opened line:\n%s", s)
+	}
+	if !strings.Contains(s, "ci pending") {
+		t.Errorf("receipt missing ci state line:\n%s", s)
+	}
+}
+
+// A re-driven push must REUSE the existing draft PR, never open a second one.
+func TestPush_ReusesExistingPR(t *testing.T) {
+	repo := repoWithRemote(t)
+	run := func(args ...string) {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	run("checkout", "-q", "-b", "feat/y")
+	writeFile(t, repo, "f.txt", "x\n")
+	run("add", ".")
+	run("commit", "-qm", "work")
+
+	createCalled := false
+	stubGH(t,
+		func(wt, branch string) (*PRInfo, error) {
+			return &PRInfo{Number: 9, URL: "https://github.com/o/r/pull/9", State: "OPEN", IsDraft: true}, nil
+		},
+		func(wt string, req PRCreate) (*PRInfo, error) { createCalled = true; return nil, nil },
+	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
+
+	p, _ := PushPlan(targetFor(repo, "feat/y"), false)
+	var out, errb bytes.Buffer
+	if err := p.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
+	}
+	if createCalled {
+		t.Error("a re-driven push must reuse the existing PR, not open a second one")
+	}
+	if !strings.Contains(out.String(), "reused") {
+		t.Errorf("receipt should report the PR was reused:\n%s", out.String())
 	}
 }

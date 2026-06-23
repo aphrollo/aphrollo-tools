@@ -56,7 +56,7 @@ func (s *Ship) Render(apply bool) string {
 	b.WriteString(indent(s.commit.Render(false)))
 	b.WriteString(indent(s.push.Render(false)))
 	b.WriteString(indent(s.pr.Render(false)))
-	b.WriteString("\nrun again with --apply to commit, push, and open the PR.\n")
+	b.WriteString("\nrun again without --dry to commit, push, and open the PR.\n")
 	return b.String()
 }
 

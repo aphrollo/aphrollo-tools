@@ -274,14 +274,40 @@ func TestRun_Workspace_NoSub_ShowsUsage(t *testing.T) {
 	}
 }
 
-func TestRun_Workspace_Prepare_MissingArgs(t *testing.T) {
+func TestRun_Workspace_Create_MissingArgs(t *testing.T) {
 	var out, errb bytes.Buffer
 	// only the repo arg, missing <branch>
+	if code := Run([]string{"workspace", "create", "/some/repo"}, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(errb.String(), "create <repo> <branch>") {
+		t.Fatalf("stderr should show create usage:\n%s", errb.String())
+	}
+}
+
+// prepare stays a HIDDEN alias for create for one release so in-flight callers
+// don't break; it dispatches to the same handler.
+func TestRun_Workspace_PrepareAlias_StillDispatches(t *testing.T) {
+	var out, errb bytes.Buffer
 	if code := Run([]string{"workspace", "prepare", "/some/repo"}, strings.NewReader(""), &out, &errb); code != 2 {
 		t.Fatalf("exit code = %d, want 2", code)
 	}
-	if !strings.Contains(errb.String(), "prepare <repo> <branch>") {
-		t.Fatalf("stderr should show prepare usage:\n%s", errb.String())
+	if !strings.Contains(errb.String(), "create <repo> <branch>") {
+		t.Fatalf("prepare alias should reach the create handler:\n%s", errb.String())
+	}
+}
+
+// The hidden aliases (prepare, ready) are NOT advertised in help.
+func TestRun_Workspace_Help_ShowsCreateNotAliases(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"workspace", "help"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(out.String(), "create <repo> <branch>") {
+		t.Fatalf("workspace help should advertise create:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "prepare <repo>") {
+		t.Fatalf("workspace help should NOT advertise the hidden prepare alias:\n%s", out.String())
 	}
 }
 
@@ -307,15 +333,81 @@ func TestRun_Workspace_Commit_MissingMessage(t *testing.T) {
 	}
 }
 
-func TestRun_Workspace_GitVerb_TooManyPositionals(t *testing.T) {
+// commitRepo builds a temp git repo with one staged-but-uncommitted change and
+// chdir's into it, so a cwd-only verb resolves it. Returns the repo path.
+func commitRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	run := func(args ...string) {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	run("config", "user.email", "t@t")
+	run("config", "user.name", "t")
+	if err := os.WriteFile(filepath.Join(repo, "seed.txt"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+	run("commit", "-qm", "seed")
+	if err := os.WriteFile(filepath.Join(repo, "new.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+	if err := os.Chdir(repo); err != nil {
+		t.Fatal(err)
+	}
+	return repo
+}
+
+func headSubject(t *testing.T, repo string) string {
+	t.Helper()
+	out, _ := exec.Command("git", "-C", repo, "log", "-1", "--pretty=%s").Output()
+	return strings.TrimSpace(string(out))
+}
+
+// Slice 2: commit EXECUTES BY DEFAULT (no --apply needed).
+func TestRun_Workspace_Commit_AppliesByDefault(t *testing.T) {
+	repo := commitRepo(t)
 	var out, errb bytes.Buffer
-	// push accepts 0 or 2 positionals; three is a usage error.
-	code := Run([]string{"workspace", "push", "a", "b", "c"}, strings.NewReader(""), &out, &errb)
+	// no-verify so the global TDD gate doesn't run inside the test repo.
+	code := Run([]string{"workspace", "commit", "-m", "land it", "--no-verify"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("commit exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	if got := headSubject(t, repo); got != "land it" {
+		t.Fatalf("commit should execute by default; HEAD = %q, want %q", got, "land it")
+	}
+}
+
+// Slice 2: --dry prints the plan and does NOT mutate.
+func TestRun_Workspace_Commit_DryDoesNotMutate(t *testing.T) {
+	repo := commitRepo(t)
+	var out, errb bytes.Buffer
+	code := Run([]string{"workspace", "commit", "-m", "land it", "--dry"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("commit --dry exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	if got := headSubject(t, repo); got != "seed" {
+		t.Fatalf("--dry must NOT commit; HEAD = %q, want unchanged %q", got, "seed")
+	}
+	if !strings.Contains(out.String(), "--dry") && !strings.Contains(out.String(), "without --dry") {
+		t.Errorf("dry-run should print the plan with a --dry hint:\n%s", out.String())
+	}
+}
+
+func TestRun_Workspace_CwdVerb_RejectsPositionals(t *testing.T) {
+	var out, errb bytes.Buffer
+	// push is now cwd-only: any positional is a usage error pointing at the
+	// cwd-only contract.
+	code := Run([]string{"workspace", "push", "a", "b"}, strings.NewReader(""), &out, &errb)
 	if code != 2 {
 		t.Fatalf("exit code = %d, want 2", code)
 	}
-	if !strings.Contains(errb.String(), "<repo> <branch>") {
-		t.Fatalf("stderr should explain the addressing modes:\n%s", errb.String())
+	if !strings.Contains(errb.String(), "cwd-only") {
+		t.Fatalf("stderr should explain the cwd-only contract:\n%s", errb.String())
 	}
 }
 
@@ -324,7 +416,7 @@ func TestRun_Workspace_Help_ListsNewVerbs(t *testing.T) {
 	if code := Run([]string{"workspace", "help"}, strings.NewReader(""), &out, &errb); code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
-	for _, verb := range []string{"unclaim", "commit", "push", "pr", "ship", "ready", "status", "prune", "merge", "cleanup"} {
+	for _, verb := range []string{"create", "unclaim", "commit", "push", "submit", "status", "prune", "merge", "cleanup"} {
 		if !strings.Contains(out.String(), verb) {
 			t.Errorf("workspace help missing %q:\n%s", verb, out.String())
 		}

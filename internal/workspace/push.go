@@ -45,7 +45,7 @@ func (p *Push) Render(apply bool) string {
 	if p.ForceWithLease {
 		fmt.Fprintf(&b, "  --force-with-lease\n")
 	}
-	fmt.Fprintf(&b, "\nrun again with --apply to push.\n")
+	fmt.Fprintf(&b, "\nrun again without --dry to push.\n")
 	return b.String()
 }
 
@@ -63,12 +63,15 @@ func pushArgs(wt, branch string, forceWithLease bool) []string {
 	return append(args, "origin", "--", branch)
 }
 
-// Apply pushes HEAD to origin (setting upstream), then prints the outcome plus
-// the branch URL.
+// Apply pushes HEAD to origin (setting upstream), ensures a DRAFT PR exists for
+// the branch (opening one when absent, reusing it when present — idempotent), and
+// reports the stateful receipt: the pushed line, the pr line, and the CI state,
+// so a coder needs no follow-up git/gh call to confirm what landed. Folding the
+// old separate `pr` open in here is what lets the coder flow be just push.
 func (p *Push) Apply(stdout, stderr io.Writer) error {
 	wt, branch := p.Target.Worktree, p.Target.Branch
 	cmd := exec.Command("git", pushArgs(wt, branch, p.ForceWithLease)...)
-	cmd.Stdout, cmd.Stderr = stdout, stderr
+	cmd.Stdout, cmd.Stderr = stderr, stderr // git's own progress goes to stderr, keeping stdout the parseable receipt
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("git push: %w", err)
 	}
@@ -79,6 +82,20 @@ func (p *Push) Apply(stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "pushed %s -> origin%s\n", branch, suffix)
 	if url := branchURL(wt, branch); url != "" {
 		fmt.Fprintf(stdout, "  %s\n", url)
+	}
+
+	// Fold the draft-PR open: open if absent, reuse if present.
+	info, verb, err := ensureDraftPR(wt, branch)
+	if err != nil {
+		return err
+	}
+	draftWord := prStateWord(info)
+	fmt.Fprintf(stdout, "pr #%d %s [%s] %s\n", info.Number, draftWord, verb, info.URL)
+	reportPRState(stdout, info)
+
+	// Read CI so the receipt carries it without a follow-up call.
+	if ci, err := ghCIStatus(wt, branch); err == nil {
+		fmt.Fprintf(stdout, "ci %s\n", ci.State)
 	}
 	return nil
 }

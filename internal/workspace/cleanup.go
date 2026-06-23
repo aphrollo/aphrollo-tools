@@ -59,10 +59,10 @@ func (c *Cleanup) Run(apply bool, stdout, stderr io.Writer) error {
 	if !apply {
 		fmt.Fprintf(stdout, "workspace cleanup: %s @ %s\n", filepath.Base(c.Repo), c.Branch)
 		fmt.Fprintf(stdout, "  worktree: %s\n", c.Worktree)
-		fmt.Fprintf(stdout, "\nsteps (dry-run — pass --apply to execute):\n")
+		fmt.Fprintf(stdout, "\nsteps (dry-run — run without --dry to execute):\n")
 		fmt.Fprintf(stdout, "  1. [run] %s\n", shellJoin(rmArgs))
 		fmt.Fprintf(stdout, "  2. [run] git -C %s worktree prune -v\n", c.Repo)
-		fmt.Fprintf(stdout, "\nrun again with --apply to remove the worktree and prune.\n")
+		fmt.Fprintf(stdout, "\nrun again without --dry to remove the worktree and prune.\n")
 		return nil
 	}
 

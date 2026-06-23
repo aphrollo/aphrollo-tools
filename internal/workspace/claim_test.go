@@ -99,7 +99,7 @@ func TestClaimPlan_ResolvesAndRenders(t *testing.T) {
 		t.Errorf("symlink = %q, want %s/web", c.Symlink, devclaim)
 	}
 	dry := c.Render(false)
-	for _, want := range []string{"dev-rlndx", "repoint", c.Worktree, "restart rlndx", "--apply"} {
+	for _, want := range []string{"dev-rlndx", "repoint", c.Worktree, "restart rlndx", "--dry"} {
 		if !strings.Contains(dry, want) {
 			t.Errorf("dry-run render missing %q:\n%s", want, dry)
 		}

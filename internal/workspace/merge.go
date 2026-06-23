@@ -84,7 +84,7 @@ func (m *Merge) Render(apply bool) string {
 		fmt.Fprintf(&b, "  deletes the PR's remote branch after merging (local worktree left for cleanup)\n")
 	}
 	fmt.Fprintf(&b, "  honors GitHub's gates — a non-mergeable or red-CI PR is refused (no force)\n")
-	fmt.Fprintf(&b, "\nrun again with --apply to merge (then: aphrollo workspace cleanup %s).\n", m.Target.Branch)
+	fmt.Fprintf(&b, "\nrun again without --dry to merge (then: aphrollo workspace cleanup %s).\n", m.Target.Branch)
 	return b.String()
 }
 

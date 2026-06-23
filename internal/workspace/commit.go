@@ -59,7 +59,7 @@ func (c *Commit) Render(apply bool) string {
 		gate = "pre-commit gate SKIPPED (--no-verify)"
 	}
 	fmt.Fprintf(&b, "  %s\n", gate)
-	fmt.Fprintf(&b, "\nrun again with --apply to commit.\n")
+	fmt.Fprintf(&b, "\nrun again without --dry to commit.\n")
 	return b.String()
 }
 
@@ -91,12 +91,36 @@ func (c *Commit) Apply(stdout, stderr io.Writer) error {
 		return fmt.Errorf("git commit: %v\n%s", err, out)
 	}
 
+	// Stateful receipt: quoted subject, branch + ahead-count vs the default
+	// branch, the delta, and the gate verdict — so the caller needs no follow-up
+	// git show/status to confirm what landed.
 	sha := shortSHA(wt)
-	fmt.Fprintf(stdout, "committed %s on %s: %s\n", sha, c.Target.Branch, firstLine(c.Message))
-	if stat := shortstat(wt); stat != "" {
-		fmt.Fprintf(stdout, "  %s\n", stat)
+	fmt.Fprintf(stdout, "committed %s %q\n", sha, firstLine(c.Message))
+	def := resolveDefaultBranch(wt)
+	if ahead := aheadOfDefault(wt, def); ahead != "" {
+		fmt.Fprintf(stdout, "  branch %s (%s ahead of origin/%s)\n", c.Target.Branch, ahead, def)
+	} else {
+		fmt.Fprintf(stdout, "  branch %s\n", c.Target.Branch)
 	}
+	if stat := shortstat(wt); stat != "" {
+		fmt.Fprintf(stdout, "  delta %s\n", stat)
+	}
+	gate := "TDD pass"
+	if c.NoVerify {
+		gate = "skipped (--no-verify)"
+	}
+	fmt.Fprintf(stdout, "  gate %s\n", gate)
 	return nil
+}
+
+// aheadOfDefault returns how many commits HEAD is ahead of origin/<default>, as
+// a string ("" when the ref can't be resolved — offline, or default == HEAD).
+func aheadOfDefault(wt, def string) string {
+	base := "origin/" + def
+	if !gitRefExists(wt, base) {
+		return ""
+	}
+	return aheadCount(wt, base)
 }
 
 func (c *Commit) clean() bool {
