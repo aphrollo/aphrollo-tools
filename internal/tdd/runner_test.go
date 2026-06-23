@@ -73,17 +73,96 @@ func TestDetectRunner_Vitest(t *testing.T) {
 
 func TestNarrowToRelatedTests(t *testing.T) {
 	root := "/proj"
-	// Go test edit narrows to the package; source edit stays broad.
+	// Go test edit narrows to the package; source edit narrows to its package.
 	goR := Runner{"go", []string{"test", "./..."}}
 	if got := NarrowToRelatedTests(goR, "/proj/internal/x/x_test.go", root); !reflect.DeepEqual(got, Runner{"go", []string{"test", "./internal/x/..."}}) {
 		t.Fatalf("go test narrow = %+v", got)
 	}
-	if got := NarrowToRelatedTests(goR, "/proj/internal/x/x.go", root); !reflect.DeepEqual(got, goR) {
-		t.Fatalf("source edit must stay broad, got %+v", got)
+	if got := NarrowToRelatedTests(goR, "/proj/internal/x/x.go", root); !reflect.DeepEqual(got, Runner{"go", []string{"test", "./internal/x"}}) {
+		t.Fatalf("go source narrow = %+v", got)
 	}
 	// pytest test edit runs just that file.
 	pyR := Runner{"pytest", []string{"-q"}}
 	if got := NarrowToRelatedTests(pyR, "/proj/tests/test_a.py", root); !reflect.DeepEqual(got, Runner{"pytest", []string{"-q", "tests/test_a.py"}}) {
 		t.Fatalf("pytest narrow = %+v", got)
+	}
+}
+
+// TestNarrowToRelatedTests_SourceEdits covers the source-file analog of the
+// test-file narrowing: a source edit runs only the tests whose import graph
+// reaches the edited file, per runner. Unknown runners fall back to the broad
+// suite.
+func TestNarrowToRelatedTests_SourceEdits(t *testing.T) {
+	root := "/proj"
+	cases := []struct {
+		name   string
+		runner Runner
+		target string
+		want   Runner
+	}{
+		{
+			name:   "vitest source → related --run",
+			runner: Runner{"npx", []string{"vitest", "run"}},
+			target: "/proj/src/widget.ts",
+			want:   Runner{"npx", []string{"vitest", "related", "src/widget.ts", "--run"}},
+		},
+		{
+			name:   "jest source → --findRelatedTests",
+			runner: Runner{"npx", []string{"jest"}},
+			target: "/proj/src/widget.js",
+			want:   Runner{"npx", []string{"jest", "--findRelatedTests", "src/widget.js"}},
+		},
+		{
+			name:   "go source → package dir",
+			runner: Runner{"go", []string{"test", "./..."}},
+			target: "/proj/internal/x/x.go",
+			want:   Runner{"go", []string{"test", "./internal/x"}},
+		},
+		{
+			name:   "unknown js script source → full-suite fallback",
+			runner: Runner{"npm", []string{"test", "--silent"}},
+			target: "/proj/src/widget.ts",
+			want:   Runner{"npm", []string{"test", "--silent"}},
+		},
+		{
+			name:   "cargo source → full-suite fallback",
+			runner: Runner{"cargo", []string{"test"}},
+			target: "/proj/src/lib.rs",
+			want:   Runner{"cargo", []string{"test"}},
+		},
+		{
+			name:   "pytest source → full-suite fallback",
+			runner: Runner{"pytest", []string{"-q"}},
+			target: "/proj/pkg/widget.py",
+			want:   Runner{"pytest", []string{"-q"}},
+		},
+		{
+			name:   "outside-root source → broad command",
+			runner: Runner{"go", []string{"test", "./..."}},
+			target: "/elsewhere/x.go",
+			want:   Runner{"go", []string{"test", "./..."}},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := NarrowToRelatedTests(c.runner, c.target, root); !reflect.DeepEqual(got, c.want) {
+				t.Fatalf("NarrowToRelatedTests = %+v, want %+v", got, c.want)
+			}
+		})
+	}
+}
+
+// TestNarrowToRelatedTests_VitestVsJest pins the npx-runner branching to the
+// detected runner name, not just "is it npx": vitest uses `related … --run`
+// while jest uses `--findRelatedTests …`.
+func TestNarrowToRelatedTests_VitestVsJest(t *testing.T) {
+	root := "/proj"
+	vitest := NarrowToRelatedTests(Runner{"npx", []string{"vitest", "run"}}, "/proj/a/b.ts", root)
+	if !reflect.DeepEqual(vitest, Runner{"npx", []string{"vitest", "related", "a/b.ts", "--run"}}) {
+		t.Fatalf("vitest source = %+v", vitest)
+	}
+	jest := NarrowToRelatedTests(Runner{"npx", []string{"jest"}}, "/proj/a/b.ts", root)
+	if !reflect.DeepEqual(jest, Runner{"npx", []string{"jest", "--findRelatedTests", "a/b.ts"}}) {
+		t.Fatalf("jest source = %+v", jest)
 	}
 }
