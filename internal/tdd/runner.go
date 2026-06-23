@@ -152,6 +152,12 @@ func NarrowToRelatedTests(r Runner, target, root string) Runner {
 // staged file with zero related tests makes the runner exit clean (the existing
 // green/WritingTest outcome), not a failure, so scoping never manufactures a
 // block. files are repo-root-relative.
+//
+// Go vs JS scope asymmetry: Go scopes to PACKAGE granularity (`go test ./pkg`),
+// so a regression a staged change introduces in another package's IMPORTERS is
+// not caught at precommit. vitest/jest scope to the IMPORTER GRAPH (`related` /
+// `--findRelatedTests`), so dependents of a staged file ARE covered. This gap is
+// acceptable because CI runs the full suite at submit as the authoritative gate.
 func narrowToStaged(r Runner, files []string) (Runner, bool) {
 	if len(files) == 0 {
 		return r, false
