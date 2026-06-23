@@ -250,4 +250,9 @@ func TestPush_ReusesExistingPR(t *testing.T) {
 	if !strings.Contains(out.String(), "reused") {
 		t.Errorf("receipt should report the PR was reused:\n%s", out.String())
 	}
+	// The push receipt must carry the CI state line so the coder needs no
+	// follow-up gh call — assert it is present and reflects the stubbed green.
+	if !strings.Contains(out.String(), "ci green") {
+		t.Errorf("push receipt must carry the ci state line:\n%s", out.String())
+	}
 }

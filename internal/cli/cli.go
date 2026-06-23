@@ -347,8 +347,10 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return code
 }
 
-// runTDDInstall writes the git-hook shims into a single repo. Like the
-// workspace mutating commands, it defaults to a dry-run and requires --apply.
+// runTDDInstall writes the git-hook shims into a single repo. tdd/refactor
+// mutations kept the older dry-run-by-default + --apply model, so this defaults
+// to a dry-run and requires --apply; only the workspace verbs inverted to
+// execute-by-default with --dry.
 func runTDDInstall(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.SetOutput(stderr)

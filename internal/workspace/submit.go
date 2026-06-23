@@ -73,8 +73,18 @@ func (s *Submit) Render(apply bool) string {
 // The receipt is stateful so no follow-up gh call is needed.
 func (s *Submit) Apply(stdout, stderr io.Writer) error {
 	wt, branch := s.Target.Worktree, s.Target.Branch
+	// How many commits this push delivers, captured BEFORE the push (after it the
+	// remote ref equals HEAD). push.ahead is set when an upstream/remote branch
+	// exists; for a brand-new branch it is "" — count against the default base.
+	newCommits := s.push.ahead
+	if newCommits == "" {
+		newCommits = aheadCount(wt, "origin/"+resolveDefaultBranch(wt))
+	}
+
 	// Push is idempotent — a re-driven submit re-pushes a no-op and reuses the PR.
-	if err := s.push.Apply(stdout, stderr); err != nil {
+	// Run it QUIETLY (its own receipt is suppressed) so submit emits exactly one
+	// consolidated receipt with no duplicate pr-url:/ci lines.
+	if err := s.push.Apply(io.Discard, stderr); err != nil {
 		return err
 	}
 
@@ -103,29 +113,45 @@ func (s *Submit) Apply(stdout, stderr io.Writer) error {
 		return fmt.Errorf("CI %s — not submitted yet", ci.State)
 	}
 
-	// Green: set the PR body to the summary, then flip the draft to ready.
+	// Green. If the PR is already ready, this is an idempotent re-run: report the
+	// honest [skip] receipt without re-flipping or touching the body.
+	if !info.IsDraft {
+		fmt.Fprintf(stdout, "already in review [skip]  PR #%d %s\n", info.Number, info.URL)
+		s.receiptTail(stdout, info, newCommits)
+		return nil
+	}
+
+	// Flip the draft to ready FIRST — that is the meaningful handoff. If the flip
+	// itself fails, return the error without touching the body.
+	if err := ghReadyPR(wt, branch); err != nil {
+		return err
+	}
+	info.IsDraft = false
+
+	// Body is best-effort cosmetic: a failure after a good flip must NOT fail the
+	// submit — the PR is already in review. Warn and carry on.
 	if strings.TrimSpace(s.Summary) != "" {
 		if err := ghEditPRBody(wt, branch, s.Summary); err != nil {
-			return err
+			fmt.Fprintf(stdout, "warning: PR body not updated (%v) — handoff still succeeded\n", err)
 		}
-	}
-	if info.IsDraft {
-		if err := ghReadyPR(wt, branch); err != nil {
-			return err
-		}
-		info.IsDraft = false
 	}
 
 	// Stateful receipt: never surfaces the literal ready_for_review.
 	fmt.Fprintf(stdout, "submitted PR #%d  draft -> in review\n", info.Number)
-	if newN := s.push.ahead; newN != "" && newN != "0" {
-		fmt.Fprintf(stdout, "  pushed in sync (%s new)\n", newN)
+	s.receiptTail(stdout, info, newCommits)
+	return nil
+}
+
+// receiptTail prints the shared post-state lines for both the flipped and the
+// already-ready paths: sync state, ci, handoff, url, and the relay pr-* lines.
+func (s *Submit) receiptTail(stdout io.Writer, info *PRInfo, newCommits string) {
+	if newCommits != "" && newCommits != "0" {
+		fmt.Fprintf(stdout, "  pushed %s new commit(s)\n", newCommits)
 	} else {
-		fmt.Fprintf(stdout, "  pushed in sync\n")
+		fmt.Fprintf(stdout, "  already in sync\n")
 	}
 	fmt.Fprintf(stdout, "  ci green\n")
 	fmt.Fprintf(stdout, "  handoff in_progress -> review\n")
 	fmt.Fprintf(stdout, "  %s\n", info.URL)
 	reportPRState(stdout, info)
-	return nil
 }

@@ -297,6 +297,18 @@ func TestRun_Workspace_PrepareAlias_StillDispatches(t *testing.T) {
 	}
 }
 
+// ready stays a HIDDEN alias for submit for one release; it dispatches to the
+// same cwd-only submit handler (a positional arg trips the cwd-only guard).
+func TestRun_Workspace_ReadyAlias_StillDispatches(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"workspace", "ready", "/some/repo"}, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(errb.String(), "cwd-only") {
+		t.Fatalf("ready alias should reach the cwd-only submit handler:\n%s", errb.String())
+	}
+}
+
 // The hidden aliases (prepare, ready) are NOT advertised in help.
 func TestRun_Workspace_Help_ShowsCreateNotAliases(t *testing.T) {
 	var out, errb bytes.Buffer

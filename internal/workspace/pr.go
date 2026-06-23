@@ -231,9 +231,12 @@ func ensureDraftPR(wt, branch string) (*PRInfo, string, error) {
 	if !remoteBranchExists(wt, branch) {
 		return nil, "", fmt.Errorf("branch %s is not on origin — run: aphrollo workspace push", branch)
 	}
+	// Reuse ONLY an OPEN PR (draft or ready). A merged/closed PR is dead —
+	// relinking it would let push point at a dead PR and submit fail flipping
+	// it. Fall through and open a fresh draft instead.
 	if existing, err := ghViewPR(wt, branch); err != nil {
 		return nil, "", err
-	} else if existing != nil {
+	} else if existing != nil && strings.ToUpper(existing.State) == "OPEN" {
 		return existing, "reused", nil
 	}
 	base := resolveDefaultBranch(wt)
