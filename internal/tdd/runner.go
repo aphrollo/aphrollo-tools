@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -138,6 +139,59 @@ func NarrowToRelatedTests(r Runner, target, root string) Runner {
 		return Runner{Cmd: r.Cmd, Args: append(append([]string{}, r.Args...), rel)}
 	}
 	return r
+}
+
+// narrowToStaged scopes a broad runner to the related tests of the UNION of a
+// commit's staged source+test files, for the precommit mechanical stage. It is
+// the multi-file analog of NarrowToRelatedTests: commit-time is a fast scoped
+// check, and CI runs the full suite at submit as the authoritative gate.
+//
+// It reports (scoped, true) when the runner has a related mode (vitest
+// `related`, jest `--findRelatedTests`, go's deduped package dirs); otherwise
+// (the original runner, false) so the caller keeps the full-suite fallback. A
+// staged file with zero related tests makes the runner exit clean (the existing
+// green/WritingTest outcome), not a failure, so scoping never manufactures a
+// block. files are repo-root-relative.
+//
+// Go vs JS scope asymmetry: Go scopes to PACKAGE granularity (`go test ./pkg`),
+// so a regression a staged change introduces in another package's IMPORTERS is
+// not caught at precommit. vitest/jest scope to the IMPORTER GRAPH (`related` /
+// `--findRelatedTests`), so dependents of a staged file ARE covered. This gap is
+// acceptable because CI runs the full suite at submit as the authoritative gate.
+func narrowToStaged(r Runner, files []string) (Runner, bool) {
+	if len(files) == 0 {
+		return r, false
+	}
+	switch r.Cmd {
+	case "go":
+		// Dedupe the package dir of each staged file; a root-level file maps to
+		// the "." package. Sorted for a deterministic command.
+		seen := map[string]bool{}
+		var pkgs []string
+		for _, f := range files {
+			dir := filepath.Dir(f)
+			pkg := "./" + dir
+			if dir == "." {
+				pkg = "."
+			}
+			if !seen[pkg] {
+				seen[pkg] = true
+				pkgs = append(pkgs, pkg)
+			}
+		}
+		sort.Strings(pkgs)
+		return Runner{Cmd: "go", Args: append([]string{"test"}, pkgs...)}, true
+	case "npx":
+		switch {
+		case len(r.Args) > 0 && r.Args[0] == "vitest":
+			args := append([]string{"vitest", "related"}, files...)
+			return Runner{Cmd: "npx", Args: append(args, "--run")}, true
+		case len(r.Args) > 0 && r.Args[0] == "jest":
+			args := append([]string{"jest", "--findRelatedTests"}, files...)
+			return Runner{Cmd: "npx", Args: args}, true
+		}
+	}
+	return r, false
 }
 
 // narrowSourceEdit builds the related-tests command for a source-file edit,

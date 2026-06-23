@@ -166,3 +166,109 @@ func TestNarrowToRelatedTests_VitestVsJest(t *testing.T) {
 		t.Fatalf("jest source = %+v", jest)
 	}
 }
+
+// TestNarrowToStaged covers the precommit multi-file related-mode build: the
+// union of staged files is scoped to one command per runner. Unknown runners
+// (and runners with no related mode) fall back to the broad suite unchanged.
+func TestNarrowToStaged(t *testing.T) {
+	cases := []struct {
+		name   string
+		runner Runner
+		files  []string
+		want   Runner
+		wantOK bool
+	}{
+		{
+			name:   "vitest → related multi-file --run",
+			runner: Runner{"npx", []string{"vitest", "run"}},
+			files:  []string{"src/a.ts", "src/a.test.ts", "src/b.ts"},
+			want:   Runner{"npx", []string{"vitest", "related", "src/a.ts", "src/a.test.ts", "src/b.ts", "--run"}},
+			wantOK: true,
+		},
+		{
+			name:   "vitest test-only staged → related on the test file --run",
+			runner: Runner{"npx", []string{"vitest", "run"}},
+			files:  []string{"src/a.test.ts"},
+			want:   Runner{"npx", []string{"vitest", "related", "src/a.test.ts", "--run"}},
+			wantOK: true,
+		},
+		{
+			name:   "jest → --findRelatedTests multi-file",
+			runner: Runner{"npx", []string{"jest"}},
+			files:  []string{"src/a.js", "src/b.js"},
+			want:   Runner{"npx", []string{"jest", "--findRelatedTests", "src/a.js", "src/b.js"}},
+			wantOK: true,
+		},
+		{
+			name:   "jest test-only staged → --findRelatedTests on the test file",
+			runner: Runner{"npx", []string{"jest"}},
+			files:  []string{"src/a.test.js"},
+			want:   Runner{"npx", []string{"jest", "--findRelatedTests", "src/a.test.js"}},
+			wantOK: true,
+		},
+		{
+			name:   "go test-only staged → that package dir",
+			runner: Runner{"go", []string{"test", "./..."}},
+			files:  []string{"internal/x/x_test.go"},
+			want:   Runner{"go", []string{"test", "./internal/x"}},
+			wantOK: true,
+		},
+		{
+			name:   "npx with empty args → full-suite fallback",
+			runner: Runner{"npx", nil},
+			files:  []string{"src/a.ts"},
+			want:   Runner{"npx", nil},
+			wantOK: false,
+		},
+		{
+			name:   "go → deduped package dirs",
+			runner: Runner{"go", []string{"test", "./..."}},
+			files:  []string{"internal/x/x.go", "internal/x/x_test.go", "internal/y/y.go"},
+			want:   Runner{"go", []string{"test", "./internal/x", "./internal/y"}},
+			wantOK: true,
+		},
+		{
+			name:   "go root-level file → dot package",
+			runner: Runner{"go", []string{"test", "./..."}},
+			files:  []string{"main.go"},
+			want:   Runner{"go", []string{"test", "."}},
+			wantOK: true,
+		},
+		{
+			name:   "unknown js script → full-suite fallback",
+			runner: Runner{"npm", []string{"test", "--silent"}},
+			files:  []string{"src/a.ts"},
+			want:   Runner{"npm", []string{"test", "--silent"}},
+			wantOK: false,
+		},
+		{
+			name:   "cargo → full-suite fallback",
+			runner: Runner{"cargo", []string{"test"}},
+			files:  []string{"src/lib.rs"},
+			want:   Runner{"cargo", []string{"test"}},
+			wantOK: false,
+		},
+		{
+			name:   "pytest → full-suite fallback",
+			runner: Runner{"pytest", []string{"-q"}},
+			files:  []string{"pkg/widget.py"},
+			want:   Runner{"pytest", []string{"-q"}},
+			wantOK: false,
+		},
+		{
+			name:   "no files → full-suite fallback",
+			runner: Runner{"go", []string{"test", "./..."}},
+			files:  nil,
+			want:   Runner{"go", []string{"test", "./..."}},
+			wantOK: false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := narrowToStaged(c.runner, c.files)
+			if ok != c.wantOK || !reflect.DeepEqual(got, c.want) {
+				t.Fatalf("narrowToStaged = %+v,%v want %+v,%v", got, ok, c.want, c.wantOK)
+			}
+		})
+	}
+}

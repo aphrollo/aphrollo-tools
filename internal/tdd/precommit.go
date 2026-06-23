@@ -31,7 +31,9 @@ const failFirstMessage = "TDD fail-first: this commit adds tests AND implementat
 //     code, which is a fail-first violation. Triggering only on a combined
 //     test+source commit is also the amendment fix: an impl-only amend stages
 //     no test, so fail-first never re-judges already-committed tests.
-//  2. Mechanical — the full suite must pass.
+//  2. Mechanical — the related tests for the staged source+test files must pass.
+//     A commit that stages no source AND no test (docs/yaml only) skips this
+//     stage entirely.
 //
 // Any inability to VERIFY fail-first (worktree/apply error) fails OPEN: the
 // gate never blocks because its own tooling tripped. run is injected so the
@@ -50,14 +52,33 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		return GateResult{Blocked: true, Message: msg}
 	}
 
+	// Fail-first runs the new tests in a throwaway worktree at HEAD. That worktree
+	// has no node_modules — worktrees don't share gitignored deps and we do NOT
+	// `pnpm install` per commit (too slow) — so for vitest/jest repos the suite
+	// can't run there and fail-first is effectively Go-only. It still fails OPEN
+	// (an unrunnable suite is inconclusive, never a block).
 	if len(tests) > 0 && len(srcs) > 0 {
 		if violated, conclusive := failFirstViolated(repoRoot, tests, run); conclusive && violated {
 			return GateResult{Blocked: true, Message: failFirstMessage}
 		}
 	}
 
+	// Changes-gate: a docs/yaml-only commit (no staged source AND no staged test)
+	// has nothing to test, so skip the mechanical stage. Anti-cheat above still
+	// ran (it's cheap and only judges added lines).
+	if len(tests) == 0 && len(srcs) == 0 {
+		return GateResult{}
+	}
+
 	runner, ok := DetectRunner(repoRoot)
 	if ok {
+		// Scope the mechanical run to the related tests of the staged source+test
+		// files: commit-time is a fast scoped check; CI runs the full suite at
+		// submit as the authoritative gate. A runner with no related mode (or an
+		// unknown command) falls back to the full suite unchanged.
+		if scoped, narrowed := narrowToStaged(runner, append(append([]string{}, tests...), srcs...)); narrowed {
+			runner = scoped
+		}
 		if res := run(runner, repoRoot); !res.Passed {
 			return GateResult{Blocked: true, Message: "TDD mechanical: tests failing — fix before committing.\n" + snippet(res.Output)}
 		}
@@ -217,6 +238,15 @@ func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violat
 	}
 	res := run(runner, wt)
 	// Tests PASS without the new source ⇒ they never went RED ⇒ violation.
+	//
+	// SuiteResult carries only Passed/Output, with no couldn't-run signal, so a
+	// suite that failed to RUN (e.g. a vitest/jest worktree with no node_modules)
+	// is indistinguishable from one that ran and failed: both surface as
+	// Passed=false ⇒ (violated=false, conclusive=true). That mislabels a
+	// non-running suite as a conclusive non-violation rather than inconclusive,
+	// but it fails in the safe direction — non-violation never blocks — so the
+	// gate stays fail-open. Correcting the label needs a distinct couldn't-run
+	// signal on SuiteResult, which is left for a runner-contract change.
 	return res.Passed, true
 }
 

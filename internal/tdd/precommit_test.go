@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -95,6 +96,21 @@ func makeGoRepo(t *testing.T) string {
 	gitInit(t, root)
 	write(t, root, "go.mod", "module example.com/m\n\ngo 1.26\n")
 	write(t, root, "doc.go", "package m\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "base")
+	return root
+}
+
+// makeJSRepo creates a committed repo whose only root marker is package.json,
+// with the given package.json contents (which select the detected runner). The
+// suite is never actually run in these tests — recordRunner fakes it — so npx
+// need not be present; only DetectRunner's marker read matters. git presence is
+// enforced by gitInit (it fatals if git can't run).
+func makeJSRepo(t *testing.T, pkgJSON string) string {
+	t.Helper()
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "package.json", pkgJSON)
 	gitDo(t, root, "add", ".")
 	gitDo(t, root, "commit", "-qm", "base")
 	return root
@@ -195,5 +211,156 @@ func TestPrecommit_Mechanical_BlocksFailingSuite(t *testing.T) {
 	res := Precommit(root, RunSuite(precommitTestTimeout))
 	if !res.Blocked || !strings.Contains(res.Message, "mechanical") {
 		t.Fatalf("expected mechanical block, got %+v", res)
+	}
+}
+
+// recordRunner is a SuiteRunner that records every Runner it executes and always
+// reports passing — so a test can assert the EXACT mechanical argv without a real
+// suite run. The fail-first worktree run (if any) is recorded too, but the
+// mechanical stage runs against repoRoot, so the test keys off root.
+func recordRunner(seen *[]Runner, root string) SuiteRunner {
+	return func(r Runner, dir string) SuiteResult {
+		if dir == root {
+			*seen = append(*seen, r)
+		}
+		return SuiteResult{Passed: true}
+	}
+}
+
+func TestPrecommit_Mechanical_ScopedToStagedGoPackages(t *testing.T) {
+	root := makeGoRepo(t)
+	// Stage a source file in a sub-package; the mechanical run must scope to that
+	// package, not `./...`.
+	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	res := Precommit(root, recordRunner(&seen, root))
+	if res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	if len(seen) != 1 {
+		t.Fatalf("expected one mechanical run at root, got %d: %+v", len(seen), seen)
+	}
+	want := Runner{"go", []string{"test", "./internal/x"}}
+	if !reflect.DeepEqual(seen[0], want) {
+		t.Fatalf("mechanical runner = %+v, want %+v", seen[0], want)
+	}
+}
+
+func TestPrecommit_ChangesGate_SkipsDocsOnlyCommit(t *testing.T) {
+	root := makeGoRepo(t)
+	// Only a doc file is staged — no source, no test. The mechanical stage must
+	// be skipped entirely (no suite run).
+	write(t, root, "NOTES.md", "# notes\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	res := Precommit(root, recordRunner(&seen, root))
+	if res.Blocked {
+		t.Fatalf("docs-only commit must not block: %s", res.Message)
+	}
+	if len(seen) != 0 {
+		t.Fatalf("docs-only commit must not run the suite, ran %+v", seen)
+	}
+}
+
+// TestPrecommit_Mechanical_ScopedToStagedGoTestOnly guards the test-only commit:
+// staging just a *_test.go must run the SCOPED package command, not the full
+// `./...` suite. The fail-first stage never triggers (no staged source), so the
+// only run recorded at root is the scoped mechanical one.
+func TestPrecommit_Mechanical_ScopedToStagedGoTestOnly(t *testing.T) {
+	root := makeGoRepo(t)
+	// A self-contained test in a sub-package — no source file staged alongside it.
+	write(t, root, "internal/x/x_test.go", "package x\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) { _ = 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	res := Precommit(root, recordRunner(&seen, root))
+	if res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	if len(seen) != 1 {
+		t.Fatalf("expected one scoped mechanical run, got %d: %+v", len(seen), seen)
+	}
+	want := Runner{"go", []string{"test", "./internal/x"}}
+	if !reflect.DeepEqual(seen[0], want) {
+		t.Fatalf("test-only mechanical runner = %+v, want %+v", seen[0], want)
+	}
+}
+
+// TestPrecommit_Mechanical_ScopedToStagedVitest guards the vitest scoping path:
+// a staged source file in a vitest repo runs `vitest related <files> --run`, not
+// the full `vitest run`. The runner is selected by DetectRunner from the repo's
+// package.json, exactly as it is in production.
+func TestPrecommit_Mechanical_ScopedToStagedVitest(t *testing.T) {
+	root := makeJSRepo(t, `{"devDependencies":{"vitest":"^1.0.0"}}`)
+	write(t, root, "src/widget.ts", "export const widget = () => 1\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	res := Precommit(root, recordRunner(&seen, root))
+	if res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	want := Runner{"npx", []string{"vitest", "related", "src/widget.ts", "--run"}}
+	if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
+		t.Fatalf("vitest mechanical runs = %+v, want one %+v", seen, want)
+	}
+}
+
+// TestPrecommit_Mechanical_ScopedToStagedJest guards the jest scoping path: a
+// staged source file in a jest repo runs `jest --findRelatedTests <files>`, not
+// the full `jest`.
+func TestPrecommit_Mechanical_ScopedToStagedJest(t *testing.T) {
+	root := makeJSRepo(t, `{"devDependencies":{"jest":"^29.0.0"}}`)
+	write(t, root, "src/widget.js", "module.exports = () => 1\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	res := Precommit(root, recordRunner(&seen, root))
+	if res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	want := Runner{"npx", []string{"jest", "--findRelatedTests", "src/widget.js"}}
+	if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
+		t.Fatalf("jest mechanical runs = %+v, want one %+v", seen, want)
+	}
+}
+
+// TestPrecommit_Mechanical_UnknownRunnerFullSuiteFallback guards the fallback: a
+// repo whose package.json selects the generic `npm test` script (no vitest/jest)
+// has no related mode, so the mechanical stage runs the FULL command unchanged.
+func TestPrecommit_Mechanical_UnknownRunnerFullSuiteFallback(t *testing.T) {
+	root := makeJSRepo(t, `{"scripts":{"test":"echo ok"}}`)
+	write(t, root, "src/widget.ts", "export const widget = () => 1\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	res := Precommit(root, recordRunner(&seen, root))
+	if res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	want := Runner{"npm", []string{"test", "--silent"}}
+	if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
+		t.Fatalf("fallback mechanical runs = %+v, want one full-suite %+v", seen, want)
+	}
+}
+
+// TestPrecommit_ChangesGate_SkipsYAMLOnlyCommit mirrors the docs-only skip for a
+// yaml-only (Ignore-classified) commit: no source AND no test staged, so the
+// changes-gate skips the mechanical stage entirely (zero suite runs).
+func TestPrecommit_ChangesGate_SkipsYAMLOnlyCommit(t *testing.T) {
+	root := makeGoRepo(t)
+	write(t, root, "config.yaml", "key: value\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	res := Precommit(root, recordRunner(&seen, root))
+	if res.Blocked {
+		t.Fatalf("yaml-only commit must not block: %s", res.Message)
+	}
+	if len(seen) != 0 {
+		t.Fatalf("yaml-only commit must not run the suite, ran %+v", seen)
 	}
 }
