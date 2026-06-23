@@ -58,6 +58,11 @@ find-references) are unchanged.
 - `tdd` — the TDD gates (`pretooluse`/`posttooluse`/`userpromptsubmit`/`sessionend`/
   `precommit`/`prepush`) + `tdd init` (wires session hooks + global git gate).
   Ported from the retired `claude-code-tdd` Node hooks (this binary IS the gate now).
+  The gate is **solely mechanical**: edit-time smell blocks + commit-time
+  anti-cheat/fail-first/suite. `prepush` is a **mechanical no-op** (never blocks),
+  kept only for back-compat with a lingering pre-push shim; `tdd init` prunes that
+  stranded shim. Adversarial review is owned by the **separate reviewer agent**,
+  not this binary.
 
 ## Layout
 
@@ -68,7 +73,7 @@ internal/refactor/   detect lang → spawn server → rename/refs/outline/show
 internal/lsp/        LSP types + JSON-RPC stdio client
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy
-internal/tdd/        TDD gates: policy engine, edit smells, anti-cheat, fail-first, review, install
+internal/tdd/        TDD gates (mechanical-only): policy engine, edit smells, anti-cheat, fail-first, install
 internal/workspace/  worktree lifecycle + git verbs
 internal/dev/        dev-tier control plane (systemd)
 ```
@@ -87,8 +92,9 @@ internal/dev/        dev-tier control plane (systemd)
 - **Adding a gate/detector** = a new `policy` entry in a slice, not new control
   flow. Detectors run against a **masked** copy (smell detectors mask strings +
   comments; suppression detectors mask strings, keep comments) — a token only in
-  a string never blocks. Keep edit-time blocks near-zero-FP; heavy checks
-  (fail-first, review) live at commit/push where a false block only costs a re-run.
+  a string never blocks. Keep edit-time blocks near-zero-FP; the heavy mechanical
+  check (fail-first + suite) lives at commit where a false block only costs a
+  re-run. (Pre-push no longer runs anything — see Don't.)
 - **Attribution: honest here.** This is first-party tooling, not a client-facing
   undercover repo — the `🤖 Generated with Claude Code` footer + `Co-Authored-By`
   are fine (matches aphrollo-agents; per the box `~/CLAUDE.md` per-repo rule).
@@ -109,8 +115,11 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   purpose — don't homogenize them.
 - Don't re-port what was deliberately dropped: **mutation testing** (the
   documented FP/non-determinism offender), the SessionStart full-suite baseline,
-  or `/tdd allow-main` — the fail-first + review gates cover the ground without
-  the flakiness.
+  or `/tdd allow-main` — the fail-first + mechanical suite cover the ground
+  without the flakiness. The **pre-push LLM adversarial review was removed on
+  purpose** (non-deterministic, could hang `git push`, redundant with CI + the
+  reviewer agent): the gate is **mechanical-only** now and `prepush` is a no-op.
+  Don't reintroduce an LLM call in this binary's gate.
 - Don't add a sudo wrapper or wildcard grant — the narrow exact-match systemctl
   fence is the whole security story.
 - Don't duplicate README usage here — this file is dev context only.

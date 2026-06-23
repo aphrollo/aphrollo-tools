@@ -484,7 +484,7 @@ live where being wrong only costs a re-run):
 | `tdd userpromptsubmit` | Claude UserPromptSubmit hook (stdin) | Intercepts `/tdd [status\|off\|on\|reset]` — the per-session enforcement escape hatch. On any other prompt, re-injects the last RED outcome for the cwd's project so the gate survives context compaction. **Silent unless RED.** |
 | `tdd sessionend` | Claude SessionEnd hook (stdin) | Deletes the per-session state file so the state dir doesn't accumulate. |
 | `tdd precommit` | git `pre-commit` | Blocks a newly-**added** suppression (anti-cheat). Then **fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. |
-| `tdd prepush` | git `pre-push` | Adversarial LLM review of the cumulative push diff; blocks on a critical/high finding. **Fails open** if the reviewer is unavailable. |
+| `tdd prepush` | git `pre-push` | **No-op** (mechanical-only mode). The tdd gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
 
 `/tdd off` is the escape hatch for spikes and non-TDD work; `/tdd on` re-enables.
 The SessionStart baseline and `/tdd allow-main` from the Node original are
@@ -580,10 +580,12 @@ aphrollo tdd init --uninstall        # remove everything again
    `sessionend` invoke the binary. Idempotent (a no-op re-run rewrites
    nothing), backs up any existing file, preserves foreign hooks (caveman) and
    other keys, and migrates out old Node `tdd-*.js` entries.
-2. **Git gate** — writes the `pre-commit` / `pre-push` shims into
-   `~/.config/git/hooks` (or `--git-hooks-dir`) and points git's global
-   `core.hooksPath` at them, so every repo is gated. Hand-written hooks are
-   never clobbered. `--no-git` skips this layer.
+2. **Git gate** — writes the `pre-commit` shim into `~/.config/git/hooks` (or
+   `--git-hooks-dir`) and points git's global `core.hooksPath` at it, so every
+   repo is gated. Hand-written hooks are never clobbered. `--no-git` skips this
+   layer. A re-init also **prunes** any stranded managed `pre-push` shim a box
+   still carries from before the pre-push review was removed, so a lingering
+   shim stops firing.
 
 It resolves the invoking binary via `os.Executable`, so the installed hooks
 call the same binary that wrote them; ansible runs it once per session HOME.
@@ -592,8 +594,13 @@ For a single repo without the global gate, `aphrollo tdd install --apply` writes
 the same shims into that repo's `.git/hooks` instead (opt-in, no `core.hooksPath`).
 
 Mutation testing is intentionally **not** ported: it was the documented
-false-positive/non-determinism offender, and the fail-first + review gates cover
-the same ground without the flakiness.
+false-positive/non-determinism offender, and the fail-first + mechanical suite
+gates cover the same ground without the flakiness. The pre-push **LLM
+adversarial review was also removed on purpose** — it was non-deterministic and
+could hang `git push`, and it is redundant with CI plus the separate reviewer
+agent. The tdd gate is now **solely mechanical**: edit-time smell blocks +
+commit-time anti-cheat/fail-first/suite. Adversarial review lives in the
+reviewer agent, not this binary.
 
 ## Layout
 
@@ -604,7 +611,7 @@ internal/refactor/   orchestration: detect lang → spawn server → rename/refs
 internal/lsp/        LSP types + JSON-RPC stdio client (framing, Conn, edits)
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy (block long waits, warn on noisy output)
-internal/tdd/        TDD gates: policy engine, edit smells, anti-cheat, RED/GREEN, fail-first, review, install
+internal/tdd/        TDD gates (mechanical-only): policy engine, edit smells, anti-cheat, RED/GREEN, fail-first, install
 internal/workspace/  worktree lifecycle (create/claim/unclaim/list/remove/prune/cleanup) + git verbs (commit/push/submit/pr/ship/merge)
 internal/dev/        dev-tier control plane: up/down/restart/status/logs (systemd)
 internal/sqlc/       sqlc drift guard: config discovery, regen-into-temp, check, scoped-by-symbol regen
