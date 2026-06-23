@@ -14,6 +14,16 @@ func pathWithin(child, parent string) bool {
 	if err1 != nil || err2 != nil {
 		return false
 	}
+	// Resolve symlinks so a worktree reached through a symlinked cwd still matches
+	// the canonical worktree path — the cwd guard is the only thing keeping prune
+	// from removing the tree you stand in. Fall back to the Abs path when a path
+	// can't be resolved (e.g. it doesn't exist yet) rather than crashing.
+	if r, err := filepath.EvalSymlinks(c); err == nil {
+		c = r
+	}
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		p = r
+	}
 	c, p = filepath.Clean(c), filepath.Clean(p)
 	return c == p || strings.HasPrefix(c, p+string(filepath.Separator))
 }

@@ -34,17 +34,36 @@ func PrunePlan(repoArg string) (*Prune, error) {
 
 // ghPRState is the seam over `gh pr view <branch> --json state` — a package var
 // so the sweep tests run without gh or the network. It returns the PR's state
-// ("MERGED"/"OPEN"/"CLOSED") or "" when the branch has no PR (absence, not an
-// error). The real implementation shells gh in the worktree, where gh resolves
+// ("MERGED"/"OPEN"/"CLOSED") or "" when the branch genuinely has no PR (absence,
+// not an error). A real gh failure (network/auth/gh-missing) returns a non-nil
+// error so the sweep skips the worktree rather than misreading the failure as
+// "no PR". The real implementation shells gh in the worktree, where gh resolves
 // the repo from origin.
 var ghPRState = func(wt, branch string) (string, error) {
 	cmd := exec.Command("gh", "pr", "view", "--json", "state", "-q", ".state", "--", branch)
 	cmd.Dir = wt
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", nil // no PR for the branch
+		// gh exits non-zero both for "no PR for this branch" and for genuine
+		// failures. Only the former is an absence; distinguish on gh's message
+		// and propagate everything else so the sweep skips (never prunes) on a
+		// transient gh error.
+		if isNoPRError(string(out)) {
+			return "", nil
+		}
+		return "", fmt.Errorf("gh pr view %s: %v: %s", branch, err, strings.TrimSpace(string(out)))
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// isNoPRError reports whether gh's output is the benign "this branch has no open
+// PR" message (an absence) rather than a real failure (auth/network/gh-missing).
+func isNoPRError(out string) bool {
+	o := strings.ToLower(out)
+	return strings.Contains(o, "no pull requests found") ||
+		strings.Contains(o, "no open pull requests found") ||
+		strings.Contains(o, "no pull request found") ||
+		strings.Contains(o, "no pr")
 }
 
 // worktreeEntry is one linked worktree the sweep considers: its path and the
@@ -74,6 +93,7 @@ func (p *Prune) Run(apply bool, stdout, stderr io.Writer) error {
 	cwd, _ := os.Getwd()
 
 	pruned := 0
+	failed := 0
 	for _, e := range entries {
 		d := p.decide(e, cwd)
 		if !d.remove {
@@ -87,6 +107,7 @@ func (p *Prune) Run(apply bool, stdout, stderr io.Writer) error {
 		}
 		if err := removeWorktree(p.Repo, e.Path, p.Force); err != nil {
 			fmt.Fprintf(stderr, "could not remove %s: %v\n", e.Path, err)
+			failed++
 			continue
 		}
 		fmt.Fprintf(stdout, "pruned: %s (%s)\n", e.Path, d.reason)
@@ -100,7 +121,13 @@ func (p *Prune) Run(apply bool, stdout, stderr io.Writer) error {
 		// dirs are already gone) are swept in the same call.
 		_ = exec.Command("git", "-C", p.Repo, "worktree", "prune").Run()
 	}
-	fmt.Fprintf(stdout, "%s %d worktree(s)\n", verb, pruned)
+	// Surface removal failures in the tally so a permission-failed removal is not
+	// hidden behind a clean-looking count.
+	if failed > 0 {
+		fmt.Fprintf(stdout, "%s %d, failed %d worktree(s)\n", verb, pruned, failed)
+	} else {
+		fmt.Fprintf(stdout, "%s %d worktree(s)\n", verb, pruned)
+	}
 	return nil
 }
 
@@ -112,7 +139,9 @@ func (p *Prune) decide(e worktreeEntry, cwd string) pruneDecision {
 	}
 	state, err := ghPRState(e.Path, e.Branch)
 	if err != nil {
-		return pruneDecision{wt: e, reason: "pr-state error: " + err.Error()}
+		// A gh failure is fail-safe: skip the worktree, never prune on a state we
+		// could not read.
+		return pruneDecision{wt: e, reason: "could not check PR state (gh unavailable)"}
 	}
 	switch strings.ToUpper(state) {
 	case "MERGED":

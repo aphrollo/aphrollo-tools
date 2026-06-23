@@ -38,6 +38,41 @@ func TestDiff_AgainstDefaultBranch(t *testing.T) {
 	}
 }
 
+func TestDiff_LocalDefaultFallbackNoOrigin(t *testing.T) {
+	// initRepo has NO origin, so diffBase must fall back to the LOCAL default
+	// branch (main). Advance local main after branching: the three-dot diff base
+	// is the merge-base, so the branch's own commit shows and main's later commit
+	// does not — proving the diff is taken against local main, not a missing origin.
+	repo := initRepo(t)
+	run := func(args ...string) {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	run("checkout", "-q", "-b", "feat/diff")
+	writeFile(t, repo, "added.txt", "branch line\n")
+	run("add", ".")
+	run("commit", "-q", "-m", "branch commit")
+	// Advance local main with an unrelated commit the branch never gained.
+	run("checkout", "-q", "main")
+	writeFile(t, repo, "mainonly.txt", "main only\n")
+	run("add", ".")
+	run("commit", "-q", "-m", "main commit")
+	run("checkout", "-q", "feat/diff")
+
+	var out, errb bytes.Buffer
+	if err := Diff(targetFor(repo, "feat/diff"), false, &out, &errb); err != nil {
+		t.Fatalf("Diff: %v\n%s", err, errb.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "added.txt") || !strings.Contains(got, "+branch line") {
+		t.Errorf("local-default fallback should show the branch's commit:\n%s", got)
+	}
+	if strings.Contains(got, "mainonly.txt") {
+		t.Errorf("three-dot base is the merge-base; main's later commit must not appear:\n%s", got)
+	}
+}
+
 func TestDiff_Stat(t *testing.T) {
 	repo := initRepo(t)
 	branch := branchAhead(t, repo)

@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -102,6 +103,56 @@ func TestPrune_SkipsNoPR(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "skip: "+wt) || !strings.Contains(out.String(), "no PR") {
 		t.Errorf("receipt should skip the no-PR worktree:\n%s", out.String())
+	}
+}
+
+func TestPrune_SkipsClosedPR(t *testing.T) {
+	repo, wt, branch := preparedRepo(t)
+	stubPRState(t, func(_, b string) (string, error) {
+		if b == branch {
+			return "CLOSED", nil
+		}
+		return "", nil
+	})
+	p, err := PrunePlan(repo)
+	if err != nil {
+		t.Fatalf("PrunePlan: %v", err)
+	}
+	var out, errb bytes.Buffer
+	if err := p.Run(true, &out, &errb); err != nil {
+		t.Fatalf("Run: %v\n%s", err, errb.String())
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Errorf("closed-PR worktree must be kept (not merged): %v", err)
+	}
+	if !strings.Contains(out.String(), "skip: "+wt) || !strings.Contains(out.String(), "closed PR") {
+		t.Errorf("receipt should skip the closed-PR worktree:\n%s", out.String())
+	}
+}
+
+func TestPrune_SkipsOnGHError(t *testing.T) {
+	repo, wt, branch := preparedRepo(t)
+	// A genuine gh failure (auth/network/gh-missing) must SKIP, never prune — the
+	// state is unknown, so the fail-safe direction is to keep the worktree.
+	stubPRState(t, func(_, b string) (string, error) {
+		if b == branch {
+			return "", fmt.Errorf("gh: HTTP 401: bad credentials")
+		}
+		return "", nil
+	})
+	p, err := PrunePlan(repo)
+	if err != nil {
+		t.Fatalf("PrunePlan: %v", err)
+	}
+	var out, errb bytes.Buffer
+	if err := p.Run(true, &out, &errb); err != nil {
+		t.Fatalf("Run: %v\n%s", err, errb.String())
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Errorf("a worktree whose PR state could not be read must be kept: %v", err)
+	}
+	if !strings.Contains(out.String(), "skip: "+wt) || !strings.Contains(out.String(), "could not check PR state") {
+		t.Errorf("receipt should skip on a gh error with a clear reason:\n%s", out.String())
 	}
 }
 

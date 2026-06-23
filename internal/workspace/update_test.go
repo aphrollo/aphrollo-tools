@@ -147,6 +147,58 @@ func TestUpdate_ConflictLeavesRebaseInProgress(t *testing.T) {
 	}
 }
 
+func TestUpdate_RefusesDirtyWorktree(t *testing.T) {
+	clone := repoWithOrigin(t)
+	gitRun(t, clone, "checkout", "-q", "-b", "feat/up")
+	if err := os.WriteFile(filepath.Join(clone, "feature.txt"), []byte("feat\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, clone, "add", ".")
+	gitRun(t, clone, "commit", "-q", "-m", "feature")
+	gitRun(t, clone, "push", "-q", "-u", "origin", "feat/up")
+	// origin/main advances so an update WOULD rebase if the tree were clean.
+	advanceOrigin(t, clone, "other.txt", "other\n")
+	gitRun(t, clone, "fetch", "-q", "origin")
+	// Leave an uncommitted change in the worktree.
+	if err := os.WriteFile(filepath.Join(clone, "feature.txt"), []byte("dirty edit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	headBefore, _ := exec.Command("git", "-C", clone, "rev-parse", "HEAD").Output()
+	var out, errb bytes.Buffer
+	err := Update(targetFor(clone, "feat/up"), false, &out, &errb)
+	if err == nil {
+		t.Fatalf("a dirty worktree must refuse the update")
+	}
+	if !strings.Contains(err.Error(), "uncommitted changes") || !strings.Contains(err.Error(), "stash") {
+		t.Errorf("refusal should name the dirty state + suggest stash, got: %v", err)
+	}
+	// No rebase was started — HEAD is unchanged and there is no rebase-in-progress.
+	headAfter, _ := exec.Command("git", "-C", clone, "rev-parse", "HEAD").Output()
+	if string(headBefore) != string(headAfter) {
+		t.Errorf("a refused update must not move HEAD")
+	}
+	gitDir := filepath.Join(clone, ".git")
+	if _, e := os.Stat(filepath.Join(gitDir, "rebase-merge")); !os.IsNotExist(e) {
+		t.Errorf("a refused update must not start a rebase (rebase-merge present)")
+	}
+	if _, e := os.Stat(filepath.Join(gitDir, "rebase-apply")); !os.IsNotExist(e) {
+		t.Errorf("a refused update must not start a rebase (rebase-apply present)")
+	}
+}
+
+func TestUpdate_RefusesDetachedHEAD(t *testing.T) {
+	clone := repoWithOrigin(t)
+	var out, errb bytes.Buffer
+	err := Update(targetFor(clone, "HEAD"), false, &out, &errb)
+	if err == nil {
+		t.Fatalf("a detached HEAD must refuse the update")
+	}
+	if !strings.Contains(err.Error(), "detached HEAD") {
+		t.Errorf("refusal should name the detached HEAD, got: %v", err)
+	}
+}
+
 func TestUpdate_DryReportsBehindWithoutMutating(t *testing.T) {
 	clone := repoWithOrigin(t)
 	gitRun(t, clone, "checkout", "-q", "-b", "feat/up")

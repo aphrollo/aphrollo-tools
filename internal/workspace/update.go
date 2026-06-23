@@ -25,6 +25,14 @@ func Update(t *Target, dry bool, stdout, stderr io.Writer) error {
 		return fmt.Errorf("detached HEAD in %s — check out a branch before updating", t.Worktree)
 	}
 	wt := t.Worktree
+
+	// Refuse up-front on a dirty worktree: git's rebase aborts on uncommitted
+	// changes anyway, but with an opaque message and only after the fetch. Surface
+	// it cleanly here so the caller is never left in a half-updated state.
+	if !worktreeClean(wt) {
+		return fmt.Errorf("worktree has uncommitted changes — commit or stash before updating (git stash → update → git stash pop)")
+	}
+
 	def := resolveDefaultBranch(wt)
 
 	// Refresh origin so the behind-count and rebase base are the live tip. Fetch

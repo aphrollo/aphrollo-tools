@@ -851,12 +851,12 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// runWorkspaceCleanup is the hidden back-compat alias for prune: cleanup is
-// folded into the merged-worktree sweep. The legacy surface took
-// `cleanup [repo] <branch>`; the sweep auto-detects which worktrees are merged,
-// so the branch arg is accepted-but-ignored. A two-positional call keeps its
-// first arg as the repo; a single positional is the legacy bare <branch> and is
-// ignored (the sweep targets the cwd repo).
+// runWorkspaceCleanup is the deprecated back-compat alias for prune: it performs
+// the FULL merged-worktree sweep, never a single-named-branch removal. The sweep
+// auto-detects which worktrees are merged, so any branch arg is
+// accepted-but-ignored. A two-positional call keeps its first arg as the repo; a
+// single positional is the legacy bare <branch> and is ignored (the sweep targets
+// the cwd repo).
 func runWorkspaceCleanup(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("cleanup", flag.ContinueOnError)
 	fs.SetOutput(stderr)

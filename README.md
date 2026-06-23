@@ -435,8 +435,11 @@ aphrollo workspace prune                 # removes the merged-clean worktrees
 aphrollo workspace prune --force         # also remove a dirty MERGED worktree
 ```
 
-`cleanup` is a hidden back-compat alias for this sweep (a positional branch arg
-is accepted but ignored — the sweep auto-detects which worktrees are merged).
+`cleanup` is a **deprecated** back-compat alias for `prune`. It performs the
+**full merged-worktree sweep** — it does **not** remove a single named branch. Any
+positional branch arg is accepted but ignored (the sweep auto-detects which
+worktrees are merged). Use `prune` directly; `remove <repo> <branch>` is the verb
+for a single named worktree.
 
 ### Dev-tier control plane (`aphrollo dev`)
 
