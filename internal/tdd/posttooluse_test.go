@@ -13,6 +13,44 @@ func fakeRun(passed bool, output string) SuiteRunner {
 	return func(Runner, string) SuiteResult { return SuiteResult{Passed: passed, Output: output} }
 }
 
+// TestSuiteEnv_ScrubsGitVars guards the gate against corrupting the very repo
+// it is committing. RunSuite spawns `go test`, which under the pre-commit hook
+// would inherit GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE pointing at the OUTER
+// repo — the suite's git-e2e fixtures then commit against it and clobber HEAD.
+// The suite must run as if invoked from a plain shell: no GIT_* leaks, while
+// the quieting CI=1 / NO_COLOR=1 still get through.
+func TestSuiteEnv_ScrubsGitVars(t *testing.T) {
+	t.Setenv("GIT_DIR", "/outer/.git")
+	t.Setenv("GIT_INDEX_FILE", "/outer/.git/index")
+	t.Setenv("GIT_WORK_TREE", "/outer")
+	t.Setenv("KEEP_ME", "bar")
+
+	env := suiteEnv()
+
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "GIT_") {
+			t.Fatalf("suiteEnv leaked git var into the suite: %q", kv)
+		}
+	}
+	var keptUser, hasCI, hasNoColor bool
+	for _, kv := range env {
+		switch kv {
+		case "KEEP_ME=bar":
+			keptUser = true
+		case "CI=1":
+			hasCI = true
+		case "NO_COLOR=1":
+			hasNoColor = true
+		}
+	}
+	if !keptUser {
+		t.Error("suiteEnv dropped a non-git var (KEEP_ME)")
+	}
+	if !hasCI || !hasNoColor {
+		t.Errorf("suiteEnv must keep CI=1/NO_COLOR=1: CI=%v NO_COLOR=%v", hasCI, hasNoColor)
+	}
+}
+
 // postPayload builds a PostToolUse payload for a Go project at root.
 func postPayload(tool, file string) []byte {
 	in := map[string]any{

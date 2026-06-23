@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -157,10 +156,21 @@ func RunSuite(timeout time.Duration) SuiteRunner {
 		defer cancel()
 		cmd := exec.CommandContext(ctx, r.Cmd, r.Args...)
 		cmd.Dir = root
-		cmd.Env = append(os.Environ(), "CI=1", "NO_COLOR=1")
+		cmd.Env = suiteEnv()
 		out, err := cmd.CombinedOutput()
 		return SuiteResult{Passed: err == nil, Output: string(out)}
 	}
+}
+
+// suiteEnv is the environment for the suite subprocess: a quiet, deterministic
+// shell (CI=1, NO_COLOR=1) with every GIT_* variable scrubbed. The gate runs as
+// a git pre-commit hook, so os.Environ() carries GIT_DIR / GIT_INDEX_FILE /
+// GIT_WORK_TREE pointing at the repo being committed; leaking them into the
+// suite's `go test` makes its git-e2e fixtures commit against the WRONG repo and
+// clobber its HEAD. cleanGitEnv (in precommit.go, same package) drops them so the
+// suite runs as if invoked from a plain shell.
+func suiteEnv() []string {
+	return append(cleanGitEnv(), "CI=1", "NO_COLOR=1")
 }
 
 // postToolUseOutput mirrors the PostToolUse hook output contract.
