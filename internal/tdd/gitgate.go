@@ -8,12 +8,19 @@ import (
 	"strings"
 )
 
-// gitGateHooks are the two git hooks the gate manages, paired with the
-// `aphrollo tdd` subcommand each shim invokes.
+// gitGateHooks are the git hooks the gate manages, paired with the `aphrollo
+// tdd` subcommand each shim invokes. The gate is mechanical-only: pre-commit is
+// the sole managed hook. install also PRUNES any managed pre-push shim it finds
+// (see prunedHooks + uninstallGitGate), so a box only runs the hooks listed here.
 var gitGateHooks = []struct{ name, sub string }{
 	{"pre-commit", "precommit"},
-	{"pre-push", "prepush"},
 }
+
+// prunedHooks are hook names this tool prunes but never installs. A re-install
+// removes any of these whose on-disk shim is still ours (marker-based) so a
+// stranded managed shim stops firing; a foreign hook by that name is left
+// untouched. Add a name here to have install prune a managed hook.
+var prunedHooks = []string{"pre-push"}
 
 // binShim is a git-hook script that execs the aphrollo binary's tdd subcommand.
 // It carries installMarker so a re-install or uninstall recognises its own shim
@@ -54,6 +61,14 @@ func installGitGate(hooksDir, bin string) (bool, error) {
 		changed = true
 	}
 
+	// Prune any managed shim for a hook this tool does not install (e.g.
+	// pre-push), so a box only runs the managed hooks above.
+	pruned, err := prunePrunedHooks(hooksDir)
+	if err != nil {
+		return false, err
+	}
+	changed = changed || pruned
+
 	cur, _ := gitConfigGet("core.hooksPath")
 	if cur != hooksDir {
 		// Never clobber a foreign global core.hooksPath: the user has their own
@@ -69,6 +84,29 @@ func installGitGate(hooksDir, bin string) (bool, error) {
 				cur, hooksDir)
 		}
 		if err := gitConfigSet("core.hooksPath", hooksDir); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	return changed, nil
+}
+
+// prunePrunedHooks removes any shim in hooksDir for a hook in prunedHooks whose
+// on-disk content is one this tool wrote (carries installMarker). A foreign hook
+// by that name — or an absent one — is left untouched. It reports whether it
+// removed anything. Shared by install (so the next init cleans up a stranded
+// shim) and uninstall.
+func prunePrunedHooks(hooksDir string) (bool, error) {
+	changed := false
+	for _, name := range prunedHooks {
+		path := filepath.Join(hooksDir, name)
+		if foreignHookExists(path) {
+			continue // never remove a hand-written hook
+		}
+		if _, err := os.Stat(path); err != nil {
+			continue // absent: nothing to prune
+		}
+		if err := os.Remove(path); err != nil {
 			return false, err
 		}
 		changed = true
@@ -101,6 +139,12 @@ func uninstallGitGate(hooksDir string) (bool, error) {
 			changed = true
 		}
 	}
+	// Also remove any stranded managed shim for a pruned hook (e.g. pre-push).
+	pruned, err := prunePrunedHooks(hooksDir)
+	if err != nil {
+		return false, err
+	}
+	changed = changed || pruned
 	if cur, _ := gitConfigGet("core.hooksPath"); cur == hooksDir {
 		if err := gitConfigUnset("core.hooksPath"); err != nil {
 			return false, err

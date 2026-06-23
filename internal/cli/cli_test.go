@@ -87,6 +87,28 @@ func TestRun_TDDInit_GitGate(t *testing.T) {
 	}
 }
 
+// `tdd prepush` is a mechanical-only no-op: it exits 0 and never blocks, so a
+// pre-push shim lingering on a box installed before the LLM review was removed
+// can never wedge a push. It must NOT depend on being inside a git repo or on
+// any external reviewer — it returns immediately.
+func TestRun_TDDPrepush_IsNoOp(t *testing.T) {
+	// Run from a non-repo temp dir to prove prepush does no git/repo work.
+	dir := t.TempDir()
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	code := Run([]string{"tdd", "prepush"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("prepush exit = %d, want 0 (must never block)\nstderr: %s", code, errb.String())
+	}
+	if out.Len() != 0 {
+		t.Errorf("prepush should emit nothing on stdout, got:\n%s", out.String())
+	}
+}
+
 func TestRun_Sqlc_NoSub_ShowsUsage(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := Run([]string{"sqlc"}, strings.NewReader(""), &out, &errb); code != 2 {

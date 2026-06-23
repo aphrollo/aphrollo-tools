@@ -53,7 +53,7 @@ func TestInitGitGate_Installs(t *testing.T) {
 	if !changed {
 		t.Fatal("expected changed=true installing the git gate")
 	}
-	for name, sub := range map[string]string{"pre-commit": "precommit", "pre-push": "prepush"} {
+	for name, sub := range map[string]string{"pre-commit": "precommit"} {
 		data, err := os.ReadFile(filepath.Join(hooksDir, name))
 		if err != nil {
 			t.Fatalf("%s not written: %v", name, err)
@@ -65,8 +65,65 @@ func TestInitGitGate_Installs(t *testing.T) {
 			t.Errorf("%s is not executable", name)
 		}
 	}
+	// The gate is mechanical-only now: pre-push is no longer a managed hook, so
+	// install must NOT write a pre-push shim.
+	if _, err := os.Stat(filepath.Join(hooksDir, "pre-push")); !os.IsNotExist(err) {
+		t.Errorf("pre-push shim should not be installed (gate is mechanical-only), stat err=%v", err)
+	}
 	if got := globalHooksPath(t); got != hooksDir {
 		t.Errorf("core.hooksPath = %q, want %q", got, hooksDir)
+	}
+}
+
+// A box installed before the mechanical-only change has a MANAGED pre-push shim
+// in the hooks dir. The next install must prune that stranded managed shim so
+// the lingering pre-push hook stops firing — while never touching a foreign
+// (hand-written) pre-push hook.
+func TestInitGitGate_PrunesStrandedManagedPrePush(t *testing.T) {
+	isolateGitConfig(t)
+	hooksDir := filepath.Join(t.TempDir(), "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a previously-installed managed pre-push shim.
+	managed := "#!/bin/sh\n" + installMarker + "\nexec /usr/local/bin/aphrollo tdd prepush \"$@\"\n"
+	prePush := filepath.Join(hooksDir, "pre-push")
+	if err := os.WriteFile(prePush, []byte(managed), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := InitGitGate(hooksDir, "/usr/local/bin/aphrollo", false)
+	if err != nil {
+		t.Fatalf("InitGitGate: %v", err)
+	}
+	if !changed {
+		t.Error("expected changed=true (pruned the stranded pre-push shim)")
+	}
+	if _, err := os.Stat(prePush); !os.IsNotExist(err) {
+		t.Errorf("stranded managed pre-push shim was not pruned, stat err=%v", err)
+	}
+}
+
+// A FOREIGN (hand-written) pre-push hook must survive install: the prune only
+// removes shims this tool wrote, never a user's own hook.
+func TestInitGitGate_PreservesForeignPrePushOnPrune(t *testing.T) {
+	isolateGitConfig(t)
+	hooksDir := filepath.Join(t.TempDir(), "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	foreign := "#!/bin/sh\necho my own pre-push\n"
+	prePush := filepath.Join(hooksDir, "pre-push")
+	if err := os.WriteFile(prePush, []byte(foreign), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := InitGitGate(hooksDir, "/usr/local/bin/aphrollo", false); err != nil {
+		t.Fatalf("InitGitGate: %v", err)
+	}
+	data, _ := os.ReadFile(prePush)
+	if string(data) != foreign {
+		t.Errorf("foreign pre-push was clobbered:\n%s", data)
 	}
 }
 

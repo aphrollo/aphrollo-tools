@@ -224,7 +224,8 @@ Subcommands:
   userpromptsubmit  Handle the /tdd command and re-inject a RED reminder
   sessionend        Drop the session's state file
   precommit         Git pre-commit gate: fail-first + mechanical (run in the repo)
-  prepush           Git pre-push gate: adversarial review of the push diff
+  prepush           No-op (mechanical-only mode); kept for back-compat with a
+                    lingering pre-push shim. Never blocks.
   install           Install the git-hook shims into a repo (--repo, --apply)
   init              Set up TDD: session hooks in settings.json + the global git gate (--no-git, --uninstall)
 
@@ -235,8 +236,10 @@ silent. posttooluse runs the project's related tests after an edit and surfaces
 a failure summary (silent unless RED). userpromptsubmit intercepts
 /tdd [status|off|on|reset] and otherwise re-injects the last RED outcome.
 sessionend cleans up the per-session state file. precommit verifies fail-first,
-blocks a newly-added suppression, and runs the suite; prepush reviews the
-cumulative diff. Both exit non-zero to block. Source edits always flow.
+blocks a newly-added suppression, and runs the suite, exiting non-zero to block.
+prepush is a mechanical-only no-op (adversarial review lives in the separate
+reviewer agent now), kept only so a lingering pre-push shim exits cleanly.
+Source edits always flow.
 `
 
 // postEditTimeout bounds a PostToolUse suite run so a hung test can't wedge the
@@ -244,7 +247,6 @@ cumulative diff. Both exit non-zero to block. Source edits always flow.
 const (
 	postEditTimeout  = 60 * time.Second
 	precommitTimeout = 300 * time.Second
-	prepushTimeout   = 120 * time.Second
 )
 
 // runTDD dispatches the TDD hook subcommands. Like the guardrail hook, every
@@ -268,16 +270,19 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	// precommit/prepush are git hooks: no stdin, exit non-zero to block.
 	if args[0] == "precommit" || args[0] == "prepush" {
+		// prepush is a mechanical no-op: the tdd gate is mechanical-only, and
+		// adversarial review now lives in the separate reviewer agent, not this
+		// binary. It NEVER blocks. We keep the subcommand so a lingering pre-push
+		// shim on a box installed before the change still exits cleanly.
+		if args[0] == "prepush" {
+			fmt.Fprintln(stderr, "tdd prepush: mechanical-only mode, no review")
+			return 0
+		}
 		root := tdd.RepoRoot(".")
 		if root == "" {
 			return 0 // not in a git repo — nothing to gate
 		}
-		var res tdd.GateResult
-		if args[0] == "precommit" {
-			res = tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
-		} else {
-			res = tdd.Prepush(root, tdd.ClaudeReviewer(prepushTimeout))
-		}
+		res := tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
 		// Surface the note (e.g. a fail-open skip) even when allowing — the gate
 		// is never silent about why it did or didn't run.
 		if res.Message != "" {
