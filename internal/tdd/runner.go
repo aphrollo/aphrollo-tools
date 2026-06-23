@@ -107,16 +107,27 @@ func jsRunner(root string) Runner {
 
 // NarrowToRelatedTests scopes a broad runner to the edited file so PostToolUse
 // stays fast (the operator's pyramid: related tests after each edit, the full
-// suite at commit). It narrows ONLY for test-file edits, where the relevant
-// test is unambiguous; a source edit keeps the broad command, because guessing
-// its test file wrong would silently skip the very test that should fail.
+// suite at commit, the full suite again in CI).
+//
+// A TEST-file edit runs that test directly — the relevant test is unambiguous.
+// A SOURCE-file edit runs only the tests whose import graph reaches the edited
+// file, via each runner's related-tests mode (vitest `related`, jest
+// `--findRelatedTests`, go's package granularity). Where the runner has no
+// related-tests mode (cargo, pytest, a generic `npm test` script, or an unknown
+// command) the broad command is preserved, since the full suite still guards
+// the commit and CI. A source file with zero related tests runs nothing and
+// exits clean — the existing green/scaffolding outcome, not a failure.
 func NarrowToRelatedTests(r Runner, target, root string) Runner {
-	if ClassifyFile(target) != Test {
+	kind := ClassifyFile(target)
+	if kind != Test && kind != Source {
 		return r
 	}
 	rel, err := filepath.Rel(root, target)
 	if err != nil || strings.HasPrefix(rel, "..") {
 		return r
+	}
+	if kind == Source {
+		return narrowSourceEdit(r, rel)
 	}
 	switch r.Cmd {
 	case "go":
@@ -125,6 +136,25 @@ func NarrowToRelatedTests(r Runner, target, root string) Runner {
 		return Runner{Cmd: "pytest", Args: []string{"-q", rel}}
 	case "npx":
 		return Runner{Cmd: r.Cmd, Args: append(append([]string{}, r.Args...), rel)}
+	}
+	return r
+}
+
+// narrowSourceEdit builds the related-tests command for a source-file edit,
+// dispatching on the detected runner. The npx branch keys off the runner name
+// (first arg) because vitest and jest expose different related-tests flags.
+// Runners without a related mode return unchanged (full-suite fallback).
+func narrowSourceEdit(r Runner, rel string) Runner {
+	switch r.Cmd {
+	case "go":
+		return Runner{Cmd: "go", Args: []string{"test", "./" + filepath.Dir(rel)}}
+	case "npx":
+		switch {
+		case len(r.Args) > 0 && r.Args[0] == "vitest":
+			return Runner{Cmd: "npx", Args: []string{"vitest", "related", rel, "--run"}}
+		case len(r.Args) > 0 && r.Args[0] == "jest":
+			return Runner{Cmd: "npx", Args: []string{"jest", "--findRelatedTests", rel}}
+		}
 	}
 	return r
 }
