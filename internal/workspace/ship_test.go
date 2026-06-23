@@ -13,7 +13,7 @@ func TestShipPlan_RendersAllStages(t *testing.T) {
 		t.Fatalf("ShipPlan: %v", err)
 	}
 	dry := s.Render(false)
-	for _, want := range []string{"commit -> push -> pr", "land it", "push", "pr", "--apply"} {
+	for _, want := range []string{"commit -> push -> pr", "land it", "push", "pr", "--dry"} {
 		if !strings.Contains(dry, want) {
 			t.Errorf("ship dry-run missing %q:\n%s", want, dry)
 		}

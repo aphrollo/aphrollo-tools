@@ -86,6 +86,60 @@ var (
 	}
 )
 
+// CIStatus is the resolved CI state for a branch's PR: State is one of "green"
+// (all checks passed), "red" (at least one failed), "pending" (still running or
+// none reported yet), or "none" (no PR / no checks). Failing is the count of
+// failed checks, surfaced in the blocked receipt.
+type CIStatus struct {
+	State   string // green | red | pending | none
+	Failing int
+}
+
+// ghCIStatus is the seam over `gh pr checks` — a package var so submit/push tests
+// drive the CI gate without gh or the network. The real implementation reads the
+// branch PR's combined check state in the worktree's repo. It is the ONLY gh
+// check-state read, done inside submit so the caller needs no extra call.
+//
+// `gh pr checks` exits 0 when all checks pass, 8 when checks are pending, and
+// non-zero otherwise (failures). We parse its TSV rows for the per-check verdict
+// to distinguish red from pending and to count failures, falling back to the
+// exit code when the output is empty.
+var ghCIStatus = func(wt, branch string) (CIStatus, error) {
+	cmd := exec.Command("gh", "pr", "checks", branch, "--json", "state")
+	cmd.Dir = wt
+	out, err := cmd.Output()
+	if err == nil && len(strings.TrimSpace(string(out))) == 0 {
+		return CIStatus{State: "none"}, nil
+	}
+	// --json emits an array of {state}; classify it. A non-zero exit with no
+	// parseable JSON (e.g. no PR yet) is treated as "none", not an error, so the
+	// caller stays re-callable.
+	var rows []struct {
+		State string `json:"state"`
+	}
+	if jerr := json.Unmarshal(out, &rows); jerr != nil || len(rows) == 0 {
+		return CIStatus{State: "none"}, nil
+	}
+	failing, pending := 0, 0
+	for _, r := range rows {
+		switch strings.ToUpper(r.State) {
+		case "SUCCESS", "NEUTRAL", "SKIPPED":
+		case "FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE":
+			failing++
+		default: // PENDING, QUEUED, IN_PROGRESS, EXPECTED, ""
+			pending++
+		}
+	}
+	switch {
+	case failing > 0:
+		return CIStatus{State: "red", Failing: failing}, nil
+	case pending > 0:
+		return CIStatus{State: "pending"}, nil
+	default:
+		return CIStatus{State: "green"}, nil
+	}
+}
+
 // PRCreate is the resolved create request handed to the gh seam.
 type PRCreate struct {
 	Base   string
@@ -134,7 +188,7 @@ func (p *PR) Render(apply bool) string {
 		fmt.Fprintf(&b, "  draft\n")
 	}
 	fmt.Fprintf(&b, "  an existing open PR for %s is reused, not duplicated\n", p.Create.Branch)
-	fmt.Fprintf(&b, "\nrun again with --apply to open the PR (needs the branch pushed to origin).\n")
+	fmt.Fprintf(&b, "\nrun again without --dry to open the PR (needs the branch pushed to origin).\n")
 	return b.String()
 }
 
@@ -165,6 +219,32 @@ func (p *PR) Apply(stdout, stderr io.Writer) error {
 	}
 	reportPRState(stdout, info)
 	return nil
+}
+
+// ensureDraftPR guarantees a DRAFT PR exists for branch in the worktree's repo:
+// it reuses an existing open PR (verb "reused") or opens a fresh draft (verb
+// "opened"), returning the resolved PRInfo. It is the idempotent primitive push
+// folds in — a re-driven push reuses, never duplicates. The branch must already
+// be on origin (the caller pushes first). The base defaults to the repo's default
+// remote branch, read from origin/HEAD (never hardcoded "main").
+func ensureDraftPR(wt, branch string) (*PRInfo, string, error) {
+	if !remoteBranchExists(wt, branch) {
+		return nil, "", fmt.Errorf("branch %s is not on origin — run: aphrollo workspace push", branch)
+	}
+	// Reuse ONLY an OPEN PR (draft or ready). A merged/closed PR is dead —
+	// relinking it would let push point at a dead PR and submit fail flipping
+	// it. Fall through and open a fresh draft instead.
+	if existing, err := ghViewPR(wt, branch); err != nil {
+		return nil, "", err
+	} else if existing != nil && strings.ToUpper(existing.State) == "OPEN" {
+		return existing, "reused", nil
+	}
+	base := resolveDefaultBranch(wt)
+	info, err := ghCreatePR(wt, PRCreate{Base: base, Branch: branch, Draft: true})
+	if err != nil {
+		return nil, "", err
+	}
+	return info, "opened", nil
 }
 
 // reportPRState prints the two machine-readable lines a coder relays into

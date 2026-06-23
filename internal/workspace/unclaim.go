@@ -50,14 +50,14 @@ func (u *Unclaim) Render(apply bool) string {
 	if apply {
 		return b.String()
 	}
-	fmt.Fprintf(&b, "\nsteps (dry-run — pass --apply to execute the [run] steps):\n")
+	fmt.Fprintf(&b, "\nsteps (dry-run — run without --dry to execute the [run] steps):\n")
 	tag, note := "run", ""
 	if u.skip != "" {
 		tag, note = "skip", "  — "+u.skip
 	}
 	fmt.Fprintf(&b, "  1. [%s] repoint %s -> %s%s\n", tag, u.Symlink, u.MainRepo, note)
 	fmt.Fprintf(&b, "  2. [run]  restart dev-%s\n", u.Service)
-	fmt.Fprintf(&b, "\nrun again with --apply to restore the dev tier to the main clone.\n")
+	fmt.Fprintf(&b, "\nrun again without --dry to restore the dev tier to the main clone.\n")
 	return b.String()
 }
 

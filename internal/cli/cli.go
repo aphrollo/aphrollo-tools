@@ -347,8 +347,10 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return code
 }
 
-// runTDDInstall writes the git-hook shims into a single repo. Like the
-// workspace mutating commands, it defaults to a dry-run and requires --apply.
+// runTDDInstall writes the git-hook shims into a single repo. tdd/refactor
+// mutations kept the older dry-run-by-default + --apply model, so this defaults
+// to a dry-run and requires --apply; only the workspace verbs inverted to
+// execute-by-default with --dry.
 func runTDDInstall(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -587,50 +589,55 @@ func runShow(args []string, stdout, stderr io.Writer) int {
 
 const workspaceUsage = `usage: aphrollo workspace <subcommand> [args]
 
-Lifecycle (create → claim → work → ship → clean up):
-  prepare <repo> <branch>   Mark git-safe, create the worktree, install deps —
-                            dry-run by default; pass --apply to execute
-  claim <repo> <branch>     Put a prepared worktree on the dev tier so it is
-                            viewable (dry-run; --apply to run). Wraps the
-                            privileged aphrollo-dev claim fence. (api: runs
-                            goose up on the dev DB; --no-migrate to skip.)
-  unclaim [repo] [branch]   Repoint the dev tier back at the main clone + restart
-                            (dry-run; --apply). Inverse of claim.
-  list <repo>               List the repo's git worktrees
-  remove <repo> <branch>    Remove a prepared worktree (dry-run; --apply to run)
-  prune [repo]              Drop admin records of deleted worktrees (dry-run; --apply)
+Mutating verbs EXECUTE BY DEFAULT; pass --dry to print the plan and stop. Every
+verb is idempotent — re-running on a half-built state finishes the job without
+clobbering it, so a re-driven turn never double-pushes or double-opens a PR.
 
-Git verbs (act on the CURRENT worktree, or pass [repo] [branch] to target one):
-  commit -m <msg>           Stage (-A) + commit, honoring the TDD gate; reports
-                            sha + delta (dry-run; --apply; --no-verify; --staged-only)
-  push                      git push -u origin HEAD; reports ahead-count + URL
-                            (dry-run; --apply; --force-with-lease)
-  pr                        Open (or reuse) a GitHub PR for the branch — draft by
-                            default so an in-progress card shows it; --ready opens
-                            it ready (dry-run; --apply; --base, --title, --body)
-  ship -m <msg>             commit → push → pr in one shot; the PR opens as a draft
-                            (--ready to open it ready) (dry-run; --apply)
-  ready                     Flip the branch's draft PR to ready-for-review — the
-                            git side of moving a card in_progress → review
-                            (dry-run; --apply)
+Core coder flow (create · commit · push · submit), all from the worktree's cwd:
+  create <repo> <branch>    Mark git-safe, create the worktree, install deps.
+                            Run from the main clone (--dry to preview).
+  commit -m <msg>           Stage (-A) + commit the CURRENT worktree, honoring the
+                            TDD gate; reports sha + delta (--dry; --no-verify;
+                            --staged-only).
+  push                      git push -u origin HEAD AND ensure a DRAFT PR exists
+                            (open if absent, reuse if present); reports
+                            ahead-count, PR, CI (--dry; --force-with-lease).
+  submit -m <summary>       Push (idempotent), then — only if CI is green — flip
+                            the draft PR to in-review and set the PR body to the
+                            summary (the in_progress → review handoff). CI red or
+                            pending: not flipped, non-zero, re-callable (--dry).
+
+Worktree lifecycle:
+  claim <repo> <branch>     Put a prepared worktree on the dev tier so it is
+                            viewable. Wraps the privileged aphrollo-dev claim
+                            fence. (api: runs goose up on the dev DB;
+                            --no-migrate to skip.) (--dry).
+  unclaim [repo] [branch]   Repoint the dev tier back at the main clone + restart.
+                            Inverse of claim (--dry).
+  list <repo>               List the repo's git worktrees (read-only).
+  remove <repo> <branch>    Remove a prepared worktree (--dry).
+  prune [repo]              Drop admin records of deleted worktrees (--dry).
+
+Operator / outside-use verbs (pass [repo] [branch] to target a worktree):
   verify                    Run the affected app's {test, typecheck, lint} trio —
                             the typecheck/lint the commit gate does NOT cover
-                            (dry-run lists the commands; --apply runs them, stops
-                            at the first failure)
-  status                    One terse line: PR state (merged/open/draft), mergeability
-                            gate, and a pass/total check tally (read-only)
+                            (--dry lists the commands; default runs them, stops
+                            at the first failure).
+  status                    One terse line: PR state (merged/open/draft),
+                            mergeability gate, and a pass/total check tally
+                            (read-only).
   merge                     Merge the branch's PR via gh, honoring CI/mergeable
-                            (dry-run; --apply; --squash|--merge|--rebase, --keep-branch)
+                            (--dry; --squash|--merge|--rebase, --keep-branch).
   cleanup [repo] <branch>   git worktree remove + prune in one call, post-merge
-                            (dry-run; --apply; --force)
+                            (--dry; --force).
 
 The worktree lands at <repo-parent>/.worktrees/<repo-name>/<branch-slug> — the
-same layout aphrollo-dev uses, so a prepared worktree can later be claimed. The
-git verbs default to the worktree you are standing in; an explicit <repo>
-<branch> targets the prepared worktree from outside it.
+same layout aphrollo-dev uses, so a created worktree can later be claimed. The
+coder verbs (commit/push/submit) act on the worktree you stand in; verify/status/
+merge/cleanup also accept an explicit <repo> <branch> to target one from outside.
 
-A typical loop: prepare <repo> <branch> --apply → cd in → edit/test →
-ship -m "…" --apply → (review) → merge --apply → cleanup <branch> --apply.
+A typical loop: create <repo> <branch> → cd in → edit/test → commit -m "…" →
+push → submit -m "…" → (review) → merge → cleanup <branch>.
 `
 
 func runWorkspace(args []string, stdout, stderr io.Writer) int {
@@ -642,8 +649,8 @@ func runWorkspace(args []string, stdout, stderr io.Writer) int {
 	case "-h", "--help", "help":
 		fmt.Fprint(stdout, workspaceUsage)
 		return 0
-	case "prepare":
-		return runWorkspacePrepare(args[1:], stdout, stderr)
+	case "create", "prepare": // prepare: hidden alias for one release
+		return runWorkspaceCreate(args[1:], stdout, stderr)
 	case "claim":
 		return runWorkspaceClaim(args[1:], stdout, stderr)
 	case "unclaim":
@@ -662,8 +669,8 @@ func runWorkspace(args []string, stdout, stderr io.Writer) int {
 		return runWorkspacePR(args[1:], stdout, stderr)
 	case "ship":
 		return runWorkspaceShip(args[1:], stdout, stderr)
-	case "ready":
-		return runWorkspaceReady(args[1:], stdout, stderr)
+	case "submit", "ready": // ready: hidden alias for one release
+		return runWorkspaceSubmit(args[1:], stdout, stderr)
 	case "status":
 		return runWorkspaceStatus(args[1:], stdout, stderr)
 	case "verify":
@@ -702,7 +709,7 @@ func runWorkspaceStatus(args []string, stdout, stderr io.Writer) int {
 func runWorkspaceVerify(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	apply := fs.Bool("apply", false, "execute the verify commands (default: print the plan and stop)")
+	dry := fs.Bool("dry", false, "print the plan and stop (default: execute)")
 	into := fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
@@ -721,8 +728,9 @@ func runWorkspaceVerify(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
-	fmt.Fprint(stdout, v.Render(*apply))
-	if !*apply {
+	apply := !*dry
+	fmt.Fprint(stdout, v.Render(apply))
+	if !apply {
 		return 0
 	}
 	if err := v.Apply(stdout, stderr); err != nil {
@@ -736,7 +744,7 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("merge", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		apply  = fs.Bool("apply", false, "merge the PR (default: print the plan and stop)")
+		dry    = fs.Bool("dry", false, "print the plan and stop (default: execute)")
 		squash = fs.Bool("squash", false, "squash-merge (default)")
 		mergeC = fs.Bool("merge", false, "create a merge commit")
 		rebase = fs.Bool("rebase", false, "rebase-merge")
@@ -766,8 +774,9 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
-	fmt.Fprint(stdout, m.Render(*apply))
-	if !*apply {
+	apply := !*dry
+	fmt.Fprint(stdout, m.Render(apply))
+	if !apply {
 		return 0
 	}
 	if err := m.Apply(stdout, stderr); err != nil {
@@ -781,7 +790,7 @@ func runWorkspaceCleanup(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("cleanup", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		apply = fs.Bool("apply", false, "remove the worktree and prune (default: print the plan)")
+		dry   = fs.Bool("dry", false, "print the plan and stop (default: execute)")
 		force = fs.Bool("force", false, "remove even with untracked/modified files")
 		into  = fs.String("into", "", "base dir for worktrees (with positional <repo>)")
 	)
@@ -804,7 +813,7 @@ func runWorkspaceCleanup(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
-	if err := c.Run(*apply, stdout, stderr); err != nil {
+	if err := c.Run(!*dry, stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
@@ -821,6 +830,23 @@ func boolCount(bs ...bool) int {
 		}
 	}
 	return n
+}
+
+// resolveCwdTarget resolves the worktree a CWD-ONLY coder verb (commit, push,
+// submit) acts on: always the worktree the caller stands in. These verbs took no
+// positional targeting by design — they operate on the worktree you cd'd into —
+// so any positional arg is a usage error with a pointer at the cwd-only contract.
+func resolveCwdTarget(pos []string, stderr io.Writer) (*workspace.Target, bool) {
+	if len(pos) != 0 {
+		fmt.Fprintln(stderr, "aphrollo: this verb is cwd-only — cd into the worktree and pass no positional args")
+		return nil, false
+	}
+	t, err := workspace.ResolveTarget("", "", "")
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return nil, false
+	}
+	return t, true
 }
 
 // resolveVerbTarget resolves the worktree the git verbs act on from up to two
@@ -849,16 +875,15 @@ func runWorkspaceCommit(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	var (
 		msg        = fs.String("m", "", "commit message (required)")
-		apply      = fs.Bool("apply", false, "execute the commit (default: print the plan and stop)")
+		dry        = fs.Bool("dry", false, "print the plan and stop (default: execute)")
 		noVerify   = fs.Bool("no-verify", false, "skip the pre-commit gate (the documented false-positive escape)")
 		stagedOnly = fs.Bool("staged-only", false, "commit the index as-is instead of git add -A")
-		into       = fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
 	)
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
 		return 2
 	}
-	t, ok := resolveVerbTarget(pos, *into, stderr)
+	t, ok := resolveCwdTarget(pos, stderr)
 	if !ok {
 		return 2
 	}
@@ -867,8 +892,9 @@ func runWorkspaceCommit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
-	fmt.Fprint(stdout, c.Render(*apply))
-	if !*apply {
+	apply := !*dry
+	fmt.Fprint(stdout, c.Render(apply))
+	if !apply {
 		return 0
 	}
 	if err := c.Apply(stdout, stderr); err != nil {
@@ -882,15 +908,14 @@ func runWorkspacePush(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("push", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		apply = fs.Bool("apply", false, "execute the push (default: print the plan and stop)")
+		dry   = fs.Bool("dry", false, "print the plan and stop (default: execute)")
 		force = fs.Bool("force-with-lease", false, "pass --force-with-lease to git push")
-		into  = fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
 	)
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
 		return 2
 	}
-	t, ok := resolveVerbTarget(pos, *into, stderr)
+	t, ok := resolveCwdTarget(pos, stderr)
 	if !ok {
 		return 2
 	}
@@ -899,8 +924,9 @@ func runWorkspacePush(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
-	fmt.Fprint(stdout, p.Render(*apply))
-	if !*apply {
+	apply := !*dry
+	fmt.Fprint(stdout, p.Render(apply))
+	if !apply {
 		return 0
 	}
 	if err := p.Apply(stdout, stderr); err != nil {
@@ -914,7 +940,7 @@ func runWorkspacePR(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("pr", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		apply = fs.Bool("apply", false, "open the PR (default: print the plan and stop)")
+		dry   = fs.Bool("dry", false, "print the plan and stop (default: execute)")
 		base  = fs.String("base", "main", "base branch for the PR")
 		title = fs.String("title", "", "PR title (default: filled from the commits)")
 		body  = fs.String("body", "", "PR body")
@@ -934,8 +960,9 @@ func runWorkspacePR(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
-	fmt.Fprint(stdout, pr.Render(*apply))
-	if !*apply {
+	apply := !*dry
+	fmt.Fprint(stdout, pr.Render(apply))
+	if !apply {
 		return 0
 	}
 	if err := pr.Apply(stdout, stderr); err != nil {
@@ -950,7 +977,7 @@ func runWorkspaceShip(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	var (
 		msg        = fs.String("m", "", "commit message (required)")
-		apply      = fs.Bool("apply", false, "commit, push, and open the PR (default: print the plan and stop)")
+		dry        = fs.Bool("dry", false, "print the plan and stop (default: execute)")
 		noVerify   = fs.Bool("no-verify", false, "skip the pre-commit gate")
 		stagedOnly = fs.Bool("staged-only", false, "commit the index as-is instead of git add -A")
 		base       = fs.String("base", "main", "base branch for the PR")
@@ -980,8 +1007,9 @@ func runWorkspaceShip(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
-	fmt.Fprint(stdout, s.Render(*apply))
-	if !*apply {
+	apply := !*dry
+	fmt.Fprint(stdout, s.Render(apply))
+	if !apply {
 		return 0
 	}
 	if err := s.Apply(stdout, stderr); err != nil {
@@ -991,31 +1019,34 @@ func runWorkspaceShip(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runWorkspaceReady(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("ready", flag.ContinueOnError)
+func runWorkspaceSubmit(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("submit", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		apply = fs.Bool("apply", false, "flip the draft PR to ready (default: print the plan and stop)")
-		into  = fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
+		msg = fs.String("m", "", "PR summary to set as the body on the in-review handoff")
+		dry = fs.Bool("dry", false, "print the plan and stop (default: execute)")
 	)
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
 		return 2
 	}
-	t, ok := resolveVerbTarget(pos, *into, stderr)
+	t, ok := resolveCwdTarget(pos, stderr)
 	if !ok {
 		return 2
 	}
-	r, err := workspace.ReadyPlan(t)
+	s, err := workspace.SubmitPlan(t, *msg)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
-	fmt.Fprint(stdout, r.Render(*apply))
-	if !*apply {
+	apply := !*dry
+	fmt.Fprint(stdout, s.Render(apply))
+	if !apply {
 		return 0
 	}
-	if err := r.Apply(stdout, stderr); err != nil {
+	if err := s.Apply(stdout, stderr); err != nil {
+		// submit exits non-zero on a CI block/hold; the receipt is already on
+		// stdout, so surface only a terse stderr note (not the full error again).
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
@@ -1026,9 +1057,9 @@ func runWorkspaceUnclaim(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("unclaim", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		apply = fs.Bool("apply", false, "execute the unclaim (default: print it and stop)")
-		svc   = fs.String("svc", "", "dev service: rlndx|api (default: derived from repo name)")
-		into  = fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
+		dry  = fs.Bool("dry", false, "print the plan and stop (default: execute)")
+		svc  = fs.String("svc", "", "dev service: rlndx|api (default: derived from repo name)")
+		into = fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
 	)
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
@@ -1043,8 +1074,9 @@ func runWorkspaceUnclaim(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
-	fmt.Fprint(stdout, u.Render(*apply))
-	if !*apply {
+	apply := !*dry
+	fmt.Fprint(stdout, u.Render(apply))
+	if !apply {
 		return 0
 	}
 	if err := u.Apply(stdout, stderr); err != nil {
@@ -1057,7 +1089,7 @@ func runWorkspaceUnclaim(args []string, stdout, stderr io.Writer) int {
 func runWorkspacePrune(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("prune", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	apply := fs.Bool("apply", false, "execute the prune (default: show what would be pruned)")
+	dry := fs.Bool("dry", false, "print the plan and stop (default: execute)")
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
 		return 2
@@ -1076,7 +1108,7 @@ func runWorkspacePrune(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
-	if err := p.Run(*apply, stdout, stderr); err != nil {
+	if err := p.Run(!*dry, stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
@@ -1112,11 +1144,11 @@ func parseFlagsAnywhere(fs *flag.FlagSet, args []string) ([]string, error) {
 	return append(pos, tail...), nil
 }
 
-func runWorkspacePrepare(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("prepare", flag.ContinueOnError)
+func runWorkspaceCreate(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("create", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		apply     = fs.Bool("apply", false, "execute the plan (default: print it and stop)")
+		dry       = fs.Bool("dry", false, "print the plan and stop (default: execute)")
 		into      = fs.String("into", "", "base dir for worktrees (default: <repo-parent>/.worktrees/<repo-name>)")
 		noInstall = fs.Bool("no-install", false, "skip the dependency-install step")
 		noSafeDir = fs.Bool("no-safe-dir", false, "skip marking repo/worktree as git-safe")
@@ -1127,7 +1159,7 @@ func runWorkspacePrepare(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if len(pos) != 2 {
-		fmt.Fprintln(stderr, "aphrollo: usage: workspace prepare <repo> <branch>")
+		fmt.Fprintln(stderr, "aphrollo: usage: workspace create <repo> <branch>")
 		return 2
 	}
 
@@ -1144,8 +1176,9 @@ func runWorkspacePrepare(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	fmt.Fprint(stdout, workspace.Render(plan, *apply))
-	if !*apply {
+	apply := !*dry
+	fmt.Fprint(stdout, workspace.Render(plan, apply))
+	if !apply {
 		return 0
 	}
 	if err := workspace.Apply(plan, stdout, stderr); err != nil {
@@ -1254,7 +1287,7 @@ func runWorkspaceClaim(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("claim", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		apply     = fs.Bool("apply", false, "execute the claim (default: print it and stop)")
+		dry       = fs.Bool("dry", false, "print the plan and stop (default: execute)")
 		svc       = fs.String("svc", "", "dev service to claim: rlndx|api (default: derived from repo name)")
 		into      = fs.String("into", "", "base dir for worktrees (default: <repo-parent>/.worktrees/<repo-name>)")
 		noMigrate = fs.Bool("no-migrate", false, "skip the api dev-DB goose-up step")
@@ -1272,8 +1305,9 @@ func runWorkspaceClaim(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
-	fmt.Fprint(stdout, claim.Render(*apply))
-	if !*apply {
+	apply := !*dry
+	fmt.Fprint(stdout, claim.Render(apply))
+	if !apply {
 		return 0
 	}
 	if err := claim.Apply(stdout, stderr); err != nil {
@@ -1300,7 +1334,7 @@ func runWorkspaceList(args []string, stdout, stderr io.Writer) int {
 func runWorkspaceRemove(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("remove", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	apply := fs.Bool("apply", false, "execute the removal (default: print it and stop)")
+	dry := fs.Bool("dry", false, "print the plan and stop (default: execute)")
 	into := fs.String("into", "", "base dir for worktrees (default: <repo-parent>/.worktrees/<repo-name>)")
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
@@ -1315,8 +1349,8 @@ func runWorkspaceRemove(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
-	if !*apply {
-		fmt.Fprintf(stdout, "would run: %s\nrun again with --apply to execute.\n", cmd.Display)
+	if *dry {
+		fmt.Fprintf(stdout, "would run: %s\nrun again without --dry to execute.\n", cmd.Display)
 		return 0
 	}
 	if err := cmd.Run(stdout, stderr); err != nil {

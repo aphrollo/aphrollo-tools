@@ -120,7 +120,7 @@ func TestRender_DryRun(t *testing.T) {
 		"1. [skip]", "already a safe.directory",
 		"2. [run]", "worktree add",
 		"3. [run] pnpm install", "(cwd /r/.worktrees/feat-x)",
-		"--apply",
+		"--dry",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("Render output missing %q:\n%s", want, out)

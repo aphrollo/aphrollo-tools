@@ -9,8 +9,11 @@ Design contract for every tool here:
 
 - **Lossless** — never silently transform, truncate, or filter output.
 - **Deterministic** — same inputs, same bytes out (sorted, stable).
-- **Visible** — dry-run by default; show exactly what would change before it
-  changes; fail loud with a fix suggestion rather than guessing.
+- **Visible + idempotent** — every mutating verb is safe to re-run and prints a
+  stateful, parseable receipt of what it did; fail loud with a fix suggestion
+  rather than guessing. The `workspace` verbs **execute by default** (`--dry`
+  previews); `refactor`/`tdd` mutations are **dry-run by default** (`--apply`
+  executes). `dev` always acts now.
 
 ## Install
 
@@ -90,7 +93,28 @@ Prints just the named symbol's source span. Methods are reachable by their bare
 name (`DocumentSymbol`) or their receiver-qualified name
 (`(*Session).DocumentSymbol`); an exact match always wins over a bare-name match.
 
-### Prepare a worktree to work in (one shot)
+### The core coder flow: create · commit · push · submit
+
+The autonomous-coder loop is four verbs. Every one **executes by default** (pass
+`--dry` to preview), is **idempotent** (safe to re-run — a re-driven turn never
+double-pushes or double-opens a PR), and prints a **stateful, parseable receipt**
+of its full post-state so the calling LLM needs no follow-up git/gh call:
+
+```sh
+aphrollo workspace create <repo> <branch>   # from the main clone: worktree + deps
+cd <worktree>
+# … edit / test …
+aphrollo workspace commit -m "feat: …"      # stage -A + commit (TDD-gated)
+aphrollo workspace push                     # push + ensure a DRAFT PR exists
+aphrollo workspace submit -m "<summary>"    # CI-green → flip draft to in-review
+```
+
+`commit`, `push`, and `submit` are **cwd-only** — they act on the worktree you
+stand in and take no positional `<repo> <branch>` (that targeting lives on the
+operator verbs `merge`/`cleanup`/`status`). `create` keeps its required
+`<repo> <branch>` (it runs from the main clone).
+
+### Create a worktree to work in (one shot)
 
 Getting an isolated worktree to run tests or build a branch in otherwise costs
 the same mechanical sequence every time — mark the (often cross-owner) repo
@@ -98,28 +122,29 @@ git-safe, `git worktree add`, mark the worktree git-safe, install dependencies
 (git worktrees do **not** share the main tree's gitignored `node_modules`). The
 agent paid for that dance in tool calls and tokens on every branch.
 
-`aphrollo workspace prepare` folds it into one deterministic, dry-run-by-default
-command:
+`aphrollo workspace create` (the renamed `prepare`; `prepare` stays a hidden
+alias for one release) folds it into one deterministic command that **executes
+by default** — pass `--dry` to preview:
 
 ```sh
-# dry-run: print exactly what would happen, change nothing
-aphrollo workspace prepare ~/spaces/aphrollo/aphrollo-web feat/kanban
-# workspace prepare: aphrollo-web @ feat/kanban (new branch)
+# --dry: print exactly what would happen, change nothing
+aphrollo workspace create ~/spaces/aphrollo/aphrollo-web feat/kanban --dry
+# workspace create: aphrollo-web @ feat/kanban (new branch)
 #   worktree: ~/spaces/aphrollo/.worktrees/aphrollo-web/feat-kanban
 #
-# steps (dry-run — pass --apply to execute the [run] steps):
+# steps (dry-run — run without --dry to execute the [run] steps):
 #   1. [run] git config --global --add safe.directory .../aphrollo-web
 #   2. [run] git -C .../aphrollo-web worktree add -b feat/kanban .../feat-kanban
 #   3. [run] git config --global --add safe.directory .../feat-kanban
 #   4. [run] pnpm install   (cwd .../feat-kanban)
 
-# execute it
-aphrollo workspace prepare ~/spaces/aphrollo/aphrollo-web feat/kanban --apply
+# execute it (the default — no flag needed)
+aphrollo workspace create ~/spaces/aphrollo/aphrollo-web feat/kanban
 ```
 
 Every step is **idempotent** — an already-marked `safe.directory`, an existing
 worktree, or a present `node_modules` is reported `[skip]` rather than redone, so
-re-running `prepare` on a half-built workspace finishes the job without
+re-running `create` on a half-built workspace finishes the job without
 clobbering it. The dependency step is auto-detected from the worktree root:
 
 | Marker (priority order) | Install command | Skip when present |
@@ -131,21 +156,22 @@ clobbering it. The dependency step is auto-detected from the worktree root:
 | `go.mod` | `go mod download` | — |
 
 The worktree lands at `<repo-parent>/.worktrees/<repo-name>/<branch-slug>`, so a
-prepared worktree can later be `claim`ed onto the dev tier. Override the base dir
+created worktree can later be `claim`ed onto the dev tier. Override the base dir
 with `--into`, skip steps with
 `--no-install` / `--no-safe-dir`, or force a re-install with `--reinstall`.
 
 #### Addressing a repo by name
 
-Every `<repo>`-arg verb (`prepare`, `commit`, `push`, `pr`, `ship`, `merge`,
-`unclaim`, `list`, `remove`, `cleanup`, `prune`, `claim`) accepts a **bare repo
-name** — `aphrollo-web`, not just a path — and resolves it the same from
-**anywhere under the spaces tree**: from inside the clone, from one of its
-worktrees, or from a sibling clone under the same owner. A bare name is resolved
-in order: a path that is itself a git repo wins as-is; else the clone you are
-standing in (when its name matches); else a unique `~/spaces/*/<name>` git repo.
-A genuine absolute/relative path still resolves exactly as before — so
-`prepare aphrollo-web feat/x` run *from inside* `~/spaces/aphrollo/aphrollo-web`
+Every `<repo>`-arg verb (`create`, `merge`, `cleanup`, `unclaim`, `list`,
+`remove`, `prune`, `claim` — and `pr`/`ship`) accepts a **bare repo name** —
+`aphrollo-web`, not just a path — and resolves it the same from **anywhere under
+the spaces tree**: from inside the clone, from one of its worktrees, or from a
+sibling clone under the same owner. (The core coder verbs commit/push/submit are
+cwd-only and take no `<repo>` arg.) A bare name is resolved in order: a path that
+is itself a git repo wins as-is; else the clone you are standing in (when its
+name matches); else a unique `~/spaces/*/<name>` git repo. A genuine
+absolute/relative path still resolves exactly as before — so
+`create aphrollo-web feat/x` run *from inside* `~/spaces/aphrollo/aphrollo-web`
 no longer double-joins into `…/aphrollo-web/aphrollo-web`. Override the spaces
 root with `APHROLLO_SPACES_ROOT`.
 
@@ -160,14 +186,14 @@ Companion read/cleanup subcommands:
 ```sh
 aphrollo workspace list aphrollo-web                             # bare name, from anywhere under the spaces tree
 aphrollo workspace list ~/spaces/aphrollo/aphrollo-web           # or an explicit path
-aphrollo workspace remove ~/spaces/aphrollo/aphrollo-web feat/kanban --apply
+aphrollo workspace remove ~/spaces/aphrollo/aphrollo-web feat/kanban
 ```
 
 Exit codes: `0` ok, `1` runtime error, `2` usage error.
 
 ### Put a prepared worktree on the dev tier (claim)
 
-`prepare` gets you a ready worktree; `claim` makes it the one the **dev tier**
+`create` gets you a ready worktree; `claim` makes it the one the **dev tier**
 serves, so the branch is viewable at rlndx (or driven by dev-api):
 
 ```sh
@@ -177,12 +203,12 @@ aphrollo workspace claim ~/spaces/aphrollo/aphrollo-web feat/kanban
 #   1. [run] repoint …/.devclaim/web -> …/feat-kanban
 #   2. [run] restart dev-rlndx (aphrollo dev restart rlndx)
 
-aphrollo workspace claim ~/spaces/aphrollo/aphrollo-web feat/kanban --apply
+aphrollo workspace claim ~/spaces/aphrollo/aphrollo-web feat/kanban
 ```
 
 The orchestration runs **unprivileged, in this binary**: resolve the worktree
-from `<repo> <branch>` (symmetric with `prepare` — no `.worktrees/…` path to
-paste), `pnpm install` if the tree was never prepared, and repoint the
+from `<repo> <branch>` (symmetric with `create` — no `.worktrees/…` path to
+paste), `pnpm install` if the tree was never created, and repoint the
 `.devclaim/<repo>` symlink the dev units follow (the dir is `aphrollo-dev`
 group-writable, so a group member repoints it with no sudo). The **only**
 privileged atom is restarting the dev unit, delegated to the in-binary
@@ -193,12 +219,12 @@ tree).
 
 This subcommand deliberately does **not** carry a sudo grant of its own — the
 privilege stays the narrow exact-match systemctl grant in `dev`. The privileged
-restart only fires on `--apply`; a missing worktree points you at `prepare`
+restart only fires on execute (not `--dry`); a missing worktree points you at `create`
 rather than half-claiming, and a re-claim whose symlink already points at the
 tree is reported `[skip]`.
 
 The dev service is derived from the repo (`web → rlndx`, `api → api`); override
-with `--svc`. `--into` matches a non-default `prepare --into`. Env overrides
+with `--svc`. `--into` matches a non-default `create --into`. Env overrides
 (for tests): `APHROLLO_DEV_BIN` (restart fence path), `APHROLLO_DEVCLAIM_DIR`
 (symlink dir), `APHROLLO_DEV_SUDO=0` (drop the `sudo` prefix; root drops it
 automatically).
@@ -228,54 +254,69 @@ before/around the restart:
 `unclaim` is the inverse of `claim`: it repoints `.devclaim/<key>` back at the
 repo's **main clone** and restarts the dev unit, so the tier stops serving a
 worktree. Same privilege model as `claim` — the symlink repoint is unprivileged,
-the restart is the one fenced `dev.Restart` atom — and the same dry-run/`--apply`
+the restart is the one fenced `dev.Restart` atom — and the same execute-by-default/`--dry`
 contract.
 
 ```sh
 aphrollo workspace unclaim                       # cwd-aware (run from inside the worktree)
-aphrollo workspace unclaim ~/spaces/aphrollo/aphrollo-web feat/kanban --apply
+aphrollo workspace unclaim ~/spaces/aphrollo/aphrollo-web feat/kanban
 # unclaimed: dev-rlndx now serves ~/spaces/aphrollo/aphrollo-web
 ```
 
-### Git verbs — commit / push / pr / ship
+### Coder git verbs — commit / push / submit
 
-These fold the mechanical git/`gh` dance into one command that emits **precise,
-deterministic feedback** (sha + delta, ahead-count + URL, PR number), so a coder
-session lands a change without spending a tool call each on `git add`, `git
-commit`, `git push`, parsing the output, and `gh pr create`. They default to the
-worktree you are **standing in** (zero args); pass `<repo> <branch>` to drive a
-prepared worktree from outside it (symmetric with `prepare`/`claim`), where
-`<repo>` may be a [bare name](#addressing-a-repo-by-name) resolved from anywhere
-under the spaces tree. All are dry-run by default; `--apply` executes.
+These fold the mechanical git/`gh` dance into one command that emits a
+**stateful, parseable receipt** (sha + ahead + delta + gate; ahead + PR#/url +
+CI; the in-review handoff), so a coder lands a change without spending a tool
+call each on `git add`, `git commit`, `git push`, `gh pr create`, `gh pr checks`,
+and `gh pr ready` — and never needs a follow-up call to confirm what landed.
+They are **cwd-only** — they act on the worktree you stand in and take no
+positional args. They **execute by default**; pass `--dry` to preview.
 
 ```sh
 # commit: stage (-A) + commit, honoring the TDD pre-commit gate
-aphrollo workspace commit -m "feat: kanban drag-and-drop" --apply
-# committed a1b2c3d on feat/kanban: feat: kanban drag-and-drop
-#   3 files changed, 42 insertions(+), 7 deletions(-)
+aphrollo workspace commit -m "feat: kanban drag-and-drop"
+# committed a1b2c3d "feat: kanban drag-and-drop"
+#   branch feat/kanban (3 ahead of origin/main)
+#   delta 3 files changed, 42 insertions(+), 7 deletions(-)
+#   gate TDD pass
 
-aphrollo workspace push --apply          # git push -u origin HEAD
+# push: git push -u origin HEAD AND ensure a draft PR exists (open or reuse)
+aphrollo workspace push
 # pushed feat/kanban -> origin (2 commit(s))
 #   https://github.com/aphrollo/aphrollo-web/tree/feat/kanban
+# pr #321 draft [opened] https://github.com/aphrollo/aphrollo-web/pull/321
+# ci pending
 
-aphrollo workspace pr --apply            # open (or reuse) the GitHub PR
-# opened PR #321: https://github.com/aphrollo/aphrollo-web/pull/321  (main <- feat/kanban)
-
-aphrollo workspace ship -m "feat: kanban" --apply   # commit -> push -> pr in one shot
+# submit: push (idempotent) → CI green → flip draft to in-review + set body
+aphrollo workspace submit -m "Kanban drag-and-drop. Closes #200."
+# submitted PR #321  draft -> in review
+#   pushed in sync
+#   ci green
+#   handoff in_progress -> review
 ```
 
 - **commit** stages `git add -A` by default (`--staged-only` to commit the index
   as-is) and runs the [TDD pre-commit gate](#tdd-gates-aphrollo-tdd); `--no-verify`
   is the documented escape for the gate's known false-positives. A clean tree is a
   reported no-op, not an error.
-- **push** sets the upstream on a first push and reports the ahead-count and the
-  branch's github URL; `--force-with-lease` for a rebased branch.
-- **pr** is idempotent — an existing open PR for the branch is reported, never
-  duplicated. `--base` (default `main`), `--title`/`--body` (default: filled from
-  the commits by `gh`), `--draft`. Needs the branch pushed first (it points you at
-  `push` if not).
-- **ship** chains the three behind one command, stopping at the first failure so a
-  partial result (e.g. committed but not pushed) is resumable by the discrete verbs.
+- **push** sets the upstream on a first push, reports the ahead-count + branch
+  URL, and **folds the draft-PR open**: it ensures a draft PR exists — opening
+  one when absent, **reusing** it when present (idempotent, never a duplicate) —
+  and reports the PR number/url + the current CI state. `--force-with-lease` for a
+  rebased branch.
+- **submit** is the **CI-guarded handoff** that moves a card `in_progress →
+  review`. It pushes (idempotent), reads the branch PR's CI **inside the verb**
+  (the only `gh` check-state read, so the caller needs no extra call), and **only
+  on green** flips the draft PR to in-review and sets the PR body to `-m`'s
+  summary. On **red** it prints `blocked: CI red (<k> failing), NOT marked ready`
+  and exits non-zero; on **pending** it prints `held: CI pending, NOT marked
+  ready yet` and exits non-zero — both **re-callable** until CI goes green.
+  (`submit` is the renamed, CI-guarded `ready`; `ready` stays a hidden alias.)
+
+> `pr` and `ship` still exist as operator escapes (they take an explicit
+> `<repo> <branch>` and also default to the cwd worktree), but the coder flow is
+> `push` (which folds `pr`) then `submit` — not the discrete `pr`/`ship`.
 
 ### Verify — the typecheck/lint the commit gate misses
 
@@ -296,13 +337,13 @@ aphrollo workspace verify
 #     2. typecheck npx svelte-check --tsconfig ./tsconfig.json
 #     3. lint      npx eslint --no-error-on-unmatched-pattern src
 #
-# run again with --apply to execute (stops at the first failure).
+# run again without --dry to execute (stops at the first failure).
 
-aphrollo workspace verify --apply        # runs test -> typecheck -> lint in order
+aphrollo workspace verify        # runs test -> typecheck -> lint in order
 ```
 
 - **dry-run by default** lists the exact ordered commands it would run, per app,
-  and exits 0 without running them; `--apply` executes them in order, **stops at
+  and exits 0 without running them; running without `--dry` executes them in order, **stops at
   the first failure**, and surfaces that tool's own output.
 - **App resolution** is table-driven (start: rlndx). The affected app is scoped
   from the branch's changed paths; when nothing changed resolves one, it falls
@@ -319,12 +360,12 @@ worktree, so a coder owns the change end-to-end without dropping to raw `gh` and
 `git worktree`:
 
 ```sh
-aphrollo workspace merge --apply         # gh pr merge --squash --delete-branch
+aphrollo workspace merge         # gh pr merge --squash --delete-branch
 # merged PR #321 (squash): https://github.com/aphrollo/aphrollo-web/pull/321
 #   deleted branch feat/kanban
-#   next: aphrollo workspace cleanup feat/kanban --apply
+#   next: aphrollo workspace cleanup feat/kanban
 
-aphrollo workspace cleanup feat/kanban --apply   # git worktree remove + prune
+aphrollo workspace cleanup feat/kanban   # git worktree remove + prune
 # removed worktree …/.worktrees/aphrollo-web/feat-kanban
 ```
 
@@ -347,11 +388,11 @@ aphrollo workspace cleanup feat/kanban --apply   # git worktree remove + prune
 
 `prune` drops the admin records of worktrees whose directories are gone
 (`git worktree prune`). git's own `--dry-run` does the preview, so it maps onto
-the dry-run/`--apply` contract — and reports each stale entry by path:
+the execute-by-default/`--dry` contract — and reports each stale entry by path:
 
 ```sh
 aphrollo workspace prune                 # dry-run: "would prune N stale worktree(s)"
-aphrollo workspace prune --apply         # "pruned N stale worktree(s)"
+aphrollo workspace prune         # "pruned N stale worktree(s)"
 ```
 
 ### Dev-tier control plane (`aphrollo dev`)
@@ -390,7 +431,7 @@ so sudo can never be steered onto a unit outside the dev tier. Env overrides
 `APHROLLO_DEV_SUDO=0`.
 
 > The bash wrapper's `worktree add/list/remove` is subsumed by
-> `aphrollo workspace prepare/list/remove`; `claim` by `aphrollo workspace claim`.
+> `aphrollo workspace create/list/remove`; `claim` by `aphrollo workspace claim`.
 
 ### Guardrail — PreToolUse policy hook (coder/devops sessions)
 
@@ -564,7 +605,7 @@ internal/lsp/        LSP types + JSON-RPC stdio client (framing, Conn, edits)
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy (block long waits, warn on noisy output)
 internal/tdd/        TDD gates: policy engine, edit smells, anti-cheat, RED/GREEN, fail-first, review, install
-internal/workspace/  worktree lifecycle (prepare/claim/unclaim/list/remove/prune/cleanup) + git verbs (commit/push/pr/ship/merge)
+internal/workspace/  worktree lifecycle (create/claim/unclaim/list/remove/prune/cleanup) + git verbs (commit/push/submit/pr/ship/merge)
 internal/dev/        dev-tier control plane: up/down/restart/status/logs (systemd)
 internal/sqlc/       sqlc drift guard: config discovery, regen-into-temp, check, scoped-by-symbol regen
 ```

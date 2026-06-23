@@ -18,7 +18,7 @@ func Render(p *Plan, apply bool) string {
 	if !p.BranchExists {
 		state = "new branch"
 	}
-	fmt.Fprintf(&b, "workspace prepare: %s @ %s (%s)\n", p.RepoName, p.Branch, state)
+	fmt.Fprintf(&b, "workspace create: %s @ %s (%s)\n", p.RepoName, p.Branch, state)
 	fmt.Fprintf(&b, "  worktree: %s\n", p.Worktree)
 	if apply {
 		// Terse header only — Apply streams each step as it runs, so listing
@@ -26,7 +26,7 @@ func Render(p *Plan, apply bool) string {
 		fmt.Fprintf(&b, "\n")
 		return b.String()
 	}
-	fmt.Fprintf(&b, "\nsteps (dry-run — pass --apply to execute the [run] steps):\n")
+	fmt.Fprintf(&b, "\nsteps (dry-run — run without --dry to execute the [run] steps):\n")
 	for i, s := range p.Steps {
 		tag := "run"
 		note := ""
@@ -47,7 +47,7 @@ func Render(p *Plan, apply bool) string {
 				fmt.Fprintf(&b, "\nbase: %s — the new branch starts here, after the fetch.\n", p.StartPoint)
 			}
 		}
-		fmt.Fprintf(&b, "\nrun again with --apply to execute.\n")
+		fmt.Fprintf(&b, "\nrun again without --dry to execute.\n")
 	}
 	return b.String()
 }

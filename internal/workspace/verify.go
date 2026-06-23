@@ -262,7 +262,7 @@ func (v *Verify) Render(apply bool) string {
 			fmt.Fprintf(&b, "    %d. %-9s %s\n", i+1, s.name, shellJoin(s.cmd))
 		}
 	}
-	fmt.Fprintf(&b, "\nrun again with --apply to execute (stops at the first failure).\n")
+	fmt.Fprintf(&b, "\nrun again without --dry to execute (stops at the first failure).\n")
 	return b.String()
 }
 

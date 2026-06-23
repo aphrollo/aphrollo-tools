@@ -28,7 +28,7 @@ func TestUnclaimPlan_ResolvesAndRenders(t *testing.T) {
 		t.Errorf("MainRepo = %q, want %q", u.MainRepo, repo)
 	}
 	dry := u.Render(false)
-	for _, want := range []string{"dev-rlndx", "repoint", repo, "restart dev-rlndx", "--apply"} {
+	for _, want := range []string{"dev-rlndx", "repoint", repo, "restart dev-rlndx", "--dry"} {
 		if !strings.Contains(dry, want) {
 			t.Errorf("dry-run render missing %q:\n%s", want, dry)
 		}

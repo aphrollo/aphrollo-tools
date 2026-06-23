@@ -14,21 +14,36 @@ Module `github.com/aphrollo/aphrollo-tools`, go 1.26.4. Single binary —
 
 - **Lossless** — never silently transform, truncate, or filter output.
 - **Deterministic** — same inputs, same bytes out (sorted, stable).
-- **Visible** — mutating verbs are **dry-run by default**; `--apply` executes.
-  Each step is **idempotent** — already-done work reports `[skip]`, never redone,
-  so re-running on a half-built state finishes the job without clobbering it.
-  Fail loud with a fix suggestion rather than guessing.
+- **Visible + idempotent** — every mutating verb is **safe to re-run**: already-
+  done work reports `[skip]` / reuses (a re-driven turn never double-pushes or
+  double-opens a PR), so re-running on a half-built state finishes the job
+  without clobbering it. Each verb prints a **stateful, parseable receipt** of
+  its full post-state (sha, ahead-count, PR #/url, CI) so the calling LLM never
+  needs a follow-up git/gh call to confirm what landed. Fail loud with a fix
+  suggestion rather than guessing.
 
-The ONE exception: `aphrollo dev` is a service control plane, so it **executes
-immediately** like `systemctl` (no dry-run). Keep that split — `workspace`
-mutates source and defers; `dev` controls running units and acts now.
+**Execute-by-default with `--dry` by exception.** The `workspace` mutating verbs
+(create, commit, push, submit, ship, pr, merge, cleanup, claim, unclaim, remove,
+prune) **EXECUTE BY DEFAULT**; pass **`--dry`** to print the plan and stop. This
+is deliberate — the autonomous-coder flow wants apply-on-default, and
+idempotency is the safety net that makes it safe. (`refactor`/`tdd` mutations
+keep the older dry-run-by-default + `--apply` model; only `workspace` inverted.)
+`aphrollo dev` is a service control plane, so it also executes immediately like
+`systemctl` (it never had a dry-run). Read-only verbs (status/list/outline/show/
+find-references) are unchanged.
 
 ## Command surface (see README for usage)
 
 - `refactor rename-symbol` / `find-references`, `outline <file>`, `show <file> <symbol>`
   — LSP-backed (one client, one registry entry per language; columns are UTF-16).
-- `workspace` — worktree lifecycle (`prepare`/`claim`/`unclaim`/`list`/`remove`/
-  `prune`/`cleanup`) + git verbs (`commit`/`push`/`pr`/`ship`/`merge`) + `verify`
+- `workspace` — the 4 core coder verbs (`create`·`commit`·`push`·`submit`) +
+  worktree lifecycle (`claim`/`unclaim`/`list`/`remove`/`prune`/`cleanup`) + the
+  operator/outside verbs (`merge`/`status`/`verify`) + the still-present
+  `pr`/`ship`. `create` is the renamed `prepare` (kept as a hidden alias);
+  `submit` is the renamed, CI-guarded `ready` (also a hidden alias). `push` folds
+  the draft-PR open; `submit` push→CI-gate→flip-to-review. The coder verbs
+  (commit/push/submit) are **cwd-only** (operate on the worktree you stand in);
+  merge/cleanup/status also take an explicit `<repo> <branch>`. Plus `verify`
   (run the affected app's `{test, typecheck, lint}` trio — the typecheck/lint the
   commit gate does not cover). Every `<repo>` arg accepts a **bare name**
   (`aphrollo-web`) resolved from anywhere under the spaces tree (`resolveMainRepo`
@@ -88,8 +103,10 @@ retired the root build task). aphrollo-infra no longer force-installs it.
 
 ## Don't
 
-- Don't break the dry-run-by-default contract on `workspace`/`refactor`/`tdd`
-  mutations (`dev` is the deliberate exception).
+- Don't break the verb contracts: `workspace` mutations **execute by default**
+  (`--dry` to preview), while `refactor`/`tdd` mutations stay **dry-run by
+  default** (`--apply` to execute). `dev` always acts now. Each kept its model on
+  purpose — don't homogenize them.
 - Don't re-port what was deliberately dropped: **mutation testing** (the
   documented FP/non-determinism offender), the SessionStart full-suite baseline,
   or `/tdd allow-main` — the fail-first + review gates cover the ground without

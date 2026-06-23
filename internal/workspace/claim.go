@@ -198,7 +198,7 @@ func (c *Claim) Render(apply bool) string {
 		fmt.Fprintf(&b, "\n")
 		return b.String()
 	}
-	fmt.Fprintf(&b, "\nsteps (dry-run — pass --apply to execute the [run] steps):\n")
+	fmt.Fprintf(&b, "\nsteps (dry-run — run without --dry to execute the [run] steps):\n")
 	for i, s := range c.steps {
 		tag, note := "run", ""
 		if s.skip != "" {
@@ -206,7 +206,7 @@ func (c *Claim) Render(apply bool) string {
 		}
 		fmt.Fprintf(&b, "  %d. [%s] %s%s\n", i+1, tag, s.label, note)
 	}
-	fmt.Fprintf(&b, "\nrun again with --apply to execute (repoints the dev symlink + restarts dev-%s).\n", c.Service)
+	fmt.Fprintf(&b, "\nrun again without --dry to execute (repoints the dev symlink + restarts dev-%s).\n", c.Service)
 	return b.String()
 }
 

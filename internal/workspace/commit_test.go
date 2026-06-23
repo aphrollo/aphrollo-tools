@@ -51,6 +51,42 @@ func TestCommit_StageAllAndApply(t *testing.T) {
 	}
 }
 
+// The commit receipt is stateful: quoted subject, the branch + ahead-count
+// relative to the default branch, the file/line delta, and the gate verdict, so
+// the caller needs no follow-up git show/status.
+func TestCommit_StatefulReceipt(t *testing.T) {
+	repo := repoWithRemote(t) // main on origin so ahead-count resolves
+	run := func(args ...string) {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	run("checkout", "-q", "-b", "feat/z")
+	writeFile(t, repo, "new.txt", "hello\n")
+
+	c, err := CommitPlan(targetFor(repo, "feat/z"), "feat: add new", true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if err := c.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
+	}
+	s := out.String()
+	if !strings.Contains(s, `committed `) || !strings.Contains(s, `"feat: add new"`) {
+		t.Errorf("receipt missing quoted-subject committed line:\n%s", s)
+	}
+	if !strings.Contains(s, "branch feat/z") || !strings.Contains(s, "ahead of origin/main") {
+		t.Errorf("receipt missing branch + ahead line:\n%s", s)
+	}
+	if !strings.Contains(s, "delta") {
+		t.Errorf("receipt missing delta line:\n%s", s)
+	}
+	if !strings.Contains(s, "gate") {
+		t.Errorf("receipt missing gate line:\n%s", s)
+	}
+}
+
 func TestCommit_CleanTreeIsNoOp(t *testing.T) {
 	repo := initRepo(t)
 	c, err := CommitPlan(targetFor(repo, "main"), "nothing", true, false)

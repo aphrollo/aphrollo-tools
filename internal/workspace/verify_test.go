@@ -146,7 +146,7 @@ func TestRenderDryRunListsCommands(t *testing.T) {
 		"1. test", "npx vitest run",
 		"2. typecheck", "svelte-check",
 		"3. lint", "eslint",
-		"--apply",
+		"--dry",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("dry-run missing %q in:\n%s", want, out)
