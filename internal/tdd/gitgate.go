@@ -10,17 +10,16 @@ import (
 
 // gitGateHooks are the git hooks the gate manages, paired with the `aphrollo
 // tdd` subcommand each shim invokes. The gate is mechanical-only: pre-commit is
-// the sole managed hook. Pre-push USED to be managed (an LLM review); it was
-// removed, so install also PRUNES any stranded managed pre-push shim a box still
-// carries from before the change (see prunedHooks + uninstallGitGate).
+// the sole managed hook. install also PRUNES any managed pre-push shim it finds
+// (see prunedHooks + uninstallGitGate), so a box only runs the hooks listed here.
 var gitGateHooks = []struct{ name, sub string }{
 	{"pre-commit", "precommit"},
 }
 
-// prunedHooks are hook names this tool once managed but no longer installs. A
-// re-install removes any of these whose on-disk shim is still ours (marker-based)
-// so a lingering managed shim stops firing; a foreign hook by that name is left
-// untouched. Add a name here when retiring a managed hook.
+// prunedHooks are hook names this tool prunes but never installs. A re-install
+// removes any of these whose on-disk shim is still ours (marker-based) so a
+// stranded managed shim stops firing; a foreign hook by that name is left
+// untouched. Add a name here to have install prune a managed hook.
 var prunedHooks = []string{"pre-push"}
 
 // binShim is a git-hook script that execs the aphrollo binary's tdd subcommand.
@@ -62,8 +61,8 @@ func installGitGate(hooksDir, bin string) (bool, error) {
 		changed = true
 	}
 
-	// Prune any managed shim for a hook we no longer manage (e.g. the retired
-	// pre-push review), so a box installed before the change stops firing it.
+	// Prune any managed shim for a hook this tool does not install (e.g.
+	// pre-push), so a box only runs the managed hooks above.
 	pruned, err := prunePrunedHooks(hooksDir)
 	if err != nil {
 		return false, err
@@ -140,7 +139,7 @@ func uninstallGitGate(hooksDir string) (bool, error) {
 			changed = true
 		}
 	}
-	// Also remove any stranded managed shim for a retired hook (e.g. pre-push).
+	// Also remove any stranded managed shim for a pruned hook (e.g. pre-push).
 	pruned, err := prunePrunedHooks(hooksDir)
 	if err != nil {
 		return false, err

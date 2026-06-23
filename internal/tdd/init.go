@@ -29,17 +29,16 @@ var managedEvents = []managedEvent{
 	{"SessionEnd", "", "sessionend", 10},
 }
 
-// legacyCmdMarkers identify a hook command from the retired claude-code-tdd
-// Node plugin, so init migrates it out regardless of the path it was installed
-// at. A foreign command (e.g. caveman) matches none of these.
+// legacyCmdMarkers identify a claude-code-tdd Node-plugin hook command so init
+// removes it regardless of the path it is installed at. A foreign command
+// (e.g. caveman) matches none of these.
 var legacyCmdMarkers = []string{"/hooks/tdd-", "claude-code-tdd"}
 
 // isManagedCmd reports whether a hook command is one this tool owns. It matches
 // on the `tdd <subcommand>` invocation rather than the binary name, so a patch
 // recognises (and replaces) its own entries no matter what path the aphrollo
 // binary lives at — os.Executable in tests, /usr/local/bin/aphrollo in prod, or
-// a renamed install. Legacy Node-plugin entries are matched too, so init
-// cleanly migrates them.
+// a renamed install. Node-plugin entries match too, so init removes them.
 func isManagedCmd(cmd string) bool {
 	for _, me := range managedEvents {
 		if strings.Contains(cmd, "tdd "+me.sub) {
@@ -55,7 +54,7 @@ func isManagedCmd(cmd string) bool {
 }
 
 // PatchSettings injects the aphrollo tdd session hooks into a settings.json
-// document, replacing any prior tdd-managed entries (including the retired Node
+// document, replacing any prior tdd-managed entries (including Node-plugin
 // hooks) and preserving every foreign hook and top-level key. It returns the
 // new document, whether anything changed, and an error only on malformed input.
 // The output is deterministic, so a second patch over it is a no-op.

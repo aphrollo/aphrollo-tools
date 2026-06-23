@@ -116,7 +116,7 @@ func TestSmell_TestSleep(t *testing.T) {
 		// Go channel-based real-time waits — just as real-time as Sleep.
 		"<-time.After(5 * time.Second)",
 		"case <-time.After(time.Second):", // the idiomatic select-timeout fixture
-		"time.NewTimer(2 * time.Second)",   // constructor alone is the marker (no `<-` needed)
+		"time.NewTimer(2 * time.Second)",  // constructor alone is the marker (no `<-` needed)
 		"<-time.Tick(time.Second)",
 		"time.Tick(50 * time.Millisecond)",
 		// JS/TS promisified sleep — the setTimeout inside the Promise wrapper trips it.
@@ -130,15 +130,15 @@ func TestSmell_TestSleep(t *testing.T) {
 	}
 
 	allowed := []string{
-		"// time.Sleep(2) is flaky",  // comment
-		`log("time.sleep(5)")`,       // string
-		"sleepCount += 1",            // identifier containing 'sleep'
-		"clock.Advance(time.Second)", // fake clock, not a real sleep
-		"// <-time.After(5) is a wait",       // channel wait only in a comment
-		`s := "case <-time.After(d):"`,       // channel wait only in a string
-		"time.AfterFunc(d, cb)",              // schedules a callback, does not block the goroutine
-		"time.NewTicker(time.Second)",        // ticker construction, not the Tick() wait func
-		"await new Promise(r => r(data))",    // a real promise, no setTimeout — not a sleep
+		"// time.Sleep(2) is flaky",       // comment
+		`log("time.sleep(5)")`,            // string
+		"sleepCount += 1",                 // identifier containing 'sleep'
+		"clock.Advance(time.Second)",      // fake clock, not a real sleep
+		"// <-time.After(5) is a wait",    // channel wait only in a comment
+		`s := "case <-time.After(d):"`,    // channel wait only in a string
+		"time.AfterFunc(d, cb)",           // schedules a callback, does not block the goroutine
+		"time.NewTicker(time.Second)",     // ticker construction, not the Tick() wait func
+		"await new Promise(r => r(data))", // a real promise, no setTimeout — not a sleep
 	}
 	for _, src := range allowed {
 		if blocks(src) {

@@ -10,14 +10,12 @@ import (
 	"strings"
 )
 
-// This file ports the session-lifecycle hooks the edit/commit gates depend on
-// but the first migration left behind: the `/tdd` control command
-// (UserPromptSubmit) and session-state cleanup (SessionEnd). The original also
-// ran a full-suite BASELINE at SessionStart so the first edit had a delta to
-// diff against; that is deliberately NOT ported — a full suite on every session
-// start costs far more than the one first-edit false "RED" it avoids, and the
-// migration's whole bias is to drop accreted cost. The first edit simply
-// establishes its own baseline, as PostToolUse already does for every edit after.
+// This file holds the session-lifecycle hooks the edit/commit gates depend on:
+// the `/tdd` control command (UserPromptSubmit) and session-state cleanup
+// (SessionEnd). There is deliberately no full-suite SessionStart baseline — a
+// full suite on every session start costs far more than the one first-edit
+// false "RED" it would avoid. The first edit establishes its own baseline, as
+// PostToolUse does for every edit after.
 
 var errNoSession = errors.New("no session id")
 
