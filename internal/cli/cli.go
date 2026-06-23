@@ -647,11 +647,12 @@ Operator / outside-use verbs (pass [repo] [branch] to target a worktree):
 
 The worktree lands at <repo-parent>/.worktrees/<repo-name>/<branch-slug> — the
 same layout aphrollo-dev uses, so a created worktree can later be claimed. The
-coder verbs (commit/push/submit) act on the worktree you stand in; verify/status/
-merge/cleanup also accept an explicit <repo> <branch> to target one from outside.
+coder verbs (commit/push/submit) and update act on the worktree you stand in;
+verify/status/diff/merge also accept an explicit <repo> <branch> to target one
+from outside.
 
 A typical loop: create <repo> <branch> → cd in → edit/test → commit -m "…" →
-push → submit -m "…" → (review) → merge → cleanup <branch>.
+push → submit -m "…" → (review) → merge → prune.
 `
 
 func runWorkspace(args []string, stdout, stderr io.Writer) int {
