@@ -399,7 +399,7 @@ func runTDDInit(args []string, stdout, stderr io.Writer) int {
 		configDir   = fs.String("config-dir", "", "Claude config dir (default: $CLAUDE_CONFIG_DIR or ~/.claude)")
 		binPath     = fs.String("bin", "", "aphrollo binary the hooks invoke (default: this executable)")
 		gitHooksDir = fs.String("git-hooks-dir", "", "git hooks dir for the global gate (default: $XDG_CONFIG_HOME/git/hooks or ~/.config/git/hooks)")
-		noGit       = fs.Bool("no-git", false, "skip the git pre-commit/pre-push gate; wire session hooks only")
+		noGit       = fs.Bool("no-git", false, "skip the git pre-commit gate; wire session hooks only")
 		uninstall   = fs.Bool("uninstall", false, "remove the hooks instead of installing them")
 	)
 	if err := fs.Parse(args); err != nil {

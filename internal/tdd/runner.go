@@ -68,6 +68,21 @@ func DetectRunner(root string) (Runner, bool) {
 	return Runner{}, false
 }
 
+// jsTestRunners is the precedence-ordered table mapping a package.json test
+// dependency to its direct runner. The first match wins, so vitest is preferred
+// over jest. vitest matches whether it sits in dev or prod dependencies; jest
+// matches only as a dev dependency. A package with no match falls back to the
+// generic `npm test` script.
+var jsTestRunners = []struct {
+	dep      string
+	prodDeps bool // also match the dependency in prod `dependencies`
+	cmd      string
+	args     []string
+}{
+	{dep: "vitest", prodDeps: true, cmd: "npx", args: []string{"vitest", "run"}},
+	{dep: "jest", prodDeps: false, cmd: "npx", args: []string{"jest"}},
+}
+
 // jsRunner reads package.json to distinguish vitest/jest from a generic npm
 // test script, so the run is direct and fast where possible.
 func jsRunner(root string) Runner {
@@ -78,14 +93,12 @@ func jsRunner(root string) Runner {
 			DevDependencies map[string]string `json:"devDependencies"`
 		}
 		if json.Unmarshal(data, &pkg) == nil {
-			if _, ok := pkg.DevDependencies["vitest"]; ok {
-				return Runner{Cmd: "npx", Args: []string{"vitest", "run"}}
-			}
-			if _, ok := pkg.Dependencies["vitest"]; ok {
-				return Runner{Cmd: "npx", Args: []string{"vitest", "run"}}
-			}
-			if _, ok := pkg.DevDependencies["jest"]; ok {
-				return Runner{Cmd: "npx", Args: []string{"jest"}}
+			for _, jr := range jsTestRunners {
+				_, dev := pkg.DevDependencies[jr.dep]
+				_, prod := pkg.Dependencies[jr.dep]
+				if dev || (jr.prodDeps && prod) {
+					return Runner{Cmd: jr.cmd, Args: jr.args}
+				}
 			}
 		}
 	}

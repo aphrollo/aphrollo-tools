@@ -143,16 +143,17 @@ const (
 	commitPhase
 )
 
+// categoryActions is the (category, phase) → Action matrix, built once. Smells
+// always block; suppressions warn at edit and block at commit. actionFor is a
+// lookup into it, so the reaction table is data, not control flow.
+var categoryActions = map[category]map[phase]Action{
+	smellCat:       {editPhase: Block, commitPhase: Block},
+	suppressionCat: {editPhase: Warn, commitPhase: Block},
+}
+
 // actionFor maps a tripped policy's category to the action a given phase takes.
-// Smells always block; suppressions warn at edit and block at commit.
 func actionFor(c category, p phase) Action {
-	if c == smellCat {
-		return Block
-	}
-	if p == commitPhase {
-		return Block
-	}
-	return Warn
+	return categoryActions[c][p]
 }
 
 // evaluate runs policies against content for a phase and returns the most severe
