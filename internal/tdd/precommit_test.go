@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -195,5 +196,56 @@ func TestPrecommit_Mechanical_BlocksFailingSuite(t *testing.T) {
 	res := Precommit(root, RunSuite(precommitTestTimeout))
 	if !res.Blocked || !strings.Contains(res.Message, "mechanical") {
 		t.Fatalf("expected mechanical block, got %+v", res)
+	}
+}
+
+// recordRunner is a SuiteRunner that records every Runner it executes and always
+// reports passing — so a test can assert the EXACT mechanical argv without a real
+// suite run. The fail-first worktree run (if any) is recorded too, but the
+// mechanical stage runs against repoRoot, so the test keys off root.
+func recordRunner(seen *[]Runner, root string) SuiteRunner {
+	return func(r Runner, dir string) SuiteResult {
+		if dir == root {
+			*seen = append(*seen, r)
+		}
+		return SuiteResult{Passed: true}
+	}
+}
+
+func TestPrecommit_Mechanical_ScopedToStagedGoPackages(t *testing.T) {
+	root := makeGoRepo(t)
+	// Stage a source file in a sub-package; the mechanical run must scope to that
+	// package, not `./...`.
+	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	res := Precommit(root, recordRunner(&seen, root))
+	if res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	if len(seen) != 1 {
+		t.Fatalf("expected one mechanical run at root, got %d: %+v", len(seen), seen)
+	}
+	want := Runner{"go", []string{"test", "./internal/x"}}
+	if !reflect.DeepEqual(seen[0], want) {
+		t.Fatalf("mechanical runner = %+v, want %+v", seen[0], want)
+	}
+}
+
+func TestPrecommit_ChangesGate_SkipsDocsOnlyCommit(t *testing.T) {
+	root := makeGoRepo(t)
+	// Only a doc file is staged — no source, no test. The mechanical stage must
+	// be skipped entirely (no suite run).
+	write(t, root, "NOTES.md", "# notes\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	res := Precommit(root, recordRunner(&seen, root))
+	if res.Blocked {
+		t.Fatalf("docs-only commit must not block: %s", res.Message)
+	}
+	if len(seen) != 0 {
+		t.Fatalf("docs-only commit must not run the suite, ran %+v", seen)
 	}
 }
