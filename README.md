@@ -109,9 +109,9 @@ aphrollo workspace push                     # push + ensure a DRAFT PR exists
 aphrollo workspace submit -m "<summary>"    # CI-green → flip draft to in-review
 ```
 
-`commit`, `push`, and `submit` are **cwd-only** — they act on the worktree you
-stand in and take no positional `<repo> <branch>` (that targeting lives on the
-operator verbs `merge`/`cleanup`/`status`). `create` keeps its required
+`commit`, `push`, `submit`, and `update` are **cwd-only** — they act on the
+worktree you stand in and take no positional `<repo> <branch>` (that targeting
+lives on the operator verbs `merge`/`status`/`diff`). `create` keeps its required
 `<repo> <branch>` (it runs from the main clone).
 
 ### Create a worktree to work in (one shot)
@@ -162,7 +162,7 @@ with `--into`, skip steps with
 
 #### Addressing a repo by name
 
-Every `<repo>`-arg verb (`create`, `merge`, `cleanup`, `unclaim`, `list`,
+Every `<repo>`-arg verb (`create`, `merge`, `diff`, `unclaim`, `list`,
 `remove`, `prune`, `claim` — and `pr`/`ship`) accepts a **bare repo name** —
 `aphrollo-web`, not just a path — and resolves it the same from **anywhere under
 the spaces tree**: from inside the clone, from one of its worktrees, or from a
@@ -353,47 +353,90 @@ aphrollo workspace verify        # runs test -> typecheck -> lint in order
   (so the two never drift); only the per-app typecheck and lint commands are
   table data. rlndx resolves to `vitest run` + `svelte-check` + `eslint`.
 
-### Close the loop — merge / cleanup
+### Review the branch's diff (diff)
 
-After review, `merge` lands the branch's PR and `cleanup` tears down the local
-worktree, so a coder owns the change end-to-end without dropping to raw `gh` and
+`diff` prints the branch's PR diff — `git diff origin/<default>...HEAD`, the
+three-dot form so it shows the branch's own changes against the merge-base, not
+unrelated commits the default branch gained since. The default branch is read
+from `origin/HEAD`, never hardcoded `main`. Read-only and lossless (git's bytes
+verbatim); `--stat` for the diffstat summary instead of the full patch:
+
+```sh
+aphrollo workspace diff                  # full patch vs origin/<default>
+aphrollo workspace diff --stat           # diffstat only
+aphrollo workspace diff aphrollo-web feat/kanban   # target a worktree from outside
+```
+
+### Catch a branch up to the default branch (update)
+
+`update` rebases the cwd worktree onto the fresh tip of `origin/<default>` and,
+on a clean rebase, force-pushes (with lease) so the open PR shows the rebased
+branch:
+
+```sh
+aphrollo workspace update                # fetch → rebase → push --force-with-lease
+# rebased feat/kanban onto origin/main
+# pushed feat/kanban -> origin --force-with-lease (3 commit(s) ahead of origin/main)
+
+aphrollo workspace update --dry          # "behind origin/main by N; would rebase"
+```
+
+- It runs `git fetch origin`, then rebases HEAD onto `origin/<default>` (resolved,
+  not hardcoded). A branch already on top of the default branch is a **no-op**
+  ("already current with origin/<default>").
+- On a **clean** rebase it `git push --force-with-lease` only when the branch is
+  already on origin (an open PR's head); a branch never pushed is reported, not
+  pushed.
+- On a **conflict** it does **not** abort and does **not** push: the rebase is
+  left **in progress**, the conflicted files are printed with
+  `resolve, then: git rebase --continue` (or `git rebase --abort` to back out),
+  and the verb exits non-zero. cwd-only.
+
+### Close the loop — merge / prune
+
+After review, `merge` lands the branch's PR and `prune` sweeps the merged
+worktrees, so a coder owns the change end-to-end without dropping to raw `gh` and
 `git worktree`:
 
 ```sh
 aphrollo workspace merge         # gh pr merge --squash --delete-branch
 # merged PR #321 (squash): https://github.com/aphrollo/aphrollo-web/pull/321
 #   deleted branch feat/kanban
-#   next: aphrollo workspace cleanup feat/kanban
-
-aphrollo workspace cleanup feat/kanban   # git worktree remove + prune
-# removed worktree …/.worktrees/aphrollo-web/feat-kanban
+#   next: aphrollo workspace prune
 ```
 
 - **merge** resolves the branch's open PR (reusing the `pr` gh seam) and merges it,
   **honoring GitHub's gates** — gh refuses a non-mergeable or red-CI PR, and `merge`
   never passes `--admin`, so it cannot force past a failing check. `--squash`
   (default) / `--merge` / `--rebase`; `--keep-branch` to skip the branch delete.
-  It deliberately does **not** touch the local worktree — that is `cleanup`'s job.
-- **cleanup** folds `git worktree remove` + `prune` into one post-merge call. It
-  takes `[repo] <branch>` (repo defaults to the cwd's main clone) and **refuses to
-  remove the worktree you are standing in** — it points you at the main clone
-  rather than yanking your own cwd out from under you. `--force` removes a tree
-  with local changes.
+  It deliberately does **not** touch the local worktree — that is `prune`'s job.
 
 > Merge stays a deliberate step: in the hub-and-spoke flow it is gated on the
 > operator's "ship" + green CI, so a coder runs `merge` on instruction, not
 > reflexively. The verb just makes the mechanical step one lossless call.
 
-### Clean up stale worktrees (prune)
+### Sweep the merged worktrees (prune)
 
-`prune` drops the admin records of worktrees whose directories are gone
-(`git worktree prune`). git's own `--dry-run` does the preview, so it maps onto
-the execute-by-default/`--dry` contract — and reports each stale entry by path:
+`prune [repo]` sweeps the repo's worktrees and removes the ones whose work is
+done. A worktree is removed **only when ALL hold**: its PR is **MERGED**, the
+tree is **CLEAN** (no uncommitted changes), and it is **not the worktree you are
+standing in**. Anything else is **skipped with a reason** (open PR / no PR /
+dirty / current), so the sweep never yanks live work. PR state is read with
+`gh pr view <branch> --json state`. The stale admin-record prune
+(`git worktree prune`) is folded in:
 
 ```sh
-aphrollo workspace prune                 # dry-run: "would prune N stale worktree(s)"
-aphrollo workspace prune         # "pruned N stale worktree(s)"
+aphrollo workspace prune --dry           # lists "would prune" + "skip: … (reason)"
+aphrollo workspace prune                 # removes the merged-clean worktrees
+# pruned: …/.worktrees/aphrollo-web/feat-kanban (PR merged)
+# skip: …/.worktrees/aphrollo-web/feat-wip (open PR)
+# pruned 1 worktree(s)
+
+aphrollo workspace prune --force         # also remove a dirty MERGED worktree
 ```
+
+`cleanup` is a hidden back-compat alias for this sweep (a positional branch arg
+is accepted but ignored — the sweep auto-detects which worktrees are merged).
 
 ### Dev-tier control plane (`aphrollo dev`)
 
@@ -608,7 +651,7 @@ internal/lsp/        LSP types + JSON-RPC stdio client (framing, Conn, edits)
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy (block long waits, warn on noisy output)
 internal/tdd/        TDD gates (mechanical-only): policy engine, edit smells, anti-cheat, RED/GREEN, fail-first, install
-internal/workspace/  worktree lifecycle (create/claim/unclaim/list/remove/prune/cleanup) + git verbs (commit/push/submit/pr/ship/merge)
+internal/workspace/  worktree lifecycle (create/claim/unclaim/list/remove/prune) + git verbs (commit/push/submit/update/diff/pr/ship/merge)
 internal/dev/        dev-tier control plane: up/down/restart/status/logs (systemd)
 internal/sqlc/       sqlc drift guard: config discovery, regen-into-temp, check, scoped-by-symbol regen
 ```

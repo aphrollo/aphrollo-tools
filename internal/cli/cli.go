@@ -621,9 +621,20 @@ Worktree lifecycle:
                             Inverse of claim (--dry).
   list <repo>               List the repo's git worktrees (read-only).
   remove <repo> <branch>    Remove a prepared worktree (--dry).
-  prune [repo]              Drop admin records of deleted worktrees (--dry).
+  prune [repo]              Sweep the repo's worktrees and remove the merged ones:
+                            a worktree goes only if its PR is MERGED, the tree is
+                            CLEAN, and it is not the cwd. Others are skipped with a
+                            reason (open PR / no PR / dirty / current). Folds in the
+                            stale admin-record prune (--dry lists; --force removes a
+                            dirty merged tree too).
 
 Operator / outside-use verbs (pass [repo] [branch] to target a worktree):
+  update                    Rebase the cwd worktree onto origin/<default> and, on a
+                            clean rebase, force-push (with lease) to refresh the PR.
+                            Conflict: left in progress, non-zero, with resolve hints.
+                            cwd-only (--dry reports the behind-count).
+  diff                      Print the branch's PR diff vs origin/<default>
+                            (read-only; --stat for the diffstat).
   verify                    Run the affected app's {test, typecheck, lint} trio —
                             the typecheck/lint the commit gate does NOT cover
                             (--dry lists the commands; default runs them, stops
@@ -633,8 +644,6 @@ Operator / outside-use verbs (pass [repo] [branch] to target a worktree):
                             (read-only).
   merge                     Merge the branch's PR via gh, honoring CI/mergeable
                             (--dry; --squash|--merge|--rebase, --keep-branch).
-  cleanup [repo] <branch>   git worktree remove + prune in one call, post-merge
-                            (--dry; --force).
 
 The worktree lands at <repo-parent>/.worktrees/<repo-name>/<branch-slug> — the
 same layout aphrollo-dev uses, so a created worktree can later be claimed. The
@@ -678,6 +687,10 @@ func runWorkspace(args []string, stdout, stderr io.Writer) int {
 		return runWorkspaceSubmit(args[1:], stdout, stderr)
 	case "status":
 		return runWorkspaceStatus(args[1:], stdout, stderr)
+	case "diff":
+		return runWorkspaceDiff(args[1:], stdout, stderr)
+	case "update":
+		return runWorkspaceUpdate(args[1:], stdout, stderr)
 	case "verify":
 		return runWorkspaceVerify(args[1:], stdout, stderr)
 	case "merge":
@@ -708,6 +721,52 @@ func runWorkspaceStatus(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprint(stdout, line)
+	return 0
+}
+
+// runWorkspaceDiff prints the target branch's PR diff against the default remote
+// branch. Read-only — no --dry. Targets the cwd worktree, or an explicit
+// <repo> <branch>.
+func runWorkspaceDiff(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("diff", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	stat := fs.Bool("stat", false, "print the diffstat summary instead of the full patch")
+	into := fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
+	pos, err := parseFlagsAnywhere(fs, args)
+	if err != nil {
+		return 2
+	}
+	t, ok := resolveVerbTarget(pos, *into, stderr)
+	if !ok {
+		return 2
+	}
+	if err := workspace.Diff(t, *stat, stdout, stderr); err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// runWorkspaceUpdate rebases the cwd worktree onto origin/<default> and, on a
+// clean rebase, force-pushes to refresh the PR. cwd-only. --dry reports the
+// behind-count without mutating; a conflict exits non-zero with the rebase left
+// in progress.
+func runWorkspaceUpdate(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("update", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dry := fs.Bool("dry", false, "report the behind-count and stop (default: rebase + push)")
+	pos, err := parseFlagsAnywhere(fs, args)
+	if err != nil {
+		return 2
+	}
+	t, ok := resolveCwdTarget(pos, stderr)
+	if !ok {
+		return 2
+	}
+	if err := workspace.Update(t, *dry, stdout, stderr); err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
 	return 0
 }
 
@@ -791,38 +850,29 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// runWorkspaceCleanup is the hidden back-compat alias for prune: cleanup is
+// folded into the merged-worktree sweep. The legacy surface took
+// `cleanup [repo] <branch>`; the sweep auto-detects which worktrees are merged,
+// so the branch arg is accepted-but-ignored. A two-positional call keeps its
+// first arg as the repo; a single positional is the legacy bare <branch> and is
+// ignored (the sweep targets the cwd repo).
 func runWorkspaceCleanup(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("cleanup", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
 		dry   = fs.Bool("dry", false, "print the plan and stop (default: execute)")
-		force = fs.Bool("force", false, "remove even with untracked/modified files")
-		into  = fs.String("into", "", "base dir for worktrees (with positional <repo>)")
+		force = fs.Bool("force", false, "remove even a dirty merged worktree")
+		_     = fs.String("into", "", "(ignored — kept for back-compat)")
 	)
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
 		return 2
 	}
-	var repo, branch string
-	switch len(pos) {
-	case 1:
-		branch = pos[0] // repo derived from the cwd's main clone
-	case 2:
-		repo, branch = pos[0], pos[1]
-	default:
-		fmt.Fprintln(stderr, "aphrollo: usage: workspace cleanup [repo] <branch>")
-		return 2
+	repo := ""
+	if len(pos) == 2 {
+		repo = pos[0] // legacy [repo] <branch> — branch ignored under the sweep
 	}
-	c, err := workspace.CleanupPlan(repo, branch, *into, *force)
-	if err != nil {
-		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-		return 1
-	}
-	if err := c.Run(!*dry, stdout, stderr); err != nil {
-		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-		return 1
-	}
-	return 0
+	return pruneSweep(repo, !*dry, *force, stdout, stderr)
 }
 
 // boolCount counts how many of the given flags are set — used to reject
@@ -1095,6 +1145,7 @@ func runWorkspacePrune(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("prune", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dry := fs.Bool("dry", false, "print the plan and stop (default: execute)")
+	force := fs.Bool("force", false, "remove even a dirty merged worktree")
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
 		return 2
@@ -1108,12 +1159,19 @@ func runWorkspacePrune(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "aphrollo: usage: workspace prune [repo]")
 		return 2
 	}
+	return pruneSweep(repo, !*dry, *force, stdout, stderr)
+}
+
+// pruneSweep resolves the repo and runs the merged-worktree sweep, shared by the
+// `prune` verb and its `cleanup` back-compat alias.
+func pruneSweep(repo string, apply, force bool, stdout, stderr io.Writer) int {
 	p, err := workspace.PrunePlan(repo)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
-	if err := p.Run(!*dry, stdout, stderr); err != nil {
+	p.Force = force
+	if err := p.Run(apply, stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}

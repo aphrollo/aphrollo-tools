@@ -3,16 +3,20 @@ package workspace
 import (
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 )
 
-// Prune clears the admin records of worktrees whose directories are gone —
-// `git worktree prune`. git's own --dry-run does the previewing, so Prune maps
-// cleanly onto the package's dry-run/--apply contract: the dry-run shows what
-// would be removed, --apply removes it and reports the count.
+// Prune sweeps a repo's worktrees and removes the ones whose work is finished —
+// a worktree is removed ONLY when ALL hold: its PR is MERGED, the tree is CLEAN
+// (no uncommitted changes), and it is not the worktree the caller is standing
+// in. Anything else is SKIPPED with a reason (open PR / no PR / dirty / current)
+// so the sweep never yanks live work. After removing the merged trees it folds
+// in `git worktree prune` to drop any stale admin records left behind.
 type Prune struct {
-	Repo string // repo toplevel to prune
+	Repo  string // repo toplevel whose worktrees are swept
+	Force bool   // remove a MERGED worktree even when it has uncommitted changes
 }
 
 // PrunePlan resolves the repo (cwd when repoArg is "") without executing.
@@ -28,49 +32,162 @@ func PrunePlan(repoArg string) (*Prune, error) {
 	return &Prune{Repo: top}, nil
 }
 
-// Run executes the prune. apply=false runs `git worktree prune --dry-run -v`
-// (read-only); apply=true runs the real prune. Either way it reports the stale
-// entries by path, or that there were none.
-func (p *Prune) Run(apply bool, stdout, stderr io.Writer) error {
-	args := []string{"-C", p.Repo, "worktree", "prune", "-v"}
-	if !apply {
-		args = append(args, "--dry-run")
-	}
-	out, err := exec.Command("git", args...).CombinedOutput()
+// ghPRState is the seam over `gh pr view <branch> --json state` — a package var
+// so the sweep tests run without gh or the network. It returns the PR's state
+// ("MERGED"/"OPEN"/"CLOSED") or "" when the branch has no PR (absence, not an
+// error). The real implementation shells gh in the worktree, where gh resolves
+// the repo from origin.
+var ghPRState = func(wt, branch string) (string, error) {
+	cmd := exec.Command("gh", "pr", "view", "--json", "state", "-q", ".state", "--", branch)
+	cmd.Dir = wt
+	out, err := cmd.Output()
 	if err != nil {
-		fmt.Fprint(stderr, string(out))
-		return fmt.Errorf("git worktree prune: %w", err)
+		return "", nil // no PR for the branch
 	}
-	paths := prunedPaths(string(out))
+	return strings.TrimSpace(string(out)), nil
+}
+
+// worktreeEntry is one linked worktree the sweep considers: its path and the
+// branch checked out there.
+type worktreeEntry struct {
+	Path   string
+	Branch string
+}
+
+// pruneDecision is the resolved verdict for one worktree: remove it, or skip it
+// with a reason.
+type pruneDecision struct {
+	wt     worktreeEntry
+	remove bool
+	reason string // "PR merged" when removing; the skip reason otherwise
+}
+
+// Run sweeps the repo's worktrees and removes the merged-and-clean ones.
+// apply=false lists what WOULD be pruned and skipped without mutating; apply=true
+// removes them and folds in a `git worktree prune` of stale admin records. Either
+// way it prints a parseable per-worktree receipt plus a tally.
+func (p *Prune) Run(apply bool, stdout, stderr io.Writer) error {
+	entries, err := linkedWorktrees(p.Repo)
+	if err != nil {
+		return err
+	}
+	cwd, _ := os.Getwd()
+
+	pruned := 0
+	for _, e := range entries {
+		d := p.decide(e, cwd)
+		if !d.remove {
+			fmt.Fprintf(stdout, "skip: %s (%s)\n", e.Path, d.reason)
+			continue
+		}
+		if !apply {
+			fmt.Fprintf(stdout, "would prune: %s (%s)\n", e.Path, d.reason)
+			pruned++
+			continue
+		}
+		if err := removeWorktree(p.Repo, e.Path, p.Force); err != nil {
+			fmt.Fprintf(stderr, "could not remove %s: %v\n", e.Path, err)
+			continue
+		}
+		fmt.Fprintf(stdout, "pruned: %s (%s)\n", e.Path, d.reason)
+		pruned++
+	}
+
 	verb := "would prune"
 	if apply {
 		verb = "pruned"
+		// Fold in the admin-record prune so any stale entries (worktrees whose
+		// dirs are already gone) are swept in the same call.
+		_ = exec.Command("git", "-C", p.Repo, "worktree", "prune").Run()
 	}
-	if len(paths) == 0 {
-		fmt.Fprintf(stdout, "no stale worktrees to prune\n")
-		return nil
-	}
-	fmt.Fprintf(stdout, "%s %d stale worktree(s):\n", verb, len(paths))
-	for _, pth := range paths {
-		fmt.Fprintf(stdout, "  %s\n", pth)
-	}
+	fmt.Fprintf(stdout, "%s %d worktree(s)\n", verb, pruned)
 	return nil
 }
 
-// prunedPaths pulls the worktree paths out of `git worktree prune -v` output.
-// git prints lines like: "Removing worktrees/<name>: gitdir file points to
-// non-existent location" — the path is between "Removing " and the colon.
-func prunedPaths(out string) []string {
-	var paths []string
-	for _, line := range strings.Split(out, "\n") {
-		rest, ok := strings.CutPrefix(line, "Removing ")
-		if !ok {
-			continue
-		}
-		if i := strings.Index(rest, ":"); i >= 0 {
-			rest = rest[:i]
-		}
-		paths = append(paths, strings.TrimSpace(rest))
+// decide resolves the verdict for one worktree: remove it only when its PR is
+// MERGED, the tree is clean (or --force), and it is not the cwd worktree.
+func (p *Prune) decide(e worktreeEntry, cwd string) pruneDecision {
+	if cwd != "" && pathWithin(cwd, e.Path) {
+		return pruneDecision{wt: e, reason: "current"}
 	}
-	return paths
+	state, err := ghPRState(e.Path, e.Branch)
+	if err != nil {
+		return pruneDecision{wt: e, reason: "pr-state error: " + err.Error()}
+	}
+	switch strings.ToUpper(state) {
+	case "MERGED":
+		// merged — fall through to the clean check below.
+	case "OPEN":
+		return pruneDecision{wt: e, reason: "open PR"}
+	case "CLOSED":
+		return pruneDecision{wt: e, reason: "closed PR"}
+	default: // ""
+		return pruneDecision{wt: e, reason: "no PR"}
+	}
+	if !p.Force && !worktreeClean(e.Path) {
+		return pruneDecision{wt: e, reason: "dirty"}
+	}
+	return pruneDecision{wt: e, remove: true, reason: "PR merged"}
+}
+
+// linkedWorktrees lists the repo's LINKED worktrees (the main clone, listed
+// first by git, is excluded — it is never pruned). Each entry carries the
+// worktree path and the branch checked out there; a detached worktree reports
+// "HEAD".
+func linkedWorktrees(repo string) ([]worktreeEntry, error) {
+	out, err := exec.Command("git", "-C", repo, "worktree", "list", "--porcelain").Output()
+	if err != nil {
+		return nil, fmt.Errorf("git worktree list: %w", err)
+	}
+	var entries []worktreeEntry
+	var cur worktreeEntry
+	flush := func() {
+		if cur.Path != "" {
+			entries = append(entries, cur)
+		}
+		cur = worktreeEntry{}
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			flush()
+			cur.Path = strings.TrimSpace(strings.TrimPrefix(line, "worktree "))
+			cur.Branch = "HEAD"
+		case strings.HasPrefix(line, "branch "):
+			ref := strings.TrimSpace(strings.TrimPrefix(line, "branch "))
+			cur.Branch = strings.TrimPrefix(ref, "refs/heads/")
+		}
+	}
+	flush()
+	// git lists the main worktree first; drop it — the sweep only touches linked
+	// worktrees, never the canonical clone.
+	if len(entries) > 0 {
+		entries = entries[1:]
+	}
+	return entries, nil
+}
+
+// worktreeClean reports whether the worktree has no uncommitted changes —
+// `git status --porcelain` empty.
+func worktreeClean(wt string) bool {
+	out, err := exec.Command("git", "-C", wt, "status", "--porcelain").Output()
+	if err != nil {
+		return false // can't tell => treat as dirty, don't remove
+	}
+	return len(strings.TrimSpace(string(out))) == 0
+}
+
+// removeWorktree runs `git worktree remove` (with --force when requested),
+// followed by `git worktree prune` so the admin record never lingers.
+func removeWorktree(repo, wt string, force bool) error {
+	args := []string{"-C", repo, "worktree", "remove"}
+	if force {
+		args = append(args, "--force")
+	}
+	args = append(args, wt)
+	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+	}
+	_ = exec.Command("git", "-C", repo, "worktree", "prune").Run()
+	return nil
 }

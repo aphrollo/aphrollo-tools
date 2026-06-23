@@ -23,7 +23,7 @@ Module `github.com/aphrollo/aphrollo-tools`, go 1.26.4. Single binary —
   suggestion rather than guessing.
 
 **Execute-by-default with `--dry` by exception.** The `workspace` mutating verbs
-(create, commit, push, submit, ship, pr, merge, cleanup, claim, unclaim, remove,
+(create, commit, push, submit, ship, pr, merge, update, claim, unclaim, remove,
 prune) **EXECUTE BY DEFAULT**; pass **`--dry`** to print the plan and stop. This
 is deliberate — the autonomous-coder flow wants apply-on-default, and
 idempotency is the safety net that makes it safe. (`refactor`/`tdd` mutations
@@ -37,13 +37,20 @@ find-references) are unchanged.
 - `refactor rename-symbol` / `find-references`, `outline <file>`, `show <file> <symbol>`
   — LSP-backed (one client, one registry entry per language; columns are UTF-16).
 - `workspace` — the 4 core coder verbs (`create`·`commit`·`push`·`submit`) +
-  worktree lifecycle (`claim`/`unclaim`/`list`/`remove`/`prune`/`cleanup`) + the
-  operator/outside verbs (`merge`/`status`/`verify`) + the still-present
-  `pr`/`ship`. `create` is the renamed `prepare` (kept as a hidden alias);
-  `submit` is the renamed, CI-guarded `ready` (also a hidden alias). `push` folds
-  the draft-PR open; `submit` push→CI-gate→flip-to-review. The coder verbs
-  (commit/push/submit) are **cwd-only** (operate on the worktree you stand in);
-  merge/cleanup/status also take an explicit `<repo> <branch>`. Plus `verify`
+  worktree lifecycle (`claim`/`unclaim`/`list`/`remove`/`prune`) + the
+  operator/outside verbs (`update`/`diff`/`merge`/`status`/`verify`) + the
+  still-present `pr`/`ship`. `create` is the renamed `prepare` (kept as a hidden
+  alias); `submit` is the renamed, CI-guarded `ready` (also a hidden alias).
+  `prune` is the merged-worktree sweep — it removes a worktree only when its PR
+  is MERGED, the tree is CLEAN, and it is not the cwd, skipping the rest with a
+  reason and folding in the stale admin-record prune; `cleanup` is a hidden alias
+  to that sweep. `push` folds the draft-PR open; `submit`
+  push→CI-gate→flip-to-review. `update` rebases the cwd worktree onto
+  origin/<default> and force-pushes (with lease) on a clean rebase, leaving a
+  conflict in progress; `diff` prints the branch's PR diff vs origin/<default>
+  (read-only). The coder verbs (commit/push/submit) and `update` are **cwd-only**
+  (operate on the worktree you stand in); merge/status/diff also take an explicit
+  `<repo> <branch>`. Plus `verify`
   (run the affected app's `{test, typecheck, lint}` trio — the typecheck/lint the
   commit gate does not cover). Every `<repo>` arg accepts a **bare name**
   (`aphrollo-web`) resolved from anywhere under the spaces tree (`resolveMainRepo`
