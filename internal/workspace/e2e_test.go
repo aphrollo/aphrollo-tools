@@ -30,6 +30,14 @@ func scrubGitEnv(t *testing.T) {
 // initRepo builds a throwaway git repo with one commit and returns its path.
 func initRepo(t *testing.T) string {
 	t.Helper()
+	return initRepoAt(t, t.TempDir())
+}
+
+// initRepoAt builds a throwaway git repo with one commit at a caller-chosen
+// path (created if absent), so spaces-layout fixtures (<root>/<owner>/<repo>)
+// can be assembled. Same git isolation as initRepo.
+func initRepoAt(t *testing.T, dir string) string {
+	t.Helper()
 	// Isolate git BEFORE the first commit. The operator box installs a global
 	// core.hooksPath (the aphrollo tdd gate); an empty GIT_CONFIG_GLOBAL +
 	// GIT_CONFIG_SYSTEM=/dev/null drops it so the fixture commit can't recurse
@@ -38,7 +46,9 @@ func initRepo(t *testing.T) string {
 	scrubGitEnv(t)
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
 	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
-	dir := t.TempDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	run := func(args ...string) {
 		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 		if out, err := cmd.CombinedOutput(); err != nil {

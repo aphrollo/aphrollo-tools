@@ -96,11 +96,7 @@ func ClaimPlan(repo, branch, svc, into string, noMigrate bool) (*Claim, error) {
 	if err != nil {
 		return nil, err
 	}
-	abs, err := filepath.Abs(repo)
-	if err != nil {
-		return nil, err
-	}
-	top, err := gitToplevel(abs)
+	top, err := resolveMainRepo(repo)
 	if err != nil {
 		return nil, err
 	}
