@@ -328,25 +328,25 @@ fail-first checks), but **not** typecheck or lint. So a type regression
 (`svelte-check`) or a lint failure sails past `commit`/`ship` and only turns up in
 CI. `verify` closes that gap: it resolves the **affected app** and runs that app's
 `{test, typecheck, lint}` trio. It is verification only — it never commits,
-pushes, or mutates source. Like the other verbs it addresses the cwd's worktree
-(or `<repo> <branch>`) and is dry-run by default.
+pushes, or mutates source. Like the other `workspace` verbs it addresses the
+cwd's worktree (or `<repo> <branch>`) and **executes by default** (`--dry` previews).
 
 ```sh
 # from inside aphrollo-web/apps/rlndx (or with rlndx files changed on the branch)
-aphrollo workspace verify
+aphrollo workspace verify --dry
 # workspace verify: aphrollo-web @ feat/kanban  (worktree …/aphrollo-web)
 #   app rlndx (apps/rlndx)
 #     1. test      npx vitest run
 #     2. typecheck npx svelte-check --tsconfig ./tsconfig.json
 #     3. lint      npx eslint --no-error-on-unmatched-pattern src
 #
-# run again without --dry to execute (stops at the first failure).
+# run without --dry to execute (stops at the first failure).
 
 aphrollo workspace verify        # runs test -> typecheck -> lint in order
 ```
 
-- **dry-run by default** lists the exact ordered commands it would run, per app,
-  and exits 0 without running them; running without `--dry` executes them in order, **stops at
+- **`--dry`** lists the exact ordered commands it would run, per app,
+  and exits 0 without running them; the default run executes them in order, **stops at
   the first failure**, and surfaces that tool's own output.
 - **App resolution** is table-driven (start: rlndx). The affected app is scoped
   from the branch's changed paths; when nothing changed resolves one, it falls
@@ -456,9 +456,9 @@ aphrollo dev status            # unit status (unprivileged)
 aphrollo dev logs [rlndx] [-n 200]
 ```
 
-Unlike the `workspace` commands (which mutate source/worktrees and default to
-dry-run), `dev` is a service control plane and **executes immediately**, like
-`systemctl` itself. A restart of `rlndx` first clears the claimed tree's stale
+Like the `workspace` commands, `dev` **executes by default** — but as a service
+control plane it has **no `--dry` at all**; it acts immediately like `systemctl`
+itself (the `workspace` verbs still take `--dry` to preview). A restart of `rlndx` first clears the claimed tree's stale
 vite optimizer cache (via the `.devclaim/web` symlink `workspace claim`
 repoints) so it's a clean reload.
 
@@ -587,8 +587,8 @@ whether its name derives from a query whose text changed in the working tree
 (`GetWidget` ⇒ `GetWidget`, `GetWidgetParams`, `GetWidgetRow`, `getWidget`).
 Table structs in `models.go` derive from the schema, never a query, so the
 whole-schema drift above is always classified **PRE-EXISTING DRIFT** and left for
-a separate PR. Like the `workspace` verbs, it is **dry-run by default**; `--apply`
-writes.
+a separate PR. Like the `refactor`/`tdd` mutations (not the execute-by-default
+`workspace` verbs), it is **dry-run by default**; `--apply` writes.
 
 **Gating — clean vs intentionally post-edited.** Some generated trees are
 hand-post-edited on top of sqlc's output (aphrollo-api's `sqlcgen` — see the
