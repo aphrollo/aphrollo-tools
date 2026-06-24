@@ -93,6 +93,18 @@ func (p *Push) Apply(stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "pr #%d %s [%s] %s\n", info.Number, draftWord, verb, info.URL)
 	reportPRState(stdout, info)
 
+	// Surface merge conflicts on every push — push always runs, so a coder who only
+	// pushes still sees them. Non-fatal: push's job is to publish. Re-poll past
+	// GitHub's async UNKNOWN window so a fresh push isn't a false all-clear.
+	if mi, err := viewPRMergeable(wt, branch); err == nil && mi != nil {
+		switch {
+		case isConflicting(mi):
+			fmt.Fprintf(stdout, "CONFLICT: branch has merge conflicts — rebase onto %s and resolve before submit\n", resolveDefaultBranch(wt))
+		case mergeUnknown(mi):
+			fmt.Fprintf(stdout, "mergeable: unknown — re-run to recheck\n")
+		}
+	}
+
 	// Read CI so the receipt carries it without a follow-up call.
 	if ci, err := ghCIStatus(wt, branch); err == nil {
 		fmt.Fprintf(stdout, "ci %s\n", ci.State)
