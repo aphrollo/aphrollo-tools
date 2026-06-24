@@ -156,9 +156,11 @@ func TestRun_UnknownCommand(t *testing.T) {
 	}
 }
 
-func TestRun_RenameSymbol_MissingNewName(t *testing.T) {
+// `aphrollo refactor` IS the rename: flags parse directly on the verb, no
+// rename-symbol subcommand.
+func TestRun_Refactor_MissingNewName(t *testing.T) {
 	var out, errb bytes.Buffer
-	args := []string{"refactor", "rename-symbol", "--file", "a.go", "--line", "3", "--symbol", "X"}
+	args := []string{"refactor", "--file", "a.go", "--line", "3", "--symbol", "X"}
 	if code := Run(args, strings.NewReader(""), &out, &errb); code != 2 {
 		t.Fatalf("exit code = %d, want 2", code)
 	}
@@ -167,10 +169,10 @@ func TestRun_RenameSymbol_MissingNewName(t *testing.T) {
 	}
 }
 
-func TestRun_RenameSymbol_MissingLocator(t *testing.T) {
+func TestRun_Refactor_MissingLocator(t *testing.T) {
 	var out, errb bytes.Buffer
 	// neither --col nor --symbol given
-	args := []string{"refactor", "rename-symbol", "--file", "a.go", "--line", "3", "--new-name", "Y"}
+	args := []string{"refactor", "--file", "a.go", "--line", "3", "--new-name", "Y"}
 	if code := Run(args, strings.NewReader(""), &out, &errb); code != 2 {
 		t.Fatalf("exit code = %d, want 2", code)
 	}
@@ -179,14 +181,64 @@ func TestRun_RenameSymbol_MissingLocator(t *testing.T) {
 	}
 }
 
-func TestRun_FindReferences_MissingLocator(t *testing.T) {
+// `refactor` stays dry-run-by-default + --apply (no inversion): missing required
+// flags are still usage errors, and the --apply flag is accepted.
+func TestRun_Refactor_AcceptsApplyFlag(t *testing.T) {
 	var out, errb bytes.Buffer
-	args := []string{"refactor", "find-references", "--file", "a.go", "--line", "3"}
+	// --apply is parsed but the missing --new-name still trips the usage gate.
+	args := []string{"refactor", "--file", "a.go", "--line", "3", "--symbol", "X", "--apply"}
+	if code := Run(args, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if strings.Contains(errb.String(), "flag provided but not defined") {
+		t.Fatalf("refactor should accept --apply directly:\n%s", errb.String())
+	}
+	if !strings.Contains(errb.String(), "new-name") {
+		t.Fatalf("stderr should mention missing --new-name:\n%s", errb.String())
+	}
+}
+
+// The rename-symbol subcommand is GONE: an old caller now falls through to the
+// flag parser, which rejects "rename-symbol" as an undefined positional/flag.
+func TestRun_Refactor_RenameSymbolSubcommand_Gone(t *testing.T) {
+	var out, errb bytes.Buffer
+	args := []string{"refactor", "rename-symbol", "--file", "a.go", "--line", "3", "--symbol", "X", "--new-name", "Y"}
+	if code := Run(args, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Fatalf("removed rename-symbol subcommand should be a usage error (2), got %d", code)
+	}
+}
+
+// `aphrollo find` is top-level (the old refactor find-references): flags parse
+// directly on the verb.
+func TestRun_Find_MissingLocator(t *testing.T) {
+	var out, errb bytes.Buffer
+	args := []string{"find", "--file", "a.go", "--line", "3"}
 	if code := Run(args, strings.NewReader(""), &out, &errb); code != 2 {
 		t.Fatalf("exit code = %d, want 2", code)
 	}
 	if !strings.Contains(errb.String(), "--col") && !strings.Contains(errb.String(), "--symbol") {
 		t.Fatalf("stderr should mention needing --col or --symbol:\n%s", errb.String())
+	}
+}
+
+// `refactor find-references` is GONE: find-references is no longer a refactor
+// subcommand, so an old caller is a usage error.
+func TestRun_Refactor_FindReferencesSubcommand_Gone(t *testing.T) {
+	var out, errb bytes.Buffer
+	args := []string{"refactor", "find-references", "--file", "a.go", "--line", "3", "--symbol", "X"}
+	if code := Run(args, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Fatalf("removed find-references subcommand should be a usage error (2), got %d", code)
+	}
+}
+
+// find is advertised in the root usage next to outline/show/refactor.
+func TestRun_Help_ListsFind(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"--help"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(out.String(), "find") {
+		t.Fatalf("root usage should list find:\n%s", out.String())
 	}
 }
 
@@ -307,32 +359,25 @@ func TestRun_Workspace_Create_MissingArgs(t *testing.T) {
 	}
 }
 
-// prepare stays a HIDDEN alias for create for one release so in-flight callers
-// don't break; it dispatches to the same handler.
-func TestRun_Workspace_PrepareAlias_StillDispatches(t *testing.T) {
-	var out, errb bytes.Buffer
-	if code := Run([]string{"workspace", "prepare", "/some/repo"}, strings.NewReader(""), &out, &errb); code != 2 {
-		t.Fatalf("exit code = %d, want 2", code)
-	}
-	if !strings.Contains(errb.String(), "create <repo> <branch>") {
-		t.Fatalf("prepare alias should reach the create handler:\n%s", errb.String())
-	}
-}
-
-// ready stays a HIDDEN alias for submit for one release; it dispatches to the
-// same cwd-only submit handler (a positional arg trips the cwd-only guard).
-func TestRun_Workspace_ReadyAlias_StillDispatches(t *testing.T) {
-	var out, errb bytes.Buffer
-	if code := Run([]string{"workspace", "ready", "/some/repo"}, strings.NewReader(""), &out, &errb); code != 2 {
-		t.Fatalf("exit code = %d, want 2", code)
-	}
-	if !strings.Contains(errb.String(), "cwd-only") {
-		t.Fatalf("ready alias should reach the cwd-only submit handler:\n%s", errb.String())
+// The legacy workspace aliases are GONE — no back-compat. An old name now falls
+// through to the normal unknown-subcommand error (exit 2, naming the token).
+func TestRun_Workspace_LegacyAliases_AreGone(t *testing.T) {
+	for _, alias := range []string{"prepare", "ready", "cleanup"} {
+		var out, errb bytes.Buffer
+		if code := Run([]string{"workspace", alias, "/some/repo"}, strings.NewReader(""), &out, &errb); code != 2 {
+			t.Fatalf("removed alias %q should be a usage error (2), got %d", alias, code)
+		}
+		if !strings.Contains(errb.String(), alias) {
+			t.Fatalf("stderr should name the unknown subcommand %q:\n%s", alias, errb.String())
+		}
+		if !strings.Contains(errb.String(), "unknown subcommand") {
+			t.Fatalf("removed alias %q should hit the unknown-subcommand path:\n%s", alias, errb.String())
+		}
 	}
 }
 
-// The hidden aliases (prepare, ready) are NOT advertised in help.
-func TestRun_Workspace_Help_ShowsCreateNotAliases(t *testing.T) {
+// Help advertises only the clean verbs — no alias is mentioned.
+func TestRun_Workspace_Help_NoAliasMentions(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := Run([]string{"workspace", "help"}, strings.NewReader(""), &out, &errb); code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
@@ -340,8 +385,12 @@ func TestRun_Workspace_Help_ShowsCreateNotAliases(t *testing.T) {
 	if !strings.Contains(out.String(), "create <repo> <branch>") {
 		t.Fatalf("workspace help should advertise create:\n%s", out.String())
 	}
-	if strings.Contains(out.String(), "prepare <repo>") {
-		t.Fatalf("workspace help should NOT advertise the hidden prepare alias:\n%s", out.String())
+	// Guard the command-surface form (a two-space-indented verb in the verb
+	// list), not incidental prose like "prepared worktree" or "ready for review".
+	for _, alias := range []string{"prepare", "ready", "cleanup"} {
+		if strings.Contains(out.String(), "\n  "+alias+" ") {
+			t.Fatalf("workspace help should NOT list the removed alias %q as a verb:\n%s", alias, out.String())
+		}
 	}
 }
 

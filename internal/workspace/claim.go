@@ -86,7 +86,7 @@ type Claim struct {
 
 // ClaimPlan resolves the worktree, the dev service, and the claim sequence
 // without executing anything. svc may be "" to derive it from the repo name. It
-// errors early when the worktree is missing, pointing at prepare. noMigrate
+// errors early when the worktree is missing, pointing at create. noMigrate
 // suppresses the api dev-DB `goose up` step.
 func ClaimPlan(repo, branch, svc, into string, noMigrate bool) (*Claim, error) {
 	if repo == "" {
@@ -117,7 +117,7 @@ func ClaimPlan(repo, branch, svc, into string, noMigrate bool) (*Claim, error) {
 	}
 	wt := filepath.Join(base, slug)
 	if !dirExists(wt) {
-		return nil, fmt.Errorf("worktree not found: %s\n  run: aphrollo workspace prepare %s %s --apply", wt, repo, branch)
+		return nil, fmt.Errorf("worktree not found: %s\n  run: aphrollo workspace create %s %s", wt, repo, branch)
 	}
 
 	key := repoKeyForSvc(svc)

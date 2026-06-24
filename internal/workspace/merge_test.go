@@ -44,8 +44,8 @@ func TestMerge_MergesOpenPR(t *testing.T) {
 	if !strings.Contains(out.String(), "merged PR #18 (squash)") {
 		t.Errorf("output missing merge confirmation:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), "cleanup") {
-		t.Errorf("output should point at cleanup next:\n%s", out.String())
+	if !strings.Contains(out.String(), "prune") {
+		t.Errorf("output should point at prune next:\n%s", out.String())
 	}
 }
 
