@@ -14,62 +14,27 @@ Module `github.com/aphrollo/aphrollo-tools`, go 1.26.4. Single binary —
 
 - **Lossless** — never silently transform, truncate, or filter output.
 - **Deterministic** — same inputs, same bytes out (sorted, stable).
-- **Visible + idempotent** — every mutating verb is **safe to re-run**: already-
-  done work reports `[skip]` / reuses (a re-driven turn never double-pushes or
-  double-opens a PR), so re-running on a half-built state finishes the job
-  without clobbering it. Each verb prints a **stateful, parseable receipt** of
-  its full post-state (sha, ahead-count, PR #/url, CI) so the calling LLM never
-  needs a follow-up git/gh call to confirm what landed. Fail loud with a fix
-  suggestion rather than guessing.
+- **Visible** — mutating verbs are **dry-run by default**; `--apply` executes.
+  Each step is **idempotent** — already-done work reports `[skip]`, never redone,
+  so re-running on a half-built state finishes the job without clobbering it.
+  Fail loud with a fix suggestion rather than guessing.
 
-**Execute-by-default with `--dry` by exception.** The `workspace` mutating verbs
-(create, commit, push, submit, ship, pr, merge, update, claim, unclaim, remove,
-prune) **EXECUTE BY DEFAULT**; pass **`--dry`** to print the plan and stop. This
-is deliberate — the autonomous-coder flow wants apply-on-default, and
-idempotency is the safety net that makes it safe. (`refactor`/`tdd` mutations
-keep the older dry-run-by-default + `--apply` model; only `workspace` inverted.)
-`aphrollo dev` is a service control plane, so it also executes immediately like
-`systemctl` (it never had a dry-run). Read-only verbs (status/list/outline/show/
-find) are unchanged.
+The ONE exception: `aphrollo dev` is a service control plane, so it **executes
+immediately** like `systemctl` (no dry-run). Keep that split — `workspace`
+mutates source and defers; `dev` controls running units and acts now.
 
 ## Command surface (see README for usage)
 
-- `refactor` (the rename — flags parse directly on the verb: `--file --line
-  (--symbol|--col) --new-name [--apply]`, dry-run by default), `find` (top-level,
-  read-only — list every reference), `outline <file>`, `show <file> <symbol>`
+- `refactor rename-symbol` / `find-references`, `outline <file>`, `show <file> <symbol>`
   — LSP-backed (one client, one registry entry per language; columns are UTF-16).
-- `workspace` — the 4 core coder verbs (`create`·`commit`·`push`·`submit`) +
-  worktree lifecycle (`claim`/`unclaim`/`list`/`remove`/`prune`) + the
-  operator/outside verbs (`update`/`diff`/`merge`/`status`/`verify`) + the
-  still-present `pr`/`ship`. `prune` is the merged-worktree sweep — it removes a
-  worktree only when its PR is MERGED, the tree is CLEAN, and it is not the cwd,
-  skipping the rest with a reason and folding in the stale admin-record prune.
-  `push` folds the draft-PR open; `submit`
-  push→CI-gate→flip-to-review. `update` rebases the cwd worktree onto
-  origin/<default> and force-pushes (with lease) on a clean rebase, leaving a
-  conflict in progress; `diff` prints the branch's PR diff vs origin/<default>
-  (read-only). The coder verbs (commit/push/submit) and `update` are **cwd-only**
-  (operate on the worktree you stand in); merge/status/diff also take an explicit
-  `<repo> <branch>`. Plus `verify`
-  (run the affected app's `{test, typecheck, lint}` trio — the typecheck/lint the
-  commit gate does not cover). Every `<repo>` arg accepts a **bare name**
-  (`aphrollo-web`) resolved from anywhere under the spaces tree (`resolveMainRepo`
-  in `internal/workspace/target.go`): the clone you stand in, one of its
-  worktrees, or a unique `~/spaces/*/<name>` sibling — never double-joined against
-  cwd. A real abs/rel path still wins as-is; an ambiguous name (matches >1 clone)
-  errors and lists the candidates. Override the spaces root with
-  `APHROLLO_SPACES_ROOT`.
+- `workspace` — worktree lifecycle (`prepare`/`claim`/`unclaim`/`list`/`remove`/
+  `prune`/`cleanup`) + git verbs (`commit`/`push`/`pr`/`ship`/`merge`).
 - `dev` — `up`/`down`/`restart`/`status`/`logs` (replaces the retired
   `aphrollo-dev` bash wrapper).
 - `guardrail pretooluse` — Claude PreToolUse policy hook (block long fg waits, warn noisy cmds).
 - `tdd` — the TDD gates (`pretooluse`/`posttooluse`/`userpromptsubmit`/`sessionend`/
   `precommit`/`prepush`) + `tdd init` (wires session hooks + global git gate).
   Ported from the retired `claude-code-tdd` Node hooks (this binary IS the gate now).
-  The gate is **solely mechanical**: edit-time smell blocks + commit-time
-  anti-cheat/fail-first/suite. `prepush` is a **mechanical no-op** (never blocks),
-  kept only for back-compat with a lingering pre-push shim; `tdd init` prunes that
-  stranded shim. Adversarial review is owned by the **separate reviewer agent**,
-  not this binary.
 
 ## Layout
 
@@ -80,7 +45,7 @@ internal/refactor/   detect lang → spawn server → rename/refs/outline/show
 internal/lsp/        LSP types + JSON-RPC stdio client
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy
-internal/tdd/        TDD gates (mechanical-only): policy engine, edit smells, anti-cheat, fail-first, install
+internal/tdd/        TDD gates: policy engine, edit smells, anti-cheat, fail-first, review, install
 internal/workspace/  worktree lifecycle + git verbs
 internal/dev/        dev-tier control plane (systemd)
 ```
@@ -99,9 +64,8 @@ internal/dev/        dev-tier control plane (systemd)
 - **Adding a gate/detector** = a new `policy` entry in a slice, not new control
   flow. Detectors run against a **masked** copy (smell detectors mask strings +
   comments; suppression detectors mask strings, keep comments) — a token only in
-  a string never blocks. Keep edit-time blocks near-zero-FP; the heavy mechanical
-  check (fail-first + suite) lives at commit where a false block only costs a
-  re-run. (The only git gate is pre-commit; there is no pre-push gate.)
+  a string never blocks. Keep edit-time blocks near-zero-FP; heavy checks
+  (fail-first, review) live at commit/push where a false block only costs a re-run.
 - **Attribution: honest here.** This is first-party tooling, not a client-facing
   undercover repo — the `🤖 Generated with Claude Code` footer + `Co-Authored-By`
   are fine (matches aphrollo-agents; per the box `~/CLAUDE.md` per-repo rule).
@@ -116,18 +80,12 @@ retired the root build task). aphrollo-infra no longer force-installs it.
 
 ## Don't
 
-- Don't break the verb contracts: `workspace` mutations **execute by default**
-  (`--dry` to preview), while `refactor`/`tdd` mutations stay **dry-run by
-  default** (`--apply` to execute). `dev` always acts now. Each kept its model on
-  purpose — don't homogenize them.
-- Don't re-port the offenders this gate excludes: **mutation testing**
-  (false-positive/non-determinism prone), the SessionStart full-suite baseline,
-  or `/tdd allow-main` — the fail-first + mechanical suite cover the ground
-  without the flakiness.
-- **tdd is solely mechanical.** Edit-time smell blocks + commit-time
-  anti-cheat/fail-first/suite; `prepush` is a no-op. Don't add an LLM or any
-  non-deterministic call to this binary's gate — adversarial review belongs to
-  the reviewer agent, not here.
+- Don't break the dry-run-by-default contract on `workspace`/`refactor`/`tdd`
+  mutations (`dev` is the deliberate exception).
+- Don't re-port what was deliberately dropped: **mutation testing** (the
+  documented FP/non-determinism offender), the SessionStart full-suite baseline,
+  or `/tdd allow-main` — the fail-first + review gates cover the ground without
+  the flakiness.
 - Don't add a sudo wrapper or wildcard grant — the narrow exact-match systemctl
   fence is the whole security story.
 - Don't duplicate README usage here — this file is dev context only.
