@@ -315,7 +315,15 @@ aphrollo workspace submit -m "Kanban drag-and-drop. Closes #200."
   on green** flips the draft PR to in-review and sets the PR body to `-m`'s
   summary. On **red** it prints `blocked: CI red (<k> failing), NOT marked ready`
   and exits non-zero; on **pending** it prints `held: CI pending, NOT marked
-  ready yet` and exits non-zero — both **re-callable** until CI goes green.
+  ready yet` and exits non-zero — both **re-callable** until CI goes green. On a
+  **conflicted** branch (`mergeable: CONFLICTING` / `mergeStateStatus: DIRTY` —
+  the real reason required checks queue forever) it short-circuits the CI gate,
+  prints `blocked: branch has merge conflicts, NOT marked ready` plus the fix
+  (`rebase onto <base> and resolve, then re-run submit`), and exits non-zero
+  without flipping. GitHub computes mergeability async, so the read briefly
+  re-polls past the `UNKNOWN` window; if it never resolves it reports
+  `mergeable: unknown — re-run to recheck` rather than a false all-clear. `push`
+  surfaces the same conflict as a non-fatal `CONFLICT:` warning line.
 
 > `pr` and `ship` still exist as operator escapes (they take an explicit
 > `<repo> <branch>` and also default to the cwd worktree), but the coder flow is

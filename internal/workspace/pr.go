@@ -14,6 +14,15 @@ type PRInfo struct {
 	URL     string `json:"url"`
 	State   string `json:"state"` // OPEN | MERGED | CLOSED
 	IsDraft bool   `json:"isDraft"`
+	// Mergeable is GitHub's async-computed merge verdict: MERGEABLE | CONFLICTING
+	// | UNKNOWN. It is UNKNOWN for a short window right after a push until GitHub
+	// finishes computing the merge ref — viewPRMergeable's bounded re-poll waits
+	// it out so a conflicted branch is caught while the coder is still live.
+	Mergeable string `json:"mergeable"`
+	// MergeStateStatus is the finer-grained merge state: DIRTY (conflicts) |
+	// BEHIND | BLOCKED | CLEAN | UNSTABLE | HAS_HOOKS | DRAFT | UNKNOWN. DIRTY
+	// corroborates CONFLICTING.
+	MergeStateStatus string `json:"mergeStateStatus"`
 }
 
 // prStateWord maps a gh PR to the canonical lifecycle word the rlndx kanban git
@@ -44,7 +53,7 @@ var (
 		// gh resolves the repo from the worktree's origin. It exits non-zero when
 		// no PR exists for the branch — absence, not a failure: return (nil, nil)
 		// so Apply creates one. A real PR with malformed JSON is the only error.
-		cmd := exec.Command("gh", "pr", "view", "--json", "number,url,state,isDraft", "--", branch)
+		cmd := exec.Command("gh", "pr", "view", "--json", "number,url,state,isDraft,mergeable,mergeStateStatus", "--", branch)
 		cmd.Dir = wt
 		out, err := cmd.Output()
 		if err != nil {

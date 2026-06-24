@@ -88,7 +88,9 @@ func (s *Submit) Apply(stdout, stderr io.Writer) error {
 		return err
 	}
 
-	info, err := ghViewPR(wt, branch)
+	// Read the PR, re-polling past GitHub's async UNKNOWN window so a conflicted
+	// branch is caught here while the coder is still live.
+	info, err := viewPRMergeable(wt, branch)
 	if err != nil {
 		return err
 	}
@@ -96,9 +98,27 @@ func (s *Submit) Apply(stdout, stderr io.Writer) error {
 		return fmt.Errorf("no PR for %s — run: aphrollo workspace push", branch)
 	}
 
+	// Hard-block a conflicted branch BEFORE the CI gate. A conflicted branch can't
+	// compute a merge ref, so its required checks queue forever and the CI gate
+	// would otherwise report a misleading "CI pending" — surface the real cause
+	// and the concrete fix instead, and do NOT flip the draft.
+	if isConflicting(info) {
+		base := resolveDefaultBranch(wt)
+		fmt.Fprintf(stdout, "blocked: branch has merge conflicts, NOT marked ready\n")
+		fmt.Fprintf(stdout, "  PR #%d %s\n", info.Number, info.URL)
+		fmt.Fprintf(stdout, "  fix: rebase onto %s and resolve, then re-run submit\n", base)
+		return fmt.Errorf("branch has merge conflicts — not submitted")
+	}
+
 	ci, err := ghCIStatus(wt, branch)
 	if err != nil {
 		return err
+	}
+	// Mergeability never resolved within the bound — say so rather than imply a
+	// clean branch. Non-blocking: the CI gate below still governs the flip, and a
+	// re-run re-polls.
+	if mergeUnknown(info) {
+		fmt.Fprintf(stdout, "mergeable: unknown — re-run to recheck\n")
 	}
 	switch ci.State {
 	case "red":
