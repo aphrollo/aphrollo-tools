@@ -14,14 +14,19 @@ Module `github.com/aphrollo/aphrollo-tools`, go 1.26.4. Single binary —
 
 - **Lossless** — never silently transform, truncate, or filter output.
 - **Deterministic** — same inputs, same bytes out (sorted, stable).
-- **Visible** — mutating verbs are **dry-run by default**; `--apply` executes.
+- **Visible** — two mutation models, by verb family:
+  - `refactor`/`tdd` mutations are **dry-run by default**; pass `--apply` to write.
+  - `workspace` verbs (`merge`/`prune`/`commit`/`push`/`ship`/… ) **execute by
+    default**; pass `--dry` to preview the plan and stop. (The old `--apply` opt-in
+    on these is **legacy/no-op** — you now opt OUT with `--dry`, not in with `--apply`.)
   Each step is **idempotent** — already-done work reports `[skip]`, never redone,
   so re-running on a half-built state finishes the job without clobbering it.
   Fail loud with a fix suggestion rather than guessing.
 
-The ONE exception: `aphrollo dev` is a service control plane, so it **executes
-immediately** like `systemctl` (no dry-run). Keep that split — `workspace`
-mutates source and defers; `dev` controls running units and acts now.
+`aphrollo dev` is a service control plane, so it also **executes immediately**
+like `systemctl` (no dry-run, no `--dry`). The split: `refactor`/`tdd` defer and
+preview; `workspace` mutates source but acts now; `dev` controls running units
+and acts now.
 
 ## Command surface (see README for usage)
 
@@ -80,8 +85,10 @@ retired the root build task). aphrollo-infra no longer force-installs it.
 
 ## Don't
 
-- Don't break the dry-run-by-default contract on `workspace`/`refactor`/`tdd`
-  mutations (`dev` is the deliberate exception).
+- Don't break the mutation contracts: `refactor`/`tdd` are **dry-run by default**
+  (`--apply` to write); `workspace` verbs **execute by default** (`--dry` to
+  preview). `dev` acts now with no dry-run at all. Don't re-invert `workspace`
+  back to `--apply`-opt-in — that opt-in is legacy.
 - Don't re-port what was deliberately dropped: **mutation testing** (the
   documented FP/non-determinism offender), the SessionStart full-suite baseline,
   or `/tdd allow-main` — the fail-first + review gates cover the ground without
