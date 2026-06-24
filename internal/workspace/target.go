@@ -13,7 +13,7 @@ import (
 // unclaim, ship) all operate on one Target, resolved either from the current
 // directory (zero-arg — the common case for a coder session standing inside its
 // worktree) or from an explicit <repo> <branch> pair (the same addressing
-// prepare/claim/remove use, for driving a worktree from outside it).
+// create/claim/remove use, for driving a worktree from outside it).
 type Target struct {
 	Worktree string // absolute path to the working tree we run git in
 	Branch   string // branch checked out there ("HEAD" when detached)
@@ -24,7 +24,7 @@ type Target struct {
 // ResolveTarget turns the optional positional <repo> <branch> override into a
 // concrete worktree. Both empty => resolve the cwd's worktree (and its current
 // branch). Both set => the prepared worktree at <repo-base>/<slug>, which must
-// already exist (else it points at prepare). Exactly one set is a usage error:
+// already exist (else it points at create). Exactly one set is a usage error:
 // the two addressing modes don't mix.
 func ResolveTarget(repoArg, branchArg, into string) (*Target, error) {
 	switch {
@@ -56,7 +56,7 @@ func resolveFromCwd() (*Target, error) {
 }
 
 // resolveFromArgs resolves the prepared worktree for repo+branch, the same path
-// prepare/claim/remove compute. The worktree must exist.
+// create/claim/remove compute. The worktree must exist.
 func resolveFromArgs(repoArg, branchArg, into string) (*Target, error) {
 	slug, err := Slugify(branchArg)
 	if err != nil {
@@ -72,7 +72,7 @@ func resolveFromArgs(repoArg, branchArg, into string) (*Target, error) {
 	}
 	wt := filepath.Join(base, slug)
 	if !dirExists(wt) {
-		return nil, fmt.Errorf("worktree not found: %s\n  run: aphrollo workspace prepare %s %s --apply", wt, repoArg, branchArg)
+		return nil, fmt.Errorf("worktree not found: %s\n  run: aphrollo workspace create %s %s", wt, repoArg, branchArg)
 	}
 	return &Target{
 		Worktree: wt,

@@ -42,12 +42,15 @@ bounded retry on transient "still loading" responses.
 
 ### Rename a symbol (and all references) across the project
 
+`aphrollo refactor` IS the rename — flags parse directly on the verb. It is
+dry-run by default; pass `--apply` to write.
+
 ```sh
 # dry-run: prints a unified diff of every file that would change
-aphrollo refactor rename-symbol --file internal/foo/bar.go --line 42 --symbol OldName --new-name NewName
+aphrollo refactor --file internal/foo/bar.go --line 42 --symbol OldName --new-name NewName
 
 # apply to disk
-aphrollo refactor rename-symbol --file ... --line 42 --symbol OldName --new-name NewName --apply
+aphrollo refactor --file ... --line 42 --symbol OldName --new-name NewName --apply
 ```
 
 Locate the target with either `--symbol NAME` (resolved to the right column on
@@ -56,8 +59,10 @@ that line, UTF-16-correct — paste it straight from a grep hit) or an explicit
 
 ### Find every reference to a symbol
 
+`aphrollo find` is a top-level read-only verb — flags parse directly on it.
+
 ```sh
-aphrollo refactor find-references --file internal/foo/bar.go --line 42 --symbol Name
+aphrollo find --file internal/foo/bar.go --line 42 --symbol Name
 # internal/foo/bar.go:42:6: func Name() string {
 # internal/foo/baz.go:9:9:  return Name()
 ```
@@ -122,9 +127,8 @@ git-safe, `git worktree add`, mark the worktree git-safe, install dependencies
 (git worktrees do **not** share the main tree's gitignored `node_modules`). The
 agent paid for that dance in tool calls and tokens on every branch.
 
-`aphrollo workspace create` (the renamed `prepare`; `prepare` stays a hidden
-alias for one release) folds it into one deterministic command that **executes
-by default** — pass `--dry` to preview:
+`aphrollo workspace create` folds it into one deterministic command that
+**executes by default** — pass `--dry` to preview:
 
 ```sh
 # --dry: print exactly what would happen, change nothing
@@ -181,7 +185,7 @@ than silently picking one — pass an absolute path to disambiguate. An
 unresolvable name fails with an actionable message naming what was tried and the
 fixes, not a bare "is not a git repository".
 
-Companion read/cleanup subcommands:
+Companion read/remove subcommands:
 
 ```sh
 aphrollo workspace list aphrollo-web                             # bare name, from anywhere under the spaces tree
@@ -312,7 +316,6 @@ aphrollo workspace submit -m "Kanban drag-and-drop. Closes #200."
   summary. On **red** it prints `blocked: CI red (<k> failing), NOT marked ready`
   and exits non-zero; on **pending** it prints `held: CI pending, NOT marked
   ready yet` and exits non-zero — both **re-callable** until CI goes green.
-  (`submit` is the renamed, CI-guarded `ready`; `ready` stays a hidden alias.)
 
 > `pr` and `ship` still exist as operator escapes (they take an explicit
 > `<repo> <branch>` and also default to the cwd worktree), but the coder flow is
@@ -435,11 +438,9 @@ aphrollo workspace prune                 # removes the merged-clean worktrees
 aphrollo workspace prune --force         # also remove a dirty MERGED worktree
 ```
 
-`cleanup` is a **deprecated** back-compat alias for `prune`. It performs the
-**full merged-worktree sweep** — it does **not** remove a single named branch. Any
-positional branch arg is accepted but ignored (the sweep auto-detects which
-worktrees are merged). Use `prune` directly; `remove <repo> <branch>` is the verb
-for a single named worktree.
+`prune` performs the **full merged-worktree sweep** — it does **not** remove a
+single named branch (the sweep auto-detects which worktrees are merged). For a
+single named worktree, use `remove <repo> <branch>`.
 
 ### Dev-tier control plane (`aphrollo dev`)
 

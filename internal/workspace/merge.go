@@ -37,7 +37,7 @@ var ghMergePR = func(wt, branch, method string) error {
 // ghDeleteRemoteBranch deletes the PR's head branch on the remote with
 // `git push origin --delete`, a ref update that touches no working tree — so it
 // is safe from inside a worktree, unlike gh's `--delete-branch` (see ghMergePR).
-// The local branch and worktree are left to `cleanup`. A branch GitHub already
+// The local branch and worktree are left to `prune`. A branch GitHub already
 // reaped (repos with auto-delete-on-merge) is treated as success.
 var ghDeleteRemoteBranch = func(wt, branch string) error {
 	cmd := exec.Command("git", "-C", wt, "push", "origin", "--delete", "--", branch)
@@ -54,7 +54,7 @@ var ghDeleteRemoteBranch = func(wt, branch string) error {
 // Merge is a resolved merge of the worktree branch's PR. It honors GitHub's own
 // gates: gh refuses a PR that is not mergeable or whose required checks are
 // red, so this never force-merges (no --admin). Merge does NOT touch the local
-// worktree — run `cleanup` for that, after (or instead of) merging.
+// worktree — run `prune` for that, after (or instead of) merging.
 type Merge struct {
 	Target       *Target
 	Method       string // squash | merge | rebase
@@ -81,10 +81,10 @@ func (m *Merge) Render(apply bool) string {
 		return b.String()
 	}
 	if m.DeleteBranch {
-		fmt.Fprintf(&b, "  deletes the PR's remote branch after merging (local worktree left for cleanup)\n")
+		fmt.Fprintf(&b, "  deletes the PR's remote branch after merging (local worktree left for prune)\n")
 	}
 	fmt.Fprintf(&b, "  honors GitHub's gates — a non-mergeable or red-CI PR is refused (no force)\n")
-	fmt.Fprintf(&b, "\nrun again without --dry to merge (then: aphrollo workspace cleanup %s).\n", m.Target.Branch)
+	fmt.Fprintf(&b, "\nrun again without --dry to merge (then: aphrollo workspace prune).\n")
 	return b.String()
 }
 
@@ -106,8 +106,8 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 		if err := ghDeleteRemoteBranch(m.Target.Worktree, m.Target.Branch); err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "  deleted remote branch %s (local worktree left for cleanup)\n", m.Target.Branch)
+		fmt.Fprintf(stdout, "  deleted remote branch %s (local worktree left for prune)\n", m.Target.Branch)
 	}
-	fmt.Fprintf(stdout, "  next: aphrollo workspace cleanup %s --apply  (remove the local worktree)\n", m.Target.Branch)
+	fmt.Fprintf(stdout, "  next: aphrollo workspace prune  (sweep the merged local worktree)\n")
 	return nil
 }

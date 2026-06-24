@@ -26,16 +26,15 @@ import (
 const rootUsage = `usage: aphrollo <command> [args]
 
 Commands:
-  refactor    Language-server-backed code transformations
+  refactor    Rename a symbol and all its references across the project (LSP-backed)
+  find        List every reference to a symbol across the project (LSP-backed, read-only)
   outline     List a file's symbols (kinds + line ranges) without reading it
   show        Print the source of one named symbol in a file
-  workspace   Prepare/claim/list/remove git worktrees (safe.directory + deps + dev-tier)
+  workspace   Create/claim/list/remove git worktrees (safe.directory + deps + dev-tier)
   dev         Dev-tier control plane: up/down/restart/status/logs
   guardrail   PreToolUse policy hook for coder/devops sessions
   tdd         Autonomous TDD gates (Claude + git hooks)
   sqlc        Guard sqlc-generated code against drift (check / scoped regen)
-
-Run "aphrollo refactor" for refactor subcommands.
 `
 
 // commandTimeout bounds a single language-server-backed command end to end —
@@ -72,6 +71,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 0
 	case "refactor":
 		return runRefactor(args[1:], stdout, stderr)
+	case "find":
+		return runFindReferences(args[1:], stdout, stderr)
 	case "outline":
 		return runOutline(args[1:], stdout, stderr)
 	case "show":
@@ -92,34 +93,20 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 }
 
-const refactorUsage = `usage: aphrollo refactor <subcommand> [args]
+const refactorUsage = `usage: aphrollo refactor --file F --line N (--symbol S | --col C) --new-name X [--apply]
 
-Subcommands:
-  rename-symbol     Rename a symbol and all its references across the project
-  find-references   List every reference to a symbol across the project
+Renames a symbol and all its references across the project via the language
+server. Dry-run by default — prints the unified diff; pass --apply to write.
 `
 
+// runRefactor IS the rename: flags parse directly on the verb (no subcommand).
+// It stays dry-run-by-default + --apply (only workspace verbs execute by default).
 func runRefactor(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
-		fmt.Fprint(stderr, refactorUsage)
-		return 2
-	}
-	switch args[0] {
-	case "-h", "--help", "help":
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
 		fmt.Fprint(stdout, refactorUsage)
 		return 0
-	case "rename-symbol":
-		return runRenameSymbol(args[1:], stdout, stderr)
-	case "find-references":
-		return runFindReferences(args[1:], stdout, stderr)
-	default:
-		fmt.Fprintf(stderr, "aphrollo refactor: unknown subcommand %q\n\n%s", args[0], refactorUsage)
-		return 2
 	}
-}
-
-func runRenameSymbol(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("rename-symbol", flag.ContinueOnError)
+	fs := flag.NewFlagSet("refactor", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
 		file    = fs.String("file", "", "path to a file containing the symbol (required)")
@@ -492,8 +479,20 @@ func defaultBinPath() string {
 	return exe
 }
 
+const findUsage = `usage: aphrollo find --file F --line N (--symbol S | --col C) [--include-declaration]
+
+Lists every reference to a symbol across the project via the language server
+(read-only). Each line is path:line:col: text.
+`
+
+// runFindReferences is the top-level `find` verb: flags parse directly on it.
+// Read-only — the old `refactor find-references`, promoted to top level.
 func runFindReferences(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("find-references", flag.ContinueOnError)
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
+		fmt.Fprint(stdout, findUsage)
+		return 0
+	}
+	fs := flag.NewFlagSet("find", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
 		file       = fs.String("file", "", "path to a file containing the symbol (required)")
@@ -664,7 +663,7 @@ func runWorkspace(args []string, stdout, stderr io.Writer) int {
 	case "-h", "--help", "help":
 		fmt.Fprint(stdout, workspaceUsage)
 		return 0
-	case "create", "prepare": // prepare: hidden alias for one release
+	case "create":
 		return runWorkspaceCreate(args[1:], stdout, stderr)
 	case "claim":
 		return runWorkspaceClaim(args[1:], stdout, stderr)
@@ -684,7 +683,7 @@ func runWorkspace(args []string, stdout, stderr io.Writer) int {
 		return runWorkspacePR(args[1:], stdout, stderr)
 	case "ship":
 		return runWorkspaceShip(args[1:], stdout, stderr)
-	case "submit", "ready": // ready: hidden alias for one release
+	case "submit":
 		return runWorkspaceSubmit(args[1:], stdout, stderr)
 	case "status":
 		return runWorkspaceStatus(args[1:], stdout, stderr)
@@ -696,8 +695,6 @@ func runWorkspace(args []string, stdout, stderr io.Writer) int {
 		return runWorkspaceVerify(args[1:], stdout, stderr)
 	case "merge":
 		return runWorkspaceMerge(args[1:], stdout, stderr)
-	case "cleanup":
-		return runWorkspaceCleanup(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "aphrollo workspace: unknown subcommand %q\n\n%s", args[0], workspaceUsage)
 		return 2
@@ -849,31 +846,6 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
-}
-
-// runWorkspaceCleanup is the deprecated back-compat alias for prune: it performs
-// the FULL merged-worktree sweep, never a single-named-branch removal. The sweep
-// auto-detects which worktrees are merged, so any branch arg is
-// accepted-but-ignored. A two-positional call keeps its first arg as the repo; a
-// single positional is the legacy bare <branch> and is ignored (the sweep targets
-// the cwd repo).
-func runWorkspaceCleanup(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("cleanup", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	var (
-		dry   = fs.Bool("dry", false, "print the plan and stop (default: execute)")
-		force = fs.Bool("force", false, "remove even a dirty merged worktree")
-		_     = fs.String("into", "", "(ignored — kept for back-compat)")
-	)
-	pos, err := parseFlagsAnywhere(fs, args)
-	if err != nil {
-		return 2
-	}
-	repo := ""
-	if len(pos) == 2 {
-		repo = pos[0] // legacy [repo] <branch> — branch ignored under the sweep
-	}
-	return pruneSweep(repo, !*dry, *force, stdout, stderr)
 }
 
 // boolCount counts how many of the given flags are set — used to reject
@@ -1163,8 +1135,7 @@ func runWorkspacePrune(args []string, stdout, stderr io.Writer) int {
 	return pruneSweep(repo, !*dry, *force, stdout, stderr)
 }
 
-// pruneSweep resolves the repo and runs the merged-worktree sweep, shared by the
-// `prune` verb and its `cleanup` back-compat alias.
+// pruneSweep resolves the repo and runs the merged-worktree sweep for `prune`.
 func pruneSweep(repo string, apply, force bool, stdout, stderr io.Writer) int {
 	p, err := workspace.PrunePlan(repo)
 	if err != nil {
@@ -1180,7 +1151,7 @@ func pruneSweep(repo string, apply, force bool, stdout, stderr io.Writer) int {
 }
 
 // parseFlagsAnywhere parses fs but, unlike flag.Parse, tolerates flags appearing
-// after positional args (e.g. `prepare <repo> <branch> --apply`). It returns the
+// after positional args (e.g. `create <repo> <branch> --dry`). It returns the
 // positional args in order. Flag values are set on fs as usual.
 //
 // A standalone "--" terminates option parsing: every token after it is returned

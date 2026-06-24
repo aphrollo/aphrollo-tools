@@ -220,11 +220,11 @@ func TestResolveTarget_MixedArgs(t *testing.T) {
 	}
 }
 
-func TestResolveTarget_MissingWorktree_PointsToPrepare(t *testing.T) {
+func TestResolveTarget_MissingWorktree_PointsToCreate(t *testing.T) {
 	repo := initRepo(t)
 	_, err := ResolveTarget(repo, "never-prepared", "")
-	if err == nil || !strings.Contains(err.Error(), "prepare") {
-		t.Fatalf("expected a missing-worktree error pointing at prepare, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "create") {
+		t.Fatalf("expected a missing-worktree error pointing at create, got: %v", err)
 	}
 }
 

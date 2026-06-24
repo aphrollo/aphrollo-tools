@@ -30,21 +30,21 @@ idempotency is the safety net that makes it safe. (`refactor`/`tdd` mutations
 keep the older dry-run-by-default + `--apply` model; only `workspace` inverted.)
 `aphrollo dev` is a service control plane, so it also executes immediately like
 `systemctl` (it never had a dry-run). Read-only verbs (status/list/outline/show/
-find-references) are unchanged.
+find) are unchanged.
 
 ## Command surface (see README for usage)
 
-- `refactor rename-symbol` / `find-references`, `outline <file>`, `show <file> <symbol>`
+- `refactor` (the rename — flags parse directly on the verb: `--file --line
+  (--symbol|--col) --new-name [--apply]`, dry-run by default), `find` (top-level,
+  read-only — list every reference), `outline <file>`, `show <file> <symbol>`
   — LSP-backed (one client, one registry entry per language; columns are UTF-16).
 - `workspace` — the 4 core coder verbs (`create`·`commit`·`push`·`submit`) +
   worktree lifecycle (`claim`/`unclaim`/`list`/`remove`/`prune`) + the
   operator/outside verbs (`update`/`diff`/`merge`/`status`/`verify`) + the
-  still-present `pr`/`ship`. `create` is the renamed `prepare` (kept as a hidden
-  alias); `submit` is the renamed, CI-guarded `ready` (also a hidden alias).
-  `prune` is the merged-worktree sweep — it removes a worktree only when its PR
-  is MERGED, the tree is CLEAN, and it is not the cwd, skipping the rest with a
-  reason and folding in the stale admin-record prune; `cleanup` is a hidden alias
-  to that sweep. `push` folds the draft-PR open; `submit`
+  still-present `pr`/`ship`. `prune` is the merged-worktree sweep — it removes a
+  worktree only when its PR is MERGED, the tree is CLEAN, and it is not the cwd,
+  skipping the rest with a reason and folding in the stale admin-record prune.
+  `push` folds the draft-PR open; `submit`
   push→CI-gate→flip-to-review. `update` rebases the cwd worktree onto
   origin/<default> and force-pushes (with lease) on a clean rebase, leaving a
   conflict in progress; `diff` prints the branch's PR diff vs origin/<default>

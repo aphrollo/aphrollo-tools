@@ -132,8 +132,8 @@ func TestClaimPlan_MissingWorktree_PointsToPrepare(t *testing.T) {
 	repo := initRepo(t) // no worktree prepared
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
 	_, err := ClaimPlan(repo, "never-prepared", "rlndx", "", false)
-	if err == nil || !strings.Contains(err.Error(), "prepare") {
-		t.Fatalf("expected a missing-worktree error pointing at prepare, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "create") {
+		t.Fatalf("expected a missing-worktree error pointing at create, got: %v", err)
 	}
 }
 
