@@ -59,6 +59,12 @@ type Plan struct {
 	Slug         string
 	Worktree     string
 	BranchExists bool
+	// RemoteBranchExists is true when the branch is absent locally but present on
+	// origin (detected read-only via ls-remote). It selects the "track the remote
+	// tip" worktree-add path so re-dispatching onto an existing PR branch in a
+	// fresh/stale clone reuses that branch instead of forking a new one off the
+	// default. Always false when BranchExists is true (local wins, never queried).
+	RemoteBranchExists bool
 	// DefaultBranch is the repo's default remote branch short name (read from
 	// origin/HEAD, "main" as a last resort) — never hardcoded.
 	DefaultBranch string
@@ -157,6 +163,15 @@ func BuildPlan(req Request) (*Plan, error) {
 	}
 	wt := filepath.Join(base, slug)
 	branchExists := gitBranchExists(top, req.Branch)
+	// Only consult the remote when there's no local branch to reuse: a local
+	// branch always wins (case 1), and ls-remote is a network round-trip best
+	// avoided. The remote ref may not be in local refs yet (a branch pushed after
+	// a one-shot clone) — ls-remote queries origin directly, so detection is right
+	// up front while the actual worktree-add still runs after the Apply-time fetch.
+	remoteBranch := false
+	if !branchExists {
+		remoteBranch = gitRemoteBranchExists(top, req.Branch)
+	}
 	wtExists := dirExists(wt)
 
 	// The operator's clones are seeded one-shot (ansible update:false) and drift
@@ -172,14 +187,15 @@ func BuildPlan(req Request) (*Plan, error) {
 	}
 
 	p := &Plan{
-		Repo:          top,
-		RepoName:      filepath.Base(top),
-		Branch:        req.Branch,
-		Slug:          slug,
-		Worktree:      wt,
-		BranchExists:  branchExists,
-		DefaultBranch: defaultBranch,
-		StartPoint:    startPoint,
+		Repo:               top,
+		RepoName:           filepath.Base(top),
+		Branch:             req.Branch,
+		Slug:               slug,
+		Worktree:           wt,
+		BranchExists:       branchExists,
+		RemoteBranchExists: remoteBranch,
+		DefaultBranch:      defaultBranch,
+		StartPoint:         startPoint,
 	}
 
 	// 1. Mark the main repo git-safe so cross-owner worktree ops don't trip
@@ -200,15 +216,24 @@ func BuildPlan(req Request) (*Plan, error) {
 		NonFatal: true,
 	})
 
-	// 3. Create the worktree. Reuse the branch if it exists (never moving it),
-	//    else create it FROM the fresh default remote branch when we have one.
+	// 3. Create the worktree. Branch-resolution precedence:
+	//    1) local branch exists      -> reuse it, never moving it;
+	//    2) only origin/<branch>      -> track the remote, based on its tip, so a
+	//                                    re-dispatch onto an existing PR branch in a
+	//                                    fresh clone keeps the prior work (the fetch
+	//                                    above populates origin/<branch> first);
+	//    3) neither                   -> a new branch off the fresh default remote
+	//                                    branch (or local HEAD when offline).
 	add := Step{
 		Title: "create worktree",
 		Cmd:   []string{"git", "-C", top, "worktree", "add"},
 	}
-	if branchExists {
+	switch {
+	case branchExists:
 		add.Cmd = append(add.Cmd, wt, req.Branch)
-	} else {
+	case remoteBranch:
+		add.Cmd = append(add.Cmd, "--track", "-b", req.Branch, wt, "origin/"+req.Branch)
+	default:
 		add.Cmd = append(add.Cmd, "-b", req.Branch, wt)
 		if startPoint != "" {
 			add.Cmd = append(add.Cmd, startPoint)
@@ -257,6 +282,20 @@ func gitToplevel(path string) (string, error) {
 func gitBranchExists(repo, branch string) bool {
 	// show-ref exits 0 iff the ref resolves; quiet keeps it silent.
 	return exec.Command("git", "-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch).Run() == nil
+}
+
+// gitRemoteBranchExists reports whether origin carries refs/heads/<branch>, via a
+// read-only ls-remote that queries the remote directly (so it sees a branch
+// pushed after a one-shot clone, before any fetch populates a local tracking
+// ref). Mirrors the Apply-time fetch's offline tolerance: no origin / unreachable
+// remote => the command fails => false, and BuildPlan falls through to the
+// new-branch path rather than hard-failing.
+func gitRemoteBranchExists(repo, branch string) bool {
+	out, err := exec.Command("git", "-C", repo, "ls-remote", "--heads", "origin", "refs/heads/"+branch).Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) != ""
 }
 
 // resolveDefaultBranch returns the repo's default remote branch short name —
