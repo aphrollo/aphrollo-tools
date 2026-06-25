@@ -324,6 +324,10 @@ aphrollo workspace submit -m "Kanban drag-and-drop. Closes #200."
   re-polls past the `UNKNOWN` window; if it never resolves it reports
   `mergeable: unknown — re-run to recheck` rather than a false all-clear. `push`
   surfaces the same conflict as a non-fatal `CONFLICT:` warning line.
+  submit is **per-worktree, one repo at a time**: it acts on the cwd worktree's
+  single PR — `push`/`ship` opened that draft, `submit` flips it draft → ready.
+  There is **no ticket-level submit** that fans out across repos; a ticket that
+  spans repos is submitted one worktree at a time.
 
 > `pr` and `ship` still exist as operator escapes (they take an explicit
 > `<repo> <branch>` and also default to the cwd worktree), but the coder flow is
@@ -446,9 +450,23 @@ aphrollo workspace prune                 # removes the merged-clean worktrees
 aphrollo workspace prune --force         # also remove a dirty MERGED worktree
 ```
 
-`prune` performs the **full merged-worktree sweep** — it does **not** remove a
-single named branch (the sweep auto-detects which worktrees are merged). For a
-single named worktree, use `remove <repo> <branch>`.
+`prune <repo> <branch>` is the **per-ticket form**: it removes exactly that one
+ticket's worktree (per-repo) instead of sweeping. It is **idempotent** — a
+re-run on an already-gone worktree is a no-op success (`already gone`), not an
+error — so a post-merge cleanup can re-run safely on redelivery. Like the sweep
+it leaves the **local branch** in place (deleting the branch is `remove`'s job)
+and folds in the stale admin-record prune:
+
+```sh
+aphrollo workspace prune aphrollo-web feat/kanban --dry   # "would prune: …"
+aphrollo workspace prune aphrollo-web feat/kanban         # "pruned: …"
+aphrollo workspace prune aphrollo-web feat/kanban         # "already gone: …" (re-run, still exit 0)
+```
+
+So `prune` with **no branch** performs the full merged-worktree sweep
+(auto-detecting which worktrees are merged); `prune <repo> <branch>` targets a
+single ticket's worktree. To remove a worktree **and** delete its local branch,
+use `remove <repo> <branch>`.
 
 ### Dev-tier control plane (`aphrollo dev`)
 
