@@ -619,7 +619,9 @@ Worktree lifecycle:
   unclaim [repo] [branch]   Repoint the dev tier back at the main clone + restart.
                             Inverse of claim (--dry).
   list <repo>               List the repo's git worktrees (read-only).
-  remove <repo> <branch>    Remove a prepared worktree (--dry).
+  remove <repo> <branch>    Remove a prepared worktree AND delete its local
+                            branch (--dry). Idempotent: an already-gone worktree
+                            or branch is a [skip], so re-running is a no-op.
   prune [repo]              Sweep the repo's worktrees and remove the merged ones:
                             a worktree goes only if its PR is MERGED, the tree is
                             CLEAN, and it is not the cwd. Others are skipped with a

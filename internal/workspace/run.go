@@ -130,15 +130,19 @@ func List(repo string) (string, error) {
 	return string(out), nil
 }
 
-// Removal is a single resolved `git worktree remove` command, kept dry-run
-// friendly: the caller prints Display, then calls Run on --apply.
+// Removal tears down a ticket's worktree AND its local branch, kept dry-run
+// friendly: the caller prints Display, then calls Run on --apply. Both steps are
+// idempotent — an already-gone worktree or branch is a [skip], not a failure —
+// so a cleanup path can re-run on redelivery without wedging.
 type Removal struct {
-	Display string
-	argv    []string
+	Display  string
+	top      string // main clone toplevel the worktree + branch belong to
+	worktree string // the linked worktree dir to remove
+	branch   string // the local branch to delete (original name, not the slug)
 }
 
-// RemovePlan resolves the worktree path for repo+branch and returns the removal
-// command without executing it.
+// RemovePlan resolves the worktree path + local branch for repo+branch and
+// returns the removal without executing it.
 func RemovePlan(repo, branch, into string) (*Removal, error) {
 	if repo == "" {
 		return nil, fmt.Errorf("repo path required")
@@ -161,16 +165,76 @@ func RemovePlan(repo, branch, into string) (*Removal, error) {
 	if cwd, err := os.Getwd(); err == nil && pathWithin(cwd, wt) {
 		return nil, fmt.Errorf("refusing to remove the worktree you're standing in — cd out first:\n  cd %s && aphrollo workspace remove %s", top, branch)
 	}
-	argv := []string{"git", "-C", top, "worktree", "remove", wt}
-	return &Removal{Display: shellJoin(argv), argv: argv}, nil
+	return &Removal{
+		Display:  fmt.Sprintf("git -C %s worktree remove %s && git -C %s branch -D %s", top, wt, top, branch),
+		top:      top,
+		worktree: wt,
+		branch:   branch,
+	}, nil
 }
 
-// Run executes the removal, streaming output.
+// Run removes the worktree and deletes the local branch, streaming a per-step
+// [removed]/[skip] receipt. Each step is idempotent: an already-gone worktree or
+// branch is reported as [skip] and is not an error, so re-running the same
+// removal (e.g. a redelivered cleanup) is a no-op success. A genuine failure
+// (e.g. a dirty worktree that git refuses to drop) is returned.
 func (r *Removal) Run(stdout, stderr io.Writer) error {
-	cmd := exec.Command(r.argv[0], r.argv[1:]...)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	return cmd.Run()
+	if err := r.removeWorktree(stdout); err != nil {
+		return err
+	}
+	// Drop any stale admin record left behind (the dir is gone but git may still
+	// list the worktree) before deleting the branch it pointed at.
+	_ = exec.Command("git", "-C", r.top, "worktree", "prune").Run()
+	return r.deleteBranch(stdout)
+}
+
+// removeWorktree drops the linked worktree, treating an already-absent tree as a
+// skip. git itself errors on a missing worktree, so absence is detected up front
+// (dir gone) and also recovered from git's "is not a working tree" message.
+func (r *Removal) removeWorktree(stdout io.Writer) error {
+	if _, err := os.Stat(r.worktree); os.IsNotExist(err) {
+		fmt.Fprintf(stdout, "[skip] worktree %s — already gone\n", r.worktree)
+		return nil
+	}
+	out, err := exec.Command("git", "-C", r.top, "worktree", "remove", r.worktree).CombinedOutput()
+	if err != nil {
+		if isNotAWorktree(string(out)) {
+			fmt.Fprintf(stdout, "[skip] worktree %s — already gone\n", r.worktree)
+			return nil
+		}
+		return fmt.Errorf("git worktree remove %s: %v\n%s", r.worktree, err, strings.TrimSpace(string(out)))
+	}
+	fmt.Fprintf(stdout, "[removed] worktree %s\n", r.worktree)
+	return nil
+}
+
+// deleteBranch removes the local branch, treating an already-absent branch as a
+// skip. The worktree no longer holds the branch (removed above), so -D never
+// fails on "checked out".
+func (r *Removal) deleteBranch(stdout io.Writer) error {
+	if !localBranchExists(r.top, r.branch) {
+		fmt.Fprintf(stdout, "[skip] branch %s — already gone\n", r.branch)
+		return nil
+	}
+	// "--" guards the branch name as a positional (defense in depth behind Slugify,
+	// which the branch passed at plan time).
+	out, err := exec.Command("git", "-C", r.top, "branch", "-D", "--", r.branch).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git branch -D %s: %v\n%s", r.branch, err, strings.TrimSpace(string(out)))
+	}
+	fmt.Fprintf(stdout, "[removed] branch %s\n", r.branch)
+	return nil
+}
+
+// localBranchExists reports whether repo has a local branch by this name.
+func localBranchExists(repo, branch string) bool {
+	return exec.Command("git", "-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch).Run() == nil
+}
+
+// isNotAWorktree reports whether git's output is the benign "the dir is not a
+// registered worktree" message (an absence) rather than a real removal failure.
+func isNotAWorktree(out string) bool {
+	return strings.Contains(out, "is not a working tree") || strings.Contains(out, "not a working tree")
 }
 
 // shellJoin renders argv for display, quoting only the args that need it. The
