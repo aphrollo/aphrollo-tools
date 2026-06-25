@@ -506,6 +506,110 @@ func TestRun_Workspace_Help_ListsNewVerbs(t *testing.T) {
 	}
 }
 
+// prunableWorktree builds a temp repo with one linked worktree at the default
+// layout (<parent>/.worktrees/<repo>/<slug>) and chdir's to the parent (outside
+// the worktree, so the cwd-guard never trips). Returns the repo, the worktree
+// path, and the branch checked out there.
+func prunableWorktree(t *testing.T) (repo, wt, branch string) {
+	t.Helper()
+	parent := t.TempDir()
+	repo = filepath.Join(parent, "myrepo")
+	branch = "feat/x"
+	run := func(dir string, args ...string) {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run(repo, "init", "-q", "-b", "main")
+	run(repo, "config", "user.email", "t@t")
+	run(repo, "config", "user.name", "t")
+	if err := os.WriteFile(filepath.Join(repo, "seed.txt"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(repo, "add", ".")
+	run(repo, "commit", "-qm", "seed")
+	wt = filepath.Join(parent, ".worktrees", "myrepo", "feat-x")
+	run(repo, "worktree", "add", "-q", "-b", branch, wt, "main")
+	wd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+	if err := os.Chdir(parent); err != nil {
+		t.Fatal(err)
+	}
+	return repo, wt, branch
+}
+
+// `workspace prune <repo> <branch>` removes that one ticket's worktree and is
+// safe to re-run: the second call (worktree already gone) is still exit 0 with an
+// "already gone" receipt, never an error.
+func TestRun_Workspace_Prune_Ticket_Idempotent(t *testing.T) {
+	repo, wt, branch := prunableWorktree(t)
+
+	var out, errb bytes.Buffer
+	if code := Run([]string{"workspace", "prune", repo, branch}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("prune exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Fatalf("prune should remove the ticket worktree, stat err = %v", err)
+	}
+	if !strings.Contains(out.String(), "pruned") {
+		t.Errorf("receipt should report the pruned worktree:\n%s", out.String())
+	}
+
+	var out2, errb2 bytes.Buffer
+	if code := Run([]string{"workspace", "prune", repo, branch}, strings.NewReader(""), &out2, &errb2); code != 0 {
+		t.Fatalf("idempotent re-run exit = %d, want 0\nstderr: %s", code, errb2.String())
+	}
+	if !strings.Contains(out2.String(), "already gone") {
+		t.Errorf("re-run should report the worktree already gone:\n%s", out2.String())
+	}
+}
+
+// `workspace prune <repo> <branch> --dry` previews without removing.
+func TestRun_Workspace_Prune_Ticket_DryDoesNotRemove(t *testing.T) {
+	repo, wt, branch := prunableWorktree(t)
+
+	var out, errb bytes.Buffer
+	if code := Run([]string{"workspace", "prune", repo, branch, "--dry"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("prune --dry exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("--dry must NOT remove the worktree: %v", err)
+	}
+	if !strings.Contains(out.String(), "would prune") {
+		t.Errorf("dry-run should preview the prune:\n%s", out.String())
+	}
+}
+
+// Too many positionals is a usage error naming both prune forms.
+func TestRun_Workspace_Prune_TooManyArgs(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := Run([]string{"workspace", "prune", "a", "b", "c"}, strings.NewReader(""), &out, &errb)
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(errb.String(), "prune") {
+		t.Fatalf("usage error should name prune:\n%s", errb.String())
+	}
+}
+
+// Help documents the per-ticket prune form and that submit is per-worktree (one
+// repo at a time) — the two contracts this ticket pins.
+func TestRun_Workspace_Help_DocumentsPerTicketPruneAndPerRepoSubmit(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"workspace", "help"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(out.String(), "prune <repo> <branch>") {
+		t.Errorf("help should document the per-ticket prune form:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "one repo at a time") {
+		t.Errorf("help should state submit is per-worktree (one repo at a time):\n%s", out.String())
+	}
+}
+
 func TestRun_Dev_NoSub_ShowsUsage(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := Run([]string{"dev"}, strings.NewReader(""), &out, &errb); code != 2 {
