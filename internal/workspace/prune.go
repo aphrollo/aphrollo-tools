@@ -5,8 +5,85 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
+
+// PruneTicket is the per-ticket, per-repo counterpart to the Prune sweep: given a
+// repo + branch it removes exactly that ONE ticket's worktree and is safe to
+// re-run — a worktree that is already gone is reported, not an error — so a
+// post-merge cleanup path can re-run on redelivery without wedging. Unlike the
+// `remove` verb it leaves the local branch alone (matching the sweep, which only
+// touches worktrees); deleting the branch stays `remove`'s explicit job. Like the
+// sweep it folds in `git worktree prune` so no stale admin record lingers.
+type PruneTicket struct {
+	top      string // main clone toplevel the worktree belongs to
+	worktree string // the linked worktree dir to remove
+	Force    bool   // remove even a dirty worktree
+}
+
+// PruneTicketPlan resolves repo+branch to a worktree path without executing,
+// refusing to target the worktree the caller is standing in (git's own error for
+// that is cryptic — surface a clear one first, matching RemovePlan's guard).
+func PruneTicketPlan(repo, branch, into string) (*PruneTicket, error) {
+	if repo == "" {
+		return nil, fmt.Errorf("repo path required")
+	}
+	slug, err := Slugify(branch)
+	if err != nil {
+		return nil, err
+	}
+	top, err := resolveMainRepo(repo)
+	if err != nil {
+		return nil, err
+	}
+	base := into
+	if base == "" {
+		base = DefaultWorktreeBase(top)
+	}
+	wt := filepath.Join(base, slug)
+	if cwd, err := os.Getwd(); err == nil && pathWithin(cwd, wt) {
+		return nil, fmt.Errorf("refusing to prune the worktree you're standing in — cd out first:\n  cd %s && aphrollo workspace prune %s %s", top, repo, branch)
+	}
+	return &PruneTicket{top: top, worktree: wt}, nil
+}
+
+// Run removes the ticket's worktree idempotently. apply=false previews. A
+// worktree that no longer exists is reported "already gone" with no error — the
+// idempotency guarantee — and still folds in `git worktree prune` so a stale
+// admin record left by an out-of-band removal is swept on that path too. git's
+// own "is not a working tree" message is treated the same way.
+func (p *PruneTicket) Run(apply bool, stdout, stderr io.Writer) error {
+	_, statErr := os.Stat(p.worktree)
+	gone := os.IsNotExist(statErr)
+
+	if !apply {
+		if gone {
+			fmt.Fprintf(stdout, "already gone: %s\n", p.worktree)
+		} else {
+			fmt.Fprintf(stdout, "would prune: %s\nrun again without --dry to execute.\n", p.worktree)
+		}
+		return nil
+	}
+
+	if gone {
+		// Idempotent: nothing to remove. Sweep any stale admin record git may still
+		// list for the now-absent dir.
+		_ = exec.Command("git", "-C", p.top, "worktree", "prune").Run()
+		fmt.Fprintf(stdout, "already gone: %s\n", p.worktree)
+		return nil
+	}
+
+	if err := removeWorktree(p.top, p.worktree, p.Force); err != nil {
+		if isNotAWorktree(err.Error()) {
+			fmt.Fprintf(stdout, "already gone: %s\n", p.worktree)
+			return nil
+		}
+		return err
+	}
+	fmt.Fprintf(stdout, "pruned: %s\n", p.worktree)
+	return nil
+}
 
 // Prune sweeps a repo's worktrees and removes the ones whose work is finished —
 // a worktree is removed ONLY when ALL hold: its PR is MERGED, the tree is CLEAN
