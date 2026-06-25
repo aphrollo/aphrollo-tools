@@ -40,12 +40,15 @@ func Render(p *Plan, apply bool) string {
 		}
 	}
 	if !apply {
-		if p.StartPoint != "" {
-			if p.BranchExists {
-				fmt.Fprintf(&b, "\nbase: existing branch %s; fetch refreshes %s (rebase target if behind).\n", p.Branch, p.StartPoint)
-			} else {
-				fmt.Fprintf(&b, "\nbase: %s — the new branch starts here, after the fetch.\n", p.StartPoint)
-			}
+		switch {
+		case p.RemoteBranchExists:
+			fmt.Fprintf(&b, "\nbase: origin/%s — local branch tracks the remote tip (prior work preserved), after the fetch.\n", p.Branch)
+		case p.StartPoint == "":
+			// nothing to annotate (offline / no remote — falls back to local HEAD)
+		case p.BranchExists:
+			fmt.Fprintf(&b, "\nbase: existing branch %s; fetch refreshes %s (rebase target if behind).\n", p.Branch, p.StartPoint)
+		default:
+			fmt.Fprintf(&b, "\nbase: %s — the new branch starts here, after the fetch.\n", p.StartPoint)
 		}
 		fmt.Fprintf(&b, "\nrun again without --dry to execute.\n")
 	}

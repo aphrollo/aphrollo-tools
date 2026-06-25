@@ -109,6 +109,81 @@ func TestPrepare_NewBranchBasesOnFreshOriginNotStaleLocal(t *testing.T) {
 	}
 }
 
+// TestPrepare_RemoteOnlyBranchTracksOriginNotForkedFromDefault is the core
+// regression: a branch exists on the remote but NOT in the local clone (e.g.
+// re-dispatching a coder onto an existing ticket's PR branch in a fresh /
+// one-shot / stale clone). prepare must create a local branch TRACKING
+// origin/<branch> off the remote tip — never a fresh branch forked off
+// origin/<default>, which would silently drop the prior PR work.
+//
+// The branch is pushed to upstream AFTER the clone, so origin/<branch> is not in
+// the clone's local refs when BuildPlan composes the plan — proving detection
+// survives the build-up-front / fetch-at-apply ordering.
+func TestPrepare_RemoteOnlyBranchTracksOriginNotForkedFromDefault(t *testing.T) {
+	isolateGit(t)
+	up := upstreamRepo(t, "main")
+	local := cloneOf(t, up)
+	defaultTip := gitOK(t, local, "rev-parse", "HEAD")
+
+	// Create the PR branch on the remote with a commit the clone has never seen.
+	gitOK(t, up, "checkout", "-q", "-b", "feat/remote")
+	remoteTip := advance(t, up, "remote.go", "B")
+	gitOK(t, up, "checkout", "-q", "main")
+	if remoteTip == defaultTip {
+		t.Fatal("fixture: remote branch did not advance past default")
+	}
+	// The clone has no local ref for the remote-only branch — not as a local
+	// branch, and not even as a remote-tracking ref yet (no fetch since push).
+	if gitBranchExists(local, "feat/remote") {
+		t.Fatal("fixture: feat/remote must not exist locally")
+	}
+	if gitRefExists(local, "origin/feat/remote") {
+		t.Fatal("fixture: origin/feat/remote must not be in local refs pre-fetch")
+	}
+
+	plan, err := BuildPlan(Request{Repo: local, Branch: "feat/remote", NoInstall: true})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	if plan.BranchExists {
+		t.Fatal("BranchExists should be false for a remote-only branch")
+	}
+	if !plan.RemoteBranchExists {
+		t.Fatal("RemoteBranchExists should be true — ls-remote sees origin/feat/remote")
+	}
+	var addCmd []string
+	for _, s := range plan.Steps {
+		if s.Title == "create worktree" {
+			addCmd = s.Cmd
+		}
+	}
+	joined := strings.Join(addCmd, " ")
+	if !strings.Contains(joined, "--track") || !strings.Contains(joined, "origin/feat/remote") {
+		t.Errorf("worktree add must --track origin/feat/remote, got: %v", addCmd)
+	}
+	if strings.Contains(joined, "origin/main") {
+		t.Errorf("remote-only branch must NOT fork off origin/main: %v", addCmd)
+	}
+
+	var out, errb bytes.Buffer
+	if err := Apply(plan, &out, &errb); err != nil {
+		t.Fatalf("Apply: %v\nstdout:%s\nstderr:%s", err, out.String(), errb.String())
+	}
+
+	// Worktree HEAD is the remote branch tip, not the default-branch tip.
+	wtHEAD := gitOK(t, plan.Worktree, "rev-parse", "HEAD")
+	if wtHEAD == defaultTip {
+		t.Fatalf("worktree forked off default %s — prior PR work dropped", defaultTip)
+	}
+	if wtHEAD != remoteTip {
+		t.Fatalf("worktree HEAD %s; want origin/feat/remote tip %s", wtHEAD, remoteTip)
+	}
+	// The local branch tracks origin/feat/remote.
+	if up := gitOK(t, plan.Worktree, "rev-parse", "--abbrev-ref", "feat/remote@{upstream}"); up != "origin/feat/remote" {
+		t.Errorf("local branch upstream = %q, want origin/feat/remote", up)
+	}
+}
+
 // TestPrepare_NonMainDefaultBranchResolves proves the default branch is read
 // from origin/HEAD, not hardcoded to "main".
 func TestPrepare_NonMainDefaultBranchResolves(t *testing.T) {
