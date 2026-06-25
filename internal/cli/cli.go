@@ -610,6 +610,9 @@ Core coder flow (create · commit · push · submit), all from the worktree's cw
                             the draft PR to in-review and set the PR body to the
                             summary (the in_progress → review handoff). CI red or
                             pending: not flipped, non-zero, re-callable (--dry).
+                            Per-worktree, one repo at a time: acts on the cwd
+                            worktree's PR — there is no ticket-level submit.
+                            push/ship opened that draft; submit flips it to ready.
 
 Worktree lifecycle:
   claim <repo> <branch>     Put a prepared worktree on the dev tier so it is
@@ -628,6 +631,12 @@ Worktree lifecycle:
                             reason (open PR / no PR / dirty / current). Folds in the
                             stale admin-record prune (--dry lists; --force removes a
                             dirty merged tree too).
+  prune <repo> <branch>    Per-ticket form: remove exactly that one ticket's
+                            worktree. Idempotent — re-running on an already-gone
+                            worktree is a no-op success ("already gone"), so a
+                            post-merge cleanup can re-run safely. Leaves the local
+                            branch in place (that is the remove verb's job).
+                            (--dry; --force).
 
 Operator / outside-use verbs (pass [repo] [branch] to target a worktree):
   update                    Rebase the cwd worktree onto origin/<default> and, on a
@@ -1120,21 +1129,39 @@ func runWorkspacePrune(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("prune", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dry := fs.Bool("dry", false, "print the plan and stop (default: execute)")
-	force := fs.Bool("force", false, "remove even a dirty merged worktree")
+	force := fs.Bool("force", false, "remove even a dirty worktree")
+	into := fs.String("into", "", "base dir for worktrees (default: <repo-parent>/.worktrees/<repo-name>)")
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
 		return 2
 	}
-	repo := ""
 	switch len(pos) {
 	case 0:
+		return pruneSweep("", !*dry, *force, stdout, stderr)
 	case 1:
-		repo = pos[0]
+		return pruneSweep(pos[0], !*dry, *force, stdout, stderr)
+	case 2:
+		return pruneTicket(pos[0], pos[1], *into, !*dry, *force, stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, "aphrollo: usage: workspace prune [repo]")
+		fmt.Fprintln(stderr, "aphrollo: usage: workspace prune [repo] | workspace prune <repo> <branch>")
 		return 2
 	}
-	return pruneSweep(repo, !*dry, *force, stdout, stderr)
+}
+
+// pruneTicket resolves repo+branch and idempotently removes that one ticket's
+// worktree (safe to re-run: an already-gone worktree is a no-op success).
+func pruneTicket(repo, branch, into string, apply, force bool, stdout, stderr io.Writer) int {
+	p, err := workspace.PruneTicketPlan(repo, branch, into)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	p.Force = force
+	if err := p.Run(apply, stdout, stderr); err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 // pruneSweep resolves the repo and runs the merged-worktree sweep for `prune`.

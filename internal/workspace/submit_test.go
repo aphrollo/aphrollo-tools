@@ -99,6 +99,49 @@ func TestSubmit_GreenFlipsAndSetsBody(t *testing.T) {
 	}
 }
 
+// Submit is per-worktree: it acts on exactly the Target's worktree+branch, one
+// repo at a time. There is no ticket-level / multi-repo submit — push, the PR
+// read, the CI read, the ready flip and the body edit ALL run against that single
+// worktree. This pins the contract so a future change can't silently widen
+// submit's scope past one worktree.
+func TestSubmit_ActsOnExactlyOneWorktree(t *testing.T) {
+	repo := pushedRepo(t)
+	tgt := targetFor(repo, "feat/y")
+
+	type call struct{ wt, branch string }
+	var seen []call
+	record := func(wt, branch string) { seen = append(seen, call{wt, branch}) }
+
+	stubGH(t,
+		func(wt, branch string) (*PRInfo, error) {
+			record(wt, branch)
+			return &PRInfo{Number: 7, URL: "https://github.com/o/r/pull/7", State: "OPEN", IsDraft: true}, nil
+		},
+		func(wt string, req PRCreate) (*PRInfo, error) { t.Fatal("submit must not open a PR"); return nil, nil },
+	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) { record(wt, branch); return CIStatus{State: "green"}, nil })
+	stubReady(t, func(wt, branch string) error { record(wt, branch); return nil })
+	stubBody(t, func(wt, branch, body string) error { record(wt, branch); return nil })
+
+	s, err := SubmitPlan(tgt, "summary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if err := s.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
+	}
+	if len(seen) == 0 {
+		t.Fatal("submit made no gh calls; expected at least the view/ci/ready/body seams")
+	}
+	for _, c := range seen {
+		if c.wt != tgt.Worktree || c.branch != tgt.Branch {
+			t.Errorf("submit touched %+v, want only the target worktree %q / branch %q",
+				c, tgt.Worktree, tgt.Branch)
+		}
+	}
+}
+
 // After a SUCCESSFUL flip, a failing body edit is best-effort: submit still
 // succeeds (the PR is in review; the body is cosmetic) and prints a warning.
 func TestSubmit_FlipOKBodyFailsStillSucceeds(t *testing.T) {
