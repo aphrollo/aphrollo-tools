@@ -210,9 +210,13 @@ func TestSubmit_DryDoesNotMutate(t *testing.T) {
 	}
 }
 
-// On RED CI, submit does NOT flip, exits non-zero, and prints the blocked
-// receipt naming the failing count. Re-callable.
-func TestSubmit_RedBlocksAndDoesNotFlip(t *testing.T) {
+// The handoff is ONE-SHOT: on RED CI, submit STILL flips the draft ready (the
+// coder signals "done" exactly once), exits zero, and the receipt names the
+// failing count + tells the coder to push a fix. CI red is repaired by a
+// follow-up `push` to the same PR, which stays ready — no re-submit. The server
+// AllOpenGreen gate holds the reviewer until CI is actually green, so flipping on
+// red never arms review prematurely.
+func TestSubmit_RedFlipsAndWarnsPushAFix(t *testing.T) {
 	repo := pushedRepo(t)
 	stubGH(t,
 		func(wt, branch string) (*PRInfo, error) {
@@ -220,25 +224,31 @@ func TestSubmit_RedBlocksAndDoesNotFlip(t *testing.T) {
 		},
 		func(wt string, req PRCreate) (*PRInfo, error) { return nil, nil },
 	)
-	stubReady(t, func(wt, branch string) error { t.Fatal("red CI must NOT flip the PR ready"); return nil })
+	flipped := false
+	stubReady(t, func(wt, branch string) error { flipped = true; return nil })
 	stubBody(t, func(wt, branch, body string) error { return nil })
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "red", Failing: 2}, nil })
 
 	s, _ := SubmitPlan(targetFor(repo, "feat/y"), "summary")
 	var out, errb bytes.Buffer
-	err := s.Apply(&out, &errb)
-	if err == nil {
-		t.Fatal("red CI submit must return a non-nil error so the verb exits non-zero")
+	if err := s.Apply(&out, &errb); err != nil {
+		t.Fatalf("red CI submit must still hand off (exit zero): %v\n%s", err, errb.String())
+	}
+	if !flipped {
+		t.Error("the handoff flip must happen once, even on red CI")
 	}
 	o := out.String()
-	if !strings.Contains(o, "blocked") || !strings.Contains(o, "CI red") {
-		t.Errorf("receipt should report blocked + CI red:\n%s", o)
+	if !strings.Contains(o, "submitted PR #42") || !strings.Contains(o, "draft -> in review") {
+		t.Errorf("receipt should report the handoff flip:\n%s", o)
 	}
-	if !strings.Contains(o, "2 failing") {
-		t.Errorf("receipt should name the failing count:\n%s", o)
+	if !strings.Contains(o, "ci red") || !strings.Contains(o, "2 failing") {
+		t.Errorf("receipt should name ci red + the failing count:\n%s", o)
 	}
-	if !strings.Contains(o, "NOT marked ready") {
-		t.Errorf("receipt should say NOT marked ready:\n%s", o)
+	if !strings.Contains(o, "push a fix") {
+		t.Errorf("receipt should tell the coder to push a fix:\n%s", o)
+	}
+	if !strings.Contains(o, "review arms when green") {
+		t.Errorf("receipt should note review arms when green:\n%s", o)
 	}
 }
 
