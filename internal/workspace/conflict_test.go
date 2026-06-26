@@ -104,9 +104,12 @@ func TestViewPRMergeable_StaysUnknown(t *testing.T) {
 	}
 }
 
-// A CONFLICTING branch hard-blocks submit: no flip, non-zero exit, a receipt
-// naming the conflicts and the rebase/resolve fix.
-func TestSubmit_ConflictingBlocksAndDoesNotFlip(t *testing.T) {
+// The handoff is ONE-SHOT: a CONFLICTING branch STILL flips ready (the coder
+// signals "done" once), exits zero, and the receipt names the conflict + the
+// rebase fix. A conflicted branch can't compute a merge ref, so its CI never
+// greens and the server AllOpenGreen gate never arms the reviewer until the coder
+// rebases + pushes — so flipping early is safe and avoids the re-submit strand.
+func TestSubmit_ConflictingFlipsAndWarnsRebase(t *testing.T) {
 	for _, field := range []string{"mergeable", "mergeState"} {
 		t.Run(field, func(t *testing.T) {
 			repo := pushedRepo(t)
@@ -120,36 +123,37 @@ func TestSubmit_ConflictingBlocksAndDoesNotFlip(t *testing.T) {
 				func(wt, branch string) (*PRInfo, error) { return info, nil },
 				func(wt string, req PRCreate) (*PRInfo, error) { return nil, nil },
 			)
-			stubReady(t, func(wt, branch string) error { t.Fatal("a conflicted branch must NOT be flipped ready"); return nil })
+			flipped := false
+			stubReady(t, func(wt, branch string) error { flipped = true; return nil })
 			stubBody(t, func(wt, branch, body string) error { return nil })
-			// CI is pending on a conflicted branch (checks never start) — submit must
-			// still report conflicts, not "CI pending".
 			stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "pending"}, nil })
 
 			s, _ := SubmitPlan(targetFor(repo, "feat/y"), "summary")
 			var out, errb bytes.Buffer
-			if err := s.Apply(&out, &errb); err == nil {
-				t.Fatal("a conflicted branch must return a non-nil error so submit exits non-zero")
+			if err := s.Apply(&out, &errb); err != nil {
+				t.Fatalf("a conflicted branch must still hand off (exit zero): %v\n%s", err, errb.String())
+			}
+			if !flipped {
+				t.Error("the handoff flip must happen once, even on a conflicted branch")
 			}
 			o := out.String()
-			if !strings.Contains(o, "blocked") || !strings.Contains(o, "merge conflicts") {
-				t.Errorf("receipt should report blocked + merge conflicts:\n%s", o)
+			if !strings.Contains(o, "submitted PR #42") || !strings.Contains(o, "draft -> in review") {
+				t.Errorf("receipt should report the handoff flip:\n%s", o)
 			}
-			if !strings.Contains(o, "NOT marked ready") {
-				t.Errorf("receipt should say NOT marked ready:\n%s", o)
+			if !strings.Contains(o, "merge conflict") || !strings.Contains(o, "rebase") {
+				t.Errorf("receipt should name the conflict + rebase fix:\n%s", o)
 			}
-			if !strings.Contains(o, "rebase") || !strings.Contains(o, "re-run submit") {
-				t.Errorf("receipt should name the rebase/resolve fix:\n%s", o)
-			}
-			if strings.Contains(o, "CI pending") || strings.Contains(o, "held") {
-				t.Errorf("a conflicted branch must report conflicts, not CI pending/held:\n%s", o)
+			// A conflict overrides the CI line: report the conflict, not "ci pending".
+			if strings.Contains(o, "ci pending") {
+				t.Errorf("a conflicted branch must report the conflict, not ci pending:\n%s", o)
 			}
 		})
 	}
 }
 
-// UNKNOWN-then-CONFLICTING resolves via the bounded poll and still blocks.
-func TestSubmit_UnknownThenConflictingBlocks(t *testing.T) {
+// UNKNOWN-then-CONFLICTING resolves via the bounded poll and still hands off
+// (flip once) with the conflict warning.
+func TestSubmit_UnknownThenConflictingFlipsAndWarns(t *testing.T) {
 	fastMergeablePoll(t)
 	repo := pushedRepo(t)
 	calls := 0
@@ -164,17 +168,21 @@ func TestSubmit_UnknownThenConflictingBlocks(t *testing.T) {
 		},
 		func(wt string, req PRCreate) (*PRInfo, error) { return nil, nil },
 	)
-	stubReady(t, func(wt, branch string) error { t.Fatal("a conflicted branch must NOT be flipped ready"); return nil })
+	flipped := false
+	stubReady(t, func(wt, branch string) error { flipped = true; return nil })
 	stubBody(t, func(wt, branch, body string) error { return nil })
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "pending"}, nil })
 
 	s, _ := SubmitPlan(targetFor(repo, "feat/y"), "summary")
 	var out, errb bytes.Buffer
-	if err := s.Apply(&out, &errb); err == nil {
-		t.Fatal("UNKNOWN-then-CONFLICTING must block")
+	if err := s.Apply(&out, &errb); err != nil {
+		t.Fatalf("UNKNOWN-then-CONFLICTING must still hand off: %v\n%s", err, errb.String())
 	}
-	if !strings.Contains(out.String(), "merge conflicts") {
-		t.Errorf("receipt should report merge conflicts after the poll resolved:\n%s", out.String())
+	if !flipped {
+		t.Error("the handoff flip must happen once after the poll resolved conflicting")
+	}
+	if !strings.Contains(out.String(), "merge conflict") {
+		t.Errorf("receipt should report the conflict after the poll resolved:\n%s", out.String())
 	}
 }
 
