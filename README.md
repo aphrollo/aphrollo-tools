@@ -407,6 +407,38 @@ aphrollo workspace update --dry          # "behind origin/main by N; would rebas
   `resolve, then: git rebase --continue` (or `git rebase --abort` to back out),
   and the verb exits non-zero. cwd-only.
 
+### Catch the base clone up after a merge (sync)
+
+`sync <repo>` brings a base clone's **local default branch** up to the remote
+tip. `create`/`prepare` cut fresh worktrees from `origin/<default>` (post-fetch),
+but the canonical clone's own checked-out default branch never refreshes — it
+drifts further behind on every merge. `sync` is the non-destructive "catch the
+clone up to origin" primitive (the post-merge cleanup path calls it):
+
+```sh
+aphrollo workspace sync aphrollo-web      # fetch → fast-forward local <default>
+# fast-forwarded main to origin/main (3 commit(s))
+
+aphrollo workspace sync aphrollo-web      # idempotent: re-running is a no-op
+# main already current with origin/main [skip]
+
+aphrollo workspace sync aphrollo-web --dry   # "would fast-forward main to origin/main (N behind)"
+```
+
+- It runs `git fetch origin` (an offline / remote-less repo is a **non-fatal
+  warning** — refreshing `origin/<default>` is the minimum win), then resolves
+  the default branch (never hardcoded) and **fast-forwards it — strict FF only**:
+  - HEAD **is** the default branch and the worktree is **clean** → `git merge
+    --ff-only origin/<default>`;
+  - the default branch is **not** the checked-out one → advance its ref with
+    `git update-ref` (no checkout, so a sibling worktree's files are untouched).
+- It **never** `reset --hard`s, forces, touches a dirty worktree, or moves the
+  branch when it has **diverged** (local commits ahead). A dirty or diverged
+  clone is **left untouched** with a clear reason and **exit 0** (best-effort).
+  The fetch still happens in that case. Only the default branch is synced —
+  ticket branches and other worktrees are left alone. `--dry` previews and
+  mutates nothing.
+
 ### Close the loop — merge / prune
 
 After review, `merge` lands the branch's PR and `prune` sweeps the merged

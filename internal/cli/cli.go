@@ -643,6 +643,11 @@ Operator / outside-use verbs (pass [repo] [branch] to target a worktree):
                             clean rebase, force-push (with lease) to refresh the PR.
                             Conflict: left in progress, non-zero, with resolve hints.
                             cwd-only (--dry reports the behind-count).
+  sync <repo>               Fetch + fast-forward the base clone's LOCAL default
+                            branch to origin/<default> — the non-destructive
+                            "catch the clone up after a merge" primitive. Strict
+                            FF only: a dirty or diverged clone is left untouched,
+                            exit 0 with the reason. Idempotent (--dry previews).
   diff                      Print the branch's PR diff vs origin/<default>
                             (read-only; --stat for the diffstat).
   verify                    Run the affected app's {test, typecheck, lint} trio —
@@ -702,6 +707,8 @@ func runWorkspace(args []string, stdout, stderr io.Writer) int {
 		return runWorkspaceDiff(args[1:], stdout, stderr)
 	case "update":
 		return runWorkspaceUpdate(args[1:], stdout, stderr)
+	case "sync":
+		return runWorkspaceSync(args[1:], stdout, stderr)
 	case "verify":
 		return runWorkspaceVerify(args[1:], stdout, stderr)
 	case "merge":
@@ -773,6 +780,29 @@ func runWorkspaceUpdate(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if err := workspace.Update(t, *dry, stdout, stderr); err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// runWorkspaceSync fast-forwards a base clone's LOCAL default branch to the
+// remote tip after a merge — the non-destructive "catch the clone up to origin"
+// primitive. Takes an explicit <repo>. --dry previews the fetch + fast-forward
+// without mutating the local branch.
+func runWorkspaceSync(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dry := fs.Bool("dry", false, "preview the fetch + fast-forward and stop (default: execute)")
+	pos, err := parseFlagsAnywhere(fs, args)
+	if err != nil {
+		return 2
+	}
+	if len(pos) != 1 {
+		fmt.Fprintln(stderr, "aphrollo: usage: workspace sync <repo>")
+		return 2
+	}
+	if err := workspace.Sync(pos[0], *dry, stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
