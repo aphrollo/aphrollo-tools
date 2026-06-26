@@ -30,12 +30,16 @@ var ghEditPRBody = func(wt, branch, body string) error {
 	return nil
 }
 
-// Submit is the CI-guarded handoff that moves a card in_progress -> review. It
+// Submit is the one-shot handoff that moves a card in_progress -> review. It
 // pushes (idempotent), reads the branch PR's CI state INSIDE the verb (the only
-// gh check-state read, so the caller needs no extra call), and ONLY on green
-// flips the draft PR to ready and sets the PR body to the summary. On red or
-// pending it does NOT flip, prints a blocked/held receipt, and exits non-zero —
-// re-callable, idempotent. It replaces the old `ready` verb (kept as a hidden
+// gh check-state read, so the caller needs no extra call), and flips the draft PR
+// to ready + sets the PR body to the summary. The flip is the handoff: it happens
+// on green AND while CI is still pending, because the server-side AllOpenGreen
+// gate (ci_state=success) is what actually holds review until CI passes — holding
+// the draft here instead stranded tickets, since the coder's turn ends before it
+// can re-run submit once CI greens. Only RED CI (or a merge conflict) blocks the
+// flip: known-broken work is not handed off while the coder is live to fix it.
+// Re-callable, idempotent. It replaces the old `ready` verb (kept as a hidden
 // alias).
 type Submit struct {
 	Target  *Target
@@ -60,10 +64,11 @@ func SubmitPlan(t *Target, summary string) (*Submit, error) {
 // green CI and won't run here.
 func (s *Submit) Render(apply bool) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "workspace submit: %s -> review (CI-guarded)  (cwd %s)\n", s.Target.Branch, s.Target.Worktree)
+	fmt.Fprintf(&b, "workspace submit: %s -> review  (cwd %s)\n", s.Target.Branch, s.Target.Worktree)
 	if !apply {
-		fmt.Fprintf(&b, "  push (idempotent), then flip the draft PR to in-review ONLY if CI is green\n")
-		fmt.Fprintf(&b, "  CI red or pending: not flipped, exits non-zero, re-callable\n")
+		fmt.Fprintf(&b, "  push (idempotent), then flip the draft PR to in-review (the handoff)\n")
+		fmt.Fprintf(&b, "  CI still pending is fine — review arms server-side once CI is green\n")
+		fmt.Fprintf(&b, "  CI red or a merge conflict: not flipped, exits non-zero, re-callable\n")
 		fmt.Fprintf(&b, "\nrun again without --dry to submit.\n")
 	}
 	return b.String()
@@ -120,24 +125,24 @@ func (s *Submit) Apply(stdout, stderr io.Writer) error {
 	if mergeUnknown(info) {
 		fmt.Fprintf(stdout, "mergeable: unknown — re-run to recheck\n")
 	}
-	switch ci.State {
-	case "red":
+	// Red is the ONLY state that blocks the handoff: known-broken work must not be
+	// handed off, and the coder is still live to push a fix. Pending/none/green all
+	// hand off — the flip is the meaningful one-shot handoff. Holding the draft on
+	// PENDING was the strand bug: the coder ends its turn before it can re-run submit
+	// when CI greens, leaving the PR draft forever. The platform's server-side
+	// AllOpenGreen gate (ci_state=success) holds review until CI is actually green,
+	// so a flip-while-pending never arms review prematurely.
+	if ci.State == "red" {
 		fmt.Fprintf(stdout, "blocked: CI red (%d failing), NOT marked ready\n", ci.Failing)
-		fmt.Fprintf(stdout, "  PR #%d %s  (re-run submit when CI is green)\n", info.Number, info.URL)
+		fmt.Fprintf(stdout, "  PR #%d %s  (push a fix — CI must be green before review arms)\n", info.Number, info.URL)
 		return fmt.Errorf("CI red — %d failing check(s); not submitted", ci.Failing)
-	case "green":
-		// fall through to the handoff
-	default: // pending | none
-		fmt.Fprintf(stdout, "held: CI %s, NOT marked ready yet\n", ci.State)
-		fmt.Fprintf(stdout, "  PR #%d %s  (re-run submit when CI is green)\n", info.Number, info.URL)
-		return fmt.Errorf("CI %s — not submitted yet", ci.State)
 	}
 
-	// Green. If the PR is already ready, this is an idempotent re-run: report the
-	// honest [skip] receipt without re-flipping or touching the body.
+	// If the PR is already ready, this is an idempotent re-run: report the honest
+	// [skip] receipt without re-flipping or touching the body.
 	if !info.IsDraft {
 		fmt.Fprintf(stdout, "already in review [skip]  PR #%d %s\n", info.Number, info.URL)
-		s.receiptTail(stdout, info, newCommits)
+		s.receiptTail(stdout, info, newCommits, ci.State)
 		return nil
 	}
 
@@ -158,19 +163,26 @@ func (s *Submit) Apply(stdout, stderr io.Writer) error {
 
 	// Stateful receipt: never surfaces the literal ready_for_review.
 	fmt.Fprintf(stdout, "submitted PR #%d  draft -> in review\n", info.Number)
-	s.receiptTail(stdout, info, newCommits)
+	s.receiptTail(stdout, info, newCommits, ci.State)
 	return nil
 }
 
 // receiptTail prints the shared post-state lines for both the flipped and the
 // already-ready paths: sync state, ci, handoff, url, and the relay pr-* lines.
-func (s *Submit) receiptTail(stdout io.Writer, info *PRInfo, newCommits string) {
+// ciState is honest about whether CI has actually passed: a handoff while CI is
+// still pending says so and notes review arms once it greens (the server-side
+// AllOpenGreen gate, not this verb, is what holds review).
+func (s *Submit) receiptTail(stdout io.Writer, info *PRInfo, newCommits, ciState string) {
 	if newCommits != "" && newCommits != "0" {
 		fmt.Fprintf(stdout, "  pushed %s new commit(s)\n", newCommits)
 	} else {
 		fmt.Fprintf(stdout, "  already in sync\n")
 	}
-	fmt.Fprintf(stdout, "  ci green\n")
+	if ciState == "green" {
+		fmt.Fprintf(stdout, "  ci green\n")
+	} else {
+		fmt.Fprintf(stdout, "  ci %s — review arms when green\n", ciState)
+	}
 	fmt.Fprintf(stdout, "  handoff in_progress -> review\n")
 	fmt.Fprintf(stdout, "  %s\n", info.URL)
 	reportPRState(stdout, info)

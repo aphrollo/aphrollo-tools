@@ -242,8 +242,12 @@ func TestSubmit_RedBlocksAndDoesNotFlip(t *testing.T) {
 	}
 }
 
-// On PENDING CI, submit holds: not flipped, non-zero, held receipt. Re-callable.
-func TestSubmit_PendingHoldsAndDoesNotFlip(t *testing.T) {
+// On PENDING CI, submit HANDS OFF: it flips the draft PR ready, sets the body,
+// reports the handoff, and exits zero. CI is still running, but holding the draft
+// here strands the ticket — the coder ends its turn before it can re-run submit
+// once CI greens. The platform's server-side AllOpenGreen gate holds review until
+// ci_state=success, so a flip-while-pending does not arm review prematurely.
+func TestSubmit_PendingFlipsAndHandsOff(t *testing.T) {
 	repo := pushedRepo(t)
 	stubGH(t,
 		func(wt, branch string) (*PRInfo, error) {
@@ -251,18 +255,37 @@ func TestSubmit_PendingHoldsAndDoesNotFlip(t *testing.T) {
 		},
 		func(wt string, req PRCreate) (*PRInfo, error) { return nil, nil },
 	)
-	stubReady(t, func(wt, branch string) error { t.Fatal("pending CI must NOT flip the PR ready"); return nil })
-	stubBody(t, func(wt, branch, body string) error { return nil })
+	flipped := false
+	stubReady(t, func(wt, branch string) error { flipped = true; return nil })
+	var gotBody string
+	stubBody(t, func(wt, branch, body string) error { gotBody = body; return nil })
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "pending"}, nil })
 
-	s, _ := SubmitPlan(targetFor(repo, "feat/y"), "summary")
+	s, _ := SubmitPlan(targetFor(repo, "feat/y"), "interop summary")
 	var out, errb bytes.Buffer
-	if err := s.Apply(&out, &errb); err == nil {
-		t.Fatal("pending CI submit must return a non-nil error")
+	if err := s.Apply(&out, &errb); err != nil {
+		t.Fatalf("pending CI submit must hand off (exit zero), got: %v\n%s", err, errb.String())
+	}
+	if !flipped {
+		t.Error("pending CI must still flip the draft PR ready — holding strands the ticket")
+	}
+	if gotBody != "interop summary" {
+		t.Errorf("PR body = %q, want the summary", gotBody)
 	}
 	o := out.String()
-	if !strings.Contains(o, "held") || !strings.Contains(o, "NOT marked ready yet") {
-		t.Errorf("receipt should report held + NOT marked ready yet:\n%s", o)
+	if !strings.Contains(o, "submitted PR #42") || !strings.Contains(o, "draft -> in review") {
+		t.Errorf("receipt should report the handoff flip:\n%s", o)
+	}
+	if !strings.Contains(o, "handoff in_progress -> review") {
+		t.Errorf("receipt missing handoff line:\n%s", o)
+	}
+	// The receipt must be honest that CI is still running (not claim green) and that
+	// review arms once it passes.
+	if !strings.Contains(o, "ci pending") || !strings.Contains(o, "review arms when green") {
+		t.Errorf("pending receipt should say 'ci pending' + 'review arms when green':\n%s", o)
+	}
+	if strings.Contains(o, "ci green") {
+		t.Errorf("a pending submit must NOT claim ci green:\n%s", o)
 	}
 }
 
