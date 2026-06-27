@@ -88,7 +88,37 @@ func maskTokens(src string, blankStrings, blankComments, hashComment bool) strin
 			for ; i < n && b[i] != '\n'; i++ {
 				blank(blankComments, i)
 			}
+		case '\\':
+			// Zig multiline string literal: a `\\` token at line start (after
+			// optional leading whitespace) begins a RAW string that runs to
+			// end-of-line. It is not a delimited string, so without this an
+			// inside-string smell token stays visible and can trip a false
+			// edit-time block. No escapes (Zig multiline strings are raw); each
+			// consecutive `\\` line is re-matched per line at its own line start.
+			// A `\\` escape inside a "..."/'...' string never reaches here — the
+			// string branch consumes it first — so this cannot fire on escapes.
+			if i+1 < n && b[i+1] == '\\' && lineLeadingWhitespace(b, i) {
+				for ; i < n && b[i] != '\n'; i++ {
+					blank(blankStrings, i)
+				}
+			}
 		}
 	}
 	return string(b)
+}
+
+// lineLeadingWhitespace reports whether every byte from the start of the current
+// line up to (not including) i is ASCII whitespace — i.e. i is the first
+// non-whitespace byte on its line. Used to anchor Zig's `\\` multiline-string
+// opener to line start so a stray `\\` elsewhere is not treated as one.
+func lineLeadingWhitespace(b []byte, i int) bool {
+	for j := i - 1; j >= 0; j-- {
+		if b[j] == '\n' {
+			return true
+		}
+		if b[j] != ' ' && b[j] != '\t' {
+			return false
+		}
+	}
+	return true
 }
