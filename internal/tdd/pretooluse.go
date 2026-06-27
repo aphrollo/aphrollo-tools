@@ -47,10 +47,48 @@ func DecidePreEdit(raw []byte) (Decision, error) {
 	case Test:
 		return evaluate(newContent(in), testPolicies, editPhase, langOf(path)), nil
 	case Source:
-		return evaluate(newContent(in), sourcePolicies, editPhase, langOf(path)), nil
+		return evaluateSource(newContent(in), path, editPhase), nil
 	default:
 		return Decision{Action: Allow}, nil
 	}
+}
+
+// evaluateSource gates a Source-file edit. For most languages a source edit runs
+// the suppressions only (oracle smells have no meaning outside test code). Zig is
+// the exception: its tests live as inline `test "..." {}` blocks in ordinary
+// src/*.zig files, so the oracle smells must reach those blocks WITHOUT gating
+// the surrounding production code — a real std.time.sleep in a production
+// function must still flow. So for a .zig file the smells are evaluated only over
+// the inline-test line ranges (extracted block-scoped), while suppressions still
+// run over the whole edit; the most severe Decision wins.
+func evaluateSource(content, path string, p phase) Decision {
+	l := langOf(path)
+	if !isZigPath(path) {
+		return evaluate(content, sourcePolicies, p, l)
+	}
+	full := newView(content, l)
+	best := evaluateView(full, sourcePolicies, p)
+	if best.Action == Block {
+		return best // a suppression already blocks; nothing outranks Block
+	}
+	testLines := zigTestLines(full.code)
+	if len(testLines) == 0 {
+		return best // no inline test in this edit — production code only
+	}
+	scoped := view{
+		code:       keepLines(full.code, testLines),
+		directives: keepLines(full.directives, testLines),
+	}
+	if d := evaluateView(scoped, oracleSmells, p); d.Action > best.Action {
+		best = d
+	}
+	return best
+}
+
+// isZigPath reports whether path is a Zig source file, for which the Source gate
+// must reach inline test blocks.
+func isZigPath(path string) bool {
+	return strings.HasSuffix(strings.ToLower(path), ".zig")
 }
 
 // editTarget classifies the file an edit targets and returns its path, taking

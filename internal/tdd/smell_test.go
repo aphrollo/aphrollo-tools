@@ -105,6 +105,41 @@ func TestSmell_DisabledTest(t *testing.T) {
 	}
 }
 
+func TestSmell_Zig(t *testing.T) {
+	blocked := []string{
+		// sleep — Zig's real-time sleeps.
+		"std.time.sleep(100 * std.time.ns_per_ms)",
+		"std.Thread.sleep(1_000_000)",
+		// disabled-test — Zig skips a test by returning this error.
+		"if (!ready) return error.SkipZigTest;",
+		"    return error.SkipZigTest;",
+		// tautology — self-compare via expectEqual.
+		"try std.testing.expectEqual(x, x)",
+		"try expectEqual(user.id, user.id)",
+		"try std.testing.expectEqualStrings(name, name)",
+	}
+	for _, src := range blocked {
+		if !blocks(src) {
+			t.Errorf("expected Zig smell block for %q", src)
+		}
+	}
+
+	allowed := []string{
+		"std.time.nanoTimestamp()",                      // a timer read, not a sleep
+		"return error.OutOfMemory;",                     // a different error, not a skip
+		"// return error.SkipZigTest; (disabled below)", // skip only in a comment
+		`const msg = "return error.SkipZigTest";`,       // skip only in a string
+		"try std.testing.expectEqual(expected, actual)", // distinct operands
+		"try expectEqual(@as(i32, 3), add(1, 2))",       // distinct (and call operands excluded)
+		"try std.testing.expectEqualStrings(want, got)", // distinct operands
+	}
+	for _, src := range allowed {
+		if blocks(src) {
+			t.Errorf("false Zig smell block for legitimate %q", src)
+		}
+	}
+}
+
 func TestSmell_TestSleep(t *testing.T) {
 	blocked := []string{
 		"time.Sleep(2 * time.Second)",

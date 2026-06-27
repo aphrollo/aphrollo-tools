@@ -114,6 +114,105 @@ func TestDecidePreEdit_ParseError(t *testing.T) {
 	}
 }
 
+// zigEdit builds a Write payload for a .zig file with the given content,
+// json-encoding so multi-line zig source with quotes survives intact.
+func zigEdit(t *testing.T, path, content string) string {
+	t.Helper()
+	in := map[string]any{
+		"tool_name":  "Write",
+		"tool_input": map[string]any{"file_path": path, "content": content},
+	}
+	b, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	return string(b)
+}
+
+func TestDecidePreEdit_Zig(t *testing.T) {
+	// A zeta-style src file: production code that legitimately sleeps, plus an
+	// inline test. The production sleep must NOT block; only the test body is
+	// gated. We vary the inline test's body to exercise each oracle smell.
+	srcWith := func(testBody string) string {
+		return "const std = @import(\"std\");\n" +
+			"\n" +
+			"pub fn backoff() void {\n" +
+			"    std.time.sleep(50 * std.time.ns_per_ms); // real production wait — fine\n" +
+			"}\n" +
+			"\n" +
+			"test \"backoff retries\" {\n" +
+			testBody +
+			"}\n"
+	}
+
+	cases := []struct {
+		name    string
+		path    string
+		content string
+		want    Action
+	}{
+		{
+			name:    "inline test sleep blocks (src file, block-scoped to the test)",
+			path:    "src/backoff.zig",
+			content: srcWith("    std.time.sleep(10 * std.time.ns_per_ms);\n"),
+			want:    Block,
+		},
+		{
+			name:    "inline test self-compare expectEqual blocks",
+			path:    "src/backoff.zig",
+			content: srcWith("    try std.testing.expectEqual(got, got);\n"),
+			want:    Block,
+		},
+		{
+			name:    "inline test SkipZigTest blocks",
+			path:    "src/backoff.zig",
+			content: srcWith("    return error.SkipZigTest;\n"),
+			want:    Block,
+		},
+		{
+			name: "production sleep with a clean inline test flows",
+			path: "src/backoff.zig",
+			// The only sleep is in production code; the test is clean.
+			content: srcWith("    try std.testing.expectEqual(@as(u8, 3), tries());\n"),
+			want:    Allow,
+		},
+		{
+			name: "src file with NO test block: production smells never gate",
+			path: "src/backoff.zig",
+			content: "pub fn backoff() void {\n" +
+				"    std.time.sleep(50 * std.time.ns_per_ms);\n" +
+				"}\n",
+			want: Allow,
+		},
+		{
+			name: "explicit _test.zig is gated whole-file",
+			path: "src/backoff_test.zig",
+			// The sleep is NOT inside a test block, yet a *_test.zig is all test,
+			// so it is gated whole-file and blocks.
+			content: "const std = @import(\"std\");\n" +
+				"fn helper() void {\n" +
+				"    std.time.sleep(10);\n" +
+				"}\n",
+			want: Block,
+		},
+		{
+			name: "tests/ dir .zig is gated whole-file",
+			path: "tests/integration.zig",
+			content: "fn h() void {\n" +
+				"    return error.SkipZigTest;\n" +
+				"}\n",
+			want: Block,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := decide(t, zigEdit(t, c.path, c.content)).Action; got != c.want {
+				t.Fatalf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
 func TestRenderPreToolUse(t *testing.T) {
 	// Block renders a deny envelope and exits 2.
 	body, code := RenderPreToolUse(Decision{Action: Block, Reason: "bad"})
