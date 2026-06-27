@@ -50,7 +50,7 @@ internal/refactor/   detect lang → spawn server → rename/refs/outline/show
 internal/lsp/        LSP types + JSON-RPC stdio client
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy
-internal/tdd/        TDD gates: policy engine, edit smells, anti-cheat, fail-first, review, install
+internal/tdd/        TDD gates: policy engine, edit smells, anti-cheat, fail-first, install
 internal/workspace/  worktree lifecycle + git verbs
 internal/dev/        dev-tier control plane (systemd)
 ```
@@ -70,7 +70,7 @@ internal/dev/        dev-tier control plane (systemd)
   flow. Detectors run against a **masked** copy (smell detectors mask strings +
   comments; suppression detectors mask strings, keep comments) — a token only in
   a string never blocks. Keep edit-time blocks near-zero-FP; heavy checks
-  (fail-first, review) live at commit/push where a false block only costs a re-run.
+  (fail-first) live at commit/push where a false block only costs a re-run.
 - **Attribution: honest here.** This is first-party tooling, not a client-facing
   undercover repo — the `🤖 Generated with Claude Code` footer + `Co-Authored-By`
   are fine (matches aphrollo-agents; per the box `~/CLAUDE.md` per-repo rule).
@@ -91,7 +91,7 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   back to `--apply`-opt-in — that opt-in is legacy.
 - Don't re-port what was deliberately dropped: **mutation testing** (the
   documented FP/non-determinism offender), the SessionStart full-suite baseline,
-  or `/tdd allow-main` — the fail-first + review gates cover the ground without
+  or `/tdd allow-main` — the fail-first gate covers the ground without
   the flakiness.
 - Don't add a sudo wrapper or wildcard grant — the narrow exact-match systemctl
   fence is the whole security story.

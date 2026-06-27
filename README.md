@@ -698,8 +698,8 @@ For a single repo without the global gate, `aphrollo tdd install --apply` writes
 the same shims into that repo's `.git/hooks` instead (opt-in, no `core.hooksPath`).
 
 The tdd gate is **solely mechanical**: edit-time smell blocks + commit-time
-anti-cheat/fail-first/suite. It carries no LLM or non-deterministic step —
-adversarial review lives in the reviewer agent, not this binary. Mutation
+anti-cheat/fail-first/suite. Adversarial review lives in the reviewer agent,
+not this binary. Mutation
 testing is intentionally **not** ported (false-positive/non-determinism prone);
 the fail-first + mechanical suite cover the same ground without the flakiness.
 

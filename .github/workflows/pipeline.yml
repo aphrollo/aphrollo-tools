@@ -97,8 +97,8 @@ jobs:
       # -race catches data races, -shuffle=on catches order-dependent tests,
       # -count=1 disables the test cache so a stale pass can't hide a regression.
       # The tdd package's real-git integration tests need `git` on PATH (the
-      # runner has it) and inject fakes for the suite runner / LLM reviewer, so
-      # no live `claude` is required.
+      # runner has it) and inject a fake suite runner, so no live toolchain
+      # is required.
       - name: Test (race + shuffle)
         if: needs.changes.outputs.code == 'true'
         run: go test -race -count=1 -shuffle=on -timeout=180s ./...
