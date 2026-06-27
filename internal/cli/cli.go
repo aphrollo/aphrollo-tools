@@ -257,12 +257,12 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	// precommit/prepush are git hooks: no stdin, exit non-zero to block.
 	if args[0] == "precommit" || args[0] == "prepush" {
-		// prepush is a mechanical no-op: the tdd gate is mechanical-only, and
-		// adversarial review now lives in the separate reviewer agent, not this
-		// binary. It NEVER blocks. We keep the subcommand so a lingering pre-push
-		// shim on a box installed before the change still exits cleanly.
+		// prepush is a mechanical no-op: the tdd gate is mechanical-only and
+		// adversarial review lives in the separate reviewer agent, not this
+		// binary. It NEVER blocks. We keep the subcommand so a pre-push shim
+		// present on a box exits cleanly.
 		if args[0] == "prepush" {
-			fmt.Fprintln(stderr, "tdd prepush: mechanical-only mode, no review")
+			fmt.Fprintln(stderr, "tdd prepush: mechanical-only, no-op")
 			return 0
 		}
 		root := tdd.RepoRoot(".")
