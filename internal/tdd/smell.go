@@ -11,7 +11,7 @@ const (
 		"so the oracle can never fail no matter what the implementation does. Assert the real value/state against an independent expected value."
 	focusedReason = "Test contains a focused marker (it.only / describe.only / fit / fdescribe). " +
 		"A focused test silently drops every other test from the run — the suite reports green while most of it never ran. Remove the focus."
-	disabledTestReason = "Test is disabled (it.skip / xit / t.Skip / @pytest.mark.skip). " +
+	disabledTestReason = "Test is disabled (it.skip / xit / t.Skip / @pytest.mark.skip / return error.SkipZigTest). " +
 		"A skipped test reports green while proving nothing, so a disabled test is an oracle that can never fail. " +
 		"Delete the test or fix it — do not skip it to get a passing run."
 )
@@ -33,6 +33,11 @@ const (
 //     a literal `setTimeout(`, so no separate `new Promise` regex is needed (and
 //     adding one would falsely block legitimate non-timer promises).
 //
+// Zig's real-time sleeps need no new alternative: `std.time.sleep(` contains the
+// substring `time.sleep(` (matched by `time\.[Ss]leep`) and `std.Thread.sleep(`
+// contains `Thread.sleep(` (matched by `[Tt]hread\.sleep`), so both are already
+// caught — see TestSmell_Zig.
+//
 // The check gates test files only (see oracleSmells / smellCheck), so matching
 // these broadly cannot block ordinary source.
 var sleepRe = regexp.MustCompile(`(?:time\.[Ss]leep|time\.(?:After|NewTimer|Tick)|asyncio\.sleep|[Tt]hread\.sleep|(?:std::)?thread::sleep|setTimeout)\s*\(`)
@@ -48,6 +53,21 @@ var selfCompareRe = regexp.MustCompile(`([\w.\[\]]+)\s*===?\s*([\w.\[\]]+)`)
 // captured for textual comparison. `[^()]*?` keeps each operand free of
 // parens, so a call operand simply does not match (no false block).
 var expectSelfRe = regexp.MustCompile(`expect\s*\(\s*([^()]*?)\s*\)\s*\.\s*(?:toBe|toEqual|toStrictEqual|toMatchObject)\s*\(\s*([^()]*?)\s*\)`)
+
+// zigExpectEqualRe matches Zig's `expectEqual(A, B)` self-compare form (and its
+// expectEqualStrings/Slices/Deep siblings), reached as `std.testing.expectEqual`
+// or `try expectEqual`. A and B are captured for textual comparison; each
+// operand is `[^(),]` so it carries no paren or comma — a call operand simply
+// does not match (`expectEqual(@as(i32,3), x)` never trips), exactly as the jest
+// and node forms exclude calls. The trailing `\)` pins it to the two-argument
+// shape, which is all `expectEqual` takes.
+var zigExpectEqualRe = regexp.MustCompile(`\bexpectEqual(?:Strings|Slices|Deep)?\s*\(\s*([^(),]+?)\s*,\s*([^(),]+?)\s*\)`)
+
+// zigSkipRe matches Zig's test-skip idiom `return error.SkipZigTest`. A test
+// returns this error to skip itself, so it is the Zig disabled-test oracle. The
+// `\breturn\s+` prefix keeps it to the returned form, so merely naming the error
+// (`error.SkipZigTest == e`) does not trip.
+var zigSkipRe = regexp.MustCompile(`\breturn\s+error\.SkipZigTest\b`)
 
 // nodeEqualRe matches Node's assert.equal / strictEqual / deepEqual family,
 // capturing the first two arguments (actual, expected). The testify three-arg
@@ -135,6 +155,11 @@ func hasTautology(masked string) bool {
 			return true
 		}
 	}
+	for _, m := range zigExpectEqualRe.FindAllStringSubmatch(masked, -1) {
+		if m[1] == m[2] {
+			return true
+		}
+	}
 	return false
 }
 
@@ -155,7 +180,7 @@ func hasFocused(masked string) bool {
 // hasDisabledTest reports whether masked source disables a test in any
 // recognised form, rejecting `xit(`/`xdescribe(` that are really method calls.
 func hasDisabledTest(masked string) bool {
-	if skipDotRe.MatchString(masked) || skipGoRe.MatchString(masked) || skipPyRe.MatchString(masked) {
+	if skipDotRe.MatchString(masked) || skipGoRe.MatchString(masked) || skipPyRe.MatchString(masked) || zigSkipRe.MatchString(masked) {
 		return true
 	}
 	for _, loc := range skipXRe.FindAllStringIndex(masked, -1) {
