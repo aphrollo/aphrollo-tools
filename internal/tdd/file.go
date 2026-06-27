@@ -61,6 +61,11 @@ var sourceExts = map[string]bool{
 	".go": true, ".py": true, ".rs": true, ".java": true, ".rb": true,
 	".js": true, ".jsx": true, ".ts": true, ".tsx": true,
 	".cjs": true, ".mjs": true, ".cts": true, ".mts": true,
+	// Zig: a .zig file usually holds BOTH production code and `test "..." {}`
+	// blocks inline, so at file level it is Source unless it is an explicit
+	// test file (see isTestFile). `.zon` (build.zig.zon manifest) is not code,
+	// so it stays out of this set and classifies as Ignore.
+	".zig": true,
 }
 
 // ClassifyFile maps a file path to the role the TDD gates should treat it as.
@@ -96,6 +101,26 @@ func isTestFile(p, base string) bool {
 		return strings.HasPrefix(base, "test_") || strings.HasSuffix(base, "_test.py") || base == "conftest.py"
 	case ".rs":
 		return strings.HasSuffix(base, "_test.rs") || strings.HasPrefix(base, "test_")
+	case ".zig":
+		// Zig tests are `test "..." {}` blocks INLINE in ordinary src/*.zig
+		// files, so a .zig file is normally BOTH source and test. We do NOT
+		// flip such files to Test: that would run the oracle smell gate over
+		// production code and false-block legitimate calls (e.g. a real
+		// std.time.sleep in a src file). Inline-test coverage is instead
+		// reached block-scoped via test-block extraction in the smells gate,
+		// not by file kind. So only an EXPLICIT test file counts here: a
+		// `*_test.zig` suffix, or any .zig under a `tests/` directory segment
+		// (e.g. tests/integration_test.zig). This `tests/` rule is gated to
+		// .zig here rather than added to testDirs, which is JS/TS-only.
+		if strings.HasSuffix(base, "_test.zig") {
+			return true
+		}
+		for seg := range strings.SplitSeq(path.Dir(p), "/") {
+			if seg == "tests" {
+				return true
+			}
+		}
+		return false
 	case ".js", ".jsx", ".ts", ".tsx", ".cjs", ".mjs", ".cts", ".mts":
 		// `.test.`/`.spec.` infix, `_test` suffix, or a bare spec/conftest
 		// file — every form the original classifier missed.
