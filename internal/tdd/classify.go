@@ -34,7 +34,11 @@ func (o Outcome) IsRed() bool {
 // the single most important false-NEGATIVE fix. The original only caught
 // "collected 0 items"/"no test files", so vitest's "0 tests" and a bare
 // "0 passed" were stamped GREEN, hiding scaffolding that was never exercised.
-var zeroTestsRe = regexp.MustCompile(`(?i)no tests? (?:found|to run|ran|executed)|no test files|collected 0 items|\b0 tests?\b|\btests?:\s+0\b|testing: warning: no tests to run`)
+// The `all 0 tests? passed` alternative is Zig's no-tests-ran summary:
+// `zig test` prints `All 0 tests passed.` when a file/step executed none.
+// `\b0 tests?\b` already covers the bare count, but the phrase is kept
+// explicit so the Zig signal is legible.
+var zeroTestsRe = regexp.MustCompile(`(?i)no tests? (?:found|to run|ran|executed)|no test files|collected 0 items|\b0 tests?\b|\btests?:\s+0\b|testing: warning: no tests to run|all 0 tests? passed`)
 
 // warningRe marks otherwise-clean output as carrying warnings.
 var warningRe = regexp.MustCompile(`(?i)\bwarning:|\bdeprecat|\bunused (?:variable|import)\b`)
@@ -43,11 +47,23 @@ var warningRe = regexp.MustCompile(`(?i)\bwarning:|\bdeprecat|\bunused (?:variab
 // errors — which means "fix the test, not the implementation". It is
 // intentionally narrow: an ambiguous failure falls through to a plain Red
 // rather than being mislabeled (the audit's Go-testdata / Python-import FPs).
-var setupErrRe = regexp.MustCompile(`(?i)syntaxerror|indentationerror|importerror|modulenotfounderror|error collecting|cannot find module|transform failed|\berror ts\d+\b`)
+// The Zig alternatives catch a structural compile failure (`zig build test`
+// emits `error: expected <token>` for a parse/type error, and a `referenced
+// by:` trail under a propagated @compileError) — distinct from a clean
+// missing-symbol RED, which missingImplRe catches below. setupErrRe is checked
+// first, so it must NOT match Zig's undeclared-identifier / no-member output
+// (both end in the generic `error: N compilation errors`, deliberately not
+// keyed on here).
+var setupErrRe = regexp.MustCompile(`(?i)syntaxerror|indentationerror|importerror|modulenotfounderror|error collecting|cannot find module|transform failed|\berror ts\d+\b|error: expected |referenced by:`)
 
 // missingImplRe matches the canonical clean-RED signal: the symbol under test
 // does not exist yet. This is the expected first step of a TDD cycle.
-var missingImplRe = regexp.MustCompile(`(?i)undefined: |is not defined|has no attribute|cannot find name|no such|undeclared name`)
+// The Zig alternatives are its undefined-symbol phrasings: `use of undeclared
+// identifier` (a bare name with no decl), `use of undefined identifier` (older
+// wording, kept for forward/back compat), and `has no member named` (a missing
+// field/decl on a struct, e.g. the library root) — all the clean-RED "write
+// the impl next" signal.
+var missingImplRe = regexp.MustCompile(`(?i)undefined: |is not defined|has no attribute|cannot find name|no such|undeclared name|use of undeclared identifier|use of undefined identifier|has no member named`)
 
 // ClassifyOutcome maps a test run to an Outcome. prevFailing is the failing-test
 // set recorded after the previous edit, used to recognise that a still-failing
@@ -114,6 +130,7 @@ var failLineRes = []*regexp.Regexp{
 	regexp.MustCompile(`(?m)^(\S+::\S+)\s+FAILED`),                      // pytest: path::test FAILED
 	regexp.MustCompile(`(?m)^\s*[✗×]\s+(.+?)(?:\s+\(\d+\s*m?s\))?\s*$`), // vitest/jest
 	regexp.MustCompile(`(?m)^test\s+(\S+)\s+\.\.\.\s+FAILED`),           // cargo
+	regexp.MustCompile(`(?m)^\s*error: '([^']+)' failed:`),             // zig build test
 }
 
 // ExtractFailingTests returns the sorted, de-duplicated set of failing test
