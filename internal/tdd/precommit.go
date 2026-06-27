@@ -57,6 +57,19 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 	// `pnpm install` per commit (too slow) — so for vitest/jest repos the suite
 	// can't run there and fail-first is effectively Go-only. It still fails OPEN
 	// (an unrunnable suite is inconclusive, never a block).
+	//
+	// Zig fails OPEN here by construction, and deliberately so. Its tests are
+	// `test "..." {}` blocks INLINE in src/*.zig, so an inline-test commit stages
+	// only Source-classified .zig files (ClassifyFile flips only *_test.zig /
+	// tests/*.zig to Test) — len(tests) is 0 and this guard skips fail-first.
+	// That is correct: the test and the impl it exercises live in the SAME hunk
+	// and cannot be cleanly separated, so applying "just the test" to a HEAD
+	// worktree would drag the impl along and make the check meaningless. An
+	// EXPLICIT tests/*.zig staged alongside its source DOES enter fail-first, but
+	// an integration test cannot compile without the source it imports, so the
+	// worktree run fails to RUN and falls through the unrunnable-suite path above
+	// (Passed=false ⇒ violated=false). Either way fail-first never false-blocks a
+	// Zig commit; the mechanical stage's full `zig build test` is the real gate.
 	if len(tests) > 0 && len(srcs) > 0 {
 		if violated, conclusive := failFirstViolated(repoRoot, tests, run); conclusive && violated {
 			return GateResult{Blocked: true, Message: failFirstMessage}
