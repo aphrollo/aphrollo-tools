@@ -21,7 +21,7 @@ type Runner struct {
 // the root — but the marker found also drives runner detection.
 var rootMarkers = []string{
 	"go.mod", "Cargo.toml", "pyproject.toml", "setup.py", "pytest.ini",
-	"package.json", ".git",
+	"package.json", "build.zig", "build.zig.zon", ".git",
 }
 
 // FindProjectRoot walks up from a file path to the nearest directory holding a
@@ -65,6 +65,12 @@ func DetectRunner(root string) (Runner, bool) {
 		return Runner{Cmd: "pytest", Args: []string{"-q"}}, true
 	case has("package.json"):
 		return jsRunner(root), true
+	case has("build.zig"), has("build.zig.zon"):
+		// zeta's build.zig defines a `test` step (mod+exe+integration), so
+		// `zig build test` is the canonical full-suite runner. It has no
+		// related-tests mode, so narrowing leaves it unchanged (see
+		// narrowSourceEdit / narrowToStaged — same fallback as cargo/pytest).
+		return Runner{Cmd: "zig", Args: []string{"build", "test"}}, true
 	}
 	return Runner{}, false
 }

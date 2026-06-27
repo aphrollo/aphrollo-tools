@@ -36,6 +36,36 @@ func TestFindProjectRoot(t *testing.T) {
 	}
 }
 
+// TestZigRunner pins the zig project contract end to end: a build.zig (or
+// build.zig.zon) root is found and runs `zig build test`, and because that
+// command has no related-tests mode, every narrowing path leaves it unchanged
+// — same full-suite fallback as cargo/pytest.
+func TestZigRunner(t *testing.T) {
+	root := mkProject(t, "build.zig")
+	sub := filepath.Join(root, "src")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := FindProjectRoot(filepath.Join(sub, "main.zig")); got != root {
+		t.Fatalf("FindProjectRoot = %q, want %q", got, root)
+	}
+
+	zig := Runner{"zig", []string{"build", "test"}}
+	got, ok := DetectRunner(root)
+	if !ok || !reflect.DeepEqual(got, zig) {
+		t.Fatalf("DetectRunner = %+v,%v want %+v", got, ok, zig)
+	}
+
+	// narrowSourceEdit and narrowToStaged switch on the runner command; the zig
+	// command matches no related-mode branch and must return unchanged.
+	if got := narrowSourceEdit(zig, "src/main.zig"); !reflect.DeepEqual(got, zig) {
+		t.Fatalf("narrowSourceEdit = %+v, want %+v", got, zig)
+	}
+	if got, ok := narrowToStaged(zig, []string{"src/main.zig"}); ok || !reflect.DeepEqual(got, zig) {
+		t.Fatalf("narrowToStaged = %+v,%v want %+v,false", got, ok, zig)
+	}
+}
+
 func TestDetectRunner(t *testing.T) {
 	cases := []struct {
 		marker string
@@ -44,6 +74,8 @@ func TestDetectRunner(t *testing.T) {
 		{"go.mod", Runner{"go", []string{"test", "./..."}}},
 		{"Cargo.toml", Runner{"cargo", []string{"test"}}},
 		{"pyproject.toml", Runner{"pytest", []string{"-q"}}},
+		{"build.zig", Runner{"zig", []string{"build", "test"}}},
+		{"build.zig.zon", Runner{"zig", []string{"build", "test"}}},
 	}
 	for _, c := range cases {
 		root := mkProject(t, c.marker)
@@ -135,6 +167,18 @@ func TestNarrowToRelatedTests_SourceEdits(t *testing.T) {
 			runner: Runner{"pytest", []string{"-q"}},
 			target: "/proj/pkg/widget.py",
 			want:   Runner{"pytest", []string{"-q"}},
+		},
+		{
+			name:   "zig source → full-suite fallback",
+			runner: Runner{"zig", []string{"build", "test"}},
+			target: "/proj/src/main.zig",
+			want:   Runner{"zig", []string{"build", "test"}},
+		},
+		{
+			name:   "zig test → full-suite fallback",
+			runner: Runner{"zig", []string{"build", "test"}},
+			target: "/proj/src/main_test.zig",
+			want:   Runner{"zig", []string{"build", "test"}},
 		},
 		{
 			name:   "outside-root source → broad command",
@@ -253,6 +297,13 @@ func TestNarrowToStaged(t *testing.T) {
 			runner: Runner{"pytest", []string{"-q"}},
 			files:  []string{"pkg/widget.py"},
 			want:   Runner{"pytest", []string{"-q"}},
+			wantOK: false,
+		},
+		{
+			name:   "zig → full-suite fallback",
+			runner: Runner{"zig", []string{"build", "test"}},
+			files:  []string{"src/main.zig"},
+			want:   Runner{"zig", []string{"build", "test"}},
 			wantOK: false,
 		},
 		{
