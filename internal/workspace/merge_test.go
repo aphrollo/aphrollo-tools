@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"bytes"
+	"fmt"
+	"io"
 	"strings"
 	"testing"
 )
@@ -15,6 +17,85 @@ func stubMerge(t *testing.T, view func(wt, branch string) (*PRInfo, error), merg
 	ov, om, od := ghViewPR, ghMergePR, ghDeleteRemoteBranch
 	ghViewPR, ghMergePR, ghDeleteRemoteBranch = view, merge, del
 	t.Cleanup(func() { ghViewPR, ghMergePR, ghDeleteRemoteBranch = ov, om, od })
+}
+
+// stubSync swaps the post-merge sync seam so a test can observe the catch-up of
+// the canonical clone without git or the network.
+func stubSync(t *testing.T, fn func(repoArg string, dry bool, stdout, stderr io.Writer) error) {
+	t.Helper()
+	prev := syncMainClone
+	syncMainClone = fn
+	t.Cleanup(func() { syncMainClone = prev })
+}
+
+func TestMerge_SyncsCanonicalCloneAfterSuccess(t *testing.T) {
+	stubMerge(t,
+		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 7, URL: "u"}, nil },
+		func(wt, branch, method string) error { return nil },
+		func(wt, branch string) error { return nil },
+	)
+	var syncedRepo string
+	var syncedDry bool
+	synced := 0
+	stubSync(t, func(repoArg string, dry bool, stdout, stderr io.Writer) error {
+		synced++
+		syncedRepo, syncedDry = repoArg, dry
+		return nil
+	})
+
+	// MainRepo is the canonical clone; Worktree is the linked ticket worktree.
+	tgt := &Target{Worktree: "/x/.worktrees/feat", Branch: "feat/z", MainRepo: "/x/main-clone", RepoName: "r"}
+	m, _ := MergePlan(tgt, "squash", true)
+	var out, errb bytes.Buffer
+	if err := m.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
+	}
+	if synced != 1 {
+		t.Fatalf("expected exactly one post-merge sync, got %d", synced)
+	}
+	if syncedRepo != "/x/main-clone" {
+		t.Errorf("sync ran against %q, want the canonical clone /x/main-clone (not the worktree)", syncedRepo)
+	}
+	if syncedDry {
+		t.Errorf("post-merge sync must run with dry=false to actually fast-forward")
+	}
+}
+
+func TestMerge_SyncFailureDoesNotFailMerge(t *testing.T) {
+	stubMerge(t,
+		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 9, URL: "u"}, nil },
+		func(wt, branch, method string) error { return nil },
+		func(wt, branch string) error { return nil },
+	)
+	stubSync(t, func(repoArg string, dry bool, stdout, stderr io.Writer) error {
+		return fmt.Errorf("clone offline")
+	})
+
+	m, _ := MergePlan(targetFor("/x", "feat/z"), "squash", true)
+	var out, errb bytes.Buffer
+	if err := m.Apply(&out, &errb); err != nil {
+		t.Fatalf("a post-merge sync failure must NOT fail the merge (PR already merged): %v", err)
+	}
+	if !strings.Contains(out.String(), "merged PR #9") {
+		t.Errorf("merge should still report success:\n%s", out.String())
+	}
+	if !strings.Contains(errb.String(), "sync") {
+		t.Errorf("best-effort sync failure should be surfaced to stderr:\n%s", errb.String())
+	}
+}
+
+func TestMerge_DryDoesNotSync(t *testing.T) {
+	synced := false
+	stubSync(t, func(repoArg string, dry bool, stdout, stderr io.Writer) error {
+		synced = true
+		return nil
+	})
+	m, _ := MergePlan(targetFor("/x", "feat/z"), "squash", true)
+	// --dry renders the plan and never calls Apply — the only sync site.
+	_ = m.Render(false /*apply*/)
+	if synced {
+		t.Error("a --dry merge must not sync the canonical clone")
+	}
 }
 
 func TestMerge_MergesOpenPR(t *testing.T) {
