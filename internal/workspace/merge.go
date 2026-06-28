@@ -51,6 +51,11 @@ var ghDeleteRemoteBranch = func(wt, branch string) error {
 	return nil
 }
 
+// syncMainClone is the seam over Sync that merge calls to fast-forward the
+// canonical clone's local default branch after a successful merge. A package var
+// so merge tests drive it without git or the network, mirroring the gh seams.
+var syncMainClone = Sync
+
 // Merge is a resolved merge of the worktree branch's PR. It honors GitHub's own
 // gates: gh refuses a PR that is not mergeable or whose required checks are
 // red, so this never force-merges (no --admin). Merge does NOT touch the local
@@ -108,6 +113,22 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 		}
 		fmt.Fprintf(stdout, "  deleted remote branch %s (local worktree left for prune)\n", m.Target.Branch)
 	}
+
+	// Best-effort: catch the canonical clone's local default branch up to the
+	// freshly-merged origin/<default>. `workspace merge` is the one merge route
+	// that otherwise never syncs the clone (the ticket-terminal cleanup path
+	// covers operator-on-GitHub merges), so local main drifts behind on every
+	// merge here. Sync resolves the main clone from MainRepo (NOT the worktree),
+	// fetches, and strict-fast-forwards — idempotent and non-destructive.
+	//
+	// The PR is already merged by the time we get here, so a sync error (offline,
+	// diverged, dirty clone) must NOT fail the merge: report it to stderr and
+	// still exit 0, mirroring the agents cleanup handler's "never wedge the
+	// terminal flow" stance. --dry never reaches Apply, so this only runs for real.
+	if err := syncMainClone(m.Target.MainRepo, false, stdout, stderr); err != nil {
+		fmt.Fprintf(stderr, "post-merge sync of %s failed (best-effort, merge already landed): %v\n", m.Target.MainRepo, err)
+	}
+
 	fmt.Fprintf(stdout, "  next: aphrollo workspace prune  (sweep the merged local worktree)\n")
 	return nil
 }
