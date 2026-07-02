@@ -187,6 +187,42 @@ func TestSubmit_NoTicketContextSkipsSignal(t *testing.T) {
 	}
 }
 
+// With no ticket env, the missing-env early-return must branch on the path. On the
+// FLIP path (fresh draft->ready) the ready_for_review webhook genuinely covers the
+// flip, so the benign line is correct — and it must NOT sound the wedge alarm.
+func TestRaiseSubmitSignal_NoEnvFlipPathBenign(t *testing.T) {
+	t.Setenv(envAPIBase, "")
+	t.Setenv(envAPIToken, "")
+	t.Setenv(envTicketID, "")
+	var out bytes.Buffer
+	raiseSubmitSignal(&out, false)
+	got := out.String()
+	if !strings.Contains(got, "webhook bridge covers the flip") {
+		t.Errorf("flip path with no env should print the benign line:\n%s", got)
+	}
+	if strings.Contains(got, "wedge") || strings.Contains(got, "SKIPPED") {
+		t.Errorf("flip path must NOT sound the wedge alarm:\n%s", got)
+	}
+}
+
+// With no ticket env, the [skip] path (already-ready PR, every post-bounce
+// resubmit) has NO ready_for_review webhook to cover it, so a skipped signal
+// wedges the ticket. The receipt must say so loudly — not the benign line.
+func TestRaiseSubmitSignal_NoEnvSkipPathLoud(t *testing.T) {
+	t.Setenv(envAPIBase, "")
+	t.Setenv(envAPIToken, "")
+	t.Setenv(envTicketID, "")
+	var out bytes.Buffer
+	raiseSubmitSignal(&out, true)
+	got := out.String()
+	if !strings.Contains(got, "SKIPPED") || !strings.Contains(got, "will NOT re-arm") {
+		t.Errorf("skip path with no env should sound the wedge alarm:\n%s", got)
+	}
+	if strings.Contains(got, "webhook bridge covers the flip") {
+		t.Errorf("skip path must NOT print the benign flip line:\n%s", got)
+	}
+}
+
 // Integration-style: the REAL postSubmitSignal seam POSTs to the api's internal
 // submit endpoint with the bridge token, at the {ticket-id} path. Simulates a
 // post-bounce resubmit reaching a fake endpoint that asserts the request shape.

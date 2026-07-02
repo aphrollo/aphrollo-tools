@@ -62,13 +62,22 @@ var postSubmitSignal = func(base, token, ticketID string) (int, error) {
 // Best-effort by contract: any failure (endpoint unreachable, non-204, 404) is
 // warned and NEVER fails the submit — the coder's handoff already succeeded and,
 // on the flip path, the webhook bridge still covers it. skipPath selects the
-// severity of a failure warning: on the [skip] path a miss is the actual wedge
-// risk and is named as such.
+// severity on BOTH the failure path (warnSubmitSignal) AND the missing-env
+// early-return: on the [skip] path a miss (no env or a failed POST) is the actual
+// wedge risk and is named as such, because no ready_for_review webhook fires.
 func raiseSubmitSignal(stdout io.Writer, skipPath bool) {
 	base, token, ticketID := os.Getenv(envAPIBase), os.Getenv(envAPIToken), os.Getenv(envTicketID)
 	if base == "" || token == "" || ticketID == "" {
-		// Not a platform-dispatched coder session (operator-local run): there is no
-		// ticket workflow to re-arm, and the flip path's webhook covers the rest.
+		// No ticket env. On the flip path this is an operator-local run: the
+		// ready_for_review webhook covers the flip, so the skip is benign. On the
+		// [skip] path (an already-ready PR — every post-bounce resubmit) NO webhook
+		// fires, so a skipped signal is the actual wedge: review never re-arms. A
+		// platform coder session missing this env there is a plumbing bug, so name it.
+		if skipPath {
+			fmt.Fprintf(stdout, "  submit signal: SKIPPED with no ticket context on an already-ready PR — "+
+				"review will NOT re-arm; ticket may wedge\n")
+			return
+		}
 		fmt.Fprintf(stdout, "  submit signal: skipped (no ticket context) — webhook bridge covers the flip\n")
 		return
 	}
