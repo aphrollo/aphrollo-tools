@@ -149,6 +149,12 @@ func (s *Submit) Apply(stdout, stderr io.Writer) error {
 		fmt.Fprintf(stdout, "already in review [skip]  PR #%d %s\n", info.Number, info.URL)
 	}
 	s.receiptTail(stdout, info, newCommits, ci, conflict)
+	// Raise the first-class readiness signal at the api's internal submit endpoint
+	// on BOTH paths. On the flip path the ready_for_review webhook is redundant
+	// defense; on the [skip] path (an already-ready PR that never re-drafts) NO
+	// webhook fires, so this is the ONLY thing that re-arms review after a bounce.
+	// Best-effort — a failure warns but never fails the handoff.
+	raiseSubmitSignal(stdout, !flipped)
 	return nil
 }
 
