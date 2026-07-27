@@ -45,8 +45,13 @@ func isManagedCmd(cmd string) bool {
 			return true
 		}
 	}
+	// Legacy markers are written with forward slashes; a Windows install's
+	// command embeds the same path with backslashes (`…\hooks\tdd-post-edit.js`),
+	// which left the node hooks in place beside ours — every event double-fired.
+	// Normalize before matching so one marker spelling covers both.
+	normalized := strings.ReplaceAll(cmd, `\`, "/")
 	for _, m := range legacyCmdMarkers {
-		if strings.Contains(cmd, m) {
+		if strings.Contains(normalized, m) {
 			return true
 		}
 	}

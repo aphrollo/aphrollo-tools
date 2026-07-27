@@ -50,7 +50,9 @@ var perRepoPrunedHooks = []string{"pre-push"}
 // works even when aphrollo is not on the hook process's PATH — matching the
 // global gate's binShim.
 func shim(bin, sub string) string {
-	return "#!/bin/sh\n" + installMarker + "\nexec " + bin + " tdd " + sub + "\n"
+	// Slash-normalized + quoted for the same reason as binShim: a raw Windows
+	// path's backslashes are sh escapes, so the exec line resolves to garbage.
+	return "#!/bin/sh\n" + installMarker + "\nexec \"" + filepath.ToSlash(bin) + "\" tdd " + sub + "\n"
 }
 
 // BuildInstallPlan computes the hooks to install for the repo at repoRoot, whose

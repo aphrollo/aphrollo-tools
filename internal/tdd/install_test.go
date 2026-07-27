@@ -28,7 +28,9 @@ func TestInstallPlan_ShimUsesResolvedBinPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, h := range plan.Hooks {
-		if !strings.Contains(h.Content, "exec "+testBin+" tdd ") {
+		// Quoted since the Windows-path fix: the exec line always wraps the
+		// (slash-normalized) resolved path in double quotes.
+		if !strings.Contains(h.Content, "exec \""+testBin+"\" tdd ") {
 			t.Fatalf("shim does not exec the resolved bin %q:\n%s", testBin, h.Content)
 		}
 	}
