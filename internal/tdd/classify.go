@@ -62,8 +62,13 @@ var setupErrRe = regexp.MustCompile(`(?i)syntaxerror|indentationerror|importerro
 // identifier` (a bare name with no decl), `use of undefined identifier` (older
 // wording, kept for forward/back compat), and `has no member named` (a missing
 // field/decl on a struct, e.g. the library root) — all the clean-RED "write
-// the impl next" signal.
-var missingImplRe = regexp.MustCompile(`(?i)undefined: |is not defined|has no attribute|cannot find name|no such|undeclared name|use of undeclared identifier|use of undefined identifier|has no member named`)
+// the impl next" signal. The Rust alternatives are rustc's missing-symbol
+// diagnostics: `cannot find function/value/…` (E0425/E0412), `no method named`
+// (E0599), and `use of undeclared crate or module` (E0433). There is
+// deliberately no bare `no such` alternative: a runtime "no such file or
+// directory" in an assertion message is a plain failure, not a missing
+// implementation.
+var missingImplRe = regexp.MustCompile(`(?i)undefined: |is not defined|has no attribute|cannot find name|cannot find (?:function|value|struct|type|trait|macro|method)|no method named|undeclared name|use of undeclared (?:identifier|crate or module)|use of undefined identifier|has no member named`)
 
 // ClassifyOutcome maps a test run to an Outcome. prevFailing is the failing-test
 // set recorded after the previous edit, used to recognise that a still-failing
