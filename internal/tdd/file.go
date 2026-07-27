@@ -100,7 +100,19 @@ func isTestFile(p, base string) bool {
 	case ".py":
 		return strings.HasPrefix(base, "test_") || strings.HasSuffix(base, "_test.py") || base == "conftest.py"
 	case ".rs":
-		return strings.HasSuffix(base, "_test.rs") || strings.HasPrefix(base, "test_")
+		// Cargo's integration-test convention puts the role in the directory:
+		// every .rs under a `tests/` segment is a test target (or a module of
+		// one), whatever its basename. Same shape as the Zig `tests/` rule
+		// below; gated to .rs here because testDirs is JS/TS-only.
+		if strings.HasSuffix(base, "_test.rs") || strings.HasPrefix(base, "test_") {
+			return true
+		}
+		for seg := range strings.SplitSeq(path.Dir(p), "/") {
+			if seg == "tests" {
+				return true
+			}
+		}
+		return false
 	case ".zig":
 		// Zig tests are `test "..." {}` blocks INLINE in ordinary src/*.zig
 		// files, so a .zig file is normally BOTH source and test. We do NOT

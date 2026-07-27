@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -61,7 +62,9 @@ func TestInitGitGate_Installs(t *testing.T) {
 		if !strings.Contains(string(data), "tdd "+sub) {
 			t.Errorf("%s does not invoke tdd %s:\n%s", name, sub, data)
 		}
-		if fi, _ := os.Stat(filepath.Join(hooksDir, name)); fi != nil && fi.Mode()&0o111 == 0 {
+		// NTFS carries no exec bit (os.Stat reports 0666); git runs the shim
+		// through sh on Windows regardless, so the bit only matters elsewhere.
+		if fi, _ := os.Stat(filepath.Join(hooksDir, name)); runtime.GOOS != "windows" && fi != nil && fi.Mode()&0o111 == 0 {
 			t.Errorf("%s is not executable", name)
 		}
 	}

@@ -1,0 +1,69 @@
+package tdd
+
+import (
+	"path/filepath"
+	"runtime"
+	"testing"
+	"time"
+)
+
+// TestSuiteTimeout_IsNotARed pins the timeout contract end to end: a suite
+// run that outlives its deadline is a distinct TimedOut signal, not a red. A
+// timeout says nothing about the code under test — treating it as a failure
+// nags the model (PostEdit), false-blocks commits (mechanical), and turns
+// fail-first into a coin flip (a timed-out worktree run proves nothing) — so
+// every consumer must treat TimedOut as inconclusive, never as RED.
+func TestSuiteTimeout_IsNotARed(t *testing.T) {
+	// timedOut is the fake runner every consumer subtest injects: the suite
+	// was killed at the deadline, so it did not pass — but it did not FAIL.
+	timedOut := func(Runner, string) SuiteResult {
+		return SuiteResult{Passed: false, Output: "suite timed out", TimedOut: true}
+	}
+
+	t.Run("RunSuite marks an over-deadline run TimedOut", func(t *testing.T) {
+		// The sleep lives inside the spawned command, not the test process.
+		// The sleeper is invoked DIRECTLY (no cmd.exe / sh wrapper): the
+		// deadline kill reaches only the direct child, and an orphaned
+		// grandchild would hold the temp dir open past the test's cleanup.
+		var r Runner
+		if runtime.GOOS == "windows" {
+			r = Runner{Cmd: "ping", Args: []string{"-n", "30", "127.0.0.1"}}
+		} else {
+			r = Runner{Cmd: "sleep", Args: []string{"30"}}
+		}
+		res := RunSuite(200*time.Millisecond)(r, t.TempDir())
+		if res.Passed {
+			t.Fatal("a killed run must not report Passed")
+		}
+		if !res.TimedOut {
+			t.Fatal("RunSuite must report TimedOut for a run that outlives the deadline")
+		}
+	})
+
+	t.Run("PostEdit is silent on a timed-out run", func(t *testing.T) {
+		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+		root := mkProject(t, "go.mod")
+		if got := PostEdit(postPayload("Edit", filepath.Join(root, "widget.go")), timedOut); got != "" {
+			t.Fatalf("a timed-out suite must produce no red advisory, got: %s", got)
+		}
+	})
+
+	t.Run("Precommit mechanical does not block on a timed-out run", func(t *testing.T) {
+		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+		root := makeGoRepo(t)
+		write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+		gitDo(t, root, "add", ".")
+		if res := Precommit(root, timedOut); res.Blocked {
+			t.Fatalf("a timed-out mechanical run must not block: %s", res.Message)
+		}
+	})
+
+	t.Run("failFirstViolated is inconclusive on a timed-out run", func(t *testing.T) {
+		root := makeGoRepo(t)
+		write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestWidget(t *testing.T) { _ = 1 }\n")
+		gitDo(t, root, "add", ".")
+		if _, conclusive := failFirstViolated(root, []string{"widget_test.go"}, timedOut); conclusive {
+			t.Fatal("a timed-out fail-first run must be inconclusive, not a conclusive verdict")
+		}
+	})
+}

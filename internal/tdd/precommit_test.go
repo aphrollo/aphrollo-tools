@@ -449,13 +449,18 @@ func TestPrecommit_Mechanical_RedNeverCached(t *testing.T) {
 // cargo repo both hooks run the identical full `cargo test`, so the gate must
 // not charge the suite twice for the same worktree state (the feedback's
 // "reruns the full workspace suite I just ran green").
+// The fixture is zig because seeding only pays off when the per-edit command
+// IS the commit-time command (`zig build test` on both sides). Cargo no longer
+// qualifies: PostEdit narrows an edit to `--lib`/`--test <name>` while the
+// commit gate runs `-p <crate>`, and a narrower green must never satisfy the
+// broader check.
 func TestPostEdit_GreenRunSeedsMechanicalCache(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	root := makeCargoRepo(t)
-	write(t, root, "src/lib.rs", "pub fn base() -> i32 { 1 }\n")
+	root := makeZigRepo(t)
+	write(t, root, "src/root.zig", "pub fn add(a: i32, b: i32) i32 {\n\treturn a + b + 0;\n}\n")
 
-	if got := PostEdit(postPayload("Edit", filepath.Join(root, "src", "lib.rs")),
-		fakeRun(true, "test result: ok. 1 passed")); got != "" {
+	if got := PostEdit(postPayload("Edit", filepath.Join(root, "src", "root.zig")),
+		fakeRun(true, "All 1 tests passed.")); got != "" {
 		t.Fatalf("green post-edit must be silent, got: %s", got)
 	}
 
@@ -509,6 +514,41 @@ func TestPrecommit_FailFirst_PinsCargoTargetDir(t *testing.T) {
 	}
 	if got := os.Getenv("CARGO_TARGET_DIR"); got != "/tmp/shared-warm-target" {
 		t.Fatalf("CARGO_TARGET_DIR must be restored after the gate, got %q", got)
+	}
+}
+
+// TestPrecommit_FailFirst_StableWorktreeUnderStateDir pins where the
+// fail-first worktree lives: under the state dir (CLAUDE_CONFIG_DIR), not the
+// OS temp dir, and at the SAME per-repo path on every invocation — a stable
+// worktree keeps build fingerprints warm across commits instead of
+// cold-compiling into a fresh MkdirTemp each time.
+func TestPrecommit_FailFirst_StableWorktreeUnderStateDir(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := makeGoRepo(t)
+	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestWidget(t *testing.T) {\n\tif Widget() != 1 { t.Fatal(\"no\") }\n}\n")
+	gitDo(t, root, "add", ".")
+
+	var dirs []string
+	run := func(r Runner, dir string) SuiteResult {
+		dirs = append(dirs, dir)
+		// The applied test cannot compile without the impl → RED, the normal
+		// conclusive fail-first outcome.
+		return SuiteResult{Passed: false, Output: "undefined: Widget"}
+	}
+	for i := 0; i < 2; i++ {
+		if _, conclusive := failFirstViolated(root, []string{"widget_test.go"}, run); !conclusive {
+			t.Fatalf("fail-first run %d must be conclusive", i)
+		}
+	}
+	if len(dirs) != 2 {
+		t.Fatalf("expected two worktree runs, got %d: %v", len(dirs), dirs)
+	}
+	if !strings.HasPrefix(dirs[0], cfg) {
+		t.Fatalf("fail-first worktree must live under the state dir %s, got %s", cfg, dirs[0])
+	}
+	if dirs[0] != dirs[1] {
+		t.Fatalf("fail-first worktree must be a stable per-repo path across invocations: %s vs %s", dirs[0], dirs[1])
 	}
 }
 

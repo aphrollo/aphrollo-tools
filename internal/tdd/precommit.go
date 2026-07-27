@@ -91,7 +91,7 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		// files: commit-time is a fast scoped check; CI runs the full suite at
 		// submit as the authoritative gate. A runner with no related mode (or an
 		// unknown command) falls back to the full suite unchanged.
-		if scoped, narrowed := narrowToStaged(runner, append(append([]string{}, tests...), srcs...)); narrowed {
+		if scoped, narrowed := narrowToStaged(runner, repoRoot, append(append([]string{}, tests...), srcs...)); narrowed {
 			runner = scoped
 		}
 		// The green cache: an identical worktree state already proven green under
@@ -103,10 +103,17 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 			key = mechKey(repoRoot, h, runner)
 		}
 		if !mechCacheHit(key) {
-			if res := run(runner, repoRoot); !res.Passed {
+			res := run(runner, repoRoot)
+			switch {
+			case res.TimedOut:
+				// A killed suite is a stopwatch verdict, not a test verdict.
+				// Fail OPEN (same policy as an unverifiable fail-first) — but
+				// never cache: nothing was proven green.
+			case !res.Passed:
 				return GateResult{Blocked: true, Message: "TDD mechanical: tests failing — fix before committing.\n" + snippet(res.Output)}
+			default:
+				mechCacheAdd(key)
 			}
-			mechCacheAdd(key)
 		}
 	}
 	return GateResult{}
@@ -239,9 +246,17 @@ func splitKinds(paths []string) (tests, srcs []string) {
 // (they should fail first); conclusive is false when the check could not run,
 // in which case the caller must not block.
 func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violated, conclusive bool) {
-	wt, err := os.MkdirTemp("", "tdd-failfirst-")
-	if err != nil {
-		return false, false
+	wt := failFirstWorktreeDir(repoRoot)
+	if wt == "" {
+		var err error
+		if wt, err = os.MkdirTemp("", "tdd-failfirst-"); err != nil {
+			return false, false
+		}
+	} else {
+		// Stable per-repo path: a leftover registration from a crashed run
+		// must go before `worktree add` will accept the path again.
+		_, _ = git(repoRoot, "worktree", "remove", "--force", wt)
+		_ = os.RemoveAll(wt)
 	}
 	defer os.RemoveAll(wt)
 	if _, err := git(repoRoot, "worktree", "add", "--detach", wt, "HEAD"); err != nil {
@@ -282,6 +297,9 @@ func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violat
 		}
 	}
 	res := run(runner, wt)
+	if res.TimedOut {
+		return false, false // a killed run reaches no verdict either way
+	}
 	// Tests PASS without the new source ⇒ they never went RED ⇒ violation.
 	//
 	// SuiteResult carries only Passed/Output, with no couldn't-run signal, so a
@@ -293,6 +311,24 @@ func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violat
 	// gate stays fail-open. Correcting the label needs a distinct couldn't-run
 	// signal on SuiteResult, which is left for a runner-contract change.
 	return res.Passed, true
+}
+
+// failFirstWorktreeDir returns the stable per-repo path for the fail-first
+// worktree, under the state dir. Stability is the point: cargo fingerprints
+// bake in absolute source paths, so a fresh MkdirTemp per commit cold-rebuilds
+// the workspace crates every time even with a warm CARGO_TARGET_DIR. "" when
+// there is no state dir (the caller then falls back to a temp dir).
+func failFirstWorktreeDir(repoRoot string) string {
+	base := stateDir()
+	if base == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(repoRoot))
+	dir := filepath.Join(base, "failfirst-wt", hex.EncodeToString(sum[:8]))
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+		return ""
+	}
+	return dir
 }
 
 // cargoFailFirstTarget returns the gate-owned CARGO_TARGET_DIR for repoRoot's

@@ -3,6 +3,7 @@ package tdd
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -55,7 +56,9 @@ func TestInstallPlan_ApplyWritesExecutableShims(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s not written: %v", name, err)
 		}
-		if fi.Mode().Perm()&0o111 == 0 {
+		// NTFS carries no exec bit (os.Stat reports 0666); git runs the shim
+		// through sh on Windows regardless, so the bit only matters elsewhere.
+		if runtime.GOOS != "windows" && fi.Mode().Perm()&0o111 == 0 {
 			t.Fatalf("%s is not executable (%v)", name, fi.Mode())
 		}
 		data, _ := os.ReadFile(p)

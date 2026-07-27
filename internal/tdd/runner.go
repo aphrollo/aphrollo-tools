@@ -3,6 +3,7 @@ package tdd
 import (
 	"encoding/json"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -133,18 +134,97 @@ func NarrowToRelatedTests(r Runner, target, root string) Runner {
 	if err != nil || strings.HasPrefix(rel, "..") {
 		return r
 	}
+	// Every runner below takes the path in its command line; forward slashes
+	// work everywhere, Windows backslashes break go package paths and confuse
+	// vitest/jest matching.
+	rel = filepath.ToSlash(rel)
 	if kind == Source {
-		return narrowSourceEdit(r, rel)
+		return narrowSourceEdit(r, rel, root)
 	}
 	switch r.Cmd {
 	case "go":
-		return Runner{Cmd: "go", Args: []string{"test", "./" + filepath.Dir(rel) + "/..."}}
+		return Runner{Cmd: "go", Args: []string{"test", "./" + path.Dir(rel) + "/..."}}
 	case "pytest":
 		return Runner{Cmd: "pytest", Args: []string{"-q", rel}}
 	case "npx":
 		return Runner{Cmd: r.Cmd, Args: append(append([]string{}, r.Args...), rel)}
+	case "cargo":
+		// A tests/*.rs (or tests/<dir>/*.rs) edit compiles ONE test binary
+		// instead of every target in the crate — on a large-dependency crate
+		// that is the difference between seconds and a timeout. A Rust test
+		// file outside tests/ is a #[cfg(test)] unit module: lib target.
+		if name := cargoTestTarget(rel); name != "" {
+			return Runner{Cmd: "cargo", Args: []string{"test", "--test", name}}
+		}
+		return Runner{Cmd: "cargo", Args: []string{"test", "--lib"}}
 	}
 	return r
+}
+
+// cargoPackageFor resolves the [package] name owning a repo-relative file by
+// walking up from the file's directory to the nearest Cargo.toml that declares
+// a package. A workspace-only Cargo.toml (no [package] table) is skipped and
+// the walk continues, so a root-level virtual manifest never claims a file its
+// member crates own. "" when no package owns the file.
+func cargoPackageFor(root, rel string) string {
+	dir := filepath.Dir(rel)
+	for {
+		if name := cargoPackageName(filepath.Join(root, dir, "Cargo.toml")); name != "" {
+			return name
+		}
+		if dir == "." || dir == "" {
+			return ""
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// cargoPackageName reads a Cargo.toml's `[package]` name, "" when the file is
+// missing or is a virtual (workspace-only) manifest. A line scanner is enough:
+// the name key lives directly under [package] in any real manifest, and a
+// parse miss only costs the full-suite fallback, never a wrong scope.
+func cargoPackageName(manifest string) string {
+	data, err := os.ReadFile(manifest)
+	if err != nil {
+		return ""
+	}
+	inPackage := false
+	for line := range strings.Lines(string(data)) {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			inPackage = trimmed == "[package]"
+			continue
+		}
+		if !inPackage {
+			continue
+		}
+		if key, val, ok := strings.Cut(trimmed, "="); ok && strings.TrimSpace(key) == "name" {
+			return strings.Trim(strings.TrimSpace(val), `"`)
+		}
+	}
+	return ""
+}
+
+// cargoTestTarget maps a repo-relative Rust test path to its cargo test-target
+// name: the path component directly under `tests/` — the file's stem for a
+// top-level tests/*.rs, the directory name for a nested tests/<dir>/ binary.
+// "" when the file is not under a tests/ segment (an inline unit-test module).
+func cargoTestTarget(rel string) string {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	for i, seg := range parts {
+		if seg == "tests" && i+1 < len(parts) {
+			next := parts[i+1]
+			if i+1 == len(parts)-1 {
+				return strings.TrimSuffix(next, filepath.Ext(next))
+			}
+			return next
+		}
+	}
+	return ""
 }
 
 // narrowToStaged scopes a broad runner to the related tests of the UNION of a
@@ -164,7 +244,7 @@ func NarrowToRelatedTests(r Runner, target, root string) Runner {
 // not caught at precommit. vitest/jest scope to the IMPORTER GRAPH (`related` /
 // `--findRelatedTests`), so dependents of a staged file ARE covered. This gap is
 // acceptable because CI runs the full suite at submit as the authoritative gate.
-func narrowToStaged(r Runner, files []string) (Runner, bool) {
+func narrowToStaged(r Runner, root string, files []string) (Runner, bool) {
 	if len(files) == 0 {
 		return r, false
 	}
@@ -175,7 +255,7 @@ func narrowToStaged(r Runner, files []string) (Runner, bool) {
 		seen := map[string]bool{}
 		var pkgs []string
 		for _, f := range files {
-			dir := filepath.Dir(f)
+			dir := filepath.ToSlash(filepath.Dir(f))
 			pkg := "./" + dir
 			if dir == "." {
 				pkg = "."
@@ -187,6 +267,30 @@ func narrowToStaged(r Runner, files []string) (Runner, bool) {
 		}
 		sort.Strings(pkgs)
 		return Runner{Cmd: "go", Args: append([]string{"test"}, pkgs...)}, true
+	case "cargo":
+		// Package granularity: each staged file maps to the [package]
+		// Cargo.toml that owns it, and the mechanical run tests only those
+		// crates. In a Bevy-sized workspace this is the difference between a
+		// touched-crate check and rebuilding every test binary in the tree.
+		// Any file no package owns keeps the full-suite fallback.
+		seen := map[string]bool{}
+		var pkgs []string
+		for _, f := range files {
+			name := cargoPackageFor(root, f)
+			if name == "" {
+				return r, false
+			}
+			if !seen[name] {
+				seen[name] = true
+				pkgs = append(pkgs, name)
+			}
+		}
+		sort.Strings(pkgs)
+		args := []string{"test"}
+		for _, p := range pkgs {
+			args = append(args, "-p", p)
+		}
+		return Runner{Cmd: "cargo", Args: args}, true
 	case "npx":
 		switch {
 		case len(r.Args) > 0 && r.Args[0] == "vitest":
@@ -204,10 +308,18 @@ func narrowToStaged(r Runner, files []string) (Runner, bool) {
 // dispatching on the detected runner. The npx branch keys off the runner name
 // (first arg) because vitest and jest expose different related-tests flags.
 // Runners without a related mode return unchanged (full-suite fallback).
-func narrowSourceEdit(r Runner, rel string) Runner {
+func narrowSourceEdit(r Runner, rel, root string) Runner {
 	switch r.Cmd {
 	case "go":
-		return Runner{Cmd: "go", Args: []string{"test", "./" + filepath.Dir(rel)}}
+		return Runner{Cmd: "go", Args: []string{"test", "./" + path.Dir(rel)}}
+	case "cargo":
+		// Unit tests give the fast per-edit signal; the crate's integration
+		// binaries are the commit gate's job. `--lib` on a bin-only crate is
+		// an error, not a narrower run, so those keep the full crate suite.
+		if _, err := os.Stat(filepath.Join(root, "src", "lib.rs")); err == nil {
+			return Runner{Cmd: "cargo", Args: []string{"test", "--lib"}}
+		}
+		return r
 	case "npx":
 		switch {
 		case len(r.Args) > 0 && r.Args[0] == "vitest":
