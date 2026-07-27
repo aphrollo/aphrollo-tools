@@ -87,6 +87,21 @@ func TestClassifyOutcome(t *testing.T) {
 		{"python import is bogus", false, "ERROR collecting tests/x.py\nModuleNotFoundError: no module named 'q'", nil, RedBogus},
 		{"syntax error is bogus", false, "SyntaxError: invalid syntax", nil, RedBogus},
 		{"plain assertion failure", false, "--- FAIL: TestThing\n  want 1 got 2", nil, Red},
+		// Rust: the compiler's missing-symbol diagnostics are the clean-RED
+		// signal (E0425 cannot find function/value, E0599 no method named,
+		// E0433 use of undeclared crate or module).
+		{"rust cannot-find-function is missing impl", false,
+			"error[E0425]: cannot find function `widget` in this scope\n --> src/lib.rs:4:5", nil, RedMissingImpl},
+		{"rust cannot-find-value is missing impl", false,
+			"error[E0425]: cannot find value `WIDGET_MAX` in this scope", nil, RedMissingImpl},
+		{"rust no-method is missing impl", false,
+			"error[E0599]: no method named `frob` found for struct `Widget` in the current scope", nil, RedMissingImpl},
+		{"rust undeclared crate is missing impl", false,
+			"error[E0433]: failed to resolve: use of undeclared crate or module `widgets`", nil, RedMissingImpl},
+		// A runtime "no such file or directory" in an assertion message is a
+		// plain failure, not a missing implementation.
+		{"runtime no-such-file is plain red", false,
+			"--- FAIL: TestThing\n open /tmp/cfg.yaml: no such file or directory", nil, Red},
 		// Zig failures: undefined symbol = clean RED; compile/syntax = bogus;
 		// plain assertion = Red.
 		{"zig no member is missing impl", false, zigNoMember, nil, RedMissingImpl},
@@ -97,6 +112,22 @@ func TestClassifyOutcome(t *testing.T) {
 		// Pre-existing failure → no-delta (don't nag).
 		{"no new failures", false, "--- FAIL: TestOld\n want x", []string{"TestOld"}, NoDelta},
 		{"a new failure breaks no-delta", false, "--- FAIL: TestNew\n want x", []string{"TestOld"}, Red},
+		// The delta decides BEFORE the regex classes: a failure set already
+		// recorded as failing is NoDelta even when its message text happens to
+		// match a missing-impl or setup-error pattern. Otherwise pre-existing
+		// breakage is relabeled red-missing-impl/red-bogus on every unrelated
+		// edit and the agent is nagged about failures it did not cause.
+		{"no-delta beats missing-impl text", false,
+			"FAILED tests/x.py::test_old\nAttributeError: 'Widget' object has no attribute 'frob'",
+			[]string{"tests/x.py::test_old"}, NoDelta},
+		{"no-delta beats setup-error text", false,
+			"FAILED tests/x.py::test_old\nImportError: cannot import name 'frob'",
+			[]string{"tests/x.py::test_old"}, NoDelta},
+		// A NEW failure still gets its regex class — delta precedence must not
+		// blunt the clean-RED signal for a fresh missing symbol.
+		{"fresh missing-impl still clean red", false,
+			"FAILED tests/x.py::test_new\nAttributeError: 'Widget' object has no attribute 'frob'",
+			[]string{"tests/x.py::test_old"}, RedMissingImpl},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -365,6 +365,153 @@ func TestPrecommit_ChangesGate_SkipsYAMLOnlyCommit(t *testing.T) {
 	}
 }
 
+// --- mechanical green cache ---------------------------------------------------
+
+// makeCargoRepo creates a committed Rust crate whose root marker is Cargo.toml.
+// Like makeJSRepo, the suite is always faked (cargo need not be installed) —
+// only DetectRunner's marker read and the git state matter.
+func makeCargoRepo(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "Cargo.toml", "[package]\nname = \"m\"\nversion = \"0.1.0\"\n")
+	write(t, root, "src/lib.rs", "pub fn base() -> i32 { 0 }\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "base")
+	return root
+}
+
+// A green mechanical run must be remembered: a second Precommit over the
+// IDENTICAL worktree state and runner must not re-run the suite (the retry
+// after a hook timeout, or an amend that changes nothing tested).
+func TestPrecommit_Mechanical_GreenResultCached(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	if res := Precommit(root, recordRunner(&seen, root)); res.Blocked {
+		t.Fatalf("first run must not block: %s", res.Message)
+	}
+	if res := Precommit(root, recordRunner(&seen, root)); res.Blocked {
+		t.Fatalf("second run must not block: %s", res.Message)
+	}
+	if len(seen) != 1 {
+		t.Fatalf("identical state must reuse the green result, suite ran %d times: %+v", len(seen), seen)
+	}
+}
+
+// Any content change invalidates the cached green — the hash covers the
+// worktree, so an edit between commits forces a fresh run.
+func TestPrecommit_Mechanical_CacheMissAfterEdit(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	Precommit(root, recordRunner(&seen, root))
+	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 2 }\n")
+	gitDo(t, root, "add", ".")
+	Precommit(root, recordRunner(&seen, root))
+	if len(seen) != 2 {
+		t.Fatalf("an edited worktree must re-run the suite, ran %d times", len(seen))
+	}
+}
+
+// A red run is never cached: the same failing state re-runs (and re-blocks
+// with fresh output) every time.
+func TestPrecommit_Mechanical_RedNeverCached(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	var runs int
+	failing := func(r Runner, dir string) SuiteResult {
+		if dir == root {
+			runs++
+		}
+		return SuiteResult{Passed: false, Output: "--- FAIL: TestX"}
+	}
+	for i := 0; i < 2; i++ {
+		if res := Precommit(root, failing); !res.Blocked {
+			t.Fatal("failing suite must block")
+		}
+	}
+	if runs != 2 {
+		t.Fatalf("a red result must never be cached, suite ran %d times", runs)
+	}
+}
+
+// A green PostToolUse run seeds the cache for the commit that follows: in a
+// cargo repo both hooks run the identical full `cargo test`, so the gate must
+// not charge the suite twice for the same worktree state (the feedback's
+// "reruns the full workspace suite I just ran green").
+func TestPostEdit_GreenRunSeedsMechanicalCache(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeCargoRepo(t)
+	write(t, root, "src/lib.rs", "pub fn base() -> i32 { 1 }\n")
+
+	if got := PostEdit(postPayload("Edit", filepath.Join(root, "src", "lib.rs")),
+		fakeRun(true, "test result: ok. 1 passed")); got != "" {
+		t.Fatalf("green post-edit must be silent, got: %s", got)
+	}
+
+	gitDo(t, root, "add", ".")
+	var seen []Runner
+	if res := Precommit(root, recordRunner(&seen, root)); res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	if len(seen) != 0 {
+		t.Fatalf("the green post-edit run must seed the mechanical cache, suite re-ran: %+v", seen)
+	}
+}
+
+// The fail-first worktree run must not inherit the operator's
+// CARGO_TARGET_DIR: a shared warm target can hold stale artifacts from a
+// divergent sibling checkout and fail the gate on phantom compile errors. The
+// gate pins its own per-repo target dir under the state dir for the worktree
+// run — and restores the operator's value before the mechanical run, which
+// runs in the real checkout where the shared warm target is correct.
+func TestPrecommit_FailFirst_PinsCargoTargetDir(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("CARGO_TARGET_DIR", "/tmp/shared-warm-target")
+	root := makeCargoRepo(t)
+	write(t, root, "src/widget.rs", "pub fn widget() -> i32 { 1 }\n")
+	write(t, root, "src/widget_test.rs", "#[test]\nfn widget_is_one() { assert_eq!(1, crate::widget::widget()); }\n")
+	gitDo(t, root, "add", ".")
+
+	var worktreeTarget, mechanicalTarget string
+	run := func(r Runner, dir string) SuiteResult {
+		if dir == root {
+			mechanicalTarget = os.Getenv("CARGO_TARGET_DIR")
+			return SuiteResult{Passed: true}
+		}
+		worktreeTarget = os.Getenv("CARGO_TARGET_DIR")
+		// The applied test cannot compile without the staged source → RED,
+		// which satisfies fail-first.
+		return SuiteResult{Passed: false, Output: "error[E0425]: cannot find function `widget`"}
+	}
+	if res := Precommit(root, run); res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	if worktreeTarget == "/tmp/shared-warm-target" || worktreeTarget == "" {
+		t.Fatalf("fail-first worktree run inherited the shared CARGO_TARGET_DIR: %q", worktreeTarget)
+	}
+	if !strings.HasPrefix(worktreeTarget, cfg) {
+		t.Fatalf("pinned target dir must live under the state dir %s, got %q", cfg, worktreeTarget)
+	}
+	if mechanicalTarget != "/tmp/shared-warm-target" {
+		t.Fatalf("mechanical run must keep the operator's CARGO_TARGET_DIR, got %q", mechanicalTarget)
+	}
+	if got := os.Getenv("CARGO_TARGET_DIR"); got != "/tmp/shared-warm-target" {
+		t.Fatalf("CARGO_TARGET_DIR must be restored after the gate, got %q", got)
+	}
+}
+
 // --- Zig (inline-test model) ------------------------------------------------
 
 // makeZigRepo creates a committed Zig project whose root marker is build.zig,

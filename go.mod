@@ -1,3 +1,3 @@
 module github.com/aphrollo/aphrollo-tools
 
-go 1.26.4
+go 1.26.5

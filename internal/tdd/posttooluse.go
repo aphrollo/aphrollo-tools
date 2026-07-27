@@ -82,6 +82,16 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 		_ = snap.state.save(snap.statePath)
 	}
 
+	// Seed the mechanical green cache: when this exact command is what the
+	// commit gate would run over the same worktree state (a full-suite runner
+	// like cargo/pytest/zig, or a matching scoped run), the gate skips the
+	// re-run entirely.
+	if res.Passed {
+		if h := worktreeStateHash(root); h != "" {
+			mechCacheAdd(mechKey(root, h, snap.runner))
+		}
+	}
+
 	if !outcome.IsRed() {
 		return ""
 	}

@@ -1,6 +1,8 @@
 package tdd
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -92,8 +94,19 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		if scoped, narrowed := narrowToStaged(runner, append(append([]string{}, tests...), srcs...)); narrowed {
 			runner = scoped
 		}
-		if res := run(runner, repoRoot); !res.Passed {
-			return GateResult{Blocked: true, Message: "TDD mechanical: tests failing — fix before committing.\n" + snippet(res.Output)}
+		// The green cache: an identical worktree state already proven green under
+		// this exact command (by a PostToolUse run or an earlier gate pass) is not
+		// re-run. Red results are never cached, so a block always re-runs and
+		// carries fresh output.
+		key := ""
+		if h := worktreeStateHash(repoRoot); h != "" {
+			key = mechKey(repoRoot, h, runner)
+		}
+		if !mechCacheHit(key) {
+			if res := run(runner, repoRoot); !res.Passed {
+				return GateResult{Blocked: true, Message: "TDD mechanical: tests failing — fix before committing.\n" + snippet(res.Output)}
+			}
+			mechCacheAdd(key)
 		}
 	}
 	return GateResult{}
@@ -249,6 +262,25 @@ func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violat
 	if !ok {
 		return false, false
 	}
+	// The worktree run must not inherit the operator's CARGO_TARGET_DIR: a
+	// shared warm target can hold stale artifacts from a divergent sibling
+	// checkout and fail this check on phantom compile errors. Pin a gate-owned
+	// per-repo target instead — warm across gate runs, never shared with the
+	// operator's builds. The mechanical run (in the real checkout, where the
+	// shared target IS correct) sees the original value again via the restore.
+	if runner.Cmd == "cargo" {
+		if dir := cargoFailFirstTarget(repoRoot); dir != "" {
+			prev, had := os.LookupEnv("CARGO_TARGET_DIR")
+			os.Setenv("CARGO_TARGET_DIR", dir)
+			defer func() {
+				if had {
+					os.Setenv("CARGO_TARGET_DIR", prev)
+				} else {
+					os.Unsetenv("CARGO_TARGET_DIR")
+				}
+			}()
+		}
+	}
 	res := run(runner, wt)
 	// Tests PASS without the new source ⇒ they never went RED ⇒ violation.
 	//
@@ -261,6 +293,25 @@ func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violat
 	// gate stays fail-open. Correcting the label needs a distinct couldn't-run
 	// signal on SuiteResult, which is left for a runner-contract change.
 	return res.Passed, true
+}
+
+// cargoFailFirstTarget returns the gate-owned CARGO_TARGET_DIR for repoRoot's
+// fail-first worktree runs: per-repo (so divergent checkouts never share
+// artifacts) and persistent under the state dir (so the target stays warm
+// across commits instead of cold-compiling the whole crate each time).
+// Returns "" when there is no state dir or the dir can't be created — the run
+// then proceeds with the inherited environment.
+func cargoFailFirstTarget(repoRoot string) string {
+	base := stateDir()
+	if base == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(repoRoot))
+	dir := filepath.Join(base, "cargo-target", hex.EncodeToString(sum[:8]))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return ""
+	}
+	return dir
 }
 
 // --- git plumbing (scrubbed environment) ------------------------------------

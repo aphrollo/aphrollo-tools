@@ -62,8 +62,13 @@ var setupErrRe = regexp.MustCompile(`(?i)syntaxerror|indentationerror|importerro
 // identifier` (a bare name with no decl), `use of undefined identifier` (older
 // wording, kept for forward/back compat), and `has no member named` (a missing
 // field/decl on a struct, e.g. the library root) — all the clean-RED "write
-// the impl next" signal.
-var missingImplRe = regexp.MustCompile(`(?i)undefined: |is not defined|has no attribute|cannot find name|no such|undeclared name|use of undeclared identifier|use of undefined identifier|has no member named`)
+// the impl next" signal. The Rust alternatives are rustc's missing-symbol
+// diagnostics: `cannot find function/value/…` (E0425/E0412), `no method named`
+// (E0599), and `use of undeclared crate or module` (E0433). There is
+// deliberately no bare `no such` alternative: a runtime "no such file or
+// directory" in an assertion message is a plain failure, not a missing
+// implementation.
+var missingImplRe = regexp.MustCompile(`(?i)undefined: |is not defined|has no attribute|cannot find name|cannot find (?:function|value|struct|type|trait|macro|method)|no method named|undeclared name|use of undeclared (?:identifier|crate or module)|use of undefined identifier|has no member named`)
 
 // ClassifyOutcome maps a test run to an Outcome. prevFailing is the failing-test
 // set recorded after the previous edit, used to recognise that a still-failing
@@ -89,15 +94,22 @@ func ClassifyOutcome(passed bool, output string, prevFailing []string) Outcome {
 		}
 	}
 
+	// The failing-set delta is judged BEFORE the regex classes: a run whose
+	// failures were all already failing is NoDelta no matter what its message
+	// text matches. A pre-existing failure often carries missing-impl/setup-error
+	// phrasing ("has no attribute", "ImportError: …"), and relabeling it
+	// red-missing-impl on every unrelated edit nags the agent about breakage it
+	// did not cause. A run with no parseable failing names (e.g. a compile error)
+	// never qualifies as NoDelta, so fresh clean-RED signals keep their class.
+	if len(prevFailing) > 0 && noNewFailures(ExtractFailingTests(output), prevFailing) {
+		return NoDelta
+	}
+
 	switch {
 	case setupErrRe.MatchString(output):
 		return RedBogus
 	case missingImplRe.MatchString(output):
 		return RedMissingImpl
-	}
-
-	if len(prevFailing) > 0 && noNewFailures(ExtractFailingTests(output), prevFailing) {
-		return NoDelta
 	}
 	return Red
 }
