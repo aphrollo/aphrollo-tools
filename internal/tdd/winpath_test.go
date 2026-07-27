@@ -39,6 +39,47 @@ func TestShim_WindowsPathIsShSafe(t *testing.T) {
 	}
 }
 
+// The settings.json hook COMMANDS have the same backslash problem as the git
+// shims: Claude Code runs hook commands through a shell (observed: bash on a
+// Windows box with Git Bash), where `C:\Users\me\bin\aphrollo.exe tdd
+// userpromptsubmit` collapses to `C:Usersmebinaphrollo.exe` — every session
+// hook died "command not found" live. The written command must be
+// slash-normalized and quoted.
+func TestPatchSettings_WindowsBinPathIsShellSafe(t *testing.T) {
+	out, _, err := PatchSettings([]byte(`{}`), `C:\Users\me\bin\aphrollo.exe`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmds := commandStrings(t, out, "UserPromptSubmit")
+	if len(cmds) != 1 {
+		t.Fatalf("want exactly one UserPromptSubmit command, got %v", cmds)
+	}
+	want := `"C:/Users/me/bin/aphrollo.exe" tdd userpromptsubmit`
+	if cmds[0] != want {
+		t.Fatalf("hook command:\n got: %q\nwant: %q", cmds[0], want)
+	}
+}
+
+// And the patch must still recognise its own quoted-path entries as managed on
+// a re-run (idempotence), not append duplicates beside them.
+func TestPatchSettings_IdempotentWithWindowsQuotedPath(t *testing.T) {
+	bin := `C:\Users\me\bin\aphrollo.exe`
+	first, _, err := PatchSettings([]byte(`{}`), bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, changed, err := PatchSettings(first, bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed {
+		t.Fatal("second patch over own output must be a no-op")
+	}
+	if len(commandStrings(t, second, "UserPromptSubmit")) != 1 {
+		t.Fatal("re-patch appended a duplicate hook entry")
+	}
+}
+
 // The legacy Node-plugin cleanup must catch WINDOWS install paths too: the
 // deployed command is `"C:/Program Files/nodejs/node"
 // "C:\Users\me\.claude\hooks\tdd-post-edit.js"` — backslashes — while the

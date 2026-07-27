@@ -174,8 +174,11 @@ func InitSettings(configDir, bin string, uninstall bool) (bool, error) {
 func (me managedEvent) group(bin string) any {
 	g := map[string]any{
 		"hooks": []any{map[string]any{
-			"type":    "command",
-			"command": fmt.Sprintf("%s tdd %s", bin, me.sub),
+			"type": "command",
+			// Slash-normalized + quoted like the git shims: hook commands run
+			// through a shell, where a raw Windows path's backslashes are
+			// escapes — the session hooks died "command not found" live.
+			"command": fmt.Sprintf("%q tdd %s", filepath.ToSlash(bin), me.sub),
 			"timeout": me.timeout,
 		}},
 	}

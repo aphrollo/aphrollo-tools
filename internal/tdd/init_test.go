@@ -57,11 +57,11 @@ func TestPatchSettings_InstallsAllEvents(t *testing.T) {
 		t.Fatal("expected changed=true installing into empty settings")
 	}
 	for _, want := range []struct{ event, sub string }{
-		{"SessionStart", "aphrollo tdd sessionstart"},
-		{"PreToolUse", "aphrollo tdd pretooluse"},
-		{"PostToolUse", "aphrollo tdd posttooluse"},
-		{"SessionEnd", "aphrollo tdd sessionend"},
-		{"UserPromptSubmit", "aphrollo tdd userpromptsubmit"},
+		{"SessionStart", "aphrollo\" tdd sessionstart"},
+		{"PreToolUse", "aphrollo\" tdd pretooluse"},
+		{"PostToolUse", "aphrollo\" tdd posttooluse"},
+		{"SessionEnd", "aphrollo\" tdd sessionend"},
+		{"UserPromptSubmit", "aphrollo\" tdd userpromptsubmit"},
 	} {
 		if !hasCommandContaining(t, out, want.event, want.sub) {
 			t.Errorf("%s: missing command %q\n%s", want.event, want.sub, out)
@@ -108,7 +108,7 @@ func TestPatchSettings_PreservesForeignHooks(t *testing.T) {
 	if !hasCommandContaining(t, out, "UserPromptSubmit", "caveman-mode-tracker.js") {
 		t.Errorf("dropped foreign caveman hook\n%s", out)
 	}
-	if !hasCommandContaining(t, out, "UserPromptSubmit", "aphrollo tdd userpromptsubmit") {
+	if !hasCommandContaining(t, out, "UserPromptSubmit", "aphrollo\" tdd userpromptsubmit") {
 		t.Errorf("missing aphrollo userpromptsubmit\n%s", out)
 	}
 	var m map[string]any
@@ -136,7 +136,7 @@ func TestPatchSettings_MigratesNodeHooks(t *testing.T) {
 	if hasCommandContaining(t, out, "PreToolUse", "tdd-pre-edit.js") {
 		t.Errorf("old node tdd hook not migrated out\n%s", out)
 	}
-	if !hasCommandContaining(t, out, "PreToolUse", "aphrollo tdd pretooluse") {
+	if !hasCommandContaining(t, out, "PreToolUse", "aphrollo\" tdd pretooluse") {
 		t.Errorf("missing aphrollo pretooluse after migration\n%s", out)
 	}
 }
