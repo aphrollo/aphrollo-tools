@@ -92,8 +92,19 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		if scoped, narrowed := narrowToStaged(runner, append(append([]string{}, tests...), srcs...)); narrowed {
 			runner = scoped
 		}
-		if res := run(runner, repoRoot); !res.Passed {
-			return GateResult{Blocked: true, Message: "TDD mechanical: tests failing — fix before committing.\n" + snippet(res.Output)}
+		// The green cache: an identical worktree state already proven green under
+		// this exact command (by a PostToolUse run or an earlier gate pass) is not
+		// re-run. Red results are never cached, so a block always re-runs and
+		// carries fresh output.
+		key := ""
+		if h := worktreeStateHash(repoRoot); h != "" {
+			key = mechKey(repoRoot, h, runner)
+		}
+		if !mechCacheHit(key) {
+			if res := run(runner, repoRoot); !res.Passed {
+				return GateResult{Blocked: true, Message: "TDD mechanical: tests failing — fix before committing.\n" + snippet(res.Output)}
+			}
+			mechCacheAdd(key)
 		}
 	}
 	return GateResult{}
