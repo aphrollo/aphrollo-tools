@@ -45,8 +45,13 @@ func isManagedCmd(cmd string) bool {
 			return true
 		}
 	}
+	// Legacy markers are written with forward slashes; a Windows install's
+	// command embeds the same path with backslashes (`…\hooks\tdd-post-edit.js`),
+	// which left the node hooks in place beside ours — every event double-fired.
+	// Normalize before matching so one marker spelling covers both.
+	normalized := strings.ReplaceAll(cmd, `\`, "/")
 	for _, m := range legacyCmdMarkers {
-		if strings.Contains(cmd, m) {
+		if strings.Contains(normalized, m) {
 			return true
 		}
 	}
@@ -169,8 +174,11 @@ func InitSettings(configDir, bin string, uninstall bool) (bool, error) {
 func (me managedEvent) group(bin string) any {
 	g := map[string]any{
 		"hooks": []any{map[string]any{
-			"type":    "command",
-			"command": fmt.Sprintf("%s tdd %s", bin, me.sub),
+			"type": "command",
+			// Slash-normalized + quoted like the git shims: hook commands run
+			// through a shell, where a raw Windows path's backslashes are
+			// escapes — the session hooks died "command not found" live.
+			"command": fmt.Sprintf("%q tdd %s", shellPath(bin), me.sub),
 			"timeout": me.timeout,
 		}},
 	}

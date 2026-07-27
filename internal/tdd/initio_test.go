@@ -21,7 +21,7 @@ func TestInitSettings_CreatesFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("settings.json not written: %v", err)
 	}
-	if !strings.Contains(string(data), "aphrollo tdd pretooluse") {
+	if !strings.Contains(string(data), `aphrollo\" tdd pretooluse`) {
 		t.Errorf("settings.json missing aphrollo hooks:\n%s", data)
 	}
 }
@@ -82,7 +82,7 @@ func TestInitSettings_Uninstall(t *testing.T) {
 		t.Error("expected changed=true on uninstall")
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
-	if strings.Contains(string(data), "aphrollo tdd") {
+	if strings.Contains(string(data), "tdd pretooluse") {
 		t.Errorf("uninstall left aphrollo hooks behind:\n%s", data)
 	}
 }

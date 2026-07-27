@@ -24,9 +24,23 @@ var prunedHooks = []string{"pre-push"}
 
 // binShim is a git-hook script that execs the aphrollo binary's tdd subcommand.
 // It carries installMarker so a re-install or uninstall recognises its own shim
-// and never touches a hand-written hook.
+// and never touches a hand-written hook. The path is slash-normalized and quoted:
+// on Windows os.Executable yields `C:\Users\…\aphrollo.exe`, and in an unquoted
+// `#!/bin/sh` line the backslashes are escapes — Git Bash execs
+// `C:Users…aphrollo.exe`, every gated commit fails "not found". Quoting also
+// survives spaces (`C:\Program Files\…`).
 func binShim(bin, sub string) string {
-	return "#!/bin/sh\n" + installMarker + "\nexec " + bin + " tdd " + sub + " \"$@\"\n"
+	return "#!/bin/sh\n" + installMarker + "\nexec \"" + shellPath(bin) + "\" tdd " + sub + " \"$@\"\n"
+}
+
+// shellPath renders a binary path for embedding in a shell command line:
+// backslashes become forward slashes UNCONDITIONALLY (filepath.ToSlash is a
+// no-op off Windows, but a Windows path must render identically wherever the
+// string is generated or tested — same-bytes-out determinism). Windows accepts
+// forward slashes natively; a POSIX filename containing a literal backslash is
+// not a path this installer ever writes.
+func shellPath(bin string) string {
+	return strings.ReplaceAll(bin, `\`, "/")
 }
 
 // InitGitGate installs (or, with uninstall=true, removes) the global git gate:

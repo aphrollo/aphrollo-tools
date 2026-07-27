@@ -35,7 +35,7 @@ func TestRun_TDDInit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("settings.json not written: %v", err)
 	}
-	if !strings.Contains(string(data), "/usr/local/bin/aphrollo tdd pretooluse") {
+	if !strings.Contains(string(data), `/usr/local/bin/aphrollo\" tdd pretooluse`) {
 		t.Errorf("settings.json missing wired hook:\n%s", data)
 	}
 
@@ -47,7 +47,7 @@ func TestRun_TDDInit(t *testing.T) {
 		t.Fatalf("uninstall exit = %d, want 0\nstderr: %s", code, errb.String())
 	}
 	data, _ = os.ReadFile(filepath.Join(dir, "settings.json"))
-	if strings.Contains(string(data), "aphrollo tdd") {
+	if strings.Contains(string(data), "tdd pretooluse") {
 		t.Errorf("uninstall left hooks behind:\n%s", data)
 	}
 }
