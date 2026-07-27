@@ -89,15 +89,22 @@ func ClassifyOutcome(passed bool, output string, prevFailing []string) Outcome {
 		}
 	}
 
+	// The failing-set delta is judged BEFORE the regex classes: a run whose
+	// failures were all already failing is NoDelta no matter what its message
+	// text matches. A pre-existing failure often carries missing-impl/setup-error
+	// phrasing ("has no attribute", "ImportError: …"), and relabeling it
+	// red-missing-impl on every unrelated edit nags the agent about breakage it
+	// did not cause. A run with no parseable failing names (e.g. a compile error)
+	// never qualifies as NoDelta, so fresh clean-RED signals keep their class.
+	if len(prevFailing) > 0 && noNewFailures(ExtractFailingTests(output), prevFailing) {
+		return NoDelta
+	}
+
 	switch {
 	case setupErrRe.MatchString(output):
 		return RedBogus
 	case missingImplRe.MatchString(output):
 		return RedMissingImpl
-	}
-
-	if len(prevFailing) > 0 && noNewFailures(ExtractFailingTests(output), prevFailing) {
-		return NoDelta
 	}
 	return Red
 }

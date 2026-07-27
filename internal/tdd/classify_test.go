@@ -97,6 +97,22 @@ func TestClassifyOutcome(t *testing.T) {
 		// Pre-existing failure → no-delta (don't nag).
 		{"no new failures", false, "--- FAIL: TestOld\n want x", []string{"TestOld"}, NoDelta},
 		{"a new failure breaks no-delta", false, "--- FAIL: TestNew\n want x", []string{"TestOld"}, Red},
+		// The delta decides BEFORE the regex classes: a failure set already
+		// recorded as failing is NoDelta even when its message text happens to
+		// match a missing-impl or setup-error pattern. Otherwise pre-existing
+		// breakage is relabeled red-missing-impl/red-bogus on every unrelated
+		// edit and the agent is nagged about failures it did not cause.
+		{"no-delta beats missing-impl text", false,
+			"FAILED tests/x.py::test_old\nAttributeError: 'Widget' object has no attribute 'frob'",
+			[]string{"tests/x.py::test_old"}, NoDelta},
+		{"no-delta beats setup-error text", false,
+			"FAILED tests/x.py::test_old\nImportError: cannot import name 'frob'",
+			[]string{"tests/x.py::test_old"}, NoDelta},
+		// A NEW failure still gets its regex class — delta precedence must not
+		// blunt the clean-RED signal for a fresh missing symbol.
+		{"fresh missing-impl still clean red", false,
+			"FAILED tests/x.py::test_new\nAttributeError: 'Widget' object has no attribute 'frob'",
+			[]string{"tests/x.py::test_old"}, RedMissingImpl},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
