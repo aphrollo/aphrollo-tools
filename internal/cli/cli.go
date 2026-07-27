@@ -230,10 +230,13 @@ Source edits always flow.
 `
 
 // postEditTimeout bounds a PostToolUse suite run so a hung test can't wedge the
-// session. precommitTimeout is longer: the full suite runs at commit time.
+// session. precommitTimeout is longer: the commit gate runs the staged crates'
+// suites (and the fail-first worktree build), and on heavy-dependency repos a
+// first-warm build alone can pass five minutes; a timeout fails open, so the
+// ceiling only caps how long a commit can stall, never what it proves.
 const (
 	postEditTimeout  = 60 * time.Second
-	precommitTimeout = 300 * time.Second
+	precommitTimeout = 600 * time.Second
 )
 
 // runTDD dispatches the TDD hook subcommands. Like the guardrail hook, every

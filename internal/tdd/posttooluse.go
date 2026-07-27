@@ -28,6 +28,12 @@ type postToolUseInput struct {
 type SuiteResult struct {
 	Passed bool
 	Output string
+	// TimedOut marks a run killed at its deadline. A timeout says nothing
+	// about the code under test, so every consumer treats it as inconclusive
+	// — PostEdit stays silent, the mechanical gate does not block, fail-first
+	// reaches no verdict. Without the signal a slow suite reads as RED and
+	// the gates nag or block over a stopwatch, not a failure.
+	TimedOut bool
 }
 
 // SuiteRunner executes a runner in a project root. It is injected so the
@@ -69,6 +75,11 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 	}
 
 	res := run(snap.runner, root)
+	if res.TimedOut {
+		// A killed run proves nothing — no advisory, no state stamp: the last
+		// real outcome stays authoritative for the next delta.
+		return ""
+	}
 	outcome := ClassifyOutcome(res.Passed, res.Output, snap.prevFailing)
 	failing := ExtractFailingTests(res.Output)
 
@@ -198,8 +209,13 @@ func RunSuite(timeout time.Duration) SuiteRunner {
 		cmd := exec.CommandContext(ctx, r.Cmd, r.Args...)
 		cmd.Dir = root
 		cmd.Env = suiteEnv()
+		// Without WaitDelay a killed test runner's surviving children hold the
+		// output pipes open and CombinedOutput blocks long past the deadline
+		// (cmd.exe's children on Windows, orphaned workers elsewhere).
+		cmd.WaitDelay = 2 * time.Second
 		out, err := cmd.CombinedOutput()
-		return SuiteResult{Passed: err == nil, Output: string(out)}
+		timedOut := ctx.Err() == context.DeadlineExceeded
+		return SuiteResult{Passed: err == nil && !timedOut, Output: string(out), TimedOut: timedOut}
 	}
 }
 

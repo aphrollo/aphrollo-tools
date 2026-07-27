@@ -58,10 +58,10 @@ func TestZigRunner(t *testing.T) {
 
 	// narrowSourceEdit and narrowToStaged switch on the runner command; the zig
 	// command matches no related-mode branch and must return unchanged.
-	if got := narrowSourceEdit(zig, "src/main.zig"); !reflect.DeepEqual(got, zig) {
+	if got := narrowSourceEdit(zig, "src/main.zig", root); !reflect.DeepEqual(got, zig) {
 		t.Fatalf("narrowSourceEdit = %+v, want %+v", got, zig)
 	}
-	if got, ok := narrowToStaged(zig, []string{"src/main.zig"}); ok || !reflect.DeepEqual(got, zig) {
+	if got, ok := narrowToStaged(zig, root, []string{"src/main.zig"}); ok || !reflect.DeepEqual(got, zig) {
 		t.Fatalf("narrowToStaged = %+v,%v want %+v,false", got, ok, zig)
 	}
 }
@@ -316,7 +316,7 @@ func TestNarrowToStaged(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, ok := narrowToStaged(c.runner, c.files)
+			got, ok := narrowToStaged(c.runner, t.TempDir(), c.files)
 			if ok != c.wantOK || !reflect.DeepEqual(got, c.want) {
 				t.Fatalf("narrowToStaged = %+v,%v want %+v,%v", got, ok, c.want, c.wantOK)
 			}
