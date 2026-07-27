@@ -469,6 +469,49 @@ func TestPostEdit_GreenRunSeedsMechanicalCache(t *testing.T) {
 	}
 }
 
+// The fail-first worktree run must not inherit the operator's
+// CARGO_TARGET_DIR: a shared warm target can hold stale artifacts from a
+// divergent sibling checkout and fail the gate on phantom compile errors. The
+// gate pins its own per-repo target dir under the state dir for the worktree
+// run — and restores the operator's value before the mechanical run, which
+// runs in the real checkout where the shared warm target is correct.
+func TestPrecommit_FailFirst_PinsCargoTargetDir(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("CARGO_TARGET_DIR", "/tmp/shared-warm-target")
+	root := makeCargoRepo(t)
+	write(t, root, "src/widget.rs", "pub fn widget() -> i32 { 1 }\n")
+	write(t, root, "src/widget_test.rs", "#[test]\nfn widget_is_one() { assert_eq!(1, crate::widget::widget()); }\n")
+	gitDo(t, root, "add", ".")
+
+	var worktreeTarget, mechanicalTarget string
+	run := func(r Runner, dir string) SuiteResult {
+		if dir == root {
+			mechanicalTarget = os.Getenv("CARGO_TARGET_DIR")
+			return SuiteResult{Passed: true}
+		}
+		worktreeTarget = os.Getenv("CARGO_TARGET_DIR")
+		// The applied test cannot compile without the staged source → RED,
+		// which satisfies fail-first.
+		return SuiteResult{Passed: false, Output: "error[E0425]: cannot find function `widget`"}
+	}
+	if res := Precommit(root, run); res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	if worktreeTarget == "/tmp/shared-warm-target" || worktreeTarget == "" {
+		t.Fatalf("fail-first worktree run inherited the shared CARGO_TARGET_DIR: %q", worktreeTarget)
+	}
+	if !strings.HasPrefix(worktreeTarget, cfg) {
+		t.Fatalf("pinned target dir must live under the state dir %s, got %q", cfg, worktreeTarget)
+	}
+	if mechanicalTarget != "/tmp/shared-warm-target" {
+		t.Fatalf("mechanical run must keep the operator's CARGO_TARGET_DIR, got %q", mechanicalTarget)
+	}
+	if got := os.Getenv("CARGO_TARGET_DIR"); got != "/tmp/shared-warm-target" {
+		t.Fatalf("CARGO_TARGET_DIR must be restored after the gate, got %q", got)
+	}
+}
+
 // --- Zig (inline-test model) ------------------------------------------------
 
 // makeZigRepo creates a committed Zig project whose root marker is build.zig,
