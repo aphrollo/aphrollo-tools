@@ -59,7 +59,7 @@ func TestInstallPlan_ApplyWritesExecutableShims(t *testing.T) {
 			t.Fatalf("%s is not executable (%v)", name, fi.Mode())
 		}
 		data, _ := os.ReadFile(p)
-		if !strings.Contains(string(data), "aphrollo tdd "+sub) {
+		if !strings.Contains(string(data), "aphrollo\" tdd "+sub) {
 			t.Fatalf("%s does not invoke the subcommand:\n%s", name, data)
 		}
 	}

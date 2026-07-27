@@ -178,7 +178,7 @@ func (me managedEvent) group(bin string) any {
 			// Slash-normalized + quoted like the git shims: hook commands run
 			// through a shell, where a raw Windows path's backslashes are
 			// escapes — the session hooks died "command not found" live.
-			"command": fmt.Sprintf("%q tdd %s", filepath.ToSlash(bin), me.sub),
+			"command": fmt.Sprintf("%q tdd %s", shellPath(bin), me.sub),
 			"timeout": me.timeout,
 		}},
 	}

@@ -52,7 +52,7 @@ var perRepoPrunedHooks = []string{"pre-push"}
 func shim(bin, sub string) string {
 	// Slash-normalized + quoted for the same reason as binShim: a raw Windows
 	// path's backslashes are sh escapes, so the exec line resolves to garbage.
-	return "#!/bin/sh\n" + installMarker + "\nexec \"" + filepath.ToSlash(bin) + "\" tdd " + sub + "\n"
+	return "#!/bin/sh\n" + installMarker + "\nexec \"" + shellPath(bin) + "\" tdd " + sub + "\n"
 }
 
 // BuildInstallPlan computes the hooks to install for the repo at repoRoot, whose
