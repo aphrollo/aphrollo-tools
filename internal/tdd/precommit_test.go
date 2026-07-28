@@ -474,12 +474,14 @@ func TestPostEdit_GreenRunSeedsMechanicalCache(t *testing.T) {
 	}
 }
 
-// The fail-first worktree run must not inherit the operator's
-// CARGO_TARGET_DIR: a shared warm target can hold stale artifacts from a
-// divergent sibling checkout and fail the gate on phantom compile errors. The
-// gate pins its own per-repo target dir under the state dir for the worktree
-// run — and restores the operator's value before the mechanical run, which
-// runs in the real checkout where the shared warm target is correct.
+// Neither gate-run may inherit an operator CARGO_TARGET_DIR that lies outside
+// the repo being committed: a shared warm target can hold stale artifacts from
+// a divergent sibling checkout and fail the gate on phantom compile/test
+// errors. The fail-first worktree run always pins the gate-owned per-repo
+// target; the mechanical run (in the real checkout) swaps a FOREIGN target for
+// the same gate-owned one — a repo-local target is honest and passes through
+// (see TestPrecommit_MechanicalCargoRun_TargetDirPolicy). The operator's value
+// is restored once the gate is done.
 func TestPrecommit_FailFirst_PinsCargoTargetDir(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -509,8 +511,11 @@ func TestPrecommit_FailFirst_PinsCargoTargetDir(t *testing.T) {
 	if !strings.HasPrefix(worktreeTarget, cfg) {
 		t.Fatalf("pinned target dir must live under the state dir %s, got %q", cfg, worktreeTarget)
 	}
-	if mechanicalTarget != "/tmp/shared-warm-target" {
-		t.Fatalf("mechanical run must keep the operator's CARGO_TARGET_DIR, got %q", mechanicalTarget)
+	if mechanicalTarget == "/tmp/shared-warm-target" || mechanicalTarget == "" {
+		t.Fatalf("mechanical run must not build into a foreign CARGO_TARGET_DIR, got %q", mechanicalTarget)
+	}
+	if !strings.HasPrefix(mechanicalTarget, cfg) {
+		t.Fatalf("mechanical run's replacement target must be the gate-owned one under %s, got %q", cfg, mechanicalTarget)
 	}
 	if got := os.Getenv("CARGO_TARGET_DIR"); got != "/tmp/shared-warm-target" {
 		t.Fatalf("CARGO_TARGET_DIR must be restored after the gate, got %q", got)

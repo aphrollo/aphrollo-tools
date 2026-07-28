@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -72,7 +73,12 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 	// worktree run fails to RUN and falls through the unrunnable-suite path above
 	// (Passed=false ⇒ violated=false). Either way fail-first never false-blocks a
 	// Zig commit; the mechanical stage's full `zig build test` is the real gate.
-	if len(tests) > 0 && len(srcs) > 0 {
+	// Fail-first judges NEW tests only, so it fires when the staged test
+	// changes actually ADD a test declaration. A declaration-free test edit
+	// (lint reflow, gofmt, a renamed local) has nothing to prove RED — and
+	// judging it would false-block, since a reformatted EXISTING test passes
+	// at HEAD by construction. The mechanical stage still gates those.
+	if len(tests) > 0 && len(srcs) > 0 && stagedTestsAddDecl(repoRoot) {
 		if violated, conclusive := failFirstViolated(repoRoot, tests, run); conclusive && violated {
 			return GateResult{Blocked: true, Message: failFirstMessage}
 		}
@@ -103,20 +109,119 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 			key = mechKey(repoRoot, h, runner)
 		}
 		if !mechCacheHit(key) {
+			restore := pinMechCargoTarget(runner, repoRoot)
 			res := run(runner, repoRoot)
+			restore()
 			switch {
 			case res.TimedOut:
 				// A killed suite is a stopwatch verdict, not a test verdict.
 				// Fail OPEN (same policy as an unverifiable fail-first) — but
 				// never cache: nothing was proven green.
 			case !res.Passed:
-				return GateResult{Blocked: true, Message: "TDD mechanical: tests failing — fix before committing.\n" + snippet(res.Output)}
+				return GateResult{Blocked: true, Message: mechRejectMessage(runner, res)}
 			default:
 				mechCacheAdd(key)
 			}
 		}
 	}
 	return GateResult{}
+}
+
+// pinMechCargoTarget guards the mechanical cargo run against the
+// cross-checkout poisoning vector: an inherited CARGO_TARGET_DIR pointing
+// OUTSIDE the repo being committed means two divergent checkouts share one
+// warm target, and wrong-artifact reuse there produces phantom compile/test
+// failures the gate then misreports as a red suite. Such a target is swapped
+// for the gate-owned per-repo one (unset when no state dir exists, falling
+// back to cargo's repo-local default). A repo-local target — or none — is
+// honest and passes through untouched. Returns the env restore.
+func pinMechCargoTarget(r Runner, repoRoot string) func() {
+	noop := func() {}
+	if r.Cmd != "cargo" {
+		return noop
+	}
+	cur, had := os.LookupEnv("CARGO_TARGET_DIR")
+	if !had || insideDir(repoRoot, cur) {
+		return noop
+	}
+	if dir := cargoFailFirstTarget(repoRoot); dir != "" {
+		os.Setenv("CARGO_TARGET_DIR", dir)
+	} else {
+		os.Unsetenv("CARGO_TARGET_DIR")
+	}
+	return func() { os.Setenv("CARGO_TARGET_DIR", cur) }
+}
+
+// insideDir reports whether path lies lexically within base (inclusive).
+// Windows compares case-insensitively — the same checkout routinely appears
+// with both drive-letter casings.
+func insideDir(base, path string) bool {
+	base, path = filepath.Clean(base), filepath.Clean(path)
+	if runtime.GOOS == "windows" {
+		base, path = strings.ToLower(base), strings.ToLower(path)
+	}
+	rel, err := filepath.Rel(base, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// mechRejectMessage composes a mechanical block that says WHAT failed: the
+// failing test names when the output parses, the runner-level error when it
+// does not (a link error, a wedged harness), a pointer to the persisted FULL
+// log, and a TAIL snippet — the failure detail of a long suite lives at the
+// end, so head-truncation showed only green `ok` lines and made every real
+// rejection look phantom.
+func mechRejectMessage(r Runner, res SuiteResult) string {
+	var b strings.Builder
+	b.WriteString("TDD mechanical: tests failing — fix before committing.\n")
+	fmt.Fprintf(&b, "command: %s %s\n", r.Cmd, strings.Join(r.Args, " "))
+	if names := ExtractFailingTests(res.Output); len(names) > 0 {
+		fmt.Fprintf(&b, "failing: %s\n", strings.Join(names, ", "))
+	} else if res.Err != "" {
+		fmt.Fprintf(&b, "no failing test parsed from output; runner error: %s\n", res.Err)
+	}
+	if path := mechRejectLogPath(); path != "" {
+		if writeMechRejectLog(path, r, res) {
+			fmt.Fprintf(&b, "full output: %s\n", path)
+		}
+	}
+	b.WriteString(tailSnippet(res.Output))
+	return b.String()
+}
+
+// mechRejectLogPath is where the last mechanical rejection's full output lives
+// (one file, overwritten per rejection — the latest block is the one being
+// debugged). "" when there is no state dir.
+func mechRejectLogPath() string {
+	dir := stateDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "mech-reject.log")
+}
+
+// writeMechRejectLog persists the full untruncated runner output with the
+// command that produced it. Best-effort: a write failure only loses the
+// pointer, never the block.
+func writeMechRejectLog(path string, r Runner, res SuiteResult) bool {
+	var b strings.Builder
+	fmt.Fprintf(&b, "command: %s %s\nrunner error: %s\n\n", r.Cmd, strings.Join(r.Args, " "), res.Err)
+	b.WriteString(res.Output)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return false
+	}
+	return os.WriteFile(path, []byte(b.String()), 0o600) == nil
+}
+
+// tailSnippet bounds runner output to its LAST maxSnippet chars — the mirror
+// of snippet(): a suite's failure detail (the FAILED lines, the panic, the
+// assertion diff) accumulates at the end of the run, so a bounded rejection
+// must keep the tail and drop the head.
+func tailSnippet(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= maxSnippet {
+		return s
+	}
+	return "…[truncated]\n" + s[len(s)-maxSnippet:]
 }
 
 // suppressionCommitHeader prefixes a commit-time anti-cheat block; the policy's
@@ -147,6 +252,64 @@ func newSuppression(repoRoot string) string {
 		}
 	}
 	return ""
+}
+
+// testDeclRes recognises an ADDED line that declares a test, per supported
+// language. The set is deliberately declaration-shaped (attributes, test-func
+// headers, subtest registrations) — an added assertion inside an existing test
+// does not fire fail-first, matching its charter of proving NEW tests RED.
+var testDeclRes = map[string][]*regexp.Regexp{
+	".go": {
+		regexp.MustCompile(`^\s*func\s+(Test|Benchmark|Fuzz|Example)\w*\s*\(`),
+		regexp.MustCompile(`\bt\.Run\s*\(`),
+	},
+	".rs": {
+		regexp.MustCompile(`^\s*#\[\s*(\w+(::\w+)*::)?(test|rstest|test_case)\b`),
+	},
+	".py": {
+		regexp.MustCompile(`^\s*(async\s+)?def\s+test_`),
+	},
+	".zig": {
+		regexp.MustCompile(`^\s*test\s+("|\{)`),
+	},
+	".js": jsTestDeclRes, ".jsx": jsTestDeclRes, ".mjs": jsTestDeclRes,
+	".ts": jsTestDeclRes, ".tsx": jsTestDeclRes,
+}
+
+var jsTestDeclRes = []*regexp.Regexp{
+	regexp.MustCompile(`^\s*(it|test|describe)(\.\w+)?\s*\(`),
+}
+
+// stagedTestsAddDecl reports whether any staged TEST file's added lines carry
+// a test declaration. A test file in a language the table doesn't know errs
+// toward true — fail-first then runs and, at worst, costs a suite, never a
+// wrong verdict.
+func stagedTestsAddDecl(repoRoot string) bool {
+	for _, fa := range stagedAdds(repoRoot) {
+		if ClassifyFile(fa.path) != Test {
+			continue
+		}
+		res, known := testDeclRes[strings.ToLower(filepath.Ext(fa.path))]
+		if !known {
+			return true
+		}
+		post, err := git(repoRoot, "show", ":"+fa.path)
+		if err != nil {
+			return true // can't read the post-image → judge conservatively
+		}
+		lines := strings.Split(post, "\n")
+		for no := range fa.added {
+			if no < 1 || no > len(lines) {
+				continue
+			}
+			for _, re := range res {
+				if re.MatchString(lines[no-1]) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // fileAdd is the set of added line numbers (1-based, in the post-image) for one

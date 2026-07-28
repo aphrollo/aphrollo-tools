@@ -3,6 +3,7 @@ package tdd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -34,6 +35,11 @@ type SuiteResult struct {
 	// reaches no verdict. Without the signal a slow suite reads as RED and
 	// the gates nag or block over a stopwatch, not a failure.
 	TimedOut bool
+	// Err is the runner-level error text ("" when the run completed cleanly):
+	// an exit status, a spawn failure, or Go's wait-delay note. It is what the
+	// mechanical gate surfaces when the output itself names no failing test —
+	// a rejection must say WHAT failed, not just "failing".
+	Err string
 }
 
 // SuiteRunner executes a runner in a project root. It is injected so the
@@ -215,7 +221,16 @@ func RunSuite(timeout time.Duration) SuiteRunner {
 		cmd.WaitDelay = 2 * time.Second
 		out, err := cmd.CombinedOutput()
 		timedOut := ctx.Err() == context.DeadlineExceeded
-		return SuiteResult{Passed: err == nil && !timedOut, Output: string(out), TimedOut: timedOut}
+		// ErrWaitDelay means the process EXITED SUCCESSFULLY but an orphaned
+		// child held the I/O pipes past WaitDelay — Go returns it INSTEAD of
+		// nil in that case. The suite's own verdict is green; treating the
+		// pipe-holder as RED manufactured phantom "tests failing" blocks.
+		passed := (err == nil || errors.Is(err, exec.ErrWaitDelay)) && !timedOut
+		errText := ""
+		if err != nil {
+			errText = err.Error()
+		}
+		return SuiteResult{Passed: passed, Output: string(out), TimedOut: timedOut, Err: errText}
 	}
 }
 
