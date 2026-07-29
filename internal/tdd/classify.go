@@ -141,7 +141,8 @@ var failLineRes = []*regexp.Regexp{
 	regexp.MustCompile(`(?m)^FAILED\s+(\S+::\S+)`),                      // pytest: FAILED path::test
 	regexp.MustCompile(`(?m)^(\S+::\S+)\s+FAILED`),                      // pytest: path::test FAILED
 	regexp.MustCompile(`(?m)^\s*[✗×]\s+(.+?)(?:\s+\(\d+\s*m?s\))?\s*$`), // vitest/jest
-	regexp.MustCompile(`(?m)^test\s+(\S+)\s+\.\.\.\s+FAILED`),           // cargo
+	regexp.MustCompile(`(?m)^test\s+(\S+)\s+\.\.\.\s+FAILED`),           // cargo (libtest)
+	regexp.MustCompile(`(?m)^\s*FAIL\s+\[[^\]]*\]\s+\S+\s+(\S+)`),       // cargo nextest: FAIL [ 0.4s] binary-id test::name
 	regexp.MustCompile(`(?m)^\s*error: '([^']+)' failed:`),             // zig build test
 }
 

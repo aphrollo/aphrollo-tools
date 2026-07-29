@@ -3,6 +3,7 @@ package tdd
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
@@ -61,6 +62,13 @@ func DetectRunner(root string) (Runner, bool) {
 	case has("go.mod"):
 		return Runner{Cmd: "go", Args: []string{"test", "./..."}}, true
 	case has("Cargo.toml"):
+		// A checked-in nextest config is the project saying "this suite is
+		// meant for nextest" (partitioned test groups, per-test timeouts);
+		// honour it when the binary is actually installed — 2-3x on
+		// link-heavy suites. Either half missing → plain `cargo test`.
+		if has(filepath.Join(".config", "nextest.toml")) && nextestInstalled() {
+			return Runner{Cmd: "cargo", Args: []string{"nextest", "run"}}, true
+		}
 		return Runner{Cmd: "cargo", Args: []string{"test"}}, true
 	case has("pyproject.toml"), has("setup.py"), has("pytest.ini"):
 		return Runner{Cmd: "pytest", Args: []string{"-q"}}, true
@@ -74,6 +82,24 @@ func DetectRunner(root string) (Runner, bool) {
 		return Runner{Cmd: "zig", Args: []string{"build", "test"}}, true
 	}
 	return Runner{}, false
+}
+
+// nextestInstalled reports whether the cargo-nextest subcommand binary is on
+// PATH. Selecting nextest without it would turn every gate run into
+// "error: no such command" — a manufactured block.
+func nextestInstalled() bool {
+	_, err := exec.LookPath("cargo-nextest")
+	return err == nil
+}
+
+// cargoRunArgs is the verb prefix the detected cargo runner uses — `nextest
+// run` or `test` — so narrowing rebuilds scoped commands without forfeiting
+// nextest.
+func cargoRunArgs(r Runner) []string {
+	if len(r.Args) > 0 && r.Args[0] == "nextest" {
+		return []string{"nextest", "run"}
+	}
+	return []string{"test"}
 }
 
 // jsTestRunners is the precedence-ordered table mapping a package.json test
@@ -154,9 +180,9 @@ func NarrowToRelatedTests(r Runner, target, root string) Runner {
 		// that is the difference between seconds and a timeout. A Rust test
 		// file outside tests/ is a #[cfg(test)] unit module: lib target.
 		if name := cargoTestTarget(rel); name != "" {
-			return Runner{Cmd: "cargo", Args: []string{"test", "--test", name}}
+			return Runner{Cmd: "cargo", Args: append(cargoRunArgs(r), "--test", name)}
 		}
-		return Runner{Cmd: "cargo", Args: []string{"test", "--lib"}}
+		return Runner{Cmd: "cargo", Args: append(cargoRunArgs(r), "--lib")}
 	}
 	return r
 }
@@ -286,7 +312,7 @@ func narrowToStaged(r Runner, root string, files []string) (Runner, bool) {
 			}
 		}
 		sort.Strings(pkgs)
-		args := []string{"test"}
+		args := cargoRunArgs(r)
 		for _, p := range pkgs {
 			args = append(args, "-p", p)
 		}
@@ -317,7 +343,7 @@ func narrowSourceEdit(r Runner, rel, root string) Runner {
 		// binaries are the commit gate's job. `--lib` on a bin-only crate is
 		// an error, not a narrower run, so those keep the full crate suite.
 		if _, err := os.Stat(filepath.Join(root, "src", "lib.rs")); err == nil {
-			return Runner{Cmd: "cargo", Args: []string{"test", "--lib"}}
+			return Runner{Cmd: "cargo", Args: append(cargoRunArgs(r), "--lib")}
 		}
 		return r
 	case "npx":
