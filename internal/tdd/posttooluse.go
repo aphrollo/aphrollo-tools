@@ -80,10 +80,32 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 		return ""
 	}
 
+	headSHA := ""
+	if snap.fingerprint != nil {
+		headSHA = snap.fingerprint.HeadSHA
+	}
+	// Timeout backoff: a heavy crate (Bevy client/server) can blow the
+	// edit-time budget on nearly every edit, burning the full timeout for a
+	// discarded result. Two consecutive timeouts AT THE SAME head SHA earn
+	// silence — the suite is skipped entirely — until a commit moves HEAD and
+	// re-arms a fresh budget (stampTimeout starts the streak over on any SHA
+	// change).
+	if snap.state != nil {
+		if ps, exists := snap.state.ByProject[root]; exists && ps.TimeoutStreak >= 2 && ps.TimeoutSHA == headSHA {
+			return ""
+		}
+	}
+
 	res := run(snap.runner, root)
 	if res.TimedOut {
-		// A killed run proves nothing — no advisory, no state stamp: the last
-		// real outcome stays authoritative for the next delta.
+		// A killed run proves nothing about the code — no advisory, and the
+		// last REAL outcome stays authoritative for the next delta. Only the
+		// timeout streak itself is stamped, so repeated timeouts on this
+		// heavy crate stop costing anything.
+		if snap.state != nil {
+			snap.state.stampTimeout(root, headSHA)
+			_ = snap.state.save(snap.statePath)
+		}
 		return ""
 	}
 	outcome := ClassifyOutcome(res.Passed, res.Output, snap.prevFailing)

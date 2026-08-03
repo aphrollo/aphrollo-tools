@@ -19,6 +19,14 @@ type projectState struct {
 	Runner       []string     `json:"runner,omitempty"`
 	Fingerprint  *fingerprint `json:"fingerprint,omitempty"`
 	TS           string       `json:"ts"`
+	// TimeoutStreak counts consecutive PostEdit suite runs that timed out at
+	// this project root, and TimeoutSHA is the HEAD sha they were observed
+	// under. The pair lets PostEdit stop re-running a suite that reliably
+	// blows the edit-time budget on a heavy crate (e.g. a Bevy client/server)
+	// once the pattern is established, while still granting a fresh budget
+	// the moment a commit lands and TimeoutSHA goes stale — see stampTimeout.
+	TimeoutStreak int    `json:"timeout_streak,omitempty"`
+	TimeoutSHA    string `json:"timeout_sha,omitempty"`
 }
 
 // fingerprint pins state to a precise git state. If the branch, HEAD, or index
@@ -144,6 +152,25 @@ func gitOut(root string, args ...string) string {
 
 // stamp records the outcome of a run for root.
 func (s *sessionState) stamp(root string, ps projectState) {
+	ps.TS = time.Now().UTC().Format(time.RFC3339)
+	s.ByProject[root] = ps
+}
+
+// stampTimeout records a timed-out PostEdit run for root, WITHOUT touching
+// Outcome/FailingTests/Runner/Fingerprint — those still reflect the last run
+// that actually COMPLETED, and per PostEdit's contract that last real outcome
+// stays authoritative until a run finishes again. headSHA identical to the
+// last recorded TimeoutSHA bumps the streak; any other value (including "",
+// or a fresh SHA after a commit landed) starts a new streak at 1, so a moved
+// HEAD always gets a clean budget rather than inheriting a stale count.
+func (s *sessionState) stampTimeout(root, headSHA string) {
+	ps := s.ByProject[root]
+	if ps.TimeoutSHA == headSHA {
+		ps.TimeoutStreak++
+	} else {
+		ps.TimeoutSHA = headSHA
+		ps.TimeoutStreak = 1
+	}
 	ps.TS = time.Now().UTC().Format(time.RFC3339)
 	s.ByProject[root] = ps
 }

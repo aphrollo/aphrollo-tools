@@ -440,6 +440,10 @@ func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violat
 	if !ok {
 		return false, false
 	}
+	// Scope to the staged TEST targets under judgment: the full unnarrowed
+	// suite (esp. cargo nextest over a large workspace) is 10-20 minutes,
+	// blows this stage's own timeout, and fails open having proven nothing.
+	runner = narrowFailFirstTests(runner, wt, tests)
 	// The worktree run must not inherit the operator's CARGO_TARGET_DIR: a
 	// shared warm target can hold stale artifacts from a divergent sibling
 	// checkout and fail this check on phantom compile errors. Pin a gate-owned
@@ -495,17 +499,33 @@ func failFirstWorktreeDir(repoRoot string) string {
 }
 
 // cargoFailFirstTarget returns the gate-owned CARGO_TARGET_DIR for repoRoot's
-// fail-first worktree runs: per-repo (so divergent checkouts never share
-// artifacts) and persistent under the state dir (so the target stays warm
-// across commits instead of cold-compiling the whole crate each time).
-// Returns "" when there is no state dir or the dir can't be created — the run
-// then proceeds with the inherited environment.
+// fail-first (and, via pinMechCargoTarget, mechanical) cargo runs: persistent
+// under the state dir (so the target stays warm across commits instead of
+// cold-compiling the whole crate each time), keyed on the repo's git COMMON
+// dir rather than repoRoot itself — every linked worktree of one repo
+// (`.claude/worktrees/agent-*`) then shares the SAME warm target instead of
+// cold-building its own (dependency artifacts are branch-independent;
+// workspace crates re-fingerprint per source path regardless; concurrent
+// builds serialize on cargo's own build-dir lock). Divergent checkouts of
+// DIFFERENT repos still never share artifacts, since each has its own
+// git-common-dir. Returns "" when there is no state dir or the dir can't be
+// created — the run then proceeds with the inherited environment.
 func cargoFailFirstTarget(repoRoot string) string {
 	base := stateDir()
 	if base == "" {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(repoRoot))
+	key := repoRoot
+	if commonDir, err := git(repoRoot, "rev-parse", "--git-common-dir"); err == nil {
+		commonDir = strings.TrimSpace(commonDir)
+		if commonDir != "" {
+			if !filepath.IsAbs(commonDir) {
+				commonDir = filepath.Join(repoRoot, commonDir)
+			}
+			key = filepath.Clean(commonDir)
+		}
+	}
+	sum := sha256.Sum256([]byte(key))
 	dir := filepath.Join(base, "cargo-target", hex.EncodeToString(sum[:8]))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return ""

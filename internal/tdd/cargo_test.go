@@ -128,6 +128,109 @@ func makeCargoWorkspaceRepo(t *testing.T) string {
 	return root
 }
 
+// --- fail-first narrowing to staged test targets --------------------------
+
+// TestNarrowFailFirstTests_CargoSinglePackageMixed pins the common case: every
+// staged test file owned by the SAME package builds exact `--test <name>`
+// scoping (deduped, sorted), with `--lib` appended because one of the staged
+// files (src/thing_test.rs) is an inline #[cfg(test)] module rather than a
+// tests/*.rs integration binary.
+func TestNarrowFailFirstTests_CargoSinglePackageMixed(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "Cargo.toml", "[package]\nname = \"pkg1\"\nversion = \"0.1.0\"\n")
+	write(t, root, "tests/foo.rs", "#[test]\nfn foo() {}\n")
+	write(t, root, "src/thing_test.rs", "#[test]\nfn thing() {}\n")
+
+	cargo := Runner{"cargo", []string{"test"}}
+	got := narrowFailFirstTests(cargo, root, []string{"tests/foo.rs", "src/thing_test.rs"})
+	want := Runner{"cargo", []string{"test", "-p", "pkg1", "--test", "foo", "--lib"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("narrowFailFirstTests = %+v, want %+v", got, want)
+	}
+}
+
+// TestNarrowFailFirstTests_CargoNextestPreserved guards that narrowing keeps
+// the `nextest run` verb (not plain `test`) when the detected runner is
+// nextest — the same cargoRunArgs contract narrowToStaged already honours.
+func TestNarrowFailFirstTests_CargoNextestPreserved(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "Cargo.toml", "[package]\nname = \"pkg1\"\nversion = \"0.1.0\"\n")
+	write(t, root, "tests/foo.rs", "#[test]\nfn foo() {}\n")
+
+	nextest := Runner{"cargo", []string{"nextest", "run"}}
+	got := narrowFailFirstTests(nextest, root, []string{"tests/foo.rs"})
+	want := Runner{"cargo", []string{"nextest", "run", "-p", "pkg1", "--test", "foo"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("narrowFailFirstTests (nextest) = %+v, want %+v", got, want)
+	}
+}
+
+// TestNarrowFailFirstTests_CargoMultiPackageFallback pins the multi-package
+// case: staged test files owned by DIFFERENT packages fall back to package
+// granularity (`-p a -p b`, no --test scoping) via narrowToStaged.
+func TestNarrowFailFirstTests_CargoMultiPackageFallback(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/alpha\", \"crates/beta\"]\n")
+	write(t, root, "crates/alpha/Cargo.toml", "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\n")
+	write(t, root, "crates/beta/Cargo.toml", "[package]\nname = \"beta\"\nversion = \"0.1.0\"\n")
+	write(t, root, "crates/alpha/tests/a.rs", "#[test]\nfn a() {}\n")
+	write(t, root, "crates/beta/tests/b.rs", "#[test]\nfn b() {}\n")
+
+	cargo := Runner{"cargo", []string{"test"}}
+	got := narrowFailFirstTests(cargo, root, []string{"crates/beta/tests/b.rs", "crates/alpha/tests/a.rs"})
+	want := Runner{"cargo", []string{"test", "-p", "alpha", "-p", "beta"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("narrowFailFirstTests (multi-package) = %+v, want %+v", got, want)
+	}
+}
+
+// TestNarrowFailFirstTests_CargoNoPackageFallback pins the "unowned file"
+// fallback: a staged test file that no [package] Cargo.toml owns (only a
+// workspace-only virtual manifest above it) must keep the runner unnarrowed —
+// today's full-suite fail-open behavior, never a wrong scope.
+func TestNarrowFailFirstTests_CargoNoPackageFallback(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/alpha\"]\n")
+	write(t, root, "crates/alpha/Cargo.toml", "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\n")
+	write(t, root, "tools/gen_test.rs", "#[test]\nfn gen() {}\n")
+
+	cargo := Runner{"cargo", []string{"test"}}
+	got := narrowFailFirstTests(cargo, root, []string{"tools/gen_test.rs"})
+	if !reflect.DeepEqual(got, cargo) {
+		t.Fatalf("narrowFailFirstTests (no package) = %+v, want unchanged %+v", got, cargo)
+	}
+}
+
+// TestNarrowFailFirstTests_NonCargoDelegatesToNarrowToStaged guards the
+// non-cargo path: a runner with a related mode (go's package granularity)
+// gets exactly what narrowToStaged already produces for the staged test file.
+func TestNarrowFailFirstTests_NonCargoDelegatesToNarrowToStaged(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "go.mod", "module m\n\ngo 1.21\n")
+	write(t, root, "internal/x/x_test.go", "package x\n")
+
+	goRunner := Runner{"go", []string{"test", "./..."}}
+	got := narrowFailFirstTests(goRunner, root, []string{"internal/x/x_test.go"})
+	want := Runner{"go", []string{"test", "./internal/x"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("narrowFailFirstTests (go) = %+v, want %+v", got, want)
+	}
+}
+
+// TestNarrowFailFirstTests_NonCargoUnnarrowedFallback guards a runner with NO
+// related mode (pytest): the command must stay the full unnarrowed runner.
+func TestNarrowFailFirstTests_NonCargoUnnarrowedFallback(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "pyproject.toml", "[tool]\n")
+	write(t, root, "test_thing.py", "def test_thing(): pass\n")
+
+	pytest := Runner{"pytest", []string{"-q"}}
+	got := narrowFailFirstTests(pytest, root, []string{"test_thing.py"})
+	if !reflect.DeepEqual(got, pytest) {
+		t.Fatalf("narrowFailFirstTests (pytest) = %+v, want unchanged %+v", got, pytest)
+	}
+}
+
 // TestPrecommit_Mechanical_CargoWorkspaceScopedToStagedPackages pins the
 // workspace-aware mechanical narrowing: staged .rs files map to the [package]
 // Cargo.toml that owns them, and the mechanical run becomes

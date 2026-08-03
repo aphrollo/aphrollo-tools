@@ -330,6 +330,77 @@ func narrowToStaged(r Runner, root string, files []string) (Runner, bool) {
 	return r, false
 }
 
+// narrowFailFirstTests scopes the fail-first worktree run to just the staged
+// TEST files under judgment, instead of the full unnarrowed suite — on a
+// large workspace (e.g. a Bevy monorepo under cargo nextest) the unnarrowed
+// run is 10-20 minutes, blows the fail-first stage's own timeout, and proves
+// nothing (the stage fails open on the timeout). tests are repo-root-relative
+// paths, matching the worktree's layout (a checkout of HEAD).
+//
+// For cargo: when every staged test file is owned by the SAME [package], the
+// result is the exact `-p <pkg> --test <a> --test <b>` argv (nextest vs plain
+// `cargo test` preserved via cargoRunArgs), with `--lib` appended when any
+// staged test file is an inline #[cfg(test)] module (cargoTestTarget returns
+// "" for those — cargoTestTarget only names files under a tests/ segment).
+// Staged test files spanning MULTIPLE packages fall back to package
+// granularity via the existing narrowToStaged (`-p a -p b`, no --test
+// scoping). A file owned by NO package keeps the runner unnarrowed — the
+// current full-suite fail-open behavior.
+//
+// Non-cargo runners defer entirely to narrowToStaged; when it reports no
+// related mode (pytest, zig, an unknown command) the runner stays unnarrowed.
+func narrowFailFirstTests(r Runner, wt string, tests []string) Runner {
+	if r.Cmd != "cargo" {
+		if scoped, narrowed := narrowToStaged(r, wt, tests); narrowed {
+			return scoped
+		}
+		return r
+	}
+
+	seenPkg := map[string]bool{}
+	var pkgs []string
+	seenTarget := map[string]bool{}
+	var targets []string
+	inline := false
+	for _, f := range tests {
+		name := cargoPackageFor(wt, f)
+		if name == "" {
+			return r // a file with no owning package → unnarrowed fallback
+		}
+		if !seenPkg[name] {
+			seenPkg[name] = true
+			pkgs = append(pkgs, name)
+		}
+		if tgt := cargoTestTarget(f); tgt != "" {
+			if !seenTarget[tgt] {
+				seenTarget[tgt] = true
+				targets = append(targets, tgt)
+			}
+		} else {
+			inline = true
+		}
+	}
+	if len(pkgs) == 0 {
+		return r
+	}
+	if len(pkgs) > 1 {
+		if scoped, narrowed := narrowToStaged(r, wt, tests); narrowed {
+			return scoped
+		}
+		return r
+	}
+
+	sort.Strings(targets)
+	args := append(cargoRunArgs(r), "-p", pkgs[0])
+	for _, tgt := range targets {
+		args = append(args, "--test", tgt)
+	}
+	if inline {
+		args = append(args, "--lib")
+	}
+	return Runner{Cmd: "cargo", Args: args}
+}
+
 // narrowSourceEdit builds the related-tests command for a source-file edit,
 // dispatching on the detected runner. The npx branch keys off the runner name
 // (first arg) because vitest and jest expose different related-tests flags.

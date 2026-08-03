@@ -1,6 +1,8 @@
 package tdd
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
@@ -70,4 +72,47 @@ func TestPrecommit_MechanicalCargoRun_TargetDirPolicy(t *testing.T) {
 			t.Fatalf("with no operator CARGO_TARGET_DIR the run must use cargo's default repo-local target, got %q", seen)
 		}
 	})
+}
+
+// TestCargoFailFirstTarget_SharedAcrossLinkedWorktrees pins the fix for the
+// worktree-thrash waste: every throwaway `.claude/worktrees/agent-*` linked
+// worktree of ONE repo shares a single warm gate-owned cargo target dir,
+// because the key is now the repo's git COMMON dir (same for the main clone
+// and every worktree linked to it) rather than repoRoot (unique per worktree
+// path, so each one cold-built its own target before this fix).
+func TestCargoFailFirstTarget_SharedAcrossLinkedWorktrees(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := makeGoRepo(t) // any committed git repo; the target key doesn't care about language
+	wtDir := filepath.Join(t.TempDir(), "linked-wt")
+	gitDo(t, root, "worktree", "add", "-b", "feature-x", wtDir, "HEAD")
+
+	mainTarget := cargoFailFirstTarget(root)
+	wtTarget := cargoFailFirstTarget(wtDir)
+	if mainTarget == "" || wtTarget == "" {
+		t.Fatalf("expected non-empty target dirs, got main=%q wt=%q", mainTarget, wtTarget)
+	}
+	if mainTarget != wtTarget {
+		t.Fatalf("a linked worktree must share its main clone's cargo target dir, got main=%q wt=%q", mainTarget, wtTarget)
+	}
+}
+
+// TestCargoFailFirstTarget_FallsBackToRepoRootHashWhenGitFails pins the
+// fallback: when git can't resolve a common dir for the given root (no .git
+// at all here), cargoFailFirstTarget falls back to hashing repoRoot itself,
+// exactly as it did before this change.
+func TestCargoFailFirstTarget_FallsBackToRepoRootHashWhenGitFails(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	notARepo := t.TempDir() // no .git — `git rev-parse --git-common-dir` errors
+
+	got := cargoFailFirstTarget(notARepo)
+	if got == "" {
+		t.Fatal("expected a fallback target dir even when git fails")
+	}
+	sum := sha256.Sum256([]byte(notARepo))
+	want := filepath.Join(cfg, "tdd-state", "cargo-target", hex.EncodeToString(sum[:8]))
+	if got != want {
+		t.Fatalf("fallback target = %q, want the repoRoot-hashed path %q", got, want)
+	}
 }
