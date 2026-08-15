@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -159,7 +161,7 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 	if outcome.IsRed() {
 		return redSummary(snap.runner, root, outcome, res.Output)
 	}
-	return passAdvisory(snap.runner, root, outcome, res.Output, res.Duration)
+	return passAdvisory(snap.runner, root, outcome, res.Output, res.Duration, snap.prevFailing)
 }
 
 // stateSnapshot is the per-edit state plumbing PostEdit needs to run the suite
@@ -271,9 +273,34 @@ func greenLabel(outcome Outcome, output string, dur time.Duration) string {
 // NON-red outcome (green, green-with-warnings, writing-test, no-delta) — the
 // PostEdit contract is loud on every run, so these are no longer silent. The
 // passed count is included when the runner's own output states it plainly;
-// otherwise the line still reports the outcome and the duration.
-func passAdvisory(r Runner, root string, outcome Outcome, output string, dur time.Duration) string {
-	return fmt.Sprintf("tdd: %s in %s → %s", cmdString(r), root, greenLabel(outcome, output, dur))
+// otherwise the line still reports the outcome and the duration. A no-delta
+// run additionally names WHICH test is still failing (task A8) — no-delta
+// means "still red, but nothing NEW", and a bare "no-delta" line leaves the
+// session guessing which pre-existing failure it is.
+func passAdvisory(r Runner, root string, outcome Outcome, output string, dur time.Duration, prevFailing []string) string {
+	line := fmt.Sprintf("tdd: %s in %s → %s", cmdString(r), root, greenLabel(outcome, output, dur))
+	if outcome == NoDelta {
+		if hint := noDeltaStillFailingLine(output, prevFailing); hint != "" {
+			line += "\n" + hint
+		}
+	}
+	return line
+}
+
+// noDeltaStillFailingLine names the still-failing test for a no-delta run:
+// the current run's own output normally already parses a name (that is what
+// makes it no-delta at all — ClassifyOutcome's noNewFailures guard rejects
+// an empty current-failing set), so that name wins. The previously-recorded
+// failing set is a DEFENSIVE fallback only, for if that guard ever loosens —
+// "" when neither source has a name.
+func noDeltaStillFailingLine(output string, prevFailing []string) string {
+	if first := firstFailingName(output); first != "" {
+		return "first failure: " + first
+	}
+	if len(prevFailing) > 0 {
+		return "still failing: " + prevFailing[0]
+	}
+	return ""
 }
 
 // timeoutAdvisory composes the one-line advisory for a run the SuiteRunner
@@ -327,8 +354,47 @@ func redSummary(r Runner, root string, outcome Outcome, output string) string {
 	if g := guidance(outcome); g != "" {
 		fmt.Fprintf(&b, "\n%s", g)
 	}
-	fmt.Fprintf(&b, "\n```\n%s\n```", snippet(output))
+	if path := postEditRedLogPath(); path != "" {
+		if writePostEditRedLog(path, output) {
+			fmt.Fprintf(&b, "\nfull output: %s", path)
+		}
+	}
+	// A real test FAILURE (ExtractFailingTests found a name) puts its detail
+	// at the END of the output — nextest's FAIL summary line and cargo
+	// test's own FAILED dump both accumulate there, same as the mechanical
+	// gate's tailSnippet already accounts for. A head-only snippet showed
+	// the green PASS lines first and truncated BEFORE ever reaching the
+	// failure, matching the reported bug: "hook reports red/no-delta but
+	// truncates before naming the test". Anything else (a compile error,
+	// red-missing-impl, red-bogus) puts its actionable line at the START,
+	// so the head snippet is still correct there.
+	body := snippet(output)
+	if len(ExtractFailingTests(output)) > 0 {
+		body = tailSnippet(output)
+	}
+	fmt.Fprintf(&b, "\n```\n%s\n```", body)
 	return b.String()
+}
+
+// postEditRedLogPath is where the last RED PostEdit run's FULL, untruncated
+// output lives (one file, overwritten per RED — the latest block is the one
+// being debugged), mirroring mechRejectLogPath's contract for the
+// commit-time gate. "" when there is no state dir.
+func postEditRedLogPath() string {
+	dir := stateDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "postedit-red.log")
+}
+
+// writePostEditRedLog persists the full untruncated RED output verbatim.
+// Best-effort: a write failure only loses the pointer, never the advisory.
+func writePostEditRedLog(path, output string) bool {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return false
+	}
+	return os.WriteFile(path, []byte(output), 0o600) == nil
 }
 
 // guidance maps a RED outcome to a one-line next step.
