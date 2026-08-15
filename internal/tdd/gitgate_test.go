@@ -54,7 +54,7 @@ func TestInitGitGate_Installs(t *testing.T) {
 	if !changed {
 		t.Fatal("expected changed=true installing the git gate")
 	}
-	for name, sub := range map[string]string{"pre-commit": "precommit"} {
+	for name, sub := range map[string]string{"pre-commit": "precommit", "pre-merge-commit": "premergecommit"} {
 		data, err := os.ReadFile(filepath.Join(hooksDir, name))
 		if err != nil {
 			t.Fatalf("%s not written: %v", name, err)

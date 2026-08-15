@@ -108,6 +108,39 @@ func TestRun_TDDPrepush_IsNoOp(t *testing.T) {
 	}
 }
 
+// `tdd premergecommit` outside a git repo must be a pure no-op (exit 0, no
+// git/repo work attempted) — the same "not in a repo, nothing to gate" rule
+// precommit follows.
+func TestRun_TDDPremergecommit_NoOpOutsideRepo(t *testing.T) {
+	dir := t.TempDir()
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	code := Run([]string{"tdd", "premergecommit"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("premergecommit exit = %d, want 0 outside a repo\nstderr: %s", code, errb.String())
+	}
+}
+
+// `tdd premergecommit` on a real repo dispatches to Mechanical, not
+// Precommit: a docs/plain-text-only staged change (no source or test file)
+// exits 0 and reports "nothing to test" on stderr — proving the subcommand
+// is actually wired up, not merely a no-op stub like prepush.
+func TestRun_TDDPremergecommit_DocsOnlyIsNoOpWithMessage(t *testing.T) {
+	commitRepo(t) // builds a repo with a staged new.txt and chdir's into it
+	var out, errb bytes.Buffer
+	code := Run([]string{"tdd", "premergecommit"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("premergecommit exit = %d, want 0 for a docs-only merge\nstderr: %s", code, errb.String())
+	}
+	if !strings.Contains(errb.String(), "nothing to test") {
+		t.Fatalf("expected a 'nothing to test' line on stderr, got:\n%s", errb.String())
+	}
+}
+
 func TestRun_Sqlc_NoSub_ShowsUsage(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := Run([]string{"sqlc"}, strings.NewReader(""), &out, &errb); code != 2 {

@@ -30,6 +30,41 @@ const failFirstMessage = "TDD fail-first: this commit adds tests AND implementat
 	"A test that never went RED can't prove the implementation. Write the test first and watch it fail, " +
 	"or split the test into its own earlier commit."
 
+// rootGroup is one project root's staged Test/Source files (repo-root-
+// relative paths), the unit both Precommit and Mechanical iterate.
+type rootGroup struct {
+	root        string
+	tests, srcs []string
+}
+
+// stagedRootGroups groups repoRoot's staged Source/Test files by
+// FindProjectRoot — the single place both Precommit (fail-first +
+// mechanical) and Mechanical (the merge gate: mechanical only) derive their
+// per-root work from, so the grouping rule can never drift between them. A
+// monorepo can stage files under several DIFFERENT project roots in one
+// commit (a cargo workspace with a pytest tool living inside it); judging the
+// whole commit by DetectRunner(repoRoot) alone means whichever marker sits at
+// the outer repo root decides EVERY staged file's toolchain — a python-only
+// commit under a Bevy-sized cargo workspace then pays a full `cargo nextest
+// run` (20 minutes) for a change cargo has nothing to do with.
+func stagedRootGroups(repoRoot string) []rootGroup {
+	staged := stagedFiles(repoRoot)
+	if len(staged) == 0 {
+		return nil
+	}
+	tests, srcs := splitKinds(staged)
+	all := append(append([]string{}, tests...), srcs...)
+	var groups []rootGroup
+	for _, root := range stagedProjectRoots(repoRoot, all) {
+		groups = append(groups, rootGroup{
+			root:  root,
+			tests: filesUnderRoot(repoRoot, root, tests),
+			srcs:  filesUnderRoot(repoRoot, root, srcs),
+		})
+	}
+	return groups
+}
+
 // Precommit runs the commit-time TDD wall in repoRoot:
 //
 //  1. Fail-first — ONLY when the staged change adds both tests and source.
@@ -46,11 +81,10 @@ const failFirstMessage = "TDD fail-first: this commit adds tests AND implementat
 // gate never blocks because its own tooling tripped. run is injected so the
 // mechanical and worktree runs are testable.
 func Precommit(repoRoot string, run SuiteRunner) GateResult {
-	staged := stagedFiles(repoRoot)
-	if len(staged) == 0 {
+	groups := stagedRootGroups(repoRoot)
+	if len(groups) == 0 {
 		return GateResult{}
 	}
-	tests, srcs := splitKinds(staged)
 
 	// Anti-cheat: block a newly-INTRODUCED suppression before spending the suite
 	// on it. Scoped to added lines, so a suppression that already lived in the
@@ -59,27 +93,49 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		return GateResult{Blocked: true, Message: msg}
 	}
 
-	// A monorepo can stage files under several DIFFERENT project roots in one
-	// commit (a cargo workspace with a pytest tool living inside it). Judging
-	// the whole commit by DetectRunner(repoRoot) alone means whichever marker
-	// sits at the outer repo root decides EVERY staged file's toolchain — a
-	// python-only commit under a Bevy-sized cargo workspace then pays a full
-	// `cargo nextest run` (20 minutes) for a change cargo has nothing to do
-	// with. Grouping by FindProjectRoot judges each root with its OWN
-	// DetectRunner instead.
-	all := append(append([]string{}, tests...), srcs...)
 	var notes []string
-	for _, root := range stagedProjectRoots(repoRoot, all) {
-		rootTests := filesUnderRoot(repoRoot, root, tests)
-		rootSrcs := filesUnderRoot(repoRoot, root, srcs)
-		res := precommitRoot(repoRoot, root, rootTests, rootSrcs, run)
+	collect := func(res GateResult) (blocked bool) {
+		if res.Message != "" {
+			notes = append(notes, res.Message)
+		}
+		return res.Blocked
+	}
+	for _, g := range groups {
+		if res := failFirstStage(repoRoot, g.root, g.tests, g.srcs, run); collect(res) {
+			return res
+		}
+		if res := mechanicalRoot("precommit", repoRoot, g.root, g.tests, g.srcs, run); collect(res) {
+			return res
+		}
+	}
+	return GateResult{Message: strings.Join(notes, "\n")}
+}
+
+// Mechanical runs ONLY the mechanical stage of the commit-time TDD wall,
+// grouped by project root exactly like Precommit — but with NO fail-first (a
+// fresh test's RED/GREEN belongs to the AUTHORING commit, already proven
+// there by Precommit) and NO anti-cheat suppression scan (same reasoning:
+// both are judgments about how a change was AUTHORED, not whether the
+// resulting combined tree still compiles and passes, which is the only thing
+// a merge can meaningfully re-check). Used by the pre-merge-commit gate: two
+// branches that each individually passed Precommit can still integrate
+// broken — that's what a merge combining them can introduce, and only the
+// mechanical stage catches it. A merge whose staged set has nothing to test
+// (e.g. a docs-only merge) says so explicitly rather than returning a bare
+// empty result indistinguishable from "the gate never ran".
+func Mechanical(repoRoot string, run SuiteRunner) GateResult {
+	groups := stagedRootGroups(repoRoot)
+	if len(groups) == 0 {
+		const line = "tdd premergecommit: nothing to test (no staged source or test files)"
+		fmt.Fprintln(os.Stderr, line)
+		return GateResult{Message: line}
+	}
+	var notes []string
+	for _, g := range groups {
+		res := mechanicalRoot("premergecommit", repoRoot, g.root, g.tests, g.srcs, run)
 		if res.Blocked {
 			return res
 		}
-		// A non-blocking stage can still carry a Message (a mechanical-stage
-		// timeout fails open but must never be silent) — collect it instead
-		// of letting a LATER root's clean pass discard an earlier root's
-		// fail-open note.
 		if res.Message != "" {
 			notes = append(notes, res.Message)
 		}
@@ -87,33 +143,31 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 	return GateResult{Message: strings.Join(notes, "\n")}
 }
 
-// precommitRoot runs the fail-first and mechanical stages for ONE project
-// root's staged files: fail-first in a throwaway worktree at HEAD, mechanical
-// in the real checkout at root.
-func precommitRoot(repoRoot, root string, tests, srcs []string, run SuiteRunner) GateResult {
-	// Fail-first runs the new tests in a throwaway worktree at HEAD. That worktree
-	// has no node_modules — worktrees don't share gitignored deps and we do NOT
-	// `pnpm install` per commit (too slow) — so for vitest/jest repos the suite
-	// can't run there and fail-first is effectively Go-only. It still fails OPEN
-	// (an unrunnable suite is inconclusive, never a block).
-	//
-	// Zig fails OPEN here by construction, and deliberately so. Its tests are
-	// `test "..." {}` blocks INLINE in src/*.zig, so an inline-test commit stages
-	// only Source-classified .zig files (ClassifyFile flips only *_test.zig /
-	// tests/*.zig to Test) — len(tests) is 0 and this guard skips fail-first.
-	// That is correct: the test and the impl it exercises live in the SAME hunk
-	// and cannot be cleanly separated, so applying "just the test" to a HEAD
-	// worktree would drag the impl along and make the check meaningless. An
-	// EXPLICIT tests/*.zig staged alongside its source DOES enter fail-first, but
-	// an integration test cannot compile without the source it imports, so the
-	// worktree run fails to RUN and falls through the unrunnable-suite path above
-	// (Passed=false ⇒ violated=false). Either way fail-first never false-blocks a
-	// Zig commit; the mechanical stage's full `zig build test` is the real gate.
-	// Fail-first judges NEW tests only, so it fires when the staged test
-	// changes actually ADD a test declaration. A declaration-free test edit
-	// (lint reflow, gofmt, a renamed local) has nothing to prove RED — and
-	// judging it would false-block, since a reformatted EXISTING test passes
-	// at HEAD by construction. The mechanical stage still gates those.
+// failFirstStage runs the fail-first check for ONE project root's staged
+// files, in a throwaway worktree at HEAD. That worktree has no node_modules
+// — worktrees don't share gitignored deps and we do NOT `pnpm install` per
+// commit (too slow) — so for vitest/jest repos the suite can't run there and
+// fail-first is effectively Go-only. It still fails OPEN (an unrunnable
+// suite is inconclusive, never a block).
+//
+// Zig fails OPEN here by construction, and deliberately so. Its tests are
+// `test "..." {}` blocks INLINE in src/*.zig, so an inline-test commit stages
+// only Source-classified .zig files (ClassifyFile flips only *_test.zig /
+// tests/*.zig to Test) — len(tests) is 0 and this guard skips fail-first.
+// That is correct: the test and the impl it exercises live in the SAME hunk
+// and cannot be cleanly separated, so applying "just the test" to a HEAD
+// worktree would drag the impl along and make the check meaningless. An
+// EXPLICIT tests/*.zig staged alongside its source DOES enter fail-first, but
+// an integration test cannot compile without the source it imports, so the
+// worktree run fails to RUN and falls through the unrunnable-suite path above
+// (Passed=false ⇒ violated=false). Either way fail-first never false-blocks a
+// Zig commit; the mechanical stage's full `zig build test` is the real gate.
+// Fail-first judges NEW tests only, so it fires when the staged test
+// changes actually ADD a test declaration. A declaration-free test edit
+// (lint reflow, gofmt, a renamed local) has nothing to prove RED — and
+// judging it would false-block, since a reformatted EXISTING test passes
+// at HEAD by construction. The mechanical stage still gates those.
+func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner) GateResult {
 	if len(tests) > 0 && len(srcs) > 0 && stagedTestsAddDeclIn(repoRoot, tests) {
 		ffCmd := ""
 		if r, ok := DetectRunner(root); ok {
@@ -141,7 +195,15 @@ func precommitRoot(repoRoot, root string, tests, srcs []string, run SuiteRunner)
 			return GateResult{Blocked: true, Message: failFirstMessage}
 		}
 	}
+	return GateResult{}
+}
 
+// mechanicalRoot runs the mechanical stage for ONE project root's staged
+// files, in the real checkout at root. gateName ("precommit" or
+// "premergecommit") names the calling gate in every stderr line and gate.log
+// entry, so the trail is honest about which hook actually ran it — Precommit
+// and the pre-merge-commit gate (Mechanical) share this one implementation.
+func mechanicalRoot(gateName, repoRoot, root string, tests, srcs []string, run SuiteRunner) GateResult {
 	// Changes-gate: a docs/yaml-only commit (no staged source AND no staged test)
 	// under this root has nothing to test, so skip the mechanical stage.
 	if len(tests) == 0 && len(srcs) == 0 {
@@ -150,7 +212,7 @@ func precommitRoot(repoRoot, root string, tests, srcs []string, run SuiteRunner)
 
 	runner, ok := DetectRunner(root)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "tdd precommit: %s → skipped (no detected runner)\n", root)
+		fmt.Fprintf(os.Stderr, "tdd %s: %s → skipped (no detected runner)\n", gateName, root)
 		return GateResult{}
 	}
 	rootFiles := append(append([]string{}, tests...), srcs...)
@@ -164,7 +226,7 @@ func precommitRoot(repoRoot, root string, tests, srcs []string, run SuiteRunner)
 		// see cargoPackagesOwning/narrowToStaged's cargo case).
 		owned, unowned := cargoOwnedFiles(repoRoot, root, rootFiles)
 		for _, f := range unowned {
-			fmt.Fprintf(os.Stderr, "tdd precommit: %s has no owning cargo package — not tested\n", f)
+			fmt.Fprintf(os.Stderr, "tdd %s: %s has no owning cargo package — not tested\n", gateName, f)
 		}
 		if len(owned) == 0 {
 			return GateResult{}
@@ -201,19 +263,19 @@ func precommitRoot(repoRoot, root string, tests, srcs []string, run SuiteRunner)
 		key = mechKey(root, h, runner)
 	}
 	if mechCacheHit(key) {
-		line := fmt.Sprintf("tdd precommit: mechanical %s in %s → cache-hit", cmdString(runner), root)
+		line := fmt.Sprintf("tdd %s: mechanical %s in %s → cache-hit", gateName, cmdString(runner), root)
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog("precommit", root, cmdString(runner), "cache-hit", 0)
+		appendGateLog(gateName, root, cmdString(runner), "cache-hit", 0)
 		return GateResult{}
 	}
 	restore := pinMechCargoTarget(runner, repoRoot)
 	res, waited, acquired := runCargoLocked(run, runner, root, buildLockPrecommitDeadline)
 	restore()
 	if !acquired {
-		line := fmt.Sprintf("tdd precommit: mechanical %s in %s → QUEUED-SKIPPED (waited %.0fs, another cargo build holds the machine build lock) — inconclusive",
-			cmdString(runner), root, waited.Seconds())
+		line := fmt.Sprintf("tdd %s: mechanical %s in %s → QUEUED-SKIPPED (waited %.0fs, another cargo build holds the machine build lock) — inconclusive",
+			gateName, cmdString(runner), root, waited.Seconds())
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog("precommit", root, cmdString(runner), "queued-skipped", waited)
+		appendGateLog(gateName, root, cmdString(runner), "queued-skipped", waited)
 		return GateResult{Message: line}
 	}
 	if treatAsEmptyPass(res) {
@@ -227,19 +289,19 @@ func precommitRoot(repoRoot, root string, tests, srcs []string, run SuiteRunner)
 		// silent: the commit lands UNVERIFIED and both stderr and the
 		// returned Message say so explicitly (Blocked stays false — a
 		// timeout is inconclusive, not a failure).
-		line := fmt.Sprintf("tdd precommit: mechanical %s in %s → TIMEOUT (FAIL-OPEN — commit lands UNVERIFIED)", cmdString(runner), root)
+		line := fmt.Sprintf("tdd %s: mechanical %s in %s → TIMEOUT (FAIL-OPEN — commit lands UNVERIFIED)", gateName, cmdString(runner), root)
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog("precommit", root, cmdString(runner), "timeout-fail-open", res.Duration)
+		appendGateLog(gateName, root, cmdString(runner), "timeout-fail-open", res.Duration)
 		return GateResult{Message: line}
 	case !res.Passed:
-		fmt.Fprintf(os.Stderr, "tdd precommit: mechanical %s in %s → blocked\n", cmdString(runner), root)
-		appendGateLog("precommit", root, cmdString(runner), "blocked", res.Duration)
+		fmt.Fprintf(os.Stderr, "tdd %s: mechanical %s in %s → blocked\n", gateName, cmdString(runner), root)
+		appendGateLog(gateName, root, cmdString(runner), "blocked", res.Duration)
 		return GateResult{Blocked: true, Message: mechRejectMessage(runner, res)}
 	default:
 		mechCacheAdd(key)
-		line := mechGreenLine(runner, root, res)
+		line := mechGreenLine(gateName, runner, root, res)
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog("precommit", root, cmdString(runner), "green", res.Duration)
+		appendGateLog(gateName, root, cmdString(runner), "green", res.Duration)
 	}
 	return GateResult{}
 }
@@ -247,8 +309,8 @@ func precommitRoot(repoRoot, root string, tests, srcs []string, run SuiteRunner)
 // mechGreenLine composes the mechanical stage's green stderr line, sharing
 // PostEdit's greenLabel renderer (passed count, or nextest's empty-crate
 // exit-4 case) so the two call sites can't drift apart.
-func mechGreenLine(r Runner, root string, res SuiteResult) string {
-	return fmt.Sprintf("tdd precommit: mechanical %s in %s → %s", cmdString(r), root, greenLabel(Green, res.Output, res.Duration))
+func mechGreenLine(gateName string, r Runner, root string, res SuiteResult) string {
+	return fmt.Sprintf("tdd %s: mechanical %s in %s → %s", gateName, cmdString(r), root, greenLabel(Green, res.Output, res.Duration))
 }
 
 // cargoOwnedFiles splits repo-root-relative files into those owned by SOME

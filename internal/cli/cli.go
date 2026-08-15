@@ -211,6 +211,7 @@ Subcommands:
   userpromptsubmit  Handle the /tdd command and re-inject a RED reminder
   sessionend        Drop the session's state file
   precommit         Git pre-commit gate: fail-first + mechanical (run in the repo)
+  premergecommit    Git pre-merge-commit gate: mechanical ONLY, no fail-first/anti-cheat
   prepush           No-op (mechanical-only mode); kept for back-compat with a
                     lingering pre-push shim. Never blocks.
   install           Install the git-hook shims into a repo (--repo, --apply)
@@ -224,9 +225,14 @@ a failure summary (silent unless RED). userpromptsubmit intercepts
 /tdd [status|off|on|reset] and otherwise re-injects the last RED outcome.
 sessionend cleans up the per-session state file. precommit verifies fail-first,
 blocks a newly-added suppression, and runs the suite, exiting non-zero to block.
-prepush is a mechanical-only no-op (adversarial review lives in the separate
-reviewer agent now), kept only so a lingering pre-push shim exits cleanly.
-Source edits always flow.
+premergecommit runs ONLY the mechanical stage over the merge's staged files —
+no fail-first (a fresh test's RED/GREEN belongs to the authoring commit,
+already proven by precommit there) and no anti-cheat suppression scan (same
+reasoning) — so a git merge, which never fires pre-commit, still proves the
+COMBINED result compiles and passes before it lands. prepush is a
+mechanical-only no-op (adversarial review lives in the separate reviewer
+agent now), kept only so a lingering pre-push shim exits cleanly. Source
+edits always flow.
 `
 
 // postEditTimeout bounds a PostToolUse suite run so a hung test can't wedge the
@@ -265,8 +271,9 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runTDDInit(args[1:], stdout, stderr)
 	}
 
-	// precommit/prepush are git hooks: no stdin, exit non-zero to block.
-	if args[0] == "precommit" || args[0] == "prepush" {
+	// precommit/premergecommit/prepush are git hooks: no stdin, exit non-zero
+	// to block.
+	if args[0] == "precommit" || args[0] == "premergecommit" || args[0] == "prepush" {
 		// prepush is a mechanical no-op: the tdd gate is mechanical-only and
 		// adversarial review lives in the separate reviewer agent, not this
 		// binary. It NEVER blocks. We keep the subcommand so a pre-push shim
@@ -279,7 +286,17 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if root == "" {
 			return 0 // not in a git repo — nothing to gate
 		}
-		res := tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
+		// premergecommit runs ONLY the mechanical stage: a git merge never
+		// fires pre-commit, so nothing else has proven the COMBINED tree
+		// still compiles and passes — fail-first and the anti-cheat scan are
+		// both judgments about how a change was AUTHORED, already settled by
+		// precommit on the commits being merged.
+		var res tdd.GateResult
+		if args[0] == "premergecommit" {
+			res = tdd.Mechanical(root, tdd.RunSuite(precommitTimeout))
+		} else {
+			res = tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
+		}
 		// Surface the note (e.g. a fail-open skip) even when allowing — the gate
 		// is never silent about why it did or didn't run.
 		if res.Message != "" {
