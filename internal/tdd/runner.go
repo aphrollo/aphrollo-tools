@@ -253,6 +253,84 @@ func cargoTestTarget(rel string) string {
 	return ""
 }
 
+// stagedProjectRoots returns the sorted, deduped set of project roots (per
+// FindProjectRoot) that own at least one of the given repo-root-relative
+// staged files. A monorepo can stage a cargo crate's tests alongside a
+// pytest tool's tests in the SAME commit — grouping by root is what lets
+// Precommit judge each toolchain with its own DetectRunner instead of
+// whichever marker happens to sit at the outer repo root (the "python commit
+// pays a 20-minute cargo build" bug).
+func stagedProjectRoots(repoRoot string, files []string) []string {
+	seen := map[string]bool{}
+	var roots []string
+	for _, f := range files {
+		root := FindProjectRoot(filepath.Join(repoRoot, f))
+		if root == "" {
+			continue
+		}
+		if !seen[root] {
+			seen[root] = true
+			roots = append(roots, root)
+		}
+	}
+	sort.Strings(roots)
+	return roots
+}
+
+// filesUnderRoot filters repo-root-relative files to those FindProjectRoot
+// resolves to root, preserving input order.
+func filesUnderRoot(repoRoot, root string, files []string) []string {
+	var out []string
+	for _, f := range files {
+		if FindProjectRoot(filepath.Join(repoRoot, f)) == root {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// toRootRelative rewrites repo-root-relative paths to be relative to root
+// instead (forward-slashed) — every narrowing helper (go's package dirs,
+// cargo's package/test-target lookup, vitest/jest's related-tests args) takes
+// paths relative to wherever it will actually run, which is root, not
+// necessarily repoRoot. A path that can't be made relative (should not happen
+// for a file FindProjectRoot already placed under root) is dropped rather
+// than fed to a narrower as a bogus argument.
+func toRootRelative(repoRoot, root string, files []string) []string {
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		rel, err := filepath.Rel(root, filepath.Join(repoRoot, f))
+		if err != nil {
+			continue
+		}
+		out = append(out, filepath.ToSlash(rel))
+	}
+	return out
+}
+
+// cargoPackagesOwning resolves the sorted, deduped set of [package] names
+// that own at least one of the given ROOT-RELATIVE files. A file no package
+// covers (a virtual workspace manifest, or a path outside any member) is
+// silently excluded — an unowned cargo file is never grounds to widen a run
+// to the whole workspace; the caller decides whether an empty result means
+// "nothing to test" or reports the excluded files itself.
+func cargoPackagesOwning(root string, files []string) []string {
+	seen := map[string]bool{}
+	var pkgs []string
+	for _, f := range files {
+		name := cargoPackageFor(root, f)
+		if name == "" {
+			continue
+		}
+		if !seen[name] {
+			seen[name] = true
+			pkgs = append(pkgs, name)
+		}
+	}
+	sort.Strings(pkgs)
+	return pkgs
+}
+
 // narrowToStaged scopes a broad runner to the related tests of the UNION of a
 // commit's staged source+test files, for the precommit mechanical stage. It is
 // the multi-file analog of NarrowToRelatedTests: commit-time is a fast scoped
@@ -298,20 +376,13 @@ func narrowToStaged(r Runner, root string, files []string) (Runner, bool) {
 		// Cargo.toml that owns it, and the mechanical run tests only those
 		// crates. In a Bevy-sized workspace this is the difference between a
 		// touched-crate check and rebuilding every test binary in the tree.
-		// Any file no package owns keeps the full-suite fallback.
-		seen := map[string]bool{}
-		var pkgs []string
-		for _, f := range files {
-			name := cargoPackageFor(root, f)
-			if name == "" {
-				return r, false
-			}
-			if !seen[name] {
-				seen[name] = true
-				pkgs = append(pkgs, name)
-			}
+		// A file no package owns is EXCLUDED, not a trigger for the
+		// full-suite fallback (removed — see cargoPackagesOwning); callers
+		// that need to report the excluded files compute that separately.
+		pkgs := cargoPackagesOwning(root, files)
+		if len(pkgs) == 0 {
+			return r, false
 		}
-		sort.Strings(pkgs)
 		args := cargoRunArgs(r)
 		for _, p := range pkgs {
 			args = append(args, "-p", p)
@@ -344,8 +415,12 @@ func narrowToStaged(r Runner, root string, files []string) (Runner, bool) {
 // "" for those — cargoTestTarget only names files under a tests/ segment).
 // Staged test files spanning MULTIPLE packages fall back to package
 // granularity via the existing narrowToStaged (`-p a -p b`, no --test
-// scoping). A file owned by NO package keeps the runner unnarrowed — the
-// current full-suite fail-open behavior.
+// scoping), over the OWNED subset only. A file owned by NO package is
+// EXCLUDED from judgment, never a trigger to widen the run to the whole
+// workspace (that full-suite fallback is removed); when NOTHING staged is
+// owned the runner comes back unnarrowed and the caller (failFirstViolatedAt)
+// must check ownership itself before ever invoking it, or a fully-unowned
+// test set would still run the unscoped full suite.
 //
 // Non-cargo runners defer entirely to narrowToStaged; when it reports no
 // related mode (pytest, zig, an unknown command) the runner stays unnarrowed.
@@ -359,14 +434,16 @@ func narrowFailFirstTests(r Runner, wt string, tests []string) Runner {
 
 	seenPkg := map[string]bool{}
 	var pkgs []string
+	var ownedTests []string
 	seenTarget := map[string]bool{}
 	var targets []string
 	inline := false
 	for _, f := range tests {
 		name := cargoPackageFor(wt, f)
 		if name == "" {
-			return r // a file with no owning package → unnarrowed fallback
+			continue // unowned file — excluded, never widens the run (fallback removed)
 		}
+		ownedTests = append(ownedTests, f)
 		if !seenPkg[name] {
 			seenPkg[name] = true
 			pkgs = append(pkgs, name)
@@ -381,10 +458,10 @@ func narrowFailFirstTests(r Runner, wt string, tests []string) Runner {
 		}
 	}
 	if len(pkgs) == 0 {
-		return r
+		return r // nothing owned among the staged tests — caller treats as no verdict
 	}
 	if len(pkgs) > 1 {
-		if scoped, narrowed := narrowToStaged(r, wt, tests); narrowed {
+		if scoped, narrowed := narrowToStaged(r, wt, ownedTests); narrowed {
 			return scoped
 		}
 		return r

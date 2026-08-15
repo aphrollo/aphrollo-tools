@@ -3,6 +3,7 @@ package tdd
 import (
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -232,49 +233,69 @@ func TestNarrowFailFirstTests_NonCargoUnnarrowedFallback(t *testing.T) {
 }
 
 // TestPrecommit_Mechanical_CargoWorkspaceScopedToStagedPackages pins the
-// workspace-aware mechanical narrowing: staged .rs files map to the [package]
-// Cargo.toml that owns them, and the mechanical run becomes
-// `cargo test -p <pkg> …` with the package list deduped and sorted — not the
-// whole-workspace `cargo test`. A staged code file that belongs to NO
-// [package] Cargo.toml falls back to the unnarrowed full suite. Only SOURCE
-// files are staged, so fail-first never triggers and the single run recorded
-// at root is the mechanical one.
+// workspace-aware mechanical narrowing. UPDATED 2026-08-15 (build-infra-fix
+// task A1): each member crate carries its OWN Cargo.toml, so it is now its
+// OWN project root (FindProjectRoot stops at the nearest marker, which is the
+// crate's own manifest, before ever reaching the workspace root's) — staged
+// files in alpha and beta therefore run as TWO separate `-p <pkg>` commands,
+// each from its own crate directory, not one combined `-p alpha -p beta` run
+// from the workspace root. This replaces the prior single-combined-run
+// expectation. A staged file that belongs to NO [package] Cargo.toml is now
+// SKIPPED (with a stderr note) rather than falling back to the unscoped
+// whole-workspace suite — that fallback was the exact "python commit builds
+// all of Bevy" bug this task fixes. Only SOURCE files are staged in both
+// subtests, so fail-first never triggers.
 func TestPrecommit_Mechanical_CargoWorkspaceScopedToStagedPackages(t *testing.T) {
-	t.Run("staged sources in member crates → -p per package, deduped and sorted", func(t *testing.T) {
+	t.Run("staged sources in different member crates → one -p run per crate root", func(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		root := makeCargoWorkspaceRepo(t)
-		// Two files in alpha prove the package list is deduped; beta written
-		// first proves the final list is sorted, not staging-ordered.
 		write(t, root, "crates/beta/src/lib.rs", "pub fn beta() -> i32 { 2 }\n")
 		write(t, root, "crates/alpha/src/lib.rs", "pub fn alpha() -> i32 { 1 }\n")
 		write(t, root, "crates/alpha/src/util.rs", "pub fn util() -> i32 { 3 }\n")
 		gitDo(t, root, "add", ".")
 
-		var seen []Runner
-		res := Precommit(root, recordRunner(&seen, root))
+		var seen []loggedRun
+		res := Precommit(root, recordAllRuns(&seen, func(string) bool { return true }))
 		if res.Blocked {
 			t.Fatalf("unexpected block: %s", res.Message)
 		}
-		want := Runner{"cargo", []string{"test", "-p", "alpha", "-p", "beta"}}
-		if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
-			t.Fatalf("workspace mechanical runs = %+v, want one %+v", seen, want)
+		if len(seen) != 2 {
+			t.Fatalf("expected one run per touched crate root, got %d: %+v", len(seen), seen)
+		}
+		alphaDir := filepath.Join(root, "crates", "alpha")
+		betaDir := filepath.Join(root, "crates", "beta")
+		byDir := map[string]Runner{}
+		for _, r := range seen {
+			byDir[r.dir] = r.runner
+		}
+		if want := (Runner{"cargo", []string{"test", "-p", "alpha"}}); !reflect.DeepEqual(byDir[alphaDir], want) {
+			t.Fatalf("alpha run = %+v, want %+v (all runs: %+v)", byDir[alphaDir], want, seen)
+		}
+		if want := (Runner{"cargo", []string{"test", "-p", "beta"}}); !reflect.DeepEqual(byDir[betaDir], want) {
+			t.Fatalf("beta run = %+v, want %+v (all runs: %+v)", byDir[betaDir], want, seen)
 		}
 	})
 
-	t.Run("staged source outside any package → full-suite fallback", func(t *testing.T) {
+	t.Run("staged source outside any package → skipped, no cargo run at all", func(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		root := makeCargoWorkspaceRepo(t)
 		write(t, root, "tools/gen.rs", "pub fn gen() -> i32 { 0 }\n")
 		gitDo(t, root, "add", ".")
 
 		var seen []Runner
-		res := Precommit(root, recordRunner(&seen, root))
+		var res GateResult
+		stderr := captureStderr(t, func() {
+			res = Precommit(root, recordRunner(&seen, root))
+		})
 		if res.Blocked {
 			t.Fatalf("unexpected block: %s", res.Message)
 		}
-		want := Runner{"cargo", []string{"test"}}
-		if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
-			t.Fatalf("no-package mechanical runs = %+v, want one full-suite %+v", seen, want)
+		if len(seen) != 0 {
+			t.Fatalf("an unowned file must run NOTHING (full-suite fallback removed), ran: %+v", seen)
+		}
+		wantNote := "tdd precommit: tools/gen.rs has no owning cargo package — not tested"
+		if !strings.Contains(stderr, wantNote) {
+			t.Fatalf("expected unowned-file note %q, got stderr: %q", wantNote, stderr)
 		}
 	})
 }

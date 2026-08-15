@@ -55,6 +55,29 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		return GateResult{Blocked: true, Message: msg}
 	}
 
+	// A monorepo can stage files under several DIFFERENT project roots in one
+	// commit (a cargo workspace with a pytest tool living inside it). Judging
+	// the whole commit by DetectRunner(repoRoot) alone means whichever marker
+	// sits at the outer repo root decides EVERY staged file's toolchain — a
+	// python-only commit under a Bevy-sized cargo workspace then pays a full
+	// `cargo nextest run` (20 minutes) for a change cargo has nothing to do
+	// with. Grouping by FindProjectRoot judges each root with its OWN
+	// DetectRunner instead.
+	all := append(append([]string{}, tests...), srcs...)
+	for _, root := range stagedProjectRoots(repoRoot, all) {
+		rootTests := filesUnderRoot(repoRoot, root, tests)
+		rootSrcs := filesUnderRoot(repoRoot, root, srcs)
+		if res := precommitRoot(repoRoot, root, rootTests, rootSrcs, run); res.Blocked {
+			return res
+		}
+	}
+	return GateResult{}
+}
+
+// precommitRoot runs the fail-first and mechanical stages for ONE project
+// root's staged files: fail-first in a throwaway worktree at HEAD, mechanical
+// in the real checkout at root.
+func precommitRoot(repoRoot, root string, tests, srcs []string, run SuiteRunner) GateResult {
 	// Fail-first runs the new tests in a throwaway worktree at HEAD. That worktree
 	// has no node_modules — worktrees don't share gitignored deps and we do NOT
 	// `pnpm install` per commit (too slow) — so for vitest/jest repos the suite
@@ -78,53 +101,101 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 	// (lint reflow, gofmt, a renamed local) has nothing to prove RED — and
 	// judging it would false-block, since a reformatted EXISTING test passes
 	// at HEAD by construction. The mechanical stage still gates those.
-	if len(tests) > 0 && len(srcs) > 0 && stagedTestsAddDecl(repoRoot) {
-		if violated, conclusive := failFirstViolated(repoRoot, tests, run); conclusive && violated {
+	if len(tests) > 0 && len(srcs) > 0 && stagedTestsAddDeclIn(repoRoot, tests) {
+		if violated, conclusive := failFirstViolatedAt(repoRoot, root, tests, run); conclusive && violated {
 			return GateResult{Blocked: true, Message: failFirstMessage}
 		}
 	}
 
 	// Changes-gate: a docs/yaml-only commit (no staged source AND no staged test)
-	// has nothing to test, so skip the mechanical stage. Anti-cheat above still
-	// ran (it's cheap and only judges added lines).
+	// under this root has nothing to test, so skip the mechanical stage.
 	if len(tests) == 0 && len(srcs) == 0 {
 		return GateResult{}
 	}
 
-	runner, ok := DetectRunner(repoRoot)
-	if ok {
+	runner, ok := DetectRunner(root)
+	if !ok {
+		return GateResult{}
+	}
+	rootFiles := append(append([]string{}, tests...), srcs...)
+
+	if runner.Cmd == "cargo" {
+		// Cargo ownership is judged PER FILE against the [package] Cargo.toml
+		// that covers it, never against "did every file resolve" — a file no
+		// package owns (a virtual workspace manifest, a path outside any
+		// member) is SKIPPED with a stderr note, not a trigger to widen the
+		// run to the whole workspace (that full-suite fallback is removed;
+		// see cargoPackagesOwning/narrowToStaged's cargo case).
+		owned, unowned := cargoOwnedFiles(repoRoot, root, rootFiles)
+		for _, f := range unowned {
+			fmt.Fprintf(os.Stderr, "tdd precommit: %s has no owning cargo package — not tested\n", f)
+		}
+		if len(owned) == 0 {
+			return GateResult{}
+		}
+		pkgs := cargoPackagesOwning(root, toRootRelative(repoRoot, root, owned))
+		args := cargoRunArgs(runner)
+		for _, p := range pkgs {
+			args = append(args, "-p", p)
+		}
+		runner = Runner{Cmd: "cargo", Args: args}
+	} else {
 		// Scope the mechanical run to the related tests of the staged source+test
 		// files: commit-time is a fast scoped check; CI runs the full suite at
 		// submit as the authoritative gate. A runner with no related mode (or an
 		// unknown command) falls back to the full suite unchanged.
-		if scoped, narrowed := narrowToStaged(runner, repoRoot, append(append([]string{}, tests...), srcs...)); narrowed {
+		if scoped, narrowed := narrowToStaged(runner, root, toRootRelative(repoRoot, root, rootFiles)); narrowed {
 			runner = scoped
 		}
-		// The green cache: an identical worktree state already proven green under
-		// this exact command (by a PostToolUse run or an earlier gate pass) is not
-		// re-run. Red results are never cached, so a block always re-runs and
-		// carries fresh output.
-		key := ""
-		if h := worktreeStateHash(repoRoot); h != "" {
-			key = mechKey(repoRoot, h, runner)
-		}
-		if !mechCacheHit(key) {
-			restore := pinMechCargoTarget(runner, repoRoot)
-			res := run(runner, repoRoot)
-			restore()
-			switch {
-			case res.TimedOut:
-				// A killed suite is a stopwatch verdict, not a test verdict.
-				// Fail OPEN (same policy as an unverifiable fail-first) — but
-				// never cache: nothing was proven green.
-			case !res.Passed:
-				return GateResult{Blocked: true, Message: mechRejectMessage(runner, res)}
-			default:
-				mechCacheAdd(key)
-			}
-		}
+	}
+
+	// The green cache: an identical worktree state already proven green under
+	// this exact command (by a PostToolUse run or an earlier gate pass) is not
+	// re-run. Red results are never cached, so a block always re-runs and
+	// carries fresh output.
+	key := ""
+	if h := worktreeStateHash(root); h != "" {
+		key = mechKey(root, h, runner)
+	}
+	if mechCacheHit(key) {
+		return GateResult{}
+	}
+	restore := pinMechCargoTarget(runner, repoRoot)
+	res := run(runner, root)
+	restore()
+	switch {
+	case res.TimedOut:
+		// A killed suite is a stopwatch verdict, not a test verdict.
+		// Fail OPEN (same policy as an unverifiable fail-first) — but
+		// never cache: nothing was proven green.
+	case !res.Passed:
+		return GateResult{Blocked: true, Message: mechRejectMessage(runner, res)}
+	default:
+		mechCacheAdd(key)
 	}
 	return GateResult{}
+}
+
+// cargoOwnedFiles splits repo-root-relative files into those owned by SOME
+// [package] Cargo.toml under root and those owned by none. Ownership is
+// judged per file: a workspace-wide virtual manifest, or a path no member
+// covers, never falls back to "test everything" — an unowned file is
+// reported by the caller and excluded, not an excuse to run the whole
+// workspace.
+func cargoOwnedFiles(repoRoot, root string, filesRepoRel []string) (owned, unowned []string) {
+	for _, f := range filesRepoRel {
+		rel, err := filepath.Rel(root, filepath.Join(repoRoot, f))
+		if err != nil {
+			unowned = append(unowned, f)
+			continue
+		}
+		if cargoPackageFor(root, filepath.ToSlash(rel)) == "" {
+			unowned = append(unowned, f)
+			continue
+		}
+		owned = append(owned, f)
+	}
+	return owned, unowned
 }
 
 // pinMechCargoTarget guards the mechanical cargo run against the
@@ -280,13 +351,23 @@ var jsTestDeclRes = []*regexp.Regexp{
 	regexp.MustCompile(`^\s*(it|test|describe)(\.\w+)?\s*\(`),
 }
 
-// stagedTestsAddDecl reports whether any staged TEST file's added lines carry
-// a test declaration. A test file in a language the table doesn't know errs
-// toward true — fail-first then runs and, at worst, costs a suite, never a
-// wrong verdict.
-func stagedTestsAddDecl(repoRoot string) bool {
+// stagedTestsAddDeclIn reports whether any of testFiles (a project root's OWN
+// staged test files — repo-root-relative, matching stagedAdds' paths) has an
+// added line carrying a test declaration. A test file in a language the
+// table doesn't know errs toward true — fail-first then runs and, at worst,
+// costs a suite, never a wrong verdict. Scoped to testFiles (not every staged
+// test in the commit) so a multi-root commit's fail-first trigger for one
+// root is never decided by a DIFFERENT root's test declarations.
+func stagedTestsAddDeclIn(repoRoot string, testFiles []string) bool {
+	if len(testFiles) == 0 {
+		return false
+	}
+	want := make(map[string]bool, len(testFiles))
+	for _, f := range testFiles {
+		want[f] = true
+	}
 	for _, fa := range stagedAdds(repoRoot) {
-		if ClassifyFile(fa.path) != Test {
+		if !want[fa.path] || ClassifyFile(fa.path) != Test {
 			continue
 		}
 		res, known := testDeclRes[strings.ToLower(filepath.Ext(fa.path))]
@@ -407,8 +488,22 @@ func splitKinds(paths []string) (tests, srcs []string) {
 // staged test changes, and runs the suite there. It returns (violated,
 // conclusive): violated is true when the tests pass without the new source
 // (they should fail first); conclusive is false when the check could not run,
-// in which case the caller must not block.
+// in which case the caller must not block. This is failFirstViolatedAt with
+// root == repoRoot, kept as its own name for the (still common) single-root
+// case and for direct callers/tests.
 func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violated, conclusive bool) {
+	return failFirstViolatedAt(repoRoot, repoRoot, tests, run)
+}
+
+// failFirstViolatedAt is failFirstViolated generalized to ONE project root
+// within repoRoot's staged commit: a monorepo can stage a cargo crate's tests
+// and a pytest tool's tests in the same commit, and each root must be judged
+// by its OWN detected runner against its OWN staged test files — never by
+// whichever toolchain happens to sit at the outer repo root. root == repoRoot
+// reduces to the original single-root behavior exactly (execRootIn returns
+// the worktree root unchanged), so failFirstViolated above is just this with
+// that identity substitution.
+func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner) (violated, conclusive bool) {
 	wt := failFirstWorktreeDir(repoRoot)
 	if wt == "" {
 		var err error
@@ -436,14 +531,30 @@ func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violat
 		return false, false // can't reproduce the test state → don't block
 	}
 
-	runner, ok := DetectRunner(wt)
+	execRoot, err := execRootIn(wt, repoRoot, root)
+	if err != nil {
+		return false, false
+	}
+	runner, ok := DetectRunner(execRoot)
 	if !ok {
 		return false, false
+	}
+	relTests := toRootRelative(repoRoot, root, tests)
+	if runner.Cmd == "cargo" {
+		// A file no [package] owns is excluded, never a trigger to widen the
+		// fail-first run to the whole workspace — narrowFailFirstTests already
+		// excludes unowned files internally, but when NOTHING staged is owned
+		// it comes back unnarrowed (see its doc comment), and running THAT
+		// would be exactly the unrunnable-in-time full suite this stage
+		// exists to avoid. Check ownership before ever invoking it.
+		if len(cargoPackagesOwning(execRoot, relTests)) == 0 {
+			return false, false
+		}
 	}
 	// Scope to the staged TEST targets under judgment: the full unnarrowed
 	// suite (esp. cargo nextest over a large workspace) is 10-20 minutes,
 	// blows this stage's own timeout, and fails open having proven nothing.
-	runner = narrowFailFirstTests(runner, wt, tests)
+	runner = narrowFailFirstTests(runner, execRoot, relTests)
 	// The worktree run must not inherit the operator's CARGO_TARGET_DIR: a
 	// shared warm target can hold stale artifacts from a divergent sibling
 	// checkout and fail this check on phantom compile errors. Pin a gate-owned
@@ -463,7 +574,7 @@ func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violat
 			}()
 		}
 	}
-	res := run(runner, wt)
+	res := run(runner, execRoot)
 	if res.TimedOut {
 		return false, false // a killed run reaches no verdict either way
 	}
@@ -478,6 +589,20 @@ func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violat
 	// gate stays fail-open. Correcting the label needs a distinct couldn't-run
 	// signal on SuiteResult, which is left for a runner-contract change.
 	return res.Passed, true
+}
+
+// execRootIn maps root (a project root under repoRoot) to its equivalent
+// directory inside the fail-first worktree wt, which mirrors repoRoot's tree
+// at HEAD. root == repoRoot maps to wt itself.
+func execRootIn(wt, repoRoot, root string) (string, error) {
+	rel, err := filepath.Rel(repoRoot, root)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." {
+		return wt, nil
+	}
+	return filepath.Join(wt, rel), nil
 }
 
 // failFirstWorktreeDir returns the stable per-repo path for the fail-first
