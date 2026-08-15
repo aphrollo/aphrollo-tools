@@ -459,9 +459,12 @@ func TestPostEdit_GreenRunSeedsMechanicalCache(t *testing.T) {
 	root := makeZigRepo(t)
 	write(t, root, "src/root.zig", "pub fn add(a: i32, b: i32) i32 {\n\treturn a + b + 0;\n}\n")
 
+	// UPDATED for task A2 (2026-08-15): PostEdit is no longer silent on green
+	// (silence made it indistinguishable from "the hook never ran"); it must
+	// still seed the mechanical cache exactly as before.
 	if got := PostEdit(postPayload("Edit", filepath.Join(root, "src", "root.zig")),
-		fakeRun(true, "All 1 tests passed.")); got != "" {
-		t.Fatalf("green post-edit must be silent, got: %s", got)
+		fakeRun(true, "All 1 tests passed.")); !strings.Contains(got, "→ green") {
+		t.Fatalf("green post-edit must report green, got: %s", got)
 	}
 
 	gitDo(t, root, "add", ".")

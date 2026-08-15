@@ -3,6 +3,7 @@ package tdd
 import (
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -40,11 +41,19 @@ func TestSuiteTimeout_IsNotARed(t *testing.T) {
 		}
 	})
 
-	t.Run("PostEdit is silent on a timed-out run", func(t *testing.T) {
+	// UPDATED for task A2 (2026-08-15): PostEdit no longer stays silent on a
+	// timeout — silence there was indistinguishable from "ran and passed".
+	// It must still never look like RED (no "outcome=red"/"red-missing-impl"
+	// text): a timeout proves nothing about the code either way.
+	t.Run("PostEdit reports TIMEOUT, never RED, on a timed-out run", func(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		root := mkProject(t, "go.mod")
-		if got := PostEdit(postPayload("Edit", filepath.Join(root, "widget.go")), timedOut); got != "" {
-			t.Fatalf("a timed-out suite must produce no red advisory, got: %s", got)
+		got := PostEdit(postPayload("Edit", filepath.Join(root, "widget.go")), timedOut)
+		if !strings.Contains(got, "TIMEOUT") {
+			t.Fatalf("a timed-out suite must report TIMEOUT, got: %s", got)
+		}
+		if strings.Contains(got, "outcome=red") {
+			t.Fatalf("a timed-out suite must never be reported as RED, got: %s", got)
 		}
 	})
 

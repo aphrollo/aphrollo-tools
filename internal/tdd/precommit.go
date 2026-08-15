@@ -16,6 +16,10 @@ import (
 
 // GateResult is the verdict of a git-time gate (precommit, prepush). A blocked
 // action always carries a Message explaining what failed and how to proceed.
+// Message can also be set with Blocked false — a mechanical-stage TIMEOUT
+// fails open (the commit is never blocked over a stopwatch) but must never be
+// silent about it either, so the fail-open line rides in Message even though
+// nothing was actually rejected.
 type GateResult struct {
 	Blocked bool
 	Message string
@@ -64,14 +68,23 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 	// with. Grouping by FindProjectRoot judges each root with its OWN
 	// DetectRunner instead.
 	all := append(append([]string{}, tests...), srcs...)
+	var notes []string
 	for _, root := range stagedProjectRoots(repoRoot, all) {
 		rootTests := filesUnderRoot(repoRoot, root, tests)
 		rootSrcs := filesUnderRoot(repoRoot, root, srcs)
-		if res := precommitRoot(repoRoot, root, rootTests, rootSrcs, run); res.Blocked {
+		res := precommitRoot(repoRoot, root, rootTests, rootSrcs, run)
+		if res.Blocked {
 			return res
 		}
+		// A non-blocking stage can still carry a Message (a mechanical-stage
+		// timeout fails open but must never be silent) — collect it instead
+		// of letting a LATER root's clean pass discard an earlier root's
+		// fail-open note.
+		if res.Message != "" {
+			notes = append(notes, res.Message)
+		}
 	}
-	return GateResult{}
+	return GateResult{Message: strings.Join(notes, "\n")}
 }
 
 // precommitRoot runs the fail-first and mechanical stages for ONE project
@@ -102,7 +115,29 @@ func precommitRoot(repoRoot, root string, tests, srcs []string, run SuiteRunner)
 	// judging it would false-block, since a reformatted EXISTING test passes
 	// at HEAD by construction. The mechanical stage still gates those.
 	if len(tests) > 0 && len(srcs) > 0 && stagedTestsAddDeclIn(repoRoot, tests) {
-		if violated, conclusive := failFirstViolatedAt(repoRoot, root, tests, run); conclusive && violated {
+		ffCmd := ""
+		if r, ok := DetectRunner(root); ok {
+			ffCmd = cmdString(r)
+		}
+		violated, conclusive := failFirstViolatedAt(repoRoot, root, tests, run)
+		// The gate must never be silent about a stage it ran, whatever the
+		// verdict — a session watching stderr needs to see fail-first
+		// happened, not infer it from the commit's exit code. Timeout and
+		// "nothing was runnable" both collapse to "inconclusive (fail-open)"
+		// here: failFirstViolatedAt's (violated, conclusive) pair doesn't
+		// carry WHY it was inconclusive, and neither ever blocks, so the
+		// coarser label loses no decision-relevant information.
+		verdict := "inconclusive (fail-open)"
+		switch {
+		case conclusive && violated:
+			verdict = "violated"
+		case conclusive && !violated:
+			verdict = "red-proven"
+		}
+		line := fmt.Sprintf("tdd precommit: fail-first %s in %s → %s", ffCmd, root, verdict)
+		fmt.Fprintln(os.Stderr, line)
+		appendGateLog("precommit", root, ffCmd, verdict, 0)
+		if conclusive && violated {
 			return GateResult{Blocked: true, Message: failFirstMessage}
 		}
 	}
@@ -115,6 +150,7 @@ func precommitRoot(repoRoot, root string, tests, srcs []string, run SuiteRunner)
 
 	runner, ok := DetectRunner(root)
 	if !ok {
+		fmt.Fprintf(os.Stderr, "tdd precommit: %s → skipped (no detected runner)\n", root)
 		return GateResult{}
 	}
 	rootFiles := append(append([]string{}, tests...), srcs...)
@@ -158,22 +194,47 @@ func precommitRoot(repoRoot, root string, tests, srcs []string, run SuiteRunner)
 		key = mechKey(root, h, runner)
 	}
 	if mechCacheHit(key) {
+		line := fmt.Sprintf("tdd precommit: mechanical %s in %s → cache-hit", cmdString(runner), root)
+		fmt.Fprintln(os.Stderr, line)
+		appendGateLog("precommit", root, cmdString(runner), "cache-hit", 0)
 		return GateResult{}
 	}
 	restore := pinMechCargoTarget(runner, repoRoot)
 	res := run(runner, root)
 	restore()
+	if treatAsEmptyPass(res) {
+		res.Passed = true
+	}
 	switch {
 	case res.TimedOut:
-		// A killed suite is a stopwatch verdict, not a test verdict.
-		// Fail OPEN (same policy as an unverifiable fail-first) — but
-		// never cache: nothing was proven green.
+		// A killed suite is a stopwatch verdict, not a test verdict. Fail
+		// OPEN (same policy as an unverifiable fail-first) — but never
+		// cache: nothing was proven green. Unlike before, this is never
+		// silent: the commit lands UNVERIFIED and both stderr and the
+		// returned Message say so explicitly (Blocked stays false — a
+		// timeout is inconclusive, not a failure).
+		line := fmt.Sprintf("tdd precommit: mechanical %s in %s → TIMEOUT (FAIL-OPEN — commit lands UNVERIFIED)", cmdString(runner), root)
+		fmt.Fprintln(os.Stderr, line)
+		appendGateLog("precommit", root, cmdString(runner), "timeout-fail-open", res.Duration)
+		return GateResult{Message: line}
 	case !res.Passed:
+		fmt.Fprintf(os.Stderr, "tdd precommit: mechanical %s in %s → blocked\n", cmdString(runner), root)
+		appendGateLog("precommit", root, cmdString(runner), "blocked", res.Duration)
 		return GateResult{Blocked: true, Message: mechRejectMessage(runner, res)}
 	default:
 		mechCacheAdd(key)
+		line := mechGreenLine(runner, root, res)
+		fmt.Fprintln(os.Stderr, line)
+		appendGateLog("precommit", root, cmdString(runner), "green", res.Duration)
 	}
 	return GateResult{}
+}
+
+// mechGreenLine composes the mechanical stage's green stderr line, sharing
+// PostEdit's greenLabel renderer (passed count, or nextest's empty-crate
+// exit-4 case) so the two call sites can't drift apart.
+func mechGreenLine(r Runner, root string, res SuiteResult) string {
+	return fmt.Sprintf("tdd precommit: mechanical %s in %s → %s", cmdString(r), root, greenLabel(Green, res.Output, res.Duration))
 }
 
 // cargoOwnedFiles splits repo-root-relative files into those owned by SOME

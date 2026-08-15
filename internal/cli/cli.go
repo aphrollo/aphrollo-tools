@@ -230,12 +230,19 @@ Source edits always flow.
 `
 
 // postEditTimeout bounds a PostToolUse suite run so a hung test can't wedge the
-// session. precommitTimeout is longer: the commit gate runs the staged crates'
-// suites (and the fail-first worktree build), and on heavy-dependency repos a
-// first-warm build alone can pass five minutes; a timeout fails open, so the
-// ceiling only caps how long a commit can stall, never what it proves.
+// session. Bumped 60s -> 100s 2026-08-15 (build-infra-fix task A2): a scoped
+// per-edit cargo build on a Bevy-sized crate routinely blew the old 60s
+// budget on a cold cache, which — before PostEdit became loud on every
+// outcome — silently read as "nothing to report" instead of the TIMEOUT it
+// actually was. The controller raises the Claude PostToolUse hook's own
+// timeout to 120s to match (hooks/timeout in settings.json), so this ceiling
+// is the binding one. precommitTimeout is longer: the commit gate runs the
+// staged crates' suites (and the fail-first worktree build), and on
+// heavy-dependency repos a first-warm build alone can pass five minutes; a
+// timeout fails open, so the ceiling only caps how long a commit can stall,
+// never what it proves.
 const (
-	postEditTimeout  = 60 * time.Second
+	postEditTimeout  = 100 * time.Second
 	precommitTimeout = 600 * time.Second
 )
 
