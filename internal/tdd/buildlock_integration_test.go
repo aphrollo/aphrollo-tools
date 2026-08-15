@@ -24,6 +24,11 @@ func TestPostEdit_QueuedSkipped_WhenBuildLockHeld(t *testing.T) {
 		t.Fatal("setup: must be able to take the build lock")
 	}
 	defer release()
+	// A real holder writes an owner file (runCargoLocked does this
+	// automatically; simulated here since this test holds the lock directly
+	// via acquireBuildLock) -- the QUEUED-SKIPPED line must NAME it.
+	writeBuildLockOwner("cargo nextest run -p other-crate", "/some/other/repo")
+	defer removeBuildLockOwner()
 
 	var invoked bool
 	run := func(Runner, string) SuiteResult {
@@ -34,6 +39,9 @@ func TestPostEdit_QueuedSkipped_WhenBuildLockHeld(t *testing.T) {
 	got := PostEdit(postPayload("Edit", root+"/src/widget.rs"), run)
 	if !strings.Contains(got, "QUEUED-SKIPPED") {
 		t.Fatalf("expected a QUEUED-SKIPPED line, got: %s", got)
+	}
+	if !strings.Contains(got, "cargo nextest run -p other-crate") || !strings.Contains(got, "/some/other/repo") {
+		t.Fatalf("expected the QUEUED-SKIPPED line to name the holder's cmd/cwd, got: %s", got)
 	}
 	if invoked {
 		t.Fatal("the suite must never run while the build lock is held by someone else")
@@ -88,6 +96,8 @@ func TestPrecommit_Mechanical_QueuedSkipped_WhenBuildLockHeld(t *testing.T) {
 		t.Fatal("setup: must be able to take the build lock")
 	}
 	defer release()
+	writeBuildLockOwner("cargo nextest run -p other-crate", "/some/other/repo")
+	defer removeBuildLockOwner()
 
 	var invoked bool
 	run := func(Runner, string) SuiteResult {
@@ -101,6 +111,9 @@ func TestPrecommit_Mechanical_QueuedSkipped_WhenBuildLockHeld(t *testing.T) {
 	}
 	if res.Message == "" || !strings.Contains(res.Message, "QUEUED-SKIPPED") {
 		t.Fatalf("expected a non-empty QUEUED-SKIPPED Message, got %q", res.Message)
+	}
+	if !strings.Contains(res.Message, "cargo nextest run -p other-crate") || !strings.Contains(res.Message, "/some/other/repo") {
+		t.Fatalf("expected the QUEUED-SKIPPED Message to name the holder's cmd/cwd, got: %s", res.Message)
 	}
 	if invoked {
 		t.Fatal("the mechanical suite must never run while the build lock is held by someone else")

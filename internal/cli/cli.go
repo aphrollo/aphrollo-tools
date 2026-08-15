@@ -216,6 +216,9 @@ Subcommands:
                     lingering pre-push shim. Never blocks.
   install           Install the git-hook shims into a repo (--repo, --apply)
   init              Set up TDD: session hooks in settings.json + the global git gate (--no-git, --uninstall)
+  cargo             cargo-queue shim: queue a DIRECT cargo invocation behind the same
+                    machine-wide build lock the hooks/gates use (APHROLLO_CARGO_WAIT_SECS,
+                    APHROLLO_REAL_CARGO)
 
 Autonomous TDD gates. pretooluse reads the hook JSON on stdin; on a smell in a
 test file (real-time sleep, tautological assertion, focused/disabled test) it
@@ -231,8 +234,13 @@ already proven by precommit there) and no anti-cheat suppression scan (same
 reasoning) — so a git merge, which never fires pre-commit, still proves the
 COMBINED result compiles and passes before it lands. prepush is a
 mechanical-only no-op (adversarial review lives in the separate reviewer
-agent now), kept only so a lingering pre-push shim exits cleanly. Source
-edits always flow.
+agent now), kept only so a lingering pre-push shim exits cleanly. cargo is
+the cargo-queue shim: a session that prepends the installed cargo-queue dir
+to its OWN PATH gets a DIRECT cargo invocation queued behind the same
+machine-wide lock the hooks/gates use, instead of silently waiting on
+cargo's own build-dir lock with zero visibility — silent when the lock is
+free, one line when it has to wait, one line when it acquires, exits 75
+(EX_TEMPFAIL) on giving up. Source edits always flow.
 `
 
 // postEditTimeout bounds a PostToolUse suite run so a hung test can't wedge the
@@ -275,6 +283,11 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "init" {
 		return runTDDInit(args[1:], stdout, stderr)
+	}
+	if args[0] == "cargo" {
+		// The cargo-queue shim (task A7): real terminal stdio, not the hook
+		// JSON protocol the rest of this switch reads.
+		return runTDDCargo(args[1:], stdin, stdout, stderr)
 	}
 
 	// precommit/premergecommit/prepush are git hooks: no stdin, exit non-zero
@@ -416,11 +429,12 @@ func runTDDInit(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		configDir   = fs.String("config-dir", "", "Claude config dir (default: $CLAUDE_CONFIG_DIR or ~/.claude)")
-		binPath     = fs.String("bin", "", "aphrollo binary the hooks invoke (default: this executable)")
-		gitHooksDir = fs.String("git-hooks-dir", "", "git hooks dir for the global gate (default: $XDG_CONFIG_HOME/git/hooks or ~/.config/git/hooks)")
-		noGit       = fs.Bool("no-git", false, "skip the git pre-commit gate; wire session hooks only")
-		uninstall   = fs.Bool("uninstall", false, "remove the hooks instead of installing them")
+		configDir    = fs.String("config-dir", "", "Claude config dir (default: $CLAUDE_CONFIG_DIR or ~/.claude)")
+		binPath      = fs.String("bin", "", "aphrollo binary the hooks invoke (default: this executable)")
+		cargoShimDir = fs.String("cargo-shim-dir", "", "dir for the cargo-queue shim (default: alongside --bin, e.g. <bindir>/cargo-queue)")
+		gitHooksDir  = fs.String("git-hooks-dir", "", "git hooks dir for the global gate (default: $XDG_CONFIG_HOME/git/hooks or ~/.config/git/hooks)")
+		noGit        = fs.Bool("no-git", false, "skip the git pre-commit gate; wire session hooks only")
+		uninstall    = fs.Bool("uninstall", false, "remove the hooks instead of installing them")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -469,6 +483,30 @@ func runTDDInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "aphrollo tdd: removed git gate from %s\n", gdir)
 	default:
 		fmt.Fprintf(stdout, "aphrollo tdd: installed git gate in %s (core.hooksPath)\n", gdir)
+	}
+
+	// cargo-queue shim (task A7): a machine-wide dir a session can prepend
+	// to its OWN PATH so a DIRECT `cargo` invocation also queues behind the
+	// same machine-wide build lock the hooks/gates use, instead of silently
+	// waiting on cargo's OWN build-dir lock with zero visibility. --uninstall
+	// deliberately does NOT remove it -- a session may still have it
+	// prepended to PATH, and leaving a shim in place is harmless (unlike a
+	// git hook, nothing fires it automatically).
+	if !*uninstall {
+		cdir := *cargoShimDir
+		if cdir == "" {
+			cdir = filepath.Join(filepath.Dir(binName), "cargo-queue")
+		}
+		cchanged, err := tdd.InstallCargoShim(cdir, binName)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		if cchanged {
+			fmt.Fprintf(stdout, "aphrollo tdd: installed cargo-queue shim in %s\n", cdir)
+		} else {
+			fmt.Fprintf(stdout, "aphrollo tdd: cargo-queue shim already up to date (%s)\n", cdir)
+		}
 	}
 	return 0
 }

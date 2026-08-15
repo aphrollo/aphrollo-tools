@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"time"
@@ -92,7 +93,115 @@ func runCargoLocked(run SuiteRunner, r Runner, root string, lockDeadline, stageB
 		return SuiteResult{}, waited, false
 	}
 	defer release()
+
+	dir := root
+	if r.Dir != "" {
+		dir = r.Dir
+	}
+	writeBuildLockOwner(cmdString(r), dir)
+	defer removeBuildLockOwner()
+
+	// A nested cargo invocation (task A7's cargo-queue shim, IF a session
+	// prepended it to PATH) that happens to resolve "cargo" to the shim
+	// instead of the real binary must recognize the lock is ALREADY held by
+	// THIS process and pass straight through, or it deadlocks on the same
+	// lock. suiteEnv() inherits os.Environ(), so setting this in the
+	// process's own environment is what actually propagates it to the
+	// child.
+	prevHeld, hadHeld := os.LookupEnv(BuildLockHeldEnv)
+	os.Setenv(BuildLockHeldEnv, "1")
+	defer func() {
+		if hadHeld {
+			os.Setenv(BuildLockHeldEnv, prevHeld)
+		} else {
+			os.Unsetenv(BuildLockHeldEnv)
+		}
+	}()
+
 	return run(r, root), waited, true
+}
+
+// BuildLockHeldEnv is the environment variable runCargoLocked sets to "1"
+// around a cargo invocation it already holds the machine-wide build lock
+// for. Exported so internal/cli's `tdd cargo` shim (task A7) can check it
+// and pass straight through without touching the lock at all -- without
+// this, a session that prepended the shim dir to PATH would deadlock the
+// instant a hook/gate's own cargo run (already holding the lock) spawned a
+// build-script or similar that itself invokes `cargo` and resolves back
+// through the shim.
+const BuildLockHeldEnv = "APHROLLO_BUILD_LOCK_HELD"
+
+// BuildLockOwner records who currently holds the machine-wide cargo build
+// lock, written by runCargoLocked (and the cargo shim itself) for the
+// duration of the held cargo run, so a WAITING acquirer can name the holder
+// instead of reporting a bare "someone else has it".
+type BuildLockOwner struct {
+	PID       int       `json:"pid"`
+	Cwd       string    `json:"cwd"`
+	Cmd       string    `json:"cmd"`
+	Started   time.Time `json:"started"`
+	SessionID string    `json:"session_id,omitempty"`
+}
+
+// buildLockOwnerPath is the owner file's path, paired 1:1 with whichever
+// lock path is currently effective (production or a test's isolated
+// override via buildLockPathOverride) so the two never point at mismatched
+// locks in a test.
+func buildLockOwnerPath() string {
+	return effectiveBuildLockPath() + ".owner"
+}
+
+// writeBuildLockOwner records the current process as the lock's holder.
+// Best-effort: a write failure never blocks the actual build — it only
+// costs a waiting acquirer its ability to NAME the holder.
+func writeBuildLockOwner(cmd, cwd string) {
+	o := BuildLockOwner{
+		PID:       os.Getpid(),
+		Cwd:       cwd,
+		Cmd:       cmd,
+		Started:   time.Now().UTC(),
+		SessionID: os.Getenv("CLAUDE_SESSION_ID"),
+	}
+	data, err := json.MarshalIndent(o, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(buildLockOwnerPath(), data, 0o600)
+}
+
+// removeBuildLockOwner clears the owner file when the holder releases the
+// lock. Best-effort, same reasoning as writeBuildLockOwner.
+func removeBuildLockOwner() {
+	_ = os.Remove(buildLockOwnerPath())
+}
+
+// WriteBuildLockOwner is writeBuildLockOwner, exported so internal/cli's
+// `tdd cargo` shim (task A7) can record itself as the lock's holder once it
+// acquires — using the SAME owner-file mechanism runCargoLocked uses, so a
+// waiter never has to care whether the current holder is a hook/gate or a
+// direct shim invocation.
+func WriteBuildLockOwner(cmd, cwd string) { writeBuildLockOwner(cmd, cwd) }
+
+// RemoveBuildLockOwner is removeBuildLockOwner, exported for the same reason
+// as WriteBuildLockOwner.
+func RemoveBuildLockOwner() { removeBuildLockOwner() }
+
+// ReadBuildLockOwner reads the current build-lock owner file, if any.
+// Exported so internal/cli's cargo shim (task A7) and any future waiter can
+// name the holder. This is inherently racy (the owner file can be removed,
+// or not yet written, at the instant of the read) -- ok=false covers all of
+// "no owner recorded", "file vanished mid-read", and "corrupt content", and
+// every caller treats that as "holder unknown", never an error.
+func ReadBuildLockOwner() (BuildLockOwner, bool) {
+	data, err := os.ReadFile(buildLockOwnerPath())
+	if err != nil {
+		return BuildLockOwner{}, false
+	}
+	var o BuildLockOwner
+	if err := json.Unmarshal(data, &o); err != nil {
+		return BuildLockOwner{}, false
+	}
+	return o, true
 }
 
 // acquireBuildLock polls for the exclusive machine-wide cargo build lock
@@ -107,6 +216,29 @@ func runCargoLocked(run SuiteRunner, r Runner, root string, lockDeadline, stageB
 // read-only temp dir), acquisition fails OPEN: the caller gets ok=true so a
 // build proceeds unlocked rather than every cargo run silently refusing to
 // test because of unrelated lock-file plumbing.
+// TryAcquireBuildLock attempts the machine-wide cargo build lock ONCE,
+// non-blocking: (release, true) on success, (no-op, false) on contention.
+// Exported so internal/cli's `tdd cargo` shim (task A7) can build its OWN
+// wait loop around it (queued/acquired/give-up messaging is the shim's
+// concern, not this package's) — distinct from acquireBuildLock's silent
+// poll-with-deadline, which the hooks/gates use directly.
+func TryAcquireBuildLock() (release func(), ok bool) {
+	return acquireBuildLock(0)
+}
+
+// SetBuildLockPathForTest points the build lock (and its paired owner file)
+// at an isolated path for the duration of the returned restore call.
+// Exported so tests OUTSIDE this package (internal/cli's cargo-shim tests)
+// can isolate themselves from the real machine-wide lock the same way this
+// package's own withIsolatedBuildLock helper does internally — without it,
+// a cross-package test would race the box's own aphrollo PostToolUse hook
+// exercising the identical production lock file.
+func SetBuildLockPathForTest(path string) (restore func()) {
+	prev := buildLockPathOverride
+	buildLockPathOverride = path
+	return func() { buildLockPathOverride = prev }
+}
+
 func acquireBuildLock(deadline time.Duration) (release func(), ok bool) {
 	path := effectiveBuildLockPath()
 	f, err := openLockFile(path)

@@ -295,9 +295,24 @@ func streakSkipAdvisory(root string) string {
 // queuedSkippedAdvisory composes the one-line advisory for the machine-wide
 // cargo build-lock backoff (wired in by the buildlock acquirer, task A3):
 // another cargo build already holds the box, so this edit's suite is skipped
-// rather than queued behind it and blowing the edit-time budget.
+// rather than queued behind it and blowing the edit-time budget. Names the
+// holder (task A7) when the owner file is readable.
 func queuedSkippedAdvisory(root string) string {
-	return fmt.Sprintf("tdd: %s → QUEUED-SKIPPED (another cargo build holds the machine build lock) — inconclusive", root)
+	return fmt.Sprintf("tdd: %s → QUEUED-SKIPPED (another cargo build holds the machine build lock%s) — inconclusive", root, buildLockHolderNote())
+}
+
+// buildLockHolderNote renders a best-effort ", holder: <cmd> in <cwd>"
+// clause from the current build-lock owner file (task A7), or "" when no
+// owner info is available — the owner file is inherently racy (it may have
+// just been removed, or a build predating this feature never wrote one), so
+// callers append it only when non-empty rather than claiming "unknown"
+// explicitly.
+func buildLockHolderNote() string {
+	o, ok := ReadBuildLockOwner()
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf(", holder: %s in %s", o.Cmd, o.Cwd)
 }
 
 // redSummary composes the actionable message for a RED run: the headline, the
