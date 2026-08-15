@@ -200,8 +200,15 @@ func precommitRoot(repoRoot, root string, tests, srcs []string, run SuiteRunner)
 		return GateResult{}
 	}
 	restore := pinMechCargoTarget(runner, repoRoot)
-	res := run(runner, root)
+	res, waited, acquired := runCargoLocked(run, runner, root, buildLockPrecommitDeadline)
 	restore()
+	if !acquired {
+		line := fmt.Sprintf("tdd precommit: mechanical %s in %s → QUEUED-SKIPPED (waited %.0fs, another cargo build holds the machine build lock) — inconclusive",
+			cmdString(runner), root, waited.Seconds())
+		fmt.Fprintln(os.Stderr, line)
+		appendGateLog("precommit", root, cmdString(runner), "queued-skipped", waited)
+		return GateResult{Message: line}
+	}
 	if treatAsEmptyPass(res) {
 		res.Passed = true
 	}
@@ -635,7 +642,10 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 			}()
 		}
 	}
-	res := run(runner, execRoot)
+	res, _, acquired := runCargoLocked(run, runner, execRoot, buildLockPrecommitDeadline)
+	if !acquired {
+		return false, false // another cargo build holds the machine lock — no verdict either way
+	}
 	if res.TimedOut {
 		return false, false // a killed run reaches no verdict either way
 	}

@@ -107,7 +107,16 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 		}
 	}
 
-	res := run(snap.runner, root)
+	res, _, acquired := runCargoLocked(run, snap.runner, root, buildLockPostEditDeadline)
+	if !acquired {
+		// Another cargo build already holds the machine-wide lock — the
+		// suite never even started, so this is a DIFFERENT fact from a
+		// timeout (which means "it ran and blew its budget") and must never
+		// touch the timeout streak: lock contention has nothing to do with
+		// whether THIS project's suite is slow.
+		appendGateLog("postedit", root, cmdString(snap.runner), "queued-skipped", 0)
+		return queuedSkippedAdvisory(root)
+	}
 	if res.TimedOut {
 		// A killed run proves nothing about the code — the last REAL outcome
 		// stays authoritative for the next delta (state is untouched beyond the
