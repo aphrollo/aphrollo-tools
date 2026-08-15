@@ -355,8 +355,17 @@ func RunSuite(timeout time.Duration) SuiteRunner {
 	return func(r Runner, root string) SuiteResult {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
+		// Runner.Dir overrides the execution directory when set (a resolved
+		// cargo workspace runner: a checked-in .config/nextest.toml and the
+		// workspace's Cargo.lock live at the workspace root, not a member
+		// crate's own directory) — every other runner leaves it "" and falls
+		// back to root, exactly as before Runner.Dir existed.
+		dir := root
+		if r.Dir != "" {
+			dir = r.Dir
+		}
 		cmd := exec.CommandContext(ctx, r.Cmd, r.Args...)
-		cmd.Dir = root
+		cmd.Dir = dir
 		cmd.Env = suiteEnv()
 		// Without WaitDelay a killed test runner's surviving children hold the
 		// output pipes open and CombinedOutput blocks long past the deadline

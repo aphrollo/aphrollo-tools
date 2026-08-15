@@ -99,8 +99,10 @@ func TestPrecommit_MultiRoot_PytestSubdirNeverTouchesCargo(t *testing.T) {
 // TestPrecommit_MultiRoot_CargoMemberScopedToOwnPackage pins the companion
 // case: a source edit inside a cargo WORKSPACE MEMBER (crates/a, which is its
 // own project root because it carries its own Cargo.toml) runs cargo scoped
-// to that package via -p, from that crate's own root — not the unscoped
-// whole-workspace command.
+// to that package via -p — not the unscoped whole-workspace command. Per
+// task A4, it executes from the resolved WORKSPACE root (Dir: root here),
+// not the member's own directory, even though the run is grouped by the
+// crate's own root (the `dir` param the fake SuiteRunner was called with).
 func TestPrecommit_MultiRoot_CargoMemberScopedToOwnPackage(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeMultiRootRepo(t)
@@ -112,7 +114,7 @@ func TestPrecommit_MultiRoot_CargoMemberScopedToOwnPackage(t *testing.T) {
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
-	want := Runner{"cargo", []string{"test", "-p", "a"}}
+	want := Runner{Cmd: "cargo", Args: []string{"test", "-p", "a"}, Dir: root}
 	if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("cargo member mechanical run = %+v, want one %+v", seen, want)
 	}
@@ -172,8 +174,8 @@ func TestPrecommit_MultiRoot_MixedCommit_BothRootsRun(t *testing.T) {
 		switch r.runner.Cmd {
 		case "cargo":
 			sawCargo = true
-			if !reflect.DeepEqual(r.runner, Runner{"cargo", []string{"test", "-p", "a"}}) {
-				t.Fatalf("cargo run = %+v, want -p a", r.runner)
+			if !reflect.DeepEqual(r.runner, Runner{Cmd: "cargo", Args: []string{"test", "-p", "a"}, Dir: root}) {
+				t.Fatalf("cargo run = %+v, want -p a from the workspace root %s", r.runner, root)
 			}
 		case "pytest":
 			sawPytest = true

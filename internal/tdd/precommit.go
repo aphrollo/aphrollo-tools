@@ -170,11 +170,18 @@ func precommitRoot(repoRoot, root string, tests, srcs []string, run SuiteRunner)
 			return GateResult{}
 		}
 		pkgs := cargoPackagesOwning(root, toRootRelative(repoRoot, root, owned))
-		args := cargoRunArgs(runner)
+		// Resolve the actual WORKSPACE root (task A4): a checked-in
+		// .config/nextest.toml and the workspace's Cargo.lock live there,
+		// not in a member crate's own directory — DetectRunner(root) above
+		// only ever checked root itself, so a member crate silently lost
+		// nextest even in a repo that has it configured. State/mech-cache
+		// keys below still use `root` (the crate root), per A4's contract.
+		ws := cargoWorkspaceRoot(root)
+		args := cargoVerbArgs(ws)
 		for _, p := range pkgs {
 			args = append(args, "-p", p)
 		}
-		runner = Runner{Cmd: "cargo", Args: args}
+		runner = Runner{Cmd: "cargo", Args: args, Dir: ws}
 	} else {
 		// Scope the mechanical run to the related tests of the staged source+test
 		// files: commit-time is a fast scoped check; CI runs the full suite at
