@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Runner is a test command: a program and its arguments, run from the project
@@ -25,6 +26,15 @@ type Runner struct {
 	// directory, so a `-p <pkg>` cargo command must execute from there even
 	// though state/mech-cache keys keep using the member crate's own root.
 	Dir string
+	// Deadline overrides how long RunSuite may run: zero (the default for
+	// every runner except one that went through runCargoLocked) means "use
+	// RunSuite's own configured timeout unchanged". runCargoLocked sets this
+	// to start+stageBudget BEFORE it waits for the machine-wide cargo build
+	// lock, so that wait carves OUT of the stage's own budget instead of
+	// stacking additively on top of it (RunSuite then runs for whichever is
+	// shorter: its configured timeout, or the time remaining until
+	// Deadline).
+	Deadline time.Time
 }
 
 // rootMarkers identify a project root, walking up from an edited file. Order
@@ -263,7 +273,19 @@ func cargoTomlHasWorkspaceTable(manifest string) bool {
 		return false
 	}
 	for line := range strings.Lines(string(data)) {
-		if strings.TrimSpace(line) == "[workspace]" {
+		trimmed := strings.TrimSpace(line)
+		// Tolerate trailing whitespace/comment after the header
+		// ("[workspace]  # root"), not just an exact "[workspace]" line --
+		// found in review 2026-08-15: a real-world manifest with either
+		// silently fell back to "no workspace found here", so a member
+		// crate below it ran unscoped from its own directory instead of the
+		// resolved workspace root.
+		rest, ok := strings.CutPrefix(trimmed, "[workspace]")
+		if !ok {
+			continue
+		}
+		rest = strings.TrimSpace(rest)
+		if rest == "" || strings.HasPrefix(rest, "#") {
 			return true
 		}
 	}

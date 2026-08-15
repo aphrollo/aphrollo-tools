@@ -240,16 +240,22 @@ edits always flow.
 // per-edit cargo build on a Bevy-sized crate routinely blew the old 60s
 // budget on a cold cache, which — before PostEdit became loud on every
 // outcome — silently read as "nothing to report" instead of the TIMEOUT it
-// actually was. The controller raises the Claude PostToolUse hook's own
-// timeout to 120s to match (hooks/timeout in settings.json), so this ceiling
-// is the binding one. precommitTimeout is longer: the commit gate runs the
-// staged crates' suites (and the fail-first worktree build), and on
-// heavy-dependency repos a first-warm build alone can pass five minutes; a
-// timeout fails open, so the ceiling only caps how long a commit can stall,
-// never what it proves.
+// actually was. precommitTimeout is longer: the commit gate runs the staged
+// crates' suites (and the fail-first worktree build), and on heavy-dependency
+// repos a first-warm build alone can pass five minutes; a timeout fails open,
+// so the ceiling only caps how long a commit can stall, never what it
+// proves.
+//
+// Both alias the canonical tdd.Default*Timeout constants (single source of
+// truth, tdd package) rather than redeclaring the numbers here — a 2026-08-15
+// review found init.go's PostToolUse hook-TEMPLATE timeout had silently
+// drifted to 90s after this Go-side value moved to 100s, so the Claude Code
+// harness was killing the hook process from OUTSIDE before RunSuite's own
+// context deadline ever fired. init.go's template is now DERIVED from
+// tdd.DefaultPostEditTimeout too, so the two can't drift apart again.
 const (
-	postEditTimeout  = 100 * time.Second
-	precommitTimeout = 600 * time.Second
+	postEditTimeout  = tdd.DefaultPostEditTimeout
+	precommitTimeout = tdd.DefaultPrecommitTimeout
 )
 
 // runTDD dispatches the TDD hook subcommands. Like the guardrail hook, every

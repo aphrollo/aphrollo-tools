@@ -107,7 +107,7 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 		}
 	}
 
-	res, _, acquired := runCargoLocked(run, snap.runner, root, buildLockPostEditDeadline)
+	res, _, acquired := runCargoLocked(run, snap.runner, root, buildLockPostEditDeadline, DefaultPostEditTimeout)
 	if !acquired {
 		// Another cargo build already holds the machine-wide lock — the
 		// suite never even started, so this is a DIFFERENT fact from a
@@ -328,6 +328,22 @@ func guidance(o Outcome) string {
 	}
 }
 
+// DefaultPostEditTimeout is the canonical PostToolUse suite-run budget —
+// the single source of truth for cli.go's postEditTimeout AND init.go's
+// PostToolUse hook-template timeout, so the two can never silently drift
+// apart again. They did: the harness template stayed at 90s after this
+// Go-side budget was bumped to 100s (task A2), so Claude Code killed the
+// hook PROCESS from OUTSIDE before RunSuite's own context deadline ever
+// fired — no TIMEOUT line, no state stamped, and the spawned cargo process
+// left orphaned (the harness's kill reaches only the direct hook process,
+// never RunSuite's own WaitDelay-based child cleanup, which needs its OWN
+// deadline to actually fire first).
+const DefaultPostEditTimeout = 100 * time.Second
+
+// DefaultPrecommitTimeout is the canonical Precommit/Mechanical stage
+// budget — the single source of truth for cli.go's precommitTimeout.
+const DefaultPrecommitTimeout = 600 * time.Second
+
 const maxSnippet = 2000
 
 // snippet bounds runner output so a huge failure dump doesn't flood context.
@@ -353,7 +369,19 @@ func firstFailingName(output string) string {
 // combining stdout and stderr. A timeout or signal is reported as NOT passed.
 func RunSuite(timeout time.Duration) SuiteRunner {
 	return func(r Runner, root string) SuiteResult {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		// Runner.Deadline (set by runCargoLocked BEFORE it waits for the
+		// machine-wide build lock) carves that wait OUT of this run's own
+		// budget instead of it stacking on top — use whichever bound is
+		// EARLIER: the configured timeout, or time-until-Deadline. A zero
+		// Deadline (every runner except a locked cargo one) leaves timeout
+		// unchanged.
+		effectiveTimeout := timeout
+		if !r.Deadline.IsZero() {
+			if remaining := time.Until(r.Deadline); remaining < effectiveTimeout {
+				effectiveTimeout = remaining
+			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), effectiveTimeout)
 		defer cancel()
 		// Runner.Dir overrides the execution directory when set (a resolved
 		// cargo workspace runner: a checked-in .config/nextest.toml and the

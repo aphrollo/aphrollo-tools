@@ -69,11 +69,23 @@ var buildLockPrecommitDeadline = 300 * time.Second
 // the deadline elapsed before the lock came free; the caller reports that as
 // a distinct QUEUED-SKIPPED outcome, never as a timeout (a stopwatch verdict
 // on this project's suite) or a failure.
-func runCargoLocked(run SuiteRunner, r Runner, root string, lockDeadline time.Duration) (res SuiteResult, waited time.Duration, acquired bool) {
+//
+// stageBudget is the OVERALL time this call may spend, lock-wait AND suite
+// run combined — NOT additional to it. Found in review: with only
+// lockDeadline bounding the wait and the injected SuiteRunner carrying its
+// OWN separate timeout (e.g. 600s for precommit), a contended lock made the
+// two stack additively (300s wait + 600s run = up to 900s per stage, per
+// root). r.Deadline is set to start+stageBudget BEFORE the wait begins, so
+// by the time run() actually executes, RunSuite sees a Deadline already
+// eaten into by however long the wait took, and bounds itself to whichever
+// is shorter: its own configured timeout, or the time remaining until
+// Deadline.
+func runCargoLocked(run SuiteRunner, r Runner, root string, lockDeadline, stageBudget time.Duration) (res SuiteResult, waited time.Duration, acquired bool) {
 	if r.Cmd != "cargo" {
 		return run(r, root), 0, true
 	}
 	start := time.Now()
+	r.Deadline = start.Add(stageBudget)
 	release, ok := acquireBuildLock(lockDeadline)
 	waited = time.Since(start)
 	if !ok {

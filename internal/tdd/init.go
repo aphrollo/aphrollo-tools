@@ -19,12 +19,33 @@ type managedEvent struct {
 	timeout int
 }
 
+// postToolUseHarnessMarginSecs is the slack ABOVE DefaultPostEditTimeout that
+// the PostToolUse hook-template timeout (settings.json's own "timeout" field)
+// must carry. The Claude Code harness kills the hook PROCESS from OUTSIDE
+// once ITS timeout elapses, entirely independent of RunSuite's Go-side
+// context deadline — if the template timeout is shorter than (or too close
+// to) DefaultPostEditTimeout, the harness kills the hook BEFORE Go's own
+// deadline (and its 2s WaitDelay cleanup) ever fires: no TIMEOUT line gets
+// returned, no state gets stamped, and the spawned cargo process is left
+// orphaned (the harness's kill reaches only the direct hook process, never
+// RunSuite's own child cleanup, which needs ITS deadline to fire first).
+// Found in review 2026-08-15: the template had drifted to a hardcoded 90s
+// while DefaultPostEditTimeout had already moved to 100s. 20s covers the 2s
+// WaitDelay plus real scheduling slack.
+const postToolUseHarnessMarginSecs = 20
+
+// postToolUseHarnessTimeoutSecs is DERIVED from DefaultPostEditTimeout (the
+// tdd package's single source of truth for the Go-side PostToolUse budget —
+// also aliased by cli.go's postEditTimeout) so the two can never silently
+// drift apart again the way they did before this fix.
+const postToolUseHarnessTimeoutSecs = int(DefaultPostEditTimeout/time.Second) + postToolUseHarnessMarginSecs
+
 // managedEvents is the canonical set of session hooks `aphrollo tdd init`
 // wires. Order is stable so the marshaled settings.json is deterministic.
 var managedEvents = []managedEvent{
 	{"SessionStart", "", "sessionstart", 10},
 	{"PreToolUse", "Edit|Write|MultiEdit|NotebookEdit", "pretooluse", 10},
-	{"PostToolUse", "Edit|Write|MultiEdit", "posttooluse", 90},
+	{"PostToolUse", "Edit|Write|MultiEdit", "posttooluse", postToolUseHarnessTimeoutSecs},
 	{"UserPromptSubmit", "", "userpromptsubmit", 10},
 	{"SessionEnd", "", "sessionend", 10},
 }

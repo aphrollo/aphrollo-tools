@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // GateResult is the verdict of a git-time gate (precommit, prepush). A blocked
@@ -173,7 +174,7 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		if r, ok := DetectRunner(root); ok {
 			ffCmd = cmdString(r)
 		}
-		violated, conclusive := failFirstViolatedAt(repoRoot, root, tests, run)
+		violated, conclusive, dur := failFirstViolatedAt(repoRoot, root, tests, run)
 		// The gate must never be silent about a stage it ran, whatever the
 		// verdict — a session watching stderr needs to see fail-first
 		// happened, not infer it from the commit's exit code. Timeout and
@@ -188,9 +189,9 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		case conclusive && !violated:
 			verdict = "red-proven"
 		}
-		line := fmt.Sprintf("tdd precommit: fail-first %s in %s → %s", ffCmd, root, verdict)
+		line := fmt.Sprintf("tdd precommit: fail-first %s in %s → %s (%.1fs)", ffCmd, root, verdict, dur.Seconds())
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog("precommit", root, ffCmd, verdict, 0)
+		appendGateLog("precommit", root, ffCmd, verdict, dur)
 		if conclusive && violated {
 			return GateResult{Blocked: true, Message: failFirstMessage}
 		}
@@ -269,7 +270,7 @@ func mechanicalRoot(gateName, repoRoot, root string, tests, srcs []string, run S
 		return GateResult{}
 	}
 	restore := pinMechCargoTarget(runner, repoRoot)
-	res, waited, acquired := runCargoLocked(run, runner, root, buildLockPrecommitDeadline)
+	res, waited, acquired := runCargoLocked(run, runner, root, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
 	restore()
 	if !acquired {
 		line := fmt.Sprintf("tdd %s: mechanical %s in %s → QUEUED-SKIPPED (waited %.0fs, another cargo build holds the machine build lock) — inconclusive",
@@ -628,7 +629,7 @@ func splitKinds(paths []string) (tests, srcs []string) {
 // in which case the caller must not block. This is failFirstViolatedAt with
 // root == repoRoot, kept as its own name for the (still common) single-root
 // case and for direct callers/tests.
-func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violated, conclusive bool) {
+func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violated, conclusive bool, dur time.Duration) {
 	return failFirstViolatedAt(repoRoot, repoRoot, tests, run)
 }
 
@@ -639,13 +640,17 @@ func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violat
 // whichever toolchain happens to sit at the outer repo root. root == repoRoot
 // reduces to the original single-root behavior exactly (execRootIn returns
 // the worktree root unchanged), so failFirstViolated above is just this with
-// that identity substitution.
-func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner) (violated, conclusive bool) {
+// that identity substitution. dur is the SuiteResult's own Duration when the
+// suite actually ran (0 for every early return before that point) — found in
+// review 2026-08-15: the fail-first stage line/gate.log entry always showed
+// "0.0s" regardless of how long the worktree run actually took, because
+// nothing threaded the real Duration out of here.
+func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner) (violated, conclusive bool, dur time.Duration) {
 	wt := failFirstWorktreeDir(repoRoot)
 	if wt == "" {
 		var err error
 		if wt, err = os.MkdirTemp("", "tdd-failfirst-"); err != nil {
-			return false, false
+			return false, false, 0
 		}
 	} else {
 		// Stable per-repo path: a leftover registration from a crashed run
@@ -655,26 +660,26 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	}
 	defer os.RemoveAll(wt)
 	if _, err := git(repoRoot, "worktree", "add", "--detach", wt, "HEAD"); err != nil {
-		return false, false
+		return false, false, 0
 	}
 	defer func() { _, _ = git(repoRoot, "worktree", "remove", "--force", wt) }() // best-effort cleanup
 
 	// The staged test diff applied onto HEAD: tests present, new source absent.
 	diff, err := gitStaged(repoRoot, tests)
 	if err != nil || strings.TrimSpace(diff) == "" {
-		return false, false
+		return false, false, 0
 	}
 	if err := gitApply(wt, diff); err != nil {
-		return false, false // can't reproduce the test state → don't block
+		return false, false, 0 // can't reproduce the test state → don't block
 	}
 
 	execRoot, err := execRootIn(wt, repoRoot, root)
 	if err != nil {
-		return false, false
+		return false, false, 0
 	}
 	runner, ok := DetectRunner(execRoot)
 	if !ok {
-		return false, false
+		return false, false, 0
 	}
 	relTests := toRootRelative(repoRoot, root, tests)
 	if runner.Cmd == "cargo" {
@@ -685,7 +690,7 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 		// would be exactly the unrunnable-in-time full suite this stage
 		// exists to avoid. Check ownership before ever invoking it.
 		if len(cargoPackagesOwning(execRoot, relTests)) == 0 {
-			return false, false
+			return false, false, 0
 		}
 	}
 	// Scope to the staged TEST targets under judgment: the full unnarrowed
@@ -711,12 +716,12 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 			}()
 		}
 	}
-	res, _, acquired := runCargoLocked(run, runner, execRoot, buildLockPrecommitDeadline)
+	res, _, acquired := runCargoLocked(run, runner, execRoot, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
 	if !acquired {
-		return false, false // another cargo build holds the machine lock — no verdict either way
+		return false, false, 0 // another cargo build holds the machine lock — no verdict either way
 	}
 	if res.TimedOut {
-		return false, false // a killed run reaches no verdict either way
+		return false, false, res.Duration // a killed run reaches no verdict either way
 	}
 	// Tests PASS without the new source ⇒ they never went RED ⇒ violation.
 	//
@@ -728,7 +733,7 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	// but it fails in the safe direction — non-violation never blocks — so the
 	// gate stays fail-open. Correcting the label needs a distinct couldn't-run
 	// signal on SuiteResult, which is left for a runner-contract change.
-	return res.Passed, true
+	return res.Passed, true, res.Duration
 }
 
 // execRootIn maps root (a project root under repoRoot) to its equivalent

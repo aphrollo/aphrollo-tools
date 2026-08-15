@@ -1,18 +1,35 @@
 package tdd
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
-// nextestNoTestsOutput is a representative cargo-nextest transcript for a
-// crate with zero test targets (e.g. a cargo-hakari workspace-hack crate,
-// which is deliberately dependency-only) — nextest treats this as a hard
-// failure and exits 4, unlike plain `cargo test` which exits 0 for the same
-// situation.
-const nextestNoTestsOutput = "info: auto-detected workspace-hack\n" +
+// nextestNoTestsOutput is VERBATIM cargo-nextest output, captured 2026-08-15
+// (review finding: the fixture had been hand-written; this replaces it with
+// a real capture) via:
+//
+//	cargo new --lib zz_empty && cd zz_empty
+//	# src/lib.rs stripped of its default #[test] so the crate has ZERO tests
+//	cargo nextest run
+//
+// which exits 4 (confirmed: `echo $?` => 4) with this transcript — the exact
+// shape a cargo-hakari workspace-hack crate (deliberately dependency-only)
+// produces on every commit that touches it, unlike plain `cargo test` (also
+// captured, same zero-test crate: exit 0, "running 0 tests" /
+// "test result: ok. 0 passed; 0 failed; ..." — already covered by
+// ClassifyOutcome's existing zeroTestsRe, so no fixture change needed there).
+const nextestNoTestsOutput = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s\n" +
+	"────────────\n" +
+	" Nextest run ID 2c75af04-dbe9-4f97-aa96-b51d23e40db1 with nextest profile: default\n" +
 	"    Starting 0 tests across 1 binary\n" +
-	"error: no tests to run\n"
+	"────────────\n" +
+	"     Summary [   0.000s] 0 tests run: 0 passed, 0 skipped\n" +
+	"error: no tests to run\n" +
+	"(hint: use `--no-tests` to customize)\n"
 
 // TestEmptyPass_NextestZeroTests_NeverBlocksNeverReadsAsFailure pins the
 // fix for a real false-positive: `cargo nextest run -p workspace-hack` on a
@@ -104,5 +121,47 @@ func TestPrecommit_MechanicalTimeout_FailOpenMessageNeverSilent(t *testing.T) {
 	}
 	if !strings.Contains(res.Message, "FAIL-OPEN") || !strings.Contains(res.Message, "UNVERIFIED") {
 		t.Fatalf("expected a FAIL-OPEN/UNVERIFIED message, got: %s", res.Message)
+	}
+}
+
+// TestFailFirstStage_ThreadsRealDurationIntoLogAndLine pins a real review
+// finding: the fail-first stage line and its gate.log entry always showed
+// "0.0s" regardless of how long the worktree run actually took — nothing
+// threaded SuiteResult.Duration out of failFirstViolatedAt into the log.
+// A stub SuiteRunner reporting an 11s Duration must show up as 11.0s in
+// BOTH the stderr stage line and the gate.log line, not a hardcoded 0.
+func TestFailFirstStage_ThreadsRealDurationIntoLogAndLine(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := makeGoRepo(t)
+	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestWidget(t *testing.T) {\n\tif Widget() != 1 { t.Fatal(\"no\") }\n}\n")
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	const stubDuration = 11 * time.Second
+	run := func(Runner, string) SuiteResult {
+		// The applied test cannot compile without the staged impl -> a
+		// conclusive, non-violating (red-proven) fail-first verdict,
+		// regardless of which directory this stub is invoked in.
+		return SuiteResult{Passed: false, Output: "undefined: Widget", Duration: stubDuration}
+	}
+
+	var res GateResult
+	stderr := captureStderr(t, func() {
+		res = failFirstStage(root, root, []string{"widget_test.go"}, []string{"widget.go"}, run)
+	})
+	if res.Blocked {
+		t.Fatalf("expected a conclusive non-violation (red-proven), got blocked: %s", res.Message)
+	}
+	if !strings.Contains(stderr, "11.0s") {
+		t.Fatalf("expected the fail-first stderr line to report the stub's real Duration (11.0s), got: %s", stderr)
+	}
+
+	logData, err := os.ReadFile(filepath.Join(cfg, "tdd-state", "gate.log"))
+	if err != nil {
+		t.Fatalf("gate.log not written: %v", err)
+	}
+	if !strings.Contains(string(logData), " 11.0s") {
+		t.Fatalf("expected the fail-first gate.log entry to record the stub's real Duration (11.0s), got:\n%s", logData)
 	}
 }

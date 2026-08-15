@@ -54,6 +54,21 @@ func TestCargoWorkspaceRoot(t *testing.T) {
 			t.Fatalf("cargoWorkspaceRoot(%s) = %s, want %s (itself, no workspace found)", root, got, root)
 		}
 	})
+
+	// Found in review 2026-08-15: cargoTomlHasWorkspaceTable matched only an
+	// EXACT "[workspace]" line, so a real-world manifest with a trailing
+	// comment or trailing whitespace on the table header silently fell back
+	// to "no workspace found" -- the member crate below it would then run
+	// unscoped from its own directory instead of the real workspace root.
+	t.Run("a [workspace] header with trailing whitespace/comment is still recognized", func(t *testing.T) {
+		root := t.TempDir()
+		write(t, root, "Cargo.toml", "[workspace]  # root\nmembers = [\"crates/a\"]\n")
+		write(t, root, "crates/a/Cargo.toml", "[package]\nname = \"a\"\n")
+		member := filepath.Join(root, "crates", "a")
+		if got := cargoWorkspaceRoot(member); got != root {
+			t.Fatalf("cargoWorkspaceRoot(%s) = %s, want %s ([workspace] with trailing comment must still be recognized)", member, got, root)
+		}
+	})
 }
 
 // TestNarrowToRelatedTests_CargoMember_RunsFromWorkspaceRoot pins the core
@@ -69,7 +84,7 @@ func TestNarrowToRelatedTests_CargoMember_RunsFromWorkspaceRoot(t *testing.T) {
 	ws, member := makeNestedCargoWorkspace(t, false)
 	write(t, member, "tests/movement.rs", "#[test]\nfn moves() {}\n")
 
-	cargo := Runner{"cargo", []string{"test"}, ""}
+	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
 	got := NarrowToRelatedTests(cargo, filepath.Join(member, "tests", "movement.rs"), member)
 	want := Runner{Cmd: "cargo", Args: []string{"test", "-p", "alpha", "--test", "movement"}, Dir: ws}
 	if !reflect.DeepEqual(got, want) {
@@ -92,7 +107,7 @@ func TestNarrowToRelatedTests_CargoMember_NextestWhenConfiguredAtWorkspaceRoot(t
 	ws, member := makeNestedCargoWorkspace(t, true)
 	write(t, member, "src/foo.rs", "pub fn foo() -> i32 { 1 }\n")
 
-	cargo := Runner{"cargo", []string{"test"}, ""}
+	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
 	got := NarrowToRelatedTests(cargo, filepath.Join(member, "src", "foo.rs"), member)
 
 	wantVerb := []string{"test"}
@@ -113,7 +128,7 @@ func TestNarrowToRelatedTests_CargoMember_SourceEdit_RunsFromWorkspaceRoot(t *te
 	ws, member := makeNestedCargoWorkspace(t, false)
 	write(t, member, "src/foo.rs", "pub fn foo() -> i32 { 1 }\n")
 
-	cargo := Runner{"cargo", []string{"test"}, ""}
+	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
 	got := NarrowToRelatedTests(cargo, filepath.Join(member, "src", "foo.rs"), member)
 	want := Runner{Cmd: "cargo", Args: []string{"test", "-p", "alpha", "--lib"}, Dir: ws}
 	if !reflect.DeepEqual(got, want) {
@@ -131,7 +146,7 @@ func TestNarrowToRelatedTests_CargoNoResolvablePackage_FallsBackToOldBehavior(t 
 	root := t.TempDir()
 	write(t, root, "tests/movement.rs", "#[test]\nfn moves() {}\n") // no Cargo.toml anywhere
 
-	cargo := Runner{"cargo", []string{"test"}, ""}
+	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
 	got := NarrowToRelatedTests(cargo, filepath.Join(root, "tests", "movement.rs"), root)
 	want := Runner{Cmd: "cargo", Args: []string{"test", "--test", "movement"}}
 	if !reflect.DeepEqual(got, want) {
