@@ -273,8 +273,8 @@ func mechanicalRoot(gateName, repoRoot, root string, tests, srcs []string, run S
 	res, waited, acquired := runCargoLocked(run, runner, root, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
 	restore()
 	if !acquired {
-		line := fmt.Sprintf("tdd %s: mechanical %s in %s → QUEUED-SKIPPED (waited %.0fs, another cargo build holds the machine build lock) — inconclusive",
-			gateName, cmdString(runner), root, waited.Seconds())
+		line := fmt.Sprintf("tdd %s: mechanical %s in %s → QUEUED-SKIPPED (waited %.0fs, another cargo build holds the machine build lock%s) — inconclusive",
+			gateName, cmdString(runner), root, waited.Seconds(), buildLockHolderNote())
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmdString(runner), "queued-skipped", waited)
 		return GateResult{Message: line}
