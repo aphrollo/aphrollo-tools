@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -191,6 +192,28 @@ func markWorktreeWarned(session string) bool {
 	s.Notices.WorktreeWarned = true
 	_ = s.save(path)
 	return true
+}
+
+// appendGateLog appends one line to <stateDir>/gate.log:
+// "<RFC3339> <precommit|postedit> <root> <cmd> <verdict> <secs>s" — so a
+// session (or a human) can reconstruct what every gate stage actually did,
+// not just what the LAST advisory said. Best-effort: a logging failure never
+// affects the gate's actual decision, only its trail.
+func appendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
+	dir := stateDir()
+	if dir == "" {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "gate.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s %s %s %s %s %.1fs\n",
+		time.Now().UTC().Format(time.RFC3339), stage, root, cmd, verdict, dur.Seconds())
 }
 
 // setOff persists the per-session enforcement override (the `/tdd off|on`

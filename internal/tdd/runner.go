@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Runner is a test command: a program and its arguments, run from the project
@@ -16,6 +17,24 @@ import (
 type Runner struct {
 	Cmd  string
 	Args []string
+	// Dir overrides the execution directory RunSuite uses: "" (the default
+	// for every runner except a resolved cargo one) means "use whatever root
+	// the caller passed" — RunSuite falls back to its root parameter. Only
+	// cargoRunnerAt / precommitRoot's cargo branch set this, to the actual
+	// cargo WORKSPACE root: a checked-in .config/nextest.toml and the
+	// workspace's Cargo.lock live there, not in a member crate's own
+	// directory, so a `-p <pkg>` cargo command must execute from there even
+	// though state/mech-cache keys keep using the member crate's own root.
+	Dir string
+	// Deadline overrides how long RunSuite may run: zero (the default for
+	// every runner except one that went through runCargoLocked) means "use
+	// RunSuite's own configured timeout unchanged". runCargoLocked sets this
+	// to start+stageBudget BEFORE it waits for the machine-wide cargo build
+	// lock, so that wait carves OUT of the stage's own budget instead of
+	// stacking additively on top of it (RunSuite then runs for whichever is
+	// shorter: its configured timeout, or the time remaining until
+	// Deadline).
+	Deadline time.Time
 }
 
 // rootMarkers identify a project root, walking up from an edited file. Order
@@ -179,8 +198,18 @@ func NarrowToRelatedTests(r Runner, target, root string) Runner {
 		// instead of every target in the crate — on a large-dependency crate
 		// that is the difference between seconds and a timeout. A Rust test
 		// file outside tests/ is a #[cfg(test)] unit module: lib target.
+		// cargoRunnerAt resolves the actual workspace root + `-p <pkg>`
+		// scoping (task A4); when root has no readable [package] Cargo.toml
+		// of its own, it reports false and the old cwd-implicit behavior
+		// (no -p, no Dir) is kept rather than losing --test/--lib scoping.
 		if name := cargoTestTarget(rel); name != "" {
+			if cr, ok := cargoRunnerAt(root, "--test", name); ok {
+				return cr
+			}
 			return Runner{Cmd: "cargo", Args: append(cargoRunArgs(r), "--test", name)}
+		}
+		if cr, ok := cargoRunnerAt(root, "--lib"); ok {
+			return cr
 		}
 		return Runner{Cmd: "cargo", Args: append(cargoRunArgs(r), "--lib")}
 	}
@@ -235,6 +264,87 @@ func cargoPackageName(manifest string) string {
 	return ""
 }
 
+// cargoTomlHasWorkspaceTable reports whether manifest declares a top-level
+// [workspace] table. Missing/unreadable manifests report false — the caller
+// (cargoWorkspaceRoot) then keeps walking up.
+func cargoTomlHasWorkspaceTable(manifest string) bool {
+	data, err := os.ReadFile(manifest)
+	if err != nil {
+		return false
+	}
+	for line := range strings.Lines(string(data)) {
+		trimmed := strings.TrimSpace(line)
+		// Tolerate trailing whitespace/comment after the header
+		// ("[workspace]  # root"), not just an exact "[workspace]" line --
+		// found in review 2026-08-15: a real-world manifest with either
+		// silently fell back to "no workspace found here", so a member
+		// crate below it ran unscoped from its own directory instead of the
+		// resolved workspace root.
+		rest, ok := strings.CutPrefix(trimmed, "[workspace]")
+		if !ok {
+			continue
+		}
+		rest = strings.TrimSpace(rest)
+		if rest == "" || strings.HasPrefix(rest, "#") {
+			return true
+		}
+	}
+	return false
+}
+
+// cargoWorkspaceRoot resolves the actual cargo WORKSPACE root for a cargo
+// project root: the nearest ancestor directory (root inclusive) whose
+// Cargo.toml declares a [workspace] table. Only there does a checked-in
+// .config/nextest.toml live, and the workspace's Cargo.lock is there too —
+// a member crate's own directory has neither. A crate with no encompassing
+// workspace (no [workspace] table found before the filesystem root) falls
+// back to being its own "workspace root".
+func cargoWorkspaceRoot(root string) string {
+	dir := root
+	for {
+		if cargoTomlHasWorkspaceTable(filepath.Join(dir, "Cargo.toml")) {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return root // hit the filesystem root without finding one
+		}
+		dir = parent
+	}
+}
+
+// cargoVerbArgs picks nextest vs plain `cargo test` for a cargo WORKSPACE
+// root: nextest iff a checked-in <ws>/.config/nextest.toml exists AND the
+// cargo-nextest binary is installed — the same rule DetectRunner already
+// applies at a project root, generalized to the actual workspace root a
+// member crate's tests must be judged from (its own directory very often has
+// neither the config file NOR any reason to — only the workspace root does).
+func cargoVerbArgs(ws string) []string {
+	if _, err := os.Stat(filepath.Join(ws, ".config", "nextest.toml")); err == nil && nextestInstalled() {
+		return []string{"nextest", "run"}
+	}
+	return []string{"test"}
+}
+
+// cargoRunnerAt builds the cargo Runner ACTUALLY used to test a cargo
+// project root: scoped to its OWN [package] via `-p <pkg>`, executed from
+// the resolved workspace root (Dir), with extraArgs appended (`--lib`,
+// `--test <name>`, or nothing for a full-crate run). Reports false — a zero
+// Runner, meaning "nothing to scope to" — when root has no readable
+// [package] Cargo.toml of its own; the caller then keeps its pre-existing
+// (unscoped-by-package, cwd-implicit) narrowing instead of losing --lib/
+// --test scoping entirely over an unresolvable package name.
+func cargoRunnerAt(root string, extraArgs ...string) (Runner, bool) {
+	pkg := cargoPackageName(filepath.Join(root, "Cargo.toml"))
+	if pkg == "" {
+		return Runner{}, false
+	}
+	ws := cargoWorkspaceRoot(root)
+	args := append(cargoVerbArgs(ws), "-p", pkg)
+	args = append(args, extraArgs...)
+	return Runner{Cmd: "cargo", Args: args, Dir: ws}, true
+}
+
 // cargoTestTarget maps a repo-relative Rust test path to its cargo test-target
 // name: the path component directly under `tests/` — the file's stem for a
 // top-level tests/*.rs, the directory name for a nested tests/<dir>/ binary.
@@ -251,6 +361,84 @@ func cargoTestTarget(rel string) string {
 		}
 	}
 	return ""
+}
+
+// stagedProjectRoots returns the sorted, deduped set of project roots (per
+// FindProjectRoot) that own at least one of the given repo-root-relative
+// staged files. A monorepo can stage a cargo crate's tests alongside a
+// pytest tool's tests in the SAME commit — grouping by root is what lets
+// Precommit judge each toolchain with its own DetectRunner instead of
+// whichever marker happens to sit at the outer repo root (the "python commit
+// pays a 20-minute cargo build" bug).
+func stagedProjectRoots(repoRoot string, files []string) []string {
+	seen := map[string]bool{}
+	var roots []string
+	for _, f := range files {
+		root := FindProjectRoot(filepath.Join(repoRoot, f))
+		if root == "" {
+			continue
+		}
+		if !seen[root] {
+			seen[root] = true
+			roots = append(roots, root)
+		}
+	}
+	sort.Strings(roots)
+	return roots
+}
+
+// filesUnderRoot filters repo-root-relative files to those FindProjectRoot
+// resolves to root, preserving input order.
+func filesUnderRoot(repoRoot, root string, files []string) []string {
+	var out []string
+	for _, f := range files {
+		if FindProjectRoot(filepath.Join(repoRoot, f)) == root {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// toRootRelative rewrites repo-root-relative paths to be relative to root
+// instead (forward-slashed) — every narrowing helper (go's package dirs,
+// cargo's package/test-target lookup, vitest/jest's related-tests args) takes
+// paths relative to wherever it will actually run, which is root, not
+// necessarily repoRoot. A path that can't be made relative (should not happen
+// for a file FindProjectRoot already placed under root) is dropped rather
+// than fed to a narrower as a bogus argument.
+func toRootRelative(repoRoot, root string, files []string) []string {
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		rel, err := filepath.Rel(root, filepath.Join(repoRoot, f))
+		if err != nil {
+			continue
+		}
+		out = append(out, filepath.ToSlash(rel))
+	}
+	return out
+}
+
+// cargoPackagesOwning resolves the sorted, deduped set of [package] names
+// that own at least one of the given ROOT-RELATIVE files. A file no package
+// covers (a virtual workspace manifest, or a path outside any member) is
+// silently excluded — an unowned cargo file is never grounds to widen a run
+// to the whole workspace; the caller decides whether an empty result means
+// "nothing to test" or reports the excluded files itself.
+func cargoPackagesOwning(root string, files []string) []string {
+	seen := map[string]bool{}
+	var pkgs []string
+	for _, f := range files {
+		name := cargoPackageFor(root, f)
+		if name == "" {
+			continue
+		}
+		if !seen[name] {
+			seen[name] = true
+			pkgs = append(pkgs, name)
+		}
+	}
+	sort.Strings(pkgs)
+	return pkgs
 }
 
 // narrowToStaged scopes a broad runner to the related tests of the UNION of a
@@ -298,20 +486,13 @@ func narrowToStaged(r Runner, root string, files []string) (Runner, bool) {
 		// Cargo.toml that owns it, and the mechanical run tests only those
 		// crates. In a Bevy-sized workspace this is the difference between a
 		// touched-crate check and rebuilding every test binary in the tree.
-		// Any file no package owns keeps the full-suite fallback.
-		seen := map[string]bool{}
-		var pkgs []string
-		for _, f := range files {
-			name := cargoPackageFor(root, f)
-			if name == "" {
-				return r, false
-			}
-			if !seen[name] {
-				seen[name] = true
-				pkgs = append(pkgs, name)
-			}
+		// A file no package owns is EXCLUDED, not a trigger for the
+		// full-suite fallback (removed — see cargoPackagesOwning); callers
+		// that need to report the excluded files compute that separately.
+		pkgs := cargoPackagesOwning(root, files)
+		if len(pkgs) == 0 {
+			return r, false
 		}
-		sort.Strings(pkgs)
 		args := cargoRunArgs(r)
 		for _, p := range pkgs {
 			args = append(args, "-p", p)
@@ -344,8 +525,12 @@ func narrowToStaged(r Runner, root string, files []string) (Runner, bool) {
 // "" for those — cargoTestTarget only names files under a tests/ segment).
 // Staged test files spanning MULTIPLE packages fall back to package
 // granularity via the existing narrowToStaged (`-p a -p b`, no --test
-// scoping). A file owned by NO package keeps the runner unnarrowed — the
-// current full-suite fail-open behavior.
+// scoping), over the OWNED subset only. A file owned by NO package is
+// EXCLUDED from judgment, never a trigger to widen the run to the whole
+// workspace (that full-suite fallback is removed); when NOTHING staged is
+// owned the runner comes back unnarrowed and the caller (failFirstViolatedAt)
+// must check ownership itself before ever invoking it, or a fully-unowned
+// test set would still run the unscoped full suite.
 //
 // Non-cargo runners defer entirely to narrowToStaged; when it reports no
 // related mode (pytest, zig, an unknown command) the runner stays unnarrowed.
@@ -359,14 +544,16 @@ func narrowFailFirstTests(r Runner, wt string, tests []string) Runner {
 
 	seenPkg := map[string]bool{}
 	var pkgs []string
+	var ownedTests []string
 	seenTarget := map[string]bool{}
 	var targets []string
 	inline := false
 	for _, f := range tests {
 		name := cargoPackageFor(wt, f)
 		if name == "" {
-			return r // a file with no owning package → unnarrowed fallback
+			continue // unowned file — excluded, never widens the run (fallback removed)
 		}
+		ownedTests = append(ownedTests, f)
 		if !seenPkg[name] {
 			seenPkg[name] = true
 			pkgs = append(pkgs, name)
@@ -381,10 +568,10 @@ func narrowFailFirstTests(r Runner, wt string, tests []string) Runner {
 		}
 	}
 	if len(pkgs) == 0 {
-		return r
+		return r // nothing owned among the staged tests — caller treats as no verdict
 	}
 	if len(pkgs) > 1 {
-		if scoped, narrowed := narrowToStaged(r, wt, tests); narrowed {
+		if scoped, narrowed := narrowToStaged(r, wt, ownedTests); narrowed {
 			return scoped
 		}
 		return r
@@ -413,7 +600,13 @@ func narrowSourceEdit(r Runner, rel, root string) Runner {
 		// Unit tests give the fast per-edit signal; the crate's integration
 		// binaries are the commit gate's job. `--lib` on a bin-only crate is
 		// an error, not a narrower run, so those keep the full crate suite.
+		// cargoRunnerAt resolves the workspace root + `-p <pkg>` scoping
+		// (task A4); falls back to the old cwd-implicit `--lib` when root has
+		// no readable [package] Cargo.toml of its own.
 		if _, err := os.Stat(filepath.Join(root, "src", "lib.rs")); err == nil {
+			if cr, ok := cargoRunnerAt(root, "--lib"); ok {
+				return cr
+			}
 			return Runner{Cmd: "cargo", Args: append(cargoRunArgs(r), "--lib")}
 		}
 		return r

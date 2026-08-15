@@ -33,10 +33,12 @@ type InstallPlan struct {
 }
 
 // perRepoHooks are the git hooks per-repo install writes, paired with the
-// `aphrollo tdd` subcommand each shim invokes. The gate is mechanical-only, so
-// pre-commit is the sole installed hook.
+// `aphrollo tdd` subcommand each shim invokes. pre-merge-commit was added
+// 2026-08-15 (build-infra-fix task A6) alongside the global gate's — see
+// gitGateHooks' doc comment for why.
 var perRepoHooks = []struct{ name, sub string }{
 	{"pre-commit", "precommit"},
+	{"pre-merge-commit", "premergecommit"},
 }
 
 // perRepoPrunedHooks are hook names per-repo install removes but never writes. A

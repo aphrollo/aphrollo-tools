@@ -50,7 +50,7 @@ func TestInstallPlan_ApplyWritesExecutableShims(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for name, sub := range map[string]string{"pre-commit": "precommit"} {
+	for name, sub := range map[string]string{"pre-commit": "precommit", "pre-merge-commit": "premergecommit"} {
 		p := filepath.Join(root, ".git", "hooks", name)
 		fi, err := os.Stat(p)
 		if err != nil {

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 // mkProject creates a temp project root holding the given marker files and
@@ -50,7 +51,7 @@ func TestZigRunner(t *testing.T) {
 		t.Fatalf("FindProjectRoot = %q, want %q", got, root)
 	}
 
-	zig := Runner{"zig", []string{"build", "test"}}
+	zig := Runner{"zig", []string{"build", "test"}, "", time.Time{}}
 	got, ok := DetectRunner(root)
 	if !ok || !reflect.DeepEqual(got, zig) {
 		t.Fatalf("DetectRunner = %+v,%v want %+v", got, ok, zig)
@@ -71,11 +72,11 @@ func TestDetectRunner(t *testing.T) {
 		marker string
 		want   Runner
 	}{
-		{"go.mod", Runner{"go", []string{"test", "./..."}}},
-		{"Cargo.toml", Runner{"cargo", []string{"test"}}},
-		{"pyproject.toml", Runner{"pytest", []string{"-q"}}},
-		{"build.zig", Runner{"zig", []string{"build", "test"}}},
-		{"build.zig.zon", Runner{"zig", []string{"build", "test"}}},
+		{"go.mod", Runner{"go", []string{"test", "./..."}, "", time.Time{}}},
+		{"Cargo.toml", Runner{"cargo", []string{"test"}, "", time.Time{}}},
+		{"pyproject.toml", Runner{"pytest", []string{"-q"}, "", time.Time{}}},
+		{"build.zig", Runner{"zig", []string{"build", "test"}, "", time.Time{}}},
+		{"build.zig.zon", Runner{"zig", []string{"build", "test"}, "", time.Time{}}},
 	}
 	for _, c := range cases {
 		root := mkProject(t, c.marker)
@@ -97,7 +98,7 @@ func TestDetectRunner_Vitest(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := DetectRunner(root)
-	want := Runner{"npx", []string{"vitest", "run"}}
+	want := Runner{"npx", []string{"vitest", "run"}, "", time.Time{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("DetectRunner vitest = %+v, want %+v", got, want)
 	}
@@ -106,16 +107,16 @@ func TestDetectRunner_Vitest(t *testing.T) {
 func TestNarrowToRelatedTests(t *testing.T) {
 	root := "/proj"
 	// Go test edit narrows to the package; source edit narrows to its package.
-	goR := Runner{"go", []string{"test", "./..."}}
-	if got := NarrowToRelatedTests(goR, "/proj/internal/x/x_test.go", root); !reflect.DeepEqual(got, Runner{"go", []string{"test", "./internal/x/..."}}) {
+	goR := Runner{"go", []string{"test", "./..."}, "", time.Time{}}
+	if got := NarrowToRelatedTests(goR, "/proj/internal/x/x_test.go", root); !reflect.DeepEqual(got, Runner{"go", []string{"test", "./internal/x/..."}, "", time.Time{}}) {
 		t.Fatalf("go test narrow = %+v", got)
 	}
-	if got := NarrowToRelatedTests(goR, "/proj/internal/x/x.go", root); !reflect.DeepEqual(got, Runner{"go", []string{"test", "./internal/x"}}) {
+	if got := NarrowToRelatedTests(goR, "/proj/internal/x/x.go", root); !reflect.DeepEqual(got, Runner{"go", []string{"test", "./internal/x"}, "", time.Time{}}) {
 		t.Fatalf("go source narrow = %+v", got)
 	}
 	// pytest test edit runs just that file.
-	pyR := Runner{"pytest", []string{"-q"}}
-	if got := NarrowToRelatedTests(pyR, "/proj/tests/test_a.py", root); !reflect.DeepEqual(got, Runner{"pytest", []string{"-q", "tests/test_a.py"}}) {
+	pyR := Runner{"pytest", []string{"-q"}, "", time.Time{}}
+	if got := NarrowToRelatedTests(pyR, "/proj/tests/test_a.py", root); !reflect.DeepEqual(got, Runner{"pytest", []string{"-q", "tests/test_a.py"}, "", time.Time{}}) {
 		t.Fatalf("pytest narrow = %+v", got)
 	}
 }
@@ -134,57 +135,57 @@ func TestNarrowToRelatedTests_SourceEdits(t *testing.T) {
 	}{
 		{
 			name:   "vitest source → related --run",
-			runner: Runner{"npx", []string{"vitest", "run"}},
+			runner: Runner{"npx", []string{"vitest", "run"}, "", time.Time{}},
 			target: "/proj/src/widget.ts",
-			want:   Runner{"npx", []string{"vitest", "related", "src/widget.ts", "--run"}},
+			want:   Runner{"npx", []string{"vitest", "related", "src/widget.ts", "--run"}, "", time.Time{}},
 		},
 		{
 			name:   "jest source → --findRelatedTests",
-			runner: Runner{"npx", []string{"jest"}},
+			runner: Runner{"npx", []string{"jest"}, "", time.Time{}},
 			target: "/proj/src/widget.js",
-			want:   Runner{"npx", []string{"jest", "--findRelatedTests", "src/widget.js"}},
+			want:   Runner{"npx", []string{"jest", "--findRelatedTests", "src/widget.js"}, "", time.Time{}},
 		},
 		{
 			name:   "go source → package dir",
-			runner: Runner{"go", []string{"test", "./..."}},
+			runner: Runner{"go", []string{"test", "./..."}, "", time.Time{}},
 			target: "/proj/internal/x/x.go",
-			want:   Runner{"go", []string{"test", "./internal/x"}},
+			want:   Runner{"go", []string{"test", "./internal/x"}, "", time.Time{}},
 		},
 		{
 			name:   "unknown js script source → full-suite fallback",
-			runner: Runner{"npm", []string{"test", "--silent"}},
+			runner: Runner{"npm", []string{"test", "--silent"}, "", time.Time{}},
 			target: "/proj/src/widget.ts",
-			want:   Runner{"npm", []string{"test", "--silent"}},
+			want:   Runner{"npm", []string{"test", "--silent"}, "", time.Time{}},
 		},
 		{
 			name:   "cargo source → full-suite fallback",
-			runner: Runner{"cargo", []string{"test"}},
+			runner: Runner{"cargo", []string{"test"}, "", time.Time{}},
 			target: "/proj/src/lib.rs",
-			want:   Runner{"cargo", []string{"test"}},
+			want:   Runner{"cargo", []string{"test"}, "", time.Time{}},
 		},
 		{
 			name:   "pytest source → full-suite fallback",
-			runner: Runner{"pytest", []string{"-q"}},
+			runner: Runner{"pytest", []string{"-q"}, "", time.Time{}},
 			target: "/proj/pkg/widget.py",
-			want:   Runner{"pytest", []string{"-q"}},
+			want:   Runner{"pytest", []string{"-q"}, "", time.Time{}},
 		},
 		{
 			name:   "zig source → full-suite fallback",
-			runner: Runner{"zig", []string{"build", "test"}},
+			runner: Runner{"zig", []string{"build", "test"}, "", time.Time{}},
 			target: "/proj/src/main.zig",
-			want:   Runner{"zig", []string{"build", "test"}},
+			want:   Runner{"zig", []string{"build", "test"}, "", time.Time{}},
 		},
 		{
 			name:   "zig test → full-suite fallback",
-			runner: Runner{"zig", []string{"build", "test"}},
+			runner: Runner{"zig", []string{"build", "test"}, "", time.Time{}},
 			target: "/proj/src/main_test.zig",
-			want:   Runner{"zig", []string{"build", "test"}},
+			want:   Runner{"zig", []string{"build", "test"}, "", time.Time{}},
 		},
 		{
 			name:   "outside-root source → broad command",
-			runner: Runner{"go", []string{"test", "./..."}},
+			runner: Runner{"go", []string{"test", "./..."}, "", time.Time{}},
 			target: "/elsewhere/x.go",
-			want:   Runner{"go", []string{"test", "./..."}},
+			want:   Runner{"go", []string{"test", "./..."}, "", time.Time{}},
 		},
 	}
 	for _, c := range cases {
@@ -201,12 +202,12 @@ func TestNarrowToRelatedTests_SourceEdits(t *testing.T) {
 // while jest uses `--findRelatedTests …`.
 func TestNarrowToRelatedTests_VitestVsJest(t *testing.T) {
 	root := "/proj"
-	vitest := NarrowToRelatedTests(Runner{"npx", []string{"vitest", "run"}}, "/proj/a/b.ts", root)
-	if !reflect.DeepEqual(vitest, Runner{"npx", []string{"vitest", "related", "a/b.ts", "--run"}}) {
+	vitest := NarrowToRelatedTests(Runner{"npx", []string{"vitest", "run"}, "", time.Time{}}, "/proj/a/b.ts", root)
+	if !reflect.DeepEqual(vitest, Runner{"npx", []string{"vitest", "related", "a/b.ts", "--run"}, "", time.Time{}}) {
 		t.Fatalf("vitest source = %+v", vitest)
 	}
-	jest := NarrowToRelatedTests(Runner{"npx", []string{"jest"}}, "/proj/a/b.ts", root)
-	if !reflect.DeepEqual(jest, Runner{"npx", []string{"jest", "--findRelatedTests", "a/b.ts"}}) {
+	jest := NarrowToRelatedTests(Runner{"npx", []string{"jest"}, "", time.Time{}}, "/proj/a/b.ts", root)
+	if !reflect.DeepEqual(jest, Runner{"npx", []string{"jest", "--findRelatedTests", "a/b.ts"}, "", time.Time{}}) {
 		t.Fatalf("jest source = %+v", jest)
 	}
 }
@@ -224,93 +225,93 @@ func TestNarrowToStaged(t *testing.T) {
 	}{
 		{
 			name:   "vitest → related multi-file --run",
-			runner: Runner{"npx", []string{"vitest", "run"}},
+			runner: Runner{"npx", []string{"vitest", "run"}, "", time.Time{}},
 			files:  []string{"src/a.ts", "src/a.test.ts", "src/b.ts"},
-			want:   Runner{"npx", []string{"vitest", "related", "src/a.ts", "src/a.test.ts", "src/b.ts", "--run"}},
+			want:   Runner{"npx", []string{"vitest", "related", "src/a.ts", "src/a.test.ts", "src/b.ts", "--run"}, "", time.Time{}},
 			wantOK: true,
 		},
 		{
 			name:   "vitest test-only staged → related on the test file --run",
-			runner: Runner{"npx", []string{"vitest", "run"}},
+			runner: Runner{"npx", []string{"vitest", "run"}, "", time.Time{}},
 			files:  []string{"src/a.test.ts"},
-			want:   Runner{"npx", []string{"vitest", "related", "src/a.test.ts", "--run"}},
+			want:   Runner{"npx", []string{"vitest", "related", "src/a.test.ts", "--run"}, "", time.Time{}},
 			wantOK: true,
 		},
 		{
 			name:   "jest → --findRelatedTests multi-file",
-			runner: Runner{"npx", []string{"jest"}},
+			runner: Runner{"npx", []string{"jest"}, "", time.Time{}},
 			files:  []string{"src/a.js", "src/b.js"},
-			want:   Runner{"npx", []string{"jest", "--findRelatedTests", "src/a.js", "src/b.js"}},
+			want:   Runner{"npx", []string{"jest", "--findRelatedTests", "src/a.js", "src/b.js"}, "", time.Time{}},
 			wantOK: true,
 		},
 		{
 			name:   "jest test-only staged → --findRelatedTests on the test file",
-			runner: Runner{"npx", []string{"jest"}},
+			runner: Runner{"npx", []string{"jest"}, "", time.Time{}},
 			files:  []string{"src/a.test.js"},
-			want:   Runner{"npx", []string{"jest", "--findRelatedTests", "src/a.test.js"}},
+			want:   Runner{"npx", []string{"jest", "--findRelatedTests", "src/a.test.js"}, "", time.Time{}},
 			wantOK: true,
 		},
 		{
 			name:   "go test-only staged → that package dir",
-			runner: Runner{"go", []string{"test", "./..."}},
+			runner: Runner{"go", []string{"test", "./..."}, "", time.Time{}},
 			files:  []string{"internal/x/x_test.go"},
-			want:   Runner{"go", []string{"test", "./internal/x"}},
+			want:   Runner{"go", []string{"test", "./internal/x"}, "", time.Time{}},
 			wantOK: true,
 		},
 		{
 			name:   "npx with empty args → full-suite fallback",
-			runner: Runner{"npx", nil},
+			runner: Runner{"npx", nil, "", time.Time{}},
 			files:  []string{"src/a.ts"},
-			want:   Runner{"npx", nil},
+			want:   Runner{"npx", nil, "", time.Time{}},
 			wantOK: false,
 		},
 		{
 			name:   "go → deduped package dirs",
-			runner: Runner{"go", []string{"test", "./..."}},
+			runner: Runner{"go", []string{"test", "./..."}, "", time.Time{}},
 			files:  []string{"internal/x/x.go", "internal/x/x_test.go", "internal/y/y.go"},
-			want:   Runner{"go", []string{"test", "./internal/x", "./internal/y"}},
+			want:   Runner{"go", []string{"test", "./internal/x", "./internal/y"}, "", time.Time{}},
 			wantOK: true,
 		},
 		{
 			name:   "go root-level file → dot package",
-			runner: Runner{"go", []string{"test", "./..."}},
+			runner: Runner{"go", []string{"test", "./..."}, "", time.Time{}},
 			files:  []string{"main.go"},
-			want:   Runner{"go", []string{"test", "."}},
+			want:   Runner{"go", []string{"test", "."}, "", time.Time{}},
 			wantOK: true,
 		},
 		{
 			name:   "unknown js script → full-suite fallback",
-			runner: Runner{"npm", []string{"test", "--silent"}},
+			runner: Runner{"npm", []string{"test", "--silent"}, "", time.Time{}},
 			files:  []string{"src/a.ts"},
-			want:   Runner{"npm", []string{"test", "--silent"}},
+			want:   Runner{"npm", []string{"test", "--silent"}, "", time.Time{}},
 			wantOK: false,
 		},
 		{
 			name:   "cargo → full-suite fallback",
-			runner: Runner{"cargo", []string{"test"}},
+			runner: Runner{"cargo", []string{"test"}, "", time.Time{}},
 			files:  []string{"src/lib.rs"},
-			want:   Runner{"cargo", []string{"test"}},
+			want:   Runner{"cargo", []string{"test"}, "", time.Time{}},
 			wantOK: false,
 		},
 		{
 			name:   "pytest → full-suite fallback",
-			runner: Runner{"pytest", []string{"-q"}},
+			runner: Runner{"pytest", []string{"-q"}, "", time.Time{}},
 			files:  []string{"pkg/widget.py"},
-			want:   Runner{"pytest", []string{"-q"}},
+			want:   Runner{"pytest", []string{"-q"}, "", time.Time{}},
 			wantOK: false,
 		},
 		{
 			name:   "zig → full-suite fallback",
-			runner: Runner{"zig", []string{"build", "test"}},
+			runner: Runner{"zig", []string{"build", "test"}, "", time.Time{}},
 			files:  []string{"src/main.zig"},
-			want:   Runner{"zig", []string{"build", "test"}},
+			want:   Runner{"zig", []string{"build", "test"}, "", time.Time{}},
 			wantOK: false,
 		},
 		{
 			name:   "no files → full-suite fallback",
-			runner: Runner{"go", []string{"test", "./..."}},
+			runner: Runner{"go", []string{"test", "./..."}, "", time.Time{}},
 			files:  nil,
-			want:   Runner{"go", []string{"test", "./..."}},
+			want:   Runner{"go", []string{"test", "./..."}, "", time.Time{}},
 			wantOK: false,
 		},
 	}

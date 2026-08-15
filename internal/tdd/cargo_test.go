@@ -3,7 +3,9 @@ package tdd
 import (
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 )
 
 // --- cargo classification -----------------------------------------------------
@@ -49,7 +51,7 @@ func TestNarrowToRelatedTests_CargoTestFiles(t *testing.T) {
 	write(t, root, "tests/movement.rs", "#[test]\nfn moves() {}\n")
 	write(t, root, "tests/integration/chat.rs", "#[test]\nfn chats() {}\n")
 
-	cargo := Runner{"cargo", []string{"test"}}
+	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
 	cases := []struct {
 		name   string
 		target string
@@ -58,17 +60,17 @@ func TestNarrowToRelatedTests_CargoTestFiles(t *testing.T) {
 		{
 			name:   "top-level tests/ file → --test <stem>",
 			target: filepath.Join(root, "tests", "movement.rs"),
-			want:   Runner{"cargo", []string{"test", "--test", "movement"}},
+			want:   Runner{"cargo", []string{"test", "--test", "movement"}, "", time.Time{}},
 		},
 		{
 			name:   "nested tests/ dir → --test <dir> (named test binary)",
 			target: filepath.Join(root, "tests", "integration", "chat.rs"),
-			want:   Runner{"cargo", []string{"test", "--test", "integration"}},
+			want:   Runner{"cargo", []string{"test", "--test", "integration"}, "", time.Time{}},
 		},
 		{
 			name:   "rust test file outside tests/ → --lib",
 			target: filepath.Join(root, "src", "thing_test.rs"),
-			want:   Runner{"cargo", []string{"test", "--lib"}},
+			want:   Runner{"cargo", []string{"test", "--lib"}, "", time.Time{}},
 		},
 	}
 	for _, c := range cases {
@@ -86,14 +88,14 @@ func TestNarrowToRelatedTests_CargoTestFiles(t *testing.T) {
 // the full `cargo test` unchanged, because `--lib` on a crate with no lib
 // target is an error, not a narrower run.
 func TestNarrowToRelatedTests_CargoSourceEdits(t *testing.T) {
-	cargo := Runner{"cargo", []string{"test"}}
+	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
 
 	t.Run("lib crate source edit → --lib", func(t *testing.T) {
 		root := t.TempDir()
 		write(t, root, "src/lib.rs", "pub fn base() -> i32 { 0 }\n")
 		write(t, root, "src/foo.rs", "pub fn foo() -> i32 { 1 }\n")
 		got := NarrowToRelatedTests(cargo, filepath.Join(root, "src", "foo.rs"), root)
-		want := Runner{"cargo", []string{"test", "--lib"}}
+		want := Runner{"cargo", []string{"test", "--lib"}, "", time.Time{}}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("lib-crate source narrow = %+v, want %+v", got, want)
 		}
@@ -141,9 +143,9 @@ func TestNarrowFailFirstTests_CargoSinglePackageMixed(t *testing.T) {
 	write(t, root, "tests/foo.rs", "#[test]\nfn foo() {}\n")
 	write(t, root, "src/thing_test.rs", "#[test]\nfn thing() {}\n")
 
-	cargo := Runner{"cargo", []string{"test"}}
+	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
 	got := narrowFailFirstTests(cargo, root, []string{"tests/foo.rs", "src/thing_test.rs"})
-	want := Runner{"cargo", []string{"test", "-p", "pkg1", "--test", "foo", "--lib"}}
+	want := Runner{"cargo", []string{"test", "-p", "pkg1", "--test", "foo", "--lib"}, "", time.Time{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("narrowFailFirstTests = %+v, want %+v", got, want)
 	}
@@ -157,9 +159,9 @@ func TestNarrowFailFirstTests_CargoNextestPreserved(t *testing.T) {
 	write(t, root, "Cargo.toml", "[package]\nname = \"pkg1\"\nversion = \"0.1.0\"\n")
 	write(t, root, "tests/foo.rs", "#[test]\nfn foo() {}\n")
 
-	nextest := Runner{"cargo", []string{"nextest", "run"}}
+	nextest := Runner{"cargo", []string{"nextest", "run"}, "", time.Time{}}
 	got := narrowFailFirstTests(nextest, root, []string{"tests/foo.rs"})
-	want := Runner{"cargo", []string{"nextest", "run", "-p", "pkg1", "--test", "foo"}}
+	want := Runner{"cargo", []string{"nextest", "run", "-p", "pkg1", "--test", "foo"}, "", time.Time{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("narrowFailFirstTests (nextest) = %+v, want %+v", got, want)
 	}
@@ -176,9 +178,9 @@ func TestNarrowFailFirstTests_CargoMultiPackageFallback(t *testing.T) {
 	write(t, root, "crates/alpha/tests/a.rs", "#[test]\nfn a() {}\n")
 	write(t, root, "crates/beta/tests/b.rs", "#[test]\nfn b() {}\n")
 
-	cargo := Runner{"cargo", []string{"test"}}
+	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
 	got := narrowFailFirstTests(cargo, root, []string{"crates/beta/tests/b.rs", "crates/alpha/tests/a.rs"})
-	want := Runner{"cargo", []string{"test", "-p", "alpha", "-p", "beta"}}
+	want := Runner{"cargo", []string{"test", "-p", "alpha", "-p", "beta"}, "", time.Time{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("narrowFailFirstTests (multi-package) = %+v, want %+v", got, want)
 	}
@@ -194,7 +196,7 @@ func TestNarrowFailFirstTests_CargoNoPackageFallback(t *testing.T) {
 	write(t, root, "crates/alpha/Cargo.toml", "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\n")
 	write(t, root, "tools/gen_test.rs", "#[test]\nfn gen() {}\n")
 
-	cargo := Runner{"cargo", []string{"test"}}
+	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
 	got := narrowFailFirstTests(cargo, root, []string{"tools/gen_test.rs"})
 	if !reflect.DeepEqual(got, cargo) {
 		t.Fatalf("narrowFailFirstTests (no package) = %+v, want unchanged %+v", got, cargo)
@@ -209,9 +211,9 @@ func TestNarrowFailFirstTests_NonCargoDelegatesToNarrowToStaged(t *testing.T) {
 	write(t, root, "go.mod", "module m\n\ngo 1.21\n")
 	write(t, root, "internal/x/x_test.go", "package x\n")
 
-	goRunner := Runner{"go", []string{"test", "./..."}}
+	goRunner := Runner{"go", []string{"test", "./..."}, "", time.Time{}}
 	got := narrowFailFirstTests(goRunner, root, []string{"internal/x/x_test.go"})
-	want := Runner{"go", []string{"test", "./internal/x"}}
+	want := Runner{"go", []string{"test", "./internal/x"}, "", time.Time{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("narrowFailFirstTests (go) = %+v, want %+v", got, want)
 	}
@@ -224,7 +226,7 @@ func TestNarrowFailFirstTests_NonCargoUnnarrowedFallback(t *testing.T) {
 	write(t, root, "pyproject.toml", "[tool]\n")
 	write(t, root, "test_thing.py", "def test_thing(): pass\n")
 
-	pytest := Runner{"pytest", []string{"-q"}}
+	pytest := Runner{"pytest", []string{"-q"}, "", time.Time{}}
 	got := narrowFailFirstTests(pytest, root, []string{"test_thing.py"})
 	if !reflect.DeepEqual(got, pytest) {
 		t.Fatalf("narrowFailFirstTests (pytest) = %+v, want unchanged %+v", got, pytest)
@@ -232,49 +234,73 @@ func TestNarrowFailFirstTests_NonCargoUnnarrowedFallback(t *testing.T) {
 }
 
 // TestPrecommit_Mechanical_CargoWorkspaceScopedToStagedPackages pins the
-// workspace-aware mechanical narrowing: staged .rs files map to the [package]
-// Cargo.toml that owns them, and the mechanical run becomes
-// `cargo test -p <pkg> …` with the package list deduped and sorted — not the
-// whole-workspace `cargo test`. A staged code file that belongs to NO
-// [package] Cargo.toml falls back to the unnarrowed full suite. Only SOURCE
-// files are staged, so fail-first never triggers and the single run recorded
-// at root is the mechanical one.
+// workspace-aware mechanical narrowing. UPDATED 2026-08-15 (build-infra-fix
+// task A1): each member crate carries its OWN Cargo.toml, so it is now its
+// OWN project root (FindProjectRoot stops at the nearest marker, which is the
+// crate's own manifest, before ever reaching the workspace root's) — staged
+// files in alpha and beta therefore run as TWO separate `-p <pkg>` commands.
+// UPDATED AGAIN (task A4): each command's Dir now points at the WORKSPACE
+// root (repoRoot here — that's where a checked-in .config/nextest.toml and
+// the workspace's Cargo.lock actually live), even though the run is grouped
+// per crate ROOT (recorded by `dir`, the parameter the fake SuiteRunner was
+// called with — the crate's own directory, unchanged from A1) and the
+// command itself carries only `-p <pkg>`, never a combined `-p alpha -p
+// beta` run. A staged file that belongs to NO [package] Cargo.toml is
+// SKIPPED (with a stderr note) rather than falling back to the unscoped
+// whole-workspace suite — that fallback was the exact "python commit builds
+// all of Bevy" bug task A1 fixes. Only SOURCE files are staged in both
+// subtests, so fail-first never triggers.
 func TestPrecommit_Mechanical_CargoWorkspaceScopedToStagedPackages(t *testing.T) {
-	t.Run("staged sources in member crates → -p per package, deduped and sorted", func(t *testing.T) {
+	t.Run("staged sources in different member crates → one -p run per crate root, from the workspace root", func(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		root := makeCargoWorkspaceRepo(t)
-		// Two files in alpha prove the package list is deduped; beta written
-		// first proves the final list is sorted, not staging-ordered.
 		write(t, root, "crates/beta/src/lib.rs", "pub fn beta() -> i32 { 2 }\n")
 		write(t, root, "crates/alpha/src/lib.rs", "pub fn alpha() -> i32 { 1 }\n")
 		write(t, root, "crates/alpha/src/util.rs", "pub fn util() -> i32 { 3 }\n")
 		gitDo(t, root, "add", ".")
 
-		var seen []Runner
-		res := Precommit(root, recordRunner(&seen, root))
+		var seen []loggedRun
+		res := Precommit(root, recordAllRuns(&seen, func(string) bool { return true }))
 		if res.Blocked {
 			t.Fatalf("unexpected block: %s", res.Message)
 		}
-		want := Runner{"cargo", []string{"test", "-p", "alpha", "-p", "beta"}}
-		if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
-			t.Fatalf("workspace mechanical runs = %+v, want one %+v", seen, want)
+		if len(seen) != 2 {
+			t.Fatalf("expected one run per touched crate root, got %d: %+v", len(seen), seen)
+		}
+		alphaDir := filepath.Join(root, "crates", "alpha")
+		betaDir := filepath.Join(root, "crates", "beta")
+		byDir := map[string]Runner{}
+		for _, r := range seen {
+			byDir[r.dir] = r.runner
+		}
+		if want := (Runner{Cmd: "cargo", Args: []string{"test", "-p", "alpha"}, Dir: root}); !reflect.DeepEqual(byDir[alphaDir], want) {
+			t.Fatalf("alpha run = %+v, want %+v (all runs: %+v)", byDir[alphaDir], want, seen)
+		}
+		if want := (Runner{Cmd: "cargo", Args: []string{"test", "-p", "beta"}, Dir: root}); !reflect.DeepEqual(byDir[betaDir], want) {
+			t.Fatalf("beta run = %+v, want %+v (all runs: %+v)", byDir[betaDir], want, seen)
 		}
 	})
 
-	t.Run("staged source outside any package → full-suite fallback", func(t *testing.T) {
+	t.Run("staged source outside any package → skipped, no cargo run at all", func(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		root := makeCargoWorkspaceRepo(t)
 		write(t, root, "tools/gen.rs", "pub fn gen() -> i32 { 0 }\n")
 		gitDo(t, root, "add", ".")
 
 		var seen []Runner
-		res := Precommit(root, recordRunner(&seen, root))
+		var res GateResult
+		stderr := captureStderr(t, func() {
+			res = Precommit(root, recordRunner(&seen, root))
+		})
 		if res.Blocked {
 			t.Fatalf("unexpected block: %s", res.Message)
 		}
-		want := Runner{"cargo", []string{"test"}}
-		if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
-			t.Fatalf("no-package mechanical runs = %+v, want one full-suite %+v", seen, want)
+		if len(seen) != 0 {
+			t.Fatalf("an unowned file must run NOTHING (full-suite fallback removed), ran: %+v", seen)
+		}
+		wantNote := "tdd precommit: tools/gen.rs has no owning cargo package — not tested"
+		if !strings.Contains(stderr, wantNote) {
+			t.Fatalf("expected unowned-file note %q, got stderr: %q", wantNote, stderr)
 		}
 	})
 }
