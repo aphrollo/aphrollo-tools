@@ -82,6 +82,19 @@ func stagedRootGroups(repoRoot string) []rootGroup {
 // gate never blocks because its own tooling tripped. run is injected so the
 // mechanical and worktree runs are testable.
 func Precommit(repoRoot string, run SuiteRunner) GateResult {
+	// Concluding a CONFLICTED merge/cherry-pick/revert with `git commit`
+	// fires git's pre-commit hook (pre-merge-commit only fires for an
+	// AUTOMATIC, conflict-free merge commit) — task A10. Judging the WHOLE
+	// lane diff against HEAD with fail-first is meaningless here (the
+	// individual commits being merged already went through their own
+	// fail-first when authored) and can cost many minutes of throwaway
+	// worktree builds for nothing. Run EXACTLY the pre-merge routine
+	// instead: Mechanical only, no fail-first, no anti-cheat.
+	if ref := mergeInProgressRef(repoRoot); ref != "" {
+		fmt.Fprintf(os.Stderr, "tdd precommit: merge in progress (%s) — running the pre-merge routine (mechanical only)\n", ref)
+		return Mechanical(repoRoot, run)
+	}
+
 	groups := stagedRootGroups(repoRoot)
 	if len(groups) == 0 {
 		return GateResult{}
@@ -835,6 +848,28 @@ func gitStdin(dir string, stdin io.Reader, args ...string) (string, error) {
 	cmd.Stdin = stdin
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// mergeInProgressRefs is checked in order: the first of these refs that
+// resolves is what Precommit reports and dispatches on. MERGE_HEAD covers a
+// conflicted `git merge`; CHERRY_PICK_HEAD and REVERT_HEAD cover the
+// identical situation for a conflicted `git cherry-pick`/`git revert` — all
+// three fire git's pre-commit hook (not pre-merge-commit) when concluded
+// with a manual `git commit`, and none of them should be judged by
+// fail-first against the whole resulting diff.
+var mergeInProgressRefs = []string{"MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"}
+
+// mergeInProgressRef reports which of mergeInProgressRefs currently
+// resolves in repoRoot (via `git rev-parse -q --verify <ref>`, which exits
+// 0 only when the ref both exists and names a valid object), or "" if none
+// does.
+func mergeInProgressRef(repoRoot string) string {
+	for _, ref := range mergeInProgressRefs {
+		if _, err := git(repoRoot, "rev-parse", "-q", "--verify", ref); err == nil {
+			return ref
+		}
+	}
+	return ""
 }
 
 // stagedFiles lists the added/copied/modified paths in the index, as repo-root-
