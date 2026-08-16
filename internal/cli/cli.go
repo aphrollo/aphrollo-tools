@@ -219,6 +219,9 @@ Subcommands:
   cargo             cargo-queue shim: queue a DIRECT cargo invocation behind the same
                     machine-wide build lock the hooks/gates use (APHROLLO_CARGO_WAIT_SECS,
                     APHROLLO_REAL_CARGO)
+  git               git-queue shim: queue a DIRECT index-mutating git invocation behind a
+                    per-repo lock so concurrent sessions sharing one checkout don't collide
+                    on .git/index.lock (APHROLLO_GIT_WAIT_SECS, APHROLLO_REAL_GIT)
 
 Autonomous TDD gates. pretooluse reads the hook JSON on stdin; on a smell in a
 test file (real-time sleep, tautological assertion, focused/disabled test) it
@@ -240,7 +243,12 @@ to its OWN PATH gets a DIRECT cargo invocation queued behind the same
 machine-wide lock the hooks/gates use, instead of silently waiting on
 cargo's own build-dir lock with zero visibility — silent when the lock is
 free, one line when it has to wait, one line when it acquires, exits 75
-(EX_TEMPFAIL) on giving up. Source edits always flow.
+(EX_TEMPFAIL) on giving up. git is the analogous shim for git: only
+index-mutating verbs (add, commit, merge, checkout, switch, restore
+--staged, reset, stash, rm, mv, rebase, cherry-pick, revert, am, apply
+--index/--cached, worktree add/remove, pull) queue behind a per-repo lock;
+read-only verbs (status, diff, log, show, ...) pass straight through
+untouched. Source edits always flow.
 `
 
 // postEditTimeout bounds a PostToolUse suite run so a hung test can't wedge the
@@ -288,6 +296,11 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// The cargo-queue shim (task A7): real terminal stdio, not the hook
 		// JSON protocol the rest of this switch reads.
 		return runTDDCargo(args[1:], stdin, stdout, stderr)
+	}
+	if args[0] == "git" {
+		// The git-queue shim (task A11): same shape as cargo above -- real
+		// terminal stdio, not the hook JSON protocol.
+		return runTDDGit(args[1:], stdin, stdout, stderr)
 	}
 
 	// precommit/premergecommit/prepush are git hooks: no stdin, exit non-zero
@@ -506,6 +519,21 @@ func runTDDInit(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "aphrollo tdd: installed cargo-queue shim in %s\n", cdir)
 		} else {
 			fmt.Fprintf(stdout, "aphrollo tdd: cargo-queue shim already up to date (%s)\n", cdir)
+		}
+
+		// git-queue shim (task A11): SAME queue dir as the cargo shim above
+		// -- a session prepends ONE dir to PATH and gets both `cargo` and
+		// `git` queued. Same --uninstall reasoning as cargo: never removed,
+		// harmless to leave in place.
+		gchanged2, err := tdd.InstallGitShim(cdir, binName)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		if gchanged2 {
+			fmt.Fprintf(stdout, "aphrollo tdd: installed git-queue shim in %s\n", cdir)
+		} else {
+			fmt.Fprintf(stdout, "aphrollo tdd: git-queue shim already up to date (%s)\n", cdir)
 		}
 	}
 	return 0
