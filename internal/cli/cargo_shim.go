@@ -109,7 +109,13 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 // runWithLock writes the owner file, runs the real cargo, then removes the
 // owner file and releases the lock -- in that order, so the lock is held
 // for the SHORTEST time that still covers the owner file's validity window.
+// `cargo run` is a special case (task A9): its own launched process's
+// lifetime must NEVER be covered by the lock, only the build that precedes
+// it, so that path is split out entirely.
 func runWithLock(release func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if isCargoRunVerb(args) {
+		return runCargoRunSplitLock(release, realCargo, args, stdin, stdout, stderr)
+	}
 	defer release()
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -118,6 +124,85 @@ func runWithLock(release func(), realCargo string, args []string, stdin io.Reade
 	tdd.WriteBuildLockOwner("cargo "+strings.Join(args, " "), cwd)
 	defer tdd.RemoveBuildLockOwner()
 	return execCargo(realCargo, args, stdin, stdout, stderr)
+}
+
+// runCargoRunSplitLock implements task A9's fix: `cargo run`'s machine-wide
+// lock must cover only the BUILD, never the launched process's entire
+// lifetime -- a live `cargo run -p server` used to hold the lock forever,
+// blocking every other cargo on the box ("queued behind cargo run -p
+// server", against a SERVER that never exits). Under the lock: build the
+// same target `cargo run` would (the verb swapped run -> build, everything
+// from the first bare "--" onward dropped -- those are the launched
+// program's own arguments, meaningless to `cargo build`). A failing
+// build's exit code propagates immediately and `run` never executes. On a
+// successful build the lock is released BEFORE running -- the build is
+// fresh, so cargo's own `run` immediately execs the already-built binary
+// rather than rebuilding -- and the ORIGINAL args run lock-free, inheriting
+// stdio for the launched process's full lifetime. `nextest run`/`test`
+// deliberately do NOT take this path (isCargoRunVerb only matches the bare
+// `run` verb, not nextest's own `run` sub-subcommand): their own execution
+// IS the thing this lock exists to serialize.
+func runCargoRunSplitLock(release func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "(unknown cwd)"
+	}
+	buildArgs := cargoRunArgsToBuildArgs(args)
+	tdd.WriteBuildLockOwner("cargo "+strings.Join(buildArgs, " "), cwd)
+	buildCode := execCargo(realCargo, buildArgs, stdin, stdout, stderr)
+	tdd.RemoveBuildLockOwner()
+	release()
+	if buildCode != 0 {
+		return buildCode
+	}
+	return execCargo(realCargo, args, stdin, stdout, stderr)
+}
+
+// cargoVerb returns cargo's subcommand -- the first argv entry that does
+// not start with "-" -- or "" if args is all options. Cargo's own global
+// options (-v, --color=always, ...) may precede the subcommand; this does
+// not attempt to skip a SEPARATE-argument option value (e.g. "--color
+// always" splits across two argv entries), which is good enough to find
+// the verb without implementing cargo's full CLI grammar -- the hooks/gates
+// and a session's own direct invocations never put a value-taking global
+// flag ahead of the subcommand.
+func cargoVerb(args []string) string {
+	for _, a := range args {
+		if !strings.HasPrefix(a, "-") {
+			return a
+		}
+	}
+	return ""
+}
+
+// isCargoRunVerb reports whether args invoke `cargo run` (task A9's
+// split-lock path) as opposed to any other subcommand -- crucially
+// EXCLUDING `nextest run` (its verb is "nextest", not "run") and `test`:
+// their own execution IS what the lock exists to serialize, so they
+// deliberately keep the lock for the whole call.
+func isCargoRunVerb(args []string) bool {
+	return cargoVerb(args) == "run"
+}
+
+// cargoRunArgsToBuildArgs converts `cargo run`'s argv into the equivalent
+// `cargo build` argv: the verb becomes "build", and everything from the
+// first bare "--" onward is dropped (the launched program's own arguments,
+// meaningless to `cargo build`).
+func cargoRunArgsToBuildArgs(args []string) []string {
+	out := make([]string, 0, len(args))
+	verbReplaced := false
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		if !verbReplaced && !strings.HasPrefix(a, "-") {
+			out = append(out, "build")
+			verbReplaced = true
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 // resolveRealCargo resolves the ACTUAL cargo binary the shim must run --
@@ -159,7 +244,18 @@ func resolveRealCargo() (string, error) {
 // environment too, so a build script that itself shells out to `cargo`
 // (resolved through the shim again, if PATH still has it first) passes
 // straight through instead of deadlocking.
+// execCargoHookForTest, when set, is called with the resolved argv
+// immediately before execCargo spawns the real cargo process -- test-only
+// instrumentation (task A9) letting a test observe/assert the machine-wide
+// lock's state (via tdd.TryAcquireBuildLock) at the exact moment each phase
+// (build vs run) actually executes, without the external stub process
+// needing to talk back to the Go test itself. Always nil in production.
+var execCargoHookForTest func(args []string)
+
 func execCargo(realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if execCargoHookForTest != nil {
+		execCargoHookForTest(args)
+	}
 	cmd := exec.Command(realCargo, args...)
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
