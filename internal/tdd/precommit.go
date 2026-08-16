@@ -831,6 +831,12 @@ func cleanGitEnv() []string {
 			out = append(out, kv)
 		}
 	}
+	// Belt and braces (task A11): mark every git subprocess aphrollo itself
+	// spawns as already-queued, so if one of these (worktree add/remove,
+	// apply, diff --cached, rev-parse, ...) happens to route back through
+	// the `tdd git` shim via PATH, it passes straight through instead of
+	// waiting on the per-repo git lock its own parent process holds.
+	out = append(out, GitQueuedEnv+"=1")
 	return out
 }
 

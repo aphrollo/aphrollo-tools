@@ -131,6 +131,17 @@ func runCargoLocked(run SuiteRunner, r Runner, root string, lockDeadline, stageB
 // through the shim.
 const BuildLockHeldEnv = "APHROLLO_BUILD_LOCK_HELD"
 
+// GitQueuedEnv is the environment variable the git-queue shim (task A11)
+// sets to "1" around a git invocation it already holds the per-repo git
+// lock for. Exported so internal/cli's `tdd git` shim can check it (and
+// BuildLockHeldEnv too) and pass straight through without touching the
+// lock at all -- required because `git commit` (going through the shim,
+// holding the lock) fires the pre-commit hook, which is aphrollo ITSELF,
+// which spawns its own git subprocesses (worktree add/remove, apply, diff
+// --cached, rev-parse, ...) that must never wait on the very lock their own
+// parent process currently holds.
+const GitQueuedEnv = "APHROLLO_GIT_QUEUED"
+
 // BuildLockOwner records who currently holds the machine-wide cargo build
 // lock, written by runCargoLocked (and the cargo shim itself) for the
 // duration of the held cargo run, so a WAITING acquirer can name the holder
@@ -151,10 +162,12 @@ func buildLockOwnerPath() string {
 	return effectiveBuildLockPath() + ".owner"
 }
 
-// writeBuildLockOwner records the current process as the lock's holder.
-// Best-effort: a write failure never blocks the actual build — it only
-// costs a waiting acquirer its ability to NAME the holder.
-func writeBuildLockOwner(cmd, cwd string) {
+// writeBuildLockOwnerAt records the current process as path's lock holder.
+// Best-effort: a write failure never blocks the actual build/git op — it
+// only costs a waiting acquirer its ability to NAME the holder. Generalized
+// (task A11) so the git-queue shim's per-repo owner file can reuse the
+// identical mechanism as the cargo build lock's own owner file.
+func writeBuildLockOwnerAt(path, cmd, cwd string) {
 	o := BuildLockOwner{
 		PID:       os.Getpid(),
 		Cwd:       cwd,
@@ -166,13 +179,52 @@ func writeBuildLockOwner(cmd, cwd string) {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(buildLockOwnerPath(), data, 0o600)
+	_ = os.WriteFile(path, data, 0o600)
 }
 
-// removeBuildLockOwner clears the owner file when the holder releases the
-// lock. Best-effort, same reasoning as writeBuildLockOwner.
+func writeBuildLockOwner(cmd, cwd string) {
+	writeBuildLockOwnerAt(buildLockOwnerPath(), cmd, cwd)
+}
+
+// removeBuildLockOwnerAt clears path's owner file. Best-effort, same
+// reasoning as writeBuildLockOwnerAt.
+func removeBuildLockOwnerAt(path string) {
+	_ = os.Remove(path)
+}
+
 func removeBuildLockOwner() {
-	_ = os.Remove(buildLockOwnerPath())
+	removeBuildLockOwnerAt(buildLockOwnerPath())
+}
+
+// WriteFileLockOwner is writeBuildLockOwnerAt, exported so internal/cli's
+// shims (cargo, task A7; git, task A11) can record themselves as a lock's
+// holder at an ARBITRARY owner-file path once they acquire it — using the
+// SAME mechanism runCargoLocked uses for the cargo build lock, so a waiter
+// never has to care whether the current holder is a hook/gate or a direct
+// shim invocation.
+func WriteFileLockOwner(path, cmd, cwd string) { writeBuildLockOwnerAt(path, cmd, cwd) }
+
+// RemoveFileLockOwner is removeBuildLockOwnerAt, exported for the same
+// reason as WriteFileLockOwner.
+func RemoveFileLockOwner(path string) { removeBuildLockOwnerAt(path) }
+
+// ReadFileLockOwnerAt reads path's owner file, if any. Exported (as
+// ReadFileLockOwner) so internal/cli's shims and any future waiter can name
+// the holder at an ARBITRARY lock's owner-file path. This is inherently
+// racy (the owner file can be removed, or not yet written, at the instant
+// of the read) -- ok=false covers all of "no owner recorded", "file
+// vanished mid-read", and "corrupt content", and every caller treats that
+// as "holder unknown", never an error.
+func readBuildLockOwnerAt(path string) (BuildLockOwner, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return BuildLockOwner{}, false
+	}
+	var o BuildLockOwner
+	if err := json.Unmarshal(data, &o); err != nil {
+		return BuildLockOwner{}, false
+	}
+	return o, true
 }
 
 // WriteBuildLockOwner is writeBuildLockOwner, exported so internal/cli's
@@ -193,15 +245,13 @@ func RemoveBuildLockOwner() { removeBuildLockOwner() }
 // "no owner recorded", "file vanished mid-read", and "corrupt content", and
 // every caller treats that as "holder unknown", never an error.
 func ReadBuildLockOwner() (BuildLockOwner, bool) {
-	data, err := os.ReadFile(buildLockOwnerPath())
-	if err != nil {
-		return BuildLockOwner{}, false
-	}
-	var o BuildLockOwner
-	if err := json.Unmarshal(data, &o); err != nil {
-		return BuildLockOwner{}, false
-	}
-	return o, true
+	return readBuildLockOwnerAt(buildLockOwnerPath())
+}
+
+// ReadFileLockOwner is readBuildLockOwnerAt, exported for the same reason
+// as WriteFileLockOwner/RemoveFileLockOwner (task A11's per-repo git lock).
+func ReadFileLockOwner(path string) (BuildLockOwner, bool) {
+	return readBuildLockOwnerAt(path)
 }
 
 // acquireBuildLock polls for the exclusive machine-wide cargo build lock
@@ -223,7 +273,7 @@ func ReadBuildLockOwner() (BuildLockOwner, bool) {
 // concern, not this package's) — distinct from acquireBuildLock's silent
 // poll-with-deadline, which the hooks/gates use directly.
 func TryAcquireBuildLock() (release func(), ok bool) {
-	return acquireBuildLock(0)
+	return TryAcquireFileLock(effectiveBuildLockPath())
 }
 
 // SetBuildLockPathForTest points the build lock (and its paired owner file)
@@ -239,22 +289,37 @@ func SetBuildLockPathForTest(path string) (restore func()) {
 	return func() { buildLockPathOverride = prev }
 }
 
-func acquireBuildLock(deadline time.Duration) (release func(), ok bool) {
-	path := effectiveBuildLockPath()
+// TryAcquireFileLock attempts an exclusive advisory OS file lock at path
+// ONCE, non-blocking: (release, true) on success, (no-op, false) on
+// contention. The generic primitive TryAcquireBuildLock is built on top of
+// -- exposed so ANY other machine/repo-scoped lock (task A11's per-repo git
+// lock) can reuse the identical acquire-or-fail-fast contract at an
+// ARBITRARY path, not just the well-known cargo build lock. Same fail-open
+// policy as acquireBuildLock: an unopenable lock file (permissions, a
+// read-only dir) never blocks the caller.
+func TryAcquireFileLock(path string) (release func(), ok bool) {
 	f, err := openLockFile(path)
 	if err != nil {
 		return func() {}, true
 	}
+	if tryLockExclusive(f) {
+		return func() {
+			unlockFile(f)
+			_ = f.Close()
+		}, true
+	}
+	_ = f.Close()
+	return func() {}, false
+}
+
+func acquireBuildLock(deadline time.Duration) (release func(), ok bool) {
+	path := effectiveBuildLockPath()
 	start := time.Now()
 	for {
-		if tryLockExclusive(f) {
-			return func() {
-				unlockFile(f)
-				_ = f.Close()
-			}, true
+		if release, ok := TryAcquireFileLock(path); ok {
+			return release, true
 		}
 		if time.Since(start) >= deadline {
-			_ = f.Close()
 			return func() {}, false
 		}
 		time.Sleep(buildLockPollInterval)

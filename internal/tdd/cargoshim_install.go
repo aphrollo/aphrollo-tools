@@ -46,6 +46,35 @@ func InstallCargoShim(dir, bin string) (bool, error) {
 	return changed, nil
 }
 
+// InstallGitShim writes dir's git-queue shim (task A11): git.cmd (Windows
+// cmd.exe/PowerShell) and an extensionless git (POSIX sh, for Git Bash),
+// both execing "<bin>" tdd git with the caller's own args forwarded
+// verbatim -- the git analogue of InstallCargoShim, sharing the SAME queue
+// dir so a session that prepends one directory to PATH gets both cargo and
+// git queued. Same shape, same idempotency contract (reports whether either
+// file's content changed).
+func InstallGitShim(dir, bin string) (bool, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return false, err
+	}
+
+	cmdContent := "@\"" + bin + "\" tdd git %*\r\n"
+	shContent := binShim(bin, "git")
+
+	changed := false
+	if c, err := writeShimIfDifferent(filepath.Join(dir, "git.cmd"), cmdContent, 0o755); err != nil {
+		return false, err
+	} else {
+		changed = changed || c
+	}
+	if c, err := writeShimIfDifferent(filepath.Join(dir, "git"), shContent, 0o755); err != nil {
+		return false, err
+	} else {
+		changed = changed || c
+	}
+	return changed, nil
+}
+
 // writeShimIfDifferent writes content to path only when it differs from
 // what's already there (or nothing is there yet), reporting whether it
 // wrote. A shared idempotency check so a re-run of `aphrollo tdd init`
