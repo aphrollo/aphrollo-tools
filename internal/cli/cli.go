@@ -211,10 +211,17 @@ Subcommands:
   userpromptsubmit  Handle the /tdd command and re-inject a RED reminder
   sessionend        Drop the session's state file
   precommit         Git pre-commit gate: fail-first + mechanical (run in the repo)
+  premergecommit    Git pre-merge-commit gate: mechanical ONLY, no fail-first/anti-cheat
   prepush           No-op (mechanical-only mode); kept for back-compat with a
                     lingering pre-push shim. Never blocks.
   install           Install the git-hook shims into a repo (--repo, --apply)
   init              Set up TDD: session hooks in settings.json + the global git gate (--no-git, --uninstall)
+  cargo             cargo-queue shim: queue a DIRECT cargo invocation behind the same
+                    machine-wide build lock the hooks/gates use (APHROLLO_CARGO_WAIT_SECS,
+                    APHROLLO_REAL_CARGO)
+  git               git-queue shim: queue a DIRECT index-mutating git invocation behind a
+                    per-repo lock so concurrent sessions sharing one checkout don't collide
+                    on .git/index.lock (APHROLLO_GIT_WAIT_SECS, APHROLLO_REAL_GIT)
 
 Autonomous TDD gates. pretooluse reads the hook JSON on stdin; on a smell in a
 test file (real-time sleep, tautological assertion, focused/disabled test) it
@@ -224,19 +231,47 @@ a failure summary (silent unless RED). userpromptsubmit intercepts
 /tdd [status|off|on|reset] and otherwise re-injects the last RED outcome.
 sessionend cleans up the per-session state file. precommit verifies fail-first,
 blocks a newly-added suppression, and runs the suite, exiting non-zero to block.
-prepush is a mechanical-only no-op (adversarial review lives in the separate
-reviewer agent now), kept only so a lingering pre-push shim exits cleanly.
-Source edits always flow.
+premergecommit runs ONLY the mechanical stage over the merge's staged files —
+no fail-first (a fresh test's RED/GREEN belongs to the authoring commit,
+already proven by precommit there) and no anti-cheat suppression scan (same
+reasoning) — so a git merge, which never fires pre-commit, still proves the
+COMBINED result compiles and passes before it lands. prepush is a
+mechanical-only no-op (adversarial review lives in the separate reviewer
+agent now), kept only so a lingering pre-push shim exits cleanly. cargo is
+the cargo-queue shim: a session that prepends the installed cargo-queue dir
+to its OWN PATH gets a DIRECT cargo invocation queued behind the same
+machine-wide lock the hooks/gates use, instead of silently waiting on
+cargo's own build-dir lock with zero visibility — silent when the lock is
+free, one line when it has to wait, one line when it acquires, exits 75
+(EX_TEMPFAIL) on giving up. git is the analogous shim for git: only
+index-mutating verbs (add, commit, merge, checkout, switch, restore
+--staged, reset, stash, rm, mv, rebase, cherry-pick, revert, am, apply
+--index/--cached, worktree add/remove, pull) queue behind a per-repo lock;
+read-only verbs (status, diff, log, show, ...) pass straight through
+untouched. Source edits always flow.
 `
 
 // postEditTimeout bounds a PostToolUse suite run so a hung test can't wedge the
-// session. precommitTimeout is longer: the commit gate runs the staged crates'
-// suites (and the fail-first worktree build), and on heavy-dependency repos a
-// first-warm build alone can pass five minutes; a timeout fails open, so the
-// ceiling only caps how long a commit can stall, never what it proves.
+// session. Bumped 60s -> 100s 2026-08-15 (build-infra-fix task A2): a scoped
+// per-edit cargo build on a Bevy-sized crate routinely blew the old 60s
+// budget on a cold cache, which — before PostEdit became loud on every
+// outcome — silently read as "nothing to report" instead of the TIMEOUT it
+// actually was. precommitTimeout is longer: the commit gate runs the staged
+// crates' suites (and the fail-first worktree build), and on heavy-dependency
+// repos a first-warm build alone can pass five minutes; a timeout fails open,
+// so the ceiling only caps how long a commit can stall, never what it
+// proves.
+//
+// Both alias the canonical tdd.Default*Timeout constants (single source of
+// truth, tdd package) rather than redeclaring the numbers here — a 2026-08-15
+// review found init.go's PostToolUse hook-TEMPLATE timeout had silently
+// drifted to 90s after this Go-side value moved to 100s, so the Claude Code
+// harness was killing the hook process from OUTSIDE before RunSuite's own
+// context deadline ever fired. init.go's template is now DERIVED from
+// tdd.DefaultPostEditTimeout too, so the two can't drift apart again.
 const (
-	postEditTimeout  = 60 * time.Second
-	precommitTimeout = 600 * time.Second
+	postEditTimeout  = tdd.DefaultPostEditTimeout
+	precommitTimeout = tdd.DefaultPrecommitTimeout
 )
 
 // runTDD dispatches the TDD hook subcommands. Like the guardrail hook, every
@@ -257,9 +292,20 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if args[0] == "init" {
 		return runTDDInit(args[1:], stdout, stderr)
 	}
+	if args[0] == "cargo" {
+		// The cargo-queue shim (task A7): real terminal stdio, not the hook
+		// JSON protocol the rest of this switch reads.
+		return runTDDCargo(args[1:], stdin, stdout, stderr)
+	}
+	if args[0] == "git" {
+		// The git-queue shim (task A11): same shape as cargo above -- real
+		// terminal stdio, not the hook JSON protocol.
+		return runTDDGit(args[1:], stdin, stdout, stderr)
+	}
 
-	// precommit/prepush are git hooks: no stdin, exit non-zero to block.
-	if args[0] == "precommit" || args[0] == "prepush" {
+	// precommit/premergecommit/prepush are git hooks: no stdin, exit non-zero
+	// to block.
+	if args[0] == "precommit" || args[0] == "premergecommit" || args[0] == "prepush" {
 		// prepush is a mechanical no-op: the tdd gate is mechanical-only and
 		// adversarial review lives in the separate reviewer agent, not this
 		// binary. It NEVER blocks. We keep the subcommand so a pre-push shim
@@ -272,7 +318,17 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if root == "" {
 			return 0 // not in a git repo — nothing to gate
 		}
-		res := tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
+		// premergecommit runs ONLY the mechanical stage: a git merge never
+		// fires pre-commit, so nothing else has proven the COMBINED tree
+		// still compiles and passes — fail-first and the anti-cheat scan are
+		// both judgments about how a change was AUTHORED, already settled by
+		// precommit on the commits being merged.
+		var res tdd.GateResult
+		if args[0] == "premergecommit" {
+			res = tdd.Mechanical(root, tdd.RunSuite(precommitTimeout))
+		} else {
+			res = tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
+		}
 		// Surface the note (e.g. a fail-open skip) even when allowing — the gate
 		// is never silent about why it did or didn't run.
 		if res.Message != "" {
@@ -386,11 +442,12 @@ func runTDDInit(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		configDir   = fs.String("config-dir", "", "Claude config dir (default: $CLAUDE_CONFIG_DIR or ~/.claude)")
-		binPath     = fs.String("bin", "", "aphrollo binary the hooks invoke (default: this executable)")
-		gitHooksDir = fs.String("git-hooks-dir", "", "git hooks dir for the global gate (default: $XDG_CONFIG_HOME/git/hooks or ~/.config/git/hooks)")
-		noGit       = fs.Bool("no-git", false, "skip the git pre-commit gate; wire session hooks only")
-		uninstall   = fs.Bool("uninstall", false, "remove the hooks instead of installing them")
+		configDir    = fs.String("config-dir", "", "Claude config dir (default: $CLAUDE_CONFIG_DIR or ~/.claude)")
+		binPath      = fs.String("bin", "", "aphrollo binary the hooks invoke (default: this executable)")
+		cargoShimDir = fs.String("cargo-shim-dir", "", "dir for the cargo-queue shim (default: alongside --bin, e.g. <bindir>/cargo-queue)")
+		gitHooksDir  = fs.String("git-hooks-dir", "", "git hooks dir for the global gate (default: $XDG_CONFIG_HOME/git/hooks or ~/.config/git/hooks)")
+		noGit        = fs.Bool("no-git", false, "skip the git pre-commit gate; wire session hooks only")
+		uninstall    = fs.Bool("uninstall", false, "remove the hooks instead of installing them")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -439,6 +496,45 @@ func runTDDInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "aphrollo tdd: removed git gate from %s\n", gdir)
 	default:
 		fmt.Fprintf(stdout, "aphrollo tdd: installed git gate in %s (core.hooksPath)\n", gdir)
+	}
+
+	// cargo-queue shim (task A7): a machine-wide dir a session can prepend
+	// to its OWN PATH so a DIRECT `cargo` invocation also queues behind the
+	// same machine-wide build lock the hooks/gates use, instead of silently
+	// waiting on cargo's OWN build-dir lock with zero visibility. --uninstall
+	// deliberately does NOT remove it -- a session may still have it
+	// prepended to PATH, and leaving a shim in place is harmless (unlike a
+	// git hook, nothing fires it automatically).
+	if !*uninstall {
+		cdir := *cargoShimDir
+		if cdir == "" {
+			cdir = filepath.Join(filepath.Dir(binName), "cargo-queue")
+		}
+		cchanged, err := tdd.InstallCargoShim(cdir, binName)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		if cchanged {
+			fmt.Fprintf(stdout, "aphrollo tdd: installed cargo-queue shim in %s\n", cdir)
+		} else {
+			fmt.Fprintf(stdout, "aphrollo tdd: cargo-queue shim already up to date (%s)\n", cdir)
+		}
+
+		// git-queue shim (task A11): SAME queue dir as the cargo shim above
+		// -- a session prepends ONE dir to PATH and gets both `cargo` and
+		// `git` queued. Same --uninstall reasoning as cargo: never removed,
+		// harmless to leave in place.
+		gchanged2, err := tdd.InstallGitShim(cdir, binName)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		if gchanged2 {
+			fmt.Fprintf(stdout, "aphrollo tdd: installed git-queue shim in %s\n", cdir)
+		} else {
+			fmt.Fprintf(stdout, "aphrollo tdd: git-queue shim already up to date (%s)\n", cdir)
+		}
 	}
 	return 0
 }

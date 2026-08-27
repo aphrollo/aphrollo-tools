@@ -62,6 +62,13 @@ func postPayload(tool, file string) []byte {
 	return b
 }
 
+// TestPostEdit pins the loud-on-every-run contract (task A2, 2026-08-15):
+// PostEdit used to be silent on green/writing-test/no-delta and only spoke up
+// for RED. A session watching for the hook's advisory could not then tell
+// "the suite ran and passed" from "the hook never fired at all" — both read
+// as nothing. Every branch below must now say SOMETHING; "" is reserved for
+// "there was nothing to test" (checked separately in
+// TestPostEdit_SkipsNonActionable).
 func TestPostEdit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
@@ -73,23 +80,17 @@ func TestPostEdit(t *testing.T) {
 		payload     []byte
 		passed      bool
 		output      string
-		wantSilent  bool
 		wantContain string
 	}{
-		{"green source is silent", postPayload("Edit", src), true, "ok\nPASS", true, ""},
-		{"passing test edit is silent", postPayload("Write", test), true, "ok\nPASS", true, ""},
-		{"failing source reports red", postPayload("Edit", src), false, "--- FAIL: TestThing\n want 1", false, "outcome=red"},
-		{"missing impl is clean red", postPayload("Edit", src), false, "undefined: NewWidget", false, "red-missing-impl"},
+		{"green source reports green", postPayload("Edit", src), true, "ok\nPASS", "→ green"},
+		{"passing test edit reports green", postPayload("Write", test), true, "ok\nPASS", "→ green"},
+		{"green with a parsed passed count", postPayload("Edit", src), true, "test result: ok. 7 passed; 0 failed", "→ green (7 passed,"},
+		{"failing source reports red", postPayload("Edit", src), false, "--- FAIL: TestThing\n want 1", "outcome=red"},
+		{"missing impl is clean red", postPayload("Edit", src), false, "undefined: NewWidget", "red-missing-impl"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got := PostEdit(c.payload, fakeRun(c.passed, c.output))
-			if c.wantSilent {
-				if got != "" {
-					t.Fatalf("expected silence, got: %s", got)
-				}
-				return
-			}
 			if !strings.Contains(got, c.wantContain) {
 				t.Fatalf("output missing %q:\n%s", c.wantContain, got)
 			}
@@ -131,6 +132,135 @@ func TestPostEdit_StampsState(t *testing.T) {
 	s, _ := loadSession("sess-post")
 	if got := s.ByProject[root].Outcome; got != string(Green) {
 		t.Fatalf("state outcome = %q, want green", got)
+	}
+}
+
+// --- PostToolUse timeout backoff --------------------------------------------
+
+// countingTimeoutRun is a SuiteRunner that always times out and counts its own
+// invocations, so a test can assert the suite was (or was not) actually
+// invoked — not just that PostEdit returned "".
+func countingTimeoutRun(invoked *int) SuiteRunner {
+	return func(Runner, string) SuiteResult {
+		*invoked++
+		return SuiteResult{TimedOut: true}
+	}
+}
+
+// TestPostEdit_TimeoutBackoff_SkipsAfterTwoConsecutiveTimeouts pins the
+// backoff: two consecutive timed-out runs at the SAME head SHA earn a SKIP —
+// the third edit must not invoke the suite at all, not just discard its
+// result. UPDATED for task A2 (2026-08-15): PostEdit used to go silent on a
+// timeout; it now reports a TIMEOUT line for the first two (so a timeout is
+// never mistaken for "ran and passed"), and a distinct SKIPPED line once the
+// backoff engages, so "inconclusive, ran but proved nothing" and "did not
+// even run" never look the same. (postPayload always uses the fixed
+// "sess-post" session id, so state persists across these PostEdit calls
+// within the test.)
+func TestPostEdit_TimeoutBackoff_SkipsAfterTwoConsecutiveTimeouts(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	src := filepath.Join(root, "widget.go")
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+
+	var invoked int
+	run := countingTimeoutRun(&invoked)
+
+	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(got, "TIMEOUT") {
+		t.Fatalf("a timed-out run must report TIMEOUT, got %q", got)
+	}
+	if invoked != 1 {
+		t.Fatalf("first edit must invoke the suite, invoked=%d", invoked)
+	}
+
+	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(got, "TIMEOUT") {
+		t.Fatalf("a timed-out run must report TIMEOUT, got %q", got)
+	}
+	if invoked != 2 {
+		t.Fatalf("second edit must invoke the suite, invoked=%d", invoked)
+	}
+
+	got := PostEdit(postPayload("Edit", src), run)
+	if !strings.Contains(got, "SKIPPED") {
+		t.Fatalf("a backed-off run must report SKIPPED, got %q", got)
+	}
+	if strings.Contains(got, "TIMEOUT") {
+		t.Fatalf("a SKIPPED run never even invoked the suite — it must not also claim TIMEOUT, got %q", got)
+	}
+	if invoked != 2 {
+		t.Fatalf("third edit must SKIP the suite entirely (streak >= 2 at the same head), invoked=%d", invoked)
+	}
+}
+
+// TestPostEdit_TimeoutBackoff_CompletedRunResetsStreak pins that a run which
+// actually COMPLETES (green or red, just not a timeout) resets the streak, so
+// a later timeout gets a fresh two-attempt budget rather than staying wedged
+// at the skip threshold forever. The first timeout is kept BELOW the skip
+// threshold (streak 1) deliberately: once streak reaches 2, PostEdit skips
+// the suite BEFORE invoking it at all (by design — it doesn't know a fake
+// runner would have completed), so a completed run can only ever land while
+// still under budget. That is exactly the production case this test pins:
+// occasional/flaky timeouts alternating with completions never accumulate.
+func TestPostEdit_TimeoutBackoff_CompletedRunResetsStreak(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	src := filepath.Join(root, "widget.go")
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+
+	var invoked int
+	run := countingTimeoutRun(&invoked)
+
+	PostEdit(postPayload("Edit", src), run) // streak 1 — still under the skip threshold
+
+	// A completed run (not a timeout) must reset the streak to 0.
+	PostEdit(postPayload("Edit", src), fakeRun(true, "ok\nPASS"))
+
+	s, _ := loadSession("sess-post")
+	if ps := s.ByProject[root]; ps.TimeoutStreak != 0 || ps.TimeoutSHA != "" {
+		t.Fatalf("a completed run must reset the timeout streak, got streak=%d sha=%q", ps.TimeoutStreak, ps.TimeoutSHA)
+	}
+
+	// The budget must be genuinely fresh: two MORE consecutive timeouts are
+	// needed again before a third one skips — not just one.
+	invoked = 0
+	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(got, "TIMEOUT") || invoked != 1 {
+		t.Fatalf("post-reset first timeout must invoke the suite and report TIMEOUT, invoked=%d got=%q", invoked, got)
+	}
+	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(got, "TIMEOUT") || invoked != 2 {
+		t.Fatalf("post-reset second timeout must invoke the suite and report TIMEOUT, invoked=%d got=%q", invoked, got)
+	}
+	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(got, "SKIPPED") || invoked != 2 {
+		t.Fatalf("post-reset third timeout must skip the suite entirely and report SKIPPED, invoked=%d got=%q", invoked, got)
+	}
+}
+
+// TestPostEdit_TimeoutBackoff_NewHeadSHARetries pins the re-arm: once the
+// skip threshold is hit, landing a commit (moving HEAD) must grant a fresh
+// attempt even though nothing else about the streak was reset explicitly.
+func TestPostEdit_TimeoutBackoff_NewHeadSHARetries(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	src := filepath.Join(root, "widget.go")
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+
+	var invoked int
+	run := countingTimeoutRun(&invoked)
+
+	PostEdit(postPayload("Edit", src), run) // streak 1 @ SHA A
+	PostEdit(postPayload("Edit", src), run) // streak 2 @ SHA A
+	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(got, "SKIPPED") || invoked != 2 {
+		t.Fatalf("expected a skip before the commit, invoked=%d got=%q", invoked, got)
+	}
+
+	// A commit lands — HEAD moves to a new SHA.
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "widget")
+
+	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(got, "TIMEOUT") {
+		t.Fatalf("a timed-out run must report TIMEOUT, got %q", got)
+	}
+	if invoked != 3 {
+		t.Fatalf("a new head SHA must get a fresh attempt, invoked=%d", invoked)
 	}
 }
 

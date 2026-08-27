@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,14 @@ type projectState struct {
 	Runner       []string     `json:"runner,omitempty"`
 	Fingerprint  *fingerprint `json:"fingerprint,omitempty"`
 	TS           string       `json:"ts"`
+	// TimeoutStreak counts consecutive PostEdit suite runs that timed out at
+	// this project root, and TimeoutSHA is the HEAD sha they were observed
+	// under. The pair lets PostEdit stop re-running a suite that reliably
+	// blows the edit-time budget on a heavy crate (e.g. a Bevy client/server)
+	// once the pattern is established, while still granting a fresh budget
+	// the moment a commit lands and TimeoutSHA goes stale — see stampTimeout.
+	TimeoutStreak int    `json:"timeout_streak,omitempty"`
+	TimeoutSHA    string `json:"timeout_sha,omitempty"`
 }
 
 // fingerprint pins state to a precise git state. If the branch, HEAD, or index
@@ -148,6 +157,25 @@ func (s *sessionState) stamp(root string, ps projectState) {
 	s.ByProject[root] = ps
 }
 
+// stampTimeout records a timed-out PostEdit run for root, WITHOUT touching
+// Outcome/FailingTests/Runner/Fingerprint — those still reflect the last run
+// that actually COMPLETED, and per PostEdit's contract that last real outcome
+// stays authoritative until a run finishes again. headSHA identical to the
+// last recorded TimeoutSHA bumps the streak; any other value (including "",
+// or a fresh SHA after a commit landed) starts a new streak at 1, so a moved
+// HEAD always gets a clean budget rather than inheriting a stale count.
+func (s *sessionState) stampTimeout(root, headSHA string) {
+	ps := s.ByProject[root]
+	if ps.TimeoutSHA == headSHA {
+		ps.TimeoutStreak++
+	} else {
+		ps.TimeoutSHA = headSHA
+		ps.TimeoutStreak = 1
+	}
+	ps.TS = time.Now().UTC().Format(time.RFC3339)
+	s.ByProject[root] = ps
+}
+
 // markWorktreeWarned records that the once-per-session main-clone worktree
 // warning has fired, returning true ONLY the first time so the caller warns
 // exactly once. An empty session id has nowhere to persist the flag, so it
@@ -164,6 +192,28 @@ func markWorktreeWarned(session string) bool {
 	s.Notices.WorktreeWarned = true
 	_ = s.save(path)
 	return true
+}
+
+// appendGateLog appends one line to <stateDir>/gate.log:
+// "<RFC3339> <precommit|postedit> <root> <cmd> <verdict> <secs>s" — so a
+// session (or a human) can reconstruct what every gate stage actually did,
+// not just what the LAST advisory said. Best-effort: a logging failure never
+// affects the gate's actual decision, only its trail.
+func appendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
+	dir := stateDir()
+	if dir == "" {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "gate.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s %s %s %s %s %.1fs\n",
+		time.Now().UTC().Format(time.RFC3339), stage, root, cmd, verdict, dur.Seconds())
 }
 
 // setOff persists the per-session enforcement override (the `/tdd off|on`

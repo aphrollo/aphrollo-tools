@@ -182,15 +182,21 @@ type sessionStartInput struct {
 
 // skillNudge is injected at session start. The commit gate enforces the
 // RED→GREEN OUTCOME, but a gated session otherwise trains the model to lean on
-// the gate and skip the skills entirely — and the nuances the gate can't check
+// the gate and skip the skill entirely — the nuances the gate can't check
 // (test sizing, the pyramid ratio, DAMP-over-DRY, thin vertical slices) live
-// only in those skills. So the directive is to INVOKE them, not a paraphrase of
-// their contents: the skill bodies stay out of context until the model reads
-// them on demand.
+// only there. So the directive is to INVOKE it, not a paraphrase of its
+// contents: the skill body stays out of context until the model reads it on
+// demand. As of 2026-08-15 (build-infra-fix task A2) it also states the loud-
+// gates contract directly: the hooks run the tests, not the model, so
+// re-running a suite by hand after every edit "to check" is now redundant
+// work — read the `tdd:` line the PostToolUse hook already printed instead.
 const skillNudge = "tdd: before writing or changing any code this session, invoke the " +
-	"`test-driven-development` and `incremental-implementation` skills (read their SKILL.md). " +
-	"The commit gate enforces RED→GREEN; the skills carry what it cannot check — test sizing, the " +
-	"80/15/5 pyramid, DAMP-over-DRY, thin vertical slices. Treat reading them as a step, not a suggestion."
+	"`superpowers:test-driven-development` skill (read its SKILL.md). The hooks run the tests, not you: " +
+	"after every Edit/Write, read the `tdd:` line the PostToolUse hook prints (green with count / " +
+	"red-missing-impl / red / TIMEOUT / SKIPPED / QUEUED-SKIPPED) instead of running a suite by hand to " +
+	"check — the only manual runs are mutation proofs, soaks, or a targeted rerun after the hook said " +
+	"TIMEOUT or SKIPPED. Commit ONE mixed test+impl commit per task; the pre-commit gate re-proves RED " +
+	"and runs the touched crates' suites, and merges are gated by pre-merge-commit."
 
 // HandleSessionStart returns the context injected at session start. It is silent
 // when the session has TDD enforcement turned off (`/tdd off`), matching the

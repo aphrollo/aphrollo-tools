@@ -12,10 +12,15 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // GateResult is the verdict of a git-time gate (precommit, prepush). A blocked
 // action always carries a Message explaining what failed and how to proceed.
+// Message can also be set with Blocked false — a mechanical-stage TIMEOUT
+// fails open (the commit is never blocked over a stopwatch) but must never be
+// silent about it either, so the fail-open line rides in Message even though
+// nothing was actually rejected.
 type GateResult struct {
 	Blocked bool
 	Message string
@@ -25,6 +30,41 @@ const failFirstMessage = "TDD fail-first: this commit adds tests AND implementat
 	"PASS against the pre-edit code (HEAD) — so they are not actually pinning the new behavior. " +
 	"A test that never went RED can't prove the implementation. Write the test first and watch it fail, " +
 	"or split the test into its own earlier commit."
+
+// rootGroup is one project root's staged Test/Source files (repo-root-
+// relative paths), the unit both Precommit and Mechanical iterate.
+type rootGroup struct {
+	root        string
+	tests, srcs []string
+}
+
+// stagedRootGroups groups repoRoot's staged Source/Test files by
+// FindProjectRoot — the single place both Precommit (fail-first +
+// mechanical) and Mechanical (the merge gate: mechanical only) derive their
+// per-root work from, so the grouping rule can never drift between them. A
+// monorepo can stage files under several DIFFERENT project roots in one
+// commit (a cargo workspace with a pytest tool living inside it); judging the
+// whole commit by DetectRunner(repoRoot) alone means whichever marker sits at
+// the outer repo root decides EVERY staged file's toolchain — a python-only
+// commit under a Bevy-sized cargo workspace then pays a full `cargo nextest
+// run` (20 minutes) for a change cargo has nothing to do with.
+func stagedRootGroups(repoRoot string) []rootGroup {
+	staged := stagedFiles(repoRoot)
+	if len(staged) == 0 {
+		return nil
+	}
+	tests, srcs := splitKinds(staged)
+	all := append(append([]string{}, tests...), srcs...)
+	var groups []rootGroup
+	for _, root := range stagedProjectRoots(repoRoot, all) {
+		groups = append(groups, rootGroup{
+			root:  root,
+			tests: filesUnderRoot(repoRoot, root, tests),
+			srcs:  filesUnderRoot(repoRoot, root, srcs),
+		})
+	}
+	return groups
+}
 
 // Precommit runs the commit-time TDD wall in repoRoot:
 //
@@ -42,11 +82,23 @@ const failFirstMessage = "TDD fail-first: this commit adds tests AND implementat
 // gate never blocks because its own tooling tripped. run is injected so the
 // mechanical and worktree runs are testable.
 func Precommit(repoRoot string, run SuiteRunner) GateResult {
-	staged := stagedFiles(repoRoot)
-	if len(staged) == 0 {
+	// Concluding a CONFLICTED merge/cherry-pick/revert with `git commit`
+	// fires git's pre-commit hook (pre-merge-commit only fires for an
+	// AUTOMATIC, conflict-free merge commit) — task A10. Judging the WHOLE
+	// lane diff against HEAD with fail-first is meaningless here (the
+	// individual commits being merged already went through their own
+	// fail-first when authored) and can cost many minutes of throwaway
+	// worktree builds for nothing. Run EXACTLY the pre-merge routine
+	// instead: Mechanical only, no fail-first, no anti-cheat.
+	if ref := mergeInProgressRef(repoRoot); ref != "" {
+		fmt.Fprintf(os.Stderr, "tdd precommit: merge in progress (%s) — running the pre-merge routine (mechanical only)\n", ref)
+		return Mechanical(repoRoot, run)
+	}
+
+	groups := stagedRootGroups(repoRoot)
+	if len(groups) == 0 {
 		return GateResult{}
 	}
-	tests, srcs := splitKinds(staged)
 
 	// Anti-cheat: block a newly-INTRODUCED suppression before spending the suite
 	// on it. Scoped to added lines, so a suppression that already lived in the
@@ -55,76 +107,249 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		return GateResult{Blocked: true, Message: msg}
 	}
 
-	// Fail-first runs the new tests in a throwaway worktree at HEAD. That worktree
-	// has no node_modules — worktrees don't share gitignored deps and we do NOT
-	// `pnpm install` per commit (too slow) — so for vitest/jest repos the suite
-	// can't run there and fail-first is effectively Go-only. It still fails OPEN
-	// (an unrunnable suite is inconclusive, never a block).
-	//
-	// Zig fails OPEN here by construction, and deliberately so. Its tests are
-	// `test "..." {}` blocks INLINE in src/*.zig, so an inline-test commit stages
-	// only Source-classified .zig files (ClassifyFile flips only *_test.zig /
-	// tests/*.zig to Test) — len(tests) is 0 and this guard skips fail-first.
-	// That is correct: the test and the impl it exercises live in the SAME hunk
-	// and cannot be cleanly separated, so applying "just the test" to a HEAD
-	// worktree would drag the impl along and make the check meaningless. An
-	// EXPLICIT tests/*.zig staged alongside its source DOES enter fail-first, but
-	// an integration test cannot compile without the source it imports, so the
-	// worktree run fails to RUN and falls through the unrunnable-suite path above
-	// (Passed=false ⇒ violated=false). Either way fail-first never false-blocks a
-	// Zig commit; the mechanical stage's full `zig build test` is the real gate.
-	// Fail-first judges NEW tests only, so it fires when the staged test
-	// changes actually ADD a test declaration. A declaration-free test edit
-	// (lint reflow, gofmt, a renamed local) has nothing to prove RED — and
-	// judging it would false-block, since a reformatted EXISTING test passes
-	// at HEAD by construction. The mechanical stage still gates those.
-	if len(tests) > 0 && len(srcs) > 0 && stagedTestsAddDecl(repoRoot) {
-		if violated, conclusive := failFirstViolated(repoRoot, tests, run); conclusive && violated {
+	var notes []string
+	collect := func(res GateResult) (blocked bool) {
+		if res.Message != "" {
+			notes = append(notes, res.Message)
+		}
+		return res.Blocked
+	}
+	for _, g := range groups {
+		if res := failFirstStage(repoRoot, g.root, g.tests, g.srcs, run); collect(res) {
+			return res
+		}
+		if res := mechanicalRoot("precommit", repoRoot, g.root, g.tests, g.srcs, run); collect(res) {
+			return res
+		}
+	}
+	return GateResult{Message: strings.Join(notes, "\n")}
+}
+
+// Mechanical runs ONLY the mechanical stage of the commit-time TDD wall,
+// grouped by project root exactly like Precommit — but with NO fail-first (a
+// fresh test's RED/GREEN belongs to the AUTHORING commit, already proven
+// there by Precommit) and NO anti-cheat suppression scan (same reasoning:
+// both are judgments about how a change was AUTHORED, not whether the
+// resulting combined tree still compiles and passes, which is the only thing
+// a merge can meaningfully re-check). Used by the pre-merge-commit gate: two
+// branches that each individually passed Precommit can still integrate
+// broken — that's what a merge combining them can introduce, and only the
+// mechanical stage catches it. A merge whose staged set has nothing to test
+// (e.g. a docs-only merge) says so explicitly rather than returning a bare
+// empty result indistinguishable from "the gate never ran".
+func Mechanical(repoRoot string, run SuiteRunner) GateResult {
+	groups := stagedRootGroups(repoRoot)
+	if len(groups) == 0 {
+		const line = "tdd premergecommit: nothing to test (no staged source or test files)"
+		fmt.Fprintln(os.Stderr, line)
+		return GateResult{Message: line}
+	}
+	var notes []string
+	for _, g := range groups {
+		res := mechanicalRoot("premergecommit", repoRoot, g.root, g.tests, g.srcs, run)
+		if res.Blocked {
+			return res
+		}
+		if res.Message != "" {
+			notes = append(notes, res.Message)
+		}
+	}
+	return GateResult{Message: strings.Join(notes, "\n")}
+}
+
+// failFirstStage runs the fail-first check for ONE project root's staged
+// files, in a throwaway worktree at HEAD. That worktree has no node_modules
+// — worktrees don't share gitignored deps and we do NOT `pnpm install` per
+// commit (too slow) — so for vitest/jest repos the suite can't run there and
+// fail-first is effectively Go-only. It still fails OPEN (an unrunnable
+// suite is inconclusive, never a block).
+//
+// Zig fails OPEN here by construction, and deliberately so. Its tests are
+// `test "..." {}` blocks INLINE in src/*.zig, so an inline-test commit stages
+// only Source-classified .zig files (ClassifyFile flips only *_test.zig /
+// tests/*.zig to Test) — len(tests) is 0 and this guard skips fail-first.
+// That is correct: the test and the impl it exercises live in the SAME hunk
+// and cannot be cleanly separated, so applying "just the test" to a HEAD
+// worktree would drag the impl along and make the check meaningless. An
+// EXPLICIT tests/*.zig staged alongside its source DOES enter fail-first, but
+// an integration test cannot compile without the source it imports, so the
+// worktree run fails to RUN and falls through the unrunnable-suite path above
+// (Passed=false ⇒ violated=false). Either way fail-first never false-blocks a
+// Zig commit; the mechanical stage's full `zig build test` is the real gate.
+// Fail-first judges NEW tests only, so it fires when the staged test
+// changes actually ADD a test declaration. A declaration-free test edit
+// (lint reflow, gofmt, a renamed local) has nothing to prove RED — and
+// judging it would false-block, since a reformatted EXISTING test passes
+// at HEAD by construction. The mechanical stage still gates those.
+func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner) GateResult {
+	if len(tests) > 0 && len(srcs) > 0 && stagedTestsAddDeclIn(repoRoot, tests) {
+		ffCmd := ""
+		if r, ok := DetectRunner(root); ok {
+			ffCmd = cmdString(r)
+		}
+		violated, conclusive, dur := failFirstViolatedAt(repoRoot, root, tests, run)
+		// The gate must never be silent about a stage it ran, whatever the
+		// verdict — a session watching stderr needs to see fail-first
+		// happened, not infer it from the commit's exit code. Timeout and
+		// "nothing was runnable" both collapse to "inconclusive (fail-open)"
+		// here: failFirstViolatedAt's (violated, conclusive) pair doesn't
+		// carry WHY it was inconclusive, and neither ever blocks, so the
+		// coarser label loses no decision-relevant information.
+		verdict := "inconclusive (fail-open)"
+		switch {
+		case conclusive && violated:
+			verdict = "violated"
+		case conclusive && !violated:
+			verdict = "red-proven"
+		}
+		line := fmt.Sprintf("tdd precommit: fail-first %s in %s → %s (%.1fs)", ffCmd, root, verdict, dur.Seconds())
+		fmt.Fprintln(os.Stderr, line)
+		appendGateLog("precommit", root, ffCmd, verdict, dur)
+		if conclusive && violated {
 			return GateResult{Blocked: true, Message: failFirstMessage}
 		}
 	}
+	return GateResult{}
+}
 
+// mechanicalRoot runs the mechanical stage for ONE project root's staged
+// files, in the real checkout at root. gateName ("precommit" or
+// "premergecommit") names the calling gate in every stderr line and gate.log
+// entry, so the trail is honest about which hook actually ran it — Precommit
+// and the pre-merge-commit gate (Mechanical) share this one implementation.
+func mechanicalRoot(gateName, repoRoot, root string, tests, srcs []string, run SuiteRunner) GateResult {
 	// Changes-gate: a docs/yaml-only commit (no staged source AND no staged test)
-	// has nothing to test, so skip the mechanical stage. Anti-cheat above still
-	// ran (it's cheap and only judges added lines).
+	// under this root has nothing to test, so skip the mechanical stage.
 	if len(tests) == 0 && len(srcs) == 0 {
 		return GateResult{}
 	}
 
-	runner, ok := DetectRunner(repoRoot)
-	if ok {
+	runner, ok := DetectRunner(root)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "tdd %s: %s → skipped (no detected runner)\n", gateName, root)
+		return GateResult{}
+	}
+	rootFiles := append(append([]string{}, tests...), srcs...)
+
+	if runner.Cmd == "cargo" {
+		// Cargo ownership is judged PER FILE against the [package] Cargo.toml
+		// that covers it, never against "did every file resolve" — a file no
+		// package owns (a virtual workspace manifest, a path outside any
+		// member) is SKIPPED with a stderr note, not a trigger to widen the
+		// run to the whole workspace (that full-suite fallback is removed;
+		// see cargoPackagesOwning/narrowToStaged's cargo case).
+		owned, unowned := cargoOwnedFiles(repoRoot, root, rootFiles)
+		for _, f := range unowned {
+			fmt.Fprintf(os.Stderr, "tdd %s: %s has no owning cargo package — not tested\n", gateName, f)
+		}
+		if len(owned) == 0 {
+			return GateResult{}
+		}
+		pkgs := cargoPackagesOwning(root, toRootRelative(repoRoot, root, owned))
+		// Resolve the actual WORKSPACE root (task A4): a checked-in
+		// .config/nextest.toml and the workspace's Cargo.lock live there,
+		// not in a member crate's own directory — DetectRunner(root) above
+		// only ever checked root itself, so a member crate silently lost
+		// nextest even in a repo that has it configured. State/mech-cache
+		// keys below still use `root` (the crate root), per A4's contract.
+		ws := cargoWorkspaceRoot(root)
+		// A workspace-wide guard package owns no staged file, so ownership
+		// scoping would run it only when the guard itself is edited.
+		pkgs = dedupeSorted(append(pkgs, cargoAlwaysRunPackages(ws)...))
+		args := cargoVerbArgs(ws)
+		for _, p := range pkgs {
+			args = append(args, "-p", p)
+		}
+		runner = Runner{Cmd: "cargo", Args: args, Dir: ws}
+	} else {
 		// Scope the mechanical run to the related tests of the staged source+test
 		// files: commit-time is a fast scoped check; CI runs the full suite at
 		// submit as the authoritative gate. A runner with no related mode (or an
 		// unknown command) falls back to the full suite unchanged.
-		if scoped, narrowed := narrowToStaged(runner, repoRoot, append(append([]string{}, tests...), srcs...)); narrowed {
+		if scoped, narrowed := narrowToStaged(runner, root, toRootRelative(repoRoot, root, rootFiles)); narrowed {
 			runner = scoped
 		}
-		// The green cache: an identical worktree state already proven green under
-		// this exact command (by a PostToolUse run or an earlier gate pass) is not
-		// re-run. Red results are never cached, so a block always re-runs and
-		// carries fresh output.
-		key := ""
-		if h := worktreeStateHash(repoRoot); h != "" {
-			key = mechKey(repoRoot, h, runner)
-		}
-		if !mechCacheHit(key) {
-			restore := pinMechCargoTarget(runner, repoRoot)
-			res := run(runner, repoRoot)
-			restore()
-			switch {
-			case res.TimedOut:
-				// A killed suite is a stopwatch verdict, not a test verdict.
-				// Fail OPEN (same policy as an unverifiable fail-first) — but
-				// never cache: nothing was proven green.
-			case !res.Passed:
-				return GateResult{Blocked: true, Message: mechRejectMessage(runner, res)}
-			default:
-				mechCacheAdd(key)
-			}
-		}
+	}
+
+	// The green cache: an identical worktree state already proven green under
+	// this exact command (by a PostToolUse run or an earlier gate pass) is not
+	// re-run. Red results are never cached, so a block always re-runs and
+	// carries fresh output.
+	key := ""
+	if h := worktreeStateHash(root); h != "" {
+		key = mechKey(root, h, runner)
+	}
+	if mechCacheHit(key) {
+		line := fmt.Sprintf("tdd %s: mechanical %s in %s → cache-hit", gateName, cmdString(runner), root)
+		fmt.Fprintln(os.Stderr, line)
+		appendGateLog(gateName, root, cmdString(runner), "cache-hit", 0)
+		return GateResult{}
+	}
+	restore := pinMechCargoTarget(runner, repoRoot)
+	res, waited, acquired := runCargoLocked(run, runner, root, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
+	restore()
+	if !acquired {
+		line := fmt.Sprintf("tdd %s: mechanical %s in %s → QUEUED-SKIPPED (waited %.0fs, another cargo build holds the machine build lock%s) — inconclusive",
+			gateName, cmdString(runner), root, waited.Seconds(), buildLockHolderNote())
+		fmt.Fprintln(os.Stderr, line)
+		appendGateLog(gateName, root, cmdString(runner), "queued-skipped", waited)
+		return GateResult{Message: line}
+	}
+	if treatAsEmptyPass(res) {
+		res.Passed = true
+	}
+	switch {
+	case res.TimedOut:
+		// A killed suite is a stopwatch verdict, not a test verdict. Fail
+		// OPEN (same policy as an unverifiable fail-first) — but never
+		// cache: nothing was proven green. Unlike before, this is never
+		// silent: the commit lands UNVERIFIED and both stderr and the
+		// returned Message say so explicitly (Blocked stays false — a
+		// timeout is inconclusive, not a failure).
+		line := fmt.Sprintf("tdd %s: mechanical %s in %s → TIMEOUT (FAIL-OPEN — commit lands UNVERIFIED)", gateName, cmdString(runner), root)
+		fmt.Fprintln(os.Stderr, line)
+		appendGateLog(gateName, root, cmdString(runner), "timeout-fail-open", res.Duration)
+		return GateResult{Message: line}
+	case !res.Passed:
+		fmt.Fprintf(os.Stderr, "tdd %s: mechanical %s in %s → blocked\n", gateName, cmdString(runner), root)
+		appendGateLog(gateName, root, cmdString(runner), "blocked", res.Duration)
+		return GateResult{Blocked: true, Message: mechRejectMessage(runner, res)}
+	default:
+		mechCacheAdd(key)
+		line := mechGreenLine(gateName, runner, root, res)
+		fmt.Fprintln(os.Stderr, line)
+		appendGateLog(gateName, root, cmdString(runner), "green", res.Duration)
 	}
 	return GateResult{}
+}
+
+// mechGreenLine composes the mechanical stage's green stderr line, sharing
+// PostEdit's greenLabel renderer (passed count, or nextest's empty-crate
+// exit-4 case) so the two call sites can't drift apart.
+func mechGreenLine(gateName string, r Runner, root string, res SuiteResult) string {
+	return fmt.Sprintf("tdd %s: mechanical %s in %s → %s", gateName, cmdString(r), root, greenLabel(Green, res.Output, res.Duration))
+}
+
+// cargoOwnedFiles splits repo-root-relative files into those owned by SOME
+// [package] Cargo.toml under root and those owned by none. Ownership is
+// judged per file: a workspace-wide virtual manifest, or a path no member
+// covers, never falls back to "test everything" — an unowned file is
+// reported by the caller and excluded, not an excuse to run the whole
+// workspace.
+func cargoOwnedFiles(repoRoot, root string, filesRepoRel []string) (owned, unowned []string) {
+	for _, f := range filesRepoRel {
+		rel, err := filepath.Rel(root, filepath.Join(repoRoot, f))
+		if err != nil {
+			unowned = append(unowned, f)
+			continue
+		}
+		if cargoPackageFor(root, filepath.ToSlash(rel)) == "" {
+			unowned = append(unowned, f)
+			continue
+		}
+		owned = append(owned, f)
+	}
+	return owned, unowned
 }
 
 // pinMechCargoTarget guards the mechanical cargo run against the
@@ -280,13 +505,23 @@ var jsTestDeclRes = []*regexp.Regexp{
 	regexp.MustCompile(`^\s*(it|test|describe)(\.\w+)?\s*\(`),
 }
 
-// stagedTestsAddDecl reports whether any staged TEST file's added lines carry
-// a test declaration. A test file in a language the table doesn't know errs
-// toward true — fail-first then runs and, at worst, costs a suite, never a
-// wrong verdict.
-func stagedTestsAddDecl(repoRoot string) bool {
+// stagedTestsAddDeclIn reports whether any of testFiles (a project root's OWN
+// staged test files — repo-root-relative, matching stagedAdds' paths) has an
+// added line carrying a test declaration. A test file in a language the
+// table doesn't know errs toward true — fail-first then runs and, at worst,
+// costs a suite, never a wrong verdict. Scoped to testFiles (not every staged
+// test in the commit) so a multi-root commit's fail-first trigger for one
+// root is never decided by a DIFFERENT root's test declarations.
+func stagedTestsAddDeclIn(repoRoot string, testFiles []string) bool {
+	if len(testFiles) == 0 {
+		return false
+	}
+	want := make(map[string]bool, len(testFiles))
+	for _, f := range testFiles {
+		want[f] = true
+	}
 	for _, fa := range stagedAdds(repoRoot) {
-		if ClassifyFile(fa.path) != Test {
+		if !want[fa.path] || ClassifyFile(fa.path) != Test {
 			continue
 		}
 		res, known := testDeclRes[strings.ToLower(filepath.Ext(fa.path))]
@@ -407,13 +642,31 @@ func splitKinds(paths []string) (tests, srcs []string) {
 // staged test changes, and runs the suite there. It returns (violated,
 // conclusive): violated is true when the tests pass without the new source
 // (they should fail first); conclusive is false when the check could not run,
-// in which case the caller must not block.
-func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violated, conclusive bool) {
+// in which case the caller must not block. This is failFirstViolatedAt with
+// root == repoRoot, kept as its own name for the (still common) single-root
+// case and for direct callers/tests.
+func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violated, conclusive bool, dur time.Duration) {
+	return failFirstViolatedAt(repoRoot, repoRoot, tests, run)
+}
+
+// failFirstViolatedAt is failFirstViolated generalized to ONE project root
+// within repoRoot's staged commit: a monorepo can stage a cargo crate's tests
+// and a pytest tool's tests in the same commit, and each root must be judged
+// by its OWN detected runner against its OWN staged test files — never by
+// whichever toolchain happens to sit at the outer repo root. root == repoRoot
+// reduces to the original single-root behavior exactly (execRootIn returns
+// the worktree root unchanged), so failFirstViolated above is just this with
+// that identity substitution. dur is the SuiteResult's own Duration when the
+// suite actually ran (0 for every early return before that point) — found in
+// review 2026-08-15: the fail-first stage line/gate.log entry always showed
+// "0.0s" regardless of how long the worktree run actually took, because
+// nothing threaded the real Duration out of here.
+func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner) (violated, conclusive bool, dur time.Duration) {
 	wt := failFirstWorktreeDir(repoRoot)
 	if wt == "" {
 		var err error
 		if wt, err = os.MkdirTemp("", "tdd-failfirst-"); err != nil {
-			return false, false
+			return false, false, 0
 		}
 	} else {
 		// Stable per-repo path: a leftover registration from a crashed run
@@ -423,23 +676,43 @@ func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violat
 	}
 	defer os.RemoveAll(wt)
 	if _, err := git(repoRoot, "worktree", "add", "--detach", wt, "HEAD"); err != nil {
-		return false, false
+		return false, false, 0
 	}
 	defer func() { _, _ = git(repoRoot, "worktree", "remove", "--force", wt) }() // best-effort cleanup
 
 	// The staged test diff applied onto HEAD: tests present, new source absent.
 	diff, err := gitStaged(repoRoot, tests)
 	if err != nil || strings.TrimSpace(diff) == "" {
-		return false, false
+		return false, false, 0
 	}
 	if err := gitApply(wt, diff); err != nil {
-		return false, false // can't reproduce the test state → don't block
+		return false, false, 0 // can't reproduce the test state → don't block
 	}
 
-	runner, ok := DetectRunner(wt)
-	if !ok {
-		return false, false
+	execRoot, err := execRootIn(wt, repoRoot, root)
+	if err != nil {
+		return false, false, 0
 	}
+	runner, ok := DetectRunner(execRoot)
+	if !ok {
+		return false, false, 0
+	}
+	relTests := toRootRelative(repoRoot, root, tests)
+	if runner.Cmd == "cargo" {
+		// A file no [package] owns is excluded, never a trigger to widen the
+		// fail-first run to the whole workspace — narrowFailFirstTests already
+		// excludes unowned files internally, but when NOTHING staged is owned
+		// it comes back unnarrowed (see its doc comment), and running THAT
+		// would be exactly the unrunnable-in-time full suite this stage
+		// exists to avoid. Check ownership before ever invoking it.
+		if len(cargoPackagesOwning(execRoot, relTests)) == 0 {
+			return false, false, 0
+		}
+	}
+	// Scope to the staged TEST targets under judgment: the full unnarrowed
+	// suite (esp. cargo nextest over a large workspace) is 10-20 minutes,
+	// blows this stage's own timeout, and fails open having proven nothing.
+	runner = narrowFailFirstTests(runner, execRoot, relTests)
 	// The worktree run must not inherit the operator's CARGO_TARGET_DIR: a
 	// shared warm target can hold stale artifacts from a divergent sibling
 	// checkout and fail this check on phantom compile errors. Pin a gate-owned
@@ -459,9 +732,12 @@ func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violat
 			}()
 		}
 	}
-	res := run(runner, wt)
+	res, _, acquired := runCargoLocked(run, runner, execRoot, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
+	if !acquired {
+		return false, false, 0 // another cargo build holds the machine lock — no verdict either way
+	}
 	if res.TimedOut {
-		return false, false // a killed run reaches no verdict either way
+		return false, false, res.Duration // a killed run reaches no verdict either way
 	}
 	// Tests PASS without the new source ⇒ they never went RED ⇒ violation.
 	//
@@ -473,7 +749,21 @@ func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violat
 	// but it fails in the safe direction — non-violation never blocks — so the
 	// gate stays fail-open. Correcting the label needs a distinct couldn't-run
 	// signal on SuiteResult, which is left for a runner-contract change.
-	return res.Passed, true
+	return res.Passed, true, res.Duration
+}
+
+// execRootIn maps root (a project root under repoRoot) to its equivalent
+// directory inside the fail-first worktree wt, which mirrors repoRoot's tree
+// at HEAD. root == repoRoot maps to wt itself.
+func execRootIn(wt, repoRoot, root string) (string, error) {
+	rel, err := filepath.Rel(repoRoot, root)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." {
+		return wt, nil
+	}
+	return filepath.Join(wt, rel), nil
 }
 
 // failFirstWorktreeDir returns the stable per-repo path for the fail-first
@@ -495,17 +785,33 @@ func failFirstWorktreeDir(repoRoot string) string {
 }
 
 // cargoFailFirstTarget returns the gate-owned CARGO_TARGET_DIR for repoRoot's
-// fail-first worktree runs: per-repo (so divergent checkouts never share
-// artifacts) and persistent under the state dir (so the target stays warm
-// across commits instead of cold-compiling the whole crate each time).
-// Returns "" when there is no state dir or the dir can't be created — the run
-// then proceeds with the inherited environment.
+// fail-first (and, via pinMechCargoTarget, mechanical) cargo runs: persistent
+// under the state dir (so the target stays warm across commits instead of
+// cold-compiling the whole crate each time), keyed on the repo's git COMMON
+// dir rather than repoRoot itself — every linked worktree of one repo
+// (`.claude/worktrees/agent-*`) then shares the SAME warm target instead of
+// cold-building its own (dependency artifacts are branch-independent;
+// workspace crates re-fingerprint per source path regardless; concurrent
+// builds serialize on cargo's own build-dir lock). Divergent checkouts of
+// DIFFERENT repos still never share artifacts, since each has its own
+// git-common-dir. Returns "" when there is no state dir or the dir can't be
+// created — the run then proceeds with the inherited environment.
 func cargoFailFirstTarget(repoRoot string) string {
 	base := stateDir()
 	if base == "" {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(repoRoot))
+	key := repoRoot
+	if commonDir, err := git(repoRoot, "rev-parse", "--git-common-dir"); err == nil {
+		commonDir = strings.TrimSpace(commonDir)
+		if commonDir != "" {
+			if !filepath.IsAbs(commonDir) {
+				commonDir = filepath.Join(repoRoot, commonDir)
+			}
+			key = filepath.Clean(commonDir)
+		}
+	}
+	sum := sha256.Sum256([]byte(key))
 	dir := filepath.Join(base, "cargo-target", hex.EncodeToString(sum[:8]))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return ""
@@ -528,6 +834,12 @@ func cleanGitEnv() []string {
 			out = append(out, kv)
 		}
 	}
+	// Belt and braces (task A11): mark every git subprocess aphrollo itself
+	// spawns as already-queued, so if one of these (worktree add/remove,
+	// apply, diff --cached, rev-parse, ...) happens to route back through
+	// the `tdd git` shim via PATH, it passes straight through instead of
+	// waiting on the per-repo git lock its own parent process holds.
+	out = append(out, GitQueuedEnv+"=1")
 	return out
 }
 
@@ -545,6 +857,28 @@ func gitStdin(dir string, stdin io.Reader, args ...string) (string, error) {
 	cmd.Stdin = stdin
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// mergeInProgressRefs is checked in order: the first of these refs that
+// resolves is what Precommit reports and dispatches on. MERGE_HEAD covers a
+// conflicted `git merge`; CHERRY_PICK_HEAD and REVERT_HEAD cover the
+// identical situation for a conflicted `git cherry-pick`/`git revert` — all
+// three fire git's pre-commit hook (not pre-merge-commit) when concluded
+// with a manual `git commit`, and none of them should be judged by
+// fail-first against the whole resulting diff.
+var mergeInProgressRefs = []string{"MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"}
+
+// mergeInProgressRef reports which of mergeInProgressRefs currently
+// resolves in repoRoot (via `git rev-parse -q --verify <ref>`, which exits
+// 0 only when the ref both exists and names a valid object), or "" if none
+// does.
+func mergeInProgressRef(repoRoot string) string {
+	for _, ref := range mergeInProgressRefs {
+		if _, err := git(repoRoot, "rev-parse", "-q", "--verify", ref); err == nil {
+			return ref
+		}
+	}
+	return ""
 }
 
 // stagedFiles lists the added/copied/modified paths in the index, as repo-root-

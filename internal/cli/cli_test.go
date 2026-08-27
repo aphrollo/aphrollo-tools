@@ -58,8 +58,15 @@ func TestRun_TDDInit_GitGate(t *testing.T) {
 	isolateGit(t)
 	cfg := t.TempDir()
 	hooks := filepath.Join(t.TempDir(), "githooks")
+	// An explicit --cargo-shim-dir, same reasoning as --git-hooks-dir: the
+	// fake /usr/local/bin/aphrollo --bin below has no real directory on
+	// this box, and cargo-shim install (task A7) derives its output dir
+	// from --bin by default -- on Windows that drive-relative fake path
+	// resolved to a REAL stray directory (D:/usr/local/bin/cargo-queue/)
+	// before this override was added.
+	shimDir := filepath.Join(t.TempDir(), "cargo-queue")
 	var out, errb bytes.Buffer
-	code := Run([]string{"tdd", "init", "--config-dir", cfg, "--git-hooks-dir", hooks, "--bin", "/usr/local/bin/aphrollo"},
+	code := Run([]string{"tdd", "init", "--config-dir", cfg, "--git-hooks-dir", hooks, "--cargo-shim-dir", shimDir, "--bin", "/usr/local/bin/aphrollo"},
 		strings.NewReader(""), &out, &errb)
 	if code != 0 {
 		t.Fatalf("init exit = %d, want 0\nstderr: %s", code, errb.String())
@@ -87,6 +94,48 @@ func TestRun_TDDInit_GitGate(t *testing.T) {
 	}
 }
 
+// `tdd init` also installs the cargo-queue shim (task A7) next to --bin:
+// a session can prepend that dir to its OWN PATH so a direct `cargo`
+// invocation queues behind the same machine-wide build lock the hooks/gates
+// use. --uninstall deliberately leaves it in place (see InstallCargoShim's
+// doc comment).
+func TestRun_TDDInit_CargoShim(t *testing.T) {
+	isolateGit(t)
+	cfg := t.TempDir()
+	hooks := filepath.Join(t.TempDir(), "githooks")
+	shimDir := filepath.Join(t.TempDir(), "cargo-queue")
+	bin := filepath.Join(t.TempDir(), "aphrollo.exe")
+
+	var out, errb bytes.Buffer
+	code := Run([]string{"tdd", "init", "--config-dir", cfg, "--git-hooks-dir", hooks, "--cargo-shim-dir", shimDir, "--bin", bin},
+		strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("init exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+
+	cmdData, err := os.ReadFile(filepath.Join(shimDir, "cargo.cmd"))
+	if err != nil {
+		t.Fatalf("cargo.cmd not written: %v", err)
+	}
+	if !strings.Contains(string(cmdData), bin) {
+		t.Errorf("cargo.cmd missing the resolved bin path:\n%s", cmdData)
+	}
+	if _, err := os.ReadFile(filepath.Join(shimDir, "cargo")); err != nil {
+		t.Fatalf("cargo (sh) not written: %v", err)
+	}
+
+	// --uninstall must NOT remove the cargo-shim files.
+	out.Reset()
+	errb.Reset()
+	if code := Run([]string{"tdd", "init", "--config-dir", cfg, "--git-hooks-dir", hooks, "--cargo-shim-dir", shimDir, "--uninstall"},
+		strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("uninstall exit = %d: %s", code, errb.String())
+	}
+	if _, err := os.Stat(filepath.Join(shimDir, "cargo.cmd")); err != nil {
+		t.Errorf("cargo-shim files must survive --uninstall, got: %v", err)
+	}
+}
+
 // `tdd prepush` is a mechanical-only no-op: it exits 0 and never blocks, so a
 // pre-push shim present on a box can never wedge a push. It must NOT depend on
 // being inside a git repo or on any external reviewer — it returns immediately.
@@ -105,6 +154,57 @@ func TestRun_TDDPrepush_IsNoOp(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Errorf("prepush should emit nothing on stdout, got:\n%s", out.String())
+	}
+}
+
+// `tdd premergecommit` outside a git repo must be a pure no-op (exit 0, no
+// git/repo work attempted) — the same "not in a repo, nothing to gate" rule
+// precommit follows.
+func TestRun_TDDPremergecommit_NoOpOutsideRepo(t *testing.T) {
+	dir := t.TempDir()
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	code := Run([]string{"tdd", "premergecommit"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("premergecommit exit = %d, want 0 outside a repo\nstderr: %s", code, errb.String())
+	}
+}
+
+// `tdd premergecommit` on a real repo dispatches to Mechanical, not
+// Precommit: a docs/plain-text-only staged change (no source or test file)
+// exits 0 and reports "nothing to test" on stderr — proving the subcommand
+// is actually wired up, not merely a no-op stub like prepush.
+func TestRun_TDDPremergecommit_DocsOnlyIsNoOpWithMessage(t *testing.T) {
+	commitRepo(t) // builds a repo with a staged new.txt and chdir's into it
+	var out, errb bytes.Buffer
+	code := Run([]string{"tdd", "premergecommit"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("premergecommit exit = %d, want 0 for a docs-only merge\nstderr: %s", code, errb.String())
+	}
+	if !strings.Contains(errb.String(), "nothing to test") {
+		t.Fatalf("expected a 'nothing to test' line on stderr, got:\n%s", errb.String())
+	}
+}
+
+// TestRun_TDDCargo_DispatchesToShim proves `aphrollo tdd cargo ...` is
+// actually wired through Run's subcommand switch to the shim, not merely
+// tested at runCargoShim's own level — an uncontended lock, exit code
+// propagated from the (stubbed) real cargo, and silence on stderr.
+func TestRun_TDDCargo_DispatchesToShim(t *testing.T) {
+	withIsolatedCargoLock(t)
+	t.Setenv("APHROLLO_REAL_CARGO", stubCargo())
+
+	var out, errb bytes.Buffer
+	code := Run(append([]string{"tdd", "cargo"}, stubCargoArgsExit(3)...), strings.NewReader(""), &out, &errb)
+	if code != 3 {
+		t.Fatalf("tdd cargo exit = %d, want 3 (propagated from the stub)", code)
+	}
+	if errb.Len() != 0 {
+		t.Fatalf("an uncontended tdd cargo run must print nothing to stderr, got: %q", errb.String())
 	}
 }
 

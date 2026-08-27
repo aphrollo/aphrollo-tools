@@ -217,10 +217,15 @@ func TestPrecommit_Mechanical_BlocksFailingSuite(t *testing.T) {
 // recordRunner is a SuiteRunner that records every Runner it executes and always
 // reports passing — so a test can assert the EXACT mechanical argv without a real
 // suite run. The fail-first worktree run (if any) is recorded too, but the
-// mechanical stage runs against repoRoot, so the test keys off root.
+// mechanical stage runs against repoRoot, so the test keys off root. Deadline
+// is stripped before recording: it's a computed wall-clock value
+// (runCargoLocked sets it to start+stageBudget for cargo runners) that no
+// test can predict exactly, and it carries no information the argv/Dir
+// assertions care about.
 func recordRunner(seen *[]Runner, root string) SuiteRunner {
 	return func(r Runner, dir string) SuiteResult {
 		if dir == root {
+			r.Deadline = time.Time{}
 			*seen = append(*seen, r)
 		}
 		return SuiteResult{Passed: true}
@@ -242,7 +247,7 @@ func TestPrecommit_Mechanical_ScopedToStagedGoPackages(t *testing.T) {
 	if len(seen) != 1 {
 		t.Fatalf("expected one mechanical run at root, got %d: %+v", len(seen), seen)
 	}
-	want := Runner{"go", []string{"test", "./internal/x"}}
+	want := Runner{"go", []string{"test", "./internal/x"}, "", time.Time{}}
 	if !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("mechanical runner = %+v, want %+v", seen[0], want)
 	}
@@ -283,7 +288,7 @@ func TestPrecommit_Mechanical_ScopedToStagedGoTestOnly(t *testing.T) {
 	if len(seen) != 1 {
 		t.Fatalf("expected one scoped mechanical run, got %d: %+v", len(seen), seen)
 	}
-	want := Runner{"go", []string{"test", "./internal/x"}}
+	want := Runner{"go", []string{"test", "./internal/x"}, "", time.Time{}}
 	if !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("test-only mechanical runner = %+v, want %+v", seen[0], want)
 	}
@@ -303,7 +308,7 @@ func TestPrecommit_Mechanical_ScopedToStagedVitest(t *testing.T) {
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
-	want := Runner{"npx", []string{"vitest", "related", "src/widget.ts", "--run"}}
+	want := Runner{"npx", []string{"vitest", "related", "src/widget.ts", "--run"}, "", time.Time{}}
 	if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("vitest mechanical runs = %+v, want one %+v", seen, want)
 	}
@@ -322,7 +327,7 @@ func TestPrecommit_Mechanical_ScopedToStagedJest(t *testing.T) {
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
-	want := Runner{"npx", []string{"jest", "--findRelatedTests", "src/widget.js"}}
+	want := Runner{"npx", []string{"jest", "--findRelatedTests", "src/widget.js"}, "", time.Time{}}
 	if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("jest mechanical runs = %+v, want one %+v", seen, want)
 	}
@@ -341,7 +346,7 @@ func TestPrecommit_Mechanical_UnknownRunnerFullSuiteFallback(t *testing.T) {
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
-	want := Runner{"npm", []string{"test", "--silent"}}
+	want := Runner{"npm", []string{"test", "--silent"}, "", time.Time{}}
 	if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("fallback mechanical runs = %+v, want one full-suite %+v", seen, want)
 	}
@@ -459,9 +464,12 @@ func TestPostEdit_GreenRunSeedsMechanicalCache(t *testing.T) {
 	root := makeZigRepo(t)
 	write(t, root, "src/root.zig", "pub fn add(a: i32, b: i32) i32 {\n\treturn a + b + 0;\n}\n")
 
+	// UPDATED for task A2 (2026-08-15): PostEdit is no longer silent on green
+	// (silence made it indistinguishable from "the hook never ran"); it must
+	// still seed the mechanical cache exactly as before.
 	if got := PostEdit(postPayload("Edit", filepath.Join(root, "src", "root.zig")),
-		fakeRun(true, "All 1 tests passed.")); got != "" {
-		t.Fatalf("green post-edit must be silent, got: %s", got)
+		fakeRun(true, "All 1 tests passed.")); !strings.Contains(got, "→ green") {
+		t.Fatalf("green post-edit must report green, got: %s", got)
 	}
 
 	gitDo(t, root, "add", ".")
@@ -542,7 +550,7 @@ func TestPrecommit_FailFirst_StableWorktreeUnderStateDir(t *testing.T) {
 		return SuiteResult{Passed: false, Output: "undefined: Widget"}
 	}
 	for i := 0; i < 2; i++ {
-		if _, conclusive := failFirstViolated(root, []string{"widget_test.go"}, run); !conclusive {
+		if _, conclusive, _ := failFirstViolated(root, []string{"widget_test.go"}, run); !conclusive {
 			t.Fatalf("fail-first run %d must be conclusive", i)
 		}
 	}
@@ -586,9 +594,11 @@ type loggedRun struct {
 // recordAllRuns is a SuiteRunner that records EVERY run (mechanical and
 // fail-first alike) and reports Passed via the pass predicate, keyed on the run
 // directory. Unlike recordRunner it captures worktree runs too, so a test can
-// assert whether fail-first executed at all.
+// assert whether fail-first executed at all. Deadline is stripped for the
+// same reason as recordRunner's.
 func recordAllRuns(seen *[]loggedRun, pass func(dir string) bool) SuiteRunner {
 	return func(r Runner, dir string) SuiteResult {
+		r.Deadline = time.Time{}
 		*seen = append(*seen, loggedRun{runner: r, dir: dir})
 		return SuiteResult{Passed: pass(dir)}
 	}

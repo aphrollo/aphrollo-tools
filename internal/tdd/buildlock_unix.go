@@ -1,0 +1,31 @@
+//go:build unix
+
+package tdd
+
+import (
+	"os"
+
+	"golang.org/x/sys/unix"
+)
+
+// openLockFile opens (creating if needed) the build lock file for locking.
+func openLockFile(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+}
+
+// tryLockExclusive attempts a NON-BLOCKING exclusive flock on f: returns
+// immediately with true on success, false if another process already holds
+// it (LOCK_EX|LOCK_NB — EWOULDBLOCK means contended, not an error worth
+// surfacing). flock is per-OPEN-FILE-DESCRIPTION, so f.Close() (via
+// release()) always drops it even if the owning process never calls
+// unlockFile — same contract as the Windows side.
+func tryLockExclusive(f *os.File) bool {
+	err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB)
+	return err == nil
+}
+
+// unlockFile releases the lock tryLockExclusive took, best-effort — f.Close()
+// (by the caller, immediately after) releases it regardless.
+func unlockFile(f *os.File) {
+	_ = unix.Flock(int(f.Fd()), unix.LOCK_UN)
+}

@@ -9,11 +9,16 @@ import (
 )
 
 // gitGateHooks are the git hooks the gate manages, paired with the `aphrollo
-// tdd` subcommand each shim invokes. The gate is mechanical-only: pre-commit is
-// the sole managed hook. install also PRUNES any managed pre-push shim it finds
-// (see prunedHooks + uninstallGitGate), so a box only runs the hooks listed here.
+// tdd` subcommand each shim invokes. install also PRUNES any managed pre-push
+// shim it finds (see prunedHooks + uninstallGitGate), so a box only runs the
+// hooks listed here. pre-merge-commit was added 2026-08-15 (build-infra-fix
+// task A6): `git merge` never fires pre-commit, so a merge landed untested
+// unless someone ran the workspace suite by hand — it runs Mechanical only
+// (no fail-first/anti-cheat, both already settled on the commits being
+// merged).
 var gitGateHooks = []struct{ name, sub string }{
 	{"pre-commit", "precommit"},
+	{"pre-merge-commit", "premergecommit"},
 }
 
 // prunedHooks are hook names this tool prunes but never installs. A re-install

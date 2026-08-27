@@ -4,7 +4,35 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
+
+// TestManagedEvents_PostToolUseHarnessTimeout_ExceedsGoDeadline pins a real
+// incident (found in review 2026-08-15): the Claude Code harness kills a
+// PostToolUse hook PROCESS from OUTSIDE once settings.json's own "timeout"
+// elapses — entirely independent of RunSuite's Go-side context deadline. The
+// template had drifted to a hardcoded 90s while DefaultPostEditTimeout had
+// already moved to 100s, so the harness was killing the hook BEFORE Go's own
+// deadline (and its WaitDelay cleanup) ever fired: no TIMEOUT line returned,
+// no state stamped, and the spawned cargo process left orphaned. The break
+// this test catches: "harness kills the hook before its own deadline" — the
+// template timeout must exceed DefaultPostEditTimeout by a REAL margin
+// (>= 10s), not just be numerically larger by one second.
+func TestManagedEvents_PostToolUseHarnessTimeout_ExceedsGoDeadline(t *testing.T) {
+	for _, me := range managedEvents {
+		if me.event != "PostToolUse" {
+			continue
+		}
+		want := int(DefaultPostEditTimeout/time.Second) + 10
+		if me.timeout < want {
+			t.Fatalf("PostToolUse harness timeout = %ds, want >= %ds (DefaultPostEditTimeout=%s + 10s margin) — "+
+				"the harness would kill the hook before RunSuite's own deadline ever fires",
+				me.timeout, want, DefaultPostEditTimeout)
+		}
+		return
+	}
+	t.Fatal("no PostToolUse entry found in managedEvents")
+}
 
 // helper: parse settings JSON and return the hooks map for an event.
 func hookGroups(t *testing.T, data []byte, event string) []any {
