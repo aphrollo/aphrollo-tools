@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 )
 
@@ -26,16 +27,26 @@ func buildLockPath() string {
 // Edit/Write and, once installed, will exercise this exact lock file too —
 // producing spurious contention that has nothing to do with the behavior
 // under test. "" (the default, and the only value in production) means: use
-// the real well-known path.
-var buildLockPathOverride string
+// the real well-known path. Atomic because `go test` runs packages in
+// parallel and SetBuildLockPathForTest is exported for other packages' use.
+var buildLockPathOverride atomic.Pointer[string]
 
 // effectiveBuildLockPath resolves the lock path acquireBuildLock actually
 // uses: the override when a test has set one, else the production path.
 func effectiveBuildLockPath() string {
-	if buildLockPathOverride != "" {
-		return buildLockPathOverride
+	if p := buildLockPathOverride.Load(); p != nil && *p != "" {
+		return *p
 	}
 	return buildLockPath()
+}
+
+// setBuildLockPathOverride swaps the override and returns a restore func.
+// Every read and write goes through the atomic: `go test` runs packages in
+// parallel, so one package's restore races another's lock acquire, and CI
+// runs -race.
+func setBuildLockPathOverride(path string) (restore func()) {
+	prev := buildLockPathOverride.Swap(&path)
+	return func() { buildLockPathOverride.Store(prev) }
 }
 
 // buildLockPollInterval is how often acquireBuildLock retries while polling
@@ -284,9 +295,7 @@ func TryAcquireBuildLock() (release func(), ok bool) {
 // a cross-package test would race the box's own aphrollo PostToolUse hook
 // exercising the identical production lock file.
 func SetBuildLockPathForTest(path string) (restore func()) {
-	prev := buildLockPathOverride
-	buildLockPathOverride = path
-	return func() { buildLockPathOverride = prev }
+	return setBuildLockPathOverride(path)
 }
 
 // TryAcquireFileLock attempts an exclusive advisory OS file lock at path

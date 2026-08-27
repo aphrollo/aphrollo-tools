@@ -3,6 +3,7 @@ package tdd
 import (
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 )
@@ -24,15 +25,43 @@ import (
 // costing 320s for two tests before this fix).
 func withIsolatedBuildLock(t *testing.T) {
 	t.Helper()
-	buildLockPathOverride = filepath.Join(t.TempDir(), "test-build.lock")
+	restorePath := setBuildLockPathOverride(filepath.Join(t.TempDir(), "test-build.lock"))
 	origPostEdit, origPrecommit := buildLockPostEditDeadline, buildLockPrecommitDeadline
 	buildLockPostEditDeadline = 120 * time.Millisecond
 	buildLockPrecommitDeadline = 150 * time.Millisecond
 	t.Cleanup(func() {
-		buildLockPathOverride = ""
+		restorePath()
 		buildLockPostEditDeadline = origPostEdit
 		buildLockPrecommitDeadline = origPrecommit
 	})
+}
+
+// TestBuildLockPathOverride_ConcurrentSetAndReadIsRaceFree pins the override
+// seam as safe for concurrent use. SetBuildLockPathForTest is exported for
+// tests in OTHER packages, and `go test` runs packages in parallel: one
+// package's restore func writes the override while another's lock acquire
+// reads it. CI runs -race, so an unsynchronised global is a hard failure
+// there while every local run stays green.
+//
+// Break this catches: the override becoming a plain read/write global again.
+// It fails ONLY under -race — `go test -race -run ConcurrentSetAndRead ./internal/tdd`.
+func TestBuildLockPathOverride_ConcurrentSetAndReadIsRaceFree(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concurrent.lock")
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for range 200 {
+			SetBuildLockPathForTest(path)()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for range 200 {
+			_ = effectiveBuildLockPath()
+		}
+	}()
+	wg.Wait()
 }
 
 // TestAcquireBuildLock_SecondAcquirerBlocksUntilFirstReleases pins the core
