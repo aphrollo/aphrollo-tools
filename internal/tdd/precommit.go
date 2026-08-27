@@ -253,6 +253,9 @@ func mechanicalRoot(gateName, repoRoot, root string, tests, srcs []string, run S
 		// nextest even in a repo that has it configured. State/mech-cache
 		// keys below still use `root` (the crate root), per A4's contract.
 		ws := cargoWorkspaceRoot(root)
+		// A workspace-wide guard package owns no staged file, so ownership
+		// scoping would run it only when the guard itself is edited.
+		pkgs = dedupeSorted(append(pkgs, cargoAlwaysRunPackages(ws)...))
 		args := cargoVerbArgs(ws)
 		for _, p := range pkgs {
 			args = append(args, "-p", p)

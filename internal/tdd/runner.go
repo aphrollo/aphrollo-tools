@@ -441,6 +441,85 @@ func cargoPackagesOwning(root string, files []string) []string {
 	return pkgs
 }
 
+// cargoAlwaysRunPackages reads the workspace's opted-in always-run packages
+// from `[workspace.metadata.aphrollo]`'s `always-run` key in <ws>/Cargo.toml,
+// sorted and deduped; empty for any project that never declared one.
+//
+// A workspace-wide guard package (its tests scan the whole tree rather than
+// one crate) is owned by no staged file, so ownership scoping alone runs it
+// only when someone edits the guard itself — precisely when its invariant is
+// not at risk. The declaration lives in the manifest rather than a tool config
+// file so it versions with the code it polices and is reviewed in the same
+// diff. A line scanner suffices for the same reason cargoPackageName uses one:
+// the key sits directly under its table in any real manifest, and a parse miss
+// costs only the pre-existing ownership-scoped run. A `#` comment holding a
+// quoted word inside the array is read as a package name; cargo names the bad
+// package loudly on the first run.
+func cargoAlwaysRunPackages(ws string) []string {
+	data, err := os.ReadFile(filepath.Join(ws, "Cargo.toml"))
+	if err != nil {
+		return nil
+	}
+	inTable, inArray := false, false
+	var pkgs []string
+	for line := range strings.Lines(string(data)) {
+		trimmed := strings.TrimSpace(line)
+		if !inArray && strings.HasPrefix(trimmed, "[") {
+			inTable = trimmed == "[workspace.metadata.aphrollo]"
+			continue
+		}
+		if !inTable {
+			continue
+		}
+		if !inArray {
+			key, val, found := strings.Cut(trimmed, "=")
+			if !found || strings.TrimSpace(key) != "always-run" {
+				continue
+			}
+			inArray = true
+			trimmed = val
+		}
+		pkgs = append(pkgs, quotedWords(trimmed)...)
+		if strings.Contains(trimmed, "]") {
+			inArray = false
+		}
+	}
+	return dedupeSorted(pkgs)
+}
+
+// quotedWords returns the contents of every double-quoted run in s, in order.
+func quotedWords(s string) []string {
+	var out []string
+	for {
+		open := strings.IndexByte(s, '"')
+		if open < 0 {
+			return out
+		}
+		rest := s[open+1:]
+		end := strings.IndexByte(rest, '"')
+		if end < 0 {
+			return out
+		}
+		out = append(out, rest[:end])
+		s = rest[end+1:]
+	}
+}
+
+// dedupeSorted returns names deduped and sorted, so an identical worktree
+// always yields an identical argv — the mech cache keys on that command.
+func dedupeSorted(names []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range names {
+		if n != "" && !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // narrowToStaged scopes a broad runner to the related tests of the UNION of a
 // commit's staged source+test files, for the precommit mechanical stage. It is
 // the multi-file analog of NarrowToRelatedTests: commit-time is a fast scoped
