@@ -2,7 +2,7 @@ version: 2
 updates:
   - package-ecosystem: gomod
     directory: /
-    assignees: ["trickstertwo"]
+    assignees: ["harryberg1n"]
     schedule:
       interval: weekly
     cooldown:
@@ -17,7 +17,7 @@ updates:
     open-pull-requests-limit: 5
   - package-ecosystem: github-actions
     directory: /
-    assignees: ["trickstertwo"]
+    assignees: ["harryberg1n"]
     schedule:
       interval: weekly
     cooldown:
