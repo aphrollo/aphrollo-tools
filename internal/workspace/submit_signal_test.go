@@ -257,35 +257,66 @@ func TestRaiseSubmitSignal_NoEnvSkipPathLoud(t *testing.T) {
 // Integration-style: the REAL postSubmitSignal seam POSTs to the api's internal
 // submit endpoint with the bridge token, at the {ticket-id} path. Simulates a
 // post-bounce resubmit reaching a fake endpoint that asserts the request shape.
+//
+// The base carries a trailing `/api` as supplied by agentsd (AGENTSD_API_BASE),
+// the same convention apinotify uses. postSubmitSignal appends the path WITHOUT a
+// leading `/api`, so the observed request path is exactly `/api/internal/...` —
+// NOT the doubled `/api/api/internal/...` that 404'd platform-wide.
 func TestPostSubmitSignal_PostsToInternalEndpoint(t *testing.T) {
 	const ticketID = "019f234d-a60f-7000-8000-000000000000"
-	var gotMethod, gotPath, gotToken string
-	hit := false
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hit = true
-		gotMethod, gotPath, gotToken = r.Method, r.URL.Path, r.Header.Get("X-Bridge-Token")
-		_, _ = io.Copy(io.Discard, r.Body)
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer srv.Close()
+	cases := []struct {
+		name     string
+		basePath string // appended to srv.URL to form the base
+		wantPath string
+	}{
+		{
+			// The real convention: base ends in `/api` → path is `/api/internal/...`,
+			// with NO doubling. This is the exact regression the fix guards.
+			name:     "base with trailing /api does not double",
+			basePath: "/api",
+			wantPath: "/api/internal/tickets/" + ticketID + "/submit",
+		},
+		{
+			// A bare base (no `/api`) appends the path verbatim.
+			name:     "bare base appends path verbatim",
+			basePath: "",
+			wantPath: "/internal/tickets/" + ticketID + "/submit",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotMethod, gotPath, gotToken string
+			hit := false
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hit = true
+				gotMethod, gotPath, gotToken = r.Method, r.URL.Path, r.Header.Get("X-Bridge-Token")
+				_, _ = io.Copy(io.Discard, r.Body)
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			defer srv.Close()
 
-	status, err := postSubmitSignal(srv.URL, "v1:tok", ticketID)
-	if err != nil {
-		t.Fatalf("postSubmitSignal: %v", err)
-	}
-	if !hit {
-		t.Fatal("the endpoint was never called")
-	}
-	if status != http.StatusNoContent {
-		t.Errorf("status = %d, want 204", status)
-	}
-	if gotMethod != http.MethodPost {
-		t.Errorf("method = %s, want POST", gotMethod)
-	}
-	if want := "/api/internal/tickets/" + ticketID + "/submit"; gotPath != want {
-		t.Errorf("path = %s, want %s", gotPath, want)
-	}
-	if gotToken != "v1:tok" {
-		t.Errorf("X-Bridge-Token = %q, want the bridge token", gotToken)
+			status, err := postSubmitSignal(srv.URL+tc.basePath, "v1:tok", ticketID)
+			if err != nil {
+				t.Fatalf("postSubmitSignal: %v", err)
+			}
+			if !hit {
+				t.Fatal("the endpoint was never called")
+			}
+			if status != http.StatusNoContent {
+				t.Errorf("status = %d, want 204", status)
+			}
+			if gotMethod != http.MethodPost {
+				t.Errorf("method = %s, want POST", gotMethod)
+			}
+			if gotPath != tc.wantPath {
+				t.Errorf("path = %s, want %s", gotPath, tc.wantPath)
+			}
+			if strings.Contains(gotPath, "/api/api/") {
+				t.Errorf("path %s doubles /api — the platform-wide 404 regression", gotPath)
+			}
+			if gotToken != "v1:tok" {
+				t.Errorf("X-Bridge-Token = %q, want the bridge token", gotToken)
+			}
+		})
 	}
 }

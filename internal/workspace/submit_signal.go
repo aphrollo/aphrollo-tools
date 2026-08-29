@@ -15,7 +15,7 @@ import (
 // the coder child env; an operator-local run has none of them (and needs none —
 // there is no ticket workflow to re-arm).
 const (
-	envAPIBase  = "APHROLLO_API_BASE"  // e.g. http://aphrollo-api.service.consul:8100
+	envAPIBase  = "APHROLLO_API_BASE"  // carries a trailing /api, e.g. http://aphrollo-api.service.consul:8100/api (agentsd's AGENTSD_API_BASE convention, shared with apinotify)
 	envAPIToken = "APHROLLO_API_TOKEN" // a valid api bridge token (X-Bridge-Token)
 	envTicketID = "APHROLLO_TICKET_ID" // the FULL ticket UUID (the branch id is truncated)
 )
@@ -26,12 +26,14 @@ const (
 const submitSignalTimeout = 5 * time.Second
 
 // postSubmitSignal is the seam over the HTTP POST to the api's internal submit
-// endpoint (POST /api/internal/tickets/{id}/submit, loopback + bridge-token
-// gated). It returns the response status (0 on a transport error). A package var
-// so unit tests assert the call without the network and an integration test
-// points it at a fake endpoint.
+// endpoint (POST {base}/internal/tickets/{id}/submit). The base already carries a
+// trailing /api (the AGENTSD_API_BASE convention agentsd shares with apinotify),
+// so the appended path omits the leading /api — appending it would double to
+// /api/api/... and 404 at the router. Loopback + bridge-token gated. Returns the
+// response status (0 on a transport error). A package var so unit tests assert the
+// call without the network and an integration test points it at a fake endpoint.
 var postSubmitSignal = func(base, token, ticketID string) (int, error) {
-	url := strings.TrimRight(base, "/") + "/api/internal/tickets/" + ticketID + "/submit"
+	url := strings.TrimRight(base, "/") + "/internal/tickets/" + ticketID + "/submit"
 	ctx, cancel := context.WithTimeout(context.Background(), submitSignalTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
