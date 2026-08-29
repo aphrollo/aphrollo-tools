@@ -100,6 +100,37 @@ func TestSubmit_SkipPathRaisesSignal(t *testing.T) {
 	}
 }
 
+// On the CREATE path (no PR existed, submit opens one READY outright), submit
+// STILL raises the signal. A PR opened ready directly fires only `opened` on
+// GitHub's side, never `ready_for_review` — so, like the [skip] path, this
+// endpoint call is the ONLY thing that arms review.
+func TestSubmit_CreatePathRaisesSignal(t *testing.T) {
+	repo := pushedRepo(t)
+	setSignalEnv(t, "http://api.local", "v1:tok", "019f234d-a60f-7000-8000-000000000000")
+	calls := stubSignal(t, http.StatusNoContent, nil)
+	stubGH(t,
+		func(wt, branch string) (*PRInfo, error) { return nil, nil },
+		func(wt string, req PRCreate) (*PRInfo, error) {
+			return &PRInfo{Number: 55, URL: "https://github.com/o/r/pull/55", State: "OPEN", IsDraft: req.Draft}, nil
+		},
+	)
+	stubReady(t, func(wt, branch string) error { t.Fatal("a freshly opened ready PR must not be flipped"); return nil })
+	stubBody(t, func(wt, branch, body string) error { return nil })
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "pending"}, nil })
+
+	s, _ := SubmitPlan(targetFor(repo, "feat/y"), "summary")
+	var out, errb bytes.Buffer
+	if err := s.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("create path must call the submit endpoint exactly once, got %d", len(*calls))
+	}
+	if !strings.Contains(out.String(), "submit signal: raised") {
+		t.Errorf("create-path receipt should report the signal was raised:\n%s", out.String())
+	}
+}
+
 // A signal failure (endpoint unreachable) must NOT fail the submit; on the [skip]
 // path the warning names the wedge risk.
 func TestSubmit_SignalFailureDoesNotFailSubmit(t *testing.T) {

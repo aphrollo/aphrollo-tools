@@ -700,16 +700,18 @@ Core coder flow (create · commit · push · submit), all from the worktree's cw
   commit -m <msg>           Stage (-A) + commit the CURRENT worktree, honoring the
                             TDD gate; reports sha + delta (--dry; --no-verify;
                             --staged-only).
-  push                      git push -u origin HEAD AND ensure a DRAFT PR exists
-                            (open if absent, reuse if present); reports
-                            ahead-count, PR, CI (--dry; --force-with-lease).
-  submit -m <summary>       Push (idempotent), then — only if CI is green — flip
-                            the draft PR to in-review and set the PR body to the
-                            summary (the in_progress → review handoff). CI red or
-                            pending: not flipped, non-zero, re-callable (--dry).
-                            Per-worktree, one repo at a time: acts on the cwd
-                            worktree's PR — there is no ticket-level submit.
-                            push/ship opened that draft; submit flips it to ready.
+  push                      git push -u origin HEAD; reuse the branch's PR state
+                            in the receipt if one is already OPEN (--dry;
+                            --force-with-lease). Never opens a PR — submit does.
+  submit -m <summary>       Push (idempotent), then hand off: open a READY PR
+                            when none exists, flip a legacy/in-flight draft to
+                            in-review, or no-op [skip] an already-ready one —
+                            and set the PR body to the summary (the in_progress
+                            → review handoff). Unconditional on CI state;
+                            re-callable (--dry). Per-worktree, one repo at a time:
+                            acts on the cwd worktree's PR — there is no
+                            ticket-level submit. submit is the sole PR opener, so
+                            CI fires exactly once, at the handoff.
 
 Worktree lifecycle:
   claim <repo> <branch>     Put a prepared worktree on the dev tier so it is
