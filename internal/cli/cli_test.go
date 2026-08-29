@@ -796,3 +796,45 @@ func TestRun_Help_ExitsZero(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
 }
+
+// An unwritable cargo-shim dir must NOT fail `tdd init`. The shims are an
+// opt-in convenience (a session prepends the dir to its own PATH); the two
+// things init exists for — the session hooks and the git gate — are the
+// contract. Exiting non-zero after both succeeded aborts whatever drives
+// init, which is how a deploy-infra apply died on
+// `mkdir /usr/local/bin/cargo-queue: permission denied` when the task ran as
+// an unprivileged user against a system-wide --bin.
+func TestRun_TDDInit_UnwritableShimDir_WarnsButSucceeds(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	isolateGit(t)
+	cfg := t.TempDir()
+	hooks := filepath.Join(t.TempDir(), "githooks")
+	bin := filepath.Join(t.TempDir(), "aphrollo.exe")
+
+	// A read-only parent, so creating the shim dir under it is denied.
+	parent := t.TempDir()
+	if err := os.Chmod(parent, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
+	shimDir := filepath.Join(parent, "cargo-queue")
+
+	var out, errb bytes.Buffer
+	code := Run([]string{"tdd", "init", "--config-dir", cfg, "--git-hooks-dir", hooks, "--cargo-shim-dir", shimDir, "--bin", bin},
+		strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("init exit = %d, want 0 — an unwritable shim dir must not fail init\nstderr: %s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "wired session hooks") {
+		t.Errorf("session hooks not reported as wired:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "installed git gate") {
+		t.Errorf("git gate not reported as installed:\n%s", out.String())
+	}
+	// The warning has to name the dir and the flag, or the operator cannot act on it.
+	if !strings.Contains(errb.String(), shimDir) || !strings.Contains(errb.String(), "--cargo-shim-dir") {
+		t.Errorf("warning must name the dir and --cargo-shim-dir:\n%s", errb.String())
+	}
+}

@@ -510,14 +510,13 @@ func runTDDInit(args []string, stdout, stderr io.Writer) int {
 		if cdir == "" {
 			cdir = filepath.Join(filepath.Dir(binName), "cargo-queue")
 		}
-		cchanged, err := tdd.InstallCargoShim(cdir, binName)
-		if err != nil {
-			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-			return 1
-		}
-		if cchanged {
+		cchanged, cerr := tdd.InstallCargoShim(cdir, binName)
+		switch {
+		case cerr != nil:
+			warnShimSkipped(stderr, cdir, cerr)
+		case cchanged:
 			fmt.Fprintf(stdout, "aphrollo tdd: installed cargo-queue shim in %s\n", cdir)
-		} else {
+		default:
 			fmt.Fprintf(stdout, "aphrollo tdd: cargo-queue shim already up to date (%s)\n", cdir)
 		}
 
@@ -525,14 +524,13 @@ func runTDDInit(args []string, stdout, stderr io.Writer) int {
 		// -- a session prepends ONE dir to PATH and gets both `cargo` and
 		// `git` queued. Same --uninstall reasoning as cargo: never removed,
 		// harmless to leave in place.
-		gchanged2, err := tdd.InstallGitShim(cdir, binName)
-		if err != nil {
-			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-			return 1
-		}
-		if gchanged2 {
+		gchanged2, gerr := tdd.InstallGitShim(cdir, binName)
+		switch {
+		case gerr != nil:
+			warnShimSkipped(stderr, cdir, gerr)
+		case gchanged2:
 			fmt.Fprintf(stdout, "aphrollo tdd: installed git-queue shim in %s\n", cdir)
-		} else {
+		default:
 			fmt.Fprintf(stdout, "aphrollo tdd: git-queue shim already up to date (%s)\n", cdir)
 		}
 	}
@@ -1699,4 +1697,19 @@ func filterConfigs(cfgs []sqlc.Config, only string) []sqlc.Config {
 		}
 	}
 	return out
+}
+
+// warnShimSkipped reports a queue-shim directory init could not write, WITHOUT
+// failing init. The shims are opt-in (a session prepends the dir to its own
+// PATH); the session hooks and the git gate are what init is actually for, and
+// both are already done by the time this runs. Exiting non-zero here aborts
+// whatever drives init — an ansible task with `become_user` and a system-wide
+// --bin lands on a root-owned bin dir and takes the whole play down with
+// `mkdir /usr/local/bin/cargo-queue: permission denied`, despite the hooks and
+// gate having been wired correctly. Name the dir and the flag so the fix is
+// obvious from the warning alone.
+func warnShimSkipped(stderr io.Writer, dir string, err error) {
+	fmt.Fprintf(stderr, "aphrollo tdd: skipped queue shims in %s: %v\n", dir, err)
+	fmt.Fprintf(stderr, "aphrollo tdd: session hooks and git gate are installed; "+
+		"pass --cargo-shim-dir <writable dir> to install the opt-in cargo/git queue shims\n")
 }
