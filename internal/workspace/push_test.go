@@ -55,11 +55,12 @@ func TestPush_NewBranchSetsUpstream(t *testing.T) {
 	run("add", ".")
 	run("commit", "-qm", "work")
 
-	// push folds the draft-PR open, so stub the gh + CI seams.
+	// push never opens a PR, but still reads gh/CI state for the receipt.
 	stubGH(t,
 		func(wt, branch string) (*PRInfo, error) { return nil, nil },
 		func(wt string, req PRCreate) (*PRInfo, error) {
-			return &PRInfo{Number: 1, URL: "https://github.com/o/r/pull/1", State: "OPEN", IsDraft: req.Draft}, nil
+			t.Fatal("push must never open a PR")
+			return nil, nil
 		},
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "none"}, nil })
@@ -169,10 +170,10 @@ func stubCI(t *testing.T, ci func(wt, branch string) (CIStatus, error)) {
 	t.Cleanup(func() { ghCIStatus = o })
 }
 
-// push now folds the draft-PR open: after pushing, it ensures a DRAFT PR exists
-// (opening it when absent) and reports the stateful receipt — pushed line, the
-// pr #N draft [opened] line, and the ci line — so the coder needs no follow-up.
-func TestPush_OpensDraftPRAndReportsState(t *testing.T) {
+// push never opens a PR — submit is the sole opener, so CI fires exactly once
+// at the handoff instead of once on a draft's `opened` event and again on
+// `ready_for_review`. When no PR exists yet, push says so and points at submit.
+func TestPush_OpensNothingWhenNoPR(t *testing.T) {
 	repo := repoWithRemote(t)
 	run := func(args ...string) {
 		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
@@ -184,13 +185,10 @@ func TestPush_OpensDraftPRAndReportsState(t *testing.T) {
 	run("add", ".")
 	run("commit", "-qm", "work")
 
-	var created *PRCreate
+	createCalled := false
 	stubGH(t,
 		func(wt, branch string) (*PRInfo, error) { return nil, nil }, // no existing PR
-		func(wt string, req PRCreate) (*PRInfo, error) {
-			created = &req
-			return &PRInfo{Number: 9, URL: "https://github.com/o/r/pull/9", State: "OPEN", IsDraft: req.Draft}, nil
-		},
+		func(wt string, req PRCreate) (*PRInfo, error) { createCalled = true; return nil, nil },
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "pending"}, nil })
 
@@ -203,21 +201,25 @@ func TestPush_OpensDraftPRAndReportsState(t *testing.T) {
 		t.Fatalf("Apply: %v\n%s", err, errb.String())
 	}
 	s := out.String()
-	if created == nil || !created.Draft {
-		t.Fatalf("push must open a DRAFT PR, got: %+v", created)
+	if createCalled {
+		t.Fatal("push must never open a PR")
 	}
 	if !strings.Contains(s, "pushed feat/y -> origin") {
 		t.Errorf("receipt missing pushed line:\n%s", s)
 	}
-	if !strings.Contains(s, "pr #9 draft") || !strings.Contains(s, "opened") {
-		t.Errorf("receipt missing pr draft/opened line:\n%s", s)
+	if !strings.Contains(s, "no PR yet") || !strings.Contains(s, "submit") {
+		t.Errorf("receipt should point at submit when no PR exists yet:\n%s", s)
+	}
+	if strings.Contains(s, "pr #") {
+		t.Errorf("receipt must not report a pr # line when none exists:\n%s", s)
 	}
 	if !strings.Contains(s, "ci pending") {
 		t.Errorf("receipt missing ci state line:\n%s", s)
 	}
 }
 
-// A re-driven push must REUSE the existing draft PR, never open a second one.
+// A re-driven push must REUSE the existing PR's state in the receipt, never
+// open a second one — and never open one at all.
 func TestPush_ReusesExistingPR(t *testing.T) {
 	repo := repoWithRemote(t)
 	run := func(args ...string) {

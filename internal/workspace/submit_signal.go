@@ -49,32 +49,34 @@ var postSubmitSignal = func(base, token, ticketID string) (int, error) {
 }
 
 // raiseSubmitSignal fires the authoritative "ready" signal (SignalSubmitted) at
-// the api's internal submit endpoint. It runs on BOTH submit paths: after a
-// draft->ready flip AND on the already-ready [skip] path.
+// the api's internal submit endpoint. It runs on ALL THREE submit paths: after a
+// legacy draft->ready flip, after opening a fresh PR ready outright, and on the
+// already-ready [skip] path.
 //
 // The endpoint is the FIRST-CLASS readiness trigger. On the flip path the GitHub
 // ready_for_review webhook raises the same signal, so the endpoint is redundant
-// defense there. On the [skip] path the PR never went back to draft, so NO
-// ready_for_review webhook fires — after a sub-threshold bounce (which clears
-// `submitted` and latches `resubmitRequired`), THIS call is the ONLY thing that
-// re-arms review. Without it the ticket wedges until the stuck-watchdog escalates.
+// defense there. On the other two paths — a PR opened ready directly (no draft
+// stage) and an already-ready PR (no re-draft) — NO ready_for_review webhook EVER
+// fires, so after a sub-threshold bounce (which clears `submitted` and latches
+// `resubmitRequired`), THIS call is the ONLY thing that re-arms review. Without
+// it the ticket wedges until the stuck-watchdog escalates.
 //
 // Best-effort by contract: any failure (endpoint unreachable, non-204, 404) is
 // warned and NEVER fails the submit — the coder's handoff already succeeded and,
-// on the flip path, the webhook bridge still covers it. skipPath selects the
+// on the flip path, the webhook bridge still covers it. noWebhookPath selects the
 // severity on BOTH the failure path (warnSubmitSignal) AND the missing-env
-// early-return: on the [skip] path a miss (no env or a failed POST) is the actual
-// wedge risk and is named as such, because no ready_for_review webhook fires.
-func raiseSubmitSignal(stdout io.Writer, skipPath bool) {
+// early-return: on a path with no ready_for_review webhook a miss (no env or a
+// failed POST) is the actual wedge risk and is named as such.
+func raiseSubmitSignal(stdout io.Writer, noWebhookPath bool) {
 	base, token, ticketID := os.Getenv(envAPIBase), os.Getenv(envAPIToken), os.Getenv(envTicketID)
 	if base == "" || token == "" || ticketID == "" {
 		// No ticket env. On the flip path this is an operator-local run: the
-		// ready_for_review webhook covers the flip, so the skip is benign. On the
-		// [skip] path (an already-ready PR — every post-bounce resubmit) NO webhook
-		// fires, so a skipped signal is the actual wedge: review never re-arms. A
-		// platform coder session missing this env there is a plumbing bug, so name it.
-		if skipPath {
-			fmt.Fprintf(stdout, "  submit signal: SKIPPED with no ticket context on an already-ready PR — "+
+		// ready_for_review webhook covers the flip, so the skip is benign. On a
+		// no-webhook path (freshly opened ready, or an already-ready [skip] resubmit)
+		// a skipped signal is the actual wedge: review never re-arms. A platform
+		// coder session missing this env there is a plumbing bug, so name it.
+		if noWebhookPath {
+			fmt.Fprintf(stdout, "  submit signal: SKIPPED with no ticket context — "+
 				"review will NOT re-arm; ticket may wedge\n")
 			return
 		}
@@ -84,22 +86,22 @@ func raiseSubmitSignal(stdout io.Writer, skipPath bool) {
 	status, err := postSubmitSignal(base, token, ticketID)
 	switch {
 	case err != nil:
-		warnSubmitSignal(stdout, skipPath, fmt.Sprintf("endpoint unreachable (%v)", err))
+		warnSubmitSignal(stdout, noWebhookPath, fmt.Sprintf("endpoint unreachable (%v)", err))
 	case status == http.StatusNoContent:
 		fmt.Fprintf(stdout, "  submit signal: raised — review re-armed via the internal endpoint\n")
 	case status == http.StatusNotFound:
 		fmt.Fprintf(stdout, "  submit signal: ticket not found (404) — continuing (webhook bridge covers the flip)\n")
 	default:
-		warnSubmitSignal(stdout, skipPath, fmt.Sprintf("endpoint returned %d", status))
+		warnSubmitSignal(stdout, noWebhookPath, fmt.Sprintf("endpoint returned %d", status))
 	}
 }
 
-// warnSubmitSignal prints the non-fatal failure warning. On the [skip] path it
-// names the wedge: an already-ready PR fires no ready_for_review webhook, so a
-// missed signal leaves review un-re-armed until the stuck-watchdog.
-func warnSubmitSignal(stdout io.Writer, skipPath bool, reason string) {
-	if skipPath {
-		fmt.Fprintf(stdout, "  warning: submit signal not raised (%s) — an already-ready PR fires no "+
+// warnSubmitSignal prints the non-fatal failure warning. On a no-webhook path it
+// names the wedge: no ready_for_review webhook ever fires there, so a missed
+// signal leaves review un-re-armed until the stuck-watchdog.
+func warnSubmitSignal(stdout io.Writer, noWebhookPath bool, reason string) {
+	if noWebhookPath {
+		fmt.Fprintf(stdout, "  warning: submit signal not raised (%s) — this PR fires no "+
 			"ready_for_review webhook, so review may NOT re-arm until the stuck-watchdog; re-run submit "+
 			"or ping the operator\n", reason)
 		return

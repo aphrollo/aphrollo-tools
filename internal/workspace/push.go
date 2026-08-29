@@ -63,11 +63,12 @@ func pushArgs(wt, branch string, forceWithLease bool) []string {
 	return append(args, "origin", "--", branch)
 }
 
-// Apply pushes HEAD to origin (setting upstream), ensures a DRAFT PR exists for
-// the branch (opening one when absent, reusing it when present — idempotent), and
-// reports the stateful receipt: the pushed line, the pr line, and the CI state,
-// so a coder needs no follow-up git/gh call to confirm what landed. Folding the
-// old separate `pr` open in here is what lets the coder flow be just push.
+// Apply pushes HEAD to origin (setting upstream) and reports the stateful
+// receipt: the pushed line, the PR line (if one already exists), and the CI
+// state, so a coder needs no follow-up git/gh call to confirm what landed. Push
+// never OPENS a PR — submit is the sole opener — so CI fires exactly once, at
+// the handoff, instead of once on a draft's `opened` event and again on
+// `ready_for_review`.
 func (p *Push) Apply(stdout, stderr io.Writer) error {
 	wt, branch := p.Target.Worktree, p.Target.Branch
 	cmd := exec.Command("git", pushArgs(wt, branch, p.ForceWithLease)...)
@@ -84,14 +85,18 @@ func (p *Push) Apply(stdout, stderr io.Writer) error {
 		fmt.Fprintf(stdout, "  %s\n", url)
 	}
 
-	// Fold the draft-PR open: open if absent, reuse if present.
-	info, verb, err := ensureDraftPR(wt, branch)
+	// Reuse an existing OPEN PR's state in the receipt; open nothing when none
+	// exists yet — that is submit's job.
+	info, err := reuseOpenPR(wt, branch)
 	if err != nil {
 		return err
 	}
-	draftWord := prStateWord(info)
-	fmt.Fprintf(stdout, "pr #%d %s [%s] %s\n", info.Number, draftWord, verb, info.URL)
-	reportPRState(stdout, info)
+	if info == nil {
+		fmt.Fprintf(stdout, "no PR yet for %s — run: aphrollo workspace submit\n", branch)
+	} else {
+		fmt.Fprintf(stdout, "pr #%d %s [reused] %s\n", info.Number, prStateWord(info), info.URL)
+		reportPRState(stdout, info)
+	}
 
 	// Surface merge conflicts on every push — push always runs, so a coder who only
 	// pushes still sees them. Non-fatal: push's job is to publish. Re-poll past
