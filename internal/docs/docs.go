@@ -50,6 +50,19 @@ var linkTarget = regexp.MustCompile(`\]\(\s*<?([^)>\s]+)`)
 // inlineCode captures single-backtick inline code spans.
 var inlineCode = regexp.MustCompile("`([^`]+)`")
 
+// lineSuffix matches a trailing `:line` citation suffix — a single line
+// (`:288`), a range (`:46-52`) or a comma list (`:413,458,515`), possibly
+// combined. It is purely numeric so a non-numeric colon token such as a
+// docker image tag (`tika:3.3.0.0-full`) is left intact.
+var lineSuffix = regexp.MustCompile(`:[0-9]+(?:[-,][0-9]+)*$`)
+
+// stripLineSuffix removes a trailing numeric `:line` citation suffix so the
+// file itself, not a location within it, is what gets resolved. `foo.go:288`
+// and `foo.go:46-52` both resolve as `foo.go`.
+func stripLineSuffix(p string) string {
+	return lineSuffix.ReplaceAllString(p, "")
+}
+
 // fenceOpen matches an opening or closing fenced-code-block marker (``` or ~~~,
 // three or more, optional leading indentation and info string).
 var fenceOpen = regexp.MustCompile("^\\s*(```+|~~~+)")
@@ -88,7 +101,7 @@ func extractLine(line int, text string) []reference {
 	for _, loc := range inlineCode.FindAllStringSubmatchIndex(text, -1) {
 		tok := text[loc[2]:loc[3]]
 		if looksLikeRepoPath(tok) {
-			refs = append(refs, reference{Line: line, Path: tok})
+			refs = append(refs, reference{Line: line, Path: stripLineSuffix(tok)})
 		}
 		for i := loc[0]; i < loc[1]; i++ {
 			masked[i] = ' '
@@ -103,8 +116,10 @@ func extractLine(line int, text string) []reference {
 }
 
 // cleanLinkTarget normalises a markdown link target to a repo-relative path, or
-// returns "" if it is not one (URL, mailto, bare anchor, absolute or home path).
-// The fragment (`#...`) is stripped so `docs/x.md#section` resolves to docs/x.md.
+// returns "" if it is not one (URL, mailto, bare anchor, absolute or home path,
+// or a template placeholder). The fragment (`#...`) is stripped so
+// `docs/x.md#section` resolves to docs/x.md, and a trailing `:line` citation
+// suffix is stripped so `docs/x.md:42` resolves to docs/x.md.
 func cleanLinkTarget(t string) string {
 	t = strings.TrimSpace(t)
 	if i := strings.IndexByte(t, '#'); i >= 0 {
@@ -113,10 +128,10 @@ func cleanLinkTarget(t string) string {
 	if t == "" {
 		return ""
 	}
-	if isURL(t) || isAbsOrHome(t) {
+	if isURL(t) || isAbsOrHome(t) || strings.ContainsAny(t, "<>…*|?{}") {
 		return ""
 	}
-	return t
+	return stripLineSuffix(t)
 }
 
 // looksLikeRepoPath reports whether an inline-code token is a repo-relative path
@@ -126,13 +141,16 @@ func cleanLinkTarget(t string) string {
 //	Form A  a/b.go        — a slash and the last segment carries an extension.
 //	Form B  a/b/          — a trailing slash with at least one interior slash.
 //
-// Tokens with whitespace (commands), placeholders (< > … * |), or absolute/home
-// leaders are rejected; a URL is rejected up front.
+// A trailing `:line` citation suffix (`a/b.go:288`) is accepted here — it still
+// looks like a path — and stripped to the bare file at extraction time.
+//
+// Tokens with whitespace (commands), placeholders (< > … * | ? { }), or
+// absolute/home leaders are rejected; a URL is rejected up front.
 func looksLikeRepoPath(tok string) bool {
 	if tok == "" || isURL(tok) || isAbsOrHome(tok) {
 		return false
 	}
-	if strings.ContainsAny(tok, " \t<>…*|?") {
+	if strings.ContainsAny(tok, " \t<>…*|?{}") {
 		return false
 	}
 	if !strings.Contains(tok, "/") {
