@@ -40,6 +40,10 @@ func TestLooksLikeRepoPath(t *testing.T) {
 		{"ellipsis placeholder", ".worktrees/…", false},
 		{"glob", "queries/*.sql", false},
 		{"pipe options", "/tdd [status|off|on]", false},
+		// Brace placeholders (template substitution) are not concrete paths.
+		{"brace placeholder", "references/{your_language}/determinism.md", false},
+		{"brace list placeholder", "messages/{en,de,fr}.json", false},
+		{"brace dir placeholder", "src/routes/p/{slug}/", false},
 		// Absolute and home paths are not repo-relative citations.
 		{"absolute path", "/usr/local/bin/aphrollo", false},
 		{"absolute file", "/etc/foo/bar.yml", false},
@@ -118,6 +122,28 @@ func TestExtractRefs(t *testing.T) {
 			name:    "line numbers tracked",
 			content: "line one\n`x/y.go`\nline three\n[z](p/q.md)\n",
 			want:    []reference{{Line: 2, Path: "x/y.go"}, {Line: 4, Path: "p/q.md"}},
+		},
+		// A `:line` citation suffix is a location within a file, not part of
+		// the path — strip it so the file itself is what gets resolved.
+		{
+			name:    "inline code strips single line suffix",
+			content: "see `internal/ticketflow/workflow.go:288` here\n",
+			want:    []reference{{Line: 1, Path: "internal/ticketflow/workflow.go"}},
+		},
+		{
+			name:    "inline code strips line range suffix",
+			content: "see `internal/store/postgres/threads.go:46-52` here\n",
+			want:    []reference{{Line: 1, Path: "internal/store/postgres/threads.go"}},
+		},
+		{
+			name:    "inline code strips line list suffix",
+			content: "see `cmd/api/main.go:413,458,515` here\n",
+			want:    []reference{{Line: 1, Path: "cmd/api/main.go"}},
+		},
+		{
+			name:    "non-numeric colon suffix is not a line ref",
+			content: "image `apache/tika:3.3.0.0-full` pinned\n",
+			want:    []reference{{Line: 1, Path: "apache/tika:3.3.0.0-full"}},
 		},
 
 		// --- ignore cases ---
