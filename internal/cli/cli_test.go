@@ -341,6 +341,100 @@ func TestRun_Help_ListsFind(t *testing.T) {
 	}
 }
 
+func TestRun_Help_ListsDocs(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"--help"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(out.String(), "docs") {
+		t.Fatalf("root usage should list docs:\n%s", out.String())
+	}
+}
+
+func TestRun_Docs_Help(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"docs", "--help"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("`docs --help` should exit 0, got %d", code)
+	}
+	if !strings.Contains(out.String(), "check") || !strings.Contains(out.String(), "unresolved reference") {
+		t.Errorf("docs help should document `check` and its report format:\n%s", out.String())
+	}
+}
+
+func TestRun_Docs_NoSub_ShowsUsage(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"docs"}, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Fatalf("bare `docs` should be a usage error (2), got %d", code)
+	}
+	if !strings.Contains(errb.String(), "check") {
+		t.Errorf("usage should list check:\n%s", errb.String())
+	}
+}
+
+func TestRun_Docs_UnknownSub(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"docs", "frobnicate"}, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Fatalf("unknown docs subcommand should be 2, got %d", code)
+	}
+}
+
+// gitInit makes a throwaway repo with the given files (relative path → content),
+// committing them so `git ls-files` sees them tracked.
+func gitInit(t *testing.T, files map[string]string) string {
+	t.Helper()
+	isolateGit(t)
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	run("config", "user.email", "t@example.com")
+	run("config", "user.name", "t")
+	for rel, body := range files {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run("add", "-A")
+	run("commit", "-q", "-m", "init")
+	return dir
+}
+
+func TestRun_Docs_Check_Clean(t *testing.T) {
+	dir := gitInit(t, map[string]string{
+		"README.md":     "see `internal/x.go` and [guide](docs/guide.md)\n",
+		"internal/x.go": "package x\n",
+		"docs/guide.md": "# guide\n",
+	})
+	var out, errb bytes.Buffer
+	code := Run([]string{"docs", "check", dir}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("clean repo should exit 0, got %d\nstdout:%s\nstderr:%s", code, out.String(), errb.String())
+	}
+}
+
+func TestRun_Docs_Check_ReportsDangling(t *testing.T) {
+	dir := gitInit(t, map[string]string{
+		"README.md":     "good `internal/x.go` but [gone](docs/removed.md)\n",
+		"internal/x.go": "package x\n",
+	})
+	var out, errb bytes.Buffer
+	code := Run([]string{"docs", "check", dir}, strings.NewReader(""), &out, &errb)
+	if code != 1 {
+		t.Fatalf("dangling ref should exit 1, got %d", code)
+	}
+	if !strings.Contains(out.String(), "README.md:1: unresolved reference: docs/removed.md") {
+		t.Errorf("expected the dangling ref reported:\n%s", out.String())
+	}
+}
+
 func TestRun_Guardrail_BlocksLongSleep(t *testing.T) {
 	var out, errb bytes.Buffer
 	stdin := strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"sleep 600"}}`)

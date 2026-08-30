@@ -669,6 +669,36 @@ A config absent from the sidecar defaults to **gated** (`clean: true`), so a new
 added config can never silently skip the gate. The external `sqlc` binary is
 resolved via `APHROLLO_SQLC_BIN`, then `$PATH`, then the operator go-install path.
 
+### Doc-reference guard (`aphrollo docs check`)
+
+Agent behaviour on this box is driven by prose — layered `CLAUDE.md` files plus
+per-repo docs. A citation that points at a path which no longer exists silently
+misdrives every session that loads the doc, and nothing else catches it.
+
+```sh
+aphrollo docs check                 # scan the cwd repo (default)
+aphrollo docs check path/to/repo    # scan another repo root
+aphrollo docs check README.md docs  # narrow to pathspecs in the cwd repo
+```
+
+It reads tracked `*.md` (`git ls-files`) and extracts two kinds of citation:
+markdown link/image targets `[..](path)`, and inline-code tokens that look like
+repo paths — a slash plus a file extension (`internal/cli/cli.go`) or a
+multi-segment trailing-slash directory (`internal/lsp/`). Each reference is
+resolved first relative to the citing file, then to the repo root. `http(s)` /
+`mailto` URLs, bare `#anchors`, absolute/home paths, and anything inside a fenced
+code block are ignored. Every miss prints as
+
+```
+file:line: unresolved reference: <path>
+```
+
+and the command exits non-zero, so it drops straight into CI or a pre-commit
+hook. **The bar is zero**: no baseline file, no allowlist, no suppression comment
+— a rule with an escape hatch decays. If a doc must mention a bare concept
+(`node_modules/`) or a path in *another* repo, keep it out of path-citation form
+(drop the slash, or describe it in prose) rather than reaching for a suppression.
+
 ## Setup — `aphrollo tdd init`
 
 One command wires the whole gate — the native replacement for
@@ -718,6 +748,7 @@ internal/tdd/        TDD gates (mechanical-only): policy engine, edit smells, an
 internal/workspace/  worktree lifecycle (create/claim/unclaim/list/remove/prune) + git verbs (commit/push/submit/update/diff/pr/ship/merge)
 internal/dev/        dev-tier control plane: up/down/restart/status/logs (systemd)
 internal/sqlc/       sqlc drift guard: config discovery, regen-into-temp, check, scoped-by-symbol regen
+internal/docs/       doc-reference guard: extract path citations from tracked *.md, resolve, report misses
 ```
 
 ## Known limitations (v1)
