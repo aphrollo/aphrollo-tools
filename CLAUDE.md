@@ -40,6 +40,9 @@ and acts now.
 - `tdd` — the TDD gates (`pretooluse`/`posttooluse`/`userpromptsubmit`/`sessionend`/
   `precommit`/`prepush`) + `tdd init` (wires session hooks + global git gate).
   Ported from the retired `claude-code-tdd` Node hooks (this binary IS the gate now).
+- `docs check` — doc-reference guard: every repo path a tracked `*.md` cites must
+  resolve (relative to the citing file, then repo root); exit 1 on any miss. Bar
+  is zero — no baseline, no allowlist, no suppression.
 
 ## Layout
 
@@ -51,6 +54,7 @@ internal/lsp/        LSP types + JSON-RPC stdio client
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy
 internal/tdd/        TDD gates: policy engine, edit smells, anti-cheat, fail-first, install
+internal/docs/       doc-reference guard: extract path citations, resolve, report misses
 internal/workspace/  worktree lifecycle + git verbs
 internal/dev/        dev-tier control plane (systemd)
 ```

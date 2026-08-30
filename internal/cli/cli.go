@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/dev"
+	"github.com/aphrollo/aphrollo-tools/internal/docs"
 	"github.com/aphrollo/aphrollo-tools/internal/guardrail"
 	"github.com/aphrollo/aphrollo-tools/internal/refactor"
 	"github.com/aphrollo/aphrollo-tools/internal/sqlc"
@@ -35,6 +36,7 @@ Commands:
   guardrail   PreToolUse policy hook for coder/devops sessions
   tdd         Autonomous TDD gates (Claude + git hooks)
   sqlc        Guard sqlc-generated code against drift (check / scoped regen)
+  docs        Guard doc-cited repo paths against dangling references (check)
 `
 
 // commandTimeout bounds a single language-server-backed command end to end —
@@ -87,6 +89,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runTDD(args[1:], stdin, stdout, stderr)
 	case "sqlc":
 		return runSqlc(args[1:], stdout, stderr)
+	case "docs":
+		return runDocs(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "aphrollo: unknown command %q\n\n%s", args[0], rootUsage)
 		return 2
@@ -1604,6 +1608,70 @@ func runSqlc(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo sqlc: unknown subcommand %q\n\n%s", args[0], sqlcUsage)
 		return 2
 	}
+}
+
+const docsUsage = `usage: aphrollo docs <subcommand> [args]
+
+Subcommands:
+  check [path...]   Verify every repo path a tracked doc cites still resolves.
+                    Exit 1 on any unresolved reference. Read-only.
+
+Scans tracked *.md (git ls-files) under the repo root (default: cwd repo);
+narrow to specific pathspecs by passing them. Extracts markdown link targets
+[..](path) and inline-code tokens that look like repo paths (a slash + a file
+extension, or a multi-segment trailing-slash dir). Each reference is resolved
+relative to the citing file, then to the repo root. http(s)/mailto URLs, bare
+#anchors, absolute/home paths, and anything inside a fenced code block are
+ignored. Reports every miss as:
+
+  file:line: unresolved reference: <path>
+
+The bar is zero. There is no baseline file, no allowlist, no suppression comment
+— a rule with an escape hatch decays. A doc that cites a path that no longer
+exists silently misdrives every agent session that loads it; this catches that.
+`
+
+func runDocs(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprint(stderr, docsUsage)
+		return 2
+	}
+	switch args[0] {
+	case "-h", "--help", "help":
+		fmt.Fprint(stdout, docsUsage)
+		return 0
+	case "check":
+		return runDocsCheck(args[1:], stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "aphrollo docs: unknown subcommand %q\n\n%s", args[0], docsUsage)
+		return 2
+	}
+}
+
+func runDocsCheck(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("check", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	// A single positional arg naming a directory is the repo root to scan;
+	// otherwise the positionals are pathspecs narrowing the cwd repo.
+	root := "."
+	paths := fs.Args()
+	if len(paths) > 0 {
+		if info, err := os.Stat(paths[0]); err == nil && info.IsDir() {
+			root, paths = paths[0], paths[1:]
+		}
+	}
+	failed, err := docs.Check(root, paths, stdout)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	if failed {
+		return 1
+	}
+	return 0
 }
 
 func runSqlcCheck(args []string, stdout, stderr io.Writer) int {
