@@ -66,6 +66,12 @@ var sourceExts = map[string]bool{
 	// test file (see isTestFile). `.zon` (build.zig.zon manifest) is not code,
 	// so it stays out of this set and classifies as Ignore.
 	".zig": true,
+	// RON is Rust code's data half: embedded item registries, the
+	// locomotion key tables, frozen schema fixtures. Editing one changes
+	// program behaviour, so it is Source (never Test -- a .ron declares no
+	// test, whatever directory it sits in) and its owning package resolves
+	// through the nearest ancestor Cargo.toml, exactly as a .rs does.
+	".ron": true,
 }
 
 // ClassifyFile maps a file path to the role the TDD gates should treat it as.
