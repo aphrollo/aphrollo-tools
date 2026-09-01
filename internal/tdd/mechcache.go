@@ -36,11 +36,29 @@ func mechCachePath() string {
 	return filepath.Join(dir, "mech-cache.json")
 }
 
-// mechKey identifies one provably-green state: the repo, its worktree content
-// hash, and the exact command that went green. A different runner argv (a
-// differently-scoped run) never satisfies a lookup for the full suite.
+// mechKey identifies one provably-green state: the REPO (its git common dir,
+// so every linked worktree of one repo shares the cache — identical content
+// under an identical command is the same proven fact wherever it is checked
+// out), the worktree content hash, and the exact command that went green. A
+// different runner argv (a differently-scoped run) never satisfies a lookup
+// for the full suite. A root outside any git repo keys on itself, so
+// unrelated non-repo projects never collapse into one key.
 func mechKey(root, stateHash string, r Runner) string {
-	return root + "\x00" + stateHash + "\x00" + r.Cmd + " " + strings.Join(r.Args, " ")
+	return mechKeyRepo(root) + "\x00" + stateHash + "\x00" + r.Cmd + " " + strings.Join(r.Args, " ")
+}
+
+// mechKeyRepo resolves root to the identity the cache keys on: the repo's
+// git common dir, or root itself when git cannot answer.
+func mechKeyRepo(root string) string {
+	out, err := git(root, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return root
+	}
+	dir := strings.TrimSpace(out)
+	if dir == "" {
+		return root
+	}
+	return filepath.Clean(dir)
 }
 
 func loadMechCache(path string) *mechCacheFile {
