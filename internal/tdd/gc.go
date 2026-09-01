@@ -1,10 +1,12 @@
 package tdd
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,7 +14,7 @@ import (
 )
 
 // Disk hygiene for the build caches this binary's own gates create and use.
-// Three kinds of directory qualify, and nothing else ever does:
+// Four kinds of leftover qualify, and nothing else ever does:
 //
 //	(a) idle incremental caches in the invoking workspace's target dir --
 //	    deleting one costs a single recompile of that crate;
@@ -254,7 +256,11 @@ func gcStaleGateDirs(base string) []GCCandidate {
 			if root == "" {
 				continue
 			}
-			if _, err := os.Stat(root); err == nil {
+			// Only a PROVEN-missing repo qualifies: any other Stat error
+			// (permission, a disconnected drive, a path too long) means "I
+			// could not look", and deleting on that basis takes out a live
+			// gate worktree.
+			if _, err := os.Stat(root); !errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
 			_, size := dirNewestAndSize(path)
@@ -276,7 +282,7 @@ func gcStaleGateDirs(base string) []GCCandidate {
 func gcOrphanWorktreeDirs(repoRoot string) []GCCandidate {
 	registered := gitWorktreePaths(repoRoot)
 	parents := map[string]bool{}
-	for path := range registered {
+	for _, path := range registered {
 		if insideDir(repoRoot, path) {
 			continue // the main checkout and anything nested in it
 		}
@@ -293,7 +299,7 @@ func gcOrphanWorktreeDirs(repoRoot string) []GCCandidate {
 				continue
 			}
 			path := filepath.Join(parent, e.Name())
-			if registered[filepath.Clean(path)] || !onlyBuildDirInside(path) {
+			if registered[pathKey(path)] != "" || !onlyBuildDirInside(path) {
 				continue
 			}
 			_, size := dirNewestAndSize(path)
@@ -314,15 +320,26 @@ func gcOrphanWorktreeDirs(repoRoot string) []GCCandidate {
 // answer -- and an empty set means NOTHING is proposed for deletion, which
 // is the safe direction: with no registry there is no way to tell an orphan
 // from a live worktree.
-func gitWorktreePaths(repoRoot string) map[string]bool {
+// pathKey normalises a path for comparison: case-folded on Windows, where
+// one directory routinely appears as D:\... and d:\..., and a case-SENSITIVE
+// compare made a registered worktree read as an orphan build dir.
+func pathKey(p string) string {
+	clean := filepath.Clean(p)
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(clean)
+	}
+	return clean
+}
+
+func gitWorktreePaths(repoRoot string) map[string]string {
 	out, err := git(repoRoot, "worktree", "list", "--porcelain")
 	if err != nil {
 		return nil
 	}
-	paths := map[string]bool{}
+	paths := map[string]string{}
 	for line := range strings.Lines(out) {
 		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "worktree "); ok {
-			paths[filepath.Clean(rest)] = true
+			paths[pathKey(rest)] = filepath.Clean(rest)
 		}
 	}
 	return paths
@@ -376,29 +393,49 @@ func ApplyGC(cands []GCCandidate) (freed int64, refused []string) {
 // every slot is busy — the next sweep gets them. Everything else belongs to
 // a repo or worktree that is already gone, so it never waits.
 func ApplyGCFor(repo string, cands []GCCandidate) (freed int64, refused []string, skipped int) {
-	var incremental, rest []GCCandidate
+	// Anything that IS a cargo target dir — an incremental cache inside one,
+	// an orphan lane build dir, a gate target — is deleted only while this
+	// process holds that target's build slot. Otherwise a RemoveAll walks a
+	// directory another session is compiling into.
+	byTarget := map[string][]GCCandidate{}
+	var free []GCCandidate
 	for _, c := range cands {
-		if c.Kind == GCKindIncremental {
-			incremental = append(incremental, c)
+		if target := gcTargetInterlock(repo, c); target != "" {
+			byTarget[target] = append(byTarget[target], c)
 			continue
 		}
-		rest = append(rest, c)
+		free = append(free, c)
 	}
-	freed, refused = ApplyGC(rest)
-	if len(incremental) == 0 {
-		return freed, refused, 0
+	freed, refused = ApplyGC(free)
+	for target, group := range byTarget {
+		slot, release, ok := TryAcquireBuildSlot(target)
+		if !ok {
+			skipped += len(group)
+			continue
+		}
+		WriteBuildSlotOwner(slot, gcOwnerCommand, repo)
+		gFreed, gRefused := ApplyGC(group)
+		RemoveBuildSlotOwner(slot)
+		release()
+		freed += gFreed
+		refused = append(refused, gRefused...)
 	}
-	target := ResolveCargoTargetDir(repo)
-	slot, release, ok := TryAcquireBuildSlot(target)
-	if !ok {
-		return freed, refused, len(incremental)
+	return freed, refused, skipped
+}
+
+// gcTargetInterlock names the target dir a candidate belongs to, or "" when
+// deleting it cannot race a build.
+func gcTargetInterlock(repo string, c GCCandidate) string {
+	switch c.Kind {
+	case GCKindIncremental:
+		return ResolveCargoTargetDir(repo)
+	case GCKindOrphanWorktree:
+		return filepath.Join(c.Path, "target")
+	case GCKindGateDir:
+		return c.Path
+	default:
+		return ""
 	}
-	defer release()
-	cwd := repo
-	WriteBuildSlotOwner(slot, gcOwnerCommand, cwd)
-	defer RemoveBuildSlotOwner(slot)
-	incFreed, incRefused := ApplyGC(incremental)
-	return freed + incFreed, append(refused, incRefused...), 0
 }
 
 // gcProtected reports whether any component of path names a build-artifact

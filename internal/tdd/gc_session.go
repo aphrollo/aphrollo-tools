@@ -54,6 +54,40 @@ func gcDue(now time.Time) bool {
 	return now.Sub(info.ModTime()) >= gcSweepEvery
 }
 
+// claimGCSweep is gcDue and stampGC as ONE step: the claim IS the stamp, so
+// two sessions starting together cannot both decide a sweep is due and both
+// launch a RemoveAll walk over the same tree. The claim is an O_EXCL create
+// of a fresh marker, renamed onto the stamp — the filesystem picks the
+// winner.
+func claimGCSweep(now time.Time) bool {
+	path := gcStatePath(gcStampFile)
+	if path == "" {
+		return false
+	}
+	if !gcDue(now) {
+		return false
+	}
+	claim := path + ".claim"
+	f, err := os.OpenFile(claim, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		// Someone else is claiming right now, or a previous claim was left
+		// behind: an abandoned claim older than the sweep interval is stale
+		// and is cleared so the next session start can win it.
+		if info, serr := os.Stat(claim); serr == nil && now.Sub(info.ModTime()) >= gcSweepEvery {
+			_ = os.Remove(claim)
+		}
+		return false
+	}
+	_, _ = f.WriteString(now.UTC().Format(time.RFC3339))
+	_ = f.Close()
+	if err := os.Rename(claim, path); err != nil {
+		_ = os.Remove(claim)
+		return false
+	}
+	_ = os.Chtimes(path, now, now)
+	return true
+}
+
 // stampGC records that a sweep started. It is stamped at START, not at
 // completion: a sweep that dies halfway must not re-run on every session
 // start until it finally finishes.
@@ -132,10 +166,9 @@ var gcSpawnForTest func(cwd string)
 // not each launch one. It never waits: the child outlives this process, and
 // the session AFTER it reports the result.
 func maybeStartBackgroundGC(cwd string) {
-	if cwd == "" || !gcDue(time.Now()) {
+	if cwd == "" || !claimGCSweep(time.Now()) {
 		return
 	}
-	stampGC(time.Now())
 	if gcSpawnForTest != nil {
 		gcSpawnForTest(cwd)
 		return
@@ -154,11 +187,23 @@ func spawnBackgroundGC(cwd string) {
 	cmd.Dir = cwd
 	cmd.Env = cleanGitEnv()
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
+	// Detached: the stamp fires before the work, so a sweep killed with the
+	// hook's process group would leave a half-deleted tree and no sweep due
+	// for another day.
+	cmd.SysProcAttr = detachedAttrs()
 	if err := cmd.Start(); err != nil {
 		return
 	}
-	// Release the child: this process is a hook and exits in milliseconds.
-	go func() { _ = cmd.Wait() }()
+	_ = cmd.Process.Release()
+}
+
+// backgroundGCSpawnDescription states the spawn's contract for a test that
+// cannot watch a process die with its parent.
+func backgroundGCSpawnDescription() string {
+	if detachedAttrs() == nil {
+		return "attached to the hook"
+	}
+	return "detached from the hook's process group"
 }
 
 // writeGateOrigin records which repo a hash-named gate directory belongs to.
