@@ -628,6 +628,22 @@ deliberately **not** ported — a full suite on every session start costs more t
 the one first-edit false-RED it avoids, and there is no main-branch edit gate
 here to toggle.
 
+Three further test-quality smells **warn and never deny** — they are judgement
+calls, and a false deny wedges a session. Each prints one `file:line` note:
+
+- **weak physics bar** — `assert!(x > 0.0)` in a `crates/{forge*,movement,pose,shared}`
+  test: a sign check passes for a value 100x wrong ("state the closed-form
+  value and tolerance").
+- **generic test name** — `fn test_*`, `*_works`, `*_basic`, `*smoke*`: a name
+  that describes nothing cannot say which production change makes it red.
+- **unexplained tolerance** — `approx_eq` / `abs_diff_eq` /
+  `assert_relative_eq` / `< EPS` / `< 1e-` with no `// tolerance: <why>` (or
+  `// why:`) within two lines above: a tolerance is a hole the size of the
+  tolerance until something names its consumer.
+
+Files matching `_platform_pin` are exempt: they record what a MACHINE does, so
+a sign bar or a tolerance there is the point of the file.
+
 The gates share a small **policy engine**: each detector is a `policy` value in
 a slice, grouped by the integrity it protects. *Oracle smells* (the test can't
 fail) are near-zero-FP and block at every phase. *Suppressions* (a gate is being
