@@ -59,40 +59,41 @@ func runEditPhases(runner Runner, root, headSHA, fileHash, session string, budge
 		single := build
 		single.Phase = "run"
 		single.Runner = phaseArgv(runner, "run")
-		out, done := startAndWait(single, time.Until(deadline))
+		started, out, done := startAndWait(single, time.Until(deadline))
 		if !done {
 			return deferredEditOutcome{deferred: true, notice: buildingLine(root, "run", 0)}
 		}
-		return deferredEditOutcome{res: phaseSuiteResult(single, out)}
+		return deferredEditOutcome{res: phaseSuiteResult(started, out)}
 	}
-	out, done := startAndWait(build, time.Until(deadline))
+	startedBuild, out, done := startAndWait(build, time.Until(deadline))
 	if !done {
 		return deferredEditOutcome{deferred: true, notice: buildingLine(root, "build", 0)}
 	}
 	if out.ExitCode != 0 {
 		// A failed build IS the answer — the same red the foreground run
 		// would have produced, classified from the same output.
-		return deferredEditOutcome{res: phaseSuiteResult(build, out)}
+		return deferredEditOutcome{res: phaseSuiteResult(startedBuild, out)}
 	}
 	runPhase := build
 	runPhase.Phase = "run"
 	runPhase.Runner = phaseArgv(runner, "run")
-	out, done = startAndWait(runPhase, time.Until(deadline))
+	startedRun, out, done := startAndWait(runPhase, time.Until(deadline))
 	if !done {
 		return deferredEditOutcome{deferred: true, notice: buildingLine(root, "run", 0)}
 	}
-	return deferredEditOutcome{res: phaseSuiteResult(runPhase, out)}
+	return deferredEditOutcome{res: phaseSuiteResult(startedRun, out)}
 }
 
 // startAndWait spawns a phase and waits up to budget for it to finish. A
 // budget that has already run out still SPAWNS: the point is to keep the
 // work going, not to skip it.
-func startAndWait(j DeferredJob, budget time.Duration) (PhaseOutcome, bool) {
+func startAndWait(j DeferredJob, budget time.Duration) (DeferredJob, PhaseOutcome, bool) {
 	started, ok := spawnPhaseFn(j)
 	if !ok {
-		return PhaseOutcome{}, false
+		return j, PhaseOutcome{}, false
 	}
-	return waitPhase(started, budget)
+	out, done := waitPhase(started, budget)
+	return started, out, done
 }
 
 // harvestDeferred deals with a job left over from an earlier hook. It
@@ -138,11 +139,11 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 		runPhase.Phase = "run"
 		runPhase.Runner = phaseArgvFromBuild(j.Runner)
 		runPhase.Log, runPhase.Result = "", ""
-		runOut, ranDone := startAndWait(runPhase, budget)
+		startedRun, runOut, ranDone := startAndWait(runPhase, budget)
 		if !ranDone {
 			return buildingLine(root, "run", 0), false
 		}
-		return markDeferred(editResultAdvisory(runPhase, runOut, root, state, statePath, headSHA)), false
+		return markDeferred(editResultAdvisory(startedRun, runOut, root, state, statePath, headSHA)), false
 	}
 	return markDeferred(editResultAdvisory(j, out, root, state, statePath, headSHA)), false
 }
@@ -257,10 +258,18 @@ func killDeferred(j DeferredJob) {
 	if j.PID <= 0 {
 		return
 	}
-	if p, err := os.FindProcess(j.PID); err == nil {
-		_ = p.Kill()
+	if err := killTreeFn(j.PID); err != nil {
+		// The tree killer is the one that reaches cargo/rustc; falling back
+		// to the bare pid at least stops the wrapper from holding its slot.
+		if p, ferr := os.FindProcess(j.PID); ferr == nil {
+			_ = p.Kill()
+		}
 	}
 }
+
+// killTreeFn is the process-tree kill seam, so a test can prove the whole
+// tree is targeted without spawning one.
+var killTreeFn = killTree
 
 // headSHAFor is the current commit of root's repo, "" outside a repo — the
 // first half of "does this result describe the code on disk now".

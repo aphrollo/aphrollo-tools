@@ -246,16 +246,42 @@ func defaultGCAfterWorktreeChange(repoRoot, removed string) int64 {
 // anymore. Silent: the operator asked to remove a worktree, not to read a
 // report about disk space.
 func sweepAfterWorktreeChange(args []string, cwd string) {
-	_, rest := gitGlobalArgs(args)
-	removed, ok := worktreeSweepTarget(rest, cwd)
+	removed, ok := worktreeSweepTargetFor(args, cwd)
 	if !ok {
 		return
 	}
-	root := tdd.RepoRoot(cwd)
+	root := tdd.RepoRoot(gitWorkingDir(args, cwd))
 	if root == "" {
 		return
 	}
 	gcAfterWorktreeChange(root, removed)
+}
+
+// worktreeSweepTargetFor resolves the sweep target the way GIT resolves the
+// same argument: relative to `-C <dir>` when one is given. Resolving against
+// the shim's own cwd instead pointed a RemoveAll at a path in a different
+// tree entirely.
+func worktreeSweepTargetFor(args []string, cwd string) (removed string, ok bool) {
+	_, rest := gitGlobalArgs(args)
+	return worktreeSweepTarget(rest, gitWorkingDir(args, cwd))
+}
+
+// gitWorkingDir is the directory a verb actually runs in: the last `-C dir`
+// (git applies them cumulatively, left to right), else the shim's cwd.
+func gitWorkingDir(args []string, cwd string) string {
+	dir := cwd
+	prefix, _ := gitGlobalArgs(args)
+	for i := 0; i < len(prefix)-1; i++ {
+		if prefix[i] == "-C" {
+			if filepath.IsAbs(prefix[i+1]) {
+				dir = filepath.Clean(prefix[i+1])
+			} else {
+				dir = filepath.Join(dir, prefix[i+1])
+			}
+			i++
+		}
+	}
+	return dir
 }
 
 // worktreeSweepTarget reports whether rest is one of the two verbs that can

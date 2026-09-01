@@ -828,15 +828,15 @@ clippy-clean = ["server", "shared"]   # gate these on `clippy -D warnings` at co
   tree) is owned by no staged file, so ownership scoping alone would run it
   only when someone edits the guard itself, which is exactly when its
   invariant is not at risk.
-- **`clippy-clean`** — after the mechanical suite passes, each TOUCHED crate is
-  checked with `cargo fmt --check -p <crate>` (always) and, for crates on this
-  list, `cargo clippy -p <crate> --tests -- -D warnings`. A crate that reached
+- **`clippy-clean`** — the quality checks run BEFORE the suites, cheapest
+  first: `cargo fmt --check -p <crate>` for every TOUCHED crate is stage 1,
+  and `cargo clippy -p <crate> --tests -- -D warnings` for crates on this
+  list is stage 3 (see the stage-order table above). A crate that reached
   zero warnings stays there; crates not on the list are never lint-gated, so
   the gate stays usable in a tree that still carries warnings. Absent key =
   no clippy stage at all. Both run in the mechanical stage's target dir;
   clippy takes a build slot, fmt does not (it compiles nothing). A failure
-  blocks the commit and names the crate and the first diagnostic; a timeout
-  or a busy slot fails OPEN with a stderr note.
+  blocks the commit and names the crate and the first diagnostic.
 
 ### Disk hygiene (`aphrollo tdd gc`)
 
@@ -849,7 +849,7 @@ with nothing left pointing at them). `gc` reclaims exactly four kinds of leftove
 |---|---|
 | idle incremental caches | `<target>/*/incremental/*` whose newest FILE is older than `--older-than` (**default 3d** — being wrong costs one recompile of that one crate) |
 | dead gate dirs | `<stateDir>/failfirst-wt/<hash>` and `<stateDir>/cargo-target/<hash>` whose `origin.txt` (written at creation) names a repo that no longer exists |
-| stale lock litter | `aphrollo-*.lock` / `.owner` files in the temp dir, idle **> 1 day**, whose lock nobody currently holds (the acquire attempt IS the liveness test), plus this binary's own `aphrollo-*-stub-*` / `*-pkgtest-*` test dirs. 871 of the lock files had piled up in one operator's `%TEMP%` |
+| stale lock litter | orphan `.owner` records in the temp dir, idle **> 1 day** (`--lock-age`), whose lock nobody currently holds — the acquire attempt IS the liveness test — plus this binary's own `aphrollo-*-stub-*` / `*-pkgtest-*` test dirs. A `.lock` file itself is NEVER deleted: it is the mutual exclusion, and on Windows a delete-pending name makes the next open fail, which reads as "acquired" |
 | orphan worktree builds | a directory beside a repo's registered external worktrees that holds nothing but `target/` — git dropped the worktree, the build dir survived |
 
 ```sh

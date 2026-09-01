@@ -180,14 +180,13 @@ func (s GCScope) lockAge() time.Duration {
 	return tempLitterAge
 }
 
-// gcTempLitter finds aphrollo's own leavings in the lock dir: lock files and
-// owner records whose lock nobody holds, and the compiled stub dirs a test
-// binary builds. A lock that is currently HELD is a running build and is
-// never proposed — the acquire attempt IS the liveness test, because a lock
-// file's mtime says nothing about whether a process holds it. The residual
-// race (a build takes the lock between the probe and the delete) is bounded
-// by running this daily against files idle for a day; the lock file is
-// recreated on demand either way.
+// gcTempLitter finds aphrollo's own leavings in the lock dir: OWNER records
+// whose lock nobody holds, and the compiled stub dirs a test binary builds.
+// It never proposes a .lock file — the lock file IS the mutual exclusion, a
+// holder keeps a handle to it, and on Windows a delete leaves the name in a
+// delete-pending state whose failed open TryAcquireFileLock cannot tell from
+// a free lock. Lock files are a few bytes each; what they exclude is a
+// second cargo in one target dir.
 func gcTempLitter(dir string, minAge time.Duration, now time.Time) []GCCandidate {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -213,17 +212,20 @@ func gcTempLitter(dir string, minAge time.Duration, now time.Time) []GCCandidate
 				Reason: "test stub dir, idle " + formatDays(now.Sub(info.ModTime())), Kind: GCKindTempLitter})
 			continue
 		}
-		lock := strings.TrimSuffix(path, ".owner")
-		if !strings.HasSuffix(lock, ".lock") {
+		lock, isOwner := strings.CutSuffix(path, ".owner")
+		if !isOwner || !strings.HasSuffix(lock, ".lock") {
 			continue
 		}
+		// A held lock means a live build whose owner record a waiting session
+		// is about to print: the acquire probe is the liveness test, and it
+		// touches nothing but the record.
 		release, free := TryAcquireFileLock(lock)
 		if !free {
 			continue
 		}
 		release()
 		out = append(out, GCCandidate{Path: path, Size: info.Size(),
-			Reason: "unheld lock file, idle " + formatDays(now.Sub(info.ModTime())), Kind: GCKindTempLitter})
+			Reason: "orphan owner record, idle " + formatDays(now.Sub(info.ModTime())), Kind: GCKindTempLitter})
 	}
 	return out
 }

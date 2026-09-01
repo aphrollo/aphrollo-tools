@@ -84,3 +84,23 @@ func TestRunGitShim_FailedWorktreeRemovalSweepsNothing(t *testing.T) {
 		t.Fatal("a failed removal must sweep nothing — the worktree is still there")
 	}
 }
+
+// TestWorktreeSweep_ResolvesAgainstTheCDir pins a wrong-tree deletion: git's
+// own `-C <dir>` moves the working directory for the verb, so
+// `git -C D:/repo worktree remove ../lane` removes D:/lane — but the sweep
+// resolved "../lane" against the SHIM's cwd and would RemoveAll a directory
+// in a completely different tree.
+func TestWorktreeSweep_ResolvesAgainstTheCDir(t *testing.T) {
+	base := t.TempDir()
+	shimCwd := filepath.Join(base, "elsewhere", "session")
+	repo := filepath.Join(base, "repos", "borld")
+
+	got, ok := worktreeSweepTargetFor([]string{"-C", repo, "worktree", "remove", "../lane"}, shimCwd)
+	if !ok {
+		t.Fatal("worktree remove must qualify for a sweep")
+	}
+	want := filepath.Clean(filepath.Join(repo, "..", "lane"))
+	if got != want {
+		t.Fatalf("sweep target = %s, want %s (relative to -C, not to the shim's cwd)", got, want)
+	}
+}
