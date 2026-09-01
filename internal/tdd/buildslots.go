@@ -310,12 +310,22 @@ func cargoConfigJobs(path string) (int, bool) {
 // caller already set it: the split is a default for un-tuned sessions, never
 // an override of a session that divided the box itself.
 func EnvWithBuildJobs(env []string, jobs int) []string {
+	// The STRICTER of the two wins. Yielding to a caller's value disengaged
+	// the governor entirely: lane shells export CARGO_BUILD_JOBS, and N slots
+	// each linking with the whole box's job count is the OOM the cap exists
+	// to prevent.
+	out := make([]string, 0, len(env)+1)
 	for _, kv := range env {
-		if k, _, ok := strings.Cut(kv, "="); ok && k == buildJobsEnv {
-			return env
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok || k != buildJobsEnv {
+			out = append(out, kv)
+			continue
+		}
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 && n < jobs {
+			jobs = n
 		}
 	}
-	return append(env, fmt.Sprintf("%s=%d", buildJobsEnv, jobs))
+	return append(out, fmt.Sprintf("%s=%d", buildJobsEnv, jobs))
 }
 
 // buildJobsEnv is cargo's own parallelism knob -- the mechanism by which a
@@ -327,8 +337,14 @@ const buildJobsEnv = "CARGO_BUILD_JOBS"
 // one, and returns the restore. One hook process handles many roots, so the
 // environment must go back exactly as it was.
 func setBuildJobs(jobs int) (restore func()) {
-	if _, had := os.LookupEnv(buildJobsEnv); had {
-		return func() {}
+	if raw, had := os.LookupEnv(buildJobsEnv); had {
+		// Same rule as EnvWithBuildJobs: keep the stricter number, never the
+		// caller's larger one.
+		if n, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && n > 0 && n <= jobs {
+			return func() {}
+		}
+		os.Setenv(buildJobsEnv, strconv.Itoa(jobs))
+		return func() { os.Setenv(buildJobsEnv, raw) }
 	}
 	os.Setenv(buildJobsEnv, strconv.Itoa(jobs))
 	return func() { os.Unsetenv(buildJobsEnv) }

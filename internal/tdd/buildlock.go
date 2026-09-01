@@ -1,6 +1,8 @@
 package tdd
 
 import (
+	"fmt"
+	"sync"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -43,33 +45,19 @@ func SetLockDirForTest(dir string) (restore func()) {
 	return func() { lockDirOverride.Store(prev) }
 }
 
-// buildLockPathOverride lets a test point acquireBuildLock at an ISOLATED
-// lock file instead of the real machine-wide one. Without this, any test
-// exercising the production path races the box's OWN aphrollo PostToolUse
-// hook — which runs `go test` against this same working tree after every
-// Edit/Write and, once installed, will exercise this exact lock file too —
-// producing spurious contention that has nothing to do with the behavior
-// under test. "" (the default, and the only value in production) means: use
-// the real well-known path. Atomic because `go test` runs packages in
-// parallel and SetBuildLockPathForTest is exported for other packages' use.
-var buildLockPathOverride atomic.Pointer[string]
-
-// effectiveBuildLockPath resolves the lock path acquireBuildLock actually
-// uses: the override when a test has set one, else the production path.
+// effectiveBuildLockPath resolves the base lock path every other lock file
+// is named from. There is exactly ONE isolation seam behind it — the lock
+// DIR — because two overlapping overrides let a test set the one that does
+// not cover the paths it touches and write into the real temp dir believing
+// it was isolated.
 func effectiveBuildLockPath() string {
-	if p := buildLockPathOverride.Load(); p != nil && *p != "" {
-		return *p
-	}
 	return buildLockPath()
 }
 
-// setBuildLockPathOverride swaps the override and returns a restore func.
-// Every read and write goes through the atomic: `go test` runs packages in
-// parallel, so one package's restore races another's lock acquire, and CI
-// runs -race.
+// setBuildLockPathOverride keeps the old per-path spelling for tests: only
+// the DIRECTORY is honoured, since the file names are derived.
 func setBuildLockPathOverride(path string) (restore func()) {
-	prev := buildLockPathOverride.Swap(&path)
-	return func() { buildLockPathOverride.Store(prev) }
+	return SetLockDirForTest(filepath.Dir(path))
 }
 
 // buildLockPollInterval is how often acquireBuildLock retries while polling
@@ -281,13 +269,16 @@ func SetBuildLockPathForTest(path string) (restore func()) {
 // contention. The generic primitive TryAcquireBuildLock is built on top of
 // -- exposed so ANY other machine/repo-scoped lock (task A11's per-repo git
 // lock) can reuse the identical acquire-or-fail-fast contract at an
-// ARBITRARY path, not just the well-known cargo build lock. Same fail-open
-// policy as acquireBuildLock: an unopenable lock file (permissions, a
-// read-only dir) never blocks the caller.
+// ARBITRARY path, not just the well-known cargo build lock. It fails
+// CLOSED: a lock file that cannot even be opened (a full disk, a permission
+// problem, a delete-pending name on Windows) reports NOT acquired, because
+// the opposite answer admits every waiting build at once and lets the sweep
+// delete under them.
 func TryAcquireFileLock(path string) (release func(), ok bool) {
 	f, err := openLockFile(path)
 	if err != nil {
-		return func() {}, true
+		reportLockOpenFailure(path, err)
+		return func() {}, false
 	}
 	if tryLockExclusive(f) {
 		return func() {
@@ -297,4 +288,17 @@ func TryAcquireFileLock(path string) (release func(), ok bool) {
 	}
 	_ = f.Close()
 	return func() {}, false
+}
+
+// lockOpenFailures keeps the "cannot open a lock file" complaint to one line
+// per path per process: the acquire loop polls, and a screenful of identical
+// errors buries the one fact that matters.
+// bound: one entry per distinct lock path this process touches (a handful).
+var lockOpenFailures sync.Map
+
+func reportLockOpenFailure(path string, err error) {
+	if _, seen := lockOpenFailures.LoadOrStore(path, true); seen {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "tdd: cannot open the build lock %s (%v) — treating it as HELD\n", path, err)
 }

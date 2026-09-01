@@ -176,14 +176,19 @@ func TestSlotJobs_SplitsTheTotalAcrossSlots(t *testing.T) {
 	}
 }
 
-// TestEnvWithBuildJobs_NeverOverridesTheCaller pins that an explicit
-// CARGO_BUILD_JOBS in the caller's environment wins: the split is a default
-// for un-tuned sessions, never a silent override of a session that already
-// divided the box itself (borld's documented two-lane 7/7 recipe).
-func TestEnvWithBuildJobs_NeverOverridesTheCaller(t *testing.T) {
+// TestEnvWithBuildJobs_KeepsTheStricterCap pins the governor's authority.
+// This USED to yield to any caller-set CARGO_BUILD_JOBS, which disengaged
+// the cap in exactly the sessions that need it: a lane shell exports the
+// variable, and N slots each linking with the whole box's job count is the
+// OOM the split exists to prevent. A caller may still ask for LESS.
+func TestEnvWithBuildJobs_KeepsTheStricterCap(t *testing.T) {
 	got := EnvWithBuildJobs([]string{"PATH=x", "CARGO_BUILD_JOBS=7"}, 3)
-	if n := envValue(got, "CARGO_BUILD_JOBS"); n != "7" {
-		t.Fatalf("CARGO_BUILD_JOBS = %q, want the caller's own 7", n)
+	if n := envValue(got, "CARGO_BUILD_JOBS"); n != "3" {
+		t.Fatalf("CARGO_BUILD_JOBS = %q, want the slot's stricter 3", n)
+	}
+	got = EnvWithBuildJobs([]string{"PATH=x", "CARGO_BUILD_JOBS=2"}, 3)
+	if n := envValue(got, "CARGO_BUILD_JOBS"); n != "2" {
+		t.Fatalf("CARGO_BUILD_JOBS = %q, want the caller's stricter 2", n)
 	}
 	got = EnvWithBuildJobs([]string{"PATH=x"}, 3)
 	if n := envValue(got, "CARGO_BUILD_JOBS"); n != "3" {
@@ -230,12 +235,13 @@ func TestRunCargoLocked_InjectsBuildJobsForTheChild(t *testing.T) {
 	}
 }
 
-// TestRunCargoLocked_KeepsACallerSetJobsCap pins the same "never override
-// the caller" rule at the hook/gate layer: a session that exported its own
-// CARGO_BUILD_JOBS keeps it.
-func TestRunCargoLocked_KeepsACallerSetJobsCap(t *testing.T) {
+// TestRunCargoLocked_CapsACallerSetJobsValue pins the same stricter-wins
+// rule at the hook/gate layer. It USED to keep a caller's larger value,
+// which is how a lane shell's exported CARGO_BUILD_JOBS disengaged the
+// governor for every build that shell started.
+func TestRunCargoLocked_CapsACallerSetJobsValue(t *testing.T) {
 	withIsolatedBuildLock(t)
-	t.Setenv("CARGO_BUILD_JOBS", "11")
+	t.Setenv("CARGO_BUILD_JOBS", "1000")
 
 	var seen string
 	stub := func(Runner, string) SuiteResult {
@@ -243,8 +249,11 @@ func TestRunCargoLocked_KeepsACallerSetJobsCap(t *testing.T) {
 		return SuiteResult{Passed: true}
 	}
 	runCargoLocked(stub, Runner{Cmd: "cargo"}, t.TempDir(), time.Second, time.Second)
-	if seen != "11" {
-		t.Fatalf("suite saw CARGO_BUILD_JOBS=%q, want the caller's own 11", seen)
+	if seen == "1000" {
+		t.Fatal("the slot's cap must win over a caller's larger CARGO_BUILD_JOBS")
+	}
+	if got := os.Getenv("CARGO_BUILD_JOBS"); got != "1000" {
+		t.Fatalf("CARGO_BUILD_JOBS = %q after the run, want the caller's own value restored", got)
 	}
 }
 
