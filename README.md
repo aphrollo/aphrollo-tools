@@ -587,6 +587,7 @@ live where being wrong only costs a re-run):
 | `tdd pretooluse` | Claude PreToolUse hook (stdin) | Blocks (exit 2) a **test-file** edit introducing an oracle smell — real-time sleep, tautological self-comparison, focused marker (`.only`/`fit`), or a disabled test (`.skip`/`xit`/`t.Skip`/`@pytest.mark.skip`). **Warns** (test or source) on a suppression that silences a quality gate (`//nolint`, `@ts-ignore`, `# type: ignore`, coverage-ignore). |
 | `tdd posttooluse` | Claude PostToolUse hook (stdin) | Runs the edited file's related tests as a build phase then a run phase under ONE budget, deferring whatever does not finish (see below); surfaces a RED summary. **Silent unless RED.** Source extensions include `.ron` — in a Rust workspace those are registries and fixtures whose edits change behaviour, resolved to the owning crate exactly as `.rs` is. |
 | `tdd userpromptsubmit` | Claude UserPromptSubmit hook (stdin) | Intercepts `/tdd [status\|off\|on\|reset]` — the per-session enforcement escape hatch. On any other prompt, re-injects the last RED outcome for the cwd's project so the gate survives context compaction. **Silent unless RED.** |
+| `tdd stats` | manual | Tallies `gate.log` by stage and outcome, with per-crate timeout/deferred counts and median/max gate seconds (`--since 7d`). |
 | `tdd runphase` | spawned by `tdd posttooluse` | The detached build/run phase's wrapper: holds the build slot, logs to the state dir, writes the result file the next hook harvests. Never typed by a human; never blocks. |
 | `tdd sessionend` | Claude SessionEnd hook (stdin) | Deletes the per-session state file so the state dir doesn't accumulate. |
 | `tdd precommit` | git `pre-commit` | Blocks a newly-**added** suppression (anti-cheat). Then **fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. A worktree state already proven green under the exact same command (by a PostToolUse run or an earlier gate pass) is **not re-run** — the cache is keyed on the repo's git COMMON dir, so every linked worktree of one repo reuses the same proven-green facts — only green results are cached, keyed on content + runner argv (content covers tracked files AND the ignored configuration a suite reads: dotenv files and `config/` trees, never build output), so a red always re-runs with fresh output. Both gate stages build in the REPO'S OWN target dir (see below). |
@@ -864,6 +865,21 @@ clippy-clean = ["server", "shared"]   # gate these on `clippy -D warnings` at co
   no clippy stage at all. Both run in the mechanical stage's target dir;
   clippy takes a build slot, fmt does not (it compiles nothing). A failure
   blocks the commit and names the crate and the first diagnostic.
+
+### Pipeline health (`aphrollo tdd stats`)
+
+```sh
+aphrollo tdd stats              # the whole gate.log
+aphrollo tdd stats --since 7d   # just this week
+```
+
+One table: every stage (`postedit`, `precommit`, `premergecommit`) against
+every outcome (`green`, `red`, `blocked`, `timeout`, `timeout-rejected`,
+`queued-skipped`, `queued-rejected`, `deferred`), then the median and maximum
+gate seconds and the per-crate timeout and deferral counts. A stage with no
+rows still prints, so "zero timeouts" and "never ran" are not the same blank.
+Read-only: it never touches the log it reads, and an unparseable line is
+skipped rather than guessed at (the log is appended to by several processes).
 
 ### Disk hygiene (`aphrollo tdd gc`)
 

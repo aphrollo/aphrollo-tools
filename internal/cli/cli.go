@@ -217,6 +217,7 @@ Subcommands:
                     lingering pre-push shim. Never blocks.
   runphase          Run one deferred build/run phase from its job record (--job);
                     spawned by posttooluse, not typed by hand
+  stats             Tally gate.log by stage and outcome (--since 7d)
   gc                Reclaim stale build dirs: idle incremental caches, dead gate dirs,
                     orphan worktree builds (--repo, --older-than 3d, --apply)
   install           Install the git-hook shims into a repo (--repo, --apply)
@@ -338,6 +339,10 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "init" {
 		return runTDDInit(args[1:], stdout, stderr)
+	}
+	if args[0] == "stats" {
+		// Read-only report over gate.log: pipeline health as a number.
+		return runTDDStats(args[1:], stdout, stderr)
 	}
 	if args[0] == "gc" {
 		// Disk hygiene: dry-run by default, --apply reclaims.

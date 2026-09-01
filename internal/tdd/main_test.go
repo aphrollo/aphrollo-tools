@@ -36,6 +36,10 @@ func TestMain(m *testing.M) {
 	if err := os.MkdirAll(locks, 0o755); err != nil {
 		panic(err)
 	}
+	// Same reason as internal/cli's TestMain: a deferred phase tells its
+	// child the lock is held, which is a fact about the phase, not about any
+	// case under test here.
+	os.Unsetenv(BuildLockHeldEnv)
 	restoreLocks := SetLockDirForTest(locks)
 	code := m.Run()
 	restoreLocks()

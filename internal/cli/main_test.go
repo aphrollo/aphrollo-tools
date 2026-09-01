@@ -40,6 +40,11 @@ func TestMain(m *testing.M) {
 	if err := os.MkdirAll(locks, 0o755); err != nil {
 		panic(err)
 	}
+	// The gate may run this suite from inside a deferred phase, which tells
+	// its child the build lock is HELD. That is true of the phase, not of a
+	// test case about the shim's queuing — inherited, it made every shim
+	// test take the nested-passthrough path.
+	os.Unsetenv(tdd.BuildLockHeldEnv)
 	restoreLocks := tdd.SetLockDirForTest(locks)
 	code := m.Run()
 	restoreLocks()
