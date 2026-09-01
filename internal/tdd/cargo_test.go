@@ -68,9 +68,9 @@ func TestNarrowToRelatedTests_CargoTestFiles(t *testing.T) {
 			want:   Runner{"cargo", []string{"test", "--test", "integration"}, "", time.Time{}},
 		},
 		{
-			name:   "rust test file outside tests/ → --lib",
+			name:   "rust test module under src/ → --lib, filtered to that module",
 			target: filepath.Join(root, "src", "thing_test.rs"),
-			want:   Runner{"cargo", []string{"test", "--lib"}, "", time.Time{}},
+			want:   Runner{"cargo", []string{"test", "--lib", "thing_test::"}, "", time.Time{}},
 		},
 	}
 	for _, c := range cases {
@@ -95,7 +95,7 @@ func TestNarrowToRelatedTests_CargoSourceEdits(t *testing.T) {
 		write(t, root, "src/lib.rs", "pub fn base() -> i32 { 0 }\n")
 		write(t, root, "src/foo.rs", "pub fn foo() -> i32 { 1 }\n")
 		got := NarrowToRelatedTests(cargo, filepath.Join(root, "src", "foo.rs"), root)
-		want := Runner{"cargo", []string{"test", "--lib"}, "", time.Time{}}
+		want := Runner{"cargo", []string{"test", "--lib", "foo::"}, "", time.Time{}}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("lib-crate source narrow = %+v, want %+v", got, want)
 		}

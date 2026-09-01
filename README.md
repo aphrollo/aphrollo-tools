@@ -663,6 +663,23 @@ cargo's path-baked fingerprints stay warm) EXPORTS that same target dir — it
 lives outside the repo, so cargo's default would otherwise create a third one
 inside it.
 
+#### Which cargo target an edit runs
+
+Getting this wrong is not a slower run, it is an error — `--test x` for a
+target that does not exist fails instantly and proves nothing:
+
+| edited file | run |
+|---|---|
+| `<crate>/tests/x.rs` | `--test x` |
+| `<crate>/tests/<dir>/**` | `--test <dir>` |
+| `<crate>/src/a/b.rs` (incl. `*_tests.rs` modules) | `--lib`, filtered to `a::b::` — a `#[cfg(test)] mod` under `src/` is part of the LIB test binary, not a test target of its own |
+| `<crate>/src/lib.rs`, `src/main.rs`, `src/a/mod.rs` | `--lib` (no filter: that IS the crate/module) |
+| `<crate>/examples/x.rs`, `examples/x/**` | `--example x` |
+| `<crate>/benches/x.rs` | `--bench x --no-run` — a bench RUN costs minutes and says nothing about correctness |
+
+The filter dialect follows the runner: `-E 'test(/^a::b::/)'` for nextest, the
+`a::b::` substring for plain `cargo test`.
+
 #### The edit hook's budget, and deferred builds
 
 A cold Bevy-sized build does not fit in an edit hook, and killing it at the

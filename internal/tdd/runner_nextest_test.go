@@ -98,11 +98,11 @@ func TestNarrowing_PreservesNextest(t *testing.T) {
 		}
 	})
 
-	t.Run("source edit in a lib crate scopes to the lib target", func(t *testing.T) {
+	t.Run("source edit in a lib crate scopes to the lib target and its module", func(t *testing.T) {
 		root := mkProject(t, "Cargo.toml")
 		write(t, root, filepath.Join("src", "lib.rs"), "")
 		got := NarrowToRelatedTests(nextest, filepath.Join(root, "src", "game.rs"), root)
-		want := Runner{Cmd: "cargo", Args: []string{"nextest", "run", "--lib"}}
+		want := Runner{Cmd: "cargo", Args: []string{"nextest", "run", "--lib", "-E", "test(/^game::/)"}}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("want %+v, got %+v", want, got)
 		}
