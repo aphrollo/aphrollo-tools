@@ -12,12 +12,23 @@ import (
 	"time"
 )
 
-// The cargo build lock is an OOM/CPU governor, not a correctness device --
-// cargo already serialises builds WITHIN one target dir via its own
-// build-dir flock. So the lock is keyed on the TARGET DIR a build writes to
-// (two worktrees with separate targets never compete for anything) and
-// admits N concurrent holders per key, each capped to 1/N of the box's job
-// budget so N builds cost about what one uncapped build used to.
+// Two locks, because there are two different constraints:
+//
+//   - The TARGET LOCK (one per resolved target dir) mirrors cargo's own
+//     build-directory flock: exactly one build per target dir, ever.
+//     Admitting a second would hand out a slot the second builder then
+//     spends its whole budget blocked on INSIDE cargo, invisibly, which is
+//     strictly worse than being told to wait.
+//   - The GLOBAL SLOTS (N of them, APHROLLO_BUILD_SLOTS, default 2) are the
+//     OOM/CPU governor: separate target dirs do not compete for a build
+//     directory, but they do compete for the box. Each holder runs with
+//     CARGO_BUILD_JOBS = totalJobs/N, so N builds cost about what one
+//     uncapped build used to.
+//
+// A build needs BOTH: target lock first, then a global slot; released in
+// reverse. If the slot cannot be had, the target lock goes back immediately
+// -- a full box must never leave target dirs locked by builds that never
+// started.
 
 // buildSlotsEnv overrides how many concurrent builds one target dir admits.
 const buildSlotsEnv = "APHROLLO_BUILD_SLOTS"
@@ -109,62 +120,100 @@ func targetDirKey(targetDir string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// buildSlotLockPath is the lock file for one slot of one target dir:
-// "<base>.<key>.<slot>.lock", derived from the effective base path so a
-// test's isolated override (SetBuildLockPathForTest) keys its own family of
-// slot files instead of the machine-wide ones.
-func buildSlotLockPath(targetDir string, slot int) string {
+// targetLockPath is the one lock file for a target dir:
+// "<base>.<key>.lock", derived from the effective base path so a test's
+// isolated override (SetBuildLockPathForTest) gets its own family of files
+// instead of the machine-wide ones.
+func targetLockPath(targetDir string) string {
 	base := strings.TrimSuffix(effectiveBuildLockPath(), ".lock")
-	return fmt.Sprintf("%s.%s.%d.lock", base, targetDirKey(targetDir), slot)
+	return fmt.Sprintf("%s.%s.lock", base, targetDirKey(targetDir))
 }
 
-// TryAcquireBuildSlot attempts, ONCE and non-blocking, to take any free slot
-// of targetDir's key, trying slots in index order so a box with idle
-// capacity always fills slot 0 first (an operator reading %TEMP% sees the
-// low indices in use, not a scatter). ok=false means every slot is busy.
-// Exported so internal/cli's cargo shim can build its own wait loop with
-// its own queued/acquired messaging.
+// globalSlotPath is the i-th global slot file, beside the target locks:
+// "aphrollo-cargo-slot.<i>.lock" in production, and a test-local equivalent
+// under an override.
+func globalSlotPath(i int) string {
+	base := effectiveBuildLockPath()
+	name := strings.TrimSuffix(filepath.Base(base), ".lock")
+	name = strings.TrimSuffix(name, "-build") + "-slot"
+	return filepath.Join(filepath.Dir(base), fmt.Sprintf("%s.%d.lock", name, i))
+}
+
+// TryAcquireBuildSlot attempts, ONCE and non-blocking, to take BOTH locks a
+// build needs: this target dir's exclusive lock, then any free global slot.
+// ok=false means another build owns this target dir, or the box is at
+// capacity. Exported so internal/cli's cargo shim can build its own wait
+// loop with its own queued/acquired messaging.
 func TryAcquireBuildSlot(targetDir string) (BuildSlot, func(), bool) {
+	lock := targetLockPath(targetDir)
+	releaseTarget, ok := TryAcquireFileLock(lock)
+	if !ok {
+		return BuildSlot{}, func() {}, false
+	}
 	n := buildSlotCount()
 	jobs := slotJobs(totalCargoJobs(), n)
 	for i := range n {
-		lock := buildSlotLockPath(targetDir, i)
-		if release, ok := TryAcquireFileLock(lock); ok {
-			return BuildSlot{Index: i, Lock: lock, Owner: lock + ".owner", Jobs: jobs}, release, true
+		if releaseSlot, ok := TryAcquireFileLock(globalSlotPath(i)); ok {
+			return BuildSlot{Index: i, Lock: lock, Owner: lock + ".owner", Jobs: jobs},
+				func() {
+					releaseSlot()
+					releaseTarget()
+				}, true
 		}
 	}
+	// The box is full: give the target lock straight back, or a busy box
+	// would leave every target dir locked by a build that never started.
+	releaseTarget()
 	return BuildSlot{}, func() {}, false
 }
 
-// acquireBuildSlot polls for a free slot of targetDir until one is acquired
-// or deadline elapses. A ZERO deadline is a single try across the slots --
-// the PostToolUse edit hook's contract: an edit-time run must report
-// QUEUED-SKIPPED instantly rather than spend its budget waiting.
+// buildLockQueueNoticeEvery is how often a WAITING acquirer says who it is
+// waiting for. A gate willing to wait twenty minutes must not do it in
+// silence -- but it must not repeat itself every poll either. A `var` so a
+// test can shrink it.
+var buildLockQueueNoticeEvery = 60 * time.Second
+
+// acquireBuildSlot polls for both locks until they are held or deadline
+// elapses, announcing the holder every buildLockQueueNoticeEvery while it
+// waits. A ZERO deadline is a single try -- the PostToolUse edit hook's
+// contract: an edit-time run reports QUEUED-SKIPPED instantly rather than
+// spending its budget waiting.
 func acquireBuildSlot(targetDir string, deadline time.Duration) (BuildSlot, func(), bool) {
 	start := time.Now()
+	nextNotice := buildLockQueueNoticeEvery
 	for {
 		if slot, release, ok := TryAcquireBuildSlot(targetDir); ok {
 			return slot, release, true
 		}
-		if time.Since(start) >= deadline {
+		waited := time.Since(start)
+		if waited >= deadline {
 			return BuildSlot{}, func() {}, false
+		}
+		if waited >= nextNotice {
+			fmt.Fprintf(os.Stderr, "tdd: queued behind %s for %s (waited %.0fs)\n",
+				buildSlotHolderDescription(targetDir), targetDir, waited.Seconds())
+			nextNotice += buildLockQueueNoticeEvery
 		}
 		time.Sleep(buildLockPollInterval)
 	}
 }
 
-// ReadBuildSlotOwner names a holder of targetDir's build slots: the first
-// slot with a readable owner file. With every slot busy any of them is a
-// truthful answer to "who is building here" -- the message it feeds says
-// "queued behind", not "the only holder". ok=false means no slot recorded
-// an owner (holder unknown), never an error.
-func ReadBuildSlotOwner(targetDir string) (BuildLockOwner, bool) {
-	for i := range buildSlotCount() {
-		if o, ok := readBuildLockOwnerAt(buildSlotLockPath(targetDir, i) + ".owner"); ok {
-			return o, true
-		}
+// buildSlotHolderDescription names the current holder of a target dir for a
+// waiting acquirer's line, or says the holder is unknown (the owner file is
+// best-effort, and a build started before this feature wrote none).
+func buildSlotHolderDescription(targetDir string) string {
+	o, ok := ReadBuildSlotOwner(targetDir)
+	if !ok {
+		return "another build (holder unknown)"
 	}
-	return BuildLockOwner{}, false
+	return fmt.Sprintf("%q in %s (pid %d)", o.Cmd, o.Cwd, o.PID)
+}
+
+// ReadBuildSlotOwner names the build currently holding targetDir. ok=false
+// means no owner was recorded (holder unknown), never an error -- the owner
+// file is best-effort and inherently racy.
+func ReadBuildSlotOwner(targetDir string) (BuildLockOwner, bool) {
+	return readBuildLockOwnerAt(targetLockPath(targetDir) + ".owner")
 }
 
 // WriteBuildSlotOwner / RemoveBuildSlotOwner record and clear the holder of

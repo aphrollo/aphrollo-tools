@@ -634,15 +634,24 @@ biggest false-positive class.
 ### Cargo lock — per-target build slots (`aphrollo tdd cargo`)
 
 The hooks, the commit gate and the `cargo-queue` shim all take the same
-advisory lock before running cargo. It is an **OOM/CPU governor, not a
-correctness device** — cargo already serialises builds within one target dir
-via its own build-dir flock — so it is keyed on the **target dir** a build
-writes to (`CARGO_TARGET_DIR` when set, else `<workspace root>/target`) and
-admits **N concurrent holders per key** ("slots"):
+advisory locks before running cargo. There are **two**, because there are two
+different constraints:
 
 ```
-%TEMP%/aphrollo-cargo-build.<sha256_8 of the target dir>.<slot>.lock
+%TEMP%/aphrollo-cargo-build.<sha256_8 of the target dir>.lock   # one build per target dir
+%TEMP%/aphrollo-cargo-slot.<i>.lock                             # N global slots
 ```
+
+- The **target lock** mirrors cargo's own build-directory flock: exactly one
+  build per target dir (`CARGO_TARGET_DIR` when set, else `<workspace
+  root>/target`). Handing out a second would give a builder a slot it then
+  spends its whole budget blocked on *inside* cargo, invisibly.
+- The **global slots** are the OOM/CPU governor: separate target dirs do not
+  compete for a build directory, but they do compete for the box.
+
+A build takes the target lock first, then a global slot, and releases in
+reverse; if no slot is free the target lock goes straight back, so a busy box
+never leaves target dirs locked by builds that never started.
 
 - **N is 2 by default**; `APHROLLO_BUILD_SLOTS` overrides it.
 - Each holder's child cargo gets `CARGO_BUILD_JOBS = totalJobs / N` (totalJobs
@@ -650,18 +659,19 @@ admits **N concurrent holders per key** ("slots"):
   builds cost about what one uncapped build used to. A caller that already
   exported `CARGO_BUILD_JOBS` keeps its own number — the split is a default,
   never an override.
-- **Slots only buy parallelism across DIFFERENT target dirs.** Two sessions
-  sharing one `target/` (e.g. worktrees with a shared `CARGO_TARGET_DIR`) get
-  a second slot from aphrollo and then serialise anyway on **cargo's own
-  build-dir lock** — the gain there is only that the second session is
-  waiting inside cargo instead of being refused up front. Real parallelism
-  means separate target dirs: a worktree with its own `target/`, or the
-  gate's own per-repo target under the state dir.
+- **Parallelism only exists across DIFFERENT target dirs.** Two sessions
+  sharing one `target/` (e.g. worktrees with a shared `CARGO_TARGET_DIR`) are
+  one build directory and are told to wait, visibly, instead of blocking
+  inside cargo. Real parallelism means separate target dirs: a worktree with
+  its own `target/`, or the gate's own per-repo target under the state dir.
 - **The commit gate never fails open on the queue.** The mechanical stage
   builds in the GATE-OWNED per-repo target dir (under the state dir) rather
   than the dev's own `target/`, so gate and human never contend; and if no
   slot comes free within `APHROLLO_LOCK_WAIT_SECS` the commit is **rejected**,
   naming the holder — a commit that was never tested must not land silently.
+  The wait defaults to **1200 s** (two lanes committing at once genuinely
+  serialise behind each other's suite) and the queued-behind line repeats once
+  a minute so the wait is never silent.
   (A suite TIMEOUT still fails open: that run happened, it just ran long.)
 - **The edit hook never waits.** `tdd posttooluse` tries the slots once and
   reports `QUEUED-SKIPPED` if they are all busy — it used to spend 20s of its

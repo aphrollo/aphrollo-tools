@@ -65,13 +65,14 @@ const buildLockPollInterval = 20 * time.Millisecond
 var buildLockPostEditDeadline time.Duration
 
 // buildLockPrecommitDeadline bounds how long a commit's cargo stage waits
-// for a build slot: a commit is a deliberate, infrequent action worth
-// waiting longer for than an edit — but the wait still must not exceed a big
-// chunk of the overall precommit budget (600s in production), leaving room
-// for the suite itself once a slot is actually acquired. A `var` for the
-// same test-only reason as buildLockPostEditDeadline, and settable by the
-// operator through SetPrecommitLockWait.
-var buildLockPrecommitDeadline = 300 * time.Second
+// for a build slot. Twenty minutes: the gate target dir is one per repo, so
+// two lanes committing at once genuinely serialise behind each other's full
+// suite — and a wait that expires REJECTS the commit now, so a short budget
+// throws away legitimate commits. The acquirer announces the holder once a
+// minute while it waits. A `var` for the same test-only reason as
+// buildLockPostEditDeadline, and settable by the operator through
+// SetPrecommitLockWait.
+var buildLockPrecommitDeadline = 1200 * time.Second
 
 // SetPrecommitLockWait overrides how long the commit gate waits for a build
 // slot and returns the restore. Exported for internal/cli, which owns every

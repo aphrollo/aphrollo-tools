@@ -27,9 +27,6 @@ import (
 func withIsolatedBuildLock(t *testing.T) {
 	t.Helper()
 	restorePath := setBuildLockPathOverride(filepath.Join(t.TempDir(), "test-build.lock"))
-	// One slot per target dir unless a test says otherwise: these tests are
-	// about the WAITING behaviour, so one holder must saturate the key.
-	t.Setenv(buildSlotsEnv, "1")
 	origPostEdit, origPrecommit := buildLockPostEditDeadline, buildLockPrecommitDeadline
 	buildLockPostEditDeadline = 120 * time.Millisecond
 	buildLockPrecommitDeadline = 150 * time.Millisecond

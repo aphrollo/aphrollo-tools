@@ -55,26 +55,16 @@ func TestResolveTargetDir_FallsBackToWorkspaceTarget(t *testing.T) {
 	}
 }
 
-// TestBuildSlotLockPath_KeyedOnTargetDir pins that two DIFFERENT target dirs
-// produce different lock files while one target dir always produces the
-// same one — the whole point of the per-target key. It also pins the file
-// NAME shape (aphrollo-cargo-build.<key>.<slot>.lock), since an operator
-// reading %TEMP% has to be able to tell which build a lock belongs to.
-func TestBuildSlotLockPath_KeyedOnTargetDir(t *testing.T) {
+// TestTargetLockPath_KeyedOnTargetDir pins that two DIFFERENT target dirs
+// key to different locks while one target dir always keys to the same one —
+// the whole point of the per-target key.
+func TestTargetLockPath_KeyedOnTargetDir(t *testing.T) {
 	a, b := t.TempDir(), t.TempDir()
-	pa, pb := buildSlotLockPath(a, 0), buildSlotLockPath(b, 0)
-	if pa == pb {
-		t.Fatalf("distinct target dirs must key to distinct locks, both = %q", pa)
+	if targetLockPath(a) == targetLockPath(b) {
+		t.Fatalf("distinct target dirs must key to distinct locks, both = %q", targetLockPath(a))
 	}
-	if pa != buildSlotLockPath(a, 0) {
+	if targetLockPath(a) != targetLockPath(a) {
 		t.Fatal("the same target dir must key to the same lock path on every call")
-	}
-	if buildSlotLockPath(a, 0) == buildSlotLockPath(a, 1) {
-		t.Fatal("distinct slots of one target dir must be distinct lock files")
-	}
-	base := filepath.Base(pa)
-	if !strings.HasPrefix(base, "aphrollo-cargo-build.") || !strings.HasSuffix(base, ".0.lock") {
-		t.Fatalf("lock file name = %q, want aphrollo-cargo-build.<key>.0.lock", base)
 	}
 }
 
@@ -86,7 +76,7 @@ func TestBuildSlotLockPath_KeyedOnTargetDir(t *testing.T) {
 // case-SENSITIVE filesystem keys two genuinely different paths apart.
 func TestBuildSlotLockPath_FoldsPathCaseLikeTheFilesystem(t *testing.T) {
 	dir := t.TempDir()
-	same := buildSlotLockPath(strings.ToLower(dir), 0) == buildSlotLockPath(strings.ToUpper(dir), 0)
+	same := targetLockPath(strings.ToLower(dir)) == targetLockPath(strings.ToUpper(dir))
 	if runtime.GOOS == "windows" && !same {
 		t.Fatal("on Windows one path spelled in two casings must produce ONE lock key")
 	}
@@ -95,40 +85,13 @@ func TestBuildSlotLockPath_FoldsPathCaseLikeTheFilesystem(t *testing.T) {
 	}
 }
 
-// TestTryAcquireBuildSlot_NAcquirersFitThenContend pins the slot contract:
-// with N slots configured, N concurrent builds against ONE target dir are
-// admitted and the N+1st is refused — the OOM/CPU governor, now a counter
-// instead of a binary.
-func TestTryAcquireBuildSlot_NAcquirersFitThenContend(t *testing.T) {
-	withIsolatedBuildLock(t)
-	t.Setenv(buildSlotsEnv, "2")
-	target := t.TempDir()
-
-	s0, rel0, ok0 := TryAcquireBuildSlot(target)
-	if !ok0 {
-		t.Fatal("first acquirer must get a slot")
-	}
-	defer rel0()
-	s1, rel1, ok1 := TryAcquireBuildSlot(target)
-	if !ok1 {
-		t.Fatal("second acquirer must get the SECOND slot, not queue behind the first")
-	}
-	defer rel1()
-	if s0.Index == s1.Index {
-		t.Fatalf("two holders got the same slot index %d", s0.Index)
-	}
-	if _, _, ok2 := TryAcquireBuildSlot(target); ok2 {
-		t.Fatal("a third acquirer must be refused once both slots are taken")
-	}
-}
-
 // TestTryAcquireBuildSlot_DifferentTargetDirsNeverContend pins the reason
 // the key exists at all: a second worktree building into its OWN target dir
 // is not competing for the same build directory, so it must not wait on the
-// first one's slots even when every slot of that other key is taken.
+// first one's lock while the box still has capacity.
 func TestTryAcquireBuildSlot_DifferentTargetDirsNeverContend(t *testing.T) {
 	withIsolatedBuildLock(t)
-	t.Setenv(buildSlotsEnv, "1")
+	t.Setenv(buildSlotsEnv, "2")
 	a, b := t.TempDir(), t.TempDir()
 
 	_, relA, okA := TryAcquireBuildSlot(a)
@@ -138,7 +101,7 @@ func TestTryAcquireBuildSlot_DifferentTargetDirsNeverContend(t *testing.T) {
 	defer relA()
 	_, relB, okB := TryAcquireBuildSlot(b)
 	if !okB {
-		t.Fatal("a build into a DIFFERENT target dir must not wait on another target dir's slots")
+		t.Fatal("a build into a DIFFERENT target dir must not wait on another target dir's lock")
 	}
 	relB()
 }
@@ -290,9 +253,9 @@ func TestRunCargoLocked_KeepsACallerSetJobsCap(t *testing.T) {
 // while a run into the HELD target dir still contends.
 func TestRunCargoLocked_KeysOnTheRunnersOwnTargetDir(t *testing.T) {
 	withIsolatedBuildLock(t)
-	t.Setenv(buildSlotsEnv, "1")
 	os.Unsetenv("CARGO_TARGET_DIR")
 
+	t.Setenv(buildSlotsEnv, "2")
 	rootA, rootB := t.TempDir(), t.TempDir()
 	_, release, ok := TryAcquireBuildSlot(resolveTargetDir(os.Getenv, rootA))
 	if !ok {

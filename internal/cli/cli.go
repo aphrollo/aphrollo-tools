@@ -278,17 +278,19 @@ const (
 )
 
 // defaultPrecommitLockWait is how long a commit's cargo stage queues for a
-// build slot before reporting QUEUED-SKIPPED and failing open. It mirrors
-// the tdd package's own default; the knob below is what an operator on a
-// busy box turns.
-const defaultPrecommitLockWait = 300 * time.Second
+// build slot before REJECTING the commit. Twenty minutes: the gate's target
+// dir is one per repo, so two lanes committing at once serialise behind each
+// other's full suite, and a short wait would throw away a legitimate commit.
+// It mirrors the tdd package's own default; the knob below is what an
+// operator on a busy box turns.
+const defaultPrecommitLockWait = 1200 * time.Second
 
 // The operator budget knobs live HERE, beside the defaults they override,
 // so every env switch this binary reads is declared in one place instead of
 // wherever it happens to be used:
 //
 //	APHROLLO_POSTEDIT_BUDGET_SECS  the edit hook's suite budget (default 100s)
-//	APHROLLO_LOCK_WAIT_SECS        the commit gate's build-slot wait (default 300s)
+//	APHROLLO_LOCK_WAIT_SECS        the commit gate's build-slot wait (default 1200s)
 //
 // The edit hook's own build-slot wait is deliberately NOT tunable: it is
 // zero by contract (one try, then QUEUED-SKIPPED), because an edit that

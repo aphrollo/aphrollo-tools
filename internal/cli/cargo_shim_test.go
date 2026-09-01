@@ -21,9 +21,6 @@ func withIsolatedCargoLock(t *testing.T) {
 	t.Helper()
 	restore := tdd.SetBuildLockPathForTest(filepath.Join(t.TempDir(), "test-build.lock"))
 	t.Cleanup(restore)
-	// One slot per target dir: these tests are about the shim's waiting
-	// BEHAVIOUR, so the target dir must be saturated by a single holder.
-	t.Setenv("APHROLLO_BUILD_SLOTS", "1")
 }
 
 // stubCargo returns a trivial, always-available "real cargo" stand-in: on
