@@ -390,16 +390,16 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	}
 	switch {
 	case res.TimedOut:
-		// A killed suite is a stopwatch verdict, not a test verdict. Fail
-		// OPEN (same policy as an unverifiable fail-first) — but never
-		// cache: nothing was proven green. Unlike before, this is never
-		// silent: the commit lands UNVERIFIED and both stderr and the
-		// returned Message say so explicitly (Blocked stays false — a
-		// timeout is inconclusive, not a failure).
-		line := fmt.Sprintf("tdd %s: %s %s in %s → TIMEOUT (FAIL-OPEN — commit lands UNVERIFIED)", gateName, stage, cmdString(runner), root)
+		// A commit whose suite never finished is a commit nobody tested, and
+		// unlike an edit-time timeout the consequence outlives the moment:
+		// the untested code stays in history. The gate target is warm by the
+		// time this fires, so the retry usually finishes.
+		line := fmt.Sprintf("tdd %s: %s %s in %s TIMEOUT after %.0fs REJECTED (nothing was tested)", gateName, stage, cmdString(runner), root, res.Duration.Seconds())
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog(gateName, root, cmdString(runner), "timeout-fail-open", res.Duration)
-		return GateResult{Message: line}
+		appendGateLog(gateName, root, cmdString(runner), "timeout-rejected", res.Duration)
+		return GateResult{Blocked: true, Message: fmt.Sprintf(
+			"tdd %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused. The gate target is now warm; retry the commit.",
+			gateName, cmdString(runner), res.Duration.Seconds())}
 	case !res.Passed:
 		fmt.Fprintf(os.Stderr, "tdd %s: %s %s in %s → blocked\n", gateName, stage, cmdString(runner), root)
 		appendGateLog(gateName, root, cmdString(runner), stage+"-blocked", res.Duration)

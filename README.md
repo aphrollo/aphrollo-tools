@@ -734,7 +734,11 @@ never leaves target dirs locked by builds that never started.
   The wait defaults to **1200 s** (two lanes committing at once genuinely
   serialise behind each other's suite) and the queued-behind line repeats once
   a minute so the wait is never silent.
-  (A suite TIMEOUT still fails open: that run happened, it just ran long.)
+  A suite TIMEOUT also REJECTS at commit time (`timeout-rejected`), naming the
+  elapsed seconds: a commit whose suite never finished is a commit nobody
+  tested, and the untested code would stay in history. The gate target is warm
+  by then, so the retry usually finishes. The EDIT hook keeps the advisory
+  behaviour — blocking an edit over a stopwatch would wedge the session.
 - **The edit hook never waits.** `tdd posttooluse` tries the slots once and
   reports `QUEUED-SKIPPED` if they are all busy — it used to spend 20s of its
   budget queuing behind a build that takes minutes.

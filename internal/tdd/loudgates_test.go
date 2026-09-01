@@ -101,13 +101,12 @@ func TestEmptyPass_TableDriven(t *testing.T) {
 	}
 }
 
-// TestPrecommit_MechanicalTimeout_FailOpenMessageNeverSilent pins the A2
-// contract: a mechanical-stage timeout fails open (Blocked stays false — a
-// stopwatch is not a test verdict) but must NEVER be silent about it. Before
-// this task, a timed-out mechanical run returned a bare empty GateResult{}
-// indistinguishable from "everything passed"; now the FAIL-OPEN line rides
-// in the returned Message even though nothing was rejected.
-func TestPrecommit_MechanicalTimeout_FailOpenMessageNeverSilent(t *testing.T) {
+// TestPrecommit_MechanicalTimeout_IsLoudAndRefuses pins the commit-time
+// timeout contract. It used to fail OPEN with a loud FAIL-OPEN/UNVERIFIED
+// message; since 2026-09-02 it REFUSES, because the untested code would stay
+// in history. What has not changed is that it is never silent, and never
+// dressed up as a failing suite.
+func TestPrecommit_MechanicalTimeout_IsLoudAndRefuses(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
@@ -118,14 +117,11 @@ func TestPrecommit_MechanicalTimeout_FailOpenMessageNeverSilent(t *testing.T) {
 	}
 
 	res := Precommit(root, timedOut)
-	if res.Blocked {
-		t.Fatalf("a timed-out mechanical run must fail OPEN (never block), got blocked: %s", res.Message)
+	if !res.Blocked {
+		t.Fatal("a commit whose suite never finished must be refused")
 	}
-	if res.Message == "" {
-		t.Fatal("a timed-out mechanical run must never be silent — Message must be set")
-	}
-	if !strings.Contains(res.Message, "FAIL-OPEN") || !strings.Contains(res.Message, "UNVERIFIED") {
-		t.Fatalf("expected a FAIL-OPEN/UNVERIFIED message, got: %s", res.Message)
+	if !strings.Contains(res.Message, "did not finish") || !strings.Contains(res.Message, "retry") {
+		t.Fatalf("expected an unfinished/retry message, got: %s", res.Message)
 	}
 }
 
