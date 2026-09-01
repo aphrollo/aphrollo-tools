@@ -442,21 +442,19 @@ func cargoOwnedFiles(repoRoot, root string, filesRepoRel []string) (owned, unown
 	return owned, unowned
 }
 
-// pinMechCargoTarget points the mechanical cargo run at the GATE-OWNED
-// per-repo target dir — always, whatever the operator set. Two reasons, and
-// the second is why it is unconditional. A target dir outside the repo being
-// committed is the cross-checkout poisoning vector: two divergent checkouts
-// sharing one warm target produce phantom compile failures the gate would
-// misreport as a red suite. And sharing the DEV's own target means the gate
-// contends with the human on every commit — with the build lock keyed per
-// target dir, giving the gate its own target is what makes its slot free.
-// Returns the env restore; a missing state dir leaves the environment alone
-// (cargo's default then applies).
+// pinMechCargoTarget points the gate's cargo runs at the SAME target dir the
+// developer builds into: CARGO_TARGET_DIR when the environment names one,
+// else the repo's own <root>/target. One target per repo (the user's call,
+// 2026-09-02): a private gate cache made every commit cold-compile what was
+// already built next door, and on a Bevy-sized workspace that second copy
+// cost a hundred gigabytes and ten minutes to prove the same thing twice.
+// The per-target build lock is what keeps the two builds off each other's
+// toes — the gate queues visibly like any other build.
 func pinMechCargoTarget(r Runner, repoRoot string) func() {
 	if r.Cmd != "cargo" {
 		return func() {}
 	}
-	dir := cargoFailFirstTarget(repoRoot)
+	dir := resolvedDevTarget(repoRoot)
 	if dir == "" {
 		return func() {}
 	}
@@ -469,6 +467,17 @@ func pinMechCargoTarget(r Runner, repoRoot string) func() {
 		}
 		os.Unsetenv("CARGO_TARGET_DIR")
 	}
+}
+
+// resolvedDevTarget is where a build in repoRoot lands by default: the
+// environment's CARGO_TARGET_DIR if set, else the workspace root's target/.
+// The fail-first run must EXPORT this rather than inherit it — its worktree
+// lives elsewhere, so cargo's default would silently create a second one.
+func resolvedDevTarget(repoRoot string) string {
+	if repoRoot == "" {
+		return ""
+	}
+	return ResolveCargoTargetDir(repoRoot)
 }
 
 // insideDir reports whether path lies lexically within base (inclusive).
@@ -822,14 +831,11 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	// suite (esp. cargo nextest over a large workspace) is 10-20 minutes,
 	// blows this stage's own timeout, and fails open having proven nothing.
 	runner = narrowFailFirstTests(runner, execRoot, relTests)
-	// The worktree run must not inherit the operator's CARGO_TARGET_DIR: a
-	// shared warm target can hold stale artifacts from a divergent sibling
-	// checkout and fail this check on phantom compile errors. Pin a gate-owned
-	// per-repo target instead — warm across gate runs, never shared with the
-	// operator's builds. The mechanical run (in the real checkout, where the
-	// shared target IS correct) sees the original value again via the restore.
+	// The worktree lives OUTSIDE the repo, so cargo's default would put a
+	// brand-new target/ inside it and cold-build the world on every commit.
+	// Name the repo's own resolved target explicitly.
 	if runner.Cmd == "cargo" {
-		if dir := cargoFailFirstTarget(repoRoot); dir != "" {
+		if dir := resolvedDevTarget(repoRoot); dir != "" {
 			prev, had := os.LookupEnv("CARGO_TARGET_DIR")
 			os.Setenv("CARGO_TARGET_DIR", dir)
 			defer func() {
@@ -891,42 +897,6 @@ func failFirstWorktreeDir(repoRoot string) string {
 		return ""
 	}
 	writeGateOrigin(dir, repoRoot)
-	return dir
-}
-
-// cargoFailFirstTarget returns the gate-owned CARGO_TARGET_DIR for repoRoot's
-// fail-first (and, via pinMechCargoTarget, mechanical) cargo runs: persistent
-// under the state dir (so the target stays warm across commits instead of
-// cold-compiling the whole crate each time), keyed on the repo's git COMMON
-// dir rather than repoRoot itself — every linked worktree of one repo
-// (`.claude/worktrees/agent-*`) then shares the SAME warm target instead of
-// cold-building its own (dependency artifacts are branch-independent;
-// workspace crates re-fingerprint per source path regardless; concurrent
-// builds serialize on cargo's own build-dir lock). Divergent checkouts of
-// DIFFERENT repos still never share artifacts, since each has its own
-// git-common-dir. Returns "" when there is no state dir or the dir can't be
-// created — the run then proceeds with the inherited environment.
-func cargoFailFirstTarget(repoRoot string) string {
-	base := stateDir()
-	if base == "" {
-		return ""
-	}
-	key := repoRoot
-	if commonDir, err := git(repoRoot, "rev-parse", "--git-common-dir"); err == nil {
-		commonDir = strings.TrimSpace(commonDir)
-		if commonDir != "" {
-			if !filepath.IsAbs(commonDir) {
-				commonDir = filepath.Join(repoRoot, commonDir)
-			}
-			key = filepath.Clean(commonDir)
-		}
-	}
-	sum := sha256.Sum256([]byte(key))
-	dir := filepath.Join(base, "cargo-target", hex.EncodeToString(sum[:8]))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return ""
-	}
-	writeGateOrigin(dir, key)
 	return dir
 }
 

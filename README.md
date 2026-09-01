@@ -589,7 +589,7 @@ live where being wrong only costs a re-run):
 | `tdd userpromptsubmit` | Claude UserPromptSubmit hook (stdin) | Intercepts `/tdd [status\|off\|on\|reset]` — the per-session enforcement escape hatch. On any other prompt, re-injects the last RED outcome for the cwd's project so the gate survives context compaction. **Silent unless RED.** |
 | `tdd runphase` | spawned by `tdd posttooluse` | The detached build/run phase's wrapper: holds the build slot, logs to the state dir, writes the result file the next hook harvests. Never typed by a human; never blocks. |
 | `tdd sessionend` | Claude SessionEnd hook (stdin) | Deletes the per-session state file so the state dir doesn't accumulate. |
-| `tdd precommit` | git `pre-commit` | Blocks a newly-**added** suppression (anti-cheat). Then **fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. A worktree state already proven green under the exact same command (by a PostToolUse run or an earlier gate pass) is **not re-run** — the cache is keyed on the repo's git COMMON dir, so every linked worktree of one repo reuses the same proven-green facts — only green results are cached, keyed on content + runner argv, so a red always re-runs with fresh output. Cargo fail-first runs use a gate-owned per-repo `CARGO_TARGET_DIR` under the state dir, never the operator's shared warm target. |
+| `tdd precommit` | git `pre-commit` | Blocks a newly-**added** suppression (anti-cheat). Then **fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. A worktree state already proven green under the exact same command (by a PostToolUse run or an earlier gate pass) is **not re-run** — the cache is keyed on the repo's git COMMON dir, so every linked worktree of one repo reuses the same proven-green facts — only green results are cached, keyed on content + runner argv, so a red always re-runs with fresh output. Both gate stages build in the REPO'S OWN target dir (see below). |
 | `tdd prepush` | git `pre-push` | **No-op** (mechanical-only mode). The tdd gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
 
 #### Gate stage order (cheapest first)
@@ -631,6 +631,27 @@ strings **and** comments (so a smell named in prose never trips); suppression
 detectors mask strings but **keep comments** (the directives live in comments).
 Either way a token mentioned only in a string never blocks — the original's
 biggest false-positive class.
+
+#### Where the gates build (one target dir per repo)
+
+Both gate stages — fail-first and the suites, plus fmt/clippy — build into
+the target dir the DEVELOPER builds into: `CARGO_TARGET_DIR` when the
+environment names one, else `<repo>/target`. A linked worktree therefore uses
+its own `target/`, exactly like a build the developer runs there; export
+`CARGO_TARGET_DIR` to share one.
+
+The gate used to build into a private `<stateDir>/cargo-target/<hash>`, which
+kept it out of the developer's way and cost a SECOND full copy of the
+workspace's artifacts (a measured 155 GB) plus a cold compile on every commit
+of code that was already built next door. Deps are shared, workspace crates
+coexist per source path, and the per-target build lock is what keeps the two
+builds off each other's toes: the gate queues visibly like any other build and
+rejects with `queued-rejected` if no slot comes free inside its 20-minute wait.
+
+The fail-first worktree (still `<stateDir>/failfirst-wt/<hash>`, stable so
+cargo's path-baked fingerprints stay warm) EXPORTS that same target dir — it
+lives outside the repo, so cargo's default would otherwise create a third one
+inside it.
 
 #### The edit hook's budget, and deferred builds
 
@@ -842,13 +863,13 @@ clippy-clean = ["server", "shared"]   # gate these on `clippy -D warnings` at co
 
 Build caches this binary's own gates create and use are the biggest thing on
 a Rust box's disk (a measured 417 GB `target/`, 202 GB of it
-`debug/incremental`, plus a 155 GB gate cache and orphan worktree build dirs
+`debug/incremental`, plus orphan worktree build dirs
 with nothing left pointing at them). `gc` reclaims exactly four kinds of leftover and nothing else:
 
 | category | what qualifies |
 |---|---|
 | idle incremental caches | `<target>/*/incremental/*` whose newest FILE is older than `--older-than` (**default 3d** — being wrong costs one recompile of that one crate) |
-| dead gate dirs | `<stateDir>/failfirst-wt/<hash>` and `<stateDir>/cargo-target/<hash>` whose `origin.txt` (written at creation) names a repo that no longer exists |
+| dead gate dirs | `<stateDir>/failfirst-wt/<hash>` whose `origin.txt` (written at creation) names a repo that no longer exists |
 | stale lock litter | orphan `.owner` records in the temp dir, idle **> 1 day** (`--lock-age`), whose lock nobody currently holds — the acquire attempt IS the liveness test — plus this binary's own `aphrollo-*-stub-*` / `*-pkgtest-*` test dirs. A `.lock` file itself is NEVER deleted: it is the mutual exclusion, and on Windows a delete-pending name makes the next open fail, which reads as "acquired" |
 | orphan worktree builds | a directory beside a repo's registered external worktrees that holds nothing but `target/` — git dropped the worktree, the build dir survived |
 

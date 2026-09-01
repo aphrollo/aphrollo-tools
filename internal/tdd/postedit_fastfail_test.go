@@ -91,7 +91,7 @@ func TestSetPrecommitLockWait_BoundsTheCommitGatesWait(t *testing.T) {
 	write(t, root, "src/widget.rs", "pub fn widget() -> i32 { 1 }\n")
 	gitDo(t, root, "add", ".")
 
-	_, release, ok := acquireBuildSlot(cargoFailFirstTarget(root), time.Second)
+	_, release, ok := acquireBuildSlot(resolvedDevTarget(root), time.Second)
 	if !ok {
 		t.Fatal("setup: must be able to take the gate target's only build slot")
 	}

@@ -94,7 +94,7 @@ func TestPrecommit_Mechanical_RejectsWhenNoSlotComesFree(t *testing.T) {
 	write(t, root, "src/widget.rs", "pub fn widget() -> i32 { 1 }\n")
 	gitDo(t, root, "add", ".")
 
-	slot, release, ok := acquireBuildSlot(cargoFailFirstTarget(root), time.Second)
+	slot, release, ok := acquireBuildSlot(resolvedDevTarget(root), time.Second)
 	if !ok {
 		t.Fatal("setup: must be able to take the gate target's only build slot")
 	}

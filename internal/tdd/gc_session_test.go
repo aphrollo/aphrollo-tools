@@ -8,18 +8,16 @@ import (
 	"time"
 )
 
-// TestGateDirs_RecordTheirOriginAtCreation pins the fact the whole stale-dir
-// sweep depends on: both gate directories are named by a hash, so unless the
-// repo they belong to is written down beside them at creation, nothing can
-// ever tell a live one from the remains of a deleted repo.
+// TestGateDirs_RecordTheirOriginAtCreation pins the fact the stale-dir sweep
+// depends on: the gate's fail-first worktree is named by a hash, so unless
+// the repo it belongs to is written down beside it at creation, nothing can
+// tell a live one from the remains of a deleted repo. (Since 2026-09-02 the
+// gate builds in the repo's OWN target dir, so there is no gate target to
+// record an origin for.)
 func TestGateDirs_RecordTheirOriginAtCreation(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := t.TempDir()
 
-	target := cargoFailFirstTarget(repo)
-	if target == "" {
-		t.Fatal("setup: expected a gate target dir")
-	}
 	wt := failFirstWorktreeDir(repo)
 	if wt == "" {
 		t.Fatal("setup: expected a fail-first worktree dir")
@@ -27,22 +25,16 @@ func TestGateDirs_RecordTheirOriginAtCreation(t *testing.T) {
 	if err := os.MkdirAll(wt, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	// The worktree dir's origin is written when the gate creates the dir,
-	// which is what failFirstWorktreeDir is called for.
 	failFirstWorktreeDir(repo)
 
-	for _, dir := range []string{target, wt} {
-		got, err := os.ReadFile(filepath.Join(dir, gcOriginFile))
-		if err != nil {
-			t.Fatalf("%s has no %s: %v", dir, gcOriginFile, err)
-		}
-		if !strings.Contains(string(got), filepath.Base(repo)) {
-			t.Errorf("%s records %q, want the repo it belongs to (%s)", dir, got, repo)
-		}
+	got, err := os.ReadFile(filepath.Join(wt, gcOriginFile))
+	if err != nil {
+		t.Fatalf("%s has no %s: %v", wt, gcOriginFile, err)
+	}
+	if !strings.Contains(string(got), filepath.Base(repo)) {
+		t.Errorf("%s records %q, want the repo it belongs to (%s)", wt, got, repo)
 	}
 
-	// Once the repo is gone, both become reclaimable — the end-to-end point
-	// of recording the origin.
 	if err := os.RemoveAll(repo); err != nil {
 		t.Fatal(err)
 	}
@@ -50,8 +42,8 @@ func TestGateDirs_RecordTheirOriginAtCreation(t *testing.T) {
 	for _, c := range gcStaleGateDirs(stateDir()) {
 		found[c.Path] = true
 	}
-	if !found[target] || !found[wt] {
-		t.Fatalf("both gate dirs must be reclaimable once their repo is gone, found: %v", found)
+	if !found[wt] {
+		t.Fatalf("the gate worktree must be reclaimable once its repo is gone, found: %v", found)
 	}
 }
 
@@ -190,12 +182,13 @@ func TestGCAfterWorktreeChange_SweepsWhatTheRemovalLeftBehind(t *testing.T) {
 	lane := filepath.Join(wtParent, "lane-x")
 
 	gitDo(t, repo, "worktree", "add", "-b", "lane/x", lane)
-	// The lane had its own gate dirs and its own build dir. The fail-first
-	// worktree is keyed on the LANE, so it dies with it; the warm cargo
-	// target is keyed on the repo they all share, so it must survive.
+	// The lane had its own gate worktree and its own build dir; both are
+	// keyed on the LANE, so both die with it. The repo's own target must
+	// never be touched.
 	gateWorktree := failFirstWorktreeDir(lane)
 	mkFile(t, filepath.Join(gateWorktree, "src", "lib.rs"), "x", 0)
-	sharedTarget := cargoFailFirstTarget(lane)
+	repoTarget := resolvedDevTarget(repo)
+	mkFile(t, filepath.Join(repoTarget, "debug", "big.rlib"), "0123456789", 0)
 	mkFile(t, filepath.Join(lane, "target", "debug", "big.rlib"), "0123456789", 0)
 	gitDo(t, repo, "worktree", "remove", "--force", lane)
 	// git leaves a build dir it never created.
@@ -209,8 +202,8 @@ func TestGCAfterWorktreeChange_SweepsWhatTheRemovalLeftBehind(t *testing.T) {
 	if _, err := os.Stat(gateWorktree); !os.IsNotExist(err) {
 		t.Error("the gate's fail-first worktree for a removed worktree must be swept immediately")
 	}
-	if _, err := os.Stat(sharedTarget); err != nil {
-		t.Error("the warm target is keyed on the repo every worktree shares — removing one lane must never take it")
+	if _, err := os.Stat(repoTarget); err != nil {
+		t.Error("the repo's own target must survive the removal of a lane beside it")
 	}
 	if freed <= 0 {
 		t.Errorf("freed = %d, want the bytes actually reclaimed", freed)

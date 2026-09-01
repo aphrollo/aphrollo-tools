@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -11,28 +12,28 @@ import (
 // editing one changes program behaviour exactly as editing a `.rs` does, and
 // classifying it Ignore meant those edits ran NO tests at all.
 func TestClassifyFile_RonIsSource(t *testing.T) {
-	source := []string{
+	// Classification is answered against a real tree, because a .ron is
+	// Source only where a [package] owns it: see
+	// TestClassifyFile_RonWithNoOwningCrateIsIgnored.
+	root := t.TempDir()
+	write(t, root, "crates/item/Cargo.toml", "[package]"+"\n"+`name = "item"`+"\n")
+	for _, rel := range []string{
 		"crates/item/assets/items.ron",
-		"crates/pose/data/loco_keys.ron",
-		"crates/client/config/feel.ron",
-	}
-	for _, p := range source {
-		if got := ClassifyFile(p); got != Source {
-			t.Errorf("ClassifyFile(%q) = %v, want source", p, got)
+		"crates/item/data/loco_keys.ron",
+		"crates/item/config/feel.ron",
+		"crates/item/tests/fixtures/item_v1.ron",
+	} {
+		write(t, root, rel, "( )\n")
+		if got := ClassifyFile(filepath.Join(root, rel)); got != Source {
+			t.Errorf("ClassifyFile(%q) = %v, want source", rel, got)
 		}
 	}
 
-	// A fixture under tests/ is still SOURCE, not a test: it declares no
-	// test, so it must never reach the smell gate or the fail-first RED
-	// proof — it is an input those tests read.
-	if got := ClassifyFile("crates/item/tests/fixtures/item_v1.ron"); got != Source {
-		t.Errorf("a .ron fixture under tests/ = %v, want source (it declares no test)", got)
-	}
-
 	// The exclusions every other extension already obeys still apply.
-	for _, p := range []string{"node_modules/pkg/data.ron", "vendor/x/data.ron", "crates/x/testdata/data.ron"} {
-		if got := ClassifyFile(p); got != Ignore {
-			t.Errorf("ClassifyFile(%q) = %v, want ignore", p, got)
+	for _, rel := range []string{"node_modules/pkg/data.ron", "vendor/x/data.ron", "crates/item/testdata/data.ron"} {
+		write(t, root, rel, "( )\n")
+		if got := ClassifyFile(filepath.Join(root, rel)); got != Ignore {
+			t.Errorf("ClassifyFile(%q) = %v, want ignore", rel, got)
 		}
 	}
 }

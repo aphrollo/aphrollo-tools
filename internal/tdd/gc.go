@@ -238,7 +238,9 @@ func gcTempLitter(dir string, minAge time.Duration, now time.Time) []GCCandidate
 // alone: guessing there deletes a warm target somebody is about to use.
 func gcStaleGateDirs(base string) []GCCandidate {
 	var out []GCCandidate
-	for _, kind := range []string{"cargo-target", "failfirst-wt"} {
+	// Only fail-first worktrees are gate-owned now: the gates build into the
+	// repo's own target dir, so there is no gate cache to prune.
+	for _, kind := range []string{"failfirst-wt"} {
 		entries, err := os.ReadDir(filepath.Join(base, kind))
 		if err != nil {
 			continue

@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"path/filepath"
 	"path"
 	"strings"
 )
@@ -88,10 +89,32 @@ func ClassifyFile(p string) Kind {
 	if isTestFile(p, base) {
 		return Test
 	}
-	if sourceExts[strings.ToLower(path.Ext(base))] {
+	ext := strings.ToLower(path.Ext(base))
+	if ext == ".ron" && !ronHasOwningCrate(p) {
+		// A .ron nobody's [package] owns (borld's assets/**) resolves to an
+		// EMPTY package, and an empty -p scope runs the WHOLE workspace —
+		// the heaviest run there is, from editing an asset.
+		return Ignore
+	}
+	if sourceExts[ext] {
 		return Source
 	}
 	return Ignore
+}
+
+// ronHasOwningCrate reports whether a real [package] manifest covers p.
+func ronHasOwningCrate(p string) bool {
+	dir := filepath.Dir(filepath.FromSlash(p))
+	for {
+		if cargoPackageName(filepath.Join(dir, "Cargo.toml")) != "" {
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+		dir = parent
+	}
 }
 
 // isTestFile recognises a test by filename convention across the languages the

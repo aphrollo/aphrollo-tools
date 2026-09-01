@@ -79,8 +79,13 @@ func cargoQualityStage(gateName, ws, root string, pkgs []string, run SuiteRunner
 func qualityVerdict(gateName, root, pkg, stage string, r Runner, res SuiteResult, acquired bool) *GateResult {
 	switch {
 	case !acquired:
-		fmt.Fprintf(os.Stderr, "tdd %s: %s -p %s in %s → QUEUED-SKIPPED (every build slot is busy) — not checked\n", gateName, stage, pkg, root)
-		return nil
+		// A check that never ran has proven nothing, and the suite stage
+		// rejects for exactly this reason: the two must agree.
+		fmt.Fprintf(os.Stderr, "tdd %s: %s -p %s in %s QUEUED-REJECTED (no build slot came free)\n", gateName, stage, pkg, root)
+		appendGateLog(gateName, root, cmdString(r), stage+"-queued-rejected", 0)
+		return &GateResult{Blocked: true, Message: fmt.Sprintf(
+			"tdd %s: could not run %s -p %s in %s: every build slot stayed busy for the whole wait, so nothing was checked and the commit is refused. Retry when the build finishes.",
+			gateName, stage, pkg, root)}
 	case res.TimedOut:
 		fmt.Fprintf(os.Stderr, "tdd %s: %s -p %s in %s → TIMEOUT (FAIL-OPEN — not checked)\n", gateName, stage, pkg, root)
 		return nil

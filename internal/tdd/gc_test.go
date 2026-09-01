@@ -73,7 +73,7 @@ func TestGCIncremental_AgeIsTheNEWESTFileInTheTree(t *testing.T) {
 }
 
 // TestGCStaleGateDirs_OnlyWhenTheRecordedRootIsGone pins category (b): the
-// gate's per-repo fail-first worktree and warm target are keyed by a hash,
+// gate's per-repo fail-first worktree is keyed by a hash,
 // so nothing about the directory says which repo it belongs to — the
 // origin.txt written at creation does. A dir whose origin still exists is
 // live; a dir with NO origin.txt is unknown and is left alone rather than
@@ -82,11 +82,11 @@ func TestGCStaleGateDirs_OnlyWhenTheRecordedRootIsGone(t *testing.T) {
 	base := t.TempDir()
 	liveRepo := t.TempDir()
 
-	live := filepath.Join(base, "cargo-target", "aaaa1111")
+	live := filepath.Join(base, "failfirst-wt", "aaaa1111")
 	mkFile(t, filepath.Join(live, "origin.txt"), liveRepo, 0)
 	mkFile(t, filepath.Join(live, "debug", "libfoo.rlib"), "aaaa", 0)
 
-	dead := filepath.Join(base, "cargo-target", "bbbb2222")
+	dead := filepath.Join(base, "failfirst-wt", "bbbb2222")
 	mkFile(t, filepath.Join(dead, "origin.txt"), filepath.Join(base, "no-such-repo"), 0)
 	mkFile(t, filepath.Join(dead, "debug", "libfoo.rlib"), "bbbb", 0)
 
@@ -94,7 +94,7 @@ func TestGCStaleGateDirs_OnlyWhenTheRecordedRootIsGone(t *testing.T) {
 	mkFile(t, filepath.Join(deadWT, "origin.txt"), filepath.Join(base, "also-gone"), 0)
 	mkFile(t, filepath.Join(deadWT, "src", "lib.rs"), "cc", 0)
 
-	unknown := filepath.Join(base, "cargo-target", "dddd4444")
+	unknown := filepath.Join(base, "failfirst-wt", "dddd4444")
 	mkFile(t, filepath.Join(unknown, "debug", "libfoo.rlib"), "dddd", 0)
 
 	got := gcStaleGateDirs(base)

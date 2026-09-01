@@ -487,18 +487,17 @@ func TestPostEdit_GreenRunSeedsMechanicalCache(t *testing.T) {
 	}
 }
 
-// Neither gate-run may inherit an operator CARGO_TARGET_DIR that lies outside
-// the repo being committed: a shared warm target can hold stale artifacts from
-// a divergent sibling checkout and fail the gate on phantom compile/test
-// errors. The fail-first worktree run always pins the gate-owned per-repo
-// target; the mechanical run (in the real checkout) swaps a FOREIGN target for
-// the same gate-owned one — a repo-local target is honest and passes through
-// (see TestPrecommit_MechanicalCargoRun_TargetDirPolicy). The operator's value
-// is restored once the gate is done.
-func TestPrecommit_FailFirst_PinsCargoTargetDir(t *testing.T) {
+// TestPrecommit_FailFirst_ExportsTheResolvedTargetDir pins the fail-first
+// worktree's target: it lives outside the repo, so cargo's default would put
+// a brand-new target/ inside it and cold-build the world on every commit. It
+// must name the SAME target the mechanical stage uses — the environment's
+// CARGO_TARGET_DIR when set, else the repo's own target/ (one target per
+// repo, 2026-09-02). The operator's value is restored once the gate is done.
+func TestPrecommit_FailFirst_ExportsTheResolvedTargetDir(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	t.Setenv("CARGO_TARGET_DIR", "/tmp/shared-warm-target")
+	shared := filepath.Join(t.TempDir(), "shared-warm-target")
+	t.Setenv("CARGO_TARGET_DIR", shared)
 	root := makeCargoRepo(t)
 	write(t, root, "src/widget.rs", "pub fn widget() -> i32 { 1 }\n")
 	write(t, root, "src/widget_test.rs", "#[test]\nfn widget_is_one() { assert_eq!(1, crate::widget::widget()); }\n")
@@ -511,26 +510,20 @@ func TestPrecommit_FailFirst_PinsCargoTargetDir(t *testing.T) {
 			return SuiteResult{Passed: true}
 		}
 		worktreeTarget = os.Getenv("CARGO_TARGET_DIR")
-		// The applied test cannot compile without the staged source → RED,
+		// The applied test cannot compile without the staged source -> RED,
 		// which satisfies fail-first.
 		return SuiteResult{Passed: false, Output: "error[E0425]: cannot find function `widget`"}
 	}
 	if res := Precommit(root, run); res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
-	if worktreeTarget == "/tmp/shared-warm-target" || worktreeTarget == "" {
-		t.Fatalf("fail-first worktree run inherited the shared CARGO_TARGET_DIR: %q", worktreeTarget)
+	if worktreeTarget != shared {
+		t.Fatalf("fail-first worktree ran with %q, want the resolved target %q", worktreeTarget, shared)
 	}
-	if !strings.HasPrefix(worktreeTarget, cfg) {
-		t.Fatalf("pinned target dir must live under the state dir %s, got %q", cfg, worktreeTarget)
+	if mechanicalTarget != shared {
+		t.Fatalf("mechanical run built in %q, want the resolved target %q", mechanicalTarget, shared)
 	}
-	if mechanicalTarget == "/tmp/shared-warm-target" || mechanicalTarget == "" {
-		t.Fatalf("mechanical run must not build into a foreign CARGO_TARGET_DIR, got %q", mechanicalTarget)
-	}
-	if !strings.HasPrefix(mechanicalTarget, cfg) {
-		t.Fatalf("mechanical run's replacement target must be the gate-owned one under %s, got %q", cfg, mechanicalTarget)
-	}
-	if got := os.Getenv("CARGO_TARGET_DIR"); got != "/tmp/shared-warm-target" {
+	if got := os.Getenv("CARGO_TARGET_DIR"); got != shared {
 		t.Fatalf("CARGO_TARGET_DIR must be restored after the gate, got %q", got)
 	}
 }
