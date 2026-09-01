@@ -54,6 +54,9 @@ func HandlePrompt(raw []byte) PromptResult {
 		}
 		return PromptResult{Block: true, Message: tddCommand(sub, in.SessionID)}
 	}
+	if harvested := promptHarvest(in.SessionID, in.Cwd); harvested != "" {
+		return PromptResult{Message: harvested}
+	}
 	return PromptResult{Message: reinforce(in.SessionID, in.Cwd)}
 }
 

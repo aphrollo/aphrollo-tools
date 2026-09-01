@@ -296,7 +296,7 @@ const defaultPrecommitLockWait = 1200 * time.Second
 // zero by contract (one try, then QUEUED-SKIPPED), because an edit that
 // waits spends its whole test budget losing a race to a multi-minute build.
 func postEditBudget() time.Duration {
-	return envDurationSecs("APHROLLO_POSTEDIT_BUDGET_SECS", postEditTimeout)
+	return tdd.PostEditBudget()
 }
 
 func precommitLockWait() time.Duration {
@@ -340,6 +340,12 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if args[0] == "gc" {
 		// Disk hygiene: dry-run by default, --apply reclaims.
 		return runTDDGC(args[1:], stdout, stderr)
+	}
+	if args[0] == "runphase" {
+		// The detached build/run phase's wrapper: it holds the build slot,
+		// logs, and writes the result file the next hook harvests. It never
+		// blocks anything, so its exit code is always 0.
+		return runPhase(args[1:], stderr)
 	}
 	if args[0] == "cargo" {
 		// The cargo-queue shim (task A7): real terminal stdio, not the hook
@@ -412,7 +418,11 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		return code
 	case "posttooluse":
-		// PostToolUse never blocks: it only ever emits advisory context.
+		// PostToolUse never blocks: it only ever emits advisory context. It is
+		// also the one hook allowed to leave work running past its budget — a
+		// cold Bevy build does not fit in 110s and killing it establishes
+		// nothing.
+		tdd.EnableDeferredPhases(true)
 		payload, code := tdd.RenderPostToolUse(tdd.PostEdit(raw, tdd.RunSuite(postEditBudget())))
 		if len(payload) > 0 {
 			stdout.Write(payload)

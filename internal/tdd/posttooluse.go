@@ -109,6 +109,10 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 		}
 	}
 
+	if deferPhases.Load() {
+		return postEditDeferred(snap, root, target, headSHA, in.SessionID)
+	}
+
 	res, _, acquired := runCargoLocked(run, snap.runner, root, buildLockPostEditDeadline, DefaultPostEditTimeout)
 	if !acquired {
 		// Another cargo build already holds the machine-wide lock — the
@@ -409,7 +413,10 @@ func guidance(o Outcome) string {
 	}
 }
 
-// DefaultPostEditTimeout is the canonical PostToolUse suite-run budget —
+// DefaultPostEditTimeout is the ONE foreground budget an edit gets, covering
+// the build and run phases TOGETHER: whichever is still going when it expires
+// keeps running detached and reports at the next hook. It is the canonical
+// PostToolUse budget —
 // the single source of truth for cli.go's postEditTimeout AND init.go's
 // PostToolUse hook-template timeout, so the two can never silently drift
 // apart again. They did: the harness template stayed at 90s after this
@@ -419,7 +426,7 @@ func guidance(o Outcome) string {
 // left orphaned (the harness's kill reaches only the direct hook process,
 // never RunSuite's own WaitDelay-based child cleanup, which needs its OWN
 // deadline to actually fire first).
-const DefaultPostEditTimeout = 100 * time.Second
+const DefaultPostEditTimeout = 110 * time.Second
 
 // DefaultPrecommitTimeout is the canonical Precommit/Mechanical stage
 // budget — the single source of truth for cli.go's precommitTimeout.

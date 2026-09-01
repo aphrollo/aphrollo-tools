@@ -585,8 +585,9 @@ live where being wrong only costs a re-run):
 | Subcommand | Wiring | What it does |
 |---|---|---|
 | `tdd pretooluse` | Claude PreToolUse hook (stdin) | Blocks (exit 2) a **test-file** edit introducing an oracle smell — real-time sleep, tautological self-comparison, focused marker (`.only`/`fit`), or a disabled test (`.skip`/`xit`/`t.Skip`/`@pytest.mark.skip`). **Warns** (test or source) on a suppression that silences a quality gate (`//nolint`, `@ts-ignore`, `# type: ignore`, coverage-ignore). |
-| `tdd posttooluse` | Claude PostToolUse hook (stdin) | Runs the edited file's related tests; surfaces a RED summary. **Silent unless RED.** Source extensions include `.ron` — in a Rust workspace those are registries and fixtures whose edits change behaviour, resolved to the owning crate exactly as `.rs` is. |
+| `tdd posttooluse` | Claude PostToolUse hook (stdin) | Runs the edited file's related tests as a build phase then a run phase under ONE budget, deferring whatever does not finish (see below); surfaces a RED summary. **Silent unless RED.** Source extensions include `.ron` — in a Rust workspace those are registries and fixtures whose edits change behaviour, resolved to the owning crate exactly as `.rs` is. |
 | `tdd userpromptsubmit` | Claude UserPromptSubmit hook (stdin) | Intercepts `/tdd [status\|off\|on\|reset]` — the per-session enforcement escape hatch. On any other prompt, re-injects the last RED outcome for the cwd's project so the gate survives context compaction. **Silent unless RED.** |
+| `tdd runphase` | spawned by `tdd posttooluse` | The detached build/run phase's wrapper: holds the build slot, logs to the state dir, writes the result file the next hook harvests. Never typed by a human; never blocks. |
 | `tdd sessionend` | Claude SessionEnd hook (stdin) | Deletes the per-session state file so the state dir doesn't accumulate. |
 | `tdd precommit` | git `pre-commit` | Blocks a newly-**added** suppression (anti-cheat). Then **fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. A worktree state already proven green under the exact same command (by a PostToolUse run or an earlier gate pass) is **not re-run** — the cache is keyed on the repo's git COMMON dir, so every linked worktree of one repo reuses the same proven-green facts — only green results are cached, keyed on content + runner argv, so a red always re-runs with fresh output. Cargo fail-first runs use a gate-owned per-repo `CARGO_TARGET_DIR` under the state dir, never the operator's shared warm target. |
 | `tdd prepush` | git `pre-push` | **No-op** (mechanical-only mode). The tdd gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
@@ -630,6 +631,43 @@ strings **and** comments (so a smell named in prose never trips); suppression
 detectors mask strings but **keep comments** (the directives live in comments).
 Either way a token mentioned only in a string never blocks — the original's
 biggest false-positive class.
+
+#### The edit hook's budget, and deferred builds
+
+A cold Bevy-sized build does not fit in an edit hook, and killing it at the
+budget threw away both the work and the answer (268 timed-out runs in one
+`gate.log`, every one a cold build that established nothing). So the edit
+hook splits its cargo work into a **build phase** (`--no-run`) and a **run
+phase**, and defers rather than kills:
+
+- **One foreground budget**, `APHROLLO_POSTEDIT_BUDGET_SECS` (default 110s),
+  covers build **and** run together. There is no separate build budget: the
+  case that actually happens is "the build ate all of it".
+- Whichever phase is still going at the budget keeps running **detached**
+  (Windows: `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`; elsewhere its own
+  session), so the hook's exit cannot take it down. The hook prints one line —
+  `tdd: → BUILDING (deferred; <project> build phase — result at the next hook)`
+  — and returns immediately.
+- The next `posttooluse` or `userpromptsubmit` **harvests** it and reports the
+  outcome prefixed `deferred:`. A finished build phase is followed by the now
+  warm run phase, so the expensive half is never repeated.
+- A result is only adopted when it describes the code on disk **now**: same
+  HEAD, same edited-file content, not marked dirty.
+- **A healthy build is never killed.** Another edit to the same project marks
+  the running job dirty (so the harvest knows to rebuild) and leaves it alone.
+  The one exception is a job past `APHROLLO_DEFERRED_MAX_SECS` (default 600s),
+  which is abandoned so a wedged process cannot block a project forever.
+- **A deferred build is not a timeout.** The backoff streak only moves for a
+  RUN phase that outlived both the foreground budget and the deferred maximum.
+- Only cargo splits: `go test --no-run` is not a flag, so every other runner
+  gets one (still deferrable) phase.
+
+Each detached phase runs under `aphrollo tdd runphase --job <record>`, which
+holds the build slot, writes the phase's output to
+`<state-dir>/deferred/<project>.log` and — the liveness signal — writes
+`<project>.result.json` when cargo exits. Jobs are keyed by PROJECT, not by
+session, so a build orphaned by an ended session is still harvestable by a
+later hook in any session.
 
 ### Cargo lock — per-target build slots (`aphrollo tdd cargo`)
 
@@ -675,10 +713,12 @@ never leaves target dirs locked by builds that never started.
   (A suite TIMEOUT still fails open: that run happened, it just ran long.)
 - **The edit hook never waits.** `tdd posttooluse` tries the slots once and
   reports `QUEUED-SKIPPED` if they are all busy — it used to spend 20s of its
-  100s budget queuing behind a build that takes minutes.
-- Budget knobs: `APHROLLO_POSTEDIT_BUDGET_SECS` (edit-hook suite budget,
-  default 100s) and `APHROLLO_LOCK_WAIT_SECS` (how long a commit queues for a
-  slot, default 300s).
+  budget queuing behind a build that takes minutes.
+- Budget knobs: `APHROLLO_POSTEDIT_BUDGET_SECS` (the edit hook's ONE
+  foreground budget for build + run, default 110s),
+  `APHROLLO_DEFERRED_MAX_SECS` (how long a detached phase may live before it
+  is abandoned, default 600s) and `APHROLLO_LOCK_WAIT_SECS` (how long a commit
+  queues for a slot, default 1200s).
 - **Read-only verbs never take a slot**: `metadata`, `tree`, `fmt`,
   `locate-project`, `pkgid`, `read-manifest`, `--version`/`-V` pass straight
   through, so tool detection answers instantly while a build owns the box.
