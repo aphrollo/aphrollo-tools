@@ -648,6 +648,13 @@ admits **N concurrent holders per key** ("slots"):
   through, so tool detection answers instantly while a build owns the box.
   `check` and `clippy` DO take one — they run the compiler front end into the
   shared target dir.
+- **Long verbs hold a slot only for their compile.** `cargo run` builds under
+  a slot and launches the binary without one; `mutants`, `bench`, `watch` and
+  `install` get a prewarm (`cargo check --tests` for mutants, `cargo build
+  --tests` for the rest) under a slot, then run unlocked — a multi-hour
+  `cargo mutants` used to own the box for its entire run. The prewarm is a
+  warm-up, not a gate: its exit code is discarded and it is skipped outside a
+  cargo project.
 - A waiter still prints exactly one `queued behind "<cmd>" in <cwd>` line
   naming a holder, one line on acquire, and exits 75 (`EX_TEMPFAIL`) when it
   gives up (`APHROLLO_CARGO_WAIT_SECS`, default 20 min).

@@ -137,6 +137,9 @@ func runWithLock(slot tdd.BuildSlot, release func(), realCargo string, args []st
 	if isCargoRunVerb(args) {
 		return runCargoRunSplitLock(slot, release, realCargo, args, stdin, stdout, stderr)
 	}
+	if isCargoLongVerb(args) {
+		return runCargoLongVerbSplitLock(slot, release, realCargo, args, stdin, stdout, stderr)
+	}
 	defer release()
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -177,6 +180,68 @@ func runCargoRunSplitLock(slot tdd.BuildSlot, release func(), realCargo string, 
 		return buildCode
 	}
 	return execCargo(realCargo, args, stdin, stdout, stderr, 0)
+}
+
+// cargoLongVerbs run for a very long time WITHOUT compiling into the
+// caller's target dir for most of it: `mutants` copies the tree to its own
+// directory before mutating (it held the lock for entire multi-hour runs),
+// `bench` and `watch` spend their time executing, `install` builds in its
+// own temp dir. So the slot covers a prewarm compile and nothing else.
+// `nextest run`/`test` are absent on purpose -- their execution IS what the
+// slots govern.
+var cargoLongVerbs = map[string]bool{
+	"mutants": true,
+	"bench":   true,
+	"watch":   true,
+	"install": true,
+}
+
+func isCargoLongVerb(args []string) bool {
+	return cargoLongVerbs[cargoVerb(args)]
+}
+
+// cargoPrewarmArgs is the compile a long verb holds its slot for: mutants
+// only needs the tree to typecheck before it forks off its own copies;
+// everything else wants the test binaries built. It is deliberately
+// unscoped -- inferring `-p` selection from an arbitrary long verb's own
+// flag grammar would be guesswork, and a whole-workspace warm-up is what
+// the long run is about to need anyway.
+func cargoPrewarmArgs(args []string) []string {
+	if cargoVerb(args) == "mutants" {
+		return []string{"check", "--tests"}
+	}
+	return []string{"build", "--tests"}
+}
+
+// runCargoLongVerbSplitLock holds the slot for a prewarm compile only, then
+// releases it and runs the long verb unlocked. The prewarm is a warm-up,
+// not a gate: its exit code is discarded (unlike `cargo run`'s build, which
+// IS the thing being launched), so the operator always gets the exit code of
+// the command they typed. Outside a cargo project there is nothing to warm,
+// and the slot is released without compiling anything.
+func runCargoLongVerbSplitLock(slot tdd.BuildSlot, release func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if cwd, err := os.Getwd(); err == nil && insideCargoProject(cwd) {
+		prewarm := cargoPrewarmArgs(args)
+		tdd.WriteBuildSlotOwner(slot, "cargo "+strings.Join(prewarm, " "), cwd)
+		execCargo(realCargo, prewarm, stdin, stdout, stderr, slot.Jobs)
+		tdd.RemoveBuildSlotOwner(slot)
+	}
+	release()
+	return execCargo(realCargo, args, stdin, stdout, stderr, 0)
+}
+
+// insideCargoProject reports whether dir or an ancestor holds a Cargo.toml.
+func insideCargoProject(dir string) bool {
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "Cargo.toml")); err == nil {
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+		dir = parent
+	}
 }
 
 // cargoVerb returns cargo's subcommand -- the first argv entry that does
