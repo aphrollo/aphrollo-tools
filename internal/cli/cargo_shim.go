@@ -81,7 +81,7 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 		// process is a nested cargo invocation resolved through the shim
 		// because the shim dir precedes the real cargo on PATH) -- taking
 		// another slot here would deadlock against ourselves.
-		return execCargo(cfg.realCargo, args, stdin, stdout, stderr, 0)
+		return execCargoHeld(cfg.realCargo, args, stdin, stdout, stderr, 0, true)
 	}
 
 	if isCargoReadOnlyVerb(args) {
@@ -185,14 +185,16 @@ func runCargoRunSplitLock(slot tdd.BuildSlot, release func(), realCargo string, 
 // cargoLongVerbs run for a very long time WITHOUT compiling into the
 // caller's target dir for most of it: `mutants` copies the tree to its own
 // directory before mutating (it held the lock for entire multi-hour runs),
-// `bench` and `watch` spend their time executing, `install` builds in its
-// own temp dir. So the slot covers a prewarm compile and nothing else.
+// `bench` spends its time executing, `install` builds in its own temp dir.
+// So the slot covers a prewarm compile and nothing else. `watch` is NOT one
+// of them: it recompiles on every save for as long as it is open, so
+// "prewarm once, then unlocked forever" would hand the box to a process
+// that never stops building.
 // `nextest run`/`test` are absent on purpose -- their execution IS what the
 // slots govern.
 var cargoLongVerbs = map[string]bool{
 	"mutants": true,
 	"bench":   true,
-	"watch":   true,
 	"install": true,
 }
 
@@ -207,10 +209,16 @@ func isCargoLongVerb(args []string) bool {
 // flag grammar would be guesswork, and a whole-workspace warm-up is what
 // the long run is about to need anyway.
 func cargoPrewarmArgs(args []string) []string {
-	if cargoVerb(args) == "mutants" {
+	switch cargoVerb(args) {
+	case "mutants":
 		return []string{"check", "--tests"}
+	case "bench":
+		// A bench run compiles BENCH targets; warming --tests warmed the
+		// wrong thing and left the real compile to run unslotted.
+		return []string{"build", "--benches"}
+	default:
+		return []string{"build", "--tests"}
 	}
-	return []string{"build", "--tests"}
 }
 
 // runCargoLongVerbSplitLock holds the slot for a prewarm compile only, then
@@ -368,6 +376,30 @@ func resolveRealCargo() (string, error) {
 var execCargoHookForTest func(args []string)
 
 func execCargo(realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer, jobs int) int {
+	return execCargoHeld(realCargo, args, stdin, stdout, stderr, jobs, jobs > 0)
+}
+
+// cargoChildEnv is the environment a launched cargo inherits. The
+// build-lock-held marker is a FACT about this process, not a decoration: a
+// child told the lock is held skips the queue, so claiming it while holding
+// nothing (the read-only bypass, the post-release `cargo run` that outlives
+// the slot) lets an unslotted build walk straight past every waiter.
+func cargoChildEnv(held bool) []string {
+	env := os.Environ()
+	if held {
+		return append(env, tdd.BuildLockHeldEnv+"=1")
+	}
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if k, _, ok := strings.Cut(kv, "="); ok && k == tdd.BuildLockHeldEnv {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+func execCargoHeld(realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer, jobs int, held bool) int {
 	if execCargoHookForTest != nil {
 		execCargoHookForTest(args)
 	}
@@ -375,11 +407,11 @@ func execCargo(realCargo string, args []string, stdin io.Reader, stdout, stderr 
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	cmd.Env = append(os.Environ(), tdd.BuildLockHeldEnv+"=1")
+	cmd.Env = cargoChildEnv(held)
 	if jobs > 0 {
 		// A slot is 1/N of the box: cap the child so N concurrent builds
-		// into one target dir cost about what one uncapped build did. A
-		// caller who already set CARGO_BUILD_JOBS keeps their own number.
+		// into one target dir cost about what one uncapped build did. The
+		// STRICTER of the slot's cap and a caller's own value wins.
 		cmd.Env = tdd.EnvWithBuildJobs(cmd.Env, jobs)
 	}
 	err := cmd.Run()

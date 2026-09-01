@@ -140,7 +140,7 @@ func worktreeStateHash(root string) string {
 
 	seen := map[string]bool{}
 	var paths []string
-	for _, out := range []string{changed, untracked} {
+	for _, out := range []string{changed, untracked, ignoredConfig(root)} {
 		for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 			if line != "" && !seen[line] {
 				seen[line] = true
@@ -174,6 +174,24 @@ func worktreeStateHash(root string) string {
 		fmt.Fprintf(h, "%s\x00%s\n", p, blob)
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// ignoredConfig lists the IGNORED files a suite genuinely reads: dotenv
+// files and anything under a config/ directory. The cache is shared across a
+// repo's worktrees, so tracked content alone is not the whole fact — two
+// lanes with the same sources and different .env are not the same proven
+// green. Build output is deliberately excluded: hashing target/ would cost
+// minutes per commit for something that changes on every build.
+// bound: pathspec-limited to dotenv + config/ trees, target/ and
+// node_modules/ excluded.
+func ignoredConfig(root string) string {
+	out, err := gitRead(root, "ls-files", "--others", "--ignored", "--exclude-standard", "--",
+		":(glob).env*", ":(glob)**/.env*", ":(glob)config/**", ":(glob)**/config/**",
+		":(glob,exclude)**/target/**", ":(glob,exclude)**/node_modules/**")
+	if err != nil {
+		return ""
+	}
+	return out
 }
 
 // blobHashes returns the git blob hash of each file via one batched

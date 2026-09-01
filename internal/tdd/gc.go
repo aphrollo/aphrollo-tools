@@ -492,14 +492,16 @@ func ParseGCAge(s string) (time.Duration, error) {
 	}
 	if days, ok := strings.CutSuffix(s, "d"); ok {
 		n, err := strconv.Atoi(days)
-		if err != nil || n < 0 {
-			return 0, fmt.Errorf("invalid age %q", s)
+		if err != nil || n <= 0 {
+			// Zero selects every cache there is, which is a cold rebuild of
+			// the workspace dressed up as disk hygiene.
+			return 0, fmt.Errorf("invalid age %q (must be greater than zero)", s)
 		}
 		return time.Duration(n) * 24 * time.Hour, nil
 	}
 	d, err := time.ParseDuration(s)
-	if err != nil || d < 0 {
-		return 0, fmt.Errorf("invalid age %q", s)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("invalid age %q (must be greater than zero)", s)
 	}
 	return d, nil
 }

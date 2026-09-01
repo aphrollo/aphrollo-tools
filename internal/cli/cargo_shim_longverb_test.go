@@ -22,7 +22,6 @@ func TestIsCargoLongVerb_OnlyTheNonCompilingLongRunners(t *testing.T) {
 	long := [][]string{
 		{"mutants", "--in-diff", "diff.txt"},
 		{"bench", "-p", "movement"},
-		{"watch", "-x", "check"},
 		{"install", "cargo-nextest"},
 	}
 	for _, args := range long {
@@ -37,6 +36,10 @@ func TestIsCargoLongVerb_OnlyTheNonCompilingLongRunners(t *testing.T) {
 		{"check"},
 		{"clippy"},
 		{"run", "-p", "client"},
+		// watch recompiles on every save for as long as it is open, so
+		// "prewarm once, then unlocked forever" hands the box to a process
+		// that never stops building.
+		{"watch", "-x", "check"},
 	}
 	for _, args := range governed {
 		if isCargoLongVerb(args) {
@@ -45,17 +48,18 @@ func TestIsCargoLongVerb_OnlyTheNonCompilingLongRunners(t *testing.T) {
 	}
 }
 
-// TestCargoPrewarmArgs_ChecksForMutantsBuildsForTheRest pins what the slot
-// is actually held FOR: mutants only needs the tree to typecheck before it
-// forks off its own copies, the others need the test binaries built.
-func TestCargoPrewarmArgs_ChecksForMutantsBuildsForTheRest(t *testing.T) {
+// TestCargoPrewarmArgs_WarmsWhatTheVerbWillCompile pins what the slot is
+// actually held FOR: mutants only needs the tree to typecheck before it forks
+// off its own copies, bench needs the BENCH targets (warming --tests warmed
+// the wrong thing and left the real compile unslotted), the rest need the
+// test binaries.
+func TestCargoPrewarmArgs_WarmsWhatTheVerbWillCompile(t *testing.T) {
 	cases := []struct {
 		args []string
 		want []string
 	}{
 		{[]string{"mutants", "--in-diff", "d"}, []string{"check", "--tests"}},
-		{[]string{"bench"}, []string{"build", "--tests"}},
-		{[]string{"watch", "-x", "check"}, []string{"build", "--tests"}},
+		{[]string{"bench"}, []string{"build", "--benches"}},
 		{[]string{"install", "cargo-nextest"}, []string{"build", "--tests"}},
 	}
 	for _, c := range cases {

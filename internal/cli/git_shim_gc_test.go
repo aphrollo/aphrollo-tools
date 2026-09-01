@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"io"
 	"bytes"
 	"path/filepath"
 	"strings"
@@ -102,5 +103,27 @@ func TestWorktreeSweep_ResolvesAgainstTheCDir(t *testing.T) {
 	want := filepath.Clean(filepath.Join(repo, "..", "lane"))
 	if got != want {
 		t.Fatalf("sweep target = %s, want %s (relative to -C, not to the shim's cwd)", got, want)
+	}
+}
+
+// TestWorktreeSweep_RunsAfterTheLockIsReleased pins an avoidable stall: the
+// sweep can RemoveAll tens of gigabytes, and doing it inside runGitWithLock's
+// deferred release held the repo-scoped git lock for the whole walk — every
+// other session's `git commit` queued behind a disk cleanup.
+func TestWorktreeSweep_RunsAfterTheLockIsReleased(t *testing.T) {
+	var order []string
+	prev := gcAfterWorktreeChange
+	gcAfterWorktreeChange = func(repoRoot, removed string) int64 {
+		order = append(order, "sweep")
+		return 0
+	}
+	t.Cleanup(func() { gcAfterWorktreeChange = prev })
+
+	release := func() { order = append(order, "release") }
+	runGitWithLock(release, "", gitStub(t), []string{"worktree", "prune"},
+		strings.NewReader(""), io.Discard, io.Discard)
+
+	if len(order) != 2 || order[0] != "release" || order[1] != "sweep" {
+		t.Fatalf("order = %v, want the lock released before the sweep walks the disk", order)
 	}
 }

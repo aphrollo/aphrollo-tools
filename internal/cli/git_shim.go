@@ -216,14 +216,17 @@ func indexLockPresent(path string) bool {
 // owner file and releases the lock -- shortest possible hold, same
 // ordering as cargo's runWithLock.
 func runGitWithLock(release func(), ownerPath, realGit string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	defer release()
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = "(unknown cwd)"
 	}
 	tdd.WriteFileLockOwner(ownerPath, "git "+strings.Join(args, " "), cwd)
-	defer tdd.RemoveFileLockOwner(ownerPath)
 	code := execGit(realGit, args, stdin, stdout, stderr)
+	tdd.RemoveFileLockOwner(ownerPath)
+	release()
+	// AFTER the release: the sweep can RemoveAll tens of gigabytes, and doing
+	// it under the lock made every other session's git queue behind a disk
+	// cleanup.
 	if code == 0 {
 		sweepAfterWorktreeChange(args, cwd)
 	}
