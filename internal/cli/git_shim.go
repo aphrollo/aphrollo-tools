@@ -37,12 +37,31 @@ const (
 	gitOwnerFileName = "aphrollo-git.owner"
 )
 
-// gitMutatingVerbs are git subcommands that always mutate the index/repo
-// state regardless of their own flags (task A11 requirement 2).
-var gitMutatingVerbs = map[string]bool{
+// gitLockScope is WHICH git directory a verb's lock belongs in. The index
+// is per worktree (`index.lock` lives in that worktree's own git dir), so
+// keying every mutation on the shared common dir made one lane's commit gate
+// -- which holds its lock for the whole gate run -- block `git add` in every
+// other worktree of the same repo.
+type gitLockScope int
+
+const (
+	gitNoLock gitLockScope = iota
+	// gitWorktreeScope: the invocation mutates THIS worktree's index or
+	// HEAD. Lock lives in `git rev-parse --git-dir`.
+	gitWorktreeScope
+	// gitRepoScope: the invocation mutates state every worktree of the repo
+	// shares -- branches, the worktree registry, the object store. Lock
+	// lives in `git rev-parse --git-common-dir`.
+	gitRepoScope
+)
+
+// gitIndexVerbs mutate the invoking worktree's index/HEAD regardless of
+// their own flags. `pull` and `merge` are here rather than in the shared set
+// because what they contend for is the index they write into; git does its
+// own ref locking underneath.
+var gitIndexVerbs = map[string]bool{
 	"add":         true,
 	"commit":      true,
-	"merge":       true,
 	"checkout":    true,
 	"switch":      true,
 	"reset":       true,
@@ -53,7 +72,23 @@ var gitMutatingVerbs = map[string]bool{
 	"cherry-pick": true,
 	"revert":      true,
 	"am":          true,
+	"merge":       true,
 	"pull":        true,
+}
+
+// gitSharedVerbs mutate state shared by every worktree of the repo.
+var gitSharedVerbs = map[string]bool{
+	"fetch": true,
+	"push":  true,
+	"gc":    true,
+}
+
+// gitBranchMutationFlags are the `git branch` forms that write refs; a bare
+// `git branch` (or --list) only reads, and must never take a lock.
+var gitBranchMutationFlags = map[string]bool{
+	"-d": true, "-D": true, "--delete": true,
+	"-m": true, "-M": true, "--move": true,
+	"-c": true, "-C": true, "--copy": true,
 }
 
 // gitShimConfig bundles the shim's tunable knobs, mirroring cargoShimConfig
@@ -100,7 +135,8 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 	}
 
 	_, rest := gitGlobalArgs(args)
-	if !isGitMutatingVerb(rest) {
+	scope := gitLockScopeFor(rest)
+	if scope == gitNoLock {
 		return execGit(cfg.realGit, args, stdin, stdout, stderr)
 	}
 
@@ -108,16 +144,22 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 	if err != nil {
 		cwd = "(unknown cwd)"
 	}
-	commonDir, ok := gitCommonDir(cfg.realGit, args, cwd)
+	lockDir, ok := gitLockDir(cfg.realGit, args, cwd, scope)
 	if !ok {
 		// Not inside a repo (or git itself failed to resolve one) -- let
 		// the real git report its own error, unlocked.
 		return execGit(cfg.realGit, args, stdin, stdout, stderr)
 	}
 
-	lockPath := commonDir + "/" + gitLockFileName
-	ownerPath := commonDir + "/" + gitOwnerFileName
-	indexLockPath := commonDir + "/index.lock"
+	lockPath := lockDir + "/" + gitLockFileName
+	ownerPath := lockDir + "/" + gitOwnerFileName
+	// index.lock lives in the worktree's OWN git dir, which is exactly the
+	// directory a worktree-scoped lock already keys on. A repo-scoped verb
+	// does not touch the index, so it has none to wait for.
+	indexLockPath := lockDir + "/index.lock"
+	if scope == gitRepoScope {
+		indexLockPath = ""
+	}
 
 	// ONE combined deadline and ONE "have we printed the queued line yet"
 	// flag cover BOTH phases (the advisory lock and, once that's ours, a
@@ -160,8 +202,12 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 }
 
 // indexLockPresent reports whether path exists -- best-effort, any stat
-// error (including "not found") reads as absent.
+// error (including "not found") reads as absent. An empty path is "no index
+// lock to wait for" (a repo-scoped verb).
 func indexLockPresent(path string) bool {
+	if path == "" {
+		return false
+	}
 	_, err := os.Stat(path)
 	return err == nil
 }
@@ -266,30 +312,49 @@ func gitGlobalArgs(args []string) (prefix, rest []string) {
 	return prefix, args[i:]
 }
 
-// isGitMutatingVerb classifies rest (args with any leading global options
-// already stripped, per gitGlobalArgs) as index-mutating or not (task A11
-// requirement 2). restore/apply/worktree are conditional on their own
-// flags/sub-verb; everything else is a fixed lookup in gitMutatingVerbs.
-func isGitMutatingVerb(rest []string) bool {
+// gitLockScopeFor classifies rest (args with any leading global options
+// already stripped, per gitGlobalArgs): no lock, the per-worktree index
+// lock, or the repo-wide one. restore/apply/branch/worktree are conditional
+// on their own flags or sub-verb; everything else is a fixed lookup.
+func gitLockScopeFor(rest []string) gitLockScope {
 	if len(rest) == 0 {
-		return false
+		return gitNoLock
 	}
-	verb := rest[0]
-	switch verb {
+	switch verb := rest[0]; verb {
 	case "restore":
-		return containsToken(rest[1:], "--staged")
+		if containsToken(rest[1:], "--staged") {
+			return gitWorktreeScope
+		}
+		return gitNoLock
 	case "apply":
-		return containsToken(rest[1:], "--index") || containsToken(rest[1:], "--cached")
+		if containsToken(rest[1:], "--index") || containsToken(rest[1:], "--cached") {
+			return gitWorktreeScope
+		}
+		return gitNoLock
 	case "worktree":
 		if len(rest) < 2 {
-			return false
+			return gitNoLock
 		}
-		sub := rest[1]
-		// prune rewrites the worktree registry, and (like remove) is one of
-		// the two verbs that leave a build dir with no worktree over it.
-		return sub == "add" || sub == "remove" || sub == "prune"
+		switch rest[1] {
+		case "add", "remove", "prune":
+			return gitRepoScope
+		}
+		return gitNoLock
+	case "branch":
+		for _, a := range rest[1:] {
+			if gitBranchMutationFlags[a] {
+				return gitRepoScope
+			}
+		}
+		return gitNoLock
 	default:
-		return gitMutatingVerbs[verb]
+		if gitIndexVerbs[verb] {
+			return gitWorktreeScope
+		}
+		if gitSharedVerbs[verb] {
+			return gitRepoScope
+		}
+		return gitNoLock
 	}
 }
 
@@ -305,6 +370,17 @@ func containsToken(args []string, needle string) bool {
 	return false
 }
 
+// gitLockDir resolves which directory a scope's lock file lives in by
+// asking the REAL git: the invoking worktree's own git dir for an index
+// mutation, the dir every worktree shares for a repo-wide one.
+func gitLockDir(realGit string, args []string, cwd string, scope gitLockScope) (string, bool) {
+	flag := "--git-dir"
+	if scope == gitRepoScope {
+		flag = "--git-common-dir"
+	}
+	return gitRevParseDir(realGit, args, cwd, flag)
+}
+
 // gitCommonDir resolves the repo's common git dir (shared by the main
 // worktree and every linked worktree) by asking the REAL git, honoring
 // whatever global options (-C, --git-dir, --work-tree, ...) preceded the
@@ -313,8 +389,16 @@ func containsToken(args []string, needle string) bool {
 // on any other git failure), in which case the caller runs args unlocked
 // and lets the real git report its own error.
 func gitCommonDir(realGit string, args []string, cwd string) (string, bool) {
+	return gitRevParseDir(realGit, args, cwd, "--git-common-dir")
+}
+
+// gitRevParseDir asks the real git to resolve one directory flag, honoring
+// whatever global options (-C, --git-dir, --work-tree, ...) preceded the
+// verb in the original invocation rather than reimplementing git's own
+// directory-resolution rules.
+func gitRevParseDir(realGit string, args []string, cwd, flag string) (string, bool) {
 	prefix, _ := gitGlobalArgs(args)
-	rpArgs := append(append([]string{}, prefix...), "rev-parse", "--path-format=absolute", "--git-common-dir")
+	rpArgs := append(append([]string{}, prefix...), "rev-parse", "--path-format=absolute", flag)
 	cmd := exec.Command(realGit, rpArgs...)
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")

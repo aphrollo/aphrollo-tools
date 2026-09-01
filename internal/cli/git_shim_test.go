@@ -53,11 +53,11 @@ func TestGitGlobalArgs_TableDriven(t *testing.T) {
 	}
 }
 
-// TestIsGitMutatingVerb_TableDriven pins the verb classification table
+// TestGitLockScopeFor_TableDriven pins the verb classification table
 // (requirement 2), including the three conditional verbs: restore is
 // mutating ONLY with --staged, apply ONLY with --index/--cached, worktree
 // ONLY for add/remove.
-func TestIsGitMutatingVerb_TableDriven(t *testing.T) {
+func TestGitLockScopeFor_TableDriven(t *testing.T) {
 	cases := []struct {
 		name string
 		rest []string
@@ -85,7 +85,7 @@ func TestIsGitMutatingVerb_TableDriven(t *testing.T) {
 		{"rev-parse", []string{"rev-parse", "--git-dir"}, false},
 		{"ls-files", []string{"ls-files"}, false},
 		{"branch listing", []string{"branch"}, false},
-		{"fetch", []string{"fetch"}, false},
+		{"fetch", []string{"fetch"}, true}, // shared state: repo-scoped, but locked
 		{"remote", []string{"remote", "-v"}, false},
 		{"config get", []string{"config", "user.name"}, false},
 		{"blame", []string{"blame", "file"}, false},
@@ -108,20 +108,20 @@ func TestIsGitMutatingVerb_TableDriven(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := isGitMutatingVerb(c.rest); got != c.want {
-				t.Fatalf("isGitMutatingVerb(%v) = %v, want %v", c.rest, got, c.want)
+			if got := gitLockScopeFor(c.rest) != gitNoLock; got != c.want {
+				t.Fatalf("gitLockScopeFor(%v) locked = %v, want %v", c.rest, got, c.want)
 			}
 		})
 	}
 }
 
-// TestIsGitMutatingVerb_HonorsGlobalOptionsBeforeVerb pins that a global
+// TestGitLockScopeFor_HonorsGlobalOptionsBeforeVerb pins that a global
 // option ahead of the verb (e.g. -C dir) does not itself get misread as the
 // verb -- the caller must skip it via gitGlobalArgs first.
-func TestIsGitMutatingVerb_HonorsGlobalOptionsBeforeVerb(t *testing.T) {
+func TestGitLockScopeFor_HonorsGlobalOptionsBeforeVerb(t *testing.T) {
 	_, rest := gitGlobalArgs([]string{"-C", "/repo", "commit", "-m", "x"})
-	if !isGitMutatingVerb(rest) {
-		t.Fatal("commit behind a -C global option must still classify as mutating")
+	if gitLockScopeFor(rest) != gitWorktreeScope {
+		t.Fatal("commit behind a -C global option must still classify as an index mutation")
 	}
 }
 
@@ -157,6 +157,17 @@ func gitStub(t *testing.T) string {
 			"import (\n\t\"os\"\n\t\"fmt\"\n)\n\n" +
 			"func main() {\n" +
 			"\tfor _, a := range os.Args[1:] {\n" +
+			"\t\tif a == \"--git-dir\" {\n" +
+			"\t\t\td := os.Getenv(\"APHROLLO_TEST_GIT_DIR\")\n" +
+			"\t\t\tif d == \"\" {\n" +
+			"\t\t\t\td = os.Getenv(\"APHROLLO_TEST_GIT_COMMON_DIR\")\n" +
+			"\t\t\t}\n" +
+			"\t\t\tif d == \"\" {\n" +
+			"\t\t\t\tos.Exit(1)\n" +
+			"\t\t\t}\n" +
+			"\t\t\tfmt.Println(d)\n" +
+			"\t\t\tos.Exit(0)\n" +
+			"\t\t}\n" +
 			"\t\tif a == \"--git-common-dir\" {\n" +
 			"\t\t\tcd := os.Getenv(\"APHROLLO_TEST_GIT_COMMON_DIR\")\n" +
 			"\t\t\tif cd == \"\" {\n" +

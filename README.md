@@ -721,6 +721,25 @@ A config absent from the sidecar defaults to **gated** (`clean: true`), so a new
 added config can never silently skip the gate. The external `sqlc` binary is
 resolved via `APHROLLO_SQLC_BIN`, then `$PATH`, then the operator go-install path.
 
+### Git queue (`aphrollo tdd git`)
+
+Index-mutating git verbs queue behind an advisory lock so concurrent sessions
+sharing a checkout never collide on `.git/index.lock`. **The lock is keyed by
+what the verb actually mutates**, because the index is per worktree: keying
+everything on the shared common dir made one lane's commit gate (which holds
+its lock for the whole gate run) block `git add` in every other worktree of
+the same repo.
+
+| verb | lock file lives in | why |
+|---|---|---|
+| `add`, `commit`, `checkout`, `switch`, `reset`, `stash`, `rm`, `mv`, `rebase`, `cherry-pick`, `revert`, `am`, `merge`, `pull`, `restore --staged`, `apply --index/--cached` | `git rev-parse --git-dir` (this worktree) | they write THIS worktree's index/HEAD, and `index.lock` lives there |
+| `worktree add/remove/prune`, `branch -d/-D/-m/-M/-c/-C`, `fetch`, `push`, `gc` | `git rev-parse --git-common-dir` (shared) | they write refs, the worktree registry or the object store, which every worktree reads |
+| `status`, `diff`, `log`, `show`, `branch` (listing), `restore` (no `--staged`), `apply` (no index), `worktree list`, … | not locked | read-only |
+
+One `queued behind "<cmd>" in <cwd>` line when it has to wait, one on
+acquire, exit 75 after `APHROLLO_GIT_WAIT_SECS` (default 20 min). A stray
+`index.lock` left by a git process that bypassed the shim is waited out too.
+
 ### Cargo workspace metadata (`[workspace.metadata.aphrollo]`)
 
 Two opt-in lists, declared in the workspace's own `Cargo.toml` so they version
