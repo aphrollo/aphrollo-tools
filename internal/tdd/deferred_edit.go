@@ -142,9 +142,9 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 		if !ranDone {
 			return buildingLine(root, "run", 0), false
 		}
-		return "deferred: " + editResultAdvisory(runPhase, runOut, root, state, statePath, headSHA), false
+		return markDeferred(editResultAdvisory(runPhase, runOut, root, state, statePath, headSHA)), false
 	}
-	return "deferred: " + editResultAdvisory(j, out, root, state, statePath, headSHA), false
+	return markDeferred(editResultAdvisory(j, out, root, state, statePath, headSHA)), false
 }
 
 // editResultAdvisory turns a finished phase into the same advisory a
@@ -176,6 +176,15 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 		return redSummary(runner, root, outcome, res.Output)
 	}
 	return passAdvisory(runner, root, outcome, res.Output, res.Duration, prev)
+}
+
+// markDeferred labels an advisory as coming from work that finished after an
+// earlier hook returned, without stacking a second "tdd:" prefix on the line.
+func markDeferred(advisory string) string {
+	if rest, ok := strings.CutPrefix(advisory, "tdd: "); ok {
+		return "tdd: deferred " + rest
+	}
+	return "tdd: deferred " + advisory
 }
 
 // buildingLine is the ONE line an edit gets when its work is still running.
@@ -329,5 +338,5 @@ func promptHarvest(session, cwd string) string {
 		return ""
 	}
 	state, statePath := loadSession(session)
-	return "tdd: deferred " + j.Phase + " finished — " + editResultAdvisory(j, out, root, state, statePath, j.HeadSHA)
+	return markDeferred(editResultAdvisory(j, out, root, state, statePath, j.HeadSHA))
 }

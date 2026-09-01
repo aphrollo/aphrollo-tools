@@ -649,7 +649,7 @@ phase**, and defers rather than kills:
   `tdd: → BUILDING (deferred; <project> build phase — result at the next hook)`
   — and returns immediately.
 - The next `posttooluse` or `userpromptsubmit` **harvests** it and reports the
-  outcome prefixed `deferred:`. A finished build phase is followed by the now
+  outcome as `tdd: deferred <runner> ... → green (1.3s)`. A finished build phase is followed by the now
   warm run phase, so the expensive half is never repeated.
 - A result is only adopted when it describes the code on disk **now**: same
   HEAD, same edited-file content, not marked dirty.
