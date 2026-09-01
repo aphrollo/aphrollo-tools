@@ -26,6 +26,10 @@ type projectState struct {
 	// blows the edit-time budget on a heavy crate (e.g. a Bevy client/server)
 	// once the pattern is established, while still granting a fresh budget
 	// the moment a commit lands and TimeoutSHA goes stale — see stampTimeout.
+	// PassedCount is the pass count of the last GREEN run for this project,
+	// so an edit that leaves the count untouched can be recognised as one
+	// that added no test.
+	PassedCount   int    `json:"passed_count,omitempty"`
 	TimeoutStreak int    `json:"timeout_streak,omitempty"`
 	TimeoutSHA    string `json:"timeout_sha,omitempty"`
 }

@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -214,11 +215,16 @@ Subcommands:
   premergecommit    Git pre-merge-commit gate: mechanical ONLY, no fail-first/anti-cheat
   prepush           No-op (mechanical-only mode); kept for back-compat with a
                     lingering pre-push shim. Never blocks.
+  runphase          Run one deferred build/run phase from its job record (--job);
+                    spawned by posttooluse, not typed by hand
+  stats             Tally gate.log by stage and outcome (--since 7d)
+  gc                Reclaim stale build dirs: idle incremental caches, dead gate dirs,
+                    orphan worktree builds (--repo, --older-than 3d, --apply)
   install           Install the git-hook shims into a repo (--repo, --apply)
   init              Set up TDD: session hooks in settings.json + the global git gate (--no-git, --uninstall)
   cargo             cargo-queue shim: queue a DIRECT cargo invocation behind the same
-                    machine-wide build lock the hooks/gates use (APHROLLO_CARGO_WAIT_SECS,
-                    APHROLLO_REAL_CARGO)
+                    per-target-dir build slots the hooks/gates use (APHROLLO_CARGO_WAIT_SECS,
+                    APHROLLO_BUILD_SLOTS, APHROLLO_REAL_CARGO)
   git               git-queue shim: queue a DIRECT index-mutating git invocation behind a
                     per-repo lock so concurrent sessions sharing one checkout don't collide
                     on .git/index.lock (APHROLLO_GIT_WAIT_SECS, APHROLLO_REAL_GIT)
@@ -274,6 +280,48 @@ const (
 	precommitTimeout = tdd.DefaultPrecommitTimeout
 )
 
+// defaultPrecommitLockWait is how long a commit's cargo stage queues for a
+// build slot before REJECTING the commit. Twenty minutes: the gate's target
+// dir is one per repo, so two lanes committing at once serialise behind each
+// other's full suite, and a short wait would throw away a legitimate commit.
+// It mirrors the tdd package's own default; the knob below is what an
+// operator on a busy box turns.
+const defaultPrecommitLockWait = 1200 * time.Second
+
+// The operator budget knobs live HERE, beside the defaults they override,
+// so every env switch this binary reads is declared in one place instead of
+// wherever it happens to be used:
+//
+//	APHROLLO_POSTEDIT_BUDGET_SECS  the edit hook's suite budget (default 100s)
+//	APHROLLO_LOCK_WAIT_SECS        the commit gate's build-slot wait (default 1200s)
+//
+// The edit hook's own build-slot wait is deliberately NOT tunable: it is
+// zero by contract (one try, then QUEUED-SKIPPED), because an edit that
+// waits spends its whole test budget losing a race to a multi-minute build.
+func postEditBudget() time.Duration {
+	return tdd.PostEditBudget()
+}
+
+func precommitLockWait() time.Duration {
+	return envDurationSecs("APHROLLO_LOCK_WAIT_SECS", defaultPrecommitLockWait)
+}
+
+// envDurationSecs reads a whole-number-of-seconds env knob. Anything that is
+// not one — unset, empty, negative, junk — keeps the shipped default: a
+// mistyped budget must never silently become zero and turn every run into an
+// instant timeout.
+func envDurationSecs(key string, def time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return def
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return def
+	}
+	return time.Duration(n) * time.Second
+}
+
 // runTDD dispatches the TDD hook subcommands. Like the guardrail hook, every
 // path reads from the provided reader and a parse error fails OPEN (exit 0) so
 // a malformed payload can never wedge the session.
@@ -291,6 +339,20 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "init" {
 		return runTDDInit(args[1:], stdout, stderr)
+	}
+	if args[0] == "stats" {
+		// Read-only report over gate.log: pipeline health as a number.
+		return runTDDStats(args[1:], stdout, stderr)
+	}
+	if args[0] == "gc" {
+		// Disk hygiene: dry-run by default, --apply reclaims.
+		return runTDDGC(args[1:], stdout, stderr)
+	}
+	if args[0] == "runphase" {
+		// The detached build/run phase's wrapper: it holds the build slot,
+		// logs, and writes the result file the next hook harvests. It never
+		// blocks anything, so its exit code is always 0.
+		return runPhase(args[1:], stderr)
 	}
 	if args[0] == "cargo" {
 		// The cargo-queue shim (task A7): real terminal stdio, not the hook
@@ -323,6 +385,7 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// still compiles and passes — fail-first and the anti-cheat scan are
 		// both judgments about how a change was AUTHORED, already settled by
 		// precommit on the commits being merged.
+		defer tdd.SetPrecommitLockWait(precommitLockWait())()
 		var res tdd.GateResult
 		if args[0] == "premergecommit" {
 			res = tdd.Mechanical(root, tdd.RunSuite(precommitTimeout))
@@ -362,8 +425,12 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		return code
 	case "posttooluse":
-		// PostToolUse never blocks: it only ever emits advisory context.
-		payload, code := tdd.RenderPostToolUse(tdd.PostEdit(raw, tdd.RunSuite(postEditTimeout)))
+		// PostToolUse never blocks: it only ever emits advisory context. It is
+		// also the one hook allowed to leave work running past its budget — a
+		// cold Bevy build does not fit in 110s and killing it establishes
+		// nothing.
+		tdd.EnableDeferredPhases(true)
+		payload, code := tdd.RenderPostToolUse(tdd.PostEdit(raw, tdd.RunSuite(postEditBudget())))
 		if len(payload) > 0 {
 			stdout.Write(payload)
 		}

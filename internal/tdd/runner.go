@@ -194,26 +194,106 @@ func NarrowToRelatedTests(r Runner, target, root string) Runner {
 	case "npx":
 		return Runner{Cmd: r.Cmd, Args: append(append([]string{}, r.Args...), rel)}
 	case "cargo":
-		// A tests/*.rs (or tests/<dir>/*.rs) edit compiles ONE test binary
-		// instead of every target in the crate — on a large-dependency crate
-		// that is the difference between seconds and a timeout. A Rust test
-		// file outside tests/ is a #[cfg(test)] unit module: lib target.
-		// cargoRunnerAt resolves the actual workspace root + `-p <pkg>`
-		// scoping (task A4); when root has no readable [package] Cargo.toml
-		// of its own, it reports false and the old cwd-implicit behavior
-		// (no -p, no Dir) is kept rather than losing --test/--lib scoping.
-		if name := cargoTestTarget(rel); name != "" {
-			if cr, ok := cargoRunnerAt(root, "--test", name); ok {
-				return cr
-			}
-			return Runner{Cmd: "cargo", Args: append(cargoRunArgs(r), "--test", name)}
-		}
-		if cr, ok := cargoRunnerAt(root, "--lib"); ok {
-			return cr
-		}
-		return Runner{Cmd: "cargo", Args: append(cargoRunArgs(r), "--lib")}
+		return cargoTargetRunner(r, rel, root)
 	}
 	return r
+}
+
+// cargoTargetRunner maps a Rust file to the cargo TARGET that actually
+// compiles it. Getting this wrong is not a slower run, it is an error: a
+// `#[cfg(test)] mod` file under src/ (borld's crates/clouds/src/
+// image_period_tests.rs) is part of the LIB test binary, and asking for
+// `--test image_period_tests` names a target that does not exist.
+//
+//	<crate>/tests/x.rs          -> --test x
+//	<crate>/tests/<dir>/*.rs    -> --test <dir>
+//	<crate>/src/a/b_tests.rs    -> --lib, filtered to a::b_tests
+//	<crate>/examples/x/*.rs     -> --example x   (built, never run)
+//	<crate>/benches/x.rs        -> --bench x --no-run
+func cargoTargetRunner(r Runner, rel, root string) Runner {
+	if name := cargoTestTarget(rel); name != "" {
+		return cargoTargetArgs(r, root, "--test", name)
+	}
+	if name := cargoNamedTarget(rel, "examples"); name != "" {
+		return cargoTargetArgs(r, root, "--example", name)
+	}
+	if name := cargoNamedTarget(rel, "benches"); name != "" {
+		// A bench RUN costs minutes and says nothing about correctness; the
+		// question an edit asks is whether it still compiles.
+		return cargoTargetArgs(r, root, "--bench", name, "--no-run")
+	}
+	if mod := cargoModulePath(rel); mod != "" {
+		// The filter dialect follows the RESULTING runner: cargoTargetArgs
+		// may upgrade `cargo test` to nextest when the workspace configures
+		// it, and only nextest understands -E.
+		lib := cargoTargetArgs(r, root, "--lib")
+		lib.Args = append(lib.Args, moduleFilterArgs(lib, mod)...)
+		return lib
+	}
+	return cargoTargetArgs(r, root, "--lib")
+}
+
+// cargoTargetArgs builds the scoped runner, falling back to the old
+// cwd-implicit form when root has no readable [package] manifest.
+func cargoTargetArgs(r Runner, root string, extra ...string) Runner {
+	if cr, ok := cargoRunnerAt(root, extra...); ok {
+		return cr
+	}
+	return Runner{Cmd: "cargo", Args: append(cargoRunArgs(r), extra...)}
+}
+
+// moduleFilterArgs narrows a lib run to one module's tests, in whichever
+// dialect the runner speaks: nextest has a filter expression, plain cargo
+// test takes a substring.
+func moduleFilterArgs(r Runner, mod string) []string {
+	if verb := cargoRunArgs(r); len(verb) > 0 && verb[0] == "nextest" {
+		return []string{"-E", "test(/^" + mod + "::/)"}
+	}
+	return []string{mod + "::"}
+}
+
+// cargoNamedTarget names the example/bench a path belongs to: the file stem
+// directly under the directory, or the directory name for a multi-file one.
+func cargoNamedTarget(rel, dir string) string {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	for i, seg := range parts {
+		if seg != dir || i+1 >= len(parts) {
+			continue
+		}
+		next := parts[i+1]
+		if i+1 == len(parts)-1 {
+			return strings.TrimSuffix(next, path.Ext(next))
+		}
+		return next
+	}
+	return ""
+}
+
+// cargoModulePath turns a src/ path into the Rust module path its tests live
+// under, so one edit runs that module's tests instead of the whole lib. The
+// crate roots (lib.rs / main.rs) have no submodule, and a file outside src/
+// is not a module at all.
+func cargoModulePath(rel string) string {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	i := -1
+	for n, seg := range parts {
+		if seg == "src" {
+			i = n
+			break
+		}
+	}
+	if i < 0 || i+1 >= len(parts) {
+		return ""
+	}
+	mods := parts[i+1:]
+	last := strings.TrimSuffix(mods[len(mods)-1], path.Ext(mods[len(mods)-1]))
+	switch last {
+	case "lib", "main", "mod":
+		mods = mods[:len(mods)-1]
+	default:
+		mods[len(mods)-1] = last
+	}
+	return strings.Join(mods, "::")
 }
 
 // cargoPackageFor resolves the [package] name owning a repo-relative file by
@@ -456,6 +536,47 @@ func cargoPackagesOwning(root string, files []string) []string {
 // quoted word inside the array is read as a package name; cargo names the bad
 // package loudly on the first run.
 func cargoAlwaysRunPackages(ws string) []string {
+	return cargoAphrolloPackages(ws, "always-run")
+}
+
+// cargoClippyCleanPackages reads the packages the workspace declares as
+// lint-clean. Only those are gated on `clippy -D warnings` at commit: in a
+// large tree most crates carry warnings, so gating all of them is a gate
+// nobody can use, while a crate that reached zero must STAY at zero.
+func cargoClippyCleanPackages(ws string) []string {
+	return cargoAphrolloPackages(ws, "clippy-clean")
+}
+
+// cargoAphrolloPackages reads one string-array key from
+// `[workspace.metadata.aphrollo]` in <ws>/Cargo.toml, sorted and deduped;
+// empty for an absent key or an unreadable manifest.
+// cargoAphrolloFlag reads one BOOLEAN key from
+// `[workspace.metadata.aphrollo]`. Absent (or unreadable) is false, so a
+// workspace that has not opted in never sees the feature at all.
+func cargoAphrolloFlag(ws, key string) bool {
+	data, err := os.ReadFile(filepath.Join(ws, "Cargo.toml"))
+	if err != nil {
+		return false
+	}
+	inTable := false
+	for line := range strings.Lines(string(data)) {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			inTable = trimmed == "[workspace.metadata.aphrollo]"
+			continue
+		}
+		if !inTable {
+			continue
+		}
+		k, val, found := strings.Cut(trimmed, "=")
+		if found && strings.TrimSpace(k) == key {
+			return strings.TrimSpace(val) == "true"
+		}
+	}
+	return false
+}
+
+func cargoAphrolloPackages(ws, key string) []string {
 	data, err := os.ReadFile(filepath.Join(ws, "Cargo.toml"))
 	if err != nil {
 		return nil
@@ -472,8 +593,8 @@ func cargoAlwaysRunPackages(ws string) []string {
 			continue
 		}
 		if !inArray {
-			key, val, found := strings.Cut(trimmed, "=")
-			if !found || strings.TrimSpace(key) != "always-run" {
+			k, val, found := strings.Cut(trimmed, "=")
+			if !found || strings.TrimSpace(k) != key {
 				continue
 			}
 			inArray = true
@@ -683,10 +804,7 @@ func narrowSourceEdit(r Runner, rel, root string) Runner {
 		// (task A4); falls back to the old cwd-implicit `--lib` when root has
 		// no readable [package] Cargo.toml of its own.
 		if _, err := os.Stat(filepath.Join(root, "src", "lib.rs")); err == nil {
-			if cr, ok := cargoRunnerAt(root, "--lib"); ok {
-				return cr
-			}
-			return Runner{Cmd: "cargo", Args: append(cargoRunArgs(r), "--lib")}
+			return cargoTargetRunner(r, rel, root)
 		}
 		return r
 	case "npx":

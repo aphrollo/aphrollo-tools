@@ -57,13 +57,22 @@ func TestSuiteTimeout_IsNotARed(t *testing.T) {
 		}
 	})
 
-	t.Run("Precommit mechanical does not block on a timed-out run", func(t *testing.T) {
+	// UPDATED 2026-09-02: at COMMIT time a timeout now REJECTS
+	// (TestPrecommit_TimeoutRejectsTheCommit) — the untested code would
+	// otherwise stay in history. What must still hold here is that it is
+	// never reported as a RED suite: the message says "did not finish", not
+	// "tests failing".
+	t.Run("Precommit calls a timed-out run unfinished, not failed", func(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		root := makeGoRepo(t)
 		write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 		gitDo(t, root, "add", ".")
-		if res := Precommit(root, timedOut); res.Blocked {
-			t.Fatalf("a timed-out mechanical run must not block: %s", res.Message)
+		res := Precommit(root, timedOut)
+		if !strings.Contains(res.Message, "did not finish") {
+			t.Fatalf("message = %q, want it to say the suite did not finish", res.Message)
+		}
+		if strings.Contains(strings.ToLower(res.Message), "failing") {
+			t.Fatalf("message = %q, want a timeout never reported as a failing suite", res.Message)
 		}
 	})
 

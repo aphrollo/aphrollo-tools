@@ -19,12 +19,12 @@ func TestRunCargoLocked_WritesAndRemovesOwnerFile(t *testing.T) {
 
 	var sawOwner BuildLockOwner
 	var sawOK bool
+	root := t.TempDir()
 	stub := func(Runner, string) SuiteResult {
-		sawOwner, sawOK = ReadBuildLockOwner()
+		sawOwner, sawOK = ReadBuildSlotOwner(resolveTargetDir(os.Getenv, root))
 		return SuiteResult{Passed: true}
 	}
 
-	root := t.TempDir()
 	r := Runner{Cmd: "cargo", Args: []string{"test", "-p", "widget"}}
 	res, _, acquired := runCargoLocked(stub, r, root, time.Second, time.Second)
 	if !acquired || !res.Passed {
@@ -46,7 +46,7 @@ func TestRunCargoLocked_WritesAndRemovesOwnerFile(t *testing.T) {
 		t.Error("owner Started must be set")
 	}
 
-	if _, ok := ReadBuildLockOwner(); ok {
+	if _, ok := ReadBuildSlotOwner(resolveTargetDir(os.Getenv, root)); ok {
 		t.Fatal("owner file must be removed once runCargoLocked returns")
 	}
 }
@@ -63,7 +63,7 @@ func TestRunCargoLocked_OwnerFileUsesRunnerDir(t *testing.T) {
 
 	var sawCwd string
 	stub := func(Runner, string) SuiteResult {
-		if o, ok := ReadBuildLockOwner(); ok {
+		if o, ok := ReadBuildSlotOwner(resolveTargetDir(os.Getenv, wsRoot)); ok {
 			sawCwd = o.Cwd
 		}
 		return SuiteResult{Passed: true}
@@ -129,13 +129,13 @@ func TestRunCargoLocked_RestoresPriorBuildLockHeldEnvValue(t *testing.T) {
 	}
 }
 
-// TestReadBuildLockOwner_NoFileMeansNotOK guards the "no owner recorded" case
+// TestReadBuildSlotOwner_NoFileMeansNotOK guards the "no owner recorded" case
 // (no cargo has ever run through runCargoLocked against this lock, or a
-// pre-A7 build didn't write one): ReadBuildLockOwner must report ok=false,
+// pre-A7 build didn't write one): ReadBuildSlotOwner must report ok=false,
 // not a zero-valued "owner" that could be mistaken for a real one.
-func TestReadBuildLockOwner_NoFileMeansNotOK(t *testing.T) {
+func TestReadBuildSlotOwner_NoFileMeansNotOK(t *testing.T) {
 	withIsolatedBuildLock(t)
-	if _, ok := ReadBuildLockOwner(); ok {
+	if _, ok := ReadBuildSlotOwner(t.TempDir()); ok {
 		t.Fatal("expected no owner file to exist for a fresh isolated lock path")
 	}
 }

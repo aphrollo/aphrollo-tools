@@ -14,13 +14,14 @@ import (
 type Outcome string
 
 const (
-	Green             Outcome = "green"               // passed, clean output
-	GreenWithWarnings Outcome = "green-with-warnings" // passed, warnings present
-	WritingTest       Outcome = "writing-test"        // passed but NO tests actually ran (scaffolding)
-	RedMissingImpl    Outcome = "red-missing-impl"    // failed: the symbol under test is undefined (clean RED)
-	RedBogus          Outcome = "red-bogus"           // failed: test setup is broken (syntax/import/collection)
-	Red               Outcome = "red"                 // failed: a plain assertion failure
-	NoDelta           Outcome = "no-delta"            // failed, but only with pre-existing failures
+	Green              Outcome = "green"               // passed, clean output
+	GreenUnconstrained Outcome = "green-unconstrained" // passed, but no test came with the source edit
+	GreenWithWarnings  Outcome = "green-with-warnings" // passed, warnings present
+	WritingTest        Outcome = "writing-test"        // passed but NO tests actually ran (scaffolding)
+	RedMissingImpl     Outcome = "red-missing-impl"    // failed: the symbol under test is undefined (clean RED)
+	RedBogus           Outcome = "red-bogus"           // failed: test setup is broken (syntax/import/collection)
+	Red                Outcome = "red"                 // failed: a plain assertion failure
+	NoDelta            Outcome = "no-delta"            // failed, but only with pre-existing failures
 )
 
 // IsRed reports whether the outcome is actionable failure the agent should see.
@@ -143,7 +144,7 @@ var failLineRes = []*regexp.Regexp{
 	regexp.MustCompile(`(?m)^\s*[✗×]\s+(.+?)(?:\s+\(\d+\s*m?s\))?\s*$`), // vitest/jest
 	regexp.MustCompile(`(?m)^test\s+(\S+)\s+\.\.\.\s+FAILED`),           // cargo (libtest)
 	regexp.MustCompile(`(?m)^\s*FAIL\s+\[[^\]]*\]\s+\S+\s+(\S+)`),       // cargo nextest: FAIL [ 0.4s] binary-id test::name
-	regexp.MustCompile(`(?m)^\s*error: '([^']+)' failed:`),             // zig build test
+	regexp.MustCompile(`(?m)^\s*error: '([^']+)' failed:`),              // zig build test
 }
 
 // ExtractFailingTests returns the sorted, de-duplicated set of failing test

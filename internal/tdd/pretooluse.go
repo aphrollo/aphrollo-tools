@@ -43,14 +43,34 @@ func DecidePreEdit(raw []byte) (Decision, error) {
 	}
 
 	kind, path := editTarget(in)
+	var d Decision
 	switch kind {
 	case Test:
-		return evaluate(newContent(in), testPolicies, editPhase, langOf(path)), nil
+		d = evaluate(newContent(in), testPolicies, editPhase, langOf(path))
 	case Source:
-		return evaluateSource(newContent(in), path, editPhase), nil
+		d = evaluateSource(newContent(in), path, editPhase)
 	default:
 		return Decision{Action: Allow}, nil
 	}
+	return withQualityNotes(d, path, newContent(in)), nil
+}
+
+// withQualityNotes attaches the advisory test-quality notes to a decision.
+// They never raise a Block (a judgement call must not wedge a session) and
+// never mask one: a real oracle smell keeps its own verdict and reason.
+func withQualityNotes(d Decision, path, content string) Decision {
+	if d.Action == Block {
+		return d
+	}
+	notes := TestQualityNotes(path, content)
+	if len(notes) == 0 {
+		return d
+	}
+	joined := strings.Join(notes, "; ")
+	if d.Action == Warn && d.Reason != "" {
+		return Decision{Action: Warn, Reason: d.Reason + "; " + joined}
+	}
+	return Decision{Action: Warn, Reason: joined}
 }
 
 // evaluateSource gates a Source-file edit. For most languages a source edit runs

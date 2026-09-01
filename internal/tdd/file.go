@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"path/filepath"
 	"path"
 	"strings"
 )
@@ -66,6 +67,12 @@ var sourceExts = map[string]bool{
 	// test file (see isTestFile). `.zon` (build.zig.zon manifest) is not code,
 	// so it stays out of this set and classifies as Ignore.
 	".zig": true,
+	// RON is Rust code's data half: embedded item registries, the
+	// locomotion key tables, frozen schema fixtures. Editing one changes
+	// program behaviour, so it is Source (never Test -- a .ron declares no
+	// test, whatever directory it sits in) and its owning package resolves
+	// through the nearest ancestor Cargo.toml, exactly as a .rs does.
+	".ron": true,
 }
 
 // ClassifyFile maps a file path to the role the TDD gates should treat it as.
@@ -82,10 +89,32 @@ func ClassifyFile(p string) Kind {
 	if isTestFile(p, base) {
 		return Test
 	}
-	if sourceExts[strings.ToLower(path.Ext(base))] {
+	ext := strings.ToLower(path.Ext(base))
+	if ext == ".ron" && !ronHasOwningCrate(p) {
+		// A .ron nobody's [package] owns (borld's assets/**) resolves to an
+		// EMPTY package, and an empty -p scope runs the WHOLE workspace —
+		// the heaviest run there is, from editing an asset.
+		return Ignore
+	}
+	if sourceExts[ext] {
 		return Source
 	}
 	return Ignore
+}
+
+// ronHasOwningCrate reports whether a real [package] manifest covers p.
+func ronHasOwningCrate(p string) bool {
+	dir := filepath.Dir(filepath.FromSlash(p))
+	for {
+		if cargoPackageName(filepath.Join(dir, "Cargo.toml")) != "" {
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+		dir = parent
+	}
 }
 
 // isTestFile recognises a test by filename convention across the languages the

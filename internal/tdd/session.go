@@ -54,6 +54,9 @@ func HandlePrompt(raw []byte) PromptResult {
 		}
 		return PromptResult{Block: true, Message: tddCommand(sub, in.SessionID)}
 	}
+	if harvested := promptHarvest(in.SessionID, in.Cwd); harvested != "" {
+		return PromptResult{Message: harvested}
+	}
 	return PromptResult{Message: reinforce(in.SessionID, in.Cwd)}
 }
 
@@ -178,6 +181,7 @@ func EndSession(raw []byte) {
 
 type sessionStartInput struct {
 	SessionID string `json:"session_id"`
+	Cwd       string `json:"cwd"`
 }
 
 // skillNudge is injected at session start. The commit gate enforces the
@@ -210,7 +214,17 @@ func HandleSessionStart(raw []byte) string {
 	if s, _ := loadSession(in.SessionID); s != nil && s.Overrides.Off {
 		return ""
 	}
-	return skillNudge
+	// Disk hygiene rides along here because session start is the only
+	// moment nobody is waiting on a build: the sweep itself is detached
+	// (see maybeStartBackgroundGC), so what this session surfaces is the
+	// PREVIOUS one's result — one line, only when it actually freed
+	// something.
+	line := gcReportLine()
+	maybeStartBackgroundGC(in.Cwd)
+	if line == "" {
+		return skillNudge
+	}
+	return skillNudge + "\n\n" + line
 }
 
 // RenderSessionStart turns the nudge into the SessionStart hook payload: a

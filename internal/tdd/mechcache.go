@@ -36,11 +36,29 @@ func mechCachePath() string {
 	return filepath.Join(dir, "mech-cache.json")
 }
 
-// mechKey identifies one provably-green state: the repo, its worktree content
-// hash, and the exact command that went green. A different runner argv (a
-// differently-scoped run) never satisfies a lookup for the full suite.
+// mechKey identifies one provably-green state: the REPO (its git common dir,
+// so every linked worktree of one repo shares the cache — identical content
+// under an identical command is the same proven fact wherever it is checked
+// out), the worktree content hash, and the exact command that went green. A
+// different runner argv (a differently-scoped run) never satisfies a lookup
+// for the full suite. A root outside any git repo keys on itself, so
+// unrelated non-repo projects never collapse into one key.
 func mechKey(root, stateHash string, r Runner) string {
-	return root + "\x00" + stateHash + "\x00" + r.Cmd + " " + strings.Join(r.Args, " ")
+	return mechKeyRepo(root) + "\x00" + stateHash + "\x00" + r.Cmd + " " + strings.Join(r.Args, " ")
+}
+
+// mechKeyRepo resolves root to the identity the cache keys on: the repo's
+// git common dir, or root itself when git cannot answer.
+func mechKeyRepo(root string) string {
+	out, err := git(root, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return root
+	}
+	dir := strings.TrimSpace(out)
+	if dir == "" {
+		return root
+	}
+	return filepath.Clean(dir)
 }
 
 func loadMechCache(path string) *mechCacheFile {
@@ -122,7 +140,7 @@ func worktreeStateHash(root string) string {
 
 	seen := map[string]bool{}
 	var paths []string
-	for _, out := range []string{changed, untracked} {
+	for _, out := range []string{changed, untracked, ignoredConfig(root)} {
 		for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 			if line != "" && !seen[line] {
 				seen[line] = true
@@ -156,6 +174,24 @@ func worktreeStateHash(root string) string {
 		fmt.Fprintf(h, "%s\x00%s\n", p, blob)
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// ignoredConfig lists the IGNORED files a suite genuinely reads: dotenv
+// files and anything under a config/ directory. The cache is shared across a
+// repo's worktrees, so tracked content alone is not the whole fact — two
+// lanes with the same sources and different .env are not the same proven
+// green. Build output is deliberately excluded: hashing target/ would cost
+// minutes per commit for something that changes on every build.
+// bound: pathspec-limited to dotenv + config/ trees, target/ and
+// node_modules/ excluded.
+func ignoredConfig(root string) string {
+	out, err := gitRead(root, "ls-files", "--others", "--ignored", "--exclude-standard", "--",
+		":(glob).env*", ":(glob)**/.env*", ":(glob)config/**", ":(glob)**/config/**",
+		":(glob,exclude)**/target/**", ":(glob,exclude)**/node_modules/**")
+	if err != nil {
+		return ""
+	}
+	return out
 }
 
 // blobHashes returns the git blob hash of each file via one batched

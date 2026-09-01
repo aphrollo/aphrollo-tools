@@ -109,6 +109,10 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 		}
 	}
 
+	if deferPhases.Load() {
+		return postEditDeferred(snap, root, target, headSHA, in.SessionID)
+	}
+
 	res, _, acquired := runCargoLocked(run, snap.runner, root, buildLockPostEditDeadline, DefaultPostEditTimeout)
 	if !acquired {
 		// Another cargo build already holds the machine-wide lock — the
@@ -117,7 +121,7 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 		// touch the timeout streak: lock contention has nothing to do with
 		// whether THIS project's suite is slow.
 		appendGateLog("postedit", root, cmdString(snap.runner), "queued-skipped", 0)
-		return queuedSkippedAdvisory(root)
+		return queuedSkippedAdvisory(root, runnerTargetDir(snap.runner, root))
 	}
 	if res.TimedOut {
 		// A killed run proves nothing about the code — the last REAL outcome
@@ -136,14 +140,23 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 	}
 	outcome := ClassifyOutcome(res.Passed, res.Output, snap.prevFailing)
 	failing := ExtractFailingTests(res.Output)
+	passed, hasCount := parsePassedCount(res.Output)
+	unconstrained := unconstrainedGreen(kind, outcome, snap, root, passed, hasCount)
 
 	if snap.state != nil {
-		snap.state.stamp(root, projectState{
+		// Recorded as GREEN even when the advisory says unconstrained: the
+		// note is about coverage, not about failure, and /tdd status must not
+		// read it as something to fix.
+		stamped := projectState{
 			Outcome:      string(outcome),
 			FailingTests: failing,
 			Runner:       append([]string{snap.runner.Cmd}, snap.runner.Args...),
 			Fingerprint:  snap.fingerprint,
-		})
+		}
+		if hasCount && outcome == Green {
+			stamped.PassedCount = passed
+		}
+		snap.state.stamp(root, stamped)
 		_ = snap.state.save(snap.statePath)
 	}
 
@@ -161,7 +174,32 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 	if outcome.IsRed() {
 		return redSummary(snap.runner, root, outcome, res.Output)
 	}
+	if unconstrained {
+		return unconstrainedLine(snap.runner, root, passed, res.Duration)
+	}
 	return passAdvisory(snap.runner, root, outcome, res.Output, res.Duration, snap.prevFailing)
+}
+
+// unconstrainedGreen reports the case fail-first structurally cannot see: a
+// SOURCE edit whose related tests all pass, with the same pass count as the
+// last green for this project. No test came with the change, so nothing new
+// constrains it — the gate has no evidence either way, which is exactly what
+// a mutation proof is for. Advisory only.
+func unconstrainedGreen(kind Kind, outcome Outcome, snap stateSnapshot, root string, passed int, hasCount bool) bool {
+	if kind != Source || outcome != Green || !hasCount || snap.state == nil {
+		return false
+	}
+	prev, ok := snap.state.ByProject[root]
+	if !ok || prev.PassedCount == 0 {
+		return false
+	}
+	return prev.PassedCount == passed
+}
+
+// unconstrainedLine is the one line that case prints.
+func unconstrainedLine(r Runner, root string, passed int, dur time.Duration) string {
+	return fmt.Sprintf("tdd: %s in %s %s (%d passed; no test changed with this edit — mutation proof owed)",
+		cmdString(r), root, GreenUnconstrained, passed)
 }
 
 // stateSnapshot is the per-edit state plumbing PostEdit needs to run the suite
@@ -217,7 +255,7 @@ func cmdString(r Runner) string {
 // what the runner already prints. Unrecognised formats (vitest/jest/pytest/
 // zig) just omit the count — never a guess.
 var passedCountRes = []*regexp.Regexp{
-	regexp.MustCompile(`test result: ok\.\s*(\d+) passed`),                        // go test
+	regexp.MustCompile(`test result: ok\.\s*(\d+) passed`),                                    // go test
 	regexp.MustCompile(`(?m)^\s*Summary\s*\[[^\]]*\]\s*\d+\s*tests?\s*run:\s*(\d+)\s*passed`), // cargo nextest
 }
 
@@ -324,18 +362,18 @@ func streakSkipAdvisory(root string) string {
 // another cargo build already holds the box, so this edit's suite is skipped
 // rather than queued behind it and blowing the edit-time budget. Names the
 // holder (task A7) when the owner file is readable.
-func queuedSkippedAdvisory(root string) string {
-	return fmt.Sprintf("tdd: %s → QUEUED-SKIPPED (another cargo build holds the machine build lock%s) — inconclusive", root, buildLockHolderNote())
+func queuedSkippedAdvisory(root, targetDir string) string {
+	return fmt.Sprintf("tdd: %s → QUEUED-SKIPPED (every build slot for %s is busy%s) — inconclusive", root, targetDir, buildLockHolderNote(targetDir))
 }
 
 // buildLockHolderNote renders a best-effort ", holder: <cmd> in <cwd>"
-// clause from the current build-lock owner file (task A7), or "" when no
+// clause from a holder of targetDir's build slots, or "" when no
 // owner info is available — the owner file is inherently racy (it may have
 // just been removed, or a build predating this feature never wrote one), so
 // callers append it only when non-empty rather than claiming "unknown"
 // explicitly.
-func buildLockHolderNote() string {
-	o, ok := ReadBuildLockOwner()
+func buildLockHolderNote(targetDir string) string {
+	o, ok := ReadBuildSlotOwner(targetDir)
 	if !ok {
 		return ""
 	}
@@ -409,7 +447,10 @@ func guidance(o Outcome) string {
 	}
 }
 
-// DefaultPostEditTimeout is the canonical PostToolUse suite-run budget —
+// DefaultPostEditTimeout is the ONE foreground budget an edit gets, covering
+// the build and run phases TOGETHER: whichever is still going when it expires
+// keeps running detached and reports at the next hook. It is the canonical
+// PostToolUse budget —
 // the single source of truth for cli.go's postEditTimeout AND init.go's
 // PostToolUse hook-template timeout, so the two can never silently drift
 // apart again. They did: the harness template stayed at 90s after this
@@ -419,7 +460,7 @@ func guidance(o Outcome) string {
 // left orphaned (the harness's kill reaches only the direct hook process,
 // never RunSuite's own WaitDelay-based child cleanup, which needs its OWN
 // deadline to actually fire first).
-const DefaultPostEditTimeout = 100 * time.Second
+const DefaultPostEditTimeout = 110 * time.Second
 
 // DefaultPrecommitTimeout is the canonical Precommit/Mechanical stage
 // budget — the single source of truth for cli.go's precommitTimeout.
