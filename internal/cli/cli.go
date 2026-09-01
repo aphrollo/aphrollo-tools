@@ -215,6 +215,8 @@ Subcommands:
   premergecommit    Git pre-merge-commit gate: mechanical ONLY, no fail-first/anti-cheat
   prepush           No-op (mechanical-only mode); kept for back-compat with a
                     lingering pre-push shim. Never blocks.
+  runphase          Run one deferred build/run phase from its job record (--job);
+                    spawned by posttooluse, not typed by hand
   gc                Reclaim stale build dirs: idle incremental caches, dead gate dirs,
                     orphan worktree builds (--repo, --older-than 3d, --apply)
   install           Install the git-hook shims into a repo (--repo, --apply)
