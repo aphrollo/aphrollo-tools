@@ -98,19 +98,20 @@ func runCargoLocked(run SuiteRunner, r Runner, root string, lockDeadline, stageB
 	}
 	start := time.Now()
 	r.Deadline = start.Add(stageBudget)
-	release, ok := acquireBuildLock(lockDeadline)
+	dir := root
+	if r.Dir != "" {
+		dir = r.Dir
+	}
+	slot, release, ok := acquireBuildSlot(runnerTargetDir(r, root), lockDeadline)
 	waited = time.Since(start)
 	if !ok {
 		return SuiteResult{}, waited, false
 	}
 	defer release()
 
-	dir := root
-	if r.Dir != "" {
-		dir = r.Dir
-	}
-	writeBuildLockOwner(cmdString(r), dir)
-	defer removeBuildLockOwner()
+	WriteBuildSlotOwner(slot, cmdString(r), dir)
+	defer RemoveBuildSlotOwner(slot)
+	defer setBuildJobs(slot.Jobs)()
 
 	// A nested cargo invocation (task A7's cargo-queue shim, IF a session
 	// prepended it to PATH) that happens to resolve "cargo" to the shim
@@ -165,14 +166,6 @@ type BuildLockOwner struct {
 	SessionID string    `json:"session_id,omitempty"`
 }
 
-// buildLockOwnerPath is the owner file's path, paired 1:1 with whichever
-// lock path is currently effective (production or a test's isolated
-// override via buildLockPathOverride) so the two never point at mismatched
-// locks in a test.
-func buildLockOwnerPath() string {
-	return effectiveBuildLockPath() + ".owner"
-}
-
 // writeBuildLockOwnerAt records the current process as path's lock holder.
 // Best-effort: a write failure never blocks the actual build/git op — it
 // only costs a waiting acquirer its ability to NAME the holder. Generalized
@@ -193,18 +186,10 @@ func writeBuildLockOwnerAt(path, cmd, cwd string) {
 	_ = os.WriteFile(path, data, 0o600)
 }
 
-func writeBuildLockOwner(cmd, cwd string) {
-	writeBuildLockOwnerAt(buildLockOwnerPath(), cmd, cwd)
-}
-
 // removeBuildLockOwnerAt clears path's owner file. Best-effort, same
 // reasoning as writeBuildLockOwnerAt.
 func removeBuildLockOwnerAt(path string) {
 	_ = os.Remove(path)
-}
-
-func removeBuildLockOwner() {
-	removeBuildLockOwnerAt(buildLockOwnerPath())
 }
 
 // WriteFileLockOwner is writeBuildLockOwnerAt, exported so internal/cli's
@@ -238,53 +223,10 @@ func readBuildLockOwnerAt(path string) (BuildLockOwner, bool) {
 	return o, true
 }
 
-// WriteBuildLockOwner is writeBuildLockOwner, exported so internal/cli's
-// `tdd cargo` shim (task A7) can record itself as the lock's holder once it
-// acquires — using the SAME owner-file mechanism runCargoLocked uses, so a
-// waiter never has to care whether the current holder is a hook/gate or a
-// direct shim invocation.
-func WriteBuildLockOwner(cmd, cwd string) { writeBuildLockOwner(cmd, cwd) }
-
-// RemoveBuildLockOwner is removeBuildLockOwner, exported for the same reason
-// as WriteBuildLockOwner.
-func RemoveBuildLockOwner() { removeBuildLockOwner() }
-
-// ReadBuildLockOwner reads the current build-lock owner file, if any.
-// Exported so internal/cli's cargo shim (task A7) and any future waiter can
-// name the holder. This is inherently racy (the owner file can be removed,
-// or not yet written, at the instant of the read) -- ok=false covers all of
-// "no owner recorded", "file vanished mid-read", and "corrupt content", and
-// every caller treats that as "holder unknown", never an error.
-func ReadBuildLockOwner() (BuildLockOwner, bool) {
-	return readBuildLockOwnerAt(buildLockOwnerPath())
-}
-
 // ReadFileLockOwner is readBuildLockOwnerAt, exported for the same reason
 // as WriteFileLockOwner/RemoveFileLockOwner (task A11's per-repo git lock).
 func ReadFileLockOwner(path string) (BuildLockOwner, bool) {
 	return readBuildLockOwnerAt(path)
-}
-
-// acquireBuildLock polls for the exclusive machine-wide cargo build lock
-// until either it is acquired (returns a release func and true) or deadline
-// elapses (returns a no-op func and false, having waited approximately
-// deadline). The underlying OS lock is released when the holding file handle
-// closes — via release() OR the owning process dying — so a killed session
-// never leaves a stale lock wedging every other one behind it; no PID
-// bookkeeping is needed for correctness.
-//
-// If the lock file itself can't even be opened (a permissions problem, a
-// read-only temp dir), acquisition fails OPEN: the caller gets ok=true so a
-// build proceeds unlocked rather than every cargo run silently refusing to
-// test because of unrelated lock-file plumbing.
-// TryAcquireBuildLock attempts the machine-wide cargo build lock ONCE,
-// non-blocking: (release, true) on success, (no-op, false) on contention.
-// Exported so internal/cli's `tdd cargo` shim (task A7) can build its OWN
-// wait loop around it (queued/acquired/give-up messaging is the shim's
-// concern, not this package's) — distinct from acquireBuildLock's silent
-// poll-with-deadline, which the hooks/gates use directly.
-func TryAcquireBuildLock() (release func(), ok bool) {
-	return TryAcquireFileLock(effectiveBuildLockPath())
 }
 
 // SetBuildLockPathForTest points the build lock (and its paired owner file)
@@ -319,18 +261,4 @@ func TryAcquireFileLock(path string) (release func(), ok bool) {
 	}
 	_ = f.Close()
 	return func() {}, false
-}
-
-func acquireBuildLock(deadline time.Duration) (release func(), ok bool) {
-	path := effectiveBuildLockPath()
-	start := time.Now()
-	for {
-		if release, ok := TryAcquireFileLock(path); ok {
-			return release, true
-		}
-		if time.Since(start) >= deadline {
-			return func() {}, false
-		}
-		time.Sleep(buildLockPollInterval)
-	}
 }

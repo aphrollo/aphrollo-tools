@@ -117,7 +117,7 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 		// touch the timeout streak: lock contention has nothing to do with
 		// whether THIS project's suite is slow.
 		appendGateLog("postedit", root, cmdString(snap.runner), "queued-skipped", 0)
-		return queuedSkippedAdvisory(root)
+		return queuedSkippedAdvisory(root, runnerTargetDir(snap.runner, root))
 	}
 	if res.TimedOut {
 		// A killed run proves nothing about the code — the last REAL outcome
@@ -217,7 +217,7 @@ func cmdString(r Runner) string {
 // what the runner already prints. Unrecognised formats (vitest/jest/pytest/
 // zig) just omit the count — never a guess.
 var passedCountRes = []*regexp.Regexp{
-	regexp.MustCompile(`test result: ok\.\s*(\d+) passed`),                        // go test
+	regexp.MustCompile(`test result: ok\.\s*(\d+) passed`),                                    // go test
 	regexp.MustCompile(`(?m)^\s*Summary\s*\[[^\]]*\]\s*\d+\s*tests?\s*run:\s*(\d+)\s*passed`), // cargo nextest
 }
 
@@ -324,18 +324,18 @@ func streakSkipAdvisory(root string) string {
 // another cargo build already holds the box, so this edit's suite is skipped
 // rather than queued behind it and blowing the edit-time budget. Names the
 // holder (task A7) when the owner file is readable.
-func queuedSkippedAdvisory(root string) string {
-	return fmt.Sprintf("tdd: %s → QUEUED-SKIPPED (another cargo build holds the machine build lock%s) — inconclusive", root, buildLockHolderNote())
+func queuedSkippedAdvisory(root, targetDir string) string {
+	return fmt.Sprintf("tdd: %s → QUEUED-SKIPPED (every build slot for %s is busy%s) — inconclusive", root, targetDir, buildLockHolderNote(targetDir))
 }
 
 // buildLockHolderNote renders a best-effort ", holder: <cmd> in <cwd>"
-// clause from the current build-lock owner file (task A7), or "" when no
+// clause from a holder of targetDir's build slots, or "" when no
 // owner info is available — the owner file is inherently racy (it may have
 // just been removed, or a build predating this feature never wrote one), so
 // callers append it only when non-empty rather than claiming "unknown"
 // explicitly.
-func buildLockHolderNote() string {
-	o, ok := ReadBuildLockOwner()
+func buildLockHolderNote(targetDir string) string {
+	o, ok := ReadBuildSlotOwner(targetDir)
 	if !ok {
 		return ""
 	}

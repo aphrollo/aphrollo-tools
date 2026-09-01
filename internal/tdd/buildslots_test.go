@@ -1,0 +1,310 @@
+package tdd
+
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+)
+
+// TestResolveTargetDir_HonorsCargoTargetDir pins the first half of the lock
+// KEY: when the caller's environment already points cargo at an explicit
+// target dir, that — not the workspace's default — is what the build will
+// actually write to, so it is what the lock must be keyed on.
+//
+// Break this catches: keying on the workspace root instead of the target
+// dir, which would put two worktrees SHARING one CARGO_TARGET_DIR (borld's
+// documented setup) on different keys, letting them build concurrently into
+// one directory.
+func TestResolveTargetDir_HonorsCargoTargetDir(t *testing.T) {
+	ws := t.TempDir()
+	shared := filepath.Join(t.TempDir(), "shared-target")
+	env := func(k string) string {
+		if k == "CARGO_TARGET_DIR" {
+			return shared
+		}
+		return ""
+	}
+	if got := resolveTargetDir(env, ws); got != filepath.Clean(shared) {
+		t.Fatalf("resolveTargetDir = %q, want the explicit CARGO_TARGET_DIR %q", got, shared)
+	}
+}
+
+// TestResolveTargetDir_FallsBackToWorkspaceTarget pins the other half: with
+// no CARGO_TARGET_DIR, cargo writes to <workspace root>/target — resolved
+// through cargoWorkspaceRoot, so a MEMBER CRATE keys on the workspace's one
+// target dir rather than a nonexistent per-crate one.
+func TestResolveTargetDir_FallsBackToWorkspaceTarget(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "Cargo.toml"), []byte("[workspace]\nmembers = [\"crates/a\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	crate := filepath.Join(ws, "crates", "a")
+	if err := os.MkdirAll(crate, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(crate, "Cargo.toml"), []byte("[package]\nname = \"a\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(ws, "target")
+	if got := resolveTargetDir(func(string) string { return "" }, crate); got != want {
+		t.Fatalf("resolveTargetDir from a member crate = %q, want the workspace target %q", got, want)
+	}
+}
+
+// TestBuildSlotLockPath_KeyedOnTargetDir pins that two DIFFERENT target dirs
+// produce different lock files while one target dir always produces the
+// same one — the whole point of the per-target key. It also pins the file
+// NAME shape (aphrollo-cargo-build.<key>.<slot>.lock), since an operator
+// reading %TEMP% has to be able to tell which build a lock belongs to.
+func TestBuildSlotLockPath_KeyedOnTargetDir(t *testing.T) {
+	a, b := t.TempDir(), t.TempDir()
+	pa, pb := buildSlotLockPath(a, 0), buildSlotLockPath(b, 0)
+	if pa == pb {
+		t.Fatalf("distinct target dirs must key to distinct locks, both = %q", pa)
+	}
+	if pa != buildSlotLockPath(a, 0) {
+		t.Fatal("the same target dir must key to the same lock path on every call")
+	}
+	if buildSlotLockPath(a, 0) == buildSlotLockPath(a, 1) {
+		t.Fatal("distinct slots of one target dir must be distinct lock files")
+	}
+	base := filepath.Base(pa)
+	if !strings.HasPrefix(base, "aphrollo-cargo-build.") || !strings.HasSuffix(base, ".0.lock") {
+		t.Fatalf("lock file name = %q, want aphrollo-cargo-build.<key>.0.lock", base)
+	}
+}
+
+// TestBuildSlotLockPath_FoldsPathCaseLikeTheFilesystem pins that one target
+// dir spelled with two drive-letter casings — routine on this box, where a
+// checkout appears in both — is ONE key on Windows (two keys for one
+// directory would let two builds into the same target concurrently, the
+// exact failure the key exists to prevent), and equally that a
+// case-SENSITIVE filesystem keys two genuinely different paths apart.
+func TestBuildSlotLockPath_FoldsPathCaseLikeTheFilesystem(t *testing.T) {
+	dir := t.TempDir()
+	same := buildSlotLockPath(strings.ToLower(dir), 0) == buildSlotLockPath(strings.ToUpper(dir), 0)
+	if runtime.GOOS == "windows" && !same {
+		t.Fatal("on Windows one path spelled in two casings must produce ONE lock key")
+	}
+	if runtime.GOOS != "windows" && same {
+		t.Fatal("on a case-sensitive filesystem two differently-cased paths are two directories, so two keys")
+	}
+}
+
+// TestTryAcquireBuildSlot_NAcquirersFitThenContend pins the slot contract:
+// with N slots configured, N concurrent builds against ONE target dir are
+// admitted and the N+1st is refused — the OOM/CPU governor, now a counter
+// instead of a binary.
+func TestTryAcquireBuildSlot_NAcquirersFitThenContend(t *testing.T) {
+	withIsolatedBuildLock(t)
+	t.Setenv(buildSlotsEnv, "2")
+	target := t.TempDir()
+
+	s0, rel0, ok0 := TryAcquireBuildSlot(target)
+	if !ok0 {
+		t.Fatal("first acquirer must get a slot")
+	}
+	defer rel0()
+	s1, rel1, ok1 := TryAcquireBuildSlot(target)
+	if !ok1 {
+		t.Fatal("second acquirer must get the SECOND slot, not queue behind the first")
+	}
+	defer rel1()
+	if s0.Index == s1.Index {
+		t.Fatalf("two holders got the same slot index %d", s0.Index)
+	}
+	if _, _, ok2 := TryAcquireBuildSlot(target); ok2 {
+		t.Fatal("a third acquirer must be refused once both slots are taken")
+	}
+}
+
+// TestTryAcquireBuildSlot_DifferentTargetDirsNeverContend pins the reason
+// the key exists at all: a second worktree building into its OWN target dir
+// is not competing for the same build directory, so it must not wait on the
+// first one's slots even when every slot of that other key is taken.
+func TestTryAcquireBuildSlot_DifferentTargetDirsNeverContend(t *testing.T) {
+	withIsolatedBuildLock(t)
+	t.Setenv(buildSlotsEnv, "1")
+	a, b := t.TempDir(), t.TempDir()
+
+	_, relA, okA := TryAcquireBuildSlot(a)
+	if !okA {
+		t.Fatal("setup: first target dir must acquire")
+	}
+	defer relA()
+	_, relB, okB := TryAcquireBuildSlot(b)
+	if !okB {
+		t.Fatal("a build into a DIFFERENT target dir must not wait on another target dir's slots")
+	}
+	relB()
+}
+
+// TestBuildSlotCount_DefaultsToTwoAndHonorsEnv pins the configured default
+// (2) and the override knob.
+func TestBuildSlotCount_DefaultsToTwoAndHonorsEnv(t *testing.T) {
+	t.Setenv(buildSlotsEnv, "")
+	if got := buildSlotCount(); got != 2 {
+		t.Fatalf("default slot count = %d, want 2", got)
+	}
+	t.Setenv(buildSlotsEnv, "5")
+	if got := buildSlotCount(); got != 5 {
+		t.Fatalf("APHROLLO_BUILD_SLOTS=5 → %d, want 5", got)
+	}
+	t.Setenv(buildSlotsEnv, "0")
+	if got := buildSlotCount(); got != 1 {
+		t.Fatalf("a zero/negative slot count must floor at 1, got %d", got)
+	}
+	t.Setenv(buildSlotsEnv, "nonsense")
+	if got := buildSlotCount(); got != 2 {
+		t.Fatalf("an unparseable slot count must fall back to the default 2, got %d", got)
+	}
+}
+
+// TestCargoConfigJobs_ParsesBuildJobs pins the tiny line parser against the
+// real shape of ~/.cargo/config.toml, including the two ways it must NOT
+// answer: a `jobs` key under a DIFFERENT table, and a commented-out one.
+func TestCargoConfigJobs_ParsesBuildJobs(t *testing.T) {
+	cases := []struct {
+		name string
+		toml string
+		want int
+		ok   bool
+	}{
+		{"build jobs", "[build]\njobs = 15\nincremental = true\n", 15, true},
+		{"tight spacing", "[build]\n  jobs=7\n", 7, true},
+		{"other table", "[net]\njobs = 15\n", 0, false},
+		{"commented out", "[build]\n# jobs = 15\n", 0, false},
+		{"absent", "[build]\nincremental = true\n", 0, false},
+		{"non-numeric", "[build]\njobs = \"many\"\n", 0, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			if err := os.WriteFile(path, []byte(c.toml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, ok := cargoConfigJobs(path)
+			if ok != c.ok || got != c.want {
+				t.Fatalf("cargoConfigJobs = (%d, %v), want (%d, %v)", got, ok, c.want, c.ok)
+			}
+		})
+	}
+}
+
+// TestSlotJobs_SplitsTheTotalAcrossSlots pins the governor's second half:
+// N concurrent builds each get 1/N of the box's job budget, so admitting a
+// second build does not double the peak link-wave memory the single lock
+// used to prevent.
+func TestSlotJobs_SplitsTheTotalAcrossSlots(t *testing.T) {
+	cases := []struct{ total, slots, want int }{
+		{15, 2, 7},
+		{24, 4, 6},
+		{1, 2, 1}, // never zero — cargo rejects --jobs 0
+		{3, 2, 1},
+	}
+	for _, c := range cases {
+		if got := slotJobs(c.total, c.slots); got != c.want {
+			t.Errorf("slotJobs(%d, %d) = %d, want %d", c.total, c.slots, got, c.want)
+		}
+	}
+}
+
+// TestEnvWithBuildJobs_NeverOverridesTheCaller pins that an explicit
+// CARGO_BUILD_JOBS in the caller's environment wins: the split is a default
+// for un-tuned sessions, never a silent override of a session that already
+// divided the box itself (borld's documented two-lane 7/7 recipe).
+func TestEnvWithBuildJobs_NeverOverridesTheCaller(t *testing.T) {
+	got := EnvWithBuildJobs([]string{"PATH=x", "CARGO_BUILD_JOBS=7"}, 3)
+	if n := envValue(got, "CARGO_BUILD_JOBS"); n != "7" {
+		t.Fatalf("CARGO_BUILD_JOBS = %q, want the caller's own 7", n)
+	}
+	got = EnvWithBuildJobs([]string{"PATH=x"}, 3)
+	if n := envValue(got, "CARGO_BUILD_JOBS"); n != "3" {
+		t.Fatalf("CARGO_BUILD_JOBS = %q, want the injected 3", n)
+	}
+}
+
+func envValue(env []string, key string) string {
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == key {
+			return v
+		}
+	}
+	return ""
+}
+
+// TestRunCargoLocked_InjectsBuildJobsForTheChild pins that the jobs cap
+// actually reaches the suite subprocess: RunSuite builds the child env from
+// os.Environ(), so runCargoLocked must have CARGO_BUILD_JOBS set in THIS
+// process while run() executes — and must put the environment back
+// afterwards, since one hook process handles many roots.
+func TestRunCargoLocked_InjectsBuildJobsForTheChild(t *testing.T) {
+	withIsolatedBuildLock(t)
+	t.Setenv(buildSlotsEnv, "2")
+	os.Unsetenv("CARGO_BUILD_JOBS")
+
+	var seen string
+	stub := func(Runner, string) SuiteResult {
+		seen = os.Getenv("CARGO_BUILD_JOBS")
+		return SuiteResult{Passed: true}
+	}
+	if _, _, acquired := runCargoLocked(stub, Runner{Cmd: "cargo"}, t.TempDir(), time.Second, time.Second); !acquired {
+		t.Fatal("setup: the uncontended slot must be acquired")
+	}
+	n, err := strconv.Atoi(seen)
+	if err != nil || n < 1 {
+		t.Fatalf("suite saw CARGO_BUILD_JOBS=%q, want a positive integer", seen)
+	}
+	if want := slotJobs(totalCargoJobs(), 2); n != want {
+		t.Fatalf("suite saw CARGO_BUILD_JOBS=%d, want the per-slot share %d", n, want)
+	}
+	if _, set := os.LookupEnv("CARGO_BUILD_JOBS"); set {
+		t.Fatal("CARGO_BUILD_JOBS must be restored (unset) once runCargoLocked returns")
+	}
+}
+
+// TestRunCargoLocked_KeepsACallerSetJobsCap pins the same "never override
+// the caller" rule at the hook/gate layer: a session that exported its own
+// CARGO_BUILD_JOBS keeps it.
+func TestRunCargoLocked_KeepsACallerSetJobsCap(t *testing.T) {
+	withIsolatedBuildLock(t)
+	t.Setenv("CARGO_BUILD_JOBS", "11")
+
+	var seen string
+	stub := func(Runner, string) SuiteResult {
+		seen = os.Getenv("CARGO_BUILD_JOBS")
+		return SuiteResult{Passed: true}
+	}
+	runCargoLocked(stub, Runner{Cmd: "cargo"}, t.TempDir(), time.Second, time.Second)
+	if seen != "11" {
+		t.Fatalf("suite saw CARGO_BUILD_JOBS=%q, want the caller's own 11", seen)
+	}
+}
+
+// TestRunCargoLocked_KeysOnTheRunnersOwnTargetDir pins the thread-through:
+// two roots whose builds land in DIFFERENT target dirs must not serialise,
+// while a run into the HELD target dir still contends.
+func TestRunCargoLocked_KeysOnTheRunnersOwnTargetDir(t *testing.T) {
+	withIsolatedBuildLock(t)
+	t.Setenv(buildSlotsEnv, "1")
+	os.Unsetenv("CARGO_TARGET_DIR")
+
+	rootA, rootB := t.TempDir(), t.TempDir()
+	_, release, ok := TryAcquireBuildSlot(resolveTargetDir(os.Getenv, rootA))
+	if !ok {
+		t.Fatal("setup: root A's only slot must be takeable")
+	}
+	defer release()
+
+	stub := func(Runner, string) SuiteResult { return SuiteResult{Passed: true} }
+	if _, _, acquired := runCargoLocked(stub, Runner{Cmd: "cargo"}, rootB, 50*time.Millisecond, time.Second); !acquired {
+		t.Fatal("a run whose target dir is a DIFFERENT directory must not wait on root A's slot")
+	}
+	if _, _, acquired := runCargoLocked(stub, Runner{Cmd: "cargo"}, rootA, 50*time.Millisecond, time.Second); acquired {
+		t.Fatal("a run into root A's OWN target dir must still contend with the holder")
+	}
+}

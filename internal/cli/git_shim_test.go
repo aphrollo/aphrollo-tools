@@ -193,6 +193,18 @@ func gitStub(t *testing.T) string {
 	return gitStubPath
 }
 
+// withDirectGitShim clears the two "someone above me already holds it"
+// passthrough switches for the test's duration. The commit gate runs every
+// suite with APHROLLO_GIT_QUEUED=1 (cleanGitEnv marks aphrollo's own git
+// children so they never wait on the lock their parent holds), so a test of
+// the LOCKING path that inherits it exercises the passthrough instead —
+// green under a bare `go test`, red under the very gate it protects.
+func withDirectGitShim(t *testing.T) {
+	t.Helper()
+	t.Setenv(tdd.GitQueuedEnv, "")
+	t.Setenv(tdd.BuildLockHeldEnv, "")
+}
+
 func testGitShimConfig(t *testing.T) gitShimConfig {
 	return gitShimConfig{
 		waitBudget:   time.Second,
@@ -334,6 +346,7 @@ func gitCommonDirEnv(t *testing.T) string {
 // instant the queued line is observed (via signalOnFirstWrite), not after
 // a guessed delay.
 func TestRunGitShim_WaitsPrintsQueuedOnceAndAcquiredOnce(t *testing.T) {
+	withDirectGitShim(t)
 	commonDir := gitCommonDirEnv(t)
 	lockPath := commonDir + "/" + gitLockFileName
 	ownerPath := commonDir + "/" + gitOwnerFileName
@@ -381,6 +394,7 @@ func TestRunGitShim_WaitsPrintsQueuedOnceAndAcquiredOnce(t *testing.T) {
 // lock is held for the test's entire duration (t.Cleanup releases it), so
 // no synchronization is needed beyond the shim's own bounded wait.
 func TestRunGitShim_GivesUpAfterWaitBudget_Exits75(t *testing.T) {
+	withDirectGitShim(t)
 	commonDir := gitCommonDirEnv(t)
 	lockPath := commonDir + "/" + gitLockFileName
 
@@ -425,6 +439,7 @@ func TestRunGitShim_GivesUpAfterWaitBudget_Exits75(t *testing.T) {
 // disappear, then proceed once it does -- removed the instant the queued
 // line is observed, via signalOnFirstWrite, not after a guessed delay.
 func TestRunGitShim_IndexLockPresentWithoutOwner_WaitsThenProceeds(t *testing.T) {
+	withDirectGitShim(t)
 	commonDir := gitCommonDirEnv(t)
 	indexLockPath := commonDir + "/index.lock"
 	if err := os.WriteFile(indexLockPath, nil, 0o644); err != nil {

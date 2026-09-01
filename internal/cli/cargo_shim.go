@@ -77,33 +77,46 @@ func runTDDCargo(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 // waitBudget prints the give-up line and returns exCargoTempFail.
 func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg cargoShimConfig) int {
 	if os.Getenv(tdd.BuildLockHeldEnv) == "1" {
-		// The hooks/gates already hold the SAME machine-wide lock (this
+		// The hooks/gates already hold a slot for the SAME target dir (this
 		// process is a nested cargo invocation resolved through the shim
-		// because the shim dir precedes the real cargo on PATH) -- touching
-		// the lock again here would deadlock against ourselves.
-		return execCargo(cfg.realCargo, args, stdin, stdout, stderr)
+		// because the shim dir precedes the real cargo on PATH) -- taking
+		// another slot here would deadlock against ourselves.
+		return execCargo(cfg.realCargo, args, stdin, stdout, stderr, 0)
 	}
 
-	release, ok := tdd.TryAcquireBuildLock()
+	target := shimTargetDir()
+	slot, release, ok := tdd.TryAcquireBuildSlot(target)
 	if ok {
-		return runWithLock(release, cfg.realCargo, args, stdin, stdout, stderr)
+		return runWithLock(slot, release, cfg.realCargo, args, stdin, stdout, stderr)
 	}
 
 	// Contended: report it exactly once, then poll silently.
-	fmt.Fprintln(stderr, queuedLine())
+	fmt.Fprintln(stderr, queuedLine(target))
 	start := time.Now()
 	for {
 		elapsed := time.Since(start)
 		if elapsed >= cfg.waitBudget {
-			fmt.Fprintln(stderr, giveUpLine(elapsed))
+			fmt.Fprintln(stderr, giveUpLine(elapsed, target))
 			return exCargoTempFail
 		}
 		time.Sleep(cfg.pollInterval)
-		if release, ok := tdd.TryAcquireBuildLock(); ok {
+		if slot, release, ok := tdd.TryAcquireBuildSlot(target); ok {
 			fmt.Fprintln(stderr, acquiredLine(time.Since(start)))
-			return runWithLock(release, cfg.realCargo, args, stdin, stdout, stderr)
+			return runWithLock(slot, release, cfg.realCargo, args, stdin, stdout, stderr)
 		}
 	}
+}
+
+// shimTargetDir resolves the target dir THIS invocation's build writes to,
+// from the shim's own cwd -- the same resolution the hooks/gates use, so a
+// direct `cargo build` and a gate's build contend exactly when they share a
+// build directory and never when they don't.
+func shimTargetDir() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return tdd.ResolveCargoTargetDir(cwd)
 }
 
 // runWithLock writes the owner file, runs the real cargo, then removes the
@@ -112,18 +125,18 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 // `cargo run` is a special case (task A9): its own launched process's
 // lifetime must NEVER be covered by the lock, only the build that precedes
 // it, so that path is split out entirely.
-func runWithLock(release func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func runWithLock(slot tdd.BuildSlot, release func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if isCargoRunVerb(args) {
-		return runCargoRunSplitLock(release, realCargo, args, stdin, stdout, stderr)
+		return runCargoRunSplitLock(slot, release, realCargo, args, stdin, stdout, stderr)
 	}
 	defer release()
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = "(unknown cwd)"
 	}
-	tdd.WriteBuildLockOwner("cargo "+strings.Join(args, " "), cwd)
-	defer tdd.RemoveBuildLockOwner()
-	return execCargo(realCargo, args, stdin, stdout, stderr)
+	tdd.WriteBuildSlotOwner(slot, "cargo "+strings.Join(args, " "), cwd)
+	defer tdd.RemoveBuildSlotOwner(slot)
+	return execCargo(realCargo, args, stdin, stdout, stderr, slot.Jobs)
 }
 
 // runCargoRunSplitLock implements task A9's fix: `cargo run`'s machine-wide
@@ -142,20 +155,20 @@ func runWithLock(release func(), realCargo string, args []string, stdin io.Reade
 // deliberately do NOT take this path (isCargoRunVerb only matches the bare
 // `run` verb, not nextest's own `run` sub-subcommand): their own execution
 // IS the thing this lock exists to serialize.
-func runCargoRunSplitLock(release func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func runCargoRunSplitLock(slot tdd.BuildSlot, release func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = "(unknown cwd)"
 	}
 	buildArgs := cargoRunArgsToBuildArgs(args)
-	tdd.WriteBuildLockOwner("cargo "+strings.Join(buildArgs, " "), cwd)
-	buildCode := execCargo(realCargo, buildArgs, stdin, stdout, stderr)
-	tdd.RemoveBuildLockOwner()
+	tdd.WriteBuildSlotOwner(slot, "cargo "+strings.Join(buildArgs, " "), cwd)
+	buildCode := execCargo(realCargo, buildArgs, stdin, stdout, stderr, slot.Jobs)
+	tdd.RemoveBuildSlotOwner(slot)
 	release()
 	if buildCode != 0 {
 		return buildCode
 	}
-	return execCargo(realCargo, args, stdin, stdout, stderr)
+	return execCargo(realCargo, args, stdin, stdout, stderr, 0)
 }
 
 // cargoVerb returns cargo's subcommand -- the first argv entry that does
@@ -252,7 +265,7 @@ func resolveRealCargo() (string, error) {
 // needing to talk back to the Go test itself. Always nil in production.
 var execCargoHookForTest func(args []string)
 
-func execCargo(realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func execCargo(realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer, jobs int) int {
 	if execCargoHookForTest != nil {
 		execCargoHookForTest(args)
 	}
@@ -261,6 +274,12 @@ func execCargo(realCargo string, args []string, stdin io.Reader, stdout, stderr 
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.Env = append(os.Environ(), tdd.BuildLockHeldEnv+"=1")
+	if jobs > 0 {
+		// A slot is 1/N of the box: cap the child so N concurrent builds
+		// into one target dir cost about what one uncapped build did. A
+		// caller who already set CARGO_BUILD_JOBS keeps their own number.
+		cmd.Env = tdd.EnvWithBuildJobs(cmd.Env, jobs)
+	}
 	err := cmd.Run()
 	if err == nil {
 		return 0
@@ -276,10 +295,10 @@ func execCargo(realCargo string, args []string, stdin io.Reader, stdout, stderr 
 // queuedLine composes the ONE-SHOT "queued behind" message printed the
 // moment the shim first discovers the lock is contended (never repeated) --
 // naming the holder from the owner file when it's readable.
-func queuedLine() string {
-	o, ok := tdd.ReadBuildLockOwner()
+func queuedLine(targetDir string) string {
+	o, ok := tdd.ReadBuildSlotOwner(targetDir)
 	if !ok {
-		return "cargo: queued behind another build (holder unknown) -- waiting for the machine-wide build lock"
+		return "cargo: queued behind another build (holder unknown) -- waiting for a build slot for " + targetDir
 	}
 	return fmt.Sprintf("cargo: queued behind %q in %s (pid %d, held %s)", o.Cmd, o.Cwd, o.PID, formatMinSec(time.Since(o.Started)))
 }
@@ -293,12 +312,12 @@ func acquiredLine(waited time.Duration) string {
 
 // giveUpLine composes the message printed when the shim stops waiting
 // without ever acquiring the lock.
-func giveUpLine(elapsed time.Duration) string {
+func giveUpLine(elapsed time.Duration, targetDir string) string {
 	holder := "(unknown)"
-	if o, ok := tdd.ReadBuildLockOwner(); ok {
+	if o, ok := tdd.ReadBuildSlotOwner(targetDir); ok {
 		holder = fmt.Sprintf("%q in %s (pid %d)", o.Cmd, o.Cwd, o.PID)
 	}
-	return fmt.Sprintf("cargo: gave up after %ds waiting for the build lock (holder: %s)", int(elapsed.Seconds()+0.5), holder)
+	return fmt.Sprintf("cargo: gave up after %ds waiting for a build slot (holder: %s)", int(elapsed.Seconds()+0.5), holder)
 }
 
 // formatMinSec renders a duration as "<M>m <S>s" for the queued line's

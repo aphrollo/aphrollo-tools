@@ -611,6 +611,36 @@ detectors mask strings but **keep comments** (the directives live in comments).
 Either way a token mentioned only in a string never blocks — the original's
 biggest false-positive class.
 
+### Cargo lock — per-target build slots (`aphrollo tdd cargo`)
+
+The hooks, the commit gate and the `cargo-queue` shim all take the same
+advisory lock before running cargo. It is an **OOM/CPU governor, not a
+correctness device** — cargo already serialises builds within one target dir
+via its own build-dir flock — so it is keyed on the **target dir** a build
+writes to (`CARGO_TARGET_DIR` when set, else `<workspace root>/target`) and
+admits **N concurrent holders per key** ("slots"):
+
+```
+%TEMP%/aphrollo-cargo-build.<sha256_8 of the target dir>.<slot>.lock
+```
+
+- **N is 2 by default**; `APHROLLO_BUILD_SLOTS` overrides it.
+- Each holder's child cargo gets `CARGO_BUILD_JOBS = totalJobs / N` (totalJobs
+  = `[build] jobs` from `~/.cargo/config.toml`, else the core count), so N
+  builds cost about what one uncapped build used to. A caller that already
+  exported `CARGO_BUILD_JOBS` keeps its own number — the split is a default,
+  never an override.
+- **Slots only buy parallelism across DIFFERENT target dirs.** Two sessions
+  sharing one `target/` (e.g. worktrees with a shared `CARGO_TARGET_DIR`) get
+  a second slot from aphrollo and then serialise anyway on **cargo's own
+  build-dir lock** — the gain there is only that the second session is
+  waiting inside cargo instead of being refused up front. Real parallelism
+  means separate target dirs: a worktree with its own `target/`, or the
+  gate's own per-repo target under the state dir.
+- A waiter still prints exactly one `queued behind "<cmd>" in <cwd>` line
+  naming a holder, one line on acquire, and exits 75 (`EX_TEMPFAIL`) when it
+  gives up (`APHROLLO_CARGO_WAIT_SECS`, default 20 min).
+
 ### sqlc drift guard (`aphrollo sqlc`)
 
 Keeps sqlc-generated Go in sync with its `queries/*.sql` source **without** the

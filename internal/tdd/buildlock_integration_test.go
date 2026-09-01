@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -19,16 +20,16 @@ func TestPostEdit_QueuedSkipped_WhenBuildLockHeld(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "Cargo.toml")
 
-	release, ok := acquireBuildLock(time.Second)
+	slot, release, ok := acquireBuildSlot(resolveTargetDir(os.Getenv, root), time.Second)
 	if !ok {
-		t.Fatal("setup: must be able to take the build lock")
+		t.Fatal("setup: must be able to take the project's build slot")
 	}
 	defer release()
 	// A real holder writes an owner file (runCargoLocked does this
-	// automatically; simulated here since this test holds the lock directly
-	// via acquireBuildLock) -- the QUEUED-SKIPPED line must NAME it.
-	writeBuildLockOwner("cargo nextest run -p other-crate", "/some/other/repo")
-	defer removeBuildLockOwner()
+	// automatically; simulated here since this test takes the slot
+	// directly) -- the QUEUED-SKIPPED line must NAME it.
+	WriteBuildSlotOwner(slot, "cargo nextest run -p other-crate", "/some/other/repo")
+	defer RemoveBuildSlotOwner(slot)
 
 	var invoked bool
 	run := func(Runner, string) SuiteResult {
@@ -63,9 +64,9 @@ func TestPostEdit_NonCargoRunner_NeverTakesTheBuildLock(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
 
-	release, ok := acquireBuildLock(time.Second)
+	_, release, ok := acquireBuildSlot(resolveTargetDir(os.Getenv, root), time.Second)
 	if !ok {
-		t.Fatal("setup: must be able to take the build lock")
+		t.Fatal("setup: must be able to take the project's build slot")
 	}
 	defer release()
 
@@ -91,13 +92,13 @@ func TestPrecommit_Mechanical_QueuedSkipped_WhenBuildLockHeld(t *testing.T) {
 	write(t, root, "src/widget.rs", "pub fn widget() -> i32 { 1 }\n")
 	gitDo(t, root, "add", ".")
 
-	release, ok := acquireBuildLock(time.Second)
+	slot, release, ok := acquireBuildSlot(resolveTargetDir(os.Getenv, root), time.Second)
 	if !ok {
-		t.Fatal("setup: must be able to take the build lock")
+		t.Fatal("setup: must be able to take the project's build slot")
 	}
 	defer release()
-	writeBuildLockOwner("cargo nextest run -p other-crate", "/some/other/repo")
-	defer removeBuildLockOwner()
+	WriteBuildSlotOwner(slot, "cargo nextest run -p other-crate", "/some/other/repo")
+	defer RemoveBuildSlotOwner(slot)
 
 	var invoked bool
 	run := func(Runner, string) SuiteResult {

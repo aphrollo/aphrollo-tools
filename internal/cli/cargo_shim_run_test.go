@@ -184,10 +184,10 @@ func TestRunCargoShim_CargoRun_BuildsUnderLockThenRunsLockFree(t *testing.T) {
 		calls = append(calls, append([]string{}, args...))
 		switch {
 		case len(args) > 0 && args[0] == "build":
-			_, ok := tdd.TryAcquireBuildLock()
+			_, _, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
 			lockHeldDuringBuild = !ok
 		case len(args) > 0 && args[0] == "run":
-			release, ok := tdd.TryAcquireBuildLock()
+			_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
 			lockFreeDuringRun = ok
 			if ok {
 				release()
@@ -255,7 +255,7 @@ func TestRunCargoShim_CargoRun_FailingBuildNeverInvokesRun(t *testing.T) {
 		t.Fatalf("the one call must be the build, got %+v", calls[0])
 	}
 
-	release, ok := tdd.TryAcquireBuildLock()
+	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
 	if !ok {
 		t.Fatal("expected the build lock to be released after a failed build")
 	}
@@ -279,7 +279,7 @@ func TestRunCargoShim_NonRunVerb_HoldsLockAcrossWholeCall(t *testing.T) {
 	var lockHeldDuringCall bool
 	execCargoHookForTest = func(args []string) {
 		calls = append(calls, append([]string{}, args...))
-		_, ok := tdd.TryAcquireBuildLock()
+		_, _, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
 		lockHeldDuringCall = !ok
 	}
 	t.Cleanup(func() { execCargoHookForTest = nil })
@@ -300,7 +300,7 @@ func TestRunCargoShim_NonRunVerb_HoldsLockAcrossWholeCall(t *testing.T) {
 		t.Fatal("expected the build lock to be HELD during a non-run verb's execution -- its own execution IS what's serialized")
 	}
 
-	release, ok := tdd.TryAcquireBuildLock()
+	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
 	if !ok {
 		t.Fatal("expected the build lock to be released once the non-run call completes")
 	}
