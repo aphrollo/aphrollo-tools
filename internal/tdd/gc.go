@@ -85,6 +85,12 @@ func AllGCScopes() GCScope {
 // repo, sorted biggest-first so the table's first line is the one worth
 // reading. It only ever READS.
 func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
+	// Absolute from here on: the command defaults to --repo ".", and a
+	// candidate named relatively means a different directory the moment the
+	// table is read (or acted on) from anywhere else.
+	if abs, err := filepath.Abs(repo); err == nil {
+		repo = abs
+	}
 	var out []GCCandidate
 	if scope.Incremental {
 		out = append(out, gcIncremental(ResolveCargoTargetDir(repo), olderThan, time.Now())...)

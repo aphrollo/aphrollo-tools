@@ -224,3 +224,23 @@ func TestParseGCAge_DaysAndDurations(t *testing.T) {
 		}
 	}
 }
+
+// TestScanGC_ReportsAbsolutePaths pins that a candidate is named by a path
+// that means the same thing wherever it is read. `aphrollo tdd gc` defaults
+// to --repo ".", and a table of "target\debug\incremental\..." lines is
+// ambiguous the moment it is pasted anywhere, or acted on from another
+// directory.
+func TestScanGC_ReportsAbsolutePaths(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := t.TempDir()
+	mkFile(t, filepath.Join(repo, "target", "debug", "incremental", "stale-1a2b", "f"), "x", 30*24*time.Hour)
+	t.Chdir(repo)
+
+	got := ScanGC(".", 3*24*time.Hour, GCScope{Incremental: true})
+	if len(got) != 1 {
+		t.Fatalf("want the one stale cache, got %+v", got)
+	}
+	if !filepath.IsAbs(got[0].Path) {
+		t.Fatalf("candidate path = %q, want an absolute path", got[0].Path)
+	}
+}
