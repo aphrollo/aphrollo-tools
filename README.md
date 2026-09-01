@@ -643,6 +643,11 @@ admits **N concurrent holders per key** ("slots"):
 - Budget knobs: `APHROLLO_POSTEDIT_BUDGET_SECS` (edit-hook suite budget,
   default 100s) and `APHROLLO_LOCK_WAIT_SECS` (how long a commit queues for a
   slot, default 300s).
+- **Read-only verbs never take a slot**: `metadata`, `tree`, `fmt`,
+  `locate-project`, `pkgid`, `read-manifest`, `--version`/`-V` pass straight
+  through, so tool detection answers instantly while a build owns the box.
+  `check` and `clippy` DO take one — they run the compiler front end into the
+  shared target dir.
 - A waiter still prints exactly one `queued behind "<cmd>" in <cwd>` line
   naming a holder, one line on acquire, and exits 75 (`EX_TEMPFAIL`) when it
   gives up (`APHROLLO_CARGO_WAIT_SECS`, default 20 min).

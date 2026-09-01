@@ -84,6 +84,14 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 		return execCargo(cfg.realCargo, args, stdin, stdout, stderr, 0)
 	}
 
+	if isCargoReadOnlyVerb(args) {
+		// Reads the manifest/lockfile and compiles nothing, so it is not
+		// what the slots govern -- and it is exactly what a tool-detection
+		// path (`cargo --version`, `cargo metadata`) calls, which must
+		// never sit behind a multi-minute build.
+		return execCargo(cfg.realCargo, args, stdin, stdout, stderr, 0)
+	}
+
 	target := shimTargetDir()
 	slot, release, ok := tdd.TryAcquireBuildSlot(target)
 	if ok {
@@ -195,6 +203,35 @@ func cargoVerb(args []string) string {
 // deliberately keep the lock for the whole call.
 func isCargoRunVerb(args []string) bool {
 	return cargoVerb(args) == "run"
+}
+
+// cargoReadOnlyVerbs compile nothing into the target dir: they read the
+// manifest, the lockfile or the source text. `check` and `clippy` are
+// deliberately absent -- they run the compiler front end into the SHARED
+// target dir, which is precisely what the slots govern.
+var cargoReadOnlyVerbs = map[string]bool{
+	"metadata":       true,
+	"tree":           true,
+	"fmt":            true,
+	"locate-project": true,
+	"pkgid":          true,
+	"read-manifest":  true,
+}
+
+// isCargoReadOnlyVerb reports whether args bypass the build slots entirely.
+// `--version`/`-V` have no verb at all, so they are matched as flags -- but
+// only BEFORE the first bare "--", since past that they belong to the
+// launched program (`cargo test -- --version` compiles a test binary).
+func isCargoReadOnlyVerb(args []string) bool {
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		if a == "--version" || a == "-V" {
+			return true
+		}
+	}
+	return cargoReadOnlyVerbs[cargoVerb(args)]
 }
 
 // cargoRunArgsToBuildArgs converts `cargo run`'s argv into the equivalent
