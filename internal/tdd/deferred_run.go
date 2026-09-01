@@ -86,9 +86,23 @@ func RunPhase(jobPath string) int {
 		defer setBuildJobs(slot.Jobs)()
 	}
 
+	// The child must know this process already holds the slot: with the
+	// cargo-queue shim on PATH, "cargo" resolves to the shim, which would
+	// otherwise queue behind THIS phase's own slot record and never run.
+	prevHeld, hadHeld := os.LookupEnv(BuildLockHeldEnv)
+	if held {
+		os.Setenv(BuildLockHeldEnv, "1")
+	}
 	cmd := exec.Command(j.Runner[0], j.Runner[1:]...)
 	cmd.Dir = j.Dir
 	cmd.Env = suiteEnv()
+	if held {
+		if hadHeld {
+			os.Setenv(BuildLockHeldEnv, prevHeld)
+		} else {
+			os.Unsetenv(BuildLockHeldEnv)
+		}
+	}
 	cmd.Stdout, cmd.Stderr = log, log
 	err = cmd.Run()
 	code := 0
