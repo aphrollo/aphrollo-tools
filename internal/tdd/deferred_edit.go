@@ -41,8 +41,21 @@ type deferredEditOutcome struct {
 	res      SuiteResult
 	deferred bool
 	notice   string
-	prefix   string // "deferred: " once a result came from a detached phase
+	// spawnFailed says nothing is running: reporting BUILDING there is a
+	// lie, and the job record it would leave expires into a bogus timeout
+	// streak for a run that never started.
+	spawnFailed bool
 }
+
+// phaseStatus is what became of a spawn: finished inside the budget, still
+// running (deferred), or never started.
+type phaseStatus int
+
+const (
+	phaseFinished phaseStatus = iota
+	phaseRunning
+	phaseFailedToStart
+)
 
 // runEditPhases executes the edit's tests as build-then-run inside budget,
 // deferring whatever does not finish. It reports deferred=true when a phase
@@ -59,14 +72,20 @@ func runEditPhases(runner Runner, root, headSHA, fileHash, session string, budge
 		single := build
 		single.Phase = "run"
 		single.Runner = phaseArgv(runner, "run")
-		started, out, done := startAndWait(single, time.Until(deadline))
-		if !done {
+		started, out, status := startAndWait(single, time.Until(deadline))
+		if status == phaseFailedToStart {
+			return deferredEditOutcome{spawnFailed: true}
+		}
+		if status == phaseRunning {
 			return deferredEditOutcome{deferred: true, notice: buildingLine(root, "run", 0)}
 		}
 		return deferredEditOutcome{res: phaseSuiteResult(started, out)}
 	}
-	startedBuild, out, done := startAndWait(build, time.Until(deadline))
-	if !done {
+	startedBuild, out, status := startAndWait(build, time.Until(deadline))
+	if status == phaseFailedToStart {
+		return deferredEditOutcome{spawnFailed: true}
+	}
+	if status == phaseRunning {
 		return deferredEditOutcome{deferred: true, notice: buildingLine(root, "build", 0)}
 	}
 	if out.ExitCode != 0 {
@@ -77,8 +96,11 @@ func runEditPhases(runner Runner, root, headSHA, fileHash, session string, budge
 	runPhase := build
 	runPhase.Phase = "run"
 	runPhase.Runner = phaseArgv(runner, "run")
-	startedRun, out, done := startAndWait(runPhase, time.Until(deadline))
-	if !done {
+	startedRun, out, status := startAndWait(runPhase, time.Until(deadline))
+	if status == phaseFailedToStart {
+		return deferredEditOutcome{spawnFailed: true}
+	}
+	if status == phaseRunning {
 		return deferredEditOutcome{deferred: true, notice: buildingLine(root, "run", 0)}
 	}
 	return deferredEditOutcome{res: phaseSuiteResult(startedRun, out)}
@@ -87,13 +109,17 @@ func runEditPhases(runner Runner, root, headSHA, fileHash, session string, budge
 // startAndWait spawns a phase and waits up to budget for it to finish. A
 // budget that has already run out still SPAWNS: the point is to keep the
 // work going, not to skip it.
-func startAndWait(j DeferredJob, budget time.Duration) (DeferredJob, PhaseOutcome, bool) {
+func startAndWait(j DeferredJob, budget time.Duration) (DeferredJob, PhaseOutcome, phaseStatus) {
 	started, ok := spawnPhaseFn(j)
 	if !ok {
-		return j, PhaseOutcome{}, false
+		clearDeferredJob(j.Project)
+		return j, PhaseOutcome{}, phaseFailedToStart
 	}
 	out, done := waitPhase(started, budget)
-	return started, out, done
+	if !done {
+		return started, out, phaseRunning
+	}
+	return started, out, phaseFinished
 }
 
 // harvestDeferred deals with a job left over from an earlier hook. It
@@ -139,8 +165,11 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 		runPhase.Phase = "run"
 		runPhase.Runner = phaseArgvFromBuild(j.Runner)
 		runPhase.Log, runPhase.Result = "", ""
-		startedRun, runOut, ranDone := startAndWait(runPhase, budget)
-		if !ranDone {
+		startedRun, runOut, status := startAndWait(runPhase, budget)
+		if status == phaseFailedToStart {
+			return spawnFailedLine(root, "run"), false
+		}
+		if status == phaseRunning {
 			return buildingLine(root, "run", 0), false
 		}
 		return markDeferred(editResultAdvisory(startedRun, runOut, root, state, statePath, headSHA)), false
@@ -186,6 +215,25 @@ func markDeferred(advisory string) string {
 		return "tdd: deferred " + rest
 	}
 	return "tdd: deferred " + advisory
+}
+
+// spawnFailedLine reports a phase that never started. It is red-bogus, the
+// same class as a broken test setup: the tooling failed, the code was never
+// exercised, and nothing about it has been proven either way.
+func spawnFailedLine(root, phase string) string {
+	return fmt.Sprintf("tdd: → %s (could not start the %s phase in %s — the code was NOT tested)", RedBogus, phase, root)
+}
+
+// sourceIdentity is what a deferred result claims to be about: the whole
+// worktree's state, not the one edited file. A single file's hash cannot see
+// a change made outside the hook (another session, a script, a rebase), and
+// those are exactly the changes that make an answer stale without anyone
+// telling the gate. Outside a git repo it falls back to the edited file.
+func sourceIdentity(root, target string) string {
+	if h := worktreeStateHash(root); h != "" {
+		return h
+	}
+	return fileContentHash(target)
 }
 
 // buildingLine is the ONE line an edit gets when its work is still running.
@@ -287,12 +335,16 @@ func headSHAFor(root string) string {
 // other PostEdit path.
 func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string) string {
 	budget := PostEditBudget()
-	fileHash := fileContentHash(target)
+	fileHash := sourceIdentity(root, target)
 	advisory, fresh := harvestDeferred(root, headSHA, fileHash, session, budget, snap.state, snap.statePath)
 	if !fresh {
 		return advisory
 	}
 	out := runEditPhases(snap.runner, root, headSHA, fileHash, session, budget)
+	if out.spawnFailed {
+		appendGateLog("postedit", root, cmdString(snap.runner), string(RedBogus), 0)
+		return spawnFailedLine(root, "build")
+	}
 	if out.deferred {
 		appendGateLog("postedit", root, cmdString(snap.runner), "deferred", 0)
 		return out.notice
@@ -343,7 +395,7 @@ func promptHarvest(session, cwd string) string {
 		return ""
 	}
 	clearDeferredJob(root)
-	if j.Dirty || j.HeadSHA != headSHAFor(root) {
+	if !deferredMatchesSource(j, headSHAFor(root), sourceIdentity(root, "")) {
 		return ""
 	}
 	state, statePath := loadSession(session)

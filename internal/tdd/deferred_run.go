@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -67,41 +68,56 @@ func waitPhase(j DeferredJob, budget time.Duration) (PhaseOutcome, bool) {
 // tells the next hook the phase is over. It is the ONE writer of that file.
 func RunPhase(jobPath string) int {
 	j, ok := readJobFile(jobPath)
-	if !ok || len(j.Runner) == 0 {
+	if !ok {
+		// Nothing readable means no result path either: the hook that spawned
+		// this will time the job out rather than wait on it forever.
 		return 0
 	}
 	start := time.Now()
+	if len(j.Runner) == 0 {
+		writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure})
+		return 0
+	}
 	log, err := os.Create(j.Log)
 	if err != nil {
+		writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure})
 		return 0
 	}
 	defer log.Close()
 
 	r := runnerFromArgv(j.Runner, j.Dir)
 	slot, release, held := acquireBuildSlot(runnerTargetDir(r, j.Project), deferredSlotWait())
-	if held {
-		defer release()
-		WriteBuildSlotOwner(slot, cmdString(r), j.Dir)
-		defer RemoveBuildSlotOwner(slot)
-		defer setBuildJobs(slot.Jobs)()
+	if !held {
+		// Building without a slot would compile into a target dir another
+		// build owns, and the shimmed cargo inside would queue on the very
+		// slot this phase could not get.
+		fmt.Fprintln(log, "aphrollo: no build slot came free for this phase")
+		writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure, Seconds: time.Since(start).Seconds()})
+		return 0
 	}
+	defer release()
+	WriteBuildSlotOwner(slot, cmdString(r), j.Dir)
+	defer RemoveBuildSlotOwner(slot)
+	defer setBuildJobs(slot.Jobs)()
+
+	// The abandon clock starts HERE, not when the hook spawned this: time
+	// spent queuing is not time spent building, and charging it made a phase
+	// killable the moment it finally started.
+	start = time.Now()
+	stampDeferredStart(j.Project, start)
 
 	// The child must know this process already holds the slot: with the
 	// cargo-queue shim on PATH, "cargo" resolves to the shim, which would
 	// otherwise queue behind THIS phase's own slot record and never run.
 	prevHeld, hadHeld := os.LookupEnv(BuildLockHeldEnv)
-	if held {
-		os.Setenv(BuildLockHeldEnv, "1")
-	}
+	os.Setenv(BuildLockHeldEnv, "1")
 	cmd := exec.Command(j.Runner[0], j.Runner[1:]...)
 	cmd.Dir = j.Dir
 	cmd.Env = suiteEnv()
-	if held {
-		if hadHeld {
-			os.Setenv(BuildLockHeldEnv, prevHeld)
-		} else {
-			os.Unsetenv(BuildLockHeldEnv)
-		}
+	if hadHeld {
+		os.Setenv(BuildLockHeldEnv, prevHeld)
+	} else {
+		os.Unsetenv(BuildLockHeldEnv)
 	}
 	cmd.Stdout, cmd.Stderr = log, log
 	err = cmd.Run()
@@ -117,10 +133,25 @@ func RunPhase(jobPath string) int {
 	return 0
 }
 
+// phaseSetupFailure is the exit code the wrapper reports when the phase
+// never ran at all (no command, no log, no slot). It is distinct from a
+// test failure only in the log line beside it; both are "not green".
+const phaseSetupFailure = 125
+
+// stampDeferredStart moves the job's clock to when the build actually began.
+func stampDeferredStart(root string, at time.Time) {
+	j, ok := loadDeferredJob(root)
+	if !ok {
+		return
+	}
+	j.Started = at
+	saveDeferredJob(j)
+}
+
 // deferredSlotWait bounds how long a detached phase queues for a build slot:
-// the same maximum that bounds the phase itself, so a job cannot sit in the
-// queue past the point where the next hook gives up on it.
-func deferredSlotWait() time.Duration { return deferredMax() }
+// a FRACTION of the phase's own ceiling, so a job that spent its wait in the
+// queue still has most of its life left to build in.
+func deferredSlotWait() time.Duration { return deferredMax() / 4 }
 
 func readJobFile(path string) (DeferredJob, bool) {
 	data, err := os.ReadFile(strings.TrimSpace(path))
