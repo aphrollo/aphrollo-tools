@@ -886,13 +886,15 @@ skipped rather than guessed at (the log is appended to by several processes).
 Build caches this binary's own gates create and use are the biggest thing on
 a Rust box's disk (a measured 417 GB `target/`, 202 GB of it
 `debug/incremental`, plus orphan worktree build dirs
-with nothing left pointing at them). `gc` reclaims exactly four kinds of leftover and nothing else:
+with nothing left pointing at them). `gc` reclaims exactly six kinds of leftover and nothing else:
 
 | category | what qualifies |
 |---|---|
 | idle incremental caches | `<target>/*/incremental/*` whose newest FILE is older than `--older-than` (**default 3d** — being wrong costs one recompile of that one crate) |
 | dead gate dirs | `<stateDir>/failfirst-wt/<hash>` whose `origin.txt` (written at creation) names a repo that no longer exists |
 | stale lock litter | orphan `.owner` records in the temp dir, idle **> 1 day** (`--lock-age`), whose lock nobody currently holds — the acquire attempt IS the liveness test — plus this binary's own `aphrollo-*-stub-*` / `*-pkgtest-*` test dirs. A `.lock` file itself is NEVER deleted: it is the mutual exclusion, and on Windows a delete-pending name makes the next open fail, which reads as "acquired" |
+| stale build artifacts | cargo never deletes a SUPERSEDED metadata hash, so `deps/` keeps one set of outputs per worktree path and per profile change forever (borld measured 2026-09-02: `target/debug/deps` at 207 GB / 24,260 files, 234 distinct `server-<hash>` fingerprints). Two tiers by what a rebuild COSTS: **workspace members at 3d** (they relink in seconds) and **third-party artifacts at 14d**. Matches only cargo's own `<crate>-<hash16>` shape in `deps/`, `.fingerprint/`, `build/` and `incremental/`; anything else is left alone |
+| mutants tree copies | `<target>/mutants/*` older than 1d, and ONLY while no `cargo-mutants` process is alive (those copies are the trees a live run is testing) |
 | orphan worktree builds | a directory beside a repo's registered external worktrees that holds nothing but `target/` — git dropped the worktree, the build dir survived |
 
 ```sh
@@ -902,9 +904,13 @@ aphrollo tdd gc --older-than 14d     # be stricter about incremental caches
 aphrollo tdd gc --apply --lock-age 1h  # clear today's lock litter on an idle box
 ```
 
-`deps/`, `build/` and `.fingerprint/` are **never** reclaimable (they are what
-makes the next build incremental), a **registered worktree is never touched**,
-and a gate dir with no `origin.txt` is UNKNOWN and left alone.
+`deps/` is reclaimable ONLY through the artifact rules above: by cargo's own
+`<crate>-<hash16>` stem and an mtime bar, never by name and never wholesale.
+A **registered worktree is never touched**, a gate dir with no `origin.txt` is
+UNKNOWN and left alone, and every deletion inside a target dir happens while
+this process HOLDS that target's build lock, so a build mid-way cannot lose an
+rlib it is about to link. The dry run reports a total per tier, because the
+tiers carry different risk.
 
 Two things run it for you:
 

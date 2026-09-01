@@ -58,6 +58,9 @@ const (
 	GCKindGateDir
 	GCKindOrphanWorktree
 	GCKindTempLitter
+	GCKindMutants
+	GCKindDepsMember
+	GCKindDepsThirdParty
 )
 
 // tempLitterAge is category (d)'s OWN age bar, deliberately shorter than the
@@ -84,6 +87,8 @@ type GCScope struct {
 	GateDirs        bool
 	OrphanWorktrees bool
 	TempLitter      bool
+	Mutants         bool
+	DepsArtifacts   bool
 	// LockAge overrides how old a lock file must be to count as litter.
 	// Zero means tempLitterAge. An operator who knows the box is idle can
 	// lower it; the unheld-lock probe is what makes that safe.
@@ -92,7 +97,8 @@ type GCScope struct {
 
 // AllGCScopes is the manual command's scope: everything.
 func AllGCScopes() GCScope {
-	return GCScope{Incremental: true, GateDirs: true, OrphanWorktrees: true, TempLitter: true}
+	return GCScope{Incremental: true, GateDirs: true, OrphanWorktrees: true, TempLitter: true,
+		Mutants: true, DepsArtifacts: true}
 }
 
 // ScanGC collects the reclaimable directories for the workspace containing
@@ -113,6 +119,13 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 		if dir := stateDir(); dir != "" {
 			out = append(out, gcStaleGateDirs(dir)...)
 		}
+	}
+	if scope.Mutants {
+		out = append(out, gcMutantsTrees(ResolveCargoTargetDir(repo), DefaultMutantsAge, time.Now())...)
+	}
+	if scope.DepsArtifacts {
+		out = append(out, gcDepsArtifacts(ResolveCargoTargetDir(repo), workspaceMemberCrates(repo),
+			DefaultMemberArtifactAge, DefaultDepArtifactAge, time.Now())...)
 	}
 	if scope.TempLitter {
 		out = append(out, gcTempLitter(lockDir(), scope.lockAge(), time.Now())...)
@@ -435,6 +448,10 @@ func gcTargetInterlock(repo string, c GCCandidate) string {
 		return filepath.Join(c.Path, "target")
 	case GCKindGateDir:
 		return c.Path
+	case GCKindMutants, GCKindDepsMember, GCKindDepsThirdParty:
+		// These live INSIDE the target dir: a build mid-way must not lose an
+		// rlib it is about to link.
+		return ResolveCargoTargetDir(repo)
 	default:
 		return ""
 	}
@@ -456,6 +473,29 @@ func gcProtected(path string) bool {
 // RenderGC formats a scan (or a sweep) for a terminal: one line per
 // candidate with path, size and reason, then a total. A dry run ends with
 // the exact command that acts on it; an applied run reports what it freed.
+// gcTierNames labels the categories whose RISK differs, so a reader can see
+// where the gigabytes come from instead of one lump sum.
+var gcTierNames = map[GCKind]string{
+	GCKindIncremental:    "incremental caches",
+	GCKindDepsMember:     "workspace artifacts",
+	GCKindDepsThirdParty: "third-party artifacts",
+	GCKindMutants:        "mutants trees",
+}
+
+func writeTierTotals(b *strings.Builder, cands []GCCandidate) {
+	totals := map[GCKind]int64{}
+	for _, c := range cands {
+		if _, named := gcTierNames[c.Kind]; named {
+			totals[c.Kind] += c.Size
+		}
+	}
+	for _, k := range []GCKind{GCKindIncremental, GCKindDepsMember, GCKindDepsThirdParty, GCKindMutants} {
+		if totals[k] > 0 {
+			fmt.Fprintf(b, "  %-22s %9s\n", gcTierNames[k], formatBytes(totals[k]))
+		}
+	}
+}
+
 func RenderGC(cands []GCCandidate, applied bool, freed int64) string {
 	if len(cands) == 0 {
 		return "aphrollo tdd gc: nothing reclaimable\n"
@@ -476,6 +516,7 @@ func RenderGC(cands []GCCandidate, applied bool, freed int64) string {
 		fmt.Fprintf(&b, "freed %s in %d directories\n", formatBytes(freed), len(cands))
 		return b.String()
 	}
+	writeTierTotals(&b, cands)
 	fmt.Fprintf(&b, "%s reclaimable in %d directories — run `aphrollo tdd gc --apply` to free it\n", formatBytes(total), len(cands))
 	return b.String()
 }
