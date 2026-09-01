@@ -613,6 +613,15 @@ gate.log names the stage that rejected (`fmt-blocked`, `always-run-blocked`,
 `clippy-blocked`, `mechanical-blocked`, `queued-rejected`). `posttooluse`
 is unchanged: one related-test run per edit.
 
+**`green-unconstrained`** is the edit hook's one coverage note: the run was
+green, the edited file is a non-test SOURCE file, and the pass count is
+identical to the last green for that project — so no test came with the
+change and nothing new constrains it. Fail-first cannot see this case (no test
+was staged to fail), which is why it is said out loud:
+`→ green-unconstrained (7 passed; no test changed with this edit — mutation
+proof owed)`. It never blocks, never touches the timeout streak, and is
+recorded as green for `/tdd status`.
+
 `/tdd off` is the escape hatch for spikes and non-TDD work; `/tdd on` re-enables.
 The SessionStart baseline and `/tdd allow-main` from the Node original are
 deliberately **not** ported — a full suite on every session start costs more than

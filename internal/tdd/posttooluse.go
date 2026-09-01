@@ -140,14 +140,23 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 	}
 	outcome := ClassifyOutcome(res.Passed, res.Output, snap.prevFailing)
 	failing := ExtractFailingTests(res.Output)
+	passed, hasCount := parsePassedCount(res.Output)
+	unconstrained := unconstrainedGreen(kind, outcome, snap, root, passed, hasCount)
 
 	if snap.state != nil {
-		snap.state.stamp(root, projectState{
+		// Recorded as GREEN even when the advisory says unconstrained: the
+		// note is about coverage, not about failure, and /tdd status must not
+		// read it as something to fix.
+		stamped := projectState{
 			Outcome:      string(outcome),
 			FailingTests: failing,
 			Runner:       append([]string{snap.runner.Cmd}, snap.runner.Args...),
 			Fingerprint:  snap.fingerprint,
-		})
+		}
+		if hasCount && outcome == Green {
+			stamped.PassedCount = passed
+		}
+		snap.state.stamp(root, stamped)
 		_ = snap.state.save(snap.statePath)
 	}
 
@@ -165,7 +174,32 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 	if outcome.IsRed() {
 		return redSummary(snap.runner, root, outcome, res.Output)
 	}
+	if unconstrained {
+		return unconstrainedLine(snap.runner, root, passed, res.Duration)
+	}
 	return passAdvisory(snap.runner, root, outcome, res.Output, res.Duration, snap.prevFailing)
+}
+
+// unconstrainedGreen reports the case fail-first structurally cannot see: a
+// SOURCE edit whose related tests all pass, with the same pass count as the
+// last green for this project. No test came with the change, so nothing new
+// constrains it — the gate has no evidence either way, which is exactly what
+// a mutation proof is for. Advisory only.
+func unconstrainedGreen(kind Kind, outcome Outcome, snap stateSnapshot, root string, passed int, hasCount bool) bool {
+	if kind != Source || outcome != Green || !hasCount || snap.state == nil {
+		return false
+	}
+	prev, ok := snap.state.ByProject[root]
+	if !ok || prev.PassedCount == 0 {
+		return false
+	}
+	return prev.PassedCount == passed
+}
+
+// unconstrainedLine is the one line that case prints.
+func unconstrainedLine(r Runner, root string, passed int, dur time.Duration) string {
+	return fmt.Sprintf("tdd: %s in %s %s (%d passed; no test changed with this edit — mutation proof owed)",
+		cmdString(r), root, GreenUnconstrained, passed)
 }
 
 // stateSnapshot is the per-edit state plumbing PostEdit needs to run the suite
