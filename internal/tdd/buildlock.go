@@ -17,7 +17,30 @@ import (
 // repo's test suite; this one serialises cargo BUILDS across every
 // repo/session on the machine, regardless of which repo each is in.
 func buildLockPath() string {
-	return filepath.Join(os.TempDir(), "aphrollo-cargo-build.lock")
+	return filepath.Join(lockDir(), "aphrollo-cargo-build.lock")
+}
+
+// lockDirOverride redirects EVERY lock file this package creates — target
+// locks, global slots, owner records — into one directory. It is the single
+// seam a test isolates: a per-path override is one a test can forget, and
+// forgetting left 871 stale lock files in the operator's real %TEMP%.
+var lockDirOverride atomic.Pointer[string]
+
+// lockDir is where every aphrollo lock file lives: the machine-wide temp dir
+// in production, an overridden directory under test.
+func lockDir() string {
+	if p := lockDirOverride.Load(); p != nil && *p != "" {
+		return *p
+	}
+	return os.TempDir()
+}
+
+// SetLockDirForTest points every lock file at dir for the duration of a test
+// (or a package's whole run, from TestMain). Exported because internal/cli
+// exercises the same locks through the shims.
+func SetLockDirForTest(dir string) (restore func()) {
+	prev := lockDirOverride.Swap(&dir)
+	return func() { lockDirOverride.Store(prev) }
 }
 
 // buildLockPathOverride lets a test point acquireBuildLock at an ISOLATED

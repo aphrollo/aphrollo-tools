@@ -55,7 +55,14 @@ const (
 	GCKindIncremental
 	GCKindGateDir
 	GCKindOrphanWorktree
+	GCKindTempLitter
 )
+
+// tempLitterAge is category (d)'s OWN age bar, deliberately shorter than the
+// build-dir default: a lock file older than a day whose lock nobody holds
+// cannot belong to a running build, and these accumulate by the hundred
+// (871 measured in one operator's %TEMP%).
+const tempLitterAge = 24 * time.Hour
 
 // GCCandidate is one reclaimable directory: what it is, how big, why it
 // qualifies, and which category proposed it. Reason is written for a human
@@ -74,11 +81,12 @@ type GCScope struct {
 	Incremental     bool
 	GateDirs        bool
 	OrphanWorktrees bool
+	TempLitter      bool
 }
 
 // AllGCScopes is the manual command's scope: everything.
 func AllGCScopes() GCScope {
-	return GCScope{Incremental: true, GateDirs: true, OrphanWorktrees: true}
+	return GCScope{Incremental: true, GateDirs: true, OrphanWorktrees: true, TempLitter: true}
 }
 
 // ScanGC collects the reclaimable directories for the workspace containing
@@ -99,6 +107,9 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 		if dir := stateDir(); dir != "" {
 			out = append(out, gcStaleGateDirs(dir)...)
 		}
+	}
+	if scope.TempLitter {
+		out = append(out, gcTempLitter(lockDir(), time.Now())...)
 	}
 	if scope.OrphanWorktrees {
 		if root := RepoRoot(repo); root != "" {
@@ -153,6 +164,54 @@ func gcIncremental(targetDir string, olderThan time.Duration, now time.Time) []G
 				Kind:   GCKindIncremental,
 			})
 		}
+	}
+	return out
+}
+
+// gcTempLitter finds aphrollo's own leavings in the lock dir: lock files and
+// owner records whose lock nobody holds, and the compiled stub dirs a test
+// binary builds. A lock that is currently HELD is a running build and is
+// never proposed — the acquire attempt IS the liveness test, because a lock
+// file's mtime says nothing about whether a process holds it. The residual
+// race (a build takes the lock between the probe and the delete) is bounded
+// by running this daily against files idle for a day; the lock file is
+// recreated on demand either way.
+func gcTempLitter(dir string, now time.Time) []GCCandidate {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []GCCandidate
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, "aphrollo-") {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		info, err := e.Info()
+		if err != nil || now.Sub(info.ModTime()) < tempLitterAge {
+			continue
+		}
+		if e.IsDir() {
+			if !strings.Contains(name, "-stub-") && !strings.Contains(name, "-pkgtest-") {
+				continue
+			}
+			_, size := dirNewestAndSize(path)
+			out = append(out, GCCandidate{Path: path, Size: size,
+				Reason: "test stub dir, idle " + formatDays(now.Sub(info.ModTime())), Kind: GCKindTempLitter})
+			continue
+		}
+		lock := strings.TrimSuffix(path, ".owner")
+		if !strings.HasSuffix(lock, ".lock") {
+			continue
+		}
+		release, free := TryAcquireFileLock(lock)
+		if !free {
+			continue
+		}
+		release()
+		out = append(out, GCCandidate{Path: path, Size: info.Size(),
+			Reason: "unheld lock file, idle " + formatDays(now.Sub(info.ModTime())), Kind: GCKindTempLitter})
 	}
 	return out
 }

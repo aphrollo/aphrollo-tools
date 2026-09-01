@@ -123,6 +123,7 @@ func runVerbStub(t *testing.T) string {
 	t.Helper()
 	runVerbStubOnce.Do(func() {
 		dir, err := os.MkdirTemp("", "aphrollo-cargo-run-stub-")
+		registerStubDir(dir)
 		if err != nil {
 			runVerbStubErr = err
 			return

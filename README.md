@@ -673,7 +673,10 @@ later hook in any session.
 
 The hooks, the commit gate and the `cargo-queue` shim all take the same
 advisory locks before running cargo. There are **two**, because there are two
-different constraints:
+different constraints. Every lock file — target locks, global slots, owner
+records — lives in ONE directory (`os.TempDir()` in production), behind a
+single seam a test overrides in one statement: a per-path override is one a
+test can forget, and forgetting is what left 871 stale locks in `%TEMP%`.
 
 ```
 %TEMP%/aphrollo-cargo-build.<sha256_8 of the target dir>.lock   # one build per target dir
@@ -840,13 +843,13 @@ clippy-clean = ["server", "shared"]   # gate these on `clippy -D warnings` at co
 Build caches this binary's own gates create and use are the biggest thing on
 a Rust box's disk (a measured 417 GB `target/`, 202 GB of it
 `debug/incremental`, plus a 155 GB gate cache and orphan worktree build dirs
-with nothing left pointing at them). `gc` reclaims exactly three kinds of
-directory and nothing else:
+with nothing left pointing at them). `gc` reclaims exactly four kinds of leftover and nothing else:
 
 | category | what qualifies |
 |---|---|
 | idle incremental caches | `<target>/*/incremental/*` whose newest FILE is older than `--older-than` (**default 3d** — being wrong costs one recompile of that one crate) |
 | dead gate dirs | `<stateDir>/failfirst-wt/<hash>` and `<stateDir>/cargo-target/<hash>` whose `origin.txt` (written at creation) names a repo that no longer exists |
+| stale lock litter | `aphrollo-*.lock` / `.owner` files in the temp dir, idle **> 1 day**, whose lock nobody currently holds (the acquire attempt IS the liveness test), plus this binary's own `aphrollo-*-stub-*` / `*-pkgtest-*` test dirs. 871 of the lock files had piled up in one operator's `%TEMP%` |
 | orphan worktree builds | a directory beside a repo's registered external worktrees that holds nothing but `target/` — git dropped the worktree, the build dir survived |
 
 ```sh
@@ -868,7 +871,7 @@ Two things run it for you:
 - **At session start**, at most once per 24 h, `tdd sessionstart` launches a
   DETACHED `gc --apply` (never inline — it must not stall the hook) and the
   NEXT session surfaces one line saying what the last sweep reclaimed.
-  Incremental pruning holds a build slot for the target dir while it deletes,
+  Lock litter is swept there too. Incremental pruning holds a build slot for the target dir while it deletes,
   and is skipped silently when every slot is busy — the next sweep gets it.
 
 ## Setup — `aphrollo tdd init`

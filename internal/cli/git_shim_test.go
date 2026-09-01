@@ -148,6 +148,7 @@ func gitStub(t *testing.T) string {
 	t.Helper()
 	gitStubOnce.Do(func() {
 		dir, err := os.MkdirTemp("", "aphrollo-git-stub-")
+		registerStubDir(dir)
 		if err != nil {
 			gitStubErr = err
 			return

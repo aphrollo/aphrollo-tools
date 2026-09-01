@@ -29,7 +29,16 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, "claude")); err != nil {
 		panic(err)
 	}
+	// Same net for the LOCK files: a test that reaches runCargoLocked without
+	// setting its own override used to write target locks, slot files and
+	// owner records into the operator's real %TEMP% (871 of them, measured).
+	locks := filepath.Join(dir, "locks")
+	if err := os.MkdirAll(locks, 0o755); err != nil {
+		panic(err)
+	}
+	restoreLocks := SetLockDirForTest(locks)
 	code := m.Run()
+	restoreLocks()
 	os.RemoveAll(dir)
 	os.Exit(code)
 }

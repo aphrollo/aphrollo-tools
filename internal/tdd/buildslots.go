@@ -213,7 +213,14 @@ func buildSlotHolderDescription(targetDir string) string {
 // means no owner was recorded (holder unknown), never an error -- the owner
 // file is best-effort and inherently racy.
 func ReadBuildSlotOwner(targetDir string) (BuildLockOwner, bool) {
-	return readBuildLockOwnerAt(targetLockPath(targetDir) + ".owner")
+	return readBuildLockOwnerAt(ReadBuildSlotOwnerPath(targetDir))
+}
+
+// ReadBuildSlotOwnerPath is where a target dir's owner record lives, beside
+// its lock. Exported so a test can assert every lock artefact lands in the
+// overridden lock dir.
+func ReadBuildSlotOwnerPath(targetDir string) string {
+	return targetLockPath(targetDir) + ".owner"
 }
 
 // WriteBuildSlotOwner / RemoveBuildSlotOwner record and clear the holder of
