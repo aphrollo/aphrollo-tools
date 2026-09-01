@@ -40,7 +40,12 @@ const nextestNoTestsOutput = "    Finished `test` profile [unoptimized + debugin
 // (Passed=false, Err="exit status 4", output naming "no tests to run") as an
 // empty PASS.
 func TestEmptyPass_NextestZeroTests_NeverBlocksNeverReadsAsFailure(t *testing.T) {
-	nextestZeroTests := func(Runner, string) SuiteResult {
+	// Only the SUITE run produces nextest's output; the quality stage runs
+	// rustfmt, which has nothing to say about tests.
+	nextestZeroTests := func(r Runner, _ string) SuiteResult {
+		if isQualityRunner(r) {
+			return SuiteResult{Passed: true}
+		}
 		return SuiteResult{Passed: false, Err: "exit status 4", Output: nextestNoTestsOutput}
 	}
 

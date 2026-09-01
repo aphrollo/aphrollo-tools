@@ -715,6 +715,31 @@ A config absent from the sidecar defaults to **gated** (`clean: true`), so a new
 added config can never silently skip the gate. The external `sqlc` binary is
 resolved via `APHROLLO_SQLC_BIN`, then `$PATH`, then the operator go-install path.
 
+### Cargo workspace metadata (`[workspace.metadata.aphrollo]`)
+
+Two opt-in lists, declared in the workspace's own `Cargo.toml` so they version
+with the code they police and are reviewed in the same diff:
+
+```toml
+[workspace.metadata.aphrollo]
+always-run   = ["ratchet"]            # run these packages' suites on EVERY mechanical stage
+clippy-clean = ["server", "shared"]   # gate these on `clippy -D warnings` at commit
+```
+
+- **`always-run`** — a workspace-wide guard package (its tests scan the whole
+  tree) is owned by no staged file, so ownership scoping alone would run it
+  only when someone edits the guard itself, which is exactly when its
+  invariant is not at risk.
+- **`clippy-clean`** — after the mechanical suite passes, each TOUCHED crate is
+  checked with `cargo fmt --check -p <crate>` (always) and, for crates on this
+  list, `cargo clippy -p <crate> --tests -- -D warnings`. A crate that reached
+  zero warnings stays there; crates not on the list are never lint-gated, so
+  the gate stays usable in a tree that still carries warnings. Absent key =
+  no clippy stage at all. Both run in the mechanical stage's target dir;
+  clippy takes a build slot, fmt does not (it compiles nothing). A failure
+  blocks the commit and names the crate and the first diagnostic; a timeout
+  or a busy slot fails OPEN with a stderr note.
+
 ### Disk hygiene (`aphrollo tdd gc`)
 
 Build caches this binary's own gates create and use are the biggest thing on

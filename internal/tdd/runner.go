@@ -456,6 +456,21 @@ func cargoPackagesOwning(root string, files []string) []string {
 // quoted word inside the array is read as a package name; cargo names the bad
 // package loudly on the first run.
 func cargoAlwaysRunPackages(ws string) []string {
+	return cargoAphrolloPackages(ws, "always-run")
+}
+
+// cargoClippyCleanPackages reads the packages the workspace declares as
+// lint-clean. Only those are gated on `clippy -D warnings` at commit: in a
+// large tree most crates carry warnings, so gating all of them is a gate
+// nobody can use, while a crate that reached zero must STAY at zero.
+func cargoClippyCleanPackages(ws string) []string {
+	return cargoAphrolloPackages(ws, "clippy-clean")
+}
+
+// cargoAphrolloPackages reads one string-array key from
+// `[workspace.metadata.aphrollo]` in <ws>/Cargo.toml, sorted and deduped;
+// empty for an absent key or an unreadable manifest.
+func cargoAphrolloPackages(ws, key string) []string {
 	data, err := os.ReadFile(filepath.Join(ws, "Cargo.toml"))
 	if err != nil {
 		return nil
@@ -472,8 +487,8 @@ func cargoAlwaysRunPackages(ws string) []string {
 			continue
 		}
 		if !inArray {
-			key, val, found := strings.Cut(trimmed, "=")
-			if !found || strings.TrimSpace(key) != "always-run" {
+			k, val, found := strings.Cut(trimmed, "=")
+			if !found || strings.TrimSpace(k) != key {
 				continue
 			}
 			inArray = true

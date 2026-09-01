@@ -231,6 +231,10 @@ func mechanicalRoot(gateName, repoRoot, root string, tests, srcs []string, run S
 	}
 	rootFiles := append(append([]string{}, tests...), srcs...)
 
+	// The crates this commit TOUCHED, for the quality stage below — never
+	// the always-run additions, which no staged file belongs to.
+	var touchedPkgs []string
+	var cargoWS string
 	if runner.Cmd == "cargo" {
 		// Cargo ownership is judged PER FILE against the [package] Cargo.toml
 		// that covers it, never against "did every file resolve" — a file no
@@ -253,6 +257,7 @@ func mechanicalRoot(gateName, repoRoot, root string, tests, srcs []string, run S
 		// nextest even in a repo that has it configured. State/mech-cache
 		// keys below still use `root` (the crate root), per A4's contract.
 		ws := cargoWorkspaceRoot(root)
+		touchedPkgs, cargoWS = pkgs, ws
 		// A workspace-wide guard package owns no staged file, so ownership
 		// scoping would run it only when the guard itself is edited.
 		pkgs = dedupeSorted(append(pkgs, cargoAlwaysRunPackages(ws)...))
@@ -321,7 +326,10 @@ func mechanicalRoot(gateName, repoRoot, root string, tests, srcs []string, run S
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmdString(runner), "green", res.Duration)
 	}
-	return GateResult{}
+	// The tests passing is the expensive half; format and lint are cheap
+	// and only meaningful on a tree that already compiles, so they run
+	// last and only on the crates this commit touched.
+	return cargoQualityStage(gateName, cargoWS, root, touchedPkgs, run, repoRoot)
 }
 
 // mechGreenLine composes the mechanical stage's green stderr line, sharing

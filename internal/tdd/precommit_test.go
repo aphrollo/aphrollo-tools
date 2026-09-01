@@ -222,9 +222,14 @@ func TestPrecommit_Mechanical_BlocksFailingSuite(t *testing.T) {
 // (runCargoLocked sets it to start+stageBudget for cargo runners) that no
 // test can predict exactly, and it carries no information the argv/Dir
 // assertions care about.
+// recordRunner / recordAllRuns record the SUITE runs a gate performs. The
+// post-suite quality stage (cargo fmt/clippy per touched crate) is filtered
+// out on purpose: every scoping test below asserts on the exact set of runs,
+// and the quality stage is a separate concern with its own tests in
+// precommit_quality_test.go.
 func recordRunner(seen *[]Runner, root string) SuiteRunner {
 	return func(r Runner, dir string) SuiteResult {
-		if dir == root {
+		if dir == root && !isQualityRunner(r) {
 			r.Deadline = time.Time{}
 			*seen = append(*seen, r)
 		}
@@ -599,7 +604,9 @@ type loggedRun struct {
 func recordAllRuns(seen *[]loggedRun, pass func(dir string) bool) SuiteRunner {
 	return func(r Runner, dir string) SuiteResult {
 		r.Deadline = time.Time{}
-		*seen = append(*seen, loggedRun{runner: r, dir: dir})
+		if !isQualityRunner(r) {
+			*seen = append(*seen, loggedRun{runner: r, dir: dir})
+		}
 		return SuiteResult{Passed: pass(dir)}
 	}
 }
