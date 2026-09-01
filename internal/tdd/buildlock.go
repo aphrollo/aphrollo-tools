@@ -55,21 +55,33 @@ func setBuildLockPathOverride(path string) (restore func()) {
 // but keeps CPU spend from polling negligible either way.
 const buildLockPollInterval = 20 * time.Millisecond
 
-// buildLockPostEditDeadline bounds how long a PostToolUse edit waits for the
-// machine-wide cargo build lock before giving up: a between-edit run is
-// fired dozens of times a session, so it must fail fast rather than queuing
-// behind a build that could easily be minutes long. A `var`, not a `const`,
-// solely so a test can shrink it (see withIsolatedBuildLock) — production
-// code never assigns to it.
-var buildLockPostEditDeadline = 20 * time.Second
+// buildLockPostEditDeadline bounds how long a PostToolUse edit waits for a
+// build slot before giving up. ZERO: a between-edit run is fired dozens of
+// times a session inside a 100s budget, and a busy slot means a build that
+// is minutes long, so waiting spends the edit's whole test budget to lose
+// anyway. One try across the slots, then QUEUED-SKIPPED. A `var`, not a
+// `const`, solely so a contention test can lengthen it — production code
+// never assigns to it.
+var buildLockPostEditDeadline time.Duration
 
-// buildLockPrecommitDeadline bounds how long a commit's cargo stage waits for
-// the lock: a commit is a deliberate, infrequent action worth waiting
-// longer for than an edit — but the wait still must not exceed a big chunk
-// of the overall precommit budget (600s in production), leaving room for the
-// suite itself once the lock is actually acquired. A `var` for the same
-// test-only reason as buildLockPostEditDeadline.
+// buildLockPrecommitDeadline bounds how long a commit's cargo stage waits
+// for a build slot: a commit is a deliberate, infrequent action worth
+// waiting longer for than an edit — but the wait still must not exceed a big
+// chunk of the overall precommit budget (600s in production), leaving room
+// for the suite itself once a slot is actually acquired. A `var` for the
+// same test-only reason as buildLockPostEditDeadline, and settable by the
+// operator through SetPrecommitLockWait.
 var buildLockPrecommitDeadline = 300 * time.Second
+
+// SetPrecommitLockWait overrides how long the commit gate waits for a build
+// slot and returns the restore. Exported for internal/cli, which owns every
+// operator-facing env knob (APHROLLO_LOCK_WAIT_SECS) so the knobs are
+// declared in one place rather than read wherever they happen to be used.
+func SetPrecommitLockWait(d time.Duration) (restore func()) {
+	prev := buildLockPrecommitDeadline
+	buildLockPrecommitDeadline = d
+	return func() { buildLockPrecommitDeadline = prev }
+}
 
 // runCargoLocked wraps a SuiteRunner invocation with the machine-wide build
 // lock: only cargo runners take it (go/pytest/vitest don't saturate the box

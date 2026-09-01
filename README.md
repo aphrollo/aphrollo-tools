@@ -637,6 +637,12 @@ admits **N concurrent holders per key** ("slots"):
   waiting inside cargo instead of being refused up front. Real parallelism
   means separate target dirs: a worktree with its own `target/`, or the
   gate's own per-repo target under the state dir.
+- **The edit hook never waits.** `tdd posttooluse` tries the slots once and
+  reports `QUEUED-SKIPPED` if they are all busy — it used to spend 20s of its
+  100s budget queuing behind a build that takes minutes.
+- Budget knobs: `APHROLLO_POSTEDIT_BUDGET_SECS` (edit-hook suite budget,
+  default 100s) and `APHROLLO_LOCK_WAIT_SECS` (how long a commit queues for a
+  slot, default 300s).
 - A waiter still prints exactly one `queued behind "<cmd>" in <cwd>` line
   naming a holder, one line on acquire, and exits 75 (`EX_TEMPFAIL`) when it
   gives up (`APHROLLO_CARGO_WAIT_SECS`, default 20 min).
