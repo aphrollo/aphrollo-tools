@@ -56,3 +56,29 @@ func TestGC_SweepsStaleLockLitter(t *testing.T) {
 		}
 	}
 }
+
+// TestGC_LockLitterAgeIsTunable pins the knob that makes the category usable
+// the day it ships: the litter measured on 2026-09-01 was hours old, so a
+// fixed 1-day bar could not clear any of it. An operator who knows no build
+// is running lowers the bar; the liveness probe still spares a held lock.
+func TestGC_LockLitterAgeIsTunable(t *testing.T) {
+	temp := t.TempDir()
+	defer SetLockDirForTest(temp)()
+	recent := time.Now().Add(-2 * time.Hour)
+
+	lock := filepath.Join(temp, "aphrollo-cargo-build.recent.lock")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(lock, recent, recent); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := ScanGC(t.TempDir(), DefaultGCAge, GCScope{TempLitter: true}); len(got) != 0 {
+		t.Fatalf("default bar proposed %v, want nothing under a day old", got)
+	}
+	got := ScanGC(t.TempDir(), DefaultGCAge, GCScope{TempLitter: true, LockAge: time.Hour})
+	if len(got) != 1 || got[0].Path != lock {
+		t.Fatalf("with LockAge=1h got %v, want the 2h-old lock", got)
+	}
+}

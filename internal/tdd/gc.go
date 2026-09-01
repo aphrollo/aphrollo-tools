@@ -82,6 +82,10 @@ type GCScope struct {
 	GateDirs        bool
 	OrphanWorktrees bool
 	TempLitter      bool
+	// LockAge overrides how old a lock file must be to count as litter.
+	// Zero means tempLitterAge. An operator who knows the box is idle can
+	// lower it; the unheld-lock probe is what makes that safe.
+	LockAge time.Duration
 }
 
 // AllGCScopes is the manual command's scope: everything.
@@ -109,7 +113,7 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 		}
 	}
 	if scope.TempLitter {
-		out = append(out, gcTempLitter(lockDir(), time.Now())...)
+		out = append(out, gcTempLitter(lockDir(), scope.lockAge(), time.Now())...)
 	}
 	if scope.OrphanWorktrees {
 		if root := RepoRoot(repo); root != "" {
@@ -168,6 +172,14 @@ func gcIncremental(targetDir string, olderThan time.Duration, now time.Time) []G
 	return out
 }
 
+// lockAge is the scope's litter bar, defaulting to a day.
+func (s GCScope) lockAge() time.Duration {
+	if s.LockAge > 0 {
+		return s.LockAge
+	}
+	return tempLitterAge
+}
+
 // gcTempLitter finds aphrollo's own leavings in the lock dir: lock files and
 // owner records whose lock nobody holds, and the compiled stub dirs a test
 // binary builds. A lock that is currently HELD is a running build and is
@@ -176,7 +188,7 @@ func gcIncremental(targetDir string, olderThan time.Duration, now time.Time) []G
 // race (a build takes the lock between the probe and the delete) is bounded
 // by running this daily against files idle for a day; the lock file is
 // recreated on demand either way.
-func gcTempLitter(dir string, now time.Time) []GCCandidate {
+func gcTempLitter(dir string, minAge time.Duration, now time.Time) []GCCandidate {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -189,7 +201,7 @@ func gcTempLitter(dir string, now time.Time) []GCCandidate {
 		}
 		path := filepath.Join(dir, name)
 		info, err := e.Info()
-		if err != nil || now.Sub(info.ModTime()) < tempLitterAge {
+		if err != nil || now.Sub(info.ModTime()) < minAge {
 			continue
 		}
 		if e.IsDir() {

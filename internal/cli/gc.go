@@ -24,6 +24,7 @@ func runTDDGC(args []string, stdout, stderr io.Writer) int {
 		olderThan = fs.String("older-than", "3d", "reclaim incremental caches idle longer than this (e.g. 3d, 12h)")
 		apply     = fs.Bool("apply", false, "delete the candidates (default: print them and stop)")
 		quiet     = fs.Bool("quiet", false, "print nothing (the detached session-start sweep)")
+		lockAge   = fs.String("lock-age", "1d", "reclaim unheld aphrollo lock files idle longer than this")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -34,7 +35,13 @@ func runTDDGC(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	cands := tdd.ScanGC(*repo, age, tdd.AllGCScopes())
+	scope, err := gcScopeFromFlags(*lockAge)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo tdd gc: %v\n", err)
+		return 2
+	}
+
+	cands := tdd.ScanGC(*repo, age, scope)
 	if !*apply {
 		if !*quiet {
 			fmt.Fprint(stdout, tdd.RenderGC(cands, false, 0))
@@ -55,4 +62,16 @@ func runTDDGC(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo tdd gc: refused %s\n", r)
 	}
 	return 0
+}
+
+// gcScopeFromFlags builds the sweep's scope: everything, with the lock-litter
+// bar the operator asked for.
+func gcScopeFromFlags(lockAge string) (tdd.GCScope, error) {
+	age, err := tdd.ParseGCAge(lockAge)
+	if err != nil {
+		return tdd.GCScope{}, err
+	}
+	scope := tdd.AllGCScopes()
+	scope.LockAge = age
+	return scope, nil
 }

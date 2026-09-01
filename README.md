@@ -856,6 +856,7 @@ with nothing left pointing at them). `gc` reclaims exactly four kinds of leftove
 aphrollo tdd gc                      # dry run: path, size, reason, total
 aphrollo tdd gc --apply              # delete them
 aphrollo tdd gc --older-than 14d     # be stricter about incremental caches
+aphrollo tdd gc --apply --lock-age 1h  # clear today's lock litter on an idle box
 ```
 
 `deps/`, `build/` and `.fingerprint/` are **never** reclaimable (they are what

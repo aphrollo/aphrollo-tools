@@ -126,3 +126,20 @@ func TestRunTDDGC_QuietApplyIsSilentButStillRecordsTheSweep(t *testing.T) {
 		t.Fatal("a quiet sweep must still record its result for the next session to report")
 	}
 }
+
+// TestGCFlags_LockAgeReachesTheScan pins the knob's wiring: --lock-age is
+// what lets an operator clear TODAY's lock litter on an idle box instead of
+// waiting a day for the default bar. A flag parsed but not passed through
+// would silently do nothing.
+func TestGCFlags_LockAgeReachesTheScan(t *testing.T) {
+	scope, err := gcScopeFromFlags("2h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scope.LockAge != 2*time.Hour {
+		t.Fatalf("LockAge = %s, want 2h", scope.LockAge)
+	}
+	if _, err := gcScopeFromFlags("soon"); err == nil {
+		t.Fatal("a junk --lock-age must be rejected, never silently defaulted")
+	}
+}
