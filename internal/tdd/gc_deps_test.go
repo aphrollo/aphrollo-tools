@@ -144,3 +144,49 @@ func TestRenderGC_ReportsPerTierTotals(t *testing.T) {
 func containsFold(haystack, needle string) bool {
 	return len(haystack) >= len(needle) && strings.Contains(strings.ToLower(haystack), strings.ToLower(needle))
 }
+
+// TestApplyGC_DeletesArtifactsTheDepsTiersProposed pins the rule change item
+// 17 made explicit: deps/ is reclaimable through the fingerprint-shaped tiers
+// (by cargo's own <crate>-<hash16> stem and an mtime bar), never by name. The
+// blanket "never touch deps/" refusal, written when no category understood
+// those names, silently refused 44 GB of candidates on the first real run.
+func TestApplyGC_DeletesArtifactsTheDepsTiersProposed(t *testing.T) {
+	target := t.TempDir()
+	artifact := filepath.Join(target, "debug", "deps", "server-0123456789abcdef.rlib")
+	aged(t, artifact, "0123456789", 30*24*time.Hour)
+	fingerprint := filepath.Join(target, "debug", ".fingerprint", "server-0123456789abcdef")
+	agedDir(t, fingerprint, 30*24*time.Hour)
+
+	freed, refused := ApplyGC([]GCCandidate{
+		{Path: artifact, Size: 10, Kind: GCKindDepsMember},
+		{Path: fingerprint, Size: 1, Kind: GCKindDepsMember},
+	})
+	if len(refused) != 0 {
+		t.Fatalf("refused %v — the deps tiers name their own candidates", refused)
+	}
+	if freed == 0 {
+		t.Fatal("freed nothing")
+	}
+	for _, p := range []string{artifact, fingerprint} {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("%s survived", filepath.Base(p))
+		}
+	}
+}
+
+// TestApplyGC_StillRefusesAWholeDepsDirectory pins what the name rule was
+// FOR: a category that proposes a whole deps/ (or build/, or .fingerprint/)
+// directory is proposing to cold-rebuild the world, and that is still refused.
+func TestApplyGC_StillRefusesAWholeDepsDirectory(t *testing.T) {
+	target := t.TempDir()
+	deps := filepath.Join(target, "debug", "deps")
+	aged(t, filepath.Join(deps, "x.rlib"), "x", time.Hour)
+
+	_, refused := ApplyGC([]GCCandidate{{Path: deps, Kind: GCKindIncremental}})
+	if len(refused) != 1 {
+		t.Fatalf("refused %v, want the whole deps/ directory refused", refused)
+	}
+	if _, err := os.Stat(deps); err != nil {
+		t.Fatal("deps/ must survive")
+	}
+}

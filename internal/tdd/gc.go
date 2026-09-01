@@ -38,8 +38,11 @@ const DefaultGCAge = 3 * 24 * time.Hour
 // a repo that was deleted months ago.
 const gcOriginFile = "origin.txt"
 
-// gcProtectedNames are the build-artifact directories the sweep must never
-// consider, whatever category proposed them.
+// gcProtectedNames are the build-artifact directories no category may
+// propose WHOLESALE: proposing one is proposing to cold-rebuild the world.
+// The deps tiers are exempt because they name individual artifacts by
+// cargo's own <crate>-<hash16> stem and an mtime bar — deps/ is reclaimable
+// through the fingerprint shape, never by name.
 var gcProtectedNames = map[string]bool{
 	"deps":         true,
 	"build":        true,
@@ -388,7 +391,7 @@ func onlyBuildDirInside(dir string) bool {
 // is that a caller cannot talk the sweep into deleting an artifact dir.
 func ApplyGC(cands []GCCandidate) (freed int64, refused []string) {
 	for _, c := range cands {
-		if gcProtected(c.Path) {
+		if gcProtected(c.Path) && !namesItsOwnArtifacts(c.Kind) {
 			refused = append(refused, c.Path)
 			continue
 		}
@@ -461,6 +464,17 @@ func gcTargetInterlock(repo string, c GCCandidate) string {
 // directory that must survive. Component-wise, not just the base name: a
 // candidate is a directory, and one holding deps/ as its LAST component is
 // the case that matters.
+// namesItsOwnArtifacts reports whether a category selects individual files
+// inside a build directory rather than the directory itself.
+func namesItsOwnArtifacts(k GCKind) bool {
+	switch k {
+	case GCKindDepsMember, GCKindDepsThirdParty, GCKindMutants:
+		return true
+	default:
+		return false
+	}
+}
+
 func gcProtected(path string) bool {
 	for _, part := range strings.Split(filepath.ToSlash(filepath.Clean(path)), "/") {
 		if gcProtectedNames[part] {
