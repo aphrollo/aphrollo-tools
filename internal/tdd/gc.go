@@ -527,7 +527,10 @@ func RenderGC(cands []GCCandidate, applied bool, freed int64) string {
 		total += c.Size
 	}
 	if applied {
-		fmt.Fprintf(&b, "freed %s in %d directories\n", formatBytes(freed), len(cands))
+		// Candidates are not deletions: a run whose target dir was busy
+		// deletes nothing, and counting the list read as work that happened.
+		// The caller reports what it skipped and refused.
+		fmt.Fprintf(&b, "freed %s\n", formatBytes(freed))
 		return b.String()
 	}
 	writeTierTotals(&b, cands)

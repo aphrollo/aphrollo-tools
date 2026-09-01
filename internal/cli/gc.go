@@ -56,7 +56,7 @@ func runTDDGC(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprint(stdout, tdd.RenderGC(cands, true, freed))
 	if skipped > 0 {
-		fmt.Fprintf(stdout, "%d incremental cache(s) left for next time — a build holds every slot for this target dir\n", skipped)
+		fmt.Fprintf(stdout, "%d candidate(s) inside the target dir left for next time — a build holds every slot for this target dir\n", skipped)
 	}
 	for _, r := range refused {
 		fmt.Fprintf(stderr, "aphrollo tdd gc: refused %s\n", r)

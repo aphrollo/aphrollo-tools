@@ -190,3 +190,17 @@ func TestApplyGC_StillRefusesAWholeDepsDirectory(t *testing.T) {
 		t.Fatal("deps/ must survive")
 	}
 }
+
+// TestRenderGC_AppliedCountsWhatItDeleted pins an honest report: the applied
+// line said "freed 0 B in 21778 directories" on a run where a live build held
+// the slot and NOTHING was deleted. A number that counts candidates, not
+// deletions, reads as work that happened.
+func TestRenderGC_AppliedCountsWhatItDeleted(t *testing.T) {
+	out := RenderGC([]GCCandidate{
+		{Path: "a", Size: 10, Kind: GCKindDepsMember},
+		{Path: "b", Size: 20, Kind: GCKindDepsMember},
+	}, true, 0)
+	if strings.Contains(out, "2 directories") {
+		t.Fatalf("report = %q, want it not to claim two directories went when nothing did", out)
+	}
+}
