@@ -291,15 +291,23 @@ func mechanicalRoot(gateName, repoRoot, root string, tests, srcs []string, run S
 		return GateResult{}
 	}
 	restore := pinMechCargoTarget(runner, repoRoot)
+	// Resolved while the gate's target dir is pinned: after restore() this
+	// answers the OPERATOR's target, which is not the one the run contended
+	// for and not the one whose owner names the holder.
+	target := runnerTargetDir(runner, root)
 	res, waited, acquired := runCargoLocked(run, runner, root, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
 	restore()
 	if !acquired {
-		target := runnerTargetDir(runner, root)
-		line := fmt.Sprintf("tdd %s: mechanical %s in %s → QUEUED-SKIPPED (waited %.0fs, every build slot for %s is busy%s) — inconclusive",
+		// A commit the gate never tested must not land. This used to fail
+		// open, and ten commits in one gate.log did exactly that: waited out
+		// the full budget, logged queued-skipped, landed with zero tests
+		// run. Rejecting is loud and recoverable (wait, or --no-verify
+		// deliberately); failing open is silent and is not.
+		line := fmt.Sprintf("tdd %s: mechanical %s in %s → REJECTED (waited %.0fs, every build slot for %s is busy%s) — nothing was tested",
 			gateName, cmdString(runner), root, waited.Seconds(), target, buildLockHolderNote(target))
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog(gateName, root, cmdString(runner), "queued-skipped", waited)
-		return GateResult{Message: line}
+		appendGateLog(gateName, root, cmdString(runner), "queued-rejected", waited)
+		return GateResult{Blocked: true, Message: queuedRejectMessage(runner, target, waited)}
 	}
 	if treatAsEmptyPass(res) {
 		res.Passed = true
@@ -361,29 +369,33 @@ func cargoOwnedFiles(repoRoot, root string, filesRepoRel []string) (owned, unown
 	return owned, unowned
 }
 
-// pinMechCargoTarget guards the mechanical cargo run against the
-// cross-checkout poisoning vector: an inherited CARGO_TARGET_DIR pointing
-// OUTSIDE the repo being committed means two divergent checkouts share one
-// warm target, and wrong-artifact reuse there produces phantom compile/test
-// failures the gate then misreports as a red suite. Such a target is swapped
-// for the gate-owned per-repo one (unset when no state dir exists, falling
-// back to cargo's repo-local default). A repo-local target — or none — is
-// honest and passes through untouched. Returns the env restore.
+// pinMechCargoTarget points the mechanical cargo run at the GATE-OWNED
+// per-repo target dir — always, whatever the operator set. Two reasons, and
+// the second is why it is unconditional. A target dir outside the repo being
+// committed is the cross-checkout poisoning vector: two divergent checkouts
+// sharing one warm target produce phantom compile failures the gate would
+// misreport as a red suite. And sharing the DEV's own target means the gate
+// contends with the human on every commit — with the build lock keyed per
+// target dir, giving the gate its own target is what makes its slot free.
+// Returns the env restore; a missing state dir leaves the environment alone
+// (cargo's default then applies).
 func pinMechCargoTarget(r Runner, repoRoot string) func() {
-	noop := func() {}
 	if r.Cmd != "cargo" {
-		return noop
+		return func() {}
 	}
-	cur, had := os.LookupEnv("CARGO_TARGET_DIR")
-	if !had || insideDir(repoRoot, cur) {
-		return noop
+	dir := cargoFailFirstTarget(repoRoot)
+	if dir == "" {
+		return func() {}
 	}
-	if dir := cargoFailFirstTarget(repoRoot); dir != "" {
-		os.Setenv("CARGO_TARGET_DIR", dir)
-	} else {
+	prev, had := os.LookupEnv("CARGO_TARGET_DIR")
+	os.Setenv("CARGO_TARGET_DIR", dir)
+	return func() {
+		if had {
+			os.Setenv("CARGO_TARGET_DIR", prev)
+			return
+		}
 		os.Unsetenv("CARGO_TARGET_DIR")
 	}
-	return func() { os.Setenv("CARGO_TARGET_DIR", cur) }
 }
 
 // insideDir reports whether path lies lexically within base (inclusive).
@@ -396,6 +408,21 @@ func insideDir(base, path string) bool {
 	}
 	rel, err := filepath.Rel(base, path)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// queuedRejectMessage composes the rejection for a commit the gate could
+// not test because no build slot came free: it names the holder, so the
+// operator knows what to wait for, and the two ways forward.
+func queuedRejectMessage(r Runner, targetDir string, waited time.Duration) string {
+	var b strings.Builder
+	b.WriteString("TDD mechanical: NOTHING WAS TESTED \u2014 no build slot came free.\n")
+	fmt.Fprintf(&b, "command: %s %s\n", r.Cmd, strings.Join(r.Args, " "))
+	fmt.Fprintf(&b, "waited: %.0fs for a slot on %s\n", waited.Seconds(), targetDir)
+	if o, ok := ReadBuildSlotOwner(targetDir); ok {
+		fmt.Fprintf(&b, "holder: %q in %s (pid %d, held %s)\n", o.Cmd, o.Cwd, o.PID, time.Since(o.Started).Round(time.Second))
+	}
+	b.WriteString("Wait for that build to finish and commit again, raise APHROLLO_LOCK_WAIT_SECS, or commit with --no-verify if you mean to skip the gate.\n")
+	return b.String()
 }
 
 // mechRejectMessage composes a mechanical block that says WHAT failed: the

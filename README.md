@@ -637,6 +637,12 @@ admits **N concurrent holders per key** ("slots"):
   waiting inside cargo instead of being refused up front. Real parallelism
   means separate target dirs: a worktree with its own `target/`, or the
   gate's own per-repo target under the state dir.
+- **The commit gate never fails open on the queue.** The mechanical stage
+  builds in the GATE-OWNED per-repo target dir (under the state dir) rather
+  than the dev's own `target/`, so gate and human never contend; and if no
+  slot comes free within `APHROLLO_LOCK_WAIT_SECS` the commit is **rejected**,
+  naming the holder — a commit that was never tested must not land silently.
+  (A suite TIMEOUT still fails open: that run happened, it just ran long.)
 - **The edit hook never waits.** `tdd posttooluse` tries the slots once and
   reports `QUEUED-SKIPPED` if they are all busy — it used to spend 20s of its
   100s budget queuing behind a build that takes minutes.

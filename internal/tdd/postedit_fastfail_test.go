@@ -80,8 +80,8 @@ func TestPostEdit_QueuedSkippedIsImmediate(t *testing.T) {
 
 // TestSetPrecommitLockWait_BoundsTheCommitGatesWait pins the knob the CLI
 // exposes as APHROLLO_LOCK_WAIT_SECS: a commit's cargo stage waits as long
-// as the operator configured and no longer, then reports QUEUED-SKIPPED and
-// fails OPEN (contention is not a test failure).
+// as the operator configured and no longer — and then REJECTS, rather than
+// letting an untested commit land.
 func TestSetPrecommitLockWait_BoundsTheCommitGatesWait(t *testing.T) {
 	withIsolatedBuildLockKeepingDeadlines(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -91,9 +91,9 @@ func TestSetPrecommitLockWait_BoundsTheCommitGatesWait(t *testing.T) {
 	write(t, root, "src/widget.rs", "pub fn widget() -> i32 { 1 }\n")
 	gitDo(t, root, "add", ".")
 
-	_, release, ok := acquireBuildSlot(resolveTargetDir(os.Getenv, root), time.Second)
+	_, release, ok := acquireBuildSlot(cargoFailFirstTarget(root), time.Second)
 	if !ok {
-		t.Fatal("setup: must be able to take the repo's only build slot")
+		t.Fatal("setup: must be able to take the gate target's only build slot")
 	}
 	defer release()
 
@@ -101,11 +101,8 @@ func TestSetPrecommitLockWait_BoundsTheCommitGatesWait(t *testing.T) {
 	res := Precommit(root, func(Runner, string) SuiteResult { return SuiteResult{Passed: true} })
 	elapsed := time.Since(start)
 
-	if res.Blocked {
-		t.Fatalf("slot contention must fail OPEN, never block: %s", res.Message)
-	}
-	if !strings.Contains(res.Message, "QUEUED-SKIPPED") {
-		t.Fatalf("expected a QUEUED-SKIPPED message, got %q", res.Message)
+	if !res.Blocked {
+		t.Fatalf("an untestable commit must be rejected, got: %s", res.Message)
 	}
 	// The production default is 300s; anything near that means the setter
 	// was ignored.
