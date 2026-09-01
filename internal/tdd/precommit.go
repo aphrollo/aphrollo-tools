@@ -782,6 +782,7 @@ func failFirstWorktreeDir(repoRoot string) string {
 	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
 		return ""
 	}
+	writeGateOrigin(dir, repoRoot)
 	return dir
 }
 
@@ -817,6 +818,7 @@ func cargoFailFirstTarget(repoRoot string) string {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return ""
 	}
+	writeGateOrigin(dir, key)
 	return dir
 }
 

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -176,7 +177,66 @@ func runGitWithLock(release func(), ownerPath, realGit string, args []string, st
 	}
 	tdd.WriteFileLockOwner(ownerPath, "git "+strings.Join(args, " "), cwd)
 	defer tdd.RemoveFileLockOwner(ownerPath)
-	return execGit(realGit, args, stdin, stdout, stderr)
+	code := execGit(realGit, args, stdin, stdout, stderr)
+	if code == 0 {
+		sweepAfterWorktreeChange(args, cwd)
+	}
+	return code
+}
+
+// gcAfterWorktreeChange is the sweep the shim runs after a worktree
+// removal, behind a variable so a test can observe it without a disk full
+// of directories.
+var gcAfterWorktreeChange = defaultGCAfterWorktreeChange
+
+func defaultGCAfterWorktreeChange(repoRoot, removed string) int64 {
+	return tdd.GCAfterWorktreeChange(repoRoot, removed)
+}
+
+// sweepAfterWorktreeChange reclaims what a SUCCESSFUL `git worktree
+// remove`/`prune` left behind: git deletes the checkout and never the
+// target/ inside it, so an abandoned lane's build dir -- routinely tens of
+// gigabytes -- outlives the tree it belonged to with nothing pointing at it
+// anymore. Silent: the operator asked to remove a worktree, not to read a
+// report about disk space.
+func sweepAfterWorktreeChange(args []string, cwd string) {
+	_, rest := gitGlobalArgs(args)
+	removed, ok := worktreeSweepTarget(rest, cwd)
+	if !ok {
+		return
+	}
+	root := tdd.RepoRoot(cwd)
+	if root == "" {
+		return
+	}
+	gcAfterWorktreeChange(root, removed)
+}
+
+// worktreeSweepTarget reports whether rest is one of the two verbs that can
+// orphan a build dir, and which tree it named: `worktree remove <path>`
+// names one (resolved against cwd, since git accepts a relative path),
+// `worktree prune` names none -- the scan finds them. `worktree add`
+// creates, so it never qualifies.
+func worktreeSweepTarget(rest []string, cwd string) (removed string, ok bool) {
+	if len(rest) < 2 || rest[0] != "worktree" {
+		return "", false
+	}
+	switch rest[1] {
+	case "prune":
+		return "", true
+	case "remove":
+		for _, a := range rest[2:] {
+			if strings.HasPrefix(a, "-") {
+				continue
+			}
+			if filepath.IsAbs(a) {
+				return filepath.Clean(a), true
+			}
+			return filepath.Join(cwd, a), true
+		}
+		return "", true
+	}
+	return "", false
 }
 
 // gitGlobalArgs splits args into git's own global options (anything before
@@ -225,7 +285,9 @@ func isGitMutatingVerb(rest []string) bool {
 			return false
 		}
 		sub := rest[1]
-		return sub == "add" || sub == "remove"
+		// prune rewrites the worktree registry, and (like remove) is one of
+		// the two verbs that leave a build dir with no worktree over it.
+		return sub == "add" || sub == "remove" || sub == "prune"
 	default:
 		return gitMutatingVerbs[verb]
 	}

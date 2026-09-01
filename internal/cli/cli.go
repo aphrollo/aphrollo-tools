@@ -215,6 +215,8 @@ Subcommands:
   premergecommit    Git pre-merge-commit gate: mechanical ONLY, no fail-first/anti-cheat
   prepush           No-op (mechanical-only mode); kept for back-compat with a
                     lingering pre-push shim. Never blocks.
+  gc                Reclaim stale build dirs: idle incremental caches, dead gate dirs,
+                    orphan worktree builds (--repo, --older-than 3d, --apply)
   install           Install the git-hook shims into a repo (--repo, --apply)
   init              Set up TDD: session hooks in settings.json + the global git gate (--no-git, --uninstall)
   cargo             cargo-queue shim: queue a DIRECT cargo invocation behind the same
@@ -332,6 +334,10 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "init" {
 		return runTDDInit(args[1:], stdout, stderr)
+	}
+	if args[0] == "gc" {
+		// Disk hygiene: dry-run by default, --apply reclaims.
+		return runTDDGC(args[1:], stdout, stderr)
 	}
 	if args[0] == "cargo" {
 		// The cargo-queue shim (task A7): real terminal stdio, not the hook

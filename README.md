@@ -715,6 +715,42 @@ A config absent from the sidecar defaults to **gated** (`clean: true`), so a new
 added config can never silently skip the gate. The external `sqlc` binary is
 resolved via `APHROLLO_SQLC_BIN`, then `$PATH`, then the operator go-install path.
 
+### Disk hygiene (`aphrollo tdd gc`)
+
+Build caches this binary's own gates create and use are the biggest thing on
+a Rust box's disk (a measured 417 GB `target/`, 202 GB of it
+`debug/incremental`, plus a 155 GB gate cache and orphan worktree build dirs
+with nothing left pointing at them). `gc` reclaims exactly three kinds of
+directory and nothing else:
+
+| category | what qualifies |
+|---|---|
+| idle incremental caches | `<target>/*/incremental/*` whose newest FILE is older than `--older-than` (**default 3d** — being wrong costs one recompile of that one crate) |
+| dead gate dirs | `<stateDir>/failfirst-wt/<hash>` and `<stateDir>/cargo-target/<hash>` whose `origin.txt` (written at creation) names a repo that no longer exists |
+| orphan worktree builds | a directory beside a repo's registered external worktrees that holds nothing but `target/` — git dropped the worktree, the build dir survived |
+
+```sh
+aphrollo tdd gc                      # dry run: path, size, reason, total
+aphrollo tdd gc --apply              # delete them
+aphrollo tdd gc --older-than 14d     # be stricter about incremental caches
+```
+
+`deps/`, `build/` and `.fingerprint/` are **never** reclaimable (they are what
+makes the next build incremental), a **registered worktree is never touched**,
+and a gate dir with no `origin.txt` is UNKNOWN and left alone.
+
+Two things run it for you:
+
+- **After a successful `git worktree remove`/`prune`** the git shim sweeps
+  immediately and silently: the removed tree's leftover `target/`, any other
+  orphan build dir beside the registered worktrees, and the gate dirs whose
+  root just disappeared. Incremental caches are NOT in scope there.
+- **At session start**, at most once per 24 h, `tdd sessionstart` launches a
+  DETACHED `gc --apply` (never inline — it must not stall the hook) and the
+  NEXT session surfaces one line saying what the last sweep reclaimed.
+  Incremental pruning holds a build slot for the target dir while it deletes,
+  and is skipped silently when every slot is busy — the next sweep gets it.
+
 ## Setup — `aphrollo tdd init`
 
 One command wires the whole gate — the native replacement for
