@@ -135,6 +135,13 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 // (e.g. a docs-only merge) says so explicitly rather than returning a bare
 // empty result indistinguishable from "the gate never ran".
 func Mechanical(repoRoot string, run SuiteRunner) GateResult {
+	// The cheapest possible rejection comes first: a lane with no mutation
+	// proof is refused before a single suite compiles.
+	if res := mutationReceiptStage(repoRoot); res != nil {
+		fmt.Fprintln(os.Stderr, res.Message)
+		appendGateLog("premergecommit", repoRoot, "mutation-receipt", "receipt-rejected", 0)
+		return *res
+	}
 	groups := stagedRootGroups(repoRoot)
 	if len(groups) == 0 {
 		const line = "tdd premergecommit: nothing to test (no staged source or test files)"
@@ -152,6 +159,20 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		}
 	}
 	return GateResult{Message: strings.Join(notes, "\n")}
+}
+
+// mutationReceiptStage judges the lane's mutation receipt, for workspaces
+// that asked for it (`mutation-receipt = true`). nil means "allow": the
+// workspace has not opted in, or the receipt covers this tree.
+func mutationReceiptStage(repoRoot string) *GateResult {
+	ws := cargoWorkspaceRoot(repoRoot)
+	if ws == "" {
+		ws = repoRoot
+	}
+	if !cargoAphrolloFlag(ws, "mutation-receipt") {
+		return nil
+	}
+	return checkMutationReceipt(filepath.Base(repoRoot), mergeTipTree(repoRoot))
 }
 
 // failFirstStage runs the fail-first check for ONE project root's staged

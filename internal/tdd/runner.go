@@ -470,6 +470,32 @@ func cargoClippyCleanPackages(ws string) []string {
 // cargoAphrolloPackages reads one string-array key from
 // `[workspace.metadata.aphrollo]` in <ws>/Cargo.toml, sorted and deduped;
 // empty for an absent key or an unreadable manifest.
+// cargoAphrolloFlag reads one BOOLEAN key from
+// `[workspace.metadata.aphrollo]`. Absent (or unreadable) is false, so a
+// workspace that has not opted in never sees the feature at all.
+func cargoAphrolloFlag(ws, key string) bool {
+	data, err := os.ReadFile(filepath.Join(ws, "Cargo.toml"))
+	if err != nil {
+		return false
+	}
+	inTable := false
+	for line := range strings.Lines(string(data)) {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			inTable = trimmed == "[workspace.metadata.aphrollo]"
+			continue
+		}
+		if !inTable {
+			continue
+		}
+		k, val, found := strings.Cut(trimmed, "=")
+		if found && strings.TrimSpace(k) == key {
+			return strings.TrimSpace(val) == "true"
+		}
+	}
+	return false
+}
+
 func cargoAphrolloPackages(ws, key string) []string {
 	data, err := os.ReadFile(filepath.Join(ws, "Cargo.toml"))
 	if err != nil {

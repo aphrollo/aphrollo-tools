@@ -856,6 +856,19 @@ clippy-clean = ["server", "shared"]   # gate these on `clippy -D warnings` at co
   tree) is owned by no staged file, so ownership scoping alone would run it
   only when someone edits the guard itself, which is exactly when its
   invariant is not at risk.
+- **`mutation-receipt`** (bool) — turns on the merge gate's receipt check.
+  Fail-first proves a test FAILED once; it says nothing about whether the
+  test constrains behaviour, and a test that asserts nothing satisfies
+  fail-first perfectly. A MERGE needs both. With the key set,
+  `premergecommit` reads `<stateDir>/mutation-receipt.json` (written by the
+  consuming repo's own mutation run — borld's `tools/mutation_gate.sh`) and
+  refuses (`receipt-rejected`) when there is no receipt for this repo, when
+  `tip_tree` is not the LANE TIP's tree (`MERGE_HEAD^{tree}` — never the merge
+  result, which nobody has mutation-tested), when `worktree_dirty` is set, or
+  when `len(survivors) > accepted`. `mutants_total: 0` is a valid receipt: a
+  diff with nothing mutable in it is a real answer. The rejection names the
+  offending field and the command that produces a receipt, and it runs BEFORE
+  any suite compiles.
 - **`clippy-clean`** — the quality checks run BEFORE the suites, cheapest
   first: `cargo fmt --check -p <crate>` for every TOUCHED crate is stage 1,
   and `cargo clippy -p <crate> --tests -- -D warnings` for crates on this
