@@ -591,6 +591,26 @@ live where being wrong only costs a re-run):
 | `tdd precommit` | git `pre-commit` | Blocks a newly-**added** suppression (anti-cheat). Then **fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. A worktree state already proven green under the exact same command (by a PostToolUse run or an earlier gate pass) is **not re-run** — the cache is keyed on the repo's git COMMON dir, so every linked worktree of one repo reuses the same proven-green facts — only green results are cached, keyed on content + runner argv, so a red always re-runs with fresh output. Cargo fail-first runs use a gate-owned per-repo `CARGO_TARGET_DIR` under the state dir, never the operator's shared warm target. |
 | `tdd prepush` | git `pre-push` | **No-op** (mechanical-only mode). The tdd gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
 
+#### Gate stage order (cheapest first)
+
+`precommit` and `premergecommit` run the same pipeline per project root and
+**stop at the first rejection**, so a formatting slip costs milliseconds
+instead of a full test build:
+
+| # | stage | cost | notes |
+|---|---|---|---|
+| 1 | `cargo fmt --check -p <touched>` | ms | compiles nothing, takes no build slot |
+| 2 | `always-run` packages, their OWN invocation | seconds | a pure guard crate; bundling it into `-p ratchet -p client` made it wait for client to link |
+| 3 | `cargo clippy -p <clippy-clean> --tests -- -D warnings` | front-end build | only crates declared clippy-clean |
+| 4 | fail-first RED proof | worktree build | precommit only, and only when the staged tests ADD a declaration |
+| 5 | touched crates' suites | full build + link + run | the heaviest, and therefore last |
+
+Stages 2 and 5 are both short-circuited by the green cache (same content +
+argv key), so a guard crate proven green at commit is not re-run at merge.
+gate.log names the stage that rejected (`fmt-blocked`, `always-run-blocked`,
+`clippy-blocked`, `mechanical-blocked`, `queued-rejected`). `posttooluse`
+is unchanged: one related-test run per edit.
+
 `/tdd off` is the escape hatch for spikes and non-TDD work; `/tdd on` re-enables.
 The SessionStart baseline and `/tdd allow-main` from the Node original are
 deliberately **not** ported — a full suite on every session start costs more than

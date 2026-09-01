@@ -6,9 +6,10 @@ import (
 	"strings"
 )
 
-// The quality stage runs AFTER the mechanical suite has passed, over the
-// crates the commit actually touched. Two checks, deliberately different in
-// how they opt in:
+// The two quality checks, over the crates the commit actually touched. They
+// sit at different points in the gate's cost order: fmt runs first of
+// everything (milliseconds), clippy after the guard crates and before the
+// touched crates' own suites. Deliberately different in how they opt in:
 //
 //   - `cargo fmt --check` runs for every touched crate. Formatting is
 //     mechanical, has one right answer, and unformatted code lands as noise
@@ -19,14 +20,24 @@ import (
 //     held there.
 //
 // Both are per-crate so a rejection can name one, and both fail OPEN on a
-// timeout or a busy build slot — the same policy as the mechanical stage,
-// since neither is a verdict about the code.
+// timeout or a busy build slot — the same policy as the suite stages, since
+// neither is a verdict about the code.
+
+// qualityCheck selects which of the two checks a call runs: they sit at
+// DIFFERENT points in the cost order (fmt first of everything, clippy after
+// the guard crates), so one call cannot do both.
+type qualityCheck int
+
+const (
+	qualityFmt qualityCheck = iota
+	qualityClippy
+)
 
 // cargoQualityStage returns a blocking GateResult for the first crate that
-// fails a check. ws is the cargo workspace root the commands run from, pkgs
+// fails the selected check. ws is the cargo workspace root the commands run from, pkgs
 // the packages the staged files belong to (never the always-run additions —
 // those are not what this commit touched).
-func cargoQualityStage(gateName, ws, root string, pkgs []string, run SuiteRunner, repoRoot string) GateResult {
+func cargoQualityStage(gateName, ws, root string, pkgs []string, run SuiteRunner, repoRoot string, which qualityCheck) GateResult {
 	if ws == "" || len(pkgs) == 0 {
 		return GateResult{}
 	}
@@ -41,10 +52,13 @@ func cargoQualityStage(gateName, ws, root string, pkgs []string, run SuiteRunner
 	defer restore()
 
 	for _, pkg := range pkgs {
-		// fmt compiles nothing, so it never takes a build slot.
-		fmtRunner := Runner{Cmd: "cargo", Args: []string{"fmt", "--check", "-p", pkg}, Dir: ws}
-		if blocked := qualityVerdict(gateName, root, pkg, "fmt", fmtRunner, run(fmtRunner, root), true); blocked != nil {
-			return *blocked
+		if which == qualityFmt {
+			// fmt compiles nothing, so it never takes a build slot.
+			fmtRunner := Runner{Cmd: "cargo", Args: []string{"fmt", "--check", "-p", pkg}, Dir: ws}
+			if blocked := qualityVerdict(gateName, root, pkg, "fmt", fmtRunner, run(fmtRunner, root), true); blocked != nil {
+				return *blocked
+			}
+			continue
 		}
 		if !clippyClean[pkg] {
 			continue
@@ -72,7 +86,7 @@ func qualityVerdict(gateName, root, pkg, stage string, r Runner, res SuiteResult
 		return nil
 	case !res.Passed:
 		fmt.Fprintf(os.Stderr, "tdd %s: %s -p %s in %s → blocked\n", gateName, stage, pkg, root)
-		appendGateLog(gateName, root, cmdString(r), "quality-blocked", res.Duration)
+		appendGateLog(gateName, root, cmdString(r), stage+"-blocked", res.Duration)
 		return &GateResult{Blocked: true, Message: qualityRejectMessage(pkg, stage, r, res)}
 	default:
 		fmt.Fprintf(os.Stderr, "tdd %s: %s -p %s in %s → clean\n", gateName, stage, pkg, root)

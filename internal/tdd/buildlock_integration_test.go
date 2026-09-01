@@ -102,9 +102,13 @@ func TestPrecommit_Mechanical_RejectsWhenNoSlotComesFree(t *testing.T) {
 	WriteBuildSlotOwner(slot, "cargo nextest run -p other-crate", "/some/other/repo")
 	defer RemoveBuildSlotOwner(slot)
 
-	var invoked bool
-	res := Precommit(root, func(Runner, string) SuiteResult {
-		invoked = true
+	// Only the SUITE stage needs a build slot; fmt compiles nothing and runs
+	// first, so it is expected to have run.
+	var suiteRan bool
+	res := Precommit(root, func(r Runner, _ string) SuiteResult {
+		if !isQualityRunner(r) {
+			suiteRan = true
+		}
 		return SuiteResult{Passed: true}
 	})
 
@@ -114,7 +118,7 @@ func TestPrecommit_Mechanical_RejectsWhenNoSlotComesFree(t *testing.T) {
 	if !strings.Contains(res.Message, "cargo nextest run -p other-crate") || !strings.Contains(res.Message, "/some/other/repo") {
 		t.Fatalf("the rejection must name the holder so the operator knows what to wait for, got: %s", res.Message)
 	}
-	if invoked {
+	if suiteRan {
 		t.Fatal("the suite must never run while every slot is busy")
 	}
 }

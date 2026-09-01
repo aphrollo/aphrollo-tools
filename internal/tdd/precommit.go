@@ -115,10 +115,7 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		return res.Blocked
 	}
 	for _, g := range groups {
-		if res := failFirstStage(repoRoot, g.root, g.tests, g.srcs, run); collect(res) {
-			return res
-		}
-		if res := mechanicalRoot("precommit", repoRoot, g.root, g.tests, g.srcs, run); collect(res) {
+		if res := gateRoot("precommit", repoRoot, g, run, true); collect(res) {
 			return res
 		}
 	}
@@ -146,7 +143,7 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 	}
 	var notes []string
 	for _, g := range groups {
-		res := mechanicalRoot("premergecommit", repoRoot, g.root, g.tests, g.srcs, run)
+		res := gateRoot("premergecommit", repoRoot, g, run, false)
 		if res.Blocked {
 			return res
 		}
@@ -212,70 +209,149 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 	return GateResult{}
 }
 
-// mechanicalRoot runs the mechanical stage for ONE project root's staged
-// files, in the real checkout at root. gateName ("precommit" or
-// "premergecommit") names the calling gate in every stderr line and gate.log
-// entry, so the trail is honest about which hook actually ran it — Precommit
-// and the pre-merge-commit gate (Mechanical) share this one implementation.
-func mechanicalRoot(gateName, repoRoot, root string, tests, srcs []string, run SuiteRunner) GateResult {
-	// Changes-gate: a docs/yaml-only commit (no staged source AND no staged test)
-	// under this root has nothing to test, so skip the mechanical stage.
-	if len(tests) == 0 && len(srcs) == 0 {
+// gateRoot runs ONE project root's gate stages in COST order, stopping at
+// the first rejection:
+//
+//	1. cargo fmt --check   (milliseconds)
+//	2. the always-run guard packages, as their OWN invocation (a pure crate;
+//	   bundling it into `-p ratchet -p client` made it wait for client to link)
+//	3. cargo clippy on the crates declared clippy-clean
+//	4. fail-first RED proof (precommit only, and only when staged tests add a
+//	   declaration)
+//	5. the touched crates' suites — full test build, link and run, the
+//	   heaviest thing the gate does
+//
+// Before this the heaviest stage ran first, so a commit with a formatting
+// slip paid the whole test build to be told about a space. gateName
+// ("precommit"/"premergecommit") names the calling gate in every stderr line
+// and gate.log entry; failFirst is false for the merge gate, whose commits
+// were each already judged when authored.
+func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst bool) GateResult {
+	// Changes-gate: a docs/yaml-only commit (no staged source AND no staged
+	// test) under this root has nothing to check.
+	if len(g.tests) == 0 && len(g.srcs) == 0 {
 		return GateResult{}
 	}
-
-	runner, ok := DetectRunner(root)
+	runner, ok := DetectRunner(g.root)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "tdd %s: %s → skipped (no detected runner)\n", gateName, root)
+		fmt.Fprintf(os.Stderr, "tdd %s: %s → skipped (no detected runner)\n", gateName, g.root)
 		return GateResult{}
 	}
-	rootFiles := append(append([]string{}, tests...), srcs...)
+	rootFiles := append(append([]string{}, g.tests...), g.srcs...)
 
-	// The crates this commit TOUCHED, for the quality stage below — never
-	// the always-run additions, which no staged file belongs to.
-	var touchedPkgs []string
-	var cargoWS string
 	if runner.Cmd == "cargo" {
-		// Cargo ownership is judged PER FILE against the [package] Cargo.toml
-		// that covers it, never against "did every file resolve" — a file no
-		// package owns (a virtual workspace manifest, a path outside any
-		// member) is SKIPPED with a stderr note, not a trigger to widen the
-		// run to the whole workspace (that full-suite fallback is removed;
-		// see cargoPackagesOwning/narrowToStaged's cargo case).
-		owned, unowned := cargoOwnedFiles(repoRoot, root, rootFiles)
-		for _, f := range unowned {
-			fmt.Fprintf(os.Stderr, "tdd %s: %s has no owning cargo package — not tested\n", gateName, f)
-		}
-		if len(owned) == 0 {
+		plan, ok := planCargoStages(gateName, repoRoot, g.root, rootFiles)
+		if !ok {
 			return GateResult{}
 		}
-		pkgs := cargoPackagesOwning(root, toRootRelative(repoRoot, root, owned))
-		// Resolve the actual WORKSPACE root (task A4): a checked-in
-		// .config/nextest.toml and the workspace's Cargo.lock live there,
-		// not in a member crate's own directory — DetectRunner(root) above
-		// only ever checked root itself, so a member crate silently lost
-		// nextest even in a repo that has it configured. State/mech-cache
-		// keys below still use `root` (the crate root), per A4's contract.
-		ws := cargoWorkspaceRoot(root)
-		touchedPkgs, cargoWS = pkgs, ws
-		// A workspace-wide guard package owns no staged file, so ownership
-		// scoping would run it only when the guard itself is edited.
-		pkgs = dedupeSorted(append(pkgs, cargoAlwaysRunPackages(ws)...))
-		args := cargoVerbArgs(ws)
-		for _, p := range pkgs {
-			args = append(args, "-p", p)
+		if res := cargoQualityStage(gateName, plan.ws, g.root, plan.touched, run, repoRoot, qualityFmt); res.Blocked {
+			return res
 		}
-		runner = Runner{Cmd: "cargo", Args: args, Dir: ws}
-	} else {
-		// Scope the mechanical run to the related tests of the staged source+test
-		// files: commit-time is a fast scoped check; CI runs the full suite at
-		// submit as the authoritative gate. A runner with no related mode (or an
-		// unknown command) falls back to the full suite unchanged.
-		if scoped, narrowed := narrowToStaged(runner, root, toRootRelative(repoRoot, root, rootFiles)); narrowed {
-			runner = scoped
+		if res := alwaysRunStage(gateName, repoRoot, g.root, plan, run); res.Blocked {
+			return res
 		}
+		if res := cargoQualityStage(gateName, plan.ws, g.root, plan.touched, run, repoRoot, qualityClippy); res.Blocked {
+			return res
+		}
+		if failFirst {
+			if res := failFirstStage(repoRoot, g.root, g.tests, g.srcs, run); res.Blocked {
+				return res
+			}
+		}
+		return suiteStage(gateName, repoRoot, g.root, plan.suiteRunner(), run)
 	}
 
+	// Scope the mechanical run to the related tests of the staged
+	// source+test files: commit-time is a fast scoped check; CI runs the
+	// full suite at submit as the authoritative gate. A runner with no
+	// related mode (or an unknown command) falls back to the full suite
+	// unchanged.
+	if scoped, narrowed := narrowToStaged(runner, g.root, toRootRelative(repoRoot, g.root, rootFiles)); narrowed {
+		runner = scoped
+	}
+	if failFirst {
+		if res := failFirstStage(repoRoot, g.root, g.tests, g.srcs, run); res.Blocked {
+			return res
+		}
+	}
+	return suiteStage(gateName, repoRoot, g.root, runner, run)
+}
+
+// cargoStagePlan is what the cargo stages of one root need: the workspace
+// commands run from, the packages this commit TOUCHED (never the always-run
+// additions — no staged file belongs to those), and the guard packages the
+// workspace declares.
+type cargoStagePlan struct {
+	ws        string
+	touched   []string
+	alwaysRun []string
+}
+
+// suiteRunner is the touched crates' own scoped test command — the guard
+// packages deliberately absent, since they run as their own cheap stage.
+func (p cargoStagePlan) suiteRunner() Runner {
+	args := cargoVerbArgs(p.ws)
+	for _, pkg := range p.touched {
+		args = append(args, "-p", pkg)
+	}
+	return Runner{Cmd: "cargo", Args: args, Dir: p.ws}
+}
+
+// guardRunner is the always-run packages' own invocation.
+func (p cargoStagePlan) guardRunner() Runner {
+	args := cargoVerbArgs(p.ws)
+	for _, pkg := range p.alwaysRun {
+		args = append(args, "-p", pkg)
+	}
+	return Runner{Cmd: "cargo", Args: args, Dir: p.ws}
+}
+
+// planCargoStages resolves package ownership for a cargo root. Ownership is
+// judged PER FILE against the [package] Cargo.toml that covers it: a file no
+// package owns (a virtual workspace manifest, a path outside any member) is
+// SKIPPED with a stderr note, never a trigger to widen the run to the whole
+// workspace. ok=false means nothing staged here is owned by any package.
+func planCargoStages(gateName, repoRoot, root string, rootFiles []string) (cargoStagePlan, bool) {
+	owned, unowned := cargoOwnedFiles(repoRoot, root, rootFiles)
+	for _, f := range unowned {
+		fmt.Fprintf(os.Stderr, "tdd %s: %s has no owning cargo package — not tested\n", gateName, f)
+	}
+	if len(owned) == 0 {
+		return cargoStagePlan{}, false
+	}
+	// The actual WORKSPACE root: a checked-in .config/nextest.toml and the
+	// workspace's Cargo.lock live there, not in a member crate's own
+	// directory. State/mech-cache keys still use the crate root.
+	ws := cargoWorkspaceRoot(root)
+	return cargoStagePlan{
+		ws:        ws,
+		touched:   cargoPackagesOwning(root, toRootRelative(repoRoot, root, owned)),
+		alwaysRun: cargoAlwaysRunPackages(ws),
+	}, true
+}
+
+// alwaysRunStage runs the workspace's declared guard packages as their own
+// invocation, before the touched crates' heavier one. A guard package owns
+// no staged file, so ownership scoping alone would run it only when someone
+// edits the guard itself — precisely when its invariant is not at risk.
+func alwaysRunStage(gateName, repoRoot, root string, plan cargoStagePlan, run SuiteRunner) GateResult {
+	if len(plan.alwaysRun) == 0 {
+		return GateResult{}
+	}
+	return runSuiteStage(gateName, "always-run", repoRoot, root, plan.guardRunner(), run)
+}
+
+// suiteStage runs the touched crates' own suites — the heaviest stage, and
+// therefore the last.
+func suiteStage(gateName, repoRoot, root string, runner Runner, run SuiteRunner) GateResult {
+	return runSuiteStage(gateName, "mechanical", repoRoot, root, runner, run)
+}
+
+// runSuiteStage is the shared body every suite-running stage uses: green
+// cache, build slot, and one honest verdict line. stage names it in stderr
+// and gate.log ("mechanical", "always-run"), so a block says which stage
+// rejected.
+func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run SuiteRunner) GateResult {
 	// The green cache: an identical worktree state already proven green under
 	// this exact command (by a PostToolUse run or an earlier gate pass) is not
 	// re-run. Red results are never cached, so a block always re-runs and
@@ -285,7 +361,7 @@ func mechanicalRoot(gateName, repoRoot, root string, tests, srcs []string, run S
 		key = mechKey(root, h, runner)
 	}
 	if mechCacheHit(key) {
-		line := fmt.Sprintf("tdd %s: mechanical %s in %s → cache-hit", gateName, cmdString(runner), root)
+		line := fmt.Sprintf("tdd %s: %s %s in %s → cache-hit", gateName, stage, cmdString(runner), root)
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmdString(runner), "cache-hit", 0)
 		return GateResult{}
@@ -303,8 +379,8 @@ func mechanicalRoot(gateName, repoRoot, root string, tests, srcs []string, run S
 		// the full budget, logged queued-skipped, landed with zero tests
 		// run. Rejecting is loud and recoverable (wait, or --no-verify
 		// deliberately); failing open is silent and is not.
-		line := fmt.Sprintf("tdd %s: mechanical %s in %s → REJECTED (waited %.0fs, every build slot for %s is busy%s) — nothing was tested",
-			gateName, cmdString(runner), root, waited.Seconds(), target, buildLockHolderNote(target))
+		line := fmt.Sprintf("tdd %s: %s %s in %s → REJECTED (waited %.0fs, every build slot for %s is busy%s) — nothing was tested",
+			gateName, stage, cmdString(runner), root, waited.Seconds(), target, buildLockHolderNote(target))
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmdString(runner), "queued-rejected", waited)
 		return GateResult{Blocked: true, Message: queuedRejectMessage(runner, target, waited)}
@@ -320,31 +396,28 @@ func mechanicalRoot(gateName, repoRoot, root string, tests, srcs []string, run S
 		// silent: the commit lands UNVERIFIED and both stderr and the
 		// returned Message say so explicitly (Blocked stays false — a
 		// timeout is inconclusive, not a failure).
-		line := fmt.Sprintf("tdd %s: mechanical %s in %s → TIMEOUT (FAIL-OPEN — commit lands UNVERIFIED)", gateName, cmdString(runner), root)
+		line := fmt.Sprintf("tdd %s: %s %s in %s → TIMEOUT (FAIL-OPEN — commit lands UNVERIFIED)", gateName, stage, cmdString(runner), root)
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmdString(runner), "timeout-fail-open", res.Duration)
 		return GateResult{Message: line}
 	case !res.Passed:
-		fmt.Fprintf(os.Stderr, "tdd %s: mechanical %s in %s → blocked\n", gateName, cmdString(runner), root)
-		appendGateLog(gateName, root, cmdString(runner), "blocked", res.Duration)
+		fmt.Fprintf(os.Stderr, "tdd %s: %s %s in %s → blocked\n", gateName, stage, cmdString(runner), root)
+		appendGateLog(gateName, root, cmdString(runner), stage+"-blocked", res.Duration)
 		return GateResult{Blocked: true, Message: mechRejectMessage(runner, res)}
 	default:
 		mechCacheAdd(key)
-		line := mechGreenLine(gateName, runner, root, res)
+		line := mechGreenLine(gateName, stage, runner, root, res)
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmdString(runner), "green", res.Duration)
 	}
-	// The tests passing is the expensive half; format and lint are cheap
-	// and only meaningful on a tree that already compiles, so they run
-	// last and only on the crates this commit touched.
-	return cargoQualityStage(gateName, cargoWS, root, touchedPkgs, run, repoRoot)
+	return GateResult{}
 }
 
 // mechGreenLine composes the mechanical stage's green stderr line, sharing
 // PostEdit's greenLabel renderer (passed count, or nextest's empty-crate
 // exit-4 case) so the two call sites can't drift apart.
-func mechGreenLine(gateName string, r Runner, root string, res SuiteResult) string {
-	return fmt.Sprintf("tdd %s: mechanical %s in %s → %s", gateName, cmdString(r), root, greenLabel(Green, res.Output, res.Duration))
+func mechGreenLine(gateName, stage string, r Runner, root string, res SuiteResult) string {
+	return fmt.Sprintf("tdd %s: %s %s in %s → %s", gateName, stage, cmdString(r), root, greenLabel(Green, res.Output, res.Duration))
 }
 
 // cargoOwnedFiles splits repo-root-relative files into those owned by SOME
