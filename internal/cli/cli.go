@@ -228,6 +228,8 @@ Subcommands:
                     spawned by posttooluse, not typed by hand
   commitmsg         commit-msg hook: reject a message carrying a deny pattern
                     (opt-in per workspace: undercover = true)
+  doctor            Report one line per install check (hooks, shims, locks,
+                    managed skills/agents, CI clippy list); exit 1 on any FAIL
   statusline        Render the one-line gate badge from a statusline payload
                     on stdin (armed/off, plus red/deferred/queued when it
                     matters); wired into settings.json by init
@@ -360,6 +362,10 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if args[0] == "commitmsg" {
 		// The commit-msg git hook: git hands it the message file path.
 		return runGateCommitMsg(args[1:], stderr)
+	}
+	if args[0] == "doctor" {
+		// Read-only install report: one line per check, exit 1 on any FAIL.
+		return runGateDoctor(args[1:], stdout, stderr)
 	}
 	if args[0] == "statusline" {
 		// The statusline: one badge line on stdout, per prompt render. It
