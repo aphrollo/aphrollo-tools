@@ -1076,10 +1076,18 @@ func mergeInProgressRef(repoRoot string) string {
 	return ""
 }
 
-// stagedFiles lists the added/copied/modified paths in the index, as repo-root-
-// relative paths.
+// stagedDiffFilter is what the gate considers a staged CHANGE: added, copied,
+// modified, renamed or type-changed. R and T were missing, so a refactor
+// commit — a rename plus an edit, which git records as R — produced zero gate
+// activity for every renamed file it carried.
+const stagedDiffFilter = "ACMRT"
+
+// stagedFiles lists the changed paths in the index, as repo-root-relative
+// paths. `-M` turns rename detection on explicitly (never inherited from the
+// repo's diff.renames), and `--name-only` prints a rename's DESTINATION — the
+// path that exists after the commit and the only one worth testing.
 func stagedFiles(repoRoot string) []string {
-	out, err := git(repoRoot, "diff", "--cached", "--name-only", "--diff-filter=ACM")
+	out, err := git(repoRoot, "diff", "--cached", "--name-only", "-M", "--diff-filter="+stagedDiffFilter)
 	if err != nil {
 		return nil
 	}
