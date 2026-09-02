@@ -136,6 +136,17 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 	}
 
 	_, rest := gitGlobalArgs(args)
+
+	// The primary checkout is merge-only, and the refusal comes before both
+	// the lock and git itself: a branch that already moved cannot be un-moved
+	// by a message.
+	if cwd, err := os.Getwd(); err == nil {
+		if line := primaryRefusalLine(cfg.realGit, rest, gitWorkingDir(args, cwd)); line != "" {
+			fmt.Fprintln(stderr, line)
+			return 1
+		}
+	}
+
 	scope := gitLockScopeFor(rest)
 	if scope == gitNoLock {
 		return execGit(cfg.realGit, args, stdin, stdout, stderr)

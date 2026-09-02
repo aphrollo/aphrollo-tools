@@ -51,6 +51,10 @@ type sessionState struct {
 		// Style is the session's `/tdd style` override ("terse" or "plain").
 		// Empty means unset — the env default decides, see replyStyleFor.
 		Style string `json:"style,omitempty"`
+		// PrimaryEdits waives the merge-only rule on the primary checkout for
+		// this session (`/tdd primary-edits on`), the per-session twin of
+		// APHROLLO_PRIMARY_EDITS=1.
+		PrimaryEdits bool `json:"primary_edits,omitempty"`
 	} `json:"overrides"`
 	// Notices records one-shot advisories that must fire at most once per
 	// session, so re-firing them on every edit never becomes noise.

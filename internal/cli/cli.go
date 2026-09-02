@@ -512,6 +512,18 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	// The primary checkout is merge-only, and that is decided before anything
+	// reads the content: WHERE a write lands does not depend on what it says,
+	// and it covers the shell too, which no content gate can judge.
+	if decision := tdd.PrimaryCheckoutDecision(raw); decision.Action == tdd.Block {
+		tdd.LogEditDecision(raw, decision)
+		payload, code := tdd.RenderPreToolUse(decision)
+		if len(payload) > 0 {
+			stdout.Write(payload)
+		}
+		return code
+	}
+
 	// A Bash call gets a snapshot, not a verdict: what it will write does not
 	// exist yet, so the pre-edit half only records the tree for PostToolUse
 	// to diff. It never blocks.

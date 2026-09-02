@@ -50,10 +50,36 @@ func Doctor(in DoctorInput) []DoctorCheck {
 		doctorRetiredCommand(in),
 		doctorManagedFiles(in),
 	}
+	if c, ok := doctorPrimaryCheckout(in); ok {
+		checks = append(checks, c)
+	}
 	if c, ok := doctorCIClippyList(in); ok {
 		checks = append(checks, c)
 	}
 	return checks
+}
+
+// doctorPrimaryCheckout checks the primary checkout still holds main. It
+// receives merges for every lane in the repo, so one parked on a lane branch
+// puts the next merge on the wrong base — and nothing says so until the merge
+// lands. ok=false means the check does not apply: a linked worktree, or a
+// clone with no lanes to keep separate.
+func doctorPrimaryCheckout(in DoctorInput) (DoctorCheck, bool) {
+	c := DoctorCheck{Name: "primary checkout on main"}
+	if in.Repo == "" {
+		return c, false
+	}
+	root, branch, applies := PrimaryCheckoutState(in.Repo)
+	if !applies {
+		return c, false
+	}
+	if branch != primaryBranch {
+		c.Detail = fmt.Sprintf("%s is on %s — it receives merges and must hold %s; run `git checkout %s`",
+			root, branch, primaryBranch, primaryBranch)
+		return c, true
+	}
+	c.OK = true
+	return c, true
 }
 
 // RenderDoctor prints one line per check and returns the exit code: 1 when any

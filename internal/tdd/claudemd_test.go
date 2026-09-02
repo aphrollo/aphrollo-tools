@@ -32,6 +32,25 @@ func TestClaudeMDBlockCarriesTheOperatingInstructions(t *testing.T) {
 	}
 }
 
+// A rule the gate enforces but never states reads to a session as an
+// arbitrary refusal, so the merge-only rule and its recipe ride in the block
+// every repo gets.
+func TestClaudeMDBlockStatesThePrimaryCheckoutRule(t *testing.T) {
+	block := ClaudeMDBlock(shimDir, false)
+	for _, want := range []string{
+		"primary checkout",
+		"merge-only",
+		"git worktree add -b lane/<name>",
+		".worktrees/<repo>/<name>",
+		"APHROLLO_PRIMARY_EDITS=1",
+		"/tdd primary-edits on",
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("the block does not state %q", want)
+		}
+	}
+}
+
 func TestPatchClaudeMDAppendsOnceAndIsIdempotent(t *testing.T) {
 	block := ClaudeMDBlock(shimDir, false)
 	first, changed := PatchClaudeMD([]byte("# Project\n\nSome guidance.\n"), block)

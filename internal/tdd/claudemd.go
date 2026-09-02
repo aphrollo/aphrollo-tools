@@ -54,6 +54,11 @@ func ClaudeMDBlock(shimDir string, undercover bool) string {
 	b.WriteString("  `aphrollo gate escape record <reason>` and closed only by a stage or law named in\n")
 	b.WriteString("  the fix, never by a sentence in this file. The count only goes down; `gate stats`\n")
 	b.WriteString("  prints it weekly at session start.\n")
+	b.WriteString("- **The primary checkout is merge-only.** Once a repo has any linked worktree, the checkout\n")
+	b.WriteString("  holding `main` receives merges and nothing else: the hooks deny an edit there, and the git\n")
+	b.WriteString("  shim refuses `checkout -b`/`switch -c`, a move off main, and a commit not concluding a merge.\n")
+	b.WriteString("  Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`.\n")
+	b.WriteString("  Override with `APHROLLO_PRIMARY_EDITS=1`, or `/tdd primary-edits on` for the session.\n")
 	b.WriteString("- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) ·\n")
 	b.WriteString("  `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).\n")
 	if undercover {
