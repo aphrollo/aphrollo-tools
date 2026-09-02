@@ -191,5 +191,5 @@ func hookPrefix(reason string) string {
 	if strings.HasPrefix(reason, "ratchet:") {
 		return reason
 	}
-	return "tdd: " + reason
+	return "gate: " + reason
 }

@@ -46,10 +46,10 @@ type cargoShimConfig struct {
 	realCargo    string // resolved path to the ACTUAL cargo binary
 }
 
-// runTDDCargo is the `aphrollo tdd cargo [cargo args...]` entry point: it
+// runGateCargo is the `aphrollo tdd cargo [cargo args...]` entry point: it
 // resolves the real cargo binary and the configured wait budget from the
 // environment, then delegates to runCargoShim (the testable core).
-func runTDDCargo(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func runGateCargo(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	realCargo, err := resolveRealCargo()
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo tdd cargo: %v\n", err)

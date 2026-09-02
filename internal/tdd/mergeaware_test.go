@@ -86,7 +86,7 @@ func TestPrecommit_ConflictedMergeInProgress_RunsOnlyMechanical(t *testing.T) {
 	if res.Blocked {
 		t.Fatalf("a conflicted-merge commit whose mechanical stage passes must not block: %s", res.Message)
 	}
-	if !strings.Contains(stderr, "tdd precommit: merge in progress (MERGE_HEAD)") {
+	if !strings.Contains(stderr, "gate precommit: merge in progress (MERGE_HEAD)") {
 		t.Fatalf("expected the merge-in-progress line, got stderr: %s", stderr)
 	}
 	if !strings.Contains(stderr, "running the pre-merge routine (mechanical only)") {
@@ -102,7 +102,7 @@ func TestPrecommit_ConflictedMergeInProgress_RunsOnlyMechanical(t *testing.T) {
 		t.Fatal("expected the mechanical stage to actually run at least once")
 	}
 
-	failFirstWTDir := filepath.Join(cfg, "tdd-state", "failfirst-wt")
+	failFirstWTDir := filepath.Join(cfg, "gate-state", "failfirst-wt")
 	if _, err := os.Stat(failFirstWTDir); !os.IsNotExist(err) {
 		t.Fatalf("the fail-first worktree dir must never be created during a conflicted merge, but %s exists", failFirstWTDir)
 	}

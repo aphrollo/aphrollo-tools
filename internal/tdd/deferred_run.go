@@ -30,7 +30,7 @@ func spawnPhase(j DeferredJob) (DeferredJob, bool) {
 	}
 	_ = os.Remove(saved.Result)
 
-	cmd := exec.Command(self, "tdd", "runphase", "--job", deferredJobPath(saved.Project))
+	cmd := exec.Command(self, CmdName, "runphase", "--job", deferredJobPath(saved.Project))
 	cmd.Dir = saved.Dir
 	cmd.Env = append(os.Environ(), "CI=1", "NO_COLOR=1")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil

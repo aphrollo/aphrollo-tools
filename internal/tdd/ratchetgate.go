@@ -141,18 +141,18 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 		// A broken law file is a defect in the rule, not in the commit: say so
 		// loudly and let the commit through rather than wedging every commit
 		// in the repo behind a typo.
-		line := fmt.Sprintf("tdd %s: ratchet → skipped (%v)", gateName, err)
+		line := fmt.Sprintf("gate %s: ratchet → skipped (%v)", gateName, err)
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-skipped", time.Since(started))
 		return GateResult{Message: line}
 	}
 	if res.Blocked() {
-		msg := fmt.Sprintf("tdd %s: ratchet → REJECTED\n  %s",
+		msg := fmt.Sprintf("gate %s: ratchet → REJECTED\n  %s",
 			gateName, strings.Join(res.Lines(), "\n  "))
 		appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-rejected", time.Since(started))
 		return GateResult{Blocked: true, Message: msg}
 	}
-	fmt.Fprintf(os.Stderr, "tdd %s: ratchet → clean (%d law(s), %d file(s))\n", gateName, res.Laws, res.FilesScanned)
+	fmt.Fprintf(os.Stderr, "gate %s: ratchet → clean (%d law(s), %d file(s))\n", gateName, res.Laws, res.FilesScanned)
 	appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-clean", time.Since(started))
 
 	if !stagedTouchesLaws(repoRoot) {
@@ -176,7 +176,7 @@ func ratchetFixtureStage(gateName, repoRoot string) GateResult {
 	started := time.Now()
 	results, err := ratchet.RunFixtures(repoRoot)
 	if err != nil {
-		line := fmt.Sprintf("tdd %s: ratchet fixtures → skipped (%v)", gateName, err)
+		line := fmt.Sprintf("gate %s: ratchet fixtures → skipped (%v)", gateName, err)
 		fmt.Fprintln(os.Stderr, line)
 		return GateResult{Message: line}
 	}
@@ -189,9 +189,9 @@ func ratchetFixtureStage(gateName, repoRoot string) GateResult {
 	if len(failures) > 0 {
 		appendGateLog(gateName, repoRoot, "ratchet test", "ratchet-rejected", time.Since(started))
 		return GateResult{Blocked: true, Message: fmt.Sprintf(
-			"tdd %s: ratchet fixtures → REJECTED\n  %s", gateName, strings.Join(failures, "\n  "))}
+			"gate %s: ratchet fixtures → REJECTED\n  %s", gateName, strings.Join(failures, "\n  "))}
 	}
-	fmt.Fprintf(os.Stderr, "tdd %s: ratchet fixtures → green (%d law(s))\n", gateName, len(results))
+	fmt.Fprintf(os.Stderr, "gate %s: ratchet fixtures → green (%d law(s))\n", gateName, len(results))
 	appendGateLog(gateName, repoRoot, "ratchet test", "green", time.Since(started))
 	return GateResult{}
 }

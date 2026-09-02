@@ -158,7 +158,7 @@ func TestFailFirstStage_ThreadsRealDurationIntoLogAndLine(t *testing.T) {
 		t.Fatalf("expected the fail-first stderr line to report the stub's real Duration (11.0s), got: %s", stderr)
 	}
 
-	logData, err := os.ReadFile(filepath.Join(cfg, "tdd-state", "gate.log"))
+	logData, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
 	if err != nil {
 		t.Fatalf("gate.log not written: %v", err)
 	}

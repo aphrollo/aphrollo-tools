@@ -144,7 +144,7 @@ func TestPrecommit_UnownedCargoFile_SkippedWithNote(t *testing.T) {
 	if len(seen) != 0 {
 		t.Fatalf("an unowned cargo file must run NOTHING (no full-suite fallback), ran: %+v", seen)
 	}
-	wantNote := "tdd precommit: misc.rs has no owning cargo package — not tested"
+	wantNote := "gate precommit: misc.rs has no owning cargo package — not tested"
 	if !strings.Contains(stderr, wantNote) {
 		t.Fatalf("expected unowned-file note %q, got stderr: %q", wantNote, stderr)
 	}

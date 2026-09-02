@@ -7,7 +7,7 @@ import (
 )
 
 // TestMain isolates the WHOLE package's test run from the operator's REAL
-// ~/.claude/tdd-state: CLAUDE_CONFIG_DIR is pointed at a fresh,
+// ~/.claude/gate-state: CLAUDE_CONFIG_DIR is pointed at a fresh,
 // package-lifetime temp dir before any test runs. Found in review
 // 2026-08-15: several tests never called t.Setenv("CLAUDE_CONFIG_DIR", ...)
 // themselves, so loadSession/appendGateLog/mechCacheAdd etc. fell through to

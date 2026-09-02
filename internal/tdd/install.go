@@ -57,7 +57,7 @@ func shim(bin, sub string) string {
 	// path's backslashes are sh escapes, so the exec line resolves to garbage.
 	// "$@" forwards git's own arguments: commit-msg is handed the message
 	// file path, and a shim that swallowed it would gate nothing.
-	return "#!/bin/sh\n" + installMarker + "\nexec \"" + shellPath(bin) + "\" tdd " + sub + " \"$@\"\n"
+	return "#!/bin/sh\n" + installMarker + "\nexec \"" + shellPath(bin) + "\" " + CmdName + " " + sub + " \"$@\"\n"
 }
 
 // BuildInstallPlan computes the hooks to install for the repo at repoRoot, whose

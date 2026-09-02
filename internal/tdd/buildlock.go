@@ -300,5 +300,5 @@ func reportLockOpenFailure(path string, err error) {
 	if _, seen := lockOpenFailures.LoadOrStore(path, true); seen {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "tdd: cannot open the build lock %s (%v) — treating it as HELD\n", path, err)
+	fmt.Fprintf(os.Stderr, "gate: cannot open the build lock %s (%v) — treating it as HELD\n", path, err)
 }

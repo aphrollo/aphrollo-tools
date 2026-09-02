@@ -12,7 +12,7 @@ import (
 )
 
 // TestRunPhase_RunsTheJobAndRecordsItsOutcome pins the wrapper the whole
-// deferral rests on: a detached phase is `aphrollo tdd runphase --job <file>`,
+// deferral rests on: a detached phase is `aphrollo gate runphase --job <file>`,
 // and when its command exits the wrapper writes the RESULT file that tells the
 // next hook the phase is over. Without it a hook cannot tell "still building"
 // from "finished while nobody was looking".
@@ -35,7 +35,7 @@ func TestRunPhase_RunsTheJobAndRecordsItsOutcome(t *testing.T) {
 	}
 
 	var out, errBuf bytes.Buffer
-	if code := runTDD([]string{"runphase", "--job", jobPath}, strings.NewReader(""), &out, &errBuf); code != 0 {
+	if code := runGate([]string{"runphase", "--job", jobPath}, strings.NewReader(""), &out, &errBuf); code != 0 {
 		t.Fatalf("runphase exit = %d, want 0 (the wrapper reports through its result file, never its exit code)", code)
 	}
 
@@ -66,7 +66,7 @@ func TestPostToolUse_EnablesDeferredPhases(t *testing.T) {
 		t.Fatal("deferral must be off until a hook asks for it")
 	}
 	var out, errBuf bytes.Buffer
-	runTDD([]string{"posttooluse"}, strings.NewReader(`{"tool_name":"Read"}`), &out, &errBuf)
+	runGate([]string{"posttooluse"}, strings.NewReader(`{"tool_name":"Read"}`), &out, &errBuf)
 	if !tdd.DeferredPhasesEnabled() {
 		t.Fatal("the edit hook must run its phases deferrable")
 	}

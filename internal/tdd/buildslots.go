@@ -259,7 +259,7 @@ func acquireBuildSlot(targetDir string, deadline time.Duration) (BuildSlot, func
 			return BuildSlot{}, func() {}, false
 		}
 		if waited >= nextNotice {
-			fmt.Fprintf(os.Stderr, "tdd: queued behind %s for %s (waited %.0fs)\n",
+			fmt.Fprintf(os.Stderr, "gate: queued behind %s for %s (waited %.0fs)\n",
 				buildSlotHolderDescription(targetDir), targetDir, waited.Seconds())
 			nextNotice += buildLockQueueNoticeEvery
 		}

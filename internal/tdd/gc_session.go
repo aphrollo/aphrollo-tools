@@ -10,7 +10,7 @@ import (
 )
 
 // The unattended half of the sweep: what runs without anyone typing
-// `aphrollo tdd gc`. Two triggers, deliberately different in character:
+// `aphrollo gate gc`. Two triggers, deliberately different in character:
 //
 //   - a worktree removal deletes IMMEDIATELY and synchronously — the
 //     operator just said that tree is finished, and its build dir is the
@@ -27,7 +27,7 @@ const (
 	gcStampFile    = "gc-last-run"
 	gcReportFile   = "gc-last-report.json"
 	gcSweepEvery   = 24 * time.Hour
-	gcOwnerCommand = "aphrollo tdd gc --apply"
+	gcOwnerCommand = "aphrollo gate gc --apply"
 )
 
 // gcReport is one completed sweep, awaiting a session to surface it.
@@ -139,7 +139,7 @@ func gcReportLine() string {
 	if marked, err := json.Marshal(r); err == nil {
 		_ = os.WriteFile(path, marked, 0o600)
 	}
-	return fmt.Sprintf("tdd gc: reclaimed %s across %d stale build directories (idle incremental caches, dead gate dirs, orphan worktree builds). `aphrollo tdd gc` lists what is left.",
+	return fmt.Sprintf("gate gc: reclaimed %s across %d stale build directories (idle incremental caches, dead gate dirs, orphan worktree builds). `aphrollo gate gc` lists what is left.",
 		formatBytes(r.Freed), r.Dirs)
 }
 
@@ -161,7 +161,7 @@ func gcStatePath(name string) string {
 // production.
 var gcSpawnForTest func(cwd string)
 
-// maybeStartBackgroundGC starts a detached `aphrollo tdd gc --apply` for cwd
+// maybeStartBackgroundGC starts a detached `aphrollo gate gc --apply` for cwd
 // when one is due, and stamps immediately so concurrent session starts do
 // not each launch one. It never waits: the child outlives this process, and
 // the session AFTER it reports the result.
@@ -183,7 +183,7 @@ func spawnBackgroundGC(cwd string) {
 	if err != nil {
 		return
 	}
-	cmd := exec.Command(exe, "tdd", "gc", "--apply", "--quiet", "--repo", cwd)
+	cmd := exec.Command(exe, CmdName, "gc", "--apply", "--quiet", "--repo", cwd)
 	cmd.Dir = cwd
 	cmd.Env = cleanGitEnv()
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil

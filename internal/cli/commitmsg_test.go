@@ -23,7 +23,7 @@ func TestCommitMsgHook_BlocksWithANonZeroExit(t *testing.T) {
 	}
 
 	var out, errBuf bytes.Buffer
-	code := runTDD([]string{"commitmsg", msg, "--repo", repo}, strings.NewReader(""), &out, &errBuf)
+	code := runGate([]string{"commitmsg", msg, "--repo", repo}, strings.NewReader(""), &out, &errBuf)
 	if code == 0 {
 		t.Fatalf("exit = 0, want a rejection; stderr: %s", errBuf.String())
 	}
@@ -34,7 +34,7 @@ func TestCommitMsgHook_BlocksWithANonZeroExit(t *testing.T) {
 	if err := os.WriteFile(msg, []byte("Fix it properly\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code := runTDD([]string{"commitmsg", msg, "--repo", repo}, strings.NewReader(""), &out, &errBuf); code != 0 {
+	if code := runGate([]string{"commitmsg", msg, "--repo", repo}, strings.NewReader(""), &out, &errBuf); code != 0 {
 		t.Fatalf("exit = %d for an ordinary message; stderr: %s", code, errBuf.String())
 	}
 }
@@ -45,7 +45,7 @@ func TestCommitMsgHook_BlocksWithANonZeroExit(t *testing.T) {
 // was guarding.
 func TestCommitMsgHook_NoArgumentPassesThrough(t *testing.T) {
 	var out, errBuf bytes.Buffer
-	if code := runTDD([]string{"commitmsg"}, strings.NewReader(""), &out, &errBuf); code != 0 {
+	if code := runGate([]string{"commitmsg"}, strings.NewReader(""), &out, &errBuf); code != 0 {
 		t.Fatalf("exit = %d, want a pass-through when the hook was called wrong", code)
 	}
 }

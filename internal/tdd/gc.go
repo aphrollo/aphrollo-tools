@@ -512,7 +512,7 @@ func writeTierTotals(b *strings.Builder, cands []GCCandidate) {
 
 func RenderGC(cands []GCCandidate, applied bool, freed int64) string {
 	if len(cands) == 0 {
-		return "aphrollo tdd gc: nothing reclaimable\n"
+		return "aphrollo gate gc: nothing reclaimable\n"
 	}
 	width := 0
 	for _, c := range cands {
@@ -534,7 +534,7 @@ func RenderGC(cands []GCCandidate, applied bool, freed int64) string {
 		return b.String()
 	}
 	writeTierTotals(&b, cands)
-	fmt.Fprintf(&b, "%s reclaimable in %d directories — run `aphrollo tdd gc --apply` to free it\n", formatBytes(total), len(cands))
+	fmt.Fprintf(&b, "%s reclaimable in %d directories — run `aphrollo gate gc --apply` to free it\n", formatBytes(total), len(cands))
 	return b.String()
 }
 

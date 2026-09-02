@@ -8,7 +8,7 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-// runTDDGC is `aphrollo tdd gc`: report (default) or reclaim (--apply) the
+// runGateGC is `aphrollo gate gc`: report (default) or reclaim (--apply) the
 // stale build directories this binary's own gates create and use. Dry-run by
 // default, like every other tdd/refactor mutation — a disk sweep that
 // deletes without being asked is the one failure this feature cannot have.
@@ -16,7 +16,7 @@ import (
 // --quiet is what the detached session-start sweep runs with: it has nowhere
 // to print, so it stays silent and leaves its result in the state dir for
 // the next session start to surface as one line.
-func runTDDGC(args []string, stdout, stderr io.Writer) int {
+func runGateGC(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("gc", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
@@ -31,13 +31,13 @@ func runTDDGC(args []string, stdout, stderr io.Writer) int {
 	}
 	age, err := tdd.ParseGCAge(*olderThan)
 	if err != nil {
-		fmt.Fprintf(stderr, "aphrollo tdd gc: %v\n", err)
+		fmt.Fprintf(stderr, "aphrollo gate gc: %v\n", err)
 		return 2
 	}
 
 	scope, err := gcScopeFromFlags(*lockAge)
 	if err != nil {
-		fmt.Fprintf(stderr, "aphrollo tdd gc: %v\n", err)
+		fmt.Fprintf(stderr, "aphrollo gate gc: %v\n", err)
 		return 2
 	}
 
@@ -59,7 +59,7 @@ func runTDDGC(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "%d candidate(s) inside the target dir left for next time — a build holds every slot for this target dir\n", skipped)
 	}
 	for _, r := range refused {
-		fmt.Fprintf(stderr, "aphrollo tdd gc: refused %s\n", r)
+		fmt.Fprintf(stderr, "aphrollo gate gc: refused %s\n", r)
 	}
 	return 0
 }

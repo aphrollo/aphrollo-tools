@@ -66,7 +66,28 @@ func stateDir() string {
 		}
 		base = filepath.Join(home, ".claude")
 	}
-	return filepath.Join(base, "tdd-state")
+	dir := filepath.Join(base, "gate-state")
+	migrateStateDir(filepath.Join(base, "tdd-state"), dir)
+	return dir
+}
+
+// migrateStateDir MOVES the pre-rename state dir to its new name, once. The
+// gate.log history, the mechanical-run cache, the receipts and every live
+// session file live there, so a rename that abandoned them would silently
+// throw away the pipeline's whole record. It runs only when the new dir does
+// not exist yet, and a failure is ignored: the caller then simply starts a
+// fresh dir rather than wedging on a directory it could not move.
+func migrateStateDir(old, current string) {
+	if old == current {
+		return
+	}
+	if _, err := os.Stat(current); err == nil {
+		return
+	}
+	if _, err := os.Stat(old); err != nil {
+		return
+	}
+	_ = os.Rename(old, current)
 }
 
 // loadSession reads a session's state. An EMPTY session id returns nil: the

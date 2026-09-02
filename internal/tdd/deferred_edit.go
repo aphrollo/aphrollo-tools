@@ -209,19 +209,19 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 }
 
 // markDeferred labels an advisory as coming from work that finished after an
-// earlier hook returned, without stacking a second "tdd:" prefix on the line.
+// earlier hook returned, without stacking a second "gate:" prefix on the line.
 func markDeferred(advisory string) string {
-	if rest, ok := strings.CutPrefix(advisory, "tdd: "); ok {
-		return "tdd: deferred " + rest
+	if rest, ok := strings.CutPrefix(advisory, "gate: "); ok {
+		return "gate: deferred " + rest
 	}
-	return "tdd: deferred " + advisory
+	return "gate: deferred " + advisory
 }
 
 // spawnFailedLine reports a phase that never started. It is red-bogus, the
 // same class as a broken test setup: the tooling failed, the code was never
 // exercised, and nothing about it has been proven either way.
 func spawnFailedLine(root, phase string) string {
-	return fmt.Sprintf("tdd: → %s (could not start the %s phase in %s — the code was NOT tested)", RedBogus, phase, root)
+	return fmt.Sprintf("gate: → %s (could not start the %s phase in %s — the code was NOT tested)", RedBogus, phase, root)
 }
 
 // sourceIdentity is what a deferred result claims to be about: the whole
@@ -241,9 +241,9 @@ func sourceIdentity(root, target string) string {
 // "started just now" from "this is the same build as five edits ago".
 func buildingLine(root, phase string, elapsed time.Duration) string {
 	if elapsed <= 0 {
-		return fmt.Sprintf("tdd: → BUILDING (deferred; %s %s phase — result at the next hook)", root, phase)
+		return fmt.Sprintf("gate: → BUILDING (deferred; %s %s phase — result at the next hook)", root, phase)
 	}
-	return fmt.Sprintf("tdd: → BUILDING (deferred; %s %s phase, %.0fs so far — result at the next hook)", root, phase, elapsed.Seconds())
+	return fmt.Sprintf("gate: → BUILDING (deferred; %s %s phase, %.0fs so far — result at the next hook)", root, phase, elapsed.Seconds())
 }
 
 // phaseSuiteResult maps a wrapper's outcome plus its log onto the

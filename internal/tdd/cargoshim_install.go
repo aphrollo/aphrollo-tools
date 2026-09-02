@@ -9,7 +9,7 @@ import (
 // InstallCargoShim writes the cargo-queue shim directory dir (e.g.
 // C:/Users/olive/bin/cargo-queue/, alongside wherever aphrollo.exe itself
 // lives) with cargo.cmd (Windows cmd.exe/PowerShell) and an extensionless
-// cargo (POSIX sh, for Git Bash), both execing "<bin>" tdd cargo with the
+// cargo (POSIX sh, for Git Bash), both execing `"<bin>" gate cargo` with the
 // caller's own args forwarded verbatim — task A7: any DIRECT `cargo` a
 // session runs (not through the hooks/gates) queues behind the SAME
 // machine-wide build lock runCargoLocked uses, instead of silently waiting
@@ -29,7 +29,7 @@ func InstallCargoShim(dir, bin string) (bool, error) {
 		return false, err
 	}
 
-	cmdContent := "@\"" + bin + "\" tdd cargo %*\r\n"
+	cmdContent := "@\"" + bin + "\" " + CmdName + " cargo %*\r\n"
 	shContent := binShim(bin, "cargo")
 
 	changed := false
@@ -48,7 +48,7 @@ func InstallCargoShim(dir, bin string) (bool, error) {
 
 // InstallGitShim writes dir's git-queue shim (task A11): git.cmd (Windows
 // cmd.exe/PowerShell) and an extensionless git (POSIX sh, for Git Bash),
-// both execing "<bin>" tdd git with the caller's own args forwarded
+// both execing `"<bin>" gate git` with the caller's own args forwarded
 // verbatim -- the git analogue of InstallCargoShim, sharing the SAME queue
 // dir so a session that prepends one directory to PATH gets both cargo and
 // git queued. Same shape, same idempotency contract (reports whether either
@@ -58,7 +58,7 @@ func InstallGitShim(dir, bin string) (bool, error) {
 		return false, err
 	}
 
-	cmdContent := "@\"" + bin + "\" tdd git %*\r\n"
+	cmdContent := "@\"" + bin + "\" " + CmdName + " git %*\r\n"
 	shContent := binShim(bin, "git")
 
 	changed := false

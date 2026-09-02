@@ -100,10 +100,10 @@ type gitShimConfig struct {
 	realGit      string
 }
 
-// runTDDGit is the `aphrollo tdd git [git args...]` entry point: resolves
+// runGateGit is the `aphrollo tdd git [git args...]` entry point: resolves
 // the real git binary and the configured wait budget from the environment,
 // then delegates to runGitShim (the testable core).
-func runTDDGit(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func runGateGit(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	realGit, err := resolveRealGit()
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo tdd git: %v\n", err)
