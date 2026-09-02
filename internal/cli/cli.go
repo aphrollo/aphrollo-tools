@@ -246,6 +246,10 @@ Subcommands:
                     (--no-git, --uninstall). ALSO EDITS FILES IN A REPO: the managed
                     block in <repo>/CLAUDE.md and <repo>/.ratchet/README.md, where
                     <repo> is --repo (default: the working directory's repo)
+  self-install      Rebuild ./cmd/aphrollo (--repo, -buildvcs=false), rename the running
+                    binary aside as aphrollo.stale-<unix>, move the new one into its
+                    place, reclaim the stale copies nothing is holding, then run init
+                    (--bin, --no-init; flags after a bare -- are forwarded to init)
   cargo             cargo-queue shim: queue a DIRECT cargo invocation behind the same
                     per-target-dir build slots the hooks/gates use (APHROLLO_CARGO_WAIT_SECS,
                     APHROLLO_BUILD_SLOTS, APHROLLO_REAL_CARGO)
@@ -363,6 +367,11 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "init" {
 		return runGateInit(args[1:], stdout, stderr)
+	}
+	if args[0] == "self-install" {
+		// Rebuild this binary from source and put it in place of the
+		// installed one, then rewire the hooks at the new build.
+		return runGateSelfInstall(args[1:], stdout, stderr)
 	}
 	if args[0] == "commitmsg" {
 		// The commit-msg git hook: git hands it the message file path.
