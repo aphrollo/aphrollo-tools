@@ -461,9 +461,17 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo tdd: %v (allowing)\n", err)
 		return 0
 	}
-	// When the content gate allows the edit, fall through to the worktree
+	// The declared laws judge the content this edit WOULD write. A content
+	// smell already blocking keeps its own reason; otherwise the more severe
+	// verdict wins, so a deny law denies the write before it lands.
+	if decision.Action != tdd.Block {
+		if r := tdd.RatchetAdvisory(raw); r.Action > decision.Action {
+			decision = r
+		}
+	}
+	// When everything above allows the edit, fall through to the worktree
 	// advisory: a once-per-session nudge when the edit lands in a main clone
-	// rather than a prepared worktree. A content Block/Warn takes precedence.
+	// rather than a prepared worktree.
 	if decision.Action == tdd.Allow {
 		decision = tdd.WorktreeAdvisory(raw)
 	}

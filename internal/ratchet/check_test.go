@@ -277,3 +277,38 @@ func bumpMtime(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 }
+
+// A narrowed run (the pre-edit path) reads one file, so it can honestly report
+// a use nobody registered — but never that a registry line is stale, which
+// would call every other file's switches dead.
+func TestCheckNarrowedToOneFileReportsUnregisteredUsesButNotStaleEntries(t *testing.T) {
+	root := t.TempDir()
+	writeLaw(t, root, "env-registry", `
+name = "env-registry"
+description = "every env switch is registered"
+severity = "deny"
+
+[scope]
+include = ["crates/**/*.rs"]
+
+[matcher]
+kind = "registry-both-ways"
+registry_file = ".ratchet/registry/env.txt"
+entry_pattern = "^([A-Z][A-Z0-9_]+) \|"
+use_pattern = "env::var\(\"([A-Z][A-Z0-9_]+)\"\)"
+`)
+	write(t, filepath.Join(root, ".ratchet", "registry", "env.txt"), "BORLD_ELSEWHERE | other | read by another file\n")
+	write(t, filepath.Join(root, "crates", "a", "src", "lib.rs"), "let a = env::var(\"BORLD_NEW\");\n")
+
+	res, err := Check(Options{
+		Root:     root,
+		Files:    []string{"crates/a/src/lib.rs"},
+		Proposed: map[string]string{"crates/a/src/lib.rs": "let a = env::var(\"BORLD_NEW\");\n"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Findings) != 1 || !strings.Contains(res.Findings[0].What, "BORLD_NEW") {
+		t.Fatalf("findings = %v", res.Lines())
+	}
+}

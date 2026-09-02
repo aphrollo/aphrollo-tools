@@ -133,7 +133,7 @@ func fixtureHits(dir, sub string, law Law) (fixtureScan, error) {
 		if scan.files == 0 {
 			return scan, nil
 		}
-		hits, err := registryHits(base, law, files, content, false)
+		hits, err := registryHits(base, law, files, content, false, true)
 		if err != nil {
 			return scan, err
 		}

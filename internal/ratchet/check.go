@@ -110,7 +110,11 @@ func Check(opts Options) (Result, error) {
 	for _, law := range laws {
 		hits := scan.byLaw[law.Name]
 		if law.Matcher.Kind == KindRegistryBothWays {
-			if hits, err = registryHits(opts, law, scan); err != nil {
+			// A narrowed run has read ONE file, so it can see a use nobody
+			// registered but never that a registry line is stale — that needs
+			// the whole tree, and claiming it here would call every OTHER
+			// file's switches dead.
+			if hits, err = registryHits(opts.Root, law, scan.files, scan.content, true, len(opts.Files) == 0); err != nil {
 				return Result{}, err
 			}
 		}
@@ -322,8 +326,8 @@ func dedupe(in []string) []string {
 // registryHits answers a registry-both-ways law: every use must be registered
 // AND every registry line must be used. Both directions are the point — a
 // registry nobody prunes rots into a list of names that no longer exist.
-func registryHits(opts Options, law Law, scan *treeScan) ([]Hit, error) {
-	registryPath := filepath.Join(opts.Root, filepath.FromSlash(law.Matcher.RegistryFile))
+func registryHits(root string, law Law, files []string, content map[string]string, applyScope, wholeTree bool) ([]Hit, error) {
+	registryPath := filepath.Join(root, filepath.FromSlash(law.Matcher.RegistryFile))
 	data, err := os.ReadFile(registryPath)
 	if err != nil {
 		return nil, fmt.Errorf("law %q: reading registry %s: %w", law.Name, law.Matcher.RegistryFile, err)
@@ -343,11 +347,11 @@ func registryHits(opts Options, law Law, scan *treeScan) ([]Hit, error) {
 
 	used := map[string]Hit{}
 	var useOrder []string
-	for _, rel := range scan.files {
-		if !law.Scope.Matches(rel) {
+	for _, rel := range files {
+		if applyScope && !law.Scope.Matches(rel) {
 			continue
 		}
-		for i, line := range splitLines(scan.content[rel]) {
+		for i, line := range splitLines(content[rel]) {
 			for _, m := range law.Matcher.UsePattern.FindAllStringSubmatch(line, -1) {
 				name := m[len(m)-1]
 				if _, seen := used[name]; seen {
@@ -371,6 +375,9 @@ func registryHits(opts Options, law Law, scan *treeScan) ([]Hit, error) {
 			Key:  "unregistered | " + name,
 			What: fmt.Sprintf("%s is used but not in %s", name, law.Matcher.RegistryFile),
 		})
+	}
+	if !wholeTree {
+		return hits, nil
 	}
 	sort.Strings(order)
 	for _, name := range order {

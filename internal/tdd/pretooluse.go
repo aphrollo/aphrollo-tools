@@ -168,7 +168,7 @@ func RenderPreToolUse(d Decision) ([]byte, int) {
 	out.HookSpecificOutput.HookEventName = event
 	switch d.Action {
 	case Block:
-		reason := "tdd: " + d.Reason
+		reason := hookPrefix(d.Reason)
 		out.Decision = "block"
 		out.Reason = reason
 		out.HookSpecificOutput.PermissionDecision = "deny"
@@ -176,10 +176,20 @@ func RenderPreToolUse(d Decision) ([]byte, int) {
 		b, _ := json.Marshal(out)
 		return b, 2
 	case Warn:
-		out.HookSpecificOutput.AdditionalContext = "tdd: " + d.Reason
+		out.HookSpecificOutput.AdditionalContext = hookPrefix(d.Reason)
 		b, _ := json.Marshal(out)
 		return b, 0
 	default:
 		return nil, 0
 	}
+}
+
+// hookPrefix labels a hook line with the gate that produced it. A line the law
+// engine already named ("ratchet: ...") keeps its own label rather than
+// stacking a second one.
+func hookPrefix(reason string) string {
+	if strings.HasPrefix(reason, "ratchet:") {
+		return reason
+	}
+	return "tdd: " + reason
 }

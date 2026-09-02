@@ -114,6 +114,11 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		}
 		return res.Blocked
 	}
+	// The declared laws are judged before anything compiles: the scan is
+	// milliseconds warm, and a law is the cheapest rejection the gate has.
+	if res := ratchetStage("precommit", repoRoot); collect(res) {
+		return res
+	}
 	for _, g := range groups {
 		if res := gateRoot("precommit", repoRoot, g, run, true); collect(res) {
 			return res
@@ -149,6 +154,11 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		return GateResult{Message: line}
 	}
 	var notes []string
+	if res := ratchetStage("premergecommit", repoRoot); res.Blocked {
+		return res
+	} else if res.Message != "" {
+		notes = append(notes, res.Message)
+	}
 	for _, g := range groups {
 		res := gateRoot("premergecommit", repoRoot, g, run, false)
 		if res.Blocked {
@@ -233,14 +243,14 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 // gateRoot runs ONE project root's gate stages in COST order, stopping at
 // the first rejection:
 //
-//	1. cargo fmt --check   (milliseconds)
-//	2. the always-run guard packages, as their OWN invocation (a pure crate;
-//	   bundling it into `-p ratchet -p client` made it wait for client to link)
-//	3. cargo clippy on the crates declared clippy-clean
-//	4. fail-first RED proof (precommit only, and only when staged tests add a
-//	   declaration)
-//	5. the touched crates' suites — full test build, link and run, the
-//	   heaviest thing the gate does
+//  1. cargo fmt --check   (milliseconds)
+//  2. the always-run guard packages, as their OWN invocation (a pure crate;
+//     bundling it into `-p ratchet -p client` made it wait for client to link)
+//  3. cargo clippy on the crates declared clippy-clean
+//  4. fail-first RED proof (precommit only, and only when staged tests add a
+//     declaration)
+//  5. the touched crates' suites — full test build, link and run, the
+//     heaviest thing the gate does
 //
 // Before this the heaviest stage ran first, so a commit with a formatting
 // slip paid the whole test build to be told about a space. gateName
