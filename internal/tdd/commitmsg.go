@@ -68,6 +68,7 @@ func CommitMsg(repoRoot, msgPath string) GateResult {
 			if !re.MatchString(subject) {
 				continue
 			}
+			appendGateLog("commitmsg", logToken(repoRoot), "commit-msg", "commitmsg-rejected:"+logToken(re.String()), 0)
 			return GateResult{Blocked: true, Message: fmt.Sprintf(
 				"gate commit-msg: this repo keeps its history undercover, and line %d matches %s:\n    %s\nRewrite the line to say what changed, then commit again.",
 				i+1, re.String(), strings.TrimSpace(line))}

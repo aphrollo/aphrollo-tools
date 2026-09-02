@@ -111,6 +111,10 @@ type policy struct {
 	category category
 	reason   string
 	hit      func(v view) bool
+	// escape is the comment marker that admits a hit on the line carrying it
+	// (or the line below), for the kinds with legitimate uses. Empty means the
+	// policy admits none — a tautology has no good reason.
+	escape string
 }
 
 // The composed gate sets, by what a phase is looking at. oracleSmells lives in
@@ -177,7 +181,7 @@ func evaluateView(v view, policies []policy, p phase) Decision {
 			continue
 		}
 		if a := actionFor(pol.category, p); a > best.Action {
-			best = Decision{Action: a, Reason: pol.reason}
+			best = Decision{Action: a, Reason: pol.reason, Policy: pol.name}
 			if best.Action == Block {
 				break // nothing outranks Block; stop early
 			}

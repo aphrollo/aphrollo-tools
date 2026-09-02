@@ -28,19 +28,26 @@ type MutationReceipt struct {
 	TipTree       string `json:"tip_tree"`
 	WorktreeDirty bool   `json:"worktree_dirty"`
 	BaseRef       string `json:"base_ref"`
-	MutantsTotal  int    `json:"mutants_total"`
-	Caught        int    `json:"caught"`
-	Timeout       int    `json:"timeout"`
-	Unviable      int    `json:"unviable"`
-	Survivors     int    `json:"survivors"`
-	Accepted      int    `json:"accepted"`
-	// Unaccepted lists the survivors nobody signed off on — a code path no
-	// test constrains. Its ENTRIES are opaque here: the producing repo decides
-	// how it names a mutant, and a gate that parsed that shape would break the
-	// day the shape changed. Non-empty is the whole rule.
-	Unaccepted []json.RawMessage `json:"unaccepted"`
-	Verdict    string            `json:"verdict"`
-	FinishedAt time.Time         `json:"finished_at"`
+	// BaseSHA is what BaseRef RESOLVED to when the run took its diff. A ref
+	// name is not a base: `origin/main` moves, and a receipt measured against
+	// yesterday's origin/main mutated different lines than the merge is
+	// landing. Empty means an older producer wrote the receipt.
+	BaseSHA      string `json:"base_sha"`
+	MutantsTotal int    `json:"mutants_total"`
+	Caught       int    `json:"caught"`
+	Timeout      int    `json:"timeout"`
+	Unviable     int    `json:"unviable"`
+	// Survivors and Unaccepted are LISTS of mutant names, as the producer
+	// writes them — the count is len(). Declaring survivors an int is what
+	// made every merge die on "cannot unmarshal array into Go struct field".
+	// The entries are opaque here: the producing repo decides how it names a
+	// mutant, and a gate that parsed that shape would break the day the shape
+	// changed. A non-empty Unaccepted is the whole rule.
+	Survivors  []string  `json:"survivors"`
+	Accepted   int       `json:"accepted"`
+	Unaccepted []string  `json:"unaccepted"`
+	Verdict    string    `json:"verdict"`
+	FinishedAt time.Time `json:"finished_at"`
 }
 
 // receiptVerdictPass is the only verdict that merges. Anything else — "fail",
@@ -65,9 +72,11 @@ const mutationGateHint = "run tools/mutation_gate.sh on the lane tip (with a cle
 
 // checkMutationReceipt judges the receipt for the tree being merged. It
 // returns nil to allow, or a blocking GateResult naming the field that
-// failed. tipTree is the LANE TIP's tree (MERGE_HEAD^{tree}), never the merge
+// failed. tipTree is the LANE TIP's tree (MERGE_HEAD:), never the merge
 // result: the merge result has never been mutation-tested by anyone.
-func checkMutationReceipt(repo, tipTree string) *GateResult {
+// wantBase is the merge base this merge is actually landing against, "" when
+// the gate could not name it — in which case it does not judge one.
+func checkMutationReceipt(repo, tipTree, wantBase string) *GateResult {
 	path := MutationReceiptPathFor(tipTree)
 	if path == "" {
 		return blockReceipt("no mutation receipt for %s (there is no lane tip to look one up by)", repo)
@@ -80,7 +89,7 @@ func checkMutationReceipt(repo, tipTree string) *GateResult {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return blockReceipt("the mutation receipt at %s is unreadable (%v)", path, err)
 	}
-	if r.Repo != "" && repo != "" && !strings.EqualFold(r.Repo, repo) {
+	if r.Repo != "" && repo != "" && !sameRepo(r.Repo, repo) {
 		return blockReceipt("the receipt for tree %s is for %s, not %s", short(tipTree), r.Repo, repo)
 	}
 	if r.WorktreeDirty {
@@ -93,23 +102,56 @@ func checkMutationReceipt(repo, tipTree string) *GateResult {
 		return blockReceipt("%d unaccepted survivor(s), starting with %s — a code path no test constrains",
 			len(r.Unaccepted), firstUnaccepted(r.Unaccepted))
 	}
+	switch {
+	case r.BaseSHA == "":
+		// An older producer. Accepted, and counted: an unverifiable proof is
+		// not the same thing as a verified one, and the tally is how that
+		// stops being invisible.
+		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-unpinned", 0)
+	case wantBase != "" && !strings.EqualFold(r.BaseSHA, wantBase):
+		return blockReceipt("the receipt was measured against base %s, but this merge lands against %s — a different diff, so different mutants",
+			short(r.BaseSHA), short(wantBase))
+	}
 	return nil
 }
 
-// firstUnaccepted renders one entry for the rejection line. A survivor written
-// as an object is rendered readably; anything else is quoted as it came, so a
-// producer that changes the shape still gets a legible message.
-func firstUnaccepted(entries []json.RawMessage) string {
-	raw := entries[0]
-	var s struct {
-		File     string `json:"file"`
-		Line     int    `json:"line"`
-		Mutation string `json:"mutation"`
+// mergeBaseSHA is the commit this merge actually diverged from — what a
+// diff-scoped mutation run had to have measured against. "" when git cannot
+// say, in which case no base is judged.
+func mergeBaseSHA(repoRoot, tipRev string) string {
+	if tipRev == "" {
+		return ""
 	}
-	if err := json.Unmarshal(raw, &s); err == nil && s.File != "" {
-		return fmt.Sprintf("%s:%d (%s)", s.File, s.Line, s.Mutation)
+	out, err := git(repoRoot, "merge-base", tipRev, "HEAD")
+	if err != nil {
+		return ""
 	}
-	return strings.TrimSpace(string(raw))
+	return strings.TrimSpace(out)
+}
+
+// sameRepo compares two spellings of one repo. The producer names it however
+// its own script does — borld's writes the git dir, `D:/Projects/borld/.git`
+// — and the gate knows it as a directory name, so both are reduced to that
+// name before comparing. "This receipt is for another repo" about the SAME
+// repo is the most misleading rejection the gate can produce.
+func sameRepo(a, b string) bool {
+	return strings.EqualFold(repoName(a), repoName(b))
+}
+
+func repoName(s string) string {
+	s = strings.TrimRight(strings.ReplaceAll(s, `\`, "/"), "/")
+	s = strings.TrimSuffix(s, "/.git")
+	s = strings.TrimSuffix(s, ".git")
+	if i := strings.LastIndex(s, "/"); i >= 0 {
+		s = s[i+1:]
+	}
+	return s
+}
+
+// firstUnaccepted is the one entry the rejection line quotes, exactly as the
+// producer named it.
+func firstUnaccepted(entries []string) string {
+	return strings.TrimSpace(entries[0])
 }
 
 func short(sha string) string {
@@ -128,12 +170,59 @@ func blockReceipt(format string, args ...any) *GateResult {
 		fmt.Sprintf(format, args...), mutationGateHint)}
 }
 
-// mergeTipTree is the tree of the commit being merged IN, which is what the
-// mutation run measured. "" when there is no merge in progress.
-func mergeTipTree(repoRoot string) string {
-	out, err := git(repoRoot, "rev-parse", "MERGE_HEAD^{tree}")
+// mergeTip is the commit being merged IN — the tree a mutation run measured,
+// and a revision the base check can still resolve.
+type mergeTip struct {
+	Rev, Tree, From string
+}
+
+// reflogActionEnv is what git tells a hook it is doing: during a merge it
+// reads `merge <ref>`. It is the ONLY signal a clean automerge gives, because
+// pre-merge-commit fires BEFORE .git/MERGE_HEAD is written — that file exists
+// only for a conflicted or --no-commit merge. Reading it from this process's
+// own environment is safe: cleanGitEnv scrubs GIT_* from the CHILD git's
+// environment, never from ours.
+const reflogActionEnv = "GIT_REFLOG_ACTION"
+
+// mergeTipOf names the lane tip of the merge in progress, preferring
+// MERGE_HEAD (when it exists it IS the merge) and falling back to the branch
+// git says it is merging.
+func mergeTipOf(repoRoot string) (mergeTip, bool) {
+	if tree, ok := revTree(repoRoot, "MERGE_HEAD"); ok {
+		return mergeTip{Rev: "MERGE_HEAD", Tree: tree, From: "MERGE_HEAD"}, true
+	}
+	if rev := reflogMergeRev(); rev != "" {
+		if tree, ok := revTree(repoRoot, rev); ok {
+			return mergeTip{Rev: rev, Tree: tree, From: reflogActionEnv}, true
+		}
+	}
+	return mergeTip{}, false
+}
+
+// revTree resolves a revision's tree. `<rev>:` names it, and unlike
+// `<rev>^{tree}` it survives any cmd.exe wrapper on the way to git — a caret
+// is an escape character there.
+func revTree(repoRoot, rev string) (string, bool) {
+	out, err := git(repoRoot, "rev-parse", rev+":")
 	if err != nil {
+		return "", false
+	}
+	tree := strings.TrimSpace(out)
+	return tree, tree != ""
+}
+
+// reflogMergeRev is the ref named by `merge <ref>`, "" for any other action.
+func reflogMergeRev() string {
+	f := strings.Fields(os.Getenv(reflogActionEnv))
+	if len(f) < 2 || f[0] != "merge" {
 		return ""
 	}
-	return strings.TrimSpace(out)
+	return f[1]
+}
+
+// mergeTipTree is the tree of the commit being merged IN, which is what the
+// mutation run measured. "" when nothing names a merge.
+func mergeTipTree(repoRoot string) string {
+	tip, _ := mergeTipOf(repoRoot)
+	return tip.Tree
 }

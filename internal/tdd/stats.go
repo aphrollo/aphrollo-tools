@@ -23,9 +23,18 @@ type Stats struct {
 	// the run's root — the crate is what an operator can act on.
 	Timeouts map[string]int
 	Deferred map[string]int
-	Median   float64
-	Max      float64
-	Lines    int
+	// Denies counts every decision that REFUSED something or waived a rule,
+	// keyed by the full verdict ("pretooluse-denied:test-sleep",
+	// "override-off", "smell-escape:disabled-test"). A hatch nobody counts is
+	// a hatch nobody manages. bound: one entry per policy name in the log.
+	Denies map[string]int
+	// LockWaitMax is the longest build-slot wait seen, in seconds. It is kept
+	// out of Median/Max on purpose: a queued gate run is a busy box, not a
+	// slow suite, and folding the two made contention look like a regression.
+	LockWaitMax float64
+	Median      float64
+	Max         float64
+	Lines       int
 }
 
 // Count is the tally for one stage/outcome pair, zero when it never happened.
@@ -40,8 +49,12 @@ var statsStages = []string{"postedit", "precommit", "premergecommit"}
 // statsOutcomes is the outcome vocabulary, in the order a reader cares about.
 var statsOutcomes = []string{
 	"green", "red", "blocked", "timeout", "timeout-rejected",
-	"queued-skipped", "queued-rejected", "deferred",
+	"queued-skipped", "queued-rejected", "deferred", lockWaitVerdict,
 }
+
+// lockWaitVerdict is the entry a stage writes when it spent long enough
+// queued for a build slot to explain the run's wall time.
+const lockWaitVerdict = "lock-wait"
 
 // GateStats parses a gate.log stream, counting only entries at or after
 // since (a zero time counts the whole log). A line it cannot parse is
@@ -52,6 +65,7 @@ func GateStats(r io.Reader, since time.Time) Stats {
 		ByStage:  map[string]map[string]int{},
 		Timeouts: map[string]int{},
 		Deferred: map[string]int{},
+		Denies:   map[string]int{},
 	}
 	var secs []float64
 	sc := bufio.NewScanner(r)
@@ -73,6 +87,15 @@ func GateStats(r io.Reader, since time.Time) Stats {
 		case strings.HasPrefix(e.verdict, "deferred"):
 			s.Deferred[crate]++
 		}
+		if isDenyVerdict(e.verdict) {
+			s.Denies[e.verdict]++
+		}
+		if e.verdict == lockWaitVerdict {
+			if e.secs > s.LockWaitMax {
+				s.LockWaitMax = e.secs
+			}
+			continue
+		}
 		secs = append(secs, e.secs)
 	}
 	sort.Float64s(secs)
@@ -81,6 +104,19 @@ func GateStats(r io.Reader, since time.Time) Stats {
 		s.Median = secs[n/2]
 	}
 	return s
+}
+
+// denyVerdictPrefixes are the verdicts that record a REFUSAL or a waiver
+// rather than a run, and are therefore tallied by policy instead of by crate.
+var denyVerdictPrefixes = []string{"pretooluse-denied:", "commitmsg-rejected:", "override-", "smell-escape:"}
+
+func isDenyVerdict(verdict string) bool {
+	for _, p := range denyVerdictPrefixes {
+		if strings.HasPrefix(verdict, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // logRootCrate names the crate a log entry's root belongs to: the root's
@@ -146,12 +182,19 @@ func RenderGateStats(s Stats) string {
 	}
 	fmt.Fprintf(&b, "\n%d entries; gate seconds: median %s, max %s\n",
 		s.Lines, formatFloat(s.Median), formatFloat(s.Max))
-	writeCrateCounts(&b, "timeouts", s.Timeouts)
-	writeCrateCounts(&b, "deferred", s.Deferred)
+	if s.LockWaitMax > 0 {
+		fmt.Fprintf(&b, "longest build-slot wait: %ss\n", formatFloat(s.LockWaitMax))
+	}
+	writeCounts(&b, "timeouts by crate", s.Timeouts)
+	writeCounts(&b, "deferred by crate", s.Deferred)
+	writeCounts(&b, "denies / overrides", s.Denies)
 	return b.String()
 }
 
-func writeCrateCounts(b *strings.Builder, label string, counts map[string]int) {
+// writeCounts renders one tally line, biggest first, under its own label —
+// the label is the whole caption, because the crate tallies and the policy
+// tally are keyed by different things.
+func writeCounts(b *strings.Builder, label string, counts map[string]int) {
 	if len(counts) == 0 {
 		return
 	}
@@ -165,7 +208,7 @@ func writeCrateCounts(b *strings.Builder, label string, counts map[string]int) {
 		}
 		return names[i] < names[j]
 	})
-	fmt.Fprintf(b, "%s by crate:", label)
+	fmt.Fprintf(b, "%s:", label)
 	for _, n := range names {
 		fmt.Fprintf(b, " %s=%d", n, counts[n])
 	}

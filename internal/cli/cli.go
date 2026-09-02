@@ -232,7 +232,10 @@ Subcommands:
   gc                Reclaim stale build dirs: idle incremental caches, dead gate dirs,
                     orphan worktree builds (--repo, --older-than 3d, --apply)
   install           Install the git-hook shims into a repo (--repo, --apply)
-  init              Set up TDD: session hooks in settings.json + the global git gate (--no-git, --uninstall)
+  init              Set up TDD: session hooks in settings.json + the global git gate
+                    (--no-git, --uninstall). ALSO EDITS FILES IN A REPO: the managed
+                    block in <repo>/CLAUDE.md and <repo>/.ratchet/README.md, where
+                    <repo> is --repo (default: the working directory's repo)
   cargo             cargo-queue shim: queue a DIRECT cargo invocation behind the same
                     per-target-dir build slots the hooks/gates use (APHROLLO_CARGO_WAIT_SECS,
                     APHROLLO_BUILD_SLOTS, APHROLLO_REAL_CARGO)
@@ -481,6 +484,7 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if decision.Action == tdd.Allow {
 		decision = tdd.WorktreeAdvisory(raw)
 	}
+	tdd.LogEditDecision(raw, decision)
 	payload, code := tdd.RenderPreToolUse(decision)
 	if len(payload) > 0 {
 		stdout.Write(payload)
@@ -537,6 +541,7 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		cargoShimDir = fs.String("cargo-shim-dir", "", "dir for the cargo-queue shim (default: alongside --bin, e.g. <bindir>/cargo-queue)")
 		gitHooksDir  = fs.String("git-hooks-dir", "", "git hooks dir for the global gate (default: $XDG_CONFIG_HOME/git/hooks or ~/.config/git/hooks)")
 		noGit        = fs.Bool("no-git", false, "skip the git pre-commit gate; wire session hooks only")
+		repo         = fs.String("repo", ".", "repo whose CLAUDE.md and .ratchet/README.md init may write (default: the working directory's)")
 		claudeMD     = fs.Bool("claude-md", false, "write the managed CLAUDE.md block even when the repo has no CLAUDE.md yet")
 		ratchetDoc   = fs.Bool("ratchet-readme", false, "write .ratchet/README.md even when the repo has no laws yet")
 		uninstall    = fs.Bool("uninstall", false, "remove the hooks instead of installing them")
@@ -653,25 +658,30 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 
 		// The operating instructions belong in the one file a session always
 		// reads. A repo that keeps a CLAUDE.md gets the block automatically;
-		// one that does not is left alone unless asked with --claude-md.
-		if repo := tdd.RepoRoot("."); repo != "" {
-			changed, err := tdd.WriteClaudeMD(repo, cdir, *claudeMD)
+		// one that does not is left alone unless asked with --claude-md. The
+		// repo is NAMED (--repo, default the working directory's), because
+		// editing a source file as a side effect of where the shell happens to
+		// stand is a surprise, and an unnamed one.
+		if root := tdd.RepoRoot(*repo); root != "" {
+			changed, err := tdd.WriteClaudeMD(root, cdir, *claudeMD)
 			switch {
 			case err != nil:
 				fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 				return 1
 			case changed:
-				fmt.Fprintf(stdout, "aphrollo gate: wrote the managed block in %s\n", filepath.Join(repo, "CLAUDE.md"))
+				fmt.Fprintf(stdout, "aphrollo gate: wrote the managed block in %s\n", filepath.Join(root, "CLAUDE.md"))
+			default:
+				fmt.Fprintf(stdout, "aphrollo gate: managed block already up to date in %s\n", filepath.Join(root, "CLAUDE.md"))
 			}
 			// The law schema belongs beside the laws, so a repo's own docs can
 			// cite it instead of a path on the machine that installed this.
-			wrote, err := tdd.WriteRatchetReadme(repo, *ratchetDoc)
+			wrote, err := tdd.WriteRatchetReadme(root, *ratchetDoc)
 			switch {
 			case err != nil:
 				fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 				return 1
 			case wrote:
-				fmt.Fprintf(stdout, "aphrollo gate: wrote the law spec in %s\n", filepath.Join(repo, ".ratchet", "README.md"))
+				fmt.Fprintf(stdout, "aphrollo gate: wrote the law spec in %s\n", filepath.Join(root, ".ratchet", "README.md"))
 			}
 		}
 	}

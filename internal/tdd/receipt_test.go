@@ -68,10 +68,9 @@ func TestMutationReceipt_RefusesAMergeWithoutProof(t *testing.T) {
 		}(), "verdict"},
 		{"survivors nobody signed off on", func() *MutationReceipt {
 			r := passingReceipt()
-			r.Survivors, r.Accepted = 2, 1
-			r.Unaccepted = []json.RawMessage{
-				json.RawMessage(`{"file":"src/a.rs","line":12,"mutation":"replace + with -"}`),
-			}
+			r.Accepted = 1
+			r.Survivors = []string{"src/a.rs:12: replace + with -", "src/b.rs:3: replace * with +"}
+			r.Unaccepted = []string{"src/a.rs:12: replace + with -"}
 			return &r
 		}(), "src/a.rs:12"},
 		{"a receipt for another repo", func() *MutationReceipt {
@@ -86,7 +85,7 @@ func TestMutationReceipt_RefusesAMergeWithoutProof(t *testing.T) {
 			if c.receipt != nil {
 				writeReceipt(t, *c.receipt)
 			}
-			got := checkMutationReceipt("borld", laneTip)
+			got := checkMutationReceipt("borld", laneTip, "")
 			if got == nil || !got.Blocked {
 				t.Fatalf("merge allowed with %s", c.name)
 			}
@@ -110,7 +109,7 @@ func TestMutationReceipt_IsFoundByTheLaneTipTreeAlone(t *testing.T) {
 	other.TipTree = "2222222222222222222222222222222222222222"
 	writeReceipt(t, other)
 
-	got := checkMutationReceipt("borld", laneTip)
+	got := checkMutationReceipt("borld", laneTip, "")
 	if got == nil || !got.Blocked {
 		t.Fatal("another tree's receipt must not clear this merge")
 	}
@@ -120,10 +119,10 @@ func TestMutationReceipt_IsFoundByTheLaneTipTreeAlone(t *testing.T) {
 
 	// Both receipts coexist: one lane's proof never overwrites another's.
 	writeReceipt(t, passingReceipt())
-	if got := checkMutationReceipt("borld", laneTip); got != nil {
+	if got := checkMutationReceipt("borld", laneTip, ""); got != nil {
 		t.Fatalf("merge refused a proven tree: %s", got.Message)
 	}
-	if got := checkMutationReceipt("borld", other.TipTree); got != nil {
+	if got := checkMutationReceipt("borld", other.TipTree, ""); got != nil {
 		t.Fatalf("the other lane's receipt was clobbered: %s", got.Message)
 	}
 }
@@ -136,12 +135,12 @@ func TestMutationReceipt_AcceptsAProvenTree(t *testing.T) {
 		passingReceipt(),
 		{Repo: "borld", TipTree: laneTip, MutantsTotal: 0, Verdict: "pass"},
 		{Repo: "borld", TipTree: laneTip, MutantsTotal: 3, Caught: 2, Timeout: 0, Unviable: 0,
-			Survivors: 1, Accepted: 1, Unaccepted: []json.RawMessage{}, Verdict: "pass"},
+			Survivors: []string{"src/a.rs:12: replace + with -"}, Accepted: 1, Unaccepted: []string{}, Verdict: "pass"},
 	} {
 		t.Run(r.Verdict+"-"+short(r.TipTree), func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			writeReceipt(t, r)
-			if got := checkMutationReceipt("borld", laneTip); got != nil {
+			if got := checkMutationReceipt("borld", laneTip, ""); got != nil {
 				t.Fatalf("merge refused a proven tree: %s", got.Message)
 			}
 		})

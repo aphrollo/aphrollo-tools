@@ -52,7 +52,7 @@ func HandlePrompt(raw []byte) PromptResult {
 		if f := strings.Fields(p); len(f) > 1 {
 			sub = strings.ToLower(f[1])
 		}
-		return PromptResult{Block: true, Message: tddCommand(sub, in.SessionID)}
+		return PromptResult{Block: true, Message: tddCommand(sub, in.SessionID, in.Cwd)}
 	}
 	if harvested := promptHarvest(in.SessionID, in.Cwd); harvested != "" {
 		return PromptResult{Message: harvested}
@@ -72,7 +72,10 @@ func isGateCommand(p string) bool {
 }
 
 // tddCommand handles a /gate subcommand and returns the message to surface.
-func tddCommand(sub, session string) string {
+// Flipping enforcement is the one thing a session can do to the gate itself,
+// so both directions leave a line in gate.log: an override nobody counts is
+// an override nobody manages. cwd only names WHERE it was flipped.
+func tddCommand(sub, session, cwd string) string {
 	switch sub {
 	case "", "status":
 		return tddStatus(session)
@@ -80,12 +83,14 @@ func tddCommand(sub, session string) string {
 		if err := setOff(session, true); err != nil {
 			return "gate: could not persist the override (" + err.Error() + ")"
 		}
+		logOverride("override-off", session, cwd)
 		return "TDD enforcement OFF for this session — edits are no longer gated. Run `/gate on` to re-enable."
 	case "on", "reset":
 		// reset clears any override, which is identical to turning enforcement on.
 		if err := setOff(session, false); err != nil {
 			return "gate: could not persist the override (" + err.Error() + ")"
 		}
+		logOverride("override-on", session, cwd)
 		return "TDD enforcement ON for this session."
 	default:
 		return "gate: unknown subcommand " + sub + " — valid: /gate [status|off|on|reset]"

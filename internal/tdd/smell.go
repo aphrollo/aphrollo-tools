@@ -109,7 +109,8 @@ var skipPyRe = regexp.MustCompile(`@\s*(?:pytest\s*\.\s*mark\s*\.\s*skip(?:if)?|
 var (
 	sleepPolicy = policy{
 		name: "test-sleep", category: smellCat, reason: sleepReason,
-		hit: func(v view) bool { return sleepRe.MatchString(v.code) },
+		hit:    func(v view) bool { return sleepRe.MatchString(v.code) },
+		escape: escapeSleep,
 	}
 	tautologyPolicy = policy{
 		name: "tautology", category: smellCat, reason: tautologyReason,
@@ -121,7 +122,8 @@ var (
 	}
 	disabledTestPolicy = policy{
 		name: "disabled-test", category: smellCat, reason: disabledTestReason,
-		hit: func(v view) bool { return hasDisabledTest(v.code) },
+		hit:    func(v view) bool { return hasDisabledTest(v.code) },
+		escape: escapeSkip,
 	}
 )
 

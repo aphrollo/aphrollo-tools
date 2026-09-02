@@ -586,7 +586,7 @@ live where being wrong only costs a re-run):
 
 | Subcommand | Wiring | What it does |
 |---|---|---|
-| `gate pretooluse` | Claude PreToolUse hook (stdin) | Blocks (exit 2) a **test-file** edit introducing an oracle smell — real-time sleep, tautological self-comparison, focused marker (`.only`/`fit`), or a disabled test (`.skip`/`xit`/`t.Skip`/`@pytest.mark.skip`). **Warns** (test or source) on a suppression that silences a quality gate (`//nolint`, `@ts-ignore`, `# type: ignore`, coverage-ignore). |
+| `gate pretooluse` | Claude PreToolUse hook (stdin) | Blocks (exit 2) a **test-file** edit introducing an oracle smell — real-time sleep, tautological self-comparison, focused marker (`.only`/`fit`), or a disabled test (`.skip`/`xit`/`t.Skip`/`@pytest.mark.skip`). Judged over the lines the edit ADDS, so a file that already carries one (a platform skip) is still editable; a genuinely necessary one is admitted by `// skip-ok: <why>` or `// real-time: <why>` on its line or the line above, and logged `smell-escape:<policy>`. **Warns** (test or source) on a suppression that silences a quality gate (`//nolint`, `@ts-ignore`, `# type: ignore`, coverage-ignore). |
 | `gate posttooluse` | Claude PostToolUse hook (stdin) | Runs the edited file's related tests as a build phase then a run phase under ONE budget, deferring whatever does not finish (see below); surfaces a RED summary. **Silent unless RED.** Source extensions include `.ron` — in a Rust workspace those are registries and fixtures whose edits change behaviour, resolved to the owning crate exactly as `.rs` is. |
 | `gate userpromptsubmit` | Claude UserPromptSubmit hook (stdin) | Intercepts `/gate [status\|off\|on\|reset]` — the per-session enforcement escape hatch. On any other prompt, re-injects the last RED outcome for the cwd's project so the gate survives context compaction. **Silent unless RED.** |
 | `gate stats` | manual | Tallies `gate.log` by stage and outcome, with per-crate timeout/deferred counts and median/max gate seconds (`--since 7d`). |
@@ -959,16 +959,31 @@ commit-message-deny = ["^WIP:"]      # this repo's own extra deny patterns
   test constrains behaviour, and a test that asserts nothing satisfies
   fail-first perfectly. A MERGE needs both. With the key set,
   `premergecommit` looks up `<stateDir>/mutation-receipt.<tip_tree>.json`,
-  where `<tip_tree>` is the LANE TIP's tree (`git rev-parse MERGE_HEAD^{tree}`
+  where `<tip_tree>` is the LANE TIP's tree (`git rev-parse MERGE_HEAD:`
   — never the merge result, which nobody has mutation-tested). The file is
   written by the consuming repo's own mutation run (borld's
-  `mutation_gate.sh`) and carries `repo`, `branch`, `tip_tree`,
-  `worktree_dirty`, `base_ref`, `mutants_total`, `caught`, `timeout`,
-  `unviable`, `survivors`, `accepted`, `unaccepted` and `verdict`. The merge is
+  `mutation_gate.sh`). The schema, exactly as the producer writes it:
+  `repo` (string — a directory name or a path to the repo/git dir, compared by
+  name), `branch` (string), `tip_tree` (string), `worktree_dirty` (bool),
+  `base_ref` (string), `base_sha` (string), `mutants_total`, `caught`,
+  `timeout`, `unviable`, `accepted` (ints), `survivors` and `unaccepted`
+  (ARRAYS of mutant names — the count is the array's length; the entries are
+  opaque to the gate), `verdict` (string) and `finished_at` (RFC3339). A real
+  receipt is checked in at `internal/tdd/testdata/mutation-receipt.borld.json`
+  and decoded by the suite, because a schema whose only reader is its own
+  writer is untested by construction — this pair disagreed in production
+  (`survivors` declared an int against an array) and refused every merge.
+  The merge is
   refused (`receipt-rejected`) when there is no receipt for that tree, when
   `worktree_dirty` is set, when `verdict` is anything but `"pass"` (an
   unrecognised verdict refuses — a gate that reads an unknown word as
-  permission is not a gate), or when `unaccepted` is non-empty. The receipt is
+  permission is not a gate), or when `unaccepted` is non-empty. `base_sha` is
+  what `base_ref` RESOLVED to when the run took its diff: a ref name is not a
+  base (`origin/main` moves), so a receipt that carries one must match
+  `git merge-base MERGE_HEAD HEAD` or the merge is refused — it measured
+  different lines. A receipt with no `base_sha` is an older producer's: it is
+  accepted and logged `receipt-unpinned`, so an unverifiable proof is counted
+  rather than mistaken for a verified one. The receipt is
   keyed by TREE in its FILENAME, so the lookup itself is the identity check and
   two lanes measured minutes apart never read each other's answer;
   `mutants_total: 0` is a valid receipt, since a diff with nothing mutable in
@@ -1382,6 +1397,8 @@ workspace with `undercover = true` — the commit-message rule.
 
 - A repo that keeps a `CLAUDE.md` gets the block on every `gate init`; one that
   does not is left alone unless you pass `--claude-md`, which creates the file.
+- WHICH repo is named, not inferred: `--repo <path>` (default: the working
+  directory's repo), and the run prints the file it wrote.
 - An existing block is replaced **in place**, never duplicated or moved: it may
   have been put somewhere deliberate. A file hand-edited mid-block (one marker
   left) has the orphan dropped and a whole block appended.

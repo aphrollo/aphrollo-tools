@@ -167,7 +167,7 @@ func computeFingerprint(root string) *fingerprint {
 // PostToolUse fingerprint, not a pre-commit worktree), so it intentionally skips
 // cleanGitEnv() — no inherited GIT_* vars to scrub here.
 func gitOut(root string, args ...string) string {
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command(gitBinary(), args...)
 	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {

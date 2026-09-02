@@ -95,9 +95,27 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		return Mechanical(repoRoot, run)
 	}
 
+	var notes []string
+	collect := func(res GateResult) (blocked bool) {
+		if res.Message != "" {
+			notes = append(notes, res.Message)
+		}
+		return res.Blocked
+	}
+	// Cheapest first, and BEFORE the has-code check: a commit staging only a
+	// baseline file or a doc is exactly the shape that raises a ceiling by
+	// hand or lands a law regression, and it used to return here having
+	// answered to nothing.
+	if res := baselineStage("precommit", repoRoot); collect(res) {
+		return res
+	}
+	if res := ratchetStage("precommit", repoRoot); collect(res) {
+		return res
+	}
+
 	groups := stagedRootGroups(repoRoot)
 	if len(groups) == 0 {
-		return GateResult{}
+		return GateResult{Message: strings.Join(notes, "\n")}
 	}
 
 	// Anti-cheat: block a newly-INTRODUCED suppression before spending the suite
@@ -107,21 +125,6 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		return GateResult{Blocked: true, Message: msg}
 	}
 
-	var notes []string
-	collect := func(res GateResult) (blocked bool) {
-		if res.Message != "" {
-			notes = append(notes, res.Message)
-		}
-		return res.Blocked
-	}
-	// Cheapest first: a hand-raised baseline is a text diff, and the declared
-	// laws are judged before anything compiles.
-	if res := baselineStage("precommit", repoRoot); collect(res) {
-		return res
-	}
-	if res := ratchetStage("precommit", repoRoot); collect(res) {
-		return res
-	}
 	for _, g := range groups {
 		if res := gateRoot("precommit", repoRoot, g, run, true); collect(res) {
 			return res
@@ -146,17 +149,15 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 	// The cheapest possible rejection comes first: a lane with no mutation
 	// proof is refused before a single suite compiles.
 	if res := mutationReceiptStage(repoRoot); res != nil {
-		fmt.Fprintln(os.Stderr, res.Message)
+		// Printing it here too would state the same paragraph twice: the hook
+		// that called this prints what it is given.
 		appendGateLog("premergecommit", repoRoot, "mutation-receipt", "receipt-rejected", 0)
 		return *res
 	}
-	groups := stagedRootGroups(repoRoot)
-	if len(groups) == 0 {
-		const line = "gate premergecommit: nothing to test (no staged source or test files)"
-		fmt.Fprintln(os.Stderr, line)
-		return GateResult{Message: line}
-	}
 	var notes []string
+	// Same order as Precommit, and for the same reason: a merge carrying only
+	// a raised baseline or a law regression must answer for it before the
+	// has-code check can wave it through.
 	if res := baselineStage("premergecommit", repoRoot); res.Blocked {
 		return res
 	}
@@ -164,6 +165,14 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		return res
 	} else if res.Message != "" {
 		notes = append(notes, res.Message)
+	}
+
+	groups := stagedRootGroups(repoRoot)
+	if len(groups) == 0 {
+		const line = "gate premergecommit: nothing to test (no staged source or test files)"
+		fmt.Fprintln(os.Stderr, line)
+		notes = append(notes, line)
+		return GateResult{Message: strings.Join(notes, "\n")}
 	}
 	for _, g := range groups {
 		res := gateRoot("premergecommit", repoRoot, g, run, false)
@@ -188,7 +197,14 @@ func mutationReceiptStage(repoRoot string) *GateResult {
 	if !cargoAphrolloFlag(ws, "mutation-receipt") {
 		return nil
 	}
-	return checkMutationReceipt(filepath.Base(repoRoot), mergeTipTree(repoRoot))
+	tip, ok := mergeTipOf(repoRoot)
+	if !ok {
+		// The gate failed on its own inputs, so it says which input: a clean
+		// automerge has no MERGE_HEAD yet, and only GIT_REFLOG_ACTION names
+		// the branch coming in.
+		return blockReceipt("no lane tip to look a receipt up by (neither .git/MERGE_HEAD nor %s names a merged branch)", reflogActionEnv)
+	}
+	return checkMutationReceipt(filepath.Base(repoRoot), tip.Tree, mergeBaseSHA(repoRoot, tip.Rev))
 }
 
 // failFirstStage runs the fail-first check for ONE project root's staged
@@ -456,6 +472,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	target := runnerTargetDir(runner, root)
 	res, waited, acquired := runCargoLocked(run, runner, root, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
 	restore()
+	logLockWait(gateName, root, runner, waited)
 	if !acquired {
 		// A commit the gate never tested must not land. This used to fail
 		// open, and ten commits in one gate.log did exactly that: waited out
@@ -961,7 +978,8 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 			}()
 		}
 	}
-	res, _, acquired := runCargoLocked(run, runner, execRoot, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
+	res, waited, acquired := runCargoLocked(run, runner, execRoot, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
+	logLockWait("precommit", root, runner, waited)
 	if !acquired {
 		return false, false, 0 // another cargo build holds the machine lock — no verdict either way
 	}
@@ -1046,7 +1064,7 @@ func git(dir string, args ...string) (string, error) {
 // (nil for none), and returns the combined output. It is the single place the
 // exec/clean-env/CombinedOutput pattern lives.
 func gitStdin(dir string, stdin io.Reader, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command(gitBinary(), args...)
 	cmd.Dir = dir
 	cmd.Env = cleanGitEnv()
 	cmd.Stdin = stdin
@@ -1076,10 +1094,18 @@ func mergeInProgressRef(repoRoot string) string {
 	return ""
 }
 
-// stagedFiles lists the added/copied/modified paths in the index, as repo-root-
-// relative paths.
+// stagedDiffFilter is what the gate considers a staged CHANGE: added, copied,
+// modified, renamed or type-changed. R and T were missing, so a refactor
+// commit — a rename plus an edit, which git records as R — produced zero gate
+// activity for every renamed file it carried.
+const stagedDiffFilter = "ACMRT"
+
+// stagedFiles lists the changed paths in the index, as repo-root-relative
+// paths. `-M` turns rename detection on explicitly (never inherited from the
+// repo's diff.renames), and `--name-only` prints a rename's DESTINATION — the
+// path that exists after the commit and the only one worth testing.
 func stagedFiles(repoRoot string) []string {
-	out, err := git(repoRoot, "diff", "--cached", "--name-only", "--diff-filter=ACM")
+	out, err := git(repoRoot, "diff", "--cached", "--name-only", "-M", "--diff-filter="+stagedDiffFilter)
 	if err != nil {
 		return nil
 	}
