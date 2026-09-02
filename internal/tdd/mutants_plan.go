@@ -51,9 +51,10 @@ func (m MutantOutcome) key() mutantKey {
 }
 
 // TreeState is what the tip being mutated measures to: one blob hash per
-// file, one test-set hash per package.
+// file, the package each file belongs to, and one test-set hash per package.
 type TreeState struct {
 	Blobs    map[string]string
+	Packages map[string]string
 	TestSets map[string]string
 }
 

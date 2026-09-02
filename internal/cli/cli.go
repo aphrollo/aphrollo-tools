@@ -222,6 +222,11 @@ Subcommands:
   sessionend        Drop the session's state file
   precommit         Git pre-commit gate: fail-first + mechanical (run in the repo)
   premergecommit    Git pre-merge-commit gate: mechanical ONLY, no fail-first/anti-cheat
+  postcommit        Git post-commit hook: start the lane's mutation run detached and
+                    below normal priority (opt-in per repo: mutation-receipt = true).
+                    Never blocks, never fails
+  mutants           The mutation job's own verbs: run --job <file> (spawned by
+                    postcommit, not typed by hand)
   prepush           No-op (mechanical-only mode); kept for back-compat with a
                     lingering pre-push shim. Never blocks.
   runphase          Run one deferred build/run phase from its job record (--job);
@@ -397,6 +402,15 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// logs, and writes the result file the next hook harvests. It never
 		// blocks anything, so its exit code is always 0.
 		return runPhase(args[1:], stderr)
+	}
+	if args[0] == "postcommit" {
+		// The post-commit git hook: start the lane's mutation run, detached,
+		// and get out of the way. It never blocks and never fails.
+		return runPostCommit(stderr)
+	}
+	if args[0] == "mutants" {
+		// The mutation job's own verbs, addressed by a job file.
+		return runGateMutants(args[1:], stderr)
 	}
 	if args[0] == "cargo" {
 		// The cargo-queue shim (task A7): real terminal stdio, not the hook

@@ -54,6 +54,12 @@ type MutationReceipt struct {
 	// run incremental (see mutants_plan.go). A producer that has not caught up
 	// writes none, which costs a full re-run and nothing else.
 	Outcomes []MutantOutcome `json:"outcomes,omitempty"`
+	// Files is the blob hash of every file the run's diff covered, and
+	// TestSets the hash of every package's test files. Together they are what
+	// the NEXT run narrows its diff with (see PlanDiffFiles); absent, it
+	// measures everything.
+	Files    map[string]string `json:"files,omitempty"`
+	TestSets map[string]string `json:"test_sets,omitempty"`
 	// CarriedFrom names the tree whose run this receipt re-stamps, "" for a
 	// receipt that measured its own tree.
 	CarriedFrom string `json:"carried_from,omitempty"`
@@ -266,7 +272,19 @@ func short(sha string) string {
 // receipt is belongs to the rules, not to every rejection.
 func blockMissingReceipt(ctx receiptContext) *GateResult {
 	return &GateResult{Blocked: true, Message: fmt.Sprintf(
-		"gate: mutation receipt missing for tree %s — run tools/mutation_gate.sh main", short(ctx.TipTree))}
+		"gate: mutation receipt missing for tree %s — %s", short(ctx.TipTree), missingReceiptRemedy(ctx))}
+}
+
+// missingReceiptRemedy is the second half of that line. A run that is ALREADY
+// going is the remedy: told only to run the script, a session starts a second
+// mutation run on top of the first, which is how a box ends up with two
+// multi-hour builds fighting for the same cores.
+func missingReceiptRemedy(ctx receiptContext) string {
+	if jobs := RunningMutantsJobs(ctx.Repo); len(jobs) > 0 {
+		j := jobs[len(jobs)-1]
+		return fmt.Sprintf("running since %s (pid %d)", j.Started.Format("15:04"), j.PID)
+	}
+	return "run tools/mutation_gate.sh main"
 }
 
 func blockReceipt(format string, args ...any) *GateResult {

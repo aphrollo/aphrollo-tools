@@ -161,3 +161,40 @@ func changedPaths(repoRoot, from, to string) ([]string, bool) {
 	}
 	return paths, true
 }
+
+// newestReceiptOnBase is the freshest passing receipt for this repo measured
+// against the same base as the run about to start — what its outcomes are
+// carried from. skipTree is the tip being measured now: its own receipt, if
+// one somehow exists, is not a previous run.
+func newestReceiptOnBase(repo, base, skipTree string) *MutationReceipt {
+	for _, r := range carryCandidates(receiptContext{Repo: repo, TipTree: skipTree, BaseSHA: base}) {
+		return &r
+	}
+	return nil
+}
+
+// readReceiptFile decodes one receipt from disk.
+func readReceiptFile(path string) (MutationReceipt, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return MutationReceipt{}, false
+	}
+	var r MutationReceipt
+	if err := json.Unmarshal(data, &r); err != nil {
+		return MutationReceipt{}, false
+	}
+	return r, true
+}
+
+// writeReceiptFile publishes a receipt, atomically: a merge reading a
+// half-written one would report it unreadable and block a lane for a race.
+func writeReceiptFile(path string, r MutationReceipt) {
+	data, err := json.Marshal(r)
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return
+	}
+	_ = writeFileAtomic(path, data)
+}

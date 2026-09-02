@@ -19,6 +19,12 @@ import (
 var gitGateHooks = []struct{ name, sub string }{
 	{"pre-commit", "precommit"},
 	{"pre-merge-commit", "premergecommit"},
+	// post-commit starts the lane's mutation run: at commit time the run has
+	// the whole review to finish in, where a run started at merge time is a
+	// multi-hour wall in front of the one action that needed it. It never
+	// blocks (the commit has already happened) and is inert unless the repo
+	// declares `mutation-receipt = true`.
+	{"post-commit", "postcommit"},
 	// commit-msg fires for EVERY commit, including a non-fast-forward merge,
 	// which is the point: the message is the one artefact that leaves the
 	// machine. Inert unless a workspace opts in with `undercover = true`.

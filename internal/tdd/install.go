@@ -39,6 +39,7 @@ type InstallPlan struct {
 var perRepoHooks = []struct{ name, sub string }{
 	{"pre-commit", "precommit"},
 	{"pre-merge-commit", "premergecommit"},
+	{"post-commit", "postcommit"},
 	{"commit-msg", "commitmsg"},
 }
 
