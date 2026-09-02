@@ -1,7 +1,7 @@
 ---
 name: tdd
-description: TDD enforcement — /tdd status|off|on|allow-main|reset toggles the session gate; the body is the RED→GREEN procedure the gate assumes
-argument-hint: "[status|off|on|allow-main|reset]"
+description: TDD enforcement — /tdd status|off|on|allow-main|reset|style terse|plain toggles the session gate; the body is the RED→GREEN procedure the gate assumes
+argument-hint: "[status|off|on|allow-main|reset|style terse|plain]"
 ---
 
 <!-- Written by `aphrollo gate init`. Hand edits are overwritten by the next init;

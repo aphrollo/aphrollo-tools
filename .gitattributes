@@ -1,0 +1,5 @@
+# Embedded templates are read as raw bytes by go:embed; a CRLF checkout must never change them.
+*.md text eol=lf
+*.go text eol=lf
+*.toml text eol=lf
+*.sh text eol=lf
