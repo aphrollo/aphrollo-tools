@@ -32,20 +32,22 @@ type MutationReceipt struct {
 	// name is not a base: `origin/main` moves, and a receipt measured against
 	// yesterday's origin/main mutated different lines than the merge is
 	// landing. Empty means an older producer wrote the receipt.
-	BaseSHA string `json:"base_sha"`
-	MutantsTotal  int    `json:"mutants_total"`
-	Caught        int    `json:"caught"`
-	Timeout       int    `json:"timeout"`
-	Unviable      int    `json:"unviable"`
-	Survivors     int    `json:"survivors"`
-	Accepted      int    `json:"accepted"`
-	// Unaccepted lists the survivors nobody signed off on — a code path no
-	// test constrains. Its ENTRIES are opaque here: the producing repo decides
-	// how it names a mutant, and a gate that parsed that shape would break the
-	// day the shape changed. Non-empty is the whole rule.
-	Unaccepted []json.RawMessage `json:"unaccepted"`
-	Verdict    string            `json:"verdict"`
-	FinishedAt time.Time         `json:"finished_at"`
+	BaseSHA      string `json:"base_sha"`
+	MutantsTotal int    `json:"mutants_total"`
+	Caught       int    `json:"caught"`
+	Timeout      int    `json:"timeout"`
+	Unviable     int    `json:"unviable"`
+	// Survivors and Unaccepted are LISTS of mutant names, as the producer
+	// writes them — the count is len(). Declaring survivors an int is what
+	// made every merge die on "cannot unmarshal array into Go struct field".
+	// The entries are opaque here: the producing repo decides how it names a
+	// mutant, and a gate that parsed that shape would break the day the shape
+	// changed. A non-empty Unaccepted is the whole rule.
+	Survivors  []string  `json:"survivors"`
+	Accepted   int       `json:"accepted"`
+	Unaccepted []string  `json:"unaccepted"`
+	Verdict    string    `json:"verdict"`
+	FinishedAt time.Time `json:"finished_at"`
 }
 
 // receiptVerdictPass is the only verdict that merges. Anything else — "fail",
@@ -87,7 +89,7 @@ func checkMutationReceipt(repo, tipTree, wantBase string) *GateResult {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return blockReceipt("the mutation receipt at %s is unreadable (%v)", path, err)
 	}
-	if r.Repo != "" && repo != "" && !strings.EqualFold(r.Repo, repo) {
+	if r.Repo != "" && repo != "" && !sameRepo(r.Repo, repo) {
 		return blockReceipt("the receipt for tree %s is for %s, not %s", short(tipTree), r.Repo, repo)
 	}
 	if r.WorktreeDirty {
@@ -127,20 +129,29 @@ func mergeBaseSHA(repoRoot, tipRev string) string {
 	return strings.TrimSpace(out)
 }
 
-// firstUnaccepted renders one entry for the rejection line. A survivor written
-// as an object is rendered readably; anything else is quoted as it came, so a
-// producer that changes the shape still gets a legible message.
-func firstUnaccepted(entries []json.RawMessage) string {
-	raw := entries[0]
-	var s struct {
-		File     string `json:"file"`
-		Line     int    `json:"line"`
-		Mutation string `json:"mutation"`
+// sameRepo compares two spellings of one repo. The producer names it however
+// its own script does — borld's writes the git dir, `D:/Projects/borld/.git`
+// — and the gate knows it as a directory name, so both are reduced to that
+// name before comparing. "This receipt is for another repo" about the SAME
+// repo is the most misleading rejection the gate can produce.
+func sameRepo(a, b string) bool {
+	return strings.EqualFold(repoName(a), repoName(b))
+}
+
+func repoName(s string) string {
+	s = strings.TrimRight(strings.ReplaceAll(s, `\`, "/"), "/")
+	s = strings.TrimSuffix(s, "/.git")
+	s = strings.TrimSuffix(s, ".git")
+	if i := strings.LastIndex(s, "/"); i >= 0 {
+		s = s[i+1:]
 	}
-	if err := json.Unmarshal(raw, &s); err == nil && s.File != "" {
-		return fmt.Sprintf("%s:%d (%s)", s.File, s.Line, s.Mutation)
-	}
-	return strings.TrimSpace(string(raw))
+	return s
+}
+
+// firstUnaccepted is the one entry the rejection line quotes, exactly as the
+// producer named it.
+func firstUnaccepted(entries []string) string {
+	return strings.TrimSpace(entries[0])
 }
 
 func short(sha string) string {

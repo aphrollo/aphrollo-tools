@@ -962,9 +962,17 @@ commit-message-deny = ["^WIP:"]      # this repo's own extra deny patterns
   where `<tip_tree>` is the LANE TIP's tree (`git rev-parse MERGE_HEAD:`
   — never the merge result, which nobody has mutation-tested). The file is
   written by the consuming repo's own mutation run (borld's
-  `mutation_gate.sh`) and carries `repo`, `branch`, `tip_tree`,
-  `worktree_dirty`, `base_ref`, `base_sha`, `mutants_total`, `caught`,
-  `timeout`, `unviable`, `survivors`, `accepted`, `unaccepted` and `verdict`.
+  `mutation_gate.sh`). The schema, exactly as the producer writes it:
+  `repo` (string — a directory name or a path to the repo/git dir, compared by
+  name), `branch` (string), `tip_tree` (string), `worktree_dirty` (bool),
+  `base_ref` (string), `base_sha` (string), `mutants_total`, `caught`,
+  `timeout`, `unviable`, `accepted` (ints), `survivors` and `unaccepted`
+  (ARRAYS of mutant names — the count is the array's length; the entries are
+  opaque to the gate), `verdict` (string) and `finished_at` (RFC3339). A real
+  receipt is checked in at `internal/tdd/testdata/mutation-receipt.borld.json`
+  and decoded by the suite, because a schema whose only reader is its own
+  writer is untested by construction — this pair disagreed in production
+  (`survivors` declared an int against an array) and refused every merge.
   The merge is
   refused (`receipt-rejected`) when there is no receipt for that tree, when
   `worktree_dirty` is set, when `verdict` is anything but `"pass"` (an
