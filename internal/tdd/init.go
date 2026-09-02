@@ -102,6 +102,7 @@ func PatchSettings(existing []byte, bin string) ([]byte, bool, error) {
 		hooks[me.event] = append(kept, me.group(bin))
 	}
 	root["hooks"] = hooks
+	patchStatusLine(root, bin)
 
 	after, err := marshalSettings(root)
 	if err != nil {
@@ -140,6 +141,7 @@ func StripSettings(existing []byte) ([]byte, bool, error) {
 	} else {
 		root["hooks"] = hooks
 	}
+	stripStatusLine(root)
 
 	after, err := marshalSettings(root)
 	if err != nil {

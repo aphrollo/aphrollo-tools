@@ -21,9 +21,18 @@ var tddSkillBody string
 // a user's own skill of the same name.
 const tddSkillMarker = "Written by `aphrollo gate init`"
 
-// TDDSkill is the managed skill file's exact bytes.
+// TDDSkill is the managed skill file's exact bytes. Line endings are
+// normalized: a Windows checkout with core.autocrlf=true embeds the template
+// with CRLF, and the installed file must be byte-identical whatever the
+// checkout did to the source.
 func TDDSkill() string {
-	return strings.TrimSuffix(tddSkillBody, "\n") + "\n"
+	return normalizeSkillBody(tddSkillBody)
+}
+
+// normalizeSkillBody renders an embedded managed template as LF text with
+// exactly one trailing newline.
+func normalizeSkillBody(body string) string {
+	return strings.TrimSuffix(strings.ReplaceAll(body, "\r\n", "\n"), "\n") + "\n"
 }
 
 // tddSkillPath is <configDir>/skills/tdd/SKILL.md.

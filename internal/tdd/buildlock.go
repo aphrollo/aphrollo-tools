@@ -1,11 +1,11 @@
 package tdd
 
 import (
-	"fmt"
-	"sync"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -28,13 +28,25 @@ func buildLockPath() string {
 // forgetting left 871 stale lock files in the operator's real %TEMP%.
 var lockDirOverride atomic.Pointer[string]
 
-// lockDir is where every aphrollo lock file lives: the machine-wide temp dir
-// in production, an overridden directory under test.
+// lockDir is where the global slot locks live: a machine-wide directory every
+// account on the box can write in production, an overridden directory under
+// test. NOT os.TempDir(), which is per-user — two accounts there each get a
+// private set of slots and the box runs 2N builds under a governor sized for N.
 func lockDir() string {
 	if p := lockDirOverride.Load(); p != nil && *p != "" {
 		return *p
 	}
-	return os.TempDir()
+	return sharedLockDir()
+}
+
+// lockDirOverridden reports whether a test has redirected the lock files. The
+// per-target lock reads it: in production that lock belongs INSIDE the target
+// dir it guards, but a test names target dirs that must never be created (and
+// isolates by pointing one override at a temp dir), so under an override every
+// lock file keeps the flat, hashed layout.
+func lockDirOverridden() bool {
+	p := lockDirOverride.Load()
+	return p != nil && *p != ""
 }
 
 // SetLockDirForTest points every lock file at dir for the duration of a test
@@ -290,6 +302,16 @@ func SetBuildLockPathForTest(path string) (restore func()) {
 // delete under them.
 func TryAcquireFileLock(path string) (release func(), ok bool) {
 	f, err := openLockFile(path)
+	if err != nil {
+		// The per-target lock lives in a .aphrollo directory inside the target
+		// dir, which the first builder of a fresh target creates. World
+		// permissions, because the next builder may be another account.
+		if os.IsNotExist(err) {
+			if mkErr := os.MkdirAll(filepath.Dir(path), 0o777); mkErr == nil {
+				f, err = openLockFile(path)
+			}
+		}
+	}
 	if err != nil {
 		reportLockOpenFailure(path, err)
 		return func() {}, false

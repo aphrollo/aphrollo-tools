@@ -9,12 +9,13 @@ import (
 )
 
 // The gate runs git constantly, and a session puts the queue shim dir FIRST
-// on PATH — so a bare `git` resolves to the shim's git.cmd, whose cmd.exe
-// wrapper rewrites arguments on the way through (a caret is an escape
-// character there). That is not a slow path, it is a wrong answer: `rev-parse
-// MERGE_HEAD^{tree}` arrived as `HEAD{tree}`, mergeTipTree returned "", and
-// every merge was refused for having no lane tip. So the gate resolves the
-// real git itself, and no git argument in this package uses caret syntax.
+// on PATH — so a bare `git` resolves to the shim, which re-enters aphrollo
+// rather than reaching git. The batch shim it used to resolve to also rewrote
+// arguments on the way through (a caret is an escape character in cmd.exe):
+// not a slow path, a wrong answer — `rev-parse MERGE_HEAD^{tree}` arrived as
+// `HEAD{tree}`, mergeTipTree returned "", and every merge was refused for
+// having no lane tip. So the gate resolves the real git itself, and no git
+// argument in this package uses caret syntax.
 
 // realGitEnv lets an operator (and the shim's own tests) name the git binary
 // outright, matching the shim's override.
@@ -81,7 +82,7 @@ func gitNames() []string {
 // holds a SHIM, in which case the whole directory is skipped rather than
 // searched further: a shim dir is where a lookup goes wrong, not a fallback.
 func gitInDir(dir string) string {
-	if dir == "" {
+	if dir == "" || isQueueShimDir(dir) {
 		return ""
 	}
 	for _, name := range gitNames() {
@@ -96,6 +97,20 @@ func gitInDir(dir string) string {
 		return c
 	}
 	return ""
+}
+
+// isQueueShimDir reports whether dir is the aphrollo queue dir, judged by the
+// extensionless POSIX script the installer always writes there. The Windows
+// shim beside it is a COPY of the aphrollo binary named git.exe, which a `git`
+// lookup tries FIRST and which reads as an opaque executable — so the
+// directory, not the candidate, is what has to be recognised.
+func isQueueShimDir(dir string) bool {
+	for _, name := range []string{"git", "cargo"} {
+		if isGitShim(filepath.Join(dir, name)) {
+			return true
+		}
+	}
+	return false
 }
 
 // isGitShim reports whether a candidate is a script that re-enters aphrollo.

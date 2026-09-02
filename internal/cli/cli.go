@@ -228,6 +228,11 @@ Subcommands:
                     spawned by posttooluse, not typed by hand
   commitmsg         commit-msg hook: reject a message carrying a deny pattern
                     (opt-in per workspace: undercover = true)
+  doctor            Report one line per install check (hooks, shims, locks,
+                    managed skills/agents, CI clippy list); exit 1 on any FAIL
+  statusline        Render the one-line gate badge from a statusline payload
+                    on stdin (armed/off, plus red/deferred/queued when it
+                    matters); wired into settings.json by init
   stats             Tally gate.log by stage and outcome (--since 7d)
   gc                Reclaim stale build dirs: idle incremental caches, dead gate dirs,
                     orphan worktree builds (--repo, --older-than 3d, --apply)
@@ -357,6 +362,17 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if args[0] == "commitmsg" {
 		// The commit-msg git hook: git hands it the message file path.
 		return runGateCommitMsg(args[1:], stderr)
+	}
+	if args[0] == "doctor" {
+		// Read-only install report: one line per check, exit 1 on any FAIL.
+		return runGateDoctor(args[1:], stdout, stderr)
+	}
+	if args[0] == "statusline" {
+		// The statusline: one badge line on stdout, per prompt render. It
+		// never blocks and never errors — there is nowhere to report one.
+		raw, _ := io.ReadAll(stdin)
+		fmt.Fprintln(stdout, tdd.StatusLine(raw))
+		return 0
 	}
 	if args[0] == "stats" {
 		// Read-only report over gate.log: pipeline health as a number.
@@ -578,6 +594,17 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
+	// The hook scripts this binary replaced go with the settings that pointed
+	// at them: a leftover entry double-fired every event, and a retired
+	// statusline script reports on a gate that is no longer installed.
+	if removed, perr := tdd.PruneRetiredHooks(dir); perr != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", perr)
+	} else {
+		for _, name := range removed {
+			fmt.Fprintf(stdout, "aphrollo gate: removed the retired hook %s\n", filepath.Join(dir, "hooks", name))
+		}
+	}
+
 	path := filepath.Join(dir, "settings.json")
 	switch {
 	case !changed:
@@ -593,6 +620,7 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 	// that enforces it, as a user-level skill, so the two cannot drift and
 	// no plugin install is a prerequisite.
 	skill := filepath.Join(dir, "skills", "tdd", "SKILL.md")
+	sddSkill := filepath.Join(dir, "skills", "sdd", "SKILL.md")
 	if *uninstall {
 		removed, err := tdd.RemoveTDDSkill(dir)
 		if err != nil {
@@ -602,6 +630,14 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		if removed {
 			fmt.Fprintf(stdout, "aphrollo gate: removed the tdd skill from %s\n", skill)
 		}
+		sremoved, err := tdd.RemoveSDDSkill(dir)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		if sremoved {
+			fmt.Fprintf(stdout, "aphrollo gate: removed the sdd skill from %s\n", sddSkill)
+		}
 	} else {
 		schanged, err := tdd.WriteTDDSkill(dir)
 		if err != nil {
@@ -610,6 +646,39 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		}
 		if schanged {
 			fmt.Fprintf(stdout, "aphrollo gate: wrote the tdd skill in %s\n", skill)
+		}
+		// The feature-level procedure: how a spec becomes lanes, how a lane
+		// becomes a commit, and where the transient tree goes at the end.
+		sdchanged, err := tdd.WriteSDDSkill(dir)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		if sdchanged {
+			fmt.Fprintf(stdout, "aphrollo gate: wrote the sdd skill in %s\n", sddSkill)
+		}
+	}
+
+	// The three agents the gate's conduct assumes exist. Managed like the
+	// skills: refreshed when the binary's copy moves on, and removed on
+	// uninstall only when the file still carries the marker this tool wrote.
+	if *uninstall {
+		removed, err := tdd.RemoveAgents(dir)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		for _, name := range removed {
+			fmt.Fprintf(stdout, "aphrollo gate: removed the %s agent from %s\n", name, filepath.Join(dir, "agents", name+".md"))
+		}
+	} else {
+		written, err := tdd.WriteAgents(dir)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		for _, name := range written {
+			fmt.Fprintf(stdout, "aphrollo gate: wrote the %s agent in %s\n", name, filepath.Join(dir, "agents", name+".md"))
 		}
 	}
 
@@ -634,6 +703,22 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "aphrollo gate: installed git gate in %s (core.hooksPath)\n", gdir)
 	}
 
+	// The batch shims are RETIRED under both modes: cmd.exe strips `^` from
+	// an argument (which is how `git rev-parse MERGE_HEAD^{tree}` became
+	// `HEAD{tree}`) and re-splits quoted ones, so leaving one in place is
+	// worse than having no shim at all.
+	shimDir := *cargoShimDir
+	if shimDir == "" {
+		shimDir = filepath.Join(filepath.Dir(binName), "cargo-queue")
+	}
+	if removed, rerr := tdd.RemoveCmdShims(shimDir); rerr != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", rerr)
+	} else {
+		for _, name := range removed {
+			fmt.Fprintf(stdout, "aphrollo gate: removed the retired batch shim %s\n", filepath.Join(shimDir, name))
+		}
+	}
+
 	// cargo-queue shim (task A7): a machine-wide dir a session can prepend
 	// to its OWN PATH so a DIRECT `cargo` invocation also queues behind the
 	// same machine-wide build lock the hooks/gates use, instead of silently
@@ -642,10 +727,7 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 	// prepended to PATH, and leaving a shim in place is harmless (unlike a
 	// git hook, nothing fires it automatically).
 	if !*uninstall {
-		cdir := *cargoShimDir
-		if cdir == "" {
-			cdir = filepath.Join(filepath.Dir(binName), "cargo-queue")
-		}
+		cdir := shimDir
 		cchanged, cerr := tdd.InstallCargoShim(cdir, binName)
 		switch {
 		case cerr != nil:
@@ -668,6 +750,21 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "aphrollo gate: installed git-queue shim in %s\n", cdir)
 		default:
 			fmt.Fprintf(stdout, "aphrollo gate: git-queue shim already up to date (%s)\n", cdir)
+		}
+
+		// The Windows half of both shims: executable COPIES of this binary,
+		// which receive the caller's argv verbatim and dispatch on the name
+		// they were invoked under. A copy that is currently running cannot be
+		// replaced; that is reported and the old copy keeps working.
+		exes, eerr := tdd.InstallShimExes(cdir, binName)
+		if eerr != nil {
+			warnShimSkipped(stderr, cdir, eerr)
+		}
+		for _, name := range exes.Installed {
+			fmt.Fprintf(stdout, "aphrollo gate: installed the %s shim in %s\n", name, cdir)
+		}
+		for _, name := range exes.Locked {
+			fmt.Fprintf(stderr, "aphrollo gate: %s is in use and was left at its old version (%s)\n", name, cdir)
 		}
 
 		// The operating instructions belong in the one file a session always

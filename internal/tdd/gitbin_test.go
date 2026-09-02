@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -45,6 +46,45 @@ func TestGit_RunsTheRealGitNotTheQueueShim(t *testing.T) {
 	}
 	if len(strings.TrimSpace(out)) != 40 {
 		t.Fatalf("rev-parse HEAD = %q, want a sha", out)
+	}
+}
+
+// TestGitInDir_SkipsAQueueDirWhoseGitIsAnExe is the exe-shim half of the same
+// rule. The queue dir's Windows shim is now a COPY of the aphrollo binary
+// named git.exe, and a `git` lookup tries git.exe FIRST — so a resolver that
+// only reads scripts hands back the shim and every gate git call re-enters
+// aphrollo. The extensionless sh script beside it is the tell that names the
+// whole directory a queue dir.
+func TestGitInDir_SkipsAQueueDirWhoseGitIsAnExe(t *testing.T) {
+	dir := t.TempDir()
+	// An .exe that reads as an opaque binary: nothing in its bytes says
+	// aphrollo, exactly like the real 20 MB copy at the front of a lookup.
+	if err := os.WriteFile(filepath.Join(dir, "git.exe"), []byte{0x4d, 0x5a, 0x90, 0x00}, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte("#!/bin/sh\nexec \"/bin/aphrollo\" gate git \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitInDir(dir); got != "" {
+		t.Fatalf("gitInDir(%s) = %q, want \"\" — that is the queue shim, not git", dir, got)
+	}
+}
+
+// TestGitInDir_FindsARealGitBesideNoShim is the other half: an ordinary bin
+// dir must still resolve, or the skip above would blind the resolver to every
+// git on PATH.
+func TestGitInDir_FindsARealGitBesideNoShim(t *testing.T) {
+	dir := t.TempDir()
+	name := "git"
+	if runtime.GOOS == "windows" {
+		name = "git.exe"
+	}
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte{0x4d, 0x5a, 0x90, 0x00}, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitInDir(dir); got != path {
+		t.Fatalf("gitInDir(%s) = %q, want %q", dir, got, path)
 	}
 }
 
