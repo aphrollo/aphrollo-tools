@@ -196,7 +196,14 @@ func mutationReceiptStage(repoRoot string) *GateResult {
 	if !cargoAphrolloFlag(ws, "mutation-receipt") {
 		return nil
 	}
-	return checkMutationReceipt(filepath.Base(repoRoot), mergeTipTree(repoRoot), mergeBaseSHA(repoRoot))
+	tip, ok := mergeTipOf(repoRoot)
+	if !ok {
+		// The gate failed on its own inputs, so it says which input: a clean
+		// automerge has no MERGE_HEAD yet, and only GIT_REFLOG_ACTION names
+		// the branch coming in.
+		return blockReceipt("no lane tip to look a receipt up by (neither .git/MERGE_HEAD nor %s names a merged branch)", reflogActionEnv)
+	}
+	return checkMutationReceipt(filepath.Base(repoRoot), tip.Tree, mergeBaseSHA(repoRoot, tip.Rev))
 }
 
 // failFirstStage runs the fail-first check for ONE project root's staged
