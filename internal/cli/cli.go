@@ -423,6 +423,20 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		var res tdd.GateResult
 		if args[0] == "premergecommit" {
 			res = tdd.Mechanical(root, tdd.RunSuite(precommitTimeout))
+			// A rejection HERE is the pre-merge-commit hook blocking an
+			// automatic, conflict-free merge — the one case where git still
+			// leaves MERGE_HEAD and the merged index in the checkout ("Not
+			// committing merge; use 'git commit' to complete the merge."),
+			// refusing every OTHER session sharing it until a human runs
+			// `git merge --abort`. The marker lets the git-queue shim
+			// recognise its own rejection and clean that up automatically.
+			// Concluding a CONFLICTED merge fires pre-commit instead (routed
+			// to Mechanical internally by Precommit, task A10) and must
+			// never reach here — scoping the write to this branch is what
+			// keeps that path untouched.
+			if res.Blocked {
+				tdd.WriteMergeRejectedMarker(root, res.Message)
+			}
 		} else {
 			res = tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
 		}

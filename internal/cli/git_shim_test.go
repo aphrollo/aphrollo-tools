@@ -530,3 +530,30 @@ func TestResolveRealGit_HonorsOverride(t *testing.T) {
 		t.Fatalf("resolveRealGit() = %q, want the override", got)
 	}
 }
+
+// TestResolveRealGit_FindsGitOnPATH pins the actual defect: resolveRealGit
+// used to name only two hardcoded Windows install paths, so on any other
+// OS (Linux CI) it failed outright even with a perfectly good git sitting
+// on PATH. PATH resolution must be tried BEFORE the Windows-only fallback,
+// on every OS, matching internal/tdd's own gitBinary.
+func TestResolveRealGit_FindsGitOnPATH(t *testing.T) {
+	t.Setenv("APHROLLO_REAL_GIT", "")
+	dir := t.TempDir()
+	name := "git"
+	if runtime.GOOS == "windows" {
+		name = "git.exe"
+	}
+	stub := filepath.Join(dir, name)
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+
+	got, err := resolveRealGit()
+	if err != nil {
+		t.Fatalf("resolveRealGit(): %v", err)
+	}
+	if got != stub {
+		t.Fatalf("resolveRealGit() = %q, want the PATH entry %q", got, stub)
+	}
+}

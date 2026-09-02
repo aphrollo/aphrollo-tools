@@ -43,14 +43,30 @@ func gitBinary() string {
 		return gitBinaryCache.path
 	}
 	resolved := "git"
-	for _, dir := range filepath.SplitList(env) {
-		if c := gitInDir(dir); c != "" {
-			resolved = c
-			break
-		}
+	if c, ok := GitBinaryOnPath(); ok {
+		resolved = c
 	}
 	gitBinaryCache.path, gitBinaryCache.forPATH = resolved, env
 	return resolved
+}
+
+// GitBinaryOnPath walks PATH for the first real git it finds, skipping any
+// directory whose git is a SHIM that re-enters aphrollo — the same walk
+// gitBinary uses, exported so another package's own real-git resolver (the
+// git-queue shim's resolveRealGit, internal/cli) can share this exact
+// shim-skipping logic instead of re-deriving it, cross-platform, with no
+// Windows-only assumption baked in. Unlike gitBinary this does NOT consult
+// APHROLLO_REAL_GIT and does NOT fall back to a bare "git" guess: ok is
+// false when nothing on PATH resolves, so a caller with its OWN fallback
+// (an env override checked first, or a last-resort install-path probe) can
+// tell "found" apart from "guessed".
+func GitBinaryOnPath() (path string, ok bool) {
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if c := gitInDir(dir); c != "" {
+			return c, true
+		}
+	}
+	return "", false
 }
 
 // gitNames are the file names a `git` lookup would try in one directory, in

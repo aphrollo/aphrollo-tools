@@ -952,6 +952,11 @@ The gate's own git resolution skips the whole queue dir rather than only shim
 scripts — a `git` lookup tries `git.exe` first, and the exe shim reads as an
 opaque binary.
 
+A merge the gate rejects leaves `MERGE_HEAD` behind, refusing every other session
+sharing the checkout until someone runs `git merge --abort` by hand. The shim recognizes
+its own rejection (a fresh marker, no real conflict) and runs that abort for you, printing
+one `gate: merge rejected` line — a real conflict or an unrelated failure is left untouched.
+
 ### Cargo workspace metadata (`[workspace.metadata.aphrollo]`)
 
 Two opt-in lists, declared in the workspace's own `Cargo.toml` so they version
@@ -1553,6 +1558,12 @@ the plain badge, because a statusline runs on every prompt render and has
 nowhere to report an error. A `statusLine` command naming
 `caveman-statusline.sh` or `tdd-statusline.sh` is replaced; any other command
 is yours and is left alone.
+
+`userpromptsubmit` also appends a small reply-style block (`internal/tdd/style.md`,
+~80 tokens) to additionalContext on every prompt, replacing a third-party
+plugin's per-prompt style injection, and `sessionstart` includes it once so it
+survives compaction; `/tdd style terse|plain` toggles it (default terse; env
+`APHROLLO_REPLY_STYLE=plain` sets the machine default).
 
 ### The in-repo law spec (a README inside `.ratchet`)
 
