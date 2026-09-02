@@ -148,3 +148,28 @@ max = 1
 		t.Fatalf("findings = %+v — a counted law is keyed by its file", res.Findings)
 	}
 }
+
+// A text multiset keys on the TEXT, so EDITING a baselined line is not a
+// rename: the old spelling is paid down and the new one is an unknown hit at
+// a ceiling of zero. Without this the same offence could be walked past the
+// guard one character at a time — reword the line, and a per-path key would
+// have seen the file's count stay at one.
+func TestCheckReportsABaselinedHitWhoseTextChanged(t *testing.T) {
+	root := repoWithNanGuard(t)
+	write(t, filepath.Join(root, "crates", "a", "src", "lib.rs"), "let a = x.clamp(0.0, 2.0);\n")
+
+	res, err := Check(Options{Root: root, Tighten: false})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("findings = %+v, want exactly one — the new spelling", res.Findings)
+	}
+	f := res.Findings[0]
+	if !strings.Contains(f.Key, "clamp(0.0, 2.0)") {
+		t.Errorf("the finding must name the NEW text, got %q", f.Key)
+	}
+	if f.Baseline != 0 || f.Measured != 1 {
+		t.Errorf("baseline %d, measured %d — an unrecorded text starts at zero", f.Baseline, f.Measured)
+	}
+}
