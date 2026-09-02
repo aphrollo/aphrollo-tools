@@ -613,6 +613,15 @@ instead of a full test build:
 | 5 | fail-first RED proof | worktree build | precommit only, and only when the staged tests ADD a declaration |
 | 6 | touched crates' suites | full build + link + run | the heaviest, and therefore last |
 
+When the workspace's `.config/nextest.toml` declares a `[profile.gate]` table,
+every GATE nextest run (the touched crates' suite, the always-run guards, and
+the fail-first proof) passes `--profile gate`, while `posttooluse` keeps the
+default: the gate runs while other sessions build, and a CPU-bound test that
+takes 40-50 s alone walks past nextest's 60 s default under that load — one
+profile fixes that in one place, where the alternative was a growing habit of
+per-test exemptions that weaken the suite permanently. An edit-time run keeps
+the default deliberately, so a slow test is still reported rather than hidden.
+
 Stages 2, 4 and 6 are all short-circuited by the green cache (same content +
 argv key), so a guard crate proven green at commit is not re-run at merge.
 gate.log names the stage that rejected (`fmt-blocked`, `always-run-blocked`,

@@ -334,7 +334,7 @@ func (p cargoStagePlan) suiteRunner() Runner {
 	for _, pkg := range p.touched {
 		args = append(args, "-p", pkg)
 	}
-	return Runner{Cmd: "cargo", Args: args, Dir: p.ws}
+	return withGateProfile(Runner{Cmd: "cargo", Args: args, Dir: p.ws}, p.ws)
 }
 
 // guardRunner is the always-run packages' own invocation.
@@ -343,7 +343,7 @@ func (p cargoStagePlan) guardRunner() Runner {
 	for _, pkg := range p.alwaysRun {
 		args = append(args, "-p", pkg)
 	}
-	return Runner{Cmd: "cargo", Args: args, Dir: p.ws}
+	return withGateProfile(Runner{Cmd: "cargo", Args: args, Dir: p.ws}, p.ws)
 }
 
 // planCargoStages resolves package ownership for a cargo root. Ownership is
@@ -917,6 +917,15 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	// suite (esp. cargo nextest over a large workspace) is 10-20 minutes,
 	// blows this stage's own timeout, and fails open having proven nothing.
 	runner = narrowFailFirstTests(runner, execRoot, relTests)
+	// The fail-first run is a GATE run: it compiles and runs the same tests
+	// under the same contention, so it takes the same profile.
+	if runner.Cmd == "cargo" {
+		profileWs := runner.Dir
+		if profileWs == "" {
+			profileWs = execRoot
+		}
+		runner = withGateProfile(runner, profileWs)
+	}
 	// The worktree lives OUTSIDE the repo, so cargo's default would put a
 	// brand-new target/ inside it and cold-build the world on every commit.
 	// Name the repo's own resolved target explicitly.
