@@ -88,8 +88,16 @@ func docsCheckEnabled(repoRoot string) bool {
 	if _, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(docsCheckMarker))); err == nil {
 		return true
 	}
-	_, err := os.Stat(filepath.Join(repoRoot, "go.mod"))
-	return err == nil
+	if _, err := os.Stat(filepath.Join(repoRoot, "go.mod")); err == nil {
+		return true
+	}
+	// A cargo workspace says it in the manifest, beside every other gate
+	// opt-in, rather than growing a second place to look.
+	ws := cargoWorkspaceRoot(repoRoot)
+	if ws == "" {
+		ws = repoRoot
+	}
+	return cargoAphrolloFlag(ws, "docs-check")
 }
 
 // docsCheckStage judges the markdown this commit STAGES: every repo-relative

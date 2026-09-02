@@ -148,3 +148,18 @@ func TestPrecommitSkipsDocsCheckForARepoThatDidNotOptIn(t *testing.T) {
 		t.Fatalf(".aphrollo/docs-check must turn the stage on: %+v", res)
 	}
 }
+
+// A cargo workspace says it in the manifest, beside every other gate opt-in,
+// rather than growing a second place to look.
+func TestPrecommitReadsDocsCheckFromTheWorkspaceManifest(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "Cargo.toml", "[workspace]\nmembers = []\n\n[workspace.metadata.aphrollo]\ndocs-check = true\n")
+	write(t, root, "NOTES.md", "see [the plan](docs/nowhere.md)\n")
+	gitDo(t, root, "add", ".")
+
+	res := Precommit(root, func(Runner, string) SuiteResult { return SuiteResult{Passed: true} })
+	if !res.Blocked || !strings.Contains(res.Message, "docs/nowhere.md") {
+		t.Fatalf("docs-check = true must turn the stage on: %+v", res)
+	}
+}
