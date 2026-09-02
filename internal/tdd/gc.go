@@ -64,6 +64,7 @@ const (
 	GCKindOrphanWorktree
 	GCKindTempLitter
 	GCKindMutants
+	GCKindMutantsTemp
 	GCKindDepsMember
 	GCKindDepsThirdParty
 	GCKindStrayTarget
@@ -129,6 +130,7 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 	}
 	if scope.Mutants {
 		out = append(out, gcMutantsTrees(ResolveCargoTargetDir(repo), DefaultMutantsAge, time.Now())...)
+		out = append(out, gcMutantsTempCopies(MutantsTempDirs(), time.Now())...)
 	}
 	if scope.DepsArtifacts {
 		out = append(out, gcDepsArtifacts(ResolveCargoTargetDir(repo), workspaceMemberCrates(repo),
@@ -502,6 +504,7 @@ var gcTierNames = map[GCKind]string{
 	GCKindDepsMember:     "workspace artifacts",
 	GCKindDepsThirdParty: "third-party artifacts",
 	GCKindMutants:        "mutants trees",
+	GCKindMutantsTemp:    "mutants temp copies",
 	GCKindStrayTarget:    "stray target dirs",
 }
 
@@ -512,7 +515,7 @@ func writeTierTotals(b *strings.Builder, cands []GCCandidate) {
 			totals[c.Kind] += c.Size
 		}
 	}
-	for _, k := range []GCKind{GCKindIncremental, GCKindDepsMember, GCKindDepsThirdParty, GCKindMutants, GCKindStrayTarget} {
+	for _, k := range []GCKind{GCKindIncremental, GCKindDepsMember, GCKindDepsThirdParty, GCKindMutants, GCKindMutantsTemp, GCKindStrayTarget} {
 		if totals[k] > 0 {
 			fmt.Fprintf(b, "  %-22s %9s\n", gcTierNames[k], formatBytes(totals[k]))
 		}

@@ -22,6 +22,11 @@ import (
 // exits with, propagated unchanged) or a usage error.
 const exCargoTempFail = 75
 
+// exCargoUsage is what the shim returns when it REFUSES an invocation
+// outright: sysexits.h's EX_USAGE, distinct from a cargo failure and from a
+// give-up-waiting outcome.
+const exCargoUsage = 64
+
 // defaultCargoWaitBudget bounds how long `aphrollo tdd cargo` waits for the
 // machine-wide build lock before giving up. 20 minutes: a direct cargo
 // invocation is a deliberate, interactive action (unlike a hook's fast
@@ -84,6 +89,13 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 		return execCargoHeld(cfg.realCargo, args, stdin, stdout, stderr, 0, true)
 	}
 
+	if refuseBareMutants(args, stderr) {
+		// Not a cargo failure and not a usage error of cargo's: the
+		// invocation is the wrong ENTRY POINT, and the line above names the
+		// right one.
+		return exCargoUsage
+	}
+
 	if isCargoReadOnlyVerb(args) {
 		// Reads the manifest/lockfile and compiles nothing, so it is not
 		// what the slots govern -- and it is exactly what a tool-detection
@@ -93,6 +105,13 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 	}
 
 	target := shimTargetDir()
+	if queueBypassAllowed(target) {
+		// The mutation job owns this target dir outright, so there is nothing
+		// for it to contend with. It is told the lock is NOT held, because it
+		// holds none: a child that queues for some other directory it happens
+		// to build in must still queue for that one.
+		return execCargo(cfg.realCargo, args, stdin, stdout, stderr, 0)
+	}
 	acquire := acquireFor(args)
 	slot, releaseTarget, releaseAll, ok := acquire(target, shimOwnerCommand(args), shimCwd())
 	if ok {

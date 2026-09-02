@@ -45,6 +45,7 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 	if !*apply {
 		if !*quiet {
 			fmt.Fprint(stdout, tdd.RenderGC(cands, false, 0))
+			writeMutantsInUse(stdout)
 		}
 		return 0
 	}
@@ -55,6 +56,7 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	fmt.Fprint(stdout, tdd.RenderGC(cands, true, freed))
+	writeMutantsInUse(stdout)
 	if skipped > 0 {
 		fmt.Fprintf(stdout, "%d candidate(s) inside the target dir left for next time — a build holds every slot for this target dir\n", skipped)
 	}
@@ -62,6 +64,16 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo gate gc: refused %s\n", r)
 	}
 	return 0
+}
+
+// writeMutantsInUse accounts for the cargo-mutants tree copies the sweep
+// deliberately left: a copy a run still owns is not garbage, and a report
+// that silently omitted it would leave an operator wondering where the
+// gigabytes went.
+func writeMutantsInUse(stdout io.Writer) {
+	for _, line := range tdd.MutantsCopiesInUse(tdd.MutantsTempDirs()) {
+		fmt.Fprintln(stdout, line)
+	}
 }
 
 // gcScopeFromFlags builds the sweep's scope: everything, with the lock-litter

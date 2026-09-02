@@ -182,14 +182,31 @@ func RenderGateStats(s Stats) string {
 	}
 	fmt.Fprintf(&b, "\n%d entries; gate seconds: median %s, max %s\n",
 		s.Lines, formatFloat(s.Median), formatFloat(s.Max))
-	if s.LockWaitMax > 0 {
-		fmt.Fprintf(&b, "longest build-slot wait: %ss\n", formatFloat(s.LockWaitMax))
-	}
+	b.WriteString(contentionLine(s))
 	writeCounts(&b, "timeouts by crate", s.Timeouts)
 	writeCounts(&b, "deferred by crate", s.Deferred)
 	writeCounts(&b, "denies / overrides", s.Denies)
 	b.WriteString(escapeDebtLine())
 	return b.String()
+}
+
+// contentionLine is the one line that says whether the box was busy: the
+// longest a run sat waiting for a build slot, how many runs outlived their
+// hook budget, and how many never started at all. It prints its zeros — a
+// line that appears only under contention cannot be used to say a day was
+// quiet, and finding these numbers by hand is the tally this exists to
+// replace.
+func contentionLine(s Stats) string {
+	deferred := 0
+	for _, n := range s.Deferred {
+		deferred += n
+	}
+	queued := 0
+	for _, byOutcome := range s.ByStage {
+		queued += byOutcome["queued-skipped"]
+	}
+	return fmt.Sprintf("contention: longest build-slot wait %ss, %d deferred, %d queued-skipped\n",
+		formatFloat(s.LockWaitMax), deferred, queued)
 }
 
 // writeCounts renders one tally line, biggest first, under its own label —
