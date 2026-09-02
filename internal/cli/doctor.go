@@ -74,7 +74,10 @@ func parseRegPath(out string) []string {
 			continue
 		}
 		value := strings.TrimSpace(strings.SplitN(strings.TrimSpace(line), fields[1], 2)[1])
-		return filepath.SplitList(expandWindowsVars(value))
+		// Semicolons, not filepath.SplitList: the registry value is a Windows
+		// PATH whatever OS parses it, and on Linux the list separator is `:`,
+		// which would cut every entry at its drive letter.
+		return strings.Split(expandWindowsVars(value), ";")
 	}
 	return nil
 }

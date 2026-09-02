@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"path/filepath"
+	"path"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -25,8 +25,10 @@ var shimVerbs = map[string]string{
 // arguments are the command, unchanged. The caller's slice is never written
 // through — os.Args has spare capacity and appending in place would rewrite it.
 func DispatchArgs(argv0 string, args []string) []string {
-	name := filepath.Base(argv0)
-	name = strings.TrimSuffix(name, filepath.Ext(name))
+	// Both separators, always: the name is a fact about the Windows install
+	// whichever OS reads it, and a shell can hand back either spelling.
+	name := path.Base(strings.ReplaceAll(argv0, `\`, "/"))
+	name = strings.TrimSuffix(name, path.Ext(name))
 	verb, ok := shimVerbs[strings.ToLower(name)]
 	if !ok {
 		return args
