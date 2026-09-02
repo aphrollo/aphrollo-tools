@@ -33,9 +33,11 @@ func spawnPhase(j DeferredJob) (DeferredJob, bool) {
 	cmd := exec.Command(self, CmdName, "runphase", "--job", deferredJobPath(saved.Project))
 	cmd.Dir = saved.Dir
 	cmd.Env = append(os.Environ(), "CI=1", "NO_COLOR=1")
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
+	closeStdio := silentStdio(cmd)
 	cmd.SysProcAttr = detachedAttrs()
-	if err := cmd.Start(); err != nil {
+	err = cmd.Start()
+	closeStdio()
+	if err != nil {
 		return saved, false
 	}
 	saved.PID = cmd.Process.Pid

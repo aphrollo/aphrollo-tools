@@ -186,12 +186,14 @@ func spawnBackgroundGC(cwd string) {
 	cmd := exec.Command(exe, CmdName, "gc", "--apply", "--quiet", "--repo", cwd)
 	cmd.Dir = cwd
 	cmd.Env = cleanGitEnv()
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
+	closeStdio := silentStdio(cmd)
 	// Detached: the stamp fires before the work, so a sweep killed with the
 	// hook's process group would leave a half-deleted tree and no sweep due
 	// for another day.
 	cmd.SysProcAttr = detachedAttrs()
-	if err := cmd.Start(); err != nil {
+	err = cmd.Start()
+	closeStdio()
+	if err != nil {
 		return
 	}
 	_ = cmd.Process.Release()
