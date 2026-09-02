@@ -148,3 +148,31 @@ func readFile(t *testing.T, path string) string {
 	}
 	return string(data)
 }
+
+func TestRatchetTestRunsEveryLawAgainstItsFixtures(t *testing.T) {
+	root := lawRepo(t)
+	fixtures := filepath.Join(root, ".ratchet", "fixtures", "nan-guard")
+	writeFile(t, filepath.Join(fixtures, "hit", "bare.rs"), "let b = x.clamp(0.0, 1.0);\n")
+	writeFile(t, filepath.Join(fixtures, "expected.txt"), "bare.rs:1\n")
+	writeFile(t, filepath.Join(fixtures, "clean", "guarded.rs"), "let a = numeric::clamp_or(x, 0.0, 1.0, 0.0);\n")
+
+	var out, errb bytes.Buffer
+	code := Run([]string{"ratchet", "test", "--repo", root}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0\n%s%s", code, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), "nan-guard") {
+		t.Errorf("output must name each law it proved: %q", out.String())
+	}
+}
+
+func TestRatchetTestFailsALawWithNoFixtures(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := Run([]string{"ratchet", "test", "--repo", lawRepo(t)}, strings.NewReader(""), &out, &errb)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1", code)
+	}
+	if !strings.Contains(out.String()+errb.String(), "catches nothing") {
+		t.Errorf("output = %q%q", out.String(), errb.String())
+	}
+}

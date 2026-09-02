@@ -17,6 +17,7 @@ const ratchetUsage = `usage: aphrollo ratchet <subcommand>
 Subcommands:
   check    Judge the tree against .ratchet/laws/*.toml (--repo, --only, --proposed
            file=contentfile, --format text|json, --no-tighten, --no-cache)
+  test     Run every law against its .ratchet/fixtures/<law>/{hit,clean} files
 
 A law is DATA: .ratchet/laws/<name>.toml names a scope, a matcher and a
 severity. check compares what it measures to the law's checked-in baseline —
@@ -37,6 +38,8 @@ func runRatchet(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "check":
 		return runRatchetCheck(args[1:], stdout, stderr)
+	case "test":
+		return runRatchetTest(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "aphrollo ratchet: unknown subcommand %q\n\n%s", args[0], ratchetUsage)
 		return 2
@@ -137,4 +140,43 @@ func ratchetSummary(res ratchet.Result) string {
 		summary += fmt.Sprintf(" — tightened %s", strings.Join(res.Tightened, ", "))
 	}
 	return summary
+}
+
+// runRatchetTest proves the laws themselves: every law must catch its `hit`
+// fixtures at exactly the listed lines and stay silent on its `clean` ones.
+func runRatchetTest(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	repo := fs.String("repo", ".", "repository whose laws to prove")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	root := *repo
+	if r := tdd.RepoRoot(root); r != "" {
+		root = r
+	}
+	if !ratchet.HasLaws(root) {
+		fmt.Fprintf(stdout, "ratchet: no laws in %s (%s)\n", root, ratchet.LawsDir)
+		return 0
+	}
+	results, err := ratchet.RunFixtures(root)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo ratchet: %v\n", err)
+		return 1
+	}
+	failed := 0
+	for _, r := range results {
+		if len(r.Failures) == 0 {
+			fmt.Fprintf(stdout, "ratchet: %s ok (%d hit, %d clean)\n", r.Law, r.HitFiles, r.CleanFiles)
+			continue
+		}
+		failed++
+		for _, f := range r.Failures {
+			fmt.Fprintf(stdout, "ratchet: %s FAILED — %s\n", r.Law, f)
+		}
+	}
+	if failed > 0 {
+		return 1
+	}
+	return 0
 }
