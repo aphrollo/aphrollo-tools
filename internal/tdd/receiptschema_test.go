@@ -42,8 +42,11 @@ func TestMutationReceipt_DecodesRealProducerOutput(t *testing.T) {
 }
 
 // The whole file, judged: a real passing receipt clears the merge it was
-// written for. Its base_sha is judged only against a base the gate can name,
-// so this asks the same question the merge gate asks.
+// written for, when it runs in the SAME checkout the receipt names (this
+// test's own repo-identity question is TestMutationReceipt_
+// MatchesARepoNamedByItsGitDir below; here `repo` is just r.Repo itself, so
+// this asks the same verdict/base_sha question the merge gate asks without
+// re-testing the identity comparison).
 func TestMutationReceipt_AcceptsRealProducerOutput(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var r MutationReceipt
@@ -52,22 +55,26 @@ func TestMutationReceipt_AcceptsRealProducerOutput(t *testing.T) {
 	}
 	writeReceipt(t, r)
 
-	if got := checkMutationReceipt("borld", r.TipTree, r.BaseSHA); got != nil {
+	if got := checkMutationReceipt(r.Repo, r.TipTree, r.BaseSHA); got != nil {
 		t.Fatalf("a real passing receipt must merge: %s", got.Message)
 	}
 }
 
-// The producer names the repo by its git dir. Refusing that reads as "this
-// receipt is for another repo", which is the most misleading rejection the
-// gate can produce — it is the SAME repo.
+// The producer names the repo by its git COMMON dir (`D:/Projects/borld/.git`);
+// the gate names the checkout doing the merge by the same thing (commonGitDir,
+// resolved from a real repoRoot). The two spellings that must still converge
+// are "already a .git dir" (the producer's) and "a bare repo root" (what a
+// bug-report reproduction or an older caller might pass) — refusing that pair
+// as "this receipt is for another repo" would be the most misleading
+// rejection the gate can produce, since it is the SAME repo.
 func TestMutationReceipt_MatchesARepoNamedByItsGitDir(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	r := passingReceipt()
 	r.Repo = "D:/Projects/borld/.git"
 	writeReceipt(t, r)
 
-	if got := checkMutationReceipt("borld", laneTip, ""); got != nil {
-		t.Fatalf("the producer's own repo spelling must be accepted: %s", got.Message)
+	if got := checkMutationReceipt("D:/Projects/borld", laneTip, ""); got != nil {
+		t.Fatalf("a bare repo root must match the producer's own git-dir spelling: %s", got.Message)
 	}
 }
 
