@@ -228,6 +228,9 @@ Subcommands:
                     spawned by posttooluse, not typed by hand
   commitmsg         commit-msg hook: reject a message carrying a deny pattern
                     (opt-in per workspace: undercover = true)
+  statusline        Render the one-line gate badge from a statusline payload
+                    on stdin (armed/off, plus red/deferred/queued when it
+                    matters); wired into settings.json by init
   stats             Tally gate.log by stage and outcome (--since 7d)
   gc                Reclaim stale build dirs: idle incremental caches, dead gate dirs,
                     orphan worktree builds (--repo, --older-than 3d, --apply)
@@ -357,6 +360,13 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if args[0] == "commitmsg" {
 		// The commit-msg git hook: git hands it the message file path.
 		return runGateCommitMsg(args[1:], stderr)
+	}
+	if args[0] == "statusline" {
+		// The statusline: one badge line on stdout, per prompt render. It
+		// never blocks and never errors — there is nowhere to report one.
+		raw, _ := io.ReadAll(stdin)
+		fmt.Fprintln(stdout, tdd.StatusLine(raw))
+		return 0
 	}
 	if args[0] == "stats" {
 		// Read-only report over gate.log: pipeline health as a number.
@@ -564,6 +574,17 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
+	// The hook scripts this binary replaced go with the settings that pointed
+	// at them: a leftover entry double-fired every event, and a retired
+	// statusline script reports on a gate that is no longer installed.
+	if removed, perr := tdd.PruneRetiredHooks(dir); perr != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", perr)
+	} else {
+		for _, name := range removed {
+			fmt.Fprintf(stdout, "aphrollo gate: removed the retired hook %s\n", filepath.Join(dir, "hooks", name))
+		}
+	}
+
 	path := filepath.Join(dir, "settings.json")
 	switch {
 	case !changed:
