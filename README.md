@@ -587,9 +587,10 @@ live where being wrong only costs a re-run):
 | Subcommand | Wiring | What it does |
 |---|---|---|
 | `gate pretooluse` | Claude PreToolUse hook (stdin) | Blocks (exit 2) a **test-file** edit introducing an oracle smell — real-time sleep, tautological self-comparison, focused marker (`.only`/`fit`), or a disabled test (`.skip`/`xit`/`t.Skip`/`@pytest.mark.skip`). Judged over the lines the edit ADDS, so a file that already carries one (a platform skip) is still editable; a genuinely necessary one is admitted by `// skip-ok: <why>` or `// real-time: <why>` on its line or the line above, and logged `smell-escape:<policy>`. **Warns** (test or source) on a suppression that silences a quality gate (`//nolint`, `@ts-ignore`, `# type: ignore`, coverage-ignore). |
-| `gate posttooluse` | Claude PostToolUse hook (stdin) | Runs the edited file's related tests as a build phase then a run phase under ONE budget, deferring whatever does not finish (see below); surfaces a RED summary. **Silent unless RED.** Source extensions include `.ron` — in a Rust workspace those are registries and fixtures whose edits change behaviour, resolved to the owning crate exactly as `.rs` is. |
+| `gate posttooluse` | Claude PostToolUse hook (stdin), matching the edit tools AND `Bash` | Runs the edited file's related tests as a build phase then a run phase under ONE budget, deferring whatever does not finish (see below); surfaces a RED summary. **Silent unless RED.** Source extensions include `.ron` — in a Rust workspace those are registries and fixtures whose edits change behaviour, resolved to the owning crate exactly as `.rs` is. |
 | `gate userpromptsubmit` | Claude UserPromptSubmit hook (stdin) | Intercepts `/gate [status\|off\|on\|reset]` — the per-session enforcement escape hatch. On any other prompt, re-injects the last RED outcome for the cwd's project so the gate survives context compaction. **Silent unless RED.** |
-| `gate stats` | manual | Tallies `gate.log` by stage and outcome, with per-crate timeout/deferred counts and median/max gate seconds (`--since 7d`). |
+| `gate stats` | manual | Tallies `gate.log` by stage and outcome, with per-crate timeout/deferred counts and median/max gate seconds (`--since 7d`), the open escape count and its oldest, and any `demote-candidate:` check. Read-only: it names the candidates, and `gate escape sync` is what opens their issues. |
+| `gate escape` | manual + the `escape-closure` CI job | `record` a red that arrived after a local green, `sync` the ones recorded offline (and open the false-positive issue for a demotion candidate), `list` the open ones, `verify-closure <pr>` to refuse a PR that closes one without changing a check. See [The escape loop](#the-escape-loop-aphrollo-gate-escape). |
 | `gate runphase` | spawned by `gate posttooluse` | The detached build/run phase's wrapper: holds the build slot, logs to the state dir, writes the result file the next hook harvests. Never typed by a human; never blocks. |
 | `gate sessionstart` | Claude SessionStart hook (stdin) | Injects the TDD-skill nudge, the previous session's disk-sweep result when it freed something, and — for a repo with a workspace manifest and no laws dir under `.ratchet` (an empty dir counts as none) — ONE line saying the gate is running suites only and pointing at [Ratchet laws](#ratchet-laws-aphrollo-ratchet). Never more than one extra line each, never blocks. |
 | `gate sessionend` | Claude SessionEnd hook (stdin) | Deletes the per-session state file so the state dir doesn't accumulate. |
@@ -608,7 +609,10 @@ instead of a full test build:
 |---|---|---|---|
 | 0a | baseline guard — a STAGED baseline that ROSE | ms (one `git show` per staged baseline) | rejects `baseline-rejected`; see below |
 | 0b | `ratchet check` — the repo's declared laws | ms (mtime cache) | only when the laws dir under `.ratchet` exists; rejects `ratchet-rejected`. A commit that stages a `.ratchet/` file also re-proves every law against its fixtures |
+| 0c | `docs check` over the staged `*.md` | ms | rejects `docs-rejected`; only for a repo that asked (below) |
 | 1 | `cargo fmt --check -p <touched>` | ms | compiles nothing, takes no build slot |
+| 1g | `go vet ./...` (Go roots) | seconds | CI parity: the gate must run the checks that decide whether the branch is green |
+| 2g | `golangci-lint run --allow-serial-runners ./...` (Go roots) | a full analysis pass | skipped with ONE `lint-skipped` log line when the binary is not installed — never a rejection over a tool nobody has. `--allow-serial-runners` because golangci-lint takes a MACHINE-WIDE lock: a second one anywhere on the box otherwise makes this one exit 3 with "parallel golangci-lint is running", a rejection that says nothing about the code. A local version that differs from the one the workflow pins logs ONE `lint-version-drift` line and still runs — a mismatch is not a defect in the code, but a green commit followed by a red CI job is the failure this stage exists to prevent |
 | 2 | `always-run` packages, their OWN invocation | seconds | a pure guard crate; bundling it into `-p ratchet -p client` made it wait for client to link |
 | 3 | `cargo clippy -p <clippy-clean> --tests -- -D warnings` | front-end build | only crates declared clippy-clean |
 | 4 | `cargo clippy --workspace --tests -- -D clippy::disallowed_methods -D clippy::disallowed_types` | check-level, tens of seconds warm | no codegen, but it sees EVERY crate: a lane that broke a crate nobody staged used to land green (borld's `forge_jbeam` conformance test reached main not compiling). clippy SUBSUMES check, so a compile error fails here too, and denying exactly those two lints is what makes a `clippy.toml` law reach crates that are not on the `clippy-clean` list. Everything else stays at its default level. Rejects `check-rejected` (does not compile) or `lint-rejected` (banned API) |
@@ -676,6 +680,47 @@ strings **and** comments (so a smell named in prose never trips); suppression
 detectors mask strings but **keep comments** (the directives live in comments).
 Either way a token mentioned only in a string never blocks — the original's
 biggest false-positive class.
+
+#### A shell edit reaches the same hooks (matcher `Bash`)
+
+`sed -i`, a heredoc, `gofmt -w`, a generator — every one of them edits the tree
+without firing the edit hooks, so the gate used to stop at the shell: the same
+change denied through `Edit` landed silently through `Bash` and no suite ran.
+`gate init` therefore wires a SECOND group on both edit events, matching `Bash`:
+
+- **PreToolUse** snapshots the repo the command runs in — `git status
+  --porcelain` plus the size and mtime of every tracked SOURCE file — into the
+  session state. No repo, no snapshot; it never blocks, and it cannot deny a
+  smell, because the content it would judge does not exist until the command
+  has run (the commit gate is where a smell introduced through the shell is
+  caught).
+- **PostToolUse** diffs that snapshot and puts every changed source or test
+  file (`ClassifyFile != Ignore`) through the identical post-edit path an
+  `Edit` takes, leaving one `bash-edit:<file>` line in gate.log per file.
+
+Two bounds. A project's suite runs ONCE however many files the command
+rewrote — the suite answers for all of them at once, so a per-file loop would
+charge the same build twenty times — and the call stops after ONE deferred
+build, since twenty detached builds from a single `gofmt -w .` would all
+describe a tree that had already moved on. The snapshot is consumed by the
+PostToolUse that reads it, so a stale one never attributes somebody else's
+change to a later command.
+
+#### State files carry a schema
+
+Every JSON file the gate writes — the session state, a deferred job and its
+phase result, the mechanical green cache — carries `"schema"`, and `gate.log`
+carries a sibling `gate.log.meta`. Two binaries can share one state dir (a box
+mid-upgrade, two checkouts), and without the stamp a reader has only two
+options and both are wrong: guess at unknown fields, silently dropping what the
+other binary recorded, or reset the file, destroying it. So a file at a NEWER
+schema reads as ABSENT and is left exactly where it is — nothing is written
+back over it — with one `state-newer:<file>` line in gate.log. JSON that does
+not parse at all is renamed to `<file>.corrupt-<ts>` and logged
+`state-corrupt:<file>`, once per process: a torn write is evidence, and a state
+file that vanished silently is the one failure nobody can debug afterwards.
+`gate stats` refuses to tally a `gate.log` written at a newer schema rather
+than produce a wrong number.
 
 #### Where the gates build (one target dir per repo)
 
@@ -969,6 +1014,7 @@ clippy-clean = ["server", "shared"]   # gate these on `clippy -D warnings` at co
 undercover = true                    # reject commit messages that name the tooling
 commit-message-deny = ["^WIP:"]      # this repo's own extra deny patterns
 sdd-dir = "docs/sdd"                 # where the `sdd` skill puts a feature's spec tree
+docs-check = true                    # judge staged *.md for dangling repo-relative citations
 ```
 
 - **`always-run`** — a workspace-wide guard package (its tests scan the whole
@@ -1030,6 +1076,11 @@ sdd-dir = "docs/sdd"                 # where the `sdd` skill puts a feature's sp
   producing repo decides how it names a mutant — and only the first is quoted
   in the rejection, which also names the command that produces a receipt. It
   runs BEFORE any suite compiles.
+- **`docs-check`** (bool) — turns on the staged-markdown citation stage for a
+  cargo workspace. A Go module is opted in by being one (aphrollo's own CI
+  already runs the check), and any repo can opt in with a `.aphrollo/docs-check`
+  file at its root. Doc conventions are not universal, so a repo that said none
+  of the three is never judged on them.
 - **`baselines`** (string array) — the globs the baseline guard watches, e.g.
   `baselines = [".ratchet/baselines/*.txt", "crates/ratchet/tests/*_baseline.txt"]`
   (those two are also the defaults, and a declared list replaces them). See
@@ -1066,6 +1117,7 @@ by hand.
 #### The schema
 
 ```toml
+schema       = 1                               # optional: the law schema this file is written for
 name         = "nan-guard"                     # must equal the file stem
 description  = "A float clamp is not a NaN guard"
 severity     = "deny"                          # deny | warn
@@ -1092,7 +1144,21 @@ key     = "file:line-content-hash"
 Parsing is **strict**: an unknown key, a duplicate table, a matcher key that
 belongs to another kind, a regex that does not compile, or a `name` that
 disagrees with the file it lives in is an error at load. A typo must not
-silently disable half a rule. Scope globbing understands `*`, `?` and `**`,
+silently disable half a rule.
+
+`schema` is the exception, and only in one direction. It is the version this
+law file is written for; absent means `1`, which is every law written before
+the key existed. A law declaring a version ABOVE the one the binary supports
+is read **leniently** — the keys the binary knows still apply, the ones it has
+never heard of are skipped, and it is never a hard error, so a repo whose laws
+moved ahead of a box's binary does not wedge that box. It is not silent
+either: the run prints one line naming the law and both versions, and the gate
+leaves `ratchet-law-newer:<law>` in its log, because a rule read with half its
+keys skipped otherwise reports clean exactly like a rule that is being obeyed.
+At the supported schema an unknown key stays an error — that is the typo
+protection, and it only makes sense where the binary claims to understand the
+file. A `schema` that is not a positive integer is a broken law, not a future
+one. Scope globbing understands `*`, `?` and `**`,
 `exclude` always wins, and the walk is gitignore-aware, so a law never has to
 enumerate build output. A repo that ignores a whole extension hides the files
 some laws are entirely about (borld ignores `*.md`, which is every doc a
@@ -1187,10 +1253,27 @@ loudly instead of reporting green over files they never opened.
   the reader discriminates.
 
 `key` is `file` (baseline `<file> | <count>`) or `file:line-content-hash`
-(baseline one line per occurrence, identity = file + the trimmed offending
-line). Line NUMBERS are deliberately not part of the identity — inserting a
-line above an offence is not a regression — while swapping one offending site
-for a different one in the same file IS, which a per-file count cannot see.
+(baseline one line per occurrence, written `<path> | <trimmed line>`).
+
+For a line-keyed law the identity is the **trimmed offending line, and only
+that**: the baseline is a MULTISET of offending text over the whole workspace,
+and the path is written down for the reader rather than compared. So a `git mv`
+or a crate rename is not a regression — the same lines are still there, in the
+same number — while adding one more occurrence of a line already at its
+ceiling IS one, wherever it lands, which a per-file count cannot see (it would
+read the new file as a brand-new key and the old file as unchanged). Line
+NUMBERS are not part of the identity either: inserting a line above an offence
+changes nothing. Swapping one offending site for a DIFFERENT line still
+regresses, because the new text is a new identity at a ceiling of zero.
+Tightening rewrites each surviving row's path from a site the scan actually
+found, so a row never dangles at a file that has moved, and drops the rows
+whose text no longer appears that many times. A count-keyed (`file`) law
+measures a property OF a file — its length — so there the path IS the
+identity and a rename is a new key at a ceiling of zero.
+
+The pre-edit hook judges ONE file, so it cannot see a workspace total: an
+added line whose text is already at its ceiling somewhere else is caught by
+the whole-tree run at commit, not by the write.
 
 #### The baseline law
 
@@ -1200,7 +1283,9 @@ A baseline is a **ceiling per key** and it only ever goes down:
 - measured **below** it → the run that saw the fix lowers or drops the entry
   and rewrites the file: atomically (tmp + rename), byte-stable when nothing
   moved, preserving header and mid-file comments in place and whatever line
-  ending is already on disk;
+  ending is already on disk. A line-keyed row is also re-pathed from the sites
+  the scan found, so the same run that leaves the count alone still stops a
+  row from naming a file that has moved;
 - it **never raises** a count and **never adds** a key. The only way to admit
   a new hit is the law's own escape comment.
 
@@ -1209,13 +1294,23 @@ carrying `--proposed` never tightens, because the tree it measured does not
 exist. The gate does not tighten either — a commit hook that rewrote a file
 mid-commit would leave the lowered ceiling unstaged.
 
+At commit and merge time the scan sees TRACKED files only: every path in the
+index, judged as the index has it, which is exactly what the commit will
+contain. An untracked or ignored file is part of no commit — another session's
+scaffolding in a shared checkout, a scratch note, a generator's leftovers —
+and a merge refused over one cannot be cleared by changing anything in the
+merge. Staging the file is what makes it answer. Pre-edit denial is the other
+side and judges the file being written whether git has seen it or not.
+
 #### Baselines are never raised by hand
 
 A baseline is a ceiling that only ever goes down, and it lives in a text file
 any editor can widen — which happened: a `1048` entry was hand-edited to `1049`
 to get a commit through. So the ban is mechanical. `precommit` and
 `premergecommit` parse every STAGED baseline old-vs-new, in both the counted
-and multiset forms, and reject a key whose count ROSE or which is NEW:
+and multiset forms, and reject a key whose count ROSE or which is NEW — counting a multiset row by
+its TEXT, the identity the engine uses, so a legitimate re-path is not read as
+a brand-new key:
 
 ```
 gate precommit: baseline-rejected: crates/ratchet/tests/module_size_baseline.txt crates/a.rs 1048 -> 1049
@@ -1260,9 +1355,16 @@ on disk (old/new strings applied to the file, MultiEdit in order) and judges
 that content, narrowed to the one file:
 
 ```
-ratchet: nan-guard: crates/pose/src/advance.rs:212 let a = x.clamp(0.0, 1.0);
-  (baseline 0, now 1; escape: // nan-safe:)
+ratchet: nan-guard: crates/pose/src/advance.rs:212 let a = x.clamp(0.0, 1.0); (baseline 0, now 1) — escape: // nan-safe: <why> on the line or the line above
 ```
+
+Every hit is ONE line and every line ends with the way through, so the fix is
+legible from the denial and nobody has to open the law: the escape comment to
+write and where it may sit, `— no escape: lower the code` for a law that has
+none, and `— split the file; the ceiling is N` for a count-keyed law, which is
+paid down rather than waived. The line is bounded at 160 characters and it is
+the OFFENDING TEXT that gets truncated — a remedy that scrolled off the end is
+a remedy nobody read.
 
 A `deny` law with a new hit exits 2 and the write never happens; a `warn` law
 prints the line once and allows. Everything here fails **open** — a malformed
@@ -1286,6 +1388,7 @@ A repeat `check` costs milliseconds: every file's hits are cached under the
 state dir, keyed by path + size + mtime **and** a hash of the law set, so a
 rule that changed drops the cache instead of inheriting verdicts reached under
 the old one. A repo with no laws dir under `.ratchet` says `no laws` and exits 0.
+
 <!-- ratchet-spec:end -->
 
 ### Pipeline health (`aphrollo gate stats`)
@@ -1300,8 +1403,85 @@ every outcome (`green`, `red`, `blocked`, `timeout`, `timeout-rejected`,
 `queued-skipped`, `queued-rejected`, `deferred`), then the median and maximum
 gate seconds and the per-crate timeout and deferral counts. A stage with no
 rows still prints, so "zero timeouts" and "never ran" are not the same blank.
-Read-only: it never touches the log it reads, and an unparseable line is
-skipped rather than guessed at (the log is appended to by several processes).
+Read-only about the log: it never touches the one it reads, and an unparseable
+line is skipped rather than guessed at (the log is appended to by several
+processes). Two more numbers follow the table: `open escapes: N (oldest Nd)`,
+and one `demote-candidate: <check>` line per check whose refusals rose two
+weeks running (below).
+
+#### Auto-demotion — a check that refuses more every week
+
+A check that denies more work each week is doing one of two things: catching a
+real regression in how code gets written, or refusing work that was correct.
+The second is invisible from inside — every individual denial looks
+reasonable, and the trend lives only in `gate.log`. So the log is read for it:
+a check whose `pretooluse-denied:` plus `smell-escape:` count rose in EACH of
+the last two weeks is named a demote candidate, and where `gh` can reach the
+remote it becomes one `false-positive` record in the escape loop, deduplicated
+against the open issue titles so a check re-flagged every week does not collect
+a new issue every week. It is a prompt to look, never a verdict — the answer
+may be to fix the check, narrow it, or demote it from deny to warn. An
+`override-` entry is a session turning the whole gate off rather than a check
+refusing anything, so it never counts toward a candidate.
+
+### The escape loop (`aphrollo gate escape`)
+
+An ESCAPE is a red that arrived after a local green: CI failed on a commit the
+gate passed, a merge gate refused what precommit allowed, a mutant survived, a
+playtest found a defect some check could have seen. It is the gate's only
+direct evidence about what it is MISSING, and it is normally lost — noticed in
+a terminal, fixed, forgotten, and the same class escapes again a month later.
+
+```sh
+aphrollo gate escape record "clippy warning reached main" --from-ci "build (ubuntu-latest)"
+aphrollo gate escape record "the bound law refuses a fixed-capacity field" --kind false-positive
+aphrollo gate escape sync            # open issues for whatever was recorded offline
+aphrollo gate escape list            # the open ones
+aphrollo gate escape verify-closure 321   # the escape-closure CI job runs this; exit 1 on a FAIL
+```
+
+`record` writes a schema-stamped line to `<stateDir>/escapes.jsonl` FIRST and
+opens the issue second, so a missing `gh` or a repo with no GitHub remote costs
+an issue and never the evidence; `sync` is the catch-up. Both create the label
+they need (`gh label create --force`, idempotent) before asking for it, because
+a fresh repository has neither, and both report what `gh` itself said when a
+call fails -- "exit status 1" names none of the three things that actually go
+wrong here (no label, no auth, no network).
+
+`sync` is also where a DEMOTION CANDIDATE becomes an issue: `gate stats` names
+every check whose refusals rose in each of the last two weeks, but it is a
+read-only report and never writes to anybody's tracker. `sync` is the verb that
+reaches GitHub deliberately, so it opens the one false-positive issue per
+candidate that does not have one already. The issue is labelled
+`escape` or `false-positive` and carries a fixed body — **what got through**,
+**which stage should have caught it**, and a `closes-by:` line — because an
+escape is closed by a LAW or a STAGE named in the fix, never by a sentence in a
+document.
+
+`verify-closure <pr>` is what makes that mechanical, as a CI job: for every
+labelled issue the PR closes -- named in its body OR in any of its commit
+messages, since GitHub honours the keyword in both -- the diff must touch one
+of four things:
+
+| what counts as changing a check | what does NOT |
+|---|---|
+| any file under the consuming repo's laws dir (`laws/` under its `.ratchet`) | anything else under that tree |
+| non-test Go under `internal/tdd/` or `internal/ratchet/` -- the code that performs a check | the markdown beside it, and `_test.go` files nobody named |
+| the workspace-ROOT `Cargo.toml`, changed inside its `[workspace.metadata.aphrollo]` table | a crate's own manifest, or a dependency bump in the root one |
+| a source or test file the issue's `closes-by:` line names | a `closes-by:` naming a document |
+
+It prints `#N ok` or `#N FAIL` per issue and exits 1 on any FAIL. An issue
+carrying neither label is somebody else's and is left alone.
+
+The count only goes down, and it is printed where it cannot be ignored: `gate
+stats` states it, and the first session start of each week gets ONE line —
+
+```
+aphrollo: last 7d — green 87%, queued-skipped 4%, denies 3, overrides 1, open escapes 2 (oldest 11d)
+```
+
+— stamped like the disk sweep's last run, so it fires once per seven days
+rather than on every session start.
 
 ### Disk hygiene (`aphrollo gate gc`)
 

@@ -42,12 +42,33 @@ const postToolUseHarnessTimeoutSecs = int(DefaultPostEditTimeout/time.Second) + 
 
 // managedEvents is the canonical set of session hooks `aphrollo tdd init`
 // wires. Order is stable so the marshaled settings.json is deterministic.
+// A shell command is an edit the edit hooks never see, so both edit events
+// carry a second group matching Bash: PreToolUse snapshots the tree, and
+// PostToolUse diffs it and runs the suite for whatever source moved.
 var managedEvents = []managedEvent{
 	{"SessionStart", "", "sessionstart", 10},
 	{"PreToolUse", "Edit|Write|MultiEdit|NotebookEdit", "pretooluse", 10},
+	{"PreToolUse", "Bash", "pretooluse", 10},
 	{"PostToolUse", "Edit|Write|MultiEdit", "posttooluse", postToolUseHarnessTimeoutSecs},
+	{"PostToolUse", "Bash", "posttooluse", postToolUseHarnessTimeoutSecs},
 	{"UserPromptSubmit", "", "userpromptsubmit", 10},
 	{"SessionEnd", "", "sessionend", 10},
+}
+
+// managedGroupsByEvent is managedEvents keyed by event, in declaration order.
+// One event now carries SEVERAL managed groups, so a patch must strip once
+// and append them all — stripping per entry would evict the group the
+// previous entry just wrote.
+func managedGroupsByEvent() ([]string, map[string][]managedEvent) {
+	var order []string
+	byEvent := map[string][]managedEvent{}
+	for _, me := range managedEvents {
+		if _, seen := byEvent[me.event]; !seen {
+			order = append(order, me.event)
+		}
+		byEvent[me.event] = append(byEvent[me.event], me)
+	}
+	return order, byEvent
 }
 
 // legacyCmdMarkers identify a claude-code-tdd Node-plugin hook command so init
@@ -97,9 +118,13 @@ func PatchSettings(existing []byte, bin string) ([]byte, bool, error) {
 	}
 
 	hooks := childMap(root, "hooks")
-	for _, me := range managedEvents {
-		kept := stripManaged(toGroups(hooks[me.event]))
-		hooks[me.event] = append(kept, me.group(bin))
+	order, byEvent := managedGroupsByEvent()
+	for _, event := range order {
+		kept := stripManaged(toGroups(hooks[event]))
+		for _, me := range byEvent[event] {
+			kept = append(kept, me.group(bin))
+		}
+		hooks[event] = kept
 	}
 	root["hooks"] = hooks
 	patchStatusLine(root, bin)
@@ -124,16 +149,17 @@ func StripSettings(existing []byte) ([]byte, bool, error) {
 	}
 
 	hooks := childMap(root, "hooks")
-	for _, me := range managedEvents {
-		groups, ok := hooks[me.event]
+	order, _ := managedGroupsByEvent()
+	for _, event := range order {
+		groups, ok := hooks[event]
 		if !ok {
 			continue
 		}
 		kept := stripManaged(toGroups(groups))
 		if len(kept) == 0 {
-			delete(hooks, me.event)
+			delete(hooks, event)
 		} else {
-			hooks[me.event] = kept
+			hooks[event] = kept
 		}
 	}
 	if len(hooks) == 0 {

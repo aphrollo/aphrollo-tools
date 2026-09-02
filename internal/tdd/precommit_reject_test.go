@@ -21,7 +21,13 @@ func TestPrecommit_MechanicalRejectionNamesTheFailure(t *testing.T) {
 	// 2000 chars would show only `ok` lines and hide the FAIL entirely.
 	fullOutput := strings.Repeat("test ok_case_padding ... ok\n", 200) +
 		"--- FAIL: TestWidget\n    widget_test.go:9: boom\nFAIL\n"
-	red := func(Runner, string) SuiteResult {
+	// Only the SUITE is red here: the CI-parity stages ahead of it are a
+	// separate claim with their own tests, and failing them too would make
+	// this test assert on whichever stage happens to run first.
+	red := func(r Runner, _ string) SuiteResult {
+		if isQualityRunner(r) {
+			return SuiteResult{Passed: true}
+		}
 		return SuiteResult{Passed: false, Output: fullOutput, Err: "exit status 1"}
 	}
 
@@ -61,7 +67,10 @@ func TestPrecommit_MechanicalRejectionSurfacesRunnerError(t *testing.T) {
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
 
-	red := func(Runner, string) SuiteResult {
+	red := func(r Runner, _ string) SuiteResult {
+		if isQualityRunner(r) {
+			return SuiteResult{Passed: true}
+		}
 		return SuiteResult{Passed: false, Output: "error: linking with `link.exe` failed\n", Err: "exit status 101"}
 	}
 	res := Precommit(root, red)

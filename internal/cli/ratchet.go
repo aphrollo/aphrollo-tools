@@ -112,6 +112,14 @@ func runRatchetCheck(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	// One line per law this binary is too old to read in full — a rule judged
+	// with half its keys skipped reports clean exactly like a rule that is
+	// being obeyed, so the difference is stated rather than inferred.
+	for _, l := range res.NewerLaws {
+		fmt.Fprintf(stderr, "ratchet: law %q declares schema %d; this binary supports %d — unknown keys skipped\n",
+			l.Name, l.Schema, ratchet.SchemaVersion)
+	}
+
 	if *format == "json" {
 		data, err := json.Marshal(res)
 		if err != nil {

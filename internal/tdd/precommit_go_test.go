@@ -1,0 +1,250 @@
+package tdd
+
+import (
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+// withLinter states whether golangci-lint is installed, without rewriting
+// PATH — on Windows that would also hide go and git from the very stages
+// under test.
+func withLinter(t *testing.T, present bool) {
+	t.Helper()
+	prev := lookLinter
+	lookLinter = func() bool { return present }
+	t.Cleanup(func() { lookLinter = prev })
+}
+
+// withLinterVersion states what the local binary reports, without installing
+// one.
+func withLinterVersion(t *testing.T, version string) {
+	t.Helper()
+	prev := linterVersion
+	linterVersion = func(string) string { return version }
+	t.Cleanup(func() { linterVersion = prev })
+}
+
+// runsAt records every runner a gate executed at root, quality stages
+// included — the point of these tests is exactly which CI-parity checks ran
+// and in what order.
+func runsAt(seen *[]Runner, root string) SuiteRunner {
+	return func(r Runner, dir string) SuiteResult {
+		if dir == root {
+			*seen = append(*seen, r)
+		}
+		return SuiteResult{Passed: true}
+	}
+}
+
+func cmdLine(r Runner) string { return strings.TrimSpace(r.Cmd + " " + strings.Join(r.Args, " ")) }
+
+// CI runs vet and the linter; a gate that does not runs a different check
+// from the one that decides whether the branch is green. Order is the cost
+// order: vet compiles nothing extra, lint is a full analysis pass, the suite
+// builds and links.
+func TestPrecommitGoRootRunsVetThenLintThenTheSuite(t *testing.T) {
+	root := makeGoRepo(t)
+	withLinter(t, true)
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	if res := Precommit(root, runsAt(&seen, root)); res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	var order []string
+	for _, r := range seen {
+		order = append(order, cmdLine(r))
+	}
+	want := []string{"go vet ./...", "golangci-lint run --allow-serial-runners ./...", "go test ."}
+	if strings.Join(order, " | ") != strings.Join(want, " | ") {
+		t.Fatalf("stages ran %v, want %v", order, want)
+	}
+}
+
+// golangci-lint takes a MACHINE-WIDE lock, not one per cache dir, so a second
+// one running anywhere on the box makes this one exit 3 with "parallel
+// golangci-lint is running" — a rejection that says nothing about the code.
+// CI passes --allow-serial-runners for exactly this reason; the gate, which
+// runs while other sessions build, needs it more.
+func TestPrecommitPassesAllowSerialRunnersToTheLinter(t *testing.T) {
+	withLinter(t, true)
+	root := makeGoRepo(t)
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	if res := Precommit(root, runsAt(&seen, root)); res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	for _, r := range seen {
+		if r.Cmd != golangciLint {
+			continue
+		}
+		if !slices.Contains(r.Args, "--allow-serial-runners") {
+			t.Fatalf("lint argv = %v, want --allow-serial-runners", r.Args)
+		}
+		return
+	}
+	t.Fatalf("the linter never ran: %+v", seen)
+}
+
+// The gate exists to run what CI runs. A local binary at a different version
+// answers a different question, and finding that out from a red CI job after
+// a green commit is the whole failure this gate is for — so it is said out
+// loud. It is NOT a rejection: a version mismatch is not a defect in the
+// code, and refusing the commit would wedge every box that has not upgraded.
+func TestPrecommitLogsLintVersionDriftAndStillRuns(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	withLinter(t, true)
+	withLinterVersion(t, "2.9.0")
+	root := makeGoRepo(t)
+	write(t, root, ".github/workflows/pipeline.yml",
+		"jobs:\n  lint:\n    steps:\n      - run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2\n")
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	if res := Precommit(root, runsAt(&seen, root)); res.Blocked {
+		t.Fatalf("drift must never reject a commit: %s", res.Message)
+	}
+	ran := false
+	for _, r := range seen {
+		ran = ran || r.Cmd == golangciLint
+	}
+	if !ran {
+		t.Fatalf("the linter must still run on drift: %+v", seen)
+	}
+	requireLoggedVerdict(t, cfg, "lint-version-drift")
+}
+
+func TestPrecommitIsQuietWhenTheLinterMatchesTheWorkflowPin(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	withLinter(t, true)
+	withLinterVersion(t, "2.12.2")
+	root := makeGoRepo(t)
+	write(t, root, ".github/workflows/pipeline.yml",
+		"jobs:\n  lint:\n    steps:\n      - run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2\n")
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	Precommit(root, runsAt(&seen, root))
+	if strings.Contains(gateLogText(t, cfg), "lint-version-drift") {
+		t.Fatal("a matching version is not drift")
+	}
+}
+
+// A linter nobody installed is not a failing commit. It is one log line, so
+// the difference between "clean" and "never ran" stays visible.
+func TestPrecommitSkipsTheLinterWhenItIsNotOnPath(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	withLinter(t, false)
+	root := makeGoRepo(t)
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	res := Precommit(root, runsAt(&seen, root))
+	if res.Blocked {
+		t.Fatalf("an absent linter must never reject a commit: %s", res.Message)
+	}
+	for _, r := range seen {
+		if r.Cmd == "golangci-lint" {
+			t.Fatalf("the linter is not installed, so it must not be run: %v", seen)
+		}
+	}
+	requireLoggedVerdict(t, cfg, "lint-skipped")
+}
+
+// The linter that IS installed and finds something rejects, and the rejection
+// names the command so it can be reproduced.
+func TestPrecommitRejectsWhenTheLinterFails(t *testing.T) {
+	root := makeGoRepo(t)
+	withLinter(t, true)
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	res := Precommit(root, func(r Runner, dir string) SuiteResult {
+		if r.Cmd == "golangci-lint" {
+			return SuiteResult{Passed: false, Output: "widget.go:3:6: `Widget` is unused (unused)\n"}
+		}
+		return SuiteResult{Passed: true}
+	})
+	if !res.Blocked {
+		t.Fatal("a lint failure must reject the commit")
+	}
+	for _, want := range []string{"golangci-lint run --allow-serial-runners ./...", "Widget"} {
+		if !strings.Contains(res.Message, want) {
+			t.Errorf("message %q does not carry %q", res.Message, want)
+		}
+	}
+}
+
+// A dangling citation in a doc misdrives every session that loads it, and a
+// docs-only commit stages no source at all — so the check has to run before
+// the has-code gate, not inside a per-root suite stage.
+func TestPrecommitChecksStagedMarkdownOnADocsOnlyCommit(t *testing.T) {
+	root := makeGoRepo(t)
+	write(t, root, "NOTES.md", "see [the plan](docs/nowhere.md)\n")
+	gitDo(t, root, "add", ".")
+
+	res := Precommit(root, func(Runner, string) SuiteResult { return SuiteResult{Passed: true} })
+	if !res.Blocked {
+		t.Fatalf("a dangling citation must reject: %+v", res)
+	}
+	for _, want := range []string{"NOTES.md", "docs/nowhere.md"} {
+		if !strings.Contains(res.Message, want) {
+			t.Errorf("message %q does not carry %q", res.Message, want)
+		}
+	}
+}
+
+func TestPrecommitPassesStagedMarkdownThatResolves(t *testing.T) {
+	root := makeGoRepo(t)
+	write(t, root, "docs/plan.md", "# plan\n")
+	write(t, root, "NOTES.md", "see [the plan](docs/plan.md)\n")
+	gitDo(t, root, "add", ".")
+
+	if res := Precommit(root, func(Runner, string) SuiteResult { return SuiteResult{Passed: true} }); res.Blocked {
+		t.Fatalf("a citation that resolves must pass: %s", res.Message)
+	}
+}
+
+// A repo that is neither a Go module nor opted in never sees the stage: the
+// doc conventions it enforces are not universal.
+func TestPrecommitSkipsDocsCheckForARepoThatDidNotOptIn(t *testing.T) {
+	root := makeJSRepo(t, `{"name":"x","scripts":{"test":"vitest run"}}`)
+	write(t, root, "NOTES.md", "see [the plan](docs/nowhere.md)\n")
+	gitDo(t, root, "add", ".")
+
+	if res := Precommit(root, func(Runner, string) SuiteResult { return SuiteResult{Passed: true} }); res.Blocked {
+		t.Fatalf("an opt-out repo must not be judged on doc citations: %s", res.Message)
+	}
+
+	// The marker opts it in, and then the same commit is refused.
+	write(t, root, filepath.Join(".aphrollo", "docs-check"), "")
+	if res := Precommit(root, func(Runner, string) SuiteResult { return SuiteResult{Passed: true} }); !res.Blocked {
+		t.Fatalf(".aphrollo/docs-check must turn the stage on: %+v", res)
+	}
+}
+
+// A cargo workspace says it in the manifest, beside every other gate opt-in,
+// rather than growing a second place to look.
+func TestPrecommitReadsDocsCheckFromTheWorkspaceManifest(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "Cargo.toml", "[workspace]\nmembers = []\n\n[workspace.metadata.aphrollo]\ndocs-check = true\n")
+	write(t, root, "NOTES.md", "see [the plan](docs/nowhere.md)\n")
+	gitDo(t, root, "add", ".")
+
+	res := Precommit(root, func(Runner, string) SuiteResult { return SuiteResult{Passed: true} })
+	if !res.Blocked || !strings.Contains(res.Message, "docs/nowhere.md") {
+		t.Fatalf("docs-check = true must turn the stage on: %+v", res)
+	}
+}

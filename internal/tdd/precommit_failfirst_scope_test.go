@@ -45,6 +45,7 @@ func TestPrecommit_FailFirst_SkipsWhenNoTestDeclarationAdded(t *testing.T) {
 // Adding a genuinely NEW test keeps the stage: a fresh `func Test…` that
 // passes against HEAD is exactly the violation fail-first exists to catch.
 func TestPrecommit_FailFirst_StillFiresOnANewTestDeclaration(t *testing.T) {
+	withLinter(t, false)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestWidget(t *testing.T) { _ = 1 }\n")

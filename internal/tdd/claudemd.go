@@ -49,6 +49,11 @@ func ClaudeMDBlock(shimDir string, undercover bool) string {
 	b.WriteString("  check` judges the tree and tightens; `aphrollo ratchet test` proves each law against\n")
 	b.WriteString("  its fixtures. A new hit is admitted by the law's escape comment, NEVER by editing a\n")
 	b.WriteString("  baseline — the gate rejects a raised one.\n")
+	b.WriteString("- **Escapes close the loop.** A red after a local green (CI, merge gate, survivor\n")
+	b.WriteString("  mutant, a playtest defect a check could have caught) is recorded with\n")
+	b.WriteString("  `aphrollo gate escape record <reason>` and closed only by a stage or law named in\n")
+	b.WriteString("  the fix, never by a sentence in this file. The count only goes down; `gate stats`\n")
+	b.WriteString("  prints it weekly at session start.\n")
 	b.WriteString("- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) ·\n")
 	b.WriteString("  `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).\n")
 	if undercover {

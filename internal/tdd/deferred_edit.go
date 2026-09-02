@@ -333,21 +333,21 @@ func headSHAFor(root string) string {
 // previous hook left running, then run this edit's own build and run phases
 // inside the one foreground budget. It reports exactly one line, like every
 // other PostEdit path.
-func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string) string {
+func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string) (string, bool) {
 	budget := PostEditBudget()
 	fileHash := sourceIdentity(root, target)
 	advisory, fresh := harvestDeferred(root, headSHA, fileHash, session, budget, snap.state, snap.statePath)
 	if !fresh {
-		return advisory
+		return advisory, false
 	}
 	out := runEditPhases(snap.runner, root, headSHA, fileHash, session, budget)
 	if out.spawnFailed {
 		appendGateLog("postedit", root, cmdString(snap.runner), string(RedBogus), 0)
-		return spawnFailedLine(root, "build")
+		return spawnFailedLine(root, "build"), false
 	}
 	if out.deferred {
 		appendGateLog("postedit", root, cmdString(snap.runner), "deferred", 0)
-		return out.notice
+		return out.notice, true
 	}
 	res := out.res
 	if treatAsEmptyPass(res) {
@@ -370,9 +370,9 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	}
 	appendGateLog("postedit", root, cmdString(snap.runner), string(outcome), res.Duration)
 	if outcome.IsRed() {
-		return redSummary(snap.runner, root, outcome, res.Output)
+		return redSummary(snap.runner, root, outcome, res.Output), false
 	}
-	return passAdvisory(snap.runner, root, outcome, res.Output, res.Duration, snap.prevFailing)
+	return passAdvisory(snap.runner, root, outcome, res.Output, res.Duration, snap.prevFailing), false
 }
 
 // promptHarvest reports a deferred job that finished since the last hook, for

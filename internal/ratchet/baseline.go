@@ -26,7 +26,42 @@ const (
 	// OCCURRENCE: the shape for identity-keyed laws, where repetition IS the
 	// count and a duplicate line is normal.
 	Multiset
+	// MultisetByText is the same file, read as a multiset of offending TEXT:
+	// a row is `<path> | <text>` and only the text is the identity. A line's
+	// debt belongs to the workspace, not to the file that happens to hold it,
+	// so `git mv` is not a regression — while the workspace TOTAL for that
+	// text is still a ceiling, which a per-file key cannot express. The path
+	// stays in the file for whoever reads it, and tightening refreshes it
+	// from the sites the scan found.
+	MultisetByText
 )
+
+// rowText is a row's identity under MultisetByText: everything after the
+// first ` | `. A row with no separator (a whole-tree law's synthetic key) is
+// its own identity.
+func rowText(key string) string {
+	if _, text, ok := strings.Cut(key, " | "); ok {
+		return text
+	}
+	return key
+}
+
+// RowText is rowText for a caller outside this package (the staged-baseline
+// guard), which reads baseline files without knowing the law behind them.
+func RowText(key string) string { return rowText(key) }
+
+// identity is how this baseline names a hit: the whole key, or — for a
+// path-agnostic multiset — the offending text alone.
+func (b *Baseline) identity(key string) string {
+	if b.form == MultisetByText {
+		return rowText(key)
+	}
+	return key
+}
+
+// Identity exposes the keying a caller must use when it MEASURES, so the
+// measured map and the baseline are counted by the same rule.
+func (b *Baseline) Identity(key string) string { return b.identity(key) }
 
 type baselineLine struct {
 	verbatim string // a `#` comment or blank line, kept exactly as read
@@ -78,7 +113,7 @@ func ParseBaseline(text string, form Form) (*Baseline, error) {
 			b.lines = append(b.lines, baselineLine{verbatim: raw})
 			continue
 		}
-		if form == Multiset {
+		if form == Multiset || form == MultisetByText {
 			b.lines = append(b.lines, baselineLine{data: true, key: trimmed, count: 1})
 			continue
 		}
@@ -126,7 +161,7 @@ func (b *Baseline) Counts() map[string]int {
 	out := map[string]int{}
 	for _, l := range b.lines {
 		if l.data {
-			out[l.key] += l.count
+			out[b.identity(l.key)] += l.count
 		}
 	}
 	return out
@@ -158,6 +193,15 @@ func (b *Baseline) Regressions(measured map[string]int) []Regression {
 // a key: a key above its ceiling is a Regressions finding, and this clamps to
 // the existing ceiling instead of touching it.
 func (b *Baseline) Tighten(measured map[string]int) Tightening {
+	return b.TightenWithSites(measured, nil)
+}
+
+// TightenWithSites is Tighten with the SITES this run measured: sites maps an
+// identity to the full `<path> | <text>` keys found for it, in a stable
+// order. A path-agnostic baseline re-paths each surviving row from that list,
+// so a row whose file moved follows the hit instead of naming a file that is
+// gone. sites is ignored for the keyed forms, whose rows are the key.
+func (b *Baseline) TightenWithSites(measured map[string]int, sites map[string][]string) Tightening {
 	before := b.Counts()
 	target := map[string]int{}
 	for k, old := range before {
@@ -182,12 +226,16 @@ func (b *Baseline) Tighten(measured map[string]int) Tightening {
 			kept = append(kept, l)
 			continue
 		}
-		keepUpTo := target[l.key]
-		if seen[l.key] >= keepUpTo {
-			seen[l.key]++
+		id := b.identity(l.key)
+		keepUpTo := target[id]
+		if seen[id] >= keepUpTo {
+			seen[id]++
 			continue
 		}
-		seen[l.key]++
+		if found := sites[id]; seen[id] < len(found) {
+			l.key = found[seen[id]]
+		}
+		seen[id]++
 		if b.form == Counted {
 			l.count = keepUpTo
 		}
@@ -223,6 +271,11 @@ func (b *Baseline) WriteIfChanged(path string) (bool, error) {
 	existing, err := os.ReadFile(path)
 	hadFile := err == nil
 	rendered := b.Render()
+	if !hadFile && rendered == "" {
+		// Nothing to record and nothing there: a law at a bar of zero must
+		// not litter the tree with an empty file nobody asked for.
+		return false, nil
+	}
 	if hadFile && strings.Contains(string(existing), "\r\n") {
 		rendered = strings.ReplaceAll(rendered, "\n", "\r\n")
 	}

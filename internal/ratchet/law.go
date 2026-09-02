@@ -145,8 +145,20 @@ type Matcher struct {
 	EnabledEnv   string
 }
 
+// SchemaVersion is the law schema this binary understands. A law may declare
+// `schema = N`; absent means 1, the schema every law was written against
+// before the key existed.
+const SchemaVersion = 1
+
 // Law is one declared rule, loaded from `.ratchet/laws/<name>.toml`.
 type Law struct {
+	// Schema is the declared schema version (1 when the law omits the key).
+	// Newer records that it exceeds SchemaVersion: the law is still judged by
+	// the keys this binary knows, unknown keys are skipped rather than
+	// rejected, and the run names it so the half-read rule is visible. A repo
+	// upgrading its laws ahead of a box's binary must never wedge that box.
+	Schema      int
+	Newer       bool
 	Name        string
 	Description string
 	Severity    Severity
@@ -216,7 +228,8 @@ func LoadLaws(root string) ([]Law, error) {
 }
 
 var rootKeys = map[string]bool{
-	"name": true, "description": true, "severity": true, "escape": true,
+	"schema": true,
+	"name":   true, "description": true, "severity": true, "escape": true,
 	"escape_lines": true, "baseline": true, "code_only": true,
 	"comment_prefix": true, "contiguous": true, "trigger_exclude": true,
 }
@@ -244,18 +257,24 @@ func ParseLaw(text, wantName string) (Law, error) {
 	if err != nil {
 		return Law{}, err
 	}
-	for _, section := range doc.sectionNames() {
-		if section != "scope" && section != "matcher" {
-			return Law{}, fmt.Errorf("unknown table [%s] — a law declares [scope] and [matcher] only", section)
-		}
+	schema, newer, err := parseSchema(doc)
+	if err != nil {
+		return Law{}, err
 	}
-	for _, k := range doc.keys("") {
-		if !rootKeys[k] {
-			return Law{}, fmt.Errorf("unknown key %q — a law's root keys are name, description, severity, escape, escape_lines, baseline, code_only", k)
+	if !newer {
+		for _, section := range doc.sectionNames() {
+			if section != "scope" && section != "matcher" {
+				return Law{}, fmt.Errorf("unknown table [%s] — a law declares [scope] and [matcher] only", section)
+			}
+		}
+		for _, k := range doc.keys("") {
+			if !rootKeys[k] {
+				return Law{}, fmt.Errorf("unknown key %q — a law's root keys are schema, name, description, severity, escape, escape_lines, baseline, code_only", k)
+			}
 		}
 	}
 
-	law := Law{EscapeLines: 2, Source: text}
+	law := Law{EscapeLines: 2, Source: text, Schema: schema, Newer: newer}
 	if law.Name, err = requiredString(doc, "", "name"); err != nil {
 		return Law{}, err
 	}
@@ -329,7 +348,7 @@ func ParseLaw(text, wantName string) (Law, error) {
 	if law.Scope, err = parseScope(doc); err != nil {
 		return Law{}, err
 	}
-	if law.Matcher, err = parseMatcher(doc); err != nil {
+	if law.Matcher, err = parseMatcher(doc, newer); err != nil {
 		return Law{}, err
 	}
 	if law.Matcher.Contiguous {
@@ -377,7 +396,24 @@ func parseScope(doc *tomlDoc) (Scope, error) {
 	return s, nil
 }
 
-func parseMatcher(doc *tomlDoc) (Matcher, error) {
+// parseSchema reads the optional `schema = N` version stamp. Absent is
+// SchemaVersion — every law written before the key existed. A value ABOVE
+// SchemaVersion means the file came from a newer binary: newer=true switches
+// the rest of parsing to lenient, so an unknown key is skipped instead of
+// rejected. A non-integer or non-positive value is a broken law, not a
+// future one, and is rejected either way.
+func parseSchema(doc *tomlDoc) (schema int, newer bool, err error) {
+	v, ok := doc.value("", "schema")
+	if !ok {
+		return SchemaVersion, false, nil
+	}
+	if v.kind != tomlInt || v.i < 1 {
+		return 0, false, fmt.Errorf("schema is a positive integer version, got %s", v.kind)
+	}
+	return v.i, v.i > SchemaVersion, nil
+}
+
+func parseMatcher(doc *tomlDoc, newer bool) (Matcher, error) {
 	if !doc.has("matcher") {
 		return Matcher{}, fmt.Errorf("missing [matcher] — a law must state exactly one rule")
 	}
@@ -386,9 +422,11 @@ func parseMatcher(doc *tomlDoc) (Matcher, error) {
 	if !ok {
 		return Matcher{}, fmt.Errorf("unknown matcher kind %q — known kinds: %s", kind, knownKinds())
 	}
-	for _, k := range doc.keys("matcher") {
-		if _, ok := allowed[k]; !ok {
-			return Matcher{}, fmt.Errorf("unknown key matcher.%s for kind %q", k, kind)
+	if !newer {
+		for _, k := range doc.keys("matcher") {
+			if _, ok := allowed[k]; !ok {
+				return Matcher{}, fmt.Errorf("unknown key matcher.%s for kind %q", k, kind)
+			}
 		}
 	}
 	for k, required := range allowed {

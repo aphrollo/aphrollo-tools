@@ -233,7 +233,12 @@ Subcommands:
   statusline        Render the one-line gate badge from a statusline payload
                     on stdin (armed/off, plus red/deferred/queued when it
                     matters); wired into settings.json by init
-  stats             Tally gate.log by stage and outcome (--since 7d)
+  stats             Tally gate.log by stage and outcome (--since 7d), and the open
+                    escape count
+  escape            The escape loop: record | sync | list | verify-closure <pr>.
+                    A red after a local green is recorded and opened as a labelled
+                    issue; verify-closure refuses a PR that closes one without
+                    changing a law, a gate stage or a named test
   gc                Reclaim stale build dirs: idle incremental caches, dead gate dirs,
                     orphan worktree builds (--repo, --older-than 3d, --apply)
   install           Install the git-hook shims into a repo (--repo, --apply)
@@ -382,6 +387,11 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// Disk hygiene: dry-run by default, --apply reclaims.
 		return runGateGC(args[1:], stdout, stderr)
 	}
+	if args[0] == "escape" {
+		// The escape loop: record a red that got past a local green, and
+		// refuse a PR that closes one without changing a check.
+		return runGateEscape(args[1:], stdout, stderr)
+	}
 	if args[0] == "runphase" {
 		// The detached build/run phase's wrapper: it holds the build slot,
 		// logs, and writes the result file the next hook harvests. It never
@@ -478,6 +488,13 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// cold Bevy build does not fit in 110s and killing it establishes
 		// nothing.
 		tdd.EnableDeferredPhases(true)
+		if tdd.IsBashHook(raw) {
+			payload, code := tdd.RenderPostToolUse(tdd.PostBash(raw, tdd.RunSuite(postEditBudget())))
+			if len(payload) > 0 {
+				stdout.Write(payload)
+			}
+			return code
+		}
 		payload, code := tdd.RenderPostToolUse(tdd.PostEdit(raw, tdd.RunSuite(postEditBudget())))
 		if len(payload) > 0 {
 			stdout.Write(payload)
@@ -492,6 +509,14 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return code
 	case "sessionend":
 		tdd.EndSession(raw)
+		return 0
+	}
+
+	// A Bash call gets a snapshot, not a verdict: what it will write does not
+	// exist yet, so the pre-edit half only records the tree for PostToolUse
+	// to diff. It never blocks.
+	if tdd.IsBashHook(raw) {
+		tdd.PreBash(raw)
 		return 0
 	}
 

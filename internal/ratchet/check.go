@@ -22,6 +22,19 @@ type Options struct {
 	// Files, when non-empty, narrows the scan to these repo-relative paths.
 	// The pre-edit path uses it: one file's laws, not the tree's.
 	Files []string
+	// Tracked, when non-empty, is the ONLY set of paths the whole-tree walk
+	// may consider — the commit gate passes `git ls-files`, because it judges
+	// what is IN the commit and an untracked file is part of no commit. A
+	// shared checkout is full of other people's scaffolding, and rejecting a
+	// merge over a file nobody is committing is a rejection nobody can clear.
+	// Everything else about the run is unchanged: scope floors and stale
+	// registry entries are still whole-tree questions.
+	Tracked []string
+	// TrackedIgnored is the subset of Tracked that .gitignore also matches. A
+	// repo can ignore a whole extension and still track those files; the disk
+	// walk hands one to a law only when it declared `ignore_gitignore`, and
+	// the tracked set carries the same flag so the two agree.
+	TrackedIgnored []string
 	// Tighten writes every baseline down to what this run measured.
 	Tighten bool
 	// CacheDir holds the per-file scan cache; empty disables caching.
@@ -39,6 +52,10 @@ type Finding struct {
 	Baseline int    `json:"baseline"`
 	Measured int    `json:"measured"`
 	Escape   string `json:"escape,omitempty"`
+	// Remedy is the way through, in the imperative: the escape comment to
+	// write, or the fact that there is none. A denial that names the offence
+	// and stops sends the reader to open the law file.
+	Remedy string `json:"remedy,omitempty"`
 }
 
 // Result is one run's verdict.
@@ -48,6 +65,17 @@ type Result struct {
 	FilesRead    int       `json:"files_read"`
 	Findings     []Finding `json:"findings"`
 	Tightened    []string  `json:"tightened,omitempty"`
+	// NewerLaws names every law whose declared schema exceeds SchemaVersion:
+	// it was judged by the keys this binary knows and the rest were skipped.
+	// The caller warns once per name and logs `ratchet-law-newer:<law>` — a
+	// half-read rule that says nothing looks exactly like a clean one.
+	NewerLaws []NewerLaw `json:"newer_laws,omitempty"`
+}
+
+// NewerLaw is one law read leniently, with the version it declared.
+type NewerLaw struct {
+	Name   string `json:"law"`
+	Schema int    `json:"schema"`
 }
 
 // Blocked reports whether any deny law regressed — the exit-1 condition.
@@ -60,7 +88,14 @@ func (r Result) Blocked() bool {
 	return false
 }
 
-// Lines renders one output line per finding.
+// maxFindingLine is the width one hit gets. A denial is read in a terminal
+// and in a hook envelope; past this the remedy at the END of the line is the
+// part that scrolls away, which is the part that matters.
+const maxFindingLine = 160
+
+// Lines renders one output line per finding: where, what, the counts, and the
+// way through. The OFFENDING TEXT is what gets truncated when the line is too
+// long — never the remedy.
 func (r Result) Lines() []string {
 	out := make([]string, 0, len(r.Findings))
 	for _, f := range r.Findings {
@@ -68,13 +103,52 @@ func (r Result) Lines() []string {
 		if f.Line > 0 {
 			where = fmt.Sprintf("%s:%d", f.File, f.Line)
 		}
-		line := fmt.Sprintf("%s: %s %s (baseline %d, now %d", f.Law, where, f.What, f.Baseline, f.Measured)
-		if f.Escape != "" {
-			line += "; escape: " + f.Escape
+		head := fmt.Sprintf("%s: %s ", f.Law, where)
+		tail := fmt.Sprintf(" (baseline %d, now %d)", f.Baseline, f.Measured)
+		if f.Remedy != "" {
+			tail += " — " + f.Remedy
 		}
-		out = append(out, line+")")
+		out = append(out, head+fitWhat(f.What, maxFindingLine-len([]rune(head))-len([]rune(tail)))+tail)
 	}
 	return out
+}
+
+// fitWhat shortens the offending text to at most n runes, marking that it was
+// cut. A budget too small to say anything yields nothing rather than a line of
+// ellipsis.
+func fitWhat(what string, n int) string {
+	runes := []rune(what)
+	if len(runes) <= n {
+		return what
+	}
+	if n < 4 {
+		return ""
+	}
+	return string(runes[:n-1]) + "…"
+}
+
+// remedyFor is the one imperative sentence a denial ends with. A count-keyed
+// law is not escaped, it is paid down, and the number it is paid down TO is
+// what the reader needs; a law with no escape has exactly one way through,
+// and saying nothing there reads as "there must be a marker somewhere".
+func remedyFor(law Law) string {
+	if law.Matcher.Kind == KindLineCount {
+		return fmt.Sprintf("split the file; the ceiling is %d", law.Matcher.Max)
+	}
+	if law.Escape == "" {
+		return "no escape: lower the code"
+	}
+	return fmt.Sprintf("escape: %s <why> %s", law.Escape, escapeWindow(law))
+}
+
+// escapeWindow says WHERE the escape comment is allowed to sit, in the words
+// the author needs: advice that names a window the law does not accept is
+// worse than none.
+func escapeWindow(law Law) string {
+	if law.Contiguous || law.EscapeLines > 0 {
+		return "on the line or the line above"
+	}
+	return "on the line"
 }
 
 // Check scans the laws' scope once, applies every law, and compares each
@@ -97,6 +171,11 @@ func Check(opts Options) (Result, error) {
 		laws = kept
 	}
 	res := Result{Laws: len(laws)}
+	for _, l := range laws {
+		if l.Newer {
+			res.NewerLaws = append(res.NewerLaws, NewerLaw{Name: l.Name, Schema: l.Schema})
+		}
+	}
 	if len(laws) == 0 {
 		return res, nil
 	}
@@ -138,17 +217,25 @@ func Check(opts Options) (Result, error) {
 		if len(opts.Files) == 0 {
 			hits = append(hits, scopeHits(opts.Root, law, scan.files, scan.ignored)...)
 		}
-		measured := map[string]int{}
-		located := map[string]Hit{}
-		for _, h := range hits {
-			measured[h.Key] += h.Weight
-			if _, seen := located[h.Key]; !seen {
-				located[h.Key] = h
-			}
-		}
 		baseline, path, err := loadLawBaseline(opts.Root, law)
 		if err != nil {
 			return Result{}, err
+		}
+		// Measured and baselined are counted by the SAME rule — the baseline
+		// owns it, because it is the file whose rows define the identity.
+		measured := map[string]int{}
+		located := map[string]Hit{}
+		sites := map[string][]string{}
+		for _, h := range hits {
+			id := baseline.Identity(h.Key)
+			measured[id] += h.Weight
+			sites[id] = append(sites[id], h.Key)
+			if _, seen := located[id]; !seen {
+				located[id] = h
+			}
+		}
+		for _, keys := range sites {
+			sort.Strings(keys)
 		}
 		for _, r := range regressions(baseline, measured, law.Matcher.TolerancePct) {
 			h := located[r.Key]
@@ -162,6 +249,7 @@ func Check(opts Options) (Result, error) {
 				Baseline: r.Baseline,
 				Measured: r.Measured,
 				Escape:   law.Escape,
+				Remedy:   remedyFor(law),
 			})
 		}
 		// A hypothetical tree must never rewrite a baseline: the content it
@@ -170,14 +258,17 @@ func Check(opts Options) (Result, error) {
 		if !opts.Tighten || path == "" || len(opts.Proposed) > 0 || len(opts.Files) > 0 {
 			continue
 		}
-		if baseline.Tighten(measured).Changed() {
-			wrote, err := baseline.WriteIfChanged(path)
-			if err != nil {
-				return Result{}, err
-			}
-			if wrote {
-				res.Tightened = append(res.Tightened, law.Baseline)
-			}
+		// Tighten unconditionally and let WriteIfChanged decide: a count that
+		// did not move can still leave a row naming a file that is gone, and
+		// re-pathing it is the whole point of a path-agnostic key. The write
+		// is byte-stable, so a tree with nothing to fix still writes nothing.
+		baseline.TightenWithSites(measured, sites)
+		wrote, err := baseline.WriteIfChanged(path)
+		if err != nil {
+			return Result{}, err
+		}
+		if wrote {
+			res.Tightened = append(res.Tightened, law.Baseline)
 		}
 	}
 	return res, nil
@@ -208,13 +299,35 @@ func regressions(baseline *Baseline, measured map[string]int, tolerancePct int) 
 	return out
 }
 
+// lineKeyedKinds are the matchers whose hits are `<path> | <trimmed line>`:
+// one offending LINE inside one in-scope file. Their debt is a multiset of
+// TEXT, so moving the file that carries a line is not a regression. The
+// whole-tree kinds are excluded on purpose — a dependency PATH, a registry
+// name or a containment capture is already path-free, and stripping at the
+// first ` | ` there would only blur two categories into one.
+var lineKeyedKinds = map[MatcherKind]bool{
+	KindRegexAbsent:       true,
+	KindMarkerWithinLines: true,
+	KindDocPathResolves:   true,
+}
+
+// baselineForm is the shape a law's baseline file is read in: counted per
+// file, a multiset of exact keys, or a multiset of offending text.
+func baselineForm(law Law) Form {
+	switch {
+	case law.Matcher.Key == KeyFile:
+		return Counted
+	case lineKeyedKinds[law.Matcher.Kind]:
+		return MultisetByText
+	default:
+		return Multiset
+	}
+}
+
 // loadLawBaseline reads a law's baseline in the form its key kind implies. A
 // law with no baseline declared is judged at a bar of zero.
 func loadLawBaseline(root string, law Law) (*Baseline, string, error) {
-	form := Multiset
-	if law.Matcher.Key == KeyFile {
-		form = Counted
-	}
+	form := baselineForm(law)
 	if law.Baseline == "" {
 		return &Baseline{form: form}, "", nil
 	}
@@ -326,6 +439,35 @@ func collectFiles(opts Options, laws []Law) ([]string, map[string]bool, error) {
 			}
 		}
 		return false
+	}
+
+	// A tracked set replaces the walk entirely — but it carries the SAME
+	// gitignore flag the walk would have computed, so a law that never opted
+	// into ignored files does not suddenly see them just because git tracks
+	// them.
+	if len(opts.Tracked) > 0 {
+		ignoredTracked := map[string]bool{}
+		for _, rel := range opts.TrackedIgnored {
+			ignoredTracked[normalizeSlashes(rel)] = true
+		}
+		var out []string
+		for _, rel := range opts.Tracked {
+			rel = normalizeSlashes(rel)
+			if rel == "" || !inScope(rel, ignoredTracked[rel]) {
+				continue
+			}
+			out = append(out, rel)
+			if ignoredTracked[rel] {
+				ignoredFiles[rel] = true
+			}
+		}
+		for rel := range opts.Proposed {
+			if inScope(rel, false) {
+				out = append(out, rel)
+			}
+		}
+		sort.Strings(out)
+		return dedupe(out), ignoredFiles, nil
 	}
 
 	ignore := loadGitignore(opts.Root)

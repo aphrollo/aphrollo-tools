@@ -180,7 +180,16 @@ func containsArgs(seen []string, want string) bool {
 // SUITE scoping filter these out: they are workspace-wide by design and would
 // otherwise read as an extra crate run.
 func isQualityRunner(r Runner) bool {
-	if r.Cmd != "cargo" || len(r.Args) == 0 {
+	if r.Cmd == golangciLint {
+		return true
+	}
+	if len(r.Args) == 0 {
+		return false
+	}
+	if r.Cmd == "go" {
+		return r.Args[0] == "vet"
+	}
+	if r.Cmd != "cargo" {
 		return false
 	}
 	return r.Args[0] == "fmt" || r.Args[0] == "clippy" || r.Args[0] == "check"

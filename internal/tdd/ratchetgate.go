@@ -88,7 +88,9 @@ func RatchetAdvisory(raw []byte) Decision {
 	}
 	return Decision{
 		Action: action,
-		Reason: "ratchet: " + strings.Join(res.Lines(), "; "),
+		// One hit per line: each carries its own remedy at the end, and
+		// running them together on one line is where that remedy scrolls off.
+		Reason: "ratchet: " + strings.Join(res.Lines(), "\nratchet: "),
 		Policy: "ratchet:" + res.Findings[0].Law,
 	}
 }
@@ -138,9 +140,11 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 	}
 	started := time.Now()
 	res, err := ratchet.Check(ratchet.Options{
-		Root:     repoRoot,
-		Proposed: indexOverlay(repoRoot),
-		CacheDir: stateDir(),
+		Root:           repoRoot,
+		Proposed:       indexOverlay(repoRoot),
+		Tracked:        trackedFiles(repoRoot),
+		TrackedIgnored: trackedIgnoredFiles(repoRoot),
+		CacheDir:       stateDir(),
 	})
 	if err != nil {
 		// A broken law file is a defect in the rule, not in the commit: say so
@@ -151,6 +155,7 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 		appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-skipped", time.Since(started))
 		return GateResult{Message: line}
 	}
+	noteNewerLaws(gateName, repoRoot, res.NewerLaws)
 	if res.Blocked() {
 		msg := fmt.Sprintf("gate %s: ratchet → REJECTED\n  %s",
 			gateName, strings.Join(res.Lines(), "\n  "))
@@ -164,6 +169,61 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 		return GateResult{}
 	}
 	return ratchetFixtureStage(gateName, repoRoot)
+}
+
+// noteNewerLaws reports every law whose declared schema this binary is too
+// old to read in full. It warns once per law on stderr and leaves one
+// `ratchet-law-newer:<law>` line in gate.log: a rule read with half its keys
+// skipped reports clean exactly like a rule that is being obeyed, so the
+// difference has to be stated somewhere a tally can see it.
+func noteNewerLaws(gateName, repoRoot string, laws []ratchet.NewerLaw) {
+	for _, l := range laws {
+		fmt.Fprintf(os.Stderr, "gate %s: ratchet law %q declares schema %d; this binary supports %d — unknown keys skipped\n",
+			gateName, l.Name, l.Schema, ratchet.SchemaVersion)
+		appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-law-newer:"+logToken(l.Name), 0)
+	}
+}
+
+// trackedFiles is every path in the index — the exact set a commit can
+// contain, newly staged files included. A shared checkout carries another
+// session's scaffolding and a generator's leftovers beside the code, and a
+// merge refused over a file nobody is committing cannot be cleared by
+// changing anything in the merge. nil when git cannot answer, which falls
+// back to walking the disk: a gate whose own tooling tripped judges more,
+// never less.
+// `-z` is not optional: without it git QUOTES and escapes a path carrying a
+// non-ASCII byte, and the quoted spelling matches nothing on disk — the file
+// drops out of the tracked set and its offence is never measured.
+func trackedFiles(repoRoot string) []string {
+	out, err := gitRead(repoRoot, "ls-files", "-z")
+	if err != nil {
+		return nil
+	}
+	return nulPaths(out)
+}
+
+// trackedIgnoredFiles is the subset of the index that .gitignore ALSO matches
+// — a repo that ignores a whole extension (borld ignores `*.md`) still tracks
+// those files. The disk walk hands such a file only to a law that opted in
+// with `ignore_gitignore`, so the tracked set has to carry the same flag or
+// the commit gate would silently judge more than `ratchet check` does.
+func trackedIgnoredFiles(repoRoot string) []string {
+	out, err := gitRead(repoRoot, "ls-files", "-z", "-i", "-c", "--exclude-standard")
+	if err != nil {
+		return nil
+	}
+	return nulPaths(out)
+}
+
+// nulPaths splits a NUL-separated git path list into slash paths.
+func nulPaths(out string) []string {
+	var files []string
+	for rec := range strings.SplitSeq(out, "\x00") {
+		if rel := strings.TrimSpace(rec); rel != "" {
+			files = append(files, filepath.ToSlash(rel))
+		}
+	}
+	return files
 }
 
 // indexOverlay is what the laws must judge at commit time: the INDEX, the

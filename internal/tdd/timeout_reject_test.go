@@ -58,7 +58,10 @@ func TestMechCache_NeverCachesATimedOutRun(t *testing.T) {
 	gitDo(t, root, "add", ".")
 
 	runs := 0
-	timedOut := func(Runner, string) SuiteResult {
+	timedOut := func(r Runner, _ string) SuiteResult {
+		if isQualityRunner(r) {
+			return SuiteResult{Passed: true}
+		}
 		runs++
 		return SuiteResult{Passed: false, TimedOut: true, Duration: time.Second}
 	}
