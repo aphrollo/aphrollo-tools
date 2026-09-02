@@ -1,0 +1,5 @@
+# go:embed reads raw bytes, so a CRLF checkout changes what the binary ships.
+*.md text eol=lf
+*.go text eol=lf
+*.toml text eol=lf
+*.sh text eol=lf
