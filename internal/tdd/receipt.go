@@ -37,17 +37,18 @@ type MutationReceipt struct {
 	Caught       int    `json:"caught"`
 	Timeout      int    `json:"timeout"`
 	Unviable     int    `json:"unviable"`
-	// Survivors and Unaccepted are LISTS of mutant names, as the producer
-	// writes them — the count is len(). Declaring survivors an int is what
-	// made every merge die on "cannot unmarshal array into Go struct field".
-	// The entries are opaque here: the producing repo decides how it names a
-	// mutant, and a gate that parsed that shape would break the day the shape
-	// changed. A non-empty Unaccepted is the whole rule.
-	Survivors  []string  `json:"survivors"`
-	Accepted   int       `json:"accepted"`
-	Unaccepted []string  `json:"unaccepted"`
-	Verdict    string    `json:"verdict"`
-	FinishedAt time.Time `json:"finished_at"`
+	// Survivors and Unaccepted are LISTS of mutants, as the producer writes
+	// them — the count is len(). Declaring survivors an int is what made
+	// every merge die on "cannot unmarshal array into Go struct field"; then
+	// declaring the entries strings died the same way on the first receipt
+	// with one accepted survivor, because tools/mutation_gate.sh writes each
+	// as {"file","line","mutation"}. MutantName takes either spelling. A
+	// non-empty Unaccepted is the whole rule.
+	Survivors  []MutantName `json:"survivors"`
+	Accepted   int          `json:"accepted"`
+	Unaccepted []MutantName `json:"unaccepted"`
+	Verdict    string       `json:"verdict"`
+	FinishedAt time.Time    `json:"finished_at"`
 }
 
 // receiptVerdictPass is the only verdict that merges. Anything else — "fail",
@@ -177,10 +178,50 @@ func commonGitDir(repoRoot string) string {
 	return strings.TrimSpace(out)
 }
 
+// MutantName is one survivor as the producer named it: an object
+// {"file","line","mutation"} from tools/mutation_gate.sh, or a bare string
+// from an older producer. Decoding accepts both; String renders both as
+// file:line: mutation so a rejection names a place to go.
+type MutantName struct {
+	File     string `json:"file,omitempty"`
+	Line     int    `json:"line,omitempty"`
+	Mutation string `json:"mutation,omitempty"`
+	// Raw is the bare-string spelling, kept verbatim.
+	Raw string `json:"-"`
+}
+
+func (m *MutantName) UnmarshalJSON(b []byte) error {
+	if len(b) > 0 && b[0] == '"' {
+		return json.Unmarshal(b, &m.Raw)
+	}
+	type object MutantName
+	var o object
+	if err := json.Unmarshal(b, &o); err != nil {
+		return fmt.Errorf("survivor entry %s: %w", b, err)
+	}
+	*m = MutantName(o)
+	return nil
+}
+
+func (m MutantName) MarshalJSON() ([]byte, error) {
+	if m.Raw != "" {
+		return json.Marshal(m.Raw)
+	}
+	type object MutantName
+	return json.Marshal(object(m))
+}
+
+func (m MutantName) String() string {
+	if m.Raw != "" {
+		return strings.TrimSpace(m.Raw)
+	}
+	return fmt.Sprintf("%s:%d: %s", m.File, m.Line, m.Mutation)
+}
+
 // firstUnaccepted is the one entry the rejection line quotes, exactly as the
 // producer named it.
-func firstUnaccepted(entries []string) string {
-	return strings.TrimSpace(entries[0])
+func firstUnaccepted(entries []MutantName) string {
+	return entries[0].String()
 }
 
 func short(sha string) string {

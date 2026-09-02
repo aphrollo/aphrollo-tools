@@ -69,8 +69,8 @@ func TestMutationReceipt_RefusesAMergeWithoutProof(t *testing.T) {
 		{"survivors nobody signed off on", func() *MutationReceipt {
 			r := passingReceipt()
 			r.Accepted = 1
-			r.Survivors = []string{"src/a.rs:12: replace + with -", "src/b.rs:3: replace * with +"}
-			r.Unaccepted = []string{"src/a.rs:12: replace + with -"}
+			r.Survivors = []MutantName{{Raw: "src/a.rs:12: replace + with -"}, {Raw: "src/b.rs:3: replace * with +"}}
+			r.Unaccepted = []MutantName{{Raw: "src/a.rs:12: replace + with -"}}
 			return &r
 		}(), "src/a.rs:12"},
 		{"a receipt for another repo", func() *MutationReceipt {
@@ -135,7 +135,7 @@ func TestMutationReceipt_AcceptsAProvenTree(t *testing.T) {
 		passingReceipt(),
 		{Repo: "borld", TipTree: laneTip, MutantsTotal: 0, Verdict: "pass"},
 		{Repo: "borld", TipTree: laneTip, MutantsTotal: 3, Caught: 2, Timeout: 0, Unviable: 0,
-			Survivors: []string{"src/a.rs:12: replace + with -"}, Accepted: 1, Unaccepted: []string{}, Verdict: "pass"},
+			Survivors: []MutantName{{Raw: "src/a.rs:12: replace + with -"}}, Accepted: 1, Unaccepted: []MutantName{}, Verdict: "pass"},
 	} {
 		t.Run(r.Verdict+"-"+short(r.TipTree), func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
