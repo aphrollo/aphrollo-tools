@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -341,6 +342,100 @@ func TestRun_Help_ListsFind(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "find") {
 		t.Fatalf("root usage should list find:\n%s", out.String())
+	}
+}
+
+func TestRun_Help_ListsDocs(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"--help"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(out.String(), "docs") {
+		t.Fatalf("root usage should list docs:\n%s", out.String())
+	}
+}
+
+func TestRun_Docs_Help(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"docs", "--help"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("`docs --help` should exit 0, got %d", code)
+	}
+	if !strings.Contains(out.String(), "check") || !strings.Contains(out.String(), "unresolved reference") {
+		t.Errorf("docs help should document `check` and its report format:\n%s", out.String())
+	}
+}
+
+func TestRun_Docs_NoSub_ShowsUsage(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"docs"}, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Fatalf("bare `docs` should be a usage error (2), got %d", code)
+	}
+	if !strings.Contains(errb.String(), "check") {
+		t.Errorf("usage should list check:\n%s", errb.String())
+	}
+}
+
+func TestRun_Docs_UnknownSub(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"docs", "frobnicate"}, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Fatalf("unknown docs subcommand should be 2, got %d", code)
+	}
+}
+
+// gitInit makes a throwaway repo with the given files (relative path → content),
+// committing them so `git ls-files` sees them tracked.
+func gitInit(t *testing.T, files map[string]string) string {
+	t.Helper()
+	isolateGit(t)
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	run("config", "user.email", "t@example.com")
+	run("config", "user.name", "t")
+	for rel, body := range files {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run("add", "-A")
+	run("commit", "-q", "-m", "init")
+	return dir
+}
+
+func TestRun_Docs_Check_Clean(t *testing.T) {
+	dir := gitInit(t, map[string]string{
+		"README.md":     "see `internal/x.go` and [guide](docs/guide.md)\n",
+		"internal/x.go": "package x\n",
+		"docs/guide.md": "# guide\n",
+	})
+	var out, errb bytes.Buffer
+	code := Run([]string{"docs", "check", dir}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("clean repo should exit 0, got %d\nstdout:%s\nstderr:%s", code, out.String(), errb.String())
+	}
+}
+
+func TestRun_Docs_Check_ReportsDangling(t *testing.T) {
+	dir := gitInit(t, map[string]string{
+		"README.md":     "good `internal/x.go` but [gone](docs/removed.md)\n",
+		"internal/x.go": "package x\n",
+	})
+	var out, errb bytes.Buffer
+	code := Run([]string{"docs", "check", dir}, strings.NewReader(""), &out, &errb)
+	if code != 1 {
+		t.Fatalf("dangling ref should exit 1, got %d", code)
+	}
+	if !strings.Contains(out.String(), "README.md:1: unresolved reference: docs/removed.md") {
+		t.Errorf("expected the dangling ref reported:\n%s", out.String())
 	}
 }
 
@@ -821,5 +916,50 @@ func TestRun_GateIsTheCommandAndTDDIsASilentAlias(t *testing.T) {
 	}
 	if aliasErr.Len() != 0 {
 		t.Errorf("the alias must be silent, got %q", aliasErr.String())
+	}
+}
+
+// An unwritable cargo-shim dir must NOT fail `tdd init`. The shims are an
+// opt-in convenience (a session prepends the dir to its own PATH); the two
+// things init exists for — the session hooks and the git gate — are the
+// contract. Exiting non-zero after both succeeded aborts whatever drives
+// init, which is how a deploy-infra apply died on
+// `mkdir /usr/local/bin/cargo-queue: permission denied` when the task ran as
+// an unprivileged user against a system-wide --bin.
+func TestRun_TDDInit_UnwritableShimDir_WarnsButSucceeds(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod does not deny directory writes on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	isolateGit(t)
+	cfg := t.TempDir()
+	hooks := filepath.Join(t.TempDir(), "githooks")
+	bin := filepath.Join(t.TempDir(), "aphrollo.exe")
+
+	// A read-only parent, so creating the shim dir under it is denied.
+	parent := t.TempDir()
+	if err := os.Chmod(parent, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
+	shimDir := filepath.Join(parent, "cargo-queue")
+
+	var out, errb bytes.Buffer
+	code := Run([]string{"tdd", "init", "--config-dir", cfg, "--git-hooks-dir", hooks, "--cargo-shim-dir", shimDir, "--bin", bin},
+		strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("init exit = %d, want 0 — an unwritable shim dir must not fail init\nstderr: %s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "wired session hooks") {
+		t.Errorf("session hooks not reported as wired:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "installed git gate") {
+		t.Errorf("git gate not reported as installed:\n%s", out.String())
+	}
+	// The warning has to name the dir and the flag, or the operator cannot act on it.
+	if !strings.Contains(errb.String(), shimDir) || !strings.Contains(errb.String(), "--cargo-shim-dir") {
+		t.Errorf("warning must name the dir and --cargo-shim-dir:\n%s", errb.String())
 	}
 }

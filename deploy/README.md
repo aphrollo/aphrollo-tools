@@ -36,8 +36,8 @@ mv -Tf  /opt/aphrollo-cli/current.new      /opt/aphrollo-cli/current
 
 ## Server prerequisites (one-time, provisioned by aphrollo-infra)
 
-`aphrollo-infra` (`ansible/site.yml`) owns these — the app's deploy owns only
-`current`:
+`aphrollo-infra` (its `site.yml` playbook) owns these — the app's deploy owns
+only `current`:
 
 - `/opt/aphrollo-cli` and `/opt/aphrollo-cli/releases` — `github-runner`-owned,
   `0755` (the runner stages releases + swaps `current` here).

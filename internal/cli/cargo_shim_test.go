@@ -19,6 +19,15 @@ import (
 // file -- same reasoning as internal/tdd's withIsolatedBuildLock.
 func withIsolatedCargoLock(t *testing.T) {
 	t.Helper()
+	// Clear the passthrough switch the shim honours (see runCargoShim): with
+	// it set to "1" a cargo invocation runs straight through and never takes
+	// the build lock, so every queue/wait assertion below silently observes a
+	// 0 exit. runCargoLocked sets it for real on the child environment, so any
+	// suite running underneath the gate inherits it — which is what `tdd
+	// precommit` does when it runs this package's own tests. The test that
+	// WANTS the passthrough branch sets it explicitly and never calls this
+	// helper.
+	t.Setenv(tdd.BuildLockHeldEnv, "")
 	restore := tdd.SetBuildLockPathForTest(filepath.Join(t.TempDir(), "test-build.lock"))
 	t.Cleanup(restore)
 }

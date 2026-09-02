@@ -42,10 +42,11 @@ func pushedRepo(t *testing.T) string {
 	return repo
 }
 
-// On GREEN CI, submit flips the draft PR to ready, sets the PR body to the
-// summary, and reports the in_progress -> review handoff. The receipt uses
+// When a draft PR already exists (a legacy or in-flight PR from before this
+// change, or one opened by hand), submit flips it to ready, sets the PR body to
+// the summary, and reports the in_progress -> review handoff. The receipt uses
 // "draft -> in review" wording and never the literal ready_for_review.
-func TestSubmit_GreenFlipsAndSetsBody(t *testing.T) {
+func TestSubmit_FlipsLegacyDraftAndSetsBody(t *testing.T) {
 	repo := pushedRepo(t)
 	stubGH(t,
 		func(wt, branch string) (*PRInfo, error) {
@@ -96,6 +97,59 @@ func TestSubmit_GreenFlipsAndSetsBody(t *testing.T) {
 	}
 	if strings.Contains(o, "pr #42") {
 		t.Errorf("push's lowercase 'pr #N' receipt must not leak through submit:\n%s", o)
+	}
+}
+
+// When no PR exists yet, submit is the SOLE opener: it opens one READY —
+// never draft — so CI fires exactly once, at the handoff, instead of once on a
+// draft's `opened` event and again on `ready_for_review`.
+func TestSubmit_CreatesReadyPRWhenNoneExists(t *testing.T) {
+	repo := pushedRepo(t)
+	var created *PRCreate
+	stubGH(t,
+		func(wt, branch string) (*PRInfo, error) { return nil, nil },
+		func(wt string, req PRCreate) (*PRInfo, error) {
+			created = &req
+			return &PRInfo{Number: 55, URL: "https://github.com/o/r/pull/55", State: "OPEN", IsDraft: req.Draft}, nil
+		},
+	)
+	stubReady(t, func(wt, branch string) error {
+		t.Fatal("a freshly opened ready PR must not also be flipped")
+		return nil
+	})
+	var gotBody string
+	stubBody(t, func(wt, branch, body string) error { gotBody = body; return nil })
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "pending"}, nil })
+
+	s, err := SubmitPlan(targetFor(repo, "feat/y"), "summary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if err := s.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
+	}
+	if created == nil {
+		t.Fatal("submit must open a PR when none exists yet")
+	}
+	if created.Draft {
+		t.Error("submit must open the PR READY, not as a draft")
+	}
+	if created.Base != "main" {
+		t.Errorf("create base = %q, want the default branch", created.Base)
+	}
+	if gotBody != "summary" {
+		t.Errorf("PR body = %q, want the summary", gotBody)
+	}
+	o := out.String()
+	if !strings.Contains(o, "opened PR #55") || !strings.Contains(o, "ready for review") {
+		t.Errorf("receipt should report the freshly opened ready PR:\n%s", o)
+	}
+	if strings.Contains(o, "draft -> in review") {
+		t.Errorf("a freshly opened PR must not claim a draft -> in review flip:\n%s", o)
+	}
+	if !strings.Contains(o, "handoff in_progress -> review") {
+		t.Errorf("receipt missing handoff line:\n%s", o)
 	}
 }
 

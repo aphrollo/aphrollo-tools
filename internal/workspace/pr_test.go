@@ -141,41 +141,35 @@ func TestPRPlan_BaseDefaultsToMain(t *testing.T) {
 	}
 }
 
-// ensureDraftPR must reuse only an OPEN PR. A MERGED or CLOSED PR is dead — push
-// must NOT relink it; it falls through and opens a fresh draft instead.
-func TestEnsureDraftPR_DeadPRsAreNotReused(t *testing.T) {
+// reuseOpenPR must reuse only an OPEN PR. A MERGED or CLOSED PR is dead — push
+// must NOT relink it and must NOT open a fresh one either; push never opens a
+// PR at all (submit is the sole opener), so a dead PR is treated as none.
+func TestReuseOpenPR_DeadPRsAreNotReused(t *testing.T) {
 	for _, state := range []string{"MERGED", "CLOSED"} {
 		t.Run(state, func(t *testing.T) {
 			repo := pushedRepo(t)
-			created := false
 			stubGH(t,
 				func(wt, branch string) (*PRInfo, error) {
 					return &PRInfo{Number: 5, URL: "https://github.com/o/r/pull/5", State: state}, nil
 				},
 				func(wt string, req PRCreate) (*PRInfo, error) {
-					created = true
-					if !req.Draft {
-						t.Error("a fresh PR opened over a dead one must be a draft")
-					}
-					return &PRInfo{Number: 6, URL: "https://github.com/o/r/pull/6", State: "OPEN", IsDraft: true}, nil
+					t.Fatal("reuseOpenPR must never create a PR")
+					return nil, nil
 				},
 			)
-			info, verb, err := ensureDraftPR(repo, "feat/y")
+			info, err := reuseOpenPR(repo, "feat/y")
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !created {
-				t.Fatalf("a %s PR must not be reused — ensureDraftPR must open a fresh draft", state)
-			}
-			if verb != "opened" || info.Number != 6 {
-				t.Errorf("expected a fresh opened PR #6, got verb=%q info=%+v", verb, info)
+			if info != nil {
+				t.Errorf("a %s PR must not be reused, got %+v", state, info)
 			}
 		})
 	}
 }
 
-// An OPEN PR (draft or ready) is still reused — that is the idempotent path.
-func TestEnsureDraftPR_OpenIsReused(t *testing.T) {
+// An OPEN PR (draft or ready) is reused — that is the idempotent path.
+func TestReuseOpenPR_OpenIsReused(t *testing.T) {
 	repo := pushedRepo(t)
 	stubGH(t,
 		func(wt, branch string) (*PRInfo, error) {
@@ -183,12 +177,32 @@ func TestEnsureDraftPR_OpenIsReused(t *testing.T) {
 		},
 		func(wt string, req PRCreate) (*PRInfo, error) { t.Fatal("open PR must be reused, not re-created"); return nil, nil },
 	)
-	info, verb, err := ensureDraftPR(repo, "feat/y")
+	info, err := reuseOpenPR(repo, "feat/y")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if verb != "reused" || info.Number != 5 {
-		t.Errorf("expected reused PR #5, got verb=%q info=%+v", verb, info)
+	if info == nil || info.Number != 5 {
+		t.Errorf("expected reused PR #5, got info=%+v", info)
+	}
+}
+
+// No PR at all: reuseOpenPR returns nil, nil — push has nothing to reuse and,
+// per the ticket, opens nothing either.
+func TestReuseOpenPR_NoneReturnsNil(t *testing.T) {
+	repo := pushedRepo(t)
+	stubGH(t,
+		func(wt, branch string) (*PRInfo, error) { return nil, nil },
+		func(wt string, req PRCreate) (*PRInfo, error) {
+			t.Fatal("reuseOpenPR must never create a PR")
+			return nil, nil
+		},
+	)
+	info, err := reuseOpenPR(repo, "feat/y")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info != nil {
+		t.Errorf("expected nil when no PR exists, got %+v", info)
 	}
 }
 

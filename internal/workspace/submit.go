@@ -32,17 +32,19 @@ var ghEditPRBody = func(wt, branch, body string) error {
 
 // Submit is the coder's ONE-SHOT handoff that moves a card in_progress -> review.
 // It pushes (idempotent), reads the branch PR's CI state INSIDE the verb (the only
-// gh check-state read, so the caller needs no extra call), and UNCONDITIONALLY
-// flips the draft PR to ready + sets the PR body to the summary. The flip is the
-// handoff and the coder signals it exactly once: it happens on green, pending,
-// red, or a merge conflict alike. Any remaining problem is repaired by a follow-up
+// gh check-state read, so the caller needs no extra call), and is the SOLE opener
+// of the PR: when none exists yet it OPENS ONE READY (not draft) so CI fires
+// exactly once, at the handoff; when a draft already exists (a legacy or
+// in-flight PR) it flips it ready; when one is already ready it is a no-op
+// [skip]. The handoff happens unconditionally — on green, pending, red, or a
+// merge conflict alike — and any remaining problem is repaired by a follow-up
 // `push` to the same PR (which stays ready) — never a re-submit. The server-side
 // AllOpenGreen gate (non-draft + ci_state=success) is what holds the reviewer
-// until CI is actually green, so flipping early never arms review prematurely;
-// holding the draft here instead stranded tickets, since the coder's turn ends
-// before it can re-run submit. Only a real failure (the gh flip call itself) is
-// fatal. Re-callable, idempotent. It replaces the old `ready` verb (kept as a
-// hidden alias).
+// until CI is actually green, so opening/flipping early never arms review
+// prematurely; holding a draft back instead stranded tickets, since the coder's
+// turn ends before it can re-run submit. Only a real failure (the gh open/flip
+// call itself) is fatal. Re-callable, idempotent. It replaces the old `ready`
+// verb (kept as a hidden alias).
 type Submit struct {
 	Target  *Target
 	Summary string
@@ -68,9 +70,10 @@ func (s *Submit) Render(apply bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "workspace submit: %s -> review  (cwd %s)\n", s.Target.Branch, s.Target.Worktree)
 	if !apply {
-		fmt.Fprintf(&b, "  push (idempotent), then flip the draft PR to in-review (the one-shot handoff)\n")
-		fmt.Fprintf(&b, "  flips on any CI state — review arms server-side once CI is green\n")
-		fmt.Fprintf(&b, "  red CI / merge conflict: still flipped, fix via a follow-up push (no re-submit)\n")
+		fmt.Fprintf(&b, "  push (idempotent), then open a READY PR (none exists yet) or flip an existing\n")
+		fmt.Fprintf(&b, "  draft to in-review — the one-shot handoff\n")
+		fmt.Fprintf(&b, "  opens/flips on any CI state — review arms server-side once CI is green\n")
+		fmt.Fprintf(&b, "  red CI / merge conflict: still opened/flipped, fix via a follow-up push (no re-submit)\n")
 		fmt.Fprintf(&b, "\nrun again without --dry to submit.\n")
 	}
 	return b.String()
@@ -101,8 +104,18 @@ func (s *Submit) Apply(stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// Submit is the SOLE opener: when no PR exists yet, open one READY (not
+	// draft) here — the handoff is the moment CI should start. The freshly
+	// created info has no Mergeable/MergeStateStatus (gh never asked), which
+	// mergeUnknown/isConflicting already treat as "not computed" rather than a
+	// false conflict/unknown, so no extra re-read is needed.
+	opened := false
 	if info == nil {
-		return fmt.Errorf("no PR for %s — run: aphrollo workspace push", branch)
+		info, err = ghCreatePR(wt, PRCreate{Base: resolveDefaultBranch(wt), Branch: branch, Draft: false})
+		if err != nil {
+			return err
+		}
+		opened = true
 	}
 
 	ci, err := ghCIStatus(wt, branch)
@@ -116,16 +129,17 @@ func (s *Submit) Apply(stdout, stderr io.Writer) error {
 		fmt.Fprintf(stdout, "mergeable: unknown — push to recheck\n")
 	}
 
-	// The handoff is ONE-SHOT and unconditional: flip the draft ready now. The coder
+	// The handoff is ONE-SHOT and unconditional: open/flip to ready now. The coder
 	// signals "done" exactly once; ANY remaining problem — red CI, a merge conflict,
 	// or CI still pending — is repaired by a follow-up `push` to the SAME PR, which
-	// stays ready, with no re-submit. Holding the draft here instead stranded
+	// stays ready, with no re-submit. Holding a draft back instead stranded
 	// tickets: the coder ends its turn before it can re-run submit. The server-side
 	// AllOpenGreen gate (non-draft + ci_state success) holds the reviewer until CI is
-	// actually green, and a conflicted branch can't green, so flipping early never
-	// arms review prematurely. Only a real failure (the gh flip call itself) is fatal.
+	// actually green, and a conflicted branch can't green, so opening/flipping early
+	// never arms review prematurely. Only a real failure (the gh open/flip call
+	// itself) is fatal. A PR opened ready here (opened==true) needs no flip.
 	flipped := false
-	if info.IsDraft {
+	if !opened && info.IsDraft {
 		if err := ghReadyPR(wt, branch); err != nil {
 			return err
 		}
@@ -142,18 +156,22 @@ func (s *Submit) Apply(stdout, stderr io.Writer) error {
 	}
 
 	// Stateful receipt: never surfaces the literal ready_for_review. A re-run on an
-	// already-ready PR is the idempotent [skip] path (no re-flip).
-	if flipped {
+	// already-ready PR is the idempotent [skip] path (no open, no re-flip).
+	switch {
+	case opened:
+		fmt.Fprintf(stdout, "opened PR #%d ready for review: %s\n", info.Number, info.URL)
+	case flipped:
 		fmt.Fprintf(stdout, "submitted PR #%d  draft -> in review\n", info.Number)
-	} else {
+	default:
 		fmt.Fprintf(stdout, "already in review [skip]  PR #%d %s\n", info.Number, info.URL)
 	}
 	s.receiptTail(stdout, info, newCommits, ci, conflict)
 	// Raise the first-class readiness signal at the api's internal submit endpoint
-	// on BOTH paths. On the flip path the ready_for_review webhook is redundant
-	// defense; on the [skip] path (an already-ready PR that never re-drafts) NO
-	// webhook fires, so this is the ONLY thing that re-arms review after a bounce.
-	// Best-effort — a failure warns but never fails the handoff.
+	// on the open and [skip] paths alike: neither ever fires a ready_for_review
+	// webhook (a freshly opened PR is created ready outright; an already-ready PR
+	// never re-drafts), so this endpoint call is the ONLY thing that arms review
+	// there. On the flip path the webhook is redundant defense. Best-effort — a
+	// failure warns but never fails the handoff.
 	raiseSubmitSignal(stdout, !flipped)
 	return nil
 }

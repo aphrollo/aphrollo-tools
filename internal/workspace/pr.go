@@ -230,30 +230,23 @@ func (p *PR) Apply(stdout, stderr io.Writer) error {
 	return nil
 }
 
-// ensureDraftPR guarantees a DRAFT PR exists for branch in the worktree's repo:
-// it reuses an existing open PR (verb "reused") or opens a fresh draft (verb
-// "opened"), returning the resolved PRInfo. It is the idempotent primitive push
-// folds in — a re-driven push reuses, never duplicates. The branch must already
-// be on origin (the caller pushes first). The base defaults to the repo's default
-// remote branch, read from origin/HEAD (never hardcoded "main").
-func ensureDraftPR(wt, branch string) (*PRInfo, string, error) {
+// reuseOpenPR looks up branch's PR and returns it only when OPEN (draft or
+// ready). Push never OPENS a PR — submit is the sole opener, so CI fires
+// exactly once at handoff — so a dead (merged/closed) PR is treated the same as
+// none: nothing for push to reuse. The branch must already be on origin (the
+// caller pushes first).
+func reuseOpenPR(wt, branch string) (*PRInfo, error) {
 	if !remoteBranchExists(wt, branch) {
-		return nil, "", fmt.Errorf("branch %s is not on origin — run: aphrollo workspace push", branch)
+		return nil, fmt.Errorf("branch %s is not on origin — run: aphrollo workspace push", branch)
 	}
-	// Reuse ONLY an OPEN PR (draft or ready). A merged/closed PR is dead —
-	// relinking it would let push point at a dead PR and submit fail flipping
-	// it. Fall through and open a fresh draft instead.
-	if existing, err := ghViewPR(wt, branch); err != nil {
-		return nil, "", err
-	} else if existing != nil && strings.ToUpper(existing.State) == "OPEN" {
-		return existing, "reused", nil
-	}
-	base := resolveDefaultBranch(wt)
-	info, err := ghCreatePR(wt, PRCreate{Base: base, Branch: branch, Draft: true})
+	existing, err := ghViewPR(wt, branch)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	return info, "opened", nil
+	if existing != nil && strings.ToUpper(existing.State) == "OPEN" {
+		return existing, nil
+	}
+	return nil, nil
 }
 
 // reportPRState prints the two machine-readable lines a coder relays into

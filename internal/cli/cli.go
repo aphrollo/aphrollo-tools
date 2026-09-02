@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/dev"
+	"github.com/aphrollo/aphrollo-tools/internal/docs"
 	"github.com/aphrollo/aphrollo-tools/internal/guardrail"
 	"github.com/aphrollo/aphrollo-tools/internal/refactor"
 	"github.com/aphrollo/aphrollo-tools/internal/sqlc"
@@ -37,6 +38,7 @@ Commands:
   gate        Autonomous TDD + law gates (Claude + git hooks); tdd is a silent alias
   ratchet     Judge a repo against its declared code laws (.ratchet/laws/*.toml)
   sqlc        Guard sqlc-generated code against drift (check / scoped regen)
+  docs        Guard doc-cited repo paths against dangling references (check)
 `
 
 // commandTimeout bounds a single language-server-backed command end to end —
@@ -93,6 +95,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runRatchet(args[1:], stdout, stderr)
 	case "sqlc":
 		return runSqlc(args[1:], stdout, stderr)
+	case "docs":
+		return runDocs(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "aphrollo: unknown command %q\n\n%s", args[0], rootUsage)
 		return 2
@@ -598,14 +602,13 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		if cdir == "" {
 			cdir = filepath.Join(filepath.Dir(binName), "cargo-queue")
 		}
-		cchanged, err := tdd.InstallCargoShim(cdir, binName)
-		if err != nil {
-			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-			return 1
-		}
-		if cchanged {
+		cchanged, cerr := tdd.InstallCargoShim(cdir, binName)
+		switch {
+		case cerr != nil:
+			warnShimSkipped(stderr, cdir, cerr)
+		case cchanged:
 			fmt.Fprintf(stdout, "aphrollo gate: installed cargo-queue shim in %s\n", cdir)
-		} else {
+		default:
 			fmt.Fprintf(stdout, "aphrollo gate: cargo-queue shim already up to date (%s)\n", cdir)
 		}
 
@@ -613,14 +616,13 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		// -- a session prepends ONE dir to PATH and gets both `cargo` and
 		// `git` queued. Same --uninstall reasoning as cargo: never removed,
 		// harmless to leave in place.
-		gchanged2, err := tdd.InstallGitShim(cdir, binName)
-		if err != nil {
-			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-			return 1
-		}
-		if gchanged2 {
+		gchanged2, gerr := tdd.InstallGitShim(cdir, binName)
+		switch {
+		case gerr != nil:
+			warnShimSkipped(stderr, cdir, gerr)
+		case gchanged2:
 			fmt.Fprintf(stdout, "aphrollo gate: installed git-queue shim in %s\n", cdir)
-		} else {
+		default:
 			fmt.Fprintf(stdout, "aphrollo gate: git-queue shim already up to date (%s)\n", cdir)
 		}
 
@@ -814,16 +816,18 @@ Core coder flow (create · commit · push · submit), all from the worktree's cw
   commit -m <msg>           Stage (-A) + commit the CURRENT worktree, honoring the
                             TDD gate; reports sha + delta (--dry; --no-verify;
                             --staged-only).
-  push                      git push -u origin HEAD AND ensure a DRAFT PR exists
-                            (open if absent, reuse if present); reports
-                            ahead-count, PR, CI (--dry; --force-with-lease).
-  submit -m <summary>       Push (idempotent), then — only if CI is green — flip
-                            the draft PR to in-review and set the PR body to the
-                            summary (the in_progress → review handoff). CI red or
-                            pending: not flipped, non-zero, re-callable (--dry).
-                            Per-worktree, one repo at a time: acts on the cwd
-                            worktree's PR — there is no ticket-level submit.
-                            push/ship opened that draft; submit flips it to ready.
+  push                      git push -u origin HEAD; reuse the branch's PR state
+                            in the receipt if one is already OPEN (--dry;
+                            --force-with-lease). Never opens a PR — submit does.
+  submit -m <summary>       Push (idempotent), then hand off: open a READY PR
+                            when none exists, flip a legacy/in-flight draft to
+                            in-review, or no-op [skip] an already-ready one —
+                            and set the PR body to the summary (the in_progress
+                            → review handoff). Unconditional on CI state;
+                            re-callable (--dry). Per-worktree, one repo at a time:
+                            acts on the cwd worktree's PR — there is no
+                            ticket-level submit. submit is the sole PR opener, so
+                            CI fires exactly once, at the handoff.
 
 Worktree lifecycle:
   claim <repo> <branch>     Put a prepared worktree on the dev tier so it is
@@ -1718,6 +1722,70 @@ func runSqlc(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
+const docsUsage = `usage: aphrollo docs <subcommand> [args]
+
+Subcommands:
+  check [path...]   Verify every repo path a tracked doc cites still resolves.
+                    Exit 1 on any unresolved reference. Read-only.
+
+Scans tracked *.md (git ls-files) under the repo root (default: cwd repo);
+narrow to specific pathspecs by passing them. Extracts markdown link targets
+[..](path) and inline-code tokens that look like repo paths (a slash + a file
+extension, or a multi-segment trailing-slash dir). Each reference is resolved
+relative to the citing file, then to the repo root. http(s)/mailto URLs, bare
+#anchors, absolute/home paths, and anything inside a fenced code block are
+ignored. Reports every miss as:
+
+  file:line: unresolved reference: <path>
+
+The bar is zero. There is no baseline file, no allowlist, no suppression comment
+— a rule with an escape hatch decays. A doc that cites a path that no longer
+exists silently misdrives every agent session that loads it; this catches that.
+`
+
+func runDocs(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprint(stderr, docsUsage)
+		return 2
+	}
+	switch args[0] {
+	case "-h", "--help", "help":
+		fmt.Fprint(stdout, docsUsage)
+		return 0
+	case "check":
+		return runDocsCheck(args[1:], stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "aphrollo docs: unknown subcommand %q\n\n%s", args[0], docsUsage)
+		return 2
+	}
+}
+
+func runDocsCheck(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("check", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	// A single positional arg naming a directory is the repo root to scan;
+	// otherwise the positionals are pathspecs narrowing the cwd repo.
+	root := "."
+	paths := fs.Args()
+	if len(paths) > 0 {
+		if info, err := os.Stat(paths[0]); err == nil && info.IsDir() {
+			root, paths = paths[0], paths[1:]
+		}
+	}
+	failed, err := docs.Check(root, paths, stdout)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	if failed {
+		return 1
+	}
+	return 0
+}
+
 func runSqlcCheck(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -1811,4 +1879,19 @@ func filterConfigs(cfgs []sqlc.Config, only string) []sqlc.Config {
 		}
 	}
 	return out
+}
+
+// warnShimSkipped reports a queue-shim directory init could not write, WITHOUT
+// failing init. The shims are opt-in (a session prepends the dir to its own
+// PATH); the session hooks and the git gate are what init is actually for, and
+// both are already done by the time this runs. Exiting non-zero here aborts
+// whatever drives init — an ansible task with `become_user` and a system-wide
+// --bin lands on a root-owned bin dir and takes the whole play down with
+// `mkdir /usr/local/bin/cargo-queue: permission denied`, despite the hooks and
+// gate having been wired correctly. Name the dir and the flag so the fix is
+// obvious from the warning alone.
+func warnShimSkipped(stderr io.Writer, dir string, err error) {
+	fmt.Fprintf(stderr, "aphrollo tdd: skipped queue shims in %s: %v\n", dir, err)
+	fmt.Fprintf(stderr, "aphrollo tdd: session hooks and git gate are installed; "+
+		"pass --cargo-shim-dir <writable dir> to install the opt-in cargo/git queue shims\n")
 }

@@ -42,6 +42,9 @@ and acts now.
 - `gate` — the TDD + law gates (`pretooluse`/`posttooluse`/`userpromptsubmit`/`sessionend`/
   `precommit`/`prepush`) + `gate init` (wires session hooks + global git gate); `tdd` is a silent alias for one release.
   Ported from the retired `claude-code-tdd` Node hooks (this binary IS the gate now).
+- `docs check` — doc-reference guard: every repo path a tracked `*.md` cites must
+  resolve (relative to the citing file, then repo root); exit 1 on any miss. Bar
+  is zero — no baseline, no allowlist, no suppression.
 
 ## Layout
 
@@ -54,6 +57,7 @@ internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy
 internal/ratchet/    Law engine: .ratchet/laws/*.toml schema, matchers, baselines, fixtures
 internal/tdd/        TDD + law gates: policy engine, edit smells, anti-cheat, fail-first, install
+internal/docs/       doc-reference guard: extract path citations, resolve, report misses
 internal/workspace/  worktree lifecycle + git verbs
 internal/dev/        dev-tier control plane (systemd)
 ```
@@ -100,3 +104,33 @@ retired the root build task). aphrollo-infra no longer force-installs it.
 - Don't add a sudo wrapper or wildcard grant — the narrow exact-match systemctl
   fence is the whole security story.
 - Don't duplicate README usage here — this file is dev context only.
+
+<!-- aphrollo:begin -->
+## Working with the aphrollo gate
+
+- **PATH, queue shim first** — bash `export PATH="C:/Users/olive/AppData/Local/Temp/TestRun_TDDInit_UnwritableShimDir_WarnsButSucceeds2985398588/005/cargo-queue:$PATH"` · PowerShell
+  `$env:Path = "C:/Users/olive/AppData/Local/Temp/TestRun_TDDInit_UnwritableShimDir_WarnsButSucceeds2985398588/005/cargo-queue;$env:Path"`. A `cargo`/`git` run through the shim QUEUES
+  visibly behind another build instead of hanging on a silent lock.
+- **The hooks run the tests, not you.** After every Edit/Write, PostToolUse prints
+  exactly ONE `gate:` line. Read it; never re-run a suite it just ran. Iterate with
+  `cargo check -p <crate> --tests`, which runs nothing.
+- **What the line means:** `green (N passed)` · `red-missing-impl` (a clean RED) ·
+  `red` · `red-bogus` (broken test setup, not a real RED) · `TIMEOUT` / `SKIPPED` /
+  `QUEUED-SKIPPED` (**inconclusive — the code was NOT tested**) · `BUILDING (deferred)`
+  (the build outran the budget and continues; its result arrives at the next hook).
+  The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE
+  targeted `-p <crate> <filter>` after the hook itself said TIMEOUT/SKIPPED.
+- **Commit gate, cheapest first:** staged-baseline guard → ratchet laws → `cargo fmt`
+  → always-run guards → clippy → workspace check → fail-first RED proof → the
+  touched crates' suites. It stops at the first rejection and names the stage.
+- **Laws are data:** `.ratchet/laws/*.toml` (scope + one matcher + severity), with
+  baselines under `.ratchet/baselines/` that only ever go DOWN. `aphrollo ratchet
+  check` judges the tree and tightens; `aphrollo ratchet test` proves each law against
+  its fixtures. A new hit is admitted by the law's escape comment, NEVER by editing a
+  baseline — the gate rejects a raised one.
+- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) ·
+  `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).
+
+_This block is written by `aphrollo gate init`. Edit the template in aphrollo, not
+the block — the next init overwrites whatever is between the markers._
+<!-- aphrollo:end -->

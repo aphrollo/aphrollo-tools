@@ -50,7 +50,7 @@ func TestSlugify(t *testing.T) {
 
 func TestDefaultWorktreeBase(t *testing.T) {
 	got := DefaultWorktreeBase("/home/debian/spaces/aphrollo/aphrollo-web")
-	want := "/home/debian/spaces/aphrollo/.worktrees/aphrollo-web"
+	want := filepath.FromSlash("/home/debian/spaces/aphrollo/.worktrees/aphrollo-web")
 	if got != want {
 		t.Fatalf("DefaultWorktreeBase = %q, want %q", got, want)
 	}

@@ -346,6 +346,16 @@ func TestRunGitShim_PassthroughWhenBuildLockHeldEnvSet(t *testing.T) {
 // them directly.
 func gitCommonDirEnv(t *testing.T) string {
 	t.Helper()
+	// Clear the two passthrough switches the shim honours (see runGitShim):
+	// with either set to "1" a mutating verb runs straight through and never
+	// touches the lock, so every queue/wait assertion below silently observes
+	// zero queued lines and a 0 exit. They are set for real whenever a git
+	// command runs inside the gate — which is exactly what `tdd precommit`
+	// does when it runs this package's own suite, so without this the repo's
+	// gate blocks every commit to the repo. Tests that WANT the passthrough
+	// branch set them explicitly and never call this helper.
+	t.Setenv(tdd.GitQueuedEnv, "")
+	t.Setenv(tdd.BuildLockHeldEnv, "")
 	dir := t.TempDir()
 	t.Setenv("APHROLLO_TEST_GIT_COMMON_DIR", dir)
 	return dir

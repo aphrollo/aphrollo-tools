@@ -110,8 +110,8 @@ aphrollo workspace create <repo> <branch>   # from the main clone: worktree + de
 cd <worktree>
 # … edit / test …
 aphrollo workspace commit -m "feat: …"      # stage -A + commit (TDD-gated)
-aphrollo workspace push                     # push + ensure a DRAFT PR exists
-aphrollo workspace submit -m "<summary>"    # CI-green → flip draft to in-review
+aphrollo workspace push                     # push; reuse an existing PR if there is one
+aphrollo workspace submit -m "<summary>"    # opens the PR READY (or flips a draft) — the handoff
 ```
 
 `commit`, `push`, `submit`, and `update` are **cwd-only** — they act on the
@@ -285,18 +285,18 @@ aphrollo workspace commit -m "feat: kanban drag-and-drop"
 #   delta 3 files changed, 42 insertions(+), 7 deletions(-)
 #   gate TDD pass
 
-# push: git push -u origin HEAD AND ensure a draft PR exists (open or reuse)
+# push: git push -u origin HEAD; reuse the PR's state in the receipt if one exists
 aphrollo workspace push
 # pushed feat/kanban -> origin (2 commit(s))
 #   https://github.com/aphrollo/aphrollo-web/tree/feat/kanban
-# pr #321 draft [opened] https://github.com/aphrollo/aphrollo-web/pull/321
-# ci pending
+# no PR yet for feat/kanban — run: aphrollo workspace submit
+# ci none
 
-# submit: push (idempotent) → CI green → flip draft to in-review + set body
+# submit: push (idempotent) → open the PR READY (or flip a legacy draft) → set body
 aphrollo workspace submit -m "Kanban drag-and-drop. Closes #200."
-# submitted PR #321  draft -> in review
-#   pushed in sync
-#   ci green
+# opened PR #321 ready for review: https://github.com/aphrollo/aphrollo-web/pull/321
+#   already in sync
+#   ci pending — review arms when green
 #   handoff in_progress -> review
 ```
 
@@ -304,34 +304,36 @@ aphrollo workspace submit -m "Kanban drag-and-drop. Closes #200."
   as-is) and runs the [TDD pre-commit gate](#tdd--law-gates-aphrollo-gate); `--no-verify`
   is the documented escape for the gate's known false-positives. A clean tree is a
   reported no-op, not an error.
-- **push** sets the upstream on a first push, reports the ahead-count + branch
-  URL, and **folds the draft-PR open**: it ensures a draft PR exists — opening
-  one when absent, **reusing** it when present (idempotent, never a duplicate) —
-  and reports the PR number/url + the current CI state. `--force-with-lease` for a
-  rebased branch.
-- **submit** is the **CI-guarded handoff** that moves a card `in_progress →
+- **push** sets the upstream on a first push and reports the ahead-count + branch
+  URL. It **never opens a PR** — `submit` is the sole opener, so CI fires exactly
+  once, at the handoff, instead of once on a draft's `opened` event and again on
+  `ready_for_review`. If an OPEN PR already exists for the branch, push reuses
+  it in the receipt (number/url + the current CI state); if none exists yet, it
+  says so and points at `submit`. `--force-with-lease` for a rebased branch.
+- **submit** is the **one-shot handoff** that moves a card `in_progress →
   review`. It pushes (idempotent), reads the branch PR's CI **inside the verb**
-  (the only `gh` check-state read, so the caller needs no extra call), and **only
-  on green** flips the draft PR to in-review and sets the PR body to `-m`'s
-  summary. On **red** it prints `blocked: CI red (<k> failing), NOT marked ready`
-  and exits non-zero; on **pending** it prints `held: CI pending, NOT marked
-  ready yet` and exits non-zero — both **re-callable** until CI goes green. On a
-  **conflicted** branch (`mergeable: CONFLICTING` / `mergeStateStatus: DIRTY` —
-  the real reason required checks queue forever) it short-circuits the CI gate,
-  prints `blocked: branch has merge conflicts, NOT marked ready` plus the fix
-  (`rebase onto <base> and resolve, then re-run submit`), and exits non-zero
-  without flipping. GitHub computes mergeability async, so the read briefly
-  re-polls past the `UNKNOWN` window; if it never resolves it reports
-  `mergeable: unknown — re-run to recheck` rather than a false all-clear. `push`
+  (the only `gh` check-state read, so the caller needs no extra call), and is the
+  **sole opener** of the PR: when none exists yet it opens one **READY** (never
+  draft), when a draft already exists (a legacy or hand-opened PR) it flips it
+  ready, and when one is already ready it is a no-op `[skip]`. The open/flip
+  happens unconditionally — on green, red, or pending CI alike — and sets the PR
+  body to `-m`'s summary; a problem (red CI, a merge conflict, still-pending CI)
+  is repaired by a follow-up `push` to the same PR, never a re-submit — the
+  receipt names it (`ci red (<k> failing) — push a fix`, `merge conflict —
+  rebase onto <base> + push`, `ci pending — review arms when green`). The
+  server-side `AllOpenGreen` gate, not this verb, is what actually holds the
+  reviewer until CI is green. GitHub computes mergeability async, so the read
+  briefly re-polls past the `UNKNOWN` window; if it never resolves it reports
+  `mergeable: unknown — push to recheck` rather than a false all-clear. `push`
   surfaces the same conflict as a non-fatal `CONFLICT:` warning line.
   submit is **per-worktree, one repo at a time**: it acts on the cwd worktree's
-  single PR — `push`/`ship` opened that draft, `submit` flips it draft → ready.
-  There is **no ticket-level submit** that fans out across repos; a ticket that
-  spans repos is submitted one worktree at a time.
+  single PR. There is **no ticket-level submit** that fans out across repos; a
+  ticket that spans repos is submitted one worktree at a time.
 
 > `pr` and `ship` still exist as operator escapes (they take an explicit
 > `<repo> <branch>` and also default to the cwd worktree), but the coder flow is
-> `push` (which folds `pr`) then `submit` — not the discrete `pr`/`ship`.
+> `push` then `submit` — not the discrete `pr`/`ship`. `submit`, not `push`, is
+> the one that opens the PR.
 
 ### Verify — the typecheck/lint the commit gate misses
 
@@ -1284,6 +1286,36 @@ Two things run it for you:
   Lock litter is swept there too. Incremental pruning holds a build slot for the target dir while it deletes,
   and is skipped silently when every slot is busy — the next sweep gets it.
 
+### Doc-reference guard (`aphrollo docs check`)
+
+Agent behaviour on this box is driven by prose — layered `CLAUDE.md` files plus
+per-repo docs. A citation that points at a path which no longer exists silently
+misdrives every session that loads the doc, and nothing else catches it.
+
+```sh
+aphrollo docs check                 # scan the cwd repo (default)
+aphrollo docs check path/to/repo    # scan another repo root
+aphrollo docs check README.md docs  # narrow to pathspecs in the cwd repo
+```
+
+It reads tracked `*.md` (`git ls-files`) and extracts two kinds of citation:
+markdown link/image targets `[..](path)`, and inline-code tokens that look like
+repo paths — a slash plus a file extension (`internal/cli/cli.go`) or a
+multi-segment trailing-slash directory (`internal/lsp/`). Each reference is
+resolved first relative to the citing file, then to the repo root. `http(s)` /
+`mailto` URLs, bare `#anchors`, absolute/home paths, and anything inside a fenced
+code block are ignored. Every miss prints as
+
+```
+file:line: unresolved reference: <path>
+```
+
+and the command exits non-zero, so it drops straight into CI or a pre-commit
+hook. **The bar is zero**: no baseline file, no allowlist, no suppression comment
+— a rule with an escape hatch decays. If a doc must mention a bare concept
+(`node_modules/`) or a path in *another* repo, keep it out of path-citation form
+(drop the slash, or describe it in prose) rather than reaching for a suppression.
+
 ## Setup — `aphrollo gate init`
 
 One command wires the whole gate — the native replacement for
@@ -1392,6 +1424,7 @@ internal/tdd/        TDD + law gates (mechanical-only): policy engine, edit smel
 internal/workspace/  worktree lifecycle (create/claim/unclaim/list/remove/prune) + git verbs (commit/push/submit/update/diff/pr/ship/merge)
 internal/dev/        dev-tier control plane: up/down/restart/status/logs (systemd)
 internal/sqlc/       sqlc drift guard: config discovery, regen-into-temp, check, scoped-by-symbol regen
+internal/docs/       doc-reference guard: extract path citations from tracked *.md, resolve, report misses
 ```
 
 ## Known limitations (v1)

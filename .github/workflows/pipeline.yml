@@ -48,6 +48,7 @@ jobs:
     runs-on: self-hosted
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -66,6 +67,45 @@ jobs:
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
           fi
+          # docs=true iff any markdown file changed, so the docs-check job runs
+          # on doc edits (and skips a code-only PR while still reporting).
+          if printf '%s\n' "$changed" | grep -qE '\.md$'; then
+            echo "docs=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "docs=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Doc-reference guard (`aphrollo docs check`): every repo path a CHANGED
+  # markdown file cites must resolve. Gated on the `changes` filter (docs=true ⇔
+  # a *.md changed) so a code-only PR skips it and a docs PR still reports the
+  # context. Scoped to the PR's changed markdown, not the whole tree: a dangling
+  # citation in any doc you touch cannot merge, without a repo-wide scan tripping
+  # on legitimate cross-repo/historical references in untouched docs. Uses the
+  # deployed /usr/local/bin/aphrollo — the runner is the same box the CLI ships
+  # to; the guard resolves each citation against the full checked-out tree.
+  docs-check:
+    if: github.event_name != 'push' && github.event.pull_request.draft != true
+    needs: changes
+    runs-on: self-hosted
+    steps:
+      - if: needs.changes.outputs.docs == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # need the PR base to compute the changed-markdown set
+      - name: aphrollo docs check (changed markdown)
+        if: needs.changes.outputs.docs == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          aphrollo=/usr/local/bin/aphrollo
+          if [ ! -x "$aphrollo" ]; then
+            aphrollo="$(command -v aphrollo)" || { echo "aphrollo CLI not found on runner" >&2; exit 1; }
+          fi
+          mapfile -t mds < <(git diff --name-only --diff-filter=d "$BASE_SHA" HEAD -- '*.md')
+          if [ "${#mds[@]}" -eq 0 ]; then echo "no changed markdown to check"; exit 0; fi
+          printf 'checking %d changed markdown file(s):\n' "${#mds[@]}"; printf '  %s\n' "${mds[@]}"
+          "$aphrollo" docs check "${mds[@]}"
 
   test:
     # Checks gate PRs; on push-to-main they're skipped and `deploy` runs behind
@@ -124,9 +164,16 @@ jobs:
         # per-run isolated cache — shared self-hosted golangci cache otherwise stale-locks / dead worktree paths → spurious lint failures
         env:
           GOLANGCI_LINT_CACHE: ${{ runner.temp }}/golangci-lint-${{ github.run_id }}-${{ github.run_attempt }}
+        # --allow-serial-runners: golangci-lint also takes a MACHINE-WIDE lock
+        # ($TMPDIR/golangci-lint.lock, not under the cache dir above), so two Go
+        # jobs sharing a self-hosted runner (two runners, nine repos) otherwise
+        # collide — the loser waits 5s then exits 3 with "parallel golangci-lint
+        # is running", a spurious red. This flag serializes on the lock instead
+        # of failing; a burst queues, each run holds the lock only for its own
+        # duration (flock, freed by the kernel even on crash).
         run: |
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
-          golangci-lint run ./...
+          golangci-lint run --allow-serial-runners ./...
 
   vulncheck:
     if: github.event_name != 'push' && github.event.pull_request.draft != true
