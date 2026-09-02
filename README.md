@@ -919,6 +919,11 @@ One `queued behind "<cmd>" in <cwd>` line when it has to wait, one on
 acquire, exit 75 after `APHROLLO_GIT_WAIT_SECS` (default 20 min). A stray
 `index.lock` left by a git process that bypassed the shim is waited out too.
 
+A merge the gate rejects leaves `MERGE_HEAD` behind, refusing every other session
+sharing the checkout until someone runs `git merge --abort` by hand. The shim recognizes
+its own rejection (a fresh marker, no real conflict) and runs that abort for you, printing
+one `gate: merge rejected` line — a real conflict or an unrelated failure is left untouched.
+
 ### Cargo workspace metadata (`[workspace.metadata.aphrollo]`)
 
 Two opt-in lists, declared in the workspace's own `Cargo.toml` so they version
