@@ -85,6 +85,23 @@ var buildLockPostEditDeadline time.Duration
 // SetPrecommitLockWait.
 var buildLockPrecommitDeadline = 1200 * time.Second
 
+// lockWaitLogThreshold is how long a build-slot wait has to get before it is
+// worth its own gate.log line. A wait is not a failure and not run time: a
+// commit that spent four minutes QUEUED and one that spent four minutes going
+// red used to read the same in the log, so a contended box looked like a
+// broken suite. A `var` only so a contention test need not spend the real
+// threshold; production never assigns to it.
+var lockWaitLogThreshold = 30 * time.Second
+
+// logLockWait records a build-slot wait long enough to explain a slow gate
+// run, IN ADDITION to whatever verdict the stage itself reaches.
+func logLockWait(gateName, root string, r Runner, waited time.Duration) {
+	if waited < lockWaitLogThreshold {
+		return
+	}
+	appendGateLog(gateName, root, cmdString(r), "lock-wait", waited)
+}
+
 // SetPrecommitLockWait overrides how long the commit gate waits for a build
 // slot and returns the restore. Exported for internal/cli, which owns every
 // operator-facing env knob (APHROLLO_LOCK_WAIT_SECS) so the knobs are

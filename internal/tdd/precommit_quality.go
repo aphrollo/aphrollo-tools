@@ -64,7 +64,8 @@ func cargoQualityStage(gateName, ws, root string, pkgs []string, run SuiteRunner
 			continue
 		}
 		clippyRunner := Runner{Cmd: "cargo", Args: []string{"clippy", "-p", pkg, "--tests", "--", "-D", "warnings"}, Dir: ws}
-		res, _, acquired := runCargoLocked(run, clippyRunner, root, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
+		res, waited, acquired := runCargoLocked(run, clippyRunner, root, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
+		logLockWait(gateName, root, clippyRunner, waited)
 		if blocked := qualityVerdict(gateName, root, pkg, "clippy", clippyRunner, res, acquired); blocked != nil {
 			return *blocked
 		}

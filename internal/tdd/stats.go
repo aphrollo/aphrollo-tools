@@ -28,9 +28,13 @@ type Stats struct {
 	// "override-off", "smell-escape:disabled-test"). A hatch nobody counts is
 	// a hatch nobody manages. bound: one entry per policy name in the log.
 	Denies map[string]int
-	Median   float64
-	Max      float64
-	Lines    int
+	// LockWaitMax is the longest build-slot wait seen, in seconds. It is kept
+	// out of Median/Max on purpose: a queued gate run is a busy box, not a
+	// slow suite, and folding the two made contention look like a regression.
+	LockWaitMax float64
+	Median      float64
+	Max         float64
+	Lines       int
 }
 
 // Count is the tally for one stage/outcome pair, zero when it never happened.
@@ -45,8 +49,12 @@ var statsStages = []string{"postedit", "precommit", "premergecommit"}
 // statsOutcomes is the outcome vocabulary, in the order a reader cares about.
 var statsOutcomes = []string{
 	"green", "red", "blocked", "timeout", "timeout-rejected",
-	"queued-skipped", "queued-rejected", "deferred",
+	"queued-skipped", "queued-rejected", "deferred", lockWaitVerdict,
 }
+
+// lockWaitVerdict is the entry a stage writes when it spent long enough
+// queued for a build slot to explain the run's wall time.
+const lockWaitVerdict = "lock-wait"
 
 // GateStats parses a gate.log stream, counting only entries at or after
 // since (a zero time counts the whole log). A line it cannot parse is
@@ -81,6 +89,12 @@ func GateStats(r io.Reader, since time.Time) Stats {
 		}
 		if isDenyVerdict(e.verdict) {
 			s.Denies[e.verdict]++
+		}
+		if e.verdict == lockWaitVerdict {
+			if e.secs > s.LockWaitMax {
+				s.LockWaitMax = e.secs
+			}
+			continue
 		}
 		secs = append(secs, e.secs)
 	}
@@ -168,6 +182,9 @@ func RenderGateStats(s Stats) string {
 	}
 	fmt.Fprintf(&b, "\n%d entries; gate seconds: median %s, max %s\n",
 		s.Lines, formatFloat(s.Median), formatFloat(s.Max))
+	if s.LockWaitMax > 0 {
+		fmt.Fprintf(&b, "longest build-slot wait: %ss\n", formatFloat(s.LockWaitMax))
+	}
 	writeCounts(&b, "timeouts by crate", s.Timeouts)
 	writeCounts(&b, "deferred by crate", s.Deferred)
 	writeCounts(&b, "denies / overrides", s.Denies)

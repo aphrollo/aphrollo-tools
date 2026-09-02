@@ -464,6 +464,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	target := runnerTargetDir(runner, root)
 	res, waited, acquired := runCargoLocked(run, runner, root, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
 	restore()
+	logLockWait(gateName, root, runner, waited)
 	if !acquired {
 		// A commit the gate never tested must not land. This used to fail
 		// open, and ten commits in one gate.log did exactly that: waited out
@@ -969,7 +970,8 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 			}()
 		}
 	}
-	res, _, acquired := runCargoLocked(run, runner, execRoot, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
+	res, waited, acquired := runCargoLocked(run, runner, execRoot, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
+	logLockWait("precommit", root, runner, waited)
 	if !acquired {
 		return false, false, 0 // another cargo build holds the machine lock — no verdict either way
 	}
