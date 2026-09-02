@@ -139,7 +139,7 @@ func gcReportLine() string {
 	if marked, err := json.Marshal(r); err == nil {
 		_ = os.WriteFile(path, marked, 0o600)
 	}
-	return fmt.Sprintf("gate gc: reclaimed %s across %d stale build directories (idle incremental caches, dead gate dirs, orphan worktree builds). `aphrollo gate gc` lists what is left.",
+	return fmt.Sprintf("gate gc: reclaimed %s across %d stale build directories (idle incremental caches, dead gate dirs, orphan worktree builds, stray target dirs). `aphrollo gate gc` lists what is left.",
 		formatBytes(r.Freed), r.Dirs)
 }
 

@@ -1120,7 +1120,7 @@ skipped rather than guessed at (the log is appended to by several processes).
 
 Build caches this binary's own gates create and use are the biggest thing on
 a Rust box's disk (a measured 417 GB `target/`, 202 GB of it
-`debug/incremental`, plus orphan worktree build dirs
+`debug/incremental`, plus orphan worktree build dirs and stray target dirs
 with nothing left pointing at them). `gc` reclaims exactly six kinds of leftover and nothing else:
 
 | category | what qualifies |
@@ -1131,6 +1131,7 @@ with nothing left pointing at them). `gc` reclaims exactly six kinds of leftover
 | stale build artifacts | cargo never deletes a SUPERSEDED metadata hash, so `deps/` keeps one set of outputs per worktree path and per profile change forever (borld measured 2026-09-02: `target/debug/deps` at 207 GB / 24,260 files, 234 distinct `server-<hash>` fingerprints). Two tiers by what a rebuild COSTS: **workspace members at 3d** (they relink in seconds) and **third-party artifacts at 14d**. Matches only cargo's own `<crate>-<hash16>` shape in `deps/`, `.fingerprint/`, `build/` and `incremental/`; anything else is left alone |
 | mutants tree copies | `<target>/mutants/*` older than 1d, and ONLY while no `cargo-mutants` process is alive (those copies are the trees a live run is testing) |
 | orphan worktree builds | a directory beside a repo's registered external worktrees that holds nothing but `target/` — git dropped the worktree, the build dir survived |
+| stray target dirs | a directory at depth 1 under the repo root or a registered worktree root that carries cargo's own `CACHEDIR.TAG` **and** `.rustc_info.json`, is **not** the resolved target dir, and is idle **> 3d** — a hand-made `target-sky/` nobody builds into any more (33 GB found on one box). Both marker files are required, so a cache that merely carries a tag is never proposed; it takes **no build slot**, because by definition nothing is compiling into it |
 
 ```sh
 aphrollo gate gc                      # dry run: path, size, reason, total
