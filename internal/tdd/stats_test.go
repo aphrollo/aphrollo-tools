@@ -46,6 +46,31 @@ func TestGateStats_TalliesTheLogByStageAndOutcome(t *testing.T) {
 	}
 }
 
+// TestGateStats_DerivesTheCrateFromEitherSeparator pins that the per-crate
+// tallies survive the log crossing an OS boundary. gate.log is append-only
+// text an operator copies around and CI reads: a run recorded on Windows
+// names its root with backslashes, and filepath.Base on Linux does not split
+// on those, so every Windows-written entry was tallied under the whole path
+// as if it were one enormous crate name.
+func TestGateStats_DerivesTheCrateFromEitherSeparator(t *testing.T) {
+	at := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	log := stamp(at, "postedit", `D:\repo\crates\server`, "cargo nextest run -p server", "timeout", 110) +
+		stamp(at, "postedit", "/home/runner/repo/crates/pose", "cargo nextest run -p pose", "timeout", 110) +
+		stamp(at, "postedit", `D:\repo\crates\item\`, "cargo nextest run -p item", "deferred", 0)
+
+	got := GateStats(strings.NewReader(log), time.Time{})
+
+	if n := got.Timeouts["server"]; n != 1 {
+		t.Errorf("server timeouts = %d, want 1 — a backslash root must yield its last element", n)
+	}
+	if n := got.Timeouts["pose"]; n != 1 {
+		t.Errorf("pose timeouts = %d, want 1 — a slash root must yield its last element", n)
+	}
+	if n := got.Deferred["item"]; n != 1 {
+		t.Errorf("item deferred = %d, want 1 — a trailing separator is not part of the name", n)
+	}
+}
+
 // TestGateStats_WithoutASinceCoversTheWholeLog pins the default: an operator
 // asking "how is the pipeline doing" with no window means all of it.
 func TestGateStats_WithoutASinceCoversTheWholeLog(t *testing.T) {

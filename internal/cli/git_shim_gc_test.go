@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"io"
 	"bytes"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,15 +14,18 @@ import (
 // prune` (the registry drops entries whose trees are already gone).
 // Everything else — including `worktree add` — leaves nothing to sweep.
 func TestWorktreeSweepTarget_ClassifiesTheTwoVerbsThatOrphanBuildDirs(t *testing.T) {
-	cwd := filepath.FromSlash("D:/Projects/borld")
+	base := t.TempDir()
+	cwd := filepath.Join(base, "repo")
+	lane := filepath.Join(base, "worktrees", "lane")
 	cases := []struct {
 		rest    []string
 		want    string
 		wantOK  bool
 		comment string
 	}{
-		{[]string{"worktree", "remove", filepath.FromSlash("D:/Projects/.worktrees/borld/lane")}, filepath.FromSlash("D:/Projects/.worktrees/borld/lane"), true, "removal names the tree"},
-		{[]string{"worktree", "remove", "--force", filepath.FromSlash("D:/Projects/.worktrees/borld/lane")}, filepath.FromSlash("D:/Projects/.worktrees/borld/lane"), true, "flags are skipped"},
+		{[]string{"worktree", "remove", lane}, lane, true, "removal names the tree"},
+		{[]string{"worktree", "remove", "--force", lane}, lane, true, "flags are skipped"},
+		{[]string{"worktree", "remove", "lane"}, filepath.Join(cwd, "lane"), true, "a relative tree resolves against the verb's cwd"},
 		{[]string{"worktree", "prune"}, "", true, "prune names no single tree"},
 		{[]string{"worktree", "add", "-b", "x", "some/dir"}, "", false, "add creates, never orphans"},
 		{[]string{"commit", "-m", "x"}, "", false, "unrelated verb"},
@@ -53,7 +56,7 @@ func TestRunGitShim_WorktreeRemovalSweepsItsBuildDir(t *testing.T) {
 	}
 	t.Cleanup(func() { gcAfterWorktreeChange = defaultGCAfterWorktreeChange })
 
-	lane := filepath.FromSlash("D:/Projects/.worktrees/borld/lane-x")
+	lane := filepath.Join(t.TempDir(), "lane-x")
 	var stdout, stderr bytes.Buffer
 	if code := runGitShim([]string{"worktree", "remove", lane}, strings.NewReader(""), &stdout, &stderr, cfg); code != 0 {
 		t.Fatalf("exit = %d, want 0; stderr=%s", code, stderr.String())

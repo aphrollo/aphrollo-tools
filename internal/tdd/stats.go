@@ -66,7 +66,7 @@ func GateStats(r io.Reader, since time.Time) Stats {
 			s.ByStage[e.stage] = map[string]int{}
 		}
 		s.ByStage[e.stage][e.verdict]++
-		crate := filepath.Base(strings.TrimRight(e.root, `\/`))
+		crate := logRootCrate(e.root)
 		switch {
 		case strings.HasPrefix(e.verdict, "timeout"):
 			s.Timeouts[crate]++
@@ -81,6 +81,18 @@ func GateStats(r io.Reader, since time.Time) Stats {
 		s.Median = secs[n/2]
 	}
 	return s
+}
+
+// logRootCrate names the crate a log entry's root belongs to: the root's
+// last path element, split on BOTH separators. gate.log is written on one
+// box and read on another, so a Windows root reaches a Linux reader whose
+// filepath.Base treats the backslashes as ordinary name characters.
+func logRootCrate(root string) string {
+	root = strings.TrimRight(root, `\/`)
+	if i := strings.LastIndexAny(root, `\/`); i >= 0 {
+		return root[i+1:]
+	}
+	return root
 }
 
 // gateEntry is one parsed log line.
