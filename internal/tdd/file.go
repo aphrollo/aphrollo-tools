@@ -99,6 +99,9 @@ func ClassifyFile(p string) Kind {
 	if sourceExts[ext] {
 		return Source
 	}
+	if goEmbedsFile(p) {
+		return Source
+	}
 	return Ignore
 }
 
