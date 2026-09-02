@@ -95,9 +95,27 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		return Mechanical(repoRoot, run)
 	}
 
+	var notes []string
+	collect := func(res GateResult) (blocked bool) {
+		if res.Message != "" {
+			notes = append(notes, res.Message)
+		}
+		return res.Blocked
+	}
+	// Cheapest first, and BEFORE the has-code check: a commit staging only a
+	// baseline file or a doc is exactly the shape that raises a ceiling by
+	// hand or lands a law regression, and it used to return here having
+	// answered to nothing.
+	if res := baselineStage("precommit", repoRoot); collect(res) {
+		return res
+	}
+	if res := ratchetStage("precommit", repoRoot); collect(res) {
+		return res
+	}
+
 	groups := stagedRootGroups(repoRoot)
 	if len(groups) == 0 {
-		return GateResult{}
+		return GateResult{Message: strings.Join(notes, "\n")}
 	}
 
 	// Anti-cheat: block a newly-INTRODUCED suppression before spending the suite
@@ -107,21 +125,6 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		return GateResult{Blocked: true, Message: msg}
 	}
 
-	var notes []string
-	collect := func(res GateResult) (blocked bool) {
-		if res.Message != "" {
-			notes = append(notes, res.Message)
-		}
-		return res.Blocked
-	}
-	// Cheapest first: a hand-raised baseline is a text diff, and the declared
-	// laws are judged before anything compiles.
-	if res := baselineStage("precommit", repoRoot); collect(res) {
-		return res
-	}
-	if res := ratchetStage("precommit", repoRoot); collect(res) {
-		return res
-	}
 	for _, g := range groups {
 		if res := gateRoot("precommit", repoRoot, g, run, true); collect(res) {
 			return res
@@ -150,13 +153,10 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		appendGateLog("premergecommit", repoRoot, "mutation-receipt", "receipt-rejected", 0)
 		return *res
 	}
-	groups := stagedRootGroups(repoRoot)
-	if len(groups) == 0 {
-		const line = "gate premergecommit: nothing to test (no staged source or test files)"
-		fmt.Fprintln(os.Stderr, line)
-		return GateResult{Message: line}
-	}
 	var notes []string
+	// Same order as Precommit, and for the same reason: a merge carrying only
+	// a raised baseline or a law regression must answer for it before the
+	// has-code check can wave it through.
 	if res := baselineStage("premergecommit", repoRoot); res.Blocked {
 		return res
 	}
@@ -164,6 +164,14 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		return res
 	} else if res.Message != "" {
 		notes = append(notes, res.Message)
+	}
+
+	groups := stagedRootGroups(repoRoot)
+	if len(groups) == 0 {
+		const line = "gate premergecommit: nothing to test (no staged source or test files)"
+		fmt.Fprintln(os.Stderr, line)
+		notes = append(notes, line)
+		return GateResult{Message: strings.Join(notes, "\n")}
 	}
 	for _, g := range groups {
 		res := gateRoot("premergecommit", repoRoot, g, run, false)
