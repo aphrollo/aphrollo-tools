@@ -605,15 +605,15 @@ instead of a full test build:
 | 1 | `cargo fmt --check -p <touched>` | ms | compiles nothing, takes no build slot |
 | 2 | `always-run` packages, their OWN invocation | seconds | a pure guard crate; bundling it into `-p ratchet -p client` made it wait for client to link |
 | 3 | `cargo clippy -p <clippy-clean> --tests -- -D warnings` | front-end build | only crates declared clippy-clean |
-| 4 | `cargo check --workspace --tests` | check-level, tens of seconds warm | no codegen, but it sees EVERY crate: a lane that broke a crate nobody staged used to land green (borld `forge_jbeam/tests/conformance.rs` reached main not compiling) |
+| 4 | `cargo clippy --workspace --tests -- -D clippy::disallowed_methods -D clippy::disallowed_types` | check-level, tens of seconds warm | no codegen, but it sees EVERY crate: a lane that broke a crate nobody staged used to land green (borld `forge_jbeam/tests/conformance.rs` reached main not compiling). clippy SUBSUMES check, so a compile error fails here too, and denying exactly those two lints is what makes a `clippy.toml` law reach crates that are not on the `clippy-clean` list. Everything else stays at its default level. Rejects `check-rejected` (does not compile) or `lint-rejected` (banned API) |
 | 5 | fail-first RED proof | worktree build | precommit only, and only when the staged tests ADD a declaration |
 | 6 | touched crates' suites | full build + link + run | the heaviest, and therefore last |
 
 Stages 2, 4 and 6 are all short-circuited by the green cache (same content +
 argv key), so a guard crate proven green at commit is not re-run at merge.
 gate.log names the stage that rejected (`fmt-blocked`, `always-run-blocked`,
-`clippy-blocked`, `check-rejected`, `mechanical-blocked`, `queued-rejected`,
-`timeout-rejected`). `posttooluse`
+`clippy-blocked`, `check-rejected`, `lint-rejected`, `mechanical-blocked`,
+`queued-rejected`, `timeout-rejected`). `posttooluse`
 is unchanged: one related-test run per edit.
 
 **`green-unconstrained`** is the edit hook's one coverage note: the run was

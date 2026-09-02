@@ -30,10 +30,12 @@ func stageOf(r Runner) string {
 	switch {
 	case strings.HasPrefix(args, "fmt"):
 		return "fmt"
+	case strings.HasPrefix(args, "clippy") && strings.Contains(args, "--workspace"):
+		// The workspace-wide stage: clippy subsumes check, and it denies the
+		// two lints that carry project laws.
+		return "check"
 	case strings.HasPrefix(args, "clippy"):
 		return "clippy"
-	case strings.HasPrefix(args, "check --workspace"):
-		return "check"
 	case strings.Contains(args, "-p ratchet"):
 		return "always-run"
 	default:
