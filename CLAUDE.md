@@ -108,9 +108,10 @@ retired the root build task). aphrollo-infra no longer force-installs it.
 <!-- aphrollo:begin -->
 ## Working with the aphrollo gate
 
-- **PATH, queue shim first** — bash `export PATH="C:/Users/olive/bin/cargo-queue:$PATH"` · PowerShell
-  `$env:Path = "C:/Users/olive/bin/cargo-queue;$env:Path"`. A `cargo`/`git` run through the shim QUEUES
-  visibly behind another build instead of hanging on a silent lock.
+- **`cargo` and `git` resolve to the queue shim** (`which cargo` prints a path under
+  `C:/Users/olive/bin/cargo-queue`); the user PATH and the shell profiles put it first, so a session never exports
+  PATH by hand. A run through the shim QUEUES visibly behind another build instead of
+  hanging on a silent lock; if `which` prints the raw toolchain, the profile is broken: say so.
 - **The hooks run the tests, not you.** After every Edit/Write, PostToolUse prints
   exactly ONE `gate:` line. Read it; never re-run a suite it just ran. Iterate with
   `cargo check -p <crate> --tests`, which runs nothing.

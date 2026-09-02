@@ -9,8 +9,8 @@ edit the template in aphrollo (`internal/tdd/tddskill.md`) instead. -->
 
 # TDD
 
-`/tdd <arg>` is intercepted by the UserPromptSubmit hook (`aphrollo gate
-userpromptsubmit`). Reading this after typing `/tdd status` means the hook is
+`/tdd <arg>` is intercepted by the UserPromptSubmit hook (`aphrollo gate userpromptsubmit`).
+Reading this after typing `/tdd status` means the hook is
 not installed: say so and stop. Never write gate state by hand.
 
 The gate proves RED→GREEN mechanically. Whether the test was worth writing is
