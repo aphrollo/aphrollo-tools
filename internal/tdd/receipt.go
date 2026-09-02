@@ -15,76 +15,101 @@ import (
 // constrains behaviour", and a merge needs both. The receipt is written by
 // the consuming repo's own mutation run (borld: tools/mutation_gate.sh),
 // because only that repo knows which mutants are worth generating.
+//
+// One receipt per TREE, named by it. A single well-known file could only ever
+// describe the last run on the box, so two lanes measured minutes apart left
+// the second one reading the first one's answer and the gate comparing trees
+// to notice — a check that reported "wrong tree" for what was really "your
+// receipt was overwritten". Keying the FILENAME by the tree it describes
+// makes the lookup itself the identity check, and keeps every lane's proof.
 type MutationReceipt struct {
-	Repo          string             `json:"repo"`
-	Branch        string             `json:"branch"`
-	TipTree       string             `json:"tip_tree"`
-	WorktreeDirty bool               `json:"worktree_dirty"`
-	BaseRef       string             `json:"base_ref"`
-	MutantsTotal  int                `json:"mutants_total"`
-	Caught        int                `json:"caught"`
-	Survivors     []MutationSurvivor `json:"survivors"`
-	Accepted      int                `json:"accepted"`
-	FinishedAt    time.Time          `json:"finished_at"`
+	Repo          string `json:"repo"`
+	Branch        string `json:"branch"`
+	TipTree       string `json:"tip_tree"`
+	WorktreeDirty bool   `json:"worktree_dirty"`
+	BaseRef       string `json:"base_ref"`
+	MutantsTotal  int    `json:"mutants_total"`
+	Caught        int    `json:"caught"`
+	Timeout       int    `json:"timeout"`
+	Unviable      int    `json:"unviable"`
+	Survivors     int    `json:"survivors"`
+	Accepted      int    `json:"accepted"`
+	// Unaccepted lists the survivors nobody signed off on — a code path no
+	// test constrains. Its ENTRIES are opaque here: the producing repo decides
+	// how it names a mutant, and a gate that parsed that shape would break the
+	// day the shape changed. Non-empty is the whole rule.
+	Unaccepted []json.RawMessage `json:"unaccepted"`
+	Verdict    string            `json:"verdict"`
+	FinishedAt time.Time         `json:"finished_at"`
 }
 
-// MutationSurvivor is one mutant no test killed: a code path nothing
-// constrains.
-type MutationSurvivor struct {
-	File     string `json:"file"`
-	Line     int    `json:"line"`
-	Mutation string `json:"mutation"`
-}
+// receiptVerdictPass is the only verdict that merges. Anything else — "fail",
+// "error", "skipped", or a spelling this binary has never heard of — refuses,
+// because a gate that treats an unrecognised verdict as permission is not a
+// gate.
+const receiptVerdictPass = "pass"
 
-// MutationReceiptPath is where the consuming repo's mutation run leaves its
-// receipt.
-func MutationReceiptPath() string {
+// MutationReceiptPathFor is where the consuming repo's mutation run leaves the
+// receipt for one tree.
+func MutationReceiptPathFor(tipTree string) string {
 	dir := stateDir()
-	if dir == "" {
+	if dir == "" || tipTree == "" {
 		return ""
 	}
-	return filepath.Join(dir, "mutation-receipt.json")
+	return filepath.Join(dir, "mutation-receipt."+tipTree+".json")
 }
 
 // mutationGateHint is the command a rejection points at. It names the
 // consuming repo's script, because that is what produces a receipt.
 const mutationGateHint = "run tools/mutation_gate.sh on the lane tip (with a clean worktree) and merge again"
 
-// checkMutationReceipt judges the receipt against the tree being merged. It
+// checkMutationReceipt judges the receipt for the tree being merged. It
 // returns nil to allow, or a blocking GateResult naming the field that
 // failed. tipTree is the LANE TIP's tree (MERGE_HEAD^{tree}), never the merge
 // result: the merge result has never been mutation-tested by anyone.
 func checkMutationReceipt(repo, tipTree string) *GateResult {
-	path := MutationReceiptPath()
+	path := MutationReceiptPathFor(tipTree)
+	if path == "" {
+		return blockReceipt("no mutation receipt for %s (there is no lane tip to look one up by)", repo)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return blockReceipt("no mutation receipt for %s at %s", repo, path)
+		return blockReceipt("no mutation receipt for %s's lane tip %s at %s", repo, short(tipTree), path)
 	}
 	var r MutationReceipt
 	if err := json.Unmarshal(data, &r); err != nil {
 		return blockReceipt("the mutation receipt at %s is unreadable (%v)", path, err)
 	}
 	if r.Repo != "" && repo != "" && !strings.EqualFold(r.Repo, repo) {
-		return blockReceipt("no mutation receipt for %s (the one on disk is for %s)", repo, r.Repo)
-	}
-	if r.TipTree != tipTree {
-		return blockReceipt("tip_tree %s describes a different tree than the lane tip %s", short(r.TipTree), short(tipTree))
+		return blockReceipt("the receipt for tree %s is for %s, not %s", short(tipTree), r.Repo, repo)
 	}
 	if r.WorktreeDirty {
 		return blockReceipt("worktree_dirty: the run measured uncommitted work, not what is being merged")
 	}
-	if len(r.Survivors) > r.Accepted {
-		return blockReceipt("%d survivors with %d accepted — %s is a code path no test constrains",
-			len(r.Survivors), r.Accepted, survivorName(r.Survivors))
+	if r.Verdict != receiptVerdictPass {
+		return blockReceipt("verdict %q — only %q merges", r.Verdict, receiptVerdictPass)
+	}
+	if len(r.Unaccepted) > 0 {
+		return blockReceipt("%d unaccepted survivor(s), starting with %s — a code path no test constrains",
+			len(r.Unaccepted), firstUnaccepted(r.Unaccepted))
 	}
 	return nil
 }
 
-func survivorName(s []MutationSurvivor) string {
-	if len(s) == 0 {
-		return "a mutant"
+// firstUnaccepted renders one entry for the rejection line. A survivor written
+// as an object is rendered readably; anything else is quoted as it came, so a
+// producer that changes the shape still gets a legible message.
+func firstUnaccepted(entries []json.RawMessage) string {
+	raw := entries[0]
+	var s struct {
+		File     string `json:"file"`
+		Line     int    `json:"line"`
+		Mutation string `json:"mutation"`
 	}
-	return fmt.Sprintf("%s:%d (%s)", s[0].File, s[0].Line, s[0].Mutation)
+	if err := json.Unmarshal(raw, &s); err == nil && s.File != "" {
+		return fmt.Sprintf("%s:%d (%s)", s.File, s.Line, s.Mutation)
+	}
+	return strings.TrimSpace(string(raw))
 }
 
 func short(sha string) string {

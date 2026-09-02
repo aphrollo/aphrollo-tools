@@ -589,6 +589,7 @@ live where being wrong only costs a re-run):
 | `gate userpromptsubmit` | Claude UserPromptSubmit hook (stdin) | Intercepts `/gate [status\|off\|on\|reset]` — the per-session enforcement escape hatch. On any other prompt, re-injects the last RED outcome for the cwd's project so the gate survives context compaction. **Silent unless RED.** |
 | `gate stats` | manual | Tallies `gate.log` by stage and outcome, with per-crate timeout/deferred counts and median/max gate seconds (`--since 7d`). |
 | `gate runphase` | spawned by `gate posttooluse` | The detached build/run phase's wrapper: holds the build slot, logs to the state dir, writes the result file the next hook harvests. Never typed by a human; never blocks. |
+| `gate sessionstart` | Claude SessionStart hook (stdin) | Injects the TDD-skill nudge, the previous session's disk-sweep result when it freed something, and — for a repo with a workspace manifest and no `.ratchet/laws/` (an empty dir counts as none) — ONE line saying the gate is running suites only and pointing at [Ratchet laws](#ratchet-laws-aphrollo-ratchet). Never more than one extra line each, never blocks. |
 | `gate sessionend` | Claude SessionEnd hook (stdin) | Deletes the per-session state file so the state dir doesn't accumulate. |
 | `gate precommit` | git `pre-commit` | Blocks a newly-**added** suppression (anti-cheat). Then **fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. A worktree state already proven green under the exact same command (by a PostToolUse run or an earlier gate pass) is **not re-run** — the cache is keyed on the repo's git COMMON dir, so every linked worktree of one repo reuses the same proven-green facts — only green results are cached, keyed on content + runner argv (content covers tracked files AND the ignored configuration a suite reads: dotenv files and `config/` trees, never build output), so a red always re-runs with fresh output. Both gate stages build in the REPO'S OWN target dir (see below). |
 | `gate commitmsg` | git `commit-msg` | Rejects a commit whose MESSAGE carries a deny pattern, quoting the offending line. Opt-in per workspace (`undercover = true`); absent key = pass through. Fires for merge commits too. |
@@ -611,6 +612,15 @@ instead of a full test build:
 | 4 | `cargo clippy --workspace --tests -- -D clippy::disallowed_methods -D clippy::disallowed_types` | check-level, tens of seconds warm | no codegen, but it sees EVERY crate: a lane that broke a crate nobody staged used to land green (borld `forge_jbeam/tests/conformance.rs` reached main not compiling). clippy SUBSUMES check, so a compile error fails here too, and denying exactly those two lints is what makes a `clippy.toml` law reach crates that are not on the `clippy-clean` list. Everything else stays at its default level. Rejects `check-rejected` (does not compile) or `lint-rejected` (banned API) |
 | 5 | fail-first RED proof | worktree build | precommit only, and only when the staged tests ADD a declaration |
 | 6 | touched crates' suites | full build + link + run | the heaviest, and therefore last |
+
+When the workspace's `.config/nextest.toml` declares a `[profile.gate]` table,
+every GATE nextest run (the touched crates' suite, the always-run guards, and
+the fail-first proof) passes `--profile gate`, while `posttooluse` keeps the
+default: the gate runs while other sessions build, and a CPU-bound test that
+takes 40-50 s alone walks past nextest's 60 s default under that load — one
+profile fixes that in one place, where the alternative was a growing habit of
+per-test exemptions that weaken the suite permanently. An edit-time run keeps
+the default deliberately, so a slow test is still reported rather than hidden.
 
 Stages 2, 4 and 6 are all short-circuited by the green cache (same content +
 argv key), so a guard crate proven green at commit is not re-run at merge.
@@ -945,15 +955,24 @@ commit-message-deny = ["^WIP:"]      # this repo's own extra deny patterns
   Fail-first proves a test FAILED once; it says nothing about whether the
   test constrains behaviour, and a test that asserts nothing satisfies
   fail-first perfectly. A MERGE needs both. With the key set,
-  `premergecommit` reads `<stateDir>/mutation-receipt.json` (written by the
-  consuming repo's own mutation run — borld's `tools/mutation_gate.sh`) and
-  refuses (`receipt-rejected`) when there is no receipt for this repo, when
-  `tip_tree` is not the LANE TIP's tree (`MERGE_HEAD^{tree}` — never the merge
-  result, which nobody has mutation-tested), when `worktree_dirty` is set, or
-  when `len(survivors) > accepted`. `mutants_total: 0` is a valid receipt: a
-  diff with nothing mutable in it is a real answer. The rejection names the
-  offending field and the command that produces a receipt, and it runs BEFORE
-  any suite compiles.
+  `premergecommit` looks up `<stateDir>/mutation-receipt.<tip_tree>.json`,
+  where `<tip_tree>` is the LANE TIP's tree (`git rev-parse MERGE_HEAD^{tree}`
+  — never the merge result, which nobody has mutation-tested). The file is
+  written by the consuming repo's own mutation run (borld's
+  `tools/mutation_gate.sh`) and carries `repo`, `branch`, `tip_tree`,
+  `worktree_dirty`, `base_ref`, `mutants_total`, `caught`, `timeout`,
+  `unviable`, `survivors`, `accepted`, `unaccepted` and `verdict`. The merge is
+  refused (`receipt-rejected`) when there is no receipt for that tree, when
+  `worktree_dirty` is set, when `verdict` is anything but `"pass"` (an
+  unrecognised verdict refuses — a gate that reads an unknown word as
+  permission is not a gate), or when `unaccepted` is non-empty. The receipt is
+  keyed by TREE in its FILENAME, so the lookup itself is the identity check and
+  two lanes measured minutes apart never read each other's answer;
+  `mutants_total: 0` is a valid receipt, since a diff with nothing mutable in
+  it is a real answer. `unaccepted`'s entries are opaque to the gate — the
+  producing repo decides how it names a mutant — and only the first is quoted
+  in the rejection, which also names the command that produces a receipt. It
+  runs BEFORE any suite compiles.
 - **`baselines`** (string array) — the globs the baseline guard watches, e.g.
   `baselines = [".ratchet/baselines/*.txt", "crates/ratchet/tests/*_baseline.txt"]`
   (those two are also the defaults, and a declared list replaces them). See
@@ -1238,6 +1257,38 @@ anti-cheat/fail-first/suite. Adversarial review lives in the reviewer agent,
 not this binary. Mutation
 testing is intentionally **not** ported (false-positive/non-determinism prone);
 the fail-first + mechanical suite cover the same ground without the flakiness.
+
+### The managed CLAUDE.md block
+
+A session that does not know the gate exists fights it: it re-runs suites the
+hooks already ran, reads a `TIMEOUT` as a pass, hand-edits a baseline to get a
+commit through. All of that is documented — here, in a file the session is not
+reading. So `gate init` writes the operating instructions into the one file a
+Claude session always reads, between markers this tool owns:
+
+```
+<!-- aphrollo:begin -->
+## Working with the aphrollo gate
+...
+<!-- aphrollo:end -->
+```
+
+~25 lines: the PATH line for the queue shims, "the hooks run the tests — read
+the one `gate:` line", what each outcome means (including which ones mean the
+code was NOT tested), the commit-gate stage order, where the laws and baselines
+live and how a new hit is admitted, the housekeeping commands, and — only for a
+workspace with `undercover = true` — the commit-message rule.
+
+- A repo that keeps a `CLAUDE.md` gets the block on every `gate init`; one that
+  does not is left alone unless you pass `--claude-md`, which creates the file.
+- An existing block is replaced **in place**, never duplicated or moved: it may
+  have been put somewhere deliberate. A file hand-edited mid-block (one marker
+  left) has the orphan dropped and a whole block appended.
+- Running twice is byte-identical, CRLF included — the file is a source file in
+  the consuming repo, and a block that churned would show up as a diff at every
+  session start.
+- The text has ONE source (`internal/tdd/claudemd.go`), so a fix reaches every
+  repo the next time init runs there. Edit that, never the block.
 
 ### The `tdd` → `gate` rename
 

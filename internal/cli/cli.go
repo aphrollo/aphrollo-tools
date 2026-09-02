@@ -533,6 +533,7 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		cargoShimDir = fs.String("cargo-shim-dir", "", "dir for the cargo-queue shim (default: alongside --bin, e.g. <bindir>/cargo-queue)")
 		gitHooksDir  = fs.String("git-hooks-dir", "", "git hooks dir for the global gate (default: $XDG_CONFIG_HOME/git/hooks or ~/.config/git/hooks)")
 		noGit        = fs.Bool("no-git", false, "skip the git pre-commit gate; wire session hooks only")
+		claudeMD     = fs.Bool("claude-md", false, "write the managed CLAUDE.md block even when the repo has no CLAUDE.md yet")
 		uninstall    = fs.Bool("uninstall", false, "remove the hooks instead of installing them")
 	)
 	if err := fs.Parse(args); err != nil {
@@ -620,6 +621,20 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "aphrollo gate: installed git-queue shim in %s\n", cdir)
 		} else {
 			fmt.Fprintf(stdout, "aphrollo gate: git-queue shim already up to date (%s)\n", cdir)
+		}
+
+		// The operating instructions belong in the one file a session always
+		// reads. A repo that keeps a CLAUDE.md gets the block automatically;
+		// one that does not is left alone unless asked with --claude-md.
+		if repo := tdd.RepoRoot("."); repo != "" {
+			changed, err := tdd.WriteClaudeMD(repo, cdir, *claudeMD)
+			switch {
+			case err != nil:
+				fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+				return 1
+			case changed:
+				fmt.Fprintf(stdout, "aphrollo gate: wrote the managed block in %s\n", filepath.Join(repo, "CLAUDE.md"))
+			}
 		}
 	}
 	return 0

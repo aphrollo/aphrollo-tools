@@ -232,10 +232,16 @@ func HandleSessionStart(raw []byte) string {
 	// something.
 	line := gcReportLine()
 	maybeStartBackgroundGC(in.Cwd)
-	if line == "" {
-		return skillNudge
+	// At most one extra line each, in a fixed order: a session start that
+	// scrolls is a session start nobody reads.
+	parts := []string{skillNudge}
+	if hint := ratchetHintLine(in.Cwd); hint != "" {
+		parts = append(parts, hint)
 	}
-	return skillNudge + "\n\n" + line
+	if line != "" {
+		parts = append(parts, line)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // RenderSessionStart turns the nudge into the SessionStart hook payload: a
