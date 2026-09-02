@@ -122,6 +122,7 @@ func Check(opts Options) (Result, error) {
 				return Result{}, err
 			}
 		case KindDepGraphForbids:
+			law.CacheDir = opts.CacheDir
 			if hits, err = depGraphHits(opts.Root, law); err != nil {
 				return Result{}, err
 			}

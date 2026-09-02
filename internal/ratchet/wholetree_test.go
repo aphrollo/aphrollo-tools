@@ -328,3 +328,39 @@ enabled_env = "BORLD_PERF_RATCHET"
 		t.Fatalf("armed, the same tree regresses: %v", res.Lines())
 	}
 }
+
+// `cargo metadata` is seconds on a big workspace and the gate runs before every
+// commit, so the walk's verdict is cached against the inputs that can change
+// it: Cargo.lock and every Cargo.toml.
+func TestDepGraphCachesItsVerdictUntilAManifestMoves(t *testing.T) {
+	root := t.TempDir()
+	cache := t.TempDir()
+	write(t, filepath.Join(root, "Cargo.toml"), "[workspace]\n")
+	write(t, filepath.Join(root, metadataFixtureFile), metadataDoc)
+	law := depGraphLaw(t, root)
+	law.CacheDir = cache
+
+	first, err := depGraphHits(root, law)
+	if err != nil || len(first) != 1 {
+		t.Fatalf("hits = %v (%v)", keys(first), err)
+	}
+
+	// The graph changes underneath, but no manifest moved: the cached verdict
+	// stands, which is the whole point of the cache.
+	write(t, filepath.Join(root, metadataFixtureFile), strings.Replace(metadataDoc,
+		`{"pkg": "t 1", "dep_kinds": [{"kind": null}]}`,
+		`{"pkg": "t 1", "dep_kinds": [{"kind": "dev"}]}`, 1))
+	cached, err := depGraphHits(root, law)
+	if err != nil || len(cached) != 1 {
+		t.Fatalf("cached hits = %v (%v)", keys(cached), err)
+	}
+
+	write(t, filepath.Join(root, "Cargo.toml"), "[workspace]\nmembers = []\n")
+	fresh, err := depGraphHits(root, law)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fresh) != 0 {
+		t.Fatalf("a moved manifest must re-walk: %v", keys(fresh))
+	}
+}

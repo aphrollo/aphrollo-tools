@@ -126,6 +126,9 @@ type Law struct {
 	// Source is the law file's text, hashed into the scan cache key: a rule
 	// that changed must never be answered from a cache filled under the old one.
 	Source string
+	// CacheDir is where a law expensive enough to cache keeps its verdict;
+	// empty means recompute every run.
+	CacheDir string
 }
 
 // LawsDir is where a consuming repo keeps its laws, relative to the repo root.

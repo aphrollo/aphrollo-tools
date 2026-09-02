@@ -1038,7 +1038,10 @@ loudly instead of reporting green over files they never opened.
   caught exactly like a direct one. The hit's key is the PATH that reaches the
   forbidden package (`server->shared->testrig`) — that is what an edge gets
   deleted from. A tree carrying a checked-in `cargo-metadata.json` is read from
-  it instead, which is how the fixtures work.
+  it instead, which is how the fixtures work. The verdict is cached against the
+  only inputs that can change it — `Cargo.lock` and every `Cargo.toml`, by size
+  and mtime — so the gate pays for the walk once per manifest change, not once
+  per commit.
 - **`file-set-containment`** is containment, never equality: the stand-in may
   refuse MORE than the real system, never less. A deliberate deviation puts the
   law's `escape` marker in `superset_file`, and a marker with nothing left to

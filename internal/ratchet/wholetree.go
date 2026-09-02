@@ -1,6 +1,8 @@
 package ratchet
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -58,6 +60,10 @@ const metadataFixtureFile = "cargo-metadata.json"
 // every forbidden package it can reach, keyed by the PATH that reaches it —
 // the path is what a person has to delete an edge from.
 func depGraphHits(root string, law Law) ([]Hit, error) {
+	fingerprint := manifestFingerprint(root)
+	if hits, ok := readDepGraphCache(law, root, fingerprint); ok {
+		return hits, nil
+	}
 	meta, err := loadCargoMetadata(root)
 	if err != nil {
 		return nil, fmt.Errorf("law %q: %w", law.Name, err)
@@ -108,7 +114,89 @@ func depGraphHits(root string, law Law) ([]Hit, error) {
 			})
 		}
 	}
+	writeDepGraphCache(law, root, fingerprint, hits)
 	return hits, nil
+}
+
+// depGraphCache is one repo's cached walk: the verdict plus the fingerprint of
+// the inputs that can change it.
+type depGraphCache struct {
+	Fingerprint string `json:"fingerprint"`
+	Hits        []Hit  `json:"hits"`
+}
+
+func depGraphCachePath(law Law, root string) string {
+	if law.CacheDir == "" || law.Name == "" {
+		return ""
+	}
+	return filepath.Join(law.CacheDir, "ratchet-cache", "depgraph-"+law.Name+"-"+cacheKey(root)+".json")
+}
+
+func readDepGraphCache(law Law, root, fingerprint string) ([]Hit, bool) {
+	path := depGraphCachePath(law, root)
+	if path == "" || fingerprint == "" {
+		return nil, false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false
+	}
+	var c depGraphCache
+	if err := json.Unmarshal(data, &c); err != nil || c.Fingerprint != fingerprint {
+		return nil, false
+	}
+	return c.Hits, true
+}
+
+func writeDepGraphCache(law Law, root, fingerprint string, hits []Hit) {
+	path := depGraphCachePath(law, root)
+	if path == "" || fingerprint == "" {
+		return
+	}
+	data, err := json.Marshal(depGraphCache{Fingerprint: fingerprint, Hits: hits})
+	if err != nil || os.MkdirAll(filepath.Dir(path), 0o700) != nil {
+		return
+	}
+	_ = os.WriteFile(path, data, 0o600)
+}
+
+// manifestFingerprint hashes every input that can change the resolved graph:
+// Cargo.lock and every Cargo.toml, by path, size and mtime. Anything else in
+// the tree can move without the graph moving.
+func manifestFingerprint(root string) string {
+	ignore := loadGitignore(root)
+	h := sha256.New()
+	var walk func(dir, rel string)
+	walk = func(dir, rel string) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			child := path(rel, e.Name())
+			if ignore.ignored(child, e.IsDir()) {
+				continue
+			}
+			if e.IsDir() {
+				walk(filepath.Join(dir, e.Name()), child)
+				continue
+			}
+			if e.Name() != "Cargo.toml" && e.Name() != "Cargo.lock" {
+				continue
+			}
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(h, "%s|%d|%d\n", child, info.Size(), info.ModTime().UnixNano())
+		}
+	}
+	walk(root, "")
+	sum := h.Sum(nil)
+	if len(sum) == 0 {
+		return ""
+	}
+	return hex.EncodeToString(sum)[:16]
 }
 
 // normalEdge reports whether an edge is a NORMAL dependency. A dev or build
