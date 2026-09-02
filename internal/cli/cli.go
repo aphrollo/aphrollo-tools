@@ -569,6 +569,31 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "aphrollo gate: wired session hooks in %s\n", path)
 	}
 
+	// The procedure the gate assumes — RED→GREEN, what makes a test worth
+	// keeping, evidence before a completion claim — ships with the binary
+	// that enforces it, as a user-level skill, so the two cannot drift and
+	// no plugin install is a prerequisite.
+	skill := filepath.Join(dir, "skills", "tdd", "SKILL.md")
+	if *uninstall {
+		removed, err := tdd.RemoveTDDSkill(dir)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		if removed {
+			fmt.Fprintf(stdout, "aphrollo gate: removed the tdd skill from %s\n", skill)
+		}
+	} else {
+		schanged, err := tdd.WriteTDDSkill(dir)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		if schanged {
+			fmt.Fprintf(stdout, "aphrollo gate: wrote the tdd skill in %s\n", skill)
+		}
+	}
+
 	if *noGit {
 		return 0
 	}

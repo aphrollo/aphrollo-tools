@@ -201,12 +201,13 @@ type sessionStartInput struct {
 // (test sizing, the pyramid ratio, DAMP-over-DRY, thin vertical slices) live
 // only there. So the directive is to INVOKE it, not a paraphrase of its
 // contents: the skill body stays out of context until the model reads it on
-// demand. As of 2026-08-15 (build-infra-fix task A2) it also states the loud-
-// gates contract directly: the hooks run the tests, not the model, so
-// re-running a suite by hand after every edit "to check" is now redundant
-// work — read the `tdd:` line the PostToolUse hook already printed instead.
+// demand. The skill named here is the one `gate init` writes into the config
+// dir, so the nudge cannot outlive its target. It also states the loud-gates
+// contract directly: the hooks run the tests, not the model, so re-running a
+// suite by hand after every edit "to check" is redundant work — read the
+// `tdd:` line the PostToolUse hook already printed instead.
 const skillNudge = "gate: before writing or changing any code this session, invoke the " +
-	"`superpowers:test-driven-development` skill (read its SKILL.md). The hooks run the tests, not you: " +
+	"`tdd` skill (read its SKILL.md). The hooks run the tests, not you: " +
 	"after every Edit/Write, read the `tdd:` line the PostToolUse hook prints (green with count / " +
 	"red-missing-impl / red / TIMEOUT / SKIPPED / QUEUED-SKIPPED) instead of running a suite by hand to " +
 	"check — the only manual runs are mutation proofs, soaks, or a targeted rerun after the hook said " +

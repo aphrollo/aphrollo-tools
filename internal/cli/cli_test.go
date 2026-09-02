@@ -499,7 +499,7 @@ func TestRun_TDD_SessionStart_NudgesSkills(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
-	if !strings.Contains(out.String(), "test-driven-development") ||
+	if !strings.Contains(out.String(), "`tdd` skill") ||
 		!strings.Contains(out.String(), `"hookEventName":"SessionStart"`) {
 		t.Fatalf("sessionstart should inject the skill nudge:\n%s", out.String())
 	}

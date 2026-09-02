@@ -1384,6 +1384,24 @@ workspace with `undercover = true` — the commit-message rule.
 - The text has ONE source (`internal/tdd/claudemd.go`), so a fix reaches every
   repo the next time init runs there. Edit that, never the block.
 
+### The `tdd` skill
+
+`gate init` also writes `<config-dir>/skills/tdd/SKILL.md`. The gate proves the
+RED→GREEN *outcome* mechanically; it cannot tell whether the test was worth
+writing, and the rules that answer that used to live in a marketplace plugin
+that may not be installed. They now ship with the binary that enforces the
+outcome: the RED→GREEN loop and what each `gate:` classification means, the
+test-quality rules (name the break, derive expectations independently, no change
+detectors, DAMP over DRY, real code over mocks, never weaken a test or a
+baseline), the mutation proof for code that already exists, and evidence before
+any completion claim. It is language-neutral — Rust and Go both run this gate.
+The skill also carries the `/tdd status|off|on|allow-main|reset` frontmatter and
+so replaces the old `commands/tdd.md` stub, which init deletes when it finds one
+that mentions aphrollo (a hand-written stub is left alone). Managed like the
+CLAUDE.md block: a second init is byte-identical, a hand edit is overwritten, the
+source is `internal/tdd/tddskill.md`, and `--uninstall` removes it. The
+session-start nudge points at this skill, so the thing it names always exists.
+
 ### The in-repo law spec (`.ratchet/README.md`)
 
 `gate init` also drops the "Ratchet laws" section above into the repo it
