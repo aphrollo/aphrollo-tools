@@ -149,7 +149,8 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 	// The cheapest possible rejection comes first: a lane with no mutation
 	// proof is refused before a single suite compiles.
 	if res := mutationReceiptStage(repoRoot); res != nil {
-		fmt.Fprintln(os.Stderr, res.Message)
+		// Printing it here too would state the same paragraph twice: the hook
+		// that called this prints what it is given.
 		appendGateLog("premergecommit", repoRoot, "mutation-receipt", "receipt-rejected", 0)
 		return *res
 	}
