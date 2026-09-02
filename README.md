@@ -1382,6 +1382,8 @@ workspace with `undercover = true` — the commit-message rule.
 
 - A repo that keeps a `CLAUDE.md` gets the block on every `gate init`; one that
   does not is left alone unless you pass `--claude-md`, which creates the file.
+- WHICH repo is named, not inferred: `--repo <path>` (default: the working
+  directory's repo), and the run prints the file it wrote.
 - An existing block is replaced **in place**, never duplicated or moved: it may
   have been put somewhere deliberate. A file hand-edited mid-block (one marker
   left) has the orphan dropped and a whole block appended.
