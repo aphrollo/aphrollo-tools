@@ -1204,6 +1204,14 @@ carrying `--proposed` never tightens, because the tree it measured does not
 exist. The gate does not tighten either — a commit hook that rewrote a file
 mid-commit would leave the lowered ceiling unstaged.
 
+At commit and merge time the scan sees TRACKED files only: every path in the
+index, judged as the index has it, which is exactly what the commit will
+contain. An untracked or ignored file is part of no commit — another session's
+scaffolding in a shared checkout, a scratch note, a generator's leftovers —
+and a merge refused over one cannot be cleared by changing anything in the
+merge. Staging the file is what makes it answer. Pre-edit denial is the other
+side and judges the file being written whether git has seen it or not.
+
 #### Baselines are never raised by hand
 
 A baseline is a ceiling that only ever goes down, and it lives in a text file

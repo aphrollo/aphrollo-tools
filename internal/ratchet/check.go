@@ -22,6 +22,14 @@ type Options struct {
 	// Files, when non-empty, narrows the scan to these repo-relative paths.
 	// The pre-edit path uses it: one file's laws, not the tree's.
 	Files []string
+	// Tracked, when non-empty, is the ONLY set of paths the whole-tree walk
+	// may consider — the commit gate passes `git ls-files`, because it judges
+	// what is IN the commit and an untracked file is part of no commit. A
+	// shared checkout is full of other people's scaffolding, and rejecting a
+	// merge over a file nobody is committing is a rejection nobody can clear.
+	// Everything else about the run is unchanged: scope floors and stale
+	// registry entries are still whole-tree questions.
+	Tracked []string
 	// Tighten writes every baseline down to what this run measured.
 	Tighten bool
 	// CacheDir holds the per-file scan cache; empty disables caching.
@@ -426,6 +434,26 @@ func collectFiles(opts Options, laws []Law) ([]string, map[string]bool, error) {
 			}
 		}
 		return false
+	}
+
+	// A tracked set replaces the walk entirely: a path git lists is in the
+	// repo whatever .gitignore says about its shape, so nothing here is
+	// "ignored" and the ignored-set stays empty.
+	if len(opts.Tracked) > 0 {
+		var out []string
+		for _, rel := range opts.Tracked {
+			rel = normalizeSlashes(rel)
+			if rel != "" && inScope(rel, false) {
+				out = append(out, rel)
+			}
+		}
+		for rel := range opts.Proposed {
+			if inScope(rel, false) {
+				out = append(out, rel)
+			}
+		}
+		sort.Strings(out)
+		return dedupe(out), ignoredFiles, nil
 	}
 
 	ignore := loadGitignore(opts.Root)

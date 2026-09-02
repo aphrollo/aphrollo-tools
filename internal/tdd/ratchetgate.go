@@ -142,6 +142,7 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 	res, err := ratchet.Check(ratchet.Options{
 		Root:     repoRoot,
 		Proposed: indexOverlay(repoRoot),
+		Tracked:  trackedFiles(repoRoot),
 		CacheDir: stateDir(),
 	})
 	if err != nil {
@@ -180,6 +181,27 @@ func noteNewerLaws(gateName, repoRoot string, laws []ratchet.NewerLaw) {
 			gateName, l.Name, l.Schema, ratchet.SchemaVersion)
 		appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-law-newer:"+logToken(l.Name), 0)
 	}
+}
+
+// trackedFiles is every path in the index — the exact set a commit can
+// contain, newly staged files included. A shared checkout carries another
+// session's scaffolding and a generator's leftovers beside the code, and a
+// merge refused over a file nobody is committing cannot be cleared by
+// changing anything in the merge. nil when git cannot answer, which falls
+// back to walking the disk: a gate whose own tooling tripped judges more,
+// never less.
+func trackedFiles(repoRoot string) []string {
+	out, err := gitRead(repoRoot, "ls-files")
+	if err != nil {
+		return nil
+	}
+	var files []string
+	for line := range strings.SplitSeq(strings.ReplaceAll(out, "\r\n", "\n"), "\n") {
+		if rel := strings.TrimSpace(line); rel != "" {
+			files = append(files, filepath.ToSlash(rel))
+		}
+	}
+	return files
 }
 
 // indexOverlay is what the laws must judge at commit time: the INDEX, the
