@@ -10,8 +10,11 @@ import (
 
 // openLockFile opens (creating if needed) the build lock file for locking.
 // The handle itself carries no lock state until tryLockExclusive succeeds.
+// The mode is nominal here — Windows ignores everything but the write bit and
+// the file inherits its directory's ACL — but it matches the unix side, where
+// a private lock file locks every other account out permanently.
 func openLockFile(path string) (*os.File, error) {
-	return os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	return os.OpenFile(path, os.O_CREATE|os.O_RDWR, sharedLockFileMode)
 }
 
 // tryLockExclusive attempts a NON-BLOCKING exclusive lock on f's whole byte

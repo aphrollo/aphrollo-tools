@@ -9,8 +9,21 @@ import (
 )
 
 // openLockFile opens (creating if needed) the build lock file for locking.
+// The mode is world read/write, and set AGAIN after the open because the
+// process umask strips it on creation: these locks are shared across accounts,
+// and a lock file a second user cannot even open reads as HELD forever (see
+// reportLockOpenFailure — it fails closed on purpose).
 func openLockFile(path string) (*os.File, error) {
-	return os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, sharedLockFileMode)
+	if err != nil {
+		return nil, err
+	}
+	if fi, serr := f.Stat(); serr == nil && fi.Mode().Perm() != sharedLockFileMode {
+		// Another account's lock file is not ours to re-mode; the failure is
+		// ignored for exactly that case.
+		_ = f.Chmod(sharedLockFileMode)
+	}
+	return f, nil
 }
 
 // tryLockExclusive attempts a NON-BLOCKING exclusive flock on f: returns

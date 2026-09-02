@@ -120,13 +120,17 @@ func targetDirKey(targetDir string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// targetLockPath is the one lock file for a target dir:
-// "<base>.<key>.lock", derived from the effective base path so a test's
-// isolated override (SetBuildLockPathForTest) gets its own family of files
-// instead of the machine-wide ones.
+// targetLockPath is the one lock file for a target dir: .aphrollo/build.lock
+// INSIDE the target dir, so every process building into that directory names
+// the same file whatever account it runs under. Under a test's lock-dir
+// override it keeps the old flat, hashed layout, because a test names target
+// dirs that do not exist and must not be created.
 func targetLockPath(targetDir string) string {
-	base := strings.TrimSuffix(effectiveBuildLockPath(), ".lock")
-	return fmt.Sprintf("%s.%s.lock", base, targetDirKey(targetDir))
+	if lockDirOverridden() {
+		base := strings.TrimSuffix(effectiveBuildLockPath(), ".lock")
+		return fmt.Sprintf("%s.%s.lock", base, targetDirKey(targetDir))
+	}
+	return sharedTargetLockPath(targetDir)
 }
 
 // globalSlotPath is the i-th global slot file, beside the target locks:
