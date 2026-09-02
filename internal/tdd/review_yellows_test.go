@@ -36,7 +36,7 @@ func TestQualityStage_RejectsWhenNoSlotComesFree(t *testing.T) {
 	ws := t.TempDir()
 	write(t, ws, "Cargo.toml", "[workspace]\n[workspace.metadata.aphrollo]\n"+`clippy-clean = ["a"]`+"\n")
 
-	_, release, ok := TryAcquireBuildSlot(ResolveCargoTargetDir(ws))
+	_, release, ok := TryAcquireBuildSlot(ResolveCargoTargetDir(ws), "cargo build", "/repo")
 	if !ok {
 		t.Fatal("could not occupy the slot")
 	}

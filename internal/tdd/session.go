@@ -47,7 +47,7 @@ func HandlePrompt(raw []byte) PromptResult {
 		return PromptResult{}
 	}
 	p := strings.TrimSpace(in.Prompt)
-	if p == "/tdd" || strings.HasPrefix(p, "/tdd ") {
+	if isGateCommand(p) {
 		sub := ""
 		if f := strings.Fields(p); len(f) > 1 {
 			sub = strings.ToLower(f[1])
@@ -60,24 +60,35 @@ func HandlePrompt(raw []byte) PromptResult {
 	return PromptResult{Message: reinforce(in.SessionID, in.Cwd)}
 }
 
-// tddCommand handles a /tdd subcommand and returns the message to surface.
+// isGateCommand recognises the control command under both its new name and the
+// one sessions have in their fingers.
+func isGateCommand(p string) bool {
+	for _, name := range []string{"/" + CmdName, "/" + LegacyCmdName} {
+		if p == name || strings.HasPrefix(p, name+" ") {
+			return true
+		}
+	}
+	return false
+}
+
+// tddCommand handles a /gate subcommand and returns the message to surface.
 func tddCommand(sub, session string) string {
 	switch sub {
 	case "", "status":
 		return tddStatus(session)
 	case "off":
 		if err := setOff(session, true); err != nil {
-			return "tdd: could not persist the override (" + err.Error() + ")"
+			return "gate: could not persist the override (" + err.Error() + ")"
 		}
-		return "TDD enforcement OFF for this session — edits are no longer gated. Run `/tdd on` to re-enable."
+		return "TDD enforcement OFF for this session — edits are no longer gated. Run `/gate on` to re-enable."
 	case "on", "reset":
 		// reset clears any override, which is identical to turning enforcement on.
 		if err := setOff(session, false); err != nil {
-			return "tdd: could not persist the override (" + err.Error() + ")"
+			return "gate: could not persist the override (" + err.Error() + ")"
 		}
 		return "TDD enforcement ON for this session."
 	default:
-		return "tdd: unknown subcommand " + sub + " — valid: /tdd [status|off|on|reset]"
+		return "gate: unknown subcommand " + sub + " — valid: /gate [status|off|on|reset]"
 	}
 }
 
@@ -126,7 +137,7 @@ func reinforce(session, cwd string) string {
 	if !ok || !Outcome(ps.Outcome).IsRed() {
 		return ""
 	}
-	return fmt.Sprintf("tdd: last test outcome on %s was RED (%s) — make it green before adding behavior.",
+	return fmt.Sprintf("gate: last test outcome on %s was RED (%s) — make it green before adding behavior.",
 		filepath.Base(root), ps.Outcome)
 }
 
@@ -194,7 +205,7 @@ type sessionStartInput struct {
 // gates contract directly: the hooks run the tests, not the model, so
 // re-running a suite by hand after every edit "to check" is now redundant
 // work — read the `tdd:` line the PostToolUse hook already printed instead.
-const skillNudge = "tdd: before writing or changing any code this session, invoke the " +
+const skillNudge = "gate: before writing or changing any code this session, invoke the " +
 	"`superpowers:test-driven-development` skill (read its SKILL.md). The hooks run the tests, not you: " +
 	"after every Edit/Write, read the `tdd:` line the PostToolUse hook prints (green with count / " +
 	"red-missing-impl / red / TIMEOUT / SKIPPED / QUEUED-SKIPPED) instead of running a suite by hand to " +

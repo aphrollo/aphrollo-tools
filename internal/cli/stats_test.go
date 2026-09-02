@@ -18,7 +18,7 @@ import (
 func TestTDDStats_ReadsTheGateLog(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	dir := filepath.Join(cfg, "tdd-state")
+	dir := filepath.Join(cfg, "gate-state")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestTDDStats_ReadsTheGateLog(t *testing.T) {
 	}
 
 	var out, errBuf bytes.Buffer
-	if code := runTDD([]string{"stats", "--since", "1d"}, strings.NewReader(""), &out, &errBuf); code != 0 {
+	if code := runGate([]string{"stats", "--since", "1d"}, strings.NewReader(""), &out, &errBuf); code != 0 {
 		t.Fatalf("exit = %d, stderr: %s", code, errBuf.String())
 	}
 	got := out.String()
@@ -44,7 +44,7 @@ func TestTDDStats_ReadsTheGateLog(t *testing.T) {
 	}
 
 	out.Reset()
-	if code := runTDD([]string{"stats"}, strings.NewReader(""), &out, &errBuf); code != 0 {
+	if code := runGate([]string{"stats"}, strings.NewReader(""), &out, &errBuf); code != 0 {
 		t.Fatalf("exit = %d, stderr: %s", code, errBuf.String())
 	}
 	if !strings.Contains(out.String(), "2 entries") {

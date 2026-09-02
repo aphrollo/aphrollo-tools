@@ -15,7 +15,7 @@ Module `github.com/aphrollo/aphrollo-tools`, go 1.26.4. Single binary —
 - **Lossless** — never silently transform, truncate, or filter output.
 - **Deterministic** — same inputs, same bytes out (sorted, stable).
 - **Visible** — two mutation models, by verb family:
-  - `refactor`/`tdd` mutations are **dry-run by default**; pass `--apply` to write.
+  - `refactor`/`gate` mutations are **dry-run by default**; pass `--apply` to write.
   - `workspace` verbs (`merge`/`prune`/`commit`/`push`/`ship`/… ) **execute by
     default**; pass `--dry` to preview the plan and stop. (The old `--apply` opt-in
     on these is **legacy/no-op** — you now opt OUT with `--dry`, not in with `--apply`.)
@@ -24,7 +24,7 @@ Module `github.com/aphrollo/aphrollo-tools`, go 1.26.4. Single binary —
   Fail loud with a fix suggestion rather than guessing.
 
 `aphrollo dev` is a service control plane, so it also **executes immediately**
-like `systemctl` (no dry-run, no `--dry`). The split: `refactor`/`tdd` defer and
+like `systemctl` (no dry-run, no `--dry`). The split: `refactor`/`gate` defer and
 preview; `workspace` mutates source but acts now; `dev` controls running units
 and acts now.
 
@@ -37,8 +37,10 @@ and acts now.
 - `dev` — `up`/`down`/`restart`/`status`/`logs` (replaces the retired
   `aphrollo-dev` bash wrapper).
 - `guardrail pretooluse` — Claude PreToolUse policy hook (block long fg waits, warn noisy cmds).
-- `tdd` — the TDD gates (`pretooluse`/`posttooluse`/`userpromptsubmit`/`sessionend`/
-  `precommit`/`prepush`) + `tdd init` (wires session hooks + global git gate).
+- `ratchet` — the law engine: `check` judges a repo against its declared
+  `.ratchet/laws/*.toml`, `test` proves each law against its fixtures.
+- `gate` — the TDD + law gates (`pretooluse`/`posttooluse`/`userpromptsubmit`/`sessionend`/
+  `precommit`/`prepush`) + `gate init` (wires session hooks + global git gate); `tdd` is a silent alias for one release.
   Ported from the retired `claude-code-tdd` Node hooks (this binary IS the gate now).
 
 ## Layout
@@ -50,7 +52,8 @@ internal/refactor/   detect lang → spawn server → rename/refs/outline/show
 internal/lsp/        LSP types + JSON-RPC stdio client
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy
-internal/tdd/        TDD gates: policy engine, edit smells, anti-cheat, fail-first, install
+internal/ratchet/    Law engine: .ratchet/laws/*.toml schema, matchers, baselines, fixtures
+internal/tdd/        TDD + law gates: policy engine, edit smells, anti-cheat, fail-first, install
 internal/workspace/  worktree lifecycle + git verbs
 internal/dev/        dev-tier control plane (systemd)
 ```
@@ -67,7 +70,8 @@ internal/dev/        dev-tier control plane (systemd)
   never caller input. `workspace claim` borrows that one atom; it does NOT get a
   grant of its own. Never widen this to a wildcard.
 - **Adding a gate/detector** = a new `policy` entry in a slice, not new control
-  flow. Detectors run against a **masked** copy (smell detectors mask strings +
+  flow. A rule about the CONSUMING repo's source text is not a detector at all:
+  it is a law in that repo's `.ratchet/laws/*.toml`, run by `internal/ratchet`. Detectors run against a **masked** copy (smell detectors mask strings +
   comments; suppression detectors mask strings, keep comments) — a token only in
   a string never blocks. Keep edit-time blocks near-zero-FP; heavy checks
   (fail-first) live at commit/push where a false block only costs a re-run.
@@ -85,13 +89,13 @@ retired the root build task). aphrollo-infra no longer force-installs it.
 
 ## Don't
 
-- Don't break the mutation contracts: `refactor`/`tdd` are **dry-run by default**
+- Don't break the mutation contracts: `refactor`/`gate` are **dry-run by default**
   (`--apply` to write); `workspace` verbs **execute by default** (`--dry` to
   preview). `dev` acts now with no dry-run at all. Don't re-invert `workspace`
   back to `--apply`-opt-in — that opt-in is legacy.
 - Don't re-port what was deliberately dropped: **mutation testing** (the
   documented FP/non-determinism offender), the SessionStart full-suite baseline,
-  or `/tdd allow-main` — the fail-first gate covers the ground without
+  or `/gate allow-main` — the fail-first gate covers the ground without
   the flakiness.
 - Don't add a sudo wrapper or wildcard grant — the narrow exact-match systemctl
   fence is the whole security story.

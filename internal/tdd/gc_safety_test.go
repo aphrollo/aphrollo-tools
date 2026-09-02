@@ -73,7 +73,7 @@ func TestApplyGC_TakesTheLockForAnyCargoTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, release, ok := TryAcquireBuildSlot(target)
+	_, release, ok := TryAcquireBuildSlot(target, "cargo build", "/repo")
 	if !ok {
 		t.Fatal("could not occupy the target's slot")
 	}

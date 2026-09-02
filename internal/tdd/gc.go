@@ -21,7 +21,9 @@ import (
 //	(b) the gate's per-repo fail-first worktree / warm target whose repo is
 //	    gone (origin.txt, written at creation, is the only thing that knows);
 //	(c) a directory beside a registered external worktree that holds nothing
-//	    but target/ -- git dropped the worktree, the build dir survived.
+//	    but target/ -- git dropped the worktree, the build dir survived;
+//	(h) a cargo target dir that is not THE target dir -- a hand-made
+//	    `target-sky/` nobody builds into any more, idle for days.
 //
 // Everything else is somebody's work. In particular deps/, build/ and
 // .fingerprint/ are NEVER reclaimable: they are what makes the next build
@@ -64,6 +66,7 @@ const (
 	GCKindMutants
 	GCKindDepsMember
 	GCKindDepsThirdParty
+	GCKindStrayTarget
 )
 
 // tempLitterAge is category (d)'s OWN age bar, deliberately shorter than the
@@ -92,6 +95,7 @@ type GCScope struct {
 	TempLitter      bool
 	Mutants         bool
 	DepsArtifacts   bool
+	StrayTargets    bool
 	// LockAge overrides how old a lock file must be to count as litter.
 	// Zero means tempLitterAge. An operator who knows the box is idle can
 	// lower it; the unheld-lock probe is what makes that safe.
@@ -101,7 +105,7 @@ type GCScope struct {
 // AllGCScopes is the manual command's scope: everything.
 func AllGCScopes() GCScope {
 	return GCScope{Incremental: true, GateDirs: true, OrphanWorktrees: true, TempLitter: true,
-		Mutants: true, DepsArtifacts: true}
+		Mutants: true, DepsArtifacts: true, StrayTargets: true}
 }
 
 // ScanGC collects the reclaimable directories for the workspace containing
@@ -137,6 +141,10 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 		if root := RepoRoot(repo); root != "" {
 			out = append(out, gcOrphanWorktreeDirs(root)...)
 		}
+	}
+	if scope.StrayTargets {
+		out = append(out, gcStrayTargetDirs(strayTargetRoots(repo), ResolveCargoTargetDir(repo),
+			olderThan, time.Now())...)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Size != out[j].Size {
@@ -426,14 +434,12 @@ func ApplyGCFor(repo string, cands []GCCandidate) (freed int64, refused []string
 	}
 	freed, refused = ApplyGC(free)
 	for target, group := range byTarget {
-		slot, release, ok := TryAcquireBuildSlot(target)
+		_, release, ok := TryAcquireBuildSlot(target, gcOwnerCommand, repo)
 		if !ok {
 			skipped += len(group)
 			continue
 		}
-		WriteBuildSlotOwner(slot, gcOwnerCommand, repo)
 		gFreed, gRefused := ApplyGC(group)
-		RemoveBuildSlotOwner(slot)
 		release()
 		freed += gFreed
 		refused = append(refused, gRefused...)
@@ -494,6 +500,7 @@ var gcTierNames = map[GCKind]string{
 	GCKindDepsMember:     "workspace artifacts",
 	GCKindDepsThirdParty: "third-party artifacts",
 	GCKindMutants:        "mutants trees",
+	GCKindStrayTarget:    "stray target dirs",
 }
 
 func writeTierTotals(b *strings.Builder, cands []GCCandidate) {
@@ -503,7 +510,7 @@ func writeTierTotals(b *strings.Builder, cands []GCCandidate) {
 			totals[c.Kind] += c.Size
 		}
 	}
-	for _, k := range []GCKind{GCKindIncremental, GCKindDepsMember, GCKindDepsThirdParty, GCKindMutants} {
+	for _, k := range []GCKind{GCKindIncremental, GCKindDepsMember, GCKindDepsThirdParty, GCKindMutants, GCKindStrayTarget} {
 		if totals[k] > 0 {
 			fmt.Fprintf(b, "  %-22s %9s\n", gcTierNames[k], formatBytes(totals[k]))
 		}
@@ -512,7 +519,7 @@ func writeTierTotals(b *strings.Builder, cands []GCCandidate) {
 
 func RenderGC(cands []GCCandidate, applied bool, freed int64) string {
 	if len(cands) == 0 {
-		return "aphrollo tdd gc: nothing reclaimable\n"
+		return "aphrollo gate gc: nothing reclaimable\n"
 	}
 	width := 0
 	for _, c := range cands {
@@ -534,7 +541,7 @@ func RenderGC(cands []GCCandidate, applied bool, freed int64) string {
 		return b.String()
 	}
 	writeTierTotals(&b, cands)
-	fmt.Fprintf(&b, "%s reclaimable in %d directories — run `aphrollo tdd gc --apply` to free it\n", formatBytes(total), len(cands))
+	fmt.Fprintf(&b, "%s reclaimable in %d directories — run `aphrollo gate gc --apply` to free it\n", formatBytes(total), len(cands))
 	return b.String()
 }
 

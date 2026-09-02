@@ -41,7 +41,7 @@ func TestMechanical_CargoMember_RunsScopedNeverSpawnsFailFirst(t *testing.T) {
 		t.Fatalf("mechanical run = %+v, want one %+v", seen, want)
 	}
 
-	failFirstWTDir := filepath.Join(cfg, "tdd-state", "failfirst-wt")
+	failFirstWTDir := filepath.Join(cfg, "gate-state", "failfirst-wt")
 	if _, err := os.Stat(failFirstWTDir); !os.IsNotExist(err) {
 		t.Fatalf("Mechanical must never spawn a fail-first worktree, but %s exists", failFirstWTDir)
 	}

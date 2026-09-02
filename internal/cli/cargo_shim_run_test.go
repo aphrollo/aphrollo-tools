@@ -191,10 +191,10 @@ func TestRunCargoShim_CargoRun_BuildsUnderLockThenRunsLockFree(t *testing.T) {
 		calls = append(calls, append([]string{}, args...))
 		switch {
 		case len(args) > 0 && args[0] == "build":
-			_, _, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
+			_, _, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 			lockHeldDuringBuild = !ok
 		case len(args) > 0 && args[0] == "run":
-			_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
+			_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 			lockFreeDuringRun = ok
 			if ok {
 				release()
@@ -262,7 +262,7 @@ func TestRunCargoShim_CargoRun_FailingBuildNeverInvokesRun(t *testing.T) {
 		t.Fatalf("the one call must be the build, got %+v", calls[0])
 	}
 
-	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
+	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
 		t.Fatal("expected the build lock to be released after a failed build")
 	}
@@ -286,7 +286,7 @@ func TestRunCargoShim_NonRunVerb_HoldsLockAcrossWholeCall(t *testing.T) {
 	var lockHeldDuringCall bool
 	execCargoHookForTest = func(args []string) {
 		calls = append(calls, append([]string{}, args...))
-		_, _, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
+		_, _, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 		lockHeldDuringCall = !ok
 	}
 	t.Cleanup(func() { execCargoHookForTest = nil })
@@ -307,7 +307,7 @@ func TestRunCargoShim_NonRunVerb_HoldsLockAcrossWholeCall(t *testing.T) {
 		t.Fatal("expected the build lock to be HELD during a non-run verb's execution -- its own execution IS what's serialized")
 	}
 
-	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
+	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
 		t.Fatal("expected the build lock to be released once the non-run call completes")
 	}

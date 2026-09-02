@@ -59,7 +59,7 @@ func TestInitGitGate_Installs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s not written: %v", name, err)
 		}
-		if !strings.Contains(string(data), "tdd "+sub) {
+		if !strings.Contains(string(data), CmdName+" "+sub) {
 			t.Errorf("%s does not invoke tdd %s:\n%s", name, sub, data)
 		}
 		// NTFS carries no exec bit (os.Stat reports 0666); git runs the shim

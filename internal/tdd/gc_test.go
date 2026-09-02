@@ -181,7 +181,7 @@ func TestRenderGC_DryRunTableNamesPathSizeReasonAndTheApplyCommand(t *testing.T)
 	out := RenderGC([]GCCandidate{
 		{Path: `D:\Projects\borld\target\debug\incremental\borld-1a2b`, Size: 12_884_901_888, Reason: "incremental cache, idle 9d"},
 	}, false, 0)
-	for _, want := range []string{"borld-1a2b", "12.0 GB", "idle 9d", "aphrollo tdd gc --apply"} {
+	for _, want := range []string{"borld-1a2b", "12.0 GB", "idle 9d", "aphrollo gate gc --apply"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dry-run table missing %q:\n%s", want, out)
 		}
@@ -226,7 +226,7 @@ func TestParseGCAge_DaysAndDurations(t *testing.T) {
 }
 
 // TestScanGC_ReportsAbsolutePaths pins that a candidate is named by a path
-// that means the same thing wherever it is read. `aphrollo tdd gc` defaults
+// that means the same thing wherever it is read. `aphrollo gate gc` defaults
 // to --repo ".", and a table of "target\debug\incremental\..." lines is
 // ambiguous the moment it is pasted anywhere, or acted on from another
 // directory.

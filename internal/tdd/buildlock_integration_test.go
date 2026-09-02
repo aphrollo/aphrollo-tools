@@ -20,7 +20,7 @@ func TestPostEdit_QueuedSkipped_WhenBuildLockHeld(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "Cargo.toml")
 
-	slot, release, ok := acquireBuildSlot(resolveTargetDir(os.Getenv, root), time.Second)
+	_, release, ok := acquireBuildSlot(resolveTargetDir(os.Getenv, root), time.Second, "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
 		t.Fatal("setup: must be able to take the project's build slot")
 	}
@@ -28,8 +28,6 @@ func TestPostEdit_QueuedSkipped_WhenBuildLockHeld(t *testing.T) {
 	// A real holder writes an owner file (runCargoLocked does this
 	// automatically; simulated here since this test takes the slot
 	// directly) -- the QUEUED-SKIPPED line must NAME it.
-	WriteBuildSlotOwner(slot, "cargo nextest run -p other-crate", "/some/other/repo")
-	defer RemoveBuildSlotOwner(slot)
 
 	var invoked bool
 	run := func(Runner, string) SuiteResult {
@@ -64,7 +62,7 @@ func TestPostEdit_NonCargoRunner_NeverTakesTheBuildLock(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
 
-	_, release, ok := acquireBuildSlot(resolveTargetDir(os.Getenv, root), time.Second)
+	_, release, ok := acquireBuildSlot(resolveTargetDir(os.Getenv, root), time.Second, "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
 		t.Fatal("setup: must be able to take the project's build slot")
 	}
@@ -94,13 +92,11 @@ func TestPrecommit_Mechanical_RejectsWhenNoSlotComesFree(t *testing.T) {
 	write(t, root, "src/widget.rs", "pub fn widget() -> i32 { 1 }\n")
 	gitDo(t, root, "add", ".")
 
-	slot, release, ok := acquireBuildSlot(resolvedDevTarget(root), time.Second)
+	_, release, ok := acquireBuildSlot(resolvedDevTarget(root), time.Second, "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
 		t.Fatal("setup: must be able to take the gate target's only build slot")
 	}
 	defer release()
-	WriteBuildSlotOwner(slot, "cargo nextest run -p other-crate", "/some/other/repo")
-	defer RemoveBuildSlotOwner(slot)
 
 	// Only the SUITE stage needs a build slot; fmt compiles nothing and runs
 	// first, so it is expected to have run.

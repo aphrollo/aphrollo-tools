@@ -30,7 +30,7 @@ func spawnPhase(j DeferredJob) (DeferredJob, bool) {
 	}
 	_ = os.Remove(saved.Result)
 
-	cmd := exec.Command(self, "tdd", "runphase", "--job", deferredJobPath(saved.Project))
+	cmd := exec.Command(self, CmdName, "runphase", "--job", deferredJobPath(saved.Project))
 	cmd.Dir = saved.Dir
 	cmd.Env = append(os.Environ(), "CI=1", "NO_COLOR=1")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
@@ -86,7 +86,7 @@ func RunPhase(jobPath string) int {
 	defer log.Close()
 
 	r := runnerFromArgv(j.Runner, j.Dir)
-	slot, release, held := acquireBuildSlot(runnerTargetDir(r, j.Project), deferredSlotWait())
+	slot, release, held := acquireBuildSlot(runnerTargetDir(r, j.Project), deferredSlotWait(), cmdString(r), j.Dir)
 	if !held {
 		// Building without a slot would compile into a target dir another
 		// build owns, and the shimmed cargo inside would queue on the very
@@ -96,8 +96,6 @@ func RunPhase(jobPath string) int {
 		return 0
 	}
 	defer release()
-	WriteBuildSlotOwner(slot, cmdString(r), j.Dir)
-	defer RemoveBuildSlotOwner(slot)
 	defer setBuildJobs(slot.Jobs)()
 
 	// The abandon clock starts HERE, not when the hook spawned this: time

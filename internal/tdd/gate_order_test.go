@@ -127,7 +127,7 @@ func TestPrecommit_GateLogNamesTheRejectingStage(t *testing.T) {
 		return SuiteResult{Passed: true}
 	})
 
-	data, err := os.ReadFile(filepath.Join(cfg, "tdd-state", "gate.log"))
+	data, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
 	if err != nil {
 		t.Fatalf("gate.log not written: %v", err)
 	}

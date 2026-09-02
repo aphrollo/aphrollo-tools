@@ -41,7 +41,7 @@ func TestDeferredJob_RoundTripsPerProject(t *testing.T) {
 }
 
 // TestDeferredJob_FinishedWhenTheWrapperWroteItsResult pins how liveness is
-// decided: the detached phase is wrapped by `aphrollo tdd runphase`, which
+// decided: the detached phase is wrapped by `aphrollo gate runphase`, which
 // writes a result file when it is done. No PID probing — a PID can be reused,
 // and on Windows it cannot be signalled portably anyway.
 func TestDeferredJob_FinishedWhenTheWrapperWroteItsResult(t *testing.T) {
@@ -142,7 +142,7 @@ func TestDeferredLogAndResultPaths_LiveUnderTheStateDir(t *testing.T) {
 		if path == "" {
 			t.Fatalf("the job must name its %s file", name)
 		}
-		if !strings.HasPrefix(filepath.Clean(path), filepath.Join(state, "tdd-state", "deferred")) {
+		if !strings.HasPrefix(filepath.Clean(path), filepath.Join(state, "gate-state", "deferred")) {
 			t.Fatalf("%s path = %q, want it under the state dir's deferred/", name, path)
 		}
 	}

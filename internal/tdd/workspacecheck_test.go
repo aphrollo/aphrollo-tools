@@ -97,7 +97,7 @@ func TestMechanical_AlsoChecksTheWholeWorkspace(t *testing.T) {
 // gateLogOf reads the gate.log written under the test's state dir.
 func gateLogOf(t *testing.T, cfg string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(cfg, "tdd-state", "gate.log"))
+	data, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
 	if err != nil {
 		t.Fatalf("gate.log not written: %v", err)
 	}

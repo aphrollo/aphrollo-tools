@@ -8,12 +8,12 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-// runTDDCommitMsg is the `commit-msg` git hook: git passes the path to the
+// runGateCommitMsg is the `commit-msg` git hook: git passes the path to the
 // message file, and a non-zero exit is the only thing that stops the commit.
 // Everything else about this gate fails OPEN — it protects a convention, not
 // correctness, so a hook called with no file (a broken install) lets the
 // commit through rather than wedging every commit in the repo.
-func runTDDCommitMsg(args []string, stderr io.Writer) int {
+func runGateCommitMsg(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("commitmsg", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	repo := fs.String("repo", ".", "repository whose workspace manifest configures the check")

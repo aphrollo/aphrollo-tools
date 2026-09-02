@@ -46,10 +46,10 @@ type cargoShimConfig struct {
 	realCargo    string // resolved path to the ACTUAL cargo binary
 }
 
-// runTDDCargo is the `aphrollo tdd cargo [cargo args...]` entry point: it
+// runGateCargo is the `aphrollo tdd cargo [cargo args...]` entry point: it
 // resolves the real cargo binary and the configured wait budget from the
 // environment, then delegates to runCargoShim (the testable core).
-func runTDDCargo(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func runGateCargo(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	realCargo, err := resolveRealCargo()
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo tdd cargo: %v\n", err)
@@ -94,7 +94,7 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 
 	target := shimTargetDir()
 	acquire := acquireFor(args)
-	slot, releaseTarget, releaseAll, ok := acquire(target)
+	slot, releaseTarget, releaseAll, ok := acquire(target, shimOwnerCommand(args), shimCwd())
 	if ok {
 		return runWithLock(slot, releaseTarget, releaseAll, cfg.realCargo, args, stdin, stdout, stderr)
 	}
@@ -109,7 +109,7 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 			return exCargoTempFail
 		}
 		time.Sleep(cfg.pollInterval)
-		if slot, releaseTarget, releaseAll, ok := acquire(target); ok {
+		if slot, releaseTarget, releaseAll, ok := acquire(target, shimOwnerCommand(args), shimCwd()); ok {
 			fmt.Fprintln(stderr, acquiredLine(time.Since(start)))
 			return runWithLock(slot, releaseTarget, releaseAll, cfg.realCargo, args, stdin, stdout, stderr)
 		}
@@ -119,14 +119,30 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 // acquireFor picks the acquisition shape this invocation needs. A long verb
 // needs its two releases separately (the target for the prewarm, the global
 // slot for the whole run); everything else releases both together.
-func acquireFor(args []string) func(string) (tdd.BuildSlot, func(), func(), bool) {
+func acquireFor(args []string) func(target, cmd, cwd string) (tdd.BuildSlot, func(), func(), bool) {
 	if isCargoLongVerb(args) {
 		return tdd.TryAcquireLongVerbSlot
 	}
-	return func(target string) (tdd.BuildSlot, func(), func(), bool) {
-		slot, release, ok := tdd.TryAcquireBuildSlot(target)
+	return func(target, cmd, cwd string) (tdd.BuildSlot, func(), func(), bool) {
+		slot, release, ok := tdd.TryAcquireBuildSlot(target, cmd, cwd)
 		return slot, release, release, ok
 	}
+}
+
+// shimOwnerCommand and shimCwd are what a waiting session reads about this
+// invocation. They are computed BEFORE the acquisition, because the record is
+// written by the acquisition itself — there is no later moment at which a
+// caller could forget to write it.
+func shimOwnerCommand(args []string) string {
+	return "cargo " + strings.Join(args, " ")
+}
+
+func shimCwd() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "(unknown cwd)"
+	}
+	return cwd
 }
 
 // shimTargetDir resolves the target dir THIS invocation's build writes to,
@@ -155,12 +171,6 @@ func runWithLock(slot tdd.BuildSlot, releaseTarget, releaseAll func(), realCargo
 		return runCargoLongVerbSplitLock(slot, releaseTarget, releaseAll, realCargo, args, stdin, stdout, stderr)
 	}
 	defer releaseAll()
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = "(unknown cwd)"
-	}
-	tdd.WriteBuildSlotOwner(slot, "cargo "+strings.Join(args, " "), cwd)
-	defer tdd.RemoveBuildSlotOwner(slot)
 	return execCargo(realCargo, args, stdin, stdout, stderr, slot.Jobs)
 }
 
@@ -181,14 +191,8 @@ func runWithLock(slot tdd.BuildSlot, releaseTarget, releaseAll func(), realCargo
 // `run` verb, not nextest's own `run` sub-subcommand): their own execution
 // IS the thing this lock exists to serialize.
 func runCargoRunSplitLock(slot tdd.BuildSlot, release func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = "(unknown cwd)"
-	}
 	buildArgs := cargoRunArgsToBuildArgs(args)
-	tdd.WriteBuildSlotOwner(slot, "cargo "+strings.Join(buildArgs, " "), cwd)
 	buildCode := execCargo(realCargo, buildArgs, stdin, stdout, stderr, slot.Jobs)
-	tdd.RemoveBuildSlotOwner(slot)
 	release()
 	if buildCode != 0 {
 		return buildCode
@@ -244,10 +248,7 @@ func cargoPrewarmArgs(args []string) []string {
 func runCargoLongVerbSplitLock(slot tdd.BuildSlot, releaseTarget, releaseAll func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	defer releaseAll()
 	if cwd, err := os.Getwd(); err == nil && insideCargoProject(cwd) {
-		prewarm := cargoPrewarmArgs(args)
-		tdd.WriteBuildSlotOwner(slot, "cargo "+strings.Join(prewarm, " "), cwd)
-		execCargo(realCargo, prewarm, stdin, stdout, stderr, slot.Jobs)
-		tdd.RemoveBuildSlotOwner(slot)
+		execCargo(realCargo, cargoPrewarmArgs(args), stdin, stdout, stderr, slot.Jobs)
 	}
 	// The caller's target is free from here: the long phase builds in copies
 	// of the tree (mutants) or not at all. The GLOBAL slot stays held for the

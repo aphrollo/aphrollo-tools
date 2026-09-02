@@ -126,15 +126,12 @@ func runCargoLocked(run SuiteRunner, r Runner, root string, lockDeadline, stageB
 	if r.Dir != "" {
 		dir = r.Dir
 	}
-	slot, release, ok := acquireBuildSlot(runnerTargetDir(r, root), lockDeadline)
+	slot, release, ok := acquireBuildSlot(runnerTargetDir(r, root), lockDeadline, cmdString(r), dir)
 	waited = time.Since(start)
 	if !ok {
 		return SuiteResult{}, waited, false
 	}
 	defer release()
-
-	WriteBuildSlotOwner(slot, cmdString(r), dir)
-	defer RemoveBuildSlotOwner(slot)
 	defer setBuildJobs(slot.Jobs)()
 
 	// A nested cargo invocation (task A7's cargo-queue shim, IF a session
@@ -300,5 +297,5 @@ func reportLockOpenFailure(path string, err error) {
 	if _, seen := lockOpenFailures.LoadOrStore(path, true); seen {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "tdd: cannot open the build lock %s (%v) — treating it as HELD\n", path, err)
+	fmt.Fprintf(os.Stderr, "gate: cannot open the build lock %s (%v) — treating it as HELD\n", path, err)
 }

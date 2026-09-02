@@ -99,7 +99,7 @@ func short(sha string) string {
 
 func blockReceipt(format string, args ...any) *GateResult {
 	return &GateResult{Blocked: true, Message: fmt.Sprintf(
-		"tdd premergecommit: %s. Fail-first proves a test failed once; the receipt proves it constrains behaviour — %s.",
+		"gate premergecommit: %s. Fail-first proves a test failed once; the receipt proves it constrains behaviour — %s.",
 		fmt.Sprintf(format, args...), mutationGateHint)}
 }
 

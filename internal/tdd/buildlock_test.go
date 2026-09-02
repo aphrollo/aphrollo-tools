@@ -74,7 +74,7 @@ func TestBuildLockPathOverride_ConcurrentSetAndReadIsRaceFree(t *testing.T) {
 func TestAcquireBuildLock_SecondAcquirerBlocksUntilFirstReleases(t *testing.T) {
 	withIsolatedBuildLock(t)
 	target := t.TempDir()
-	_, release1, ok1 := acquireBuildSlot(target, time.Second)
+	_, release1, ok1 := acquireBuildSlot(target, time.Second, "cargo build", "/repo")
 	if !ok1 {
 		t.Fatal("first acquirer must succeed immediately (uncontended)")
 	}
@@ -83,14 +83,14 @@ func TestAcquireBuildLock_SecondAcquirerBlocksUntilFirstReleases(t *testing.T) {
 	// bound — no real sleeps > 200ms in this suite, so the bound itself is
 	// deliberately tiny (the poll interval is 20ms, so several polls still
 	// fit inside 150ms).
-	if _, _, ok2 := acquireBuildSlot(target, 150*time.Millisecond); ok2 {
+	if _, _, ok2 := acquireBuildSlot(target, 150*time.Millisecond, "cargo build", "/repo"); ok2 {
 		t.Fatal("second acquirer must not succeed while the first holds the lock")
 	}
 
 	release1()
 
 	// Now that the first released, a fresh attempt must succeed promptly.
-	_, release3, ok3 := acquireBuildSlot(target, time.Second)
+	_, release3, ok3 := acquireBuildSlot(target, time.Second, "cargo build", "/repo")
 	if !ok3 {
 		t.Fatal("a third acquirer must succeed once the lock is released")
 	}
@@ -104,7 +104,7 @@ func TestAcquireBuildLock_SecondAcquirerBlocksUntilFirstReleases(t *testing.T) {
 func TestAcquireBuildLock_TimeoutPathReturnsFalseWithinBound(t *testing.T) {
 	withIsolatedBuildLock(t)
 	target := t.TempDir()
-	_, release, ok := acquireBuildSlot(target, time.Second)
+	_, release, ok := acquireBuildSlot(target, time.Second, "cargo build", "/repo")
 	if !ok {
 		t.Fatal("setup: first acquirer must succeed")
 	}
@@ -112,7 +112,7 @@ func TestAcquireBuildLock_TimeoutPathReturnsFalseWithinBound(t *testing.T) {
 
 	const bound = 120 * time.Millisecond
 	start := time.Now()
-	_, _, ok2 := acquireBuildSlot(target, bound)
+	_, _, ok2 := acquireBuildSlot(target, bound, "cargo build", "/repo")
 	elapsed := time.Since(start)
 
 	if ok2 {
@@ -133,14 +133,14 @@ func TestAcquireBuildLock_TimeoutPathReturnsFalseWithinBound(t *testing.T) {
 func TestAcquireBuildLock_ReleaseIsIdempotentSafe(t *testing.T) {
 	withIsolatedBuildLock(t)
 	target := t.TempDir()
-	_, release, ok := acquireBuildSlot(target, time.Second)
+	_, release, ok := acquireBuildSlot(target, time.Second, "cargo build", "/repo")
 	if !ok {
 		t.Fatal("setup: first acquirer must succeed")
 	}
 	release()
 	release() // must not panic
 
-	_, release2, ok2 := acquireBuildSlot(target, time.Second)
+	_, release2, ok2 := acquireBuildSlot(target, time.Second, "cargo build", "/repo")
 	if !ok2 {
 		t.Fatal("a later acquirer must still succeed after a double release")
 	}
@@ -166,7 +166,7 @@ func TestRunCargoLocked_DeadlineCarvesLockWaitOutOfStageBudget(t *testing.T) {
 	// instantaneous uncontended grab, or this test would prove nothing.
 	const holdFor = 80 * time.Millisecond
 	root := t.TempDir()
-	_, release, ok := acquireBuildSlot(resolveTargetDir(os.Getenv, root), time.Second)
+	_, release, ok := acquireBuildSlot(resolveTargetDir(os.Getenv, root), time.Second, "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
 		t.Fatal("setup: must be able to take the build slot")
 	}

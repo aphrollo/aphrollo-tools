@@ -298,7 +298,7 @@ func TestPrecommit_Mechanical_CargoWorkspaceScopedToStagedPackages(t *testing.T)
 		if len(seen) != 0 {
 			t.Fatalf("an unowned file must run NOTHING (full-suite fallback removed), ran: %+v", seen)
 		}
-		wantNote := "tdd precommit: tools/gen.rs has no owning cargo package — not tested"
+		wantNote := "gate precommit: tools/gen.rs has no owning cargo package — not tested"
 		if !strings.Contains(stderr, wantNote) {
 			t.Fatalf("expected unowned-file note %q, got stderr: %q", wantNote, stderr)
 		}

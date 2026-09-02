@@ -198,7 +198,7 @@ func unconstrainedGreen(kind Kind, outcome Outcome, snap stateSnapshot, root str
 
 // unconstrainedLine is the one line that case prints.
 func unconstrainedLine(r Runner, root string, passed int, dur time.Duration) string {
-	return fmt.Sprintf("tdd: %s in %s %s (%d passed; no test changed with this edit — mutation proof owed)",
+	return fmt.Sprintf("gate: %s in %s %s (%d passed; no test changed with this edit — mutation proof owed)",
 		cmdString(r), root, GreenUnconstrained, passed)
 }
 
@@ -316,7 +316,7 @@ func greenLabel(outcome Outcome, output string, dur time.Duration) string {
 // means "still red, but nothing NEW", and a bare "no-delta" line leaves the
 // session guessing which pre-existing failure it is.
 func passAdvisory(r Runner, root string, outcome Outcome, output string, dur time.Duration, prevFailing []string) string {
-	line := fmt.Sprintf("tdd: %s in %s → %s", cmdString(r), root, greenLabel(outcome, output, dur))
+	line := fmt.Sprintf("gate: %s in %s → %s", cmdString(r), root, greenLabel(outcome, output, dur))
 	if outcome == NoDelta {
 		if hint := noDeltaStillFailingLine(output, prevFailing); hint != "" {
 			line += "\n" + hint
@@ -346,7 +346,7 @@ func noDeltaStillFailingLine(output string, prevFailing []string) string {
 // silent about it reads as "green" to whoever is watching — this makes the
 // inconclusive explicit instead.
 func timeoutAdvisory(r Runner, root string, dur time.Duration) string {
-	return fmt.Sprintf("tdd: %s in %s → TIMEOUT after %ds — inconclusive, code NOT tested", cmdString(r), root, int(dur.Seconds()+0.5))
+	return fmt.Sprintf("gate: %s in %s → TIMEOUT after %ds — inconclusive, code NOT tested", cmdString(r), root, int(dur.Seconds()+0.5))
 }
 
 // streakSkipAdvisory composes the one-line advisory for the timeout-streak
@@ -354,7 +354,7 @@ func timeoutAdvisory(r Runner, root string, dur time.Duration) string {
 // fact from "invoked and inconclusive" (timeoutAdvisory) and must read as
 // such.
 func streakSkipAdvisory(root string) string {
-	return fmt.Sprintf("tdd: %s → SKIPPED (2 timeouts at this HEAD; re-armed after next commit)", root)
+	return fmt.Sprintf("gate: %s → SKIPPED (2 timeouts at this HEAD; re-armed after next commit)", root)
 }
 
 // queuedSkippedAdvisory composes the one-line advisory for the machine-wide
@@ -363,7 +363,7 @@ func streakSkipAdvisory(root string) string {
 // rather than queued behind it and blowing the edit-time budget. Names the
 // holder (task A7) when the owner file is readable.
 func queuedSkippedAdvisory(root, targetDir string) string {
-	return fmt.Sprintf("tdd: %s → QUEUED-SKIPPED (every build slot for %s is busy%s) — inconclusive", root, targetDir, buildLockHolderNote(targetDir))
+	return fmt.Sprintf("gate: %s → QUEUED-SKIPPED (every build slot for %s is busy%s) — inconclusive", root, targetDir, buildLockHolderNote(targetDir))
 }
 
 // buildLockHolderNote renders a best-effort ", holder: <cmd> in <cwd>"
@@ -385,7 +385,7 @@ func buildLockHolderNote(targetDir string) string {
 // the runner output.
 func redSummary(r Runner, root string, outcome Outcome, output string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "tdd: %s %s in %s → outcome=%s", r.Cmd, strings.Join(r.Args, " "), root, outcome)
+	fmt.Fprintf(&b, "gate: %s %s in %s → outcome=%s", r.Cmd, strings.Join(r.Args, " "), root, outcome)
 	if first := firstFailingName(output); first != "" {
 		fmt.Fprintf(&b, "\nfirst failure: %s", first)
 	}

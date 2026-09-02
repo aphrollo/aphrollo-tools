@@ -26,7 +26,7 @@ func mkAgedFile(t *testing.T, path, content string, age time.Duration) {
 }
 
 // TestRunTDDGC_DryRunListsAndDeletesNothing pins the command's default: a
-// bare `aphrollo tdd gc` is a REPORT. The directory it named must still be
+// bare `aphrollo gate gc` is a REPORT. The directory it named must still be
 // there afterwards — a disk sweep that deletes without being asked is the
 // one bug this whole feature cannot have.
 func TestRunTDDGC_DryRunListsAndDeletesNothing(t *testing.T) {
@@ -36,7 +36,7 @@ func TestRunTDDGC_DryRunListsAndDeletesNothing(t *testing.T) {
 	mkAgedFile(t, filepath.Join(stale, "dep-graph.bin"), "0123456789", 30*24*time.Hour)
 
 	var stdout, stderr bytes.Buffer
-	code := runTDDGC([]string{"--repo", repo}, &stdout, &stderr)
+	code := runGateGC([]string{"--repo", repo}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0; stderr=%s", code, stderr.String())
 	}
@@ -58,7 +58,7 @@ func TestRunTDDGC_ApplyDeletesAndReports(t *testing.T) {
 	mkAgedFile(t, filepath.Join(stale, "dep-graph.bin"), "0123456789", 30*24*time.Hour)
 
 	var stdout, stderr bytes.Buffer
-	if code := runTDDGC([]string{"--repo", repo, "--apply"}, &stdout, &stderr); code != 0 {
+	if code := runGateGC([]string{"--repo", repo, "--apply"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit = %d, want 0; stderr=%s", code, stderr.String())
 	}
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
@@ -79,13 +79,13 @@ func TestRunTDDGC_OlderThanBoundsWhatQualifies(t *testing.T) {
 	mkAgedFile(t, filepath.Join(fiveDays, "dep-graph.bin"), "01234", 5*24*time.Hour)
 
 	var stdout, stderr bytes.Buffer
-	runTDDGC([]string{"--repo", repo}, &stdout, &stderr)
+	runGateGC([]string{"--repo", repo}, &stdout, &stderr)
 	if !strings.Contains(stdout.String(), "five-days") {
 		t.Fatalf("the default 3d threshold must reclaim a 5-day-old cache, got:\n%s", stdout.String())
 	}
 
 	stdout.Reset()
-	runTDDGC([]string{"--repo", repo, "--older-than", "14d"}, &stdout, &stderr)
+	runGateGC([]string{"--repo", repo, "--older-than", "14d"}, &stdout, &stderr)
 	if strings.Contains(stdout.String(), "five-days") {
 		t.Fatalf("--older-than 14d must spare a 5-day-old cache, got:\n%s", stdout.String())
 	}
@@ -96,7 +96,7 @@ func TestRunTDDGC_OlderThanBoundsWhatQualifies(t *testing.T) {
 // sweeps more than the operator asked for.
 func TestRunTDDGC_RejectsAnUnparseableAge(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if code := runTDDGC([]string{"--older-than", "soon", "--apply"}, &stdout, &stderr); code == 0 {
+	if code := runGateGC([]string{"--older-than", "soon", "--apply"}, &stdout, &stderr); code == 0 {
 		t.Fatal("an unparseable --older-than must fail, not guess")
 	}
 	if !strings.Contains(stderr.String(), "soon") {
@@ -116,13 +116,13 @@ func TestRunTDDGC_QuietApplyIsSilentButStillRecordsTheSweep(t *testing.T) {
 	mkAgedFile(t, filepath.Join(stale, "dep-graph.bin"), "0123456789", 30*24*time.Hour)
 
 	var stdout, stderr bytes.Buffer
-	if code := runTDDGC([]string{"--repo", repo, "--apply", "--quiet"}, &stdout, &stderr); code != 0 {
+	if code := runGateGC([]string{"--repo", repo, "--apply", "--quiet"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	if stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("--quiet must print nothing, got stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
-	if _, err := os.Stat(filepath.Join(state, "tdd-state", "gc-last-report.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(state, "gate-state", "gc-last-report.json")); err != nil {
 		t.Fatal("a quiet sweep must still record its result for the next session to report")
 	}
 }

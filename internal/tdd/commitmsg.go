@@ -68,7 +68,7 @@ func CommitMsg(repoRoot, msgPath string) GateResult {
 				continue
 			}
 			return GateResult{Blocked: true, Message: fmt.Sprintf(
-				"tdd commit-msg: this repo keeps its history undercover, and line %d matches %s:\n    %s\nRewrite the line to say what changed, then commit again.",
+				"gate commit-msg: this repo keeps its history undercover, and line %d matches %s:\n    %s\nRewrite the line to say what changed, then commit again.",
 				i+1, re.String(), strings.TrimSpace(line))}
 		}
 	}
@@ -84,7 +84,7 @@ func repoDenyPatterns(ws string) []*regexp.Regexp {
 	for _, raw := range cargoAphrolloPackages(ws, "commit-message-deny") {
 		re, err := regexp.Compile(raw)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "tdd commit-msg: ignoring unparseable commit-message-deny pattern %q (%v)\n", raw, err)
+			fmt.Fprintf(os.Stderr, "gate commit-msg: ignoring unparseable commit-message-deny pattern %q (%v)\n", raw, err)
 			continue
 		}
 		out = append(out, re)

@@ -101,10 +101,10 @@ func TestRunCargoShim_LongVerb_PrewarmsUnderSlotThenRunsFree(t *testing.T) {
 		calls = append(calls, append([]string{}, args...))
 		switch args[0] {
 		case "check":
-			_, _, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
+			_, _, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 			slotHeldDuringPrewarm = !ok
 		case "mutants":
-			_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
+			_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 			slotFreeDuringLongRun = ok
 			if ok {
 				release()
@@ -163,7 +163,7 @@ func TestRunCargoShim_LongVerb_FailedPrewarmStillRuns(t *testing.T) {
 		t.Fatalf("expected the bench to run after the failed prewarm, got: %+v", calls)
 	}
 
-	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
+	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
 		t.Fatal("the slot must be released even when the prewarm fails")
 	}

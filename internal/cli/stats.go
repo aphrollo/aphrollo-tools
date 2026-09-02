@@ -10,9 +10,9 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-// runTDDStats is `aphrollo tdd stats`: one table of gate.log, so pipeline
+// runGateStats is `aphrollo tdd stats`: one table of gate.log, so pipeline
 // health is a number. Read-only — it never touches the log it reads.
-func runTDDStats(args []string, stdout, stderr io.Writer) int {
+func runGateStats(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("stats", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	since := fs.String("since", "", "only count entries newer than this (e.g. 7d, 12h); default: the whole log")

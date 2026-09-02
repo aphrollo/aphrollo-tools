@@ -39,7 +39,7 @@ var prunedHooks = []string{"pre-push"}
 // `C:Users…aphrollo.exe`, every gated commit fails "not found". Quoting also
 // survives spaces (`C:\Program Files\…`).
 func binShim(bin, sub string) string {
-	return "#!/bin/sh\n" + installMarker + "\nexec \"" + shellPath(bin) + "\" tdd " + sub + " \"$@\"\n"
+	return "#!/bin/sh\n" + installMarker + "\nexec \"" + shellPath(bin) + "\" " + CmdName + " " + sub + " \"$@\"\n"
 }
 
 // shellPath renders a binary path for embedding in a shell command line:

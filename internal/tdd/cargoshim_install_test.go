@@ -9,7 +9,7 @@ import (
 
 // TestInstallCargoShim_WritesBothFiles pins task A7's install contract: a
 // dir named cargo-queue holding a Windows cargo.cmd and an extensionless
-// POSIX cargo script, both invoking `<bin> tdd cargo` — a session opts into
+// POSIX cargo script, both invoking `<bin> gate cargo` — a session opts into
 // the queue by prepending this dir to its OWN PATH (never touched here).
 func TestInstallCargoShim_WritesBothFiles(t *testing.T) {
 	shimDir := filepath.Join(t.TempDir(), "cargo-queue")
@@ -27,7 +27,7 @@ func TestInstallCargoShim_WritesBothFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cargo.cmd not written: %v", err)
 	}
-	if !strings.Contains(string(cmdData), bin) || !strings.Contains(string(cmdData), "tdd cargo %*") {
+	if !strings.Contains(string(cmdData), bin) || !strings.Contains(string(cmdData), "gate cargo %*") {
 		t.Fatalf("cargo.cmd wrong content:\n%s", cmdData)
 	}
 
@@ -35,7 +35,7 @@ func TestInstallCargoShim_WritesBothFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cargo (sh) not written: %v", err)
 	}
-	if !strings.Contains(string(shData), "tdd cargo \"$@\"") {
+	if !strings.Contains(string(shData), "gate cargo \"$@\"") {
 		t.Fatalf("cargo (sh) wrong content:\n%s", shData)
 	}
 	if !strings.HasPrefix(string(shData), "#!/bin/sh\n") {

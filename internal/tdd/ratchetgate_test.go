@@ -1,0 +1,178 @@
+package tdd
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// lawTree is a git repo carrying one deny law whose baseline records the one
+// offending site that already exists.
+func lawTree(t *testing.T, severity string) string {
+	t.Helper()
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "nan-guard.toml"), `
+name = "nan-guard"
+description = "A float clamp is not a NaN guard"
+severity = "`+severity+`"
+escape = "// nan-safe:"
+baseline = ".ratchet/baselines/nan-guard.txt"
+
+[scope]
+include = ["crates/**/*.rs"]
+
+[matcher]
+kind = "regex-absent"
+pattern = "\\.clamp\\("
+`)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"),
+		"crates/a/src/lib.rs | let a = x.clamp(0.0, 1.0);\n")
+	mustWrite(t, filepath.Join(root, "crates", "a", "src", "lib.rs"), "let a = x.clamp(0.0, 1.0);\n")
+	return root
+}
+
+func ratchetPayload(t *testing.T, tool, path string, fields map[string]any) []byte {
+	t.Helper()
+	input := map[string]any{"file_path": path}
+	for k, v := range fields {
+		input[k] = v
+	}
+	raw, err := json.Marshal(map[string]any{"tool_name": tool, "tool_input": input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func TestRatchetAdvisoryDeniesAWriteThatIntroducesANewHit(t *testing.T) {
+	root := lawTree(t, "deny")
+	path := filepath.Join(root, "crates", "a", "src", "lib.rs")
+	raw := ratchetPayload(t, "Write", path, map[string]any{
+		"content": "let a = x.clamp(0.0, 1.0);\nlet b = y.clamp(0.0, 1.0);\n",
+	})
+
+	d := RatchetAdvisory(raw)
+	if d.Action != Block {
+		t.Fatalf("action = %v, want Block (reason: %s)", d.Action, d.Reason)
+	}
+	for _, want := range []string{"nan-guard", "crates/a/src/lib.rs:2", "// nan-safe:"} {
+		if !strings.Contains(d.Reason, want) {
+			t.Errorf("reason %q does not carry %q", d.Reason, want)
+		}
+	}
+}
+
+func TestRatchetAdvisoryAllowsAWriteThatAddsNothingNew(t *testing.T) {
+	root := lawTree(t, "deny")
+	path := filepath.Join(root, "crates", "a", "src", "lib.rs")
+	raw := ratchetPayload(t, "Write", path, map[string]any{
+		"content": "let a = x.clamp(0.0, 1.0);\nlet b = 1;\n",
+	})
+	if d := RatchetAdvisory(raw); d.Action != Allow {
+		t.Fatalf("action = %v (%s), want Allow — the baselined site is unchanged", d.Action, d.Reason)
+	}
+}
+
+func TestRatchetAdvisoryAppliesAnEditsOldAndNewStringsToTheFileOnDisk(t *testing.T) {
+	root := lawTree(t, "deny")
+	path := filepath.Join(root, "crates", "a", "src", "lib.rs")
+	raw := ratchetPayload(t, "Edit", path, map[string]any{
+		"old_string": "let a = x.clamp(0.0, 1.0);",
+		"new_string": "let a = x.clamp(0.0, 1.0);\nlet b = y.clamp(0.0, 1.0);",
+	})
+	d := RatchetAdvisory(raw)
+	if d.Action != Block || !strings.Contains(d.Reason, "lib.rs:2") {
+		t.Fatalf("action = %v, reason = %q", d.Action, d.Reason)
+	}
+}
+
+func TestRatchetAdvisoryAppliesMultiEditSequentially(t *testing.T) {
+	root := lawTree(t, "deny")
+	path := filepath.Join(root, "crates", "a", "src", "lib.rs")
+	raw := ratchetPayload(t, "MultiEdit", path, map[string]any{
+		"edits": []map[string]any{
+			{"old_string": "let a", "new_string": "let z"},
+			{"old_string": "let z = x.clamp(0.0, 1.0);", "new_string": "let z = 1;\nlet b = y.clamp(0.0, 1.0);"},
+		},
+	})
+	d := RatchetAdvisory(raw)
+	if d.Action != Block || !strings.Contains(d.Reason, "y.clamp") {
+		t.Fatalf("action = %v, reason = %q", d.Action, d.Reason)
+	}
+}
+
+func TestRatchetAdvisoryHonoursTheEscapeComment(t *testing.T) {
+	root := lawTree(t, "deny")
+	path := filepath.Join(root, "crates", "a", "src", "lib.rs")
+	raw := ratchetPayload(t, "Write", path, map[string]any{
+		"content": "let a = x.clamp(0.0, 1.0);\nlet b = y.clamp(0.0, 1.0); // nan-safe: literal bounds\n",
+	})
+	if d := RatchetAdvisory(raw); d.Action != Allow {
+		t.Fatalf("action = %v (%s) — an escaped site is not a hit", d.Action, d.Reason)
+	}
+}
+
+func TestRatchetAdvisoryWarnsButNeverBlocksForAWarnLaw(t *testing.T) {
+	root := lawTree(t, "warn")
+	path := filepath.Join(root, "crates", "a", "src", "lib.rs")
+	raw := ratchetPayload(t, "Write", path, map[string]any{
+		"content": "let a = x.clamp(0.0, 1.0);\nlet b = y.clamp(0.0, 1.0);\n",
+	})
+	d := RatchetAdvisory(raw)
+	if d.Action != Warn || !strings.Contains(d.Reason, "nan-guard") {
+		t.Fatalf("action = %v, reason = %q", d.Action, d.Reason)
+	}
+}
+
+func TestRatchetAdvisoryIsSilentOutsideAnyLawsScope(t *testing.T) {
+	root := lawTree(t, "deny")
+	outside := filepath.Join(root, "tools", "x.rs")
+	mustWrite(t, outside, "let a = 1;\n")
+	raw := ratchetPayload(t, "Write", outside, map[string]any{"content": "let a = q.clamp(0.0, 1.0);\n"})
+	if d := RatchetAdvisory(raw); d.Action != Allow {
+		t.Fatalf("action = %v (%s) — the file is in no law's scope", d.Action, d.Reason)
+	}
+}
+
+func TestRatchetAdvisoryIsSilentInARepoWithNoLaws(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	path := filepath.Join(root, "crates", "a", "src", "lib.rs")
+	mustWrite(t, path, "let a = 1;\n")
+	raw := ratchetPayload(t, "Write", path, map[string]any{"content": "let a = q.clamp(0.0, 1.0);\n"})
+	if d := RatchetAdvisory(raw); d.Action != Allow {
+		t.Fatalf("action = %v (%s)", d.Action, d.Reason)
+	}
+}
+
+// A pre-edit run must never move a baseline: the tree it judged is hypothetical.
+func TestRatchetAdvisoryNeverRewritesABaseline(t *testing.T) {
+	root := lawTree(t, "deny")
+	baselinePath := filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt")
+	before, err := os.ReadFile(baselinePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "crates", "a", "src", "lib.rs")
+	raw := ratchetPayload(t, "Write", path, map[string]any{"content": "let a = 1;\n"})
+	if d := RatchetAdvisory(raw); d.Action != Allow {
+		t.Fatalf("action = %v (%s)", d.Action, d.Reason)
+	}
+	after, err := os.ReadFile(baselinePath)
+	if err != nil || string(after) != string(before) {
+		t.Errorf("baseline moved at pre-edit time: %q -> %q (%v)", before, after, err)
+	}
+}
+
+func mustWrite(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
