@@ -1056,7 +1056,7 @@ func git(dir string, args ...string) (string, error) {
 // (nil for none), and returns the combined output. It is the single place the
 // exec/clean-env/CombinedOutput pattern lives.
 func gitStdin(dir string, stdin io.Reader, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command(gitBinary(), args...)
 	cmd.Dir = dir
 	cmd.Env = cleanGitEnv()
 	cmd.Stdin = stdin

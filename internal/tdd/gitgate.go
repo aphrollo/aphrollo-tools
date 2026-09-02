@@ -178,19 +178,19 @@ func uninstallGitGate(hooksDir string) (bool, error) {
 }
 
 func gitConfigGet(key string) (string, error) {
-	out, err := exec.Command("git", "config", "--global", "--get", key).Output()
+	out, err := exec.Command(gitBinary(), "config", "--global", "--get", key).Output()
 	return strings.TrimSpace(string(out)), err
 }
 
 func gitConfigSet(key, val string) error {
-	if out, err := exec.Command("git", "config", "--global", key, val).CombinedOutput(); err != nil {
+	if out, err := exec.Command(gitBinary(), "config", "--global", key, val).CombinedOutput(); err != nil {
 		return fmt.Errorf("git config %s: %v: %s", key, err, out)
 	}
 	return nil
 }
 
 func gitConfigUnset(key string) error {
-	if out, err := exec.Command("git", "config", "--global", "--unset", key).CombinedOutput(); err != nil {
+	if out, err := exec.Command(gitBinary(), "config", "--global", "--unset", key).CombinedOutput(); err != nil {
 		return fmt.Errorf("git config --unset %s: %v: %s", key, err, out)
 	}
 	return nil

@@ -65,7 +65,7 @@ const mutationGateHint = "run tools/mutation_gate.sh on the lane tip (with a cle
 
 // checkMutationReceipt judges the receipt for the tree being merged. It
 // returns nil to allow, or a blocking GateResult naming the field that
-// failed. tipTree is the LANE TIP's tree (MERGE_HEAD^{tree}), never the merge
+// failed. tipTree is the LANE TIP's tree (MERGE_HEAD:), never the merge
 // result: the merge result has never been mutation-tested by anyone.
 func checkMutationReceipt(repo, tipTree string) *GateResult {
 	path := MutationReceiptPathFor(tipTree)
@@ -131,7 +131,10 @@ func blockReceipt(format string, args ...any) *GateResult {
 // mergeTipTree is the tree of the commit being merged IN, which is what the
 // mutation run measured. "" when there is no merge in progress.
 func mergeTipTree(repoRoot string) string {
-	out, err := git(repoRoot, "rev-parse", "MERGE_HEAD^{tree}")
+	// `<rev>:` names that commit's tree, and unlike `<rev>^{tree}` it survives
+	// any cmd.exe wrapper on the way to git — a caret is an escape character
+	// there, and the mangled argument answered "" for every merge.
+	out, err := git(repoRoot, "rev-parse", "MERGE_HEAD:")
 	if err != nil {
 		return ""
 	}
