@@ -38,12 +38,10 @@ func TestLockDir_LeavesNoFilesInTheRealTempDir(t *testing.T) {
 	before := countTempLocks(t)
 	dir := t.TempDir()
 	restore := SetLockDirForTest(dir)
-	slot, release, ok := TryAcquireBuildSlot(filepath.Join(dir, "target"))
+	_, release, ok := TryAcquireBuildSlot(filepath.Join(dir, "target"), "cargo test", dir)
 	if !ok {
 		t.Fatal("could not take an isolated slot")
 	}
-	WriteBuildSlotOwner(slot, "cargo test", dir)
-	RemoveBuildSlotOwner(slot)
 	release()
 	restore()
 

@@ -97,14 +97,14 @@ func TestRunCargoShim_OwnerFileRemovedAfterRun(t *testing.T) {
 // the lock), the shim must run WITHOUT ever touching the lock at all -- not
 // even a non-blocking try -- proven here by having the LOCK ALREADY HELD by
 // the test itself (simulating the real scenario) and confirming the shim
-// still succeeds immediately, silently, without waiting or writing its own
-// owner file (which would incorrectly claim ownership out from under the
-// real holder).
+// still succeeds immediately, silently, without waiting or touching the real
+// holder's owner record (claiming ownership out from under it would make
+// every waiter name the wrong build).
 func TestRunCargoShim_PassthroughWhenBuildLockHeldEnvSet(t *testing.T) {
 	withIsolatedCargoLock(t)
 	t.Setenv(tdd.BuildLockHeldEnv, "1")
 
-	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
+	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
 		t.Fatal("setup: must be able to take the isolated lock")
 	}
@@ -119,8 +119,13 @@ func TestRunCargoShim_PassthroughWhenBuildLockHeldEnvSet(t *testing.T) {
 	if stderr.Len() != 0 {
 		t.Fatalf("passthrough must print nothing (it never touches the lock), got: %q", stderr.String())
 	}
-	if _, ok := tdd.ReadBuildSlotOwner(shimTargetDir()); ok {
-		t.Fatal("passthrough must never write its own owner file -- the real holder's is the only valid one")
+	// The setup acquisition recorded ITS owner (acquiring and recording are one
+	// operation now). The passthrough must leave that record exactly as it
+	// found it — claiming ownership out from under the real holder would make
+	// every waiter name the wrong build.
+	owner, ok := tdd.ReadBuildSlotOwner(shimTargetDir())
+	if !ok || !strings.Contains(owner.Cmd, "other-crate") {
+		t.Fatalf("passthrough overwrote the real holder's owner record: %+v (present=%v)", owner, ok)
 	}
 }
 
@@ -132,14 +137,12 @@ func TestRunCargoShim_PassthroughWhenBuildLockHeldEnvSet(t *testing.T) {
 func TestRunCargoShim_WaitsPrintsQueuedOnceAndAcquiredOnce(t *testing.T) {
 	withIsolatedCargoLock(t)
 
-	slot, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
+	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
 		t.Fatal("setup: must be able to take the isolated lock")
 	}
-	tdd.WriteBuildSlotOwner(slot, "cargo nextest run -p other-crate", "/some/other/repo")
 	go func() {
 		time.Sleep(80 * time.Millisecond)
-		tdd.RemoveBuildSlotOwner(slot)
 		release()
 	}()
 
@@ -175,7 +178,7 @@ func TestRunCargoShim_WaitsPrintsQueuedOnceAndAcquiredOnce(t *testing.T) {
 func TestRunCargoShim_GivesUpAfterWaitBudget_Exits75(t *testing.T) {
 	withIsolatedCargoLock(t)
 
-	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
+	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
 		t.Fatal("setup: must be able to take the isolated lock")
 	}
@@ -208,7 +211,7 @@ func TestRunCargoShim_GivesUpAfterWaitBudget_Exits75(t *testing.T) {
 func TestRunCargoShim_WaitBudgetZero_FailsImmediately(t *testing.T) {
 	withIsolatedCargoLock(t)
 
-	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
+	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
 		t.Fatal("setup: must be able to take the isolated lock")
 	}

@@ -434,14 +434,12 @@ func ApplyGCFor(repo string, cands []GCCandidate) (freed int64, refused []string
 	}
 	freed, refused = ApplyGC(free)
 	for target, group := range byTarget {
-		slot, release, ok := TryAcquireBuildSlot(target)
+		_, release, ok := TryAcquireBuildSlot(target, gcOwnerCommand, repo)
 		if !ok {
 			skipped += len(group)
 			continue
 		}
-		WriteBuildSlotOwner(slot, gcOwnerCommand, repo)
 		gFreed, gRefused := ApplyGC(group)
-		RemoveBuildSlotOwner(slot)
 		release()
 		freed += gFreed
 		refused = append(refused, gRefused...)

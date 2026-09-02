@@ -27,14 +27,14 @@ func withIsolatedBuildLockKeepingDeadlines(t *testing.T) {
 func TestAcquireBuildSlot_ZeroDeadlineIsOneTryNoSleep(t *testing.T) {
 	withIsolatedBuildLockKeepingDeadlines(t)
 	target := t.TempDir()
-	_, release, ok := TryAcquireBuildSlot(target)
+	_, release, ok := TryAcquireBuildSlot(target, "cargo build", "/repo")
 	if !ok {
 		t.Fatal("setup: the only slot must be takeable")
 	}
 	defer release()
 
 	start := time.Now()
-	if _, _, ok := acquireBuildSlot(target, 0); ok {
+	if _, _, ok := acquireBuildSlot(target, 0, "cargo build", "/repo"); ok {
 		t.Fatal("a saturated key must refuse a zero-deadline acquire")
 	}
 	if elapsed := time.Since(start); elapsed > buildLockPollInterval {
@@ -55,7 +55,7 @@ func TestPostEdit_QueuedSkippedIsImmediate(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "Cargo.toml")
 
-	_, release, ok := acquireBuildSlot(resolveTargetDir(os.Getenv, root), time.Second)
+	_, release, ok := acquireBuildSlot(resolveTargetDir(os.Getenv, root), time.Second, "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
 		t.Fatal("setup: must be able to take the project's only build slot")
 	}
@@ -91,7 +91,7 @@ func TestSetPrecommitLockWait_BoundsTheCommitGatesWait(t *testing.T) {
 	write(t, root, "src/widget.rs", "pub fn widget() -> i32 { 1 }\n")
 	gitDo(t, root, "add", ".")
 
-	_, release, ok := acquireBuildSlot(resolvedDevTarget(root), time.Second)
+	_, release, ok := acquireBuildSlot(resolvedDevTarget(root), time.Second, "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
 		t.Fatal("setup: must be able to take the gate target's only build slot")
 	}

@@ -142,7 +142,7 @@ func TestApplyGCFor_IncrementalNeedsASlotOthersDoNot(t *testing.T) {
 		{Path: orphan, Size: 3, Reason: "orphan build dir", Kind: GCKindOrphanWorktree},
 	}
 
-	_, release, ok := TryAcquireBuildSlot(ResolveCargoTargetDir(repo))
+	_, release, ok := TryAcquireBuildSlot(ResolveCargoTargetDir(repo), "cargo build", "/repo")
 	if !ok {
 		t.Fatal("setup: must be able to saturate the repo's only slot")
 	}

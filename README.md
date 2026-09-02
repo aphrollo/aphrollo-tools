@@ -820,6 +820,16 @@ never leaves target dirs locked by builds that never started.
 - A waiter still prints exactly one `queued behind "<cmd>" in <cwd>` line
   naming a holder, one line on acquire, and exits 75 (`EX_TEMPFAIL`) when it
   gives up (`APHROLLO_CARGO_WAIT_SECS`, default 20 min).
+- **Acquiring a slot IS recording its owner** — one function writes both the
+  target-dir record (who is building *here*) and the global-slot record (who
+  is using up the box's capacity), and the release removes them. A caller
+  asked to remember a second call eventually forgets, which is how a merge
+  came to print `queued behind another build (holder unknown)`. Two records,
+  not one, because the two waits are different: when the target dir is free
+  and every global slot is taken, the waiter names a slot holder and adds
+  *(the box is at capacity)*. A long verb hands its target dir back after the
+  prewarm but keeps its slot for hours, so its slot record deliberately
+  outlives its target record.
 
 ### sqlc drift guard (`aphrollo sqlc`)
 

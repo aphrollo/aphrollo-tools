@@ -94,12 +94,12 @@ func TestTryAcquireBuildSlot_DifferentTargetDirsNeverContend(t *testing.T) {
 	t.Setenv(buildSlotsEnv, "2")
 	a, b := t.TempDir(), t.TempDir()
 
-	_, relA, okA := TryAcquireBuildSlot(a)
+	_, relA, okA := TryAcquireBuildSlot(a, "cargo build", "/repo")
 	if !okA {
 		t.Fatal("setup: first target dir must acquire")
 	}
 	defer relA()
-	_, relB, okB := TryAcquireBuildSlot(b)
+	_, relB, okB := TryAcquireBuildSlot(b, "cargo build", "/repo")
 	if !okB {
 		t.Fatal("a build into a DIFFERENT target dir must not wait on another target dir's lock")
 	}
@@ -266,7 +266,7 @@ func TestRunCargoLocked_KeysOnTheRunnersOwnTargetDir(t *testing.T) {
 
 	t.Setenv(buildSlotsEnv, "2")
 	rootA, rootB := t.TempDir(), t.TempDir()
-	_, release, ok := TryAcquireBuildSlot(resolveTargetDir(os.Getenv, rootA))
+	_, release, ok := TryAcquireBuildSlot(resolveTargetDir(os.Getenv, rootA), "cargo build", "/repo")
 	if !ok {
 		t.Fatal("setup: root A's only slot must be takeable")
 	}

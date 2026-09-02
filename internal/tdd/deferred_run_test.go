@@ -109,7 +109,7 @@ func TestRunPhase_FailsWhenItCannotHoldASlot(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "ran.txt")
 
-	_, release, ok := TryAcquireBuildSlot(ResolveCargoTargetDir(dir))
+	_, release, ok := TryAcquireBuildSlot(ResolveCargoTargetDir(dir), "cargo build", "/repo")
 	if !ok {
 		t.Fatal("could not occupy the slot")
 	}

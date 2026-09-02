@@ -144,7 +144,7 @@ func globalSlotPath(i int) string {
 // ok=false means another build owns this target dir, or the box is at
 // capacity. Exported so internal/cli's cargo shim can build its own wait
 // loop with its own queued/acquired messaging.
-func TryAcquireBuildSlot(targetDir string) (BuildSlot, func(), bool) {
+func TryAcquireBuildSlot(targetDir, cmd, cwd string) (BuildSlot, func(), bool) {
 	lock := targetLockPath(targetDir)
 	releaseTarget, ok := TryAcquireFileLock(lock)
 	if !ok {
@@ -158,16 +158,22 @@ func TryAcquireBuildSlot(targetDir string) (BuildSlot, func(), bool) {
 	// for hours. The per-target lock still applies — a token is permission to
 	// skip the semaphore, never permission to share a build directory.
 	if token := inheritedSlotToken(); token != "" {
-		return BuildSlot{Index: inheritedSlotIndex, Lock: lock, Owner: lock + ".owner", Jobs: jobs},
-			releaseTarget, true
+		slot := BuildSlot{Index: inheritedSlotIndex, Lock: lock, Owner: lock + ".owner", Jobs: jobs}
+		recordSlotOwner(slot, cmd, cwd)
+		return slot, func() {
+			clearSlotOwner(slot)
+			releaseTarget()
+		}, true
 	}
 	for i := range n {
 		if releaseSlot, ok := TryAcquireFileLock(globalSlotPath(i)); ok {
-			return BuildSlot{Index: i, Lock: lock, Owner: lock + ".owner", Jobs: jobs},
-				func() {
-					releaseSlot()
-					releaseTarget()
-				}, true
+			slot := BuildSlot{Index: i, Lock: lock, Owner: lock + ".owner", Jobs: jobs}
+			recordSlotOwner(slot, cmd, cwd)
+			return slot, func() {
+				clearSlotOwner(slot)
+				releaseSlot()
+				releaseTarget()
+			}, true
 		}
 	}
 	// The box is full: give the target lock straight back, or a busy box
@@ -205,7 +211,7 @@ func SlotTokenEnvName() string { return slotTokenEnv }
 // back their releases SEPARATELY: the caller's target lock covers the prewarm
 // compile only, while the global slot is held for the whole run and lent to
 // the children through the token.
-func TryAcquireLongVerbSlot(targetDir string) (slot BuildSlot, releaseTarget, releaseAll func(), ok bool) {
+func TryAcquireLongVerbSlot(targetDir, cmd, cwd string) (slot BuildSlot, releaseTarget, releaseAll func(), ok bool) {
 	lock := targetLockPath(targetDir)
 	freeTarget, ok := TryAcquireFileLock(lock)
 	if !ok {
@@ -218,17 +224,25 @@ func TryAcquireLongVerbSlot(targetDir string) (slot BuildSlot, releaseTarget, re
 		if !got {
 			continue
 		}
+		acquired := BuildSlot{Index: i, Lock: lock, Owner: lock + ".owner", Jobs: jobs}
+		recordSlotOwner(acquired, cmd, cwd)
 		var once bool
 		releaseTargetOnce := func() {
 			if !once {
 				once = true
+				// The TARGET record goes with the target lock — another build
+				// may take that dir immediately. The SLOT record stays: the
+				// long verb holds the slot for hours, and a waiter blocked on
+				// capacity reads exactly that.
+				removeBuildLockOwnerAt(acquired.Owner)
 				freeTarget()
 			}
 		}
-		return BuildSlot{Index: i, Lock: lock, Owner: lock + ".owner", Jobs: jobs},
+		return acquired,
 			releaseTargetOnce,
 			func() {
 				releaseTargetOnce()
+				removeBuildLockOwnerAt(globalSlotOwnerPath(acquired.Index))
 				freeSlot()
 			}, true
 	}
@@ -247,11 +261,11 @@ var buildLockQueueNoticeEvery = 60 * time.Second
 // waits. A ZERO deadline is a single try -- the PostToolUse edit hook's
 // contract: an edit-time run reports QUEUED-SKIPPED instantly rather than
 // spending its budget waiting.
-func acquireBuildSlot(targetDir string, deadline time.Duration) (BuildSlot, func(), bool) {
+func acquireBuildSlot(targetDir string, deadline time.Duration, cmd, cwd string) (BuildSlot, func(), bool) {
 	start := time.Now()
 	nextNotice := buildLockQueueNoticeEvery
 	for {
-		if slot, release, ok := TryAcquireBuildSlot(targetDir); ok {
+		if slot, release, ok := TryAcquireBuildSlot(targetDir, cmd, cwd); ok {
 			return slot, release, true
 		}
 		waited := time.Since(start)
@@ -271,11 +285,42 @@ func acquireBuildSlot(targetDir string, deadline time.Duration) (BuildSlot, func
 // waiting acquirer's line, or says the holder is unknown (the owner file is
 // best-effort, and a build started before this feature wrote none).
 func buildSlotHolderDescription(targetDir string) string {
-	o, ok := ReadBuildSlotOwner(targetDir)
-	if !ok {
-		return "another build (holder unknown)"
+	if o, ok := ReadBuildSlotOwner(targetDir); ok {
+		return describeOwner(o)
 	}
+	// The target dir itself is free, so the wait is on CAPACITY: every global
+	// slot is taken by builds in other target dirs. Those are nameable too,
+	// and saying "holder unknown" about a build whose record is right there is
+	// what sent an operator looking for a phantom.
+	for i := range buildSlotCount() {
+		if o, ok := readBuildLockOwnerAt(globalSlotOwnerPath(i)); ok {
+			return describeOwner(o) + " (the box is at capacity)"
+		}
+	}
+	return "another build (holder unknown)"
+}
+
+func describeOwner(o BuildLockOwner) string {
 	return fmt.Sprintf("%q in %s (pid %d)", o.Cmd, o.Cwd, o.PID)
+}
+
+// globalSlotOwnerPath is the owner record beside the i-th global slot lock.
+func globalSlotOwnerPath(i int) string { return globalSlotPath(i) + ".owner" }
+
+// recordSlotOwner is the ONE place an acquisition becomes visible: it writes
+// both the target-dir record (who is building HERE) and the global-slot
+// record (who is using up the box's capacity). Acquiring and recording are
+// one operation because a caller asked to remember a second call eventually
+// forgets, and the cost of forgetting is a waiter that cannot name what it is
+// waiting for.
+func recordSlotOwner(s BuildSlot, cmd, cwd string) {
+	writeBuildLockOwnerAt(s.Owner, cmd, cwd)
+	writeBuildLockOwnerAt(globalSlotOwnerPath(s.Index), cmd, cwd)
+}
+
+func clearSlotOwner(s BuildSlot) {
+	removeBuildLockOwnerAt(s.Owner)
+	removeBuildLockOwnerAt(globalSlotOwnerPath(s.Index))
 }
 
 // ReadBuildSlotOwner names the build currently holding targetDir. ok=false
@@ -291,13 +336,6 @@ func ReadBuildSlotOwner(targetDir string) (BuildLockOwner, bool) {
 func ReadBuildSlotOwnerPath(targetDir string) string {
 	return targetLockPath(targetDir) + ".owner"
 }
-
-// WriteBuildSlotOwner / RemoveBuildSlotOwner record and clear the holder of
-// an acquired slot. Exported for internal/cli's shim, which holds slots
-// directly rather than through runCargoLocked.
-func WriteBuildSlotOwner(s BuildSlot, cmd, cwd string) { writeBuildLockOwnerAt(s.Owner, cmd, cwd) }
-
-func RemoveBuildSlotOwner(s BuildSlot) { removeBuildLockOwnerAt(s.Owner) }
 
 // slotJobs is one slot's share of the box's job budget, never below 1
 // (cargo rejects --jobs 0). Integer division deliberately rounds DOWN: the

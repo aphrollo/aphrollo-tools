@@ -86,7 +86,7 @@ func RunPhase(jobPath string) int {
 	defer log.Close()
 
 	r := runnerFromArgv(j.Runner, j.Dir)
-	slot, release, held := acquireBuildSlot(runnerTargetDir(r, j.Project), deferredSlotWait())
+	slot, release, held := acquireBuildSlot(runnerTargetDir(r, j.Project), deferredSlotWait(), cmdString(r), j.Dir)
 	if !held {
 		// Building without a slot would compile into a target dir another
 		// build owns, and the shimmed cargo inside would queue on the very
@@ -96,8 +96,6 @@ func RunPhase(jobPath string) int {
 		return 0
 	}
 	defer release()
-	WriteBuildSlotOwner(slot, cmdString(r), j.Dir)
-	defer RemoveBuildSlotOwner(slot)
 	defer setBuildJobs(slot.Jobs)()
 
 	// The abandon clock starts HERE, not when the hook spawned this: time

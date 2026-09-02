@@ -67,7 +67,7 @@ func TestLongVerb_HoldsOneSlotAndLendsIt(t *testing.T) {
 	}
 
 	// Everything is released once the verb exits.
-	if _, release, ok := tdd.TryAcquireBuildSlot(tdd.ResolveCargoTargetDir(dir)); !ok {
+	if _, release, ok := tdd.TryAcquireBuildSlot(tdd.ResolveCargoTargetDir(dir), "cargo nextest run -p other-crate", "/some/other/repo"); !ok {
 		t.Fatal("the long verb did not release its locks at exit")
 	} else {
 		release()

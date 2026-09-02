@@ -56,7 +56,7 @@ func TestIsCargoReadOnlyVerb_ClassifiesTheQueryVerbs(t *testing.T) {
 func TestRunCargoShim_ReadOnlyVerbRunsWhileSlotsAreBusy(t *testing.T) {
 	withIsolatedCargoLock(t)
 
-	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
+	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
 		t.Fatal("setup: must be able to take the isolated slot")
 	}
@@ -97,7 +97,7 @@ func TestRunCargoShim_ReadOnlyVerbLeavesTheSlotsAlone(t *testing.T) {
 	if _, ok := tdd.ReadBuildSlotOwner(shimTargetDir()); ok {
 		t.Fatal("a read-only verb must never write an owner file")
 	}
-	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir())
+	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
 		t.Fatal("the slot must be free after a read-only verb — it was never taken")
 	}

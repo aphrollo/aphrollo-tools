@@ -17,12 +17,12 @@ func TestBuildSlots_OneBuildPerTargetDir(t *testing.T) {
 	t.Setenv(buildSlotsEnv, "4") // plenty of GLOBAL capacity...
 	target := t.TempDir()
 
-	_, release, ok := TryAcquireBuildSlot(target)
+	_, release, ok := TryAcquireBuildSlot(target, "cargo build", "/repo")
 	if !ok {
 		t.Fatal("the first build into a target dir must be admitted")
 	}
 	defer release()
-	if _, _, ok := TryAcquireBuildSlot(target); ok {
+	if _, _, ok := TryAcquireBuildSlot(target, "cargo build", "/repo"); ok {
 		t.Fatal("...but a SECOND build into the SAME target dir must never be, whatever the global slot count")
 	}
 }
@@ -35,17 +35,17 @@ func TestBuildSlots_GlobalSemaphoreCapsConcurrentBuilds(t *testing.T) {
 	withIsolatedBuildLock(t)
 	t.Setenv(buildSlotsEnv, "2")
 
-	_, relA, okA := TryAcquireBuildSlot(t.TempDir())
-	_, relB, okB := TryAcquireBuildSlot(t.TempDir())
+	_, relA, okA := TryAcquireBuildSlot(t.TempDir(), "cargo build", "/repo")
+	_, relB, okB := TryAcquireBuildSlot(t.TempDir(), "cargo build", "/repo")
 	if !okA || !okB {
 		t.Fatal("two builds into two target dirs must both be admitted at N=2")
 	}
 	defer relA()
-	if _, _, ok := TryAcquireBuildSlot(t.TempDir()); ok {
+	if _, _, ok := TryAcquireBuildSlot(t.TempDir(), "cargo build", "/repo"); ok {
 		t.Fatal("a third build must wait — the global slots are the box's capacity")
 	}
 	relB()
-	_, relC, okC := TryAcquireBuildSlot(t.TempDir())
+	_, relC, okC := TryAcquireBuildSlot(t.TempDir(), "cargo build", "/repo")
 	if !okC {
 		t.Fatal("once a global slot frees, the next build is admitted")
 	}
@@ -61,18 +61,18 @@ func TestBuildSlots_TargetLockReleasedWhenNoGlobalSlotIsFree(t *testing.T) {
 	withIsolatedBuildLock(t)
 	t.Setenv(buildSlotsEnv, "1")
 
-	_, release, ok := TryAcquireBuildSlot(t.TempDir())
+	_, release, ok := TryAcquireBuildSlot(t.TempDir(), "cargo build", "/repo")
 	if !ok {
 		t.Fatal("setup: the one global slot must be takeable")
 	}
 
 	blocked := t.TempDir()
-	if _, _, ok := TryAcquireBuildSlot(blocked); ok {
+	if _, _, ok := TryAcquireBuildSlot(blocked, "cargo build", "/repo"); ok {
 		t.Fatal("setup: the second build must be refused with the only global slot taken")
 	}
 	// The refusal must have left nothing behind.
 	release()
-	_, release2, ok := TryAcquireBuildSlot(blocked)
+	_, release2, ok := TryAcquireBuildSlot(blocked, "cargo build", "/repo")
 	if !ok {
 		t.Fatal("the refused build's target lock must have been released — it was never held for a build that did not run")
 	}
@@ -105,19 +105,18 @@ func TestAcquireBuildSlot_AnnouncesTheQueueWhileItWaits(t *testing.T) {
 	withIsolatedBuildLock(t)
 	target := t.TempDir()
 
-	slot, release, ok := TryAcquireBuildSlot(target)
+	_, release, ok := TryAcquireBuildSlot(target, "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
 		t.Fatal("setup: must be able to hold the target")
 	}
-	WriteBuildSlotOwner(slot, "cargo nextest run -p other-crate", "/some/other/repo")
-	defer func() { RemoveBuildSlotOwner(slot); release() }()
+	defer release()
 
 	prev := buildLockQueueNoticeEvery
 	buildLockQueueNoticeEvery = 30 * time.Millisecond
 	t.Cleanup(func() { buildLockQueueNoticeEvery = prev })
 
 	stderr := captureStderr(t, func() {
-		acquireBuildSlot(target, 120*time.Millisecond)
+		acquireBuildSlot(target, 120*time.Millisecond, "cargo build", "/repo")
 	})
 	if !strings.Contains(stderr, "queued behind") || !strings.Contains(stderr, "other-crate") {
 		t.Fatalf("a waiting acquirer must name the holder while it waits, got: %q", stderr)

@@ -23,7 +23,7 @@ func TestSlotToken_ChildSkipsTheGlobalSlotButNotTheTargetLock(t *testing.T) {
 	copyB := filepath.Join(base, "mutants", "b", "target")
 
 	// The long verb holds the box's ONE global slot for its whole run.
-	parent, releaseParent, ok := TryAcquireBuildSlot(parentTarget)
+	parent, releaseParent, ok := TryAcquireBuildSlot(parentTarget, "cargo build", "/repo")
 	if !ok {
 		t.Fatal("the long verb could not take a slot")
 	}
@@ -31,24 +31,24 @@ func TestSlotToken_ChildSkipsTheGlobalSlotButNotTheTargetLock(t *testing.T) {
 
 	// Without the token a child is refused: the semaphore is full. That is
 	// exactly the deadlock the token exists to break.
-	if _, _, ok := TryAcquireBuildSlot(copyA); ok {
+	if _, _, ok := TryAcquireBuildSlot(copyA, "cargo build", "/repo"); ok {
 		t.Fatal("a tokenless child took a slot on a full box")
 	}
 
 	t.Setenv(slotTokenEnv, parent.Lock)
 
-	childA, releaseA, ok := TryAcquireBuildSlot(copyA)
+	childA, releaseA, ok := TryAcquireBuildSlot(copyA, "cargo build", "/repo")
 	if !ok {
 		t.Fatal("a token child must build under its parent's slot")
 	}
 	defer releaseA()
-	_, releaseB, ok := TryAcquireBuildSlot(copyB)
+	_, releaseB, ok := TryAcquireBuildSlot(copyB, "cargo build", "/repo")
 	if !ok {
 		t.Fatal("a second token child in a DIFFERENT target must also proceed")
 	}
 	defer releaseB()
 
-	if _, _, ok := TryAcquireBuildSlot(copyA); ok {
+	if _, _, ok := TryAcquireBuildSlot(copyA, "cargo build", "/repo"); ok {
 		t.Fatal("two builds were admitted into ONE target dir — the per-target lock still governs a token child")
 	}
 	if childA.Jobs <= 0 {
@@ -64,14 +64,14 @@ func TestSlotToken_ParentKeepsExactlyOneSlot(t *testing.T) {
 	withIsolatedBuildLock(t)
 	base := t.TempDir()
 
-	parent, releaseParent, ok := TryAcquireBuildSlot(filepath.Join(base, "outer", "target"))
+	parent, releaseParent, ok := TryAcquireBuildSlot(filepath.Join(base, "outer", "target"), "cargo build", "/repo")
 	if !ok {
 		t.Fatal("no slot for the long verb")
 	}
 	defer releaseParent()
 	t.Setenv(slotTokenEnv, parent.Lock)
 	for i, dir := range []string{"a", "b", "c"} {
-		_, release, ok := TryAcquireBuildSlot(filepath.Join(base, dir, "target"))
+		_, release, ok := TryAcquireBuildSlot(filepath.Join(base, dir, "target"), "cargo build", "/repo")
 		if !ok {
 			t.Fatalf("token child %d refused — children must not consume slots", i)
 		}
@@ -80,7 +80,7 @@ func TestSlotToken_ParentKeepsExactlyOneSlot(t *testing.T) {
 
 	// The second slot is still free for someone else entirely.
 	t.Setenv(slotTokenEnv, "")
-	if _, release, ok := TryAcquireBuildSlot(filepath.Join(base, "other", "target")); !ok {
+	if _, release, ok := TryAcquireBuildSlot(filepath.Join(base, "other", "target"), "cargo build", "/repo"); !ok {
 		t.Fatal("an unrelated build was starved: the long verb must cost exactly one slot")
 	} else {
 		release()
@@ -95,7 +95,7 @@ func TestAcquireLongVerbSlot_ReleasesTheTargetBeforeTheLongPhase(t *testing.T) {
 	withIsolatedBuildLock(t)
 	target := filepath.Join(t.TempDir(), "target")
 
-	slot, releaseTarget, releaseAll, ok := TryAcquireLongVerbSlot(target)
+	slot, releaseTarget, releaseAll, ok := TryAcquireLongVerbSlot(target, "cargo mutants", "/repo")
 	if !ok {
 		t.Fatal("no long-verb slot")
 	}
@@ -104,7 +104,7 @@ func TestAcquireLongVerbSlot_ReleasesTheTargetBeforeTheLongPhase(t *testing.T) {
 	}
 	releaseTarget()
 
-	other, releaseOther, ok := TryAcquireBuildSlot(target)
+	other, releaseOther, ok := TryAcquireBuildSlot(target, "cargo build", "/repo")
 	if !ok {
 		t.Fatal("the caller's target must be free once the prewarm is done")
 	}
