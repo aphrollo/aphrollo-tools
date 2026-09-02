@@ -1,0 +1,5 @@
+# go:embed reads raw bytes, so a CRLF checkout would ship CRLF templates.
+*.md text eol=lf
+*.go text eol=lf
+*.toml text eol=lf
+*.sh text eol=lf
