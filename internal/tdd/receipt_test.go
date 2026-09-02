@@ -9,14 +9,17 @@ import (
 	"time"
 )
 
-// writeReceipt drops a mutation receipt in the state dir.
+const laneTip = "1111111111111111111111111111111111111111"
+
+// writeReceipt drops a mutation receipt in the state dir, under the name the
+// tree it describes gives it.
 func writeReceipt(t *testing.T, r MutationReceipt) {
 	t.Helper()
 	data, err := json.Marshal(r)
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := MutationReceiptPath()
+	path := MutationReceiptPathFor(r.TipTree)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -25,41 +28,57 @@ func writeReceipt(t *testing.T, r MutationReceipt) {
 	}
 }
 
+func passingReceipt() MutationReceipt {
+	return MutationReceipt{
+		Repo: "borld", Branch: "lane/x", TipTree: laneTip, BaseRef: "origin/main",
+		MutantsTotal: 12, Caught: 12, Verdict: "pass", FinishedAt: time.Now().UTC(),
+	}
+}
+
 // TestMutationReceipt_RefusesAMergeWithoutProof pins what the receipt adds to
 // the gate. Fail-first proves a test FAILED once; it says nothing about
 // whether the test constrains behaviour, and a test that asserts nothing
-// satisfies fail-first perfectly. A merge needs both, so the merge gate reads
-// the receipt the consuming repo's mutation run wrote — and refuses when
-// there is none, when it describes a different tree, when it was taken over a
-// dirty worktree, or when mutants survived beyond the accepted list.
+// satisfies fail-first perfectly. A merge needs both.
 func TestMutationReceipt_RefusesAMergeWithoutProof(t *testing.T) {
-	tip := "1111111111111111111111111111111111111111"
-	base := MutationReceipt{
-		Repo: "borld", Branch: "lane/x", TipTree: tip, BaseRef: "origin/main",
-		MutantsTotal: 12, Caught: 12, Accepted: 0, FinishedAt: time.Now().UTC(),
-	}
-
 	cases := []struct {
 		name    string
 		receipt *MutationReceipt
 		want    string
 	}{
-		{"no receipt at all", nil, "no mutation receipt"},
-		{"a different tree", func() *MutationReceipt {
-			r := base
-			r.TipTree = "2222222222222222222222222222222222222222"
-			return &r
-		}(), "tip_tree"},
+		{"no receipt for this tree", nil, "no mutation receipt"},
 		{"taken over a dirty worktree", func() *MutationReceipt {
-			r := base
+			r := passingReceipt()
 			r.WorktreeDirty = true
 			return &r
 		}(), "worktree_dirty"},
-		{"more survivors than accepted", func() *MutationReceipt {
-			r := base
-			r.Survivors = []MutationSurvivor{{File: "src/a.rs", Line: 12, Mutation: "replace + with -"}}
+		{"a failing verdict", func() *MutationReceipt {
+			r := passingReceipt()
+			r.Verdict = "fail"
 			return &r
-		}(), "survivors"},
+		}(), `verdict "fail"`},
+		{"a verdict this gate has never heard of", func() *MutationReceipt {
+			r := passingReceipt()
+			r.Verdict = "probably-fine"
+			return &r
+		}(), "verdict"},
+		{"an empty verdict", func() *MutationReceipt {
+			r := passingReceipt()
+			r.Verdict = ""
+			return &r
+		}(), "verdict"},
+		{"survivors nobody signed off on", func() *MutationReceipt {
+			r := passingReceipt()
+			r.Survivors, r.Accepted = 2, 1
+			r.Unaccepted = []json.RawMessage{
+				json.RawMessage(`{"file":"src/a.rs","line":12,"mutation":"replace + with -"}`),
+			}
+			return &r
+		}(), "src/a.rs:12"},
+		{"a receipt for another repo", func() *MutationReceipt {
+			r := passingReceipt()
+			r.Repo = "other"
+			return &r
+		}(), "not borld"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -67,7 +86,7 @@ func TestMutationReceipt_RefusesAMergeWithoutProof(t *testing.T) {
 			if c.receipt != nil {
 				writeReceipt(t, *c.receipt)
 			}
-			got := checkMutationReceipt("borld", tip)
+			got := checkMutationReceipt("borld", laneTip)
 			if got == nil || !got.Blocked {
 				t.Fatalf("merge allowed with %s", c.name)
 			}
@@ -81,31 +100,71 @@ func TestMutationReceipt_RefusesAMergeWithoutProof(t *testing.T) {
 	}
 }
 
+// The lookup IS the identity check: a receipt for a DIFFERENT tree is a file
+// this merge never opens, so a lane whose run was overtaken by another lane's
+// is refused for the honest reason (there is none for your tip) instead of
+// reading someone else's answer.
+func TestMutationReceipt_IsFoundByTheLaneTipTreeAlone(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	other := passingReceipt()
+	other.TipTree = "2222222222222222222222222222222222222222"
+	writeReceipt(t, other)
+
+	got := checkMutationReceipt("borld", laneTip)
+	if got == nil || !got.Blocked {
+		t.Fatal("another tree's receipt must not clear this merge")
+	}
+	if !strings.Contains(got.Message, short(laneTip)) {
+		t.Fatalf("message = %q, want it to name the tip it looked for", got.Message)
+	}
+
+	// Both receipts coexist: one lane's proof never overwrites another's.
+	writeReceipt(t, passingReceipt())
+	if got := checkMutationReceipt("borld", laneTip); got != nil {
+		t.Fatalf("merge refused a proven tree: %s", got.Message)
+	}
+	if got := checkMutationReceipt("borld", other.TipTree); got != nil {
+		t.Fatalf("the other lane's receipt was clobbered: %s", got.Message)
+	}
+}
+
 // TestMutationReceipt_AcceptsAProvenTree pins the passing shapes: a clean run
-// over THIS tip, and a diff with nothing mutable in it (mutants_total 0 is a
-// real answer, not a missing one). Survivors that are all on the accepted
-// list pass too — that is what the accepted count is for.
+// over THIS tip, a diff with nothing mutable in it (mutants_total 0 is a real
+// answer, not a missing one), and survivors that were all signed off.
 func TestMutationReceipt_AcceptsAProvenTree(t *testing.T) {
-	tip := "1111111111111111111111111111111111111111"
 	for _, r := range []MutationReceipt{
-		{Repo: "borld", TipTree: tip, MutantsTotal: 12, Caught: 12},
-		{Repo: "borld", TipTree: tip, MutantsTotal: 0},
-		{Repo: "borld", TipTree: tip, MutantsTotal: 3, Caught: 2, Accepted: 1,
-			Survivors: []MutationSurvivor{{File: "src/a.rs", Line: 1, Mutation: "x"}}},
+		passingReceipt(),
+		{Repo: "borld", TipTree: laneTip, MutantsTotal: 0, Verdict: "pass"},
+		{Repo: "borld", TipTree: laneTip, MutantsTotal: 3, Caught: 2, Timeout: 0, Unviable: 0,
+			Survivors: 1, Accepted: 1, Unaccepted: []json.RawMessage{}, Verdict: "pass"},
 	} {
-		t.Run(r.Repo, func(t *testing.T) {
+		t.Run(r.Verdict+"-"+short(r.TipTree), func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			writeReceipt(t, r)
-			if got := checkMutationReceipt("borld", tip); got != nil {
+			if got := checkMutationReceipt("borld", laneTip); got != nil {
 				t.Fatalf("merge refused a proven tree: %s", got.Message)
 			}
 		})
 	}
 }
 
+// The receipt lives beside the rest of the gate's state, which moved with the
+// rename — a consuming repo writes to gate-state, and the gate must read the
+// same directory.
+func TestMutationReceiptPathLivesInTheGateStateDir(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", base)
+	want := filepath.Join(base, "gate-state", "mutation-receipt."+laneTip+".json")
+	if got := MutationReceiptPathFor(laneTip); got != want {
+		t.Fatalf("path = %q, want %q", got, want)
+	}
+	if got := MutationReceiptPathFor(""); got != "" {
+		t.Fatalf("no tree means no path, got %q", got)
+	}
+}
+
 // TestMutationReceipt_OnlyWhenTheWorkspaceAsksForIt pins the opt-in: a repo
-// that has not declared mutation-receipt = true never sees this gate at all,
-// so adding the feature cannot block anyone who has not asked for it.
+// that has not declared mutation-receipt = true never sees this gate at all.
 func TestMutationReceipt_OnlyWhenTheWorkspaceAsksForIt(t *testing.T) {
 	ws := t.TempDir()
 	write(t, ws, "Cargo.toml", "[workspace]\n")
@@ -119,9 +178,7 @@ func TestMutationReceipt_OnlyWhenTheWorkspaceAsksForIt(t *testing.T) {
 }
 
 // TestMechanical_RunsTheReceiptGateForAnOptedInWorkspace pins the wiring: an
-// opted-in workspace has its merge refused before a single suite runs (the
-// cheapest possible rejection), and a workspace that has not opted in is
-// unaffected.
+// opted-in workspace has its merge refused before a single suite runs.
 func TestMechanical_RunsTheReceiptGateForAnOptedInWorkspace(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeCargoRepo(t)

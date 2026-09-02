@@ -945,15 +945,24 @@ commit-message-deny = ["^WIP:"]      # this repo's own extra deny patterns
   Fail-first proves a test FAILED once; it says nothing about whether the
   test constrains behaviour, and a test that asserts nothing satisfies
   fail-first perfectly. A MERGE needs both. With the key set,
-  `premergecommit` reads `<stateDir>/mutation-receipt.json` (written by the
-  consuming repo's own mutation run — borld's `tools/mutation_gate.sh`) and
-  refuses (`receipt-rejected`) when there is no receipt for this repo, when
-  `tip_tree` is not the LANE TIP's tree (`MERGE_HEAD^{tree}` — never the merge
-  result, which nobody has mutation-tested), when `worktree_dirty` is set, or
-  when `len(survivors) > accepted`. `mutants_total: 0` is a valid receipt: a
-  diff with nothing mutable in it is a real answer. The rejection names the
-  offending field and the command that produces a receipt, and it runs BEFORE
-  any suite compiles.
+  `premergecommit` looks up `<stateDir>/mutation-receipt.<tip_tree>.json`,
+  where `<tip_tree>` is the LANE TIP's tree (`git rev-parse MERGE_HEAD^{tree}`
+  — never the merge result, which nobody has mutation-tested). The file is
+  written by the consuming repo's own mutation run (borld's
+  `tools/mutation_gate.sh`) and carries `repo`, `branch`, `tip_tree`,
+  `worktree_dirty`, `base_ref`, `mutants_total`, `caught`, `timeout`,
+  `unviable`, `survivors`, `accepted`, `unaccepted` and `verdict`. The merge is
+  refused (`receipt-rejected`) when there is no receipt for that tree, when
+  `worktree_dirty` is set, when `verdict` is anything but `"pass"` (an
+  unrecognised verdict refuses — a gate that reads an unknown word as
+  permission is not a gate), or when `unaccepted` is non-empty. The receipt is
+  keyed by TREE in its FILENAME, so the lookup itself is the identity check and
+  two lanes measured minutes apart never read each other's answer;
+  `mutants_total: 0` is a valid receipt, since a diff with nothing mutable in
+  it is a real answer. `unaccepted`'s entries are opaque to the gate — the
+  producing repo decides how it names a mutant — and only the first is quoted
+  in the rejection, which also names the command that produces a receipt. It
+  runs BEFORE any suite compiles.
 - **`baselines`** (string array) — the globs the baseline guard watches, e.g.
   `baselines = [".ratchet/baselines/*.txt", "crates/ratchet/tests/*_baseline.txt"]`
   (those two are also the defaults, and a declared list replaces them). See
