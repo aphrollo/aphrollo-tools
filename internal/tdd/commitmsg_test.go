@@ -133,3 +133,26 @@ func TestCommitMsg_UnreadableMessageFilePassesThrough(t *testing.T) {
 		t.Fatal("an unreadable message file must pass through")
 	}
 }
+
+// A repo whose own guidance file is called CLAUDE.md cannot describe editing
+// it: the file NAME is not a tell about how the commit was written.
+func TestCommitMsg_TheGuidanceFileNameIsNotATell(t *testing.T) {
+	root := undercoverRepo(t, true)
+
+	allowed := []string{
+		"Add the aphrollo-managed operating block to CLAUDE.md",
+		"Document the gate stages in claude.md and the README",
+	}
+	for _, body := range allowed {
+		if res := CommitMsg(root, msgFile(t, body+"\n")); res.Blocked {
+			t.Errorf("naming the file must pass: %q\n%s", body, res.Message)
+		}
+	}
+
+	if res := CommitMsg(root, msgFile(t, "Claude wrote this\n")); !res.Blocked {
+		t.Error("the tell itself must still be rejected")
+	}
+	if res := CommitMsg(root, msgFile(t, "Ask Claude.md-style questions of Claude next time\n")); !res.Blocked {
+		t.Error("a tell elsewhere on a line that also names the file must still be rejected")
+	}
+}

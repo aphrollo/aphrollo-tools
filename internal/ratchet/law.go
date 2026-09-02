@@ -68,6 +68,10 @@ const (
 	KindJSONNumberCeiling MatcherKind = "json-number-ceiling"
 )
 
+// AllRoots is `roots = "*"`: every package in the workspace is a root, which
+// is what a rule like "no package may reach the scratch crate" states.
+const AllRoots = "*"
+
 // KeyKind is how a hit is IDENTIFIED in the baseline.
 type KeyKind string
 
@@ -82,15 +86,43 @@ const (
 	KeyLineContent KeyKind = "file:line-content-hash"
 )
 
+// CountKind is what a regex-absent law counts.
+type CountKind string
+
+const (
+	// CountLines counts one offence per offending LINE.
+	CountLines CountKind = "lines"
+	// CountMatches counts every match on a line: a law about calls wants the
+	// call count, and three on one line is three offences.
+	CountMatches CountKind = "matches"
+)
+
+// Direction is where a marker-within-lines law looks for its marker. Above is
+// the comment-above-the-declaration shape; below is the block that carries its
+// own configuration (a `proptest!` block's `#![proptest_config(…)]` is on the
+// NEXT line, and looking up only reports every seeded block as unseeded).
+type Direction string
+
+const (
+	DirectionAbove Direction = "above"
+	DirectionBelow Direction = "below"
+	DirectionBoth  Direction = "both"
+)
+
 // Matcher is a law's one rule.
 type Matcher struct {
 	Kind    MatcherKind
 	Key     KeyKind
+	Count   CountKind
 	Pattern *regexp.Regexp
 	Trigger *regexp.Regexp
 	Marker  *regexp.Regexp
 	Max     int
 	Lines   int
+	// Contiguous is the marker-local spelling of the law-level flag; both mean
+	// the comment run directly beside the trigger.
+	Contiguous bool
+	Direction  Direction
 	// Registry fields (KindRegistryBothWays).
 	RegistryFile string
 	EntryPattern *regexp.Regexp
@@ -99,6 +131,9 @@ type Matcher struct {
 	Roots     []string
 	Forbidden []string
 	Edges     string
+	// MinReachable is the vacuity floor: a walk that reached fewer packages
+	// than this is not a clean verdict, it is a walk that resolved nothing.
+	MinReachable int
 	// Containment fields (KindFileSetContainment).
 	SupersetFile string
 	SubsetFile   string
@@ -120,7 +155,18 @@ type Law struct {
 	EscapeLines int
 	Baseline    string
 	CodeOnly    bool
-	Matcher     Matcher
+	// CommentPrefix opens a comment in the language the law scans (`//` by
+	// default, `#` for TOML/shell), deciding what CodeOnly strips and what
+	// counts as a comment line in a contiguous run.
+	CommentPrefix string
+	// Contiguous binds an escape or a marker to the COMMENT RUN directly above
+	// the trigger: any code or blank line between breaks it. Counting lines
+	// instead lets one comment exempt an unrelated call below it.
+	Contiguous bool
+	// TriggerExclude names lines that can never be a trigger (an import naming
+	// the very type the law is about).
+	TriggerExclude *regexp.Regexp
+	Matcher        Matcher
 	// Path is the law file itself, so an error can name where the rule came from.
 	Path string
 	// Root is the tree the law is judged against; a doc-path-resolves law
@@ -172,6 +218,7 @@ func LoadLaws(root string) ([]Law, error) {
 var rootKeys = map[string]bool{
 	"name": true, "description": true, "severity": true, "escape": true,
 	"escape_lines": true, "baseline": true, "code_only": true,
+	"comment_prefix": true, "contiguous": true, "trigger_exclude": true,
 }
 
 // matcherKeys is the exact key set each matcher kind accepts, and whether each
@@ -179,13 +226,13 @@ var rootKeys = map[string]bool{
 // otherwise silently disable half a rule.
 var matcherKeys = map[MatcherKind]map[string]bool{
 	KindLineCount:          {"kind": true, "max": true},
-	KindRegexAbsent:        {"kind": true, "pattern": true, "key": false},
+	KindRegexAbsent:        {"kind": true, "pattern": true, "key": false, "count": false},
 	KindRegexPresent:       {"kind": true, "pattern": true},
 	KindPathRegexAbsent:    {"kind": true, "pattern": true},
-	KindMarkerWithinLines:  {"kind": true, "trigger": true, "marker": true, "lines": false},
+	KindMarkerWithinLines:  {"kind": true, "trigger": true, "marker": true, "lines": false, "contiguous": false, "direction": false},
 	KindRegistryBothWays:   {"kind": true, "registry_file": true, "entry_pattern": true, "use_pattern": true},
 	KindDocPathResolves:    {"kind": true, "pattern": true},
-	KindDepGraphForbids:    {"kind": true, "roots": true, "forbidden": true, "edges": false},
+	KindDepGraphForbids:    {"kind": true, "roots": true, "forbidden": true, "edges": false, "min_reachable": false},
 	KindFileSetContainment: {"kind": true, "superset_file": true, "subset_file": true, "capture": true},
 	KindJSONNumberCeiling:  {"kind": true, "files": true, "path": true, "tolerance_pct": false, "enabled_env": false},
 }
@@ -254,11 +301,39 @@ func ParseLaw(text, wantName string) (Law, error) {
 		}
 		law.CodeOnly = v.b
 	}
+	if v, ok := doc.value("", "comment_prefix"); ok {
+		if v.kind != tomlString || v.s == "" {
+			return Law{}, fmt.Errorf("comment_prefix is a non-empty string, got %s", v.kind)
+		}
+		law.CommentPrefix = v.s
+	}
+	if v, ok := doc.value("", "contiguous"); ok {
+		if v.kind != tomlBool {
+			return Law{}, fmt.Errorf("contiguous is a boolean, got %s", v.kind)
+		}
+		law.Contiguous = v.b
+	}
+	if v, ok := doc.value("", "trigger_exclude"); ok {
+		if v.kind != tomlString || v.s == "" {
+			return Law{}, fmt.Errorf("trigger_exclude is a regex string, got %s", v.kind)
+		}
+		if law.TriggerExclude, err = regexp.Compile(v.s); err != nil {
+			return Law{}, fmt.Errorf("trigger_exclude does not compile: %w", err)
+		}
+	}
+	if law.Contiguous {
+		if _, ok := doc.value("", "escape_lines"); ok {
+			return Law{}, fmt.Errorf("contiguous and escape_lines say different things — the run above the trigger IS the window")
+		}
+	}
 	if law.Scope, err = parseScope(doc); err != nil {
 		return Law{}, err
 	}
 	if law.Matcher, err = parseMatcher(doc); err != nil {
 		return Law{}, err
+	}
+	if law.Matcher.Contiguous {
+		law.Contiguous = true
 	}
 	return law, nil
 }
@@ -270,6 +345,13 @@ func parseScope(doc *tomlDoc) (Scope, error) {
 	var s Scope
 	for _, k := range doc.keys("scope") {
 		v, _ := doc.value("scope", k)
+		if k == "min_files" {
+			if v.kind != tomlInt || v.i < 0 {
+				return Scope{}, fmt.Errorf("scope.min_files is a non-negative integer")
+			}
+			s.MinFiles = v.i
+			continue
+		}
 		if k == "ignore_gitignore" {
 			if v.kind != tomlBool {
 				return Scope{}, fmt.Errorf("scope.ignore_gitignore is a boolean, got %s", v.kind)
@@ -286,7 +368,7 @@ func parseScope(doc *tomlDoc) (Scope, error) {
 		case "exclude":
 			s.Exclude = v.list
 		default:
-			return Scope{}, fmt.Errorf("unknown key scope.%s — [scope] takes include, exclude and ignore_gitignore", k)
+			return Scope{}, fmt.Errorf("unknown key scope.%s — [scope] takes include, exclude, ignore_gitignore and min_files", k)
 		}
 	}
 	if len(s.Include) == 0 {
@@ -318,7 +400,7 @@ func parseMatcher(doc *tomlDoc) (Matcher, error) {
 		}
 	}
 
-	m := Matcher{Kind: kind, Key: KeyLineContent, Lines: 2}
+	m := Matcher{Kind: kind, Key: KeyLineContent, Lines: 2, Count: CountLines, Direction: DirectionAbove}
 	var err error
 	get := func(key string) *regexp.Regexp {
 		if err != nil {
@@ -337,6 +419,14 @@ func parseMatcher(doc *tomlDoc) (Matcher, error) {
 		m.Max, m.Key = v.i, KeyFile
 	case KindRegexAbsent:
 		m.Pattern = get("pattern")
+		if v, ok := doc.value("matcher", "count"); ok {
+			switch CountKind(v.s) {
+			case CountLines, CountMatches:
+				m.Count = CountKind(v.s)
+			default:
+				return Matcher{}, fmt.Errorf("matcher.count = %q — a count is %q or %q", v.s, CountLines, CountMatches)
+			}
+		}
 		if v, ok := doc.value("matcher", "key"); ok {
 			switch KeyKind(v.s) {
 			case KeyFile:
@@ -358,6 +448,23 @@ func parseMatcher(doc *tomlDoc) (Matcher, error) {
 		}
 	case KindMarkerWithinLines:
 		m.Trigger, m.Marker = get("trigger"), get("marker")
+		if v, ok := doc.value("matcher", "direction"); ok {
+			switch Direction(v.s) {
+			case DirectionAbove, DirectionBelow, DirectionBoth:
+				m.Direction = Direction(v.s)
+			default:
+				return Matcher{}, fmt.Errorf("matcher.direction = %q — a direction is %q, %q or %q", v.s, DirectionAbove, DirectionBelow, DirectionBoth)
+			}
+		}
+		if v, ok := doc.value("matcher", "contiguous"); ok {
+			if v.kind != tomlBool {
+				return Matcher{}, fmt.Errorf("matcher.contiguous is a boolean, got %s", v.kind)
+			}
+			m.Contiguous = v.b
+			if _, both := doc.value("matcher", "lines"); both && v.b {
+				return Matcher{}, fmt.Errorf("matcher.contiguous and matcher.lines say different things — the comment run above the trigger IS the window")
+			}
+		}
 		if v, ok := doc.value("matcher", "lines"); ok {
 			if v.kind != tomlInt || v.i < 0 {
 				return Matcher{}, fmt.Errorf("matcher.lines is a non-negative integer")
@@ -373,8 +480,20 @@ func parseMatcher(doc *tomlDoc) (Matcher, error) {
 			}
 			m.Edges = v.s
 		}
+		if v, ok := doc.value("matcher", "min_reachable"); ok {
+			if v.kind != tomlInt || v.i < 0 {
+				return Matcher{}, fmt.Errorf("matcher.min_reachable is a non-negative integer")
+			}
+			m.MinReachable = v.i
+		}
 		for key, dest := range map[string]*[]string{"roots": &m.Roots, "forbidden": &m.Forbidden} {
 			v, _ := doc.value("matcher", key)
+			// `roots = "*"` is every workspace package: a rule about what NO
+			// package may reach should not have to list them.
+			if key == "roots" && v.kind == tomlString && v.s == AllRoots {
+				*dest = []string{AllRoots}
+				continue
+			}
 			if v.kind != tomlArray || len(v.list) == 0 {
 				return Matcher{}, fmt.Errorf("matcher.%s is a non-empty array of package names", key)
 			}

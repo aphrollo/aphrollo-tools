@@ -534,6 +534,7 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		gitHooksDir  = fs.String("git-hooks-dir", "", "git hooks dir for the global gate (default: $XDG_CONFIG_HOME/git/hooks or ~/.config/git/hooks)")
 		noGit        = fs.Bool("no-git", false, "skip the git pre-commit gate; wire session hooks only")
 		claudeMD     = fs.Bool("claude-md", false, "write the managed CLAUDE.md block even when the repo has no CLAUDE.md yet")
+		ratchetDoc   = fs.Bool("ratchet-readme", false, "write .ratchet/README.md even when the repo has no laws yet")
 		uninstall    = fs.Bool("uninstall", false, "remove the hooks instead of installing them")
 	)
 	if err := fs.Parse(args); err != nil {
@@ -634,6 +635,16 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 				return 1
 			case changed:
 				fmt.Fprintf(stdout, "aphrollo gate: wrote the managed block in %s\n", filepath.Join(repo, "CLAUDE.md"))
+			}
+			// The law schema belongs beside the laws, so a repo's own docs can
+			// cite it instead of a path on the machine that installed this.
+			wrote, err := tdd.WriteRatchetReadme(repo, *ratchetDoc)
+			switch {
+			case err != nil:
+				fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+				return 1
+			case wrote:
+				fmt.Fprintf(stdout, "aphrollo gate: wrote the law spec in %s\n", filepath.Join(repo, ".ratchet", "README.md"))
 			}
 		}
 	}

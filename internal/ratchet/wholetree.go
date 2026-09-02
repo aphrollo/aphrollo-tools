@@ -43,7 +43,8 @@ type cargoMetadata struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	} `json:"packages"`
-	Resolve struct {
+	WorkspaceMembers []string `json:"workspace_members"`
+	Resolve          struct {
 		Nodes []struct {
 			ID   string     `json:"id"`
 			Deps []cargoDep `json:"deps"`
@@ -82,8 +83,14 @@ func depGraphHits(root string, law Law) ([]Hit, error) {
 		}
 	}
 
+	roots, wildcard := law.Matcher.Roots, false
+	if len(roots) == 1 && roots[0] == AllRoots {
+		roots, wildcard = workspaceRootNames(meta, nameOf), true
+	}
+
 	var hits []Hit
-	for _, rootName := range law.Matcher.Roots {
+	reached := 0
+	for _, rootName := range roots {
 		id := ""
 		for pkgID, name := range nameOf {
 			if name == rootName {
@@ -95,10 +102,13 @@ func depGraphHits(root string, law Law) ([]Hit, error) {
 			return nil, fmt.Errorf("law %q: no package named %q in the resolved graph", law.Name, rootName)
 		}
 		paths := reachablePaths(deps, nameOf, id, rootName)
+		reached += len(paths)
 		// A walk that resolved NOTHING satisfies "reaches no forbidden
 		// package" perfectly, which is the strongest possible claim over no
-		// data at all. Refuse to make it.
-		if len(paths) == 0 {
+		// data at all. Refuse to make it — but under the wildcard a package
+		// that depends on nothing is a leaf, not a broken walk, so the floor
+		// below is what answers vacuity there.
+		if len(paths) == 0 && !wildcard {
 			return nil, fmt.Errorf(
 				"law %q: %q reaches no dependency at all — the walk is broken, and every clean verdict under it is vacuous",
 				law.Name, rootName)
@@ -114,8 +124,38 @@ func depGraphHits(root string, law Law) ([]Hit, error) {
 			})
 		}
 	}
+	if reached < law.Matcher.MinReachable {
+		return nil, fmt.Errorf(
+			"law %q: the walk reached %d %s, min_reachable = %d — a verdict over that little data is vacuous",
+			law.Name, reached, plural(reached, "package"), law.Matcher.MinReachable)
+	}
+	if wildcard && reached == 0 {
+		return nil, fmt.Errorf(
+			"law %q: no package in the workspace reaches anything — the walk is broken, and every clean verdict under it is vacuous",
+			law.Name)
+	}
 	writeDepGraphCache(law, root, fingerprint, hits)
 	return hits, nil
+}
+
+// workspaceRootNames is every package `roots = "*"` stands for: the workspace
+// members when cargo named them, and otherwise every package in the document
+// (a fixture graph is exactly its workspace).
+func workspaceRootNames(meta *cargoMetadata, nameOf map[string]string) []string {
+	var out []string
+	if len(meta.WorkspaceMembers) > 0 {
+		for _, id := range meta.WorkspaceMembers {
+			if name, ok := nameOf[id]; ok {
+				out = append(out, name)
+			}
+		}
+	} else {
+		for _, name := range nameOf {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // depGraphCache is one repo's cached walk: the verdict plus the fingerprint of

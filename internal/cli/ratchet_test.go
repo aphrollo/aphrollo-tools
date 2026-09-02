@@ -153,9 +153,9 @@ func readFile(t *testing.T, path string) string {
 func TestRatchetTestRunsEveryLawAgainstItsFixtures(t *testing.T) {
 	root := lawRepo(t)
 	fixtures := filepath.Join(root, ".ratchet", "fixtures", "nan-guard")
-	writeFile(t, filepath.Join(fixtures, "hit", "bare.rs"), "let b = x.clamp(0.0, 1.0);\n")
-	writeFile(t, filepath.Join(fixtures, "expected.txt"), "bare.rs:1\n")
-	writeFile(t, filepath.Join(fixtures, "clean", "guarded.rs"), "let a = numeric::clamp_or(x, 0.0, 1.0, 0.0);\n")
+	writeFile(t, filepath.Join(fixtures, "hit", "crates", "a", "src", "bare.rs"), "let b = x.clamp(0.0, 1.0);\n")
+	writeFile(t, filepath.Join(fixtures, "expected.txt"), "crates/a/src/bare.rs:1\n")
+	writeFile(t, filepath.Join(fixtures, "clean", "crates", "a", "src", "guarded.rs"), "let a = numeric::clamp_or(x, 0.0, 1.0, 0.0);\n")
 
 	var out, errb bytes.Buffer
 	code := Run([]string{"ratchet", "test", "--repo", root}, strings.NewReader(""), &out, &errb)
@@ -235,5 +235,42 @@ func gitInitRepo(t *testing.T, dir string) {
 		if b, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, b)
 		}
+	}
+}
+
+// `gate init` leaves the law schema in the repo it initialises, so a law can
+// cite `.ratchet/README.md` instead of a path on one developer's machine.
+func TestGateInitWritesTheLawSpecBesideTheLaws(t *testing.T) {
+	isolateGit(t) // init sets core.hooksPath; without this it is the RUNNER's
+	repo := t.TempDir()
+	gitInitRepo(t, repo)
+	writeFile(t, filepath.Join(repo, ".ratchet", "laws", "placeholder.txt"), "")
+	t.Chdir(repo)
+
+	args := []string{"gate", "init", "--config-dir", t.TempDir(), "--bin", "/usr/local/bin/aphrollo",
+		"--git-hooks-dir", filepath.Join(t.TempDir(), "githooks"),
+		"--cargo-shim-dir", filepath.Join(t.TempDir(), "cargo-queue")}
+
+	var out, errb bytes.Buffer
+	if code := Run(args, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("init exit = %d\n%s%s", code, out.String(), errb.String())
+	}
+	spec := readFile(t, filepath.Join(repo, ".ratchet", "README.md"))
+	if !strings.Contains(spec, "regex-absent") || !strings.Contains(spec, "baseline") {
+		t.Fatalf(".ratchet/README.md must carry the law schema:\n%s", spec[:min(len(spec), 300)])
+	}
+	if !strings.Contains(out.String(), "law spec") {
+		t.Errorf("init must say it wrote the spec: %q", out.String())
+	}
+
+	out.Reset()
+	if code := Run(args, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("second init exit = %d", code)
+	}
+	if again := readFile(t, filepath.Join(repo, ".ratchet", "README.md")); again != spec {
+		t.Error("a second init must leave the spec byte-identical")
+	}
+	if strings.Contains(out.String(), "law spec") {
+		t.Errorf("an unchanged spec is not news: %q", out.String())
 	}
 }

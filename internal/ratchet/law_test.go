@@ -327,3 +327,110 @@ key = "file"
 		t.Fatalf("err = %v, want one naming the unsupported key", err)
 	}
 }
+
+func TestLoadLawsReadsTheSuppressionAndCountingOptions(t *testing.T) {
+	dir := t.TempDir()
+	writeLaw(t, dir, "bound", `
+name = "bound"
+description = "a collection states its bound at the declaration"
+severity = "deny"
+code_only = true
+comment_prefix = "#"
+contiguous = true
+trigger_exclude = "^\s*(pub )?use "
+
+[scope]
+include = ["crates/**/*.rs"]
+min_files = 12
+
+[matcher]
+kind = "marker-within-lines"
+trigger = "Vec<"
+marker = "# bound:"
+contiguous = true
+`)
+	laws, err := LoadLaws(dir)
+	if err != nil {
+		t.Fatalf("LoadLaws: %v", err)
+	}
+	l := laws[0]
+	if !l.Contiguous || l.CommentPrefix != "#" {
+		t.Errorf("suppression options = %+v", l)
+	}
+	if l.TriggerExclude == nil || !l.TriggerExclude.MatchString("use std::f64;") {
+		t.Errorf("trigger_exclude = %v", l.TriggerExclude)
+	}
+	if l.Scope.MinFiles != 12 {
+		t.Errorf("scope.min_files = %d, want 12", l.Scope.MinFiles)
+	}
+}
+
+func TestLoadLawsRejectsAWindowThatIsStatedTwice(t *testing.T) {
+	dir := t.TempDir()
+	writeLaw(t, dir, "bound", `
+name = "bound"
+description = "d"
+severity = "deny"
+contiguous = true
+escape_lines = 4
+
+[scope]
+include = ["**/*.rs"]
+
+[matcher]
+kind = "regex-absent"
+pattern = "x"
+`)
+	if _, err := LoadLaws(dir); err == nil || !strings.Contains(err.Error(), "escape_lines") {
+		t.Fatalf("err = %v, want one naming the two windows", err)
+	}
+}
+
+func TestLoadLawsReadsTheDepGraphVacuityFloorAndTheAllRootsWildcard(t *testing.T) {
+	dir := t.TempDir()
+	writeLaw(t, dir, "scratch-is-dev-only", `
+name = "scratch-is-dev-only"
+description = "no package ships the scratch crate"
+severity = "deny"
+
+[scope]
+include = ["Cargo.toml"]
+
+[matcher]
+kind = "dep-graph-forbids"
+roots = "*"
+forbidden = ["scratch"]
+min_reachable = 20
+`)
+	laws, err := LoadLaws(dir)
+	if err != nil {
+		t.Fatalf("LoadLaws: %v", err)
+	}
+	m := laws[0].Matcher
+	if len(m.Roots) != 1 || m.Roots[0] != AllRoots {
+		t.Errorf("roots = %v, want the wildcard", m.Roots)
+	}
+	if m.MinReachable != 20 {
+		t.Errorf("min_reachable = %d, want 20", m.MinReachable)
+	}
+}
+
+func TestLoadLawsRejectsAnUnknownCount(t *testing.T) {
+	dir := t.TempDir()
+	writeLaw(t, dir, "c", `
+name = "c"
+description = "d"
+severity = "deny"
+
+[scope]
+include = ["**/*.rs"]
+
+[matcher]
+kind = "regex-absent"
+pattern = "x"
+count = "calls"
+`)
+	if _, err := LoadLaws(dir); err == nil || !strings.Contains(err.Error(), "count") {
+		t.Fatalf("err = %v, want one naming count", err)
+	}
+}

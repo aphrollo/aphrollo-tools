@@ -429,3 +429,62 @@ func TestJSONCeilingIgnoresTheTargetDirForAGlobOutsideTarget(t *testing.T) {
 		t.Fatalf("a glob that is not under target/ stays rooted at the repo: %v", keys(hits))
 	}
 }
+
+// wildcardLaw states "no package in the workspace may reach scratch", which is
+// the shape a rule about a dev-only crate takes: naming the roots would mean
+// naming every package and re-listing them forever.
+func wildcardLaw(t *testing.T, root string, extra string) Law {
+	t.Helper()
+	law, err := ParseLaw(`
+name = "scratch-is-dev-only"
+description = "no package ships the scratch crate"
+severity = "deny"
+
+[scope]
+include = ["**/Cargo.toml"]
+
+[matcher]
+kind = "dep-graph-forbids"
+roots = "*"
+forbidden = ["testrig"]
+`+extra+`
+`, "scratch-is-dev-only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	law.Root = root
+	return law
+}
+
+func TestDepGraphWildcardRootsWalkEveryWorkspacePackage(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, metadataFixtureFile), metadataDoc)
+
+	hits, err := depGraphHits(root, wildcardLaw(t, root, ""))
+	if err != nil {
+		t.Fatalf("depGraphHits: %v", err)
+	}
+	joined := strings.Join(keys(hits), " ")
+	if !strings.Contains(joined, "server->shared->testrig") || !strings.Contains(joined, "shared->testrig") {
+		t.Fatalf("every package is a root, so the direct edge is named too: %v", keys(hits))
+	}
+	// testrig, movement and editor_wire are leaves: a package that depends on
+	// nothing is not a broken walk, it is a leaf.
+	if len(hits) != 2 {
+		t.Errorf("hits = %v", keys(hits))
+	}
+}
+
+func TestDepGraphMinReachableRefusesAWalkThatSawTooLittle(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, metadataFixtureFile), metadataDoc)
+
+	if _, err := depGraphHits(root, wildcardLaw(t, root, "min_reachable = 20")); err == nil {
+		t.Fatal("a walk below its floor must fail loudly, never report clean")
+	} else if !strings.Contains(err.Error(), "min_reachable") {
+		t.Errorf("err = %v, want one naming the floor", err)
+	}
+	if _, err := depGraphHits(root, wildcardLaw(t, root, "min_reachable = 4")); err != nil {
+		t.Fatalf("a walk at its floor is fine: %v", err)
+	}
+}

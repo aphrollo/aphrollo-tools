@@ -11,11 +11,11 @@ func fixtureRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	writeLaw(t, root, "nan-guard", nanGuardLaw)
-	write(t, filepath.Join(root, ".ratchet", "fixtures", "nan-guard", "hit", "bare.rs"),
+	write(t, filepath.Join(root, ".ratchet", "fixtures", "nan-guard", "hit", "crates", "a", "src", "bare.rs"),
 		"let a = 1;\nlet b = x.clamp(0.0, 1.0);\n")
 	write(t, filepath.Join(root, ".ratchet", "fixtures", "nan-guard", "expected.txt"),
-		"# the shape the law is looking for\nbare.rs:2\n")
-	write(t, filepath.Join(root, ".ratchet", "fixtures", "nan-guard", "clean", "guarded.rs"),
+		"# the shape the law is looking for\ncrates/a/src/bare.rs:2\n")
+	write(t, filepath.Join(root, ".ratchet", "fixtures", "nan-guard", "clean", "crates", "a", "src", "guarded.rs"),
 		"let a = numeric::clamp_or(x, 0.0, 1.0, 0.0);\nlet b = y.clamp(0.0, 1.0); // nan-safe: literal bounds\n")
 	return root
 }
@@ -40,22 +40,22 @@ func TestRunFixturesFailsWhenAHitFixtureStopsHitting(t *testing.T) {
 	root := fixtureRepo(t)
 	// A scanner that silently stopped matching would report a clean tree
 	// forever; the hit fixture is what notices.
-	write(t, filepath.Join(root, ".ratchet", "fixtures", "nan-guard", "hit", "bare.rs"), "let a = 1;\n")
+	write(t, filepath.Join(root, ".ratchet", "fixtures", "nan-guard", "hit", "crates", "a", "src", "bare.rs"), "let a = 1;\n")
 
 	results, err := RunFixtures(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results[0].Failures) != 1 || !strings.Contains(results[0].Failures[0], "bare.rs:2") {
+	if len(results[0].Failures) != 1 || !strings.Contains(results[0].Failures[0], "crates/a/src/bare.rs:2") {
 		t.Fatalf("failures = %v", results[0].Failures)
 	}
 }
 
 func TestRunFixturesFailsOnAnUnexpectedHitAndOnADirtyCleanFixture(t *testing.T) {
 	root := fixtureRepo(t)
-	write(t, filepath.Join(root, ".ratchet", "fixtures", "nan-guard", "hit", "bare.rs"),
+	write(t, filepath.Join(root, ".ratchet", "fixtures", "nan-guard", "hit", "crates", "a", "src", "bare.rs"),
 		"let a = w.clamp(0.0, 1.0);\nlet b = x.clamp(0.0, 1.0);\n")
-	write(t, filepath.Join(root, ".ratchet", "fixtures", "nan-guard", "clean", "guarded.rs"),
+	write(t, filepath.Join(root, ".ratchet", "fixtures", "nan-guard", "clean", "crates", "a", "src", "guarded.rs"),
 		"let a = z.clamp(0.0, 1.0);\n")
 
 	results, err := RunFixtures(root)
@@ -63,7 +63,7 @@ func TestRunFixturesFailsOnAnUnexpectedHitAndOnADirtyCleanFixture(t *testing.T) 
 		t.Fatal(err)
 	}
 	joined := strings.Join(results[0].Failures, "\n")
-	if !strings.Contains(joined, "bare.rs:1") {
+	if !strings.Contains(joined, "crates/a/src/bare.rs:1") {
 		t.Errorf("an unexpected hit must be named:\n%s", joined)
 	}
 	if !strings.Contains(joined, "guarded.rs:1") {
@@ -222,5 +222,29 @@ pattern = "task\d+"
 	}
 	if len(results) != 1 || len(results[0].Failures) != 0 {
 		t.Fatalf("a path law's fixtures are named by path alone: %+v", results)
+	}
+}
+
+func TestRunFixturesFailsWhenAFixtureFileIsOutsideTheLawsScope(t *testing.T) {
+	root := t.TempDir()
+	writeLaw(t, root, "nan-guard", nanGuardLaw) // include = crates/**/*.rs
+	// Laid out at the fixture root instead of mirroring the repo, so the law's
+	// own globs would never have reached it in the real tree.
+	write(t, filepath.Join(root, ".ratchet", "fixtures", "nan-guard", "hit", "bare.rs"),
+		"let b = x.clamp(0.0, 1.0);\n")
+	write(t, filepath.Join(root, ".ratchet", "fixtures", "nan-guard", "expected.txt"), "bare.rs:1\n")
+	write(t, filepath.Join(root, ".ratchet", "fixtures", "nan-guard", "clean", "crates", "a", "src", "ok.rs"),
+		"let a = numeric::clamp_or(x, 0.0, 1.0, 0.0);\n")
+
+	results, err := RunFixtures(root)
+	if err != nil {
+		t.Fatalf("RunFixtures: %v", err)
+	}
+	joined := strings.Join(results[0].Failures, "\n")
+	if !strings.Contains(joined, "bare.rs") || !strings.Contains(joined, "scope") {
+		t.Fatalf("a fixture the scope would never reach must fail the test:\n%s", joined)
+	}
+	if strings.Contains(joined, "crates/a/src/ok.rs") {
+		t.Errorf("a fixture that mirrors the repo layout is fine:\n%s", joined)
 	}
 }

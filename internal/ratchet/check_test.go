@@ -405,3 +405,102 @@ use_pattern = "\b([A-Z][A-Z0-9_]*_[A-Z0-9_]+)\b"
 		t.Errorf("a switch read only by a shell script is not stale:\n%s", joined)
 	}
 }
+
+func TestCheckReportsAScopeThatMatchedFewerFilesThanItsFloor(t *testing.T) {
+	root := t.TempDir()
+	writeLaw(t, root, "nan-guard", strings.Replace(nanGuardLaw,
+		`include = ["crates/**/*.rs"]`, "include = [\"crates/**/*.rs\"]\nmin_files = 3", 1))
+	write(t, filepath.Join(root, "crates", "a", "src", "lib.rs"), "let a = 1;\n")
+
+	res, err := Check(Options{Root: root})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 1 || res.Findings[0].Key != "scope-floor" {
+		t.Fatalf("a scope below its floor is a finding: %+v", res.Findings)
+	}
+	if !strings.Contains(res.Findings[0].What, "matched 1 file") || !strings.Contains(res.Findings[0].What, "min_files = 3") {
+		t.Errorf("the finding names what it saw and what it wanted: %q", res.Findings[0].What)
+	}
+	if !res.Blocked() {
+		t.Error("a deny law's scope floor blocks")
+	}
+}
+
+func TestCheckReportsAnExplicitIncludePathThatIsGone(t *testing.T) {
+	root := t.TempDir()
+	writeLaw(t, root, "clippy-config", `
+name = "clippy-config"
+description = "the disallowed-methods entry stays armed"
+severity = "deny"
+
+[scope]
+include = ["clippy.toml", "crates/movement/clippy.toml"]
+
+[matcher]
+kind = "regex-present"
+pattern = "disallowed-methods"
+`)
+	write(t, filepath.Join(root, "clippy.toml"), "disallowed-methods = [\"std::env::temp_dir\"]\n")
+
+	res, err := Check(Options{Root: root})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 1 || res.Findings[0].Key != "missing-scope-file | crates/movement/clippy.toml" {
+		t.Fatalf("a named file that is not there is a finding: %+v", res.Findings)
+	}
+	if !strings.Contains(strings.Join(res.Lines(), "\n"), "crates/movement/clippy.toml") {
+		t.Errorf("the finding names the missing path: %v", res.Lines())
+	}
+}
+
+func TestCheckDoesNotJudgeScopeFloorsOnANarrowedRun(t *testing.T) {
+	root := t.TempDir()
+	writeLaw(t, root, "nan-guard", strings.Replace(nanGuardLaw,
+		`include = ["crates/**/*.rs"]`, "include = [\"crates/**/*.rs\"]\nmin_files = 3", 1))
+	write(t, filepath.Join(root, "crates", "a", "src", "lib.rs"), "let a = 1;\n")
+
+	res, err := Check(Options{Root: root, Files: []string{"crates/a/src/lib.rs"}})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 0 {
+		t.Fatalf("one file is not the whole tree, so the floor says nothing: %+v", res.Lines())
+	}
+}
+
+func TestCheckRegistryUsePatternTakesTheGroupThatActuallyMatched(t *testing.T) {
+	root := t.TempDir()
+	writeLaw(t, root, "env-registry", `
+name = "env-registry"
+description = "every env switch is registered"
+severity = "deny"
+
+[scope]
+include = ["crates/**/*.rs"]
+
+[matcher]
+kind = "registry-both-ways"
+registry_file = ".ratchet/registry/env.txt"
+entry_pattern = "^([A-Z][A-Z0-9_]+) \|"
+use_pattern = "\"(BORLD_[A-Z0-9_]+)\"|env::var\(\"([A-Z][A-Z0-9_]{2,})\"\)"
+`)
+	write(t, filepath.Join(root, ".ratchet", "registry", "env.txt"), "BORLD_KNOWN | client | does a thing\n")
+	// The first branch matches the prefixed switch (group 1, group 2 empty);
+	// the second matches the unprefixed one (group 1 empty, group 2 set).
+	write(t, filepath.Join(root, "crates", "a", "src", "lib.rs"),
+		"let a = dev_flag(\"BORLD_KNOWN\");\nlet b = env::var(\"SOAK_SECS\");\n")
+
+	res, err := Check(Options{Root: root})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	joined := strings.Join(res.Lines(), "\n")
+	if len(res.Findings) != 1 || !strings.Contains(joined, "SOAK_SECS") {
+		t.Fatalf("an alternation must name the branch that matched: %+v", res.Lines())
+	}
+	if strings.Contains(joined, "BORLD_KNOWN") {
+		t.Errorf("the registered switch is neither unregistered nor stale:\n%s", joined)
+	}
+}

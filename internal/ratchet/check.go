@@ -135,6 +135,9 @@ func Check(opts Options) (Result, error) {
 				return Result{}, err
 			}
 		}
+		if len(opts.Files) == 0 {
+			hits = append(hits, scopeHits(opts.Root, law, scan.files, scan.ignored)...)
+		}
 		measured := map[string]int{}
 		located := map[string]Hit{}
 		for _, h := range hits {
@@ -224,6 +227,7 @@ func loadLawBaseline(root string, law Law) (*Baseline, string, error) {
 // grouped by law, plus the file contents the registry matcher needs.
 type treeScan struct {
 	byLaw           map[string][]Hit
+	ignored         map[string]bool
 	files           []string
 	content         map[string]string
 	scanned, read   int
@@ -236,10 +240,11 @@ func scanTree(opts Options, laws []Law) (*treeScan, error) {
 	scan := &treeScan{byLaw: map[string][]Hit{}, content: map[string]string{}}
 	cache := loadCache(opts.CacheDir, opts.Root, laws)
 
-	paths, err := collectFiles(opts, laws)
+	paths, ignored, err := collectFiles(opts, laws)
 	if err != nil {
 		return nil, err
 	}
+	scan.ignored = ignored
 	needsContent := false
 	for _, l := range laws {
 		if l.Matcher.Kind == KindRegistryBothWays {
@@ -293,9 +298,10 @@ func scanTree(opts Options, laws []Law) (*treeScan, error) {
 
 // collectFiles is the union of every law's scope, walked once and sorted, plus
 // any proposed file that does not exist on disk yet.
-func collectFiles(opts Options, laws []Law) ([]string, error) {
+func collectFiles(opts Options, laws []Law) ([]string, map[string]bool, error) {
+	ignoredFiles := map[string]bool{}
 	if len(opts.Files) > 0 {
-		return dedupe(append([]string{}, opts.Files...)), nil
+		return dedupe(append([]string{}, opts.Files...)), ignoredFiles, nil
 	}
 	// A gitignored path is judged only by a law that opted out, so the walk
 	// carries whether it is under one: a repo that ignores a whole extension
@@ -348,12 +354,15 @@ func collectFiles(opts Options, laws []Law) ([]string, error) {
 			}
 			if inScope(child, childIgnored) {
 				out = append(out, child)
+				if childIgnored {
+					ignoredFiles[child] = true
+				}
 			}
 		}
 		return nil
 	}
 	if err := walk(opts.Root, "", false); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for rel := range opts.Proposed {
 		if inScope(rel, false) {
@@ -361,7 +370,51 @@ func collectFiles(opts Options, laws []Law) ([]string, error) {
 		}
 	}
 	sort.Strings(out)
-	return dedupe(out), nil
+	return dedupe(out), ignoredFiles, nil
+}
+
+func plural(n int, word string) string {
+	if n == 1 {
+		return word
+	}
+	return word + "s"
+}
+
+// scopeHits judges the SCOPE itself, over the whole tree only: a law whose
+// globs quietly stopped matching reports green over files it never opened, and
+// an include naming one file that is gone is a broken citation, not an empty
+// set. Both are findings the baseline has never seen, so both surface at once.
+func scopeHits(root string, law Law, files []string, ignored map[string]bool) []Hit {
+	var hits []Hit
+	for _, p := range law.Scope.ExplicitPaths() {
+		if isFile(filepath.Join(root, filepath.FromSlash(p))) {
+			continue
+		}
+		hits = append(hits, Hit{
+			Law: law.Name, File: p, Weight: 1,
+			Key:  "missing-scope-file | " + p,
+			What: p + " is named by scope.include but is not there",
+		})
+	}
+	if law.Scope.MinFiles == 0 {
+		return hits
+	}
+	matched := 0
+	for _, rel := range files {
+		if ignored[rel] && !law.Scope.IgnoreGitignore {
+			continue
+		}
+		if law.Scope.Matches(rel) {
+			matched++
+		}
+	}
+	if matched >= law.Scope.MinFiles {
+		return hits
+	}
+	return append(hits, Hit{
+		Law: law.Name, Weight: 1, Key: "scope-floor",
+		What: fmt.Sprintf("scope matched %d %s, min_files = %d", matched, plural(matched, "file"), law.Scope.MinFiles),
+	})
 }
 
 func dedupe(in []string) []string {
@@ -378,6 +431,16 @@ func dedupe(in []string) []string {
 // registryHits answers a registry-both-ways law: every use must be registered
 // AND every registry line must be used. Both directions are the point — a
 // registry nobody prunes rots into a list of names that no longer exist.
+// lastCapture is the last group of a match that captured anything.
+func lastCapture(m []string) string {
+	for i := len(m) - 1; i >= 1; i-- {
+		if m[i] != "" {
+			return m[i]
+		}
+	}
+	return ""
+}
+
 func registryHits(root string, law Law, files []string, content map[string]string, applyScope, wholeTree bool) ([]Hit, error) {
 	registryPath := filepath.Join(root, filepath.FromSlash(law.Matcher.RegistryFile))
 	data, err := os.ReadFile(registryPath)
@@ -405,7 +468,13 @@ func registryHits(root string, law Law, files []string, content map[string]strin
 		}
 		for i, line := range splitLines(content[rel]) {
 			for _, m := range law.Matcher.UsePattern.FindAllStringSubmatch(line, -1) {
-				name := m[len(m)-1]
+				// An alternation carries one group per branch, and every branch
+				// that did not match captured nothing: the LAST non-empty group
+				// is the one that did.
+				name := lastCapture(m)
+				if name == "" {
+					continue
+				}
 				if _, seen := used[name]; seen {
 					continue
 				}
