@@ -114,8 +114,11 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		}
 		return res.Blocked
 	}
-	// The declared laws are judged before anything compiles: the scan is
-	// milliseconds warm, and a law is the cheapest rejection the gate has.
+	// Cheapest first: a hand-raised baseline is a text diff, and the declared
+	// laws are judged before anything compiles.
+	if res := baselineStage("precommit", repoRoot); collect(res) {
+		return res
+	}
 	if res := ratchetStage("precommit", repoRoot); collect(res) {
 		return res
 	}
@@ -154,6 +157,9 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		return GateResult{Message: line}
 	}
 	var notes []string
+	if res := baselineStage("premergecommit", repoRoot); res.Blocked {
+		return res
+	}
 	if res := ratchetStage("premergecommit", repoRoot); res.Blocked {
 		return res
 	} else if res.Message != "" {

@@ -603,7 +603,8 @@ instead of a full test build:
 
 | # | stage | cost | notes |
 |---|---|---|---|
-| 0 | `ratchet check` — the repo's declared laws | ms (mtime cache) | only when `.ratchet/laws/` exists; rejects `ratchet-rejected`. A commit that stages a `.ratchet/` file also re-proves every law against its fixtures |
+| 0a | baseline guard — a STAGED baseline that ROSE | ms (one `git show` per staged baseline) | rejects `baseline-rejected`; see below |
+| 0b | `ratchet check` — the repo's declared laws | ms (mtime cache) | only when `.ratchet/laws/` exists; rejects `ratchet-rejected`. A commit that stages a `.ratchet/` file also re-proves every law against its fixtures |
 | 1 | `cargo fmt --check -p <touched>` | ms | compiles nothing, takes no build slot |
 | 2 | `always-run` packages, their OWN invocation | seconds | a pure guard crate; bundling it into `-p ratchet -p client` made it wait for client to link |
 | 3 | `cargo clippy -p <clippy-clean> --tests -- -D warnings` | front-end build | only crates declared clippy-clean |
@@ -943,6 +944,10 @@ commit-message-deny = ["^WIP:"]      # this repo's own extra deny patterns
   diff with nothing mutable in it is a real answer. The rejection names the
   offending field and the command that produces a receipt, and it runs BEFORE
   any suite compiles.
+- **`baselines`** (string array) — the globs the baseline guard watches, e.g.
+  `baselines = [".ratchet/baselines/*.txt", "crates/ratchet/tests/*_baseline.txt"]`
+  (those two are also the defaults, and a declared list replaces them). See
+  [Baselines are never raised by hand](#baselines-are-never-raised-by-hand).
 - **`clippy-clean`** — the quality checks run BEFORE the suites, cheapest
   first: `cargo fmt --check -p <crate>` for every TOUCHED crate is stage 1,
   and `cargo clippy -p <crate> --tests -- -D warnings` for crates on this
@@ -1032,6 +1037,26 @@ A baseline is a **ceiling per key** and it only ever goes down:
 carrying `--proposed` never tightens, because the tree it measured does not
 exist. The gate does not tighten either — a commit hook that rewrote a file
 mid-commit would leave the lowered ceiling unstaged.
+
+#### Baselines are never raised by hand
+
+A baseline is a ceiling that only ever goes down, and it lives in a text file
+any editor can widen — which happened: a `1048` entry was hand-edited to `1049`
+to get a commit through. So the ban is mechanical. `precommit` and
+`premergecommit` parse every STAGED baseline old-vs-new, in both the counted
+and multiset forms, and reject a key whose count ROSE or which is NEW:
+
+```
+gate precommit: baseline-rejected: crates/ratchet/tests/module_size_baseline.txt crates/a.rs 1048 -> 1049
+  baselines are written by the ratchet itself; lower the code, or use the law's escape comment
+```
+
+Lowering, removing and header edits pass — that is what a fix looks like — and
+a baseline file that is new in the commit passes too, since adopting a law is
+not raising a ceiling. The guarded globs default to `.ratchet/baselines/*.txt`
+and `crates/ratchet/tests/*_baseline.txt`; a workspace can declare its own with
+`baselines = [...]` under `[workspace.metadata.aphrollo]`, which REPLACES the
+defaults.
 
 #### Fixtures — a law nobody proved catches nothing
 
