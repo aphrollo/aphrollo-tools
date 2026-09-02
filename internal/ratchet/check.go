@@ -30,6 +30,11 @@ type Options struct {
 	// Everything else about the run is unchanged: scope floors and stale
 	// registry entries are still whole-tree questions.
 	Tracked []string
+	// TrackedIgnored is the subset of Tracked that .gitignore also matches. A
+	// repo can ignore a whole extension and still track those files; the disk
+	// walk hands one to a law only when it declared `ignore_gitignore`, and
+	// the tracked set carries the same flag so the two agree.
+	TrackedIgnored []string
 	// Tighten writes every baseline down to what this run measured.
 	Tighten bool
 	// CacheDir holds the per-file scan cache; empty disables caching.
@@ -436,15 +441,24 @@ func collectFiles(opts Options, laws []Law) ([]string, map[string]bool, error) {
 		return false
 	}
 
-	// A tracked set replaces the walk entirely: a path git lists is in the
-	// repo whatever .gitignore says about its shape, so nothing here is
-	// "ignored" and the ignored-set stays empty.
+	// A tracked set replaces the walk entirely — but it carries the SAME
+	// gitignore flag the walk would have computed, so a law that never opted
+	// into ignored files does not suddenly see them just because git tracks
+	// them.
 	if len(opts.Tracked) > 0 {
+		ignoredTracked := map[string]bool{}
+		for _, rel := range opts.TrackedIgnored {
+			ignoredTracked[normalizeSlashes(rel)] = true
+		}
 		var out []string
 		for _, rel := range opts.Tracked {
 			rel = normalizeSlashes(rel)
-			if rel != "" && inScope(rel, false) {
-				out = append(out, rel)
+			if rel == "" || !inScope(rel, ignoredTracked[rel]) {
+				continue
+			}
+			out = append(out, rel)
+			if ignoredTracked[rel] {
+				ignoredFiles[rel] = true
 			}
 		}
 		for rel := range opts.Proposed {

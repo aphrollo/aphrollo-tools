@@ -58,6 +58,78 @@ func TestRatchetStageStillJudgesTrackedFilesInHead(t *testing.T) {
 	}
 }
 
+// `git ls-files` QUOTES a path with a non-ASCII byte, and the quoted spelling
+// matches nothing on disk — so the file silently drops out of the tracked set
+// and its offence is never measured. `-z` is what makes the path readable.
+func TestRatchetStageJudgesATrackedFileWithANonASCIIName(t *testing.T) {
+	root := lawTree(t, "deny")
+	mustWrite(t, filepath.Join(root, "crates", "a", "src", "café.rs"),
+		"let b = y.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+
+	res := ratchetStage("precommit", root)
+	if !res.Blocked || !strings.Contains(res.Message, "café.rs") {
+		t.Fatalf("a tracked file git had to quote must still be judged: %+v", res)
+	}
+}
+
+// The tracked set must not silently widen a law's scope. A repo that ignores
+// a whole extension still TRACKS those files, so listing the index alone
+// hands them to a law that never opted in — and the same tree judged by
+// `ratchet check`'s disk walk skips them. The two must agree.
+func TestRatchetStageSkipsATrackedButGitignoredFileForALawThatDidNotOptIn(t *testing.T) {
+	root := lawTree(t, "deny")
+	mustWrite(t, filepath.Join(root, ".gitignore"), "*.md\n")
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "no-todo.toml"), `
+name = "no-todo"
+description = "no TODO markers in docs"
+severity = "deny"
+
+[scope]
+include = ["**/*.md"]
+
+[matcher]
+kind = "regex-absent"
+pattern = "TODO"
+`)
+	mustWrite(t, filepath.Join(root, "NOTES.md"), "TODO: later\n")
+	gitAddAll(t, root)
+	gitDo(t, root, "add", "-f", "NOTES.md")
+	commitAll(t, root)
+
+	if res := ratchetStage("precommit", root); res.Blocked {
+		t.Fatalf("a law that did not opt into gitignored files must not see one: %s", res.Message)
+	}
+}
+
+func TestRatchetStageJudgesATrackedGitignoredFileForALawThatOptedIn(t *testing.T) {
+	root := lawTree(t, "deny")
+	mustWrite(t, filepath.Join(root, ".gitignore"), "*.md\n")
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "no-todo.toml"), `
+name = "no-todo"
+description = "no TODO markers in docs"
+severity = "deny"
+
+[scope]
+include = ["**/*.md"]
+ignore_gitignore = true
+
+[matcher]
+kind = "regex-absent"
+pattern = "TODO"
+`)
+	mustWrite(t, filepath.Join(root, "NOTES.md"), "TODO: later\n")
+	gitAddAll(t, root)
+	gitDo(t, root, "add", "-f", "NOTES.md")
+	commitAll(t, root)
+
+	res := ratchetStage("precommit", root)
+	if !res.Blocked || !strings.Contains(res.Message, "NOTES.md") {
+		t.Fatalf("the opt-in is what reaches an ignored file: %+v", res)
+	}
+}
+
 // Pre-edit is the other side: the file being written may not exist in the
 // index at all, and denying the write is the whole point of judging it there.
 func TestRatchetAdvisoryStillDeniesAWriteToAnUntrackedFile(t *testing.T) {

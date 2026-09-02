@@ -140,10 +140,11 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 	}
 	started := time.Now()
 	res, err := ratchet.Check(ratchet.Options{
-		Root:     repoRoot,
-		Proposed: indexOverlay(repoRoot),
-		Tracked:  trackedFiles(repoRoot),
-		CacheDir: stateDir(),
+		Root:           repoRoot,
+		Proposed:       indexOverlay(repoRoot),
+		Tracked:        trackedFiles(repoRoot),
+		TrackedIgnored: trackedIgnoredFiles(repoRoot),
+		CacheDir:       stateDir(),
 	})
 	if err != nil {
 		// A broken law file is a defect in the rule, not in the commit: say so
@@ -190,14 +191,35 @@ func noteNewerLaws(gateName, repoRoot string, laws []ratchet.NewerLaw) {
 // changing anything in the merge. nil when git cannot answer, which falls
 // back to walking the disk: a gate whose own tooling tripped judges more,
 // never less.
+// `-z` is not optional: without it git QUOTES and escapes a path carrying a
+// non-ASCII byte, and the quoted spelling matches nothing on disk — the file
+// drops out of the tracked set and its offence is never measured.
 func trackedFiles(repoRoot string) []string {
-	out, err := gitRead(repoRoot, "ls-files")
+	out, err := gitRead(repoRoot, "ls-files", "-z")
 	if err != nil {
 		return nil
 	}
+	return nulPaths(out)
+}
+
+// trackedIgnoredFiles is the subset of the index that .gitignore ALSO matches
+// — a repo that ignores a whole extension (borld ignores `*.md`) still tracks
+// those files. The disk walk hands such a file only to a law that opted in
+// with `ignore_gitignore`, so the tracked set has to carry the same flag or
+// the commit gate would silently judge more than `ratchet check` does.
+func trackedIgnoredFiles(repoRoot string) []string {
+	out, err := gitRead(repoRoot, "ls-files", "-z", "-i", "-c", "--exclude-standard")
+	if err != nil {
+		return nil
+	}
+	return nulPaths(out)
+}
+
+// nulPaths splits a NUL-separated git path list into slash paths.
+func nulPaths(out string) []string {
 	var files []string
-	for line := range strings.SplitSeq(strings.ReplaceAll(out, "\r\n", "\n"), "\n") {
-		if rel := strings.TrimSpace(line); rel != "" {
+	for rec := range strings.SplitSeq(out, "\x00") {
+		if rel := strings.TrimSpace(rec); rel != "" {
 			files = append(files, filepath.ToSlash(rel))
 		}
 	}
