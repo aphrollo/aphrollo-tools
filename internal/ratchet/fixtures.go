@@ -186,7 +186,7 @@ func fixtureWholeTreeHits(base string, law Law, files []string, content map[stri
 	case KindFileSetContainment:
 		return containmentHits(base, law)
 	case KindJSONNumberCeiling:
-		return jsonCeilingHits(base, law, false)
+		return jsonCeilingHits(base, law, false, "")
 	}
 	return nil, nil
 }

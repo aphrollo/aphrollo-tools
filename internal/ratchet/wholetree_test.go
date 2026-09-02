@@ -240,7 +240,7 @@ func criterionTree(t *testing.T, ns string) string {
 
 func TestJSONCeilingReadsTheNumberAndKeysItByBenchID(t *testing.T) {
 	root := criterionTree(t, "46.3")
-	hits, err := jsonCeilingHits(root, jsonCeilingLaw(t, root), true)
+	hits, err := jsonCeilingHits(root, jsonCeilingLaw(t, root), true, "")
 	if err != nil {
 		t.Fatalf("jsonCeilingHits: %v", err)
 	}
@@ -256,7 +256,7 @@ func TestJSONCeilingReadsTheNumberAndKeysItByBenchID(t *testing.T) {
 }
 
 func TestJSONCeilingErrorsWhenArmedOverNothing(t *testing.T) {
-	if _, err := jsonCeilingHits(t.TempDir(), jsonCeilingLaw(t, t.TempDir()), true); err == nil {
+	if _, err := jsonCeilingHits(t.TempDir(), jsonCeilingLaw(t, t.TempDir()), true, ""); err == nil {
 		t.Fatal("armed with no data must be an error, never a pass")
 	}
 }
@@ -264,7 +264,7 @@ func TestJSONCeilingErrorsWhenArmedOverNothing(t *testing.T) {
 func TestJSONCeilingErrorsOnAMissingPath(t *testing.T) {
 	root := t.TempDir()
 	write(t, filepath.Join(root, "criterion", "b", "c", "new", "estimates.json"), `{"median": {"point_estimate": 1}}`)
-	if _, err := jsonCeilingHits(root, jsonCeilingLaw(t, root), true); err == nil {
+	if _, err := jsonCeilingHits(root, jsonCeilingLaw(t, root), true, ""); err == nil {
 		t.Fatal("a path that names nothing must fail loudly")
 	}
 }
@@ -362,5 +362,70 @@ func TestDepGraphCachesItsVerdictUntilAManifestMoves(t *testing.T) {
 	}
 	if len(fresh) != 0 {
 		t.Fatalf("a moved manifest must re-walk: %v", keys(fresh))
+	}
+}
+
+// targetGlobLaw judges numbers that land under `target/`, the one directory
+// cargo lets an environment variable move.
+func targetGlobLaw(t *testing.T, root string) Law {
+	t.Helper()
+	law, err := ParseLaw(`
+name = "perf"
+description = "a budget nobody measures is a slogan"
+severity = "deny"
+
+[scope]
+include = ["**/*.json"]
+
+[matcher]
+kind = "json-number-ceiling"
+files = "target/criterion/**/new/estimates.json"
+path = "mean.point_estimate"
+`, "perf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	law.Root = root
+	return law
+}
+
+func TestJSONCeilingFollowsCargoTargetDirWithoutMovingTheBaselineKey(t *testing.T) {
+	inTree := t.TempDir()
+	write(t, filepath.Join(inTree, "target", "criterion", "apply_movement", "new", "estimates.json"),
+		`{"mean": {"point_estimate": 46.3}}`)
+
+	hits, err := jsonCeilingHits(inTree, targetGlobLaw(t, inTree), true, "")
+	if err != nil {
+		t.Fatalf("jsonCeilingHits: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Key != "target/criterion/apply_movement" {
+		t.Fatalf("without the env var the glob is rooted at the repo: %v", keys(hits))
+	}
+
+	// Same measurement, target dir moved elsewhere: the key must not move with it,
+	// or every baseline entry is rewritten by an environment variable.
+	elsewhere := t.TempDir()
+	write(t, filepath.Join(elsewhere, "criterion", "apply_movement", "new", "estimates.json"),
+		`{"mean": {"point_estimate": 46.3}}`)
+	moved, err := jsonCeilingHits(t.TempDir(), targetGlobLaw(t, inTree), true, elsewhere)
+	if err != nil {
+		t.Fatalf("jsonCeilingHits: %v", err)
+	}
+	if len(moved) != 1 || moved[0].Key != hits[0].Key {
+		t.Fatalf("keys = %v, want the same key as %v", keys(moved), keys(hits))
+	}
+	if moved[0].File != hits[0].File || moved[0].Weight != hits[0].Weight {
+		t.Errorf("moved = %+v, want the same finding as %+v", moved[0], hits[0])
+	}
+}
+
+func TestJSONCeilingIgnoresTheTargetDirForAGlobOutsideTarget(t *testing.T) {
+	root := criterionTree(t, "46.3")
+	hits, err := jsonCeilingHits(root, jsonCeilingLaw(t, root), true, t.TempDir())
+	if err != nil {
+		t.Fatalf("jsonCeilingHits: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Key != "criterion/apply_movement/grounded" {
+		t.Fatalf("a glob that is not under target/ stays rooted at the repo: %v", keys(hits))
 	}
 }

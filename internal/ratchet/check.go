@@ -131,7 +131,7 @@ func Check(opts Options) (Result, error) {
 				return Result{}, err
 			}
 		case KindJSONNumberCeiling:
-			if hits, err = jsonCeilingHits(opts.Root, law, true); err != nil {
+			if hits, err = jsonCeilingHits(opts.Root, law, true, cargoTargetDir()); err != nil {
 				return Result{}, err
 			}
 		}
@@ -297,16 +297,25 @@ func collectFiles(opts Options, laws []Law) ([]string, error) {
 	if len(opts.Files) > 0 {
 		return dedupe(append([]string{}, opts.Files...)), nil
 	}
-	inScope := func(rel string) bool {
+	// A gitignored path is judged only by a law that opted out, so the walk
+	// carries whether it is under one: a repo that ignores a whole extension
+	// (borld ignores *.md) would otherwise hide the very files a doc law is about.
+	inScope := func(rel string, ignored bool) bool {
 		for _, l := range laws {
+			if ignored && !l.Scope.IgnoreGitignore {
+				continue
+			}
 			if l.Scope.Matches(rel) {
 				return true
 			}
 		}
 		return false
 	}
-	walkable := func(rel string) bool {
+	walkable := func(rel string, ignored bool) bool {
 		for _, l := range laws {
+			if ignored && !l.Scope.IgnoreGitignore {
+				continue
+			}
 			if l.Scope.couldMatchUnder(rel) {
 				return true
 			}
@@ -316,37 +325,38 @@ func collectFiles(opts Options, laws []Law) ([]string, error) {
 
 	ignore := loadGitignore(opts.Root)
 	var out []string
-	var walk func(dir, rel string) error
-	walk = func(dir, rel string) error {
+	var walk func(dir, rel string, ignored bool) error
+	walk = func(dir, rel string, ignored bool) error {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			return nil // an unreadable dir is not a finding
 		}
 		for _, e := range entries {
 			child := path(rel, e.Name())
-			if ignore.ignored(child, e.IsDir()) {
-				continue
+			if e.IsDir() && e.Name() == ".git" {
+				continue // never a subject, and no law may opt into it
 			}
+			childIgnored := ignored || ignore.ignored(child, e.IsDir())
 			if e.IsDir() {
-				if !walkable(child) {
+				if !walkable(child, childIgnored) {
 					continue
 				}
-				if err := walk(filepath.Join(dir, e.Name()), child); err != nil {
+				if err := walk(filepath.Join(dir, e.Name()), child, childIgnored); err != nil {
 					return err
 				}
 				continue
 			}
-			if inScope(child) {
+			if inScope(child, childIgnored) {
 				out = append(out, child)
 			}
 		}
 		return nil
 	}
-	if err := walk(opts.Root, ""); err != nil {
+	if err := walk(opts.Root, "", false); err != nil {
 		return nil, err
 	}
 	for rel := range opts.Proposed {
-		if inScope(rel) {
+		if inScope(rel, false) {
 			out = append(out, rel)
 		}
 	}

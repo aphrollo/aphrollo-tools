@@ -255,3 +255,75 @@ pattern = "x"
 		}
 	}
 }
+
+func TestLoadLawsReadsPathRegexAbsentAndTheGitignoreOptOut(t *testing.T) {
+	dir := t.TempDir()
+	writeLaw(t, dir, "doc-names", `
+name = "doc-names"
+description = "a name says what a thing is, not when it was written"
+severity = "deny"
+
+[scope]
+include = ["**/*.md"]
+ignore_gitignore = true
+
+[matcher]
+kind = "path-regex-absent"
+pattern = "task\d+"
+`)
+	laws, err := LoadLaws(dir)
+	if err != nil {
+		t.Fatalf("LoadLaws: %v", err)
+	}
+	if len(laws) != 1 {
+		t.Fatalf("loaded %d laws, want 1", len(laws))
+	}
+	l := laws[0]
+	if !l.Scope.IgnoreGitignore {
+		t.Errorf("scope.ignore_gitignore did not reach the law: %+v", l.Scope)
+	}
+	if l.Matcher.Kind != KindPathRegexAbsent || l.Matcher.Key != KeyFile {
+		t.Errorf("matcher = %+v", l.Matcher)
+	}
+	if l.Matcher.Pattern == nil || !l.Matcher.Pattern.MatchString("task19_probe.md") {
+		t.Errorf("pattern = %+v", l.Matcher.Pattern)
+	}
+}
+
+func TestLoadLawsRejectsANonBooleanGitignoreOptOutAndAKeyOnAPathLaw(t *testing.T) {
+	dir := t.TempDir()
+	writeLaw(t, dir, "bad", `
+name = "bad"
+description = "d"
+severity = "deny"
+
+[scope]
+include = ["**/*.md"]
+ignore_gitignore = ["yes"]
+
+[matcher]
+kind = "path-regex-absent"
+pattern = "x"
+`)
+	if _, err := LoadLaws(dir); err == nil || !strings.Contains(err.Error(), "ignore_gitignore") {
+		t.Fatalf("err = %v, want one naming ignore_gitignore", err)
+	}
+
+	dir2 := t.TempDir()
+	writeLaw(t, dir2, "bad2", `
+name = "bad2"
+description = "d"
+severity = "deny"
+
+[scope]
+include = ["**/*.md"]
+
+[matcher]
+kind = "path-regex-absent"
+pattern = "x"
+key = "file"
+`)
+	if _, err := LoadLaws(dir2); err == nil || !strings.Contains(err.Error(), "key") {
+		t.Fatalf("err = %v, want one naming the unsupported key", err)
+	}
+}

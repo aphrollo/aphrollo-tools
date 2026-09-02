@@ -346,8 +346,8 @@ func captureSet(root, file string, pattern *regexp.Regexp) (map[string]bool, err
 // hit's weight is the measured value (rounded UP — a ceiling), so the baseline
 // tightens on an improvement; the TOLERANCE is applied when comparing, not
 // here, because a value inside tolerance still has to lower its ceiling.
-func jsonCeilingHits(root string, law Law, requireData bool) ([]Hit, error) {
-	base, glob := jsonCeilingBase(root, law.Matcher.Files)
+func jsonCeilingHits(root string, law Law, requireData bool, targetDir string) ([]Hit, error) {
+	base, glob, keyPrefix := jsonCeilingBase(root, law.Matcher.Files, targetDir)
 	files := globFiles(base, glob)
 	// Over the REAL tree an armed law with nothing to read is an error: a
 	// clean verdict would be over data that does not exist. Over a FIXTURE it
@@ -368,24 +368,31 @@ func jsonCeilingHits(root string, law Law, requireData bool) ([]Hit, error) {
 			return nil, fmt.Errorf("law %q: %s: %w", law.Name, rel, err)
 		}
 		hits = append(hits, Hit{
-			Law: law.Name, File: rel, Weight: int(math.Ceil(value)),
-			Key:  benchID(rel),
+			Law: law.Name, File: keyPrefix + rel, Weight: int(math.Ceil(value)),
+			Key:  benchID(keyPrefix + rel),
 			What: fmt.Sprintf("%s = %s", law.Matcher.JSONPath, strconv.FormatFloat(value, 'f', -1, 64)),
 		})
 	}
 	return hits, nil
 }
 
-// jsonCeilingBase resolves the glob's root. A glob under `target/` follows
-// CARGO_TARGET_DIR, because that is where the generated numbers actually land.
-func jsonCeilingBase(root, glob string) (string, string) {
+// jsonCeilingBase resolves the glob's root and the prefix its findings keep. A
+// glob under `target/` reads from targetDir (CARGO_TARGET_DIR) when there is
+// one, since that is where the numbers actually land — but the key keeps the
+// `target/` prefix either way, or an environment variable would rewrite every
+// baseline entry.
+func jsonCeilingBase(root, glob, targetDir string) (base, pattern, keyPrefix string) {
 	if rest, ok := strings.CutPrefix(glob, "target/"); ok {
-		if dir := os.Getenv("CARGO_TARGET_DIR"); dir != "" {
-			return dir, rest
+		if targetDir == "" {
+			targetDir = filepath.Join(root, "target")
 		}
+		return targetDir, rest, "target/"
 	}
-	return root, glob
+	return root, glob, ""
 }
+
+// cargoTargetDir is where cargo writes, which CARGO_TARGET_DIR moves.
+func cargoTargetDir() string { return os.Getenv("CARGO_TARGET_DIR") }
 
 // globFiles walks base and returns every file matching the glob, sorted.
 func globFiles(base, glob string) []string {

@@ -167,3 +167,23 @@ func TestDocPathResolvesAcceptsAUnitLocalCitation(t *testing.T) {
 		t.Errorf("the same short name from the repo root names nothing: %+v", keys(hits))
 	}
 }
+
+func TestPathRegexAbsentJudgesTheFileNameNotItsContents(t *testing.T) {
+	l := lawWith(Matcher{Kind: KindPathRegexAbsent, Pattern: regexp.MustCompile(`(?i)task\d+|_[b-z]\.rs$`), Key: KeyFile})
+	if hits := l.HitsIn("crates/a/tests/buckling_probe.rs", "fn task19() {}\n"); len(hits) != 0 {
+		t.Errorf("a clean PATH must not hit on its contents: %+v", hits)
+	}
+	hits := l.HitsIn("crates/a/tests/task19_buckling_probe.rs", "")
+	if len(hits) != 1 {
+		t.Fatalf("hits = %+v", hits)
+	}
+	if hits[0].Key != "crates/a/tests/task19_buckling_probe.rs" || hits[0].File != hits[0].Key {
+		t.Errorf("a path law is keyed by its path: %+v", hits[0])
+	}
+	if hits[0].Line != 0 || hits[0].Weight != 1 {
+		t.Errorf("a path hit has no line and weighs one: %+v", hits[0])
+	}
+	if len(l.HitsIn("crates/a/tests/beam_probe_c.rs", "")) != 1 {
+		t.Errorf("the serial-letter shape must hit too")
+	}
+}

@@ -54,6 +54,9 @@ const (
 	KindRegistryBothWays MatcherKind = "registry-both-ways"
 	// KindDocPathResolves: every cited `.md` path resolves to a file.
 	KindDocPathResolves MatcherKind = "doc-path-resolves"
+	// KindPathRegexAbsent: a repo-relative PATH must not match a pattern (a
+	// filename carrying a plan-item stamp or a serial letter).
+	KindPathRegexAbsent MatcherKind = "path-regex-absent"
 	// KindDepGraphForbids: a production root may not REACH a forbidden package
 	// through normal dependency edges (dev-only tooling in a shipping binary).
 	KindDepGraphForbids MatcherKind = "dep-graph-forbids"
@@ -178,6 +181,7 @@ var matcherKeys = map[MatcherKind]map[string]bool{
 	KindLineCount:          {"kind": true, "max": true},
 	KindRegexAbsent:        {"kind": true, "pattern": true, "key": false},
 	KindRegexPresent:       {"kind": true, "pattern": true},
+	KindPathRegexAbsent:    {"kind": true, "pattern": true},
 	KindMarkerWithinLines:  {"kind": true, "trigger": true, "marker": true, "lines": false},
 	KindRegistryBothWays:   {"kind": true, "registry_file": true, "entry_pattern": true, "use_pattern": true},
 	KindDocPathResolves:    {"kind": true, "pattern": true},
@@ -266,6 +270,13 @@ func parseScope(doc *tomlDoc) (Scope, error) {
 	var s Scope
 	for _, k := range doc.keys("scope") {
 		v, _ := doc.value("scope", k)
+		if k == "ignore_gitignore" {
+			if v.kind != tomlBool {
+				return Scope{}, fmt.Errorf("scope.ignore_gitignore is a boolean, got %s", v.kind)
+			}
+			s.IgnoreGitignore = v.b
+			continue
+		}
 		if v.kind != tomlArray {
 			return Scope{}, fmt.Errorf("scope.%s is an array of globs, got %s", k, v.kind)
 		}
@@ -275,7 +286,7 @@ func parseScope(doc *tomlDoc) (Scope, error) {
 		case "exclude":
 			s.Exclude = v.list
 		default:
-			return Scope{}, fmt.Errorf("unknown key scope.%s — [scope] takes include and exclude", k)
+			return Scope{}, fmt.Errorf("unknown key scope.%s — [scope] takes include, exclude and ignore_gitignore", k)
 		}
 	}
 	if len(s.Include) == 0 {
@@ -336,6 +347,9 @@ func parseMatcher(doc *tomlDoc) (Matcher, error) {
 				return Matcher{}, fmt.Errorf("matcher.key = %q — a key is %q or %q", v.s, KeyFile, KeyLineContent)
 			}
 		}
+	case KindPathRegexAbsent:
+		m.Pattern = get("pattern")
+		m.Key = KeyFile
 	case KindRegexPresent, KindDocPathResolves:
 		m.Pattern = get("pattern")
 		m.Key = KeyFile
