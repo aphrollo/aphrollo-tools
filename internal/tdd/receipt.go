@@ -129,23 +129,52 @@ func mergeBaseSHA(repoRoot, tipRev string) string {
 	return strings.TrimSpace(out)
 }
 
-// sameRepo compares two spellings of one repo. The producer names it however
-// its own script does — borld's writes the git dir, `D:/Projects/borld/.git`
-// — and the gate knows it as a directory name, so both are reduced to that
-// name before comparing. "This receipt is for another repo" about the SAME
-// repo is the most misleading rejection the gate can produce.
+// sameRepo compares two spellings of one repo's git COMMON dir — the ONE
+// directory every worktree of a repo shares, which is what actually
+// identifies "one repo" regardless of which worktree's own folder a merge
+// happens to run in. The producer names it however its own script does
+// (borld's writes `git rev-parse --git-common-dir` directly, e.g.
+// `D:/Projects/borld/.git`); the gate resolves the SAME thing for the
+// checkout doing the merge (commonGitDir) and compares the two full paths,
+// normalized. A basename-only comparison used to reduce both sides to their
+// trailing folder name, which had two bugs at once: a linked worktree named
+// unlike the repo (`.worktrees/borld/eol`) was wrongly REFUSED a receipt the
+// main checkout wrote, and two unrelated repos that happened to share a
+// folder name would have been wrongly ACCEPTED as the same one.
 func sameRepo(a, b string) bool {
-	return strings.EqualFold(repoName(a), repoName(b))
+	return strings.EqualFold(normalizeRepoSpelling(a), normalizeRepoSpelling(b))
 }
 
-func repoName(s string) string {
+// normalizeRepoSpelling reduces one spelling of a repo's git directory to a
+// canonical, comparable form: forward slashes, no trailing slash, and — per
+// the fix's spec — a spelling that already names the `.git` dir is accepted
+// as is, while a bare repo ROOT (no `.git` suffix) gets `.git` appended, so
+// both ways of naming the same directory converge on the same string.
+// Casing is left alone here; the caller compares case-insensitively (the
+// same checkout routinely appears under two Windows drive-letter casings).
+func normalizeRepoSpelling(s string) string {
 	s = strings.TrimRight(strings.ReplaceAll(s, `\`, "/"), "/")
-	s = strings.TrimSuffix(s, "/.git")
-	s = strings.TrimSuffix(s, ".git")
-	if i := strings.LastIndex(s, "/"); i >= 0 {
-		s = s[i+1:]
+	if s == "" {
+		return s
 	}
-	return s
+	if strings.EqualFold(s, ".git") || strings.HasSuffix(strings.ToLower(s), "/.git") {
+		return s
+	}
+	return s + "/.git"
+}
+
+// commonGitDir resolves repoRoot's shared git directory — `git rev-parse
+// --git-common-dir`, absolute and forward-slashed — the one directory EVERY
+// worktree of repoRoot's repo shares, unlike `--git-dir` which names the
+// invoking worktree's own (private) one. "" when git cannot say (not a
+// repo, or git itself failed); checkMutationReceipt already treats an empty
+// repo string as "skip the repo check" rather than a mismatch.
+func commonGitDir(repoRoot string) string {
+	out, err := git(repoRoot, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
 }
 
 // firstUnaccepted is the one entry the rejection line quotes, exactly as the

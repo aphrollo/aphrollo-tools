@@ -658,6 +658,50 @@ func dedupeSorted(names []string) []string {
 // not caught at precommit. vitest/jest scope to the IMPORTER GRAPH (`related` /
 // `--findRelatedTests`), so dependents of a staged file ARE covered. This gap is
 // acceptable because CI runs the full suite at submit as the authoritative gate.
+// goPackageDir is the package a staged file belongs to, as a slash path
+// relative to root: its own directory when that holds Go files, else the
+// nearest ancestor that does. An asset directory is not a package — `go test
+// ./internal/tdd/agents` is a setup failure ("no Go files in ..."), not a
+// scoped run — and an embedded template belongs to the package whose
+// //go:embed directive names it.
+func goPackageDir(root, dir string) string {
+	rel := filepath.ToSlash(dir)
+	for cur := rel; cur != "." && cur != ""; {
+		abs := filepath.Join(root, filepath.FromSlash(cur))
+		info, err := os.Stat(abs)
+		if err != nil || !info.IsDir() {
+			// Nothing on disk to judge by — a deleted file, or a root this
+			// call cannot see. Keep the literal mapping the caller asked for.
+			return rel
+		}
+		if dirHasGoFiles(abs) {
+			return cur
+		}
+		parent := path.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	return "."
+}
+
+// dirHasGoFiles reports whether dir holds at least one .go file. An unreadable
+// directory reads as none, which walks the search one level up rather than
+// naming a package that may not exist.
+func dirHasGoFiles(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".go") {
+			return true
+		}
+	}
+	return false
+}
+
 func narrowToStaged(r Runner, root string, files []string) (Runner, bool) {
 	if len(files) == 0 {
 		return r, false
@@ -669,7 +713,7 @@ func narrowToStaged(r Runner, root string, files []string) (Runner, bool) {
 		seen := map[string]bool{}
 		var pkgs []string
 		for _, f := range files {
-			dir := filepath.ToSlash(filepath.Dir(f))
+			dir := goPackageDir(root, filepath.Dir(f))
 			pkg := "./" + dir
 			if dir == "." {
 				pkg = "."

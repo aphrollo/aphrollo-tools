@@ -137,6 +137,75 @@ func TestEndSession_RemovesStateFile(t *testing.T) {
 	EndSession(mustJSON(t, sessionEndInput{}))
 }
 
+// The reply-style block (internal/tdd/style.md) rides in the payload's
+// additionalContext on every ordinary prompt by default — the gate's
+// replacement for the third-party plugin that used to inject it.
+func TestHandlePrompt_StyleAppendedByDefault(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	body, _ := RenderPrompt(HandlePrompt(promptJSON("keep working", "sess-style-1", "")))
+	var out promptOutput
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("payload not JSON: %v (body=%q)", err, body)
+	}
+	if !strings.Contains(out.HookSpecificOutput.AdditionalContext, "Reply style: terse") {
+		t.Fatalf("additionalContext missing the style block: %q", out.HookSpecificOutput.AdditionalContext)
+	}
+}
+
+// `/tdd style plain` silences the block on every later prompt in the session.
+func TestHandlePrompt_StyleSilentWhenPlain(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const sess = "sess-style-2"
+	r := HandlePrompt(promptJSON("/tdd style plain", sess, ""))
+	if !r.Block || !strings.Contains(r.Message, "plain") {
+		t.Fatalf("/tdd style plain: got %+v", r)
+	}
+	// An ordinary prompt in the same session now carries no style block, and
+	// with nothing else to say the hook stays fully silent (nil payload).
+	body, code := RenderPrompt(HandlePrompt(promptJSON("keep working", sess, "")))
+	if body != nil || code != 0 {
+		t.Fatalf("plain style should leave a quiet prompt silent, got body=%q code=%d", body, code)
+	}
+}
+
+// `/tdd style terse|plain` round-trips through session state, and `/tdd
+// status` reports the current setting.
+func TestTddCommand_StyleRoundTripsThroughState(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const sess = "sess-style-3"
+	if r := HandlePrompt(promptJSON("/tdd style plain", sess, "")); !strings.Contains(r.Message, "plain") {
+		t.Fatalf("/tdd style plain: got %+v", r)
+	}
+	if s, _ := loadSession(sess); s == nil || s.Overrides.Style != "plain" {
+		t.Fatal("/tdd style plain did not persist Overrides.Style")
+	}
+	if r := HandlePrompt(promptJSON("/tdd status", sess, "")); !strings.Contains(r.Message, "plain") {
+		t.Fatalf("/tdd status should report the style: got %+v", r)
+	}
+	if r := HandlePrompt(promptJSON("/tdd style terse", sess, "")); !strings.Contains(r.Message, "terse") {
+		t.Fatalf("/tdd style terse: got %+v", r)
+	}
+	if s, _ := loadSession(sess); s == nil || s.Overrides.Style != "terse" {
+		t.Fatal("/tdd style terse did not persist Overrides.Style")
+	}
+	// An unrecognised style argument is reported, not silently accepted.
+	r := HandlePrompt(promptJSON("/tdd style loud", sess, ""))
+	if !r.Block || !strings.Contains(r.Message, "terse or plain") {
+		t.Fatalf("/tdd style loud: got %+v", r)
+	}
+}
+
+// SessionStart includes the style block once, in the same payload as the
+// skill nudge, so it survives a later context compaction that would drop it
+// otherwise.
+func TestHandleSessionStart_IncludesStyleBlockOnce(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	msg := HandleSessionStart([]byte(`{"session_id":"ss-style"}`))
+	if strings.Count(msg, "Reply style: terse") != 1 {
+		t.Fatalf("session-start nudge should carry the style block exactly once:\n%s", msg)
+	}
+}
+
 func mustJSON(t *testing.T, v any) []byte {
 	t.Helper()
 	b, err := json.Marshal(v)

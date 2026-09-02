@@ -9,12 +9,13 @@ import (
 )
 
 // The gate runs git constantly, and a session puts the queue shim dir FIRST
-// on PATH — so a bare `git` resolves to the shim's git.cmd, whose cmd.exe
-// wrapper rewrites arguments on the way through (a caret is an escape
-// character there). That is not a slow path, it is a wrong answer: `rev-parse
-// MERGE_HEAD^{tree}` arrived as `HEAD{tree}`, mergeTipTree returned "", and
-// every merge was refused for having no lane tip. So the gate resolves the
-// real git itself, and no git argument in this package uses caret syntax.
+// on PATH — so a bare `git` resolves to the shim, which re-enters aphrollo
+// rather than reaching git. The batch shim it used to resolve to also rewrote
+// arguments on the way through (a caret is an escape character in cmd.exe):
+// not a slow path, a wrong answer — `rev-parse MERGE_HEAD^{tree}` arrived as
+// `HEAD{tree}`, mergeTipTree returned "", and every merge was refused for
+// having no lane tip. So the gate resolves the real git itself, and no git
+// argument in this package uses caret syntax.
 
 // realGitEnv lets an operator (and the shim's own tests) name the git binary
 // outright, matching the shim's override.
@@ -42,14 +43,30 @@ func gitBinary() string {
 		return gitBinaryCache.path
 	}
 	resolved := "git"
-	for _, dir := range filepath.SplitList(env) {
-		if c := gitInDir(dir); c != "" {
-			resolved = c
-			break
-		}
+	if c, ok := GitBinaryOnPath(); ok {
+		resolved = c
 	}
 	gitBinaryCache.path, gitBinaryCache.forPATH = resolved, env
 	return resolved
+}
+
+// GitBinaryOnPath walks PATH for the first real git it finds, skipping any
+// directory whose git is a SHIM that re-enters aphrollo — the same walk
+// gitBinary uses, exported so another package's own real-git resolver (the
+// git-queue shim's resolveRealGit, internal/cli) can share this exact
+// shim-skipping logic instead of re-deriving it, cross-platform, with no
+// Windows-only assumption baked in. Unlike gitBinary this does NOT consult
+// APHROLLO_REAL_GIT and does NOT fall back to a bare "git" guess: ok is
+// false when nothing on PATH resolves, so a caller with its OWN fallback
+// (an env override checked first, or a last-resort install-path probe) can
+// tell "found" apart from "guessed".
+func GitBinaryOnPath() (path string, ok bool) {
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if c := gitInDir(dir); c != "" {
+			return c, true
+		}
+	}
+	return "", false
 }
 
 // gitNames are the file names a `git` lookup would try in one directory, in
@@ -65,7 +82,7 @@ func gitNames() []string {
 // holds a SHIM, in which case the whole directory is skipped rather than
 // searched further: a shim dir is where a lookup goes wrong, not a fallback.
 func gitInDir(dir string) string {
-	if dir == "" {
+	if dir == "" || isQueueShimDir(dir) {
 		return ""
 	}
 	for _, name := range gitNames() {
@@ -80,6 +97,20 @@ func gitInDir(dir string) string {
 		return c
 	}
 	return ""
+}
+
+// isQueueShimDir reports whether dir is the aphrollo queue dir, judged by the
+// extensionless POSIX script the installer always writes there. The Windows
+// shim beside it is a COPY of the aphrollo binary named git.exe, which a `git`
+// lookup tries FIRST and which reads as an opaque executable — so the
+// directory, not the candidate, is what has to be recognised.
+func isQueueShimDir(dir string) bool {
+	for _, name := range []string{"git", "cargo"} {
+		if isGitShim(filepath.Join(dir, name)) {
+			return true
+		}
+	}
+	return false
 }
 
 // isGitShim reports whether a candidate is a script that re-enters aphrollo.

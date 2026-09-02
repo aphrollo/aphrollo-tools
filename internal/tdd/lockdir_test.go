@@ -13,7 +13,10 @@ import (
 // times — every gate test that reached runCargoLocked without setting the
 // override wrote its lock, its slot files and its owner record straight into
 // the REAL temp dir. One override must move ALL of them, so a package-level
-// TestMain can isolate a whole run in one statement.
+// TestMain can isolate a whole run in one statement — INCLUDING the per-target
+// lock, which in production lives inside the target dir it guards
+// (TestTargetLockPath_LivesInTheTargetDirItGuards) but under an override
+// cannot, because a test names target dirs that do not exist.
 func TestLockDir_OneOverrideCoversEveryLockFile(t *testing.T) {
 	dir := t.TempDir()
 	defer SetLockDirForTest(dir)()

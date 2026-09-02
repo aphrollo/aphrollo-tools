@@ -135,7 +135,9 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 			DefaultMemberArtifactAge, DefaultDepArtifactAge, time.Now())...)
 	}
 	if scope.TempLitter {
-		out = append(out, gcTempLitter(lockDir(), scope.lockAge(), time.Now())...)
+		for _, dir := range lockLitterDirs() {
+			out = append(out, gcTempLitter(dir, scope.lockAge(), time.Now())...)
+		}
 	}
 	if scope.OrphanWorktrees {
 		if root := RepoRoot(repo); root != "" {

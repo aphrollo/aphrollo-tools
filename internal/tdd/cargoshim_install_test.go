@@ -7,11 +7,12 @@ import (
 	"testing"
 )
 
-// TestInstallCargoShim_WritesBothFiles pins task A7's install contract: a
-// dir named cargo-queue holding a Windows cargo.cmd and an extensionless
-// POSIX cargo script, both invoking `<bin> gate cargo` — a session opts into
-// the queue by prepending this dir to its OWN PATH (never touched here).
-func TestInstallCargoShim_WritesBothFiles(t *testing.T) {
+// TestInstallCargoShim_WritesThePosixScript pins task A7's install contract:
+// a dir named cargo-queue holding an extensionless POSIX cargo script
+// invoking `<bin> gate cargo` — a session opts into the queue by prepending
+// this dir to its OWN PATH (never touched here). The Windows half is an
+// executable copy of the binary, installed by InstallShimExes.
+func TestInstallCargoShim_WritesThePosixScript(t *testing.T) {
 	shimDir := filepath.Join(t.TempDir(), "cargo-queue")
 	bin := `C:\Users\olive\bin\aphrollo.exe`
 
@@ -21,14 +22,6 @@ func TestInstallCargoShim_WritesBothFiles(t *testing.T) {
 	}
 	if !changed {
 		t.Fatal("expected changed=true on a fresh install")
-	}
-
-	cmdData, err := os.ReadFile(filepath.Join(shimDir, "cargo.cmd"))
-	if err != nil {
-		t.Fatalf("cargo.cmd not written: %v", err)
-	}
-	if !strings.Contains(string(cmdData), bin) || !strings.Contains(string(cmdData), "gate cargo %*") {
-		t.Fatalf("cargo.cmd wrong content:\n%s", cmdData)
 	}
 
 	shData, err := os.ReadFile(filepath.Join(shimDir, "cargo"))
@@ -81,11 +74,11 @@ func TestInstallCargoShim_UpdatesWhenBinPathChanges(t *testing.T) {
 	if !changed {
 		t.Fatal("a changed bin path must report changed=true")
 	}
-	cmdData, err := os.ReadFile(filepath.Join(shimDir, "cargo.cmd"))
+	shData, err := os.ReadFile(filepath.Join(shimDir, "cargo"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(cmdData), binNew) {
-		t.Fatalf("cargo.cmd must reflect the NEW bin path, got:\n%s", cmdData)
+	if !strings.Contains(string(shData), shellPath(binNew)) {
+		t.Fatalf("cargo must reflect the NEW bin path, got:\n%s", shData)
 	}
 }

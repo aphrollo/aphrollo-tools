@@ -6,11 +6,12 @@ import (
 	"path/filepath"
 )
 
-// InstallCargoShim writes the cargo-queue shim directory dir (e.g.
-// C:/Users/olive/bin/cargo-queue/, alongside wherever aphrollo.exe itself
-// lives) with cargo.cmd (Windows cmd.exe/PowerShell) and an extensionless
-// cargo (POSIX sh, for Git Bash), both execing `"<bin>" gate cargo` with the
-// caller's own args forwarded verbatim — task A7: any DIRECT `cargo` a
+// InstallCargoShim writes the POSIX half of the cargo-queue shim directory dir
+// (e.g. C:/Users/olive/bin/cargo-queue/, alongside wherever aphrollo.exe itself
+// lives): an extensionless `cargo` sh script execing `"<bin>" gate cargo` with
+// the caller's own args forwarded verbatim. The Windows half is an executable
+// COPY of the binary (InstallShimExes), not a batch file — cmd.exe strips `^`
+// from an argument and re-splits quoted ones — task A7: any DIRECT `cargo` a
 // session runs (not through the hooks/gates) queues behind the SAME
 // machine-wide build lock runCargoLocked uses, instead of silently waiting
 // on cargo's own build-dir lock with zero visibility. dir and bin are
@@ -29,50 +30,19 @@ func InstallCargoShim(dir, bin string) (bool, error) {
 		return false, err
 	}
 
-	cmdContent := "@\"" + bin + "\" " + CmdName + " cargo %*\r\n"
-	shContent := binShim(bin, "cargo")
-
-	changed := false
-	if c, err := writeShimIfDifferent(filepath.Join(dir, "cargo.cmd"), cmdContent, 0o755); err != nil {
-		return false, err
-	} else {
-		changed = changed || c
-	}
-	if c, err := writeShimIfDifferent(filepath.Join(dir, "cargo"), shContent, 0o755); err != nil {
-		return false, err
-	} else {
-		changed = changed || c
-	}
-	return changed, nil
+	return writeShimIfDifferent(filepath.Join(dir, "cargo"), binShim(bin, "cargo"), 0o755)
 }
 
-// InstallGitShim writes dir's git-queue shim (task A11): git.cmd (Windows
-// cmd.exe/PowerShell) and an extensionless git (POSIX sh, for Git Bash),
-// both execing `"<bin>" gate git` with the caller's own args forwarded
-// verbatim -- the git analogue of InstallCargoShim, sharing the SAME queue
-// dir so a session that prepends one directory to PATH gets both cargo and
-// git queued. Same shape, same idempotency contract (reports whether either
-// file's content changed).
+// InstallGitShim writes dir's POSIX git-queue shim (task A11): an
+// extensionless git sh script execing `"<bin>" gate git` with the caller's own
+// args forwarded verbatim -- the git analogue of InstallCargoShim, sharing the
+// SAME queue dir so a session that prepends one directory to PATH gets both
+// cargo and git queued. Same shape, same idempotency contract.
 func InstallGitShim(dir, bin string) (bool, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false, err
 	}
-
-	cmdContent := "@\"" + bin + "\" " + CmdName + " git %*\r\n"
-	shContent := binShim(bin, "git")
-
-	changed := false
-	if c, err := writeShimIfDifferent(filepath.Join(dir, "git.cmd"), cmdContent, 0o755); err != nil {
-		return false, err
-	} else {
-		changed = changed || c
-	}
-	if c, err := writeShimIfDifferent(filepath.Join(dir, "git"), shContent, 0o755); err != nil {
-		return false, err
-	} else {
-		changed = changed || c
-	}
-	return changed, nil
+	return writeShimIfDifferent(filepath.Join(dir, "git"), binShim(bin, "git"), 0o755)
 }
 
 // writeShimIfDifferent writes content to path only when it differs from
