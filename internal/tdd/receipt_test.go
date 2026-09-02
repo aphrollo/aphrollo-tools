@@ -86,7 +86,7 @@ func TestMutationReceipt_RefusesAMergeWithoutProof(t *testing.T) {
 			if c.receipt != nil {
 				writeReceipt(t, *c.receipt)
 			}
-			got := checkMutationReceipt("borld", laneTip)
+			got := checkMutationReceipt("borld", laneTip, "")
 			if got == nil || !got.Blocked {
 				t.Fatalf("merge allowed with %s", c.name)
 			}
@@ -110,7 +110,7 @@ func TestMutationReceipt_IsFoundByTheLaneTipTreeAlone(t *testing.T) {
 	other.TipTree = "2222222222222222222222222222222222222222"
 	writeReceipt(t, other)
 
-	got := checkMutationReceipt("borld", laneTip)
+	got := checkMutationReceipt("borld", laneTip, "")
 	if got == nil || !got.Blocked {
 		t.Fatal("another tree's receipt must not clear this merge")
 	}
@@ -120,10 +120,10 @@ func TestMutationReceipt_IsFoundByTheLaneTipTreeAlone(t *testing.T) {
 
 	// Both receipts coexist: one lane's proof never overwrites another's.
 	writeReceipt(t, passingReceipt())
-	if got := checkMutationReceipt("borld", laneTip); got != nil {
+	if got := checkMutationReceipt("borld", laneTip, ""); got != nil {
 		t.Fatalf("merge refused a proven tree: %s", got.Message)
 	}
-	if got := checkMutationReceipt("borld", other.TipTree); got != nil {
+	if got := checkMutationReceipt("borld", other.TipTree, ""); got != nil {
 		t.Fatalf("the other lane's receipt was clobbered: %s", got.Message)
 	}
 }
@@ -141,7 +141,7 @@ func TestMutationReceipt_AcceptsAProvenTree(t *testing.T) {
 		t.Run(r.Verdict+"-"+short(r.TipTree), func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			writeReceipt(t, r)
-			if got := checkMutationReceipt("borld", laneTip); got != nil {
+			if got := checkMutationReceipt("borld", laneTip, ""); got != nil {
 				t.Fatalf("merge refused a proven tree: %s", got.Message)
 			}
 		})

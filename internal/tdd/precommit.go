@@ -196,7 +196,7 @@ func mutationReceiptStage(repoRoot string) *GateResult {
 	if !cargoAphrolloFlag(ws, "mutation-receipt") {
 		return nil
 	}
-	return checkMutationReceipt(filepath.Base(repoRoot), mergeTipTree(repoRoot))
+	return checkMutationReceipt(filepath.Base(repoRoot), mergeTipTree(repoRoot), mergeBaseSHA(repoRoot))
 }
 
 // failFirstStage runs the fail-first check for ONE project root's staged

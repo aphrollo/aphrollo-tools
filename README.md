@@ -959,16 +959,23 @@ commit-message-deny = ["^WIP:"]      # this repo's own extra deny patterns
   test constrains behaviour, and a test that asserts nothing satisfies
   fail-first perfectly. A MERGE needs both. With the key set,
   `premergecommit` looks up `<stateDir>/mutation-receipt.<tip_tree>.json`,
-  where `<tip_tree>` is the LANE TIP's tree (`git rev-parse MERGE_HEAD^{tree}`
+  where `<tip_tree>` is the LANE TIP's tree (`git rev-parse MERGE_HEAD:`
   — never the merge result, which nobody has mutation-tested). The file is
   written by the consuming repo's own mutation run (borld's
   `mutation_gate.sh`) and carries `repo`, `branch`, `tip_tree`,
-  `worktree_dirty`, `base_ref`, `mutants_total`, `caught`, `timeout`,
-  `unviable`, `survivors`, `accepted`, `unaccepted` and `verdict`. The merge is
+  `worktree_dirty`, `base_ref`, `base_sha`, `mutants_total`, `caught`,
+  `timeout`, `unviable`, `survivors`, `accepted`, `unaccepted` and `verdict`.
+  The merge is
   refused (`receipt-rejected`) when there is no receipt for that tree, when
   `worktree_dirty` is set, when `verdict` is anything but `"pass"` (an
   unrecognised verdict refuses — a gate that reads an unknown word as
-  permission is not a gate), or when `unaccepted` is non-empty. The receipt is
+  permission is not a gate), or when `unaccepted` is non-empty. `base_sha` is
+  what `base_ref` RESOLVED to when the run took its diff: a ref name is not a
+  base (`origin/main` moves), so a receipt that carries one must match
+  `git merge-base MERGE_HEAD HEAD` or the merge is refused — it measured
+  different lines. A receipt with no `base_sha` is an older producer's: it is
+  accepted and logged `receipt-unpinned`, so an unverifiable proof is counted
+  rather than mistaken for a verified one. The receipt is
   keyed by TREE in its FILENAME, so the lookup itself is the identity check and
   two lanes measured minutes apart never read each other's answer;
   `mutants_total: 0` is a valid receipt, since a diff with nothing mutable in

@@ -28,6 +28,11 @@ type MutationReceipt struct {
 	TipTree       string `json:"tip_tree"`
 	WorktreeDirty bool   `json:"worktree_dirty"`
 	BaseRef       string `json:"base_ref"`
+	// BaseSHA is what BaseRef RESOLVED to when the run took its diff. A ref
+	// name is not a base: `origin/main` moves, and a receipt measured against
+	// yesterday's origin/main mutated different lines than the merge is
+	// landing. Empty means an older producer wrote the receipt.
+	BaseSHA string `json:"base_sha"`
 	MutantsTotal  int    `json:"mutants_total"`
 	Caught        int    `json:"caught"`
 	Timeout       int    `json:"timeout"`
@@ -67,7 +72,9 @@ const mutationGateHint = "run tools/mutation_gate.sh on the lane tip (with a cle
 // returns nil to allow, or a blocking GateResult naming the field that
 // failed. tipTree is the LANE TIP's tree (MERGE_HEAD:), never the merge
 // result: the merge result has never been mutation-tested by anyone.
-func checkMutationReceipt(repo, tipTree string) *GateResult {
+// wantBase is the merge base this merge is actually landing against, "" when
+// the gate could not name it — in which case it does not judge one.
+func checkMutationReceipt(repo, tipTree, wantBase string) *GateResult {
 	path := MutationReceiptPathFor(tipTree)
 	if path == "" {
 		return blockReceipt("no mutation receipt for %s (there is no lane tip to look one up by)", repo)
@@ -93,7 +100,28 @@ func checkMutationReceipt(repo, tipTree string) *GateResult {
 		return blockReceipt("%d unaccepted survivor(s), starting with %s — a code path no test constrains",
 			len(r.Unaccepted), firstUnaccepted(r.Unaccepted))
 	}
+	switch {
+	case r.BaseSHA == "":
+		// An older producer. Accepted, and counted: an unverifiable proof is
+		// not the same thing as a verified one, and the tally is how that
+		// stops being invisible.
+		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-unpinned", 0)
+	case wantBase != "" && !strings.EqualFold(r.BaseSHA, wantBase):
+		return blockReceipt("the receipt was measured against base %s, but this merge lands against %s — a different diff, so different mutants",
+			short(r.BaseSHA), short(wantBase))
+	}
 	return nil
+}
+
+// mergeBaseSHA is the commit this merge actually diverged from — what a
+// diff-scoped mutation run had to have measured against. "" when there is no
+// merge in progress or git cannot say.
+func mergeBaseSHA(repoRoot string) string {
+	out, err := git(repoRoot, "merge-base", "MERGE_HEAD", "HEAD")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
 }
 
 // firstUnaccepted renders one entry for the rejection line. A survivor written
