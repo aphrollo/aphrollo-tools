@@ -194,7 +194,14 @@ under `.ratchet/`.
 
 A fixture tree is laid out the way the REPO is, because the fixture root
 stands in for the repo root and the law's own `include` globs decide what it
-reads: `crates/**/*.rs` reaches `hit/crates/a/src/bare.rs`, never `hit/bare.rs`.
+reads — an `include` of `crates/**/*.rs` reaches the first of these and never
+the second:
+
+```text
+hit/crates/a/src/bare.rs
+hit/bare.rs
+```
+
 A fixture the scope could never reach fails the test rather than being
 skipped — otherwise a typo in `include` disarms the law in the real tree while
 its fixtures stay green, which is the exact failure fixtures exist to catch.
@@ -231,4 +238,4 @@ aphrollo ratchet test                        # prove every law against its fixtu
 A repeat `check` costs milliseconds: every file's hits are cached under the
 state dir, keyed by path + size + mtime **and** a hash of the law set, so a
 rule that changed drops the cache instead of inheriting verdicts reached under
-the old one. A repo with no `.ratchet/laws/` says `no laws` and exits 0.
+the old one. A repo with no laws dir under `.ratchet` says `no laws` and exits 0.

@@ -591,7 +591,7 @@ live where being wrong only costs a re-run):
 | `gate userpromptsubmit` | Claude UserPromptSubmit hook (stdin) | Intercepts `/gate [status\|off\|on\|reset]` — the per-session enforcement escape hatch. On any other prompt, re-injects the last RED outcome for the cwd's project so the gate survives context compaction. **Silent unless RED.** |
 | `gate stats` | manual | Tallies `gate.log` by stage and outcome, with per-crate timeout/deferred counts and median/max gate seconds (`--since 7d`). |
 | `gate runphase` | spawned by `gate posttooluse` | The detached build/run phase's wrapper: holds the build slot, logs to the state dir, writes the result file the next hook harvests. Never typed by a human; never blocks. |
-| `gate sessionstart` | Claude SessionStart hook (stdin) | Injects the TDD-skill nudge, the previous session's disk-sweep result when it freed something, and — for a repo with a workspace manifest and no `.ratchet/laws/` (an empty dir counts as none) — ONE line saying the gate is running suites only and pointing at [Ratchet laws](#ratchet-laws-aphrollo-ratchet). Never more than one extra line each, never blocks. |
+| `gate sessionstart` | Claude SessionStart hook (stdin) | Injects the TDD-skill nudge, the previous session's disk-sweep result when it freed something, and — for a repo with a workspace manifest and no laws dir under `.ratchet` (an empty dir counts as none) — ONE line saying the gate is running suites only and pointing at [Ratchet laws](#ratchet-laws-aphrollo-ratchet). Never more than one extra line each, never blocks. |
 | `gate sessionend` | Claude SessionEnd hook (stdin) | Deletes the per-session state file so the state dir doesn't accumulate. |
 | `gate precommit` | git `pre-commit` | Blocks a newly-**added** suppression (anti-cheat). Then **fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. A worktree state already proven green under the exact same command (by a PostToolUse run or an earlier gate pass) is **not re-run** — the cache is keyed on the repo's git COMMON dir, so every linked worktree of one repo reuses the same proven-green facts — only green results are cached, keyed on content + runner argv (content covers tracked files AND the ignored configuration a suite reads: dotenv files and `config/` trees, never build output), so a red always re-runs with fresh output. Both gate stages build in the REPO'S OWN target dir (see below). |
 | `gate commitmsg` | git `commit-msg` | Rejects a commit whose MESSAGE carries a deny pattern, quoting the offending line. Opt-in per workspace (`undercover = true`); absent key = pass through. Fires for merge commits too. |
@@ -607,16 +607,16 @@ instead of a full test build:
 | # | stage | cost | notes |
 |---|---|---|---|
 | 0a | baseline guard — a STAGED baseline that ROSE | ms (one `git show` per staged baseline) | rejects `baseline-rejected`; see below |
-| 0b | `ratchet check` — the repo's declared laws | ms (mtime cache) | only when `.ratchet/laws/` exists; rejects `ratchet-rejected`. A commit that stages a `.ratchet/` file also re-proves every law against its fixtures |
+| 0b | `ratchet check` — the repo's declared laws | ms (mtime cache) | only when the laws dir under `.ratchet` exists; rejects `ratchet-rejected`. A commit that stages a `.ratchet/` file also re-proves every law against its fixtures |
 | 1 | `cargo fmt --check -p <touched>` | ms | compiles nothing, takes no build slot |
 | 2 | `always-run` packages, their OWN invocation | seconds | a pure guard crate; bundling it into `-p ratchet -p client` made it wait for client to link |
 | 3 | `cargo clippy -p <clippy-clean> --tests -- -D warnings` | front-end build | only crates declared clippy-clean |
-| 4 | `cargo clippy --workspace --tests -- -D clippy::disallowed_methods -D clippy::disallowed_types` | check-level, tens of seconds warm | no codegen, but it sees EVERY crate: a lane that broke a crate nobody staged used to land green (borld `forge_jbeam/tests/conformance.rs` reached main not compiling). clippy SUBSUMES check, so a compile error fails here too, and denying exactly those two lints is what makes a `clippy.toml` law reach crates that are not on the `clippy-clean` list. Everything else stays at its default level. Rejects `check-rejected` (does not compile) or `lint-rejected` (banned API) |
+| 4 | `cargo clippy --workspace --tests -- -D clippy::disallowed_methods -D clippy::disallowed_types` | check-level, tens of seconds warm | no codegen, but it sees EVERY crate: a lane that broke a crate nobody staged used to land green (borld's `forge_jbeam` conformance test reached main not compiling). clippy SUBSUMES check, so a compile error fails here too, and denying exactly those two lints is what makes a `clippy.toml` law reach crates that are not on the `clippy-clean` list. Everything else stays at its default level. Rejects `check-rejected` (does not compile) or `lint-rejected` (banned API) |
 | 5 | fail-first RED proof | worktree build | precommit only, and only when the staged tests ADD a declaration |
 | 6 | touched crates' suites | full build + link + run | the heaviest, and therefore last |
 | 7 | `cargo test -p <touched> --doc` | one rustdoc run per crate that has a doc fence | **nextest does not run doctests at all**, so a `compile_fail` proof — the only way to assert something must NOT compile — would never execute. Scoped by a grep of the crate's `src/`: a crate with no doc fence buys no run |
 
-When the workspace's `.config/nextest.toml` declares a `[profile.gate]` table,
+When the workspace's nextest configuration declares a `[profile.gate]` table,
 every GATE nextest run (the touched crates' suite, the always-run guards, and
 the fail-first proof) passes `--profile gate`, while `posttooluse` keeps the
 default: the gate runs while other sessions build, and a CPU-bound test that
@@ -708,7 +708,7 @@ target that does not exist fails instantly and proves nothing:
 | `<crate>/tests/x.rs` | `--test x` |
 | `<crate>/tests/<dir>/**` | `--test <dir>` |
 | `<crate>/src/a/b.rs` (incl. `*_tests.rs` modules) | `--lib`, filtered to `a::b::` — a `#[cfg(test)] mod` under `src/` is part of the LIB test binary, not a test target of its own |
-| `<crate>/src/lib.rs`, `src/main.rs`, `src/a/mod.rs` | `--lib` (no filter: that IS the crate/module) |
+| `<crate>/src/lib.rs`, `<crate>/src/main.rs`, `<crate>/src/a/mod.rs` | `--lib` (no filter: that IS the crate/module) |
 | `<crate>/examples/x.rs`, `examples/x/**` | `--example x` |
 | `<crate>/benches/x.rs` | `--bench x --no-run` — a bench RUN costs minutes and says nothing about correctness |
 
@@ -903,7 +903,7 @@ resolved via `APHROLLO_SQLC_BIN`, then `$PATH`, then the operator go-install pat
 ### Git queue (`aphrollo gate git`)
 
 Index-mutating git verbs queue behind an advisory lock so concurrent sessions
-sharing a checkout never collide on `.git/index.lock`. **The lock is keyed by
+sharing a checkout never collide on git's own `index.lock`. **The lock is keyed by
 what the verb actually mutates**, because the index is per worktree: keying
 everything on the shared common dir made one lane's commit gate (which holds
 its lock for the whole gate run) block `git add` in every other worktree of
@@ -962,7 +962,7 @@ commit-message-deny = ["^WIP:"]      # this repo's own extra deny patterns
   where `<tip_tree>` is the LANE TIP's tree (`git rev-parse MERGE_HEAD^{tree}`
   — never the merge result, which nobody has mutation-tested). The file is
   written by the consuming repo's own mutation run (borld's
-  `tools/mutation_gate.sh`) and carries `repo`, `branch`, `tip_tree`,
+  `mutation_gate.sh`) and carries `repo`, `branch`, `tip_tree`,
   `worktree_dirty`, `base_ref`, `mutants_total`, `caught`, `timeout`,
   `unviable`, `survivors`, `accepted`, `unaccepted` and `verdict`. The merge is
   refused (`receipt-rejected`) when there is no receipt for that tree, when
@@ -1187,7 +1187,14 @@ under `.ratchet/`.
 
 A fixture tree is laid out the way the REPO is, because the fixture root
 stands in for the repo root and the law's own `include` globs decide what it
-reads: `crates/**/*.rs` reaches `hit/crates/a/src/bare.rs`, never `hit/bare.rs`.
+reads — an `include` of `crates/**/*.rs` reaches the first of these and never
+the second:
+
+```text
+hit/crates/a/src/bare.rs
+hit/bare.rs
+```
+
 A fixture the scope could never reach fails the test rather than being
 skipped — otherwise a typo in `include` disarms the law in the real tree while
 its fixtures stay green, which is the exact failure fixtures exist to catch.
@@ -1224,7 +1231,7 @@ aphrollo ratchet test                        # prove every law against its fixtu
 A repeat `check` costs milliseconds: every file's hits are cached under the
 state dir, keyed by path + size + mtime **and** a hash of the law set, so a
 rule that changed drops the cache instead of inheriting verdicts reached under
-the old one. A repo with no `.ratchet/laws/` says `no laws` and exits 0.
+the old one. A repo with no laws dir under `.ratchet` says `no laws` and exits 0.
 <!-- ratchet-spec:end -->
 
 ### Pipeline health (`aphrollo gate stats`)
@@ -1396,20 +1403,20 @@ detectors, DAMP over DRY, real code over mocks, never weaken a test or a
 baseline), the mutation proof for code that already exists, and evidence before
 any completion claim. It is language-neutral — Rust and Go both run this gate.
 The skill also carries the `/tdd status|off|on|allow-main|reset` frontmatter and
-so replaces the old `commands/tdd.md` stub, which init deletes when it finds one
+so replaces the old `/tdd` command stub, which init retires when it finds one
 that mentions aphrollo (a hand-written stub is left alone). Managed like the
 CLAUDE.md block: a second init is byte-identical, a hand edit is overwritten, the
 source is `internal/tdd/tddskill.md`, and `--uninstall` removes it. The
 session-start nudge points at this skill, so the thing it names always exists.
 
-### The in-repo law spec (`.ratchet/README.md`)
+### The in-repo law spec (a README inside `.ratchet`)
 
 `gate init` also drops the "Ratchet laws" section above into the repo it
-initialises, as `.ratchet/README.md`, whenever the repo has a `.ratchet/` dir
+initialises, as a README inside `.ratchet`, whenever that dir exists
 (`--ratchet-readme` writes it regardless). Laws are edited by whoever owns the
 repo, and until now the only spec for the schema lived in THIS file — on the
 machine that installed the binary, at a path nothing in the consuming repo can
-cite. Now a law, a CLAUDE.md or a doc can point at `.ratchet/README.md` and the
+cite. Now a law, a CLAUDE.md or a doc can point at that in-repo README and the
 citation resolves for everyone. The file is managed: a second init is
 byte-identical, a hand edit is overwritten, and the source is this README's
 `ratchet-spec` section (a test in `internal/tdd` fails if the two drift).

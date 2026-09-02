@@ -45,7 +45,7 @@ func ClaudeMDBlock(shimDir string, undercover bool) string {
 	b.WriteString("  → always-run guards → clippy → workspace check → fail-first RED proof → the\n")
 	b.WriteString("  touched crates' suites. It stops at the first rejection and names the stage.\n")
 	b.WriteString("- **Laws are data:** `.ratchet/laws/*.toml` (scope + one matcher + severity), with\n")
-	b.WriteString("  baselines under `.ratchet/baselines/` that only ever go DOWN. `aphrollo ratchet\n")
+	b.WriteString("  baselines in the sibling `baselines` dir that only ever go DOWN. `aphrollo ratchet\n")
 	b.WriteString("  check` judges the tree and tightens; `aphrollo ratchet test` proves each law against\n")
 	b.WriteString("  its fixtures. A new hit is admitted by the law's escape comment, NEVER by editing a\n")
 	b.WriteString("  baseline — the gate rejects a raised one.\n")

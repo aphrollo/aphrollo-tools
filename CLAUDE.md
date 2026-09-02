@@ -125,7 +125,7 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   → always-run guards → clippy → workspace check → fail-first RED proof → the
   touched crates' suites. It stops at the first rejection and names the stage.
 - **Laws are data:** `.ratchet/laws/*.toml` (scope + one matcher + severity), with
-  baselines under `.ratchet/baselines/` that only ever go DOWN. `aphrollo ratchet
+  baselines in the sibling `baselines` dir that only ever go DOWN. `aphrollo ratchet
   check` judges the tree and tightens; `aphrollo ratchet test` proves each law against
   its fixtures. A new hit is admitted by the law's escape comment, NEVER by editing a
   baseline — the gate rejects a raised one.
