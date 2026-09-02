@@ -1426,6 +1426,12 @@ CLAUDE.md block: a second init is byte-identical, a hand edit is overwritten, th
 source is `internal/tdd/tddskill.md`, and `--uninstall` removes it. The
 session-start nudge points at this skill, so the thing it names always exists.
 
+`userpromptsubmit` also appends a small reply-style block (`internal/tdd/style.md`,
+~80 tokens) to additionalContext on every prompt, replacing a third-party
+plugin's per-prompt style injection, and `sessionstart` includes it once so it
+survives compaction; `/tdd style terse|plain` toggles it (default terse; env
+`APHROLLO_REPLY_STYLE=plain` sets the machine default).
+
 ### The in-repo law spec (a README inside `.ratchet`)
 
 `gate init` also drops the "Ratchet laws" section above into the repo it

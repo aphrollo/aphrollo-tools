@@ -29,11 +29,14 @@ type promptInput struct {
 
 // PromptResult is the UserPromptSubmit verdict. Block is set for an explicit
 // `/tdd` command — the command's output replaces the turn instead of reaching
-// the model. Otherwise Message is advisory context injected ahead of the prompt
-// (empty = silent).
+// the model. Message is advisory context injected ahead of the prompt (empty =
+// nothing to say). Style is the reply-style block (see style.go), appended
+// after Message in additionalContext on every prompt unless the session's
+// effective style is "plain" (empty = nothing to add).
 type PromptResult struct {
 	Block   bool
 	Message string
+	Style   string
 }
 
 // HandlePrompt implements the UserPromptSubmit hook. It intercepts
@@ -47,17 +50,26 @@ func HandlePrompt(raw []byte) PromptResult {
 		return PromptResult{}
 	}
 	p := strings.TrimSpace(in.Prompt)
+	var r PromptResult
 	if isGateCommand(p) {
-		sub := ""
-		if f := strings.Fields(p); len(f) > 1 {
+		f := strings.Fields(p)
+		sub, arg := "", ""
+		if len(f) > 1 {
 			sub = strings.ToLower(f[1])
 		}
-		return PromptResult{Block: true, Message: tddCommand(sub, in.SessionID, in.Cwd)}
+		if len(f) > 2 {
+			arg = strings.ToLower(f[2])
+		}
+		r = PromptResult{Block: true, Message: tddCommand(sub, arg, in.SessionID, in.Cwd)}
+	} else if harvested := promptHarvest(in.SessionID, in.Cwd); harvested != "" {
+		r = PromptResult{Message: harvested}
+	} else {
+		r = PromptResult{Message: reinforce(in.SessionID, in.Cwd)}
 	}
-	if harvested := promptHarvest(in.SessionID, in.Cwd); harvested != "" {
-		return PromptResult{Message: harvested}
+	if replyStyleFor(in.SessionID) == "terse" {
+		r.Style = StyleBlock()
 	}
-	return PromptResult{Message: reinforce(in.SessionID, in.Cwd)}
+	return r
 }
 
 // isGateCommand recognises the control command under both its new name and the
@@ -75,7 +87,7 @@ func isGateCommand(p string) bool {
 // Flipping enforcement is the one thing a session can do to the gate itself,
 // so both directions leave a line in gate.log: an override nobody counts is
 // an override nobody manages. cwd only names WHERE it was flipped.
-func tddCommand(sub, session, cwd string) string {
+func tddCommand(sub, arg, session, cwd string) string {
 	switch sub {
 	case "", "status":
 		return tddStatus(session)
@@ -92,8 +104,19 @@ func tddCommand(sub, session, cwd string) string {
 		}
 		logOverride("override-on", session, cwd)
 		return "TDD enforcement ON for this session."
+	case "style":
+		switch arg {
+		case "terse", "plain":
+			if err := setReplyStyle(session, arg); err != nil {
+				return "gate: could not persist the style (" + err.Error() + ")"
+			}
+			logOverride("override-style-"+arg, session, cwd)
+			return "Reply style set to " + arg + " for this session."
+		default:
+			return "gate: /tdd style needs terse or plain, got " + arg
+		}
 	default:
-		return "gate: unknown subcommand " + sub + " — valid: /gate [status|off|on|reset]"
+		return "gate: unknown subcommand " + sub + " — valid: /gate [status|off|on|reset|style]"
 	}
 }
 
@@ -110,6 +133,7 @@ func tddStatus(session string) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "TDD enforcement: %s", state)
+	fmt.Fprintf(&b, "\n  reply style: %s", effectiveReplyStyle(s))
 	if len(s.ByProject) == 0 {
 		b.WriteString("\n  no test outcomes observed yet this session")
 		return b.String()
@@ -147,16 +171,26 @@ func reinforce(session, cwd string) string {
 }
 
 // RenderPrompt turns a PromptResult into the UserPromptSubmit hook payload. A
-// blocking command emits a deny envelope (the message replaces the turn); a
-// non-empty reinforcement is injected as additional context; an empty result is
-// silent. The exit code is always 0 — the prompt hook never errors the session.
+// blocking command emits a deny envelope (the message replaces the turn, and
+// Reason carries it unstyled); Message and Style are joined into
+// additionalContext, Style trailing so it reads as a reminder rather than the
+// point of the turn; both empty is silent. The exit code is always 0 — the
+// prompt hook never errors the session.
 func RenderPrompt(r PromptResult) ([]byte, int) {
-	if r.Message == "" {
+	ctx := r.Message
+	if r.Style != "" {
+		if ctx != "" {
+			ctx += "\n\n" + r.Style
+		} else {
+			ctx = r.Style
+		}
+	}
+	if ctx == "" {
 		return nil, 0
 	}
 	out := promptOutput{}
 	out.HookSpecificOutput.HookEventName = "UserPromptSubmit"
-	out.HookSpecificOutput.AdditionalContext = r.Message
+	out.HookSpecificOutput.AdditionalContext = ctx
 	if r.Block {
 		out.Decision = "block"
 		out.Reason = r.Message
@@ -228,7 +262,8 @@ func HandleSessionStart(raw []byte) string {
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return ""
 	}
-	if s, _ := loadSession(in.SessionID); s != nil && s.Overrides.Off {
+	s, _ := loadSession(in.SessionID)
+	if s != nil && s.Overrides.Off {
 		return ""
 	}
 	// Disk hygiene rides along here because session start is the only
@@ -239,8 +274,12 @@ func HandleSessionStart(raw []byte) string {
 	line := gcReportLine()
 	maybeStartBackgroundGC(in.Cwd)
 	// At most one extra line each, in a fixed order: a session start that
-	// scrolls is a session start nobody reads.
+	// scrolls is a session start nobody reads. The style block rides here so
+	// it is present from the very first turn, not just from the second one.
 	parts := []string{skillNudge}
+	if effectiveReplyStyle(s) == "terse" {
+		parts = append(parts, StyleBlock())
+	}
 	if hint := ratchetHintLine(in.Cwd); hint != "" {
 		parts = append(parts, hint)
 	}
