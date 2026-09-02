@@ -798,13 +798,20 @@ never leaves target dirs locked by builds that never started.
   shared target dir.
 - **`cargo watch` is NOT a long verb**: it recompiles on every save for as
   long as it is open, so it holds a slot like any other build.
-- **Long verbs hold a slot only for their compile.** `cargo run` builds under
-  a slot and launches the binary without one; `mutants`, `bench`, `watch` and
-  `install` get a prewarm (`cargo check --tests` for mutants, `cargo build
-  --tests` for the rest) under a slot, then run unlocked — a multi-hour
-  `cargo mutants` used to own the box for its entire run. The prewarm is a
-  warm-up, not a gate: its exit code is discarded and it is skipped outside a
-  cargo project.
+- **A long verb holds ONE slot for its whole run, and lends it.** `mutants`,
+  `bench` and `install` take a slot, run a prewarm compile under it
+  (`cargo check --tests` for mutants, `cargo build --benches` for bench,
+  `cargo build --tests` otherwise), then RELEASE THE TARGET LOCK and keep the
+  global slot until they exit. The long phase and every cargo it spawns
+  inherit `APHROLLO_SLOT_TOKEN=<slot lock>`, which skips the global semaphore
+  but NOT the per-target lock: each mutation copy still holds the lock for
+  its own target dir, so cargo's one-build-per-target invariant survives.
+  Measured 2026-09-02: without this, a four-job `cargo mutants` run had each
+  inner build take a slot of its own, and both slots stayed held for hours
+  while every other session queued. `cargo run` is the other split: it builds
+  under a slot and launches the binary with neither the slot nor the token
+  (the launched process outlives both). The prewarm is a warm-up, not a gate:
+  its exit code is discarded and it is skipped outside a cargo project.
 - A waiter still prints exactly one `queued behind "<cmd>" in <cwd>` line
   naming a holder, one line on acquire, and exits 75 (`EX_TEMPFAIL`) when it
   gives up (`APHROLLO_CARGO_WAIT_SECS`, default 20 min).
