@@ -100,6 +100,7 @@ func TestMechanical_NeverBlocksOnSuppressionOrFailFirst(t *testing.T) {
 // no-op rubber stamp: a genuinely broken combined tree still blocks the
 // merge, via the SAME mechanical judgment Precommit uses.
 func TestMechanical_BlocksARealCompileFailure(t *testing.T) {
+	withLinter(t, false)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "broken.go", "package m\n\nfunc Broken() int { return }\n")

@@ -117,6 +117,7 @@ func makeJSRepo(t *testing.T, pkgJSON string) string {
 }
 
 func TestPrecommit_FailFirst_BlocksTestThatPassesWithoutImpl(t *testing.T) {
+	withLinter(t, false)
 	root := makeGoRepo(t)
 	// A test that asserts nothing about new code — it passes against HEAD.
 	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestWidget(t *testing.T) { _ = 1 }\n")
@@ -130,6 +131,7 @@ func TestPrecommit_FailFirst_BlocksTestThatPassesWithoutImpl(t *testing.T) {
 }
 
 func TestPrecommit_FailFirst_AllowsTestThatNeedsImpl(t *testing.T) {
+	withLinter(t, false)
 	root := makeGoRepo(t)
 	// The test references Widget(), which does not exist at HEAD → it fails to
 	// compile without the staged source → fail-first satisfied → allowed.
@@ -144,6 +146,7 @@ func TestPrecommit_FailFirst_AllowsTestThatNeedsImpl(t *testing.T) {
 }
 
 func TestPrecommit_BlocksNewlyAddedSuppression(t *testing.T) {
+	withLinter(t, false)
 	root := makeGoRepo(t)
 	// A compiling source file whose only sin is a freshly-added linter
 	// suppression: mechanical would pass, but the anti-cheat gate blocks first.
@@ -157,6 +160,7 @@ func TestPrecommit_BlocksNewlyAddedSuppression(t *testing.T) {
 }
 
 func TestPrecommit_IgnoresPreexistingSuppression(t *testing.T) {
+	withLinter(t, false)
 	root := makeGoRepo(t)
 	// Commit a file that already carries a suppression.
 	write(t, root, "old.go", "package m\n\nfunc Old() int { return 2 } //nolint:unused\n")
@@ -181,6 +185,7 @@ func TestPrecommit_IgnoresPreexistingSuppression(t *testing.T) {
 // and blocks. The inert quote lives inside a pre-existing block comment, so the
 // file still compiles and mechanical alone would let it through.
 func TestPrecommit_MaskingBypass_FullFilePostImage(t *testing.T) {
+	withLinter(t, false)
 	root := makeGoRepo(t)
 	// Base: a func carrying an empty block comment whose */ closer is committed.
 	write(t, root, "gizmo.go", "package m\n\nfunc Gizmo() int {\n\t/* note\n\t*/\n\treturn 1\n}\n")

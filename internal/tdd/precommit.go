@@ -344,7 +344,7 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	// CI parity for a Go root: the same vet and lint the branch is judged by,
 	// both cheaper than the suite and therefore ahead of it.
 	if runner.Cmd == "go" {
-		if res := goQualityStage(gateName, g.root, run); res.Blocked {
+		if res := goQualityStage(gateName, repoRoot, g.root, run); res.Blocked {
 			return res
 		}
 	}

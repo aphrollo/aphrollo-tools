@@ -5,7 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/aphrollo/aphrollo-tools/internal/docs"
 )
@@ -33,9 +35,32 @@ var lookLinter = func() bool {
 	return err == nil
 }
 
+// linterVersion reports the local binary's version ("" when it cannot be
+// read). A var so a test can state a version without installing one.
+var linterVersion = func(dir string) string {
+	cmd := exec.Command(golangciLint, "--version")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return semverRe.FindString(string(out))
+}
+
+var semverRe = regexp.MustCompile(`\d+\.\d+\.\d+`)
+
+// workflowPinRe reads the version CI installs out of the workflow file, which
+// is the only place the pin actually lives.
+var workflowPinRe = regexp.MustCompile(`golangci-lint@v(\d+\.\d+\.\d+)`)
+
+// driftNoted dedupes the drift line to once per process per version pair: a
+// commit touching three Go roots must not say the same thing three times.
+var driftNoted sync.Map
+
 // goQualityStage runs the CI-parity checks for one Go root, stopping at the
-// first rejection.
-func goQualityStage(gateName, root string, run SuiteRunner) GateResult {
+// first rejection. repoRoot is where the workflow file lives, which is not
+// necessarily the Go root inside a monorepo.
+func goQualityStage(gateName, repoRoot, root string, run SuiteRunner) GateResult {
 	vet := Runner{Cmd: "go", Args: []string{"vet", "./..."}, Dir: root}
 	if res := goCheckStage(gateName, "vet", root, vet, run); res.Blocked {
 		return res
@@ -45,8 +70,64 @@ func goQualityStage(gateName, root string, run SuiteRunner) GateResult {
 		appendGateLog(gateName, root, golangciLint+" run ./...", "lint-skipped", 0)
 		return GateResult{}
 	}
-	lint := Runner{Cmd: golangciLint, Args: []string{"run", "./..."}, Dir: root}
+	noteLintVersionDrift(gateName, repoRoot, root)
+	// --allow-serial-runners: golangci-lint takes a MACHINE-WIDE lock, not one
+	// per cache dir, so a second one anywhere on the box makes this one exit 3
+	// with "parallel golangci-lint is running" — a rejection that says nothing
+	// about the code. CI passes it for the same reason; the gate, which runs
+	// while other sessions build, needs it more.
+	lint := Runner{Cmd: golangciLint, Args: []string{"run", "--allow-serial-runners", "./..."}, Dir: root}
 	return goCheckStage(gateName, "lint", root, lint, run)
+}
+
+// noteLintVersionDrift says, once, that the local linter is not the one CI
+// pins. It never rejects: a version mismatch is not a defect in the code, and
+// refusing the commit would wedge every box that has not upgraded. But it is
+// exactly the failure this stage exists to prevent — a green commit followed
+// by a red CI job — so it is not silent either.
+func noteLintVersionDrift(gateName, repoRoot, root string) {
+	pinned := pinnedLinterVersion(repoRoot)
+	if pinned == "" {
+		return
+	}
+	local := linterVersion(root)
+	if local == "" || local == pinned {
+		return
+	}
+	key := pinned + "\x00" + local
+	if _, seen := driftNoted.LoadOrStore(key, true); seen {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "gate %s: %s is %s locally, CI pins %s — running anyway; the two can disagree\n",
+		gateName, golangciLint, local, pinned)
+	appendGateLog(gateName, root, golangciLint+" "+local+" vs "+pinned, "lint-version-drift", 0)
+}
+
+// pinnedLinterVersion reads the version the workflow installs. "" when there
+// is no workflow, or it names none — a repo with no CI pin has nothing to
+// drift from.
+func pinnedLinterVersion(repoRoot string) string {
+	if repoRoot == "" {
+		return ""
+	}
+	dir := filepath.Join(repoRoot, ".github", "workflows")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		if m := workflowPinRe.FindStringSubmatch(string(data)); m != nil {
+			return m[1]
+		}
+	}
+	return ""
 }
 
 // goCheckStage runs one check and turns it into a verdict. A timeout fails

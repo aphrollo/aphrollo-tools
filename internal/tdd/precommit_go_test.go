@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -14,6 +15,15 @@ func withLinter(t *testing.T, present bool) {
 	prev := lookLinter
 	lookLinter = func() bool { return present }
 	t.Cleanup(func() { lookLinter = prev })
+}
+
+// withLinterVersion states what the local binary reports, without installing
+// one.
+func withLinterVersion(t *testing.T, version string) {
+	t.Helper()
+	prev := linterVersion
+	linterVersion = func(string) string { return version }
+	t.Cleanup(func() { linterVersion = prev })
 }
 
 // runsAt records every runner a gate executed at root, quality stages
@@ -48,9 +58,84 @@ func TestPrecommitGoRootRunsVetThenLintThenTheSuite(t *testing.T) {
 	for _, r := range seen {
 		order = append(order, cmdLine(r))
 	}
-	want := []string{"go vet ./...", "golangci-lint run ./...", "go test ."}
+	want := []string{"go vet ./...", "golangci-lint run --allow-serial-runners ./...", "go test ."}
 	if strings.Join(order, " | ") != strings.Join(want, " | ") {
 		t.Fatalf("stages ran %v, want %v", order, want)
+	}
+}
+
+// golangci-lint takes a MACHINE-WIDE lock, not one per cache dir, so a second
+// one running anywhere on the box makes this one exit 3 with "parallel
+// golangci-lint is running" — a rejection that says nothing about the code.
+// CI passes --allow-serial-runners for exactly this reason; the gate, which
+// runs while other sessions build, needs it more.
+func TestPrecommitPassesAllowSerialRunnersToTheLinter(t *testing.T) {
+	withLinter(t, true)
+	root := makeGoRepo(t)
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	if res := Precommit(root, runsAt(&seen, root)); res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	for _, r := range seen {
+		if r.Cmd != golangciLint {
+			continue
+		}
+		if !slices.Contains(r.Args, "--allow-serial-runners") {
+			t.Fatalf("lint argv = %v, want --allow-serial-runners", r.Args)
+		}
+		return
+	}
+	t.Fatalf("the linter never ran: %+v", seen)
+}
+
+// The gate exists to run what CI runs. A local binary at a different version
+// answers a different question, and finding that out from a red CI job after
+// a green commit is the whole failure this gate is for — so it is said out
+// loud. It is NOT a rejection: a version mismatch is not a defect in the
+// code, and refusing the commit would wedge every box that has not upgraded.
+func TestPrecommitLogsLintVersionDriftAndStillRuns(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	withLinter(t, true)
+	withLinterVersion(t, "2.9.0")
+	root := makeGoRepo(t)
+	write(t, root, ".github/workflows/pipeline.yml",
+		"jobs:\n  lint:\n    steps:\n      - run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2\n")
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	if res := Precommit(root, runsAt(&seen, root)); res.Blocked {
+		t.Fatalf("drift must never reject a commit: %s", res.Message)
+	}
+	ran := false
+	for _, r := range seen {
+		ran = ran || r.Cmd == golangciLint
+	}
+	if !ran {
+		t.Fatalf("the linter must still run on drift: %+v", seen)
+	}
+	requireLoggedVerdict(t, cfg, "lint-version-drift")
+}
+
+func TestPrecommitIsQuietWhenTheLinterMatchesTheWorkflowPin(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	withLinter(t, true)
+	withLinterVersion(t, "2.12.2")
+	root := makeGoRepo(t)
+	write(t, root, ".github/workflows/pipeline.yml",
+		"jobs:\n  lint:\n    steps:\n      - run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2\n")
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	Precommit(root, runsAt(&seen, root))
+	if strings.Contains(gateLogText(t, cfg), "lint-version-drift") {
+		t.Fatal("a matching version is not drift")
 	}
 }
 
@@ -94,7 +179,7 @@ func TestPrecommitRejectsWhenTheLinterFails(t *testing.T) {
 	if !res.Blocked {
 		t.Fatal("a lint failure must reject the commit")
 	}
-	for _, want := range []string{"golangci-lint run ./...", "Widget"} {
+	for _, want := range []string{"golangci-lint run --allow-serial-runners ./...", "Widget"} {
 		if !strings.Contains(res.Message, want) {
 			t.Errorf("message %q does not carry %q", res.Message, want)
 		}
