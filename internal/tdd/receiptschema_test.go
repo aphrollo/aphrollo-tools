@@ -83,8 +83,8 @@ func TestMutationReceipt_MatchesARepoNamedByItsGitDir(t *testing.T) {
 func TestMutationReceipt_RefusesUnacceptedSurvivorsByName(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	r := passingReceipt()
-	r.Survivors = []string{"src/a.rs:12: replace + with -"}
-	r.Unaccepted = []string{"src/a.rs:12: replace + with -"}
+	r.Survivors = []MutantName{{Raw: "src/a.rs:12: replace + with -"}}
+	r.Unaccepted = []MutantName{{Raw: "src/a.rs:12: replace + with -"}}
 	writeReceipt(t, r)
 
 	got := checkMutationReceipt("borld", laneTip, "")
