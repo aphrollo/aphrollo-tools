@@ -79,6 +79,21 @@ func stubGhForCLI(t *testing.T, stdout string) string {
 	return log
 }
 
+// gitHubRepoCwd makes the working directory a committed repo whose origin is
+// on GitHub, so the escape loop believes there is somewhere to open an issue.
+// Both tests below depend on that being TRUE: without it the loop stops before
+// it reaches gh, and the assertion that gh was never called passes vacuously
+// on any box whose checkout has no GitHub remote.
+func gitHubRepoCwd(t *testing.T) {
+	t.Helper()
+	dir := gitInit(t, map[string]string{"a.txt": "x\n"})
+	cmd := exec.Command("git", "-C", dir, "remote", "add", "origin", "https://github.com/o/r.git")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v\n%s", err, out)
+	}
+	t.Chdir(dir)
+}
+
 func ghCalls(t *testing.T, log string) string {
 	t.Helper()
 	data, err := os.ReadFile(log)
@@ -117,6 +132,7 @@ func TestGateStatsOpensNoIssues(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	risingDenials(t, cfg)
+	gitHubRepoCwd(t)
 	log := stubGhForCLI(t, "https://github.com/o/r/issues/42")
 
 	var out, errBuf bytes.Buffer
@@ -138,6 +154,7 @@ func TestEscapeSyncOpensTheDemoteCandidateIssues(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	risingDenials(t, cfg)
+	gitHubRepoCwd(t)
 	log := stubGhForCLI(t, "https://github.com/o/r/issues/42")
 
 	var out, errBuf bytes.Buffer
