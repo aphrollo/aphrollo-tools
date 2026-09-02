@@ -600,6 +600,7 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 	// that enforces it, as a user-level skill, so the two cannot drift and
 	// no plugin install is a prerequisite.
 	skill := filepath.Join(dir, "skills", "tdd", "SKILL.md")
+	sddSkill := filepath.Join(dir, "skills", "sdd", "SKILL.md")
 	if *uninstall {
 		removed, err := tdd.RemoveTDDSkill(dir)
 		if err != nil {
@@ -609,6 +610,14 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		if removed {
 			fmt.Fprintf(stdout, "aphrollo gate: removed the tdd skill from %s\n", skill)
 		}
+		sremoved, err := tdd.RemoveSDDSkill(dir)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		if sremoved {
+			fmt.Fprintf(stdout, "aphrollo gate: removed the sdd skill from %s\n", sddSkill)
+		}
 	} else {
 		schanged, err := tdd.WriteTDDSkill(dir)
 		if err != nil {
@@ -617,6 +626,39 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		}
 		if schanged {
 			fmt.Fprintf(stdout, "aphrollo gate: wrote the tdd skill in %s\n", skill)
+		}
+		// The feature-level procedure: how a spec becomes lanes, how a lane
+		// becomes a commit, and where the transient tree goes at the end.
+		sdchanged, err := tdd.WriteSDDSkill(dir)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		if sdchanged {
+			fmt.Fprintf(stdout, "aphrollo gate: wrote the sdd skill in %s\n", sddSkill)
+		}
+	}
+
+	// The three agents the gate's conduct assumes exist. Managed like the
+	// skills: refreshed when the binary's copy moves on, and removed on
+	// uninstall only when the file still carries the marker this tool wrote.
+	if *uninstall {
+		removed, err := tdd.RemoveAgents(dir)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		for _, name := range removed {
+			fmt.Fprintf(stdout, "aphrollo gate: removed the %s agent from %s\n", name, filepath.Join(dir, "agents", name+".md"))
+		}
+	} else {
+		written, err := tdd.WriteAgents(dir)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		for _, name := range written {
+			fmt.Fprintf(stdout, "aphrollo gate: wrote the %s agent in %s\n", name, filepath.Join(dir, "agents", name+".md"))
 		}
 	}
 
