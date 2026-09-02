@@ -98,6 +98,9 @@ type Law struct {
 	Matcher     Matcher
 	// Path is the law file itself, so an error can name where the rule came from.
 	Path string
+	// Root is the tree the law is judged against; a doc-path-resolves law
+	// resolves its citations relative to it.
+	Root string
 	// Source is the law file's text, hashed into the scan cache key: a rule
 	// that changed must never be answered from a cache filled under the old one.
 	Source string
@@ -131,7 +134,7 @@ func LoadLaws(root string) ([]Law, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
-		law.Path = path
+		law.Path, law.Root = path, root
 		laws = append(laws, law)
 	}
 	sort.Slice(laws, func(i, j int) bool { return laws[i].Name < laws[j].Name })

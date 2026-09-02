@@ -231,3 +231,8 @@ func setOff(session string, off bool) error {
 	s.Overrides.Off = off
 	return s.save(path)
 }
+
+// StateDir is where the gate keeps its per-session state, gate.log, caches and
+// receipts. Exported so a sibling package (the ratchet engine's scan cache) can
+// share the one directory without re-deriving the CLAUDE_CONFIG_DIR rule.
+func StateDir() string { return stateDir() }

@@ -35,6 +35,7 @@ Commands:
   dev         Dev-tier control plane: up/down/restart/status/logs
   guardrail   PreToolUse policy hook for coder/devops sessions
   tdd         Autonomous TDD gates (Claude + git hooks)
+  ratchet     Judge a repo against its declared code laws (.ratchet/laws/*.toml)
   sqlc        Guard sqlc-generated code against drift (check / scoped regen)
 `
 
@@ -86,6 +87,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runGuardrail(args[1:], stdin, stdout, stderr)
 	case "tdd":
 		return runTDD(args[1:], stdin, stdout, stderr)
+	case "ratchet":
+		return runRatchet(args[1:], stdout, stderr)
 	case "sqlc":
 		return runSqlc(args[1:], stdout, stderr)
 	default:
