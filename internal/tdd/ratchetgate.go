@@ -135,6 +135,7 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 	started := time.Now()
 	res, err := ratchet.Check(ratchet.Options{
 		Root:     repoRoot,
+		Proposed: indexOverlay(repoRoot),
 		CacheDir: stateDir(),
 	})
 	if err != nil {
@@ -159,6 +160,37 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 		return GateResult{}
 	}
 	return ratchetFixtureStage(gateName, repoRoot)
+}
+
+// indexOverlay is what the laws must judge at commit time: the INDEX, the
+// content this commit will actually contain. Only files whose worktree copy
+// differs from the index need an entry — everything else already reads the
+// same either way — so the overlay is exactly the dirty set, each keyed by
+// repo-relative slash path and carrying its staged blob. Without it the gate
+// read the worktree, which rejects an unstaged edit nobody is committing and
+// lets a staged regression through whenever a later unstaged edit tidies the
+// disk copy.
+func indexOverlay(repoRoot string) map[string]string {
+	out, err := git(repoRoot, "diff", "--name-only", "-M")
+	if err != nil {
+		return nil
+	}
+	overlay := map[string]string{}
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		rel := strings.TrimSpace(line)
+		if rel == "" {
+			continue
+		}
+		// No index entry means the commit deletes it; the scan reading the
+		// leftover file is the lesser wrong, and inventing content is worse.
+		if blob, ok := gitBlob(repoRoot, ":"+rel); ok {
+			overlay[filepath.ToSlash(rel)] = blob
+		}
+	}
+	if len(overlay) == 0 {
+		return nil
+	}
+	return overlay
 }
 
 // stagedTouchesLaws reports whether this commit changes the laws themselves —
