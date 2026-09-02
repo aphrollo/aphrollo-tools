@@ -377,7 +377,15 @@ func workspaceCheckStage(gateName, repoRoot, root string, plan cargoStagePlan, r
 	if ws == "" {
 		ws = root
 	}
-	runner := Runner{Cmd: "cargo", Args: []string{"check", "--workspace", "--tests"}, Dir: ws}
+	// clippy SUBSUMES check — a compile error fails it just the same — and it
+	// is the only way to enforce the two lints that carry project laws
+	// (clippy.toml's disallowed methods and types) across crates that are not
+	// on the clippy-clean list. Nothing else is denied here: -D warnings
+	// belongs to the per-crate stage, where a crate has actually reached zero.
+	runner := Runner{Cmd: "cargo", Args: []string{
+		"clippy", "--workspace", "--tests", "--",
+		"-D", "clippy::disallowed_methods", "-D", "clippy::disallowed_types",
+	}, Dir: ws}
 	return runSuiteStage(gateName, "check", repoRoot, root, runner, run)
 }
 
@@ -442,7 +450,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 			gateName, cmdString(runner), res.Duration.Seconds())}
 	case !res.Passed:
 		fmt.Fprintf(os.Stderr, "tdd %s: %s %s in %s → blocked\n", gateName, stage, cmdString(runner), root)
-		appendGateLog(gateName, root, cmdString(runner), blockedVerdict(stage), res.Duration)
+		appendGateLog(gateName, root, cmdString(runner), blockedVerdict(stage, res.Output), res.Duration)
 		return GateResult{Blocked: true, Message: mechRejectMessage(runner, res)}
 	default:
 		mechCacheAdd(key)
@@ -457,12 +465,23 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 // whole-workspace check reads "check-rejected" because it is a compile
 // verdict, not a test one — a reader scanning the log should not have to
 // know which stage names mean "the code did not build".
-func blockedVerdict(stage string) string {
-	if stage == "check" {
-		return "check-rejected"
+func blockedVerdict(stage, output string) string {
+	if stage != "check" {
+		return stage + "-blocked"
 	}
-	return stage + "-blocked"
+	// Two different problems with two different fixes: the tree does not
+	// compile, or someone used a banned API. A reader scanning gate.log
+	// should not have to open the output to tell them apart.
+	if disallowedLintRe.MatchString(output) {
+		return "lint-rejected"
+	}
+	return "check-rejected"
 }
+
+// disallowedLintRe recognises the two lints this stage denies, in either
+// clippy spelling (the lint name uses underscores, the command-line note
+// hyphens).
+var disallowedLintRe = regexp.MustCompile(`disallowed[_-](?:method|type)s?|use of a disallowed (?:method|type)`)
 
 // mechGreenLine composes the mechanical stage's green stderr line, sharing
 // PostEdit's greenLabel renderer (passed count, or nextest's empty-crate

@@ -82,8 +82,11 @@ func TestPrecommit_Quality_ClippyOnlyForDeclaredCrates(t *testing.T) {
 		return SuiteResult{Passed: true}
 	})
 	for _, args := range seen {
-		if strings.HasPrefix(args, "clippy") {
-			t.Fatalf("a workspace with no clippy-clean list must not run clippy, ran: %v", seen)
+		// The workspace-wide stage always runs clippy (it subsumes check and
+		// denies the two law-carrying lints); what this test is about is the
+		// PER-CRATE -D warnings stage, which needs the declaration.
+		if strings.HasPrefix(args, "clippy") && !strings.Contains(args, "--workspace") {
+			t.Fatalf("a workspace with no clippy-clean list must not run per-crate clippy, ran: %v", seen)
 		}
 	}
 
