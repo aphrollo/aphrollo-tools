@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -174,5 +175,65 @@ func TestRatchetTestFailsALawWithNoFixtures(t *testing.T) {
 	}
 	if !strings.Contains(out.String()+errb.String(), "catches nothing") {
 		t.Errorf("output = %q%q", out.String(), errb.String())
+	}
+}
+
+// `gate init` writes the operating instructions into the repo's CLAUDE.md —
+// the one file a session always reads — and a second init changes nothing.
+func TestGateInitWritesTheManagedClaudeMDBlockIdempotently(t *testing.T) {
+	isolateGit(t)
+	repo := t.TempDir()
+	gitInitRepo(t, repo)
+	claude := filepath.Join(repo, "CLAUDE.md")
+	writeFile(t, claude, "# Project\n\nGuidance.\n")
+
+	cfg := t.TempDir()
+	hooks := filepath.Join(t.TempDir(), "githooks")
+	shims := filepath.Join(t.TempDir(), "bin", "cargo-queue")
+	args := []string{"gate", "init", "--config-dir", cfg, "--bin", "/usr/local/bin/aphrollo",
+		"--git-hooks-dir", hooks, "--cargo-shim-dir", shims}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(cwd) })
+
+	var out, errb bytes.Buffer
+	if code := Run(args, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("init exit = %d\n%s%s", code, out.String(), errb.String())
+	}
+	first := readFile(t, claude)
+	if !strings.Contains(first, "<!-- aphrollo:begin -->") || !strings.Contains(first, "Guidance.") {
+		t.Fatalf("CLAUDE.md = %q", first)
+	}
+	if !strings.Contains(out.String(), "managed block") {
+		t.Errorf("init must say it wrote the block: %q", out.String())
+	}
+
+	out.Reset()
+	errb.Reset()
+	if code := Run(args, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("second init exit = %d\n%s%s", code, out.String(), errb.String())
+	}
+	if second := readFile(t, claude); second != first {
+		t.Error("a second init rewrote CLAUDE.md — the block must be byte-identical")
+	}
+	if strings.Count(readFile(t, claude), "<!-- aphrollo:begin -->") != 1 {
+		t.Error("the block was duplicated")
+	}
+}
+
+func gitInitRepo(t *testing.T, dir string) {
+	t.Helper()
+	for _, args := range [][]string{{"init", "-q"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if b, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, b)
+		}
 	}
 }

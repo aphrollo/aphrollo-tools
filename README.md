@@ -1258,6 +1258,38 @@ not this binary. Mutation
 testing is intentionally **not** ported (false-positive/non-determinism prone);
 the fail-first + mechanical suite cover the same ground without the flakiness.
 
+### The managed CLAUDE.md block
+
+A session that does not know the gate exists fights it: it re-runs suites the
+hooks already ran, reads a `TIMEOUT` as a pass, hand-edits a baseline to get a
+commit through. All of that is documented — here, in a file the session is not
+reading. So `gate init` writes the operating instructions into the one file a
+Claude session always reads, between markers this tool owns:
+
+```
+<!-- aphrollo:begin -->
+## Working with the aphrollo gate
+...
+<!-- aphrollo:end -->
+```
+
+~25 lines: the PATH line for the queue shims, "the hooks run the tests — read
+the one `gate:` line", what each outcome means (including which ones mean the
+code was NOT tested), the commit-gate stage order, where the laws and baselines
+live and how a new hit is admitted, the housekeeping commands, and — only for a
+workspace with `undercover = true` — the commit-message rule.
+
+- A repo that keeps a `CLAUDE.md` gets the block on every `gate init`; one that
+  does not is left alone unless you pass `--claude-md`, which creates the file.
+- An existing block is replaced **in place**, never duplicated or moved: it may
+  have been put somewhere deliberate. A file hand-edited mid-block (one marker
+  left) has the orphan dropped and a whole block appended.
+- Running twice is byte-identical, CRLF included — the file is a source file in
+  the consuming repo, and a block that churned would show up as a diff at every
+  session start.
+- The text has ONE source (`internal/tdd/claudemd.go`), so a fix reaches every
+  repo the next time init runs there. Edit that, never the block.
+
 ### The `tdd` → `gate` rename
 
 The subcommand family is `aphrollo gate …`; `aphrollo tdd …` stays a **silent
