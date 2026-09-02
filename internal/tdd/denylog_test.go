@@ -35,7 +35,7 @@ func requireLoggedVerdict(t *testing.T, cfg, verdict string) {
 // An edit the gate DENIES is the loudest thing that happens to a session, and
 // it left no trace at all: the log recorded suites, never denials, so nobody
 // could count how often a policy fires or which one.
-func TestLogEditDeny_RecordsTheDeniedPolicy(t *testing.T) {
+func TestLogEditDecision_RecordsTheDeniedPolicy(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	raw := []byte(`{"tool_name":"Edit","tool_input":{"file_path":"src/widget_test.go","new_string":"time.Sleep(2)"}}`)
@@ -44,25 +44,25 @@ func TestLogEditDeny_RecordsTheDeniedPolicy(t *testing.T) {
 	if d.Action != Block {
 		t.Fatalf("fixture must be denied, got %v", d.Action)
 	}
-	LogEditDeny(raw, d)
+	LogEditDecision(raw, d)
 	requireLoggedVerdict(t, cfg, "pretooluse-denied:test-sleep")
 }
 
 // An ALLOWED edit is the common case and must stay silent, or the log becomes
 // a per-keystroke transcript nobody reads.
-func TestLogEditDeny_IsSilentWhenTheEditFlows(t *testing.T) {
+func TestLogEditDecision_IsSilentWhenTheEditFlows(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	raw := []byte(`{"tool_name":"Write","tool_input":{"file_path":"src/widget_test.go","content":"assert x == y"}}`)
 
-	LogEditDeny(raw, decide(t, string(raw)))
+	LogEditDecision(raw, decide(t, string(raw)))
 	if _, err := os.Stat(filepath.Join(cfg, "gate-state", "gate.log")); err == nil {
 		t.Fatalf("an allowed edit must not write gate.log:\n%s", gateLogText(t, cfg))
 	}
 }
 
 // A law denial is attributed to the LAW. "some rule said no" is not a tally.
-func TestLogEditDeny_NamesTheLawThatDenied(t *testing.T) {
+func TestLogEditDecision_NamesTheLawThatDenied(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := lawTree(t, "deny")
@@ -74,7 +74,7 @@ func TestLogEditDeny_NamesTheLawThatDenied(t *testing.T) {
 	if d.Action != Block {
 		t.Fatalf("fixture must be denied, got %v", d.Action)
 	}
-	LogEditDeny(raw, d)
+	LogEditDecision(raw, d)
 	requireLoggedVerdict(t, cfg, "pretooluse-denied:ratchet:nan-guard")
 }
 

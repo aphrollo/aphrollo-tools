@@ -13,11 +13,11 @@ import (
 // decision one gate.log line in the shape the stats parser already reads, so
 // "which policy fires, how often" is a tally instead of an impression.
 
-// LogEditDeny records a DENIED edit. An allowed or merely advisory edit
-// writes nothing: the log must stay a record of decisions, not a transcript
-// of keystrokes.
-func LogEditDeny(raw []byte, d Decision) {
-	if d.Action != Block {
+// LogEditDecision records an edit the gate DENIED, and every waiver an
+// allowed edit claimed. An ordinary allowed edit writes nothing: the log must
+// stay a record of decisions, not a transcript of keystrokes.
+func LogEditDecision(raw []byte, d Decision) {
+	if d.Action != Block && len(d.Escapes) == 0 {
 		return
 	}
 	var in preToolUseInput
@@ -26,7 +26,12 @@ func LogEditDeny(raw []byte, d Decision) {
 	}
 	_, path := editTarget(in)
 	root, rel := logPlace(path)
-	appendGateLog("preedit", root, rel, "pretooluse-denied:"+logToken(policyName(d)), 0)
+	if d.Action == Block {
+		appendGateLog("preedit", root, rel, "pretooluse-denied:"+logToken(policyName(d)), 0)
+	}
+	for _, esc := range d.Escapes {
+		appendGateLog("preedit", root, rel, logToken(esc), 0)
+	}
 }
 
 // logOverride records a session flipping enforcement, in the project it was

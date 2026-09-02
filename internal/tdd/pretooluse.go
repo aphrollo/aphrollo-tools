@@ -16,9 +16,13 @@ type preToolUseInput struct {
 		FilePath     string `json:"file_path"`
 		NotebookPath string `json:"notebook_path"`
 		NewString    string `json:"new_string"`
+		OldString    string `json:"old_string"`
+		ReplaceAll   bool   `json:"replace_all"`
 		Content      string `json:"content"`
 		Edits        []struct {
-			NewString string `json:"new_string"`
+			NewString  string `json:"new_string"`
+			OldString  string `json:"old_string"`
+			ReplaceAll bool   `json:"replace_all"`
 		} `json:"edits"`
 	} `json:"tool_input"`
 }
@@ -43,16 +47,23 @@ func DecidePreEdit(raw []byte) (Decision, error) {
 	}
 
 	kind, path := editTarget(in)
-	var d Decision
-	switch kind {
-	case Test:
-		d = evaluate(newContent(in), testPolicies, editPhase, langOf(path))
-	case Source:
-		d = evaluateSource(newContent(in), path, editPhase)
-	default:
+	if kind == Ignore {
 		return Decision{Action: Allow}, nil
 	}
-	return withQualityNotes(d, path, newContent(in)), nil
+	// Judged over the lines this edit ADDS, against the file as it will be:
+	// a smell that already lived in the file is not this edit's, and denying
+	// it leaves an author with no move but to stop working in that file.
+	pre, post := editImages(in, path)
+	added := addedLines(pre, post)
+	var d Decision
+	if kind == Test {
+		d = evaluateAdded(post, added, langOf(path), testPolicies, editPhase)
+	} else {
+		d = evaluateSourceAdded(post, added, path, editPhase)
+	}
+	full := withQualityNotes(d, path, newContent(in))
+	full.Escapes = d.Escapes
+	return full, nil
 }
 
 // withQualityNotes attaches the advisory test-quality notes to a decision.
@@ -73,34 +84,28 @@ func withQualityNotes(d Decision, path, content string) Decision {
 	return Decision{Action: Warn, Reason: joined}
 }
 
-// evaluateSource gates a Source-file edit. For most languages a source edit runs
-// the suppressions only (oracle smells have no meaning outside test code). Zig is
-// the exception: its tests live as inline `test "..." {}` blocks in ordinary
-// src/*.zig files, so the oracle smells must reach those blocks WITHOUT gating
-// the surrounding production code — a real std.time.sleep in a production
-// function must still flow. So for a .zig file the smells are evaluated only over
-// the inline-test line ranges (extracted block-scoped), while suppressions still
-// run over the whole edit; the most severe Decision wins.
-func evaluateSource(content, path string, p phase) Decision {
+// evaluateSourceAdded gates a Source-file edit over the lines it ADDS. For
+// most languages that is the suppressions only — oracle smells have no
+// meaning outside test code. Zig is the exception: its tests are `test
+// "..." {}` blocks INLINE in ordinary src/*.zig files, so the smells are
+// evaluated over the added lines that fall inside such a block, and a real
+// std.time.sleep in a production function still flows.
+func evaluateSourceAdded(post string, added map[int]bool, path string, p phase) Decision {
 	l := langOf(path)
 	if !isZigPath(path) {
-		return evaluate(content, sourcePolicies, p, l)
+		return evaluateAdded(post, added, l, sourcePolicies, p)
 	}
-	full := newView(content, l)
-	best := evaluateView(full, sourcePolicies, p)
+	best := evaluateAdded(post, added, l, sourcePolicies, p)
 	if best.Action == Block {
 		return best // a suppression already blocks; nothing outranks Block
 	}
-	testLines := zigTestLines(full.code)
-	if len(testLines) == 0 {
+	inTests := intersectLines(added, zigTestLines(newView(post, l).code))
+	if len(inTests) == 0 {
 		return best // no inline test in this edit — production code only
 	}
-	scoped := view{
-		code:       keepLines(full.code, testLines),
-		directives: keepLines(full.directives, testLines),
-	}
-	if d := evaluateView(scoped, oracleSmells, p); d.Action > best.Action {
-		best = d
+	if d := evaluateAdded(post, inTests, l, oracleSmells, p); d.Action > best.Action {
+		d.Escapes = append(best.Escapes, d.Escapes...)
+		return d
 	}
 	return best
 }

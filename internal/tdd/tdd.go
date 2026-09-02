@@ -45,4 +45,7 @@ type Decision struct {
 	// "ratchet"), so a denial can be COUNTED by policy rather than read as
 	// prose. Empty when nothing tripped.
 	Policy string
+	// Escapes names every waiver this edit claimed ("smell-escape:<policy>"),
+	// so an escape hatch is counted rather than assumed rare.
+	Escapes []string
 }

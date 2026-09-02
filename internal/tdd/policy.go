@@ -111,6 +111,10 @@ type policy struct {
 	category category
 	reason   string
 	hit      func(v view) bool
+	// escape is the comment marker that admits a hit on the line carrying it
+	// (or the line below), for the kinds with legitimate uses. Empty means the
+	// policy admits none — a tautology has no good reason.
+	escape string
 }
 
 // The composed gate sets, by what a phase is looking at. oracleSmells lives in
