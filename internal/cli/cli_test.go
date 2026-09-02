@@ -109,6 +109,19 @@ func TestRun_TDDInit_CargoShim(t *testing.T) {
 	hooks := filepath.Join(t.TempDir(), "githooks")
 	shimDir := filepath.Join(t.TempDir(), "cargo-queue")
 	bin := filepath.Join(t.TempDir(), "aphrollo.exe")
+	if err := os.WriteFile(bin, []byte("APHROLLO"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A batch shim left over from the previous install, which init must
+	// delete: cmd.exe strips `^` from an argument and re-splits quoted ones,
+	// so it is not a slow path, it is a wrong answer.
+	if err := os.MkdirAll(shimDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(shimDir, "cargo.cmd")
+	if err := os.WriteFile(stale, []byte("@echo off\r\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	var out, errb bytes.Buffer
 	code := Run([]string{"tdd", "init", "--config-dir", cfg, "--git-hooks-dir", hooks, "--cargo-shim-dir", shimDir, "--bin", bin},
@@ -117,15 +130,27 @@ func TestRun_TDDInit_CargoShim(t *testing.T) {
 		t.Fatalf("init exit = %d, want 0\nstderr: %s", code, errb.String())
 	}
 
-	cmdData, err := os.ReadFile(filepath.Join(shimDir, "cargo.cmd"))
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("cargo.cmd survived init: %v", err)
+	}
+	if !strings.Contains(out.String(), "removed the retired batch shim") {
+		t.Errorf("init must report the batch-shim removal, got:\n%s", out.String())
+	}
+	shData, err := os.ReadFile(filepath.Join(shimDir, "cargo"))
 	if err != nil {
-		t.Fatalf("cargo.cmd not written: %v", err)
-	}
-	if !strings.Contains(string(cmdData), bin) {
-		t.Errorf("cargo.cmd missing the resolved bin path:\n%s", cmdData)
-	}
-	if _, err := os.ReadFile(filepath.Join(shimDir, "cargo")); err != nil {
 		t.Fatalf("cargo (sh) not written: %v", err)
+	}
+	if !strings.Contains(string(shData), filepath.ToSlash(bin)) {
+		t.Errorf("cargo (sh) missing the resolved bin path:\n%s", shData)
+	}
+	if runtime.GOOS == "windows" {
+		exe, err := os.ReadFile(filepath.Join(shimDir, "cargo.exe"))
+		if err != nil {
+			t.Fatalf("cargo.exe shim not written: %v", err)
+		}
+		if string(exe) != "APHROLLO" {
+			t.Errorf("cargo.exe = %q, want a copy of the binary", exe)
+		}
 	}
 
 	// --uninstall must NOT remove the cargo-shim files.
@@ -135,7 +160,7 @@ func TestRun_TDDInit_CargoShim(t *testing.T) {
 		strings.NewReader(""), &out, &errb); code != 0 {
 		t.Fatalf("uninstall exit = %d: %s", code, errb.String())
 	}
-	if _, err := os.Stat(filepath.Join(shimDir, "cargo.cmd")); err != nil {
+	if _, err := os.Stat(filepath.Join(shimDir, "cargo")); err != nil {
 		t.Errorf("cargo-shim files must survive --uninstall, got: %v", err)
 	}
 }

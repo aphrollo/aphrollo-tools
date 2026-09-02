@@ -620,6 +620,22 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "aphrollo gate: installed git gate in %s (core.hooksPath)\n", gdir)
 	}
 
+	// The batch shims are RETIRED under both modes: cmd.exe strips `^` from
+	// an argument (which is how `git rev-parse MERGE_HEAD^{tree}` became
+	// `HEAD{tree}`) and re-splits quoted ones, so leaving one in place is
+	// worse than having no shim at all.
+	shimDir := *cargoShimDir
+	if shimDir == "" {
+		shimDir = filepath.Join(filepath.Dir(binName), "cargo-queue")
+	}
+	if removed, rerr := tdd.RemoveCmdShims(shimDir); rerr != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", rerr)
+	} else {
+		for _, name := range removed {
+			fmt.Fprintf(stdout, "aphrollo gate: removed the retired batch shim %s\n", filepath.Join(shimDir, name))
+		}
+	}
+
 	// cargo-queue shim (task A7): a machine-wide dir a session can prepend
 	// to its OWN PATH so a DIRECT `cargo` invocation also queues behind the
 	// same machine-wide build lock the hooks/gates use, instead of silently
@@ -628,10 +644,7 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 	// prepended to PATH, and leaving a shim in place is harmless (unlike a
 	// git hook, nothing fires it automatically).
 	if !*uninstall {
-		cdir := *cargoShimDir
-		if cdir == "" {
-			cdir = filepath.Join(filepath.Dir(binName), "cargo-queue")
-		}
+		cdir := shimDir
 		cchanged, cerr := tdd.InstallCargoShim(cdir, binName)
 		switch {
 		case cerr != nil:
@@ -654,6 +667,21 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "aphrollo gate: installed git-queue shim in %s\n", cdir)
 		default:
 			fmt.Fprintf(stdout, "aphrollo gate: git-queue shim already up to date (%s)\n", cdir)
+		}
+
+		// The Windows half of both shims: executable COPIES of this binary,
+		// which receive the caller's argv verbatim and dispatch on the name
+		// they were invoked under. A copy that is currently running cannot be
+		// replaced; that is reported and the old copy keeps working.
+		exes, eerr := tdd.InstallShimExes(cdir, binName)
+		if eerr != nil {
+			warnShimSkipped(stderr, cdir, eerr)
+		}
+		for _, name := range exes.Installed {
+			fmt.Fprintf(stdout, "aphrollo gate: installed the %s shim in %s\n", name, cdir)
+		}
+		for _, name := range exes.Locked {
+			fmt.Fprintf(stderr, "aphrollo gate: %s is in use and was left at its old version (%s)\n", name, cdir)
 		}
 
 		// The operating instructions belong in the one file a session always
