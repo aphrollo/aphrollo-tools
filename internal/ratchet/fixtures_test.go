@@ -196,3 +196,31 @@ path = "mean.point_estimate"
 		}
 	}
 }
+
+func TestRunFixturesCoversAPathLawWhoseHitsHaveNoLine(t *testing.T) {
+	root := t.TempDir()
+	writeLaw(t, root, "doc-names", `
+name = "doc-names"
+description = "a name says what a thing is, not when it was written"
+severity = "deny"
+
+[scope]
+include = ["**/*.rs"]
+ignore_gitignore = true
+
+[matcher]
+kind = "path-regex-absent"
+pattern = "task\d+"
+`)
+	write(t, filepath.Join(root, ".ratchet", "fixtures", "doc-names", "hit", "task19_probe.rs"), "fn probe() {}\n")
+	write(t, filepath.Join(root, ".ratchet", "fixtures", "doc-names", "expected.txt"), "task19_probe.rs\n")
+	write(t, filepath.Join(root, ".ratchet", "fixtures", "doc-names", "clean", "buckling_probe.rs"), "fn task19() {}\n")
+
+	results, err := RunFixtures(root)
+	if err != nil {
+		t.Fatalf("RunFixtures: %v", err)
+	}
+	if len(results) != 1 || len(results[0].Failures) != 0 {
+		t.Fatalf("a path law's fixtures are named by path alone: %+v", results)
+	}
+}

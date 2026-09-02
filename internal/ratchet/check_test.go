@@ -312,3 +312,96 @@ use_pattern = "env::var\(\"([A-Z][A-Z0-9_]+)\"\)"
 		t.Fatalf("findings = %v", res.Lines())
 	}
 }
+
+// docLaw judges .md files, which this repo gitignores wholesale.
+const docLaw = `
+name = "doc-names"
+description = "a name says what a thing is, not when it was written"
+severity = "deny"
+
+[scope]
+include = ["**/*.md"]
+%s
+
+[matcher]
+kind = "path-regex-absent"
+pattern = "task\d+"
+`
+
+func TestCheckWalksGitignoredFilesOnlyForALawThatOptsOut(t *testing.T) {
+	build := func(t *testing.T, optOut string) string {
+		root := t.TempDir()
+		writeLaw(t, root, "doc-names", strings.Replace(docLaw, "%s", optOut, 1))
+		write(t, filepath.Join(root, ".gitignore"), "*.md\n")
+		write(t, filepath.Join(root, "docs", "task19_probe.md"), "notes\n")
+		return root
+	}
+
+	res, err := Check(Options{Root: build(t, "")})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 0 {
+		t.Fatalf("a gitignored file is invisible by default: %+v", res.Lines())
+	}
+
+	res, err = Check(Options{Root: build(t, "ignore_gitignore = true")})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 1 || !strings.Contains(strings.Join(res.Lines(), "\n"), "docs/task19_probe.md") {
+		t.Fatalf("an opted-out law must see the ignored file: %+v", res.Lines())
+	}
+}
+
+func TestCheckGitignoreOptOutStillSkipsTheGitDir(t *testing.T) {
+	root := t.TempDir()
+	writeLaw(t, root, "doc-names", strings.Replace(docLaw, "%s", "ignore_gitignore = true", 1))
+	write(t, filepath.Join(root, ".git", "task19_probe.md"), "git internals\n")
+
+	res, err := Check(Options{Root: root})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 0 {
+		t.Fatalf(".git is never walked, opt-out or not: %+v", res.Lines())
+	}
+}
+
+func TestCheckRegistryBothWaysReadsUsesOutOfShellAndTomlFiles(t *testing.T) {
+	root := t.TempDir()
+	writeLaw(t, root, "env-registry", `
+name = "env-registry"
+description = "every env switch is registered"
+severity = "deny"
+
+[scope]
+include = ["crates/**/*.rs", "tools/**/*.sh", "**/*.toml"]
+exclude = [".ratchet/**"]
+
+[matcher]
+kind = "registry-both-ways"
+registry_file = ".ratchet/registry/env.txt"
+entry_pattern = "^([A-Z][A-Z0-9_]+) \|"
+use_pattern = "\b([A-Z][A-Z0-9_]*_[A-Z0-9_]+)\b"
+`)
+	write(t, filepath.Join(root, ".ratchet", "registry", "env.txt"),
+		"BORLD_KNOWN | client | does a thing\nSOAK_SECS | soak | seconds\n")
+	write(t, filepath.Join(root, "crates", "a", "src", "lib.rs"), "env::var(\"BORLD_KNOWN\");\n")
+	write(t, filepath.Join(root, "tools", "gate.sh"), "#!/bin/sh\n: \"${SOAK_SECS:=240}\"\nMUTANTS_JOBS=8\n")
+
+	res, err := Check(Options{Root: root})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	joined := strings.Join(res.Lines(), "\n")
+	if len(res.Findings) != 1 || !strings.Contains(joined, "MUTANTS_JOBS") {
+		t.Fatalf("a shell-only switch must be the one finding: %+v", res.Lines())
+	}
+	if !strings.Contains(joined, "tools/gate.sh:3") {
+		t.Errorf("the finding names the shell line that reads it:\n%s", joined)
+	}
+	if strings.Contains(joined, "SOAK_SECS") {
+		t.Errorf("a switch read only by a shell script is not stale:\n%s", joined)
+	}
+}

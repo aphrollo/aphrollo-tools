@@ -1019,6 +1019,7 @@ code_only    = true                            # optional: strip trailing // com
 [scope]
 include = ["crates/**/*.rs"]
 exclude = ["**/target/**", "crates/ratchet/tests/**"]
+ignore_gitignore = false                        # optional: judge gitignored files too
 
 [matcher]                                       # exactly ONE
 kind    = "regex-absent"
@@ -1031,7 +1032,11 @@ belongs to another kind, a regex that does not compile, or a `name` that
 disagrees with the file it lives in is an error at load. A typo must not
 silently disable half a rule. Scope globbing understands `*`, `?` and `**`,
 `exclude` always wins, and the walk is gitignore-aware, so a law never has to
-enumerate build output.
+enumerate build output. A repo that ignores a whole extension hides the files
+some laws are entirely about (borld ignores `*.md`, which is every doc a
+citation law reads) — `ignore_gitignore = true` opts THAT law into the ignored
+files, and the fix is never to weaken the repo's `.gitignore` for a guard's
+benefit. `.git` is never walked, opt-out or not.
 
 #### Matcher kinds
 
@@ -1039,6 +1044,7 @@ enumerate build output.
 |---|---|---|---|
 | `line-count` | `max` | a file may not exceed `max` lines; key = file, count = lines | module-size debt |
 | `regex-absent` | `pattern`, `key` | a pattern must NOT appear | the bare `.clamp(` guard |
+| `path-regex-absent` | `pattern` | the repo-relative PATH must not match; key = the path, no line | a filename carrying a plan-item stamp or a serial letter |
 | `regex-present` | `pattern` | every file in scope MUST contain it | a proptest that must carry an explicit seed |
 | `marker-within-lines` | `trigger`, `marker`, `lines` | a `trigger` line requires a `marker` within N lines above | `// bound:` over a collection that grows |
 | `registry-both-ways` | `registry_file`, `entry_pattern`, `use_pattern` | every use is registered AND every registry line is used | the dev-instrument (env switch) registry |
@@ -1061,6 +1067,13 @@ loudly instead of reporting green over files they never opened.
   only inputs that can change it — `Cargo.lock` and every `Cargo.toml`, by size
   and mtime — so the gate pays for the walk once per manifest change, not once
   per commit.
+- **`path-regex-absent`** judges the NAME, never the contents: a probe file
+  called `task19_buckling.rs` is the offence, and reading it would never show
+  that. Hits carry no line, so `expected.txt` in its fixtures lists bare paths.
+- **`registry-both-ways`** reads uses out of whatever the scope includes, source
+  or not: put `tools/**/*.sh` in `include` and a switch read only by a shell
+  script counts as a use, so it is neither reported unregistered nor reported
+  stale.
 - **`file-set-containment`** is containment, never equality: the stand-in may
   refuse MORE than the real system, never less. A deliberate deviation puts the
   law's `escape` marker in `superset_file`, and a marker with nothing left to
@@ -1072,7 +1085,10 @@ loudly instead of reporting green over files they never opened.
   tolerance still has to lower its ceiling. `enabled_env` arms it: unset, the
   law is skipped ENTIRELY (no check and no tighten — tightening against data
   that was never generated would wipe the baseline). A glob under `target/`
-  follows `CARGO_TARGET_DIR`. Its `clean/` fixture is a file the glob must
+  reads from `CARGO_TARGET_DIR` when the environment sets one and
+  `<root>/target` when it does not, while the KEY keeps its `target/` prefix
+  either way — otherwise an environment variable would rewrite every baseline
+  entry. Its `clean/` fixture is a file the glob must
   REFUSE (criterion's `base/` copy is the natural one), which is what proves
   the reader discriminates.
 

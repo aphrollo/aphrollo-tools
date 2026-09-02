@@ -8,6 +8,12 @@ import "strings"
 type Scope struct {
 	Include []string
 	Exclude []string
+	// IgnoreGitignore walks files git ignores. The walk is gitignore-aware so
+	// no law has to enumerate build output, but a repo that ignores a whole
+	// extension (borld ignores `*.md` for generated design pages) hides files
+	// a doc law is entirely about — and the fix must not be to weaken the
+	// repo's .gitignore for the guard's benefit.
+	IgnoreGitignore bool
 }
 
 // Matches reports whether one repo-relative path is in scope.

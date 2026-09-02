@@ -24,6 +24,7 @@ func isolateGit(t *testing.T) {
 // `tdd init --no-git` writes the session hooks into the given config dir and is
 // reversible with --uninstall.
 func TestRun_TDDInit(t *testing.T) {
+	t.Chdir(t.TempDir()) // init patches the CWD repo's CLAUDE.md — never this repo's
 	dir := t.TempDir()
 	var out, errb bytes.Buffer
 	code := Run([]string{"tdd", "init", "--config-dir", dir, "--bin", "/usr/local/bin/aphrollo", "--no-git"},
@@ -55,6 +56,7 @@ func TestRun_TDDInit(t *testing.T) {
 // `tdd init` (no --no-git) also installs the git gate: shims plus a global
 // core.hooksPath. One command sets up everything.
 func TestRun_TDDInit_GitGate(t *testing.T) {
+	t.Chdir(t.TempDir())
 	isolateGit(t)
 	cfg := t.TempDir()
 	hooks := filepath.Join(t.TempDir(), "githooks")
@@ -100,6 +102,7 @@ func TestRun_TDDInit_GitGate(t *testing.T) {
 // use. --uninstall deliberately leaves it in place (see InstallCargoShim's
 // doc comment).
 func TestRun_TDDInit_CargoShim(t *testing.T) {
+	t.Chdir(t.TempDir())
 	isolateGit(t)
 	cfg := t.TempDir()
 	hooks := filepath.Join(t.TempDir(), "githooks")

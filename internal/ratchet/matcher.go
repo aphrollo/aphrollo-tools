@@ -38,6 +38,8 @@ func (l Law) HitsIn(file, content string) []Hit {
 		return l.lineCountHits(file, raw)
 	case KindRegexAbsent:
 		return l.regexAbsentHits(file, raw, code)
+	case KindPathRegexAbsent:
+		return l.pathHits(file)
 	case KindRegexPresent:
 		return l.regexPresentHits(file, code)
 	case KindMarkerWithinLines:
@@ -71,6 +73,19 @@ func (l Law) regexAbsentHits(file string, raw, code []string) []Hit {
 		hits = append(hits, l.hit(file, i+1, strings.TrimSpace(raw[i])))
 	}
 	return hits
+}
+
+// pathHits judges the PATH, not the contents: a file whose NAME carries a
+// plan-item stamp or a serial letter is the offence, and no amount of reading
+// it would show that.
+func (l Law) pathHits(file string) []Hit {
+	if !l.Matcher.Pattern.MatchString(file) {
+		return nil
+	}
+	return []Hit{{
+		Law: l.Name, File: file, Key: file, Weight: 1,
+		What: "path matches " + l.Matcher.Pattern.String(),
+	}}
 }
 
 func (l Law) regexPresentHits(file string, code []string) []Hit {
