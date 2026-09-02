@@ -1,0 +1,151 @@
+package tdd
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// gateLogText returns everything gate.log holds under a per-test state dir.
+func gateLogText(t *testing.T, cfg string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
+	if err != nil {
+		t.Fatalf("gate.log not written: %v", err)
+	}
+	return string(data)
+}
+
+// requireLoggedVerdict fails unless gate.log carries a PARSEABLE line with
+// this verdict — a line stats cannot read is a line nobody counts.
+func requireLoggedVerdict(t *testing.T, cfg, verdict string) {
+	t.Helper()
+	text := gateLogText(t, cfg)
+	for line := range strings.SplitSeq(text, "\n") {
+		e, ok := parseGateLine(line)
+		if ok && e.verdict == verdict {
+			return
+		}
+	}
+	t.Fatalf("no parseable gate.log line with verdict %q, got:\n%s", verdict, text)
+}
+
+// An edit the gate DENIES is the loudest thing that happens to a session, and
+// it left no trace at all: the log recorded suites, never denials, so nobody
+// could count how often a policy fires or which one.
+func TestLogEditDeny_RecordsTheDeniedPolicy(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	raw := []byte(`{"tool_name":"Edit","tool_input":{"file_path":"src/widget_test.go","new_string":"time.Sleep(2)"}}`)
+
+	d := decide(t, string(raw))
+	if d.Action != Block {
+		t.Fatalf("fixture must be denied, got %v", d.Action)
+	}
+	LogEditDeny(raw, d)
+	requireLoggedVerdict(t, cfg, "pretooluse-denied:test-sleep")
+}
+
+// An ALLOWED edit is the common case and must stay silent, or the log becomes
+// a per-keystroke transcript nobody reads.
+func TestLogEditDeny_IsSilentWhenTheEditFlows(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	raw := []byte(`{"tool_name":"Write","tool_input":{"file_path":"src/widget_test.go","content":"assert x == y"}}`)
+
+	LogEditDeny(raw, decide(t, string(raw)))
+	if _, err := os.Stat(filepath.Join(cfg, "gate-state", "gate.log")); err == nil {
+		t.Fatalf("an allowed edit must not write gate.log:\n%s", gateLogText(t, cfg))
+	}
+}
+
+// A law denial is attributed to the LAW. "some rule said no" is not a tally.
+func TestLogEditDeny_NamesTheLawThatDenied(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := lawTree(t, "deny")
+	raw := ratchetPayload(t, "Write", filepath.Join(root, "crates", "a", "src", "lib.rs"), map[string]any{
+		"content": "let a = x.clamp(0.0, 1.0);\nlet b = y.clamp(0.0, 1.0);\n",
+	})
+
+	d := RatchetAdvisory(raw)
+	if d.Action != Block {
+		t.Fatalf("fixture must be denied, got %v", d.Action)
+	}
+	LogEditDeny(raw, d)
+	requireLoggedVerdict(t, cfg, "pretooluse-denied:ratchet:nan-guard")
+}
+
+// A rejected commit message is the other silent denial: the author sees it,
+// the record does not.
+func TestCommitMsg_RejectionIsLogged(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := undercoverRepo(t, true)
+
+	res := CommitMsg(root, msgFile(t, "Fix the thing\n\nCo-Authored-By: Someone <s@example.com>\n"))
+	if !res.Blocked {
+		t.Fatal("fixture must be rejected")
+	}
+	text := gateLogText(t, cfg)
+	if !strings.Contains(text, "commitmsg-rejected:") {
+		t.Fatalf("a rejected message must leave a trace, got:\n%s", text)
+	}
+	requireLoggedVerdict(t, cfg, "commitmsg-rejected:"+logToken(undercoverPatterns[0].String()))
+}
+
+// `/tdd off` disables the whole edit-time gate for a session. That is a
+// legitimate escape hatch and an unrecorded one.
+func TestTddOff_IsLogged(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	raw := []byte(`{"prompt":"/tdd off","session_id":"s1","cwd":"` + filepath.ToSlash(t.TempDir()) + `"}`)
+
+	if res := HandlePrompt(raw); !res.Block {
+		t.Fatalf("/tdd off must answer the turn: %+v", res)
+	}
+	requireLoggedVerdict(t, cfg, "override-off")
+}
+
+func TestTddOn_IsLogged(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	raw := []byte(`{"prompt":"/tdd on","session_id":"s1","cwd":"` + filepath.ToSlash(t.TempDir()) + `"}`)
+
+	HandlePrompt(raw)
+	requireLoggedVerdict(t, cfg, "override-on")
+}
+
+// The point of logging a denial is the tally: which policy fires, how often.
+func TestGateStats_TalliesDeniesAndOverrides(t *testing.T) {
+	log := strings.Join([]string{
+		"2026-09-02T10:00:00Z preedit /repo src/a_test.go pretooluse-denied:test-sleep 0.0s",
+		"2026-09-02T10:00:01Z preedit /repo src/b_test.go pretooluse-denied:test-sleep 0.0s",
+		"2026-09-02T10:00:02Z preedit /repo src/c_test.go pretooluse-denied:tautology 0.0s",
+		"2026-09-02T10:00:03Z commitmsg /repo commit-msg commitmsg-rejected:claude 0.0s",
+		"2026-09-02T10:00:04Z session /repo tdd override-off 0.0s",
+		"2026-09-02T10:00:05Z precommit /repo cargo test green 12.0s",
+	}, "\n")
+
+	s := GateStats(strings.NewReader(log), time.Time{})
+	want := map[string]int{
+		"pretooluse-denied:test-sleep": 2,
+		"pretooluse-denied:tautology":  1,
+		"commitmsg-rejected:claude":    1,
+		"override-off":                 1,
+	}
+	for k, n := range want {
+		if s.Denies[k] != n {
+			t.Errorf("Denies[%q] = %d, want %d", k, s.Denies[k], n)
+		}
+	}
+	if len(s.Denies) != len(want) {
+		t.Errorf("Denies = %v, want only the deny/override verdicts", s.Denies)
+	}
+	out := RenderGateStats(s)
+	if !strings.Contains(out, "denies / overrides:") || !strings.Contains(out, "pretooluse-denied:test-sleep=2") {
+		t.Errorf("the table must show the tally, got:\n%s", out)
+	}
+}

@@ -481,6 +481,7 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if decision.Action == tdd.Allow {
 		decision = tdd.WorktreeAdvisory(raw)
 	}
+	tdd.LogEditDeny(raw, decision)
 	payload, code := tdd.RenderPreToolUse(decision)
 	if len(payload) > 0 {
 		stdout.Write(payload)

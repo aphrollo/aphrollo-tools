@@ -177,7 +177,7 @@ func evaluateView(v view, policies []policy, p phase) Decision {
 			continue
 		}
 		if a := actionFor(pol.category, p); a > best.Action {
-			best = Decision{Action: a, Reason: pol.reason}
+			best = Decision{Action: a, Reason: pol.reason, Policy: pol.name}
 			if best.Action == Block {
 				break // nothing outranks Block; stop early
 			}

@@ -41,4 +41,8 @@ func (a Action) String() string {
 type Decision struct {
 	Action Action
 	Reason string
+	// Policy names the detector that produced this verdict ("test-sleep",
+	// "ratchet"), so a denial can be COUNTED by policy rather than read as
+	// prose. Empty when nothing tripped.
+	Policy string
 }

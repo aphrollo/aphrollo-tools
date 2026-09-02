@@ -86,7 +86,11 @@ func RatchetAdvisory(raw []byte) Decision {
 	if res.Blocked() {
 		action = Block
 	}
-	return Decision{Action: action, Reason: "ratchet: " + strings.Join(res.Lines(), "; ")}
+	return Decision{
+		Action: action,
+		Reason: "ratchet: " + strings.Join(res.Lines(), "; "),
+		Policy: "ratchet:" + res.Findings[0].Law,
+	}
 }
 
 // proposedContent reconstructs what the file would hold after the edit. A
