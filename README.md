@@ -12,7 +12,7 @@ Design contract for every tool here:
 - **Visible + idempotent** — every mutating verb is safe to re-run and prints a
   stateful, parseable receipt of what it did; fail loud with a fix suggestion
   rather than guessing. The `workspace` verbs **execute by default** (`--dry`
-  previews); `refactor`/`tdd` mutations are **dry-run by default** (`--apply`
+  previews); `refactor`/`gate` mutations are **dry-run by default** (`--apply`
   executes). `dev` always acts now.
 
 ## Install
@@ -301,7 +301,7 @@ aphrollo workspace submit -m "Kanban drag-and-drop. Closes #200."
 ```
 
 - **commit** stages `git add -A` by default (`--staged-only` to commit the index
-  as-is) and runs the [TDD pre-commit gate](#tdd-gates-aphrollo-tdd); `--no-verify`
+  as-is) and runs the [TDD pre-commit gate](#tdd--law-gates-aphrollo-gate); `--no-verify`
   is the documented escape for the gate's known false-positives. A clean tree is a
   reported no-op, not an error.
 - **push** sets the upstream on a first push and reports the ahead-count + branch
@@ -366,7 +366,7 @@ aphrollo workspace verify        # runs test -> typecheck -> lint in order
   from the branch's changed paths; when nothing changed resolves one, it falls
   back to the app the cwd sits in — it never runs the whole monorepo's every-app
   matrix unasked. Adding another app is a table entry, not new branching.
-- The **test** command is reused from the [TDD runner detection](#tdd-gates-aphrollo-tdd)
+- The **test** command is reused from the [TDD runner detection](#tdd--law-gates-aphrollo-gate)
   (so the two never drift); only the per-app typecheck and lint commands are
   table data. rlndx resolves to `vitest run` + `svelte-check` + `eslint`.
 
@@ -577,7 +577,7 @@ Design notes:
   background-execution primitive exists (the send queue is editorial only). The
   lossless answer is to block and point at poll/background patterns.
 
-### TDD gates (`aphrollo tdd`)
+### TDD + law gates (`aphrollo gate`)
 
 Autonomous test-driven-development enforcement, ported from the retired
 `claude-code-tdd` Node hooks. Gates across the edit→commit→push lifecycle, each
@@ -586,18 +586,82 @@ live where being wrong only costs a re-run):
 
 | Subcommand | Wiring | What it does |
 |---|---|---|
-| `tdd pretooluse` | Claude PreToolUse hook (stdin) | Blocks (exit 2) a **test-file** edit introducing an oracle smell — real-time sleep, tautological self-comparison, focused marker (`.only`/`fit`), or a disabled test (`.skip`/`xit`/`t.Skip`/`@pytest.mark.skip`). **Warns** (test or source) on a suppression that silences a quality gate (`//nolint`, `@ts-ignore`, `# type: ignore`, coverage-ignore). |
-| `tdd posttooluse` | Claude PostToolUse hook (stdin) | Runs the edited file's related tests; surfaces a RED summary. **Silent unless RED.** |
-| `tdd userpromptsubmit` | Claude UserPromptSubmit hook (stdin) | Intercepts `/tdd [status\|off\|on\|reset]` — the per-session enforcement escape hatch. On any other prompt, re-injects the last RED outcome for the cwd's project so the gate survives context compaction. **Silent unless RED.** |
-| `tdd sessionend` | Claude SessionEnd hook (stdin) | Deletes the per-session state file so the state dir doesn't accumulate. |
-| `tdd precommit` | git `pre-commit` | Blocks a newly-**added** suppression (anti-cheat). Then **fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. A worktree state already proven green under the exact same command (by a PostToolUse run or an earlier gate pass) is **not re-run** — only green results are cached, keyed on content + runner argv, so a red always re-runs with fresh output. Cargo fail-first runs use a gate-owned per-repo `CARGO_TARGET_DIR` under the state dir, never the operator's shared warm target. |
-| `tdd prepush` | git `pre-push` | **No-op** (mechanical-only mode). The tdd gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
+| `gate pretooluse` | Claude PreToolUse hook (stdin) | Blocks (exit 2) a **test-file** edit introducing an oracle smell — real-time sleep, tautological self-comparison, focused marker (`.only`/`fit`), or a disabled test (`.skip`/`xit`/`t.Skip`/`@pytest.mark.skip`). **Warns** (test or source) on a suppression that silences a quality gate (`//nolint`, `@ts-ignore`, `# type: ignore`, coverage-ignore). |
+| `gate posttooluse` | Claude PostToolUse hook (stdin) | Runs the edited file's related tests as a build phase then a run phase under ONE budget, deferring whatever does not finish (see below); surfaces a RED summary. **Silent unless RED.** Source extensions include `.ron` — in a Rust workspace those are registries and fixtures whose edits change behaviour, resolved to the owning crate exactly as `.rs` is. |
+| `gate userpromptsubmit` | Claude UserPromptSubmit hook (stdin) | Intercepts `/gate [status\|off\|on\|reset]` — the per-session enforcement escape hatch. On any other prompt, re-injects the last RED outcome for the cwd's project so the gate survives context compaction. **Silent unless RED.** |
+| `gate stats` | manual | Tallies `gate.log` by stage and outcome, with per-crate timeout/deferred counts and median/max gate seconds (`--since 7d`). |
+| `gate runphase` | spawned by `gate posttooluse` | The detached build/run phase's wrapper: holds the build slot, logs to the state dir, writes the result file the next hook harvests. Never typed by a human; never blocks. |
+| `gate sessionstart` | Claude SessionStart hook (stdin) | Injects the TDD-skill nudge, the previous session's disk-sweep result when it freed something, and — for a repo with a workspace manifest and no laws dir under `.ratchet` (an empty dir counts as none) — ONE line saying the gate is running suites only and pointing at [Ratchet laws](#ratchet-laws-aphrollo-ratchet). Never more than one extra line each, never blocks. |
+| `gate sessionend` | Claude SessionEnd hook (stdin) | Deletes the per-session state file so the state dir doesn't accumulate. |
+| `gate precommit` | git `pre-commit` | Blocks a newly-**added** suppression (anti-cheat). Then **fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. A worktree state already proven green under the exact same command (by a PostToolUse run or an earlier gate pass) is **not re-run** — the cache is keyed on the repo's git COMMON dir, so every linked worktree of one repo reuses the same proven-green facts — only green results are cached, keyed on content + runner argv (content covers tracked files AND the ignored configuration a suite reads: dotenv files and `config/` trees, never build output), so a red always re-runs with fresh output. Both gate stages build in the REPO'S OWN target dir (see below). |
+| `gate commitmsg` | git `commit-msg` | Rejects a commit whose MESSAGE carries a deny pattern, quoting the offending line. Opt-in per workspace (`undercover = true`); absent key = pass through. Fires for merge commits too. |
+| `ratchet check` | git `pre-commit`/`pre-merge-commit`, and manual | Judges the tree against `.ratchet/laws/*.toml` (see [Ratchet laws](#ratchet-laws-aphrollo-ratchet)). |
+| `gate prepush` | git `pre-push` | **No-op** (mechanical-only mode). The gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
 
-`/tdd off` is the escape hatch for spikes and non-TDD work; `/tdd on` re-enables.
-The SessionStart baseline and `/tdd allow-main` from the Node original are
+#### Gate stage order (cheapest first)
+
+`precommit` and `premergecommit` run the same pipeline per project root and
+**stop at the first rejection**, so a formatting slip costs milliseconds
+instead of a full test build:
+
+| # | stage | cost | notes |
+|---|---|---|---|
+| 0a | baseline guard — a STAGED baseline that ROSE | ms (one `git show` per staged baseline) | rejects `baseline-rejected`; see below |
+| 0b | `ratchet check` — the repo's declared laws | ms (mtime cache) | only when the laws dir under `.ratchet` exists; rejects `ratchet-rejected`. A commit that stages a `.ratchet/` file also re-proves every law against its fixtures |
+| 1 | `cargo fmt --check -p <touched>` | ms | compiles nothing, takes no build slot |
+| 2 | `always-run` packages, their OWN invocation | seconds | a pure guard crate; bundling it into `-p ratchet -p client` made it wait for client to link |
+| 3 | `cargo clippy -p <clippy-clean> --tests -- -D warnings` | front-end build | only crates declared clippy-clean |
+| 4 | `cargo clippy --workspace --tests -- -D clippy::disallowed_methods -D clippy::disallowed_types` | check-level, tens of seconds warm | no codegen, but it sees EVERY crate: a lane that broke a crate nobody staged used to land green (borld's `forge_jbeam` conformance test reached main not compiling). clippy SUBSUMES check, so a compile error fails here too, and denying exactly those two lints is what makes a `clippy.toml` law reach crates that are not on the `clippy-clean` list. Everything else stays at its default level. Rejects `check-rejected` (does not compile) or `lint-rejected` (banned API) |
+| 5 | fail-first RED proof | worktree build | precommit only, and only when the staged tests ADD a declaration |
+| 6 | touched crates' suites | full build + link + run | the heaviest, and therefore last |
+| 7 | `cargo test -p <touched> --doc` | one rustdoc run per crate that has a doc fence | **nextest does not run doctests at all**, so a `compile_fail` proof — the only way to assert something must NOT compile — would never execute. Scoped by a grep of the crate's `src/`: a crate with no doc fence buys no run |
+
+When the workspace's nextest configuration declares a `[profile.gate]` table,
+every GATE nextest run (the touched crates' suite, the always-run guards, and
+the fail-first proof) passes `--profile gate`, while `posttooluse` keeps the
+default: the gate runs while other sessions build, and a CPU-bound test that
+takes 40-50 s alone walks past nextest's 60 s default under that load — one
+profile fixes that in one place, where the alternative was a growing habit of
+per-test exemptions that weaken the suite permanently. An edit-time run keeps
+the default deliberately, so a slow test is still reported rather than hidden.
+
+Stages 2, 4, 6 and 7 are all short-circuited by the green cache (same content +
+argv key), so a guard crate proven green at commit is not re-run at merge.
+gate.log names the stage that rejected (`fmt-blocked`, `always-run-blocked`,
+`clippy-blocked`, `check-rejected`, `lint-rejected`, `mechanical-blocked`,
+`queued-rejected`, `timeout-rejected`). `posttooluse`
+is unchanged: one related-test run per edit.
+
+**`green-unconstrained`** is the edit hook's one coverage note: the run was
+green, the edited file is a non-test SOURCE file, and the pass count is
+identical to the last green for that project — so no test came with the
+change and nothing new constrains it. Fail-first cannot see this case (no test
+was staged to fail), which is why it is said out loud:
+`→ green-unconstrained (7 passed; no test changed with this edit — mutation
+proof owed)`. It never blocks, never touches the timeout streak, and is
+recorded as green for `/gate status`.
+
+`/gate off` is the escape hatch for spikes and non-TDD work; `/gate on` re-enables.
+The SessionStart baseline and `/gate allow-main` from the Node original are
 deliberately **not** ported — a full suite on every session start costs more than
 the one first-edit false-RED it avoids, and there is no main-branch edit gate
 here to toggle.
+
+Three further test-quality smells **warn and never deny** — they are judgement
+calls, and a false deny wedges a session. Each prints one `file:line` note:
+
+- **weak physics bar** — `assert!(x > 0.0)` in a `crates/{forge*,movement,pose,shared}`
+  test: a sign check passes for a value 100x wrong ("state the closed-form
+  value and tolerance").
+- **generic test name** — `fn test_*`, `*_works`, `*_basic`, `*smoke*`: a name
+  that describes nothing cannot say which production change makes it red.
+- **unexplained tolerance** — `approx_eq` / `abs_diff_eq` /
+  `assert_relative_eq` / `< EPS` / `< 1e-` with no `// tolerance: <why>` (or
+  `// why:`) within two lines above: a tolerance is a hole the size of the
+  tolerance until something names its consumer.
+
+Files matching `_platform_pin` are exempt: they record what a MACHINE does, so
+a sign bar or a tolerance there is the point of the file.
 
 The gates share a small **policy engine**: each detector is a `policy` value in
 a slice, grouped by the integrity it protects. *Oracle smells* (the test can't
@@ -612,6 +676,173 @@ strings **and** comments (so a smell named in prose never trips); suppression
 detectors mask strings but **keep comments** (the directives live in comments).
 Either way a token mentioned only in a string never blocks — the original's
 biggest false-positive class.
+
+#### Where the gates build (one target dir per repo)
+
+Both gate stages — fail-first and the suites, plus fmt/clippy — build into
+the target dir the DEVELOPER builds into: `CARGO_TARGET_DIR` when the
+environment names one, else `<repo>/target`. A linked worktree therefore uses
+its own `target/`, exactly like a build the developer runs there; export
+`CARGO_TARGET_DIR` to share one.
+
+The gate used to build into a private `<stateDir>/cargo-target/<hash>`, which
+kept it out of the developer's way and cost a SECOND full copy of the
+workspace's artifacts (a measured 155 GB) plus a cold compile on every commit
+of code that was already built next door. Deps are shared, workspace crates
+coexist per source path, and the per-target build lock is what keeps the two
+builds off each other's toes: the gate queues visibly like any other build and
+rejects with `queued-rejected` if no slot comes free inside its 20-minute wait.
+
+The fail-first worktree (still `<stateDir>/failfirst-wt/<hash>`, stable so
+cargo's path-baked fingerprints stay warm) EXPORTS that same target dir — it
+lives outside the repo, so cargo's default would otherwise create a third one
+inside it.
+
+#### Which cargo target an edit runs
+
+Getting this wrong is not a slower run, it is an error — `--test x` for a
+target that does not exist fails instantly and proves nothing:
+
+| edited file | run |
+|---|---|
+| `<crate>/tests/x.rs` | `--test x` |
+| `<crate>/tests/<dir>/**` | `--test <dir>` |
+| `<crate>/src/a/b.rs` (incl. `*_tests.rs` modules) | `--lib`, filtered to `a::b::` — a `#[cfg(test)] mod` under `src/` is part of the LIB test binary, not a test target of its own |
+| `<crate>/src/lib.rs`, `<crate>/src/main.rs`, `<crate>/src/a/mod.rs` | `--lib` (no filter: that IS the crate/module) |
+| `<crate>/examples/x.rs`, `examples/x/**` | `--example x` |
+| `<crate>/benches/x.rs` | `--bench x --no-run` — a bench RUN costs minutes and says nothing about correctness |
+
+The filter dialect follows the runner: `-E 'test(/^a::b::/)'` for nextest, the
+`a::b::` substring for plain `cargo test`.
+
+#### The edit hook's budget, and deferred builds
+
+A cold Bevy-sized build does not fit in an edit hook, and killing it at the
+budget threw away both the work and the answer (268 timed-out runs in one
+`gate.log`, every one a cold build that established nothing). So the edit
+hook splits its cargo work into a **build phase** (`--no-run`) and a **run
+phase**, and defers rather than kills:
+
+- **One foreground budget**, `APHROLLO_POSTEDIT_BUDGET_SECS` (default 110s),
+  covers build **and** run together. There is no separate build budget: the
+  case that actually happens is "the build ate all of it".
+- Whichever phase is still going at the budget keeps running **detached**
+  (Windows: `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`; elsewhere its own
+  session), so the hook's exit cannot take it down. The hook prints one line —
+  `gate: → BUILDING (deferred; <project> build phase — result at the next hook)`
+  — and returns immediately.
+- The next `posttooluse` or `userpromptsubmit` **harvests** it and reports the
+  outcome as `gate: deferred <runner> ... → green (1.3s)`. A finished build phase is followed by the now
+  warm run phase, so the expensive half is never repeated.
+- A result is only adopted when it describes the code on disk **now**: same
+  HEAD, same edited-file content, not marked dirty.
+- **A healthy build is never killed.** Another edit to the same project marks
+  the running job dirty (so the harvest knows to rebuild) and leaves it alone.
+  The one exception is a job past `APHROLLO_DEFERRED_MAX_SECS` (default 600s),
+  which is abandoned so a wedged process cannot block a project forever.
+- **A deferred build is not a timeout.** The backoff streak only moves for a
+  RUN phase that outlived both the foreground budget and the deferred maximum.
+- Only cargo splits: `go test --no-run` is not a flag, so every other runner
+  gets one (still deferrable) phase.
+
+Each detached phase runs under `aphrollo gate runphase --job <record>`, which
+holds the build slot, writes the phase's output to
+`<state-dir>/deferred/<project>.log` and — the liveness signal — writes
+`<project>.result.json` when cargo exits. Jobs are keyed by PROJECT, not by
+session, so a build orphaned by an ended session is still harvestable by a
+later hook in any session.
+
+### Cargo lock — per-target build slots (`aphrollo gate cargo`)
+
+The hooks, the commit gate and the `cargo-queue` shim all take the same
+advisory locks before running cargo. There are **two**, because there are two
+different constraints. Every lock file — target locks, global slots, owner
+records — lives in ONE directory (`os.TempDir()` in production), behind a
+single seam a test overrides in one statement: a per-path override is one a
+test can forget, and forgetting is what left 871 stale locks in `%TEMP%`.
+
+```
+%TEMP%/aphrollo-cargo-build.<sha256_8 of the target dir>.lock   # one build per target dir
+%TEMP%/aphrollo-cargo-slot.<i>.lock                             # N global slots
+```
+
+- The **target lock** mirrors cargo's own build-directory flock: exactly one
+  build per target dir (`CARGO_TARGET_DIR` when set, else `<workspace
+  root>/target`). Handing out a second would give a builder a slot it then
+  spends its whole budget blocked on *inside* cargo, invisibly.
+- The **global slots** are the OOM/CPU governor: separate target dirs do not
+  compete for a build directory, but they do compete for the box.
+
+A build takes the target lock first, then a global slot, and releases in
+reverse; if no slot is free the target lock goes straight back, so a busy box
+never leaves target dirs locked by builds that never started.
+
+- **N is 2 by default**; `APHROLLO_BUILD_SLOTS` overrides it.
+- Each holder's child cargo gets `CARGO_BUILD_JOBS = totalJobs / N` (totalJobs
+  = `[build] jobs` from `~/.cargo/config.toml`, else the core count), so N
+  builds cost about what one uncapped build used to. A caller that already
+  exported `CARGO_BUILD_JOBS` keeps its own number — the split is a default,
+  never an override.
+- **Parallelism only exists across DIFFERENT target dirs.** Two sessions
+  sharing one `target/` (e.g. worktrees with a shared `CARGO_TARGET_DIR`) are
+  one build directory and are told to wait, visibly, instead of blocking
+  inside cargo. Real parallelism means separate target dirs: a worktree with
+  its own `target/`, or the gate's own per-repo target under the state dir.
+- **The commit gate never fails open on the queue.** The mechanical stage
+  builds in the GATE-OWNED per-repo target dir (under the state dir) rather
+  than the dev's own `target/`, so gate and human never contend; and if no
+  slot comes free within `APHROLLO_LOCK_WAIT_SECS` the commit is **rejected**,
+  naming the holder — a commit that was never tested must not land silently.
+  The wait defaults to **1200 s** (two lanes committing at once genuinely
+  serialise behind each other's suite) and the queued-behind line repeats once
+  a minute so the wait is never silent.
+  A suite TIMEOUT also REJECTS at commit time (`timeout-rejected`), naming the
+  elapsed seconds: a commit whose suite never finished is a commit nobody
+  tested, and the untested code would stay in history. The gate target is warm
+  by then, so the retry usually finishes. The EDIT hook keeps the advisory
+  behaviour — blocking an edit over a stopwatch would wedge the session.
+- **The edit hook never waits.** `gate posttooluse` tries the slots once and
+  reports `QUEUED-SKIPPED` if they are all busy — it used to spend 20s of its
+  budget queuing behind a build that takes minutes.
+- Budget knobs: `APHROLLO_POSTEDIT_BUDGET_SECS` (the edit hook's ONE
+  foreground budget for build + run, default 110s),
+  `APHROLLO_DEFERRED_MAX_SECS` (how long a detached phase may live before it
+  is abandoned, default 600s) and `APHROLLO_LOCK_WAIT_SECS` (how long a commit
+  queues for a slot, default 1200s).
+- **Read-only verbs never take a slot**: `metadata`, `tree`, `fmt`,
+  `locate-project`, `pkgid`, `read-manifest`, `--version`/`-V` pass straight
+  through, so tool detection answers instantly while a build owns the box.
+  `check` and `clippy` DO take one — they run the compiler front end into the
+  shared target dir.
+- **`cargo watch` is NOT a long verb**: it recompiles on every save for as
+  long as it is open, so it holds a slot like any other build.
+- **A long verb holds ONE slot for its whole run, and lends it.** `mutants`,
+  `bench` and `install` take a slot, run a prewarm compile under it
+  (`cargo check --tests` for mutants, `cargo build --benches` for bench,
+  `cargo build --tests` otherwise), then RELEASE THE TARGET LOCK and keep the
+  global slot until they exit. The long phase and every cargo it spawns
+  inherit `APHROLLO_SLOT_TOKEN=<slot lock>`, which skips the global semaphore
+  but NOT the per-target lock: each mutation copy still holds the lock for
+  its own target dir, so cargo's one-build-per-target invariant survives.
+  Measured 2026-09-02: without this, a four-job `cargo mutants` run had each
+  inner build take a slot of its own, and both slots stayed held for hours
+  while every other session queued. `cargo run` is the other split: it builds
+  under a slot and launches the binary with neither the slot nor the token
+  (the launched process outlives both). The prewarm is a warm-up, not a gate:
+  its exit code is discarded and it is skipped outside a cargo project.
+- A waiter still prints exactly one `queued behind "<cmd>" in <cwd>` line
+  naming a holder, one line on acquire, and exits 75 (`EX_TEMPFAIL`) when it
+  gives up (`APHROLLO_CARGO_WAIT_SECS`, default 20 min).
+- **Acquiring a slot IS recording its owner** — one function writes both the
+  target-dir record (who is building *here*) and the global-slot record (who
+  is using up the box's capacity), and the release removes them. A caller
+  asked to remember a second call eventually forgets, which is how a merge
+  came to print `queued behind another build (holder unknown)`. Two records,
+  not one, because the two waits are different: when the target dir is free
+  and every global slot is taken, the waiter names a slot holder and adds
+  *(the box is at capacity)*. A long verb hands its target dir back after the
+  prewarm but keeps its slot for hours, so its slot record deliberately
+  outlives its target record.
 
 ### sqlc drift guard (`aphrollo sqlc`)
 
@@ -647,7 +878,7 @@ whether its name derives from a query whose text changed in the working tree
 (`GetWidget` ⇒ `GetWidget`, `GetWidgetParams`, `GetWidgetRow`, `getWidget`).
 Table structs in `models.go` derive from the schema, never a query, so the
 whole-schema drift above is always classified **PRE-EXISTING DRIFT** and left for
-a separate PR. Like the `refactor`/`tdd` mutations (not the execute-by-default
+a separate PR. Like the `refactor`/`gate` mutations (not the execute-by-default
 `workspace` verbs), it is **dry-run by default**; `--apply` writes.
 
 **Gating — clean vs intentionally post-edited.** Some generated trees are
@@ -668,6 +899,399 @@ configs:
 A config absent from the sidecar defaults to **gated** (`clean: true`), so a newly
 added config can never silently skip the gate. The external `sqlc` binary is
 resolved via `APHROLLO_SQLC_BIN`, then `$PATH`, then the operator go-install path.
+
+### Git queue (`aphrollo gate git`)
+
+Index-mutating git verbs queue behind an advisory lock so concurrent sessions
+sharing a checkout never collide on git's own `index.lock`. **The lock is keyed by
+what the verb actually mutates**, because the index is per worktree: keying
+everything on the shared common dir made one lane's commit gate (which holds
+its lock for the whole gate run) block `git add` in every other worktree of
+the same repo.
+
+| verb | lock file lives in | why |
+|---|---|---|
+| `add`, `commit`, `checkout`, `switch`, `reset`, `stash`, `rm`, `mv`, `rebase`, `cherry-pick`, `revert`, `am`, `merge`, `pull`, `restore --staged`, `apply --index/--cached` | `git rev-parse --git-dir` (this worktree) | they write THIS worktree's index/HEAD, and `index.lock` lives there |
+| `worktree add/remove/prune`, `branch -d/-D/-m/-M/-c/-C`, `fetch`, `push`, `gc` | `git rev-parse --git-common-dir` (shared) | they write refs, the worktree registry or the object store, which every worktree reads |
+| `status`, `diff`, `log`, `show`, `branch` (listing), `restore` (no `--staged`), `apply` (no index), `worktree list`, … | not locked | read-only |
+
+One `queued behind "<cmd>" in <cwd>` line when it has to wait, one on
+acquire, exit 75 after `APHROLLO_GIT_WAIT_SECS` (default 20 min). A stray
+`index.lock` left by a git process that bypassed the shim is waited out too.
+
+### Cargo workspace metadata (`[workspace.metadata.aphrollo]`)
+
+Two opt-in lists, declared in the workspace's own `Cargo.toml` so they version
+with the code they police and are reviewed in the same diff:
+
+```toml
+[workspace.metadata.aphrollo]
+always-run   = ["ratchet"]            # run these packages' suites on EVERY mechanical stage
+clippy-clean = ["server", "shared"]   # gate these on `clippy -D warnings` at commit
+undercover = true                    # reject commit messages that name the tooling
+commit-message-deny = ["^WIP:"]      # this repo's own extra deny patterns
+```
+
+- **`always-run`** — a workspace-wide guard package (its tests scan the whole
+  tree) is owned by no staged file, so ownership scoping alone would run it
+  only when someone edits the guard itself, which is exactly when its
+  invariant is not at risk.
+- **`undercover`** (bool) — turns on the `commit-msg` gate. The commit
+  message is the one artefact of a session that leaves the machine and stays
+  in history forever, so a repo can ask that it describe WHAT changed and
+  nothing about how it was written. Built-in deny patterns, all
+  case-insensitive: `^Co-Authored-By:`, `\bClaude\b`, `\bAnthropic\b`,
+  `Generated with`, `\bopus-\d`, `\bsonnet-\d`, `\bhaiku-\d`, `\bfable\b`,
+  `claude-code`, `\bgo/[a-z]`, `#claude-`, `anthropics/`,
+  `\bAI\b\s+(assistant|generated|written)` (bare "AI" is a word in ordinary
+  prose, so it only counts when it claims authorship), and the codenames
+  `Capybara|Tengu`. Lines starting `#` are git's own comment lines and are
+  skipped. The rejection QUOTES the offending line and names the pattern —
+  an author who has to guess which of thirty lines offended will retype the
+  message from memory. Absent key = the gate is inert, so installing the hook
+  everywhere cannot start rejecting a repo that never asked.
+- **`commit-message-deny`** (string array) — the repo's OWN extra patterns for
+  that gate, e.g. `commit-message-deny = ["(?i)\\bskunkworks\\b", "^WIP:"]` (a TOML basic string, so the regex backslash is doubled).
+  An unparseable entry is skipped with a stderr note, never silently disabling
+  the gate nor blocking every commit.
+- **`mutation-receipt`** (bool) — turns on the merge gate's receipt check.
+  Fail-first proves a test FAILED once; it says nothing about whether the
+  test constrains behaviour, and a test that asserts nothing satisfies
+  fail-first perfectly. A MERGE needs both. With the key set,
+  `premergecommit` looks up `<stateDir>/mutation-receipt.<tip_tree>.json`,
+  where `<tip_tree>` is the LANE TIP's tree (`git rev-parse MERGE_HEAD^{tree}`
+  — never the merge result, which nobody has mutation-tested). The file is
+  written by the consuming repo's own mutation run (borld's
+  `mutation_gate.sh`) and carries `repo`, `branch`, `tip_tree`,
+  `worktree_dirty`, `base_ref`, `mutants_total`, `caught`, `timeout`,
+  `unviable`, `survivors`, `accepted`, `unaccepted` and `verdict`. The merge is
+  refused (`receipt-rejected`) when there is no receipt for that tree, when
+  `worktree_dirty` is set, when `verdict` is anything but `"pass"` (an
+  unrecognised verdict refuses — a gate that reads an unknown word as
+  permission is not a gate), or when `unaccepted` is non-empty. The receipt is
+  keyed by TREE in its FILENAME, so the lookup itself is the identity check and
+  two lanes measured minutes apart never read each other's answer;
+  `mutants_total: 0` is a valid receipt, since a diff with nothing mutable in
+  it is a real answer. `unaccepted`'s entries are opaque to the gate — the
+  producing repo decides how it names a mutant — and only the first is quoted
+  in the rejection, which also names the command that produces a receipt. It
+  runs BEFORE any suite compiles.
+- **`baselines`** (string array) — the globs the baseline guard watches, e.g.
+  `baselines = [".ratchet/baselines/*.txt", "crates/ratchet/tests/*_baseline.txt"]`
+  (those two are also the defaults, and a declared list replaces them). See
+  [Baselines are never raised by hand](#baselines-are-never-raised-by-hand).
+- **`clippy-clean`** — the quality checks run BEFORE the suites, cheapest
+  first: `cargo fmt --check -p <crate>` for every TOUCHED crate is stage 1,
+  and `cargo clippy -p <crate> --tests -- -D warnings` for crates on this
+  list is stage 3 (see the stage-order table above). A crate that reached
+  zero warnings stays there; crates not on the list are never lint-gated, so
+  the gate stays usable in a tree that still carries warnings. Absent key =
+  no clippy stage at all. Both run in the mechanical stage's target dir;
+  clippy takes a build slot, fmt does not (it compiles nothing). A failure
+  blocks the commit and names the crate and the first diagnostic.
+
+<!-- ratchet-spec:begin -->
+### Ratchet laws (`aphrollo ratchet`)
+
+A repo's code laws — "a float `.clamp()` is not a NaN guard", "modules stay
+under 600 lines", "every env switch is registered", "every cited `.md` path
+resolves" — are **data**, not fifteen hand-written test files each
+re-deriving the same scan/baseline/escape machinery. They live in the
+consuming repo under `.ratchet/`, and this binary is the engine that runs
+them: at **pre-edit** time (before the write lands), at **commit** time, and
+by hand.
+
+```
+.ratchet/
+  laws/<name>.toml          # one rule, declared
+  baselines/<name>.txt      # the ceiling it may not exceed (only ever goes down)
+  fixtures/<name>/hit/…     # files the law MUST catch, listed in expected.txt
+  fixtures/<name>/clean/…   # files it must stay silent on
+```
+
+#### The schema
+
+```toml
+name         = "nan-guard"                     # must equal the file stem
+description  = "A float clamp is not a NaN guard"
+severity     = "deny"                          # deny | warn
+escape       = "// nan-safe:"                  # optional: suppresses a hit
+escape_lines = 2                               # optional: how far above (default 2)
+baseline     = ".ratchet/baselines/nan-guard.txt"   # optional
+code_only    = true                            # optional: strip trailing comments first
+comment_prefix = "#"                           # optional: what opens one (default "//")
+contiguous   = true                            # optional: suppression must be in the comment run above
+trigger_exclude = "^\s*(pub )?use "            # optional: lines that can never be a trigger
+
+[scope]
+include = ["crates/**/*.rs"]
+exclude = ["**/target/**", "crates/ratchet/tests/**"]
+ignore_gitignore = false                        # optional: judge gitignored files too
+min_files = 40                                  # optional: fewer matched files is a regression
+
+[matcher]                                       # exactly ONE
+kind    = "regex-absent"
+pattern = "\\.clamp\\("
+key     = "file:line-content-hash"
+```
+
+Parsing is **strict**: an unknown key, a duplicate table, a matcher key that
+belongs to another kind, a regex that does not compile, or a `name` that
+disagrees with the file it lives in is an error at load. A typo must not
+silently disable half a rule. Scope globbing understands `*`, `?` and `**`,
+`exclude` always wins, and the walk is gitignore-aware, so a law never has to
+enumerate build output. A repo that ignores a whole extension hides the files
+some laws are entirely about (borld ignores `*.md`, which is every doc a
+citation law reads) — `ignore_gitignore = true` opts THAT law into the ignored
+files, and the fix is never to weaken the repo's `.gitignore` for a guard's
+benefit. `.git` is never walked, opt-out or not.
+
+A scope is a claim about coverage, so the engine judges it too. `min_files`
+is the floor below which a clean verdict is not a verdict: a law whose globs
+quietly stopped matching (a crate renamed, a `**` dropped) reports green over
+files it never opened, and falling under the floor is the finding
+`scope-floor`. An `include` entry that names ONE file rather than a set is a
+citation: when it is gone the finding is `missing-scope-file | <path>`, which
+says something different from "the set is empty". Both are whole-tree
+questions, so a narrowed run (`--proposed`, `--files`) does not ask them.
+
+Suppression is bounded by structure, not by arithmetic. `contiguous = true`
+makes an `escape` or a `marker` count only when it sits on the trigger's own
+line or in the COMMENT RUN directly above it — consecutive comment lines and
+single-line attributes, broken by the first code or blank line. Counting lines
+instead lets one `// nan-safe:` exempt an unrelated call four lines below,
+across code it says nothing about. `comment_prefix` is what opens a comment in
+the language being scanned, so a TOML or shell law strips `#` comments and a
+commented-out entry stops satisfying a `regex-present` law. `trigger_exclude`
+disqualifies a line from ever BEING a trigger, which is what an import needs:
+putting `use` in the marker regex instead exempts everything in the window
+below the import.
+
+`direction` says WHERE the marker lives: `above` (default) is the
+comment-above-the-declaration shape, `below` is a block that carries its own
+configuration — a `proptest!` block's `#![proptest_config(…)]` sits on the NEXT
+line, and looking up only reported 30 seeded blocks as unseeded — and `both`
+accepts either. `contiguous` applies in whichever direction is chosen.
+
+#### Matcher kinds
+
+| kind | keys | the rule | exemplar |
+|---|---|---|---|
+| `line-count` | `max` | a file may not exceed `max` lines; key = file, count = lines | module-size debt |
+| `regex-absent` | `pattern`, `key`, `count` | a pattern must NOT appear; `count = "matches"` counts every call on a line, not the line | the bare `.clamp(` guard |
+| `path-regex-absent` | `pattern` | the repo-relative PATH must not match; key = the path, no line | a filename carrying a plan-item stamp or a serial letter |
+| `regex-present` | `pattern` | every file in scope MUST contain it | a proptest that must carry an explicit seed |
+| `marker-within-lines` | `trigger`, `marker`, `lines`, `contiguous`, `direction` | a `trigger` line requires a `marker` within N lines above (or below, or either), or in the comment run beside it | `// bound:` over a collection that grows |
+| `registry-both-ways` | `registry_file`, `entry_pattern`, `use_pattern` | every use is registered AND every registry line is used; the LAST non-empty capture of a use match is the name, so an alternation with one group per branch works | the dev-instrument (env switch) registry |
+| `doc-path-resolves` | `pattern` | a captured `.md` path must resolve at the repo root or inside the citing file's own `crates/<x>`/`tools/<x>` unit | doc citations |
+| `dep-graph-forbids` | `roots`, `forbidden`, `edges`, `min_reachable` | no root package may REACH a forbidden one (glob) through the resolved dependency graph; `edges = "normal"` (default) never follows dev/build edges, which is the whole distinction | dev-only tooling in a shipping binary |
+| `file-set-containment` | `superset_file`, `subset_file`, `capture` | every capture in `subset_file` must also appear in `superset_file` | a headless stand-in whose query must refuse at least what the real one refuses |
+| `json-number-ceiling` | `files`, `path`, `tolerance_pct`, `enabled_env` | a number read out of generated JSON may not exceed its baseline by more than the tolerance | a criterion bench figure nobody was reading |
+
+The last three judge a whole TREE rather than a file at a time, and each
+refuses to reach a VACUOUS verdict: a dependency walk that resolved nothing, a
+capture set that came out empty, or an armed perf law with no data all fail
+loudly instead of reporting green over files they never opened.
+
+- **`dep-graph-forbids`** runs `cargo metadata --format-version 1` once and
+  BFSes `resolve.nodes`, so a TRANSITIVE edge (`server -> helper -> editor`) is
+  caught exactly like a direct one. The hit's key is the PATH that reaches the
+  forbidden package (`server->shared->testrig`) — that is what an edge gets
+  deleted from. A tree carrying a checked-in `cargo-metadata.json` is read from
+  it instead, which is how the fixtures work. The verdict is cached against the
+  only inputs that can change it — `Cargo.lock` and every `Cargo.toml`, by size
+  and mtime — so the gate pays for the walk once per manifest change, not once
+  per commit. `roots = "*"` is every workspace package, which is how a rule
+  like "no package may reach the scratch crate" is stated without re-listing
+  the workspace forever; under the wildcard a package that depends on nothing
+  is a leaf rather than a broken walk, so `min_reachable` is what answers
+  vacuity there — a walk that reached fewer packages than the floor fails
+  loudly instead of reporting clean.
+- **`path-regex-absent`** judges the NAME, never the contents: a probe file
+  called `task19_buckling.rs` is the offence, and reading it would never show
+  that. Hits carry no line, so `expected.txt` in its fixtures lists bare paths.
+- **`registry-both-ways`** reads uses out of whatever the scope includes, source
+  or not: put `tools/**/*.sh` in `include` and a switch read only by a shell
+  script counts as a use, so it is neither reported unregistered nor reported
+  stale.
+- **`file-set-containment`** is containment, never equality: the stand-in may
+  refuse MORE than the real system, never less. A deliberate deviation puts the
+  law's `escape` marker in `superset_file`, and a marker with nothing left to
+  waive is itself a finding — stale waivers are how a guard quietly stops
+  guarding.
+- **`json-number-ceiling`** is a MEASUREMENT law: every value it reads is a
+  hit, weighted by the number (rounded up), and the `tolerance_pct` is applied
+  when comparing to the baseline rather than when measuring — a figure inside
+  tolerance still has to lower its ceiling. `enabled_env` arms it: unset, the
+  law is skipped ENTIRELY (no check and no tighten — tightening against data
+  that was never generated would wipe the baseline). A glob under `target/`
+  reads from `CARGO_TARGET_DIR` when the environment sets one and
+  `<root>/target` when it does not, while the KEY keeps its `target/` prefix
+  either way — otherwise an environment variable would rewrite every baseline
+  entry. Its `clean/` fixture is a file the glob must
+  REFUSE (criterion's `base/` copy is the natural one), which is what proves
+  the reader discriminates.
+
+`key` is `file` (baseline `<file> | <count>`) or `file:line-content-hash`
+(baseline one line per occurrence, identity = file + the trimmed offending
+line). Line NUMBERS are deliberately not part of the identity — inserting a
+line above an offence is not a regression — while swapping one offending site
+for a different one in the same file IS, which a per-file count cannot see.
+
+#### The baseline law
+
+A baseline is a **ceiling per key** and it only ever goes down:
+
+- measured **above** it → a regression, reported and (for `deny`) rejected;
+- measured **below** it → the run that saw the fix lowers or drops the entry
+  and rewrites the file: atomically (tmp + rename), byte-stable when nothing
+  moved, preserving header and mid-file comments in place and whatever line
+  ending is already on disk;
+- it **never raises** a count and **never adds** a key. The only way to admit
+  a new hit is the law's own escape comment.
+
+`ratchet check` tightens by default (`--no-tighten` to report only); a run
+carrying `--proposed` never tightens, because the tree it measured does not
+exist. The gate does not tighten either — a commit hook that rewrote a file
+mid-commit would leave the lowered ceiling unstaged.
+
+#### Baselines are never raised by hand
+
+A baseline is a ceiling that only ever goes down, and it lives in a text file
+any editor can widen — which happened: a `1048` entry was hand-edited to `1049`
+to get a commit through. So the ban is mechanical. `precommit` and
+`premergecommit` parse every STAGED baseline old-vs-new, in both the counted
+and multiset forms, and reject a key whose count ROSE or which is NEW:
+
+```
+gate precommit: baseline-rejected: crates/ratchet/tests/module_size_baseline.txt crates/a.rs 1048 -> 1049
+  baselines are written by the ratchet itself; lower the code, or use the law's escape comment
+```
+
+Lowering, removing and header edits pass — that is what a fix looks like — and
+a baseline file that is new in the commit passes too, since adopting a law is
+not raising a ceiling. The guarded globs default to `.ratchet/baselines/*.txt`
+and `crates/ratchet/tests/*_baseline.txt`; a workspace can declare its own with
+`baselines = [...]` under `[workspace.metadata.aphrollo]`, which REPLACES the
+defaults.
+
+#### Fixtures — a law nobody proved catches nothing
+
+`ratchet test` runs each law over its own `fixtures/<law>/hit` files, requires
+exactly the offences listed in `expected.txt` (`<file>:<line>` per line, or the
+hit's key for a whole-tree law, which has no line to point at), and
+requires `clean/` to produce none. Both directions are required: hit-only
+proves a rule fires, never that it discriminates. A law with no fixtures
+fails. The commit gate runs `ratchet test` whenever a commit stages anything
+under `.ratchet/`.
+
+A fixture tree is laid out the way the REPO is, because the fixture root
+stands in for the repo root and the law's own `include` globs decide what it
+reads — an `include` of `crates/**/*.rs` reaches the first of these and never
+the second:
+
+```text
+hit/crates/a/src/bare.rs
+hit/bare.rs
+```
+
+A fixture the scope could never reach fails the test rather than being
+skipped — otherwise a typo in `include` disarms the law in the real tree while
+its fixtures stay green, which is the exact failure fixtures exist to catch.
+
+#### Pre-edit denial
+
+The PreToolUse hook reconstructs what a `Write`/`Edit`/`MultiEdit` would leave
+on disk (old/new strings applied to the file, MultiEdit in order) and judges
+that content, narrowed to the one file:
+
+```
+ratchet: nan-guard: crates/pose/src/advance.rs:212 let a = x.clamp(0.0, 1.0);
+  (baseline 0, now 1; escape: // nan-safe:)
+```
+
+A `deny` law with a new hit exits 2 and the write never happens; a `warn` law
+prints the line once and allows. Everything here fails **open** — a malformed
+payload, an unreadable file or a broken law file must never wedge a session
+over a rule that is itself broken. A narrowed run reports uses nobody
+registered but never claims a registry line is stale: that needs the whole
+tree.
+
+#### Commands
+
+```sh
+aphrollo ratchet check                       # judge the tree, tighten, exit 1 on a deny regression
+aphrollo ratchet check --only nan-guard      # one law
+aphrollo ratchet check --format json         # what the hooks read
+aphrollo ratchet check --no-tighten          # report only
+aphrollo ratchet check --proposed crates/a.rs=/tmp/new.rs   # judge content not on disk
+aphrollo ratchet test                        # prove every law against its fixtures
+```
+
+A repeat `check` costs milliseconds: every file's hits are cached under the
+state dir, keyed by path + size + mtime **and** a hash of the law set, so a
+rule that changed drops the cache instead of inheriting verdicts reached under
+the old one. A repo with no laws dir under `.ratchet` says `no laws` and exits 0.
+<!-- ratchet-spec:end -->
+
+### Pipeline health (`aphrollo gate stats`)
+
+```sh
+aphrollo gate stats              # the whole gate.log
+aphrollo gate stats --since 7d   # just this week
+```
+
+One table: every stage (`postedit`, `precommit`, `premergecommit`) against
+every outcome (`green`, `red`, `blocked`, `timeout`, `timeout-rejected`,
+`queued-skipped`, `queued-rejected`, `deferred`), then the median and maximum
+gate seconds and the per-crate timeout and deferral counts. A stage with no
+rows still prints, so "zero timeouts" and "never ran" are not the same blank.
+Read-only: it never touches the log it reads, and an unparseable line is
+skipped rather than guessed at (the log is appended to by several processes).
+
+### Disk hygiene (`aphrollo gate gc`)
+
+Build caches this binary's own gates create and use are the biggest thing on
+a Rust box's disk (a measured 417 GB `target/`, 202 GB of it
+`debug/incremental`, plus orphan worktree build dirs and stray target dirs
+with nothing left pointing at them). `gc` reclaims exactly six kinds of leftover and nothing else:
+
+| category | what qualifies |
+|---|---|
+| idle incremental caches | `<target>/*/incremental/*` whose newest FILE is older than `--older-than` (**default 3d** — being wrong costs one recompile of that one crate) |
+| dead gate dirs | `<stateDir>/failfirst-wt/<hash>` whose `origin.txt` (written at creation) names a repo that no longer exists |
+| stale lock litter | orphan `.owner` records in the temp dir, idle **> 1 day** (`--lock-age`), whose lock nobody currently holds — the acquire attempt IS the liveness test — plus this binary's own `aphrollo-*-stub-*` / `*-pkgtest-*` test dirs. A `.lock` file itself is NEVER deleted: it is the mutual exclusion, and on Windows a delete-pending name makes the next open fail, which reads as "acquired" |
+| stale build artifacts | cargo never deletes a SUPERSEDED metadata hash, so `deps/` keeps one set of outputs per worktree path and per profile change forever (borld measured 2026-09-02: `target/debug/deps` at 207 GB / 24,260 files, 234 distinct `server-<hash>` fingerprints). Two tiers by what a rebuild COSTS: **workspace members at 3d** (they relink in seconds) and **third-party artifacts at 14d**. Matches only cargo's own `<crate>-<hash16>` shape in `deps/`, `.fingerprint/`, `build/` and `incremental/`; anything else is left alone |
+| mutants tree copies | `<target>/mutants/*` older than 1d, and ONLY while no `cargo-mutants` process is alive (those copies are the trees a live run is testing) |
+| orphan worktree builds | a directory beside a repo's registered external worktrees that holds nothing but `target/` — git dropped the worktree, the build dir survived |
+| stray target dirs | a directory at depth 1 under the repo root or a registered worktree root that carries cargo's own `CACHEDIR.TAG` **and** `.rustc_info.json`, is **not** the resolved target dir, and is idle **> 3d** — a hand-made `target-sky/` nobody builds into any more (33 GB found on one box). Both marker files are required, so a cache that merely carries a tag is never proposed; it takes **no build slot**, because by definition nothing is compiling into it |
+
+```sh
+aphrollo gate gc                      # dry run: path, size, reason, total
+aphrollo gate gc --apply              # delete them
+aphrollo gate gc --older-than 14d     # be stricter about incremental caches
+aphrollo gate gc --apply --lock-age 1h  # clear today's lock litter on an idle box
+```
+
+`deps/` is reclaimable ONLY through the artifact rules above: by cargo's own
+`<crate>-<hash16>` stem and an mtime bar, never by name and never wholesale.
+A **registered worktree is never touched**, a gate dir with no `origin.txt` is
+UNKNOWN and left alone, and every deletion inside a target dir happens while
+this process HOLDS that target's build lock, so a build mid-way cannot lose an
+rlib it is about to link. The dry run reports a total per tier, because the
+tiers carry different risk.
+
+Two things run it for you:
+
+- **After a successful `git worktree remove`/`prune`** the git shim sweeps
+  immediately and silently: the removed tree's leftover `target/`, any other
+  orphan build dir beside the registered worktrees, and the gate dirs whose
+  root just disappeared. Incremental caches are NOT in scope there.
+- **At session start**, at most once per 24 h, `gate sessionstart` launches a
+  DETACHED `gc --apply` (never inline — it must not stall the hook) and the
+  NEXT session surfaces one line saying what the last sweep reclaimed.
+  Lock litter is swept there too. Incremental pruning holds a build slot for the target dir while it deletes,
+  and is skipped silently when every slot is busy — the next sweep gets it.
 
 ### Doc-reference guard (`aphrollo docs check`)
 
@@ -699,15 +1323,15 @@ hook. **The bar is zero**: no baseline file, no allowlist, no suppression commen
 (`node_modules/`) or a path in *another* repo, keep it out of path-citation form
 (drop the slash, or describe it in prose) rather than reaching for a suppression.
 
-## Setup — `aphrollo tdd init`
+## Setup — `aphrollo gate init`
 
 One command wires the whole gate — the native replacement for
 `claude-code-tdd`'s `install.sh`:
 
 ```sh
-aphrollo tdd init                    # session hooks + global git gate
-aphrollo tdd init --no-git           # session hooks only (skip the git gate)
-aphrollo tdd init --uninstall        # remove everything again
+aphrollo gate init                    # session hooks + global git gate
+aphrollo gate init --no-git           # session hooks only (skip the git gate)
+aphrollo gate init --uninstall        # remove everything again
 ```
 
 `init` does two things:
@@ -720,20 +1344,96 @@ aphrollo tdd init --uninstall        # remove everything again
 2. **Git gate** — writes the `pre-commit` shim into `~/.config/git/hooks` (or
    `--git-hooks-dir`) and points git's global `core.hooksPath` at it, so every
    repo is gated. Hand-written hooks are never clobbered. `--no-git` skips this
-   layer. tdd has no pre-push gate, so a re-init also **prunes** any managed
+   layer. The gate has no pre-push stage, so a re-init also **prunes** any managed
    `pre-push` shim it finds, leaving hand-written hooks untouched.
 
 It resolves the invoking binary via `os.Executable`, so the installed hooks
 call the same binary that wrote them; ansible runs it once per session HOME.
 
-For a single repo without the global gate, `aphrollo tdd install --apply` writes
+For a single repo without the global gate, `aphrollo gate install --apply` writes
 the same shims into that repo's `.git/hooks` instead (opt-in, no `core.hooksPath`).
 
-The tdd gate is **solely mechanical**: edit-time smell blocks + commit-time
+The gate is **solely mechanical**: edit-time smell blocks + commit-time
 anti-cheat/fail-first/suite. Adversarial review lives in the reviewer agent,
 not this binary. Mutation
 testing is intentionally **not** ported (false-positive/non-determinism prone);
 the fail-first + mechanical suite cover the same ground without the flakiness.
+
+### The managed CLAUDE.md block
+
+A session that does not know the gate exists fights it: it re-runs suites the
+hooks already ran, reads a `TIMEOUT` as a pass, hand-edits a baseline to get a
+commit through. All of that is documented — here, in a file the session is not
+reading. So `gate init` writes the operating instructions into the one file a
+Claude session always reads, between markers this tool owns:
+
+```
+<!-- aphrollo:begin -->
+## Working with the aphrollo gate
+...
+<!-- aphrollo:end -->
+```
+
+~25 lines: the PATH line for the queue shims, "the hooks run the tests — read
+the one `gate:` line", what each outcome means (including which ones mean the
+code was NOT tested), the commit-gate stage order, where the laws and baselines
+live and how a new hit is admitted, the housekeeping commands, and — only for a
+workspace with `undercover = true` — the commit-message rule.
+
+- A repo that keeps a `CLAUDE.md` gets the block on every `gate init`; one that
+  does not is left alone unless you pass `--claude-md`, which creates the file.
+- An existing block is replaced **in place**, never duplicated or moved: it may
+  have been put somewhere deliberate. A file hand-edited mid-block (one marker
+  left) has the orphan dropped and a whole block appended.
+- Running twice is byte-identical, CRLF included — the file is a source file in
+  the consuming repo, and a block that churned would show up as a diff at every
+  session start.
+- The text has ONE source (`internal/tdd/claudemd.go`), so a fix reaches every
+  repo the next time init runs there. Edit that, never the block.
+
+### The `tdd` skill
+
+`gate init` also writes `<config-dir>/skills/tdd/SKILL.md`. The gate proves the
+RED→GREEN *outcome* mechanically; it cannot tell whether the test was worth
+writing, and the rules that answer that used to live in a marketplace plugin
+that may not be installed. They now ship with the binary that enforces the
+outcome: the RED→GREEN loop and what each `gate:` classification means, the
+test-quality rules (name the break, derive expectations independently, no change
+detectors, DAMP over DRY, real code over mocks, never weaken a test or a
+baseline), the mutation proof for code that already exists, and evidence before
+any completion claim. It is language-neutral — Rust and Go both run this gate.
+The skill also carries the `/tdd status|off|on|allow-main|reset` frontmatter and
+so replaces the old `/tdd` command stub, which init retires when it finds one
+that mentions aphrollo (a hand-written stub is left alone). Managed like the
+CLAUDE.md block: a second init is byte-identical, a hand edit is overwritten, the
+source is `internal/tdd/tddskill.md`, and `--uninstall` removes it. The
+session-start nudge points at this skill, so the thing it names always exists.
+
+### The in-repo law spec (a README inside `.ratchet`)
+
+`gate init` also drops the "Ratchet laws" section above into the repo it
+initialises, as a README inside `.ratchet`, whenever that dir exists
+(`--ratchet-readme` writes it regardless). Laws are edited by whoever owns the
+repo, and until now the only spec for the schema lived in THIS file — on the
+machine that installed the binary, at a path nothing in the consuming repo can
+cite. Now a law, a CLAUDE.md or a doc can point at that in-repo README and the
+citation resolves for everyone. The file is managed: a second init is
+byte-identical, a hand edit is overwritten, and the source is this README's
+`ratchet-spec` section (a test in `internal/tdd` fails if the two drift).
+
+### The `tdd` → `gate` rename
+
+The subcommand family is `aphrollo gate …`; `aphrollo tdd …` stays a **silent
+alias** for one release so hooks and shims written before the rename keep
+working. Run `aphrollo gate init` once to rewrite them: `settings.json`'s
+session hooks, `~/.config/git/hooks/*`, the per-repo hooks and the
+`cargo-queue` shims all move to `gate`, and the installers recognise BOTH
+spellings so a re-init replaces its own older entries instead of stacking a
+second hook beside them. The state dir moves `~/.claude/tdd-state` →
+`~/.claude/gate-state` by MOVING the existing directory the first time any
+gate runs — gate.log history, the mechanical cache and the receipts come with
+it. Hook output lines are prefixed `gate:`; law lines are prefixed `ratchet:`.
+The control command answers to both `/gate` and `/tdd`.
 
 ## Layout
 
@@ -744,7 +1444,8 @@ internal/refactor/   orchestration: detect lang → spawn server → rename/refs
 internal/lsp/        LSP types + JSON-RPC stdio client (framing, Conn, edits)
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy (block long waits, warn on noisy output)
-internal/tdd/        TDD gates (mechanical-only): policy engine, edit smells, anti-cheat, RED/GREEN, fail-first, install
+internal/ratchet/    Law engine: schema + strict loader, matchers, self-tightening baselines, fixtures
+internal/tdd/        TDD + law gates (mechanical-only): policy engine, edit smells, anti-cheat, RED/GREEN, fail-first, install
 internal/workspace/  worktree lifecycle (create/claim/unclaim/list/remove/prune) + git verbs (commit/push/submit/update/diff/pr/ship/merge)
 internal/dev/        dev-tier control plane: up/down/restart/status/logs (systemd)
 internal/sqlc/       sqlc drift guard: config discovery, regen-into-temp, check, scoped-by-symbol regen

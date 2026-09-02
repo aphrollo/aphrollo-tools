@@ -39,6 +39,7 @@ type InstallPlan struct {
 var perRepoHooks = []struct{ name, sub string }{
 	{"pre-commit", "precommit"},
 	{"pre-merge-commit", "premergecommit"},
+	{"commit-msg", "commitmsg"},
 }
 
 // perRepoPrunedHooks are hook names per-repo install removes but never writes. A
@@ -54,7 +55,9 @@ var perRepoPrunedHooks = []string{"pre-push"}
 func shim(bin, sub string) string {
 	// Slash-normalized + quoted for the same reason as binShim: a raw Windows
 	// path's backslashes are sh escapes, so the exec line resolves to garbage.
-	return "#!/bin/sh\n" + installMarker + "\nexec \"" + shellPath(bin) + "\" tdd " + sub + "\n"
+	// "$@" forwards git's own arguments: commit-msg is handed the message
+	// file path, and a shim that swallowed it would gate nothing.
+	return "#!/bin/sh\n" + installMarker + "\nexec \"" + shellPath(bin) + "\" " + CmdName + " " + sub + " \"$@\"\n"
 }
 
 // BuildInstallPlan computes the hooks to install for the repo at repoRoot, whose

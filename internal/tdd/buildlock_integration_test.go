@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -19,16 +20,14 @@ func TestPostEdit_QueuedSkipped_WhenBuildLockHeld(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "Cargo.toml")
 
-	release, ok := acquireBuildLock(time.Second)
+	_, release, ok := acquireBuildSlot(resolveTargetDir(os.Getenv, root), time.Second, "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
-		t.Fatal("setup: must be able to take the build lock")
+		t.Fatal("setup: must be able to take the project's build slot")
 	}
 	defer release()
 	// A real holder writes an owner file (runCargoLocked does this
-	// automatically; simulated here since this test holds the lock directly
-	// via acquireBuildLock) -- the QUEUED-SKIPPED line must NAME it.
-	writeBuildLockOwner("cargo nextest run -p other-crate", "/some/other/repo")
-	defer removeBuildLockOwner()
+	// automatically; simulated here since this test takes the slot
+	// directly) -- the QUEUED-SKIPPED line must NAME it.
 
 	var invoked bool
 	run := func(Runner, string) SuiteResult {
@@ -63,9 +62,9 @@ func TestPostEdit_NonCargoRunner_NeverTakesTheBuildLock(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
 
-	release, ok := acquireBuildLock(time.Second)
+	_, release, ok := acquireBuildSlot(resolveTargetDir(os.Getenv, root), time.Second, "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
-		t.Fatal("setup: must be able to take the build lock")
+		t.Fatal("setup: must be able to take the project's build slot")
 	}
 	defer release()
 
@@ -78,44 +77,44 @@ func TestPostEdit_NonCargoRunner_NeverTakesTheBuildLock(t *testing.T) {
 	}
 }
 
-// TestPrecommit_Mechanical_QueuedSkipped_WhenBuildLockHeld pins the
-// Precommit side: a cargo mechanical stage that can't get the build lock
-// within its budget reports QUEUED-SKIPPED with the seconds waited, fails
-// OPEN (never blocks — lock contention is not a test failure), and is never
-// silent about it (Message is set, matching the same fail-open contract as
-// a suite timeout).
-func TestPrecommit_Mechanical_QueuedSkipped_WhenBuildLockHeld(t *testing.T) {
+// TestPrecommit_Mechanical_RejectsWhenNoSlotComesFree pins the outcome that
+// used to be a silent hole: ten commits in one gate.log waited out the full
+// lock budget, logged queued-skipped, and landed with ZERO tests run. A
+// commit the gate could not verify is now REJECTED, loudly, naming the
+// holder — the operator can wait, or use --no-verify deliberately, but the
+// gate never claims a commit is fine when it never tested it. (A suite
+// TIMEOUT still fails open: that is a stopwatch verdict on a run that
+// actually happened, not a run that never started.)
+func TestPrecommit_Mechanical_RejectsWhenNoSlotComesFree(t *testing.T) {
 	withIsolatedBuildLock(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeCargoRepo(t)
 	write(t, root, "src/widget.rs", "pub fn widget() -> i32 { 1 }\n")
 	gitDo(t, root, "add", ".")
 
-	release, ok := acquireBuildLock(time.Second)
+	_, release, ok := acquireBuildSlot(resolvedDevTarget(root), time.Second, "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
-		t.Fatal("setup: must be able to take the build lock")
+		t.Fatal("setup: must be able to take the gate target's only build slot")
 	}
 	defer release()
-	writeBuildLockOwner("cargo nextest run -p other-crate", "/some/other/repo")
-	defer removeBuildLockOwner()
 
-	var invoked bool
-	run := func(Runner, string) SuiteResult {
-		invoked = true
+	// Only the SUITE stage needs a build slot; fmt compiles nothing and runs
+	// first, so it is expected to have run.
+	var suiteRan bool
+	res := Precommit(root, func(r Runner, _ string) SuiteResult {
+		if !isQualityRunner(r) {
+			suiteRan = true
+		}
 		return SuiteResult{Passed: true}
-	}
+	})
 
-	res := Precommit(root, run)
-	if res.Blocked {
-		t.Fatalf("lock contention must fail OPEN, never block: %s", res.Message)
-	}
-	if res.Message == "" || !strings.Contains(res.Message, "QUEUED-SKIPPED") {
-		t.Fatalf("expected a non-empty QUEUED-SKIPPED Message, got %q", res.Message)
+	if !res.Blocked {
+		t.Fatalf("a commit the gate could not test must be REJECTED, got: %s", res.Message)
 	}
 	if !strings.Contains(res.Message, "cargo nextest run -p other-crate") || !strings.Contains(res.Message, "/some/other/repo") {
-		t.Fatalf("expected the QUEUED-SKIPPED Message to name the holder's cmd/cwd, got: %s", res.Message)
+		t.Fatalf("the rejection must name the holder so the operator knows what to wait for, got: %s", res.Message)
 	}
-	if invoked {
-		t.Fatal("the mechanical suite must never run while the build lock is held by someone else")
+	if suiteRan {
+		t.Fatal("the suite must never run while every slot is busy")
 	}
 }

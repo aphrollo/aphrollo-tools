@@ -19,6 +19,10 @@ import (
 var gitGateHooks = []struct{ name, sub string }{
 	{"pre-commit", "precommit"},
 	{"pre-merge-commit", "premergecommit"},
+	// commit-msg fires for EVERY commit, including a non-fast-forward merge,
+	// which is the point: the message is the one artefact that leaves the
+	// machine. Inert unless a workspace opts in with `undercover = true`.
+	{"commit-msg", "commitmsg"},
 }
 
 // prunedHooks are hook names this tool prunes but never installs. A re-install
@@ -35,7 +39,7 @@ var prunedHooks = []string{"pre-push"}
 // `C:Users…aphrollo.exe`, every gated commit fails "not found". Quoting also
 // survives spaces (`C:\Program Files\…`).
 func binShim(bin, sub string) string {
-	return "#!/bin/sh\n" + installMarker + "\nexec \"" + shellPath(bin) + "\" tdd " + sub + " \"$@\"\n"
+	return "#!/bin/sh\n" + installMarker + "\nexec \"" + shellPath(bin) + "\" " + CmdName + " " + sub + " \"$@\"\n"
 }
 
 // shellPath renders a binary path for embedding in a shell command line:

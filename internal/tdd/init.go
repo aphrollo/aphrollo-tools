@@ -62,8 +62,10 @@ var legacyCmdMarkers = []string{"/hooks/tdd-", "claude-code-tdd"}
 // a renamed install. Node-plugin entries match too, so init removes them.
 func isManagedCmd(cmd string) bool {
 	for _, me := range managedEvents {
-		if strings.Contains(cmd, "tdd "+me.sub) {
-			return true
+		for _, name := range []string{CmdName, LegacyCmdName} {
+			if strings.Contains(cmd, name+" "+me.sub) {
+				return true
+			}
 		}
 	}
 	// Legacy markers are written with forward slashes; a Windows install's
@@ -199,7 +201,7 @@ func (me managedEvent) group(bin string) any {
 			// Slash-normalized + quoted like the git shims: hook commands run
 			// through a shell, where a raw Windows path's backslashes are
 			// escapes — the session hooks died "command not found" live.
-			"command": fmt.Sprintf("%q tdd %s", shellPath(bin), me.sub),
+			"command": fmt.Sprintf("%q %s %s", shellPath(bin), CmdName, me.sub),
 			"timeout": me.timeout,
 		}},
 	}

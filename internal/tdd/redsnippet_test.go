@@ -82,7 +82,7 @@ func TestPostEdit_Red_LongNextestFailure_TailSnippetNamesFailureAndLogsFullOutpu
 		t.Fatalf("expected the snippet body to include the failure detail after the FAIL line, got:\n%s", got)
 	}
 
-	logPath := filepath.Join(cfg, "tdd-state", "postedit-red.log")
+	logPath := filepath.Join(cfg, "gate-state", "postedit-red.log")
 	if !strings.Contains(got, logPath) {
 		t.Fatalf("expected the advisory to name the full-output log path %s, got:\n%s", logPath, got)
 	}
@@ -120,7 +120,7 @@ func TestPostEdit_Red_CompileError_HeadSnippetKeepsErrorLine(t *testing.T) {
 		t.Fatalf("a compile error has no failing TEST name to report, got:\n%s", got)
 	}
 
-	logPath := filepath.Join(cfg, "tdd-state", "postedit-red.log")
+	logPath := filepath.Join(cfg, "gate-state", "postedit-red.log")
 	data, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("postedit-red.log not written: %v", err)

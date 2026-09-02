@@ -47,34 +47,48 @@ func HandlePrompt(raw []byte) PromptResult {
 		return PromptResult{}
 	}
 	p := strings.TrimSpace(in.Prompt)
-	if p == "/tdd" || strings.HasPrefix(p, "/tdd ") {
+	if isGateCommand(p) {
 		sub := ""
 		if f := strings.Fields(p); len(f) > 1 {
 			sub = strings.ToLower(f[1])
 		}
 		return PromptResult{Block: true, Message: tddCommand(sub, in.SessionID)}
 	}
+	if harvested := promptHarvest(in.SessionID, in.Cwd); harvested != "" {
+		return PromptResult{Message: harvested}
+	}
 	return PromptResult{Message: reinforce(in.SessionID, in.Cwd)}
 }
 
-// tddCommand handles a /tdd subcommand and returns the message to surface.
+// isGateCommand recognises the control command under both its new name and the
+// one sessions have in their fingers.
+func isGateCommand(p string) bool {
+	for _, name := range []string{"/" + CmdName, "/" + LegacyCmdName} {
+		if p == name || strings.HasPrefix(p, name+" ") {
+			return true
+		}
+	}
+	return false
+}
+
+// tddCommand handles a /gate subcommand and returns the message to surface.
 func tddCommand(sub, session string) string {
 	switch sub {
 	case "", "status":
 		return tddStatus(session)
 	case "off":
 		if err := setOff(session, true); err != nil {
-			return "tdd: could not persist the override (" + err.Error() + ")"
+			return "gate: could not persist the override (" + err.Error() + ")"
 		}
-		return "TDD enforcement OFF for this session — edits are no longer gated. Run `/tdd on` to re-enable."
+		return "TDD enforcement OFF for this session — edits are no longer gated. Run `/gate on` to re-enable."
 	case "on", "reset":
 		// reset clears any override, which is identical to turning enforcement on.
 		if err := setOff(session, false); err != nil {
-			return "tdd: could not persist the override (" + err.Error() + ")"
+			return "gate: could not persist the override (" + err.Error() + ")"
 		}
 		return "TDD enforcement ON for this session."
 	default:
-		return "tdd: unknown subcommand " + sub + " — valid: /tdd [status|off|on|reset]"
+		return "gate: unknown subcommand " + sub + " — valid: /gate [status|off|on|reset]"
 	}
 }
 
@@ -123,7 +137,7 @@ func reinforce(session, cwd string) string {
 	if !ok || !Outcome(ps.Outcome).IsRed() {
 		return ""
 	}
-	return fmt.Sprintf("tdd: last test outcome on %s was RED (%s) — make it green before adding behavior.",
+	return fmt.Sprintf("gate: last test outcome on %s was RED (%s) — make it green before adding behavior.",
 		filepath.Base(root), ps.Outcome)
 }
 
@@ -178,6 +192,7 @@ func EndSession(raw []byte) {
 
 type sessionStartInput struct {
 	SessionID string `json:"session_id"`
+	Cwd       string `json:"cwd"`
 }
 
 // skillNudge is injected at session start. The commit gate enforces the
@@ -186,12 +201,13 @@ type sessionStartInput struct {
 // (test sizing, the pyramid ratio, DAMP-over-DRY, thin vertical slices) live
 // only there. So the directive is to INVOKE it, not a paraphrase of its
 // contents: the skill body stays out of context until the model reads it on
-// demand. As of 2026-08-15 (build-infra-fix task A2) it also states the loud-
-// gates contract directly: the hooks run the tests, not the model, so
-// re-running a suite by hand after every edit "to check" is now redundant
-// work — read the `tdd:` line the PostToolUse hook already printed instead.
-const skillNudge = "tdd: before writing or changing any code this session, invoke the " +
-	"`superpowers:test-driven-development` skill (read its SKILL.md). The hooks run the tests, not you: " +
+// demand. The skill named here is the one `gate init` writes into the config
+// dir, so the nudge cannot outlive its target. It also states the loud-gates
+// contract directly: the hooks run the tests, not the model, so re-running a
+// suite by hand after every edit "to check" is redundant work — read the
+// `tdd:` line the PostToolUse hook already printed instead.
+const skillNudge = "gate: before writing or changing any code this session, invoke the " +
+	"`tdd` skill (read its SKILL.md). The hooks run the tests, not you: " +
 	"after every Edit/Write, read the `tdd:` line the PostToolUse hook prints (green with count / " +
 	"red-missing-impl / red / TIMEOUT / SKIPPED / QUEUED-SKIPPED) instead of running a suite by hand to " +
 	"check — the only manual runs are mutation proofs, soaks, or a targeted rerun after the hook said " +
@@ -210,7 +226,23 @@ func HandleSessionStart(raw []byte) string {
 	if s, _ := loadSession(in.SessionID); s != nil && s.Overrides.Off {
 		return ""
 	}
-	return skillNudge
+	// Disk hygiene rides along here because session start is the only
+	// moment nobody is waiting on a build: the sweep itself is detached
+	// (see maybeStartBackgroundGC), so what this session surfaces is the
+	// PREVIOUS one's result — one line, only when it actually freed
+	// something.
+	line := gcReportLine()
+	maybeStartBackgroundGC(in.Cwd)
+	// At most one extra line each, in a fixed order: a session start that
+	// scrolls is a session start nobody reads.
+	parts := []string{skillNudge}
+	if hint := ratchetHintLine(in.Cwd); hint != "" {
+		parts = append(parts, hint)
+	}
+	if line != "" {
+		parts = append(parts, line)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // RenderSessionStart turns the nudge into the SessionStart hook payload: a

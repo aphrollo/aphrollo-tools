@@ -6,24 +6,27 @@ import (
 	"testing"
 )
 
-// TestHandleSessionStart_NudgesSkills pins the CONTRACT the nudge must state
-// (updated 2026-08-15, build-infra-fix task A2), not its exact wording: it
-// names an existing skill (superpowers:test-driven-development —
-// "incremental-implementation" does not exist on this box and was a dead
-// reference), and it says the hooks — not the model — run the tests, so a
-// session stops re-running suites by hand the loud gates already ran and
-// reported. Checking behaviorally important phrases rather than the full
-// string keeps this from being a change detector on prose.
+// TestHandleSessionStart_NudgesSkills pins the CONTRACT the nudge must state,
+// not its exact wording: it names a skill that EXISTS on the box — the `tdd`
+// skill `gate init` writes, not a plugin that may be uninstalled — and it says
+// the hooks, not the model, run the tests, so a session stops re-running
+// suites the loud gates already ran and reported. Checking behaviorally
+// important phrases rather than the full string keeps this from being a change
+// detector on prose.
 func TestHandleSessionStart_NudgesSkills(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	msg := HandleSessionStart([]byte(`{"session_id":"ss-1"}`))
-	for _, want := range []string{"superpowers:test-driven-development", "hooks run the tests", "TIMEOUT"} {
+	for _, want := range []string{"`tdd` skill", "hooks run the tests", "TIMEOUT"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("session-start nudge missing %q:\n%s", want, msg)
 		}
 	}
-	if strings.Contains(msg, "incremental-implementation") {
-		t.Errorf("nudge must not reference the nonexistent incremental-implementation skill:\n%s", msg)
+	// Both are skills this box no longer installs: a nudge naming one sends
+	// the session looking for a file that is not there.
+	for _, dead := range []string{"superpowers:", "incremental-implementation"} {
+		if strings.Contains(msg, dead) {
+			t.Errorf("nudge references the uninstalled %q:\n%s", dead, msg)
+		}
 	}
 }
 

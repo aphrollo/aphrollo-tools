@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -24,6 +25,7 @@ func isolateGit(t *testing.T) {
 // `tdd init --no-git` writes the session hooks into the given config dir and is
 // reversible with --uninstall.
 func TestRun_TDDInit(t *testing.T) {
+	t.Chdir(t.TempDir()) // init patches the CWD repo's CLAUDE.md — never this repo's
 	dir := t.TempDir()
 	var out, errb bytes.Buffer
 	code := Run([]string{"tdd", "init", "--config-dir", dir, "--bin", "/usr/local/bin/aphrollo", "--no-git"},
@@ -35,7 +37,7 @@ func TestRun_TDDInit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("settings.json not written: %v", err)
 	}
-	if !strings.Contains(string(data), `/usr/local/bin/aphrollo\" tdd pretooluse`) {
+	if !strings.Contains(string(data), `/usr/local/bin/aphrollo\" gate pretooluse`) {
 		t.Errorf("settings.json missing wired hook:\n%s", data)
 	}
 
@@ -47,7 +49,7 @@ func TestRun_TDDInit(t *testing.T) {
 		t.Fatalf("uninstall exit = %d, want 0\nstderr: %s", code, errb.String())
 	}
 	data, _ = os.ReadFile(filepath.Join(dir, "settings.json"))
-	if strings.Contains(string(data), "tdd pretooluse") {
+	if strings.Contains(string(data), "gate pretooluse") {
 		t.Errorf("uninstall left hooks behind:\n%s", data)
 	}
 }
@@ -55,6 +57,7 @@ func TestRun_TDDInit(t *testing.T) {
 // `tdd init` (no --no-git) also installs the git gate: shims plus a global
 // core.hooksPath. One command sets up everything.
 func TestRun_TDDInit_GitGate(t *testing.T) {
+	t.Chdir(t.TempDir())
 	isolateGit(t)
 	cfg := t.TempDir()
 	hooks := filepath.Join(t.TempDir(), "githooks")
@@ -100,6 +103,7 @@ func TestRun_TDDInit_GitGate(t *testing.T) {
 // use. --uninstall deliberately leaves it in place (see InstallCargoShim's
 // doc comment).
 func TestRun_TDDInit_CargoShim(t *testing.T) {
+	t.Chdir(t.TempDir())
 	isolateGit(t)
 	cfg := t.TempDir()
 	hooks := filepath.Join(t.TempDir(), "githooks")
@@ -157,7 +161,7 @@ func TestRun_TDDPrepush_IsNoOp(t *testing.T) {
 	}
 }
 
-// `tdd premergecommit` outside a git repo must be a pure no-op (exit 0, no
+// `gate premergecommit` outside a git repo must be a pure no-op (exit 0, no
 // git/repo work attempted) — the same "not in a repo, nothing to gate" rule
 // precommit follows.
 func TestRun_TDDPremergecommit_NoOpOutsideRepo(t *testing.T) {
@@ -174,7 +178,7 @@ func TestRun_TDDPremergecommit_NoOpOutsideRepo(t *testing.T) {
 	}
 }
 
-// `tdd premergecommit` on a real repo dispatches to Mechanical, not
+// `gate premergecommit` on a real repo dispatches to Mechanical, not
 // Precommit: a docs/plain-text-only staged change (no source or test file)
 // exits 0 and reports "nothing to test" on stderr — proving the subcommand
 // is actually wired up, not merely a no-op stub like prepush.
@@ -190,7 +194,7 @@ func TestRun_TDDPremergecommit_DocsOnlyIsNoOpWithMessage(t *testing.T) {
 	}
 }
 
-// TestRun_TDDCargo_DispatchesToShim proves `aphrollo tdd cargo ...` is
+// TestRun_TDDCargo_DispatchesToShim proves `aphrollo gate cargo ...` is
 // actually wired through Run's subcommand switch to the shim, not merely
 // tested at runCargoShim's own level — an uncontended lock, exit code
 // propagated from the (stubbed) real cargo, and silence on stderr.
@@ -201,10 +205,10 @@ func TestRun_TDDCargo_DispatchesToShim(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := Run(append([]string{"tdd", "cargo"}, stubCargoArgsExit(3)...), strings.NewReader(""), &out, &errb)
 	if code != 3 {
-		t.Fatalf("tdd cargo exit = %d, want 3 (propagated from the stub)", code)
+		t.Fatalf("gate cargo exit = %d, want 3 (propagated from the stub)", code)
 	}
 	if errb.Len() != 0 {
-		t.Fatalf("an uncontended tdd cargo run must print nothing to stderr, got: %q", errb.String())
+		t.Fatalf("an uncontended gate cargo run must print nothing to stderr, got: %q", errb.String())
 	}
 }
 
@@ -495,7 +499,7 @@ func TestRun_TDD_SessionStart_NudgesSkills(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
-	if !strings.Contains(out.String(), "test-driven-development") ||
+	if !strings.Contains(out.String(), "`tdd` skill") ||
 		!strings.Contains(out.String(), `"hookEventName":"SessionStart"`) {
 		t.Fatalf("sessionstart should inject the skill nudge:\n%s", out.String())
 	}
@@ -891,6 +895,30 @@ func TestRun_Help_ExitsZero(t *testing.T) {
 	}
 }
 
+// The subcommand family is `gate`; `tdd` stays a silent alias for one release
+// so a hook or shim installed before the rename keeps working until the next
+// init rewrites it.
+func TestRun_GateIsTheCommandAndTDDIsASilentAlias(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Run([]string{"gate", "help"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("gate help exit = %d: %s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "usage: aphrollo gate") {
+		t.Errorf("usage does not name the gate command:\n%s", out.String())
+	}
+
+	var aliasOut, aliasErr bytes.Buffer
+	if code := Run([]string{"tdd", "help"}, strings.NewReader(""), &aliasOut, &aliasErr); code != 0 {
+		t.Fatalf("tdd help exit = %d: %s", code, aliasErr.String())
+	}
+	if aliasOut.String() != out.String() {
+		t.Errorf("the alias must dispatch to the same command:\n%s", aliasOut.String())
+	}
+	if aliasErr.Len() != 0 {
+		t.Errorf("the alias must be silent, got %q", aliasErr.String())
+	}
+}
+
 // An unwritable cargo-shim dir must NOT fail `tdd init`. The shims are an
 // opt-in convenience (a session prepends the dir to its own PATH); the two
 // things init exists for — the session hooks and the git gate — are the
@@ -899,9 +927,13 @@ func TestRun_Help_ExitsZero(t *testing.T) {
 // `mkdir /usr/local/bin/cargo-queue: permission denied` when the task ran as
 // an unprivileged user against a system-wide --bin.
 func TestRun_TDDInit_UnwritableShimDir_WarnsButSucceeds(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod does not deny directory writes on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory permissions")
 	}
+	t.Chdir(t.TempDir()) // init patches the CWD repo's CLAUDE.md — never this repo's
 	isolateGit(t)
 	cfg := t.TempDir()
 	hooks := filepath.Join(t.TempDir(), "githooks")

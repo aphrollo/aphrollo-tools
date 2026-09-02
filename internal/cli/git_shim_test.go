@@ -53,11 +53,11 @@ func TestGitGlobalArgs_TableDriven(t *testing.T) {
 	}
 }
 
-// TestIsGitMutatingVerb_TableDriven pins the verb classification table
+// TestGitLockScopeFor_TableDriven pins the verb classification table
 // (requirement 2), including the three conditional verbs: restore is
 // mutating ONLY with --staged, apply ONLY with --index/--cached, worktree
 // ONLY for add/remove.
-func TestIsGitMutatingVerb_TableDriven(t *testing.T) {
+func TestGitLockScopeFor_TableDriven(t *testing.T) {
 	cases := []struct {
 		name string
 		rest []string
@@ -85,7 +85,7 @@ func TestIsGitMutatingVerb_TableDriven(t *testing.T) {
 		{"rev-parse", []string{"rev-parse", "--git-dir"}, false},
 		{"ls-files", []string{"ls-files"}, false},
 		{"branch listing", []string{"branch"}, false},
-		{"fetch", []string{"fetch"}, false},
+		{"fetch", []string{"fetch"}, true}, // shared state: repo-scoped, but locked
 		{"remote", []string{"remote", "-v"}, false},
 		{"config get", []string{"config", "user.name"}, false},
 		{"blame", []string{"blame", "file"}, false},
@@ -108,20 +108,20 @@ func TestIsGitMutatingVerb_TableDriven(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := isGitMutatingVerb(c.rest); got != c.want {
-				t.Fatalf("isGitMutatingVerb(%v) = %v, want %v", c.rest, got, c.want)
+			if got := gitLockScopeFor(c.rest) != gitNoLock; got != c.want {
+				t.Fatalf("gitLockScopeFor(%v) locked = %v, want %v", c.rest, got, c.want)
 			}
 		})
 	}
 }
 
-// TestIsGitMutatingVerb_HonorsGlobalOptionsBeforeVerb pins that a global
+// TestGitLockScopeFor_HonorsGlobalOptionsBeforeVerb pins that a global
 // option ahead of the verb (e.g. -C dir) does not itself get misread as the
 // verb -- the caller must skip it via gitGlobalArgs first.
-func TestIsGitMutatingVerb_HonorsGlobalOptionsBeforeVerb(t *testing.T) {
+func TestGitLockScopeFor_HonorsGlobalOptionsBeforeVerb(t *testing.T) {
 	_, rest := gitGlobalArgs([]string{"-C", "/repo", "commit", "-m", "x"})
-	if !isGitMutatingVerb(rest) {
-		t.Fatal("commit behind a -C global option must still classify as mutating")
+	if gitLockScopeFor(rest) != gitWorktreeScope {
+		t.Fatal("commit behind a -C global option must still classify as an index mutation")
 	}
 }
 
@@ -137,7 +137,7 @@ var (
 //   - any invocation containing "--git-common-dir" responds by printing
 //     APHROLLO_TEST_GIT_COMMON_DIR to stdout and exiting 0 (or exiting 1,
 //     printing nothing, if that env var is unset -- simulating "not a
-//     repo", per gitCommonDir's ok=false contract).
+//     repo", per gitLockDir's ok=false contract).
 //   - every other invocation exits 0, unless APHROLLO_TEST_STUB_FAIL_ON
 //     names its own first argument (the verb), in which case it exits 1.
 //
@@ -148,6 +148,7 @@ func gitStub(t *testing.T) string {
 	t.Helper()
 	gitStubOnce.Do(func() {
 		dir, err := os.MkdirTemp("", "aphrollo-git-stub-")
+		registerStubDir(dir)
 		if err != nil {
 			gitStubErr = err
 			return
@@ -157,6 +158,17 @@ func gitStub(t *testing.T) string {
 			"import (\n\t\"os\"\n\t\"fmt\"\n)\n\n" +
 			"func main() {\n" +
 			"\tfor _, a := range os.Args[1:] {\n" +
+			"\t\tif a == \"--git-dir\" {\n" +
+			"\t\t\td := os.Getenv(\"APHROLLO_TEST_GIT_DIR\")\n" +
+			"\t\t\tif d == \"\" {\n" +
+			"\t\t\t\td = os.Getenv(\"APHROLLO_TEST_GIT_COMMON_DIR\")\n" +
+			"\t\t\t}\n" +
+			"\t\t\tif d == \"\" {\n" +
+			"\t\t\t\tos.Exit(1)\n" +
+			"\t\t\t}\n" +
+			"\t\t\tfmt.Println(d)\n" +
+			"\t\t\tos.Exit(0)\n" +
+			"\t\t}\n" +
 			"\t\tif a == \"--git-common-dir\" {\n" +
 			"\t\t\tcd := os.Getenv(\"APHROLLO_TEST_GIT_COMMON_DIR\")\n" +
 			"\t\t\tif cd == \"\" {\n" +
@@ -191,6 +203,18 @@ func gitStub(t *testing.T) string {
 		t.Fatalf("could not build the git test stub: %v", gitStubErr)
 	}
 	return gitStubPath
+}
+
+// withDirectGitShim clears the two "someone above me already holds it"
+// passthrough switches for the test's duration. The commit gate runs every
+// suite with APHROLLO_GIT_QUEUED=1 (cleanGitEnv marks aphrollo's own git
+// children so they never wait on the lock their parent holds), so a test of
+// the LOCKING path that inherits it exercises the passthrough instead —
+// green under a bare `go test`, red under the very gate it protects.
+func withDirectGitShim(t *testing.T) {
+	t.Helper()
+	t.Setenv(tdd.GitQueuedEnv, "")
+	t.Setenv(tdd.BuildLockHeldEnv, "")
 }
 
 func testGitShimConfig(t *testing.T) gitShimConfig {
@@ -232,7 +256,7 @@ func (s *signalOnFirstWrite) Write(p []byte) (int, error) {
 // call. APHROLLO_TEST_GIT_COMMON_DIR is deliberately left unset: if the
 // shim mistakenly tried to resolve the repo dir for a read-only verb, the
 // commonDir probe would fail (ok=false) and it would STILL pass through per
-// gitCommonDir's fallback, so the call-count assertion below is what
+// gitLockDir's fallback, so the call-count assertion below is what
 // actually pins that a read-only verb never even reaches that code path
 // (a second, unwanted rev-parse call would show up as calls[1]).
 func TestRunGitShim_ReadOnlyVerb_NeverTouchesLock(t *testing.T) {
@@ -317,7 +341,7 @@ func TestRunGitShim_PassthroughWhenBuildLockHeldEnvSet(t *testing.T) {
 // --- mutating verb: lock contention -----------------------------------
 
 // gitCommonDirEnv sets up a temp dir as the fake repo's common git dir, so
-// gitCommonDir's stub-driven rev-parse resolves to it -- this IS the dir
+// gitLockDir's stub-driven rev-parse resolves to it -- this IS the dir
 // the shim's lock/owner files live under, so tests can pre-seed/inspect
 // them directly.
 func gitCommonDirEnv(t *testing.T) string {
@@ -344,6 +368,7 @@ func gitCommonDirEnv(t *testing.T) string {
 // instant the queued line is observed (via signalOnFirstWrite), not after
 // a guessed delay.
 func TestRunGitShim_WaitsPrintsQueuedOnceAndAcquiredOnce(t *testing.T) {
+	withDirectGitShim(t)
 	commonDir := gitCommonDirEnv(t)
 	lockPath := commonDir + "/" + gitLockFileName
 	ownerPath := commonDir + "/" + gitOwnerFileName
@@ -391,6 +416,7 @@ func TestRunGitShim_WaitsPrintsQueuedOnceAndAcquiredOnce(t *testing.T) {
 // lock is held for the test's entire duration (t.Cleanup releases it), so
 // no synchronization is needed beyond the shim's own bounded wait.
 func TestRunGitShim_GivesUpAfterWaitBudget_Exits75(t *testing.T) {
+	withDirectGitShim(t)
 	commonDir := gitCommonDirEnv(t)
 	lockPath := commonDir + "/" + gitLockFileName
 
@@ -435,6 +461,7 @@ func TestRunGitShim_GivesUpAfterWaitBudget_Exits75(t *testing.T) {
 // disappear, then proceed once it does -- removed the instant the queued
 // line is observed, via signalOnFirstWrite, not after a guessed delay.
 func TestRunGitShim_IndexLockPresentWithoutOwner_WaitsThenProceeds(t *testing.T) {
+	withDirectGitShim(t)
 	commonDir := gitCommonDirEnv(t)
 	indexLockPath := commonDir + "/index.lock"
 	if err := os.WriteFile(indexLockPath, nil, 0o644); err != nil {

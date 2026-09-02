@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,7 +35,8 @@ Commands:
   workspace   Create/claim/list/remove git worktrees (safe.directory + deps + dev-tier)
   dev         Dev-tier control plane: up/down/restart/status/logs
   guardrail   PreToolUse policy hook for coder/devops sessions
-  tdd         Autonomous TDD gates (Claude + git hooks)
+  gate        Autonomous TDD + law gates (Claude + git hooks); tdd is a silent alias
+  ratchet     Judge a repo against its declared code laws (.ratchet/laws/*.toml)
   sqlc        Guard sqlc-generated code against drift (check / scoped regen)
   docs        Guard doc-cited repo paths against dangling references (check)
 `
@@ -85,8 +87,12 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runDev(args[1:], stdout, stderr)
 	case "guardrail":
 		return runGuardrail(args[1:], stdin, stdout, stderr)
-	case "tdd":
-		return runTDD(args[1:], stdin, stdout, stderr)
+	// `tdd` is the pre-rename spelling, kept silent for one release so a hook
+	// or shim installed before the rename keeps working until init rewrites it.
+	case "gate", "tdd":
+		return runGate(args[1:], stdin, stdout, stderr)
+	case "ratchet":
+		return runRatchet(args[1:], stdout, stderr)
 	case "sqlc":
 		return runSqlc(args[1:], stdout, stderr)
 	case "docs":
@@ -206,23 +212,30 @@ func runGuardrail(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 	return code
 }
 
-const tddUsage = `usage: aphrollo tdd <subcommand>
+const gateUsage = `usage: aphrollo gate <subcommand>
 
 Subcommands:
   sessionstart      Inject the build-skill nudge at session start
   pretooluse        Evaluate a Claude Code PreToolUse edit payload from stdin
   posttooluse       Run related tests after an edit and report RED/GREEN
-  userpromptsubmit  Handle the /tdd command and re-inject a RED reminder
+  userpromptsubmit  Handle the /gate command and re-inject a RED reminder
   sessionend        Drop the session's state file
   precommit         Git pre-commit gate: fail-first + mechanical (run in the repo)
   premergecommit    Git pre-merge-commit gate: mechanical ONLY, no fail-first/anti-cheat
   prepush           No-op (mechanical-only mode); kept for back-compat with a
                     lingering pre-push shim. Never blocks.
+  runphase          Run one deferred build/run phase from its job record (--job);
+                    spawned by posttooluse, not typed by hand
+  commitmsg         commit-msg hook: reject a message carrying a deny pattern
+                    (opt-in per workspace: undercover = true)
+  stats             Tally gate.log by stage and outcome (--since 7d)
+  gc                Reclaim stale build dirs: idle incremental caches, dead gate dirs,
+                    orphan worktree builds (--repo, --older-than 3d, --apply)
   install           Install the git-hook shims into a repo (--repo, --apply)
   init              Set up TDD: session hooks in settings.json + the global git gate (--no-git, --uninstall)
   cargo             cargo-queue shim: queue a DIRECT cargo invocation behind the same
-                    machine-wide build lock the hooks/gates use (APHROLLO_CARGO_WAIT_SECS,
-                    APHROLLO_REAL_CARGO)
+                    per-target-dir build slots the hooks/gates use (APHROLLO_CARGO_WAIT_SECS,
+                    APHROLLO_BUILD_SLOTS, APHROLLO_REAL_CARGO)
   git               git-queue shim: queue a DIRECT index-mutating git invocation behind a
                     per-repo lock so concurrent sessions sharing one checkout don't collide
                     on .git/index.lock (APHROLLO_GIT_WAIT_SECS, APHROLLO_REAL_GIT)
@@ -232,7 +245,7 @@ test file (real-time sleep, tautological assertion, focused/disabled test) it
 exits 2 with a deny envelope, and warns on a suppression; otherwise it is
 silent. posttooluse runs the project's related tests after an edit and surfaces
 a failure summary (silent unless RED). userpromptsubmit intercepts
-/tdd [status|off|on|reset] and otherwise re-injects the last RED outcome.
+/gate [status|off|on|reset] and otherwise re-injects the last RED outcome.
 sessionend cleans up the per-session state file. precommit verifies fail-first,
 blocks a newly-added suppression, and runs the suite, exiting non-zero to block.
 premergecommit runs ONLY the mechanical stage over the merge's staged files —
@@ -278,33 +291,93 @@ const (
 	precommitTimeout = tdd.DefaultPrecommitTimeout
 )
 
-// runTDD dispatches the TDD hook subcommands. Like the guardrail hook, every
+// defaultPrecommitLockWait is how long a commit's cargo stage queues for a
+// build slot before REJECTING the commit. Twenty minutes: the gate's target
+// dir is one per repo, so two lanes committing at once serialise behind each
+// other's full suite, and a short wait would throw away a legitimate commit.
+// It mirrors the tdd package's own default; the knob below is what an
+// operator on a busy box turns.
+const defaultPrecommitLockWait = 1200 * time.Second
+
+// The operator budget knobs live HERE, beside the defaults they override,
+// so every env switch this binary reads is declared in one place instead of
+// wherever it happens to be used:
+//
+//	APHROLLO_POSTEDIT_BUDGET_SECS  the edit hook's suite budget (default 100s)
+//	APHROLLO_LOCK_WAIT_SECS        the commit gate's build-slot wait (default 1200s)
+//
+// The edit hook's own build-slot wait is deliberately NOT tunable: it is
+// zero by contract (one try, then QUEUED-SKIPPED), because an edit that
+// waits spends its whole test budget losing a race to a multi-minute build.
+func postEditBudget() time.Duration {
+	return tdd.PostEditBudget()
+}
+
+func precommitLockWait() time.Duration {
+	return envDurationSecs("APHROLLO_LOCK_WAIT_SECS", defaultPrecommitLockWait)
+}
+
+// envDurationSecs reads a whole-number-of-seconds env knob. Anything that is
+// not one — unset, empty, negative, junk — keeps the shipped default: a
+// mistyped budget must never silently become zero and turn every run into an
+// instant timeout.
+func envDurationSecs(key string, def time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return def
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return def
+	}
+	return time.Duration(n) * time.Second
+}
+
+// runGate dispatches the TDD hook subcommands. Like the guardrail hook, every
 // path reads from the provided reader and a parse error fails OPEN (exit 0) so
 // a malformed payload can never wedge the session.
-func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		w, code := stderr, 2
 		if len(args) > 0 {
 			w, code = stdout, 0
 		}
-		fmt.Fprint(w, tddUsage)
+		fmt.Fprint(w, gateUsage)
 		return code
 	}
 	if args[0] == "install" {
-		return runTDDInstall(args[1:], stdout, stderr)
+		return runGateInstall(args[1:], stdout, stderr)
 	}
 	if args[0] == "init" {
-		return runTDDInit(args[1:], stdout, stderr)
+		return runGateInit(args[1:], stdout, stderr)
+	}
+	if args[0] == "commitmsg" {
+		// The commit-msg git hook: git hands it the message file path.
+		return runGateCommitMsg(args[1:], stderr)
+	}
+	if args[0] == "stats" {
+		// Read-only report over gate.log: pipeline health as a number.
+		return runGateStats(args[1:], stdout, stderr)
+	}
+	if args[0] == "gc" {
+		// Disk hygiene: dry-run by default, --apply reclaims.
+		return runGateGC(args[1:], stdout, stderr)
+	}
+	if args[0] == "runphase" {
+		// The detached build/run phase's wrapper: it holds the build slot,
+		// logs, and writes the result file the next hook harvests. It never
+		// blocks anything, so its exit code is always 0.
+		return runPhase(args[1:], stderr)
 	}
 	if args[0] == "cargo" {
 		// The cargo-queue shim (task A7): real terminal stdio, not the hook
 		// JSON protocol the rest of this switch reads.
-		return runTDDCargo(args[1:], stdin, stdout, stderr)
+		return runGateCargo(args[1:], stdin, stdout, stderr)
 	}
 	if args[0] == "git" {
 		// The git-queue shim (task A11): same shape as cargo above -- real
 		// terminal stdio, not the hook JSON protocol.
-		return runTDDGit(args[1:], stdin, stdout, stderr)
+		return runGateGit(args[1:], stdin, stdout, stderr)
 	}
 
 	// precommit/premergecommit/prepush are git hooks: no stdin, exit non-zero
@@ -315,7 +388,7 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// binary. It NEVER blocks. We keep the subcommand so a pre-push shim
 		// present on a box exits cleanly.
 		if args[0] == "prepush" {
-			fmt.Fprintln(stderr, "tdd prepush: mechanical-only, no-op")
+			fmt.Fprintln(stderr, "gate prepush: mechanical-only, no-op")
 			return 0
 		}
 		root := tdd.RepoRoot(".")
@@ -327,6 +400,7 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// still compiles and passes — fail-first and the anti-cheat scan are
 		// both judgments about how a change was AUTHORED, already settled by
 		// precommit on the commits being merged.
+		defer tdd.SetPrecommitLockWait(precommitLockWait())()
 		var res tdd.GateResult
 		if args[0] == "premergecommit" {
 			res = tdd.Mechanical(root, tdd.RunSuite(precommitTimeout))
@@ -347,7 +421,7 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "sessionstart", "pretooluse", "posttooluse", "userpromptsubmit", "sessionend":
 	default:
-		fmt.Fprintf(stderr, "aphrollo tdd: unknown subcommand %q\n\n%s", args[0], tddUsage)
+		fmt.Fprintf(stderr, "aphrollo gate: unknown subcommand %q\n\n%s", args[0], gateUsage)
 		return 2
 	}
 
@@ -366,8 +440,12 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		return code
 	case "posttooluse":
-		// PostToolUse never blocks: it only ever emits advisory context.
-		payload, code := tdd.RenderPostToolUse(tdd.PostEdit(raw, tdd.RunSuite(postEditTimeout)))
+		// PostToolUse never blocks: it only ever emits advisory context. It is
+		// also the one hook allowed to leave work running past its budget — a
+		// cold Bevy build does not fit in 110s and killing it establishes
+		// nothing.
+		tdd.EnableDeferredPhases(true)
+		payload, code := tdd.RenderPostToolUse(tdd.PostEdit(raw, tdd.RunSuite(postEditBudget())))
 		if len(payload) > 0 {
 			stdout.Write(payload)
 		}
@@ -386,12 +464,20 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	decision, err := tdd.DecidePreEdit(raw)
 	if err != nil {
-		fmt.Fprintf(stderr, "aphrollo tdd: %v (allowing)\n", err)
+		fmt.Fprintf(stderr, "aphrollo gate: %v (allowing)\n", err)
 		return 0
 	}
-	// When the content gate allows the edit, fall through to the worktree
+	// The declared laws judge the content this edit WOULD write. A content
+	// smell already blocking keeps its own reason; otherwise the more severe
+	// verdict wins, so a deny law denies the write before it lands.
+	if decision.Action != tdd.Block {
+		if r := tdd.RatchetAdvisory(raw); r.Action > decision.Action {
+			decision = r
+		}
+	}
+	// When everything above allows the edit, fall through to the worktree
 	// advisory: a once-per-session nudge when the edit lands in a main clone
-	// rather than a prepared worktree. A content Block/Warn takes precedence.
+	// rather than a prepared worktree.
 	if decision.Action == tdd.Allow {
 		decision = tdd.WorktreeAdvisory(raw)
 	}
@@ -402,11 +488,11 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return code
 }
 
-// runTDDInstall writes the git-hook shims into a single repo. tdd/refactor
+// runGateInstall writes the git-hook shims into a single repo. tdd/refactor
 // mutations kept the older dry-run-by-default + --apply model, so this defaults
 // to a dry-run and requires --apply; only the workspace verbs inverted to
 // execute-by-default with --dry.
-func runTDDInstall(args []string, stdout, stderr io.Writer) int {
+func runGateInstall(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
@@ -438,11 +524,11 @@ func runTDDInstall(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// runTDDInit wires (or, with --uninstall, removes) the aphrollo tdd session
+// runGateInit wires (or, with --uninstall, removes) the aphrollo tdd session
 // hooks in a Claude config dir's settings.json. It is the native replacement
 // for the retired claude-code-tdd install.sh: idempotent, backs up any existing
 // file, and resolves the config dir + invoked binary from sensible defaults.
-func runTDDInit(args []string, stdout, stderr io.Writer) int {
+func runGateInit(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
@@ -451,6 +537,8 @@ func runTDDInit(args []string, stdout, stderr io.Writer) int {
 		cargoShimDir = fs.String("cargo-shim-dir", "", "dir for the cargo-queue shim (default: alongside --bin, e.g. <bindir>/cargo-queue)")
 		gitHooksDir  = fs.String("git-hooks-dir", "", "git hooks dir for the global gate (default: $XDG_CONFIG_HOME/git/hooks or ~/.config/git/hooks)")
 		noGit        = fs.Bool("no-git", false, "skip the git pre-commit gate; wire session hooks only")
+		claudeMD     = fs.Bool("claude-md", false, "write the managed CLAUDE.md block even when the repo has no CLAUDE.md yet")
+		ratchetDoc   = fs.Bool("ratchet-readme", false, "write .ratchet/README.md even when the repo has no laws yet")
 		uninstall    = fs.Bool("uninstall", false, "remove the hooks instead of installing them")
 	)
 	if err := fs.Parse(args); err != nil {
@@ -474,11 +562,36 @@ func runTDDInit(args []string, stdout, stderr io.Writer) int {
 	path := filepath.Join(dir, "settings.json")
 	switch {
 	case !changed:
-		fmt.Fprintf(stdout, "aphrollo tdd: session hooks already up to date in %s\n", path)
+		fmt.Fprintf(stdout, "aphrollo gate: session hooks already up to date in %s\n", path)
 	case *uninstall:
-		fmt.Fprintf(stdout, "aphrollo tdd: removed session hooks from %s\n", path)
+		fmt.Fprintf(stdout, "aphrollo gate: removed session hooks from %s\n", path)
 	default:
-		fmt.Fprintf(stdout, "aphrollo tdd: wired session hooks in %s\n", path)
+		fmt.Fprintf(stdout, "aphrollo gate: wired session hooks in %s\n", path)
+	}
+
+	// The procedure the gate assumes — RED→GREEN, what makes a test worth
+	// keeping, evidence before a completion claim — ships with the binary
+	// that enforces it, as a user-level skill, so the two cannot drift and
+	// no plugin install is a prerequisite.
+	skill := filepath.Join(dir, "skills", "tdd", "SKILL.md")
+	if *uninstall {
+		removed, err := tdd.RemoveTDDSkill(dir)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		if removed {
+			fmt.Fprintf(stdout, "aphrollo gate: removed the tdd skill from %s\n", skill)
+		}
+	} else {
+		schanged, err := tdd.WriteTDDSkill(dir)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		if schanged {
+			fmt.Fprintf(stdout, "aphrollo gate: wrote the tdd skill in %s\n", skill)
+		}
 	}
 
 	if *noGit {
@@ -495,11 +608,11 @@ func runTDDInit(args []string, stdout, stderr io.Writer) int {
 	}
 	switch {
 	case !gchanged:
-		fmt.Fprintf(stdout, "aphrollo tdd: git gate already up to date (%s)\n", gdir)
+		fmt.Fprintf(stdout, "aphrollo gate: git gate already up to date (%s)\n", gdir)
 	case *uninstall:
-		fmt.Fprintf(stdout, "aphrollo tdd: removed git gate from %s\n", gdir)
+		fmt.Fprintf(stdout, "aphrollo gate: removed git gate from %s\n", gdir)
 	default:
-		fmt.Fprintf(stdout, "aphrollo tdd: installed git gate in %s (core.hooksPath)\n", gdir)
+		fmt.Fprintf(stdout, "aphrollo gate: installed git gate in %s (core.hooksPath)\n", gdir)
 	}
 
 	// cargo-queue shim (task A7): a machine-wide dir a session can prepend
@@ -519,9 +632,9 @@ func runTDDInit(args []string, stdout, stderr io.Writer) int {
 		case cerr != nil:
 			warnShimSkipped(stderr, cdir, cerr)
 		case cchanged:
-			fmt.Fprintf(stdout, "aphrollo tdd: installed cargo-queue shim in %s\n", cdir)
+			fmt.Fprintf(stdout, "aphrollo gate: installed cargo-queue shim in %s\n", cdir)
 		default:
-			fmt.Fprintf(stdout, "aphrollo tdd: cargo-queue shim already up to date (%s)\n", cdir)
+			fmt.Fprintf(stdout, "aphrollo gate: cargo-queue shim already up to date (%s)\n", cdir)
 		}
 
 		// git-queue shim (task A11): SAME queue dir as the cargo shim above
@@ -533,9 +646,33 @@ func runTDDInit(args []string, stdout, stderr io.Writer) int {
 		case gerr != nil:
 			warnShimSkipped(stderr, cdir, gerr)
 		case gchanged2:
-			fmt.Fprintf(stdout, "aphrollo tdd: installed git-queue shim in %s\n", cdir)
+			fmt.Fprintf(stdout, "aphrollo gate: installed git-queue shim in %s\n", cdir)
 		default:
-			fmt.Fprintf(stdout, "aphrollo tdd: git-queue shim already up to date (%s)\n", cdir)
+			fmt.Fprintf(stdout, "aphrollo gate: git-queue shim already up to date (%s)\n", cdir)
+		}
+
+		// The operating instructions belong in the one file a session always
+		// reads. A repo that keeps a CLAUDE.md gets the block automatically;
+		// one that does not is left alone unless asked with --claude-md.
+		if repo := tdd.RepoRoot("."); repo != "" {
+			changed, err := tdd.WriteClaudeMD(repo, cdir, *claudeMD)
+			switch {
+			case err != nil:
+				fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+				return 1
+			case changed:
+				fmt.Fprintf(stdout, "aphrollo gate: wrote the managed block in %s\n", filepath.Join(repo, "CLAUDE.md"))
+			}
+			// The law schema belongs beside the laws, so a repo's own docs can
+			// cite it instead of a path on the machine that installed this.
+			wrote, err := tdd.WriteRatchetReadme(repo, *ratchetDoc)
+			switch {
+			case err != nil:
+				fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+				return 1
+			case wrote:
+				fmt.Fprintf(stdout, "aphrollo gate: wrote the law spec in %s\n", filepath.Join(repo, ".ratchet", "README.md"))
+			}
 		}
 	}
 	return 0

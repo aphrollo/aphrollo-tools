@@ -68,9 +68,9 @@ func TestNarrowToRelatedTests_CargoTestFiles(t *testing.T) {
 			want:   Runner{"cargo", []string{"test", "--test", "integration"}, "", time.Time{}},
 		},
 		{
-			name:   "rust test file outside tests/ → --lib",
+			name:   "rust test module under src/ → --lib, filtered to that module",
 			target: filepath.Join(root, "src", "thing_test.rs"),
-			want:   Runner{"cargo", []string{"test", "--lib"}, "", time.Time{}},
+			want:   Runner{"cargo", []string{"test", "--lib", "thing_test::"}, "", time.Time{}},
 		},
 	}
 	for _, c := range cases {
@@ -95,7 +95,7 @@ func TestNarrowToRelatedTests_CargoSourceEdits(t *testing.T) {
 		write(t, root, "src/lib.rs", "pub fn base() -> i32 { 0 }\n")
 		write(t, root, "src/foo.rs", "pub fn foo() -> i32 { 1 }\n")
 		got := NarrowToRelatedTests(cargo, filepath.Join(root, "src", "foo.rs"), root)
-		want := Runner{"cargo", []string{"test", "--lib"}, "", time.Time{}}
+		want := Runner{"cargo", []string{"test", "--lib", "foo::"}, "", time.Time{}}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("lib-crate source narrow = %+v, want %+v", got, want)
 		}
@@ -298,7 +298,7 @@ func TestPrecommit_Mechanical_CargoWorkspaceScopedToStagedPackages(t *testing.T)
 		if len(seen) != 0 {
 			t.Fatalf("an unowned file must run NOTHING (full-suite fallback removed), ran: %+v", seen)
 		}
-		wantNote := "tdd precommit: tools/gen.rs has no owning cargo package — not tested"
+		wantNote := "gate precommit: tools/gen.rs has no owning cargo package — not tested"
 		if !strings.Contains(stderr, wantNote) {
 			t.Fatalf("expected unowned-file note %q, got stderr: %q", wantNote, stderr)
 		}
@@ -351,9 +351,11 @@ func TestCargoAlwaysRunPackages_OtherToolsMetadataIgnored(t *testing.T) {
 	}
 }
 
-// Break this catches: the union is never applied at the mechanical stage, so
-// the declared guard package is parsed and then dropped.
-func TestMechanical_CargoAlwaysRunPackage_JoinsScopedRun(t *testing.T) {
+// Break this catches: the declared guard package is parsed and then dropped,
+// or (the other failure mode) bundled into the touched-crate command, where
+// it waits for that crate to build before a pure crate's cheap suite can say
+// anything.
+func TestMechanical_CargoAlwaysRunPackage_RunsFirstAsItsOwnCommand(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeCargoWorkspaceRepo(t)
 	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/alpha\", \"crates/beta\"]\n\n"+
@@ -366,9 +368,16 @@ func TestMechanical_CargoAlwaysRunPackage_JoinsScopedRun(t *testing.T) {
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
-	want := Runner{Cmd: "cargo", Args: []string{"test", "-p", "alpha", "-p", "beta"}, Dir: root}
-	if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
-		t.Fatalf("mechanical run = %+v, want one %+v", seen, want)
+	wantGuard := Runner{Cmd: "cargo", Args: []string{"test", "-p", "beta"}, Dir: root}
+	wantTouched := Runner{Cmd: "cargo", Args: []string{"test", "-p", "alpha"}, Dir: root}
+	if len(seen) != 2 {
+		t.Fatalf("want the guard crate then the touched crate, got %+v", seen)
+	}
+	if !reflect.DeepEqual(seen[0], wantGuard) {
+		t.Fatalf("first run = %+v, want the guard crate alone %+v", seen[0], wantGuard)
+	}
+	if !reflect.DeepEqual(seen[1], wantTouched) {
+		t.Fatalf("second run = %+v, want the touched crate alone %+v", seen[1], wantTouched)
 	}
 }
 

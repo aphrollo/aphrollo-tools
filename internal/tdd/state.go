@@ -26,6 +26,10 @@ type projectState struct {
 	// blows the edit-time budget on a heavy crate (e.g. a Bevy client/server)
 	// once the pattern is established, while still granting a fresh budget
 	// the moment a commit lands and TimeoutSHA goes stale — see stampTimeout.
+	// PassedCount is the pass count of the last GREEN run for this project,
+	// so an edit that leaves the count untouched can be recognised as one
+	// that added no test.
+	PassedCount   int    `json:"passed_count,omitempty"`
 	TimeoutStreak int    `json:"timeout_streak,omitempty"`
 	TimeoutSHA    string `json:"timeout_sha,omitempty"`
 }
@@ -62,7 +66,28 @@ func stateDir() string {
 		}
 		base = filepath.Join(home, ".claude")
 	}
-	return filepath.Join(base, "tdd-state")
+	dir := filepath.Join(base, "gate-state")
+	migrateStateDir(filepath.Join(base, "tdd-state"), dir)
+	return dir
+}
+
+// migrateStateDir MOVES the pre-rename state dir to its new name, once. The
+// gate.log history, the mechanical-run cache, the receipts and every live
+// session file live there, so a rename that abandoned them would silently
+// throw away the pipeline's whole record. It runs only when the new dir does
+// not exist yet, and a failure is ignored: the caller then simply starts a
+// fresh dir rather than wedging on a directory it could not move.
+func migrateStateDir(old, current string) {
+	if old == current {
+		return
+	}
+	if _, err := os.Stat(current); err == nil {
+		return
+	}
+	if _, err := os.Stat(old); err != nil {
+		return
+	}
+	_ = os.Rename(old, current)
 }
 
 // loadSession reads a session's state. An EMPTY session id returns nil: the
@@ -227,3 +252,8 @@ func setOff(session string, off bool) error {
 	s.Overrides.Off = off
 	return s.save(path)
 }
+
+// StateDir is where the gate keeps its per-session state, gate.log, caches and
+// receipts. Exported so a sibling package (the ratchet engine's scan cache) can
+// share the one directory without re-deriving the CLAUDE_CONFIG_DIR rule.
+func StateDir() string { return stateDir() }

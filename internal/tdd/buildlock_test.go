@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -72,7 +73,8 @@ func TestBuildLockPathOverride_ConcurrentSetAndReadIsRaceFree(t *testing.T) {
 // failure this lock fixes).
 func TestAcquireBuildLock_SecondAcquirerBlocksUntilFirstReleases(t *testing.T) {
 	withIsolatedBuildLock(t)
-	release1, ok1 := acquireBuildLock(time.Second)
+	target := t.TempDir()
+	_, release1, ok1 := acquireBuildSlot(target, time.Second, "cargo build", "/repo")
 	if !ok1 {
 		t.Fatal("first acquirer must succeed immediately (uncontended)")
 	}
@@ -81,14 +83,14 @@ func TestAcquireBuildLock_SecondAcquirerBlocksUntilFirstReleases(t *testing.T) {
 	// bound — no real sleeps > 200ms in this suite, so the bound itself is
 	// deliberately tiny (the poll interval is 20ms, so several polls still
 	// fit inside 150ms).
-	if _, ok2 := acquireBuildLock(150 * time.Millisecond); ok2 {
+	if _, _, ok2 := acquireBuildSlot(target, 150*time.Millisecond, "cargo build", "/repo"); ok2 {
 		t.Fatal("second acquirer must not succeed while the first holds the lock")
 	}
 
 	release1()
 
 	// Now that the first released, a fresh attempt must succeed promptly.
-	release3, ok3 := acquireBuildLock(time.Second)
+	_, release3, ok3 := acquireBuildSlot(target, time.Second, "cargo build", "/repo")
 	if !ok3 {
 		t.Fatal("a third acquirer must succeed once the lock is released")
 	}
@@ -101,7 +103,8 @@ func TestAcquireBuildLock_SecondAcquirerBlocksUntilFirstReleases(t *testing.T) {
 // (it must actually have polled) and not by blocking indefinitely.
 func TestAcquireBuildLock_TimeoutPathReturnsFalseWithinBound(t *testing.T) {
 	withIsolatedBuildLock(t)
-	release, ok := acquireBuildLock(time.Second)
+	target := t.TempDir()
+	_, release, ok := acquireBuildSlot(target, time.Second, "cargo build", "/repo")
 	if !ok {
 		t.Fatal("setup: first acquirer must succeed")
 	}
@@ -109,7 +112,7 @@ func TestAcquireBuildLock_TimeoutPathReturnsFalseWithinBound(t *testing.T) {
 
 	const bound = 120 * time.Millisecond
 	start := time.Now()
-	_, ok2 := acquireBuildLock(bound)
+	_, _, ok2 := acquireBuildSlot(target, bound, "cargo build", "/repo")
 	elapsed := time.Since(start)
 
 	if ok2 {
@@ -129,14 +132,15 @@ func TestAcquireBuildLock_TimeoutPathReturnsFalseWithinBound(t *testing.T) {
 // harmless.
 func TestAcquireBuildLock_ReleaseIsIdempotentSafe(t *testing.T) {
 	withIsolatedBuildLock(t)
-	release, ok := acquireBuildLock(time.Second)
+	target := t.TempDir()
+	_, release, ok := acquireBuildSlot(target, time.Second, "cargo build", "/repo")
 	if !ok {
 		t.Fatal("setup: first acquirer must succeed")
 	}
 	release()
 	release() // must not panic
 
-	release2, ok2 := acquireBuildLock(time.Second)
+	_, release2, ok2 := acquireBuildSlot(target, time.Second, "cargo build", "/repo")
 	if !ok2 {
 		t.Fatal("a later acquirer must still succeed after a double release")
 	}
@@ -161,9 +165,10 @@ func TestRunCargoLocked_DeadlineCarvesLockWaitOutOfStageBudget(t *testing.T) {
 	// acquisition is forced to actually wait — a real wait, not an
 	// instantaneous uncontended grab, or this test would prove nothing.
 	const holdFor = 80 * time.Millisecond
-	release, ok := acquireBuildLock(time.Second)
+	root := t.TempDir()
+	_, release, ok := acquireBuildSlot(resolveTargetDir(os.Getenv, root), time.Second, "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
-		t.Fatal("setup: must be able to take the build lock")
+		t.Fatal("setup: must be able to take the build slot")
 	}
 	go func() {
 		time.Sleep(holdFor)
@@ -177,7 +182,7 @@ func TestRunCargoLocked_DeadlineCarvesLockWaitOutOfStageBudget(t *testing.T) {
 	}
 
 	const stageBudget = 500 * time.Millisecond
-	res, waited, acquired := runCargoLocked(stub, Runner{Cmd: "cargo"}, t.TempDir(), time.Second, stageBudget)
+	res, waited, acquired := runCargoLocked(stub, Runner{Cmd: "cargo"}, root, time.Second, stageBudget)
 	if !acquired || !res.Passed {
 		t.Fatalf("expected the lock to be acquired once released, acquired=%v res=%+v", acquired, res)
 	}
@@ -218,7 +223,7 @@ func TestRunSuite_HonorsEarlierRunnerDeadline(t *testing.T) {
 	r.Deadline = time.Now().Add(earlyDeadline)
 
 	start := time.Now()
-	res := RunSuite(5 * time.Second)(r, t.TempDir())
+	res := RunSuite(5*time.Second)(r, t.TempDir())
 	elapsed := time.Since(start)
 
 	if !res.TimedOut {

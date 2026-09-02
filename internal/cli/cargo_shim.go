@@ -46,10 +46,10 @@ type cargoShimConfig struct {
 	realCargo    string // resolved path to the ACTUAL cargo binary
 }
 
-// runTDDCargo is the `aphrollo tdd cargo [cargo args...]` entry point: it
+// runGateCargo is the `aphrollo tdd cargo [cargo args...]` entry point: it
 // resolves the real cargo binary and the configured wait budget from the
 // environment, then delegates to runCargoShim (the testable core).
-func runTDDCargo(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func runGateCargo(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	realCargo, err := resolveRealCargo()
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo tdd cargo: %v\n", err)
@@ -77,33 +77,84 @@ func runTDDCargo(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 // waitBudget prints the give-up line and returns exCargoTempFail.
 func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg cargoShimConfig) int {
 	if os.Getenv(tdd.BuildLockHeldEnv) == "1" {
-		// The hooks/gates already hold the SAME machine-wide lock (this
+		// The hooks/gates already hold a slot for the SAME target dir (this
 		// process is a nested cargo invocation resolved through the shim
-		// because the shim dir precedes the real cargo on PATH) -- touching
-		// the lock again here would deadlock against ourselves.
-		return execCargo(cfg.realCargo, args, stdin, stdout, stderr)
+		// because the shim dir precedes the real cargo on PATH) -- taking
+		// another slot here would deadlock against ourselves.
+		return execCargoHeld(cfg.realCargo, args, stdin, stdout, stderr, 0, true)
 	}
 
-	release, ok := tdd.TryAcquireBuildLock()
+	if isCargoReadOnlyVerb(args) {
+		// Reads the manifest/lockfile and compiles nothing, so it is not
+		// what the slots govern -- and it is exactly what a tool-detection
+		// path (`cargo --version`, `cargo metadata`) calls, which must
+		// never sit behind a multi-minute build.
+		return execCargo(cfg.realCargo, args, stdin, stdout, stderr, 0)
+	}
+
+	target := shimTargetDir()
+	acquire := acquireFor(args)
+	slot, releaseTarget, releaseAll, ok := acquire(target, shimOwnerCommand(args), shimCwd())
 	if ok {
-		return runWithLock(release, cfg.realCargo, args, stdin, stdout, stderr)
+		return runWithLock(slot, releaseTarget, releaseAll, cfg.realCargo, args, stdin, stdout, stderr)
 	}
 
 	// Contended: report it exactly once, then poll silently.
-	fmt.Fprintln(stderr, queuedLine())
+	fmt.Fprintln(stderr, queuedLine(target))
 	start := time.Now()
 	for {
 		elapsed := time.Since(start)
 		if elapsed >= cfg.waitBudget {
-			fmt.Fprintln(stderr, giveUpLine(elapsed))
+			fmt.Fprintln(stderr, giveUpLine(elapsed, target))
 			return exCargoTempFail
 		}
 		time.Sleep(cfg.pollInterval)
-		if release, ok := tdd.TryAcquireBuildLock(); ok {
+		if slot, releaseTarget, releaseAll, ok := acquire(target, shimOwnerCommand(args), shimCwd()); ok {
 			fmt.Fprintln(stderr, acquiredLine(time.Since(start)))
-			return runWithLock(release, cfg.realCargo, args, stdin, stdout, stderr)
+			return runWithLock(slot, releaseTarget, releaseAll, cfg.realCargo, args, stdin, stdout, stderr)
 		}
 	}
+}
+
+// acquireFor picks the acquisition shape this invocation needs. A long verb
+// needs its two releases separately (the target for the prewarm, the global
+// slot for the whole run); everything else releases both together.
+func acquireFor(args []string) func(target, cmd, cwd string) (tdd.BuildSlot, func(), func(), bool) {
+	if isCargoLongVerb(args) {
+		return tdd.TryAcquireLongVerbSlot
+	}
+	return func(target, cmd, cwd string) (tdd.BuildSlot, func(), func(), bool) {
+		slot, release, ok := tdd.TryAcquireBuildSlot(target, cmd, cwd)
+		return slot, release, release, ok
+	}
+}
+
+// shimOwnerCommand and shimCwd are what a waiting session reads about this
+// invocation. They are computed BEFORE the acquisition, because the record is
+// written by the acquisition itself — there is no later moment at which a
+// caller could forget to write it.
+func shimOwnerCommand(args []string) string {
+	return "cargo " + strings.Join(args, " ")
+}
+
+func shimCwd() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "(unknown cwd)"
+	}
+	return cwd
+}
+
+// shimTargetDir resolves the target dir THIS invocation's build writes to,
+// from the shim's own cwd -- the same resolution the hooks/gates use, so a
+// direct `cargo build` and a gate's build contend exactly when they share a
+// build directory and never when they don't.
+func shimTargetDir() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return tdd.ResolveCargoTargetDir(cwd)
 }
 
 // runWithLock writes the owner file, runs the real cargo, then removes the
@@ -112,18 +163,15 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 // `cargo run` is a special case (task A9): its own launched process's
 // lifetime must NEVER be covered by the lock, only the build that precedes
 // it, so that path is split out entirely.
-func runWithLock(release func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func runWithLock(slot tdd.BuildSlot, releaseTarget, releaseAll func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if isCargoRunVerb(args) {
-		return runCargoRunSplitLock(release, realCargo, args, stdin, stdout, stderr)
+		return runCargoRunSplitLock(slot, releaseAll, realCargo, args, stdin, stdout, stderr)
 	}
-	defer release()
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = "(unknown cwd)"
+	if isCargoLongVerb(args) {
+		return runCargoLongVerbSplitLock(slot, releaseTarget, releaseAll, realCargo, args, stdin, stdout, stderr)
 	}
-	tdd.WriteBuildLockOwner("cargo "+strings.Join(args, " "), cwd)
-	defer tdd.RemoveBuildLockOwner()
-	return execCargo(realCargo, args, stdin, stdout, stderr)
+	defer releaseAll()
+	return execCargo(realCargo, args, stdin, stdout, stderr, slot.Jobs)
 }
 
 // runCargoRunSplitLock implements task A9's fix: `cargo run`'s machine-wide
@@ -142,20 +190,86 @@ func runWithLock(release func(), realCargo string, args []string, stdin io.Reade
 // deliberately do NOT take this path (isCargoRunVerb only matches the bare
 // `run` verb, not nextest's own `run` sub-subcommand): their own execution
 // IS the thing this lock exists to serialize.
-func runCargoRunSplitLock(release func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = "(unknown cwd)"
-	}
+func runCargoRunSplitLock(slot tdd.BuildSlot, release func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	buildArgs := cargoRunArgsToBuildArgs(args)
-	tdd.WriteBuildLockOwner("cargo "+strings.Join(buildArgs, " "), cwd)
-	buildCode := execCargo(realCargo, buildArgs, stdin, stdout, stderr)
-	tdd.RemoveBuildLockOwner()
+	buildCode := execCargo(realCargo, buildArgs, stdin, stdout, stderr, slot.Jobs)
 	release()
 	if buildCode != 0 {
 		return buildCode
 	}
-	return execCargo(realCargo, args, stdin, stdout, stderr)
+	return execCargo(realCargo, args, stdin, stdout, stderr, 0)
+}
+
+// cargoLongVerbs run for a very long time WITHOUT compiling into the
+// caller's target dir for most of it: `mutants` copies the tree to its own
+// directory before mutating (it held the lock for entire multi-hour runs),
+// `bench` spends its time executing, `install` builds in its own temp dir.
+// So the slot covers a prewarm compile and nothing else. `watch` is NOT one
+// of them: it recompiles on every save for as long as it is open, so
+// "prewarm once, then unlocked forever" would hand the box to a process
+// that never stops building.
+// `nextest run`/`test` are absent on purpose -- their execution IS what the
+// slots govern.
+var cargoLongVerbs = map[string]bool{
+	"mutants": true,
+	"bench":   true,
+	"install": true,
+}
+
+func isCargoLongVerb(args []string) bool {
+	return cargoLongVerbs[cargoVerb(args)]
+}
+
+// cargoPrewarmArgs is the compile a long verb holds its slot for: mutants
+// only needs the tree to typecheck before it forks off its own copies;
+// everything else wants the test binaries built. It is deliberately
+// unscoped -- inferring `-p` selection from an arbitrary long verb's own
+// flag grammar would be guesswork, and a whole-workspace warm-up is what
+// the long run is about to need anyway.
+func cargoPrewarmArgs(args []string) []string {
+	switch cargoVerb(args) {
+	case "mutants":
+		return []string{"check", "--tests"}
+	case "bench":
+		// A bench run compiles BENCH targets; warming --tests warmed the
+		// wrong thing and left the real compile to run unslotted.
+		return []string{"build", "--benches"}
+	default:
+		return []string{"build", "--tests"}
+	}
+}
+
+// runCargoLongVerbSplitLock holds the slot for a prewarm compile only, then
+// releases it and runs the long verb unlocked. The prewarm is a warm-up,
+// not a gate: its exit code is discarded (unlike `cargo run`'s build, which
+// IS the thing being launched), so the operator always gets the exit code of
+// the command they typed. Outside a cargo project there is nothing to warm,
+// and the slot is released without compiling anything.
+func runCargoLongVerbSplitLock(slot tdd.BuildSlot, releaseTarget, releaseAll func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	defer releaseAll()
+	if cwd, err := os.Getwd(); err == nil && insideCargoProject(cwd) {
+		execCargo(realCargo, cargoPrewarmArgs(args), stdin, stdout, stderr, slot.Jobs)
+	}
+	// The caller's target is free from here: the long phase builds in copies
+	// of the tree (mutants) or not at all. The GLOBAL slot stays held for the
+	// whole run and is lent to the children, so a four-job mutation run costs
+	// one slot rather than every slot on the box.
+	releaseTarget()
+	return execCargoToken(realCargo, args, stdin, stdout, stderr, 0, tdd.SlotTokenEnvEntry(slot))
+}
+
+// insideCargoProject reports whether dir or an ancestor holds a Cargo.toml.
+func insideCargoProject(dir string) bool {
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "Cargo.toml")); err == nil {
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+		dir = parent
+	}
 }
 
 // cargoVerb returns cargo's subcommand -- the first argv entry that does
@@ -182,6 +296,35 @@ func cargoVerb(args []string) string {
 // deliberately keep the lock for the whole call.
 func isCargoRunVerb(args []string) bool {
 	return cargoVerb(args) == "run"
+}
+
+// cargoReadOnlyVerbs compile nothing into the target dir: they read the
+// manifest, the lockfile or the source text. `check` and `clippy` are
+// deliberately absent -- they run the compiler front end into the SHARED
+// target dir, which is precisely what the slots govern.
+var cargoReadOnlyVerbs = map[string]bool{
+	"metadata":       true,
+	"tree":           true,
+	"fmt":            true,
+	"locate-project": true,
+	"pkgid":          true,
+	"read-manifest":  true,
+}
+
+// isCargoReadOnlyVerb reports whether args bypass the build slots entirely.
+// `--version`/`-V` have no verb at all, so they are matched as flags -- but
+// only BEFORE the first bare "--", since past that they belong to the
+// launched program (`cargo test -- --version` compiles a test binary).
+func isCargoReadOnlyVerb(args []string) bool {
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		if a == "--version" || a == "-V" {
+			return true
+		}
+	}
+	return cargoReadOnlyVerbs[cargoVerb(args)]
 }
 
 // cargoRunArgsToBuildArgs converts `cargo run`'s argv into the equivalent
@@ -252,7 +395,55 @@ func resolveRealCargo() (string, error) {
 // needing to talk back to the Go test itself. Always nil in production.
 var execCargoHookForTest func(args []string)
 
-func execCargo(realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func execCargo(realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer, jobs int) int {
+	return execCargoHeld(realCargo, args, stdin, stdout, stderr, jobs, jobs > 0)
+}
+
+// cargoChildEnv is the environment a launched cargo inherits. The
+// build-lock-held marker is a FACT about this process, not a decoration: a
+// child told the lock is held skips the queue, so claiming it while holding
+// nothing (the read-only bypass, the post-release `cargo run` that outlives
+// the slot) lets an unslotted build walk straight past every waiter.
+func cargoChildEnv(held bool) []string {
+	return cargoChildEnvToken(held, "")
+}
+
+// cargoChildEnvToken is cargoChildEnv plus an optional slot token: a long
+// verb lends its ONE global slot to the cargo invocations it spawns, which is
+// what stops a four-job `cargo mutants` run from taking every slot on the box.
+// A child carrying the token still queues for the target lock of whatever
+// directory it builds in, so it is never told the lock is HELD. With no token
+// given, any inherited one is stripped — a launched `cargo run` process
+// outlives the slot entirely.
+func cargoChildEnvToken(held bool, token string) []string {
+	env := os.Environ()
+	out := make([]string, 0, len(env)+2)
+	for _, kv := range env {
+		k, _, ok := strings.Cut(kv, "=")
+		if ok && (k == tdd.BuildLockHeldEnv || k == tdd.SlotTokenEnvName()) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	if held {
+		out = append(out, tdd.BuildLockHeldEnv+"=1")
+	}
+	if token != "" {
+		out = append(out, token)
+	}
+	return out
+}
+
+func execCargoHeld(realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer, jobs int, held bool) int {
+	return execCargoEnv(realCargo, args, stdin, stdout, stderr, jobs, cargoChildEnvToken(held, ""))
+}
+
+// execCargoToken runs cargo with its parent's slot token in the environment.
+func execCargoToken(realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer, jobs int, token string) int {
+	return execCargoEnv(realCargo, args, stdin, stdout, stderr, jobs, cargoChildEnvToken(false, token))
+}
+
+func execCargoEnv(realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer, jobs int, env []string) int {
 	if execCargoHookForTest != nil {
 		execCargoHookForTest(args)
 	}
@@ -260,7 +451,13 @@ func execCargo(realCargo string, args []string, stdin io.Reader, stdout, stderr 
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	cmd.Env = append(os.Environ(), tdd.BuildLockHeldEnv+"=1")
+	cmd.Env = env
+	if jobs > 0 {
+		// A slot is 1/N of the box: cap the child so N concurrent builds
+		// into one target dir cost about what one uncapped build did. The
+		// STRICTER of the slot's cap and a caller's own value wins.
+		cmd.Env = tdd.EnvWithBuildJobs(cmd.Env, jobs)
+	}
 	err := cmd.Run()
 	if err == nil {
 		return 0
@@ -276,10 +473,10 @@ func execCargo(realCargo string, args []string, stdin io.Reader, stdout, stderr 
 // queuedLine composes the ONE-SHOT "queued behind" message printed the
 // moment the shim first discovers the lock is contended (never repeated) --
 // naming the holder from the owner file when it's readable.
-func queuedLine() string {
-	o, ok := tdd.ReadBuildLockOwner()
+func queuedLine(targetDir string) string {
+	o, ok := tdd.ReadBuildSlotOwner(targetDir)
 	if !ok {
-		return "cargo: queued behind another build (holder unknown) -- waiting for the machine-wide build lock"
+		return "cargo: queued behind another build (holder unknown) -- waiting for a build slot for " + targetDir
 	}
 	return fmt.Sprintf("cargo: queued behind %q in %s (pid %d, held %s)", o.Cmd, o.Cwd, o.PID, formatMinSec(time.Since(o.Started)))
 }
@@ -293,12 +490,12 @@ func acquiredLine(waited time.Duration) string {
 
 // giveUpLine composes the message printed when the shim stops waiting
 // without ever acquiring the lock.
-func giveUpLine(elapsed time.Duration) string {
+func giveUpLine(elapsed time.Duration, targetDir string) string {
 	holder := "(unknown)"
-	if o, ok := tdd.ReadBuildLockOwner(); ok {
+	if o, ok := tdd.ReadBuildSlotOwner(targetDir); ok {
 		holder = fmt.Sprintf("%q in %s (pid %d)", o.Cmd, o.Cwd, o.PID)
 	}
-	return fmt.Sprintf("cargo: gave up after %ds waiting for the build lock (holder: %s)", int(elapsed.Seconds()+0.5), holder)
+	return fmt.Sprintf("cargo: gave up after %ds waiting for a build slot (holder: %s)", int(elapsed.Seconds()+0.5), holder)
 }
 
 // formatMinSec renders a duration as "<M>m <S>s" for the queued line's

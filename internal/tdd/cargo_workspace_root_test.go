@@ -111,10 +111,13 @@ func TestNarrowToRelatedTests_CargoMember_NextestWhenConfiguredAtWorkspaceRoot(t
 	got := NarrowToRelatedTests(cargo, filepath.Join(member, "src", "foo.rs"), member)
 
 	wantVerb := []string{"test"}
+	wantFilter := []string{"foo::"}
 	if nextestInstalled() {
 		wantVerb = []string{"nextest", "run"}
+		wantFilter = []string{"-E", "test(/^foo::/)"}
 	}
-	want := Runner{Cmd: "cargo", Args: append(append([]string{}, wantVerb...), "-p", "alpha", "--lib"), Dir: ws}
+	wantArgs := append(append([]string{}, wantVerb...), "-p", "alpha", "--lib")
+	want := Runner{Cmd: "cargo", Args: append(wantArgs, wantFilter...), Dir: ws}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("NarrowToRelatedTests = %+v, want %+v", got, want)
 	}
@@ -130,7 +133,7 @@ func TestNarrowToRelatedTests_CargoMember_SourceEdit_RunsFromWorkspaceRoot(t *te
 
 	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
 	got := NarrowToRelatedTests(cargo, filepath.Join(member, "src", "foo.rs"), member)
-	want := Runner{Cmd: "cargo", Args: []string{"test", "-p", "alpha", "--lib"}, Dir: ws}
+	want := Runner{Cmd: "cargo", Args: []string{"test", "-p", "alpha", "--lib", "foo::"}, Dir: ws}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("NarrowToRelatedTests = %+v, want %+v", got, want)
 	}

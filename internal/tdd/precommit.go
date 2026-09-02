@@ -91,7 +91,7 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 	// worktree builds for nothing. Run EXACTLY the pre-merge routine
 	// instead: Mechanical only, no fail-first, no anti-cheat.
 	if ref := mergeInProgressRef(repoRoot); ref != "" {
-		fmt.Fprintf(os.Stderr, "tdd precommit: merge in progress (%s) — running the pre-merge routine (mechanical only)\n", ref)
+		fmt.Fprintf(os.Stderr, "gate precommit: merge in progress (%s) — running the pre-merge routine (mechanical only)\n", ref)
 		return Mechanical(repoRoot, run)
 	}
 
@@ -114,11 +114,16 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		}
 		return res.Blocked
 	}
+	// Cheapest first: a hand-raised baseline is a text diff, and the declared
+	// laws are judged before anything compiles.
+	if res := baselineStage("precommit", repoRoot); collect(res) {
+		return res
+	}
+	if res := ratchetStage("precommit", repoRoot); collect(res) {
+		return res
+	}
 	for _, g := range groups {
-		if res := failFirstStage(repoRoot, g.root, g.tests, g.srcs, run); collect(res) {
-			return res
-		}
-		if res := mechanicalRoot("precommit", repoRoot, g.root, g.tests, g.srcs, run); collect(res) {
+		if res := gateRoot("precommit", repoRoot, g, run, true); collect(res) {
 			return res
 		}
 	}
@@ -138,15 +143,30 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 // (e.g. a docs-only merge) says so explicitly rather than returning a bare
 // empty result indistinguishable from "the gate never ran".
 func Mechanical(repoRoot string, run SuiteRunner) GateResult {
+	// The cheapest possible rejection comes first: a lane with no mutation
+	// proof is refused before a single suite compiles.
+	if res := mutationReceiptStage(repoRoot); res != nil {
+		fmt.Fprintln(os.Stderr, res.Message)
+		appendGateLog("premergecommit", repoRoot, "mutation-receipt", "receipt-rejected", 0)
+		return *res
+	}
 	groups := stagedRootGroups(repoRoot)
 	if len(groups) == 0 {
-		const line = "tdd premergecommit: nothing to test (no staged source or test files)"
+		const line = "gate premergecommit: nothing to test (no staged source or test files)"
 		fmt.Fprintln(os.Stderr, line)
 		return GateResult{Message: line}
 	}
 	var notes []string
+	if res := baselineStage("premergecommit", repoRoot); res.Blocked {
+		return res
+	}
+	if res := ratchetStage("premergecommit", repoRoot); res.Blocked {
+		return res
+	} else if res.Message != "" {
+		notes = append(notes, res.Message)
+	}
 	for _, g := range groups {
-		res := mechanicalRoot("premergecommit", repoRoot, g.root, g.tests, g.srcs, run)
+		res := gateRoot("premergecommit", repoRoot, g, run, false)
 		if res.Blocked {
 			return res
 		}
@@ -155,6 +175,20 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		}
 	}
 	return GateResult{Message: strings.Join(notes, "\n")}
+}
+
+// mutationReceiptStage judges the lane's mutation receipt, for workspaces
+// that asked for it (`mutation-receipt = true`). nil means "allow": the
+// workspace has not opted in, or the receipt covers this tree.
+func mutationReceiptStage(repoRoot string) *GateResult {
+	ws := cargoWorkspaceRoot(repoRoot)
+	if ws == "" {
+		ws = repoRoot
+	}
+	if !cargoAphrolloFlag(ws, "mutation-receipt") {
+		return nil
+	}
+	return checkMutationReceipt(filepath.Base(repoRoot), mergeTipTree(repoRoot))
 }
 
 // failFirstStage runs the fail-first check for ONE project root's staged
@@ -202,7 +236,7 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		case conclusive && !violated:
 			verdict = "red-proven"
 		}
-		line := fmt.Sprintf("tdd precommit: fail-first %s in %s → %s (%.1fs)", ffCmd, root, verdict, dur.Seconds())
+		line := fmt.Sprintf("gate precommit: fail-first %s in %s → %s (%.1fs)", ffCmd, root, verdict, dur.Seconds())
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog("precommit", root, ffCmd, verdict, dur)
 		if conclusive && violated {
@@ -212,65 +246,195 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 	return GateResult{}
 }
 
-// mechanicalRoot runs the mechanical stage for ONE project root's staged
-// files, in the real checkout at root. gateName ("precommit" or
-// "premergecommit") names the calling gate in every stderr line and gate.log
-// entry, so the trail is honest about which hook actually ran it — Precommit
-// and the pre-merge-commit gate (Mechanical) share this one implementation.
-func mechanicalRoot(gateName, repoRoot, root string, tests, srcs []string, run SuiteRunner) GateResult {
-	// Changes-gate: a docs/yaml-only commit (no staged source AND no staged test)
-	// under this root has nothing to test, so skip the mechanical stage.
-	if len(tests) == 0 && len(srcs) == 0 {
+// gateRoot runs ONE project root's gate stages in COST order, stopping at
+// the first rejection:
+//
+//  1. cargo fmt --check   (milliseconds)
+//  2. the always-run guard packages, as their OWN invocation (a pure crate;
+//     bundling it into `-p ratchet -p client` made it wait for client to link)
+//  3. cargo clippy on the crates declared clippy-clean
+//  4. fail-first RED proof (precommit only, and only when staged tests add a
+//     declaration)
+//  5. the touched crates' suites — full test build, link and run, the
+//     heaviest thing the gate does
+//
+// Before this the heaviest stage ran first, so a commit with a formatting
+// slip paid the whole test build to be told about a space. gateName
+// ("precommit"/"premergecommit") names the calling gate in every stderr line
+// and gate.log entry; failFirst is false for the merge gate, whose commits
+// were each already judged when authored.
+func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst bool) GateResult {
+	// Changes-gate: a docs/yaml-only commit (no staged source AND no staged
+	// test) under this root has nothing to check.
+	if len(g.tests) == 0 && len(g.srcs) == 0 {
 		return GateResult{}
 	}
-
-	runner, ok := DetectRunner(root)
+	runner, ok := DetectRunner(g.root)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "tdd %s: %s → skipped (no detected runner)\n", gateName, root)
+		fmt.Fprintf(os.Stderr, "gate %s: %s → skipped (no detected runner)\n", gateName, g.root)
 		return GateResult{}
 	}
-	rootFiles := append(append([]string{}, tests...), srcs...)
+	rootFiles := append(append([]string{}, g.tests...), g.srcs...)
 
 	if runner.Cmd == "cargo" {
-		// Cargo ownership is judged PER FILE against the [package] Cargo.toml
-		// that covers it, never against "did every file resolve" — a file no
-		// package owns (a virtual workspace manifest, a path outside any
-		// member) is SKIPPED with a stderr note, not a trigger to widen the
-		// run to the whole workspace (that full-suite fallback is removed;
-		// see cargoPackagesOwning/narrowToStaged's cargo case).
-		owned, unowned := cargoOwnedFiles(repoRoot, root, rootFiles)
-		for _, f := range unowned {
-			fmt.Fprintf(os.Stderr, "tdd %s: %s has no owning cargo package — not tested\n", gateName, f)
-		}
-		if len(owned) == 0 {
+		plan, ok := planCargoStages(gateName, repoRoot, g.root, rootFiles)
+		if !ok {
 			return GateResult{}
 		}
-		pkgs := cargoPackagesOwning(root, toRootRelative(repoRoot, root, owned))
-		// Resolve the actual WORKSPACE root (task A4): a checked-in
-		// .config/nextest.toml and the workspace's Cargo.lock live there,
-		// not in a member crate's own directory — DetectRunner(root) above
-		// only ever checked root itself, so a member crate silently lost
-		// nextest even in a repo that has it configured. State/mech-cache
-		// keys below still use `root` (the crate root), per A4's contract.
-		ws := cargoWorkspaceRoot(root)
-		// A workspace-wide guard package owns no staged file, so ownership
-		// scoping would run it only when the guard itself is edited.
-		pkgs = dedupeSorted(append(pkgs, cargoAlwaysRunPackages(ws)...))
-		args := cargoVerbArgs(ws)
-		for _, p := range pkgs {
-			args = append(args, "-p", p)
+		if res := cargoQualityStage(gateName, plan.ws, g.root, plan.touched, run, repoRoot, qualityFmt); res.Blocked {
+			return res
 		}
-		runner = Runner{Cmd: "cargo", Args: args, Dir: ws}
-	} else {
-		// Scope the mechanical run to the related tests of the staged source+test
-		// files: commit-time is a fast scoped check; CI runs the full suite at
-		// submit as the authoritative gate. A runner with no related mode (or an
-		// unknown command) falls back to the full suite unchanged.
-		if scoped, narrowed := narrowToStaged(runner, root, toRootRelative(repoRoot, root, rootFiles)); narrowed {
-			runner = scoped
+		if res := alwaysRunStage(gateName, repoRoot, g.root, plan, run); res.Blocked {
+			return res
 		}
+		if res := cargoQualityStage(gateName, plan.ws, g.root, plan.touched, run, repoRoot, qualityClippy); res.Blocked {
+			return res
+		}
+		if res := workspaceCheckStage(gateName, repoRoot, g.root, plan, run); res.Blocked {
+			return res
+		}
+		if failFirst {
+			if res := failFirstStage(repoRoot, g.root, g.tests, g.srcs, run); res.Blocked {
+				return res
+			}
+		}
+		if res := suiteStage(gateName, repoRoot, g.root, plan.suiteRunner(), run); res.Blocked {
+			return res
+		}
+		return doctestStage(gateName, repoRoot, g.root, plan, run)
 	}
 
+	// Scope the mechanical run to the related tests of the staged
+	// source+test files: commit-time is a fast scoped check; CI runs the
+	// full suite at submit as the authoritative gate. A runner with no
+	// related mode (or an unknown command) falls back to the full suite
+	// unchanged.
+	if scoped, narrowed := narrowToStaged(runner, g.root, toRootRelative(repoRoot, g.root, rootFiles)); narrowed {
+		runner = scoped
+	}
+	if failFirst {
+		if res := failFirstStage(repoRoot, g.root, g.tests, g.srcs, run); res.Blocked {
+			return res
+		}
+	}
+	return suiteStage(gateName, repoRoot, g.root, runner, run)
+}
+
+// cargoStagePlan is what the cargo stages of one root need: the workspace
+// commands run from, the packages this commit TOUCHED (never the always-run
+// additions — no staged file belongs to those), and the guard packages the
+// workspace declares.
+type cargoStagePlan struct {
+	ws        string
+	touched   []string
+	alwaysRun []string
+}
+
+// suiteRunner is the touched crates' own scoped test command — the guard
+// packages deliberately absent, since they run as their own cheap stage.
+func (p cargoStagePlan) suiteRunner() Runner {
+	args := cargoVerbArgs(p.ws)
+	for _, pkg := range p.touched {
+		args = append(args, "-p", pkg)
+	}
+	return withGateProfile(Runner{Cmd: "cargo", Args: args, Dir: p.ws}, p.ws)
+}
+
+// guardRunner is the always-run packages' own invocation.
+func (p cargoStagePlan) guardRunner() Runner {
+	args := cargoVerbArgs(p.ws)
+	for _, pkg := range p.alwaysRun {
+		args = append(args, "-p", pkg)
+	}
+	return withGateProfile(Runner{Cmd: "cargo", Args: args, Dir: p.ws}, p.ws)
+}
+
+// planCargoStages resolves package ownership for a cargo root. Ownership is
+// judged PER FILE against the [package] Cargo.toml that covers it: a file no
+// package owns (a virtual workspace manifest, a path outside any member) is
+// SKIPPED with a stderr note, never a trigger to widen the run to the whole
+// workspace. ok=false means nothing staged here is owned by any package.
+func planCargoStages(gateName, repoRoot, root string, rootFiles []string) (cargoStagePlan, bool) {
+	owned, unowned := cargoOwnedFiles(repoRoot, root, rootFiles)
+	for _, f := range unowned {
+		fmt.Fprintf(os.Stderr, "gate %s: %s has no owning cargo package — not tested\n", gateName, f)
+	}
+	if len(owned) == 0 {
+		return cargoStagePlan{}, false
+	}
+	// The actual WORKSPACE root: a checked-in .config/nextest.toml and the
+	// workspace's Cargo.lock live there, not in a member crate's own
+	// directory. State/mech-cache keys still use the crate root.
+	ws := cargoWorkspaceRoot(root)
+	return cargoStagePlan{
+		ws:        ws,
+		touched:   cargoPackagesOwning(root, toRootRelative(repoRoot, root, owned)),
+		alwaysRun: cargoAlwaysRunPackages(ws),
+	}, true
+}
+
+// alwaysRunStage runs the workspace's declared guard packages as their own
+// invocation, before the touched crates' heavier one. A guard package owns
+// no staged file, so ownership scoping alone would run it only when someone
+// edits the guard itself — precisely when its invariant is not at risk.
+func alwaysRunStage(gateName, repoRoot, root string, plan cargoStagePlan, run SuiteRunner) GateResult {
+	if len(plan.alwaysRun) == 0 {
+		return GateResult{}
+	}
+	return runSuiteStage(gateName, "always-run", repoRoot, root, plan.guardRunner(), run)
+}
+
+// workspaceCheckStage compiles the WHOLE workspace's code and tests, without
+// codegen. The suites only cover the crates a commit touched, so a change
+// that breaks a crate nobody staged lands green: borld's
+// forge_jbeam/tests/conformance.rs reached main not compiling because a lane
+// added a struct field and the gate ran only that lane's crates. A check is
+// the cheapest stage that can see the whole graph — tens of seconds warm,
+// against minutes for the suites — so it sits between clippy and fail-first.
+func workspaceCheckStage(gateName, repoRoot, root string, plan cargoStagePlan, run SuiteRunner) GateResult {
+	ws := plan.ws
+	if ws == "" {
+		ws = root
+	}
+	// clippy SUBSUMES check — a compile error fails it just the same — and it
+	// is the only way to enforce the two lints that carry project laws
+	// (clippy.toml's disallowed methods and types) across crates that are not
+	// on the clippy-clean list. Nothing else is denied here: -D warnings
+	// belongs to the per-crate stage, where a crate has actually reached zero.
+	runner := Runner{Cmd: "cargo", Args: []string{
+		"clippy", "--workspace", "--tests", "--",
+		"-D", "clippy::disallowed_methods", "-D", "clippy::disallowed_types",
+	}, Dir: ws}
+	return runSuiteStage(gateName, "check", repoRoot, root, runner, run)
+}
+
+// doctestStage runs the touched crates' doctests, which the nextest-based
+// suite stage above cannot: nextest does not run them at all, so a
+// `compile_fail` proof would otherwise never execute.
+func doctestStage(gateName, repoRoot, root string, plan cargoStagePlan, run SuiteRunner) GateResult {
+	ws := plan.ws
+	if ws == "" {
+		ws = root
+	}
+	for _, runner := range doctestRunners(ws, plan.touched) {
+		if res := runSuiteStage(gateName, "doctest", repoRoot, root, runner, run); res.Blocked {
+			return res
+		}
+	}
+	return GateResult{}
+}
+
+// suiteStage runs the touched crates' own suites — the heaviest stage, and
+// therefore the last.
+func suiteStage(gateName, repoRoot, root string, runner Runner, run SuiteRunner) GateResult {
+	return runSuiteStage(gateName, "mechanical", repoRoot, root, runner, run)
+}
+
+// runSuiteStage is the shared body every suite-running stage uses: green
+// cache, build slot, and one honest verdict line. stage names it in stderr
+// and gate.log ("mechanical", "always-run"), so a block says which stage
+// rejected.
+func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run SuiteRunner) GateResult {
 	// The green cache: an identical worktree state already proven green under
 	// this exact command (by a PostToolUse run or an earlier gate pass) is not
 	// re-run. Red results are never cached, so a block always re-runs and
@@ -280,54 +444,85 @@ func mechanicalRoot(gateName, repoRoot, root string, tests, srcs []string, run S
 		key = mechKey(root, h, runner)
 	}
 	if mechCacheHit(key) {
-		line := fmt.Sprintf("tdd %s: mechanical %s in %s → cache-hit", gateName, cmdString(runner), root)
+		line := fmt.Sprintf("gate %s: %s %s in %s → cache-hit", gateName, stage, cmdString(runner), root)
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmdString(runner), "cache-hit", 0)
 		return GateResult{}
 	}
 	restore := pinMechCargoTarget(runner, repoRoot)
+	// Resolved while the gate's target dir is pinned: after restore() this
+	// answers the OPERATOR's target, which is not the one the run contended
+	// for and not the one whose owner names the holder.
+	target := runnerTargetDir(runner, root)
 	res, waited, acquired := runCargoLocked(run, runner, root, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
 	restore()
 	if !acquired {
-		line := fmt.Sprintf("tdd %s: mechanical %s in %s → QUEUED-SKIPPED (waited %.0fs, another cargo build holds the machine build lock%s) — inconclusive",
-			gateName, cmdString(runner), root, waited.Seconds(), buildLockHolderNote())
+		// A commit the gate never tested must not land. This used to fail
+		// open, and ten commits in one gate.log did exactly that: waited out
+		// the full budget, logged queued-skipped, landed with zero tests
+		// run. Rejecting is loud and recoverable (wait, or --no-verify
+		// deliberately); failing open is silent and is not.
+		line := fmt.Sprintf("gate %s: %s %s in %s → REJECTED (waited %.0fs, every build slot for %s is busy%s) — nothing was tested",
+			gateName, stage, cmdString(runner), root, waited.Seconds(), target, buildLockHolderNote(target))
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog(gateName, root, cmdString(runner), "queued-skipped", waited)
-		return GateResult{Message: line}
+		appendGateLog(gateName, root, cmdString(runner), "queued-rejected", waited)
+		return GateResult{Blocked: true, Message: queuedRejectMessage(runner, target, waited)}
 	}
 	if treatAsEmptyPass(res) {
 		res.Passed = true
 	}
 	switch {
 	case res.TimedOut:
-		// A killed suite is a stopwatch verdict, not a test verdict. Fail
-		// OPEN (same policy as an unverifiable fail-first) — but never
-		// cache: nothing was proven green. Unlike before, this is never
-		// silent: the commit lands UNVERIFIED and both stderr and the
-		// returned Message say so explicitly (Blocked stays false — a
-		// timeout is inconclusive, not a failure).
-		line := fmt.Sprintf("tdd %s: mechanical %s in %s → TIMEOUT (FAIL-OPEN — commit lands UNVERIFIED)", gateName, cmdString(runner), root)
+		// A commit whose suite never finished is a commit nobody tested, and
+		// unlike an edit-time timeout the consequence outlives the moment:
+		// the untested code stays in history. The gate target is warm by the
+		// time this fires, so the retry usually finishes.
+		line := fmt.Sprintf("gate %s: %s %s in %s TIMEOUT after %.0fs REJECTED (nothing was tested)", gateName, stage, cmdString(runner), root, res.Duration.Seconds())
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog(gateName, root, cmdString(runner), "timeout-fail-open", res.Duration)
-		return GateResult{Message: line}
+		appendGateLog(gateName, root, cmdString(runner), "timeout-rejected", res.Duration)
+		return GateResult{Blocked: true, Message: fmt.Sprintf(
+			"gate %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused. The gate target is now warm; retry the commit.",
+			gateName, cmdString(runner), res.Duration.Seconds())}
 	case !res.Passed:
-		fmt.Fprintf(os.Stderr, "tdd %s: mechanical %s in %s → blocked\n", gateName, cmdString(runner), root)
-		appendGateLog(gateName, root, cmdString(runner), "blocked", res.Duration)
+		fmt.Fprintf(os.Stderr, "gate %s: %s %s in %s → blocked\n", gateName, stage, cmdString(runner), root)
+		appendGateLog(gateName, root, cmdString(runner), blockedVerdict(stage, res.Output), res.Duration)
 		return GateResult{Blocked: true, Message: mechRejectMessage(runner, res)}
 	default:
 		mechCacheAdd(key)
-		line := mechGreenLine(gateName, runner, root, res)
+		line := mechGreenLine(gateName, stage, runner, root, res)
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmdString(runner), "green", res.Duration)
 	}
 	return GateResult{}
 }
 
+// blockedVerdict is the gate.log word for a stage that failed. The
+// whole-workspace check reads "check-rejected" because it is a compile
+// verdict, not a test one — a reader scanning the log should not have to
+// know which stage names mean "the code did not build".
+func blockedVerdict(stage, output string) string {
+	if stage != "check" {
+		return stage + "-blocked"
+	}
+	// Two different problems with two different fixes: the tree does not
+	// compile, or someone used a banned API. A reader scanning gate.log
+	// should not have to open the output to tell them apart.
+	if disallowedLintRe.MatchString(output) {
+		return "lint-rejected"
+	}
+	return "check-rejected"
+}
+
+// disallowedLintRe recognises the two lints this stage denies, in either
+// clippy spelling (the lint name uses underscores, the command-line note
+// hyphens).
+var disallowedLintRe = regexp.MustCompile(`disallowed[_-](?:method|type)s?|use of a disallowed (?:method|type)`)
+
 // mechGreenLine composes the mechanical stage's green stderr line, sharing
 // PostEdit's greenLabel renderer (passed count, or nextest's empty-crate
 // exit-4 case) so the two call sites can't drift apart.
-func mechGreenLine(gateName string, r Runner, root string, res SuiteResult) string {
-	return fmt.Sprintf("tdd %s: mechanical %s in %s → %s", gateName, cmdString(r), root, greenLabel(Green, res.Output, res.Duration))
+func mechGreenLine(gateName, stage string, r Runner, root string, res SuiteResult) string {
+	return fmt.Sprintf("gate %s: %s %s in %s → %s", gateName, stage, cmdString(r), root, greenLabel(Green, res.Output, res.Duration))
 }
 
 // cargoOwnedFiles splits repo-root-relative files into those owned by SOME
@@ -352,29 +547,42 @@ func cargoOwnedFiles(repoRoot, root string, filesRepoRel []string) (owned, unown
 	return owned, unowned
 }
 
-// pinMechCargoTarget guards the mechanical cargo run against the
-// cross-checkout poisoning vector: an inherited CARGO_TARGET_DIR pointing
-// OUTSIDE the repo being committed means two divergent checkouts share one
-// warm target, and wrong-artifact reuse there produces phantom compile/test
-// failures the gate then misreports as a red suite. Such a target is swapped
-// for the gate-owned per-repo one (unset when no state dir exists, falling
-// back to cargo's repo-local default). A repo-local target — or none — is
-// honest and passes through untouched. Returns the env restore.
+// pinMechCargoTarget points the gate's cargo runs at the SAME target dir the
+// developer builds into: CARGO_TARGET_DIR when the environment names one,
+// else the repo's own <root>/target. One target per repo (the user's call,
+// 2026-09-02): a private gate cache made every commit cold-compile what was
+// already built next door, and on a Bevy-sized workspace that second copy
+// cost a hundred gigabytes and ten minutes to prove the same thing twice.
+// The per-target build lock is what keeps the two builds off each other's
+// toes — the gate queues visibly like any other build.
 func pinMechCargoTarget(r Runner, repoRoot string) func() {
-	noop := func() {}
 	if r.Cmd != "cargo" {
-		return noop
+		return func() {}
 	}
-	cur, had := os.LookupEnv("CARGO_TARGET_DIR")
-	if !had || insideDir(repoRoot, cur) {
-		return noop
+	dir := resolvedDevTarget(repoRoot)
+	if dir == "" {
+		return func() {}
 	}
-	if dir := cargoFailFirstTarget(repoRoot); dir != "" {
-		os.Setenv("CARGO_TARGET_DIR", dir)
-	} else {
+	prev, had := os.LookupEnv("CARGO_TARGET_DIR")
+	os.Setenv("CARGO_TARGET_DIR", dir)
+	return func() {
+		if had {
+			os.Setenv("CARGO_TARGET_DIR", prev)
+			return
+		}
 		os.Unsetenv("CARGO_TARGET_DIR")
 	}
-	return func() { os.Setenv("CARGO_TARGET_DIR", cur) }
+}
+
+// resolvedDevTarget is where a build in repoRoot lands by default: the
+// environment's CARGO_TARGET_DIR if set, else the workspace root's target/.
+// The fail-first run must EXPORT this rather than inherit it — its worktree
+// lives elsewhere, so cargo's default would silently create a second one.
+func resolvedDevTarget(repoRoot string) string {
+	if repoRoot == "" {
+		return ""
+	}
+	return ResolveCargoTargetDir(repoRoot)
 }
 
 // insideDir reports whether path lies lexically within base (inclusive).
@@ -387,6 +595,21 @@ func insideDir(base, path string) bool {
 	}
 	rel, err := filepath.Rel(base, path)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// queuedRejectMessage composes the rejection for a commit the gate could
+// not test because no build slot came free: it names the holder, so the
+// operator knows what to wait for, and the two ways forward.
+func queuedRejectMessage(r Runner, targetDir string, waited time.Duration) string {
+	var b strings.Builder
+	b.WriteString("TDD mechanical: NOTHING WAS TESTED \u2014 no build slot came free.\n")
+	fmt.Fprintf(&b, "command: %s %s\n", r.Cmd, strings.Join(r.Args, " "))
+	fmt.Fprintf(&b, "waited: %.0fs for a slot on %s\n", waited.Seconds(), targetDir)
+	if o, ok := ReadBuildSlotOwner(targetDir); ok {
+		fmt.Fprintf(&b, "holder: %q in %s (pid %d, held %s)\n", o.Cmd, o.Cwd, o.PID, time.Since(o.Started).Round(time.Second))
+	}
+	b.WriteString("Wait for that build to finish and commit again, raise APHROLLO_LOCK_WAIT_SECS, or commit with --no-verify if you mean to skip the gate.\n")
+	return b.String()
 }
 
 // mechRejectMessage composes a mechanical block that says WHAT failed: the
@@ -665,7 +888,7 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	wt := failFirstWorktreeDir(repoRoot)
 	if wt == "" {
 		var err error
-		if wt, err = os.MkdirTemp("", "tdd-failfirst-"); err != nil {
+		if wt, err = os.MkdirTemp("", "gate-failfirst-"); err != nil {
 			return false, false, 0
 		}
 	} else {
@@ -713,14 +936,20 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	// suite (esp. cargo nextest over a large workspace) is 10-20 minutes,
 	// blows this stage's own timeout, and fails open having proven nothing.
 	runner = narrowFailFirstTests(runner, execRoot, relTests)
-	// The worktree run must not inherit the operator's CARGO_TARGET_DIR: a
-	// shared warm target can hold stale artifacts from a divergent sibling
-	// checkout and fail this check on phantom compile errors. Pin a gate-owned
-	// per-repo target instead — warm across gate runs, never shared with the
-	// operator's builds. The mechanical run (in the real checkout, where the
-	// shared target IS correct) sees the original value again via the restore.
+	// The fail-first run is a GATE run: it compiles and runs the same tests
+	// under the same contention, so it takes the same profile.
 	if runner.Cmd == "cargo" {
-		if dir := cargoFailFirstTarget(repoRoot); dir != "" {
+		profileWs := runner.Dir
+		if profileWs == "" {
+			profileWs = execRoot
+		}
+		runner = withGateProfile(runner, profileWs)
+	}
+	// The worktree lives OUTSIDE the repo, so cargo's default would put a
+	// brand-new target/ inside it and cold-build the world on every commit.
+	// Name the repo's own resolved target explicitly.
+	if runner.Cmd == "cargo" {
+		if dir := resolvedDevTarget(repoRoot); dir != "" {
 			prev, had := os.LookupEnv("CARGO_TARGET_DIR")
 			os.Setenv("CARGO_TARGET_DIR", dir)
 			defer func() {
@@ -781,41 +1010,7 @@ func failFirstWorktreeDir(repoRoot string) string {
 	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
 		return ""
 	}
-	return dir
-}
-
-// cargoFailFirstTarget returns the gate-owned CARGO_TARGET_DIR for repoRoot's
-// fail-first (and, via pinMechCargoTarget, mechanical) cargo runs: persistent
-// under the state dir (so the target stays warm across commits instead of
-// cold-compiling the whole crate each time), keyed on the repo's git COMMON
-// dir rather than repoRoot itself — every linked worktree of one repo
-// (`.claude/worktrees/agent-*`) then shares the SAME warm target instead of
-// cold-building its own (dependency artifacts are branch-independent;
-// workspace crates re-fingerprint per source path regardless; concurrent
-// builds serialize on cargo's own build-dir lock). Divergent checkouts of
-// DIFFERENT repos still never share artifacts, since each has its own
-// git-common-dir. Returns "" when there is no state dir or the dir can't be
-// created — the run then proceeds with the inherited environment.
-func cargoFailFirstTarget(repoRoot string) string {
-	base := stateDir()
-	if base == "" {
-		return ""
-	}
-	key := repoRoot
-	if commonDir, err := git(repoRoot, "rev-parse", "--git-common-dir"); err == nil {
-		commonDir = strings.TrimSpace(commonDir)
-		if commonDir != "" {
-			if !filepath.IsAbs(commonDir) {
-				commonDir = filepath.Join(repoRoot, commonDir)
-			}
-			key = filepath.Clean(commonDir)
-		}
-	}
-	sum := sha256.Sum256([]byte(key))
-	dir := filepath.Join(base, "cargo-target", hex.EncodeToString(sum[:8]))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return ""
-	}
+	writeGateOrigin(dir, repoRoot)
 	return dir
 }
 
