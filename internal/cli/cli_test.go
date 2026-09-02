@@ -933,6 +933,7 @@ func TestRun_TDDInit_UnwritableShimDir_WarnsButSucceeds(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory permissions")
 	}
+	t.Chdir(t.TempDir()) // init patches the CWD repo's CLAUDE.md — never this repo's
 	isolateGit(t)
 	cfg := t.TempDir()
 	hooks := filepath.Join(t.TempDir(), "githooks")
