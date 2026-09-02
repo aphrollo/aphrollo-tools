@@ -591,6 +591,7 @@ live where being wrong only costs a re-run):
 | `tdd runphase` | spawned by `tdd posttooluse` | The detached build/run phase's wrapper: holds the build slot, logs to the state dir, writes the result file the next hook harvests. Never typed by a human; never blocks. |
 | `tdd sessionend` | Claude SessionEnd hook (stdin) | Deletes the per-session state file so the state dir doesn't accumulate. |
 | `tdd precommit` | git `pre-commit` | Blocks a newly-**added** suppression (anti-cheat). Then **fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. A worktree state already proven green under the exact same command (by a PostToolUse run or an earlier gate pass) is **not re-run** — the cache is keyed on the repo's git COMMON dir, so every linked worktree of one repo reuses the same proven-green facts — only green results are cached, keyed on content + runner argv (content covers tracked files AND the ignored configuration a suite reads: dotenv files and `config/` trees, never build output), so a red always re-runs with fresh output. Both gate stages build in the REPO'S OWN target dir (see below). |
+| `tdd commitmsg` | git `commit-msg` | Rejects a commit whose MESSAGE carries a deny pattern, quoting the offending line. Opt-in per workspace (`undercover = true`); absent key = pass through. Fires for merge commits too. |
 | `tdd prepush` | git `pre-push` | **No-op** (mechanical-only mode). The tdd gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
 
 #### Gate stage order (cheapest first)
@@ -604,13 +605,15 @@ instead of a full test build:
 | 1 | `cargo fmt --check -p <touched>` | ms | compiles nothing, takes no build slot |
 | 2 | `always-run` packages, their OWN invocation | seconds | a pure guard crate; bundling it into `-p ratchet -p client` made it wait for client to link |
 | 3 | `cargo clippy -p <clippy-clean> --tests -- -D warnings` | front-end build | only crates declared clippy-clean |
-| 4 | fail-first RED proof | worktree build | precommit only, and only when the staged tests ADD a declaration |
-| 5 | touched crates' suites | full build + link + run | the heaviest, and therefore last |
+| 4 | `cargo check --workspace --tests` | check-level, tens of seconds warm | no codegen, but it sees EVERY crate: a lane that broke a crate nobody staged used to land green (borld `forge_jbeam/tests/conformance.rs` reached main not compiling) |
+| 5 | fail-first RED proof | worktree build | precommit only, and only when the staged tests ADD a declaration |
+| 6 | touched crates' suites | full build + link + run | the heaviest, and therefore last |
 
-Stages 2 and 5 are both short-circuited by the green cache (same content +
+Stages 2, 4 and 6 are all short-circuited by the green cache (same content +
 argv key), so a guard crate proven green at commit is not re-run at merge.
 gate.log names the stage that rejected (`fmt-blocked`, `always-run-blocked`,
-`clippy-blocked`, `mechanical-blocked`, `queued-rejected`). `posttooluse`
+`clippy-blocked`, `check-rejected`, `mechanical-blocked`, `queued-rejected`,
+`timeout-rejected`). `posttooluse`
 is unchanged: one related-test run per edit.
 
 **`green-unconstrained`** is the edit hook's one coverage note: the run was
@@ -797,13 +800,20 @@ never leaves target dirs locked by builds that never started.
   shared target dir.
 - **`cargo watch` is NOT a long verb**: it recompiles on every save for as
   long as it is open, so it holds a slot like any other build.
-- **Long verbs hold a slot only for their compile.** `cargo run` builds under
-  a slot and launches the binary without one; `mutants`, `bench`, `watch` and
-  `install` get a prewarm (`cargo check --tests` for mutants, `cargo build
-  --tests` for the rest) under a slot, then run unlocked — a multi-hour
-  `cargo mutants` used to own the box for its entire run. The prewarm is a
-  warm-up, not a gate: its exit code is discarded and it is skipped outside a
-  cargo project.
+- **A long verb holds ONE slot for its whole run, and lends it.** `mutants`,
+  `bench` and `install` take a slot, run a prewarm compile under it
+  (`cargo check --tests` for mutants, `cargo build --benches` for bench,
+  `cargo build --tests` otherwise), then RELEASE THE TARGET LOCK and keep the
+  global slot until they exit. The long phase and every cargo it spawns
+  inherit `APHROLLO_SLOT_TOKEN=<slot lock>`, which skips the global semaphore
+  but NOT the per-target lock: each mutation copy still holds the lock for
+  its own target dir, so cargo's one-build-per-target invariant survives.
+  Measured 2026-09-02: without this, a four-job `cargo mutants` run had each
+  inner build take a slot of its own, and both slots stayed held for hours
+  while every other session queued. `cargo run` is the other split: it builds
+  under a slot and launches the binary with neither the slot nor the token
+  (the launched process outlives both). The prewarm is a warm-up, not a gate:
+  its exit code is discarded and it is skipped outside a cargo project.
 - A waiter still prints exactly one `queued behind "<cmd>" in <cwd>` line
   naming a holder, one line on acquire, and exits 75 (`EX_TEMPFAIL`) when it
   gives up (`APHROLLO_CARGO_WAIT_SECS`, default 20 min).
@@ -892,12 +902,32 @@ with the code they police and are reviewed in the same diff:
 [workspace.metadata.aphrollo]
 always-run   = ["ratchet"]            # run these packages' suites on EVERY mechanical stage
 clippy-clean = ["server", "shared"]   # gate these on `clippy -D warnings` at commit
+undercover = true                    # reject commit messages that name the tooling
+commit-message-deny = ["^WIP:"]      # this repo's own extra deny patterns
 ```
 
 - **`always-run`** — a workspace-wide guard package (its tests scan the whole
   tree) is owned by no staged file, so ownership scoping alone would run it
   only when someone edits the guard itself, which is exactly when its
   invariant is not at risk.
+- **`undercover`** (bool) — turns on the `commit-msg` gate. The commit
+  message is the one artefact of a session that leaves the machine and stays
+  in history forever, so a repo can ask that it describe WHAT changed and
+  nothing about how it was written. Built-in deny patterns, all
+  case-insensitive: `^Co-Authored-By:`, `\bClaude\b`, `\bAnthropic\b`,
+  `Generated with`, `\bopus-\d`, `\bsonnet-\d`, `\bhaiku-\d`, `\bfable\b`,
+  `claude-code`, `\bgo/[a-z]`, `#claude-`, `anthropics/`,
+  `\bAI\b\s+(assistant|generated|written)` (bare "AI" is a word in ordinary
+  prose, so it only counts when it claims authorship), and the codenames
+  `Capybara|Tengu`. Lines starting `#` are git's own comment lines and are
+  skipped. The rejection QUOTES the offending line and names the pattern —
+  an author who has to guess which of thirty lines offended will retype the
+  message from memory. Absent key = the gate is inert, so installing the hook
+  everywhere cannot start rejecting a repo that never asked.
+- **`commit-message-deny`** (string array) — the repo's OWN extra patterns for
+  that gate, e.g. `commit-message-deny = ["(?i)\\bskunkworks\\b", "^WIP:"]` (a TOML basic string, so the regex backslash is doubled).
+  An unparseable entry is skipped with a stderr note, never silently disabling
+  the gate nor blocking every commit.
 - **`mutation-receipt`** (bool) — turns on the merge gate's receipt check.
   Fail-first proves a test FAILED once; it says nothing about whether the
   test constrains behaviour, and a test that asserts nothing satisfies

@@ -93,9 +93,10 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 	}
 
 	target := shimTargetDir()
-	slot, release, ok := tdd.TryAcquireBuildSlot(target)
+	acquire := acquireFor(args)
+	slot, releaseTarget, releaseAll, ok := acquire(target)
 	if ok {
-		return runWithLock(slot, release, cfg.realCargo, args, stdin, stdout, stderr)
+		return runWithLock(slot, releaseTarget, releaseAll, cfg.realCargo, args, stdin, stdout, stderr)
 	}
 
 	// Contended: report it exactly once, then poll silently.
@@ -108,10 +109,23 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 			return exCargoTempFail
 		}
 		time.Sleep(cfg.pollInterval)
-		if slot, release, ok := tdd.TryAcquireBuildSlot(target); ok {
+		if slot, releaseTarget, releaseAll, ok := acquire(target); ok {
 			fmt.Fprintln(stderr, acquiredLine(time.Since(start)))
-			return runWithLock(slot, release, cfg.realCargo, args, stdin, stdout, stderr)
+			return runWithLock(slot, releaseTarget, releaseAll, cfg.realCargo, args, stdin, stdout, stderr)
 		}
+	}
+}
+
+// acquireFor picks the acquisition shape this invocation needs. A long verb
+// needs its two releases separately (the target for the prewarm, the global
+// slot for the whole run); everything else releases both together.
+func acquireFor(args []string) func(string) (tdd.BuildSlot, func(), func(), bool) {
+	if isCargoLongVerb(args) {
+		return tdd.TryAcquireLongVerbSlot
+	}
+	return func(target string) (tdd.BuildSlot, func(), func(), bool) {
+		slot, release, ok := tdd.TryAcquireBuildSlot(target)
+		return slot, release, release, ok
 	}
 }
 
@@ -133,14 +147,14 @@ func shimTargetDir() string {
 // `cargo run` is a special case (task A9): its own launched process's
 // lifetime must NEVER be covered by the lock, only the build that precedes
 // it, so that path is split out entirely.
-func runWithLock(slot tdd.BuildSlot, release func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func runWithLock(slot tdd.BuildSlot, releaseTarget, releaseAll func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if isCargoRunVerb(args) {
-		return runCargoRunSplitLock(slot, release, realCargo, args, stdin, stdout, stderr)
+		return runCargoRunSplitLock(slot, releaseAll, realCargo, args, stdin, stdout, stderr)
 	}
 	if isCargoLongVerb(args) {
-		return runCargoLongVerbSplitLock(slot, release, realCargo, args, stdin, stdout, stderr)
+		return runCargoLongVerbSplitLock(slot, releaseTarget, releaseAll, realCargo, args, stdin, stdout, stderr)
 	}
-	defer release()
+	defer releaseAll()
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = "(unknown cwd)"
@@ -227,15 +241,20 @@ func cargoPrewarmArgs(args []string) []string {
 // IS the thing being launched), so the operator always gets the exit code of
 // the command they typed. Outside a cargo project there is nothing to warm,
 // and the slot is released without compiling anything.
-func runCargoLongVerbSplitLock(slot tdd.BuildSlot, release func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func runCargoLongVerbSplitLock(slot tdd.BuildSlot, releaseTarget, releaseAll func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	defer releaseAll()
 	if cwd, err := os.Getwd(); err == nil && insideCargoProject(cwd) {
 		prewarm := cargoPrewarmArgs(args)
 		tdd.WriteBuildSlotOwner(slot, "cargo "+strings.Join(prewarm, " "), cwd)
 		execCargo(realCargo, prewarm, stdin, stdout, stderr, slot.Jobs)
 		tdd.RemoveBuildSlotOwner(slot)
 	}
-	release()
-	return execCargo(realCargo, args, stdin, stdout, stderr, 0)
+	// The caller's target is free from here: the long phase builds in copies
+	// of the tree (mutants) or not at all. The GLOBAL slot stays held for the
+	// whole run and is lent to the children, so a four-job mutation run costs
+	// one slot rather than every slot on the box.
+	releaseTarget()
+	return execCargoToken(realCargo, args, stdin, stdout, stderr, 0, tdd.SlotTokenEnvEntry(slot))
 }
 
 // insideCargoProject reports whether dir or an ancestor holds a Cargo.toml.
@@ -385,21 +404,45 @@ func execCargo(realCargo string, args []string, stdin io.Reader, stdout, stderr 
 // nothing (the read-only bypass, the post-release `cargo run` that outlives
 // the slot) lets an unslotted build walk straight past every waiter.
 func cargoChildEnv(held bool) []string {
+	return cargoChildEnvToken(held, "")
+}
+
+// cargoChildEnvToken is cargoChildEnv plus an optional slot token: a long
+// verb lends its ONE global slot to the cargo invocations it spawns, which is
+// what stops a four-job `cargo mutants` run from taking every slot on the box.
+// A child carrying the token still queues for the target lock of whatever
+// directory it builds in, so it is never told the lock is HELD. With no token
+// given, any inherited one is stripped — a launched `cargo run` process
+// outlives the slot entirely.
+func cargoChildEnvToken(held bool, token string) []string {
 	env := os.Environ()
-	if held {
-		return append(env, tdd.BuildLockHeldEnv+"=1")
-	}
-	out := make([]string, 0, len(env))
+	out := make([]string, 0, len(env)+2)
 	for _, kv := range env {
-		if k, _, ok := strings.Cut(kv, "="); ok && k == tdd.BuildLockHeldEnv {
+		k, _, ok := strings.Cut(kv, "=")
+		if ok && (k == tdd.BuildLockHeldEnv || k == tdd.SlotTokenEnvName()) {
 			continue
 		}
 		out = append(out, kv)
+	}
+	if held {
+		out = append(out, tdd.BuildLockHeldEnv+"=1")
+	}
+	if token != "" {
+		out = append(out, token)
 	}
 	return out
 }
 
 func execCargoHeld(realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer, jobs int, held bool) int {
+	return execCargoEnv(realCargo, args, stdin, stdout, stderr, jobs, cargoChildEnvToken(held, ""))
+}
+
+// execCargoToken runs cargo with its parent's slot token in the environment.
+func execCargoToken(realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer, jobs int, token string) int {
+	return execCargoEnv(realCargo, args, stdin, stdout, stderr, jobs, cargoChildEnvToken(false, token))
+}
+
+func execCargoEnv(realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer, jobs int, env []string) int {
 	if execCargoHookForTest != nil {
 		execCargoHookForTest(args)
 	}
@@ -407,7 +450,7 @@ func execCargoHeld(realCargo string, args []string, stdin io.Reader, stdout, std
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	cmd.Env = cargoChildEnv(held)
+	cmd.Env = env
 	if jobs > 0 {
 		// A slot is 1/N of the box: cap the child so N concurrent builds
 		// into one target dir cost about what one uncapped build did. The

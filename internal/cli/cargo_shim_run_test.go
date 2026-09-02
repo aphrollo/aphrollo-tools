@@ -132,6 +132,12 @@ func runVerbStub(t *testing.T) string {
 		source := "package main\n\n" +
 			"import \"os\"\n\n" +
 			"func main() {\n" +
+			// Record what the shim handed this child, so a test can prove the
+			// slot token reaches the long phase instead of inspecting the
+			// parent's own environment.
+			"\tif out := os.Getenv(\"APHROLLO_TEST_STUB_ENV_OUT\"); out != \"\" && len(os.Args) > 1 {\n" +
+			"\t\tos.WriteFile(out+\".\"+os.Args[1], []byte(os.Getenv(\"APHROLLO_SLOT_TOKEN\")), 0o600)\n" +
+			"\t}\n" +
 			"\tfailOn := os.Getenv(\"APHROLLO_TEST_STUB_FAIL_ON\")\n" +
 			"\tif failOn != \"\" && len(os.Args) > 1 && os.Args[1] == failOn {\n" +
 			"\t\tos.Exit(1)\n" +

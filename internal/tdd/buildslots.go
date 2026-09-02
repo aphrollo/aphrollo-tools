@@ -152,6 +152,15 @@ func TryAcquireBuildSlot(targetDir string) (BuildSlot, func(), bool) {
 	}
 	n := buildSlotCount()
 	jobs := slotJobs(totalCargoJobs(), n)
+	// A child of a long verb builds under the slot its PARENT already holds.
+	// Measured: `cargo mutants` runs four jobs in parallel, each invoking
+	// cargo through the shim, so one mutation run took every slot on the box
+	// for hours. The per-target lock still applies — a token is permission to
+	// skip the semaphore, never permission to share a build directory.
+	if token := inheritedSlotToken(); token != "" {
+		return BuildSlot{Index: inheritedSlotIndex, Lock: lock, Owner: lock + ".owner", Jobs: jobs},
+			releaseTarget, true
+	}
 	for i := range n {
 		if releaseSlot, ok := TryAcquireFileLock(globalSlotPath(i)); ok {
 			return BuildSlot{Index: i, Lock: lock, Owner: lock + ".owner", Jobs: jobs},
@@ -165,6 +174,66 @@ func TryAcquireBuildSlot(targetDir string) (BuildSlot, func(), bool) {
 	// would leave every target dir locked by a build that never started.
 	releaseTarget()
 	return BuildSlot{}, func() {}, false
+}
+
+// slotTokenEnv names the global slot a long-running verb is holding, so the
+// cargo invocations it spawns can build without taking one of their own.
+const slotTokenEnv = "APHROLLO_SLOT_TOKEN"
+
+// inheritedSlotIndex marks a slot that was inherited rather than acquired, so
+// nothing tries to account for it as one of the box's N.
+const inheritedSlotIndex = -1
+
+// inheritedSlotToken is the parent slot this process was handed, "" when it
+// must take its own.
+func inheritedSlotToken() string {
+	return strings.TrimSpace(os.Getenv(slotTokenEnv))
+}
+
+// SlotTokenEnvEntry is the environment entry a long verb passes to its
+// children. Exported for the shim, which builds the child environment.
+func SlotTokenEnvEntry(s BuildSlot) string {
+	return slotTokenEnv + "=" + s.Lock
+}
+
+// SlotTokenEnvName is the variable to STRIP from a child that must not
+// inherit the token — a launched `cargo run` process outlives the slot
+// entirely.
+func SlotTokenEnvName() string { return slotTokenEnv }
+
+// TryAcquireLongVerbSlot takes both locks for a long-running verb and hands
+// back their releases SEPARATELY: the caller's target lock covers the prewarm
+// compile only, while the global slot is held for the whole run and lent to
+// the children through the token.
+func TryAcquireLongVerbSlot(targetDir string) (slot BuildSlot, releaseTarget, releaseAll func(), ok bool) {
+	lock := targetLockPath(targetDir)
+	freeTarget, ok := TryAcquireFileLock(lock)
+	if !ok {
+		return BuildSlot{}, func() {}, func() {}, false
+	}
+	n := buildSlotCount()
+	jobs := slotJobs(totalCargoJobs(), n)
+	for i := range n {
+		freeSlot, got := TryAcquireFileLock(globalSlotPath(i))
+		if !got {
+			continue
+		}
+		var once bool
+		releaseTargetOnce := func() {
+			if !once {
+				once = true
+				freeTarget()
+			}
+		}
+		return BuildSlot{Index: i, Lock: lock, Owner: lock + ".owner", Jobs: jobs},
+			releaseTargetOnce,
+			func() {
+				releaseTargetOnce()
+				freeSlot()
+			}, true
+	}
+	freeTarget()
+	return BuildSlot{}, func() {}, func() {}, false
 }
 
 // buildLockQueueNoticeEvery is how often a WAITING acquirer says who it is
