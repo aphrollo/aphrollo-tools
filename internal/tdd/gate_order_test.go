@@ -32,6 +32,8 @@ func stageOf(r Runner) string {
 		return "fmt"
 	case strings.HasPrefix(args, "clippy"):
 		return "clippy"
+	case strings.HasPrefix(args, "check --workspace"):
+		return "check"
 	case strings.Contains(args, "-p ratchet"):
 		return "always-run"
 	default:
@@ -53,7 +55,7 @@ func TestPrecommit_StagesRunCheapestFirst(t *testing.T) {
 		return SuiteResult{Passed: true}
 	})
 
-	want := []string{"fmt", "always-run", "clippy", "suite"}
+	want := []string{"fmt", "always-run", "clippy", "check", "suite"}
 	if strings.Join(order, ",") != strings.Join(want, ",") {
 		t.Fatalf("stage order = %v, want %v", order, want)
 	}
@@ -169,7 +171,7 @@ func TestMechanical_MergeGateSharesTheSameOrder(t *testing.T) {
 		order = append(order, stageOf(r))
 		return SuiteResult{Passed: true}
 	})
-	want := []string{"fmt", "always-run", "clippy", "suite"}
+	want := []string{"fmt", "always-run", "clippy", "check", "suite"}
 	if strings.Join(order, ",") != strings.Join(want, ",") {
 		t.Fatalf("merge-gate stage order = %v, want %v", order, want)
 	}

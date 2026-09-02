@@ -605,13 +605,15 @@ instead of a full test build:
 | 1 | `cargo fmt --check -p <touched>` | ms | compiles nothing, takes no build slot |
 | 2 | `always-run` packages, their OWN invocation | seconds | a pure guard crate; bundling it into `-p ratchet -p client` made it wait for client to link |
 | 3 | `cargo clippy -p <clippy-clean> --tests -- -D warnings` | front-end build | only crates declared clippy-clean |
-| 4 | fail-first RED proof | worktree build | precommit only, and only when the staged tests ADD a declaration |
-| 5 | touched crates' suites | full build + link + run | the heaviest, and therefore last |
+| 4 | `cargo check --workspace --tests` | check-level, tens of seconds warm | no codegen, but it sees EVERY crate: a lane that broke a crate nobody staged used to land green (borld `forge_jbeam/tests/conformance.rs` reached main not compiling) |
+| 5 | fail-first RED proof | worktree build | precommit only, and only when the staged tests ADD a declaration |
+| 6 | touched crates' suites | full build + link + run | the heaviest, and therefore last |
 
-Stages 2 and 5 are both short-circuited by the green cache (same content +
+Stages 2, 4 and 6 are all short-circuited by the green cache (same content +
 argv key), so a guard crate proven green at commit is not re-run at merge.
 gate.log names the stage that rejected (`fmt-blocked`, `always-run-blocked`,
-`clippy-blocked`, `mechanical-blocked`, `queued-rejected`). `posttooluse`
+`clippy-blocked`, `check-rejected`, `mechanical-blocked`, `queued-rejected`,
+`timeout-rejected`). `posttooluse`
 is unchanged: one related-test run per edit.
 
 **`green-unconstrained`** is the edit hook's one coverage note: the run was

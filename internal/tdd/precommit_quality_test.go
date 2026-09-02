@@ -172,9 +172,13 @@ func containsArgs(seen []string, want string) bool {
 // command alone: the quality stage adds a `cargo fmt --check` (and
 // sometimes a clippy) run per touched crate, which those tests are not
 // about and which has its own coverage above.
+// isQualityRunner reports whether a recorded run is one of the cheap
+// pre-suite stages (fmt, clippy, the whole-workspace check). Tests about
+// SUITE scoping filter these out: they are workspace-wide by design and would
+// otherwise read as an extra crate run.
 func isQualityRunner(r Runner) bool {
 	if r.Cmd != "cargo" || len(r.Args) == 0 {
 		return false
 	}
-	return r.Args[0] == "fmt" || r.Args[0] == "clippy"
+	return r.Args[0] == "fmt" || r.Args[0] == "clippy" || r.Args[0] == "check"
 }

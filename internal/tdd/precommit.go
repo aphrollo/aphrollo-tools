@@ -274,6 +274,9 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 		if res := cargoQualityStage(gateName, plan.ws, g.root, plan.touched, run, repoRoot, qualityClippy); res.Blocked {
 			return res
 		}
+		if res := workspaceCheckStage(gateName, repoRoot, g.root, plan, run); res.Blocked {
+			return res
+		}
 		if failFirst {
 			if res := failFirstStage(repoRoot, g.root, g.tests, g.srcs, run); res.Blocked {
 				return res
@@ -362,6 +365,22 @@ func alwaysRunStage(gateName, repoRoot, root string, plan cargoStagePlan, run Su
 	return runSuiteStage(gateName, "always-run", repoRoot, root, plan.guardRunner(), run)
 }
 
+// workspaceCheckStage compiles the WHOLE workspace's code and tests, without
+// codegen. The suites only cover the crates a commit touched, so a change
+// that breaks a crate nobody staged lands green: borld's
+// forge_jbeam/tests/conformance.rs reached main not compiling because a lane
+// added a struct field and the gate ran only that lane's crates. A check is
+// the cheapest stage that can see the whole graph — tens of seconds warm,
+// against minutes for the suites — so it sits between clippy and fail-first.
+func workspaceCheckStage(gateName, repoRoot, root string, plan cargoStagePlan, run SuiteRunner) GateResult {
+	ws := plan.ws
+	if ws == "" {
+		ws = root
+	}
+	runner := Runner{Cmd: "cargo", Args: []string{"check", "--workspace", "--tests"}, Dir: ws}
+	return runSuiteStage(gateName, "check", repoRoot, root, runner, run)
+}
+
 // suiteStage runs the touched crates' own suites — the heaviest stage, and
 // therefore the last.
 func suiteStage(gateName, repoRoot, root string, runner Runner, run SuiteRunner) GateResult {
@@ -423,7 +442,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 			gateName, cmdString(runner), res.Duration.Seconds())}
 	case !res.Passed:
 		fmt.Fprintf(os.Stderr, "tdd %s: %s %s in %s → blocked\n", gateName, stage, cmdString(runner), root)
-		appendGateLog(gateName, root, cmdString(runner), stage+"-blocked", res.Duration)
+		appendGateLog(gateName, root, cmdString(runner), blockedVerdict(stage), res.Duration)
 		return GateResult{Blocked: true, Message: mechRejectMessage(runner, res)}
 	default:
 		mechCacheAdd(key)
@@ -432,6 +451,17 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		appendGateLog(gateName, root, cmdString(runner), "green", res.Duration)
 	}
 	return GateResult{}
+}
+
+// blockedVerdict is the gate.log word for a stage that failed. The
+// whole-workspace check reads "check-rejected" because it is a compile
+// verdict, not a test one — a reader scanning the log should not have to
+// know which stage names mean "the code did not build".
+func blockedVerdict(stage string) string {
+	if stage == "check" {
+		return "check-rejected"
+	}
+	return stage + "-blocked"
 }
 
 // mechGreenLine composes the mechanical stage's green stderr line, sharing
