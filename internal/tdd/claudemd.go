@@ -28,9 +28,10 @@ func ClaudeMDBlock(shimDir string, undercover bool) string {
 	var b strings.Builder
 	b.WriteString(claudeMDBegin + "\n")
 	b.WriteString("## Working with the aphrollo gate\n\n")
-	fmt.Fprintf(&b, "- **PATH, queue shim first** — bash `export PATH=\"%s:$PATH\"` · PowerShell\n", dir)
-	fmt.Fprintf(&b, "  `$env:Path = \"%s;$env:Path\"`. A `cargo`/`git` run through the shim QUEUES\n", dir)
-	b.WriteString("  visibly behind another build instead of hanging on a silent lock.\n")
+	fmt.Fprintf(&b, "- **`cargo` and `git` resolve to the queue shim** (`which cargo` prints a path under\n")
+	fmt.Fprintf(&b, "  `%s`); the user PATH and the shell profiles put it first, so a session never exports\n", dir)
+	b.WriteString("  PATH by hand. A run through the shim QUEUES visibly behind another build instead of\n")
+	b.WriteString("  hanging on a silent lock; if `which` prints the raw toolchain, the profile is broken: say so.\n")
 	b.WriteString("- **The hooks run the tests, not you.** After every Edit/Write, PostToolUse prints\n")
 	b.WriteString("  exactly ONE `gate:` line. Read it; never re-run a suite it just ran. Iterate with\n")
 	b.WriteString("  `cargo check -p <crate> --tests`, which runs nothing.\n")
