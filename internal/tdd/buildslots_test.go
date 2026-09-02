@@ -63,8 +63,9 @@ func TestTargetLockPath_KeyedOnTargetDir(t *testing.T) {
 	if targetLockPath(a) == targetLockPath(b) {
 		t.Fatalf("distinct target dirs must key to distinct locks, both = %q", targetLockPath(a))
 	}
-	if targetLockPath(a) != targetLockPath(a) {
-		t.Fatal("the same target dir must key to the same lock path on every call")
+	first := targetLockPath(a)
+	if again := targetLockPath(a); first != again {
+		t.Fatalf("the same target dir must key to the same lock path on every call, got %q then %q", first, again)
 	}
 }
 

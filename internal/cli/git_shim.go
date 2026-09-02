@@ -410,17 +410,6 @@ func gitLockDir(realGit string, args []string, cwd string, scope gitLockScope) (
 	return gitRevParseDir(realGit, args, cwd, flag)
 }
 
-// gitCommonDir resolves the repo's common git dir (shared by the main
-// worktree and every linked worktree) by asking the REAL git, honoring
-// whatever global options (-C, --git-dir, --work-tree, ...) preceded the
-// verb in the original invocation -- rather than reimplementing git's own
-// directory-resolution rules. Returns ok=false when not inside a repo (or
-// on any other git failure), in which case the caller runs args unlocked
-// and lets the real git report its own error.
-func gitCommonDir(realGit string, args []string, cwd string) (string, bool) {
-	return gitRevParseDir(realGit, args, cwd, "--git-common-dir")
-}
-
 // gitRevParseDir asks the real git to resolve one directory flag, honoring
 // whatever global options (-C, --git-dir, --work-tree, ...) preceded the
 // verb in the original invocation rather than reimplementing git's own

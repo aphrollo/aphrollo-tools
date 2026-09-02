@@ -226,12 +226,11 @@ func loadLawBaseline(root string, law Law) (*Baseline, string, error) {
 // treeScan is one walk's result: every in-scope file's content-derived hits,
 // grouped by law, plus the file contents the registry matcher needs.
 type treeScan struct {
-	byLaw           map[string][]Hit
-	ignored         map[string]bool
-	files           []string
-	content         map[string]string
-	scanned, read   int
-	proposedContent map[string]string
+	byLaw         map[string][]Hit
+	ignored       map[string]bool
+	files         []string
+	content       map[string]string
+	scanned, read int
 }
 
 // scanTree walks every law's scope ONCE, reading each file at most once and

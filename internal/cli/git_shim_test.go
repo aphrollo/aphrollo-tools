@@ -137,7 +137,7 @@ var (
 //   - any invocation containing "--git-common-dir" responds by printing
 //     APHROLLO_TEST_GIT_COMMON_DIR to stdout and exiting 0 (or exiting 1,
 //     printing nothing, if that env var is unset -- simulating "not a
-//     repo", per gitCommonDir's ok=false contract).
+//     repo", per gitLockDir's ok=false contract).
 //   - every other invocation exits 0, unless APHROLLO_TEST_STUB_FAIL_ON
 //     names its own first argument (the verb), in which case it exits 1.
 //
@@ -256,7 +256,7 @@ func (s *signalOnFirstWrite) Write(p []byte) (int, error) {
 // call. APHROLLO_TEST_GIT_COMMON_DIR is deliberately left unset: if the
 // shim mistakenly tried to resolve the repo dir for a read-only verb, the
 // commonDir probe would fail (ok=false) and it would STILL pass through per
-// gitCommonDir's fallback, so the call-count assertion below is what
+// gitLockDir's fallback, so the call-count assertion below is what
 // actually pins that a read-only verb never even reaches that code path
 // (a second, unwanted rev-parse call would show up as calls[1]).
 func TestRunGitShim_ReadOnlyVerb_NeverTouchesLock(t *testing.T) {
@@ -341,7 +341,7 @@ func TestRunGitShim_PassthroughWhenBuildLockHeldEnvSet(t *testing.T) {
 // --- mutating verb: lock contention -----------------------------------
 
 // gitCommonDirEnv sets up a temp dir as the fake repo's common git dir, so
-// gitCommonDir's stub-driven rev-parse resolves to it -- this IS the dir
+// gitLockDir's stub-driven rev-parse resolves to it -- this IS the dir
 // the shim's lock/owner files live under, so tests can pre-seed/inspect
 // them directly.
 func gitCommonDirEnv(t *testing.T) string {

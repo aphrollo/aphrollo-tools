@@ -135,7 +135,7 @@ func TestDocPathResolvesFlagsOnlyTheDanglingCitation(t *testing.T) {
 	write(t, root+"/docs/TESTING.md", "x\n")
 	l := lawWith(Matcher{
 		Kind:    KindDocPathResolves,
-		Pattern: regexp.MustCompile("(docs/[A-Za-z0-9_/.-]+\\.md)"),
+		Pattern: regexp.MustCompile(`(docs/[A-Za-z0-9_/.-]+\.md)`),
 		Key:     KeyLineContent,
 	})
 	l.Root = root
@@ -156,7 +156,7 @@ func TestDocPathResolvesAcceptsAUnitLocalCitation(t *testing.T) {
 	write(t, root+"/crates/forge_solver/docs/decisions.md", "x\n")
 	l := lawWith(Matcher{
 		Kind:    KindDocPathResolves,
-		Pattern: regexp.MustCompile("(docs/[A-Za-z0-9_/.-]+\\.md)"),
+		Pattern: regexp.MustCompile(`(docs/[A-Za-z0-9_/.-]+\.md)`),
 		Key:     KeyLineContent,
 	})
 	l.Root = root
