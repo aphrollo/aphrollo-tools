@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,6 +40,50 @@ func TestSessionStateCarriesItsSchema(t *testing.T) {
 	}
 	if raw["schema"] != float64(StateSchema) {
 		t.Fatalf("schema = %v, want %d", raw["schema"], StateSchema)
+	}
+}
+
+// The two halves of this file are a trap together: `save` truncates and
+// rewrites in place, and `readStateJSON` QUARANTINES anything that does not
+// parse. A concurrent reader catching a half-written file therefore renames
+// live session state to `.corrupt-<ts>` and the session forgets everything it
+// knew. Publishing by rename means a reader sees the old file or the new one,
+// never the middle of one.
+func TestSessionStateIsPublishedAtomically(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	s, path := loadSession("atomic")
+	for i := range 400 {
+		s.stamp(fmt.Sprintf("/repo/%d", i), projectState{Outcome: "green"})
+	}
+	if err := s.save(path); err != nil {
+		t.Fatal(err)
+	}
+
+	stop := make(chan struct{})
+	done := make(chan int)
+	go func() {
+		torn := 0
+		for {
+			select {
+			case <-stop:
+				done <- torn
+				return
+			default:
+			}
+			var probe sessionState
+			if data, err := os.ReadFile(path); err == nil && json.Unmarshal(data, &probe) != nil {
+				torn++
+			}
+		}
+	}()
+	for range 200 {
+		if err := s.save(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	close(stop)
+	if torn := <-done; torn != 0 {
+		t.Fatalf("a concurrent reader saw %d torn writes; every one of those quarantines live state", torn)
 	}
 }
 

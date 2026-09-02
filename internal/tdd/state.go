@@ -57,11 +57,13 @@ type sessionState struct {
 	Notices struct {
 		WorktreeWarned bool `json:"worktree_warned"`
 	} `json:"notices,omitempty"`
-	// Bash is the tree as it stood before the Bash call now in flight, taken
-	// by PreToolUse and consumed by PostToolUse. Only one is ever held: a
-	// snapshot that outlived its command would attribute someone else's
-	// change to it.
-	Bash *bashSnapshot `json:"bash,omitempty"`
+	// Bash holds one snapshot per Bash TOOL CALL in flight, taken by
+	// PreToolUse and consumed by the PostToolUse for that same call. Keyed by
+	// tool_use_id because Claude batches calls: with one slot per session the
+	// second Pre overwrote the first and the second call's shell edit reached
+	// nothing. Bounded by maxBashSnapshots, so a Post that never arrives
+	// cannot accumulate.
+	Bash map[string]*bashSnapshot `json:"bash,omitempty"`
 }
 
 // stateDir is where per-session state files live. It honours CLAUDE_CONFIG_DIR
@@ -120,7 +122,11 @@ func loadSession(session string) (*sessionState, string) {
 	return s, path
 }
 
-// save writes the session state, creating the directory if needed.
+// save writes the session state, creating the directory if needed. It
+// publishes by RENAME rather than truncating in place: readStateJSON
+// quarantines anything that does not parse, so a concurrent reader catching a
+// half-written file would rename live session state to `.corrupt-<ts>` and
+// the session would forget everything it knew.
 func (s *sessionState) save(path string) error {
 	if path == "" {
 		return nil
@@ -133,7 +139,7 @@ func (s *sessionState) save(path string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	return writeFileAtomic(path, data)
 }
 
 // prevFailing returns the previously-recorded failing set for root, but ONLY

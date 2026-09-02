@@ -124,7 +124,9 @@ func mechCacheAdd(key string) {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(path, data, 0o600)
+	// By rename: a reader that caught this mid-truncate would quarantine a
+	// live cache as corrupt and re-run every suite it was answering for.
+	_ = writeFileAtomic(path, data)
 }
 
 // worktreeStateHash fingerprints the content the mechanical suite actually

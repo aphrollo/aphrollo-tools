@@ -111,7 +111,7 @@ func writeGCReport(freed int64, dirs int) {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(path, data, 0o600)
+	_ = writeFileAtomic(path, data)
 }
 
 // RecordGCSweep records a completed sweep for the next session start to
@@ -137,7 +137,7 @@ func gcReportLine() string {
 	}
 	r.Reported = true
 	if marked, err := json.Marshal(r); err == nil {
-		_ = os.WriteFile(path, marked, 0o600)
+		_ = writeFileAtomic(path, marked)
 	}
 	return fmt.Sprintf("gate gc: reclaimed %s across %d stale build directories (idle incremental caches, dead gate dirs, orphan worktree builds, stray target dirs). `aphrollo gate gc` lists what is left.",
 		formatBytes(r.Freed), r.Dirs)

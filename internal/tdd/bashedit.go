@@ -1,12 +1,15 @@
 package tdd
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // A `sed -i`, a heredoc, a `gofmt -w`, a generator — every one of them is an
@@ -15,10 +18,17 @@ import (
 // Bash, and the suite never runs. That is not a hole a rule can close; it
 // needs the hooks to see the shell too.
 //
-// PreToolUse takes a cheap snapshot of the repo the command runs in — the
-// porcelain status plus the size and mtime of every tracked SOURCE file —
-// and PostToolUse diffs it. Every changed source or test file goes through
-// the identical post-edit path an Edit would take.
+// PreToolUse asks git ONCE what is dirty (`git status --porcelain -uall -z`),
+// keeps the hash of that answer plus a size+mtime stamp for the dirty SOURCE
+// paths only, and PostToolUse asks again and diffs. The cost is O(dirty), not
+// O(tracked): an earlier version listed every tracked file and stat'd it, so
+// a bare `ls` paid two full index walks and a stat per source file in the
+// tree, then wrote ~140 KB of state twice.
+//
+// The snapshot is keyed by the TOOL CALL, not the session. Claude batches
+// tool calls, so two Bash calls interleave PreA, PreB, PostA, PostB — with
+// one slot per session, B's Pre overwrote A's, A's Post consumed it, and B's
+// shell edit reached nothing.
 //
 // Two things it deliberately does NOT do. It cannot deny a smell before the
 // write: the content does not exist until the command has run, so the
@@ -28,20 +38,33 @@ import (
 // all of them at once, so a per-file loop would charge the same build twenty
 // times and leave twenty detached ones behind it.
 
+// maxBashSnapshots bounds what one session holds. A Pre whose Post never
+// arrives (a cancelled call, a crashed hook) would otherwise accumulate in
+// the session file forever; past this the oldest is dropped.
+const maxBashSnapshots = 16
+
 // bashInput is the slice of a Bash hook payload these two need.
 type bashInput struct {
 	SessionID string `json:"session_id"`
+	ToolUseID string `json:"tool_use_id"`
 	Cwd       string `json:"cwd"`
 	ToolName  string `json:"tool_name"`
 }
 
-// bashSnapshot is the tree as it stood before a shell command ran.
+// bashSnapshot is the tree as it stood before one shell command ran.
 type bashSnapshot struct {
-	Root   string `json:"root"`
-	Status string `json:"status"`
-	// Files stamps each tracked source file "<size>:<mtime-unix-nanos>".
-	// bound: one entry per tracked source file in the repo the command runs in.
-	Files map[string]string `json:"files"`
+	Root string `json:"root"`
+	// StatusHash fingerprints `git status --porcelain -uall -z`: unchanged
+	// means no file entered or left the dirty set, which is the cheap
+	// no-op answer for the commands that read rather than write.
+	StatusHash string `json:"status_hash"`
+	// Dirty stamps each dirty SOURCE path "<size>:<mtime-unix-nanos>". The
+	// hash alone cannot see a second edit to a file that was already
+	// modified — the status line is identical before and after — and that is
+	// the common case, so the stamps carry it.
+	// bound: one entry per dirty source path, not per tracked file.
+	Dirty map[string]string `json:"dirty"`
+	At    time.Time         `json:"at"`
 }
 
 // IsBashHook reports whether a hook payload describes a Bash call, so the
@@ -49,6 +72,16 @@ type bashSnapshot struct {
 func IsBashHook(raw []byte) bool {
 	var in bashInput
 	return json.Unmarshal(raw, &in) == nil && in.ToolName == "Bash"
+}
+
+// bashKey names the slot one call's snapshot lives in. A payload with no
+// tool_use_id (an older harness) falls back to one shared slot, which is the
+// pre-existing behaviour rather than no behaviour.
+func bashKey(in bashInput) string {
+	if in.ToolUseID != "" {
+		return in.ToolUseID
+	}
+	return "-"
 }
 
 // PreBash records what the repo looked like before a Bash command ran. It is
@@ -64,12 +97,33 @@ func PreBash(raw []byte) {
 	if s == nil || path == "" {
 		return
 	}
-	s.Bash = takeBashSnapshot(in.Cwd)
+	snap := takeBashSnapshot(in.Cwd)
+	if snap == nil {
+		return
+	}
+	if s.Bash == nil {
+		s.Bash = map[string]*bashSnapshot{}
+	}
+	s.Bash[bashKey(in)] = snap
+	pruneBashSnapshots(s.Bash)
 	_ = s.save(path)
 }
 
-// takeBashSnapshot stats every tracked source file under cwd's repo. nil when
-// there is no repo to snapshot.
+// pruneBashSnapshots drops the oldest entries past the bound.
+func pruneBashSnapshots(snaps map[string]*bashSnapshot) {
+	for len(snaps) > maxBashSnapshots {
+		oldestKey, oldest := "", time.Time{}
+		for k, v := range snaps {
+			if oldestKey == "" || v.At.Before(oldest) {
+				oldestKey, oldest = k, v.At
+			}
+		}
+		delete(snaps, oldestKey)
+	}
+}
+
+// takeBashSnapshot asks git once what is dirty and stamps the source paths in
+// that answer. nil when there is no repo to snapshot.
 func takeBashSnapshot(cwd string) *bashSnapshot {
 	if cwd == "" {
 		return nil
@@ -78,18 +132,22 @@ func takeBashSnapshot(cwd string) *bashSnapshot {
 	if root == "" {
 		return nil
 	}
-	snap := &bashSnapshot{Root: root, Files: map[string]string{}}
-	snap.Status, _ = git(root, "status", "--porcelain")
-	tracked, err := gitRead(root, "ls-files")
+	status, err := gitRead(root, "status", "--porcelain", "-uall", "-z")
 	if err != nil {
-		return snap
+		return nil
 	}
-	for line := range strings.SplitSeq(strings.ReplaceAll(tracked, "\r\n", "\n"), "\n") {
-		rel := strings.TrimSpace(line)
-		if rel == "" || ClassifyFile(rel) == Ignore {
+	sum := sha256.Sum256([]byte(status))
+	snap := &bashSnapshot{
+		Root:       root,
+		StatusHash: hex.EncodeToString(sum[:]),
+		Dirty:      map[string]string{},
+		At:         time.Now().UTC(),
+	}
+	for _, rel := range porcelainPaths(status) {
+		if ClassifyFile(rel) == Ignore {
 			continue
 		}
-		snap.Files[rel] = fileStamp(filepath.Join(root, filepath.FromSlash(rel)))
+		snap.Dirty[rel] = fileStamp(filepath.Join(root, filepath.FromSlash(rel)))
 	}
 	return snap
 }
@@ -113,14 +171,18 @@ func PostBash(raw []byte, run SuiteRunner) string {
 		return ""
 	}
 	s, path := loadSession(in.SessionID)
-	if s == nil || s.Bash == nil {
+	if s == nil {
 		return ""
 	}
-	before := s.Bash
-	// The snapshot is consumed: two PostToolUse calls for one command must not
-	// each report the same change, and a stale snapshot must not outlive the
-	// call it was taken for.
-	s.Bash = nil
+	key := bashKey(in)
+	before := s.Bash[key]
+	if before == nil {
+		return ""
+	}
+	// This call's snapshot is consumed, and only this call's: a batched
+	// sibling still has its own, and a stale one must not outlive the command
+	// it was taken for.
+	delete(s.Bash, key)
 	if path != "" {
 		_ = s.save(path)
 	}
@@ -154,31 +216,23 @@ func PostBash(raw []byte, run SuiteRunner) string {
 	return strings.Join(notes, "\n")
 }
 
-// changedSince names every tracked SOURCE file whose stamp moved, plus every
-// source file that appeared (a new file is not in the snapshot at all, and
-// `git status --porcelain` is what sees it). Sorted, so a multi-file command
-// reports in a stable order.
+// changedSince names every source path whose dirty stamp moved, entered the
+// dirty set, or left it. An identical status hash AND identical stamps is the
+// fast no-op: the command read something and wrote nothing.
 func changedSince(before *bashSnapshot) []string {
 	now := takeBashSnapshot(before.Root)
 	if now == nil {
 		return nil
 	}
 	changed := map[string]bool{}
-	for rel, stamp := range before.Files {
-		if now.Files[rel] != stamp {
+	for rel, stamp := range before.Dirty {
+		if now.Dirty[rel] != stamp {
 			changed[rel] = true
 		}
 	}
-	for rel := range now.Files {
-		if _, known := before.Files[rel]; !known {
+	for rel, stamp := range now.Dirty {
+		if before.Dirty[rel] != stamp {
 			changed[rel] = true
-		}
-	}
-	if now.Status != before.Status {
-		for _, rel := range porcelainPaths(now.Status) {
-			if ClassifyFile(rel) != Ignore && before.Files[rel] != fileStamp(filepath.Join(before.Root, filepath.FromSlash(rel))) {
-				changed[rel] = true
-			}
 		}
 	}
 	out := make([]string, 0, len(changed))
@@ -189,20 +243,29 @@ func changedSince(before *bashSnapshot) []string {
 	return out
 }
 
-// porcelainPaths reads the paths out of `git status --porcelain` lines. A
-// rename line (`R  old -> new`) yields the destination, which is the file
-// that now holds the content.
+// porcelainPaths reads the paths out of `git status --porcelain -z` records.
+// `-z` is what makes a non-ASCII path readable at all: without it git quotes
+// and escapes such a path, and the quoted spelling matches nothing on disk. A
+// rename record carries the destination first and the source in its own
+// following record, and both are paths this cares about.
 func porcelainPaths(status string) []string {
 	var out []string
-	for line := range strings.SplitSeq(strings.ReplaceAll(status, "\r\n", "\n"), "\n") {
-		if len(line) < 4 {
+	fields := strings.Split(status, "\x00")
+	for i := 0; i < len(fields); i++ {
+		rec := fields[i]
+		if len(rec) < 4 {
 			continue
 		}
-		rel := strings.TrimSpace(line[3:])
-		if _, dst, ok := strings.Cut(rel, " -> "); ok {
-			rel = dst
+		xy, rel := rec[:2], rec[3:]
+		out = append(out, rel)
+		// A rename/copy record is followed by a NUL-terminated field holding
+		// the ORIGIN path, which is not a status record of its own.
+		if strings.ContainsAny(xy, "RC") && i+1 < len(fields) {
+			i++
+			if origin := fields[i]; origin != "" {
+				out = append(out, origin)
+			}
 		}
-		out = append(out, strings.Trim(rel, `"`))
 	}
 	return out
 }

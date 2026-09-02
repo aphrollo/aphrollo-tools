@@ -2,19 +2,27 @@ package tdd
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func bashPayload(t *testing.T, session, cwd, command string) []byte {
 	t.Helper()
+	return bashPayloadID(t, session, "toolu_single", cwd, command)
+}
+
+func bashPayloadID(t *testing.T, session, toolUseID, cwd, command string) []byte {
+	t.Helper()
 	raw, err := json.Marshal(map[string]any{
-		"session_id": session,
-		"cwd":        cwd,
-		"tool_name":  "Bash",
-		"tool_input": map[string]any{"command": command},
+		"session_id":  session,
+		"tool_use_id": toolUseID,
+		"cwd":         cwd,
+		"tool_name":   "Bash",
+		"tool_input":  map[string]any{"command": command},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -46,6 +54,110 @@ func TestPostBashRunsTheSuiteForAFileTheCommandChanged(t *testing.T) {
 		t.Fatalf("a Bash edit must report like any other edit, got %q", text)
 	}
 	requireLoggedVerdict(t, cfg, "bash-edit:widget.go")
+}
+
+// Claude batches tool calls, so two Bash calls interleave as PreA, PreB,
+// PostA, PostB. One snapshot slot per SESSION means B's Pre overwrites A's and
+// A's Post consumes it, leaving B's shell edit with no snapshot at all — the
+// suite never runs for it. The snapshot belongs to the CALL, not the session.
+func TestPostBashMatchesTheSnapshotToItsOwnToolCall(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "a.go", "package m\n\nfunc A() int { return 1 }\n")
+	write(t, root, "b.go", "package m\n\nfunc B() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "two")
+
+	PreBash(bashPayloadID(t, "s9", "toolu_A", root, "sed -i s/1/2/ a.go"))
+	PreBash(bashPayloadID(t, "s9", "toolu_B", root, "sed -i s/1/2/ b.go"))
+	write(t, root, "a.go", "package m\n\nfunc A() int { return 2 }\n")
+	var seenA []Runner
+	PostBash(bashPayloadID(t, "s9", "toolu_A", root, "sed -i s/1/2/ a.go"), runsAt(&seenA, root))
+
+	write(t, root, "b.go", "package m\n\nfunc B() int { return 2 }\n")
+	var seenB []Runner
+	PostBash(bashPayloadID(t, "s9", "toolu_B", root, "sed -i s/1/2/ b.go"), runsAt(&seenB, root))
+	if len(seenB) != 1 {
+		t.Fatalf("the second batched call ran the suite %d times, want 1: %+v", len(seenB), seenB)
+	}
+}
+
+// A snapshot whose Post never arrives (a cancelled call, a crashed hook) must
+// not accumulate in the session file forever.
+func TestPreBashKeepsABoundedNumberOfSnapshots(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	for i := range maxBashSnapshots + 5 {
+		PreBash(bashPayloadID(t, "s10", fmt.Sprintf("toolu_%02d", i), root, "true"))
+	}
+	s, _ := loadSession("s10")
+	if len(s.Bash) > maxBashSnapshots {
+		t.Fatalf("held %d snapshots, want at most %d", len(s.Bash), maxBashSnapshots)
+	}
+	// The newest survives: an abandoned old one is what gets dropped.
+	if _, ok := s.Bash[fmt.Sprintf("toolu_%02d", maxBashSnapshots+4)]; !ok {
+		t.Fatalf("the newest snapshot was evicted: %v", s.Bash)
+	}
+}
+
+// The snapshot must cost the same on a huge repo as on a small one: git is
+// asked ONCE for what is dirty, and only those paths are stat'd. Asking for
+// every tracked file made a `ls` cost two full index walks and a stat per
+// source file in the tree.
+func TestPreBashStatsOnlyWhatIsDirty(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "clean.go", "package m\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "clean")
+	write(t, root, "dirty.go", "package m\n\nfunc D() {}\n")
+
+	PreBash(bashPayloadID(t, "s11", "toolu_x", root, "true"))
+	s, _ := loadSession("s11")
+	snap := s.Bash["toolu_x"]
+	if snap == nil {
+		t.Fatal("a repo must be snapshotted")
+	}
+	if _, ok := snap.Dirty["dirty.go"]; !ok {
+		t.Errorf("an untracked source file is dirty and must be stamped: %v", snap.Dirty)
+	}
+	if _, ok := snap.Dirty["clean.go"]; ok {
+		t.Errorf("a committed, unmodified file is not stamped: %v", snap.Dirty)
+	}
+}
+
+// The other half of the same cost fix: editing a file that was ALREADY dirty
+// is the common case, and a bare porcelain hash cannot see it — the status
+// line is identical before and after.
+func TestPostBashNoticesASecondEditToAnAlreadyDirtyFile(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "widget")
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 2 }\n")
+
+	PreBash(bashPayloadID(t, "s12", "toolu_y", root, "sed -i s/2/3/ widget.go"))
+	touchLater(t, filepath.Join(root, "widget.go"), "package m\n\nfunc Widget() int { return 3 }\n")
+
+	var seen []Runner
+	PostBash(bashPayloadID(t, "s12", "toolu_y", root, "sed -i s/2/3/ widget.go"), runsAt(&seen, root))
+	if len(seen) != 1 {
+		t.Fatalf("the suite ran %d times, want 1: %+v", len(seen), seen)
+	}
+}
+
+// touchLater rewrites a file and pushes its mtime forward, so a stamp
+// comparison is not defeated by a coarse filesystem timestamp.
+func touchLater(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(path, future, future); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // A shell command that touches only docs or build output has nothing for the
@@ -126,7 +238,7 @@ func TestPreBashSkipsADirectoryThatIsNotARepo(t *testing.T) {
 	PreBash(bashPayload(t, "s6", dir, "echo hi"))
 
 	s, _ := loadSession("s6")
-	if s.Bash != nil {
+	if len(s.Bash) != 0 {
 		t.Fatalf("no repo means nothing to snapshot, got %+v", s.Bash)
 	}
 }
@@ -187,18 +299,21 @@ func TestPreBashSnapshotsTrackedSourceOnly(t *testing.T) {
 	}
 	write(t, root, "out/generated.go", "package out\n")
 
+	write(t, root, "extra.go", "package m\n\nfunc E() {}\n")
+
 	PreBash(bashPayload(t, "s7", root, "true"))
 	s, _ := loadSession("s7")
-	if s.Bash == nil {
+	snap := s.Bash["toolu_single"]
+	if snap == nil {
 		t.Fatal("a repo must be snapshotted")
 	}
-	if _, ok := s.Bash.Files["widget.go"]; !ok {
-		t.Errorf("tracked source is in the snapshot: %v", s.Bash.Files)
+	if _, ok := snap.Dirty["extra.go"]; !ok {
+		t.Errorf("a dirty source file is stamped: %v", snap.Dirty)
 	}
-	if _, ok := s.Bash.Files["NOTES.md"]; ok {
-		t.Errorf("a doc is not source: %v", s.Bash.Files)
+	if _, ok := snap.Dirty["NOTES.md"]; ok {
+		t.Errorf("a doc is not source: %v", snap.Dirty)
 	}
-	if _, ok := s.Bash.Files["out/generated.go"]; ok {
-		t.Errorf("an untracked file is not in the snapshot: %v", s.Bash.Files)
+	if _, ok := snap.Dirty["dist/generated.go"]; ok {
+		t.Errorf("build output is never source: %v", snap.Dirty)
 	}
 }
