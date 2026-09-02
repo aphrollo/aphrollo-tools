@@ -249,9 +249,16 @@ on disk (old/new strings applied to the file, MultiEdit in order) and judges
 that content, narrowed to the one file:
 
 ```
-ratchet: nan-guard: crates/pose/src/advance.rs:212 let a = x.clamp(0.0, 1.0);
-  (baseline 0, now 1; escape: // nan-safe:)
+ratchet: nan-guard: crates/pose/src/advance.rs:212 let a = x.clamp(0.0, 1.0); (baseline 0, now 1) — escape: // nan-safe: <why> on the line or the line above
 ```
+
+Every hit is ONE line and every line ends with the way through, so the fix is
+legible from the denial and nobody has to open the law: the escape comment to
+write and where it may sit, `— no escape: lower the code` for a law that has
+none, and `— split the file; the ceiling is N` for a count-keyed law, which is
+paid down rather than waived. The line is bounded at 160 characters and it is
+the OFFENDING TEXT that gets truncated — a remedy that scrolled off the end is
+a remedy nobody read.
 
 A `deny` law with a new hit exits 2 and the write never happens; a `warn` law
 prints the line once and allows. Everything here fails **open** — a malformed

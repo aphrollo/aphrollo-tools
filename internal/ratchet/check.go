@@ -39,6 +39,10 @@ type Finding struct {
 	Baseline int    `json:"baseline"`
 	Measured int    `json:"measured"`
 	Escape   string `json:"escape,omitempty"`
+	// Remedy is the way through, in the imperative: the escape comment to
+	// write, or the fact that there is none. A denial that names the offence
+	// and stops sends the reader to open the law file.
+	Remedy string `json:"remedy,omitempty"`
 }
 
 // Result is one run's verdict.
@@ -71,7 +75,14 @@ func (r Result) Blocked() bool {
 	return false
 }
 
-// Lines renders one output line per finding.
+// maxFindingLine is the width one hit gets. A denial is read in a terminal
+// and in a hook envelope; past this the remedy at the END of the line is the
+// part that scrolls away, which is the part that matters.
+const maxFindingLine = 160
+
+// Lines renders one output line per finding: where, what, the counts, and the
+// way through. The OFFENDING TEXT is what gets truncated when the line is too
+// long — never the remedy.
 func (r Result) Lines() []string {
 	out := make([]string, 0, len(r.Findings))
 	for _, f := range r.Findings {
@@ -79,13 +90,52 @@ func (r Result) Lines() []string {
 		if f.Line > 0 {
 			where = fmt.Sprintf("%s:%d", f.File, f.Line)
 		}
-		line := fmt.Sprintf("%s: %s %s (baseline %d, now %d", f.Law, where, f.What, f.Baseline, f.Measured)
-		if f.Escape != "" {
-			line += "; escape: " + f.Escape
+		head := fmt.Sprintf("%s: %s ", f.Law, where)
+		tail := fmt.Sprintf(" (baseline %d, now %d)", f.Baseline, f.Measured)
+		if f.Remedy != "" {
+			tail += " — " + f.Remedy
 		}
-		out = append(out, line+")")
+		out = append(out, head+fitWhat(f.What, maxFindingLine-len([]rune(head))-len([]rune(tail)))+tail)
 	}
 	return out
+}
+
+// fitWhat shortens the offending text to at most n runes, marking that it was
+// cut. A budget too small to say anything yields nothing rather than a line of
+// ellipsis.
+func fitWhat(what string, n int) string {
+	runes := []rune(what)
+	if len(runes) <= n {
+		return what
+	}
+	if n < 4 {
+		return ""
+	}
+	return string(runes[:n-1]) + "…"
+}
+
+// remedyFor is the one imperative sentence a denial ends with. A count-keyed
+// law is not escaped, it is paid down, and the number it is paid down TO is
+// what the reader needs; a law with no escape has exactly one way through,
+// and saying nothing there reads as "there must be a marker somewhere".
+func remedyFor(law Law) string {
+	if law.Matcher.Kind == KindLineCount {
+		return fmt.Sprintf("split the file; the ceiling is %d", law.Matcher.Max)
+	}
+	if law.Escape == "" {
+		return "no escape: lower the code"
+	}
+	return fmt.Sprintf("escape: %s <why> %s", law.Escape, escapeWindow(law))
+}
+
+// escapeWindow says WHERE the escape comment is allowed to sit, in the words
+// the author needs: advice that names a window the law does not accept is
+// worse than none.
+func escapeWindow(law Law) string {
+	if law.Contiguous || law.EscapeLines > 0 {
+		return "on the line or the line above"
+	}
+	return "on the line"
 }
 
 // Check scans the laws' scope once, applies every law, and compares each
@@ -186,6 +236,7 @@ func Check(opts Options) (Result, error) {
 				Baseline: r.Baseline,
 				Measured: r.Measured,
 				Escape:   law.Escape,
+				Remedy:   remedyFor(law),
 			})
 		}
 		// A hypothetical tree must never rewrite a baseline: the content it

@@ -88,7 +88,9 @@ func RatchetAdvisory(raw []byte) Decision {
 	}
 	return Decision{
 		Action: action,
-		Reason: "ratchet: " + strings.Join(res.Lines(), "; "),
+		// One hit per line: each carries its own remedy at the end, and
+		// running them together on one line is where that remedy scrolls off.
+		Reason: "ratchet: " + strings.Join(res.Lines(), "\nratchet: "),
 		Policy: "ratchet:" + res.Findings[0].Law,
 	}
 }
