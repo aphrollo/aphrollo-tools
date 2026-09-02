@@ -154,17 +154,25 @@ func Check(opts Options) (Result, error) {
 		if len(opts.Files) == 0 {
 			hits = append(hits, scopeHits(opts.Root, law, scan.files, scan.ignored)...)
 		}
-		measured := map[string]int{}
-		located := map[string]Hit{}
-		for _, h := range hits {
-			measured[h.Key] += h.Weight
-			if _, seen := located[h.Key]; !seen {
-				located[h.Key] = h
-			}
-		}
 		baseline, path, err := loadLawBaseline(opts.Root, law)
 		if err != nil {
 			return Result{}, err
+		}
+		// Measured and baselined are counted by the SAME rule — the baseline
+		// owns it, because it is the file whose rows define the identity.
+		measured := map[string]int{}
+		located := map[string]Hit{}
+		sites := map[string][]string{}
+		for _, h := range hits {
+			id := baseline.Identity(h.Key)
+			measured[id] += h.Weight
+			sites[id] = append(sites[id], h.Key)
+			if _, seen := located[id]; !seen {
+				located[id] = h
+			}
+		}
+		for _, keys := range sites {
+			sort.Strings(keys)
 		}
 		for _, r := range regressions(baseline, measured, law.Matcher.TolerancePct) {
 			h := located[r.Key]
@@ -186,14 +194,17 @@ func Check(opts Options) (Result, error) {
 		if !opts.Tighten || path == "" || len(opts.Proposed) > 0 || len(opts.Files) > 0 {
 			continue
 		}
-		if baseline.Tighten(measured).Changed() {
-			wrote, err := baseline.WriteIfChanged(path)
-			if err != nil {
-				return Result{}, err
-			}
-			if wrote {
-				res.Tightened = append(res.Tightened, law.Baseline)
-			}
+		// Tighten unconditionally and let WriteIfChanged decide: a count that
+		// did not move can still leave a row naming a file that is gone, and
+		// re-pathing it is the whole point of a path-agnostic key. The write
+		// is byte-stable, so a tree with nothing to fix still writes nothing.
+		baseline.TightenWithSites(measured, sites)
+		wrote, err := baseline.WriteIfChanged(path)
+		if err != nil {
+			return Result{}, err
+		}
+		if wrote {
+			res.Tightened = append(res.Tightened, law.Baseline)
 		}
 	}
 	return res, nil
@@ -224,13 +235,35 @@ func regressions(baseline *Baseline, measured map[string]int, tolerancePct int) 
 	return out
 }
 
+// lineKeyedKinds are the matchers whose hits are `<path> | <trimmed line>`:
+// one offending LINE inside one in-scope file. Their debt is a multiset of
+// TEXT, so moving the file that carries a line is not a regression. The
+// whole-tree kinds are excluded on purpose — a dependency PATH, a registry
+// name or a containment capture is already path-free, and stripping at the
+// first ` | ` there would only blur two categories into one.
+var lineKeyedKinds = map[MatcherKind]bool{
+	KindRegexAbsent:       true,
+	KindMarkerWithinLines: true,
+	KindDocPathResolves:   true,
+}
+
+// baselineForm is the shape a law's baseline file is read in: counted per
+// file, a multiset of exact keys, or a multiset of offending text.
+func baselineForm(law Law) Form {
+	switch {
+	case law.Matcher.Key == KeyFile:
+		return Counted
+	case lineKeyedKinds[law.Matcher.Kind]:
+		return MultisetByText
+	default:
+		return Multiset
+	}
+}
+
 // loadLawBaseline reads a law's baseline in the form its key kind implies. A
 // law with no baseline declared is judged at a bar of zero.
 func loadLawBaseline(root string, law Law) (*Baseline, string, error) {
-	form := Multiset
-	if law.Matcher.Key == KeyFile {
-		form = Counted
-	}
+	form := baselineForm(law)
 	if law.Baseline == "" {
 		return &Baseline{form: form}, "", nil
 	}

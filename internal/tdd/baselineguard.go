@@ -70,10 +70,26 @@ func raisedKeys(file, before, after string) []string {
 	var out []string
 	for _, k := range keys {
 		if now[k] > old[k] {
-			out = append(out, fmt.Sprintf("%s %s %d -> %d", file, k, old[k], now[k]))
+			out = append(out, fmt.Sprintf("%s %s %d -> %d", file, offendingRow(after, k), old[k], now[k]))
 		}
 	}
 	return out
+}
+
+// offendingRow is the baseline line that carries key, verbatim. The identity
+// of a line-keyed row is its TEXT alone, which on its own does not say where
+// to look; quoting the whole row puts the path back in the rejection.
+func offendingRow(text, key string) string {
+	for line := range strings.Lines(text) {
+		t := strings.TrimSpace(line)
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		if t == key || ratchet.RowText(t) == key {
+			return t
+		}
+	}
+	return key
 }
 
 // baselineCounts reads a baseline in whichever form it is written: counted
@@ -83,7 +99,11 @@ func baselineCounts(text string) map[string]int {
 	if b, err := ratchet.ParseBaseline(text, ratchet.Counted); err == nil {
 		return b.Counts()
 	}
-	b, err := ratchet.ParseBaseline(text, ratchet.Multiset)
+	// Multiset rows are counted by their offending TEXT, the same identity the
+	// engine judges them by: tightening re-paths a row when the file that
+	// carried a line moves, and a guard keyed on the whole row would call
+	// that legitimate rewrite a brand-new key and reject the commit.
+	b, err := ratchet.ParseBaseline(text, ratchet.MultisetByText)
 	if err != nil {
 		return map[string]int{}
 	}

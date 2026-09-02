@@ -155,10 +155,27 @@ loudly instead of reporting green over files they never opened.
   the reader discriminates.
 
 `key` is `file` (baseline `<file> | <count>`) or `file:line-content-hash`
-(baseline one line per occurrence, identity = file + the trimmed offending
-line). Line NUMBERS are deliberately not part of the identity — inserting a
-line above an offence is not a regression — while swapping one offending site
-for a different one in the same file IS, which a per-file count cannot see.
+(baseline one line per occurrence, written `<path> | <trimmed line>`).
+
+For a line-keyed law the identity is the **trimmed offending line, and only
+that**: the baseline is a MULTISET of offending text over the whole workspace,
+and the path is written down for the reader rather than compared. So a `git mv`
+or a crate rename is not a regression — the same lines are still there, in the
+same number — while adding one more occurrence of a line already at its
+ceiling IS one, wherever it lands, which a per-file count cannot see (it would
+read the new file as a brand-new key and the old file as unchanged). Line
+NUMBERS are not part of the identity either: inserting a line above an offence
+changes nothing. Swapping one offending site for a DIFFERENT line still
+regresses, because the new text is a new identity at a ceiling of zero.
+Tightening rewrites each surviving row's path from a site the scan actually
+found, so a row never dangles at a file that has moved, and drops the rows
+whose text no longer appears that many times. A count-keyed (`file`) law
+measures a property OF a file — its length — so there the path IS the
+identity and a rename is a new key at a ceiling of zero.
+
+The pre-edit hook judges ONE file, so it cannot see a workspace total: an
+added line whose text is already at its ceiling somewhere else is caught by
+the whole-tree run at commit, not by the write.
 
 #### The baseline law
 
@@ -168,7 +185,9 @@ A baseline is a **ceiling per key** and it only ever goes down:
 - measured **below** it → the run that saw the fix lowers or drops the entry
   and rewrites the file: atomically (tmp + rename), byte-stable when nothing
   moved, preserving header and mid-file comments in place and whatever line
-  ending is already on disk;
+  ending is already on disk. A line-keyed row is also re-pathed from the sites
+  the scan found, so the same run that leaves the count alone still stops a
+  row from naming a file that has moved;
 - it **never raises** a count and **never adds** a key. The only way to admit
   a new hit is the law's own escape comment.
 
@@ -183,7 +202,9 @@ A baseline is a ceiling that only ever goes down, and it lives in a text file
 any editor can widen — which happened: a `1048` entry was hand-edited to `1049`
 to get a commit through. So the ban is mechanical. `precommit` and
 `premergecommit` parse every STAGED baseline old-vs-new, in both the counted
-and multiset forms, and reject a key whose count ROSE or which is NEW:
+and multiset forms, and reject a key whose count ROSE or which is NEW — counting a multiset row by
+its TEXT, the identity the engine uses, so a legitimate re-path is not read as
+a brand-new key:
 
 ```
 gate precommit: baseline-rejected: crates/ratchet/tests/module_size_baseline.txt crates/a.rs 1048 -> 1049
