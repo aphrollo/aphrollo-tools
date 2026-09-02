@@ -14,6 +14,23 @@ type Scope struct {
 	// a doc law is entirely about — and the fix must not be to weaken the
 	// repo's .gitignore for the guard's benefit.
 	IgnoreGitignore bool
+	// MinFiles is the floor below which a clean verdict is not a verdict: a
+	// law whose scope silently stopped matching (a crate renamed, a typo in a
+	// glob) reports green over files it never opened.
+	MinFiles int
+}
+
+// ExplicitPaths are the include entries that name ONE file rather than a set.
+// A glob that matches nothing is a scope that shrank; a literal path that is
+// missing is a citation that broke, and the two deserve different words.
+func (s Scope) ExplicitPaths() []string {
+	var out []string
+	for _, p := range s.Include {
+		if !strings.ContainsAny(p, "*?[") {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // Matches reports whether one repo-relative path is in scope.

@@ -298,7 +298,10 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 				return res
 			}
 		}
-		return suiteStage(gateName, repoRoot, g.root, plan.suiteRunner(), run)
+		if res := suiteStage(gateName, repoRoot, g.root, plan.suiteRunner(), run); res.Blocked {
+			return res
+		}
+		return doctestStage(gateName, repoRoot, g.root, plan, run)
 	}
 
 	// Scope the mechanical run to the related tests of the staged
@@ -403,6 +406,22 @@ func workspaceCheckStage(gateName, repoRoot, root string, plan cargoStagePlan, r
 		"-D", "clippy::disallowed_methods", "-D", "clippy::disallowed_types",
 	}, Dir: ws}
 	return runSuiteStage(gateName, "check", repoRoot, root, runner, run)
+}
+
+// doctestStage runs the touched crates' doctests, which the nextest-based
+// suite stage above cannot: nextest does not run them at all, so a
+// `compile_fail` proof would otherwise never execute.
+func doctestStage(gateName, repoRoot, root string, plan cargoStagePlan, run SuiteRunner) GateResult {
+	ws := plan.ws
+	if ws == "" {
+		ws = root
+	}
+	for _, runner := range doctestRunners(ws, plan.touched) {
+		if res := runSuiteStage(gateName, "doctest", repoRoot, root, runner, run); res.Blocked {
+			return res
+		}
+	}
+	return GateResult{}
 }
 
 // suiteStage runs the touched crates' own suites — the heaviest stage, and

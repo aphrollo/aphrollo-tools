@@ -63,8 +63,9 @@ func CommitMsg(repoRoot, msgPath string) GateResult {
 		if strings.HasPrefix(strings.TrimSpace(line), "#") {
 			continue
 		}
+		subject := guidanceFileName.ReplaceAllString(line, "the guidance file")
 		for _, re := range patterns {
-			if !re.MatchString(line) {
+			if !re.MatchString(subject) {
 				continue
 			}
 			return GateResult{Blocked: true, Message: fmt.Sprintf(
@@ -74,6 +75,10 @@ func CommitMsg(repoRoot, msgPath string) GateResult {
 	}
 	return GateResult{}
 }
+
+// guidanceFileName is the one place the word is a FILE, not a tell: a repo
+// whose operating instructions live in CLAUDE.md has to be able to say so.
+var guidanceFileName = regexp.MustCompile(`(?i)\bclaude\.md\b`)
 
 // repoDenyPatterns are the workspace's own additions
 // (`commit-message-deny = ["…", …]`). An unparseable pattern is skipped: a

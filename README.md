@@ -612,6 +612,7 @@ instead of a full test build:
 | 4 | `cargo clippy --workspace --tests -- -D clippy::disallowed_methods -D clippy::disallowed_types` | check-level, tens of seconds warm | no codegen, but it sees EVERY crate: a lane that broke a crate nobody staged used to land green (borld `forge_jbeam/tests/conformance.rs` reached main not compiling). clippy SUBSUMES check, so a compile error fails here too, and denying exactly those two lints is what makes a `clippy.toml` law reach crates that are not on the `clippy-clean` list. Everything else stays at its default level. Rejects `check-rejected` (does not compile) or `lint-rejected` (banned API) |
 | 5 | fail-first RED proof | worktree build | precommit only, and only when the staged tests ADD a declaration |
 | 6 | touched crates' suites | full build + link + run | the heaviest, and therefore last |
+| 7 | `cargo test -p <touched> --doc` | one rustdoc run per crate that has a doc fence | **nextest does not run doctests at all**, so a `compile_fail` proof — the only way to assert something must NOT compile — would never execute. Scoped by a grep of the crate's `src/`: a crate with no doc fence buys no run |
 
 When the workspace's `.config/nextest.toml` declares a `[profile.gate]` table,
 every GATE nextest run (the touched crates' suite, the always-run guards, and
@@ -622,7 +623,7 @@ profile fixes that in one place, where the alternative was a growing habit of
 per-test exemptions that weaken the suite permanently. An edit-time run keeps
 the default deliberately, so a slow test is still reported rather than hidden.
 
-Stages 2, 4 and 6 are all short-circuited by the green cache (same content +
+Stages 2, 4, 6 and 7 are all short-circuited by the green cache (same content +
 argv key), so a guard crate proven green at commit is not re-run at merge.
 gate.log names the stage that rejected (`fmt-blocked`, `always-run-blocked`,
 `clippy-blocked`, `check-rejected`, `lint-rejected`, `mechanical-blocked`,
@@ -987,6 +988,7 @@ commit-message-deny = ["^WIP:"]      # this repo's own extra deny patterns
   clippy takes a build slot, fmt does not (it compiles nothing). A failure
   blocks the commit and names the crate and the first diagnostic.
 
+<!-- ratchet-spec:begin -->
 ### Ratchet laws (`aphrollo ratchet`)
 
 A repo's code laws — "a float `.clamp()` is not a NaN guard", "modules stay
@@ -1014,12 +1016,16 @@ severity     = "deny"                          # deny | warn
 escape       = "// nan-safe:"                  # optional: suppresses a hit
 escape_lines = 2                               # optional: how far above (default 2)
 baseline     = ".ratchet/baselines/nan-guard.txt"   # optional
-code_only    = true                            # optional: strip trailing // comments first
+code_only    = true                            # optional: strip trailing comments first
+comment_prefix = "#"                           # optional: what opens one (default "//")
+contiguous   = true                            # optional: suppression must be in the comment run above
+trigger_exclude = "^\s*(pub )?use "            # optional: lines that can never be a trigger
 
 [scope]
 include = ["crates/**/*.rs"]
 exclude = ["**/target/**", "crates/ratchet/tests/**"]
 ignore_gitignore = false                        # optional: judge gitignored files too
+min_files = 40                                  # optional: fewer matched files is a regression
 
 [matcher]                                       # exactly ONE
 kind    = "regex-absent"
@@ -1038,18 +1044,45 @@ citation law reads) — `ignore_gitignore = true` opts THAT law into the ignored
 files, and the fix is never to weaken the repo's `.gitignore` for a guard's
 benefit. `.git` is never walked, opt-out or not.
 
+A scope is a claim about coverage, so the engine judges it too. `min_files`
+is the floor below which a clean verdict is not a verdict: a law whose globs
+quietly stopped matching (a crate renamed, a `**` dropped) reports green over
+files it never opened, and falling under the floor is the finding
+`scope-floor`. An `include` entry that names ONE file rather than a set is a
+citation: when it is gone the finding is `missing-scope-file | <path>`, which
+says something different from "the set is empty". Both are whole-tree
+questions, so a narrowed run (`--proposed`, `--files`) does not ask them.
+
+Suppression is bounded by structure, not by arithmetic. `contiguous = true`
+makes an `escape` or a `marker` count only when it sits on the trigger's own
+line or in the COMMENT RUN directly above it — consecutive comment lines and
+single-line attributes, broken by the first code or blank line. Counting lines
+instead lets one `// nan-safe:` exempt an unrelated call four lines below,
+across code it says nothing about. `comment_prefix` is what opens a comment in
+the language being scanned, so a TOML or shell law strips `#` comments and a
+commented-out entry stops satisfying a `regex-present` law. `trigger_exclude`
+disqualifies a line from ever BEING a trigger, which is what an import needs:
+putting `use` in the marker regex instead exempts everything in the window
+below the import.
+
+`direction` says WHERE the marker lives: `above` (default) is the
+comment-above-the-declaration shape, `below` is a block that carries its own
+configuration — a `proptest!` block's `#![proptest_config(…)]` sits on the NEXT
+line, and looking up only reported 30 seeded blocks as unseeded — and `both`
+accepts either. `contiguous` applies in whichever direction is chosen.
+
 #### Matcher kinds
 
 | kind | keys | the rule | exemplar |
 |---|---|---|---|
 | `line-count` | `max` | a file may not exceed `max` lines; key = file, count = lines | module-size debt |
-| `regex-absent` | `pattern`, `key` | a pattern must NOT appear | the bare `.clamp(` guard |
+| `regex-absent` | `pattern`, `key`, `count` | a pattern must NOT appear; `count = "matches"` counts every call on a line, not the line | the bare `.clamp(` guard |
 | `path-regex-absent` | `pattern` | the repo-relative PATH must not match; key = the path, no line | a filename carrying a plan-item stamp or a serial letter |
 | `regex-present` | `pattern` | every file in scope MUST contain it | a proptest that must carry an explicit seed |
-| `marker-within-lines` | `trigger`, `marker`, `lines` | a `trigger` line requires a `marker` within N lines above | `// bound:` over a collection that grows |
-| `registry-both-ways` | `registry_file`, `entry_pattern`, `use_pattern` | every use is registered AND every registry line is used | the dev-instrument (env switch) registry |
+| `marker-within-lines` | `trigger`, `marker`, `lines`, `contiguous`, `direction` | a `trigger` line requires a `marker` within N lines above (or below, or either), or in the comment run beside it | `// bound:` over a collection that grows |
+| `registry-both-ways` | `registry_file`, `entry_pattern`, `use_pattern` | every use is registered AND every registry line is used; the LAST non-empty capture of a use match is the name, so an alternation with one group per branch works | the dev-instrument (env switch) registry |
 | `doc-path-resolves` | `pattern` | a captured `.md` path must resolve at the repo root or inside the citing file's own `crates/<x>`/`tools/<x>` unit | doc citations |
-| `dep-graph-forbids` | `roots`, `forbidden`, `edges` | no root package may REACH a forbidden one (glob) through the resolved dependency graph; `edges = "normal"` (default) never follows dev/build edges, which is the whole distinction | dev-only tooling in a shipping binary |
+| `dep-graph-forbids` | `roots`, `forbidden`, `edges`, `min_reachable` | no root package may REACH a forbidden one (glob) through the resolved dependency graph; `edges = "normal"` (default) never follows dev/build edges, which is the whole distinction | dev-only tooling in a shipping binary |
 | `file-set-containment` | `superset_file`, `subset_file`, `capture` | every capture in `subset_file` must also appear in `superset_file` | a headless stand-in whose query must refuse at least what the real one refuses |
 | `json-number-ceiling` | `files`, `path`, `tolerance_pct`, `enabled_env` | a number read out of generated JSON may not exceed its baseline by more than the tolerance | a criterion bench figure nobody was reading |
 
@@ -1066,7 +1099,12 @@ loudly instead of reporting green over files they never opened.
   it instead, which is how the fixtures work. The verdict is cached against the
   only inputs that can change it — `Cargo.lock` and every `Cargo.toml`, by size
   and mtime — so the gate pays for the walk once per manifest change, not once
-  per commit.
+  per commit. `roots = "*"` is every workspace package, which is how a rule
+  like "no package may reach the scratch crate" is stated without re-listing
+  the workspace forever; under the wildcard a package that depends on nothing
+  is a leaf rather than a broken walk, so `min_reachable` is what answers
+  vacuity there — a walk that reached fewer packages than the floor fails
+  loudly instead of reporting clean.
 - **`path-regex-absent`** judges the NAME, never the contents: a probe file
   called `task19_buckling.rs` is the offence, and reading it would never show
   that. Hits carry no line, so `expected.txt` in its fixtures lists bare paths.
@@ -1145,6 +1183,13 @@ proves a rule fires, never that it discriminates. A law with no fixtures
 fails. The commit gate runs `ratchet test` whenever a commit stages anything
 under `.ratchet/`.
 
+A fixture tree is laid out the way the REPO is, because the fixture root
+stands in for the repo root and the law's own `include` globs decide what it
+reads: `crates/**/*.rs` reaches `hit/crates/a/src/bare.rs`, never `hit/bare.rs`.
+A fixture the scope could never reach fails the test rather than being
+skipped — otherwise a typo in `include` disarms the law in the real tree while
+its fixtures stay green, which is the exact failure fixtures exist to catch.
+
 #### Pre-edit denial
 
 The PreToolUse hook reconstructs what a `Write`/`Edit`/`MultiEdit` would leave
@@ -1178,6 +1223,7 @@ A repeat `check` costs milliseconds: every file's hits are cached under the
 state dir, keyed by path + size + mtime **and** a hash of the law set, so a
 rule that changed drops the cache instead of inheriting verdicts reached under
 the old one. A repo with no `.ratchet/laws/` says `no laws` and exits 0.
+<!-- ratchet-spec:end -->
 
 ### Pipeline health (`aphrollo gate stats`)
 
@@ -1305,6 +1351,18 @@ workspace with `undercover = true` — the commit-message rule.
   session start.
 - The text has ONE source (`internal/tdd/claudemd.go`), so a fix reaches every
   repo the next time init runs there. Edit that, never the block.
+
+### The in-repo law spec (`.ratchet/README.md`)
+
+`gate init` also drops the "Ratchet laws" section above into the repo it
+initialises, as `.ratchet/README.md`, whenever the repo has a `.ratchet/` dir
+(`--ratchet-readme` writes it regardless). Laws are edited by whoever owns the
+repo, and until now the only spec for the schema lived in THIS file — on the
+machine that installed the binary, at a path nothing in the consuming repo can
+cite. Now a law, a CLAUDE.md or a doc can point at `.ratchet/README.md` and the
+citation resolves for everyone. The file is managed: a second init is
+byte-identical, a hand edit is overwritten, and the source is this README's
+`ratchet-spec` section (a test in `internal/tdd` fails if the two drift).
 
 ### The `tdd` → `gate` rename
 

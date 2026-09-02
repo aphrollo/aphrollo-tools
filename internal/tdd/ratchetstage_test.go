@@ -65,9 +65,9 @@ func TestRatchetStageProvesFixturesWhenALawFileIsStaged(t *testing.T) {
 	}
 
 	base := filepath.Join(root, ".ratchet", "fixtures", "nan-guard")
-	mustWrite(t, filepath.Join(base, "hit", "bare.rs"), "let b = x.clamp(0.0, 1.0);\n")
-	mustWrite(t, filepath.Join(base, "expected.txt"), "bare.rs:1\n")
-	mustWrite(t, filepath.Join(base, "clean", "ok.rs"), "let a = numeric::clamp_or(x, 0.0, 1.0, 0.0);\n")
+	mustWrite(t, filepath.Join(base, "hit", "crates", "a", "src", "bare.rs"), "let b = x.clamp(0.0, 1.0);\n")
+	mustWrite(t, filepath.Join(base, "expected.txt"), "crates/a/src/bare.rs:1\n")
+	mustWrite(t, filepath.Join(base, "clean", "crates", "a", "src", "ok.rs"), "let a = numeric::clamp_or(x, 0.0, 1.0, 0.0);\n")
 	gitAddAll(t, root)
 	if res := ratchetStage("precommit", root); res.Blocked {
 		t.Fatalf("fixtured laws must pass: %s", res.Message)
@@ -92,9 +92,9 @@ func TestRatchetStageSkipsFixturesWhenNoLawFileIsStaged(t *testing.T) {
 func addFixtures(t *testing.T, root string) {
 	t.Helper()
 	base := filepath.Join(root, ".ratchet", "fixtures", "nan-guard")
-	mustWrite(t, filepath.Join(base, "hit", "bare.rs"), "let b = x.clamp(0.0, 1.0);\n")
-	mustWrite(t, filepath.Join(base, "expected.txt"), "bare.rs:1\n")
-	mustWrite(t, filepath.Join(base, "clean", "ok.rs"), "let a = numeric::clamp_or(x, 0.0, 1.0, 0.0);\n")
+	mustWrite(t, filepath.Join(base, "hit", "crates", "a", "src", "bare.rs"), "let b = x.clamp(0.0, 1.0);\n")
+	mustWrite(t, filepath.Join(base, "expected.txt"), "crates/a/src/bare.rs:1\n")
+	mustWrite(t, filepath.Join(base, "clean", "crates", "a", "src", "ok.rs"), "let a = numeric::clamp_or(x, 0.0, 1.0, 0.0);\n")
 }
 
 func commitAll(t *testing.T, root string) {

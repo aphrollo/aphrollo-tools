@@ -30,7 +30,7 @@ func (l Law) HitsIn(file, content string) []Hit {
 	if l.CodeOnly {
 		code = make([]string, len(raw))
 		for i := range raw {
-			code[i], _ = splitTrailingComment(raw[i])
+			code[i], _ = splitTrailingComment(raw[i], l.commentPrefix())
 		}
 	}
 	switch l.Matcher.Kind {
@@ -67,19 +67,38 @@ func (l Law) lineCountHits(file string, raw []string) []Hit {
 func (l Law) regexAbsentHits(file string, raw, code []string) []Hit {
 	var hits []Hit
 	for i, line := range code {
-		if !l.Matcher.Pattern.MatchString(line) || l.escaped(raw, i) {
+		if l.excluded(line) || !l.Matcher.Pattern.MatchString(line) || l.escaped(raw, i) {
 			continue
 		}
-		hits = append(hits, l.hit(file, i+1, strings.TrimSpace(raw[i])))
+		n := 1
+		if l.Matcher.Count == CountMatches {
+			n = len(l.Matcher.Pattern.FindAllStringIndex(line, -1))
+		}
+		for range n {
+			hits = append(hits, l.hit(file, i+1, strings.TrimSpace(raw[i])))
+		}
 	}
 	return hits
+}
+
+// commentPrefix is what opens a comment in the language this law scans.
+func (l Law) commentPrefix() string {
+	if l.CommentPrefix == "" {
+		return "//"
+	}
+	return l.CommentPrefix
+}
+
+// excluded reports whether a line is disqualified from ever being a trigger.
+func (l Law) excluded(line string) bool {
+	return l.TriggerExclude != nil && l.TriggerExclude.MatchString(line)
 }
 
 // pathHits judges the PATH, not the contents: a file whose NAME carries a
 // plan-item stamp or a serial letter is the offence, and no amount of reading
 // it would show that.
 func (l Law) pathHits(file string) []Hit {
-	if !l.Matcher.Pattern.MatchString(file) {
+	if l.excluded(file) || !l.Matcher.Pattern.MatchString(file) {
 		return nil
 	}
 	return []Hit{{
@@ -104,7 +123,7 @@ func (l Law) regexPresentHits(file string, code []string) []Hit {
 func (l Law) markerHits(file string, raw, code []string) []Hit {
 	var hits []Hit
 	for i, line := range code {
-		if !l.Matcher.Trigger.MatchString(line) || l.escaped(raw, i) {
+		if l.excluded(line) || !l.Matcher.Trigger.MatchString(line) || l.escaped(raw, i) {
 			continue
 		}
 		if l.markerAbove(raw, i) {
@@ -115,20 +134,72 @@ func (l Law) markerHits(file string, raw, code []string) []Hit {
 	return hits
 }
 
-// markerAbove looks for the required marker on the trigger's own line or
-// within `lines` lines above it.
+// markerAbove looks for the required marker on the trigger's own line and in
+// the window above it: the contiguous comment run when the law asks for one,
+// `lines` lines otherwise.
 func (l Law) markerAbove(raw []string, idx int) bool {
-	for i := idx; i >= 0 && i >= idx-l.Matcher.Lines; i-- {
-		if l.Matcher.Marker.MatchString(raw[i]) {
+	return l.foundNear(raw, idx, l.Matcher.Lines, l.Matcher.Direction, func(line string) bool {
+		return l.Matcher.Marker.MatchString(line)
+	})
+}
+
+// foundAbove scans the trigger's own line and then upward. A contiguous law
+// stops at the first line that is neither a comment nor a single-line
+// attribute, so a marker never reaches across code it does not describe.
+func (l Law) foundNear(raw []string, idx, lines int, dir Direction, match func(string) bool) bool {
+	if idx < len(raw) && match(raw[idx]) {
+		return true
+	}
+	if dir != DirectionBelow && l.scanRun(raw, idx, lines, -1, match) {
+		return true
+	}
+	return (dir == DirectionBelow || dir == DirectionBoth) && l.scanRun(raw, idx, lines, 1, match)
+}
+
+// foundAbove is the escape window: an escape comment only ever sits above.
+func (l Law) foundAbove(raw []string, idx, lines int, match func(string) bool) bool {
+	return l.foundNear(raw, idx, lines, DirectionAbove, match)
+}
+
+// scanRun walks away from the trigger one line at a time in one direction,
+// stopping at the window edge or — for a contiguous law — at the first line
+// that is neither a comment nor a single-line attribute.
+func (l Law) scanRun(raw []string, idx, lines, step int, match func(string) bool) bool {
+	for i := idx + step; i >= 0 && i < len(raw); i += step {
+		if l.Contiguous {
+			if !inCommentRun(raw[i], l.commentPrefix()) {
+				return false
+			}
+		} else if i < idx-lines || i > idx+lines {
+			return false
+		}
+		if match(raw[i]) {
 			return true
 		}
 	}
 	return false
 }
 
+// inCommentRun reports whether a line continues the comment block above a
+// trigger: a comment, or a single-line attribute that sits between the comment
+// and the item it decorates.
+func inCommentRun(line, prefix string) bool {
+	t := strings.TrimSpace(line)
+	if t == "" {
+		return false
+	}
+	if strings.HasPrefix(t, prefix) {
+		return true
+	}
+	return (strings.HasPrefix(t, "#[") || strings.HasPrefix(t, "#![")) && strings.HasSuffix(t, "]")
+}
+
 func (l Law) docPathHits(file string, code []string) []Hit {
 	var hits []Hit
 	for i, line := range code {
+		if l.excluded(line) {
+			continue
+		}
 		for _, m := range l.Matcher.Pattern.FindAllStringSubmatch(line, -1) {
 			cited := m[len(m)-1]
 			if l.docResolves(file, cited) {
@@ -180,12 +251,9 @@ func (l Law) escaped(raw []string, idx int) bool {
 	if l.Escape == "" {
 		return false
 	}
-	for i := idx; i >= 0 && i >= idx-l.EscapeLines; i-- {
-		if strings.Contains(raw[i], l.Escape) {
-			return true
-		}
-	}
-	return false
+	return l.foundAbove(raw, idx, l.EscapeLines, func(line string) bool {
+		return strings.Contains(line, l.Escape)
+	})
 }
 
 func splitLines(content string) []string {
@@ -197,11 +265,12 @@ func splitLines(content string) []string {
 	return strings.Split(text, "\n")
 }
 
-// splitTrailingComment splits a source line at its trailing `//` comment. A
-// `//` inside a string literal is code, decided by a quote-parity scan that
-// honours `\"` and the `'"'` char literal — so a URL in a string never reads
+// splitTrailingComment splits a line at its trailing comment, opened by the
+// law's own prefix (`//` for source, `#` for TOML and shell). A prefix inside
+// a string literal is code, decided by a quote-parity scan that honours an
+// escaped quote and the char-literal quote — so a URL in a string never reads
 // as a comment.
-func splitTrailingComment(line string) (code, comment string) {
+func splitTrailingComment(line, prefix string) (code, comment string) {
 	inString := false
 	for i := 0; i < len(line); i++ {
 		switch line[i] {
@@ -215,8 +284,8 @@ func splitTrailingComment(line string) (code, comment string) {
 			if !inString && i+2 < len(line) && line[i+1] == '"' && line[i+2] == '\'' {
 				i += 2
 			}
-		case '/':
-			if !inString && i+1 < len(line) && line[i+1] == '/' {
+		default:
+			if !inString && strings.HasPrefix(line[i:], prefix) {
 				return line[:i], line[i:]
 			}
 		}

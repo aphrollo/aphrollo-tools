@@ -57,6 +57,13 @@ func runLawFixtures(root string, law Law) FixtureResult {
 		res.Failures = append(res.Failures, err.Error())
 	}
 	res.HitFiles, res.CleanFiles = hit.files, clean.files
+	for sub, scan := range map[string]fixtureScan{"hit": hit, "clean": clean} {
+		for _, f := range scan.outOfScope {
+			res.Failures = append(res.Failures, fmt.Sprintf(
+				"%s/%s/%s is outside the law's scope — lay a fixture out as the repo does, or the law's include globs are a typo nobody would see", rel, sub, f))
+		}
+	}
+	sort.Strings(res.Failures)
 	if hit.files == 0 {
 		res.Failures = append(res.Failures, fmt.Sprintf("%s/hit holds no fixture file", rel))
 	}
@@ -93,8 +100,9 @@ func runLawFixtures(root string, law Law) FixtureResult {
 }
 
 type fixtureScan struct {
-	files int
-	hits  []Hit
+	files      int
+	hits       []Hit
+	outOfScope []string
 }
 
 // fixtureHits applies one law to every file under <dir>/<sub>, treating that
@@ -141,6 +149,13 @@ func fixtureHits(dir, sub string, law Law) (fixtureScan, error) {
 		return scan, nil
 	}
 	for _, rel := range files {
+		// A fixture lays its files out as the repo would, so the law's own
+		// include globs decide: a fixture the scope could never reach proves
+		// the matcher and hides the typo that disarmed the law.
+		if !law.Scope.Matches(rel) && rel != law.Matcher.RegistryFile {
+			scan.outOfScope = append(scan.outOfScope, rel)
+			continue
+		}
 		scan.hits = append(scan.hits, law.HitsIn(rel, content[rel])...)
 	}
 	return scan, nil
