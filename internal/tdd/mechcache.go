@@ -25,7 +25,13 @@ import (
 const mechCacheMax = 200
 
 type mechCacheFile struct {
-	Green map[string]string `json:"green"` // mechKey → RFC3339 time of the green run
+	Schema int               `json:"schema"`
+	Green  map[string]string `json:"green"` // mechKey → RFC3339 time of the green run
+	// newer records that the file on disk was written at a schema this binary
+	// does not know: nothing is read from it and nothing is written back, so
+	// the gate simply re-runs the suite rather than trusting or clobbering a
+	// record it cannot interpret.
+	newer bool
 }
 
 func mechCachePath() string {
@@ -63,11 +69,11 @@ func mechKeyRepo(root string) string {
 
 func loadMechCache(path string) *mechCacheFile {
 	c := &mechCacheFile{Green: map[string]string{}}
-	if data, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(data, c)
-		if c.Green == nil {
-			c.Green = map[string]string{}
-		}
+	if _, usable := readStateJSON(path, c); !usable {
+		return &mechCacheFile{Green: map[string]string{}, newer: true}
+	}
+	if c.Green == nil {
+		c.Green = map[string]string{}
 	}
 	return c
 }
@@ -97,6 +103,10 @@ func mechCacheAdd(key string) {
 		return
 	}
 	c := loadMechCache(path)
+	if c.newer {
+		return
+	}
+	c.Schema = StateSchema
 	c.Green[key] = time.Now().UTC().Format(time.RFC3339)
 	for len(c.Green) > mechCacheMax {
 		oldestKey, oldestTS := "", ""

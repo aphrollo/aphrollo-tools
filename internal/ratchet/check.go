@@ -48,6 +48,17 @@ type Result struct {
 	FilesRead    int       `json:"files_read"`
 	Findings     []Finding `json:"findings"`
 	Tightened    []string  `json:"tightened,omitempty"`
+	// NewerLaws names every law whose declared schema exceeds SchemaVersion:
+	// it was judged by the keys this binary knows and the rest were skipped.
+	// The caller warns once per name and logs `ratchet-law-newer:<law>` — a
+	// half-read rule that says nothing looks exactly like a clean one.
+	NewerLaws []NewerLaw `json:"newer_laws,omitempty"`
+}
+
+// NewerLaw is one law read leniently, with the version it declared.
+type NewerLaw struct {
+	Name   string `json:"law"`
+	Schema int    `json:"schema"`
 }
 
 // Blocked reports whether any deny law regressed — the exit-1 condition.
@@ -97,6 +108,11 @@ func Check(opts Options) (Result, error) {
 		laws = kept
 	}
 	res := Result{Laws: len(laws)}
+	for _, l := range laws {
+		if l.Newer {
+			res.NewerLaws = append(res.NewerLaws, NewerLaw{Name: l.Name, Schema: l.Schema})
+		}
+	}
 	if len(laws) == 0 {
 		return res, nil
 	}

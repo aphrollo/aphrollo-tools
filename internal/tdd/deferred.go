@@ -32,6 +32,7 @@ import (
 // DeferredJob describes one detached phase. It is keyed by project, so an
 // orphan left by an ended session is still harvestable.
 type DeferredJob struct {
+	Schema   int       `json:"schema"`
 	Project  string    `json:"project"`
 	Phase    string    `json:"phase"` // "build" or "run"
 	Runner   []string  `json:"runner"`
@@ -50,6 +51,7 @@ type DeferredJob struct {
 // Its EXISTENCE is the liveness signal: no PID probing (a PID can be reused,
 // and Windows cannot be signalled portably).
 type PhaseOutcome struct {
+	Schema   int     `json:"schema"`
 	ExitCode int     `json:"exit_code"`
 	Seconds  float64 `json:"seconds"`
 }
@@ -112,6 +114,7 @@ func saveDeferredJob(j DeferredJob) {
 	if j.Result == "" {
 		j.Result = base + ".result.json"
 	}
+	j.Schema = StateSchema
 	if data, err := json.MarshalIndent(j, "", "  "); err == nil {
 		_ = os.WriteFile(path, data, 0o600)
 	}
@@ -122,12 +125,8 @@ func loadDeferredJob(root string) (DeferredJob, bool) {
 	if path == "" {
 		return DeferredJob{}, false
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return DeferredJob{}, false
-	}
 	var j DeferredJob
-	if err := json.Unmarshal(data, &j); err != nil {
+	if ok, _ := readStateJSON(path, &j); !ok {
 		return DeferredJob{}, false
 	}
 	return j, true
@@ -168,6 +167,7 @@ func writePhaseResult(path string, out PhaseOutcome) {
 	if path == "" {
 		return
 	}
+	out.Schema = StateSchema
 	if data, err := json.Marshal(out); err == nil {
 		_ = writeFileAtomic(path, data)
 	}
@@ -216,12 +216,8 @@ func deferredResult(j DeferredJob) (PhaseOutcome, bool) {
 	if j.Result == "" {
 		return PhaseOutcome{}, false
 	}
-	data, err := os.ReadFile(j.Result)
-	if err != nil {
-		return PhaseOutcome{}, false
-	}
 	var out PhaseOutcome
-	if err := json.Unmarshal(data, &out); err != nil {
+	if ok, _ := readStateJSON(j.Result, &out); !ok {
 		return PhaseOutcome{}, false
 	}
 	return out, true

@@ -44,6 +44,7 @@ type fingerprint struct {
 }
 
 type sessionState struct {
+	Schema    int                     `json:"schema"`
 	ByProject map[string]projectState `json:"by_project"`
 	Overrides struct {
 		Off bool `json:"off"`
@@ -99,11 +100,14 @@ func loadSession(session string) (*sessionState, string) {
 	}
 	path := filepath.Join(stateDir(), session+".json")
 	s := &sessionState{ByProject: map[string]projectState{}}
-	if data, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(data, s)
-		if s.ByProject == nil {
-			s.ByProject = map[string]projectState{}
-		}
+	// A file written at a NEWER schema is read as absent AND kept: returning
+	// an empty save path makes every write through this session a no-op, so
+	// this binary reports fresh state without clobbering the other one's.
+	if _, usable := readStateJSON(path, s); !usable {
+		return &sessionState{ByProject: map[string]projectState{}}, ""
+	}
+	if s.ByProject == nil {
+		s.ByProject = map[string]projectState{}
 	}
 	return s, path
 }
@@ -116,6 +120,7 @@ func (s *sessionState) save(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
+	s.Schema = StateSchema
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
@@ -236,6 +241,7 @@ func appendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
 	if err != nil {
 		return
 	}
+	stampGateLogSchema()
 	defer f.Close()
 	fmt.Fprintf(f, "%s %s %s %s %s %.1fs\n",
 		time.Now().UTC().Format(time.RFC3339), stage, root, cmd, verdict, dur.Seconds())

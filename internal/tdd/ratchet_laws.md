@@ -19,6 +19,7 @@ by hand.
 #### The schema
 
 ```toml
+schema       = 1                               # optional: the law schema this file is written for
 name         = "nan-guard"                     # must equal the file stem
 description  = "A float clamp is not a NaN guard"
 severity     = "deny"                          # deny | warn
@@ -45,7 +46,21 @@ key     = "file:line-content-hash"
 Parsing is **strict**: an unknown key, a duplicate table, a matcher key that
 belongs to another kind, a regex that does not compile, or a `name` that
 disagrees with the file it lives in is an error at load. A typo must not
-silently disable half a rule. Scope globbing understands `*`, `?` and `**`,
+silently disable half a rule.
+
+`schema` is the exception, and only in one direction. It is the version this
+law file is written for; absent means `1`, which is every law written before
+the key existed. A law declaring a version ABOVE the one the binary supports
+is read **leniently** — the keys the binary knows still apply, the ones it has
+never heard of are skipped, and it is never a hard error, so a repo whose laws
+moved ahead of a box's binary does not wedge that box. It is not silent
+either: the run prints one line naming the law and both versions, and the gate
+leaves `ratchet-law-newer:<law>` in its log, because a rule read with half its
+keys skipped otherwise reports clean exactly like a rule that is being obeyed.
+At the supported schema an unknown key stays an error — that is the typo
+protection, and it only makes sense where the binary claims to understand the
+file. A `schema` that is not a positive integer is a broken law, not a future
+one. Scope globbing understands `*`, `?` and `**`,
 `exclude` always wins, and the walk is gitignore-aware, so a law never has to
 enumerate build output. A repo that ignores a whole extension hides the files
 some laws are entirely about (borld ignores `*.md`, which is every doc a

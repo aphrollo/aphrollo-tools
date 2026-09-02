@@ -34,6 +34,13 @@ func runGateStats(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "aphrollo tdd stats: no state dir, so no gate log")
 		return 1
 	}
+	// A log written by a newer binary may carry line shapes this one parses
+	// wrong; a wrong tally is worse than no tally, so it says so and stops.
+	if schema, newer := tdd.GateLogNewerSchema(); newer {
+		fmt.Fprintf(stderr, "aphrollo tdd stats: gate.log is at schema %d, this binary reads %d — not counted\n",
+			schema, tdd.StateSchema)
+		return 1
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo tdd stats: %v\n", err)

@@ -151,6 +151,7 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 		appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-skipped", time.Since(started))
 		return GateResult{Message: line}
 	}
+	noteNewerLaws(gateName, repoRoot, res.NewerLaws)
 	if res.Blocked() {
 		msg := fmt.Sprintf("gate %s: ratchet → REJECTED\n  %s",
 			gateName, strings.Join(res.Lines(), "\n  "))
@@ -164,6 +165,19 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 		return GateResult{}
 	}
 	return ratchetFixtureStage(gateName, repoRoot)
+}
+
+// noteNewerLaws reports every law whose declared schema this binary is too
+// old to read in full. It warns once per law on stderr and leaves one
+// `ratchet-law-newer:<law>` line in gate.log: a rule read with half its keys
+// skipped reports clean exactly like a rule that is being obeyed, so the
+// difference has to be stated somewhere a tally can see it.
+func noteNewerLaws(gateName, repoRoot string, laws []ratchet.NewerLaw) {
+	for _, l := range laws {
+		fmt.Fprintf(os.Stderr, "gate %s: ratchet law %q declares schema %d; this binary supports %d — unknown keys skipped\n",
+			gateName, l.Name, l.Schema, ratchet.SchemaVersion)
+		appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-law-newer:"+logToken(l.Name), 0)
+	}
 }
 
 // indexOverlay is what the laws must judge at commit time: the INDEX, the
