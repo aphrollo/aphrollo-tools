@@ -105,8 +105,11 @@ func TestMechanical_BlocksARealCompileFailure(t *testing.T) {
 	write(t, root, "broken.go", "package m\n\nfunc Broken() int { return }\n")
 	gitDo(t, root, "add", ".")
 
+	// The stage that catches it is vet — cheaper than the suite and ahead of
+	// it in the cost order — so the claim is the OUTCOME and the diagnostic,
+	// not which stage got there first.
 	res := Mechanical(root, RunSuite(precommitTestTimeout))
-	if !res.Blocked || !strings.Contains(res.Message, "mechanical") {
-		t.Fatalf("expected a mechanical block for broken code, got %+v", res)
+	if !res.Blocked || !strings.Contains(res.Message, "not enough return values") {
+		t.Fatalf("expected a block naming the compile error for broken code, got %+v", res)
 	}
 }

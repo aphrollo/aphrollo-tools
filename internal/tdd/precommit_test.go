@@ -202,10 +202,17 @@ func TestPrecommit_MaskingBypass_FullFilePostImage(t *testing.T) {
 }
 
 func TestPrecommit_Mechanical_BlocksFailingSuite(t *testing.T) {
+	withLinter(t, false)
 	root := makeGoRepo(t)
-	// Source-only change (no staged test) that breaks the build → mechanical
-	// gate blocks; fail-first does not trigger.
-	write(t, root, "broken.go", "package m\n\nfunc Broken() int { return }\n")
+	// A committed test that passes, then a source-only change that breaks it:
+	// the code still compiles and vets clean, so the SUITE is what rejects,
+	// and fail-first does not trigger (no staged test).
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+	write(t, root, "widget_test.go",
+		"package m\n\nimport \"testing\"\n\nfunc TestWidget(t *testing.T) {\n\tif Widget() != 1 {\n\t\tt.Fatal(\"boom\")\n\t}\n}\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "widget")
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 2 }\n")
 	gitDo(t, root, "add", ".")
 
 	res := Precommit(root, RunSuite(precommitTestTimeout))

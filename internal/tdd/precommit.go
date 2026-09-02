@@ -112,6 +112,9 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 	if res := ratchetStage("precommit", repoRoot); collect(res) {
 		return res
 	}
+	if res := docsCheckStage("precommit", repoRoot); collect(res) {
+		return res
+	}
 
 	groups := stagedRootGroups(repoRoot)
 	if len(groups) == 0 {
@@ -162,6 +165,11 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		return res
 	}
 	if res := ratchetStage("premergecommit", repoRoot); res.Blocked {
+		return res
+	} else if res.Message != "" {
+		notes = append(notes, res.Message)
+	}
+	if res := docsCheckStage("premergecommit", repoRoot); res.Blocked {
 		return res
 	} else if res.Message != "" {
 		notes = append(notes, res.Message)
@@ -327,6 +335,13 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	// unchanged.
 	if scoped, narrowed := narrowToStaged(runner, g.root, toRootRelative(repoRoot, g.root, rootFiles)); narrowed {
 		runner = scoped
+	}
+	// CI parity for a Go root: the same vet and lint the branch is judged by,
+	// both cheaper than the suite and therefore ahead of it.
+	if runner.Cmd == "go" {
+		if res := goQualityStage(gateName, g.root, run); res.Blocked {
+			return res
+		}
 	}
 	if failFirst {
 		if res := failFirstStage(repoRoot, g.root, g.tests, g.srcs, run); res.Blocked {
