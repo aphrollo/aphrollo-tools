@@ -19,6 +19,10 @@ import (
 var gitGateHooks = []struct{ name, sub string }{
 	{"pre-commit", "precommit"},
 	{"pre-merge-commit", "premergecommit"},
+	// commit-msg fires for EVERY commit, including a non-fast-forward merge,
+	// which is the point: the message is the one artefact that leaves the
+	// machine. Inert unless a workspace opts in with `undercover = true`.
+	{"commit-msg", "commitmsg"},
 }
 
 // prunedHooks are hook names this tool prunes but never installs. A re-install

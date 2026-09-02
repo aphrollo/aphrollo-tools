@@ -591,6 +591,7 @@ live where being wrong only costs a re-run):
 | `tdd runphase` | spawned by `tdd posttooluse` | The detached build/run phase's wrapper: holds the build slot, logs to the state dir, writes the result file the next hook harvests. Never typed by a human; never blocks. |
 | `tdd sessionend` | Claude SessionEnd hook (stdin) | Deletes the per-session state file so the state dir doesn't accumulate. |
 | `tdd precommit` | git `pre-commit` | Blocks a newly-**added** suppression (anti-cheat). Then **fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. A worktree state already proven green under the exact same command (by a PostToolUse run or an earlier gate pass) is **not re-run** — the cache is keyed on the repo's git COMMON dir, so every linked worktree of one repo reuses the same proven-green facts — only green results are cached, keyed on content + runner argv (content covers tracked files AND the ignored configuration a suite reads: dotenv files and `config/` trees, never build output), so a red always re-runs with fresh output. Both gate stages build in the REPO'S OWN target dir (see below). |
+| `tdd commitmsg` | git `commit-msg` | Rejects a commit whose MESSAGE carries a deny pattern, quoting the offending line. Opt-in per workspace (`undercover = true`); absent key = pass through. Fires for merge commits too. |
 | `tdd prepush` | git `pre-push` | **No-op** (mechanical-only mode). The tdd gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
 
 #### Gate stage order (cheapest first)
@@ -892,12 +893,32 @@ with the code they police and are reviewed in the same diff:
 [workspace.metadata.aphrollo]
 always-run   = ["ratchet"]            # run these packages' suites on EVERY mechanical stage
 clippy-clean = ["server", "shared"]   # gate these on `clippy -D warnings` at commit
+undercover = true                    # reject commit messages that name the tooling
+commit-message-deny = ["^WIP:"]      # this repo's own extra deny patterns
 ```
 
 - **`always-run`** — a workspace-wide guard package (its tests scan the whole
   tree) is owned by no staged file, so ownership scoping alone would run it
   only when someone edits the guard itself, which is exactly when its
   invariant is not at risk.
+- **`undercover`** (bool) — turns on the `commit-msg` gate. The commit
+  message is the one artefact of a session that leaves the machine and stays
+  in history forever, so a repo can ask that it describe WHAT changed and
+  nothing about how it was written. Built-in deny patterns, all
+  case-insensitive: `^Co-Authored-By:`, `\bClaude\b`, `\bAnthropic\b`,
+  `Generated with`, `\bopus-\d`, `\bsonnet-\d`, `\bhaiku-\d`, `\bfable\b`,
+  `claude-code`, `\bgo/[a-z]`, `#claude-`, `anthropics/`,
+  `\bAI\b\s+(assistant|generated|written)` (bare "AI" is a word in ordinary
+  prose, so it only counts when it claims authorship), and the codenames
+  `Capybara|Tengu`. Lines starting `#` are git's own comment lines and are
+  skipped. The rejection QUOTES the offending line and names the pattern —
+  an author who has to guess which of thirty lines offended will retype the
+  message from memory. Absent key = the gate is inert, so installing the hook
+  everywhere cannot start rejecting a repo that never asked.
+- **`commit-message-deny`** (string array) — the repo's OWN extra patterns for
+  that gate, e.g. `commit-message-deny = ["(?i)\\bskunkworks\\b", "^WIP:"]` (a TOML basic string, so the regex backslash is doubled).
+  An unparseable entry is skipped with a stderr note, never silently disabling
+  the gate nor blocking every commit.
 - **`mutation-receipt`** (bool) — turns on the merge gate's receipt check.
   Fail-first proves a test FAILED once; it says nothing about whether the
   test constrains behaviour, and a test that asserts nothing satisfies

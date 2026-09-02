@@ -210,3 +210,37 @@ func TestInitGitGate_Uninstall(t *testing.T) {
 		t.Errorf("core.hooksPath still set to %q after uninstall", got)
 	}
 }
+
+// TestGitGate_InstallsTheCommitMsgHook pins the last mile: a gate that exists
+// only as a subcommand never runs. git looks for a `commit-msg` hook by that
+// exact name, and it must receive the message path git passes it.
+func TestGitGate_InstallsTheCommitMsgHook(t *testing.T) {
+	found := false
+	for _, h := range gitGateHooks {
+		if h.name == "commit-msg" {
+			found = true
+			if h.sub != "commitmsg" {
+				t.Fatalf("commit-msg shim calls %q, want commitmsg", h.sub)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the global gate must install a commit-msg hook")
+	}
+	if !strings.Contains(binShim("/bin/aphrollo", "commitmsg"), `"$@"`) {
+		t.Fatal("the shim must forward git's arguments — the message path is one of them")
+	}
+
+	perRepo := false
+	for _, h := range perRepoHooks {
+		if h.name == "commit-msg" {
+			perRepo = true
+		}
+	}
+	if !perRepo {
+		t.Fatal("per-repo install must write the commit-msg hook too")
+	}
+	if !strings.Contains(shim("/bin/aphrollo", "commitmsg"), `"$@"`) {
+		t.Fatal("the per-repo shim must forward git's arguments too")
+	}
+}

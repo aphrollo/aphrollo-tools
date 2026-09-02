@@ -217,6 +217,8 @@ Subcommands:
                     lingering pre-push shim. Never blocks.
   runphase          Run one deferred build/run phase from its job record (--job);
                     spawned by posttooluse, not typed by hand
+  commitmsg         commit-msg hook: reject a message carrying a deny pattern
+                    (opt-in per workspace: undercover = true)
   stats             Tally gate.log by stage and outcome (--since 7d)
   gc                Reclaim stale build dirs: idle incremental caches, dead gate dirs,
                     orphan worktree builds (--repo, --older-than 3d, --apply)
@@ -339,6 +341,10 @@ func runTDD(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "init" {
 		return runTDDInit(args[1:], stdout, stderr)
+	}
+	if args[0] == "commitmsg" {
+		// The commit-msg git hook: git hands it the message file path.
+		return runTDDCommitMsg(args[1:], stderr)
 	}
 	if args[0] == "stats" {
 		// Read-only report over gate.log: pipeline health as a number.
