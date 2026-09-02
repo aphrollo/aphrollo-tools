@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // This file holds the session-lifecycle hooks the edit/commit gates depend on:
@@ -243,6 +244,9 @@ func HandleSessionStart(raw []byte) string {
 	parts := []string{skillNudge}
 	if hint := ratchetHintLine(in.Cwd); hint != "" {
 		parts = append(parts, hint)
+	}
+	if digest := maybeWeeklyDigest(time.Now()); digest != "" {
+		parts = append(parts, digest)
 	}
 	if line != "" {
 		parts = append(parts, line)

@@ -228,7 +228,12 @@ Subcommands:
                     spawned by posttooluse, not typed by hand
   commitmsg         commit-msg hook: reject a message carrying a deny pattern
                     (opt-in per workspace: undercover = true)
-  stats             Tally gate.log by stage and outcome (--since 7d)
+  stats             Tally gate.log by stage and outcome (--since 7d), and the open
+                    escape count
+  escape            The escape loop: record | sync | list | verify-closure <pr>.
+                    A red after a local green is recorded and opened as a labelled
+                    issue; verify-closure refuses a PR that closes one without
+                    changing a law, a gate stage or a named test
   gc                Reclaim stale build dirs: idle incremental caches, dead gate dirs,
                     orphan worktree builds (--repo, --older-than 3d, --apply)
   install           Install the git-hook shims into a repo (--repo, --apply)
@@ -365,6 +370,11 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if args[0] == "gc" {
 		// Disk hygiene: dry-run by default, --apply reclaims.
 		return runGateGC(args[1:], stdout, stderr)
+	}
+	if args[0] == "escape" {
+		// The escape loop: record a red that got past a local green, and
+		// refuse a PR that closes one without changing a check.
+		return runGateEscape(args[1:], stdout, stderr)
 	}
 	if args[0] == "runphase" {
 		// The detached build/run phase's wrapper: it holds the build slot,

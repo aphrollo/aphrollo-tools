@@ -188,6 +188,7 @@ func RenderGateStats(s Stats) string {
 	writeCounts(&b, "timeouts by crate", s.Timeouts)
 	writeCounts(&b, "deferred by crate", s.Deferred)
 	writeCounts(&b, "denies / overrides", s.Denies)
+	b.WriteString(escapeDebtLine())
 	return b.String()
 }
 
