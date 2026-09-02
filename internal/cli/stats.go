@@ -58,8 +58,11 @@ func runGateStats(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	defer trend.Close()
-	candidates := tdd.DemoteCandidates(trend, time.Now().UTC())
-	fmt.Fprint(stdout, tdd.DemoteCandidateLines(candidates))
-	tdd.RecordDemoteCandidates(tdd.RepoRoot("."), candidates, stdout)
+	fmt.Fprint(stdout, tdd.DemoteCandidateLines(tdd.DemoteCandidates(trend, time.Now().UTC())))
+	// Naming the candidates is as far as a REPORT goes. Opening the
+	// false-positive issues for them is a write to somebody's tracker, and it
+	// belongs to the verb that already talks to GitHub —
+	// `aphrollo gate escape sync` — not to the command a human runs to read
+	// the week's numbers.
 	return 0
 }

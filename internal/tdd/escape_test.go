@@ -3,6 +3,7 @@ package tdd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,15 +34,21 @@ func main() {
 			f.Close()
 		}
 	}
+	key := ""
 	out := ""
 	if len(os.Args) > 2 {
-		out = os.Getenv("GH_STUB_" + strings.ToUpper(os.Args[1]) + "_" + strings.ToUpper(os.Args[2]))
+		key = "GH_STUB_" + strings.ToUpper(os.Args[1]) + "_" + strings.ToUpper(os.Args[2])
+		out = os.Getenv(key)
 	}
 	if out == "" {
 		out = os.Getenv("GH_STUB_OUT")
 	}
 	if out != "" {
 		fmt.Println(out)
+	}
+	if boom := os.Getenv(key + "_FAIL"); boom != "" {
+		fmt.Fprintln(os.Stderr, boom)
+		os.Exit(1)
 	}
 }
 `
@@ -147,7 +154,7 @@ func readEscapes(t *testing.T) []EscapeRecord {
 func TestRecordEscapeWritesASchemaStampedRecord(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", "")
-	if _, err := RecordEscape(EscapeOptions{Reason: "CI caught a clippy warning the gate did not"}); err != nil {
+	if _, err := RecordEscape(EscapeOptions{Reason: "CI caught a clippy warning the gate did not"}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	recs := readEscapes(t)
@@ -168,7 +175,7 @@ func TestRecordEscapeWritesASchemaStampedRecord(t *testing.T) {
 
 func TestRecordEscapeRefusesAnUnknownKind(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if _, err := RecordEscape(EscapeOptions{Reason: "x", Kind: "whatever"}); err == nil {
+	if _, err := RecordEscape(EscapeOptions{Reason: "x", Kind: "whatever"}, io.Discard); err == nil {
 		t.Fatal("an unknown kind must be refused, not silently recorded")
 	}
 }
@@ -186,7 +193,7 @@ func TestRecordEscapeOpensALabelledIssue(t *testing.T) {
 		Repo:     repo,
 		FromCI:   "build (ubuntu-latest)",
 		Evidence: "warning: unused variable `x`",
-	})
+	}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +218,7 @@ func TestRecordEscapeOpensALabelledIssue(t *testing.T) {
 func TestRecordEscapeStillRecordsWithoutGh(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", "")
-	r, err := RecordEscape(EscapeOptions{Reason: "no gh here", Repo: t.TempDir()})
+	r, err := RecordEscape(EscapeOptions{Reason: "no gh here", Repo: t.TempDir()}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,10 +236,10 @@ func TestSyncEscapesOpensOnlyTheUnsyncedOnes(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := makeGitHubRepo(t)
 	// Recorded with no repo to reach — the offline case sync exists for.
-	if _, err := RecordEscape(EscapeOptions{Reason: "one"}); err != nil {
+	if _, err := RecordEscape(EscapeOptions{Reason: "one"}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RecordEscape(EscapeOptions{Reason: "two"}); err != nil {
+	if _, err := RecordEscape(EscapeOptions{Reason: "two"}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 
@@ -276,66 +283,6 @@ func TestOpenEscapesCountsTheUnclosedAndTheOldest(t *testing.T) {
 	}
 	if days := int(oldest.Hours() / 24); days != 30 {
 		t.Fatalf("oldest = %d days, want 30", days)
-	}
-}
-
-// A PR that closes an escape must change a CHECK. Closing one with a sentence
-// in a doc is how the count stops meaning anything.
-func TestVerifyClosureRejectsAPRThatChangesNoCheck(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	stubGhScript(t, map[string]string{
-		"pr view": `{"body":"Fixes it.\n\nCloses #42\n"}`,
-		"pr diff": "docs/notes.md\nREADME.md\n",
-		"issue view": `{"labels":[{"name":"escape"}],` +
-			`"body":"**What got through:** x\n\ncloses-by: stage\n"}`,
-	})
-	var out strings.Builder
-	ok, err := VerifyClosure(t.TempDir(), "31", &out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok {
-		t.Fatalf("a docs-only PR must not close an escape:\n%s", out.String())
-	}
-	if !strings.Contains(out.String(), "#42") || !strings.Contains(out.String(), "FAIL") {
-		t.Errorf("the verdict must name the issue and fail it:\n%s", out.String())
-	}
-}
-
-func TestVerifyClosureAcceptsAPRThatTouchesALaw(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	stubGhScript(t, map[string]string{
-		"pr view": `{"body":"Closes #42\n"}`,
-		"pr diff": ".ratchet/laws/nan_guard.toml\n",
-		"issue view": `{"labels":[{"name":"escape"}],` +
-			`"body":"closes-by: law\n"}`,
-	})
-	var out strings.Builder
-	ok, err := VerifyClosure(t.TempDir(), "31", &out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok || !strings.Contains(out.String(), "ok") {
-		t.Fatalf("a law change closes an escape:\n%s", out.String())
-	}
-}
-
-// An issue nobody labelled is somebody else's issue; the check only judges
-// the ones the loop owns.
-func TestVerifyClosureIgnoresAnUnlabelledIssue(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	stubGhScript(t, map[string]string{
-		"pr view":    `{"body":"Closes #9\n"}`,
-		"pr diff":    "README.md\n",
-		"issue view": `{"labels":[{"name":"bug"}],"body":"just a bug\n"}`,
-	})
-	var out strings.Builder
-	ok, err := VerifyClosure(t.TempDir(), "31", &out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Fatalf("an unlabelled issue is out of scope:\n%s", out.String())
 	}
 }
 

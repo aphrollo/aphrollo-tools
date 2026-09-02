@@ -589,8 +589,8 @@ live where being wrong only costs a re-run):
 | `gate pretooluse` | Claude PreToolUse hook (stdin) | Blocks (exit 2) a **test-file** edit introducing an oracle smell — real-time sleep, tautological self-comparison, focused marker (`.only`/`fit`), or a disabled test (`.skip`/`xit`/`t.Skip`/`@pytest.mark.skip`). Judged over the lines the edit ADDS, so a file that already carries one (a platform skip) is still editable; a genuinely necessary one is admitted by `// skip-ok: <why>` or `// real-time: <why>` on its line or the line above, and logged `smell-escape:<policy>`. **Warns** (test or source) on a suppression that silences a quality gate (`//nolint`, `@ts-ignore`, `# type: ignore`, coverage-ignore). |
 | `gate posttooluse` | Claude PostToolUse hook (stdin), matching the edit tools AND `Bash` | Runs the edited file's related tests as a build phase then a run phase under ONE budget, deferring whatever does not finish (see below); surfaces a RED summary. **Silent unless RED.** Source extensions include `.ron` — in a Rust workspace those are registries and fixtures whose edits change behaviour, resolved to the owning crate exactly as `.rs` is. |
 | `gate userpromptsubmit` | Claude UserPromptSubmit hook (stdin) | Intercepts `/gate [status\|off\|on\|reset]` — the per-session enforcement escape hatch. On any other prompt, re-injects the last RED outcome for the cwd's project so the gate survives context compaction. **Silent unless RED.** |
-| `gate stats` | manual | Tallies `gate.log` by stage and outcome, with per-crate timeout/deferred counts and median/max gate seconds (`--since 7d`), the open escape count and its oldest, and any `demote-candidate:` check. |
-| `gate escape` | manual + a CI job | `record` a red that arrived after a local green, `sync` the ones recorded offline, `list` the open ones, `verify-closure <pr>` to refuse a PR that closes one without changing a check. See [The escape loop](#the-escape-loop-aphrollo-gate-escape). |
+| `gate stats` | manual | Tallies `gate.log` by stage and outcome, with per-crate timeout/deferred counts and median/max gate seconds (`--since 7d`), the open escape count and its oldest, and any `demote-candidate:` check. Read-only: it names the candidates, and `gate escape sync` is what opens their issues. |
+| `gate escape` | manual + the `escape-closure` CI job | `record` a red that arrived after a local green, `sync` the ones recorded offline (and open the false-positive issue for a demotion candidate), `list` the open ones, `verify-closure <pr>` to refuse a PR that closes one without changing a check. See [The escape loop](#the-escape-loop-aphrollo-gate-escape). |
 | `gate runphase` | spawned by `gate posttooluse` | The detached build/run phase's wrapper: holds the build slot, logs to the state dir, writes the result file the next hook harvests. Never typed by a human; never blocks. |
 | `gate sessionstart` | Claude SessionStart hook (stdin) | Injects the TDD-skill nudge, the previous session's disk-sweep result when it freed something, and — for a repo with a workspace manifest and no laws dir under `.ratchet` (an empty dir counts as none) — ONE line saying the gate is running suites only and pointing at [Ratchet laws](#ratchet-laws-aphrollo-ratchet). Never more than one extra line each, never blocks. |
 | `gate sessionend` | Claude SessionEnd hook (stdin) | Deletes the per-session state file so the state dir doesn't accumulate. |
@@ -609,13 +609,13 @@ instead of a full test build:
 |---|---|---|---|
 | 0a | baseline guard — a STAGED baseline that ROSE | ms (one `git show` per staged baseline) | rejects `baseline-rejected`; see below |
 | 0b | `ratchet check` — the repo's declared laws | ms (mtime cache) | only when the laws dir under `.ratchet` exists; rejects `ratchet-rejected`. A commit that stages a `.ratchet/` file also re-proves every law against its fixtures |
+| 0c | `docs check` over the staged `*.md` | ms | rejects `docs-rejected`; only for a repo that asked (below) |
 | 1 | `cargo fmt --check -p <touched>` | ms | compiles nothing, takes no build slot |
 | 1g | `go vet ./...` (Go roots) | seconds | CI parity: the gate must run the checks that decide whether the branch is green |
-| 2g | `golangci-lint run ./...` (Go roots) | a full analysis pass | skipped with ONE `lint-skipped` log line when the binary is not installed — never a rejection over a tool nobody has |
+| 2g | `golangci-lint run --allow-serial-runners ./...` (Go roots) | a full analysis pass | skipped with ONE `lint-skipped` log line when the binary is not installed — never a rejection over a tool nobody has. `--allow-serial-runners` because golangci-lint takes a MACHINE-WIDE lock: a second one anywhere on the box otherwise makes this one exit 3 with "parallel golangci-lint is running", a rejection that says nothing about the code. A local version that differs from the one the workflow pins logs ONE `lint-version-drift` line and still runs — a mismatch is not a defect in the code, but a green commit followed by a red CI job is the failure this stage exists to prevent |
 | 2 | `always-run` packages, their OWN invocation | seconds | a pure guard crate; bundling it into `-p ratchet -p client` made it wait for client to link |
 | 3 | `cargo clippy -p <clippy-clean> --tests -- -D warnings` | front-end build | only crates declared clippy-clean |
 | 4 | `cargo clippy --workspace --tests -- -D clippy::disallowed_methods -D clippy::disallowed_types` | check-level, tens of seconds warm | no codegen, but it sees EVERY crate: a lane that broke a crate nobody staged used to land green (borld's `forge_jbeam` conformance test reached main not compiling). clippy SUBSUMES check, so a compile error fails here too, and denying exactly those two lints is what makes a `clippy.toml` law reach crates that are not on the `clippy-clean` list. Everything else stays at its default level. Rejects `check-rejected` (does not compile) or `lint-rejected` (banned API) |
-| 0c | `docs check` over the staged `*.md` | ms | rejects `docs-rejected`; only for a repo that asked (below) |
 | 5 | fail-first RED proof | worktree build | precommit only, and only when the staged tests ADD a declaration |
 | 6 | touched crates' suites | full build + link + run | the heaviest, and therefore last |
 | 7 | `cargo test -p <touched> --doc` | one rustdoc run per crate that has a doc fence | **nextest does not run doctests at all**, so a `compile_fail` proof — the only way to assert something must NOT compile — would never execute. Scoped by a grep of the crate's `src/`: a crate with no doc fence buys no run |
@@ -1437,23 +1437,41 @@ aphrollo gate escape record "clippy warning reached main" --from-ci "build (ubun
 aphrollo gate escape record "the bound law refuses a fixed-capacity field" --kind false-positive
 aphrollo gate escape sync            # open issues for whatever was recorded offline
 aphrollo gate escape list            # the open ones
-aphrollo gate escape verify-closure 321   # a CI job on the PR; exit 1 on a FAIL
+aphrollo gate escape verify-closure 321   # the escape-closure CI job runs this; exit 1 on a FAIL
 ```
 
 `record` writes a schema-stamped line to `<stateDir>/escapes.jsonl` FIRST and
 opens the issue second, so a missing `gh` or a repo with no GitHub remote costs
-an issue and never the evidence; `sync` is the catch-up. The issue is labelled
+an issue and never the evidence; `sync` is the catch-up. Both create the label
+they need (`gh label create --force`, idempotent) before asking for it, because
+a fresh repository has neither, and both report what `gh` itself said when a
+call fails -- "exit status 1" names none of the three things that actually go
+wrong here (no label, no auth, no network).
+
+`sync` is also where a DEMOTION CANDIDATE becomes an issue: `gate stats` names
+every check whose refusals rose in each of the last two weeks, but it is a
+read-only report and never writes to anybody's tracker. `sync` is the verb that
+reaches GitHub deliberately, so it opens the one false-positive issue per
+candidate that does not have one already. The issue is labelled
 `escape` or `false-positive` and carries a fixed body — **what got through**,
 **which stage should have caught it**, and a `closes-by:` line — because an
 escape is closed by a LAW or a STAGE named in the fix, never by a sentence in a
 document.
 
 `verify-closure <pr>` is what makes that mechanical, as a CI job: for every
-labelled issue the PR's body says it closes, the diff must touch a declared law
-(the consuming repo's laws dir), a gate stage (`internal/tdd/*.go`), a workspace's `Cargo.toml`
-gate metadata, or a test file the issue's `closes-by:` line names. It prints
-`#N ok` or `#N FAIL` per issue and exits 1 on any FAIL. An issue carrying
-neither label is somebody else's and is left alone.
+labelled issue the PR closes -- named in its body OR in any of its commit
+messages, since GitHub honours the keyword in both -- the diff must touch one
+of four things:
+
+| what counts as changing a check | what does NOT |
+|---|---|
+| any file under the consuming repo's laws dir (`laws/` under its `.ratchet`) | anything else under that tree |
+| non-test Go under `internal/tdd/` or `internal/ratchet/` -- the code that performs a check | the markdown beside it, and `_test.go` files nobody named |
+| the workspace-ROOT `Cargo.toml`, changed inside its `[workspace.metadata.aphrollo]` table | a crate's own manifest, or a dependency bump in the root one |
+| a source or test file the issue's `closes-by:` line names | a `closes-by:` naming a document |
+
+It prints `#N ok` or `#N FAIL` per issue and exits 1 on any FAIL. An issue
+carrying neither label is somebody else's and is left alone.
 
 The count only goes down, and it is printed where it cannot be ignored: `gate
 stats` states it, and the first session start of each week gets ONE line —

@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -76,7 +78,7 @@ func runEscapeRecord(args []string, stdout, stderr io.Writer) int {
 		FromCI:   *fromCI,
 		Evidence: *evidence,
 		Repo:     tdd.RepoRoot(*repo),
-	})
+	}, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo gate escape: %v\n", err)
 		return 2
@@ -96,13 +98,35 @@ func runEscapeSync(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	n, err := tdd.SyncEscapes(tdd.RepoRoot(*repo), stdout)
+	root := tdd.RepoRoot(*repo)
+	n, err := tdd.SyncEscapes(root, stdout)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo gate escape: %v\n", err)
 		return 1
 	}
+	// A demotion candidate is a false positive the log noticed by itself, and
+	// this is the one verb that reaches GitHub deliberately. `gate stats`
+	// names the candidates but stays a read-only report.
+	n += recordDemoteCandidates(root, stdout)
 	fmt.Fprintf(stdout, "opened %d issue(s)\n", n)
 	return 0
+}
+
+// recordDemoteCandidates opens the false-positive issue for every check whose
+// refusals rose in each of the last two weeks and does not have one open
+// already. A log it cannot read is no reason to fail the sync that already
+// succeeded, so it simply records nothing.
+func recordDemoteCandidates(root string, stdout io.Writer) int {
+	path := tdd.GateLogPath()
+	if path == "" {
+		return 0
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	return tdd.RecordDemoteCandidates(root, tdd.DemoteCandidates(f, time.Now().UTC()), stdout)
 }
 
 func runEscapeVerifyClosure(args []string, stdout, stderr io.Writer) int {

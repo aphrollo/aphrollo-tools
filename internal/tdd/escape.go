@@ -1,17 +1,19 @@
 package tdd
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -77,7 +79,10 @@ func EscapeLogPath() string {
 // RecordEscape writes one record and, when it can reach GitHub, opens the
 // issue for it. The record is written FIRST and survives every later failure:
 // losing the evidence because a CLI was missing is the worst of both worlds.
-func RecordEscape(o EscapeOptions) (EscapeRecord, error) {
+// A failure to open the issue is reported to w and is not an error — but it
+// is reported IN GH'S OWN WORDS, because "no issue opened" leaves the
+// operator guessing between a missing label, no auth, and no network.
+func RecordEscape(o EscapeOptions, w io.Writer) (EscapeRecord, error) {
 	reason := strings.TrimSpace(o.Reason)
 	if reason == "" {
 		return EscapeRecord{}, fmt.Errorf("an escape needs a reason: what got through, in one line")
@@ -102,9 +107,11 @@ func RecordEscape(o EscapeOptions) (EscapeRecord, error) {
 	if err := appendEscape(r); err != nil {
 		return EscapeRecord{}, err
 	}
-	if url, number, ok := openEscapeIssue(o.Repo, r); ok {
+	if url, number, err := openEscapeIssue(o.Repo, r); err == nil {
 		r.Issue, r.Number = url, number
 		updateEscape(r)
+	} else if !errors.Is(err, errNoIssueTarget) {
+		fmt.Fprintf(w, "escape %s: %v\n", r.ID, err)
 	}
 	return r, nil
 }
@@ -178,7 +185,9 @@ func updateEscape(updated EscapeRecord) {
 			b.WriteByte('\n')
 		}
 	}
-	_ = os.WriteFile(path, []byte(b.String()), 0o600)
+	// By rename: `list`, `sync` and the weekly digest all read this file, and
+	// a torn read would drop escape debt on the floor.
+	_ = writeFileAtomic(path, []byte(b.String()))
 }
 
 // OpenEscapes is the count of records with no fix yet and the age of the
@@ -210,9 +219,9 @@ func SyncEscapes(repo string, w io.Writer) (int, error) {
 		if r.Closed || r.Issue != "" {
 			continue
 		}
-		url, number, ok := openEscapeIssue(repo, r)
-		if !ok {
-			fmt.Fprintf(w, "escape %s: could not open an issue (no gh, or no GitHub remote)\n", r.ID)
+		url, number, err := openEscapeIssue(repo, r)
+		if err != nil {
+			fmt.Fprintf(w, "escape %s: could not open an issue: %v\n", r.ID, err)
 			continue
 		}
 		r.Issue, r.Number = url, number
@@ -267,13 +276,20 @@ close an escape.
 `, r.Reason, evidence)
 }
 
-// escapeIssueTitle keeps the subject short enough to read in a list.
+// escapeIssueTitle keeps the subject short enough to read in a list. It cuts
+// on RUNES: a byte slice through a multibyte character puts a replacement
+// character in the title of every escape recorded in prose.
 func escapeIssueTitle(r EscapeRecord) string {
-	reason := r.Reason
-	if len(reason) > 80 {
-		reason = reason[:77] + "..."
+	return r.Kind + ": " + fitRunes(r.Reason, 80)
+}
+
+// fitRunes shortens s to at most n runes, marking that it was cut.
+func fitRunes(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
 	}
-	return r.Kind + ": " + reason
+	return string(runes[:n-3]) + "..."
 }
 
 // --- the GitHub half -------------------------------------------------------
@@ -285,13 +301,24 @@ var ghAvailable = func() bool {
 	return err == nil
 }
 
-// runGh runs the GitHub CLI in dir and returns its stdout.
+// runGh runs the GitHub CLI in dir and returns its stdout. A failure carries
+// gh's own STDERR: "exit status 1" names none of the three things that
+// actually go wrong here (a label that does not exist, no auth, no network),
+// and the operator cannot act on a verdict that does not say which.
 func runGh(dir string, args ...string) (string, error) {
 	cmd := exec.Command("gh", args...)
 	cmd.Dir = dir
 	cmd.Env = cleanGitEnv()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
-	return string(out), err
+	if err != nil {
+		if said := strings.TrimSpace(stderr.String()); said != "" {
+			return string(out), fmt.Errorf("gh %s: %w: %s", args[0], err, fitRunes(said, 400))
+		}
+		return string(out), fmt.Errorf("gh %s: %w", args[0], err)
+	}
+	return string(out), nil
 }
 
 // hasGitHubRemote reports whether repo pushes to GitHub. A repo that does not
@@ -307,25 +334,67 @@ func hasGitHubRemote(repo string) bool {
 	return strings.Contains(out, "github.com")
 }
 
-// openEscapeIssue opens the labelled issue for one record. ok=false means
-// there was nothing to open it with, which is never an error: the local
-// record already holds the evidence, and `gate escape sync` catches up.
-func openEscapeIssue(repo string, r EscapeRecord) (url string, number int, ok bool) {
+// errNoIssueTarget means there was nothing to open an issue WITH — no repo,
+// no gh, no GitHub remote. It is not a failure: the local record already
+// holds the evidence and `gate escape sync` catches up later, so callers
+// report every other error and stay quiet about this one.
+var errNoIssueTarget = errors.New("no gh, or no GitHub remote")
+
+// openEscapeIssue opens the labelled issue for one record.
+func openEscapeIssue(repo string, r EscapeRecord) (url string, number int, err error) {
 	if repo == "" || !ghAvailable() || !hasGitHubRemote(repo) {
-		return "", 0, false
+		return "", 0, errNoIssueTarget
 	}
+	ensureEscapeLabel(repo, r.Kind)
 	out, err := runGh(repo, "issue", "create",
 		"--title", escapeIssueTitle(r),
 		"--body", escapeIssueBody(r),
 		"--label", r.Kind)
 	if err != nil {
-		return "", 0, false
+		return "", 0, err
 	}
 	url = lastNonEmptyLine(out)
 	if !strings.Contains(url, "/issues/") {
-		return "", 0, false
+		return "", 0, fmt.Errorf("gh issue create printed no issue URL: %q", fitRunes(strings.TrimSpace(out), 200))
 	}
-	return url, issueNumberFromURL(url), true
+	return url, issueNumberFromURL(url), nil
+}
+
+// labelEnsured remembers which labels this process has already created, so a
+// sync of twenty escapes does not make twenty identical API calls.
+var labelEnsured sync.Map
+
+// ensureEscapeLabel creates the label the issue is about to ask for. A fresh
+// repository has neither `escape` nor `false-positive`, and `gh issue create
+// --label` FAILS outright on a label that does not exist — so without this
+// every escape in a new repo is recorded locally and reaches nobody.
+//
+// `--force` makes it idempotent (it updates the existing label instead of
+// failing), and a failure here is deliberately ignored: the issue create that
+// follows is the real test of whether the label is usable, and it reports in
+// gh's own words.
+func ensureEscapeLabel(repo, kind string) {
+	key := repo + "\x00" + kind
+	if _, done := labelEnsured.LoadOrStore(key, true); done {
+		return
+	}
+	_, _ = runGh(repo, "label", "create", kind, "--force",
+		"--description", escapeLabelDescription(kind),
+		"--color", escapeLabelColour(kind))
+}
+
+func escapeLabelDescription(kind string) string {
+	if kind == FalsePositiveKind {
+		return "a check that refused correct work"
+	}
+	return "a red the gate should have caught and did not"
+}
+
+func escapeLabelColour(kind string) string {
+	if kind == FalsePositiveKind {
+		return "fbca04"
+	}
+	return "d73a4a"
 }
 
 func lastNonEmptyLine(s string) string {
@@ -348,150 +417,4 @@ func issueNumberFromURL(url string) int {
 		return 0
 	}
 	return n
-}
-
-// --- verify-closure --------------------------------------------------------
-
-// closesRe reads the issue numbers a PR body says it closes, in every
-// spelling GitHub accepts.
-var closesRe = regexp.MustCompile(`(?i)\b(?:close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#(\d+)`)
-
-// checkPathPrefixes are the paths that COUNT as changing a check: a declared
-// law, a gate stage, or a workspace's own gate configuration.
-var checkPathPrefixes = []string{".ratchet/laws/", "internal/tdd/"}
-
-// VerifyClosure judges a PR that claims to close escapes: each labelled issue
-// it closes must be accompanied by a diff that changes a CHECK — a law, a
-// gate stage, a workspace's Cargo.toml gate metadata, or a test named on the
-// issue's closes-by line. It prints one verdict per issue and reports whether
-// all of them passed.
-func VerifyClosure(repo, pr string, w io.Writer) (bool, error) {
-	if !ghAvailable() {
-		return false, fmt.Errorf("verify-closure needs the GitHub CLI (gh) on PATH")
-	}
-	body, err := ghJSONField(repo, "body", "pr", "view", pr, "--json", "body")
-	if err != nil {
-		return false, err
-	}
-	diff, err := runGh(repo, "pr", "diff", pr, "--name-only")
-	if err != nil {
-		return false, err
-	}
-	files := strings.Split(strings.ReplaceAll(diff, "\r\n", "\n"), "\n")
-
-	all := true
-	judged := 0
-	for _, m := range closesRe.FindAllStringSubmatch(body, -1) {
-		number := m[1]
-		labels, issueBody, err := issueLabelsAndBody(repo, number)
-		if err != nil {
-			return false, err
-		}
-		if !labels[EscapeKind] && !labels[FalsePositiveKind] {
-			continue // somebody else's issue
-		}
-		judged++
-		if why, ok := closureChangesACheck(files, issueBody); ok {
-			fmt.Fprintf(w, "#%s ok — %s\n", number, why)
-			continue
-		}
-		all = false
-		fmt.Fprintf(w, "#%s FAIL — the PR changes no check: an escape closes with a law under .ratchet/laws/, a gate stage, gate metadata, or a test named on its closes-by line\n", number)
-	}
-	if judged == 0 {
-		fmt.Fprintf(w, "PR #%s closes no escape issue\n", pr)
-	}
-	return all, nil
-}
-
-// closureChangesACheck reports whether the PR's file list touches something
-// that actually judges code, naming what it found.
-func closureChangesACheck(files []string, issueBody string) (string, bool) {
-	named := closesByFiles(issueBody)
-	for _, f := range files {
-		rel := strings.TrimSpace(strings.ReplaceAll(f, `\`, "/"))
-		if rel == "" {
-			continue
-		}
-		for _, prefix := range checkPathPrefixes {
-			if strings.HasPrefix(rel, prefix) {
-				return rel, true
-			}
-		}
-		if strings.HasSuffix(rel, "/Cargo.toml") || rel == "Cargo.toml" {
-			return rel + " (gate metadata)", true
-		}
-		if named[rel] {
-			return rel + " (named on closes-by)", true
-		}
-	}
-	return "", false
-}
-
-// closesByFiles reads the paths an issue's closes-by line names, so a fix
-// that lands as a TEST can say which test and be judged on it.
-func closesByFiles(issueBody string) map[string]bool {
-	out := map[string]bool{}
-	for line := range strings.SplitSeq(strings.ReplaceAll(issueBody, "\r\n", "\n"), "\n") {
-		t := strings.TrimSpace(line)
-		if !strings.HasPrefix(strings.ToLower(t), "closes-by:") {
-			continue
-		}
-		for _, tok := range strings.FieldsFunc(t, func(r rune) bool {
-			return r == ' ' || r == '\t' || r == ',' || r == '|' || r == '`'
-		}) {
-			if strings.Contains(tok, "/") && strings.Contains(tok, ".") {
-				out[strings.ReplaceAll(tok, `\`, "/")] = true
-			}
-		}
-	}
-	return out
-}
-
-// issueLabelsAndBody reads one issue's labels and body through gh.
-func issueLabelsAndBody(repo, number string) (map[string]bool, string, error) {
-	out, err := runGh(repo, "issue", "view", number, "--json", "labels,body")
-	if err != nil {
-		return nil, "", err
-	}
-	var doc struct {
-		Labels []struct {
-			Name string `json:"name"`
-		} `json:"labels"`
-		Body string `json:"body"`
-	}
-	if err := json.Unmarshal([]byte(firstJSONObject(out)), &doc); err != nil {
-		return nil, "", fmt.Errorf("reading issue #%s: %w", number, err)
-	}
-	labels := map[string]bool{}
-	for _, l := range doc.Labels {
-		labels[l.Name] = true
-	}
-	return labels, doc.Body, nil
-}
-
-// ghJSONField reads one string field out of a gh --json response.
-func ghJSONField(repo, field string, args ...string) (string, error) {
-	out, err := runGh(repo, args...)
-	if err != nil {
-		return "", err
-	}
-	var doc map[string]any
-	if err := json.Unmarshal([]byte(firstJSONObject(out)), &doc); err != nil {
-		return "", fmt.Errorf("reading %s: %w", field, err)
-	}
-	s, _ := doc[field].(string)
-	return s, nil
-}
-
-// firstJSONObject trims whatever a shell stub prints around the payload — a
-// `.bat` stub cannot avoid a trailing newline, and a real gh may print a
-// notice before it.
-func firstJSONObject(out string) string {
-	start := strings.Index(out, "{")
-	end := strings.LastIndex(out, "}")
-	if start < 0 || end < start {
-		return strings.TrimSpace(out)
-	}
-	return out[start : end+1]
 }

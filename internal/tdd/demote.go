@@ -95,7 +95,7 @@ func RecordDemoteCandidates(repo string, candidates []string, w io.Writer) int {
 			Repo:   repo,
 			Evidence: fmt.Sprintf("gate.log: %s refusals rose in each of the last two weeks. "+
 				"Judge whether the rule is right and the code drifted, or the rule is refusing correct work.", check),
-		})
+		}, w)
 		if err != nil {
 			fmt.Fprintf(w, "demote-candidate %s: %v\n", check, err)
 			continue
