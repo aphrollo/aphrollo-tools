@@ -1,11 +1,11 @@
 package tdd
 
 import (
-	"fmt"
-	"sync"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 )
