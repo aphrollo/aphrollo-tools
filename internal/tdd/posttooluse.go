@@ -77,19 +77,27 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 	if in.ToolResponse.Success != nil && !*in.ToolResponse.Success {
 		return ""
 	}
-	target := in.ToolInput.FilePath
+	text, _ := postEditFile(in.SessionID, in.ToolInput.FilePath, run)
+	return text
+}
+
+// postEditFile is the whole post-edit path for ONE changed file — the body
+// PostEdit used to be, lifted out so the Bash hook can put a file a shell
+// command rewrote through the identical path. It reports whether it left a
+// build running, which is what bounds a Bash call to one deferral.
+func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 	kind := ClassifyFile(target)
 	if kind == Ignore {
-		return ""
+		return "", false
 	}
 	root := FindProjectRoot(target)
 	if root == "" {
-		return ""
+		return "", false
 	}
 
-	snap, ok := captureStateSnapshot(in.SessionID, target, root)
+	snap, ok := captureStateSnapshot(session, target, root)
 	if !ok {
-		return ""
+		return "", false
 	}
 
 	headSHA := ""
@@ -105,12 +113,12 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 	if snap.state != nil {
 		if ps, exists := snap.state.ByProject[root]; exists && ps.TimeoutStreak >= 2 && ps.TimeoutSHA == headSHA {
 			appendGateLog("postedit", root, "", "skipped", 0)
-			return streakSkipAdvisory(root)
+			return streakSkipAdvisory(root), false
 		}
 	}
 
 	if deferPhases.Load() {
-		return postEditDeferred(snap, root, target, headSHA, in.SessionID)
+		return postEditDeferred(snap, root, target, headSHA, session)
 	}
 
 	res, _, acquired := runCargoLocked(run, snap.runner, root, buildLockPostEditDeadline, DefaultPostEditTimeout)
@@ -121,7 +129,7 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 		// touch the timeout streak: lock contention has nothing to do with
 		// whether THIS project's suite is slow.
 		appendGateLog("postedit", root, cmdString(snap.runner), "queued-skipped", 0)
-		return queuedSkippedAdvisory(root, runnerTargetDir(snap.runner, root))
+		return queuedSkippedAdvisory(root, runnerTargetDir(snap.runner, root)), false
 	}
 	if res.TimedOut {
 		// A killed run proves nothing about the code — the last REAL outcome
@@ -133,7 +141,7 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 			_ = snap.state.save(snap.statePath)
 		}
 		appendGateLog("postedit", root, cmdString(snap.runner), "timeout", res.Duration)
-		return timeoutAdvisory(snap.runner, root, res.Duration)
+		return timeoutAdvisory(snap.runner, root, res.Duration), false
 	}
 	if treatAsEmptyPass(res) {
 		res.Passed = true
@@ -172,12 +180,12 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 
 	appendGateLog("postedit", root, cmdString(snap.runner), string(outcome), res.Duration)
 	if outcome.IsRed() {
-		return redSummary(snap.runner, root, outcome, res.Output)
+		return redSummary(snap.runner, root, outcome, res.Output), false
 	}
 	if unconstrained {
-		return unconstrainedLine(snap.runner, root, passed, res.Duration)
+		return unconstrainedLine(snap.runner, root, passed, res.Duration), false
 	}
-	return passAdvisory(snap.runner, root, outcome, res.Output, res.Duration, snap.prevFailing)
+	return passAdvisory(snap.runner, root, outcome, res.Output, res.Duration, snap.prevFailing), false
 }
 
 // unconstrainedGreen reports the case fail-first structurally cannot see: a

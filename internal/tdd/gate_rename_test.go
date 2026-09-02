@@ -71,8 +71,10 @@ func TestPatchSettingsReplacesAPreRenameHookInsteadOfStackingOne(t *testing.T) {
 	if strings.Contains(text, "tdd pretooluse") {
 		t.Errorf("the pre-rename hook survived:\n%s", text)
 	}
-	if strings.Count(text, "gate pretooluse") != 1 {
-		t.Errorf("want exactly one wired PreToolUse hook:\n%s", text)
+	// Two, one per matcher: the edit tools and Bash. More than that means the
+	// pre-rename entry was stacked beside the new ones rather than replaced.
+	if strings.Count(text, "gate pretooluse") != 2 {
+		t.Errorf("want one wired PreToolUse hook per matcher (edit tools, Bash):\n%s", text)
 	}
 	var doc map[string]any
 	if err := json.Unmarshal(out, &doc); err != nil {

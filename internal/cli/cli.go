@@ -448,6 +448,13 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// cold Bevy build does not fit in 110s and killing it establishes
 		// nothing.
 		tdd.EnableDeferredPhases(true)
+		if tdd.IsBashHook(raw) {
+			payload, code := tdd.RenderPostToolUse(tdd.PostBash(raw, tdd.RunSuite(postEditBudget())))
+			if len(payload) > 0 {
+				stdout.Write(payload)
+			}
+			return code
+		}
 		payload, code := tdd.RenderPostToolUse(tdd.PostEdit(raw, tdd.RunSuite(postEditBudget())))
 		if len(payload) > 0 {
 			stdout.Write(payload)
@@ -462,6 +469,14 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return code
 	case "sessionend":
 		tdd.EndSession(raw)
+		return 0
+	}
+
+	// A Bash call gets a snapshot, not a verdict: what it will write does not
+	// exist yet, so the pre-edit half only records the tree for PostToolUse
+	// to diff. It never blocks.
+	if tdd.IsBashHook(raw) {
+		tdd.PreBash(raw)
 		return 0
 	}
 

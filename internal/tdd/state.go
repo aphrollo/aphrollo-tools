@@ -54,6 +54,11 @@ type sessionState struct {
 	Notices struct {
 		WorktreeWarned bool `json:"worktree_warned"`
 	} `json:"notices,omitempty"`
+	// Bash is the tree as it stood before the Bash call now in flight, taken
+	// by PreToolUse and consumed by PostToolUse. Only one is ever held: a
+	// snapshot that outlived its command would attribute someone else's
+	// change to it.
+	Bash *bashSnapshot `json:"bash,omitempty"`
 }
 
 // stateDir is where per-session state files live. It honours CLAUDE_CONFIG_DIR
