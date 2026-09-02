@@ -156,3 +156,25 @@ func TestCommitMsg_TheGuidanceFileNameIsNotATell(t *testing.T) {
 		t.Error("a tell elsewhere on a line that also names the file must still be rejected")
 	}
 }
+
+func TestCommitMsg_RefsAndPathsSpelledWithTheWordAreNotTells(t *testing.T) {
+	root := undercoverRepo(t, true)
+
+	allowed := []string{
+		"Merge lane/claude-md: project guide as tagged laws",
+		"Move the code-quality skill under .claude/skills",
+		"Regenerated with cargo hakari after the rename",
+	}
+	for _, body := range allowed {
+		if res := CommitMsg(root, msgFile(t, body+"\n")); res.Blocked {
+			t.Errorf("a ref, a path or an ordinary word must pass: %q\n%s", body, res.Message)
+		}
+	}
+
+	if res := CommitMsg(root, msgFile(t, "Generated with an assistant\n")); !res.Blocked {
+		t.Error("the whole-word tell must still be rejected")
+	}
+	if res := CommitMsg(root, msgFile(t, "Merge lane/claude-md as Claude suggested\n")); !res.Blocked {
+		t.Error("a tell beside a scrubbed ref must still be rejected")
+	}
+}

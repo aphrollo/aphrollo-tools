@@ -20,7 +20,7 @@ var undercoverPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)^Co-Authored-By:`),
 	regexp.MustCompile(`(?i)\bClaude\b`),
 	regexp.MustCompile(`(?i)\bAnthropic\b`),
-	regexp.MustCompile(`(?i)Generated with`),
+	regexp.MustCompile(`(?i)\bGenerated with`),
 	regexp.MustCompile(`(?i)\bopus-\d`),
 	regexp.MustCompile(`(?i)\bsonnet-\d`),
 	regexp.MustCompile(`(?i)\bhaiku-\d`),
@@ -63,7 +63,7 @@ func CommitMsg(repoRoot, msgPath string) GateResult {
 		if strings.HasPrefix(strings.TrimSpace(line), "#") {
 			continue
 		}
-		subject := guidanceFileName.ReplaceAllString(line, "the guidance file")
+		subject := refOrPath.ReplaceAllString(guidanceFileName.ReplaceAllString(line, "the guidance file"), "a repo name")
 		for _, re := range patterns {
 			if !re.MatchString(subject) {
 				continue
@@ -79,6 +79,10 @@ func CommitMsg(repoRoot, msgPath string) GateResult {
 // guidanceFileName is the one place the word is a FILE, not a tell: a repo
 // whose operating instructions live in CLAUDE.md has to be able to say so.
 var guidanceFileName = regexp.MustCompile(`(?i)\bclaude\.md\b`)
+
+// refOrPath is a slash-joined token carrying the word: a branch (`lane/claude-md`)
+// or a directory (`.claude/skills`) is a name in the repo, not a tell.
+var refOrPath = regexp.MustCompile(`(?i)(\S+/claude[\w.-]*|\.claude/\S*)`)
 
 // repoDenyPatterns are the workspace's own additions
 // (`commit-message-deny = ["…", …]`). An unparseable pattern is skipped: a
