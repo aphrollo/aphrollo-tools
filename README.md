@@ -1024,6 +1024,35 @@ enumerate build output.
 | `marker-within-lines` | `trigger`, `marker`, `lines` | a `trigger` line requires a `marker` within N lines above | `// bound:` over a collection that grows |
 | `registry-both-ways` | `registry_file`, `entry_pattern`, `use_pattern` | every use is registered AND every registry line is used | the dev-instrument (env switch) registry |
 | `doc-path-resolves` | `pattern` | a captured `.md` path must resolve at the repo root or inside the citing file's own `crates/<x>`/`tools/<x>` unit | doc citations |
+| `dep-graph-forbids` | `roots`, `forbidden`, `edges` | no root package may REACH a forbidden one (glob) through the resolved dependency graph; `edges = "normal"` (default) never follows dev/build edges, which is the whole distinction | dev-only tooling in a shipping binary |
+| `file-set-containment` | `superset_file`, `subset_file`, `capture` | every capture in `subset_file` must also appear in `superset_file` | a headless stand-in whose query must refuse at least what the real one refuses |
+| `json-number-ceiling` | `files`, `path`, `tolerance_pct`, `enabled_env` | a number read out of generated JSON may not exceed its baseline by more than the tolerance | a criterion bench figure nobody was reading |
+
+The last three judge a whole TREE rather than a file at a time, and each
+refuses to reach a VACUOUS verdict: a dependency walk that resolved nothing, a
+capture set that came out empty, or an armed perf law with no data all fail
+loudly instead of reporting green over files they never opened.
+
+- **`dep-graph-forbids`** runs `cargo metadata --format-version 1` once and
+  BFSes `resolve.nodes`, so a TRANSITIVE edge (`server -> helper -> editor`) is
+  caught exactly like a direct one. The hit's key is the PATH that reaches the
+  forbidden package (`server->shared->testrig`) — that is what an edge gets
+  deleted from. A tree carrying a checked-in `cargo-metadata.json` is read from
+  it instead, which is how the fixtures work.
+- **`file-set-containment`** is containment, never equality: the stand-in may
+  refuse MORE than the real system, never less. A deliberate deviation puts the
+  law's `escape` marker in `superset_file`, and a marker with nothing left to
+  waive is itself a finding — stale waivers are how a guard quietly stops
+  guarding.
+- **`json-number-ceiling`** is a MEASUREMENT law: every value it reads is a
+  hit, weighted by the number (rounded up), and the `tolerance_pct` is applied
+  when comparing to the baseline rather than when measuring — a figure inside
+  tolerance still has to lower its ceiling. `enabled_env` arms it: unset, the
+  law is skipped ENTIRELY (no check and no tighten — tightening against data
+  that was never generated would wipe the baseline). A glob under `target/`
+  follows `CARGO_TARGET_DIR`. Its `clean/` fixture is a file the glob must
+  REFUSE (criterion's `base/` copy is the natural one), which is what proves
+  the reader discriminates.
 
 `key` is `file` (baseline `<file> | <count>`) or `file:line-content-hash`
 (baseline one line per occurrence, identity = file + the trimmed offending
@@ -1071,7 +1100,8 @@ defaults.
 #### Fixtures — a law nobody proved catches nothing
 
 `ratchet test` runs each law over its own `fixtures/<law>/hit` files, requires
-exactly the offences listed in `expected.txt` (`<file>:<line>` per line), and
+exactly the offences listed in `expected.txt` (`<file>:<line>` per line, or the
+hit's key for a whole-tree law, which has no line to point at), and
 requires `clean/` to produce none. Both directions are required: hit-only
 proves a rule fires, never that it discriminates. A law with no fixtures
 fails. The commit gate runs `ratchet test` whenever a commit stages anything

@@ -108,13 +108,29 @@ func Check(opts Options) (Result, error) {
 	res.FilesScanned, res.FilesRead = scan.scanned, scan.read
 
 	for _, law := range laws {
+		if disarmed(law) {
+			continue
+		}
 		hits := scan.byLaw[law.Name]
-		if law.Matcher.Kind == KindRegistryBothWays {
+		switch law.Matcher.Kind {
+		case KindRegistryBothWays:
 			// A narrowed run has read ONE file, so it can see a use nobody
 			// registered but never that a registry line is stale — that needs
 			// the whole tree, and claiming it here would call every OTHER
 			// file's switches dead.
 			if hits, err = registryHits(opts.Root, law, scan.files, scan.content, true, len(opts.Files) == 0); err != nil {
+				return Result{}, err
+			}
+		case KindDepGraphForbids:
+			if hits, err = depGraphHits(opts.Root, law); err != nil {
+				return Result{}, err
+			}
+		case KindFileSetContainment:
+			if hits, err = containmentHits(opts.Root, law); err != nil {
+				return Result{}, err
+			}
+		case KindJSONNumberCeiling:
+			if hits, err = jsonCeilingHits(opts.Root, law, true); err != nil {
 				return Result{}, err
 			}
 		}
@@ -130,7 +146,7 @@ func Check(opts Options) (Result, error) {
 		if err != nil {
 			return Result{}, err
 		}
-		for _, r := range baseline.Regressions(measured) {
+		for _, r := range regressions(baseline, measured, law.Matcher.TolerancePct) {
 			h := located[r.Key]
 			res.Findings = append(res.Findings, Finding{
 				Law:      law.Name,
@@ -161,6 +177,31 @@ func Check(opts Options) (Result, error) {
 		}
 	}
 	return res, nil
+}
+
+// disarmed reports whether a law declares an arming switch that is not set.
+// A perf law reads generated output that only exists after a deliberate bench
+// run: unarmed there is nothing to read, and both checking AND tightening must
+// be skipped — tightening against no data would wipe the baseline.
+func disarmed(law Law) bool {
+	return law.Matcher.EnabledEnv != "" && os.Getenv(law.Matcher.EnabledEnv) == ""
+}
+
+// regressions compares measured to the baseline, allowing a per-law tolerance.
+// A tolerance belongs to a MEASURED quantity (a wall-clock bench figure on a
+// machine that is not the baseline's machine); every other law compares exactly.
+func regressions(baseline *Baseline, measured map[string]int, tolerancePct int) []Regression {
+	if tolerancePct <= 0 {
+		return baseline.Regressions(measured)
+	}
+	var out []Regression
+	for _, r := range baseline.Regressions(measured) {
+		ceiling := r.Baseline + r.Baseline*tolerancePct/100
+		if r.Measured > ceiling {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // loadLawBaseline reads a law's baseline in the form its key kind implies. A

@@ -54,6 +54,15 @@ const (
 	KindRegistryBothWays MatcherKind = "registry-both-ways"
 	// KindDocPathResolves: every cited `.md` path resolves to a file.
 	KindDocPathResolves MatcherKind = "doc-path-resolves"
+	// KindDepGraphForbids: a production root may not REACH a forbidden package
+	// through normal dependency edges (dev-only tooling in a shipping binary).
+	KindDepGraphForbids MatcherKind = "dep-graph-forbids"
+	// KindFileSetContainment: every capture in one file must appear in another
+	// (a stand-in may refuse MORE than the real query, never less).
+	KindFileSetContainment MatcherKind = "file-set-containment"
+	// KindJSONNumberCeiling: a number read out of generated JSON may not exceed
+	// its baseline by more than a tolerance (a bench figure nobody reads).
+	KindJSONNumberCeiling MatcherKind = "json-number-ceiling"
 )
 
 // KeyKind is how a hit is IDENTIFIED in the baseline.
@@ -83,6 +92,19 @@ type Matcher struct {
 	RegistryFile string
 	EntryPattern *regexp.Regexp
 	UsePattern   *regexp.Regexp
+	// Dependency-graph fields (KindDepGraphForbids).
+	Roots     []string
+	Forbidden []string
+	Edges     string
+	// Containment fields (KindFileSetContainment).
+	SupersetFile string
+	SubsetFile   string
+	Capture      *regexp.Regexp
+	// JSON-ceiling fields (KindJSONNumberCeiling).
+	Files        string
+	JSONPath     string
+	TolerancePct int
+	EnabledEnv   string
 }
 
 // Law is one declared rule, loaded from `.ratchet/laws/<name>.toml`.
@@ -150,12 +172,15 @@ var rootKeys = map[string]bool{
 // is required. Strictness is the contract: an unknown key is a typo that would
 // otherwise silently disable half a rule.
 var matcherKeys = map[MatcherKind]map[string]bool{
-	KindLineCount:         {"kind": true, "max": true},
-	KindRegexAbsent:       {"kind": true, "pattern": true, "key": false},
-	KindRegexPresent:      {"kind": true, "pattern": true},
-	KindMarkerWithinLines: {"kind": true, "trigger": true, "marker": true, "lines": false},
-	KindRegistryBothWays:  {"kind": true, "registry_file": true, "entry_pattern": true, "use_pattern": true},
-	KindDocPathResolves:   {"kind": true, "pattern": true},
+	KindLineCount:          {"kind": true, "max": true},
+	KindRegexAbsent:        {"kind": true, "pattern": true, "key": false},
+	KindRegexPresent:       {"kind": true, "pattern": true},
+	KindMarkerWithinLines:  {"kind": true, "trigger": true, "marker": true, "lines": false},
+	KindRegistryBothWays:   {"kind": true, "registry_file": true, "entry_pattern": true, "use_pattern": true},
+	KindDocPathResolves:    {"kind": true, "pattern": true},
+	KindDepGraphForbids:    {"kind": true, "roots": true, "forbidden": true, "edges": false},
+	KindFileSetContainment: {"kind": true, "superset_file": true, "subset_file": true, "capture": true},
+	KindJSONNumberCeiling:  {"kind": true, "files": true, "path": true, "tolerance_pct": false, "enabled_env": false},
 }
 
 // ParseLaw parses one law file. wantName is the file's stem: the two must
@@ -321,6 +346,46 @@ func parseMatcher(doc *tomlDoc) (Matcher, error) {
 				return Matcher{}, fmt.Errorf("matcher.lines is a non-negative integer")
 			}
 			m.Lines = v.i
+		}
+	case KindDepGraphForbids:
+		m.Key = KeyLineContent
+		m.Edges = "normal"
+		if v, ok := doc.value("matcher", "edges"); ok {
+			if v.s != "normal" && v.s != "all" {
+				return Matcher{}, fmt.Errorf("matcher.edges is %q or %q, got %q", "normal", "all", v.s)
+			}
+			m.Edges = v.s
+		}
+		for key, dest := range map[string]*[]string{"roots": &m.Roots, "forbidden": &m.Forbidden} {
+			v, _ := doc.value("matcher", key)
+			if v.kind != tomlArray || len(v.list) == 0 {
+				return Matcher{}, fmt.Errorf("matcher.%s is a non-empty array of package names", key)
+			}
+			*dest = v.list
+		}
+	case KindFileSetContainment:
+		m.Key = KeyLineContent
+		m.Capture = get("capture")
+		m.SupersetFile = doc.str("matcher", "superset_file")
+		m.SubsetFile = doc.str("matcher", "subset_file")
+		if err == nil && m.Capture.NumSubexp() < 1 {
+			return Matcher{}, fmt.Errorf("matcher.capture must capture the name in group 1")
+		}
+	case KindJSONNumberCeiling:
+		m.Key = KeyFile
+		m.Files = doc.str("matcher", "files")
+		m.JSONPath = doc.str("matcher", "path")
+		if v, ok := doc.value("matcher", "tolerance_pct"); ok {
+			if v.kind != tomlInt || v.i < 0 {
+				return Matcher{}, fmt.Errorf("matcher.tolerance_pct is a non-negative integer")
+			}
+			m.TolerancePct = v.i
+		}
+		if v, ok := doc.value("matcher", "enabled_env"); ok {
+			if v.kind != tomlString || v.s == "" {
+				return Matcher{}, fmt.Errorf("matcher.enabled_env is a non-empty environment variable name")
+			}
+			m.EnabledEnv = v.s
 		}
 	case KindRegistryBothWays:
 		m.EntryPattern, m.UsePattern = get("entry_pattern"), get("use_pattern")

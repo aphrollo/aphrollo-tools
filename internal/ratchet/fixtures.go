@@ -72,7 +72,7 @@ func runLawFixtures(root string, law Law) FixtureResult {
 	}
 	got := map[string]bool{}
 	for _, h := range hit.hits {
-		got[fmt.Sprintf("%s:%d", h.File, h.Line)] = true
+		got[expectationID(h)] = true
 	}
 	for _, want := range sortedKeys(expected) {
 		if !got[want] {
@@ -129,11 +129,11 @@ func fixtureHits(dir, sub string, law Law) (fixtureScan, error) {
 	scan.files = len(files)
 
 	law.Root = base
-	if law.Matcher.Kind == KindRegistryBothWays {
+	if wholeTreeKind(law.Matcher.Kind) {
 		if scan.files == 0 {
 			return scan, nil
 		}
-		hits, err := registryHits(base, law, files, content, false, true)
+		hits, err := fixtureWholeTreeHits(base, law, files, content)
 		if err != nil {
 			return scan, err
 		}
@@ -146,24 +146,47 @@ func fixtureHits(dir, sub string, law Law) (fixtureScan, error) {
 	return scan, nil
 }
 
-// readExpected parses `<path-under-hit>:<line>` entries; `#` and blank lines
-// are comments.
+// expectationID names one hit in expected.txt: `<file>:<line>` for a law that
+// points at a line, and the hit's own key for a whole-tree law, which has no
+// line to point at and whose key is already the readable identity.
+func expectationID(h Hit) string {
+	if h.Line > 0 {
+		return fmt.Sprintf("%s:%d", h.File, h.Line)
+	}
+	return h.Key
+}
+
+// readExpected parses one expectation per line (see expectationID); `#` and
+// blank lines are comments.
 func readExpected(path string) (map[string]bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("no expected.txt beside the fixtures (%s) — a hit fixture with no expectation asserts nothing", path)
 	}
 	out := map[string]bool{}
-	for i, line := range splitLines(string(data)) {
+	for _, line := range splitLines(string(data)) {
 		text := strings.TrimSpace(line)
 		if text == "" || strings.HasPrefix(text, "#") {
 			continue
 		}
-		file, lineNo, ok := strings.Cut(text, ":")
-		if !ok || file == "" || lineNo == "" {
-			return nil, fmt.Errorf("%s line %d: an expectation is `<file>:<line>`, got %q", path, i+1, text)
-		}
 		out[text] = true
 	}
 	return out, nil
+}
+
+// fixtureWholeTreeHits answers a whole-tree law with the fixture directory as
+// the whole world: its registry file, its checked-in `cargo metadata`
+// document, its own pair of files, its own generated JSON.
+func fixtureWholeTreeHits(base string, law Law, files []string, content map[string]string) ([]Hit, error) {
+	switch law.Matcher.Kind {
+	case KindRegistryBothWays:
+		return registryHits(base, law, files, content, false, true)
+	case KindDepGraphForbids:
+		return depGraphHits(base, law)
+	case KindFileSetContainment:
+		return containmentHits(base, law)
+	case KindJSONNumberCeiling:
+		return jsonCeilingHits(base, law, false)
+	}
+	return nil, nil
 }

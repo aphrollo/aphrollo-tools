@@ -135,3 +135,64 @@ use_pattern = "env::var\\(\"([A-Z][A-Z0-9_]+)\"\\)"
 		t.Fatalf("failures = %v", results[0].Failures)
 	}
 }
+
+// A whole-tree law's fixture is a small world of its own: a checked-in
+// resolved graph, the two files a containment law compares, or a directory of
+// generated JSON. Its expectations are the hits' keys, since none of them
+// points at a line.
+func TestRunFixturesCoversTheWholeTreeLaws(t *testing.T) {
+	root := t.TempDir()
+
+	writeLaw(t, root, "prod-graph", `
+name = "prod-graph"
+description = "dev-only tooling never reaches a shipping binary"
+severity = "deny"
+
+[scope]
+include = ["**/Cargo.toml"]
+
+[matcher]
+kind = "dep-graph-forbids"
+roots = ["server"]
+forbidden = ["testrig"]
+`)
+	graph := filepath.Join(root, ".ratchet", "fixtures", "prod-graph")
+	write(t, filepath.Join(graph, "hit", metadataFixtureFile), metadataDoc)
+	write(t, filepath.Join(graph, "expected.txt"), "server->shared->testrig\n")
+	write(t, filepath.Join(graph, "clean", metadataFixtureFile),
+		strings.Replace(metadataDoc, `{"pkg": "t 1", "dep_kinds": [{"kind": null}]}`,
+			`{"pkg": "t 1", "dep_kinds": [{"kind": "dev"}]}`, 1))
+
+	writeLaw(t, root, "perf", `
+name = "perf"
+description = "a tier-1 kernel bench may not regress"
+severity = "deny"
+
+[scope]
+include = ["**/*.json"]
+
+[matcher]
+kind = "json-number-ceiling"
+files = "criterion/**/new/estimates.json"
+path = "mean.point_estimate"
+`)
+	perf := filepath.Join(root, ".ratchet", "fixtures", "perf")
+	write(t, filepath.Join(perf, "hit", "criterion", "kernel", "case", "new", "estimates.json"),
+		`{"mean": {"point_estimate": 46.3}}`)
+	write(t, filepath.Join(perf, "expected.txt"), "criterion/kernel/case\n")
+	// A measurement law's clean case is a file it must NOT read: criterion's
+	// `base/` is the previous run's copy, and reading it would report last
+	// week's number as today's.
+	write(t, filepath.Join(perf, "clean", "criterion", "kernel", "case", "base", "estimates.json"),
+		`{"mean": {"point_estimate": 46.3}}`)
+
+	results, err := RunFixtures(root)
+	if err != nil {
+		t.Fatalf("RunFixtures: %v", err)
+	}
+	for _, r := range results {
+		if len(r.Failures) != 0 {
+			t.Errorf("%s: %v", r.Law, r.Failures)
+		}
+	}
+}
