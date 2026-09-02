@@ -49,5 +49,17 @@ func runGateStats(args []string, stdout, stderr io.Writer) int {
 	defer f.Close()
 
 	fmt.Fprint(stdout, tdd.RenderGateStats(tdd.GateStats(f, cutoff)))
+
+	// The demotion trend is a THREE-WEEK question, so it re-reads the log
+	// rather than riding on --since: a report narrowed to a day would
+	// otherwise silently answer it with one day of data.
+	trend, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer trend.Close()
+	candidates := tdd.DemoteCandidates(trend, time.Now().UTC())
+	fmt.Fprint(stdout, tdd.DemoteCandidateLines(candidates))
+	tdd.RecordDemoteCandidates(tdd.RepoRoot("."), candidates, stdout)
 	return 0
 }
