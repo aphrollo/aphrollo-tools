@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -560,24 +561,36 @@ func gitRevParseDir(realGit string, args []string, cwd, flag string) (string, bo
 }
 
 // resolveRealGit resolves the ACTUAL git binary the shim must run -- never
-// via a bare PATH lookup, which would find the shim itself when the queue
-// dir precedes Git's own cmd/bin dir on PATH. APHROLLO_REAL_GIT overrides
-// everything (tests set this); otherwise the two locations Git for Windows
-// installs to are probed in order.
+// via a bare PATH lookup on its own, which would find the shim itself when
+// the queue dir precedes git's own bin dir on PATH. Three steps, in order:
+// APHROLLO_REAL_GIT overrides everything (tests set this); then PATH is
+// walked with any shim directory skipped (tdd.GitBinaryOnPath -- the SAME
+// shim-skipping resolver internal/tdd's own gitBinary uses, cross-platform,
+// so the two never drift into disagreeing about what "real git" means); only
+// on Windows, as a last resort, the two locations Git for Windows installs
+// to are probed directly -- an installed-but-not-on-PATH git is common
+// there (a shell that has not re-read its profile since install) and has no
+// equivalent on Linux/macOS, where a git absent from PATH is just absent.
 func resolveRealGit() (string, error) {
 	if override := os.Getenv("APHROLLO_REAL_GIT"); override != "" {
 		return override, nil
 	}
-	candidates := []string{
-		`C:\Program Files\Git\cmd\git.exe`,
-		`C:\Program Files\Git\bin\git.exe`,
+	if c, ok := tdd.GitBinaryOnPath(); ok {
+		return c, nil
 	}
-	for _, c := range candidates {
-		if _, err := os.Stat(c); err == nil {
-			return c, nil
+	if runtime.GOOS == "windows" {
+		candidates := []string{
+			`C:\Program Files\Git\cmd\git.exe`,
+			`C:\Program Files\Git\bin\git.exe`,
 		}
+		for _, c := range candidates {
+			if _, err := os.Stat(c); err == nil {
+				return c, nil
+			}
+		}
+		return "", fmt.Errorf("resolve git: not on PATH, and none of %v found (set APHROLLO_REAL_GIT to override)", candidates)
 	}
-	return "", fmt.Errorf("resolve git: none of %v found (set APHROLLO_REAL_GIT to override)", candidates)
+	return "", fmt.Errorf("resolve git: not on PATH (set APHROLLO_REAL_GIT to override)")
 }
 
 // execGit runs the real git binary with args, inheriting stdio and the
