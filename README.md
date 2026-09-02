@@ -756,15 +756,25 @@ later hook in any session.
 
 The hooks, the commit gate and the `cargo-queue` shim all take the same
 advisory locks before running cargo. There are **two**, because there are two
-different constraints. Every lock file — target locks, global slots, owner
-records — lives in ONE directory (`os.TempDir()` in production), behind a
-single seam a test overrides in one statement: a per-path override is one a
-test can forget, and forgetting is what left 871 stale locks in `%TEMP%`.
+different constraints, and each lives where its SCOPE is — not in the per-user
+temp dir, where a second account got a private copy of both and the box quietly
+ran twice the builds the governor allows:
 
 ```
-%TEMP%/aphrollo-cargo-build.<sha256_8 of the target dir>.lock   # one build per target dir
-%TEMP%/aphrollo-cargo-slot.<i>.lock                             # N global slots
+<target-dir>/.aphrollo/build.lock                 # one build per target dir, shared by construction
+%ProgramData%\aphrollo\locks\aphrollo-cargo-slot.<i>.lock   # N global slots (Windows)
+/var/tmp/aphrollo-locks/aphrollo-cargo-slot.<i>.lock        # N global slots (elsewhere)
 ```
+
+The machine-wide dir is created world-writable and sticky, and lock files are
+created `0666`: a lock file a second account cannot even OPEN reads as HELD
+forever, because the open fails closed on purpose. When neither shared
+location is writable the slots fall back to the temp dir with a warning —
+builds then serialise per user only. `SetLockDirForTest` still moves every lock
+file in one statement (a per-path override is one a test can forget, and
+forgetting is what left 871 stale locks in `%TEMP%`); under that override the
+per-target lock keeps the old flat, hashed layout, because a test names target
+dirs that must not be created.
 
 - The **target lock** mirrors cargo's own build-directory flock: exactly one
   build per target dir (`CARGO_TARGET_DIR` when set, else `<workspace
@@ -919,6 +929,29 @@ One `queued behind "<cmd>" in <cwd>` line when it has to wait, one on
 acquire, exit 75 after `APHROLLO_GIT_WAIT_SECS` (default 20 min). A stray
 `index.lock` left by a git process that bypassed the shim is waited out too.
 
+### The queue shims are executables, not batch files
+
+The queue dir shadows `cargo` and `git` on PATH. On Windows that shadow used to
+be a `.cmd`, and a batch file cannot forward an argument list: cmd.exe strips
+`^` (so `git rev-parse MERGE_HEAD^{tree}` arrived as `HEAD{tree}` and every
+merge was refused for having no lane tip, and nextest's `-E test(/^mod::/)`
+would arrive mangled the same way) and re-splits anything quoted.
+
+So the Windows shims are **copies of the aphrollo binary** named `cargo.exe`
+and `git.exe`, and the binary dispatches on the name it was invoked under:
+`cargo`/`cargo.exe` runs `gate cargo`, `git`/`git.exe` runs `gate git`, any
+other name reads its arguments as usual. No interpreter sits between the caller
+and the process, so the argv arrives verbatim. The extensionless POSIX `cargo`
+and `git` sh scripts stay for Git Bash.
+
+`gate init` installs the copies, refreshes one whose size or mtime drifted from
+the binary, and **deletes `cargo.cmd`/`git.cmd`** under both `--uninstall` and a
+normal run, reporting each removal. A copy that is currently running cannot be
+replaced; that is reported and the old copy keeps working until the next init.
+The gate's own git resolution skips the whole queue dir rather than only shim
+scripts — a `git` lookup tries `git.exe` first, and the exe shim reads as an
+opaque binary.
+
 ### Cargo workspace metadata (`[workspace.metadata.aphrollo]`)
 
 Two opt-in lists, declared in the workspace's own `Cargo.toml` so they version
@@ -930,6 +963,7 @@ always-run   = ["ratchet"]            # run these packages' suites on EVERY mech
 clippy-clean = ["server", "shared"]   # gate these on `clippy -D warnings` at commit
 undercover = true                    # reject commit messages that name the tooling
 commit-message-deny = ["^WIP:"]      # this repo's own extra deny patterns
+sdd-dir = "docs/sdd"                 # where the `sdd` skill puts a feature's spec tree
 ```
 
 - **`always-run`** — a workspace-wide guard package (its tests scan the whole
@@ -1353,9 +1387,14 @@ aphrollo gate init --uninstall        # remove everything again
 
 1. **Session hooks** — patches `settings.json` (`$CLAUDE_CONFIG_DIR` or
    `~/.claude`) so `pretooluse` / `posttooluse` / `userpromptsubmit` /
-   `sessionend` invoke the binary. Idempotent (a no-op re-run rewrites
-   nothing), backs up any existing file, preserves foreign hooks (caveman) and
-   other keys, and migrates out old Node `tdd-*.js` entries.
+   `sessionend` invoke the binary, and points `statusLine` at `gate
+   statusline`. Idempotent (a no-op re-run rewrites nothing), backs up any
+   existing file, preserves foreign hooks and other keys, and migrates out old
+   Node `tdd-*.js` entries. The Node plugin's leftover hook SCRIPTS go too —
+   `<config-dir>/hooks/tdd-*.js`, `<config-dir>/hooks/tdd-*.sh`,
+   `<config-dir>/hooks/tamper.js` and `<config-dir>/hooks/caveman-statusline.sh`,
+   each removal reported once — because a settings entry still pointing at one
+   double-fired every event.
 2. **Git gate** — writes the `pre-commit` shim into `~/.config/git/hooks` (or
    `--git-hooks-dir`) and points git's global `core.hooksPath` at it, so every
    repo is gated. Hand-written hooks are never clobbered. `--no-git` skips this
@@ -1425,6 +1464,95 @@ that mentions aphrollo (a hand-written stub is left alone). Managed like the
 CLAUDE.md block: a second init is byte-identical, a hand edit is overwritten, the
 source is `internal/tdd/tddskill.md`, and `--uninstall` removes it. The
 session-start nudge points at this skill, so the thing it names always exists.
+
+### The `sdd` skill
+
+`gate init` also writes `<config-dir>/skills/sdd/SKILL.md`, the feature-level
+counterpart to `tdd`: `tdd` says how one change is made, `sdd` says how a
+feature gets from a question to merged code. `/sdd <slug>` runs four phases —
+brainstorm one question at a time to a `spec.md` (problem, decisions each
+carrying the rejected alternative on the same line, boundaries, acceptance
+criteria as testable statements); plan it into lanes in `plan.md`, each lane
+naming its files, its tests NAMED FOR THE BREAK they catch, and their
+closed-form expectations, small enough for one builder; execute one lane per
+builder with the plan text verbatim, under the `tdd` skill, reviewed cold and
+merged on a green gate; close by moving the durable facts to their homes
+(design docs, the crate's `decisions.md`, the followups index) and deleting the
+spec tree in the merge.
+
+The spec dir comes from `[workspace.metadata.aphrollo] sdd-dir`, default
+`docs/sdd`. Managed exactly like the `tdd` skill: byte-identical on a re-run, a
+hand edit is overwritten, source `internal/tdd/sddskill.md`, removed by
+`--uninstall` only when the file still carries the marker.
+
+### The managed agents
+
+`gate init` writes `<config-dir>/agents/{builder,reviewer,researcher}.md`. The
+gate's own conduct assumes all three exist: a **builder** that edits under the
+gate (RED first, mutation proof for existing code, the gate's line is the
+evidence, one mixed commit per task), a **reviewer** with no implementation
+context that reports findings and a `mergeable` / `needs fixes (N)` verdict,
+and a **researcher** that only locates and traces and refuses to fix. They
+ship with the binary that enforces their rules so the two cannot drift.
+
+Same management contract as the skills: idempotent, refreshed when the
+binary's copy moves on, and `--uninstall` removes only files still carrying the
+`Written by aphrollo gate init` marker — an agent of the same name that you
+wrote is yours and survives.
+
+### `aphrollo gate doctor`
+
+One line per install check, `ok` or `FAIL <fix>`, exit 1 if anything failed. It
+changes nothing; each check names its own fix, because "something is wrong with
+the install" is not actionable.
+
+```sh
+aphrollo gate doctor
+# ok    hook binary
+# ok    hook timeouts
+# FAIL  shim dir on PATH — PATH starts with C:\Program Files\Git\cmd, not
+#       C:\Users\olive\bin\cargo-queue — put the queue dir first
+# ok    batch shims removed
+# ok    lock dirs writable — C:\ProgramData\aphrollo\locks
+# ok    retired /tdd command
+# FAIL  managed skills and agents — agents/reviewer.md (edited) — run `aphrollo gate init`
+```
+
+The checks: every managed hook runs the SAME binary and it is this build (size
+and mtime, drift naming both paths) · each hook's `timeout` is at least the one
+init writes, since the harness kills the hook process from outside before its
+own deadline and cleanup can fire · the queue dir is first on the USER's PATH
+(read from `HKCU\Environment` on Windows, not from this process's environment,
+which is whatever a profile prepended) and holds the shims · no `.cmd` shim is
+left · the machine-wide lock dir is writable · `<config-dir>/commands/tdd.md` is gone · every
+managed skill and agent is byte-identical to the template the binary carries.
+
+In a cargo workspace it also checks the CI clippy list is DERIVED from
+`[workspace.metadata.aphrollo] clippy-clean` through
+`<repo>/tools/clippy_clean_list.sh`: a workflow naming crates by hand gates nothing
+the day a crate is added to the manifest. A workspace with no workflow at all
+is a warning, not a failure.
+
+### The statusline badge
+
+`gate init` points `settings.json`'s `statusLine` at `aphrollo gate statusline`,
+which reads the session payload on stdin and prints ONE badge:
+
+```
+[aphrollo]            green — the gate is armed, nothing to report
+[aphrollo:off]        gray  — this session ran `/gate off`; edits are not gated
+[aphrollo] red        the last post-edit outcome for THIS project was red
+[aphrollo] deferred   a detached build for this project is still running
+[aphrollo] queued     the last run only queued — the suite never started
+```
+
+The suffix is reserved for what changes what to do next, in that order; a
+statusline that reports every healthy state is one nobody reads. It never
+fails — a malformed payload, a missing session or an unreadable log all render
+the plain badge, because a statusline runs on every prompt render and has
+nowhere to report an error. A `statusLine` command naming
+`caveman-statusline.sh` or `tdd-statusline.sh` is replaced; any other command
+is yours and is left alone.
 
 ### The in-repo law spec (a README inside `.ratchet`)
 

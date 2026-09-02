@@ -35,9 +35,9 @@ mutation proof, or ONE targeted run after the hook itself said TIMEOUT/SKIPPED.
   `SCOPE CREEP: <what you found>`, return. Do not "while I'm here".
 - Never weaken a test, a tolerance, or an assertion to get green. A red test is
   a finding; report it with the failing name and the numbers.
-- Never hand-edit a file under `.ratchet/baselines/`. A new hit is admitted by
-  the law's escape comment or it is fixed. A raised baseline is a rejected
-  commit.
+- Never hand-edit a file under `<repo>/.ratchet/baselines/`. A new hit is
+  admitted by the law's escape comment or it is fixed. A raised baseline is a
+  rejected commit.
 - Respect the repo's own conventions (its CLAUDE.md outranks your habits):
   module size, naming, comment policy, determinism tiers.
 - Format before committing (`cargo fmt` on touched crates, `gofmt`).
