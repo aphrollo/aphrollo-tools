@@ -55,7 +55,7 @@ func TestMutationReceipt_AcceptsRealProducerOutput(t *testing.T) {
 	}
 	writeReceipt(t, r)
 
-	if got := checkMutationReceipt(r.Repo, r.TipTree, r.BaseSHA); got != nil {
+	if got := checkMutationReceipt(receiptContext{Repo: r.Repo, TipTree: r.TipTree, BaseSHA: r.BaseSHA}); got != nil {
 		t.Fatalf("a real passing receipt must merge: %s", got.Message)
 	}
 }
@@ -73,7 +73,7 @@ func TestMutationReceipt_MatchesARepoNamedByItsGitDir(t *testing.T) {
 	r.Repo = "D:/Projects/borld/.git"
 	writeReceipt(t, r)
 
-	if got := checkMutationReceipt("D:/Projects/borld", laneTip, ""); got != nil {
+	if got := checkMutationReceipt(receiptContext{Repo: "D:/Projects/borld", TipTree: laneTip}); got != nil {
 		t.Fatalf("a bare repo root must match the producer's own git-dir spelling: %s", got.Message)
 	}
 }
@@ -87,7 +87,7 @@ func TestMutationReceipt_RefusesUnacceptedSurvivorsByName(t *testing.T) {
 	r.Unaccepted = []MutantName{{Raw: "src/a.rs:12: replace + with -"}}
 	writeReceipt(t, r)
 
-	got := checkMutationReceipt("borld", laneTip, "")
+	got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: laneTip})
 	if got == nil || !got.Blocked {
 		t.Fatal("an unaccepted survivor must not merge")
 	}

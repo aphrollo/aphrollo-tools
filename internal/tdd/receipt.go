@@ -49,6 +49,14 @@ type MutationReceipt struct {
 	Unaccepted []MutantName `json:"unaccepted"`
 	Verdict    string       `json:"verdict"`
 	FinishedAt time.Time    `json:"finished_at"`
+	// Outcomes is every mutant the run measured, each carrying the file blob
+	// and package test-set hash it was measured against — what makes the NEXT
+	// run incremental (see mutants_plan.go). A producer that has not caught up
+	// writes none, which costs a full re-run and nothing else.
+	Outcomes []MutantOutcome `json:"outcomes,omitempty"`
+	// CarriedFrom names the tree whose run this receipt re-stamps, "" for a
+	// receipt that measured its own tree.
+	CarriedFrom string `json:"carried_from,omitempty"`
 }
 
 // receiptVerdictPass is the only verdict that merges. Anything else — "fail",
@@ -71,20 +79,38 @@ func MutationReceiptPathFor(tipTree string) string {
 // consuming repo's script, because that is what produces a receipt.
 const mutationGateHint = "run tools/mutation_gate.sh on the lane tip (with a clean worktree) and merge again"
 
+// receiptContext is what the merge in progress knows about the lane being
+// merged: where the checkout is, which repo it belongs to, the LANE TIP's
+// tree (MERGE_HEAD:, never the merge result — the merge result has never been
+// mutation-tested by anyone), and the merge base the lane lands against (""
+// when the gate could not name it, in which case it judges no base).
+type receiptContext struct {
+	RepoRoot string
+	Repo     string
+	TipTree  string
+	BaseSHA  string
+}
+
 // checkMutationReceipt judges the receipt for the tree being merged. It
 // returns nil to allow, or a blocking GateResult naming the field that
-// failed. tipTree is the LANE TIP's tree (MERGE_HEAD:), never the merge
-// result: the merge result has never been mutation-tested by anyone.
-// wantBase is the merge base this merge is actually landing against, "" when
-// the gate could not name it — in which case it does not judge one.
-func checkMutationReceipt(repo, tipTree, wantBase string) *GateResult {
+// failed.
+func checkMutationReceipt(ctx receiptContext) *GateResult {
+	tipTree, repo := ctx.TipTree, ctx.Repo
 	path := MutationReceiptPathFor(tipTree)
 	if path == "" {
 		return blockReceipt("no mutation receipt for %s (there is no lane tip to look one up by)", repo)
 	}
+	if laneHasNothingToMutate(ctx) {
+		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-not-required:"+short(tipTree), 0)
+		return nil
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return blockReceipt("no mutation receipt for %s's lane tip %s at %s", repo, short(tipTree), path)
+		if carried, ok := carryReceiptForward(ctx); ok {
+			data = carried
+		} else {
+			return blockMissingReceipt(ctx)
+		}
 	}
 	var r MutationReceipt
 	if err := json.Unmarshal(data, &r); err != nil {
@@ -109,9 +135,9 @@ func checkMutationReceipt(repo, tipTree, wantBase string) *GateResult {
 		// not the same thing as a verified one, and the tally is how that
 		// stops being invisible.
 		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-unpinned", 0)
-	case wantBase != "" && !strings.EqualFold(r.BaseSHA, wantBase):
+	case ctx.BaseSHA != "" && !strings.EqualFold(r.BaseSHA, ctx.BaseSHA):
 		return blockReceipt("the receipt was measured against base %s, but this merge lands against %s — a different diff, so different mutants",
-			short(r.BaseSHA), short(wantBase))
+			short(r.BaseSHA), short(ctx.BaseSHA))
 	}
 	return nil
 }
@@ -232,6 +258,15 @@ func short(sha string) string {
 		return "(none)"
 	}
 	return sha
+}
+
+// blockMissingReceipt is the rejection for a tip nothing has measured. It is
+// ONE line and it ends in the one thing that would fix it, because that is
+// what a session at a blocked merge needs — the paragraph explaining what a
+// receipt is belongs to the rules, not to every rejection.
+func blockMissingReceipt(ctx receiptContext) *GateResult {
+	return &GateResult{Blocked: true, Message: fmt.Sprintf(
+		"gate: mutation receipt missing for tree %s — run tools/mutation_gate.sh main", short(ctx.TipTree))}
 }
 
 func blockReceipt(format string, args ...any) *GateResult {

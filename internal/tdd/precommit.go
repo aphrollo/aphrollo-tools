@@ -217,7 +217,12 @@ func mutationReceiptStage(repoRoot string) *GateResult {
 	// out at `.worktrees/borld/eol`), but every worktree of one repo shares
 	// this one directory, which is what actually identifies "one repo" to
 	// sameRepo.
-	return checkMutationReceipt(commonGitDir(repoRoot), tip.Tree, mergeBaseSHA(repoRoot, tip.Rev))
+	return checkMutationReceipt(receiptContext{
+		RepoRoot: repoRoot,
+		Repo:     commonGitDir(repoRoot),
+		TipTree:  tip.Tree,
+		BaseSHA:  mergeBaseSHA(repoRoot, tip.Rev),
+	})
 }
 
 // failFirstStage runs the fail-first check for ONE project root's staged
