@@ -67,8 +67,7 @@ func denyReason(t *testing.T, payload []byte) string {
 }
 
 func TestRun_PreToolUse_DeniesAWriteIntoThePrimaryCheckout(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	cfg := gateConfigDir(t)
 	primary, _ := primaryWorktreeRepo(t)
 
 	var out, errb bytes.Buffer
@@ -93,7 +92,7 @@ func TestRun_PreToolUse_DeniesAWriteIntoThePrimaryCheckout(t *testing.T) {
 }
 
 func TestRun_PreToolUse_AllowsAWriteIntoALinkedWorktree(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	_, linked := primaryWorktreeRepo(t)
 
 	var out, errb bytes.Buffer
@@ -104,7 +103,7 @@ func TestRun_PreToolUse_AllowsAWriteIntoALinkedWorktree(t *testing.T) {
 }
 
 func TestRun_PreToolUse_DeniesABashWriteIntoThePrimaryCheckout(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	primary, _ := primaryWorktreeRepo(t)
 
 	payload, err := json.Marshal(map[string]any{

@@ -129,8 +129,7 @@ func risingDenials(t *testing.T, cfg string) {
 // weekly health command twice opens the same debt twice, and that anyone who
 // reads the pipeline's numbers has silently written to the tracker.
 func TestGateStatsOpensNoIssues(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	cfg := gateConfigDir(t)
 	risingDenials(t, cfg)
 	gitHubRepoCwd(t)
 	log := stubGhForCLI(t, "https://github.com/o/r/issues/42")
@@ -151,8 +150,7 @@ func TestGateStatsOpensNoIssues(t *testing.T) {
 // verb that already reaches GitHub, so it is where a demotion candidate turns
 // into the false-positive issue somebody can answer.
 func TestEscapeSyncOpensTheDemoteCandidateIssues(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	cfg := gateConfigDir(t)
 	risingDenials(t, cfg)
 	gitHubRepoCwd(t)
 	log := stubGhForCLI(t, "https://github.com/o/r/issues/42")

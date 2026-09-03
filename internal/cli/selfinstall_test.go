@@ -112,8 +112,7 @@ func TestSelfInstall_KeepsAStaleCopyItCannotDelete(t *testing.T) {
 // that is no longer there, so the run has to finish the job.
 func TestSelfInstall_RewiresTheHooksAtTheNewBinary(t *testing.T) {
 	isolateGit(t)
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	cfg := gateConfigDir(t)
 	t.Chdir(t.TempDir()) // init patches the CWD repo's CLAUDE.md — never this repo's
 	bin := selfInstallFixture(t, "NEW")
 
