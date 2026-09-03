@@ -289,6 +289,54 @@ func TestDocPathResolvesStillRejectsADanglingDirectory(t *testing.T) {
 	}
 }
 
+// wildcardDocPattern is the permissive citation shape a repo may declare when
+// it wants every backtick-quoted path judged, not just the two forms the
+// common preset captures. It is what exposes the Go package wildcard: the
+// preset's own pattern cannot reach `./...`, a broader one can.
+const wildcardDocPattern = "`([A-Za-z0-9_./-]+)`"
+
+// TestDocPathHits_IgnoresATokenWhoseLastSegmentIsAllDots proves the Go
+// package wildcard is not a repo path: `./...` and `internal/...` name a
+// package set to the go tool, and no file named `...` was ever meant to
+// exist, so neither may be reported as a dangling citation.
+func TestDocPathHits_IgnoresATokenWhoseLastSegmentIsAllDots(t *testing.T) {
+	l := docPathLaw(t, t.TempDir(), wildcardDocPattern)
+	hits := l.HitsIn("doc.md", "run `./...` and `internal/...` over the tree\n")
+	if len(hits) != 0 {
+		t.Errorf("hits = %+v, want none — a Go package wildcard is not a citation", hits)
+	}
+}
+
+// TestDocPathHits_StillReportsAMissingPathBesideAWildcard proves the wildcard
+// skip is narrow: on the same line as `./...`, an ordinary citation whose
+// file does not exist is still reported, so the guard cannot be used to
+// smuggle a dangling path past the law.
+func TestDocPathHits_StillReportsAMissingPathBesideAWildcard(t *testing.T) {
+	l := docPathLaw(t, t.TempDir(), wildcardDocPattern)
+	hits := l.HitsIn("doc.md", "run `./...` after reading `internal/tdd/x.go`\n")
+	if len(hits) != 1 || hits[0].What != "internal/tdd/x.go" {
+		t.Fatalf("hits = %+v, want exactly one hit for internal/tdd/x.go", hits)
+	}
+}
+
+// TestDocPathHits_ResolvesARealPathBesideAWildcard proves the other half of
+// that narrowness: the same citation resolves silently once the file is
+// really there, so the wildcard skip changed nothing about ordinary paths.
+func TestDocPathHits_ResolvesARealPathBesideAWildcard(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "tdd"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "internal", "tdd", "x.go"), []byte("package tdd\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l := docPathLaw(t, dir, wildcardDocPattern)
+	hits := l.HitsIn("doc.md", "run `./...` after reading `internal/tdd/x.go`\n")
+	if len(hits) != 0 {
+		t.Errorf("hits = %+v, want none — internal/tdd/x.go is a real file", hits)
+	}
+}
+
 func TestRegexAbsentReportsEveryUnescapedMatchWithItsLine(t *testing.T) {
 	l := lawWith(Matcher{Kind: KindRegexAbsent, Pattern: regexp.MustCompile(`\.clamp\(`), Key: KeyLineContent})
 	l.Escape = "// nan-safe:"

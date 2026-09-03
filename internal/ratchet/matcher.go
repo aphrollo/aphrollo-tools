@@ -336,6 +336,9 @@ func (l Law) docPathHits(file string, code []string) []Hit {
 				continue
 			}
 			cited := line[gStart:gEnd]
+			if isPackageWildcard(cited) {
+				continue
+			}
 			if l.docResolves(file, cited) {
 				continue
 			}
@@ -355,6 +358,20 @@ func isPathContinuation(b byte) bool {
 		return true
 	}
 	return strings.IndexByte(".-_/*?{}<>", b) >= 0
+}
+
+// isPackageWildcard reports whether a captured token is the Go package
+// wildcard rather than a repo path: a token whose LAST path segment is all
+// dots (`./...`, `internal/...`, `./..`). No file named `...` was ever meant
+// to exist, so resolving one and reporting the miss only teaches a doc author
+// to reword a correct command. A dot segment anywhere else (`../sibling`,
+// `.ratchet/laws`) still names a real path and is judged normally.
+func isPackageWildcard(cited string) bool {
+	last := cited[strings.LastIndexByte(cited, '/')+1:]
+	if last == "" {
+		return false
+	}
+	return strings.Trim(last, ".") == ""
 }
 
 // docResolves accepts a citation that resolves relative to the CITING file's
