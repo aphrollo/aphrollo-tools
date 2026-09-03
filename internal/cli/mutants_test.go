@@ -48,24 +48,20 @@ func TestMutantsRun_ExitsCleanWithoutAJobFile(t *testing.T) {
 
 // `gate mutants go` has two callers with two addressing modes: the detached
 // local job names a job FILE, and CI names the merge base its diff is scoped
-// to. Without gremlins installed the CI form still has to reach the runner and
-// come back non-zero — a check that exits 0 because the tool is missing is the
-// one failure mode a mutation gate cannot have.
+// to. The routing is pinned here through the invocations that come back BEFORE
+// the tool is spawned. Running the real thing from a unit test would start a
+// mutation run of this whole module inside `go test` on any box that has
+// gremlins on PATH — including the CI runner, which now installs it — and the
+// old test only passed there because the binary was absent. That the runner
+// fails when the tool wrote no report is internal/tdd's
+// TestRunGoMutantsCI_FailsWhenTheToolWroteNoReport.
+//
 // The two exit codes are different answers and CI reads them as such: 2 is
 // "you invoked it wrong", 1 is "the check failed".
-func TestMutantsGo_DiffModeReachesTheRunnerAndFailsHavingMeasuredNothing(t *testing.T) {
-	gateConfigDir(t)
-	var out, errb bytes.Buffer
-	code := Run([]string{"gate", "mutants", "go", "--diff", "abc123"},
-		strings.NewReader(""), &out, &errb)
-	if code != 1 {
-		t.Fatalf("exit = %d, want 1 — the flag must be accepted and the check must fail having measured nothing\nstdout: %s\nstderr: %s",
-			code, out.String(), errb.String())
-	}
-}
 
 // The base is not optional and has no default: an unscoped run measures the
-// whole module.
+// whole module. Only RunGoMutantsCI prints this line, so reaching it is also
+// what proves --diff routes to the CI judge and not to the detached job.
 func TestMutantsGo_DiffModeRefusesAnEmptyBase(t *testing.T) {
 	gateConfigDir(t)
 	var out, errb bytes.Buffer
@@ -75,6 +71,34 @@ func TestMutantsGo_DiffModeRefusesAnEmptyBase(t *testing.T) {
 	}
 	if !strings.Contains(errb.String(), "merge base") {
 		t.Fatalf("stderr = %q, want it to say the merge base is what is missing", errb.String())
+	}
+}
+
+// --receipt names where the CI run leaves its proof, so it means nothing
+// without --diff. It used to fall through to the detached job with an empty
+// job path, which returns 0 — a green check that ran nothing, from a command
+// line that looks like it asked for a run.
+func TestMutantsGo_RefusesAReceiptPathWithNoDiff(t *testing.T) {
+	gateConfigDir(t)
+	var out, errb bytes.Buffer
+	code := Run([]string{"gate", "mutants", "go", "--receipt", filepath.Join(t.TempDir(), "r.json")},
+		strings.NewReader(""), &out, &errb)
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 — --receipt with no --diff ran nothing and said nothing", code)
+	}
+	if !strings.Contains(errb.String(), "--diff") {
+		t.Fatalf("stderr = %q, want it to name the flag that is missing", errb.String())
+	}
+}
+
+// The CI mode is a flag an operator has to be able to find. `gate mutants go`
+// was documented as `run|go --job <file>` alone, so the only way to learn that
+// --diff exists was to read the dispatch.
+func TestGateUsage_DocumentsTheCIModeOfMutantsGo(t *testing.T) {
+	for _, want := range []string{"go --diff <base>", "--receipt <path>"} {
+		if !strings.Contains(gateUsage, want) {
+			t.Errorf("gate usage does not carry %q — an operator cannot find the CI mode", want)
+		}
 	}
 }
 

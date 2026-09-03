@@ -67,6 +67,14 @@ func runGateMutants(args []string, stderr io.Writer) int {
 			if isFlagSet(fs, "diff") {
 				return tdd.RunGoMutantsCI(tdd.GoMutantsCI{BaseSHA: *diff, Receipt: *receipt}, stderr)
 			}
+			// --receipt names where the CI run leaves its proof, so it means
+			// nothing without --diff. Falling through here handed the detached
+			// job an empty job path, which exits 0: a green check that ran
+			// nothing, from a command line that asked for a run.
+			if isFlagSet(fs, "receipt") {
+				fmt.Fprintln(stderr, "aphrollo gate mutants go: --receipt needs --diff <base> — it is where the CI run leaves its receipt")
+				return 2
+			}
 			// The Go half of the detached job: gremlins over the lane diff,
 			// writing the same receipt the Rust runner writes.
 			return tdd.RunGoMutantsJob(*job)

@@ -202,6 +202,12 @@ jobs:
     if: github.event_name != 'push' && github.event.pull_request.draft != true
     needs: [changes, test]
     runs-on: self-hosted
+    # Sized from the measurement, not from a round number: 21 mutants over this
+    # lane's own diff took 3m22s end to end, ~7 s per mutant plus one coverage
+    # pass. 30 minutes is ~250 mutants, far past any diff a reviewable PR
+    # carries -- and a run that has been going that long is one nobody is
+    # waiting for, holding a serial self-hosted runner the whole time.
+    timeout-minutes: 30
     steps:
       - if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
