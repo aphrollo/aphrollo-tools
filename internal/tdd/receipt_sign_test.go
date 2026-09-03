@@ -133,7 +133,7 @@ func TestReceiptSigning_CoversTheBodyRatherThanTheFormatting(t *testing.T) {
 
 // The signer also records what the run's own outcome file hashed to, so the
 // receipt names the evidence it was taken from.
-func TestSignReceiptFile_RecordsTheOutcomesHash(t *testing.T) {
+func TestSignReceiptFile_OutcomesSHAIsTheHashOfTheOutcomesFileBytes(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	r := passingReceipt()
 	writeReceipt(t, r)
@@ -145,8 +145,14 @@ func TestSignReceiptFile_RecordsTheOutcomesHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	signed := readReceipt(t, r.TipTree)
-	if len(signed.OutcomesSHA) != 64 {
-		t.Fatalf("outcomes_sha = %q, want a sha256 of the run's outcome file", signed.OutcomesSHA)
+	// sha256(`{"mutants":[]}`), computed independently of fileSHA256 —
+	// literal, not a value the production hasher could also produce for
+	// the wrong input. A mutation that hashes a different field (the
+	// receipt path, an empty slice, r.TipTree) still yields 64 hex chars
+	// but not THIS value.
+	const wantOutcomesSHA = "d047b4feb927b06e9dcee9fca1677d72296bdf11225f3c57e33df42bd4b668a4"
+	if signed.OutcomesSHA != wantOutcomesSHA {
+		t.Fatalf("outcomes_sha = %q, want %q (sha256 of the outcomes file's bytes)", signed.OutcomesSHA, wantOutcomesSHA)
 	}
 	if got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: r.TipTree}); got != nil {
 		t.Fatalf("the signed receipt must merge: %s", got.Message)
