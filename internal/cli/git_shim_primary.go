@@ -99,13 +99,28 @@ func namesABranch(realGit, workDir, ref string) bool {
 	return false
 }
 
-// concludingAMerge reports whether this commit is finishing a merge rather
-// than authoring a change. MERGE_HEAD is the state git leaves mid-merge; the
-// reflog action is what git itself sets when a merge drives the commit, and it
-// covers the squash/`--no-commit` shapes that leave no MERGE_HEAD behind.
+// concludingAMerge reports whether this commit is finishing an integration
+// rather than authoring a change. All three of the gate's own
+// MergeInProgressRefs count: a conflicted cherry-pick and a conflicted revert
+// leave the identical situation a conflicted merge does, are concluded the
+// identical way, and live in THIS checkout -- so refusing them offers an
+// escape (open a lane) that cannot help. The reflog action is what git itself
+// sets when a merge drives the commit, and it covers the squash/`--no-commit`
+// shapes that leave no ref behind.
 func concludingAMerge(realGit, workDir string) bool {
-	if mergeHeadExists(realGit, workDir) {
-		return true
+	for _, ref := range tdd.MergeInProgressRefs {
+		if refResolves(realGit, workDir, ref) {
+			return true
+		}
 	}
 	return strings.Contains(strings.ToLower(os.Getenv("GIT_REFLOG_ACTION")), "merge")
+}
+
+// refResolves reports whether ref both exists and names a valid object in
+// workDir -- git's own answer, which is what `-q --verify` is for.
+func refResolves(realGit, workDir, ref string) bool {
+	cmd := exec.Command(realGit, "rev-parse", "-q", "--verify", ref)
+	cmd.Dir = workDir
+	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
+	return cmd.Run() == nil
 }

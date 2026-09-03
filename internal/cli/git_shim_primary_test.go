@@ -118,6 +118,44 @@ func TestRunGitShim_AllowsTheCommitThatConcludesAMerge(t *testing.T) {
 	}
 }
 
+// A conflicted cherry-pick and a conflicted revert leave the same situation a
+// conflicted merge does, and are concluded the same way: `git commit`. Only
+// MERGE_HEAD counted, so the primary checkout refused the commit that finishes
+// one — with an escape (open a lane) that cannot help, because the conflicted
+// state lives in THIS checkout.
+func TestRunGitShim_AllowsTheCommitThatConcludesACherryPickOrRevert(t *testing.T) {
+	for _, ref := range []string{"CHERRY_PICK_HEAD", "REVERT_HEAD"} {
+		t.Run(ref, func(t *testing.T) {
+			primary, _, cfg := primaryShimRepo(t)
+			head, err := exec.Command(cfg.realGit, "-C", primary, "rev-parse", "HEAD").Output()
+			if err != nil {
+				t.Fatal(err)
+			}
+			// What git itself leaves mid-cherry-pick and mid-revert: the ref
+			// naming the commit being applied.
+			gitDirOut, err := exec.Command(cfg.realGit, "-C", primary, "rev-parse", "--git-dir").Output()
+			if err != nil {
+				t.Fatal(err)
+			}
+			gitDir := strings.TrimSpace(string(gitDirOut))
+			if !filepath.IsAbs(gitDir) {
+				gitDir = filepath.Join(primary, gitDir)
+			}
+			if err := os.WriteFile(filepath.Join(gitDir, ref), head, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(primary, "main.go"), []byte("package main // picked\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			var out, errb bytes.Buffer
+			if code := runGitShim([]string{"commit", "-a", "-m", "conclude " + ref}, strings.NewReader(""), &out, &errb, cfg); code != 0 {
+				t.Fatalf("concluding a %s must pass through, exit = %d\n%s", ref, code, errb.String())
+			}
+		})
+	}
+}
+
 func TestRunGitShim_AllowsReadingAndMergingVerbsInThePrimaryCheckout(t *testing.T) {
 	_, _, cfg := primaryShimRepo(t)
 

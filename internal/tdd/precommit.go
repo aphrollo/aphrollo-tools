@@ -1137,21 +1137,23 @@ func gitStdin(dir string, stdin io.Reader, args ...string) (string, error) {
 	return string(out), err
 }
 
-// mergeInProgressRefs is checked in order: the first of these refs that
+// MergeInProgressRefs is checked in order: the first of these refs that
 // resolves is what Precommit reports and dispatches on. MERGE_HEAD covers a
 // conflicted `git merge`; CHERRY_PICK_HEAD and REVERT_HEAD cover the
 // identical situation for a conflicted `git cherry-pick`/`git revert` — all
 // three fire git's pre-commit hook (not pre-merge-commit) when concluded
 // with a manual `git commit`, and none of them should be judged by
 // fail-first against the whole resulting diff.
-var mergeInProgressRefs = []string{"MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"}
+// Exported because the git shim refuses a commit on the primary checkout
+// unless it CONCLUDES one of these, and two lists would drift.
+var MergeInProgressRefs = []string{"MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"}
 
-// mergeInProgressRef reports which of mergeInProgressRefs currently
+// mergeInProgressRef reports which of MergeInProgressRefs currently
 // resolves in repoRoot (via `git rev-parse -q --verify <ref>`, which exits
 // 0 only when the ref both exists and names a valid object), or "" if none
 // does.
 func mergeInProgressRef(repoRoot string) string {
-	for _, ref := range mergeInProgressRefs {
+	for _, ref := range MergeInProgressRefs {
 		if _, err := git(repoRoot, "rev-parse", "-q", "--verify", ref); err == nil {
 			return ref
 		}
