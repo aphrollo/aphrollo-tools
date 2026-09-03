@@ -24,8 +24,12 @@ var ghReadyPR = func(wt, branch string) error {
 // (ghReadyPR above; ghViewPR and ghCreatePR's --head= in pr.go): gh's flag
 // parser treats a branch starting with "-" as a flag reference regardless of
 // position, and git ref names ARE allowed to start with "-" (see #160).
+// "--body" and its value must come BEFORE "--": pflag stops recognizing
+// flags the instant it sees "--", so anything after it is read as a
+// positional. "--" therefore sits immediately before the trailing branch
+// positional, never earlier.
 func ghEditPRBodyArgs(branch, body string) []string {
-	return []string{"pr", "edit", "--", branch, "--body", body}
+	return []string{"pr", "edit", "--body", body, "--", branch}
 }
 
 // ghEditPRBody is the seam over `gh pr edit --body`, set so the submit summary
