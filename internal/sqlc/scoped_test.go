@@ -187,3 +187,25 @@ func TestGitShowReturnsErrorForUnresolvableRef(t *testing.T) {
 		t.Fatal("gitShow with an unresolvable ref must return an error, not \"\"")
 	}
 }
+
+// TestGitShowReturnsEmptyForNewFileExistingOnDiskButAbsentAtRef pins the
+// production case gitShow's own doc comment names: a newly added query file.
+// The path exists on disk (changedQueries reads it with os.ReadFile right
+// before calling gitShow) but was never committed, so HEAD's tree does not
+// have it. Git's message for THIS shape of absence is worded differently from
+// a path missing everywhere ("fatal: path '<rel>' exists on disk, but not in
+// '<ref>'", verified against a real `git show` on git 2.53.0) — gitShow must
+// still treat it as an absent-at-ref path, not an error, or `sqlc regen
+// --scoped` hard-fails on the single most common reason to reach for it.
+func TestGitShowReturnsEmptyForNewFileExistingOnDiskButAbsentAtRef(t *testing.T) {
+	repo := gitShowTestRepo(t)
+	mustWrite(t, repo+"/new-query.sql", "-- name: NewQuery :one\nSELECT 2;\n")
+
+	got, err := gitShow(repo, "HEAD", "new-query.sql")
+	if err != nil {
+		t.Fatalf("gitShow on a path that exists on disk but not at ref must not error, got %v", err)
+	}
+	if got != "" {
+		t.Errorf("gitShow on a path that exists on disk but not at ref = %q, want empty", got)
+	}
+}
