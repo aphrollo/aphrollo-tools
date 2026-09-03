@@ -44,7 +44,7 @@ jobs:
   # path-filtered out as permanently pending, not skipped-success, so a docs-only
   # PR could never satisfy branch protection.
   changes:
-    if: github.event_name != 'push' && github.event.pull_request.draft != true
+    if: github.event.pull_request.draft != true
     runs-on: self-hosted
     outputs:
       code: ${{ steps.filter.outputs.code }}
@@ -84,7 +84,7 @@ jobs:
   # deployed /usr/local/bin/aphrollo — the runner is the same box the CLI ships
   # to; the guard resolves each citation against the full checked-out tree.
   docs-check:
-    if: github.event_name != 'push' && github.event.pull_request.draft != true
+    if: github.event.pull_request.draft != true
     needs: changes
     runs-on: self-hosted
     steps:
@@ -110,7 +110,7 @@ jobs:
   test:
     # Checks gate PRs; on push-to-main they're skipped and `deploy` runs behind
     # an always()+needs-result guard (mirrors aphrollo-api/pipeline.yml).
-    if: github.event_name != 'push' && github.event.pull_request.draft != true
+    if: github.event.pull_request.draft != true
     needs: changes
     runs-on: self-hosted
     steps:
@@ -144,7 +144,7 @@ jobs:
         run: go test -race -count=1 -shuffle=on -timeout=180s ./...
 
   lint:
-    if: github.event_name != 'push' && github.event.pull_request.draft != true
+    if: github.event.pull_request.draft != true
     needs: changes
     runs-on: self-hosted
     steps:
@@ -184,7 +184,7 @@ jobs:
   # LOWERED, by hand, after a real improvement is measured here — never
   # raised to make a slow change pass.
   benchmarks:
-    if: github.event_name != 'push' && github.event.pull_request.draft != true
+    if: github.event.pull_request.draft != true
     needs: changes
     runs-on: self-hosted
     # Measured generating testdata/bench/baseline.txt on a Windows dev box:
@@ -295,7 +295,10 @@ jobs:
   # dependency is the cheap fix; isolating those tests' git config is the real
   # one and belongs to internal/workspace.
   mutants:
-    if: github.event_name != 'push' && github.event.pull_request.draft != true
+    # Pushes to main only: the merge was judged locally under the pre-merge gate,
+    # which consumed the lane's own signed receipt. This run is the tripwire; a red
+    # here records an escape instead of blocking anyone.
+    if: github.event_name == 'push'
     needs: [changes, test]
     runs-on: self-hosted
     # Sized from the measurement, not from a round number: 21 mutants over this
@@ -353,7 +356,7 @@ jobs:
   # The CLI is built from THIS PR rather than taken from /usr/local/bin, so a
   # change to the rule is judged by the rule the PR proposes.
   escape-closure:
-    if: github.event_name != 'push' && github.event.pull_request.draft != true
+    if: github.event.pull_request.draft != true
     runs-on: self-hosted
     permissions:
       contents: read
@@ -398,8 +401,8 @@ jobs:
   # skipped there and the miss is picked up by `gate escape sync` on the box
   # that owns the lane.
   escape-record:
-    needs: [test, lint, vulncheck, sast, secret-scan]
-    if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.draft != true && github.event.pull_request.head.repo.fork != true && contains(needs.*.result, 'failure') }}
+    needs: [test, lint, vulncheck, sast, secret-scan, mutants]
+    if: ${{ always() && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && github.event.pull_request.head.repo.fork != true)) && contains(needs.*.result, 'failure') }}
     runs-on: self-hosted
     permissions:
       contents: read
@@ -445,7 +448,7 @@ jobs:
             --evidence "$(head -c 8000 failed.log)
           run: $RUN_URL"
   vulncheck:
-    if: github.event_name != 'push' && github.event.pull_request.draft != true
+    if: github.event.pull_request.draft != true
     needs: changes
     runs-on: self-hosted
     steps:
@@ -466,7 +469,7 @@ jobs:
         run: govulncheck ./...
 
   sast:
-    if: github.event_name != 'push' && github.event.pull_request.draft != true
+    if: github.event.pull_request.draft != true
     needs: changes
     runs-on: self-hosted
     steps:
@@ -504,7 +507,7 @@ jobs:
             .
 
   secret-scan:
-    if: github.event_name != 'push' && github.event.pull_request.draft != true
+    if: github.event.pull_request.draft != true
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -527,7 +530,7 @@ jobs:
   # PR deploy-readiness: prove the binary compiles + runs with the same flags
   # the deploy uses, so a broken build can't merge. Does NOT install (PR-only).
   build:
-    if: github.event_name != 'push' && github.event.pull_request.draft != true
+    if: github.event.pull_request.draft != true
     needs: [changes, test, lint, vulncheck, sast, secret-scan]
     runs-on: self-hosted
     steps:

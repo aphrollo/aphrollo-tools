@@ -367,14 +367,16 @@ func TestRunGoMutantsCI_MeasuresFromTheRepoRootNotTheDirectoryItWasHanded(t *tes
 // A mutation gate nobody runs is the failure mode this whole design is
 // against, so the wiring is pinned rather than assumed: the pipeline carries
 // the job, it invokes the runner in this package, and it keeps the receipt.
-// The other half of the rule — that `mutants` is a REQUIRED check — lives in
-// GitHub's branch protection and cannot be read from a test.
-func TestPipeline_RunsTheMutationCheckOnEveryPullRequest(t *testing.T) {
+// The job is a tripwire, not a gate: a merge is judged locally under the
+// pre-merge-commit gate, and this run on main records an escape when it
+// disagrees. Nothing waits for it, so it never runs on a pull request.
+func TestPipeline_RunsTheMutationCheckOnPushesToMainOnly(t *testing.T) {
 	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
 	for want, why := range map[string]string{
-		"\n  mutants:\n":         "the pipeline must declare a `mutants` job, which is the name branch protection requires",
-		"gate mutants go --diff": "the job must run the diff-scoped CI runner, not the detached local job",
-		"upload-artifact":        "the run's receipt is its evidence and must leave the runner",
+		"\n  mutants:\n":                      "the pipeline must declare a `mutants` job: the tripwire that runs after a local merge lands",
+		"    if: github.event_name == 'push'": "the job runs on pushes to main only; a pull request is never judged by it, the local pre-merge gate is",
+		"gate mutants go --diff":              "the job must run the diff-scoped CI runner, not the detached local job",
+		"upload-artifact":                     "the run's receipt is its evidence and must leave the runner",
 	} {
 		if !strings.Contains(wf, want) {
 			t.Errorf("%s (looked for %q in .github/workflows/pipeline.yml)", why, want)
@@ -387,13 +389,13 @@ func TestPipeline_RunsTheMutationCheckOnEveryPullRequest(t *testing.T) {
 // merge gate's own reader (mutationReceiptStage calls it), and
 // mutationRunsLocally is what the post-commit hook and that same stage consult
 // to decide whether a local run exists to demand a receipt from.
-func TestAphrolloToml_RequiresTheProofAndLeavesItToCI(t *testing.T) {
+func TestAphrolloToml_RequiresTheProofAndMeasuresItLocally(t *testing.T) {
 	root := repoRootForTest(t)
 	if !mutationReceiptOptIn(root) {
 		t.Error("aphrollo.toml must keep `mutation-receipt = true`: mutationReceiptStage reads it through mutationReceiptOptIn")
 	}
-	if mutationRunsLocally(root) {
-		t.Error("aphrollo.toml must say `mutants-local = false`: this repo's proof is measured on the CI runner")
+	if !mutationRunsLocally(root) {
+		t.Error("aphrollo.toml must say `mutants-local = true`: the post-commit job on this box writes the receipt the pre-merge gate consumes; CI runs only the tripwire on main")
 	}
 }
 
