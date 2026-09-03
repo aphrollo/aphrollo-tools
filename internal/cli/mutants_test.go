@@ -43,6 +43,9 @@ func TestPostCommit_NeverFailsOutsideAGatedRepo(t *testing.T) {
 func TestRunPostCommit_ReportsAWorktreePrepareFailure(t *testing.T) {
 	gateConfigDir(t)
 	isolateGitConfigCLI(t)
+	// A runner genuinely low on disk would otherwise refuse the run for THAT
+	// reason first, masking the prepare failure this test is actually about.
+	t.Cleanup(tdd.SetFreeSpaceForTest(1000, true))
 	root := t.TempDir()
 	run := func(args ...string) {
 		t.Helper()
