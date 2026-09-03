@@ -189,9 +189,18 @@ jobs:
   #
   # The CLI is built from THIS PR rather than taken from /usr/local/bin, so a
   # change to the runner is judged by the runner the PR proposes.
+  #
+  # It runs AFTER `test` rather than beside it. gremlins gathers coverage by
+  # running the whole module's suite, so a concurrent `mutants` and `test` are
+  # two runs of the same tests on one box — and internal/workspace's tests write
+  # the runner's shared global git config, which collides: measured on the first
+  # run of this job, both jobs went red with "could not lock config file
+  # /home/github-runner/.config/git/aphrollo-runtime.cfg: File exists". The
+  # dependency is the cheap fix; isolating those tests' git config is the real
+  # one and belongs to internal/workspace.
   mutants:
     if: github.event_name != 'push' && github.event.pull_request.draft != true
-    needs: changes
+    needs: [changes, test]
     runs-on: self-hosted
     steps:
       - if: needs.changes.outputs.code == 'true'
