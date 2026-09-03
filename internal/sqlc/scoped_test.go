@@ -149,3 +149,41 @@ func (q *Queries) CountWidgets() int { return 0 }
 		t.Errorf("in-scope new query CountWidgets should be added:\n%s", merged)
 	}
 }
+
+// gitShowTestRepo creates a minimal git repo with one committed file, returning
+// its path.
+func gitShowTestRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	git(t, repo, "init", "-q")
+	mustWrite(t, repo+"/queries.sql", "-- name: GetWidget :one\nSELECT 1;\n")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-qm", "base")
+	return repo
+}
+
+// TestGitShowReturnsEmptyForPathAbsentAtRef pins the one case gitShow may treat
+// as "file was empty at base": a path that genuinely never existed at ref (a
+// newly added query file), never an error.
+func TestGitShowReturnsEmptyForPathAbsentAtRef(t *testing.T) {
+	repo := gitShowTestRepo(t)
+	got, err := gitShow(repo, "HEAD", "never-existed.sql")
+	if err != nil {
+		t.Fatalf("gitShow on an absent path must not error, got %v", err)
+	}
+	if got != "" {
+		t.Errorf("gitShow on an absent path = %q, want empty", got)
+	}
+}
+
+// TestGitShowReturnsErrorForUnresolvableRef pins the bug in #183: a bad/typo'd
+// base ref must fail loud, never widen scope by being silently treated as an
+// absent path (which would make changedNamesBetween see every query in the file
+// as changed).
+func TestGitShowReturnsErrorForUnresolvableRef(t *testing.T) {
+	repo := gitShowTestRepo(t)
+	_, err := gitShow(repo, "origin/does-not-exist-xyz", "queries.sql")
+	if err == nil {
+		t.Fatal("gitShow with an unresolvable ref must return an error, not \"\"")
+	}
+}

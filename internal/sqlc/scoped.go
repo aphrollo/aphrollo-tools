@@ -314,12 +314,30 @@ func changedNamesBetween(base, work string) []string {
 	return changed
 }
 
-// gitShow returns the contents of <ref>:<relpath> in repo, or "" when the path
-// doesn't exist at that ref (a newly added query file).
-func gitShow(repo, ref, relpath string) string {
-	out, err := exec.Command("git", "-C", repo, "show", fmt.Sprintf("%s:%s", ref, relpath)).Output()
-	if err != nil {
-		return ""
+// gitShow returns the contents of <ref>:<relpath> in repo. It returns ("", nil)
+// ONLY when the path genuinely does not exist at that ref (a newly added query
+// file) — every other failure (an unresolvable/typo'd ref, git missing from
+// PATH, a shallow clone that never fetched base, a detached-HEAD checkout) is
+// returned as an error rather than silently treated as an absent path, which
+// would widen changedNamesBetween's in-scope set to every query in the file.
+func gitShow(repo, ref, relpath string) (string, error) {
+	cmd := exec.Command("git", "-C", repo, "show", fmt.Sprintf("%s:%s", ref, relpath))
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err == nil {
+		return string(out), nil
 	}
-	return string(out)
+	if pathAbsentAtRef(stderr.String()) {
+		return "", nil
+	}
+	return "", fmt.Errorf("git show %s:%s: %w: %s", ref, relpath, err, strings.TrimSpace(stderr.String()))
+}
+
+// pathAbsentAtRef reports whether git's stderr for `git show <ref>:<path>`
+// indicates the path did not exist at that ref, as opposed to a bad ref,
+// missing git, or an unfetched base — the only case gitShow may swallow.
+func pathAbsentAtRef(stderr string) bool {
+	return strings.Contains(stderr, "does not exist in") ||
+		strings.Contains(stderr, "does not exist, neither locally nor in tree")
 }
