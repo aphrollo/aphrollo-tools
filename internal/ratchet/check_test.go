@@ -180,12 +180,17 @@ kind = "line-count"
 max = 10
 count = "code"
 `)
-	// The baseline was recorded when this law counted TEXT: 6 lines. Under
+	// crates/a: baseline recorded when this law counted TEXT (6 lines); under
 	// code counting the same file is 3 real code lines plus 3 blank/comment
-	// ones, so it now measures 3 — well under the baseline's 6.
+	// ones, so it now measures 3 — well under the baseline's 6, and stale.
+	// crates/b: baseline already recorded AT the code measure (3 == 3) — the
+	// exact boundary a `base > m` check must not fire on, so this key must
+	// produce no note at all.
 	write(t, filepath.Join(root, ".ratchet", "baselines", "code-size.txt"),
-		"crates/a/src/lib.rs | 6\n")
+		"crates/a/src/lib.rs | 6\ncrates/b/src/lib.rs | 3\n")
 	write(t, filepath.Join(root, "crates", "a", "src", "lib.rs"),
+		"fn a() {}\n\n// a comment\nfn b() {}\n\nfn c() {}\n")
+	write(t, filepath.Join(root, "crates", "b", "src", "lib.rs"),
 		"fn a() {}\n\n// a comment\nfn b() {}\n\nfn c() {}\n")
 
 	res, err := Check(Options{Root: root, Tighten: false})
@@ -196,10 +201,13 @@ count = "code"
 		t.Fatalf("a lower measure must never be a regression: %+v", res.Findings)
 	}
 	if len(res.Notes) != 1 {
-		t.Fatalf("Notes = %+v, want one note about the stale baseline", res.Notes)
+		t.Fatalf("Notes = %+v, want exactly one note — crates/b is at its ceiling, not stale", res.Notes)
 	}
 	if !strings.Contains(res.Notes[0], "code-size") || !strings.Contains(res.Notes[0], "crates/a/src/lib.rs") {
 		t.Errorf("note must name the law and the site: %q", res.Notes[0])
+	}
+	if strings.Contains(res.Notes[0], "crates/b/src/lib.rs") {
+		t.Errorf("a baseline already at the code measure must not be noted: %q", res.Notes[0])
 	}
 }
 

@@ -155,6 +155,57 @@ func TestBaselineAdoptOnAnExistingMultisetLowersDropsAndCreates(t *testing.T) {
 	}
 }
 
+// TestBaselineAdoptIgnoresAZeroOrNegativeMeasuredCount proves a key whose
+// measured count is not positive never lands a row — the measure function
+// this feeds from counts occurrences, never anything else, but the guard
+// must still hold if it ever hands over a zero.
+func TestBaselineAdoptIgnoresAZeroOrNegativeMeasuredCount(t *testing.T) {
+	b := &Baseline{form: Counted}
+	b.AdoptWithSites(map[string]int{"crates/a.rs": 0, "crates/b.rs": -1, "crates/c.rs": 4}, nil)
+	want := "crates/c.rs | 4\n"
+	if got := b.Render(); got != want {
+		t.Errorf("render = %q, want %q", got, want)
+	}
+}
+
+// TestBaselineAdoptExhaustsKnownSitesThenFallsBackToTheIdentity proves the
+// site-assignment loops (both the first pass over existing rows and the
+// second pass appending shortfall rows) stop consulting `sites` once its
+// list runs out, at the EXACT boundary where the count of rows already
+// placed equals the number of known sites, and fall back to the bare
+// identity for whatever is left.
+func TestBaselineAdoptExhaustsKnownSitesThenFallsBackToTheIdentity(t *testing.T) {
+	// Existing pass: two rows for "q.tan()" kept, but only ONE known site —
+	// the first is renamed to it, the second keeps its original path.
+	b, err := ParseBaseline(
+		"crates/a.rs | q.tan()\ncrates/b.rs | q.tan()\n",
+		MultisetByText,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.AdoptWithSites(
+		map[string]int{"q.tan()": 2},
+		map[string][]string{"q.tan()": {"crates/c.rs | q.tan()"}},
+	)
+	want := "crates/c.rs | q.tan()\ncrates/b.rs | q.tan()\n"
+	if got := b.Render(); got != want {
+		t.Errorf("render = %q, want %q", got, want)
+	}
+
+	// Shortfall pass: a brand-new identity wants 3 rows, only 2 known sites —
+	// the third falls back to the bare identity as its key.
+	b2 := &Baseline{form: MultisetByText}
+	b2.AdoptWithSites(
+		map[string]int{"w.cos()": 3},
+		map[string][]string{"w.cos()": {"crates/d.rs | w.cos()", "crates/e.rs | w.cos()"}},
+	)
+	want2 := "crates/d.rs | w.cos()\ncrates/e.rs | w.cos()\nw.cos()\n"
+	if got := b2.Render(); got != want2 {
+		t.Errorf("render = %q, want %q", got, want2)
+	}
+}
+
 func TestBaselineRegressionsReportsGrownAndBrandNewKeys(t *testing.T) {
 	b, _ := ParseBaseline("crates/a.rs | 600\n", Counted)
 	got := b.Regressions(map[string]int{"crates/a.rs": 650, "crates/new.rs": 1})

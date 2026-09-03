@@ -122,6 +122,47 @@ max = 5
 	}
 }
 
+// TestLoadLawsMergesAliasWhenOwnIncludeOutnumbersTheAliasSet proves the
+// merge's capacity is computed as a SUM of both lists' lengths, not a
+// difference: an alias set shorter than the law's own include list must
+// still merge cleanly (a subtraction here would make the capacity go
+// negative and panic on `make`), and every glob from both lists must survive.
+func TestLoadLawsMergesAliasWhenOwnIncludeOutnumbersTheAliasSet(t *testing.T) {
+	dir := t.TempDir()
+	writeScopes(t, dir, `
+[sets]
+tier1 = ["crates/movement/**/*.rs"]
+`)
+	writeLaw(t, dir, "tier1-size", `
+name = "tier1-size"
+description = "Tier-1 files stay small"
+severity = "deny"
+
+[scope]
+alias = "tier1"
+include = ["crates/pose/**/*.rs", "crates/pose_ik/**/*.rs", "crates/ui/**/*.rs"]
+
+[matcher]
+kind = "line-count"
+max = 5
+`)
+	laws, err := LoadLaws(dir)
+	if err != nil {
+		t.Fatalf("LoadLaws: %v", err)
+	}
+	l := laws[0]
+	for _, file := range []string{
+		"crates/movement/src/lib.rs",
+		"crates/pose/src/lib.rs",
+		"crates/pose_ik/src/lib.rs",
+		"crates/ui/src/lib.rs",
+	} {
+		if !l.Scope.Matches(file) {
+			t.Errorf("%s must match — merged from the alias and the law's own include", file)
+		}
+	}
+}
+
 // TestLoadLawsRefusesAnAliasNoSetDefines is the deny path: a law naming an
 // alias scopes.toml never declared is a hard, one-line error naming both.
 func TestLoadLawsRefusesAnAliasNoSetDefines(t *testing.T) {

@@ -1,10 +1,22 @@
 package tdd
 
 import (
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// gitAddPath stages exactly one path, unlike gitAddAll — needed to leave a
+// sibling file deliberately untracked.
+func gitAddPath(t *testing.T, root, rel string) {
+	t.Helper()
+	cmd := exec.Command(gitBinary(), "add", rel)
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git add %s: %v\n%s", rel, err, out)
+	}
+}
 
 // baselineRepo commits one counted baseline, then leaves `after` staged.
 func baselineRepo(t *testing.T, path, before, after string) string {
@@ -203,6 +215,41 @@ pattern = "TODO"
 	res := baselineStage("precommit", root)
 	if !res.Blocked {
 		t.Fatal("an unrelated law's presence must never license nan-guard's raise")
+	}
+}
+
+// TestBaselineGuardRefusesARaiseEvenWhenALaterLawFalselyClaimsOwnership
+// proves the out-of-band-raise path: a law file present on disk but never
+// `git add`ed (no index entry at all, not merely an unchanged one) is still
+// read from disk and answers "does it own this baseline" BEFORE the scan
+// moves on — a later, staged, brand-new law that also happens to declare the
+// same baseline path must never get to answer that question in its place. A
+// scan that skipped the real, untracked owner would let the raise through on
+// the imposter's say-so.
+func TestBaselineGuardRefusesARaiseEvenWhenALaterLawFalselyClaimsOwnership(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"),
+		"crates/a.rs | let a = x.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+
+	// The real owner: written to disk but never staged, so it has no git
+	// index entry at all.
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "nan-guard.toml"), nanGuardLawText)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"),
+		"crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
+	// A brand-new, STAGED law that also (wrongly) declares the same
+	// baseline path, sorted after nan-guard.toml so it is only ever reached
+	// if the real, untracked owner gets skipped instead of consulted.
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "zzz-imposter.toml"),
+		strings.Replace(nanGuardLawText, `name = "nan-guard"`, `name = "zzz-imposter"`, 1))
+	gitAddPath(t, root, filepath.Join(".ratchet", "baselines", "nan-guard.txt"))
+	gitAddPath(t, root, filepath.Join(".ratchet", "laws", "zzz-imposter.toml"))
+
+	res := baselineStage("precommit", root)
+	if !res.Blocked {
+		t.Fatal("the real, untracked owner must be consulted before any later law can claim adoption")
 	}
 }
 

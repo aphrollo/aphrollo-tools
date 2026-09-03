@@ -84,11 +84,7 @@ func splitUnitIndex(raw []string, re *regexp.Regexp) int {
 // lineCountUnit judges one unit (the whole file, or one half of a split) and
 // reports it under key, which carries the `#tests` suffix for the second half.
 func (l Law) lineCountUnit(file, key string, raw []string) *Hit {
-	counted := raw
-	if l.Matcher.LineMode == LineCountCode {
-		counted = codeLines(raw, file)
-	}
-	n := len(counted)
+	n := l.countUnit(file, raw)
 	if n <= l.Matcher.Max {
 		return nil
 	}
@@ -99,6 +95,32 @@ func (l Law) lineCountUnit(file, key string, raw []string) *Hit {
 		What:   fmt.Sprintf("%d lines (max %d)", n, l.Matcher.Max),
 		Weight: n,
 	}
+}
+
+// countUnit is the raw measurement one unit carries, with NO ceiling applied
+// — the count a UNDER-max file has too, which lineModeNotes needs in order to
+// see a stale baseline that no longer produces a hit at all.
+func (l Law) countUnit(file string, raw []string) int {
+	counted := raw
+	if l.Matcher.LineMode == LineCountCode {
+		counted = codeLines(raw, file)
+	}
+	return len(counted)
+}
+
+// lineCountMeasures is countUnit for every unit lineCountHits would judge —
+// one entry for a whole file, two (keyed `file` and `file#tests`) when
+// unit_split matches — with no ceiling applied.
+func (l Law) lineCountMeasures(file string, raw []string) map[string]int {
+	if l.Matcher.UnitSplit != nil {
+		if idx := splitUnitIndex(raw, l.Matcher.UnitSplit); idx >= 0 {
+			return map[string]int{
+				file:            l.countUnit(file, raw[:idx]),
+				file + "#tests": l.countUnit(file, raw[idx:]),
+			}
+		}
+	}
+	return map[string]int{file: l.countUnit(file, raw)}
 }
 
 // commentSyntax is the comment opener(s) this law's "code" line-count mode

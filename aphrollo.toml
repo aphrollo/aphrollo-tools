@@ -22,4 +22,11 @@ mutants-local = false
 # reason is not decoration — an entry without one is not an accepted survivor,
 # and the CI check goes red for it. Empty is the state to keep it in.
 mutation-accept = [
+  "internal/ratchet/preset.go:65 CONDITIONALS_NEGATION # comparator is a no-op on embed.FS's already-sorted ReadDir output",
+  "internal/ratchet/preset.go:66 CONDITIONALS_BOUNDARY # comparator is a no-op on embed.FS's already-sorted ReadDir output",
+  "internal/ratchet/preset.go:66 CONDITIONALS_NEGATION # comparator is a no-op on embed.FS's already-sorted ReadDir output",
+  "internal/ratchet/preset.go:68 CONDITIONALS_BOUNDARY # comparator is a no-op on embed.FS's already-sorted ReadDir output",
+  "internal/ratchet/preset.go:68 CONDITIONALS_NEGATION # comparator is a no-op on embed.FS's already-sorted ReadDir output",
+  "internal/ratchet/preset.go:121 ARITHMETIC_BASE # capacity hint only, never observable in the appended slice's length or contents",
+  "internal/ratchet/check.go:196 CONDITIONALS_BOUNDARY # loop body is a no-op on an empty sets map regardless of which side of the boundary lets it run",
 ]

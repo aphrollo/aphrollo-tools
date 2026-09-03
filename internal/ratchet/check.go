@@ -313,7 +313,17 @@ func Check(opts Options) (Result, error) {
 		// a report-only run (which never writes) would otherwise say nothing
 		// while the ceiling still reflects the old mode.
 		if law.Matcher.Kind == KindLineCount && law.Matcher.LineMode == LineCountCode && !opts.Tighten {
-			res.Notes = append(res.Notes, lineModeNotes(law.Name, baseline.Counts(), measured)...)
+			actual := map[string]int{}
+			for _, rel := range scan.files {
+				content, ok := scan.content[rel]
+				if !ok || !law.Scope.Matches(rel) {
+					continue
+				}
+				for k, n := range law.lineCountMeasures(rel, splitLines(content)) {
+					actual[k] = n
+				}
+			}
+			res.Notes = append(res.Notes, lineModeNotes(law.Name, baseline.Counts(), actual)...)
 		}
 		// A hypothetical tree must never rewrite a baseline: the content it
 		// measured is not what is on disk, and a narrowed run has not even
@@ -428,6 +438,13 @@ func scanTree(opts Options, laws []Law) (*treeScan, error) {
 	var contentLaws []Law
 	for _, l := range laws {
 		if l.Matcher.Kind == KindRegistryBothWays {
+			contentLaws = append(contentLaws, l)
+		}
+		// A code-mode line-count law's stale-baseline note needs the actual
+		// measured count on a file that no longer produces a hit at all — the
+		// cache's "unchanged, no hits" fast path never reads that file's
+		// content otherwise.
+		if l.Matcher.Kind == KindLineCount && l.Matcher.LineMode == LineCountCode {
 			contentLaws = append(contentLaws, l)
 		}
 	}
