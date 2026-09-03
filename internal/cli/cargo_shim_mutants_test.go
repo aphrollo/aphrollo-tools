@@ -48,6 +48,7 @@ func TestRunCargoShim_AllowsCargoMutantsThroughTheDeprecatedAliasAndLogsIt(t *te
 	cfg := gateConfigDir(t)
 	t.Setenv(deprecatedMutationGateEnv, "1")
 	resetDeprecatedMutationGateLog()
+	t.Cleanup(resetDeprecatedMutationGateLog)
 
 	cfgShim := testCargoShimConfig()
 	cfgShim.realCargo = runVerbStub(t)
