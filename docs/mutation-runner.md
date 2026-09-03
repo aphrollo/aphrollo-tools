@@ -196,6 +196,15 @@ gremlins' statuses map onto the receipt as: `KILLED` → caught, `LIVED` and
 `NOT COVERED` → missed, `TIMED OUT` → timeout, anything else → unviable. An
 unrecognised status is never read as caught.
 
+The diff-only pilot that preceded this wiring found the signal clean on this
+repo (4/4 survivors were real gaps, 0 equivalent-mutant noise) and surfaced
+one standing gap worth naming: gremlins gathers coverage from the UNIT suite
+only, so a repo whose real logic sits behind `//go:build integration` tests
+(a Postgres-backed store package, say) gets an empty or misleadingly-clean
+report over that code unless the run adds `--tags integration --integration`
+— which also re-runs the full suite per mutant, so it is a deliberate,
+slower opt-in rather than the default shape above.
+
 The accept-list for survivors lives in `aphrollo.toml`, with a reason per
 entry — an entry with no reason does not count as accepted:
 
