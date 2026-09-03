@@ -58,6 +58,32 @@ func TestIssueSummaryLineServesTheCacheWithinTheHour(t *testing.T) {
 	}
 }
 
+// The session-start line is the existing 1 h cache `gate escape sync`'s
+// closed-issue reconciliation rides on: a synced escape whose issue closed
+// on GitHub stops counting as open debt the next time this line fetches,
+// with no separate cache or schedule of its own (issue #113).
+func TestIssueSummaryLine_ReconcilesAClosedEscapeWithinTheSameFetch(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGitHubRepo(t)
+	if err := appendEscape(EscapeRecord{
+		Schema: StateSchema, ID: "x", Kind: EscapeKind, Reason: "already fixed",
+		At: time.Now().UTC(), Issue: "https://github.com/o/r/issues/9", Number: 9,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stubGhScript(t, map[string]string{
+		"issue list": `[{"number":9,"state":"CLOSED"}]`,
+	})
+
+	line := issueSummaryLine(repo, time.Now())
+	if !strings.Contains(line, "0 open escape") {
+		t.Fatalf("line = %q, want the closed escape no longer counted", line)
+	}
+	if open, _ := OpenEscapes(); open != 0 {
+		t.Fatalf("open escapes = %d, want 0 once GitHub shows it closed", open)
+	}
+}
+
 // A session start is not the place to report that GitHub was unreachable, and
 // a failure that reports nothing at all is a failure nobody can diagnose. So
 // it prints nothing and leaves one line in gate.log.

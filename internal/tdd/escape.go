@@ -229,8 +229,11 @@ func OpenEscapes() (int, time.Duration) {
 }
 
 // SyncEscapes opens an issue for every record that has none yet — the
-// catch-up path for everything recorded while gh was missing or offline. It
-// returns how many it opened.
+// catch-up path for everything recorded while gh was missing or offline —
+// and reconciles the other direction: a record whose issue GitHub already
+// closed is marked closed locally, so nothing keeps counting it as open debt
+// forever because nothing here polls GitHub on its own (issue #113). It
+// returns how many issues it opened.
 func SyncEscapes(repo string, w io.Writer) (int, error) {
 	opened := 0
 	for _, r := range loadEscapes() {
@@ -247,14 +250,74 @@ func SyncEscapes(repo string, w io.Writer) (int, error) {
 		opened++
 		fmt.Fprintf(w, "escape %s -> %s\n", r.ID, url)
 	}
+	if closed := syncClosedEscapes(repo); closed > 0 {
+		fmt.Fprintf(w, "closed %d locally (already closed on GitHub)\n", closed)
+	}
 	return opened, nil
 }
 
-// ListEscapes prints every open record, oldest first.
-func ListEscapes(w io.Writer) {
+// syncClosedEscapes marks every synced-but-not-yet-closed local record
+// closed once its GitHub issue actually is — ONE call rather than one per
+// record: every issue this loop ever opened carries the escape or
+// false-positive label, whichever repo theme it also carries.
+func syncClosedEscapes(repo string) int {
+	pending := map[int]bool{}
+	for _, r := range loadEscapes() {
+		if !r.Closed && r.Number > 0 {
+			pending[r.Number] = true
+		}
+	}
+	if len(pending) == 0 || !ghAvailable() || !hasGitHubRemote(repo) {
+		return 0
+	}
+	out, err := runGh(repo, "issue", "list", "--label", EscapeKind, "--label", FalsePositiveKind,
+		"--state", "all", "--limit", "1000", "--json", "number,state")
+	if err != nil {
+		return 0
+	}
+	closedNow := closedIssueNumbers(out)
 	n := 0
 	for _, r := range loadEscapes() {
-		if r.Closed {
+		if r.Closed || !pending[r.Number] || !closedNow[r.Number] {
+			continue
+		}
+		r.Closed = true
+		updateEscape(r)
+		n++
+	}
+	return n
+}
+
+// closedIssueNumbers reads a `gh issue list --json number,state` payload into
+// the numbers currently CLOSED. nil for a payload that does not parse — a
+// fetch that failed reconciles nothing rather than guessing.
+func closedIssueNumbers(out string) map[int]bool {
+	start, end := strings.Index(out, "["), strings.LastIndex(out, "]")
+	if start < 0 || end < start {
+		return nil
+	}
+	var docs []struct {
+		Number int    `json:"number"`
+		State  string `json:"state"`
+	}
+	if json.Unmarshal([]byte(out[start:end+1]), &docs) != nil {
+		return nil
+	}
+	closed := map[int]bool{}
+	for _, d := range docs {
+		if strings.EqualFold(d.State, "CLOSED") {
+			closed[d.Number] = true
+		}
+	}
+	return closed
+}
+
+// ListEscapes prints the records, oldest first: only the open ones by
+// default, every one (open and closed) when all is set.
+func ListEscapes(w io.Writer, all bool) {
+	n := 0
+	for _, r := range loadEscapes() {
+		if r.Closed && !all {
 			continue
 		}
 		n++
@@ -262,8 +325,12 @@ func ListEscapes(w io.Writer) {
 		if where == "" {
 			where = "(not synced)"
 		}
-		fmt.Fprintf(w, "%s  %-14s  %3dd  %s  %s\n",
-			r.ID, r.Kind, int(time.Since(r.At).Hours()/24), where, r.Reason)
+		status := ""
+		if r.Closed {
+			status = "  closed"
+		}
+		fmt.Fprintf(w, "%s  %-14s  %3dd  %s  %s%s\n",
+			r.ID, r.Kind, int(time.Since(r.At).Hours()/24), where, r.Reason, status)
 	}
 	if n == 0 {
 		fmt.Fprintln(w, "no open escapes")
