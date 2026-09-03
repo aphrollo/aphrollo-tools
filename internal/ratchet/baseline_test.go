@@ -108,6 +108,53 @@ func TestBaselineAdoptOnAMultisetFormWritesOneRowPerOccurrence(t *testing.T) {
 	}
 }
 
+// TestBaselineAdoptOnAnExistingMultisetLowersDropsAndCreates proves the first
+// pass of AdoptWithSites — the one walking EXISTING rows — for a form keyed
+// by occurrence count, not a single row per key: a repeated identity must
+// drop exactly the rows past its new target (the seen>=want boundary), an
+// identity absent from the new measure must drop every row, and a brand-new
+// identity still gets its rows from `sites` in the second pass.
+func TestBaselineAdoptOnAnExistingMultisetLowersDropsAndCreates(t *testing.T) {
+	b, err := ParseBaseline(
+		"crates/a.rs | x.clamp(0.0, 1.0)\ncrates/b.rs | x.clamp(0.0, 1.0)\ncrates/c.rs | z.sin()\n",
+		MultisetByText,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tt := b.AdoptWithSites(
+		map[string]int{
+			"x.clamp(0.0, 1.0)": 1, // lowered from 2 existing rows to 1
+			"w.cos()":           2, // brand new identity, no existing row at all
+			// "z.sin()" absent: its one existing row must be dropped entirely
+		},
+		map[string][]string{
+			"x.clamp(0.0, 1.0)": {"crates/a.rs | x.clamp(0.0, 1.0)"},
+			"w.cos()":           {"crates/d.rs | w.cos()", "crates/e.rs | w.cos()"},
+		},
+	)
+
+	want := "crates/a.rs | x.clamp(0.0, 1.0)\ncrates/d.rs | w.cos()\ncrates/e.rs | w.cos()\n"
+	if got := b.Render(); got != want {
+		t.Errorf("render = %q, want %q", got, want)
+	}
+	if !reflect.DeepEqual(tt.Removed, []Change{{"z.sin()", 1, 0}}) {
+		t.Errorf("removed = %+v", tt.Removed)
+	}
+	wantLowered := map[Change]bool{
+		{"x.clamp(0.0, 1.0)", 2, 1}: true,
+		{"w.cos()", 0, 2}:           true,
+	}
+	if len(tt.Lowered) != len(wantLowered) {
+		t.Fatalf("lowered = %+v", tt.Lowered)
+	}
+	for _, c := range tt.Lowered {
+		if !wantLowered[c] {
+			t.Errorf("unexpected change %+v", c)
+		}
+	}
+}
+
 func TestBaselineRegressionsReportsGrownAndBrandNewKeys(t *testing.T) {
 	b, _ := ParseBaseline("crates/a.rs | 600\n", Counted)
 	got := b.Regressions(map[string]int{"crates/a.rs": 650, "crates/new.rs": 1})

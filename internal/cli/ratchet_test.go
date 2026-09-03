@@ -201,6 +201,12 @@ func TestRatchetInitWritesPresetsAndCheckRunsClean(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".ratchet", "laws", "comment_hygiene.toml")); err != nil {
 		t.Fatalf("comment_hygiene.toml was not written: %v", err)
 	}
+	// common has 9 presets, both required params supplied: every one is
+	// written, none skipped or missing — the exact tally, not just a
+	// substring, so a wrong increment/decrement on the counters shows up.
+	if !strings.Contains(out.String(), "ratchet init: 9 written, 0 skipped, 0 missing params") {
+		t.Errorf("summary line wrong: %q", out.String())
+	}
 
 	out.Reset()
 	errb.Reset()
@@ -233,6 +239,10 @@ func TestRatchetInitIsIdempotent(t *testing.T) {
 	if strings.Contains(out.String(), "[write]") {
 		t.Errorf("a repeat run must write nothing: %q", out.String())
 	}
+	// all 9 already exist: every one skipped, none written or missing.
+	if !strings.Contains(out.String(), "ratchet init: 0 written, 9 skipped, 0 missing params") {
+		t.Errorf("summary line wrong: %q", out.String())
+	}
 }
 
 // TestRatchetInitRefusesAPresetWithAnUnfilledParam is the RED case: no
@@ -250,6 +260,11 @@ func TestRatchetInitRefusesAPresetWithAnUnfilledParam(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, ".ratchet", "laws", "comment_hygiene.toml")); err == nil {
 		t.Error("a law missing a required param must never be written")
+	}
+	// comment_hygiene and dev_instrument_registry need a param each and go
+	// missing; the other 7 of the 9 common presets need none and are written.
+	if !strings.Contains(out.String(), "ratchet init: 7 written, 0 skipped, 2 missing params") {
+		t.Errorf("summary line wrong: %q", out.String())
 	}
 }
 
