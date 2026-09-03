@@ -222,11 +222,15 @@ Subcommands:
   sessionend        Drop the session's state file
   precommit         Git pre-commit gate: fail-first + mechanical (run in the repo)
   premergecommit    Git pre-merge-commit gate: mechanical ONLY, no fail-first/anti-cheat
-  postcommit        Git post-commit hook: start the lane's mutation run detached and
-                    below normal priority (opt-in per repo: mutation-receipt = true).
-                    Never blocks, never fails
-  mutants           The mutation job's own verbs: run --job <file> (spawned by
-                    postcommit, not typed by hand)
+  postcommit        Git post-commit hook: write the refs/notes/gate note on the
+                    commit just made — what lets CI tell a red on a gated tip
+                    from a red on an ungated one — then start the lane's
+                    mutation run detached and below normal priority (opt-in per
+                    repo: mutation-receipt = true). Never blocks, never fails
+  mutants           The mutation job's own verbs: run|go --job <file> (spawned
+                    by postcommit, not typed by hand). The go verb drives
+                    gremlins over the lane diff and writes the same receipt the
+                    Rust runner does
   receipt           receipt sign [--outcomes <path>] <file>: stamp a mutation
                     receipt with this machine's MAC. The ONLY writer of one —
                     every runner signs through it
@@ -243,6 +247,9 @@ Subcommands:
                     matters); wired into settings.json by init
   stats             Tally gate.log by stage and outcome (--since 7d), and the open
                     escape count
+  issue             Open one labelled issue against the repo's GitHub remote and
+                    print its URL (--label, --body, --repo, --new-label). An open
+                    point is an issue, never a markdown follow-up
   escape            The escape loop: record | sync | list | verify-closure <pr>.
                     A red after a local green is recorded and opened as a labelled
                     issue; verify-closure refuses a PR that closes one without
@@ -376,6 +383,14 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// The commit-msg git hook: git hands it the message file path.
 		return runGateCommitMsg(args[1:], stderr)
 	}
+	if args[0] == "postcommit" {
+		// The post-commit git hook, and there is only one: it writes the gate
+		// note on the commit just made, THEN starts the lane's mutation run
+		// detached. The note first, because it describes a commit that
+		// already exists and costs nothing; the run second, because it
+		// outlives this process. Neither can block — the commit is made.
+		return runPostCommit(stderr)
+	}
 	if args[0] == "doctor" {
 		// Read-only install report: one line per check, exit 1 on any FAIL.
 		return runGateDoctor(args[1:], stdout, stderr)
@@ -395,6 +410,11 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// Disk hygiene: dry-run by default, --apply reclaims.
 		return runGateGC(args[1:], stdout, stderr)
 	}
+	if args[0] == "issue" {
+		// The general issue verb: an open point is a row somebody can
+		// filter, not a line in a markdown list.
+		return runGateIssue(args[1:], stdout, stderr)
+	}
 	if args[0] == "escape" {
 		// The escape loop: record a red that got past a local green, and
 		// refuse a PR that closes one without changing a check.
@@ -405,11 +425,6 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// logs, and writes the result file the next hook harvests. It never
 		// blocks anything, so its exit code is always 0.
 		return runPhase(args[1:], stderr)
-	}
-	if args[0] == "postcommit" {
-		// The post-commit git hook: start the lane's mutation run, detached,
-		// and get out of the way. It never blocks and never fails.
-		return runPostCommit(stderr)
 	}
 	if args[0] == "receipt" {
 		// The mutation receipt's signer: the one writer of a receipt's MAC.
@@ -467,9 +482,22 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			// keeps that path untouched.
 			if res.Blocked {
 				tdd.WriteMergeRejectedMarker(root, res.Message)
+				// Two gates disagreeing about one tree, or a survivor
+				// reaching the last gate that could stop it, is the loop's
+				// own evidence about a missing stage. Nothing recorded it
+				// before; now it records itself, deduped by fingerprint.
+				tdd.NoteMergeGateEscape(root, res.Message, stderr)
 			}
 		} else {
 			res = tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
+			if !res.Blocked {
+				// Stamp the tree a suite actually RAN GREEN on, so the
+				// post-commit hook can put the gate note on the commit and
+				// CI can tell a red on a proven tip from a red on an
+				// ungated one. A gate that allowed the commit because there
+				// was nothing to test has proven nothing and stamps nothing.
+				tdd.StampGreenSuiteIfProven(root)
+			}
 		}
 		// Surface the note (e.g. a fail-open skip) even when allowing — the gate
 		// is never silent about why it did or didn't run.

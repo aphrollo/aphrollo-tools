@@ -345,3 +345,16 @@ var pidRunningFn = pidRunning
 // processStartTokenFn is the start-time probe, a seam for the tests that
 // describe a recycled pid without waiting for one.
 var processStartTokenFn = processStartToken
+
+// PostCommitHook is everything the one post-commit hook does, in the order it
+// must do it. Two features landed on the same hook and git runs exactly one:
+// the gate NOTE that lets CI tell a red on a gated tip from a red on an
+// ungated one, and the lane's mutation run.
+//
+// The note goes first because it describes a commit that already exists and
+// costs milliseconds; the run goes second because it outlives this process.
+// Neither half can block — by the time this runs, the commit is made.
+func PostCommitHook(repoRoot string) (MutantsJob, bool) {
+	PostCommit(repoRoot)
+	return StartMutantsJob(repoRoot)
+}

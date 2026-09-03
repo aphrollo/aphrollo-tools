@@ -258,3 +258,45 @@ func TestStatusLine_SaysMutantsWhileAJobRunsForThisProject(t *testing.T) {
 		t.Fatalf("StatusLine = %q, want the mutants suffix", got)
 	}
 }
+
+// Two features landed on the same git hook, and git runs exactly one
+// post-commit: the gate note and the lane's mutation run. One verb does both,
+// and neither may swallow the other.
+func TestPostCommitHook_WritesTheNoteAndStartsTheRun(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var started []MutantsJob
+	fakeSpawn(t, &started)
+	root := optedInLane(t)
+	stampGreenSuiteForTest(t, root)
+
+	if _, ok := PostCommitHook(root); !ok {
+		t.Fatal("the mutation run did not start, so the note replaced it")
+	}
+	if len(started) != 1 {
+		t.Fatalf("runs started = %d, want 1", len(started))
+	}
+	note, err := git(root, "notes", "--ref=gate", "show", "HEAD")
+	if err != nil {
+		t.Fatalf("no gate note on the commit: %v", err)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(note), "green ") {
+		t.Fatalf("gate note = %q, want the green note the commit earned", note)
+	}
+}
+
+// stampGreenSuiteForTest leaves the record a green pre-commit run leaves, which
+// is what the note is written from.
+func stampGreenSuiteForTest(t *testing.T, root string) {
+	t.Helper()
+	tree, ok := revTree(root, "HEAD")
+	if !ok {
+		t.Fatal("setup: no tree for HEAD")
+	}
+	path := greenSuiteStampFile(root)
+	if path == "" {
+		t.Fatal("setup: no stamp path")
+	}
+	if err := os.WriteFile(path, []byte(tree), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}

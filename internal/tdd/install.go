@@ -39,6 +39,8 @@ type InstallPlan struct {
 var perRepoHooks = []struct{ name, sub string }{
 	{"pre-commit", "precommit"},
 	{"pre-merge-commit", "premergecommit"},
+	// One post-commit shim for both halves — the gate note, then the lane's
+	// mutation run. See gitGateHooks.
 	{"post-commit", "postcommit"},
 	{"commit-msg", "commitmsg"},
 }

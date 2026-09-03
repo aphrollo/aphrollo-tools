@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -13,7 +14,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -54,6 +54,17 @@ type EscapeRecord struct {
 	Issue    string    `json:"issue,omitempty"`
 	Number   int       `json:"number,omitempty"`
 	Closed   bool      `json:"closed,omitempty"`
+	// Labels are the project's own theme labels the issue also carries, so a
+	// playtest defect lands in the theme filter as well as the escape one.
+	Labels []string `json:"labels,omitempty"`
+	// Check names the stage or law that could have caught this. It is what
+	// separates an escape from a plain defect: a defect no check could have
+	// seen is not evidence about the gate, and belongs in `gate issue`.
+	Check string `json:"check,omitempty"`
+	// Fingerprint is stage + first diagnostic line, hashed. An automatic
+	// recorder dedupes on it, so one recurring failure is one issue rather
+	// than one per run.
+	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
 // EscapeOptions is what `gate escape record` was told.
@@ -65,6 +76,10 @@ type EscapeOptions struct {
 	// Repo is the checkout the issue would be opened against; empty means
 	// record locally and stop.
 	Repo string
+	// Labels, Check and Fingerprint carry into the record — see EscapeRecord.
+	Labels      []string
+	Check       string
+	Fingerprint string
 }
 
 // EscapeLogPath is where the records live, "" when there is no state dir.
@@ -96,13 +111,16 @@ func RecordEscape(o EscapeOptions, w io.Writer) (EscapeRecord, error) {
 	}
 	now := time.Now().UTC()
 	r := EscapeRecord{
-		Schema:   StateSchema,
-		ID:       escapeID(now, reason),
-		Kind:     kind,
-		Reason:   reason,
-		FromCI:   o.FromCI,
-		Evidence: o.Evidence,
-		At:       now,
+		Schema:      StateSchema,
+		ID:          escapeID(now, reason),
+		Kind:        kind,
+		Reason:      reason,
+		FromCI:      o.FromCI,
+		Evidence:    o.Evidence,
+		At:          now,
+		Labels:      o.Labels,
+		Check:       o.Check,
+		Fingerprint: o.Fingerprint,
 	}
 	if err := appendEscape(r); err != nil {
 		return EscapeRecord{}, err
@@ -252,6 +270,12 @@ func ListEscapes(w io.Writer) {
 	}
 }
 
+// issueFingerprintKey marks the fingerprint line in an escape issue's body.
+// The local dedupe store lives in this box's gate-state, which an ephemeral
+// CI runner does not have — so the ISSUE carries the fingerprint, and a
+// runner with no memory can ask GitHub what it cannot remember.
+const issueFingerprintKey = "gate-fingerprint:"
+
 // escapeIssueBody is the fixed template. Every escape states the same three
 // things, and the last one is what verify-closure judges the fix against.
 func escapeIssueBody(r EscapeRecord) string {
@@ -262,18 +286,27 @@ func escapeIssueBody(r EscapeRecord) string {
 	if evidence == "" {
 		evidence = "none recorded"
 	}
+	// The recorder can name the check itself. A defect found by hand is an
+	// escape only when SOME check could have seen it, so `--check` fills this
+	// line, and a blank means the reader still has to answer it.
+	stage := "_name it: a ratchet law, a gate stage, or a demoted check_"
+	if c := strings.TrimSpace(r.Check); c != "" {
+		stage = c
+	}
 	return fmt.Sprintf(`**What got through:** %s
 
-**Which stage should have caught it:** _name it: a ratchet law, a gate stage, or a demoted check_
+**Which stage should have caught it:** %s
 
 **Evidence:** %s
 
 closes-by: law | stage | demote check X
 
+%s %s
+
 Closing this needs a change to a check — a law under `+"`.ratchet/laws/`"+`, a gate
 stage, or a test named on the closes-by line. A sentence in a document does not
 close an escape.
-`, r.Reason, evidence)
+`, r.Reason, stage, evidence, issueFingerprintKey, r.Fingerprint)
 }
 
 // escapeIssueTitle keeps the subject short enough to read in a list. It cuts
@@ -306,7 +339,19 @@ var ghAvailable = func() bool {
 // actually go wrong here (a label that does not exist, no auth, no network),
 // and the operator cannot act on a verdict that does not say which.
 func runGh(dir string, args ...string) (string, error) {
-	cmd := exec.Command("gh", args...)
+	return runGhTimeout(dir, 0, args...)
+}
+
+// runGhTimeout is runGh with a deadline. Zero means none: the escape verbs
+// are typed by a human who can see them run, while the session-start line is
+// on a path nothing is allowed to stall.
+func runGhTimeout(dir string, timeout time.Duration, args ...string) (string, error) {
+	ctx, cancel := context.Background(), context.CancelFunc(func() {})
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+	}
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "gh", args...)
 	cmd.Dir = dir
 	cmd.Env = cleanGitEnv()
 	var stderr bytes.Buffer
@@ -340,47 +385,25 @@ func hasGitHubRemote(repo string) bool {
 // report every other error and stay quiet about this one.
 var errNoIssueTarget = errors.New("no gh, or no GitHub remote")
 
-// openEscapeIssue opens the labelled issue for one record.
+// openEscapeIssue opens the labelled issue for one record, through the shared
+// writer. The kind is always a label; a theme (`--label physics`) rides
+// alongside it so a playtest defect lands in the project's own filter as well
+// as the escape one.
 func openEscapeIssue(repo string, r EscapeRecord) (url string, number int, err error) {
-	if repo == "" || !ghAvailable() || !hasGitHubRemote(repo) {
-		return "", 0, errNoIssueTarget
-	}
-	ensureEscapeLabel(repo, r.Kind)
-	out, err := runGh(repo, "issue", "create",
-		"--title", escapeIssueTitle(r),
-		"--body", escapeIssueBody(r),
-		"--label", r.Kind)
-	if err != nil {
-		return "", 0, err
-	}
-	url = lastNonEmptyLine(out)
-	if !strings.Contains(url, "/issues/") {
-		return "", 0, fmt.Errorf("gh issue create printed no issue URL: %q", fitRunes(strings.TrimSpace(out), 200))
-	}
-	return url, issueNumberFromURL(url), nil
-}
-
-// labelEnsured remembers which labels this process has already created, so a
-// sync of twenty escapes does not make twenty identical API calls.
-var labelEnsured sync.Map
-
-// ensureEscapeLabel creates the label the issue is about to ask for. A fresh
-// repository has neither `escape` nor `false-positive`, and `gh issue create
-// --label` FAILS outright on a label that does not exist — so without this
-// every escape in a new repo is recorded locally and reaches nobody.
-//
-// `--force` makes it idempotent (it updates the existing label instead of
-// failing), and a failure here is deliberately ignored: the issue create that
-// follows is the real test of whether the label is usable, and it reports in
-// gh's own words.
-func ensureEscapeLabel(repo, kind string) {
-	key := repo + "\x00" + kind
-	if _, done := labelEnsured.LoadOrStore(key, true); done {
-		return
-	}
-	_, _ = runGh(repo, "label", "create", kind, "--force",
-		"--description", escapeLabelDescription(kind),
-		"--color", escapeLabelColour(kind))
+	return OpenIssue(IssueOptions{
+		Repo:   repo,
+		Title:  escapeIssueTitle(r),
+		Body:   escapeIssueBody(r),
+		Labels: append([]string{r.Kind}, r.Labels...),
+		// A theme the recorder named was judged against the declared list by
+		// the command that parsed it; re-judging it here would refuse a sync
+		// of a record made with --new-label.
+		AllowNewLabel: true,
+		LabelMeta: map[string]labelMeta{
+			EscapeKind:        {description: escapeLabelDescription(EscapeKind), colour: escapeLabelColour(EscapeKind)},
+			FalsePositiveKind: {description: escapeLabelDescription(FalsePositiveKind), colour: escapeLabelColour(FalsePositiveKind)},
+		},
+	})
 }
 
 func escapeLabelDescription(kind string) string {
