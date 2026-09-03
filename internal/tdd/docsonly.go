@@ -7,18 +7,24 @@ import (
 )
 
 // A commit that stages no code has nothing to build and nothing to run: every
-// stage past the law scan judges source, and there is none. It used to reach
-// those stages anyway and pay for them -- measured on the real tree, a
-// Markdown-only commit's ratchet stage took 132.7s and a workflow-only one
-// 418.9s, while the same scan by hand takes about 2s over 1921 files. The
-// difference was time spent queueing for the machine-wide build slot, which a
-// text scan never needed. Prose must not wait behind somebody else's compile.
+// stage past the law scan judges source, and there is none. It used to walk
+// the whole ladder anyway -- vet, lint, the compile-coverage check, the
+// fail-first worktree, the touched crates' suites -- all of which compile, and
+// all of which queue for the machine-wide build slot behind somebody else's
+// build. Prose must not wait behind a compile.
 //
 // So a change whose whole staged set is neither Source nor Test takes a fast
 // path: the guards that judge the TREE (a hand-raised ceiling, the declared
-// laws, the doc citations) still run -- they are milliseconds and they are
-// exactly the rules a docs-only commit can break -- and nothing else does. No
-// suite, no worktree, no build slot, at any point.
+// laws, the doc citations) still run -- they are exactly the rules a docs-only
+// commit can break, and a raised baseline arrives with no code attached -- and
+// nothing else does. What the path guarantees is narrow and worth stating
+// exactly: no suite, no worktree, and no build slot taken at any point.
+//
+// It does not make the law scan itself free. Measured in borld on 2026-09-03,
+// 26 laws over 1936 files: 6.8s cold, 0.78s warm. (The 132.7s and 418.9s
+// figures that first prompted this path came from a binary whose `cargo
+// metadata` call went through the build queue; that verb is read-only and
+// passes through unlocked now.)
 
 // docsOnly reports whether repoRoot's staged set carries no code at all. An
 // EMPTY staged set is not docs-only: there is nothing to say about it, and
