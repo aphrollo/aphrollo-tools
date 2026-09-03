@@ -138,6 +138,17 @@ func RunGoMutantsJob(jobPath string) int {
 	if !ok {
 		return 0
 	}
+	// Never in a linked worktree: a mutated gate test rewrites whatever
+	// repository it lands in, and a linked worktree's is the lane's own
+	// (issue #156). Everything downstream — the run, the dirty check, the
+	// accept-list — reads the tree the run actually happened in.
+	tree, err := goMutantsTree(j)
+	if err != nil {
+		logf(os.Stdout, "aphrollo: no isolated tree to mutate in: %v", err)
+		appendGateLog("mutants", logToken(j.Repo), "mutants-go", "mutants-refused:no-isolated-tree", 0)
+		return 0
+	}
+	j.Worktree = tree
 	out := filepath.Join(j.TargetDir, mutantsRunDir, "gremlins.json")
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 		logf(os.Stdout, "aphrollo: %v", err)
@@ -147,7 +158,7 @@ func RunGoMutantsJob(jobPath string) int {
 	logf(os.Stdout, "aphrollo: %d worker(s) — %s", jobs, why)
 
 	start := time.Now()
-	code := runGremlins(j, out, jobs)
+	code := goMutantsJobRunFn(j, out, jobs)
 	data, err := os.ReadFile(out)
 	if err != nil {
 		logf(os.Stdout, "aphrollo: gremlins wrote no report (exit %d): %v", code, err)
@@ -167,9 +178,13 @@ func RunGoMutantsJob(jobPath string) int {
 	return 0
 }
 
-// runGremlins runs the tool in the warm worktree, with the run's own temp dirs
-// and target dir. Its output is this process's, which the parent pointed at
-// the job's log files.
+// goMutantsJobRunFn is the local job's spawn, as a seam: a test proves where
+// the run happens without a mutation tool on the box.
+var goMutantsJobRunFn = runGremlins
+
+// runGremlins runs the tool in the job's run tree, with the run's own temp
+// dirs and target dir. Its output is this process's, which the parent pointed
+// at the job's log files.
 func runGremlins(j MutantsJob, outPath string, workers int) int {
 	cmd := exec.Command(gremlinsBin, gremlinsArgv(j.BaseSHA, outPath, workers, nil)...)
 	cmd.Dir = j.Worktree
