@@ -67,7 +67,7 @@ func statusSuffix(session, cwd string) (colour, suffix string) {
 	if lastOutcomeIsRed(session, root) {
 		return ansiRed, suffixRed
 	}
-	if deferredBuildRunning(root, time.Now()) {
+	if deferredBuildRunning(session, root, time.Now()) {
 		return ansiYellow, suffixDefer
 	}
 	if lastRunQueued(root) {
@@ -88,12 +88,13 @@ func lastOutcomeIsRed(session, root string) bool {
 	return ok && Outcome(ps.Outcome).IsRed()
 }
 
-// deferredBuildRunning reports whether a detached phase for root is still
-// going. The result file's EXISTENCE is the liveness signal (the same rule the
+// deferredBuildRunning reports whether THIS session's detached phase for root
+// is still going. Another session's build is not this badge's business: it is
+// not work this session can wait for or act on. The result file's EXISTENCE is the liveness signal (the same rule the
 // harvest uses — a pid can be reused and Windows cannot be signalled
 // portably), and a job past the deferral ceiling is abandoned, not running.
-func deferredBuildRunning(root string, now time.Time) bool {
-	j, ok := loadDeferredJob(root)
+func deferredBuildRunning(session, root string, now time.Time) bool {
+	j, ok := loadDeferredJob(session, root)
 	if !ok || deferredExpired(j, now) {
 		return false
 	}

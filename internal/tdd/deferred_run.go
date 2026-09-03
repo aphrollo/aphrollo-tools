@@ -24,13 +24,13 @@ func spawnPhase(j DeferredJob) (DeferredJob, bool) {
 		return j, false
 	}
 	saveDeferredJob(j)
-	saved, ok := loadDeferredJob(j.Project)
+	saved, ok := loadDeferredJob(j.Session, j.Project)
 	if !ok {
 		return j, false
 	}
 	_ = os.Remove(saved.Result)
 
-	cmd := exec.Command(self, CmdName, "runphase", "--job", deferredJobPath(saved.Project))
+	cmd := exec.Command(self, CmdName, "runphase", "--job", deferredJobPath(saved.Session, saved.Project))
 	cmd.Dir = saved.Dir
 	cmd.Env = append(os.Environ(), "CI=1", "NO_COLOR=1")
 	closeStdio := silentStdio(cmd)
@@ -54,7 +54,7 @@ func waitPhase(j DeferredJob, budget time.Duration) (PhaseOutcome, bool) {
 	deadline := time.Now().Add(budget)
 	for {
 		if out, done := deferredResult(j); done {
-			clearDeferredJob(j.Project)
+			clearDeferredJob(j.Session, j.Project)
 			return out, true
 		}
 		if !time.Now().Before(deadline) {
@@ -104,7 +104,7 @@ func RunPhase(jobPath string) int {
 	// spent queuing is not time spent building, and charging it made a phase
 	// killable the moment it finally started.
 	start = time.Now()
-	stampDeferredStart(j.Project, start)
+	stampDeferredStart(j.Session, j.Project, start)
 
 	// The child must know this process already holds the slot: with the
 	// cargo-queue shim on PATH, "cargo" resolves to the shim, which would
@@ -139,8 +139,8 @@ func RunPhase(jobPath string) int {
 const phaseSetupFailure = 125
 
 // stampDeferredStart moves the job's clock to when the build actually began.
-func stampDeferredStart(root string, at time.Time) {
-	j, ok := loadDeferredJob(root)
+func stampDeferredStart(session, root string, at time.Time) {
+	j, ok := loadDeferredJob(session, root)
 	if !ok {
 		return
 	}

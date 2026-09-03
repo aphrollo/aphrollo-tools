@@ -23,19 +23,19 @@ func TestDeferredJob_RoundTripsPerProject(t *testing.T) {
 	}
 	saveDeferredJob(job)
 
-	got, ok := loadDeferredJob(a)
+	got, ok := loadDeferredJob("s1", a)
 	if !ok {
 		t.Fatal("a saved job must be findable again by its project")
 	}
 	if got.PID != 4242 || got.HeadSHA != "abc123" || got.FileHash != "deadbeef" || got.Phase != "build" {
 		t.Fatalf("job round-tripped as %+v, want the recorded identity back", got)
 	}
-	if _, ok := loadDeferredJob(b); ok {
+	if _, ok := loadDeferredJob("s1", b); ok {
 		t.Fatal("another project must not see this job")
 	}
 
-	clearDeferredJob(a)
-	if _, ok := loadDeferredJob(a); ok {
+	clearDeferredJob("s1", a)
+	if _, ok := loadDeferredJob("s1", a); ok {
 		t.Fatal("a cleared job must be gone")
 	}
 }
@@ -49,7 +49,7 @@ func TestDeferredJob_FinishedWhenTheWrapperWroteItsResult(t *testing.T) {
 	root := t.TempDir()
 	job := DeferredJob{Project: root, Phase: "build", Started: time.Now()}
 	saveDeferredJob(job)
-	job, _ = loadDeferredJob(root)
+	job, _ = loadDeferredJob("", root)
 
 	if _, done := deferredResult(job); done {
 		t.Fatal("a job whose wrapper has not written a result is still running")
@@ -73,9 +73,9 @@ func TestDeferredJob_DirtyMarkSurvivesTheReload(t *testing.T) {
 	root := t.TempDir()
 	saveDeferredJob(DeferredJob{Project: root, Phase: "build", FileHash: "old"})
 
-	markDeferredDirty(root, "new-hash")
+	markDeferredDirty("", root, "new-hash")
 
-	got, ok := loadDeferredJob(root)
+	got, ok := loadDeferredJob("", root)
 	if !ok {
 		t.Fatal("marking dirty must never drop the job")
 	}
@@ -136,7 +136,7 @@ func TestDeferredLogAndResultPaths_LiveUnderTheStateDir(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", state)
 	root := t.TempDir()
 	saveDeferredJob(DeferredJob{Project: root, Phase: "build"})
-	job, _ := loadDeferredJob(root)
+	job, _ := loadDeferredJob("", root)
 
 	for name, path := range map[string]string{"log": job.Log, "result": job.Result} {
 		if path == "" {

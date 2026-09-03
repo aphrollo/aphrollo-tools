@@ -31,7 +31,7 @@ func TestPostEdit_SpawnFailureIsReportedNotDeferred(t *testing.T) {
 	if !strings.Contains(got, "red-bogus") {
 		t.Fatalf("advisory = %q, want the run reported as red-bogus", got)
 	}
-	if _, ok := loadDeferredJob(root); ok {
+	if _, ok := loadDeferredJob("sess-post", root); ok {
 		t.Fatal("a failed spawn must leave no job record to expire and stamp a streak")
 	}
 }
@@ -51,11 +51,11 @@ func TestPromptHarvest_RejectsAResultTheWorktreeHasMovedPast(t *testing.T) {
 	gitDo(t, root, "commit", "-q", "-m", "init")
 
 	j := DeferredJob{
-		Project: root, Phase: "run", Dir: root, Runner: []string{"go", "test", "./..."},
+		Project: root, Session: "s1", Phase: "run", Dir: root, Runner: []string{"go", "test", "./..."},
 		HeadSHA: headSHAFor(root), FileHash: worktreeStateHash(root), Started: time.Now(),
 	}
 	saveDeferredJob(j)
-	saved, _ := loadDeferredJob(root)
+	saved, _ := loadDeferredJob("s1", root)
 	writePhaseResult(saved.Result, PhaseOutcome{ExitCode: 0, Seconds: 1})
 
 	// A change nothing told the hook about.
@@ -155,7 +155,7 @@ func TestPostEditDeferred_RecordsTheWorktreeIdentity(t *testing.T) {
 
 	PostEdit(postPayload("Edit", filepath.Join(root, "src", "widget.rs")), fakeRun(true, "ok"))
 
-	j, ok := loadDeferredJob(root)
+	j, ok := loadDeferredJob("sess-post", root)
 	if !ok {
 		t.Fatal("no job recorded")
 	}

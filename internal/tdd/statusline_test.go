@@ -125,7 +125,7 @@ func TestStatusLine_ReportsARunningDeferredBuild(t *testing.T) {
 func TestStatusLine_DropsDeferredOnceTheResultLanded(t *testing.T) {
 	root := statusRoot(t)
 	saveDeferredJob(DeferredJob{Project: root, Phase: "build", Started: time.Now(), Session: "s1"})
-	j, ok := loadDeferredJob(root)
+	j, ok := loadDeferredJob("s1", root)
 	if !ok {
 		t.Fatal("setup: job not saved")
 	}
