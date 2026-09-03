@@ -87,6 +87,66 @@ func TestRatchetAdvisoryDeniesAnAddedHitAndNamesOnlyTheAddedLine(t *testing.T) {
 	}
 }
 
+// overCeilingTree is a repo whose one law COUNTS lines: the file is already
+// past the size its baseline records, so every edit to it is judged against a
+// ceiling the commit gate will reject it for.
+func overCeilingTree(t *testing.T) (root, rel string) {
+	t.Helper()
+	root = t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "module-size.toml"), `
+name = "module-size"
+description = "one mechanism per file"
+severity = "deny"
+baseline = ".ratchet/baselines/module-size.txt"
+
+[scope]
+include = ["crates/**/*.rs"]
+
+[matcher]
+kind = "line-count"
+max = 2
+`)
+	rel = "crates/a/src/lib.rs"
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "module-size.txt"), rel+" | 4\n")
+	mustWrite(t, filepath.Join(root, filepath.FromSlash(rel)), "one\ntwo\nthree\nfour\n")
+	return root, rel
+}
+
+// A line-count law emits ONE hit however far a file grows, carrying the size
+// in its weight. Comparing hit COUNT therefore read 1 before and 1 after and
+// allowed a file to grow past a ceiling the commit gate rejects it for --
+// which is the shape 36 of borld's modules are in right now.
+func TestRatchetAdvisoryDeniesGrowingAFileThatIsAlreadyOverItsCeiling(t *testing.T) {
+	root, rel := overCeilingTree(t)
+	raw := ratchetPayload(t, "Edit", filepath.Join(root, filepath.FromSlash(rel)), map[string]any{
+		"old_string": "four",
+		"new_string": "four\nfive\nsix",
+	})
+
+	d := RatchetAdvisory(raw)
+	if d.Action != Block {
+		t.Fatalf("growing a file already over its recorded ceiling must be denied, got %v %s", d.Action, d.Reason)
+	}
+	if !strings.Contains(d.Reason, "6 lines") {
+		t.Fatalf("the denial must name the size the edit would leave, got %q", d.Reason)
+	}
+}
+
+// The other direction, and the reason the judge exists: an edit that SHRINKS
+// an over-ceiling file is the fix, and refusing it leaves no move at all.
+func TestRatchetAdvisoryAllowsShrinkingAFileThatIsAlreadyOverItsCeiling(t *testing.T) {
+	root, rel := overCeilingTree(t)
+	raw := ratchetPayload(t, "Edit", filepath.Join(root, filepath.FromSlash(rel)), map[string]any{
+		"old_string": "three\nfour\n",
+		"new_string": "three\n",
+	})
+
+	if d := RatchetAdvisory(raw); d.Action != Allow {
+		t.Fatalf("an edit that shortens the file must not be refused: %v %s", d.Action, d.Reason)
+	}
+}
+
 func TestAddedHits_CountsWhatTheEditIntroduced(t *testing.T) {
 	hit := func(key string, line int) ratchet.Hit {
 		return ratchet.Hit{Law: "l", File: "f", Key: key, What: key, Line: line, Weight: 1}

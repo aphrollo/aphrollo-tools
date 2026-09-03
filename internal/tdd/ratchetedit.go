@@ -14,7 +14,11 @@ import (
 // it must never cause.
 //
 // So the pre-edit judge compares the file with ITSELF as it stands on disk:
-// deny when a law's hit count RISES, and name only the lines the edit added.
+// deny when a law's measured WEIGHT rises, and name only the lines the edit
+// added. Weight, not hit count: a line-count law emits one hit however far a
+// file grows and carries the size in its weight, so counting hits read 1
+// before and 1 after and let a module grow past a ceiling the commit gate
+// rejects it for.
 // It stays a SUBSET of the commit gate -- a rise the baseline still covers is
 // no finding here either, so nothing is denied at edit time that the commit
 // would allow.
@@ -44,7 +48,7 @@ func editRegressions(root, rel, before, after string, res ratchet.Result) []ratc
 		}
 		b := law.HitsIn(rel, before)
 		a := law.HitsIn(rel, after)
-		byLaw[law.Name] = counted{before: len(b), after: len(a), added: addedHits(b, a)}
+		byLaw[law.Name] = counted{before: totalWeight(b), after: totalWeight(a), added: addedHits(b, a)}
 	}
 
 	var out []ratchet.Finding
@@ -71,21 +75,45 @@ func editRegressions(root, rel, before, after string, res ratchet.Result) []ratc
 	return out
 }
 
-// addedHits is the multiset difference after - before, by Key: a key present
-// in both is consumed once per prior occurrence, so removing one of two
-// identical offences adds nothing and appending a third names the third line.
+// addedHits is the difference after - before, by Key and by WEIGHT: a key
+// present in both is covered up to the weight it already carried, so removing
+// one of two identical offences adds nothing, appending a third names the
+// third line, and a file that grew past the size it already had is named at
+// its new size.
 func addedHits(before, after []ratchet.Hit) []ratchet.Hit {
 	budget := map[string]int{}
 	for _, h := range before {
-		budget[h.Key]++
+		budget[h.Key] += hitWeight(h)
 	}
 	var out []ratchet.Hit
 	for _, h := range after {
-		if budget[h.Key] > 0 {
-			budget[h.Key]--
+		w := hitWeight(h)
+		if budget[h.Key] >= w {
+			budget[h.Key] -= w
 			continue
 		}
+		budget[h.Key] = 0
 		out = append(out, h)
 	}
 	return out
+}
+
+// totalWeight is what a law measures for a file: the sum the commit gate
+// compares to the baseline, which for most matchers is the number of hits and
+// for a counted one is the size it recorded.
+func totalWeight(hits []ratchet.Hit) int {
+	total := 0
+	for _, h := range hits {
+		total += hitWeight(h)
+	}
+	return total
+}
+
+// hitWeight reads a hit's weight, treating an unset one as 1: every matcher
+// here sets it, and a zero would make a hit free.
+func hitWeight(h ratchet.Hit) int {
+	if h.Weight < 1 {
+		return 1
+	}
+	return h.Weight
 }
