@@ -34,19 +34,28 @@ import (
 // it and the project it builds: two sessions in one repo each harvest their
 // own, and neither is told about work it did not start.
 type DeferredJob struct {
-	Schema   int       `json:"schema"`
-	Project  string    `json:"project"`
-	Phase    string    `json:"phase"` // "build" or "run"
-	Runner   []string  `json:"runner"`
-	Dir      string    `json:"dir"`
-	PID      int       `json:"pid"`
-	Started  time.Time `json:"started"`
-	HeadSHA  string    `json:"head_sha"`
-	FileHash string    `json:"file_hash"`
-	Dirty    bool      `json:"dirty"`
-	Session  string    `json:"session"`
-	Log      string    `json:"log"`
-	Result   string    `json:"result"`
+	Schema  int       `json:"schema"`
+	Project string    `json:"project"`
+	Phase   string    `json:"phase"` // "build" or "run"
+	Runner  []string  `json:"runner"`
+	Dir     string    `json:"dir"`
+	PID     int       `json:"pid"`
+	Started time.Time `json:"started"`
+	// PIDCreatedAt is the OS's own creation timestamp for PID, sampled once
+	// right after spawn (never touched again, unlike Started, which moves to
+	// when the build actually began). It is what lets a kill site tell "this
+	// is still the process I spawned" from "the OS handed this integer to
+	// something else after mine exited" — see pidStillOurs. Zero means
+	// unknown (the query failed, or the record predates this field), which
+	// pidStillOurs treats as permission to kill, matching the best-effort
+	// posture the rest of this file takes.
+	PIDCreatedAt time.Time `json:"pid_created_at"`
+	HeadSHA      string    `json:"head_sha"`
+	FileHash     string    `json:"file_hash"`
+	Dirty        bool      `json:"dirty"`
+	Session      string    `json:"session"`
+	Log          string    `json:"log"`
+	Result       string    `json:"result"`
 }
 
 // PhaseOutcome is what the runphase wrapper records when its cargo exits.

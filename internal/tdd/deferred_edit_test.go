@@ -193,6 +193,49 @@ func TestPostEdit_AbandonsAJobPastTheMaximum(t *testing.T) {
 	}
 }
 
+// TestPostEdit_AbandonsAJobPastTheMaximumWithoutKillingARecycledPID extends
+// the same recycle protection to the 600s ceiling, not just the 24h sweep:
+// the gap between Started and the abandon check is smaller here, but the OS
+// can still have handed the recorded PID to something else in that time.
+func TestPostEdit_AbandonsAJobPastTheMaximumWithoutKillingARecycledPID(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(deferredMaxEnv, "1")
+	t.Setenv("APHROLLO_POSTEDIT_BUDGET_SECS", "0")
+	root := mkProject(t, "Cargo.toml")
+	spawned := fakePhases(t)
+
+	prevStart := processStartTimeFn
+	// The OS reports pid 778 as belonging to a process that started
+	// seconds ago -- not the one this record names, which is an hour old.
+	processStartTimeFn = func(pid int) (time.Time, bool) {
+		if pid == 778 {
+			return time.Now(), true
+		}
+		return time.Time{}, false
+	}
+	t.Cleanup(func() { processStartTimeFn = prevStart })
+
+	var killed []int
+	prevKill := killDeferredFn
+	killDeferredFn = func(j DeferredJob) { killed = append(killed, j.PID) }
+	t.Cleanup(func() { killDeferredFn = prevKill })
+
+	recordedCreatedAt := time.Now().Add(-time.Hour)
+	saveDeferredJob(DeferredJob{
+		Project: root, Session: "sess-post", Phase: "build", Dir: root, PID: 778,
+		Started: recordedCreatedAt, PIDCreatedAt: recordedCreatedAt, HeadSHA: headSHAFor(root),
+	})
+
+	PostEdit(postPayload("Edit", root+"/src/widget.rs"), fakeRun(true, "ok"))
+
+	if len(killed) != 0 {
+		t.Fatalf("killed = %v, want no kill: pid 778 was recycled by the OS", killed)
+	}
+	if len(*spawned) == 0 {
+		t.Fatal("the stale job must still be abandoned and a fresh phase started even when the kill is withheld")
+	}
+}
+
 // TestHandlePrompt_ReportsAFinishedDeferredJob pins the second harvest
 // point: a session that stops editing and just talks still gets told what
 // the build it left running concluded.

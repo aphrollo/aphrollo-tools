@@ -81,7 +81,10 @@ func sweepDeferredJobs(now time.Time) int {
 
 // killLivePID ends whatever process a day-old deferred-job record still
 // names, before the sweep deletes the record. A job record decodes to PID 0
-// when nothing was ever recorded as spawned; that is left alone.
+// when nothing was ever recorded as spawned; that is left alone. A day is
+// long enough for the OS to have handed the same PID to something this
+// record never named — pidStillOurs is what tells the two apart before the
+// kill goes out; the record is dropped either way.
 func killLivePID(path string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -89,6 +92,9 @@ func killLivePID(path string) {
 	}
 	j, ok := decodeJob(data)
 	if !ok || j.PID <= 0 {
+		return
+	}
+	if !pidStillOurs(j) {
 		return
 	}
 	killDeferredFn(j)

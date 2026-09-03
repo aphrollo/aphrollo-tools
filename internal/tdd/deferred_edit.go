@@ -29,11 +29,13 @@ func EnableDeferredPhases(on bool) { deferPhases.Store(on) }
 // can prove the hook wires it.
 func DeferredPhasesEnabled() bool { return deferPhases.Load() }
 
-// spawnPhaseFn / killDeferredFn are the process seams: production starts a
-// detached `aphrollo tdd runphase` and kills by pid; a test substitutes both.
+// spawnPhaseFn / killDeferredFn / processStartTimeFn are the process seams:
+// production starts a detached `aphrollo tdd runphase`, kills by pid, and
+// queries the OS for a live pid's creation time; a test substitutes all three.
 var (
-	spawnPhaseFn   = spawnPhase
-	killDeferredFn = killDeferred
+	spawnPhaseFn       = spawnPhase
+	killDeferredFn     = killDeferred
+	processStartTimeFn = processStartTime
 )
 
 // deferredEditOutcome is what the deferral path reports back to PostEdit:
@@ -137,8 +139,12 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 		if deferredExpired(j, time.Now()) {
 			// The one kill: a phase that outlived any plausible build. A run
 			// phase that got this far is the ONLY thing that counts as a
-			// timeout — the suite really did fail to finish.
-			killDeferredFn(j)
+			// timeout — the suite really did fail to finish. Still gated on
+			// pidStillOurs: the ceiling here is minutes, not 24h, but the same
+			// recycle is possible in miniature.
+			if pidStillOurs(j) {
+				killDeferredFn(j)
+			}
 			clearDeferredJob(session, root)
 			if j.Phase == "run" && state != nil {
 				state.stampTimeout(root, headSHA)
@@ -319,6 +325,34 @@ func killDeferred(j DeferredJob) {
 // killTreeFn is the process-tree kill seam, so a test can prove the whole
 // tree is targeted without spawning one.
 var killTreeFn = killTree
+
+// pidIdentityTolerance is how far a live pid's OS-reported creation time may
+// drift from the one this job recorded and still count as the same process.
+// It exists only to absorb measurement noise (ps's lstart is second-
+// resolution, and the spawn-time sample is taken a few instructions after
+// the OS actually created the process) — nowhere near enough to paper over
+// an actual recycle, which sits hours or days away.
+const pidIdentityTolerance = 5 * time.Second
+
+// pidStillOurs reports whether the live process at j.PID is still the one
+// this job recorded, not whatever the OS handed the same integer to after
+// ours exited. A kill site with no evidence either way (PIDCreatedAt never
+// recorded, or the live query fails) still gets to kill: that keeps the
+// crash backstop working on an old-format record or a platform where the
+// query is unavailable, matching the rest of this file's best-effort
+// posture. Only a POSITIVE mismatch — both times known, and they disagree —
+// withholds the kill.
+func pidStillOurs(j DeferredJob) bool {
+	if j.PIDCreatedAt.IsZero() {
+		return true
+	}
+	live, ok := processStartTimeFn(j.PID)
+	if !ok {
+		return true
+	}
+	drift := live.Sub(j.PIDCreatedAt)
+	return drift.Abs() <= pidIdentityTolerance
+}
 
 // reapSessionDeferredJobs ends every deferred phase the given session
 // started, across every project it touched, and drops their records.

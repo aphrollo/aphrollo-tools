@@ -104,6 +104,52 @@ func TestSweepDeferredJobs_KillsALivePIDBeforeDroppingADayOldRecord(t *testing.T
 	}
 }
 
+// TestSweepDoesNotKillAPIDTheOSHasRecycled pins the cold-review fix: a
+// day-old record's PID is not enough on its own. Between the record's own
+// timestamp and the 24h sweep, the OS can hand that same integer to an
+// unrelated process — this test simulates exactly that by recording one
+// creation time and having the live query answer with a different one — and
+// the sweep must withhold the kill while still dropping the stale record.
+func TestSweepDoesNotKillAPIDTheOSHasRecycled(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := filepath.Join(t.TempDir(), "recycled-lane")
+	recordedCreatedAt := time.Now().Add(-30 * time.Hour)
+	saveDeferredJob(DeferredJob{
+		Project: root, Session: "sess-recycled", Phase: "run", PID: 9010,
+		Started: recordedCreatedAt, PIDCreatedAt: recordedCreatedAt,
+	})
+	path := deferredJobPath("sess-recycled", root)
+	old := time.Now().Add(-30 * time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	prevStart := processStartTimeFn
+	// The OS reports pid 9010 as belonging to a process that started two
+	// hours ago -- not the one this record names, which is a day old.
+	processStartTimeFn = func(pid int) (time.Time, bool) {
+		if pid == 9010 {
+			return time.Now().Add(-2 * time.Hour), true
+		}
+		return time.Time{}, false
+	}
+	t.Cleanup(func() { processStartTimeFn = prevStart })
+
+	var killed []int
+	prevKill := killDeferredFn
+	killDeferredFn = func(j DeferredJob) { killed = append(killed, j.PID) }
+	t.Cleanup(func() { killDeferredFn = prevKill })
+
+	sweepDeferredJobs(time.Now())
+
+	if len(killed) != 0 {
+		t.Fatalf("killed = %v, want no kill: pid 9010 was recycled by the OS", killed)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("the day-old record must still be dropped even when the kill is withheld (stat err = %v)", err)
+	}
+}
+
 // The manual sweep reports them too, so an operator sees where the files went
 // rather than finding a directory that quietly empties itself.
 func TestScanGC_ProposesADayOldDeferredRecord(t *testing.T) {
