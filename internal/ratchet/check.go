@@ -30,6 +30,28 @@ func vanished(err error) bool {
 	return errors.Is(err, fs.ErrNotExist)
 }
 
+// ScanReadError reports that the tree scan could not read a file or
+// directory a law's scope needed, for a reason other than the path
+// vanishing mid-walk (see vanished). It is a DIFFERENT offence from every
+// other error Check can return (a malformed law TOML, an unknown matcher
+// kind): the law tooling itself is fine, but the read it needed to judge
+// THIS path failed — so it is the path, not the whole rule set, that needs
+// a retry or a fix. A caller distinguishes the two with errors.As; matching
+// on the error string is not the contract.
+type ScanReadError struct {
+	// Path is the path the read failed against, in whatever form the
+	// failing call site had it (repo-relative for the tree walk, or the
+	// absolute path passed to readFile) — always the value worth printing.
+	Path string
+	Err  error
+}
+
+func (e *ScanReadError) Error() string {
+	return fmt.Sprintf("reading %s: %s — a clean verdict would be over a scan the engine could not perform", e.Path, e.Err)
+}
+
+func (e *ScanReadError) Unwrap() error { return e.Err }
+
 // Options configures one `ratchet check` run.
 type Options struct {
 	// Root is the consuming repo.
@@ -488,7 +510,7 @@ func scanTree(opts Options, laws []Law) (*treeScan, error) {
 				if vanished(err) {
 					continue // a file that vanished mid-walk is not a finding
 				}
-				return nil, fmt.Errorf("reading %s: %w — a clean verdict would be over a scan the engine could not perform", rel, err)
+				return nil, &ScanReadError{Path: rel, Err: err}
 			}
 			content = string(data)
 			scan.read++
@@ -601,7 +623,7 @@ func collectFiles(opts Options, laws []Law) ([]string, map[string]bool, error) {
 			if vanished(err) {
 				return nil // a dir that vanished mid-walk is not a finding
 			}
-			return fmt.Errorf("reading %s: %w — a clean verdict would be over a scan the engine could not perform", dir, err)
+			return &ScanReadError{Path: dir, Err: err}
 		}
 		for _, e := range entries {
 			child := path(rel, e.Name())

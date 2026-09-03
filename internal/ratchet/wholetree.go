@@ -407,7 +407,7 @@ func jsonCeilingHits(root string, law Law, requireData bool, targetDir string) (
 			if vanished(err) {
 				continue // a file that vanished mid-walk is not a finding
 			}
-			return nil, fmt.Errorf("law %q: reading %s: %w — a clean verdict would be over a scan the engine could not perform", law.Name, rel, err)
+			return nil, fmt.Errorf("law %q: %w", law.Name, &ScanReadError{Path: rel, Err: err})
 		}
 		value, err := jsonNumberAt(data, law.Matcher.JSONPath)
 		if err != nil {
@@ -450,7 +450,7 @@ func globFiles(base, glob string) ([]string, error) {
 			if vanished(err) {
 				return nil // a dir that vanished mid-walk is not a finding
 			}
-			return fmt.Errorf("reading %s: %w — a clean verdict would be over a scan the engine could not perform", dir, err)
+			return &ScanReadError{Path: dir, Err: err}
 		}
 		for _, e := range entries {
 			child := path(rel, e.Name())
