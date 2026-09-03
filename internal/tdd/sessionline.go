@@ -186,7 +186,7 @@ func renderIssueSummary(total int, byLabel map[string]int, declared []string, es
 	if len(parts) > 0 {
 		fmt.Fprintf(&b, " (%s)", strings.Join(parts, " "))
 	}
-	fmt.Fprintf(&b, ", %d open escape%s — aphrollo gate issue / gate escape record", escapes, plural(escapes))
+	fmt.Fprintf(&b, ", %d open escape%s - aphrollo gate issue / gate escape record", escapes, plural(escapes))
 	return b.String()
 }
 

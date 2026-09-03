@@ -259,10 +259,11 @@ type sessionStartInput struct {
 // dir, so the nudge cannot outlive its target. It also states the loud-gates
 // contract directly: the hooks run the tests, not the model, so re-running a
 // suite by hand after every edit "to check" is redundant work — read the
-// `tdd:` line the PostToolUse hook already printed instead.
+// `gate:` line the PostToolUse hook already printed instead (the hooks print
+// `gate:`, never `tdd:` — issue #121).
 const skillNudge = "gate: before writing or changing any code this session, invoke the " +
 	"`tdd` skill (read its SKILL.md). The hooks run the tests, not you: " +
-	"after every Edit/Write, read the `tdd:` line the PostToolUse hook prints (green with count / " +
+	"after every Edit/Write, read the `gate:` line the PostToolUse hook prints (green with count / " +
 	"red-missing-impl / red / TIMEOUT / SKIPPED / QUEUED-SKIPPED) instead of running a suite by hand to " +
 	"check — the only manual runs are mutation proofs, soaks, or a targeted rerun after the hook said " +
 	"TIMEOUT or SKIPPED. Commit ONE mixed test+impl commit per task; the pre-commit gate re-proves RED " +

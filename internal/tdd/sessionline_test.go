@@ -30,6 +30,26 @@ func TestIssueSummaryLineCountsOpenIssuesByLabel(t *testing.T) {
 	}
 }
 
+// A non-ASCII dash in a hook payload has shown up mangled on a Windows
+// terminal before; the line stays plain ASCII so it renders everywhere.
+func TestIssueSummaryLineIsASCIIOnly(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGitHubRepo(t)
+	stubGhScript(t, map[string]string{
+		"issue list": `[{"labels":[{"name":"physics"}]}]`,
+	})
+	if _, err := RecordEscape(EscapeOptions{Reason: "one that got through"}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	line := issueSummaryLine(repo, time.Now())
+	for _, r := range line {
+		if r > 127 {
+			t.Errorf("session line has non-ASCII rune %q: %q", r, line)
+		}
+	}
+}
+
 // A network call per prompt is a session that pauses to talk to GitHub for a
 // number nobody asked for. The answer is cached, and the cache is what keeps
 // the line free.
