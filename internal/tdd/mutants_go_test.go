@@ -39,6 +39,26 @@ func TestParseGremlinsReport_CountsFromTheMutantListNotTheTotals(t *testing.T) {
 	}
 }
 
+// gremlins writes EVERY mutant it analysed into the report, including the ones
+// its own --diff scope skipped: 4404 SKIPPED against 21 measured, on this
+// repo's own lane diff (2026-09-03). A skipped mutant was not measured and is
+// not in scope; read as "unviable" it made the receipt a merge reads claim
+// 4425 mutants for a run that judged 21.
+func TestParseGremlinsReport_LeavesOutTheMutantsTheDiffScopeSkipped(t *testing.T) {
+	got, err := parseGremlinsReport([]byte(`{"files":[{"file_name":"calc.go","mutations":[
+		{"type":"CONDITIONALS_BOUNDARY","status":"SKIPPED","line":4,"column":5},
+		{"type":"ARITHMETIC_BASE","status":"KILLED","line":9,"column":2}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("read %d mutants, want only the one the run measured: %+v", len(got), got)
+	}
+	if got[0].Status != "caught" {
+		t.Fatalf("status = %q, want the measured mutant's own", got[0].Status)
+	}
+}
+
 // The four statuses that decide a merge, mapped once: what was caught, what
 // survived, what timed out (an unmeasured mutant, not a result), and what
 // could not compile.
@@ -96,6 +116,18 @@ func TestGremlinsArgv_ScopesToTheLaneDiffAndCapsItself(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("gremlinsArgv = %q, want it to carry %q", got, want)
 		}
+	}
+}
+
+// gremlins takes a PATH, not a Go package pattern. Handed "./..." it walks
+// nothing, prints "No results to report" and exits 0 — a mutation gate that
+// always passes, which is the one failure mode this design cannot have.
+// Measured over this repo's own lane diff on 2026-09-03: "./..." found 0
+// mutants where "." found 20 runnable.
+func TestGremlinsArgv_PassesTheModuleRootNotAPackagePattern(t *testing.T) {
+	got := gremlinsArgv("abc123", "out.json", 1)
+	if last := got[len(got)-1]; last != "." {
+		t.Fatalf("gremlins path = %q, want the module root \".\" — a package pattern makes it walk nothing and pass", last)
 	}
 }
 

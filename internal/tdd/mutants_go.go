@@ -40,7 +40,9 @@ func gremlinsArgv(baseSHA, outPath string, workers int) []string {
 		"--diff", baseSHA,
 		"--output", outPath,
 		"--workers", strconv.Itoa(workers),
-		"./...",
+		// A PATH, not a package pattern: gremlins walks the tree from here.
+		// "./..." makes it walk nothing, report no results and exit 0.
+		".",
 	}
 }
 
@@ -69,6 +71,9 @@ func parseGremlinsReport(data []byte) ([]MutantOutcome, error) {
 	var out []MutantOutcome
 	for _, f := range report.Files {
 		for _, m := range f.Mutations {
+			if gremlinsStatus(m.Status) == gremlinsSkipped {
+				continue
+			}
 			file := filepath.ToSlash(f.FileName)
 			out = append(out, MutantOutcome{
 				File:     file,
@@ -96,10 +101,18 @@ func gremlinsStatus(raw string) string {
 		return "missed"
 	case "TIMED OUT":
 		return "timeout"
+	case "SKIPPED":
+		return gremlinsSkipped
 	default:
 		return "unviable"
 	}
 }
+
+// gremlinsSkipped is the report's word for a mutant the run's own --diff scope
+// left out. It is not an outcome: the report lists every mutant the ANALYSIS
+// found, and on a lane diff that is thousands of them against a handful the
+// run actually measured.
+const gremlinsSkipped = "skipped"
 
 // RunGoMutantsJob is the Go half of the detached job: run gremlins over the
 // lane's diff in the warm worktree, then write and sign the same receipt a

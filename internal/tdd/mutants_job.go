@@ -164,10 +164,9 @@ func mutationRunsLocally(root string) bool {
 	if v, set := tomlBoolSetIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", "mutants-local"); set {
 		return v
 	}
+	// cargoWorkspaceRoot answers `root` when it finds no workspace table, so a
+	// single-crate repo's own Cargo.toml is what gets read here.
 	ws := cargoWorkspaceRoot(root)
-	if ws == "" {
-		ws = root
-	}
 	if v, set := tomlBoolSetIn(filepath.Join(ws, "Cargo.toml"), "[workspace.metadata.aphrollo]", "mutants-local"); set {
 		return v
 	}

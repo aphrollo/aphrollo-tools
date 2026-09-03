@@ -17,15 +17,21 @@ const ciReport = `{"files":[
     {"type":"CONDITIONALS_BOUNDARY","status":"LIVED","line":4,"column":5},
     {"type":"ARITHMETIC_BASE","status":"KILLED","line":9,"column":2}]}]}`
 
+// gremlinsCall is one invocation of the tool, as the runner asked for it.
+type gremlinsCall struct {
+	root, baseSHA string
+	workers       int
+}
+
 // fakeGremlins replaces the tool with one that writes the given report (empty
-// meaning it wrote nothing) and exits with the given code, recording the base
-// it was scoped to.
-func fakeGremlins(t *testing.T, report string, code int) *[]string {
+// meaning it wrote nothing) and exits with the given code, recording how it
+// was called.
+func fakeGremlins(t *testing.T, report string, code int) *[]gremlinsCall {
 	t.Helper()
-	seen := &[]string{}
+	seen := &[]gremlinsCall{}
 	prev := goMutantsRunFn
-	goMutantsRunFn = func(_, baseSHA, outPath string, _ int) int {
-		*seen = append(*seen, baseSHA)
+	goMutantsRunFn = func(root, baseSHA, outPath string, workers int) int {
+		*seen = append(*seen, gremlinsCall{root: root, baseSHA: baseSHA, workers: workers})
 		if report != "" {
 			mustWrite(t, outPath, report)
 		}
@@ -147,6 +153,72 @@ func TestRunGoMutantsCI_RefusesToRunWithoutAMergeBase(t *testing.T) {
 	}
 }
 
+// gremlins re-runs the package's suite once per mutant, so an uncapped run
+// owns the runner for as long as it takes. The cap is the caller's when it
+// named one, and the box's own answer otherwise — never zero.
+func TestRunGoMutantsCI_CapsTheRunAtTheWorkersItWasGiven(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := ciRepo(t)
+	ran := fakeGremlins(t, ciReport, 0)
+
+	RunGoMutantsCI(GoMutantsCI{Root: root, BaseSHA: "abc123", Workers: 3}, &bytes.Buffer{})
+	// 1 is the boundary the caller is most likely to name — a serial run on a
+	// shared runner — and it is a number, not "ask the box".
+	RunGoMutantsCI(GoMutantsCI{Root: root, BaseSHA: "abc123", Workers: 1}, &bytes.Buffer{})
+	RunGoMutantsCI(GoMutantsCI{Root: root, BaseSHA: "abc123"}, &bytes.Buffer{})
+
+	if len(*ran) != 3 {
+		t.Fatalf("the tool ran %d time(s), want 3", len(*ran))
+	}
+	if got := (*ran)[0].workers; got != 3 {
+		t.Errorf("workers = %d, want the 3 the caller asked for", got)
+	}
+	if got := (*ran)[1].workers; got != 1 {
+		t.Errorf("workers = %d, want the 1 the caller asked for", got)
+	}
+	if got := (*ran)[2].workers; got < 1 {
+		t.Errorf("workers = %d with none named, want the box's answer and never below 1", got)
+	}
+}
+
+// runCommandIn hands back the tool's own exit code. A spawn that failed read
+// as 0 is a mutation gate that passes because the tool is missing.
+func TestRunCommandIn_ReportsTheChildsExitCode(t *testing.T) {
+	dir := t.TempDir()
+	if got := runCommandIn(dir, gitBinary(), []string{"--version"}); got != 0 {
+		t.Errorf("a command that succeeded reported %d, want 0", got)
+	}
+	if got := runCommandIn(dir, gitBinary(), []string{"cat-file", "-e", "nope"}); got == 0 {
+		t.Error("a command that failed reported 0")
+	}
+	if got := runCommandIn(dir, "aphrollo-no-such-binary", nil); got == 0 {
+		t.Error("a binary that is not installed reported 0")
+	}
+}
+
+// CI hands the runner a directory, not a promise. From a SUBDIRECTORY the
+// measurement still has to be the repo's: gremlins gathers coverage for the
+// module it is started in, and started one level down it measures a fraction
+// of what the pull request changed.
+func TestRunGoMutantsCI_MeasuresFromTheRepoRootNotTheDirectoryItWasHanded(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := ciRepo(t)
+	sub := filepath.Join(root, "internal", "deep")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ran := fakeGremlins(t, ciReport, 0)
+
+	RunGoMutantsCI(GoMutantsCI{Root: sub, BaseSHA: "abc123"}, &bytes.Buffer{})
+
+	if len(*ran) != 1 {
+		t.Fatalf("the tool ran %d time(s), want 1", len(*ran))
+	}
+	if got := (*ran)[0].root; got != root {
+		t.Fatalf("gremlins ran in %q, want the repo root %q", got, root)
+	}
+}
+
 // A mutation gate nobody runs is the failure mode this whole design is
 // against, so the wiring is pinned rather than assumed: the pipeline carries
 // the job, it invokes the runner in this package, and it keeps the receipt.
@@ -207,7 +279,7 @@ func TestRunGoMutantsCI_ScopesTheRunToTheGivenMergeBase(t *testing.T) {
 
 	RunGoMutantsCI(GoMutantsCI{Root: root, BaseSHA: "deadbeef"}, &bytes.Buffer{})
 
-	if len(*ran) != 1 || (*ran)[0] != "deadbeef" {
-		t.Fatalf("gremlins was scoped to %v, want the given merge base", *ran)
+	if len(*ran) != 1 || (*ran)[0].baseSHA != "deadbeef" {
+		t.Fatalf("gremlins was scoped to %+v, want the given merge base", *ran)
 	}
 }

@@ -159,6 +159,31 @@ func TestStartMutantsJob_SkipsTheLocalRunWhenTheRepoRunsMutationInCI(t *testing.
 	}
 }
 
+// A Cargo workspace declares the same opt-out in its own table: a Rust repo
+// with a runner that can carry the proof moves it off the box the same way.
+func TestStartMutantsJob_TheCargoWorkspaceDeclaresTheSameOptOut(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var started []MutantsJob
+	fakeSpawn(t, &started)
+	withFreeSpace(t, 200)
+	root := makeCargoRepo(t)
+	write(t, root, "Cargo.toml", "[package]\nname = \"m\"\nversion = \"0.1.0\"\n[workspace]\n"+
+		"[workspace.metadata.aphrollo]\nmutation-receipt = true\nmutants-local = false\n")
+	gitDo(t, root, "add", "-A")
+	gitDo(t, root, "commit", "-qm", "opt in")
+	gitDo(t, root, "checkout", "-q", "-b", "lane/x")
+	write(t, root, "src/extra.rs", "pub fn two() -> i32 { 2 }\n")
+	gitDo(t, root, "add", "-A")
+	gitDo(t, root, "commit", "-qm", "lane work")
+
+	if _, ok := StartMutantsJob(root); ok {
+		t.Fatal("a Cargo workspace that runs mutation in CI must not start a local run")
+	}
+	if len(started) != 0 {
+		t.Fatalf("spawned %d local run(s) anyway", len(started))
+	}
+}
+
 // One warm worktree per repo, beside the lane worktrees and never inside the
 // checkout: the run needs a tree at the tip with its own persistent target
 // dir, and a fresh copy per run is the cold build this whole design removes.
