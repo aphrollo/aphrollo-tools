@@ -1359,6 +1359,11 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
+	// Housekeeping, best-effort: the merge already landed by the time this
+	// runs, so a sweep failure must not fail the merge (issue #144). Every
+	// other lane's worktree is a candidate; this one, still running the
+	// merge, is excluded regardless of its own branch's state.
+	tdd.PruneMergedLanesAfterMerge(t.MainRepo, t.Worktree, stdout, stderr)
 	return 0
 }
 
