@@ -48,11 +48,17 @@ type mutantStore struct {
 // and keyed by the repo rather than by the worktree: every lane of a repo
 // shares one.
 func MutantStorePath(repo string) string {
-	dir := mutantsStateDir()
-	if dir == "" || repo == "" {
+	return mutantStorePathUnder(mutantsStateDir(), repo)
+}
+
+// mutantStorePathUnder resolves the outcome cache file for repo under an
+// explicit state root instead of the machine's own gate-state — the seam
+// MutantStorePath and the CI `--store <dir>` override both go through.
+func mutantStorePathUnder(base, repo string) string {
+	if base == "" || repo == "" {
 		return ""
 	}
-	dir = filepath.Join(dir, projectKey(repo))
+	dir := filepath.Join(base, projectKey(repo))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return ""
 	}
@@ -63,15 +69,25 @@ func MutantStorePath(repo string) string {
 // unreadable, absent or newer-schema store is an empty cache: every mutant is
 // then measured, which is slow and correct.
 func LoadMutantStore(repo string) map[mutantKey]MutantOutcome {
+	return loadMutantStoreAt(MutantStorePath(repo))
+}
+
+// loadMutantStoreAt is LoadMutantStore over an already-resolved path — what
+// the CI `--store <dir>` override reads from, without going through the
+// machine-local mutantsStateDir().
+func loadMutantStoreAt(path string) map[mutantKey]MutantOutcome {
 	out := map[mutantKey]MutantOutcome{}
-	for _, e := range readMutantStore(repo).Entries {
+	for _, e := range readMutantStoreFile(path).Entries {
 		out[e.key()] = e.MutantOutcome
 	}
 	return out
 }
 
 func readMutantStore(repo string) mutantStore {
-	path := MutantStorePath(repo)
+	return readMutantStoreFile(MutantStorePath(repo))
+}
+
+func readMutantStoreFile(path string) mutantStore {
 	if path == "" {
 		return mutantStore{}
 	}
@@ -92,12 +108,17 @@ func readMutantStore(repo string) mutantStore {
 // atomically — a half-written store would read as an empty one and cost every
 // lane a full run.
 func MergeMutantStore(repo string, outcomes []MutantOutcome) {
-	path := MutantStorePath(repo)
+	mergeMutantStoreAt(MutantStorePath(repo), outcomes)
+}
+
+// mergeMutantStoreAt is MergeMutantStore over an already-resolved path — the
+// CI `--store <dir>` override's write side.
+func mergeMutantStoreAt(path string, outcomes []MutantOutcome) {
 	if path == "" || len(outcomes) == 0 {
 		return
 	}
 	merged := map[mutantKey]storedOutcome{}
-	for _, e := range readMutantStore(repo).Entries {
+	for _, e := range readMutantStoreFile(path).Entries {
 		merged[e.key()] = e
 	}
 	now := time.Now().UTC()

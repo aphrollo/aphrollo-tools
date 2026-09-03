@@ -228,6 +228,21 @@ jobs:
       - name: Build the CLI from this PR
         if: needs.changes.outputs.code == 'true'
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
+      # The outcome store carries measurements across PUSHES on the same PR
+      # (issue #143): keyed on the head branch, with the run id making every
+      # save a NEW cache entry (a key already in the cache namespace cannot
+      # be overwritten) and restore-keys picking up the most recent one for
+      # this branch. Without this a one-file fix-round push re-measured the
+      # WHOLE diff every time: six pushes on PR 138 cost six full ~10-minute
+      # runs on this serial runner.
+      - name: Cache the mutation outcome store
+        if: needs.changes.outputs.code == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .mutants-store
+          key: mutants-store-${{ github.head_ref }}-${{ github.run_id }}
+          restore-keys: |
+            mutants-store-${{ github.head_ref }}-
       - name: aphrollo gate mutants go --diff
         if: needs.changes.outputs.code == 'true'
         env:
@@ -236,7 +251,7 @@ jobs:
           set -euo pipefail
           base=$(git merge-base "$BASE_SHA" HEAD)
           echo "scoping the run to $base..HEAD"
-          ./bin/aphrollo gate mutants go --diff "$base" --receipt mutation-receipt.json
+          ./bin/aphrollo gate mutants go --diff "$base" --receipt mutation-receipt.json --store .mutants-store
       - name: Upload the receipt
         # always(): the receipt of a run that FAILED is the one somebody needs
         # to read, and it is written before the check decides.
