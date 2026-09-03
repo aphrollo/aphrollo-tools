@@ -175,6 +175,84 @@ jobs:
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
           golangci-lint run --allow-serial-runners ./...
 
+  # The performance ratchet for the three Tier-1 benchmarks: `ratchet check`
+  # cold and warm, and the pre-edit judge over a generated 41-package,
+  # ~10000-file fixture (see internal/ratchet/check_bench_test.go and
+  # internal/tdd/ratchetgate_bench_test.go). benchstat compares this run
+  # against testdata/bench/baseline.txt; a >20% regression on ANY metric
+  # (sec/op, B/op, allocs/op) fails the job. The baseline file is only ever
+  # LOWERED, by hand, after a real improvement is measured here — never
+  # raised to make a slow change pass.
+  benchmarks:
+    if: github.event_name != 'push' && github.event.pull_request.draft != true
+    needs: changes
+    runs-on: self-hosted
+    # Measured generating testdata/bench/baseline.txt on a Windows dev box:
+    # BenchmarkRatchetCheckCold's fixture build + ~45s/iter bench dominates —
+    # six reps of the whole ratchet package took 1375s there. -count=3 here
+    # trades some of the baseline's statistical power for a job that fits a
+    # PR's budget; benchstat compares samples of different size fine.
+    timeout-minutes: 25
+    steps:
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Run the benchmarks
+        if: needs.changes.outputs.code == 'true'
+        run: |
+          # -cpu=1 pins GOMAXPROCS, which Go stamps onto every benchmark NAME
+          # ("RatchetCheckCold-24" vs "-8") — none of these three benchmarks
+          # runs a goroutine of its own, so the pin changes nothing about
+          # what is measured, only makes the name stable across whatever
+          # core count a given runner happens to have (needed for benchstat
+          # to treat a run as the SAME benchmark as the checked-in baseline).
+          go test ./internal/ratchet/... ./internal/tdd/... -run=NONE \
+            -bench '^(BenchmarkRatchetCheckCold|BenchmarkRatchetCheckWarm|BenchmarkPreEditJudge)$' \
+            -benchmem -cpu=1 -count=3 -timeout=20m | tee new-bench.txt
+      - name: Install benchstat
+        if: needs.changes.outputs.code == 'true'
+        run: go install golang.org/x/perf/cmd/benchstat@v0.0.0-20260825160852-19be9d8e6c70
+      - name: Compare against the baseline, fail on a >20% regression
+        if: needs.changes.outputs.code == 'true'
+        run: |
+          set -euo pipefail
+          # benchstat groups by the FULL config (goos/goarch/cpu lines
+          # included), so the baseline recorded on a developer's box and a
+          # run on this Linux runner would never land in the same group and
+          # print with no "vs base" column at all — silently comparing
+          # nothing. Stripping those lines is what makes the comparison
+          # cross-machine; testdata/bench/baseline.txt is checked in without
+          # them for the same reason.
+          grep -v '^goos:\|^goarch:\|^cpu:' new-bench.txt > new-bench-nohdr.txt
+          benchstat testdata/bench/baseline.txt new-bench-nohdr.txt | tee compare.txt
+          # Every "+NN.NN%" in benchstat's default text output is a regression
+          # on whichever metric that row is (sec/op, B/op, or allocs/op are
+          # all "lower is better", so a positive delta is always worse) — a
+          # 20% cut here is the merge gate; testdata/bench/baseline.txt is the
+          # only place that number is ever allowed to move, and only down.
+          # `|| true` on the grep: no match is the common (no-regression)
+          # case, and grep's own exit 1 for "nothing found" must not read as
+          # this STEP failing under `pipefail` before the threshold below
+          # ever runs.
+          worst=$(grep -oE '\+[0-9]+\.[0-9]+%' compare.txt | tr -d '+%' | sort -rg | head -1 || true)
+          if [ -n "${worst:-}" ] && awk -v w="$worst" 'BEGIN{exit !(w>=20)}'; then
+            echo "::error::benchmark regressed by ${worst}%, over the 20% budget — see compare.txt above"
+            exit 1
+          fi
+      - name: Upload the comparison
+        if: ${{ always() && needs.changes.outputs.code == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: benchstat-comparison
+          path: |
+            new-bench.txt
+            compare.txt
+          if-no-files-found: warn
+
   # The mutation proof, measured where a mutant is affordable. gremlins judges
   # a mutant by re-running its WHOLE package, so the unit of cost is a package
   # suite: 26 s for internal/tdd here against 207 s on a Windows developer box,
