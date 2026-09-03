@@ -228,8 +228,9 @@ Subcommands:
                     spawned by posttooluse, not typed by hand
   commitmsg         commit-msg hook: reject a message carrying a deny pattern
                     (opt-in per workspace: undercover = true)
-  doctor            Report one line per install check (hooks, shims, locks,
-                    managed skills/agents, CI clippy list); exit 1 on any FAIL
+  doctor            Report one line per install check (hooks, shims, locks, managed
+                    skills/agents, the primary checkout branch, the golangci-lint
+                    version CI pins, CI clippy list); exit 1 on any FAIL
   statusline        Render the one-line gate badge from a statusline payload
                     on stdin (armed/off, plus red/deferred/queued when it
                     matters); wired into settings.json by init

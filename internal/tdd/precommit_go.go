@@ -49,9 +49,14 @@ var linterVersion = func(dir string) string {
 
 var semverRe = regexp.MustCompile(`\d+\.\d+\.\d+`)
 
-// workflowPinRe reads the version CI installs out of the workflow file, which
-// is the only place the pin actually lives.
-var workflowPinRe = regexp.MustCompile(`golangci-lint@v(\d+\.\d+\.\d+)`)
+// workflowPinRes read the version CI installs out of the workflow file, which
+// is the only place the pin actually lives. Two shapes are in use: a
+// `go install …/golangci-lint@vX.Y.Z` line, and the lint action's own
+// `version:` key. A repo using the second must not read as unpinned.
+var workflowPinRes = []*regexp.Regexp{
+	regexp.MustCompile(`golangci-lint@v(\d+\.\d+\.\d+)`),
+	regexp.MustCompile(`(?s)golangci-lint-action@[^\n]*\n.*?\bversion:\s*v?(\d+\.\d+\.\d+)`),
+}
 
 // driftNoted dedupes the drift line to once per process per version pair: a
 // commit touching three Go roots must not say the same thing three times.
@@ -123,8 +128,10 @@ func pinnedLinterVersion(repoRoot string) string {
 		if err != nil {
 			continue
 		}
-		if m := workflowPinRe.FindStringSubmatch(string(data)); m != nil {
-			return m[1]
+		for _, re := range workflowPinRes {
+			if m := re.FindStringSubmatch(string(data)); m != nil {
+				return m[1]
+			}
 		}
 	}
 	return ""
