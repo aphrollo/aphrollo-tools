@@ -193,12 +193,13 @@ func TestBaselineGuard_RefusesARaiseWhenTheLawIsUnchanged(t *testing.T) {
 	}
 }
 
-// TestBaselineGuard_AllowsARaiseWhenTheLawIsNotOnTrunkYet is the catch-up
-// merge case: a lane introduces a law and its baseline, then merges main, and
-// main's files have grown past the lane's rows. Trunk never had the law, so
-// the lane owns the baseline and re-writing it with the ratchet is adoption,
-// not a hand raise.
-func TestBaselineGuard_AllowsARaiseWhenTheLawIsNotOnTrunkYet(t *testing.T) {
+// TestBaselineGuard_RefusesAHandRaiseWithNoCatchUpMerge is the cold-review
+// RED: a lane introduces a law and its baseline, then a LATER commit
+// hand-raises the baseline with no `git merge` anywhere in the lane's
+// history. The law being absent from trunk is not by itself evidence of a
+// catch-up merge — only an actual merge event is — so this must stay refused
+// for the entire pre-merge lifetime of the lane, not just its first commit.
+func TestBaselineGuard_RefusesAHandRaiseWithNoCatchUpMerge(t *testing.T) {
 	root := t.TempDir()
 	gitInit(t, root)
 	mustWrite(t, filepath.Join(root, "crates", "a.rs"), "let a = x.clamp(0.0, 1.0);\n")
@@ -214,11 +215,53 @@ func TestBaselineGuard_AllowsARaiseWhenTheLawIsNotOnTrunkYet(t *testing.T) {
 		"crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
 	gitAddAll(t, root)
 
+	res := baselineStage("precommit", root)
+	if !res.Blocked {
+		t.Fatal("no merge happened anywhere in the lane's history — a hand-raised row must still be rejected")
+	}
+	if !strings.Contains(res.Message, "tools/b.rs") {
+		t.Errorf("message must name the offending row: %s", res.Message)
+	}
+}
+
+// TestBaselineGuard_AllowsARaiseOnTheCommitRightAfterAGenuineCatchUpMerge is
+// the legitimate case the escape exists for: a lane introduces a law and its
+// baseline, trunk moves on without the lane, the lane runs a REAL `git merge`
+// of trunk, and the very next commit re-writes the baseline to cover what the
+// merge brought in. Trunk never had the law, so the lane owns the baseline
+// and re-writing it with the ratchet is adoption, not a hand raise.
+func TestBaselineGuard_AllowsARaiseOnTheCommitRightAfterAGenuineCatchUpMerge(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, "crates", "a.rs"), "let a = x.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	gitFixture(t, root, "branch", "-M", "main")
+	gitFixture(t, root, "checkout", "-q", "-b", "lane")
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "nan-guard.toml"), nanGuardLawText)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"), "crates/a.rs | let a = x.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+
+	// Trunk grows a file the lane's law will eventually see, without the lane.
+	gitFixture(t, root, "checkout", "-q", "main")
+	mustWrite(t, filepath.Join(root, "tools", "b.rs"), "let b = y.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+
+	// The lane catches up with a real merge, not a hand-edit.
+	gitFixture(t, root, "checkout", "-q", "lane")
+	gitFixture(t, root, "merge", "main", "--no-edit", "-m", "catch up with main")
+
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"),
+		"crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	res := baselineStage("precommit", root)
 	if res.Blocked {
-		t.Fatalf("a raise on a law trunk does not have yet must be adopted, not rejected: %s", res.Message)
+		t.Fatalf("a raise on the commit right after a genuine trunk merge must be adopted, not rejected: %s", res.Message)
 	}
 	requireLoggedVerdict(t, cfg, "baseline-adopted:nan-guard:1")
 }

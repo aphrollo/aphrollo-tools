@@ -215,16 +215,62 @@ func adoptionCovers(repoRoot, baselineRel string, rows int) (lawName string, _ i
 		}
 		changed := section(scopeSection, staged) != section(scopeSection, head) ||
 			section(matcherSection, staged) != section(matcherSection, head)
-		if !changed && !lawOnTrunk(repoRoot, lawRel) {
-			// The law is the lane's own, not yet on trunk: after a catch-up
-			// merge, trunk's files may sit past rows the lane wrote before the
+		if !changed && !lawOnTrunk(repoRoot, lawRel) && mergedTrunkAtHead(repoRoot) {
+			// The law is the lane's own, not yet on trunk, AND this commit
+			// sits right on top of a REAL merge of trunk (mergedTrunkAtHead):
+			// trunk's files may now sit past rows the lane wrote before that
 			// merge, and re-writing them with the ratchet is adoption. Trunk
-			// never had the ceiling, so nothing on trunk was raised.
+			// never had the ceiling, so nothing on trunk was raised. Without
+			// the merge check, "law absent from trunk" holds for the entire
+			// pre-merge lifetime of the lane, not just the commit that just
+			// caught up — that wider window is the bug this guards against.
 			return name, rows, true
 		}
 		return name, rows, changed
 	}
 	return "", 0, false
+}
+
+// mergedTrunkAtHead reports whether HEAD is ITSELF a merge commit with
+// trunk's current tip among its parents — the one moment a catch-up merge is
+// actually happening. Only the commit made immediately on top of such a
+// merge gets the free pass in adoptionCovers: the next commit after that no
+// longer has a merge at HEAD, so the escape does not outlive the merge that
+// earned it, unlike a check that only asks whether the law is absent from
+// trunk (true for the lane's entire pre-merge lifetime). Every uncertainty —
+// no trunk name, an unresolvable trunk tip, git chatter, a non-merge HEAD —
+// answers false, because false is the answer that keeps the one-way rule.
+func mergedTrunkAtHead(repoRoot string) bool {
+	trunk := trunkBranch(repoRoot)
+	if trunk == "" {
+		return false
+	}
+	trunkOut, err := git(repoRoot, "rev-parse", trunk)
+	if err != nil {
+		return false
+	}
+	trunkSHA := lastSHALine(trunkOut)
+	if trunkSHA == "" {
+		return false
+	}
+	out, err := git(repoRoot, "rev-list", "--parents", "-n", "1", "HEAD")
+	if err != nil {
+		return false
+	}
+	fields := strings.Fields(lastNonEmptyLine(out))
+	if len(fields) < 3 {
+		// fields[0] is HEAD's own sha; fewer than two parents after it means
+		// HEAD is not a merge commit at all.
+		return false
+	}
+	// fields[1] is the first ("ours") parent, never the merged-in side; a
+	// genuine `git merge trunk` records trunk's tip among the rest.
+	for _, parent := range fields[2:] {
+		if parent == trunkSHA {
+			return true
+		}
+	}
+	return false
 }
 
 // lawOnTrunk reports whether lawRel exists at the merge base of HEAD and this
