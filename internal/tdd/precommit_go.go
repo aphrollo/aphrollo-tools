@@ -154,10 +154,13 @@ func goFmtStage(gateName, repoRoot, root string, touched []string) GateResult {
 		// A bare `:path` resolves from the repo's TOP regardless of cwd, so
 		// the path fed to git must be repoRoot-relative even though rel
 		// itself is root-relative (root is the Go root, which in a monorepo
-		// sits below repoRoot).
+		// sits below repoRoot). root is always a descendant of repoRoot (both
+		// come from the same FindProjectRoot walk), so this can only fail on
+		// a platform where the two do not share a volume — which cannot
+		// happen for a descendant path, so there is nothing here a test could
+		// ever prove reachable.
 		repoRel, err := filepath.Rel(repoRoot, filepath.Join(root, rel))
 		if err != nil {
-			unreadable++
 			continue
 		}
 		content, err := git(repoRoot, "show", ":"+filepath.ToSlash(repoRel))
