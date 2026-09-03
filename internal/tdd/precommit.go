@@ -448,10 +448,24 @@ func workspaceCheckStage(gateName, repoRoot, root string, plan cargoStagePlan, r
 	// (clippy.toml's disallowed methods and types) across crates that are not
 	// on the clippy-clean list. Nothing else is denied here: -D warnings
 	// belongs to the per-crate stage, where a crate has actually reached zero.
-	runner := Runner{Cmd: "cargo", Args: []string{
-		"clippy", "--workspace", "--tests", "--",
-		"-D", "clippy::disallowed_methods", "-D", "clippy::disallowed_types",
-	}, Dir: ws}
+	//
+	// Scoped, never --workspace: see clippyscope.go. The crates are named on
+	// stderr because a scoped stage that does not say what it covered cannot
+	// be told from one that silently stopped covering something.
+	scope := clippyScope(ws, plan.touched)
+	if len(scope) == 0 {
+		fmt.Fprintf(os.Stderr, "gate %s: check → skipped (no cargo package owns anything staged)\n", gateName)
+		return GateResult{}
+	}
+	fmt.Fprintf(os.Stderr, "gate %s: check scope → %s (touched crates + their clippy-clean dependents)\n",
+		gateName, strings.Join(scope, " "))
+	args := []string{"clippy"}
+	for _, pkg := range scope {
+		args = append(args, "-p", pkg)
+	}
+	args = append(args, "--tests", "--",
+		"-D", "clippy::disallowed_methods", "-D", "clippy::disallowed_types")
+	runner := Runner{Cmd: "cargo", Args: args, Dir: ws}
 	return runSuiteStage(gateName, "check", repoRoot, root, runner, run)
 }
 
