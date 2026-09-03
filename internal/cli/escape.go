@@ -20,8 +20,9 @@ Subcommands:
                       --check <stage|law>). A themed defect needs --check: an
                       escape is a claim that some check could have caught it,
                       and a plain defect belongs in aphrollo gate issue
-  sync                Open issues for every record that has none yet
-  list                Print the open records
+  sync                Open issues for every record that has none yet, and mark
+                      closed the ones GitHub already closed
+  list                Print the open records (--all for closed ones too)
   verify-closure <pr> Refuse a PR that closes an escape without changing a check
 
 An ESCAPE is the gate's only direct evidence about what it is missing: CI red
@@ -46,7 +47,13 @@ func runGateEscape(args []string, stdout, stderr io.Writer) int {
 	case "sync":
 		return runEscapeSync(args[1:], stdout, stderr)
 	case "list":
-		tdd.ListEscapes(stdout)
+		fs := flag.NewFlagSet("list", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		all := fs.Bool("all", false, "print closed records too, not just open ones")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		tdd.ListEscapes(stdout, *all)
 		return 0
 	case "verify-closure":
 		return runEscapeVerifyClosure(args[1:], stdout, stderr)

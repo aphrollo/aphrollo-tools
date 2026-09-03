@@ -56,18 +56,24 @@ func TestReceiptSigning_LogsAForgedReceipt(t *testing.T) {
 	requireLoggedVerdict(t, cfg, "receipt-forged")
 }
 
-// The producers have not all caught up: a receipt with NO mac at all is still
-// accepted, and counted, exactly like the older receipts that carry no
-// base_sha. Refusing them would break every lane on the day this ships.
-func TestReceiptSigning_AcceptsButCountsAnUnsignedReceipt(t *testing.T) {
+// The signing runner has merged, so nothing legitimate is unsigned any more
+// (issue #115): a receipt with no mac at all — tip and base matching the
+// merge exactly — is refused the same as a forged one, not waved through.
+func TestReceiptSigning_RefusesAnUnsignedReceiptEvenWithAMatchingTipAndBase(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	writeReceipt(t, passingReceipt())
+	r := passingReceipt()
+	r.BaseSHA = "abc123"
+	writeUnsignedReceipt(t, r)
 
-	if got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: laneTip}); got != nil {
-		t.Fatalf("an unsigned receipt must still merge for now: %s", got.Message)
+	got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: r.TipTree, BaseSHA: "abc123"})
+	if got == nil || !got.Blocked {
+		t.Fatal("an unsigned receipt must not merge, matching tip and base or not")
 	}
-	requireLoggedVerdict(t, cfg, "receipt-unsigned")
+	if got.Message != "gate: receipt not written by the runner (unsigned)" {
+		t.Fatalf("message = %q, want the exact unsigned refusal", got.Message)
+	}
+	requireLoggedVerdict(t, cfg, "receipt-forged")
 }
 
 // The key is per-machine and private: a key anybody can read is a key

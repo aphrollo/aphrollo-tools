@@ -172,7 +172,75 @@ func TestMutationReceipt_MissingReceiptRejectsWithOneRemedyLine(t *testing.T) {
 	if lines := strings.Count(strings.TrimSpace(got.Message), "\n"); lines != 0 {
 		t.Fatalf("message spans %d extra lines, want exactly one:\n%s", lines, got.Message)
 	}
-	want := "gate: mutation receipt missing for tree " + short(laneTip) + " — run tools/mutation_gate.sh main"
+	want := "gate: mutation receipt missing for tree " + short(laneTip) + " — run aphrollo gate mutants main"
+	if got.Message != want {
+		t.Fatalf("message = %q, want %q", got.Message, want)
+	}
+}
+
+// The remedy must never claim a script the repo does not have: with no
+// RepoRoot to check at all, it falls back to this binary's own runner rather
+// than guessing tools/mutation_gate.sh — the bug issue #117 evidenced (a
+// scratch Go repo with no such script was told to run it anyway).
+func TestMutationReceipt_MissingReceiptNeverNamesAScriptTheRepoLacks(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := makeGoRepo(t)
+
+	got := checkMutationReceipt(receiptContext{RepoRoot: root, Repo: "go-repo", TipTree: laneTip})
+	if got == nil || !got.Blocked {
+		t.Fatal("no receipt must not merge")
+	}
+	want := "gate: mutation receipt missing for tree " + short(laneTip) + " — run aphrollo gate mutants master"
+	if got.Message != want {
+		t.Fatalf("message = %q, want %q (this repo has no tools/mutation_gate.sh)", got.Message, want)
+	}
+}
+
+// A repo that actually carries the script gets named by it — the script is
+// exactly the command that would fix this.
+func TestMutationReceipt_MissingReceiptNamesTheScriptWhenTheRepoHasOne(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := makeCargoRepo(t)
+	write(t, root, "tools/mutation_gate.sh", "#!/bin/sh\n")
+
+	got := checkMutationReceipt(receiptContext{RepoRoot: root, Repo: "cargo-repo", TipTree: laneTip})
+	if got == nil || !got.Blocked {
+		t.Fatal("no receipt must not merge")
+	}
+	want := "gate: mutation receipt missing for tree " + short(laneTip) + " — run tools/mutation_gate.sh master"
+	if got.Message != want {
+		t.Fatalf("message = %q, want %q", got.Message, want)
+	}
+}
+
+// A Cargo workspace that declares the key but leaves it EMPTY has not
+// actually named a runner — falling through to the next source is what
+// tells "declared and blank" apart from "declared and real".
+func TestMutantsRunnerCommand_FallsThroughAnEmptyCargoDeclaredName(t *testing.T) {
+	root := makeCargoRepo(t)
+	write(t, root, "Cargo.toml", "[workspace]\n\n[workspace.metadata.aphrollo]\nmutation-runner = \"\"\n")
+	write(t, root, "aphrollo.toml", "[aphrollo]\nmutation-runner = \"tools/real.sh\"\n")
+
+	if got := mutantsRunnerCommand(root); got != "tools/real.sh" {
+		t.Fatalf("mutantsRunnerCommand = %q, want the aphrollo.toml name once the Cargo one is empty", got)
+	}
+}
+
+// A repo that declares its own runner is named by exactly that — a
+// workspace's own choice outranks either default.
+func TestMutationReceipt_MissingReceiptNamesTheDeclaredRunner(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := makeGoRepo(t)
+	write(t, root, "aphrollo.toml", "[aphrollo]\nmutation-runner = \"tools/mutants.sh\"\n")
+
+	got := checkMutationReceipt(receiptContext{RepoRoot: root, Repo: "go-repo", TipTree: laneTip})
+	if got == nil || !got.Blocked {
+		t.Fatal("no receipt must not merge")
+	}
+	want := "gate: mutation receipt missing for tree " + short(laneTip) + " — run tools/mutants.sh master"
 	if got.Message != want {
 		t.Fatalf("message = %q, want %q", got.Message, want)
 	}

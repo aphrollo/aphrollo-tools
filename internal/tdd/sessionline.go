@@ -116,6 +116,11 @@ func fetchIssueSummary(repo string, now time.Time) (string, bool) {
 	if !ok {
 		return "", false
 	}
+	// `gate escape sync`'s closed-issue reconciliation rides this same 1 h
+	// cache window rather than polling on a schedule of its own: a synced
+	// escape whose issue closed on GitHub stops counting as open debt the
+	// next time this line fetches (issue #113).
+	syncClosedEscapes(repo)
 	// The escape count comes from the LOCAL record rather than a second gh
 	// call: it is the number this tool owns, it is free, and it is the one
 	// `gate stats` prints, so the two can never disagree.
@@ -181,7 +186,7 @@ func renderIssueSummary(total int, byLabel map[string]int, declared []string, es
 	if len(parts) > 0 {
 		fmt.Fprintf(&b, " (%s)", strings.Join(parts, " "))
 	}
-	fmt.Fprintf(&b, ", %d open escape%s — aphrollo gate issue / gate escape record", escapes, plural(escapes))
+	fmt.Fprintf(&b, ", %d open escape%s - aphrollo gate issue / gate escape record", escapes, plural(escapes))
 	return b.String()
 }
 

@@ -192,10 +192,10 @@ func TestPatchSettings_IdempotentWithRenamedBinary(t *testing.T) {
 			n++
 		}
 	}
-	// One per matcher — the edit tools and Bash. A re-patch that duplicated
-	// them would push this past two.
-	if n != 2 {
-		t.Errorf("expected exactly 2 pretooluse hooks (edit tools, Bash), got %d\n%s", n, second)
+	// One per matcher — the edit tools, Bash and PowerShell. A re-patch that
+	// duplicated them would push this past three.
+	if n != 3 {
+		t.Errorf("expected exactly 3 pretooluse hooks (edit tools, Bash, PowerShell), got %d\n%s", n, second)
 	}
 }
 

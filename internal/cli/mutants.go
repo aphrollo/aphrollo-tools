@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -17,8 +19,19 @@ func runPostCommit(stderr io.Writer) int {
 	if root == "" {
 		return 0
 	}
-	if j, ok := tdd.PostCommitHook(root); ok {
+	j, ok, err := tdd.PostCommitHook(root)
+	if ok {
 		fmt.Fprintf(stderr, "gate: mutation run started for %s (pid %d)\n", j.Branch, j.PID)
+		return 0
+	}
+	// An early return above and a guarded statement here (rather than the
+	// `switch { case ok: ...; case err != nil: ... }` this used to be) puts
+	// each condition on a line with its own statement, which is what makes
+	// gremlins's coverage-to-mutant mapping on the runner unambiguous -- a
+	// bare `case err != nil:` line mapped to the wrong covered block and let
+	// the mutant on it survive despite the killing test (issue #140).
+	if err != nil {
+		fmt.Fprintf(stderr, "gate: mutation run failed to start: %v\n", err)
 	}
 	return 0
 }
@@ -60,6 +73,14 @@ func runGateMutants(args []string, stderr io.Writer) int {
 			diff = fs.String("diff", "", "merge base to scope the run to (CI: run in the foreground and judge)")
 			receipt = fs.String("receipt", "", "where to write the signed receipt")
 		}
+		// The env-versus-flag rule: a flag typed for THIS run beats a
+		// session-wide override, which beats the per-box/producer default.
+		// `run` is normally spawned by postcommit, never hand-typed, but a
+		// maintainer rerunning one job by hand is exactly who these are for.
+		jobsFlag := fs.Int("jobs", 0, "concurrency cap for this run (default: min(cores/6, RAM/6, 2), beats "+tdd.MutantsJobsEnv+")")
+		baseFlag := fs.String("base", "", "base ref/sha to scope the run to, overriding the job's own")
+		timeoutMultiplier := fs.String("timeout-multiplier", "", "forwarded to cargo-mutants' own --timeout-multiplier")
+		minTestTimeout := fs.String("minimum-test-timeout", "", "forwarded to cargo-mutants' own --minimum-test-timeout")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
@@ -78,6 +99,18 @@ func runGateMutants(args []string, stderr io.Writer) int {
 			// The Go half of the detached job: gremlins over the lane diff,
 			// writing the same receipt the Rust runner writes.
 			return tdd.RunGoMutantsJob(*job)
+		}
+		if isFlagSet(fs, "jobs") {
+			os.Setenv(tdd.MutantsJobsEnv, strconv.Itoa(*jobsFlag))
+		}
+		if isFlagSet(fs, "base") {
+			os.Setenv(tdd.MutantsBaseOverrideEnv, *baseFlag)
+		}
+		if isFlagSet(fs, "timeout-multiplier") {
+			os.Setenv(tdd.MutantsTimeoutMultiplierEnv, *timeoutMultiplier)
+		}
+		if isFlagSet(fs, "minimum-test-timeout") {
+			os.Setenv(tdd.MutantsMinTestTimeoutEnv, *minTestTimeout)
 		}
 		return tdd.RunMutantsJob(*job)
 	default:

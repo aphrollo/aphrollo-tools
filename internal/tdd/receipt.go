@@ -122,12 +122,13 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 		return nil
 	}
 	data, err := os.ReadFile(path)
+	carried := false
 	if err != nil {
-		if carried, ok := carryReceiptForward(ctx); ok {
-			data = carried
-		} else {
+		c, ok := carryReceiptForward(ctx)
+		if !ok {
 			return blockMissingReceipt(ctx)
 		}
+		data, carried = c, true
 	}
 	// Before a single field is believed: a receipt nothing measured is not a
 	// weaker proof, it is somebody's typing.
@@ -163,6 +164,20 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 	case ctx.BaseSHA != "" && !strings.EqualFold(r.BaseSHA, ctx.BaseSHA):
 		return blockReceipt("the receipt was measured against base %s, but this merge lands against %s — a different diff, so different mutants",
 			short(r.BaseSHA), short(ctx.BaseSHA))
+	}
+	// Every other outcome this stage can reach leaves a line — not-required,
+	// carried, rejected, forged, unsigned, unverifiable, measured-in-ci — but
+	// a plain accept left none at all, so an audit could not tell "this
+	// merge's receipt passed" from "this stage never ran" (issue #136). The
+	// carried case already logged its own line (receipt-carried) naming
+	// where the proof came from; this one is the direct read, kept as its
+	// own count rather than folded into carried's.
+	if !carried {
+		// gate.log is space-separated (see appendGateLog), so the verdict is
+		// ONE token: underscores stand in for the spaces the issue's own
+		// wording uses.
+		appendGateLog("premergecommit", logToken(repo), "mutation-receipt",
+			fmt.Sprintf("receipt-accepted:%s_caught=%d_missed=%d_accepted=%d", short(tipTree), r.Caught, len(r.Survivors), r.Accepted), 0)
 	}
 	return nil
 }
@@ -318,7 +333,37 @@ func missingReceiptRemedy(ctx receiptContext) string {
 	if d, ok := loadMutantsDeath(ctx.TipTree); ok {
 		return fmt.Sprintf("the run died (exit %d) at %s — see %s", d.Exit, d.At.Format("15:04"), d.ErrLog)
 	}
-	return "run tools/mutation_gate.sh main"
+	base := "main"
+	if ctx.RepoRoot != "" {
+		base = laneBaseRef(ctx.RepoRoot)
+	}
+	return "run " + mutantsRunnerCommand(ctx.RepoRoot) + " " + base
+}
+
+// mutantsRunnerCommand names the command that would actually produce a
+// receipt for root: the repo's own declared name (`mutation-runner` under
+// `[workspace.metadata.aphrollo]` in Cargo.toml, or `[aphrollo]` in
+// aphrollo.toml), `tools/mutation_gate.sh` only when the repo genuinely
+// carries one, and this binary's own runner otherwise — never a script name
+// the repo does not have.
+func mutantsRunnerCommand(root string) string {
+	const fallback = "aphrollo gate mutants"
+	if root == "" {
+		return fallback
+	}
+	// cargoWorkspaceRoot answers `root` when it finds no workspace table, so
+	// a single-crate repo's own Cargo.toml is what gets read here.
+	ws := cargoWorkspaceRoot(root)
+	if name, ok := cargoAphrolloString(ws, "mutation-runner"); ok && name != "" {
+		return name
+	}
+	if name, ok := aphrolloTomlString(root, "mutation-runner"); ok && name != "" {
+		return name
+	}
+	if fileExists(filepath.Join(root, "tools", "mutation_gate.sh")) {
+		return "tools/mutation_gate.sh"
+	}
+	return fallback
 }
 
 func blockReceipt(format string, args ...any) *GateResult {

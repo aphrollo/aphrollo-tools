@@ -30,6 +30,23 @@ func bashPayloadID(t *testing.T, session, toolUseID, cwd, command string) []byte
 	return raw
 }
 
+// powerShellPayload is bashPayload's PowerShell twin, same tool_input shape
+// under a different tool_name: the PowerShell tool is classified exactly
+// like Bash (issue #118).
+func powerShellPayload(t *testing.T, session, cwd, command string) []byte {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{
+		"session_id": session,
+		"cwd":        cwd,
+		"tool_name":  "PowerShell",
+		"tool_input": map[string]any{"command": command},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
 // An edit made by `sed` or a heredoc is still an edit: the hooks that judge a
 // Write must judge it too, or the whole gate is one shell command away from
 // being off. PreToolUse records what the tree looked like; PostToolUse diffs
@@ -240,6 +257,34 @@ func TestPreBashSkipsADirectoryThatIsNotARepo(t *testing.T) {
 	s, _ := loadSession("s6")
 	if len(s.Bash) != 0 {
 		t.Fatalf("no repo means nothing to snapshot, got %+v", s.Bash)
+	}
+}
+
+// The PowerShell primary-checkout classification (item 7) needs the hook to
+// fire for the PowerShell tool at all -- PrimaryCheckoutDecision already
+// branches on tool_name internally, but nothing invokes it without a
+// PreToolUse matcher for "PowerShell" in the installed settings.json.
+func TestPatchSettingsWiresPowerShellForPreToolUse(t *testing.T) {
+	out, changed, err := PatchSettings(nil, "/usr/local/bin/aphrollo")
+	if err != nil || !changed {
+		t.Fatalf("PatchSettings: changed = %v, err = %v", changed, err)
+	}
+	var doc struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatal(err)
+	}
+	var hasPowerShell bool
+	for _, g := range doc.Hooks["PreToolUse"] {
+		if g.Matcher == "PowerShell" {
+			hasPowerShell = true
+		}
+	}
+	if !hasPowerShell {
+		t.Errorf("PreToolUse matchers = %v, want a PowerShell entry so the primary-checkout classification runs for it", doc.Hooks["PreToolUse"])
 	}
 }
 

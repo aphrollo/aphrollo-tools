@@ -193,12 +193,103 @@ func TestPrimaryCheckout_DeniesAWriteAroundAHeredocBody(t *testing.T) {
 	}
 }
 
+// A `cd` out of the primary before the write means the write lands
+// somewhere else entirely — the false denial issue #118 evidenced.
+func TestPrimaryCheckout_AllowsAWriteAfterCdOutOfThePrimary(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary, linked := primaryRepo(t)
+
+	cmd := "cd " + shellPath(linked) + " && echo hi > notes.txt"
+	if d := PrimaryCheckoutDecision(bashPayload(t, "b6", primary, cmd)); d.Action != Allow {
+		t.Fatalf("%q writes into the linked worktree after cd, not the primary, got %+v", cmd, d)
+	}
+}
+
+// An absolute path INTO the primary is denied even from a worktree's own
+// cwd — the false ALLOW issue #118 evidenced, the other half of the same
+// bug.
+func TestPrimaryCheckout_DeniesAnAbsoluteWriteIntoThePrimaryFromAWorktree(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary, linked := primaryRepo(t)
+
+	target := filepath.Join(primary, "notes.txt")
+	cmd := "echo hi > " + shellPath(target)
+	d := PrimaryCheckoutDecision(bashPayload(t, "b7", linked, cmd))
+	if d.Action != Block {
+		t.Fatalf("%q writes into the primary checkout by absolute path, got %+v", cmd, d)
+	}
+	if !strings.Contains(d.Reason, "primary checkout is merge-only") {
+		t.Fatalf("reason %q must name the rule", d.Reason)
+	}
+}
+
+// The PowerShell tool is classified exactly like Bash: Set-Content,
+// Add-Content and Out-File are its write verbs, and `>`/`>>` its
+// redirection.
+func TestPrimaryCheckout_ClassifiesPowerShellLikeBash(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary, linked := primaryRepo(t)
+
+	writes := []string{
+		"Set-Content -Path notes.txt -Value hi",
+		"Set-Content notes.txt hi",
+		"'hi' | Out-File -FilePath notes.txt",
+		"echo hi > notes.txt",
+	}
+	for _, cmd := range writes {
+		if d := PrimaryCheckoutDecision(powerShellPayload(t, "ps1", primary, cmd)); d.Action != Block {
+			t.Errorf("PowerShell %q writes into the primary checkout and should Block, got %+v", cmd, d)
+		}
+	}
+	if d := PrimaryCheckoutDecision(powerShellPayload(t, "ps2", linked, "Set-Content -Path notes.txt -Value hi")); d.Action != Allow {
+		t.Fatalf("PowerShell in a linked worktree is the happy path, got %+v", d)
+	}
+}
+
 func TestPrimaryCheckout_AllowsBashInALinkedWorktree(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	_, linked := primaryRepo(t)
 
 	if d := PrimaryCheckoutDecision(bashPayload(t, "b3", linked, "echo hi > notes.txt")); d.Action != Allow {
 		t.Fatalf("a shell write inside a linked worktree is the happy path, got %+v", d)
+	}
+}
+
+// `rm -rf` of a lane dir with no `git worktree prune` leaves the admin entry
+// behind under .git/worktrees/, pointing at a directory that no longer
+// exists. A repo whose ONLY entry is that stale one has no lane left to
+// escape to, so it must not stay merge-only (issue #120).
+func TestPrimaryCheckout_AllowsEditWhenTheOnlyWorktreeEntryIsStale(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary, linked := primaryRepo(t)
+	if err := os.RemoveAll(linked); err != nil {
+		t.Fatal(err)
+	}
+
+	if d := PrimaryCheckoutDecision(editPayload(t, "Edit", filepath.Join(primary, "main.go"), "s9")); d.Action != Allow {
+		t.Fatalf("a repo whose only worktree entry is stale is an ordinary clone again, got %+v", d)
+	}
+}
+
+// A stale entry beside a LIVE one must not un-block the primary checkout —
+// the rule still holds — but the remedy names the prune fix so an operator
+// is not left guessing why the count disagrees with what `git worktree list`
+// shows them.
+func TestPrimaryMergeOnlyReason_NamesPruneWhenAStaleEntryExists(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary, _ := primaryRepo(t)
+	stale := filepath.Join(t.TempDir(), "stale-lane")
+	gitDo(t, primary, "worktree", "add", "-q", "-b", "lane/stale", stale)
+	if err := os.RemoveAll(stale); err != nil {
+		t.Fatal(err)
+	}
+
+	d := PrimaryCheckoutDecision(editPayload(t, "Edit", filepath.Join(primary, "main.go"), "s10"))
+	if d.Action != Block {
+		t.Fatalf("the repo still has a live worktree (lane/x), so the primary stays merge-only, got %+v", d)
+	}
+	if !strings.Contains(d.Reason, "git worktree prune") {
+		t.Fatalf("reason %q must name the prune remedy for the stale entry", d.Reason)
 	}
 }
 

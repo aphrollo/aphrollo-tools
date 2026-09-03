@@ -1,8 +1,6 @@
 package tdd
 
 import (
-	"encoding/json"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,20 +10,29 @@ import (
 const laneTip = "1111111111111111111111111111111111111111"
 
 // writeReceipt drops a mutation receipt in the state dir, under the name the
-// tree it describes gives it.
+// tree it describes gives it. It signs the receipt first when the caller left
+// no MAC of its own: every caller here is fixturing a receipt a RUN would
+// have written (signed), not testing signing itself — a caller that wants an
+// unsigned or forged one sets r.MAC before calling this, or writes the file
+// directly (writeUnsignedReceipt).
 func writeReceipt(t *testing.T, r MutationReceipt) {
 	t.Helper()
-	data, err := json.Marshal(r)
-	if err != nil {
-		t.Fatal(err)
+	if r.MAC == "" {
+		signReceipt(&r)
 	}
-	path := MutationReceiptPathFor(r.TipTree)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeReceiptFile(mutationReceiptTestPath(r.TipTree), r)
+}
+
+// writeUnsignedReceipt drops a receipt with NO mac at all, for the tests that
+// are specifically about that case.
+func writeUnsignedReceipt(t *testing.T, r MutationReceipt) {
+	t.Helper()
+	r.MAC = ""
+	writeReceiptFile(mutationReceiptTestPath(r.TipTree), r)
+}
+
+func mutationReceiptTestPath(tipTree string) string {
+	return MutationReceiptPathFor(tipTree)
 }
 
 func passingReceipt() MutationReceipt {
@@ -44,40 +51,47 @@ func TestMutationReceipt_RefusesAMergeWithoutProof(t *testing.T) {
 		name    string
 		receipt *MutationReceipt
 		want    string
+		// cmdWant is the command substring the message must carry. Every
+		// case but the missing-receipt one goes through blockReceipt, which
+		// always names the script; the missing-receipt one goes through
+		// missingReceiptRemedy, which — with no RepoRoot to check here —
+		// falls back to this binary's own runner rather than claiming a
+		// script this context cannot verify exists (issue #117).
+		cmdWant string
 	}{
-		{"no receipt for this tree", nil, "mutation receipt missing"},
+		{"no receipt for this tree", nil, "mutation receipt missing", "aphrollo gate mutants"},
 		{"taken over a dirty worktree", func() *MutationReceipt {
 			r := passingReceipt()
 			r.WorktreeDirty = true
 			return &r
-		}(), "worktree_dirty"},
+		}(), "worktree_dirty", "mutation_gate.sh"},
 		{"a failing verdict", func() *MutationReceipt {
 			r := passingReceipt()
 			r.Verdict = "fail"
 			return &r
-		}(), `verdict "fail"`},
+		}(), `verdict "fail"`, "mutation_gate.sh"},
 		{"a verdict this gate has never heard of", func() *MutationReceipt {
 			r := passingReceipt()
 			r.Verdict = "probably-fine"
 			return &r
-		}(), "verdict"},
+		}(), "verdict", "mutation_gate.sh"},
 		{"an empty verdict", func() *MutationReceipt {
 			r := passingReceipt()
 			r.Verdict = ""
 			return &r
-		}(), "verdict"},
+		}(), "verdict", "mutation_gate.sh"},
 		{"survivors nobody signed off on", func() *MutationReceipt {
 			r := passingReceipt()
 			r.Accepted = 1
 			r.Survivors = []MutantName{{Raw: "src/a.rs:12: replace + with -"}, {Raw: "src/b.rs:3: replace * with +"}}
 			r.Unaccepted = []MutantName{{Raw: "src/a.rs:12: replace + with -"}}
 			return &r
-		}(), "src/a.rs:12"},
+		}(), "src/a.rs:12", "mutation_gate.sh"},
 		{"a receipt for another repo", func() *MutationReceipt {
 			r := passingReceipt()
 			r.Repo = "other"
 			return &r
-		}(), "not borld"},
+		}(), "not borld", "mutation_gate.sh"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -92,7 +106,7 @@ func TestMutationReceipt_RefusesAMergeWithoutProof(t *testing.T) {
 			if !strings.Contains(got.Message, c.want) {
 				t.Fatalf("message = %q, want it to name %q", got.Message, c.want)
 			}
-			if !strings.Contains(got.Message, "mutation_gate.sh") {
+			if !strings.Contains(got.Message, c.cmdWant) {
 				t.Fatalf("message = %q, want the command that produces a receipt", got.Message)
 			}
 		})
@@ -145,6 +159,22 @@ func TestMutationReceipt_AcceptsAProvenTree(t *testing.T) {
 			}
 		})
 	}
+}
+
+// An accepted receipt left no line in gate.log at all — not-required,
+// carried, rejected, forged, unsigned, unverifiable and measured-in-ci all
+// had one, so an audit could not tell "this merge's receipt passed" from
+// "this stage never ran" (issue #136).
+func TestMutationReceipt_AcceptedReceiptIsLogged(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	r := passingReceipt()
+	writeReceipt(t, r)
+
+	if got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: r.TipTree}); got != nil {
+		t.Fatalf("merge refused a proven tree: %s", got.Message)
+	}
+	requireLoggedVerdict(t, cfg, "receipt-accepted:"+short(r.TipTree)+"_caught=12_missed=0_accepted=0")
 }
 
 // The receipt lives beside the rest of the gate's state, which moved with the

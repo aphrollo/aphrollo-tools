@@ -28,6 +28,13 @@ type Stats struct {
 	// "override-off", "smell-escape:disabled-test"). A hatch nobody counts is
 	// a hatch nobody manages. bound: one entry per policy name in the log.
 	Denies map[string]int
+	// Receipts counts the mutation-receipt stage's outcome side by side:
+	// "accepted", "carried", "rejected". Each carries a dynamic suffix in the
+	// log itself (a tree hash, counts, a from->to pair), so this collapses
+	// them by PREFIX rather than by the full verdict the way Denies does —
+	// otherwise every accepted receipt would be its own one-off row, and an
+	// accepted receipt used to leave no count at all (issue #136).
+	Receipts map[string]int
 	// LockWaitMax is the longest build-slot wait seen, in seconds. It is kept
 	// out of Median/Max on purpose: a queued gate run is a busy box, not a
 	// slow suite, and folding the two made contention look like a regression.
@@ -66,6 +73,7 @@ func GateStats(r io.Reader, since time.Time) Stats {
 		Timeouts: map[string]int{},
 		Deferred: map[string]int{},
 		Denies:   map[string]int{},
+		Receipts: map[string]int{},
 	}
 	var secs []float64
 	sc := bufio.NewScanner(r)
@@ -89,6 +97,9 @@ func GateStats(r io.Reader, since time.Time) Stats {
 		}
 		if isDenyVerdict(e.verdict) {
 			s.Denies[e.verdict]++
+		}
+		if outcome, ok := receiptOutcome(e.verdict); ok {
+			s.Receipts[outcome]++
 		}
 		if e.verdict == lockWaitVerdict {
 			if e.secs > s.LockWaitMax {
@@ -117,7 +128,7 @@ func GateStats(r io.Reader, since time.Time) Stats {
 // makes it tolerable is that every use is counted.
 var denyVerdictPrefixes = []string{
 	"pretooluse-denied:", "commitmsg-rejected:", "override-", "smell-escape:",
-	"receipt-forged", "receipt-unsigned", "queue-bypass",
+	"receipt-forged", "receipt-unsigned", "queue-bypass", "mutants-worktree-failed",
 }
 
 func isDenyVerdict(verdict string) bool {
@@ -127,6 +138,27 @@ func isDenyVerdict(verdict string) bool {
 		}
 	}
 	return false
+}
+
+// receiptOutcomePrefixes maps a gate.log verdict PREFIX to the mutation-
+// receipt outcome it counts under. receipt-rejected is checked last: it is
+// also a prefix of nothing else here, but the order keeps the intent
+// explicit — the dynamic-suffix ones are matched first.
+var receiptOutcomePrefixes = []struct{ prefix, outcome string }{
+	{"receipt-accepted:", "accepted"},
+	{"receipt-carried:", "carried"},
+	{"receipt-rejected", "rejected"},
+}
+
+// receiptOutcome classifies a verdict as one of the receipt stage's three
+// outcomes, "" and false for anything else.
+func receiptOutcome(verdict string) (string, bool) {
+	for _, p := range receiptOutcomePrefixes {
+		if strings.HasPrefix(verdict, p.prefix) {
+			return p.outcome, true
+		}
+	}
+	return "", false
 }
 
 // logRootCrate names the crate a log entry's root belongs to: the root's
@@ -196,6 +228,7 @@ func RenderGateStats(s Stats) string {
 	writeCounts(&b, "timeouts by crate", s.Timeouts)
 	writeCounts(&b, "deferred by crate", s.Deferred)
 	writeCounts(&b, "denies / overrides", s.Denies)
+	writeCounts(&b, "mutation receipts", s.Receipts)
 	b.WriteString(escapeDebtLine())
 	return b.String()
 }

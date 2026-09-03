@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -107,5 +108,30 @@ func TestEscapeRecord_AnUnknownFlagIsRefused(t *testing.T) {
 	if code := runGate([]string{"escape", "record", "a reason", "--frobnicate", "x"},
 		strings.NewReader(""), &out, &errBuf); code == 0 {
 		t.Fatal("an unknown flag must be refused, not folded into the reason")
+	}
+}
+
+// `--all` is the wiring this dispatch owes tdd.ListEscapes' new bool: it must
+// parse without error and reach a plain `list` unaffected.
+func TestEscapeList_AllFlagIsAcceptedAndBothFormsPrintTheOpenRecord(t *testing.T) {
+	gateConfigDir(t)
+	if _, err := tdd.RecordEscape(tdd.EscapeOptions{Reason: "one that got through"}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errBuf bytes.Buffer
+	if code := runGate([]string{"escape", "list"}, strings.NewReader(""), &out, &errBuf); code != 0 {
+		t.Fatalf("list exit = %d, stderr: %s", code, errBuf.String())
+	}
+	if !strings.Contains(out.String(), "one that got through") {
+		t.Fatalf("list = %q, want the open record", out.String())
+	}
+
+	var out2, errBuf2 bytes.Buffer
+	if code := runGate([]string{"escape", "list", "--all"}, strings.NewReader(""), &out2, &errBuf2); code != 0 {
+		t.Fatalf("list --all exit = %d, stderr: %s", code, errBuf2.String())
+	}
+	if !strings.Contains(out2.String(), "one that got through") {
+		t.Fatalf("list --all = %q, want the record too", out2.String())
 	}
 }

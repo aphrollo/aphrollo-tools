@@ -1,0 +1,2 @@
+go test fuzz v1
+string("2026-09-03T12:00:00Z stage root cmd verdict 1.0")

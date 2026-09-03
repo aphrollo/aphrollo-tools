@@ -1,0 +1,3 @@
+go test fuzz v1
+string("name = \"x\"\n[matcher]\nkind = \"regex-absent\"\npattern = \"(unbalanced\"\n")
+string("x")

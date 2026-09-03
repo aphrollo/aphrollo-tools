@@ -29,4 +29,6 @@ mutation-accept = [
   "internal/ratchet/preset.go:68 CONDITIONALS_NEGATION # comparator is a no-op on embed.FS's already-sorted ReadDir output",
   "internal/ratchet/preset.go:121 ARITHMETIC_BASE # capacity hint only, never observable in the appended slice's length or contents",
   "internal/ratchet/check.go:196 CONDITIONALS_BOUNDARY # loop body is a no-op on an empty sets map regardless of which side of the boundary lets it run",
+  "internal/tdd/escape.go:296 CONDITIONALS_BOUNDARY # start indexes the opening bracket and end indexes the closing one in the same string; distinct byte values can never share one position, so end == start is unreachable whenever both are found, and when either is -1 the first disjunct already decides — proven equivalent by hand-mutating end < start to end <= start and rerunning TestSyncEscapes*/TestClosedIssueNumbers* locally: same green, no test distinguishes them",
+  "internal/tdd/session.go:264 ARITHMETIC_BASE # the mutated operator sits between two string literals in a const declaration; every arithmetic substitute for + is undefined on strings and fails to compile (verified by hand: 'invalid operation: operator - not defined on ... (untyped string constant)') — not a behavioural gap, a build failure gremlins counted as a survivor",
 ]
