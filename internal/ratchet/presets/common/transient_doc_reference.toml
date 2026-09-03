@@ -1,0 +1,13 @@
+name        = "transient_doc_reference"
+description = "A durable file never cites the transient spec tree — move the durable fact out first, then delete the spec; nothing else durable holds a reference into it."
+severity    = "deny"
+escape      = "// sdd-ok:"
+
+[scope]
+include = ["**/*.md", "**/*.rs", "**/*.go"]
+exclude = ["docs/sdd/**", "**/target/**", "**/node_modules/**"]
+
+[matcher]
+kind    = "regex-absent"
+pattern = "docs/sdd/"
+key     = "file:line-content-hash"

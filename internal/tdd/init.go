@@ -49,6 +49,13 @@ var managedEvents = []managedEvent{
 	{"SessionStart", "", "sessionstart", 10},
 	{"PreToolUse", "Edit|Write|MultiEdit|NotebookEdit", "pretooluse", 10},
 	{"PreToolUse", "Bash", "pretooluse", 10},
+	// PrimaryCheckoutDecision classifies a PowerShell write exactly like a
+	// Bash one (item 7), but that classification never runs without a
+	// matcher that gets the hook invoked in the first place. PostToolUse's
+	// Bash group is the post-edit diff-and-run-suite path, which is Bash-only
+	// by construction (bashedit.go's IsBashHook/PostBash) -- extending IT to
+	// PowerShell is a separate change, not this guardrail's.
+	{"PreToolUse", "PowerShell", "pretooluse", 10},
 	{"PostToolUse", "Edit|Write|MultiEdit", "posttooluse", postToolUseHarnessTimeoutSecs},
 	{"PostToolUse", "Bash", "posttooluse", postToolUseHarnessTimeoutSecs},
 	{"UserPromptSubmit", "", "userpromptsubmit", 10},

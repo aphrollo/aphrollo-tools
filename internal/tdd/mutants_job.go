@@ -73,13 +73,24 @@ const mutantsJobMaxAge = 12 * time.Hour
 // for everything that is not a lane commit in an opted-in repo, which is the
 // common case and must cost nothing.
 func StartMutantsJob(repoRoot string) (MutantsJob, bool) {
+	j, ok, _ := startMutantsJob(repoRoot)
+	return j, ok
+}
+
+// startMutantsJob is StartMutantsJob's full form. Its error is nil on every
+// SILENT skip (not a lane, not opted in, disk refused — each already prints
+// or logs its own reason) and non-nil only when a real attempt to start the
+// run failed after committing to try, so PostCommitHook — the one caller with
+// somewhere to put it — can tell an operator what happened instead of
+// printing "started" for a run that never began.
+func startMutantsJob(repoRoot string) (MutantsJob, bool, error) {
 	root := RepoRoot(repoRoot)
 	if root == "" {
-		return MutantsJob{}, false
+		return MutantsJob{}, false, nil
 	}
 	branch := gitOut(root, "rev-parse", "--abbrev-ref", "HEAD")
 	if branch == "" || isDefaultBranch(branch) || !mutationReceiptOptIn(root) || !mutationRunsLocally(root) {
-		return MutantsJob{}, false
+		return MutantsJob{}, false, nil
 	}
 	j := MutantsJob{
 		Schema: StateSchema, Repo: commonGitDir(root), RepoRoot: root, Branch: branch,
@@ -88,11 +99,17 @@ func StartMutantsJob(repoRoot string) (MutantsJob, bool) {
 	}
 	j.BaseSHA = gitOut(root, "merge-base", j.BaseRef, "HEAD")
 	if j.Tip == "" || j.TipTree == "" || j.BaseSHA == "" {
-		return MutantsJob{}, false
+		return MutantsJob{}, false, nil
 	}
 	j.Diff = filepath.Join(mutantsStateDir(), "lane."+projectKey(root)+".diff")
-	j.Log = filepath.Join(j.TargetDir, mutantsRunDir, "run.log")
-	j.ErrLog = filepath.Join(j.TargetDir, mutantsRunDir, "run.err")
+	// Beside the gate's other state, never inside the worktree cargo-mutants
+	// mutates in place: a log file created there before the worktree exists is
+	// a log the worktree's own creation can never reach, and one written
+	// during a run is an untracked file that makes the run's own dirty check
+	// fail the tree it is describing.
+	logDir := mutantsLogDir(j.RepoRoot)
+	j.Log = filepath.Join(logDir, short(j.TipTree)+".log")
+	j.ErrLog = filepath.Join(logDir, short(j.TipTree)+".err.log")
 	j.Started = time.Now()
 	// Before anything is spawned: a run that cannot fit its copies fills the
 	// drive and dies mid-way, taking every verdict it had reached with it.
@@ -100,19 +117,38 @@ func StartMutantsJob(repoRoot string) (MutantsJob, bool) {
 		if ok, line := mutantsDiskOK(j.TargetDir, jobs); !ok {
 			appendGateLog("postcommit", logToken(j.Repo), "mutants", "mutants-refused:disk", 0)
 			fmt.Fprintln(os.Stderr, line)
-			return MutantsJob{}, false
+			return MutantsJob{}, false, nil
 		}
+	}
+	// The worktree is prepared HERE, synchronously, rather than left to the
+	// detached child: a bad path (or a drive that cannot create it) is then
+	// caught before this process ever reports the run as started, instead of
+	// the child discovering it seconds later with nowhere left to say so but
+	// a log line nobody watching the hook's own output would see.
+	if err := prepareMutantsWorktree(j); err != nil {
+		appendGateLog("postcommit", logToken(j.Repo), "mutants", "mutants-worktree-failed:"+logToken(err.Error()), 0)
+		return MutantsJob{}, false, err
 	}
 	pid, err := mutantsSpawnFn(j)
 	if err != nil {
 		appendGateLog("postcommit", logToken(j.Repo), "mutants", "mutants-start-failed", 0)
-		return MutantsJob{}, false
+		return MutantsJob{}, false, err
 	}
 	j.PID = pid
 	j.PIDStart = processStartToken(pid)
 	saveMutantsJob(j)
 	appendGateLog("postcommit", logToken(j.Repo), "mutants", "mutants-started:"+short(j.TipTree), 0)
-	return j, true
+	return j, true, nil
+}
+
+// mutantsLogDir is where a job's own stdout/stderr live: beside the gate's
+// other state, keyed on the repo, never inside the mutation worktree.
+func mutantsLogDir(repoRoot string) string {
+	dir := mutantsStateDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, projectKey(repoRoot))
 }
 
 // mutantsSpawnFn is the detached start, a seam so a test can prove the
@@ -154,6 +190,11 @@ func aphrolloTomlFlag(root, key string) bool {
 	return tomlBoolIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", key)
 }
 
+// aphrolloTomlString reads one scalar STRING key from `[aphrollo]`.
+func aphrolloTomlString(root, key string) (string, bool) {
+	return tomlStringIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", key)
+}
+
 // mutationRunsLocally says whether the lane's proof is measured on THIS box.
 // A repo with a CI runner that can do it says `mutants-local = false` beside
 // its opt-in and the post-commit hook stops starting detached runs here: one
@@ -176,9 +217,37 @@ func mutationRunsLocally(root string) bool {
 // MutantsWorktreeDir is the ONE dedicated worktree a repo's mutation runs use,
 // beside the lane worktrees rather than inside the checkout: a build dir under
 // the checkout is one a lane's own tooling would find and sweep.
+//
+// It is keyed on the PRIMARY checkout, never on repoRoot directly: repoRoot is
+// routinely a LANE worktree (a commit fires the post-commit hook from wherever
+// it was made), and deriving straight from it nested the mutants tree under
+// the lane's own `.worktrees` entry instead of the repo's
+// (`<parent-of-primary>/.worktrees/<repo>/mutants`) — a path `git worktree add`
+// never has a reason to create, so every run failed at that step. The primary
+// checkout is `--git-common-dir`'s PARENT: that path names the one `.git`
+// directory every worktree of the repo shares, regardless of which one asked.
 func MutantsWorktreeDir(repoRoot string) string {
-	repoRoot = filepath.Clean(repoRoot)
-	return filepath.Join(filepath.Dir(repoRoot), ".worktrees", filepath.Base(repoRoot), "mutants")
+	primary := primaryCheckoutRoot(repoRoot)
+	if primary == "" {
+		primary = filepath.Clean(repoRoot)
+	}
+	return filepath.Join(filepath.Dir(primary), ".worktrees", filepath.Base(primary), "mutants")
+}
+
+// primaryCheckoutRoot resolves repoRoot's PRIMARY checkout — the directory
+// holding the `.git` that `--git-common-dir` names — or "" when repoRoot is
+// not (yet) a git repository at all, in which case the caller falls back to
+// treating repoRoot as its own primary.
+func primaryCheckoutRoot(repoRoot string) string {
+	common := commonGitDir(repoRoot)
+	if common == "" {
+		return ""
+	}
+	dir := filepath.Clean(common)
+	if strings.EqualFold(filepath.Base(dir), ".git") {
+		dir = filepath.Dir(dir)
+	}
+	return dir
 }
 
 // MutantsTargetDir is that worktree's own persistent build directory. It is
@@ -373,7 +442,7 @@ var processStartTokenFn = processStartToken
 // The note goes first because it describes a commit that already exists and
 // costs milliseconds; the run goes second because it outlives this process.
 // Neither half can block — by the time this runs, the commit is made.
-func PostCommitHook(repoRoot string) (MutantsJob, bool) {
+func PostCommitHook(repoRoot string) (MutantsJob, bool, error) {
 	PostCommit(repoRoot)
-	return StartMutantsJob(repoRoot)
+	return startMutantsJob(repoRoot)
 }

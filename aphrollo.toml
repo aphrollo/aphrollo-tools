@@ -7,19 +7,26 @@
 # see it for who does the judging instead.
 mutation-receipt = true
 
-# ...and the proof is NOT measured on the developer's box. A Go mutant is
-# judged by re-running its WHOLE package: 26 s for internal/tdd on the Linux
-# runner against 207 s on a Windows box, and gremlins' analysis pass counts
-# 1626 mutants in that one package. The `mutants` job in
-# .github/workflows/pipeline.yml measures the pull request's own diff on the
-# self-hosted runner instead, and is a required check. With no local run there
-# is no local receipt to demand -- and the runner signs with the RUNNER's
-# machine key -- so the pre-merge-commit gate logs receipt-measured-in-ci and
-# stands down; the required check is what refuses the merge.
-mutants-local = false
+# ...and the proof is measured on the developer's box, like a Cargo workspace:
+# the post-commit hook runs the Go mutation over the lane's diff through the
+# outcome store, writes a receipt signed with this machine's key, and the
+# pre-merge-commit gate consumes it. CI's `mutants` job runs on pushes to main
+# only, as a tripwire that records an escape when it disagrees; nobody waits
+# for it.
+mutants-local = true
 
 # Survivors somebody signed off on: "<file>:<line> <MUTATOR> # why". The
 # reason is not decoration — an entry without one is not an accepted survivor,
 # and the CI check goes red for it. Empty is the state to keep it in.
 mutation-accept = [
+  "internal/ratchet/preset.go:65 CONDITIONALS_NEGATION # comparator is a no-op on embed.FS's already-sorted ReadDir output",
+  "internal/ratchet/preset.go:66 CONDITIONALS_BOUNDARY # comparator is a no-op on embed.FS's already-sorted ReadDir output",
+  "internal/ratchet/preset.go:66 CONDITIONALS_NEGATION # comparator is a no-op on embed.FS's already-sorted ReadDir output",
+  "internal/ratchet/preset.go:68 CONDITIONALS_BOUNDARY # comparator is a no-op on embed.FS's already-sorted ReadDir output",
+  "internal/ratchet/preset.go:68 CONDITIONALS_NEGATION # comparator is a no-op on embed.FS's already-sorted ReadDir output",
+  "internal/ratchet/preset.go:121 ARITHMETIC_BASE # capacity hint only, never observable in the appended slice's length or contents",
+  "internal/ratchet/check.go:196 CONDITIONALS_BOUNDARY # loop body is a no-op on an empty sets map regardless of which side of the boundary lets it run",
+  "internal/tdd/escape.go:296 CONDITIONALS_BOUNDARY # start indexes the opening bracket and end indexes the closing one in the same string; distinct byte values can never share one position, so end == start is unreachable whenever both are found, and when either is -1 the first disjunct already decides — proven equivalent by hand-mutating end < start to end <= start and rerunning TestSyncEscapes*/TestClosedIssueNumbers* locally: same green, no test distinguishes them",
+  "internal/tdd/session.go:264 ARITHMETIC_BASE # the mutated operator sits between two string literals in a const declaration; every arithmetic substitute for + is undefined on strings and fails to compile (verified by hand: 'invalid operation: operator - not defined on ... (untyped string constant)') — not a behavioural gap, a build failure gremlins counted as a survivor",
+  "internal/tdd/mutants_go.go:49 CONDITIONALS_BOUNDARY # clamping workers up to a floor of 1 (`workers < 1`) versus `workers <= 1` differ only when workers == 1: the branch fires either way and reassigns workers = 1, a no-op at that value, so gremlinsArgv's output is identical for every integer input — proven equivalent by hand-mutating < to <= and rerunning the full internal/tdd and internal/cli suites locally: same green, no test distinguishes them",
 ]

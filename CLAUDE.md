@@ -38,13 +38,20 @@ and acts now.
   `aphrollo-dev` bash wrapper).
 - `guardrail pretooluse` — Claude PreToolUse policy hook (block long fg waits, warn noisy cmds).
 - `ratchet` — the law engine: `check` judges a repo against its declared
-  `.ratchet/laws/*.toml`, `test` proves each law against its fixtures.
+  `.ratchet/laws/*.toml` (`--adopt <law>` is the one path that creates or
+  raises a baseline row, gated on the law being new or changed since HEAD),
+  `test` proves each law against its fixtures, `init`/`presets` copy the
+  embedded law library (`internal/ratchet/presets/{common,rust,go}`) into a
+  repo via `extends`/`[params]`.
 - `gate` — the TDD + law gates (`pretooluse`/`posttooluse`/`userpromptsubmit`/`sessionend`/
   `precommit`/`prepush`) + `gate init` (wires session hooks + global git gate); `tdd` is a silent alias for one release.
   Ported from the retired `claude-code-tdd` Node hooks (this binary IS the gate now).
 - `docs check` — doc-reference guard: every repo path a tracked `*.md` cites must
   resolve (relative to the citing file, then repo root); exit 1 on any miss. Bar
-  is zero — no baseline, no allowlist, no suppression.
+  is zero — no baseline, no allowlist, no suppression. The rule itself is the
+  ratchet engine's `doc-path-resolves` matcher (a repo's own
+  `doc_reference_exists` law, else the built-in `common/doc_reference_exists`
+  preset) — this subcommand is CLI surface only.
 
 ## Layout
 
@@ -117,22 +124,32 @@ retired the root build task). aphrollo-infra no longer force-installs it.
 - **The hooks run the tests, not you.** After every Edit/Write, PostToolUse prints
   exactly ONE `gate:` line. Read it; never re-run a suite it just ran. Iterate with
   `cargo check -p <crate> --tests`, which runs nothing.
-- **What the line means:** `green (N passed)` · `red-missing-impl` (a clean RED) ·
-  `red` · `red-bogus` (broken test setup, not a real RED) · `TIMEOUT` / `SKIPPED` /
-  `QUEUED-SKIPPED` (**inconclusive — the code was NOT tested**) · `BUILDING (deferred)`
-  (the build outran the budget and continues; its result arrives at the next hook).
-  The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE
-  targeted `-p <crate> <filter>` after the hook itself said TIMEOUT/SKIPPED.
+- **What the line means:** `green (N passed)` · `red-missing-impl` (a clean RED) · `red` ·
+  `red-bogus` (broken test setup, not a real RED) · `TIMEOUT` / `SKIPPED` / `QUEUED-SKIPPED`
+  (**inconclusive — the code was NOT tested**) · `BUILDING (deferred)` (the build outran the
+  budget and continues; its result arrives at the next hook). The only sanctioned manual runs:
+  a mutation proof, a deliberate soak, or ONE targeted `-p <crate> <filter>` after a TIMEOUT.
 - **Commit gate, cheapest first:** staged-baseline guard → ratchet laws → `cargo fmt`
   → always-run guards → clippy → workspace check → fail-first RED proof → the
   touched crates' suites. It stops at the first rejection and names the stage.
-- **Laws are data:** `.ratchet/laws/*.toml` (scope + one matcher + severity), with
-  baselines in the sibling `baselines` dir that only ever go DOWN. `aphrollo ratchet
-  check` judges the tree and tightens; `aphrollo ratchet test` proves each law against
-  its fixtures. A new hit is admitted by the law's escape comment, NEVER by editing a
-  baseline — the gate rejects a raised one.
-- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) ·
-  `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).
+- **Laws are data:** `.ratchet/laws/*.toml` (scope + one matcher + severity), with baselines in
+  the sibling `baselines` dir that only ever go DOWN. `aphrollo ratchet check` judges the tree
+  and tightens; `aphrollo ratchet test` proves each law against its fixtures. A new hit is
+  admitted by the law's escape comment, NEVER by editing a baseline — a raised one is rejected.
+- **An open point is an ISSUE, never a markdown follow-up:** `aphrollo gate issue "<title>"
+  --label <theme>` opens one against this repo's remote, labelled from the list it declares
+  (`issue-labels`), and prints the URL as its only output — never park one in a document.
+- **Escapes close the loop.** A red after a local green (CI, merge gate, survivor mutant, a
+  playtest defect a check could have caught) is recorded with `aphrollo gate escape record
+  <reason>`, and closed only by a stage or law named in the fix, never by a sentence in this
+  file. The count only goes down; `gate stats` prints it weekly at session start.
+- **The primary checkout is merge-only.** Once a repo has any linked worktree, the checkout holding
+  `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL, the
+  git shim (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit) is the WALL.
+  Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override
+  with `APHROLLO_PRIMARY_EDITS=1` or `/tdd primary-edits on`.
+- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc`
+  (dry run; `--apply` reclaims stale build dirs) · `gate postcommit` starts `gate mutants run`.
 
 _This block is written by `aphrollo gate init`. Edit the template in aphrollo, not
 the block — the next init overwrites whatever is between the markers._

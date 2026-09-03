@@ -34,7 +34,7 @@ Write `spec.md`:
   keeps the previous value", not "handles bad input".
 
 Then read it once with fresh eyes: no TBDs, no section contradicting another,
-no requirement readable two ways. Fix inline.
+no requirement readable two ways. Fix inline, then run `aphrollo ratchet check --no-tighten` and fix every hit.
 
 ## 2. Plan → `plan.md`
 
@@ -54,7 +54,7 @@ Each lane states, with no placeholders:
   only its own lane; this block is how it learns the neighbouring names.
 
 Check the plan against the spec: every acceptance criterion maps to a lane, and
-the names and types used in a later lane match what an earlier one defines.
+the names and types used in a later lane match what an earlier one defines. Then run `aphrollo ratchet check --no-tighten` and fix every hit.
 
 ## 3. Execute
 
@@ -64,7 +64,7 @@ exists, and the gate's own line is the evidence — never a claim without it.
 
 Review each lane cold, by someone who did not write it. At most two fix rounds,
 then park with a ruling. Merge a lane only with the gate green and every
-finding fixed or accepted in the merge body.
+finding fixed or accepted in the merge body. At lane end the spec tree is committed or deleted, never left untracked, or a hand-edit left uncommitted is invisible to the next `gate init` and gets overwritten.
 
 ## 4. Close
 

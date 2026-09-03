@@ -13,11 +13,17 @@ import (
 // the damage is worse — every linked worktree resolves its refs through that
 // checkout's common dir, so moving its HEAD moves the ground under every lane.
 //
-// Only four invocations are refused: the two that CREATE a branch there, the
-// two that move HEAD to a non-main branch, and a `commit` that is not
-// concluding a merge. Everything else — `merge`, `pull`, `fetch`, `reset`,
-// `worktree`, `log`, `status` — is exactly what the primary checkout is for
-// and passes straight through.
+// Refused: the two forms that CREATE a branch there, the two that move HEAD
+// to a non-main branch, a `commit` that is not concluding a merge, a `merge`
+// or `pull` that would fast-forward (a fast-forward moves main with no
+// premergecommit hook firing at all — the whole point of the primary
+// checkout), `cherry-pick` and `rebase` (both land foreign commits on main
+// with no hook either), and a `reset --hard <ref>` that moves main to
+// somewhere else. `--abort`/`--continue`/`--quit`/`--skip` on a cherry-pick or
+// rebase already in progress pass, as does a bare `reset --hard` (discards
+// uncommitted changes, moves nothing) and a `reset` with no `--hard`.
+// Everything else — `fetch`, `worktree`, `log`, `status` — is exactly what
+// the primary checkout is for and passes straight through.
 
 // primaryRefusalLine returns the one-line refusal for an invocation that would
 // take the primary checkout off main, "" when the invocation is fine. It is
@@ -47,8 +53,71 @@ func primaryRefusedVerb(realGit string, rest []string, workDir string) bool {
 		return leavesMainBranch(realGit, workDir, rest[1:], false)
 	case "commit":
 		return !concludingAMerge(realGit, workDir)
+	case "merge":
+		// isPlainMerge already excludes --abort/--continue/--quit: those
+		// conclude or cancel a merge already in progress rather than start
+		// one that could fast-forward.
+		return isPlainMerge(rest) && !hasArg(rest[1:], "--no-ff")
+	case "pull":
+		return !hasArg(rest[1:], "--no-ff")
+	case "cherry-pick", "rebase":
+		return !hasAnyArg(rest[1:], sequencerConcludeFlags)
+	case "reset":
+		return resetHardMovesMain(rest[1:])
 	}
 	return false
+}
+
+// sequencerConcludeFlags are the forms that resume or cancel a cherry-pick or
+// rebase already in progress rather than start one that would land foreign
+// commits on main with no hook to catch it.
+var sequencerConcludeFlags = map[string]bool{
+	"--abort": true, "--continue": true, "--quit": true, "--skip": true,
+}
+
+// hasArg reports whether flag is one of args, verbatim.
+func hasArg(args []string, flag string) bool {
+	for _, a := range args {
+		if a == flag {
+			return true
+		}
+	}
+	return false
+}
+
+// hasAnyArg reports whether any of args is a key of set.
+func hasAnyArg(args []string, set map[string]bool) bool {
+	for _, a := range args {
+		if set[a] {
+			return true
+		}
+	}
+	return false
+}
+
+// resetHardMovesMain reports whether a `reset` invocation both discards the
+// working tree (`--hard`) AND names a ref to move to. A bare `reset --hard`
+// (no ref) only discards uncommitted changes — it moves nothing — and a
+// `reset` with no `--hard` at all is left alone regardless of its ref, per
+// the rule's own scope: this is about main's tip landing somewhere with no
+// hook, not about every way to inspect or stage a diff against another ref.
+func resetHardMovesMain(args []string) bool {
+	hard := false
+	movesRef := false
+	for _, a := range args {
+		if a == "--hard" {
+			hard = true
+			continue
+		}
+		if a == "--" {
+			break
+		}
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		movesRef = true
+	}
+	return hard && movesRef
 }
 
 // branchCreatingFlags are the checkout/switch forms that make a new branch.

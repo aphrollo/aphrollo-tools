@@ -107,11 +107,47 @@ func TestGoMutantsReceipt_AcceptsOnlyTheSurvivorsWithAReason(t *testing.T) {
 	}
 }
 
+// A `]` INSIDE a reason's own quoted text (describing bracket-indexing code,
+// say) is not the array's closing bracket. tomlStringsIn used to close the
+// whole array on the first line containing any `]`, quoted or not, which
+// silently dropped every accept-list entry after the one that happened to
+// mention a bracket (issue #139).
+func TestTomlStringsIn_AQuotedBracketDoesNotCloseTheArrayEarly(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "aphrollo.toml", strings.Join([]string{
+		"[aphrollo]",
+		`mutation-accept = [`,
+		`  "calc.go:1 CONDITIONALS_BOUNDARY # first entry, no bracket",`,
+		`  "calc.go:2 ARITHMETIC_BASE # start indexes '[' and end indexes ']' in the same string",`,
+		`  "calc.go:3 CONDITIONALS_NEGATION # third entry, must still be read",`,
+		"]",
+	}, "\n"))
+
+	survivors := []MutantOutcome{
+		{File: "calc.go", Line: 1, Mutation: "CONDITIONALS_BOUNDARY", Status: "missed"},
+		{File: "calc.go", Line: 2, Mutation: "ARITHMETIC_BASE", Status: "missed"},
+		{File: "calc.go", Line: 3, Mutation: "CONDITIONALS_NEGATION", Status: "missed"},
+	}
+	accepted, unaccepted := splitAcceptedSurvivors(root, survivors)
+	if len(accepted) != 3 {
+		t.Fatalf("accepted = %+v, unaccepted = %+v, want all three entries read past the one with a bracket in its own reason", accepted, unaccepted)
+	}
+}
+
+// An EMPTY quoted string ("") closes on the character immediately after the
+// one that opened it: stripQuoted must still treat what follows as real
+// syntax, not swallow it the way an unterminated quote correctly does.
+func TestStripQuoted_AnEmptyQuotedStringStillLeavesWhatFollows(t *testing.T) {
+	if got := stripQuoted(`""]`); got != "]" {
+		t.Fatalf("stripQuoted(%q) = %q, want %q — an empty quoted pair strips to nothing, leaving the real ]", `""]`, got, "]")
+	}
+}
+
 // The run is scoped to the lane's diff, writes machine-readable output, and
 // is capped: gremlins re-runs the suite per mutant, so an uncapped run owns
 // the box for as long as it takes.
 func TestGremlinsArgv_ScopesToTheLaneDiffAndCapsItself(t *testing.T) {
-	got := strings.Join(gremlinsArgv("abc123", "out.json", 2), " ")
+	got := strings.Join(gremlinsArgv("abc123", "out.json", 2, nil), " ")
 	for _, want := range []string{"unleash", "--diff abc123", "--output out.json", "--workers 2"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("gremlinsArgv = %q, want it to carry %q", got, want)
@@ -125,9 +161,26 @@ func TestGremlinsArgv_ScopesToTheLaneDiffAndCapsItself(t *testing.T) {
 // Measured over this repo's own lane diff on 2026-09-03: "./..." found 0
 // mutants where "." found 20 runnable.
 func TestGremlinsArgv_PassesTheModuleRootNotAPackagePattern(t *testing.T) {
-	got := gremlinsArgv("abc123", "out.json", 1)
+	got := gremlinsArgv("abc123", "out.json", 1, nil)
 	if last := got[len(got)-1]; last != "." {
 		t.Fatalf("gremlins path = %q, want the module root \".\" — a package pattern makes it walk nothing and pass", last)
+	}
+}
+
+// gremlins takes exactly one positional path (cobra.MaximumNArgs(1)), so a
+// file this run already has a valid measurement for is narrowed out through
+// its OWN `--exclude-files <regexp>` flag instead — anchored and escaped, so
+// a file whose path happens to be a substring of another's is never excluded
+// by accident (issue #143).
+func TestGremlinsArgv_ExcludesAlreadyMeasuredFilesByAnchoredRegexp(t *testing.T) {
+	got := strings.Join(gremlinsArgv("abc123", "out.json", 1, []string{"internal/tdd/receipt.go", "a.b.go"}), " ")
+	for _, want := range []string{
+		"--exclude-files ^internal/tdd/receipt\\.go$",
+		"--exclude-files ^a\\.b\\.go$",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("gremlinsArgv = %q, want it to carry %q", got, want)
+		}
 	}
 }
 

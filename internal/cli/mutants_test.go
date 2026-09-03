@@ -3,9 +3,12 @@ package cli
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // The post-commit hook fires after EVERY commit on the box, including ones in
@@ -33,6 +36,71 @@ func TestPostCommit_NeverFailsOutsideAGatedRepo(t *testing.T) {
 	}
 }
 
+// A worktree the hook cannot prepare must be REPORTED, not silenced behind a
+// line that claims the run started: the hook is the operator's only window
+// into a mutation run that happens entirely off-screen from here on (issue
+// #114).
+func TestRunPostCommit_ReportsAWorktreePrepareFailure(t *testing.T) {
+	gateConfigDir(t)
+	isolateGitConfigCLI(t)
+	// A runner genuinely low on disk would otherwise refuse the run for THAT
+	// reason first, masking the prepare failure this test is actually about.
+	t.Cleanup(tdd.SetFreeSpaceForTest(1000, true))
+	root := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	run("config", "user.email", "t@t")
+	run("config", "user.name", "t")
+	if err := os.WriteFile(filepath.Join(root, "Cargo.toml"),
+		[]byte("[package]\nname = \"m\"\nversion = \"0.1.0\"\n[workspace]\n"+
+			"[workspace.metadata.aphrollo]\nmutation-receipt = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "-A")
+	run("commit", "-qm", "opt in")
+	run("checkout", "-q", "-b", "lane/x")
+	if err := os.WriteFile(filepath.Join(root, "extra.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "-A")
+	run("commit", "-qm", "lane work")
+
+	// Block the mutants worktree's own parent directory with a FILE, so its
+	// mkdir fails.
+	blocked := filepath.Join(filepath.Dir(root), ".worktrees", filepath.Base(root))
+	if err := os.MkdirAll(filepath.Dir(blocked), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(blocked, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	var out, errb bytes.Buffer
+	if code := Run([]string{"gate", "postcommit"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("postcommit exit = %d, want 0 — a hook never fails the commit\nstderr: %s", code, errb.String())
+	}
+	if strings.Contains(errb.String(), "started") {
+		t.Fatalf("stderr = %q, want no claim of a run that never started", errb.String())
+	}
+	if !strings.Contains(errb.String(), "gate: mutation run failed to start:") {
+		t.Fatalf("stderr = %q, want the failure reported by name", errb.String())
+	}
+}
+
 // The detached wrapper is addressed by a job file. Pointed at one that is not
 // there it exits clean: it is spawned with nowhere to report, so failing
 // loudly would only leave an unreadable process behind.
@@ -43,6 +111,39 @@ func TestMutantsRun_ExitsCleanWithoutAJobFile(t *testing.T) {
 		strings.NewReader(""), &out, &errb)
 	if code != 0 {
 		t.Fatalf("mutants run exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+}
+
+// `--jobs`/`--base`/`--timeout-multiplier`/`--minimum-test-timeout` typed on
+// `gate mutants run` are the env-versus-flag rule's flag half: they set the
+// override channel BEFORE the job runs, so a maintainer rerunning one job by
+// hand gets the value typed, not whatever the session's environment carried.
+func TestMutantsRun_FlagsSetTheOverrideEnvBeforeTheJobRuns(t *testing.T) {
+	gateConfigDir(t)
+	t.Setenv(tdd.MutantsJobsEnv, "")
+	t.Setenv(tdd.MutantsBaseOverrideEnv, "")
+	t.Setenv(tdd.MutantsTimeoutMultiplierEnv, "")
+	t.Setenv(tdd.MutantsMinTestTimeoutEnv, "")
+
+	var out, errb bytes.Buffer
+	code := Run([]string{"gate", "mutants", "run",
+		"--job", filepath.Join(t.TempDir(), "nope.json"),
+		"--jobs", "4", "--base", "abc123", "--timeout-multiplier", "3", "--minimum-test-timeout", "20s",
+	}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("mutants run exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	if got := os.Getenv(tdd.MutantsJobsEnv); got != "4" {
+		t.Errorf("%s = %q, want the --jobs flag's value", tdd.MutantsJobsEnv, got)
+	}
+	if got := os.Getenv(tdd.MutantsBaseOverrideEnv); got != "abc123" {
+		t.Errorf("%s = %q, want the --base flag's value", tdd.MutantsBaseOverrideEnv, got)
+	}
+	if got := os.Getenv(tdd.MutantsTimeoutMultiplierEnv); got != "3" {
+		t.Errorf("%s = %q, want the --timeout-multiplier flag's value", tdd.MutantsTimeoutMultiplierEnv, got)
+	}
+	if got := os.Getenv(tdd.MutantsMinTestTimeoutEnv); got != "20s" {
+		t.Errorf("%s = %q, want the --minimum-test-timeout flag's value", tdd.MutantsMinTestTimeoutEnv, got)
 	}
 }
 
@@ -95,10 +196,39 @@ func TestMutantsGo_RefusesAReceiptPathWithNoDiff(t *testing.T) {
 // was documented as `run|go --job <file>` alone, so the only way to learn that
 // --diff exists was to read the dispatch.
 func TestGateUsage_DocumentsTheCIModeOfMutantsGo(t *testing.T) {
-	for _, want := range []string{"go --diff <base>", "--receipt <path>"} {
+	for _, want := range []string{"go --diff <base>", "--receipt <path>", "--store <dir>"} {
 		if !strings.Contains(gateUsage, want) {
 			t.Errorf("gate usage does not carry %q — an operator cannot find the CI mode", want)
 		}
+	}
+}
+
+// --store <dir> is CI's outcome-cache override (issue #143), forwarded to
+// GoMutantsCI.Store. Proven by the directory existing afterward:
+// ciMutantStorePath creates it before anything else the run does, and
+// gremlins itself is not installed in this sandbox, so the run fails fast
+// right after — without a mock this is the one externally observable side
+// effect that proves the flag reached the runner rather than being silently
+// dropped by the flag set.
+func TestMutantsGo_StoreFlagIsForwardedToTheOutcomeCache(t *testing.T) {
+	gateConfigDir(t)
+	dir := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	store := filepath.Join(t.TempDir(), "cache")
+	var out, errb bytes.Buffer
+	Run([]string{"gate", "mutants", "go", "--diff", "deadbeef", "--store", store},
+		strings.NewReader(""), &out, &errb)
+
+	if _, err := os.Stat(store); err != nil {
+		t.Fatalf("--store %s was never created: %v — the flag did not reach GoMutantsCI.Store", store, err)
 	}
 }
 

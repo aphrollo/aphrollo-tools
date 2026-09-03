@@ -92,9 +92,20 @@ func MutationReceiptPathFor(tipTree string) string {
 	return filepath.Join(dir, "mutation-receipt."+tipTree+".json")
 }
 
-// mutationGateHint is the command a rejection points at. It names the
-// consuming repo's script, because that is what produces a receipt.
-const mutationGateHint = "run tools/mutation_gate.sh on the lane tip (with a clean worktree) and merge again"
+// mutationGateHint is the command a rejection points at, named through the
+// SAME lookup missingReceiptRemedy uses (mutantsRunnerCommand) — issue #141:
+// every refusal but the missing-receipt one used to hard-code
+// tools/mutation_gate.sh regardless of root, so a Go-only repo hitting a
+// dirty-worktree or bad-verdict refusal was told to run a script it does not
+// have.
+func mutationGateHint(root string) string {
+	return "run " + mutantsRunnerCommand(root) + " on the lane tip (with a clean worktree) and merge again"
+}
+
+// receiptRejectionMarker is the sentence every blockReceipt message carries
+// regardless of root — the part isReceiptRejection reads, since the hint
+// half now varies by repo.
+const receiptRejectionMarker = "the receipt proves it constrains behaviour"
 
 // receiptContext is what the merge in progress knows about the lane being
 // merged: where the checkout is, which repo it belongs to, the LANE TIP's
@@ -115,19 +126,20 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 	tipTree, repo := ctx.TipTree, ctx.Repo
 	path := MutationReceiptPathFor(tipTree)
 	if path == "" {
-		return blockReceipt("no mutation receipt for %s (there is no lane tip to look one up by)", repo)
+		return blockReceipt(ctx.RepoRoot, "no mutation receipt for %s (there is no lane tip to look one up by)", repo)
 	}
 	if laneHasNothingToMutate(ctx) {
 		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-not-required:"+short(tipTree), 0)
 		return nil
 	}
 	data, err := os.ReadFile(path)
+	carried := false
 	if err != nil {
-		if carried, ok := carryReceiptForward(ctx); ok {
-			data = carried
-		} else {
+		c, ok := carryReceiptForward(ctx)
+		if !ok {
 			return blockMissingReceipt(ctx)
 		}
+		data, carried = c, true
 	}
 	// Before a single field is believed: a receipt nothing measured is not a
 	// weaker proof, it is somebody's typing.
@@ -136,23 +148,23 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 	}
 	var r MutationReceipt
 	if err := json.Unmarshal(data, &r); err != nil {
-		return blockReceipt("the mutation receipt at %s is unreadable (%v)", path, err)
+		return blockReceipt(ctx.RepoRoot, "the mutation receipt at %s is unreadable (%v)", path, err)
 	}
 	if r.Repo != "" && repo != "" && !sameRepo(r.Repo, repo) {
-		return blockReceipt("the receipt for tree %s is for %s, not %s", short(tipTree), r.Repo, repo)
+		return blockReceipt(ctx.RepoRoot, "the receipt for tree %s is for %s, not %s", short(tipTree), r.Repo, repo)
 	}
 	if r.WorktreeDirty {
-		return blockReceipt("worktree_dirty: the run measured uncommitted work, not what is being merged")
+		return blockReceipt(ctx.RepoRoot, "worktree_dirty: the run measured uncommitted work, not what is being merged")
 	}
 	if r.Verdict != receiptVerdictPass {
-		return blockReceipt("verdict %q — only %q merges", r.Verdict, receiptVerdictPass)
+		return blockReceipt(ctx.RepoRoot, "verdict %q — only %q merges", r.Verdict, receiptVerdictPass)
 	}
 	if len(r.Unaccepted) > 0 {
-		return blockReceipt("%d unaccepted survivor(s), starting with %s — a code path no test constrains",
+		return blockReceipt(ctx.RepoRoot, "%d unaccepted survivor(s), starting with %s — a code path no test constrains",
 			len(r.Unaccepted), firstUnaccepted(r.Unaccepted))
 	}
 	if r.Timeout > 0 {
-		return blockReceipt("%s", mutantsTimedOutLine(r.Timeout))
+		return blockReceipt(ctx.RepoRoot, "%s", mutantsTimedOutLine(r.Timeout))
 	}
 	switch {
 	case r.BaseSHA == "":
@@ -161,8 +173,22 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 		// stops being invisible.
 		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-unpinned", 0)
 	case ctx.BaseSHA != "" && !strings.EqualFold(r.BaseSHA, ctx.BaseSHA):
-		return blockReceipt("the receipt was measured against base %s, but this merge lands against %s — a different diff, so different mutants",
+		return blockReceipt(ctx.RepoRoot, "the receipt was measured against base %s, but this merge lands against %s — a different diff, so different mutants",
 			short(r.BaseSHA), short(ctx.BaseSHA))
+	}
+	// Every other outcome this stage can reach leaves a line — not-required,
+	// carried, rejected, forged, unsigned, unverifiable, measured-in-ci — but
+	// a plain accept left none at all, so an audit could not tell "this
+	// merge's receipt passed" from "this stage never ran" (issue #136). The
+	// carried case already logged its own line (receipt-carried) naming
+	// where the proof came from; this one is the direct read, kept as its
+	// own count rather than folded into carried's.
+	if !carried {
+		// gate.log is space-separated (see appendGateLog), so the verdict is
+		// ONE token: underscores stand in for the spaces the issue's own
+		// wording uses.
+		appendGateLog("premergecommit", logToken(repo), "mutation-receipt",
+			fmt.Sprintf("receipt-accepted:%s_caught=%d_missed=%d_accepted=%d", short(tipTree), r.Caught, len(r.Survivors), r.Accepted), 0)
 	}
 	return nil
 }
@@ -318,13 +344,49 @@ func missingReceiptRemedy(ctx receiptContext) string {
 	if d, ok := loadMutantsDeath(ctx.TipTree); ok {
 		return fmt.Sprintf("the run died (exit %d) at %s — see %s", d.Exit, d.At.Format("15:04"), d.ErrLog)
 	}
-	return "run tools/mutation_gate.sh main"
+	base := "main"
+	if ctx.RepoRoot != "" {
+		base = laneBaseRef(ctx.RepoRoot)
+	}
+	return "run " + mutantsRunnerCommand(ctx.RepoRoot) + " " + base
 }
 
-func blockReceipt(format string, args ...any) *GateResult {
+// mutantsRunnerCommand names the command that would actually produce a
+// receipt for root: the repo's own declared name (`mutation-runner` under
+// `[workspace.metadata.aphrollo]` in Cargo.toml, or `[aphrollo]` in
+// aphrollo.toml), `tools/mutation_gate.sh` only when the repo genuinely
+// carries one, and this binary's own runner otherwise — never a script name
+// the repo does not have.
+func mutantsRunnerCommand(root string) string {
+	const fallback = "aphrollo gate mutants"
+	if root == "" {
+		return fallback
+	}
+	// cargoWorkspaceRoot answers `root` when it finds no workspace table, so
+	// a single-crate repo's own Cargo.toml is what gets read here.
+	ws := cargoWorkspaceRoot(root)
+	if name, ok := cargoAphrolloString(ws, "mutation-runner"); ok && name != "" {
+		return name
+	}
+	if name, ok := aphrolloTomlString(root, "mutation-runner"); ok && name != "" {
+		return name
+	}
+	if fileExists(filepath.Join(root, "tools", "mutation_gate.sh")) {
+		return "tools/mutation_gate.sh"
+	}
+	return fallback
+}
+
+// blockReceipt refuses a merge over the receipt stage. root is the repo
+// checkout the hint is named for — every refusal now routes through the same
+// mutantsRunnerCommand lookup missingReceiptRemedy uses, so a Go-only repo
+// hitting a dirty-worktree, bad-verdict, wrong-repo, unaccepted-survivor or
+// base-mismatch refusal is never told to run tools/mutation_gate.sh, a
+// script it does not have (issue #141).
+func blockReceipt(root, format string, args ...any) *GateResult {
 	return &GateResult{Blocked: true, Message: fmt.Sprintf(
 		"gate premergecommit: %s. Fail-first proves a test failed once; the receipt proves it constrains behaviour — %s.",
-		fmt.Sprintf(format, args...), mutationGateHint)}
+		fmt.Sprintf(format, args...), mutationGateHint(root))}
 }
 
 // mutantsTimedOutLine is the one sentence every judge prints for a timeout,

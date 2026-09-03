@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -34,6 +35,7 @@ const timedOutReport = `{"files":[
 type gremlinsCall struct {
 	root, baseSHA string
 	workers       int
+	excludeFiles  []string
 }
 
 // fakeGremlins replaces the tool with one that writes the given report (empty
@@ -43,8 +45,8 @@ func fakeGremlins(t *testing.T, report string, code int) *[]gremlinsCall {
 	t.Helper()
 	seen := &[]gremlinsCall{}
 	prev := goMutantsRunFn
-	goMutantsRunFn = func(root, baseSHA, outPath string, workers int) int {
-		*seen = append(*seen, gremlinsCall{root: root, baseSHA: baseSHA, workers: workers})
+	goMutantsRunFn = func(root, baseSHA, outPath string, workers int, excludeFiles []string) int {
+		*seen = append(*seen, gremlinsCall{root: root, baseSHA: baseSHA, workers: workers, excludeFiles: excludeFiles})
 		if report != "" {
 			mustWrite(t, outPath, report)
 		}
@@ -367,14 +369,16 @@ func TestRunGoMutantsCI_MeasuresFromTheRepoRootNotTheDirectoryItWasHanded(t *tes
 // A mutation gate nobody runs is the failure mode this whole design is
 // against, so the wiring is pinned rather than assumed: the pipeline carries
 // the job, it invokes the runner in this package, and it keeps the receipt.
-// The other half of the rule — that `mutants` is a REQUIRED check — lives in
-// GitHub's branch protection and cannot be read from a test.
-func TestPipeline_RunsTheMutationCheckOnEveryPullRequest(t *testing.T) {
+// The job is a tripwire, not a gate: a merge is judged locally under the
+// pre-merge-commit gate, and this run on main records an escape when it
+// disagrees. Nothing waits for it, so it never runs on a pull request.
+func TestPipeline_RunsTheMutationCheckOnPushesToMainOnly(t *testing.T) {
 	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
 	for want, why := range map[string]string{
-		"\n  mutants:\n":         "the pipeline must declare a `mutants` job, which is the name branch protection requires",
-		"gate mutants go --diff": "the job must run the diff-scoped CI runner, not the detached local job",
-		"upload-artifact":        "the run's receipt is its evidence and must leave the runner",
+		"\n  mutants:\n":                      "the pipeline must declare a `mutants` job: the tripwire that runs after a local merge lands",
+		"    if: github.event_name == 'push'": "the job runs on pushes to main only; a pull request is never judged by it, the local pre-merge gate is",
+		"gate mutants go --diff":              "the job must run the diff-scoped CI runner, not the detached local job",
+		"upload-artifact":                     "the run's receipt is its evidence and must leave the runner",
 	} {
 		if !strings.Contains(wf, want) {
 			t.Errorf("%s (looked for %q in .github/workflows/pipeline.yml)", why, want)
@@ -387,13 +391,13 @@ func TestPipeline_RunsTheMutationCheckOnEveryPullRequest(t *testing.T) {
 // merge gate's own reader (mutationReceiptStage calls it), and
 // mutationRunsLocally is what the post-commit hook and that same stage consult
 // to decide whether a local run exists to demand a receipt from.
-func TestAphrolloToml_RequiresTheProofAndLeavesItToCI(t *testing.T) {
+func TestAphrolloToml_RequiresTheProofAndMeasuresItLocally(t *testing.T) {
 	root := repoRootForTest(t)
 	if !mutationReceiptOptIn(root) {
 		t.Error("aphrollo.toml must keep `mutation-receipt = true`: mutationReceiptStage reads it through mutationReceiptOptIn")
 	}
-	if mutationRunsLocally(root) {
-		t.Error("aphrollo.toml must say `mutants-local = false`: this repo's proof is measured on the CI runner")
+	if !mutationRunsLocally(root) {
+		t.Error("aphrollo.toml must say `mutants-local = true`: the post-commit job on this box writes the receipt the pre-merge gate consumes; CI runs only the tripwire on main")
 	}
 }
 
@@ -429,5 +433,133 @@ func TestRunGoMutantsCI_ScopesTheRunToTheGivenMergeBase(t *testing.T) {
 
 	if len(*ran) != 1 || (*ran)[0].baseSHA != "deadbeef" {
 		t.Fatalf("gremlins was scoped to %+v, want the given merge base", *ran)
+	}
+}
+
+// twoFilesReport is what a --diff base finds over a lane touching two files,
+// both killed.
+const twoFilesReport = `{"files":[
+  {"file_name":"calc.go","mutations":[
+    {"type":"ARITHMETIC_BASE","status":"KILLED","line":3,"column":2}]},
+  {"file_name":"other.go","mutations":[
+    {"type":"ARITHMETIC_BASE","status":"KILLED","line":3,"column":2}]}]}`
+
+// twoModulesReport is what a --diff base finds over a lane touching one file
+// in each of two separate modules, both killed.
+const twoModulesReport = `{"files":[
+  {"file_name":"calc.go","mutations":[
+    {"type":"ARITHMETIC_BASE","status":"KILLED","line":3,"column":2}]},
+  {"file_name":"pkg2/other.go","mutations":[
+    {"type":"ARITHMETIC_BASE","status":"KILLED","line":3,"column":2}]}]}`
+
+// onlyPkg2Report is what a --diff base finds over a lane touching just
+// pkg2/other.go — the shape a NARROWED, excluded-files run produces.
+const onlyPkg2Report = `{"files":[
+  {"file_name":"pkg2/other.go","mutations":[
+    {"type":"ARITHMETIC_BASE","status":"KILLED","line":3,"column":2}]}]}`
+
+// A second push over a tree UNCHANGED since the last measured run is the
+// case issue #143 exists for: every mutant the store already answers for is
+// carried, and gremlins is not even started (0 measured).
+func TestRunGoMutantsCI_SecondRunOverAnUnchangedTreeMeasuresZeroAndCarriesEverything(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root, base := ciRepoWith(t, map[string]string{
+		"calc.go":  "package m\n\nfunc Calc() int { return 1 }\n",
+		"other.go": "package m\n\nfunc Other() int { return 2 }\n",
+	})
+	store := t.TempDir()
+
+	ran1 := fakeGremlins(t, twoFilesReport, 0)
+	RunGoMutantsCI(GoMutantsCI{Root: root, BaseSHA: base, Store: store}, &bytes.Buffer{})
+	if len(*ran1) != 1 {
+		t.Fatalf("the first push must measure — the store starts empty, got %d call(s)", len(*ran1))
+	}
+
+	ran2 := fakeGremlins(t, twoFilesReport, 0)
+	var out bytes.Buffer
+	RunGoMutantsCI(GoMutantsCI{Root: root, BaseSHA: base, Store: store}, &out)
+
+	if len(*ran2) != 0 {
+		t.Fatalf("a second run over an UNCHANGED tree started gremlins %d time(s), want 0: %+v", len(*ran2), *ran2)
+	}
+	if want := "0 measured, 2 carried"; !strings.Contains(out.String(), want) {
+		t.Fatalf("output = %q, want it to report %q", out.String(), want)
+	}
+}
+
+// A changed file re-runs that file's own package's mutants; a file in a
+// DIFFERENT package the push never touched carries its prior verdict — the
+// partial-carry shape issue #143 asks for, proven through the seam rather
+// than a real gremlins (which cannot run in this sandbox). The fence is
+// keyed by MODULE (nearest go.mod), so the two files need their own go.mod
+// to fall in different fences at all: one shared module would invalidate
+// both on either one's change, by design (mutants_plan.go).
+func TestRunGoMutantsCI_AChangedFileReRunsItsMutantsCarryingTheUnchangedOne(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root, base := ciRepoWith(t, map[string]string{
+		"calc.go":       "package m\n\nfunc Calc() int { return 1 }\n",
+		"pkg2/go.mod":   "module pkg2\n\ngo 1.24\n",
+		"pkg2/other.go": "package pkg2\n\nfunc Other() int { return 2 }\n",
+	})
+	store := t.TempDir()
+
+	fakeGremlins(t, twoModulesReport, 0)
+	RunGoMutantsCI(GoMutantsCI{Root: root, BaseSHA: base, Store: store}, &bytes.Buffer{})
+
+	// The second push touches pkg2/other.go only — calc.go's blob (and its
+	// own module's fence) is unchanged.
+	write(t, root, "pkg2/other.go", "package pkg2\n\nfunc Other() int { return 3 }\n")
+	gitDo(t, root, "add", "-A")
+	gitDo(t, root, "commit", "-qm", "second push")
+
+	ran2 := fakeGremlins(t, onlyPkg2Report, 0)
+	var out bytes.Buffer
+	RunGoMutantsCI(GoMutantsCI{Root: root, BaseSHA: base, Store: store}, &out)
+
+	if len(*ran2) != 1 {
+		t.Fatalf("the second push must start gremlins exactly once, got %d call(s)", len(*ran2))
+	}
+	if got := (*ran2)[0].excludeFiles; !slices.ContainsFunc(got, func(s string) bool { return strings.Contains(s, "calc.go") }) {
+		t.Fatalf("excludeFiles = %v, want calc.go excluded — its blob and its own module's fence never changed", got)
+	}
+	if want := "1 measured, 1 carried"; !strings.Contains(out.String(), want) {
+		t.Fatalf("output = %q, want it to report %q", out.String(), want)
+	}
+}
+
+// An empty --store must resolve to the machine-local default MutantStorePath
+// already uses, never a bare "" path a later os.MkdirAll("", ...) silently
+// no-ops on — that would write outcomes.json into whatever the CURRENT
+// working directory happens to be, corrupting an unrelated tree.
+func TestCiMutantStorePath_EmptyStoreFallsBackToTheMachineLocalDefault(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := t.TempDir()
+
+	got := ciMutantStorePath("", repo)
+	want := MutantStorePath(repo)
+
+	if got != want {
+		t.Fatalf("ciMutantStorePath(%q, repo) = %q, want the machine-local default %q", "", got, want)
+	}
+}
+
+// An explicit --store <dir> (CI's actions/cache path) must win over the
+// machine-local default, and land the outcomes file directly under it.
+func TestCiMutantStorePath_ExplicitStoreWinsOverTheMachineLocalDefault(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := t.TempDir()
+	store := filepath.Join(t.TempDir(), "cache-dir")
+
+	got := ciMutantStorePath(store, repo)
+	want := filepath.Join(store, "outcomes.json")
+
+	if got != want {
+		t.Fatalf("ciMutantStorePath(%q, repo) = %q, want %q", store, got, want)
+	}
+	if got == MutantStorePath(repo) {
+		t.Fatalf("an explicit --store must never resolve to the same path as the machine-local default")
+	}
+	if _, err := os.Stat(store); err != nil {
+		t.Fatalf("ciMutantStorePath must create the store directory, got err=%v", err)
 	}
 }

@@ -201,6 +201,65 @@ func TestMutantsWorktree_IsOneDedicatedTreePerRepo(t *testing.T) {
 	}
 }
 
+// A commit fires the post-commit hook from wherever it was made, and a LANE
+// commit fires it from a lane worktree, not the repo's primary checkout.
+// MutantsWorktreeDir must resolve the same mutants tree from either: the one
+// `--git-common-dir` names, never a path nested under the lane's OWN
+// `.worktrees` entry (issue #114 — a lane under
+// `<parent>/.worktrees/borld/mutation-runner` wanted
+// `<parent>/.worktrees/borld/.worktrees/mutation-runner/mutants`, a path
+// `git worktree add` never had a reason to create).
+func TestMutantsWorktree_ResolvesFromThePrimaryCheckoutNotTheLaneRoot(t *testing.T) {
+	root := makeCargoRepo(t)
+	parent := filepath.Dir(root)
+	lane := filepath.Join(parent, ".worktrees", filepath.Base(root), "some-lane")
+	gitDo(t, root, "worktree", "add", "-b", "lane/some-lane", lane)
+
+	want := filepath.Join(parent, ".worktrees", filepath.Base(root), "mutants")
+	if got := MutantsWorktreeDir(lane); got != want {
+		t.Fatalf("MutantsWorktreeDir(lane) = %q, want %q (the primary's tree, not one nested under the lane)", got, want)
+	}
+	if got := MutantsWorktreeDir(root); got != want {
+		t.Fatalf("MutantsWorktreeDir(primary) = %q, want %q", got, want)
+	}
+}
+
+// A worktree that cannot be prepared — here, its own parent directory is a
+// FILE — must not report "started": the failure is caught synchronously,
+// before the parent process ever spawns the detached job or claims it did.
+func TestStartMutantsJob_WorktreePrepareFailureIsLoggedAndReturned(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	withFreeSpace(t, 200)
+	root := optedInLane(t)
+
+	blocked := filepath.Dir(MutantsWorktreeDir(root))
+	if err := os.MkdirAll(filepath.Dir(blocked), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(blocked, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	j, ok, err := startMutantsJob(root)
+	if ok {
+		t.Fatalf("job = %+v, want ok=false when the worktree cannot be prepared", j)
+	}
+	if err == nil {
+		t.Fatal("want a non-nil error naming the prepare failure")
+	}
+	found := false
+	for line := range strings.SplitSeq(gateLogText(t, cfg), "\n") {
+		e, ok := parseGateLine(line)
+		if ok && strings.HasPrefix(e.verdict, "mutants-worktree-failed:") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("gate.log has no mutants-worktree-failed entry:\n%s", gateLogText(t, cfg))
+	}
+}
+
 // The run mutates the warm worktree IN PLACE over the lane's own diff. A tree
 // copy is what put 135 MB per run in the OS temp dir and rebuilt the world
 // cold each time.
@@ -364,8 +423,8 @@ func TestPostCommitHook_WritesTheNoteAndStartsTheRun(t *testing.T) {
 	root := optedInLane(t)
 	stampGreenSuiteForTest(t, root)
 
-	if _, ok := PostCommitHook(root); !ok {
-		t.Fatal("the mutation run did not start, so the note replaced it")
+	if _, ok, err := PostCommitHook(root); !ok {
+		t.Fatalf("the mutation run did not start, so the note replaced it (err: %v)", err)
 	}
 	if len(started) != 1 {
 		t.Fatalf("runs started = %d, want 1", len(started))

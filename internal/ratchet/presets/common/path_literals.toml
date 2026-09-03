@@ -1,0 +1,13 @@
+name        = "path_literals"
+description = "A temp path is never a hand-written literal — go through the repo's own scratch-path helper instead of /tmp, os.TempDir() or a bare C:\\Temp."
+severity    = "deny"
+escape      = "// path-literal-ok:"
+
+[scope]
+include = ["**/*.go", "**/*.rs", "**/*.py"]
+exclude = ["**/target/**", "**/node_modules/**", "**/vendor/**"]
+
+[matcher]
+kind    = "regex-absent"
+pattern = "(os\\.TempDir\\(\\)|\"/tmp/|ioutil\\.TempDir\\()"
+key     = "file:line-content-hash"

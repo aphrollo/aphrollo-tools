@@ -90,12 +90,15 @@ func TestMutantsArgv_ExcludesTheMutantsAlreadyJudged(t *testing.T) {
 	}
 }
 
-// The job's own stdout and stderr are FILES, and they live in the mutation
-// worktree's build directory — never in the source tree, where a stray
-// untracked file makes the receipt's own dirty check fail the run it is
-// describing.
-func TestMutantsJobLogs_LiveOutsideTheSourceTree(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+// The job's own stdout and stderr are FILES, and they live beside the gate's
+// other state — never inside the mutation worktree cargo-mutants mutates in
+// place, and never in the lane's own source tree. A log created inside the
+// worktree before it exists is a log the worktree's own creation can never
+// reach; a stray untracked one written there during a run makes the run's own
+// dirty check fail the tree it is describing.
+func TestMutantsJobLogs_LiveInGateStateNeverInAWorktree(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	var started []MutantsJob
 	fakeSpawn(t, &started)
 	root := optedInLane(t)
@@ -108,8 +111,11 @@ func TestMutantsJobLogs_LiveOutsideTheSourceTree(t *testing.T) {
 		if path == "" {
 			t.Fatal("a job with nowhere to write its output loses every word of it")
 		}
-		if !strings.HasPrefix(filepath.Clean(path), filepath.Clean(MutantsTargetDir(root))) {
-			t.Fatalf("log %s is not under the mutation build dir %s", path, MutantsTargetDir(root))
+		if !strings.HasPrefix(filepath.Clean(path), filepath.Clean(cfg)) {
+			t.Fatalf("log %s does not live under the gate's own state dir %s", path, cfg)
+		}
+		if strings.HasPrefix(filepath.Clean(path), filepath.Clean(MutantsWorktreeDir(root))) {
+			t.Fatalf("log %s sits inside the mutation worktree", path)
 		}
 		if strings.HasPrefix(filepath.Clean(path), filepath.Clean(root)+string(filepath.Separator)) {
 			t.Fatalf("log %s sits in the source tree", path)

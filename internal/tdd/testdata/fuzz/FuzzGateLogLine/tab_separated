@@ -1,0 +1,2 @@
+go test fuzz v1
+string("2026-09-03T12:00:00Z\tpostedit\t/repo\tcmd\tgreen\t1.0s")

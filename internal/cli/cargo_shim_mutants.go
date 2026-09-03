@@ -27,14 +27,46 @@ import (
 // invocation typed was not it.
 const mutantsRefusal = "gate: run tools/mutation_gate.sh <base> — bare cargo mutants builds a cold copy in the OS temp dir and holds the build lock for hours"
 
+// deprecatedMutationGateEnv is the one-release grace: the old handshake
+// variable no longer decides anything (a nested `cargo mutants` is let
+// through by its target dir, same as everything else), but a caller still
+// setting it is not refused outright — it is let through once more and
+// logged, so the removal shows up before it breaks anyone.
+const deprecatedMutationGateEnv = "APHROLLO_MUTATION_GATE"
+
 // refuseBareMutants reports whether this invocation is a hand-typed `cargo
-// mutants`, and prints the one line that says what to do instead.
-func refuseBareMutants(args []string, stderr io.Writer) bool {
-	if cargoVerb(args) != "mutants" || os.Getenv(tdd.MutationGateEnv) == "1" {
+// mutants`, and prints the one line that says what to do instead. targetDir
+// is the shim's own resolution of where THIS invocation would build: the
+// gated run mutates its dedicated worktree in place, so a call building into
+// that worktree's own target dir is the gated run, whatever environment it
+// carries or does not. The old MUTATION_GATE handshake variable is dead —
+// this no longer reads it at all.
+func refuseBareMutants(args []string, targetDir string, stderr io.Writer) bool {
+	if cargoVerb(args) != "mutants" || underMutantsWorktree(targetDir) {
+		return false
+	}
+	if os.Getenv(deprecatedMutationGateEnv) == "1" {
+		logDeprecatedMutationGateEnv(targetDir)
 		return false
 	}
 	fmt.Fprintln(stderr, mutantsRefusal)
 	return true
+}
+
+// deprecatedMutationGateLogged makes the deprecation notice fire once per
+// process, matching bypassLogged: a build invokes the shim many times, and
+// one line per invocation would drown the log it is meant to make readable.
+var deprecatedMutationGateLogged sync.Once
+
+// resetDeprecatedMutationGateLog lets a test observe the once-per-process rule.
+func resetDeprecatedMutationGateLog() { deprecatedMutationGateLogged = sync.Once{} }
+
+// logDeprecatedMutationGateEnv records a call that relied on the retired
+// handshake variable rather than on building into the mutants worktree.
+func logDeprecatedMutationGateEnv(targetDir string) {
+	deprecatedMutationGateLogged.Do(func() {
+		tdd.AppendGateLog("precommit", targetDir, "cargo", "mutation-gate-env-deprecated", 0)
+	})
 }
 
 // queueBypassAllowed reports whether this invocation may skip the build queue

@@ -1,0 +1,11 @@
+name        = "module_size"
+description = "A module stays under its line ceiling — split by execution phase before it grows past the limit."
+severity    = "deny"
+
+[scope]
+include = ["**/*.rs", "**/*.go"]
+exclude = ["**/target/**", "**/node_modules/**", "**/vendor/**"]
+
+[matcher]
+kind = "line-count"
+max  = 600

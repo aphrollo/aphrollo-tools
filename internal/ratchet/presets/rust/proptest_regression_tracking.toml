@@ -1,0 +1,12 @@
+name        = "proptest_regression_tracking"
+description = "proptest-regressions files are tracked, never gitignored — a regression a fuzz run found once must reproduce for every peer, not just the box that found it."
+severity    = "deny"
+escape      = "// regressions-untracked-ok:"
+
+[scope]
+include = ["**/.gitignore"]
+
+[matcher]
+kind    = "regex-absent"
+pattern = "proptest-regressions"
+key     = "file:line-content-hash"

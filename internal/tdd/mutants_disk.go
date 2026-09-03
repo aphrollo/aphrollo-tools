@@ -104,6 +104,17 @@ func nearestExistingDir(dir string) string {
 // without filling a disk.
 var freeSpaceGBFn = freeSpaceGB
 
+// SetFreeSpaceForTest overrides the free-space probe for the duration of a
+// test, restoring the real one after. Exported because internal/cli's
+// postcommit tests exercise the real disk-space refusal on the way to a
+// DIFFERENT failure they are testing for, and a runner genuinely low on disk
+// must not let that refusal fire first and mask the scenario under test.
+func SetFreeSpaceForTest(gb int, ok bool) (restore func()) {
+	prev := freeSpaceGBFn
+	freeSpaceGBFn = func(string) (int, bool) { return gb, ok }
+	return func() { freeSpaceGBFn = prev }
+}
+
 // doctorDiskSpace reports the free space on the drive holding this project's
 // target dir, warning under doctorDiskWarnGB. It is a fact about the box, not
 // a broken install, so it warns and never fails.

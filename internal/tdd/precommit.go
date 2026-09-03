@@ -241,7 +241,7 @@ func mutationReceiptStage(repoRoot string) *GateResult {
 		// The gate failed on its own inputs, so it says which input: a clean
 		// automerge has no MERGE_HEAD yet, and only GIT_REFLOG_ACTION names
 		// the branch coming in.
-		return blockReceipt("no lane tip to look a receipt up by (neither .git/MERGE_HEAD nor %s names a merged branch)", reflogActionEnv)
+		return blockReceipt(repoRoot, "no lane tip to look a receipt up by (neither .git/MERGE_HEAD nor %s names a merged branch)", reflogActionEnv)
 	}
 	// The repo's shared git COMMON dir, never repoRoot's own directory name:
 	// a linked worktree is routinely named unlike the repo (a lane checked

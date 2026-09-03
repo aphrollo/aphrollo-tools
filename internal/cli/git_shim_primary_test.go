@@ -86,6 +86,90 @@ func TestRunGitShim_RefusesBranchCreationInThePrimaryCheckout(t *testing.T) {
 	}
 }
 
+// A fast-forward merge, a fast-forward pull, a cherry-pick, a rebase or a
+// `reset --hard` onto another ref all move main with no premergecommit hook
+// firing at all — the same hole a branch-creating checkout opens, just
+// through five other doors (issue #116).
+func TestRunGitShim_RefusesTheVerbsThatBypassThePrimaryHook(t *testing.T) {
+	primary, _, cfg := primaryShimRepo(t)
+	initSHA := strings.TrimSpace(mustOutput(t, cfg.realGit, primary, "rev-parse", "HEAD"))
+
+	for _, args := range [][]string{
+		{"merge", "lane/x"},
+		{"pull", "origin", "main"},
+		{"cherry-pick", initSHA},
+		{"rebase", "lane/x"},
+		{"reset", "--hard", "lane/x"},
+	} {
+		var out, errb bytes.Buffer
+		code := runGitShim(args, strings.NewReader(""), &out, &errb, cfg)
+		if code == 0 {
+			t.Errorf("git %s in the primary checkout should be refused, got exit 0", strings.Join(args, " "))
+		}
+		if !strings.Contains(errb.String(), "primary checkout is merge-only") {
+			t.Errorf("git %s: refusal must name the rule, got %q", strings.Join(args, " "), errb.String())
+		}
+		if b := currentBranch(t, cfg.realGit, primary); b != "main" {
+			t.Fatalf("git %s moved the primary checkout to %q — the refusal must happen before git runs",
+				strings.Join(args, " "), b)
+		}
+	}
+}
+
+// The refusal is narrow: it exists to make sure the hook fires, not to trap
+// an operator resolving a conflict already in progress, or discarding
+// uncommitted changes without moving anywhere.
+func TestRunGitShim_AllowsTheSequencerConcludeVerbsAndAHarmlessReset(t *testing.T) {
+	primary, _, cfg := primaryShimRepo(t)
+
+	for _, args := range [][]string{
+		{"cherry-pick", "--abort"},
+		{"cherry-pick", "--continue"},
+		{"cherry-pick", "--quit"},
+		{"rebase", "--abort"},
+		{"rebase", "--continue"},
+		{"rebase", "--skip"},
+		{"reset", "--hard"},
+		{"reset", "lane/x"},
+	} {
+		var out, errb bytes.Buffer
+		runGitShim(args, strings.NewReader(""), &out, &errb, cfg)
+		if strings.Contains(errb.String(), "merge-only") {
+			t.Errorf("git %s must not be refused, got %q", strings.Join(args, " "), errb.String())
+		}
+	}
+	if b := currentBranch(t, cfg.realGit, primary); b != "main" {
+		t.Fatalf("primary checkout moved to %q — reset lane/x should have stayed on main's own tree state", b)
+	}
+}
+
+// `--no-ff` is the escape that keeps the merge (or pull) itself passing
+// through: it is what makes the resulting commit real rather than a
+// fast-forward, so the premergecommit hook fires on it.
+func TestRunGitShim_AllowsAMergeOrPullThatCannotFastForward(t *testing.T) {
+	_, linked, cfg := primaryShimRepo(t)
+	writeAndCommit(t, cfg.realGit, linked, "lane.go", "package lane\n", "lane work")
+
+	var out, errb bytes.Buffer
+	code := runGitShim([]string{"merge", "--no-ff", "--no-commit", "lane/x"}, strings.NewReader(""), &out, &errb, cfg)
+	if code != 0 {
+		t.Fatalf("git merge --no-ff should pass through, exit = %d\n%s", code, errb.String())
+	}
+	if strings.Contains(errb.String(), "merge-only") {
+		t.Fatalf("git merge --no-ff must not be refused, got %q", errb.String())
+	}
+}
+
+// mustOutput runs git and hands back its stdout, failing the test on error.
+func mustOutput(t *testing.T, realGit, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command(realGit, append([]string{"-C", dir}, args...)...).Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return string(out)
+}
+
 func TestRunGitShim_RefusesACommitThatIsNotConcludingAMerge(t *testing.T) {
 	primary, _, cfg := primaryShimRepo(t)
 	if err := os.WriteFile(filepath.Join(primary, "main.go"), []byte("package main // edited\n"), 0o644); err != nil {
