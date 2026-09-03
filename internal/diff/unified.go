@@ -91,7 +91,7 @@ const noNewlineMarker = "\\ No newline at end of file\n"
 // into an explicit -/+ pair so each side carries its own marker — matching
 // git's own rendering of a trailing-newline-only change.
 func markMissingTrailingNewline(ops []op, beforeNL, afterNL bool) []op {
-	if beforeNL && afterNL || len(ops) == 0 {
+	if beforeNL == afterNL || len(ops) == 0 {
 		return ops
 	}
 	lastOld, lastNew := -1, -1

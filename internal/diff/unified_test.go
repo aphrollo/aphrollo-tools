@@ -187,3 +187,15 @@ func TestUnifiedRendersALostTrailingNewline(t *testing.T) {
 		t.Fatalf("Unified mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
+
+// TestUnifiedIsEmptyWhenBothSidesLackATrailingNewlineAndMatch covers the
+// fourth (before-has-newline x after-has-newline) combination the other three
+// trailing-newline tests miss: both before and after lack a trailing
+// newline AND their content is otherwise identical. That must still collapse
+// to "" — before == after byte-for-byte — never render a diff for zero actual
+// change, per Unified's own doc comment.
+func TestUnifiedIsEmptyWhenBothSidesLackATrailingNewlineAndMatch(t *testing.T) {
+	if got := Unified("f.txt", "a", "a"); got != "" {
+		t.Fatalf("Unified of identical no-trailing-newline text = %q, want empty", got)
+	}
+}
