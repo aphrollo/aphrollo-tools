@@ -93,6 +93,16 @@ internal/sqlc/       sqlc drift guard: config discovery, regen-into-temp, check,
   comments; suppression detectors mask strings, keep comments) — a token only in
   a string never blocks. Keep edit-time blocks near-zero-FP; heavy checks
   (fail-first) live at commit/push where a false block only costs a re-run.
+- **An issue closes on the merge, never before.** Every fix commit carries its
+  `Closes #<n>` trailer and GitHub fires it when the lane lands on `main`. Do
+  not close an issue by hand for work that is committed but unmerged: the fix is
+  not in `main` yet, and if the merge is refused or the change reworked, the
+  issue is already closed and nobody looks again. The general rule it comes
+  from: never record a status further along than the work actually is. A
+  `deferred`, `TIMEOUT` or `SKIPPED` verdict is not a green — the code was not
+  tested. A merge needs the receipt the gate actually demands, not one waved
+  through. A new hit is admitted by the law's escape comment, never by editing
+  a baseline.
 - **Attribution: honest here.** This is first-party tooling, not a client-facing
   undercover repo — the `🤖 Generated with Claude Code` footer + `Co-Authored-By`
   are fine (matches aphrollo-agents; per the box `~/CLAUDE.md` per-repo rule).
