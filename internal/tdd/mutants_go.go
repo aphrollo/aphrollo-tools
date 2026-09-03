@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -32,18 +33,32 @@ const gremlinsBin = "gremlins"
 // write the machine-readable report, and stay inside the worker cap. gremlins
 // re-runs the package's tests once per mutant, so an uncapped run owns the box
 // for as long as it takes.
-func gremlinsArgv(baseSHA, outPath string, workers int) []string {
+//
+// excludeFiles is repo-relative paths the run must not even WALK — gremlins'
+// own `--exclude-files` takes a filepath regexp (internal/exclusion.Rules,
+// matched against the fs.WalkDir path gremlins mutates from), so each one is
+// anchored and escaped into `^<path>$` before being passed. This is the CI
+// runner's incremental lever (issue #143): a file whose blob and package
+// fence are unchanged since the last measured push is excluded here rather
+// than re-mutated, while `--diff` keeps scoping which LINES are mutable
+// within whatever gremlins does walk. gremlins takes exactly one positional
+// path (cobra.MaximumNArgs(1)) — "./..." makes it walk nothing, report no
+// results and exit 0 — so narrowing happens through exclusion, never through
+// a second positional argument.
+func gremlinsArgv(baseSHA, outPath string, workers int, excludeFiles []string) []string {
 	if workers < 1 {
 		workers = 1
 	}
-	return []string{"unleash", "--silent",
+	argv := []string{"unleash", "--silent",
 		"--diff", baseSHA,
 		"--output", outPath,
 		"--workers", strconv.Itoa(workers),
-		// A PATH, not a package pattern: gremlins walks the tree from here.
-		// "./..." makes it walk nothing, report no results and exit 0.
-		".",
 	}
+	for _, f := range excludeFiles {
+		argv = append(argv, "--exclude-files", "^"+regexp.QuoteMeta(filepath.ToSlash(f))+"$")
+	}
+	// A PATH, not a package pattern: gremlins walks the tree from here.
+	return append(argv, ".")
 }
 
 // gremlinsFileReport is the shape gremlins writes with --output, captured from
@@ -156,7 +171,7 @@ func RunGoMutantsJob(jobPath string) int {
 // and target dir. Its output is this process's, which the parent pointed at
 // the job's log files.
 func runGremlins(j MutantsJob, outPath string, workers int) int {
-	cmd := exec.Command(gremlinsBin, gremlinsArgv(j.BaseSHA, outPath, workers)...)
+	cmd := exec.Command(gremlinsBin, gremlinsArgv(j.BaseSHA, outPath, workers, nil)...)
 	cmd.Dir = j.Worktree
 	cmd.Env = mutantsChildEnv(j, nil)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr

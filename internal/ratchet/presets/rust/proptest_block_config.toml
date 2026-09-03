@@ -1,0 +1,14 @@
+name        = "proptest_block_config"
+description = "A proptest! block's #![proptest_config] sets its case count explicitly rather than inheriting whatever the default happens to be this release."
+severity    = "warn"
+
+[scope]
+include = ["**/tests/**/*.rs", "**/src/**/*.rs"]
+exclude = ["target/**"]
+
+[matcher]
+kind      = "marker-within-lines"
+trigger   = "proptest!\\s*\\{"
+marker    = "cases\\s*:"
+direction = "below"
+lines     = 4

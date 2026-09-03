@@ -1186,6 +1186,7 @@ include = ["crates/**/*.rs"]
 exclude = ["**/target/**", "crates/ratchet/tests/**"]
 ignore_gitignore = false                        # optional: judge gitignored files too
 min_files = 40                                  # optional: fewer matched files is a regression
+alias = "tier1"                                 # optional: base Include on a named set (below)
 
 [matcher]                                       # exactly ONE
 kind    = "regex-absent"
@@ -1218,6 +1219,23 @@ citation law reads) — `ignore_gitignore = true` opts THAT law into the ignored
 files, and the fix is never to weaken the repo's `.gitignore` for a guard's
 benefit. `.git` is never walked, opt-out or not.
 
+**Scope aliases.** A `scopes.toml` file under `.ratchet/` names reusable file
+sets so several laws that share a boundary (Tier-1, presentation, …) state
+the glob list once:
+
+```toml
+[sets]
+tier1 = ["crates/movement/**", "crates/pose/**", "crates/numeric/**"]
+```
+
+A law's `[scope].alias` resolves to that set's globs, merged as the BASE of
+its own `include` (a law may still widen further with its own entries; both
+apply). `ratchet check` refuses a law whose alias names a set `scopes.toml`
+never declares — one line naming the law and the alias — and reports, as a
+warning, a set no law's alias uses. `ratchet test` resolves an alias the same
+way, through the same `LoadLaws` call, so a fixture proves a law through its
+alias exactly like it proves one through a literal `include` list.
+
 A scope is a claim about coverage, so the engine judges it too. `min_files`
 is the floor below which a clean verdict is not a verdict: a law whose globs
 quietly stopped matching (a crate renamed, a `**` dropped) reports green over
@@ -1249,13 +1267,13 @@ accepts either. `contiguous` applies in whichever direction is chosen.
 
 | kind | keys | the rule | exemplar |
 |---|---|---|---|
-| `line-count` | `max` | a file may not exceed `max` lines; key = file, count = lines | module-size debt |
+| `line-count` | `max`, `count`, `unit_split` | a file may not exceed `max` lines; key = file, count = lines (`count = "code"` drops blank and comment-only lines, by the file's own `//`/`/* */`/`#` syntax) | module-size debt |
 | `regex-absent` | `pattern`, `key`, `count` | a pattern must NOT appear; `count = "matches"` counts every call on a line, not the line | the bare `.clamp(` guard |
 | `path-regex-absent` | `pattern` | the repo-relative PATH must not match; key = the path, no line | a filename carrying a plan-item stamp or a serial letter |
 | `regex-present` | `pattern` | every file in scope MUST contain it | a proptest that must carry an explicit seed |
 | `marker-within-lines` | `trigger`, `marker`, `lines`, `contiguous`, `direction` | a `trigger` line requires a `marker` within N lines above (or below, or either), or in the comment run beside it | `// bound:` over a collection that grows |
 | `registry-both-ways` | `registry_file`, `entry_pattern`, `use_pattern` | every use is registered AND every registry line is used; the LAST non-empty capture of a use match is the name, so an alternation with one group per branch works | the dev-instrument (env switch) registry |
-| `doc-path-resolves` | `pattern` | a captured `.md` path must resolve at the repo root or inside the citing file's own `crates/<x>`/`tools/<x>` unit | doc citations |
+| `doc-path-resolves` | `pattern` | a captured path must resolve relative to the CITING file's own directory, then the repo root, then inside its own `crates/<x>`/`tools/<x>` unit | doc citations |
 | `dep-graph-forbids` | `roots`, `forbidden`, `edges`, `min_reachable` | no root package may REACH a forbidden one (glob) through the resolved dependency graph; `edges = "normal"` (default) never follows dev/build edges, which is the whole distinction | dev-only tooling in a shipping binary |
 | `file-set-containment` | `superset_file`, `subset_file`, `capture` | every capture in `subset_file` must also appear in `superset_file` | a headless stand-in whose query must refuse at least what the real one refuses |
 | `json-number-ceiling` | `files`, `path`, `tolerance_pct`, `enabled_env` | a number read out of generated JSON may not exceed its baseline by more than the tolerance | a criterion bench figure nobody was reading |
@@ -1279,6 +1297,21 @@ loudly instead of reporting green over files they never opened.
   is a leaf rather than a broken walk, so `min_reachable` is what answers
   vacuity there — a walk that reached fewer packages than the floor fails
   loudly instead of reporting clean.
+- **`line-count`**'s `count = "code"` judges only lines that carry CODE: blank
+  lines and comment-only lines (by extension — `//` and `/* */` for
+  `.rs`/`.go`/`.ts`, `#` for `.py`/`.sh`/`.toml`) never count toward `max`. A
+  baseline recorded under the default `count = "text"` still compares fine —
+  a code count is always LOWER, so switching never looks like a regression —
+  but the ceiling is now stale, and `check` says so once per site rather than
+  silently tightening it away on the next run. `unit_split` (a regex) judges
+  the file as TWO units against the same `max` when it matches a line — the
+  matching line opens the second unit — keyed `<path>` and `<path>#tests`, so
+  a test module inline with its source does not inflate the module's own debt
+  and vice versa; a file the regex never matches is one unit, unchanged.
+- **`doc-path-resolves`**'s resolution order is citing-file-relative first —
+  a markdown link is written relative to the file that holds it — then the
+  repo root, then the `crates/<x>`/`tools/<x>` locality convention — the first
+  one that names a real file or directory wins.
 - **`path-regex-absent`** judges the NAME, never the contents: a probe file
   called `task19_buckling.rs` is the offence, and reading it would never show
   that. Hits carry no line, so `expected.txt` in its fixtures lists bare paths.
@@ -1425,6 +1458,48 @@ over a rule that is itself broken. A narrowed run reports uses nobody
 registered but never claims a registry line is stale: that needs the whole
 tree.
 
+#### Adopting a baseline (`--adopt`)
+
+`check`'s tighten only ever LOWERS or REMOVES a row — never creates a file,
+never raises one — which is correct for the everyday path but leaves no way
+for a law to land its FIRST baseline, or for a deliberately widened one to
+land its next: a brand-new deny law with real hits gets no baseline file at
+all, and widening an existing law's scope just reports every newly-reached
+hit as a regression forever. `ratchet check --adopt <law>` is the deliberate
+door: it writes that law's baseline from what the tree measures RIGHT NOW,
+raising or creating rows as needed, allowed only when the law has no baseline
+file yet, or its `.toml` differs from HEAD — otherwise it refuses with one
+line naming the law and the reason, so `--adopt` can never quietly launder an
+unrelated raise. The commit-time staged-baseline guard (below) knows the same
+rule: a raised or brand-new row is accepted when the law that owns the
+baseline is ITSELF staged with a `[matcher]` or `[scope]` change in the same
+commit, logged `baseline-adopted:<law>:<rows>`, and refused exactly as before
+otherwise.
+
+#### The law library (`ratchet init` / `ratchet presets`)
+
+A known-good law does not have to be typed from scratch in every repo: this
+binary embeds a set of PRESETS — ordinary law bodies, grouped `common` /
+`rust` / `go`, with a `{{name}}` slot wherever a value is repo-specific (a
+banned pattern, an env-prefix list, a dependency-graph root).
+`aphrollo ratchet presets` lists every one, group/name and the params its
+template asks for; `aphrollo ratchet init --preset common,rust --param
+pattern=TODO\( --param prefixes=BORLD` copies each preset in those groups
+into `.ratchet/laws/*.toml`, substituting `--param name=value` into its `{{name}}`
+slots and adding `extends = "preset:<group>/<name>"` plus a `[params]` table
+recording what it used. A preset with an unfilled slot is `[skip]`ped, named,
+with what `--param` it still needs — nothing half-rendered is ever written —
+and a name already under `laws/` is `[skip]`ped too: `init` is idempotent,
+safe to re-run over a partly-adopted set.
+
+The written file is otherwise an ORDINARY law: `extends` and `[params]`
+change nothing about how it is scanned. What they buy is drift detection —
+`ratchet check` re-renders the named preset with the law's own `[params]` and
+warns, once per law, when its `[matcher]` no longer matches: a fork nobody
+flagged as one. `doc_reference_exists` is also how `aphrollo docs check`
+finds its rule when a repo declares no law of its own — see [Doc-reference
+guard](#doc-reference-guard-aphrollo-docs-check).
+
 #### Commands
 
 ```sh
@@ -1433,7 +1508,10 @@ aphrollo ratchet check --only nan-guard      # one law
 aphrollo ratchet check --format json         # what the hooks read
 aphrollo ratchet check --no-tighten          # report only
 aphrollo ratchet check --proposed crates/a.rs=/tmp/new.rs   # judge content not on disk
+aphrollo ratchet check --adopt nan-guard     # write nan-guard's baseline from the tree (new or widened law only)
 aphrollo ratchet test                        # prove every law against its fixtures
+aphrollo ratchet presets                     # list every embedded preset and its params
+aphrollo ratchet init --preset common,rust --param pattern=TODO\( --param prefixes=BORLD
 ```
 
 A repeat `check` costs milliseconds: every file's hits are cached under the
@@ -1591,13 +1669,22 @@ aphrollo docs check path/to/repo    # scan another repo root
 aphrollo docs check README.md docs  # narrow to pathspecs in the cwd repo
 ```
 
-It reads tracked `*.md` (`git ls-files`) and extracts two kinds of citation:
-markdown link/image targets `[..](path)`, and inline-code tokens that look like
-repo paths — a slash plus a file extension (`internal/cli/cli.go`) or a
-multi-segment trailing-slash directory (`internal/lsp/`). Each reference is
-resolved first relative to the citing file, then to the repo root. `http(s)` /
-`mailto` URLs, bare `#anchors`, absolute/home paths, and anything inside a fenced
-code block are ignored. Every miss prints as
+This command is a CLI surface only: the extraction and resolution rule is the
+[ratchet engine](#ratchet-laws-aphrollo-ratchet)'s own `doc-path-resolves`
+matcher, one implementation for both a repo's own law and this default. It
+reads tracked `*.md` (`git ls-files`) and judges each against a repo's own
+`doc_reference_exists` law, when its `.ratchet/laws/*.toml` declares one,
+else the built-in `common/doc_reference_exists` preset — a markdown link/image target
+`[..](path)`, or an inline-code token that looks like a repo path (a slash
+plus a file extension, or a multi-segment trailing-slash directory), resolved
+first relative to the citing file, then the repo root, then the
+`crates/<x>`/`tools/<x>` locality convention. `http(s)`/`mailto` URLs, bare
+`#anchors`, and absolute/home paths are never captured as citations at all —
+the matcher's own character class excludes them, not a special case. A
+citation inside a fenced code block is judged exactly like one outside it: the
+matcher is a stateless per-line scan and does not track fences, which a repo
+wanting fence-awareness answers with a narrower `pattern` in its own law.
+Every miss prints as
 
 ```
 file:line: unresolved reference: <path>

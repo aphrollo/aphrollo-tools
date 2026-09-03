@@ -231,10 +231,14 @@ Subcommands:
                     DETACHED local run, spawned by postcommit and not typed by
                     hand; the go verb drives gremlins over the lane diff and
                     writes the same receipt the Rust runner does.
-                    go --diff <base> [--receipt <path>] is CI's: it measures
-                    <base>..HEAD in this checkout in the FOREGROUND and is the
-                    check — exit 1 on an unaccepted survivor, a timeout, or a
-                    run that measured nothing; exit 2 on a bad invocation
+                    go --diff <base> [--receipt <path>] [--store <dir>] is CI's:
+                    it measures <base>..HEAD in this checkout in the FOREGROUND
+                    and is the check — exit 1 on an unaccepted survivor, a
+                    timeout, or a run that measured nothing; exit 2 on a bad
+                    invocation. --store names the outcome cache's directory
+                    (an actions/cache path keyed on the head branch), so a
+                    push that changed one file carries the rest of the PR's
+                    prior measurements forward instead of re-running them
   receipt           receipt sign [--outcomes <path>] <file>: stamp a mutation
                     receipt with this machine's MAC. The ONLY writer of one —
                     every runner signs through it
@@ -1359,6 +1363,11 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
+	// Housekeeping, best-effort: the merge already landed by the time this
+	// runs, so a sweep failure must not fail the merge (issue #144). Every
+	// other lane's worktree is a candidate; this one, still running the
+	// merge, is excluded regardless of its own branch's state.
+	tdd.PruneMergedLanesAfterMerge(t.MainRepo, t.Worktree, stdout, stderr)
 	return 0
 }
 
@@ -1987,12 +1996,13 @@ Subcommands:
                     Exit 1 on any unresolved reference. Read-only.
 
 Scans tracked *.md (git ls-files) under the repo root (default: cwd repo);
-narrow to specific pathspecs by passing them. Extracts markdown link targets
-[..](path) and inline-code tokens that look like repo paths (a slash + a file
-extension, or a multi-segment trailing-slash dir). Each reference is resolved
-relative to the citing file, then to the repo root. http(s)/mailto URLs, bare
-#anchors, absolute/home paths, and anything inside a fenced code block are
-ignored. Reports every miss as:
+narrow to specific pathspecs by passing them. The extraction and resolution
+rule is the ratchet engine's own doc-path-resolves matcher — this command is
+its CLI surface, nothing more: a repo that declares its own
+.ratchet/laws/doc_reference_exists.toml is judged by that law, else by the
+built-in default (a markdown link target or an inline-code token that looks
+like a repo-relative path, resolved relative to the citing file's own
+directory, then the repo root). Reports every miss as:
 
   file:line: unresolved reference: <path>
 

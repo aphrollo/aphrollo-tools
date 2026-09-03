@@ -1,0 +1,12 @@
+name        = "comment_hygiene"
+description = "A comment must not match {{pattern}} — say the rule this repo bans in that comment shape, at the review that adds it."
+severity    = "warn"
+
+[scope]
+include = ["**/*.rs", "**/*.go", "**/*.py", "**/*.ts"]
+exclude = ["**/target/**", "**/node_modules/**", "**/vendor/**"]
+
+[matcher]
+kind    = "regex-absent"
+pattern = "{{pattern}}"
+key     = "file:line-content-hash"

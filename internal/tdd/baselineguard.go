@@ -2,7 +2,9 @@ package tdd
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -45,7 +47,16 @@ func baselineStage(gateName, repoRoot string) GateResult {
 		if !ok {
 			continue
 		}
-		offences = append(offences, raisedKeys(rel, before, after)...)
+		raised := raisedKeys(rel, before, after)
+		if len(raised) == 0 {
+			continue
+		}
+		if lawName, rows, adopted := adoptionCovers(repoRoot, rel, len(raised)); adopted {
+			appendGateLog(gateName, repoRoot, "baseline guard",
+				fmt.Sprintf("baseline-adopted:%s:%d", lawName, rows), 0)
+			continue
+		}
+		offences = append(offences, raised...)
 	}
 	if len(offences) == 0 {
 		return GateResult{}
@@ -138,6 +149,81 @@ func matchesAnyGlob(globs []string, rel string) bool {
 		}
 	}
 	return false
+}
+
+// baselineDeclare matches a law's `baseline = "<path>"` line.
+var baselineDeclare = regexp.MustCompile(`(?m)^\s*baseline\s*=\s*"([^"]*)"`)
+
+// sectionPattern extracts one `[name]` table's body, up to the next `[` at
+// the start of a line or end of file — good enough for the coarse "did
+// matcher or scope move" comparison this guard needs, without pulling in the
+// ratchet package's own (unexported) TOML parser.
+func sectionPattern(name string) *regexp.Regexp {
+	return regexp.MustCompile(`(?ms)^\[` + regexp.QuoteMeta(name) + `\]\s*\n(.*?)(?:\n\[|\z)`)
+}
+
+var scopeSection, matcherSection = sectionPattern("scope"), sectionPattern("matcher")
+
+func section(re *regexp.Regexp, text string) string {
+	m := re.FindStringSubmatch(text)
+	if m == nil {
+		return ""
+	}
+	return strings.TrimSpace(m[1])
+}
+
+// adoptionCovers reports whether the law that declares baselineRel as its
+// `baseline` is ITSELF staged with a [matcher] or [scope] change in this
+// commit — the one circumstance a raised or brand-new row is reviewed
+// alongside the law that justifies it, rather than rejected by hand. rows is
+// echoed back for the adoption log line.
+func adoptionCovers(repoRoot, baselineRel string, rows int) (lawName string, _ int, adopted bool) {
+	lawsDir := filepath.Join(repoRoot, ".ratchet", "laws")
+	entries, err := os.ReadDir(lawsDir)
+	if err != nil {
+		return "", 0, false
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".toml") {
+			continue
+		}
+		lawRel := filepath.ToSlash(filepath.Join(".ratchet", "laws", e.Name()))
+		staged, ok := gitBlob(repoRoot, ":"+lawRel)
+		if !ok {
+			// Not staged in this commit at all: it cannot be the law being
+			// widened right now, but it may still be the one that OWNS the
+			// baseline (an out-of-band raise), so its on-disk text still
+			// answers the ownership question — just never the adoption one.
+			data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(lawRel)))
+			if err != nil {
+				continue
+			}
+			if ownsBaseline(string(data), baselineRel) {
+				return strings.TrimSuffix(e.Name(), ".toml"), 0, false
+			}
+			continue
+		}
+		if !ownsBaseline(staged, baselineRel) {
+			continue
+		}
+		name := strings.TrimSuffix(e.Name(), ".toml")
+		head, ok := gitBlob(repoRoot, "HEAD:"+lawRel)
+		if !ok {
+			// The law itself is new in this commit: nothing to compare against,
+			// and a new law's first baseline is exactly the adoption case.
+			return name, rows, true
+		}
+		changed := section(scopeSection, staged) != section(scopeSection, head) ||
+			section(matcherSection, staged) != section(matcherSection, head)
+		return name, rows, changed
+	}
+	return "", 0, false
+}
+
+// ownsBaseline reports whether lawText declares `baseline = "<rel>"`.
+func ownsBaseline(lawText, rel string) bool {
+	m := baselineDeclare.FindStringSubmatch(lawText)
+	return m != nil && filepath.ToSlash(m[1]) == rel
 }
 
 // gitBlob reads one object's text (`HEAD:<path>`, `:<path>` for the index).

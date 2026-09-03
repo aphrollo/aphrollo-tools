@@ -1,0 +1,13 @@
+name        = "nolint_reason"
+description = "Every //nolint directive states its reason on the line — a suppression with no reason is a rule nobody can review."
+severity    = "deny"
+
+[scope]
+include = ["**/*.go"]
+exclude = ["**/vendor/**"]
+
+[matcher]
+kind    = "marker-within-lines"
+trigger = "//\\s*nolint"
+marker  = "//\\s*nolint.*:\\S"
+lines   = 0

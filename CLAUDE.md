@@ -38,13 +38,20 @@ and acts now.
   `aphrollo-dev` bash wrapper).
 - `guardrail pretooluse` — Claude PreToolUse policy hook (block long fg waits, warn noisy cmds).
 - `ratchet` — the law engine: `check` judges a repo against its declared
-  `.ratchet/laws/*.toml`, `test` proves each law against its fixtures.
+  `.ratchet/laws/*.toml` (`--adopt <law>` is the one path that creates or
+  raises a baseline row, gated on the law being new or changed since HEAD),
+  `test` proves each law against its fixtures, `init`/`presets` copy the
+  embedded law library (`internal/ratchet/presets/{common,rust,go}`) into a
+  repo via `extends`/`[params]`.
 - `gate` — the TDD + law gates (`pretooluse`/`posttooluse`/`userpromptsubmit`/`sessionend`/
   `precommit`/`prepush`) + `gate init` (wires session hooks + global git gate); `tdd` is a silent alias for one release.
   Ported from the retired `claude-code-tdd` Node hooks (this binary IS the gate now).
 - `docs check` — doc-reference guard: every repo path a tracked `*.md` cites must
   resolve (relative to the citing file, then repo root); exit 1 on any miss. Bar
-  is zero — no baseline, no allowlist, no suppression.
+  is zero — no baseline, no allowlist, no suppression. The rule itself is the
+  ratchet engine's `doc-path-resolves` matcher (a repo's own
+  `doc_reference_exists` law, else the built-in `common/doc_reference_exists`
+  preset) — this subcommand is CLI surface only.
 
 ## Layout
 
@@ -137,12 +144,12 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   <reason>`, and closed only by a stage or law named in the fix, never by a sentence in this
   file. The count only goes down; `gate stats` prints it weekly at session start.
 - **The primary checkout is merge-only.** Once a repo has any linked worktree, the checkout holding
-  `main` takes merges and nothing else: the hooks deny an edit there, and the git shim refuses
-  `checkout -b`/`switch -c`, a move off main, and a commit not concluding a merge. Work in a lane:
-  `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override with
-  `APHROLLO_PRIMARY_EDITS=1` or `/tdd primary-edits on`.
-- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) ·
-  `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).
+  `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL, the
+  git shim (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit) is the WALL.
+  Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override
+  with `APHROLLO_PRIMARY_EDITS=1` or `/tdd primary-edits on`.
+- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc`
+  (dry run; `--apply` reclaims stale build dirs) · `gate postcommit` starts `gate mutants run`.
 
 _This block is written by `aphrollo gate init`. Edit the template in aphrollo, not
 the block — the next init overwrites whatever is between the markers._

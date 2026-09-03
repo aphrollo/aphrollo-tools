@@ -8,6 +8,13 @@ import "strings"
 type Scope struct {
 	Include []string
 	Exclude []string
+	// Alias names a set declared in the repo's `.ratchet/scopes.toml`
+	// (`[sets] <alias> = [glob, ...]`), resolved into Include at load time —
+	// LoadLaws prepends the named set's globs to whatever Include this scope
+	// also declares, so several laws sharing a boundary (Tier-1, presentation)
+	// state it once. Kept after resolution so a caller can see which alias, if
+	// any, a scope came from.
+	Alias string
 	// IgnoreGitignore walks files git ignores. The walk is gitignore-aware so
 	// no law has to enumerate build output, but a repo that ignores a whole
 	// extension (borld ignores `*.md` for generated design pages) hides files

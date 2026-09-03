@@ -293,6 +293,36 @@ func TestPrimaryMergeOnlyReason_NamesPruneWhenAStaleEntryExists(t *testing.T) {
 	}
 }
 
+// A session's project directory can be a DIFFERENT repo entirely from the one
+// a Bash command writes into — a borld-rooted session `cd`ing into an
+// aphrollo-tools worktree, say. The classifier must resolve the repo (and
+// name it in the remedy) from the RESOLVED WRITE TARGET, never from the
+// session's own project directory (issue 142).
+func TestPrimaryCheckout_CrossRepoBashNamesTheWriteTargetsRepoNotTheSessionRepo(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	sessionRepo, _ := primaryRepo(t)            // e.g. the borld primary the session started in
+	otherPrimary, otherLinked := primaryRepo(t) // e.g. aphrollo-tools, a wholly different repo
+
+	cmd := "cd " + shellPath(otherLinked) + " && echo hi > notes.txt"
+	d := PrimaryCheckoutDecision(bashPayload(t, "bx1", sessionRepo, cmd))
+	if d.Action != Allow {
+		t.Fatalf("%q writes into another repo's linked worktree, not the session repo's primary, got %+v", cmd, d)
+	}
+
+	target := filepath.Join(otherPrimary, "notes.txt")
+	cmd2 := "cd " + shellPath(otherLinked) + " && echo hi > " + shellPath(target)
+	d2 := PrimaryCheckoutDecision(bashPayload(t, "bx2", sessionRepo, cmd2))
+	if d2.Action != Block {
+		t.Fatalf("%q writes into the OTHER repo's primary checkout, got %+v", cmd2, d2)
+	}
+	if !strings.Contains(d2.Reason, filepath.Base(otherPrimary)) {
+		t.Fatalf("reason %q must name the repo the command actually targets (%s), not the session's own repo (%s)", d2.Reason, otherPrimary, sessionRepo)
+	}
+	if strings.Contains(d2.Reason, filepath.Base(sessionRepo)) {
+		t.Fatalf("reason %q must not name the session's own repo — the command never touched it", d2.Reason)
+	}
+}
+
 func TestExistingAncestorDir_WalksUpPastDirectoriesTheWriteWouldCreate(t *testing.T) {
 	base := t.TempDir()
 	deep := filepath.Join(base, "a", "b", "c")

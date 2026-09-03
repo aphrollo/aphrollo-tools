@@ -1,0 +1,11 @@
+name        = "proptest_runner_seed"
+description = "A checked-in proptest regression file states its case hash and seed explicitly, in the format proptest itself writes — a hand-edited line is a broken repro."
+severity    = "warn"
+
+[scope]
+include = ["**/*.proptest-regressions", "**/proptest-regressions/**"]
+exclude = ["target/**"]
+
+[matcher]
+kind    = "regex-present"
+pattern = "(?m)^cc [0-9a-f]{16}"

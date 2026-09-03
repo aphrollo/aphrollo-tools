@@ -1,6 +1,9 @@
 package ratchet
 
 import (
+	"os"
+	"path/filepath"
+	"reflect"
 	"regexp"
 	"testing"
 )
@@ -29,6 +32,260 @@ func TestLineCountHitsOnlyAboveMaxAndWeighsTheWholeFile(t *testing.T) {
 	}
 	if hits[0].What != "4 lines (max 3)" {
 		t.Errorf("what = %q", hits[0].What)
+	}
+}
+
+// TestLineCountCodeModeExcludesBlankAndCommentOnlyLines proves `count =
+// "code"` drops blank lines and `//`-only lines before comparing to Max, so a
+// file padded with whitespace and comments does not trip a law that a text
+// count would.
+func TestLineCountCodeModeExcludesBlankAndCommentOnlyLines(t *testing.T) {
+	l := lawWith(Matcher{Kind: KindLineCount, Max: 3, Key: KeyFile, LineMode: LineCountCode})
+	// 3 code lines, 3 blank/comment lines: text mode would hit at 6, code mode must not.
+	content := "fn a() {}\n\n// a comment\nfn b() {}\n\nfn c() {}\n"
+	if hits := l.HitsIn("a.rs", content); len(hits) != 0 {
+		t.Errorf("code-mode count must ignore blank and comment-only lines: %+v", hits)
+	}
+	if hits := l.HitsIn("a.rs", content+"fn d() {}\n"); len(hits) != 1 {
+		t.Errorf("a 4th code line must still hit: %+v", hits)
+	}
+}
+
+// TestLineCountCodeModeExcludesBlockCommentSpan proves a full-line `/* … */`
+// block comment run does not count either, for the C-like default syntax.
+func TestLineCountCodeModeExcludesBlockCommentSpan(t *testing.T) {
+	l := lawWith(Matcher{Kind: KindLineCount, Max: 2, Key: KeyFile, LineMode: LineCountCode})
+	content := "fn a() {}\n/*\n a doc block\n spanning lines\n*/\nfn b() {}\n"
+	if hits := l.HitsIn("a.rs", content); len(hits) != 0 {
+		t.Errorf("a block-comment span must not count as code: %+v", hits)
+	}
+}
+
+// TestLineCountCodeModeUsesHashSyntaxForPy proves the comment syntax is
+// chosen by the FILE's own extension, never the law's comment_prefix.
+func TestLineCountCodeModeUsesHashSyntaxForPy(t *testing.T) {
+	l := lawWith(Matcher{Kind: KindLineCount, Max: 2, Key: KeyFile, LineMode: LineCountCode})
+	if hits := l.HitsIn("a.py", "# a comment\ndef f():\n    pass\n"); len(hits) != 0 {
+		t.Errorf("a `#`-comment line must not count for a .py file: %+v", hits)
+	}
+}
+
+// TestLineCountUnitSplitJudgesTwoUnitsSeparately proves a file crossing the
+// split regex is judged as two units against the same Max, each keyed by its
+// own path — `path` above the split, `path#tests` at and below it.
+func TestLineCountUnitSplitJudgesTwoUnitsSeparately(t *testing.T) {
+	l := lawWith(Matcher{Kind: KindLineCount, Max: 2, Key: KeyFile, UnitSplit: regexp.MustCompile(`^mod tests`)})
+	// 3 lines above the split (over max), 2 lines from the split onward (at max).
+	content := "a\nb\nc\nmod tests {\n}\n"
+	hits := l.HitsIn("a.rs", content)
+	if len(hits) != 1 || hits[0].Key != "a.rs" {
+		t.Fatalf("hits = %+v, want exactly one hit keyed a.rs", hits)
+	}
+
+	// Push the tests unit over max too: both units must hit, with the second
+	// carrying the `#tests` key.
+	content = "a\nb\nc\nmod tests {\n}\nextra\n"
+	hits = l.HitsIn("a.rs", content)
+	if len(hits) != 2 {
+		t.Fatalf("hits = %+v, want both units to hit", hits)
+	}
+	got := keys(hits)
+	if got[0] != "a.rs" || got[1] != "a.rs#tests" {
+		t.Errorf("keys = %v, want [a.rs a.rs#tests]", got)
+	}
+}
+
+// TestLineCountUnitSplitNoMatchIsOneUnit proves a file the split regex never
+// matches is judged whole, exactly like a law with no unit_split at all.
+func TestLineCountUnitSplitNoMatchIsOneUnit(t *testing.T) {
+	l := lawWith(Matcher{Kind: KindLineCount, Max: 3, Key: KeyFile, UnitSplit: regexp.MustCompile(`^mod tests`)})
+	hits := l.HitsIn("a.rs", "a\nb\nc\nd\n")
+	if len(hits) != 1 || hits[0].Key != "a.rs" {
+		t.Fatalf("hits = %+v, want one hit keyed a.rs", hits)
+	}
+}
+
+// TestLineCountUnitSplitMatchingTheFirstLineStillSplits proves the boundary
+// at idx == 0: a split regex matching the FILE'S FIRST LINE still opens a
+// (empty) first unit and a second unit covering the whole file, never
+// treated the same as "no match at all" (idx == -1).
+func TestLineCountUnitSplitMatchingTheFirstLineStillSplits(t *testing.T) {
+	l := lawWith(Matcher{Kind: KindLineCount, Max: 1, Key: KeyFile, UnitSplit: regexp.MustCompile(`^mod tests`)})
+	content := "mod tests {\n}\nextra\n"
+	hits := l.HitsIn("a.rs", content)
+	// First unit is 0 lines (never hits); second unit is all 3 lines, over
+	// max 1, keyed a.rs#tests. Treated as "no match" this would instead judge
+	// the WHOLE file as one unit keyed a.rs.
+	if len(hits) != 1 || hits[0].Key != "a.rs#tests" {
+		t.Fatalf("hits = %+v, want exactly one hit keyed a.rs#tests", hits)
+	}
+}
+
+// TestCodeLinesClosesABlockCommentWhoseCloserOpensAtColumnZero proves the
+// close-search boundary: a `*/` line with NOTHING before the closer on its
+// own trimmed line still closes the block (idx == 0, not "not found").
+func TestCodeLinesClosesABlockCommentWhoseCloserOpensAtColumnZero(t *testing.T) {
+	got := codeLines([]string{"fn a() {}", "/*", "doc", "*/", "fn b() {}"}, "a.rs")
+	want := []string{"fn a() {}", "fn b() {}"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("codeLines = %v, want %v", got, want)
+	}
+}
+
+// TestCodeLinesDropsASameLineBlockCommentWithNothingAfter proves a
+// same-line `/* ... */` that closes with nothing but whitespace left over is
+// comment-only and dropped — exercising the exact byte offset the close
+// search resumes from, not just whether SOME text follows.
+func TestCodeLinesDropsASameLineBlockCommentWithNothingAfter(t *testing.T) {
+	got := codeLines([]string{"fn a() {}", "/*c*/", "fn b() {}"}, "a.rs")
+	want := []string{"fn a() {}", "fn b() {}"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("codeLines = %v, want %v", got, want)
+	}
+}
+
+// TestCodeLinesKeepsASameLineBlockCommentFollowedByRealCode proves the other
+// side: real code after the closer on the SAME line is never dropped, at the
+// same offset TestCodeLinesDropsASameLineBlockCommentWithNothingAfter proves
+// empty.
+func TestCodeLinesKeepsASameLineBlockCommentFollowedByRealCode(t *testing.T) {
+	got := codeLines([]string{"fn a() {}", "/* note */ let x = 1;"}, "a.rs")
+	want := []string{"fn a() {}", "/* note */ let x = 1;"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("codeLines = %v, want %v", got, want)
+	}
+}
+
+// TestCodeLinesDropsASameLineBlockCommentFollowedByALineComment proves the
+// trailing-line-comment half of the same check: `/* … */ // more` is still
+// comment-only end to end, never counted as code.
+func TestCodeLinesDropsASameLineBlockCommentFollowedByALineComment(t *testing.T) {
+	got := codeLines([]string{"fn a() {}", "/* note */ // more"}, "a.rs")
+	want := []string{"fn a() {}"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("codeLines = %v, want %v", got, want)
+	}
+}
+
+// TestIsPathContinuationCoversEveryContinuationByteAndItsNeighbors is a
+// table proving every character isPathContinuation must accept — the
+// alphanumeric ranges and every glob/identifier byte the doc-path-resolves
+// boundary check relies on — and the byte immediately outside each range,
+// which must be refused.
+func TestIsPathContinuationCoversEveryContinuationByteAndItsNeighbors(t *testing.T) {
+	accept := []byte("azAZ09.-_/*?{}<>")
+	for _, b := range accept {
+		if !isPathContinuation(b) {
+			t.Errorf("isPathContinuation(%q) = false, want true", string(b))
+		}
+	}
+	// One byte just below 'a' ('`'), one just above 'Z' ('['), one just
+	// below 'A' ('@'), one just above '9' (':') — none is a letter, digit,
+	// or a glob byte, unlike their immediate neighbors above.
+	for _, b := range []byte{'`', '[', '@', ':', ' ', ')', '(', ',', '|', '!', '~', '+', '='} {
+		if isPathContinuation(b) {
+			t.Errorf("isPathContinuation(%q) = true, want false", string(b))
+		}
+	}
+}
+
+// docLaw builds a doc-path-resolves law rooted at dir, so docResolves judges
+// real files under it rather than the process's cwd.
+func docPathLaw(t *testing.T, dir, pattern string) Law {
+	t.Helper()
+	l := lawWith(Matcher{Kind: KindDocPathResolves, Pattern: regexp.MustCompile(pattern), Key: KeyLineContent})
+	l.Root = dir
+	return l
+}
+
+const genericDocPattern = "(?:`|\\]\\()((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+\\.[A-Za-z0-9]+|(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+/)"
+
+// TestDocPathHitsIgnoresAPartialMatchInsideALongerToken proves the matcher
+// never reports a hit for a PREFIX of a longer identifier: `refs/notes/gate`
+// (backtick-quoted prose, not a citation at all) must not be read as citing
+// the bare directory `refs/notes/`.
+func TestDocPathHitsIgnoresAPartialMatchInsideALongerToken(t *testing.T) {
+	l := docPathLaw(t, t.TempDir(), genericDocPattern)
+	hits := l.HitsIn("doc.md", "see `refs/notes/gate` for detail\n")
+	if len(hits) != 0 {
+		t.Errorf("hits = %+v, want none — refs/notes/gate is not a directory citation", hits)
+	}
+}
+
+// TestDocPathHitsIgnoresAGlobContinuation proves a glob suffix after a
+// trailing slash disqualifies it as a directory citation too:
+// `.ratchet/laws/*.toml` must never be read as citing `.ratchet/laws/`.
+func TestDocPathHitsIgnoresAGlobContinuation(t *testing.T) {
+	l := docPathLaw(t, t.TempDir(), genericDocPattern)
+	hits := l.HitsIn("doc.md", "the glob `.ratchet/laws/*.toml` matches every law\n")
+	if len(hits) != 0 {
+		t.Errorf("hits = %+v, want none — the glob suffix means this is not a bare directory citation", hits)
+	}
+}
+
+// TestDocPathResolvesAcceptsARealDirectory proves a trailing-slash citation
+// (Form B) resolves against an actual DIRECTORY, not only a file — the doc
+// convention `internal/tdd/` names a directory on purpose.
+func TestDocPathResolvesAcceptsARealDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "tdd"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	l := docPathLaw(t, dir, genericDocPattern)
+	hits := l.HitsIn("doc.md", "see `internal/tdd/` for the gate\n")
+	if len(hits) != 0 {
+		t.Errorf("hits = %+v, want none — internal/tdd/ is a real directory", hits)
+	}
+}
+
+// TestDocPathHitsSkipsAMatchWhoseCitationGroupNeverParticipated proves the
+// gStart < 0 guard: a pattern's last capture group is the citation by
+// convention, but an ALTERNATIVE branch that never reaches it must be
+// skipped without panicking or reporting a hit — the other branch, on the
+// same line, still gets judged normally.
+func TestDocPathHitsSkipsAMatchWhoseCitationGroupNeverParticipated(t *testing.T) {
+	l := docPathLaw(t, t.TempDir(), "FOO(nope)|`([A-Za-z0-9_./-]+)`")
+	hits := l.HitsIn("doc.md", "FOOnope and then `crates/gone` too\n")
+	if len(hits) != 1 || hits[0].What != "crates/gone" {
+		t.Fatalf("hits = %+v, want exactly one hit for crates/gone", hits)
+	}
+}
+
+// TestDocPathHitsJudgesACitationStartingAtColumnZero proves the gStart < 0
+// guard's OTHER edge: a citation group that DOES participate, starting at
+// the very first byte of the line (index 0), must still be judged — never
+// treated the same as "did not participate" (-1).
+func TestDocPathHitsJudgesACitationStartingAtColumnZero(t *testing.T) {
+	l := docPathLaw(t, t.TempDir(), `^(a/b/)`)
+	hits := l.HitsIn("doc.md", "a/b/ trailing prose\n")
+	if len(hits) != 1 || hits[0].What != "a/b/" {
+		t.Fatalf("hits = %+v, want exactly one hit for a/b/", hits)
+	}
+}
+
+// TestDocPathHitsJudgesACitationEndingAtTheLineEnd proves the OTHER boundary
+// on the continuation guard: a citation that IS the rest of the line (gEnd
+// == len(line), nothing after it to check) must still be judged, never read
+// out of bounds and never skipped.
+func TestDocPathHitsJudgesACitationEndingAtTheLineEnd(t *testing.T) {
+	l := docPathLaw(t, t.TempDir(), `(a/b/)`)
+	hits := l.HitsIn("doc.md", "a/b/\n")
+	if len(hits) != 1 || hits[0].What != "a/b/" {
+		t.Fatalf("hits = %+v, want exactly one hit for a/b/", hits)
+	}
+}
+
+// TestDocPathResolvesStillRejectsADanglingDirectory proves the acceptance
+// above is not a blanket pass: a directory that genuinely does not exist is
+// still reported.
+func TestDocPathResolvesStillRejectsADanglingDirectory(t *testing.T) {
+	l := docPathLaw(t, t.TempDir(), genericDocPattern)
+	hits := l.HitsIn("doc.md", "see `internal/gone/` for the gate\n")
+	if len(hits) != 1 {
+		t.Fatalf("hits = %+v, want exactly one", hits)
+	}
+	if hits[0].What != "internal/gone/" {
+		t.Errorf("What = %q", hits[0].What)
 	}
 }
 
