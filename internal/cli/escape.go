@@ -16,7 +16,10 @@ const escapeUsage = `usage: aphrollo gate escape <subcommand>
 Subcommands:
   record "<reason>"   Record a red that arrived after a local green, and open its
                       issue (--kind escape|false-positive, --from-ci <job>,
-                      --evidence <text>, --repo <dir>)
+                      --evidence <text>, --repo <dir>, --label <theme>,
+                      --check <stage|law>). A themed defect needs --check: an
+                      escape is a claim that some check could have caught it,
+                      and a plain defect belongs in aphrollo gate issue
   sync                Open issues for every record that has none yet
   list                Print the open records
   verify-closure <pr> Refuse a PR that closes an escape without changing a check
@@ -56,11 +59,15 @@ func runGateEscape(args []string, stdout, stderr io.Writer) int {
 func runEscapeRecord(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("record", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	var labels stringList
+	fs.Var(&labels, "label", "a project theme label the issue also carries (repeatable)")
 	var (
 		kind     = fs.String("kind", tdd.EscapeKind, "escape (the gate missed it) or false-positive (the gate refused correct work)")
 		fromCI   = fs.String("from-ci", "", "the CI job that caught it")
 		evidence = fs.String("evidence", "", "the failing output, in one paste")
 		repo     = fs.String("repo", ".", "the checkout whose GitHub remote the issue is opened against")
+		check    = fs.String("check", "", "the stage or law that could have caught it — required for a themed escape")
+		newLabel = fs.Bool("new-label", false, "admit a theme label the repo has not declared")
 	)
 	// Flags are read wherever they sit, not just before the reason. `flag`
 	// stops parsing at the first non-flag argument, and the reason IS one --
@@ -71,13 +78,53 @@ func runEscapeRecord(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	reason := strings.Join(positional, " ")
+	root := tdd.RepoRoot(*repo)
+	if root == "" {
+		root = *repo
+	}
+
+	// An ESCAPE is a claim about the gate: some check could have caught this
+	// and did not. A themed defect that names no such check is not that claim
+	// — it is a plain defect, and a plain defect is an issue, not evidence
+	// about a missing stage. A false positive is the other direction (a check
+	// refusing correct work), so it owes no such name.
+	if len(labels) > 0 && *kind != tdd.FalsePositiveKind && strings.TrimSpace(*check) == "" {
+		fmt.Fprintf(stderr, "aphrollo gate escape record: a themed defect is an escape only when a check could have caught it — pass --check <stage|law>, or open it as a plain defect with `aphrollo gate issue %q --label %s`\n",
+			reason, strings.Join(labels, " --label "))
+		return 2
+	}
+	if err := tdd.CheckIssueLabels(root, labels, *newLabel); err != nil {
+		fmt.Fprintf(stderr, "aphrollo gate escape record: %v\n", err)
+		return 2
+	}
+
+	// A CI job's report is judged before it is recorded: the tip has to carry
+	// the local gate's green trailer, or the failure says nothing about the
+	// gate. Exit 0 either way — the recorder never fails the job it reports on.
+	if *fromCI != "" {
+		ev := *evidence
+		if ev == "" {
+			ev = reason
+		}
+		tdd.RecordCIEscape(tdd.CIEscapeOptions{
+			Repo:     root,
+			Job:      *fromCI,
+			Reason:   reason,
+			Evidence: ev,
+			Labels:   labels,
+			Check:    *check,
+		}, stdout)
+		return 0
+	}
 
 	r, err := tdd.RecordEscape(tdd.EscapeOptions{
 		Reason:   reason,
 		Kind:     *kind,
 		FromCI:   *fromCI,
 		Evidence: *evidence,
-		Repo:     tdd.RepoRoot(*repo),
+		Repo:     root,
+		Labels:   labels,
+		Check:    *check,
 	}, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo gate escape: %v\n", err)
@@ -108,6 +155,11 @@ func runEscapeSync(args []string, stdout, stderr io.Writer) int {
 	// this is the one verb that reaches GitHub deliberately. `gate stats`
 	// names the candidates but stays a read-only report.
 	n += recordDemoteCandidates(root, stdout)
+	// An override is the loop pointing the other way: a check that gets
+	// switched off or talked past is a false-positive candidate. They are
+	// opened HERE rather than at the moment of the override, because one
+	// annoyed session is not evidence and an issue mid-session is noise.
+	n += recordOverrideCandidates(root, stdout)
 	fmt.Fprintf(stdout, "opened %d issue(s)\n", n)
 	return 0
 }
@@ -127,6 +179,23 @@ func recordDemoteCandidates(root string, stdout io.Writer) int {
 	}
 	defer f.Close()
 	return tdd.RecordDemoteCandidates(root, tdd.DemoteCandidates(f, time.Now().UTC()), stdout)
+}
+
+// recordOverrideCandidates opens the false-positive issue for every check the
+// log shows a session going around inside the window. Same fail-quiet rule as
+// the demote scan: a log it cannot read is no reason to fail a sync that has
+// already succeeded.
+func recordOverrideCandidates(root string, stdout io.Writer) int {
+	path := tdd.GateLogPath()
+	if path == "" {
+		return 0
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	return tdd.RecordOverrideCandidates(root, tdd.OverrideCandidates(f, time.Now().UTC()), stdout)
 }
 
 func runEscapeVerifyClosure(args []string, stdout, stderr io.Writer) int {

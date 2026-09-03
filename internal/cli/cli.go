@@ -228,14 +228,23 @@ Subcommands:
                     spawned by posttooluse, not typed by hand
   commitmsg         commit-msg hook: reject a message carrying a deny pattern
                     (opt-in per workspace: undercover = true)
+  postcommit        post-commit hook: write the refs/notes/gate note on the commit
+                    just made, when a suite actually ran green for its tree. It is
+                    what lets CI tell a red on a gated tip from a red on an ungated
+                    one; it never blocks
   doctor            Report one line per install check (hooks, shims, locks, managed
                     skills/agents, the primary checkout branch, the golangci-lint
                     version CI pins, CI clippy list); exit 1 on any FAIL
-  statusline        Render the one-line gate badge from a statusline payload
-                    on stdin (armed/off, plus red/deferred/queued when it
-                    matters); wired into settings.json by init
+  statusline        Render the one-line gate badge from a statusline payload on
+                    stdin: the colour is the state (green armed, red standing
+                    failure, yellow running, gray off), with a tag inside the
+                    brackets when yellow needs naming; wired into settings.json
+                    by init
   stats             Tally gate.log by stage and outcome (--since 7d), and the open
                     escape count
+  issue             Open one labelled issue against the repo's GitHub remote and
+                    print its URL (--label, --body, --repo, --new-label). An open
+                    point is an issue, never a markdown follow-up
   escape            The escape loop: record | sync | list | verify-closure <pr>.
                     A red after a local green is recorded and opened as a labelled
                     issue; verify-closure refuses a PR that closes one without
@@ -378,6 +387,12 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// The commit-msg git hook: git hands it the message file path.
 		return runGateCommitMsg(args[1:], stderr)
 	}
+	if args[0] == "postcommit" {
+		// The post-commit git hook: it writes the gate note on the commit
+		// just made. It never blocks — the commit already exists.
+		tdd.PostCommit(tdd.RepoRoot("."))
+		return 0
+	}
 	if args[0] == "doctor" {
 		// Read-only install report: one line per check, exit 1 on any FAIL.
 		return runGateDoctor(args[1:], stdout, stderr)
@@ -396,6 +411,11 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if args[0] == "gc" {
 		// Disk hygiene: dry-run by default, --apply reclaims.
 		return runGateGC(args[1:], stdout, stderr)
+	}
+	if args[0] == "issue" {
+		// The general issue verb: an open point is a row somebody can
+		// filter, not a line in a markdown list.
+		return runGateIssue(args[1:], stdout, stderr)
 	}
 	if args[0] == "escape" {
 		// The escape loop: record a red that got past a local green, and
@@ -456,9 +476,22 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			// keeps that path untouched.
 			if res.Blocked {
 				tdd.WriteMergeRejectedMarker(root, res.Message)
+				// Two gates disagreeing about one tree, or a survivor
+				// reaching the last gate that could stop it, is the loop's
+				// own evidence about a missing stage. Nothing recorded it
+				// before; now it records itself, deduped by fingerprint.
+				tdd.NoteMergeGateEscape(root, res.Message, stderr)
 			}
 		} else {
 			res = tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
+			if !res.Blocked {
+				// Stamp the tree a suite actually RAN GREEN on, so the
+				// post-commit hook can put the gate note on the commit and
+				// CI can tell a red on a proven tip from a red on an
+				// ungated one. A gate that allowed the commit because there
+				// was nothing to test has proven nothing and stamps nothing.
+				tdd.StampGreenSuiteIfProven(root)
+			}
 		}
 		// Surface the note (e.g. a fail-open skip) even when allowing — the gate
 		// is never silent about why it did or didn't run.

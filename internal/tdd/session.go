@@ -298,6 +298,11 @@ func HandleSessionStart(raw []byte) string {
 	if hint := ratchetHintLine(in.Cwd); hint != "" {
 		parts = append(parts, hint)
 	}
+	// The open points live on GitHub, where a session never looks. One line,
+	// cached per repo for an hour so it costs no network call per prompt.
+	if issues := issueSummaryLine(RepoRoot(in.Cwd), time.Now()); issues != "" {
+		parts = append(parts, issues)
+	}
 	if digest := maybeWeeklyDigest(time.Now()); digest != "" {
 		parts = append(parts, digest)
 	}

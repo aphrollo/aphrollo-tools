@@ -64,7 +64,7 @@ func TestEscapeRecord_FlagsBeforeTheReasonStillWork(t *testing.T) {
 	gateConfigDir(t)
 	var out, errBuf bytes.Buffer
 	code := runGate([]string{"escape", "record",
-		"--kind", "false-positive", "--from-ci", "lint",
+		"--kind", "false-positive", "--evidence", "error: unused variable",
 		"the gate refused a correct commit",
 	}, strings.NewReader(""), &out, &errBuf)
 	if code != 0 {
@@ -72,7 +72,7 @@ func TestEscapeRecord_FlagsBeforeTheReasonStillWork(t *testing.T) {
 	}
 
 	r := lastEscapeRecord(t)
-	if r.Kind != tdd.FalsePositiveKind || r.FromCI != "lint" {
+	if r.Kind != tdd.FalsePositiveKind || r.Evidence != "error: unused variable" {
 		t.Fatalf("record = %+v, want the leading flags honoured", r)
 	}
 	if r.Reason != "the gate refused a correct commit" {
