@@ -19,10 +19,23 @@ import (
 // The gated job (mutants_job.go) makes no copies at all, so this category is
 // about the litter left by bare runs — which the cargo shim now refuses.
 
-// mutantsCopyPrefix is the directory-name shape cargo-mutants writes. The
+// mutantsCopyPrefixes are the directory-name shapes these tools write. The
 // trailing dash matters: a bare `cargo-mutants` directory is somebody's
-// checkout of the tool, not a copy of a tree.
-const mutantsCopyPrefix = "cargo-mutants-"
+// checkout of the tool, not a copy of a tree. gremlins is here for the same
+// reason as cargo-mutants — it copies the module into a working dir per mutant
+// and leaves them behind on Windows, where its own cleanup cannot unlink a
+// file another process still holds.
+var mutantsCopyPrefixes = []string{"cargo-mutants-", "gremlins-"}
+
+// isMutantsCopyName reports whether a directory name is one of those copies.
+func isMutantsCopyName(name string) bool {
+	for _, p := range mutantsCopyPrefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
+}
 
 // mutantsCopyActiveWindow is how recently a copy must have been touched to be
 // attributed to a live run. A mutation run writes into its copy constantly
@@ -40,7 +53,7 @@ func gcMutantsTempCopies(dirs []string, now time.Time) []GCCandidate {
 	for _, dir := range dirs {
 		for _, e := range readDir(dir) {
 			path := filepath.Join(dir, e.Name())
-			if !e.IsDir() || !strings.HasPrefix(e.Name(), mutantsCopyPrefix) || seen[pathKey(path)] {
+			if !e.IsDir() || !isMutantsCopyName(e.Name()) || seen[pathKey(path)] {
 				continue
 			}
 			seen[pathKey(path)] = true
@@ -67,7 +80,7 @@ func MutantsCopiesInUse(dirs []string) []string {
 	for _, dir := range dirs {
 		for _, e := range readDir(dir) {
 			path := filepath.Join(dir, e.Name())
-			if !e.IsDir() || !strings.HasPrefix(e.Name(), mutantsCopyPrefix) || seen[pathKey(path)] {
+			if !e.IsDir() || !isMutantsCopyName(e.Name()) || seen[pathKey(path)] {
 				continue
 			}
 			seen[pathKey(path)] = true

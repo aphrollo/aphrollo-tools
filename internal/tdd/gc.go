@@ -131,6 +131,7 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 	if scope.Mutants {
 		out = append(out, gcMutantsTrees(ResolveCargoTargetDir(repo), DefaultMutantsAge, time.Now())...)
 		out = append(out, gcMutantsTempCopies(MutantsTempDirs(), time.Now())...)
+		out = append(out, gcTempTargetDirs(MutantsTempDirs(), time.Now())...)
 	}
 	if scope.DepsArtifacts {
 		out = append(out, gcDepsArtifacts(ResolveCargoTargetDir(repo), workspaceMemberCrates(repo),

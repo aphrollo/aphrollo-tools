@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -39,22 +41,28 @@ const (
 	MutantsDiffEnv = "APHROLLO_MUTANTS_DIFF"
 	// MutantsBaseEnv is the base sha the receipt must record.
 	MutantsBaseEnv = "APHROLLO_MUTANTS_BASE"
+	// MutantsEnvEnv carries the switches the workspace declares its mutation
+	// run must set, so an env-gated suite counts.
+	MutantsEnvEnv = "APHROLLO_MUTANTS_ENV"
+	// MutantsJobsEnv is the concurrency cap this box allows, and
+	// MutantsJobsWhyEnv the reason a runner prints beside it.
+	MutantsJobsEnv    = "APHROLLO_MUTANTS_JOBS"
+	MutantsJobsWhyEnv = "APHROLLO_MUTANTS_JOBS_WHY"
 )
 
 // RunMutantsJob is the detached wrapper's body. It never blocks anything, so
 // it always exits 0; what it has to say goes in the job's log and in
 // gate.log.
+// Its own stdout and stderr ARE the job's log files: the parent redirected
+// them at spawn, so everything this function and the producer print is already
+// going where a later merge can read it.
 func RunMutantsJob(jobPath string) int {
 	lowerOwnPriority()
 	j, ok := readMutantsJob(jobPath)
 	if !ok {
 		return 0
 	}
-	log, err := os.Create(j.Log)
-	if err != nil {
-		return 0
-	}
-	defer log.Close()
+	log := os.Stdout
 
 	if err := prepareMutantsWorktree(j); err != nil {
 		logf(log, "aphrollo: could not prepare %s: %v", j.Worktree, err)
@@ -62,6 +70,9 @@ func RunMutantsJob(jobPath string) int {
 		return 0
 	}
 	plan, carried := scopeMutantsRun(j)
+	// Whatever an interrupted attempt on this same tree already reached: those
+	// mutants are excluded from this run and their verdicts kept.
+	judged := loadMutantsPartials(j.TipTree)
 	if len(plan) == 0 && len(carried) == 0 {
 		logf(log, "aphrollo: nothing mutable in this lane's diff")
 		appendGateLog("mutants", logToken(j.Repo), "mutants", "mutants-nothing-to-do", 0)
@@ -71,15 +82,33 @@ func RunMutantsJob(jobPath string) int {
 		logf(log, "aphrollo: could not write the lane diff: %v", err)
 		return 0
 	}
-	logf(log, "aphrollo: %d file(s) to measure, %d outcome(s) carried from the previous run", len(plan), len(carried))
+	logf(log, "aphrollo: %d file(s) to measure, %d carried from the previous run, %d already judged by an interrupted attempt",
+		len(plan), len(carried), len(judged))
 
 	start := time.Now()
-	code := runMutantsProducer(j, log)
+	code := runMutantsProducer(j, judged)
+	// Read BEFORE judging the exit code: a run that died at mutant 101 of 131
+	// still wrote 100 verdicts, and this is the read that stops them being
+	// thrown away (issue #103).
+	saveMutantsPartials(j.TipTree, readMutantsOut(j.Worktree))
 	appendGateLog("mutants", logToken(j.Repo), "mutants", mutantsVerdict(code)+":"+short(j.TipTree), time.Since(start))
 	if code == 0 {
-		adoptCarriedOutcomes(j, carried)
+		clearMutantsDeath(j.TipTree)
+		adoptCarriedOutcomes(j, append(append([]MutantOutcome{}, carried...), judged...))
+		return 0
 	}
+	recordMutantsDeath(j, code, stderrTail(j.ErrLog, 3))
 	return 0
+}
+
+// mutantNames renders the mutants an interrupted attempt already judged, in
+// the spelling the tool names them by, for the restart's exclusions.
+func mutantNames(judged []MutantOutcome) []string {
+	out := make([]string, 0, len(judged))
+	for _, m := range judged {
+		out = append(out, fmt.Sprintf("%s:%d: %s", m.File, m.Line, m.Mutation))
+	}
+	return out
 }
 
 func mutantsVerdict(code int) string {
@@ -147,22 +176,25 @@ func writeLaneDiff(j MutantsJob, files []string) error {
 // runMutantsProducer runs the consuming repo's own mutation runner in the
 // warm worktree, with the environment that tells it where to build, what to
 // mutate and that it is allowed past the build queue.
-func runMutantsProducer(j MutantsJob, log *os.File) int {
+func runMutantsProducer(j MutantsJob, judged []MutantOutcome) int {
 	argv, ok := mutantsProducerArgv(j)
 	if !ok {
-		logf(log, "aphrollo: no mutation runner in %s (expected tools/mutation_gate.sh)", j.Worktree)
+		logf(os.Stdout, "aphrollo: no mutation runner in %s (expected tools/mutation_gate.sh)", j.Worktree)
 		return 1
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = j.Worktree
-	cmd.Env = mutantsChildEnv(j)
-	cmd.Stdout, cmd.Stderr = log, log
+	cmd.Env = mutantsChildEnv(j, judged)
+	// The producer inherits this process's own streams, which the parent
+	// pointed at the job's log files: one place to look, whether the run
+	// finished or died.
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
 			return ee.ExitCode()
 		}
-		logf(log, "aphrollo: %v", err)
+		logf(os.Stdout, "aphrollo: %v", err)
 		return 1
 	}
 	return 0
@@ -188,11 +220,15 @@ func mutantsProducerArgv(j MutantsJob) ([]string, bool) {
 // mutantsChildEnv is the producer's environment: the warm target dir, the
 // queue bypass that pairs with it, the computed flags, and the marker that
 // says this run came through the gate.
-func mutantsChildEnv(j MutantsJob) []string {
+func mutantsChildEnv(j MutantsJob, judged []MutantOutcome) []string {
 	out := make([]string, 0, len(os.Environ())+8)
 	drop := map[string]bool{
 		"CARGO_TARGET_DIR": true, MutationGateEnv: true, QueueEnv: true,
+		// All three, always: the runner that set only TMPDIR left a Windows
+		// cargo-mutants writing tree copies to C: until the drive was 98% full.
+		"TMPDIR": true, "TMP": true, "TEMP": true,
 		MutantsArgsEnv: true, MutantsDiffEnv: true, MutantsBaseEnv: true,
+		MutantsEnvEnv: true, MutantsJobsEnv: true, MutantsJobsWhyEnv: true,
 		BuildLockHeldEnv: true,
 	}
 	for _, kv := range os.Environ() {
@@ -200,13 +236,25 @@ func mutantsChildEnv(j MutantsJob) []string {
 			out = append(out, kv)
 		}
 	}
+	jobs, why := mutantsJobsForThisBox()
+	ws := cargoWorkspaceRoot(j.Worktree)
+	if ws == "" {
+		ws = j.Worktree
+	}
+	out = append(out, mutantsTempEnv(j)...)
 	return append(out,
 		"CARGO_TARGET_DIR="+j.TargetDir,
 		MutationGateEnv+"=1",
 		QueueEnv+"="+QueueBypass,
-		MutantsArgsEnv+"="+strings.Join(MutantsArgv(j.Diff, TipSuiteGreen(j.RepoRoot, j.Started.Add(-mutantsGreenWindow))), " "),
+		MutantsArgsEnv+"="+strings.Join(MutantsArgv(j.Diff,
+			TipSuiteGreen(j.RepoRoot, j.Started.Add(-mutantsGreenWindow)), mutantNames(judged)), " "),
 		MutantsDiffEnv+"="+j.Diff,
 		MutantsBaseEnv+"="+j.BaseSHA,
+		// The switches the repo says its mutation run must set: without them
+		// every mutant behind an env-gated suite is missed by construction.
+		MutantsEnvEnv+"="+strings.Join(cargoMutantsEnv(ws), " "),
+		MutantsJobsEnv+"="+strconv.Itoa(jobs),
+		MutantsJobsWhyEnv+"="+why,
 		"CI=1", "NO_COLOR=1")
 }
 
@@ -258,7 +306,13 @@ func spawnMutantsJob(j MutantsJob) (int, error) {
 	cmd := exec.Command(self, CmdName, "mutants", "run", "--job", path)
 	cmd.Dir = j.RepoRoot
 	cmd.Env = append(os.Environ(), "CI=1", "NO_COLOR=1")
-	closeStdio := silentStdio(cmd)
+	// FILES, not the null device: a detached run has nowhere to print, and a
+	// run that dies must leave the reason behind. They live in the mutation
+	// worktree's build dir, never in the source tree.
+	closeStdio, err := jobStdio(cmd, j)
+	if err != nil {
+		return 0, err
+	}
 	cmd.SysProcAttr = belowNormalAttrs()
 	err = cmd.Start()
 	closeStdio()
@@ -268,6 +322,40 @@ func spawnMutantsJob(j MutantsJob) (int, error) {
 	pid := cmd.Process.Pid
 	_ = cmd.Process.Release()
 	return pid, nil
+}
+
+// jobStdio points the job's three streams at its own log files, creating the
+// directory they live in. stdin is the null device: a detached job has no
+// terminal to read from, and a producer that blocks on one would hang for
+// ever instead of failing.
+func jobStdio(cmd *exec.Cmd, j MutantsJob) (func(), error) {
+	if j.Log == "" || j.ErrLog == "" {
+		return func() {}, errors.New("job names no log files")
+	}
+	if err := os.MkdirAll(filepath.Dir(j.Log), 0o755); err != nil {
+		return func() {}, err
+	}
+	out, err := os.Create(j.Log)
+	if err != nil {
+		return func() {}, err
+	}
+	errFile, err := os.Create(j.ErrLog)
+	if err != nil {
+		out.Close()
+		return func() {}, err
+	}
+	null, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	if err != nil {
+		out.Close()
+		errFile.Close()
+		return func() {}, err
+	}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = null, out, errFile
+	return func() {
+		null.Close()
+		out.Close()
+		errFile.Close()
+	}, nil
 }
 
 func mutantsJobFilePath(j MutantsJob) string {
@@ -306,7 +394,7 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-func logf(f *os.File, format string, args ...any) {
+func logf(f io.Writer, format string, args ...any) {
 	if f == nil {
 		return
 	}

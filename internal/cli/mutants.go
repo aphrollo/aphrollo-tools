@@ -28,20 +28,25 @@ func runPostCommit(stderr io.Writer) int {
 // the description of the run has to outlive the process that decided it.
 func runGateMutants(args []string, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "aphrollo gate mutants: expected a verb (run)")
+		fmt.Fprintln(stderr, "aphrollo gate mutants: expected a verb (run, go)")
 		return 2
 	}
 	switch args[0] {
-	case "run":
-		fs := flag.NewFlagSet("mutants run", flag.ContinueOnError)
+	case "run", "go":
+		fs := flag.NewFlagSet("mutants "+args[0], flag.ContinueOnError)
 		fs.SetOutput(stderr)
 		job := fs.String("job", "", "path to the job file describing the run")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
+		if args[0] == "go" {
+			// The Go half: gremlins over the lane diff, writing the same
+			// receipt the Rust runner writes.
+			return tdd.RunGoMutantsJob(*job)
+		}
 		return tdd.RunMutantsJob(*job)
 	default:
-		fmt.Fprintf(stderr, "aphrollo gate mutants: unknown verb %q (expected run)\n", args[0])
+		fmt.Fprintf(stderr, "aphrollo gate mutants: unknown verb %q (expected run or go)\n", args[0])
 		return 2
 	}
 }

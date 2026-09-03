@@ -9,22 +9,30 @@ import (
 	"syscall"
 )
 
-// belowNormalAttrs starts the mutation job detached, invisible and at BELOW
-// NORMAL priority. The priority is the point: a mutation run is hours of
-// compiling nobody is waiting on, and at normal priority it competes for the
-// same cores as the edit-time suite a session IS waiting on.
+// belowNormalAttrs starts the mutation job outside every console this box
+// has, in its own process group, at BELOW NORMAL priority.
 //
-// CREATE_NO_WINDOW rather than DETACHED_PROCESS for the same reason the
-// deferred phase uses it: a detached child has no console, so the first
-// compiler it starts makes Windows allocate and SHOW a new one.
+// DETACHED_PROCESS is the load-bearing one, and it is what the deferred phase
+// deliberately does NOT use: a mutation run started from an agent's tool call
+// died twice at mutant 101 of 131 because the shell's own timeout took the
+// whole console process tree with it (issue #103). A job that shares a console
+// with the shell that started it is a job that shell can kill. The cost is the
+// one CREATE_NO_WINDOW exists to avoid — a console app started by the detached
+// process may allocate its own console — which is why every stream is
+// redirected to a FILE at the spawn site: nothing in the tree has a reason to
+// write to a console at all.
+//
+// The priority is the second point: a mutation run is hours of compiling
+// nobody is waiting on, and at normal priority it competes for the same cores
+// as the edit-time suite a session IS waiting on.
 func belowNormalAttrs() *syscall.SysProcAttr {
 	const (
 		createNewProcessGroup   = 0x00000200
-		createNoWindow          = 0x08000000
+		detachedProcess         = 0x00000008
 		belowNormalPriorityFlag = 0x00004000
 	)
 	return &syscall.SysProcAttr{
-		CreationFlags: createNewProcessGroup | createNoWindow | belowNormalPriorityFlag,
+		CreationFlags: createNewProcessGroup | detachedProcess | belowNormalPriorityFlag,
 	}
 }
 

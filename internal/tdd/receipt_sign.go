@@ -1,0 +1,210 @@
+package tdd
+
+import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+)
+
+// A session hand-wrote a mutation receipt and merged on it. Everything else
+// in this gate is mechanical, so the one artefact a human could type was the
+// one that decided a merge — which makes it the weakest link, not the
+// strongest.
+//
+// So a receipt carries a MAC over its own body, keyed by a per-machine secret
+// the runner and the gate share, and `aphrollo gate receipt sign` is the ONLY
+// thing that writes one. Nothing here is a defence against an attacker: a
+// session that can run the signer can sign anything. It is a defence against
+// the receipt being written by ANYTHING OTHER than a run — which is exactly
+// the failure that happened.
+//
+// The tolerance is deliberate and temporary: a receipt with NO mac is still
+// accepted, and counted (`receipt-unsigned`), because refusing them would
+// break every lane on the day this ships, before the consuming repos' own
+// runners sign. A receipt whose MAC does NOT verify is refused outright —
+// "not measured" and "measured and then edited" are different claims.
+
+// receiptKeyName is the per-machine signing secret, beside the receipts it
+// signs.
+const receiptKeyName = "receipt.key"
+
+// ReceiptKeyPath is where that secret lives.
+func ReceiptKeyPath() string {
+	dir := stateDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, receiptKeyName)
+}
+
+// receiptKey reads the machine's signing secret, creating it the first time.
+// Written 0600 and never logged: a key anybody can read is a key anybody can
+// sign with.
+func receiptKey() ([]byte, error) {
+	path := ReceiptKeyPath()
+	if path == "" {
+		return nil, errors.New("no state dir, so nowhere to keep a signing key")
+	}
+	if data, err := os.ReadFile(path); err == nil && len(data) >= 32 {
+		return data, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, key, 0o600); err != nil {
+		return nil, err
+	}
+	// A pre-existing file created with a laxer mode (an older init, a copied
+	// state dir) is tightened rather than trusted.
+	_ = os.Chmod(path, 0o600)
+	return key, nil
+}
+
+// EnsureReceiptKey creates the signing secret if it is not there yet, and
+// reports whether it made one. `gate init` calls it so the first mutation run
+// on a box finds a key rather than making one mid-run.
+func EnsureReceiptKey() (bool, error) {
+	path := ReceiptKeyPath()
+	if path == "" {
+		return false, errors.New("no state dir, so nowhere to keep a signing key")
+	}
+	if _, err := os.Stat(path); err == nil {
+		return false, nil
+	}
+	if _, err := receiptKey(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// receiptMAC is the MAC over a receipt's canonical body: the JSON object with
+// the `mac` field removed and every key sorted. Canonical rather than
+// literal, so a receipt that is re-indented or re-ordered on its way through
+// a tool still verifies while any change to what it CLAIMS does not.
+func receiptMAC(body []byte, key []byte) (string, error) {
+	canon, err := canonicalReceiptBody(body)
+	if err != nil {
+		return "", err
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write(canon)
+	return hex.EncodeToString(mac.Sum(nil)), nil
+}
+
+// canonicalReceiptBody renders a receipt's JSON with the mac field removed
+// and keys sorted (Go marshals a map's keys in sorted order).
+func canonicalReceiptBody(body []byte) ([]byte, error) {
+	var obj map[string]any
+	if err := json.Unmarshal(body, &obj); err != nil {
+		return nil, err
+	}
+	delete(obj, "mac")
+	return json.Marshal(obj)
+}
+
+// SignReceiptFile stamps a receipt with the sha256 of the run's own outcome
+// file (when one is named) and the MAC over the result, in place. It is the
+// ONLY writer of a receipt's mac.
+func SignReceiptFile(path, outcomesPath string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	if outcomesPath != "" {
+		sum, err := fileSHA256(outcomesPath)
+		if err != nil {
+			return err
+		}
+		obj["outcomes_sha"] = sum
+	}
+	delete(obj, "mac")
+	body, err := json.Marshal(obj)
+	if err != nil {
+		return err
+	}
+	key, err := receiptKey()
+	if err != nil {
+		return err
+	}
+	mac, err := receiptMAC(body, key)
+	if err != nil {
+		return err
+	}
+	obj["mac"] = mac
+	signed, err := json.Marshal(obj)
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(path, signed)
+}
+
+// signReceipt signs a receipt this process itself is writing — the carried
+// copy, whose tip tree differs from the one that was measured. The gate is a
+// trusted writer: it re-stamps a proof it has just verified, and a carried
+// receipt that kept the old MAC would read as forged.
+func signReceipt(r *MutationReceipt) {
+	r.MAC = ""
+	body, err := json.Marshal(r)
+	if err != nil {
+		return
+	}
+	key, err := receiptKey()
+	if err != nil {
+		return
+	}
+	if mac, err := receiptMAC(body, key); err == nil {
+		r.MAC = mac
+	}
+}
+
+// verifyReceiptMAC judges a receipt's signature. nil allows.
+func verifyReceiptMAC(data []byte, repo, tipTree string) *GateResult {
+	var probe struct {
+		MAC string `json:"mac"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return nil // the caller's own decode reports an unreadable receipt
+	}
+	if probe.MAC == "" {
+		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-unsigned", 0)
+		return nil
+	}
+	key, err := receiptKey()
+	if err != nil {
+		// No key on this box: the gate cannot tell signed from forged, and
+		// its own blind spot must not reject somebody's proof.
+		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-unverifiable", 0)
+		return nil
+	}
+	want, err := receiptMAC(data, key)
+	if err != nil || !hmac.Equal([]byte(want), []byte(probe.MAC)) {
+		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-forged", 0)
+		return &GateResult{Blocked: true, Message: "gate: receipt not written by tools/mutation_gate.sh — the mutation receipt for tree " +
+			short(tipTree) + " does not verify against this machine's signing key"}
+	}
+	return nil
+}
+
+// fileSHA256 hashes a file, for the outcomes_sha a receipt names its evidence
+// by.
+func fileSHA256(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}

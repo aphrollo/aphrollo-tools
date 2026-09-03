@@ -3,9 +3,11 @@ package tdd
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -35,19 +37,25 @@ type MutantsJob struct {
 	Schema int `json:"schema"`
 	// Repo is the git COMMON dir — the one directory every worktree of a repo
 	// shares, and therefore what "the same repo" means here.
-	Repo      string    `json:"repo"`
-	RepoRoot  string    `json:"repo_root"`
-	Branch    string    `json:"branch"`
-	Tip       string    `json:"tip"`
-	TipTree   string    `json:"tip_tree"`
-	BaseRef   string    `json:"base_ref"`
-	BaseSHA   string    `json:"base_sha"`
-	Worktree  string    `json:"worktree"`
-	TargetDir string    `json:"target_dir"`
-	Diff      string    `json:"diff"`
-	Log       string    `json:"log"`
-	PID       int       `json:"pid"`
-	Started   time.Time `json:"started"`
+	Repo      string `json:"repo"`
+	RepoRoot  string `json:"repo_root"`
+	Branch    string `json:"branch"`
+	Tip       string `json:"tip"`
+	TipTree   string `json:"tip_tree"`
+	BaseRef   string `json:"base_ref"`
+	BaseSHA   string `json:"base_sha"`
+	Worktree  string `json:"worktree"`
+	TargetDir string `json:"target_dir"`
+	Diff      string `json:"diff"`
+	// Log and ErrLog are the job's own stdout and stderr, as FILES: a
+	// detached run has nowhere to print, and a run that dies without them
+	// takes the reason with it. They live in the mutation worktree's build
+	// directory and never in the source tree — a stray untracked file there
+	// makes the receipt's own dirty check fail the run it describes.
+	Log     string    `json:"log"`
+	ErrLog  string    `json:"err_log"`
+	PID     int       `json:"pid"`
+	Started time.Time `json:"started"`
 }
 
 // mutantsJobMaxAge is how long a recorded job may claim to be running before
@@ -77,8 +85,18 @@ func StartMutantsJob(repoRoot string) (MutantsJob, bool) {
 		return MutantsJob{}, false
 	}
 	j.Diff = filepath.Join(mutantsStateDir(), "lane."+projectKey(root)+".diff")
-	j.Log = filepath.Join(mutantsStateDir(), "run."+projectKey(root)+".log")
+	j.Log = filepath.Join(j.TargetDir, mutantsRunDir, "run.log")
+	j.ErrLog = filepath.Join(j.TargetDir, mutantsRunDir, "run.err")
 	j.Started = time.Now()
+	// Before anything is spawned: a run that cannot fit its copies fills the
+	// drive and dies mid-way, taking every verdict it had reached with it.
+	if jobs, _ := mutantsJobsForThisBox(); true {
+		if ok, line := mutantsDiskOK(j.TargetDir, jobs); !ok {
+			appendGateLog("postcommit", logToken(j.Repo), "mutants", "mutants-refused:disk", 0)
+			fmt.Fprintln(os.Stderr, line)
+			return MutantsJob{}, false
+		}
+	}
 	pid, err := mutantsSpawnFn(j)
 	if err != nil {
 		appendGateLog("postcommit", logToken(j.Repo), "mutants", "mutants-start-failed", 0)
@@ -140,19 +158,29 @@ func MutantsWorktreeDir(repoRoot string) string {
 // MutantsTargetDir is that worktree's own persistent build directory. It is
 // inside the worktree deliberately: the build-slot bypass is keyed on exactly
 // that containment, so a target dir anywhere else queues like every other
-// build.
+// build. It is named `target` because that is the name every Rust repo
+// already ignores — an untracked directory the repo does NOT ignore would
+// make the run's own worktree read as dirty.
 func MutantsTargetDir(repoRoot string) string {
-	return filepath.Join(MutantsWorktreeDir(repoRoot), "target-mutants")
+	return filepath.Join(MutantsWorktreeDir(repoRoot), "target")
 }
+
+// mutantsRunDir holds the job's own output inside that build directory.
+const mutantsRunDir = "aphrollo-mutants"
 
 // MutantsArgv is cargo-mutants' own flags for a lane run: mutate the warm
 // worktree IN PLACE (never a tree copy), only inside the lane's diff, and run
 // the suite through nextest. baselineSkip drops the unmutated baseline run,
 // which is sound only when the gate already proved that same tree green.
-func MutantsArgv(diffPath string, baselineSkip bool) []string {
+// judged names the mutants an interrupted earlier attempt already reached a
+// verdict for; they are excluded so a restart measures only what is left.
+func MutantsArgv(diffPath string, baselineSkip bool, judged []string) []string {
 	argv := []string{"--in-place", "--in-diff", diffPath, "--test-tool=nextest"}
 	if baselineSkip {
 		argv = append(argv, "--baseline", "skip")
+	}
+	for _, name := range judged {
+		argv = append(argv, "--exclude-re", "^"+regexp.QuoteMeta(name)+"$")
 	}
 	return argv
 }

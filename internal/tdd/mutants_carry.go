@@ -58,6 +58,11 @@ func carryReceiptForward(ctx receiptContext) ([]byte, bool) {
 		}
 		from := r.TipTree
 		r.CarriedFrom, r.TipTree = from, ctx.TipTree
+		// Re-signed, because the body just changed: the gate is a trusted
+		// writer re-stamping a proof it has this moment verified, and a
+		// carried receipt still carrying the measured tree's MAC would read
+		// as forged at the next lookup.
+		signReceipt(&r)
 		data, err := json.Marshal(r)
 		if err != nil {
 			continue

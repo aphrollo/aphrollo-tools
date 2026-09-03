@@ -74,6 +74,9 @@ func writeMutantsInUse(stdout io.Writer) {
 	for _, line := range tdd.MutantsCopiesInUse(tdd.MutantsTempDirs()) {
 		fmt.Fprintln(stdout, line)
 	}
+	for _, line := range tdd.TempTargetsInUse(tdd.MutantsTempDirs()) {
+		fmt.Fprintln(stdout, line)
+	}
 }
 
 // gcScopeFromFlags builds the sweep's scope: everything, with the lock-litter

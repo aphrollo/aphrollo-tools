@@ -145,7 +145,7 @@ func TestMutantsWorktree_IsOneDedicatedTreePerRepo(t *testing.T) {
 // copy is what put 135 MB per run in the OS temp dir and rebuilt the world
 // cold each time.
 func TestMutantsArgv_MutatesInPlaceOverTheLaneDiff(t *testing.T) {
-	got := strings.Join(MutantsArgv("D:/tmp/lane.diff", false), " ")
+	got := strings.Join(MutantsArgv("D:/tmp/lane.diff", false, nil), " ")
 	want := "--in-place --in-diff D:/tmp/lane.diff --test-tool=nextest"
 	if got != want {
 		t.Fatalf("MutantsArgv = %q, want %q", got, want)
@@ -156,7 +156,7 @@ func TestMutantsArgv_MutatesInPlaceOverTheLaneDiff(t *testing.T) {
 // proved exactly that on this tree seconds earlier, so a green log entry buys
 // the run its whole baseline back.
 func TestMutantsArgv_SkipsTheBaselineOnlyWhenItWasAlreadyProven(t *testing.T) {
-	if got := strings.Join(MutantsArgv("lane.diff", true), " "); !strings.Contains(got, "--baseline skip") {
+	if got := strings.Join(MutantsArgv("lane.diff", true, nil), " "); !strings.Contains(got, "--baseline skip") {
 		t.Fatalf("MutantsArgv = %q, want the baseline skipped once the suite is proven green", got)
 	}
 }

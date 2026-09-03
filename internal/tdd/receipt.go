@@ -63,6 +63,12 @@ type MutationReceipt struct {
 	// CarriedFrom names the tree whose run this receipt re-stamps, "" for a
 	// receipt that measured its own tree.
 	CarriedFrom string `json:"carried_from,omitempty"`
+	// MAC is the signature over this receipt's canonical body, written ONLY
+	// by `aphrollo gate receipt sign`, and OutcomesSHA the hash of the run's
+	// own outcome file — the evidence the receipt was taken from. Both empty
+	// for a producer that has not caught up, which is counted, not refused.
+	MAC         string `json:"mac,omitempty"`
+	OutcomesSHA string `json:"outcomes_sha,omitempty"`
 }
 
 // receiptVerdictPass is the only verdict that merges. Anything else — "fail",
@@ -118,6 +124,11 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 			return blockMissingReceipt(ctx)
 		}
 	}
+	// Before a single field is believed: a receipt nothing measured is not a
+	// weaker proof, it is somebody's typing.
+	if res := verifyReceiptMAC(data, repo, tipTree); res != nil {
+		return res
+	}
 	var r MutationReceipt
 	if err := json.Unmarshal(data, &r); err != nil {
 		return blockReceipt("the mutation receipt at %s is unreadable (%v)", path, err)
@@ -134,6 +145,14 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 	if len(r.Unaccepted) > 0 {
 		return blockReceipt("%d unaccepted survivor(s), starting with %s — a code path no test constrains",
 			len(r.Unaccepted), firstUnaccepted(r.Unaccepted))
+	}
+	if r.Timeout > 0 {
+		// A timeout is an UNMEASURED mutant filed beside the measured ones.
+		// Nine were measured on one lane at cargo-mutants' 30 s default while
+		// eight cold tree copies were compiling: the suite was fine and the
+		// box was busy, and the receipt reported it as a result.
+		return blockReceipt("%d mutant(s) timed out — an unmeasured mutant is not a result: rerun with fewer jobs",
+			r.Timeout)
 	}
 	switch {
 	case r.BaseSHA == "":
@@ -283,6 +302,12 @@ func missingReceiptRemedy(ctx receiptContext) string {
 	if jobs := RunningMutantsJobs(ctx.Repo); len(jobs) > 0 {
 		j := jobs[len(jobs)-1]
 		return fmt.Sprintf("running since %s (pid %d)", j.Started.Format("15:04"), j.PID)
+	}
+	// A run that ENDED without a receipt is the third answer, and the one a
+	// session cannot work out for itself: "run it again" is wrong advice when
+	// the last run died, and the reason is already written down.
+	if d, ok := loadMutantsDeath(ctx.TipTree); ok {
+		return fmt.Sprintf("the run died (exit %d) at %s — see %s", d.Exit, d.At.Format("15:04"), d.ErrLog)
 	}
 	return "run tools/mutation_gate.sh main"
 }

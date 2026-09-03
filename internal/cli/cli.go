@@ -227,6 +227,9 @@ Subcommands:
                     Never blocks, never fails
   mutants           The mutation job's own verbs: run --job <file> (spawned by
                     postcommit, not typed by hand)
+  receipt           receipt sign [--outcomes <path>] <file>: stamp a mutation
+                    receipt with this machine's MAC. The ONLY writer of one —
+                    every runner signs through it
   prepush           No-op (mechanical-only mode); kept for back-compat with a
                     lingering pre-push shim. Never blocks.
   runphase          Run one deferred build/run phase from its job record (--job);
@@ -407,6 +410,10 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// The post-commit git hook: start the lane's mutation run, detached,
 		// and get out of the way. It never blocks and never fails.
 		return runPostCommit(stderr)
+	}
+	if args[0] == "receipt" {
+		// The mutation receipt's signer: the one writer of a receipt's MAC.
+		return runGateReceipt(args[1:], stdout, stderr)
 	}
 	if args[0] == "mutants" {
 		// The mutation job's own verbs, addressed by a job file.
@@ -641,6 +648,16 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 	} else {
 		for _, name := range removed {
 			fmt.Fprintf(stdout, "aphrollo gate: removed the retired hook %s\n", filepath.Join(dir, "hooks", name))
+		}
+	}
+
+	// The mutation receipt's signing key, before any run needs it: a key
+	// created mid-run is a key the run's own gate has never seen.
+	if !*uninstall {
+		if made, kerr := tdd.EnsureReceiptKey(); kerr != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", kerr)
+		} else if made {
+			fmt.Fprintf(stdout, "aphrollo gate: created the mutation receipt signing key in %s\n", tdd.ReceiptKeyPath())
 		}
 	}
 
