@@ -112,6 +112,54 @@ func TestMutantsChildEnv_ForwardsTimeoutFlagsWhenSet(t *testing.T) {
 	}
 }
 
+// The baseline is skipped only when the gate's OWN last run proved this tree
+// green inside the window around when the job started — the window is what
+// makes "seconds earlier" true rather than "at some point in the past", so
+// its sign and width both matter.
+func TestMutantsChildEnv_BaselineSkipReflectsTheGatesLastGreenRunInsideTheWindow(t *testing.T) {
+	writeGateLine := func(t *testing.T, at time.Time, root, verdict string) {
+		t.Helper()
+		path := GateLogPath()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		line := at.Format(time.RFC3339) + " precommit " + root + " cargo_nextest " + verdict + " 12.0s\n"
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if _, err := f.WriteString(line); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	started := time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)
+	target := filepath.Join(t.TempDir(), ".worktrees", "borld", "mutants", "target")
+
+	t.Run("green run 5 minutes before the job started skips the baseline", func(t *testing.T) {
+		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+		root := t.TempDir()
+		writeGateLine(t, started.Add(-5*time.Minute), root, "green")
+		j := MutantsJob{RepoRoot: root, Worktree: filepath.Dir(target), TargetDir: target, TipTree: laneTip, Started: started}
+
+		if args := mustEnvValue(t, mutantsChildEnv(j, nil), MutantsArgsEnv); !strings.Contains(args, "--baseline skip") {
+			t.Fatalf("args = %q, want the baseline skipped for a green run inside the window", args)
+		}
+	})
+
+	t.Run("green run 40 minutes before the job started does not", func(t *testing.T) {
+		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+		root := t.TempDir()
+		writeGateLine(t, started.Add(-40*time.Minute), root, "green")
+		j := MutantsJob{RepoRoot: root, Worktree: filepath.Dir(target), TargetDir: target, TipTree: laneTip, Started: started}
+
+		if args := mustEnvValue(t, mutantsChildEnv(j, nil), MutantsArgsEnv); strings.Contains(args, "--baseline skip") {
+			t.Fatalf("args = %q, a run outside the window proves nothing about this tip", args)
+		}
+	})
+}
+
 // A run that cannot fit its copies is a run that dies at 98% full and takes
 // every verdict with it. It is refused BEFORE it starts, with the numbers.
 func TestStartMutantsJob_RefusesWhenTheBuildDriveCannotFitTheRun(t *testing.T) {

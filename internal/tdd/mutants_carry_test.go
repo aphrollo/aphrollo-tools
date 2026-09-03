@@ -215,6 +215,19 @@ func TestMutationReceipt_MissingReceiptNamesTheScriptWhenTheRepoHasOne(t *testin
 	}
 }
 
+// A Cargo workspace that declares the key but leaves it EMPTY has not
+// actually named a runner — falling through to the next source is what
+// tells "declared and blank" apart from "declared and real".
+func TestMutantsRunnerCommand_FallsThroughAnEmptyCargoDeclaredName(t *testing.T) {
+	root := makeCargoRepo(t)
+	write(t, root, "Cargo.toml", "[workspace]\n\n[workspace.metadata.aphrollo]\nmutation-runner = \"\"\n")
+	write(t, root, "aphrollo.toml", "[aphrollo]\nmutation-runner = \"tools/real.sh\"\n")
+
+	if got := mutantsRunnerCommand(root); got != "tools/real.sh" {
+		t.Fatalf("mutantsRunnerCommand = %q, want the aphrollo.toml name once the Cargo one is empty", got)
+	}
+}
+
 // A repo that declares its own runner is named by exactly that — a
 // workspace's own choice outranks either default.
 func TestMutationReceipt_MissingReceiptNamesTheDeclaredRunner(t *testing.T) {

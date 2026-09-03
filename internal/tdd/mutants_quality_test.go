@@ -40,6 +40,13 @@ func TestResolveMutantsJobs_FlagBeatsEnvBeatsFormula(t *testing.T) {
 	if got, why := resolveMutantsJobs(0, false); got != wantJobs || why != wantWhy {
 		t.Fatalf("resolveMutantsJobs(0, false) with no env = (%d, %q), want the formula's own (%d, %q)", got, why, wantJobs, wantWhy)
 	}
+	// A non-positive env value names no real concurrency (0 or negative jobs
+	// is not a run), so it is not an override either — the formula still
+	// decides, the same as an unset or unparsable one.
+	t.Setenv(MutantsJobsEnv, "0")
+	if got, why := resolveMutantsJobs(0, false); got != wantJobs || why != wantWhy {
+		t.Fatalf("resolveMutantsJobs(0, false) with %s=0 = (%d, %q), want the formula's own (%d, %q)", MutantsJobsEnv, got, why, wantJobs, wantWhy)
+	}
 }
 
 // The cap is deliberately mean: a mutation run competes with the editors on

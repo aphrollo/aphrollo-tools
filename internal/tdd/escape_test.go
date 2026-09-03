@@ -299,6 +299,9 @@ func TestSyncEscapesMarksARecordClosedWhenItsIssueClosedOnGitHub(t *testing.T) {
 	if open, _ := OpenEscapes(); open != 0 {
 		t.Fatalf("open escapes = %d, want 0 once GitHub shows it closed", open)
 	}
+	if !strings.Contains(out.String(), "closed 1 locally (already closed on GitHub)") {
+		t.Fatalf("output = %q, want the count of records just reconciled", out.String())
+	}
 }
 
 // A record whose issue is STILL OPEN on GitHub is left alone — sync closes a
@@ -323,6 +326,31 @@ func TestSyncEscapesLeavesAStillOpenIssueAlone(t *testing.T) {
 	if len(recs) != 1 || recs[0].Closed {
 		t.Fatalf("records = %+v, want the still-open record left alone", recs)
 	}
+	if strings.Contains(out.String(), "closed") {
+		t.Fatalf("output = %q, nothing was reconciled — it must not claim otherwise", out.String())
+	}
+}
+
+// A record that was never synced carries no GitHub issue number (0), so it
+// has nothing on GitHub to be closed BY — it must not even cost a
+// `gh issue list` call, let alone be reported reconciled.
+func TestSyncClosedEscapes_SkipsRecordsWithNoIssueNumber(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGitHubRepo(t)
+	if err := appendEscape(EscapeRecord{
+		Schema: StateSchema, ID: "x", Kind: EscapeKind, Reason: "never synced",
+		At: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	log := stubGh(t, `[]`)
+
+	if n := syncClosedEscapes(repo); n != 0 {
+		t.Fatalf("syncClosedEscapes = %d, want 0 — the record was never synced", n)
+	}
+	if strings.Contains(ghArgv(t, log), "issue list") {
+		t.Fatalf("gh was called (%s), want no call for a record with no issue number", ghArgv(t, log))
+	}
 }
 
 // The count only goes down, so it has to be a number somebody sees.
@@ -343,6 +371,26 @@ func TestOpenEscapesCountsTheUnclosedAndTheOldest(t *testing.T) {
 	}
 	if days := int(oldest.Hours() / 24); days != 30 {
 		t.Fatalf("oldest = %d days, want 30", days)
+	}
+}
+
+// The age column is the reason `escape list` exists at all: the oldest
+// record is the one owed the most attention, and that only reads right if
+// the day count is right.
+func TestListEscapes_PrintsTheRecordsAgeInWholeDays(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("PATH", "")
+	if err := appendEscape(EscapeRecord{
+		Schema: StateSchema, ID: "a", Kind: EscapeKind, Reason: "ten days old",
+		At: time.Now().UTC().Add(-10 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	ListEscapes(&out, false)
+	if !strings.Contains(out.String(), "10d") {
+		t.Fatalf("output = %q, want the age rendered as 10 whole days", out.String())
 	}
 }
 
