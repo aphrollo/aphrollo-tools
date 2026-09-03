@@ -90,6 +90,7 @@ func isolateGitConfigEnv(configPath string) func() {
 
 // mustInitRepo is the four spawns every fixture used to pay, paid once.
 func mustInitRepo(dir string) {
+	mustBeUnderTemp(dir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		panic(err)
 	}
@@ -132,6 +133,7 @@ func mustWriteFile(path, content string) {
 // any of src's files yet — os.CopyFS refuses to overwrite, which is the check
 // that a fixture is never handed out twice.
 func mustCopyDir(dst, src string) {
+	mustBeUnderTemp(dst)
 	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
 		panic(err)
 	}
@@ -148,6 +150,44 @@ func TestFixtureTarget_RefusesADirectoryOutsideTheOSTempDir(t *testing.T) {
 		if err := fixtureTargetUnderTemp(dst); err == nil {
 			t.Errorf("fixtureTargetUnderTemp(%q) = nil, want a refusal — a fixture must never be built there", dst)
 		}
+	}
+}
+
+// The predicate is worth nothing unless the helper CALLS it, so this goes
+// through copyFixture itself: deleting the guard from it would leave the
+// fixture copied into the repository, which is the write escape 156 was.
+func TestCopyFixture_RefusesToBuildAFixtureOutsideTheTempDir(t *testing.T) {
+	var refused error
+	prev := fixtureRefused
+	fixtureRefused = func(_ *testing.T, err error) { refused = err }
+	t.Cleanup(func() { fixtureRefused = prev })
+
+	got := copyFixture(t, filepath.Join(RepoRoot("."), "internal"), goFixture)
+
+	if refused == nil {
+		t.Fatal("copyFixture copied a golden repo into the repository's own tree")
+	}
+	if got != "" {
+		t.Errorf("copyFixture = %q, want \"\" — a refused fixture has no directory to hand back", got)
+	}
+}
+
+// The TestMain path has no *testing.T to fail, so it panics — and it is the
+// path that builds the golden repos every other fixture is copied from.
+func TestFixtureBuilders_PanicOnATargetOutsideTheTempDir(t *testing.T) {
+	outside := filepath.Join(RepoRoot("."), "internal")
+	for name, build := range map[string]func(){
+		"mustInitRepo": func() { mustInitRepo(outside) },
+		"mustCopyDir":  func() { mustCopyDir(outside, goFixture) },
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("%s(%q) returned — a golden repo must never be built in the repository", name, outside)
+				}
+			}()
+			build()
+		}()
 	}
 }
 
@@ -180,11 +220,26 @@ func fixtureTargetUnderTemp(dst string) error {
 	return nil
 }
 
+// fixtureRefused is what a refused target does: fail the test that asked for
+// it. A var so the guard's OWN test can observe the refusal instead of being
+// killed by it — the guard is only real if it is reached through copyFixture.
+var fixtureRefused = func(t *testing.T, err error) { t.Fatal(err) }
+
+// mustBeUnderTemp is the same rule on the TestMain path, which has no
+// *testing.T to fail: buildFixtures runs before any test exists, and a golden
+// repo built in the repository is the write this rule is about.
+func mustBeUnderTemp(dir string) {
+	if err := fixtureTargetUnderTemp(dir); err != nil {
+		panic(err)
+	}
+}
+
 // copyFixture hands a test its own copy of one of the golden repos.
 func copyFixture(t *testing.T, dst, src string) string {
 	t.Helper()
 	if err := fixtureTargetUnderTemp(dst); err != nil {
-		t.Fatal(err)
+		fixtureRefused(t, err)
+		return ""
 	}
 	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
 		t.Fatal(err)
