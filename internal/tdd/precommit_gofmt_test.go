@@ -5,6 +5,22 @@ import (
 	"testing"
 )
 
+// A touched path git cannot resolve at its staged location (deleted, renamed
+// away, or simply never staged) must not block the commit and must not
+// silently vanish either: it is logged and counted once, the same shape as
+// an absent linter.
+func TestGoFmtStage_LogsAndCountsAStagedPathGitCannotResolve(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := makeGoRepo(t)
+
+	res := goFmtStage("test", root, root, []string{"nonexistent.go"})
+	if res.Blocked {
+		t.Fatalf("a path git cannot resolve must not block: %s", res.Message)
+	}
+	requireLoggedVerdict(t, cfg, "gofmt-index-unreadable")
+}
+
 // Ungofmt'd staged Go is rejected before vet ever runs — cheaper than a
 // build, and it saves the round trip through CI for a space.
 func TestPrecommitGofmt_RejectsUnformattedStagedGo(t *testing.T) {
