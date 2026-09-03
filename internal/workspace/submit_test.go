@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -468,25 +469,22 @@ func TestSubmitPlan_DetachedHEAD(t *testing.T) {
 	}
 }
 
-// TestGhEditPRBodyArgs_GuardsBranchBehindTerminator is issue #160:
-// ghEditPRBody passed branch as an unguarded positional gh argument, unlike
-// every sibling gh call in this package (ghReadyPR here, ghViewPR/ghCreatePR
-// in pr.go) which places "--" before a branch positional or attaches it to a
-// flag. gh's flag parser treats a branch starting with "-" as a flag
-// reference regardless of position, and git ref names ARE allowed to start
-// with "-", so a branch like "--repo=owner/other-repo" would otherwise
-// redirect gh at an attacker-chosen repo.
-func TestGhEditPRBodyArgs_GuardsBranchBehindTerminator(t *testing.T) {
-	args := ghEditPRBodyArgs("--repo=owner/other-repo", "the summary")
-
-	term := indexOf(args, "--")
-	if term < 0 {
-		t.Fatalf("-- terminator missing from args: %v", args)
-	}
-	if branch := indexOf(args, "--repo=owner/other-repo"); branch != term+1 {
-		t.Errorf("branch must immediately follow -- (idx %d), got branch at idx %d: %v", term, branch, args)
-	}
-	if flag := indexOf(args, "--body"); flag >= 0 && flag < term {
-		t.Errorf("--body must not precede the -- terminator: %v", args)
+// TestGhEditPRBodyArgs_PutsBodyFlagBeforeTheTerminator is issue #160's
+// regression from 3404dc3: that commit guarded branch behind "--" (closing
+// #160) but placed "--body" AFTER the terminator, and pflag stops recognizing
+// flags the moment it sees "--" — so "--body" and its value became two more
+// positionals and gh rejected the call outright regardless of branch content
+// ("accepts at most 1 arg(s), received 3", verified against installed gh
+// 2.89.0 offline with no repo context). Flags must precede "--", with "--"
+// immediately before the trailing branch positional — the shape every sibling
+// call site already uses (ghReadyPR above; ghViewPR and ghCreatePR's --head=
+// in pr.go). Asserted as an exact literal, not index relations, so a future
+// reorder can't pass by accident the way the index-only check that let this
+// regression through did.
+func TestGhEditPRBodyArgs_PutsBodyFlagBeforeTheTerminator(t *testing.T) {
+	got := ghEditPRBodyArgs("--repo=owner/other-repo", "the summary")
+	want := []string{"pr", "edit", "--body", "the summary", "--", "--repo=owner/other-repo"}
+	if !slices.Equal(got, want) {
+		t.Errorf("ghEditPRBodyArgs(...) = %v, want %v", got, want)
 	}
 }
