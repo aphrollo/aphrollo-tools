@@ -308,6 +308,13 @@ func Check(opts Options) (Result, error) {
 				Remedy:   remedyFor(law),
 			})
 		}
+		// A MEASUREMENT law's document can stop carrying a row entirely, and
+		// zero measured reads to Tighten as "improved to nothing": one
+		// `go test -bench` re-recorded without `-benchmem` would delete every
+		// allocation ceiling in the file in one silent step. Report it, and
+		// leave the baseline alone while it stands.
+		unmeasured := unmeasuredCeilings(law, baseline, measured, scan.files, opts)
+		res.Findings = append(res.Findings, unmeasured...)
 		// A law switched from text to code counting measures FEWER lines than
 		// the baseline recorded it under — every key just looks tightened, so
 		// a report-only run (which never writes) would otherwise say nothing
@@ -327,8 +334,9 @@ func Check(opts Options) (Result, error) {
 		}
 		// A hypothetical tree must never rewrite a baseline: the content it
 		// measured is not what is on disk, and a narrowed run has not even
-		// looked at the rest of the tree.
-		if !opts.Tighten || path == "" || len(opts.Proposed) > 0 || len(opts.Files) > 0 {
+		// looked at the rest of the tree. Nor may a run that just reported a
+		// row as unmeasured go on to delete that very row.
+		if !opts.Tighten || path == "" || len(opts.Proposed) > 0 || len(opts.Files) > 0 || len(unmeasured) > 0 {
 			continue
 		}
 		// Tighten unconditionally and let WriteIfChanged decide: a count that
@@ -351,6 +359,55 @@ func Check(opts Options) (Result, error) {
 // A perf law reads generated output that only exists after a deliberate bench
 // run: unarmed there is nothing to read, and both checking AND tightening must
 // be skipped — tightening against no data would wipe the baseline.
+// unmeasuredCeilings names every baselined row of a MEASUREMENT law that this
+// run's document no longer carries. For a counted law a key that stopped
+// appearing IS the improvement the ratchet exists to bank; for a ceiling read
+// out of generated text it is the document going quiet, which must not be
+// banked as a win — the disarmed() guard answers the same question for a perf
+// law whose data was never generated.
+//
+// It applies only to a run that actually READ the document: a narrowed run
+// (`--files`) or a hypothetical tree measured nothing for a reason that is not
+// a missing row, and reporting there would reject every commit that does not
+// touch the transcript.
+func unmeasuredCeilings(law Law, baseline *Baseline, measured map[string]int, scanned []string, opts Options) []Finding {
+	if law.Matcher.Kind != KindBenchMetricCeiling || len(opts.Files) > 0 || len(opts.Proposed) > 0 {
+		return nil
+	}
+	if !scopeSawAFile(law, scanned) {
+		return nil
+	}
+	counts := baseline.Counts()
+	var out []Finding
+	for _, key := range sortedKeys(counts) {
+		if _, ok := measured[key]; ok {
+			continue
+		}
+		file, row, _ := strings.Cut(key, "#")
+		out = append(out, Finding{
+			Law:      law.Name,
+			Severity: law.Severity.String(),
+			File:     file,
+			What:     row + " is no longer measured — the transcript carries no such row",
+			Key:      key,
+			Baseline: counts[key],
+			Escape:   law.Escape,
+			Remedy:   remedyFor(law),
+		})
+	}
+	return out
+}
+
+// scopeSawAFile reports whether this run read any file the law is about.
+func scopeSawAFile(law Law, scanned []string) bool {
+	for _, rel := range scanned {
+		if law.Scope.Matches(rel) {
+			return true
+		}
+	}
+	return false
+}
+
 func disarmed(law Law) bool {
 	return law.Matcher.EnabledEnv != "" && os.Getenv(law.Matcher.EnabledEnv) == ""
 }

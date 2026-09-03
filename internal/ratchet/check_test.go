@@ -26,14 +26,68 @@ func repoWithNanGuard(t *testing.T) string {
 // benchmark's two allocation columns.
 func repoWithBenchCeiling(t *testing.T, allocBytes string) string {
 	t.Helper()
+	return repoWithBenchTranscript(t,
+		"BenchmarkParse\t6\t191718883 ns/op\t"+allocBytes+" B/op\t20 allocs/op\n")
+}
+
+// repoWithBenchTranscript is the same repo with the transcript spelled out, so
+// a test can state what the benchmark run did or did not write.
+func repoWithBenchTranscript(t *testing.T, transcript string) string {
+	t.Helper()
 	root := t.TempDir()
 	writeLaw(t, root, "bench_baseline", benchCeilingLawText)
 	write(t, filepath.Join(root, ".ratchet", "baselines", "bench_baseline.txt"),
 		"testdata/bench/baseline.txt#BenchmarkParse B/op | 200\n"+
 			"testdata/bench/baseline.txt#BenchmarkParse allocs/op | 20\n")
-	write(t, filepath.Join(root, "testdata", "bench", "baseline.txt"),
-		"BenchmarkParse\t6\t191718883 ns/op\t"+allocBytes+" B/op\t20 allocs/op\n")
+	write(t, filepath.Join(root, "testdata", "bench", "baseline.txt"), transcript)
 	return root
+}
+
+// TestCheck_BenchCeilingRefusesATranscriptThatDroppedARatchetedColumn is the
+// hole a ceiling law has that a count law does not: a row the document stopped
+// carrying measures ZERO, and tighten reads zero as "improved to nothing" and
+// deletes the row. `go test -bench` without `-benchmem` writes no allocation
+// column at all, so one re-record would silently drop every ceiling in the
+// file and leave the next honest one with nothing to compare against.
+func TestCheck_BenchCeilingRefusesATranscriptThatDroppedARatchetedColumn(t *testing.T) {
+	root := repoWithBenchTranscript(t, "BenchmarkParse\t6\t191718883 ns/op\n")
+
+	res, err := Check(Options{Root: root, Tighten: true})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 2 {
+		t.Fatalf("findings = %+v, want one per baselined row the transcript no longer carries", res.Findings)
+	}
+	if !res.Blocked() {
+		t.Error("a deny law's unmeasured ceiling must block")
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".ratchet", "baselines", "bench_baseline.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"BenchmarkParse B/op | 200", "BenchmarkParse allocs/op | 20"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("the baseline lost %q to a transcript that measured nothing:\n%s", want, data)
+		}
+	}
+}
+
+// The narrowed run is the other half: `--files` reads a handful of staged
+// paths, and a law whose document is not among them measured nothing for a
+// reason that is not a missing row. Reporting there would make every commit
+// that does not touch the transcript a rejection.
+func TestCheck_BenchCeilingSaysNothingWhenTheRunNeverReadTheTranscript(t *testing.T) {
+	root := repoWithBenchCeiling(t, "150")
+	write(t, filepath.Join(root, "unrelated.go"), "package m\n")
+
+	res, err := Check(Options{Root: root, Files: []string{"unrelated.go"}})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 0 {
+		t.Fatalf("findings = %+v, want none — this run never opened the transcript", res.Findings)
+	}
 }
 
 // TestCheck_BenchCeilingRefusesARaisedAllocationRow is the whole point of the

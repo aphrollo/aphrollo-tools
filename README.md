@@ -1334,9 +1334,14 @@ loudly instead of reporting green over files they never opened.
   ceiling, while `B/op` and `allocs/op` are a budget. The `-<GOMAXPROCS>`
   suffix `go test` appends to every name is dropped from the key, or a
   re-record on a box with a different core count would read as a whole new set
-  of benchmarks with no ceiling at all. Its `clean/` fixture is the same
-  transcript recorded WITHOUT `-benchmem`, which is what proves the reader
-  discriminates.
+  of benchmarks with no ceiling at all. A row the document STOPS carrying is a
+  finding rather than an improvement: measured zero would otherwise read to
+  `tighten` as "improved to nothing", and one re-record without `-benchmem`
+  would delete every allocation ceiling in the file in a single silent step —
+  the same vacuity `enabled_env` answers for a perf law whose data was never
+  generated. Its `clean/` fixture is the same transcript recorded WITHOUT
+  `-benchmem`: `clean` there means the reader takes nothing from the file, not
+  that a tree in that state passes the law.
 - **`json-number-ceiling`** is a MEASUREMENT law: every value it reads is a
   hit, weighted by the number (rounded up), and the `tolerance_pct` is applied
   when comparing to the baseline rather than when measuring — a figure inside

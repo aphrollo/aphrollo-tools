@@ -1,6 +1,14 @@
 # A benchmark row carrying the allocation columns is a measurement with a
 # ceiling: one expectation per benchmark and column. The clean case is the same
 # transcript recorded WITHOUT -benchmem — only the informational timing column,
-# nothing to ratchet — which is what proves the reader discriminates.
+# nothing to ratchet — which is what proves the READER discriminates.
+#
+# `clean` here means "the reader takes nothing from this file", not "a tree in
+# this state passes the law": for a ceiling law the passing tree is the one
+# full of hits, exactly as for json-number-ceiling, whose clean fixture is a
+# file its glob refuses. A tree whose transcript really did go quiet is judged
+# by unmeasuredCeilings (check.go) against the BASELINE, which no fixture
+# directory holds — it is covered by
+# TestCheck_BenchCeilingRefusesATranscriptThatDroppedARatchetedColumn.
 testdata/bench/baseline.txt#BenchmarkParse B/op
 testdata/bench/baseline.txt#BenchmarkParse allocs/op
