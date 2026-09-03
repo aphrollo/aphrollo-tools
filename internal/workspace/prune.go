@@ -290,6 +290,13 @@ func linkedWorktrees(repo string) ([]worktreeEntry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("git worktree list: %w", err)
 	}
+	return excludeMainClone(parseWorktreeList(string(out)), repo), nil
+}
+
+// parseWorktreeList parses `git worktree list --porcelain` output into every
+// entry it lists, in the order git printed them — including the main clone.
+// It makes no positional assumption; callers decide how to treat any entry.
+func parseWorktreeList(out string) []worktreeEntry {
 	var entries []worktreeEntry
 	var cur worktreeEntry
 	flush := func() {
@@ -298,7 +305,7 @@ func linkedWorktrees(repo string) ([]worktreeEntry, error) {
 		}
 		cur = worktreeEntry{}
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		switch {
 		case strings.HasPrefix(line, "worktree "):
 			flush()
@@ -310,12 +317,38 @@ func linkedWorktrees(repo string) ([]worktreeEntry, error) {
 		}
 	}
 	flush()
-	// git lists the main worktree first; drop it — the sweep only touches linked
-	// worktrees, never the canonical clone.
-	if len(entries) > 0 {
-		entries = entries[1:]
+	return entries
+}
+
+// excludeMainClone drops the entry whose path IS repo (the main checkout,
+// never swept) by comparing PATHS, never by list position — `git worktree
+// list --porcelain` lists the main worktree first in practice, but nothing
+// enforces that ordering, and internal/tdd's mergePruneWorktrees (the
+// identical rule for the identical operation) already deliberately rejects
+// trusting it (see #172).
+func excludeMainClone(entries []worktreeEntry, repo string) []worktreeEntry {
+	var linked []worktreeEntry
+	for _, e := range entries {
+		if samePath(e.Path, repo) {
+			continue
+		}
+		linked = append(linked, e)
 	}
-	return entries, nil
+	return linked
+}
+
+// samePath reports whether two worktree paths name the same directory,
+// normalizing separators and case — git may report a path with either
+// separator, and the same directory routinely appears under two drive-letter
+// or short/long-name spellings on Windows.
+func samePath(a, b string) bool {
+	clean := func(p string) string {
+		if p == "" {
+			return ""
+		}
+		return strings.ToLower(strings.TrimRight(filepath.ToSlash(filepath.Clean(p)), "/"))
+	}
+	return clean(a) == clean(b)
 }
 
 // worktreeClean reports whether the worktree has no uncommitted changes —

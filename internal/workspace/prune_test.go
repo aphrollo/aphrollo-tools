@@ -373,6 +373,37 @@ func TestPrune_TallyAndAdminCleanup(t *testing.T) {
 	}
 }
 
+// TestExcludeMainCloneDropsByPathNotListPosition is issue #172: linkedWorktrees
+// used to drop `git worktree list --porcelain`'s FIRST entry to exclude the
+// main checkout, trusting an ordering nothing enforces. excludeMainClone must
+// drop the main clone by comparing its PATH against repo, so it is excluded
+// wherever it lands in the list — proven here with a synthetic list where the
+// main clone is NOT first.
+func TestExcludeMainCloneDropsByPathNotListPosition(t *testing.T) {
+	repo := filepath.Join("C:", "spaces", "aphrollo")
+	linked1 := filepath.Join("C:", "spaces", ".worktrees", "aphrollo", "lane-a")
+	linked2 := filepath.Join("C:", "spaces", ".worktrees", "aphrollo", "lane-b")
+	// The main clone sits LAST, not first — the exact ordering violation
+	// mergeprune.go's comment warns entries[1:] cannot defend against.
+	entries := []worktreeEntry{
+		{Path: linked1, Branch: "lane-a"},
+		{Path: linked2, Branch: "lane-b"},
+		{Path: repo, Branch: "main"},
+	}
+	got := excludeMainClone(entries, repo)
+	if len(got) != 2 {
+		t.Fatalf("excludeMainClone should keep exactly the 2 linked worktrees, got %d: %+v", len(got), got)
+	}
+	for _, e := range got {
+		if e.Path == repo {
+			t.Errorf("excludeMainClone must never keep the main clone %q, got %+v", repo, got)
+		}
+	}
+	if got[0].Path != linked1 || got[1].Path != linked2 {
+		t.Errorf("excludeMainClone should preserve the linked worktrees' relative order, got %+v", got)
+	}
+}
+
 func TestPrunePlan_NotARepo(t *testing.T) {
 	if _, err := PrunePlan(t.TempDir()); err == nil {
 		t.Fatal("expected an error for a non-git dir")
