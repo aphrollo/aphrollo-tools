@@ -1,0 +1,117 @@
+name: Nightly fuzz
+
+# Runs the native Go fuzz targets for real, past their seed corpus, on a
+# schedule rather than per-PR: 60 s each across the 8 targets is ~8 minutes,
+# too slow for the PR pipeline's per-push budget but cheap once a night. A
+# crash opens an issue through `gate issue` with the reproducer attached —
+# the same mechanism the rest of the gate uses for an open point, so a fuzz
+# finding lands exactly like any other one.
+
+on:
+  schedule:
+    - cron: "17 9 * * *" # nightly, off the hour so it does not contend with other cron jobs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    # A fork's scheduled/dispatched run has no business filing issues against
+    # this repo (and `gh issue create` would just fail there anyway without
+    # a token) — the same guard `escape-record` in pipeline.yml applies via
+    # `head.repo.fork`, stated directly here since a schedule event carries
+    # no PR to read that from.
+    if: github.repository == 'aphrollo/aphrollo-tools'
+    runs-on: self-hosted
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build the CLI from this tree
+        run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
+      - name: Fuzz every target for 60s
+        id: fuzz
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          declare -A targets=(
+            ["internal/ratchet"]="FuzzParseLaw FuzzBaseline"
+            ["internal/tdd"]="FuzzReceipt FuzzGateLogLine FuzzBashWriteTargets FuzzDocsOnlyClassifier"
+            ["internal/cli"]="FuzzGitShimArgv FuzzCargoShimArgv"
+          )
+          overall=0
+          for pkg in "${!targets[@]}"; do
+            for name in ${targets[$pkg]}; do
+              echo "=== fuzzing $name in $pkg (60s) ==="
+              log="fuzz-${name}.log"
+              corpus_dir="${pkg}/testdata/fuzz/${name}"
+              # Snapshot the corpus BEFORE the run: go test's own crasher
+              # file is the only reliable "this fuzz target found something"
+              # signal, and comparing directory listings avoids the mtime
+              # race a `-newer` marker has against the log file this run is
+              # itself still writing.
+              before=$(find "$corpus_dir" -type f 2>/dev/null | sort)
+              if go test "./${pkg}/..." -run=NONE -fuzz="^${name}\$" -fuzztime=60s >"$log" 2>&1; then
+                echo "$name: no crash"
+                continue
+              fi
+              after=$(find "$corpus_dir" -type f 2>/dev/null | sort)
+              repro=$(comm -13 <(echo "$before") <(echo "$after") | head -1)
+              # A build/vet/toolchain failure exits nonzero with NEITHER a
+              # native-fuzzing "--- FAIL:" line NOR a new corpus entry — that
+              # is an infra problem for a human to read in the job log, not
+              # a fuzz-found crash, and must not file an issue under the
+              # fuzz theme (a compile error would otherwise page every
+              # night until someone happens to read this job).
+              if ! grep -q -- '--- FAIL:' "$log" && [ -z "$repro" ]; then
+                overall=1
+                echo "::error::$name exited nonzero with no fuzz failure marker and no new corpus entry — likely a build/vet/toolchain error, not a fuzz crash"
+                cat "$log"
+                continue
+              fi
+              overall=1
+              echo "$name: CRASHED"
+              cat "$log"
+              body="\`go test ./${pkg}/... -run=${name} -fuzz=^${name}\$\` crashed on the CI runner tonight.
+
+          Log (tail):
+          \`\`\`
+          $(tail -c 6000 "$log")
+          \`\`\`"
+              if [ -n "$repro" ]; then
+                body="$body
+
+          Reproducer: \`$repro\`
+          \`\`\`
+          $(cat "$repro")
+          \`\`\`"
+              fi
+              title="fuzz: $name found a crash"
+              # A crash that survives multiple nights must not file a fresh
+              # issue every run: search OPEN issues by exact title first.
+              existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+                --search "\"$title\" in:title" --json number -q '.[0].number // empty' 2>/dev/null || true)
+              if [ -n "$existing" ]; then
+                echo "an open issue (#$existing) already tracks '$title' — not filing a duplicate"
+                continue
+              fi
+              ./bin/aphrollo gate issue "$title" --new-label --label fuzz --body "$body" || \
+                echo "::warning::gate issue failed for $name — see the log above"
+            done
+          done
+          exit $overall
+      - name: Upload fuzz logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-logs
+          path: fuzz-*.log
+          if-no-files-found: ignore

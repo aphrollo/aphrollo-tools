@@ -1,0 +1,4 @@
+go test fuzz v1
+[]byte("{\"verdict\":\"pass\",\"mutants_tot")
+string("repo")
+string("tree")
