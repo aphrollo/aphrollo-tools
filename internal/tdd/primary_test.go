@@ -155,6 +155,44 @@ func TestPrimaryCheckout_AllowsBashCommandsThatWriteNothingInTheRepo(t *testing.
 	}
 }
 
+// A heredoc BODY is data, not shell. `select where x > 5` inside one reads as
+// a redirection to a file called `5` if the body is split like a command line,
+// and the session is refused a read-only query it never wrote anything with.
+func TestPrimaryCheckout_AllowsAHeredocWhoseBodyContainsARedirect(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary, _ := primaryRepo(t)
+
+	reads := []string{
+		"cat <<'DOC'\nselect where x > 5\nDOC",
+		"psql <<-DOC\n\tselect where x > 5\n\tDOC",
+		"cat <<DOC > /dev/null\nx > 5\nDOC",
+	}
+	for _, cmd := range reads {
+		if d := PrimaryCheckoutDecision(bashPayload(t, "b4", primary, cmd)); d.Action != Allow {
+			t.Errorf("%q writes nothing into the repo and should Allow, got %+v", cmd, d)
+		}
+	}
+}
+
+// The other half: skipping a heredoc body must not skip the command line that
+// opened it, nor the commands that follow the body -- both are where a real
+// write sits.
+func TestPrimaryCheckout_DeniesAWriteAroundAHeredocBody(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary, _ := primaryRepo(t)
+
+	writes := []string{
+		"cat > main.go <<'DOC'\npackage main\nDOC",
+		"cat <<'DOC' > main.go\npackage main\nDOC",
+		"cat <<'DOC'\nnot shell\nDOC\necho hi > notes.txt",
+	}
+	for _, cmd := range writes {
+		if d := PrimaryCheckoutDecision(bashPayload(t, "b5", primary, cmd)); d.Action != Block {
+			t.Errorf("%q writes into the primary checkout and should Block, got %+v", cmd, d)
+		}
+	}
+}
+
 func TestPrimaryCheckout_AllowsBashInALinkedWorktree(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	_, linked := primaryRepo(t)

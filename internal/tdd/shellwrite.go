@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 )
@@ -25,7 +26,7 @@ func bashWritesInto(cmd, cwd, root string) bool {
 	if strings.TrimSpace(cmd) == "" || root == "" {
 		return false
 	}
-	for _, seg := range shellSegments(cmd) {
+	for _, seg := range shellSegments(stripHeredocBodies(cmd)) {
 		for _, target := range writeTargets(seg) {
 			if pathUnder(resolveAgainst(cwd, target), root) {
 				return true
@@ -33,6 +34,65 @@ func bashWritesInto(cmd, cwd, root string) bool {
 		}
 	}
 	return false
+}
+
+// heredocOpener matches a heredoc redirection and captures its delimiter,
+// quoted or bare. `<<<` (a here-STRING) does not match: its operand is a word,
+// not a delimiter, and its line is ordinary shell.
+var heredocOpener = regexp.MustCompile(`<<-?[ \t]*(?:'([^']*)'|"([^"]*)"|([A-Za-z_][A-Za-z0-9_]*))`)
+
+// stripHeredocBodies removes the LINES a heredoc feeds to a command, keeping
+// the line that opens it. A body is data -- `select where x > 5` in one is a
+// query, not a redirection to a file called `5` -- and splitting it like a
+// command line refused read-only Bash calls in the primary checkout.
+//
+// A heredoc whose terminator never appears is left alone: dropping the rest of
+// the command on an unterminated delimiter would hide every write after it,
+// and this scanner may miss nothing it can still see.
+func stripHeredocBodies(cmd string) string {
+	if !strings.Contains(cmd, "<<") {
+		return cmd
+	}
+	lines := strings.Split(cmd, "\n")
+	var out []string
+	for i := 0; i < len(lines); i++ {
+		out = append(out, lines[i])
+		for _, delim := range heredocDelimiters(lines[i]) {
+			end := terminatorLine(lines, i+1, delim)
+			if end < 0 {
+				continue
+			}
+			i = end
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// heredocDelimiters names every heredoc one line opens, in order: `cmd <<A <<B`
+// reads A's body first, then B's.
+func heredocDelimiters(line string) []string {
+	var delims []string
+	for _, m := range heredocOpener.FindAllStringSubmatch(line, -1) {
+		for _, g := range m[1:] {
+			if g != "" {
+				delims = append(delims, g)
+				break
+			}
+		}
+	}
+	return delims
+}
+
+// terminatorLine is the index of the line that closes a heredoc, or -1. The
+// delimiter stands alone on its line; `<<-` strips leading tabs, and trimming
+// whitespace covers both forms.
+func terminatorLine(lines []string, from int, delim string) int {
+	for i := from; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == delim {
+			return i
+		}
+	}
+	return -1
 }
 
 // shellSegments splits a command line into the simple commands a shell would
