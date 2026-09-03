@@ -133,6 +133,33 @@ var ghPRState = func(wt, branch string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// ghPRHeadOid is the seam over `gh pr view <branch> --json headRefOid` — a
+// package var so the sweep tests run without gh or the network. It returns the
+// SHA gh last recorded for the branch's head (what the PR actually merged),
+// which stays fixed once the PR is merged unless the branch is pushed again.
+// Comparing it against the worktree's actual HEAD is what lets decide() tell a
+// merged-and-untouched worktree apart from one a builder kept committing to
+// after the merge — see #163: `git status --porcelain` alone cannot make that
+// distinction, since new commits leave the tree clean again.
+var ghPRHeadOid = func(wt, branch string) (string, error) {
+	cmd := exec.Command("gh", "pr", "view", "--json", "headRefOid", "-q", ".headRefOid", "--", branch)
+	cmd.Dir = wt
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("gh pr view %s: %v: %s", branch, err, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// localHeadSHA returns the worktree's current HEAD commit.
+func localHeadSHA(wt string) (string, error) {
+	out, err := exec.Command("git", "-C", wt, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse HEAD: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // isNoPRError reports whether gh's output is the benign "this branch has no open
 // PR" message (an absence) rather than a real failure (auth/network/gh-missing).
 func isNoPRError(out string) bool {
@@ -232,6 +259,24 @@ func (p *Prune) decide(e worktreeEntry, cwd string) pruneDecision {
 	}
 	if !p.Force && !worktreeClean(e.Path) {
 		return pruneDecision{wt: e, reason: "dirty"}
+	}
+	// A clean tree is not enough: a builder who reuses a merged branch's
+	// worktree for follow-up work commits it, so `git status --porcelain`
+	// goes clean again with the new work still sitting there (#163). Compare
+	// HEAD against what gh actually recorded as merged (headRefOid) and skip
+	// rather than prune when they disagree.
+	mergedHead, err := ghPRHeadOid(e.Path, e.Branch)
+	if err != nil {
+		return pruneDecision{wt: e, reason: "could not check PR state (gh unavailable)"}
+	}
+	if mergedHead != "" {
+		head, err := localHeadSHA(e.Path)
+		if err != nil {
+			return pruneDecision{wt: e, reason: "could not check PR state (gh unavailable)"}
+		}
+		if head != mergedHead {
+			return pruneDecision{wt: e, reason: "local commits beyond the merged PR"}
+		}
 	}
 	return pruneDecision{wt: e, remove: true, reason: "PR merged"}
 }

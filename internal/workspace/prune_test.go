@@ -18,6 +18,45 @@ func stubPRState(t *testing.T, fn func(wt, branch string) (string, error)) {
 	t.Cleanup(func() { ghPRState = ov })
 }
 
+// stubPRHeadOid swaps the gh PR head-ref-oid seam for a test.
+func stubPRHeadOid(t *testing.T, fn func(wt, branch string) (string, error)) {
+	t.Helper()
+	ov := ghPRHeadOid
+	ghPRHeadOid = fn
+	t.Cleanup(func() { ghPRHeadOid = ov })
+}
+
+// commitFile commits a new file into wt, simulating a builder who reuses a
+// merged branch/worktree for follow-up work.
+func commitFile(t *testing.T, wt, name string) string {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(wt, name), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", wt, "add", name).CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", wt, "commit", "-qm", "follow-up after merge").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+	sha, err := exec.Command("git", "-C", wt, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("git rev-parse HEAD: %v", err)
+	}
+	return strings.TrimSpace(string(sha))
+}
+
+// headSHA returns wt's current HEAD commit, for stubbing ghPRHeadOid to match
+// reality in tests that don't exercise the #163 "commits after the merge" gap.
+func headSHA(t *testing.T, wt string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", wt, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("git rev-parse HEAD: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // dirty writes an uncommitted file into a worktree so `git status --porcelain`
 // is non-empty.
 func dirty(t *testing.T, wt string) {
@@ -32,6 +71,13 @@ func TestPrune_RemovesMergedCleanWorktree(t *testing.T) {
 	stubPRState(t, func(_, b string) (string, error) {
 		if b == branch {
 			return "MERGED", nil
+		}
+		return "", nil
+	})
+	head := headSHA(t, wt)
+	stubPRHeadOid(t, func(_, b string) (string, error) {
+		if b == branch {
+			return head, nil
 		}
 		return "", nil
 	})
@@ -156,6 +202,53 @@ func TestPrune_SkipsOnGHError(t *testing.T) {
 	}
 }
 
+// TestPruneKeepsAMergedWorktreeThatHasCommitsAfterTheMerge is issue #163's
+// scenario: a builder reuses a merged branch's worktree for follow-up work and
+// commits it (so `git status --porcelain` is clean again). The sweep must not
+// treat "PR state MERGED + tree clean" as sufficient — HEAD has moved past what
+// the PR actually merged (gh's headRefOid), so the worktree must be kept.
+func TestPruneKeepsAMergedWorktreeThatHasCommitsAfterTheMerge(t *testing.T) {
+	repo, wt, branch := preparedRepo(t)
+	mergedSHA, err := exec.Command("git", "-C", wt, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("git rev-parse HEAD: %v", err)
+	}
+	stubPRState(t, func(_, b string) (string, error) {
+		if b == branch {
+			return "MERGED", nil
+		}
+		return "", nil
+	})
+	stubPRHeadOid(t, func(_, b string) (string, error) {
+		if b == branch {
+			return strings.TrimSpace(string(mergedSHA)), nil
+		}
+		return "", nil
+	})
+
+	// Follow-up commit made in the worktree AFTER the PR merged — HEAD now
+	// differs from what gh's headRefOid says was actually merged.
+	commitFile(t, wt, "followup.txt")
+
+	p, err := PrunePlan(repo)
+	if err != nil {
+		t.Fatalf("PrunePlan: %v", err)
+	}
+	var out, errb bytes.Buffer
+	if err := p.Run(true, &out, &errb); err != nil {
+		t.Fatalf("Run: %v\n%s", err, errb.String())
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Errorf("worktree with commits after the merge must be kept: %v", err)
+	}
+	if !strings.Contains(out.String(), "skip: "+wt) {
+		t.Errorf("receipt should skip the worktree:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "local commits beyond the merged PR") {
+		t.Errorf("skip reason should say local commits are beyond what was merged:\n%s", out.String())
+	}
+}
+
 func TestPrune_SkipsDirtyMerged(t *testing.T) {
 	repo, wt, branch := preparedRepo(t)
 	dirty(t, wt)
@@ -184,6 +277,13 @@ func TestPrune_ForceRemovesDirtyMerged(t *testing.T) {
 	stubPRState(t, func(_, b string) (string, error) {
 		if b == branch {
 			return "MERGED", nil
+		}
+		return "", nil
+	})
+	head := headSHA(t, wt)
+	stubPRHeadOid(t, func(_, b string) (string, error) {
+		if b == branch {
+			return head, nil
 		}
 		return "", nil
 	})
@@ -231,6 +331,13 @@ func TestPrune_TallyAndAdminCleanup(t *testing.T) {
 	stubPRState(t, func(_, b string) (string, error) {
 		if b == branch {
 			return "MERGED", nil
+		}
+		return "", nil
+	})
+	head := headSHA(t, wt)
+	stubPRHeadOid(t, func(_, b string) (string, error) {
+		if b == branch {
+			return head, nil
 		}
 		return "", nil
 	})
