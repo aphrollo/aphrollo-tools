@@ -116,6 +116,10 @@ func TestStartMutantsJob_OptsInThroughAphrolloToml(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var started []MutantsJob
 	fakeSpawn(t, &started)
+	// This test is about the opt-in, so it states the disk it assumes: a CI
+	// runner with 13 GB free would otherwise refuse the start for a reason it
+	// is not asking about.
+	withFreeSpace(t, 200)
 	root := makeGoRepo(t)
 	write(t, root, "aphrollo.toml", "[aphrollo]\nmutation-receipt = true\n")
 	gitDo(t, root, "checkout", "-q", "-b", "lane/x")
