@@ -1,0 +1,25 @@
+# aphrollo's own gate configuration. A Cargo workspace declares this in
+# [workspace.metadata.aphrollo]; a repo with no Cargo.toml declares it here.
+
+[aphrollo]
+# A lane merges on a mutation proof, not on a green suite alone. Read by
+# mutationReceiptStage, which stands down here because of the next key --
+# see it for who does the judging instead.
+mutation-receipt = true
+
+# ...and the proof is NOT measured on the developer's box. A Go mutant is
+# judged by re-running its WHOLE package: 26 s for internal/tdd on the Linux
+# runner against 207 s on a Windows box, and gremlins' analysis pass counts
+# 1626 mutants in that one package. The `mutants` job in
+# .github/workflows/pipeline.yml measures the pull request's own diff on the
+# self-hosted runner instead, and is a required check. With no local run there
+# is no local receipt to demand -- and the runner signs with the RUNNER's
+# machine key -- so the pre-merge-commit gate logs receipt-measured-in-ci and
+# stands down; the required check is what refuses the merge.
+mutants-local = false
+
+# Survivors somebody signed off on: "<file>:<line> <MUTATOR> # why". The
+# reason is not decoration — an entry without one is not an accepted survivor,
+# and the CI check goes red for it. Empty is the state to keep it in.
+mutation-accept = [
+]

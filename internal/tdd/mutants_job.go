@@ -78,7 +78,7 @@ func StartMutantsJob(repoRoot string) (MutantsJob, bool) {
 		return MutantsJob{}, false
 	}
 	branch := gitOut(root, "rev-parse", "--abbrev-ref", "HEAD")
-	if branch == "" || isDefaultBranch(branch) || !mutationReceiptOptIn(root) {
+	if branch == "" || isDefaultBranch(branch) || !mutationReceiptOptIn(root) || !mutationRunsLocally(root) {
 		return MutantsJob{}, false
 	}
 	j := MutantsJob{
@@ -152,6 +152,25 @@ func mutationReceiptOptIn(root string) bool {
 // aphrolloTomlFlag reads one boolean from `[aphrollo]` in <root>/aphrollo.toml.
 func aphrolloTomlFlag(root, key string) bool {
 	return tomlBoolIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", key)
+}
+
+// mutationRunsLocally says whether the lane's proof is measured on THIS box.
+// A repo with a CI runner that can do it says `mutants-local = false` beside
+// its opt-in and the post-commit hook stops starting detached runs here: one
+// Go mutant costs a whole re-run of its package, and the runner has a Linux
+// process spawn where this box has a Windows one. Absent means yes — a repo
+// that has said nothing keeps the behaviour it already has.
+func mutationRunsLocally(root string) bool {
+	if v, set := tomlBoolSetIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", "mutants-local"); set {
+		return v
+	}
+	// cargoWorkspaceRoot answers `root` when it finds no workspace table, so a
+	// single-crate repo's own Cargo.toml is what gets read here.
+	ws := cargoWorkspaceRoot(root)
+	if v, set := tomlBoolSetIn(filepath.Join(ws, "Cargo.toml"), "[workspace.metadata.aphrollo]", "mutants-local"); set {
+		return v
+	}
+	return true
 }
 
 // MutantsWorktreeDir is the ONE dedicated worktree a repo's mutation runs use,

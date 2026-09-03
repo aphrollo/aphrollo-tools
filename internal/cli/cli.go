@@ -227,10 +227,14 @@ Subcommands:
                     from a red on an ungated one — then start the lane's
                     mutation run detached and below normal priority (opt-in per
                     repo: mutation-receipt = true). Never blocks, never fails
-  mutants           The mutation job's own verbs: run|go --job <file> (spawned
-                    by postcommit, not typed by hand). The go verb drives
-                    gremlins over the lane diff and writes the same receipt the
-                    Rust runner does
+  mutants           The mutation job's own verbs. run|go --job <file> is the
+                    DETACHED local run, spawned by postcommit and not typed by
+                    hand; the go verb drives gremlins over the lane diff and
+                    writes the same receipt the Rust runner does.
+                    go --diff <base> [--receipt <path>] is CI's: it measures
+                    <base>..HEAD in this checkout in the FOREGROUND and is the
+                    check — exit 1 on an unaccepted survivor, a timeout, or a
+                    run that measured nothing; exit 2 on a bad invocation
   receipt           receipt sign [--outcomes <path>] <file>: stamp a mutation
                     receipt with this machine's MAC. The ONLY writer of one —
                     every runner signs through it

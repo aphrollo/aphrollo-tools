@@ -1049,7 +1049,10 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   that gate, e.g. `commit-message-deny = ["(?i)\\bskunkworks\\b", "^WIP:"]` (a TOML basic string, so the regex backslash is doubled).
   An unparseable entry is skipped with a stderr note, never silently disabling
   the gate nor blocking every commit.
-- **`mutation-receipt`** (bool) — turns on the merge gate's receipt check.
+- **`mutation-receipt`** (bool) — turns on the merge gate's receipt check. Read
+  from whichever manifest the repo has: `[workspace.metadata.aphrollo]` in a
+  Cargo workspace's `Cargo.toml`, `[aphrollo]` in a root `aphrollo.toml`
+  otherwise.
   Fail-first proves a test FAILED once; it says nothing about whether the
   test constrains behaviour, and a test that asserts nothing satisfies
   fail-first perfectly. A MERGE needs both. With the key set,
@@ -1086,6 +1089,45 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   producing repo decides how it names a mutant — and only the first is quoted
   in the rejection, which also names the command that produces a receipt. It
   runs BEFORE any suite compiles.
+- **`mutants-local`** (bool, default `true`) — where the proof is MEASURED.
+  A Cargo repo has no runner that will do it, so the post-commit hook starts a
+  detached run on the box and the key can stay unwritten. A repo whose pipeline
+  can run the tool says `mutants-local = false` and the hook stops: a Go mutant
+  is judged by re-running its WHOLE package (26 s for `internal/tdd` on the
+  Linux runner against 207 s on a Windows box, times the 1626 mutants gremlins
+  finds in that one package), so which machine measures decides whether the
+  proof is affordable. Only an explicit `false` turns it off — a repo that has
+  said nothing keeps the behaviour it has.
+  **`false` also stands the MERGE gate down.** It has to: the post-commit run is
+  the only producer of a local receipt, and the one the runner writes is signed
+  with the RUNNER's machine key, so a gate that kept demanding one would refuse
+  every lane merge forever. `mutationReceiptStage` logs `receipt-measured-in-ci`
+  and passes; the required CI check is what refuses the merge instead. So the
+  pair `mutation-receipt = true` + `mutants-local = false` means "the proof is
+  required, and CI is the judge" — do not set the second without a pipeline job
+  that runs `gate mutants go --diff`, or nothing judges the lane at all.
+- **`mutation-accept`** (string array) — the survivors somebody signed off on,
+  each `"<file>:<line> <MUTATOR> # why it is acceptable"`. The reason is not
+  decoration: an entry without one is not an accepted survivor. This is the
+  list `aphrollo gate mutants go --diff <base>` judges against.
+- **`aphrollo gate mutants go --diff <base> [--receipt <path>]`** is the CI
+  half of the Go runner: it runs gremlins over `<base>..HEAD` in the current
+  checkout, writes and signs the same receipt a local run writes, and EXITS
+  NON-ZERO on a survivor the accept-list does not carry. gremlins' own exit
+  code is not the verdict — it fails a run that misses its efficacy threshold,
+  which is a bar about the whole module, and the bar here is the accept-list.
+  Exit 2 is a bad invocation (no base: an unscoped run measures everything),
+  exit 1 is a failed check, a run that produced no report, a mutant that timed
+  out (an unmeasured mutant is not a result), or a run that measured ZERO
+  mutants over a diff that DID change production Go — a scope matching nothing
+  is what a stale base looks like. A zero is a real answer only when there was
+  nothing to mutate, so the runner lists `<base>..HEAD` first: if no changed
+  file is a non-test `.go` outside a `testdata` tree it writes a signed
+  zero-mutant receipt, prints `0 mutable Go lines in <base>..HEAD: nothing to
+  judge` and exits 0 without starting the tool. A diff git cannot read counts as
+  mutable: "I could not tell" is never the reason a check passes. The same verb with
+  `--job <file>` instead is the detached local run. aphrollo-tools runs it as
+  the required `mutants` check in `.github/workflows/pipeline.yml`.
 - **`docs-check`** (bool) — turns on the staged-markdown citation stage for a
   cargo workspace. A Go module is opted in by being one (aphrollo's own CI
   already runs the check), and any repo can opt in with a `.aphrollo/docs-check`

@@ -46,23 +46,18 @@ func TestCleanGitEnv_StripsGitVars(t *testing.T) {
 
 // --- real-git integration: the fail-first worktree path ---------------------
 
+// gitInit gives dir the .git of an initialised repo with the fixture identity
+// configured — the four spawns it used to cost, copied from the golden repo
+// TestMain built once (see fixture_test.go).
 func gitInit(t *testing.T, dir string) {
 	t.Helper()
 	// Isolate git config so the operator box's global core.hooksPath (the
 	// aphrollo tdd gate) does not recurse into this fixture's setup commits.
 	isolateGitConfig(t)
-	for _, args := range [][]string{
-		{"init", "-q"},
-		{"config", "user.email", "t@t"},
-		{"config", "user.name", "t"},
-		{"config", "commit.gpgsign", "false"},
-	} {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %s", args, out)
-		}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
 	}
+	copyFixture(t, dir, initFixture)
 }
 
 func write(t *testing.T, dir, rel, content string) {
@@ -78,27 +73,23 @@ func write(t *testing.T, dir, rel, content string) {
 
 func gitDo(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command(gitBinary(), args...)
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %s", args, out)
 	}
 }
 
-// makeGoRepo creates a committed Go module with a passing baseline, then stages
-// the given new files, returning the repo root.
+// makeGoRepo hands the test its own copy of the committed Go module TestMain
+// built once: go.mod, doc.go, one commit, a clean worktree.
 func makeGoRepo(t *testing.T) string {
 	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
+	if _, err := exec.LookPath(gitBinary()); err != nil {
 		t.Skip("git not available")
 	}
 	root := t.TempDir()
-	gitInit(t, root)
-	write(t, root, "go.mod", "module example.com/m\n\ngo 1.26\n")
-	write(t, root, "doc.go", "package m\n")
-	gitDo(t, root, "add", ".")
-	gitDo(t, root, "commit", "-qm", "base")
-	return root
+	isolateGitConfig(t)
+	return copyFixture(t, root, goFixture)
 }
 
 // makeJSRepo creates a committed repo whose only root marker is package.json,
@@ -395,12 +386,8 @@ func TestPrecommit_ChangesGate_SkipsYAMLOnlyCommit(t *testing.T) {
 func makeCargoRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	gitInit(t, root)
-	write(t, root, "Cargo.toml", "[package]\nname = \"m\"\nversion = \"0.1.0\"\n")
-	write(t, root, "src/lib.rs", "pub fn base() -> i32 { 0 }\n")
-	gitDo(t, root, "add", ".")
-	gitDo(t, root, "commit", "-qm", "base")
-	return root
+	isolateGitConfig(t)
+	return copyFixture(t, root, cargoFixture)
 }
 
 // A green mechanical run must be remembered: a second Precommit over the

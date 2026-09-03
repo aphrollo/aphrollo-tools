@@ -15,7 +15,7 @@ import (
 // gitOutT is a git value a test needs to compare against.
 func gitOutT(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command(gitBinary(), args...)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
@@ -27,7 +27,7 @@ func gitOutT(t *testing.T, dir string, args ...string) string {
 // gitNote is the gate note on rev, "" when there is none.
 func gitNote(t *testing.T, dir, rev string) string {
 	t.Helper()
-	cmd := exec.Command("git", "notes", "--ref="+gateNotesRef, "show", rev)
+	cmd := exec.Command(gitBinary(), "notes", "--ref="+gateNotesRef, "show", rev)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
@@ -186,7 +186,7 @@ func gitEnvOut(t *testing.T, dir string, env []string, args ...string) string {
 
 func gitEnvRun(t *testing.T, dir string, env []string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command(gitBinary(), args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.CombinedOutput()

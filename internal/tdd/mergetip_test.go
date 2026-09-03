@@ -49,7 +49,7 @@ func TestMergeTipTree_PrefersMergeHeadOverTheReflogAction(t *testing.T) {
 	write(t, root, "lane.go", "package m\n\nconst Lane = 3\n")
 	gitDo(t, root, "add", ".")
 	gitDo(t, root, "commit", "-qm", "base-side")
-	_ = exec.Command("git", "-C", root, "merge", "other").Run() // conflicts: MERGE_HEAD lands
+	_ = exec.Command(gitBinary(), "-C", root, "merge", "other").Run() // conflicts: MERGE_HEAD lands
 	t.Setenv("GIT_REFLOG_ACTION", "merge lane")
 
 	if got := mergeTipTree(root); got != otherTree {

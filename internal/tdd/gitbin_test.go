@@ -105,7 +105,7 @@ func TestMergeTipTree_NamesTheMergedTipsTree(t *testing.T) {
 	gitDo(t, root, "add", ".")
 	gitDo(t, root, "commit", "-qm", "base-side")
 	// Conflicts on purpose: that is the state a merge gate runs in.
-	_ = exec.Command("git", "-C", root, "merge", "lane").Run()
+	_ = exec.Command(gitBinary(), "-C", root, "merge", "lane").Run()
 
 	if got := mergeTipTree(root); got != want {
 		t.Fatalf("mergeTipTree = %q, want the lane tip's tree %q", got, want)
@@ -116,7 +116,7 @@ func TestMergeTipTree_NamesTheMergedTipsTree(t *testing.T) {
 // under test.
 func gitValue(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd := exec.Command(gitBinary(), append([]string{"-C", dir}, args...)...)
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("git %v: %v", args, err)

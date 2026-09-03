@@ -41,6 +41,9 @@ func TestMain(m *testing.M) {
 	// case under test here.
 	os.Unsetenv(BuildLockHeldEnv)
 	restoreLocks := SetLockDirForTest(locks)
+	// The golden git repos every fixture helper copies, built once here
+	// rather than spawned per test. See fixture_test.go.
+	buildFixtures(dir)
 	code := m.Run()
 	restoreLocks()
 	os.RemoveAll(dir)

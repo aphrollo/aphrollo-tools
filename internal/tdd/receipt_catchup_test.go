@@ -74,6 +74,61 @@ func TestMutationReceiptStage_ALaneMergingIntoMainStillNeedsAReceipt(t *testing.
 	}
 }
 
+// A repo with no Cargo.toml declares the same opt-in in aphrollo.toml, and the
+// merge gate has to read it there or the key gates nothing: aphrollo-tools set
+// `mutation-receipt = true` in aphrollo.toml and merged on nothing at all,
+// because the stage only ever asked cargoAphrolloFlag.
+func TestMutationReceiptStage_OptsInThroughAphrolloToml(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := goReceiptRepo(t, "[aphrollo]\nmutation-receipt = true\n")
+	startMerge(t, root, "main", "lane/x")
+
+	got := mutationReceiptStage(root)
+	if got == nil || !got.Blocked {
+		t.Fatal("aphrollo.toml's mutation-receipt = true must gate a merge the same way Cargo.toml's does")
+	}
+}
+
+// ...and when the proof is measured in CI, the merge gate stands DOWN. It has
+// to: `mutants-local = false` stops the only producer of a local receipt, and
+// the receipt the runner writes is signed with the RUNNER's machine key, so a
+// gate that kept demanding one would refuse every lane merge forever. The
+// stand-down is logged, so "no receipt was required" never looks like "a
+// receipt was checked".
+func TestMutationReceiptStage_StandsDownWhenTheProofIsMeasuredInCI(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := goReceiptRepo(t, "[aphrollo]\nmutation-receipt = true\nmutants-local = false\n")
+	startMerge(t, root, "main", "lane/x")
+
+	if got := mutationReceiptStage(root); got != nil && got.Blocked {
+		t.Fatalf("a repo whose proof is measured in CI had its merge refused: %s", got.Message)
+	}
+	requireLoggedVerdict(t, cfg, "receipt-measured-in-ci")
+}
+
+// goReceiptRepo is receiptRepo for a repo with no Cargo.toml: the opt-in is
+// whatever aphrollo.toml the caller hands it.
+func goReceiptRepo(t *testing.T, aphrolloToml string) string {
+	t.Helper()
+	root := makeGoRepo(t)
+	write(t, root, "aphrollo.toml", aphrolloToml)
+	gitDo(t, root, "add", "-A")
+	gitDo(t, root, "commit", "-qm", "opt in")
+	gitDo(t, root, "branch", "-M", "main")
+
+	gitDo(t, root, "checkout", "-q", "-b", "lane/x")
+	write(t, root, "lane.go", "package m\n\nfunc Lane() int { return 1 }\n")
+	gitDo(t, root, "add", "-A")
+	gitDo(t, root, "commit", "-qm", "lane work")
+
+	gitDo(t, root, "checkout", "-q", "main")
+	write(t, root, "mainline.go", "package m\n\nfunc Mainline() int { return 2 }\n")
+	gitDo(t, root, "add", "-A")
+	gitDo(t, root, "commit", "-qm", "main moves on")
+	return root
+}
+
 // A branch main already CONTAINS proves nothing either, whichever branch it is
 // merged into: there is nothing in it that main has not already taken.
 func TestMutationReceiptStage_ABranchMainAlreadyContainsIsACatchUp(t *testing.T) {

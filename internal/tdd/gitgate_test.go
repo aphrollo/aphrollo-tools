@@ -37,7 +37,7 @@ func isolateGitConfig(t *testing.T) string {
 
 func globalHooksPath(t *testing.T) string {
 	t.Helper()
-	out, _ := exec.Command("git", "config", "--global", "--get", "core.hooksPath").Output()
+	out, _ := exec.Command(gitBinary(), "config", "--global", "--get", "core.hooksPath").Output()
 	return strings.TrimSpace(string(out))
 }
 
@@ -174,7 +174,7 @@ func TestInitGitGate_PreservesForeignHook(t *testing.T) {
 func TestInitGitGate_RefusesForeignHooksPath(t *testing.T) {
 	isolateGitConfig(t)
 	foreignPath := filepath.Join(t.TempDir(), "their-hooks")
-	if out, err := exec.Command("git", "config", "--global", "core.hooksPath", foreignPath).CombinedOutput(); err != nil {
+	if out, err := exec.Command(gitBinary(), "config", "--global", "core.hooksPath", foreignPath).CombinedOutput(); err != nil {
 		t.Fatalf("seed core.hooksPath: %v: %s", err, out)
 	}
 

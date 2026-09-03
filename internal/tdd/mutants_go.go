@@ -40,7 +40,9 @@ func gremlinsArgv(baseSHA, outPath string, workers int) []string {
 		"--diff", baseSHA,
 		"--output", outPath,
 		"--workers", strconv.Itoa(workers),
-		"./...",
+		// A PATH, not a package pattern: gremlins walks the tree from here.
+		// "./..." makes it walk nothing, report no results and exit 0.
+		".",
 	}
 }
 
@@ -69,6 +71,9 @@ func parseGremlinsReport(data []byte) ([]MutantOutcome, error) {
 	var out []MutantOutcome
 	for _, f := range report.Files {
 		for _, m := range f.Mutations {
+			if gremlinsStatus(m.Status) == gremlinsSkipped {
+				continue
+			}
 			file := filepath.ToSlash(f.FileName)
 			out = append(out, MutantOutcome{
 				File:     file,
@@ -96,10 +101,18 @@ func gremlinsStatus(raw string) string {
 		return "missed"
 	case "TIMED OUT":
 		return "timeout"
+	case "SKIPPED":
+		return gremlinsSkipped
 	default:
 		return "unviable"
 	}
 }
+
+// gremlinsSkipped is the report's word for a mutant the run's own --diff scope
+// left out. It is not an outcome: the report lists every mutant the ANALYSIS
+// found, and on a lane diff that is thousands of them against a handful the
+// run actually measured.
+const gremlinsSkipped = "skipped"
 
 // RunGoMutantsJob is the Go half of the detached job: run gremlins over the
 // lane's diff in the warm worktree, then write and sign the same receipt a
@@ -158,11 +171,48 @@ func runGremlins(j MutantsJob, outPath string, workers int) int {
 	return 0
 }
 
-// writeGoMutantsReceipt renders one run into the receipt every merge reads,
-// and signs it. The verdict is "pass" whatever the numbers say: the runner
-// reports and the merge gate judges — a runner that decided its own verdict
-// would be marking its own homework.
+// runCommandIn runs one command in dir with this process's own output, and
+// reports its exit code. It is the CI half's spawn: no detached job's env, no
+// log files — the workflow's own log is where the tool's output belongs.
+func runCommandIn(dir, bin string, args []string) int {
+	cmd := exec.Command(bin, args...)
+	cmd.Dir = dir
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return ee.ExitCode()
+		}
+		logf(os.Stdout, "aphrollo: %v", err)
+		return 1
+	}
+	return 0
+}
+
+// goMutantsRun is what a receipt needs to name the run it describes, whether
+// that run was the detached local job or the pull request's own.
+type goMutantsRun struct {
+	Repo, Branch, TipTree, BaseRef, BaseSHA, Worktree string
+}
+
+// writeGoMutantsReceipt renders one detached run into the receipt every merge
+// reads, and writes it to the machine's receipt store.
 func writeGoMutantsReceipt(j MutantsJob, mutants []MutantOutcome, now TreeState) {
+	r := goMutantsReceipt(goMutantsRun{
+		Repo: j.Repo, Branch: j.Branch, TipTree: j.TipTree,
+		BaseRef: j.BaseRef, BaseSHA: j.BaseSHA, Worktree: j.Worktree,
+	}, mutants, now)
+	if path := MutationReceiptPathFor(j.TipTree); path != "" {
+		writeReceiptFile(path, r)
+	}
+}
+
+// goMutantsReceipt renders one run into the receipt every merge reads, and
+// signs it. The verdict is "pass" whatever the numbers say: the runner
+// reports and the merge gate judges — a runner that decided its own verdict
+// would be marking its own homework. It also fills in each mutant's package,
+// blob and fence in place, which is what the store carries forward.
+func goMutantsReceipt(j goMutantsRun, mutants []MutantOutcome, now TreeState) MutationReceipt {
 	r := MutationReceipt{
 		Repo: j.Repo, Branch: j.Branch, TipTree: j.TipTree,
 		BaseRef: j.BaseRef, BaseSHA: j.BaseSHA,
@@ -203,9 +253,7 @@ func writeGoMutantsReceipt(j MutantsJob, mutants []MutantOutcome, now TreeState)
 	}
 	r.WorktreeDirty = worktreeDirty(j.Worktree)
 	signReceipt(&r)
-	if path := MutationReceiptPathFor(j.TipTree); path != "" {
-		writeReceiptFile(path, r)
-	}
+	return r
 }
 
 // worktreeDirty reports whether TRACKED files in the worktree differ from the

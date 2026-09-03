@@ -562,9 +562,17 @@ func cargoAphrolloFlag(ws, key string) bool {
 // directly under its table in any real manifest, and a parse miss costs only
 // the feature staying off.
 func tomlBoolIn(path, table, key string) bool {
+	v, _ := tomlBoolSetIn(path, table, key)
+	return v
+}
+
+// tomlBoolSetIn is tomlBoolIn with the fact tomlBoolIn throws away: whether
+// the key was WRITTEN. A default that differs from `false` needs to tell an
+// absent key from one somebody set, and only the reader knows.
+func tomlBoolSetIn(path, table, key string) (value, set bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return false
+		return false, false
 	}
 	inTable := false
 	for line := range strings.Lines(string(data)) {
@@ -578,10 +586,10 @@ func tomlBoolIn(path, table, key string) bool {
 		}
 		k, val, found := strings.Cut(trimmed, "=")
 		if found && strings.TrimSpace(k) == key {
-			return strings.TrimSpace(val) == "true"
+			return strings.TrimSpace(val) == "true", true
 		}
 	}
-	return false
+	return false, false
 }
 
 func cargoAphrolloPackages(ws, key string) []string {
