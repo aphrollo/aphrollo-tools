@@ -22,7 +22,7 @@ func TestMechanical_ReceiptRejectionIsPrintedOnce(t *testing.T) {
 	if !res.Blocked {
 		t.Fatal("setup: the merge must be refused")
 	}
-	if n := strings.Count(printed+res.Message, mutationGateHint); n != 1 {
+	if n := strings.Count(printed+res.Message, receiptRejectionMarker); n != 1 {
 		t.Fatalf("the rejection is stated %d times; the caller prints what the gate returns:\nstderr: %q\nreturned: %q",
 			n, printed, res.Message)
 	}

@@ -286,11 +286,12 @@ func isUnacceptedSurvivorRejection(message string) bool {
 }
 
 // isReceiptRejection reports whether the receipt stage produced the
-// rejection. Every one of them carries the hint that names the producer
-// script, which is what makes the family recognisable; a pinned test builds
+// rejection. Every one of them carries receiptRejectionMarker — the sentence
+// constant across every root, since the hint half now names a per-repo
+// runner — which is what makes the family recognisable; a pinned test builds
 // two of them and asserts this reads both.
 func isReceiptRejection(message string) bool {
-	return strings.Contains(message, mutationGateHint)
+	return strings.Contains(message, receiptRejectionMarker)
 }
 
 // NoteMergeGateEscape records the merge gate's rejection as an escape when the
