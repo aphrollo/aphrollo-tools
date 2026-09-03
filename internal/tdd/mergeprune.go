@@ -42,13 +42,15 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 		return nil
 	}
 	merged := mergedBranchTips(mainRepo)
+	mainClean := cleanWorktreePath(mainRepo)
 	excludeClean := cleanWorktreePath(exclude)
 	var pruned []PrunedLane
 	for _, wt := range mergePruneWorktrees(mainRepo) {
-		if wt.branch == "" || wt.branch == "main" {
-			continue
+		wtClean := cleanWorktreePath(wt.path)
+		if wt.branch == "" || wtClean == mainClean {
+			continue // the main clone itself, whatever branch it holds
 		}
-		if excludeClean != "" && cleanWorktreePath(wt.path) == excludeClean {
+		if excludeClean != "" && wtClean == excludeClean {
 			continue
 		}
 		tip, ok := merged[wt.branch]
@@ -99,8 +101,12 @@ func mergedBranchTips(mainRepo string) map[string]string {
 // mergePruneWorktree is one linked worktree the sweep considers.
 type mergePruneWorktree struct{ path, branch string }
 
-// mergePruneWorktrees lists mainRepo's LINKED worktrees (the main clone,
-// listed first by git, is excluded — the sweep never touches it).
+// mergePruneWorktrees lists EVERY worktree `git worktree list` names for
+// mainRepo, including the main clone itself — the caller drops that one by
+// PATH (cleanWorktreePath(wt.path) == cleanWorktreePath(mainRepo)), never by
+// list position or by assuming its branch is named "main": a primary clone
+// parked on some other branch must never be swept, and a position-based drop
+// trusts an ordering nothing here enforces.
 func mergePruneWorktrees(mainRepo string) []mergePruneWorktree {
 	out, err := git(mainRepo, "worktree", "list", "--porcelain")
 	if err != nil {
@@ -126,11 +132,6 @@ func mergePruneWorktrees(mainRepo string) []mergePruneWorktree {
 		}
 	}
 	flush()
-	// git lists the main worktree first; drop it — this sweep only ever
-	// touches linked worktrees, never the canonical clone it runs from.
-	if len(entries) > 0 {
-		entries = entries[1:]
-	}
 	return entries
 }
 
