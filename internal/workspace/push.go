@@ -25,13 +25,26 @@ func PushPlan(t *Target, forceWithLease bool) (*Push, error) {
 		return nil, fmt.Errorf("detached HEAD in %s — check out a branch before pushing", t.Worktree)
 	}
 	p := &Push{Target: t, ForceWithLease: forceWithLease}
-	if upstreamRef(t.Worktree) != "" {
-		p.hasUpstream = true
-		p.ahead = aheadCount(t.Worktree, "@{u}")
-	} else if remoteBranchExists(t.Worktree, t.Branch) {
-		p.ahead = aheadCount(t.Worktree, "origin/"+t.Branch)
-	}
+	p.hasUpstream, p.ahead = resolveAhead(t.Worktree, t.Branch)
 	return p, nil
+}
+
+// resolveAhead reports whether branch has a configured upstream and how many
+// commits it is ahead of it (or of origin/branch, for a branch already on
+// origin with no upstream configured locally). Shared by PushPlan — which
+// resolves it for the dry-run preview — and Push.Apply, which recomputes it
+// fresh immediately before pushing rather than trusting that Plan-time
+// snapshot: ship builds the push stage's plan before its commit stage creates
+// the commit being shipped, so the snapshot predates it and would print a
+// stale count (#162).
+func resolveAhead(wt, branch string) (hasUpstream bool, ahead string) {
+	if upstreamRef(wt) != "" {
+		return true, aheadCount(wt, "@{u}")
+	}
+	if remoteBranchExists(wt, branch) {
+		return false, aheadCount(wt, "origin/"+branch)
+	}
+	return false, ""
 }
 
 // Render previews the push. apply=false is the dry-run; apply=true the header.
@@ -71,6 +84,9 @@ func pushArgs(wt, branch string, forceWithLease bool) []string {
 // `ready_for_review`.
 func (p *Push) Apply(stdout, stderr io.Writer) error {
 	wt, branch := p.Target.Worktree, p.Target.Branch
+	// Refresh immediately before pushing — see resolveAhead's doc comment for
+	// why the Plan-time snapshot can be stale by the time Apply runs.
+	p.hasUpstream, p.ahead = resolveAhead(wt, branch)
 	cmd := exec.Command("git", pushArgs(wt, branch, p.ForceWithLease)...)
 	cmd.Stdout, cmd.Stderr = stderr, stderr // git's own progress goes to stderr, keeping stdout the parseable receipt
 	if err := cmd.Run(); err != nil {
