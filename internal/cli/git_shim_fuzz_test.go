@@ -48,7 +48,24 @@ func FuzzGitShimArgv(f *testing.F) {
 			}
 		}()
 		args := argvFromBlob(blob)
-		_, rest := gitGlobalArgs(args)
+		prefix, rest := gitGlobalArgs(args)
+		// Token conservation: gitGlobalArgs only ever SPLITS args, never
+		// drops or duplicates a token — prefix followed by rest must
+		// reconstruct args exactly (dropping the `i++` that consumes a
+		// paired flag's value, e.g. "-C"'s directory, re-reads that same
+		// value as the START of rest too, duplicating it). Compared
+		// element-wise rather than with reflect.DeepEqual, which would
+		// treat a nil argv (blob = "") and the []string{} reconstruction as
+		// unequal over nilness alone — the CONTENT is the claim.
+		got := append(append([]string{}, prefix...), rest...)
+		if len(got) != len(args) {
+			t.Fatalf("gitGlobalArgs(%q): prefix=%q + rest=%q = %q (len %d), want len %d", args, prefix, rest, got, len(got), len(args))
+		}
+		for i := range args {
+			if got[i] != args[i] {
+				t.Fatalf("gitGlobalArgs(%q): prefix=%q + rest=%q = %q, want back the original argv", args, prefix, rest, got)
+			}
+		}
 		_ = gitLockScopeFor(rest)
 		_ = isPlainMerge(rest)
 		_ = containsToken(args, "--staged")

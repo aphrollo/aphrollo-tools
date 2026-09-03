@@ -35,7 +35,7 @@ func TestPrimaryCheckoutBash_WorktreeWriteNeverDeniedFromPrimary(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		target := subPath(rt, linked)
 		if d := bashPrimaryDecision(primary, cpCommand(target)); d.Action == Block {
-			t.Fatalf("a write to %q (under the linked worktree) was denied as if it wrote into the primary %q: %+v", target, primary, d)
+			rt.Fatalf("a write to %q (under the linked worktree) was denied as if it wrote into the primary %q: %+v", target, primary, d)
 		}
 	})
 }
@@ -49,7 +49,7 @@ func TestPrimaryCheckoutBash_PrimaryWriteNeverAllowedFromWorktree(t *testing.T) 
 	rapid.Check(t, func(rt *rapid.T) {
 		target := subPath(rt, primary)
 		if d := bashPrimaryDecision(linked, cpCommand(target)); d.Action != Block {
-			t.Fatalf("a write to %q (under the primary %q) was allowed from worktree cwd %q: %+v", target, primary, linked, d)
+			rt.Fatalf("a write to %q (under the primary %q) was allowed from worktree cwd %q: %+v", target, primary, linked, d)
 		}
 	})
 }

@@ -1,6 +1,10 @@
 package tdd
 
-import "testing"
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 // FuzzBashWriteTargets feeds arbitrary bytes as a Bash tool call's command
 // string to bashWriteTargets, the classifier behind the primary-checkout Bash
@@ -43,6 +47,25 @@ func FuzzBashWriteTargets(f *testing.F) {
 		// cwd is a fixed, realistic path: the property under test is the
 		// PARSER's robustness, not path resolution (that is the
 		// primary-checkout property test's job, over real temp dirs).
-		_ = bashWriteTargets(cmd, `/repo/lane`)
+		for _, p := range bashWriteTargets(cmd, `/repo/lane`) {
+			if p == "" {
+				t.Fatalf("bashWriteTargets(%q) returned an empty path in its result", cmd)
+			}
+			if c := filepath.Clean(p); c != p {
+				t.Fatalf("bashWriteTargets(%q) returned %q, not Clean-stable (Clean gives %q)", cmd, p, c)
+			}
+			// The null sinks (resolveAgainst's own guard) must never survive
+			// into a caller's write-target list — deleting that guard lets
+			// "/dev/null"/"nul" RESOLVE (join onto cwd, or onto the drive for
+			// a rooted "/dev/null") into an ordinary absolute path instead of
+			// "", so the check is on the resolved form: a full "/dev/null"
+			// path, or a base name of exactly "nul"/"nul:" (the DOS device,
+			// however it got prefixed by cwd).
+			norm := strings.ToLower(filepath.ToSlash(p))
+			last := norm[strings.LastIndexByte(norm, '/')+1:]
+			if norm == "/dev/null" || strings.HasSuffix(norm, "/dev/null") || last == "nul" || last == "nul:" {
+				t.Fatalf("bashWriteTargets(%q) returned %q — a null sink resolved into a real write target", cmd, p)
+			}
+		}
 	})
 }

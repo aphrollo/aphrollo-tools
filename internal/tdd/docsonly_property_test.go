@@ -28,20 +28,38 @@ func ignoreOnlyPath(t *rapid.T, label string) string {
 	return dir + "/" + base + ext
 }
 
-// splitKindsCounts is docsOnly's own condition, applied directly to a path
-// set rather than through a git-staged diff: "no path in the diff classifies
-// Source or Test".
+// isDocsOnlyDiff is docsOnly's own condition (docsonly.go), applied directly
+// to a path set rather than through a git-staged diff: an EMPTY set is not
+// docs-only (there is nothing to say about it, and the ordinary path already
+// handles it — mirroring docsOnly's own guard here matters because splitKinds
+// alone reads a nil/empty slice as vacuously all-Ignore, which is exactly the
+// wrong verdict for "nothing was staged at all"); otherwise, "no path in the
+// diff classifies Source or Test".
 func isDocsOnlyDiff(paths []string) bool {
+	if len(paths) == 0 {
+		return false
+	}
 	tests, srcs := splitKinds(paths)
 	return len(tests) == 0 && len(srcs) == 0
 }
 
+// TestDocsOnlyClassifier_EmptyDiffIsNotDocsOnly pins docsOnly's own stated
+// exception: an empty staged set is never read as docs-only, whatever
+// splitKinds alone would say about it.
+func TestDocsOnlyClassifier_EmptyDiffIsNotDocsOnly(t *testing.T) {
+	if isDocsOnlyDiff(nil) {
+		t.Fatalf("isDocsOnlyDiff(nil) = true, want false: an empty staged set is not docs-only")
+	}
+}
+
 // TestDocsOnlyClassifier_AllIgnoreDiffIsDocsOnly is the closed-form half: any
-// diff built entirely from paths ClassifyFile reads as Ignore is docs-only,
-// whatever their number or names.
+// NON-EMPTY diff built entirely from paths ClassifyFile reads as Ignore is
+// docs-only, whatever their number or names — the empty case is its own,
+// different claim (TestDocsOnlyClassifier_EmptyDiffIsNotDocsOnly above), not
+// this property's "whatever their number".
 func TestDocsOnlyClassifier_AllIgnoreDiffIsDocsOnly(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
-		paths := rapid.SliceOfN(rapid.Custom(func(t *rapid.T) string { return ignoreOnlyPath(t, "p") }), 0, 8).Draw(rt, "paths")
+		paths := rapid.SliceOfN(rapid.Custom(func(t *rapid.T) string { return ignoreOnlyPath(t, "p") }), 1, 8).Draw(rt, "paths")
 		for _, p := range paths {
 			if k := ClassifyFile(p); k != Ignore {
 				rt.Fatalf("fixture assumption broken: ClassifyFile(%q) = %v, want Ignore", p, k)

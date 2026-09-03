@@ -1,6 +1,9 @@
 package cli
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // FuzzCargoShimArgv feeds an arbitrary argv (same "\x1f"-joined-blob shape as
 // FuzzGitShimArgv) to the cargo shim's pure argv classifiers. These decide
@@ -38,9 +41,46 @@ func FuzzCargoShimArgv(f *testing.F) {
 		args := argvFromBlob(blob)
 		_ = cargoVerb(args)
 		_ = isCargoLongVerb(args)
-		_ = isCargoRunVerb(args)
 		_ = isCargoReadOnlyVerb(args)
 		_ = cargoPrewarmArgs(args)
-		_ = cargoRunArgsToBuildArgs(args)
+
+		rewritten := cargoRunArgsToBuildArgs(args)
+
+		// No program argument (anything AT OR AFTER the first bare "--") may
+		// leak into the rewritten `cargo build` argv: cargo build has no
+		// launched program to hand them to, and a leaked "--nocapture" or
+		// similar would silently become a build flag. Every token BEFORE the
+		// "--" maps 1:1 into the output (itself, or "build" in place of the
+		// verb), so the exact output length pins it — a stray extra element
+		// can only have come from past the cut.
+		ddIdx := -1
+		for i, a := range args {
+			if a == "--" {
+				ddIdx = i
+				break
+			}
+		}
+		want := len(args)
+		if ddIdx >= 0 {
+			want = ddIdx
+		}
+		if len(rewritten) != want {
+			t.Fatalf("cargoRunArgsToBuildArgs(%q) = %q (len %d) — want length %d (everything at/after the first \"--\" dropped)", args, rewritten, len(rewritten), want)
+		}
+
+		// A `cargo run` invocation's rewrite must actually invoke `build`:
+		// the first non-flag token in the result is the verb.
+		if isCargoRunVerb(args) {
+			verb := ""
+			for _, a := range rewritten {
+				if !strings.HasPrefix(a, "-") {
+					verb = a
+					break
+				}
+			}
+			if verb != "build" {
+				t.Fatalf("cargoRunArgsToBuildArgs(%q) = %q — a run verb must rewrite to build, first non-flag token was %q", args, rewritten, verb)
+			}
+		}
 	})
 }

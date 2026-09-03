@@ -67,5 +67,20 @@ pattern = "(unbalanced"
 		if law.Name == "" {
 			t.Fatalf("ParseLaw(%q, %q) returned nil error with an empty Name", text, wantName)
 		}
+		// The file-name/law-name binding: ParseLaw itself rejects a mismatch
+		// (law.go: `wantName != "" && law.Name != wantName` -> error), so nil
+		// error is the caller's proof the two agree — a caller that trusted
+		// law.Name without ever re-checking it against wantName must not be
+		// the only thing standing between a copy-pasted `name = "..."` and
+		// loading the wrong law's fixtures/baseline.
+		if wantName != "" && law.Name != wantName {
+			t.Fatalf("ParseLaw(%q, %q) = Law{Name: %q}, nil — a non-nil wantName must equal law.Name on success", text, wantName, law.Name)
+		}
+		// A law that parsed has exactly one matcher kind — Kind is required by
+		// parseSchema/the matcher-kind switch, so a success with an empty Kind
+		// would be a law nothing can ever match.
+		if law.Matcher.Kind == "" {
+			t.Fatalf("ParseLaw(%q, %q) returned nil error with an empty Matcher.Kind", text, wantName)
+		}
 	})
 }

@@ -203,13 +203,20 @@ jobs:
           cache: false
       - name: Run the benchmarks
         if: needs.changes.outputs.code == 'true'
+        shell: bash
         run: |
+          # set -e alone lets `go test ... | tee new-bench.txt` pass with
+          # tee's own exit 0 even when `go test` itself failed to build or
+          # panicked — pipefail is what makes the LEFT side of that pipe's
+          # exit code the step's own, so a build failure stops here instead
+          # of feeding a truncated/absent new-bench.txt into benchstat as if
+          # it were a clean, comparable run.
+          set -euo pipefail
           # -cpu=1 pins GOMAXPROCS, which Go stamps onto every benchmark NAME
-          # ("RatchetCheckCold-24" vs "-8") — none of these three benchmarks
-          # runs a goroutine of its own, so the pin changes nothing about
-          # what is measured, only makes the name stable across whatever
-          # core count a given runner happens to have (needed for benchstat
-          # to treat a run as the SAME benchmark as the checked-in baseline).
+          # ("RatchetCheckCold-24" vs "-8") — but Go OMITS the suffix
+          # entirely when procs is 1 ("RatchetCheckCold", no "-N" at all).
+          # testdata/bench/baseline.txt is recorded the same way, so a run on
+          # any runner produces the exact same names benchstat groups by.
           go test ./internal/ratchet/... ./internal/tdd/... -run=NONE \
             -bench '^(BenchmarkRatchetCheckCold|BenchmarkRatchetCheckWarm|BenchmarkPreEditJudge)$' \
             -benchmem -cpu=1 -count=3 -timeout=20m | tee new-bench.txt
@@ -229,18 +236,29 @@ jobs:
           # them for the same reason.
           grep -v '^goos:\|^goarch:\|^cpu:' new-bench.txt > new-bench-nohdr.txt
           benchstat testdata/bench/baseline.txt new-bench-nohdr.txt | tee compare.txt
-          # Every "+NN.NN%" in benchstat's default text output is a regression
-          # on whichever metric that row is (sec/op, B/op, or allocs/op are
-          # all "lower is better", so a positive delta is always worse) — a
-          # 20% cut here is the merge gate; testdata/bench/baseline.txt is the
-          # only place that number is ever allowed to move, and only down.
-          # `|| true` on the grep: no match is the common (no-regression)
-          # case, and grep's own exit 1 for "nothing found" must not read as
-          # this STEP failing under `pipefail` before the threshold below
-          # ever runs.
-          worst=$(grep -oE '\+[0-9]+\.[0-9]+%' compare.txt | tr -d '+%' | sort -rg | head -1 || true)
+          # A renamed benchmark, a suffix mismatch, or a package that ran but
+          # produced no matching rows all show up as benchstat's OWN "the
+          # benchmark set differs from baseline" note and a "?" where a
+          # percentage belongs — not as "no regression", as "nothing was
+          # actually compared". That must fail loudly: a silently-empty
+          # comparison is the one failure mode this whole job exists to
+          # rule out.
+          if grep -q 'benchmark set differs from baseline' compare.txt; then
+            echo "::error::benchmark set differs from testdata/bench/baseline.txt — benchstat could not compare like-for-like (a renamed/missing benchmark?); see compare.txt above"
+            exit 1
+          fi
+          # sec/op is wall-clock, informational only here: the baseline was
+          # RECORDED on a developer's box, not this runner, so an absolute
+          # timing delta between the two machines is not a code regression.
+          # B/op and allocs/op are the algorithm's own footprint — the same
+          # on any machine — so those two are the actual gate. `|| true` is
+          # only on this grep: no match is the common (no-regression) case,
+          # and grep's own exit 1 for "nothing found" must not read as this
+          # STEP failing under `pipefail` before the threshold below runs.
+          worst=$(awk 'BEGIN{RS=""; ORS="\n\n"} !/sec\/op/' compare.txt \
+            | grep -oE '\+[0-9]+\.[0-9]+%' | tr -d '+%' | sort -rg | head -1 || true)
           if [ -n "${worst:-}" ] && awk -v w="$worst" 'BEGIN{exit !(w>=20)}'; then
-            echo "::error::benchmark regressed by ${worst}%, over the 20% budget — see compare.txt above"
+            echo "::error::benchmark regressed by ${worst}% (B/op or allocs/op), over the 20% budget — see compare.txt above"
             exit 1
           fi
       - name: Upload the comparison

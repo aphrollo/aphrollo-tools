@@ -1,24 +1,24 @@
 pkg: github.com/aphrollo/aphrollo-tools/internal/ratchet
-BenchmarkRatchetCheckCold-1    	       1	49219322700 ns/op	23749376 B/op	  242521 allocs/op
-BenchmarkRatchetCheckCold-1    	       1	45034062300 ns/op	24000984 B/op	  242523 allocs/op
-BenchmarkRatchetCheckCold-1    	       1	46008850100 ns/op	23779768 B/op	  242517 allocs/op
-BenchmarkRatchetCheckCold-1    	       1	41209448400 ns/op	23712352 B/op	  242493 allocs/op
-BenchmarkRatchetCheckCold-1    	       1	40771247800 ns/op	23960568 B/op	  242518 allocs/op
-BenchmarkRatchetCheckCold-1    	       1	42480391600 ns/op	23782168 B/op	  242510 allocs/op
-BenchmarkRatchetCheckWarm-1    	       6	 191718883 ns/op	16419994 B/op	  162531 allocs/op
-BenchmarkRatchetCheckWarm-1    	       6	 216979450 ns/op	16441330 B/op	  162531 allocs/op
-BenchmarkRatchetCheckWarm-1    	       5	 243272580 ns/op	16475448 B/op	  162533 allocs/op
-BenchmarkRatchetCheckWarm-1    	       5	 250221800 ns/op	16489315 B/op	  162534 allocs/op
-BenchmarkRatchetCheckWarm-1    	       5	 223091040 ns/op	16460419 B/op	  162532 allocs/op
-BenchmarkRatchetCheckWarm-1    	       5	 202060180 ns/op	16499785 B/op	  162534 allocs/op
+BenchmarkRatchetCheckCold    	       1	49219322700 ns/op	23749376 B/op	  242521 allocs/op
+BenchmarkRatchetCheckCold    	       1	45034062300 ns/op	24000984 B/op	  242523 allocs/op
+BenchmarkRatchetCheckCold    	       1	46008850100 ns/op	23779768 B/op	  242517 allocs/op
+BenchmarkRatchetCheckCold    	       1	41209448400 ns/op	23712352 B/op	  242493 allocs/op
+BenchmarkRatchetCheckCold    	       1	40771247800 ns/op	23960568 B/op	  242518 allocs/op
+BenchmarkRatchetCheckCold    	       1	42480391600 ns/op	23782168 B/op	  242510 allocs/op
+BenchmarkRatchetCheckWarm    	       6	 191718883 ns/op	16419994 B/op	  162531 allocs/op
+BenchmarkRatchetCheckWarm    	       6	 216979450 ns/op	16441330 B/op	  162531 allocs/op
+BenchmarkRatchetCheckWarm    	       5	 243272580 ns/op	16475448 B/op	  162533 allocs/op
+BenchmarkRatchetCheckWarm    	       5	 250221800 ns/op	16489315 B/op	  162534 allocs/op
+BenchmarkRatchetCheckWarm    	       5	 223091040 ns/op	16460419 B/op	  162532 allocs/op
+BenchmarkRatchetCheckWarm    	       5	 202060180 ns/op	16499785 B/op	  162534 allocs/op
 PASS
 ok  	github.com/aphrollo/aphrollo-tools/internal/ratchet	1375.316s
 pkg: github.com/aphrollo/aphrollo-tools/internal/tdd
-BenchmarkPreEditJudge-1    	      43	  26480316 ns/op	   83669 B/op	     482 allocs/op
-BenchmarkPreEditJudge-1    	      36	  29922044 ns/op	   80439 B/op	     482 allocs/op
-BenchmarkPreEditJudge-1    	      44	  28637216 ns/op	   82985 B/op	     482 allocs/op
-BenchmarkPreEditJudge-1    	      33	  34326052 ns/op	   87259 B/op	     482 allocs/op
-BenchmarkPreEditJudge-1    	      37	  29426859 ns/op	   79976 B/op	     481 allocs/op
-BenchmarkPreEditJudge-1    	      40	  30091250 ns/op	   82593 B/op	     481 allocs/op
+BenchmarkPreEditJudge    	      43	  26480316 ns/op	   83669 B/op	     482 allocs/op
+BenchmarkPreEditJudge    	      36	  29922044 ns/op	   80439 B/op	     482 allocs/op
+BenchmarkPreEditJudge    	      44	  28637216 ns/op	   82985 B/op	     482 allocs/op
+BenchmarkPreEditJudge    	      33	  34326052 ns/op	   87259 B/op	     482 allocs/op
+BenchmarkPreEditJudge    	      37	  29426859 ns/op	   79976 B/op	     481 allocs/op
+BenchmarkPreEditJudge    	      40	  30091250 ns/op	   82593 B/op	     481 allocs/op
 PASS
 ok  	github.com/aphrollo/aphrollo-tools/internal/tdd	72.440s

@@ -1,6 +1,9 @@
 package tdd
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // FuzzDocsOnlyClassifier feeds arbitrary bytes as a repo-relative path to
 // ClassifyFile, the per-path half of the docs-only fast path (splitKinds
@@ -16,6 +19,7 @@ func FuzzDocsOnlyClassifier(f *testing.F) {
 		"README.md",
 		"crates/shared/src/lib.rs",
 		"crates\\shared\\src\\lib.rs",
+		`a\.git\foo.go`, // backslash form of an ignored-dir segment: Source without normalisation, Ignore with it
 		"internal/tdd/file_test.go",
 		"node_modules/pkg/index.test.js",
 		"__tests__/x.js",
@@ -41,6 +45,14 @@ func FuzzDocsOnlyClassifier(f *testing.F) {
 		k := ClassifyFile(path)
 		if k != Ignore && k != Source && k != Test {
 			t.Fatalf("ClassifyFile(%q) returned an out-of-range Kind %v", path, k)
+		}
+		// A backslash-separated path (a Windows-authored commit) must
+		// classify identically to its forward-slash spelling — that is the
+		// one thing ClassifyFile's own backslash normalisation exists to
+		// guarantee, and a three-way range check can never see it drop.
+		normalized := strings.ReplaceAll(path, "\\", "/")
+		if kn := ClassifyFile(normalized); kn != k {
+			t.Fatalf("ClassifyFile(%q) = %v but ClassifyFile(%q) (its forward-slash form) = %v", path, k, normalized, kn)
 		}
 	})
 }
