@@ -205,6 +205,56 @@ func TestRunGitShim_AllowsAFastForwardPullOfTheUpstreamMain(t *testing.T) {
 	}
 }
 
+// `--ff-only` is not a password. It says the pull may not WRITE a merge
+// commit; it says nothing about WHERE the commits come from, so
+// `pull --ff-only . lane/x` fast-forwards main onto a local lane with no
+// premergecommit hook — the very thing `merge --ff-only lane/x` is refused
+// for. A repository path, a non-trunk refspec, and `--rebase` are all
+// refused whatever else the invocation carries.
+func TestRunGitShim_RefusesAFastForwardPullThatIsNotTheUpstreamMain(t *testing.T) {
+	primary, linked, cfg := primaryShimRepo(t)
+	originAheadOfMain(t, cfg.realGit, primary, linked)
+	before := strings.TrimSpace(mustOutput(t, cfg.realGit, primary, "rev-parse", "HEAD"))
+
+	for _, args := range [][]string{
+		{"pull", "--ff-only", ".", "lane/x"},
+		{"pull", "--ff-only", "../other", "lane/x"},
+		{"pull", "--rebase", "--ff-only", ".", "lane/x"},
+		{"pull", "--ff-only", "origin", "lane/x"},
+	} {
+		var out, errb bytes.Buffer
+		if code := runGitShim(args, strings.NewReader(""), &out, &errb, cfg); code == 0 {
+			t.Errorf("git %s in the primary checkout should be refused, got exit 0", strings.Join(args, " "))
+		}
+		if !strings.Contains(errb.String(), "primary checkout is merge-only") {
+			t.Errorf("git %s: refusal must name the rule, got %q", strings.Join(args, " "), errb.String())
+		}
+		if head := strings.TrimSpace(mustOutput(t, cfg.realGit, primary, "rev-parse", "HEAD")); head != before {
+			t.Fatalf("git %s moved the primary checkout to %s — the refusal comes before git runs",
+				strings.Join(args, " "), head)
+		}
+	}
+}
+
+// The other half of that narrowing: a pull naming NO operand takes the
+// branch's own configured upstream, which for main is the upstream a pull
+// request merges into. That is the form a session actually types.
+func TestRunGitShim_AllowsABareFastForwardPullOfTheConfiguredUpstream(t *testing.T) {
+	primary, linked, cfg := primaryShimRepo(t)
+	upstream := originAheadOfMain(t, cfg.realGit, primary, linked)
+	mustOutput(t, cfg.realGit, primary, "fetch", "-q", "origin")
+	mustOutput(t, cfg.realGit, primary, "branch", "--set-upstream-to=origin/main", "main")
+
+	var out, errb bytes.Buffer
+	code := runGitShim([]string{"pull", "--ff-only"}, strings.NewReader(""), &out, &errb, cfg)
+	if code != 0 {
+		t.Fatalf("git pull --ff-only should pass through, exit = %d\n%s", code, errb.String())
+	}
+	if head := strings.TrimSpace(mustOutput(t, cfg.realGit, primary, "rev-parse", "HEAD")); head != upstream {
+		t.Errorf("primary HEAD = %s, want the upstream tip %s", head, upstream)
+	}
+}
+
 // Reading the remote moves nothing at all: `fetch` and `remote update` only
 // write remote-tracking refs, so the primary checkout — whose whole job is to
 // hold the state everyone else resolves against — must be able to run them.

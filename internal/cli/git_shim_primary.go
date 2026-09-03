@@ -25,8 +25,12 @@ import (
 // with no `--hard`.
 //
 // Updating main from its OWN upstream is not a merge at all and passes:
-// `fetch`, `remote update`, and `pull --ff-only`, whose commits arrived
-// through a pull request that already fired every hook that judges them.
+// `fetch`, `remote update`, and the one pull that both refuses to write a
+// merge commit AND names the upstream as its source — `pull --ff-only` bare,
+// or `pull --ff-only <configured remote> main`, whose commits arrived through
+// a pull request that already fired every hook that judges them. A pull that
+// carries `--ff-only` while naming a repository PATH or a lane refspec is
+// refused like any other: see upstreamFastForward.
 // Everything else — `worktree`, `log`, `status` — is exactly what the primary
 // checkout is for and passes straight through.
 
@@ -64,18 +68,88 @@ func primaryRefusedVerb(realGit string, rest []string, workDir string) bool {
 		// one that could fast-forward.
 		return isPlainMerge(rest) && !hasArg(rest[1:], "--no-ff")
 	case "pull":
-		// `--ff-only` is the one pull that cannot invent history: it either
-		// fast-forwards main onto the upstream main a pull request already
-		// merged into — every hook having fired upstream — or it refuses.
-		// Without it, refusing left a PR-only repository no way to update its
-		// primary checkout at all (issue #153).
-		return !hasArg(rest[1:], "--no-ff") && !hasArg(rest[1:], "--ff-only")
+		return !hasArg(rest[1:], "--no-ff") && !upstreamFastForward(realGit, workDir, rest[1:])
 	case "cherry-pick", "rebase":
 		return !hasAnyArg(rest[1:], sequencerConcludeFlags)
 	case "reset":
 		return resetHardMovesMain(rest[1:])
 	}
 	return false
+}
+
+// upstreamFastForward reports whether a `pull` is the ONE form the primary
+// checkout is allowed: a fast-forward of main onto its own upstream, whose
+// commits arrived through a pull request that already fired every hook that
+// judges them (issue #153).
+//
+// `--ff-only` alone does not say that. It only forbids WRITING a merge commit
+// — it says nothing about where the commits come from, so
+// `git pull --ff-only . lane/x` fast-forwards main onto a local lane with no
+// premergecommit hook firing, which is exactly what `merge --ff-only lane/x`
+// is refused for. So the source has to be named too: no operand at all (the
+// branch's own configured upstream), or a configured REMOTE plus main itself.
+// A repository path or URL, a non-trunk refspec, and `--rebase` in any
+// spelling are refused whatever else the invocation carries.
+func upstreamFastForward(realGit, workDir string, args []string) bool {
+	if !hasArg(args, "--ff-only") {
+		return false
+	}
+	for _, a := range args {
+		if strings.HasPrefix(a, "--rebase") || a == "-r" {
+			return false
+		}
+	}
+	operands := gitOperands(args)
+	switch len(operands) {
+	case 0:
+		return true
+	case 2:
+		return operands[1] == tdd.PrimaryBranch && namesARemote(realGit, workDir, operands[0])
+	}
+	return false
+}
+
+// pullValueFlags are the `pull` options that consume the token after them, so
+// a strategy name is never mistaken for the repository operand. An option this
+// list does not know leaves its value looking positional, which refuses the
+// invocation — the fail-closed direction for a rule about what may move main.
+var pullValueFlags = map[string]bool{
+	"-s": true, "--strategy": true, "-X": true, "--strategy-option": true,
+	"--depth": true, "--deepen": true, "--shallow-since": true, "--shallow-exclude": true,
+	"-j": true, "--jobs": true, "--upload-pack": true, "-o": true, "--server-option": true,
+	"--negotiation-tip": true, "-S": true, "--gpg-sign": true, "--refmap": true,
+}
+
+// gitOperands returns a verb's positional arguments: every token that is
+// neither a flag nor a flag's own value. Everything after `--` is positional.
+func gitOperands(args []string) []string {
+	var out []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			return append(out, args[i+1:]...)
+		}
+		if strings.HasPrefix(a, "-") {
+			if pullValueFlags[a] {
+				i++
+			}
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// namesARemote reports whether name is a REMOTE this repository configured, as
+// opposed to a path or URL git would also accept there. A path is how a local
+// lane reaches main without a hook, so nothing but a configured remote counts:
+// `.` and `../other` produce an invalid config key and are refused by the same
+// question.
+func namesARemote(realGit, workDir, name string) bool {
+	cmd := exec.Command(realGit, "config", "--get", "remote."+name+".url")
+	cmd.Dir = workDir
+	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
+	return cmd.Run() == nil
 }
 
 // sequencerConcludeFlags are the forms that resume or cancel a cherry-pick or

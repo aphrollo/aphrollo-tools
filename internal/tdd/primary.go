@@ -28,11 +28,16 @@ import (
 // `/tdd primary-edits on`, per session; both are stated in the refusal.
 const PrimaryEditsEnv = "APHROLLO_PRIMARY_EDITS"
 
-// primaryBranch is the branch a primary checkout is expected to hold. Not a
+// PrimaryBranch is the branch a primary checkout is expected to hold. Not a
 // setting: the whole rule is "this checkout stays on main and receives
 // merges", and a repo whose trunk is called something else simply never
-// matches, which is the fail-open direction.
-const primaryBranch = "main"
+// matches, which is the fail-open direction. Exported because the git shim
+// asks the same question of a `pull`'s refspec, and two spellings of the
+// trunk would be two rules.
+const PrimaryBranch = "main"
+
+// primaryBranch is the package-local spelling of the same constant.
+const primaryBranch = PrimaryBranch
 
 // primaryCheckoutPolicy is the name a refusal is COUNTED under in gate.log.
 const primaryCheckoutPolicy = "primary-checkout"
