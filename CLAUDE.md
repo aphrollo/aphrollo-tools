@@ -52,6 +52,12 @@ and acts now.
   ratchet engine's `doc-path-resolves` matcher (a repo's own
   `doc_reference_exists` law, else the built-in `common/doc_reference_exists`
   preset) — this subcommand is CLI surface only.
+- `sqlc` — `check` regenerates every discovered sqlc config into a temp dir and
+  diffs it against the committed tree, failing CI on drift in a gated config;
+  `regen --scoped` regenerates and keeps only the hunks that derive from a
+  query the working tree changed, backing out the rest as pre-existing drift.
+  Gating (clean vs reported-only per config) comes from a committed
+  `.aphrollo-sqlc.yaml` sidecar.
 
 ## Layout
 
@@ -67,6 +73,7 @@ internal/tdd/        TDD + law gates: policy engine, edit smells, anti-cheat, fa
 internal/docs/       doc-reference guard: extract path citations, resolve, report misses
 internal/workspace/  worktree lifecycle + git verbs
 internal/dev/        dev-tier control plane (systemd)
+internal/sqlc/       sqlc drift guard: config discovery, regen-into-temp, check, scoped-by-symbol regen
 ```
 
 ## Conventions
