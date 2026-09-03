@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-func stored(file string, line int, pkg, blob, testSet, status string) MutantOutcome {
+func stored(file string, line int, pkg, blob, fence, status string) MutantOutcome {
 	return MutantOutcome{File: file, Line: line, Mutation: "replace + with -",
-		Package: pkg, Blob: blob, TestSet: testSet, Status: status}
+		Package: pkg, Blob: blob, Fence: fence, Status: status}
 }
 
 // A mutant's verdict is a fact about a blob and a test set, not about a
@@ -25,7 +25,7 @@ func TestMutantStore_CarriesAcrossLanesForTheSameBlobAndTestSet(t *testing.T) {
 	// A DIFFERENT lane, with no receipt of its own, over the same blob.
 	plan := PlanMutants(
 		[]MutantOutcome{{File: "crates/a/src/lib.rs", Line: 12, Mutation: "replace + with -", Package: "crates/a"}},
-		TreeState{Blobs: map[string]string{"crates/a/src/lib.rs": "blobA"}, TestSets: map[string]string{"crates/a": "tsA"}},
+		TreeState{Blobs: map[string]string{"crates/a/src/lib.rs": "blobA"}, Fences: map[string]string{"crates/a": "tsA"}},
 		LoadMutantStore("borld"))
 
 	if len(plan.Run) != 0 {
@@ -38,7 +38,7 @@ func TestMutantStore_CarriesAcrossLanesForTheSameBlobAndTestSet(t *testing.T) {
 	files := PlanDiffFiles([]string{"crates/a/src/lib.rs"},
 		TreeState{Blobs: map[string]string{"crates/a/src/lib.rs": "blobA"},
 			Packages: map[string]string{"crates/a/src/lib.rs": "crates/a"},
-			TestSets: map[string]string{"crates/a": "tsA"}},
+			Fences: map[string]string{"crates/a": "tsA"}},
 		LoadMutantStore("borld"))
 	if len(files) != 0 {
 		t.Fatalf("PlanDiffFiles = %v, want zero mutants run for a file another lane measured", files)
@@ -57,7 +57,7 @@ func TestMutantStore_AChangedTestSetInvalidatesOnlyItsOwnPackage(t *testing.T) {
 	now := TreeState{
 		Blobs:    map[string]string{"crates/a/src/lib.rs": "blobA", "crates/b/src/lib.rs": "blobB"},
 		Packages: map[string]string{"crates/a/src/lib.rs": "crates/a", "crates/b/src/lib.rs": "crates/b"},
-		TestSets: map[string]string{"crates/a": "tsA-NEW", "crates/b": "tsB"},
+		Fences: map[string]string{"crates/a": "tsA-NEW", "crates/b": "tsB"},
 	}
 	files := PlanDiffFiles([]string{"crates/a/src/lib.rs", "crates/b/src/lib.rs"}, now, LoadMutantStore("borld"))
 	if len(files) != 1 || files[0] != "crates/a/src/lib.rs" {
@@ -134,7 +134,7 @@ func TestMergeMutantStore_KeepsTheNewestVerdictPerMutant(t *testing.T) {
 		t.Fatalf("store = %+v, want one entry per mutant", store)
 	}
 	for _, m := range store {
-		if m.Status != "caught" || m.TestSet != "tsNEW" {
+		if m.Status != "caught" || m.Fence != "tsNEW" {
 			t.Fatalf("entry = %+v, want the newer measurement", m)
 		}
 	}

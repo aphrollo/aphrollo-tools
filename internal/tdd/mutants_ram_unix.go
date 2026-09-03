@@ -72,3 +72,28 @@ func buildToolPids() ([]int, bool) {
 	}
 	return pids, asked
 }
+
+// processStartToken is the OS's own record of when the process under pid
+// started, "" when it cannot be read. Recorded beside a pid so a recycled pid
+// — routine on a busy box, and certain across a reboot — cannot read as the
+// job that was started. On Linux it is field 22 of /proc/<pid>/stat, the start
+// time in clock ticks since boot; elsewhere `ps -o lstart=` answers.
+func processStartToken(pid int) string {
+	if data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat"); err == nil {
+		// The second field is the comm, parenthesised and free to contain
+		// spaces, so the fields are counted from after its closing paren.
+		if i := strings.LastIndex(string(data), ") "); i >= 0 {
+			rest := strings.Fields(string(data)[i+2:])
+			// state is field 3, so start time (field 22) is index 19 here.
+			if len(rest) > 19 {
+				return rest[19]
+			}
+		}
+		return ""
+	}
+	out, err := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}

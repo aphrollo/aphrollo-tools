@@ -3,6 +3,7 @@ package tdd
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -32,8 +33,16 @@ import (
 // each holding one mutant per line.
 var mutantsOutFiles = []string{"caught", "missed", "timeout", "unviable"}
 
-// mutantLineRe reads one of those lines: "<file>:<line>: <mutation>".
-var mutantLineRe = regexp.MustCompile(`^(.+?):(\d+):(?:\d+:)?\s*(.+)$`)
+// mutantLineRe reads one of those lines. The real shape, from a
+// cargo-mutants 27.1.0 run, is "<file>:<line>:<col>: <mutation>":
+//
+//	crates/editor_client/src/creator.rs:101:33: replace || with && in send_undo_redo
+//
+// The column is captured because it is part of the mutant's IDENTITY — the
+// same file names two `replace || with &&` mutants on line 101, at columns 33
+// and 16 — and the whole line is kept verbatim because that string, not a
+// rebuilt one, is what `--exclude-re` has to match on a resumed run.
+var mutantLineRe = regexp.MustCompile(`^(.+?):(\d+):(\d+): (.+)$`)
 
 // readMutantsOut reads every verdict an interrupted run reached, from the
 // files it wrote as it went.
@@ -62,11 +71,29 @@ func parseMutantLine(line string) (MutantOutcome, bool) {
 	if m == nil {
 		return MutantOutcome{}, false
 	}
-	n, err := strconv.Atoi(m[2])
-	if err != nil {
+	lineNo, lineErr := strconv.Atoi(m[2])
+	col, colErr := strconv.Atoi(m[3])
+	if lineErr != nil || colErr != nil {
 		return MutantOutcome{}, false
 	}
-	return MutantOutcome{File: filepath.ToSlash(m[1]), Line: n, Mutation: strings.TrimSpace(m[3])}, true
+	return MutantOutcome{
+		File:     filepath.ToSlash(m[1]),
+		Line:     lineNo,
+		Col:      col,
+		Mutation: strings.TrimSpace(m[4]),
+		Name:     line,
+	}, true
+}
+
+// mutantLineOf is the tool's own spelling of a mutant, for a producer that
+// reports its parts rather than a line.
+func mutantLineOf(file string, line, col int, mutation string) string {
+	return fmt.Sprintf("%s:%d:%d: %s", file, line, col, mutation)
+}
+
+// name is how a receipt names this mutant.
+func (m MutantOutcome) name() MutantName {
+	return MutantName{File: m.File, Line: m.Line, Col: m.Col, Mutation: m.Mutation, Raw: m.Name}
 }
 
 // ResumeMutants splits a tip's mutant list by whether an earlier, interrupted
@@ -150,6 +177,9 @@ func sortOutcomes(out []MutantOutcome) {
 		}
 		if a.Line != b.Line {
 			return a.Line < b.Line
+		}
+		if a.Col != b.Col {
+			return a.Col < b.Col
 		}
 		return a.Mutation < b.Mutation
 	})

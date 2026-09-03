@@ -10,13 +10,16 @@ package tdd
 // Two measurements decide that, and both are recorded ON the outcome so a
 // receipt is self-describing:
 //
-//	Blob    — the git blob hash of the file the mutant lives in. Different
-//	          blob, different source, so the outcome describes code that is
-//	          no longer there.
-//	TestSet — a hash over the blobs of the package's Test-kind files. A new
-//	          or edited test may catch a mutant the old test set missed, so
-//	          the whole package's outcomes go stale even where every source
-//	          file is byte-identical.
+//	Blob  — the git blob hash of the file the mutant lives in. Different blob,
+//	        different source, so the outcome describes code that is no longer
+//	        there.
+//	Fence — a hash over everything whose change can flip this mutant's verdict:
+//	        the package's own Source AND Test blobs, plus the Source blobs of
+//	        every transitive workspace dependency. A mutant in a.rs may be
+//	        caught only through b.rs's behaviour, and b.rs may live in another
+//	        crate; keying invalidation on the package's test files alone left
+//	        such a mutant reading "caught" after the code that caught it
+//	        changed. For a gate that is the dangerous direction.
 //
 // An outcome with either field empty was written by a producer that did not
 // measure them. It carries nothing: reporting an unmeasured mutant as caught
@@ -25,16 +28,24 @@ package tdd
 // MutantOutcome is one mutant and what happened to it, with the measurement
 // that decides whether the answer still holds.
 type MutantOutcome struct {
-	File     string `json:"file"`
-	Line     int    `json:"line"`
+	File string `json:"file"`
+	Line int    `json:"line"`
+	// Col is part of the identity, not decoration: cargo-mutants emits
+	// several distinct mutants on one line with identical text, and
+	// crates/editor_client/src/creator.rs:101:33 and :101:16 in a real run
+	// are two different `replace || with && in send_undo_redo`.
+	Col      int    `json:"col,omitempty"`
 	Mutation string `json:"mutation"`
+	// Name is the tool's own spelling of the mutant, kept verbatim because it
+	// is what `--exclude-re` has to match on a resumed run.
+	Name string `json:"name,omitempty"`
 	// Package is the crate/package whose test set constrains this mutant.
 	Package string `json:"package,omitempty"`
 	// Status is the producer's own word for the result ("caught", "missed",
 	// "timeout", "unviable"); this package never invents one.
-	Status  string `json:"status,omitempty"`
-	Blob    string `json:"blob,omitempty"`
-	TestSet string `json:"test_set,omitempty"`
+	Status string `json:"status,omitempty"`
+	Blob   string `json:"blob,omitempty"`
+	Fence  string `json:"fence,omitempty"`
 }
 
 // mutantKey identifies one mutant across runs. Line is safe to key on
@@ -43,11 +54,12 @@ type MutantOutcome struct {
 type mutantKey struct {
 	File     string
 	Line     int
+	Col      int
 	Mutation string
 }
 
 func (m MutantOutcome) key() mutantKey {
-	return mutantKey{File: m.File, Line: m.Line, Mutation: m.Mutation}
+	return mutantKey{File: m.File, Line: m.Line, Col: m.Col, Mutation: m.Mutation}
 }
 
 // TreeState is what the tip being mutated measures to: one blob hash per
@@ -55,7 +67,11 @@ func (m MutantOutcome) key() mutantKey {
 type TreeState struct {
 	Blobs    map[string]string
 	Packages map[string]string
-	TestSets map[string]string
+	// Fences is the invalidation hash per package: see MutantOutcome.Fence.
+	Fences map[string]string
+	// digests is each package's own source and test hash, from which the
+	// fences are folded once the dependency graph is known.
+	digests map[string]packageDigest
 }
 
 // MutantsPlan splits the current tip's mutant list into the mutants this run
@@ -77,11 +93,11 @@ func PlanMutants(want []MutantOutcome, now TreeState, cached map[mutantKey]Mutan
 	prior := cached
 	var plan MutantsPlan
 	for _, m := range want {
-		blob, testSet := now.Blobs[m.File], now.TestSets[m.Package]
-		m.Blob, m.TestSet = blob, testSet
+		blob, fence := now.Blobs[m.File], now.Fences[m.Package]
+		m.Blob, m.Fence = blob, fence
 		old, ok := prior[m.key()]
-		if ok && carriesOver(old, blob, testSet) {
-			old.Blob, old.TestSet = blob, testSet
+		if ok && carriesOver(old, blob, fence) {
+			old.Blob, old.Fence = blob, fence
 			plan.Carry = append(plan.Carry, old)
 			continue
 		}
@@ -93,9 +109,9 @@ func PlanMutants(want []MutantOutcome, now TreeState, cached map[mutantKey]Mutan
 // carriesOver reports whether a recorded outcome still describes the tip.
 // An empty recorded measurement never carries: "not measured" and "measured
 // and identical" are the same bytes, and only one of them is proof.
-func carriesOver(old MutantOutcome, blob, testSet string) bool {
-	if old.Blob == "" || old.TestSet == "" {
+func carriesOver(old MutantOutcome, blob, fence string) bool {
+	if old.Blob == "" || old.Fence == "" {
 		return false
 	}
-	return old.Blob == blob && old.TestSet == testSet
+	return old.Blob == blob && old.Fence == fence
 }

@@ -108,7 +108,17 @@ func GateStats(r io.Reader, since time.Time) Stats {
 
 // denyVerdictPrefixes are the verdicts that record a REFUSAL or a waiver
 // rather than a run, and are therefore tallied by policy instead of by crate.
-var denyVerdictPrefixes = []string{"pretooluse-denied:", "commitmsg-rejected:", "override-", "smell-escape:"}
+//
+// receipt-forged and receipt-unsigned are here because they are exactly that:
+// a receipt nothing signed, or one signed by something that is not the runner,
+// is a rule being waived. Both reached gate.log and neither was ever counted,
+// so the one number that would have shown a session hand-writing a receipt was
+// invisible. queue-bypass is the same shape: the bypass is tolerated, and what
+// makes it tolerable is that every use is counted.
+var denyVerdictPrefixes = []string{
+	"pretooluse-denied:", "commitmsg-rejected:", "override-", "smell-escape:",
+	"receipt-forged", "receipt-unsigned", "queue-bypass",
+}
 
 func isDenyVerdict(verdict string) bool {
 	for _, p := range denyVerdictPrefixes {

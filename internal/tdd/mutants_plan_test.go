@@ -3,9 +3,9 @@ package tdd
 import "testing"
 
 // outcome is one recorded mutant, as a receipt carries it.
-func outcome(file string, line int, pkg, blob, testSet, status string) MutantOutcome {
+func outcome(file string, line int, pkg, blob, fence, status string) MutantOutcome {
 	return MutantOutcome{File: file, Line: line, Mutation: "replace + with -",
-		Package: pkg, Blob: blob, TestSet: testSet, Status: status}
+		Package: pkg, Blob: blob, Fence: fence, Status: status}
 }
 
 // want is the same mutant as the current run's list names it: no result yet,
@@ -14,8 +14,8 @@ func want(file string, line int, pkg string) MutantOutcome {
 	return MutantOutcome{File: file, Line: line, Mutation: "replace + with -", Package: pkg}
 }
 
-func state(blobs, testSets map[string]string) TreeState {
-	return TreeState{Blobs: blobs, TestSets: testSets}
+func state(blobs, fences map[string]string) TreeState {
+	return TreeState{Blobs: blobs, Fences: fences}
 }
 
 // cachedOutcomes is the repo-wide store as the plan reads it: outcomes keyed
@@ -149,7 +149,7 @@ func TestPlanMutants_StampsTheMeasurementItJudgedAgainst(t *testing.T) {
 		if m.Blob != map[string]string{"a": "blobA", "b": "blobB"}[m.Package] {
 			t.Fatalf("%s carries blob %q, want the blob the plan judged it against", m.Package, m.Blob)
 		}
-		if m.TestSet == "" {
+		if m.Fence == "" {
 			t.Fatalf("%s carries no test-set hash", m.Package)
 		}
 	}

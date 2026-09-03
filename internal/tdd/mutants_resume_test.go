@@ -9,7 +9,8 @@ import (
 )
 
 // mutantsOut writes the verdict files cargo-mutants keeps as it goes, in the
-// shape it writes them: one mutant per line, "<file>:<line>: <mutation>".
+// shape it really writes them, taken from a 27.1.0 run: one mutant per line,
+// "<file>:<line>:<col>: <mutation>".
 func mutantsOut(t *testing.T, worktree string, byStatus map[string][]string) {
 	t.Helper()
 	dir := filepath.Join(worktree, "mutants.out")
@@ -30,10 +31,10 @@ func mutantsOut(t *testing.T, worktree string, byStatus map[string][]string) {
 func TestReadMutantsOut_KeepsEveryVerdictAnInterruptedRunReached(t *testing.T) {
 	wt := t.TempDir()
 	mutantsOut(t, wt, map[string][]string{
-		"caught":   {"crates/a/src/lib.rs:12: replace + with -", "crates/a/src/lib.rs:20: replace * with +"},
-		"missed":   {"crates/b/src/lib.rs:3: replace / with %"},
-		"timeout":  {"crates/b/src/lib.rs:9: replace - with +"},
-		"unviable": {"crates/c/src/lib.rs:1: replace body with ()"},
+		"caught":   {"crates/a/src/lib.rs:12:9: replace + with -", "crates/a/src/lib.rs:20:14: replace * with +"},
+		"missed":   {"crates/b/src/lib.rs:3:7: replace / with %"},
+		"timeout":  {"crates/b/src/lib.rs:9:22: replace - with +"},
+		"unviable": {"crates/c/src/lib.rs:1:5: replace body with ()"},
 	})
 
 	got := readMutantsOut(wt)
@@ -80,7 +81,7 @@ func TestResumeMutants_MeasuresOnlyTheMutantsWithoutAVerdict(t *testing.T) {
 // The exclusions the restart hands the tool are the judged mutants, quoted so
 // a mutation's own punctuation cannot become a pattern.
 func TestMutantsArgv_ExcludesTheMutantsAlreadyJudged(t *testing.T) {
-	got := strings.Join(MutantsArgv("lane.diff", false, []string{"a.rs:1: replace + with -"}), " ")
+	got := strings.Join(MutantsArgv("lane.diff", false, []string{"a.rs:1:5: replace + with -"}), " ")
 	if !strings.Contains(got, "--exclude-re") {
 		t.Fatalf("MutantsArgv = %q, want the judged mutants excluded", got)
 	}

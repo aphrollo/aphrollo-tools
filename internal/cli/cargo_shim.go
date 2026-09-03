@@ -110,6 +110,7 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 		// for it to contend with. It is told the lock is NOT held, because it
 		// holds none: a child that queues for some other directory it happens
 		// to build in must still queue for that one.
+		logQueueBypass(target)
 		return execCargo(cfg.realCargo, args, stdin, stdout, stderr, 0)
 	}
 	acquire := acquireFor(args)

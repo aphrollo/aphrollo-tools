@@ -102,3 +102,40 @@ func stamp(at time.Time, stage, root, cmd, verdict string, secs float64) string 
 	return at.UTC().Format(time.RFC3339) + " " + stage + " " + root + " " + cmd + " " + verdict + " " +
 		formatFloat(secs) + "s\n"
 }
+
+// A receipt that was hand-written or unsigned is a policy event: it reaches
+// gate.log, and until now nothing in `gate stats` counted it, so the one
+// number that would have shown a session hand-writing a receipt was invisible.
+func TestGateStats_CountsTheReceiptVerdicts(t *testing.T) {
+	log := strings.Join([]string{
+		stamp(time.Now().UTC(), "premergecommit", "/repo", "receipt", "receipt-forged", 0),
+		stamp(time.Now().UTC(), "premergecommit", "/repo", "receipt", "receipt-unsigned", 0),
+		stamp(time.Now().UTC(), "premergecommit", "/repo", "receipt", "receipt-unsigned", 0),
+		stamp(time.Now().UTC(), "precommit", "/repo", "cargo", "green", 1.5),
+	}, "\n") + "\n"
+
+	s := GateStats(strings.NewReader(log), time.Time{})
+	if s.Denies["receipt-forged"] != 1 || s.Denies["receipt-unsigned"] != 2 {
+		t.Fatalf("denies = %v, want one forged and two unsigned", s.Denies)
+	}
+	out := RenderGateStats(s)
+	for _, want := range []string{"receipt-forged", "receipt-unsigned"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered stats never mention %s:\n%s", want, out)
+		}
+	}
+}
+
+// The queue bypass is a tolerated hole: anything can set it. What makes it
+// tolerable is that every use is counted, so a bypass nobody expected shows up
+// in the same table as every other waiver.
+func TestGateStats_CountsAQueueBypass(t *testing.T) {
+	log := stamp(time.Now().UTC(), "precommit", "/repo", "cargo", "queue-bypass", 0) + "\n"
+	s := GateStats(strings.NewReader(log), time.Time{})
+	if s.Denies["queue-bypass"] != 1 {
+		t.Fatalf("denies = %v, want the bypass counted", s.Denies)
+	}
+	if !strings.Contains(RenderGateStats(s), "queue-bypass") {
+		t.Fatal("a bypass nobody can see is a bypass nobody manages")
+	}
+}

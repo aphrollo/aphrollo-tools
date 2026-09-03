@@ -54,6 +54,7 @@ type gremlinsFileReport struct {
 		Type   string `json:"type"`
 		Status string `json:"status"`
 		Line   int    `json:"line"`
+		Column int    `json:"column"`
 	} `json:"mutations"`
 }
 
@@ -68,10 +69,13 @@ func parseGremlinsReport(data []byte) ([]MutantOutcome, error) {
 	var out []MutantOutcome
 	for _, f := range report.Files {
 		for _, m := range f.Mutations {
+			file := filepath.ToSlash(f.FileName)
 			out = append(out, MutantOutcome{
-				File:     filepath.ToSlash(f.FileName),
+				File:     file,
 				Line:     m.Line,
+				Col:      m.Column,
 				Mutation: m.Type,
+				Name:     mutantLineOf(file, m.Line, m.Column, m.Type),
 				Status:   gremlinsStatus(m.Status),
 			})
 		}
@@ -163,12 +167,12 @@ func writeGoMutantsReceipt(j MutantsJob, mutants []MutantOutcome, now TreeState)
 		Repo: j.Repo, Branch: j.Branch, TipTree: j.TipTree,
 		BaseRef: j.BaseRef, BaseSHA: j.BaseSHA,
 		Verdict: receiptVerdictPass, FinishedAt: time.Now().UTC(),
-		Files: map[string]string{}, TestSets: map[string]string{},
+		Files: map[string]string{}, Fences: map[string]string{},
 	}
 	var survivors []MutantOutcome
 	for i, m := range mutants {
 		m.Package = now.Packages[m.File]
-		m.Blob, m.TestSet = now.Blobs[m.File], now.TestSets[m.Package]
+		m.Blob, m.Fence = now.Blobs[m.File], now.Fences[m.Package]
 		mutants[i] = m
 		r.MutantsTotal++
 		switch m.Status {
@@ -184,18 +188,18 @@ func writeGoMutantsReceipt(j MutantsJob, mutants []MutantOutcome, now TreeState)
 		if m.Blob != "" {
 			r.Files[m.File] = m.Blob
 		}
-		if m.TestSet != "" {
-			r.TestSets[m.Package] = m.TestSet
+		if m.Fence != "" {
+			r.Fences[m.Package] = m.Fence
 		}
 	}
 	r.Outcomes = mutants
 	accepted, unaccepted := splitAcceptedSurvivors(j.Worktree, survivors)
 	r.Accepted = len(accepted)
 	for _, m := range survivors {
-		r.Survivors = append(r.Survivors, MutantName{File: m.File, Line: m.Line, Mutation: m.Mutation})
+		r.Survivors = append(r.Survivors, m.name())
 	}
 	for _, m := range unaccepted {
-		r.Unaccepted = append(r.Unaccepted, MutantName{File: m.File, Line: m.Line, Mutation: m.Mutation})
+		r.Unaccepted = append(r.Unaccepted, m.name())
 	}
 	r.WorktreeDirty = worktreeDirty(j.Worktree)
 	signReceipt(&r)

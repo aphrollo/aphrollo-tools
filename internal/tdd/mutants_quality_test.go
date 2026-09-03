@@ -67,3 +67,21 @@ func TestCargoMutantsEnv_ReadsTheSwitchesTheWorkspaceNames(t *testing.T) {
 		t.Fatalf("mutants-env = %v, want both switches, sorted", got)
 	}
 }
+
+// machineRAMGB answers 0 on any unix without procfs — a macOS box, a
+// container. Treating that as "0 GB of memory" pinned the cap to one job on
+// every one of them, which is a wrong number derived from a missing one.
+// Unknown means the cores decide alone.
+func TestMutantsJobsCap_UnknownMemoryLetsTheCoresDecide(t *testing.T) {
+	jobs, why := MutantsJobsCap(24, 0)
+	if jobs != 2 {
+		t.Fatalf("jobs = %d on a 24-core box with unreadable memory, want the core count to decide (2)", jobs)
+	}
+	if !strings.Contains(why, "unknown") {
+		t.Fatalf("reason = %q, want it to say the memory was not readable", why)
+	}
+	// A real, small memory reading still constrains.
+	if jobs, _ := MutantsJobsCap(24, 8); jobs != 1 {
+		t.Fatalf("jobs = %d on 8 GB, want 1 — a measured number still caps", jobs)
+	}
+}

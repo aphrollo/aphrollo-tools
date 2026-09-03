@@ -102,10 +102,10 @@ func MergeMutantStore(repo string, outcomes []MutantOutcome) {
 	}
 	now := time.Now().UTC()
 	for _, m := range outcomes {
-		if m.Blob == "" || m.TestSet == "" {
-			// Unmeasurable by construction: an entry with no blob and no test
-			// set can never be shown to still hold, so storing it only grows
-			// the file.
+		if m.Blob == "" || m.Fence == "" {
+			// Unmeasurable by construction: an entry with no blob and no
+			// fence can never be shown to still hold, so storing it only
+			// grows the file.
 			continue
 		}
 		merged[m.key()] = storedOutcome{MutantOutcome: m, At: now}

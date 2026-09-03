@@ -238,6 +238,12 @@ func markWorktreeWarned(session string) bool {
 	return true
 }
 
+// AppendGateLog is appendGateLog for the shims, which live in another package
+// and still have to record a decision they made.
+func AppendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
+	appendGateLog(stage, root, cmd, verdict, dur)
+}
+
 // appendGateLog appends one line to <stateDir>/gate.log:
 // "<RFC3339> <precommit|postedit> <root> <cmd> <verdict> <secs>s" — so a
 // session (or a human) can reconstruct what every gate stage actually did,

@@ -24,18 +24,27 @@ import (
 // is deliberately mean: one job per six cores, one per six gigabytes, never
 // more than two whatever the machine is, never less than one.
 func MutantsJobsCap(cores, ramGB int) (int, string) {
-	byCores, byRAM := cores/6, ramGB/6
+	byCores := cores / 6
 	jobs, why := 2, "cap 2"
 	if byCores < jobs {
 		jobs, why = byCores, "cores"
 	}
-	if byRAM < jobs {
-		jobs, why = byRAM, "ram"
+	// Memory that could not be READ is not memory that is absent. Folding a
+	// zero into the minimum pinned every non-Linux unix to one job — a wrong
+	// number derived from a missing one — so an unknown reading simply does
+	// not constrain, and the cores decide alone.
+	ram := "ram unknown"
+	if ramGB > 0 {
+		byRAM := ramGB / 6
+		ram = fmt.Sprintf("ram %dGB/6=%d", ramGB, byRAM)
+		if byRAM < jobs {
+			jobs, why = byRAM, "ram"
+		}
 	}
 	if jobs < 1 {
 		jobs = 1
 	}
-	return jobs, fmt.Sprintf("min(cores %d/6=%d, ram %dGB/6=%d, cap 2) — %s", cores, byCores, ramGB, byRAM, why)
+	return jobs, fmt.Sprintf("min(cores %d/6=%d, %s, cap 2) — %s", cores, byCores, ram, why)
 }
 
 // mutantsJobsForThisBox is the cap for the machine the job runs on. Memory is

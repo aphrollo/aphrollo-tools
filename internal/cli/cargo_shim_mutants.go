@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -65,4 +66,23 @@ func underMutantsWorktree(dir string) bool {
 		}
 		dir = parent
 	}
+}
+
+// bypassLogged makes the bypass record itself exactly once per process: a
+// build invokes the shim many times, and one line per invocation would drown
+// the log it is meant to make readable.
+var bypassLogged sync.Once
+
+// resetBypassLog lets a test observe the once-per-process rule.
+func resetBypassLog() { bypassLogged = sync.Once{} }
+
+// logQueueBypass records that a run went around the build queue. The bypass is
+// a TOLERATED hole — any process can set APHROLLO_QUEUE=bypass with a target
+// dir shaped like the mutation run's, and the shim will honour it. The harm is
+// bounded to that one target dir, and what makes it tolerable is that every
+// use is counted: `gate stats` shows it beside every other waiver.
+func logQueueBypass(targetDir string) {
+	bypassLogged.Do(func() {
+		tdd.AppendGateLog("precommit", targetDir, "cargo", "queue-bypass", 0)
+	})
 }

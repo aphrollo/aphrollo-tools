@@ -52,10 +52,16 @@ type MutantsJob struct {
 	// takes the reason with it. They live in the mutation worktree's build
 	// directory and never in the source tree — a stray untracked file there
 	// makes the receipt's own dirty check fail the run it describes.
-	Log     string    `json:"log"`
-	ErrLog  string    `json:"err_log"`
-	PID     int       `json:"pid"`
-	Started time.Time `json:"started"`
+	Log    string `json:"log"`
+	ErrLog string `json:"err_log"`
+	PID    int    `json:"pid"`
+	// PIDStart is the OS's own record of when THAT process started, recorded
+	// beside the pid because a pid is not an identity: this registry outlives
+	// a reboot, and a recycled pid answered "still running" for a completely
+	// different process. Empty on a record written before this existed, or on
+	// a box that cannot report it, in which case the pid alone decides.
+	PIDStart string    `json:"pid_start,omitempty"`
+	Started  time.Time `json:"started"`
 }
 
 // mutantsJobMaxAge is how long a recorded job may claim to be running before
@@ -103,6 +109,7 @@ func StartMutantsJob(repoRoot string) (MutantsJob, bool) {
 		return MutantsJob{}, false
 	}
 	j.PID = pid
+	j.PIDStart = processStartToken(pid)
 	saveMutantsJob(j)
 	appendGateLog("postcommit", logToken(j.Repo), "mutants", "mutants-started:"+short(j.TipTree), 0)
 	return j, true
@@ -179,11 +186,29 @@ func MutantsArgv(diffPath string, baselineSkip bool, judged []string) []string {
 	if baselineSkip {
 		argv = append(argv, "--baseline", "skip")
 	}
+	// Every exclusion rides to the runner inside one environment variable, and
+	// Windows caps the whole environment block at 32,767 characters: an
+	// unbounded list of a few thousand judged mutants truncates the run's own
+	// arguments. So the list is bounded, and the overflow is simply
+	// re-measured — dropping an exclusion costs one mutant's runtime, dropping
+	// the arguments costs the run.
+	size := len(strings.Join(argv, " "))
 	for _, name := range judged {
-		argv = append(argv, "--exclude-re", "^"+regexp.QuoteMeta(name)+"$")
+		re := "^" + regexp.QuoteMeta(name) + "$"
+		cost := len("--exclude-re ") + len(re) + 1
+		if size+cost > mutantsArgvBudget {
+			break
+		}
+		argv = append(argv, "--exclude-re", re)
+		size += cost
 	}
 	return argv
 }
+
+// mutantsArgvBudget is how long the runner's argument string may get. Well
+// under the 32,767-character Windows environment block, because the block
+// holds the rest of the environment too.
+const mutantsArgvBudget = 8000
 
 // TipSuiteGreen reports whether the gate's own log shows this checkout's suite
 // green since `since` — the proof that lets a run skip its baseline.
@@ -277,11 +302,26 @@ func RunningMutantsJobs(repo string) []MutantsJob {
 	now := time.Now()
 	var live []MutantsJob
 	for _, j := range jobs {
-		if j.PID > 0 && now.Sub(j.Started) < mutantsJobMaxAge && pidRunningFn(j.PID) {
+		if j.PID > 0 && now.Sub(j.Started) < mutantsJobMaxAge && jobProcessLives(j) {
 			live = append(live, j)
 		}
 	}
 	return live
+}
+
+// jobProcessLives reports whether the process this job recorded is the one
+// running under that pid now. A record with no token is judged by pid alone:
+// the alternative is reporting every job of an older binary as finished, which
+// is the wrong direction for a gate that refuses on a missing receipt.
+func jobProcessLives(j MutantsJob) bool {
+	if !pidRunningFn(j.PID) {
+		return false
+	}
+	if j.PIDStart == "" {
+		return true
+	}
+	now := processStartTokenFn(j.PID)
+	return now == "" || now == j.PIDStart
 }
 
 // MutantsJobRunningAt reports the job running for the repo this directory
@@ -301,3 +341,7 @@ func MutantsJobRunningAt(dir string) (MutantsJob, bool) {
 // pidRunningFn is the liveness probe, a seam so a test can describe a dead
 // process without having to produce one.
 var pidRunningFn = pidRunning
+
+// processStartTokenFn is the start-time probe, a seam for the tests that
+// describe a recycled pid without waiting for one.
+var processStartTokenFn = processStartToken

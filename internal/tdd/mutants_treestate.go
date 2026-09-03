@@ -18,19 +18,29 @@ import (
 // means the same thing in every language and needs nothing but the listing.
 var manifestNames = map[string]bool{"Cargo.toml": true, "go.mod": true, "pyproject.toml": true, "package.json": true}
 
-// treeStateAt reads one commit or tree's state.
+// treeStateAt reads one commit or tree's state, fenced by the workspace's own
+// dependency graph.
 func treeStateAt(repoRoot, rev string) TreeState {
 	out, err := git(repoRoot, "ls-tree", "-r", rev)
 	if err != nil {
 		return TreeState{}
 	}
-	return treeStateFromListing(out)
+	return treeStateWithDeps(out, workspaceDepsFn(repoRoot))
+}
+
+// treeStateWithDeps parses a listing and fences every package against its own
+// files and its dependencies'.
+func treeStateWithDeps(listing string, deps map[string][]string) TreeState {
+	st := treeStateFromListing(listing)
+	st.Fences = fencesFor(st.digests, deps)
+	return st
 }
 
 // treeStateFromListing parses `git ls-tree -r` output into the state a plan
 // judges against.
 func treeStateFromListing(listing string) TreeState {
-	st := TreeState{Blobs: map[string]string{}, Packages: map[string]string{}, TestSets: map[string]string{}}
+	st := TreeState{Blobs: map[string]string{}, Packages: map[string]string{}, Fences: map[string]string{},
+		digests: map[string]packageDigest{}}
 	var pkgDirs []string
 	type entry struct{ path, blob string }
 	var entries []entry
@@ -54,20 +64,84 @@ func treeStateFromListing(listing string) TreeState {
 	// Longest first, so the nearest manifest above a file wins.
 	sort.Slice(pkgDirs, func(i, j int) bool { return len(pkgDirs[i]) > len(pkgDirs[j]) })
 
-	testBlobs := map[string][]string{}
+	srcLines, testLines := map[string][]string{}, map[string][]string{}
 	for _, e := range entries {
 		pkg := packageOf(e.path, pkgDirs)
 		st.Packages[e.path] = pkg
-		if ClassifyFile(e.path) == Test {
-			testBlobs[pkg] = append(testBlobs[pkg], e.path+" "+e.blob)
+		switch ClassifyFile(e.path) {
+		case Test:
+			testLines[pkg] = append(testLines[pkg], e.path+" "+e.blob)
+		case Source:
+			srcLines[pkg] = append(srcLines[pkg], e.path+" "+e.blob)
 		}
 	}
-	for pkg, lines := range testBlobs {
-		sort.Strings(lines)
-		sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
-		st.TestSets[pkg] = hex.EncodeToString(sum[:8])
+	for pkg := range unionKeys(srcLines, testLines) {
+		st.digests[pkg] = packageDigest{Source: digestOf(srcLines[pkg]), Test: digestOf(testLines[pkg])}
 	}
 	return st
+}
+
+// packageDigest is one package's own contribution to a fence, split so a
+// dependency contributes its SOURCE only: a dependency's tests do not
+// constrain a mutant in the crate that depends on it.
+type packageDigest struct{ Source, Test string }
+
+// fencesFor folds each package's own digest together with the source digests
+// of every package it transitively depends on. A cycle terminates because a
+// package is visited once.
+func fencesFor(digests map[string]packageDigest, deps map[string][]string) map[string]string {
+	out := map[string]string{}
+	for pkg, own := range digests {
+		parts := []string{"self " + own.Source + " " + own.Test}
+		for _, dep := range transitiveDeps(pkg, deps) {
+			parts = append(parts, "dep "+dep+" "+digests[dep].Source)
+		}
+		out[pkg] = digestOf(parts)
+	}
+	return out
+}
+
+// transitiveDeps is every package reachable from pkg, sorted, and excluding
+// pkg itself so a dependency cycle does not fold a package's own tests into
+// its fence twice.
+func transitiveDeps(pkg string, deps map[string][]string) []string {
+	seen := map[string]bool{pkg: true}
+	var out []string
+	queue := append([]string{}, deps[pkg]...)
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		if seen[cur] {
+			continue
+		}
+		seen[cur] = true
+		out = append(out, cur)
+		queue = append(queue, deps[cur]...)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// digestOf hashes a set of lines into one short, order-independent string.
+func digestOf(lines []string) string {
+	if len(lines) == 0 {
+		return "-"
+	}
+	sorted := append([]string{}, lines...)
+	sort.Strings(sorted)
+	sum := sha256.Sum256([]byte(strings.Join(sorted, "\n")))
+	return hex.EncodeToString(sum[:8])
+}
+
+// unionKeys is every key present in any of the maps.
+func unionKeys(maps ...map[string][]string) map[string]bool {
+	out := map[string]bool{}
+	for _, m := range maps {
+		for k := range m {
+			out[k] = true
+		}
+	}
+	return out
 }
 
 // packageDirOf is the directory a manifest declares, "" for one at the root.
@@ -117,14 +191,14 @@ func PlanDiffFiles(lane []string, now TreeState, cached map[mutantKey]MutantOutc
 }
 
 // measuredUnchanged reports whether the store already answers for this exact
-// file blob, under this exact test set.
+// file blob, behind this exact fence.
 func measuredUnchanged(p string, now TreeState, cached map[mutantKey]MutantOutcome) bool {
-	blob, testSet := now.Blobs[p], now.TestSets[now.Packages[p]]
+	blob, fence := now.Blobs[p], now.Fences[now.Packages[p]]
 	if blob == "" {
 		return false
 	}
 	for _, m := range cached {
-		if m.File == p && carriesOver(m, blob, testSet) {
+		if m.File == p && carriesOver(m, blob, fence) {
 			return true
 		}
 	}

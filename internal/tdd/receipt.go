@@ -55,11 +55,11 @@ type MutationReceipt struct {
 	// writes none, which costs a full re-run and nothing else.
 	Outcomes []MutantOutcome `json:"outcomes,omitempty"`
 	// Files is the blob hash of every file the run's diff covered, and
-	// TestSets the hash of every package's test files. Together they are what
+	// Fences the invalidation hash of every package. Together they are what
 	// the NEXT run narrows its diff with (see PlanDiffFiles); absent, it
 	// measures everything.
-	Files    map[string]string `json:"files,omitempty"`
-	TestSets map[string]string `json:"test_sets,omitempty"`
+	Files  map[string]string `json:"files,omitempty"`
+	Fences map[string]string `json:"fences,omitempty"`
 	// CarriedFrom names the tree whose run this receipt re-stamps, "" for a
 	// receipt that measured its own tree.
 	CarriedFrom string `json:"carried_from,omitempty"`
@@ -234,11 +234,20 @@ func commonGitDir(repoRoot string) string {
 // from an older producer. Decoding accepts both; String renders both as
 // file:line: mutation so a rejection names a place to go.
 type MutantName struct {
-	File     string `json:"file,omitempty"`
-	Line     int    `json:"line,omitempty"`
+	File string `json:"file,omitempty"`
+	Line int    `json:"line,omitempty"`
+	// Col tells apart the several distinct mutants cargo-mutants emits on one
+	// line with identical text.
+	Col      int    `json:"col,omitempty"`
 	Mutation string `json:"mutation,omitempty"`
 	// Raw is the bare-string spelling, kept verbatim.
 	Raw string `json:"-"`
+}
+
+// key identifies the mutant this name refers to, the same way an outcome
+// does, so a survivor list and an outcome list can be compared.
+func (m MutantName) key() mutantKey {
+	return mutantKey{File: m.File, Line: m.Line, Col: m.Col, Mutation: m.Mutation}
 }
 
 func (m *MutantName) UnmarshalJSON(b []byte) error {

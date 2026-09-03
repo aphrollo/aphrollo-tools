@@ -134,12 +134,18 @@ dir and on the OS temp dir's, and warns under 30 GB.
 
 ### Concurrency
 
-`MUTANTS_JOBS` defaults to `min(cores / 6, RAM_GB / 6, 2)`, floored at 1, and
-the runner PRINTS the cap and its reason on its first line, e.g.
+`APHROLLO_MUTANTS_JOBS` defaults to `min(cores / 6, RAM_GB / 6, 2)`, floored
+at 1, and the runner PRINTS the cap and the reason it was derived from — the
+`— <reason>` suffix included, because "2 jobs" without "cap 2" or "ram" says
+nothing about which limit bound it:
 
 ```
-mutants: 2 jobs (min(cores 24/6=4, ram 64GB/6=10, cap 2))
+mutants: 2 jobs (min(cores 24/6=4, ram 64GB/6=10, cap 2) — cap 2)
 ```
+
+Memory that cannot be READ is not memory that is absent: an unreadable reading
+prints `ram unknown` and lets the cores decide alone, rather than pinning the
+run to one job.
 
 The gate computes the same number and passes it as `APHROLLO_MUTANTS_JOBS`
 with the reason in `APHROLLO_MUTANTS_JOBS_WHY`; a runner may use those instead
@@ -201,7 +207,7 @@ mutation-accept = [
   "caught": 11,
   "timeout": 0,
   "unviable": 1,
-  "survivors":  [{"file": "…", "line": 12, "mutation": "…"}],
+  "survivors":  [{"file": "…", "line": 12, "col": 33, "mutation": "…"}],
   "accepted": 1,
   "unaccepted": [],
   "verdict": "pass",
@@ -209,9 +215,11 @@ mutation-accept = [
 
   // incremental: what the NEXT run narrows its diff with
   "files":     {"crates/a/src/lib.rs": "<blob>"},
-  "test_sets": {"crates/a": "<hash of that package's test blobs>"},
-  "outcomes":  [{"file": "…", "line": 12, "mutation": "…", "status": "caught",
-                 "package": "crates/a", "blob": "<blob>", "test_set": "<hash>"}],
+  "fences":    {"crates/a": "<hash: see The fence>"},
+  "outcomes":  [{"file": "…", "line": 12, "col": 33, "mutation": "…",
+                 "name": "crates/a/src/lib.rs:12:33: replace || with && in f",
+                 "status": "caught",
+                 "package": "crates/a", "blob": "<blob>", "fence": "<hash>"}],
 
   // written by the signer, never by the runner
   "outcomes_sha": "<sha256 of mutants.out/outcomes.json>",
@@ -222,6 +230,49 @@ mutation-accept = [
 `worktree_dirty` is computed with `--untracked-files=no`: the run's own build
 dir and logs are untracked by design, and counting them would make every run
 report itself dirty.
+
+### How a mutant is named
+
+cargo-mutants 27.1.0 names a mutant `<file>:<line>:<col>: <mutation>`:
+
+```
+crates/editor_client/src/creator.rs:101:33: replace || with && in send_undo_redo
+crates/editor_client/src/creator.rs:101:16: replace || with && in send_undo_redo
+```
+
+Those are two DIFFERENT mutants. The column is part of the identity, not
+decoration — that file emits several distinct mutants on line 101 with
+identical text — so the receipt carries `col`, the cache keys on it, and a
+resumed run's `--exclude-re` is the tool's own line VERBATIM, anchored:
+
+```
+--exclude-re '^crates/editor_client/src/creator\.rs:101:33: replace \|\| with && in send_undo_redo$'
+```
+
+A rebuilt name that drops the column matches nothing, so the resume excludes
+nothing and measures the whole diff again. The exclusion list is also bounded
+(8,000 characters of arguments): every exclusion rides in one environment
+variable, Windows caps the block at 32,767, and an overflowing list truncates
+the run's own arguments. Past the bound the remaining mutants are simply
+re-measured.
+
+### The fence
+
+A verdict is invalidated by anything whose change could flip it, which is more
+than the mutant's own file: a mutant in `a.rs` may be caught only through
+`b.rs`'s behaviour, and `b.rs` may live in another crate. So each package
+carries a FENCE — one hash over
+
+- the package's own Source blobs, and
+- the package's own Test blobs, and
+- the Source blobs of every transitive workspace dependency
+
+— and an outcome carries the fence it was measured behind. Cached outcomes
+carry only while both the file blob and the fence still match. The graph comes
+from the build tool itself: `cargo metadata --no-deps` (path dependencies
+only; a registry crate cannot change under a lane) or `go list`. No graph
+means no edges, which fences every package by its own files alone — it
+under-carries rather than over-carries.
 
 ### The outcome cache
 
@@ -237,6 +288,13 @@ between them.
 The receipt stays the per-tip proof a merge consumes; the store is only the
 cache. `gate gc --apply` prunes entries older than 30 days or naming a blob the
 repo's object store no longer has.
+
+When the cache answers for EVERY file the lane touched, no runner is started at
+all: the gate writes and signs the carried receipt itself and logs
+`mutants-fully-carried:<tree>`. That path exists because the alternative was
+worse than useless — with no files left to scope it to, the run's diff was
+`git diff BASE TIP --` with no pathspec, which is the whole lane diff, so the
+run re-measured exactly what the cache had just excluded.
 
 A receipt with no `outcomes` costs the next run a full re-measure and nothing
 else. A receipt with `unaccepted` non-empty never merges. The accept-list for

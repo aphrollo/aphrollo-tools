@@ -78,6 +78,16 @@ func RunMutantsJob(jobPath string) int {
 		appendGateLog("mutants", logToken(j.Repo), "mutants", "mutants-nothing-to-do", 0)
 		return 0
 	}
+	if len(plan) == 0 {
+		// The cache answers for every file this lane touched. Measuring
+		// nothing is the whole point of the cache — and with no files to
+		// scope it to, `git diff BASE TIP --` would be the FULL lane diff,
+		// so the run would re-measure exactly what was just excluded.
+		writeCarriedReceipt(j, append(append([]MutantOutcome{}, carried...), judged...))
+		appendGateLog("mutants", logToken(j.Repo), "mutants", "mutants-fully-carried:"+short(j.TipTree), 0)
+		logf(log, "aphrollo: every file in this lane was already measured; receipt written from the cache")
+		return 0
+	}
 	if err := writeLaneDiff(j, plan); err != nil {
 		logf(log, "aphrollo: could not write the lane diff: %v", err)
 		return 0
@@ -86,7 +96,7 @@ func RunMutantsJob(jobPath string) int {
 		len(plan), len(carried), len(judged))
 
 	start := time.Now()
-	code := runMutantsProducer(j, judged)
+	code := mutantsProducerFn(j, judged)
 	// Read BEFORE judging the exit code: a run that died at mutant 101 of 131
 	// still wrote 100 verdicts, and this is the read that stops them being
 	// thrown away (issue #103).
@@ -107,21 +117,34 @@ func RunMutantsJob(jobPath string) int {
 }
 
 // mutantNames renders the mutants an interrupted attempt already judged, in
-// the spelling the tool names them by, for the restart's exclusions.
+// the spelling the TOOL names them by — verbatim where it was read from
+// mutants.out, rebuilt with the column where a producer reported parts. A
+// rebuilt name that drops the column matches no mutant, which is how the first
+// version of this excluded nothing at all.
 func mutantNames(judged []MutantOutcome) []string {
 	out := make([]string, 0, len(judged))
 	for _, m := range judged {
-		out = append(out, fmt.Sprintf("%s:%d: %s", m.File, m.Line, m.Mutation))
+		if m.Name != "" {
+			out = append(out, m.Name)
+			continue
+		}
+		out = append(out, mutantLineOf(m.File, m.Line, m.Col, m.Mutation))
 	}
 	return out
 }
 
-// storedWants is every mutant the store knows for this repo, as a list to
-// plan over: the plan then decides which of them still describe the tip.
-func storedWants(cached map[mutantKey]MutantOutcome) []MutantOutcome {
+// laneWants is every mutant the store knows that lives in a file THIS lane
+// changed: the receipt describes the lane, so nothing else belongs in it.
+func laneWants(cached map[mutantKey]MutantOutcome, lane []string) []MutantOutcome {
+	inLane := make(map[string]bool, len(lane))
+	for _, p := range lane {
+		inLane[p] = true
+	}
 	out := make([]MutantOutcome, 0, len(cached))
 	for _, m := range cached {
-		out = append(out, m)
+		if inLane[m.File] {
+			out = append(out, m)
+		}
 	}
 	sortOutcomes(out)
 	return out
@@ -172,7 +195,10 @@ func scopeMutantsRun(j MutantsJob) (files []string, carried []MutantOutcome) {
 	// lane already measured at the same blob measures nothing for it.
 	cached := LoadMutantStore(j.Repo)
 	files = PlanDiffFiles(lane, now, cached)
-	carried = PlanMutants(storedWants(cached), now, cached).Carry
+	// Scoped to the LANE's own files: planning the carry over the whole store
+	// stamped a one-file lane's receipt with outcomes for every unchanged file
+	// in the repo, and mutants_total stopped describing the commit.
+	carried = PlanMutants(laneWants(cached, lane), now, cached).Carry
 	return files, carried
 }
 
@@ -189,6 +215,10 @@ func writeLaneDiff(j MutantsJob, files []string) error {
 	}
 	return os.WriteFile(j.Diff, []byte(out), 0o600)
 }
+
+// mutantsProducerFn is the producer, a seam so a run's own decisions can be
+// tested without a toolchain.
+var mutantsProducerFn = runMutantsProducer
 
 // runMutantsProducer runs the consuming repo's own mutation runner in the
 // warm worktree, with the environment that tells it where to build, what to
@@ -300,13 +330,83 @@ func adoptCarriedOutcomes(j MutantsJob, carried []MutantOutcome) {
 	for _, m := range carried {
 		if !have[m.key()] {
 			r.Outcomes = append(r.Outcomes, m)
-			r.MutantsTotal++
-			if m.Status == "caught" {
-				r.Caught++
-			}
 		}
 	}
+	recountReceipt(&r)
 	writeReceiptFile(path, r)
+}
+
+// writeCarriedReceipt is the receipt for a run that measured nothing because
+// the cache already answered for every file the lane touched. It is the same
+// document a measured run writes, signed the same way: a merge reads one
+// shape, whatever produced it.
+func writeCarriedReceipt(j MutantsJob, carried []MutantOutcome) {
+	path := MutationReceiptPathFor(j.TipTree)
+	if path == "" {
+		return
+	}
+	r := MutationReceipt{
+		Repo: j.Repo, Branch: j.Branch, TipTree: j.TipTree,
+		BaseRef: j.BaseRef, BaseSHA: j.BaseSHA,
+		Verdict: receiptVerdictPass, FinishedAt: time.Now().UTC(),
+		Outcomes: carried,
+		Files:    map[string]string{}, Fences: map[string]string{},
+	}
+	for _, m := range carried {
+		if m.Blob != "" {
+			r.Files[m.File] = m.Blob
+		}
+		if m.Fence != "" {
+			r.Fences[m.Package] = m.Fence
+		}
+	}
+	recountReceipt(&r)
+	signReceipt(&r)
+	writeReceiptFile(path, r)
+}
+
+// recountReceipt derives every count and every survivor list from the merged
+// outcome set. Counting only the CAUGHT carried ones was the hole: a survivor
+// measured on an earlier commit was added to the outcomes and to the total but
+// left out of Survivors and Unaccepted, so a commit touching only a.rs merged
+// with a known unkilled mutant in b.rs.
+//
+// The producer's accept-list is honoured rather than re-derived: a survivor
+// the receipt listed WITHOUT listing it as unaccepted is one the repo accepted
+// with a reason, and that decision is the producer's to make.
+func recountReceipt(r *MutationReceipt) {
+	accepted := map[mutantKey]bool{}
+	unaccepted := map[mutantKey]bool{}
+	for _, m := range r.Unaccepted {
+		unaccepted[m.key()] = true
+	}
+	for _, m := range r.Survivors {
+		if !unaccepted[m.key()] {
+			accepted[m.key()] = true
+		}
+	}
+
+	sortOutcomes(r.Outcomes)
+	r.MutantsTotal, r.Caught, r.Timeout, r.Unviable, r.Accepted = 0, 0, 0, 0, 0
+	r.Survivors, r.Unaccepted = nil, nil
+	for _, m := range r.Outcomes {
+		r.MutantsTotal++
+		switch m.Status {
+		case "caught":
+			r.Caught++
+		case "timeout":
+			r.Timeout++
+		case "unviable":
+			r.Unviable++
+		default:
+			r.Survivors = append(r.Survivors, m.name())
+			if accepted[m.key()] {
+				r.Accepted++
+				continue
+			}
+			r.Unaccepted = append(r.Unaccepted, m.name())
+		}
+	}
 }
 
 // spawnMutantsJob starts the wrapper detached and below normal priority, and

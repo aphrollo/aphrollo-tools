@@ -1799,3 +1799,19 @@ internal/docs/       doc-reference guard: extract path citations from tracked *.
   `a//abs/path`. The diff is for reading and for our own `--apply` (which writes
   files directly, not via `git apply`).
 ```
+
+## The queue bypass, and what it is worth
+
+A mutation run goes around the build queue: it owns its own target dir, so it
+contends with nothing, and making it wait behind an editor's build is the
+delay this whole design exists to remove. The check is a SHAPE — the target
+dir must sit under `<parent>/.worktrees/<repo>/mutants` — rather than a path
+handed over in an environment variable.
+
+It is not a security boundary, and it is not meant to be. Any process on the
+box can set `APHROLLO_QUEUE=bypass` with a target dir of that shape and skip
+the queue. The harm is bounded to that one target dir: a bypassing run holds
+no lock, so it cannot make anything else wait, and it can only disturb builds
+that share the directory it was pointed at. What makes the tolerance
+manageable is that every bypass is COUNTED — one `queue-bypass` line per
+process, which `aphrollo gate stats` reports beside every other waiver.

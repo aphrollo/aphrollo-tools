@@ -16,10 +16,10 @@ func lsTree(entries ...string) string {
 }
 
 // The state a run is judged against comes from the tree itself: one blob per
-// file, one package per file (the nearest manifest above it), and one hash per
-// package over its TEST files' blobs.
-func TestTreeStateFromListing_HashesEachPackagesTestFiles(t *testing.T) {
-	st := treeStateFromListing(lsTree(
+// file, one package per file (the nearest manifest above it), and one fence
+// per package.
+func TestTreeStateFromListing_ReadsABlobAndAPackageForEveryFile(t *testing.T) {
+	st := treeStateWithDeps(lsTree(
 		"m0 Cargo.toml",
 		"a0 crates/a/Cargo.toml",
 		"a1 crates/a/src/lib.rs",
@@ -27,7 +27,7 @@ func TestTreeStateFromListing_HashesEachPackagesTestFiles(t *testing.T) {
 		"b0 crates/b/Cargo.toml",
 		"b1 crates/b/src/lib.rs",
 		"d0 docs/design.md",
-	))
+	), nil)
 
 	if got := st.Blobs["crates/a/src/lib.rs"]; got != "a1" {
 		t.Fatalf("blob = %q, want a1", got)
@@ -38,26 +38,35 @@ func TestTreeStateFromListing_HashesEachPackagesTestFiles(t *testing.T) {
 	if got := st.Packages["docs/design.md"]; got != "" {
 		t.Fatalf("package = %q, want the repo root for a file under no crate", got)
 	}
-	if st.TestSets["crates/a"] == "" {
-		t.Fatal("a package with a test file must hash to something")
+	if st.Fences["crates/a"] == "" {
+		t.Fatal("a package with source and test files must fence to something")
 	}
-	if st.TestSets["crates/a"] == st.TestSets["crates/b"] {
-		t.Fatal("two packages with different test sets must not hash alike")
+	if st.Fences["crates/a"] == st.Fences["crates/b"] {
+		t.Fatal("two packages with different files must not fence alike")
 	}
 }
 
-// The hash is over the TEST files only, and it moves when one of them does:
-// that is the whole signal that a package's mutants have to be re-measured.
-func TestTreeStateFromListing_TestSetHashTracksOnlyTestBlobs(t *testing.T) {
+// This test previously asserted the opposite of its second half: that a SOURCE
+// edit must not move the hash, because the hash covered test blobs only. That
+// rule let a mutant in a.rs keep a "caught" verdict after the sibling code
+// that caught it changed, so the fence now moves for either edit.
+func TestFence_MovesForASourceEditAndForATestEdit(t *testing.T) {
 	base := lsTree("a0 crates/a/Cargo.toml", "a1 crates/a/src/lib.rs", "a2 crates/a/tests/behaviour.rs")
 	srcMoved := lsTree("a0 crates/a/Cargo.toml", "a1-NEW crates/a/src/lib.rs", "a2 crates/a/tests/behaviour.rs")
 	testMoved := lsTree("a0 crates/a/Cargo.toml", "a1 crates/a/src/lib.rs", "a2-NEW crates/a/tests/behaviour.rs")
 
-	if treeStateFromListing(base).TestSets["crates/a"] != treeStateFromListing(srcMoved).TestSets["crates/a"] {
-		t.Fatal("a source edit must not move the test-set hash")
+	fence := func(listing string) string { return treeStateWithDeps(listing, nil).Fences["crates/a"] }
+	if fence(base) == fence(srcMoved) {
+		t.Fatal("a source edit left the fence unmoved: a mutant caught through that file would carry its old verdict")
 	}
-	if treeStateFromListing(base).TestSets["crates/a"] == treeStateFromListing(testMoved).TestSets["crates/a"] {
-		t.Fatal("a test edit must move the test-set hash")
+	if fence(base) == fence(testMoved) {
+		t.Fatal("a test edit left the fence unmoved")
+	}
+	// Stable for one tree: the listing order must not decide the hash, or
+	// every run would invalidate every package.
+	shuffled := lsTree("a2 crates/a/tests/behaviour.rs", "a1 crates/a/src/lib.rs", "a0 crates/a/Cargo.toml")
+	if fence(base) != fence(shuffled) {
+		t.Fatal("the fence moved when only the listing order did")
 	}
 }
 
@@ -68,11 +77,11 @@ func TestPlanDiffFiles_LeavesOutAFileNothingChangedAround(t *testing.T) {
 	now := TreeState{
 		Blobs:    map[string]string{"crates/a/src/lib.rs": "a1", "crates/b/src/lib.rs": "b1"},
 		Packages: map[string]string{"crates/a/src/lib.rs": "crates/a", "crates/b/src/lib.rs": "crates/b"},
-		TestSets: map[string]string{"crates/a": "tsA", "crates/b": "tsB"},
+		Fences:   map[string]string{"crates/a": "tsA", "crates/b": "tsB"},
 	}
 	prev := cachedOutcomes([]MutantOutcome{
-		{File: "crates/a/src/lib.rs", Line: 1, Mutation: "m", Package: "crates/a", Blob: "a1", TestSet: "tsA"},
-		{File: "crates/b/src/lib.rs", Line: 1, Mutation: "m", Package: "crates/b", Blob: "b0-OLD", TestSet: "tsB"},
+		{File: "crates/a/src/lib.rs", Line: 1, Mutation: "m", Package: "crates/a", Blob: "a1", Fence: "tsA"},
+		{File: "crates/b/src/lib.rs", Line: 1, Mutation: "m", Package: "crates/b", Blob: "b0-OLD", Fence: "tsB"},
 	})
 	got := PlanDiffFiles([]string{"crates/a/src/lib.rs", "crates/b/src/lib.rs", "README.md"}, now, prev)
 	if len(got) != 1 || got[0] != "crates/b/src/lib.rs" {
@@ -86,11 +95,11 @@ func TestPlanDiffFiles_PullsInAWholePackageWhoseTestSetChanged(t *testing.T) {
 	now := TreeState{
 		Blobs:    map[string]string{"crates/a/src/lib.rs": "a1", "crates/a/tests/x.rs": "t2"},
 		Packages: map[string]string{"crates/a/src/lib.rs": "crates/a", "crates/a/tests/x.rs": "crates/a"},
-		TestSets: map[string]string{"crates/a": "tsA-NEW"},
+		Fences:   map[string]string{"crates/a": "tsA-NEW"},
 	}
 	prev := cachedOutcomes([]MutantOutcome{
-		{File: "crates/a/src/lib.rs", Line: 1, Mutation: "m", Package: "crates/a", Blob: "a1", TestSet: "tsA"},
-		{File: "crates/a/tests/x.rs", Line: 1, Mutation: "m", Package: "crates/a", Blob: "t1", TestSet: "tsA"},
+		{File: "crates/a/src/lib.rs", Line: 1, Mutation: "m", Package: "crates/a", Blob: "a1", Fence: "tsA"},
+		{File: "crates/a/tests/x.rs", Line: 1, Mutation: "m", Package: "crates/a", Blob: "t1", Fence: "tsA"},
 	})
 	got := PlanDiffFiles([]string{"crates/a/src/lib.rs", "crates/a/tests/x.rs"}, now, prev)
 	if len(got) != 2 {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -104,4 +105,47 @@ func TestRunCargoShim_BypassRunsWhileAnotherBuildHoldsTheLock(t *testing.T) {
 	if !ok || !strings.Contains(owner.Cmd, "other-crate") {
 		t.Fatalf("the bypass claimed a slot it does not hold: %+v (present=%v)", owner, ok)
 	}
+}
+
+// The bypass is a tolerated hole: any process can set APHROLLO_QUEUE=bypass
+// with a target dir shaped like the mutation run's and skip the build queue.
+// The harm is bounded to that one target dir, and what makes it tolerable is
+// that every use is COUNTED — a bypass nobody can see is a bypass nobody
+// manages.
+func TestQueueBypass_IsLoggedOncePerProcess(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	target := filepath.Join(t.TempDir(), ".worktrees", "borld", "mutants", "target-mutants")
+	t.Setenv("CARGO_TARGET_DIR", target)
+	t.Setenv(tdd.QueueEnv, tdd.QueueBypass)
+	resetBypassLog()
+
+	cfgShim := testCargoShimConfig()
+	cfgShim.realCargo = runVerbStub(t)
+	var stdout, stderr bytes.Buffer
+	for i := 0; i < 3; i++ {
+		if code := runCargoShim([]string{"build"}, strings.NewReader(""), &stdout, &stderr, cfgShim); code != 0 {
+			t.Fatalf("exit = %d, want the bypassing run to proceed\nstderr: %s", code, stderr.String())
+		}
+	}
+
+	if n := countGateLogVerdict(t, cfg, "queue-bypass"); n != 1 {
+		t.Fatalf("queue-bypass logged %d times over three invocations, want exactly once per process", n)
+	}
+}
+
+// countGateLogVerdict counts the lines whose verdict field is want.
+func countGateLogVerdict(t *testing.T, cfg, want string) int {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, " "+want+" ") {
+			n++
+		}
+	}
+	return n
 }
