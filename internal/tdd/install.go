@@ -40,6 +40,7 @@ var perRepoHooks = []struct{ name, sub string }{
 	{"pre-commit", "precommit"},
 	{"pre-merge-commit", "premergecommit"},
 	{"commit-msg", "commitmsg"},
+	{"post-commit", "postcommit"},
 }
 
 // perRepoPrunedHooks are hook names per-repo install removes but never writes. A

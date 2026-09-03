@@ -24,7 +24,9 @@ const ghStubSource = `package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
 func main() {
@@ -32,6 +34,11 @@ func main() {
 		if f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
 			fmt.Fprintln(f, strings.Join(os.Args[1:], " "))
 			f.Close()
+		}
+	}
+	if ms := os.Getenv("GH_STUB_SLEEP_MS"); ms != "" {
+		if n, err := strconv.Atoi(ms); err == nil {
+			time.Sleep(time.Duration(n) * time.Millisecond)
 		}
 	}
 	key := ""

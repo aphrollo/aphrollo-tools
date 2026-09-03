@@ -206,6 +206,76 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: ./bin/aphrollo gate escape verify-closure "$PR_NUMBER"
 
+  # The escape loop's OPENING half, and the only trigger that lives off this
+  # box. A red here after a green local gate is the loop's sharpest evidence:
+  # two runs of the same checks over the same tree disagreed.
+  #
+  # The runner has never seen the local gate's state, so the fact travels as a
+  # GIT NOTE: `refs/notes/gate` holds `green <tree>` for a commit whose
+  # pre-commit gate actually ran a suite and it passed, written by the
+  # post-commit hook and pushed by the git shim. That is the whole channel --
+  # smaller than a PR body (a human writes it and can edit it afterwards) and
+  # smaller than a check-run annotation (an API call plus checks:write), and
+  # it stays out of the commit message, which says what the change does and
+  # nothing else. Notes are not fetched by default, hence the explicit fetch.
+  # `gate escape record --from-ci` records NOTHING when the note is absent: a
+  # red on a tip nobody gated says the gate never ran, not that it missed
+  # something.
+  #
+  # It checks out the PR HEAD rather than the default merge ref, because the
+  # merge commit is GitHub's and carries no note.
+  #
+  # `issues: write` is not granted to a workflow running on a PR from a FORK,
+  # so the job would fail on the create rather than record anything; it is
+  # skipped there and the miss is picked up by `gate escape sync` on the box
+  # that owns the lane.
+  escape-record:
+    needs: [test, lint, vulncheck, sast, secret-scan]
+    if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.draft != true && github.event.pull_request.head.repo.fork != true && contains(needs.*.result, 'failure') }}
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Fetch the gate notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Best effort: a repo whose remote has no notes ref yet is the common
+        # case, and the recorder's own "no green gate note" answer is the
+        # right one there.
+        run: git fetch --no-tags origin "+refs/notes/gate:refs/notes/gate" || true
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # false: see the note in `test` -- the persistent disk is the cache.
+          cache: false
+      - name: Build the CLI from this PR
+        run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
+      - name: aphrollo gate escape record
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        # The evidence is the FAILING JOBS' OWN LOG, not the job names: the
+        # recorder fingerprints on the failing test names it can parse out of
+        # it, and job names alone collide across every PR that fails `test`.
+        # The run URL goes last, because a per-run value near the top would
+        # make every re-run look like a new miss.
+        #
+        # The dedupe store is this box's gate-state, which a runner may not
+        # have; the recorder therefore asks GitHub whether an open issue
+        # already carries this fingerprint before creating one.
+        run: |
+          failed=$(printf '%s' "$NEEDS" | jq -r 'to_entries|map(select(.value.result=="failure"))|map(.key)|sort|join(", ")')
+          gh run view "$GITHUB_RUN_ID" --log-failed > failed.log 2>/dev/null || true
+          ./bin/aphrollo gate escape record \
+            "$failed failed on a tip the local gate passed" \
+            --from-ci "pipeline: $failed" \
+            --evidence "$(head -c 8000 failed.log)
+          run: $RUN_URL"
   vulncheck:
     if: github.event_name != 'push' && github.event.pull_request.draft != true
     needs: changes

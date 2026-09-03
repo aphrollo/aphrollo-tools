@@ -23,6 +23,10 @@ var gitGateHooks = []struct{ name, sub string }{
 	// which is the point: the message is the one artefact that leaves the
 	// machine. Inert unless a workspace opts in with `undercover = true`.
 	{"commit-msg", "commitmsg"},
+	// post-commit writes the gate note on the commit just made, when a suite
+	// actually ran green for that tree. It never blocks: by the time it runs
+	// the commit exists.
+	{"post-commit", "postcommit"},
 }
 
 // prunedHooks are hook names this tool prunes but never installs. A re-install
