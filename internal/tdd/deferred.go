@@ -139,6 +139,7 @@ func saveDeferredJob(j DeferredJob) {
 }
 
 func loadDeferredJob(session, root string) (DeferredJob, bool) {
+	sweepDeferredJobsOnce()
 	path := deferredJobPath(session, root)
 	if path == "" {
 		return DeferredJob{}, false
