@@ -167,17 +167,6 @@ func changedPaths(repoRoot, from, to string) ([]string, bool) {
 	return paths, true
 }
 
-// newestReceiptOnBase is the freshest passing receipt for this repo measured
-// against the same base as the run about to start — what its outcomes are
-// carried from. skipTree is the tip being measured now: its own receipt, if
-// one somehow exists, is not a previous run.
-func newestReceiptOnBase(repo, base, skipTree string) *MutationReceipt {
-	for _, r := range carryCandidates(receiptContext{Repo: repo, TipTree: skipTree, BaseSHA: base}) {
-		return &r
-	}
-	return nil
-}
-
 // readReceiptFile decodes one receipt from disk.
 func readReceiptFile(path string) (MutationReceipt, bool) {
 	data, err := os.ReadFile(path)

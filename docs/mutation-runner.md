@@ -36,6 +36,17 @@ detached at the tip and `git reset --hard`ed between runs (untracked files are
 NOT cleaned — the warm build dir lives there). Its build dir is
 `<worktree>/target`, which is the name every Rust repo already ignores.
 
+**One worktree per repo, not one per lane.** A checkout of another tip in the
+same worktree rebuilds only the crates whose files actually changed — cargo's
+fingerprints for everything else still match, so two lanes alternating tips
+cost the incremental rebuild of what differs between them, not a cold build.
+One worktree per LANE would avoid even that, at roughly 15 GB of build
+directory each (borld's debug target dir was measured at 207 GB across its
+accumulated fingerprints), and every one of them cold on its first run. The
+alternation cost is the cheaper side of that trade by a wide margin, and it is
+bounded: the crates two lanes share are exactly the ones neither of them
+touched.
+
 The runner is invoked in that worktree as `bash tools/mutation_gate.sh <base
 sha>`, with:
 
@@ -211,6 +222,21 @@ mutation-accept = [
 `worktree_dirty` is computed with `--untracked-files=no`: the run's own build
 dir and logs are untracked by design, and counting them would make every run
 report itself dirty.
+
+### The outcome cache
+
+A verdict is a fact about a BLOB and a TEST SET, not about a branch, so the
+carry source is a repo-wide store rather than the last receipt:
+`<gate-state>/mutants/<repo-token>/outcomes.json`, schema-stamped and written
+whole. Every finished run merges its outcomes into it keyed by mutant, newest
+verdict winning, and every plan carries from it whenever the file blob and the
+package's test-set hash both still match — whichever lane measured them. Two
+lanes touching the same file at the same blob therefore measure it once
+between them.
+
+The receipt stays the per-tip proof a merge consumes; the store is only the
+cache. `gate gc --apply` prunes entries older than 30 days or naming a blob the
+repo's object store no longer has.
 
 A receipt with no `outcomes` costs the next run a full re-measure and nothing
 else. A receipt with `unaccepted` non-empty never merges. The accept-list for

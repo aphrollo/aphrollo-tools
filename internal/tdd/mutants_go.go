@@ -129,6 +129,7 @@ func RunGoMutantsJob(jobPath string) int {
 		return 0
 	}
 	writeGoMutantsReceipt(j, mutants, treeStateAt(j.RepoRoot, j.Tip))
+	MergeMutantStore(j.Repo, mutants)
 	clearMutantsDeath(j.TipTree)
 	appendGateLog("mutants", logToken(j.Repo), "mutants-go", "mutants-finished:"+short(j.TipTree), time.Since(start))
 	return 0

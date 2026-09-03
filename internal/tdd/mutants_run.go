@@ -95,6 +95,11 @@ func RunMutantsJob(jobPath string) int {
 	if code == 0 {
 		clearMutantsDeath(j.TipTree)
 		adoptCarriedOutcomes(j, append(append([]MutantOutcome{}, carried...), judged...))
+		// Every finished run feeds the shared cache, which is what makes the
+		// NEXT lane over these blobs cheap.
+		if r, ok := readReceiptFile(MutationReceiptPathFor(j.TipTree)); ok {
+			MergeMutantStore(j.Repo, r.Outcomes)
+		}
 		return 0
 	}
 	recordMutantsDeath(j, code, stderrTail(j.ErrLog, 3))
@@ -108,6 +113,17 @@ func mutantNames(judged []MutantOutcome) []string {
 	for _, m := range judged {
 		out = append(out, fmt.Sprintf("%s:%d: %s", m.File, m.Line, m.Mutation))
 	}
+	return out
+}
+
+// storedWants is every mutant the store knows for this repo, as a list to
+// plan over: the plan then decides which of them still describe the tip.
+func storedWants(cached map[mutantKey]MutantOutcome) []MutantOutcome {
+	out := make([]MutantOutcome, 0, len(cached))
+	for _, m := range cached {
+		out = append(out, m)
+	}
+	sortOutcomes(out)
 	return out
 }
 
@@ -151,11 +167,12 @@ func scopeMutantsRun(j MutantsJob) (files []string, carried []MutantOutcome) {
 		return nil, nil
 	}
 	now := treeStateAt(j.RepoRoot, j.Tip)
-	prev := newestReceiptOnBase(j.Repo, j.BaseSHA, j.TipTree)
-	files = PlanDiffFiles(lane, now, prev)
-	if prev != nil {
-		carried = PlanMutants(prev.Outcomes, now, prev).Carry
-	}
+	// The repo-wide store, not this lane's own last receipt: a verdict is a
+	// fact about a blob and a test set, so a lane that touches a file another
+	// lane already measured at the same blob measures nothing for it.
+	cached := LoadMutantStore(j.Repo)
+	files = PlanDiffFiles(lane, now, cached)
+	carried = PlanMutants(storedWants(cached), now, cached).Carry
 	return files, carried
 }
 

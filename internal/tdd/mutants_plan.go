@@ -65,18 +65,16 @@ type MutantsPlan struct {
 	Carry []MutantOutcome
 }
 
-// PlanMutants decides, for each mutant the current diff generates, whether
-// the previous receipt's answer still holds. want carries File/Line/Mutation
-// /Package as the mutant lister named them; the plan stamps the measurement
-// it judged against onto every entry it returns, so the receipt this run
-// writes is what the NEXT run compares to.
-func PlanMutants(want []MutantOutcome, now TreeState, prev *MutationReceipt) MutantsPlan {
-	prior := map[mutantKey]MutantOutcome{}
-	if prev != nil {
-		for _, m := range prev.Outcomes {
-			prior[m.key()] = m
-		}
-	}
+// PlanMutants decides, for each mutant the current diff generates, whether a
+// measured answer still holds. want carries File/Line/Mutation/Package as the
+// mutant lister named them; cached is the repo-wide outcome store
+// (mutants_store.go), which is deliberately not per-branch: a verdict is a
+// fact about a blob and a test set, so a second lane over the same blob reuses
+// the first lane's measurement. The plan stamps what it judged against onto
+// every entry it returns, so what this run stores is what the next one
+// compares to.
+func PlanMutants(want []MutantOutcome, now TreeState, cached map[mutantKey]MutantOutcome) MutantsPlan {
+	prior := cached
 	var plan MutantsPlan
 	for _, m := range want {
 		blob, testSet := now.Blobs[m.File], now.TestSets[m.Package]

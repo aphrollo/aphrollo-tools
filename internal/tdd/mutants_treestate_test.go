@@ -70,10 +70,10 @@ func TestPlanDiffFiles_LeavesOutAFileNothingChangedAround(t *testing.T) {
 		Packages: map[string]string{"crates/a/src/lib.rs": "crates/a", "crates/b/src/lib.rs": "crates/b"},
 		TestSets: map[string]string{"crates/a": "tsA", "crates/b": "tsB"},
 	}
-	prev := &MutationReceipt{
-		Files:    map[string]string{"crates/a/src/lib.rs": "a1", "crates/b/src/lib.rs": "b0-OLD"},
-		TestSets: map[string]string{"crates/a": "tsA", "crates/b": "tsB"},
-	}
+	prev := cachedOutcomes([]MutantOutcome{
+		{File: "crates/a/src/lib.rs", Line: 1, Mutation: "m", Package: "crates/a", Blob: "a1", TestSet: "tsA"},
+		{File: "crates/b/src/lib.rs", Line: 1, Mutation: "m", Package: "crates/b", Blob: "b0-OLD", TestSet: "tsB"},
+	})
 	got := PlanDiffFiles([]string{"crates/a/src/lib.rs", "crates/b/src/lib.rs", "README.md"}, now, prev)
 	if len(got) != 1 || got[0] != "crates/b/src/lib.rs" {
 		t.Fatalf("PlanDiffFiles = %v, want only the file whose blob moved", got)
@@ -88,10 +88,10 @@ func TestPlanDiffFiles_PullsInAWholePackageWhoseTestSetChanged(t *testing.T) {
 		Packages: map[string]string{"crates/a/src/lib.rs": "crates/a", "crates/a/tests/x.rs": "crates/a"},
 		TestSets: map[string]string{"crates/a": "tsA-NEW"},
 	}
-	prev := &MutationReceipt{
-		Files:    map[string]string{"crates/a/src/lib.rs": "a1", "crates/a/tests/x.rs": "t1"},
-		TestSets: map[string]string{"crates/a": "tsA"},
-	}
+	prev := cachedOutcomes([]MutantOutcome{
+		{File: "crates/a/src/lib.rs", Line: 1, Mutation: "m", Package: "crates/a", Blob: "a1", TestSet: "tsA"},
+		{File: "crates/a/tests/x.rs", Line: 1, Mutation: "m", Package: "crates/a", Blob: "t1", TestSet: "tsA"},
+	})
 	got := PlanDiffFiles([]string{"crates/a/src/lib.rs", "crates/a/tests/x.rs"}, now, prev)
 	if len(got) != 2 {
 		t.Fatalf("PlanDiffFiles = %v, want the whole package back in the run", got)

@@ -50,12 +50,19 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	// The outcome cache is swept with the disk: an entry whose blob has left
+	// the repo describes source that no longer exists, and one nobody has
+	// refreshed in a month is not what the next run should trust.
+	pruned := tdd.PruneMutantStoreFor(*repo)
 	freed, refused, skipped := tdd.ApplyGCFor(*repo, cands)
 	tdd.RecordGCSweep(freed, len(cands)-skipped-len(refused))
 	if *quiet {
 		return 0
 	}
 	fmt.Fprint(stdout, tdd.RenderGC(cands, true, freed))
+	if pruned > 0 {
+		fmt.Fprintf(stdout, "pruned %d stale mutation outcome(s) from the repo's cache\n", pruned)
+	}
 	writeMutantsInUse(stdout)
 	if skipped > 0 {
 		fmt.Fprintf(stdout, "%d candidate(s) inside the target dir left for next time — a build holds every slot for this target dir\n", skipped)

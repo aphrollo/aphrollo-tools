@@ -94,17 +94,21 @@ func packageOf(p string, pkgDirs []string) string {
 }
 
 // PlanDiffFiles is the FILE-level half of the incremental plan — what the
-// run's `--in-diff` is narrowed to. A file is left out when the previous
-// receipt measured that exact blob AND its package's test set has not moved
-// since; everything else, including every file no earlier receipt covered, is
+// run's `--in-diff` is narrowed to. A file is left out when the store already
+// holds a measurement of that exact blob whose package test set has not moved
+// since; everything else, including every file nothing has measured, is
 // measured again. Files no mutant can live in are never in the run at all.
-func PlanDiffFiles(lane []string, now TreeState, prev *MutationReceipt) []string {
+//
+// A file that was measured and yielded NO mutants has nothing in the store, so
+// it is measured again — the cost of not being able to tell "measured, none
+// found" from "never measured", paid in the safe direction.
+func PlanDiffFiles(lane []string, now TreeState, cached map[mutantKey]MutantOutcome) []string {
 	var out []string
 	for _, p := range lane {
 		if ClassifyFile(p) == Ignore {
 			continue
 		}
-		if prev != nil && measuredUnchanged(p, now, prev) {
+		if measuredUnchanged(p, now, cached) {
 			continue
 		}
 		out = append(out, p)
@@ -112,14 +116,17 @@ func PlanDiffFiles(lane []string, now TreeState, prev *MutationReceipt) []string
 	return out
 }
 
-// measuredUnchanged reports whether the previous receipt's measurement of this
-// file still holds.
-func measuredUnchanged(p string, now TreeState, prev *MutationReceipt) bool {
-	was, ok := prev.Files[p]
-	if !ok || was == "" || was != now.Blobs[p] {
+// measuredUnchanged reports whether the store already answers for this exact
+// file blob, under this exact test set.
+func measuredUnchanged(p string, now TreeState, cached map[mutantKey]MutantOutcome) bool {
+	blob, testSet := now.Blobs[p], now.TestSets[now.Packages[p]]
+	if blob == "" {
 		return false
 	}
-	pkg := now.Packages[p]
-	wasSet, ok := prev.TestSets[pkg]
-	return ok && wasSet != "" && wasSet == now.TestSets[pkg]
+	for _, m := range cached {
+		if m.File == p && carriesOver(m, blob, testSet) {
+			return true
+		}
+	}
+	return false
 }
