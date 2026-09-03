@@ -296,6 +296,15 @@ func mutantsChildEnv(j MutantsJob, judged []MutantOutcome) []string {
 		MutantsBaseOverrideEnv: true, MutantsTimeoutMultiplierEnv: true, MutantsMinTestTimeoutEnv: true,
 	}
 	for _, kv := range os.Environ() {
+		// Every GIT_* variable goes, the way cleanGitEnv already drops them
+		// for this package's own git calls. A detached job is spawned from a
+		// post-commit hook, which git runs with GIT_DIR and GIT_INDEX_FILE
+		// set to absolute paths inside the LANE's git dir; git reads those
+		// before it looks at the directory it was run in, so the run's own
+		// isolated tree bought nothing while they rode along (issue #156).
+		if strings.HasPrefix(kv, "GIT_") {
+			continue
+		}
 		if k, _, ok := strings.Cut(kv, "="); !ok || !drop[k] {
 			out = append(out, kv)
 		}

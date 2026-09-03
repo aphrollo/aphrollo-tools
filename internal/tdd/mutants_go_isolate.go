@@ -35,15 +35,28 @@ func goMutantsTree(j MutantsJob) (string, error) {
 
 // isLinkedWorktree asks git rather than the path's spelling: a linked
 // worktree's --git-dir is <common>/worktrees/<name>, a standalone clone's is
-// its own --git-common-dir. A directory git cannot answer for is left alone —
-// the run will fail on its own terms rather than on a guess made here.
+// its own --git-common-dir.
+//
+// Through the SCRUBBED git, always. A post-commit hook exports GIT_DIR and
+// GIT_INDEX_FILE, and git reads those before it looks at the directory it was
+// run in: both rev-parses then report the INHERITED dir, they agree, and the
+// guard concludes "standalone" for the very linked worktree it exists to
+// refuse. A directory git cannot answer for is treated as linked, so an
+// unanswerable question ends in a clone rather than in a run inside the
+// lane's own repository.
 func isLinkedWorktree(dir string) bool {
-	gitDir := gitOut(dir, "rev-parse", "--path-format=absolute", "--git-dir")
-	common := gitOut(dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	if gitDir == "" || common == "" {
-		return false
+	gitDir, errDir := gitValueIn(dir, "--git-dir")
+	common, errCommon := gitValueIn(dir, "--git-common-dir")
+	if errDir != nil || errCommon != nil || gitDir == "" || common == "" {
+		return true
 	}
 	return !sameGitDir(dir, gitDir, common)
+}
+
+// gitValueIn resolves one absolute directory flag for dir.
+func gitValueIn(dir, flag string) (string, error) {
+	out, err := git(dir, "rev-parse", "--path-format=absolute", flag)
+	return strings.TrimSpace(out), err
 }
 
 // goMutantsCloneDir is where that private clone lives: BESIDE the mutation
@@ -78,6 +91,15 @@ func cloneMutantsRunTree(j MutantsJob) (string, error) {
 	// commit that started this job, and the run describes THAT commit. The
 	// object is readable through the clone's alternates without a fetch.
 	if out, err := git(dir, "checkout", "--quiet", "--detach", "--force", j.Tip); err != nil {
+		return "", errors.New(strings.TrimSpace(out))
+	}
+	// `git clone` leaves an `origin` pointing at the checkout it copied: a
+	// credential-free write path straight back into the real repository, and
+	// the workspace verbs push to `origin` BY NAME from a directory an empty
+	// path silently turns into "wherever this process is standing" — the same
+	// fallback that caused issue #156. The run reads objects through the
+	// alternates and never needs a remote.
+	if out, err := git(dir, "remote", "remove", "origin"); err != nil {
 		return "", errors.New(strings.TrimSpace(out))
 	}
 	return dir, nil

@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -28,11 +29,78 @@ func linkedMutantsJob(t *testing.T) MutantsJob {
 
 // standalone reports git's own answer to "is this its own repository": a
 // linked worktree's --git-dir is <common>/worktrees/<name>, a clone's is its
-// own --git-common-dir.
+// own --git-common-dir. It asks through the SCRUBBED git so the answer is
+// about the directory rather than about an inherited GIT_DIR.
 func standalone(t *testing.T, dir string) bool {
 	t.Helper()
-	return gitValue(t, dir, "rev-parse", "--path-format=absolute", "--git-dir") ==
-		gitValue(t, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	ask := func(flag string) string {
+		out, err := git(dir, "rev-parse", "--path-format=absolute", flag)
+		if err != nil {
+			t.Fatalf("git rev-parse %s in %s: %v\n%s", flag, dir, err, out)
+		}
+		return strings.TrimSpace(out)
+	}
+	return ask("--git-dir") == ask("--git-common-dir")
+}
+
+// A post-commit hook runs with GIT_DIR and GIT_INDEX_FILE pointing at the
+// LANE's git dir, and the job inherits that environment. Asking git which
+// directory it is standing in then gets the ENVIRONMENT's answer: both
+// rev-parses report the inherited dir, they agree, and the guard concludes
+// "standalone" for the very linked worktree it exists to refuse.
+func TestGoMutantsTree_ClonesOutEvenWithTheHooksGitDirInherited(t *testing.T) {
+	j := linkedMutantsJob(t)
+	t.Setenv("GIT_DIR", filepath.Join(j.RepoRoot, ".git"))
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(j.RepoRoot, ".git", "index"))
+
+	tree, err := goMutantsTree(j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tree == j.Worktree {
+		t.Fatalf("an inherited GIT_DIR answered for the directory: the run tree is still the linked worktree %s", tree)
+	}
+	if !standalone(t, tree) {
+		t.Errorf("%s still shares a git common dir", tree)
+	}
+}
+
+// The clone must not keep a write path back either. `git clone` leaves an
+// `origin` pointing at the checkout it copied — a credential-free local
+// remote — and the workspace verbs push to `origin` by name, from a directory
+// that an empty path silently turns into "wherever this process is standing".
+// The run reads objects through the alternates and needs no remote at all.
+func TestGoMutantsTree_LeavesTheRunTreeWithNoRemoteToPushTo(t *testing.T) {
+	j := linkedMutantsJob(t)
+
+	tree, err := goMutantsTree(j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := git(tree, "remote")
+	if err != nil {
+		t.Fatalf("git remote in %s: %v\n%s", tree, err, out)
+	}
+	if strings.TrimSpace(out) != "" {
+		t.Errorf("the run tree still has remote(s) %q — a mutated test that pushes reaches the real repository", strings.TrimSpace(out))
+	}
+}
+
+// The cwd is only half the isolation. git reads GIT_DIR, GIT_INDEX_FILE and
+// friends BEFORE it looks at the directory it was run in, so a job spawned
+// from a post-commit hook carries absolute paths into the lane's own git dir:
+// inside the clone, an unscrubbed git command still lands on the real
+// repository (issue #156). The producer's environment carries none of them.
+func TestMutantsChildEnv_CarriesNoGitVariableIntoTheRun(t *testing.T) {
+	t.Setenv("GIT_DIR", filepath.Join(t.TempDir(), ".git"))
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(t.TempDir(), ".git", "index"))
+	t.Setenv("GIT_WORK_TREE", t.TempDir())
+
+	for _, kv := range mutantsChildEnv(MutantsJob{Worktree: t.TempDir()}, nil) {
+		if strings.HasPrefix(kv, "GIT_") {
+			t.Errorf("the producer inherited %s — an unscrubbed git command in the run tree would land on the lane's repository", kv)
+		}
+	}
 }
 
 // A mutation run rewrites the tree it runs in, and this repo's own tests are
