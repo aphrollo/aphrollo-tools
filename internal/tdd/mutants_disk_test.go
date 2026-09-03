@@ -50,8 +50,10 @@ func TestStartMutantsJob_RefusesWhenTheBuildDriveCannotFitTheRun(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	var started []MutantsJob
 	fakeSpawn(t, &started)
-	withFreeSpace(t, 12)
 	root := optedInLane(t)
+	// After the lane is built, not before: optedInLane pins a healthy disk for
+	// the tests that are not about one, and this test is about the other case.
+	withFreeSpace(t, 12)
 
 	if _, ok := StartMutantsJob(root); ok {
 		t.Fatal("a drive with 12 GB free must not start a run that needs 15 GB per job")
@@ -90,10 +92,10 @@ func TestStartMutantsJob_StartsWhenFreeSpaceCannotBeRead(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var started []MutantsJob
 	fakeSpawn(t, &started)
+	root := optedInLane(t)
 	prev := freeSpaceGBFn
 	freeSpaceGBFn = func(string) (int, bool) { return 0, false }
 	t.Cleanup(func() { freeSpaceGBFn = prev })
-	root := optedInLane(t)
 
 	if _, ok := StartMutantsJob(root); !ok {
 		t.Fatal("an unreadable drive must not refuse the run")

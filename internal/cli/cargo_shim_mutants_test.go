@@ -35,8 +35,12 @@ func TestRunCargoShim_AllowsCargoMutantsThroughTheGatesRunner(t *testing.T) {
 	withIsolatedCargoLock(t)
 	t.Setenv(tdd.MutationGateEnv, "1")
 
+	cfg := testCargoShimConfig()
+	// A stub that ignores its argv: for the shim to SEE the verb it has to be
+	// a bare `mutants`, which is not a command any real shell would accept.
+	cfg.realCargo = runVerbStub(t)
 	var stdout, stderr bytes.Buffer
-	code := runCargoShim(append([]string{"mutants"}, stubCargoArgsExit(0)...), strings.NewReader(""), &stdout, &stderr, testCargoShimConfig())
+	code := runCargoShim([]string{"mutants", "--in-diff", "d.diff"}, strings.NewReader(""), &stdout, &stderr, cfg)
 	if code != 0 {
 		t.Fatalf("exit = %d, want the gated run to proceed\nstderr: %s", code, stderr.String())
 	}
@@ -85,8 +89,10 @@ func TestRunCargoShim_BypassRunsWhileAnotherBuildHoldsTheLock(t *testing.T) {
 	}
 	defer release()
 
+	cfg := testCargoShimConfig()
+	cfg.realCargo = runVerbStub(t)
 	var stdout, stderr bytes.Buffer
-	code := runCargoShim(append([]string{"mutants"}, stubCargoArgsExit(0)...), strings.NewReader(""), &stdout, &stderr, testCargoShimConfig())
+	code := runCargoShim([]string{"mutants", "--in-diff", "d.diff"}, strings.NewReader(""), &stdout, &stderr, cfg)
 	if code != 0 {
 		t.Fatalf("exit = %d, want the bypassing run to proceed\nstderr: %s", code, stderr.String())
 	}

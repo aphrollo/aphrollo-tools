@@ -112,18 +112,22 @@ func doctorDiskSpace(in DoctorInput) DoctorCheck {
 	if repo == "" {
 		repo = "."
 	}
-	dirs := map[string]bool{
-		nearestExistingDir(ResolveCargoTargetDir(repo)): true,
-		nearestExistingDir(os.TempDir()):                true,
-	}
-	var lines []string
-	warn := false
-	for dir := range dirs {
+	// Keyed by DRIVE rather than by directory: on a box where the target dir
+	// and the temp dir share a volume — every Linux box, and most Windows
+	// ones — reporting per directory says the same number twice.
+	byDrive := map[string]int{}
+	for _, dir := range []string{ResolveCargoTargetDir(repo), os.TempDir()} {
+		dir = nearestExistingDir(dir)
 		free, ok := freeSpaceGBFn(dir)
 		if !ok {
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("%s %d GB free", driveOf(dir), free))
+		byDrive[driveOf(dir)] = free
+	}
+	var lines []string
+	warn := false
+	for drive, free := range byDrive {
+		lines = append(lines, fmt.Sprintf("%s %d GB free", drive, free))
 		if free < doctorDiskWarnGB {
 			warn = true
 		}

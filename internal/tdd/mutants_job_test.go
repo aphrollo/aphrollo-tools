@@ -13,6 +13,10 @@ import (
 // branch with one commit of its own — the state a post-commit hook fires in.
 func optedInLane(t *testing.T) string {
 	t.Helper()
+	// Pin the disk answer: these tests are about the job lifecycle, and a CI
+	// runner with 13 GB free would otherwise have the start refused by the
+	// free-space guard for a reason none of them is asking about.
+	withFreeSpace(t, 200)
 	root := makeCargoRepo(t)
 	write(t, root, "Cargo.toml", "[package]\nname = \"m\"\nversion = \"0.1.0\"\n[workspace]\n[workspace.metadata.aphrollo]\nmutation-receipt = true\n")
 	gitDo(t, root, "add", "-A")
