@@ -293,18 +293,21 @@ func insideCargoProject(dir string) bool {
 }
 
 // cargoVerb returns cargo's subcommand -- the first argv entry that does
-// not start with "-" -- or "" if args is all options. Cargo's own global
-// options (-v, --color=always, ...) may precede the subcommand; this does
-// not attempt to skip a SEPARATE-argument option value (e.g. "--color
-// always" splits across two argv entries), which is good enough to find
-// the verb without implementing cargo's full CLI grammar -- the hooks/gates
-// and a session's own direct invocations never put a value-taking global
-// flag ahead of the subcommand.
+// not start with "-" and is not a "+toolchain" override -- or "" if args is
+// all options/toolchain. Cargo's own global options (-v, --color=always,
+// ...) may precede the subcommand, and at most one "+toolchain" token
+// (rustup's own grammar: "cargo +nightly build") may too -- both are
+// skipped the same way. This does not attempt to skip a SEPARATE-argument
+// option value (e.g. "--color always" splits across two argv entries),
+// which is good enough to find the verb without implementing cargo's full
+// CLI grammar -- the hooks/gates and a session's own direct invocations
+// never put a value-taking global flag ahead of the subcommand.
 func cargoVerb(args []string) string {
 	for _, a := range args {
-		if !strings.HasPrefix(a, "-") {
-			return a
+		if strings.HasPrefix(a, "-") || strings.HasPrefix(a, "+") {
+			continue
 		}
+		return a
 	}
 	return ""
 }

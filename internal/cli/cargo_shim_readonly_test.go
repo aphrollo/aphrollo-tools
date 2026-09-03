@@ -25,6 +25,10 @@ func TestIsCargoReadOnlyVerb_ClassifiesTheQueryVerbs(t *testing.T) {
 		{"--version"},
 		{"-V"},
 		{"--color=always", "metadata"},
+		// A leading toolchain override must not hide the verb -- `cargo
+		// +nightly metadata` used to wait behind the build queue instead of
+		// bypassing it as documented.
+		{"+nightly", "metadata", "--format-version", "1"},
 	}
 	for _, args := range readOnly {
 		if !isCargoReadOnlyVerb(args) {
