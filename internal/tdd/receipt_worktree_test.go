@@ -15,12 +15,8 @@ func makeGoRepoAt(t *testing.T, dir string) string {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	gitInit(t, dir)
-	write(t, dir, "go.mod", "module example.com/m\n\ngo 1.26\n")
-	write(t, dir, "doc.go", "package m\n")
-	gitDo(t, dir, "add", ".")
-	gitDo(t, dir, "commit", "-qm", "base")
-	return dir
+	isolateGitConfig(t)
+	return copyFixture(t, dir, goFixture)
 }
 
 // TestCheckMutationReceipt_MainCheckoutAccepts pins the base case: a

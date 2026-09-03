@@ -9,7 +9,7 @@ import (
 
 func gitAddAll(t *testing.T, root string) {
 	t.Helper()
-	cmd := exec.Command("git", "add", "-A")
+	cmd := exec.Command(gitBinary(), "add", "-A")
 	cmd.Dir = root
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git add: %v\n%s", err, out)
@@ -99,7 +99,7 @@ func addFixtures(t *testing.T, root string) {
 
 func commitAll(t *testing.T, root string) {
 	t.Helper()
-	cmd := exec.Command("git", "-c", "core.hooksPath=", "commit", "-q", "-m", "fixture", "--no-verify")
+	cmd := exec.Command(gitBinary(), "-c", "core.hooksPath=", "commit", "-q", "-m", "fixture", "--no-verify")
 	cmd.Dir = root
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git commit: %v\n%s", err, out)
