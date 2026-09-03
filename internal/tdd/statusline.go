@@ -26,11 +26,11 @@ type statusLineInput struct {
 // The BADGE carries the state, in its own colour: green armed, red for a
 // standing failure, yellow while something this session started is still
 // running, gray for a gate the session turned off. A TAG is added inside the
-// brackets only where the colour alone is ambiguous -- yellow has three
-// causes, so it names which; red, green and gray have one each, so they render
-// the bare badge. A word the colour already carries is a word a session stops
-// reading, and a badge that changes width every render is one that draws the
-// eye for nothing.
+// brackets where the colour alone is not enough -- yellow has three causes, so
+// it names which, and OFF says so in text because a colour-stripped badge must
+// never read as armed. Red and green are colour-only: a word the colour
+// already carries is a word a session stops reading, and both of them mean the
+// gate is running.
 const (
 	ansiReset  = "\x1b[0m"
 	ansiGreen  = "\x1b[32m"
@@ -38,6 +38,7 @@ const (
 	ansiRed    = "\x1b[31m"
 	ansiYellow = "\x1b[33m"
 	badgeOn    = "[aphrollo]"
+	tagOff     = "off"
 	tagDefer   = "deferred"
 	tagQueued  = "queued"
 	tagMutants = "mutants"
@@ -59,9 +60,18 @@ func StatusLine(raw []byte) string {
 	_ = json.Unmarshal(raw, &in)
 
 	if s, _ := loadSession(in.SessionID); s != nil && s.Overrides.Off {
-		return ansiGray + badgeOn + ansiReset
+		return badge(ansiGray, tagOff)
 	}
 	colour, tag := statusState(in.SessionID, in.Cwd)
+	return badge(colour, tag)
+}
+
+// badge renders the one shape: `[aphrollo]` when the colour says everything,
+// `[aphrollo:<tag>]` when it does not. OFF always carries its tag -- colour
+// alone cannot say "not gated" to a consumer that strips SGR, and reading an
+// ungated tree as gated is the one mistake this badge must not enable. Red
+// and green are colour-only: both of them mean the gate is running.
+func badge(colour, tag string) string {
 	if tag == "" {
 		return colour + badgeOn + ansiReset
 	}
@@ -156,7 +166,9 @@ func greenLoggedSince(root string, at time.Time) bool {
 // for. A stage logs the root it RAN in, which for a cargo workspace member is
 // a directory inside the project, so a nested root counts as this project.
 func sameProject(logged, root string) bool {
-	logged, root = filepath.Clean(logged), filepath.Clean(root)
+	// Both sides go through logToken: that is the form the log carries, and a
+	// path with a space in it has to compare equal to its own logged spelling.
+	logged, root = filepath.Clean(logToken(logged)), filepath.Clean(logToken(root))
 	if runtime.GOOS == "windows" {
 		logged, root = strings.ToLower(logged), strings.ToLower(root)
 	}
@@ -218,7 +230,7 @@ func lastRunQueued(root string) bool {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
-		if e, ok := parseGateLine(sc.Text()); ok && e.root == root {
+		if e, ok := parseGateLine(sc.Text()); ok && e.root == logToken(root) {
 			last = e.verdict
 		}
 	}

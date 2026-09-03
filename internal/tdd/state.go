@@ -267,8 +267,13 @@ func appendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
 	}
 	stampGateLogSchema()
 	defer f.Close()
+	// The root goes through logToken because the line is space-separated and
+	// the COMMAND in the middle already carries spaces: a root with one of
+	// its own (`C:/My Projects/borld`) split into two fields, and every
+	// reader that matches on the root -- the statusline's red-clearing and
+	// its queued state -- stopped seeing that project's entries at all.
 	fmt.Fprintf(f, "%s %s %s %s %s %.1fs\n",
-		time.Now().UTC().Format(time.RFC3339), stage, root, cmd, verdict, dur.Seconds())
+		time.Now().UTC().Format(time.RFC3339), stage, logToken(root), cmd, verdict, dur.Seconds())
 }
 
 // setOff persists the per-session enforcement override (the `/tdd off|on`

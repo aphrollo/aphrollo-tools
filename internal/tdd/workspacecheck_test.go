@@ -7,15 +7,14 @@ import (
 	"testing"
 )
 
-// TestGate_ChecksTheWholeWorkspaceBeforeTheSuites pins the hole that let a
-// non-compiling file reach main (borld, 2026-09-02: a lane added a struct
+// TestGate_CompilesWhatTheChangeCanBreakBeforeTheSuites pins the hole that let
+// a non-compiling file reach main (borld, 2026-09-02: a lane added a struct
 // field, forge_jbeam/tests/conformance.rs stopped compiling, and the gate ran
 // only the TOUCHED crates' suites, so nobody found out until someone built
 // the workspace by hand). A clippy `--tests` pass sits between clippy and
 // fail-first: check-level, no codegen, and it covers every crate the change
-// could have broken -- the touched ones and the clippy-clean crates
-// downstream of them.
-func TestGate_ChecksTheWholeWorkspaceBeforeTheSuites(t *testing.T) {
+// could have broken -- the touched ones and everything downstream of them.
+func TestGate_CompilesWhatTheChangeCanBreakBeforeTheSuites(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeCargoRepo(t)
 	write(t, root, "src/lib.rs", "pub fn one() -> i32 { 2 }\n")
@@ -97,8 +96,8 @@ func TestMechanical_AlsoRunsTheCompileCoverageCheck(t *testing.T) {
 
 // isCheckStage recognises the compile-coverage stage by the two lints that
 // carry project laws. It used to be recognisable by `--workspace`; the stage
-// is now scoped to the touched crates and everything downstream of them, and
-// the lints are what actually identify it.
+// is scoped to the touched crates and everything downstream of them, and the
+// lints are what actually identify it.
 func isCheckStage(args string) bool {
 	return strings.HasPrefix(args, "clippy") && strings.Contains(args, "clippy::disallowed_methods")
 }

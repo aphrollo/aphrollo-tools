@@ -48,11 +48,13 @@ func TestStatusLine_IsAQuietBadgeWhenNothingIsWrong(t *testing.T) {
 	}
 }
 
-// TestStatusLine_GoesGrayWhenTheSessionTurnedTheGateOff is the one state a
-// session must never lose track of: with `/gate off` set, edits are not gated
-// at all, and a badge that still reads green claims a gate that is not
-// running. Gray says it, and the badge stays the same shape.
-func TestStatusLine_GoesGrayWhenTheSessionTurnedTheGateOff(t *testing.T) {
+// TestStatusLine_SaysOffInTextSoAStrippedBadgeCannotReadAsArmed is the one
+// state a session must never lose track of: with `/gate off` set, edits are
+// not gated at all. Colour alone cannot carry it -- a statusline that strips
+// SGR, a log, a screenshot in a terminal with a different palette all render
+// the gray badge as the green one, and the session reads an ungated tree as
+// gated. Red and green stay colour-only: both mean the gate is running.
+func TestStatusLine_SaysOffInTextSoAStrippedBadgeCannotReadAsArmed(t *testing.T) {
 	root := statusRoot(t)
 	if err := setOff("s1", true); err != nil {
 		t.Fatal(err)
@@ -61,8 +63,8 @@ func TestStatusLine_GoesGrayWhenTheSessionTurnedTheGateOff(t *testing.T) {
 	if !strings.HasPrefix(got, ansiGray) {
 		t.Fatalf("a disabled gate must render gray, got %q", got)
 	}
-	if plain(got) != "[aphrollo]" {
-		t.Fatalf("StatusLine = %q, want the bare badge in gray", plain(got))
+	if plain(got) != "[aphrollo:off]" {
+		t.Fatalf("StatusLine = %q, want the state in the text too", plain(got))
 	}
 }
 
@@ -155,6 +157,46 @@ func TestStatusLine_ARedOlderThanTheWindowRendersGreen(t *testing.T) {
 	}
 	if plain(got) != "[aphrollo]" {
 		t.Fatalf("StatusLine = %q, want the plain badge — a stale red says nothing", plain(got))
+	}
+}
+
+// The gate log is space-separated and the command in the middle contains
+// spaces, so a REPO ROOT with a space in it (`C:/My Projects/borld`, and
+// every checkout under "Program Files") split into two fields: no entry ever
+// matched the badge's root again, a red was never cleared by a green, and a
+// queued run was never seen either.
+func TestStatusLine_ClearsAredForAProjectWhosePathHasASpace(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := filepath.Join(t.TempDir(), "my repo")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stampOutcomeAt(t, "s1", root, string(Red), time.Now().Add(-time.Minute))
+	appendGateLog("precommit", root, "cargo nextest run", "green", 12*time.Second)
+
+	if got := StatusLine(statusPayload(t, "s1", root)); !strings.HasPrefix(got, ansiGreen) {
+		t.Fatalf("a later green must clear the red whatever the path looks like, got %q", got)
+	}
+}
+
+// The same field split hid a QUEUED-SKIPPED run, which is the outcome most
+// easily mistaken for a quiet green.
+func TestStatusLine_SeesAQueuedRunForAProjectWhosePathHasASpace(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := filepath.Join(t.TempDir(), "my repo")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	appendGateLog("postedit", root, "cargo nextest run", "queued-skipped", 0)
+
+	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:queued]" {
+		t.Fatalf("StatusLine = %q, want the queued tag", got)
 	}
 }
 

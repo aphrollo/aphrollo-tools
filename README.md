@@ -1736,16 +1736,18 @@ which reads the session payload on stdin and prints ONE badge:
 ```
 [aphrollo]            green  — the gate is armed, nothing to report
 [aphrollo]            red    — a run for THIS project failed and still stands
-[aphrollo]            gray   — this session ran `/gate off`; edits are not gated
+[aphrollo:off]        gray   — this session ran `/gate off`; edits are not gated
 [aphrollo:deferred]   yellow — a detached build for this project is running
 [aphrollo:mutants]    yellow — a cargo-mutants run holds this project's target
 [aphrollo:queued]     yellow — the last run only queued; the suite never started
 ```
 
 The BADGE carries the state, in its own colour. A tag goes inside the brackets
-only where the colour is ambiguous: yellow has three causes, so it names which,
-while red, green and gray have one each and render the bare badge — a word the
-colour already carries is a word a session stops reading.
+where the colour is not enough: yellow has three causes, so it names which, and
+OFF says so in text because a badge whose colours are stripped — by a log, a
+screenshot, a statusline that drops SGR — must never read an ungated session as
+armed. Red and green are colour-only: both mean the gate is running, and a word
+the colour already carries is a word a session stops reading.
 
 A red is retired by either of two things, so the badge is never stale. ANY
 green outcome logged for this project clears it, from any stage — post-edit,
