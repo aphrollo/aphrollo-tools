@@ -19,10 +19,19 @@ var ghReadyPR = func(wt, branch string) error {
 	return nil
 }
 
+// ghEditPRBodyArgs builds the `gh pr edit --body` argv. branch is guarded
+// behind "--", matching every sibling gh call site in this package
+// (ghReadyPR above; ghViewPR and ghCreatePR's --head= in pr.go): gh's flag
+// parser treats a branch starting with "-" as a flag reference regardless of
+// position, and git ref names ARE allowed to start with "-" (see #160).
+func ghEditPRBodyArgs(branch, body string) []string {
+	return []string{"pr", "edit", "--", branch, "--body", body}
+}
+
 // ghEditPRBody is the seam over `gh pr edit --body`, set so the submit summary
 // lands on the PR. A package var so tests observe the body without gh.
 var ghEditPRBody = func(wt, branch, body string) error {
-	cmd := exec.Command("gh", "pr", "edit", branch, "--body", body)
+	cmd := exec.Command("gh", ghEditPRBodyArgs(branch, body)...)
 	cmd.Dir = wt
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("gh pr edit --body: %v\n%s", err, strings.TrimSpace(string(out)))

@@ -238,7 +238,10 @@ func TestSubmit_FlipFailsReturnsErrorNoBody(t *testing.T) {
 		func(wt string, req PRCreate) (*PRInfo, error) { return nil, nil },
 	)
 	stubReady(t, func(wt, branch string) error { return fmt.Errorf("flip boom") })
-	stubBody(t, func(wt, branch, body string) error { t.Fatal("body must NOT be edited when the flip fails"); return nil })
+	stubBody(t, func(wt, branch, body string) error {
+		t.Fatal("body must NOT be edited when the flip fails")
+		return nil
+	})
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
 
 	s, _ := SubmitPlan(targetFor(repo, "feat/y"), "summary")
@@ -462,5 +465,28 @@ func TestSubmit_UnpushedBranchReportsPushedN(t *testing.T) {
 func TestSubmitPlan_DetachedHEAD(t *testing.T) {
 	if _, err := SubmitPlan(&Target{Worktree: "/x", Branch: "HEAD"}, "s"); err == nil {
 		t.Fatal("expected detached-HEAD submit to be rejected")
+	}
+}
+
+// TestGhEditPRBodyArgs_GuardsBranchBehindTerminator is issue #160:
+// ghEditPRBody passed branch as an unguarded positional gh argument, unlike
+// every sibling gh call in this package (ghReadyPR here, ghViewPR/ghCreatePR
+// in pr.go) which places "--" before a branch positional or attaches it to a
+// flag. gh's flag parser treats a branch starting with "-" as a flag
+// reference regardless of position, and git ref names ARE allowed to start
+// with "-", so a branch like "--repo=owner/other-repo" would otherwise
+// redirect gh at an attacker-chosen repo.
+func TestGhEditPRBodyArgs_GuardsBranchBehindTerminator(t *testing.T) {
+	args := ghEditPRBodyArgs("--repo=owner/other-repo", "the summary")
+
+	term := indexOf(args, "--")
+	if term < 0 {
+		t.Fatalf("-- terminator missing from args: %v", args)
+	}
+	if branch := indexOf(args, "--repo=owner/other-repo"); branch != term+1 {
+		t.Errorf("branch must immediately follow -- (idx %d), got branch at idx %d: %v", term, branch, args)
+	}
+	if flag := indexOf(args, "--body"); flag >= 0 && flag < term {
+		t.Errorf("--body must not precede the -- terminator: %v", args)
 	}
 }
