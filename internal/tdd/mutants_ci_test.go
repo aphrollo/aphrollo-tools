@@ -394,7 +394,7 @@ func TestPipeline_RunsTheMutationCheckOnPushesToMainOnly(t *testing.T) {
 // both on the one key.
 func TestPipeline_SavesTheMutationStoreEvenWhenTheMutantsStepFails(t *testing.T) {
 	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
-	const storeKey = "mutants-store-${{ github.head_ref }}-${{ github.run_id }}"
+	const storeKey = "mutants-store-${{ github.ref_name }}-${{ github.run_id }}"
 	restore, save := pipelineStep(wf, "actions/cache/restore@"), pipelineStep(wf, "actions/cache/save@")
 	if restore == "" {
 		t.Fatal("the mutants job must restore the outcome store with actions/cache/restore, not the all-in-one actions/cache")
@@ -414,6 +414,66 @@ func TestPipeline_SavesTheMutationStoreEvenWhenTheMutantsStepFails(t *testing.T)
 	if strings.Index(wf, restore) > run || strings.Index(wf, save) < run {
 		t.Error("the restore must sit before the mutants step and the save after it")
 	}
+}
+
+// A job reads the context of the event it RUNS on, and this one runs on
+// `push` only: `github.head_ref` and every `github.event.pull_request.*` field
+// are empty there. Left in, the cache key collapses to one namespace shared by
+// every branch, and `git merge-base "" HEAD` fails the step under
+// `set -euo pipefail` on every single run — with the new always() save then
+// caching that failure.
+func TestPipeline_ReadsOnlyPushContextInTheJobThatRunsOnPush(t *testing.T) {
+	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
+	job := pipelineJob(wf, "mutants")
+	if job == "" {
+		t.Fatal("the pipeline must declare a `mutants` job")
+	}
+	if !strings.Contains(job, "if: github.event_name == 'push'") {
+		t.Fatal("this test is about the push-only job; the trigger changed and the claim needs rereading")
+	}
+	// Comments are stripped first: the note saying WHY head_ref is wrong here
+	// is not a use of it, and a rule that forbade naming the mistake would
+	// forbid explaining it.
+	for _, empty := range []string{"github.head_ref", "github.event.pull_request."} {
+		if strings.Contains(yamlWithoutComments(job), empty) {
+			t.Errorf("the mutants job reads %s, which is empty on a push:\n%s", empty, job)
+		}
+	}
+}
+
+// yamlWithoutComments drops whole-line `#` comments, which is every comment
+// this workflow has.
+func yamlWithoutComments(block string) string {
+	var kept []string
+	for _, line := range strings.Split(block, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "#") {
+			kept = append(kept, line)
+		}
+	}
+	return strings.Join(kept, "\n")
+}
+
+// pipelineJob returns one job's whole block: from its own `  <name>:` key to
+// the next job's, so an assertion about this job cannot be satisfied by
+// another's text.
+func pipelineJob(wf, name string) string {
+	at := strings.Index(wf, "\n  "+name+":\n")
+	if at < 0 {
+		return ""
+	}
+	lines := strings.Split(wf[at+1:], "\n")
+	for i, line := range lines[1:] {
+		// A blank line and a comment belong to whatever comes next, but
+		// neither ENDS this job; only the next key at the jobs' own indent
+		// does.
+		if trimmed := strings.TrimSpace(line); trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "   ") {
+			return strings.Join(lines[:i+1], "\n")
+		}
+	}
+	return wf[at+1:]
 }
 
 // pipelineStep returns the workflow step containing needle: the text from that
