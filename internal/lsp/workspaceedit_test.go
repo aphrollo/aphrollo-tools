@@ -16,6 +16,15 @@ func TestURIToPath_DropsTheRootSlashBeforeAWindowsDrive(t *testing.T) {
 	if want := filepath.FromSlash("C:/Users/u/a.go"); got != want {
 		t.Fatalf("URIToPath(file:///C:/Users/u/a.go) = %q, want %q", got, want)
 	}
+	// A bare drive root is the shortest path the branch must still take:
+	// three characters, `/C:`, which becomes `C:`.
+	got, err = URIToPath("file:///C:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "C:" {
+		t.Fatalf("URIToPath(file:///C:) = %q, want %q", got, "C:")
+	}
 	// rust-analyzer answers with the drive lower-cased (`file:///c:/…`); the
 	// path must still equal the one the caller opened, upper-case drive.
 	got, err = URIToPath("file:///c:/Users/u/a.go")
