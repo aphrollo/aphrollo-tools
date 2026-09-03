@@ -1,0 +1,13 @@
+name        = "hot_alloc"
+description = "No allocation, format! or logging in a designated hot file — validated at construction, the hot path trusts and never allocates, logs, or fails."
+severity    = "deny"
+escape      = "// hot-alloc-ok:"
+
+[scope]
+include = [{{files}}]
+exclude = ["target/**"]
+
+[matcher]
+kind    = "regex-absent"
+pattern = "(\\bformat!\\(|\\bVec::new\\(|\\.to_string\\(\\)|\\btracing::)"
+key     = "file:line-content-hash"

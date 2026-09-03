@@ -74,6 +74,34 @@ type Result struct {
 	// The caller warns once per name and logs `ratchet-law-newer:<law>` — a
 	// half-read rule that says nothing looks exactly like a clean one.
 	NewerLaws []NewerLaw `json:"newer_laws,omitempty"`
+	// UnusedScopeSets names every set declared in .ratchet/scopes.toml that no
+	// law's [scope].alias references — a set nobody uses is dead weight the
+	// next reader has no way to tell from a live one.
+	UnusedScopeSets []string `json:"unused_scope_sets,omitempty"`
+	// Notes are informational, never a Finding: a code-mode line-count law
+	// whose baseline still carries a higher, text-mode ceiling is not a
+	// regression (the measure only went down), but the ceiling is stale and
+	// a report-only run would otherwise say nothing about it.
+	Notes []string `json:"notes,omitempty"`
+	// PresetDrift names every law that `extends` a preset whose [matcher],
+	// re-rendered with the law's own Params, no longer matches what the law
+	// actually declares — a hand-fork nobody flagged as one.
+	PresetDrift []string `json:"preset_drift,omitempty"`
+}
+
+// lineModeNotes reports every key whose baseline ceiling sits above what a
+// code-mode line-count law just measured — the fingerprint of a baseline
+// still recorded under `count = "text"`.
+func lineModeNotes(law string, ceiling, measured map[string]int) []string {
+	var notes []string
+	for _, key := range sortedKeys(ceiling) {
+		if base, m := ceiling[key], measured[key]; base > m {
+			notes = append(notes, fmt.Sprintf(
+				"%s: %s baseline is %d, code counting now measures %d — regenerate by running without --no-tighten",
+				law, key, base, m))
+		}
+	}
+	return notes
 }
 
 // NewerLaw is one law read leniently, with the version it declared.
@@ -162,6 +190,23 @@ func Check(opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	var unusedScopeSets []string
+	if sets, err := LoadScopeSets(opts.Root); err != nil {
+		return Result{}, err
+	} else if len(sets) > 0 {
+		used := map[string]bool{}
+		for _, l := range laws {
+			if l.Scope.Alias != "" {
+				used[l.Scope.Alias] = true
+			}
+		}
+		for name := range sets {
+			if !used[name] {
+				unusedScopeSets = append(unusedScopeSets, name)
+			}
+		}
+		sort.Strings(unusedScopeSets)
+	}
 	if opts.Only != "" {
 		var kept []Law
 		for _, l := range laws {
@@ -174,10 +219,17 @@ func Check(opts Options) (Result, error) {
 		}
 		laws = kept
 	}
-	res := Result{Laws: len(laws)}
+	res := Result{Laws: len(laws), UnusedScopeSets: unusedScopeSets}
 	for _, l := range laws {
 		if l.Newer {
 			res.NewerLaws = append(res.NewerLaws, NewerLaw{Name: l.Name, Schema: l.Schema})
+		}
+		note, err := presetDrift(l)
+		if err != nil {
+			return Result{}, fmt.Errorf("%s: %w", l.Name, err)
+		}
+		if note != "" {
+			res.PresetDrift = append(res.PresetDrift, note)
 		}
 	}
 	if len(laws) == 0 {
@@ -255,6 +307,13 @@ func Check(opts Options) (Result, error) {
 				Escape:   law.Escape,
 				Remedy:   remedyFor(law),
 			})
+		}
+		// A law switched from text to code counting measures FEWER lines than
+		// the baseline recorded it under — every key just looks tightened, so
+		// a report-only run (which never writes) would otherwise say nothing
+		// while the ceiling still reflects the old mode.
+		if law.Matcher.Kind == KindLineCount && law.Matcher.LineMode == LineCountCode && !opts.Tighten {
+			res.Notes = append(res.Notes, lineModeNotes(law.Name, baseline.Counts(), measured)...)
 		}
 		// A hypothetical tree must never rewrite a baseline: the content it
 		// measured is not what is on disk, and a narrowed run has not even

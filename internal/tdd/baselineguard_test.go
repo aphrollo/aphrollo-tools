@@ -117,6 +117,95 @@ func TestBaselineGuardHonoursTheWorkspaceGlobList(t *testing.T) {
 	}
 }
 
+// lawAndBaselineRepo commits a law owning a baseline plus its initial
+// baseline content, then stages both the given law text and baseline text on
+// top — the shape an "adopt a widened law" commit takes.
+func lawAndBaselineRepo(t *testing.T, seedLaw, seedBaseline, stagedLaw, stagedBaseline string) string {
+	t.Helper()
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "nan-guard.toml"), seedLaw)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"), seedBaseline)
+	gitAddAll(t, root)
+	commitAll(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "nan-guard.toml"), stagedLaw)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"), stagedBaseline)
+	gitAddAll(t, root)
+	return root
+}
+
+const nanGuardLawText = `name = "nan-guard"
+description = "A float clamp is not a NaN guard"
+severity = "deny"
+baseline = ".ratchet/baselines/nan-guard.txt"
+
+[scope]
+include = ["crates/**/*.rs"]
+
+[matcher]
+kind = "regex-absent"
+pattern = "\.clamp\("
+`
+
+// TestBaselineGuardAllowsARaiseWhenTheLawsScopeChangedInTheSameCommit is the
+// escape this guard closes: a law's scope widened in the SAME commit that
+// carries the baseline row the widening now reaches — adopted, not rejected.
+func TestBaselineGuardAllowsARaiseWhenTheLawsScopeChangedInTheSameCommit(t *testing.T) {
+	widenedLaw := strings.Replace(nanGuardLawText,
+		`include = ["crates/**/*.rs"]`, `include = ["crates/**/*.rs", "tools/**/*.rs"]`, 1)
+	root := lawAndBaselineRepo(t, nanGuardLawText, "crates/a.rs | let a = x.clamp(0.0, 1.0);\n",
+		widenedLaw, "crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
+
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	res := baselineStage("precommit", root)
+	if res.Blocked {
+		t.Fatalf("a raise alongside its OWN law's widened scope must be adopted, not rejected: %s", res.Message)
+	}
+	requireLoggedVerdict(t, cfg, "baseline-adopted:nan-guard:1")
+}
+
+// TestBaselineGuardRefusesARaiseWhenTheLawIsUnchanged is the same raised row,
+// with the law's scope and matcher untouched — still refused, exactly like
+// an unrelated hand-edit.
+func TestBaselineGuardRefusesARaiseWhenTheLawIsUnchanged(t *testing.T) {
+	root := lawAndBaselineRepo(t, nanGuardLawText, "crates/a.rs | let a = x.clamp(0.0, 1.0);\n",
+		nanGuardLawText, "crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
+
+	res := baselineStage("precommit", root)
+	if !res.Blocked {
+		t.Fatal("the law never changed — the same new row must still be rejected")
+	}
+	if !strings.Contains(res.Message, "tools/b.rs") {
+		t.Errorf("message must name the offending row: %s", res.Message)
+	}
+}
+
+// TestBaselineGuardRefusesARaiseWhenADifferentLawChanged proves adoption is
+// scoped to the law that OWNS the baseline: touching some unrelated law's
+// [matcher] must never license a raise on nan-guard's baseline.
+func TestBaselineGuardRefusesARaiseWhenADifferentLawChanged(t *testing.T) {
+	root := lawAndBaselineRepo(t, nanGuardLawText, "crates/a.rs | let a = x.clamp(0.0, 1.0);\n",
+		nanGuardLawText, "crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "other.toml"), `name = "other"
+description = "unrelated"
+severity = "warn"
+
+[scope]
+include = ["**/*.go"]
+
+[matcher]
+kind = "regex-absent"
+pattern = "TODO"
+`)
+	gitAddAll(t, root)
+
+	res := baselineStage("precommit", root)
+	if !res.Blocked {
+		t.Fatal("an unrelated law's presence must never license nan-guard's raise")
+	}
+}
+
 func TestBaselineGuardIsSilentWhenNoBaselineIsStaged(t *testing.T) {
 	root := t.TempDir()
 	gitInit(t, root)

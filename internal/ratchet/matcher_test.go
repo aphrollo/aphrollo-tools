@@ -1,6 +1,8 @@
 package ratchet
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"testing"
 )
@@ -29,6 +31,139 @@ func TestLineCountHitsOnlyAboveMaxAndWeighsTheWholeFile(t *testing.T) {
 	}
 	if hits[0].What != "4 lines (max 3)" {
 		t.Errorf("what = %q", hits[0].What)
+	}
+}
+
+// TestLineCountCodeModeExcludesBlankAndCommentOnlyLines proves `count =
+// "code"` drops blank lines and `//`-only lines before comparing to Max, so a
+// file padded with whitespace and comments does not trip a law that a text
+// count would.
+func TestLineCountCodeModeExcludesBlankAndCommentOnlyLines(t *testing.T) {
+	l := lawWith(Matcher{Kind: KindLineCount, Max: 3, Key: KeyFile, LineMode: LineCountCode})
+	// 3 code lines, 3 blank/comment lines: text mode would hit at 6, code mode must not.
+	content := "fn a() {}\n\n// a comment\nfn b() {}\n\nfn c() {}\n"
+	if hits := l.HitsIn("a.rs", content); len(hits) != 0 {
+		t.Errorf("code-mode count must ignore blank and comment-only lines: %+v", hits)
+	}
+	if hits := l.HitsIn("a.rs", content+"fn d() {}\n"); len(hits) != 1 {
+		t.Errorf("a 4th code line must still hit: %+v", hits)
+	}
+}
+
+// TestLineCountCodeModeExcludesBlockCommentSpan proves a full-line `/* … */`
+// block comment run does not count either, for the C-like default syntax.
+func TestLineCountCodeModeExcludesBlockCommentSpan(t *testing.T) {
+	l := lawWith(Matcher{Kind: KindLineCount, Max: 2, Key: KeyFile, LineMode: LineCountCode})
+	content := "fn a() {}\n/*\n a doc block\n spanning lines\n*/\nfn b() {}\n"
+	if hits := l.HitsIn("a.rs", content); len(hits) != 0 {
+		t.Errorf("a block-comment span must not count as code: %+v", hits)
+	}
+}
+
+// TestLineCountCodeModeUsesHashSyntaxForPy proves the comment syntax is
+// chosen by the FILE's own extension, never the law's comment_prefix.
+func TestLineCountCodeModeUsesHashSyntaxForPy(t *testing.T) {
+	l := lawWith(Matcher{Kind: KindLineCount, Max: 2, Key: KeyFile, LineMode: LineCountCode})
+	if hits := l.HitsIn("a.py", "# a comment\ndef f():\n    pass\n"); len(hits) != 0 {
+		t.Errorf("a `#`-comment line must not count for a .py file: %+v", hits)
+	}
+}
+
+// TestLineCountUnitSplitJudgesTwoUnitsSeparately proves a file crossing the
+// split regex is judged as two units against the same Max, each keyed by its
+// own path — `path` above the split, `path#tests` at and below it.
+func TestLineCountUnitSplitJudgesTwoUnitsSeparately(t *testing.T) {
+	l := lawWith(Matcher{Kind: KindLineCount, Max: 2, Key: KeyFile, UnitSplit: regexp.MustCompile(`^mod tests`)})
+	// 3 lines above the split (over max), 2 lines from the split onward (at max).
+	content := "a\nb\nc\nmod tests {\n}\n"
+	hits := l.HitsIn("a.rs", content)
+	if len(hits) != 1 || hits[0].Key != "a.rs" {
+		t.Fatalf("hits = %+v, want exactly one hit keyed a.rs", hits)
+	}
+
+	// Push the tests unit over max too: both units must hit, with the second
+	// carrying the `#tests` key.
+	content = "a\nb\nc\nmod tests {\n}\nextra\n"
+	hits = l.HitsIn("a.rs", content)
+	if len(hits) != 2 {
+		t.Fatalf("hits = %+v, want both units to hit", hits)
+	}
+	got := keys(hits)
+	if got[0] != "a.rs" || got[1] != "a.rs#tests" {
+		t.Errorf("keys = %v, want [a.rs a.rs#tests]", got)
+	}
+}
+
+// TestLineCountUnitSplitNoMatchIsOneUnit proves a file the split regex never
+// matches is judged whole, exactly like a law with no unit_split at all.
+func TestLineCountUnitSplitNoMatchIsOneUnit(t *testing.T) {
+	l := lawWith(Matcher{Kind: KindLineCount, Max: 3, Key: KeyFile, UnitSplit: regexp.MustCompile(`^mod tests`)})
+	hits := l.HitsIn("a.rs", "a\nb\nc\nd\n")
+	if len(hits) != 1 || hits[0].Key != "a.rs" {
+		t.Fatalf("hits = %+v, want one hit keyed a.rs", hits)
+	}
+}
+
+// docLaw builds a doc-path-resolves law rooted at dir, so docResolves judges
+// real files under it rather than the process's cwd.
+func docPathLaw(t *testing.T, dir, pattern string) Law {
+	t.Helper()
+	l := lawWith(Matcher{Kind: KindDocPathResolves, Pattern: regexp.MustCompile(pattern), Key: KeyLineContent})
+	l.Root = dir
+	return l
+}
+
+const genericDocPattern = "(?:`|\\]\\()((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+\\.[A-Za-z0-9]+|(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+/)"
+
+// TestDocPathHitsIgnoresAPartialMatchInsideALongerToken proves the matcher
+// never reports a hit for a PREFIX of a longer identifier: `refs/notes/gate`
+// (backtick-quoted prose, not a citation at all) must not be read as citing
+// the bare directory `refs/notes/`.
+func TestDocPathHitsIgnoresAPartialMatchInsideALongerToken(t *testing.T) {
+	l := docPathLaw(t, t.TempDir(), genericDocPattern)
+	hits := l.HitsIn("doc.md", "see `refs/notes/gate` for detail\n")
+	if len(hits) != 0 {
+		t.Errorf("hits = %+v, want none — refs/notes/gate is not a directory citation", hits)
+	}
+}
+
+// TestDocPathHitsIgnoresAGlobContinuation proves a glob suffix after a
+// trailing slash disqualifies it as a directory citation too:
+// `.ratchet/laws/*.toml` must never be read as citing `.ratchet/laws/`.
+func TestDocPathHitsIgnoresAGlobContinuation(t *testing.T) {
+	l := docPathLaw(t, t.TempDir(), genericDocPattern)
+	hits := l.HitsIn("doc.md", "the glob `.ratchet/laws/*.toml` matches every law\n")
+	if len(hits) != 0 {
+		t.Errorf("hits = %+v, want none — the glob suffix means this is not a bare directory citation", hits)
+	}
+}
+
+// TestDocPathResolvesAcceptsARealDirectory proves a trailing-slash citation
+// (Form B) resolves against an actual DIRECTORY, not only a file — the doc
+// convention `internal/tdd/` names a directory on purpose.
+func TestDocPathResolvesAcceptsARealDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "tdd"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	l := docPathLaw(t, dir, genericDocPattern)
+	hits := l.HitsIn("doc.md", "see `internal/tdd/` for the gate\n")
+	if len(hits) != 0 {
+		t.Errorf("hits = %+v, want none — internal/tdd/ is a real directory", hits)
+	}
+}
+
+// TestDocPathResolvesStillRejectsADanglingDirectory proves the acceptance
+// above is not a blanket pass: a directory that genuinely does not exist is
+// still reported.
+func TestDocPathResolvesStillRejectsADanglingDirectory(t *testing.T) {
+	l := docPathLaw(t, t.TempDir(), genericDocPattern)
+	hits := l.HitsIn("doc.md", "see `internal/gone/` for the gate\n")
+	if len(hits) != 1 {
+		t.Fatalf("hits = %+v, want exactly one", hits)
+	}
+	if hits[0].What != "internal/gone/" {
+		t.Errorf("What = %q", hits[0].What)
 	}
 }
 

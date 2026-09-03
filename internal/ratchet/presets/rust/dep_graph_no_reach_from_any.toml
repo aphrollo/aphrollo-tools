@@ -1,0 +1,12 @@
+name        = "dep_graph_no_reach_from_any"
+description = "No package in the workspace may reach a forbidden one — the `roots = \"*\"` shape, for a rule like \"no package may reach the scratch crate\" that would otherwise re-list the whole workspace."
+severity    = "deny"
+
+[scope]
+include = ["**/Cargo.toml"]
+
+[matcher]
+kind          = "dep-graph-forbids"
+roots         = "*"
+forbidden     = [{{forbidden}}]
+min_reachable = {{min_reachable}}

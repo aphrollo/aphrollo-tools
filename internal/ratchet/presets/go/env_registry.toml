@@ -1,0 +1,13 @@
+name        = "env_registry"
+description = "Every os.Getenv env switch is registered, and every registry line is used — a switch nobody registered is invisible, a registry line nobody reads is rot."
+severity    = "deny"
+
+[scope]
+include = ["**/*.go", "**/*.md"]
+exclude = ["**/vendor/**"]
+
+[matcher]
+kind          = "registry-both-ways"
+registry_file = "{{registry_file}}"
+entry_pattern = "`([A-Z][A-Z0-9_]+)`"
+use_pattern   = "os\\.Getenv\\(\"([A-Z][A-Z0-9_]+)\"\\)"

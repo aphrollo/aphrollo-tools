@@ -97,6 +97,19 @@ const (
 	CountMatches CountKind = "matches"
 )
 
+// LineCountMode is what a line-count law counts a file's lines AS.
+type LineCountMode string
+
+const (
+	// LineCountText counts every line — the original, still the default.
+	LineCountText LineCountMode = "text"
+	// LineCountCode excludes blank lines and comment-only lines, judged by
+	// the FILE'S OWN comment syntax by extension (`//` and `/* */` for
+	// .rs/.go/.ts, `#` for .py/.sh/.toml) — never the law's `comment_prefix`,
+	// which is a single language a whole law scans, not a per-file fact.
+	LineCountCode LineCountMode = "code"
+)
+
 // Direction is where a marker-within-lines law looks for its marker. Above is
 // the comment-above-the-declaration shape; below is the block that carries its
 // own configuration (a `proptest!` block's `#![proptest_config(…)]` is on the
@@ -119,6 +132,14 @@ type Matcher struct {
 	Marker  *regexp.Regexp
 	Max     int
 	Lines   int
+	// LineMode (KindLineCount only) is "text" (every line, the default) or
+	// "code" (blank and comment-only lines excluded, by the file's own syntax).
+	LineMode LineCountMode
+	// UnitSplit (KindLineCount only): a line matching this regex splits the
+	// file into two units judged separately against the same Max — the line
+	// itself opens the SECOND unit (`path#tests`), everything above it is the
+	// first (`path`). A file with no match is one unit, unchanged.
+	UnitSplit *regexp.Regexp
 	// Contiguous is the marker-local spelling of the law-level flag; both mean
 	// the comment run directly beside the trigger.
 	Contiguous bool
@@ -190,6 +211,16 @@ type Law struct {
 	// CacheDir is where a law expensive enough to cache keeps its verdict;
 	// empty means recompute every run.
 	CacheDir string
+	// Extends names the preset this law was copied from (`preset:<group>/<name>`
+	// — see `internal/ratchet/presets`), purely for provenance and DRIFT
+	// checking: the law is otherwise a normal, fully self-contained file, and
+	// this never changes how it is scanned. `ratchet check` warns when the
+	// [matcher] here no longer matches the preset rendered with Params.
+	Extends string
+	// Params is the [params] table: the values `ratchet init` substituted
+	// into the preset's `{{name}}` slots when it wrote this file, kept so a
+	// later `ratchet check` can re-render the same preset to detect drift.
+	Params map[string]string
 }
 
 // LawsDir is where a consuming repo keeps its laws, relative to the repo root.
@@ -223,6 +254,13 @@ func LoadLaws(root string) ([]Law, error) {
 		law.Path, law.Root = path, root
 		laws = append(laws, law)
 	}
+	sets, err := LoadScopeSets(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := resolveScopeAliases(laws, sets); err != nil {
+		return nil, err
+	}
 	sort.Slice(laws, func(i, j int) bool { return laws[i].Name < laws[j].Name })
 	return laws, nil
 }
@@ -232,13 +270,14 @@ var rootKeys = map[string]bool{
 	"name":   true, "description": true, "severity": true, "escape": true,
 	"escape_lines": true, "baseline": true, "code_only": true,
 	"comment_prefix": true, "contiguous": true, "trigger_exclude": true,
+	"extends": true,
 }
 
 // matcherKeys is the exact key set each matcher kind accepts, and whether each
 // is required. Strictness is the contract: an unknown key is a typo that would
 // otherwise silently disable half a rule.
 var matcherKeys = map[MatcherKind]map[string]bool{
-	KindLineCount:          {"kind": true, "max": true},
+	KindLineCount:          {"kind": true, "max": true, "count": false, "unit_split": false},
 	KindRegexAbsent:        {"kind": true, "pattern": true, "key": false, "count": false},
 	KindRegexPresent:       {"kind": true, "pattern": true},
 	KindPathRegexAbsent:    {"kind": true, "pattern": true},
@@ -263,13 +302,13 @@ func ParseLaw(text, wantName string) (Law, error) {
 	}
 	if !newer {
 		for _, section := range doc.sectionNames() {
-			if section != "scope" && section != "matcher" {
-				return Law{}, fmt.Errorf("unknown table [%s] — a law declares [scope] and [matcher] only", section)
+			if section != "scope" && section != "matcher" && section != "params" {
+				return Law{}, fmt.Errorf("unknown table [%s] — a law declares [scope], [matcher] and, when it extends a preset, [params]", section)
 			}
 		}
 		for _, k := range doc.keys("") {
 			if !rootKeys[k] {
-				return Law{}, fmt.Errorf("unknown key %q — a law's root keys are schema, name, description, severity, escape, escape_lines, baseline, code_only", k)
+				return Law{}, fmt.Errorf("unknown key %q — a law's root keys are schema, name, description, severity, escape, escape_lines, baseline, code_only, extends", k)
 			}
 		}
 	}
@@ -340,6 +379,22 @@ func ParseLaw(text, wantName string) (Law, error) {
 			return Law{}, fmt.Errorf("trigger_exclude does not compile: %w", err)
 		}
 	}
+	if v, ok := doc.value("", "extends"); ok {
+		if v.kind != tomlString || !strings.HasPrefix(v.s, "preset:") || !strings.Contains(v.s, "/") {
+			return Law{}, fmt.Errorf(`extends = %q — a preset reference is "preset:<group>/<name>"`, v.s)
+		}
+		law.Extends = v.s
+	}
+	if doc.has("params") {
+		law.Params = map[string]string{}
+		for _, k := range doc.keys("params") {
+			v, _ := doc.value("params", k)
+			if v.kind != tomlString {
+				return Law{}, fmt.Errorf("params.%s is a string, got %s", k, v.kind)
+			}
+			law.Params[k] = v.s
+		}
+	}
 	if law.Contiguous {
 		if _, ok := doc.value("", "escape_lines"); ok {
 			return Law{}, fmt.Errorf("contiguous and escape_lines say different things — the run above the trigger IS the window")
@@ -378,6 +433,13 @@ func parseScope(doc *tomlDoc) (Scope, error) {
 			s.IgnoreGitignore = v.b
 			continue
 		}
+		if k == "alias" {
+			if v.kind != tomlString || v.s == "" {
+				return Scope{}, fmt.Errorf("scope.alias is a non-empty string naming a set in %s", ScopesFile)
+			}
+			s.Alias = v.s
+			continue
+		}
 		if v.kind != tomlArray {
 			return Scope{}, fmt.Errorf("scope.%s is an array of globs, got %s", k, v.kind)
 		}
@@ -387,11 +449,11 @@ func parseScope(doc *tomlDoc) (Scope, error) {
 		case "exclude":
 			s.Exclude = v.list
 		default:
-			return Scope{}, fmt.Errorf("unknown key scope.%s — [scope] takes include, exclude, ignore_gitignore and min_files", k)
+			return Scope{}, fmt.Errorf("unknown key scope.%s — [scope] takes include, exclude, alias, ignore_gitignore and min_files", k)
 		}
 	}
-	if len(s.Include) == 0 {
-		return Scope{}, fmt.Errorf("scope.include is required and must name at least one glob")
+	if len(s.Include) == 0 && s.Alias == "" {
+		return Scope{}, fmt.Errorf("scope.include is required and must name at least one glob, or scope.alias a set in %s", ScopesFile)
 	}
 	return s, nil
 }
@@ -455,6 +517,25 @@ func parseMatcher(doc *tomlDoc, newer bool) (Matcher, error) {
 			return Matcher{}, fmt.Errorf("matcher.max is a positive integer")
 		}
 		m.Max, m.Key = v.i, KeyFile
+		m.LineMode = LineCountText
+		if v, ok := doc.value("matcher", "count"); ok {
+			switch LineCountMode(v.s) {
+			case LineCountText, LineCountCode:
+				m.LineMode = LineCountMode(v.s)
+			default:
+				return Matcher{}, fmt.Errorf("matcher.count = %q — a count is %q or %q", v.s, LineCountText, LineCountCode)
+			}
+		}
+		if v, ok := doc.value("matcher", "unit_split"); ok {
+			if v.kind != tomlString || v.s == "" {
+				return Matcher{}, fmt.Errorf("matcher.unit_split is a non-empty regex string")
+			}
+			re, reErr := regexp.Compile(v.s)
+			if reErr != nil {
+				return Matcher{}, fmt.Errorf("matcher.unit_split does not compile: %w", reErr)
+			}
+			m.UnitSplit = re
+		}
 	case KindRegexAbsent:
 		m.Pattern = get("pattern")
 		if v, ok := doc.value("matcher", "count"); ok {

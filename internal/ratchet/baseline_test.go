@@ -47,6 +47,67 @@ func TestBaselineTightenLowersRemovesAndNeverRaisesOrAdds(t *testing.T) {
 	}
 }
 
+// TestBaselineAdoptRaisesAndCreatesRows proves Adopt does what Tighten
+// deliberately never does: raise an existing key past its old ceiling, and
+// create a row for a key the baseline has never seen at all.
+func TestBaselineAdoptRaisesAndCreatesRows(t *testing.T) {
+	b, err := ParseBaseline("crates/a.rs | 900\ncrates/b.rs | 620\n", Counted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tt := b.AdoptWithSites(map[string]int{
+		"crates/a.rs":   1200, // raised — a real ratchet.Tighten would refuse this
+		"crates/new.rs": 5,    // brand new — a real ratchet.Tighten would refuse this too
+	}, nil)
+	if got, want := b.Render(), "crates/a.rs | 1200\ncrates/new.rs | 5\n"; got != want {
+		t.Errorf("render = %q, want %q", got, want)
+	}
+	if !reflect.DeepEqual(tt.Removed, []Change{{"crates/b.rs", 620, 0}}) {
+		t.Errorf("a key absent from the adopted measure is still dropped: %+v", tt.Removed)
+	}
+	wantLowered := map[Change]bool{{"crates/a.rs", 900, 1200}: true, {"crates/new.rs", 0, 5}: true}
+	if len(tt.Lowered) != len(wantLowered) {
+		t.Fatalf("Lowered = %+v", tt.Lowered)
+	}
+	for _, c := range tt.Lowered {
+		if !wantLowered[c] {
+			t.Errorf("unexpected change %+v", c)
+		}
+	}
+}
+
+// TestBaselineAdoptOnAnEmptyBaselineWritesEveryMeasuredRow is the "law has no
+// baseline file yet" shape: adopting from zero rows must write every key —
+// the exact case where ordinary Tighten writes nothing at all.
+func TestBaselineAdoptOnAnEmptyBaselineWritesEveryMeasuredRow(t *testing.T) {
+	b := &Baseline{form: Counted}
+	// An ordinary Tighten over an empty baseline adds nothing, by design.
+	b.Tighten(map[string]int{"crates/a.rs": 40, "crates/b.rs": 12})
+	if got := b.Render(); got != "" {
+		t.Fatalf("Tighten must never create a row: render = %q", got)
+	}
+
+	b.AdoptWithSites(map[string]int{"crates/a.rs": 40, "crates/b.rs": 12}, nil)
+	if got, want := b.Render(), "crates/a.rs | 40\ncrates/b.rs | 12\n"; got != want {
+		t.Errorf("render = %q, want %q", got, want)
+	}
+}
+
+// TestBaselineAdoptOnAMultisetFormWritesOneRowPerOccurrence proves adoption
+// respects the line-keyed forms' one-row-per-occurrence shape, using the
+// sites a real scan would hand it.
+func TestBaselineAdoptOnAMultisetFormWritesOneRowPerOccurrence(t *testing.T) {
+	b := &Baseline{form: MultisetByText}
+	b.AdoptWithSites(
+		map[string]int{"x.clamp(0.0, 1.0)": 2},
+		map[string][]string{"x.clamp(0.0, 1.0)": {"crates/a.rs | x.clamp(0.0, 1.0)", "crates/b.rs | x.clamp(0.0, 1.0)"}},
+	)
+	want := "crates/a.rs | x.clamp(0.0, 1.0)\ncrates/b.rs | x.clamp(0.0, 1.0)\n"
+	if got := b.Render(); got != want {
+		t.Errorf("render = %q, want %q", got, want)
+	}
+}
+
 func TestBaselineRegressionsReportsGrownAndBrandNewKeys(t *testing.T) {
 	b, _ := ParseBaseline("crates/a.rs | 600\n", Counted)
 	got := b.Regressions(map[string]int{"crates/a.rs": 650, "crates/new.rs": 1})
