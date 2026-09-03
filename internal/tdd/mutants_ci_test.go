@@ -303,12 +303,15 @@ func TestPipeline_RunsTheMutationCheckOnEveryPullRequest(t *testing.T) {
 	}
 }
 
-// The repo's own half of the deal: the proof is required before a merge, and
-// it is NOT measured on the box that is trying to edit code.
+// The repo's own half of the deal, pinned through the functions that actually
+// READ these keys rather than through the file: mutationReceiptOptIn is the
+// merge gate's own reader (mutationReceiptStage calls it), and
+// mutationRunsLocally is what the post-commit hook and that same stage consult
+// to decide whether a local run exists to demand a receipt from.
 func TestAphrolloToml_RequiresTheProofAndLeavesItToCI(t *testing.T) {
 	root := repoRootForTest(t)
-	if !aphrolloTomlFlag(root, "mutation-receipt") {
-		t.Error("aphrollo.toml must keep `mutation-receipt = true`: the merge gate reads it")
+	if !mutationReceiptOptIn(root) {
+		t.Error("aphrollo.toml must keep `mutation-receipt = true`: mutationReceiptStage reads it through mutationReceiptOptIn")
 	}
 	if mutationRunsLocally(root) {
 		t.Error("aphrollo.toml must say `mutants-local = false`: this repo's proof is measured on the CI runner")

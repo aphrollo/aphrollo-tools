@@ -1049,7 +1049,10 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   that gate, e.g. `commit-message-deny = ["(?i)\\bskunkworks\\b", "^WIP:"]` (a TOML basic string, so the regex backslash is doubled).
   An unparseable entry is skipped with a stderr note, never silently disabling
   the gate nor blocking every commit.
-- **`mutation-receipt`** (bool) — turns on the merge gate's receipt check.
+- **`mutation-receipt`** (bool) — turns on the merge gate's receipt check. Read
+  from whichever manifest the repo has: `[workspace.metadata.aphrollo]` in a
+  Cargo workspace's `Cargo.toml`, `[aphrollo]` in a root `aphrollo.toml`
+  otherwise.
   Fail-first proves a test FAILED once; it says nothing about whether the
   test constrains behaviour, and a test that asserts nothing satisfies
   fail-first perfectly. A MERGE needs both. With the key set,
@@ -1095,6 +1098,14 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   finds in that one package), so which machine measures decides whether the
   proof is affordable. Only an explicit `false` turns it off — a repo that has
   said nothing keeps the behaviour it has.
+  **`false` also stands the MERGE gate down.** It has to: the post-commit run is
+  the only producer of a local receipt, and the one the runner writes is signed
+  with the RUNNER's machine key, so a gate that kept demanding one would refuse
+  every lane merge forever. `mutationReceiptStage` logs `receipt-measured-in-ci`
+  and passes; the required CI check is what refuses the merge instead. So the
+  pair `mutation-receipt = true` + `mutants-local = false` means "the proof is
+  required, and CI is the judge" — do not set the second without a pipeline job
+  that runs `gate mutants go --diff`, or nothing judges the lane at all.
 - **`mutation-accept`** (string array) — the survivors somebody signed off on,
   each `"<file>:<line> <MUTATOR> # why it is acceptable"`. The reason is not
   decoration: an entry without one is not an accepted survivor. This is the
