@@ -13,10 +13,12 @@ import (
 // measured on every commit -- most of it crates the change cannot reach.
 //
 // A change can only break a crate it is upstream of, so the stage is scoped
-// to the touched crates plus the crates DOWNSTREAM of them, narrowed to the
-// workspace's clippy-clean list: those are the crates whose lint verdict the
-// workspace has actually committed to. Never `--workspace`: a stage that
-// compiles the tree on every commit is a stage people learn to skip.
+// to the touched crates plus every crate DOWNSTREAM of them. The clippy-clean
+// list does not narrow it: the two lints this stage carries are laws every
+// crate owes, and the crate most likely to break under them is the one nobody
+// has made warning-free yet. That list gates the separate `-D warnings` stage
+// and nothing here. Never `--workspace` either: a stage that compiles the tree
+// on every commit is a stage people learn to skip.
 
 // cargoWorkspaceDepsFn reads a workspace's intra-workspace dependency edges
 // (package -> the workspace members it depends on). A var so a test can state
@@ -24,8 +26,8 @@ import (
 var cargoWorkspaceDepsFn = cargoWorkspaceDeps
 
 // clippyScope is the crate list the check stage selects with -p: the touched
-// crates, plus every clippy-clean crate that transitively depends on one of
-// them. Sorted, so two runs read the same way.
+// crates, plus every crate that transitively depends on one of them. Sorted,
+// so two runs read the same way.
 //
 // A graph it cannot read falls back to the touched crates alone. That is the
 // safe direction in cost and the honest one in coverage: it under-covers
@@ -38,17 +40,8 @@ func clippyScope(ws string, touched []string) []string {
 	if len(scope) == 0 {
 		return nil
 	}
-	deps := cargoWorkspaceDepsFn(ws)
-	if len(deps) > 0 {
-		clean := map[string]bool{}
-		for _, p := range cargoClippyCleanPackages(ws) {
-			clean[p] = true
-		}
-		for _, p := range dependentsOf(deps, touched) {
-			if clean[p] {
-				scope[p] = true
-			}
-		}
+	for _, p := range dependentsOf(cargoWorkspaceDepsFn(ws), touched) {
+		scope[p] = true
 	}
 	out := make([]string, 0, len(scope))
 	for p := range scope {

@@ -457,7 +457,7 @@ func workspaceCheckStage(gateName, repoRoot, root string, plan cargoStagePlan, r
 		fmt.Fprintf(os.Stderr, "gate %s: check → skipped (no cargo package owns anything staged)\n", gateName)
 		return GateResult{}
 	}
-	fmt.Fprintf(os.Stderr, "gate %s: check scope → %s (touched crates + their clippy-clean dependents)\n",
+	fmt.Fprintf(os.Stderr, "gate %s: check scope → %s (touched crates + everything downstream of them)\n",
 		gateName, strings.Join(scope, " "))
 	args := []string{"clippy"}
 	for _, pkg := range scope {

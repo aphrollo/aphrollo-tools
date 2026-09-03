@@ -97,7 +97,7 @@ func TestMechanical_AlsoRunsTheCompileCoverageCheck(t *testing.T) {
 
 // isCheckStage recognises the compile-coverage stage by the two lints that
 // carry project laws. It used to be recognisable by `--workspace`; the stage
-// is now scoped to the touched crates and their clippy-clean dependents, and
+// is now scoped to the touched crates and everything downstream of them, and
 // the lints are what actually identify it.
 func isCheckStage(args string) bool {
 	return strings.HasPrefix(args, "clippy") && strings.Contains(args, "clippy::disallowed_methods")

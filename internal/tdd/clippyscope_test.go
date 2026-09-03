@@ -9,7 +9,7 @@ import (
 // The workspace check ran `cargo clippy --workspace --tests` on every commit
 // -- 281.9s measured, most of it compiling crates the change cannot reach. It
 // is scoped instead to what the change can actually break: the touched crates
-// and the clippy-clean crates downstream of them.
+// and every crate downstream of them.
 
 // stubWorkspaceGraph states a workspace's intra-workspace dependency edges
 // without a cargo run: pkg -> the packages it depends on.
@@ -21,7 +21,8 @@ func stubWorkspaceGraph(t *testing.T, graph map[string][]string) {
 }
 
 // clippyCleanWorkspace writes a workspace manifest declaring the given
-// clippy-clean list.
+// clippy-clean list. The check stage must not read it: that list gates the
+// separate warning-free stage, not this one.
 func clippyCleanWorkspace(t *testing.T, ws string, clean ...string) {
 	t.Helper()
 	var b strings.Builder
@@ -36,7 +37,7 @@ func clippyCleanWorkspace(t *testing.T, ws string, clean ...string) {
 	mustWrite(t, filepath.Join(ws, "Cargo.toml"), b.String())
 }
 
-func TestClippyScope_TakesTheTouchedCrateAndItsClippyCleanDependents(t *testing.T) {
+func TestClippyScope_TakesTheTouchedCrateAndEveryCrateDownstreamOfIt(t *testing.T) {
 	ws := t.TempDir()
 	// leaf <- mid <- top, and `aside` depends on nothing that moved.
 	stubWorkspaceGraph(t, map[string][]string{
@@ -48,30 +49,33 @@ func TestClippyScope_TakesTheTouchedCrateAndItsClippyCleanDependents(t *testing.
 	clippyCleanWorkspace(t, ws, "top", "aside")
 
 	got := clippyScope(ws, []string{"leaf"})
-	if strings.Join(got, ",") != "leaf,top" {
-		t.Fatalf("scope = %v, want the touched crate plus its clippy-clean dependents only", got)
+	if strings.Join(got, ",") != "leaf,mid,top" {
+		t.Fatalf("scope = %v, want the touched crate plus its dependents, and nothing it cannot reach", got)
 	}
 }
 
-func TestClippyScope_LeavesOutADependentThatIsNotClippyClean(t *testing.T) {
+// The two lints this stage carries are laws every crate owes, and the crate
+// most likely to break under them is the one nobody has made warning-free. A
+// clippy-clean filter here would drop exactly that crate.
+func TestClippyScope_KeepsADependentThatIsNotClippyClean(t *testing.T) {
 	ws := t.TempDir()
 	stubWorkspaceGraph(t, map[string][]string{"leaf": nil, "mid": {"leaf"}})
 	clippyCleanWorkspace(t, ws) // nothing declared clean
 
 	got := clippyScope(ws, []string{"leaf"})
-	if strings.Join(got, ",") != "leaf" {
-		t.Fatalf("scope = %v, want only the touched crate", got)
+	if strings.Join(got, ",") != "leaf,mid" {
+		t.Fatalf("scope = %v, want the dependent compiled even though it is not clippy-clean", got)
 	}
 }
 
 func TestClippyScope_ReadsTheGraphTransitively(t *testing.T) {
 	ws := t.TempDir()
 	stubWorkspaceGraph(t, map[string][]string{"leaf": nil, "mid": {"leaf"}, "top": {"mid"}})
-	clippyCleanWorkspace(t, ws, "mid", "top")
+	clippyCleanWorkspace(t, ws)
 
 	got := clippyScope(ws, []string{"leaf"})
 	if strings.Join(got, ",") != "leaf,mid,top" {
-		t.Fatalf("scope = %v, want every clippy-clean crate downstream of the change", got)
+		t.Fatalf("scope = %v, want every crate downstream of the change", got)
 	}
 }
 
