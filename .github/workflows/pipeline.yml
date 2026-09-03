@@ -206,6 +206,56 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: ./bin/aphrollo gate escape verify-closure "$PR_NUMBER"
 
+  # The escape loop's OPENING half, and the only trigger that lives off this
+  # box. A red here after a green local gate is the loop's sharpest evidence:
+  # two runs of the same checks over the same tree disagreed.
+  #
+  # The runner has never seen the local gate's state, so the fact travels in
+  # the COMMIT: the commit-msg hook appends `Gate: green <tree>` naming the
+  # tree the pre-commit gate passed every stage on. That is the whole channel
+  # -- smaller than a PR body (which a human writes and can edit afterwards)
+  # and smaller than a check-run annotation (an API call plus checks:write),
+  # and it is verifiable, because the trailer names the tree and cannot be
+  # copied onto a commit whose content differs. `gate escape record --from-ci`
+  # reads it and records NOTHING when it is absent: a red on a tip nobody
+  # gated says the gate never ran, not that it missed something.
+  #
+  # It checks out the PR HEAD rather than the default merge ref, because the
+  # merge commit's message is GitHub's, not the author's.
+  escape-record:
+    needs: [test, lint, vulncheck, sast, secret-scan]
+    if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(needs.*.result, 'failure') }}
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # false: see the note in `test` -- the persistent disk is the cache.
+          cache: false
+      - name: Build the CLI from this PR
+        run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
+      - name: aphrollo gate escape record
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        # The FIRST evidence line is the failing job names and nothing else:
+        # the recorder fingerprints on it, so a per-run URL there would defeat
+        # the seven-day dedupe and open one issue per push.
+        run: |
+          failed=$(printf '%s' "$NEEDS" | jq -r 'to_entries|map(select(.value.result=="failure"))|map(.key)|sort|join(", ")')
+          ./bin/aphrollo gate escape record \
+            "$failed failed on a tip the local gate passed" \
+            --from-ci "pipeline: $failed" \
+            --evidence "failed jobs: $failed
+          $RUN_URL"
+
   vulncheck:
     if: github.event_name != 'push' && github.event.pull_request.draft != true
     needs: changes

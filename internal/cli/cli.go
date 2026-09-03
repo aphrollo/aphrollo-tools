@@ -454,9 +454,20 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			// keeps that path untouched.
 			if res.Blocked {
 				tdd.WriteMergeRejectedMarker(root, res.Message)
+				// Two gates disagreeing about one tree, or a survivor
+				// reaching the last gate that could stop it, is the loop's
+				// own evidence about a missing stage. Nothing recorded it
+				// before; now it records itself, deduped by fingerprint.
+				tdd.NoteMergeGateEscape(root, res.Message, stderr)
 			}
 		} else {
 			res = tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
+			if !res.Blocked {
+				// Stamp the tree every stage passed on, so the commit-msg
+				// hook can carry that fact into the commit and CI can tell a
+				// red on a gated tip from a red on an ungated one.
+				tdd.StampPrecommitGreen(root)
+			}
 		}
 		// Surface the note (e.g. a fail-open skip) even when allowing — the gate
 		// is never silent about why it did or didn't run.

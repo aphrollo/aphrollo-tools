@@ -103,6 +103,13 @@ func tomlArrayKey(path, table, key string) []string {
 	return dedupeSorted(out)
 }
 
+// CheckIssueLabels refuses a label the repo has not declared, for a caller
+// that opens its issue through another path (the escape recorder judges the
+// theme here, before it writes the local record).
+func CheckIssueLabels(repo string, labels []string, allowNew bool) error {
+	return checkDeclaredLabels(repo, labels, allowNew)
+}
+
 // checkDeclaredLabels refuses a label the repo has not declared. A repo with
 // no declared list is not checked at all — refusing every label in a fresh
 // repo would make the command unusable exactly where it is most needed.
