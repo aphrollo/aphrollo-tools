@@ -202,6 +202,44 @@ func TestPrimaryCheckout_AllowsBashInALinkedWorktree(t *testing.T) {
 	}
 }
 
+// `rm -rf` of a lane dir with no `git worktree prune` leaves the admin entry
+// behind under .git/worktrees/, pointing at a directory that no longer
+// exists. A repo whose ONLY entry is that stale one has no lane left to
+// escape to, so it must not stay merge-only (issue #120).
+func TestPrimaryCheckout_AllowsEditWhenTheOnlyWorktreeEntryIsStale(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary, linked := primaryRepo(t)
+	if err := os.RemoveAll(linked); err != nil {
+		t.Fatal(err)
+	}
+
+	if d := PrimaryCheckoutDecision(editPayload(t, "Edit", filepath.Join(primary, "main.go"), "s9")); d.Action != Allow {
+		t.Fatalf("a repo whose only worktree entry is stale is an ordinary clone again, got %+v", d)
+	}
+}
+
+// A stale entry beside a LIVE one must not un-block the primary checkout —
+// the rule still holds — but the remedy names the prune fix so an operator
+// is not left guessing why the count disagrees with what `git worktree list`
+// shows them.
+func TestPrimaryMergeOnlyReason_NamesPruneWhenAStaleEntryExists(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary, _ := primaryRepo(t)
+	stale := filepath.Join(t.TempDir(), "stale-lane")
+	gitDo(t, primary, "worktree", "add", "-q", "-b", "lane/stale", stale)
+	if err := os.RemoveAll(stale); err != nil {
+		t.Fatal(err)
+	}
+
+	d := PrimaryCheckoutDecision(editPayload(t, "Edit", filepath.Join(primary, "main.go"), "s10"))
+	if d.Action != Block {
+		t.Fatalf("the repo still has a live worktree (lane/x), so the primary stays merge-only, got %+v", d)
+	}
+	if !strings.Contains(d.Reason, "git worktree prune") {
+		t.Fatalf("reason %q must name the prune remedy for the stale entry", d.Reason)
+	}
+}
+
 func TestExistingAncestorDir_WalksUpPastDirectoriesTheWriteWouldCreate(t *testing.T) {
 	base := t.TempDir()
 	deep := filepath.Join(base, "a", "b", "c")

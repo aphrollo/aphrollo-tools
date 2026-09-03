@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // The primary checkout is merge-only. In a repo that has any linked worktree,
@@ -77,21 +78,67 @@ func PrimaryMergeOnly(dir string) (root string, ok bool) {
 	return root, true
 }
 
-// hasLinkedWorktree reports whether the repo has at least one linked
-// worktree. git keeps one directory per linked worktree under the common
-// dir's `worktrees/`, so the answer is a directory listing rather than a
-// second git process on a path the hook is already timing.
+// hasLinkedWorktree reports whether the repo has at least one LIVE linked
+// worktree. git keeps one administrative directory per linked worktree under
+// the common dir's `worktrees/`, so the answer is a directory listing rather
+// than a second git process on a path the hook is already timing — but a
+// `rm -rf` of a lane dir with no `git worktree prune` leaves that admin entry
+// behind pointing at nothing, and counting it kept the primary checkout
+// merge-only with no lane left to escape to (issue #120).
 func hasLinkedWorktree(commonDir string) bool {
-	entries, err := os.ReadDir(filepath.Join(commonDir, "worktrees"))
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if e.IsDir() {
+	for _, e := range worktreeAdminEntries(commonDir) {
+		if !staleWorktreeEntry(filepath.Join(commonDir, "worktrees", e.Name())) {
 			return true
 		}
 	}
 	return false
+}
+
+// worktreeAdminEntries lists the directories under the common dir's
+// `worktrees/`, one per worktree git has ever linked (live or stale). nil
+// when there is no such directory at all — an ordinary clone.
+func worktreeAdminEntries(commonDir string) []os.DirEntry {
+	entries, err := os.ReadDir(filepath.Join(commonDir, "worktrees"))
+	if err != nil {
+		return nil
+	}
+	var dirs []os.DirEntry
+	for _, e := range entries {
+		if e.IsDir() {
+			dirs = append(dirs, e)
+		}
+	}
+	return dirs
+}
+
+// hasStaleWorktreeEntry reports whether the repo has AT LEAST ONE admin
+// entry left behind by a worktree removed without `git worktree prune` —
+// regardless of whether another entry is still live. It is what the
+// merge-only remedy uses to offer the actual fix.
+func hasStaleWorktreeEntry(commonDir string) bool {
+	for _, e := range worktreeAdminEntries(commonDir) {
+		if staleWorktreeEntry(filepath.Join(commonDir, "worktrees", e.Name())) {
+			return true
+		}
+	}
+	return false
+}
+
+// staleWorktreeEntry reports whether one worktree admin directory's own
+// `gitdir` file names a worktree whose directory no longer exists. `gitdir`
+// names the worktree's `.git` FILE, one level inside the worktree root, so
+// the worktree itself is that file's parent.
+func staleWorktreeEntry(adminDir string) bool {
+	data, err := os.ReadFile(filepath.Join(adminDir, "gitdir"))
+	if err != nil {
+		return false // cannot tell; treated as live rather than silently dropped
+	}
+	gitFile := strings.TrimSpace(string(data))
+	if gitFile == "" {
+		return false
+	}
+	_, err = os.Stat(filepath.Dir(gitFile))
+	return err != nil
 }
 
 // existingAncestorDir walks up from dir to the first directory that exists, ""
@@ -123,10 +170,18 @@ func repoRootNear(dir string) string {
 // PrimaryMergeOnlyReason is the ONE line every enforcement point prints. It
 // names the escape as a runnable command, with the worktree path this repo's
 // layout implies: <parent of the checkout>/.worktrees/<checkout name>/<name>.
+// When a stale worktree admin entry is ALSO sitting there — a lane dir
+// removed by hand, with no `git worktree prune` to clear the record it left
+// — it names that fix too, since a session hitting this rule cannot tell a
+// live lane from a dead entry that merely still counts as one.
 func PrimaryMergeOnlyReason(root string) string {
 	path := filepath.Join(filepath.Dir(root), ".worktrees", filepath.Base(root), "<name>")
-	return "primary checkout is merge-only — git worktree add -b lane/<name> " +
+	reason := "primary checkout is merge-only — git worktree add -b lane/<name> " +
 		shellPath(path) + " " + primaryBranch
+	if hasStaleWorktreeEntry(commonGitDir(root)) {
+		reason += " (a lane dir was removed by hand — git worktree prune clears the stale entry)"
+	}
+	return reason
 }
 
 // primaryGateInput is the slice of a PreToolUse payload the rule reads: which
