@@ -557,6 +557,12 @@ func cargoAphrolloFlag(ws, key string) bool {
 	return tomlBoolIn(filepath.Join(ws, "Cargo.toml"), "[workspace.metadata.aphrollo]", key)
 }
 
+// cargoAphrolloString reads one scalar STRING key from
+// `[workspace.metadata.aphrollo]`.
+func cargoAphrolloString(ws, key string) (string, bool) {
+	return tomlStringIn(filepath.Join(ws, "Cargo.toml"), "[workspace.metadata.aphrollo]", key)
+}
+
 // tomlBoolIn reads one boolean key from one table of a TOML file. A line
 // scanner suffices for the same reason cargoPackageName uses one: the key sits
 // directly under its table in any real manifest, and a parse miss costs only
@@ -590,6 +596,32 @@ func tomlBoolSetIn(path, table, key string) (value, set bool) {
 		}
 	}
 	return false, false
+}
+
+// tomlStringIn reads one scalar string key from one table of a TOML file,
+// quotes stripped. "", false for an absent key or an unreadable manifest —
+// same line scanner and same reasoning as tomlBoolIn.
+func tomlStringIn(path, table, key string) (value string, set bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	inTable := false
+	for line := range strings.Lines(string(data)) {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			inTable = trimmed == table
+			continue
+		}
+		if !inTable {
+			continue
+		}
+		k, val, found := strings.Cut(trimmed, "=")
+		if found && strings.TrimSpace(k) == key {
+			return strings.Trim(strings.TrimSpace(val), `"`), true
+		}
+	}
+	return "", false
 }
 
 func cargoAphrolloPackages(ws, key string) []string {

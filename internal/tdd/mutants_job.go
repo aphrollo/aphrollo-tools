@@ -190,6 +190,11 @@ func aphrolloTomlFlag(root, key string) bool {
 	return tomlBoolIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", key)
 }
 
+// aphrolloTomlString reads one scalar STRING key from `[aphrollo]`.
+func aphrolloTomlString(root, key string) (string, bool) {
+	return tomlStringIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", key)
+}
+
 // mutationRunsLocally says whether the lane's proof is measured on THIS box.
 // A repo with a CI runner that can do it says `mutants-local = false` beside
 // its opt-in and the post-commit hook stops starting detached runs here: one

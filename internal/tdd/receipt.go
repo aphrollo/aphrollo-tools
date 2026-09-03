@@ -318,7 +318,38 @@ func missingReceiptRemedy(ctx receiptContext) string {
 	if d, ok := loadMutantsDeath(ctx.TipTree); ok {
 		return fmt.Sprintf("the run died (exit %d) at %s — see %s", d.Exit, d.At.Format("15:04"), d.ErrLog)
 	}
-	return "run tools/mutation_gate.sh main"
+	base := "main"
+	if ctx.RepoRoot != "" {
+		base = laneBaseRef(ctx.RepoRoot)
+	}
+	return "run " + mutantsRunnerCommand(ctx.RepoRoot) + " " + base
+}
+
+// mutantsRunnerCommand names the command that would actually produce a
+// receipt for root: the repo's own declared name (`mutation-runner` under
+// `[workspace.metadata.aphrollo]` in Cargo.toml, or `[aphrollo]` in
+// aphrollo.toml), `tools/mutation_gate.sh` only when the repo genuinely
+// carries one, and this binary's own runner otherwise — never a script name
+// the repo does not have.
+func mutantsRunnerCommand(root string) string {
+	const fallback = "aphrollo gate mutants"
+	if root == "" {
+		return fallback
+	}
+	ws := cargoWorkspaceRoot(root)
+	if ws == "" {
+		ws = root
+	}
+	if name, ok := cargoAphrolloString(ws, "mutation-runner"); ok && name != "" {
+		return name
+	}
+	if name, ok := aphrolloTomlString(root, "mutation-runner"); ok && name != "" {
+		return name
+	}
+	if fileExists(filepath.Join(root, "tools", "mutation_gate.sh")) {
+		return "tools/mutation_gate.sh"
+	}
+	return fallback
 }
 
 func blockReceipt(format string, args ...any) *GateResult {
