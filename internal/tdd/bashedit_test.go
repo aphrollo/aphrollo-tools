@@ -260,6 +260,34 @@ func TestPreBashSkipsADirectoryThatIsNotARepo(t *testing.T) {
 	}
 }
 
+// The PowerShell primary-checkout classification (item 7) needs the hook to
+// fire for the PowerShell tool at all -- PrimaryCheckoutDecision already
+// branches on tool_name internally, but nothing invokes it without a
+// PreToolUse matcher for "PowerShell" in the installed settings.json.
+func TestPatchSettingsWiresPowerShellForPreToolUse(t *testing.T) {
+	out, changed, err := PatchSettings(nil, "/usr/local/bin/aphrollo")
+	if err != nil || !changed {
+		t.Fatalf("PatchSettings: changed = %v, err = %v", changed, err)
+	}
+	var doc struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatal(err)
+	}
+	var hasPowerShell bool
+	for _, g := range doc.Hooks["PreToolUse"] {
+		if g.Matcher == "PowerShell" {
+			hasPowerShell = true
+		}
+	}
+	if !hasPowerShell {
+		t.Errorf("PreToolUse matchers = %v, want a PowerShell entry so the primary-checkout classification runs for it", doc.Hooks["PreToolUse"])
+	}
+}
+
 // The hooks have to be WIRED for any of this to fire, and settings.json holds
 // one group per matcher: adding the Bash group must not evict the edit group
 // that was already there.
