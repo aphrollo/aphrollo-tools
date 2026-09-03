@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -30,6 +31,68 @@ func TestPostCommit_NeverFailsOutsideAGatedRepo(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Fatalf("postcommit wrote to stdout: %q", out.String())
+	}
+}
+
+// A worktree the hook cannot prepare must be REPORTED, not silenced behind a
+// line that claims the run started: the hook is the operator's only window
+// into a mutation run that happens entirely off-screen from here on (issue
+// #114).
+func TestRunPostCommit_ReportsAWorktreePrepareFailure(t *testing.T) {
+	gateConfigDir(t)
+	isolateGitConfigCLI(t)
+	root := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	run("config", "user.email", "t@t")
+	run("config", "user.name", "t")
+	if err := os.WriteFile(filepath.Join(root, "Cargo.toml"),
+		[]byte("[package]\nname = \"m\"\nversion = \"0.1.0\"\n[workspace]\n"+
+			"[workspace.metadata.aphrollo]\nmutation-receipt = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "-A")
+	run("commit", "-qm", "opt in")
+	run("checkout", "-q", "-b", "lane/x")
+	if err := os.WriteFile(filepath.Join(root, "extra.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "-A")
+	run("commit", "-qm", "lane work")
+
+	// Block the mutants worktree's own parent directory with a FILE, so its
+	// mkdir fails.
+	blocked := filepath.Join(filepath.Dir(root), ".worktrees", filepath.Base(root))
+	if err := os.MkdirAll(filepath.Dir(blocked), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(blocked, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	var out, errb bytes.Buffer
+	if code := Run([]string{"gate", "postcommit"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("postcommit exit = %d, want 0 — a hook never fails the commit\nstderr: %s", code, errb.String())
+	}
+	if strings.Contains(errb.String(), "started") {
+		t.Fatalf("stderr = %q, want no claim of a run that never started", errb.String())
+	}
+	if !strings.Contains(errb.String(), "gate: mutation run failed to start:") {
+		t.Fatalf("stderr = %q, want the failure reported by name", errb.String())
 	}
 }
 

@@ -117,7 +117,7 @@ func GateStats(r io.Reader, since time.Time) Stats {
 // makes it tolerable is that every use is counted.
 var denyVerdictPrefixes = []string{
 	"pretooluse-denied:", "commitmsg-rejected:", "override-", "smell-escape:",
-	"receipt-forged", "receipt-unsigned", "queue-bypass",
+	"receipt-forged", "receipt-unsigned", "queue-bypass", "mutants-worktree-failed",
 }
 
 func isDenyVerdict(verdict string) bool {

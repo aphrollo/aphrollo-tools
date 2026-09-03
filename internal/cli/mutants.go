@@ -17,8 +17,12 @@ func runPostCommit(stderr io.Writer) int {
 	if root == "" {
 		return 0
 	}
-	if j, ok := tdd.PostCommitHook(root); ok {
+	j, ok, err := tdd.PostCommitHook(root)
+	switch {
+	case ok:
 		fmt.Fprintf(stderr, "gate: mutation run started for %s (pid %d)\n", j.Branch, j.PID)
+	case err != nil:
+		fmt.Fprintf(stderr, "gate: mutation run failed to start: %v\n", err)
 	}
 	return 0
 }

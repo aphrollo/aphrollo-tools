@@ -139,3 +139,20 @@ func TestGateStats_CountsAQueueBypass(t *testing.T) {
 		t.Fatal("a bypass nobody can see is a bypass nobody manages")
 	}
 }
+
+// A worktree the post-commit hook could not prepare is a run that never
+// happened, and until now it fell through every tally: not in the fixed
+// stage/outcome vocabulary, not in Denies. `gate stats` must show it, error
+// text and all, so a session watching the box sees a lane's mutation proof
+// silently not-starting.
+func TestGateStats_CountsAMutantsWorktreeFailure(t *testing.T) {
+	log := stamp(time.Now().UTC(), "postcommit", "/repo", "mutants",
+		"mutants-worktree-failed:fatal:_could_not_create_leading_directories", 0) + "\n"
+	s := GateStats(strings.NewReader(log), time.Time{})
+	if s.Denies["mutants-worktree-failed:fatal:_could_not_create_leading_directories"] != 1 {
+		t.Fatalf("denies = %v, want the worktree failure counted", s.Denies)
+	}
+	if !strings.Contains(RenderGateStats(s), "mutants-worktree-failed") {
+		t.Fatal("a worktree failure nobody can see is a mutation proof nobody knows stopped running")
+	}
+}
