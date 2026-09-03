@@ -235,6 +235,9 @@ Subcommands:
                     matters); wired into settings.json by init
   stats             Tally gate.log by stage and outcome (--since 7d), and the open
                     escape count
+  issue             Open one labelled issue against the repo's GitHub remote and
+                    print its URL (--label, --body, --repo, --new-label). An open
+                    point is an issue, never a markdown follow-up
   escape            The escape loop: record | sync | list | verify-closure <pr>.
                     A red after a local green is recorded and opened as a labelled
                     issue; verify-closure refuses a PR that closes one without
@@ -386,6 +389,11 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if args[0] == "gc" {
 		// Disk hygiene: dry-run by default, --apply reclaims.
 		return runGateGC(args[1:], stdout, stderr)
+	}
+	if args[0] == "issue" {
+		// The general issue verb: an open point is a row somebody can
+		// filter, not a line in a markdown list.
+		return runGateIssue(args[1:], stdout, stderr)
 	}
 	if args[0] == "escape" {
 		// The escape loop: record a red that got past a local green, and
