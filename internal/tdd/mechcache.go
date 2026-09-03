@@ -141,11 +141,23 @@ func worktreeStateHash(root string) string {
 	if err != nil {
 		return ""
 	}
+	// `git diff --name-only` prints REPO-ROOT-relative paths by default,
+	// regardless of cwd; `--full-name` makes `ls-files` match that base
+	// instead of its natural cwd-relative one. Both must agree, because
+	// `git hash-object --stdin-paths` below ALSO always resolves its input
+	// relative to the repo root, ignoring cwd entirely (unlike a bare path
+	// argument) — verified empirically, undocumented quirk. root routinely
+	// lands on a Cargo workspace member crate's own subdirectory
+	// (FindProjectRoot finds the nearest Cargo.toml, not the workspace
+	// root), so anchoring the Lstat/hash step at root itself either doubled
+	// a repo-root-relative path into a nonexistent one, or fed a
+	// cwd-relative path to hash-object where it silently resolved against
+	// the wrong file (#175).
 	changed, err := gitRead(root, "diff", "HEAD", "--name-only", "--no-color")
 	if err != nil {
 		return ""
 	}
-	untracked, err := gitRead(root, "ls-files", "--others", "--exclude-standard")
+	untracked, err := gitRead(root, "ls-files", "--others", "--exclude-standard", "--full-name")
 	if err != nil {
 		return ""
 	}
@@ -162,16 +174,23 @@ func worktreeStateHash(root string) string {
 	}
 	sort.Strings(paths)
 
+	// Every path above is repo-root-relative, so the join and the
+	// hash-object call below must anchor there too, not at root.
+	base := RepoRoot(root)
+	if base == "" {
+		base = root
+	}
+
 	// Batch-hash the paths that are regular files; anything else (deleted,
 	// replaced by a directory) is stamped "gone" so its absence still shapes
 	// the hash.
 	var present []string
 	for _, p := range paths {
-		if fi, err := os.Lstat(filepath.Join(root, p)); err == nil && fi.Mode().IsRegular() {
+		if fi, err := os.Lstat(filepath.Join(base, p)); err == nil && fi.Mode().IsRegular() {
 			present = append(present, p)
 		}
 	}
-	blobs, ok := blobHashes(root, present)
+	blobs, ok := blobHashes(base, present)
 	if !ok {
 		return ""
 	}
@@ -197,7 +216,7 @@ func worktreeStateHash(root string) string {
 // bound: pathspec-limited to dotenv + config/ trees, target/ and
 // node_modules/ excluded.
 func ignoredConfig(root string) string {
-	out, err := gitRead(root, "ls-files", "--others", "--ignored", "--exclude-standard", "--",
+	out, err := gitRead(root, "ls-files", "--others", "--ignored", "--exclude-standard", "--full-name", "--",
 		":(glob).env*", ":(glob)**/.env*", ":(glob)config/**", ":(glob)**/config/**",
 		":(glob,exclude)**/target/**", ":(glob,exclude)**/node_modules/**")
 	if err != nil {
