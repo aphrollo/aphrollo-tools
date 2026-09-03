@@ -161,6 +161,22 @@ func TestMutationReceipt_AcceptsAProvenTree(t *testing.T) {
 	}
 }
 
+// An accepted receipt left no line in gate.log at all — not-required,
+// carried, rejected, forged, unsigned, unverifiable and measured-in-ci all
+// had one, so an audit could not tell "this merge's receipt passed" from
+// "this stage never ran" (issue #136).
+func TestMutationReceipt_AcceptedReceiptIsLogged(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	r := passingReceipt()
+	writeReceipt(t, r)
+
+	if got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: r.TipTree}); got != nil {
+		t.Fatalf("merge refused a proven tree: %s", got.Message)
+	}
+	requireLoggedVerdict(t, cfg, "receipt-accepted:"+short(r.TipTree)+"_caught=12_missed=0_accepted=0")
+}
+
 // The receipt lives beside the rest of the gate's state, which moved with the
 // rename — a consuming repo writes to gate-state, and the gate must read the
 // same directory.

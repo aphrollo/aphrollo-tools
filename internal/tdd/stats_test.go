@@ -156,3 +156,29 @@ func TestGateStats_CountsAMutantsWorktreeFailure(t *testing.T) {
 		t.Fatal("a worktree failure nobody can see is a mutation proof nobody knows stopped running")
 	}
 }
+
+// The receipt stage's accepted, carried and rejected outcomes are counted
+// side by side, so an audit can tell an accepted receipt (once it left a
+// line at all, issue #136) from a stage that never ran.
+func TestGateStats_CountsMutationReceiptOutcomesSideBySide(t *testing.T) {
+	log := strings.Join([]string{
+		stamp(time.Now().UTC(), "premergecommit", "/repo", "mutation-receipt",
+			"receipt-accepted:abc123_caught=5_missed=0_accepted=0", 0),
+		stamp(time.Now().UTC(), "premergecommit", "/repo", "mutation-receipt",
+			"receipt-accepted:def456_caught=3_missed=0_accepted=0", 0),
+		stamp(time.Now().UTC(), "premergecommit", "/repo", "mutation-receipt",
+			"receipt-carried:aaa->bbb", 0),
+		stamp(time.Now().UTC(), "premergecommit", "/repo", "mutation-receipt", "receipt-rejected", 0),
+	}, "\n") + "\n"
+
+	s := GateStats(strings.NewReader(log), time.Time{})
+	if s.Receipts["accepted"] != 2 || s.Receipts["carried"] != 1 || s.Receipts["rejected"] != 1 {
+		t.Fatalf("receipts = %v, want 2 accepted, 1 carried, 1 rejected", s.Receipts)
+	}
+	out := RenderGateStats(s)
+	for _, want := range []string{"accepted=2", "carried=1", "rejected=1"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered stats never mention %s:\n%s", want, out)
+		}
+	}
+}
