@@ -95,6 +95,13 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		return Mechanical(repoRoot, run)
 	}
 
+	// A change with no code answers to the tree guards and nothing else; see
+	// docsonly.go. It comes before the guards themselves only so the log says
+	// which route the commit took.
+	if docsOnly(repoRoot) {
+		return docsOnlyFastPath("precommit", repoRoot)
+	}
+
 	var notes []string
 	collect := func(res GateResult) (blocked bool) {
 		if res.Message != "" {
@@ -157,6 +164,10 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		appendGateLog("premergecommit", repoRoot, "mutation-receipt", "receipt-rejected", 0)
 		return *res
 	}
+	if docsOnly(repoRoot) {
+		return docsOnlyFastPath("premergecommit", repoRoot)
+	}
+
 	var notes []string
 	// Same order as Precommit, and for the same reason: a merge carrying only
 	// a raised baseline or a law regression must answer for it before the
@@ -177,7 +188,7 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 
 	groups := stagedRootGroups(repoRoot)
 	if len(groups) == 0 {
-		const line = "gate premergecommit: nothing to test (no staged source or test files)"
+		line := nothingToTestLine("premergecommit")
 		fmt.Fprintln(os.Stderr, line)
 		notes = append(notes, line)
 		return GateResult{Message: strings.Join(notes, "\n")}
