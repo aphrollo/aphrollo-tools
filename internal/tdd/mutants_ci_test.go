@@ -524,3 +524,40 @@ func TestRunGoMutantsCI_AChangedFileReRunsItsMutantsCarryingTheUnchangedOne(t *t
 		t.Fatalf("output = %q, want it to report %q", out.String(), want)
 	}
 }
+
+// An empty --store must resolve to the machine-local default MutantStorePath
+// already uses, never a bare "" path a later os.MkdirAll("", ...) silently
+// no-ops on — that would write outcomes.json into whatever the CURRENT
+// working directory happens to be, corrupting an unrelated tree.
+func TestCiMutantStorePath_EmptyStoreFallsBackToTheMachineLocalDefault(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := t.TempDir()
+
+	got := ciMutantStorePath("", repo)
+	want := MutantStorePath(repo)
+
+	if got != want {
+		t.Fatalf("ciMutantStorePath(%q, repo) = %q, want the machine-local default %q", "", got, want)
+	}
+}
+
+// An explicit --store <dir> (CI's actions/cache path) must win over the
+// machine-local default, and land the outcomes file directly under it.
+func TestCiMutantStorePath_ExplicitStoreWinsOverTheMachineLocalDefault(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := t.TempDir()
+	store := filepath.Join(t.TempDir(), "cache-dir")
+
+	got := ciMutantStorePath(store, repo)
+	want := filepath.Join(store, "outcomes.json")
+
+	if got != want {
+		t.Fatalf("ciMutantStorePath(%q, repo) = %q, want %q", store, got, want)
+	}
+	if got == MutantStorePath(repo) {
+		t.Fatalf("an explicit --store must never resolve to the same path as the machine-local default")
+	}
+	if _, err := os.Stat(store); err != nil {
+		t.Fatalf("ciMutantStorePath must create the store directory, got err=%v", err)
+	}
+}
