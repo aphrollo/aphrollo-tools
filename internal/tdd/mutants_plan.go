@@ -90,13 +90,22 @@ type MutantsPlan struct {
 // every entry it returns, so what this run stores is what the next one
 // compares to.
 func PlanMutants(want []MutantOutcome, now TreeState, cached map[mutantKey]MutantOutcome) MutantsPlan {
-	prior := cached
+	byContent := contentIndex(cached)
 	var plan MutantsPlan
 	for _, m := range want {
 		blob, fence := now.Blobs[m.File], now.Fences[m.Package]
 		m.Blob, m.Fence = blob, fence
-		old, ok := prior[m.key()]
+		old, ok := cached[m.key()]
+		if !ok {
+			// The same content at another PATH: a crate-topology lane moves
+			// files, and a verdict is a fact about the content, so keying the
+			// carry on the path threw away every outcome of a file that only
+			// moved. The fence still has to match, so a move INTO another
+			// package — where different tests constrain it — re-measures.
+			old, ok = byContent[m.contentKey()]
+		}
 		if ok && carriesOver(old, blob, fence) {
+			old.File, old.Package = m.File, m.Package
 			old.Blob, old.Fence = blob, fence
 			plan.Carry = append(plan.Carry, old)
 			continue
@@ -104,6 +113,33 @@ func PlanMutants(want []MutantOutcome, now TreeState, cached map[mutantKey]Mutan
 		plan.Run = append(plan.Run, m)
 	}
 	return plan
+}
+
+// contentKey identifies a mutant by the CONTENT it lives in rather than by the
+// path: same blob, same position, same mutation is the same mutant however the
+// file was renamed or moved.
+type contentKey struct {
+	Blob     string
+	Line     int
+	Col      int
+	Mutation string
+}
+
+func (m MutantOutcome) contentKey() contentKey {
+	return contentKey{Blob: m.Blob, Line: m.Line, Col: m.Col, Mutation: m.Mutation}
+}
+
+// contentIndex is the store keyed by content, for the moved-file lookup. An
+// entry with no blob is not indexed: it could never be shown to still hold.
+func contentIndex(cached map[mutantKey]MutantOutcome) map[contentKey]MutantOutcome {
+	out := make(map[contentKey]MutantOutcome, len(cached))
+	for _, m := range cached {
+		if m.Blob == "" {
+			continue
+		}
+		out[m.contentKey()] = m
+	}
+	return out
 }
 
 // carriesOver reports whether a recorded outcome still describes the tip.

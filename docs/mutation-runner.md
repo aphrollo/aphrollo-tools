@@ -256,6 +256,33 @@ variable, Windows caps the block at 32,767, and an overflowing list truncates
 the run's own arguments. Past the bound the remaining mutants are simply
 re-measured.
 
+### Moved code is not changed code
+
+A crate-topology lane MOVES code: a module leaves one crate and arrives in
+another, byte for byte, with no behaviour change. To `--in-diff` every one of
+those lines is a changed line, so such a lane would mutate thousands of lines
+nobody touched.
+
+git already knows which lines only moved, so the lane diff is taken with move
+detection on and every moved line is dropped before the diff reaches the
+runner:
+
+```
+git diff --color=always -M --color-moved=plain     --color-moved-ws=allow-indentation-change <base> <tip> -- <files>
+```
+
+A moved ADDED line becomes context — it is in the new file, it is not worth
+mutating, and keeping it holds the file's line numbering where a mutant's
+identity expects it. A moved REMOVED line is dropped outright. A hunk left with
+no real addition goes, and so does a file left with no hunk. The colours are
+pinned on the command line rather than read from the box's git config, because
+the filter parses them.
+
+A lane that is 100% moves therefore runs no mutants at all: the gate writes and
+signs a receipt with `mutants_total: 0`, `verdict: "pass"` and `moved_lines: N`,
+and logs `mutants-all-moved:<tree>`. The count is what makes a zero-mutant
+receipt readable — it says why it is zero.
+
 ### The fence
 
 A verdict is invalidated by anything whose change could flip it, which is more
@@ -284,6 +311,12 @@ verdict winning, and every plan carries from it whenever the file blob and the
 package's test-set hash both still match — whichever lane measured them. Two
 lanes touching the same file at the same blob therefore measure it once
 between them.
+
+The carry key is the CONTENT, not the path: an outcome is looked up first by
+`<file>:<line>:<col>: <mutation>` and then by `<blob>:<line>:<col>:
+<mutation>`, so a file that only moved carries every one of its verdicts. The
+fence still has to match, so a move INTO another package — where different
+tests constrain it — is re-measured.
 
 The receipt stays the per-tip proof a merge consumes; the store is only the
 cache. `gate gc --apply` prunes entries older than 30 days or naming a blob the

@@ -78,22 +78,30 @@ func RunMutantsJob(jobPath string) int {
 		appendGateLog("mutants", logToken(j.Repo), "mutants", "mutants-nothing-to-do", 0)
 		return 0
 	}
-	if len(plan) == 0 {
+	// Move-aware: git's own move detection decides which changed lines are
+	// only relocated code, and those never reach the runner.
+	laneDiff, movedLines := moveAwareDiff(j.RepoRoot, j.BaseSHA, j.Tip, plan)
+	if len(plan) == 0 || !diffHasHunks(laneDiff) {
 		// The cache answers for every file this lane touched. Measuring
 		// nothing is the whole point of the cache — and with no files to
 		// scope it to, `git diff BASE TIP --` would be the FULL lane diff,
 		// so the run would re-measure exactly what was just excluded.
-		writeCarriedReceipt(j, append(append([]MutantOutcome{}, carried...), judged...))
-		appendGateLog("mutants", logToken(j.Repo), "mutants", "mutants-fully-carried:"+short(j.TipTree), 0)
-		logf(log, "aphrollo: every file in this lane was already measured; receipt written from the cache")
+		r := writeCarriedReceipt(j, append(append([]MutantOutcome{}, carried...), judged...), movedLines)
+		verdict := "mutants-fully-carried:" + short(j.TipTree)
+		if movedLines > 0 && r.MutantsTotal == 0 {
+			verdict = "mutants-all-moved:" + short(j.TipTree)
+		}
+		appendGateLog("mutants", logToken(j.Repo), "mutants", verdict, 0)
+		logf(log, "aphrollo: nothing left to measure in this lane (%d moved line(s), %d outcome(s) carried); receipt written",
+			movedLines, r.MutantsTotal)
 		return 0
 	}
-	if err := writeLaneDiff(j, plan); err != nil {
+	if err := os.WriteFile(j.Diff, []byte(laneDiff), 0o600); err != nil {
 		logf(log, "aphrollo: could not write the lane diff: %v", err)
 		return 0
 	}
-	logf(log, "aphrollo: %d file(s) to measure, %d carried from the previous run, %d already judged by an interrupted attempt",
-		len(plan), len(carried), len(judged))
+	logf(log, "aphrollo: %d file(s) to measure, %d carried, %d already judged by an interrupted attempt, %d moved line(s) skipped",
+		len(plan), len(carried), len(judged), movedLines)
 
 	start := time.Now()
 	code := mutantsProducerFn(j, judged)
@@ -200,20 +208,6 @@ func scopeMutantsRun(j MutantsJob) (files []string, carried []MutantOutcome) {
 	// in the repo, and mutants_total stopped describing the commit.
 	carried = PlanMutants(laneWants(cached, lane), now, cached).Carry
 	return files, carried
-}
-
-// writeLaneDiff writes the reduced diff the run is scoped to: the lane's own
-// changes, restricted to the files the plan says still have to be measured.
-func writeLaneDiff(j MutantsJob, files []string) error {
-	if j.Diff == "" {
-		return errors.New("job names no diff file")
-	}
-	args := append([]string{"diff", j.BaseSHA, j.Tip, "--"}, files...)
-	out, err := git(j.RepoRoot, args...)
-	if err != nil {
-		return errors.New(strings.TrimSpace(out))
-	}
-	return os.WriteFile(j.Diff, []byte(out), 0o600)
 }
 
 // mutantsProducerFn is the producer, a seam so a run's own decisions can be
@@ -336,21 +330,24 @@ func adoptCarriedOutcomes(j MutantsJob, carried []MutantOutcome) {
 	writeReceiptFile(path, r)
 }
 
-// writeCarriedReceipt is the receipt for a run that measured nothing because
-// the cache already answered for every file the lane touched. It is the same
-// document a measured run writes, signed the same way: a merge reads one
-// shape, whatever produced it.
-func writeCarriedReceipt(j MutantsJob, carried []MutantOutcome) {
+// writeCarriedReceipt is the receipt for a run that measured nothing: either
+// the cache already answered for every file the lane touched, or every line
+// the lane changed was one git judged to have MOVED. It is the same document a
+// measured run writes, signed the same way — a merge reads one shape, whatever
+// produced it — and it records the moved-line count, so a zero-mutant receipt
+// says why it is zero.
+func writeCarriedReceipt(j MutantsJob, carried []MutantOutcome, movedLines int) MutationReceipt {
 	path := MutationReceiptPathFor(j.TipTree)
 	if path == "" {
-		return
+		return MutationReceipt{}
 	}
 	r := MutationReceipt{
 		Repo: j.Repo, Branch: j.Branch, TipTree: j.TipTree,
 		BaseRef: j.BaseRef, BaseSHA: j.BaseSHA,
 		Verdict: receiptVerdictPass, FinishedAt: time.Now().UTC(),
-		Outcomes: carried,
-		Files:    map[string]string{}, Fences: map[string]string{},
+		Outcomes:   carried,
+		MovedLines: movedLines,
+		Files:      map[string]string{}, Fences: map[string]string{},
 	}
 	for _, m := range carried {
 		if m.Blob != "" {
@@ -363,6 +360,7 @@ func writeCarriedReceipt(j MutantsJob, carried []MutantOutcome) {
 	recountReceipt(&r)
 	signReceipt(&r)
 	writeReceiptFile(path, r)
+	return r
 }
 
 // recountReceipt derives every count and every survivor list from the merged

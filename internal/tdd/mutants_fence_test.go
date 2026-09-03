@@ -124,3 +124,54 @@ func TestScopeCarry_IsLimitedToTheLanesOwnFiles(t *testing.T) {
 		t.Fatalf("carry candidates = %+v, want only the lane's own file", got)
 	}
 }
+
+// A file that MOVED is the same content at a new path, and its verdicts are
+// facts about that content. Keyed on the path, every one of them was thrown
+// away by a rename — the most expensive possible re-measure for the least
+// possible change.
+func TestPlanMutants_CarriesAnOutcomeAcrossARename(t *testing.T) {
+	measured := MutantOutcome{File: "crates/a/src/old_name.rs", Line: 12, Col: 5,
+		Mutation: "replace > with >= in f", Package: "crates/a",
+		Blob: "sameblob", Fence: "samefence", Status: "caught"}
+	cached := cachedOutcomes([]MutantOutcome{measured})
+
+	// The same mutant, now listed under the file's new path.
+	want := MutantOutcome{File: "crates/a/src/new_name.rs", Line: 12, Col: 5,
+		Mutation: "replace > with >= in f", Package: "crates/a"}
+	now := TreeState{
+		Blobs:    map[string]string{"crates/a/src/new_name.rs": "sameblob"},
+		Packages: map[string]string{"crates/a/src/new_name.rs": "crates/a"},
+		Fences:   map[string]string{"crates/a": "samefence"},
+	}
+
+	plan := PlanMutants([]MutantOutcome{want}, now, cached)
+	if len(plan.Run) != 0 {
+		t.Fatalf("Run = %+v, want the renamed file's verdict reused", plan.Run)
+	}
+	if len(plan.Carry) != 1 || plan.Carry[0].Status != "caught" {
+		t.Fatalf("Carry = %+v, want the measured verdict", plan.Carry)
+	}
+	if plan.Carry[0].File != "crates/a/src/new_name.rs" {
+		t.Fatalf("carried outcome names %q, want the file's CURRENT path", plan.Carry[0].File)
+	}
+}
+
+// Same content, different fence — the crate it landed in has other tests — is
+// not a carry: the code that catches it is not the code that caught it.
+func TestPlanMutants_DoesNotCarryAcrossAMoveIntoAnotherPackage(t *testing.T) {
+	cached := cachedOutcomes([]MutantOutcome{{File: "crates/a/src/x.rs", Line: 12, Col: 5,
+		Mutation: "replace > with >= in f", Package: "crates/a",
+		Blob: "sameblob", Fence: "fence-a", Status: "caught"}})
+
+	want := MutantOutcome{File: "crates/b/src/x.rs", Line: 12, Col: 5,
+		Mutation: "replace > with >= in f", Package: "crates/b"}
+	now := TreeState{
+		Blobs:    map[string]string{"crates/b/src/x.rs": "sameblob"},
+		Packages: map[string]string{"crates/b/src/x.rs": "crates/b"},
+		Fences:   map[string]string{"crates/b": "fence-b"},
+	}
+
+	if plan := PlanMutants([]MutantOutcome{want}, now, cached); len(plan.Carry) != 0 {
+		t.Fatalf("Carry = %+v, want a move into a differently fenced package re-measured", plan.Carry)
+	}
+}

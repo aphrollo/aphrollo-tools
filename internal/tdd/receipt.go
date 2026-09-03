@@ -32,11 +32,16 @@ type MutationReceipt struct {
 	// name is not a base: `origin/main` moves, and a receipt measured against
 	// yesterday's origin/main mutated different lines than the merge is
 	// landing. Empty means an older producer wrote the receipt.
-	BaseSHA      string `json:"base_sha"`
-	MutantsTotal int    `json:"mutants_total"`
-	Caught       int    `json:"caught"`
-	Timeout      int    `json:"timeout"`
-	Unviable     int    `json:"unviable"`
+	BaseSHA string `json:"base_sha"`
+	// MovedLines is how many diff lines git judged to be MOVED and this run
+	// therefore never mutated. A crate-topology lane moves code byte for
+	// byte, and mutating a moved line measures nothing; the count is here so
+	// a zero-mutant receipt says why it is zero.
+	MovedLines   int `json:"moved_lines,omitempty"`
+	MutantsTotal int `json:"mutants_total"`
+	Caught       int `json:"caught"`
+	Timeout      int `json:"timeout"`
+	Unviable     int `json:"unviable"`
 	// Survivors and Unaccepted are LISTS of mutants, as the producer writes
 	// them — the count is len(). Declaring survivors an int is what made
 	// every merge die on "cannot unmarshal array into Go struct field"; then
