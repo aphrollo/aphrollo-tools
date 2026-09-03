@@ -70,6 +70,40 @@ func TestLoadDeferredJob_SweepsWhatNobodyWillReadAgain(t *testing.T) {
 	}
 }
 
+// TestSweepDeferredJobs_KillsALivePIDBeforeDroppingADayOldRecord pins the
+// crash backstop: a session that never fired EndSession (killed terminal,
+// crash) leaves nothing to reap its own job, and no later hook will ever
+// read a record keyed to a session that is gone. The 24h sweep is the only
+// thing left that will ever see it — so it must kill the PID the record
+// still names, not just delete the evidence of it.
+func TestSweepDeferredJobs_KillsALivePIDBeforeDroppingADayOldRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := filepath.Join(t.TempDir(), "crashed-lane")
+	saveDeferredJob(DeferredJob{
+		Project: root, Session: "sess-crashed", Phase: "run", PID: 9009,
+		Started: time.Now().Add(-30 * time.Hour),
+	})
+	path := deferredJobPath("sess-crashed", root)
+	old := time.Now().Add(-30 * time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	var killed []int
+	prev := killDeferredFn
+	killDeferredFn = func(j DeferredJob) { killed = append(killed, j.PID) }
+	t.Cleanup(func() { killDeferredFn = prev })
+
+	sweepDeferredJobs(time.Now())
+
+	if len(killed) != 1 || killed[0] != 9009 {
+		t.Fatalf("killed = %v, want exactly [9009]", killed)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("the day-old record must still be dropped (stat err = %v)", err)
+	}
+}
+
 // The manual sweep reports them too, so an operator sees where the files went
 // rather than finding a directory that quietly empties itself.
 func TestScanGC_ProposesADayOldDeferredRecord(t *testing.T) {

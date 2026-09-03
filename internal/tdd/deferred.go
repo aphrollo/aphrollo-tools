@@ -21,8 +21,9 @@ import (
 // detached phase runs under `aphrollo tdd runphase`, a wrapper that holds
 // the build slot, writes the output to a log and — this is what makes
 // liveness knowable — writes a RESULT file when it finishes. The next hook
-// finds the job by PROJECT (sessions come and go; the build outlives them),
-// and reports it.
+// finds the job by SESSION AND PROJECT (deferredJobPath's own doc comment
+// says why: two sessions standing in the same repo must never read each
+// other's job), and reports it.
 //
 // Two rules keep this honest: a healthy build is never killed (a new edit to
 // the same project marks the job DIRTY, so the harvest knows to rebuild for

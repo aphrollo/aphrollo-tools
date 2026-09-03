@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -318,6 +319,52 @@ func killDeferred(j DeferredJob) {
 // killTreeFn is the process-tree kill seam, so a test can prove the whole
 // tree is targeted without spawning one.
 var killTreeFn = killTree
+
+// reapSessionDeferredJobs ends every deferred phase the given session
+// started, across every project it touched, and drops their records.
+// EndSession calls this before it drops the session's own state file: a job
+// is keyed session+project, so loadDeferredJob is only ever looked up again
+// by the SAME session's own next hook (harvestDeferred, promptHarvest) — and
+// a session that just ended will not fire another hook. Left alone, a job
+// still running at that point would run forever, holding its target lock
+// and a build slot with nothing left to ever harvest or kill it (the same
+// gap the 24h file-age sweep does not close: it deletes the evidence, never
+// the process). Best-effort like killDeferred itself: a job whose wrapper
+// already finished is killed too rather than paying to parse its result
+// first — the process is already gone, so the call is a harmless no-op.
+func reapSessionDeferredJobs(session string) int {
+	session = strings.TrimSpace(session)
+	if session == "" {
+		return 0
+	}
+	dir := deferredDirPath()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	suffix := "-" + sessionKey(session) + ".json"
+	reaped := 0
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, suffix) {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			continue
+		}
+		j, ok := decodeJob(data)
+		if !ok || j.Session != session {
+			continue
+		}
+		if j.PID > 0 {
+			killDeferredFn(j)
+		}
+		clearDeferredJob(j.Session, j.Project)
+		reaped++
+	}
+	return reaped
+}
 
 // headSHAFor is the current commit of root's repo, "" outside a repo — the
 // first half of "does this result describe the code on disk now".

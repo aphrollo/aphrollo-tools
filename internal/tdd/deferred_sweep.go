@@ -3,6 +3,7 @@ package tdd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -13,6 +14,12 @@ import (
 // The ceiling on a running job is deferredMaxEnv (600s default), so a file a
 // day old belongs to a job that finished, was abandoned, or died with the
 // session that started it.
+//
+// This sweep and its PID kill never touch a mutation job (mutants_job.go):
+// those are a separate mechanism with their own file set in a different
+// state subdirectory, legitimately hours long by design with no ceiling
+// here to misapply. A deferred build/run phase is the one this file reaps,
+// and it is the one explicitly documented as short (600s).
 
 // deferredJobMaxAge is when a deferred job's files stop being evidence. Well
 // past any real build, and past the deferral ceiling by two orders of
@@ -35,9 +42,16 @@ func sweepDeferredJobsOnce() {
 func resetDeferredSweepForTest() { deferredSweepOnce = sync.Once{} }
 
 // sweepDeferredJobs removes every deferred-job file last touched more than
-// deferredJobMaxAge ago. Best-effort in both directions: a file it cannot
-// stat is left alone, and a delete that fails is not an error anyone can act
-// on -- the next sweep tries again.
+// deferredJobMaxAge ago. Before it drops a job RECORD (not its log or result)
+// it makes a best-effort attempt to kill whatever PID it still names: this is
+// the backstop for a session that never fired EndSession at all (a crash, a
+// killed terminal) — reapSessionDeferredJobs handles the graceful exit, but
+// nothing calls it when there was no exit to hook. A record this old belongs
+// to a phase long past deferredMax regardless, so killing it costs nothing a
+// healthy build could lose. Best-effort in every direction: a file it cannot
+// stat is left alone, an unreadable or undecodable record is skipped rather
+// than killed, and a delete that fails is not an error anyone can act on --
+// the next sweep tries again.
 func sweepDeferredJobs(now time.Time) int {
 	dir := deferredDirPath()
 	entries, err := os.ReadDir(dir)
@@ -53,11 +67,31 @@ func sweepDeferredJobs(now time.Time) int {
 		if err != nil || now.Sub(info.ModTime()) <= deferredJobMaxAge {
 			continue
 		}
-		if os.Remove(filepath.Join(dir, e.Name())) == nil {
+		name := e.Name()
+		path := filepath.Join(dir, name)
+		if strings.HasSuffix(name, ".json") && !strings.HasSuffix(name, ".result.json") {
+			killLivePID(path)
+		}
+		if os.Remove(path) == nil {
 			removed++
 		}
 	}
 	return removed
+}
+
+// killLivePID ends whatever process a day-old deferred-job record still
+// names, before the sweep deletes the record. A job record decodes to PID 0
+// when nothing was ever recorded as spawned; that is left alone.
+func killLivePID(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	j, ok := decodeJob(data)
+	if !ok || j.PID <= 0 {
+		return
+	}
+	killDeferredFn(j)
 }
 
 // deferredDirPath names the deferred dir WITHOUT creating it: a scan asks
