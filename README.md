@@ -1086,6 +1086,29 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   producing repo decides how it names a mutant — and only the first is quoted
   in the rejection, which also names the command that produces a receipt. It
   runs BEFORE any suite compiles.
+- **`mutants-local`** (bool, default `true`) — where the proof is MEASURED.
+  A Cargo repo has no runner that will do it, so the post-commit hook starts a
+  detached run on the box and the key can stay unwritten. A repo whose pipeline
+  can run the tool says `mutants-local = false` and the hook stops: a Go mutant
+  is judged by re-running its WHOLE package (26 s for `internal/tdd` on the
+  Linux runner against 207 s on a Windows box, times the 1626 mutants gremlins
+  finds in that one package), so which machine measures decides whether the
+  proof is affordable. Only an explicit `false` turns it off — a repo that has
+  said nothing keeps the behaviour it has.
+- **`mutation-accept`** (string array) — the survivors somebody signed off on,
+  each `"<file>:<line> <MUTATOR> # why it is acceptable"`. The reason is not
+  decoration: an entry without one is not an accepted survivor. This is the
+  list `aphrollo gate mutants go --diff <base>` judges against.
+- **`aphrollo gate mutants go --diff <base> [--receipt <path>]`** is the CI
+  half of the Go runner: it runs gremlins over `<base>..HEAD` in the current
+  checkout, writes and signs the same receipt a local run writes, and EXITS
+  NON-ZERO on a survivor the accept-list does not carry. gremlins' own exit
+  code is not the verdict — it fails a run that misses its efficacy threshold,
+  which is a bar about the whole module, and the bar here is the accept-list.
+  Exit 2 is a bad invocation (no base: an unscoped run measures everything),
+  exit 1 is a failed check or a run that produced no report. The same verb with
+  `--job <file>` instead is the detached local run. aphrollo-tools runs it as
+  the required `mutants` check in `.github/workflows/pipeline.yml`.
 - **`docs-check`** (bool) — turns on the staged-markdown citation stage for a
   cargo workspace. A Go module is opted in by being one (aphrollo's own CI
   already runs the check), and any repo can opt in with a `.aphrollo/docs-check`

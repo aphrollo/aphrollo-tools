@@ -97,10 +97,12 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   (`--apply` to write); `workspace` verbs **execute by default** (`--dry` to
   preview). `dev` acts now with no dry-run at all. Don't re-invert `workspace`
   back to `--apply`-opt-in — that opt-in is legacy.
-- Don't re-port what was deliberately dropped: **mutation testing** (the
-  documented FP/non-determinism offender), the SessionStart full-suite baseline,
-  or `/gate allow-main` — the fail-first gate covers the ground without
-  the flakiness.
+- Don't re-port what was deliberately dropped: the SessionStart full-suite
+  baseline, or `/gate allow-main` — the fail-first gate covers the ground
+  without the flakiness. (Mutation testing came back, but on the terms that
+  answered the old FP/non-determinism objection: diff-scoped, judged against a
+  reason-carrying accept-list, and measured on the CI runner rather than the
+  box that is trying to edit code. See `aphrollo.toml` and the `mutants` job.)
 - Don't add a sudo wrapper or wildcard grant — the narrow exact-match systemctl
   fence is the whole security story.
 - Don't duplicate README usage here — this file is dev context only.

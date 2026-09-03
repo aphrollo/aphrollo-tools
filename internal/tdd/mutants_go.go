@@ -158,11 +158,48 @@ func runGremlins(j MutantsJob, outPath string, workers int) int {
 	return 0
 }
 
-// writeGoMutantsReceipt renders one run into the receipt every merge reads,
-// and signs it. The verdict is "pass" whatever the numbers say: the runner
-// reports and the merge gate judges — a runner that decided its own verdict
-// would be marking its own homework.
+// runCommandIn runs one command in dir with this process's own output, and
+// reports its exit code. It is the CI half's spawn: no detached job's env, no
+// log files — the workflow's own log is where the tool's output belongs.
+func runCommandIn(dir, bin string, args []string) int {
+	cmd := exec.Command(bin, args...)
+	cmd.Dir = dir
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return ee.ExitCode()
+		}
+		logf(os.Stdout, "aphrollo: %v", err)
+		return 1
+	}
+	return 0
+}
+
+// goMutantsRun is what a receipt needs to name the run it describes, whether
+// that run was the detached local job or the pull request's own.
+type goMutantsRun struct {
+	Repo, Branch, TipTree, BaseRef, BaseSHA, Worktree string
+}
+
+// writeGoMutantsReceipt renders one detached run into the receipt every merge
+// reads, and writes it to the machine's receipt store.
 func writeGoMutantsReceipt(j MutantsJob, mutants []MutantOutcome, now TreeState) {
+	r := goMutantsReceipt(goMutantsRun{
+		Repo: j.Repo, Branch: j.Branch, TipTree: j.TipTree,
+		BaseRef: j.BaseRef, BaseSHA: j.BaseSHA, Worktree: j.Worktree,
+	}, mutants, now)
+	if path := MutationReceiptPathFor(j.TipTree); path != "" {
+		writeReceiptFile(path, r)
+	}
+}
+
+// goMutantsReceipt renders one run into the receipt every merge reads, and
+// signs it. The verdict is "pass" whatever the numbers say: the runner
+// reports and the merge gate judges — a runner that decided its own verdict
+// would be marking its own homework. It also fills in each mutant's package,
+// blob and fence in place, which is what the store carries forward.
+func goMutantsReceipt(j goMutantsRun, mutants []MutantOutcome, now TreeState) MutationReceipt {
 	r := MutationReceipt{
 		Repo: j.Repo, Branch: j.Branch, TipTree: j.TipTree,
 		BaseRef: j.BaseRef, BaseSHA: j.BaseSHA,
@@ -203,9 +240,7 @@ func writeGoMutantsReceipt(j MutantsJob, mutants []MutantOutcome, now TreeState)
 	}
 	r.WorktreeDirty = worktreeDirty(j.Worktree)
 	signReceipt(&r)
-	if path := MutationReceiptPathFor(j.TipTree); path != "" {
-		writeReceiptFile(path, r)
-	}
+	return r
 }
 
 // worktreeDirty reports whether TRACKED files in the worktree differ from the

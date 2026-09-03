@@ -132,6 +132,33 @@ func TestStartMutantsJob_OptsInThroughAphrolloToml(t *testing.T) {
 	}
 }
 
+// A Go mutant is judged by re-running its whole package: 26 s on the Linux
+// runner and 207 s on a Windows box for internal/tdd alone, and the analysis
+// pass counts 1626 mutants in that one package. A repo whose pipeline runs the
+// proof on a runner must therefore not ALSO start a detached run on the
+// developer's box. The opt-out sits beside the opt-in it qualifies, and only
+// an explicit `false` turns the local run off — every repo that has not said
+// anything keeps the behaviour it has.
+func TestStartMutantsJob_SkipsTheLocalRunWhenTheRepoRunsMutationInCI(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var started []MutantsJob
+	fakeSpawn(t, &started)
+	withFreeSpace(t, 200)
+	root := makeGoRepo(t)
+	write(t, root, "aphrollo.toml", "[aphrollo]\nmutation-receipt = true\nmutants-local = false\n")
+	gitDo(t, root, "checkout", "-q", "-b", "lane/x")
+	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
+	gitDo(t, root, "add", "-A")
+	gitDo(t, root, "commit", "-qm", "lane work")
+
+	if _, ok := StartMutantsJob(root); ok {
+		t.Fatal("a repo whose mutation runs in CI must not start a local run")
+	}
+	if len(started) != 0 {
+		t.Fatalf("spawned %d local run(s) anyway", len(started))
+	}
+}
+
 // One warm worktree per repo, beside the lane worktrees and never inside the
 // checkout: the run needs a tree at the tip with its own persistent target
 // dir, and a fresh copy per run is the cold build this whole design removes.

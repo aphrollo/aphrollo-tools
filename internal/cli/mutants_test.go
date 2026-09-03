@@ -46,6 +46,38 @@ func TestMutantsRun_ExitsCleanWithoutAJobFile(t *testing.T) {
 	}
 }
 
+// `gate mutants go` has two callers with two addressing modes: the detached
+// local job names a job FILE, and CI names the merge base its diff is scoped
+// to. Without gremlins installed the CI form still has to reach the runner and
+// come back non-zero — a check that exits 0 because the tool is missing is the
+// one failure mode a mutation gate cannot have.
+// The two exit codes are different answers and CI reads them as such: 2 is
+// "you invoked it wrong", 1 is "the check failed".
+func TestMutantsGo_DiffModeReachesTheRunnerAndFailsHavingMeasuredNothing(t *testing.T) {
+	gateConfigDir(t)
+	var out, errb bytes.Buffer
+	code := Run([]string{"gate", "mutants", "go", "--diff", "abc123"},
+		strings.NewReader(""), &out, &errb)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 — the flag must be accepted and the check must fail having measured nothing\nstdout: %s\nstderr: %s",
+			code, out.String(), errb.String())
+	}
+}
+
+// The base is not optional and has no default: an unscoped run measures the
+// whole module.
+func TestMutantsGo_DiffModeRefusesAnEmptyBase(t *testing.T) {
+	gateConfigDir(t)
+	var out, errb bytes.Buffer
+	code := Run([]string{"gate", "mutants", "go", "--diff", ""}, strings.NewReader(""), &out, &errb)
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 — an empty base is a bad invocation, not a failed check", code)
+	}
+	if !strings.Contains(errb.String(), "merge base") {
+		t.Fatalf("stderr = %q, want it to say the merge base is what is missing", errb.String())
+	}
+}
+
 // A verb this binary does not have must say so rather than silently doing
 // nothing — a mistyped subcommand that exits 0 is a hook that never ran.
 func TestMutants_RejectsAnUnknownVerb(t *testing.T) {
