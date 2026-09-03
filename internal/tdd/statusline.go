@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 )
 
@@ -21,20 +23,31 @@ type statusLineInput struct {
 	Cwd       string `json:"cwd"`
 }
 
-// Badge colours: green for an armed gate, gray for one a session turned off,
-// and a distinct colour for each suffix so the state reads without the word.
+// The BADGE carries the state, in its own colour: green armed, red for a
+// standing failure, yellow while something this session started is still
+// running, gray for a gate the session turned off. A word is added only where
+// the colour alone is ambiguous -- yellow has three causes, so it names which;
+// red has one, so it says nothing. A word the colour already carries is a word
+// a session stops reading.
 const (
-	ansiReset    = "\x1b[0m"
-	ansiGreen    = "\x1b[32m"
-	ansiGray     = "\x1b[90m"
-	ansiRed      = "\x1b[31m"
-	ansiYellow   = "\x1b[33m"
-	badgeOn      = "[aphrollo]"
-	badgeOff     = "[aphrollo:off]"
-	suffixRed    = "red"
-	suffixDefer  = "deferred"
-	suffixQueued = "queued"
+	ansiReset     = "\x1b[0m"
+	ansiGreen     = "\x1b[32m"
+	ansiGray      = "\x1b[90m"
+	ansiRed       = "\x1b[31m"
+	ansiYellow    = "\x1b[33m"
+	badgeOn       = "[aphrollo]"
+	badgeOff      = "[aphrollo:off]"
+	suffixDefer   = "deferred"
+	suffixQueued  = "queued"
+	suffixMutants = "mutants"
 )
+
+// redGoesStaleAfter bounds how long a recorded red may speak for the tree with
+// nothing after it. The badge is a real-time signal or it is noise: a red from
+// an hour ago describes code the session has long since moved past, and one
+// false red teaches a reader to ignore the true one. Nothing is rendered in
+// its place -- a `stale` word would be the same false claim, spelled longer.
+const redGoesStaleAfter = 30 * time.Minute
 
 // StatusLine renders the one-line badge for a statusline payload. It never
 // fails: it runs on every prompt render and has nowhere to report an error, so
@@ -47,45 +60,127 @@ func StatusLine(raw []byte) string {
 	if s, _ := loadSession(in.SessionID); s != nil && s.Overrides.Off {
 		return ansiGray + badgeOff + ansiReset
 	}
-	badge := ansiGreen + badgeOn + ansiReset
-	colour, suffix := statusSuffix(in.SessionID, in.Cwd)
+	colour, suffix := statusState(in.SessionID, in.Cwd)
+	badge := colour + badgeOn + ansiReset
 	if suffix == "" {
 		return badge
 	}
 	return badge + " " + colour + suffix + ansiReset
 }
 
-// statusSuffix is the ONE extra word the badge may carry, in the order a
-// session needs to act on it: a red suite is work to do now, a running
-// deferred build is work to wait for, and a queued run is a suite that never
-// ran at all. Everything else renders nothing.
-func statusSuffix(session, cwd string) (colour, suffix string) {
+// statusState is the badge's colour and, where the colour is ambiguous, its
+// one word -- in the order a session needs to act on them: a standing red is
+// work to do now, a running job is work to wait for, and a queued run is a
+// suite that never ran at all.
+func statusState(session, cwd string) (colour, suffix string) {
 	root := findRootFrom(cwd)
 	if root == "" {
-		return "", ""
+		return ansiGreen, ""
 	}
-	if lastOutcomeIsRed(session, root) {
-		return ansiRed, suffixRed
+	now := time.Now()
+	if redStands(session, root, now) {
+		return ansiRed, ""
 	}
-	if deferredBuildRunning(session, root, time.Now()) {
+	if deferredBuildRunning(session, root, now) {
 		return ansiYellow, suffixDefer
+	}
+	if mutantsRunning(session, root) {
+		return ansiYellow, suffixMutants
 	}
 	if lastRunQueued(root) {
 		return ansiYellow, suffixQueued
 	}
-	return "", ""
+	return ansiGreen, ""
 }
 
-// lastOutcomeIsRed reads the session's recorded outcome for THIS project. A
-// red left in another repo earlier in the session is not this repo's state, so
-// the lookup is keyed on the root the session is standing in.
-func lastOutcomeIsRed(session, root string) bool {
+// redStands reports whether the session's recorded red for THIS project is
+// still the truth about the tree. Three things retire it, and the badge reads
+// state the hooks already wrote rather than running anything itself:
+//
+//   - a red in another repo is not this repo's state, so the lookup is keyed
+//     on the root the session is standing in;
+//   - ANY green outcome logged for this project at or after the red clears it,
+//     whatever stage produced it -- a fix that lands through a commit is
+//     proven by the commit gate, and waiting for the next post-edit run to
+//     believe it leaves the badge lying for as long as the session keeps
+//     committing;
+//   - a red past redGoesStaleAfter with nothing after it speaks for a tree
+//     nobody has measured recently, and is dropped.
+func redStands(session, root string, now time.Time) bool {
 	s, _ := loadSession(session)
 	if s == nil {
 		return false
 	}
 	ps, ok := s.ByProject[root]
-	return ok && Outcome(ps.Outcome).IsRed()
+	if !ok || !Outcome(ps.Outcome).IsRed() {
+		return false
+	}
+	at, err := time.Parse(time.RFC3339, ps.TS)
+	if err != nil || now.Sub(at) > redGoesStaleAfter {
+		return false
+	}
+	return !greenLoggedSince(root, at)
+}
+
+// greenLoggedSince reports whether any gate stage logged a green outcome for
+// this project at or after `at`. The gate log is the one record every stage
+// writes -- post-edit, pre-commit, pre-merge-commit and the post-Bash harvest
+// alike -- so reading it is how the badge sees a green it was not present for.
+// `at` is inclusive: the log stamps whole seconds, and a commit gate that
+// cleared a red within the same second still cleared it.
+func greenLoggedSince(root string, at time.Time) bool {
+	dir := stateDir()
+	if dir == "" {
+		return false
+	}
+	f, err := os.Open(filepath.Join(dir, "gate.log"))
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		e, ok := parseGateLine(sc.Text())
+		if !ok || e.at.Before(at) || !sameProject(e.root, root) {
+			continue
+		}
+		if strings.HasPrefix(e.verdict, "green") {
+			return true
+		}
+	}
+	return false
+}
+
+// sameProject matches a gate-log root against the root the badge is rendering
+// for. A stage logs the root it RAN in, which for a cargo workspace member is
+// a directory inside the project, so a nested root counts as this project.
+func sameProject(logged, root string) bool {
+	logged, root = filepath.Clean(logged), filepath.Clean(root)
+	if runtime.GOOS == "windows" {
+		logged, root = strings.ToLower(logged), strings.ToLower(root)
+	}
+	if logged == root {
+		return true
+	}
+	return strings.HasPrefix(logged, root+string(filepath.Separator))
+}
+
+// mutantsRunning reports whether a cargo-mutants run this session started is
+// still holding this project's target dir. The build-slot owner record is the
+// live evidence -- it is written when the slot is taken and removed when it is
+// released -- so the badge learns about a job that outlives the hook that
+// launched it without probing a pid. A record naming a DIFFERENT session is
+// another session's work and not this badge's business.
+func mutantsRunning(session, root string) bool {
+	o, ok := ReadBuildSlotOwner(resolveTargetDir(os.Getenv, root))
+	if !ok {
+		return false
+	}
+	if o.SessionID != "" && session != "" && o.SessionID != session {
+		return false
+	}
+	return strings.Contains(strings.ToLower(o.Cmd), "mutants")
 }
 
 // deferredBuildRunning reports whether THIS session's detached phase for root

@@ -80,16 +80,106 @@ func TestStatusLine_ColoursGreenWhenOnAndGrayWhenOff(t *testing.T) {
 
 // TestStatusLine_ReportsTheLastRedOutcomeForThisProject surfaces the fact a
 // session most often loses across a compaction: the last edit left the suite
-// red and nothing on screen says so.
+// red and nothing on screen says so. The badge itself carries it, in colour.
 func TestStatusLine_ReportsTheLastRedOutcomeForThisProject(t *testing.T) {
 	root := statusRoot(t)
-	s, path := loadSession("s1")
-	s.stamp(root, projectState{Outcome: string(Red), FailingTests: []string{"TestX"}})
+	stampOutcomeAt(t, "s1", root, string(Red), time.Now())
+
+	got := StatusLine(statusPayload(t, "s1", root))
+	if !strings.HasPrefix(got, ansiRed) {
+		t.Fatalf("a red outcome must colour the badge red, got %q", got)
+	}
+	if plain(got) != "[aphrollo]" {
+		t.Fatalf("StatusLine = %q, want the bare badge in red", plain(got))
+	}
+}
+
+// TestStatusLine_CarriesNoRedWord is the rule the colour exists to serve: the
+// state is a colour, not a word a session has to read and re-read. A `red`
+// suffix is what the badge used to print.
+func TestStatusLine_CarriesNoRedWord(t *testing.T) {
+	root := statusRoot(t)
+	stampOutcomeAt(t, "s1", root, string(Red), time.Now())
+
+	if got := plain(StatusLine(statusPayload(t, "s1", root))); strings.Contains(got, "red") {
+		t.Fatalf("StatusLine = %q, want no `red` word — the colour says it", got)
+	}
+}
+
+// TestStatusLine_APrecommitGreenAfterAPostEditRedRendersGreen is the stale-red
+// case a session hits every time a fix lands through a commit: the post-edit
+// hook recorded red, the commit gate then ran everything and passed, and a
+// badge that still reads red is reporting a failure that no longer exists.
+// ANY green outcome for this project clears it, from any stage.
+func TestStatusLine_APrecommitGreenAfterAPostEditRedRendersGreen(t *testing.T) {
+	root := statusRoot(t)
+	stampOutcomeAt(t, "s1", root, string(Red), time.Now().Add(-time.Minute))
+	appendGateLog("precommit", root, "cargo nextest run", "green", 12*time.Second)
+
+	got := StatusLine(statusPayload(t, "s1", root))
+	if !strings.HasPrefix(got, ansiGreen) {
+		t.Fatalf("a later green must clear the red, got %q", got)
+	}
+}
+
+// TestStatusLine_AGreenInAnotherProjectLeavesTheRedStanding keeps the clearing
+// rule as narrow as the red itself: another repo's green says nothing about
+// this one.
+func TestStatusLine_AGreenInAnotherProjectLeavesTheRedStanding(t *testing.T) {
+	root := statusRoot(t)
+	stampOutcomeAt(t, "s1", root, string(Red), time.Now().Add(-time.Minute))
+	appendGateLog("precommit", filepath.Join(t.TempDir(), "other"), "cargo nextest run", "green", time.Second)
+
+	if got := StatusLine(statusPayload(t, "s1", root)); !strings.HasPrefix(got, ansiRed) {
+		t.Fatalf("StatusLine = %q, want the red to stand", got)
+	}
+}
+
+// TestStatusLine_ARedOlderThanTheWindowRendersGreen states the other half of
+// "real-time or nothing": an hour-old red with nothing after it describes a
+// tree the session has moved far past, and a badge nobody trusts is worse than
+// no badge. The age is written out rather than derived from the constant the
+// subject reads, so widening the window fails this test instead of moving it.
+func TestStatusLine_ARedOlderThanTheWindowRendersGreen(t *testing.T) {
+	root := statusRoot(t)
+	stampOutcomeAt(t, "s1", root, string(Red), time.Now().Add(-31*time.Minute))
+
+	got := StatusLine(statusPayload(t, "s1", root))
+	if !strings.HasPrefix(got, ansiGreen) {
+		t.Fatalf("a red past the window must render green, got %q", got)
+	}
+	if plain(got) != "[aphrollo]" {
+		t.Fatalf("StatusLine = %q, want the plain badge — a stale red says nothing", plain(got))
+	}
+}
+
+// TestStatusLine_ARunningMutantsJobRendersYellow answers the question a
+// session asks while the mutation gate chews through a tree copy: is that job
+// still alive, or did it die and leave the box quiet?
+func TestStatusLine_ARunningMutantsJobRendersYellow(t *testing.T) {
+	root := statusRoot(t)
+	defer SetLockDirForTest(t.TempDir())()
+	t.Setenv("CLAUDE_SESSION_ID", "s1")
+	writeBuildLockOwnerAt(ReadBuildSlotOwnerPath(resolveTargetDir(os.Getenv, root)),
+		"cargo mutants --in-place", root)
+
+	got := StatusLine(statusPayload(t, "s1", root))
+	if !strings.HasPrefix(got, ansiYellow) {
+		t.Fatalf("a running mutants job must render yellow, got %q", got)
+	}
+	if plain(got) != "[aphrollo] mutants" {
+		t.Fatalf("StatusLine = %q, want the yellow badge named", plain(got))
+	}
+}
+
+// stampOutcomeAt records an outcome for root at a chosen time, which is what
+// a staleness rule needs and `stamp` (always now) cannot give.
+func stampOutcomeAt(t *testing.T, session, root, outcome string, at time.Time) {
+	t.Helper()
+	s, path := loadSession(session)
+	s.ByProject[root] = projectState{Outcome: outcome, TS: at.UTC().Format(time.RFC3339)}
 	if err := s.save(path); err != nil {
 		t.Fatal(err)
-	}
-	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo] red" {
-		t.Fatalf("StatusLine = %q, want %q", got, "[aphrollo] red")
 	}
 }
 
