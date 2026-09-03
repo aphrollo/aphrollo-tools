@@ -23,11 +23,9 @@ import (
 // the receipt being written by ANYTHING OTHER than a run — which is exactly
 // the failure that happened.
 //
-// The tolerance is deliberate and temporary: a receipt with NO mac is still
-// accepted, and counted (`receipt-unsigned`), because refusing them would
-// break every lane on the day this ships, before the consuming repos' own
-// runners sign. A receipt whose MAC does NOT verify is refused outright —
-// "not measured" and "measured and then edited" are different claims.
+// A receipt with no mac at all is refused the same as one whose MAC does not
+// verify: "not measured" and "measured and then edited" are different
+// claims, but neither is a run's own signature.
 
 // receiptKeyName is the per-machine signing secret, beside the receipts it
 // signs.
@@ -179,8 +177,8 @@ func verifyReceiptMAC(data []byte, repo, tipTree string) *GateResult {
 		return nil // the caller's own decode reports an unreadable receipt
 	}
 	if probe.MAC == "" {
-		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-unsigned", 0)
-		return nil
+		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-forged", 0)
+		return &GateResult{Blocked: true, Message: "gate: receipt not written by the runner (unsigned)"}
 	}
 	key, err := receiptKey()
 	if err != nil {

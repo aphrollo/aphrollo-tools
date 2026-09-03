@@ -327,6 +327,12 @@ func adoptCarriedOutcomes(j MutantsJob, carried []MutantOutcome) {
 		}
 	}
 	recountReceipt(&r)
+	// The producer already signed r before this ran; the merge just changed
+	// its body, which leaves the old mac describing outcomes that are no
+	// longer there. Re-signed here, the same way a carried receipt written
+	// elsewhere (writeCarriedReceipt) already is — an unsigned or stale-MAC
+	// receipt is refused at merge exactly the same as a hand-written one.
+	signReceipt(&r)
 	writeReceiptFile(path, r)
 }
 

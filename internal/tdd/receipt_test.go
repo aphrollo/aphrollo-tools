@@ -1,8 +1,6 @@
 package tdd
 
 import (
-	"encoding/json"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,20 +10,29 @@ import (
 const laneTip = "1111111111111111111111111111111111111111"
 
 // writeReceipt drops a mutation receipt in the state dir, under the name the
-// tree it describes gives it.
+// tree it describes gives it. It signs the receipt first when the caller left
+// no MAC of its own: every caller here is fixturing a receipt a RUN would
+// have written (signed), not testing signing itself — a caller that wants an
+// unsigned or forged one sets r.MAC before calling this, or writes the file
+// directly (writeUnsignedReceipt).
 func writeReceipt(t *testing.T, r MutationReceipt) {
 	t.Helper()
-	data, err := json.Marshal(r)
-	if err != nil {
-		t.Fatal(err)
+	if r.MAC == "" {
+		signReceipt(&r)
 	}
-	path := MutationReceiptPathFor(r.TipTree)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeReceiptFile(mutationReceiptTestPath(r.TipTree), r)
+}
+
+// writeUnsignedReceipt drops a receipt with NO mac at all, for the tests that
+// are specifically about that case.
+func writeUnsignedReceipt(t *testing.T, r MutationReceipt) {
+	t.Helper()
+	r.MAC = ""
+	writeReceiptFile(mutationReceiptTestPath(r.TipTree), r)
+}
+
+func mutationReceiptTestPath(tipTree string) string {
+	return MutationReceiptPathFor(tipTree)
 }
 
 func passingReceipt() MutationReceipt {
