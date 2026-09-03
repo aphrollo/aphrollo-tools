@@ -334,9 +334,16 @@ jobs:
       # this branch. Without this a one-file fix-round push re-measured the
       # WHOLE diff every time: six pushes on PR 138 cost six full ~10-minute
       # runs on this serial runner.
-      - name: Cache the mutation outcome store
+      #
+      # restore and save are SPLIT rather than the all-in-one `actions/cache`
+      # (issue #154): the composite's built-in post-job save never ran when the
+      # mutants step failed, and a failing run is exactly the one whose
+      # measurements the fix-up push wants — PR 150's second push re-measured
+      # from scratch. The explicit save below carries the same key and runs on
+      # always(), so a red run still leaves the next one something to reuse.
+      - name: Restore the mutation outcome store
         if: needs.changes.outputs.code == 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .mutants-store
           key: mutants-store-${{ github.head_ref }}-${{ github.run_id }}
@@ -351,6 +358,15 @@ jobs:
           base=$(git merge-base "$BASE_SHA" HEAD)
           echo "scoping the run to $base..HEAD"
           ./bin/aphrollo gate mutants go --diff "$base" --receipt mutation-receipt.json --store .mutants-store
+      - name: Save the mutation outcome store
+        # always(): a run that failed on unaccepted survivors still measured
+        # every mutant it reported, and the next push must not pay for them
+        # again. The run id in the key makes this a new entry every time.
+        if: ${{ always() && needs.changes.outputs.code == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .mutants-store
+          key: mutants-store-${{ github.head_ref }}-${{ github.run_id }}
       - name: Upload the receipt
         # always(): the receipt of a run that FAILED is the one somebody needs
         # to read, and it is written before the check decides.

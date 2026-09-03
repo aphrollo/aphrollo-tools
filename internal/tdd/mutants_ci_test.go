@@ -386,6 +386,56 @@ func TestPipeline_RunsTheMutationCheckOnPushesToMainOnly(t *testing.T) {
 	}
 }
 
+// The outcome store only pays for itself if it survives the run that most
+// wants to be carried forward: the one that FAILED. `actions/cache`'s built-in
+// post-job save did not fire on that shape (issue #154) and the next push
+// re-measured the whole diff, so the composite is split by hand — a restore
+// before the mutants step, an explicit save after it that runs `if: always()`,
+// both on the one key.
+func TestPipeline_SavesTheMutationStoreEvenWhenTheMutantsStepFails(t *testing.T) {
+	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
+	const storeKey = "mutants-store-${{ github.head_ref }}-${{ github.run_id }}"
+	restore, save := pipelineStep(wf, "actions/cache/restore@"), pipelineStep(wf, "actions/cache/save@")
+	if restore == "" {
+		t.Fatal("the mutants job must restore the outcome store with actions/cache/restore, not the all-in-one actions/cache")
+	}
+	if save == "" {
+		t.Fatal("the mutants job must save the outcome store with an explicit actions/cache/save step")
+	}
+	if !strings.Contains(save, "always()") {
+		t.Errorf("the save step must run `if: always()` — a failed mutants step is exactly the run whose measurements the next push wants:\n%s", save)
+	}
+	for what, block := range map[string]string{"restore": restore, "save": save} {
+		if !strings.Contains(block, storeKey) {
+			t.Errorf("the %s step must use the key %q, or the pair does not address one cache entry:\n%s", what, storeKey, block)
+		}
+	}
+	run := strings.Index(wf, "gate mutants go --diff")
+	if strings.Index(wf, restore) > run || strings.Index(wf, save) < run {
+		t.Error("the restore must sit before the mutants step and the save after it")
+	}
+}
+
+// pipelineStep returns the workflow step containing needle: the text from that
+// step's own `- ` bullet up to the next step's, so an assertion about one step
+// cannot be satisfied by a neighbour's `if:`.
+func pipelineStep(wf, needle string) string {
+	const bullet = "\n      - "
+	at := strings.Index(wf, needle)
+	if at < 0 {
+		return ""
+	}
+	start := strings.LastIndex(wf[:at], bullet)
+	if start < 0 {
+		return ""
+	}
+	rest := wf[start+len(bullet):]
+	if end := strings.Index(rest, bullet); end >= 0 {
+		return rest[:end]
+	}
+	return rest
+}
+
 // The repo's own half of the deal, pinned through the functions that actually
 // READ these keys rather than through the file: mutationReceiptOptIn is the
 // merge gate's own reader (mutationReceiptStage calls it), and
