@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -61,16 +62,15 @@ func runEscapeRecord(args []string, stdout, stderr io.Writer) int {
 		evidence = fs.String("evidence", "", "the failing output, in one paste")
 		repo     = fs.String("repo", ".", "the checkout whose GitHub remote the issue is opened against")
 	)
-	if err := fs.Parse(args); err != nil {
+	// Flags are read wherever they sit, not just before the reason. `flag`
+	// stops parsing at the first non-flag argument, and the reason IS one --
+	// so `record "..." --kind false-positive` folded the flag text into the
+	// reason, which is the issue TITLE, and recorded the default kind anyway.
+	flags, positional := splitFlags(fs, args)
+	if err := fs.Parse(flags); err != nil {
 		return 2
 	}
-	reason := ""
-	for _, a := range fs.Args() {
-		if reason != "" {
-			reason += " "
-		}
-		reason += a
-	}
+	reason := strings.Join(positional, " ")
 
 	r, err := tdd.RecordEscape(tdd.EscapeOptions{
 		Reason:   reason,
@@ -149,4 +149,51 @@ func runEscapeVerifyClosure(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// splitFlags separates fs's flags from the positional arguments, so a flag
+// written after a positional is still a flag. It asks fs itself which names
+// take a following value, rather than guessing: `--kind false-positive` is
+// two argv entries and the second one is not a positional.
+//
+// An unknown `-name` is passed through as a flag token so fs.Parse reports it
+// in its own words -- silently treating it as reason text is exactly the bug
+// this replaces.
+func splitFlags(fs *flag.FlagSet, args []string) (flags, positional []string) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			positional = append(positional, args[i+1:]...)
+			return flags, positional
+		}
+		if len(a) < 2 || a[0] != '-' {
+			positional = append(positional, a)
+			continue
+		}
+		flags = append(flags, a)
+		name := strings.TrimLeft(a, "-")
+		if strings.Contains(name, "=") {
+			continue // --name=value carries its own value
+		}
+		if !flagTakesValue(fs, name) {
+			continue
+		}
+		if i+1 < len(args) {
+			i++
+			flags = append(flags, args[i])
+		}
+	}
+	return flags, positional
+}
+
+// flagTakesValue reports whether the named flag consumes the argument after
+// it. An unknown name does not: it is about to be rejected by Parse, and
+// eating the next argument would take a word of the reason with it.
+func flagTakesValue(fs *flag.FlagSet, name string) bool {
+	f := fs.Lookup(name)
+	if f == nil {
+		return false
+	}
+	b, ok := f.Value.(interface{ IsBoolFlag() bool })
+	return !ok || !b.IsBoolFlag()
 }
