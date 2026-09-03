@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // machineRAMGB reads this box's physical memory in whole gigabytes from
