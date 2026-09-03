@@ -1,0 +1,64 @@
+# Every APHROLLO_ environment switch this repo's own Go code names. Format:
+#   <NAME> | <file that names it> | <what it does>
+# Enforced BOTH ways by .ratchet/laws/dev_instrument_registry.toml: an
+# unregistered switch is a regression, and a line for a switch nothing names
+# any more is stale.
+#
+# Grouped by what the switch is FOR.
+
+# --- build/git queue and lock control (internal/tdd, internal/cli) ---
+APHROLLO_BUILD_LOCK_HELD | internal/tdd/buildlock.go | Set to "1" around a cargo run that already holds the machine-wide build lock, so a nested cargo invocation (a build script, the tdd cargo shim) passes straight through instead of deadlocking on the lock its own parent holds.
+APHROLLO_BUILD_SLOTS | internal/tdd/buildslots.go | The box's build-slot count, read once at process start to cap concurrent cargo runs.
+APHROLLO_CARGO_WAIT_SECS | internal/cli/cargo_shim.go | Overrides the cargo shim's queue wait budget before it gives up and reports queued rather than running.
+APHROLLO_GIT_QUEUED | internal/tdd/buildlock.go | Set to "1" around a git invocation that already holds the per-repo git lock, so a git call the pre-commit hook spawns (worktree add/remove, apply, diff --cached) never waits on the lock its own parent process holds.
+APHROLLO_GIT_WAIT_SECS | internal/cli/git_shim.go | Overrides the git shim's queue wait budget before it gives up and reports queued rather than running.
+APHROLLO_LOCK_WAIT_SECS | internal/cli/cli.go | The commit gate's build-slot wait budget (default 1200s).
+APHROLLO_QUEUE | internal/tdd/mutants_run.go | =bypass lets a mutation run past the build queue; honoured only when the target dir is the mutation worktree's own.
+APHROLLO_SLOT_TOKEN | internal/tdd/buildslots.go | Carries the build slot a long verb's spawned cargo children inherit rather than acquiring their own; stripped from a process (e.g. `cargo run`) that must not inherit it.
+
+# --- the anti-cheat / edit-time gate (internal/tdd) ---
+APHROLLO_DEFERRED_MAX_SECS | internal/tdd/deferred.go | Bounds how long a detached build/run phase may run before the next hook gives up on it (default 600s).
+APHROLLO_POSTEDIT_BUDGET_SECS | internal/tdd/deferred.go | The edit hook's one foreground budget, covering the build and run phases together (default 100s).
+APHROLLO_PRIMARY_EDITS | internal/tdd/primary.go | Turns off, for one process, the refusal to edit source in a primary checkout that has linked worktrees and holds main. The per-session escape is `/tdd primary-edits on`.
+APHROLLO_REPLY_STYLE | internal/tdd/style.go | Sets the machine-wide default reply style ("plain" turns the terse-reply block off everywhere unless a session overrides it back).
+
+# --- real-binary override escapes, so a shim never shims itself ---
+APHROLLO_REAL_CARGO | internal/cli/cargo_shim.go | Overrides the cargo shim's resolution of the real cargo binary it dispatches to.
+APHROLLO_REAL_GIT | internal/cli/git_shim.go | Overrides the git shim's resolution of the real git binary it dispatches to.
+
+# --- the mutation runner contract (internal/tdd/mutants_run.go; docs/mutation-runner.md is the spec) ---
+APHROLLO_MUTANTS_ARGS | internal/tdd/mutants_run.go | Carries the cargo-mutants flags this side computed for the producer script.
+APHROLLO_MUTANTS_BASE | internal/tdd/mutants_run.go | The base sha the mutation receipt must record.
+APHROLLO_MUTANTS_DIFF | internal/tdd/mutants_run.go | Names the reduced lane diff a mutation run is scoped to.
+APHROLLO_MUTANTS_ENV | internal/tdd/mutants_run.go | Carries the switches the workspace declares its mutation run must set, so an env-gated suite counts.
+APHROLLO_MUTANTS_JOBS | internal/tdd/mutants_run.go | The concurrency cap this box allows for a mutation run.
+APHROLLO_MUTANTS_JOBS_WHY | internal/tdd/mutants_run.go | The reason a runner prints beside the concurrency cap.
+
+# --- the dev tier / systemd control plane (internal/dev, internal/workspace) ---
+APHROLLO_DEVCLAIM_DIR | internal/workspace/claim.go | Overrides the directory holding the per-repo claim symlinks (tests, non-standard homes).
+APHROLLO_DEV_DB_URL | internal/workspace/devmigrate.go | Overrides the isolated dev postgres URL claim's migration step targets (tests, a relocated dev DB).
+APHROLLO_DEV_SUDO | internal/dev/dev.go | Forces the sudo prefix off for privileged systemctl verbs ("0"/"false"/"no"); tests run as non-root without a real sudo.
+APHROLLO_GIT_RUNTIME_CONFIG | internal/workspace/workspace.go | Overrides the dedicated git config file `aphrollo workspace` owns for dynamic safe.directory entries (tests, non-standard homes).
+APHROLLO_GOOSE_BIN | internal/workspace/devmigrate.go | Overrides the goose binary path claim's migration step invokes, before falling back to $PATH then a fixed go-install location.
+APHROLLO_JOURNALCTL | internal/dev/dev.go | Overrides the journalctl binary path the dev control plane invokes (default /usr/bin/journalctl).
+APHROLLO_SPACES | internal/dev/dev.go | Overrides the spaces root the dev control plane resolves units under (default /home/debian/spaces/aphrollo).
+APHROLLO_SPACES_ROOT | internal/workspace/target.go | Overrides the dir holding the per-owner spaces dirs a bare `<repo>` name resolves under (tests, non-standard homes).
+APHROLLO_SQLC_BIN | internal/sqlc/regen.go | Overrides the sqlc binary path, before falling back to $PATH then a fixed go-install location.
+APHROLLO_SYSTEMCTL | internal/dev/dev.go | Overrides the systemctl binary path the dev control plane invokes (default /usr/bin/systemctl).
+
+# --- the ticket/bridge API (internal/workspace/submit_signal.go) ---
+APHROLLO_API_BASE | internal/workspace/submit_signal.go | The bridge API base URL (trailing /api) `submit` posts the ticket-readiness signal to. Unset on an operator-local run, which has no ticket workflow to re-arm.
+APHROLLO_API_TOKEN | internal/workspace/submit_signal.go | The bridge API token (X-Bridge-Token) `submit` authenticates with.
+APHROLLO_TICKET_ID | internal/workspace/submit_signal.go | The full ticket UUID `submit` raises the readiness signal for (the branch id is truncated, this is not).
+
+# --- harness-only handshakes: env where a flag or an injected dependency
+# would be the cleaner shape, kept as debt rather than opened as six
+# individual issues. Every one of these is set only by a test (t.Setenv) and
+# read only by test-built code (an in-process fake binary's own source, or a
+# helper that exists for the test). None reaches a shipping code path. ---
+APHROLLO_DEV_BIN | internal/workspace/claim_test.go | Set by claim's own test suite to stand in for the dev binary path; currently unread by any production code path — recorded here so it is not an invisible instrument, and left as a finding rather than "fixed" in this pass (see the PR report).
+APHROLLO_TEST_BUDGET_SECS | internal/cli/budget_env_test.go | Drives envDurationSecs's own table test through its parse/default branches.
+APHROLLO_TEST_GIT_COMMON_DIR | internal/cli/git_shim_scope_test.go | Read by a synthetic fake-git binary the git shim's scope test builds, to report back which repo it ran against.
+APHROLLO_TEST_GIT_DIR | internal/cli/git_shim_scope_test.go | Read by the same synthetic fake-git binary, alongside APHROLLO_TEST_GIT_COMMON_DIR.
+APHROLLO_TEST_STUB_ENV_OUT | internal/cli/slottoken_test.go | Tells a synthetic fake-cargo binary to dump its received environment to this path, so the test can assert on what the shim passed through.
+APHROLLO_TEST_STUB_FAIL_ON | internal/cli/cargo_shim_run_test.go | Names the verb a synthetic fake-cargo binary should fail on, for exercising the shim's non-zero-exit path.

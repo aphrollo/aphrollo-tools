@@ -1,0 +1,12 @@
+name        = "module_size"
+description = "A file already over 600 lines may never grow past its recorded ceiling, and no new file crosses 600 without a baseline entry. Textual line count, src and tests alike, over this repo's own Go tree."
+severity    = "deny"
+baseline    = ".ratchet/baselines/module_size.txt"
+
+[scope]
+include = ["cmd/**/*.go", "internal/**/*.go"]
+exclude = ["**/testdata/**"]
+
+[matcher]
+kind = "line-count"
+max  = 600

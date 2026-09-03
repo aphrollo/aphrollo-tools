@@ -2,10 +2,12 @@ package tdd
 
 import (
 	"fmt"
+	"go/format"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 
@@ -16,9 +18,10 @@ import (
 // decides whether the branch is green is a gate that lets the branch go red
 // somewhere else, after the commit, where nobody is watching. So a Go root
 // answers to the same two checks CI runs — `go vet ./...` and
-// `golangci-lint run ./...` — before the suite, in cost order: vet compiles
-// nothing beyond what a build already does, lint is a full analysis pass,
-// and the suite builds, links and runs.
+// `golangci-lint run ./...` — before the suite, in cost order: gofmt (no
+// process spawn, judges the STAGED blob) first, then vet (compiles nothing
+// beyond what a build already does), then lint (a full analysis pass), then
+// the suite builds, links and runs.
 //
 // golangci-lint is not part of any toolchain, so a box without it must not
 // have its commits refused over a tool it never installed. An absent binary
@@ -106,8 +109,14 @@ var driftNoted sync.Map
 
 // goQualityStage runs the CI-parity checks for one Go root, stopping at the
 // first rejection. repoRoot is where the workflow file lives, which is not
-// necessarily the Go root inside a monorepo.
-func goQualityStage(gateName, repoRoot, root string, run SuiteRunner) GateResult {
+// necessarily the Go root inside a monorepo. touched is the staged files
+// under root, root-relative — vet stays whole-module (it compiles nothing
+// beyond what a build already does, so scoping it buys nothing), but lint is
+// a full analysis pass and is scoped to the packages touched carries.
+func goQualityStage(gateName, repoRoot, root string, touched []string, run SuiteRunner) GateResult {
+	if res := goFmtStage(gateName, repoRoot, root, touched); res.Blocked {
+		return res
+	}
 	vet := Runner{Cmd: "go", Args: []string{"vet", "./..."}, Dir: root}
 	if res := goCheckStage(gateName, "vet", root, vet, run); res.Blocked {
 		return res
@@ -123,8 +132,72 @@ func goQualityStage(gateName, repoRoot, root string, run SuiteRunner) GateResult
 	// with "parallel golangci-lint is running" — a rejection that says nothing
 	// about the code. CI passes it for the same reason; the gate, which runs
 	// while other sessions build, needs it more.
-	lint := Runner{Cmd: golangciLint, Args: []string{"run", "--allow-serial-runners", "./..."}, Dir: root}
+	lint := Runner{Cmd: golangciLint, Args: append([]string{"run", "--allow-serial-runners"}, touchedGoLintPackages(root, touched)...), Dir: root}
 	return goCheckStage(gateName, "lint", root, lint, run)
+}
+
+// goFmtStage judges the STAGED (index) content of every touched .go file —
+// never the bytes sitting on disk, which on a Windows checkout that predates
+// this repo's .gitattributes may still carry CRLF line endings gofmt would
+// rewrite on every single commit forever. gofmt's canonical output is always
+// LF, so a CRLF blob is never clean by construction: the fix for an old
+// checkout is the one-time `git add --renormalize .` the README names, not a
+// standing exception in this check. No process spawn — go/format is the same
+// formatter gofmt wraps, so this costs nothing beyond a parse.
+func goFmtStage(gateName, repoRoot, root string, touched []string) GateResult {
+	var dirty []string
+	for _, rel := range touched {
+		if !strings.HasSuffix(rel, ".go") {
+			continue
+		}
+		content, err := git(root, "show", ":"+filepath.ToSlash(rel))
+		if err != nil {
+			continue // deleted or renamed mid-diff: nothing staged to judge
+		}
+		formatted, err := format.Source([]byte(content))
+		if err != nil {
+			continue // does not parse — vet/the build catches that, not this
+		}
+		if string(formatted) != content {
+			dirty = append(dirty, rel)
+		}
+	}
+	if len(dirty) == 0 {
+		return GateResult{}
+	}
+	sort.Strings(dirty)
+	appendGateLog(gateName, root, "gofmt", "gofmt-blocked", 0)
+	return GateResult{Blocked: true, Message: fmt.Sprintf(
+		"gate %s: gofmt → REJECTED\n  %s\n  run `gofmt -w` on the file(s); a checkout older than "+
+			"this repo's .gitattributes needs a one-time `git add --renormalize .` instead (see README)",
+		gateName, strings.Join(dirty, ", "))}
+}
+
+// touchedGoLintPackages is the deduped, sorted package set golangci-lint
+// scopes to: one ./dir per DISTINCT package a touched file belongs to (goPackageDir
+// walks up from a deleted or asset-only path to the nearest real one), "."
+// for the root package. Empty touched falls back to ./... — a stage called
+// with nothing to scope by (a rename-only or vet-triggered run) must still
+// judge the whole module rather than lint zero packages.
+func touchedGoLintPackages(root string, touched []string) []string {
+	if len(touched) == 0 {
+		return []string{"./..."}
+	}
+	seen := map[string]bool{}
+	var pkgs []string
+	for _, f := range touched {
+		dir := goPackageDir(root, filepath.Dir(f))
+		pkg := "./" + dir
+		if dir == "." {
+			pkg = "."
+		}
+		if !seen[pkg] {
+			seen[pkg] = true
+			pkgs = append(pkgs, pkg)
+		}
+	}
+	sort.Strings(pkgs)
+	return pkgs
 }
 
 // noteLintVersionDrift says, once, that the local linter is not the one CI

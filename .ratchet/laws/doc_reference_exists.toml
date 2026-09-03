@@ -1,0 +1,11 @@
+name        = "doc_reference_exists"
+description = "Every docs/ or internal/ path a durable *.md file or a *.go comment cites must resolve to a real file. A citation is the only thing holding a claim to its provenance. The bar is zero and there is no baseline. README.md is out of scope: it is a usage manual whose job is worked examples (fictional commands, fictional paths, fictional gate output), not durable citations, and *_test.go is out of scope for the same reason one level down — internal/docs and internal/ratchet's own suites construct markdown/Go fixtures naming deliberately-dangling paths to prove the checker THIS law reuses catches them."
+severity    = "deny"
+
+[scope]
+include = ["**/*.md", "cmd/**/*.go", "internal/**/*.go"]
+exclude = ["README.md", "**/*_test.go", "**/testdata/**", ".ratchet/**"]
+
+[matcher]
+kind    = "doc-path-resolves"
+pattern = "(?:^|[\\s(\\[`\"'])((?:docs|internal)/[A-Za-z0-9_./-]+\\.[A-Za-z0-9]+)"

@@ -1,0 +1,14 @@
+name        = "suppression_reason"
+description = "Go has no #[allow]/#[expect]/#[ignore] pragma, so the vocabulary this law scans for is the one Go suppressions actually use: any line naming a nolint directive (a real //nolint:linter, the spaced // nolint form, or the token quoted in a fixture/regex/comment while the detector that recognizes it is written). Every such line must carry a `reason:` explanation on its own line or in the contiguous comment run around it — above or below, since a wrapped doc comment often finishes its sentence on the next line. The bar is zero: nothing here is grandfathered, because every occurrence in this tree today is either a real suppression the anti-cheat gate must catch, or code/prose ABOUT that vocabulary, and either way a reader should not have to guess why the word is on that line."
+severity    = "deny"
+
+[scope]
+include = ["cmd/**/*.go", "internal/**/*.go"]
+exclude = ["**/testdata/**", ".ratchet/**"]
+
+[matcher]
+kind      = "marker-within-lines"
+trigger   = "nolint"
+marker    = "reason\\s*:"
+direction = "both"
+contiguous = true

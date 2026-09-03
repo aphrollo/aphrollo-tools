@@ -1,0 +1,14 @@
+# Ceiling line counts for Go files already over 600 lines. Format:
+# <workspace-relative path> | <line count>. A file may shrink freely (lower
+# this number, or remove the line once it is back at or under 600) but must
+# never grow past its recorded ceiling — see .ratchet/laws/module_size.toml.
+internal/cli/cli.go | 2155
+internal/tdd/precommit.go | 1222
+internal/cli/cli_test.go | 991
+internal/tdd/runner.go | 888
+internal/tdd/autoescape_test.go | 729
+internal/ratchet/check.go | 705
+internal/tdd/precommit_test.go | 691
+internal/cli/git_shim.go | 677
+internal/tdd/gc.go | 630
+internal/ratchet/law.go | 614

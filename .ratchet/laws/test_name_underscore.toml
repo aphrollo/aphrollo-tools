@@ -1,0 +1,13 @@
+name        = "test_name_underscore"
+description = "A test function name states the break it catches (this repo's CLAUDE.md, 'From now on' #1: 'Cannot name it, do not write it'); Go's convention for that statement is TestSubject_condition, the underscore marking where the sentence turns from WHAT to the specific claim. func Test[A-Za-z0-9]*( with no underscore is a bare CamelCase run-on that read fine at three words and stops being a claim at ten. Every occurrence in this tree today is grandfathered in the baseline below, which only ever goes down: a NEW test lands named with the break it catches, or it does not land."
+severity    = "deny"
+baseline    = ".ratchet/baselines/test_name_underscore.txt"
+
+[scope]
+include = ["cmd/**/*.go", "internal/**/*.go"]
+exclude = ["**/testdata/**"]
+
+[matcher]
+kind  = "regex-absent"
+pattern = "^func Test[A-Za-z0-9]*\\("
+key   = "file:line-content-hash"

@@ -1,0 +1,2 @@
+# <NAME> | <where> | <what>
+APHROLLO_UNLISTED | internal/a/boot.go | Arms the fixture's one instrument.

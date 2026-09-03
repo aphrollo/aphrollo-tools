@@ -118,8 +118,8 @@ func extractLine(line int, text string) []reference {
 // cleanLinkTarget normalises a markdown link target to a repo-relative path, or
 // returns "" if it is not one (URL, mailto, bare anchor, absolute or home path,
 // or a template placeholder). The fragment (`#...`) is stripped so
-// `docs/x.md#section` resolves to docs/x.md, and a trailing `:line` citation
-// suffix is stripped so `docs/x.md:42` resolves to docs/x.md.
+// `page.md#section` resolves to `page.md`, and a trailing `:line` citation
+// suffix is stripped so `page.md:42` resolves to `page.md`.
 func cleanLinkTarget(t string) string {
 	t = strings.TrimSpace(t)
 	if i := strings.IndexByte(t, '#'); i >= 0 {
