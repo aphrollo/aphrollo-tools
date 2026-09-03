@@ -2,8 +2,11 @@ package refactor
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/lsp"
 )
 
 // readyRetryBudget bounds how long we retry position-based requests while a
@@ -38,12 +41,34 @@ func isLoadingError(err error) bool {
 		"not yet ready",              //
 		"server is not ready",        //
 		"content is outdated",        //
+		// rust-analyzer's rename answer before the crate graph is built (seen
+		// on Windows, where no content-modified answer precedes it); a
+		// definition always references itself once loaded, so for a RENAME
+		// this exact phrasing is not-ready. The bare "no references found"
+		// above stays terminal.
+		"no references found at position",
 	} {
 		if strings.Contains(msg, s) {
 			return true
 		}
 	}
 	return false
+}
+
+// errEmptyEditWhileLoading is the rename answer `result: null` read as a
+// not-ready signal: rust-analyzer has a window, after its "no references
+// found at position" errors and before its real edits, where a rename
+// answers with no edit at all. A definition always references itself once
+// the crate graph is built, so an empty edit is retried within the budget.
+var errEmptyEditWhileLoading = errors.New("server answered an empty edit: still loading")
+
+// emptyEditIsNotReady wraps a rename answer so an empty edit retries like a
+// loading error; a real edit and a real error pass through untouched.
+func emptyEditIsNotReady(we lsp.WorkspaceEdit, err error) (lsp.WorkspaceEdit, error) {
+	if err == nil && len(we.Changes) == 0 && len(we.DocumentChanges) == 0 {
+		return we, errEmptyEditWhileLoading
+	}
+	return we, err
 }
 
 // retryWhileLoading runs fn, retrying on transient loading errors until the

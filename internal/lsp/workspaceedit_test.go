@@ -1,6 +1,31 @@
 package lsp
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
+
+// TestURIToPath_DropsTheRootSlashBeforeAWindowsDrive: a server answers
+// `file:///C:/Users/u/a.go`, and the URL path `/C:/Users/u/a.go` is not a
+// path Windows can open — the drive letter must come first, native separators.
+func TestURIToPath_DropsTheRootSlashBeforeAWindowsDrive(t *testing.T) {
+	got, err := URIToPath("file:///C:/Users/u/a.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.FromSlash("C:/Users/u/a.go"); got != want {
+		t.Fatalf("URIToPath(file:///C:/Users/u/a.go) = %q, want %q", got, want)
+	}
+	// rust-analyzer answers with the drive lower-cased (`file:///c:/…`); the
+	// path must still equal the one the caller opened, upper-case drive.
+	got, err = URIToPath("file:///c:/Users/u/a.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.FromSlash("C:/Users/u/a.go"); got != want {
+		t.Fatalf("URIToPath(file:///c:/Users/u/a.go) = %q, want %q", got, want)
+	}
+}
 
 func TestURIToPath(t *testing.T) {
 	cases := []struct {
