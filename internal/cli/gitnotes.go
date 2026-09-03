@@ -61,10 +61,16 @@ func pushGateNotes(rest []string, cwd, realGit string, code int, stderr io.Write
 // <repository> argument"), so the two-token form already resolves correctly
 // by falling through to the ordinary positional case below -- special-casing
 // it here would make pushRemote discard the one token that carries the
-// answer. `--force-with-lease[=...]` and `--signed[=...]` are also absent:
-// both are OPTIONAL-argument flags in git's own grammar, so only the "="
-// form is legal and the space-separated form this map exists for cannot
-// occur. `-u`/`--set-upstream` takes no argument at all.
+// answer. Its "=" form, `--repo=X`, does NOT fall through the same way: the
+// general "-"-prefixed case below matches the whole self-contained token and
+// discards it outright, so pushRemote carries a dedicated case for it,
+// below, that extracts the value instead. The other flags in this map have
+// no such gap -- their own "=" forms are already self-contained tokens whose
+// VALUE is never the remote, so the general case correctly discards them
+// too. `--force-with-lease[=...]` and `--signed[=...]` are also absent: both
+// are OPTIONAL-argument flags in git's own grammar, so only the "=" form is
+// legal and the space-separated form this map exists for cannot occur.
+// `-u`/`--set-upstream` takes no argument at all.
 var pushValueFlags = map[string]bool{
 	"-o":                   true,
 	"--push-option":        true,
@@ -78,8 +84,22 @@ var pushValueFlags = map[string]bool{
 // something specific), a delete, or a mirror.
 func pushRemote(args []string) string {
 	remote, positionals := "", 0
+	sawSeparator := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		if !sawSeparator && a == "--" {
+			// git's own separator: every token after it is positional, even
+			// one that starts with "-", so flag matching stops here.
+			sawSeparator = true
+			continue
+		}
+		if sawSeparator {
+			positionals++
+			if positionals == 1 {
+				remote = a
+			}
+			continue
+		}
 		switch {
 		case a == "--delete" || a == "-d" || a == "--mirror" || a == "--all":
 			return ""
@@ -87,6 +107,15 @@ func pushRemote(args []string) string {
 			// Its value is the NEXT argv token, not a positional -- e.g.
 			// `-o ci.skip origin main` must not read "ci.skip" as the remote.
 			i++
+			continue
+		case strings.HasPrefix(a, "--repo="):
+			// Self-contained like `--push-option=X`, but unlike those flags
+			// its value IS the remote, so it is captured as the positional
+			// fallthrough would capture the two-token form's value.
+			positionals++
+			if positionals == 1 {
+				remote = strings.TrimPrefix(a, "--repo=")
+			}
 			continue
 		case strings.HasPrefix(a, "-"):
 			continue
