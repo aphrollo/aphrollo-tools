@@ -198,13 +198,23 @@ type primaryGateInput struct {
 	} `json:"tool_input"`
 }
 
+// bashLikeTools are the shell tools judged by every path their command would
+// write, not by the tool's own cwd — see bashPrimaryDecision. Python and
+// heredoc writes stay out of scope: the shim is the wall this hook is a
+// guardrail in front of, and both are rare enough here not to earn a second
+// parser.
+var bashLikeTools = map[string]bool{"Bash": true, "PowerShell": true}
+
 // PrimaryCheckoutDecision denies a write that would land in a merge-only
 // primary checkout. An Edit/Write/NotebookEdit is judged by the TARGET FILE's
 // directory, not the process cwd: the agents runner resets a turn's cwd to
 // the project home every turn, so cwd would refuse every legitimate worktree
-// edit — the file path is where the change actually lands. A Bash call has no
-// target until it runs, so it is judged by its cwd plus the paths its command
-// would write.
+// edit — the file path is where the change actually lands. A Bash or
+// PowerShell call has no target until it runs, so it is judged the same
+// way: by the directory EACH resolved write target lands in, not by the
+// shell's own cwd (issue #118 — a `cd` out of the primary let a write
+// through, and an absolute path INTO the primary from a worktree's own cwd
+// slipped past unnoticed).
 func PrimaryCheckoutDecision(raw []byte) Decision {
 	var in primaryGateInput
 	if err := json.Unmarshal(raw, &in); err != nil {
@@ -227,12 +237,22 @@ func PrimaryCheckoutDecision(raw []byte) Decision {
 			return Decision{}
 		}
 		return primaryBlock(root)
-	case in.ToolName == "Bash":
-		root, ok := PrimaryMergeOnly(in.Cwd)
-		if !ok || !bashWritesInto(in.ToolInput.Command, in.Cwd, root) {
-			return Decision{}
+	case bashLikeTools[in.ToolName]:
+		return bashPrimaryDecision(in.Cwd, in.ToolInput.Command)
+	}
+	return Decision{}
+}
+
+// bashPrimaryDecision judges a shell command by every path it would write,
+// each against its OWN directory — exactly like an Edit/Write is judged by
+// its own file path — rather than by whether the shell's cwd itself sits in
+// a primary checkout. That is what lets a `cd` out of the primary through
+// and catches an absolute path into one even from a worktree's cwd.
+func bashPrimaryDecision(cwd, cmd string) Decision {
+	for _, p := range bashWriteTargets(cmd, cwd) {
+		if root, ok := PrimaryMergeOnly(filepath.Dir(p)); ok {
+			return primaryBlock(root)
 		}
-		return primaryBlock(root)
 	}
 	return Decision{}
 }

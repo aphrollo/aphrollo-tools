@@ -44,6 +44,11 @@ func TestClaudeMDBlockStatesThePrimaryCheckoutRule(t *testing.T) {
 		".worktrees/<repo>/<name>",
 		"APHROLLO_PRIMARY_EDITS=1",
 		"/tdd primary-edits on",
+		// The Bash/PowerShell hooks classify a command before it runs and can
+		// miss; the git shim judges the actual command and is what a session
+		// must not mistake the hook for (issue #118).
+		"GUARDRAIL",
+		"WALL",
 	} {
 		if !strings.Contains(block, want) {
 			t.Errorf("the block does not state %q", want)

@@ -30,6 +30,23 @@ func bashPayloadID(t *testing.T, session, toolUseID, cwd, command string) []byte
 	return raw
 }
 
+// powerShellPayload is bashPayload's PowerShell twin, same tool_input shape
+// under a different tool_name: the PowerShell tool is classified exactly
+// like Bash (issue #118).
+func powerShellPayload(t *testing.T, session, cwd, command string) []byte {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{
+		"session_id": session,
+		"cwd":        cwd,
+		"tool_name":  "PowerShell",
+		"tool_input": map[string]any{"command": command},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
 // An edit made by `sed` or a heredoc is still an edit: the hooks that judge a
 // Write must judge it too, or the whole gate is one shell command away from
 // being off. PreToolUse records what the tree looked like; PostToolUse diffs
