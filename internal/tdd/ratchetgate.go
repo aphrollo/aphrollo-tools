@@ -86,6 +86,14 @@ func RatchetAdvisory(raw []byte) Decision {
 	if err != nil || len(res.Findings) == 0 {
 		return Decision{}
 	}
+	// Narrow the verdict to what this edit ADDS: an edit that lowers or
+	// keeps a law's count in this file must not be refused for the hits it
+	// leaves behind (see ratchetedit.go). The baseline comparison above is
+	// still what selects a finding at all, so this only ever allows more.
+	res.Findings = editRegressions(root, relSlash, onDiskContent(path), content, res)
+	if len(res.Findings) == 0 {
+		return Decision{}
+	}
 	action := Warn
 	if res.Blocked() {
 		action = Block
@@ -97,6 +105,16 @@ func RatchetAdvisory(raw []byte) Decision {
 		Reason: "ratchet: " + strings.Join(res.Lines(), "\nratchet: "),
 		Policy: "ratchet:" + res.Findings[0].Law,
 	}
+}
+
+// onDiskContent is the file as it stands right now, "" when it is not there
+// yet — which is the correct zero for a Write that creates it.
+func onDiskContent(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // proposedContent reconstructs what the file would hold after the edit. A

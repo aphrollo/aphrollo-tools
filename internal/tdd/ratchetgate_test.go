@@ -92,10 +92,14 @@ func TestRatchetAdvisoryAppliesAnEditsOldAndNewStringsToTheFileOnDisk(t *testing
 func TestRatchetAdvisoryAppliesMultiEditSequentially(t *testing.T) {
 	root := lawTree(t, "deny")
 	path := filepath.Join(root, "crates", "a", "src", "lib.rs")
+	// The second edit's old_string exists only once the first has run, so a
+	// verdict naming y.clamp proves the two were applied in order. It ADDS a
+	// hit rather than swapping one: the pre-edit judge refuses a rise, and a
+	// swap that leaves the count alone is the commit gate's to catch.
 	raw := ratchetPayload(t, "MultiEdit", path, map[string]any{
 		"edits": []map[string]any{
 			{"old_string": "let a", "new_string": "let z"},
-			{"old_string": "let z = x.clamp(0.0, 1.0);", "new_string": "let z = 1;\nlet b = y.clamp(0.0, 1.0);"},
+			{"old_string": "let z = x.clamp(0.0, 1.0);", "new_string": "let z = x.clamp(0.0, 1.0);\nlet b = y.clamp(0.0, 1.0);"},
 		},
 	})
 	d := RatchetAdvisory(raw)
