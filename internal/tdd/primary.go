@@ -113,6 +113,13 @@ func nearestExistingDir(dir string) string {
 	return ""
 }
 
+// repoRootNear resolves the repo containing dir, walking up past directories
+// a write would still have to create. RepoRoot itself stays exact: a caller
+// asking about a path on disk must not be answered about its grandparent.
+func repoRootNear(dir string) string {
+	return RepoRoot(nearestExistingDir(dir))
+}
+
 // PrimaryMergeOnlyReason is the ONE line every enforcement point prints. It
 // names the escape as a runnable command, with the worktree path this repo's
 // layout implies: <parent of the checkout>/.worktrees/<checkout name>/<name>.

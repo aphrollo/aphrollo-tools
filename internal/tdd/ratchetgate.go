@@ -57,7 +57,11 @@ func RatchetAdvisory(raw []byte) Decision {
 	if path == "" {
 		return Decision{}
 	}
-	root := RepoRoot(filepath.Dir(path))
+	// repoRootNear, not RepoRoot: a Write CREATES its parent directories, so
+	// the directory this path names routinely does not exist yet, and git
+	// asked from a missing directory answers "not a repository" — which read
+	// as "no laws here" and let the first file of a new module through.
+	root := repoRootNear(filepath.Dir(path))
 	if root == "" || !ratchet.HasLaws(root) {
 		return Decision{}
 	}
