@@ -658,11 +658,38 @@ func tomlStringsIn(path, table, key string) []string {
 			trimmed = val
 		}
 		pkgs = append(pkgs, quotedWords(trimmed)...)
-		if strings.Contains(trimmed, "]") {
+		// The array's OWN closing bracket, never one an entry's quoted
+		// reason happens to mention — "start indexes '[' and end indexes
+		// ']'" is a real accept-list reason, and closing on it dropped
+		// every entry after it (issue #139).
+		if strings.Contains(stripQuoted(trimmed), "]") {
 			inArray = false
 		}
 	}
 	return dedupeSorted(pkgs)
+}
+
+// stripQuoted removes every double-quoted run from s, so a scan for TOML
+// PUNCTUATION (an array's closing `]`, a table header's `[`) never mistakes
+// one living inside a quoted VALUE for the syntax itself.
+func stripQuoted(s string) string {
+	var b strings.Builder
+	for {
+		open := strings.IndexByte(s, '"')
+		if open < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		b.WriteString(s[:open])
+		rest := s[open+1:]
+		end := strings.IndexByte(rest, '"')
+		if end < 0 {
+			// An unterminated quote consumes the rest of the line as
+			// string content — nothing after it is punctuation either.
+			return b.String()
+		}
+		s = rest[end+1:]
+	}
 }
 
 // quotedWords returns the contents of every double-quoted run in s, in order.
