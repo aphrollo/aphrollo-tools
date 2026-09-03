@@ -43,6 +43,75 @@ func TestMutantsChildEnv_PutsEveryTempNameUnderTheRunsOwnBuildDir(t *testing.T) 
 	}
 }
 
+// `aphrollo gate mutants run --base <ref>` reruns a job against a different
+// base than the one postcommit scoped it to; the override rides one process
+// env the CLI layer sets, never the job file itself.
+func TestMutantsChildEnv_BaseOverrideBeatsTheJobsOwn(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	target := filepath.Join(t.TempDir(), ".worktrees", "borld", "mutants", "target")
+	j := MutantsJob{RepoRoot: t.TempDir(), Worktree: filepath.Dir(target), TargetDir: target, TipTree: laneTip, BaseSHA: "job-base-sha"}
+
+	env := mutantsChildEnv(j, nil)
+	if got := mustEnvValue(t, env, MutantsBaseEnv); got != "job-base-sha" {
+		t.Fatalf("%s = %q, want the job's own base with no override set", MutantsBaseEnv, got)
+	}
+
+	t.Setenv(MutantsBaseOverrideEnv, "override-sha")
+	env = mutantsChildEnv(j, nil)
+	if got := mustEnvValue(t, env, MutantsBaseEnv); got != "override-sha" {
+		t.Fatalf("%s = %q, want the --base override to win", MutantsBaseEnv, got)
+	}
+	if _, ok := childEnvValue(env, MutantsBaseOverrideEnv); ok {
+		t.Error("the override channel itself must not reach the producer's environment")
+	}
+}
+
+// The script producer's own positional base argument is the same override:
+// tools/mutation_gate.sh reads it from argv, not from the environment.
+func TestMutantsProducerArgv_BaseOverrideReachesTheScriptsArgv(t *testing.T) {
+	worktree := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(worktree, "tools"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(worktree, "tools", "mutation_gate.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	j := MutantsJob{Worktree: worktree, BaseSHA: "job-base-sha"}
+
+	argv, ok := mutantsProducerArgv(j)
+	if !ok || argv[len(argv)-1] != "job-base-sha" {
+		t.Fatalf("mutantsProducerArgv = %v, ok=%v, want the job's own base with no override set", argv, ok)
+	}
+
+	t.Setenv(MutantsBaseOverrideEnv, "override-sha")
+	argv, ok = mutantsProducerArgv(j)
+	if !ok || argv[len(argv)-1] != "override-sha" {
+		t.Fatalf("mutantsProducerArgv = %v, ok=%v, want the --base override to win", argv, ok)
+	}
+}
+
+// A `--timeout-multiplier`/`--minimum-test-timeout` typed for one run are
+// cargo-mutants' own flags, forwarded through unchanged.
+func TestMutantsChildEnv_ForwardsTimeoutFlagsWhenSet(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	target := filepath.Join(t.TempDir(), ".worktrees", "borld", "mutants", "target")
+	j := MutantsJob{RepoRoot: t.TempDir(), Worktree: filepath.Dir(target), TargetDir: target, TipTree: laneTip}
+
+	if args := mustEnvValue(t, mutantsChildEnv(j, nil), MutantsArgsEnv); strings.Contains(args, "--timeout-multiplier") || strings.Contains(args, "--minimum-test-timeout") {
+		t.Fatalf("args = %q, must not carry either flag unless typed", args)
+	}
+
+	t.Setenv(MutantsTimeoutMultiplierEnv, "3")
+	t.Setenv(MutantsMinTestTimeoutEnv, "20s")
+	args := mustEnvValue(t, mutantsChildEnv(j, nil), MutantsArgsEnv)
+	if !strings.Contains(args, "--timeout-multiplier 3") {
+		t.Errorf("args = %q, want --timeout-multiplier 3", args)
+	}
+	if !strings.Contains(args, "--minimum-test-timeout 20s") {
+		t.Errorf("args = %q, want --minimum-test-timeout 20s", args)
+	}
+}
+
 // A run that cannot fit its copies is a run that dies at 98% full and takes
 // every verdict with it. It is refused BEFORE it starts, with the numbers.
 func TestStartMutantsJob_RefusesWhenTheBuildDriveCannotFitTheRun(t *testing.T) {

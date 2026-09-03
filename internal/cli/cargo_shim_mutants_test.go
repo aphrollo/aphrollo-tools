@@ -10,19 +10,29 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
+// mutantsTargetDirForTest is a CARGO_TARGET_DIR shaped like the dedicated
+// mutants worktree's own — the shape `refuseBareMutants` recognises a gated
+// run by, in place of any environment handshake.
+func mutantsTargetDirForTest(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(t.TempDir(), ".worktrees", "repo", "mutants", "target")
+}
+
 // Two bare `cargo mutants` runs were measured holding the machine-wide build
 // lock for hours while building cold tree copies in the OS temp dir: post-edit
 // hooks waited up to 619 s and 56 were deferred in three hours. The shim
 // refuses the invocation that does that, and names the one command that does
-// it right.
+// it right. Building somewhere other than the mutants worktree's own target
+// dir is what makes it "bare" — no handshake variable rescues it, including
+// the retired MUTATION_GATE, which the shim no longer reads at all.
 func TestRunCargoShim_RefusesABareCargoMutants(t *testing.T) {
 	withIsolatedCargoLock(t)
-	t.Setenv(tdd.MutationGateEnv, "")
+	t.Setenv(tdd.MutationGateEnv, "1")
 
 	var stdout, stderr bytes.Buffer
 	code := runCargoShim([]string{"mutants", "--in-diff", "lane.diff"}, strings.NewReader(""), &stdout, &stderr, testCargoShimConfig())
 	if code == 0 {
-		t.Fatal("a bare cargo mutants must not run")
+		t.Fatal("a bare cargo mutants must not run, MUTATION_GATE=1 or not — that variable is dead")
 	}
 	want := "gate: run tools/mutation_gate.sh <base> — bare cargo mutants builds a cold copy in the OS temp dir and holds the build lock for hours"
 	if got := strings.TrimSpace(stderr.String()); got != want {
@@ -30,11 +40,33 @@ func TestRunCargoShim_RefusesABareCargoMutants(t *testing.T) {
 	}
 }
 
+// APHROLLO_MUTATION_GATE is the one-release grace for a caller still using
+// the old handshake: let through even outside the mutants worktree, but
+// counted, so the removal shows up before it breaks anyone.
+func TestRunCargoShim_AllowsCargoMutantsThroughTheDeprecatedAliasAndLogsIt(t *testing.T) {
+	withIsolatedCargoLock(t)
+	cfg := gateConfigDir(t)
+	t.Setenv(deprecatedMutationGateEnv, "1")
+	resetDeprecatedMutationGateLog()
+
+	cfgShim := testCargoShimConfig()
+	cfgShim.realCargo = runVerbStub(t)
+	var stdout, stderr bytes.Buffer
+	code := runCargoShim([]string{"mutants", "--in-diff", "d.diff"}, strings.NewReader(""), &stdout, &stderr, cfgShim)
+	if code != 0 {
+		t.Fatalf("exit = %d, want the deprecated alias to still be honoured\nstderr: %s", code, stderr.String())
+	}
+	if n := countGateLogVerdict(t, cfg, "mutation-gate-env-deprecated"); n != 1 {
+		t.Fatalf("mutation-gate-env-deprecated logged %d times, want exactly once", n)
+	}
+}
+
 // Through the gate's own runner the same invocation is exactly what should
-// happen, and the marker the runner sets is what tells them apart.
+// happen, and building into the dedicated mutants worktree's own target dir
+// is what tells them apart.
 func TestRunCargoShim_AllowsCargoMutantsThroughTheGatesRunner(t *testing.T) {
 	withIsolatedCargoLock(t)
-	t.Setenv(tdd.MutationGateEnv, "1")
+	t.Setenv("CARGO_TARGET_DIR", mutantsTargetDirForTest(t))
 
 	cfg := testCargoShimConfig()
 	// A stub that ignores its argv: for the shim to SEE the verb it has to be

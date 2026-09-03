@@ -24,6 +24,24 @@ func TestMutationReceipt_RefusesAReceiptWithTimeouts(t *testing.T) {
 	}
 }
 
+// A `--jobs` flag typed for THIS run is the most specific thing said about
+// it, so it beats the session-wide APHROLLO_MUTANTS_JOBS override, which in
+// turn beats the per-box formula — never the other way around.
+func TestResolveMutantsJobs_FlagBeatsEnvBeatsFormula(t *testing.T) {
+	t.Setenv(MutantsJobsEnv, "5")
+	if got, why := resolveMutantsJobs(3, true); got != 3 || why != "flag" {
+		t.Fatalf("resolveMutantsJobs(3, true) = (%d, %q), want (3, \"flag\")", got, why)
+	}
+	if got, why := resolveMutantsJobs(0, false); got != 5 || !strings.Contains(why, MutantsJobsEnv) {
+		t.Fatalf("resolveMutantsJobs(0, false) = (%d, %q), want (5, mentions %q)", got, why, MutantsJobsEnv)
+	}
+	t.Setenv(MutantsJobsEnv, "")
+	wantJobs, wantWhy := mutantsJobsForThisBox()
+	if got, why := resolveMutantsJobs(0, false); got != wantJobs || why != wantWhy {
+		t.Fatalf("resolveMutantsJobs(0, false) with no env = (%d, %q), want the formula's own (%d, %q)", got, why, wantJobs, wantWhy)
+	}
+}
+
 // The cap is deliberately mean: a mutation run competes with the editors on
 // the box, and one that takes every core is the contention this whole design
 // exists to remove. Two jobs is the ceiling however big the machine is.

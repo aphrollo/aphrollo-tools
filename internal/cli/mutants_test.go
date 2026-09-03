@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // The post-commit hook fires after EVERY commit on the box, including ones in
@@ -106,6 +108,39 @@ func TestMutantsRun_ExitsCleanWithoutAJobFile(t *testing.T) {
 		strings.NewReader(""), &out, &errb)
 	if code != 0 {
 		t.Fatalf("mutants run exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+}
+
+// `--jobs`/`--base`/`--timeout-multiplier`/`--minimum-test-timeout` typed on
+// `gate mutants run` are the env-versus-flag rule's flag half: they set the
+// override channel BEFORE the job runs, so a maintainer rerunning one job by
+// hand gets the value typed, not whatever the session's environment carried.
+func TestMutantsRun_FlagsSetTheOverrideEnvBeforeTheJobRuns(t *testing.T) {
+	gateConfigDir(t)
+	t.Setenv(tdd.MutantsJobsEnv, "")
+	t.Setenv(tdd.MutantsBaseOverrideEnv, "")
+	t.Setenv(tdd.MutantsTimeoutMultiplierEnv, "")
+	t.Setenv(tdd.MutantsMinTestTimeoutEnv, "")
+
+	var out, errb bytes.Buffer
+	code := Run([]string{"gate", "mutants", "run",
+		"--job", filepath.Join(t.TempDir(), "nope.json"),
+		"--jobs", "4", "--base", "abc123", "--timeout-multiplier", "3", "--minimum-test-timeout", "20s",
+	}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("mutants run exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	if got := os.Getenv(tdd.MutantsJobsEnv); got != "4" {
+		t.Errorf("%s = %q, want the --jobs flag's value", tdd.MutantsJobsEnv, got)
+	}
+	if got := os.Getenv(tdd.MutantsBaseOverrideEnv); got != "abc123" {
+		t.Errorf("%s = %q, want the --base flag's value", tdd.MutantsBaseOverrideEnv, got)
+	}
+	if got := os.Getenv(tdd.MutantsTimeoutMultiplierEnv); got != "3" {
+		t.Errorf("%s = %q, want the --timeout-multiplier flag's value", tdd.MutantsTimeoutMultiplierEnv, got)
+	}
+	if got := os.Getenv(tdd.MutantsMinTestTimeoutEnv); got != "20s" {
+		t.Errorf("%s = %q, want the --minimum-test-timeout flag's value", tdd.MutantsMinTestTimeoutEnv, got)
 	}
 }
 

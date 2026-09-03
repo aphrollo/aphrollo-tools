@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -64,6 +66,14 @@ func runGateMutants(args []string, stderr io.Writer) int {
 			diff = fs.String("diff", "", "merge base to scope the run to (CI: run in the foreground and judge)")
 			receipt = fs.String("receipt", "", "where to write the signed receipt")
 		}
+		// The env-versus-flag rule: a flag typed for THIS run beats a
+		// session-wide override, which beats the per-box/producer default.
+		// `run` is normally spawned by postcommit, never hand-typed, but a
+		// maintainer rerunning one job by hand is exactly who these are for.
+		jobsFlag := fs.Int("jobs", 0, "concurrency cap for this run (default: min(cores/6, RAM/6, 2), beats "+tdd.MutantsJobsEnv+")")
+		baseFlag := fs.String("base", "", "base ref/sha to scope the run to, overriding the job's own")
+		timeoutMultiplier := fs.String("timeout-multiplier", "", "forwarded to cargo-mutants' own --timeout-multiplier")
+		minTestTimeout := fs.String("minimum-test-timeout", "", "forwarded to cargo-mutants' own --minimum-test-timeout")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
@@ -82,6 +92,18 @@ func runGateMutants(args []string, stderr io.Writer) int {
 			// The Go half of the detached job: gremlins over the lane diff,
 			// writing the same receipt the Rust runner writes.
 			return tdd.RunGoMutantsJob(*job)
+		}
+		if isFlagSet(fs, "jobs") {
+			os.Setenv(tdd.MutantsJobsEnv, strconv.Itoa(*jobsFlag))
+		}
+		if isFlagSet(fs, "base") {
+			os.Setenv(tdd.MutantsBaseOverrideEnv, *baseFlag)
+		}
+		if isFlagSet(fs, "timeout-multiplier") {
+			os.Setenv(tdd.MutantsTimeoutMultiplierEnv, *timeoutMultiplier)
+		}
+		if isFlagSet(fs, "minimum-test-timeout") {
+			os.Setenv(tdd.MutantsMinTestTimeoutEnv, *minTestTimeout)
 		}
 		return tdd.RunMutantsJob(*job)
 	default:

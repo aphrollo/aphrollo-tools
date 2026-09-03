@@ -45,9 +45,19 @@ const (
 	// run must set, so an env-gated suite counts.
 	MutantsEnvEnv = "APHROLLO_MUTANTS_ENV"
 	// MutantsJobsEnv is the concurrency cap this box allows, and
-	// MutantsJobsWhyEnv the reason a runner prints beside it.
+	// MutantsJobsWhyEnv the reason a runner prints beside it. Read as a
+	// session-wide override by resolveMutantsJobs, beaten only by a `--jobs`
+	// flag typed for the one run.
 	MutantsJobsEnv    = "APHROLLO_MUTANTS_JOBS"
 	MutantsJobsWhyEnv = "APHROLLO_MUTANTS_JOBS_WHY"
+	// MutantsBaseOverrideEnv, MutantsTimeoutMultiplierEnv and
+	// MutantsMinTestTimeoutEnv carry `aphrollo gate mutants run`'s own
+	// `--base`/`--timeout-multiplier`/`--minimum-test-timeout` flags into the
+	// producer: set on THIS process by the CLI layer before the job runs,
+	// read here, and never forwarded raw to the producer's own environment.
+	MutantsBaseOverrideEnv      = "APHROLLO_MUTANTS_BASE_OVERRIDE"
+	MutantsTimeoutMultiplierEnv = "APHROLLO_MUTANTS_TIMEOUT_MULTIPLIER"
+	MutantsMinTestTimeoutEnv    = "APHROLLO_MUTANTS_MIN_TEST_TIMEOUT"
 )
 
 // RunMutantsJob is the detached wrapper's body. It never blocks anything, so
@@ -246,7 +256,7 @@ func runMutantsProducer(j MutantsJob, judged []MutantOutcome) int {
 // its to decide.
 func mutantsProducerArgv(j MutantsJob) ([]string, bool) {
 	if script := filepath.Join(j.Worktree, "tools", "mutation_gate.sh"); fileExists(script) {
-		return []string{"bash", filepath.ToSlash(script), j.BaseSHA}, true
+		return []string{"bash", filepath.ToSlash(script), effectiveMutantsBase(j)}, true
 	}
 	if fileExists(filepath.Join(j.Worktree, "go.mod")) {
 		self, err := os.Executable()
@@ -256,6 +266,18 @@ func mutantsProducerArgv(j MutantsJob) ([]string, bool) {
 		return []string{self, CmdName, "mutants", "go", "--job", mutantsJobFilePath(j)}, true
 	}
 	return nil, false
+}
+
+// effectiveMutantsBase is j.BaseSHA unless `aphrollo gate mutants run` was
+// typed with `--base <ref>`, which the CLI layer carries in
+// MutantsBaseOverrideEnv on this process — the job file describes what
+// postcommit scoped the run to, and a hand-typed rerun against a different
+// base is the one case that legitimately overrides it.
+func effectiveMutantsBase(j MutantsJob) string {
+	if o := strings.TrimSpace(os.Getenv(MutantsBaseOverrideEnv)); o != "" {
+		return o
+	}
+	return j.BaseSHA
 }
 
 // mutantsChildEnv is the producer's environment: the warm target dir, the
@@ -270,27 +292,41 @@ func mutantsChildEnv(j MutantsJob, judged []MutantOutcome) []string {
 		"TMPDIR": true, "TMP": true, "TEMP": true,
 		MutantsArgsEnv: true, MutantsDiffEnv: true, MutantsBaseEnv: true,
 		MutantsEnvEnv: true, MutantsJobsEnv: true, MutantsJobsWhyEnv: true,
-		BuildLockHeldEnv: true,
+		BuildLockHeldEnv:       true,
+		MutantsBaseOverrideEnv: true, MutantsTimeoutMultiplierEnv: true, MutantsMinTestTimeoutEnv: true,
 	}
 	for _, kv := range os.Environ() {
 		if k, _, ok := strings.Cut(kv, "="); !ok || !drop[k] {
 			out = append(out, kv)
 		}
 	}
-	jobs, why := mutantsJobsForThisBox()
+	// Env-versus-flag: a `--jobs` flag typed for this run set MutantsJobsEnv
+	// on this very process just before the job ran, so resolveMutantsJobs
+	// reads it as the override — indistinguishable, by design, from a
+	// session that set it for the same reason.
+	jobs, why := resolveMutantsJobs(0, false)
 	ws := cargoWorkspaceRoot(j.Worktree)
 	if ws == "" {
 		ws = j.Worktree
+	}
+	argv := MutantsArgv(j.Diff, TipSuiteGreen(j.RepoRoot, j.Started.Add(-mutantsGreenWindow)), mutantNames(judged))
+	// `--timeout-multiplier`/`--minimum-test-timeout` are cargo-mutants' own
+	// flags; a run typed with either rides through unchanged rather than
+	// through the exclusion-list budget MutantsArgv already bounds.
+	if tm := strings.TrimSpace(os.Getenv(MutantsTimeoutMultiplierEnv)); tm != "" {
+		argv = append(argv, "--timeout-multiplier", tm)
+	}
+	if mt := strings.TrimSpace(os.Getenv(MutantsMinTestTimeoutEnv)); mt != "" {
+		argv = append(argv, "--minimum-test-timeout", mt)
 	}
 	out = append(out, mutantsTempEnv(j)...)
 	return append(out,
 		"CARGO_TARGET_DIR="+j.TargetDir,
 		MutationGateEnv+"=1",
 		QueueEnv+"="+QueueBypass,
-		MutantsArgsEnv+"="+strings.Join(MutantsArgv(j.Diff,
-			TipSuiteGreen(j.RepoRoot, j.Started.Add(-mutantsGreenWindow)), mutantNames(judged)), " "),
+		MutantsArgsEnv+"="+strings.Join(argv, " "),
 		MutantsDiffEnv+"="+j.Diff,
-		MutantsBaseEnv+"="+j.BaseSHA,
+		MutantsBaseEnv+"="+effectiveMutantsBase(j),
 		// The switches the repo says its mutation run must set: without them
 		// every mutant behind an env-gated suite is missed by construction.
 		MutantsEnvEnv+"="+strings.Join(cargoMutantsEnv(ws), " "),

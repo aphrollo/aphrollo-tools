@@ -89,7 +89,8 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 		return execCargoHeld(cfg.realCargo, args, stdin, stdout, stderr, 0, true)
 	}
 
-	if refuseBareMutants(args, stderr) {
+	target := shimTargetDir()
+	if refuseBareMutants(args, target, stderr) {
 		// Not a cargo failure and not a usage error of cargo's: the
 		// invocation is the wrong ENTRY POINT, and the line above names the
 		// right one.
@@ -104,7 +105,6 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 		return execCargo(cfg.realCargo, args, stdin, stdout, stderr, 0)
 	}
 
-	target := shimTargetDir()
 	if queueBypassAllowed(target) {
 		// The mutation job owns this target dir outright, so there is nothing
 		// for it to contend with. It is told the lock is NOT held, because it
