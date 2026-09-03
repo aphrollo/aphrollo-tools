@@ -20,10 +20,17 @@ func runPostCommit(stderr io.Writer) int {
 		return 0
 	}
 	j, ok, err := tdd.PostCommitHook(root)
-	switch {
-	case ok:
+	if ok {
 		fmt.Fprintf(stderr, "gate: mutation run started for %s (pid %d)\n", j.Branch, j.PID)
-	case err != nil:
+		return 0
+	}
+	// An early return above and a guarded statement here (rather than the
+	// `switch { case ok: ...; case err != nil: ... }` this used to be) puts
+	// each condition on a line with its own statement, which is what makes
+	// gremlins's coverage-to-mutant mapping on the runner unambiguous -- a
+	// bare `case err != nil:` line mapped to the wrong covered block and let
+	// the mutant on it survive despite the killing test (issue #140).
+	if err != nil {
 		fmt.Fprintf(stderr, "gate: mutation run failed to start: %v\n", err)
 	}
 	return 0
