@@ -64,6 +64,8 @@ func runGateMutants(args []string, stderr io.Writer) int {
 		fs.SetOutput(stderr)
 		job := fs.String("job", "", "path to the job file describing the run")
 		var diff, receipt, store *string
+		var jobsFlag *int
+		var baseFlag, timeoutMultiplier, minTestTimeout *string
 		if args[0] == "go" {
 			// CI's addressing: the merge base its diff is scoped to, and
 			// where to leave the receipt for the workflow to upload. The
@@ -78,15 +80,24 @@ func runGateMutants(args []string, stderr io.Writer) int {
 			// actions/cache path keyed on the head branch; "" keeps the
 			// machine-local default (the detached job's own cache).
 			store = fs.String("store", "", "outcome cache directory, overriding the machine-local default (e.g. an actions/cache path keyed on the head branch)")
+		} else {
+			// The env-versus-flag rule: a flag typed for THIS run beats a
+			// session-wide override, which beats the per-box/producer default.
+			// `run` is normally spawned by postcommit, never hand-typed, but a
+			// maintainer rerunning one job by hand is exactly who these are
+			// for. `go` has none of this: its own concurrency comes from the
+			// same per-box formula (GoMutantsCI.Workers is never set here),
+			// and gremlins has neither a base override distinct from --diff
+			// nor cargo-mutants' timeout knobs at all -- declaring these four
+			// ONLY here (mirroring --diff/--receipt/--store's scoping to `go`
+			// only) turns one mistyped on `go` into a real flag.Parse error
+			// naming the flags `go` actually has, instead of a silent no-op
+			// (issue #176).
+			jobsFlag = fs.Int("jobs", 0, "concurrency cap for this run (default: min(cores/6, RAM/6, 2), beats "+tdd.MutantsJobsEnv+")")
+			baseFlag = fs.String("base", "", "base ref/sha to scope the run to, overriding the job's own")
+			timeoutMultiplier = fs.String("timeout-multiplier", "", "forwarded to cargo-mutants' own --timeout-multiplier")
+			minTestTimeout = fs.String("minimum-test-timeout", "", "forwarded to cargo-mutants' own --minimum-test-timeout")
 		}
-		// The env-versus-flag rule: a flag typed for THIS run beats a
-		// session-wide override, which beats the per-box/producer default.
-		// `run` is normally spawned by postcommit, never hand-typed, but a
-		// maintainer rerunning one job by hand is exactly who these are for.
-		jobsFlag := fs.Int("jobs", 0, "concurrency cap for this run (default: min(cores/6, RAM/6, 2), beats "+tdd.MutantsJobsEnv+")")
-		baseFlag := fs.String("base", "", "base ref/sha to scope the run to, overriding the job's own")
-		timeoutMultiplier := fs.String("timeout-multiplier", "", "forwarded to cargo-mutants' own --timeout-multiplier")
-		minTestTimeout := fs.String("minimum-test-timeout", "", "forwarded to cargo-mutants' own --minimum-test-timeout")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
