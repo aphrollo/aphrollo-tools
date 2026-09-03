@@ -134,6 +134,15 @@ func TestTomlStringsIn_AQuotedBracketDoesNotCloseTheArrayEarly(t *testing.T) {
 	}
 }
 
+// An EMPTY quoted string ("") closes on the character immediately after the
+// one that opened it: stripQuoted must still treat what follows as real
+// syntax, not swallow it the way an unterminated quote correctly does.
+func TestStripQuoted_AnEmptyQuotedStringStillLeavesWhatFollows(t *testing.T) {
+	if got := stripQuoted(`""]`); got != "]" {
+		t.Fatalf("stripQuoted(%q) = %q, want %q — an empty quoted pair strips to nothing, leaving the real ]", `""]`, got, "]")
+	}
+}
+
 // The run is scoped to the lane's diff, writes machine-readable output, and
 // is capped: gremlins re-runs the suite per mutant, so an uncapped run owns
 // the box for as long as it takes.
