@@ -160,11 +160,11 @@ max = 1
 	}
 }
 
-// TestCheckNotesAStaleBaselineAfterSwitchingToCodeCounting proves a
+// TestCheck_NotesAStaleBaselineAfterSwitchingToCodeCounting proves a
 // report-only run says something when a law's baseline was recorded under
 // `count = "text"` and now measures fewer lines under `count = "code"` —
 // otherwise the drop reads as an ordinary tightening nobody was told about.
-func TestCheckNotesAStaleBaselineAfterSwitchingToCodeCounting(t *testing.T) {
+func TestCheck_NotesAStaleBaselineAfterSwitchingToCodeCounting(t *testing.T) {
 	root := t.TempDir()
 	writeLaw(t, root, "code-size", `
 name = "code-size"

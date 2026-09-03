@@ -7,11 +7,11 @@ import (
 	"testing"
 )
 
-// TestAdoptRefusesAnUnchangedLawWithAnExistingBaseline is the RED case: a
+// TestAdopt_RefusesAnUnchangedLawWithAnExistingBaseline is the RED case: a
 // law with a baseline already on disk, reported unchanged since HEAD, must
 // never let Adopt through — that would make "adopt" a raised ceiling with an
 // extra step.
-func TestAdoptRefusesAnUnchangedLawWithAnExistingBaseline(t *testing.T) {
+func TestAdopt_RefusesAnUnchangedLawWithAnExistingBaseline(t *testing.T) {
 	root := repoWithNanGuard(t)
 	_, err := Adopt(AdoptOptions{Root: root, Law: "nan-guard", LawChangedSinceHEAD: false})
 	if err == nil {
@@ -22,10 +22,10 @@ func TestAdoptRefusesAnUnchangedLawWithAnExistingBaseline(t *testing.T) {
 	}
 }
 
-// TestAdoptWritesRowsForANewLawWithNoBaselineYet is the "lands its first
+// TestAdopt_WritesRowsForANewLawWithNoBaselineYet is the "lands its first
 // baseline" case: LawChangedSinceHEAD is irrelevant here because there is no
 // baseline file to protect at all.
-func TestAdoptWritesRowsForANewLawWithNoBaselineYet(t *testing.T) {
+func TestAdopt_WritesRowsForANewLawWithNoBaselineYet(t *testing.T) {
 	root := t.TempDir()
 	writeLaw(t, root, "nan-guard", nanGuardLaw)
 	write(t, filepath.Join(root, "crates", "a", "src", "lib.rs"), "let a = x.clamp(0.0, 1.0);\n")
@@ -55,10 +55,10 @@ func TestAdoptWritesRowsForANewLawWithNoBaselineYet(t *testing.T) {
 	}
 }
 
-// TestAdoptWritesRowsForAWidenedLaw proves the other stated case: an existing
+// TestAdopt_WritesRowsForAWidenedLaw proves the other stated case: an existing
 // law whose baseline already exists, but is reported changed since HEAD
 // (a widened scope, say), gets its new hits recorded rather than rejected.
-func TestAdoptWritesRowsForAWidenedLaw(t *testing.T) {
+func TestAdopt_WritesRowsForAWidenedLaw(t *testing.T) {
 	root := repoWithNanGuard(t)
 	// A second, previously out-of-scope offender the existing baseline never
 	// saw — as if the law's scope had just been widened to reach it.
@@ -81,9 +81,9 @@ func TestAdoptWritesRowsForAWidenedLaw(t *testing.T) {
 	}
 }
 
-// TestAdoptRefusesALawWithNoBaselineDeclared proves the trivial guard: a law
+// TestAdopt_RefusesALawWithNoBaselineDeclared proves the trivial guard: a law
 // that names no baseline (a zero-bar law) has nothing for Adopt to write.
-func TestAdoptRefusesALawWithNoBaselineDeclared(t *testing.T) {
+func TestAdopt_RefusesALawWithNoBaselineDeclared(t *testing.T) {
 	root := t.TempDir()
 	writeLaw(t, root, "no-baseline", `
 name = "no-baseline"

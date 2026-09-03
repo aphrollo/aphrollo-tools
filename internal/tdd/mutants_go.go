@@ -35,7 +35,7 @@ const gremlinsBin = "gremlins"
 // for as long as it takes.
 //
 // excludeFiles is repo-relative paths the run must not even WALK — gremlins'
-// own `--exclude-files` takes a filepath regexp (internal/exclusion.Rules,
+// own `--exclude-files` takes a filepath regexp (exclusion.Rules in internal/exclusion,
 // matched against the fs.WalkDir path gremlins mutates from), so each one is
 // anchored and escaped into `^<path>$` before being passed. This is the CI
 // runner's incremental lever (issue #143): a file whose blob and package

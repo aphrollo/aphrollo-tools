@@ -276,7 +276,7 @@ func TestSyncEscapesOpensOnlyTheUnsyncedOnes(t *testing.T) {
 // stop counting as open debt locally: nothing here polls GitHub on its own,
 // so nothing ever learned an issue closed until sync reconciled it (issue
 // #113).
-func TestSyncEscapesMarksARecordClosedWhenItsIssueClosedOnGitHub(t *testing.T) {
+func TestSyncEscapes_MarksARecordClosedWhenItsIssueClosedOnGitHub(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := makeGitHubRepo(t)
 	if err := appendEscape(EscapeRecord{
@@ -306,7 +306,7 @@ func TestSyncEscapesMarksARecordClosedWhenItsIssueClosedOnGitHub(t *testing.T) {
 
 // A record whose issue is STILL OPEN on GitHub is left alone — sync closes a
 // loop, it does not guess one shut.
-func TestSyncEscapesLeavesAStillOpenIssueAlone(t *testing.T) {
+func TestSyncEscapes_LeavesAStillOpenIssueAlone(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := makeGitHubRepo(t)
 	if err := appendEscape(EscapeRecord{

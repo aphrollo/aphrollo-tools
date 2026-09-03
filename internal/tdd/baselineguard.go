@@ -215,9 +215,32 @@ func adoptionCovers(repoRoot, baselineRel string, rows int) (lawName string, _ i
 		}
 		changed := section(scopeSection, staged) != section(scopeSection, head) ||
 			section(matcherSection, staged) != section(matcherSection, head)
+		if !changed && !lawOnTrunk(repoRoot, lawRel) {
+			// The law is the lane's own, not yet on trunk: after a catch-up
+			// merge, trunk's files may sit past rows the lane wrote before the
+			// merge, and re-writing them with the ratchet is adoption. Trunk
+			// never had the ceiling, so nothing on trunk was raised.
+			return name, rows, true
+		}
 		return name, rows, changed
 	}
 	return "", 0, false
+}
+
+// lawOnTrunk reports whether lawRel exists at the merge base of HEAD and the
+// repository's trunk branch (`main`, else `master`). With no trunk to compare
+// against — a fixture with a single branch, a detached tip — the law is taken
+// as trunk's, so the one-way rule holds by default.
+func lawOnTrunk(repoRoot, lawRel string) bool {
+	for _, trunk := range []string{"main", "master"} {
+		base, err := git(repoRoot, "merge-base", "HEAD", trunk)
+		if err != nil {
+			continue
+		}
+		_, ok := gitBlob(repoRoot, strings.TrimSpace(base)+":"+lawRel)
+		return ok
+	}
+	return true
 }
 
 // ownsBaseline reports whether lawText declares `baseline = "<rel>"`.

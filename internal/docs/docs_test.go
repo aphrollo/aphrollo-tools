@@ -40,7 +40,7 @@ func check(t *testing.T, docContent string, resolvable ...string) []Finding {
 // (internal/ratchet's doc-path-resolves matcher, rendered from the built-in
 // common/doc_reference_exists preset); these cases exercise it through the
 // package's own CLI-facing entry point rather than a removed private helper.
-func TestCheckFilesExtractsAndResolvesCitations(t *testing.T) {
+func TestCheckFiles_ExtractsAndResolvesCitations(t *testing.T) {
 	tests := []struct {
 		name       string
 		content    string
@@ -95,10 +95,10 @@ func TestCheckFilesDoesNotSkipFencedCodeBlocks_knownGap(t *testing.T) {
 	}
 }
 
-// TestCheckFilesResolvesRelativeToCitingFileThenRoot proves the resolution
+// TestCheckFiles_ResolvesRelativeToCitingFileThenRoot proves the resolution
 // order end-to-end: a path resolves against the CITING file's own directory
 // first, then the repo root, and a dangling one is reported either way.
-func TestCheckFilesResolvesRelativeToCitingFileThenRoot(t *testing.T) {
+func TestCheckFiles_ResolvesRelativeToCitingFileThenRoot(t *testing.T) {
 	root := t.TempDir()
 	writeRepoFile(t, root, "a/sibling.md", "x")
 	writeRepoFile(t, root, "rooted.md", "x")
@@ -116,11 +116,11 @@ func TestCheckFilesResolvesRelativeToCitingFileThenRoot(t *testing.T) {
 	}
 }
 
-// TestCheckFilesUsesTheRepoOwnLawWhenItDeclaresOne proves the OTHER half of
+// TestCheckFiles_UsesTheRepoOwnLawWhenItDeclaresOne proves the OTHER half of
 // "one implementation": a repo that declares its own doc_reference_exists law
 // is judged by THAT law, not silently by the built-in default — narrowing the
 // scope here to `.txt` (which the default preset never matches) is the proof.
-func TestCheckFilesUsesTheRepoOwnLawWhenItDeclaresOne(t *testing.T) {
+func TestCheckFiles_UsesTheRepoOwnLawWhenItDeclaresOne(t *testing.T) {
 	root := t.TempDir()
 	writeRepoFile(t, root, ".ratchet/laws/doc_reference_exists.toml", `
 name = "doc_reference_exists"

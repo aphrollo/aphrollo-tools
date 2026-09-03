@@ -159,10 +159,10 @@ kind = "regex-absent"
 pattern = "\.clamp\("
 `
 
-// TestBaselineGuardAllowsARaiseWhenTheLawsScopeChangedInTheSameCommit is the
+// TestBaselineGuard_AllowsARaiseWhenTheLawsScopeChangedInTheSameCommit is the
 // escape this guard closes: a law's scope widened in the SAME commit that
 // carries the baseline row the widening now reaches — adopted, not rejected.
-func TestBaselineGuardAllowsARaiseWhenTheLawsScopeChangedInTheSameCommit(t *testing.T) {
+func TestBaselineGuard_AllowsARaiseWhenTheLawsScopeChangedInTheSameCommit(t *testing.T) {
 	widenedLaw := strings.Replace(nanGuardLawText,
 		`include = ["crates/**/*.rs"]`, `include = ["crates/**/*.rs", "tools/**/*.rs"]`, 1)
 	root := lawAndBaselineRepo(t, nanGuardLawText, "crates/a.rs | let a = x.clamp(0.0, 1.0);\n",
@@ -177,10 +177,10 @@ func TestBaselineGuardAllowsARaiseWhenTheLawsScopeChangedInTheSameCommit(t *test
 	requireLoggedVerdict(t, cfg, "baseline-adopted:nan-guard:1")
 }
 
-// TestBaselineGuardRefusesARaiseWhenTheLawIsUnchanged is the same raised row,
+// TestBaselineGuard_RefusesARaiseWhenTheLawIsUnchanged is the same raised row,
 // with the law's scope and matcher untouched — still refused, exactly like
 // an unrelated hand-edit.
-func TestBaselineGuardRefusesARaiseWhenTheLawIsUnchanged(t *testing.T) {
+func TestBaselineGuard_RefusesARaiseWhenTheLawIsUnchanged(t *testing.T) {
 	root := lawAndBaselineRepo(t, nanGuardLawText, "crates/a.rs | let a = x.clamp(0.0, 1.0);\n",
 		nanGuardLawText, "crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
 
@@ -193,10 +193,75 @@ func TestBaselineGuardRefusesARaiseWhenTheLawIsUnchanged(t *testing.T) {
 	}
 }
 
-// TestBaselineGuardRefusesARaiseWhenADifferentLawChanged proves adoption is
+// TestBaselineGuard_AllowsARaiseWhenTheLawIsNotOnTrunkYet is the catch-up
+// merge case: a lane introduces a law and its baseline, then merges main, and
+// main's files have grown past the lane's rows. Trunk never had the law, so
+// the lane owns the baseline and re-writing it with the ratchet is adoption,
+// not a hand raise.
+func TestBaselineGuard_AllowsARaiseWhenTheLawIsNotOnTrunkYet(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, "crates", "a.rs"), "let a = x.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	gitFixture(t, root, "branch", "-M", "main")
+	gitFixture(t, root, "checkout", "-q", "-b", "lane")
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "nan-guard.toml"), nanGuardLawText)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"), "crates/a.rs | let a = x.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"),
+		"crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	res := baselineStage("precommit", root)
+	if res.Blocked {
+		t.Fatalf("a raise on a law trunk does not have yet must be adopted, not rejected: %s", res.Message)
+	}
+	requireLoggedVerdict(t, cfg, "baseline-adopted:nan-guard:1")
+}
+
+// TestBaselineGuard_RefusesARaiseWhenTheLawIsAlreadyOnTrunk is the same lane
+// shape with the law committed on main BEFORE the lane branched: trunk owns
+// the baseline, so the raised row is a hand raise and stays refused.
+func TestBaselineGuard_RefusesARaiseWhenTheLawIsAlreadyOnTrunk(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "nan-guard.toml"), nanGuardLawText)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"), "crates/a.rs | let a = x.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	gitFixture(t, root, "branch", "-M", "main")
+	gitFixture(t, root, "checkout", "-q", "-b", "lane")
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"),
+		"crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+
+	res := baselineStage("precommit", root)
+	if !res.Blocked {
+		t.Fatal("trunk already carries the law — the raised row must still be rejected")
+	}
+	if !strings.Contains(res.Message, "tools/b.rs") {
+		t.Errorf("message must name the offending row: %s", res.Message)
+	}
+}
+
+// gitFixture runs one git command inside a fixture repository, hooks off.
+func gitFixture(t *testing.T, root string, args ...string) {
+	t.Helper()
+	cmd := exec.Command(gitBinary(), append([]string{"-c", "core.hooksPath="}, args...)...)
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// TestBaselineGuard_RefusesARaiseWhenADifferentLawChanged proves adoption is
 // scoped to the law that OWNS the baseline: touching some unrelated law's
 // [matcher] must never license a raise on nan-guard's baseline.
-func TestBaselineGuardRefusesARaiseWhenADifferentLawChanged(t *testing.T) {
+func TestBaselineGuard_RefusesARaiseWhenADifferentLawChanged(t *testing.T) {
 	root := lawAndBaselineRepo(t, nanGuardLawText, "crates/a.rs | let a = x.clamp(0.0, 1.0);\n",
 		nanGuardLawText, "crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
 	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "other.toml"), `name = "other"
@@ -218,7 +283,7 @@ pattern = "TODO"
 	}
 }
 
-// TestBaselineGuardRefusesARaiseEvenWhenALaterLawFalselyClaimsOwnership
+// TestBaselineGuard_RefusesARaiseEvenWhenALaterLawFalselyClaimsOwnership
 // proves the out-of-band-raise path: a law file present on disk but never
 // `git add`ed (no index entry at all, not merely an unchanged one) is still
 // read from disk and answers "does it own this baseline" BEFORE the scan
@@ -226,7 +291,7 @@ pattern = "TODO"
 // same baseline path must never get to answer that question in its place. A
 // scan that skipped the real, untracked owner would let the raise through on
 // the imposter's say-so.
-func TestBaselineGuardRefusesARaiseEvenWhenALaterLawFalselyClaimsOwnership(t *testing.T) {
+func TestBaselineGuard_RefusesARaiseEvenWhenALaterLawFalselyClaimsOwnership(t *testing.T) {
 	root := t.TempDir()
 	gitInit(t, root)
 	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"),

@@ -62,3 +62,7 @@ APHROLLO_TEST_GIT_COMMON_DIR | internal/cli/git_shim_scope_test.go | Read by a s
 APHROLLO_TEST_GIT_DIR | internal/cli/git_shim_scope_test.go | Read by the same synthetic fake-git binary, alongside APHROLLO_TEST_GIT_COMMON_DIR.
 APHROLLO_TEST_STUB_ENV_OUT | internal/cli/slottoken_test.go | Tells a synthetic fake-cargo binary to dump its received environment to this path, so the test can assert on what the shim passed through.
 APHROLLO_TEST_STUB_FAIL_ON | internal/cli/cargo_shim_run_test.go | Names the verb a synthetic fake-cargo binary should fail on, for exercising the shim's non-zero-exit path.
+APHROLLO_MUTANTS_BASE_OVERRIDE | internal/tdd/mutants_run.go | Carries the --base flag of aphrollo gate mutants run from the CLI layer into the in-process job; set on this process only, never forwarded to the producer.
+APHROLLO_MUTANTS_TIMEOUT_MULTIPLIER | internal/tdd/mutants_run.go | Carries the --timeout-multiplier flag of aphrollo gate mutants run into the in-process job the same way.
+APHROLLO_MUTANTS_MIN_TEST_TIMEOUT | internal/tdd/mutants_run.go | Carries the --minimum-test-timeout flag of aphrollo gate mutants run into the in-process job the same way.
+APHROLLO_MUTATION_GATE | internal/cli/cargo_shim_mutants.go | Deprecated one-release handshake: a nested cargo mutants is let through by its target dir now; a caller still setting this is let through once more and logged.

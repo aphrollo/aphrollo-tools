@@ -33,10 +33,6 @@ internal/cli/tddskill_test.go | func TestGateInitWritesTheTDDSkillAndRetiresTheC
 internal/dev/dev_test.go | func TestLogsArgv(t *testing.T) {
 internal/dev/dev_test.go | func TestSudoPrefixedByDefault(t *testing.T) {
 internal/dev/dev_test.go | func TestUnitFor(t *testing.T) {
-internal/docs/docs_test.go | func TestCheckFiles(t *testing.T) {
-internal/docs/docs_test.go | func TestExtractRefs(t *testing.T) {
-internal/docs/docs_test.go | func TestLooksLikeRepoPath(t *testing.T) {
-internal/docs/docs_test.go | func TestResolveRelativeToCitingFileThenRoot(t *testing.T) {
 internal/guardrail/hook_test.go | func TestDecideFromHookInput(t *testing.T) {
 internal/lsp/workspaceedit_test.go | func TestURIToPath(t *testing.T) {
 internal/ratchet/baseline_test.go | func TestBaselineDuplicateKeyIsAParseErrorForCountedOnly(t *testing.T) {
