@@ -185,7 +185,7 @@ func installMarkerWritingHook(t *testing.T, repo, markerPath string) {
 // rejection) -- after runGitShim, MERGE_HEAD is gone, the working tree is
 // clean, and the one recovery line was printed.
 func TestRunGitShim_MergeRejectedByHook_AbortsAndCleansCheckout(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	withDirectGitShim(t)
 	isolateGitConfigCLI(t)
 	repo, branch := makeMergeableRepo(t)
@@ -233,7 +233,7 @@ func TestRunGitShim_MergeRejectedByHook_AbortsAndCleansCheckout(t *testing.T) {
 // write one) with an mtime after `start`, isolating the one guard this test
 // exists to prove: `hasUnmergedPaths`, not marker freshness.
 func TestRecoverRejectedMerge_ConflictedMerge_MarkerPresent_NotAborted(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	isolateGitConfigCLI(t)
 	repo, branch := makeConflictingMergeRepo(t)
 	realGit := realGitForTest(t)
@@ -277,7 +277,7 @@ func TestRecoverRejectedMerge_ConflictedMerge_MarkerPresent_NotAborted(t *testin
 // simulating `fatal: refusing to merge unrelated histories`, exit 128, no
 // hook ever ran) leaves no marker, so recovery must never fire.
 func TestRecoverRejectedMerge_FailsWithoutMarker_NotAborted(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	isolateGitConfigCLI(t)
 	repo, _ := makeMergeableRepo(t) // a real repo; no merge attempted, no marker ever written
 	realGit := realGitForTest(t)

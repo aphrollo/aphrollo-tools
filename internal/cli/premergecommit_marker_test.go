@@ -36,7 +36,7 @@ func stageBrokenGoModule(t *testing.T, repo string) {
 // git-queue shim can recognise ITS OWN rejection and clean up the
 // MERGE_HEAD/index state a rejected automerge leaves in the shared checkout.
 func TestRun_TDDPremergecommit_BlockedWritesMergeRejectedMarker(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	repo := commitRepo(t)
 	stageBrokenGoModule(t, repo)
 
@@ -66,7 +66,7 @@ func TestRun_TDDPremergecommit_BlockedWritesMergeRejectedMarker(t *testing.T) {
 // fixtures), which is cheaper than staging a real conflict for a test that
 // only cares which subcommand ran.
 func TestRun_TDDPrecommit_ConflictedMergeBlocked_WritesNoMarker(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	repo := commitRepo(t)
 
 	head, err := exec.Command("git", "-C", repo, "rev-parse", "HEAD").Output()

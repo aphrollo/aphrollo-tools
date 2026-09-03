@@ -1734,14 +1734,31 @@ is a warning, not a failure.
 which reads the session payload on stdin and prints ONE badge:
 
 ```
-[aphrollo]            green — the gate is armed, nothing to report
-[aphrollo:off]        gray  — this session ran `/gate off`; edits are not gated
-[aphrollo] red        the last post-edit outcome for THIS project was red
-[aphrollo] deferred   a detached build for this project is still running
-[aphrollo] queued     the last run only queued — the suite never started
+[aphrollo]            green  — the gate is armed, nothing to report
+[aphrollo]            red    — a run for THIS project failed and still stands
+[aphrollo:off]        gray   — this session ran `/gate off`; edits are not gated
+[aphrollo:deferred]   yellow — a detached build for this project is running
+[aphrollo:mutants]    yellow — a cargo-mutants run holds this project's target
+[aphrollo:queued]     yellow — the last run only queued; the suite never started
 ```
 
-The suffix is reserved for what changes what to do next, in that order; a
+The BADGE carries the state, in its own colour. A tag goes inside the brackets
+where the colour is not enough: yellow has three causes, so it names which, and
+OFF says so in text because a badge whose colours are stripped — by a log, a
+screenshot, a statusline that drops SGR — must never read an ungated session as
+armed. Red and green are colour-only: both mean the gate is running, and a word
+the colour already carries is a word a session stops reading.
+
+A red is retired by either of two things, so the badge is never stale. ANY
+green outcome logged for this project clears it, from any stage — post-edit,
+pre-commit, pre-merge-commit or the post-Bash harvest — so a fix that lands
+through a commit clears the badge at the next render rather than waiting for
+the next edit. And a red older than 30 minutes with nothing logged after it is
+dropped outright, with nothing rendered in its place: the badge is a real-time
+signal or it is noise, and one false red teaches a reader to ignore the true
+one. The hooks write the state; the statusline only reads it.
+
+The tag is reserved for what changes what to do next, in that order; a
 statusline that reports every healthy state is one nobody reads. It never
 fails — a malformed payload, a missing session or an unreadable log all render
 the plain badge, because a statusline runs on every prompt render and has

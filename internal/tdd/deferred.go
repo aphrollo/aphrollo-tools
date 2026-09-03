@@ -29,8 +29,9 @@ import (
 // the latest source), and a result is only adopted when it describes the
 // code that is actually on disk now (same HEAD, same file content).
 
-// DeferredJob describes one detached phase. It is keyed by project, so an
-// orphan left by an ended session is still harvestable.
+// DeferredJob describes one detached phase, keyed by the session that started
+// it and the project it builds: two sessions in one repo each harvest their
+// own, and neither is told about work it did not start.
 type DeferredJob struct {
 	Schema   int       `json:"schema"`
 	Project  string    `json:"project"`
@@ -92,18 +93,35 @@ func projectKey(root string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-func deferredJobPath(root string) string {
+// deferredJobPath names the record for one SESSION's phase in one project.
+// Keying on the project alone let two sessions standing in the same repo read
+// each other's job: session B reported BUILDING for work it never started and
+// then adopted a result describing an edit it never made. A payload carrying
+// no session id keeps the project-only name — there is nothing to separate.
+func deferredJobPath(session, root string) string {
 	dir := deferredDir()
 	if dir == "" {
 		return ""
 	}
-	return filepath.Join(dir, projectKey(root)+".json")
+	name := projectKey(root)
+	if session != "" {
+		name += "-" + sessionKey(session)
+	}
+	return filepath.Join(dir, name+".json")
+}
+
+// sessionKey shortens a session id into a filename component. Session ids are
+// UUIDs today, but nothing guarantees a path-safe one, and the record's own
+// Session field carries the id itself.
+func sessionKey(session string) string {
+	sum := sha256.Sum256([]byte(session))
+	return hex.EncodeToString(sum[:6])
 }
 
 // saveDeferredJob records a job, filling in the log/result paths it owns.
 // Best-effort: losing the record only means the next hook starts fresh.
 func saveDeferredJob(j DeferredJob) {
-	path := deferredJobPath(j.Project)
+	path := deferredJobPath(j.Session, j.Project)
 	if path == "" {
 		return
 	}
@@ -120,8 +138,9 @@ func saveDeferredJob(j DeferredJob) {
 	}
 }
 
-func loadDeferredJob(root string) (DeferredJob, bool) {
-	path := deferredJobPath(root)
+func loadDeferredJob(session, root string) (DeferredJob, bool) {
+	sweepDeferredJobsOnce()
+	path := deferredJobPath(session, root)
 	if path == "" {
 		return DeferredJob{}, false
 	}
@@ -134,12 +153,12 @@ func loadDeferredJob(root string) (DeferredJob, bool) {
 
 // clearDeferredJob forgets a job and its result, leaving the log behind for
 // anyone reading back what happened.
-func clearDeferredJob(root string) {
-	path := deferredJobPath(root)
+func clearDeferredJob(session, root string) {
+	path := deferredJobPath(session, root)
 	if path == "" {
 		return
 	}
-	if j, ok := loadDeferredJob(root); ok && j.Result != "" {
+	if j, ok := loadDeferredJob(session, root); ok && j.Result != "" {
 		_ = os.Remove(j.Result)
 	}
 	_ = os.Remove(path)
@@ -149,8 +168,8 @@ func clearDeferredJob(root string) {
 // the build is NOT killed (it is doing real work and cargo is incremental),
 // but its result will describe code that is no longer current, so the
 // harvest must rebuild.
-func markDeferredDirty(root, fileHash string) {
-	j, ok := loadDeferredJob(root)
+func markDeferredDirty(session, root, fileHash string) {
+	j, ok := loadDeferredJob(session, root)
 	if !ok {
 		return
 	}

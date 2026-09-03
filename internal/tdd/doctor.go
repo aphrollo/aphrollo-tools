@@ -51,10 +51,39 @@ func Doctor(in DoctorInput) []DoctorCheck {
 		doctorManagedFiles(in),
 		doctorDiskSpace(in),
 	}
+	if c, ok := doctorPrimaryCheckout(in); ok {
+		checks = append(checks, c)
+	}
+	if c, ok := doctorLinterVersion(in); ok {
+		checks = append(checks, c)
+	}
 	if c, ok := doctorCIClippyList(in); ok {
 		checks = append(checks, c)
 	}
 	return checks
+}
+
+// doctorPrimaryCheckout checks the primary checkout still holds main. It
+// receives merges for every lane in the repo, so one parked on a lane branch
+// puts the next merge on the wrong base — and nothing says so until the merge
+// lands. ok=false means the check does not apply: a linked worktree, or a
+// clone with no lanes to keep separate.
+func doctorPrimaryCheckout(in DoctorInput) (DoctorCheck, bool) {
+	c := DoctorCheck{Name: "primary checkout on main"}
+	if in.Repo == "" {
+		return c, false
+	}
+	root, branch, applies := PrimaryCheckoutState(in.Repo)
+	if !applies {
+		return c, false
+	}
+	if branch != primaryBranch {
+		c.Detail = fmt.Sprintf("%s is on %s — it receives merges and must hold %s; run `git checkout %s`",
+			root, branch, primaryBranch, primaryBranch)
+		return c, true
+	}
+	c.OK = true
+	return c, true
 }
 
 // RenderDoctor prints one line per check and returns the exit code: 1 when any
@@ -259,6 +288,43 @@ func doctorManagedFiles(in DoctorInput) DoctorCheck {
 	c.OK = true
 	return c
 }
+
+// doctorLinterVersion compares the locally installed golangci-lint against
+// the version this repo's CI pins, which is read from the workflow file
+// itself — the only place the pin actually lives, so the report cannot go
+// stale against a constant compiled into this binary.
+//
+// Drift WARNS. Two releases disagree about findings, so a box on the older
+// one passes commits CI then rejects; but the mismatch is a fact about the
+// box, not a broken install, and failing the report over it would make
+// `gate doctor` red on every machine that has not upgraded yet.
+//
+// ok=false means the check does not apply: no pin in CI to drift from, or no
+// linter installed to drift with.
+func doctorLinterVersion(in DoctorInput) (DoctorCheck, bool) {
+	c := DoctorCheck{Name: "golangci-lint version"}
+	pinned := pinnedLinterVersion(in.Repo)
+	if pinned == "" || !lookLinter() {
+		return c, false
+	}
+	local := linterVersion(in.Repo)
+	if local == "" {
+		return c, false
+	}
+	c.OK = true
+	if local != pinned {
+		c.Warn = true
+		c.Detail = fmt.Sprintf("%s locally, CI pins %s — the two disagree about findings; `go install %s/v2/cmd/%s@v%s`",
+			local, pinned, golangciModule, golangciLint, pinned)
+		return c, true
+	}
+	c.Detail = local + ", matching CI"
+	return c, true
+}
+
+// golangciModule is the module path the linter installs from, named here so
+// the drift line can print a runnable fix.
+const golangciModule = "github.com/golangci/golangci-lint"
 
 // doctorCIClippyList checks a cargo workspace's CI derives its clippy list
 // from the manifest rather than naming crates by hand: a hand-written list

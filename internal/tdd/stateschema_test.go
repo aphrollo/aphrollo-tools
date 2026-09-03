@@ -166,7 +166,7 @@ func TestLoadDeferredJobTreatsANewerRecordAsAbsent(t *testing.T) {
 	root := t.TempDir()
 	saveDeferredJob(DeferredJob{Project: root, Phase: "build", PID: 1234})
 
-	path := deferredJobPath(root)
+	path := deferredJobPath("", root)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -184,7 +184,7 @@ func TestLoadDeferredJobTreatsANewerRecordAsAbsent(t *testing.T) {
 	if err := os.WriteFile(path, newer, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := loadDeferredJob(root); ok {
+	if _, ok := loadDeferredJob("", root); ok {
 		t.Fatal("a newer job record must read as absent")
 	}
 }

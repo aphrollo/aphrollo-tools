@@ -95,6 +95,13 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		return Mechanical(repoRoot, run)
 	}
 
+	// A change with no code answers to the tree guards and nothing else; see
+	// docsonly.go. It comes before the guards themselves only so the log says
+	// which route the commit took.
+	if docsOnly(repoRoot) {
+		return docsOnlyFastPath("precommit", repoRoot)
+	}
+
 	var notes []string
 	collect := func(res GateResult) (blocked bool) {
 		if res.Message != "" {
@@ -157,6 +164,10 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		appendGateLog("premergecommit", repoRoot, "mutation-receipt", "receipt-rejected", 0)
 		return *res
 	}
+	if docsOnly(repoRoot) {
+		return docsOnlyFastPath("premergecommit", repoRoot)
+	}
+
 	var notes []string
 	// Same order as Precommit, and for the same reason: a merge carrying only
 	// a raised baseline or a law regression must answer for it before the
@@ -177,7 +188,7 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 
 	groups := stagedRootGroups(repoRoot)
 	if len(groups) == 0 {
-		const line = "gate premergecommit: nothing to test (no staged source or test files)"
+		line := nothingToTestLine("premergecommit")
 		fmt.Fprintln(os.Stderr, line)
 		notes = append(notes, line)
 		return GateResult{Message: strings.Join(notes, "\n")}
@@ -451,10 +462,24 @@ func workspaceCheckStage(gateName, repoRoot, root string, plan cargoStagePlan, r
 	// (clippy.toml's disallowed methods and types) across crates that are not
 	// on the clippy-clean list. Nothing else is denied here: -D warnings
 	// belongs to the per-crate stage, where a crate has actually reached zero.
-	runner := Runner{Cmd: "cargo", Args: []string{
-		"clippy", "--workspace", "--tests", "--",
-		"-D", "clippy::disallowed_methods", "-D", "clippy::disallowed_types",
-	}, Dir: ws}
+	//
+	// Scoped, never --workspace: see clippyscope.go. The crates are named on
+	// stderr because a scoped stage that does not say what it covered cannot
+	// be told from one that silently stopped covering something.
+	scope := clippyScope(ws, plan.touched)
+	if len(scope) == 0 {
+		fmt.Fprintf(os.Stderr, "gate %s: check → skipped (no cargo package owns anything staged)\n", gateName)
+		return GateResult{}
+	}
+	fmt.Fprintf(os.Stderr, "gate %s: check scope → %s (touched crates + everything downstream of them)\n",
+		gateName, strings.Join(scope, " "))
+	args := []string{"clippy"}
+	for _, pkg := range scope {
+		args = append(args, "-p", pkg)
+	}
+	args = append(args, "--tests", "--",
+		"-D", "clippy::disallowed_methods", "-D", "clippy::disallowed_types")
+	runner := Runner{Cmd: "cargo", Args: args, Dir: ws}
 	return runSuiteStage(gateName, "check", repoRoot, root, runner, run)
 }
 
@@ -957,8 +982,11 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	}
 	defer func() { _, _ = git(repoRoot, "worktree", "remove", "--force", wt) }() // best-effort cleanup
 
-	// The staged test diff applied onto HEAD: tests present, new source absent.
-	diff, err := gitStaged(repoRoot, tests)
+	// The staged test diff applied onto HEAD: tests present, new source
+	// absent — plus the staged DATA those tests read (see proofInputs), so a
+	// test that would only go red against a stale template or fixture is not
+	// mistaken for one that went red against missing code.
+	diff, err := gitStaged(repoRoot, append(append([]string{}, tests...), proofInputs(repoRoot, tests)...))
 	if err != nil || strings.TrimSpace(diff) == "" {
 		return false, false, 0
 	}
@@ -1109,21 +1137,23 @@ func gitStdin(dir string, stdin io.Reader, args ...string) (string, error) {
 	return string(out), err
 }
 
-// mergeInProgressRefs is checked in order: the first of these refs that
+// MergeInProgressRefs is checked in order: the first of these refs that
 // resolves is what Precommit reports and dispatches on. MERGE_HEAD covers a
 // conflicted `git merge`; CHERRY_PICK_HEAD and REVERT_HEAD cover the
 // identical situation for a conflicted `git cherry-pick`/`git revert` — all
 // three fire git's pre-commit hook (not pre-merge-commit) when concluded
 // with a manual `git commit`, and none of them should be judged by
 // fail-first against the whole resulting diff.
-var mergeInProgressRefs = []string{"MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"}
+// Exported because the git shim refuses a commit on the primary checkout
+// unless it CONCLUDES one of these, and two lists would drift.
+var MergeInProgressRefs = []string{"MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"}
 
-// mergeInProgressRef reports which of mergeInProgressRefs currently
+// mergeInProgressRef reports which of MergeInProgressRefs currently
 // resolves in repoRoot (via `git rev-parse -q --verify <ref>`, which exits
 // 0 only when the ref both exists and names a valid object), or "" if none
 // does.
 func mergeInProgressRef(repoRoot string) string {
-	for _, ref := range mergeInProgressRefs {
+	for _, ref := range MergeInProgressRefs {
 		if _, err := git(repoRoot, "rev-parse", "-q", "--verify", ref); err == nil {
 			return ref
 		}

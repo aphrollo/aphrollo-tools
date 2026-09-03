@@ -92,10 +92,14 @@ func TestRatchetAdvisoryAppliesAnEditsOldAndNewStringsToTheFileOnDisk(t *testing
 func TestRatchetAdvisoryAppliesMultiEditSequentially(t *testing.T) {
 	root := lawTree(t, "deny")
 	path := filepath.Join(root, "crates", "a", "src", "lib.rs")
+	// The second edit's old_string exists only once the first has run, so a
+	// verdict naming y.clamp proves the two were applied in order. It ADDS a
+	// hit rather than swapping one: the pre-edit judge refuses a rise, and a
+	// swap that leaves the count alone is the commit gate's to catch.
 	raw := ratchetPayload(t, "MultiEdit", path, map[string]any{
 		"edits": []map[string]any{
 			{"old_string": "let a", "new_string": "let z"},
-			{"old_string": "let z = x.clamp(0.0, 1.0);", "new_string": "let z = 1;\nlet b = y.clamp(0.0, 1.0);"},
+			{"old_string": "let z = x.clamp(0.0, 1.0);", "new_string": "let z = x.clamp(0.0, 1.0);\nlet b = y.clamp(0.0, 1.0);"},
 		},
 	})
 	d := RatchetAdvisory(raw)
@@ -174,5 +178,45 @@ func mustWrite(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A Write that CREATES a file routinely names a directory that does not exist
+// yet, and every git question asked from a missing directory fails — so the
+// law engine read "no repo" and let the write through. The first file of a
+// new module is exactly where a new offence lands.
+func TestRatchetAdvisoryDeniesAWriteIntoADirectoryThatDoesNotExistYet(t *testing.T) {
+	root := lawTree(t, "deny")
+	path := filepath.Join(root, "crates", "new", "src", "lib.rs")
+	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+		t.Fatalf("setup: %s must not exist yet (%v)", filepath.Dir(path), err)
+	}
+	// A line the baseline does not already carry: the baseline's identity is
+	// the offending text, so repeating the recorded one is not a new hit
+	// wherever it lands.
+	raw := ratchetPayload(t, "Write", path, map[string]any{
+		"content": "let b = y.clamp(0.0, 1.0);\n",
+	})
+
+	d := RatchetAdvisory(raw)
+	if d.Action != Block {
+		t.Fatalf("action = %v, want Block (reason: %s)", d.Action, d.Reason)
+	}
+	for _, want := range []string{"nan-guard", "crates/new/src/lib.rs:1"} {
+		if !strings.Contains(d.Reason, want) {
+			t.Errorf("reason %q does not carry %q", d.Reason, want)
+		}
+	}
+}
+
+// The walk up must stop at the repo, not climb out of it: a path outside any
+// repo has no laws to answer to, however many ancestors exist above it.
+func TestRatchetAdvisoryAllowsAWriteOutsideAnyRepo(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "no", "repo", "here", "lib.rs")
+	raw := ratchetPayload(t, "Write", path, map[string]any{
+		"content": "let a = x.clamp(0.0, 1.0);\n",
+	})
+	if d := RatchetAdvisory(raw); d.Action != Allow {
+		t.Fatalf("action = %v (%s), want Allow — no repo, no laws", d.Action, d.Reason)
 	}
 }

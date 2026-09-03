@@ -16,8 +16,7 @@ import (
 // narrows the window. Without it, the only measure of pipeline health was
 // scrolling thousands of gate.log lines.
 func TestTDDStats_ReadsTheGateLog(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	cfg := gateConfigDir(t)
 	dir := filepath.Join(cfg, "gate-state")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)

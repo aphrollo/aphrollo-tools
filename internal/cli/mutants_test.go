@@ -13,7 +13,7 @@ import (
 // never fail: git prints a hook's failure to a session that has already
 // committed, which reads as a broken commit.
 func TestPostCommit_NeverFailsOutsideAGatedRepo(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	dir := t.TempDir()
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -37,7 +37,7 @@ func TestPostCommit_NeverFailsOutsideAGatedRepo(t *testing.T) {
 // there it exits clean: it is spawned with nowhere to report, so failing
 // loudly would only leave an unreadable process behind.
 func TestMutantsRun_ExitsCleanWithoutAJobFile(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	var out, errb bytes.Buffer
 	code := Run([]string{"gate", "mutants", "run", "--job", filepath.Join(t.TempDir(), "nope.json")},
 		strings.NewReader(""), &out, &errb)

@@ -51,6 +51,10 @@ type sessionState struct {
 		// Style is the session's `/tdd style` override ("terse" or "plain").
 		// Empty means unset — the env default decides, see replyStyleFor.
 		Style string `json:"style,omitempty"`
+		// PrimaryEdits waives the merge-only rule on the primary checkout for
+		// this session (`/tdd primary-edits on`), the per-session twin of
+		// APHROLLO_PRIMARY_EDITS=1.
+		PrimaryEdits bool `json:"primary_edits,omitempty"`
 	} `json:"overrides"`
 	// Notices records one-shot advisories that must fire at most once per
 	// session, so re-firing them on every edit never becomes noise.
@@ -263,8 +267,13 @@ func appendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
 	}
 	stampGateLogSchema()
 	defer f.Close()
+	// The root goes through logToken because the line is space-separated and
+	// the COMMAND in the middle already carries spaces: a root with one of
+	// its own (`C:/My Projects/borld`) split into two fields, and every
+	// reader that matches on the root -- the statusline's red-clearing and
+	// its queued state -- stopped seeing that project's entries at all.
 	fmt.Fprintf(f, "%s %s %s %s %s %.1fs\n",
-		time.Now().UTC().Format(time.RFC3339), stage, root, cmd, verdict, dur.Seconds())
+		time.Now().UTC().Format(time.RFC3339), stage, logToken(root), cmd, verdict, dur.Seconds())
 }
 
 // setOff persists the per-session enforcement override (the `/tdd off|on`

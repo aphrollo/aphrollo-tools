@@ -240,11 +240,14 @@ Subcommands:
                     spawned by posttooluse, not typed by hand
   commitmsg         commit-msg hook: reject a message carrying a deny pattern
                     (opt-in per workspace: undercover = true)
-  doctor            Report one line per install check (hooks, shims, locks,
-                    managed skills/agents, CI clippy list); exit 1 on any FAIL
-  statusline        Render the one-line gate badge from a statusline payload
-                    on stdin (armed/off, plus red/deferred/queued when it
-                    matters); wired into settings.json by init
+  doctor            Report one line per install check (hooks, shims, locks, managed
+                    skills/agents, the primary checkout branch, the golangci-lint
+                    version CI pins, CI clippy list); exit 1 on any FAIL
+  statusline        Render the one-line gate badge from a statusline payload on
+                    stdin: the colour is the state (green armed, red standing
+                    failure, yellow running, gray off), with a tag inside the
+                    brackets when yellow needs naming; wired into settings.json
+                    by init
   stats             Tally gate.log by stage and outcome (--since 7d), and the open
                     escape count
   issue             Open one labelled issue against the repo's GitHub remote and
@@ -261,6 +264,10 @@ Subcommands:
                     (--no-git, --uninstall). ALSO EDITS FILES IN A REPO: the managed
                     block in <repo>/CLAUDE.md and <repo>/.ratchet/README.md, where
                     <repo> is --repo (default: the working directory's repo)
+  self-install      Rebuild ./cmd/aphrollo (--repo, -buildvcs=false), rename the running
+                    binary aside as aphrollo.stale-<unix>, move the new one into its
+                    place, reclaim the stale copies nothing is holding, then run init
+                    (--bin, --no-init; flags after a bare -- are forwarded to init)
   cargo             cargo-queue shim: queue a DIRECT cargo invocation behind the same
                     per-target-dir build slots the hooks/gates use (APHROLLO_CARGO_WAIT_SECS,
                     APHROLLO_BUILD_SLOTS, APHROLLO_REAL_CARGO)
@@ -378,6 +385,11 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "init" {
 		return runGateInit(args[1:], stdout, stderr)
+	}
+	if args[0] == "self-install" {
+		// Rebuild this binary from source and put it in place of the
+		// installed one, then rewire the hooks at the new build.
+		return runGateSelfInstall(args[1:], stdout, stderr)
 	}
 	if args[0] == "commitmsg" {
 		// The commit-msg git hook: git hands it the message file path.
@@ -559,6 +571,18 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "sessionend":
 		tdd.EndSession(raw)
 		return 0
+	}
+
+	// The primary checkout is merge-only, and that is decided before anything
+	// reads the content: WHERE a write lands does not depend on what it says,
+	// and it covers the shell too, which no content gate can judge.
+	if decision := tdd.PrimaryCheckoutDecision(raw); decision.Action == tdd.Block {
+		tdd.LogEditDecision(raw, decision)
+		payload, code := tdd.RenderPreToolUse(decision)
+		if len(payload) > 0 {
+			stdout.Write(payload)
+		}
+		return code
 	}
 
 	// A Bash call gets a snapshot, not a verdict: what it will write does not

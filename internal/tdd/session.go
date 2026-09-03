@@ -105,6 +105,20 @@ func tddCommand(sub, arg, session, cwd string) string {
 		}
 		logOverride("override-on", session, cwd)
 		return "TDD enforcement ON for this session."
+	case "primary-edits":
+		switch arg {
+		case "on", "off":
+			if err := setPrimaryEdits(session, arg == "on"); err != nil {
+				return "gate: could not persist the override (" + err.Error() + ")"
+			}
+			logOverride("override-primary-edits-"+arg, session, cwd)
+			if arg == "on" {
+				return "Primary-checkout edits ALLOWED for this session — the merge-only rule is waived. Run `/gate primary-edits off` to restore it."
+			}
+			return "Primary-checkout edits refused again for this session."
+		default:
+			return "gate: /tdd primary-edits needs on or off, got " + arg
+		}
 	case "style":
 		switch arg {
 		case "terse", "plain":
@@ -117,7 +131,7 @@ func tddCommand(sub, arg, session, cwd string) string {
 			return "gate: /tdd style needs terse or plain, got " + arg
 		}
 	default:
-		return "gate: unknown subcommand " + sub + " — valid: /gate [status|off|on|reset|style]"
+		return "gate: unknown subcommand " + sub + " — valid: /gate [status|off|on|reset|style|primary-edits]"
 	}
 }
 

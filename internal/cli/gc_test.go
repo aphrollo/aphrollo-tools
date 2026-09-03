@@ -30,7 +30,7 @@ func mkAgedFile(t *testing.T, path, content string, age time.Duration) {
 // there afterwards — a disk sweep that deletes without being asked is the
 // one bug this whole feature cannot have.
 func TestRunTDDGC_DryRunListsAndDeletesNothing(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	repo := t.TempDir()
 	stale := filepath.Join(repo, "target", "debug", "incremental", "stale-1a2b")
 	mkAgedFile(t, filepath.Join(stale, "dep-graph.bin"), "0123456789", 30*24*time.Hour)
@@ -52,7 +52,7 @@ func TestRunTDDGC_DryRunListsAndDeletesNothing(t *testing.T) {
 // TestRunTDDGC_ApplyDeletesAndReports pins --apply: the candidates go, and
 // the operator is told what was freed.
 func TestRunTDDGC_ApplyDeletesAndReports(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	repo := t.TempDir()
 	stale := filepath.Join(repo, "target", "debug", "incremental", "stale-1a2b")
 	mkAgedFile(t, filepath.Join(stale, "dep-graph.bin"), "0123456789", 30*24*time.Hour)
@@ -73,7 +73,7 @@ func TestRunTDDGC_ApplyDeletesAndReports(t *testing.T) {
 // younger than the threshold is not a candidate, and the default is the
 // documented 3 days.
 func TestRunTDDGC_OlderThanBoundsWhatQualifies(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	repo := t.TempDir()
 	fiveDays := filepath.Join(repo, "target", "debug", "incremental", "five-days")
 	mkAgedFile(t, filepath.Join(fiveDays, "dep-graph.bin"), "01234", 5*24*time.Hour)
@@ -109,8 +109,7 @@ func TestRunTDDGC_RejectsAnUnparseableAge(t *testing.T) {
 // nowhere to print), and the result is left in the state dir for the next
 // session start to surface.
 func TestRunTDDGC_QuietApplyIsSilentButStillRecordsTheSweep(t *testing.T) {
-	state := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", state)
+	state := gateConfigDir(t)
 	repo := t.TempDir()
 	stale := filepath.Join(repo, "target", "debug", "incremental", "stale-1a2b")
 	mkAgedFile(t, filepath.Join(stale, "dep-graph.bin"), "0123456789", 30*24*time.Hour)

@@ -517,7 +517,7 @@ func TestRun_TDD_AllowsSourceEdit(t *testing.T) {
 }
 
 func TestRun_TDD_SessionStart_NudgesSkills(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	var out, errb bytes.Buffer
 	stdin := strings.NewReader(`{"session_id":"cli-ss"}`)
 	code := Run([]string{"tdd", "sessionstart"}, stdin, &out, &errb)
@@ -539,7 +539,7 @@ func TestRun_TDD_MalformedInputFailsOpen(t *testing.T) {
 }
 
 func TestRun_TDD_UserPromptSubmit_TddCommand(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	var out, errb bytes.Buffer
 	stdin := strings.NewReader(`{"prompt":"/tdd off","session_id":"cli-sess"}`)
 	code := Run([]string{"tdd", "userpromptsubmit"}, stdin, &out, &errb)

@@ -20,7 +20,7 @@ func fakePhases(t *testing.T, outcomes ...*PhaseOutcome) *[]DeferredJob {
 		j.PID = 1000 + i
 		j.Started = time.Now()
 		saveDeferredJob(j)
-		j, _ = loadDeferredJob(j.Project)
+		j, _ = loadDeferredJob(j.Session, j.Project)
 		spawned = append(spawned, j)
 		var out *PhaseOutcome
 		if i < len(outcomes) {
@@ -80,7 +80,7 @@ func TestPostEdit_UnfinishedPhaseIsDeferredNotKilled(t *testing.T) {
 	if !strings.Contains(got, "BUILDING") {
 		t.Fatalf("advisory = %q, want the one-line BUILDING notice", got)
 	}
-	job, ok := loadDeferredJob(root)
+	job, ok := loadDeferredJob("sess-post", root)
 	if !ok {
 		t.Fatal("the deferred job must be recorded for the next hook")
 	}
@@ -107,12 +107,12 @@ func TestPostEdit_HarvestsAFinishedDeferredBuild(t *testing.T) {
 	// A finished build phase, recorded against exactly this file's content.
 	spawned := fakePhases(t, &PhaseOutcome{ExitCode: 0, Seconds: 42})
 	saveDeferredJob(DeferredJob{
-		Project: root, Phase: "build", Dir: root, PID: 999,
+		Project: root, Session: "sess-post", Phase: "build", Dir: root, PID: 999,
 		Started: time.Now().Add(-time.Minute),
 		HeadSHA: headSHAFor(root), FileHash: fileContentHash(target),
 		Runner: []string{"cargo", "test", "--no-run"},
 	})
-	job, _ := loadDeferredJob(root)
+	job, _ := loadDeferredJob("sess-post", root)
 	if err := os.WriteFile(job.Log, []byte("Compiling widget\nFinished"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestPostEdit_HarvestsAFinishedDeferredBuild(t *testing.T) {
 	if len(*spawned) != 1 || (*spawned)[0].Phase != "run" {
 		t.Fatalf("want the warm RUN phase started after harvesting the build, got %+v", *spawned)
 	}
-	if _, ok := loadDeferredJob(root); ok {
+	if _, ok := loadDeferredJob("sess-post", root); ok {
 		t.Fatal("a harvested build's record must be cleared")
 	}
 }
@@ -142,7 +142,7 @@ func TestPostEdit_EditDuringADeferredBuildMarksItDirty(t *testing.T) {
 	spawned := fakePhases(t)
 
 	saveDeferredJob(DeferredJob{
-		Project: root, Phase: "build", Dir: root, PID: 4242,
+		Project: root, Session: "sess-post", Phase: "build", Dir: root, PID: 4242,
 		Started: time.Now().Add(-time.Minute), HeadSHA: headSHAFor(root), FileHash: "stale",
 	})
 
@@ -154,7 +154,7 @@ func TestPostEdit_EditDuringADeferredBuildMarksItDirty(t *testing.T) {
 	if len(*spawned) != 0 {
 		t.Fatalf("a running build must not be duplicated, started %+v", *spawned)
 	}
-	job, ok := loadDeferredJob(root)
+	job, ok := loadDeferredJob("sess-post", root)
 	if !ok || !job.Dirty {
 		t.Fatalf("the running job must be marked dirty, got %+v (found=%v)", job, ok)
 	}
@@ -179,7 +179,7 @@ func TestPostEdit_AbandonsAJobPastTheMaximum(t *testing.T) {
 	t.Cleanup(func() { killDeferredFn = prevKill })
 
 	saveDeferredJob(DeferredJob{
-		Project: root, Phase: "build", Dir: root, PID: 777,
+		Project: root, Session: "sess-post", Phase: "build", Dir: root, PID: 777,
 		Started: time.Now().Add(-time.Hour), HeadSHA: headSHAFor(root),
 	})
 
@@ -202,11 +202,11 @@ func TestHandlePrompt_ReportsAFinishedDeferredJob(t *testing.T) {
 	fakePhases(t)
 
 	saveDeferredJob(DeferredJob{
-		Project: root, Phase: "run", Dir: root, PID: 31337,
+		Project: root, Session: "s1", Phase: "run", Dir: root, PID: 31337,
 		Started: time.Now().Add(-time.Minute), HeadSHA: headSHAFor(root),
 		Runner: []string{"cargo", "test"},
 	})
-	job, _ := loadDeferredJob(root)
+	job, _ := loadDeferredJob("s1", root)
 	if err := os.WriteFile(job.Log, []byte("test result: FAILED. 1 failed\n--- widget::explodes"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestHandlePrompt_ReportsAFinishedDeferredJob(t *testing.T) {
 	if !strings.Contains(res.Message, "deferred") {
 		t.Fatalf("prompt context = %q, want the finished deferred job reported", res.Message)
 	}
-	if _, ok := loadDeferredJob(root); ok {
+	if _, ok := loadDeferredJob("s1", root); ok {
 		t.Fatal("a reported job must be cleared")
 	}
 }

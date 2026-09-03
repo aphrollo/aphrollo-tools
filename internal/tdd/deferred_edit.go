@@ -112,7 +112,7 @@ func runEditPhases(runner Runner, root, headSHA, fileHash, session string, budge
 func startAndWait(j DeferredJob, budget time.Duration) (DeferredJob, PhaseOutcome, phaseStatus) {
 	started, ok := spawnPhaseFn(j)
 	if !ok {
-		clearDeferredJob(j.Project)
+		clearDeferredJob(j.Session, j.Project)
 		return j, PhaseOutcome{}, phaseFailedToStart
 	}
 	out, done := waitPhase(started, budget)
@@ -127,7 +127,7 @@ func startAndWait(j DeferredJob, budget time.Duration) (DeferredJob, PhaseOutcom
 // startFresh=true when the caller should go on to run this edit's own
 // phases (nothing was pending, or what was pending is stale/abandoned).
 func harvestDeferred(root, headSHA, fileHash, session string, budget time.Duration, state *sessionState, statePath string) (advisory string, startFresh bool) {
-	j, ok := loadDeferredJob(root)
+	j, ok := loadDeferredJob(session, root)
 	if !ok {
 		return "", true
 	}
@@ -138,7 +138,7 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 			// phase that got this far is the ONLY thing that counts as a
 			// timeout — the suite really did fail to finish.
 			killDeferredFn(j)
-			clearDeferredJob(root)
+			clearDeferredJob(session, root)
 			if j.Phase == "run" && state != nil {
 				state.stampTimeout(root, headSHA)
 				_ = state.save(statePath)
@@ -148,12 +148,12 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 		}
 		// Still working: never kill it, just record that the source moved on.
 		if j.FileHash != fileHash {
-			markDeferredDirty(root, fileHash)
+			markDeferredDirty(session, root, fileHash)
 		}
 		return buildingLine(root, j.Phase, time.Since(j.Started)), false
 	}
 
-	clearDeferredJob(root)
+	clearDeferredJob(session, root)
 	if !deferredMatchesSource(j, headSHA, fileHash) {
 		// The answer is about code that is no longer on disk (the edit moved
 		// on while it ran). Say nothing about it and rebuild.
@@ -386,7 +386,7 @@ func promptHarvest(session, cwd string) string {
 	if root == "" {
 		return ""
 	}
-	j, ok := loadDeferredJob(root)
+	j, ok := loadDeferredJob(session, root)
 	if !ok {
 		return ""
 	}
@@ -394,7 +394,7 @@ func promptHarvest(session, cwd string) string {
 	if !done {
 		return ""
 	}
-	clearDeferredJob(root)
+	clearDeferredJob(session, root)
 	if !deferredMatchesSource(j, headSHAFor(root), sourceIdentity(root, "")) {
 		return ""
 	}

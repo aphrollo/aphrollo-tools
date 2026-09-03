@@ -13,7 +13,7 @@ import (
 // from a script: a path in, a signed file out, and a non-zero exit with a
 // reason when it cannot.
 func TestReceiptSign_SignsTheFileItIsGiven(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	path := filepath.Join(t.TempDir(), "mutation-receipt.json")
 	if err := os.WriteFile(path, []byte(`{"tip_tree":"abc","verdict":"pass"}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -42,7 +42,7 @@ func TestReceiptSign_SignsTheFileItIsGiven(t *testing.T) {
 // A receipt that is not there, or is not JSON, is a script error worth an
 // exit code — signing it silently would leave a run believing it was proven.
 func TestReceiptSign_FailsLoudlyOnAFileItCannotSign(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	var out, errb bytes.Buffer
 	if code := Run([]string{"gate", "receipt", "sign", filepath.Join(t.TempDir(), "nope.json")},
 		strings.NewReader(""), &out, &errb); code == 0 {

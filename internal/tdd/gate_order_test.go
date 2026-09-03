@@ -30,9 +30,10 @@ func stageOf(r Runner) string {
 	switch {
 	case strings.HasPrefix(args, "fmt"):
 		return "fmt"
-	case strings.HasPrefix(args, "clippy") && strings.Contains(args, "--workspace"):
-		// The workspace-wide stage: clippy subsumes check, and it denies the
-		// two lints that carry project laws.
+	case strings.HasPrefix(args, "clippy") && strings.Contains(args, "clippy::disallowed_methods"):
+		// The compile-coverage stage: clippy subsumes check, and it denies the
+		// two lints that carry project laws. Named by those lints rather than
+		// by its crate selection, which is now scoped like every other stage.
 		return "check"
 	case strings.HasPrefix(args, "clippy"):
 		return "clippy"

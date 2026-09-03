@@ -70,7 +70,7 @@ func stubIssueRepo(t *testing.T, stdout string) (repo, argvLog string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	isolateGit(t)
 	repo = t.TempDir()
 	for _, args := range [][]string{

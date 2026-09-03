@@ -253,9 +253,52 @@ func TestStatusLine_SaysMutantsWhileAJobRunsForThisProject(t *testing.T) {
 	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo]" {
 		t.Fatalf("StatusLine = %q, want a quiet badge before any job", got)
 	}
-	saveMutantsJob(MutantsJob{Repo: commonGitDir(root), TipTree: laneTip, PID: os.Getpid(), Started: time.Now()})
-	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo] mutants" {
-		t.Fatalf("StatusLine = %q, want the mutants suffix", got)
+	saveMutantsJob(MutantsJob{
+		Repo: commonGitDir(root), RepoRoot: root, TipTree: laneTip,
+		PID: os.Getpid(), Started: time.Now(),
+	})
+	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:mutants]" {
+		t.Fatalf("StatusLine = %q, want the mutants tag", got)
+	}
+}
+
+// A mutation run in ANOTHER project is not this project's business: the badge
+// would send a session waiting for a receipt no commit here is owed. Projects
+// commonly SHARE a build directory (CARGO_TARGET_DIR), so the run's build slot
+// is not evidence about which project it measures — only the job record is.
+func TestStatusLine_AMutantsJobInAnotherProjectLeavesThisBadgeQuiet(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	other := makeGoRepo(t)
+	shared := t.TempDir()
+	t.Setenv("CARGO_TARGET_DIR", shared)
+	defer SetLockDirForTest(t.TempDir())()
+	t.Setenv("CLAUDE_SESSION_ID", "s1")
+	writeBuildLockOwnerAt(ReadBuildSlotOwnerPath(resolveTargetDir(os.Getenv, other)),
+		"cargo mutants --in-place", other)
+	saveMutantsJob(MutantsJob{
+		Repo: commonGitDir(other), RepoRoot: other, TipTree: laneTip,
+		PID: os.Getpid(), Started: time.Now(),
+	})
+
+	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo]" {
+		t.Fatalf("StatusLine = %q, want a quiet badge — the run is another project's", got)
+	}
+}
+
+// Two lanes of one repo share a job registry, keyed on the common git dir. A
+// run in the lane beside this one is not a fact about THIS working tree.
+func TestStatusLine_AMutantsJobInASiblingLaneLeavesThisBadgeQuiet(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	sibling := filepath.Join(filepath.Dir(root), "lane-beside")
+	saveMutantsJob(MutantsJob{
+		Repo: commonGitDir(root), RepoRoot: sibling, TipTree: laneTip,
+		PID: os.Getpid(), Started: time.Now(),
+	})
+
+	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo]" {
+		t.Fatalf("StatusLine = %q, want a quiet badge — the run is another lane's", got)
 	}
 }
 

@@ -48,16 +48,23 @@ func TestStatusLine_IsAQuietBadgeWhenNothingIsWrong(t *testing.T) {
 	}
 }
 
-// TestStatusLine_SaysOffWhenTheSessionTurnedTheGateOff is the one state a
-// session must never lose track of: with `/gate off` set, edits are not gated
-// at all, and a badge that still reads green claims a gate that is not running.
-func TestStatusLine_SaysOffWhenTheSessionTurnedTheGateOff(t *testing.T) {
+// TestStatusLine_SaysOffInTextSoAStrippedBadgeCannotReadAsArmed is the one
+// state a session must never lose track of: with `/gate off` set, edits are
+// not gated at all. Colour alone cannot carry it -- a statusline that strips
+// SGR, a log, a screenshot in a terminal with a different palette all render
+// the gray badge as the green one, and the session reads an ungated tree as
+// gated. Red and green stay colour-only: both mean the gate is running.
+func TestStatusLine_SaysOffInTextSoAStrippedBadgeCannotReadAsArmed(t *testing.T) {
 	root := statusRoot(t)
 	if err := setOff("s1", true); err != nil {
 		t.Fatal(err)
 	}
-	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:off]" {
-		t.Fatalf("StatusLine = %q, want %q", got, "[aphrollo:off]")
+	got := StatusLine(statusPayload(t, "s1", root))
+	if !strings.HasPrefix(got, ansiGray) {
+		t.Fatalf("a disabled gate must render gray, got %q", got)
+	}
+	if plain(got) != "[aphrollo:off]" {
+		t.Fatalf("StatusLine = %q, want the state in the text too", plain(got))
 	}
 }
 
@@ -80,16 +87,127 @@ func TestStatusLine_ColoursGreenWhenOnAndGrayWhenOff(t *testing.T) {
 
 // TestStatusLine_ReportsTheLastRedOutcomeForThisProject surfaces the fact a
 // session most often loses across a compaction: the last edit left the suite
-// red and nothing on screen says so.
+// red and nothing on screen says so. The badge itself carries it, in colour.
 func TestStatusLine_ReportsTheLastRedOutcomeForThisProject(t *testing.T) {
 	root := statusRoot(t)
-	s, path := loadSession("s1")
-	s.stamp(root, projectState{Outcome: string(Red), FailingTests: []string{"TestX"}})
-	if err := s.save(path); err != nil {
+	stampOutcomeAt(t, "s1", root, string(Red), time.Now())
+
+	got := StatusLine(statusPayload(t, "s1", root))
+	if !strings.HasPrefix(got, ansiRed) {
+		t.Fatalf("a red outcome must colour the badge red, got %q", got)
+	}
+	if plain(got) != "[aphrollo]" {
+		t.Fatalf("StatusLine = %q, want the bare badge in red", plain(got))
+	}
+}
+
+// TestStatusLine_CarriesNoRedWord is the rule the colour exists to serve: the
+// state is a colour, not a word a session has to read and re-read. A `red`
+// suffix is what the badge used to print.
+func TestStatusLine_CarriesNoRedWord(t *testing.T) {
+	root := statusRoot(t)
+	stampOutcomeAt(t, "s1", root, string(Red), time.Now())
+
+	if got := plain(StatusLine(statusPayload(t, "s1", root))); strings.Contains(got, "red") {
+		t.Fatalf("StatusLine = %q, want no `red` word — the colour says it", got)
+	}
+}
+
+// TestStatusLine_APrecommitGreenAfterAPostEditRedRendersGreen is the stale-red
+// case a session hits every time a fix lands through a commit: the post-edit
+// hook recorded red, the commit gate then ran everything and passed, and a
+// badge that still reads red is reporting a failure that no longer exists.
+// ANY green outcome for this project clears it, from any stage.
+func TestStatusLine_APrecommitGreenAfterAPostEditRedRendersGreen(t *testing.T) {
+	root := statusRoot(t)
+	stampOutcomeAt(t, "s1", root, string(Red), time.Now().Add(-time.Minute))
+	appendGateLog("precommit", root, "cargo nextest run", "green", 12*time.Second)
+
+	got := StatusLine(statusPayload(t, "s1", root))
+	if !strings.HasPrefix(got, ansiGreen) {
+		t.Fatalf("a later green must clear the red, got %q", got)
+	}
+}
+
+// TestStatusLine_AGreenInAnotherProjectLeavesTheRedStanding keeps the clearing
+// rule as narrow as the red itself: another repo's green says nothing about
+// this one.
+func TestStatusLine_AGreenInAnotherProjectLeavesTheRedStanding(t *testing.T) {
+	root := statusRoot(t)
+	stampOutcomeAt(t, "s1", root, string(Red), time.Now().Add(-time.Minute))
+	appendGateLog("precommit", filepath.Join(t.TempDir(), "other"), "cargo nextest run", "green", time.Second)
+
+	if got := StatusLine(statusPayload(t, "s1", root)); !strings.HasPrefix(got, ansiRed) {
+		t.Fatalf("StatusLine = %q, want the red to stand", got)
+	}
+}
+
+// TestStatusLine_ARedOlderThanTheWindowRendersGreen states the other half of
+// "real-time or nothing": an hour-old red with nothing after it describes a
+// tree the session has moved far past, and a badge nobody trusts is worse than
+// no badge. The age is written out rather than derived from the constant the
+// subject reads, so widening the window fails this test instead of moving it.
+func TestStatusLine_ARedOlderThanTheWindowRendersGreen(t *testing.T) {
+	root := statusRoot(t)
+	stampOutcomeAt(t, "s1", root, string(Red), time.Now().Add(-31*time.Minute))
+
+	got := StatusLine(statusPayload(t, "s1", root))
+	if !strings.HasPrefix(got, ansiGreen) {
+		t.Fatalf("a red past the window must render green, got %q", got)
+	}
+	if plain(got) != "[aphrollo]" {
+		t.Fatalf("StatusLine = %q, want the plain badge — a stale red says nothing", plain(got))
+	}
+}
+
+// The gate log is space-separated and the command in the middle contains
+// spaces, so a REPO ROOT with a space in it (`C:/My Projects/borld`, and
+// every checkout under "Program Files") split into two fields: no entry ever
+// matched the badge's root again, a red was never cleared by a green, and a
+// queued run was never seen either.
+func TestStatusLine_ClearsAredForAProjectWhosePathHasASpace(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := filepath.Join(t.TempDir(), "my repo")
+	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo] red" {
-		t.Fatalf("StatusLine = %q, want %q", got, "[aphrollo] red")
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stampOutcomeAt(t, "s1", root, string(Red), time.Now().Add(-time.Minute))
+	appendGateLog("precommit", root, "cargo nextest run", "green", 12*time.Second)
+
+	if got := StatusLine(statusPayload(t, "s1", root)); !strings.HasPrefix(got, ansiGreen) {
+		t.Fatalf("a later green must clear the red whatever the path looks like, got %q", got)
+	}
+}
+
+// The same field split hid a QUEUED-SKIPPED run, which is the outcome most
+// easily mistaken for a quiet green.
+func TestStatusLine_SeesAQueuedRunForAProjectWhosePathHasASpace(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := filepath.Join(t.TempDir(), "my repo")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	appendGateLog("postedit", root, "cargo nextest run", "queued-skipped", 0)
+
+	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:queued]" {
+		t.Fatalf("StatusLine = %q, want the queued tag", got)
+	}
+}
+
+// stampOutcomeAt records an outcome for root at a chosen time, which is what
+// a staleness rule needs and `stamp` (always now) cannot give.
+func stampOutcomeAt(t *testing.T, session, root, outcome string, at time.Time) {
+	t.Helper()
+	s, path := loadSession(session)
+	s.ByProject[root] = projectState{Outcome: outcome, TS: at.UTC().Format(time.RFC3339)}
+	if err := s.save(path); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -114,8 +232,8 @@ func TestStatusLine_IgnoresAnotherProjectsRed(t *testing.T) {
 func TestStatusLine_ReportsARunningDeferredBuild(t *testing.T) {
 	root := statusRoot(t)
 	saveDeferredJob(DeferredJob{Project: root, Phase: "build", Started: time.Now(), Session: "s1"})
-	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo] deferred" {
-		t.Fatalf("StatusLine = %q, want %q", got, "[aphrollo] deferred")
+	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:deferred]" {
+		t.Fatalf("StatusLine = %q, want %q", got, "[aphrollo:deferred]")
 	}
 }
 
@@ -125,7 +243,7 @@ func TestStatusLine_ReportsARunningDeferredBuild(t *testing.T) {
 func TestStatusLine_DropsDeferredOnceTheResultLanded(t *testing.T) {
 	root := statusRoot(t)
 	saveDeferredJob(DeferredJob{Project: root, Phase: "build", Started: time.Now(), Session: "s1"})
-	j, ok := loadDeferredJob(root)
+	j, ok := loadDeferredJob("s1", root)
 	if !ok {
 		t.Fatal("setup: job not saved")
 	}
@@ -140,8 +258,8 @@ func TestStatusLine_DropsDeferredOnceTheResultLanded(t *testing.T) {
 func TestStatusLine_ReportsThatTheLastRunOnlyQueued(t *testing.T) {
 	root := statusRoot(t)
 	appendGateLog("postedit", root, "cargo nextest run", "queued-skipped", 0)
-	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo] queued" {
-		t.Fatalf("StatusLine = %q, want %q", got, "[aphrollo] queued")
+	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:queued]" {
+		t.Fatalf("StatusLine = %q, want %q", got, "[aphrollo:queued]")
 	}
 }
 

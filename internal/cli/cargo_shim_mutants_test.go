@@ -113,8 +113,7 @@ func TestRunCargoShim_BypassRunsWhileAnotherBuildHoldsTheLock(t *testing.T) {
 // that every use is COUNTED — a bypass nobody can see is a bypass nobody
 // manages.
 func TestQueueBypass_IsLoggedOncePerProcess(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	cfg := gateConfigDir(t)
 	target := filepath.Join(t.TempDir(), ".worktrees", "borld", "mutants", "target-mutants")
 	t.Setenv("CARGO_TARGET_DIR", target)
 	t.Setenv(tdd.QueueEnv, tdd.QueueBypass)

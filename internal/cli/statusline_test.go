@@ -13,7 +13,7 @@ import (
 // second line is rendered as part of the prompt, and a non-zero exit makes
 // Claude Code drop the statusline entirely.
 func TestRun_GateStatusline_PrintsOneBadgeLine(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	var out, errb bytes.Buffer
 	code := Run([]string{"gate", "statusline"},
 		strings.NewReader(`{"session_id":"s1","cwd":"`+t.TempDir()+`"}`), &out, &errb)
@@ -72,7 +72,7 @@ func TestRun_GateInit_WiresTheStatusLineAndClearsRetiredHooks(t *testing.T) {
 // TestRun_GateStatusline_SurvivesAnEmptyPayload keeps the badge from being the
 // thing that breaks a prompt render: it has nowhere to report an error.
 func TestRun_GateStatusline_SurvivesAnEmptyPayload(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateConfigDir(t)
 	var out, errb bytes.Buffer
 	if code := Run([]string{"gate", "statusline"}, strings.NewReader(""), &out, &errb); code != 0 {
 		t.Fatalf("exit = %d, want 0\nstderr: %s", code, errb.String())

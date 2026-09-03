@@ -139,10 +139,10 @@ func TestRunPhase_StampsStartedWhenItGetsTheSlot(t *testing.T) {
 	j := DeferredJob{Project: dir, Phase: "run", Dir: dir, Runner: echoHeldEnv(),
 		Started: time.Now().Add(-30 * time.Minute)}
 	saveDeferredJob(j)
-	saved, _ := loadDeferredJob(dir)
+	saved, _ := loadDeferredJob("", dir)
 	RunPhase(writeJob(t, saved))
 
-	after, ok := loadDeferredJob(dir)
+	after, ok := loadDeferredJob("", dir)
 	if !ok {
 		t.Fatal("the job record vanished")
 	}

@@ -7,14 +7,14 @@ import (
 	"testing"
 )
 
-// TestGate_ChecksTheWholeWorkspaceBeforeTheSuites pins the hole that let a
-// non-compiling file reach main (borld, 2026-09-02: a lane added a struct
+// TestGate_CompilesWhatTheChangeCanBreakBeforeTheSuites pins the hole that let
+// a non-compiling file reach main (borld, 2026-09-02: a lane added a struct
 // field, forge_jbeam/tests/conformance.rs stopped compiling, and the gate ran
 // only the TOUCHED crates' suites, so nobody found out until someone built
-// the workspace by hand). A whole-workspace `cargo check --tests` sits
-// between clippy and fail-first: check-level, no codegen, and it sees every
-// crate the change could have broken.
-func TestGate_ChecksTheWholeWorkspaceBeforeTheSuites(t *testing.T) {
+// the workspace by hand). A clippy `--tests` pass sits between clippy and
+// fail-first: check-level, no codegen, and it covers every crate the change
+// could have broken -- the touched ones and everything downstream of them.
+func TestGate_CompilesWhatTheChangeCanBreakBeforeTheSuites(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeCargoRepo(t)
 	write(t, root, "src/lib.rs", "pub fn one() -> i32 { 2 }\n")
@@ -31,17 +31,17 @@ func TestGate_ChecksTheWholeWorkspaceBeforeTheSuites(t *testing.T) {
 
 	checkAt, suiteAt := -1, -1
 	for i, cmd := range order {
-		if strings.Contains(cmd, "--workspace --tests") && checkAt < 0 {
+		if isCheckStage(cmd) && checkAt < 0 {
 			checkAt = i
 		}
-		if (strings.Contains(cmd, "nextest") || strings.HasPrefix(cmd, "test")) && !strings.Contains(cmd, "--workspace") {
+		if strings.Contains(cmd, "nextest") || strings.HasPrefix(cmd, "test") {
 			if suiteAt < 0 {
 				suiteAt = i
 			}
 		}
 	}
 	if checkAt < 0 {
-		t.Fatalf("no whole-workspace check ran; commands were %v", order)
+		t.Fatalf("no compile-coverage check ran; commands were %v", order)
 	}
 	if suiteAt >= 0 && checkAt > suiteAt {
 		t.Fatalf("the check ran AFTER the suites (%v) — the cheapest stage that can catch this must come first", order)
@@ -60,23 +60,23 @@ func TestGate_WorkspaceCheckRejectsAndNamesTheDiagnostic(t *testing.T) {
 
 	const diag = "error[E0560]: struct `Tire` has no field named `slip`"
 	res := Precommit(root, func(r Runner, _ string) SuiteResult {
-		if strings.Contains(strings.Join(r.Args, " "), "--workspace") {
+		if isCheckStage(strings.Join(r.Args, " ")) {
 			return SuiteResult{Passed: false, Output: diag + "\n  --> crates/forge_jbeam/tests/conformance.rs:12:9\n"}
 		}
 		return SuiteResult{Passed: true, Output: "test result: ok. 1 passed; 0 failed"}
 	})
 	if !res.Blocked {
-		t.Fatal("a workspace that does not compile must not be committed")
+		t.Fatal("a tree that does not compile must not be committed")
 	}
 	if !strings.Contains(res.Message, "E0560") {
 		t.Fatalf("message = %q, want the first diagnostic", res.Message)
 	}
 }
 
-// TestMechanical_AlsoChecksTheWholeWorkspace pins the merge half: a merge
+// TestMechanical_AlsoRunsTheCompileCoverageCheck pins the merge half: a merge
 // never fires pre-commit, and combining two lanes is exactly how a crate
 // neither lane touched stops compiling.
-func TestMechanical_AlsoChecksTheWholeWorkspace(t *testing.T) {
+func TestMechanical_AlsoRunsTheCompileCoverageCheck(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeCargoRepo(t)
 	write(t, root, "src/lib.rs", "pub fn one() -> i32 { 2 }\n")
@@ -84,14 +84,22 @@ func TestMechanical_AlsoChecksTheWholeWorkspace(t *testing.T) {
 
 	checked := false
 	Mechanical(root, func(r Runner, _ string) SuiteResult {
-		if strings.Contains(strings.Join(r.Args, " "), "--workspace --tests") {
+		if isCheckStage(strings.Join(r.Args, " ")) {
 			checked = true
 		}
 		return SuiteResult{Passed: true, Output: "test result: ok. 1 passed; 0 failed"}
 	})
 	if !checked {
-		t.Fatal("the merge gate must check the whole workspace too")
+		t.Fatal("the merge gate must run the compile-coverage check too")
 	}
+}
+
+// isCheckStage recognises the compile-coverage stage by the two lints that
+// carry project laws. It used to be recognisable by `--workspace`; the stage
+// is scoped to the touched crates and everything downstream of them, and the
+// lints are what actually identify it.
+func isCheckStage(args string) bool {
+	return strings.HasPrefix(args, "clippy") && strings.Contains(args, "clippy::disallowed_methods")
 }
 
 // gateLogOf reads the gate.log written under the test's state dir.
@@ -106,8 +114,8 @@ func gateLogOf(t *testing.T, cfg string) string {
 
 // TestWorkspaceStage_IsClippyWithTheTwoDeniedLints pins the amended stage:
 // clippy subsumes check (a compile error still fails it), and denying exactly
-// clippy::disallowed_methods and clippy::disallowed_types workspace-wide is
-// what makes borld's clippy.toml laws enforceable everywhere. Every other
+// clippy::disallowed_methods and clippy::disallowed_types across the scope is
+// what makes borld's clippy.toml laws enforceable beyond the clean crates. Every other
 // lint stays at its default level here — the per-crate clippy-clean stage is
 // where -D warnings applies.
 func TestWorkspaceStage_IsClippyWithTheTwoDeniedLints(t *testing.T) {
@@ -116,25 +124,25 @@ func TestWorkspaceStage_IsClippyWithTheTwoDeniedLints(t *testing.T) {
 	write(t, root, "src/lib.rs", "pub fn one() -> i32 { 2 }\n")
 	gitDo(t, root, "add", ".")
 
-	var workspaceArgs string
+	var checkArgs string
 	Precommit(root, func(r Runner, _ string) SuiteResult {
-		if args := strings.Join(r.Args, " "); strings.Contains(args, "--workspace") {
-			workspaceArgs = args
+		if args := strings.Join(r.Args, " "); isCheckStage(args) {
+			checkArgs = args
 		}
 		return SuiteResult{Passed: true, Output: "test result: ok. 1 passed; 0 failed"}
 	})
 
 	for _, want := range []string{
-		"clippy --workspace --tests",
+		"--tests",
 		"-D clippy::disallowed_methods",
 		"-D clippy::disallowed_types",
 	} {
-		if !strings.Contains(workspaceArgs, want) {
-			t.Fatalf("workspace stage = %q, want it to contain %q", workspaceArgs, want)
+		if !strings.Contains(checkArgs, want) {
+			t.Fatalf("check stage = %q, want it to contain %q", checkArgs, want)
 		}
 	}
-	if strings.Contains(workspaceArgs, "-D warnings") {
-		t.Fatalf("workspace stage = %q — -D warnings belongs to the per-crate clippy-clean stage, not to every crate in the tree", workspaceArgs)
+	if strings.Contains(checkArgs, "-D warnings") {
+		t.Fatalf("check stage = %q — -D warnings belongs to the per-crate clippy-clean stage, not to every crate in the tree", checkArgs)
 	}
 }
 
@@ -160,7 +168,7 @@ func TestWorkspaceStage_NamesWhichKindOfFailure(t *testing.T) {
 			gitDo(t, root, "add", ".")
 
 			res := Precommit(root, func(r Runner, _ string) SuiteResult {
-				if strings.Contains(strings.Join(r.Args, " "), "--workspace") {
+				if isCheckStage(strings.Join(r.Args, " ")) {
 					return SuiteResult{Passed: false, Output: c.output}
 				}
 				return SuiteResult{Passed: true, Output: "test result: ok. 1 passed; 0 failed"}
