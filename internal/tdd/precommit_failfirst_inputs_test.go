@@ -84,3 +84,62 @@ func TestProofInputs_TakesTheDataATestNamesAndLeavesCodeBehind(t *testing.T) {
 		}
 	}
 }
+
+// A .ron table is DATA to a reader and the implementation to this gate: when
+// the commit's change IS the table, applying it into the proof tree makes the
+// new test pass there, and a correct commit is rejected as a fail-first
+// violation. It stays withheld, exactly like the .rs beside it.
+func TestProofInputs_WithholdsARonTableThisCommitChanged(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "tables/items.ron", "(items: [])\n")
+	write(t, root, "items_test.go", "package m\n\n// reads tables/items.ron\n")
+	gitDo(t, root, "add", ".")
+
+	if got := strings.Join(proofInputs(root, []string{"items_test.go"}), ","); strings.Contains(got, "items.ron") {
+		t.Fatalf("proof inputs %q must withhold the table this commit writes", got)
+	}
+}
+
+// The other half: a table this commit only MOVED is unchanged data the test
+// reads, and withholding it fails the new test for a stale path rather than
+// for missing code.
+func TestProofInputs_CarriesARonTableThisCommitOnlyMoved(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "tables/items.ron", "(items: [])\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "items table")
+
+	gitDo(t, root, "mv", "tables/items.ron", "tables/loot.ron")
+	write(t, root, "items_test.go", "package m\n\n// reads tables/loot.ron\n")
+	gitDo(t, root, "add", ".")
+
+	if got := strings.Join(proofInputs(root, []string{"items_test.go"}), ","); !strings.Contains(got, "loot.ron") {
+		t.Fatalf("proof inputs %q must carry a table this commit only moved", got)
+	}
+}
+
+// namesPath decides what data rides into the proof tree, so a loose match
+// carries a file the tests never read -- and a file that IS the change under
+// test carried in is a correct commit rejected as a fail-first violation.
+func TestNamesPath_WantsTheWholeName(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		path string
+		want bool
+	}{
+		{"the repo-relative path", "loads tables/items.ron here", "tables/items.ron", true},
+		{"the base name alone", "golden.json is the fixture", "fixtures/golden.json", true},
+		{"a longer name ending in it", "reads fixtures/myitems.ron", "tables/items.ron", false},
+		{"a longer name starting with it", "reads items.ron.bak", "tables/items.ron", false},
+		{"a base with no extension", "the data it reads", "tables/data", false},
+		{"a path inside a longer path", "vendor/tables/items.ron", "tables/items.ron", false},
+	}
+	for _, c := range cases {
+		if got := namesPath(c.text, c.path); got != c.want {
+			t.Errorf("%s: namesPath(%q, %q) = %v, want %v", c.name, c.text, c.path, got, c.want)
+		}
+	}
+}

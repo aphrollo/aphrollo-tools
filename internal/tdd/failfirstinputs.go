@@ -26,7 +26,7 @@ import (
 func proofInputs(repoRoot string, tests []string) []string {
 	var candidates []string
 	for _, p := range stagedFiles(repoRoot) {
-		if ClassifyFile(p) == Test || isProofWithheldCode(p) {
+		if ClassifyFile(p) == Test || isProofWithheldCode(repoRoot, p) {
 			continue
 		}
 		candidates = append(candidates, p)
@@ -47,12 +47,50 @@ func proofInputs(repoRoot string, tests []string) []string {
 // isProofWithheldCode reports whether p is the kind of file the proof exists
 // to withhold: source in a language the gates compile or run.
 //
-// .ron is deliberately excluded. ClassifyFile calls it Source so that a cargo
-// run is scoped to its owning package, not because it is an implementation:
-// a RON file is a table a test reads, and it belongs on the input side here.
-func isProofWithheldCode(p string) bool {
+// .ron is judged by whether THIS commit wrote it. A RON table is data to a
+// reader and the implementation to this gate: when the change IS the table,
+// carrying it into the proof tree makes the new test pass there and rejects a
+// correct commit as a fail-first violation. A table the commit only MOVED is
+// the other case -- unchanged data the test reads, whose absence would fail
+// the test for a stale path rather than for missing code.
+func isProofWithheldCode(repoRoot, p string) bool {
 	ext := strings.ToLower(path.Ext(filepath.ToSlash(p)))
-	return ext != ".ron" && sourceExts[ext]
+	if !sourceExts[ext] {
+		return false
+	}
+	if ext == ".ron" {
+		return stagedContentChanged(repoRoot, p)
+	}
+	return true
+}
+
+// stagedContentChanged reports whether the staged version of p differs in
+// CONTENT from HEAD. `--raw -M` answers it exactly: it prints the source and
+// destination blob ids per staged path, and a pure rename carries the SAME id
+// on both sides. A path this cannot find a record for is changed, which is
+// the safe direction -- withholding costs a red the commit gate can explain,
+// carrying costs a correct commit.
+func stagedContentChanged(repoRoot, p string) bool {
+	out, err := git(repoRoot, "diff", "--cached", "--raw", "-M", "HEAD")
+	if err != nil {
+		return true
+	}
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		fields := strings.Split(strings.TrimSpace(line), "\t")
+		if len(fields) < 2 {
+			continue
+		}
+		if filepath.ToSlash(fields[len(fields)-1]) != filepath.ToSlash(p) {
+			continue
+		}
+		meta := strings.Fields(fields[0])
+		if len(meta) < 4 {
+			return true
+		}
+		// ":<oldmode> <newmode> <oldsha> <newsha> <status>"
+		return meta[2] != meta[3]
+	}
+	return true
 }
 
 // stagedTestText concatenates the staged test files as they stand in the
@@ -73,12 +111,58 @@ func stagedTestText(repoRoot string, tests []string) string {
 // namesPath reports whether the tests mention p, by repo-relative path or by
 // file name. A test names its fixture one way or the other; anything cleverer
 // would need to run the code to find out.
+//
+// The name has to stand WHOLE: `items.ron` inside `myitems.ron`, inside
+// `items.ron.bak`, or a path inside a longer path is a different file, and
+// carrying a file the tests never read is how the change under test itself
+// rides into the proof tree. A base with no extension is not evidence at all
+// -- `data` or `README` matches ordinary prose -- so only the full path
+// counts for one.
 func namesPath(text, p string) bool {
 	if text == "" {
 		return false
 	}
 	slash := filepath.ToSlash(p)
-	return strings.Contains(text, slash) || strings.Contains(text, path.Base(slash))
+	if mentionsWhole(text, slash) {
+		return true
+	}
+	base := path.Base(slash)
+	return path.Ext(base) != "" && mentionsWhole(text, base)
+}
+
+// mentionsWhole reports whether needle appears in text bounded on both sides:
+// the neighbouring character may not continue a path or a file name.
+func mentionsWhole(text, needle string) bool {
+	if needle == "" {
+		return false
+	}
+	for at := 0; ; {
+		i := strings.Index(text[at:], needle)
+		if i < 0 {
+			return false
+		}
+		i += at
+		end := i + len(needle)
+		if !continuesName(text, i-1) && !continuesName(text, end) {
+			return true
+		}
+		at = i + 1
+	}
+}
+
+// continuesName reports whether the byte at i keeps a path or file name going.
+// A quote, a space, a bracket or a comma ends one; a letter, digit, dot, dash,
+// underscore or separator does not.
+func continuesName(text string, i int) bool {
+	if i < 0 || i >= len(text) {
+		return false
+	}
+	c := text[i]
+	switch {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		return true
+	}
+	return strings.IndexByte("._-/\\", c) >= 0
 }
 
 // embeddedByGo reports whether a Go package compiles p in with //go:embed.
