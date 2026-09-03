@@ -167,6 +167,19 @@ exports each one for the mutation run. Every switch named there must be
 registered in the repo's dev-instrument registry — an env switch that gates a
 suite is exactly the kind the registry law exists to catch.
 
+## Which merges a receipt gates
+
+A receipt proves a LANE was measured before it lands on main, and that is the
+only direction it is asked about. `pre-merge-commit` judges one when HEAD is
+the repo's main branch and the incoming branch is not already contained by it;
+anything else is a CATCH-UP merge, runs the mechanical stages only, and is
+logged `catchup-merge`.
+
+Refusing a catch-up cost more than it protected: `git merge main` inside a lane
+worktree was blocked for a missing receipt against MAIN's tip tree, so the
+builder squash-merged instead — which polluted the lane's merge-base diff with
+all of main's changes, and every later mutation run had to measure them.
+
 ## Go repos
 
 A repo with no runner script of its own gets the built-in one:

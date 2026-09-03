@@ -205,6 +205,15 @@ func mutationReceiptStage(repoRoot string) *GateResult {
 	if !cargoAphrolloFlag(ws, "mutation-receipt") {
 		return nil
 	}
+	// Only the direction that matters. A receipt proves a LANE was measured
+	// before it lands on main; a catch-up merge of main INTO a lane proves
+	// nothing about the lane, and refusing it drove a builder to squash-merge
+	// instead — which polluted the lane's merge-base diff with all of main's
+	// changes and made every later mutation run measure them (issue #110).
+	if why, catchUp := catchUpMerge(repoRoot); catchUp {
+		appendGateLog("premergecommit", repoRoot, "receipt", "catchup-merge", 0)
+		return &GateResult{Message: "mutation receipt not judged: " + why}
+	}
 	tip, ok := mergeTipOf(repoRoot)
 	if !ok {
 		// The gate failed on its own inputs, so it says which input: a clean
