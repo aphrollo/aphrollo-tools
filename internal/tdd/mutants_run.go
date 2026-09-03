@@ -305,10 +305,9 @@ func mutantsChildEnv(j MutantsJob, judged []MutantOutcome) []string {
 	// reads it as the override — indistinguishable, by design, from a
 	// session that set it for the same reason.
 	jobs, why := resolveMutantsJobs(0, false)
+	// cargoWorkspaceRoot answers j.Worktree when it finds no workspace table,
+	// so a single-crate repo's own Cargo.toml is what gets read here.
 	ws := cargoWorkspaceRoot(j.Worktree)
-	if ws == "" {
-		ws = j.Worktree
-	}
 	argv := MutantsArgv(j.Diff, TipSuiteGreen(j.RepoRoot, j.Started.Add(-mutantsGreenWindow)), mutantNames(judged))
 	// `--timeout-multiplier`/`--minimum-test-timeout` are cargo-mutants' own
 	// flags; a run typed with either rides through unchanged rather than

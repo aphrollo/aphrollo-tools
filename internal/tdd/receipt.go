@@ -351,10 +351,9 @@ func mutantsRunnerCommand(root string) string {
 	if root == "" {
 		return fallback
 	}
+	// cargoWorkspaceRoot answers `root` when it finds no workspace table, so
+	// a single-crate repo's own Cargo.toml is what gets read here.
 	ws := cargoWorkspaceRoot(root)
-	if ws == "" {
-		ws = root
-	}
 	if name, ok := cargoAphrolloString(ws, "mutation-runner"); ok && name != "" {
 		return name
 	}
