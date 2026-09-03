@@ -48,6 +48,31 @@ func pushGateNotes(rest []string, cwd, realGit string, code int, stderr io.Write
 	}
 }
 
+// pushValueFlags are `git push` flags whose value is a SEPARATE argv token
+// rather than folded into the flag itself, and whose value is never a
+// remote name (an opaque server-side string, a program path, or a
+// recursion mode) -- so it is always safe to discard, never to capture as
+// the resolved remote. `--flag=value` and an attached short form already
+// carry their own value in one token and are matched by the general
+// "-"-prefix case instead; this map only catches the two-token form.
+//
+// `--repo <repository>` is deliberately ABSENT: unlike the flags below, its
+// value literally IS the intended remote (git: "--repo is equivalent to the
+// <repository> argument"), so the two-token form already resolves correctly
+// by falling through to the ordinary positional case below -- special-casing
+// it here would make pushRemote discard the one token that carries the
+// answer. `--force-with-lease[=...]` and `--signed[=...]` are also absent:
+// both are OPTIONAL-argument flags in git's own grammar, so only the "="
+// form is legal and the space-separated form this map exists for cannot
+// occur. `-u`/`--set-upstream` takes no argument at all.
+var pushValueFlags = map[string]bool{
+	"-o":                   true,
+	"--push-option":        true,
+	"--receive-pack":       true,
+	"--exec":               true,
+	"--recurse-submodules": true,
+}
+
 // pushRemote is the remote a push names, "" when the arguments are a shape
 // this should stay out of: an explicit refspec (the operator is pushing
 // something specific), a delete, or a mirror.
@@ -58,6 +83,11 @@ func pushRemote(args []string) string {
 		switch {
 		case a == "--delete" || a == "-d" || a == "--mirror" || a == "--all":
 			return ""
+		case pushValueFlags[a]:
+			// Its value is the NEXT argv token, not a positional -- e.g.
+			// `-o ci.skip origin main` must not read "ci.skip" as the remote.
+			i++
+			continue
 		case strings.HasPrefix(a, "-"):
 			continue
 		case strings.Contains(a, ":") && positionals > 0:

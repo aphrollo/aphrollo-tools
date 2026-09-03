@@ -134,3 +134,35 @@ func TestNoNotesRefMeansNoNotesPush(t *testing.T) {
 		t.Fatal("a repo with no note must push none")
 	}
 }
+
+// TestPushRemote_SkipsAPushOptionsSeparateArgvToken pins the defect: `git
+// push -o ci.skip origin main` used to resolve remote as "ci.skip" (the
+// push option's own VALUE, one argv token after "-o") instead of "origin",
+// because pushRemote only knew to skip a "-"-prefixed token, never a
+// following token that belongs to it. The gate-note follow-up push then
+// silently failed against a nonexistent remote named "ci.skip" while the
+// branch push itself (unaffected, given the original argv) succeeded.
+func TestPushRemote_SkipsAPushOptionsSeparateArgvToken(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"short -o with a separate value token", []string{"-o", "ci.skip", "origin", "main"}, "origin"},
+		{"long --push-option with a separate value token", []string{"--push-option", "ci.skip", "origin", "main"}, "origin"},
+		{"--push-option=value is already self-contained", []string{"--push-option=ci.skip", "origin", "main"}, "origin"},
+		{"--receive-pack with a separate value token", []string{"--receive-pack", "/opt/git/git-receive-pack", "origin", "main"}, "origin"},
+		{"--exec with a separate value token", []string{"--exec", "/opt/git/git-receive-pack", "origin", "main"}, "origin"},
+		{"--recurse-submodules with a separate value token", []string{"--recurse-submodules", "on-demand", "origin", "main"}, "origin"},
+		{"-u takes no value at all", []string{"-u", "origin", "main"}, "origin"},
+		{"--repo's own value IS the remote, not discarded", []string{"--repo", "origin", "main"}, "origin"},
+		{"bare push with no remote falls back to origin", []string{}, "origin"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := pushRemote(c.args); got != c.want {
+				t.Fatalf("pushRemote(%v) = %q, want %q", c.args, got, c.want)
+			}
+		})
+	}
+}
