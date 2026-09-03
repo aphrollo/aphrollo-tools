@@ -160,6 +160,99 @@ func TestRunGitShim_AllowsAMergeOrPullThatCannotFastForward(t *testing.T) {
 	}
 }
 
+// originAheadOfMain gives the repo a bare `origin` whose main is one commit
+// ahead of the primary checkout's, the shape a PR-only repository is in the
+// moment a pull request merges upstream. Returns that upstream tip.
+func originAheadOfMain(t *testing.T, realGit, primary, linked string) string {
+	t.Helper()
+	bare := filepath.Join(t.TempDir(), "origin.git")
+	run := func(dir string, args ...string) {
+		cmd := exec.Command(realGit, append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.MkdirAll(bare, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run(bare, "init", "-q", "--bare")
+	run(primary, "remote", "add", "origin", bare)
+	run(primary, "push", "-q", "origin", "main")
+	writeAndCommit(t, realGit, linked, "lane.go", "package lane\n", "upstream work")
+	run(linked, "push", "-q", "origin", "lane/x:main")
+	return strings.TrimSpace(mustOutput(t, realGit, linked, "rev-parse", "HEAD"))
+}
+
+// A PR-only repository updates its primary checkout by fast-forwarding main
+// onto the upstream main a pull request just merged into — every hook that
+// judges those commits has already fired, upstream. Refusing that left the
+// checkout stale with no route forward but the env escape, and `gate
+// self-install` then built and installed the stale tree (issue #153).
+func TestRunGitShim_AllowsAFastForwardPullOfTheUpstreamMain(t *testing.T) {
+	primary, linked, cfg := primaryShimRepo(t)
+	upstream := originAheadOfMain(t, cfg.realGit, primary, linked)
+
+	var out, errb bytes.Buffer
+	code := runGitShim([]string{"pull", "--ff-only", "origin", "main"}, strings.NewReader(""), &out, &errb, cfg)
+	if code != 0 {
+		t.Fatalf("git pull --ff-only should pass through, exit = %d\n%s", code, errb.String())
+	}
+	if strings.Contains(errb.String(), "merge-only") {
+		t.Fatalf("git pull --ff-only must not be refused, got %q", errb.String())
+	}
+	if head := strings.TrimSpace(mustOutput(t, cfg.realGit, primary, "rev-parse", "HEAD")); head != upstream {
+		t.Errorf("primary HEAD = %s, want the upstream tip %s", head, upstream)
+	}
+}
+
+// Reading the remote moves nothing at all: `fetch` and `remote update` only
+// write remote-tracking refs, so the primary checkout — whose whole job is to
+// hold the state everyone else resolves against — must be able to run them.
+func TestRunGitShim_AllowsFetchAndRemoteUpdateInThePrimaryCheckout(t *testing.T) {
+	primary, linked, cfg := primaryShimRepo(t)
+	upstream := originAheadOfMain(t, cfg.realGit, primary, linked)
+	before := strings.TrimSpace(mustOutput(t, cfg.realGit, primary, "rev-parse", "HEAD"))
+
+	for _, args := range [][]string{{"fetch", "origin"}, {"remote", "update"}} {
+		var out, errb bytes.Buffer
+		if code := runGitShim(args, strings.NewReader(""), &out, &errb, cfg); code != 0 {
+			t.Errorf("git %s must pass through, exit = %d\n%s", strings.Join(args, " "), code, errb.String())
+		}
+		if strings.Contains(errb.String(), "merge-only") {
+			t.Errorf("git %s must not be refused, got %q", strings.Join(args, " "), errb.String())
+		}
+	}
+	if got := strings.TrimSpace(mustOutput(t, cfg.realGit, primary, "rev-parse", "refs/remotes/origin/main")); got != upstream {
+		t.Errorf("origin/main = %s, want the upstream tip %s — the fetch has to have happened", got, upstream)
+	}
+	if head := strings.TrimSpace(mustOutput(t, cfg.realGit, primary, "rev-parse", "HEAD")); head != before {
+		t.Errorf("primary HEAD = %s, want it unmoved at %s", head, before)
+	}
+}
+
+// The escape is narrow. A `merge --ff-only` of a LOCAL lane still lands that
+// lane on main with no premergecommit hook firing — the merge-only rule
+// exists so a lane merge fires it — and a `pull` with no `--ff-only` can
+// still write a merge commit the same way.
+func TestRunGitShim_StillRefusesAFastForwardMergeOfALocalLane(t *testing.T) {
+	primary, linked, cfg := primaryShimRepo(t)
+	writeAndCommit(t, cfg.realGit, linked, "lane.go", "package lane\n", "lane work")
+	before := strings.TrimSpace(mustOutput(t, cfg.realGit, primary, "rev-parse", "HEAD"))
+
+	for _, args := range [][]string{{"merge", "--ff-only", "lane/x"}, {"pull", "origin", "main"}} {
+		var out, errb bytes.Buffer
+		if code := runGitShim(args, strings.NewReader(""), &out, &errb, cfg); code == 0 {
+			t.Errorf("git %s in the primary checkout should be refused, got exit 0", strings.Join(args, " "))
+		}
+		if !strings.Contains(errb.String(), "primary checkout is merge-only") {
+			t.Errorf("git %s: refusal must name the rule, got %q", strings.Join(args, " "), errb.String())
+		}
+	}
+	if head := strings.TrimSpace(mustOutput(t, cfg.realGit, primary, "rev-parse", "HEAD")); head != before {
+		t.Errorf("primary HEAD = %s, want it unmoved at %s — the refusal comes before git runs", head, before)
+	}
+}
+
 // mustOutput runs git and hands back its stdout, failing the test on error.
 func mustOutput(t *testing.T, realGit, dir string, args ...string) string {
 	t.Helper()

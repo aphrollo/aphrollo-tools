@@ -15,15 +15,20 @@ import (
 //
 // Refused: the two forms that CREATE a branch there, the two that move HEAD
 // to a non-main branch, a `commit` that is not concluding a merge, a `merge`
-// or `pull` that would fast-forward (a fast-forward moves main with no
-// premergecommit hook firing at all — the whole point of the primary
-// checkout), `cherry-pick` and `rebase` (both land foreign commits on main
-// with no hook either), and a `reset --hard <ref>` that moves main to
-// somewhere else. `--abort`/`--continue`/`--quit`/`--skip` on a cherry-pick or
-// rebase already in progress pass, as does a bare `reset --hard` (discards
-// uncommitted changes, moves nothing) and a `reset` with no `--hard`.
-// Everything else — `fetch`, `worktree`, `log`, `status` — is exactly what
-// the primary checkout is for and passes straight through.
+// that would fast-forward and a `pull` that could write a merge commit (a
+// fast-forward moves main with no premergecommit hook firing at all — the
+// whole point of the primary checkout), `cherry-pick` and `rebase` (both land
+// foreign commits on main with no hook either), and a `reset --hard <ref>`
+// that moves main to somewhere else. `--abort`/`--continue`/`--quit`/`--skip`
+// on a cherry-pick or rebase already in progress pass, as does a bare
+// `reset --hard` (discards uncommitted changes, moves nothing) and a `reset`
+// with no `--hard`.
+//
+// Updating main from its OWN upstream is not a merge at all and passes:
+// `fetch`, `remote update`, and `pull --ff-only`, whose commits arrived
+// through a pull request that already fired every hook that judges them.
+// Everything else — `worktree`, `log`, `status` — is exactly what the primary
+// checkout is for and passes straight through.
 
 // primaryRefusalLine returns the one-line refusal for an invocation that would
 // take the primary checkout off main, "" when the invocation is fine. It is
@@ -59,7 +64,12 @@ func primaryRefusedVerb(realGit string, rest []string, workDir string) bool {
 		// one that could fast-forward.
 		return isPlainMerge(rest) && !hasArg(rest[1:], "--no-ff")
 	case "pull":
-		return !hasArg(rest[1:], "--no-ff")
+		// `--ff-only` is the one pull that cannot invent history: it either
+		// fast-forwards main onto the upstream main a pull request already
+		// merged into — every hook having fired upstream — or it refuses.
+		// Without it, refusing left a PR-only repository no way to update its
+		// primary checkout at all (issue #153).
+		return !hasArg(rest[1:], "--no-ff") && !hasArg(rest[1:], "--ff-only")
 	case "cherry-pick", "rebase":
 		return !hasAnyArg(rest[1:], sequencerConcludeFlags)
 	case "reset":
