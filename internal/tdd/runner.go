@@ -554,7 +554,15 @@ func cargoClippyCleanPackages(ws string) []string {
 // `[workspace.metadata.aphrollo]`. Absent (or unreadable) is false, so a
 // workspace that has not opted in never sees the feature at all.
 func cargoAphrolloFlag(ws, key string) bool {
-	data, err := os.ReadFile(filepath.Join(ws, "Cargo.toml"))
+	return tomlBoolIn(filepath.Join(ws, "Cargo.toml"), "[workspace.metadata.aphrollo]", key)
+}
+
+// tomlBoolIn reads one boolean key from one table of a TOML file. A line
+// scanner suffices for the same reason cargoPackageName uses one: the key sits
+// directly under its table in any real manifest, and a parse miss costs only
+// the feature staying off.
+func tomlBoolIn(path, table, key string) bool {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}
@@ -562,7 +570,7 @@ func cargoAphrolloFlag(ws, key string) bool {
 	for line := range strings.Lines(string(data)) {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") {
-			inTable = trimmed == "[workspace.metadata.aphrollo]"
+			inTable = trimmed == table
 			continue
 		}
 		if !inTable {
@@ -577,7 +585,16 @@ func cargoAphrolloFlag(ws, key string) bool {
 }
 
 func cargoAphrolloPackages(ws, key string) []string {
-	data, err := os.ReadFile(filepath.Join(ws, "Cargo.toml"))
+	return tomlStringsIn(filepath.Join(ws, "Cargo.toml"), "[workspace.metadata.aphrollo]", key)
+}
+
+// tomlStringsIn reads one string-ARRAY key from one table of a TOML file,
+// sorted and deduped; empty for an absent key or an unreadable manifest. Same
+// line scanner as tomlBoolIn, and same reasoning: the key sits directly under
+// its table in any real manifest, and a parse miss costs only the feature
+// staying off.
+func tomlStringsIn(path, table, key string) []string {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
@@ -586,7 +603,7 @@ func cargoAphrolloPackages(ws, key string) []string {
 	for line := range strings.Lines(string(data)) {
 		trimmed := strings.TrimSpace(line)
 		if !inArray && strings.HasPrefix(trimmed, "[") {
-			inTable = trimmed == "[workspace.metadata.aphrollo]"
+			inTable = trimmed == table
 			continue
 		}
 		if !inTable {

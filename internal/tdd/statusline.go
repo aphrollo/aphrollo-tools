@@ -24,16 +24,17 @@ type statusLineInput struct {
 // Badge colours: green for an armed gate, gray for one a session turned off,
 // and a distinct colour for each suffix so the state reads without the word.
 const (
-	ansiReset    = "\x1b[0m"
-	ansiGreen    = "\x1b[32m"
-	ansiGray     = "\x1b[90m"
-	ansiRed      = "\x1b[31m"
-	ansiYellow   = "\x1b[33m"
-	badgeOn      = "[aphrollo]"
-	badgeOff     = "[aphrollo:off]"
-	suffixRed    = "red"
-	suffixDefer  = "deferred"
-	suffixQueued = "queued"
+	ansiReset     = "\x1b[0m"
+	ansiGreen     = "\x1b[32m"
+	ansiGray      = "\x1b[90m"
+	ansiRed       = "\x1b[31m"
+	ansiYellow    = "\x1b[33m"
+	badgeOn       = "[aphrollo]"
+	badgeOff      = "[aphrollo:off]"
+	suffixRed     = "red"
+	suffixDefer   = "deferred"
+	suffixQueued  = "queued"
+	suffixMutants = "mutants"
 )
 
 // StatusLine renders the one-line badge for a statusline payload. It never
@@ -72,6 +73,13 @@ func statusSuffix(session, cwd string) (colour, suffix string) {
 	}
 	if lastRunQueued(root) {
 		return ansiYellow, suffixQueued
+	}
+	// Last, and deliberately: a mutation run is background work nobody is
+	// blocked on. It is here at all because a session that cannot see it
+	// starts a second one, or merges expecting a receipt that is still being
+	// measured.
+	if _, ok := MutantsJobRunningAt(root); ok {
+		return ansiYellow, suffixMutants
 	}
 	return "", ""
 }

@@ -32,11 +32,16 @@ type MutationReceipt struct {
 	// name is not a base: `origin/main` moves, and a receipt measured against
 	// yesterday's origin/main mutated different lines than the merge is
 	// landing. Empty means an older producer wrote the receipt.
-	BaseSHA      string `json:"base_sha"`
-	MutantsTotal int    `json:"mutants_total"`
-	Caught       int    `json:"caught"`
-	Timeout      int    `json:"timeout"`
-	Unviable     int    `json:"unviable"`
+	BaseSHA string `json:"base_sha"`
+	// MovedLines is how many diff lines git judged to be MOVED and this run
+	// therefore never mutated. A crate-topology lane moves code byte for
+	// byte, and mutating a moved line measures nothing; the count is here so
+	// a zero-mutant receipt says why it is zero.
+	MovedLines   int `json:"moved_lines,omitempty"`
+	MutantsTotal int `json:"mutants_total"`
+	Caught       int `json:"caught"`
+	Timeout      int `json:"timeout"`
+	Unviable     int `json:"unviable"`
 	// Survivors and Unaccepted are LISTS of mutants, as the producer writes
 	// them — the count is len(). Declaring survivors an int is what made
 	// every merge die on "cannot unmarshal array into Go struct field"; then
@@ -49,6 +54,26 @@ type MutationReceipt struct {
 	Unaccepted []MutantName `json:"unaccepted"`
 	Verdict    string       `json:"verdict"`
 	FinishedAt time.Time    `json:"finished_at"`
+	// Outcomes is every mutant the run measured, each carrying the file blob
+	// and package test-set hash it was measured against — what makes the NEXT
+	// run incremental (see mutants_plan.go). A producer that has not caught up
+	// writes none, which costs a full re-run and nothing else.
+	Outcomes []MutantOutcome `json:"outcomes,omitempty"`
+	// Files is the blob hash of every file the run's diff covered, and
+	// Fences the invalidation hash of every package. Together they are what
+	// the NEXT run narrows its diff with (see PlanDiffFiles); absent, it
+	// measures everything.
+	Files  map[string]string `json:"files,omitempty"`
+	Fences map[string]string `json:"fences,omitempty"`
+	// CarriedFrom names the tree whose run this receipt re-stamps, "" for a
+	// receipt that measured its own tree.
+	CarriedFrom string `json:"carried_from,omitempty"`
+	// MAC is the signature over this receipt's canonical body, written ONLY
+	// by `aphrollo gate receipt sign`, and OutcomesSHA the hash of the run's
+	// own outcome file — the evidence the receipt was taken from. Both empty
+	// for a producer that has not caught up, which is counted, not refused.
+	MAC         string `json:"mac,omitempty"`
+	OutcomesSHA string `json:"outcomes_sha,omitempty"`
 }
 
 // receiptVerdictPass is the only verdict that merges. Anything else — "fail",
@@ -71,20 +96,43 @@ func MutationReceiptPathFor(tipTree string) string {
 // consuming repo's script, because that is what produces a receipt.
 const mutationGateHint = "run tools/mutation_gate.sh on the lane tip (with a clean worktree) and merge again"
 
+// receiptContext is what the merge in progress knows about the lane being
+// merged: where the checkout is, which repo it belongs to, the LANE TIP's
+// tree (MERGE_HEAD:, never the merge result — the merge result has never been
+// mutation-tested by anyone), and the merge base the lane lands against (""
+// when the gate could not name it, in which case it judges no base).
+type receiptContext struct {
+	RepoRoot string
+	Repo     string
+	TipTree  string
+	BaseSHA  string
+}
+
 // checkMutationReceipt judges the receipt for the tree being merged. It
 // returns nil to allow, or a blocking GateResult naming the field that
-// failed. tipTree is the LANE TIP's tree (MERGE_HEAD:), never the merge
-// result: the merge result has never been mutation-tested by anyone.
-// wantBase is the merge base this merge is actually landing against, "" when
-// the gate could not name it — in which case it does not judge one.
-func checkMutationReceipt(repo, tipTree, wantBase string) *GateResult {
+// failed.
+func checkMutationReceipt(ctx receiptContext) *GateResult {
+	tipTree, repo := ctx.TipTree, ctx.Repo
 	path := MutationReceiptPathFor(tipTree)
 	if path == "" {
 		return blockReceipt("no mutation receipt for %s (there is no lane tip to look one up by)", repo)
 	}
+	if laneHasNothingToMutate(ctx) {
+		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-not-required:"+short(tipTree), 0)
+		return nil
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return blockReceipt("no mutation receipt for %s's lane tip %s at %s", repo, short(tipTree), path)
+		if carried, ok := carryReceiptForward(ctx); ok {
+			data = carried
+		} else {
+			return blockMissingReceipt(ctx)
+		}
+	}
+	// Before a single field is believed: a receipt nothing measured is not a
+	// weaker proof, it is somebody's typing.
+	if res := verifyReceiptMAC(data, repo, tipTree); res != nil {
+		return res
 	}
 	var r MutationReceipt
 	if err := json.Unmarshal(data, &r); err != nil {
@@ -103,15 +151,23 @@ func checkMutationReceipt(repo, tipTree, wantBase string) *GateResult {
 		return blockReceipt("%d unaccepted survivor(s), starting with %s — a code path no test constrains",
 			len(r.Unaccepted), firstUnaccepted(r.Unaccepted))
 	}
+	if r.Timeout > 0 {
+		// A timeout is an UNMEASURED mutant filed beside the measured ones.
+		// Nine were measured on one lane at cargo-mutants' 30 s default while
+		// eight cold tree copies were compiling: the suite was fine and the
+		// box was busy, and the receipt reported it as a result.
+		return blockReceipt("%d mutant(s) timed out — an unmeasured mutant is not a result: rerun with fewer jobs",
+			r.Timeout)
+	}
 	switch {
 	case r.BaseSHA == "":
 		// An older producer. Accepted, and counted: an unverifiable proof is
 		// not the same thing as a verified one, and the tally is how that
 		// stops being invisible.
 		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-unpinned", 0)
-	case wantBase != "" && !strings.EqualFold(r.BaseSHA, wantBase):
+	case ctx.BaseSHA != "" && !strings.EqualFold(r.BaseSHA, ctx.BaseSHA):
 		return blockReceipt("the receipt was measured against base %s, but this merge lands against %s — a different diff, so different mutants",
-			short(r.BaseSHA), short(wantBase))
+			short(r.BaseSHA), short(ctx.BaseSHA))
 	}
 	return nil
 }
@@ -183,11 +239,20 @@ func commonGitDir(repoRoot string) string {
 // from an older producer. Decoding accepts both; String renders both as
 // file:line: mutation so a rejection names a place to go.
 type MutantName struct {
-	File     string `json:"file,omitempty"`
-	Line     int    `json:"line,omitempty"`
+	File string `json:"file,omitempty"`
+	Line int    `json:"line,omitempty"`
+	// Col tells apart the several distinct mutants cargo-mutants emits on one
+	// line with identical text.
+	Col      int    `json:"col,omitempty"`
 	Mutation string `json:"mutation,omitempty"`
 	// Raw is the bare-string spelling, kept verbatim.
 	Raw string `json:"-"`
+}
+
+// key identifies the mutant this name refers to, the same way an outcome
+// does, so a survivor list and an outcome list can be compared.
+func (m MutantName) key() mutantKey {
+	return mutantKey{File: m.File, Line: m.Line, Col: m.Col, Mutation: m.Mutation}
 }
 
 func (m *MutantName) UnmarshalJSON(b []byte) error {
@@ -232,6 +297,33 @@ func short(sha string) string {
 		return "(none)"
 	}
 	return sha
+}
+
+// blockMissingReceipt is the rejection for a tip nothing has measured. It is
+// ONE line and it ends in the one thing that would fix it, because that is
+// what a session at a blocked merge needs — the paragraph explaining what a
+// receipt is belongs to the rules, not to every rejection.
+func blockMissingReceipt(ctx receiptContext) *GateResult {
+	return &GateResult{Blocked: true, Message: fmt.Sprintf(
+		"gate: mutation receipt missing for tree %s — %s", short(ctx.TipTree), missingReceiptRemedy(ctx))}
+}
+
+// missingReceiptRemedy is the second half of that line. A run that is ALREADY
+// going is the remedy: told only to run the script, a session starts a second
+// mutation run on top of the first, which is how a box ends up with two
+// multi-hour builds fighting for the same cores.
+func missingReceiptRemedy(ctx receiptContext) string {
+	if jobs := RunningMutantsJobs(ctx.Repo); len(jobs) > 0 {
+		j := jobs[len(jobs)-1]
+		return fmt.Sprintf("running since %s (pid %d)", j.Started.Format("15:04"), j.PID)
+	}
+	// A run that ENDED without a receipt is the third answer, and the one a
+	// session cannot work out for itself: "run it again" is wrong advice when
+	// the last run died, and the reason is already written down.
+	if d, ok := loadMutantsDeath(ctx.TipTree); ok {
+		return fmt.Sprintf("the run died (exit %d) at %s — see %s", d.Exit, d.At.Format("15:04"), d.ErrLog)
+	}
+	return "run tools/mutation_gate.sh main"
 }
 
 func blockReceipt(format string, args ...any) *GateResult {
@@ -295,4 +387,47 @@ func reflogMergeRev() string {
 func mergeTipTree(repoRoot string) string {
 	tip, _ := mergeTipOf(repoRoot)
 	return tip.Tree
+}
+
+// catchUpMerge reports whether the merge in progress is one a mutation receipt
+// has nothing to say about, and why.
+//
+// Two shapes qualify, and both are "nothing new is arriving on main":
+//
+//	main into a lane — HEAD is not the repo's main branch, so whatever is
+//	   being merged is already reviewed, merged code arriving in a working
+//	   branch. The lane still owes a receipt when IT lands.
+//	an already-contained branch — MERGE_HEAD is an ancestor of main, so main
+//	   already holds every commit in it.
+//
+// A repo with no main branch at all is never a catch-up: the gate does not
+// guess which branch is authoritative.
+func catchUpMerge(repoRoot string) (string, bool) {
+	main, ok := mainBranchRef(repoRoot)
+	if !ok {
+		return "", false
+	}
+	head := strings.TrimSpace(gitOut(repoRoot, "rev-parse", "--abbrev-ref", "HEAD"))
+	if head != "" && head != "HEAD" && !isDefaultBranch(head) {
+		return "merging into " + head + ", not " + main, true
+	}
+	tip, ok := mergeTipOf(repoRoot)
+	if !ok {
+		return "", false
+	}
+	if _, err := git(repoRoot, "merge-base", "--is-ancestor", tip.Rev, main); err == nil {
+		return main + " already contains what is being merged", true
+	}
+	return "", false
+}
+
+// mainBranchRef names the branch a receipt gates entry to, preferring the
+// remote's: `origin/main` is what a lane is actually measured against.
+func mainBranchRef(repoRoot string) (string, bool) {
+	for _, ref := range []string{"main", "master"} {
+		if _, err := git(repoRoot, "rev-parse", "--verify", "--quiet", ref); err == nil {
+			return ref, true
+		}
+	}
+	return "", false
 }

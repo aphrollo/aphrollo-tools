@@ -19,14 +19,19 @@ import (
 var gitGateHooks = []struct{ name, sub string }{
 	{"pre-commit", "precommit"},
 	{"pre-merge-commit", "premergecommit"},
+	// ONE post-commit hook, doing two things in order: it writes the gate note
+	// on the commit just made — what lets CI tell a red on a gated tip from a
+	// red on an ungated one — and then starts the lane's mutation run. At
+	// commit time that run has the whole review to finish in, where a run
+	// started at merge time is a multi-hour wall in front of the one action
+	// that needed it. Neither half can block: the commit has already
+	// happened. The run half is inert unless the repo declares
+	// `mutation-receipt = true`.
+	{"post-commit", "postcommit"},
 	// commit-msg fires for EVERY commit, including a non-fast-forward merge,
 	// which is the point: the message is the one artefact that leaves the
 	// machine. Inert unless a workspace opts in with `undercover = true`.
 	{"commit-msg", "commitmsg"},
-	// post-commit writes the gate note on the commit just made, when a suite
-	// actually ran green for that tree. It never blocks: by the time it runs
-	// the commit exists.
-	{"post-commit", "postcommit"},
 }
 
 // prunedHooks are hook names this tool prunes but never installs. A re-install

@@ -1,0 +1,348 @@
+# The mutation runner contract
+
+This is the spec a consuming repo's own mutation runner (borld: the script at
+`bash tools/mutation_gate.sh`, which lives in THAT repo, not this one)
+implements. The gate owns the LIFECYCLE — when a run
+starts, where it happens, what it may skip, and whether the answer is
+trustworthy. The runner owns what only the repo knows: which mutants are worth
+generating, which crates they belong to, and which survivors have been
+accepted.
+
+Nothing here is required for a run to work. A runner that ignores every
+variable below still produces a receipt the gate accepts; it just does a full
+run every time and its receipt is counted as unsigned (`receipt-unsigned`) and
+unpinned (`receipt-unpinned`) rather than verified. The gate never rejects a
+receipt for a field a runner has not caught up with yet.
+
+## How a run starts
+
+`aphrollo gate postcommit` (the `post-commit` git hook) starts the run when all
+of these hold:
+
+- the commit is NOT on `main`/`master`;
+- the repo opts in — `[workspace.metadata.aphrollo] mutation-receipt = true` in
+  the Cargo workspace manifest, or `[aphrollo] mutation-receipt = true` in a
+  repo-root `aphrollo.toml` for a repo with no `Cargo.toml`.
+
+The job is started DETACHED, below normal priority, and its stdout and stderr
+go to files under the mutation worktree's build dir. It is never cancelled by a
+later commit: a superseded run finishes, and its outcomes are what the next
+run carries instead of re-measuring.
+
+## Where a run happens
+
+One worktree per repo, `<parent>/.worktrees/<repo>/mutants`, checked out
+detached at the tip and `git reset --hard`ed between runs (untracked files are
+NOT cleaned — the warm build dir lives there). Its build dir is
+`<worktree>/target`, which is the name every Rust repo already ignores.
+
+**One worktree per repo, not one per lane.** A checkout of another tip in the
+same worktree rebuilds only the crates whose files actually changed — cargo's
+fingerprints for everything else still match, so two lanes alternating tips
+cost the incremental rebuild of what differs between them, not a cold build.
+One worktree per LANE would avoid even that, at roughly 15 GB of build
+directory each (borld's debug target dir was measured at 207 GB across its
+accumulated fingerprints), and every one of them cold on its first run. The
+alternation cost is the cheaper side of that trade by a wide margin, and it is
+bounded: the crates two lanes share are exactly the ones neither of them
+touched.
+
+The runner is invoked in that worktree as `bash tools/mutation_gate.sh <base
+sha>`, with:
+
+| variable | meaning |
+|---|---|
+| `MUTATION_GATE=1` | this run came through the gate. The cargo shim REFUSES `cargo mutants` without it |
+| `APHROLLO_QUEUE=bypass` | skip the build queue. Honoured only while `CARGO_TARGET_DIR` is inside the mutants worktree |
+| `CARGO_TARGET_DIR` | the warm build dir. Do not override it |
+| `APHROLLO_MUTANTS_ARGS` | the cargo-mutants flags the gate computed — pass them through VERBATIM |
+| `APHROLLO_MUTANTS_DIFF` | the reduced lane diff the run is scoped to |
+| `APHROLLO_MUTANTS_BASE` | the base sha the receipt must record |
+| `APHROLLO_MUTANTS_ENV` | space-separated `NAME=VALUE` switches to set for the mutation run (see below) |
+| `APHROLLO_MUTANTS_JOBS` | the concurrency cap the gate computed, with `APHROLLO_MUTANTS_JOBS_WHY` explaining it |
+
+`APHROLLO_MUTANTS_ARGS` is always of the shape
+
+```
+--in-place --in-diff <diff> --test-tool=nextest [--baseline skip] [--exclude-re <mutant> ...]
+```
+
+- `--in-place` — mutate the warm worktree. NEVER let cargo-mutants copy the
+  tree: the copies land in the OS temp dir, build cold, and nothing collects
+  them (11 copies, ~135 MB each, measured on one box).
+- `--baseline skip` appears only when the gate's own log shows this checkout's
+  last commit-gate run green inside the window; the run must not skip the
+  baseline on its own initiative.
+- `--exclude-re` entries are mutants an interrupted earlier attempt already
+  judged. A restart measures what is left.
+
+## What the runner must do
+
+1. Run cargo-mutants with `$APHROLLO_MUTANTS_ARGS` plus the timeout flags
+   below, in the worktree it was invoked in.
+2. Write the receipt JSON to
+   `~/.claude/gate-state/mutation-receipt.<tip tree>.json`, where `<tip tree>`
+   is `git rev-parse HEAD:`.
+3. Sign it — and ONLY through the signer:
+
+   ```sh
+   aphrollo gate receipt sign --outcomes mutants.out/outcomes.json \
+       "$HOME/.claude/gate-state/mutation-receipt.$TIP_TREE.json"
+   ```
+
+   The signer stamps `outcomes_sha` and the `mac`, keyed by
+   `~/.claude/gate-state/receipt.key` (created by `gate init`, mode 0600). It
+   is the only writer of a receipt's `mac`. A receipt whose `mac` does not
+   verify is refused at merge with `gate: receipt not written by
+   tools/mutation_gate.sh` and logged `receipt-forged`; a receipt with NO `mac`
+   is still accepted for now, and counted.
+
+### Timeouts
+
+Nine timeouts at 30 s were measured on one lane, every one of them a mutant
+that was fine and a box that was busy — eight cold copies were compiling at
+once. Contention must not read as a timeout, so the runner passes:
+
+- `--minimum-test-timeout <T>` where `T = max(3 × measured baseline seconds,
+  120)`. The baseline is the unmutated suite's own wall time; when the baseline
+  was skipped, use the last recorded one, and 120 s when there is none.
+- `--timeout-multiplier 3`.
+
+A timeout is NOT a miss and is reported separately (`timeout` in the receipt).
+A receipt with `timeout > 0` is REFUSED at merge, with `rerun with fewer jobs`
+as the remedy: a timed-out mutant is an unmeasured mutant.
+
+### Temp dirs and free space
+
+Three runs died at mutant 101 of 131 on a full disk. The runner had exported
+`TMPDIR`, which a Windows binary ignores, so cargo-mutants wrote its tree
+copies to the OS temp dir on `C:` and took it from 40 GB free to 12 GB (98%).
+Two rules follow, and the runner must obey both:
+
+1. Export **all three** of `TMPDIR`, `TMP` and `TEMP`, on every platform,
+   pointing at a directory under `$CARGO_TARGET_DIR` (the gate sets them for
+   the runner it starts; a runner invoked by hand sets them itself). Setting
+   one and inheriting the others is the bug: whichever name the tool reads is
+   the one that decides.
+2. Check free space on the drive holding `$CARGO_TARGET_DIR` BEFORE starting,
+   against `jobs × 15 GB`, and exit with one line naming both numbers when it
+   is short. The gate does the same check before it starts a run and logs
+   `mutants-refused:disk`.
+
+`gate doctor` reports free space on the drive holding each project's target
+dir and on the OS temp dir's, and warns under 30 GB.
+
+### Concurrency
+
+`APHROLLO_MUTANTS_JOBS` defaults to `min(cores / 6, RAM_GB / 6, 2)`, floored
+at 1, and the runner PRINTS the cap and the reason it was derived from — the
+`— <reason>` suffix included, because "2 jobs" without "cap 2" or "ram" says
+nothing about which limit bound it:
+
+```
+mutants: 2 jobs (min(cores 24/6=4, ram 64GB/6=10, cap 2) — cap 2)
+```
+
+Memory that cannot be READ is not memory that is absent: an unreadable reading
+prints `ram unknown` and lets the cores decide alone, rather than pinning the
+run to one job.
+
+The gate computes the same number and passes it as `APHROLLO_MUTANTS_JOBS`
+with the reason in `APHROLLO_MUTANTS_JOBS_WHY`; a runner may use those instead
+of computing its own.
+
+### Env-gated suites
+
+Mutants in code only reached by an env-gated suite are missed by definition:
+101 of 167 mutants on one lane were in render-world code reached only by GPU
+parity tests. The repo names the switches its mutation run must set:
+
+```toml
+[workspace.metadata.aphrollo]
+mutants-env = ["FORGE_GPU_TESTS=1"]
+```
+
+The gate passes them to the runner in `APHROLLO_MUTANTS_ENV`, and the runner
+exports each one for the mutation run. Every switch named there must be
+registered in the repo's dev-instrument registry — an env switch that gates a
+suite is exactly the kind the registry law exists to catch.
+
+## Which merges a receipt gates
+
+A receipt proves a LANE was measured before it lands on main, and that is the
+only direction it is asked about. `pre-merge-commit` judges one when HEAD is
+the repo's main branch and the incoming branch is not already contained by it;
+anything else is a CATCH-UP merge, runs the mechanical stages only, and is
+logged `catchup-merge`.
+
+Refusing a catch-up cost more than it protected: `git merge main` inside a lane
+worktree was blocked for a missing receipt against MAIN's tip tree, so the
+builder squash-merged instead — which polluted the lane's merge-base diff with
+all of main's changes, and every later mutation run had to measure them.
+
+## Go repos
+
+A repo with no runner script of its own gets the built-in one:
+`aphrollo gate mutants go --job <file>`, which the job runner picks when the
+worktree has a `go.mod` and no `bash tools/mutation_gate.sh`. It drives
+**gremlins**, and the choice was measured rather than argued:
+
+| tool | on this box |
+|---|---|
+| gremlins v0.6.0 | installs and runs; `--diff <ref>` scopes to the lane, `--output` writes machine-readable results, `--workers` caps concurrency. Analysis of `internal/tdd`: 1626 runnable mutants, 270 not covered, 85.76% mutator coverage, 2.6 s behind one full coverage run |
+| go-mutesting | does not BUILD on windows/amd64 — its `zimmski/osutil` dependency uses `syscall.Dup` and `syscall.RLIMIT_NOFILE`, neither of which exists there. No wall time to compare |
+
+gremlins' statuses map onto the receipt as: `KILLED` → caught, `LIVED` and
+`NOT COVERED` → missed, `TIMED OUT` → timeout, anything else → unviable. An
+unrecognised status is never read as caught.
+
+The accept-list for survivors lives in `aphrollo.toml`, with a reason per
+entry — an entry with no reason does not count as accepted:
+
+```toml
+[aphrollo]
+mutation-accept = [
+  "internal/tdd/gc.go:120 CONDITIONALS_BOUNDARY # the bar is the sweep's own, pinned by the sweep test",
+]
+```
+
+## The receipt
+
+```jsonc
+{
+  "repo": "<git rev-parse --path-format=absolute --git-common-dir>",
+  "branch": "lane/x",
+  "tip_tree": "<git rev-parse HEAD:>",
+  "worktree_dirty": false,      // git status --porcelain --untracked-files=no
+  "base_ref": "origin/main",
+  "base_sha": "<resolved sha the diff was taken against>",
+  "mutants_total": 12,
+  "caught": 11,
+  "timeout": 0,
+  "unviable": 1,
+  "survivors":  [{"file": "…", "line": 12, "col": 33, "mutation": "…"}],
+  "accepted": 1,
+  "unaccepted": [],
+  "verdict": "pass",
+  "finished_at": "2026-09-03T10:00:00Z",
+
+  // incremental: what the NEXT run narrows its diff with
+  "files":     {"crates/a/src/lib.rs": "<blob>"},
+  "fences":    {"crates/a": "<hash: see The fence>"},
+  "outcomes":  [{"file": "…", "line": 12, "col": 33, "mutation": "…",
+                 "name": "crates/a/src/lib.rs:12:33: replace || with && in f",
+                 "status": "caught",
+                 "package": "crates/a", "blob": "<blob>", "fence": "<hash>"}],
+
+  // written by the signer, never by the runner
+  "outcomes_sha": "<sha256 of mutants.out/outcomes.json>",
+  "mac": "<hmac-sha256 over the canonical body>"
+}
+```
+
+`worktree_dirty` is computed with `--untracked-files=no`: the run's own build
+dir and logs are untracked by design, and counting them would make every run
+report itself dirty.
+
+### How a mutant is named
+
+cargo-mutants 27.1.0 names a mutant `<file>:<line>:<col>: <mutation>`:
+
+```
+crates/editor_client/src/creator.rs:101:33: replace || with && in send_undo_redo
+crates/editor_client/src/creator.rs:101:16: replace || with && in send_undo_redo
+```
+
+Those are two DIFFERENT mutants. The column is part of the identity, not
+decoration — that file emits several distinct mutants on line 101 with
+identical text — so the receipt carries `col`, the cache keys on it, and a
+resumed run's `--exclude-re` is the tool's own line VERBATIM, anchored:
+
+```
+--exclude-re '^crates/editor_client/src/creator\.rs:101:33: replace \|\| with && in send_undo_redo$'
+```
+
+A rebuilt name that drops the column matches nothing, so the resume excludes
+nothing and measures the whole diff again. The exclusion list is also bounded
+(8,000 characters of arguments): every exclusion rides in one environment
+variable, Windows caps the block at 32,767, and an overflowing list truncates
+the run's own arguments. Past the bound the remaining mutants are simply
+re-measured.
+
+### Moved code is not changed code
+
+A crate-topology lane MOVES code: a module leaves one crate and arrives in
+another, byte for byte, with no behaviour change. To `--in-diff` every one of
+those lines is a changed line, so such a lane would mutate thousands of lines
+nobody touched.
+
+git already knows which lines only moved, so the lane diff is taken with move
+detection on and every moved line is dropped before the diff reaches the
+runner:
+
+```
+git diff --color=always -M --color-moved=plain     --color-moved-ws=allow-indentation-change <base> <tip> -- <files>
+```
+
+A moved ADDED line becomes context — it is in the new file, it is not worth
+mutating, and keeping it holds the file's line numbering where a mutant's
+identity expects it. A moved REMOVED line is dropped outright. A hunk left with
+no real addition goes, and so does a file left with no hunk. The colours are
+pinned on the command line rather than read from the box's git config, because
+the filter parses them.
+
+A lane that is 100% moves therefore runs no mutants at all: the gate writes and
+signs a receipt with `mutants_total: 0`, `verdict: "pass"` and `moved_lines: N`,
+and logs `mutants-all-moved:<tree>`. The count is what makes a zero-mutant
+receipt readable — it says why it is zero.
+
+### The fence
+
+A verdict is invalidated by anything whose change could flip it, which is more
+than the mutant's own file: a mutant in `a.rs` may be caught only through
+`b.rs`'s behaviour, and `b.rs` may live in another crate. So each package
+carries a FENCE — one hash over
+
+- the package's own Source blobs, and
+- the package's own Test blobs, and
+- the Source blobs of every transitive workspace dependency
+
+— and an outcome carries the fence it was measured behind. Cached outcomes
+carry only while both the file blob and the fence still match. The graph comes
+from the build tool itself: `cargo metadata --no-deps` (path dependencies
+only; a registry crate cannot change under a lane) or `go list`. No graph
+means no edges, which fences every package by its own files alone — it
+under-carries rather than over-carries.
+
+### The outcome cache
+
+A verdict is a fact about a BLOB and a TEST SET, not about a branch, so the
+carry source is a repo-wide store rather than the last receipt:
+`<gate-state>/mutants/<repo-token>/outcomes.json`, schema-stamped and written
+whole. Every finished run merges its outcomes into it keyed by mutant, newest
+verdict winning, and every plan carries from it whenever the file blob and the
+package's test-set hash both still match — whichever lane measured them. Two
+lanes touching the same file at the same blob therefore measure it once
+between them.
+
+The carry key is the CONTENT, not the path: an outcome is looked up first by
+`<file>:<line>:<col>: <mutation>` and then by `<blob>:<line>:<col>:
+<mutation>`, so a file that only moved carries every one of its verdicts. The
+fence still has to match, so a move INTO another package — where different
+tests constrain it — is re-measured.
+
+The receipt stays the per-tip proof a merge consumes; the store is only the
+cache. `gate gc --apply` prunes entries older than 30 days or naming a blob the
+repo's object store no longer has.
+
+When the cache answers for EVERY file the lane touched, no runner is started at
+all: the gate writes and signs the carried receipt itself and logs
+`mutants-fully-carried:<tree>`. That path exists because the alternative was
+worse than useless — with no files left to scope it to, the run's diff was
+`git diff BASE TIP --` with no pathspec, which is the whole lane diff, so the
+run re-measured exactly what the cache had just excluded.
+
+A receipt with no `outcomes` costs the next run a full re-measure and nothing
+else. A receipt with `unaccepted` non-empty never merges. The accept-list for
+survivors lives with the repo — Cargo metadata for Rust, `[aphrollo]` in
+`aphrollo.toml` for Go — with a reason per entry.

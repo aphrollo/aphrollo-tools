@@ -45,16 +45,25 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 	if !*apply {
 		if !*quiet {
 			fmt.Fprint(stdout, tdd.RenderGC(cands, false, 0))
+			writeMutantsInUse(stdout)
 		}
 		return 0
 	}
 
+	// The outcome cache is swept with the disk: an entry whose blob has left
+	// the repo describes source that no longer exists, and one nobody has
+	// refreshed in a month is not what the next run should trust.
+	pruned := tdd.PruneMutantStoreFor(*repo)
 	freed, refused, skipped := tdd.ApplyGCFor(*repo, cands)
 	tdd.RecordGCSweep(freed, len(cands)-skipped-len(refused))
 	if *quiet {
 		return 0
 	}
 	fmt.Fprint(stdout, tdd.RenderGC(cands, true, freed))
+	if pruned > 0 {
+		fmt.Fprintf(stdout, "pruned %d stale mutation outcome(s) from the repo's cache\n", pruned)
+	}
+	writeMutantsInUse(stdout)
 	if skipped > 0 {
 		fmt.Fprintf(stdout, "%d candidate(s) inside the target dir left for next time — a build holds every slot for this target dir\n", skipped)
 	}
@@ -62,6 +71,19 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo gate gc: refused %s\n", r)
 	}
 	return 0
+}
+
+// writeMutantsInUse accounts for the cargo-mutants tree copies the sweep
+// deliberately left: a copy a run still owns is not garbage, and a report
+// that silently omitted it would leave an operator wondering where the
+// gigabytes went.
+func writeMutantsInUse(stdout io.Writer) {
+	for _, line := range tdd.MutantsCopiesInUse(tdd.MutantsTempDirs()) {
+		fmt.Fprintln(stdout, line)
+	}
+	for _, line := range tdd.TempTargetsInUse(tdd.MutantsTempDirs()) {
+		fmt.Fprintln(stdout, line)
+	}
 }
 
 // gcScopeFromFlags builds the sweep's scope: everything, with the lock-litter
