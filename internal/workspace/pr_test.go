@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -203,6 +204,25 @@ func TestReuseOpenPR_NoneReturnsNil(t *testing.T) {
 	}
 	if info != nil {
 		t.Errorf("expected nil when no PR exists, got %+v", info)
+	}
+}
+
+// TestGhCIStatusArgs_GuardsBranchBehindTerminator is issue #160's fourth
+// call site: ghCIStatus passed branch bare — `exec.Command("gh", "pr",
+// "checks", branch, "--json", "state")` — with no "--" guard, unlike its
+// siblings (ghEditPRBodyArgs, ghReadyPR, ghViewPR, ghCreatePR's --head=).
+// gh's flag parser treats a branch starting with "-" as a flag reference
+// regardless of position, and git ref names ARE allowed to start with "-".
+// "--json state" must precede "--" (pflag stops recognizing flags at "--";
+// verified against installed gh 2.89.0 offline: `gh pr checks --json state
+// -- somebranch` gets past arg parsing, `gh pr checks -- somebranch --json
+// state` fails with "accepts at most 1 arg(s), received 3"), with "--"
+// immediately before the trailing branch positional.
+func TestGhCIStatusArgs_GuardsBranchBehindTerminator(t *testing.T) {
+	got := ghCIStatusArgs("--repo=owner/other-repo")
+	want := []string{"pr", "checks", "--json", "state", "--", "--repo=owner/other-repo"}
+	if !slices.Equal(got, want) {
+		t.Errorf("ghCIStatusArgs(...) = %v, want %v", got, want)
 	}
 }
 
