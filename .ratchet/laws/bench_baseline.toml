@@ -1,0 +1,17 @@
+name        = "bench_baseline"
+description = "The checked-in benchmark transcript only ever gets cheaper: for every benchmark it names, `B/op` and `allocs/op` may only go DOWN. benchstat already compares a CI run against this file, but nothing refused a re-record that raised it — and the staged-baseline guard keys whole lines, so it cannot judge a row whose timing digits change on every legitimate re-record. `sec/op`/`ns/op` is informational and carries no ceiling: it is the column that moves with whatever else the self-hosted runner is doing. The ceiling is the LOWER MEDIAN of a benchmark's rows, so it is not a function of how many iteration sets the run happened to produce."
+severity    = "deny"
+baseline    = ".ratchet/baselines/bench_baseline.txt"
+
+[scope]
+include = ["testdata/bench/baseline.txt"]
+
+[matcher]
+kind    = "bench-metric-ceiling"
+metrics = ["B/op", "allocs/op"]
+# 10%: the widest spread between a median and an extreme row in the recorded
+# transcript is 5.6% (BenchmarkPreEditJudge B/op, median 82593, high 87259),
+# and the consumer is a HAND re-record on the same self-hosted runner — a bar
+# under the observed noise would reject an honest re-record, and a flaky guard
+# gets disabled.
+tolerance_pct = 10

@@ -1,0 +1,6 @@
+# A benchmark row carrying the allocation columns is a measurement with a
+# ceiling: one expectation per benchmark and column. The clean case is the same
+# transcript recorded WITHOUT -benchmem — only the informational timing column,
+# nothing to ratchet — which is what proves the reader discriminates.
+testdata/bench/baseline.txt#BenchmarkParse B/op
+testdata/bench/baseline.txt#BenchmarkParse allocs/op

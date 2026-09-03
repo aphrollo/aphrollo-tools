@@ -337,6 +337,67 @@ func TestDocPathHits_ResolvesARealPathBesideAWildcard(t *testing.T) {
 	}
 }
 
+// benchCeilingLaw builds a bench-metric-ceiling law over the two allocation
+// columns `go test -benchmem` writes.
+func benchCeilingLaw() Law {
+	return lawWith(Matcher{Kind: KindBenchMetricCeiling, Metrics: []string{"B/op", "allocs/op"}, Key: KeyFile})
+}
+
+// TestBenchMetricHits_WeighsEachBenchmarksAllocationColumnsAtTheirMedian
+// proves what the ceiling is compared against: ONE hit per benchmark and
+// column, weighted by the median of that column's rows. A re-record writes one
+// row per iteration set, and summing them would make the ceiling a function of
+// how many times the bench happened to run.
+func TestBenchMetricHits_WeighsEachBenchmarksAllocationColumnsAtTheirMedian(t *testing.T) {
+	l := benchCeilingLaw()
+	rows := "pkg: example.com/m\n" +
+		"BenchmarkParse    \t       6\t 191718883 ns/op\t     300 B/op\t      30 allocs/op\n" +
+		"BenchmarkParse    \t       6\t 216979450 ns/op\t     100 B/op\t      10 allocs/op\n" +
+		"BenchmarkParse    \t       5\t 243272580 ns/op\t     200 B/op\t      20 allocs/op\n" +
+		"PASS\n"
+
+	got := map[string]int{}
+	for _, h := range l.HitsIn("bench.txt", rows) {
+		got[h.Key] = h.Weight
+	}
+	want := map[string]int{
+		"bench.txt#BenchmarkParse B/op":      200,
+		"bench.txt#BenchmarkParse allocs/op": 20,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("hits = %v, want %v", got, want)
+	}
+}
+
+// TestBenchMetricHits_LeavesTheTimingColumnUnceilinged proves the law's own
+// scope: `ns/op` is informational — it swings with what else the box is doing
+// — so a row carrying only a timing column produces nothing to ratchet.
+func TestBenchMetricHits_LeavesTheTimingColumnUnceilinged(t *testing.T) {
+	l := benchCeilingLaw()
+	rows := "BenchmarkParse    \t       6\t 191718883 ns/op\nPASS\n"
+
+	if hits := l.HitsIn("bench.txt", rows); len(hits) != 0 {
+		t.Errorf("hits = %+v, want none — only the allocation columns carry a ceiling", hits)
+	}
+}
+
+// TestBenchMetricHits_KeysABenchmarkAcrossItsCoreCountSuffix proves the key is
+// the benchmark, not the machine: `go test` appends `-<GOMAXPROCS>` to every
+// name, and keying on that would make a re-record on a box with a different
+// core count read as a whole new set of benchmarks with no ceiling at all.
+func TestBenchMetricHits_KeysABenchmarkAcrossItsCoreCountSuffix(t *testing.T) {
+	l := benchCeilingLaw()
+	rows := "BenchmarkParse-24    \t       6\t 191718883 ns/op\t     100 B/op\t      10 allocs/op\n"
+
+	hits := l.HitsIn("bench.txt", rows)
+	if len(hits) != 2 {
+		t.Fatalf("hits = %+v, want one per allocation column", hits)
+	}
+	if hits[0].Key != "bench.txt#BenchmarkParse B/op" {
+		t.Errorf("key = %q, want the core-count suffix dropped", hits[0].Key)
+	}
+}
+
 func TestRegexAbsentReportsEveryUnescapedMatchWithItsLine(t *testing.T) {
 	l := lawWith(Matcher{Kind: KindRegexAbsent, Pattern: regexp.MustCompile(`\.clamp\(`), Key: KeyLineContent})
 	l.Escape = "// nan-safe:"

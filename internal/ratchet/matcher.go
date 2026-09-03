@@ -2,9 +2,12 @@ package ratchet
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -47,8 +50,82 @@ func (l Law) HitsIn(file, content string) []Hit {
 		return l.markerHits(file, raw, code)
 	case KindDocPathResolves:
 		return l.docPathHits(file, code)
+	case KindBenchMetricCeiling:
+		return l.benchMetricHits(file, raw)
 	}
 	return nil
+}
+
+// benchMetricHits reads a checked-in `go test -bench -benchmem` transcript and
+// weighs each benchmark's named columns, so a re-record may lower them and
+// never raise them. ONE hit per benchmark and column: the engine SUMS the
+// weights sharing a key, and a transcript holds one row per iteration set, so
+// a per-row hit would make the ceiling a function of how many times the bench
+// happened to run rather than of what it cost.
+func (l Law) benchMetricHits(file string, raw []string) []Hit {
+	rows := map[string][]float64{}
+	for _, line := range raw {
+		for metric, value := range benchRowMetrics(line, l.Matcher.Metrics) {
+			rows[metric] = append(rows[metric], value)
+		}
+	}
+	var hits []Hit
+	for _, name := range sortedKeys(rows) {
+		median := lowerMedian(rows[name])
+		hits = append(hits, Hit{
+			Law: l.Name, File: file, Key: file + "#" + name, Weight: int(math.Ceil(median)),
+			What: name + " = " + strconv.FormatFloat(median, 'f', -1, 64),
+		})
+	}
+	return hits
+}
+
+// benchRowMetrics reads one transcript line as `<name> <iterations> <value>
+// <unit>...`, keyed `<benchmark> <unit>` for every unit the law ratchets. A
+// line that is not a benchmark row — the `pkg:` header, `PASS`, a package
+// summary — yields nothing. The `-<GOMAXPROCS>` suffix `go test` appends is
+// dropped: keying on it would make a re-record on a box with a different core
+// count read as a whole new set of benchmarks, with no ceiling at all.
+func benchRowMetrics(line string, metrics []string) map[string]float64 {
+	fields := strings.Fields(line)
+	if len(fields) < 4 || !strings.HasPrefix(fields[0], "Benchmark") {
+		return nil
+	}
+	name := fields[0]
+	if at := strings.LastIndexByte(name, '-'); at > 0 && isAllDigits(name[at+1:]) {
+		name = name[:at]
+	}
+	out := map[string]float64{}
+	for i := 2; i < len(fields); i++ {
+		if !slices.Contains(metrics, fields[i]) {
+			continue
+		}
+		value, err := strconv.ParseFloat(fields[i-1], 64)
+		if err != nil {
+			continue
+		}
+		out[name+" "+fields[i]] = value
+	}
+	return out
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	return strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' }) < 0
+}
+
+// lowerMedian is the middle value, taking the SMALLER of the two middles when
+// there is an even number of rows: a ceiling recorded from a re-record should
+// never be raised by the noisier half of the measurements.
+func lowerMedian(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	sorted := slices.Clone(values)
+	slices.Sort(sorted)
+	return sorted[(len(sorted)-1)/2]
 }
 
 func (l Law) lineCountHits(file string, raw []string) []Hit {

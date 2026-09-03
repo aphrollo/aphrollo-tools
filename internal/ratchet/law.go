@@ -66,6 +66,10 @@ const (
 	// KindJSONNumberCeiling: a number read out of generated JSON may not exceed
 	// its baseline by more than a tolerance (a bench figure nobody reads).
 	KindJSONNumberCeiling MatcherKind = "json-number-ceiling"
+	// KindBenchMetricCeiling: a named column of a checked-in `go test -bench`
+	// baseline may only go down, per benchmark (allocations nobody was
+	// judging).
+	KindBenchMetricCeiling MatcherKind = "bench-metric-ceiling"
 )
 
 // AllRoots is `roots = "*"`: every package in the workspace is a root, which
@@ -164,6 +168,10 @@ type Matcher struct {
 	JSONPath     string
 	TolerancePct int
 	EnabledEnv   string
+	// Metrics are the `go test -bench` columns a bench-metric-ceiling law
+	// ratchets, by their unit as the tool prints it (`B/op`, `allocs/op`).
+	// A column not named here is informational and carries no ceiling.
+	Metrics []string
 }
 
 // SchemaVersion is the law schema this binary understands. A law may declare
@@ -287,6 +295,7 @@ var matcherKeys = map[MatcherKind]map[string]bool{
 	KindDepGraphForbids:    {"kind": true, "roots": true, "forbidden": true, "edges": false, "min_reachable": false},
 	KindFileSetContainment: {"kind": true, "superset_file": true, "subset_file": true, "capture": true},
 	KindJSONNumberCeiling:  {"kind": true, "files": true, "path": true, "tolerance_pct": false, "enabled_env": false},
+	KindBenchMetricCeiling: {"kind": true, "metrics": true, "tolerance_pct": false},
 }
 
 // ParseLaw parses one law file. wantName is the file's stem: the two must
@@ -625,6 +634,19 @@ func parseMatcher(doc *tomlDoc, newer bool) (Matcher, error) {
 		m.SubsetFile = doc.str("matcher", "subset_file")
 		if err == nil && m.Capture.NumSubexp() < 1 {
 			return Matcher{}, fmt.Errorf("matcher.capture must capture the name in group 1")
+		}
+	case KindBenchMetricCeiling:
+		m.Key = KeyFile
+		v, ok := doc.value("matcher", "metrics")
+		if !ok || v.kind != tomlArray || len(v.list) == 0 {
+			return Matcher{}, fmt.Errorf("matcher.metrics is a non-empty array of `go test -bench` column units (\"B/op\", \"allocs/op\")")
+		}
+		m.Metrics = v.list
+		if v, ok := doc.value("matcher", "tolerance_pct"); ok {
+			if v.kind != tomlInt || v.i < 0 {
+				return Matcher{}, fmt.Errorf("matcher.tolerance_pct is a non-negative integer")
+			}
+			m.TolerancePct = v.i
 		}
 	case KindJSONNumberCeiling:
 		m.Key = KeyFile

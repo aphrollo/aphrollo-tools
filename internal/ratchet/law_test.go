@@ -39,6 +39,61 @@ pattern = "\\.clamp\\("
 key = "file:line-content-hash"
 `
 
+const benchCeilingLawText = `
+name = "bench_baseline"
+description = "The checked-in benchmark baseline only ever goes down"
+severity = "deny"
+baseline = ".ratchet/baselines/bench_baseline.txt"
+
+[scope]
+include = ["testdata/bench/baseline.txt"]
+
+[matcher]
+kind          = "bench-metric-ceiling"
+metrics       = ["B/op", "allocs/op"]
+tolerance_pct = 3
+`
+
+// TestLoadLaws_BenchMetricCeilingDeclaresTheColumnsItRatchets proves the
+// columns are the LAW's to state rather than the engine's to assume: a repo
+// decides which of `go test -bench`'s columns are a budget and which are
+// weather. The key is per file, so the baseline carries a number per row.
+func TestLoadLaws_BenchMetricCeilingDeclaresTheColumnsItRatchets(t *testing.T) {
+	dir := t.TempDir()
+	writeLaw(t, dir, "bench_baseline", benchCeilingLawText)
+
+	laws, err := LoadLaws(dir)
+	if err != nil {
+		t.Fatalf("LoadLaws: %v", err)
+	}
+	if len(laws) != 1 {
+		t.Fatalf("loaded %d laws, want 1", len(laws))
+	}
+	m := laws[0].Matcher
+	if m.Kind != KindBenchMetricCeiling || m.Key != KeyFile {
+		t.Errorf("matcher = %+v, want a file-keyed bench-metric-ceiling", m)
+	}
+	if strings.Join(m.Metrics, ",") != "B/op,allocs/op" {
+		t.Errorf("metrics = %v, want the two allocation columns", m.Metrics)
+	}
+	if m.TolerancePct != 3 {
+		t.Errorf("tolerance_pct = %d, want 3", m.TolerancePct)
+	}
+}
+
+// TestLoadLaws_BenchMetricCeilingRefusesALawThatNamesNoColumn proves the
+// vacuity refusal: a ceiling law with no column to read reports a clean tree
+// forever, and the green reads as coverage.
+func TestLoadLaws_BenchMetricCeilingRefusesALawThatNamesNoColumn(t *testing.T) {
+	dir := t.TempDir()
+	writeLaw(t, dir, "bench_baseline", strings.Replace(benchCeilingLawText,
+		`metrics       = ["B/op", "allocs/op"]`, `metrics       = []`, 1))
+
+	if _, err := LoadLaws(dir); err == nil {
+		t.Fatal("a bench-metric-ceiling law naming no column must be refused")
+	}
+}
+
 func TestLoadLawsReadsEveryFieldOfALaw(t *testing.T) {
 	dir := t.TempDir()
 	writeLaw(t, dir, "nan-guard", nanGuardLaw)

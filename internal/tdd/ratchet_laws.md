@@ -124,6 +124,7 @@ accepts either. `contiguous` applies in whichever direction is chosen.
 | `marker-within-lines` | `trigger`, `marker`, `lines`, `contiguous`, `direction` | a `trigger` line requires a `marker` within N lines above (or below, or either), or in the comment run beside it | `// bound:` over a collection that grows |
 | `registry-both-ways` | `registry_file`, `entry_pattern`, `use_pattern` | every use is registered AND every registry line is used; the LAST non-empty capture of a use match is the name, so an alternation with one group per branch works | the dev-instrument (env switch) registry |
 | `doc-path-resolves` | `pattern` | a captured path must resolve relative to the CITING file's own directory, then the repo root, then inside its own `crates/<x>`/`tools/<x>` unit | doc citations |
+| `bench-metric-ceiling` | `metrics`, `tolerance_pct` | for every benchmark named in a checked-in `go test -bench` transcript, each named COLUMN may only go down; the ceiling is that column's lower median across the rows, and an unnamed column carries none | a benchmark baseline nobody could refuse a raise to |
 | `dep-graph-forbids` | `roots`, `forbidden`, `edges`, `min_reachable` | no root package may REACH a forbidden one (glob) through the resolved dependency graph; `edges = "normal"` (default) never follows dev/build edges, which is the whole distinction | dev-only tooling in a shipping binary |
 | `file-set-containment` | `superset_file`, `subset_file`, `capture` | every capture in `subset_file` must also appear in `superset_file` | a headless stand-in whose query must refuse at least what the real one refuses |
 | `json-number-ceiling` | `files`, `path`, `tolerance_pct`, `enabled_env` | a number read out of generated JSON may not exceed its baseline by more than the tolerance | a criterion bench figure nobody was reading |
@@ -174,6 +175,18 @@ loudly instead of reporting green over files they never opened.
   law's `escape` marker in `superset_file`, and a marker with nothing left to
   waive is itself a finding — stale waivers are how a guard quietly stops
   guarding.
+- **`bench-metric-ceiling`** is the other MEASUREMENT law, over the text a
+  benchmark run already writes: one hit per benchmark and named column,
+  weighted by the LOWER MEDIAN of that column's rows, so the ceiling is what
+  the benchmark costs rather than a function of how many iteration sets the
+  run happened to produce. Naming the columns is the law's job, not the
+  engine's: `sec/op` moves with whatever else the box is doing and carries no
+  ceiling, while `B/op` and `allocs/op` are a budget. The `-<GOMAXPROCS>`
+  suffix `go test` appends to every name is dropped from the key, or a
+  re-record on a box with a different core count would read as a whole new set
+  of benchmarks with no ceiling at all. Its `clean/` fixture is the same
+  transcript recorded WITHOUT `-benchmem`, which is what proves the reader
+  discriminates.
 - **`json-number-ceiling`** is a MEASUREMENT law: every value it reads is a
   hit, weighted by the number (rounded up), and the `tolerance_pct` is applied
   when comparing to the baseline rather than when measuring — a figure inside

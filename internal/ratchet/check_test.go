@@ -21,6 +21,66 @@ func repoWithNanGuard(t *testing.T) string {
 	return root
 }
 
+// repoWithBenchCeiling builds a consuming repo whose benchmark transcript is
+// under a bench-metric-ceiling law, with the baseline recording the one
+// benchmark's two allocation columns.
+func repoWithBenchCeiling(t *testing.T, allocBytes string) string {
+	t.Helper()
+	root := t.TempDir()
+	writeLaw(t, root, "bench_baseline", benchCeilingLawText)
+	write(t, filepath.Join(root, ".ratchet", "baselines", "bench_baseline.txt"),
+		"testdata/bench/baseline.txt#BenchmarkParse B/op | 200\n"+
+			"testdata/bench/baseline.txt#BenchmarkParse allocs/op | 20\n")
+	write(t, filepath.Join(root, "testdata", "bench", "baseline.txt"),
+		"BenchmarkParse\t6\t191718883 ns/op\t"+allocBytes+" B/op\t20 allocs/op\n")
+	return root
+}
+
+// TestCheck_BenchCeilingRefusesARaisedAllocationRow is the whole point of the
+// law: a re-recorded baseline whose benchmark now allocates MORE is a
+// regression somebody has to answer for, not a file to overwrite.
+func TestCheck_BenchCeilingRefusesARaisedAllocationRow(t *testing.T) {
+	// 260 against a ceiling of 200 is +30%, clear of the law's 3% tolerance.
+	root := repoWithBenchCeiling(t, "260")
+
+	res, err := Check(Options{Root: root})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("findings = %+v, want the raised B/op row", res.Findings)
+	}
+	f := res.Findings[0]
+	if f.Key != "testdata/bench/baseline.txt#BenchmarkParse B/op" || f.Baseline != 200 || f.Measured != 260 {
+		t.Errorf("finding = %+v", f)
+	}
+	if !res.Blocked() {
+		t.Error("a deny law's regression must block")
+	}
+}
+
+// TestCheck_BenchCeilingLowersTheBaselineOnAnImprovedRow proves the other
+// direction: an improvement is adopted by the run that observed it, so the
+// ceiling can never drift back up on the next re-record.
+func TestCheck_BenchCeilingLowersTheBaselineOnAnImprovedRow(t *testing.T) {
+	root := repoWithBenchCeiling(t, "150")
+
+	res, err := Check(Options{Root: root, Tighten: true})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 0 {
+		t.Fatalf("findings = %+v, want none — the row went down", res.Findings)
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".ratchet", "baselines", "bench_baseline.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "BenchmarkParse B/op | 150") {
+		t.Errorf("baseline was not lowered to the measured 150:\n%s", data)
+	}
+}
+
 func TestCheckIsCleanWhenTheTreeMatchesItsBaseline(t *testing.T) {
 	root := repoWithNanGuard(t)
 	res, err := Check(Options{Root: root})

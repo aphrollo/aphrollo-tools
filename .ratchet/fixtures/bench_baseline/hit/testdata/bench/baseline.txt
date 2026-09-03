@@ -1,0 +1,6 @@
+pkg: example.com/m
+BenchmarkParse    	       6	 191718883 ns/op	     300 B/op	      30 allocs/op
+BenchmarkParse    	       6	 216979450 ns/op	     100 B/op	      10 allocs/op
+BenchmarkParse    	       5	 243272580 ns/op	     200 B/op	      20 allocs/op
+PASS
+ok  	example.com/m	3.000s
