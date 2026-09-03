@@ -17,6 +17,19 @@ const ciReport = `{"files":[
     {"type":"CONDITIONALS_BOUNDARY","status":"LIVED","line":4,"column":5},
     {"type":"ARITHMETIC_BASE","status":"KILLED","line":9,"column":2}]}]}`
 
+// allSkippedReport is what a --diff base that matches nothing produces: the
+// analysis still lists every mutant it found and marks each one SKIPPED.
+const allSkippedReport = `{"files":[
+  {"file_name":"calc.go","mutations":[
+    {"type":"CONDITIONALS_BOUNDARY","status":"SKIPPED","line":4,"column":5},
+    {"type":"ARITHMETIC_BASE","status":"SKIPPED","line":9,"column":2}]}]}`
+
+// timedOutReport carries one mutant nobody managed to measure.
+const timedOutReport = `{"files":[
+  {"file_name":"calc.go","mutations":[
+    {"type":"CONDITIONALS_BOUNDARY","status":"TIMED OUT","line":4,"column":5},
+    {"type":"ARITHMETIC_BASE","status":"KILLED","line":9,"column":2}]}]}`
+
 // gremlinsCall is one invocation of the tool, as the runner asked for it.
 type gremlinsCall struct {
 	root, baseSHA string
@@ -120,6 +133,48 @@ func TestRunGoMutantsCI_WritesASignedReceiptWhereTheWorkflowUploadsIt(t *testing
 	}
 	if r.BaseSHA != "abc123" {
 		t.Fatalf("BaseSHA = %q, want the merge base the run was scoped to", r.BaseSHA)
+	}
+}
+
+// A run that measured NO mutants is not a proof either. gremlins marks
+// everything outside its --diff scope SKIPPED, and a scope that matches
+// nothing is exactly what a stale or wrong merge base looks like — the same
+// "walks nothing and passes" hole the path argument had, re-entering through
+// the base. The merge gate accepts a zero-mutant RECEIPT (a diff with nothing
+// mutable in it is a real answer); the CI judge refuses a zero-mutant RUN,
+// because the run is the thing that could have been mis-scoped.
+func TestRunGoMutantsCI_FailsWhenTheScopeMatchedNoMutants(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := ciRepo(t)
+	fakeGremlins(t, allSkippedReport, 0)
+
+	var out bytes.Buffer
+	code := RunGoMutantsCI(GoMutantsCI{Root: root, BaseSHA: "abc123"}, &out)
+
+	if code == 0 {
+		t.Fatalf("a run that measured no mutants must not pass, got exit 0:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "abc123") {
+		t.Fatalf("the output must name the base whose scope matched nothing, got:\n%s", out.String())
+	}
+}
+
+// A timeout is an UNMEASURED mutant filed beside the measured ones. The merge
+// gate refuses a receipt carrying one; with the local run off this check is
+// the only judge the repo has, so it refuses the same fact in the same words.
+func TestRunGoMutantsCI_FailsOnATimedOutMutant(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := ciRepo(t)
+	fakeGremlins(t, timedOutReport, 0)
+
+	var out bytes.Buffer
+	code := RunGoMutantsCI(GoMutantsCI{Root: root, BaseSHA: "abc123"}, &out)
+
+	if code == 0 {
+		t.Fatalf("a timed-out mutant must not pass, got exit 0:\n%s", out.String())
+	}
+	if want := mutantsTimedOutLine(1); !strings.Contains(out.String(), want) {
+		t.Fatalf("output = %q, want the merge gate's own sentence %q", out.String(), want)
 	}
 }
 

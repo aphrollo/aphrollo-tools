@@ -116,6 +116,27 @@ func RunGoMutantsCI(c GoMutantsCI, out io.Writer) int {
 
 	logf(out, "aphrollo: %d mutant(s) over %s..HEAD — %d caught, %d timed out, %d unviable, %d survived (%d accepted)",
 		r.MutantsTotal, short(c.BaseSHA), r.Caught, r.Timeout, r.Unviable, len(r.Survivors), r.Accepted)
+
+	// Three ways to fail, and none of them is "a survivor" alone.
+	//
+	// A run that measured NOTHING is the first: gremlins marks everything
+	// outside its --diff scope SKIPPED, so a stale or wrong base produces a
+	// clean-looking zero. That is the same hole the path argument had — walk
+	// nothing, report nothing, exit 0 — re-entering through the base. The
+	// MERGE gate accepts a zero-mutant receipt, because a diff with nothing
+	// mutable in it is a real answer about a lane; the run is the thing that
+	// could have been mis-scoped, and only the run can tell.
+	if r.MutantsTotal == 0 {
+		logf(out, "aphrollo: the run measured NO mutants over %s..HEAD — a scope that matches nothing"+
+			" is not a proof: check that the base is the merge base this branch actually diverged from", c.BaseSHA)
+		return 1
+	}
+	// A timeout is an unmeasured mutant filed beside the measured ones, and
+	// with the local run off this check is the only judge the repo has.
+	if r.Timeout > 0 {
+		logf(out, "aphrollo: %s", mutantsTimedOutLine(r.Timeout))
+		return 1
+	}
 	if len(r.Unaccepted) == 0 {
 		return 0
 	}

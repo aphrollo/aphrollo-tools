@@ -152,12 +152,7 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 			len(r.Unaccepted), firstUnaccepted(r.Unaccepted))
 	}
 	if r.Timeout > 0 {
-		// A timeout is an UNMEASURED mutant filed beside the measured ones.
-		// Nine were measured on one lane at cargo-mutants' 30 s default while
-		// eight cold tree copies were compiling: the suite was fine and the
-		// box was busy, and the receipt reported it as a result.
-		return blockReceipt("%d mutant(s) timed out — an unmeasured mutant is not a result: rerun with fewer jobs",
-			r.Timeout)
+		return blockReceipt("%s", mutantsTimedOutLine(r.Timeout))
 	}
 	switch {
 	case r.BaseSHA == "":
@@ -330,6 +325,17 @@ func blockReceipt(format string, args ...any) *GateResult {
 	return &GateResult{Blocked: true, Message: fmt.Sprintf(
 		"gate premergecommit: %s. Fail-first proves a test failed once; the receipt proves it constrains behaviour — %s.",
 		fmt.Sprintf(format, args...), mutationGateHint)}
+}
+
+// mutantsTimedOutLine is the one sentence every judge prints for a timeout,
+// so the CI check and the merge gate say the same thing about the same fact.
+//
+// A timeout is an UNMEASURED mutant filed beside the measured ones. Nine were
+// measured on one lane at cargo-mutants' 30 s default while eight cold tree
+// copies were compiling: the suite was fine and the box was busy, and the
+// receipt reported it as a result.
+func mutantsTimedOutLine(n int) string {
+	return fmt.Sprintf("%d mutant(s) timed out — an unmeasured mutant is not a result: rerun with fewer jobs", n)
 }
 
 // mergeTip is the commit being merged IN — the tree a mutation run measured,
