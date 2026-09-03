@@ -25,21 +25,22 @@ type statusLineInput struct {
 
 // The BADGE carries the state, in its own colour: green armed, red for a
 // standing failure, yellow while something this session started is still
-// running, gray for a gate the session turned off. A word is added only where
-// the colour alone is ambiguous -- yellow has three causes, so it names which;
-// red has one, so it says nothing. A word the colour already carries is a word
-// a session stops reading.
+// running, gray for a gate the session turned off. A TAG is added inside the
+// brackets only where the colour alone is ambiguous -- yellow has three
+// causes, so it names which; red, green and gray have one each, so they render
+// the bare badge. A word the colour already carries is a word a session stops
+// reading, and a badge that changes width every render is one that draws the
+// eye for nothing.
 const (
-	ansiReset     = "\x1b[0m"
-	ansiGreen     = "\x1b[32m"
-	ansiGray      = "\x1b[90m"
-	ansiRed       = "\x1b[31m"
-	ansiYellow    = "\x1b[33m"
-	badgeOn       = "[aphrollo]"
-	badgeOff      = "[aphrollo:off]"
-	suffixDefer   = "deferred"
-	suffixQueued  = "queued"
-	suffixMutants = "mutants"
+	ansiReset  = "\x1b[0m"
+	ansiGreen  = "\x1b[32m"
+	ansiGray   = "\x1b[90m"
+	ansiRed    = "\x1b[31m"
+	ansiYellow = "\x1b[33m"
+	badgeOn    = "[aphrollo]"
+	tagDefer   = "deferred"
+	tagQueued  = "queued"
+	tagMutants = "mutants"
 )
 
 // redGoesStaleAfter bounds how long a recorded red may speak for the tree with
@@ -58,21 +59,20 @@ func StatusLine(raw []byte) string {
 	_ = json.Unmarshal(raw, &in)
 
 	if s, _ := loadSession(in.SessionID); s != nil && s.Overrides.Off {
-		return ansiGray + badgeOff + ansiReset
+		return ansiGray + badgeOn + ansiReset
 	}
-	colour, suffix := statusState(in.SessionID, in.Cwd)
-	badge := colour + badgeOn + ansiReset
-	if suffix == "" {
-		return badge
+	colour, tag := statusState(in.SessionID, in.Cwd)
+	if tag == "" {
+		return colour + badgeOn + ansiReset
 	}
-	return badge + " " + colour + suffix + ansiReset
+	return colour + "[aphrollo:" + tag + "]" + ansiReset
 }
 
 // statusState is the badge's colour and, where the colour is ambiguous, its
-// one word -- in the order a session needs to act on them: a standing red is
+// one tag -- in the order a session needs to act on them: a standing red is
 // work to do now, a running job is work to wait for, and a queued run is a
 // suite that never ran at all.
-func statusState(session, cwd string) (colour, suffix string) {
+func statusState(session, cwd string) (colour, tag string) {
 	root := findRootFrom(cwd)
 	if root == "" {
 		return ansiGreen, ""
@@ -82,13 +82,13 @@ func statusState(session, cwd string) (colour, suffix string) {
 		return ansiRed, ""
 	}
 	if deferredBuildRunning(session, root, now) {
-		return ansiYellow, suffixDefer
+		return ansiYellow, tagDefer
 	}
 	if mutantsRunning(session, root) {
-		return ansiYellow, suffixMutants
+		return ansiYellow, tagMutants
 	}
 	if lastRunQueued(root) {
-		return ansiYellow, suffixQueued
+		return ansiYellow, tagQueued
 	}
 	return ansiGreen, ""
 }

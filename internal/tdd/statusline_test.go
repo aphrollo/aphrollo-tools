@@ -48,16 +48,21 @@ func TestStatusLine_IsAQuietBadgeWhenNothingIsWrong(t *testing.T) {
 	}
 }
 
-// TestStatusLine_SaysOffWhenTheSessionTurnedTheGateOff is the one state a
+// TestStatusLine_GoesGrayWhenTheSessionTurnedTheGateOff is the one state a
 // session must never lose track of: with `/gate off` set, edits are not gated
-// at all, and a badge that still reads green claims a gate that is not running.
-func TestStatusLine_SaysOffWhenTheSessionTurnedTheGateOff(t *testing.T) {
+// at all, and a badge that still reads green claims a gate that is not
+// running. Gray says it, and the badge stays the same shape.
+func TestStatusLine_GoesGrayWhenTheSessionTurnedTheGateOff(t *testing.T) {
 	root := statusRoot(t)
 	if err := setOff("s1", true); err != nil {
 		t.Fatal(err)
 	}
-	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:off]" {
-		t.Fatalf("StatusLine = %q, want %q", got, "[aphrollo:off]")
+	got := StatusLine(statusPayload(t, "s1", root))
+	if !strings.HasPrefix(got, ansiGray) {
+		t.Fatalf("a disabled gate must render gray, got %q", got)
+	}
+	if plain(got) != "[aphrollo]" {
+		t.Fatalf("StatusLine = %q, want the bare badge in gray", plain(got))
 	}
 }
 
@@ -167,7 +172,7 @@ func TestStatusLine_ARunningMutantsJobRendersYellow(t *testing.T) {
 	if !strings.HasPrefix(got, ansiYellow) {
 		t.Fatalf("a running mutants job must render yellow, got %q", got)
 	}
-	if plain(got) != "[aphrollo] mutants" {
+	if plain(got) != "[aphrollo:mutants]" {
 		t.Fatalf("StatusLine = %q, want the yellow badge named", plain(got))
 	}
 }
@@ -204,8 +209,8 @@ func TestStatusLine_IgnoresAnotherProjectsRed(t *testing.T) {
 func TestStatusLine_ReportsARunningDeferredBuild(t *testing.T) {
 	root := statusRoot(t)
 	saveDeferredJob(DeferredJob{Project: root, Phase: "build", Started: time.Now(), Session: "s1"})
-	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo] deferred" {
-		t.Fatalf("StatusLine = %q, want %q", got, "[aphrollo] deferred")
+	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:deferred]" {
+		t.Fatalf("StatusLine = %q, want %q", got, "[aphrollo:deferred]")
 	}
 }
 
@@ -230,8 +235,8 @@ func TestStatusLine_DropsDeferredOnceTheResultLanded(t *testing.T) {
 func TestStatusLine_ReportsThatTheLastRunOnlyQueued(t *testing.T) {
 	root := statusRoot(t)
 	appendGateLog("postedit", root, "cargo nextest run", "queued-skipped", 0)
-	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo] queued" {
-		t.Fatalf("StatusLine = %q, want %q", got, "[aphrollo] queued")
+	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:queued]" {
+		t.Fatalf("StatusLine = %q, want %q", got, "[aphrollo:queued]")
 	}
 }
 

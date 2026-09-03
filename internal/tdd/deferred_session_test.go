@@ -69,10 +69,10 @@ func TestStatusLine_DeferredBadgeReadsThisSessionsBuildOnly(t *testing.T) {
 		}
 		return b
 	}
-	if got := StatusLine(payload("sess-a")); !strings.Contains(got, suffixDefer) {
-		t.Fatalf("the session with a running build must see %q, got %q", suffixDefer, got)
+	if got := StatusLine(payload("sess-a")); !strings.Contains(got, tagDefer) {
+		t.Fatalf("the session with a running build must see %q, got %q", tagDefer, got)
 	}
-	if got := StatusLine(payload("sess-b")); strings.Contains(got, suffixDefer) {
+	if got := StatusLine(payload("sess-b")); strings.Contains(got, tagDefer) {
 		t.Fatalf("another session must not be told a build it never started is running, got %q", got)
 	}
 }

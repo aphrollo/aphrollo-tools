@@ -1726,16 +1726,16 @@ which reads the session payload on stdin and prints ONE badge:
 ```
 [aphrollo]            green  — the gate is armed, nothing to report
 [aphrollo]            red    — a run for THIS project failed and still stands
-[aphrollo:off]        gray   — this session ran `/gate off`; edits are not gated
-[aphrollo] deferred   yellow — a detached build for this project is running
-[aphrollo] mutants    yellow — a cargo-mutants run holds this project's target
-[aphrollo] queued     yellow — the last run only queued; the suite never started
+[aphrollo]            gray   — this session ran `/gate off`; edits are not gated
+[aphrollo:deferred]   yellow — a detached build for this project is running
+[aphrollo:mutants]    yellow — a cargo-mutants run holds this project's target
+[aphrollo:queued]     yellow — the last run only queued; the suite never started
 ```
 
-The BADGE carries the state, in its own colour. A word is added only where the
-colour is ambiguous: yellow has three causes, so it names which, and red has
-one, so it says nothing — a word the colour already carries is a word a session
-stops reading.
+The BADGE carries the state, in its own colour. A tag goes inside the brackets
+only where the colour is ambiguous: yellow has three causes, so it names which,
+while red, green and gray have one each and render the bare badge — a word the
+colour already carries is a word a session stops reading.
 
 A red is retired by either of two things, so the badge is never stale. ANY
 green outcome logged for this project clears it, from any stage — post-edit,
@@ -1746,7 +1746,7 @@ dropped outright, with nothing rendered in its place: the badge is a real-time
 signal or it is noise, and one false red teaches a reader to ignore the true
 one. The hooks write the state; the statusline only reads it.
 
-The suffix is reserved for what changes what to do next, in that order; a
+The tag is reserved for what changes what to do next, in that order; a
 statusline that reports every healthy state is one nobody reads. It never
 fails — a malformed payload, a missing session or an unreadable log all render
 the plain badge, because a statusline runs on every prompt render and has
