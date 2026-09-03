@@ -39,6 +39,12 @@ type GoMutantsCI struct {
 // mutation run, which is the one thing that cannot be made cheap.
 var goMutantsRunFn = runGremlinsAt
 
+// mutantsJobsFn is the box's own cap, as a seam. The cap is 1 or 2 on every
+// real machine, so a test pinning the `workers < 1` boundary cannot tell "the
+// caller asked for 1" from "the box answered 1" unless it chooses the box's
+// answer itself. A CI runner answering 1 is exactly where that survived.
+var mutantsJobsFn = mutantsJobsForThisBox
+
 // runGremlinsAt is one diff-scoped run in a checkout that is already there —
 // the CI half's equivalent of runGremlins, which runs in the warm worktree a
 // detached job set up.
@@ -75,7 +81,7 @@ func RunGoMutantsCI(c GoMutantsCI, out io.Writer) int {
 
 	workers := c.Workers
 	if workers < 1 {
-		workers, _ = mutantsJobsForThisBox()
+		workers, _ = mutantsJobsFn()
 	}
 	report := filepath.Join(dir, "gremlins.json")
 	code := goMutantsRunFn(root, c.BaseSHA, report, workers)

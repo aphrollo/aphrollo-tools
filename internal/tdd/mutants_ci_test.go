@@ -153,6 +153,16 @@ func TestRunGoMutantsCI_RefusesToRunWithoutAMergeBase(t *testing.T) {
 	}
 }
 
+// fakeBoxJobs pins what the box would answer. Real machines answer 1 or 2, so
+// a test that let the box speak for itself could not tell the caller's own 1
+// from the box's.
+func fakeBoxJobs(t *testing.T, n int) {
+	t.Helper()
+	prev := mutantsJobsFn
+	mutantsJobsFn = func() (int, string) { return n, "pinned by the test" }
+	t.Cleanup(func() { mutantsJobsFn = prev })
+}
+
 // gremlins re-runs the package's suite once per mutant, so an uncapped run
 // owns the runner for as long as it takes. The cap is the caller's when it
 // named one, and the box's own answer otherwise — never zero.
@@ -160,6 +170,7 @@ func TestRunGoMutantsCI_CapsTheRunAtTheWorkersItWasGiven(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := ciRepo(t)
 	ran := fakeGremlins(t, ciReport, 0)
+	fakeBoxJobs(t, 7)
 
 	RunGoMutantsCI(GoMutantsCI{Root: root, BaseSHA: "abc123", Workers: 3}, &bytes.Buffer{})
 	// 1 is the boundary the caller is most likely to name — a serial run on a
@@ -176,8 +187,8 @@ func TestRunGoMutantsCI_CapsTheRunAtTheWorkersItWasGiven(t *testing.T) {
 	if got := (*ran)[1].workers; got != 1 {
 		t.Errorf("workers = %d, want the 1 the caller asked for", got)
 	}
-	if got := (*ran)[2].workers; got < 1 {
-		t.Errorf("workers = %d with none named, want the box's answer and never below 1", got)
+	if got := (*ran)[2].workers; got != 7 {
+		t.Errorf("workers = %d with none named, want the box's own answer", got)
 	}
 }
 
