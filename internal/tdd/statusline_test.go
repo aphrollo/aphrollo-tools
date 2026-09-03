@@ -158,25 +158,6 @@ func TestStatusLine_ARedOlderThanTheWindowRendersGreen(t *testing.T) {
 	}
 }
 
-// TestStatusLine_ARunningMutantsJobRendersYellow answers the question a
-// session asks while the mutation gate chews through a tree copy: is that job
-// still alive, or did it die and leave the box quiet?
-func TestStatusLine_ARunningMutantsJobRendersYellow(t *testing.T) {
-	root := statusRoot(t)
-	defer SetLockDirForTest(t.TempDir())()
-	t.Setenv("CLAUDE_SESSION_ID", "s1")
-	writeBuildLockOwnerAt(ReadBuildSlotOwnerPath(resolveTargetDir(os.Getenv, root)),
-		"cargo mutants --in-place", root)
-
-	got := StatusLine(statusPayload(t, "s1", root))
-	if !strings.HasPrefix(got, ansiYellow) {
-		t.Fatalf("a running mutants job must render yellow, got %q", got)
-	}
-	if plain(got) != "[aphrollo:mutants]" {
-		t.Fatalf("StatusLine = %q, want the yellow badge named", plain(got))
-	}
-}
-
 // stampOutcomeAt records an outcome for root at a chosen time, which is what
 // a staleness rule needs and `stamp` (always now) cannot give.
 func stampOutcomeAt(t *testing.T, session, root, outcome string, at time.Time) {

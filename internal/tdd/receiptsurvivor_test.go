@@ -28,7 +28,7 @@ func TestMutationReceipt_DecodesObjectSurvivorsAndMergesWhenAllAccepted(t *testi
 		t.Fatalf("survivors = %v, unaccepted = %v, accepted = %d", r.Survivors, r.Unaccepted, r.Accepted)
 	}
 	writeReceipt(t, r)
-	if got := checkMutationReceipt(r.Repo, r.TipTree, r.BaseSHA); got != nil {
+	if got := checkMutationReceipt(receiptContext{Repo: r.Repo, TipTree: r.TipTree, BaseSHA: r.BaseSHA}); got != nil {
 		t.Fatalf("an accepted survivor must merge: %s", got.Message)
 	}
 }
@@ -47,7 +47,7 @@ func TestMutationReceipt_RefusesAnUnacceptedObjectSurvivorByFileAndLine(t *testi
 		t.Fatal(err)
 	}
 	writeReceipt(t, r)
-	got := checkMutationReceipt("borld", laneTip, "")
+	got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: laneTip})
 	if got == nil || !got.Blocked {
 		t.Fatal("an unaccepted survivor must not merge")
 	}

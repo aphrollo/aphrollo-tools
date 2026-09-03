@@ -42,7 +42,7 @@ const primaryCheckoutPolicy = "primary-checkout"
 // git rather than of the path's spelling — a worktree can live anywhere,
 // including inside the primary checkout's own tree.
 func PrimaryCheckoutState(dir string) (root, branch string, applies bool) {
-	dir = nearestExistingDir(dir)
+	dir = existingAncestorDir(dir)
 	if dir == "" {
 		return "", "", false
 	}
@@ -94,12 +94,12 @@ func hasLinkedWorktree(commonDir string) bool {
 	return false
 }
 
-// nearestExistingDir walks up from dir to the first directory that exists, ""
+// existingAncestorDir walks up from dir to the first directory that exists, ""
 // when none does. A Write creates its parents, so the directory a hook has to
 // ask git about routinely does not exist yet — and every git question asked
 // from a missing directory fails, which reads as "no repo" and lets the write
 // through.
-func nearestExistingDir(dir string) string {
+func existingAncestorDir(dir string) string {
 	for dir != "" {
 		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
 			return dir
@@ -117,7 +117,7 @@ func nearestExistingDir(dir string) string {
 // a write would still have to create. RepoRoot itself stays exact: a caller
 // asking about a path on disk must not be answered about its grandparent.
 func repoRootNear(dir string) string {
-	return RepoRoot(nearestExistingDir(dir))
+	return RepoRoot(existingAncestorDir(dir))
 }
 
 // PrimaryMergeOnlyReason is the ONE line every enforcement point prints. It

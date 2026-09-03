@@ -88,6 +88,9 @@ func chdirCargoProject(t *testing.T) string {
 // free again — so a multi-hour run never owns the box's build capacity.
 func TestRunCargoShim_LongVerb_PrewarmsUnderSlotThenRunsFree(t *testing.T) {
 	withIsolatedCargoLock(t)
+	// A gated run is the only `cargo mutants` that reaches this path at all:
+	// a bare one is refused before the slots are ever consulted.
+	t.Setenv(tdd.MutationGateEnv, "1")
 	chdirCargoProject(t)
 	cfg := cargoShimConfig{
 		waitBudget:   time.Second,

@@ -84,7 +84,7 @@ func statusState(session, cwd string) (colour, tag string) {
 	if deferredBuildRunning(session, root, now) {
 		return ansiYellow, tagDefer
 	}
-	if mutantsRunning(session, root) {
+	if mutantsRunning(root) {
 		return ansiYellow, tagMutants
 	}
 	if lastRunQueued(root) {
@@ -166,21 +166,25 @@ func sameProject(logged, root string) bool {
 	return strings.HasPrefix(logged, root+string(filepath.Separator))
 }
 
-// mutantsRunning reports whether a cargo-mutants run this session started is
-// still holding this project's target dir. The build-slot owner record is the
-// live evidence -- it is written when the slot is taken and removed when it is
-// released -- so the badge learns about a job that outlives the hook that
-// launched it without probing a pid. A record naming a DIFFERENT session is
-// another session's work and not this badge's business.
-func mutantsRunning(session, root string) bool {
-	o, ok := ReadBuildSlotOwner(resolveTargetDir(os.Getenv, root))
-	if !ok {
-		return false
+// mutantsRunning reports whether a mutation job is going for THIS working
+// tree. The job registry is the evidence -- the post-commit hook writes a
+// record with the pid it spawned, and RunningMutantsJobs drops the ones whose
+// process is gone -- so the badge sees a run that outlives the hook that
+// started it without probing anything itself.
+//
+// Scoped to the ROOT, not the repo: the registry is keyed on the common git
+// dir, so every lane of a repo shares it, and a run measuring the lane beside
+// this one says nothing about this tree. An earlier version read the build
+// slot's owner record instead, which named a target DIR -- with a shared
+// CARGO_TARGET_DIR that is one directory for many projects, so a run anywhere
+// on the box rendered here.
+func mutantsRunning(root string) bool {
+	for _, j := range RunningMutantsJobs(commonGitDir(root)) {
+		if sameProject(j.RepoRoot, root) {
+			return true
+		}
 	}
-	if o.SessionID != "" && session != "" && o.SessionID != session {
-		return false
-	}
-	return strings.Contains(strings.ToLower(o.Cmd), "mutants")
+	return false
 }
 
 // deferredBuildRunning reports whether THIS session's detached phase for root

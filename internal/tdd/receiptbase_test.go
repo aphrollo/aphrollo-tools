@@ -19,7 +19,7 @@ func TestMutationReceipt_RefusesAReceiptTakenAgainstAnotherBase(t *testing.T) {
 	r.BaseSHA = otherBase
 	writeReceipt(t, r)
 
-	got := checkMutationReceipt("borld", laneTip, mergeBase)
+	got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: laneTip, BaseSHA: mergeBase})
 	if got == nil || !got.Blocked {
 		t.Fatal("a receipt measured against another base must not merge")
 	}
@@ -34,7 +34,7 @@ func TestMutationReceipt_AcceptsAReceiptPinnedToThisMergeBase(t *testing.T) {
 	r.BaseSHA = mergeBase
 	writeReceipt(t, r)
 
-	if got := checkMutationReceipt("borld", laneTip, mergeBase); got != nil {
+	if got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: laneTip, BaseSHA: mergeBase}); got != nil {
 		t.Fatalf("a receipt pinned to this merge base must merge: %s", got.Message)
 	}
 }
@@ -47,7 +47,7 @@ func TestMutationReceipt_AcceptsButRecordsAnUnpinnedReceipt(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	writeReceipt(t, passingReceipt())
 
-	if got := checkMutationReceipt("borld", laneTip, mergeBase); got != nil {
+	if got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: laneTip, BaseSHA: mergeBase}); got != nil {
 		t.Fatalf("a receipt from an older producer must still merge: %s", got.Message)
 	}
 	requireLoggedVerdict(t, cfg, "receipt-unpinned")
@@ -61,7 +61,7 @@ func TestMutationReceipt_DoesNotJudgeTheBaseItCannotName(t *testing.T) {
 	r.BaseSHA = otherBase
 	writeReceipt(t, r)
 
-	if got := checkMutationReceipt("borld", laneTip, ""); got != nil {
+	if got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: laneTip}); got != nil {
 		t.Fatalf("an unknown merge base must not reject: %s", got.Message)
 	}
 }

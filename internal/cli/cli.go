@@ -222,16 +222,24 @@ Subcommands:
   sessionend        Drop the session's state file
   precommit         Git pre-commit gate: fail-first + mechanical (run in the repo)
   premergecommit    Git pre-merge-commit gate: mechanical ONLY, no fail-first/anti-cheat
+  postcommit        Git post-commit hook: write the refs/notes/gate note on the
+                    commit just made — what lets CI tell a red on a gated tip
+                    from a red on an ungated one — then start the lane's
+                    mutation run detached and below normal priority (opt-in per
+                    repo: mutation-receipt = true). Never blocks, never fails
+  mutants           The mutation job's own verbs: run|go --job <file> (spawned
+                    by postcommit, not typed by hand). The go verb drives
+                    gremlins over the lane diff and writes the same receipt the
+                    Rust runner does
+  receipt           receipt sign [--outcomes <path>] <file>: stamp a mutation
+                    receipt with this machine's MAC. The ONLY writer of one —
+                    every runner signs through it
   prepush           No-op (mechanical-only mode); kept for back-compat with a
                     lingering pre-push shim. Never blocks.
   runphase          Run one deferred build/run phase from its job record (--job);
                     spawned by posttooluse, not typed by hand
   commitmsg         commit-msg hook: reject a message carrying a deny pattern
                     (opt-in per workspace: undercover = true)
-  postcommit        post-commit hook: write the refs/notes/gate note on the commit
-                    just made, when a suite actually ran green for its tree. It is
-                    what lets CI tell a red on a gated tip from a red on an ungated
-                    one; it never blocks
   doctor            Report one line per install check (hooks, shims, locks, managed
                     skills/agents, the primary checkout branch, the golangci-lint
                     version CI pins, CI clippy list); exit 1 on any FAIL
@@ -388,10 +396,12 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runGateCommitMsg(args[1:], stderr)
 	}
 	if args[0] == "postcommit" {
-		// The post-commit git hook: it writes the gate note on the commit
-		// just made. It never blocks — the commit already exists.
-		tdd.PostCommit(tdd.RepoRoot("."))
-		return 0
+		// The post-commit git hook, and there is only one: it writes the gate
+		// note on the commit just made, THEN starts the lane's mutation run
+		// detached. The note first, because it describes a commit that
+		// already exists and costs nothing; the run second, because it
+		// outlives this process. Neither can block — the commit is made.
+		return runPostCommit(stderr)
 	}
 	if args[0] == "doctor" {
 		// Read-only install report: one line per check, exit 1 on any FAIL.
@@ -427,6 +437,14 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// logs, and writes the result file the next hook harvests. It never
 		// blocks anything, so its exit code is always 0.
 		return runPhase(args[1:], stderr)
+	}
+	if args[0] == "receipt" {
+		// The mutation receipt's signer: the one writer of a receipt's MAC.
+		return runGateReceipt(args[1:], stdout, stderr)
+	}
+	if args[0] == "mutants" {
+		// The mutation job's own verbs, addressed by a job file.
+		return runGateMutants(args[1:], stderr)
 	}
 	if args[0] == "cargo" {
 		// The cargo-queue shim (task A7): real terminal stdio, not the hook
@@ -682,6 +700,16 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 	} else {
 		for _, name := range removed {
 			fmt.Fprintf(stdout, "aphrollo gate: removed the retired hook %s\n", filepath.Join(dir, "hooks", name))
+		}
+	}
+
+	// The mutation receipt's signing key, before any run needs it: a key
+	// created mid-run is a key the run's own gate has never seen.
+	if !*uninstall {
+		if made, kerr := tdd.EnsureReceiptKey(); kerr != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", kerr)
+		} else if made {
+			fmt.Fprintf(stdout, "aphrollo gate: created the mutation receipt signing key in %s\n", tdd.ReceiptKeyPath())
 		}
 	}
 

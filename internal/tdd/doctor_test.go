@@ -12,6 +12,10 @@ import (
 // so each test below breaks exactly one thing and names the check that sees it.
 func healthyInstall(t *testing.T) DoctorInput {
 	t.Helper()
+	// A healthy INSTALL, on a box with room: free space is a fact about the
+	// machine rather than about the install, and a CI runner with 13 GB free
+	// would otherwise fail this baseline for a warning that is correct.
+	withFreeSpace(t, 200)
 	cfg := t.TempDir()
 	binDir := t.TempDir()
 	bin := filepath.Join(binDir, "aphrollo.exe")

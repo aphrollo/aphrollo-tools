@@ -39,7 +39,7 @@ func TestCheckMutationReceipt_MainCheckoutAccepts(t *testing.T) {
 	r.TipTree = laneTip
 	writeReceipt(t, r)
 
-	if got := checkMutationReceipt(dir, laneTip, ""); got != nil {
+	if got := checkMutationReceipt(receiptContext{Repo: dir, TipTree: laneTip}); got != nil {
 		t.Fatalf("the main checkout must accept its own receipt: %s", got.Message)
 	}
 }
@@ -79,7 +79,7 @@ func TestCheckMutationReceipt_LinkedWorktreeDifferentName_Accepts(t *testing.T) 
 	r.TipTree = laneTip
 	writeReceipt(t, r)
 
-	if got := checkMutationReceipt(wtDirCommon, laneTip, ""); got != nil {
+	if got := checkMutationReceipt(receiptContext{Repo: wtDirCommon, TipTree: laneTip}); got != nil {
 		t.Fatalf("a linked worktree with a different folder name must accept the main checkout's receipt: %s", got.Message)
 	}
 }
@@ -107,7 +107,7 @@ func TestCheckMutationReceipt_DifferentRepoSameFolderName_Refuses(t *testing.T) 
 	r.TipTree = laneTip
 	writeReceipt(t, r)
 
-	got := checkMutationReceipt(dirB, laneTip, "")
+	got := checkMutationReceipt(receiptContext{Repo: dirB, TipTree: laneTip})
 	if got == nil || !got.Blocked {
 		t.Fatal("a receipt for a DIFFERENT repo that merely shares a folder name must be refused")
 	}

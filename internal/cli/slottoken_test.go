@@ -43,6 +43,9 @@ func TestCargoChildEnv_TokenReachesALongVerbsChildren(t *testing.T) {
 // costs one slot, not every slot on the box.
 func TestLongVerb_HoldsOneSlotAndLendsIt(t *testing.T) {
 	t.Setenv("APHROLLO_BUILD_SLOTS", "1")
+	// Only a gated mutation run reaches the slots at all; a bare `cargo
+	// mutants` is refused before them.
+	t.Setenv(tdd.MutationGateEnv, "1")
 	// Restored on the way out: the override outliving the test points every
 	// later case at a t.TempDir() that testing has already removed, and an
 	// unopenable lock file reads as HELD.

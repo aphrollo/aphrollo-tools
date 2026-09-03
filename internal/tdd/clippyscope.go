@@ -23,7 +23,7 @@ import (
 // cargoWorkspaceDepsFn reads a workspace's intra-workspace dependency edges
 // (package -> the workspace members it depends on). A var so a test can state
 // a graph without a cargo run.
-var cargoWorkspaceDepsFn = cargoWorkspaceDeps
+var cargoWorkspaceDepsFn = cargoPackageDeps
 
 // clippyScope is the crate list the check stage selects with -p: the touched
 // crates, plus every crate that transitively depends on one of them. Sorted,
@@ -81,13 +81,15 @@ func dependentsOf(deps map[string][]string, seeds []string) []string {
 	return out
 }
 
-// cargoWorkspaceDeps asks cargo for the workspace's own graph. `--no-deps`
+// cargoPackageDeps asks cargo for the workspace's own graph, keyed by PACKAGE
+// NAME because that is what `-p` selects (mutants_deps.go asks the same
+// question keyed by directory, for a different consumer). `--no-deps`
 // resolves nothing from the registry, so it is a manifest read rather than a
 // dependency resolution -- and `metadata` is a read-only verb, so the queue
 // shim passes it through without taking a build slot. nil when there is no
 // cargo, no workspace, or unreadable output: the caller then scopes to the
 // touched crates alone.
-func cargoWorkspaceDeps(ws string) map[string][]string {
+func cargoPackageDeps(ws string) map[string][]string {
 	if ws == "" {
 		return nil
 	}

@@ -49,6 +49,7 @@ func Doctor(in DoctorInput) []DoctorCheck {
 		doctorLockDirs(),
 		doctorRetiredCommand(in),
 		doctorManagedFiles(in),
+		doctorDiskSpace(in),
 	}
 	if c, ok := doctorPrimaryCheckout(in); ok {
 		checks = append(checks, c)

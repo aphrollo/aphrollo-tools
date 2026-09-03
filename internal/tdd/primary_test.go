@@ -164,19 +164,19 @@ func TestPrimaryCheckout_AllowsBashInALinkedWorktree(t *testing.T) {
 	}
 }
 
-func TestNearestExistingDir_WalksUpPastDirectoriesTheWriteWouldCreate(t *testing.T) {
+func TestExistingAncestorDir_WalksUpPastDirectoriesTheWriteWouldCreate(t *testing.T) {
 	base := t.TempDir()
 	deep := filepath.Join(base, "a", "b", "c")
-	if got := nearestExistingDir(deep); got != base {
-		t.Fatalf("nearestExistingDir(%q) = %q, want %q", deep, got, base)
+	if got := existingAncestorDir(deep); got != base {
+		t.Fatalf("existingAncestorDir(%q) = %q, want %q", deep, got, base)
 	}
-	if got := nearestExistingDir(base); got != base {
+	if got := existingAncestorDir(base); got != base {
 		t.Fatalf("an existing dir is its own nearest ancestor, got %q", got)
 	}
 	if err := os.MkdirAll(filepath.Join(base, "a"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := nearestExistingDir(deep); got != filepath.Join(base, "a") {
-		t.Fatalf("nearestExistingDir should stop at the deepest existing ancestor, got %q", got)
+	if got := existingAncestorDir(deep); got != filepath.Join(base, "a") {
+		t.Fatalf("existingAncestorDir must stop at the deepest existing ancestor, got %q", got)
 	}
 }
