@@ -2,7 +2,10 @@ package tdd
 
 import (
 	"fmt"
+	"os"
 	"runtime"
+	"strconv"
+	"strings"
 )
 
 // What a mutation run reports is only worth as much as the conditions it ran
@@ -53,6 +56,24 @@ func MutantsJobsCap(cores, ramGB int) (int, string) {
 // lowers.
 func mutantsJobsForThisBox() (int, string) {
 	return MutantsJobsCap(runtime.NumCPU(), machineRAMGB())
+}
+
+// resolveMutantsJobs is the env-versus-flag rule applied to concurrency: a
+// `--jobs` flag TYPED for this run beats the session-wide
+// APHROLLO_MUTANTS_JOBS override, which in turn beats the per-box formula.
+// flagJobs/flagSet come from the CLI's flag.FlagSet (isFlagSet distinguishes
+// "typed" from "zero value"), so an explicit `--jobs 0` is never silently
+// promoted past a session override that meant something.
+func resolveMutantsJobs(flagJobs int, flagSet bool) (int, string) {
+	if flagSet {
+		return flagJobs, "flag"
+	}
+	if raw := strings.TrimSpace(os.Getenv(MutantsJobsEnv)); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			return n, "env " + MutantsJobsEnv
+		}
+	}
+	return mutantsJobsForThisBox()
 }
 
 // cargoMutantsEnv reads the env switches a workspace declares its mutation run

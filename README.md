@@ -1650,6 +1650,16 @@ not this binary. Mutation
 testing is intentionally **not** ported (false-positive/non-determinism prone);
 the fail-first + mechanical suite cover the same ground without the flakiness.
 
+### Upgrading in place — `aphrollo gate self-install`
+
+`aphrollo gate self-install` rebuilds `./cmd/aphrollo` from the checkout it is
+run in, renames the currently-running binary aside as `aphrollo.stale-<unix>`,
+moves the freshly built one into its place, reclaims stale copies nothing
+still holds open, then runs `init` so hooks and skills pick up whatever the
+rebuild changed. `--bin` targets a binary other than the default install
+path, `--no-init` skips the trailing `init`, and flags after a bare `--` are
+forwarded to it.
+
 ### The managed CLAUDE.md block
 
 A session that does not know the gate exists fights it: it re-runs suites the

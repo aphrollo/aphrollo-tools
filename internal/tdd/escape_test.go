@@ -272,6 +272,87 @@ func TestSyncEscapesOpensOnlyTheUnsyncedOnes(t *testing.T) {
 	}
 }
 
+// A record whose issue closed on GitHub — a fix landed, the PR merged — must
+// stop counting as open debt locally: nothing here polls GitHub on its own,
+// so nothing ever learned an issue closed until sync reconciled it (issue
+// #113).
+func TestSyncEscapesMarksARecordClosedWhenItsIssueClosedOnGitHub(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGitHubRepo(t)
+	if err := appendEscape(EscapeRecord{
+		Schema: StateSchema, ID: "x", Kind: EscapeKind, Reason: "already fixed",
+		At: time.Now().UTC(), Issue: "https://github.com/o/r/issues/9", Number: 9,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stubGhScript(t, map[string]string{"issue list": `[{"number":9,"state":"CLOSED"}]`})
+
+	var out strings.Builder
+	if _, err := SyncEscapes(repo, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	recs := readEscapes(t)
+	if len(recs) != 1 || !recs[0].Closed {
+		t.Fatalf("records = %+v, want the record marked closed", recs)
+	}
+	if open, _ := OpenEscapes(); open != 0 {
+		t.Fatalf("open escapes = %d, want 0 once GitHub shows it closed", open)
+	}
+	if !strings.Contains(out.String(), "closed 1 locally (already closed on GitHub)") {
+		t.Fatalf("output = %q, want the count of records just reconciled", out.String())
+	}
+}
+
+// A record whose issue is STILL OPEN on GitHub is left alone — sync closes a
+// loop, it does not guess one shut.
+func TestSyncEscapesLeavesAStillOpenIssueAlone(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGitHubRepo(t)
+	if err := appendEscape(EscapeRecord{
+		Schema: StateSchema, ID: "x", Kind: EscapeKind, Reason: "still open",
+		At: time.Now().UTC(), Issue: "https://github.com/o/r/issues/9", Number: 9,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stubGhScript(t, map[string]string{"issue list": `[{"number":9,"state":"OPEN"}]`})
+
+	var out strings.Builder
+	if _, err := SyncEscapes(repo, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	recs := readEscapes(t)
+	if len(recs) != 1 || recs[0].Closed {
+		t.Fatalf("records = %+v, want the still-open record left alone", recs)
+	}
+	if strings.Contains(out.String(), "closed") {
+		t.Fatalf("output = %q, nothing was reconciled — it must not claim otherwise", out.String())
+	}
+}
+
+// A record that was never synced carries no GitHub issue number (0), so it
+// has nothing on GitHub to be closed BY — it must not even cost a
+// `gh issue list` call, let alone be reported reconciled.
+func TestSyncClosedEscapes_SkipsRecordsWithNoIssueNumber(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGitHubRepo(t)
+	if err := appendEscape(EscapeRecord{
+		Schema: StateSchema, ID: "x", Kind: EscapeKind, Reason: "never synced",
+		At: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	log := stubGh(t, `[]`)
+
+	if n := syncClosedEscapes(repo); n != 0 {
+		t.Fatalf("syncClosedEscapes = %d, want 0 — the record was never synced", n)
+	}
+	if strings.Contains(ghArgv(t, log), "issue list") {
+		t.Fatalf("gh was called (%s), want no call for a record with no issue number", ghArgv(t, log))
+	}
+}
+
 // The count only goes down, so it has to be a number somebody sees.
 func TestOpenEscapesCountsTheUnclosedAndTheOldest(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -290,6 +371,58 @@ func TestOpenEscapesCountsTheUnclosedAndTheOldest(t *testing.T) {
 	}
 	if days := int(oldest.Hours() / 24); days != 30 {
 		t.Fatalf("oldest = %d days, want 30", days)
+	}
+}
+
+// The age column is the reason `escape list` exists at all: the oldest
+// record is the one owed the most attention, and that only reads right if
+// the day count is right.
+func TestListEscapes_PrintsTheRecordsAgeInWholeDays(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("PATH", "")
+	if err := appendEscape(EscapeRecord{
+		Schema: StateSchema, ID: "a", Kind: EscapeKind, Reason: "ten days old",
+		At: time.Now().UTC().Add(-10 * 24 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	ListEscapes(&out, false)
+	if !strings.Contains(out.String(), "10d") {
+		t.Fatalf("output = %q, want the age rendered as 10 whole days", out.String())
+	}
+}
+
+// `escape list` prints open records by default — the ones somebody still
+// owes a fix — and only names a closed one when asked for all of them.
+func TestListEscapes_OpenByDefaultAllWithTheFlag(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("PATH", "")
+	for _, r := range []EscapeRecord{
+		{Schema: StateSchema, ID: "a", Kind: EscapeKind, Reason: "still open", At: time.Now().UTC()},
+		{Schema: StateSchema, ID: "b", Kind: EscapeKind, Reason: "already fixed", At: time.Now().UTC(), Closed: true},
+	} {
+		if err := appendEscape(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var openOnly strings.Builder
+	ListEscapes(&openOnly, false)
+	if !strings.Contains(openOnly.String(), "still open") {
+		t.Fatalf("default list = %q, want the open record", openOnly.String())
+	}
+	if strings.Contains(openOnly.String(), "already fixed") {
+		t.Fatalf("default list = %q, want the closed record left out", openOnly.String())
+	}
+
+	var all strings.Builder
+	ListEscapes(&all, true)
+	for _, want := range []string{"still open", "already fixed"} {
+		if !strings.Contains(all.String(), want) {
+			t.Fatalf("--all list = %q, want %q", all.String(), want)
+		}
 	}
 }
 

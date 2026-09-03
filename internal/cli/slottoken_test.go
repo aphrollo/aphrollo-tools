@@ -43,14 +43,15 @@ func TestCargoChildEnv_TokenReachesALongVerbsChildren(t *testing.T) {
 // costs one slot, not every slot on the box.
 func TestLongVerb_HoldsOneSlotAndLendsIt(t *testing.T) {
 	t.Setenv("APHROLLO_BUILD_SLOTS", "1")
-	// Only a gated mutation run reaches the slots at all; a bare `cargo
-	// mutants` is refused before them.
-	t.Setenv(tdd.MutationGateEnv, "1")
 	// Restored on the way out: the override outliving the test points every
 	// later case at a t.TempDir() that testing has already removed, and an
 	// unopenable lock file reads as HELD.
 	t.Cleanup(tdd.SetLockDirForTest(t.TempDir()))
 	dir := chdirCargoProject(t)
+	// Only a gated mutation run reaches the slots at all; a bare `cargo
+	// mutants` is refused before them. The gated run is recognised by
+	// building into the dedicated mutants worktree's own target dir.
+	t.Setenv("CARGO_TARGET_DIR", mutantsTargetDirForTest(t))
 	stub := runVerbStub(t)
 	envOut := filepath.Join(t.TempDir(), "child-env")
 	t.Setenv("APHROLLO_TEST_STUB_ENV_OUT", envOut)

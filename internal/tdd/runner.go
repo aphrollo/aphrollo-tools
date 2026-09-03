@@ -557,6 +557,12 @@ func cargoAphrolloFlag(ws, key string) bool {
 	return tomlBoolIn(filepath.Join(ws, "Cargo.toml"), "[workspace.metadata.aphrollo]", key)
 }
 
+// cargoAphrolloString reads one scalar STRING key from
+// `[workspace.metadata.aphrollo]`.
+func cargoAphrolloString(ws, key string) (string, bool) {
+	return tomlStringIn(filepath.Join(ws, "Cargo.toml"), "[workspace.metadata.aphrollo]", key)
+}
+
 // tomlBoolIn reads one boolean key from one table of a TOML file. A line
 // scanner suffices for the same reason cargoPackageName uses one: the key sits
 // directly under its table in any real manifest, and a parse miss costs only
@@ -590,6 +596,32 @@ func tomlBoolSetIn(path, table, key string) (value, set bool) {
 		}
 	}
 	return false, false
+}
+
+// tomlStringIn reads one scalar string key from one table of a TOML file,
+// quotes stripped. "", false for an absent key or an unreadable manifest —
+// same line scanner and same reasoning as tomlBoolIn.
+func tomlStringIn(path, table, key string) (value string, set bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	inTable := false
+	for line := range strings.Lines(string(data)) {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			inTable = trimmed == table
+			continue
+		}
+		if !inTable {
+			continue
+		}
+		k, val, found := strings.Cut(trimmed, "=")
+		if found && strings.TrimSpace(k) == key {
+			return strings.Trim(strings.TrimSpace(val), `"`), true
+		}
+	}
+	return "", false
 }
 
 func cargoAphrolloPackages(ws, key string) []string {
@@ -626,11 +658,38 @@ func tomlStringsIn(path, table, key string) []string {
 			trimmed = val
 		}
 		pkgs = append(pkgs, quotedWords(trimmed)...)
-		if strings.Contains(trimmed, "]") {
+		// The array's OWN closing bracket, never one an entry's quoted
+		// reason happens to mention — "start indexes '[' and end indexes
+		// ']'" is a real accept-list reason, and closing on it dropped
+		// every entry after it (issue #139).
+		if strings.Contains(stripQuoted(trimmed), "]") {
 			inArray = false
 		}
 	}
 	return dedupeSorted(pkgs)
+}
+
+// stripQuoted removes every double-quoted run from s, so a scan for TOML
+// PUNCTUATION (an array's closing `]`, a table header's `[`) never mistakes
+// one living inside a quoted VALUE for the syntax itself.
+func stripQuoted(s string) string {
+	var b strings.Builder
+	for {
+		open := strings.IndexByte(s, '"')
+		if open < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		b.WriteString(s[:open])
+		rest := s[open+1:]
+		end := strings.IndexByte(rest, '"')
+		if end < 0 {
+			// An unterminated quote consumes the rest of the line as
+			// string content — nothing after it is punctuation either.
+			return b.String()
+		}
+		s = rest[end+1:]
+	}
 }
 
 // quotedWords returns the contents of every double-quoted run in s, in order.

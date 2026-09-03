@@ -20,20 +20,47 @@ import (
 // which is the fail-open direction the edit-time gate owes (a false block
 // wedges a session, a miss costs one commit-gate rejection).
 
-// bashWritesInto reports whether cmd would write any path under root, with
-// relative paths resolved against cwd.
-func bashWritesInto(cmd, cwd, root string) bool {
-	if strings.TrimSpace(cmd) == "" || root == "" {
-		return false
+// bashWriteTargets is every path cmd would write, resolved to absolute. A
+// `cd` segment updates the directory every LATER segment resolves against —
+// `cd <worktree> && echo hi > f.txt` writes into the worktree, not wherever
+// the shell started — and an operand that is already absolute ignores that
+// running directory entirely, per resolveAgainst: `echo hi > <primary>/f`
+// names the same path whichever directory ran it (issue #118).
+func bashWriteTargets(cmd, cwd string) []string {
+	if strings.TrimSpace(cmd) == "" {
+		return nil
 	}
+	var out []string
+	cur := cwd
 	for _, seg := range shellSegments(stripHeredocBodies(cmd)) {
+		if dir, ok := cdTarget(seg); ok {
+			cur = resolveAgainst(cur, dir)
+			continue
+		}
 		for _, target := range writeTargets(seg) {
-			if pathUnder(resolveAgainst(cwd, target), root) {
-				return true
+			if p := resolveAgainst(cur, target); p != "" {
+				out = append(out, p)
 			}
 		}
 	}
-	return false
+	return out
+}
+
+// cdTarget reports the directory a `cd` segment would move into. false for
+// anything else — including a bare `cd` (moves to $HOME) and `cd -` (the
+// previous directory), neither of which this scanner can resolve without
+// reading the environment or remembering history it does not keep. Leaving
+// the tracked directory UNCHANGED on either is the fail-open direction: a
+// write that follows an unresolvable cd is simply not classified, rather
+// than guessed at.
+func cdTarget(words []string) (string, bool) {
+	if len(words) < 2 || baseCommand(words[0]) != "cd" {
+		return "", false
+	}
+	if arg := words[1]; !strings.HasPrefix(arg, "-") {
+		return arg, true
+	}
+	return "", false
 }
 
 // heredocOpener matches a heredoc redirection and captures its delimiter,
@@ -260,6 +287,34 @@ func verbTargets(words []string) []string {
 		}
 		return operands[len(operands)-1:]
 	}
+	// PowerShell cmdlets, matched case-insensitively: the shell itself is
+	// case-insensitive, and a session types either casing.
+	switch verb := baseCommand(words[0]); {
+	case strings.EqualFold(verb, "Set-Content"), strings.EqualFold(verb, "Add-Content"):
+		return psFileTarget(words[1:], "-Path", "-LiteralPath")
+	case strings.EqualFold(verb, "Out-File"):
+		return psFileTarget(words[1:], "-FilePath", "-Path", "-LiteralPath")
+	}
+	return nil
+}
+
+// psFileTarget names a PowerShell cmdlet's file operand: the value bound to
+// whichever named parameter the caller wrote (matched case-insensitively,
+// same reason as the verb), or — Set-Content, Add-Content and Out-File all
+// bind it — the first positional operand when the caller named none.
+func psFileTarget(args []string, pathFlags ...string) []string {
+	for i, a := range args {
+		for _, f := range pathFlags {
+			if strings.EqualFold(a, f) && i+1 < len(args) {
+				return []string{args[i+1]}
+			}
+		}
+	}
+	for _, a := range args {
+		if !strings.HasPrefix(a, "-") {
+			return []string{a}
+		}
+	}
 	return nil
 }
 
@@ -345,17 +400,4 @@ func resolveAgainst(cwd, p string) string {
 		return filepath.Clean(filepath.Join(filepath.VolumeName(cwd)+string(filepath.Separator), p))
 	}
 	return filepath.Clean(filepath.Join(cwd, p))
-}
-
-// pathUnder reports whether p is root or lives inside it.
-func pathUnder(p, root string) bool {
-	if p == "" || root == "" {
-		return false
-	}
-	rel, err := filepath.Rel(root, p)
-	if err != nil {
-		return false
-	}
-	rel = filepath.ToSlash(rel)
-	return rel != ".." && !strings.HasPrefix(rel, "../")
 }

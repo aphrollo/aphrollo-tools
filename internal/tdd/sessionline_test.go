@@ -30,6 +30,26 @@ func TestIssueSummaryLineCountsOpenIssuesByLabel(t *testing.T) {
 	}
 }
 
+// A non-ASCII dash in a hook payload has shown up mangled on a Windows
+// terminal before; the line stays plain ASCII so it renders everywhere.
+func TestIssueSummaryLineIsASCIIOnly(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGitHubRepo(t)
+	stubGhScript(t, map[string]string{
+		"issue list": `[{"labels":[{"name":"physics"}]}]`,
+	})
+	if _, err := RecordEscape(EscapeOptions{Reason: "one that got through"}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	line := issueSummaryLine(repo, time.Now())
+	for _, r := range line {
+		if r > 127 {
+			t.Errorf("session line has non-ASCII rune %q: %q", r, line)
+		}
+	}
+}
+
 // A network call per prompt is a session that pauses to talk to GitHub for a
 // number nobody asked for. The answer is cached, and the cache is what keeps
 // the line free.
@@ -55,6 +75,32 @@ func TestIssueSummaryLineServesTheCacheWithinTheHour(t *testing.T) {
 	}
 	if n := strings.Count(ghArgv(t, log), "issue list"); n != 2 {
 		t.Errorf("gh ran `issue list` %d times across an expired window, want 2", n)
+	}
+}
+
+// The session-start line is the existing 1 h cache `gate escape sync`'s
+// closed-issue reconciliation rides on: a synced escape whose issue closed
+// on GitHub stops counting as open debt the next time this line fetches,
+// with no separate cache or schedule of its own (issue #113).
+func TestIssueSummaryLine_ReconcilesAClosedEscapeWithinTheSameFetch(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGitHubRepo(t)
+	if err := appendEscape(EscapeRecord{
+		Schema: StateSchema, ID: "x", Kind: EscapeKind, Reason: "already fixed",
+		At: time.Now().UTC(), Issue: "https://github.com/o/r/issues/9", Number: 9,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stubGhScript(t, map[string]string{
+		"issue list": `[{"number":9,"state":"CLOSED"}]`,
+	})
+
+	line := issueSummaryLine(repo, time.Now())
+	if !strings.Contains(line, "0 open escape") {
+		t.Fatalf("line = %q, want the closed escape no longer counted", line)
+	}
+	if open, _ := OpenEscapes(); open != 0 {
+		t.Fatalf("open escapes = %d, want 0 once GitHub shows it closed", open)
 	}
 }
 

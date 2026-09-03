@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // The primary checkout is merge-only. In a repo that has any linked worktree,
@@ -77,21 +78,67 @@ func PrimaryMergeOnly(dir string) (root string, ok bool) {
 	return root, true
 }
 
-// hasLinkedWorktree reports whether the repo has at least one linked
-// worktree. git keeps one directory per linked worktree under the common
-// dir's `worktrees/`, so the answer is a directory listing rather than a
-// second git process on a path the hook is already timing.
+// hasLinkedWorktree reports whether the repo has at least one LIVE linked
+// worktree. git keeps one administrative directory per linked worktree under
+// the common dir's `worktrees/`, so the answer is a directory listing rather
+// than a second git process on a path the hook is already timing — but a
+// `rm -rf` of a lane dir with no `git worktree prune` leaves that admin entry
+// behind pointing at nothing, and counting it kept the primary checkout
+// merge-only with no lane left to escape to (issue #120).
 func hasLinkedWorktree(commonDir string) bool {
-	entries, err := os.ReadDir(filepath.Join(commonDir, "worktrees"))
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if e.IsDir() {
+	for _, e := range worktreeAdminEntries(commonDir) {
+		if !staleWorktreeEntry(filepath.Join(commonDir, "worktrees", e.Name())) {
 			return true
 		}
 	}
 	return false
+}
+
+// worktreeAdminEntries lists the directories under the common dir's
+// `worktrees/`, one per worktree git has ever linked (live or stale). nil
+// when there is no such directory at all — an ordinary clone.
+func worktreeAdminEntries(commonDir string) []os.DirEntry {
+	entries, err := os.ReadDir(filepath.Join(commonDir, "worktrees"))
+	if err != nil {
+		return nil
+	}
+	var dirs []os.DirEntry
+	for _, e := range entries {
+		if e.IsDir() {
+			dirs = append(dirs, e)
+		}
+	}
+	return dirs
+}
+
+// hasStaleWorktreeEntry reports whether the repo has AT LEAST ONE admin
+// entry left behind by a worktree removed without `git worktree prune` —
+// regardless of whether another entry is still live. It is what the
+// merge-only remedy uses to offer the actual fix.
+func hasStaleWorktreeEntry(commonDir string) bool {
+	for _, e := range worktreeAdminEntries(commonDir) {
+		if staleWorktreeEntry(filepath.Join(commonDir, "worktrees", e.Name())) {
+			return true
+		}
+	}
+	return false
+}
+
+// staleWorktreeEntry reports whether one worktree admin directory's own
+// `gitdir` file names a worktree whose directory no longer exists. `gitdir`
+// names the worktree's `.git` FILE, one level inside the worktree root, so
+// the worktree itself is that file's parent.
+func staleWorktreeEntry(adminDir string) bool {
+	data, err := os.ReadFile(filepath.Join(adminDir, "gitdir"))
+	if err != nil {
+		return false // cannot tell; treated as live rather than silently dropped
+	}
+	gitFile := strings.TrimSpace(string(data))
+	if gitFile == "" {
+		return false
+	}
+	_, err = os.Stat(filepath.Dir(gitFile))
+	return err != nil
 }
 
 // existingAncestorDir walks up from dir to the first directory that exists, ""
@@ -123,10 +170,18 @@ func repoRootNear(dir string) string {
 // PrimaryMergeOnlyReason is the ONE line every enforcement point prints. It
 // names the escape as a runnable command, with the worktree path this repo's
 // layout implies: <parent of the checkout>/.worktrees/<checkout name>/<name>.
+// When a stale worktree admin entry is ALSO sitting there — a lane dir
+// removed by hand, with no `git worktree prune` to clear the record it left
+// — it names that fix too, since a session hitting this rule cannot tell a
+// live lane from a dead entry that merely still counts as one.
 func PrimaryMergeOnlyReason(root string) string {
 	path := filepath.Join(filepath.Dir(root), ".worktrees", filepath.Base(root), "<name>")
-	return "primary checkout is merge-only — git worktree add -b lane/<name> " +
+	reason := "primary checkout is merge-only — git worktree add -b lane/<name> " +
 		shellPath(path) + " " + primaryBranch
+	if hasStaleWorktreeEntry(commonGitDir(root)) {
+		reason += " (a lane dir was removed by hand — git worktree prune clears the stale entry)"
+	}
+	return reason
 }
 
 // primaryGateInput is the slice of a PreToolUse payload the rule reads: which
@@ -143,13 +198,23 @@ type primaryGateInput struct {
 	} `json:"tool_input"`
 }
 
+// bashLikeTools are the shell tools judged by every path their command would
+// write, not by the tool's own cwd — see bashPrimaryDecision. Python and
+// heredoc writes stay out of scope: the shim is the wall this hook is a
+// guardrail in front of, and both are rare enough here not to earn a second
+// parser.
+var bashLikeTools = map[string]bool{"Bash": true, "PowerShell": true}
+
 // PrimaryCheckoutDecision denies a write that would land in a merge-only
 // primary checkout. An Edit/Write/NotebookEdit is judged by the TARGET FILE's
 // directory, not the process cwd: the agents runner resets a turn's cwd to
 // the project home every turn, so cwd would refuse every legitimate worktree
-// edit — the file path is where the change actually lands. A Bash call has no
-// target until it runs, so it is judged by its cwd plus the paths its command
-// would write.
+// edit — the file path is where the change actually lands. A Bash or
+// PowerShell call has no target until it runs, so it is judged the same
+// way: by the directory EACH resolved write target lands in, not by the
+// shell's own cwd (issue #118 — a `cd` out of the primary let a write
+// through, and an absolute path INTO the primary from a worktree's own cwd
+// slipped past unnoticed).
 func PrimaryCheckoutDecision(raw []byte) Decision {
 	var in primaryGateInput
 	if err := json.Unmarshal(raw, &in); err != nil {
@@ -172,12 +237,22 @@ func PrimaryCheckoutDecision(raw []byte) Decision {
 			return Decision{}
 		}
 		return primaryBlock(root)
-	case in.ToolName == "Bash":
-		root, ok := PrimaryMergeOnly(in.Cwd)
-		if !ok || !bashWritesInto(in.ToolInput.Command, in.Cwd, root) {
-			return Decision{}
+	case bashLikeTools[in.ToolName]:
+		return bashPrimaryDecision(in.Cwd, in.ToolInput.Command)
+	}
+	return Decision{}
+}
+
+// bashPrimaryDecision judges a shell command by every path it would write,
+// each against its OWN directory — exactly like an Edit/Write is judged by
+// its own file path — rather than by whether the shell's cwd itself sits in
+// a primary checkout. That is what lets a `cd` out of the primary through
+// and catches an absolute path into one even from a worktree's cwd.
+func bashPrimaryDecision(cwd, cmd string) Decision {
+	for _, p := range bashWriteTargets(cmd, cwd) {
+		if root, ok := PrimaryMergeOnly(filepath.Dir(p)); ok {
+			return primaryBlock(root)
 		}
-		return primaryBlock(root)
 	}
 	return Decision{}
 }
