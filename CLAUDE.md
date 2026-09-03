@@ -137,12 +137,12 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   <reason>`, and closed only by a stage or law named in the fix, never by a sentence in this
   file. The count only goes down; `gate stats` prints it weekly at session start.
 - **The primary checkout is merge-only.** Once a repo has any linked worktree, the checkout holding
-  `main` takes merges and nothing else: the hooks deny an edit there, and the git shim refuses
-  `checkout -b`/`switch -c`, a move off main, and a commit not concluding a merge. Work in a lane:
-  `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override with
-  `APHROLLO_PRIMARY_EDITS=1` or `/tdd primary-edits on`.
-- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) ·
-  `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).
+  `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL, the
+  git shim (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit) is the WALL.
+  Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override
+  with `APHROLLO_PRIMARY_EDITS=1` or `/tdd primary-edits on`.
+- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc`
+  (dry run; `--apply` reclaims stale build dirs) · `gate postcommit` starts `gate mutants run`.
 
 _This block is written by `aphrollo gate init`. Edit the template in aphrollo, not
 the block — the next init overwrites whatever is between the markers._
