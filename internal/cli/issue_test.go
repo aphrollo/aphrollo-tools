@@ -142,3 +142,23 @@ func TestGateIssueRefusesAnEmptyTitle(t *testing.T) {
 		t.Fatal("an issue with no title must be refused")
 	}
 }
+
+// `gate issue --label physics "the title"` is how a hand types it as often as
+// title-first. Discarding the trailing positionals left the command refusing
+// a title that was right there on the line.
+func TestGateIssueAcceptsATitleAfterItsFlags(t *testing.T) {
+	repo, log := stubIssueRepo(t, "https://github.com/o/r/issues/21")
+	var out, errb bytes.Buffer
+	code := Run([]string{"gate", "issue", "--repo", repo, "--label", "physics", "the rig drifts"},
+		strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	argv, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(argv), "--title the rig drifts") {
+		t.Errorf("the trailing title must reach gh:\n%s", argv)
+	}
+}

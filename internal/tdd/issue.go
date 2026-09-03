@@ -198,7 +198,7 @@ func ensureLabel(repo, name string, meta labelMeta) {
 		return
 	}
 	key := repo + "\x00" + name
-	if _, done := labelEnsured.LoadOrStore(key, true); done {
+	if _, done := labelEnsured.Load(key); done {
 		return
 	}
 	colour := meta.colour
@@ -209,5 +209,13 @@ func ensureLabel(repo, name string, meta labelMeta) {
 	if meta.description != "" {
 		args = append(args, "--description", meta.description)
 	}
-	_, _ = runGh(repo, args...)
+	if _, err := runGh(repo, args...); err != nil {
+		// NOT remembered. A create that failed (no auth, no network, a name
+		// gh will not take) left no label behind, and caching it would make
+		// the next issue in this process ask for one that does not exist —
+		// which fails the whole create, in gh's words about the label rather
+		// than about whatever actually went wrong.
+		return
+	}
+	labelEnsured.Store(key, true)
 }

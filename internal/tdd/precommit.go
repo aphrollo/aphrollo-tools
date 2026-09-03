@@ -526,6 +526,9 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		return GateResult{Blocked: true, Message: mechRejectMessage(runner, res)}
 	default:
 		mechCacheAdd(key)
+		// A suite RAN and passed. That, and not a cache hit, is what the
+		// gate note claims to CI — see noteSuiteGreen.
+		noteSuiteGreen()
 		line := mechGreenLine(gateName, stage, runner, root, res)
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmdString(runner), "green", res.Duration)

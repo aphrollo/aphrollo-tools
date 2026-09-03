@@ -42,15 +42,14 @@ func runGateIssue(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, issueUsage)
 		return 0
 	}
-	// The title is positional and comes FIRST, before any flag: Go's flag
-	// package stops at the first non-flag argument, so a title parsed by the
-	// flag set would swallow every flag after it.
-	var title string
+	// The title is positional and may sit on EITHER side of the flags: Go's
+	// flag package stops at the first non-flag argument, so a title typed
+	// first has to be lifted off before parsing, and one typed last comes
+	// back as fs.Args(). Both spellings are how a hand actually types this,
+	// and discarding either one refuses a title that is right there.
+	var leading []string
 	for len(args) > 0 && args[0] != "" && args[0][0] != '-' {
-		if title != "" {
-			title += " "
-		}
-		title += args[0]
+		leading = append(leading, args[0])
 		args = args[1:]
 	}
 
@@ -66,6 +65,7 @@ func runGateIssue(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+	title := strings.Join(append(leading, fs.Args()...), " ")
 	if strings.TrimSpace(title) == "" {
 		fmt.Fprintf(stderr, "aphrollo gate issue: an issue needs a title\n\n%s", issueUsage)
 		return 2

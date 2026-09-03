@@ -4,11 +4,15 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -31,26 +35,80 @@ import (
 // escapeDedupeWindow is how long one fingerprint stands for its class.
 const escapeDedupeWindow = 7 * 24 * time.Hour
 
-// escapeFingerprint identifies a MISS, not an occurrence: the stage that
-// missed it plus the first line of the diagnostic. Later lines carry paths,
-// timings and counts that differ run to run, and folding them in would defeat
-// the dedupe entirely.
+// escapeFingerprint identifies a MISS, not an occurrence: the repo it
+// happened in, the stage that missed it, and what actually failed. Timings,
+// paths and counts differ run to run, and folding them in would defeat the
+// dedupe entirely.
+//
+// The repo is in there because two repos on one box failing the same way are
+// two misses; without it the first one to record `test` silences the rest for
+// a week. And "what failed" is the FAILING TEST NAMES wherever the evidence
+// carries them, because the diagnostics that matter here open with a
+// constant: every mechanical rejection begins "TDD mechanical: tests failing
+// — fix before committing.", so fingerprinting the first line alone makes one
+// record stand for every unrelated failure in the window.
 func escapeFingerprint(stage string, o EscapeOptions) string {
-	diag := firstLine(strings.TrimSpace(o.Evidence))
-	if diag == "" {
-		diag = firstLine(strings.TrimSpace(o.Reason))
-	}
-	sum := sha256.Sum256([]byte(stage + "\n" + diag))
+	sum := sha256.Sum256([]byte(normalizeRepoSpelling(o.Repo) + "\n" + stage + "\n" + escapeDiagnostic(o)))
 	return hex.EncodeToString(sum[:8])
 }
 
-// recordEscapeOnce records unless an OPEN record with the same fingerprint is
-// younger than the window. A CLOSED record never suppresses: a hole that
-// reopens after somebody fixed it is the loudest signal this loop produces.
+// escapeDiagnostic is the part of an escape that identifies WHAT failed: the
+// failing test names when the evidence names any, otherwise its first
+// meaningful line, otherwise the reason.
+func escapeDiagnostic(o EscapeOptions) string {
+	if names := ExtractFailingTests(o.Evidence); len(names) > 0 {
+		return strings.Join(names, ",")
+	}
+	if named := failingListLine(o.Evidence); named != "" {
+		return named
+	}
+	if line := firstLine(strings.TrimSpace(o.Evidence)); line != "" {
+		return line
+	}
+	return firstLine(strings.TrimSpace(o.Reason))
+}
+
+// failingListLine reads the `failing: a, b` line the mechanical rejection
+// writes. It is the same set ExtractFailingTests would find in the raw output,
+// but a rejection MESSAGE carries only a tail snippet of that output, so the
+// names can survive there and nowhere else.
+func failingListLine(evidence string) string {
+	for line := range strings.SplitSeq(strings.ReplaceAll(evidence, "\r\n", "\n"), "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "failing:"); ok {
+			return strings.Join(strings.Fields(strings.ReplaceAll(rest, ",", " ")), ",")
+		}
+	}
+	return ""
+}
+
+// recordEscapeOnce records unless an OPEN, ALREADY-OPENED record of the same
+// class is younger than the window.
+//
+// Three rules, each one a hole somebody could otherwise fall through. A
+// CLOSED record never suppresses: a hole that reopens after a fix is the
+// loudest signal this loop produces. A record whose issue never opened does
+// not suppress either — burning a class for a week because gh was briefly
+// unreachable is the worst of both worlds — it is RETRIED, so the offline
+// sighting gets its issue instead of a second record being appended. And a
+// suppression says so on w: a recorder that goes quiet is indistinguishable
+// from one that is broken.
 func recordEscapeOnce(stage string, o EscapeOptions, w io.Writer) (EscapeRecord, bool) {
 	o.Fingerprint = escapeFingerprint(stage, o)
 	if seen, ok := recentEscape(o.Fingerprint); ok {
-		return seen, false
+		if seen.Issue != "" {
+			fmt.Fprintf(w, "gate escape: %s already open for this class (%s), recorded %s — not opening a second\n",
+				seen.Issue, o.Fingerprint, seen.At.Format(time.RFC3339))
+			return seen, false
+		}
+		// Recorded while gh was unreachable: give THAT record its issue
+		// rather than appending a duplicate.
+		if url, number, err := openEscapeIssue(o.Repo, seen); err == nil {
+			seen.Issue, seen.Number = url, number
+			updateEscape(seen)
+		} else if !errors.Is(err, errNoIssueTarget) {
+			fmt.Fprintf(w, "escape %s: %v\n", seen.ID, err)
+		}
+		return seen, true
 	}
 	r, err := RecordEscape(o, w)
 	if err != nil {
@@ -80,41 +138,57 @@ func recentEscape(fingerprint string) (EscapeRecord, bool) {
 // --- the channel: what the local gate tells a machine it will never meet ----
 
 // A CI runner has never seen this box's gate state, so it cannot know whether
-// the local gate ever passed on the commit it is failing — and without that,
-// a CI red is just a CI red, not evidence about the gate. The smallest thing
-// that carries the fact is the COMMIT ITSELF: the commit-msg hook appends one
-// trailer naming the tree the pre-commit gate passed every stage on.
+// the local gate ran a suite on the commit it is failing — and without that,
+// a CI red is just a CI red, not evidence about the gate. The fact travels as
+// a GIT NOTE on the commit: `refs/notes/gate` holds `green <tree>` for a
+// commit whose pre-commit gate actually ran a suite and it passed.
 //
-// Smaller than the two obvious alternatives, and that is why it is the one
-// chosen: a PR body has to be written by somebody and can be edited afterwards,
-// and a check-run annotation costs an API call plus a token with checks:write.
-// A trailer costs nothing, travels with the commit through push, fork and
-// rebase-less merge, and is verifiable — it names the tree, so it cannot be
-// copied onto a commit whose content differs.
+// A note rather than a commit trailer, because a commit message says what the
+// change does and nothing else — the managed block promises that, and a repo
+// that keeps its history undercover would be the first to notice a tool
+// writing into it. A note is out-of-band, rewritable without touching
+// history, and fetched only by whoever wants it.
+//
+// The note names the TREE it was written for. That is not tamper-proof — any
+// note can be rewritten by whoever can write the ref — but it does not travel
+// BETWEEN TREES BY ACCIDENT, which is what would otherwise happen the first
+// time somebody rebased or cherry-picked a proven commit onto a different
+// base. A note describing a tree the commit does not have is ignored.
 
-// gateTrailerKey is the trailer's key, in git's own trailer shape.
-const gateTrailerKey = "Gate:"
+// gateNotesRef is the notes ref, in its short `git notes --ref=` spelling.
+const gateNotesRef = "gate"
 
-// gateGreenTrailer is the line the commit-msg hook writes.
-func gateGreenTrailer(tree string) string {
-	return gateTrailerKey + " green " + tree
-}
+// GateNotesRefFull is the fully-qualified ref, for a fetch or a push spec.
+const GateNotesRefFull = "refs/notes/" + gateNotesRef
 
-// precommitGreenFile remembers the tree the last pre-commit gate passed, one
-// per repo. It exists only to survive the few milliseconds between pre-commit
-// and commit-msg, which are separate processes.
-func precommitGreenFile(repoRoot string) string {
+// gateGreenNote is the note body for a proven tree.
+func gateGreenNote(tree string) string { return "green " + tree }
+
+// greenSuiteStampFile remembers the tree a suite just went green on, one per
+// repo. It exists only to survive the few milliseconds between the pre-commit
+// hook and the post-commit hook, which are separate processes.
+func greenSuiteStampFile(repoRoot string) string {
 	if repoRoot == "" {
 		return ""
 	}
-	return gcStatePath("precommit-green." + repoStateKey(repoRoot) + ".txt")
+	return gcStatePath("green-suite." + repoStateKey(repoRoot) + ".txt")
 }
 
-// stampPrecommitGreen records that every pre-commit stage passed for the tree
-// currently in the index. `git write-tree` names exactly the tree the commit
-// about to be created will have, so the stamp cannot vouch for anything else.
-func stampPrecommitGreen(repoRoot string) {
-	path := precommitGreenFile(repoRoot)
+// suiteRanGreen records that a root group's suite actually RAN and passed
+// during this gate process. A cache hit is deliberately not that: it says the
+// identical tree was proven earlier, which is a fine reason to skip a rerun
+// and a poor basis for a claim CI will weigh its own red against. It is also
+// what makes an amend note-free — an amend re-runs the gate, hits the cache,
+// and proves nothing new.
+var suiteRanGreen atomic.Bool
+
+// noteSuiteGreen is called by the suite stage on a real green.
+func noteSuiteGreen() { suiteRanGreen.Store(true) }
+
+// stampGreenSuite records the tree the passing suite ran against, so the
+// post-commit hook can write the note for exactly that tree.
+func stampGreenSuite(repoRoot string) {
+	path := greenSuiteStampFile(repoRoot)
 	tree := indexTree(repoRoot)
 	if path == "" || tree == "" {
 		return
@@ -122,59 +196,73 @@ func stampPrecommitGreen(repoRoot string) {
 	_ = os.WriteFile(path, []byte(tree), 0o600)
 }
 
-// StampPrecommitGreen is the hook-side spelling: the commit gate calls it
-// after it has allowed a commit.
-func StampPrecommitGreen(repoRoot string) { stampPrecommitGreen(repoRoot) }
+// StampGreenSuiteIfProven is the hook-side spelling: the commit gate calls it
+// after allowing a commit, and it stamps ONLY when a suite in this process
+// actually ran green. A gate that allowed a commit because there was nothing
+// to test has proven nothing and must not say it did.
+func StampGreenSuiteIfProven(repoRoot string) {
+	if !suiteRanGreen.Load() {
+		return
+	}
+	stampGreenSuite(repoRoot)
+}
 
-// indexTree is the tree the staged index would commit as. It WRITES tree
-// objects into the object database, which is exactly what `git commit` is
-// about to do anyway, so it adds no garbage a commit would not.
+// indexTree is the tree the staged index would commit as.
+//
+// It runs with GIT_INDEX_FILE HONOURED, unlike every other git call the gate
+// makes. `git commit -a` and `git commit -- <paths>` build a TEMPORARY index
+// and point the hooks at it through that variable; reading `.git/index`
+// instead names a different tree, and does it while the commit holds
+// `.git/index.lock`, so the call can fail outright. Either way the stamp
+// never matches and no commit made that way is ever gated in CI's eyes.
+//
+// `git write-tree` WRITES tree objects into the object database, which is
+// exactly what the commit is about to do anyway, so it adds no garbage a
+// commit would not.
 func indexTree(repoRoot string) string {
-	out, err := git(repoRoot, "write-tree")
+	cmd := exec.Command(gitBinary(), "write-tree")
+	cmd.Dir = repoRoot
+	env := cleanGitEnv()
+	if idx := os.Getenv("GIT_INDEX_FILE"); idx != "" {
+		env = append(env, "GIT_INDEX_FILE="+idx)
+	}
+	cmd.Env = env
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(out)
+	return strings.TrimSpace(string(out))
 }
 
-// AppendGateTrailer adds the green-gate trailer to the message being written,
-// but only when the pre-commit gate passed every stage for THIS tree. A stamp
-// left by an earlier commit names a different tree and vouches for nothing.
-// Best-effort throughout: this is a channel, not a check, and a commit must
-// never fail because a trailer could not be written.
-func AppendGateTrailer(repoRoot, msgPath string) {
-	path := precommitGreenFile(repoRoot)
-	if path == "" || msgPath == "" {
+// PostCommit is the post-commit hook: it writes the gate note on the commit
+// just made, when a suite went green for exactly that tree. The stamp is
+// CONSUMED, so it can vouch for one commit and no other — an amend makes a
+// new commit whose gate run only hit the cache, and gets no note, which is
+// the right answer for a commit no suite has run against.
+//
+// Best-effort throughout: this is a channel, not a check, and the commit has
+// already been made by the time it runs.
+func PostCommit(repoRoot string) {
+	path := greenSuiteStampFile(repoRoot)
+	if path == "" {
 		return
 	}
 	stamped, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
-	tree := indexTree(repoRoot)
-	if tree == "" || strings.TrimSpace(string(stamped)) != tree {
+	_ = os.Remove(path)
+	tree, ok := revTree(repoRoot, "HEAD")
+	if !ok || tree == "" || strings.TrimSpace(string(stamped)) != tree {
 		return
 	}
-	data, err := os.ReadFile(msgPath)
-	if err != nil {
-		return
-	}
-	text := strings.ReplaceAll(string(data), "\r\n", "\n")
-	if strings.Contains(text, gateTrailerKey+" green ") {
-		return // an amend re-runs the hook; one trailer is enough
-	}
-	// A trailer block is separated from the body by a blank line, and git's
-	// own trailer parser will not see it otherwise.
-	text = strings.TrimRight(text, "\n") + "\n\n" + gateGreenTrailer(tree) + "\n"
-	_ = os.WriteFile(msgPath, []byte(text), 0o600)
+	_, _ = git(repoRoot, "notes", "--ref="+gateNotesRef, "add", "-f", "-m", gateGreenNote(tree), "HEAD")
 }
 
-// commitCarriesGreenGate reports whether rev's message claims the local gate
-// passed, for rev's OWN tree. The tree comparison is what makes the claim
-// unforgeable by copy-paste: a trailer moved to a commit with different
-// content names the wrong tree and is ignored.
+// commitCarriesGreenGate reports whether rev carries a gate note claiming a
+// green suite for rev's OWN tree.
 func commitCarriesGreenGate(repoRoot, rev string) bool {
-	msg, err := git(repoRoot, "log", "-1", "--format=%B", rev)
+	out, err := git(repoRoot, "notes", "--ref="+gateNotesRef, "show", rev)
 	if err != nil {
 		return false
 	}
@@ -182,7 +270,7 @@ func commitCarriesGreenGate(repoRoot, rev string) bool {
 	if !ok {
 		return false
 	}
-	return strings.Contains(strings.ReplaceAll(msg, "\r\n", "\n"), gateGreenTrailer(tree))
+	return strings.TrimSpace(out) == gateGreenNote(tree)
 }
 
 // --- trigger (a) and (c): the merge gate ------------------------------------
@@ -197,27 +285,42 @@ func isUnacceptedSurvivorRejection(message string) bool {
 	return strings.Contains(message, unacceptedSurvivorMarker)
 }
 
+// isReceiptRejection reports whether the receipt stage produced the
+// rejection. Every one of them carries the hint that names the producer
+// script, which is what makes the family recognisable; a pinned test builds
+// two of them and asserts this reads both.
+func isReceiptRejection(message string) bool {
+	return strings.Contains(message, mutationGateHint)
+}
+
 // NoteMergeGateEscape records the merge gate's rejection as an escape when the
 // rejection is evidence about the GATE rather than about the lane:
 //
 //   - unaccepted mutation survivors: a code path no test constrains reached
 //     the last gate that could stop it, and no earlier stage judges survivors;
-//   - a lane whose pre-commit gate passed every stage on the same tree: two
-//     gates disagreed about one tree, so the cheaper one is missing a stage.
+//   - a lane whose pre-commit gate ran a suite green on the SAME TREE the
+//     merge gate is now refusing: two gates disagreed about one tree, so the
+//     cheaper one is missing a stage.
 //
-// Every other rejection is the gate WORKING, and recording those would bury
-// the evidence in noise. Best-effort and silent on failure: the merge has
-// already been refused by the time this runs, and its verdict is not this
-// function's to change.
+// Every other rejection is the gate WORKING. The receipt family in particular
+// is excluded wholesale apart from survivors: a lane with no receipt, or one
+// measured against another base, is refused by a stage the pre-commit gate
+// does not run at all, and it is the most common merge rejection there is —
+// recording it would make the loop's loudest signal its noisiest.
+//
+// Best-effort and silent on failure: the merge has already been refused by
+// the time this runs, and its verdict is not this function's to change.
 func NoteMergeGateEscape(repoRoot, message string, w io.Writer) {
 	stage, reason := "", ""
 	switch {
 	case isUnacceptedSurvivorRejection(message):
 		stage = "merge:mutation-receipt"
 		reason = "a lane reached the merge gate with unaccepted mutation survivors — a code path no test constrains"
+	case isReceiptRejection(message):
+		return
 	case mergeTipCarriesGreenGate(repoRoot):
 		stage = "merge:premergecommit"
-		reason = "the merge gate refused a lane whose pre-commit gate had passed every stage on the same tree"
+		reason = "the merge gate refused a lane whose pre-commit gate had run a suite green on the same tree"
 	default:
 		return
 	}
@@ -230,8 +333,10 @@ func NoteMergeGateEscape(repoRoot, message string, w io.Writer) {
 	}, w)
 }
 
-// mergeTipCarriesGreenGate reports whether the lane being merged claims a
-// green local gate for its own tree.
+// mergeTipCarriesGreenGate reports whether the lane being merged carries a
+// gate note for its OWN tree — which is the tree comparison this trigger
+// turns on: the note names the tree it was written for, so a note that
+// travelled from another commit says nothing about this one.
 func mergeTipCarriesGreenGate(repoRoot string) bool {
 	tip, ok := mergeTipOf(repoRoot)
 	if !ok {
@@ -242,23 +347,83 @@ func mergeTipCarriesGreenGate(repoRoot string) bool {
 
 // --- trigger (b): CI ---------------------------------------------------------
 
+// CIEscapeOptions is what the CI job reported.
+type CIEscapeOptions struct {
+	Repo string
+	// Job is the failing workflow job, and part of the fingerprint's stage.
+	Job      string
+	Reason   string
+	Evidence string
+	// Labels and Check ride through unchanged: a themed CI failure belongs in
+	// the project's own filter, and the check that could have caught it is
+	// the recorder's to name here as anywhere else.
+	Labels []string
+	Check  string
+}
+
 // RecordCIEscape is what the CI job runs when a workflow fails: it records an
-// escape ONLY when the tip it failed on carries the local gate's green
-// trailer for its own tree. Without that, CI red says nothing about the gate
-// — it says the gate never ran — and recording it would fill the loop with
-// pushes nobody gated. The bool says whether anything was recorded.
-func RecordCIEscape(repo, job, evidence string, w io.Writer) (EscapeRecord, bool) {
-	if !commitCarriesGreenGate(repo, "HEAD") {
-		fmt.Fprintf(w, "gate escape: HEAD carries no green gate trailer, so this CI failure is not evidence about the gate — nothing recorded\n")
+// escape ONLY when the tip it failed on carries the gate note for its own
+// tree. Without that, CI red says nothing about the gate — it says the gate
+// never ran — and recording it would fill the loop with pushes nobody gated.
+// The bool says whether anything was recorded.
+func RecordCIEscape(o CIEscapeOptions, w io.Writer) (EscapeRecord, bool) {
+	if !commitCarriesGreenGate(o.Repo, "HEAD") {
+		fmt.Fprintf(w, "gate escape: HEAD carries no green gate note, so this CI failure is not evidence about the gate — nothing recorded\n")
 		return EscapeRecord{}, false
 	}
-	return recordEscapeOnce("ci:"+job, EscapeOptions{
-		Reason:   fmt.Sprintf("%s failed on a tip the local gate passed green", job),
+	reason := o.Reason
+	if strings.TrimSpace(reason) == "" {
+		reason = fmt.Sprintf("%s failed on a tip the local gate passed green", o.Job)
+	}
+	// The local dedupe store is this box's gate-state, and a CI runner is
+	// routinely ephemeral: with an empty log every re-run would open another
+	// issue for the same red. So GitHub is asked first — an OPEN issue
+	// already carrying this fingerprint IS the record.
+	stage := "ci:" + o.Job
+	fp := escapeFingerprint(stage, EscapeOptions{Repo: o.Repo, Evidence: o.Evidence, Reason: reason})
+	if number, found := openIssueWithFingerprint(o.Repo, fp); found {
+		fmt.Fprintf(w, "gate escape: issue #%d already carries fingerprint %s — not opening a second\n", number, fp)
+		return EscapeRecord{}, false
+	}
+	return recordEscapeOnce(stage, EscapeOptions{
+		Reason:   reason,
 		Kind:     EscapeKind,
-		FromCI:   job,
-		Evidence: evidence,
-		Repo:     repo,
+		FromCI:   o.Job,
+		Evidence: o.Evidence,
+		Repo:     o.Repo,
+		Labels:   o.Labels,
+		Check:    o.Check,
 	}, w)
+}
+
+// openIssueWithFingerprint finds an open escape issue whose body carries
+// fingerprint. A gh that cannot answer finds none, which at worst opens one
+// duplicate — never a lost signal.
+func openIssueWithFingerprint(repo, fingerprint string) (int, bool) {
+	if repo == "" || fingerprint == "" || !ghAvailable() || !hasGitHubRemote(repo) {
+		return 0, false
+	}
+	out, err := runGh(repo, "issue", "list", "--label", EscapeKind, "--state", "open", "--limit", "200", "--json", "number,body")
+	if err != nil {
+		return 0, false
+	}
+	start, end := strings.Index(out, "["), strings.LastIndex(out, "]")
+	if start < 0 || end < start {
+		return 0, false
+	}
+	var docs []struct {
+		Number int    `json:"number"`
+		Body   string `json:"body"`
+	}
+	if json.Unmarshal([]byte(out[start:end+1]), &docs) != nil {
+		return 0, false
+	}
+	for _, d := range docs {
+		if strings.Contains(d.Body, issueFingerprintKey+" "+fingerprint) {
+			return d.Number, true
+		}
+	}
+	return 0, false
 }
 
 // --- trigger (d): the overrides ---------------------------------------------
@@ -357,16 +522,29 @@ func gateLineFile(line string) string {
 	return f[3]
 }
 
-// RecordOverrideCandidates records each candidate as a false positive,
-// deduped by fingerprint, and returns how many were newly recorded. Called by
-// `escape sync`: an override is a prompt to look at a check, and the looking
-// happens on somebody's own schedule, not in the middle of the session that
-// was annoyed.
+// RecordOverrideCandidates records each candidate as a false positive and
+// returns how many were newly recorded. Called by `escape sync`: an override
+// is a prompt to look at a check, and the looking happens on somebody's own
+// schedule, not in the middle of the session that was annoyed.
+//
+// It carries the same two guards the demote scan does, for the same reason.
+// With no gh or no GitHub remote nothing can be opened, so reporting "opened
+// N" from local records alone would be a number that means nothing. And a
+// check re-flagged every week must not collect a new issue every week: the
+// OPEN issue is the record, and the local fingerprint cannot see one opened
+// from another checkout or on another box.
 func RecordOverrideCandidates(repo string, candidates []OverrideCandidate, w io.Writer) int {
+	if len(candidates) == 0 || repo == "" || !ghAvailable() || !hasGitHubRemote(repo) {
+		return 0
+	}
+	open := openFalsePositiveTitles(repo)
 	opened := 0
 	for _, c := range candidates {
+		if titleMentions(open, c.Stage) {
+			continue
+		}
 		r, recorded := recordEscapeOnce(c.Stage, EscapeOptions{
-			Reason:   c.Reason,
+			Reason:   c.Stage + " " + c.Reason,
 			Kind:     FalsePositiveKind,
 			Evidence: c.Evidence,
 			Repo:     repo,

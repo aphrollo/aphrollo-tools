@@ -33,12 +33,6 @@ func runGateCommitMsg(args []string, stderr io.Writer) int {
 	if root == "" {
 		root = *repo
 	}
-	// Carry the gate's verdict into the commit, before the message is judged:
-	// this is the only channel a CI runner has for "the local gate passed on
-	// this exact tree", and it is written only when the pre-commit gate
-	// stamped THIS tree green.
-	tdd.AppendGateTrailer(root, msg)
-
 	res := tdd.CommitMsg(root, msg)
 	if !res.Blocked {
 		return 0

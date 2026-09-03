@@ -55,13 +55,31 @@ func TestEscapeRecordWithAThemeRefusesWithoutTheCheckThatCouldHaveCaughtIt(t *te
 // A false positive is about a check refusing correct work, so it needs no
 // check to have caught it — the theme is just where the work lives.
 func TestAThemedFalsePositiveNeedsNoCheck(t *testing.T) {
-	repo, _ := stubIssueRepo(t, "https://github.com/o/r/issues/6")
+	repo, log := stubIssueRepo(t, "https://github.com/o/r/issues/6")
 	var out, errb bytes.Buffer
 	code := Run([]string{"gate", "escape", "record", "the law refused a correct name",
 		"--kind", "false-positive", "--label", "quality", "--repo", repo},
 		strings.NewReader(""), &out, &errb)
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	argv, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"--label false-positive", "--label quality"} {
+		if !strings.Contains(string(argv), want) {
+			t.Errorf("gh argv must carry %q:\n%s", want, argv)
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "gate-state", "escapes.jsonl"))
+	if err != nil {
+		t.Fatalf("nothing recorded: %v", err)
+	}
+	for _, want := range []string{`"kind":"false-positive"`, `"quality"`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("the record must carry %s:\n%s", want, data)
+		}
 	}
 }
 
@@ -98,4 +116,58 @@ func commitSomething(t *testing.T, repo, subject string) {
 			t.Fatalf("git %v: %s", args, out)
 		}
 	}
+}
+
+// The theme and the check are the whole point of recording a playtest or CI
+// defect on the project repo. Dropping them on the --from-ci path files the
+// issue where nobody filtering by theme will ever see it.
+func TestEscapeRecordFromCICarriesTheThemeAndCheckThrough(t *testing.T) {
+	repo, log := stubIssueRepo(t, "https://github.com/o/r/issues/8")
+	commitWithGateNote(t, repo, "Land it")
+
+	var out, errb bytes.Buffer
+	code := Run([]string{"gate", "escape", "record", "the suite went red in CI",
+		"--from-ci", "build", "--label", "quality", "--check", "precommit mechanical stage", "--repo", repo},
+		strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	argv, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"--label quality", "precommit mechanical stage"} {
+		if !strings.Contains(string(argv), want) {
+			t.Errorf("the --from-ci path must carry %q through:\n%s", want, argv)
+		}
+	}
+}
+
+// commitWithGateNote makes a commit carrying the gate note for its own tree,
+// which is what the --from-ci path requires before it records anything.
+func commitWithGateNote(t *testing.T, repo, subject string) {
+	t.Helper()
+	commitSomething(t, repo, subject)
+	tree := gitLine(t, repo, "rev-parse", "HEAD:")
+	gitRun(t, repo, "notes", "--ref=gate", "add", "-f", "-m", "green "+tree, "HEAD")
+}
+
+func gitRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %s", args, out)
+	}
+}
+
+func gitLine(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return strings.TrimSpace(string(out))
 }

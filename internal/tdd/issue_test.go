@@ -148,3 +148,24 @@ func writeIssueLabels(t *testing.T, repo string, labels ...string) {
 		t.Fatal(err)
 	}
 }
+
+// `gh label create` failing (no auth, no network, a name gh will not take)
+// must not be remembered as done: the next issue in the same process would
+// then ask for a label that does not exist, and gh refuses the whole create.
+func TestAFailedLabelCreateIsRetriedNotCached(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGitHubRepo(t)
+	log := stubGh(t, "https://github.com/o/r/issues/1")
+	resetLabelCache()
+	t.Setenv("GH_STUB_LABEL_CREATE_FAIL", "gh: could not resolve host")
+
+	if _, _, err := OpenIssue(IssueOptions{Repo: repo, Title: "t", Labels: []string{"physics"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := OpenIssue(IssueOptions{Repo: repo, Title: "t", Labels: []string{"physics"}}); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(ghArgv(t, log), "label create physics"); n != 2 {
+		t.Fatalf("a failed label create must be retried: ran %d times, want 2:\n%s", n, ghArgv(t, log))
+	}
+}

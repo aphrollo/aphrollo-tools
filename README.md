@@ -596,6 +596,7 @@ live where being wrong only costs a re-run):
 | `gate sessionend` | Claude SessionEnd hook (stdin) | Deletes the per-session state file so the state dir doesn't accumulate. |
 | `gate precommit` | git `pre-commit` | Blocks a newly-**added** suppression (anti-cheat). Then **fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. A worktree state already proven green under the exact same command (by a PostToolUse run or an earlier gate pass) is **not re-run** — the cache is keyed on the repo's git COMMON dir, so every linked worktree of one repo reuses the same proven-green facts — only green results are cached, keyed on content + runner argv (content covers tracked files AND the ignored configuration a suite reads: dotenv files and `config/` trees, never build output), so a red always re-runs with fresh output. Both gate stages build in the REPO'S OWN target dir (see below). |
 | `gate commitmsg` | git `commit-msg` | Rejects a commit whose MESSAGE carries a deny pattern, quoting the offending line. Opt-in per workspace (`undercover = true`); absent key = pass through. Fires for merge commits too. |
+| `gate postcommit` | git `post-commit` | Writes `refs/notes/gate` on the commit just made — `green <tree>` — when a root group's suite actually RAN green for exactly that tree. A cache hit is not that, so an amend (which re-runs the gate and hits the cache) leaves no note, which is the right answer for a commit no suite has run against. The note is what lets CI tell a red on a gated tip from a red on an ungated one; the git shim pushes the ref alongside a branch push. Never blocks — the commit already exists. |
 | `ratchet check` | git `pre-commit`/`pre-merge-commit`, and manual | Judges the tree against `.ratchet/laws/*.toml` (see [Ratchet laws](#ratchet-laws-aphrollo-ratchet)). |
 | `gate prepush` | git `pre-push` | **No-op** (mechanical-only mode). The gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
 
@@ -1004,7 +1005,7 @@ one `gate: merge rejected` line — a real conflict or an unrelated failure is l
 
 ### Cargo workspace metadata (`[workspace.metadata.aphrollo]`)
 
-Two opt-in lists, declared in the workspace's own `Cargo.toml` so they version
+The opt-in keys, declared in the workspace's own `Cargo.toml` so they version
 with the code they police and are reviewed in the same diff:
 
 ```toml
@@ -1015,8 +1016,17 @@ undercover = true                    # reject commit messages that name the tool
 commit-message-deny = ["^WIP:"]      # this repo's own extra deny patterns
 sdd-dir = "docs/sdd"                 # where the `sdd` skill puts a feature's spec tree
 docs-check = true                    # judge staged *.md for dangling repo-relative citations
+issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "quality", "product"]
 ```
 
+- **`issue-labels`** (string array) — the themes this repo files open points
+  under, and the list `aphrollo gate issue --label` and `gate escape record
+  --label` judge a label against. A label outside it is refused with the list
+  in the message, because the common case is a typo and a typo opens a theme
+  nobody ever filters on; `--new-label` admits a deliberate new one. A repo
+  that declares no list is not checked at all. A repo that is not a cargo
+  workspace declares the same key as `[aphrollo] issue-labels` in an
+  `aphrollo.toml` beside its root.
 - **`always-run`** — a workspace-wide guard package (its tests scan the whole
   tree) is owned by no staged file, so ownership scoping alone would run it
   only when someone edits the guard itself, which is exactly when its

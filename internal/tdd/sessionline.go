@@ -26,6 +26,13 @@ import (
 // triage shows up the same morning.
 const issuesCacheTTL = time.Hour
 
+// issuesFetchTimeout bounds the one gh call. A session start that waits on
+// GitHub is a session start that hangs, and the line is a nicety: five
+// seconds is generous for a call measured at ~2 s over 227 issues, and a
+// remote slower than that reads as a failed fetch — silent, cached, one log
+// line. A var so a test can shrink it.
+var issuesFetchTimeout = 5 * time.Second
+
 // issuesFetchFailedVerdict is the gate.log entry a failed fetch leaves. It is
 // written once per window, not once per prompt, because the cache records the
 // failure too.
@@ -101,7 +108,7 @@ func fetchIssueSummary(repo string, now time.Time) (string, bool) {
 	}
 	// --limit is the whole page: gh defaults to 30, which would silently
 	// under-count every repo that migrated a backlog.
-	out, err := runGh(repo, "issue", "list", "--state", "open", "--limit", "1000", "--json", "labels")
+	out, err := runGhTimeout(repo, issuesFetchTimeout, "issue", "list", "--state", "open", "--limit", "1000", "--json", "labels")
 	if err != nil {
 		return "", false
 	}

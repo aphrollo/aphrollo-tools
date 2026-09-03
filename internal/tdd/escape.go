@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -269,6 +270,12 @@ func ListEscapes(w io.Writer) {
 	}
 }
 
+// issueFingerprintKey marks the fingerprint line in an escape issue's body.
+// The local dedupe store lives in this box's gate-state, which an ephemeral
+// CI runner does not have — so the ISSUE carries the fingerprint, and a
+// runner with no memory can ask GitHub what it cannot remember.
+const issueFingerprintKey = "gate-fingerprint:"
+
 // escapeIssueBody is the fixed template. Every escape states the same three
 // things, and the last one is what verify-closure judges the fix against.
 func escapeIssueBody(r EscapeRecord) string {
@@ -294,10 +301,12 @@ func escapeIssueBody(r EscapeRecord) string {
 
 closes-by: law | stage | demote check X
 
+%s %s
+
 Closing this needs a change to a check — a law under `+"`.ratchet/laws/`"+`, a gate
 stage, or a test named on the closes-by line. A sentence in a document does not
 close an escape.
-`, r.Reason, stage, evidence)
+`, r.Reason, stage, evidence, issueFingerprintKey, r.Fingerprint)
 }
 
 // escapeIssueTitle keeps the subject short enough to read in a list. It cuts
@@ -330,7 +339,19 @@ var ghAvailable = func() bool {
 // actually go wrong here (a label that does not exist, no auth, no network),
 // and the operator cannot act on a verdict that does not say which.
 func runGh(dir string, args ...string) (string, error) {
-	cmd := exec.Command("gh", args...)
+	return runGhTimeout(dir, 0, args...)
+}
+
+// runGhTimeout is runGh with a deadline. Zero means none: the escape verbs
+// are typed by a human who can see them run, while the session-start line is
+// on a path nothing is allowed to stall.
+func runGhTimeout(dir string, timeout time.Duration, args ...string) (string, error) {
+	ctx, cancel := context.Background(), context.CancelFunc(func() {})
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+	}
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "gh", args...)
 	cmd.Dir = dir
 	cmd.Env = cleanGitEnv()
 	var stderr bytes.Buffer

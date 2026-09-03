@@ -122,3 +122,32 @@ func jsonString(s string) string {
 	}
 	return string(b)
 }
+
+// A session start that waits on GitHub is a session start that hangs. The
+// fetch carries its own deadline, and a slow remote reads as a failed fetch —
+// silent, cached, one log line — not as a stalled prompt.
+func TestIssueSummaryLineGivesUpOnASlowFetch(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGitHubRepo(t)
+	stubGhScript(t, map[string]string{"issue list": `[{"labels":[]}]`})
+	t.Setenv("GH_STUB_SLEEP_MS", "3000")
+	defer func(d time.Duration) { issuesFetchTimeout = d }(issuesFetchTimeout)
+	issuesFetchTimeout = 200 * time.Millisecond
+
+	started := time.Now()
+	line := issueSummaryLine(repo, time.Now())
+	elapsed := time.Since(started)
+
+	if line != "" {
+		t.Fatalf("a fetch past the deadline is a failed fetch, got %q", line)
+	}
+	// Generous headroom over the 200 ms deadline: the assertion is that the
+	// call did not wait out the stub's full three seconds.
+	if elapsed > 2*time.Second {
+		t.Fatalf("the fetch waited %s — the deadline did not fire", elapsed)
+	}
+	data, err := os.ReadFile(GateLogPath())
+	if err != nil || !strings.Contains(string(data), issuesFetchFailedVerdict) {
+		t.Errorf("a timed-out fetch must be logged like any other failure: %v", err)
+	}
+}

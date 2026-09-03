@@ -228,6 +228,10 @@ Subcommands:
                     spawned by posttooluse, not typed by hand
   commitmsg         commit-msg hook: reject a message carrying a deny pattern
                     (opt-in per workspace: undercover = true)
+  postcommit        post-commit hook: write the refs/notes/gate note on the commit
+                    just made, when a suite actually ran green for its tree. It is
+                    what lets CI tell a red on a gated tip from a red on an ungated
+                    one; it never blocks
   doctor            Report one line per install check (hooks, shims, locks,
                     managed skills/agents, CI clippy list); exit 1 on any FAIL
   statusline        Render the one-line gate badge from a statusline payload
@@ -371,6 +375,12 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// The commit-msg git hook: git hands it the message file path.
 		return runGateCommitMsg(args[1:], stderr)
 	}
+	if args[0] == "postcommit" {
+		// The post-commit git hook: it writes the gate note on the commit
+		// just made. It never blocks — the commit already exists.
+		tdd.PostCommit(tdd.RepoRoot("."))
+		return 0
+	}
 	if args[0] == "doctor" {
 		// Read-only install report: one line per check, exit 1 on any FAIL.
 		return runGateDoctor(args[1:], stdout, stderr)
@@ -463,10 +473,12 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		} else {
 			res = tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
 			if !res.Blocked {
-				// Stamp the tree every stage passed on, so the commit-msg
-				// hook can carry that fact into the commit and CI can tell a
-				// red on a gated tip from a red on an ungated one.
-				tdd.StampPrecommitGreen(root)
+				// Stamp the tree a suite actually RAN GREEN on, so the
+				// post-commit hook can put the gate note on the commit and
+				// CI can tell a red on a proven tip from a red on an
+				// ungated one. A gate that allowed the commit because there
+				// was nothing to test has proven nothing and stamps nothing.
+				tdd.StampGreenSuiteIfProven(root)
 			}
 		}
 		// Surface the note (e.g. a fail-open skip) even when allowing — the gate

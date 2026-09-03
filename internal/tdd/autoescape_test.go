@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// --- the channel: a trailer on the commit the gate passed -------------------
+// --- the channel: a git note on the commit the gate passed ------------------
 
 // gitOutT is a git value a test needs to compare against.
 func gitOutT(t *testing.T, dir string, args ...string) string {
@@ -24,75 +24,186 @@ func gitOutT(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// CI runs on a box that has never seen this machine's gate state, so the only
-// thing that can tell it "the local gate passed on this exact tree" is
-// something carried BY the commit. The trailer is that channel.
-func TestCommitMsgAppendsTheGreenGateTrailerForTheTreeThePrecommitPassed(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	root := makeGoRepo(t)
-	write(t, root, "next.go", "package m\n")
-	gitDo(t, root, "add", ".")
-	stampPrecommitGreen(root)
-
-	msgPath := filepath.Join(t.TempDir(), "COMMIT_EDITMSG")
-	if err := os.WriteFile(msgPath, []byte("Add the next thing\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	AppendGateTrailer(root, msgPath)
-
-	data, err := os.ReadFile(msgPath)
+// gitNote is the gate note on rev, "" when there is none.
+func gitNote(t *testing.T, dir, rev string) string {
+	t.Helper()
+	cmd := exec.Command("git", "notes", "--ref="+gateNotesRef, "show", rev)
+	cmd.Dir = dir
+	out, err := cmd.Output()
 	if err != nil {
-		t.Fatal(err)
+		return ""
 	}
-	want := gateGreenTrailer(gitOutT(t, root, "write-tree"))
-	if !strings.Contains(string(data), want) {
-		t.Fatalf("the message must carry %q:\n%s", want, data)
-	}
+	return strings.TrimSpace(string(out))
 }
 
-// A commit the gate never judged must not claim it did — that claim is the
-// whole basis on which CI later calls a failure an escape.
-func TestCommitMsgAddsNoTrailerForATreeThePrecommitNeverPassed(t *testing.T) {
+// CI runs on a box that has never seen this machine's gate state, so the only
+// thing that can tell it "the local gate ran a suite and it passed on this
+// exact tree" is something carried WITH the commit. The note is that channel.
+func TestPostCommitWritesTheGateNoteForATreeWhoseSuiteWentGreen(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "next.go", "package m\n")
 	gitDo(t, root, "add", ".")
+	stampGreenSuite(root)
+	gitDo(t, root, "commit", "-q", "-m", "Add the next thing")
 
-	msgPath := filepath.Join(t.TempDir(), "COMMIT_EDITMSG")
-	if err := os.WriteFile(msgPath, []byte("Add the next thing\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	AppendGateTrailer(root, msgPath)
+	PostCommit(root)
 
-	data, _ := os.ReadFile(msgPath)
-	if strings.Contains(string(data), gateTrailerKey) {
-		t.Fatalf("an unjudged tree must carry no gate trailer:\n%s", data)
+	tree := gitOutT(t, root, "rev-parse", "HEAD:")
+	if got := gitNote(t, root, "HEAD"); got != gateGreenNote(tree) {
+		t.Fatalf("note = %q, want %q", got, gateGreenNote(tree))
 	}
 }
 
-// The stamp is per TREE: a stamp from an earlier commit must not vouch for
-// the one being written now.
-func TestGateTrailerIsNotWrittenForADifferentTreeThanTheOneStamped(t *testing.T) {
+// A commit whose suite never ran green must not claim it did — that claim is
+// the whole basis on which CI later calls a failure an escape.
+func TestPostCommitWritesNoNoteForATreeNoSuiteProved(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "next.go", "package m\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-q", "-m", "Add the next thing")
+
+	PostCommit(root)
+
+	if got := gitNote(t, root, "HEAD"); got != "" {
+		t.Fatalf("an unproven tree must carry no note, got %q", got)
+	}
+}
+
+// An amend makes a NEW commit that no suite has run against — the pre-commit
+// gate's cache answers "unchanged", which is not the same as "a suite passed
+// here". No note is the correct answer, and it is what the consumed stamp
+// produces.
+func TestAnAmendedCommitCarriesNoGateNote(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "next.go", "package m\n")
+	gitDo(t, root, "add", ".")
+	stampGreenSuite(root)
+	gitDo(t, root, "commit", "-q", "-m", "Add the next thing")
+	PostCommit(root)
+
+	gitDo(t, root, "commit", "-q", "--amend", "-m", "Add the next thing, better said")
+	PostCommit(root)
+
+	if got := gitNote(t, root, "HEAD"); got != "" {
+		t.Fatalf("an amended commit carries no note, got %q", got)
+	}
+}
+
+// The stamp is per TREE: one left by an earlier commit must not vouch for the
+// one being written now.
+func TestPostCommitWritesNoNoteForADifferentTreeThanTheOneStamped(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "a.go", "package m\n")
 	gitDo(t, root, "add", ".")
-	stampPrecommitGreen(root)
-	// Stage something else: the tree the gate passed is no longer the tree
+	stampGreenSuite(root)
+	// Stage something else: the tree a suite proved is no longer the tree
 	// about to be committed.
 	write(t, root, "b.go", "package m\n")
 	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-q", "-m", "Add b")
 
-	msgPath := filepath.Join(t.TempDir(), "COMMIT_EDITMSG")
-	if err := os.WriteFile(msgPath, []byte("Add b\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	AppendGateTrailer(root, msgPath)
+	PostCommit(root)
 
-	data, _ := os.ReadFile(msgPath)
-	if strings.Contains(string(data), gateTrailerKey) {
-		t.Fatalf("a stamp for another tree must not vouch for this one:\n%s", data)
+	if got := gitNote(t, root, "HEAD"); got != "" {
+		t.Fatalf("a stamp for another tree must not vouch for this one, got %q", got)
 	}
+}
+
+// `git commit -a` hands the hook a TEMPORARY index through GIT_INDEX_FILE.
+// Reading .git/index instead names the wrong tree — and, while the commit
+// holds index.lock, can fail outright — so the stamp silently never matches
+// and no commit made that way is ever gated in CI's eyes.
+func TestGreenSuiteIsStampedUnderCommitAll(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	// Tracked and committed first, so `commit -a` has something to pick up.
+	write(t, root, "tracked.go", "package m\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-q", "-m", "base two")
+	write(t, root, "tracked.go", "package m\n\n// changed\n")
+
+	// What the pre-commit hook sees under `git commit -a`: git has already
+	// built the temporary index the commit will use.
+	tmpIndex := filepath.Join(t.TempDir(), "tmp-index")
+	gitEnvDo(t, root, []string{"GIT_INDEX_FILE=" + tmpIndex}, "read-tree", "HEAD")
+	gitEnvDo(t, root, []string{"GIT_INDEX_FILE=" + tmpIndex}, "add", "-u")
+	t.Setenv("GIT_INDEX_FILE", tmpIndex)
+	want := strings.TrimSpace(gitEnvOut(t, root, []string{"GIT_INDEX_FILE=" + tmpIndex}, "write-tree"))
+
+	stampGreenSuite(root)
+
+	got := readGreenSuiteStamp(t, root)
+	if got != want {
+		t.Fatalf("stamped tree %q, want the temporary index's tree %q", got, want)
+	}
+}
+
+// A note names the tree it was written for, so one copied onto another commit
+// describes content that commit does not have. It is not tamper-proof — a
+// note can be rewritten — but it does not travel between trees by accident,
+// which is what a rebase or a cherry-pick would otherwise do to it.
+func TestANoteTransplantedOntoAnotherCommitIsIgnored(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "a.go", "package m\n")
+	gitDo(t, root, "add", ".")
+	stampGreenSuite(root)
+	gitDo(t, root, "commit", "-q", "-m", "Proven")
+	PostCommit(root)
+	proven := gitOutT(t, root, "rev-parse", "HEAD")
+	note := gitNote(t, root, "HEAD")
+
+	// A second commit nothing proved, wearing the first one's note.
+	write(t, root, "b.go", "package m\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-q", "-m", "Unproven")
+	gitDo(t, root, "notes", "--ref="+gateNotesRef, "add", "-f", "-m", note, "HEAD")
+
+	if !commitCarriesGreenGate(root, proven) {
+		t.Fatal("the commit the note was written for must still be believed")
+	}
+	if commitCarriesGreenGate(root, "HEAD") {
+		t.Fatal("a note naming another tree must be ignored")
+	}
+}
+
+// gitEnvDo runs git with extra environment entries.
+func gitEnvDo(t *testing.T, dir string, env []string, args ...string) {
+	t.Helper()
+	if out := gitEnvRun(t, dir, env, args...); out == "" {
+		return
+	}
+}
+
+func gitEnvOut(t *testing.T, dir string, env []string, args ...string) string {
+	t.Helper()
+	return gitEnvRun(t, dir, env, args...)
+}
+
+func gitEnvRun(t *testing.T, dir string, env []string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %s", args, out)
+	}
+	return string(out)
+}
+
+// readGreenSuiteStamp reads the tree the gate stamped for root.
+func readGreenSuiteStamp(t *testing.T, root string) string {
+	t.Helper()
+	data, err := os.ReadFile(greenSuiteStampFile(root))
+	if err != nil {
+		t.Fatalf("no green-suite stamp: %v", err)
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // --- the fingerprint dedupe -------------------------------------------------
@@ -102,8 +213,9 @@ func TestGateTrailerIsNotWrittenForADifferentTreeThanTheOneStamped(t *testing.T)
 // identical issues, which is worse than recording nothing.
 func TestASecondIdenticalEscapeWithinTheWindowRecordsNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", "")
-	o := EscapeOptions{Reason: "the merge gate refused a green lane", Evidence: "clippy: unused variable"}
+	repo := makeGitHubRepo(t)
+	log := stubGh(t, "https://github.com/o/r/issues/4")
+	o := EscapeOptions{Reason: "the merge gate refused a green lane", Evidence: "clippy: unused variable", Repo: repo}
 
 	if _, recorded := recordEscapeOnce("merge:premergecommit", o, io.Discard); !recorded {
 		t.Fatal("the first sighting must be recorded")
@@ -113,6 +225,9 @@ func TestASecondIdenticalEscapeWithinTheWindowRecordsNothing(t *testing.T) {
 	}
 	if n := len(readEscapes(t)); n != 1 {
 		t.Fatalf("escapes.jsonl holds %d records, want 1", n)
+	}
+	if n := strings.Count(ghArgv(t, log), "issue create"); n != 1 {
+		t.Fatalf("gh ran `issue create` %d times, want 1:\n%s", n, ghArgv(t, log))
 	}
 }
 
@@ -184,9 +299,9 @@ func TestMergeGateRefusingALaneTheCommitGatePassedRecordsAnEscape(t *testing.T) 
 	// GitHub remote, which is what keeps the recorder from opening an issue.
 	root := makeGoRepo(t)
 	makeMergeInProgress(t, root, "Land the lane")
-	// The trailer has to name the tip's OWN tree, which only exists once the
-	// commit does.
-	retrailerLaneTip(t, root)
+	// The note names the tip's OWN tree, which only exists once the commit
+	// does, so it is written after the fact.
+	noteLaneTipGreen(t, root)
 
 	NoteMergeGateEscape(root, "gate premergecommit: clippy failed on the combined tree", io.Discard)
 
@@ -264,9 +379,9 @@ func TestCIFailureOnAGreenTipRecordsAnEscape(t *testing.T) {
 	// No PATH surgery: git has to stay reachable. The fixture repo has no
 	// GitHub remote, which is what keeps the recorder from opening an issue.
 	root := makeGoRepo(t)
-	commitWithGreenGateTrailer(t, root, "Land it")
+	commitWithGreenGateNote(t, root, "Land it")
 
-	r, recorded := RecordCIEscape(root, "build (ubuntu-latest)", "clippy: unused variable", io.Discard)
+	r, recorded := RecordCIEscape(CIEscapeOptions{Repo: root, Job: "build (ubuntu-latest)", Evidence: "clippy: unused variable"}, io.Discard)
 	if !recorded {
 		t.Fatal("CI red on a locally-green tip must be recorded")
 	}
@@ -283,7 +398,7 @@ func TestCIFailureOnATipWithNoGreenGateRecordsNothing(t *testing.T) {
 	// GitHub remote, which is what keeps the recorder from opening an issue.
 	root := makeGoRepo(t)
 
-	if _, recorded := RecordCIEscape(root, "build", "boom", io.Discard); recorded {
+	if _, recorded := RecordCIEscape(CIEscapeOptions{Repo: root, Job: "build", Evidence: "boom"}, io.Discard); recorded {
 		t.Fatal("a tip with no green gate carries no claim for CI to contradict")
 	}
 	if n := len(readEscapes(t)); n != 0 {
@@ -356,30 +471,24 @@ func gateLines(ts time.Time, entries ...string) string {
 	return b.String()
 }
 
-// commitWithGreenGateTrailer commits a tree the gate has stamped green, with
-// the trailer the commit-msg hook would have written.
-func commitWithGreenGateTrailer(t *testing.T, root, subject string) {
+// commitWithGreenGateNote commits a tree a suite proved green, carrying the
+// note the post-commit hook would have written.
+func commitWithGreenGateNote(t *testing.T, root, subject string) {
 	t.Helper()
 	write(t, root, "landed.go", "package m\n")
 	gitDo(t, root, "add", ".")
-	tree := gitOutT(t, root, "write-tree")
-	gitDo(t, root, "commit", "-q", "-m", subject+"\n\n"+gateGreenTrailer(tree))
+	stampGreenSuite(root)
+	gitDo(t, root, "commit", "-q", "-m", subject)
+	PostCommit(root)
 }
 
-// retrailerLaneTip rewrites the lane tip's message so its trailer names the
-// tip's own tree — which only exists once the commit does.
-func retrailerLaneTip(t *testing.T, root string) {
+// noteLaneTipGreen puts onto the lane tip the note it would carry after a
+// green local gate. It names the tip's OWN tree, which only exists once the
+// commit does.
+func noteLaneTipGreen(t *testing.T, root string) {
 	t.Helper()
 	tree := gitOutT(t, root, "rev-parse", "lane:")
-	msg := gitOutT(t, root, "log", "-1", "--format=%s", "lane")
-	gitDo(t, root, "checkout", "-q", "lane")
-	gitDo(t, root, "commit", "-q", "--amend", "-m", msg+"\n\n"+gateGreenTrailer(tree))
-	// Amending changed the commit but not the tree, so the trailer still
-	// names what the tip holds.
-	if got := gitOutT(t, root, "rev-parse", "lane:"); got != tree {
-		t.Fatalf("amending changed the tree: %s vs %s", got, tree)
-	}
-	gitDo(t, root, "checkout", "-q", "-")
+	gitDo(t, root, "notes", "--ref="+gateNotesRef, "add", "-f", "-m", gateGreenNote(tree), "lane")
 }
 
 // unacceptedSurvivorRejectionSample is the receipt gate's own words, so this
@@ -397,5 +506,224 @@ func TestAWaiverWithNoPrecedingDenialIsNotACandidate(t *testing.T) {
 	log := gateLines(now, "preedit root a_test.go smell-escape:test-sleep")
 	if got := OverrideCandidates(strings.NewReader(log), now); len(got) != 0 {
 		t.Fatalf("got %d candidates, want 0: %+v", len(got), got)
+	}
+}
+
+// A lane arriving with no mutation receipt at all is refused by a stage the
+// pre-commit gate does not even run. That is the receipt gate WORKING, and it
+// is the most common merge rejection there is — recording it as "precommit
+// passed, merge refused" would make the loop's loudest signal its noisiest.
+func TestAMissingReceiptRejectionIsNotAnEscape(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	makeMergeInProgress(t, root, "Land the lane")
+	noteLaneTipGreen(t, root)
+
+	NoteMergeGateEscape(root, missingReceiptRejectionSample(), io.Discard)
+
+	if n := len(readEscapes(t)); n != 0 {
+		t.Fatalf("recorded %d escapes, want 0 — no earlier stage judges receipts", n)
+	}
+}
+
+// Two mechanical rejections whose first line is the same boilerplate are two
+// DIFFERENT misses when different tests failed. Fingerprinting the constant
+// alone lets one record suppress every unrelated failure for a week, silently.
+func TestTwoMechanicalRejectionsWithDifferentFailingTestsAreDifferentEscapes(t *testing.T) {
+	first := EscapeOptions{Evidence: "TDD mechanical: tests failing — fix before committing.\nfailing: TestAlpha\n    --- FAIL: TestAlpha (0.01s)\n"}
+	second := EscapeOptions{Evidence: "TDD mechanical: tests failing — fix before committing.\nfailing: TestBeta\n    --- FAIL: TestBeta (0.01s)\n"}
+	if a, b := escapeFingerprint("merge", first), escapeFingerprint("merge", second); a == b {
+		t.Fatalf("two different failing tests share fingerprint %s — one would silence the other for a week", a)
+	}
+}
+
+// The same failing test twice IS one miss, and must stay one.
+func TestTheSameFailingTestKeepsOneFingerprint(t *testing.T) {
+	first := EscapeOptions{Evidence: "TDD mechanical: tests failing — fix before committing.\nfailing: TestAlpha\n    --- FAIL: TestAlpha (0.01s)\ncommand: go test ./a\n"}
+	second := EscapeOptions{Evidence: "TDD mechanical: tests failing — fix before committing.\nfailing: TestAlpha\n    --- FAIL: TestAlpha (0.02s)\ncommand: go test ./b\n"}
+	if a, b := escapeFingerprint("merge", first), escapeFingerprint("merge", second); a != b {
+		t.Fatalf("the same failing test must be one class: %s vs %s", a, b)
+	}
+}
+
+// Two repos failing the same way are two misses, not one. Without the repo in
+// the fingerprint, the first repo to record `test` silences every other repo
+// on the box for a week.
+func TestTheSameDiagnosticInTwoReposAreDifferentEscapes(t *testing.T) {
+	o := EscapeOptions{Evidence: "boom", Repo: "/a"}
+	other := EscapeOptions{Evidence: "boom", Repo: "/b"}
+	if a, b := escapeFingerprint("ci:pipeline", o), escapeFingerprint("ci:pipeline", other); a == b {
+		t.Fatalf("two repos share fingerprint %s", a)
+	}
+}
+
+// A suppressed duplicate that says nothing looks exactly like a recorder that
+// is broken. One line, so the operator can tell the two apart.
+func TestASuppressedDuplicateSaysSo(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGitHubRepo(t)
+	stubGh(t, "https://github.com/o/r/issues/3")
+	o := EscapeOptions{Reason: "the merge gate refused a green lane", Repo: repo}
+
+	if _, recorded := recordEscapeOnce("merge:premergecommit", o, io.Discard); !recorded {
+		t.Fatal("the first sighting must be recorded")
+	}
+	var out strings.Builder
+	if _, recorded := recordEscapeOnce("merge:premergecommit", o, &out); recorded {
+		t.Fatal("the second must be suppressed")
+	}
+	if !strings.Contains(out.String(), "already open") {
+		t.Fatalf("a suppressed duplicate must say so, got %q", out.String())
+	}
+}
+
+// A record with no issue is evidence nobody can see. Letting it suppress the
+// next sighting burns the whole class for a week over a gh that was briefly
+// unreachable — so it does not suppress; it is RETRIED.
+func TestARecordWhoseIssueNeverOpenedIsRetriedRatherThanSuppressing(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGitHubRepo(t)
+	stubGh(t, "https://github.com/o/r/issues/11")
+	o := EscapeOptions{Reason: "the merge gate refused a green lane", Repo: repo}
+
+	// First sighting while gh cannot answer: recorded locally, no issue.
+	t.Setenv("GH_STUB_ISSUE_CREATE_FAIL", "gh: could not resolve host")
+	if _, recorded := recordEscapeOnce("merge:premergecommit", o, io.Discard); !recorded {
+		t.Fatal("the first sighting must be recorded even when gh fails")
+	}
+	if recs := readEscapes(t); len(recs) != 1 || recs[0].Issue != "" {
+		t.Fatalf("want one unsynced record, got %+v", recs)
+	}
+
+	// Second sighting, gh back: the SAME record gets its issue, and no
+	// second record is appended.
+	t.Setenv("GH_STUB_ISSUE_CREATE_FAIL", "")
+	if _, recorded := recordEscapeOnce("merge:premergecommit", o, io.Discard); !recorded {
+		t.Fatal("an unsynced record must not suppress the next sighting")
+	}
+	recs := readEscapes(t)
+	if len(recs) != 1 {
+		t.Fatalf("want the one record retried, not a second appended: %+v", recs)
+	}
+	if recs[0].Issue != "https://github.com/o/r/issues/11" {
+		t.Fatalf("the retry must attach the issue to the existing record: %+v", recs[0])
+	}
+}
+
+// missingReceiptRejectionSample is the receipt gate's own words for the most
+// common merge rejection, so this fixture cannot drift from what it reads.
+func missingReceiptRejectionSample() string {
+	return blockReceipt("no mutation receipt for %s's lane tip %s at %s", "/r/.git", "abc1234", "/state/x.json").Message
+}
+
+// The receipt-family predicate reads the receipt gate's OWN rejections. If
+// the hint they all carry is reworded and the predicate is not, every
+// receipt rejection starts being recorded as a gate miss.
+func TestTheReceiptPredicateMatchesTheReceiptGatesOwnRejections(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, msg := range []string{missingReceiptRejectionSample(), unacceptedSurvivorRejectionSample()} {
+		if !isReceiptRejection(msg) {
+			t.Errorf("the predicate must recognise a receipt rejection:\n%s", msg)
+		}
+	}
+	if isReceiptRejection("gate premergecommit: clippy failed on the combined tree") {
+		t.Error("a stage rejection is not a receipt rejection")
+	}
+}
+
+// `escape sync` reporting "opened N issue(s)" from local records alone is a
+// number that means nothing: with no gh, or no GitHub remote, nothing was
+// opened. The demote scan already guards on both, and the override half must
+// not be the one place the count lies.
+func TestOverrideCandidatesOpenNothingWithoutAGitHubRemote(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cands := []OverrideCandidate{{Stage: "override:override-off", Reason: "r", Evidence: "e"}}
+	if n := RecordOverrideCandidates(t.TempDir(), cands, io.Discard); n != 0 {
+		t.Fatalf("opened %d with no remote to open against, want 0", n)
+	}
+	if recs := readEscapes(t); len(recs) != 0 {
+		t.Fatalf("nothing must be recorded either: %+v", recs)
+	}
+}
+
+// A check re-flagged every week must not collect a new issue every week: the
+// OPEN issue is the record, and the local dedupe cannot see one opened from
+// another checkout or by another box.
+func TestAnOverrideWithAnOpenIssueAlreadyOpensNoSecond(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGitHubRepo(t)
+	log := stubGhScript(t, map[string]string{
+		"issue list":   `[{"title":"false-positive: override:override-off went around the gate"}]`,
+		"issue create": "https://github.com/o/r/issues/30",
+	})
+	cands := []OverrideCandidate{{Stage: "override:override-off", Reason: "r", Evidence: "e"}}
+
+	if n := RecordOverrideCandidates(repo, cands, io.Discard); n != 0 {
+		t.Fatalf("opened %d for a check that already has an open issue, want 0", n)
+	}
+	if strings.Contains(ghArgv(t, log), "issue create") {
+		t.Errorf("no second issue must be created:\n%s", ghArgv(t, log))
+	}
+}
+
+// The dedupe store lives in this box's gate-state, which an ephemeral CI
+// runner does not have: every re-run would start from an empty log and open
+// another issue for the same red. The issue itself has to carry the
+// fingerprint, so the runner can ask GitHub what it cannot remember.
+func TestTheEscapeIssueBodyCarriesItsFingerprint(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGitHubRepo(t)
+	log := stubGh(t, "https://github.com/o/r/issues/12")
+
+	r, recorded := recordEscapeOnce("ci:pipeline", EscapeOptions{
+		Reason: "the suite went red in CI", Evidence: "--- FAIL: TestAlpha", Repo: repo,
+	}, io.Discard)
+	if !recorded {
+		t.Fatal("the first sighting must be recorded")
+	}
+	if !strings.Contains(ghArgv(t, log), issueFingerprintKey+" "+r.Fingerprint) {
+		t.Fatalf("the issue body must carry %s %s:\n%s", issueFingerprintKey, r.Fingerprint, ghArgv(t, log))
+	}
+}
+
+// With no local record to go on, an open issue already carrying this
+// fingerprint is the record — and one issue per CI re-run is exactly the
+// noise the dedupe exists to prevent.
+func TestCIEscapeWithAnOpenIssueCarryingItsFingerprintOpensNoSecond(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	gitDo(t, root, "remote", "add", "origin", "https://github.com/o/r.git")
+	commitWithGreenGateNote(t, root, "Land it")
+
+	o := CIEscapeOptions{Repo: root, Job: "pipeline", Evidence: "--- FAIL: TestAlpha"}
+	fp := escapeFingerprint("ci:"+o.Job, EscapeOptions{Repo: o.Repo, Evidence: o.Evidence})
+	log := stubGhScript(t, map[string]string{
+		"issue list":   `[{"number":9,"body":"` + issueFingerprintKey + ` ` + fp + `"}]`,
+		"issue create": "https://github.com/o/r/issues/99",
+	})
+
+	if _, recorded := RecordCIEscape(o, io.Discard); recorded {
+		t.Fatal("an open issue already carrying this fingerprint is the record")
+	}
+	if strings.Contains(ghArgv(t, log), "issue create") {
+		t.Errorf("no second issue must be created:\n%s", ghArgv(t, log))
+	}
+}
+
+// A different red on the same job is a different miss, and an open issue for
+// the first must not silence it.
+func TestCIEscapeWithAnUnrelatedOpenIssueStillRecords(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	gitDo(t, root, "remote", "add", "origin", "https://github.com/o/r.git")
+	commitWithGreenGateNote(t, root, "Land it")
+
+	stubGhScript(t, map[string]string{
+		"issue list":   `[{"number":9,"body":"` + issueFingerprintKey + ` 0000000000000000"}]`,
+		"issue create": "https://github.com/o/r/issues/99",
+	})
+	o := CIEscapeOptions{Repo: root, Job: "pipeline", Evidence: "--- FAIL: TestAlpha"}
+	if _, recorded := RecordCIEscape(o, io.Discard); !recorded {
+		t.Fatal("an unrelated open issue must not suppress a new miss")
 	}
 }

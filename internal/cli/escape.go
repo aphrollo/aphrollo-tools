@@ -110,9 +110,14 @@ func runEscapeRecord(args []string, stdout, stderr io.Writer) int {
 		if ev == "" {
 			ev = reason
 		}
-		if _, recorded := tdd.RecordCIEscape(root, *fromCI, ev, stdout); !recorded {
-			return 0
-		}
+		tdd.RecordCIEscape(tdd.CIEscapeOptions{
+			Repo:     root,
+			Job:      *fromCI,
+			Reason:   reason,
+			Evidence: ev,
+			Labels:   labels,
+			Check:    *check,
+		}, stdout)
 		return 0
 	}
 

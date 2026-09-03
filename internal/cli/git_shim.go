@@ -187,6 +187,10 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 				fmt.Fprintln(stderr, gitAcquiredLine(time.Since(start)))
 			}
 			code := runGitWithLock(release, ownerPath, cfg.realGit, args, stdin, stdout, stderr)
+			// The gate note does not ride along with a branch push, and a
+			// note nobody pushed reaches no CI runner. Best effort: it
+			// never changes the push's own exit code.
+			pushGateNotes(rest, cwd, cfg.realGit, code, stderr)
 			return recoverRejectedMerge(rest, args, cwd, cfg.realGit, code, start, stderr)
 		}
 
