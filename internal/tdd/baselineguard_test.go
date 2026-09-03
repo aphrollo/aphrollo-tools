@@ -248,6 +248,59 @@ func TestBaselineGuard_RefusesARaiseWhenTheLawIsAlreadyOnTrunk(t *testing.T) {
 	}
 }
 
+// TestBaselineGuard_RefusesARaiseWhenTheTrunkCannotBeNamed: the adoption path
+// asks whether trunk already carries the law, and every uncertainty must
+// answer "it does" — otherwise a repository whose trunk is called something
+// else adopts every hand raise. Here the only branch is `trunk`, which no
+// candidate names, so the raise stays refused.
+func TestBaselineGuard_RefusesARaiseWhenTheTrunkCannotBeNamed(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "nan-guard.toml"), nanGuardLawText)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"), "crates/a.rs | let a = x.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	gitFixture(t, root, "branch", "-M", "trunk")
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"),
+		"crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+
+	res := baselineStage("precommit", root)
+	if !res.Blocked {
+		t.Fatal("with no nameable trunk the raise must be refused, not adopted")
+	}
+}
+
+// TestBaselineGuard_RefusesARaiseWhenAStaleMasterSitsBesideTheRealTrunk: a
+// branch merely NAMED master is not trunk. The remote's own default names it,
+// and the law is on that branch, so the raise is a hand raise.
+func TestBaselineGuard_RefusesARaiseWhenAStaleMasterSitsBesideTheRealTrunk(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, "seed.txt"), "seed\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	gitFixture(t, root, "branch", "-M", "master")
+	gitFixture(t, root, "checkout", "-q", "-b", "develop")
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "nan-guard.toml"), nanGuardLawText)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"), "crates/a.rs | let a = x.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	// The remote's default branch is what trunk means here, and `develop`
+	// carries the law, so a lane branched off it does not own the law.
+	gitFixture(t, root, "update-ref", "refs/remotes/origin/develop", "develop")
+	gitFixture(t, root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop")
+	gitFixture(t, root, "checkout", "-q", "-b", "lane")
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"),
+		"crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+
+	res := baselineStage("precommit", root)
+	if !res.Blocked {
+		t.Fatal("a stale master must not stand in for the real trunk: the raise must be refused")
+	}
+}
+
 // gitFixture runs one git command inside a fixture repository, hooks off.
 func gitFixture(t *testing.T, root string, args ...string) {
 	t.Helper()

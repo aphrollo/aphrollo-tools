@@ -41,12 +41,6 @@ func isLoadingError(err error) bool {
 		"not yet ready",              //
 		"server is not ready",        //
 		"content is outdated",        //
-		// rust-analyzer's rename answer before the crate graph is built (seen
-		// on Windows, where no content-modified answer precedes it); a
-		// definition always references itself once loaded, so for a RENAME
-		// this exact phrasing is not-ready. The bare "no references found"
-		// above stays terminal.
-		"no references found at position",
 	} {
 		if strings.Contains(msg, s) {
 			return true
@@ -62,13 +56,24 @@ func isLoadingError(err error) bool {
 // the crate graph is built, so an empty edit is retried within the budget.
 var errEmptyEditWhileLoading = errors.New("server answered an empty edit: still loading")
 
-// emptyEditIsNotReady wraps a rename answer so an empty edit retries like a
-// loading error; a real edit and a real error pass through untouched.
+// emptyEditIsNotReady wraps a RENAME's answer so the two shapes that mean
+// "the crate graph is not built yet" retry: no edit at all, and rust-analyzer's
+// `-32602: No references found at position`. Both are rename-specific — a
+// definition always references itself once loaded — so neither belongs in the
+// shared isLoadingError, which also gates references and outline, where a
+// zero-reference symbol is a legitimate empty result. A real edit and any
+// other error pass through untouched.
 func emptyEditIsNotReady(we lsp.WorkspaceEdit, err error) (lsp.WorkspaceEdit, error) {
-	if err == nil && len(we.Changes) == 0 && len(we.DocumentChanges) == 0 {
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no references found at position") {
+			return we, errEmptyEditWhileLoading
+		}
+		return we, err
+	}
+	if len(we.Changes) == 0 && len(we.DocumentChanges) == 0 {
 		return we, errEmptyEditWhileLoading
 	}
-	return we, err
+	return we, nil
 }
 
 // retryWhileLoading runs fn, retrying on transient loading errors until the

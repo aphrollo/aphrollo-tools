@@ -227,20 +227,73 @@ func adoptionCovers(repoRoot, baselineRel string, rows int) (lawName string, _ i
 	return "", 0, false
 }
 
-// lawOnTrunk reports whether lawRel exists at the merge base of HEAD and the
-// repository's trunk branch (`main`, else `master`). With no trunk to compare
-// against — a fixture with a single branch, a detached tip — the law is taken
-// as trunk's, so the one-way rule holds by default.
+// lawOnTrunk reports whether lawRel exists at the merge base of HEAD and this
+// repository's trunk. EVERY uncertainty answers true — no trunk name, an
+// unreadable merge base, git chatter where a sha was expected — because true
+// is the answer that keeps the one-way rule: the raise is refused unless the
+// lane demonstrably owns the law.
 func lawOnTrunk(repoRoot, lawRel string) bool {
-	for _, trunk := range []string{"main", "master"} {
-		base, err := git(repoRoot, "merge-base", "HEAD", trunk)
-		if err != nil {
-			continue
-		}
-		_, ok := gitBlob(repoRoot, strings.TrimSpace(base)+":"+lawRel)
-		return ok
+	trunk := trunkBranch(repoRoot)
+	if trunk == "" {
+		return true
 	}
-	return true
+	base, err := git(repoRoot, "merge-base", "HEAD", trunk)
+	if err != nil {
+		return true
+	}
+	sha := lastSHALine(base)
+	if sha == "" {
+		return true
+	}
+	_, ok := gitBlob(repoRoot, sha+":"+lawRel)
+	return ok
+}
+
+// trunkBranch names the branch a lane is measured against: what the remote
+// itself calls its default, else the configured `init.defaultBranch`, else
+// the conventional names — and each candidate must actually resolve. A branch
+// merely NAMED `master` beside a real trunk of another name is not trunk, so
+// the conventional names come last and empty means "cannot tell".
+func trunkBranch(repoRoot string) string {
+	if out, err := git(repoRoot, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
+		if ref := lastNonEmptyLine(out); ref != "" {
+			return ref
+		}
+	}
+	if out, err := git(repoRoot, "config", "--get", "init.defaultBranch"); err == nil {
+		if name := lastNonEmptyLine(out); name != "" {
+			if _, err := git(repoRoot, "rev-parse", "--verify", "--quiet", name); err == nil {
+				return name
+			}
+		}
+	}
+	for _, name := range []string{"main", "master"} {
+		if _, err := git(repoRoot, "rev-parse", "--verify", "--quiet", name); err == nil {
+			return name
+		}
+	}
+	return ""
+}
+
+// lastSHALine is lastNonEmptyLine narrowed to a full object name: anything
+// else means git said something other than the sha that was asked for. The
+// output read here is COMBINED, so a warning ("refname 'main' is ambiguous")
+// rides ahead of the answer and would otherwise be read as part of it.
+func lastSHALine(out string) string {
+	s := lastNonEmptyLine(out)
+	if len(s) != 40 {
+		return ""
+	}
+	for i := 0; i < len(s); i++ {
+		if !isHexDigit(s[i]) {
+			return ""
+		}
+	}
+	return s
+}
+
+func isHexDigit(c byte) bool {
+	return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
 }
 
 // ownsBaseline reports whether lawText declares `baseline = "<rel>"`.

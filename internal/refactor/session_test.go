@@ -57,9 +57,6 @@ func TestSession_Rename(t *testing.T) {
 	}
 }
 
-// A server that negotiates a non-UTF-16 position encoding must be rejected:
-// our edit application assumes UTF-16, so proceeding would silently corrupt
-// positions.
 // TestPathToURI_EncodesAWindowsDrivePathWithForwardSlashes: url.URL alone turns
 // `C:\Users\u\a.go` into `file://C:%5CUsers%5Cu%5Ca.go`, which gopls answers
 // with "no package metadata" and rust-analyzer exits on. The LSP form is
@@ -73,6 +70,9 @@ func TestPathToURI_EncodesAWindowsDrivePathWithForwardSlashes(t *testing.T) {
 	}
 }
 
+// A server that negotiates a non-UTF-16 position encoding must be rejected:
+// our edit application assumes UTF-16, so proceeding would silently corrupt
+// positions.
 func TestSession_Initialize_RejectsNonUTF16Encoding(t *testing.T) {
 	cr, sw := io.Pipe()
 	sr, cw := io.Pipe()

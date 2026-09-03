@@ -2,9 +2,11 @@ package refactor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/diff"
@@ -78,6 +80,13 @@ func Rename(ctx context.Context, req RenameRequest) (*RenameResult, error) {
 	we, err := retryWhileLoading(ctx, func() (lsp.WorkspaceEdit, error) {
 		return emptyEditIsNotReady(sess.Rename(ctx, abs, pos, req.NewName))
 	})
+	// An empty edit that survived the whole retry budget is a server that
+	// really has no rename here, not one still loading: drop the not-ready
+	// wrapper so the precise "may not be renameable" diagnostic below fires
+	// instead of the loading message.
+	if errors.Is(err, errEmptyEditWhileLoading) {
+		err = nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("rename: %w", err)
 	}
@@ -92,6 +101,17 @@ func Rename(ctx context.Context, req RenameRequest) (*RenameResult, error) {
 	}
 
 	return applyFileEdits(fileEdits, root, abs, src, req.Apply)
+}
+
+// samePath reports whether two paths name the same file. The server-supplied
+// path comes back from URIToPath with an upper-cased drive while the caller's
+// path keeps whatever they typed, so on Windows — where the filesystem is
+// case-insensitive anyway — the comparison folds case. Elsewhere it is exact.
+func samePath(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+	}
+	return a == b
 }
 
 // applyFileEdits turns a rename's per-file edits into diffs and, when apply is
@@ -127,7 +147,7 @@ func applyFileEdits(fileEdits []lsp.FileEdit, root, mainPath, mainSrc string, ap
 			return nil, fmt.Errorf("refusing edit outside project root: %s is not within %s", fe.Path, root)
 		}
 		before := mainSrc
-		if fe.Path != mainPath {
+		if !samePath(fe.Path, mainPath) {
 			b, err := os.ReadFile(fe.Path)
 			if err != nil {
 				return nil, fmt.Errorf("read %s: %w", fe.Path, err)

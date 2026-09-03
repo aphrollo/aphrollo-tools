@@ -7,15 +7,20 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/lsp"
 )
 
-// TestIsLoadingError_TreatsRenamesNoReferencesAtPositionAsNotReady: a rename
-// sent before rust-analyzer has built its crate graph is answered with
-// `-32602: No references found at position` (seen on Windows, where the
-// content-modified answer never comes), yet a definition always references
-// itself once loaded — so that exact rename phrasing is not-ready, while the
-// bare "no references found" of an empty references result stays terminal.
-func TestIsLoadingError_TreatsRenamesNoReferencesAtPositionAsNotReady(t *testing.T) {
-	if !isLoadingError(errors.New("rename: rpc error -32602: No references found at position")) {
-		t.Error("rename's not-ready answer must be retried")
+// TestEmptyEditIsNotReady_RetriesRenamesNoReferencesAtPositionWithoutTouchingTheSharedPredicate:
+// a rename sent before rust-analyzer has built its crate graph is answered
+// with `-32602: No references found at position` (seen on Windows, where the
+// content-modified answer never comes), and a definition always references
+// itself once loaded. That makes the phrase rename-specific, so it is handled
+// at the rename call site and must NOT enter isLoadingError, which also gates
+// references and outline, where a zero-reference symbol is a real empty result.
+func TestEmptyEditIsNotReady_RetriesRenamesNoReferencesAtPositionWithoutTouchingTheSharedPredicate(t *testing.T) {
+	notReady := errors.New("rename: rpc error -32602: No references found at position")
+	if _, err := emptyEditIsNotReady(lsp.WorkspaceEdit{}, notReady); !isLoadingError(err) {
+		t.Errorf("rename's not-ready answer must be retried, got %v", err)
+	}
+	if isLoadingError(notReady) {
+		t.Error("the shared predicate must stay out of it: references and outline share it")
 	}
 	if isLoadingError(errors.New("no references found")) {
 		t.Error("an empty references result stays terminal")
