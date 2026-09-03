@@ -940,8 +940,11 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	}
 	defer func() { _, _ = git(repoRoot, "worktree", "remove", "--force", wt) }() // best-effort cleanup
 
-	// The staged test diff applied onto HEAD: tests present, new source absent.
-	diff, err := gitStaged(repoRoot, tests)
+	// The staged test diff applied onto HEAD: tests present, new source
+	// absent — plus the staged DATA those tests read (see proofInputs), so a
+	// test that would only go red against a stale template or fixture is not
+	// mistaken for one that went red against missing code.
+	diff, err := gitStaged(repoRoot, append(append([]string{}, tests...), proofInputs(repoRoot, tests)...))
 	if err != nil || strings.TrimSpace(diff) == "" {
 		return false, false, 0
 	}
