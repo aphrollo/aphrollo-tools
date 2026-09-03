@@ -150,3 +150,40 @@ func TestUnified_NoChangeIsEmpty(t *testing.T) {
 		t.Fatalf("Unified of identical text = %q, want empty", got)
 	}
 }
+
+// TestUnifiedRendersATrailingNewlineOnlyChange pins #178: before and after
+// with otherwise-identical content but a differing trailing newline must NOT
+// collapse to "" (that would silently hide a real one-byte difference, which
+// the package's own Lossless doc comment forbids). The expected rendering
+// matches git/GNU diff's own "\ No newline at end of file" convention,
+// verified against a real `git diff` on the same before/after content.
+func TestUnifiedRendersATrailingNewlineOnlyChange(t *testing.T) {
+	got := Unified("x.txt", "a\nb", "a\nb\n")
+	want := "--- a/x.txt\n" +
+		"+++ b/x.txt\n" +
+		"@@ -1,2 +1,2 @@\n" +
+		" a\n" +
+		"-b\n" +
+		"\\ No newline at end of file\n" +
+		"+b\n"
+	if got != want {
+		t.Fatalf("Unified mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+// TestUnifiedRendersALostTrailingNewline is the reverse direction: after
+// drops the trailing newline before had. The marker must move to the "+b"
+// side, again matching git's own rendering.
+func TestUnifiedRendersALostTrailingNewline(t *testing.T) {
+	got := Unified("x.txt", "a\nb\n", "a\nb")
+	want := "--- a/x.txt\n" +
+		"+++ b/x.txt\n" +
+		"@@ -1,2 +1,2 @@\n" +
+		" a\n" +
+		"-b\n" +
+		"+b\n" +
+		"\\ No newline at end of file\n"
+	if got != want {
+		t.Fatalf("Unified mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
