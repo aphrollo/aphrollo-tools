@@ -5,6 +5,7 @@ severity    = "deny"
 [scope]
 include = ["cmd/**/*.go", "internal/**/*.go"]
 exclude = ["**/testdata/**", ".ratchet/**"]
+min_files = 429
 
 [matcher]
 kind      = "marker-within-lines"

@@ -146,13 +146,27 @@ func goQualityStage(gateName, repoRoot, root string, touched []string, run Suite
 // formatter gofmt wraps, so this costs nothing beyond a parse.
 func goFmtStage(gateName, repoRoot, root string, touched []string) GateResult {
 	var dirty []string
+	var unreadable int
 	for _, rel := range touched {
 		if !strings.HasSuffix(rel, ".go") {
 			continue
 		}
-		content, err := git(root, "show", ":"+filepath.ToSlash(rel))
+		// A bare `:path` resolves from the repo's TOP regardless of cwd, so
+		// the path fed to git must be repoRoot-relative even though rel
+		// itself is root-relative (root is the Go root, which in a monorepo
+		// sits below repoRoot).
+		repoRel, err := filepath.Rel(repoRoot, filepath.Join(root, rel))
 		if err != nil {
-			continue // deleted or renamed mid-diff: nothing staged to judge
+			unreadable++
+			continue
+		}
+		content, err := git(repoRoot, "show", ":"+filepath.ToSlash(repoRel))
+		if err != nil {
+			// A path git cannot resolve at all is a defect in this stage's
+			// own lookup, not silently "nothing to judge" — log and count it
+			// so a systematic miss is visible, same as lint-skipped.
+			unreadable++
+			continue
 		}
 		formatted, err := format.Source([]byte(content))
 		if err != nil {
@@ -162,13 +176,17 @@ func goFmtStage(gateName, repoRoot, root string, touched []string) GateResult {
 			dirty = append(dirty, rel)
 		}
 	}
+	if unreadable > 0 {
+		fmt.Fprintf(os.Stderr, "gate %s: gofmt could not read %d staged file(s) at their index path in %s\n", gateName, unreadable, root)
+		appendGateLog(gateName, root, "gofmt", "gofmt-index-unreadable", 0)
+	}
 	if len(dirty) == 0 {
 		return GateResult{}
 	}
 	sort.Strings(dirty)
 	appendGateLog(gateName, root, "gofmt", "gofmt-blocked", 0)
 	return GateResult{Blocked: true, Message: fmt.Sprintf(
-		"gate %s: gofmt → REJECTED\n  %s\n  run `gofmt -w` on the file(s); a checkout older than "+
+		"gate %s: gofmt → REJECTED\n  %s\n  run `gofmt -w <file> && git add <file>`; a checkout older than "+
 			"this repo's .gitattributes needs a one-time `git add --renormalize .` instead (see README)",
 		gateName, strings.Join(dirty, ", "))}
 }

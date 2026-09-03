@@ -1,13 +1,14 @@
 name        = "dev_instrument_registry"
-description = "Every APHROLLO_ environment switch this repo's own Go code reads is registered in .ratchet/dev_instrument_registry.txt with one line saying what it does, enforced both ways: an unregistered switch is a regression, a line nothing reads any more is stale. An instrument you cannot find out exists is not an instrument. A use is the quoted literal \"APHROLLO_<REST>\" appearing anywhere in this repo's own Go source — a direct os.Getenv/os.LookupEnv call, an indirect read through a wrapper like envOr(name, default) (the name is still a quoted literal, just at the wrapper's call site rather than at os.Getenv's), a const the wrapper is built from, or a t.Setenv override in a test. The quote is required: an unquoted mention (prose in a comment about an env var another service owns) is documentation, not a use this repo's code makes, and must not silently satisfy the registry."
+description = "Every APHROLLO_ environment switch this repo's own Go code reads is registered in .ratchet/dev_instrument_registry.txt with one line saying what it does, enforced both ways: an unregistered switch is a regression, a line nothing reads any more is stale. An instrument you cannot find out exists is not an instrument. A use is the quoted literal \"APHROLLO_<REST>\" appearing anywhere in this repo's own Go source — a direct os.Getenv/os.LookupEnv call, an indirect read through a wrapper like envOr(name, default) (the name is still a quoted literal, just at the wrapper's call site rather than at os.Getenv's), a const the wrapper is built from, a t.Setenv override in a test, or the name=value form a child process's exec.Cmd.Env carries (\"APHROLLO_<REST>=...\"). The quote is required: an unquoted mention (prose in a comment about an env var another service owns) is documentation, not a use this repo's code makes, and must not silently satisfy the registry."
 severity    = "deny"
 
 [scope]
 include = ["cmd/**/*.go", "internal/**/*.go"]
 exclude = ["**/testdata/**"]
+min_files = 429
 
 [matcher]
 kind          = "registry-both-ways"
 registry_file = ".ratchet/dev_instrument_registry.txt"
 entry_pattern = "^([A-Z][A-Z0-9_]{2,})\\s*\\|"
-use_pattern   = "\"(APHROLLO_[A-Z0-9_]+)\""
+use_pattern   = "\"(APHROLLO_[A-Z0-9_]+)(?:\"|=)"

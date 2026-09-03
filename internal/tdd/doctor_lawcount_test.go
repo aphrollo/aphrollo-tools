@@ -44,3 +44,30 @@ func TestDoctor_ReportsTheDeclaredLawCount(t *testing.T) {
 		t.Errorf("detail = %q, want the count", c.Detail)
 	}
 }
+
+// A law that fails to parse is a real defect in the tree, not the same as
+// having adopted no laws at all — it must report OK:false with the parse
+// error, not silently skip the way an empty/absent laws dir does.
+func TestDoctor_ReportsAParseFailureInsteadOfSkippingIt(t *testing.T) {
+	in := healthyInstall(t)
+	lawsDir := filepath.Join(in.Repo, ".ratchet", "laws")
+	if err := os.MkdirAll(lawsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// No severity: ParseLaw requires it, so this fails to parse.
+	broken := "name = \"broken\"\ndescription = \"d\"\n"
+	if err := os.WriteFile(filepath.Join(lawsDir, "broken.toml"), []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if !slices.Contains(checkNames(Doctor(in)), "ratchet laws") {
+		t.Fatal("a law that fails to parse must still report, not silently skip")
+	}
+	c := check(t, Doctor(in), "ratchet laws")
+	if c.OK {
+		t.Fatalf("a law that fails to parse is not healthy: %+v", c)
+	}
+	if c.Detail == "" {
+		t.Error("detail must carry the parse error")
+	}
+}

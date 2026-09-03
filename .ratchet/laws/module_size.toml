@@ -6,6 +6,7 @@ baseline    = ".ratchet/baselines/module_size.txt"
 [scope]
 include = ["cmd/**/*.go", "internal/**/*.go"]
 exclude = ["**/testdata/**"]
+min_files = 429
 
 [matcher]
 kind = "line-count"

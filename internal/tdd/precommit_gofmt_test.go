@@ -27,7 +27,7 @@ func TestPrecommitGofmt_RejectsUnformattedStagedGo(t *testing.T) {
 // .gitattributes and still holds CRLF in its staged blob must be caught,
 // not waved through because the file "looks fine" in an editor that hides
 // line endings.
-func TestPrecommitGofmt_JudgesTheIndexBlobNotTheWorkingTree(t *testing.T) {
+func TestPrecommitGofmt_RejectsUnformattedCRLFStagedGo(t *testing.T) {
 	root := makeGoRepo(t)
 	withLinter(t, false)
 	write(t, root, "widget.go", "package m\r\n\r\nfunc Widget() int { return 1 }\r\n")
@@ -36,6 +36,44 @@ func TestPrecommitGofmt_JudgesTheIndexBlobNotTheWorkingTree(t *testing.T) {
 	res := Precommit(root, RunSuite(precommitTestTimeout))
 	if !res.Blocked || !strings.Contains(res.Message, "gofmt") {
 		t.Fatalf("a CRLF-staged file is not gofmt-clean, got %+v", res)
+	}
+}
+
+// The stage must judge what a commit would actually carry (the index), never
+// whatever the working tree happens to hold when precommit runs: a clean
+// STAGED blob must not block even though the file on disk was rewritten
+// unformatted/CRLF afterward without being re-added.
+func TestPrecommitGofmt_IgnoresAnUnformattedWorkingTreeWhenTheIndexIsClean(t *testing.T) {
+	root := makeGoRepo(t)
+	withLinter(t, false)
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+	// Rewritten after staging, never re-added: the index still holds the
+	// clean content this commit would actually carry.
+	write(t, root, "widget.go", "package m\r\n\r\nfunc Widget() int {\nreturn 1\n}\r\n")
+
+	res := Precommit(root, RunSuite(precommitTestTimeout))
+	if res.Blocked {
+		t.Fatalf("a clean STAGED blob must not block over a dirty working tree: %s", res.Message)
+	}
+}
+
+// The reverse of the above: an unformatted/CRLF blob actually staged must
+// block even when the working tree was cleaned up afterward without being
+// re-added — otherwise the stage would be judging the wrong copy of the
+// file.
+func TestPrecommitGofmt_RejectsAnUnformattedIndexEvenWhenTheWorkingTreeWasCleanedUp(t *testing.T) {
+	root := makeGoRepo(t)
+	withLinter(t, false)
+	write(t, root, "widget.go", "package m\r\n\r\nfunc Widget() int {\nreturn 1\n}\r\n")
+	gitDo(t, root, "add", ".")
+	// Cleaned up after staging, never re-added: the index still holds the
+	// unformatted/CRLF content this commit would carry.
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+
+	res := Precommit(root, RunSuite(precommitTestTimeout))
+	if !res.Blocked || !strings.Contains(res.Message, "gofmt") {
+		t.Fatalf("an unformatted STAGED blob must block even with a clean working tree, got %+v", res)
 	}
 }
 
@@ -49,5 +87,26 @@ func TestPrecommitGofmt_AllowsAlreadyFormattedGo(t *testing.T) {
 	res := Precommit(root, RunSuite(precommitTestTimeout))
 	if res.Blocked {
 		t.Fatalf("gofmt-clean source must not block: %s", res.Message)
+	}
+}
+
+// A monorepo's Go root can sit below the repo's git top level: git's bare
+// `:path` form resolves from the repo TOP regardless of cwd, so feeding it a
+// Go-root-relative path looks up the wrong location, errors, and (the bug)
+// that error was swallowed as "nothing staged to judge" — gofmt then reports
+// clean over a file it never read.
+func TestPrecommitGofmt_JudgesTheIndexBlobForANestedGoRoot(t *testing.T) {
+	root := makeGoRepo(t)
+	withLinter(t, false)
+	write(t, root, "sub/go.mod", "module sub\n\ngo 1.26\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "add nested module")
+
+	write(t, root, "sub/widget.go", "package m\n\nfunc Widget() int {\nreturn 1\n}\n")
+	gitDo(t, root, "add", ".")
+
+	res := Precommit(root, RunSuite(precommitTestTimeout))
+	if !res.Blocked || !strings.Contains(res.Message, "gofmt") {
+		t.Fatalf("unformatted staged content in a nested Go root must be rejected, got %+v", res)
 	}
 }

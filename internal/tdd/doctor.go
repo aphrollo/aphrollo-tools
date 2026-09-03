@@ -377,7 +377,14 @@ func doctorRatchetLaws(in DoctorInput) (DoctorCheck, bool) {
 		return c, false
 	}
 	laws, err := ratchet.LoadLaws(in.Repo)
-	if err != nil || len(laws) == 0 {
+	if err != nil {
+		// A law that fails to parse is a defect in the tree, not the same
+		// as having adopted no laws at all — say so rather than going
+		// silent the way an absent/empty laws dir does below.
+		c.Detail = fmt.Sprintf("failed to parse: %v", err)
+		return c, true
+	}
+	if len(laws) == 0 {
 		return c, false
 	}
 	c.OK = true

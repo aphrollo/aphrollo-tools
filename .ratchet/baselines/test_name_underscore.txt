@@ -17,7 +17,6 @@ internal/cli/issue_test.go | func TestGateIssueAcceptsATitleAfterItsFlags(t *tes
 internal/cli/issue_test.go | func TestGateIssuePrintsTheURLAsItsOnlyStdoutLine(t *testing.T) {
 internal/cli/issue_test.go | func TestGateIssueRefusesAnEmptyTitle(t *testing.T) {
 internal/cli/issue_test.go | func TestGateIssueRefusesAnUndeclaredLabelAndNamesTheList(t *testing.T) {
-internal/cli/main_test.go | func TestMain(m *testing.M) {
 internal/cli/ratchet_test.go | func TestGateInitWritesTheLawSpecBesideTheLaws(t *testing.T) {
 internal/cli/ratchet_test.go | func TestGateInitWritesTheManagedClaudeMDBlockIdempotently(t *testing.T) {
 internal/cli/ratchet_test.go | func TestRatchetCheckExitsOneAndNamesTheRegression(t *testing.T) {
@@ -291,7 +290,6 @@ internal/tdd/issue_test.go | func TestOpenIssueAllowsAnyLabelWhenTheRepoDeclares
 internal/tdd/issue_test.go | func TestOpenIssueCreatesEachLabelOnlyOnce(t *testing.T) {
 internal/tdd/issue_test.go | func TestOpenIssuePrintsTheURLGhReported(t *testing.T) {
 internal/tdd/issue_test.go | func TestOpenIssueRefusesALabelOutsideTheDeclaredList(t *testing.T) {
-internal/tdd/main_test.go | func TestMain(m *testing.M) {
 internal/tdd/nowindow_windows_test.go | func TestSilentStdioPointsEveryStreamAtTheNullDevice(t *testing.T) {
 internal/tdd/nowindow_windows_test.go | func TestSpawnedPhaseHasNoConsoleWindow(t *testing.T) {
 internal/tdd/policy_test.go | func TestActionFor(t *testing.T) {
@@ -388,7 +386,6 @@ internal/workspace/cleanup_test.go | func TestPathWithin(t *testing.T) {
 internal/workspace/conflict_test.go | func TestIsConflicting(t *testing.T) {
 internal/workspace/conflict_test.go | func TestMergeUnknown(t *testing.T) {
 internal/workspace/devmigrate_test.go | func TestBuildFirstNote(t *testing.T) {
-internal/workspace/main_test.go | func TestMain(m *testing.M) {
 internal/workspace/pr_test.go | func TestPRNumberFromURL(t *testing.T) {
 internal/workspace/pr_test.go | func TestPRStateWord(t *testing.T) {
 internal/workspace/push_test.go | func TestNormalizeGitHubURL(t *testing.T) {
