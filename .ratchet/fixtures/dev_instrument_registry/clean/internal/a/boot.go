@@ -2,6 +2,6 @@ package a
 
 import "os"
 
-func armed() bool {
-	return os.Getenv("APHROLLO_UNLISTED") != ""
+func armed() string {
+	return os.Getenv("APHROLLO_UNLISTED")
 }

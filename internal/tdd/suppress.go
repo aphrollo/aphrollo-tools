@@ -17,8 +17,7 @@ import "regexp"
 // commit — only one this change introduces.
 
 const (
-	lintSuppressReason = "Edit introduces a linter suppression (//nolint, eslint-disable, # noqa, # pylint: disable, # rubocop: disable). " + // reason: naming every directive form this detector must recognize
-		"Silencing the linter hides the finding instead of fixing it. Remove the suppression and address the warning, or justify it in review."
+	lintSuppressReason = "Edit introduces a linter suppression (//nolint, eslint-disable, # noqa, # pylint: disable, # rubocop: disable). Silencing the linter hides the finding instead of fixing it. Remove the suppression and address the warning, or justify it in review." // reason: naming every directive form this detector must recognize
 	typeSuppressReason = "Edit introduces a type-checker suppression (// @ts-ignore, // @ts-nocheck, # type: ignore, # pyright: ignore). " +
 		"Silencing the type checker buries a real type error. Fix the type, or justify the suppression in review."
 	coverageSuppressReason = "Edit introduces a coverage suppression (istanbul ignore, c8/v8 ignore, # pragma: no cover). " +
