@@ -38,13 +38,20 @@ and acts now.
   `aphrollo-dev` bash wrapper).
 - `guardrail pretooluse` — Claude PreToolUse policy hook (block long fg waits, warn noisy cmds).
 - `ratchet` — the law engine: `check` judges a repo against its declared
-  `.ratchet/laws/*.toml`, `test` proves each law against its fixtures.
+  `.ratchet/laws/*.toml` (`--adopt <law>` is the one path that creates or
+  raises a baseline row, gated on the law being new or changed since HEAD),
+  `test` proves each law against its fixtures, `init`/`presets` copy the
+  embedded law library (`internal/ratchet/presets/{common,rust,go}`) into a
+  repo via `extends`/`[params]`.
 - `gate` — the TDD + law gates (`pretooluse`/`posttooluse`/`userpromptsubmit`/`sessionend`/
   `precommit`/`prepush`) + `gate init` (wires session hooks + global git gate); `tdd` is a silent alias for one release.
   Ported from the retired `claude-code-tdd` Node hooks (this binary IS the gate now).
 - `docs check` — doc-reference guard: every repo path a tracked `*.md` cites must
   resolve (relative to the citing file, then repo root); exit 1 on any miss. Bar
-  is zero — no baseline, no allowlist, no suppression.
+  is zero — no baseline, no allowlist, no suppression. The rule itself is the
+  ratchet engine's `doc-path-resolves` matcher (a repo's own
+  `doc_reference_exists` law, else the built-in `common/doc_reference_exists`
+  preset) — this subcommand is CLI surface only.
 
 ## Layout
 

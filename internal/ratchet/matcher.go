@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -51,17 +52,135 @@ func (l Law) HitsIn(file, content string) []Hit {
 }
 
 func (l Law) lineCountHits(file string, raw []string) []Hit {
-	n := len(raw)
+	if l.Matcher.UnitSplit != nil {
+		if idx := splitUnitIndex(raw, l.Matcher.UnitSplit); idx >= 0 {
+			var hits []Hit
+			if h := l.lineCountUnit(file, file, raw[:idx]); h != nil {
+				hits = append(hits, *h)
+			}
+			if h := l.lineCountUnit(file, file+"#tests", raw[idx:]); h != nil {
+				hits = append(hits, *h)
+			}
+			return hits
+		}
+	}
+	if h := l.lineCountUnit(file, file, raw); h != nil {
+		return []Hit{*h}
+	}
+	return nil
+}
+
+// splitUnitIndex is the index of the first line matching the unit_split
+// regex, or -1 when none does. That line opens the second unit.
+func splitUnitIndex(raw []string, re *regexp.Regexp) int {
+	for i, line := range raw {
+		if re.MatchString(line) {
+			return i
+		}
+	}
+	return -1
+}
+
+// lineCountUnit judges one unit (the whole file, or one half of a split) and
+// reports it under key, which carries the `#tests` suffix for the second half.
+func (l Law) lineCountUnit(file, key string, raw []string) *Hit {
+	n := l.countUnit(file, raw)
 	if n <= l.Matcher.Max {
 		return nil
 	}
-	return []Hit{{
+	return &Hit{
 		Law:    l.Name,
 		File:   file,
-		Key:    file,
+		Key:    key,
 		What:   fmt.Sprintf("%d lines (max %d)", n, l.Matcher.Max),
 		Weight: n,
-	}}
+	}
+}
+
+// countUnit is the raw measurement one unit carries, with NO ceiling applied
+// — the count a UNDER-max file has too, which lineModeNotes needs in order to
+// see a stale baseline that no longer produces a hit at all.
+func (l Law) countUnit(file string, raw []string) int {
+	counted := raw
+	if l.Matcher.LineMode == LineCountCode {
+		counted = codeLines(raw, file)
+	}
+	return len(counted)
+}
+
+// lineCountMeasures is countUnit for every unit lineCountHits would judge —
+// one entry for a whole file, two (keyed `file` and `file#tests`) when
+// unit_split matches — with no ceiling applied.
+func (l Law) lineCountMeasures(file string, raw []string) map[string]int {
+	if l.Matcher.UnitSplit != nil {
+		if idx := splitUnitIndex(raw, l.Matcher.UnitSplit); idx >= 0 {
+			return map[string]int{
+				file:            l.countUnit(file, raw[:idx]),
+				file + "#tests": l.countUnit(file, raw[idx:]),
+			}
+		}
+	}
+	return map[string]int{file: l.countUnit(file, raw)}
+}
+
+// commentSyntax is the comment opener(s) this law's "code" line-count mode
+// judges a file by, decided by extension: `#` for .py/.sh/.toml (no block
+// comment), `//` + `/* */` for everything else (.rs/.go/.ts and unlisted
+// C-like extensions default here rather than crashing on an unknown one).
+func commentSyntax(file string) (line, blockOpen, blockClose string) {
+	switch strings.ToLower(filepath.Ext(file)) {
+	case ".py", ".sh", ".toml":
+		return "#", "", ""
+	default:
+		return "//", "/*", "*/"
+	}
+}
+
+// codeLines drops every blank line and every comment-only line — one opened
+// by the line-comment prefix, or fully inside a block-comment span — leaving
+// only lines a "code" line-count law counts. It is a heuristic scanner, not a
+// parser: a block comment that opens after real code on the same line is
+// left as code and never tracked into the next line, which is the one shape
+// this law needs (a full-line block comment run) rather than every shape a
+// compiler would need.
+func codeLines(raw []string, file string) []string {
+	lineComment, blockOpen, blockClose := commentSyntax(file)
+	out := make([]string, 0, len(raw))
+	inBlock := false
+	for _, l := range raw {
+		t := strings.TrimSpace(l)
+		if inBlock {
+			idx := strings.Index(t, blockClose)
+			if idx < 0 {
+				continue
+			}
+			inBlock = false
+			rest := strings.TrimSpace(t[idx+len(blockClose):])
+			if rest == "" || strings.HasPrefix(rest, lineComment) {
+				continue
+			}
+			out = append(out, l)
+			continue
+		}
+		if t == "" || strings.HasPrefix(t, lineComment) {
+			continue
+		}
+		if blockOpen != "" && strings.HasPrefix(t, blockOpen) {
+			rest := t[len(blockOpen):]
+			if idx := strings.Index(rest, blockClose); idx >= 0 {
+				after := strings.TrimSpace(rest[idx+len(blockClose):])
+				if after == "" || strings.HasPrefix(after, lineComment) {
+					continue
+				}
+				out = append(out, l)
+				continue
+			}
+			inBlock = true
+			continue
+		}
+		out = append(out, l)
+	}
+	return out
 }
 
 func (l Law) regexAbsentHits(file string, raw, code []string) []Hit {
@@ -200,8 +319,23 @@ func (l Law) docPathHits(file string, code []string) []Hit {
 		if l.excluded(line) {
 			continue
 		}
-		for _, m := range l.Matcher.Pattern.FindAllStringSubmatch(line, -1) {
-			cited := m[len(m)-1]
+		for _, loc := range l.Matcher.Pattern.FindAllStringSubmatchIndex(line, -1) {
+			// The LAST capture group is the citation, by convention (a law's
+			// pattern may wrap it in non-capturing alternation groups first).
+			gStart, gEnd := loc[len(loc)-2], loc[len(loc)-1]
+			if gStart < 0 {
+				continue
+			}
+			if gEnd < len(line) && isPathContinuation(line[gEnd]) {
+				// A regex has no notion of "the whole backtick-quoted token" —
+				// it just finds the longest run this pattern can describe, which
+				// for `refs/notes/gate` is the PREFIX `refs/notes/` (a valid
+				// Form-B shape on its own). A citation is the whole token, so a
+				// match immediately followed by more identifier or glob
+				// characters is a false start, not a shorter citation.
+				continue
+			}
+			cited := line[gStart:gEnd]
 			if l.docResolves(file, cited) {
 				continue
 			}
@@ -211,15 +345,35 @@ func (l Law) docPathHits(file string, code []string) []Hit {
 	return hits
 }
 
-// docResolves accepts a citation that resolves at the repo root or inside the
-// citing file's own unit (`crates/<x>/`, `tools/<x>/`) — the locality
-// convention a workspace-root-only check would call dangling.
+// isPathContinuation reports whether b could continue the SAME path token a
+// doc-path-resolves match just ended on — an identifier character, or a glob
+// character (`.ratchet/laws/*.toml` must never be read as citing the bare
+// directory `.ratchet/laws/`, with the glob silently dropped).
+func isPathContinuation(b byte) bool {
+	switch {
+	case b >= 'a' && b <= 'z', b >= 'A' && b <= 'Z', b >= '0' && b <= '9':
+		return true
+	}
+	return strings.IndexByte(".-_/*?{}<>", b) >= 0
+}
+
+// docResolves accepts a citation that resolves relative to the CITING file's
+// own directory, at the repo root, or inside the citing file's own unit
+// (`crates/<x>/`, `tools/<x>/`) — the locality convention a workspace-root-only
+// check would call dangling. Citing-file-relative is tried first because it is
+// the form a markdown link is actually written in. A trailing-slash citation
+// names a DIRECTORY, so resolution accepts either a file or a directory —
+// unlike scope.include's ExplicitPaths, which names one file and only one.
 func (l Law) docResolves(file, cited string) bool {
 	root := l.Root
 	if root == "" {
 		root = "."
 	}
-	if isFile(filepath.Join(root, filepath.FromSlash(cited))) {
+	citeDir := filepath.Dir(filepath.FromSlash(file))
+	if pathExists(filepath.Join(root, citeDir, filepath.FromSlash(cited))) {
+		return true
+	}
+	if pathExists(filepath.Join(root, filepath.FromSlash(cited))) {
 		return true
 	}
 	parts := strings.Split(normalizeSlashes(file), "/")
@@ -229,12 +383,18 @@ func (l Law) docResolves(file, cited string) bool {
 	if parts[0] != "crates" && parts[0] != "tools" {
 		return false
 	}
-	return isFile(filepath.Join(root, parts[0], parts[1], filepath.FromSlash(cited)))
+	return pathExists(filepath.Join(root, parts[0], parts[1], filepath.FromSlash(cited)))
 }
 
 func isFile(path string) bool {
 	fi, err := os.Stat(path)
 	return err == nil && !fi.IsDir()
+}
+
+// pathExists accepts a file OR a directory — what a doc citation may name.
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func (l Law) hit(file string, line int, what string) Hit {

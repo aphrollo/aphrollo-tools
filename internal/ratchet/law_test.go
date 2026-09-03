@@ -434,3 +434,70 @@ count = "calls"
 		t.Fatalf("err = %v, want one naming count", err)
 	}
 }
+
+// TestLoadLawsRejectsAnEmptyUnitSplit proves the empty-string half of
+// unit_split's validation: a blank regex names no split line at all, so it
+// is refused at load rather than silently treated as "no unit_split".
+func TestLoadLawsRejectsAnEmptyUnitSplit(t *testing.T) {
+	dir := t.TempDir()
+	writeLaw(t, dir, "c", `
+name = "c"
+description = "d"
+severity = "deny"
+
+[scope]
+include = ["**/*.rs"]
+
+[matcher]
+kind = "line-count"
+max = 10
+unit_split = ""
+`)
+	if _, err := LoadLaws(dir); err == nil || !strings.Contains(err.Error(), "unit_split") {
+		t.Fatalf("err = %v, want one naming unit_split", err)
+	}
+}
+
+// TestLoadLawsRejectsAUnitSplitThatIsNotAString proves the other half: a
+// non-string value (here an integer) is refused the same way.
+func TestLoadLawsRejectsAUnitSplitThatIsNotAString(t *testing.T) {
+	dir := t.TempDir()
+	writeLaw(t, dir, "c", `
+name = "c"
+description = "d"
+severity = "deny"
+
+[scope]
+include = ["**/*.rs"]
+
+[matcher]
+kind = "line-count"
+max = 10
+unit_split = 5
+`)
+	if _, err := LoadLaws(dir); err == nil || !strings.Contains(err.Error(), "unit_split") {
+		t.Fatalf("err = %v, want one naming unit_split", err)
+	}
+}
+
+// TestLoadLawsRejectsAUnitSplitThatDoesNotCompile proves the regex itself is
+// compiled at load time, not deferred until the first scan finds a hit.
+func TestLoadLawsRejectsAUnitSplitThatDoesNotCompile(t *testing.T) {
+	dir := t.TempDir()
+	writeLaw(t, dir, "c", `
+name = "c"
+description = "d"
+severity = "deny"
+
+[scope]
+include = ["**/*.rs"]
+
+[matcher]
+kind = "line-count"
+max = 10
+unit_split = "("
+`)
+	if _, err := LoadLaws(dir); err == nil || !strings.Contains(err.Error(), "does not compile") {
+		t.Fatalf("err = %v, want one saying the regex does not compile", err)
+	}
+}

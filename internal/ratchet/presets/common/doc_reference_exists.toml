@@ -1,0 +1,11 @@
+name        = "doc_reference_exists"
+description = "Every repo-relative path cited from an inline-code span or a markdown link target resolves — at the repo root, or inside the citing file's own crates/<x> or tools/<x> unit. The bar is zero: there is no baseline. The trigger is deliberately narrow (a backtick, or the exact `](` a markdown link opens with) rather than any delimiter, because bare prose is full of parenthetical, slash-separated word lists (`(commit/push/ship)`) that are not citations at all."
+severity    = "deny"
+
+[scope]
+include = ["**/*.md"]
+exclude = ["**/node_modules/**", "**/vendor/**", "**/.git/**"]
+
+[matcher]
+kind    = "doc-path-resolves"
+pattern = "(?:`|\\]\\()((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+\\.[A-Za-z0-9]+|(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+/)"

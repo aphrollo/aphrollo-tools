@@ -1,0 +1,13 @@
+name        = "dev_instrument_registry"
+description = "Every env switch prefixed {{prefixes}} is registered, and every registry line is used — a switch nobody registered is invisible, a registry line nobody reads is rot."
+severity    = "deny"
+
+[scope]
+include = ["**/*.rs", "**/*.go", "**/*.md"]
+exclude = ["**/target/**", "**/node_modules/**"]
+
+[matcher]
+kind          = "registry-both-ways"
+registry_file = "docs/dev_instruments.md"
+entry_pattern = "`((?:{{prefixes}})_[A-Z0-9_]+)`"
+use_pattern   = "\\b((?:{{prefixes}})_[A-Z0-9_]+)\\b"

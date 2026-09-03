@@ -1,0 +1,14 @@
+name        = "perf_baseline"
+description = "A Tier-1 kernel bench figure may not regress beyond tolerance — measured only when a deliberate bench run produced fresh criterion output."
+severity    = "deny"
+baseline    = ".ratchet/baselines/perf_baseline.txt"
+
+[scope]
+include = ["target/criterion/**/new/estimates.json"]
+
+[matcher]
+kind          = "json-number-ceiling"
+files         = "target/criterion/**/new/estimates.json"
+path          = "mean.point_estimate"
+tolerance_pct = 5
+enabled_env   = "PERF_RATCHET"

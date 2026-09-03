@@ -1,0 +1,13 @@
+name        = "nan_guard"
+description = "A float .clamp( call is not a NaN guard — reject over substitute; for authoritative state the fallback is the PREVIOUS value."
+severity    = "deny"
+escape      = "// nan-safe:"
+
+[scope]
+include = ["**/*.rs"]
+exclude = ["target/**"]
+
+[matcher]
+kind    = "regex-absent"
+pattern = "\\.clamp\\("
+key     = "file:line-content-hash"

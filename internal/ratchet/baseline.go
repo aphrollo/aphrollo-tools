@@ -245,6 +245,94 @@ func (b *Baseline) TightenWithSites(measured map[string]int, sites map[string][]
 	return t
 }
 
+// AdoptWithSites is TightenWithSites' one-way-door twin: where Tighten only
+// ever lowers or removes, Adopt sets every measured key's row to EXACTLY what
+// was measured — raising an existing key, and CREATING a row for a key the
+// baseline has never seen. It is how a law lands its first baseline, or a
+// deliberately widened law lands its next one; nothing about it belongs on
+// the path an ordinary `ratchet check` runs.
+func (b *Baseline) AdoptWithSites(measured map[string]int, sites map[string][]string) Tightening {
+	target := map[string]int{}
+	for k, v := range measured {
+		if v > 0 {
+			target[k] = v
+		}
+	}
+	before := b.Counts()
+
+	var t Tightening
+	for _, k := range sortedKeys(before) {
+		old, now := before[k], target[k]
+		switch {
+		case now == 0:
+			t.Removed = append(t.Removed, Change{Key: k, From: old})
+		case now != old:
+			t.Lowered = append(t.Lowered, Change{Key: k, From: old, To: now})
+		}
+	}
+
+	kept := b.lines[:0]
+	// handled marks a Counted key whose one row was already visited (raised
+	// or kept) in this pass; seen counts a Multiset key's ROW COUNT, which is
+	// a different unit from its target VALUE and must never be compared to it.
+	handled := map[string]bool{}
+	seen := map[string]int{}
+	for _, l := range b.lines {
+		if !l.data {
+			kept = append(kept, l)
+			continue
+		}
+		id := b.identity(l.key)
+		want := target[id]
+		if b.form == Counted {
+			if want == 0 {
+				continue // dropped: the measure no longer names this key
+			}
+			l.count = want
+			handled[id] = true
+			kept = append(kept, l)
+			continue
+		}
+		if seen[id] >= want {
+			seen[id]++
+			continue
+		}
+		if found := sites[id]; seen[id] < len(found) {
+			l.key = found[seen[id]]
+		}
+		seen[id]++
+		kept = append(kept, l)
+	}
+	b.lines = kept
+
+	// Every shortfall the first pass left — a key raised past what one
+	// existing row could hold, or a key with no row at all — gets a fresh
+	// one. before[id] == 0 && want > 0 was never recorded as a Change above
+	// (the first loop walks `before`, which a brand-new key is never a
+	// member of), so it is recorded here instead, once per key.
+	for _, id := range sortedKeys(target) {
+		want := target[id]
+		if before[id] == 0 {
+			t.Lowered = append(t.Lowered, Change{Key: id, From: 0, To: want})
+		}
+		if b.form == Counted {
+			if !handled[id] {
+				b.lines = append(b.lines, baselineLine{data: true, key: id, count: want})
+			}
+			continue
+		}
+		for seen[id] < want {
+			key := id
+			if found := sites[id]; seen[id] < len(found) {
+				key = found[seen[id]]
+			}
+			b.lines = append(b.lines, baselineLine{data: true, key: key, count: 1})
+			seen[id]++
+		}
+	}
+	return t
+}
+
 // Render is the file's text, always LF-terminated; WriteIfChanged matches it
 // to whatever line ending is already on disk.
 func (b *Baseline) Render() string {

@@ -1,0 +1,11 @@
+name        = "identifier_history_paths"
+description = "A file's own NAME never carries history — no _v2/_old/_backup/_deprecated suffix on the path itself; a name says what a thing IS."
+severity    = "warn"
+
+[scope]
+include = ["**/*"]
+exclude = ["**/target/**", "**/node_modules/**", "**/.git/**", "**/vendor/**"]
+
+[matcher]
+kind    = "path-regex-absent"
+pattern = "_(v[0-9]+|old|backup|deprecated)\\.[A-Za-z0-9]+$"

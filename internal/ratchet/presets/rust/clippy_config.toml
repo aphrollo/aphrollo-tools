@@ -1,0 +1,11 @@
+name        = "clippy_config"
+description = "A crate-local clippy.toml replaces the root's rather than merging, so it must restate the required ban."
+severity    = "deny"
+
+[scope]
+include = ["**/clippy.toml"]
+exclude = ["target/**"]
+
+[matcher]
+kind    = "regex-present"
+pattern = "disallowed-methods"

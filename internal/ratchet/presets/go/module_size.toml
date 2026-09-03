@@ -1,0 +1,11 @@
+name        = "module_size"
+description = "A Go file stays under its line ceiling — split by execution phase before it grows past the limit. Judged as one unit: a Go test file earns its own line-count law instead of a unit_split, since `_test.go` is already a separate file."
+severity    = "deny"
+
+[scope]
+include = ["**/*.go"]
+exclude = ["**/vendor/**", "**/*_test.go"]
+
+[matcher]
+kind = "line-count"
+max  = 600

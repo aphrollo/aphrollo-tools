@@ -1,0 +1,14 @@
+name        = "proptest_seeding"
+description = "Every wire/asset decoder's proptest! block is followed by an explicit #![proptest_config(...)] — a fuzz failure must reproduce, not roll a fresh seed next run."
+severity    = "deny"
+
+[scope]
+include = ["**/tests/**/*.rs", "**/src/**/*.rs"]
+exclude = ["target/**"]
+
+[matcher]
+kind      = "marker-within-lines"
+trigger   = "proptest!\\s*\\{"
+marker    = "proptest_config"
+direction = "below"
+lines     = 3

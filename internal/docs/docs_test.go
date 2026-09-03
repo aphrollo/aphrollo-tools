@@ -4,264 +4,143 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"testing"
 )
 
-func TestLooksLikeRepoPath(t *testing.T) {
-	tests := []struct {
-		name string
-		tok  string
-		want bool
-	}{
-		// Form A: contains a slash and the last segment has an extension.
-		{"nested file with ext", "internal/cli/cli.go", true},
-		{"dotdir nested file", ".github/workflows/pipeline.yml", true},
-		{"two segment file", "deploy/deploy-prod.sh", true},
-		// Form B: multi-segment directory (trailing slash + interior slash).
-		{"nested dir", "internal/cli/", true},
-		{"dotdir nested dir", ".github/workflows/", true},
-
-		// Not paths: no slash at all.
-		{"bare filename", "README.md", false},
-		{"bare word", "aphrollo", false},
-		// Bare single-segment directory is a concept, not a citation.
-		{"bare dir", "node_modules/", false},
-		{"bare dir migrations", "migrations/", false},
-		// Slash but last segment has no extension → not a file citation.
-		{"module path", "github.com/aphrollo/aphrollo-tools", false},
-		{"api verb", "textDocument/documentSymbol", false},
-		{"git ref", "origin/HEAD", false},
-		// Commands / prose contain whitespace.
-		{"command", "go build -o aphrollo ./cmd/aphrollo", false},
-		{"git diff cmd", "git diff origin/main...HEAD", false},
-		// Placeholders are not concrete paths.
-		{"angle placeholder", "a/<path>", false},
-		{"ellipsis placeholder", ".worktrees/…", false},
-		{"glob", "queries/*.sql", false},
-		{"pipe options", "/tdd [status|off|on]", false},
-		// Brace placeholders (template substitution) are not concrete paths.
-		{"brace placeholder", "references/{your_language}/determinism.md", false},
-		{"brace list placeholder", "messages/{en,de,fr}.json", false},
-		{"brace dir placeholder", "src/routes/p/{slug}/", false},
-		// Absolute and home paths are not repo-relative citations.
-		{"absolute path", "/usr/local/bin/aphrollo", false},
-		{"absolute file", "/etc/foo/bar.yml", false},
-		{"home path", "~/spaces/x", false},
-		{"home file", "~/foo/bar.md", false},
-		// Empty.
-		{"empty", "", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := looksLikeRepoPath(tt.tok); got != tt.want {
-				t.Errorf("looksLikeRepoPath(%q) = %v, want %v", tt.tok, got, tt.want)
-			}
-		})
-	}
-}
-
-func refsEqual(a, b []reference) bool {
-	sort.Slice(a, func(i, j int) bool {
-		if a[i].Line != a[j].Line {
-			return a[i].Line < a[j].Line
-		}
-		return a[i].Path < a[j].Path
-	})
-	sort.Slice(b, func(i, j int) bool {
-		if b[i].Line != b[j].Line {
-			return b[i].Line < b[j].Line
-		}
-		return b[i].Path < b[j].Path
-	})
-	return reflect.DeepEqual(a, b)
-}
-
-func TestExtractRefs(t *testing.T) {
-	tests := []struct {
-		name    string
-		content string
-		want    []reference
-	}{
-		{
-			name:    "markdown link to relative path",
-			content: "see [the plan](plan.md) for details\n",
-			want:    []reference{{Line: 1, Path: "plan.md"}},
-		},
-		{
-			name:    "markdown link strips fragment",
-			content: "[section](docs/crud-contract.md#section-7)\n",
-			want:    []reference{{Line: 1, Path: "docs/crud-contract.md"}},
-		},
-		{
-			name:    "markdown link strips title",
-			content: "[x](path/to/file.go \"a title\")\n",
-			want:    []reference{{Line: 1, Path: "path/to/file.go"}},
-		},
-		{
-			name:    "image link target",
-			content: "![alt](assets/diagram.png)\n",
-			want:    []reference{{Line: 1, Path: "assets/diagram.png"}},
-		},
-		{
-			name:    "inline code path with extension",
-			content: "edit `internal/cli/cli.go` to change it\n",
-			want:    []reference{{Line: 1, Path: "internal/cli/cli.go"}},
-		},
-		{
-			name:    "inline code nested dir",
-			content: "generated into `internal/lsp/` there\n",
-			want:    []reference{{Line: 1, Path: "internal/lsp/"}},
-		},
-		{
-			name:    "multiple refs on one line",
-			content: "`a/b.go` and [c](d/e.md) here\n",
-			want:    []reference{{Line: 1, Path: "a/b.go"}, {Line: 1, Path: "d/e.md"}},
-		},
-		{
-			name:    "line numbers tracked",
-			content: "line one\n`x/y.go`\nline three\n[z](p/q.md)\n",
-			want:    []reference{{Line: 2, Path: "x/y.go"}, {Line: 4, Path: "p/q.md"}},
-		},
-		// A `:line` citation suffix is a location within a file, not part of
-		// the path — strip it so the file itself is what gets resolved.
-		{
-			name:    "inline code strips single line suffix",
-			content: "see `internal/ticketflow/workflow.go:288` here\n",
-			want:    []reference{{Line: 1, Path: "internal/ticketflow/workflow.go"}},
-		},
-		{
-			name:    "inline code strips line range suffix",
-			content: "see `internal/store/postgres/threads.go:46-52` here\n",
-			want:    []reference{{Line: 1, Path: "internal/store/postgres/threads.go"}},
-		},
-		{
-			name:    "inline code strips line list suffix",
-			content: "see `cmd/api/main.go:413,458,515` here\n",
-			want:    []reference{{Line: 1, Path: "cmd/api/main.go"}},
-		},
-		{
-			name:    "non-numeric colon suffix is not a line ref",
-			content: "image `apache/tika:3.3.0.0-full` pinned\n",
-			want:    []reference{{Line: 1, Path: "apache/tika:3.3.0.0-full"}},
-		},
-
-		// --- ignore cases ---
-		{
-			name:    "ignore http link",
-			content: "[docs](https://example.com/a/b.html)\n",
-			want:    nil,
-		},
-		{
-			name:    "ignore http inline code",
-			content: "`http://example.com/x/y.go`\n",
-			want:    nil,
-		},
-		{
-			name:    "ignore mailto link",
-			content: "[mail](mailto:foo@example.com)\n",
-			want:    nil,
-		},
-		{
-			name:    "ignore bare anchor link",
-			content: "[top](#introduction)\n",
-			want:    nil,
-		},
-		{
-			name:    "ignore non-path inline code",
-			content: "run `go build` and `README.md` alone\n",
-			want:    nil,
-		},
-		{
-			name:    "ignore fenced code block",
-			content: "before\n```\n`internal/cli/cli.go`\n[x](gone/missing.md)\n```\nafter `real/path.go`\n",
-			want:    []reference{{Line: 6, Path: "real/path.go"}},
-		},
-		{
-			name:    "ignore tilde fenced block",
-			content: "~~~\n`skip/me.go`\n~~~\n`keep/me.go`\n",
-			want:    []reference{{Line: 4, Path: "keep/me.go"}},
-		},
-		{
-			name:    "ignore absolute and home inline",
-			content: "`/usr/local/bin/aphrollo` and `~/CLAUDE.md`\n",
-			want:    nil,
-		},
-		{
-			name:    "link syntax quoted inside inline code is not a link",
-			content: "targets like `[..](path)` are extracted\n",
-			want:    nil,
-		},
-		{
-			name:    "inline code masked but real link on same line kept",
-			content: "quote `[x](y)` then link [real](a/b.md)\n",
-			want:    []reference{{Line: 1, Path: "a/b.md"}},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := extractRefs(tt.content)
-			if !refsEqual(got, tt.want) {
-				t.Errorf("extractRefs() = %+v, want %+v", got, tt.want)
-			}
-		})
-	}
-}
-
-// TestCheckFiles is the falsifiable end-to-end case: a fixture doc that cites
-// both a resolvable path and a deliberately dangling one; only the dangling
-// reference must be reported.
-func TestCheckFiles(t *testing.T) {
-	root := t.TempDir()
-	write := func(rel, body string) {
-		p := filepath.Join(root, rel)
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// Files the doc will cite.
-	write("good.txt", "ok\n")
-	write("sub/nested.md", "# nested\n")
-	// A doc that cites: a sibling file (ok, relative to citing file),
-	// a repo-root path (ok), and a dangling one (must be reported).
-	write("docs/guide.md",
-		"see `docs/../good.txt` and [nested](../sub/nested.md)\n"+ // both resolvable
-			"but [gone](missing/removed.md) is dangling\n")
-
-	got, err := CheckFiles(root, []string{"good.txt", "sub/nested.md", "docs/guide.md"})
-	if err != nil {
+// writeRepoFile writes rel under root, creating parent dirs as needed.
+func writeRepoFile(t *testing.T, root, rel, body string) {
+	t.Helper()
+	p := filepath.Join(root, rel)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	want := []Finding{{File: "docs/guide.md", Line: 2, Ref: "missing/removed.md"}}
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// check runs CheckFiles over one doc file's content under a fresh temp repo,
+// having first written every file listed in resolvable — the fixtures every
+// case needs to already exist for a citation to resolve.
+func check(t *testing.T, docContent string, resolvable ...string) []Finding {
+	t.Helper()
+	root := t.TempDir()
+	for _, rel := range resolvable {
+		writeRepoFile(t, root, rel, "x")
+	}
+	writeRepoFile(t, root, "docs/guide.md", docContent)
+	got, err := CheckFiles(root, []string{"docs/guide.md"})
+	if err != nil {
+		t.Fatalf("CheckFiles: %v", err)
+	}
+	return got
+}
+
+// The extraction and resolution rule itself now lives in the ratchet engine
+// (internal/ratchet's doc-path-resolves matcher, rendered from the built-in
+// common/doc_reference_exists preset); these cases exercise it through the
+// package's own CLI-facing entry point rather than a removed private helper.
+func TestCheckFilesExtractsAndResolvesCitations(t *testing.T) {
+	tests := []struct {
+		name       string
+		content    string
+		resolvable []string
+		wantLines  []int // lines expected to report an UNRESOLVED reference
+	}{
+		{"markdown link to a resolvable relative path", "see [the plan](../plan.md)\n", []string{"plan.md"}, nil},
+		{"markdown link strips the fragment before resolving", "[s](../crud.md#section-7)\n", []string{"crud.md"}, nil},
+		{"markdown link strips the title before resolving", "[x](../path/to/file.go \"a title\")\n", []string{"path/to/file.go"}, nil},
+		{"image link target", "![alt](../assets/diagram.png)\n", []string{"assets/diagram.png"}, nil},
+		{"inline code path with extension", "edit `internal/cli/cli.go` to change it\n", []string{"internal/cli/cli.go"}, nil},
+		{"multiple refs on one line, one dangling", "`a/b.go` and [c](../d/e.md) here\n", []string{"a/b.go"}, []int{1}},
+		{"line numbers are tracked", "line one\n`x/y.go`\nline three\n[z](../p/q.md)\n", []string{"x/y.go"}, []int{4}},
+		{"a :line suffix does not stop the file from resolving", "see `internal/ticketflow/workflow.go:288` here\n", []string{"internal/ticketflow/workflow.go"}, nil},
+		{"a fake docker-tag-shaped token is never a citation", "image `apache/tika:3.3.0.0-full` pinned\n", nil, nil},
+		{"a bare filename with no slash is never a citation", "run `go build` and `README.md` alone\n", nil, nil},
+		{"a bare single-segment directory is never a citation", "see `node_modules/` mentioned\n", nil, nil},
+		{"http link target is never a citation", "[docs](https://example.com/a/b.html)\n", nil, nil},
+		{"http inline code is never a citation", "`http://example.com/x/y.go`\n", nil, nil},
+		{"mailto link is never a citation", "[mail](mailto:foo@example.com)\n", nil, nil},
+		{"bare anchor link is never a citation", "[top](#introduction)\n", nil, nil},
+		{"absolute path inline code is never a citation", "`/usr/local/bin/aphrollo`\n", nil, nil},
+		{"home path inline code is never a citation", "`~/CLAUDE.md`\n", nil, nil},
+		{"an unresolved citation is reported", "see `gone/missing.md` here\n", nil, []int{1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := check(t, tt.content, tt.resolvable...)
+			var lines []int
+			for _, f := range got {
+				lines = append(lines, f.Line)
+			}
+			if !reflect.DeepEqual(lines, tt.wantLines) {
+				t.Errorf("unresolved lines = %v, want %v (findings: %+v)", lines, tt.wantLines, got)
+			}
+		})
+	}
+}
+
+// TestCheckFilesDoesNotSkipFencedCodeBlocks_knownGap pins an accepted
+// behaviour change from the old hand-rolled extractor: the shared engine's
+// doc-path-resolves matcher is a stateless per-line scan and cannot express
+// "skip a fenced code block" the way the removed extractRefs did. A citation
+// inside a fence is now judged exactly like one outside it — this is not a
+// requirement, it is the shape of the matcher kind every consuming repo's own
+// law is judged by too.
+func TestCheckFilesDoesNotSkipFencedCodeBlocks_knownGap(t *testing.T) {
+	content := "```\n`gone/inside/a/fence.go`\n```\n"
+	got := check(t, content)
+	if len(got) != 1 || got[0].Line != 2 {
+		t.Fatalf("findings = %+v — a fenced citation is no longer exempt (accepted gap)", got)
+	}
+}
+
+// TestCheckFilesResolvesRelativeToCitingFileThenRoot proves the resolution
+// order end-to-end: a path resolves against the CITING file's own directory
+// first, then the repo root, and a dangling one is reported either way.
+func TestCheckFilesResolvesRelativeToCitingFileThenRoot(t *testing.T) {
+	root := t.TempDir()
+	writeRepoFile(t, root, "a/sibling.md", "x")
+	writeRepoFile(t, root, "rooted.md", "x")
+	writeRepoFile(t, root, "a/doc.md",
+		"see `./sibling.md` and `../rooted.md`\n"+
+			"but `sub/nope.md` is dangling\n")
+
+	got, err := CheckFiles(root, []string{"a/doc.md"})
+	if err != nil {
+		t.Fatalf("CheckFiles: %v", err)
+	}
+	want := []Finding{{File: "a/doc.md", Line: 2, Ref: "sub/nope.md"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("CheckFiles() = %+v, want %+v", got, want)
 	}
 }
 
-func TestResolveRelativeToCitingFileThenRoot(t *testing.T) {
+// TestCheckFilesUsesTheRepoOwnLawWhenItDeclaresOne proves the OTHER half of
+// "one implementation": a repo that declares its own doc_reference_exists law
+// is judged by THAT law, not silently by the built-in default — narrowing the
+// scope here to `.txt` (which the default preset never matches) is the proof.
+func TestCheckFilesUsesTheRepoOwnLawWhenItDeclaresOne(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "a"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "a", "sibling.md"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "rooted.md"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeRepoFile(t, root, ".ratchet/laws/doc_reference_exists.toml", `
+name = "doc_reference_exists"
+description = "a repo-local override, narrowed to .txt"
+severity = "deny"
 
-	citing := "a/doc.md"
-	if !resolves(root, citing, "sibling.md") {
-		t.Errorf("expected sibling.md to resolve relative to citing file")
+[scope]
+include = ["**/*.txt"]
+
+[matcher]
+kind = "doc-path-resolves"
+pattern = "(?:^|[\\s(\\[`+"`"+`])((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+\\.[A-Za-z0-9]+)"
+`)
+	writeRepoFile(t, root, "docs/guide.md", "see `gone/missing.md` here\n")
+
+	got, err := CheckFiles(root, []string{"docs/guide.md"})
+	if err != nil {
+		t.Fatalf("CheckFiles: %v", err)
 	}
-	if !resolves(root, citing, "rooted.md") {
-		t.Errorf("expected rooted.md to resolve relative to repo root")
-	}
-	if resolves(root, citing, "nope.md") {
-		t.Errorf("expected nope.md to be unresolved")
+	if len(got) != 0 {
+		t.Errorf("a .md file must not be judged when the repo's own law scopes only .txt: %+v", got)
 	}
 }

@@ -1,0 +1,13 @@
+name        = "libm_seam"
+description = "Sim-path trig goes through libm, never a platform's std trig — platform libms are not bit-identical, and a predicted surface needs bit-identity."
+severity    = "deny"
+escape      = "// libm-seam:"
+
+[scope]
+include = ["**/*.rs"]
+exclude = ["target/**"]
+
+[matcher]
+kind    = "regex-absent"
+pattern = "\\b(f32|f64)::(sin|cos|tan|atan2|sqrt)\\("
+key     = "file:line-content-hash"

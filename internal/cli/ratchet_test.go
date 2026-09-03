@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
 )
 
 // lawRepo is a repo carrying one deny law and its baseline, plus one file that
@@ -178,6 +180,218 @@ func TestRatchetTestFailsALawWithNoFixtures(t *testing.T) {
 	}
 }
 
+// TestRatchetInitWritesPresetsAndCheckRunsClean is the acceptance case: init
+// into a fresh repo, then check must find zero regressions — the presets it
+// copied are self-contained, valid laws from the first run.
+func TestRatchetInitWritesPresetsAndCheckRunsClean(t *testing.T) {
+	root := t.TempDir()
+	// dev_instrument_registry's registry file is a hardcoded convention path,
+	// not a parameter — an empty one is a legitimately empty registry.
+	writeFile(t, filepath.Join(root, "docs", "dev_instruments.md"), "")
+
+	var out, errb bytes.Buffer
+	code := Run([]string{"ratchet", "init", "--repo", root, "--preset", "common",
+		"--param", `pattern=TODO\(`, "--param", "prefixes=BORLD"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0\nstdout: %s\nstderr: %s", code, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), "[write] common/comment_hygiene") {
+		t.Errorf("output must name each law it wrote: %q", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, ".ratchet", "laws", "comment_hygiene.toml")); err != nil {
+		t.Fatalf("comment_hygiene.toml was not written: %v", err)
+	}
+	// common has 9 presets, both required params supplied: every one is
+	// written, none skipped or missing — the exact tally, not just a
+	// substring, so a wrong increment/decrement on the counters shows up.
+	if !strings.Contains(out.String(), "ratchet init: 9 written, 0 skipped, 0 missing params") {
+		t.Errorf("summary line wrong: %q", out.String())
+	}
+
+	out.Reset()
+	errb.Reset()
+	code = Run([]string{"ratchet", "check", "--repo", root, "--no-cache"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("check exit = %d, want 0 (clean)\nstdout: %s\nstderr: %s", code, out.String(), errb.String())
+	}
+}
+
+// TestRatchetInitIsIdempotent proves a second run over an already-adopted
+// preset set writes nothing and reports [skip], never clobbering a local edit.
+func TestRatchetInitIsIdempotent(t *testing.T) {
+	root := t.TempDir()
+	first := []string{"ratchet", "init", "--repo", root, "--preset", "common",
+		"--param", `pattern=TODO\(`, "--param", "prefixes=BORLD"}
+	var out, errb bytes.Buffer
+	if code := Run(first, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("first init: exit = %d\n%s%s", code, out.String(), errb.String())
+	}
+
+	out.Reset()
+	errb.Reset()
+	code := Run(first, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("second init: exit = %d\n%s%s", code, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), "[skip] common/comment_hygiene") {
+		t.Errorf("a repeat run must skip what is already there: %q", out.String())
+	}
+	if strings.Contains(out.String(), "[write]") {
+		t.Errorf("a repeat run must write nothing: %q", out.String())
+	}
+	// all 9 already exist: every one skipped, none written or missing.
+	if !strings.Contains(out.String(), "ratchet init: 0 written, 9 skipped, 0 missing params") {
+		t.Errorf("summary line wrong: %q", out.String())
+	}
+}
+
+// TestRatchetInitRefusesAPresetWithAnUnfilledParam is the RED case: no
+// --param means comment_hygiene's {{pattern}} slot never gets filled, and
+// init must refuse to write a law with a literal template slot in it.
+func TestRatchetInitRefusesAPresetWithAnUnfilledParam(t *testing.T) {
+	root := t.TempDir()
+	var out, errb bytes.Buffer
+	code := Run([]string{"ratchet", "init", "--repo", root, "--preset", "common"}, strings.NewReader(""), &out, &errb)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1\nstdout: %s\nstderr: %s", code, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), "[skip] common/comment_hygiene") || !strings.Contains(out.String(), "pattern") {
+		t.Errorf("output must name the preset and the missing param: %q", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, ".ratchet", "laws", "comment_hygiene.toml")); err == nil {
+		t.Error("a law missing a required param must never be written")
+	}
+	// comment_hygiene and dev_instrument_registry need a param each and go
+	// missing; the other 7 of the 9 common presets need none and are written.
+	if !strings.Contains(out.String(), "ratchet init: 7 written, 0 skipped, 2 missing params") {
+		t.Errorf("summary line wrong: %q", out.String())
+	}
+}
+
+// TestRatchetCheckWarnsWhenALocalMatcherDriftsFromItsPreset proves the OTHER
+// direction: a law that extends a preset but was hand-forked away from it is
+// flagged by name, never silently treated as still in sync.
+func TestRatchetCheckWarnsWhenALocalMatcherDriftsFromItsPreset(t *testing.T) {
+	root := t.TempDir()
+	// Written directly through the ratchet package rather than `ratchet init
+	// --preset rust`, which would also copy the group's dep-graph-forbids
+	// presets — those run a real `cargo metadata` at check time and have
+	// nothing to do with what this test is proving.
+	raw, err := ratchet.LoadPresetText("rust", "nan_guard")
+	if err != nil {
+		t.Fatalf("LoadPresetText: %v", err)
+	}
+	rendered, missing := ratchet.RenderPresetText(raw, nil)
+	if len(missing) != 0 {
+		t.Fatalf("nan_guard takes no params, missing = %v", missing)
+	}
+	final := ratchet.WithExtends(rendered, "rust", "nan_guard", nil, nil)
+	nanGuard := filepath.Join(root, ".ratchet", "laws", "nan_guard.toml")
+	writeFile(t, nanGuard, final)
+
+	forked := strings.Replace(final, `pattern = "\\.clamp\\("`, `pattern = "\\.forked\\("`, 1)
+	if forked == final {
+		t.Fatal("test setup: the pattern line was not found to fork")
+	}
+	writeFile(t, nanGuard, forked)
+
+	var out, errb bytes.Buffer
+	code := Run([]string{"ratchet", "check", "--repo", root, "--no-cache"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("a matcher fork is a warning, never a block: exit = %d\n%s%s", code, out.String(), errb.String())
+	}
+	if !strings.Contains(errb.String(), "nan_guard") || !strings.Contains(errb.String(), "preset:rust/nan_guard") {
+		t.Errorf("stderr must name the law and its preset: %q", errb.String())
+	}
+}
+
+// adoptRepo is a git repo carrying a committed law with no baseline yet,
+// then one offending file staged/committed on top.
+func adoptRepo(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	isolateGit(t)
+	gitInitRepo(t, root)
+	writeFile(t, filepath.Join(root, ".ratchet", "laws", "nan-guard.toml"), `
+name = "nan-guard"
+description = "A float clamp is not a NaN guard"
+severity = "deny"
+baseline = ".ratchet/baselines/nan-guard.txt"
+
+[scope]
+include = ["crates/**/*.rs"]
+
+[matcher]
+kind = "regex-absent"
+pattern = "\\.clamp\\("
+`)
+	writeFile(t, filepath.Join(root, "crates", "a", "src", "lib.rs"), "let a = x.clamp(0.0, 1.0);\n")
+	gitCommitAll(t, root, "seed")
+	return root
+}
+
+// TestRatchetCheckAdoptWritesTheFirstBaseline is the "a new deny law with
+// hits" case from the escape: no baseline file exists yet, so adoption is
+// allowed regardless of whether the law changed since HEAD.
+func TestRatchetCheckAdoptWritesTheFirstBaseline(t *testing.T) {
+	root := adoptRepo(t)
+	var out, errb bytes.Buffer
+	code := Run([]string{"ratchet", "check", "--repo", root, "--adopt", "nan-guard"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit = %d\nstdout: %s\nstderr: %s", code, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), "adopted nan-guard") {
+		t.Errorf("output must say what it adopted: %q", out.String())
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"))
+	if err != nil {
+		t.Fatalf("baseline was not written: %v", err)
+	}
+	if !strings.Contains(string(data), "crates/a/src/lib.rs") {
+		t.Errorf("baseline = %q", string(data))
+	}
+}
+
+// TestRatchetCheckAdoptRefusesAnUnchangedLaw proves the refusal: once a
+// baseline exists and the law's .toml is untouched since HEAD, --adopt on a
+// freshly widened tree must not silently raise the ceiling.
+func TestRatchetCheckAdoptRefusesAnUnchangedLaw(t *testing.T) {
+	root := adoptRepo(t)
+	var out, errb bytes.Buffer
+	if code := Run([]string{"ratchet", "check", "--repo", root, "--adopt", "nan-guard"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("first adopt: exit = %d\n%s%s", code, out.String(), errb.String())
+	}
+	gitCommitAll(t, root, "adopt")
+
+	// A second offender appears with no change to the law itself.
+	writeFile(t, filepath.Join(root, "crates", "b", "src", "lib.rs"), "let b = y.clamp(0.0, 1.0);\n")
+
+	out.Reset()
+	errb.Reset()
+	code := Run([]string{"ratchet", "check", "--repo", root, "--adopt", "nan-guard"}, strings.NewReader(""), &out, &errb)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 — the law is unchanged, adoption must refuse\nstdout: %s\nstderr: %s", code, out.String(), errb.String())
+	}
+	if !strings.Contains(errb.String(), "nan-guard") {
+		t.Errorf("stderr must name the law: %q", errb.String())
+	}
+}
+
+func TestRatchetPresetsListsGroupsAndParams(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := Run([]string{"ratchet", "presets"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit = %d\n%s%s", code, out.String(), errb.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "rust/nan_guard\n") {
+		t.Errorf("a param-free preset must list with no trailing params text: %q", got)
+	}
+	if !strings.Contains(got, "common/comment_hygiene  params: pattern") {
+		t.Errorf("a parameterized preset must list its params: %q", got)
+	}
+}
+
 // `gate init` writes the operating instructions into the repo's CLAUDE.md —
 // the one file a session always reads — and a second init changes nothing.
 func TestGateInitWritesTheManagedClaudeMDBlockIdempotently(t *testing.T) {
@@ -224,6 +438,17 @@ func TestGateInitWritesTheManagedClaudeMDBlockIdempotently(t *testing.T) {
 	}
 	if strings.Count(readFile(t, claude), "<!-- aphrollo:begin -->") != 1 {
 		t.Error("the block was duplicated")
+	}
+}
+
+func gitCommitAll(t *testing.T, dir, msg string) {
+	t.Helper()
+	for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", msg}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if b, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, b)
+		}
 	}
 }
 

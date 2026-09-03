@@ -1,0 +1,11 @@
+name        = "dep_graph_no_reach"
+description = "No package named in roots may reach a forbidden one through the resolved dependency graph — dev-only tooling in a shipping binary is the canonical case."
+severity    = "deny"
+
+[scope]
+include = ["**/Cargo.toml"]
+
+[matcher]
+kind      = "dep-graph-forbids"
+roots     = [{{roots}}]
+forbidden = [{{forbidden}}]

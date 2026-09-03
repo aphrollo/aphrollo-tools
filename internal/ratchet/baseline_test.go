@@ -47,6 +47,165 @@ func TestBaselineTightenLowersRemovesAndNeverRaisesOrAdds(t *testing.T) {
 	}
 }
 
+// TestBaselineAdoptRaisesAndCreatesRows proves Adopt does what Tighten
+// deliberately never does: raise an existing key past its old ceiling, and
+// create a row for a key the baseline has never seen at all.
+func TestBaselineAdoptRaisesAndCreatesRows(t *testing.T) {
+	b, err := ParseBaseline("crates/a.rs | 900\ncrates/b.rs | 620\n", Counted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tt := b.AdoptWithSites(map[string]int{
+		"crates/a.rs":   1200, // raised — a real ratchet.Tighten would refuse this
+		"crates/new.rs": 5,    // brand new — a real ratchet.Tighten would refuse this too
+	}, nil)
+	if got, want := b.Render(), "crates/a.rs | 1200\ncrates/new.rs | 5\n"; got != want {
+		t.Errorf("render = %q, want %q", got, want)
+	}
+	if !reflect.DeepEqual(tt.Removed, []Change{{"crates/b.rs", 620, 0}}) {
+		t.Errorf("a key absent from the adopted measure is still dropped: %+v", tt.Removed)
+	}
+	wantLowered := map[Change]bool{{"crates/a.rs", 900, 1200}: true, {"crates/new.rs", 0, 5}: true}
+	if len(tt.Lowered) != len(wantLowered) {
+		t.Fatalf("Lowered = %+v", tt.Lowered)
+	}
+	for _, c := range tt.Lowered {
+		if !wantLowered[c] {
+			t.Errorf("unexpected change %+v", c)
+		}
+	}
+}
+
+// TestBaselineAdoptOnAnEmptyBaselineWritesEveryMeasuredRow is the "law has no
+// baseline file yet" shape: adopting from zero rows must write every key —
+// the exact case where ordinary Tighten writes nothing at all.
+func TestBaselineAdoptOnAnEmptyBaselineWritesEveryMeasuredRow(t *testing.T) {
+	b := &Baseline{form: Counted}
+	// An ordinary Tighten over an empty baseline adds nothing, by design.
+	b.Tighten(map[string]int{"crates/a.rs": 40, "crates/b.rs": 12})
+	if got := b.Render(); got != "" {
+		t.Fatalf("Tighten must never create a row: render = %q", got)
+	}
+
+	b.AdoptWithSites(map[string]int{"crates/a.rs": 40, "crates/b.rs": 12}, nil)
+	if got, want := b.Render(), "crates/a.rs | 40\ncrates/b.rs | 12\n"; got != want {
+		t.Errorf("render = %q, want %q", got, want)
+	}
+}
+
+// TestBaselineAdoptOnAMultisetFormWritesOneRowPerOccurrence proves adoption
+// respects the line-keyed forms' one-row-per-occurrence shape, using the
+// sites a real scan would hand it.
+func TestBaselineAdoptOnAMultisetFormWritesOneRowPerOccurrence(t *testing.T) {
+	b := &Baseline{form: MultisetByText}
+	b.AdoptWithSites(
+		map[string]int{"x.clamp(0.0, 1.0)": 2},
+		map[string][]string{"x.clamp(0.0, 1.0)": {"crates/a.rs | x.clamp(0.0, 1.0)", "crates/b.rs | x.clamp(0.0, 1.0)"}},
+	)
+	want := "crates/a.rs | x.clamp(0.0, 1.0)\ncrates/b.rs | x.clamp(0.0, 1.0)\n"
+	if got := b.Render(); got != want {
+		t.Errorf("render = %q, want %q", got, want)
+	}
+}
+
+// TestBaselineAdoptOnAnExistingMultisetLowersDropsAndCreates proves the first
+// pass of AdoptWithSites — the one walking EXISTING rows — for a form keyed
+// by occurrence count, not a single row per key: a repeated identity must
+// drop exactly the rows past its new target (the seen>=want boundary), an
+// identity absent from the new measure must drop every row, and a brand-new
+// identity still gets its rows from `sites` in the second pass.
+func TestBaselineAdoptOnAnExistingMultisetLowersDropsAndCreates(t *testing.T) {
+	b, err := ParseBaseline(
+		"crates/a.rs | x.clamp(0.0, 1.0)\ncrates/b.rs | x.clamp(0.0, 1.0)\ncrates/c.rs | z.sin()\n",
+		MultisetByText,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tt := b.AdoptWithSites(
+		map[string]int{
+			"x.clamp(0.0, 1.0)": 1, // lowered from 2 existing rows to 1
+			"w.cos()":           2, // brand new identity, no existing row at all
+			// "z.sin()" absent: its one existing row must be dropped entirely
+		},
+		map[string][]string{
+			"x.clamp(0.0, 1.0)": {"crates/a.rs | x.clamp(0.0, 1.0)"},
+			"w.cos()":           {"crates/d.rs | w.cos()", "crates/e.rs | w.cos()"},
+		},
+	)
+
+	want := "crates/a.rs | x.clamp(0.0, 1.0)\ncrates/d.rs | w.cos()\ncrates/e.rs | w.cos()\n"
+	if got := b.Render(); got != want {
+		t.Errorf("render = %q, want %q", got, want)
+	}
+	if !reflect.DeepEqual(tt.Removed, []Change{{"z.sin()", 1, 0}}) {
+		t.Errorf("removed = %+v", tt.Removed)
+	}
+	wantLowered := map[Change]bool{
+		{"x.clamp(0.0, 1.0)", 2, 1}: true,
+		{"w.cos()", 0, 2}:           true,
+	}
+	if len(tt.Lowered) != len(wantLowered) {
+		t.Fatalf("lowered = %+v", tt.Lowered)
+	}
+	for _, c := range tt.Lowered {
+		if !wantLowered[c] {
+			t.Errorf("unexpected change %+v", c)
+		}
+	}
+}
+
+// TestBaselineAdoptIgnoresAZeroOrNegativeMeasuredCount proves a key whose
+// measured count is not positive never lands a row — the measure function
+// this feeds from counts occurrences, never anything else, but the guard
+// must still hold if it ever hands over a zero.
+func TestBaselineAdoptIgnoresAZeroOrNegativeMeasuredCount(t *testing.T) {
+	b := &Baseline{form: Counted}
+	b.AdoptWithSites(map[string]int{"crates/a.rs": 0, "crates/b.rs": -1, "crates/c.rs": 4}, nil)
+	want := "crates/c.rs | 4\n"
+	if got := b.Render(); got != want {
+		t.Errorf("render = %q, want %q", got, want)
+	}
+}
+
+// TestBaselineAdoptExhaustsKnownSitesThenFallsBackToTheIdentity proves the
+// site-assignment loops (both the first pass over existing rows and the
+// second pass appending shortfall rows) stop consulting `sites` once its
+// list runs out, at the EXACT boundary where the count of rows already
+// placed equals the number of known sites, and fall back to the bare
+// identity for whatever is left.
+func TestBaselineAdoptExhaustsKnownSitesThenFallsBackToTheIdentity(t *testing.T) {
+	// Existing pass: two rows for "q.tan()" kept, but only ONE known site —
+	// the first is renamed to it, the second keeps its original path.
+	b, err := ParseBaseline(
+		"crates/a.rs | q.tan()\ncrates/b.rs | q.tan()\n",
+		MultisetByText,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.AdoptWithSites(
+		map[string]int{"q.tan()": 2},
+		map[string][]string{"q.tan()": {"crates/c.rs | q.tan()"}},
+	)
+	want := "crates/c.rs | q.tan()\ncrates/b.rs | q.tan()\n"
+	if got := b.Render(); got != want {
+		t.Errorf("render = %q, want %q", got, want)
+	}
+
+	// Shortfall pass: a brand-new identity wants 3 rows, only 2 known sites —
+	// the third falls back to the bare identity as its key.
+	b2 := &Baseline{form: MultisetByText}
+	b2.AdoptWithSites(
+		map[string]int{"w.cos()": 3},
+		map[string][]string{"w.cos()": {"crates/d.rs | w.cos()", "crates/e.rs | w.cos()"}},
+	)
+	want2 := "crates/d.rs | w.cos()\ncrates/e.rs | w.cos()\nw.cos()\n"
+	if got := b2.Render(); got != want2 {
+		t.Errorf("render = %q, want %q", got, want2)
+	}
+}
+
 func TestBaselineRegressionsReportsGrownAndBrandNewKeys(t *testing.T) {
 	b, _ := ParseBaseline("crates/a.rs | 600\n", Counted)
 	got := b.Regressions(map[string]int{"crates/a.rs": 650, "crates/new.rs": 1})
