@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -42,6 +43,30 @@ func passingReceipt() MutationReceipt {
 	}
 }
 
+// repoWithMutationScript is a checkout that genuinely carries
+// tools/mutation_gate.sh — a borld-shaped repo, the one case where naming
+// that script in a refusal is honest.
+func repoWithMutationScript(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	toolsDir := filepath.Join(root, "tools")
+	if err := os.MkdirAll(toolsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(toolsDir, "mutation_gate.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// repoWithoutMutationScript is a Go-only checkout — no tools/mutation_gate.sh,
+// no Cargo.toml or aphrollo.toml naming a runner — the shape issue #141 is
+// about: told to run a script it does not have.
+func repoWithoutMutationScript(t *testing.T) string {
+	t.Helper()
+	return t.TempDir()
+}
+
 // TestMutationReceipt_RefusesAMergeWithoutProof pins what the receipt adds to
 // the gate. Fail-first proves a test FAILED once; it says nothing about
 // whether the test constrains behaviour, and a test that asserts nothing
@@ -51,15 +76,15 @@ func TestMutationReceipt_RefusesAMergeWithoutProof(t *testing.T) {
 		name    string
 		receipt *MutationReceipt
 		want    string
-		// cmdWant is the command substring the message must carry. Every
-		// case but the missing-receipt one goes through blockReceipt, which
-		// always names the script; the missing-receipt one goes through
-		// missingReceiptRemedy, which — with no RepoRoot to check here —
-		// falls back to this binary's own runner rather than claiming a
-		// script this context cannot verify exists (issue #117).
+		// cmdWant is the command substring the message must carry. Every case
+		// routes through the same mutantsRunnerCommand lookup on the fixture's
+		// RepoRoot (a borld-shaped repo carrying tools/mutation_gate.sh), so
+		// every refusal — not just the missing-receipt one — names a script
+		// this repo actually has (issue #141, building on issue #117's
+		// missing-receipt fix).
 		cmdWant string
 	}{
-		{"no receipt for this tree", nil, "mutation receipt missing", "aphrollo gate mutants"},
+		{"no receipt for this tree", nil, "mutation receipt missing", "mutation_gate.sh"},
 		{"taken over a dirty worktree", func() *MutationReceipt {
 			r := passingReceipt()
 			r.WorktreeDirty = true
@@ -99,7 +124,7 @@ func TestMutationReceipt_RefusesAMergeWithoutProof(t *testing.T) {
 			if c.receipt != nil {
 				writeReceipt(t, *c.receipt)
 			}
-			got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: laneTip})
+			got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: laneTip, RepoRoot: repoWithMutationScript(t)})
 			if got == nil || !got.Blocked {
 				t.Fatalf("merge allowed with %s", c.name)
 			}
@@ -108,6 +133,68 @@ func TestMutationReceipt_RefusesAMergeWithoutProof(t *testing.T) {
 			}
 			if !strings.Contains(got.Message, c.cmdWant) {
 				t.Fatalf("message = %q, want the command that produces a receipt", got.Message)
+			}
+		})
+	}
+}
+
+// TestMutationReceipt_GoOnlyRepoIsNeverToldToRunAScriptItDoesNotHave pins
+// issue #141: blockReceipt used to hard-code tools/mutation_gate.sh
+// regardless of root, so a Go-only repo hitting the dirty-worktree,
+// bad-verdict, wrong-repo, unaccepted-survivor or base-mismatch refusal was
+// told to run a script it does not have. Every refusal now routes through
+// mutantsRunnerCommand — the SAME lookup missingReceiptRemedy already used —
+// so each one names this binary's own runner instead. The missing-receipt
+// path is deliberately excluded: issue #117 already covers it.
+func TestMutationReceipt_GoOnlyRepoIsNeverToldToRunAScriptItDoesNotHave(t *testing.T) {
+	cases := []struct {
+		name    string
+		receipt MutationReceipt
+	}{
+		{"taken over a dirty worktree", func() MutationReceipt {
+			r := passingReceipt()
+			r.WorktreeDirty = true
+			return r
+		}()},
+		{"a failing verdict", func() MutationReceipt {
+			r := passingReceipt()
+			r.Verdict = "fail"
+			return r
+		}()},
+		{"survivors nobody signed off on", func() MutationReceipt {
+			r := passingReceipt()
+			r.Accepted = 1
+			r.Survivors = []MutantName{{Raw: "src/a.rs:12: replace + with -"}}
+			r.Unaccepted = []MutantName{{Raw: "src/a.rs:12: replace + with -"}}
+			return r
+		}()},
+		{"a receipt for another repo", func() MutationReceipt {
+			r := passingReceipt()
+			r.Repo = "other"
+			return r
+		}()},
+		{"a base mismatch", func() MutationReceipt {
+			r := passingReceipt()
+			r.BaseSHA = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+			return r
+		}()},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			writeReceipt(t, c.receipt)
+			got := checkMutationReceipt(receiptContext{
+				Repo: "borld", TipTree: laneTip, RepoRoot: repoWithoutMutationScript(t),
+				BaseSHA: "cafecafecafecafecafecafecafecafecafecafe",
+			})
+			if got == nil || !got.Blocked {
+				t.Fatalf("merge allowed with %s", c.name)
+			}
+			if strings.Contains(got.Message, "mutation_gate.sh") {
+				t.Fatalf("message = %q, a Go-only repo must never be told to run a script it does not have", got.Message)
+			}
+			if !strings.Contains(got.Message, "aphrollo gate mutants") {
+				t.Fatalf("message = %q, want it to name this binary's own runner instead", got.Message)
 			}
 		})
 	}

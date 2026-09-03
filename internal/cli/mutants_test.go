@@ -196,10 +196,39 @@ func TestMutantsGo_RefusesAReceiptPathWithNoDiff(t *testing.T) {
 // was documented as `run|go --job <file>` alone, so the only way to learn that
 // --diff exists was to read the dispatch.
 func TestGateUsage_DocumentsTheCIModeOfMutantsGo(t *testing.T) {
-	for _, want := range []string{"go --diff <base>", "--receipt <path>"} {
+	for _, want := range []string{"go --diff <base>", "--receipt <path>", "--store <dir>"} {
 		if !strings.Contains(gateUsage, want) {
 			t.Errorf("gate usage does not carry %q — an operator cannot find the CI mode", want)
 		}
+	}
+}
+
+// --store <dir> is CI's outcome-cache override (issue #143), forwarded to
+// GoMutantsCI.Store. Proven by the directory existing afterward:
+// ciMutantStorePath creates it before anything else the run does, and
+// gremlins itself is not installed in this sandbox, so the run fails fast
+// right after — without a mock this is the one externally observable side
+// effect that proves the flag reached the runner rather than being silently
+// dropped by the flag set.
+func TestMutantsGo_StoreFlagIsForwardedToTheOutcomeCache(t *testing.T) {
+	gateConfigDir(t)
+	dir := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	store := filepath.Join(t.TempDir(), "cache")
+	var out, errb bytes.Buffer
+	Run([]string{"gate", "mutants", "go", "--diff", "deadbeef", "--store", store},
+		strings.NewReader(""), &out, &errb)
+
+	if _, err := os.Stat(store); err != nil {
+		t.Fatalf("--store %s was never created: %v — the flag did not reach GoMutantsCI.Store", store, err)
 	}
 }
 

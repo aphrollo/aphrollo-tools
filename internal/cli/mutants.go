@@ -63,7 +63,7 @@ func runGateMutants(args []string, stderr io.Writer) int {
 		fs := flag.NewFlagSet("mutants "+args[0], flag.ContinueOnError)
 		fs.SetOutput(stderr)
 		job := fs.String("job", "", "path to the job file describing the run")
-		var diff, receipt *string
+		var diff, receipt, store *string
 		if args[0] == "go" {
 			// CI's addressing: the merge base its diff is scoped to, and
 			// where to leave the receipt for the workflow to upload. The
@@ -72,6 +72,12 @@ func runGateMutants(args []string, stderr io.Writer) int {
 			// outlive the process that decided it.
 			diff = fs.String("diff", "", "merge base to scope the run to (CI: run in the foreground and judge)")
 			receipt = fs.String("receipt", "", "where to write the signed receipt")
+			// The outcome cache's directory, so a push that only changed one
+			// file carries the rest of the PR's prior measurements forward
+			// instead of re-measuring the whole diff (issue #143). Wired to an
+			// actions/cache path keyed on the head branch; "" keeps the
+			// machine-local default (the detached job's own cache).
+			store = fs.String("store", "", "outcome cache directory, overriding the machine-local default (e.g. an actions/cache path keyed on the head branch)")
 		}
 		// The env-versus-flag rule: a flag typed for THIS run beats a
 		// session-wide override, which beats the per-box/producer default.
@@ -86,7 +92,7 @@ func runGateMutants(args []string, stderr io.Writer) int {
 		}
 		if args[0] == "go" {
 			if isFlagSet(fs, "diff") {
-				return tdd.RunGoMutantsCI(tdd.GoMutantsCI{BaseSHA: *diff, Receipt: *receipt}, stderr)
+				return tdd.RunGoMutantsCI(tdd.GoMutantsCI{BaseSHA: *diff, Receipt: *receipt, Store: *store}, stderr)
 			}
 			// --receipt names where the CI run leaves its proof, so it means
 			// nothing without --diff. Falling through here handed the detached

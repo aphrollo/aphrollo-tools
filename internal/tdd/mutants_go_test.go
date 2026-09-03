@@ -147,7 +147,7 @@ func TestStripQuoted_AnEmptyQuotedStringStillLeavesWhatFollows(t *testing.T) {
 // is capped: gremlins re-runs the suite per mutant, so an uncapped run owns
 // the box for as long as it takes.
 func TestGremlinsArgv_ScopesToTheLaneDiffAndCapsItself(t *testing.T) {
-	got := strings.Join(gremlinsArgv("abc123", "out.json", 2), " ")
+	got := strings.Join(gremlinsArgv("abc123", "out.json", 2, nil), " ")
 	for _, want := range []string{"unleash", "--diff abc123", "--output out.json", "--workers 2"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("gremlinsArgv = %q, want it to carry %q", got, want)
@@ -161,9 +161,26 @@ func TestGremlinsArgv_ScopesToTheLaneDiffAndCapsItself(t *testing.T) {
 // Measured over this repo's own lane diff on 2026-09-03: "./..." found 0
 // mutants where "." found 20 runnable.
 func TestGremlinsArgv_PassesTheModuleRootNotAPackagePattern(t *testing.T) {
-	got := gremlinsArgv("abc123", "out.json", 1)
+	got := gremlinsArgv("abc123", "out.json", 1, nil)
 	if last := got[len(got)-1]; last != "." {
 		t.Fatalf("gremlins path = %q, want the module root \".\" — a package pattern makes it walk nothing and pass", last)
+	}
+}
+
+// gremlins takes exactly one positional path (cobra.MaximumNArgs(1)), so a
+// file this run already has a valid measurement for is narrowed out through
+// its OWN `--exclude-files <regexp>` flag instead — anchored and escaped, so
+// a file whose path happens to be a substring of another's is never excluded
+// by accident (issue #143).
+func TestGremlinsArgv_ExcludesAlreadyMeasuredFilesByAnchoredRegexp(t *testing.T) {
+	got := strings.Join(gremlinsArgv("abc123", "out.json", 1, []string{"internal/tdd/receipt.go", "a.b.go"}), " ")
+	for _, want := range []string{
+		"--exclude-files ^internal/tdd/receipt\\.go$",
+		"--exclude-files ^a\\.b\\.go$",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("gremlinsArgv = %q, want it to carry %q", got, want)
+		}
 	}
 }
 
