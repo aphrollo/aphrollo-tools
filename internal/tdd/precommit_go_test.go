@@ -248,3 +248,68 @@ func TestPrecommitReadsDocsCheckFromTheWorkspaceManifest(t *testing.T) {
 		t.Fatalf("docs-check = true must turn the stage on: %+v", res)
 	}
 }
+
+// The workflow pin is read out of the lint action's own `with:` block. The
+// pattern used to accept the first `version:` ANYWHERE after the action line,
+// and `go-version:` in the setup-go step right below it matched -- so the
+// gate compared the linter against a Go toolchain version and reported drift
+// on every commit.
+func TestPinnedLinterVersion_ReadsTheActionsOwnVersionNotTheStepBelowIt(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, ".github", "workflows", "pipeline.yml"), `jobs:
+  lint:
+    steps:
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.12.2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.25.1
+`)
+
+	if got := pinnedLinterVersion(root); got != "2.12.2" {
+		t.Fatalf("pinnedLinterVersion = %q, want the lint action's own pin", got)
+	}
+}
+
+// The same file with the steps the other way round: a `go-version:` BEFORE
+// the action must not be read either, and the action's own key still is.
+func TestPinnedLinterVersion_IgnoresAGoVersionAboveTheLintAction(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, ".github", "workflows", "pipeline.yml"), `jobs:
+  lint:
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.25.1
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.12.2
+`)
+
+	if got := pinnedLinterVersion(root); got != "2.12.2" {
+		t.Fatalf("pinnedLinterVersion = %q, want the lint action's own pin", got)
+	}
+}
+
+// An action step that pins nothing is unpinned: reading the next step's
+// version would invent a pin the workflow does not state — and the gate would
+// then report drift on every commit against a number that is not a linter
+// version at all.
+func TestPinnedLinterVersion_IsEmptyWhenTheActionPinsNothing(t *testing.T) {
+	for _, next := range []string{"go-version: 1.25.1", "version: 1.36.0"} {
+		root := t.TempDir()
+		mustWrite(t, filepath.Join(root, ".github", "workflows", "pipeline.yml"), `jobs:
+  lint:
+    steps:
+      - uses: golangci/golangci-lint-action@v6
+      - uses: extractions/setup-just@v2
+        with:
+          `+next+`
+`)
+
+		if got := pinnedLinterVersion(root); got != "" {
+			t.Errorf("with %q below it, pinnedLinterVersion = %q, want none — the action states no version", next, got)
+		}
+	}
+}

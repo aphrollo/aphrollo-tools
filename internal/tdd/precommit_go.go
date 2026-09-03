@@ -49,13 +49,55 @@ var linterVersion = func(dir string) string {
 
 var semverRe = regexp.MustCompile(`\d+\.\d+\.\d+`)
 
-// workflowPinRes read the version CI installs out of the workflow file, which
-// is the only place the pin actually lives. Two shapes are in use: a
-// `go install …/golangci-lint@vX.Y.Z` line, and the lint action's own
-// `version:` key. A repo using the second must not read as unpinned.
-var workflowPinRes = []*regexp.Regexp{
-	regexp.MustCompile(`golangci-lint@v(\d+\.\d+\.\d+)`),
-	regexp.MustCompile(`(?s)golangci-lint-action@[^\n]*\n.*?\bversion:\s*v?(\d+\.\d+\.\d+)`),
+// workflowInstallPinRe reads the `go install …/golangci-lint@vX.Y.Z` shape,
+// which is a whole pin on one line.
+var workflowInstallPinRe = regexp.MustCompile(`golangci-lint@v(\d+\.\d+\.\d+)`)
+
+// lintActionRe recognises the step that runs the lint action, and versionKeyRe
+// its own `version:` key -- anchored at the start of the trimmed line, so
+// `go-version:` in the setup-go step is a different key and not this pin. An
+// unanchored pattern read the FIRST version after the action line, which on
+// this repo's own workflow was the Go toolchain's.
+var (
+	lintActionRe = regexp.MustCompile(`uses:\s*\S*golangci-lint-action@`)
+	versionKeyRe = regexp.MustCompile(`^version:\s*v?(\d+\.\d+\.\d+)`)
+)
+
+// pinFromLintAction reads the version out of the lint action STEP: the key
+// has to sit inside that step, which ends at the next line indented no deeper
+// than the step's own marker. A step that names no version pins nothing --
+// borrowing the next step's would invent a pin the workflow never states.
+func pinFromLintAction(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if !lintActionRe.MatchString(line) {
+			continue
+		}
+		stepIndent := indentOf(line)
+		for _, inner := range lines[i+1:] {
+			if strings.TrimSpace(inner) == "" {
+				continue
+			}
+			if indentOf(inner) <= stepIndent {
+				break // the next step: this one named no version
+			}
+			if m := versionKeyRe.FindStringSubmatch(strings.TrimSpace(inner)); m != nil {
+				return m[1]
+			}
+		}
+	}
+	return ""
+}
+
+// indentOf counts the leading blanks of a YAML line, treating the `- ` of a
+// list item as part of the indentation: a step's keys are indented past its
+// marker, and the next step's marker is not.
+func indentOf(line string) int {
+	n := 0
+	for n < len(line) && (line[n] == ' ' || line[n] == '\t') {
+		n++
+	}
+	return n
 }
 
 // driftNoted dedupes the drift line to once per process per version pair: a
@@ -128,10 +170,11 @@ func pinnedLinterVersion(repoRoot string) string {
 		if err != nil {
 			continue
 		}
-		for _, re := range workflowPinRes {
-			if m := re.FindStringSubmatch(string(data)); m != nil {
-				return m[1]
-			}
+		if m := workflowInstallPinRe.FindStringSubmatch(string(data)); m != nil {
+			return m[1]
+		}
+		if v := pinFromLintAction(string(data)); v != "" {
+			return v
 		}
 	}
 	return ""
