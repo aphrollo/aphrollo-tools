@@ -1117,7 +1117,15 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   code is not the verdict — it fails a run that misses its efficacy threshold,
   which is a bar about the whole module, and the bar here is the accept-list.
   Exit 2 is a bad invocation (no base: an unscoped run measures everything),
-  exit 1 is a failed check or a run that produced no report. The same verb with
+  exit 1 is a failed check, a run that produced no report, a mutant that timed
+  out (an unmeasured mutant is not a result), or a run that measured ZERO
+  mutants over a diff that DID change production Go — a scope matching nothing
+  is what a stale base looks like. A zero is a real answer only when there was
+  nothing to mutate, so the runner lists `<base>..HEAD` first: if no changed
+  file is a non-test `.go` outside a `testdata` tree it writes a signed
+  zero-mutant receipt, prints `0 mutable Go lines in <base>..HEAD: nothing to
+  judge` and exits 0 without starting the tool. A diff git cannot read counts as
+  mutable: "I could not tell" is never the reason a check passes. The same verb with
   `--job <file>` instead is the detached local run. aphrollo-tools runs it as
   the required `mutants` check in `.github/workflows/pipeline.yml`.
 - **`docs-check`** (bool) — turns on the staged-markdown citation stage for a

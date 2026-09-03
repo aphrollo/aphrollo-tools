@@ -159,6 +159,85 @@ func TestRunGoMutantsCI_FailsWhenTheScopeMatchedNoMutants(t *testing.T) {
 	}
 }
 
+// ciRepoWith is ciRepo with a caller-chosen set of files on the lane, handing
+// back the base the diff is taken against. Nothing depends on the order the
+// files are written: they all land in one commit.
+func ciRepoWith(t *testing.T, files map[string]string) (root, base string) {
+	t.Helper()
+	root = makeGoRepo(t)
+	base = gitValue(t, root, "rev-parse", "HEAD")
+	gitDo(t, root, "checkout", "-q", "-b", "lane/x")
+	for rel, content := range files {
+		write(t, root, rel, content)
+	}
+	gitDo(t, root, "add", "-A")
+	gitDo(t, root, "commit", "-qm", "lane work")
+	return root, base
+}
+
+// A pull request that changes no PRODUCTION Go measures zero mutants because
+// there was nothing to mutate — YAML, markdown, a test file, a testdata
+// fixture. That is a real answer about the lane, not a mis-scoped base, and
+// the two have to be told apart before the zero is judged. Nothing is even
+// spawned: gremlins mutates production Go only.
+func TestRunGoMutantsCI_PassesWhenTheDiffCarriesNoMutableGo(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root, base := ciRepoWith(t, map[string]string{
+		".github/workflows/pipeline.yml": "jobs: {}\n",
+		"README.md":                      "# docs\n",
+		"calc_test.go":                   "package m\n\nimport \"testing\"\n\nfunc TestCalc(t *testing.T) {}\n",
+		"internal/x/testdata/fixture.go": "package fixture\n\nfunc Fixture() int { return 1 }\n",
+	})
+	ran := fakeGremlins(t, allSkippedReport, 0)
+	path := filepath.Join(t.TempDir(), "receipt.json")
+
+	var out bytes.Buffer
+	if code := RunGoMutantsCI(GoMutantsCI{Root: root, BaseSHA: base, Receipt: path}, &out); code != 0 {
+		t.Fatalf("a diff with no production Go must pass, got exit %d:\n%s", code, out.String())
+	}
+	if want := "0 mutable Go lines in " + base + "..HEAD: nothing to judge"; !strings.Contains(out.String(), want) {
+		t.Fatalf("output = %q, want %q — the line that says why zero is a real answer", out.String(), want)
+	}
+	if len(*ran) != 0 {
+		t.Fatalf("the tool was started for a diff with nothing to mutate: %+v", *ran)
+	}
+	// The receipt is still written: CI uploads it, and "measured zero, and
+	// here is why" is a claim somebody may need to read.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("no receipt for a run that legitimately measured nothing: %v", err)
+	}
+	var r MutationReceipt
+	if err := json.Unmarshal(data, &r); err != nil {
+		t.Fatal(err)
+	}
+	if r.MutantsTotal != 0 || r.MAC == "" {
+		t.Fatalf("receipt = %+v, want a signed zero-mutant receipt", r)
+	}
+}
+
+// The other side of the same rule, and the one that keeps it honest: one
+// production .go file in the diff and nothing measured is a base that matched
+// nothing, which is what a stale merge base looks like.
+func TestRunGoMutantsCI_StillFailsWhenProductionGoChangedAndNothingWasMeasured(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root, base := ciRepoWith(t, map[string]string{
+		"README.md": "# docs\n",
+		"calc.go":   "package m\n\nfunc Calc() int { return 1 }\n",
+	})
+	fakeGremlins(t, allSkippedReport, 0)
+
+	var out bytes.Buffer
+	code := RunGoMutantsCI(GoMutantsCI{Root: root, BaseSHA: base}, &out)
+
+	if code == 0 {
+		t.Fatalf("a production .go file changed and nothing was measured — that must not pass:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), base) {
+		t.Fatalf("the output must name the base whose scope matched nothing, got:\n%s", out.String())
+	}
+}
+
 // A timeout is an UNMEASURED mutant filed beside the measured ones. The merge
 // gate refuses a receipt carrying one; with the local run off this check is
 // the only judge the repo has, so it refuses the same fact in the same words.
