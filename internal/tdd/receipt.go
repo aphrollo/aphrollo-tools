@@ -58,6 +58,13 @@ type MutationReceipt struct {
 	// says how much of its diff went unproven rather than implying the whole
 	// of it was judged.
 	NotCovered int `json:"not_covered,omitempty"`
+	// Excluded is how many tests the repo's own mutation-baseline-exclude
+	// declared out of measurement, from the baseline and from mutant testing
+	// alike (issue #265). Zero for a repo that declares none, which is the
+	// whole point: the mitigation for a repo quietly excluding its way to a
+	// green receipt is that the count is visible in the artefact a merge
+	// reads, not only in config.
+	Excluded int `json:"excluded,omitempty"`
 	// Survivors and Unaccepted are LISTS of mutants, as the producer writes
 	// them — the count is len(). Declaring survivors an int is what made
 	// every merge die on "cannot unmarshal array into Go struct field"; then

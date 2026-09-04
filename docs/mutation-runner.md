@@ -72,11 +72,12 @@ sha>`, with:
 | `APHROLLO_MUTANTS_BASE` | the base sha the receipt must record |
 | `APHROLLO_MUTANTS_ENV` | space-separated `NAME=VALUE` switches to set for the mutation run (see below) |
 | `APHROLLO_MUTANTS_JOBS` | the concurrency cap the gate computed, with `APHROLLO_MUTANTS_JOBS_WHY` explaining it |
+| `APHROLLO_MUTANTS_BASELINE_EXCLUDED` | how many `mutation-baseline-exclude` entries the gate folded into the nextest passthrough below |
 
 `APHROLLO_MUTANTS_ARGS` is always of the shape
 
 ```
---in-place --in-diff <diff> --test-tool=nextest [--baseline skip] [--package <name> ...] [--exclude-re <mutant> ...]
+--in-place --in-diff <diff> --test-tool=nextest [--baseline skip] [--package <name> ...] [--exclude-re <mutant> ...] [-- -E <filterset>]
 ```
 
 - `--in-place` — mutate the warm worktree. NEVER let cargo-mutants copy the
@@ -95,6 +96,34 @@ sha>`, with:
   flag existed — never pass `--package` for an empty or guessed set.
 - `--exclude-re` entries are mutants an interrupted earlier attempt already
   judged. A restart measures what is left.
+- `-- -E <filterset>` appears only when the repo declares
+  `mutation-baseline-exclude`, and everything after `--` is cargo-mutants' own
+  passthrough to the test tool — forwarded to the SAME `cargo nextest run` it
+  invokes for the unmutated baseline and for every mutant, so one flag covers
+  both (issue #265: a wall-clock test that fails under load with or without a
+  mutation both vetoes a receipt for a reason the tree is not responsible for,
+  and reads a mutant as CAUGHT when the load, not the mutation, is what
+  failed it). A repo declares it under `[aphrollo]` in `aphrollo.toml`, or
+  `[workspace.metadata.aphrollo]` in `Cargo.toml`, as a list of `"<nextest
+  filter expression> # why"` entries — the same shape and validation
+  `mutation-accept` uses, and an entry with no reason does not count:
+
+  ```toml
+  [workspace.metadata.aphrollo]
+  mutation-baseline-exclude = [
+    "test(conditioner_burst) # box-contended wall-clock test; fails under load whether or not a mutation is applied (issue #265)",
+    "test(moving_bandwidth) # ditto",
+  ]
+  ```
+
+  The gate combines every reasoned entry into one `not(<f1> + <f2> + ...)`
+  filterset and reports how many entries made it up in
+  `APHROLLO_MUTANTS_BASELINE_EXCLUDED` and in the receipt's own `excluded`
+  field (see below) — visible in the artefact a merge reads, not only in
+  config, since the whole risk of this feature is a repo quietly excluding
+  its way to a green receipt. The runner may derive the same count itself by
+  counting its own `mutation-baseline-exclude` entries, the way it already
+  counts `mutation-accept` entries for `accepted`.
 
 ## What the runner must do
 
@@ -265,6 +294,7 @@ mutation-accept = [
   "caught": 11,
   "timeout": 0,
   "unviable": 1,
+  "excluded": 2,               // count of mutation-baseline-exclude entries applied, 0/omitted when none declared
   "survivors":  [{"file": "…", "line": 12, "col": 33, "mutation": "…"}],
   "accepted": 1,
   "unaccepted": [],

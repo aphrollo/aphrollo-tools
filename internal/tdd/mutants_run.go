@@ -307,6 +307,7 @@ func mutantsChildEnv(j MutantsJob, judged []MutantOutcome) []string {
 		MutantsEnvEnv: true, MutantsJobsEnv: true, MutantsJobsWhyEnv: true,
 		BuildLockHeldEnv:       true,
 		MutantsBaseOverrideEnv: true, MutantsTimeoutMultiplierEnv: true, MutantsMinTestTimeoutEnv: true,
+		MutantsBaselineExcludedEnv: true,
 	}
 	for _, kv := range os.Environ() {
 		// Every GIT_* variable goes, the way cleanGitEnv already drops them
@@ -330,7 +331,8 @@ func mutantsChildEnv(j MutantsJob, judged []MutantOutcome) []string {
 	// cargoWorkspaceRoot answers j.Worktree when it finds no workspace table,
 	// so a single-crate repo's own Cargo.toml is what gets read here.
 	ws := cargoWorkspaceRoot(j.Worktree)
-	argv := MutantsArgv(j.Diff, TipSuiteGreen(j.RepoRoot, j.Started.Add(-mutantsGreenWindow)), mutantNames(judged), mutantsTouchedPackages(j))
+	excludeFilter, excludedCount := mutationBaselineExcludeForRun(ws, os.Stdout)
+	argv := MutantsArgv(j.Diff, TipSuiteGreen(j.RepoRoot, j.Started.Add(-mutantsGreenWindow)), mutantNames(judged), mutantsTouchedPackages(j), excludeFilter)
 	// `--timeout-multiplier`/`--minimum-test-timeout` are cargo-mutants' own
 	// flags; a run typed with either rides through unchanged rather than
 	// through the exclusion-list budget MutantsArgv already bounds.
@@ -353,6 +355,7 @@ func mutantsChildEnv(j MutantsJob, judged []MutantOutcome) []string {
 		MutantsEnvEnv+"="+strings.Join(cargoMutantsEnv(ws), " "),
 		MutantsJobsEnv+"="+strconv.Itoa(jobs),
 		MutantsJobsWhyEnv+"="+why,
+		MutantsBaselineExcludedEnv+"="+strconv.Itoa(excludedCount),
 		"CI=1", "NO_COLOR=1")
 }
 
