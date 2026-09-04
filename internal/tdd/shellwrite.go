@@ -46,21 +46,27 @@ func bashWriteTargets(cmd, cwd string) []string {
 	return out
 }
 
-// cdTarget reports the directory a `cd` segment would move into. false for
-// anything else — including a bare `cd` (moves to $HOME) and `cd -` (the
-// previous directory), neither of which this scanner can resolve without
-// reading the environment or remembering history it does not keep. Leaving
-// the tracked directory UNCHANGED on either is the fail-open direction: a
-// write that follows an unresolvable cd is simply not classified, rather
-// than guessed at.
+// cdTarget reports the directory a `cd` segment would move into, and whether
+// the segment was a `cd` at all. The directory is EMPTY for a cd this scanner
+// cannot resolve — a bare `cd` (moves to $HOME) and `cd -` (the previous
+// directory), neither of which it can answer without reading the environment
+// or remembering history it does not keep — which blanks the tracked
+// directory and so drops every later relative write in the command line.
+//
+// Dropping them is the fail-open direction, and keeping the PREVIOUS
+// directory is not: an unresolvable cd is far more likely to leave the repo
+// than to stay in it, so resolving a later `> f.txt` against the directory
+// the shell started in claims a write into a repo the command never touches,
+// and the guardrail refuses it. That false block is the expensive failure —
+// it wedges a session — while a miss costs one commit-gate rejection.
 func cdTarget(words []string) (string, bool) {
-	if len(words) < 2 || baseCommand(words[0]) != "cd" {
+	if len(words) == 0 || baseCommand(words[0]) != "cd" {
 		return "", false
 	}
-	if arg := words[1]; !strings.HasPrefix(arg, "-") {
-		return arg, true
+	if len(words) > 1 && !strings.HasPrefix(words[1], "-") {
+		return words[1], true
 	}
-	return "", false
+	return "", true
 }
 
 // heredocOpener matches a heredoc redirection and captures its delimiter,

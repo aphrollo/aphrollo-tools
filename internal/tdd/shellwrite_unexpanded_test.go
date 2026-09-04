@@ -82,3 +82,19 @@ func TestBashWriteTargets_StillClaimsAnAbsoluteWriteThatEmbedsAVariableElsewhere
 		t.Errorf("bashWriteTargets(%q) did not claim %q — only the TARGET carrying a variable is unresolvable", cmd, want)
 	}
 }
+
+// TestBashWriteTargets_ClaimsNothingAfterABareCd covers the other half of the
+// same rule. A bare `cd` moves to $HOME, which this scanner cannot read, so
+// every LATER relative write in that command line resolves against a
+// directory it does not know. Keeping the previous directory instead would
+// resolve those writes into the repo the shell started in and block them —
+// the same false block an unexpanded variable caused.
+func TestBashWriteTargets_ClaimsNothingAfterABareCd(t *testing.T) {
+	repo := filepath.FromSlash("/repo")
+
+	for _, cmd := range []string{"cd && echo hi > f.txt", "cd - && echo hi > f.txt"} {
+		if got := bashWriteTargets(cmd, repo); len(got) != 0 {
+			t.Errorf("bashWriteTargets(%q) = %q, want nothing — a write after an unresolvable cd is not known to be in the repo", cmd, got)
+		}
+	}
+}
