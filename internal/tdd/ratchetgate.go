@@ -15,7 +15,7 @@ import (
 // ratchetCheckFn is ratchet.Check, indirected so a test can substitute a
 // failure ratchetStage's own error classification must react to without
 // constructing an OS-level unreadable file (not portably possible — see
-// TestRatchetStageBlocksWhenAScopedFileCannotBeRead).
+// TestRatchetStage_BlocksWhenAScopedFileCannotBeRead).
 var ratchetCheckFn = ratchet.Check
 
 // The edit-time half of the law engine. A law that can only speak under
