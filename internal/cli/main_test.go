@@ -53,6 +53,14 @@ func TestMain(m *testing.M) {
 	// test case about the shim's queuing — inherited, it made every shim
 	// test take the nested-passthrough path.
 	os.Unsetenv(tdd.BuildLockHeldEnv)
+	// And the same net for gh: this package's verbs shell out to it, and only
+	// the tests that arranged a stub were isolated from the operator's real
+	// one. See ghstub_isolation_test.go.
+	if stub, err := ghStubDir(); err == nil {
+		if err := os.Setenv("PATH", stub+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
+			panic(err)
+		}
+	}
 	restoreLocks := tdd.SetLockDirForTest(locks)
 	code := m.Run()
 	restoreLocks()

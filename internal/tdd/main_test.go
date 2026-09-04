@@ -41,6 +41,20 @@ func TestMain(m *testing.M) {
 	// case under test here.
 	os.Unsetenv(BuildLockHeldEnv)
 	restoreLocks := SetLockDirForTest(locks)
+	// Same net for gh. Three issues were filed against the real repository by
+	// nobody — #155, #196 and #197, all carrying this package's own override
+	// fixture values (`override:override-off r`, evidence `e`, an unfilled
+	// closes-by line), two of them four seconds apart while mutation jobs
+	// were starting. The tests that reach the filing path stub gh themselves
+	// and every guard in front of it holds on unmutated code; under mutation
+	// those guards are exactly what gets inverted, and the real gh is one
+	// PATH lookup away. Putting the stub in front of it for the whole package
+	// makes that unreachable rather than merely unlikely.
+	if stub, err := ghStubDir(); err == nil {
+		if err := os.Setenv("PATH", stub+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
+			panic(err)
+		}
+	}
 	// The golden git repos every fixture helper copies, built once here
 	// rather than spawned per test. See fixture_test.go.
 	buildFixtures(dir)
