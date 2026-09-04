@@ -104,13 +104,13 @@ func TestSweepDeferredJobs_KillsALivePIDBeforeDroppingADayOldRecord(t *testing.T
 	}
 }
 
-// TestSweepDoesNotKillAPIDTheOSHasRecycled pins the cold-review fix: a
+// TestSweep_DoesNotKillAPIDTheOSHasRecycled pins the cold-review fix: a
 // day-old record's PID is not enough on its own. Between the record's own
 // timestamp and the 24h sweep, the OS can hand that same integer to an
 // unrelated process — this test simulates exactly that by recording one
 // creation time and having the live query answer with a different one — and
 // the sweep must withhold the kill while still dropping the stale record.
-func TestSweepDoesNotKillAPIDTheOSHasRecycled(t *testing.T) {
+func TestSweep_DoesNotKillAPIDTheOSHasRecycled(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := filepath.Join(t.TempDir(), "recycled-lane")
 	recordedCreatedAt := time.Now().Add(-30 * time.Hour)

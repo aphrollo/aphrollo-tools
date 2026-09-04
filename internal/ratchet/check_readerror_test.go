@@ -40,7 +40,7 @@ func withFakeReadDir(t *testing.T, fn func(string) ([]fs.DirEntry, error)) {
 
 var errSimulatedLock = errors.New("simulated: locked by another process")
 
-func TestScanTreeRefusesAVerdictWhenAScopedFileCannotBeRead(t *testing.T) {
+func TestScanTree_RefusesAVerdictWhenAScopedFileCannotBeRead(t *testing.T) {
 	withFakeReadFile(t, func(string) ([]byte, error) { return nil, errSimulatedLock })
 
 	root := t.TempDir()
@@ -59,7 +59,7 @@ func TestScanTreeRefusesAVerdictWhenAScopedFileCannotBeRead(t *testing.T) {
 	}
 }
 
-func TestScanTreeStaysSilentWhenAScopedFileVanishedMidWalk(t *testing.T) {
+func TestScanTree_StaysSilentWhenAScopedFileVanishedMidWalk(t *testing.T) {
 	withFakeReadFile(t, func(string) ([]byte, error) {
 		return nil, fmt.Errorf("open a.go: %w", fs.ErrNotExist)
 	})
@@ -80,7 +80,7 @@ func TestScanTreeStaysSilentWhenAScopedFileVanishedMidWalk(t *testing.T) {
 	}
 }
 
-func TestCollectFilesRefusesAVerdictWhenADirectoryCannotBeRead(t *testing.T) {
+func TestCollectFiles_RefusesAVerdictWhenADirectoryCannotBeRead(t *testing.T) {
 	withFakeReadDir(t, func(string) ([]fs.DirEntry, error) { return nil, errSimulatedLock })
 
 	laws := []Law{{Name: "x", Scope: Scope{Include: []string{"**/*.go"}}}}
@@ -93,7 +93,7 @@ func TestCollectFilesRefusesAVerdictWhenADirectoryCannotBeRead(t *testing.T) {
 	}
 }
 
-func TestCollectFilesStaysSilentWhenADirectoryVanishedMidWalk(t *testing.T) {
+func TestCollectFiles_StaysSilentWhenADirectoryVanishedMidWalk(t *testing.T) {
 	withFakeReadDir(t, func(string) ([]fs.DirEntry, error) {
 		return nil, fmt.Errorf("open dir: %w", fs.ErrNotExist)
 	})
@@ -108,7 +108,7 @@ func TestCollectFilesStaysSilentWhenADirectoryVanishedMidWalk(t *testing.T) {
 	}
 }
 
-func TestJSONCeilingHitsRefusesAVerdictWhenAScopedFileCannotBeRead(t *testing.T) {
+func TestJSONCeilingHits_RefusesAVerdictWhenAScopedFileCannotBeRead(t *testing.T) {
 	root := criterionTree(t, "46.3")
 	law := jsonCeilingLaw(t, root)
 
@@ -123,7 +123,7 @@ func TestJSONCeilingHitsRefusesAVerdictWhenAScopedFileCannotBeRead(t *testing.T)
 	}
 }
 
-func TestGlobFilesRefusesAVerdictWhenADirectoryCannotBeRead(t *testing.T) {
+func TestGlobFiles_RefusesAVerdictWhenADirectoryCannotBeRead(t *testing.T) {
 	withFakeReadDir(t, func(string) ([]fs.DirEntry, error) { return nil, errSimulatedLock })
 
 	files, err := globFiles(t.TempDir(), "**/*.json")
