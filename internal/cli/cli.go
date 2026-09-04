@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/dev"
-	"github.com/aphrollo/aphrollo-tools/internal/docs"
 	"github.com/aphrollo/aphrollo-tools/internal/guardrail"
 	"github.com/aphrollo/aphrollo-tools/internal/refactor"
 	"github.com/aphrollo/aphrollo-tools/internal/sqlc"
@@ -393,6 +392,9 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "init" {
 		return runGateInit(args[1:], stdout, stderr)
+	}
+	if args[0] == "primary-edits" {
+		return runGatePrimaryEdits(args[1:], stdout, stderr)
 	}
 	if args[0] == "self-install" {
 		// Rebuild this binary from source and put it in place of the
@@ -2010,49 +2012,6 @@ The bar is zero. There is no baseline file, no allowlist, no suppression comment
 — a rule with an escape hatch decays. A doc that cites a path that no longer
 exists silently misdrives every agent session that loads it; this catches that.
 `
-
-func runDocs(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
-		fmt.Fprint(stderr, docsUsage)
-		return 2
-	}
-	switch args[0] {
-	case "-h", "--help", "help":
-		fmt.Fprint(stdout, docsUsage)
-		return 0
-	case "check":
-		return runDocsCheck(args[1:], stdout, stderr)
-	default:
-		fmt.Fprintf(stderr, "aphrollo docs: unknown subcommand %q\n\n%s", args[0], docsUsage)
-		return 2
-	}
-}
-
-func runDocsCheck(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("check", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	// A single positional arg naming a directory is the repo root to scan;
-	// otherwise the positionals are pathspecs narrowing the cwd repo.
-	root := "."
-	paths := fs.Args()
-	if len(paths) > 0 {
-		if info, err := os.Stat(paths[0]); err == nil && info.IsDir() {
-			root, paths = paths[0], paths[1:]
-		}
-	}
-	failed, err := docs.Check(root, paths, stdout)
-	if err != nil {
-		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-		return 1
-	}
-	if failed {
-		return 1
-	}
-	return 0
-}
 
 func runSqlcCheck(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
