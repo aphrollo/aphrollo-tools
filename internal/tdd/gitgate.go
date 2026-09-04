@@ -47,8 +47,33 @@ var prunedHooks = []string{"pre-push"}
 // `#!/bin/sh` line the backslashes are escapes — Git Bash execs
 // `C:Users…aphrollo.exe`, every gated commit fails "not found". Quoting also
 // survives spaces (`C:\Program Files\…`).
-func binShim(bin, sub string) string {
-	return "#!/bin/sh\n" + installMarker + "\nexec \"" + shellPath(bin) + "\" " + CmdName + " " + sub + " \"$@\"\n"
+// The shim execs the aphrollo binary by ABSOLUTE path, so a path that stops
+// resolving — a rename, a half-finished install, a binary deleted while a copy
+// of it was running — took every `git` and every `cargo` in every shell down
+// with `exec: <path>: not found`, exit 127. Two sessions lost both tools
+// entirely for several minutes over exactly that, with a message naming a path
+// and no way to act on it.
+//
+// The gate is best-effort; the tools it wraps are not. A missing binary
+// degrades to running the real tool UNGATED, says so once, and names the
+// command that fixes it. The real tool's path is resolved at INSTALL time: the
+// shim cannot look it up itself, because its own directory sits ahead of the
+// real one on PATH by design. With no fallback resolved it says the same thing
+// and stops, rather than exec-ing an empty path — which a shell reads as
+// running the shim's own directory.
+func binShim(bin, sub, fallback string) string {
+	missing := "gate: " + shellPath(bin) + " is missing — running " + sub +
+		" UNGATED; fix with: aphrollo gate self-install"
+	guard := "if [ ! -x \"" + shellPath(bin) + "\" ]; then\n" +
+		"  echo \"" + missing + "\" >&2\n"
+	if fallback == "" {
+		guard += "  exit 127\n"
+	} else {
+		guard += "  exec \"" + shellPath(fallback) + "\" \"$@\"\n"
+	}
+	guard += "fi\n"
+	return "#!/bin/sh\n" + installMarker + "\n" + guard +
+		"exec \"" + shellPath(bin) + "\" " + CmdName + " " + sub + " \"$@\"\n"
 }
 
 // shellPath renders a binary path for embedding in a shell command line:
@@ -83,7 +108,10 @@ func installGitGate(hooksDir, bin string) (bool, error) {
 		if foreignHookExists(path) {
 			continue // never clobber a hand-written hook
 		}
-		want := binShim(bin, h.sub)
+		// A git HOOK has no "real tool" to fall through to: it IS the gate. With
+		// the binary gone it says so and stops, which git reports as a failed
+		// hook rather than a silently ungated commit.
+		want := binShim(bin, h.sub, "")
 		if cur, err := os.ReadFile(path); err == nil && string(cur) == want {
 			continue
 		}

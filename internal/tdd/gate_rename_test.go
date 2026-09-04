@@ -87,7 +87,7 @@ func TestGitShimsInvokeTheGateSubcommand(t *testing.T) {
 	if got := shim("/usr/local/bin/aphrollo", "precommit"); !strings.Contains(got, `"/usr/local/bin/aphrollo" gate precommit`) {
 		t.Errorf("per-repo shim = %q", got)
 	}
-	if got := binShim("/usr/local/bin/aphrollo", "premergecommit"); !strings.Contains(got, `"/usr/local/bin/aphrollo" gate premergecommit`) {
+	if got := binShim("/usr/local/bin/aphrollo", "premergecommit", ""); !strings.Contains(got, `"/usr/local/bin/aphrollo" gate premergecommit`) {
 		t.Errorf("global shim = %q", got)
 	}
 }

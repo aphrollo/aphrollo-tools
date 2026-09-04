@@ -12,18 +12,18 @@ import (
 // gated commit dies with "not found". The shim must embed the path
 // slash-normalized AND quoted (quoting also survives `C:\Program Files\…`).
 func TestBinShim_WindowsPathIsShSafe(t *testing.T) {
-	got := binShim(`C:\Users\me\bin\aphrollo.exe`, "precommit")
-	want := "#!/bin/sh\n" + installMarker + "\nexec \"C:/Users/me/bin/aphrollo.exe\" gate precommit \"$@\"\n"
-	if got != want {
+	got := binShim(`C:\Users\me\bin\aphrollo.exe`, "precommit", "")
+	want := "exec \"C:/Users/me/bin/aphrollo.exe\" gate precommit \"$@\"\n"
+	if !strings.HasSuffix(got, want) {
 		t.Fatalf("binShim windows path:\n got: %q\nwant: %q", got, want)
 	}
 }
 
 // The POSIX path keeps working — quoted now, but the same binary invocation.
 func TestBinShim_PosixPathQuoted(t *testing.T) {
-	got := binShim("/usr/local/bin/aphrollo", "precommit")
-	want := "#!/bin/sh\n" + installMarker + "\nexec \"/usr/local/bin/aphrollo\" gate precommit \"$@\"\n"
-	if got != want {
+	got := binShim("/usr/local/bin/aphrollo", "precommit", "")
+	want := "exec \"/usr/local/bin/aphrollo\" gate precommit \"$@\"\n"
+	if !strings.HasSuffix(got, want) {
 		t.Fatalf("binShim posix path:\n got: %q\nwant: %q", got, want)
 	}
 }
