@@ -184,15 +184,20 @@ func TestStartMutantsJob_TheCargoWorkspaceDeclaresTheSameOptOut(t *testing.T) {
 	}
 }
 
-// One warm worktree per repo, beside the lane worktrees and never inside the
-// checkout: the run needs a tree at the tip with its own persistent target
-// dir, and a fresh copy per run is the cold build this whole design removes.
-func TestMutantsWorktree_IsOneDedicatedTreePerRepo(t *testing.T) {
+// One warm worktree per LANE, all of them under one mutants root beside the
+// lane worktrees and never inside the checkout: the run needs a tree at the
+// tip with its own persistent target dir, and a fresh copy per run is the cold
+// build this whole design removes. The root is what every containment check
+// keys on.
+func TestMutantsWorktree_IsOneDedicatedTreeUnderTheRepoMutantsRoot(t *testing.T) {
 	parent := t.TempDir()
 	repo := filepath.Join(parent, "borld")
 	want := filepath.Join(parent, ".worktrees", "borld", "mutants")
-	if got := MutantsWorktreeDir(repo); got != want {
-		t.Fatalf("MutantsWorktreeDir = %q, want %q", got, want)
+	if got := MutantsRootDir(repo); got != want {
+		t.Fatalf("MutantsRootDir = %q, want %q", got, want)
+	}
+	if got := MutantsWorktreeDir(repo); !strings.HasPrefix(got, want+string(filepath.Separator)) {
+		t.Fatalf("MutantsWorktreeDir = %q, want a lane directory under %q", got, want)
 	}
 	// The target dir lives INSIDE that worktree: it is what makes the build
 	// warm across runs, and what the queue bypass is keyed on.
@@ -203,24 +208,31 @@ func TestMutantsWorktree_IsOneDedicatedTreePerRepo(t *testing.T) {
 
 // A commit fires the post-commit hook from wherever it was made, and a LANE
 // commit fires it from a lane worktree, not the repo's primary checkout.
-// MutantsWorktreeDir must resolve the same mutants tree from either: the one
-// `--git-common-dir` names, never a path nested under the lane's OWN
-// `.worktrees` entry (issue #114 — a lane under
+// The mutants root must resolve from the PRIMARY checkout whichever worktree
+// asks: the one `--git-common-dir` names, never a path nested under the lane's
+// OWN `.worktrees` entry (issue #114 — a lane under
 // `<parent>/.worktrees/borld/mutation-runner` wanted
 // `<parent>/.worktrees/borld/.worktrees/mutation-runner/mutants`, a path
 // `git worktree add` never had a reason to create).
-func TestMutantsWorktree_ResolvesFromThePrimaryCheckoutNotTheLaneRoot(t *testing.T) {
+//
+// Under that shared root the LANE gets its own directory — see
+// TestMutantsWorktreeDir_GivesTwoLanesOfOneRepoTwoDirectories for why the
+// trees themselves must differ.
+func TestMutantsWorktree_RootResolvesFromThePrimaryCheckoutNotTheLaneRoot(t *testing.T) {
 	root := makeCargoRepo(t)
 	parent := filepath.Dir(root)
 	lane := filepath.Join(parent, ".worktrees", filepath.Base(root), "some-lane")
 	gitDo(t, root, "worktree", "add", "-b", "lane/some-lane", lane)
 
 	want := filepath.Join(parent, ".worktrees", filepath.Base(root), "mutants")
-	if got := MutantsWorktreeDir(lane); got != want {
-		t.Fatalf("MutantsWorktreeDir(lane) = %q, want %q (the primary's tree, not one nested under the lane)", got, want)
+	if got := MutantsRootDir(lane); got != want {
+		t.Fatalf("MutantsRootDir(lane) = %q, want %q (the primary's root, not one nested under the lane)", got, want)
 	}
-	if got := MutantsWorktreeDir(root); got != want {
-		t.Fatalf("MutantsWorktreeDir(primary) = %q, want %q", got, want)
+	if got := MutantsRootDir(root); got != want {
+		t.Fatalf("MutantsRootDir(primary) = %q, want %q", got, want)
+	}
+	if got := MutantsWorktreeDir(lane); !strings.HasPrefix(got, want+string(filepath.Separator)) {
+		t.Fatalf("MutantsWorktreeDir(lane) = %q, want a lane directory under %q", got, want)
 	}
 }
 

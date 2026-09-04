@@ -188,9 +188,14 @@ func prepareMutantsWorktree(j MutantsJob) error {
 		if err := os.MkdirAll(filepath.Dir(j.Worktree), 0o755); err != nil {
 			return err
 		}
+		// Before adding one more warm tree, drop the ones whose lanes are
+		// gone: each carries a target dir, and the run refuses to start below
+		// 15 GB free per job.
+		reclaimStaleMutantsLanes(j.RepoRoot)
 		if out, err := git(j.RepoRoot, "worktree", "add", "--detach", j.Worktree, j.Tip); err != nil {
 			return errors.New(strings.TrimSpace(out))
 		}
+		writeMutantsLaneMarker(j.Worktree, j.RepoRoot)
 		return nil
 	}
 	if out, err := git(j.Worktree, "reset", "-q", "--hard", j.Tip); err != nil {
