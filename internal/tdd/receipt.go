@@ -138,6 +138,23 @@ type receiptContext struct {
 	BaseSHA string
 }
 
+// newReceiptContext describes the merge in progress to the receipt check.
+//
+// Repo is the repo's shared git COMMON dir, never repoRoot's own directory
+// name: a linked worktree is routinely named unlike the repo (a lane checked
+// out at `.worktrees/borld/eol`), but every worktree of one repo shares that
+// one directory. RepoID is the location-independent identity that outlives a
+// move between checkouts and operating systems; see MutationReceipt.RepoID.
+func newReceiptContext(repoRoot string, tip mergeTip) receiptContext {
+	return receiptContext{
+		RepoRoot: repoRoot,
+		Repo:     commonGitDir(repoRoot),
+		RepoID:   repoIdentity(repoRoot),
+		TipTree:  tip.Tree,
+		BaseSHA:  mergeBaseSHA(repoRoot, tip.Rev),
+	}
+}
+
 // checkMutationReceipt judges the receipt for the tree being merged. It
 // returns nil to allow, or a blocking GateResult naming the field that
 // failed.

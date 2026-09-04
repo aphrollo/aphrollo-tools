@@ -243,18 +243,7 @@ func mutationReceiptStage(repoRoot string) *GateResult {
 		// the branch coming in.
 		return blockReceipt(repoRoot, "no lane tip to look a receipt up by (neither .git/MERGE_HEAD nor %s names a merged branch)", reflogActionEnv)
 	}
-	// The repo's shared git COMMON dir, never repoRoot's own directory name:
-	// a linked worktree is routinely named unlike the repo (a lane checked
-	// out at `.worktrees/borld/eol`), but every worktree of one repo shares
-	// this one directory, which is what actually identifies "one repo" to
-	// sameRepo.
-	return checkMutationReceipt(receiptContext{
-		RepoRoot: repoRoot,
-		Repo:     commonGitDir(repoRoot),
-		RepoID:   repoIdentity(repoRoot),
-		TipTree:  tip.Tree,
-		BaseSHA:  mergeBaseSHA(repoRoot, tip.Rev),
-	})
+	return checkMutationReceipt(newReceiptContext(repoRoot, tip))
 }
 
 // failFirstStage runs the fail-first check for ONE project root's staged
