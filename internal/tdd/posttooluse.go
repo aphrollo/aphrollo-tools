@@ -525,6 +525,20 @@ func RunSuite(timeout time.Duration) SuiteRunner {
 		cmd := exec.CommandContext(ctx, r.Cmd, r.Args...)
 		cmd.Dir = dir
 		cmd.Env = suiteEnv()
+		// The default cancel kills the direct child and nothing else, and
+		// every runner here is a LAUNCHER: `go test` compiles a test binary
+		// and runs it as a grandchild, cargo spawns rustc. Killing the
+		// launcher left those alive for the rest of the session, holding
+		// build outputs and polling — measured as stranded `<pkg>.test.exe`
+		// processes from earlier timed-out runs. killTree is the same reach
+		// a deferred phase already uses.
+		cmd.SysProcAttr = suiteAttrs()
+		cmd.Cancel = func() error {
+			if cmd.Process == nil {
+				return nil
+			}
+			return killTree(cmd.Process.Pid)
+		}
 		// Without WaitDelay a killed test runner's surviving children hold the
 		// output pipes open and CombinedOutput blocks long past the deadline
 		// (cmd.exe's children on Windows, orphaned workers elsewhere).
