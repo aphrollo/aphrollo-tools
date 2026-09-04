@@ -179,6 +179,120 @@ func installMarkerWritingHook(t *testing.T, repo, markerPath string) {
 	}
 }
 
+// makeAbortFailingMergeRepo builds two branches that each change DIFFERENT
+// lines of the SAME file, so `git merge` auto-merges it cleanly with no
+// conflict -- reproducing the exact borld shape (`.ratchet/baselines/
+// module_size.txt`, re-pathed rows correct in the index) where the merge
+// itself never sees a problem. filePath names the shared file relative to
+// repo, for a hook to corrupt after the merge has staged it.
+func makeAbortFailingMergeRepo(t *testing.T) (repo, branch, filePath string) {
+	t.Helper()
+	repo = t.TempDir()
+	filePath = "shared.txt"
+	run := func(args ...string) {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	run("config", "user.email", "t@t")
+	run("config", "user.name", "t")
+	write := func(content string) {
+		if err := os.WriteFile(filepath.Join(repo, filePath), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("line1\nline2\nline3\n")
+	run("add", ".")
+	run("commit", "-qm", "base")
+	run("checkout", "-qb", "feature")
+	write("line1\nline2\nline3\nfeature-line\n")
+	run("add", ".")
+	run("commit", "-qm", "feature")
+	run("checkout", "-q", "main")
+	write("main-line\nline1\nline2\nline3\n")
+	run("add", ".")
+	run("commit", "-qm", "main-change")
+	return repo, "feature", filePath
+}
+
+// installMarkerWritingHookThatCorruptsFile plants a real pre-merge-commit
+// hook that, before rejecting, appends to targetFile IN THE WORKTREE without
+// touching the index -- the exact underneath-git modification the borld
+// incident hit (a concurrent tightening run rewriting the baseline file
+// after the merge staged it). Git's own `merge --abort` then refuses to
+// discard that uncommitted change on a path the target tree also wants to
+// change: "error: Entry '<path>' not uptodate. Cannot merge."
+func installMarkerWritingHookThatCorruptsFile(t *testing.T, repo, markerPath, targetFile string) {
+	t.Helper()
+	hooksDir := filepath.Join(repo, ".git", "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\n" +
+		"echo 'corrupted-underneath-git' >> \"" + shellSlash(targetFile) + "\"\n" +
+		"echo 'REJECTED by fake hook' >&2\n" +
+		"mkdir -p \"" + shellSlash(filepath.Dir(markerPath)) + "\"\n" +
+		"printf '%s\\n%s\\n' \"$(date +%s)\" 'REJECTED by fake hook' > \"" + shellSlash(markerPath) + "\"\n" +
+		"exit 1\n"
+	if err := os.WriteFile(filepath.Join(hooksDir, "pre-merge-commit"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRunGitShim_AbortItselfFails_ReportsStillMidMerge is the #249 case: the
+// recovery abort does not merely fail to help, it FAILS outright (git
+// refuses to overwrite shared.txt's uncommitted worktree change), and the
+// gate must say so rather than claim "aborted, checkout left clean". Both
+// halves matter: the reported message names mid-merge (never the clean-abort
+// line), and the checkout is verifiably STILL mid-merge (MERGE_HEAD present,
+// working tree not clean) -- a session that trusted a false "clean" message
+// would proceed on top of exactly this state.
+func TestRunGitShim_AbortItselfFails_ReportsStillMidMerge(t *testing.T) {
+	gateConfigDir(t)
+	withDirectGitShim(t)
+	isolateGitConfigCLI(t)
+	repo, branch, filePath := makeAbortFailingMergeRepo(t)
+
+	root := tdd.RepoRoot(repo)
+	if root == "" {
+		t.Fatal("setup: could not resolve the repo root")
+	}
+	markerPath := tdd.MergeRejectedMarkerPath(root)
+	if markerPath == "" {
+		t.Fatal("setup: MergeRejectedMarkerPath returned empty")
+	}
+	installMarkerWritingHookThatCorruptsFile(t, repo, markerPath, filePath)
+
+	cfg := gitShimConfig{waitBudget: 5 * time.Second, pollInterval: 20 * time.Millisecond, realGit: realGitForTest(t)}
+	var stdout, stderr bytes.Buffer
+	code := runGitShim([]string{"-C", repo, "merge", "--no-ff", branch}, strings.NewReader(""), &stdout, &stderr, cfg)
+	if code == 0 {
+		t.Fatalf("expected the fake hook's rejection to propagate as a non-zero exit, got 0\nstderr: %s", stderr.String())
+	}
+
+	if strings.Contains(stderr.String(), mergeRejectedRecoveryLine) {
+		t.Fatalf("expected the abort-failed report, not the clean-abort line, got stderr:\n%s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "STILL MID-MERGE") {
+		t.Fatalf("expected the reported message to say the checkout is still mid-merge, got stderr:\n%s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), filePath) {
+		t.Fatalf("expected the reported message to name %q (the path git named), got stderr:\n%s", filePath, stderr.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(repo, ".git", "MERGE_HEAD")); err != nil {
+		t.Fatalf("expected MERGE_HEAD to survive a failed abort (checkout still mid-merge), stat err = %v", err)
+	}
+	statusOut, err := exec.Command("git", "-C", repo, "status", "--porcelain").Output()
+	if err != nil {
+		t.Fatalf("git status: %v", err)
+	}
+	if strings.TrimSpace(string(statusOut)) == "" {
+		t.Fatalf("expected a NOT-clean checkout after a failed abort, but git status --porcelain was empty")
+	}
+}
+
 // TestRunGitShim_MergeRejectedByHook_AbortsAndCleansCheckout is the literal
 // required case: a real pre-merge-commit hook rejects an otherwise-clean
 // automerge and writes the marker (simulating the actual gate's own
