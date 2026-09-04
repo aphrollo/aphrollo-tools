@@ -176,7 +176,10 @@ func TestReuseOpenPR_OpenIsReused(t *testing.T) {
 		func(wt, branch string) (*PRInfo, error) {
 			return &PRInfo{Number: 5, URL: "https://github.com/o/r/pull/5", State: "OPEN", IsDraft: true}, nil
 		},
-		func(wt string, req PRCreate) (*PRInfo, error) { t.Fatal("open PR must be reused, not re-created"); return nil, nil },
+		func(wt string, req PRCreate) (*PRInfo, error) {
+			t.Fatal("open PR must be reused, not re-created")
+			return nil, nil
+		},
 	)
 	info, err := reuseOpenPR(repo, "feat/y")
 	if err != nil {
