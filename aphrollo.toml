@@ -2,6 +2,13 @@
 # [workspace.metadata.aphrollo]; a repo with no Cargo.toml declares it here.
 
 [aphrollo]
+# Commit messages say what changed and nothing about how they were written.
+# This repo's history is the argument for the key: 104 commits carrying a
+# Co-Authored-By trailer reached the public remote while the commit-msg hook
+# was installed and running, because the flag it reads lived only in
+# [workspace.metadata.aphrollo] and this repo has no Cargo.toml to put it in.
+undercover = true
+
 # A lane merges on a mutation proof, not on a green suite alone. Read by
 # mutationReceiptStage, which stands down here because of the next key --
 # see it for who does the judging instead.
