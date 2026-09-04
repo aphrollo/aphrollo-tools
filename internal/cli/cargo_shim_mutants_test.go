@@ -40,6 +40,24 @@ func TestRunCargoShim_RefusesABareCargoMutants(t *testing.T) {
 	}
 }
 
+// A leading toolchain override must not let a bare `cargo mutants` sail past
+// the refusal: `cargo +nightly mutants` is the exact class of invocation the
+// refusal exists to stop, and a hidden verb used to let it straight through.
+func TestRunCargoShim_RefusesABareCargoMutantsWithALeadingToolchainOverride(t *testing.T) {
+	withIsolatedCargoLock(t)
+	t.Setenv(tdd.MutationGateEnv, "1")
+
+	var stdout, stderr bytes.Buffer
+	code := runCargoShim([]string{"+nightly", "mutants", "--in-diff", "lane.diff"}, strings.NewReader(""), &stdout, &stderr, testCargoShimConfig())
+	if code == 0 {
+		t.Fatal("a bare `cargo +nightly mutants` must not run either")
+	}
+	want := "gate: run tools/mutation_gate.sh <base> — bare cargo mutants builds a cold copy in the OS temp dir and holds the build lock for hours"
+	if got := strings.TrimSpace(stderr.String()); got != want {
+		t.Fatalf("stderr = %q, want exactly %q", got, want)
+	}
+}
+
 // APHROLLO_MUTATION_GATE is the one-release grace for a caller still using
 // the old handshake: let through even outside the mutants worktree, but
 // counted, so the removal shows up before it breaks anyone.

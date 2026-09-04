@@ -134,3 +134,115 @@ func TestNoNotesRefMeansNoNotesPush(t *testing.T) {
 		t.Fatal("a repo with no note must push none")
 	}
 }
+
+// TestPushRemote_SkipsAPushOptionsSeparateArgvToken pins the defect: `git
+// push -o ci.skip origin main` used to resolve remote as "ci.skip" (the
+// push option's own VALUE, one argv token after "-o") instead of "origin",
+// because pushRemote only knew to skip a "-"-prefixed token, never a
+// following token that belongs to it. The gate-note follow-up push then
+// silently failed against a nonexistent remote named "ci.skip" while the
+// branch push itself (unaffected, given the original argv) succeeded.
+func TestPushRemote_SkipsAPushOptionsSeparateArgvToken(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"short -o with a separate value token", []string{"-o", "ci.skip", "origin", "main"}, "origin"},
+		{"long --push-option with a separate value token", []string{"--push-option", "ci.skip", "origin", "main"}, "origin"},
+		{"--push-option=value is already self-contained", []string{"--push-option=ci.skip", "origin", "main"}, "origin"},
+		{"--receive-pack with a separate value token", []string{"--receive-pack", "/opt/git/git-receive-pack", "origin", "main"}, "origin"},
+		{"--exec with a separate value token", []string{"--exec", "/opt/git/git-receive-pack", "origin", "main"}, "origin"},
+		{"--recurse-submodules with a separate value token", []string{"--recurse-submodules", "on-demand", "origin", "main"}, "origin"},
+		{"-u takes no value at all", []string{"-u", "origin", "main"}, "origin"},
+		{"--repo's own value IS the remote, not discarded", []string{"--repo", "origin", "main"}, "origin"},
+		{"bare push with no remote falls back to origin", []string{}, "origin"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := pushRemote(c.args); got != c.want {
+				t.Fatalf("pushRemote(%v) = %q, want %q", c.args, got, c.want)
+			}
+		})
+	}
+}
+
+// TestPushRemote_ResolvesTheRemoteFromRepoInItsEqualsForm pins the second
+// half of the defect 7b5d8f4 left open: pushRemote handles the two-token
+// form `--repo origin main` by falling through to the ordinary positional
+// case, but `--repo=origin main` is a single self-contained token, and the
+// general "-"-prefixed case discards it outright — so "main" was captured
+// as the remote instead of "origin". The other pushValueFlags entries do
+// not have this gap: their own "=" forms are already self-contained tokens
+// the general case correctly discards, since their VALUE is never the
+// remote, so this test also pins that both forms of those flags agree.
+func TestPushRemote_ResolvesTheRemoteFromRepoInItsEqualsForm(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"--repo=origin resolves the remote from its equals form", []string{"--repo=origin", "main"}, "origin"},
+		{"--repo=origin agrees with the two-token form", []string{"--repo", "origin", "main"}, "origin"},
+		{"--receive-pack=path agrees with its two-token form", []string{"--receive-pack=/opt/git/git-receive-pack", "origin", "main"}, "origin"},
+		{"--exec=path agrees with its two-token form", []string{"--exec=/opt/git/git-receive-pack", "origin", "main"}, "origin"},
+		{"--recurse-submodules=on-demand agrees with its two-token form", []string{"--recurse-submodules=on-demand", "origin", "main"}, "origin"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := pushRemote(c.args); got != c.want {
+				t.Fatalf("pushRemote(%v) = %q, want %q", c.args, got, c.want)
+			}
+		})
+	}
+}
+
+// TestPushRemote_TreatsATokenAfterDoubleDashAsPositionalEvenIfDashPrefixed
+// pins that pushRemote respects git's own "--" separator: everything after
+// it is a positional argument, even one that happens to start with "-", and
+// must never be matched against pushValueFlags or discarded by the general
+// "-"-prefixed case as if it were still a flag.
+func TestPushRemote_TreatsATokenAfterDoubleDashAsPositionalEvenIfDashPrefixed(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"a remote-position token after -- is positional despite starting with a dash", []string{"--", "-o", "main"}, "-o"},
+		{"a refspec after -- does not change which token already resolved the remote", []string{"origin", "--", "-o"}, "origin"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := pushRemote(c.args); got != c.want {
+				t.Fatalf("pushRemote(%v) = %q, want %q", c.args, got, c.want)
+			}
+		})
+	}
+}
+
+// TestPushRemote_StaysOutOfADeleteMirrorOrAllPush pins each of the four
+// disjuncts that decide the "this shape is not worth touching" bailout on
+// its own: a bare `git push --delete`/`-d`/`--mirror`/`--all` must resolve
+// no remote at all (an empty string, never falling back to "origin"), and
+// each case below carries exactly one of the four flags so only that one
+// disjunct is what makes the case match — the other three are false for
+// every one of these inputs.
+func TestPushRemote_StaysOutOfADeleteMirrorOrAllPush(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"--delete alone resolves no remote", []string{"--delete"}, ""},
+		{"-d alone resolves no remote", []string{"-d"}, ""},
+		{"--mirror alone resolves no remote", []string{"--mirror"}, ""},
+		{"--all alone resolves no remote", []string{"--all"}, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := pushRemote(c.args); got != c.want {
+				t.Fatalf("pushRemote(%v) = %q, want %q", c.args, got, c.want)
+			}
+		})
+	}
+}

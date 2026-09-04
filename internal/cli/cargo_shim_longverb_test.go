@@ -23,6 +23,10 @@ func TestIsCargoLongVerb_OnlyTheNonCompilingLongRunners(t *testing.T) {
 		{"mutants", "--in-diff", "diff.txt"},
 		{"bench", "-p", "movement"},
 		{"install", "cargo-nextest"},
+		// A leading toolchain override must not hide the verb from the
+		// long-verb classifier -- `cargo +nightly mutants` held a full slot
+		// for its whole multi-hour run before this was fixed.
+		{"+nightly", "mutants", "--in-diff", "diff.txt"},
 	}
 	for _, args := range long {
 		if !isCargoLongVerb(args) {

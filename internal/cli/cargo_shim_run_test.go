@@ -34,6 +34,9 @@ func TestCargoVerb_TableDriven(t *testing.T) {
 		{"global flag before the verb", []string{"-v", "run", "-p", "server"}, "run"},
 		{"all flags, no verb", []string{"-v", "--locked"}, ""},
 		{"empty", nil, ""},
+		{"leading +toolchain is skipped, not the verb", []string{"+nightly", "run", "-p", "server"}, "run"},
+		{"leading +toolchain before mutants", []string{"+nightly", "mutants", "--in-diff", "d"}, "mutants"},
+		{"+toolchain only, no verb", []string{"+nightly"}, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -57,6 +60,9 @@ func TestIsCargoRunVerb_ExcludesNextestRunAndTest(t *testing.T) {
 	}
 	if !isCargoRunVerb([]string{"run", "-p", "server"}) {
 		t.Fatal("`cargo run` must be recognized")
+	}
+	if !isCargoRunVerb([]string{"+nightly", "run", "-p", "server"}) {
+		t.Fatal("`cargo +nightly run` must be recognized as `cargo run` -- a leading toolchain override must not hide the verb")
 	}
 }
 
