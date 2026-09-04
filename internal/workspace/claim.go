@@ -145,7 +145,7 @@ func ClaimPlan(repo, branch, svc, into string, noMigrate bool) (*Claim, error) {
 	}
 
 	// 2. Repoint the dev-tier symlink at this worktree (unprivileged: group write
-	//    on .devclaim). Atomic replace via a temp link + rename.
+	//    on .devclaim). See repointSymlink for the platform-specific guarantee.
 	c.steps = append(c.steps, claimStep{
 		label: "repoint " + symlink + " -> " + wt,
 		skip:  symlinkAlready(symlink, wt),
@@ -236,17 +236,6 @@ func symlinkAlready(symlink, want string) string {
 	return ""
 }
 
-// repointSymlink atomically replaces symlink with one pointing at target, via a
-// temp link + rename so a concurrent reader never sees a missing link.
-func repointSymlink(symlink, target string) error {
-	tmp := symlink + ".tmp"
-	_ = os.Remove(tmp)
-	if err := os.Symlink(target, tmp); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, symlink); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
-}
+// repointSymlink replaces symlink with one pointing at target. The guarantee
+// differs by platform — see repoint_unix.go (atomic, POSIX rename(2)) and
+// repoint_windows.go (non-atomic: a brief window with no link).

@@ -5,9 +5,34 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// fakeSystemctl writes a fake systemctl to dir that records its invocation
+// args to marker (overwriting each call), for the claim/unclaim Apply e2e
+// tests that fake the privileged restart. POSIX: a shebang shell script.
+// Windows can't run one directly — CreateProcess doesn't dispatch a shebang,
+// and Go's os/exec refuses a file with no PATHEXT-recognized extension even
+// given a full path (LookPath's Windows rule applies to the executable check,
+// not just name resolution) — so on Windows the fake is a .bat with the
+// equivalent one-liner instead.
+func fakeSystemctl(t *testing.T, dir, marker string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		p := filepath.Join(dir, "systemctl.bat")
+		if err := os.WriteFile(p, []byte("@echo off\r\necho %* > "+marker+"\r\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	p := filepath.Join(dir, "systemctl")
+	if err := os.WriteFile(p, []byte("#!/bin/sh\necho \"$@\" > "+marker+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
 
 // scrubGitEnv unsets the repo-pointing GIT_* variables a git hook exports
 // (GIT_DIR, GIT_INDEX_FILE, GIT_WORK_TREE, …). When the suite runs UNDER the
@@ -123,9 +148,13 @@ func TestPrepareApply_E2E(t *testing.T) {
 	}
 
 	// safe.directory landed in the dedicated runtime config, NOT the
-	// ansible-owned global file — the whole point of the include split.
+	// ansible-owned global file — the whole point of the include split. git
+	// config escapes a literal backslash in a value as "\\", so on Windows
+	// (where our paths carry backslashes) the raw file bytes double them;
+	// unescape before the substring check rather than matching escaped text.
 	rcfg, _ := os.ReadFile(runtimecfg)
-	if !strings.Contains(string(rcfg), plan.Repo) || !strings.Contains(string(rcfg), wt) {
+	unescaped := strings.ReplaceAll(string(rcfg), `\\`, `\`)
+	if !strings.Contains(unescaped, plan.Repo) || !strings.Contains(unescaped, wt) {
 		t.Fatalf("safe.directory not written to runtime config for repo+worktree:\n%s", rcfg)
 	}
 	if gcfg, _ := os.ReadFile(gitcfg); strings.Contains(string(gcfg), "safe.directory") {

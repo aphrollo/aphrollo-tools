@@ -6,9 +6,68 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// fakeGh puts a fake `gh` on PATH that prints stdout and exits with exitCode,
+// so the REAL ghPRHeadOid closure (not the stubPRHeadOid seam) can be exercised
+// without the network or a real gh install. POSIX: a shebang shell script.
+// Windows can't run one directly (no shebang dispatch through CreateProcess,
+// and Go's os/exec refuses a file with no PATHEXT-recognized extension even
+// given a full path) — a .bat with the equivalent lines serves as the fake.
+func fakeGh(t *testing.T, stdout string, exitCode int) {
+	t.Helper()
+	dir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		body := fmt.Sprintf("@echo off\r\necho %s\r\nexit /b %d\r\n", stdout, exitCode)
+		if err := os.WriteFile(filepath.Join(dir, "gh.bat"), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		body := fmt.Sprintf("#!/bin/sh\necho \"%s\"\nexit %d\n", stdout, exitCode)
+		if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// TestGhPRHeadOid_ReturnsSHAOnGhSuccess proves the real ghPRHeadOid closure
+// (prune.go:144) returns gh's trimmed stdout as the SHA with a nil error when
+// gh exits 0 — the CONDITIONALS_NEGATION mutant at its `if err != nil` (line
+// 148) flips this to the error branch (formatting the nil err into a bogus
+// message) instead of returning the SHA.
+func TestGhPRHeadOid_ReturnsSHAOnGhSuccess(t *testing.T) {
+	fakeGh(t, "abc123", 0)
+	sha, err := ghPRHeadOid(t.TempDir(), "feat/x")
+	if err != nil {
+		t.Fatalf("ghPRHeadOid: %v", err)
+	}
+	if sha != "abc123" {
+		t.Errorf("sha = %q, want %q", sha, "abc123")
+	}
+}
+
+// TestGhPRHeadOid_ReturnsErrorOnGhFailure proves the real ghPRHeadOid closure
+// propagates a genuine gh failure as a non-nil error rather than treating its
+// stdout as a SHA — the CONDITIONALS_NEGATION mutant at line 148 flips this to
+// skip the error branch and return gh's failure output as if it were a valid
+// SHA.
+func TestGhPRHeadOid_ReturnsErrorOnGhFailure(t *testing.T) {
+	fakeGh(t, "gh: authentication required", 1)
+	sha, err := ghPRHeadOid(t.TempDir(), "feat/x")
+	if err == nil {
+		t.Fatalf("expected an error, got sha %q", sha)
+	}
+	if !strings.Contains(err.Error(), "feat/x") || !strings.Contains(err.Error(), "authentication required") {
+		t.Errorf("error should name the branch and carry gh's message, got: %v", err)
+	}
+	if sha != "" {
+		t.Errorf("sha on failure = %q, want empty", sha)
+	}
+}
 
 // stubPRState swaps the gh PR-state seam for a test.
 func stubPRState(t *testing.T, fn func(wt, branch string) (string, error)) {
@@ -16,6 +75,45 @@ func stubPRState(t *testing.T, fn func(wt, branch string) (string, error)) {
 	ov := ghPRState
 	ghPRState = fn
 	t.Cleanup(func() { ghPRState = ov })
+}
+
+// stubPRHeadOid swaps the gh PR head-ref-oid seam for a test.
+func stubPRHeadOid(t *testing.T, fn func(wt, branch string) (string, error)) {
+	t.Helper()
+	ov := ghPRHeadOid
+	ghPRHeadOid = fn
+	t.Cleanup(func() { ghPRHeadOid = ov })
+}
+
+// commitFile commits a new file into wt, simulating a builder who reuses a
+// merged branch/worktree for follow-up work.
+func commitFile(t *testing.T, wt, name string) string {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(wt, name), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", wt, "add", name).CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", wt, "commit", "-qm", "follow-up after merge").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+	sha, err := exec.Command("git", "-C", wt, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("git rev-parse HEAD: %v", err)
+	}
+	return strings.TrimSpace(string(sha))
+}
+
+// headSHA returns wt's current HEAD commit, for stubbing ghPRHeadOid to match
+// reality in tests that don't exercise the #163 "commits after the merge" gap.
+func headSHA(t *testing.T, wt string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", wt, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("git rev-parse HEAD: %v", err)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // dirty writes an uncommitted file into a worktree so `git status --porcelain`
@@ -32,6 +130,13 @@ func TestPrune_RemovesMergedCleanWorktree(t *testing.T) {
 	stubPRState(t, func(_, b string) (string, error) {
 		if b == branch {
 			return "MERGED", nil
+		}
+		return "", nil
+	})
+	head := headSHA(t, wt)
+	stubPRHeadOid(t, func(_, b string) (string, error) {
+		if b == branch {
+			return head, nil
 		}
 		return "", nil
 	})
@@ -156,6 +261,53 @@ func TestPrune_SkipsOnGHError(t *testing.T) {
 	}
 }
 
+// TestPrune_KeepsAMergedWorktreeThatHasCommitsAfterTheMerge is issue #163's
+// scenario: a builder reuses a merged branch's worktree for follow-up work and
+// commits it (so `git status --porcelain` is clean again). The sweep must not
+// treat "PR state MERGED + tree clean" as sufficient — HEAD has moved past what
+// the PR actually merged (gh's headRefOid), so the worktree must be kept.
+func TestPrune_KeepsAMergedWorktreeThatHasCommitsAfterTheMerge(t *testing.T) {
+	repo, wt, branch := preparedRepo(t)
+	mergedSHA, err := exec.Command("git", "-C", wt, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("git rev-parse HEAD: %v", err)
+	}
+	stubPRState(t, func(_, b string) (string, error) {
+		if b == branch {
+			return "MERGED", nil
+		}
+		return "", nil
+	})
+	stubPRHeadOid(t, func(_, b string) (string, error) {
+		if b == branch {
+			return strings.TrimSpace(string(mergedSHA)), nil
+		}
+		return "", nil
+	})
+
+	// Follow-up commit made in the worktree AFTER the PR merged — HEAD now
+	// differs from what gh's headRefOid says was actually merged.
+	commitFile(t, wt, "followup.txt")
+
+	p, err := PrunePlan(repo)
+	if err != nil {
+		t.Fatalf("PrunePlan: %v", err)
+	}
+	var out, errb bytes.Buffer
+	if err := p.Run(true, &out, &errb); err != nil {
+		t.Fatalf("Run: %v\n%s", err, errb.String())
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Errorf("worktree with commits after the merge must be kept: %v", err)
+	}
+	if !strings.Contains(out.String(), "skip: "+wt) {
+		t.Errorf("receipt should skip the worktree:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "local commits beyond the merged PR") {
+		t.Errorf("skip reason should say local commits are beyond what was merged:\n%s", out.String())
+	}
+}
+
 func TestPrune_SkipsDirtyMerged(t *testing.T) {
 	repo, wt, branch := preparedRepo(t)
 	dirty(t, wt)
@@ -184,6 +336,13 @@ func TestPrune_ForceRemovesDirtyMerged(t *testing.T) {
 	stubPRState(t, func(_, b string) (string, error) {
 		if b == branch {
 			return "MERGED", nil
+		}
+		return "", nil
+	})
+	head := headSHA(t, wt)
+	stubPRHeadOid(t, func(_, b string) (string, error) {
+		if b == branch {
+			return head, nil
 		}
 		return "", nil
 	})
@@ -234,6 +393,13 @@ func TestPrune_TallyAndAdminCleanup(t *testing.T) {
 		}
 		return "", nil
 	})
+	head := headSHA(t, wt)
+	stubPRHeadOid(t, func(_, b string) (string, error) {
+		if b == branch {
+			return head, nil
+		}
+		return "", nil
+	})
 	// Also leave a stale admin record (a worktree whose dir is gone) to prove the
 	// admin-record prune is folded in.
 	plan, err := BuildPlan(Request{Repo: repo, Branch: "feat/stale", NoInstall: true})
@@ -263,6 +429,37 @@ func TestPrune_TallyAndAdminCleanup(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "pruned 1") {
 		t.Errorf("receipt should tally one pruned worktree:\n%s", out.String())
+	}
+}
+
+// TestExcludeMainClone_DropsByPathNotListPosition is issue #172: linkedWorktrees
+// used to drop `git worktree list --porcelain`'s FIRST entry to exclude the
+// main checkout, trusting an ordering nothing enforces. excludeMainClone must
+// drop the main clone by comparing its PATH against repo, so it is excluded
+// wherever it lands in the list — proven here with a synthetic list where the
+// main clone is NOT first.
+func TestExcludeMainClone_DropsByPathNotListPosition(t *testing.T) {
+	repo := filepath.Join("C:", "spaces", "aphrollo")
+	linked1 := filepath.Join("C:", "spaces", ".worktrees", "aphrollo", "lane-a")
+	linked2 := filepath.Join("C:", "spaces", ".worktrees", "aphrollo", "lane-b")
+	// The main clone sits LAST, not first — the exact ordering violation
+	// mergeprune.go's comment warns entries[1:] cannot defend against.
+	entries := []worktreeEntry{
+		{Path: linked1, Branch: "lane-a"},
+		{Path: linked2, Branch: "lane-b"},
+		{Path: repo, Branch: "main"},
+	}
+	got := excludeMainClone(entries, repo)
+	if len(got) != 2 {
+		t.Fatalf("excludeMainClone should keep exactly the 2 linked worktrees, got %d: %+v", len(got), got)
+	}
+	for _, e := range got {
+		if e.Path == repo {
+			t.Errorf("excludeMainClone must never keep the main clone %q, got %+v", repo, got)
+		}
+	}
+	if got[0].Path != linked1 || got[1].Path != linked2 {
+		t.Errorf("excludeMainClone should preserve the linked worktrees' relative order, got %+v", got)
 	}
 }
 
