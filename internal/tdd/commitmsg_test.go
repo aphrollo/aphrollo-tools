@@ -178,3 +178,34 @@ func TestCommitMsg_RefsAndPathsSpelledWithTheWordAreNotTells(t *testing.T) {
 		t.Error("a tell beside a scrubbed ref must still be rejected")
 	}
 }
+
+// A repo with no Cargo.toml has no `[workspace.metadata.aphrollo]` to set the
+// flag in, so for a Go, Python or Node repo the undercover check reads a root
+// `aphrollo.toml` instead — the same fallback the mutation job already uses.
+//
+// Without it the gate is not merely unset but UNSETTABLE there: every message
+// passes, and this repo's own history proves the cost — 104 commits carrying a
+// `Co-Authored-By:` trailer reached a public remote through a hook that was
+// installed, ran, and returned clean on every one of them.
+func TestCommitMsg_ReadsTheUndercoverFlagFromAphrolloTomlWhenThereIsNoCargoToml(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "go.mod", "module m\n\ngo 1.24\n")
+	write(t, root, "aphrollo.toml", "[aphrollo]\nundercover = true\n")
+
+	got := CommitMsg(root, msgFile(t, "Fix the thing\n\nCo-Authored-By: Someone <s@example.com>\n"))
+	if !got.Blocked {
+		t.Error("a message carrying a Co-Authored-By trailer was accepted in a Go repo that asked to stay undercover")
+	}
+}
+
+// ...and the flag still has to be ASKED for: a repo that never opted in must
+// not start having its commits rejected the day the hook is installed.
+func TestCommitMsg_LeavesAGoRepoThatNeverAskedAlone(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "go.mod", "module m\n\ngo 1.24\n")
+
+	got := CommitMsg(root, msgFile(t, "Fix the thing\n\nCo-Authored-By: Someone <s@example.com>\n"))
+	if got.Blocked {
+		t.Errorf("a repo that never set undercover had a commit rejected: %s", got.Message)
+	}
+}

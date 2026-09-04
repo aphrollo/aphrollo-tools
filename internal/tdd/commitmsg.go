@@ -45,7 +45,12 @@ func CommitMsg(repoRoot, msgPath string) GateResult {
 	if ws == "" {
 		ws = repoRoot
 	}
-	if !cargoAphrolloFlag(ws, "undercover") {
+	// A repo with no Cargo.toml (Go, Python, Node) has nowhere to put
+	// [workspace.metadata.aphrollo], so the flag is read from a root
+	// aphrollo.toml too — the same fallback the mutation job uses. Without
+	// it the gate is not merely off in such a repo but UNSETTABLE, and an
+	// installed hook returns clean on every message forever.
+	if !cargoAphrolloFlag(ws, "undercover") && !aphrolloTomlFlag(ws, "undercover") {
 		return GateResult{}
 	}
 	data, err := os.ReadFile(msgPath)
