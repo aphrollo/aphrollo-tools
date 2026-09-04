@@ -219,3 +219,30 @@ func TestPushRemote_TreatsATokenAfterDoubleDashAsPositionalEvenIfDashPrefixed(t 
 		})
 	}
 }
+
+// TestPushRemote_StaysOutOfADeleteMirrorOrAllPush pins each of the four
+// disjuncts that decide the "this shape is not worth touching" bailout on
+// its own: a bare `git push --delete`/`-d`/`--mirror`/`--all` must resolve
+// no remote at all (an empty string, never falling back to "origin"), and
+// each case below carries exactly one of the four flags so only that one
+// disjunct is what makes the case match — the other three are false for
+// every one of these inputs.
+func TestPushRemote_StaysOutOfADeleteMirrorOrAllPush(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"--delete alone resolves no remote", []string{"--delete"}, ""},
+		{"-d alone resolves no remote", []string{"-d"}, ""},
+		{"--mirror alone resolves no remote", []string{"--mirror"}, ""},
+		{"--all alone resolves no remote", []string{"--all"}, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := pushRemote(c.args); got != c.want {
+				t.Fatalf("pushRemote(%v) = %q, want %q", c.args, got, c.want)
+			}
+		})
+	}
+}
