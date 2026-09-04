@@ -52,6 +52,10 @@ func reclaimStaleMutantsLanes(repoRoot string) {
 		// later `worktree add` at that path fail.
 		_, _ = git(repoRoot, "worktree", "remove", "--force", tree)
 		_ = os.RemoveAll(tree)
+		// The Go job runs in a private clone beside the tree rather than in
+		// the linked worktree itself, so a lane leaves TWO full trees behind
+		// and both have to go.
+		_ = os.RemoveAll(goMutantsCloneDir(tree))
 		_ = os.Remove(tree + mutantsLaneMarkerName)
 	}
 }

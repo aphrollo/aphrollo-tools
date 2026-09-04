@@ -75,3 +75,27 @@ func mustMkdir(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 }
+
+// The Go job does not run in the lane's worktree: a mutated gate test rewrote
+// the real repository through the linked worktree's shared .git, so the run
+// now happens in a private CLONE beside it, at `<worktree>-clone`. That is a
+// second full tree per lane, and the sweep only knew about the first — so a
+// merged lane still left one behind, on a box that already refuses to start a
+// run below 15 GB free per job.
+func TestReclaimStaleMutantsLanes_AlsoRemovesTheRunCloneBesideTheTree(t *testing.T) {
+	root := makeGoRepo(t)
+	gone := addWorktree(t, root, "departed-lane")
+
+	tree := MutantsWorktreeDir(gone)
+	clone := goMutantsCloneDir(tree)
+	mustMkdir(t, tree)
+	mustMkdir(t, clone)
+	writeMutantsLaneMarker(tree, gone)
+	gitDo(t, root, "worktree", "remove", "--force", gone)
+
+	reclaimStaleMutantsLanes(root)
+
+	if _, err := os.Stat(clone); !os.IsNotExist(err) {
+		t.Errorf("%q survived its lane's removal (stat err = %v) — the clone is a second full tree per lane", clone, err)
+	}
+}
