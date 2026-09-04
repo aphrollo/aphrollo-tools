@@ -225,7 +225,7 @@ func codeLines(raw []string, file string) []string {
 func (l Law) regexAbsentHits(file string, raw, code []string) []Hit {
 	var hits []Hit
 	for i, line := range code {
-		if l.excluded(line) || !l.Matcher.Pattern.MatchString(line) || l.escaped(raw, i) {
+		if l.excluded(line) || !l.Matcher.Pattern.MatchString(line) || l.escaped(file, raw, i) {
 			continue
 		}
 		n := 1
@@ -281,7 +281,7 @@ func (l Law) regexPresentHits(file string, code []string) []Hit {
 func (l Law) markerHits(file string, raw, code []string) []Hit {
 	var hits []Hit
 	for i, line := range code {
-		if l.excluded(line) || !l.Matcher.Trigger.MatchString(line) || l.escaped(raw, i) {
+		if l.excluded(line) || !l.Matcher.Trigger.MatchString(line) || l.escaped(file, raw, i) {
 			continue
 		}
 		if l.markerAbove(raw, i) {
@@ -448,11 +448,14 @@ func (l Law) hit(file string, line int, what string) Hit {
 // quote-aware split code_only pattern matching already trusts); on a line
 // above, the trimmed line must itself open a comment — what inCommentRun
 // already tests — regardless of Contiguous.
-func (l Law) escaped(raw []string, idx int) bool {
+func (l Law) escaped(file string, raw []string, idx int) bool {
 	if l.Escape == "" {
 		return false
 	}
-	prefix := l.commentPrefix()
+	prefix, prose := escapePrefixFor(l, file)
+	if prose {
+		return l.escapedInProse(raw, idx)
+	}
 	if idx >= 0 && idx < len(raw) {
 		_, comment := splitTrailingComment(raw[idx], prefix)
 		if strings.Contains(comment, l.Escape) {
