@@ -84,6 +84,50 @@ func TestApplyFileEdits_TargetUsesIndexedSource(t *testing.T) {
 	}
 }
 
+// The indexed-source optimization must engage even when the server's path
+// string for the target file differs in REPRESENTATION from the caller's own
+// (e.g. one traverses a symlinked directory the other does not) as long as
+// both name the same file. A plain string comparison misses this and falls
+// into the disk-read branch, reintroducing the TOCTOU window the two-phase
+// design exists to close.
+func TestApplyFileEdits_TargetUsesIndexedSourceThroughSymlinkedDirectory(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mainPath := filepath.Join(real, "main.txt")
+	if err := os.WriteFile(mainPath, []byte("B"), 0o644); err != nil { // stale/short on disk
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	// Same file as mainPath, reached through the symlink — a different string.
+	serverPath := filepath.Join(link, "main.txt")
+	const indexed = "AAAA" // what the server actually analysed
+
+	fileEdits := []lsp.FileEdit{
+		{Path: serverPath, Edits: []lsp.TextEdit{edit(0, 0, 4, "Z")}}, // valid vs "AAAA", out of range vs "B"
+	}
+
+	res, err := applyFileEdits(fileEdits, dir, mainPath, indexed, true)
+	if err != nil {
+		t.Fatalf("applyFileEdits: %v", err)
+	}
+	if len(res.Files) != 1 {
+		t.Fatalf("got %d file diffs, want 1", len(res.Files))
+	}
+	got, err := os.ReadFile(mainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "Z" {
+		t.Fatalf("main.txt = %q, want %q (edit applied against indexed source reached through a symlinked path)", got, "Z")
+	}
+}
+
 // A WorkspaceEdit is server-controlled. A buggy or hostile language server can
 // return an edit for a path OUTSIDE the project root; applyFileEdits must refuse
 // the whole batch before writing anything, so a rename can never clobber an

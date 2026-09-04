@@ -349,7 +349,7 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 			return res
 		}
 		if failFirst {
-			if res := failFirstStage(repoRoot, g.root, g.tests, g.srcs, run); res.Blocked {
+			if res := failFirstStageWithRustNotice(repoRoot, g.root, g.tests, g.srcs, run); res.Blocked {
 				return res
 			}
 		}

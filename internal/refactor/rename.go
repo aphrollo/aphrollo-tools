@@ -107,8 +107,24 @@ func Rename(ctx context.Context, req RenameRequest) (*RenameResult, error) {
 // path comes back from URIToPath with an upper-cased drive while the caller's
 // path keeps whatever they typed, so on Windows — where the filesystem is
 // case-insensitive anyway — the comparison folds case. Elsewhere it is exact.
+// The two strings may also differ in REPRESENTATION rather than case — one
+// traversing a symlinked directory the other does not, which is ordinary on
+// macOS where the system temp dir itself is a symlink — so a raw (or even
+// case-folded) string mismatch is resolved by comparing the files the two
+// paths actually name before concluding they differ. This is what makes the
+// indexed-source optimization in applyFileEdits engage whenever the two names
+// refer to the same file, closing the TOCTOU window a path-string mismatch
+// would otherwise reopen.
 func samePath(a, b string) bool {
-	return samePathOn(runtime.GOOS, a, b)
+	if samePathOn(runtime.GOOS, a, b) {
+		return true
+	}
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return samePathOn(runtime.GOOS, ra, rb)
 }
 
 // samePathOn is samePath with the platform passed in rather than read from

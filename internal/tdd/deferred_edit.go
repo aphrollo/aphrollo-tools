@@ -243,14 +243,24 @@ func sourceIdentity(root, target string) string {
 	return fileContentHash(target)
 }
 
+// buildingEscape is the way to get a verdict WITHOUT another edit: the trap
+// this closes is that "result at the next hook" reads as "in progress",
+// which invites a caller to stop and wait, but nothing delivers the verdict
+// unless another edit or prompt arrives to harvest it — the very thing
+// waiting removes. Committing is the answer that needs nothing new from the
+// caller: the precommit gate runs the suite itself and judges the work.
+const buildingEscape = "no verdict until then — commit and precommit will judge it, or rerun the suite yourself"
+
 // buildingLine is the ONE line an edit gets when its work is still running.
 // It names the crate and how long it has been going, so a session can tell
-// "started just now" from "this is the same build as five edits ago".
+// "started just now" from "this is the same build as five edits ago", and it
+// carries buildingEscape so a caller who stops editing here has a documented
+// move rather than a wait with no way out.
 func buildingLine(root, phase string, elapsed time.Duration) string {
 	if elapsed <= 0 {
-		return fmt.Sprintf("gate: → BUILDING (deferred; %s %s phase — result at the next hook)", root, phase)
+		return fmt.Sprintf("gate: → BUILDING (deferred; %s %s phase — result at the next hook; %s)", root, phase, buildingEscape)
 	}
-	return fmt.Sprintf("gate: → BUILDING (deferred; %s %s phase, %.0fs so far — result at the next hook)", root, phase, elapsed.Seconds())
+	return fmt.Sprintf("gate: → BUILDING (deferred; %s %s phase, %.0fs so far — result at the next hook; %s)", root, phase, elapsed.Seconds(), buildingEscape)
 }
 
 // phaseSuiteResult maps a wrapper's outcome plus its log onto the

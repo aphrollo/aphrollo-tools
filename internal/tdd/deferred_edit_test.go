@@ -95,6 +95,35 @@ func TestPostEdit_UnfinishedPhaseIsDeferredNotKilled(t *testing.T) {
 	}
 }
 
+// TestPostEdit_StillBuildingNoticeNamesTheEscapeWhenNoEditFollows pins the
+// fix for the trap a caller falls into when a build stays deferred across
+// several hooks with no verdict: BUILDING reads as "in progress", which
+// invites waiting, but nothing delivers a verdict without another edit or
+// prompt. The notice itself must name a way forward that does not depend on
+// editing again — committing lets precommit judge the work.
+func TestPostEdit_StillBuildingNoticeNamesTheEscapeWhenNoEditFollows(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := mkProject(t, "Cargo.toml")
+	target := root + "/src/widget.rs"
+	fakePhases(t) // the harvest must not start a new phase of its own
+
+	saveDeferredJob(DeferredJob{
+		Project: root, Session: "sess-post", Phase: "run", Dir: root, PID: 4242,
+		Started: time.Now().Add(-time.Minute),
+		HeadSHA: headSHAFor(root), FileHash: fileContentHash(target),
+		Runner: []string{"cargo", "test"},
+	})
+
+	got := PostEdit(postPayload("Edit", target), fakeRun(true, "ok"))
+
+	if !strings.Contains(got, "BUILDING") {
+		t.Fatalf("advisory = %q, want the BUILDING notice", got)
+	}
+	if !strings.Contains(got, "commit") {
+		t.Fatalf("advisory = %q, want it to name commit as the way to get a verdict without another edit", got)
+	}
+}
+
 // TestPostEdit_HarvestsAFinishedDeferredBuild pins the payoff: the next hook
 // finds the finished build, runs the (now warm) run phase, and reports the
 // outcome as a deferred result rather than staying silent about work that

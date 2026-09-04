@@ -166,3 +166,44 @@ func TestFailFirstStage_ThreadsRealDurationIntoLogAndLine(t *testing.T) {
 		t.Fatalf("expected the fail-first gate.log entry to record the stub's real Duration (11.0s), got:\n%s", logData)
 	}
 }
+
+// TestFailFirstStage_LogsInconclusiveForInlineRustCfgTest pins the fix for a
+// real silent gap: Rust's idiomatic unit-test shape is a `#[test]` inside an
+// inline `#[cfg(test)] mod tests { ... }` living in the SAME file as the code
+// it exercises — src/widget.rs, never *_test.rs — so ClassifyFile calls it
+// Source, never Test, and the len(tests) > 0 gate above never opens for it.
+// Before this fix a commit shaped exactly like this ran fail-first NOT AT
+// ALL, with nothing in stderr or gate.log to say so. Now it is named.
+func TestFailFirstStage_LogsInconclusiveForInlineRustCfgTest(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := makeCargoRepo(t)
+	write(t, root, "src/widget.rs", "pub fn widget() -> i32 { 1 }\n\n"+
+		"#[cfg(test)]\nmod tests {\n    use super::*;\n\n"+
+		"    #[test]\n    fn widget_returns_one() {\n        assert_eq!(widget(), 1);\n    }\n}\n")
+	gitDo(t, root, "add", ".")
+
+	run := func(Runner, string) SuiteResult {
+		t.Fatal("fail-first must not run a suite for a shape it cannot isolate")
+		return SuiteResult{}
+	}
+
+	var res GateResult
+	stderr := captureStderr(t, func() {
+		res = failFirstStageWithRustNotice(root, root, nil, []string{"src/widget.rs"}, run)
+	})
+	if res.Blocked {
+		t.Fatalf("an unjudgeable shape must never block, got: %s", res.Message)
+	}
+	if !strings.Contains(stderr, "fail-first") || !strings.Contains(stderr, "inconclusive") {
+		t.Fatalf("expected a named, inconclusive fail-first line on stderr, got: %s", stderr)
+	}
+
+	logData, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
+	if err != nil {
+		t.Fatalf("gate.log not written: %v", err)
+	}
+	if !strings.Contains(string(logData), "inconclusive") {
+		t.Fatalf("expected gate.log to record that fail-first looked at this commit, got:\n%s", logData)
+	}
+}

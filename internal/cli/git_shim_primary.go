@@ -18,10 +18,13 @@ import (
 // or `pull` that would fast-forward (a fast-forward moves main with no
 // premergecommit hook firing at all — the whole point of the primary
 // checkout), `cherry-pick` and `rebase` (both land foreign commits on main
-// with no hook either), and a `reset --hard <ref>` that moves main to
-// somewhere else. `--abort`/`--continue`/`--quit`/`--skip` on a cherry-pick or
-// rebase already in progress pass, as does a bare `reset --hard` (discards
-// uncommitted changes, moves nothing) and a `reset` with no `--hard`.
+// with no hook either), and a `reset <ref>` in any mode
+// (soft/mixed/hard/merge/keep) that moves main to somewhere else — only the
+// treatment of the index and working tree differs between modes; every one
+// of them moves the branch tip when a ref is named.
+// `--abort`/`--continue`/`--quit`/`--skip` on a cherry-pick or rebase already
+// in progress pass, as does a bare `reset` or `reset --hard` (no ref: moves
+// nothing) and `reset -- <path>` (a pathspec, not a ref).
 // Everything else — `fetch`, `worktree`, `log`, `status` — is exactly what
 // the primary checkout is for and passes straight through.
 
@@ -64,7 +67,7 @@ func primaryRefusedVerb(realGit string, rest []string, workDir string) bool {
 	case "cherry-pick", "rebase":
 		return !hasAnyArg(rest[1:], sequencerConcludeFlags)
 	case "reset":
-		return resetHardMovesMain(rest[1:])
+		return resetMovesMain(rest[1:])
 	}
 	return false
 }
@@ -96,29 +99,23 @@ func hasAnyArg(args []string, set map[string]bool) bool {
 	return false
 }
 
-// resetHardMovesMain reports whether a `reset` invocation both discards the
-// working tree (`--hard`) AND names a ref to move to. A bare `reset --hard`
-// (no ref) only discards uncommitted changes — it moves nothing — and a
-// `reset` with no `--hard` at all is left alone regardless of its ref, per
-// the rule's own scope: this is about main's tip landing somewhere with no
-// hook, not about every way to inspect or stage a diff against another ref.
-func resetHardMovesMain(args []string) bool {
-	hard := false
-	movesRef := false
+// resetMovesMain reports whether a `reset` invocation names a ref to move
+// to. Git moves the current branch's ref to that commit in every mode —
+// soft, mixed (the default), hard, merge, keep — only the treatment of the
+// index and working tree differs; the mode flag itself is irrelevant to
+// whether main's tip moves. A bare `reset` (no ref) moves nothing, and
+// anything after `--` is a pathspec, not a ref.
+func resetMovesMain(args []string) bool {
 	for _, a := range args {
-		if a == "--hard" {
-			hard = true
-			continue
-		}
 		if a == "--" {
 			break
 		}
 		if strings.HasPrefix(a, "-") {
 			continue
 		}
-		movesRef = true
+		return true
 	}
-	return hard && movesRef
+	return false
 }
 
 // branchCreatingFlags are the checkout/switch forms that make a new branch.
