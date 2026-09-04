@@ -251,7 +251,7 @@ func PrimaryCheckoutDecision(raw []byte) Decision {
 func bashPrimaryDecision(cwd, cmd string) Decision {
 	for _, p := range bashWriteTargets(cmd, cwd) {
 		if root, ok := PrimaryMergeOnly(filepath.Dir(p)); ok {
-			return primaryBlock(root)
+			return primaryBlockForPath(root, p)
 		}
 	}
 	return Decision{}
@@ -259,6 +259,17 @@ func bashPrimaryDecision(cwd, cmd string) Decision {
 
 func primaryBlock(root string) Decision {
 	return Decision{Action: Block, Reason: PrimaryMergeOnlyReason(root), Policy: primaryCheckoutPolicy}
+}
+
+// primaryBlockForPath is the same denial, naming the path that earned it. A
+// shell command carries many paths and the rule fires on one of them; a
+// denial that named only a remedy in some repo sent the reader to fix the
+// wrong thing, since the remedy names the repo of the offending PATH while
+// the command that was typed may have been about something else entirely.
+func primaryBlockForPath(root, path string) Decision {
+	d := primaryBlock(root)
+	d.Reason += " (refused the write to " + shellPath(path) + ")"
+	return d
 }
 
 // PrimaryEditsAllowed reports whether this process or this session waived the
