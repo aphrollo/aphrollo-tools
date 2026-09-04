@@ -214,7 +214,7 @@ func runRatchetTest(args []string, stdout, stderr io.Writer) int {
 // runRatchetAdopt writes one law's baseline from what the tree currently
 // measures — the only path that ever CREATES a baseline file or RAISES a
 // row, refused unless the law has none yet or its .toml has moved since
-// HEAD (see internal/ratchet.Adopt for the refusal itself).
+// HEAD (see ratchet.Adopt in internal/ratchet for the refusal itself).
 func runRatchetAdopt(root, law string, stdout, stderr io.Writer) int {
 	res, err := ratchet.Adopt(ratchet.AdoptOptions{
 		Root:                root,

@@ -1,0 +1,12 @@
+name        = "doc_reference_exists"
+description = "Every docs/ or internal/ path a durable *.md file or a *.go comment cites must resolve to a real file. A citation is the only thing holding a claim to its provenance. The bar is zero and there is no baseline. README.md is out of scope for THIS LAW ONLY, not for the repo: it is a usage manual whose job is worked examples (fictional commands, fictional paths, fictional gate output), not durable citations, so a ratchet law over it would fight its own purpose. The pre-commit `docs check` stage (internal/docs, wired into precommit_go.go's docsCheckStage) judges README.md and every other staged *.md instead, over every path-shaped token in the file including code spans — the two do not contradict, they split by what each is built to read: this law's regex is deliberately narrower (only docs/ and internal/ tokens, comments and prose), that one is broader and stricter about `*.md` generally. A known false positive in that broader checker (a bare `./...` code span misread as a path) is issue #151, filed separately, and is not this law's to fix. *_test.go is out of scope for the same discrimination reason one level down from README — internal/docs and internal/ratchet's own suites construct markdown/Go fixtures naming deliberately-dangling paths to prove the checker THIS law reuses catches them."
+severity    = "deny"
+
+[scope]
+include = ["**/*.md", "cmd/**/*.go", "internal/**/*.go"]
+exclude = ["README.md", "**/*_test.go", "**/testdata/**", ".ratchet/**"]
+min_files = 185
+
+[matcher]
+kind    = "doc-path-resolves"
+pattern = "(?:^|[\\s(\\[`\"'])((?:docs|internal)/[A-Za-z0-9_./-]+\\.[A-Za-z0-9]+)"

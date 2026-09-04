@@ -32,7 +32,7 @@ func TestIssueSummaryLineCountsOpenIssuesByLabel(t *testing.T) {
 
 // A non-ASCII dash in a hook payload has shown up mangled on a Windows
 // terminal before; the line stays plain ASCII so it renders everywhere.
-func TestIssueSummaryLineIsASCIIOnly(t *testing.T) {
+func TestIssueSummaryLine_IsASCIIOnly(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := makeGitHubRepo(t)
 	stubGhScript(t, map[string]string{

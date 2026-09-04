@@ -1,0 +1,2 @@
+internal/a/boot.go:6
+.ratchet/dev_instrument_registry.txt:2

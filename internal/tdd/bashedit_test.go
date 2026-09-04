@@ -264,7 +264,7 @@ func TestPreBashSkipsADirectoryThatIsNotARepo(t *testing.T) {
 // fire for the PowerShell tool at all -- PrimaryCheckoutDecision already
 // branches on tool_name internally, but nothing invokes it without a
 // PreToolUse matcher for "PowerShell" in the installed settings.json.
-func TestPatchSettingsWiresPowerShellForPreToolUse(t *testing.T) {
+func TestPatchSettings_WiresPowerShellForPreToolUse(t *testing.T) {
 	out, changed, err := PatchSettings(nil, "/usr/local/bin/aphrollo")
 	if err != nil || !changed {
 		t.Fatalf("PatchSettings: changed = %v, err = %v", changed, err)

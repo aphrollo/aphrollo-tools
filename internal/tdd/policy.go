@@ -39,6 +39,7 @@ const (
 //     directives (//nolint, // @ts-ignore, # type: ignore) live in comments, so
 //     they must stay visible; strings are blanked so a quoted directive cannot
 //     trip.
+//     (reason: this block names the exact vocabulary the directives view exists to preserve.)
 type view struct {
 	code       string
 	directives string

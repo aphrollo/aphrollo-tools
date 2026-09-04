@@ -243,18 +243,7 @@ func mutationReceiptStage(repoRoot string) *GateResult {
 		// the branch coming in.
 		return blockReceipt(repoRoot, "no lane tip to look a receipt up by (neither .git/MERGE_HEAD nor %s names a merged branch)", reflogActionEnv)
 	}
-	// The repo's shared git COMMON dir, never repoRoot's own directory name:
-	// a linked worktree is routinely named unlike the repo (a lane checked
-	// out at `.worktrees/borld/eol`), but every worktree of one repo shares
-	// this one directory, which is what actually identifies "one repo" to
-	// sameRepo.
-	return checkMutationReceipt(receiptContext{
-		RepoRoot: repoRoot,
-		Repo:     commonGitDir(repoRoot),
-		RepoID:   repoIdentity(repoRoot),
-		TipTree:  tip.Tree,
-		BaseSHA:  mergeBaseSHA(repoRoot, tip.Rev),
-	})
+	return checkMutationReceipt(newReceiptContext(repoRoot, tip))
 }
 
 // failFirstStage runs the fail-first check for ONE project root's staged
@@ -375,13 +364,14 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	// full suite at submit as the authoritative gate. A runner with no
 	// related mode (or an unknown command) falls back to the full suite
 	// unchanged.
-	if scoped, narrowed := narrowToStaged(runner, g.root, toRootRelative(repoRoot, g.root, rootFiles)); narrowed {
+	rootRelFiles := toRootRelative(repoRoot, g.root, rootFiles)
+	if scoped, narrowed := narrowToStaged(runner, g.root, rootRelFiles); narrowed {
 		runner = scoped
 	}
 	// CI parity for a Go root: the same vet and lint the branch is judged by,
 	// both cheaper than the suite and therefore ahead of it.
 	if runner.Cmd == "go" {
-		if res := goQualityStage(gateName, repoRoot, g.root, run); res.Blocked {
+		if res := goQualityStage(gateName, repoRoot, g.root, rootRelFiles, run); res.Blocked {
 			return res
 		}
 	}

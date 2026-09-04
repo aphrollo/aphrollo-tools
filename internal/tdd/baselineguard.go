@@ -215,9 +215,131 @@ func adoptionCovers(repoRoot, baselineRel string, rows int) (lawName string, _ i
 		}
 		changed := section(scopeSection, staged) != section(scopeSection, head) ||
 			section(matcherSection, staged) != section(matcherSection, head)
+		if !changed && !lawOnTrunk(repoRoot, lawRel) && mergedTrunkAtHead(repoRoot) {
+			// The law is the lane's own, not yet on trunk, AND this commit
+			// sits right on top of a REAL merge of trunk (mergedTrunkAtHead):
+			// trunk's files may now sit past rows the lane wrote before that
+			// merge, and re-writing them with the ratchet is adoption. Trunk
+			// never had the ceiling, so nothing on trunk was raised. Without
+			// the merge check, "law absent from trunk" holds for the entire
+			// pre-merge lifetime of the lane, not just the commit that just
+			// caught up — that wider window is the bug this guards against.
+			return name, rows, true
+		}
 		return name, rows, changed
 	}
 	return "", 0, false
+}
+
+// mergedTrunkAtHead reports whether HEAD is ITSELF a merge commit with
+// trunk's current tip among its parents — the one moment a catch-up merge is
+// actually happening. Only the commit made immediately on top of such a
+// merge gets the free pass in adoptionCovers: the next commit after that no
+// longer has a merge at HEAD, so the escape does not outlive the merge that
+// earned it, unlike a check that only asks whether the law is absent from
+// trunk (true for the lane's entire pre-merge lifetime). Every uncertainty —
+// no trunk name, an unresolvable trunk tip, git chatter, a non-merge HEAD —
+// answers false, because false is the answer that keeps the one-way rule.
+func mergedTrunkAtHead(repoRoot string) bool {
+	trunk := trunkBranch(repoRoot)
+	if trunk == "" {
+		return false
+	}
+	trunkOut, err := git(repoRoot, "rev-parse", trunk)
+	if err != nil {
+		return false
+	}
+	trunkSHA := lastSHALine(trunkOut)
+	if trunkSHA == "" {
+		return false
+	}
+	out, err := git(repoRoot, "rev-list", "--parents", "-n", "1", "HEAD")
+	if err != nil {
+		return false
+	}
+	fields := strings.Fields(lastNonEmptyLine(out))
+	if len(fields) < 3 {
+		// fields[0] is HEAD's own sha; fewer than two parents after it means
+		// HEAD is not a merge commit at all.
+		return false
+	}
+	// fields[1] is the first ("ours") parent, never the merged-in side; a
+	// genuine `git merge trunk` records trunk's tip among the rest.
+	for _, parent := range fields[2:] {
+		if parent == trunkSHA {
+			return true
+		}
+	}
+	return false
+}
+
+// lawOnTrunk reports whether lawRel exists at the merge base of HEAD and this
+// repository's trunk. EVERY uncertainty answers true — no trunk name, an
+// unreadable merge base, git chatter where a sha was expected — because true
+// is the answer that keeps the one-way rule: the raise is refused unless the
+// lane demonstrably owns the law.
+func lawOnTrunk(repoRoot, lawRel string) bool {
+	trunk := trunkBranch(repoRoot)
+	if trunk == "" {
+		return true
+	}
+	base, err := git(repoRoot, "merge-base", "HEAD", trunk)
+	if err != nil {
+		return true
+	}
+	sha := lastSHALine(base)
+	if sha == "" {
+		return true
+	}
+	_, ok := gitBlob(repoRoot, sha+":"+lawRel)
+	return ok
+}
+
+// trunkBranch names the branch a lane is measured against: what the remote
+// itself calls its default, else the configured `init.defaultBranch`, else
+// the conventional names — and each candidate must actually resolve. A branch
+// merely NAMED `master` beside a real trunk of another name is not trunk, so
+// the conventional names come last and empty means "cannot tell".
+func trunkBranch(repoRoot string) string {
+	if out, err := git(repoRoot, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
+		if ref := lastNonEmptyLine(out); ref != "" {
+			return ref
+		}
+	}
+	if out, err := git(repoRoot, "config", "--get", "init.defaultBranch"); err == nil {
+		if name := lastNonEmptyLine(out); name != "" {
+			if _, err := git(repoRoot, "rev-parse", "--verify", "--quiet", name); err == nil {
+				return name
+			}
+		}
+	}
+	for _, name := range []string{"main", "master"} {
+		if _, err := git(repoRoot, "rev-parse", "--verify", "--quiet", name); err == nil {
+			return name
+		}
+	}
+	return ""
+}
+
+// lastSHALine is lastNonEmptyLine narrowed to a full object name: anything
+// else means git said something other than the sha that was asked for. The
+// output read here is COMBINED, so a warning ("refname 'main' is ambiguous")
+// rides ahead of the answer and would otherwise be read as part of it.
+func lastSHALine(out string) string {
+	s := lastNonEmptyLine(out)
+	if len(s) != 40 {
+		return ""
+	}
+	for i := 0; i < len(s); i++ {
+		if !isHexDigit(s[i]) {
+			return ""
+		}
+	}
+	return s
+}
+
+func isHexDigit(c byte) bool {
+	return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
 }
 
 // ownsBaseline reports whether lawText declares `baseline = "<rel>"`.
