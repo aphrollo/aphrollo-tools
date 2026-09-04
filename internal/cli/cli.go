@@ -5,6 +5,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -1846,14 +1847,13 @@ func runDevLogs(args []string, stdout, stderr io.Writer) int {
 	return devResult(dev.Logs(svc, *n, stdout, stderr), stderr)
 }
 
-// devResult maps a dev action error to an exit code. A service/usage error
-// (bad svc token) is a usage error (2); a runtime failure is 1.
+// devResult classifies a dev error by SENTINEL, never by message text: a bad svc token is a usage error (2), anything else is runtime (1).
 func devResult(err error, stderr io.Writer) int {
 	if err == nil {
 		return 0
 	}
 	fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-	if strings.Contains(err.Error(), "service not allowed") || strings.Contains(err.Error(), "service required") {
+	if errors.Is(err, dev.ErrServiceNotAllowed) || errors.Is(err, dev.ErrServiceRequired) {
 		return 2
 	}
 	return 1
