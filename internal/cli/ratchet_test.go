@@ -499,3 +499,49 @@ func TestGateInitWritesTheLawSpecBesideTheLaws(t *testing.T) {
 		t.Errorf("an unchanged spec is not news: %q", out.String())
 	}
 }
+
+// TestRatchetCheck_AdoptRefusesACosmeticLawEditThatDoesNotChangeTheMatcher
+// proves the changed-since-HEAD guard is a SEMANTIC diff of [matcher],
+// [scope] and severity — not a raw byte diff of the whole .toml. Editing
+// only the law's description must not unlock adoption of an unrelated,
+// already-present violation that has nothing to do with that edit.
+func TestRatchetCheck_AdoptRefusesACosmeticLawEditThatDoesNotChangeTheMatcher(t *testing.T) {
+	root := adoptRepo(t)
+	var out, errb bytes.Buffer
+	if code := Run([]string{"ratchet", "check", "--repo", root, "--adopt", "nan-guard"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("first adopt: exit = %d\n%s%s", code, out.String(), errb.String())
+	}
+	gitCommitAll(t, root, "adopt")
+
+	// A second offender appears, unrelated to the law's own rule.
+	writeFile(t, filepath.Join(root, "crates", "b", "src", "lib.rs"), "let b = y.clamp(0.0, 1.0);\n")
+
+	// A purely cosmetic edit to the law: description text only, [matcher]/
+	// [scope]/severity untouched.
+	lawPath := filepath.Join(root, ".ratchet", "laws", "nan-guard.toml")
+	cosmetic := strings.Replace(
+		string(mustReadFile(t, lawPath)),
+		`description = "A float clamp is not a NaN guard"`,
+		`description = "A float clamp is not a NaN guard (reworded)"`,
+		1)
+	writeFile(t, lawPath, cosmetic)
+
+	out.Reset()
+	errb.Reset()
+	code := Run([]string{"ratchet", "check", "--repo", root, "--adopt", "nan-guard"}, strings.NewReader(""), &out, &errb)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 — a description-only edit must not unlock adoption of an unrelated violation\nstdout: %s\nstderr: %s", code, out.String(), errb.String())
+	}
+	if !strings.Contains(errb.String(), "nan-guard") {
+		t.Errorf("stderr must name the law: %q", errb.String())
+	}
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}

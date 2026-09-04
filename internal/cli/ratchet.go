@@ -230,10 +230,16 @@ func runRatchetAdopt(root, law string, stdout, stderr io.Writer) int {
 }
 
 // lawChangedSinceHEAD reports whether <root>/.ratchet/laws/<law>.toml, as it
-// sits on disk right now, differs from the version at HEAD — true also when
-// there is no HEAD version at all (a brand-new law), or git cannot answer
-// (no repo, no commits yet): a box that cannot tell says "changed" rather
-// than silently refusing every adoption.
+// sits on disk right now, differs SEMANTICALLY from the version at HEAD —
+// by [matcher], [scope] and severity, the fields that decide what counts as
+// a violation, never by a raw byte diff of the whole file. A description
+// reword or a comment edit must not "change" a law that still catches
+// exactly what it always did — that is the one guard standing between
+// --adopt and laundering an unrelated, already-present violation into the
+// baseline. True also when there is no HEAD version at all (a brand-new
+// law), or git cannot answer (no repo, no commits yet), or either version
+// fails to parse: a box that cannot tell says "changed" rather than
+// silently refusing every adoption.
 func lawChangedSinceHEAD(root, law string) bool {
 	rel := filepath.ToSlash(filepath.Join(ratchet.LawsDir, law+".toml"))
 	disk, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
@@ -245,7 +251,15 @@ func lawChangedSinceHEAD(root, law string) bool {
 	if err != nil {
 		return true
 	}
-	return string(head) != string(disk)
+	diskRules, err := ratchet.RuleSemantics(string(disk))
+	if err != nil {
+		return true
+	}
+	headRules, err := ratchet.RuleSemantics(string(head))
+	if err != nil {
+		return true
+	}
+	return diskRules != headRules
 }
 
 // paramFlag collects repeated --param name=value pairs.

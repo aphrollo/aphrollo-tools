@@ -1,8 +1,8 @@
 internal/cli/cli.go | 2165
 internal/cli/cli_test.go | 991
 internal/cli/git_shim.go | 677
-internal/ratchet/check.go | 738
-internal/ratchet/law.go | 695
+internal/ratchet/check.go | 737
+internal/ratchet/law.go | 672
 internal/tdd/autoescape_test.go | 729
 internal/tdd/precommit.go | 1085
 internal/tdd/precommit_test.go | 691

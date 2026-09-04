@@ -20,20 +20,59 @@ type Hit struct {
 	Weight int    `json:"weight"`
 }
 
+// FileLines is one file's content already split into lines — computed ONCE
+// per file, then shared across every law that scans it, rather than once per
+// (law, file) pair. code is filled lazily: one stripped slice per DISTINCT
+// comment prefix a CodeOnly law asks for, cached so a second law sharing
+// that prefix (the overwhelmingly common case — one file has one language)
+// never re-runs splitTrailingComment over lines it already stripped.
+type FileLines struct {
+	raw  []string
+	code map[string][]string
+}
+
+// newFileLines splits content once. Cheap enough to call for a single
+// HitsIn as well as a scanner's per-file loop.
+func newFileLines(content string) *FileLines {
+	return &FileLines{raw: splitLines(content)}
+}
+
+// codeFor returns l's comment-stripped view of the file, computed once per
+// distinct comment prefix and reused for every later law that shares it.
+func (fl *FileLines) codeFor(l Law) []string {
+	if !l.CodeOnly {
+		return fl.raw
+	}
+	prefix := l.commentPrefix()
+	if code, ok := fl.code[prefix]; ok {
+		return code
+	}
+	code := make([]string, len(fl.raw))
+	for i := range fl.raw {
+		code[i], _ = splitTrailingComment(fl.raw[i], prefix)
+	}
+	if fl.code == nil {
+		fl.code = make(map[string][]string)
+	}
+	fl.code[prefix] = code
+	return code
+}
+
 // HitsIn applies a law's matcher to one in-scope file's content. It is pure:
 // the same path and content always produce the same hits, which is what makes
 // the pre-edit path (content that is not on disk yet) and the cached tree scan
 // the same code. Registry laws are the exception — they judge the WHOLE scope
 // at once and are answered by the checker, not here.
 func (l Law) HitsIn(file, content string) []Hit {
-	raw := splitLines(content)
-	code := raw
-	if l.CodeOnly {
-		code = make([]string, len(raw))
-		for i := range raw {
-			code[i], _ = splitTrailingComment(raw[i], l.commentPrefix())
-		}
-	}
+	return l.hitsInLines(file, newFileLines(content))
+}
+
+// hitsInLines is HitsIn's lower-level entry point: fl is already split (and,
+// lazily, comment-stripped) by the caller, so a scan over many laws applying
+// to the SAME file pays that split/strip cost once, not once per law.
+func (l Law) hitsInLines(file string, fl *FileLines) []Hit {
+	raw := fl.raw
+	code := fl.codeFor(l)
 	switch l.Matcher.Kind {
 	case KindLineCount:
 		return l.lineCountHits(file, raw)
@@ -275,11 +314,6 @@ func (l Law) foundNear(raw []string, idx, lines int, dir Direction, match func(s
 	return (dir == DirectionBelow || dir == DirectionBoth) && l.scanRun(raw, idx, lines, 1, match)
 }
 
-// foundAbove is the escape window: an escape comment only ever sits above.
-func (l Law) foundAbove(raw []string, idx, lines int, match func(string) bool) bool {
-	return l.foundNear(raw, idx, lines, DirectionAbove, match)
-}
-
 // scanRun walks away from the trigger one line at a time in one direction,
 // stopping at the window edge or — for a contiguous law — at the first line
 // that is neither a comment nor a single-line attribute.
@@ -407,13 +441,38 @@ func (l Law) hit(file string, line int, what string) Hit {
 
 // escaped reports whether the law's escape comment sits on the offending line
 // or within EscapeLines lines above it.
+// escaped reports whether l's escape token genuinely opens a comment near
+// the trigger — never a bare substring match, which would let the token
+// forge from inside a string literal, a log message, or unrelated prose. On
+// the trigger's own line the token must sit past where code ends (the same
+// quote-aware split code_only pattern matching already trusts); on a line
+// above, the trimmed line must itself open a comment — what inCommentRun
+// already tests — regardless of Contiguous.
 func (l Law) escaped(raw []string, idx int) bool {
 	if l.Escape == "" {
 		return false
 	}
-	return l.foundAbove(raw, idx, l.EscapeLines, func(line string) bool {
-		return strings.Contains(line, l.Escape)
-	})
+	prefix := l.commentPrefix()
+	if idx >= 0 && idx < len(raw) {
+		_, comment := splitTrailingComment(raw[idx], prefix)
+		if strings.Contains(comment, l.Escape) {
+			return true
+		}
+	}
+	for i := idx - 1; i >= 0; i-- {
+		if l.Contiguous {
+			if !inCommentRun(raw[i], prefix) {
+				return false
+			}
+		} else if i < idx-l.EscapeLines {
+			return false
+		}
+		t := strings.TrimSpace(raw[i])
+		if strings.HasPrefix(t, prefix) && strings.Contains(raw[i], l.Escape) {
+			return true
+		}
+	}
+	return false
 }
 
 func splitLines(content string) []string {

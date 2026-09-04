@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -94,6 +95,79 @@ func BenchmarkRatchetCheckWarm(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if _, err := Check(Options{Root: root, CacheDir: cacheDir}); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// manyCodeOnlyLawsCount is "a dozen-plus laws over a typical .rs file", the
+// scale BorldsHitsIn's own doc comment names as the cost a per-law re-split
+// pays on every cold scan of a single edited file.
+const manyCodeOnlyLawsCount = 15
+
+// buildManyCodeOnlyLawsFixture writes manyCodeOnlyLawsCount CodeOnly
+// regex-absent laws, all scoped to the same files, plus a small workspace —
+// small, because this benchmark's whole point is the PER-LAW work scanTree
+// repeats on each file, not the file count BenchmarkRatchetCheckCold already
+// covers.
+func buildManyCodeOnlyLawsFixture(b *testing.B, root string) {
+	b.Helper()
+	lawDir := filepath.Join(root, ".ratchet", "laws")
+	if err := os.MkdirAll(lawDir, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	for i := 0; i < manyCodeOnlyLawsCount; i++ {
+		law := fmt.Sprintf(`
+name = "bench-guard-%02d"
+description = "benchmark fixture: no bare TODO_NEVER_PRESENT_%02d"
+severity = "warn"
+baseline = ".ratchet/baselines/bench-guard-%02d.txt"
+code_only = true
+
+[scope]
+include = ["**/*.go"]
+exclude = ["**/vendor/**"]
+
+[matcher]
+kind = "regex-absent"
+pattern = "TODO_NEVER_PRESENT_%02d"
+key = "file:line-content-hash"
+`, i, i, i, i)
+		path := filepath.Join(lawDir, fmt.Sprintf("bench-guard-%02d.toml", i))
+		if err := os.WriteFile(path, []byte(law), 0o644); err != nil {
+			b.Fatal(err)
+		}
+	}
+	const packages, filesPerPkg, linesPerFile = 4, 50, 300 // 300: a module_size-target-sized file, not a 5-line stub
+	for p := 0; p < packages; p++ {
+		pkgDir := filepath.Join(root, fmt.Sprintf("pkg%03d", p))
+		if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+			b.Fatal(err)
+		}
+		for f := 0; f < filesPerPkg; f++ {
+			var sb strings.Builder
+			fmt.Fprintf(&sb, "package pkg%03d\n\n", p)
+			for ln := 0; ln < linesPerFile; ln++ {
+				fmt.Fprintf(&sb, "func F%d_%d() int { return %d } // line %d of the fixture body\n", f, ln, ln, ln)
+			}
+			path := filepath.Join(pkgDir, fmt.Sprintf("file%04d.go", f))
+			if err := os.WriteFile(path, []byte(sb.String()), 0o644); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+}
+
+// BenchmarkRatchetCheckColdManyCodeOnlyLaws times a cold scan where
+// manyCodeOnlyLawsCount CodeOnly laws all apply to every file, the shape
+// that pays scanTree's per-(law,file) splitLines/splitTrailingComment cost
+// once per applicable law instead of once per file.
+func BenchmarkRatchetCheckColdManyCodeOnlyLaws(b *testing.B) {
+	root := b.TempDir()
+	buildManyCodeOnlyLawsFixture(b, root)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := Check(Options{Root: root}); err != nil {
 			b.Fatal(err)
 		}
 	}
