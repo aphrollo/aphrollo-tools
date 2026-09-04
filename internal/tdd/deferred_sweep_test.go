@@ -150,6 +150,42 @@ func TestSweepDoesNotKillAPIDTheOSHasRecycled(t *testing.T) {
 	}
 }
 
+// TestSweepDeferredJobs_ReturnsCountOfFilesRemoved pins the return value, not
+// just the on-disk effect: every one of a day-old job's three files (record,
+// log, result) is a real removal the caller's count must reflect.
+func TestSweepDeferredJobs_ReturnsCountOfFilesRemoved(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stale := deferredJobFilesFor(t, "gone", filepath.Join(t.TempDir(), "old-lane"), 30*time.Hour)
+
+	got := sweepDeferredJobs(time.Now())
+
+	want := 3 // record + log + result, each older than the 24h ceiling
+	if got != want {
+		t.Fatalf("removed = %d, want %d (files were %v)", got, want, stale)
+	}
+}
+
+// TestKillLivePID_SkipsAZeroPID pins the guard the doc comment names: a
+// record decoding to pid 0 means nothing was ever recorded as spawned, so
+// killLivePID must leave it alone rather than handing pid 0 to the killer.
+func TestKillLivePID_SkipsAZeroPID(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := filepath.Join(t.TempDir(), "zero-pid-lane")
+	saveDeferredJob(DeferredJob{Project: root, Session: "sess-zero", Phase: "run", PID: 0, Started: time.Now()})
+	path := deferredJobPath("sess-zero", root)
+
+	var killed []int
+	prev := killDeferredFn
+	killDeferredFn = func(j DeferredJob) { killed = append(killed, j.PID) }
+	t.Cleanup(func() { killDeferredFn = prev })
+
+	killLivePID(path)
+
+	if len(killed) != 0 {
+		t.Fatalf("killed = %v, want no kill: a record with pid 0 names no process", killed)
+	}
+}
+
 // The manual sweep reports them too, so an operator sees where the files went
 // rather than finding a directory that quietly empties itself.
 func TestScanGC_ProposesADayOldDeferredRecord(t *testing.T) {

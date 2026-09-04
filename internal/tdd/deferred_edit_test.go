@@ -264,6 +264,69 @@ func TestHandlePrompt_ReportsAFinishedDeferredJob(t *testing.T) {
 	}
 }
 
+// TestPidStillOurs_TreatsDriftAtToleranceAsSameProcess pins the boundary at
+// exactly pidIdentityTolerance: a live process reported 5s newer than the
+// recorded creation time is INSIDE the window (the boundary is inclusive)
+// and must still count as ours.
+func TestPidStillOurs_TreatsDriftAtToleranceAsSameProcess(t *testing.T) {
+	base := time.Now()
+	prev := processStartTimeFn
+	processStartTimeFn = func(pid int) (time.Time, bool) { return base.Add(5 * time.Second), true }
+	t.Cleanup(func() { processStartTimeFn = prev })
+
+	j := DeferredJob{PID: 1, PIDCreatedAt: base}
+	if !pidStillOurs(j) {
+		t.Fatal("a live process exactly 5s newer than the recorded creation time must still count as the same process")
+	}
+}
+
+// TestPidStillOurs_TreatsDriftJustOverToleranceAsDifferentProcess pins the
+// far side of the same boundary: a drift a hair past 5s must be treated as a
+// recycled pid, not the same process.
+func TestPidStillOurs_TreatsDriftJustOverToleranceAsDifferentProcess(t *testing.T) {
+	base := time.Now()
+	prev := processStartTimeFn
+	processStartTimeFn = func(pid int) (time.Time, bool) { return base.Add(5*time.Second + time.Millisecond), true }
+	t.Cleanup(func() { processStartTimeFn = prev })
+
+	j := DeferredJob{PID: 1, PIDCreatedAt: base}
+	if pidStillOurs(j) {
+		t.Fatal("a live process more than 5s newer than the recorded creation time must count as a recycled pid, not ours")
+	}
+}
+
+// TestReapSessionDeferredJobs_KillsOnlyJobsWithALivePID pins two facts at
+// once: a job with no recorded pid (crash before spawn, or an old-format
+// record) must never be handed to the killer, and every matching record for
+// the session is still cleared regardless.
+func TestReapSessionDeferredJobs_KillsOnlyJobsWithALivePID(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rootA := filepath.Join(t.TempDir(), "proj-a")
+	rootB := filepath.Join(t.TempDir(), "proj-b")
+	saveDeferredJob(DeferredJob{Project: rootA, Session: "sess-reap", Phase: "run", PID: 5555, Started: time.Now()})
+	saveDeferredJob(DeferredJob{Project: rootB, Session: "sess-reap", Phase: "run", PID: 0, Started: time.Now()})
+
+	var killed []int
+	prev := killDeferredFn
+	killDeferredFn = func(j DeferredJob) { killed = append(killed, j.PID) }
+	t.Cleanup(func() { killDeferredFn = prev })
+
+	got := reapSessionDeferredJobs("sess-reap")
+
+	if got != 2 {
+		t.Fatalf("reaped = %d, want 2 (one record cleared per project regardless of pid)", got)
+	}
+	if len(killed) != 1 || killed[0] != 5555 {
+		t.Fatalf("killed = %v, want exactly [5555]: a job with no recorded pid must not be killed", killed)
+	}
+	if _, ok := loadDeferredJob("sess-reap", rootA); ok {
+		t.Fatal("reaped job for proj-a must be cleared")
+	}
+	if _, ok := loadDeferredJob("sess-reap", rootB); ok {
+		t.Fatal("reaped job for proj-b must be cleared")
+	}
+}
+
 func containsArg(args []string, want string) bool {
 	for _, a := range args {
 		if a == want {
