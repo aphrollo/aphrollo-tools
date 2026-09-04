@@ -22,6 +22,14 @@ mutation-receipt = true
 # on a box whose gremlins reports a non-zero mutator coverage.
 mutants-local = false
 
+# ...but the receipt is still JUDGED here. The Linux clone that measures it
+# shares this machine's CLAUDE_CONFIG_DIR, so it signs with the same key and
+# the pre-merge gate can both find and verify what it wrote. Without this key
+# the gate reads `mutants-local = false` as "CI judges it" and stands down --
+# which, on a repo whose CI does not judge it, means every lane merges on no
+# proof at all.
+mutants-judge-local = true
+
 # Survivors somebody signed off on: "<file>:<line> <MUTATOR> # why". The
 # reason is not decoration — an entry without one is not an accepted survivor,
 # and the CI check goes red for it. Empty is the state to keep it in.
