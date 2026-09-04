@@ -1,0 +1,2 @@
+testdata/bench/baseline.txt|BenchmarkThing|B/op
+testdata/bench/baseline.txt|BenchmarkThing|allocs/op
