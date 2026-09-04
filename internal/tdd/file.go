@@ -1,8 +1,8 @@
 package tdd
 
 import (
-	"path/filepath"
 	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -88,6 +88,14 @@ func ClassifyFile(p string) Kind {
 
 	if isTestFile(p, base) {
 		return Test
+	}
+	if base == gateConfigName {
+		// Not prose: this file carries the keys the gate reads to decide what
+		// a lane owes, and the suite pins them through the readers. Left as
+		// Ignore, a commit that touched nothing else took the docs-only fast
+		// path -- no suite, by design -- and changed the gate's own behaviour
+		// without running the test that pins it (issue #212).
+		return Source
 	}
 	ext := strings.ToLower(path.Ext(base))
 	if ext == ".ron" && !ronHasOwningCrate(p) {
@@ -182,3 +190,6 @@ func isTestFile(p, base string) bool {
 	}
 	return false
 }
+
+// gateConfigName is the per-repo config the gate reads its own policy from.
+const gateConfigName = "aphrollo.toml"

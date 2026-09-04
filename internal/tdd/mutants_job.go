@@ -217,6 +217,28 @@ func mutationRunsLocally(root string) bool {
 	return true
 }
 
+// mutationJudgedLocally reports whether THIS box may judge a lane's mutation
+// receipt. It defaults to mutationRunsLocally, because the two normally agree:
+// the box that measures is the box that holds the receipt and the key it was
+// signed with.
+//
+// They come apart when the run is measured elsewhere UNDER THE SAME KEY -- a
+// Linux clone sharing CLAUDE_CONFIG_DIR, which is how this repo earns receipts
+// a Windows gremlins cannot produce. There the receipt is present and
+// verifiable, so standing the gate down would waive a proof that exists, and
+// every lane would merge on nothing. `mutants-judge-local` says which answer
+// applies when they differ; unset, nothing changes for any repo.
+func mutationJudgedLocally(root string) bool {
+	if v, set := tomlBoolSetIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", "mutants-judge-local"); set {
+		return v
+	}
+	ws := cargoWorkspaceRoot(root)
+	if v, set := tomlBoolSetIn(filepath.Join(ws, "Cargo.toml"), "[workspace.metadata.aphrollo]", "mutants-judge-local"); set {
+		return v
+	}
+	return mutationRunsLocally(root)
+}
+
 // MutantsWorktreeDir is the ONE dedicated worktree a repo's mutation runs use,
 // beside the lane worktrees rather than inside the checkout: a build dir under
 // the checkout is one a lane's own tooling would find and sweep.
