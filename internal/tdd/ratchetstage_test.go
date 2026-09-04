@@ -103,7 +103,7 @@ func TestRatchetStageSkipsFixturesWhenNoLawFileIsStaged(t *testing.T) {
 // internal/ratchet/check_readerror_test.go's own reasoning) — this test's
 // job is the CALLER's classification of the error Check hands back, not the
 // scan that produces it.
-func TestRatchetStageBlocksWhenAScopedFileCannotBeRead(t *testing.T) {
+func TestRatchetStage_BlocksWhenAScopedFileCannotBeRead(t *testing.T) {
 	root := lawTree(t, "deny")
 	gitAddAll(t, root)
 
@@ -133,7 +133,7 @@ func TestRatchetStageBlocksWhenAScopedFileCannotBeRead(t *testing.T) {
 // unreadable file (nothing here names one path to retry), but it deserves
 // the same verdict: a gate that cannot read its own laws is not a gate, so
 // this blocks too, with a remedy a reader can act on.
-func TestRatchetStageBlocksAndNamesARemedyWhenALawFileIsUnparseable(t *testing.T) {
+func TestRatchetStage_BlocksAndNamesARemedyWhenALawFileIsUnparseable(t *testing.T) {
 	root := t.TempDir()
 	gitInit(t, root)
 	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "future.toml"), `
