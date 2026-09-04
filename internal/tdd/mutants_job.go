@@ -322,12 +322,19 @@ const mutantsRunDir = "aphrollo-mutants"
 // worktree IN PLACE (never a tree copy), only inside the lane's diff, and run
 // the suite through nextest. baselineSkip drops the unmutated baseline run,
 // which is sound only when the gate already proved that same tree green.
-// judged names the mutants an interrupted earlier attempt already reached a
-// verdict for; they are excluded so a restart measures only what is left.
-func MutantsArgv(diffPath string, baselineSkip bool, judged []string) []string {
+// packages narrows both the mutant pool and — the point of issue #251 — the
+// unmutated BASELINE to the touched crates' own suites, via mutantsTouchedPackages;
+// empty falls back to today's whole-workspace scope rather than measuring
+// nothing. judged names the mutants an interrupted earlier attempt already
+// reached a verdict for; they are excluded so a restart measures only what is
+// left.
+func MutantsArgv(diffPath string, baselineSkip bool, judged []string, packages []string) []string {
 	argv := []string{"--in-place", "--in-diff", diffPath, "--test-tool=nextest"}
 	if baselineSkip {
 		argv = append(argv, "--baseline", "skip")
+	}
+	for _, pkg := range packages {
+		argv = append(argv, "--package", pkg)
 	}
 	// Every exclusion rides to the runner inside one environment variable, and
 	// Windows caps the whole environment block at 32,767 characters: an
