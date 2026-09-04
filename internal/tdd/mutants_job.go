@@ -252,11 +252,41 @@ func mutationJudgedLocally(root string) bool {
 // checkout is `--git-common-dir`'s PARENT: that path names the one `.git`
 // directory every worktree of the repo shares, regardless of which one asked.
 func MutantsWorktreeDir(repoRoot string) string {
+	return filepath.Join(MutantsRootDir(repoRoot), mutantsLaneKey(repoRoot))
+}
+
+// MutantsRootDir is the repo's one mutants directory, holding a subdirectory
+// per lane. Every containment check keys on this rather than on a lane's own
+// tree: the build-slot bypass, the gc sweep and the primary-checkout guardrail
+// all ask "is this path inside the repo's mutants area", a question that must
+// stay true however many lanes are measuring.
+func MutantsRootDir(repoRoot string) string {
 	primary := primaryCheckoutRoot(repoRoot)
 	if primary == "" {
 		primary = filepath.Clean(repoRoot)
 	}
 	return filepath.Join(filepath.Dir(primary), ".worktrees", filepath.Base(primary), "mutants")
+}
+
+// mutantsLaneKey separates one lane's measurement from another's. A repo-wide
+// tree was warm and cheap with one lane in flight and destructive with two: a
+// commit in any lane fires the post-commit hook, and the detached run checked
+// the shared worktree out to its own tip under whichever run was still working
+// in it. Four concurrent lanes in borld produced `Worker thread failed: The
+// file exists. (os error 80)`, jobs evicted from the registry by later lanes,
+// and no receipt for anyone -- which blocks every merge, since the receipt is
+// what the merge gate consumes.
+//
+// The key is the LANE'S OWN CHECKOUT, not its branch: a branch is renameable
+// and carries path separators, while the worktree path is where the run
+// actually operates and is stable across the lane's commits, so the tree stays
+// warm exactly as long as the lane does.
+func mutantsLaneKey(repoRoot string) string {
+	lane := RepoRoot(repoRoot)
+	if lane == "" {
+		lane = filepath.Clean(repoRoot)
+	}
+	return projectKey(lane)
 }
 
 // primaryCheckoutRoot resolves repoRoot's PRIMARY checkout — the directory
