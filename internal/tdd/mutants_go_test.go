@@ -64,9 +64,13 @@ func TestParseGremlinsReport_LeavesOutTheMutantsTheDiffScopeSkipped(t *testing.T
 // could not compile.
 func TestGremlinsStatus_MapsEveryVerdictItCanReport(t *testing.T) {
 	for raw, want := range map[string]string{
-		"KILLED":      "caught",
-		"LIVED":       "missed",
-		"NOT COVERED": "missed",
+		"KILLED": "caught",
+		"LIVED":  "missed",
+		// NOT COVERED is its own status, not a miss: gremlins never ran a test
+		// for it, so it is unmeasured rather than survived. See
+		// gremlinsNotCovered for why its coverage mapping cannot be read as
+		// "no test covers this".
+		"NOT COVERED": gremlinsNotCovered,
 		"TIMED OUT":   "timeout",
 		"NOT VIABLE":  "unviable",
 		"RUNERROR":    "unviable",

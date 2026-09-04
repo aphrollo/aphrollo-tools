@@ -439,7 +439,19 @@ func ApplyGCFor(repo string, cands []GCCandidate) (freed int64, refused []string
 		free = append(free, c)
 	}
 	freed, refused = ApplyGC(free)
-	for target, group := range byTarget {
+	// Map iteration order is randomized per range, not just per process, so
+	// a sweep spanning more than one target-dir interlock (the repo's own
+	// target dir plus a separate orphan worktree's own <path>/target is the
+	// normal case once more than one stale worktree accumulates) appended
+	// each bucket's refusals in an order that moved run to run on identical
+	// input — sorted target keys make it deterministic.
+	targets := make([]string, 0, len(byTarget))
+	for target := range byTarget {
+		targets = append(targets, target)
+	}
+	sort.Strings(targets)
+	for _, target := range targets {
+		group := byTarget[target]
 		_, release, ok := TryAcquireBuildSlot(target, gcOwnerCommand, repo)
 		if !ok {
 			skipped += len(group)
