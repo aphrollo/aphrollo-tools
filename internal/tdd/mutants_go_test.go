@@ -200,7 +200,7 @@ func TestGoMutantsReceipt_IsTheSameReceiptTheRustRunnerWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeGoMutantsReceipt(j, mutants, TreeState{})
+	writeGoMutantsReceipt(j, mutants, TreeState{}, 0)
 
 	r := readReceipt(t, laneTip)
 	if r.Repo != "borld" || r.TipTree != laneTip || r.BaseSHA != mergeBase {

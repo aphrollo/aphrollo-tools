@@ -29,6 +29,20 @@ import (
 // store nobody prunes stays a file a human can open.
 const mutantStoreMaxAge = 30 * 24 * time.Hour
 
+// mutantOutcomeSchema versions what a stored verdict STRING means, separately
+// from the shared StateSchema. StateSchema treats an OLDER schema as readable
+// on purpose — new fields absent from old JSON are a structural gap, not a
+// wrong answer. A verdict is different: "missed" or "caught" is only as
+// trustworthy as the MAPPING that produced it (gremlinsStatus, say), and that
+// mapping can change with no structural change at all — gremlins' NOT COVERED
+// used to fold into "missed" and now has its own distinct status. A blob and
+// a fence that still match tell carriesOver nothing about which mapping wrote
+// the entry, so an old-mapping "missed" would be replayed as a real survivor
+// under the current one. Bumped whenever gremlinsStatus (or its cargo-mutants
+// counterpart) changes what a status MEANS; an exact mismatch in EITHER
+// direction — not just newer-than — discards the store.
+const mutantOutcomeSchema = 2
+
 // storedOutcome is one measured mutant plus WHEN it was measured, which is
 // what the age prune reads.
 type storedOutcome struct {
@@ -36,9 +50,11 @@ type storedOutcome struct {
 	At time.Time `json:"at"`
 }
 
-// mutantStore is the file's shape. Schema-stamped: a store written by a newer
-// binary is read as NO cache rather than guessed at, because a wrong carry
-// reports an unmeasured mutant as caught.
+// mutantStore is the file's shape. Schema-stamped with mutantOutcomeSchema,
+// not StateSchema: a store written under a DIFFERENT verdict mapping — older
+// OR newer — is read as NO cache rather than guessed at, because a wrong
+// carry reports an unmeasured mutant as caught (or a real survivor as one
+// this binary would no longer produce at all).
 type mutantStore struct {
 	Schema  int             `json:"schema"`
 	Entries []storedOutcome `json:"entries"`
@@ -96,7 +112,7 @@ func readMutantStoreFile(path string) mutantStore {
 		return mutantStore{}
 	}
 	var s mutantStore
-	if err := json.Unmarshal(data, &s); err != nil || s.Schema > StateSchema {
+	if err := json.Unmarshal(data, &s); err != nil || s.Schema != mutantOutcomeSchema {
 		return mutantStore{}
 	}
 	return s
@@ -192,7 +208,7 @@ func writeMutantStore(path string, entries map[mutantKey]storedOutcome) {
 		}
 		return a.Mutation < b.Mutation
 	})
-	data, err := json.Marshal(mutantStore{Schema: StateSchema, Entries: out})
+	data, err := json.Marshal(mutantStore{Schema: mutantOutcomeSchema, Entries: out})
 	if err != nil {
 		return
 	}

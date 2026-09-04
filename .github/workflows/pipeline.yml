@@ -357,9 +357,9 @@ jobs:
       # this branch. Without this a one-file fix-round push re-measured the
       # WHOLE diff every time: six pushes on PR 138 cost six full ~10-minute
       # runs on this serial runner.
-      - name: Cache the mutation outcome store
+      - name: Restore the mutation outcome store
         if: needs.changes.outputs.code == 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .mutants-store
           key: mutants-store-${{ github.head_ref }}-${{ github.run_id }}
@@ -379,6 +379,20 @@ jobs:
           base=$(git merge-base "$ref" HEAD)
           echo "scoping the run to $base..HEAD"
           ./bin/aphrollo gate mutants go --diff "$base" --receipt mutation-receipt.json --store .mutants-store
+      - name: Save the mutation outcome store
+        # always(): the combined actions/cache action's built-in Post-if save
+        # does not reliably fire when the step above fails (issue: PR #150's
+        # first push measured 31 mutants and failed with 5 unaccepted
+        # survivors, and no "Cache saved with key: ..." line ever appeared in
+        # that job's log) -- exactly the run whose measurements a fix-up push
+        # most wants to reuse. An explicit save step run unconditionally
+        # closes that hole; restore-keys above still lets a later push adopt
+        # whatever the newest saved key under this head_ref holds.
+        if: ${{ always() && needs.changes.outputs.code == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .mutants-store
+          key: mutants-store-${{ github.head_ref }}-${{ github.run_id }}
       - name: Upload the receipt
         # always(): the receipt of a run that FAILED is the one somebody needs
         # to read, and it is written before the check decides.

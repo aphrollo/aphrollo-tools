@@ -140,11 +140,18 @@ func onlyIgnoreKind(repoRoot string, changed []string) bool {
 // deliberately so — an absolute path drags the checkout's own directory names
 // (`build/`, `dist/`) through ClassifyFile's ignored-segment scan.
 func classifyRepoPath(repoRoot, p string) Kind {
-	k := ClassifyFile(p)
-	if k != Ignore || strings.ToLower(path.Ext(p)) != ".ron" || repoRoot == "" {
-		return k
+	// A .ron's owning crate is resolved by walking the FILESYSTEM
+	// (ronHasOwningCrate), so the bare, CWD-relative ClassifyFile(p) below is
+	// not trustworthy for it in EITHER direction: a process whose working
+	// directory sits under some unrelated crate can have that bare walk
+	// climb straight into it and answer Source for a .ron that belongs to
+	// nothing in repoRoot at all, not just fail to notice one that does.
+	// repoRoot is the one anchor every caller means, so a known repoRoot
+	// always wins for this extension, before the cheap check ever runs.
+	if repoRoot != "" && strings.ToLower(path.Ext(p)) == ".ron" {
+		return ClassifyFile(filepath.Join(repoRoot, filepath.FromSlash(p)))
 	}
-	return ClassifyFile(filepath.Join(repoRoot, filepath.FromSlash(p)))
+	return ClassifyFile(p)
 }
 
 // changedPaths lists the repo-relative paths that differ between two

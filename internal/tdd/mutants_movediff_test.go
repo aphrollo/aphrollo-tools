@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -130,6 +131,36 @@ func TestRunMutantsJob_ALaneOfPureMovesGetsAZeroMutantReceipt(t *testing.T) {
 	}
 	if r.MAC == "" {
 		t.Fatal("a zero-mutant receipt must be signed like any other")
+	}
+}
+
+// A pure move across files leaves neither file with anything left to
+// mutate: git's move detection empties both diffs entirely, so both are
+// reported for exclusion from the run, and the moved-line count is the
+// evidence a zero-mutant receipt can point to.
+func TestMovedOnlyFiles_APureMoveExcludesBothFilesAndCountsTheLines(t *testing.T) {
+	root, base := movedRepo(t)
+	moveTheFunction(t, root, "")
+
+	moved, movedLines := movedOnlyFiles(root, base, "HEAD", []string{"src/a.rs", "src/b.rs"})
+	if movedLines == 0 {
+		t.Fatal("git detected no moved lines at all, so this test is not exercising the filter")
+	}
+	if len(moved) != 2 || !slices.Contains(moved, "src/a.rs") || !slices.Contains(moved, "src/b.rs") {
+		t.Fatalf("moved = %v, want both src/a.rs and src/b.rs — neither has anything left to mutate", moved)
+	}
+}
+
+// The one line that really changed rides along with the move, and the file
+// that carries it must stay IN the run — reporting it moved-only would let a
+// real edit go unmeasured.
+func TestMovedOnlyFiles_AMoveWithOneEditedLineKeepsThatFileInTheRun(t *testing.T) {
+	root, base := movedRepo(t)
+	moveTheFunction(t, root, "        return x * 3;")
+
+	moved, _ := movedOnlyFiles(root, base, "HEAD", []string{"src/a.rs", "src/b.rs"})
+	if slices.Contains(moved, "src/b.rs") {
+		t.Fatalf("moved = %v, want src/b.rs kept — it carries the one line that actually changed", moved)
 	}
 }
 

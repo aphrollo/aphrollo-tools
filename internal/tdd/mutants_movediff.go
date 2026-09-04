@@ -177,3 +177,38 @@ func diffHasHunks(diff string) bool {
 	}
 	return false
 }
+
+// diffFiles is every path a move-aware diff still carries a hunk for —
+// filterMovedLines drops a file's header entirely once every one of its
+// hunks was moved away, so a path missing here is a path with nothing left
+// to mutate.
+func diffFiles(diff string) map[string]bool {
+	out := map[string]bool{}
+	for line := range strings.SplitSeq(diff, "\n") {
+		if p, ok := diffHeaderPath(line); ok {
+			out[p] = true
+		}
+	}
+	return out
+}
+
+// movedOnlyFiles is the file-level reading of moveAwareDiff: which of the
+// given files git's move detection emptied entirely, and how many lines that
+// was. A tool that scopes itself by REF rather than by a diff this package
+// controls (gremlins' own --diff) cannot be handed the filtered text
+// directly, so its walk is narrowed the other way — every file this reports
+// belongs in the run's own --exclude-files, because nothing on it changed in
+// any sense a mutant could constrain.
+func movedOnlyFiles(repoRoot, base, tip string, files []string) (moved []string, movedLines int) {
+	if len(files) == 0 {
+		return nil, 0
+	}
+	laneDiff, n := moveAwareDiff(repoRoot, base, tip, files)
+	survived := diffFiles(laneDiff)
+	for _, f := range files {
+		if !survived[f] {
+			moved = append(moved, f)
+		}
+	}
+	return moved, n
+}

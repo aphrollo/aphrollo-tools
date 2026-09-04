@@ -6,6 +6,8 @@ import (
 )
 
 // lsTree is git's own listing shape: mode, type, blob sha, tab, path.
+// (PlanDiffFiles call sites here classify with repoRoot "" — the tests carry
+// no files whose kind depends on it, so that is bare ClassifyFile.)
 func lsTree(entries ...string) string {
 	var b strings.Builder
 	for _, e := range entries {
@@ -83,7 +85,7 @@ func TestPlanDiffFiles_LeavesOutAFileNothingChangedAround(t *testing.T) {
 		{File: "crates/a/src/lib.rs", Line: 1, Mutation: "m", Package: "crates/a", Blob: "a1", Fence: "tsA"},
 		{File: "crates/b/src/lib.rs", Line: 1, Mutation: "m", Package: "crates/b", Blob: "b0-OLD", Fence: "tsB"},
 	})
-	got := PlanDiffFiles([]string{"crates/a/src/lib.rs", "crates/b/src/lib.rs", "README.md"}, now, prev)
+	got := PlanDiffFiles("", []string{"crates/a/src/lib.rs", "crates/b/src/lib.rs", "README.md"}, now, prev)
 	if len(got) != 1 || got[0] != "crates/b/src/lib.rs" {
 		t.Fatalf("PlanDiffFiles = %v, want only the file whose blob moved", got)
 	}
@@ -101,7 +103,7 @@ func TestPlanDiffFiles_PullsInAWholePackageWhoseTestSetChanged(t *testing.T) {
 		{File: "crates/a/src/lib.rs", Line: 1, Mutation: "m", Package: "crates/a", Blob: "a1", Fence: "tsA"},
 		{File: "crates/a/tests/x.rs", Line: 1, Mutation: "m", Package: "crates/a", Blob: "t1", Fence: "tsA"},
 	})
-	got := PlanDiffFiles([]string{"crates/a/src/lib.rs", "crates/a/tests/x.rs"}, now, prev)
+	got := PlanDiffFiles("", []string{"crates/a/src/lib.rs", "crates/a/tests/x.rs"}, now, prev)
 	if len(got) != 2 {
 		t.Fatalf("PlanDiffFiles = %v, want the whole package back in the run", got)
 	}
@@ -111,7 +113,7 @@ func TestPlanDiffFiles_PullsInAWholePackageWhoseTestSetChanged(t *testing.T) {
 // mutant can live in never are.
 func TestPlanDiffFiles_TakesEveryMutableFileOnAFirstRun(t *testing.T) {
 	now := TreeState{Blobs: map[string]string{"src/lib.rs": "a1"}}
-	got := PlanDiffFiles([]string{"src/lib.rs", "README.md", ".github/workflows/ci.yml"}, now, nil)
+	got := PlanDiffFiles("", []string{"src/lib.rs", "README.md", ".github/workflows/ci.yml"}, now, nil)
 	if len(got) != 1 || got[0] != "src/lib.rs" {
 		t.Fatalf("PlanDiffFiles = %v, want just the source file", got)
 	}

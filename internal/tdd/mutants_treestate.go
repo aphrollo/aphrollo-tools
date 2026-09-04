@@ -176,10 +176,18 @@ func packageOf(p string, pkgDirs []string) string {
 // A file that was measured and yielded NO mutants has nothing in the store, so
 // it is measured again — the cost of not being able to tell "measured, none
 // found" from "never measured", paid in the safe direction.
-func PlanDiffFiles(lane []string, now TreeState, cached map[mutantKey]MutantOutcome) []string {
+//
+// repoRoot classifies through classifyRepoPath rather than the bare
+// ClassifyFile, which matters for exactly one extension: a .ron resolves its
+// owning crate from the filesystem, and the walk has to be anchored at the
+// LANE'S OWN repo root — not at whatever directory the measuring process
+// happens to have as its current one — or this and laneHasNothingToMutate
+// (mutants_carry.go), which already classifies through repoRoot, can decide
+// a lane has something to judge when the other decided it did not.
+func PlanDiffFiles(repoRoot string, lane []string, now TreeState, cached map[mutantKey]MutantOutcome) []string {
 	var out []string
 	for _, p := range lane {
-		if ClassifyFile(p) == Ignore {
+		if classifyRepoPath(repoRoot, p) == Ignore {
 			continue
 		}
 		if measuredUnchanged(p, now, cached) {

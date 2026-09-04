@@ -87,6 +87,31 @@ func TestListPresets_FindsTheKnownGroupsAndCapturesParams(t *testing.T) {
 	}
 }
 
+// TestListPresets_ReturnsEntriesSortedByGroupThenName pins the doc comment's
+// contract ("sorted by group then name") against the real embedded data: the
+// CLI display (`aphrollo ratchet presets`) and the project's own determinism
+// contract both depend on this order, and nothing else in this file checks
+// it — TestListPresets_FindsTheKnownGroupsAndCapturesParams only checks
+// membership.
+func TestListPresets_ReturnsEntriesSortedByGroupThenName(t *testing.T) {
+	entries, err := ListPresets()
+	if err != nil {
+		t.Fatalf("ListPresets: %v", err)
+	}
+	if len(entries) < 2 {
+		t.Fatalf("only %d presets embedded, too few to prove an order", len(entries))
+	}
+	for i := 1; i < len(entries); i++ {
+		prev, cur := entries[i-1], entries[i]
+		if prev.Group > cur.Group {
+			t.Fatalf("entry %d: group %q sorts after group %q", i, prev.Group, cur.Group)
+		}
+		if prev.Group == cur.Group && prev.Name > cur.Name {
+			t.Fatalf("entry %d: within group %q, name %q sorts after name %q", i, prev.Group, prev.Name, cur.Name)
+		}
+	}
+}
+
 // TestRenderPresetText_ReportsEveryUnfilledSlot proves a caller can tell,
 // before writing anything, exactly which params it still owes.
 func TestRenderPresetText_ReportsEveryUnfilledSlot(t *testing.T) {
