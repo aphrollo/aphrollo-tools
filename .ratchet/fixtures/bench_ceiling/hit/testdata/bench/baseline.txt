@@ -1,0 +1,2 @@
+pkg: example.com/m
+BenchmarkThing    	       6	 191718883 ns/op	16419994 B/op	  162531 allocs/op

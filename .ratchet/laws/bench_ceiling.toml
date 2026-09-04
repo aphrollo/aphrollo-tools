@@ -1,0 +1,11 @@
+name        = "bench_ceiling"
+description = "A Go benchmark's B/op and allocs/op, read out of a `go test -bench -benchmem` text file, may only fall — sec/op is wall-clock noise this law never judges."
+severity    = "deny"
+baseline    = ".ratchet/baselines/bench_ceiling.txt"
+
+[scope]
+include = ["testdata/bench/baseline.txt"]
+
+[matcher]
+kind  = "go-bench-ceiling"
+files = "testdata/bench/baseline.txt"
