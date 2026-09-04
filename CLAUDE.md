@@ -1,13 +1,15 @@
 # aphrollo-tools
 
-First-party dev-env tooling for the agent platform: one zero-dependency Go
-binary, **`aphrollo`** (`/usr/local/bin/aphrollo`). Moves deterministic
+First-party dev-env tooling for the agent platform: one Go binary,
+**`aphrollo`** (`/usr/local/bin/aphrollo`), on the standard library plus two
+pinned modules — `golang.org/x/sys` for the Windows process and job-object
+syscalls, and `pgregory.net/rapid` for the property tests. Moves deterministic
 developer work *out of the agent token stream into code* — the agent spends
 tokens on judgment, not mechanical read→grep→multi-edit→verify loops. `README.md`
 is the full user-facing command reference; this file is the **developer**
 context (conventions, contract, deploy).
 
-Module `github.com/aphrollo/aphrollo-tools`, go 1.26.4. Single binary —
+Module `github.com/aphrollo/aphrollo-tools`, go 1.26.6. Single binary —
 `go build -o aphrollo ./cmd/aphrollo`.
 
 ## Design contract (every tool obeys it)
