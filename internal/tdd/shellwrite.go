@@ -394,6 +394,9 @@ func resolveAgainst(cwd, p string) string {
 	if unresolvable(p) {
 		return ""
 	}
+	if isNullDevice(p) {
+		return ""
+	}
 	rooted := strings.HasPrefix(p, "/") || strings.HasPrefix(p, `\`)
 	p = filepath.FromSlash(p)
 	if filepath.IsAbs(p) {
@@ -421,4 +424,23 @@ func resolveAgainst(cwd, p string) string {
 // lives outside every repo.
 func unresolvable(p string) bool {
 	return strings.ContainsAny(p, "$`")
+}
+
+// isNullDevice reports whether a path operand names the null sink rather than
+// a file. `/dev/null` is the POSIX spelling; `nul` is a DOS device name
+// RESERVED IN EVERY DIRECTORY on Windows, so `> /nul`, a drive-qualified
+// `nul` and `> sub/nul` all discard their output and none of them creates a
+// file.
+//
+// The base name is judged on every platform, not only Windows. On POSIX a
+// file actually named `nul` is an ordinary file, so not claiming it is a
+// miss -- which is the fail-open direction this file owes, and cheaper than a
+// guardrail that refuses a write to a sink because the session happened to be
+// on the other operating system.
+func isNullDevice(p string) bool {
+	base := strings.ToLower(filepath.Base(filepath.FromSlash(p)))
+	if base == "nul" || base == "nul:" {
+		return true
+	}
+	return strings.ToLower(filepath.ToSlash(p)) == "/dev/null"
 }

@@ -304,6 +304,13 @@ func insideCargoProject(dir string) bool {
 // never put a value-taking global flag ahead of the subcommand.
 func cargoVerb(args []string) string {
 	for _, a := range args {
+		if a == "--" {
+			// The argument separator ends cargo's own arguments: every token
+			// past it belongs to the launched program, so none of them is a
+			// verb. Skipping it as an ordinary flag read `cargo -- run` as
+			// `cargo run` and sent it down the run verb's locking path.
+			return ""
+		}
 		if strings.HasPrefix(a, "-") || strings.HasPrefix(a, "+") {
 			continue
 		}
