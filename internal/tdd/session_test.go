@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // promptJSON builds a UserPromptSubmit payload.
@@ -135,6 +136,62 @@ func TestEndSession_RemovesStateFile(t *testing.T) {
 	}
 	// No session id is a safe no-op.
 	EndSession(mustJSON(t, sessionEndInput{}))
+}
+
+// TestEndSession_KillsADeferredJobStillRunningForThatSession pins the reap:
+// a phase left running when the session ends has no later hook coming to
+// harvest it (loadDeferredJob is only ever looked up by the CURRENT
+// session's own id), so without this it would run — and hold its build
+// slot — forever. EndSession must kill it and drop its record before it
+// drops the session's own state file.
+func TestEndSession_KillsADeferredJobStillRunningForThatSession(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const sess = "sess-wedged"
+	root := t.TempDir()
+	saveDeferredJob(DeferredJob{
+		Project: root, Session: sess, Phase: "run", Dir: root, PID: 5150,
+		Runner: []string{"cargo", "test"}, Started: time.Now(),
+	})
+
+	var killed []int
+	prev := killDeferredFn
+	killDeferredFn = func(j DeferredJob) { killed = append(killed, j.PID) }
+	t.Cleanup(func() { killDeferredFn = prev })
+
+	EndSession(mustJSON(t, sessionEndInput{SessionID: sess}))
+
+	if len(killed) != 1 || killed[0] != 5150 {
+		t.Fatalf("killed = %v, want exactly [5150]", killed)
+	}
+	if _, ok := loadDeferredJob(sess, root); ok {
+		t.Fatal("the reaped job's record must be gone")
+	}
+}
+
+// TestEndSession_LeavesAnotherSessionsDeferredJobRunning pins the scope: a
+// session ending must reap only what IT started, never a phase a different,
+// still-live session left running in the same project.
+func TestEndSession_LeavesAnotherSessionsDeferredJobRunning(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	saveDeferredJob(DeferredJob{
+		Project: root, Session: "sess-other", Phase: "run", Dir: root, PID: 6161,
+		Runner: []string{"cargo", "test"}, Started: time.Now(),
+	})
+
+	var killed []int
+	prev := killDeferredFn
+	killDeferredFn = func(j DeferredJob) { killed = append(killed, j.PID) }
+	t.Cleanup(func() { killDeferredFn = prev })
+
+	EndSession(mustJSON(t, sessionEndInput{SessionID: "sess-ending"}))
+
+	if len(killed) != 0 {
+		t.Fatalf("killed = %v, want none — that job belongs to a different session", killed)
+	}
+	if _, ok := loadDeferredJob("sess-other", root); !ok {
+		t.Fatal("another session's still-running job must survive")
+	}
 }
 
 // The reply-style block (internal/tdd/style.md) rides in the payload's

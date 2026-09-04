@@ -130,3 +130,34 @@ func TestSilentStdioPointsEveryStreamAtTheNullDevice(t *testing.T) {
 		t.Errorf("stdout = %v, want %s", cmd.Stdout, os.DevNull)
 	}
 }
+
+// The mutation runner spawns through belowNormalAttrs, not detachedAttrs, and
+// it was left on DETACHED_PROCESS with no CREATE_NO_WINDOW long after the
+// deferred phase was fixed. The result is the same desktop full of windows,
+// one per Go child, for the whole length of a mutation run — which is hours.
+//
+// DETACHED_PROCESS is not needed to survive the starting shell's timeout:
+// CREATE_NO_WINDOW already gives the child its own console rather than the
+// shell's, so a timeout that kills the shell's console tree does not reach it,
+// and that console is never shown and is inherited by every compiler below.
+func TestBelowNormalAttrs_UseCreateNoWindowNotDetachedProcess(t *testing.T) {
+	const (
+		createNewProcessGroup   = 0x00000200
+		detachedProcess         = 0x00000008
+		createNoWindow          = 0x08000000
+		belowNormalPriorityFlag = 0x00004000
+	)
+	flags := belowNormalAttrs().CreationFlags
+	if flags&createNoWindow == 0 {
+		t.Errorf("CreationFlags = %#x, want CREATE_NO_WINDOW set", flags)
+	}
+	if flags&detachedProcess != 0 {
+		t.Errorf("CreationFlags = %#x, want DETACHED_PROCESS clear — it is what makes each Go child open its own window", flags)
+	}
+	if flags&createNewProcessGroup == 0 {
+		t.Errorf("CreationFlags = %#x, want CREATE_NEW_PROCESS_GROUP kept — a Ctrl-C at the session must not reach the run", flags)
+	}
+	if flags&belowNormalPriorityFlag == 0 {
+		t.Errorf("CreationFlags = %#x, want BELOW_NORMAL_PRIORITY_CLASS kept — a mutation run must not compete with the suite a session is waiting on", flags)
+	}
+}

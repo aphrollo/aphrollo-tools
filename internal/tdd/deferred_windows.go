@@ -6,6 +6,9 @@ import (
 	"os/exec"
 	"strconv"
 	"syscall"
+	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 // detachedAttrs makes a spawned phase survive the hook's exit without putting
@@ -43,4 +46,21 @@ func killTreePlan(pid int) []string {
 func killTree(pid int) error {
 	plan := killTreePlan(pid)
 	return exec.Command(plan[0], plan[1:]...).Run()
+}
+
+// processStartTime asks Windows for the creation time it stamped on pid at
+// launch — the OS's own record, not anything this binary wrote — so
+// pidStillOurs can tell a live process from whatever the OS handed the same
+// pid to after ours exited. False means the pid names no process right now.
+func processStartTime(pid int) (time.Time, bool) {
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return time.Time{}, false
+	}
+	defer func() { _ = windows.CloseHandle(h) }()
+	var creation, exitTime, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(h, &creation, &exitTime, &kernel, &user); err != nil {
+		return time.Time{}, false
+	}
+	return time.Unix(0, creation.Nanoseconds()), true
 }
