@@ -70,3 +70,59 @@ func TestGoMutantsReceipt_IgnoresAnAcceptEntryWithNoReasonForATimeout(t *testing
 		t.Errorf("Timeout = %d, want 1 — an accept-list entry that states no reason is not an argument", r.Timeout)
 	}
 }
+
+// A carried receipt is recounted from its outcomes, and recountReceipt has no
+// accept-list: it honours the PRODUCER's decision by reading the names the
+// receipt already carries, a survivor listed without also being listed as
+// unaccepted. An accepted timeout was in neither list, so the recount could
+// not see the decision and re-counted it as an unmeasured mutant — the same
+// deadlock, reappearing the moment the lane carried outcomes forward instead
+// of re-measuring. That path is the generic producer's, which is what a Rust
+// consumer of this gate uses.
+func TestGoMutantsReceipt_NamesAnAcceptedTimeoutSoACarryCanSeeTheDecision(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "aphrollo.toml", "[aphrollo]\nmutation-accept = [\n  \"internal/cli/loop.go:10 INCREMENT_DECREMENT # the loop index cancels its own increment, so the function never returns\",\n]\n")
+
+	r := goMutantsReceipt(goMutantsRun{Worktree: root}, []MutantOutcome{
+		{File: filepath.FromSlash("internal/cli/loop.go"), Line: 10, Mutation: "INCREMENT_DECREMENT", Status: "timeout"},
+	}, TreeState{})
+
+	if len(r.Survivors) != 1 {
+		t.Fatalf("Survivors = %q, want the accepted timeout named — a decision no list records cannot survive a carry", r.Survivors)
+	}
+	if len(r.Unaccepted) != 0 {
+		t.Errorf("Unaccepted = %q, want none", r.Unaccepted)
+	}
+}
+
+// TestRecountReceipt_KeepsATimedOutMutantTheProducerAccepted is the consequence
+// at the reader: recounting must reach the same verdict the producer did.
+func TestRecountReceipt_KeepsATimedOutMutantTheProducerAccepted(t *testing.T) {
+	m := MutantOutcome{File: "src/lib.rs", Line: 10, Mutation: "INCREMENT_DECREMENT", Status: "timeout"}
+	r := MutationReceipt{Outcomes: []MutantOutcome{m}, Survivors: []MutantName{m.name()}}
+
+	recountReceipt(&r)
+
+	if r.Timeout != 0 {
+		t.Errorf("Timeout = %d, want 0 — the producer accepted it, and a recount must not overturn that", r.Timeout)
+	}
+	if r.Accepted != 1 {
+		t.Errorf("Accepted = %d, want 1", r.Accepted)
+	}
+}
+
+// ...and a timeout the producer did NOT accept still counts, so a carry cannot
+// launder an unmeasured mutant into a pass.
+func TestRecountReceipt_StillCountsATimedOutMutantTheProducerDidNotAccept(t *testing.T) {
+	m := MutantOutcome{File: "src/lib.rs", Line: 10, Mutation: "INCREMENT_DECREMENT", Status: "timeout"}
+	r := MutationReceipt{Outcomes: []MutantOutcome{m}}
+
+	recountReceipt(&r)
+
+	if r.Timeout != 1 {
+		t.Errorf("Timeout = %d, want 1 — nothing named this mutant as accepted", r.Timeout)
+	}
+	if r.Accepted != 0 {
+		t.Errorf("Accepted = %d, want 0", r.Accepted)
+	}
+}

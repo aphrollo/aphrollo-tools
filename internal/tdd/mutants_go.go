@@ -293,9 +293,25 @@ func goMutantsReceipt(j goMutantsRun, mutants []MutantOutcome, now TreeState) Mu
 	// absence of progress. Acceptance is the sole available answer, so it is
 	// read here too -- through the same list, which still requires a stated
 	// reason.
+	//
+	// The list is keyed on file:line MUTATOR and nothing reads the argument
+	// itself, so an entry written about a SURVIVOR at that coordinate also
+	// waives a timeout there -- including one caused by a slow box rather
+	// than by non-termination. Every accepted timeout is therefore named in
+	// the receipt below, so the waiver is auditable instead of silent.
 	acceptedTimeouts, unmeasured := splitAcceptedSurvivors(j.Worktree, timedOut)
 	r.Timeout = len(unmeasured)
 	r.Accepted = len(accepted) + len(acceptedTimeouts)
+	// An accepted timeout is NAMED in Survivors, exactly as an accepted
+	// survivor is. That list is how the decision survives: a carried receipt
+	// is recounted from its outcomes by recountReceipt, which has no
+	// accept-list of its own and honours the producer by reading the names --
+	// a mutant listed as a survivor and NOT as unaccepted. Recorded nowhere,
+	// the acceptance would be re-derived as an unmeasured mutant the first
+	// time the lane carried outcomes forward instead of re-measuring.
+	for _, m := range acceptedTimeouts {
+		r.Survivors = append(r.Survivors, m.name())
+	}
 	for _, m := range survivors {
 		r.Survivors = append(r.Survivors, m.name())
 	}
