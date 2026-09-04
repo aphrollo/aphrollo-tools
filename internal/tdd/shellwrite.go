@@ -385,6 +385,9 @@ func resolveAgainst(cwd, p string) string {
 	if p == "" {
 		return ""
 	}
+	if unresolvable(p) {
+		return ""
+	}
 	rooted := strings.HasPrefix(p, "/") || strings.HasPrefix(p, `\`)
 	p = filepath.FromSlash(p)
 	if filepath.IsAbs(p) {
@@ -400,4 +403,16 @@ func resolveAgainst(cwd, p string) string {
 		return filepath.Clean(filepath.Join(filepath.VolumeName(cwd)+string(filepath.Separator), p))
 	}
 	return filepath.Clean(filepath.Join(cwd, p))
+}
+
+// unresolvable reports whether a path operand carries shell syntax this file
+// does not evaluate: a variable, a command substitution or a backquote. The
+// word the shell hands the filesystem is not the word written here, so the
+// only honest answer is no answer. Taking the literal text instead joined a
+// RELATIVE one like `$S/a.md` onto the running directory and reported a write
+// into whatever repo that directory belongs to — the false block this file's
+// contract rules out, and it wedged a session writing to a scratchpad that
+// lives outside every repo.
+func unresolvable(p string) bool {
+	return strings.ContainsAny(p, "$`")
 }
