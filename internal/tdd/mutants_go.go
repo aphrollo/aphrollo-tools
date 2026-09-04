@@ -255,7 +255,7 @@ func goMutantsReceipt(j goMutantsRun, mutants []MutantOutcome, now TreeState) Mu
 		Verdict: receiptVerdictPass, FinishedAt: time.Now().UTC(),
 		Files: map[string]string{}, Fences: map[string]string{},
 	}
-	var survivors []MutantOutcome
+	var survivors, timedOut []MutantOutcome
 	for i, m := range mutants {
 		m.Package = now.Packages[m.File]
 		m.Blob, m.Fence = now.Blobs[m.File], now.Fences[m.Package]
@@ -265,7 +265,10 @@ func goMutantsReceipt(j goMutantsRun, mutants []MutantOutcome, now TreeState) Mu
 		case "caught":
 			r.Caught++
 		case "timeout":
-			r.Timeout++
+			// Counted below, once the accept-list has had its say: a mutant
+			// whose argument is that NO run can measure it would otherwise
+			// block every merge forever.
+			timedOut = append(timedOut, m)
 		case "unviable":
 			r.Unviable++
 		case gremlinsNotCovered:
@@ -282,7 +285,17 @@ func goMutantsReceipt(j goMutantsRun, mutants []MutantOutcome, now TreeState) Mu
 	}
 	r.Outcomes = mutants
 	accepted, unaccepted := splitAcceptedSurvivors(j.Worktree, survivors)
-	r.Accepted = len(accepted)
+	// A timeout is normally an UNMEASURED mutant rather than a result, and the
+	// merge gate refuses one for exactly that reason. But some mutants cannot
+	// be measured by any run: an INCREMENT_DECREMENT on a loop index cancels
+	// the loop's own increment, so the function never returns and there is no
+	// value to assert and no message to match. The only observable is the
+	// absence of progress. Acceptance is the sole available answer, so it is
+	// read here too -- through the same list, which still requires a stated
+	// reason.
+	acceptedTimeouts, unmeasured := splitAcceptedSurvivors(j.Worktree, timedOut)
+	r.Timeout = len(unmeasured)
+	r.Accepted = len(accepted) + len(acceptedTimeouts)
 	for _, m := range survivors {
 		r.Survivors = append(r.Survivors, m.name())
 	}
