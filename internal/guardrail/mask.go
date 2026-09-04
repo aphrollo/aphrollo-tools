@@ -31,7 +31,7 @@ func mask(command string) string {
 			inSingle = true
 		case c == '"':
 			inDouble = true
-		case c == '#' && (i == 0 || b[i-1] == ' ' || b[i-1] == '\t'):
+		case c == '#' && (i == 0 || b[i-1] == ' ' || b[i-1] == '\t' || b[i-1] == '\n'):
 			for ; i < len(b) && b[i] != '\n'; i++ {
 				b[i] = ' '
 			}

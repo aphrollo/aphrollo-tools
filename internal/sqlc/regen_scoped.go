@@ -151,7 +151,10 @@ func changedQueries(cfg Config, base string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		baseSrc := gitShow(cfg.Repo, base, rel)
+		baseSrc, err := gitShow(cfg.Repo, base, rel)
+		if err != nil {
+			return nil, fmt.Errorf("changed queries for %s: %w", rel, err)
+		}
 		for _, n := range changedNamesBetween(baseSrc, string(work)) {
 			if !seen[n] {
 				seen[n] = true

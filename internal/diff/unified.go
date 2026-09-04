@@ -13,10 +13,16 @@ import (
 const context = 3
 
 // Unified renders a unified diff transforming before into after for the file at
-// path. It returns "" when before == after. Inputs are treated as
-// newline-terminated; a missing final newline is not specially annotated.
+// path. It returns "" when before == after. A missing final newline is
+// significant — Lossless means before ending in a newline and after not (or
+// vice versa) is never conflated with no change — and is annotated on the
+// affected side with the standard unified-diff "\ No newline at end of file"
+// marker, matching git/GNU diff.
 func Unified(path, before, after string) string {
-	ops := diffOps(splitLines(before), splitLines(after))
+	beforeLines, beforeNL := splitLines(before)
+	afterLines, afterNL := splitLines(after)
+	ops := diffOps(beforeLines, afterLines)
+	ops = markMissingTrailingNewline(ops, beforeNL, afterNL)
 
 	changed := false
 	for _, o := range ops {
@@ -63,11 +69,57 @@ func Unified(path, before, after string) string {
 }
 
 // op is a single line operation produced by the line diff. oldPos/newPos are
-// the 1-based line numbers the op occupies in the old/new files.
+// the 1-based line numbers the op occupies in the old/new files. noNL marks
+// that the line, on the side it is rendered for, is the file's last line and
+// that file has no trailing newline — writeHunk follows it with the standard
+// "\ No newline at end of file" marker.
 type op struct {
 	kind           byte // ' ', '-', or '+'
 	line           string
 	oldPos, newPos int
+	noNL           bool
+}
+
+// noNewlineMarker is git/GNU diff's standard annotation for a hunk line whose
+// file has no trailing newline after it.
+const noNewlineMarker = "\\ No newline at end of file\n"
+
+// markMissingTrailingNewline annotates the op(s) that render the last line of
+// each file when that file lacks a trailing newline. When the two files' last
+// lines are the same shared context op (identical text, both files otherwise
+// unchanged there) but disagree on trailing-newline presence, that op is split
+// into an explicit -/+ pair so each side carries its own marker — matching
+// git's own rendering of a trailing-newline-only change.
+func markMissingTrailingNewline(ops []op, beforeNL, afterNL bool) []op {
+	if beforeNL == afterNL || len(ops) == 0 {
+		return ops
+	}
+	lastOld, lastNew := -1, -1
+	for i, o := range ops {
+		if o.kind != '+' {
+			lastOld = i
+		}
+		if o.kind != '-' {
+			lastNew = i
+		}
+	}
+	if lastOld >= 0 && lastOld == lastNew {
+		o := ops[lastOld]
+		del := op{kind: '-', line: o.line, oldPos: o.oldPos, newPos: o.newPos, noNL: !beforeNL}
+		add := op{kind: '+', line: o.line, oldPos: o.oldPos, newPos: o.newPos, noNL: !afterNL}
+		split := make([]op, 0, len(ops)+1)
+		split = append(split, ops[:lastOld]...)
+		split = append(split, del, add)
+		split = append(split, ops[lastOld+1:]...)
+		return split
+	}
+	if lastOld >= 0 && !beforeNL {
+		ops[lastOld].noNL = true
+	}
+	if lastNew >= 0 && !afterNL {
+		ops[lastNew].noNL = true
+	}
+	return ops
 }
 
 func writeHunk(b *strings.Builder, hunk []op) {
@@ -95,20 +147,27 @@ func writeHunk(b *strings.Builder, hunk []op) {
 		b.WriteByte(o.kind)
 		b.WriteString(o.line)
 		b.WriteByte('\n')
+		if o.noNL {
+			b.WriteString(noNewlineMarker)
+		}
 	}
 }
 
-// splitLines splits newline-terminated text into lines, dropping the trailing
-// empty element produced by a final newline.
-func splitLines(s string) []string {
+// splitLines splits text into lines and reports whether s ends in a newline.
+// A newline-terminated s drops the trailing empty element that produces; a
+// non-terminated, non-empty s keeps its final segment as a real line (with
+// endsWithNewline false) rather than conflating it with the terminated case —
+// callers that care whether the file's last line is newline-terminated (see
+// markMissingTrailingNewline) need that distinction preserved.
+func splitLines(s string) (lines []string, endsWithNewline bool) {
 	if s == "" {
-		return nil
+		return nil, true
 	}
-	lines := strings.Split(s, "\n")
-	if lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
+	parts := strings.Split(s, "\n")
+	if parts[len(parts)-1] == "" {
+		return parts[:len(parts)-1], true
 	}
-	return lines
+	return parts, false
 }
 
 // maxLCSCells bounds the longest-common-subsequence dynamic-programming table.

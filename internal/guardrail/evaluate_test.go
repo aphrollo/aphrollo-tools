@@ -60,9 +60,9 @@ func TestEvaluate_BlocksBlockingWatch(t *testing.T) {
 		// A bounded poll loop is the blessed form — sub-threshold sleep, no
 		// --watch/-f, so neither the watch nor the sleep block must misfire.
 		{"until gh pr checks 308; do sleep 1; done", false},
-		{"gh pr checks 308", false},     // a one-shot check is fine
-		{"tail -n 50 /tmp/foo", false},  // bounded tail is fine
-		{"git stopwatch", false},        // not the watch(1) command
+		{"gh pr checks 308", false},    // a one-shot check is fine
+		{"tail -n 50 /tmp/foo", false}, // bounded tail is fine
+		{"git stopwatch", false},       // not the watch(1) command
 		{"ls -la", false},
 	}
 	for _, c := range cases {
@@ -149,5 +149,16 @@ func TestEvaluate_IgnoresSleepInStringsAndComments(t *testing.T) {
 func TestEvaluate_IgnoresNoisyToolInString(t *testing.T) {
 	if d := Evaluate("Bash", `echo "run pytest tests/ now"`); d.Action != Allow {
 		t.Fatalf("quoted pytest mention should be allowed, got %v", d.Action)
+	}
+}
+
+// A `#` comment that starts a new line inside a multi-line Bash command (i.e.
+// preceded by '\n', not just ' '/'\t'/start-of-string) is exactly as much a
+// comment as one after a space, and text inside it must not false-block a
+// harmless command. Pins #179.
+func TestEvaluate_IgnoresSleepInCommentStartingANewLine(t *testing.T) {
+	cmd := "echo hi\n# sleep 5, revisit this cron job\necho done"
+	if d := Evaluate("Bash", cmd); d.Action == Block {
+		t.Fatalf("Evaluate(Bash, %q) blocked, want not-blocked (sleep is inside a line-starting comment): %s", cmd, d.Reason)
 	}
 }

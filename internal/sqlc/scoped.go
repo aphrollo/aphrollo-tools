@@ -1,6 +1,7 @@
 package sqlc
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -314,12 +315,67 @@ func changedNamesBetween(base, work string) []string {
 	return changed
 }
 
-// gitShow returns the contents of <ref>:<relpath> in repo, or "" when the path
-// doesn't exist at that ref (a newly added query file).
-func gitShow(repo, ref, relpath string) string {
-	out, err := exec.Command("git", "-C", repo, "show", fmt.Sprintf("%s:%s", ref, relpath)).Output()
-	if err != nil {
-		return ""
+// gitShow returns the contents of <ref>:<relpath> in repo. It returns ("", nil)
+// ONLY when the path genuinely does not exist at that ref (a newly added query
+// file) — every other failure (an unresolvable/typo'd ref, git missing from
+// PATH, a shallow clone that never fetched base, a detached-HEAD checkout) is
+// returned as an error rather than silently treated as an absent path, which
+// would widen changedNamesBetween's in-scope set to every query in the file.
+//
+// The absent/error distinction is made structurally, never by matching git's
+// human-readable stderr — that wording already differs between a path missing
+// everywhere ("does not exist in") and one that exists on disk but not at ref
+// ("exists on disk, but not in"), and a third phrasing would miss again the
+// same way. ref is verified to resolve first (rev-parse); once it does, ANY
+// failure of `cat-file -e <ref>:<relpath>` unambiguously means the path is
+// absent at that (already-valid) ref, no message parsing needed.
+func gitShow(repo, ref, relpath string) (string, error) {
+	if err := verifyRef(repo, ref); err != nil {
+		return "", err
 	}
-	return string(out)
+	exists, err := pathExistsAtRef(repo, ref, relpath)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return "", nil
+	}
+	cmd := exec.Command("git", "-C", repo, "show", fmt.Sprintf("%s:%s", ref, relpath))
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git show %s:%s: %w: %s", ref, relpath, err, strings.TrimSpace(stderr.String()))
+	}
+	return string(out), nil
+}
+
+// verifyRef reports an error when ref does not resolve to a commit in repo —
+// a typo'd base ref, one never fetched, or git missing from PATH. gitShow
+// must propagate this rather than mistake it for a merely-absent path.
+func verifyRef(repo, ref string) error {
+	cmd := exec.Command("git", "-C", repo, "rev-parse", "--verify", ref+"^{commit}")
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git rev-parse --verify %s: %w: %s", ref, err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+// pathExistsAtRef reports whether relpath exists in ref's tree, given ref is
+// already known to resolve (verifyRef ran first). Once that holds, any
+// failure of `git cat-file -e` is unambiguously "path absent at this ref" —
+// distinguished from a real execution failure (git missing, I/O error) by
+// exec.ExitError, the only shape a plain "object does not exist" takes.
+func pathExistsAtRef(repo, ref, relpath string) (bool, error) {
+	cmd := exec.Command("git", "-C", repo, "cat-file", "-e", fmt.Sprintf("%s:%s", ref, relpath))
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return false, nil
+		}
+		return false, fmt.Errorf("git cat-file -e %s:%s: %w", ref, relpath, err)
+	}
+	return true, nil
 }
