@@ -3,6 +3,7 @@ package refactor
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/lsp"
@@ -107,5 +108,20 @@ func TestApplyFileEdits_RejectsEditOutsideRoot(t *testing.T) {
 	}
 	if string(got) != "original" {
 		t.Fatalf("victim.txt = %q, want unchanged %q — an out-of-root edit must not be written", got, "original")
+	}
+}
+
+// samePath folds case on Windows (a case-insensitive filesystem) and compares
+// exactly everywhere else. This test runs the real runtime.GOOS check the
+// function itself makes, so on a non-Windows runner it has nothing to prove
+// and skips rather than asserting the opposite branch it cannot exercise.
+func TestSamePath_FoldsCaseOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("case-folding comparison only applies on windows")
+	}
+	a := `C:\Foo\Bar.go`
+	b := `C:\foo\bar.go`
+	if !samePath(a, b) {
+		t.Fatalf("samePath(%q, %q) = false, want true — windows folds case", a, b)
 	}
 }

@@ -423,3 +423,67 @@ func TestBaselineGuardIsSilentWhenNoBaselineIsStaged(t *testing.T) {
 		t.Fatalf("result = %+v, want silence", res)
 	}
 }
+
+// TestTrunkBranch_ReturnsOriginHEADTargetAssoonAsItResolves proves the first
+// candidate short-circuits: when refs/remotes/origin/HEAD names a branch,
+// that name is returned immediately, without falling through to
+// init.defaultBranch or the main/master fallbacks.
+func TestTrunkBranch_ReturnsOriginHEADTargetAsSoonAsItResolves(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, "seed.txt"), "seed\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	// Keep the local default branch off main/master so neither fallback
+	// candidate could coincidentally produce the same answer.
+	gitFixture(t, root, "branch", "-M", "primary")
+	gitFixture(t, root, "checkout", "-q", "-b", "develop")
+	gitFixture(t, root, "update-ref", "refs/remotes/origin/develop", "develop")
+	gitFixture(t, root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop")
+
+	got := trunkBranch(root)
+	want := "origin/develop"
+	if got != want {
+		t.Fatalf("trunkBranch(root) = %q, want %q — the remote's own default must win immediately", got, want)
+	}
+}
+
+// TestTrunkBranch_UsesConfiguredDefaultBranchWhenItResolves proves the second
+// candidate: with no origin/HEAD set, a configured init.defaultBranch that
+// names a real, resolvable branch is returned. This single case constrains
+// all three conditions the config path chains together (config succeeded,
+// the configured name is non-empty, and the name actually resolves) — break
+// any one of the three and the chain falls through to the unconfigured
+// main/master fallback, which finds nothing here and answers "".
+func TestTrunkBranch_UsesConfiguredDefaultBranchWhenItResolves(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, "seed.txt"), "seed\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	// Keep the local default branch off main/master so neither fallback
+	// candidate could coincidentally produce the same answer as "trunk".
+	gitFixture(t, root, "branch", "-M", "primary")
+	gitFixture(t, root, "checkout", "-q", "-b", "trunk")
+	gitFixture(t, root, "config", "init.defaultBranch", "trunk")
+
+	got := trunkBranch(root)
+	want := "trunk"
+	if got != want {
+		t.Fatalf("trunkBranch(root) = %q, want %q — a configured, resolvable default branch must win", got, want)
+	}
+}
+
+// TestLastSHALine_RejectsANonHexByteEvenAtLength40 proves the hex-digit scan
+// actually runs: a string that is exactly 40 bytes long but carries one
+// non-hex byte must still be rejected. Skipping the scan would let any
+// 40-byte string through length-checking alone.
+func TestLastSHALine_RejectsANonHexByteEvenAtLength40(t *testing.T) {
+	notHex := strings.Repeat("a", 39) + "z" // 40 bytes, 'z' is not a hex digit
+	if len(notHex) != 40 {
+		t.Fatalf("test fixture is %d bytes, want exactly 40", len(notHex))
+	}
+	if got := lastSHALine(notHex); got != "" {
+		t.Fatalf("lastSHALine(%q) = %q, want \"\" — a non-hex byte must reject even at the right length", notHex, got)
+	}
+}
