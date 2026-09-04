@@ -57,9 +57,10 @@ func primaryRefusedVerb(realGit string, rest []string, workDir string) bool {
 		// isPlainMerge already excludes --abort/--continue/--quit: those
 		// conclude or cancel a merge already in progress rather than start
 		// one that could fast-forward.
-		return isPlainMerge(rest) && !hasArg(rest[1:], "--no-ff")
+		return isPlainMerge(rest) && !hasArg(rest[1:], "--no-ff") &&
+			!onlyNamesUpstream(realGit, workDir, rest[1:])
 	case "pull":
-		return !hasArg(rest[1:], "--no-ff")
+		return !hasArg(rest[1:], "--no-ff") && !onlyNamesUpstream(realGit, workDir, rest[1:])
 	case "cherry-pick", "rebase":
 		return !hasAnyArg(rest[1:], sequencerConcludeFlags)
 	case "reset":
