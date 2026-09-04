@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -317,7 +318,19 @@ func TestNarrowToStaged(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, ok := narrowToStaged(c.runner, t.TempDir(), c.files)
+			// The staged files are CREATED, not just named: narrowing a Go
+			// runner asks whether a directory actually holds a .go file,
+			// because naming one that does not fails `go test` outright
+			// rather than skipping it.
+			root := t.TempDir()
+			for _, f := range c.files {
+				body := ""
+				if strings.HasSuffix(f, ".go") {
+					body = "package p\n"
+				}
+				write(t, root, f, body)
+			}
+			got, ok := narrowToStaged(c.runner, root, c.files)
 			if ok != c.wantOK || !reflect.DeepEqual(got, c.want) {
 				t.Fatalf("narrowToStaged = %+v,%v want %+v,%v", got, ok, c.want, c.wantOK)
 			}

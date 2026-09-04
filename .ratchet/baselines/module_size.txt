@@ -6,4 +6,4 @@ internal/ratchet/law.go | 695
 internal/tdd/autoescape_test.go | 729
 internal/tdd/precommit.go | 1085
 internal/tdd/precommit_test.go | 691
-internal/tdd/runner.go | 947
+internal/tdd/runner.go | 810

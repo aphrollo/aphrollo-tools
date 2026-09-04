@@ -434,6 +434,17 @@ func recountReceipt(r *MutationReceipt) {
 		case "caught":
 			r.Caught++
 		case "timeout":
+			// A timeout the producer accepted is a decision, not an
+			// unmeasured mutant: some mutations cannot be measured by any
+			// run (an INCREMENT_DECREMENT on a loop index cancels the loop's
+			// own increment, so the function never returns). Honour it the
+			// same way an accepted survivor is honoured -- by the names the
+			// receipt carries -- and count every other timeout as before.
+			if accepted[m.key()] {
+				r.Survivors = append(r.Survivors, m.name())
+				r.Accepted++
+				continue
+			}
 			r.Timeout++
 		case "unviable":
 			r.Unviable++
