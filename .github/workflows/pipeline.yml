@@ -5,8 +5,10 @@ name: Pipeline
 # runner (serial across jobs).
 #
 # DEPLOY: this workflow installs /usr/local/bin/aphrollo on merge to main, the
-# same way the Go services deploy themselves. On a PR the check jobs run; on
-# push-to-main (post-merge) the checks are skipped and the `deploy` job builds
+# same way the Go services deploy themselves. The check jobs run on BOTH a PR
+# and a push to main -- a push resolves its diff base from `github.event.before`
+# rather than a PR base, and only `escape-closure`, which needs a PR number,
+# stands down. After them the `deploy` job builds
 # the binary + runs deploy/deploy-prod.sh, which stages a release under
 # /opt/aphrollo-cli, smoke-tests it, and atomically swaps the `current` symlink.
 # No daemon, no sudo, no manual deploy-infra step. See deploy/README.md for the
@@ -55,14 +57,30 @@ jobs:
           fetch-depth: 0
       - id: filter
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
-          changed=$(git diff --name-only "$BASE_SHA" HEAD)
+          # A push hands over `before` rather than a PR base, and that can still
+          # be unusable: the all-zero sha of a branch's first push, or a sha the
+          # clone no longer holds after a force-push. Fall back to the previous
+          # commit, and to "everything changed" when even that does not exist.
+          base="$BASE_SHA"
+          if [ -z "$base" ] || ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+            base=$(git rev-parse --verify --quiet "HEAD~1^{commit}" || true)
+          fi
+          if [ -n "$base" ]; then
+            changed=$(git diff --name-only "$base" HEAD)
+          else
+            changed=$(git ls-files)
+          fi
           echo "changed files:"; printf '%s\n' "$changed"
           if [ -z "$changed" ]; then
             echo "code=false" >> "$GITHUB_OUTPUT"
-          elif printf '%s\n' "$changed" | grep -qvE '(\.md$|^docs/|^LICENSE|^\.gitignore$)'; then
+          # Only a TOP-LEVEL or docs/ markdown is documentation. This repo
+          # compiles markdown into the binary (//go:embed tddskill.md,
+          # agent_*.md, ratchet_laws.md, ...), so a .md sitting in a package
+          # directory is code and must not take the fast path.
+          elif printf '%s\n' "$changed" | grep -qvE '(^[^/]*\.md$|^docs/|^LICENSE|^\.gitignore$)'; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
@@ -95,14 +113,19 @@ jobs:
       - name: aphrollo docs check (changed markdown)
         if: needs.changes.outputs.docs == 'true'
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
           aphrollo=/usr/local/bin/aphrollo
           if [ ! -x "$aphrollo" ]; then
             aphrollo="$(command -v aphrollo)" || { echo "aphrollo CLI not found on runner" >&2; exit 1; }
           fi
-          mapfile -t mds < <(git diff --name-only --diff-filter=d "$BASE_SHA" HEAD -- '*.md')
+          base="$BASE_SHA"
+          if [ -z "$base" ] || ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+            base=$(git rev-parse --verify --quiet "HEAD~1^{commit}" || true)
+          fi
+          if [ -z "$base" ]; then echo "no diff base to compute changed markdown from"; exit 0; fi
+          mapfile -t mds < <(git diff --name-only --diff-filter=d "$base" HEAD -- '*.md')
           if [ "${#mds[@]}" -eq 0 ]; then echo "no changed markdown to check"; exit 0; fi
           printf 'checking %d changed markdown file(s):\n' "${#mds[@]}"; printf '  %s\n' "${mds[@]}"
           "$aphrollo" docs check "${mds[@]}"
@@ -345,10 +368,15 @@ jobs:
       - name: aphrollo gate mutants go --diff
         if: needs.changes.outputs.code == 'true'
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
-          base=$(git merge-base "$BASE_SHA" HEAD)
+          ref="$BASE_SHA"
+          if [ -z "$ref" ] || ! git rev-parse --verify --quiet "$ref^{commit}" >/dev/null; then
+            ref=$(git rev-parse --verify --quiet "HEAD~1^{commit}" || true)
+          fi
+          if [ -z "$ref" ]; then echo "no diff base to scope the mutation run to" >&2; exit 1; fi
+          base=$(git merge-base "$ref" HEAD)
           echo "scoping the run to $base..HEAD"
           ./bin/aphrollo gate mutants go --diff "$base" --receipt mutation-receipt.json --store .mutants-store
       - name: Upload the receipt
@@ -371,7 +399,10 @@ jobs:
   # The CLI is built from THIS PR rather than taken from /usr/local/bin, so a
   # change to the rule is judged by the rule the PR proposes.
   escape-closure:
-    if: github.event.pull_request.draft != true
+    # A push carries no PR number, and `verify-closure` with an empty one fails
+    # with `no pull requests found for branch "main"`. The check is about a pull
+    # request, so it says so rather than running and failing on every merge.
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
     runs-on: self-hosted
     permissions:
       contents: read
