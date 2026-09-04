@@ -151,13 +151,13 @@ func TestUnified_NoChangeIsEmpty(t *testing.T) {
 	}
 }
 
-// TestUnifiedRendersATrailingNewlineOnlyChange pins #178: before and after
+// TestUnified_RendersATrailingNewlineOnlyChange pins #178: before and after
 // with otherwise-identical content but a differing trailing newline must NOT
 // collapse to "" (that would silently hide a real one-byte difference, which
 // the package's own Lossless doc comment forbids). The expected rendering
 // matches git/GNU diff's own "\ No newline at end of file" convention,
 // verified against a real `git diff` on the same before/after content.
-func TestUnifiedRendersATrailingNewlineOnlyChange(t *testing.T) {
+func TestUnified_RendersATrailingNewlineOnlyChange(t *testing.T) {
 	got := Unified("x.txt", "a\nb", "a\nb\n")
 	want := "--- a/x.txt\n" +
 		"+++ b/x.txt\n" +
@@ -171,10 +171,10 @@ func TestUnifiedRendersATrailingNewlineOnlyChange(t *testing.T) {
 	}
 }
 
-// TestUnifiedRendersALostTrailingNewline is the reverse direction: after
+// TestUnified_RendersALostTrailingNewline is the reverse direction: after
 // drops the trailing newline before had. The marker must move to the "+b"
 // side, again matching git's own rendering.
-func TestUnifiedRendersALostTrailingNewline(t *testing.T) {
+func TestUnified_RendersALostTrailingNewline(t *testing.T) {
 	got := Unified("x.txt", "a\nb\n", "a\nb")
 	want := "--- a/x.txt\n" +
 		"+++ b/x.txt\n" +
@@ -188,13 +188,13 @@ func TestUnifiedRendersALostTrailingNewline(t *testing.T) {
 	}
 }
 
-// TestUnifiedIsEmptyWhenBothSidesLackATrailingNewlineAndMatch covers the
+// TestUnified_IsEmptyWhenBothSidesLackATrailingNewlineAndMatch covers the
 // fourth (before-has-newline x after-has-newline) combination the other three
 // trailing-newline tests miss: both before and after lack a trailing
 // newline AND their content is otherwise identical. That must still collapse
 // to "" — before == after byte-for-byte — never render a diff for zero actual
 // change, per Unified's own doc comment.
-func TestUnifiedIsEmptyWhenBothSidesLackATrailingNewlineAndMatch(t *testing.T) {
+func TestUnified_IsEmptyWhenBothSidesLackATrailingNewlineAndMatch(t *testing.T) {
 	if got := Unified("f.txt", "a", "a"); got != "" {
 		t.Fatalf("Unified of identical no-trailing-newline text = %q, want empty", got)
 	}

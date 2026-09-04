@@ -164,10 +164,10 @@ func gitShowTestRepo(t *testing.T) string {
 	return repo
 }
 
-// TestGitShowReturnsEmptyForPathAbsentAtRef pins the one case gitShow may treat
+// TestGitShow_ReturnsEmptyForPathAbsentAtRef pins the one case gitShow may treat
 // as "file was empty at base": a path that genuinely never existed at ref (a
 // newly added query file), never an error.
-func TestGitShowReturnsEmptyForPathAbsentAtRef(t *testing.T) {
+func TestGitShow_ReturnsEmptyForPathAbsentAtRef(t *testing.T) {
 	repo := gitShowTestRepo(t)
 	got, err := gitShow(repo, "HEAD", "never-existed.sql")
 	if err != nil {
@@ -178,11 +178,11 @@ func TestGitShowReturnsEmptyForPathAbsentAtRef(t *testing.T) {
 	}
 }
 
-// TestGitShowReturnsErrorForUnresolvableRef pins the bug in #183: a bad/typo'd
+// TestGitShow_ReturnsErrorForUnresolvableRef pins the bug in #183: a bad/typo'd
 // base ref must fail loud, never widen scope by being silently treated as an
 // absent path (which would make changedNamesBetween see every query in the file
 // as changed).
-func TestGitShowReturnsErrorForUnresolvableRef(t *testing.T) {
+func TestGitShow_ReturnsErrorForUnresolvableRef(t *testing.T) {
 	repo := gitShowTestRepo(t)
 	_, err := gitShow(repo, "origin/does-not-exist-xyz", "queries.sql")
 	if err == nil {
@@ -190,7 +190,7 @@ func TestGitShowReturnsErrorForUnresolvableRef(t *testing.T) {
 	}
 }
 
-// TestGitShowReturnsEmptyForNewFileExistingOnDiskButAbsentAtRef pins the
+// TestGitShow_ReturnsEmptyForNewFileExistingOnDiskButAbsentAtRef pins the
 // production case gitShow's own doc comment names: a newly added query file.
 // The path exists on disk (changedQueries reads it with os.ReadFile right
 // before calling gitShow) but was never committed, so HEAD's tree does not
@@ -199,7 +199,7 @@ func TestGitShowReturnsErrorForUnresolvableRef(t *testing.T) {
 // '<ref>'", verified against a real `git show` on git 2.53.0) — gitShow must
 // still treat it as an absent-at-ref path, not an error, or `sqlc regen
 // --scoped` hard-fails on the single most common reason to reach for it.
-func TestGitShowReturnsEmptyForNewFileExistingOnDiskButAbsentAtRef(t *testing.T) {
+func TestGitShow_ReturnsEmptyForNewFileExistingOnDiskButAbsentAtRef(t *testing.T) {
 	repo := gitShowTestRepo(t)
 	mustWrite(t, repo+"/new-query.sql", "-- name: NewQuery :one\nSELECT 2;\n")
 
@@ -212,7 +212,7 @@ func TestGitShowReturnsEmptyForNewFileExistingOnDiskButAbsentAtRef(t *testing.T)
 	}
 }
 
-// TestGitShowReturnsErrorWhenPathExistenceCheckFailsToStart pins the outer
+// TestGitShow_ReturnsErrorWhenPathExistenceCheckFailsToStart pins the outer
 // `if err != nil { return "", err }` right after the pathExistsAtRef call in
 // gitShow. That branch guards a REAL execution failure of the `git cat-file
 // -e` subprocess — as opposed to the object simply not existing, which
@@ -223,7 +223,7 @@ func TestGitShowReturnsEmptyForNewFileExistingOnDiskButAbsentAtRef(t *testing.T)
 // verifyRef, which runs first and does not carry relpath in its argv, still
 // resolves HEAD fine, so this exercises gitShow's own propagation, not a
 // misresolved ref.
-func TestGitShowReturnsErrorWhenPathExistenceCheckFailsToStart(t *testing.T) {
+func TestGitShow_ReturnsErrorWhenPathExistenceCheckFailsToStart(t *testing.T) {
 	repo := gitShowTestRepo(t)
 	hugeRelpath := strings.Repeat("a", 2_000_000) + ".sql"
 
@@ -266,12 +266,12 @@ func gitShowFailsStubDir(t *testing.T) string {
 	return dir
 }
 
-// TestGitShowReturnsErrorWhenTheShowCommandFails pins gitShow's second `if err
+// TestGitShow_ReturnsErrorWhenTheShowCommandFails pins gitShow's second `if err
 // != nil { return "", err }`, for the `git show` command itself (as opposed to
 // the existence check above it). Unlike the existence-check branch, this one
 // does not filter by error shape — any failure of `git show`, including an
 // ordinary non-zero exit, must propagate with the underlying message.
-func TestGitShowReturnsErrorWhenTheShowCommandFails(t *testing.T) {
+func TestGitShow_ReturnsErrorWhenTheShowCommandFails(t *testing.T) {
 	repo := t.TempDir()
 	dir := gitShowFailsStubDir(t)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -285,12 +285,12 @@ func TestGitShowReturnsErrorWhenTheShowCommandFails(t *testing.T) {
 	}
 }
 
-// TestChangedQueriesWrapsAGitShowFailure pins regen_scoped.go's `if err != nil
+// TestChangedQueries_WrapsAGitShowFailure pins regen_scoped.go's `if err != nil
 // { return nil, fmt.Errorf(...) }` right after its gitShow call: a real gitShow
 // failure (not an absent-at-ref path, which changedNamesBetween must still see
 // as "everything in the working file is new") must abort changedQueries with a
 // wrapped error, never be swallowed into an empty base and a widened diff.
-func TestChangedQueriesWrapsAGitShowFailure(t *testing.T) {
+func TestChangedQueries_WrapsAGitShowFailure(t *testing.T) {
 	repo := t.TempDir()
 	mustWrite(t, filepath.Join(repo, "queries.sql"), "-- name: GetWidget :one\nSELECT 1;\n")
 	cfg := Config{Repo: repo, Entries: []SQLEntry{{Queries: "queries.sql"}}}
