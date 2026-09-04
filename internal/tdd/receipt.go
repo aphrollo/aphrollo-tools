@@ -398,8 +398,15 @@ func short(sha string) string {
 // receipt is belongs to the rules, not to every rejection.
 func blockMissingReceipt(ctx receiptContext) *GateResult {
 	return &GateResult{Blocked: true, Message: fmt.Sprintf(
-		"gate: mutation receipt missing for tree %s — %s", short(ctx.TipTree), missingReceiptRemedy(ctx))}
+		"gate: %s %s — %s", missingReceiptMarker, short(ctx.TipTree), missingReceiptRemedy(ctx))}
 }
+
+// missingReceiptMarker is the phrase that identifies this rejection, the way
+// receiptRejectionMarker identifies the other half of the family. The escape
+// recorder reads both: a merge refused for want of a receipt is the gate
+// working, not evidence about the pre-commit gate, which has no receipt stage
+// to have missed.
+const missingReceiptMarker = "mutation receipt missing for tree"
 
 // missingReceiptRemedy is the second half of that line. A run that is ALREADY
 // going is the remedy: told only to run the script, a session starts a second

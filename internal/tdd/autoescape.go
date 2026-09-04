@@ -291,7 +291,15 @@ func isUnacceptedSurvivorRejection(message string) bool {
 // runner — which is what makes the family recognisable; a pinned test builds
 // two of them and asserts this reads both.
 func isReceiptRejection(message string) bool {
-	return strings.Contains(message, receiptRejectionMarker)
+	// Two markers, because the family has two shapes. blockReceipt writes the
+	// explaining sentence; blockMissingReceipt deliberately does not — it is
+	// ONE line ending in the remedy, which is what a session at a blocked
+	// merge needs. Reading only the first marker meant the most common merge
+	// refusal there is fell through to the generic branch and was filed as an
+	// escape against a pre-commit gate that has no receipt stage to miss,
+	// which is the noise this exclusion exists to prevent.
+	return strings.Contains(message, receiptRejectionMarker) ||
+		strings.Contains(message, missingReceiptMarker)
 }
 
 // NoteMergeGateEscape records the merge gate's rejection as an escape when the
