@@ -53,10 +53,7 @@ func TestUnclaim_Apply_E2E(t *testing.T) {
 	devclaim := t.TempDir()
 	bin := t.TempDir()
 	marker := filepath.Join(bin, "restart.txt")
-	fake := filepath.Join(bin, "systemctl")
-	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho \"$@\" > "+marker+"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fake := fakeSystemctl(t, bin, marker)
 	t.Setenv("APHROLLO_DEVCLAIM_DIR", devclaim)
 	t.Setenv("APHROLLO_SYSTEMCTL", fake)
 	t.Setenv("APHROLLO_DEV_SUDO", "0")

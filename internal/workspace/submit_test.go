@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -238,7 +239,10 @@ func TestSubmit_FlipFailsReturnsErrorNoBody(t *testing.T) {
 		func(wt string, req PRCreate) (*PRInfo, error) { return nil, nil },
 	)
 	stubReady(t, func(wt, branch string) error { return fmt.Errorf("flip boom") })
-	stubBody(t, func(wt, branch, body string) error { t.Fatal("body must NOT be edited when the flip fails"); return nil })
+	stubBody(t, func(wt, branch, body string) error {
+		t.Fatal("body must NOT be edited when the flip fails")
+		return nil
+	})
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
 
 	s, _ := SubmitPlan(targetFor(repo, "feat/y"), "summary")
@@ -462,5 +466,25 @@ func TestSubmit_UnpushedBranchReportsPushedN(t *testing.T) {
 func TestSubmitPlan_DetachedHEAD(t *testing.T) {
 	if _, err := SubmitPlan(&Target{Worktree: "/x", Branch: "HEAD"}, "s"); err == nil {
 		t.Fatal("expected detached-HEAD submit to be rejected")
+	}
+}
+
+// TestGhEditPRBodyArgs_PutsBodyFlagBeforeTheTerminator is issue #160's
+// regression from 3404dc3: that commit guarded branch behind "--" (closing
+// #160) but placed "--body" AFTER the terminator, and pflag stops recognizing
+// flags the moment it sees "--" — so "--body" and its value became two more
+// positionals and gh rejected the call outright regardless of branch content
+// ("accepts at most 1 arg(s), received 3", verified against installed gh
+// 2.89.0 offline with no repo context). Flags must precede "--", with "--"
+// immediately before the trailing branch positional — the shape every sibling
+// call site already uses (ghReadyPR above; ghViewPR and ghCreatePR's --head=
+// in pr.go). Asserted as an exact literal, not index relations, so a future
+// reorder can't pass by accident the way the index-only check that let this
+// regression through did.
+func TestGhEditPRBodyArgs_PutsBodyFlagBeforeTheTerminator(t *testing.T) {
+	got := ghEditPRBodyArgs("--repo=owner/other-repo", "the summary")
+	want := []string{"pr", "edit", "--body", "the summary", "--", "--repo=owner/other-repo"}
+	if !slices.Equal(got, want) {
+		t.Errorf("ghEditPRBodyArgs(...) = %v, want %v", got, want)
 	}
 }

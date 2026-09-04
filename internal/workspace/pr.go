@@ -113,8 +113,21 @@ type CIStatus struct {
 // non-zero otherwise (failures). We parse its TSV rows for the per-check verdict
 // to distinguish red from pending and to count failures, falling back to the
 // exit code when the output is empty.
+//
+// ghCIStatusArgs builds the `gh pr checks --json state` argv. branch is
+// guarded behind "--", matching every sibling gh call site in this package
+// (ghEditPRBodyArgs, ghReadyPR in submit.go; ghViewPR and ghCreatePR's
+// --head= here): gh's flag parser treats a branch starting with "-" as a
+// flag reference regardless of position, and git ref names ARE allowed to
+// start with "-" (see #160). "--json state" must come BEFORE "--": pflag
+// stops recognizing flags the instant it sees "--", so "--" sits
+// immediately before the trailing branch positional, never earlier.
+func ghCIStatusArgs(branch string) []string {
+	return []string{"pr", "checks", "--json", "state", "--", branch}
+}
+
 var ghCIStatus = func(wt, branch string) (CIStatus, error) {
-	cmd := exec.Command("gh", "pr", "checks", branch, "--json", "state")
+	cmd := exec.Command("gh", ghCIStatusArgs(branch)...)
 	cmd.Dir = wt
 	out, err := cmd.Output()
 	if err == nil && len(strings.TrimSpace(string(out))) == 0 {
