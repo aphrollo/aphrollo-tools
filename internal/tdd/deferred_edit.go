@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -28,11 +29,13 @@ func EnableDeferredPhases(on bool) { deferPhases.Store(on) }
 // can prove the hook wires it.
 func DeferredPhasesEnabled() bool { return deferPhases.Load() }
 
-// spawnPhaseFn / killDeferredFn are the process seams: production starts a
-// detached `aphrollo tdd runphase` and kills by pid; a test substitutes both.
+// spawnPhaseFn / killDeferredFn / processStartTimeFn are the process seams:
+// production starts a detached `aphrollo tdd runphase`, kills by pid, and
+// queries the OS for a live pid's creation time; a test substitutes all three.
 var (
-	spawnPhaseFn   = spawnPhase
-	killDeferredFn = killDeferred
+	spawnPhaseFn       = spawnPhase
+	killDeferredFn     = killDeferred
+	processStartTimeFn = processStartTime
 )
 
 // deferredEditOutcome is what the deferral path reports back to PostEdit:
@@ -136,8 +139,12 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 		if deferredExpired(j, time.Now()) {
 			// The one kill: a phase that outlived any plausible build. A run
 			// phase that got this far is the ONLY thing that counts as a
-			// timeout — the suite really did fail to finish.
-			killDeferredFn(j)
+			// timeout — the suite really did fail to finish. Still gated on
+			// pidStillOurs: the ceiling here is minutes, not 24h, but the same
+			// recycle is possible in miniature.
+			if pidStillOurs(j) {
+				killDeferredFn(j)
+			}
 			clearDeferredJob(session, root)
 			if j.Phase == "run" && state != nil {
 				state.stampTimeout(root, headSHA)
@@ -318,6 +325,80 @@ func killDeferred(j DeferredJob) {
 // killTreeFn is the process-tree kill seam, so a test can prove the whole
 // tree is targeted without spawning one.
 var killTreeFn = killTree
+
+// pidIdentityTolerance is how far a live pid's OS-reported creation time may
+// drift from the one this job recorded and still count as the same process.
+// It exists only to absorb measurement noise (ps's lstart is second-
+// resolution, and the spawn-time sample is taken a few instructions after
+// the OS actually created the process) — nowhere near enough to paper over
+// an actual recycle, which sits hours or days away.
+const pidIdentityTolerance = 5 * time.Second
+
+// pidStillOurs reports whether the live process at j.PID is still the one
+// this job recorded, not whatever the OS handed the same integer to after
+// ours exited. A kill site with no evidence either way (PIDCreatedAt never
+// recorded, or the live query fails) still gets to kill: that keeps the
+// crash backstop working on an old-format record or a platform where the
+// query is unavailable, matching the rest of this file's best-effort
+// posture. Only a POSITIVE mismatch — both times known, and they disagree —
+// withholds the kill.
+func pidStillOurs(j DeferredJob) bool {
+	if j.PIDCreatedAt.IsZero() {
+		return true
+	}
+	live, ok := processStartTimeFn(j.PID)
+	if !ok {
+		return true
+	}
+	drift := live.Sub(j.PIDCreatedAt)
+	return drift.Abs() <= pidIdentityTolerance
+}
+
+// reapSessionDeferredJobs ends every deferred phase the given session
+// started, across every project it touched, and drops their records.
+// EndSession calls this before it drops the session's own state file: a job
+// is keyed session+project, so loadDeferredJob is only ever looked up again
+// by the SAME session's own next hook (harvestDeferred, promptHarvest) — and
+// a session that just ended will not fire another hook. Left alone, a job
+// still running at that point would run forever, holding its target lock
+// and a build slot with nothing left to ever harvest or kill it (the same
+// gap the 24h file-age sweep does not close: it deletes the evidence, never
+// the process). Best-effort like killDeferred itself: a job whose wrapper
+// already finished is killed too rather than paying to parse its result
+// first — the process is already gone, so the call is a harmless no-op.
+func reapSessionDeferredJobs(session string) int {
+	session = strings.TrimSpace(session)
+	if session == "" {
+		return 0
+	}
+	dir := deferredDirPath()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	suffix := "-" + sessionKey(session) + ".json"
+	reaped := 0
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, suffix) {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			continue
+		}
+		j, ok := decodeJob(data)
+		if !ok || j.Session != session {
+			continue
+		}
+		if j.PID > 0 {
+			killDeferredFn(j)
+		}
+		clearDeferredJob(j.Session, j.Project)
+		reaped++
+	}
+	return reaped
+}
 
 // headSHAFor is the current commit of root's repo, "" outside a repo — the
 // first half of "does this result describe the code on disk now".

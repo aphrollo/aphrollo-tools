@@ -229,14 +229,17 @@ type sessionEndInput struct {
 	SessionID string `json:"session_id"`
 }
 
-// EndSession removes the session's state file so the per-session caches do not
-// accumulate in the state directory. Best-effort and silent: a missing file or
-// absent session id is a no-op.
+// EndSession reaps any deferred build/run phase this session left running —
+// nothing else will ever harvest or kill it once the session is gone (see
+// reapSessionDeferredJobs) — then removes the session's state file so the
+// per-session caches do not accumulate in the state directory. Best-effort
+// and silent: a missing file or absent session id is a no-op.
 func EndSession(raw []byte) {
 	var in sessionEndInput
 	if err := json.Unmarshal(raw, &in); err != nil || in.SessionID == "" {
 		return
 	}
+	reapSessionDeferredJobs(in.SessionID)
 	if _, path := loadSession(in.SessionID); path != "" {
 		_ = os.Remove(path)
 	}

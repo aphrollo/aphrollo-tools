@@ -1,12 +1,56 @@
 package ratchet
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 )
+
+// readFile and readDir stand in for os.ReadFile/os.ReadDir at every call site
+// that has to tell a legitimately-vanished path (a concurrent delete mid-walk,
+// which stays silent) apart from a path the engine could not read for any
+// other reason (locked, permission-denied, I/O error — which must not report
+// the tree clean). Indirecting them lets a test simulate the second class
+// without depending on OS-specific filesystem behavior to produce it.
+var (
+	readFile = os.ReadFile
+	readDir  = os.ReadDir
+)
+
+// vanished reports whether a read error is the one case that is not a
+// finding: the path stopped existing between the walk seeing it and the read
+// running. Every other error — locked, permission-denied, I/O — means the
+// engine could not perform the scan it owes, and must not be swallowed into
+// a clean verdict over data nobody looked at.
+func vanished(err error) bool {
+	return errors.Is(err, fs.ErrNotExist)
+}
+
+// ScanReadError reports that the tree scan could not read a file or
+// directory a law's scope needed, for a reason other than the path
+// vanishing mid-walk (see vanished). It is a DIFFERENT offence from every
+// other error Check can return (a malformed law TOML, an unknown matcher
+// kind): the law tooling itself is fine, but the read it needed to judge
+// THIS path failed — so it is the path, not the whole rule set, that needs
+// a retry or a fix. A caller distinguishes the two with errors.As; matching
+// on the error string is not the contract.
+type ScanReadError struct {
+	// Path is the path the read failed against, in whatever form the
+	// failing call site had it (repo-relative for the tree walk, or the
+	// absolute path passed to readFile) — always the value worth printing.
+	Path string
+	Err  error
+}
+
+func (e *ScanReadError) Error() string {
+	return fmt.Sprintf("reading %s: %s — a clean verdict would be over a scan the engine could not perform", e.Path, e.Err)
+}
+
+func (e *ScanReadError) Unwrap() error { return e.Err }
 
 // Options configures one `ratchet check` run.
 type Options struct {
@@ -461,9 +505,12 @@ func scanTree(opts Options, laws []Law) (*treeScan, error) {
 		}
 		content := proposed
 		if !overlaid && (!ok || needsContent) {
-			data, err := os.ReadFile(filepath.Join(opts.Root, filepath.FromSlash(rel)))
+			data, err := readFile(filepath.Join(opts.Root, filepath.FromSlash(rel)))
 			if err != nil {
-				continue // a file that vanished mid-walk is not a finding
+				if vanished(err) {
+					continue // a file that vanished mid-walk is not a finding
+				}
+				return nil, &ScanReadError{Path: rel, Err: err}
 			}
 			content = string(data)
 			scan.read++
@@ -571,9 +618,12 @@ func collectFiles(opts Options, laws []Law) ([]string, map[string]bool, error) {
 	var out []string
 	var walk func(dir, rel string, ignored bool) error
 	walk = func(dir, rel string, ignored bool) error {
-		entries, err := os.ReadDir(dir)
+		entries, err := readDir(dir)
 		if err != nil {
-			return nil // an unreadable dir is not a finding
+			if vanished(err) {
+				return nil // a dir that vanished mid-walk is not a finding
+			}
+			return &ScanReadError{Path: dir, Err: err}
 		}
 		for _, e := range entries {
 			child := path(rel, e.Name())
