@@ -112,8 +112,10 @@ func gremlinsStatus(raw string) string {
 	switch strings.ToUpper(strings.TrimSpace(raw)) {
 	case "KILLED":
 		return "caught"
-	case "LIVED", "NOT COVERED":
+	case "LIVED":
 		return "missed"
+	case "NOT COVERED":
+		return gremlinsNotCovered
 	case "TIMED OUT":
 		return "timeout"
 	case "SKIPPED":
@@ -122,6 +124,25 @@ func gremlinsStatus(raw string) string {
 		return "unviable"
 	}
 }
+
+// gremlinsNotCovered is a mutant gremlins never ran a test for, because its
+// coverage profile had no block at the mutant's position. That is NOT the
+// claim a survivor makes ("a test ran and did not notice") and must not refuse
+// a merge on its own.
+//
+// The mapping is not reliable enough to read as "no test covers this". Go's
+// coverage blocks split at a closure, so for
+//
+//	return strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' }) < 0
+//
+// gremlins calls the two mutants inside the closure RUNNABLE and the outer
+// `< 0` after it NOT COVERED, although that comparison plainly executes and a
+// hand-mutation of it fails a test. On Windows the mapping fails wholesale:
+// 4890 NOT COVERED, mutator coverage 0.00%.
+//
+// So it is counted and reported, never silently dropped, and never confused
+// with a measured survivor.
+const gremlinsNotCovered = "notcovered"
 
 // gremlinsSkipped is the report's word for a mutant the run's own --diff scope
 // left out. It is not an outcome: the report lists every mutant the ANALYSIS
@@ -207,14 +228,14 @@ func runCommandIn(dir, bin string, args []string) int {
 // goMutantsRun is what a receipt needs to name the run it describes, whether
 // that run was the detached local job or the pull request's own.
 type goMutantsRun struct {
-	Repo, Branch, TipTree, BaseRef, BaseSHA, Worktree string
+	Repo, RepoID, Branch, TipTree, BaseRef, BaseSHA, Worktree string
 }
 
 // writeGoMutantsReceipt renders one detached run into the receipt every merge
 // reads, and writes it to the machine's receipt store.
 func writeGoMutantsReceipt(j MutantsJob, mutants []MutantOutcome, now TreeState) {
 	r := goMutantsReceipt(goMutantsRun{
-		Repo: j.Repo, Branch: j.Branch, TipTree: j.TipTree,
+		Repo: j.Repo, RepoID: j.RepoID, Branch: j.Branch, TipTree: j.TipTree,
 		BaseRef: j.BaseRef, BaseSHA: j.BaseSHA, Worktree: j.Worktree,
 	}, mutants, now)
 	if path := MutationReceiptPathFor(j.TipTree); path != "" {
@@ -229,7 +250,7 @@ func writeGoMutantsReceipt(j MutantsJob, mutants []MutantOutcome, now TreeState)
 // blob and fence in place, which is what the store carries forward.
 func goMutantsReceipt(j goMutantsRun, mutants []MutantOutcome, now TreeState) MutationReceipt {
 	r := MutationReceipt{
-		Repo: j.Repo, Branch: j.Branch, TipTree: j.TipTree,
+		Repo: j.Repo, RepoID: j.RepoID, Branch: j.Branch, TipTree: j.TipTree,
 		BaseRef: j.BaseRef, BaseSHA: j.BaseSHA,
 		Verdict: receiptVerdictPass, FinishedAt: time.Now().UTC(),
 		Files: map[string]string{}, Fences: map[string]string{},
@@ -247,6 +268,8 @@ func goMutantsReceipt(j goMutantsRun, mutants []MutantOutcome, now TreeState) Mu
 			r.Timeout++
 		case "unviable":
 			r.Unviable++
+		case gremlinsNotCovered:
+			r.NotCovered++
 		default:
 			survivors = append(survivors, m)
 		}

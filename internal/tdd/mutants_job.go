@@ -37,7 +37,10 @@ type MutantsJob struct {
 	Schema int `json:"schema"`
 	// Repo is the git COMMON dir — the one directory every worktree of a repo
 	// shares, and therefore what "the same repo" means here.
-	Repo      string `json:"repo"`
+	Repo string `json:"repo"`
+	// RepoID is the same repository named independently of where it is
+	// checked out; see MutationReceipt.RepoID.
+	RepoID    string `json:"repo_id,omitempty"`
 	RepoRoot  string `json:"repo_root"`
 	Branch    string `json:"branch"`
 	Tip       string `json:"tip"`
@@ -93,7 +96,7 @@ func startMutantsJob(repoRoot string) (MutantsJob, bool, error) {
 		return MutantsJob{}, false, nil
 	}
 	j := MutantsJob{
-		Schema: StateSchema, Repo: commonGitDir(root), RepoRoot: root, Branch: branch,
+		Schema: StateSchema, Repo: commonGitDir(root), RepoID: repoIdentity(root), RepoRoot: root, Branch: branch,
 		Tip: gitOut(root, "rev-parse", "HEAD"), TipTree: gitOut(root, "rev-parse", "HEAD:"),
 		BaseRef: laneBaseRef(root), Worktree: MutantsWorktreeDir(root), TargetDir: MutantsTargetDir(root),
 	}

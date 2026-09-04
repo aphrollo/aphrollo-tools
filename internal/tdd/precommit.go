@@ -251,6 +251,7 @@ func mutationReceiptStage(repoRoot string) *GateResult {
 	return checkMutationReceipt(receiptContext{
 		RepoRoot: repoRoot,
 		Repo:     commonGitDir(repoRoot),
+		RepoID:   repoIdentity(repoRoot),
 		TipTree:  tip.Tree,
 		BaseSHA:  mergeBaseSHA(repoRoot, tip.Rev),
 	})
