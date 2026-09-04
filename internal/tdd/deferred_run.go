@@ -42,6 +42,14 @@ func spawnPhase(j DeferredJob) (DeferredJob, bool) {
 	}
 	saved.PID = cmd.Process.Pid
 	saved.Started = time.Now()
+	// Sampled once, right here, and never touched again: it is the identity
+	// a later kill site checks the live pid against, not the build's own
+	// clock (Started moves to when the build actually began — see
+	// stampDeferredStart). Left zero when the OS query fails, which
+	// pidStillOurs reads as "unknown" rather than "mismatch".
+	if t, ok := processStartTimeFn(saved.PID); ok {
+		saved.PIDCreatedAt = t
+	}
 	saveDeferredJob(saved)
 	_ = cmd.Process.Release()
 	return saved, true

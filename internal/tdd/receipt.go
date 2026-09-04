@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -23,7 +24,17 @@ import (
 // receipt was overwritten". Keying the FILENAME by the tree it describes
 // makes the lookup itself the identity check, and keeps every lane's proof.
 type MutationReceipt struct {
-	Repo          string `json:"repo"`
+	Repo string `json:"repo"`
+	// RepoID names the REPOSITORY rather than the directory it was measured
+	// in: "root:<sha>" over its root commits, identical in every clone and
+	// every worktree on every OS. Repo above is a path, and one repository
+	// has as many path spellings as it has checkouts — `D:/…/.git` from
+	// Windows, `/mnt/d/…/.git` for the same directory from WSL, and something
+	// else again for a Linux-side clone — none of which normalize to each
+	// other, so judging by path refused every receipt a Linux run produced
+	// (issue #202). Empty means an older producer wrote the receipt, and the
+	// path comparison stands in.
+	RepoID        string `json:"repo_id,omitempty"`
 	Branch        string `json:"branch"`
 	TipTree       string `json:"tip_tree"`
 	WorktreeDirty bool   `json:"worktree_dirty"`
@@ -42,6 +53,11 @@ type MutationReceipt struct {
 	Caught       int `json:"caught"`
 	Timeout      int `json:"timeout"`
 	Unviable     int `json:"unviable"`
+	// NotCovered is how many mutants the runner never ran a test for. They are
+	// neither caught nor survived: nothing was measured. Counted so a receipt
+	// says how much of its diff went unproven rather than implying the whole
+	// of it was judged.
+	NotCovered int `json:"not_covered,omitempty"`
 	// Survivors and Unaccepted are LISTS of mutants, as the producer writes
 	// them — the count is len(). Declaring survivors an int is what made
 	// every merge die on "cannot unmarshal array into Go struct field"; then
@@ -115,8 +131,11 @@ const receiptRejectionMarker = "the receipt proves it constrains behaviour"
 type receiptContext struct {
 	RepoRoot string
 	Repo     string
-	TipTree  string
-	BaseSHA  string
+	// RepoID is this checkout's repository identity, the same string the
+	// producer wrote into the receipt. See MutationReceipt.RepoID.
+	RepoID  string
+	TipTree string
+	BaseSHA string
 }
 
 // checkMutationReceipt judges the receipt for the tree being merged. It
@@ -150,8 +169,8 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return blockReceipt(ctx.RepoRoot, "the mutation receipt at %s is unreadable (%v)", path, err)
 	}
-	if r.Repo != "" && repo != "" && !sameRepo(r.Repo, repo) {
-		return blockReceipt(ctx.RepoRoot, "the receipt for tree %s is for %s, not %s", short(tipTree), r.Repo, repo)
+	if res := judgeReceiptRepo(r, ctx); res != nil {
+		return res
 	}
 	if r.WorktreeDirty {
 		return blockReceipt(ctx.RepoRoot, "worktree_dirty: the run measured uncommitted work, not what is being merged")
@@ -219,6 +238,42 @@ func mergeBaseSHA(repoRoot, tipRev string) string {
 // unlike the repo (`.worktrees/borld/eol`) was wrongly REFUSED a receipt the
 // main checkout wrote, and two unrelated repos that happened to share a
 // folder name would have been wrongly ACCEPTED as the same one.
+// judgeReceiptRepo decides whether this receipt was measured in the
+// repository being merged. Identity decides whenever both sides carry one,
+// because it survives the move between checkouts and operating systems that
+// a path spelling cannot; the path comparison stands in only for a receipt
+// written before repo_id existed, so proofs already on the box keep merging.
+func judgeReceiptRepo(r MutationReceipt, ctx receiptContext) *GateResult {
+	if r.RepoID != "" && ctx.RepoID != "" {
+		if !strings.EqualFold(r.RepoID, ctx.RepoID) {
+			return blockReceipt(ctx.RepoRoot, "the receipt for tree %s was measured in repository %s, and this merge is landing in %s",
+				short(ctx.TipTree), r.RepoID, ctx.RepoID)
+		}
+		return nil
+	}
+	if r.Repo != "" && ctx.Repo != "" && !sameRepo(r.Repo, ctx.Repo) {
+		return blockReceipt(ctx.RepoRoot, "the receipt for tree %s is for %s, not %s", short(ctx.TipTree), r.Repo, ctx.Repo)
+	}
+	return nil
+}
+
+// repoIdentity names repoRoot's REPOSITORY, independent of where it is
+// checked out: the sorted root commits of its history, which every clone and
+// every worktree of that repository shares and no other repository has.
+// "" when git cannot say, in which case the caller falls back to the path.
+func repoIdentity(repoRoot string) string {
+	out, err := git(repoRoot, "rev-list", "--max-parents=0", "HEAD")
+	if err != nil {
+		return ""
+	}
+	roots := strings.Fields(out)
+	if len(roots) == 0 {
+		return ""
+	}
+	sort.Strings(roots)
+	return "root:" + strings.Join(roots, ",")
+}
+
 func sameRepo(a, b string) bool {
 	return strings.EqualFold(normalizeRepoSpelling(a), normalizeRepoSpelling(b))
 }

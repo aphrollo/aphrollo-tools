@@ -7,13 +7,28 @@
 # see it for who does the judging instead.
 mutation-receipt = true
 
-# ...and the proof is measured on the developer's box, like a Cargo workspace:
-# the post-commit hook runs the Go mutation over the lane's diff through the
-# outcome store, writes a receipt signed with this machine's key, and the
-# pre-merge-commit gate consumes it. CI's `mutants` job runs on pushes to main
-# only, as a tripwire that records an escape when it disagrees; nobody waits
-# for it.
-mutants-local = true
+# ...and the proof is NOT measured by the post-commit hook on this box, because
+# gremlins cannot measure this module on Windows. `gremlins unleash --dry-run`
+# there reports `Runnable: 0, Not covered: 4890, Mutator coverage: 0.00%`: Go's
+# coverage profile comes back empty, every mutant is filed NOT COVERED, and the
+# receipt that lands says every mutant survived. A dogfood lane measured 50
+# mutants / 0 caught / 50 survivors on Windows against 50 / 44 caught for the
+# same tree on Linux. That receipt is not merely useless, it is wrong in the
+# direction that blocks merges, and producing it costs a full mutation run of
+# CPU plus a console window per git the suite spawns.
+#
+# So the run is deliberately off here and the receipt is earned on Linux
+# instead -- see docs/mutation-runner.md for the route. Set this back to true
+# on a box whose gremlins reports a non-zero mutator coverage.
+mutants-local = false
+
+# ...but the receipt is still JUDGED here. The Linux clone that measures it
+# shares this machine's CLAUDE_CONFIG_DIR, so it signs with the same key and
+# the pre-merge gate can both find and verify what it wrote. Without this key
+# the gate reads `mutants-local = false` as "CI judges it" and stands down --
+# which, on a repo whose CI does not judge it, means every lane merges on no
+# proof at all.
+mutants-judge-local = true
 
 # Survivors somebody signed off on: "<file>:<line> <MUTATOR> # why". The
 # reason is not decoration — an entry without one is not an accepted survivor,
@@ -30,4 +45,5 @@ mutation-accept = [
   "internal/tdd/session.go:264 ARITHMETIC_BASE # the mutated operator sits between two string literals in a const declaration; every arithmetic substitute for + is undefined on strings and fails to compile (verified by hand: 'invalid operation: operator - not defined on ... (untyped string constant)') — not a behavioural gap, a build failure gremlins counted as a survivor",
   "internal/tdd/mutants_go.go:49 CONDITIONALS_BOUNDARY # clamping workers up to a floor of 1 (`workers < 1`) versus `workers <= 1` differ only when workers == 1: the branch fires either way and reassigns workers = 1, a no-op at that value, so gremlinsArgv's output is identical for every integer input — proven equivalent by hand-mutating < to <= and rerunning the full internal/tdd and internal/cli suites locally: same green, no test distinguishes them",
   "internal/workspace/push.go:45 ARITHMETIC_BASE # the mutated operator sits between the \"origin/\" string literal and the branch string in resolveAhead's fallback ref; every arithmetic substitute for + (- * / %) is undefined on Go strings and fails to compile (verified by hand: 'invalid operation: operator - not defined on \"origin/\" (constant of type string)') — not a behavioural gap, a build failure gremlins counted as a survivor",
+  "internal/tdd/mechcache.go:248 CONDITIONALS_BOUNDARY # splitNulPaths only reaches `n := len(fields)` after an early return on s == \"\", and strings.Split of a non-empty string always yields len(fields) >= 1, so n is never 0 at this line: `n > 0` and `n >= 0` hold for every reachable n and the trim condition's truth value is identical either way — proven equivalent by hand-mutating > to >= and rerunning the full internal/tdd suite locally: same green, no test distinguishes them",
 ]
