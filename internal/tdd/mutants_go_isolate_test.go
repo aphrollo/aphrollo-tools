@@ -175,7 +175,7 @@ func TestRunGoMutantsJob_RunsGremlinsOutsideTheLinkedWorktree(t *testing.T) {
 	j := linkedMutantsJob(t)
 	var ranIn string
 	prev := goMutantsJobRunFn
-	goMutantsJobRunFn = func(job MutantsJob, outPath string, _ int) int {
+	goMutantsJobRunFn = func(job MutantsJob, outPath string, _ int, _ []string) int {
 		ranIn = job.Worktree
 		mustWrite(t, outPath, ciReport)
 		return 0

@@ -192,9 +192,13 @@ worktree has a `go.mod` and no `bash tools/mutation_gate.sh`. It drives
 | gremlins v0.6.0 | installs and runs; `--diff <ref>` scopes to the lane, `--output` writes machine-readable results, `--workers` caps concurrency. Analysis of `internal/tdd`: 1626 runnable mutants, 270 not covered, 85.76% mutator coverage, 2.6 s behind one full coverage run |
 | go-mutesting | does not BUILD on windows/amd64 — its `zimmski/osutil` dependency uses `syscall.Dup` and `syscall.RLIMIT_NOFILE`, neither of which exists there. No wall time to compare |
 
-gremlins' statuses map onto the receipt as: `KILLED` → caught, `LIVED` and
-`NOT COVERED` → missed, `TIMED OUT` → timeout, anything else → unviable. An
-unrecognised status is never read as caught.
+gremlins' statuses map onto the receipt as: `KILLED` → caught, `LIVED` →
+missed, `NOT COVERED` → not_covered (never a survivor on its own — no test
+ran, so nothing "did not notice"), `TIMED OUT` → timeout, anything else →
+unviable. An unrecognised status is never read as caught. The outcome
+store's own schema is bumped whenever this mapping changes, so a store
+written under an older one is discarded rather than replayed under the new
+meaning.
 
 The diff-only pilot that preceded this wiring found the signal clean on this
 repo (4/4 survivors were real gaps, 0 equivalent-mutant noise) and surfaced

@@ -96,17 +96,23 @@ func RunGoMutantsCI(c GoMutantsCI, out io.Writer) int {
 		root = r
 	}
 
+	// movedLines is filled in once the plan below has taken its move-aware
+	// pass; the closure reads it at CALL time, so every write after that pass
+	// carries the real count.
+	var movedLines int
+
 	// Everything the receipt needs to name the run, taken before the run so
 	// both exits below write the same document.
 	writeReceiptFor := func(mutants []MutantOutcome) MutationReceipt {
 		r := goMutantsReceipt(goMutantsRun{
-			Repo:     commonGitDir(root),
-			RepoID:   repoIdentity(root),
-			Branch:   gitOut(root, "rev-parse", "--abbrev-ref", "HEAD"),
-			TipTree:  gitOut(root, "rev-parse", "HEAD:"),
-			BaseRef:  c.BaseSHA,
-			BaseSHA:  c.BaseSHA,
-			Worktree: root,
+			Repo:       commonGitDir(root),
+			RepoID:     repoIdentity(root),
+			Branch:     gitOut(root, "rev-parse", "--abbrev-ref", "HEAD"),
+			TipTree:    gitOut(root, "rev-parse", "HEAD:"),
+			BaseRef:    c.BaseSHA,
+			BaseSHA:    c.BaseSHA,
+			Worktree:   root,
+			MovedLines: movedLines,
 		}, mutants, treeStateAt(root, "HEAD"))
 		path := c.Receipt
 		if path == "" {
@@ -143,17 +149,46 @@ func RunGoMutantsCI(c GoMutantsCI, out io.Writer) int {
 	files := lane
 	var carried []MutantOutcome
 	if laneOK {
-		files = PlanDiffFiles(lane, now, cached)
+		files = PlanDiffFiles(root, lane, now, cached)
 		carried = PlanMutants(laneWants(cached, lane), now, cached).Carry
 	}
 
+	// Move-aware, on top of the store's own plan: a file left in `files`
+	// because the store had never measured it may still have nothing worth
+	// mutating, when everything base..HEAD changed in it was git-detected as
+	// moved rather than edited. Excluding those here is what keeps a
+	// crate-topology-style relocation of Go code from re-mutating lines
+	// nobody touched.
+	var movedOnly []string
+	if laneOK && len(files) > 0 {
+		movedOnly, movedLines = movedOnlyFiles(root, c.BaseSHA, "HEAD", files)
+		if len(movedOnly) > 0 {
+			moved := make(map[string]bool, len(movedOnly))
+			for _, f := range movedOnly {
+				moved[f] = true
+			}
+			kept := files[:0]
+			for _, f := range files {
+				if !moved[f] {
+					kept = append(kept, f)
+				}
+			}
+			files = kept
+		}
+	}
+
 	if laneOK && len(files) == 0 {
-		// Every file in the lane is already answered by the store at its
-		// current blob and fence: nothing changed since the last measured
-		// push, so gremlins is not even started.
+		// Every file in the lane is either already answered by the store at
+		// its current blob and fence, or — when movedLines is what accounts
+		// for the rest — never had anything but relocated code in it. Either
+		// way gremlins is not even started.
 		r := writeReceiptFor(carried)
-		logf(out, "aphrollo: 0 measured, %d carried over %s..HEAD — nothing changed since the last measured push",
-			len(carried), short(c.BaseSHA))
+		reason := "nothing changed since the last measured push"
+		if movedLines > 0 {
+			reason = "every remaining changed line was a pure move"
+		}
+		logf(out, "aphrollo: 0 measured, %d carried over %s..HEAD — %s",
+			len(carried), short(c.BaseSHA), reason)
 		return judgeGoMutantsCI(r, 0, c.BaseSHA, out)
 	}
 
@@ -242,8 +277,14 @@ func exceptFiles(lane, files []string) []string {
 // gate accepts a zero-mutant receipt, because a diff with nothing mutable in
 // it is a real answer about a lane; the run is the thing that could have
 // been mis-scoped, and only the run can tell.
+//
+// r.MovedLines > 0 is the one zero this ambiguity check must not catch: it
+// means the plan itself (never gremlins) decided there was nothing left to
+// measure, because git's own move detection accounted for every line the
+// lane's remaining files changed — a real, explained answer, not a scope
+// that matched nothing.
 func judgeGoMutantsCI(r MutationReceipt, measured int, baseSHA string, out io.Writer) int {
-	if measured == 0 && r.MutantsTotal == 0 {
+	if measured == 0 && r.MutantsTotal == 0 && r.MovedLines == 0 {
 		logf(out, "aphrollo: the run measured NO mutants over %s..HEAD — a scope that matches nothing"+
 			" is not a proof: check that the base is the merge base this branch actually diverged from", baseSHA)
 		return 1

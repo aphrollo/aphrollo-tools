@@ -35,7 +35,7 @@ func TestMutantStore_CarriesAcrossLanesForTheSameBlobAndTestSet(t *testing.T) {
 		t.Fatalf("Carry = %+v, want the stored verdict", plan.Carry)
 	}
 	// And at file level, which is what the run is actually scoped by.
-	files := PlanDiffFiles([]string{"crates/a/src/lib.rs"},
+	files := PlanDiffFiles("", []string{"crates/a/src/lib.rs"},
 		TreeState{Blobs: map[string]string{"crates/a/src/lib.rs": "blobA"},
 			Packages: map[string]string{"crates/a/src/lib.rs": "crates/a"},
 			Fences:   map[string]string{"crates/a": "tsA"}},
@@ -59,7 +59,7 @@ func TestMutantStore_AChangedTestSetInvalidatesOnlyItsOwnPackage(t *testing.T) {
 		Packages: map[string]string{"crates/a/src/lib.rs": "crates/a", "crates/b/src/lib.rs": "crates/b"},
 		Fences:   map[string]string{"crates/a": "tsA-NEW", "crates/b": "tsB"},
 	}
-	files := PlanDiffFiles([]string{"crates/a/src/lib.rs", "crates/b/src/lib.rs"}, now, LoadMutantStore("borld"))
+	files := PlanDiffFiles("", []string{"crates/a/src/lib.rs", "crates/b/src/lib.rs"}, now, LoadMutantStore("borld"))
 	if len(files) != 1 || files[0] != "crates/a/src/lib.rs" {
 		t.Fatalf("PlanDiffFiles = %v, want only the package whose test set moved", files)
 	}
@@ -105,8 +105,8 @@ func TestMutantStore_IsSchemaStampedAndWrittenWhole(t *testing.T) {
 	if err := json.Unmarshal(data, &probe); err != nil {
 		t.Fatal(err)
 	}
-	if probe.Schema != StateSchema {
-		t.Fatalf("schema = %d, want %d", probe.Schema, StateSchema)
+	if probe.Schema != mutantOutcomeSchema {
+		t.Fatalf("schema = %d, want %d", probe.Schema, mutantOutcomeSchema)
 	}
 	if len(probe.Entries) != 1 || probe.Entries[0].At.IsZero() {
 		t.Fatalf("entries = %+v, want one, stamped with when it was measured", probe.Entries)
@@ -119,6 +119,33 @@ func TestMutantStore_IsSchemaStampedAndWrittenWhole(t *testing.T) {
 	}
 	if got := LoadMutantStore("borld"); len(got) != 0 {
 		t.Fatalf("store = %+v, want a newer schema read as no cache at all", got)
+	}
+}
+
+// mutantOutcomeSchema versions what a verdict STRING means, not the JSON
+// shape: a status like "missed" or "caught" is only as trustworthy as the
+// mapping that produced it (gremlinsStatus, say), and that mapping has
+// already drifted once in this repo's own history — NOT COVERED used to fold
+// into "missed" and now has its own gremlinsNotCovered status (see
+// docs/mutation-runner.md's now-corrected table). A store written under the
+// OLD mapping still has a matching blob and fence for an untouched file, so
+// carriesOver would happily replay "missed" for a mutant the CURRENT mapping
+// would call notcovered — a real survivor becomes a phantom one. Because that
+// is a SEMANTIC change with no structural one, the general forward-compat
+// StateSchema (which treats an older schema as perfectly readable) is the
+// wrong tool; the outcome store instead refuses anything but an EXACT match,
+// old or new.
+func TestLoadMutantStore_DiscardsAStoreWrittenUnderAnOlderVerdictSchema(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	path := MutantStorePath("borld")
+	old := `{"schema":1,"entries":[{"file":"a.rs","line":1,"mutation":"replace + with -",` +
+		`"package":"p","status":"missed","blob":"blobA","fence":"ts","at":"2026-01-01T00:00:00Z"}]}`
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadMutantStore("borld"); len(got) != 0 {
+		t.Fatalf("store = %+v, want an older-schema store read as no cache — its verdicts were mapped "+
+			"under semantics this binary no longer uses", got)
 	}
 }
 

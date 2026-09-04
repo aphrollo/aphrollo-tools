@@ -178,8 +178,17 @@ func RunGoMutantsJob(jobPath string) int {
 	jobs, why := mutantsJobsForThisBox()
 	logf(os.Stdout, "aphrollo: %d worker(s) — %s", jobs, why)
 
+	// Move-aware, the same as the Rust runner: a file git's move detection
+	// emptied entirely is excluded from gremlins' own walk rather than
+	// re-mutated for having "changed" lines that are really just relocated.
+	var excludeFiles []string
+	var movedLines int
+	if lane, ok := changedPaths(j.RepoRoot, j.BaseSHA, j.Tip); ok {
+		excludeFiles, movedLines = movedOnlyFiles(j.RepoRoot, j.BaseSHA, j.Tip, lane)
+	}
+
 	start := time.Now()
-	code := goMutantsJobRunFn(j, out, jobs)
+	code := goMutantsJobRunFn(j, out, jobs, excludeFiles)
 	data, err := os.ReadFile(out)
 	if err != nil {
 		logf(os.Stdout, "aphrollo: gremlins wrote no report (exit %d): %v", code, err)
@@ -192,7 +201,7 @@ func RunGoMutantsJob(jobPath string) int {
 		recordMutantsDeath(j, code, mutantsDeathTail(j))
 		return 0
 	}
-	writeGoMutantsReceipt(j, mutants, treeStateAt(j.RepoRoot, j.Tip))
+	writeGoMutantsReceipt(j, mutants, treeStateAt(j.RepoRoot, j.Tip), movedLines)
 	MergeMutantStore(j.Repo, mutants)
 	clearMutantsDeath(j.TipTree)
 	appendGateLog("mutants", logToken(j.Repo), "mutants-go", "mutants-finished:"+short(j.TipTree), time.Since(start))
@@ -205,9 +214,10 @@ var goMutantsJobRunFn = runGremlins
 
 // runGremlins runs the tool in the job's run tree, with the run's own temp
 // dirs and target dir. Its output is this process's, which the parent pointed
-// at the job's log files.
-func runGremlins(j MutantsJob, outPath string, workers int) int {
-	cmd := exec.Command(gremlinsBin, gremlinsArgv(j.BaseSHA, outPath, workers, nil)...)
+// at the job's log files. excludeFiles drops the paths whose only change was
+// a move, so a pure relocation is not re-measured.
+func runGremlins(j MutantsJob, outPath string, workers int, excludeFiles []string) int {
+	cmd := exec.Command(gremlinsBin, gremlinsArgv(j.BaseSHA, outPath, workers, excludeFiles)...)
 	cmd.Dir = j.Worktree
 	cmd.Env = mutantsChildEnv(j, nil)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
@@ -244,14 +254,18 @@ func runCommandIn(dir, bin string, args []string) int {
 // that run was the detached local job or the pull request's own.
 type goMutantsRun struct {
 	Repo, RepoID, Branch, TipTree, BaseRef, BaseSHA, Worktree string
+	// MovedLines is how many diff lines git judged to be MOVED and this run
+	// therefore excluded from what it walked — see MutationReceipt.MovedLines.
+	MovedLines int
 }
 
 // writeGoMutantsReceipt renders one detached run into the receipt every merge
 // reads, and writes it to the machine's receipt store.
-func writeGoMutantsReceipt(j MutantsJob, mutants []MutantOutcome, now TreeState) {
+func writeGoMutantsReceipt(j MutantsJob, mutants []MutantOutcome, now TreeState, movedLines int) {
 	r := goMutantsReceipt(goMutantsRun{
 		Repo: j.Repo, RepoID: j.RepoID, Branch: j.Branch, TipTree: j.TipTree,
 		BaseRef: j.BaseRef, BaseSHA: j.BaseSHA, Worktree: j.Worktree,
+		MovedLines: movedLines,
 	}, mutants, now)
 	if path := MutationReceiptPathFor(j.TipTree); path != "" {
 		writeReceiptFile(path, r)
@@ -269,6 +283,7 @@ func goMutantsReceipt(j goMutantsRun, mutants []MutantOutcome, now TreeState) Mu
 		BaseRef: j.BaseRef, BaseSHA: j.BaseSHA,
 		Verdict: receiptVerdictPass, FinishedAt: time.Now().UTC(),
 		Files: map[string]string{}, Fences: map[string]string{},
+		MovedLines: j.MovedLines,
 	}
 	var survivors, timedOut []MutantOutcome
 	for i, m := range mutants {
