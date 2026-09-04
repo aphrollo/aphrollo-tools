@@ -216,8 +216,8 @@ func Check(opts Options) (Result, error) {
 			if hits, err = containmentHits(opts.Root, law); err != nil {
 				return Result{}, err
 			}
-		case KindJSONNumberCeiling:
-			if hits, err = jsonCeilingHits(opts.Root, law, true, cargoTargetDir()); err != nil {
+		case KindJSONNumberCeiling, KindGoBenchCeiling:
+			if hits, err = ceilingHits(opts.Root, law, true, cargoTargetDir()); err != nil {
 				return Result{}, err
 			}
 		}
@@ -403,10 +403,8 @@ func scanTree(opts Options, laws []Law) (*treeScan, error) {
 		scan.scanned++
 		proposed, overlaid := opts.Proposed[rel]
 		needsContent := scopedByAny(contentLaws, rel)
-		var (
-			hits map[string][]Hit
-			ok   bool
-		)
+		var hits map[string][]Hit
+		var ok bool
 		if !overlaid {
 			hits, ok = cache.lookup(opts.Root, rel)
 		}
@@ -428,11 +426,12 @@ func scanTree(opts Options, laws []Law) (*treeScan, error) {
 		if !ok {
 			scan.matched++
 			hits = map[string][]Hit{}
+			fl := newFileLines(content)
 			for _, law := range laws {
 				if !law.Scope.Matches(rel) {
 					continue
 				}
-				if h := law.HitsIn(rel, content); len(h) > 0 {
+				if h := law.hitsInLines(rel, fl); len(h) > 0 {
 					hits[law.Name] = h
 				}
 			}

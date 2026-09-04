@@ -22,3 +22,9 @@ BenchmarkPreEditJudge    	      37	  29426859 ns/op	   79976 B/op	     481 alloc
 BenchmarkPreEditJudge    	      40	  30091250 ns/op	   82593 B/op	     481 allocs/op
 PASS
 ok  	github.com/aphrollo/aphrollo-tools/internal/tdd	72.440s
+pkg: github.com/aphrollo/aphrollo-tools/internal/docs
+BenchmarkDocsCheck    	       8	 127343438 ns/op	 2342401 B/op	   17721 allocs/op
+BenchmarkDocsCheck    	       8	 126480550 ns/op	 2342401 B/op	   17721 allocs/op
+BenchmarkDocsCheck    	       9	 127243944 ns/op	 2342369 B/op	   17721 allocs/op
+PASS
+ok  	github.com/aphrollo/aphrollo-tools/internal/docs	168.741s

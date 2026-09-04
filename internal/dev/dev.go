@@ -23,6 +23,7 @@
 package dev
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -74,13 +75,25 @@ func sudoWrap(args ...string) []string {
 	return args
 }
 
+// ErrServiceRequired and ErrServiceNotAllowed are the two ways a service
+// token fails validation, both of which the caller must treat as a USAGE
+// error (exit 2) rather than a runtime one (exit 1). They are sentinels
+// rather than plain fmt.Errorf so a caller classifies with errors.Is instead
+// of matching the rendered message text — a caller that string-matched
+// err.Error() would silently reclassify the moment either message here got
+// reworded.
+var (
+	ErrServiceRequired   = errors.New("service required (api|rlndx|infra)")
+	ErrServiceNotAllowed = errors.New("service not allowed")
+)
+
 // unitFor validates a service token and returns its dev unit name.
 func unitFor(svc string) (string, error) {
 	if svc == "" {
-		return "", fmt.Errorf("service required (api|rlndx|infra)")
+		return "", ErrServiceRequired
 	}
 	if !allowedSvc[svc] {
-		return "", fmt.Errorf("service not allowed: %s (want api|rlndx|infra)", svc)
+		return "", fmt.Errorf("%w: %s (want api|rlndx|infra)", ErrServiceNotAllowed, svc)
 	}
 	return "aphrollo-dev-" + svc + ".service", nil
 }

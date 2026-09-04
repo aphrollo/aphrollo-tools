@@ -30,7 +30,7 @@ func InstallCargoShim(dir, bin string) (bool, error) {
 		return false, err
 	}
 
-	return writeShimIfDifferent(filepath.Join(dir, "cargo"), binShim(bin, "cargo"), 0o755)
+	return writeShimIfDifferent(filepath.Join(dir, "cargo"), binShim(bin, "cargo", realToolPath("cargo", dir)), 0o755)
 }
 
 // InstallGitShim writes dir's POSIX git-queue shim (task A11): an
@@ -42,7 +42,7 @@ func InstallGitShim(dir, bin string) (bool, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false, err
 	}
-	return writeShimIfDifferent(filepath.Join(dir, "git"), binShim(bin, "git"), 0o755)
+	return writeShimIfDifferent(filepath.Join(dir, "git"), binShim(bin, "git", realToolPath("git", dir)), 0o755)
 }
 
 // writeShimIfDifferent writes content to path only when it differs from

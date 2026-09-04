@@ -1,9 +1,12 @@
 package tdd
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -134,9 +137,55 @@ func mustCopyDir(dst, src string) {
 	}
 }
 
+// A fixture repository is only ever built in a temp dir, and the helper is
+// where that is enforced rather than assumed. Under mutation a production
+// path that resolves a repo root to "" lets git fall back to the process's
+// own working directory — the package's own checkout — and the fixture's
+// init/commit/merge then land in the real repository (issue #156). An empty
+// or non-temp target is a defect in the caller, so the helper refuses it.
+func TestFixtureTarget_RefusesADirectoryOutsideTheOSTempDir(t *testing.T) {
+	for _, dst := range []string{"", RepoRoot(".")} {
+		if err := fixtureTargetUnderTemp(dst); err == nil {
+			t.Errorf("fixtureTargetUnderTemp(%q) = nil, want a refusal — a fixture must never be built there", dst)
+		}
+	}
+}
+
+// The refusal is narrow: the directory every fixture actually uses passes.
+func TestFixtureTarget_AcceptsATestTempDir(t *testing.T) {
+	if err := fixtureTargetUnderTemp(t.TempDir()); err != nil {
+		t.Errorf("a t.TempDir() target must be accepted, got %v", err)
+	}
+}
+
+// fixtureTargetUnderTemp reports why dst is not a place a fixture repository
+// may be built: nowhere at all (git would use the process's own working
+// directory), or anywhere outside the OS temp dir.
+func fixtureTargetUnderTemp(dst string) error {
+	if strings.TrimSpace(dst) == "" {
+		return errors.New("fixture target is empty — git would build the fixture in the process's own working directory")
+	}
+	abs, err := filepath.Abs(dst)
+	if err != nil {
+		return err
+	}
+	tmp, err := filepath.Abs(os.TempDir())
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(tmp, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("fixture target %s is not under %s — a fixture repository is only ever built in a temp dir", abs, tmp)
+	}
+	return nil
+}
+
 // copyFixture hands a test its own copy of one of the golden repos.
 func copyFixture(t *testing.T, dst, src string) string {
 	t.Helper()
+	if err := fixtureTargetUnderTemp(dst); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
 		t.Fatal(err)
 	}

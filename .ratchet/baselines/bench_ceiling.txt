@@ -1,0 +1,8 @@
+testdata/bench/baseline.txt|BenchmarkDocsCheck|B/op | 2342401
+testdata/bench/baseline.txt|BenchmarkDocsCheck|allocs/op | 17721
+testdata/bench/baseline.txt|BenchmarkPreEditJudge|B/op | 87259
+testdata/bench/baseline.txt|BenchmarkPreEditJudge|allocs/op | 482
+testdata/bench/baseline.txt|BenchmarkRatchetCheckCold|B/op | 24000984
+testdata/bench/baseline.txt|BenchmarkRatchetCheckCold|allocs/op | 242523
+testdata/bench/baseline.txt|BenchmarkRatchetCheckWarm|B/op | 16499785
+testdata/bench/baseline.txt|BenchmarkRatchetCheckWarm|allocs/op | 162534

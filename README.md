@@ -596,7 +596,7 @@ live where being wrong only costs a re-run):
 | `gate sessionend` | Claude SessionEnd hook (stdin) | Deletes the per-session state file so the state dir doesn't accumulate. |
 | `gate precommit` | git `pre-commit` | Blocks a newly-**added** suppression (anti-cheat). Then **fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. A worktree state already proven green under the exact same command (by a PostToolUse run or an earlier gate pass) is **not re-run** — the cache is keyed on the repo's git COMMON dir, so every linked worktree of one repo reuses the same proven-green facts — only green results are cached, keyed on content + runner argv (content covers tracked files AND the ignored configuration a suite reads: dotenv files and `config/` trees, never build output), so a red always re-runs with fresh output. Both gate stages build in the REPO'S OWN target dir (see below). |
 | `gate commitmsg` | git `commit-msg` | Rejects a commit whose MESSAGE carries a deny pattern, quoting the offending line. Opt-in per workspace (`undercover = true`); absent key = pass through. Fires for merge commits too. |
-| `gate postcommit` | git `post-commit` | Writes `refs/notes/gate` on the commit just made — `green <tree>` — when a root group's suite actually RAN green for exactly that tree. A cache hit is not that, so an amend (which re-runs the gate and hits the cache) leaves no note, which is the right answer for a commit no suite has run against. The note is what lets CI tell a red on a gated tip from a red on an ungated one; the git shim pushes the ref alongside a branch push. Never blocks — the commit already exists. |
+| `gate postcommit` | git `post-commit` | Writes `refs/notes/gate` on the commit just made — `green <tree>` — when a root group's suite actually RAN green for exactly that tree. A cache hit is not that, so an amend (which re-runs the gate and hits the cache) leaves no note, which is the right answer for a commit no suite has run against. The note is what lets CI tell a red on a gated tip from a red on an ungated one; the git shim pushes the ref alongside a branch push. Then, for a commit on a lane branch in a repo opted in (`mutation-receipt = true`, in `[workspace.metadata.aphrollo]` for a Cargo workspace or a root `aphrollo.toml` otherwise), starts that lane's mutation run detached and at below-normal process priority — spawned by `gate mutants run --job <file>`, never typed by hand. A commit on `main`/`master`, a repo not opted in, or a box the run cannot fit on a drive skips silently. Never blocks — the commit already exists. |
 | `ratchet check` | git `pre-commit`/`pre-merge-commit`, and manual | Judges the tree against `.ratchet/laws/*.toml` (see [Ratchet laws](#ratchet-laws-aphrollo-ratchet)). |
 | `gate prepush` | git `pre-push` | **No-op** (mechanical-only mode). The gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
 
@@ -1111,23 +1111,31 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   each `"<file>:<line> <MUTATOR> # why it is acceptable"`. The reason is not
   decoration: an entry without one is not an accepted survivor. This is the
   list `aphrollo gate mutants go --diff <base>` judges against.
-- **`aphrollo gate mutants go --diff <base> [--receipt <path>]`** is the CI
-  half of the Go runner: it runs gremlins over `<base>..HEAD` in the current
-  checkout, writes and signs the same receipt a local run writes, and EXITS
-  NON-ZERO on a survivor the accept-list does not carry. gremlins' own exit
-  code is not the verdict — it fails a run that misses its efficacy threshold,
-  which is a bar about the whole module, and the bar here is the accept-list.
-  Exit 2 is a bad invocation (no base: an unscoped run measures everything),
-  exit 1 is a failed check, a run that produced no report, a mutant that timed
-  out (an unmeasured mutant is not a result), or a run that measured ZERO
-  mutants over a diff that DID change production Go — a scope matching nothing
-  is what a stale base looks like. A zero is a real answer only when there was
-  nothing to mutate, so the runner lists `<base>..HEAD` first: if no changed
-  file is a non-test `.go` outside a `testdata` tree it writes a signed
-  zero-mutant receipt, prints `0 mutable Go lines in <base>..HEAD: nothing to
-  judge` and exits 0 without starting the tool. A diff git cannot read counts as
-  mutable: "I could not tell" is never the reason a check passes. The same verb with
-  `--job <file>` instead is the detached local run. aphrollo-tools runs it as
+- **`aphrollo gate mutants go --diff <base> [--receipt <path>] [--store <dir>]`**
+  is the CI half of the Go runner: it runs gremlins over `<base>..HEAD` in the
+  current checkout, writes and signs the same receipt a local run writes, and
+  EXITS NON-ZERO on a survivor the accept-list does not carry. gremlins' own
+  exit code is not the verdict — it fails a run that misses its efficacy
+  threshold, which is a bar about the whole module, and the bar here is the
+  accept-list. Exit 2 is a bad invocation (no base: an unscoped run measures
+  everything), exit 1 is a failed check, a run that produced no report, a
+  mutant that timed out (an unmeasured mutant is not a result), or a run that
+  measured ZERO mutants over a diff that DID change production Go — a scope
+  matching nothing is what a stale base looks like. A zero is a real answer
+  only when there was nothing to mutate, so the runner lists `<base>..HEAD`
+  first: if no changed file is a non-test `.go` outside a `testdata` tree it
+  writes a signed zero-mutant receipt, prints `0 mutable Go lines in
+  <base>..HEAD: nothing to judge` and exits 0 without starting the tool. A
+  diff git cannot read counts as mutable: "I could not tell" is never the
+  reason a check passes. `--store <dir>` overrides where the outcome cache
+  (see [The outcome cache](docs/mutation-runner.md)) reads and writes
+  `outcomes.json`, in place of the machine-local `<gate-state>/mutants/<repo-token>/`
+  a detached local run uses — CI has no persistent gate-state directory
+  between jobs, so this repo's own pipeline (`.github/workflows/pipeline.yml`)
+  points `--store` at an `actions/cache` path keyed on the head branch
+  instead, carrying prior verdicts across pushes to the same PR. Omitted, CI
+  still runs, it just measures every mutant fresh each push. The same verb
+  with `--job <file>` instead is the detached local run. aphrollo-tools runs it as
   the required `mutants` check in `.github/workflows/pipeline.yml`.
 - **`docs-check`** (bool) — turns on the staged-markdown citation stage for a
   cargo workspace. A Go module is opted in by being one (aphrollo's own CI
