@@ -114,7 +114,7 @@ var driftNoted sync.Map
 // beyond what a build already does, so scoping it buys nothing), but lint is
 // a full analysis pass and is scoped to the packages touched carries.
 func goQualityStage(gateName, repoRoot, root string, touched []string, run SuiteRunner) GateResult {
-	if res := goFmtStage(gateName, repoRoot, root, touched); res.Blocked {
+	if res := goFmtStage(gateName, repoRoot, root, laneGoFiles(repoRoot, root, touched)); res.Blocked {
 		return res
 	}
 	vet := Runner{Cmd: "go", Args: []string{"vet", "./..."}, Dir: root}
@@ -165,11 +165,19 @@ func goFmtStage(gateName, repoRoot, root string, touched []string) GateResult {
 		}
 		content, err := git(repoRoot, "show", ":"+filepath.ToSlash(repoRel))
 		if err != nil {
-			// A path git cannot resolve at all is a defect in this stage's
-			// own lookup, not silently "nothing to judge" — log and count it
-			// so a systematic miss is visible, same as lint-skipped.
-			unreadable++
-			continue
+			// Not in the index: a file an EARLIER commit in this lane left
+			// behind. Its committed content is what the merge will carry, so
+			// that is what gets judged.
+			if committed, cErr := git(repoRoot, "show", "HEAD:"+filepath.ToSlash(repoRel)); cErr == nil {
+				content = committed
+			} else {
+				// A path git cannot resolve at all is a defect in this
+				// stage's own lookup, not silently "nothing to judge" — log
+				// and count it so a systematic miss is visible, same as
+				// lint-skipped.
+				unreadable++
+				continue
+			}
 		}
 		formatted, err := format.Source([]byte(content))
 		if err != nil {

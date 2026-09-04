@@ -11,13 +11,13 @@ import (
 // and if not, can it be?" — kept small so the rendered line stays a single
 // terse row instead of the multi-field JSON blob a raw `gh pr view` dumps.
 type PRStatus struct {
-	Number           int
-	State            string // OPEN | MERGED | CLOSED
-	IsDraft          bool   // OPEN PR still a draft (not yet ready for review)
-	MergedAt         string // RFC3339 when State==MERGED, else ""
-	Mergeable        string // MERGEABLE | CONFLICTING | UNKNOWN
-	MergeStateStatus string // CLEAN | BLOCKED | BEHIND | UNSTABLE | DIRTY | …
-	Pass, Fail, Pending int  // status-check rollup, bucketed
+	Number              int
+	State               string // OPEN | MERGED | CLOSED
+	IsDraft             bool   // OPEN PR still a draft (not yet ready for review)
+	MergedAt            string // RFC3339 when State==MERGED, else ""
+	Mergeable           string // MERGEABLE | CONFLICTING | UNKNOWN
+	MergeStateStatus    string // CLEAN | BLOCKED | BEHIND | UNSTABLE | DIRTY | …
+	Pass, Fail, Pending int    // status-check rollup, bucketed
 }
 
 // checkEntry is one node of gh's statusCheckRollup. CheckRun nodes carry

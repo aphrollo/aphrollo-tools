@@ -1,13 +1,13 @@
 package tdd
 
 import (
-	"time"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // echoHeldEnv is a command that prints the build-lock-held marker's value, so
