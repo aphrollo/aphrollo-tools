@@ -31,13 +31,20 @@ var defaultBaselineGlobs = []string{
 // costs one `git show` per staged baseline file — the cheap tier, beside fmt.
 func baselineStage(gateName, repoRoot string) GateResult {
 	globs := baselineGlobs(repoRoot)
+	base := baselineCompareRef(repoRoot)
 	var offences []string
-	for _, file := range stagedFiles(repoRoot) {
+	for _, file := range baselineFilesInLane(repoRoot) {
 		rel := filepath.ToSlash(file)
 		if !matchesAnyGlob(globs, rel) {
 			continue
 		}
-		before, ok := gitBlob(repoRoot, "HEAD:"+rel)
+		before, ok := gitBlob(repoRoot, base+":"+rel)
+		if !ok {
+			// Absent from the base, but the lane may have introduced it in an
+			// EARLIER commit — a law the lane owns, whose ceiling it may still
+			// not hand-raise. Fall back to HEAD so those raises stay visible.
+			before, ok = gitBlob(repoRoot, "HEAD:"+rel)
+		}
 		if !ok {
 			// The file is new in this commit: a law being ADOPTED, reviewed as
 			// such. The rule is about raising a ceiling that already exists.
