@@ -82,7 +82,7 @@ func TestMutantStore_KeepsBothMutantsOnOneLineApart(t *testing.T) {
 // the string it prints.
 func TestMutantsArgv_ExcludesTheVerbatimLineAnchored(t *testing.T) {
 	m, _ := parseMutantLine(realCaughtLines[3])
-	argv := MutantsArgv("d.diff", false, mutantNames([]MutantOutcome{m}), nil)
+	argv := MutantsArgv("d.diff", false, mutantNames([]MutantOutcome{m}), nil, "")
 
 	want := "^" + regexp.QuoteMeta(realCaughtLines[3]) + "$"
 	found := false
@@ -107,7 +107,7 @@ func TestMutantsArgv_StaysInsideTheEnvironmentBlockLimit(t *testing.T) {
 			judged = append(judged, line)
 		}
 	}
-	argv := MutantsArgv("d.diff", false, judged, nil)
+	argv := MutantsArgv("d.diff", false, judged, nil, "")
 	size := len(strings.Join(argv, " "))
 	if size > mutantsArgvBudget {
 		t.Fatalf("argv is %d chars, over the %d budget: the environment block would truncate", size, mutantsArgvBudget)

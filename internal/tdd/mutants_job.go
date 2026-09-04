@@ -327,8 +327,10 @@ const mutantsRunDir = "aphrollo-mutants"
 // empty falls back to today's whole-workspace scope rather than measuring
 // nothing. judged names the mutants an interrupted earlier attempt already
 // reached a verdict for; they are excluded so a restart measures only what is
-// left.
-func MutantsArgv(diffPath string, baselineSkip bool, judged []string, packages []string) []string {
+// left. excludeFilter is the repo's own mutation-baseline-exclude, already
+// combined into one nextest filterset by mutationBaselineExclude — "" for a
+// repo that declares none, which is today's argv unchanged.
+func MutantsArgv(diffPath string, baselineSkip bool, judged []string, packages []string, excludeFilter string) []string {
 	argv := []string{"--in-place", "--in-diff", diffPath, "--test-tool=nextest"}
 	if baselineSkip {
 		argv = append(argv, "--baseline", "skip")
@@ -351,6 +353,14 @@ func MutantsArgv(diffPath string, baselineSkip bool, judged []string, packages [
 		}
 		argv = append(argv, "--exclude-re", re)
 		size += cost
+	}
+	// Everything after `--` is cargo-mutants' own passthrough to the test
+	// tool, and cargo-mutants invokes that SAME test command for both the
+	// unmutated baseline and every mutant it measures — one flag here is
+	// what makes one declared exclusion cover both, with no separate lever
+	// for either phase (issue #265).
+	if excludeFilter != "" {
+		argv = append(argv, "--", "-E", excludeFilter)
 	}
 	return argv
 }
