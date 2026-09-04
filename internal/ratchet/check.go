@@ -276,23 +276,12 @@ func Check(opts Options) (Result, error) {
 			}
 			res.Notes = append(res.Notes, lineModeNotes(law.Name, baseline.Counts(), actual)...)
 		}
-		// A hypothetical tree must never rewrite a baseline: the content it
-		// measured is not what is on disk, and a narrowed run has not even
-		// looked at the rest of the tree.
-		if !opts.Tighten || path == "" || len(opts.Proposed) > 0 || len(opts.Files) > 0 {
-			continue
-		}
-		// Tighten unconditionally and let WriteIfChanged decide: a count that
-		// did not move can still leave a row naming a file that is gone, and
-		// re-pathing it is the whole point of a path-agnostic key. The write
-		// is byte-stable, so a tree with nothing to fix still writes nothing.
-		baseline.TightenWithSites(measured, sites)
-		wrote, err := baseline.WriteIfChanged(path)
+		tightened, err := tightenBaseline(opts, law, baseline, path, measured, sites)
 		if err != nil {
 			return Result{}, err
 		}
-		if wrote {
-			res.Tightened = append(res.Tightened, law.Baseline)
+		if tightened != "" {
+			res.Tightened = append(res.Tightened, tightened)
 		}
 	}
 	return res, nil
