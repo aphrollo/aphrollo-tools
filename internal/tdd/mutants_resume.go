@@ -191,7 +191,24 @@ type MutantsDeath struct {
 	Exit   int       `json:"exit"`
 	At     time.Time `json:"at"`
 	ErrLog string    `json:"err_log"`
-	Tail   []string  `json:"tail"`
+	// Log is the job's STDOUT file. Every diagnostic the wrapper itself has
+	// -- "could not prepare <worktree>", "nothing mutable in this lane's
+	// diff", the producer's narration -- goes there, and a death whose record
+	// named only stderr was an exit code and nothing else: err_log zero bytes,
+	// tail null, and a merge blocked with no way to find out what to fix.
+	Log  string   `json:"log"`
+	Tail []string `json:"tail"`
+}
+
+// mutantsDeathTail is the last few lines of whichever of the job's logs has
+// something to say. stderr wins when it has content -- that is where a
+// producer's own crash lands, closer to the cause than the wrapper's
+// narration -- and stdout answers when it does not.
+func mutantsDeathTail(j MutantsJob) []string {
+	if tail := stderrTail(j.ErrLog, 3); len(tail) > 0 {
+		return tail
+	}
+	return stderrTail(j.Log, 3)
 }
 
 func mutantsDeathPath(tree string) string {
@@ -210,7 +227,7 @@ func recordMutantsDeath(j MutantsJob, exit int, tail []string) {
 	if path == "" {
 		return
 	}
-	d := MutantsDeath{Tree: j.TipTree, Exit: exit, At: time.Now(), ErrLog: j.ErrLog, Tail: tail}
+	d := MutantsDeath{Tree: j.TipTree, Exit: exit, At: time.Now(), ErrLog: j.ErrLog, Log: j.Log, Tail: tail}
 	if data, err := json.Marshal(d); err == nil {
 		_ = writeFileAtomic(path, data)
 	}

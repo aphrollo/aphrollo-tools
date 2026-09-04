@@ -414,7 +414,14 @@ func missingReceiptRemedy(ctx receiptContext) string {
 	// session cannot work out for itself: "run it again" is wrong advice when
 	// the last run died, and the reason is already written down.
 	if d, ok := loadMutantsDeath(ctx.TipTree); ok {
-		return fmt.Sprintf("the run died (exit %d) at %s — see %s", d.Exit, d.At.Format("15:04"), d.ErrLog)
+		// Name the log the tail actually came from: pointing at an empty
+		// stderr file while the reason sat in stdout is what made a death
+		// undiagnosable (issue #198).
+		logPath := d.ErrLog
+		if len(d.Tail) > 0 && stderrTail(d.ErrLog, 1) == nil && d.Log != "" {
+			logPath = d.Log
+		}
+		return fmt.Sprintf("the run died (exit %d) at %s — see %s", d.Exit, d.At.Format("15:04"), logPath)
 	}
 	base := "main"
 	if ctx.RepoRoot != "" {

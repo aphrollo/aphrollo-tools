@@ -172,13 +172,13 @@ func RunGoMutantsJob(jobPath string) int {
 	data, err := os.ReadFile(out)
 	if err != nil {
 		logf(os.Stdout, "aphrollo: gremlins wrote no report (exit %d): %v", code, err)
-		recordMutantsDeath(j, code, stderrTail(j.ErrLog, 3))
+		recordMutantsDeath(j, code, mutantsDeathTail(j))
 		return 0
 	}
 	mutants, err := parseGremlinsReport(data)
 	if err != nil {
 		logf(os.Stdout, "aphrollo: unreadable gremlins report: %v", err)
-		recordMutantsDeath(j, code, stderrTail(j.ErrLog, 3))
+		recordMutantsDeath(j, code, mutantsDeathTail(j))
 		return 0
 	}
 	writeGoMutantsReceipt(j, mutants, treeStateAt(j.RepoRoot, j.Tip))
