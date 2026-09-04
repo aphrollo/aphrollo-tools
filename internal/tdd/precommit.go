@@ -223,7 +223,7 @@ func mutationReceiptStage(repoRoot string) *GateResult {
 	// this gate could neither find it nor verify it. Refusing anyway would
 	// refuse every lane merge forever. The stand-down is logged, so "no
 	// receipt was required" never reads as "a receipt was checked".
-	if !mutationRunsLocally(repoRoot) {
+	if !mutationJudgedLocally(repoRoot) {
 		appendGateLog("premergecommit", logToken(repoRoot), "receipt", "receipt-measured-in-ci", 0)
 		return &GateResult{Message: "mutation receipt not judged here: this repo measures it on the CI runner (mutants-local = false)"}
 	}
