@@ -47,6 +47,18 @@ alternation cost is the cheaper side of that trade by a wide margin, and it is
 bounded: the crates two lanes share are exactly the ones neither of them
 touched.
 
+**One run per BOX, not one per repo.** Before the producer is invoked at all,
+the gate takes a machine-wide advisory lock and holds it for the run's whole
+duration — its own cold build included, not only its test phase. A wall-clock
+test with `threads-required = "num-cpus"` has already declared that a single
+run needs every thread on the box, and a cold build of the same crates from
+two lanes at once has been observed to OOM rustc; four runs sharing the box
+4:1 measure nothing usefully for any of them (issue #253). A second run on the
+same machine queues rather than starting, announcing who it is waiting for
+(and what repo) roughly once a minute while it does. There is no timeout on
+this wait — a lane that abandoned it and ran anyway would recreate the exact
+oversubscription the lock exists to prevent.
+
 The runner is invoked in that worktree as `bash tools/mutation_gate.sh <base
 sha>`, with:
 
