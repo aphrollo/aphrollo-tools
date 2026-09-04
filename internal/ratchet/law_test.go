@@ -435,10 +435,10 @@ count = "calls"
 	}
 }
 
-// TestLoadLawsRejectsAnEmptyUnitSplit proves the empty-string half of
+// TestLoadLaws_RejectsAnEmptyUnitSplit proves the empty-string half of
 // unit_split's validation: a blank regex names no split line at all, so it
 // is refused at load rather than silently treated as "no unit_split".
-func TestLoadLawsRejectsAnEmptyUnitSplit(t *testing.T) {
+func TestLoadLaws_RejectsAnEmptyUnitSplit(t *testing.T) {
 	dir := t.TempDir()
 	writeLaw(t, dir, "c", `
 name = "c"
@@ -458,9 +458,9 @@ unit_split = ""
 	}
 }
 
-// TestLoadLawsRejectsAUnitSplitThatIsNotAString proves the other half: a
+// TestLoadLaws_RejectsAUnitSplitThatIsNotAString proves the other half: a
 // non-string value (here an integer) is refused the same way.
-func TestLoadLawsRejectsAUnitSplitThatIsNotAString(t *testing.T) {
+func TestLoadLaws_RejectsAUnitSplitThatIsNotAString(t *testing.T) {
 	dir := t.TempDir()
 	writeLaw(t, dir, "c", `
 name = "c"
@@ -480,9 +480,9 @@ unit_split = 5
 	}
 }
 
-// TestLoadLawsRejectsAUnitSplitThatDoesNotCompile proves the regex itself is
+// TestLoadLaws_RejectsAUnitSplitThatDoesNotCompile proves the regex itself is
 // compiled at load time, not deferred until the first scan finds a hit.
-func TestLoadLawsRejectsAUnitSplitThatDoesNotCompile(t *testing.T) {
+func TestLoadLaws_RejectsAUnitSplitThatDoesNotCompile(t *testing.T) {
 	dir := t.TempDir()
 	writeLaw(t, dir, "c", `
 name = "c"

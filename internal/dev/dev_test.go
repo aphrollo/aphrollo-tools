@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -32,15 +33,22 @@ func withFakes(t *testing.T) string {
 	t.Helper()
 	bin := t.TempDir()
 	rec := filepath.Join(bin, "rec.log")
+	// The recorder is a shell script on Linux and a batch file on Windows, so the
+	// same argv assertions hold on both; production only ever runs on Linux, but
+	// the tests must be able to run wherever the gate runs them.
+	ext, body := "", func(name string) string { return "#!/bin/sh\necho \"" + name + " $@\" >> " + rec + "\n" }
+	if runtime.GOOS == "windows" {
+		// The redirect goes FIRST: written after %*, a trailing numeric argument
+		// such as `-n 5` makes cmd.exe read `5>>` as a handle redirect.
+		ext, body = ".cmd", func(name string) string { return "@>> \"" + rec + "\" echo " + name + " %*\r\n" }
+	}
 	for _, name := range []string{"systemctl", "journalctl"} {
-		p := filepath.Join(bin, name)
-		body := "#!/bin/sh\necho \"" + name + " $@\" >> " + rec + "\n"
-		if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
+		if err := os.WriteFile(filepath.Join(bin, name+ext), []byte(body(name)), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("APHROLLO_SYSTEMCTL", filepath.Join(bin, "systemctl"))
-	t.Setenv("APHROLLO_JOURNALCTL", filepath.Join(bin, "journalctl"))
+	t.Setenv("APHROLLO_SYSTEMCTL", filepath.Join(bin, "systemctl"+ext))
+	t.Setenv("APHROLLO_JOURNALCTL", filepath.Join(bin, "journalctl"+ext))
 	t.Setenv("APHROLLO_DEV_SUDO", "0")
 	return rec
 }

@@ -180,10 +180,10 @@ func TestRatchetTestFailsALawWithNoFixtures(t *testing.T) {
 	}
 }
 
-// TestRatchetInitWritesPresetsAndCheckRunsClean is the acceptance case: init
+// TestRatchetInit_WritesPresetsAndCheckRunsClean is the acceptance case: init
 // into a fresh repo, then check must find zero regressions — the presets it
 // copied are self-contained, valid laws from the first run.
-func TestRatchetInitWritesPresetsAndCheckRunsClean(t *testing.T) {
+func TestRatchetInit_WritesPresetsAndCheckRunsClean(t *testing.T) {
 	root := t.TempDir()
 	// dev_instrument_registry's registry file is a hardcoded convention path,
 	// not a parameter — an empty one is a legitimately empty registry.
@@ -216,9 +216,9 @@ func TestRatchetInitWritesPresetsAndCheckRunsClean(t *testing.T) {
 	}
 }
 
-// TestRatchetInitIsIdempotent proves a second run over an already-adopted
+// TestRatchetInit_IsIdempotent proves a second run over an already-adopted
 // preset set writes nothing and reports [skip], never clobbering a local edit.
-func TestRatchetInitIsIdempotent(t *testing.T) {
+func TestRatchetInit_IsIdempotent(t *testing.T) {
 	root := t.TempDir()
 	first := []string{"ratchet", "init", "--repo", root, "--preset", "common",
 		"--param", `pattern=TODO\(`, "--param", "prefixes=BORLD"}
@@ -245,10 +245,10 @@ func TestRatchetInitIsIdempotent(t *testing.T) {
 	}
 }
 
-// TestRatchetInitRefusesAPresetWithAnUnfilledParam is the RED case: no
+// TestRatchetInit_RefusesAPresetWithAnUnfilledParam is the RED case: no
 // --param means comment_hygiene's {{pattern}} slot never gets filled, and
 // init must refuse to write a law with a literal template slot in it.
-func TestRatchetInitRefusesAPresetWithAnUnfilledParam(t *testing.T) {
+func TestRatchetInit_RefusesAPresetWithAnUnfilledParam(t *testing.T) {
 	root := t.TempDir()
 	var out, errb bytes.Buffer
 	code := Run([]string{"ratchet", "init", "--repo", root, "--preset", "common"}, strings.NewReader(""), &out, &errb)
@@ -268,10 +268,10 @@ func TestRatchetInitRefusesAPresetWithAnUnfilledParam(t *testing.T) {
 	}
 }
 
-// TestRatchetCheckWarnsWhenALocalMatcherDriftsFromItsPreset proves the OTHER
+// TestRatchetCheck_WarnsWhenALocalMatcherDriftsFromItsPreset proves the OTHER
 // direction: a law that extends a preset but was hand-forked away from it is
 // flagged by name, never silently treated as still in sync.
-func TestRatchetCheckWarnsWhenALocalMatcherDriftsFromItsPreset(t *testing.T) {
+func TestRatchetCheck_WarnsWhenALocalMatcherDriftsFromItsPreset(t *testing.T) {
 	root := t.TempDir()
 	// Written directly through the ratchet package rather than `ratchet init
 	// --preset rust`, which would also copy the group's dep-graph-forbids
@@ -330,10 +330,10 @@ pattern = "\\.clamp\\("
 	return root
 }
 
-// TestRatchetCheckAdoptWritesTheFirstBaseline is the "a new deny law with
+// TestRatchetCheck_AdoptWritesTheFirstBaseline is the "a new deny law with
 // hits" case from the escape: no baseline file exists yet, so adoption is
 // allowed regardless of whether the law changed since HEAD.
-func TestRatchetCheckAdoptWritesTheFirstBaseline(t *testing.T) {
+func TestRatchetCheck_AdoptWritesTheFirstBaseline(t *testing.T) {
 	root := adoptRepo(t)
 	var out, errb bytes.Buffer
 	code := Run([]string{"ratchet", "check", "--repo", root, "--adopt", "nan-guard"}, strings.NewReader(""), &out, &errb)
@@ -352,10 +352,10 @@ func TestRatchetCheckAdoptWritesTheFirstBaseline(t *testing.T) {
 	}
 }
 
-// TestRatchetCheckAdoptRefusesAnUnchangedLaw proves the refusal: once a
+// TestRatchetCheck_AdoptRefusesAnUnchangedLaw proves the refusal: once a
 // baseline exists and the law's .toml is untouched since HEAD, --adopt on a
 // freshly widened tree must not silently raise the ceiling.
-func TestRatchetCheckAdoptRefusesAnUnchangedLaw(t *testing.T) {
+func TestRatchetCheck_AdoptRefusesAnUnchangedLaw(t *testing.T) {
 	root := adoptRepo(t)
 	var out, errb bytes.Buffer
 	if code := Run([]string{"ratchet", "check", "--repo", root, "--adopt", "nan-guard"}, strings.NewReader(""), &out, &errb); code != 0 {
@@ -377,7 +377,7 @@ func TestRatchetCheckAdoptRefusesAnUnchangedLaw(t *testing.T) {
 	}
 }
 
-func TestRatchetPresetsListsGroupsAndParams(t *testing.T) {
+func TestRatchetPresets_ListsGroupsAndParams(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := Run([]string{"ratchet", "presets"}, strings.NewReader(""), &out, &errb)
 	if code != 0 {

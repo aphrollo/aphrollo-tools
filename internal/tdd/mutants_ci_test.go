@@ -389,15 +389,17 @@ func TestPipeline_RunsTheMutationCheckOnPushesToMainOnly(t *testing.T) {
 // The repo's own half of the deal, pinned through the functions that actually
 // READ these keys rather than through the file: mutationReceiptOptIn is the
 // merge gate's own reader (mutationReceiptStage calls it), and
-// mutationRunsLocally is what the post-commit hook and that same stage consult
-// to decide whether a local run exists to demand a receipt from.
+// mutationJudgedLocally is what that same stage consults to decide whether
+// this box may judge the receipt at all. The RUN is deliberately not local
+// here (gremlins measures nothing under Windows), so what must hold is that
+// the proof is still required and still judged, not that it is produced here.
 func TestAphrolloToml_RequiresTheProofAndMeasuresItLocally(t *testing.T) {
 	root := repoRootForTest(t)
 	if !mutationReceiptOptIn(root) {
 		t.Error("aphrollo.toml must keep `mutation-receipt = true`: mutationReceiptStage reads it through mutationReceiptOptIn")
 	}
-	if !mutationRunsLocally(root) {
-		t.Error("aphrollo.toml must say `mutants-local = true`: the post-commit job on this box writes the receipt the pre-merge gate consumes; CI runs only the tripwire on main")
+	if !mutationJudgedLocally(root) {
+		t.Error("aphrollo.toml must keep `mutants-judge-local = true`: the receipt is measured on a Linux clone sharing this machine's signing key, and the pre-merge gate is what consumes it — without this the gate stands down and every lane merges on no proof")
 	}
 }
 

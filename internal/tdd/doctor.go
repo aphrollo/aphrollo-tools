@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
 )
 
 // Every check here exists because the state it names was reached on a real box
@@ -58,6 +60,9 @@ func Doctor(in DoctorInput) []DoctorCheck {
 		checks = append(checks, c)
 	}
 	if c, ok := doctorCIClippyList(in); ok {
+		checks = append(checks, c)
+	}
+	if c, ok := doctorRatchetLaws(in); ok {
 		checks = append(checks, c)
 	}
 	return checks
@@ -359,6 +364,33 @@ func doctorCIClippyList(in DoctorInput) (DoctorCheck, bool) {
 // clippyCleanListScript is the script a workflow calls to read the crates from
 // the manifest, so the list and the declaration cannot drift.
 const clippyCleanListScript = "tools/clippy_clean_list.sh"
+
+// doctorRatchetLaws reports how many laws a repo has declared under
+// .ratchet/laws — a session (or a reviewer) asking "does this repo even have
+// laws" gets an answer without opening the dir and counting files by hand.
+// ok=false means the check does not apply: no laws dir, or one with nothing
+// in it, which is the same as never having adopted the engine — a law count
+// of zero is not a healthy fact worth a line, it is silence.
+func doctorRatchetLaws(in DoctorInput) (DoctorCheck, bool) {
+	c := DoctorCheck{Name: "ratchet laws"}
+	if in.Repo == "" {
+		return c, false
+	}
+	laws, err := ratchet.LoadLaws(in.Repo)
+	if err != nil {
+		// A law that fails to parse is a defect in the tree, not the same
+		// as having adopted no laws at all — say so rather than going
+		// silent the way an absent/empty laws dir does below.
+		c.Detail = fmt.Sprintf("failed to parse: %v", err)
+		return c, true
+	}
+	if len(laws) == 0 {
+		return c, false
+	}
+	c.OK = true
+	c.Detail = fmt.Sprintf("%d law(s) declared", len(laws))
+	return c, true
+}
 
 // managedHookBinaries is the set of DISTINCT binary paths the managed hooks
 // invoke, sorted. More than one means the install is split across builds.

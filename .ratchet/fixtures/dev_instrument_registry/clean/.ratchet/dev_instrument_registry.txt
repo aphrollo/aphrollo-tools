@@ -1,0 +1,3 @@
+# <NAME> | <where> | <what>
+APHROLLO_UNLISTED | internal/a/boot.go | Arms the fixture's one instrument.
+APHROLLO_EXEC_FLAG | internal/a/env.go | Passed to a child process's environment, never read via os.Getenv directly.

@@ -1,6 +1,52 @@
 package lsp
 
-import "testing"
+import (
+	"path/filepath"
+	"runtime"
+	"testing"
+)
+
+// TestDriveRootedPath_NamesTheDriveAndDropsTheURIsRootSlash: a server answers
+// `file:///C:/Users/u/a.go`, and the URL path `/C:/Users/u/a.go` is not a path
+// Windows can open — the drive letter must come first, native separators. A
+// bare drive root (`/C:`, three characters) is the shortest such path, and a
+// server answering with the drive lower-cased must yield the same path the
+// caller opened.
+func TestDriveRootedPath_NamesTheDriveAndDropsTheURIsRootSlash(t *testing.T) {
+	for uriPath, want := range map[string]string{
+		"/C:/Users/u/a.go": filepath.FromSlash("C:/Users/u/a.go"),
+		"/c:/Users/u/a.go": filepath.FromSlash("C:/Users/u/a.go"),
+		"/C:":              "C:",
+	} {
+		got, ok := DriveRootedPath(uriPath)
+		if !ok || got != want {
+			t.Errorf("DriveRootedPath(%q) = %q,%v; want %q,true", uriPath, got, ok, want)
+		}
+	}
+	// Everything else is an ordinary path this must not touch.
+	for _, uriPath := range []string{"/home/u/a.go", "/C", "C:/x", "//C:/x", "/1:/x"} {
+		if got, ok := DriveRootedPath(uriPath); ok {
+			t.Errorf("DriveRootedPath(%q) = %q,true; want false", uriPath, got)
+		}
+	}
+}
+
+// TestURIToPath_TakesTheDriveBranchOnWindowsOnly: on Linux `/c:/x` is a legal
+// absolute path, so rewriting it there would drop its root slash and change
+// its first segment.
+func TestURIToPath_TakesTheDriveBranchOnWindowsOnly(t *testing.T) {
+	want := "/C:/Users/u/a.go"
+	if runtime.GOOS == "windows" {
+		want = filepath.FromSlash("C:/Users/u/a.go")
+	}
+	got, err := URIToPath("file:///C:/Users/u/a.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("URIToPath(file:///C:/Users/u/a.go) on %s = %q, want %q", runtime.GOOS, got, want)
+	}
+}
 
 func TestURIToPath(t *testing.T) {
 	cases := []struct {

@@ -126,7 +126,7 @@ func TestPrecommit_FailFirst_AllowsTestThatNeedsImpl(t *testing.T) {
 	root := makeGoRepo(t)
 	// The test references Widget(), which does not exist at HEAD → it fails to
 	// compile without the staged source → fail-first satisfied → allowed.
-	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestWidget(t *testing.T) {\n\tif Widget() != 1 { t.Fatal(\"no\") }\n}\n")
+	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestWidget(t *testing.T) {\n\tif Widget() != 1 {\n\t\tt.Fatal(\"no\")\n\t}\n}\n")
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
 
@@ -141,7 +141,7 @@ func TestPrecommit_BlocksNewlyAddedSuppression(t *testing.T) {
 	root := makeGoRepo(t)
 	// A compiling source file whose only sin is a freshly-added linter
 	// suppression: mechanical would pass, but the anti-cheat gate blocks first.
-	write(t, root, "gizmo.go", "package m\n\nfunc Gizmo() int { return 1 } //nolint:unused\n")
+	write(t, root, "gizmo.go", "package m\n\nfunc Gizmo() int { return 1 } //nolint:unused\n") // reason: a freshly-added suppression the anti-cheat gate must block
 	gitDo(t, root, "add", ".")
 
 	res := Precommit(root, RunSuite(precommitTestTimeout))
@@ -154,7 +154,7 @@ func TestPrecommit_IgnoresPreexistingSuppression(t *testing.T) {
 	withLinter(t, false)
 	root := makeGoRepo(t)
 	// Commit a file that already carries a suppression.
-	write(t, root, "old.go", "package m\n\nfunc Old() int { return 2 } //nolint:unused\n")
+	write(t, root, "old.go", "package m\n\nfunc Old() int { return 2 } //nolint:unused\n") // reason: a pre-existing suppression outside the diff must not block
 	gitDo(t, root, "add", ".")
 	gitDo(t, root, "commit", "-qm", "old")
 	// Now stage an unrelated, clean change. The pre-existing suppression in
@@ -175,6 +175,7 @@ func TestPrecommit_IgnoresPreexistingSuppression(t *testing.T) {
 // balanced (its partner is an unchanged line) so the suppression stays visible
 // and blocks. The inert quote lives inside a pre-existing block comment, so the
 // file still compiles and mechanical alone would let it through.
+// (reason: this is the exact case the bypass test below exists to catch.)
 func TestPrecommit_MaskingBypass_FullFilePostImage(t *testing.T) {
 	withLinter(t, false)
 	root := makeGoRepo(t)
@@ -188,7 +189,8 @@ func TestPrecommit_MaskingBypass_FullFilePostImage(t *testing.T) {
 	// added-only buffer the lone " opens an unterminated string that hides the
 	// //nolint; in the full file the " sits inside the comment and the //nolint
 	// is live code.
-	write(t, root, "gizmo.go", "package m\n\nfunc Gizmo() int {\n\t/* note\nstray \"\n\t*/\n\t_ = 0 //nolint:unused\n\treturn 1\n}\n")
+	// (reason: this is the payload proving full-file masking still catches it.)
+	write(t, root, "gizmo.go", "package m\n\nfunc Gizmo() int {\n\t/* note\nstray \"\n\t*/\n\t_ = 0 //nolint:unused\n\treturn 1\n}\n") // reason: the payload proving full-file masking still catches it
 	gitDo(t, root, "add", ".")
 
 	res := Precommit(root, RunSuite(precommitTestTimeout))

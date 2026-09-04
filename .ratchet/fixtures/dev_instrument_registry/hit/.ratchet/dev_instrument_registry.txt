@@ -1,0 +1,2 @@
+# <NAME> | <where> | <what>
+APHROLLO_DEV_GONE | internal/a/boot.go | A switch nothing reads any more.

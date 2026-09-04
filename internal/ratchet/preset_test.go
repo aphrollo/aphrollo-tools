@@ -6,7 +6,7 @@ import (
 )
 
 // sampleParams covers every placeholder name any embedded preset declares —
-// TestEveryPresetRendersIntoAValidLaw uses it to prove each one is a real,
+// TestEveryPreset_RendersIntoAValidLaw uses it to prove each one is a real,
 // loadable law once a repo supplies values, not just text that happens to
 // parse as TOML.
 var sampleParams = map[string]string{
@@ -19,11 +19,11 @@ var sampleParams = map[string]string{
 	"min_reachable": "5",
 }
 
-// TestEveryPresetRendersIntoAValidLaw proves every embedded preset, once its
+// TestEveryPreset_RendersIntoAValidLaw proves every embedded preset, once its
 // `{{name}}` slots are filled, parses as a real law: the mechanism `ratchet
 // init` and `ratchet check`'s drift comparison both depend on is exercised
 // against the actual shipped content, not a hand-picked example.
-func TestEveryPresetRendersIntoAValidLaw(t *testing.T) {
+func TestEveryPreset_RendersIntoAValidLaw(t *testing.T) {
 	entries, err := ListPresets()
 	if err != nil {
 		t.Fatalf("ListPresets: %v", err)
@@ -52,10 +52,10 @@ func TestEveryPresetRendersIntoAValidLaw(t *testing.T) {
 	}
 }
 
-// TestListPresetsFindsTheKnownGroupsAndCapturesParams is a coverage floor: a
+// TestListPresets_FindsTheKnownGroupsAndCapturesParams is a coverage floor: a
 // preset silently dropped from the embed (a typo'd //go:embed pattern) is a
 // law family nobody can init, which this fails loudly on.
-func TestListPresetsFindsTheKnownGroupsAndCapturesParams(t *testing.T) {
+func TestListPresets_FindsTheKnownGroupsAndCapturesParams(t *testing.T) {
 	entries, err := ListPresets()
 	if err != nil {
 		t.Fatalf("ListPresets: %v", err)
@@ -87,9 +87,9 @@ func TestListPresetsFindsTheKnownGroupsAndCapturesParams(t *testing.T) {
 	}
 }
 
-// TestRenderPresetTextReportsEveryUnfilledSlot proves a caller can tell,
+// TestRenderPresetText_ReportsEveryUnfilledSlot proves a caller can tell,
 // before writing anything, exactly which params it still owes.
-func TestRenderPresetTextReportsEveryUnfilledSlot(t *testing.T) {
+func TestRenderPresetText_ReportsEveryUnfilledSlot(t *testing.T) {
 	raw := `pattern = "{{a}}"
 other   = "{{b}}"
 `
@@ -111,7 +111,7 @@ other   = "{{b}}"
 // scans correctly (the extends/[params] additions never interfere) and that
 // presetDrift reports nothing — the freshly written file always starts in
 // sync with the preset it came from.
-func TestWithExtendsRoundTripsThroughLoadLawsWithNoDrift(t *testing.T) {
+func TestWithExtends_RoundTripsThroughLoadLawsWithNoDrift(t *testing.T) {
 	raw, err := LoadPresetText("common", "comment_hygiene")
 	if err != nil {
 		t.Fatalf("LoadPresetText: %v", err)
@@ -151,9 +151,9 @@ func TestWithExtendsRoundTripsThroughLoadLawsWithNoDrift(t *testing.T) {
 	}
 }
 
-// TestParsePresetRefRejectsAMalformedReference proves a bad `extends` string
+// TestParsePresetRef_RejectsAMalformedReference proves a bad `extends` string
 // is caught with a message naming what it wanted, not a silent no-op.
-func TestParsePresetRefRejectsAMalformedReference(t *testing.T) {
+func TestParsePresetRef_RejectsAMalformedReference(t *testing.T) {
 	for _, bad := range []string{"", "rust/nan_guard", "preset:rust", "preset:/nan_guard", "preset:rust/"} {
 		if _, _, err := ParsePresetRef(bad); err == nil {
 			t.Errorf("ParsePresetRef(%q) = nil error, want a rejection", bad)
@@ -177,9 +177,9 @@ include = ["crates/**/*.rs"]
 [params]
 `
 
-// TestPresetDriftIsSilentWhenTheMatcherStillMatches proves an ordinary law
+// TestPresetDrift_IsSilentWhenTheMatcherStillMatches proves an ordinary law
 // that extends a preset and never forked its matcher reports no drift.
-func TestPresetDriftIsSilentWhenTheMatcherStillMatches(t *testing.T) {
+func TestPresetDrift_IsSilentWhenTheMatcherStillMatches(t *testing.T) {
 	// This law has no [matcher] table of its own, which the strict parser
 	// still requires — so this test forks the matcher to be BYTE-IDENTICAL
 	// to the preset's own, proving equal content reports no drift.
@@ -201,9 +201,9 @@ key     = "file:line-content-hash"
 	}
 }
 
-// TestPresetDriftWarnsWhenTheMatcherDiverged is the RED case: a law that
+// TestPresetDrift_WarnsWhenTheMatcherDiverged is the RED case: a law that
 // extends a preset but hand-forked its matcher must be flagged, by name.
-func TestPresetDriftWarnsWhenTheMatcherDiverged(t *testing.T) {
+func TestPresetDrift_WarnsWhenTheMatcherDiverged(t *testing.T) {
 	law, err := ParseLaw(extendingLaw+`
 [matcher]
 kind    = "regex-absent"

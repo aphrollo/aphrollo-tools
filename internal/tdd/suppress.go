@@ -7,6 +7,7 @@ import "regexp"
 // DIRECTIVES view (string literals blanked, comments preserved), because the
 // directives live in comments (//nolint, // @ts-ignore, # type: ignore). A
 // directive quoted in a string is blanked and cannot trip.
+// (reason: named here as the vocabulary this file recognizes.)
 //
 // Suppressions are suppressionCat, not smellCat: a reviewed suppression is a
 // legitimate (if rare) choice, so they only WARN at edit time and BLOCK at
@@ -16,8 +17,7 @@ import "regexp"
 // commit — only one this change introduces.
 
 const (
-	lintSuppressReason = "Edit introduces a linter suppression (//nolint, eslint-disable, # noqa, # pylint: disable, # rubocop: disable). " +
-		"Silencing the linter hides the finding instead of fixing it. Remove the suppression and address the warning, or justify it in review."
+	lintSuppressReason = "Edit introduces a linter suppression (//nolint, eslint-disable, # noqa, # pylint: disable, # rubocop: disable). Silencing the linter hides the finding instead of fixing it. Remove the suppression and address the warning, or justify it in review." // reason: naming every directive form this detector must recognize
 	typeSuppressReason = "Edit introduces a type-checker suppression (// @ts-ignore, // @ts-nocheck, # type: ignore, # pyright: ignore). " +
 		"Silencing the type checker buries a real type error. Fix the type, or justify the suppression in review."
 	coverageSuppressReason = "Edit introduces a coverage suppression (istanbul ignore, c8/v8 ignore, # pragma: no cover). " +
@@ -27,7 +27,7 @@ const (
 // lintSuppressRe matches linter-silencing directives across the supported
 // ecosystems. eslint-disable is matched bare because the token appears only in
 // that directive (all four forms: line, next-line, block-open, block-close).
-var lintSuppressRe = regexp.MustCompile(`//\s*nolint|eslint-disable|#\s*noqa|#\s*pylint:\s*disable|#\s*rubocop:\s*disable|#\s*flake8`)
+var lintSuppressRe = regexp.MustCompile(`//\s*nolint|eslint-disable|#\s*noqa|#\s*pylint:\s*disable|#\s*rubocop:\s*disable|#\s*flake8`) // reason: the regex itself, matched verbatim against directive text
 
 // typeSuppressRe matches type-checker-silencing directives. @ts-expect-error is
 // deliberately excluded: it asserts a following error and is a legitimate way to

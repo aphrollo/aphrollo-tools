@@ -101,6 +101,7 @@ func RunGoMutantsCI(c GoMutantsCI, out io.Writer) int {
 	writeReceiptFor := func(mutants []MutantOutcome) MutationReceipt {
 		r := goMutantsReceipt(goMutantsRun{
 			Repo:     commonGitDir(root),
+			RepoID:   repoIdentity(root),
 			Branch:   gitOut(root, "rev-parse", "--abbrev-ref", "HEAD"),
 			TipTree:  gitOut(root, "rev-parse", "HEAD:"),
 			BaseRef:  c.BaseSHA,

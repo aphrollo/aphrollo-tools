@@ -58,10 +58,38 @@ func TestPrecommitGoRootRunsVetThenLintThenTheSuite(t *testing.T) {
 	for _, r := range seen {
 		order = append(order, cmdLine(r))
 	}
-	want := []string{"go vet ./...", "golangci-lint run --allow-serial-runners ./...", "go test ."}
+	want := []string{"go vet ./...", "golangci-lint run --allow-serial-runners .", "go test ."}
 	if strings.Join(order, " | ") != strings.Join(want, " | ") {
 		t.Fatalf("stages ran %v, want %v", order, want)
 	}
+}
+
+// golangci-lint is a full analysis pass (unlike vet, which compiles nothing
+// extra), so it is the one CI-parity check worth SCOPING: two staged files in
+// two different packages must lint only those two packages, never fall back
+// to ./... and re-analyze the whole module for a two-file commit.
+func TestPrecommitLint_scopesToTheTouchedPackagesNotTheWholeModule(t *testing.T) {
+	root := makeGoRepo(t)
+	withLinter(t, true)
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+	write(t, root, "sub/thing.go", "package sub\n\nfunc Thing() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	if res := Precommit(root, runsAt(&seen, root)); res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	for _, r := range seen {
+		if r.Cmd != golangciLint {
+			continue
+		}
+		want := []string{"run", "--allow-serial-runners", ".", "./sub"}
+		if strings.Join(r.Args, " ") != strings.Join(want, " ") {
+			t.Fatalf("lint argv = %v, want %v", r.Args, want)
+		}
+		return
+	}
+	t.Fatalf("the linter never ran: %+v", seen)
 }
 
 // golangci-lint takes a MACHINE-WIDE lock, not one per cache dir, so a second
@@ -179,7 +207,7 @@ func TestPrecommitRejectsWhenTheLinterFails(t *testing.T) {
 	if !res.Blocked {
 		t.Fatal("a lint failure must reject the commit")
 	}
-	for _, want := range []string{"golangci-lint run --allow-serial-runners ./...", "Widget"} {
+	for _, want := range []string{"golangci-lint run --allow-serial-runners .", "Widget"} {
 		if !strings.Contains(res.Message, want) {
 			t.Errorf("message %q does not carry %q", res.Message, want)
 		}

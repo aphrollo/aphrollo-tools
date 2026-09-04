@@ -3,6 +3,8 @@ package lsp
 import (
 	"fmt"
 	"net/url"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -90,5 +92,26 @@ func URIToPath(uri DocumentURI) (string, error) {
 	if slices.Contains(strings.Split(u.Path, "/"), "..") {
 		return "", fmt.Errorf("file URI contains a .. path segment: %q", uri)
 	}
+	// Only on Windows: elsewhere `/c:/x` is an ordinary absolute path, and
+	// rewriting it would drop its root slash and change its first segment.
+	if runtime.GOOS == "windows" {
+		if p, ok := DriveRootedPath(u.Path); ok {
+			return p, nil
+		}
+	}
 	return u.Path, nil
 }
+
+// DriveRootedPath renders a URI path that carries a Windows drive under the
+// empty authority (`/C:/x`) as the native path it names (`C:\x`), reporting
+// false for anything else. The leading slash is the URI's, not the path's,
+// and the drive is upper-cased because servers answer `file:///c:/…` for a
+// file the caller opened as `C:\…` and the two must compare equal.
+func DriveRootedPath(uriPath string) (string, bool) {
+	if len(uriPath) < 3 || uriPath[0] != '/' || uriPath[2] != ':' || !isDriveLetter(uriPath[1]) {
+		return "", false
+	}
+	return filepath.FromSlash(strings.ToUpper(uriPath[1:2]) + uriPath[2:]), true
+}
+
+func isDriveLetter(c byte) bool { return ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z') }

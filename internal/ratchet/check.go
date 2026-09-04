@@ -1,12 +1,56 @@
 package ratchet
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 )
+
+// readFile and readDir stand in for os.ReadFile/os.ReadDir at every call site
+// that has to tell a legitimately-vanished path (a concurrent delete mid-walk,
+// which stays silent) apart from a path the engine could not read for any
+// other reason (locked, permission-denied, I/O error — which must not report
+// the tree clean). Indirecting them lets a test simulate the second class
+// without depending on OS-specific filesystem behavior to produce it.
+var (
+	readFile = os.ReadFile
+	readDir  = os.ReadDir
+)
+
+// vanished reports whether a read error is the one case that is not a
+// finding: the path stopped existing between the walk seeing it and the read
+// running. Every other error — locked, permission-denied, I/O — means the
+// engine could not perform the scan it owes, and must not be swallowed into
+// a clean verdict over data nobody looked at.
+func vanished(err error) bool {
+	return errors.Is(err, fs.ErrNotExist)
+}
+
+// ScanReadError reports that the tree scan could not read a file or
+// directory a law's scope needed, for a reason other than the path
+// vanishing mid-walk (see vanished). It is a DIFFERENT offence from every
+// other error Check can return (a malformed law TOML, an unknown matcher
+// kind): the law tooling itself is fine, but the read it needed to judge
+// THIS path failed — so it is the path, not the whole rule set, that needs
+// a retry or a fix. A caller distinguishes the two with errors.As; matching
+// on the error string is not the contract.
+type ScanReadError struct {
+	// Path is the path the read failed against, in whatever form the
+	// failing call site had it (repo-relative for the tree walk, or the
+	// absolute path passed to readFile) — always the value worth printing.
+	Path string
+	Err  error
+}
+
+func (e *ScanReadError) Error() string {
+	return fmt.Sprintf("reading %s: %s — a clean verdict would be over a scan the engine could not perform", e.Path, e.Err)
+}
+
+func (e *ScanReadError) Unwrap() error { return e.Err }
 
 // Options configures one `ratchet check` run.
 type Options struct {
@@ -92,99 +136,6 @@ type Result struct {
 // lineModeNotes reports every key whose baseline ceiling sits above what a
 // code-mode line-count law just measured — the fingerprint of a baseline
 // still recorded under `count = "text"`.
-func lineModeNotes(law string, ceiling, measured map[string]int) []string {
-	var notes []string
-	for _, key := range sortedKeys(ceiling) {
-		if base, m := ceiling[key], measured[key]; base > m {
-			notes = append(notes, fmt.Sprintf(
-				"%s: %s baseline is %d, code counting now measures %d — regenerate by running without --no-tighten",
-				law, key, base, m))
-		}
-	}
-	return notes
-}
-
-// NewerLaw is one law read leniently, with the version it declared.
-type NewerLaw struct {
-	Name   string `json:"law"`
-	Schema int    `json:"schema"`
-}
-
-// Blocked reports whether any deny law regressed — the exit-1 condition.
-func (r Result) Blocked() bool {
-	for _, f := range r.Findings {
-		if f.Severity == Deny.String() {
-			return true
-		}
-	}
-	return false
-}
-
-// maxFindingLine is the width one hit gets. A denial is read in a terminal
-// and in a hook envelope; past this the remedy at the END of the line is the
-// part that scrolls away, which is the part that matters.
-const maxFindingLine = 160
-
-// Lines renders one output line per finding: where, what, the counts, and the
-// way through. The OFFENDING TEXT is what gets truncated when the line is too
-// long — never the remedy.
-func (r Result) Lines() []string {
-	out := make([]string, 0, len(r.Findings))
-	for _, f := range r.Findings {
-		where := f.File
-		if f.Line > 0 {
-			where = fmt.Sprintf("%s:%d", f.File, f.Line)
-		}
-		head := fmt.Sprintf("%s: %s ", f.Law, where)
-		tail := fmt.Sprintf(" (baseline %d, now %d)", f.Baseline, f.Measured)
-		if f.Remedy != "" {
-			tail += " — " + f.Remedy
-		}
-		out = append(out, head+fitWhat(f.What, maxFindingLine-len([]rune(head))-len([]rune(tail)))+tail)
-	}
-	return out
-}
-
-// fitWhat shortens the offending text to at most n runes, marking that it was
-// cut. A budget too small to say anything yields nothing rather than a line of
-// ellipsis.
-func fitWhat(what string, n int) string {
-	runes := []rune(what)
-	if len(runes) <= n {
-		return what
-	}
-	if n < 4 {
-		return ""
-	}
-	return string(runes[:n-1]) + "…"
-}
-
-// remedyFor is the one imperative sentence a denial ends with. A count-keyed
-// law is not escaped, it is paid down, and the number it is paid down TO is
-// what the reader needs; a law with no escape has exactly one way through,
-// and saying nothing there reads as "there must be a marker somewhere".
-func remedyFor(law Law) string {
-	if law.Matcher.Kind == KindLineCount {
-		return fmt.Sprintf("split the file; the ceiling is %d", law.Matcher.Max)
-	}
-	if law.Escape == "" {
-		return "no escape: lower the code"
-	}
-	return fmt.Sprintf("escape: %s <why> %s", law.Escape, escapeWindow(law))
-}
-
-// escapeWindow says WHERE the escape comment is allowed to sit, in the words
-// the author needs: advice that names a window the law does not accept is
-// worse than none.
-func escapeWindow(law Law) string {
-	if law.Contiguous || law.EscapeLines > 0 {
-		return "on the line or the line above"
-	}
-	return "on the line"
-}
-
-// Check scans the laws' scope once, applies every law, and compares each
-// law's measured hits to its baseline.
 func Check(opts Options) (Result, error) {
 	laws, err := LoadLaws(opts.Root)
 	if err != nil {
@@ -461,9 +412,12 @@ func scanTree(opts Options, laws []Law) (*treeScan, error) {
 		}
 		content := proposed
 		if !overlaid && (!ok || needsContent) {
-			data, err := os.ReadFile(filepath.Join(opts.Root, filepath.FromSlash(rel)))
+			data, err := readFile(filepath.Join(opts.Root, filepath.FromSlash(rel)))
 			if err != nil {
-				continue // a file that vanished mid-walk is not a finding
+				if vanished(err) {
+					continue // a file that vanished mid-walk is not a finding
+				}
+				return nil, &ScanReadError{Path: rel, Err: err}
 			}
 			content = string(data)
 			scan.read++
@@ -571,9 +525,12 @@ func collectFiles(opts Options, laws []Law) ([]string, map[string]bool, error) {
 	var out []string
 	var walk func(dir, rel string, ignored bool) error
 	walk = func(dir, rel string, ignored bool) error {
-		entries, err := os.ReadDir(dir)
+		entries, err := readDir(dir)
 		if err != nil {
-			return nil // an unreadable dir is not a finding
+			if vanished(err) {
+				return nil // a dir that vanished mid-walk is not a finding
+			}
+			return &ScanReadError{Path: dir, Err: err}
 		}
 		for _, e := range entries {
 			child := path(rel, e.Name())
