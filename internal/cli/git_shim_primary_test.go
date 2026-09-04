@@ -130,7 +130,8 @@ func TestRunGitShim_AllowsTheSequencerConcludeVerbsAndAHarmlessReset(t *testing.
 		{"rebase", "--continue"},
 		{"rebase", "--skip"},
 		{"reset", "--hard"},
-		{"reset", "lane/x"},
+		{"reset"},
+		{"reset", "--", "main.go"},
 	} {
 		var out, errb bytes.Buffer
 		runGitShim(args, strings.NewReader(""), &out, &errb, cfg)
@@ -139,7 +140,39 @@ func TestRunGitShim_AllowsTheSequencerConcludeVerbsAndAHarmlessReset(t *testing.
 		}
 	}
 	if b := currentBranch(t, cfg.realGit, primary); b != "main" {
-		t.Fatalf("primary checkout moved to %q — reset lane/x should have stayed on main's own tree state", b)
+		t.Fatalf("primary checkout moved to %q — none of these reset forms name a ref to move to", b)
+	}
+}
+
+// A `reset` that names a ref moves main's tip to it regardless of mode —
+// only the treatment of the index and working tree differs between
+// --soft/--mixed(default)/--hard/--merge/--keep. Refusing only the --hard
+// form left the other four as an open door onto the exact hole the wall
+// exists to close: main's tip landing somewhere with no premergecommit hook
+// firing at all.
+func TestRunGitShim_RefusesAResetToAnotherRefRegardlessOfMode(t *testing.T) {
+	primary, _, cfg := primaryShimRepo(t)
+	beforeSHA := strings.TrimSpace(mustOutput(t, cfg.realGit, primary, "rev-parse", "HEAD"))
+
+	for _, args := range [][]string{
+		{"reset", "lane/x"},
+		{"reset", "--soft", "lane/x"},
+		{"reset", "--merge", "lane/x"},
+		{"reset", "--keep", "lane/x"},
+	} {
+		var out, errb bytes.Buffer
+		code := runGitShim(args, strings.NewReader(""), &out, &errb, cfg)
+		if code == 0 {
+			t.Errorf("git %s in the primary checkout should be refused, got exit 0", strings.Join(args, " "))
+		}
+		if !strings.Contains(errb.String(), "primary checkout is merge-only") {
+			t.Errorf("git %s: refusal must name the rule, got %q", strings.Join(args, " "), errb.String())
+		}
+		afterSHA := strings.TrimSpace(mustOutput(t, cfg.realGit, primary, "rev-parse", "HEAD"))
+		if afterSHA != beforeSHA {
+			t.Fatalf("git %s moved main from %s to %s — the refusal must happen before git runs",
+				strings.Join(args, " "), beforeSHA, afterSHA)
+		}
 	}
 }
 
