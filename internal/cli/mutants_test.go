@@ -232,6 +232,32 @@ func TestMutantsGo_StoreFlagIsForwardedToTheOutcomeCache(t *testing.T) {
 	}
 }
 
+// `--jobs`/`--base`/`--timeout-multiplier`/`--minimum-test-timeout` are
+// `run`'s own override channel (env-versus-flag rule, above): they are
+// wired into RunMutantsJob only. On `go` they used to parse without error
+// and then do nothing — silent no-ops nobody typing them would notice,
+// since the concurrency GoMutantsCI actually asks for comes from a
+// per-box formula unless the caller names an explicit --diff-mode base,
+// which none of these four flags are. Declaring them only on `run`'s own
+// flagset (mirroring how --diff/--receipt/--store are scoped to `go`
+// only) turns a mistyped one into a real flag.Parse error instead.
+func TestMutantsGo_RefusesRunsOwnFlags(t *testing.T) {
+	gateConfigDir(t)
+	for _, args := range [][]string{
+		{"gate", "mutants", "go", "--diff", "deadbeef", "--jobs", "4"},
+		{"gate", "mutants", "go", "--diff", "deadbeef", "--base", "abc123"},
+		{"gate", "mutants", "go", "--diff", "deadbeef", "--timeout-multiplier", "3"},
+		{"gate", "mutants", "go", "--diff", "deadbeef", "--minimum-test-timeout", "20s"},
+	} {
+		var out, errb bytes.Buffer
+		code := Run(args, strings.NewReader(""), &out, &errb)
+		if code != 2 {
+			t.Errorf("Run(%v) exit = %d, want 2 — `run`'s own flag typed on `go` must be refused, not silently ignored\nstderr: %s",
+				args, code, errb.String())
+		}
+	}
+}
+
 // A verb this binary does not have must say so rather than silently doing
 // nothing — a mistyped subcommand that exits 0 is a hook that never ran.
 func TestMutants_RejectsAnUnknownVerb(t *testing.T) {
