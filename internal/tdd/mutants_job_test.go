@@ -276,7 +276,7 @@ func TestStartMutantsJob_WorktreePrepareFailureIsLoggedAndReturned(t *testing.T)
 // copy is what put 135 MB per run in the OS temp dir and rebuilt the world
 // cold each time.
 func TestMutantsArgv_MutatesInPlaceOverTheLaneDiff(t *testing.T) {
-	got := strings.Join(MutantsArgv("D:/tmp/lane.diff", false, nil), " ")
+	got := strings.Join(MutantsArgv("D:/tmp/lane.diff", false, nil, nil), " ")
 	want := "--in-place --in-diff D:/tmp/lane.diff --test-tool=nextest"
 	if got != want {
 		t.Fatalf("MutantsArgv = %q, want %q", got, want)
@@ -287,8 +287,34 @@ func TestMutantsArgv_MutatesInPlaceOverTheLaneDiff(t *testing.T) {
 // proved exactly that on this tree seconds earlier, so a green log entry buys
 // the run its whole baseline back.
 func TestMutantsArgv_SkipsTheBaselineOnlyWhenItWasAlreadyProven(t *testing.T) {
-	if got := strings.Join(MutantsArgv("lane.diff", true, nil), " "); !strings.Contains(got, "--baseline skip") {
+	if got := strings.Join(MutantsArgv("lane.diff", true, nil, nil), " "); !strings.Contains(got, "--baseline skip") {
 		t.Fatalf("MutantsArgv = %q, want the baseline skipped once the suite is proven green", got)
+	}
+}
+
+// The whole point of issue #251: a lane whose diff only touched crate alpha
+// must not carry crate beta's suite into the baseline at all — cargo-mutants
+// forwards --package straight into the `cargo test`/`nextest run` it runs for
+// both the baseline and the mutants, so a --package list naming only alpha is
+// what keeps beta's own tests from ever running, and so from ever being able
+// to veto this receipt over a failure that has nothing to do with this lane.
+func TestMutantsArgv_ScopesTheBaselineToTouchedPackagesOnly(t *testing.T) {
+	got := strings.Join(MutantsArgv("lane.diff", false, nil, []string{"alpha"}), " ")
+	if !strings.Contains(got, "--package alpha") {
+		t.Fatalf("MutantsArgv = %q, want the touched package named", got)
+	}
+	if strings.Contains(got, "beta") {
+		t.Fatalf("MutantsArgv = %q, want no mention of an untouched package", got)
+	}
+}
+
+// An undeterminable touched-crate set (mutantsTouchedPackages returning nil)
+// must fall back to today's whole-workspace behaviour — no --package flag at
+// all — rather than silently measuring nothing.
+func TestMutantsArgv_OmitsPackageFlagsWhenTouchedSetIsUndeterminable(t *testing.T) {
+	got := strings.Join(MutantsArgv("lane.diff", false, nil, nil), " ")
+	if strings.Contains(got, "--package") {
+		t.Fatalf("MutantsArgv = %q, want no --package flag for an undeterminable touched-crate set", got)
 	}
 }
 

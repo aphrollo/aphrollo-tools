@@ -64,7 +64,7 @@ sha>`, with:
 `APHROLLO_MUTANTS_ARGS` is always of the shape
 
 ```
---in-place --in-diff <diff> --test-tool=nextest [--baseline skip] [--exclude-re <mutant> ...]
+--in-place --in-diff <diff> --test-tool=nextest [--baseline skip] [--package <name> ...] [--exclude-re <mutant> ...]
 ```
 
 - `--in-place` — mutate the warm worktree. NEVER let cargo-mutants copy the
@@ -73,6 +73,14 @@ sha>`, with:
 - `--baseline skip` appears only when the gate's own log shows this checkout's
   last commit-gate run green inside the window; the run must not skip the
   baseline on its own initiative.
+- `--package <name>` entries are the lane's own touched crates, one flag per
+  crate. This is what keeps the unmutated BASELINE scoped to the crates the
+  lane actually touched: the commit gate already proved the whole tree green
+  for this tip, so re-proving it here only widens the blast radius — a
+  wall-clock test failing in some other lane's untouched crate must not veto
+  this receipt (issue #251). Absent entirely when the touched-crate set could
+  not be determined, which means run the whole workspace, same as before this
+  flag existed — never pass `--package` for an empty or guessed set.
 - `--exclude-re` entries are mutants an interrupted earlier attempt already
   judged. A restart measures what is left.
 
