@@ -198,14 +198,15 @@ jobs:
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
           golangci-lint run --allow-serial-runners ./...
 
-  # The performance ratchet for the three Tier-1 benchmarks: `ratchet check`
-  # cold and warm, and the pre-edit judge over a generated 41-package,
-  # ~10000-file fixture (see internal/ratchet/check_bench_test.go and
-  # internal/tdd/ratchetgate_bench_test.go). benchstat compares this run
-  # against testdata/bench/baseline.txt; a >20% regression on ANY metric
-  # (sec/op, B/op, allocs/op) fails the job. The baseline file is only ever
-  # LOWERED, by hand, after a real improvement is measured here — never
-  # raised to make a slow change pass.
+  # The performance ratchet for the four Tier-1 benchmarks: `ratchet check`
+  # cold and warm, the pre-edit judge over a generated 41-package,
+  # ~10000-file fixture, and `docs check` over a 146-file markdown tree (see
+  # internal/ratchet/check_bench_test.go, internal/tdd/ratchetgate_bench_test.go
+  # and internal/docs/docs_bench_test.go). benchstat compares this run against
+  # testdata/bench/baseline.txt; a >20% regression on ANY metric (sec/op,
+  # B/op, allocs/op) fails the job. The baseline file is only ever LOWERED,
+  # by hand, after a real improvement is measured here — never raised to make
+  # a slow change pass.
   benchmarks:
     if: github.event.pull_request.draft != true
     needs: changes
@@ -240,8 +241,8 @@ jobs:
           # entirely when procs is 1 ("RatchetCheckCold", no "-N" at all).
           # testdata/bench/baseline.txt is recorded the same way, so a run on
           # any runner produces the exact same names benchstat groups by.
-          go test ./internal/ratchet/... ./internal/tdd/... -run=NONE \
-            -bench '^(BenchmarkRatchetCheckCold|BenchmarkRatchetCheckWarm|BenchmarkPreEditJudge)$' \
+          go test ./internal/ratchet/... ./internal/tdd/... ./internal/docs/... -run=NONE \
+            -bench '^(BenchmarkRatchetCheckCold|BenchmarkRatchetCheckWarm|BenchmarkPreEditJudge|BenchmarkDocsCheck)$' \
             -benchmem -cpu=1 -count=3 -timeout=20m | tee new-bench.txt
       - name: Install benchstat
         if: needs.changes.outputs.code == 'true'
