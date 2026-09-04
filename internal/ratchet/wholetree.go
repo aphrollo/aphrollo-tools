@@ -388,7 +388,10 @@ func captureSet(root, file string, pattern *regexp.Regexp) (map[string]bool, err
 // here, because a value inside tolerance still has to lower its ceiling.
 func jsonCeilingHits(root string, law Law, requireData bool, targetDir string) ([]Hit, error) {
 	base, glob, keyPrefix := jsonCeilingBase(root, law.Matcher.Files, targetDir)
-	files := globFiles(base, glob)
+	files, err := globFiles(base, glob)
+	if err != nil {
+		return nil, fmt.Errorf("law %q: %w", law.Name, err)
+	}
 	// Over the REAL tree an armed law with nothing to read is an error: a
 	// clean verdict would be over data that does not exist. Over a FIXTURE it
 	// is the point — the clean case proves which files the reader refuses.
@@ -399,9 +402,12 @@ func jsonCeilingHits(root string, law Law, requireData bool, targetDir string) (
 	}
 	var hits []Hit
 	for _, rel := range files {
-		data, err := os.ReadFile(filepath.Join(base, filepath.FromSlash(rel)))
+		data, err := readFile(filepath.Join(base, filepath.FromSlash(rel)))
 		if err != nil {
-			continue
+			if vanished(err) {
+				continue // a file that vanished mid-walk is not a finding
+			}
+			return nil, fmt.Errorf("law %q: %w", law.Name, &ScanReadError{Path: rel, Err: err})
 		}
 		value, err := jsonNumberAt(data, law.Matcher.JSONPath)
 		if err != nil {
@@ -435,28 +441,36 @@ func jsonCeilingBase(root, glob, targetDir string) (base, pattern, keyPrefix str
 func cargoTargetDir() string { return os.Getenv("CARGO_TARGET_DIR") }
 
 // globFiles walks base and returns every file matching the glob, sorted.
-func globFiles(base, glob string) []string {
+func globFiles(base, glob string) ([]string, error) {
 	var out []string
-	var walk func(dir, rel string)
-	walk = func(dir, rel string) {
-		entries, err := os.ReadDir(dir)
+	var walk func(dir, rel string) error
+	walk = func(dir, rel string) error {
+		entries, err := readDir(dir)
 		if err != nil {
-			return
+			if vanished(err) {
+				return nil // a dir that vanished mid-walk is not a finding
+			}
+			return &ScanReadError{Path: dir, Err: err}
 		}
 		for _, e := range entries {
 			child := path(rel, e.Name())
 			if e.IsDir() {
-				walk(filepath.Join(dir, e.Name()), child)
+				if err := walk(filepath.Join(dir, e.Name()), child); err != nil {
+					return err
+				}
 				continue
 			}
 			if matchGlob(glob, child) {
 				out = append(out, child)
 			}
 		}
+		return nil
 	}
-	walk(base, "")
+	if err := walk(base, ""); err != nil {
+		return nil, err
+	}
 	sort.Strings(out)
-	return out
+	return out, nil
 }
 
 // benchID names the measurement a file holds: the directory path with the
