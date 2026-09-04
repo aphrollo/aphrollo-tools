@@ -30,7 +30,7 @@ kind = "line-count"
 max = 5
 `
 
-func TestLoadScopeSetsParsesTheSetsTable(t *testing.T) {
+func TestLoadScopeSets_ParsesTheSetsTable(t *testing.T) {
 	dir := t.TempDir()
 	writeScopes(t, dir, `
 [sets]
@@ -49,7 +49,7 @@ presentation = ["crates/ui/**"]
 	}
 }
 
-func TestLoadScopeSetsAbsentFileIsEmptyNotError(t *testing.T) {
+func TestLoadScopeSets_AbsentFileIsEmptyNotError(t *testing.T) {
 	dir := t.TempDir()
 	sets, err := LoadScopeSets(dir)
 	if err != nil || sets != nil {
@@ -57,10 +57,10 @@ func TestLoadScopeSetsAbsentFileIsEmptyNotError(t *testing.T) {
 	}
 }
 
-// TestLoadLawsResolvesAliasIntoInclude proves a law naming `[scope].alias`
+// TestLoadLaws_ResolvesAliasIntoInclude proves a law naming `[scope].alias`
 // judges exactly the files the named set lists, merged with any include of
 // its own — the alias behaves like the include list it stands in for.
-func TestLoadLawsResolvesAliasIntoInclude(t *testing.T) {
+func TestLoadLaws_ResolvesAliasIntoInclude(t *testing.T) {
 	dir := t.TempDir()
 	writeScopes(t, dir, `
 [sets]
@@ -87,10 +87,10 @@ tier1 = ["crates/movement/**/*.rs"]
 	}
 }
 
-// TestLoadLawsMergesAliasWithOwnInclude proves the alias's globs are a BASE,
+// TestLoadLaws_MergesAliasWithOwnInclude proves the alias's globs are a BASE,
 // not a replacement: a law may still widen its own scope with more include
 // entries alongside the alias.
-func TestLoadLawsMergesAliasWithOwnInclude(t *testing.T) {
+func TestLoadLaws_MergesAliasWithOwnInclude(t *testing.T) {
 	dir := t.TempDir()
 	writeScopes(t, dir, `
 [sets]
@@ -122,12 +122,12 @@ max = 5
 	}
 }
 
-// TestLoadLawsMergesAliasWhenOwnIncludeOutnumbersTheAliasSet proves the
+// TestLoadLaws_MergesAliasWhenOwnIncludeOutnumbersTheAliasSet proves the
 // merge's capacity is computed as a SUM of both lists' lengths, not a
 // difference: an alias set shorter than the law's own include list must
 // still merge cleanly (a subtraction here would make the capacity go
 // negative and panic on `make`), and every glob from both lists must survive.
-func TestLoadLawsMergesAliasWhenOwnIncludeOutnumbersTheAliasSet(t *testing.T) {
+func TestLoadLaws_MergesAliasWhenOwnIncludeOutnumbersTheAliasSet(t *testing.T) {
 	dir := t.TempDir()
 	writeScopes(t, dir, `
 [sets]
@@ -163,9 +163,9 @@ max = 5
 	}
 }
 
-// TestLoadLawsRefusesAnAliasNoSetDefines is the deny path: a law naming an
+// TestLoadLaws_RefusesAnAliasNoSetDefines is the deny path: a law naming an
 // alias scopes.toml never declared is a hard, one-line error naming both.
-func TestLoadLawsRefusesAnAliasNoSetDefines(t *testing.T) {
+func TestLoadLaws_RefusesAnAliasNoSetDefines(t *testing.T) {
 	dir := t.TempDir()
 	writeLaw(t, dir, "tier1-size", aliasedLaw)
 
@@ -182,9 +182,9 @@ func TestLoadLawsRefusesAnAliasNoSetDefines(t *testing.T) {
 	}
 }
 
-// TestCheckWarnsOnAScopeSetNoLawUses proves the OTHER direction: a set that
+// TestCheck_WarnsOnAScopeSetNoLawUses proves the OTHER direction: a set that
 // sits in scopes.toml unreferenced is reported, never silently kept.
-func TestCheckWarnsOnAScopeSetNoLawUses(t *testing.T) {
+func TestCheck_WarnsOnAScopeSetNoLawUses(t *testing.T) {
 	dir := t.TempDir()
 	writeScopes(t, dir, `
 [sets]
@@ -202,11 +202,11 @@ dead = ["crates/nowhere/**"]
 	}
 }
 
-// TestRunFixturesProvesLawThroughAlias is the fixture-proving path: a law
+// TestRunFixtures_ProvesLawThroughAlias is the fixture-proving path: a law
 // scoped ONLY by alias still catches its hit fixture and stays silent on its
 // clean one, proving `ratchet test` resolves an alias the same way `ratchet
 // check` does — through the same LoadLaws call.
-func TestRunFixturesProvesLawThroughAlias(t *testing.T) {
+func TestRunFixtures_ProvesLawThroughAlias(t *testing.T) {
 	dir := t.TempDir()
 	writeScopes(t, dir, `
 [sets]

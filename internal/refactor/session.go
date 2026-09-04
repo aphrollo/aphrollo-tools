@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/lsp"
 )
@@ -183,7 +184,15 @@ func clientCapabilities() map[string]any {
 	}
 }
 
+// pathToURI renders a filesystem path as an LSP file URI. A Windows drive path
+// is slash-separated and rooted under the empty authority (`file:///C:/…`);
+// left to url.URL alone the backslashes would be percent-encoded and the
+// drive letter read as a host.
 func pathToURI(path string) lsp.DocumentURI {
-	u := url.URL{Scheme: "file", Path: path}
+	p := strings.ReplaceAll(path, `\`, "/")
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	u := url.URL{Scheme: "file", Path: p}
 	return lsp.DocumentURI(u.String())
 }
