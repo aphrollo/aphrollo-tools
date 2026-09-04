@@ -133,6 +133,33 @@ var ghPRState = func(wt, branch string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// ghPRHeadOid is the seam over `gh pr view <branch> --json headRefOid` — a
+// package var so the sweep tests run without gh or the network. It returns the
+// SHA gh last recorded for the branch's head (what the PR actually merged),
+// which stays fixed once the PR is merged unless the branch is pushed again.
+// Comparing it against the worktree's actual HEAD is what lets decide() tell a
+// merged-and-untouched worktree apart from one a builder kept committing to
+// after the merge — see #163: `git status --porcelain` alone cannot make that
+// distinction, since new commits leave the tree clean again.
+var ghPRHeadOid = func(wt, branch string) (string, error) {
+	cmd := exec.Command("gh", "pr", "view", "--json", "headRefOid", "-q", ".headRefOid", "--", branch)
+	cmd.Dir = wt
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("gh pr view %s: %v: %s", branch, err, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// localHeadSHA returns the worktree's current HEAD commit.
+func localHeadSHA(wt string) (string, error) {
+	out, err := exec.Command("git", "-C", wt, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse HEAD: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // isNoPRError reports whether gh's output is the benign "this branch has no open
 // PR" message (an absence) rather than a real failure (auth/network/gh-missing).
 func isNoPRError(out string) bool {
@@ -233,6 +260,24 @@ func (p *Prune) decide(e worktreeEntry, cwd string) pruneDecision {
 	if !p.Force && !worktreeClean(e.Path) {
 		return pruneDecision{wt: e, reason: "dirty"}
 	}
+	// A clean tree is not enough: a builder who reuses a merged branch's
+	// worktree for follow-up work commits it, so `git status --porcelain`
+	// goes clean again with the new work still sitting there (#163). Compare
+	// HEAD against what gh actually recorded as merged (headRefOid) and skip
+	// rather than prune when they disagree.
+	mergedHead, err := ghPRHeadOid(e.Path, e.Branch)
+	if err != nil {
+		return pruneDecision{wt: e, reason: "could not check PR state (gh unavailable)"}
+	}
+	if mergedHead != "" {
+		head, err := localHeadSHA(e.Path)
+		if err != nil {
+			return pruneDecision{wt: e, reason: "could not check PR state (gh unavailable)"}
+		}
+		if head != mergedHead {
+			return pruneDecision{wt: e, reason: "local commits beyond the merged PR"}
+		}
+	}
 	return pruneDecision{wt: e, remove: true, reason: "PR merged"}
 }
 
@@ -245,6 +290,13 @@ func linkedWorktrees(repo string) ([]worktreeEntry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("git worktree list: %w", err)
 	}
+	return excludeMainClone(parseWorktreeList(string(out)), repo), nil
+}
+
+// parseWorktreeList parses `git worktree list --porcelain` output into every
+// entry it lists, in the order git printed them — including the main clone.
+// It makes no positional assumption; callers decide how to treat any entry.
+func parseWorktreeList(out string) []worktreeEntry {
 	var entries []worktreeEntry
 	var cur worktreeEntry
 	flush := func() {
@@ -253,11 +305,15 @@ func linkedWorktrees(repo string) ([]worktreeEntry, error) {
 		}
 		cur = worktreeEntry{}
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		switch {
 		case strings.HasPrefix(line, "worktree "):
 			flush()
-			cur.Path = strings.TrimSpace(strings.TrimPrefix(line, "worktree "))
+			// Same MSYS forward-slash normalization as gitToplevel: Git for
+			// Windows always prints porcelain paths with "/", so Clean folds
+			// them to the native separator before any caller compares or
+			// joins against a filepath.Join-built path.
+			cur.Path = filepath.Clean(strings.TrimSpace(strings.TrimPrefix(line, "worktree ")))
 			cur.Branch = "HEAD"
 		case strings.HasPrefix(line, "branch "):
 			ref := strings.TrimSpace(strings.TrimPrefix(line, "branch "))
@@ -265,12 +321,38 @@ func linkedWorktrees(repo string) ([]worktreeEntry, error) {
 		}
 	}
 	flush()
-	// git lists the main worktree first; drop it — the sweep only touches linked
-	// worktrees, never the canonical clone.
-	if len(entries) > 0 {
-		entries = entries[1:]
+	return entries
+}
+
+// excludeMainClone drops the entry whose path IS repo (the main checkout,
+// never swept) by comparing PATHS, never by list position — `git worktree
+// list --porcelain` lists the main worktree first in practice, but nothing
+// enforces that ordering, and internal/tdd's mergePruneWorktrees (the
+// identical rule for the identical operation) already deliberately rejects
+// trusting it (see #172).
+func excludeMainClone(entries []worktreeEntry, repo string) []worktreeEntry {
+	var linked []worktreeEntry
+	for _, e := range entries {
+		if samePath(e.Path, repo) {
+			continue
+		}
+		linked = append(linked, e)
 	}
-	return entries, nil
+	return linked
+}
+
+// samePath reports whether two worktree paths name the same directory,
+// normalizing separators and case — git may report a path with either
+// separator, and the same directory routinely appears under two drive-letter
+// or short/long-name spellings on Windows.
+func samePath(a, b string) bool {
+	clean := func(p string) string {
+		if p == "" {
+			return ""
+		}
+		return strings.ToLower(strings.TrimRight(filepath.ToSlash(filepath.Clean(p)), "/"))
+	}
+	return clean(a) == clean(b)
 }
 
 // worktreeClean reports whether the worktree has no uncommitted changes —

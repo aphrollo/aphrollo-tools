@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -55,8 +56,20 @@ func apiClaimRepo(t *testing.T, withMigrations bool) (string, string) {
 
 // recorderBin writes a fake executable that appends its argv to a shared log,
 // so a test can assert both WHICH external command ran and in what ORDER.
+// recorderBin writes a fake executable at dir/name that appends "<name> <args>"
+// to log on every call. POSIX: a shebang shell script. Windows can't run one
+// directly (no shebang dispatch through CreateProcess, and Go's os/exec
+// refuses a file with no PATHEXT-recognized extension even given a full
+// path) — the fake is a .bat with the equivalent one-liner instead.
 func recorderBin(t *testing.T, dir, name, log string) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		p := filepath.Join(dir, name+".bat")
+		if err := os.WriteFile(p, []byte("@echo off\r\necho "+name+" %* >> "+log+"\r\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
 	p := filepath.Join(dir, name)
 	if err := os.WriteFile(p, []byte("#!/bin/sh\necho \""+name+" $@\" >> "+log+"\n"), 0o755); err != nil {
 		t.Fatal(err)
