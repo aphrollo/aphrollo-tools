@@ -115,6 +115,31 @@ func TestApplyFileEdits_RejectsEditOutsideRoot(t *testing.T) {
 // exactly everywhere else. This test runs the real runtime.GOOS check the
 // function itself makes, so on a non-Windows runner it has nothing to prove
 // and skips rather than asserting the opposite branch it cannot exercise.
+// The platform branch is what the mutation gate kept finding unconstrained:
+// whichever OS measures mutants can only reach one side of a runtime.GOOS
+// check, so the other side's condition is never pinned. samePathOn takes the
+// platform as an argument, so both cases are asserted on either OS.
+
+// TestSamePathOn_FoldsCaseForWindows pins the windows branch: the LSP server
+// answers with an upper-cased drive letter while the caller keeps what they
+// typed, and on a case-insensitive filesystem those name one file.
+func TestSamePathOn_FoldsCaseForWindows(t *testing.T) {
+	a, b := `C:\Foo\Bar.go`, `C:\foo\bar.go`
+	if !samePathOn("windows", a, b) {
+		t.Errorf("samePathOn(windows, %q, %q) = false, want true — windows folds case", a, b)
+	}
+}
+
+// TestSamePathOn_IsExactForEveryOtherPlatform pins the other branch, and is
+// the one that kills the negation when mutants are measured on Linux: two
+// paths differing only in case are two different files there.
+func TestSamePathOn_IsExactForEveryOtherPlatform(t *testing.T) {
+	a, b := "/src/Foo.go", "/src/foo.go"
+	if samePathOn("linux", a, b) {
+		t.Errorf("samePathOn(linux, %q, %q) = true, want false — only windows folds case", a, b)
+	}
+}
+
 func TestSamePath_FoldsCaseOnWindows(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("case-folding comparison only applies on windows")

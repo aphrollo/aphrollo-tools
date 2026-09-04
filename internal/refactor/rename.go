@@ -108,7 +108,17 @@ func Rename(ctx context.Context, req RenameRequest) (*RenameResult, error) {
 // path keeps whatever they typed, so on Windows — where the filesystem is
 // case-insensitive anyway — the comparison folds case. Elsewhere it is exact.
 func samePath(a, b string) bool {
-	if runtime.GOOS == "windows" {
+	return samePathOn(runtime.GOOS, a, b)
+}
+
+// samePathOn is samePath with the platform passed in rather than read from
+// runtime.GOOS, so BOTH branches are reachable from a test on either OS. With
+// the check written against runtime.GOOS directly, the windows branch could
+// only be asserted on windows and the exact branch only off it, so whichever
+// platform measured mutants left the other branch's condition unconstrained —
+// negating it there changed nothing any test could see.
+func samePathOn(goos, a, b string) bool {
+	if goos == "windows" {
 		return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 	}
 	return a == b
