@@ -189,13 +189,34 @@ func presetDrift(law Law) (string, error) {
 // canonicalMatcher is an order-independent fingerprint of a law's [matcher]
 // table, for comparing two TOML documents without a full AST diff.
 func canonicalMatcher(doc *tomlDoc) string {
-	parts := make([]string, 0, len(doc.keys("matcher")))
-	for _, k := range doc.keys("matcher") {
-		v, _ := doc.value("matcher", k)
+	return canonicalSection(doc, "matcher")
+}
+
+// canonicalSection is canonicalMatcher's shape generalized to any one TOML
+// table: an order-independent `key=value;key=value` fingerprint.
+func canonicalSection(doc *tomlDoc, section string) string {
+	parts := make([]string, 0, len(doc.keys(section)))
+	for _, k := range doc.keys(section) {
+		v, _ := doc.value(section, k)
 		parts = append(parts, k+"="+canonicalTOMLValue(v))
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, ";")
+}
+
+// RuleSemantics fingerprints the fields of a law's TOML source that decide
+// what it catches — [matcher], [scope], and severity — so two laws with the
+// same RuleSemantics judge the tree identically no matter what their name,
+// description, or comments say. It is --adopt's changed-since-HEAD guard:
+// a byte diff of the whole file would let a description reword or a
+// comment edit "change" a law that catches exactly what it always did.
+func RuleSemantics(source string) (string, error) {
+	doc, err := parseTOML(source)
+	if err != nil {
+		return "", err
+	}
+	return canonicalSection(doc, "matcher") + "\x00" +
+		canonicalSection(doc, "scope") + "\x00severity=" + doc.str("", "severity"), nil
 }
 
 func canonicalTOMLValue(v tomlValue) string {

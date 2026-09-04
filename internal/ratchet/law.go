@@ -66,6 +66,10 @@ const (
 	// KindJSONNumberCeiling: a number read out of generated JSON may not exceed
 	// its baseline by more than a tolerance (a bench figure nobody reads).
 	KindJSONNumberCeiling MatcherKind = "json-number-ceiling"
+	// KindGoBenchCeiling: B/op and allocs/op, read per benchmark name out of a
+	// `go test -bench -benchmem` text file, may each only fall — sec/op is
+	// wall-clock noise this matcher never reads.
+	KindGoBenchCeiling MatcherKind = "go-bench-ceiling"
 )
 
 // AllRoots is `roots = "*"`: every package in the workspace is a root, which
@@ -273,21 +277,9 @@ var rootKeys = map[string]bool{
 	"extends": true,
 }
 
-// matcherKeys is the exact key set each matcher kind accepts, and whether each
-// is required. Strictness is the contract: an unknown key is a typo that would
-// otherwise silently disable half a rule.
-var matcherKeys = map[MatcherKind]map[string]bool{
-	KindLineCount:          {"kind": true, "max": true, "count": false, "unit_split": false},
-	KindRegexAbsent:        {"kind": true, "pattern": true, "key": false, "count": false},
-	KindRegexPresent:       {"kind": true, "pattern": true},
-	KindPathRegexAbsent:    {"kind": true, "pattern": true},
-	KindMarkerWithinLines:  {"kind": true, "trigger": true, "marker": true, "lines": false, "contiguous": false, "direction": false},
-	KindRegistryBothWays:   {"kind": true, "registry_file": true, "entry_pattern": true, "use_pattern": true},
-	KindDocPathResolves:    {"kind": true, "pattern": true},
-	KindDepGraphForbids:    {"kind": true, "roots": true, "forbidden": true, "edges": false, "min_reachable": false},
-	KindFileSetContainment: {"kind": true, "superset_file": true, "subset_file": true, "capture": true},
-	KindJSONNumberCeiling:  {"kind": true, "files": true, "path": true, "tolerance_pct": false, "enabled_env": false},
-}
+// matcherKeys (law_matcher_fields.go) is the exact key set each matcher
+// kind accepts, in a fixed declaration order — never a map — and whether
+// each is required.
 
 // ParseLaw parses one law file. wantName is the file's stem: the two must
 // agree, so the law's fixtures and baseline can be found by name alone.
@@ -486,17 +478,17 @@ func parseMatcher(doc *tomlDoc, newer bool) (Matcher, error) {
 	}
 	if !newer {
 		for _, k := range doc.keys("matcher") {
-			if _, ok := allowed[k]; !ok {
+			if !matcherKeyAllowed(allowed, k) {
 				return Matcher{}, fmt.Errorf("unknown key matcher.%s for kind %q", k, kind)
 			}
 		}
 	}
-	for k, required := range allowed {
-		if !required {
+	for _, spec := range allowed {
+		if !spec.required {
 			continue
 		}
-		if _, ok := doc.value("matcher", k); !ok {
-			return Matcher{}, fmt.Errorf("matcher.%s is required for kind %q", k, kind)
+		if _, ok := doc.value("matcher", spec.name); !ok {
+			return Matcher{}, fmt.Errorf("matcher.%s is required for kind %q", spec.name, kind)
 		}
 	}
 
@@ -605,18 +597,8 @@ func parseMatcher(doc *tomlDoc, newer bool) (Matcher, error) {
 			}
 			m.MinReachable = v.i
 		}
-		for key, dest := range map[string]*[]string{"roots": &m.Roots, "forbidden": &m.Forbidden} {
-			v, _ := doc.value("matcher", key)
-			// `roots = "*"` is every workspace package: a rule about what NO
-			// package may reach should not have to list them.
-			if key == "roots" && v.kind == tomlString && v.s == AllRoots {
-				*dest = []string{AllRoots}
-				continue
-			}
-			if v.kind != tomlArray || len(v.list) == 0 {
-				return Matcher{}, fmt.Errorf("matcher.%s is a non-empty array of package names", key)
-			}
-			*dest = v.list
+		if ferr := setDepGraphForbidsFields(doc, &m); ferr != nil {
+			return Matcher{}, ferr
 		}
 	case KindFileSetContainment:
 		m.Key = KeyLineContent
@@ -630,27 +612,22 @@ func parseMatcher(doc *tomlDoc, newer bool) (Matcher, error) {
 		m.Key = KeyFile
 		m.Files = doc.str("matcher", "files")
 		m.JSONPath = doc.str("matcher", "path")
-		if v, ok := doc.value("matcher", "tolerance_pct"); ok {
-			if v.kind != tomlInt || v.i < 0 {
-				return Matcher{}, fmt.Errorf("matcher.tolerance_pct is a non-negative integer")
-			}
-			m.TolerancePct = v.i
+		if ferr := setCeilingCommonFields(doc, &m); ferr != nil {
+			return Matcher{}, ferr
 		}
-		if v, ok := doc.value("matcher", "enabled_env"); ok {
-			if v.kind != tomlString || v.s == "" {
-				return Matcher{}, fmt.Errorf("matcher.enabled_env is a non-empty environment variable name")
-			}
-			m.EnabledEnv = v.s
+	case KindGoBenchCeiling:
+		m.Key = KeyFile
+		m.Files = doc.str("matcher", "files")
+		if ferr := setCeilingCommonFields(doc, &m); ferr != nil {
+			return Matcher{}, ferr
 		}
 	case KindRegistryBothWays:
 		m.EntryPattern, m.UsePattern = get("entry_pattern"), get("use_pattern")
 		m.RegistryFile = doc.str("matcher", "registry_file")
 		m.Key = KeyLineContent
 		if err == nil {
-			for name, re := range map[string]*regexp.Regexp{"entry_pattern": m.EntryPattern, "use_pattern": m.UsePattern} {
-				if re.NumSubexp() < 1 {
-					return Matcher{}, fmt.Errorf("matcher.%s must capture the name in group 1", name)
-				}
+			if ferr := requireCaptureGroups(m.EntryPattern, m.UsePattern); ferr != nil {
+				return Matcher{}, ferr
 			}
 		}
 	}

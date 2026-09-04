@@ -501,3 +501,79 @@ unit_split = "("
 		t.Fatalf("err = %v, want one saying the regex does not compile", err)
 	}
 }
+
+// TestLoadLaws_DepGraphForbidsReportsRootsBeforeForbiddenEveryRun proves the
+// field-missing error for a dep-graph-forbids law with BOTH matcher.roots
+// and matcher.forbidden absent names the same field every run. Before the
+// fix this validated over a Go map literal, whose iteration order is
+// randomized per range, so the reported field name varied run to run for
+// the identical input.
+func TestLoadLaws_DepGraphForbidsReportsRootsBeforeForbiddenEveryRun(t *testing.T) {
+	dir := t.TempDir()
+	writeLaw(t, dir, "c", `
+name = "c"
+description = "d"
+severity = "deny"
+
+[scope]
+include = ["Cargo.toml"]
+
+[matcher]
+kind = "dep-graph-forbids"
+`)
+	var first string
+	for i := 0; i < 200; i++ {
+		_, err := LoadLaws(dir)
+		if err == nil {
+			t.Fatal("err = nil, want one naming a missing matcher field")
+		}
+		if i == 0 {
+			first = err.Error()
+			if !strings.Contains(first, "matcher.roots") {
+				t.Fatalf("err = %q, want it to name matcher.roots first", first)
+			}
+			continue
+		}
+		if err.Error() != first {
+			t.Fatalf("run %d: err = %q, run 0: err = %q — same input reported two different fields", i, err.Error(), first)
+		}
+	}
+}
+
+// TestLoadLaws_RegistryBothWaysReportsEntryPatternBeforeUsePatternEveryRun is
+// the same proof for registry-both-ways when neither entry_pattern nor
+// use_pattern captures a group.
+func TestLoadLaws_RegistryBothWaysReportsEntryPatternBeforeUsePatternEveryRun(t *testing.T) {
+	dir := t.TempDir()
+	writeLaw(t, dir, "c", `
+name = "c"
+description = "d"
+severity = "deny"
+
+[scope]
+include = ["**/*.go"]
+
+[matcher]
+kind = "registry-both-ways"
+registry_file = "registry.go"
+entry_pattern = "no group here"
+use_pattern = "also no group"
+`)
+	var first string
+	for i := 0; i < 200; i++ {
+		_, err := LoadLaws(dir)
+		if err == nil {
+			t.Fatal("err = nil, want one naming a pattern with no capture group")
+		}
+		if i == 0 {
+			first = err.Error()
+			if !strings.Contains(first, "entry_pattern") {
+				t.Fatalf("err = %q, want it to name entry_pattern first", first)
+			}
+			continue
+		}
+		if err.Error() != first {
+			t.Fatalf("run %d: err = %q, run 0: err = %q — same input reported two different fields", i, err.Error(), first)
+		}
+	}
+}

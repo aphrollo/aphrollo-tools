@@ -200,8 +200,8 @@ func fixtureWholeTreeHits(base string, law Law, files []string, content map[stri
 		return depGraphHits(base, law)
 	case KindFileSetContainment:
 		return containmentHits(base, law)
-	case KindJSONNumberCeiling:
-		return jsonCeilingHits(base, law, false, "")
+	case KindJSONNumberCeiling, KindGoBenchCeiling:
+		return ceilingHits(base, law, false, "")
 	}
 	return nil, nil
 }
