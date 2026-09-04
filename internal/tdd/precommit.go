@@ -135,10 +135,8 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 		return GateResult{Blocked: true, Message: msg}
 	}
 
-	for _, g := range groups {
-		if res := gateRoot("precommit", repoRoot, g, run, true); collect(res) {
-			return res
-		}
+	if res := precommitRootsThenTrunkPreview(repoRoot, groups, run, collect); res.Blocked {
+		return res
 	}
 	return GateResult{Message: strings.Join(notes, "\n")}
 }
