@@ -208,6 +208,15 @@ func touchedGoLintPackages(root string, touched []string) []string {
 	var pkgs []string
 	for _, f := range touched {
 		dir := goPackageDir(root, filepath.Dir(f))
+		// A touched file whose directory holds no .go files is not a package
+		// golangci-lint can load; naming it fails the whole run with
+		// "no go files to analyze" and says nothing about the code. The repo
+		// root is the case that bites, because a change to aphrollo.toml is
+		// Source (it configures the gate) while this module keeps its Go
+		// files under cmd/ and internal/.
+		if !dirHasGoFiles(filepath.Join(root, dir)) {
+			continue
+		}
 		pkg := "./" + dir
 		if dir == "." {
 			pkg = "."
