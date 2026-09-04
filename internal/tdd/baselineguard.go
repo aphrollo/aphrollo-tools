@@ -54,7 +54,7 @@ func baselineStage(gateName, repoRoot string) GateResult {
 		if !ok {
 			continue
 		}
-		raised := raisedKeys(rel, before, after)
+		raised := raisedKeys(repoRoot, base, rel, before, after)
 		if len(raised) == 0 {
 			continue
 		}
@@ -76,10 +76,17 @@ func baselineStage(gateName, repoRoot string) GateResult {
 }
 
 // raisedKeys names every key in one baseline file whose count rose or which is
-// new, as `<file> <key> <old> -> <new>`.
-func raisedKeys(file, before, after string) []string {
+// new, as `<file> <key> <old> -> <new>`. For a count-keyed (file-identity)
+// baseline, a key that vanished at one path and reappeared at another with
+// the SAME count and BYTE-IDENTICAL content is a re-path, not a raise — the
+// row moved with the file, the same case a line-keyed baseline already
+// handles by dropping the path from its identity.
+func raisedKeys(repoRoot, base, file, before, after string) []string {
 	old := baselineCounts(before)
 	now := baselineCounts(after)
+	if countedForm(before) && countedForm(after) {
+		repathCountedKeys(repoRoot, base, old, now)
+	}
 	keys := make([]string, 0, len(now))
 	for k := range now {
 		keys = append(keys, k)
