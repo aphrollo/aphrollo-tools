@@ -11,7 +11,19 @@ import (
 // the primary checkout and the linked worktree.
 func primaryRepo(t *testing.T) (primary, linked string) {
 	t.Helper()
-	primary = t.TempDir()
+	return primaryRepoNamed(t, "repo")
+}
+
+// primaryRepoNamed behaves like primaryRepo but nests the checkout under a
+// directory ending in name, instead of a t.TempDir() basename that is a bare
+// sequence number. A test that needs two DISTINGUISHABLE repos — to assert a
+// reason string names one and not the other — must call this with two
+// different names: a bare sequence number can collide with another test's
+// temp dir under -shuffle, making a `strings.Contains` on the raw basename
+// answer no stable question.
+func primaryRepoNamed(t *testing.T, name string) (primary, linked string) {
+	t.Helper()
+	primary = filepath.Join(t.TempDir(), name)
 	gitInit(t, primary)
 	gitDo(t, primary, "checkout", "-q", "-B", "main")
 	commitInitial(t, primary)
@@ -300,8 +312,8 @@ func TestPrimaryMergeOnlyReason_NamesPruneWhenAStaleEntryExists(t *testing.T) {
 // session's own project directory (issue 142).
 func TestPrimaryCheckout_CrossRepoBashNamesTheWriteTargetsRepoNotTheSessionRepo(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	sessionRepo, _ := primaryRepo(t)            // e.g. the borld primary the session started in
-	otherPrimary, otherLinked := primaryRepo(t) // e.g. aphrollo-tools, a wholly different repo
+	sessionRepo, _ := primaryRepoNamed(t, "session-repo")          // e.g. the borld primary the session started in
+	otherPrimary, otherLinked := primaryRepoNamed(t, "other-repo") // e.g. aphrollo-tools, a wholly different repo
 
 	cmd := "cd " + shellPath(otherLinked) + " && echo hi > notes.txt"
 	d := PrimaryCheckoutDecision(bashPayload(t, "bx1", sessionRepo, cmd))
