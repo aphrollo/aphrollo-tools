@@ -25,7 +25,7 @@ func TestRunSuite_OrphanHeldPipeAfterCleanExit(t *testing.T) {
 	}
 	// os.TempDir, not t.TempDir: the orphan outlives the test body and must
 	// not hold a cleanup-checked directory open on Windows.
-	res := RunSuite(20 * time.Second)(r, os.TempDir())
+	res := RunSuite(20*time.Second)(r, os.TempDir())
 	if res.TimedOut {
 		t.Fatal("a clean exit within the deadline must not be TimedOut")
 	}

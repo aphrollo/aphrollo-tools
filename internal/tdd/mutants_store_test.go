@@ -38,7 +38,7 @@ func TestMutantStore_CarriesAcrossLanesForTheSameBlobAndTestSet(t *testing.T) {
 	files := PlanDiffFiles([]string{"crates/a/src/lib.rs"},
 		TreeState{Blobs: map[string]string{"crates/a/src/lib.rs": "blobA"},
 			Packages: map[string]string{"crates/a/src/lib.rs": "crates/a"},
-			Fences: map[string]string{"crates/a": "tsA"}},
+			Fences:   map[string]string{"crates/a": "tsA"}},
 		LoadMutantStore("borld"))
 	if len(files) != 0 {
 		t.Fatalf("PlanDiffFiles = %v, want zero mutants run for a file another lane measured", files)
@@ -57,7 +57,7 @@ func TestMutantStore_AChangedTestSetInvalidatesOnlyItsOwnPackage(t *testing.T) {
 	now := TreeState{
 		Blobs:    map[string]string{"crates/a/src/lib.rs": "blobA", "crates/b/src/lib.rs": "blobB"},
 		Packages: map[string]string{"crates/a/src/lib.rs": "crates/a", "crates/b/src/lib.rs": "crates/b"},
-		Fences: map[string]string{"crates/a": "tsA-NEW", "crates/b": "tsB"},
+		Fences:   map[string]string{"crates/a": "tsA-NEW", "crates/b": "tsB"},
 	}
 	files := PlanDiffFiles([]string{"crates/a/src/lib.rs", "crates/b/src/lib.rs"}, now, LoadMutantStore("borld"))
 	if len(files) != 1 || files[0] != "crates/a/src/lib.rs" {

@@ -192,7 +192,7 @@ func TestRunSuite_UsesRunnerDirOverRoot(t *testing.T) {
 	otherDir := t.TempDir() // deliberately does NOT contain marker.txt
 
 	r := readMarkerRunner(dirWithFile)
-	res := RunSuite(5 * time.Second)(r, otherDir)
+	res := RunSuite(5*time.Second)(r, otherDir)
 	if !res.Passed {
 		t.Fatalf("expected the command to succeed reading marker.txt from Runner.Dir, got: passed=%v output=%q err=%q",
 			res.Passed, res.Output, res.Err)
@@ -210,7 +210,7 @@ func TestRunSuite_FallsBackToRootWhenDirUnset(t *testing.T) {
 	write(t, dirWithFile, "marker.txt", "present\n")
 
 	r := readMarkerRunner("")
-	res := RunSuite(5 * time.Second)(r, dirWithFile)
+	res := RunSuite(5*time.Second)(r, dirWithFile)
 	if !res.Passed {
 		t.Fatalf("expected the command to succeed reading marker.txt from root, got: passed=%v output=%q err=%q",
 			res.Passed, res.Output, res.Err)
