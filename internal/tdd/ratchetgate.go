@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,12 @@ import (
 
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
 )
+
+// ratchetCheckFn is ratchet.Check, indirected so a test can substitute a
+// failure ratchetStage's own error classification must react to without
+// constructing an OS-level unreadable file (not portably possible — see
+// TestRatchetStage_BlocksWhenAScopedFileCannotBeRead).
+var ratchetCheckFn = ratchet.Check
 
 // The edit-time half of the law engine. A law that can only speak under
 // `cargo test` speaks after the write, after the build, after the commit — so
@@ -161,7 +168,7 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 		return GateResult{}
 	}
 	started := time.Now()
-	res, err := ratchet.Check(ratchet.Options{
+	res, err := ratchetCheckFn(ratchet.Options{
 		Root:           repoRoot,
 		Proposed:       indexOverlay(repoRoot),
 		Tracked:        trackedFiles(repoRoot),
@@ -169,13 +176,7 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 		CacheDir:       stateDir(),
 	})
 	if err != nil {
-		// A broken law file is a defect in the rule, not in the commit: say so
-		// loudly and let the commit through rather than wedging every commit
-		// in the repo behind a typo.
-		line := fmt.Sprintf("gate %s: ratchet → skipped (%v)", gateName, err)
-		fmt.Fprintln(os.Stderr, line)
-		appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-skipped", time.Since(started))
-		return GateResult{Message: line}
+		return ratchetCheckErrorResult(gateName, repoRoot, err, started)
 	}
 	noteNewerLaws(gateName, repoRoot, res.NewerLaws)
 	if res.Blocked() {
@@ -191,6 +192,49 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 		return GateResult{}
 	}
 	return ratchetFixtureStage(gateName, repoRoot)
+}
+
+// ratchetCheckErrorResult classifies a ratchetCheckFn failure and decides the
+// commit's fate. Two shapes reach here, and they are NOT the same offence —
+// treating every Check() error as "tooling problem, skip it" was the defect
+// (cold review against #164, this stage untouched by that fix):
+//
+//   - a *ratchet.ScanReadError: a file or directory IN SCOPE could not be
+//     read (locked, permission-denied, any I/O error other than the path
+//     vanishing mid-walk, which stays silent inside Check itself). The
+//     commit cannot be judged against data nobody looked at, so this BLOCKS
+//     and names the path — the concrete #164 scenario: a tracked .rs file
+//     locked by an editor swap file or an AV scan while `git commit` runs.
+//   - anything else: the law tooling could not even START (a malformed law
+//     TOML, a matcher kind this binary's schema predates). Skipping used to
+//     read as "clean" to every stage after it, and it does not just excuse
+//     ONE law — every OTHER law in the repo goes unjudged with it until the
+//     box catches up (#158: one law a binary is too old to parse disarmed
+//     the whole ratchet stage, and `docs check` alongside it, until
+//     reinstall). A gate that cannot read its own laws is not a gate, so
+//     this blocks too, with a remedy: fix the law, or reinstall aphrollo.
+//
+// Both block; only the message differs, because the two need different
+// fixes and a session reading gate.log should not have to guess which one
+// it hit. Classification goes through errors.As against ratchet's own typed
+// error, never string-matching — the design contract's "fail loud with a
+// fix suggestion" applies to the classification itself, not just the block.
+func ratchetCheckErrorResult(gateName, repoRoot string, err error, started time.Time) GateResult {
+	var readErr *ratchet.ScanReadError
+	if errors.As(err, &readErr) {
+		msg := fmt.Sprintf(
+			"gate %s: ratchet → REJECTED (a scoped file could not be read: %v)\n  the commit cannot be judged against %s — retry once the lock or permission clears",
+			gateName, err, readErr.Path)
+		fmt.Fprintln(os.Stderr, msg)
+		appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-rejected", time.Since(started))
+		return GateResult{Blocked: true, Message: msg}
+	}
+	msg := fmt.Sprintf(
+		"gate %s: ratchet → REJECTED (the law tooling could not run: %v)\n  fix the law file named above, or reinstall aphrollo if it predates a matcher kind or schema a law declares",
+		gateName, err)
+	fmt.Fprintln(os.Stderr, msg)
+	appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-rejected", time.Since(started))
+	return GateResult{Blocked: true, Message: msg}
 }
 
 // noteNewerLaws reports every law whose declared schema this binary is too

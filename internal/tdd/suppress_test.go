@@ -12,8 +12,8 @@ func TestSuppress_Detected(t *testing.T) {
 	// Each value carries a suppression directive in a comment. At edit phase it
 	// is advisory (Warn); at commit phase it is a hard block.
 	directives := []string{
-		"x := f() //nolint:errcheck",
-		"x := f() // nolint",
+		"x := f() //nolint:errcheck", // reason: a real nolint directive the detector must catch
+		"x := f() // nolint",         // reason: the spaced form, same detector
 		"const a = b // eslint-disable-next-line",
 		"y = g()  # noqa: E501",
 		"y = g()  # pylint: disable=invalid-name",
@@ -39,7 +39,7 @@ func TestSuppress_Detected(t *testing.T) {
 func TestSuppress_Allowed(t *testing.T) {
 	// A directive that lives in a STRING, or ordinary code, must not trip.
 	allowed := []string{
-		`msg := "remember to add //nolint here"`, // directive quoted in a string
+		`msg := "remember to add //nolint here"`, // reason: directive quoted in a string, must not trip
 		`label = "eslint-disable in docs"`,       // ditto
 		"x := f()",                               // ordinary code
 		"// a plain explanatory comment",         // a comment with no directive

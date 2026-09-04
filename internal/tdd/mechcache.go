@@ -141,11 +141,32 @@ func worktreeStateHash(root string) string {
 	if err != nil {
 		return ""
 	}
-	changed, err := gitRead(root, "diff", "HEAD", "--name-only", "--no-color")
+	// `git diff --name-only` prints REPO-ROOT-relative paths by default,
+	// regardless of cwd; `--full-name` makes `ls-files` match that base
+	// instead of its natural cwd-relative one. Both must agree, because
+	// `git hash-object --stdin-paths` below ALSO always resolves its input
+	// relative to the repo root, ignoring cwd entirely (unlike a bare path
+	// argument) — verified empirically, undocumented quirk. root routinely
+	// lands on a Cargo workspace member crate's own subdirectory
+	// (FindProjectRoot finds the nearest Cargo.toml, not the workspace
+	// root), so anchoring the Lstat/hash step at root itself either doubled
+	// a repo-root-relative path into a nonexistent one, or fed a
+	// cwd-relative path to hash-object where it silently resolved against
+	// the wrong file (#175).
+	// -z: git quotes a path containing a byte >= 0x80 (or other "unusual"
+	// bytes) as a C-quoted string by default (core.quotePath defaults to
+	// true, git-config(1)) — e.g. `"caf\303\251.rs"`, surrounding quotes and
+	// octal escapes literal. `-z` makes git emit raw, unquoted, NUL-separated
+	// paths regardless of core.quotePath, so the Lstat/hash-object join below
+	// never has to un-quote. Without it a quoted literal never matches a real
+	// file, os.Lstat fails, and the path is stamped "gone" no matter what its
+	// content changes to — the same cache-poisoning shape #175 fixed, reached
+	// by this route instead (#175).
+	changed, err := gitRead(root, "diff", "HEAD", "--name-only", "--no-color", "-z")
 	if err != nil {
 		return ""
 	}
-	untracked, err := gitRead(root, "ls-files", "--others", "--exclude-standard")
+	untracked, err := gitRead(root, "ls-files", "--others", "--exclude-standard", "--full-name", "-z")
 	if err != nil {
 		return ""
 	}
@@ -153,25 +174,32 @@ func worktreeStateHash(root string) string {
 	seen := map[string]bool{}
 	var paths []string
 	for _, out := range []string{changed, untracked, ignoredConfig(root)} {
-		for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-			if line != "" && !seen[line] {
-				seen[line] = true
-				paths = append(paths, line)
+		for _, p := range splitNulPaths(out) {
+			if !seen[p] {
+				seen[p] = true
+				paths = append(paths, p)
 			}
 		}
 	}
 	sort.Strings(paths)
+
+	// Every path above is repo-root-relative, so the join and the
+	// hash-object call below must anchor there too, not at root.
+	base := RepoRoot(root)
+	if base == "" {
+		base = root
+	}
 
 	// Batch-hash the paths that are regular files; anything else (deleted,
 	// replaced by a directory) is stamped "gone" so its absence still shapes
 	// the hash.
 	var present []string
 	for _, p := range paths {
-		if fi, err := os.Lstat(filepath.Join(root, p)); err == nil && fi.Mode().IsRegular() {
+		if fi, err := os.Lstat(filepath.Join(base, p)); err == nil && fi.Mode().IsRegular() {
 			present = append(present, p)
 		}
 	}
-	blobs, ok := blobHashes(root, present)
+	blobs, ok := blobHashes(base, present)
 	if !ok {
 		return ""
 	}
@@ -197,13 +225,30 @@ func worktreeStateHash(root string) string {
 // bound: pathspec-limited to dotenv + config/ trees, target/ and
 // node_modules/ excluded.
 func ignoredConfig(root string) string {
-	out, err := gitRead(root, "ls-files", "--others", "--ignored", "--exclude-standard", "--",
+	out, err := gitRead(root, "ls-files", "--others", "--ignored", "--exclude-standard", "--full-name", "-z", "--",
 		":(glob).env*", ":(glob)**/.env*", ":(glob)config/**", ":(glob)**/config/**",
 		":(glob,exclude)**/target/**", ":(glob,exclude)**/node_modules/**")
 	if err != nil {
 		return ""
 	}
 	return out
+}
+
+// splitNulPaths splits a `-z`-terminated git path list. Each path (including
+// the last) is followed by a trailing NUL, so a naive split on "\x00" leaves
+// one empty trailing field; dropped here rather than left for a caller to
+// forget, since an empty-string path joined against a base directory would
+// Lstat the base itself and stamp IT "gone" in the hash. Empty input yields
+// an empty path set, never a slice holding one empty string.
+func splitNulPaths(s string) []string {
+	if s == "" {
+		return nil
+	}
+	fields := strings.Split(s, "\x00")
+	if n := len(fields); n > 0 && fields[n-1] == "" {
+		fields = fields[:n-1]
+	}
+	return fields
 }
 
 // blobHashes returns the git blob hash of each file via one batched

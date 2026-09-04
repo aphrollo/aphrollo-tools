@@ -12,6 +12,14 @@ import (
 // to be written — a Decision the CLI drops on the floor leaves the same blind
 // spot the logging was added to close.
 func TestRun_TDD_PreToolUseDenialIsRecorded(t *testing.T) {
+	// Run from a directory that is not a checkout of anything. The hook
+	// applies the primary-checkout policy BEFORE it looks at the content, so
+	// with the suite's own working directory inherited this test recorded
+	// pretooluse-denied:primary-checkout and never reached the detector it is
+	// about. That made it pass from a lane worktree and fail from the primary
+	// checkout — which is exactly where the merge gate runs it, so it blocked
+	// every merge touching this package.
+	t.Chdir(t.TempDir())
 	cfg := gateConfigDir(t)
 	var out, errb bytes.Buffer
 	stdin := strings.NewReader(`{"tool_name":"Write","tool_input":{"file_path":"a_test.go","content":"assert x == x"}}`)

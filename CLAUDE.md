@@ -1,13 +1,15 @@
 # aphrollo-tools
 
-First-party dev-env tooling for the agent platform: one zero-dependency Go
-binary, **`aphrollo`** (`/usr/local/bin/aphrollo`). Moves deterministic
+First-party dev-env tooling for the agent platform: one Go binary,
+**`aphrollo`** (`/usr/local/bin/aphrollo`), on the standard library plus two
+pinned modules — `golang.org/x/sys` for the Windows process and job-object
+syscalls, and `pgregory.net/rapid` for the property tests. Moves deterministic
 developer work *out of the agent token stream into code* — the agent spends
 tokens on judgment, not mechanical read→grep→multi-edit→verify loops. `README.md`
 is the full user-facing command reference; this file is the **developer**
 context (conventions, contract, deploy).
 
-Module `github.com/aphrollo/aphrollo-tools`, go 1.26.4. Single binary —
+Module `github.com/aphrollo/aphrollo-tools`, go 1.26.6. Single binary —
 `go build -o aphrollo ./cmd/aphrollo`.
 
 ## Design contract (every tool obeys it)
@@ -52,6 +54,12 @@ and acts now.
   ratchet engine's `doc-path-resolves` matcher (a repo's own
   `doc_reference_exists` law, else the built-in `common/doc_reference_exists`
   preset) — this subcommand is CLI surface only.
+- `sqlc` — `check` regenerates every discovered sqlc config into a temp dir and
+  diffs it against the committed tree, failing CI on drift in a gated config;
+  `regen --scoped` regenerates and keeps only the hunks that derive from a
+  query the working tree changed, backing out the rest as pre-existing drift.
+  Gating (clean vs reported-only per config) comes from a committed
+  `.aphrollo-sqlc.yaml` sidecar.
 
 ## Layout
 
@@ -67,6 +75,7 @@ internal/tdd/        TDD + law gates: policy engine, edit smells, anti-cheat, fa
 internal/docs/       doc-reference guard: extract path citations, resolve, report misses
 internal/workspace/  worktree lifecycle + git verbs
 internal/dev/        dev-tier control plane (systemd)
+internal/sqlc/       sqlc drift guard: config discovery, regen-into-temp, check, scoped-by-symbol regen
 ```
 
 ## Conventions
@@ -86,6 +95,16 @@ internal/dev/        dev-tier control plane (systemd)
   comments; suppression detectors mask strings, keep comments) — a token only in
   a string never blocks. Keep edit-time blocks near-zero-FP; heavy checks
   (fail-first) live at commit/push where a false block only costs a re-run.
+- **An issue closes on the merge, never before.** Every fix commit carries its
+  `Closes #<n>` trailer and GitHub fires it when the lane lands on `main`. Do
+  not close an issue by hand for work that is committed but unmerged: the fix is
+  not in `main` yet, and if the merge is refused or the change reworked, the
+  issue is already closed and nobody looks again. The general rule it comes
+  from: never record a status further along than the work actually is. A
+  `deferred`, `TIMEOUT` or `SKIPPED` verdict is not a green — the code was not
+  tested. A merge needs the receipt the gate actually demands, not one waved
+  through. A new hit is admitted by the law's escape comment, never by editing
+  a baseline.
 - **Attribution: honest here.** This is first-party tooling, not a client-facing
   undercover repo — the `🤖 Generated with Claude Code` footer + `Co-Authored-By`
   are fine (matches aphrollo-agents; per the box `~/CLAUDE.md` per-repo rule).

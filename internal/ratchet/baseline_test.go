@@ -47,10 +47,10 @@ func TestBaselineTightenLowersRemovesAndNeverRaisesOrAdds(t *testing.T) {
 	}
 }
 
-// TestBaselineAdoptRaisesAndCreatesRows proves Adopt does what Tighten
+// TestBaseline_AdoptRaisesAndCreatesRows proves Adopt does what Tighten
 // deliberately never does: raise an existing key past its old ceiling, and
 // create a row for a key the baseline has never seen at all.
-func TestBaselineAdoptRaisesAndCreatesRows(t *testing.T) {
+func TestBaseline_AdoptRaisesAndCreatesRows(t *testing.T) {
 	b, err := ParseBaseline("crates/a.rs | 900\ncrates/b.rs | 620\n", Counted)
 	if err != nil {
 		t.Fatal(err)
@@ -76,10 +76,10 @@ func TestBaselineAdoptRaisesAndCreatesRows(t *testing.T) {
 	}
 }
 
-// TestBaselineAdoptOnAnEmptyBaselineWritesEveryMeasuredRow is the "law has no
+// TestBaseline_AdoptOnAnEmptyBaselineWritesEveryMeasuredRow is the "law has no
 // baseline file yet" shape: adopting from zero rows must write every key —
 // the exact case where ordinary Tighten writes nothing at all.
-func TestBaselineAdoptOnAnEmptyBaselineWritesEveryMeasuredRow(t *testing.T) {
+func TestBaseline_AdoptOnAnEmptyBaselineWritesEveryMeasuredRow(t *testing.T) {
 	b := &Baseline{form: Counted}
 	// An ordinary Tighten over an empty baseline adds nothing, by design.
 	b.Tighten(map[string]int{"crates/a.rs": 40, "crates/b.rs": 12})
@@ -93,10 +93,10 @@ func TestBaselineAdoptOnAnEmptyBaselineWritesEveryMeasuredRow(t *testing.T) {
 	}
 }
 
-// TestBaselineAdoptOnAMultisetFormWritesOneRowPerOccurrence proves adoption
+// TestBaseline_AdoptOnAMultisetFormWritesOneRowPerOccurrence proves adoption
 // respects the line-keyed forms' one-row-per-occurrence shape, using the
 // sites a real scan would hand it.
-func TestBaselineAdoptOnAMultisetFormWritesOneRowPerOccurrence(t *testing.T) {
+func TestBaseline_AdoptOnAMultisetFormWritesOneRowPerOccurrence(t *testing.T) {
 	b := &Baseline{form: MultisetByText}
 	b.AdoptWithSites(
 		map[string]int{"x.clamp(0.0, 1.0)": 2},
@@ -108,13 +108,13 @@ func TestBaselineAdoptOnAMultisetFormWritesOneRowPerOccurrence(t *testing.T) {
 	}
 }
 
-// TestBaselineAdoptOnAnExistingMultisetLowersDropsAndCreates proves the first
+// TestBaseline_AdoptOnAnExistingMultisetLowersDropsAndCreates proves the first
 // pass of AdoptWithSites — the one walking EXISTING rows — for a form keyed
 // by occurrence count, not a single row per key: a repeated identity must
 // drop exactly the rows past its new target (the seen>=want boundary), an
 // identity absent from the new measure must drop every row, and a brand-new
 // identity still gets its rows from `sites` in the second pass.
-func TestBaselineAdoptOnAnExistingMultisetLowersDropsAndCreates(t *testing.T) {
+func TestBaseline_AdoptOnAnExistingMultisetLowersDropsAndCreates(t *testing.T) {
 	b, err := ParseBaseline(
 		"crates/a.rs | x.clamp(0.0, 1.0)\ncrates/b.rs | x.clamp(0.0, 1.0)\ncrates/c.rs | z.sin()\n",
 		MultisetByText,
@@ -155,11 +155,11 @@ func TestBaselineAdoptOnAnExistingMultisetLowersDropsAndCreates(t *testing.T) {
 	}
 }
 
-// TestBaselineAdoptIgnoresAZeroOrNegativeMeasuredCount proves a key whose
+// TestBaseline_AdoptIgnoresAZeroOrNegativeMeasuredCount proves a key whose
 // measured count is not positive never lands a row — the measure function
 // this feeds from counts occurrences, never anything else, but the guard
 // must still hold if it ever hands over a zero.
-func TestBaselineAdoptIgnoresAZeroOrNegativeMeasuredCount(t *testing.T) {
+func TestBaseline_AdoptIgnoresAZeroOrNegativeMeasuredCount(t *testing.T) {
 	b := &Baseline{form: Counted}
 	b.AdoptWithSites(map[string]int{"crates/a.rs": 0, "crates/b.rs": -1, "crates/c.rs": 4}, nil)
 	want := "crates/c.rs | 4\n"
@@ -168,13 +168,13 @@ func TestBaselineAdoptIgnoresAZeroOrNegativeMeasuredCount(t *testing.T) {
 	}
 }
 
-// TestBaselineAdoptExhaustsKnownSitesThenFallsBackToTheIdentity proves the
+// TestBaseline_AdoptExhaustsKnownSitesThenFallsBackToTheIdentity proves the
 // site-assignment loops (both the first pass over existing rows and the
 // second pass appending shortfall rows) stop consulting `sites` once its
 // list runs out, at the EXACT boundary where the count of rows already
 // placed equals the number of known sites, and fall back to the bare
 // identity for whatever is left.
-func TestBaselineAdoptExhaustsKnownSitesThenFallsBackToTheIdentity(t *testing.T) {
+func TestBaseline_AdoptExhaustsKnownSitesThenFallsBackToTheIdentity(t *testing.T) {
 	// Existing pass: two rows for "q.tan()" kept, but only ONE known site —
 	// the first is renamed to it, the second keeps its original path.
 	b, err := ParseBaseline(

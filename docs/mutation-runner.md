@@ -196,6 +196,27 @@ gremlins' statuses map onto the receipt as: `KILLED` → caught, `LIVED` and
 `NOT COVERED` → missed, `TIMED OUT` → timeout, anything else → unviable. An
 unrecognised status is never read as caught.
 
+The diff-only pilot that preceded this wiring found the signal clean on this
+repo (4/4 survivors were real gaps, 0 equivalent-mutant noise) and surfaced
+one standing gap worth naming: gremlins gathers coverage from the UNIT suite
+only, so a repo whose real logic sits behind `//go:build integration` tests
+(a Postgres-backed store package, say) gets an empty or misleadingly-clean
+report over that code unless the run adds `--tags integration --integration`
+— which also re-runs the full suite per mutant, so it is a deliberate,
+slower opt-in rather than the default shape above.
+
+The same pilot named one operational hazard that follows from how that
+coverage is gathered: gremlins runs the WHOLE module's test suite once before
+it mutates anything, so a single failing or flaky test anywhere in the module
+aborts the entire run with `failed to gather coverage` — a rust-analyzer e2e
+flake did exactly that here. The failure names coverage rather than the test
+that caused it, which is the part worth knowing in advance. This repo's own CI
+does not hit it because the `mutants` job declares `needs: [changes, test]`
+and so cannot start over a red module, but that ordering was chosen to avoid a
+git-config lock collision and only incidentally covers this; a pipeline that
+runs `aphrollo gate mutants go` without a green suite ahead of it gets the
+abort with no hint of the cause.
+
 The accept-list for survivors lives in `aphrollo.toml`, with a reason per
 entry — an entry with no reason does not count as accepted:
 

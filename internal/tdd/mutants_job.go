@@ -37,7 +37,10 @@ type MutantsJob struct {
 	Schema int `json:"schema"`
 	// Repo is the git COMMON dir — the one directory every worktree of a repo
 	// shares, and therefore what "the same repo" means here.
-	Repo      string `json:"repo"`
+	Repo string `json:"repo"`
+	// RepoID is the same repository named independently of where it is
+	// checked out; see MutationReceipt.RepoID.
+	RepoID    string `json:"repo_id,omitempty"`
 	RepoRoot  string `json:"repo_root"`
 	Branch    string `json:"branch"`
 	Tip       string `json:"tip"`
@@ -93,7 +96,7 @@ func startMutantsJob(repoRoot string) (MutantsJob, bool, error) {
 		return MutantsJob{}, false, nil
 	}
 	j := MutantsJob{
-		Schema: StateSchema, Repo: commonGitDir(root), RepoRoot: root, Branch: branch,
+		Schema: StateSchema, Repo: commonGitDir(root), RepoID: repoIdentity(root), RepoRoot: root, Branch: branch,
 		Tip: gitOut(root, "rev-parse", "HEAD"), TipTree: gitOut(root, "rev-parse", "HEAD:"),
 		BaseRef: laneBaseRef(root), Worktree: MutantsWorktreeDir(root), TargetDir: MutantsTargetDir(root),
 	}
@@ -212,6 +215,28 @@ func mutationRunsLocally(root string) bool {
 		return v
 	}
 	return true
+}
+
+// mutationJudgedLocally reports whether THIS box may judge a lane's mutation
+// receipt. It defaults to mutationRunsLocally, because the two normally agree:
+// the box that measures is the box that holds the receipt and the key it was
+// signed with.
+//
+// They come apart when the run is measured elsewhere UNDER THE SAME KEY -- a
+// Linux clone sharing CLAUDE_CONFIG_DIR, which is how this repo earns receipts
+// a Windows gremlins cannot produce. There the receipt is present and
+// verifiable, so standing the gate down would waive a proof that exists, and
+// every lane would merge on nothing. `mutants-judge-local` says which answer
+// applies when they differ; unset, nothing changes for any repo.
+func mutationJudgedLocally(root string) bool {
+	if v, set := tomlBoolSetIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", "mutants-judge-local"); set {
+		return v
+	}
+	ws := cargoWorkspaceRoot(root)
+	if v, set := tomlBoolSetIn(filepath.Join(ws, "Cargo.toml"), "[workspace.metadata.aphrollo]", "mutants-judge-local"); set {
+		return v
+	}
+	return mutationRunsLocally(root)
 }
 
 // MutantsWorktreeDir is the ONE dedicated worktree a repo's mutation runs use,

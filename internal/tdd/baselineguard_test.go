@@ -159,10 +159,10 @@ kind = "regex-absent"
 pattern = "\.clamp\("
 `
 
-// TestBaselineGuardAllowsARaiseWhenTheLawsScopeChangedInTheSameCommit is the
+// TestBaselineGuard_AllowsARaiseWhenTheLawsScopeChangedInTheSameCommit is the
 // escape this guard closes: a law's scope widened in the SAME commit that
 // carries the baseline row the widening now reaches — adopted, not rejected.
-func TestBaselineGuardAllowsARaiseWhenTheLawsScopeChangedInTheSameCommit(t *testing.T) {
+func TestBaselineGuard_AllowsARaiseWhenTheLawsScopeChangedInTheSameCommit(t *testing.T) {
 	widenedLaw := strings.Replace(nanGuardLawText,
 		`include = ["crates/**/*.rs"]`, `include = ["crates/**/*.rs", "tools/**/*.rs"]`, 1)
 	root := lawAndBaselineRepo(t, nanGuardLawText, "crates/a.rs | let a = x.clamp(0.0, 1.0);\n",
@@ -177,10 +177,10 @@ func TestBaselineGuardAllowsARaiseWhenTheLawsScopeChangedInTheSameCommit(t *test
 	requireLoggedVerdict(t, cfg, "baseline-adopted:nan-guard:1")
 }
 
-// TestBaselineGuardRefusesARaiseWhenTheLawIsUnchanged is the same raised row,
+// TestBaselineGuard_RefusesARaiseWhenTheLawIsUnchanged is the same raised row,
 // with the law's scope and matcher untouched — still refused, exactly like
 // an unrelated hand-edit.
-func TestBaselineGuardRefusesARaiseWhenTheLawIsUnchanged(t *testing.T) {
+func TestBaselineGuard_RefusesARaiseWhenTheLawIsUnchanged(t *testing.T) {
 	root := lawAndBaselineRepo(t, nanGuardLawText, "crates/a.rs | let a = x.clamp(0.0, 1.0);\n",
 		nanGuardLawText, "crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
 
@@ -193,10 +193,171 @@ func TestBaselineGuardRefusesARaiseWhenTheLawIsUnchanged(t *testing.T) {
 	}
 }
 
-// TestBaselineGuardRefusesARaiseWhenADifferentLawChanged proves adoption is
+// TestBaselineGuard_RefusesAHandRaiseWithNoCatchUpMerge is the cold-review
+// RED: a lane introduces a law and its baseline, then a LATER commit
+// hand-raises the baseline with no `git merge` anywhere in the lane's
+// history. The law being absent from trunk is not by itself evidence of a
+// catch-up merge — only an actual merge event is — so this must stay refused
+// for the entire pre-merge lifetime of the lane, not just its first commit.
+func TestBaselineGuard_RefusesAHandRaiseWithNoCatchUpMerge(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, "crates", "a.rs"), "let a = x.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	gitFixture(t, root, "branch", "-M", "main")
+	gitFixture(t, root, "checkout", "-q", "-b", "lane")
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "nan-guard.toml"), nanGuardLawText)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"), "crates/a.rs | let a = x.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"),
+		"crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+
+	res := baselineStage("precommit", root)
+	if !res.Blocked {
+		t.Fatal("no merge happened anywhere in the lane's history — a hand-raised row must still be rejected")
+	}
+	if !strings.Contains(res.Message, "tools/b.rs") {
+		t.Errorf("message must name the offending row: %s", res.Message)
+	}
+}
+
+// TestBaselineGuard_AllowsARaiseOnTheCommitRightAfterAGenuineCatchUpMerge is
+// the legitimate case the escape exists for: a lane introduces a law and its
+// baseline, trunk moves on without the lane, the lane runs a REAL `git merge`
+// of trunk, and the very next commit re-writes the baseline to cover what the
+// merge brought in. Trunk never had the law, so the lane owns the baseline
+// and re-writing it with the ratchet is adoption, not a hand raise.
+func TestBaselineGuard_AllowsARaiseOnTheCommitRightAfterAGenuineCatchUpMerge(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, "crates", "a.rs"), "let a = x.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	gitFixture(t, root, "branch", "-M", "main")
+	gitFixture(t, root, "checkout", "-q", "-b", "lane")
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "nan-guard.toml"), nanGuardLawText)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"), "crates/a.rs | let a = x.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+
+	// Trunk grows a file the lane's law will eventually see, without the lane.
+	gitFixture(t, root, "checkout", "-q", "main")
+	mustWrite(t, filepath.Join(root, "tools", "b.rs"), "let b = y.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+
+	// The lane catches up with a real merge, not a hand-edit.
+	gitFixture(t, root, "checkout", "-q", "lane")
+	gitFixture(t, root, "merge", "main", "--no-edit", "-m", "catch up with main")
+
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"),
+		"crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	res := baselineStage("precommit", root)
+	if res.Blocked {
+		t.Fatalf("a raise on the commit right after a genuine trunk merge must be adopted, not rejected: %s", res.Message)
+	}
+	requireLoggedVerdict(t, cfg, "baseline-adopted:nan-guard:1")
+}
+
+// TestBaselineGuard_RefusesARaiseWhenTheLawIsAlreadyOnTrunk is the same lane
+// shape with the law committed on main BEFORE the lane branched: trunk owns
+// the baseline, so the raised row is a hand raise and stays refused.
+func TestBaselineGuard_RefusesARaiseWhenTheLawIsAlreadyOnTrunk(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "nan-guard.toml"), nanGuardLawText)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"), "crates/a.rs | let a = x.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	gitFixture(t, root, "branch", "-M", "main")
+	gitFixture(t, root, "checkout", "-q", "-b", "lane")
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"),
+		"crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+
+	res := baselineStage("precommit", root)
+	if !res.Blocked {
+		t.Fatal("trunk already carries the law — the raised row must still be rejected")
+	}
+	if !strings.Contains(res.Message, "tools/b.rs") {
+		t.Errorf("message must name the offending row: %s", res.Message)
+	}
+}
+
+// TestBaselineGuard_RefusesARaiseWhenTheTrunkCannotBeNamed: the adoption path
+// asks whether trunk already carries the law, and every uncertainty must
+// answer "it does" — otherwise a repository whose trunk is called something
+// else adopts every hand raise. Here the only branch is `trunk`, which no
+// candidate names, so the raise stays refused.
+func TestBaselineGuard_RefusesARaiseWhenTheTrunkCannotBeNamed(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "nan-guard.toml"), nanGuardLawText)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"), "crates/a.rs | let a = x.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	gitFixture(t, root, "branch", "-M", "trunk")
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"),
+		"crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+
+	res := baselineStage("precommit", root)
+	if !res.Blocked {
+		t.Fatal("with no nameable trunk the raise must be refused, not adopted")
+	}
+}
+
+// TestBaselineGuard_RefusesARaiseWhenAStaleMasterSitsBesideTheRealTrunk: a
+// branch merely NAMED master is not trunk. The remote's own default names it,
+// and the law is on that branch, so the raise is a hand raise.
+func TestBaselineGuard_RefusesARaiseWhenAStaleMasterSitsBesideTheRealTrunk(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, "seed.txt"), "seed\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	gitFixture(t, root, "branch", "-M", "master")
+	gitFixture(t, root, "checkout", "-q", "-b", "develop")
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "nan-guard.toml"), nanGuardLawText)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"), "crates/a.rs | let a = x.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	// The remote's default branch is what trunk means here, and `develop`
+	// carries the law, so a lane branched off it does not own the law.
+	gitFixture(t, root, "update-ref", "refs/remotes/origin/develop", "develop")
+	gitFixture(t, root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop")
+	gitFixture(t, root, "checkout", "-q", "-b", "lane")
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"),
+		"crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
+	gitAddAll(t, root)
+
+	res := baselineStage("precommit", root)
+	if !res.Blocked {
+		t.Fatal("a stale master must not stand in for the real trunk: the raise must be refused")
+	}
+}
+
+// gitFixture runs one git command inside a fixture repository, hooks off.
+func gitFixture(t *testing.T, root string, args ...string) {
+	t.Helper()
+	cmd := exec.Command(gitBinary(), append([]string{"-c", "core.hooksPath="}, args...)...)
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// TestBaselineGuard_RefusesARaiseWhenADifferentLawChanged proves adoption is
 // scoped to the law that OWNS the baseline: touching some unrelated law's
 // [matcher] must never license a raise on nan-guard's baseline.
-func TestBaselineGuardRefusesARaiseWhenADifferentLawChanged(t *testing.T) {
+func TestBaselineGuard_RefusesARaiseWhenADifferentLawChanged(t *testing.T) {
 	root := lawAndBaselineRepo(t, nanGuardLawText, "crates/a.rs | let a = x.clamp(0.0, 1.0);\n",
 		nanGuardLawText, "crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
 	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "other.toml"), `name = "other"
@@ -218,7 +379,7 @@ pattern = "TODO"
 	}
 }
 
-// TestBaselineGuardRefusesARaiseEvenWhenALaterLawFalselyClaimsOwnership
+// TestBaselineGuard_RefusesARaiseEvenWhenALaterLawFalselyClaimsOwnership
 // proves the out-of-band-raise path: a law file present on disk but never
 // `git add`ed (no index entry at all, not merely an unchanged one) is still
 // read from disk and answers "does it own this baseline" BEFORE the scan
@@ -226,7 +387,7 @@ pattern = "TODO"
 // same baseline path must never get to answer that question in its place. A
 // scan that skipped the real, untracked owner would let the raise through on
 // the imposter's say-so.
-func TestBaselineGuardRefusesARaiseEvenWhenALaterLawFalselyClaimsOwnership(t *testing.T) {
+func TestBaselineGuard_RefusesARaiseEvenWhenALaterLawFalselyClaimsOwnership(t *testing.T) {
 	root := t.TempDir()
 	gitInit(t, root)
 	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"),
@@ -260,5 +421,69 @@ func TestBaselineGuardIsSilentWhenNoBaselineIsStaged(t *testing.T) {
 	gitAddAll(t, root)
 	if res := baselineStage("precommit", root); res.Blocked || res.Message != "" {
 		t.Fatalf("result = %+v, want silence", res)
+	}
+}
+
+// TestTrunkBranch_ReturnsOriginHEADTargetAssoonAsItResolves proves the first
+// candidate short-circuits: when refs/remotes/origin/HEAD names a branch,
+// that name is returned immediately, without falling through to
+// init.defaultBranch or the main/master fallbacks.
+func TestTrunkBranch_ReturnsOriginHEADTargetAsSoonAsItResolves(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, "seed.txt"), "seed\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	// Keep the local default branch off main/master so neither fallback
+	// candidate could coincidentally produce the same answer.
+	gitFixture(t, root, "branch", "-M", "primary")
+	gitFixture(t, root, "checkout", "-q", "-b", "develop")
+	gitFixture(t, root, "update-ref", "refs/remotes/origin/develop", "develop")
+	gitFixture(t, root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop")
+
+	got := trunkBranch(root)
+	want := "origin/develop"
+	if got != want {
+		t.Fatalf("trunkBranch(root) = %q, want %q — the remote's own default must win immediately", got, want)
+	}
+}
+
+// TestTrunkBranch_UsesConfiguredDefaultBranchWhenItResolves proves the second
+// candidate: with no origin/HEAD set, a configured init.defaultBranch that
+// names a real, resolvable branch is returned. This single case constrains
+// all three conditions the config path chains together (config succeeded,
+// the configured name is non-empty, and the name actually resolves) — break
+// any one of the three and the chain falls through to the unconfigured
+// main/master fallback, which finds nothing here and answers "".
+func TestTrunkBranch_UsesConfiguredDefaultBranchWhenItResolves(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, "seed.txt"), "seed\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	// Keep the local default branch off main/master so neither fallback
+	// candidate could coincidentally produce the same answer as "trunk".
+	gitFixture(t, root, "branch", "-M", "primary")
+	gitFixture(t, root, "checkout", "-q", "-b", "trunk")
+	gitFixture(t, root, "config", "init.defaultBranch", "trunk")
+
+	got := trunkBranch(root)
+	want := "trunk"
+	if got != want {
+		t.Fatalf("trunkBranch(root) = %q, want %q — a configured, resolvable default branch must win", got, want)
+	}
+}
+
+// TestLastSHALine_RejectsANonHexByteEvenAtLength40 proves the hex-digit scan
+// actually runs: a string that is exactly 40 bytes long but carries one
+// non-hex byte must still be rejected. Skipping the scan would let any
+// 40-byte string through length-checking alone.
+func TestLastSHALine_RejectsANonHexByteEvenAtLength40(t *testing.T) {
+	notHex := strings.Repeat("a", 39) + "z" // 40 bytes, 'z' is not a hex digit
+	if len(notHex) != 40 {
+		t.Fatalf("test fixture is %d bytes, want exactly 40", len(notHex))
+	}
+	if got := lastSHALine(notHex); got != "" {
+		t.Fatalf("lastSHALine(%q) = %q, want \"\" — a non-hex byte must reject even at the right length", notHex, got)
 	}
 }
