@@ -114,7 +114,15 @@ func RunMutantsJob(jobPath string) int {
 		len(plan), len(carried), len(judged), movedLines)
 
 	start := time.Now()
+	// The box-wide lock covers the WHOLE producer call, its own cold build
+	// included: several lanes building the same crates at once OOM'd rustc
+	// mid-build, the identical resource argument as the thread starvation
+	// issue #253 reports for the test phase. Held only for this call —
+	// acquired immediately before, released immediately after — never
+	// across the bookkeeping below.
+	releaseRunLock := acquireMutantsRunLock("mutants run for "+j.Repo, j.RepoRoot)
 	code := mutantsProducerFn(j, judged)
+	releaseRunLock()
 	// Read BEFORE judging the exit code: a run that died at mutant 101 of 131
 	// still wrote 100 verdicts, and this is the read that stops them being
 	// thrown away (issue #103).
