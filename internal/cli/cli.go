@@ -261,6 +261,8 @@ Subcommands:
   issue             Open one labelled issue against the repo's GitHub remote and
                     print its URL (--label, --body, --repo, --new-label). An open
                     point is an issue, never a markdown follow-up
+  feedback          Report a defect in the GATE ITSELF to the tool's tracker, with
+                    the reporting repo and tip attached
   escape            The escape loop: record | sync | list | verify-closure <pr>.
                     A red after a local green is recorded and opened as a labelled
                     issue; verify-closure refuses a PR that closes one without
@@ -437,6 +439,11 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// The general issue verb: an open point is a row somebody can
 		// filter, not a line in a markdown list.
 		return runGateIssue(args[1:], stdout, stderr)
+	}
+	if args[0] == "feedback" {
+		// The same, aimed the other way: a defect in the TOOL belongs on the
+		// tool's tracker, not in front of maintainers who cannot fix it.
+		return runGateFeedback(args[1:], stdout, stderr)
 	}
 	if args[0] == "escape" {
 		// The escape loop: record a red that got past a local green, and

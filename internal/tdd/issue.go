@@ -41,6 +41,12 @@ type IssueOptions struct {
 	// LabelMeta describes a label being created, keyed by name. Absent names
 	// get the neutral theme colour and no description.
 	LabelMeta map[string]labelMeta
+	// TargetRepo routes the issue to a DIFFERENT `owner/name` than Repo's own
+	// remote — the route a tool bug takes to the tool's tracker rather than
+	// the tracker of whoever tripped over it. Repo still says where gh runs
+	// and where the provenance comes from; empty means file locally, which is
+	// what `gate issue` does.
+	TargetRepo string
 }
 
 // labelMeta is what a label is created with the first time it is used.
@@ -153,18 +159,27 @@ var ErrNoIssueTarget = errNoIssueTarget
 // gh, no GitHub remote). Callers that hold a local record report every other
 // error and stay quiet about that one.
 func OpenIssue(o IssueOptions) (url string, number int, err error) {
-	if err := checkDeclaredLabels(o.Repo, o.Labels, o.AllowNewLabel); err != nil {
-		return "", 0, err
+	// The declared-label list belongs to the repo being filed INTO. Judging an
+	// upstream label against the reporter's themes would refuse the tool's own
+	// labels for no reason, so a routed issue is not checked here.
+	if o.TargetRepo == "" {
+		if err := checkDeclaredLabels(o.Repo, o.Labels, o.AllowNewLabel); err != nil {
+			return "", 0, err
+		}
 	}
-	if o.Repo == "" || !ghAvailable() || !hasGitHubRemote(o.Repo) {
+	if o.Repo == "" || !ghAvailable() {
 		return "", 0, errNoIssueTarget
 	}
-	args := []string{"issue", "create", "--title", o.Title, "--body", o.Body}
+	// A locally filed issue needs the repo's OWN remote. One routed upstream
+	// names its target explicitly, so a consumer with no GitHub remote of its
+	// own can still report a tool bug.
+	if o.TargetRepo == "" && !hasGitHubRemote(o.Repo) {
+		return "", 0, errNoIssueTarget
+	}
 	for _, l := range o.Labels {
 		ensureLabel(o.Repo, l, o.LabelMeta[l])
-		args = append(args, "--label", l)
 	}
-	out, err := runGh(o.Repo, args...)
+	out, err := runGh(o.Repo, issueArgv(o)...)
 	if err != nil {
 		return "", 0, err
 	}
@@ -218,4 +233,18 @@ func ensureLabel(repo, name string, meta labelMeta) {
 		return
 	}
 	labelEnsured.Store(key, true)
+}
+
+// issueArgv is the gh command line one issue is created with. Split out so
+// the routing decision — whose tracker this lands in — is testable without a
+// network, a gh binary, or a GitHub remote.
+func issueArgv(o IssueOptions) []string {
+	args := []string{"issue", "create", "--title", o.Title, "--body", o.Body}
+	if o.TargetRepo != "" {
+		args = append(args, "--repo", o.TargetRepo)
+	}
+	for _, l := range o.Labels {
+		args = append(args, "--label", l)
+	}
+	return args
 }
