@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -50,26 +49,6 @@ func TestUnclaimPlan_BadSvcRejected(t *testing.T) {
 // privileged restart fires with the exact unit — via the same systemctl fake
 // the claim test uses, so no sudo or real dev tier is touched.
 func TestUnclaim_Apply_E2E(t *testing.T) {
-	// repointSymlink's atomic replace (new symlink at a .tmp path, then
-	// os.Rename over the existing one) needs POSIX rename(2)'s symlink
-	// semantics: it replaces the link itself, never following into what it
-	// points at. Windows' MoveFileEx refuses outright when either side names
-	// a directory ("This value cannot be used if lpNewFileName or
-	// lpExistingFileName names a directory" — MSDN), and a directory symlink
-	// carries FILE_ATTRIBUTE_DIRECTORY, so this ALWAYS fails with
-	// ERROR_ACCESS_DENIED replacing an existing worktree symlink (proven with
-	// a minimal repro: os.Symlink(dir) then os.Rename over another
-	// os.Symlink(dir) at the same path fails identically). This test
-	// exercises exactly that replace, so it cannot pass on Windows as
-	// written; TestClaim_Apply_E2E is unaffected — there the destination
-	// doesn't exist yet, so no replace, no directory conflict. Fixing
-	// repointSymlink itself (remove-then-symlink, losing atomicity, or a
-	// native reparse-point replace) is a separate change from making this
-	// suite run.
-	if runtime.GOOS == "windows" {
-		// skip-ok: Windows MoveFileEx cannot replace an existing directory symlink
-		t.Skip("repointSymlink's atomic replace of an existing directory symlink is refused by Windows MoveFileEx (ERROR_ACCESS_DENIED)")
-	}
 	repo, branch := claimRepo(t)
 	devclaim := t.TempDir()
 	bin := t.TempDir()

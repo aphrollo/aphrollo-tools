@@ -217,6 +217,8 @@ func TestClaim_Apply_E2E(t *testing.T) {
 }
 
 func TestRepointSymlink_ReplacesExisting(t *testing.T) {
+	// nonexistent-target case; see ReplacesALinkToARealDirectory below for the
+	// real-directory case Windows' MoveFileEx refuses.
 	d := t.TempDir()
 	link := filepath.Join(d, "web")
 	if err := os.Symlink("/old/target", link); err != nil {
@@ -231,5 +233,59 @@ func TestRepointSymlink_ReplacesExisting(t *testing.T) {
 	got, _ := os.Readlink(link)
 	if filepath.ToSlash(got) != "/new/target" {
 		t.Errorf("symlink -> %q, want /new/target", got)
+	}
+}
+
+// TestRepointSymlink_ReplacesALinkToARealDirectory covers the case
+// TestRepointSymlink_ReplacesExisting cannot: the OLD link's target must be a
+// real, existing directory. Go creates a symlink to a nonexistent path as a
+// FILE-type reparse point on Windows, so a rename over that link never
+// exercises MoveFileEx's directory-reparse-point refusal; a symlink to an
+// existing directory does. This is exactly the shape claim/unclaim hit: the
+// .devclaim/<key> symlink already points at a real worktree or repo clone.
+func TestRepointSymlink_ReplacesALinkToARealDirectory(t *testing.T) {
+	d := t.TempDir()
+	oldTarget := filepath.Join(d, "old-target")
+	newTarget := filepath.Join(d, "new-target")
+	if err := os.Mkdir(oldTarget, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(newTarget, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// A file inside the old target, to prove repointing the link never
+	// touches what it points AT (only the link entry itself).
+	marker := filepath.Join(oldTarget, "marker.txt")
+	if err := os.WriteFile(marker, []byte("still here"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	link := filepath.Join(d, "web")
+	if err := os.Symlink(oldTarget, link); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repointSymlink(link, newTarget); err != nil {
+		t.Fatalf("repointSymlink: %v", err)
+	}
+
+	got, err := os.Readlink(link)
+	if err != nil {
+		t.Fatalf("symlink missing after repoint: %v", err)
+	}
+	if got != newTarget {
+		t.Errorf("symlink -> %q, want %q", got, newTarget)
+	}
+
+	// The old target directory and its contents must survive untouched —
+	// repointing the link must never delete or follow into what it pointed at.
+	if _, err := os.Stat(oldTarget); err != nil {
+		t.Errorf("old target directory gone: %v", err)
+	}
+	content, err := os.ReadFile(marker)
+	if err != nil {
+		t.Errorf("old target's file gone: %v", err)
+	} else if string(content) != "still here" {
+		t.Errorf("old target's file content = %q, want %q", content, "still here")
 	}
 }
