@@ -6,9 +6,68 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// fakeGh puts a fake `gh` on PATH that prints stdout and exits with exitCode,
+// so the REAL ghPRHeadOid closure (not the stubPRHeadOid seam) can be exercised
+// without the network or a real gh install. POSIX: a shebang shell script.
+// Windows can't run one directly (no shebang dispatch through CreateProcess,
+// and Go's os/exec refuses a file with no PATHEXT-recognized extension even
+// given a full path) — a .bat with the equivalent lines serves as the fake.
+func fakeGh(t *testing.T, stdout string, exitCode int) {
+	t.Helper()
+	dir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		body := fmt.Sprintf("@echo off\r\necho %s\r\nexit /b %d\r\n", stdout, exitCode)
+		if err := os.WriteFile(filepath.Join(dir, "gh.bat"), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		body := fmt.Sprintf("#!/bin/sh\necho \"%s\"\nexit %d\n", stdout, exitCode)
+		if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// TestGhPRHeadOid_ReturnsSHAOnGhSuccess proves the real ghPRHeadOid closure
+// (prune.go:144) returns gh's trimmed stdout as the SHA with a nil error when
+// gh exits 0 — the CONDITIONALS_NEGATION mutant at its `if err != nil` (line
+// 148) flips this to the error branch (formatting the nil err into a bogus
+// message) instead of returning the SHA.
+func TestGhPRHeadOid_ReturnsSHAOnGhSuccess(t *testing.T) {
+	fakeGh(t, "abc123", 0)
+	sha, err := ghPRHeadOid(t.TempDir(), "feat/x")
+	if err != nil {
+		t.Fatalf("ghPRHeadOid: %v", err)
+	}
+	if sha != "abc123" {
+		t.Errorf("sha = %q, want %q", sha, "abc123")
+	}
+}
+
+// TestGhPRHeadOid_ReturnsErrorOnGhFailure proves the real ghPRHeadOid closure
+// propagates a genuine gh failure as a non-nil error rather than treating its
+// stdout as a SHA — the CONDITIONALS_NEGATION mutant at line 148 flips this to
+// skip the error branch and return gh's failure output as if it were a valid
+// SHA.
+func TestGhPRHeadOid_ReturnsErrorOnGhFailure(t *testing.T) {
+	fakeGh(t, "gh: authentication required", 1)
+	sha, err := ghPRHeadOid(t.TempDir(), "feat/x")
+	if err == nil {
+		t.Fatalf("expected an error, got sha %q", sha)
+	}
+	if !strings.Contains(err.Error(), "feat/x") || !strings.Contains(err.Error(), "authentication required") {
+		t.Errorf("error should name the branch and carry gh's message, got: %v", err)
+	}
+	if sha != "" {
+		t.Errorf("sha on failure = %q, want empty", sha)
+	}
+}
 
 // stubPRState swaps the gh PR-state seam for a test.
 func stubPRState(t *testing.T, fn func(wt, branch string) (string, error)) {
