@@ -383,7 +383,7 @@ func writeCarriedReceipt(j MutantsJob, carried []MutantOutcome, movedLines int) 
 		return MutationReceipt{}
 	}
 	r := MutationReceipt{
-		Repo: j.Repo, Branch: j.Branch, TipTree: j.TipTree,
+		Repo: j.Repo, RepoID: j.RepoID, Branch: j.Branch, TipTree: j.TipTree,
 		BaseRef: j.BaseRef, BaseSHA: j.BaseSHA,
 		Verdict: receiptVerdictPass, FinishedAt: time.Now().UTC(),
 		Outcomes:   carried,

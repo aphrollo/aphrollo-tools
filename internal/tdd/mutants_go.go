@@ -207,14 +207,14 @@ func runCommandIn(dir, bin string, args []string) int {
 // goMutantsRun is what a receipt needs to name the run it describes, whether
 // that run was the detached local job or the pull request's own.
 type goMutantsRun struct {
-	Repo, Branch, TipTree, BaseRef, BaseSHA, Worktree string
+	Repo, RepoID, Branch, TipTree, BaseRef, BaseSHA, Worktree string
 }
 
 // writeGoMutantsReceipt renders one detached run into the receipt every merge
 // reads, and writes it to the machine's receipt store.
 func writeGoMutantsReceipt(j MutantsJob, mutants []MutantOutcome, now TreeState) {
 	r := goMutantsReceipt(goMutantsRun{
-		Repo: j.Repo, Branch: j.Branch, TipTree: j.TipTree,
+		Repo: j.Repo, RepoID: j.RepoID, Branch: j.Branch, TipTree: j.TipTree,
 		BaseRef: j.BaseRef, BaseSHA: j.BaseSHA, Worktree: j.Worktree,
 	}, mutants, now)
 	if path := MutationReceiptPathFor(j.TipTree); path != "" {
@@ -229,7 +229,7 @@ func writeGoMutantsReceipt(j MutantsJob, mutants []MutantOutcome, now TreeState)
 // blob and fence in place, which is what the store carries forward.
 func goMutantsReceipt(j goMutantsRun, mutants []MutantOutcome, now TreeState) MutationReceipt {
 	r := MutationReceipt{
-		Repo: j.Repo, Branch: j.Branch, TipTree: j.TipTree,
+		Repo: j.Repo, RepoID: j.RepoID, Branch: j.Branch, TipTree: j.TipTree,
 		BaseRef: j.BaseRef, BaseSHA: j.BaseSHA,
 		Verdict: receiptVerdictPass, FinishedAt: time.Now().UTC(),
 		Files: map[string]string{}, Fences: map[string]string{},
