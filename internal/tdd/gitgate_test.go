@@ -227,7 +227,7 @@ func TestGitGate_InstallsTheCommitMsgHook(t *testing.T) {
 	if !found {
 		t.Fatal("the global gate must install a commit-msg hook")
 	}
-	if !strings.Contains(binShim("/bin/aphrollo", "commitmsg"), `"$@"`) {
+	if !strings.Contains(binShim("/bin/aphrollo", "commitmsg", ""), `"$@"`) {
 		t.Fatal("the shim must forward git's arguments — the message path is one of them")
 	}
 
