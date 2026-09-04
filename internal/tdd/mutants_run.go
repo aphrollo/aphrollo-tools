@@ -130,7 +130,7 @@ func RunMutantsJob(jobPath string) int {
 		}
 		return 0
 	}
-	recordMutantsDeath(j, code, stderrTail(j.ErrLog, 3))
+	recordMutantsDeath(j, code, mutantsDeathTail(j))
 	return 0
 }
 
