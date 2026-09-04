@@ -276,7 +276,11 @@ func gitToplevel(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%s is not a git repository", path)
 	}
-	return strings.TrimSpace(string(out)), nil
+	// Git for Windows (MSYS) always prints --show-toplevel with forward
+	// slashes, regardless of host OS path convention; Clean folds that (and
+	// any "/") to the native separator so every consumer that joins or
+	// compares this against a filepath.Join-built path sees one convention.
+	return filepath.Clean(strings.TrimSpace(string(out))), nil
 }
 
 func gitBranchExists(repo, branch string) bool {

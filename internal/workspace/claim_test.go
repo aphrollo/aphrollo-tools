@@ -174,10 +174,7 @@ func TestClaim_Apply_E2E(t *testing.T) {
 	devclaim := t.TempDir()
 	bin := t.TempDir()
 	marker := filepath.Join(bin, "restart.txt")
-	fake := filepath.Join(bin, "systemctl")
-	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho \"$@\" > "+marker+"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fake := fakeSystemctl(t, bin, marker)
 	t.Setenv("APHROLLO_DEVCLAIM_DIR", devclaim)
 	t.Setenv("APHROLLO_SYSTEMCTL", fake)
 	t.Setenv("APHROLLO_DEV_SUDO", "0")
@@ -228,8 +225,11 @@ func TestRepointSymlink_ReplacesExisting(t *testing.T) {
 	if err := repointSymlink(link, "/new/target"); err != nil {
 		t.Fatalf("repointSymlink: %v", err)
 	}
+	// Windows' reparse-point symlink target always round-trips through
+	// Readlink with native (backslash) separators, regardless of what was
+	// passed to Symlink; ToSlash makes the assertion separator-agnostic.
 	got, _ := os.Readlink(link)
-	if got != "/new/target" {
+	if filepath.ToSlash(got) != "/new/target" {
 		t.Errorf("symlink -> %q, want /new/target", got)
 	}
 }

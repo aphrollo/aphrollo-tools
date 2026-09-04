@@ -309,7 +309,11 @@ func parseWorktreeList(out string) []worktreeEntry {
 		switch {
 		case strings.HasPrefix(line, "worktree "):
 			flush()
-			cur.Path = strings.TrimSpace(strings.TrimPrefix(line, "worktree "))
+			// Same MSYS forward-slash normalization as gitToplevel: Git for
+			// Windows always prints porcelain paths with "/", so Clean folds
+			// them to the native separator before any caller compares or
+			// joins against a filepath.Join-built path.
+			cur.Path = filepath.Clean(strings.TrimSpace(strings.TrimPrefix(line, "worktree ")))
 			cur.Branch = "HEAD"
 		case strings.HasPrefix(line, "branch "):
 			ref := strings.TrimSpace(strings.TrimPrefix(line, "branch "))

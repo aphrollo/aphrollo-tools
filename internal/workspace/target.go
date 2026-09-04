@@ -93,7 +93,8 @@ func mainWorktree(path string) (string, error) {
 	}
 	for _, line := range strings.Split(string(out), "\n") {
 		if rest, ok := strings.CutPrefix(line, "worktree "); ok {
-			return strings.TrimSpace(rest), nil
+			// Same MSYS forward-slash normalization as gitToplevel.
+			return filepath.Clean(strings.TrimSpace(rest)), nil
 		}
 	}
 	return "", fmt.Errorf("could not determine main worktree for %s", path)
