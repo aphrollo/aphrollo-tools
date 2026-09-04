@@ -53,6 +53,11 @@ type MutationReceipt struct {
 	Caught       int `json:"caught"`
 	Timeout      int `json:"timeout"`
 	Unviable     int `json:"unviable"`
+	// NotCovered is how many mutants the runner never ran a test for. They are
+	// neither caught nor survived: nothing was measured. Counted so a receipt
+	// says how much of its diff went unproven rather than implying the whole
+	// of it was judged.
+	NotCovered int `json:"not_covered,omitempty"`
 	// Survivors and Unaccepted are LISTS of mutants, as the producer writes
 	// them — the count is len(). Declaring survivors an int is what made
 	// every merge die on "cannot unmarshal array into Go struct field"; then
