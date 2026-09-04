@@ -7,13 +7,20 @@
 # see it for who does the judging instead.
 mutation-receipt = true
 
-# ...and the proof is measured on the developer's box, like a Cargo workspace:
-# the post-commit hook runs the Go mutation over the lane's diff through the
-# outcome store, writes a receipt signed with this machine's key, and the
-# pre-merge-commit gate consumes it. CI's `mutants` job runs on pushes to main
-# only, as a tripwire that records an escape when it disagrees; nobody waits
-# for it.
-mutants-local = true
+# ...and the proof is NOT measured by the post-commit hook on this box, because
+# gremlins cannot measure this module on Windows. `gremlins unleash --dry-run`
+# there reports `Runnable: 0, Not covered: 4890, Mutator coverage: 0.00%`: Go's
+# coverage profile comes back empty, every mutant is filed NOT COVERED, and the
+# receipt that lands says every mutant survived. A dogfood lane measured 50
+# mutants / 0 caught / 50 survivors on Windows against 50 / 44 caught for the
+# same tree on Linux. That receipt is not merely useless, it is wrong in the
+# direction that blocks merges, and producing it costs a full mutation run of
+# CPU plus a console window per git the suite spawns.
+#
+# So the run is deliberately off here and the receipt is earned on Linux
+# instead -- see docs/mutation-runner.md for the route. Set this back to true
+# on a box whose gremlins reports a non-zero mutator coverage.
+mutants-local = false
 
 # Survivors somebody signed off on: "<file>:<line> <MUTATOR> # why". The
 # reason is not decoration — an entry without one is not an accepted survivor,
