@@ -51,6 +51,34 @@ func TestRepoIdentity_IsTheSameInACloneAsInTheOriginal(t *testing.T) {
 	}
 }
 
+// TestRepoIdentity_IgnoresRootsReachableOnlyFromNonHeadRefs is the case that
+// broke a real merge. A repo accumulates refs with histories of their own —
+// refs/notes/gate is one, and the gate itself writes it — so asking for every
+// root in the repository made the identity depend on which refs a checkout
+// happens to carry. A clone without the notes ref then computed a different
+// identity than the checkout it was cloned from, and the receipt it produced
+// was refused. The identity is HEAD's history, which every clone shares.
+func TestRepoIdentity_IgnoresRootsReachableOnlyFromNonHeadRefs(t *testing.T) {
+	root := initRepoWithCommit(t, "hello")
+	before := repoIdentity(root)
+
+	// An orphan commit on its own ref: a second root in the repository that
+	// HEAD's history does not contain.
+	if out, err := git(root, "checkout", "-q", "--orphan", "sidecar"); err != nil {
+		t.Fatalf("orphan: %v: %s", err, out)
+	}
+	if out, err := git(root, "commit", "-q", "--allow-empty", "-m", "sidecar root"); err != nil {
+		t.Fatalf("commit: %v: %s", err, out)
+	}
+	if out, err := git(root, "checkout", "-q", "main"); err != nil {
+		t.Fatalf("back to main: %v: %s", err, out)
+	}
+
+	if got := repoIdentity(root); got != before {
+		t.Errorf("repoIdentity changed to %q after an unrelated ref gained its own root, want the original %q", got, before)
+	}
+}
+
 // TestRepoIdentity_DiffersBetweenTwoUnrelatedRepositories proves the identity
 // still separates repositories: two repos with unrelated histories must never
 // share one, or a receipt from anywhere would merge anywhere.

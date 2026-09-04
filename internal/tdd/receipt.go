@@ -257,7 +257,7 @@ func judgeReceiptRepo(r MutationReceipt, ctx receiptContext) *GateResult {
 // every worktree of that repository shares and no other repository has.
 // "" when git cannot say, in which case the caller falls back to the path.
 func repoIdentity(repoRoot string) string {
-	out, err := git(repoRoot, "rev-list", "--max-parents=0", "--all")
+	out, err := git(repoRoot, "rev-list", "--max-parents=0", "HEAD")
 	if err != nil {
 		return ""
 	}
