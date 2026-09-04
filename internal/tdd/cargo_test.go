@@ -39,17 +39,19 @@ func TestClassifyFile_RustTestsDir(t *testing.T) {
 // --- cargo related-test narrowing ----------------------------------------------
 
 // TestNarrowToRelatedTests_CargoTestFiles pins the cargo test-file narrowing:
-// a tests/*.rs integration test runs only its own test binary via
-// `cargo test --test <name>`, where <name> is the path component directly
-// under tests/ (a nested dir under tests/ is a named test binary with a
-// main.rs). A Rust test file NOT under tests/ (a `#[cfg(test)]` unit-test
-// module file in src/) runs the lib tests via `cargo test --lib`.
+// a top-level tests/*.rs integration test runs only its own test binary via
+// `cargo test --test <name>`, where <name> is the file's stem -- cargo's own
+// 1:1 convention, so no metadata check is needed. A Rust test file NOT under
+// tests/ (a `#[cfg(test)]` unit-test module file in src/) runs the lib tests
+// via `cargo test --lib`. The nested tests/<dir>/ case (a folded binary,
+// where <dir> is only a GUESS until cargo metadata confirms it) is pinned
+// separately below, since it needs a real [package] Cargo.toml to resolve
+// against.
 func TestNarrowToRelatedTests_CargoTestFiles(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "src/lib.rs", "pub fn base() -> i32 { 0 }\n")
 	write(t, root, "src/thing_test.rs", "#[test]\nfn thing() {}\n")
 	write(t, root, "tests/movement.rs", "#[test]\nfn moves() {}\n")
-	write(t, root, "tests/integration/chat.rs", "#[test]\nfn chats() {}\n")
 
 	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
 	cases := []struct {
@@ -63,11 +65,6 @@ func TestNarrowToRelatedTests_CargoTestFiles(t *testing.T) {
 			want:   Runner{"cargo", []string{"test", "--test", "movement"}, "", time.Time{}},
 		},
 		{
-			name:   "nested tests/ dir → --test <dir> (named test binary)",
-			target: filepath.Join(root, "tests", "integration", "chat.rs"),
-			want:   Runner{"cargo", []string{"test", "--test", "integration"}, "", time.Time{}},
-		},
-		{
 			name:   "rust test module under src/ → --lib, filtered to that module",
 			target: filepath.Join(root, "src", "thing_test.rs"),
 			want:   Runner{"cargo", []string{"test", "--lib", "thing_test::"}, "", time.Time{}},
@@ -79,6 +76,75 @@ func TestNarrowToRelatedTests_CargoTestFiles(t *testing.T) {
 				t.Fatalf("NarrowToRelatedTests = %+v, want %+v", got, c.want)
 			}
 		})
+	}
+}
+
+// stubCargoTestTargets states a workspace's real `--test` target names
+// (package name -> its target names) without a cargo metadata run.
+func stubCargoTestTargets(t *testing.T, targets map[string]map[string]bool) {
+	t.Helper()
+	prev := cargoTestTargetsFn
+	cargoTestTargetsFn = func(string) map[string]map[string]bool { return targets }
+	t.Cleanup(func() { cargoTestTargetsFn = prev })
+}
+
+// TestNarrowToRelatedTests_CargoNestedDirConfirmedByMetadataRunsThatBinary
+// pins the fix for issue #250: a file inside a folded test binary
+// (tests/integration/affixes.rs, the exact borld shape that produced
+// `--test affixes` naming a target that does not exist) must resolve the
+// candidate directory name against cargo metadata and, once confirmed, scope
+// the run to that real target rather than the file's own stem.
+func TestNarrowToRelatedTests_CargoNestedDirConfirmedByMetadataRunsThatBinary(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "Cargo.toml", "[package]\nname = \"item\"\nversion = \"0.1.0\"\n")
+	write(t, root, "tests/integration/affixes.rs", "#[test]\nfn affixes() {}\n")
+	stubCargoTestTargets(t, map[string]map[string]bool{
+		"item": {"integration": true},
+	})
+
+	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	got := NarrowToRelatedTests(cargo, filepath.Join(root, "tests", "integration", "affixes.rs"), root)
+	want := Runner{"cargo", []string{"test", "-p", "item", "--test", "integration"}, root, time.Time{}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("NarrowToRelatedTests = %+v, want %+v", got, want)
+	}
+}
+
+// TestNarrowToRelatedTests_CargoNestedDirUnconfirmedFallsBackToPackageRun
+// pins the other half: a nested tests/<dir>/ file whose directory metadata
+// does NOT report as a target (a shared helper directory folded into some
+// OTHER binary, not one of its own) must never guess `--test <dir>` -- that
+// names a target that does not exist, a red on green code. It falls back to
+// the whole package run instead, which stays correct, only broader.
+func TestNarrowToRelatedTests_CargoNestedDirUnconfirmedFallsBackToPackageRun(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "Cargo.toml", "[package]\nname = \"item\"\nversion = \"0.1.0\"\n")
+	write(t, root, "tests/common/fixtures.rs", "pub fn seed() {}\n")
+	stubCargoTestTargets(t, map[string]map[string]bool{
+		"item": {"integration": true}, // "common" is a helper dir, not a target
+	})
+
+	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	got := NarrowToRelatedTests(cargo, filepath.Join(root, "tests", "common", "fixtures.rs"), root)
+	want := Runner{"cargo", []string{"test", "-p", "item"}, root, time.Time{}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("NarrowToRelatedTests = %+v, want %+v (never a guessed --test common)", got, want)
+	}
+}
+
+// TestNarrowToRelatedTests_CargoNestedDirNoPackageNeverGuessesTarget covers
+// the crate-with-no-determinable-target case: no Cargo.toml at all means the
+// candidate cannot be confirmed either way, and the safe direction is the
+// unnarrowed runner, never a guessed --test name.
+func TestNarrowToRelatedTests_CargoNestedDirNoPackageNeverGuessesTarget(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "tests/integration/affixes.rs", "#[test]\nfn affixes() {}\n")
+
+	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	got := NarrowToRelatedTests(cargo, filepath.Join(root, "tests", "integration", "affixes.rs"), root)
+	want := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("NarrowToRelatedTests = %+v, want %+v (no package to confirm a target against)", got, want)
 	}
 }
 
@@ -164,6 +230,28 @@ func TestNarrowFailFirstTests_CargoNextestPreserved(t *testing.T) {
 	want := Runner{"cargo", []string{"nextest", "run", "-p", "pkg1", "--test", "foo"}, "", time.Time{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("narrowFailFirstTests (nextest) = %+v, want %+v", got, want)
+	}
+}
+
+// TestNarrowFailFirstTests_CargoNestedDirUnconfirmedDropsTestScoping pins the
+// fail-first half of issue #250: a staged test inside a folded binary whose
+// directory name cargo metadata does NOT confirm as a target must never
+// widen into a guessed `--test <dir>` -- the whole run drops --test scoping
+// for the package rather than silently excluding the file it could not
+// verify.
+func TestNarrowFailFirstTests_CargoNestedDirUnconfirmedDropsTestScoping(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "Cargo.toml", "[package]\nname = \"pkg1\"\nversion = \"0.1.0\"\n")
+	write(t, root, "tests/common/fixtures.rs", "pub fn seed() {}\n")
+	stubCargoTestTargets(t, map[string]map[string]bool{
+		"pkg1": {"integration": true}, // "common" is a helper dir, not a target
+	})
+
+	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	got := narrowFailFirstTests(cargo, root, []string{"tests/common/fixtures.rs"})
+	want := Runner{"cargo", []string{"test", "-p", "pkg1"}, "", time.Time{}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("narrowFailFirstTests = %+v, want %+v (never a guessed --test common)", got, want)
 	}
 }
 

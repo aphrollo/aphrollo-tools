@@ -201,18 +201,18 @@ func NarrowToRelatedTests(r Runner, target, root string) Runner {
 
 // cargoTargetRunner maps a Rust file to the cargo TARGET that actually
 // compiles it. Getting this wrong is not a slower run, it is an error: a
-// `#[cfg(test)] mod` file under src/ (borld's crates/clouds/src/
-// image_period_tests.rs) is part of the LIB test binary, and asking for
-// `--test image_period_tests` names a target that does not exist.
+// `#[cfg(test)] mod` file under src/ names a target that does not exist, and
+// so does an unconfirmed tests/<dir>/ guess -- cargoTestTargetRunner checks
+// cargo metadata before trusting a nested candidate.
 //
 //	<crate>/tests/x.rs          -> --test x
-//	<crate>/tests/<dir>/*.rs    -> --test <dir>
+//	<crate>/tests/<dir>/*.rs    -> --test <dir>, confirmed by metadata
 //	<crate>/src/a/b_tests.rs    -> --lib, filtered to a::b_tests
 //	<crate>/examples/x/*.rs     -> --example x   (built, never run)
 //	<crate>/benches/x.rs        -> --bench x --no-run
 func cargoTargetRunner(r Runner, rel, root string) Runner {
-	if name := cargoTestTarget(rel); name != "" {
-		return cargoTargetArgs(r, root, "--test", name)
+	if name, nested := cargoTestTarget(rel); name != "" {
+		return cargoTestTargetRunner(r, root, name, nested)
 	}
 	if name := cargoNamedTarget(rel, "examples"); name != "" {
 		return cargoTargetArgs(r, root, "--example", name)
@@ -250,23 +250,6 @@ func moduleFilterArgs(r Runner, mod string) []string {
 		return []string{"-E", "test(/^" + mod + "::/)"}
 	}
 	return []string{mod + "::"}
-}
-
-// cargoNamedTarget names the example/bench a path belongs to: the file stem
-// directly under the directory, or the directory name for a multi-file one.
-func cargoNamedTarget(rel, dir string) string {
-	parts := strings.Split(filepath.ToSlash(rel), "/")
-	for i, seg := range parts {
-		if seg != dir || i+1 >= len(parts) {
-			continue
-		}
-		next := parts[i+1]
-		if i+1 == len(parts)-1 {
-			return strings.TrimSuffix(next, path.Ext(next))
-		}
-		return next
-	}
-	return ""
 }
 
 // cargoModulePath turns a src/ path into the Rust module path its tests live
@@ -425,22 +408,30 @@ func cargoRunnerAt(root string, extraArgs ...string) (Runner, bool) {
 	return Runner{Cmd: "cargo", Args: args, Dir: ws}, true
 }
 
-// cargoTestTarget maps a repo-relative Rust test path to its cargo test-target
-// name: the path component directly under `tests/` — the file's stem for a
-// top-level tests/*.rs, the directory name for a nested tests/<dir>/ binary.
-// "" when the file is not under a tests/ segment (an inline unit-test module).
-func cargoTestTarget(rel string) string {
+// cargoTestTarget maps a repo-relative Rust test path to its cargo
+// test-target CANDIDATE and reports nested: true when name is only a GUESS
+// that needs confirming against cargo metadata. A flat tests/<stem>.rs and a
+// cargo-guaranteed tests/<dir>/main.rs (cargo's own directory-binary
+// convention, unambiguous regardless of what main.rs contains) both report
+// false; any OTHER file inside tests/<dir>/ is a module folded into some
+// binary that may not even be named <dir>, so that candidate is nested.
+// "" when the file sits outside any tests/ segment.
+func cargoTestTarget(rel string) (name string, nested bool) {
 	parts := strings.Split(filepath.ToSlash(rel), "/")
 	for i, seg := range parts {
-		if seg == "tests" && i+1 < len(parts) {
-			next := parts[i+1]
-			if i+1 == len(parts)-1 {
-				return strings.TrimSuffix(next, filepath.Ext(next))
-			}
-			return next
+		if seg != "tests" || i+1 >= len(parts) {
+			continue
 		}
+		next := parts[i+1]
+		if i+1 == len(parts)-1 {
+			return strings.TrimSuffix(next, filepath.Ext(next)), false
+		}
+		if i+2 == len(parts)-1 && parts[i+2] == "main.rs" {
+			return next, false
+		}
+		return next, true
 	}
-	return ""
+	return "", false
 }
 
 // stagedProjectRoots returns the sorted, deduped set of project roots (per
@@ -739,6 +730,7 @@ func narrowFailFirstTests(r Runner, wt string, tests []string) Runner {
 	seenTarget := map[string]bool{}
 	var targets []string
 	inline := false
+	unconfirmed := false
 	for _, f := range tests {
 		name := cargoPackageFor(wt, f)
 		if name == "" {
@@ -749,13 +741,15 @@ func narrowFailFirstTests(r Runner, wt string, tests []string) Runner {
 			seenPkg[name] = true
 			pkgs = append(pkgs, name)
 		}
-		if tgt := cargoTestTarget(f); tgt != "" {
-			if !seenTarget[tgt] {
-				seenTarget[tgt] = true
-				targets = append(targets, tgt)
-			}
-		} else {
+		tgt, isInline, isUnconfirmed := cargoFailFirstTarget(wt, name, f)
+		switch {
+		case isUnconfirmed:
+			unconfirmed = true
+		case isInline:
 			inline = true
+		case !seenTarget[tgt]:
+			seenTarget[tgt] = true
+			targets = append(targets, tgt)
 		}
 	}
 	if len(pkgs) == 0 {
@@ -768,8 +762,14 @@ func narrowFailFirstTests(r Runner, wt string, tests []string) Runner {
 		return r
 	}
 
-	sort.Strings(targets)
 	args := append(cargoRunArgs(r), "-p", pkgs[0])
+	if unconfirmed {
+		// A staged test's tests/<dir>/ guess is not a real cargo target --
+		// naming it is a red on green code, so the whole run drops --test
+		// scoping rather than silently excluding that file.
+		return Runner{Cmd: "cargo", Args: args}
+	}
+	sort.Strings(targets)
 	for _, tgt := range targets {
 		args = append(args, "--test", tgt)
 	}
