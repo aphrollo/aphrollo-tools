@@ -261,12 +261,12 @@ func TestPrune_SkipsOnGHError(t *testing.T) {
 	}
 }
 
-// TestPruneKeepsAMergedWorktreeThatHasCommitsAfterTheMerge is issue #163's
+// TestPrune_KeepsAMergedWorktreeThatHasCommitsAfterTheMerge is issue #163's
 // scenario: a builder reuses a merged branch's worktree for follow-up work and
 // commits it (so `git status --porcelain` is clean again). The sweep must not
 // treat "PR state MERGED + tree clean" as sufficient — HEAD has moved past what
 // the PR actually merged (gh's headRefOid), so the worktree must be kept.
-func TestPruneKeepsAMergedWorktreeThatHasCommitsAfterTheMerge(t *testing.T) {
+func TestPrune_KeepsAMergedWorktreeThatHasCommitsAfterTheMerge(t *testing.T) {
 	repo, wt, branch := preparedRepo(t)
 	mergedSHA, err := exec.Command("git", "-C", wt, "rev-parse", "HEAD").Output()
 	if err != nil {
@@ -432,13 +432,13 @@ func TestPrune_TallyAndAdminCleanup(t *testing.T) {
 	}
 }
 
-// TestExcludeMainCloneDropsByPathNotListPosition is issue #172: linkedWorktrees
+// TestExcludeMainClone_DropsByPathNotListPosition is issue #172: linkedWorktrees
 // used to drop `git worktree list --porcelain`'s FIRST entry to exclude the
 // main checkout, trusting an ordering nothing enforces. excludeMainClone must
 // drop the main clone by comparing its PATH against repo, so it is excluded
 // wherever it lands in the list — proven here with a synthetic list where the
 // main clone is NOT first.
-func TestExcludeMainCloneDropsByPathNotListPosition(t *testing.T) {
+func TestExcludeMainClone_DropsByPathNotListPosition(t *testing.T) {
 	repo := filepath.Join("C:", "spaces", "aphrollo")
 	linked1 := filepath.Join("C:", "spaces", ".worktrees", "aphrollo", "lane-a")
 	linked2 := filepath.Join("C:", "spaces", ".worktrees", "aphrollo", "lane-b")

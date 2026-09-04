@@ -29,13 +29,13 @@ func TestShipPlan_PropagatesStageError(t *testing.T) {
 	}
 }
 
-// TestShipApplyReportsAheadCountFromTheCommitItJustCreated is issue #162:
+// TestShipApply_ReportsAheadCountFromTheCommitItJustCreated is issue #162:
 // ShipPlan resolves the push stage's ahead-count BEFORE Ship.Apply's commit
 // stage creates the commit being shipped, so the printed receipt is stale.
 // Here the branch starts already pushed and 0 commits ahead of its upstream;
 // after ship commits one new change, the push line must say "(1 commit(s))",
 // not the Plan-time snapshot of 0 (rendered as no count at all).
-func TestShipApplyReportsAheadCountFromTheCommitItJustCreated(t *testing.T) {
+func TestShipApply_ReportsAheadCountFromTheCommitItJustCreated(t *testing.T) {
 	repo := repoWithRemote(t)
 	run := func(args ...string) {
 		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
