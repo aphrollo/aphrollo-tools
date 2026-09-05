@@ -1602,7 +1602,10 @@ the old one. A repo with no laws dir under `.ratchet` says `no laws` and exits 0
 `common/test_removed` is the `symbol-removed` kind's template: `go/test_removed`
 and `rust/test_removed` are its concrete, already-filled-in forms (a Go
 `Test`-prefixed function, a Rust `#[test]`/`#[tokio::test]` function), the same
-relationship `go/module_size` already has to `common/module_size`.
+relationship `go/module_size` already has to `common/module_size`. This repo's
+own `.ratchet/laws/test_removed.toml` extends `go/test_removed`; a deliberate
+removal (a test found redundant, not just moved to another file) is admitted
+by leaving `// ratchet: test_removed <Name>: <why>` where the function stood.
 
 ### Pipeline health (`aphrollo gate stats`)
 
