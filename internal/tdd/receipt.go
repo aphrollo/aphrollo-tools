@@ -447,16 +447,10 @@ func missingReceiptRemedy(ctx receiptContext) string {
 	}
 	// A run that ENDED without a receipt is the third answer, and the one a
 	// session cannot work out for itself: "run it again" is wrong advice when
-	// the last run died, and the reason is already written down.
+	// the last run died — or its own tip was rewritten out from under it
+	// (issue #367) — and the reason is already written down.
 	if d, ok := loadMutantsDeath(ctx.TipTree); ok {
-		// Name the log the tail actually came from: pointing at an empty
-		// stderr file while the reason sat in stdout is what made a death
-		// undiagnosable (issue #198).
-		logPath := d.ErrLog
-		if len(d.Tail) > 0 && stderrTail(d.ErrLog, 1) == nil && d.Log != "" {
-			logPath = d.Log
-		}
-		return fmt.Sprintf("the run died (exit %d) at %s — see %s", d.Exit, d.At.Format("15:04"), logPath)
+		return mutantsDeathRemedyLine(d)
 	}
 	// No base to name: `run` derives it from the lane itself (laneBaseSHA),
 	// which is the same base this gate checks the receipt against. A base

@@ -250,7 +250,6 @@ internal/tdd/escape_verify_test.go | func TestEscapeIssueTitleTruncatesOnRunes(t
 internal/tdd/escape_verify_test.go | func TestRecordEscapeCreatesItsLabelBeforeOpeningTheIssue(t *testing.T) {
 internal/tdd/escape_verify_test.go | func TestRecordEscapeReportsWhatGhSaidWhenTheIssueFails(t *testing.T) {
 internal/tdd/escape_verify_test.go | func TestRecordEscapeSurvivesALabelThatAlreadyExists(t *testing.T) {
-internal/tdd/escape_verify_test.go | func TestVerifyClosureAcceptsAGateStageChange(t *testing.T) {
 internal/tdd/escape_verify_test.go | func TestVerifyClosureAcceptsAPRThatTouchesALaw(t *testing.T) {
 internal/tdd/escape_verify_test.go | func TestVerifyClosureAcceptsATestTheIssueNamed(t *testing.T) {
 internal/tdd/escape_verify_test.go | func TestVerifyClosureAcceptsTheGateBlockOfTheRootManifest(t *testing.T) {
