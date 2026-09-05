@@ -310,8 +310,8 @@ func HandleSessionStart(raw []byte) string {
 	if digest := maybeWeeklyDigest(time.Now()); digest != "" {
 		parts = append(parts, digest)
 	}
-	if line := BinaryBehindLine(time.Now()); line != "" {
-		parts = append(parts, line)
+	if behind := BinaryBehindLine(time.Now()); behind != "" {
+		parts = append(parts, behind)
 	}
 	if line != "" {
 		parts = append(parts, line)

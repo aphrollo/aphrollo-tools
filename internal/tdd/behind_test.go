@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -123,6 +124,46 @@ func TestBinaryBehindLine_SilentWhenTheRemoteExceedsTheBudget(t *testing.T) {
 	}
 	if elapsed > 2500*time.Millisecond {
 		t.Errorf("BinaryBehindLine took %s, want at most 2.5s", elapsed)
+	}
+}
+
+// A network outage should cost one 2s budget, not one per session start until
+// it clears: a failed lookup backs off for 10 minutes before the remote is
+// asked again, and clears the moment a lookup after the backoff succeeds.
+func TestBinaryBehindLine_BacksOffTenMinutesAfterAFailedLookup(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setStamp(t, stampedCommit)
+
+	calls := 0
+	stubLsRemote(t, func(ctx context.Context) (string, error) {
+		calls++
+		if calls == 1 {
+			return "", errors.New("network unreachable")
+		}
+		return originHead, nil
+	})
+
+	t0 := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	if got := BinaryBehindLine(t0); got != "" {
+		t.Fatalf("BinaryBehindLine() = %q on a failed lookup, want \"\"", got)
+	}
+	if calls != 1 {
+		t.Fatalf("lsRemoteFn called %d times on the first (failing) lookup, want 1", calls)
+	}
+
+	if got := BinaryBehindLine(t0.Add(5 * time.Minute)); got != "" {
+		t.Fatalf("BinaryBehindLine() = %q inside the failure backoff, want \"\"", got)
+	}
+	if calls != 1 {
+		t.Fatalf("lsRemoteFn called %d times inside the 10m failure backoff, want 1", calls)
+	}
+
+	want := "aphrollo binary is behind origin/main (built at ca47dba, origin at 15ac791): run aphrollo update"
+	if got := BinaryBehindLine(t0.Add(11 * time.Minute)); got != want {
+		t.Fatalf("BinaryBehindLine() = %q after the backoff cleared, want %q", got, want)
+	}
+	if calls != 2 {
+		t.Fatalf("lsRemoteFn called %d times after the backoff cleared, want 2", calls)
 	}
 }
 
