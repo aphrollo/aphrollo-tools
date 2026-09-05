@@ -394,127 +394,13 @@ jobs:
             compare.txt
           if-no-files-found: warn
 
-  # The mutation proof, measured where a mutant is affordable. gremlins judges
-  # a mutant by re-running its WHOLE package, so the unit of cost is a package
-  # suite: 26 s for internal/tdd here against 207 s on a Windows developer box,
-  # times the 1626 mutants the analysis pass finds in that one package. That is
-  # why this repo sets `mutants-local = false` in aphrollo.toml — the local
-  # post-commit run stays for Cargo repos, and this one measures here.
-  #
-  # Scoped to the PR's own diff for the same reason: the whole module is not a
-  # number anybody can wait for. The accept-list is aphrollo.toml's
-  # [aphrollo] mutation-accept, and an entry without a stated reason is not an
-  # accepted survivor — an unaccepted one fails the check.
-  #
-  # The CLI is built from THIS PR rather than taken from /usr/local/bin, so a
-  # change to the runner is judged by the runner the PR proposes.
-  #
-  # It runs AFTER `test` rather than beside it. gremlins gathers coverage by
-  # running the whole module's suite, so a concurrent `mutants` and `test` are
-  # two runs of the same tests on one box — and internal/workspace's tests write
-  # the runner's shared global git config, which collides: measured on the first
-  # run of this job, both jobs went red with "could not lock config file
-  # /home/github-runner/.config/git/aphrollo-runtime.cfg: File exists". The
-  # dependency is the cheap fix; isolating those tests' git config is the real
-  # one and belongs to internal/workspace.
-  mutants:
-    # Pushes to main only: the merge was judged locally under the pre-merge gate,
-    # which consumed the lane's own signed receipt. This run is the tripwire; a red
-    # here records an escape instead of blocking anyone.
-    #
-    # Still holds this serial runner for however long the diff takes to
-    # measure AFTER `deploy` has already shipped (issue #334) — moving it off
-    # the critical path needs either a runner label this workflow cannot
-    # confirm exists, or a scheduled/batched trigger, either of which is a
-    # bigger behavioural change than this pass makes. What is fixed here is
-    # narrower: the stale comment below wrongly described the outcome-store
-    # cache as PR-scoped when this job never runs on a PR; the cache itself
-    # was confirmed working (see the comment) and is unchanged.
-    if: github.event_name == 'push'
-    needs: [changes, test]
-    runs-on: self-hosted
-    # Sized from the measurement, not from a round number: 21 mutants over this
-    # lane's own diff took 3m22s end to end, ~7 s per mutant plus one coverage
-    # pass. 30 minutes is ~250 mutants, far past any diff a reviewable PR
-    # carries -- and a run that has been going that long is one nobody is
-    # waiting for, holding a serial self-hosted runner the whole time.
-    timeout-minutes: 30
-    steps:
-      - if: needs.changes.outputs.code == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0   # the merge base has to exist locally to scope the diff
-      - if: needs.changes.outputs.code == 'true'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          # false: see the note in `test` -- the persistent disk is the cache.
-          cache: false
-      - name: Install gremlins
-        if: needs.changes.outputs.code == 'true'
-        # The tool was chosen by measurement, not argument: go-mutesting does
-        # not build on this box, gremlins does and takes the three flags this
-        # design needs (--diff, --output, --workers). See internal/tdd/mutants_go.go.
-        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
-      - name: Build the CLI from this PR
-        if: needs.changes.outputs.code == 'true'
-        run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
-      # The outcome store carries measurements across successive pushes to
-      # main. This job only ever runs on `push` (see the `if:` above), where
-      # `github.head_ref` is documented as empty — which does not break the
-      # carry-over the way an earlier version of this comment (describing
-      # issue #143's PR-scoped case) implied: an always-empty head_ref makes
-      # the key's branch component a CONSTANT across every run of this job,
-      # so the run id is what keeps entries distinct and restore-keys'
-      # prefix match reliably finds the previous push's save. Confirmed
-      # against this repo's own run logs rather than assumed: a prior run
-      # logged `restore-keys: mutants-store--` and the next one logged
-      # `Cache restored from key: mutants-store--<that run's id>`.
-      - name: Restore the mutation outcome store
-        if: needs.changes.outputs.code == 'true'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .mutants-store
-          key: mutants-store-${{ github.head_ref }}-${{ github.run_id }}
-          restore-keys: |
-            mutants-store-${{ github.head_ref }}-
-      - name: aphrollo gate mutants go --diff
-        if: needs.changes.outputs.code == 'true'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          set -euo pipefail
-          ref="$BASE_SHA"
-          if [ -z "$ref" ] || ! git rev-parse --verify --quiet "$ref^{commit}" >/dev/null; then
-            ref=$(git rev-parse --verify --quiet "HEAD~1^{commit}" || true)
-          fi
-          if [ -z "$ref" ]; then echo "no diff base to scope the mutation run to" >&2; exit 1; fi
-          base=$(git merge-base "$ref" HEAD)
-          echo "scoping the run to $base..HEAD"
-          ./bin/aphrollo gate mutants go --diff "$base" --receipt mutation-receipt.json --store .mutants-store
-      - name: Save the mutation outcome store
-        # always(): the combined actions/cache action's built-in Post-if save
-        # does not reliably fire when the step above fails (issue: PR #150's
-        # first push measured 31 mutants and failed with 5 unaccepted
-        # survivors, and no "Cache saved with key: ..." line ever appeared in
-        # that job's log) -- exactly the run whose measurements a fix-up push
-        # most wants to reuse. An explicit save step run unconditionally
-        # closes that hole; restore-keys above still lets the next push adopt
-        # whatever the newest saved key under this (constant, on push) head_ref holds.
-        if: ${{ always() && needs.changes.outputs.code == 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .mutants-store
-          key: mutants-store-${{ github.head_ref }}-${{ github.run_id }}
-      - name: Upload the receipt
-        # always(): the receipt of a run that FAILED is the one somebody needs
-        # to read, and it is written before the check decides.
-        if: ${{ always() && needs.changes.outputs.code == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: mutation-receipt
-          path: mutation-receipt.json
-          if-no-files-found: warn
+  # The mutation proof used to run here, per push to main -- it now runs
+  # nightly instead, batched across merges, to stop holding one of the two
+  # shared self-hosted runners for the length of the run right after a
+  # deploy that already shipped (issue #334). See
+  # .github/workflows/nightly-mutants.yml for the job and why moving it was
+  # safe: the merge itself is still judged locally, before it lands, by the
+  # pre-merge gate's own signed receipt.
 
   # The escape loop's closing half. `verify-closure` refuses a PR that says it
   # closes a labelled escape issue without changing a CHECK -- a law, a gate
@@ -575,7 +461,7 @@ jobs:
   # skipped there and the miss is picked up by `gate escape sync` on the box
   # that owns the lane.
   escape-record:
-    needs: [test, lint, scan, mutants]
+    needs: [test, lint, scan]
     if: ${{ always() && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && github.event.pull_request.head.repo.fork != true)) && contains(needs.*.result, 'failure') }}
     runs-on: self-hosted
     timeout-minutes: 5

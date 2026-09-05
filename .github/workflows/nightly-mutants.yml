@@ -1,0 +1,128 @@
+name: Nightly mutants
+
+# The mutation-proof tripwire on main, moved off the per-merge critical path
+# (issue #334). `pipeline.yml`'s `mutants` job used to run after every push
+# to main, holding one of the two self-hosted runners shared by nine repos
+# for the length of the run -- 14.6 minutes measured -- AFTER the `deploy`
+# job for that same push had already shipped. That is a throughput cost
+# that grows with merge rate, not a correctness gap: the merge itself was
+# already judged by the LOCAL pre-merge gate, which consumed the lane's own
+# signed mutation receipt before it was allowed to land. This tripwire
+# exists to catch what that local gate could have missed -- an unreceipted
+# or forged proof, drift between a local run and CI -- not to gate every
+# merge in real time, so batching several merges into one nightly run (the
+# same shape `nightly-fuzz.yml` already uses for the fuzz targets) trades
+# latency for the throughput this issue is about, without dropping a diff:
+# each run measures back to the LAST run of this workflow that finished
+# successfully, found by asking GitHub for it rather than by writing state
+# back into the repo.
+#
+# Still per-repo, still self-hosted, still exactly the same `gate mutants
+# go` command pipeline.yml's job ran -- what changed is WHEN, not whether.
+
+on:
+  schedule:
+    - cron: "43 9 * * *" # nightly, off the hour and off nightly-fuzz's :17 so the two do not queue back to back
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutants:
+    # A fork has no business filing escape issues against this repo (and
+    # would fail the `gh issue create` call anyway without a token) -- same
+    # guard nightly-fuzz.yml states for the same reason.
+    if: github.repository == 'aphrollo/aphrollo-tools'
+    runs-on: self-hosted
+    # Sized the same as the job this replaces: 30 minutes is far past any
+    # single night's accumulated diff for a repo merging at PR cadence.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read # gh run list, to find the last successful run of THIS workflow
+      issues: write # gate escape record, on a failure
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the checkpoint commit has to exist locally to scope the diff
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Resolve the checkpoint
+        # The last commit this workflow measured through: the head SHA of
+        # its own most recent SUCCESSFUL run. No state is written back into
+        # the repo (no tag, no note) -- GitHub's own run history is the
+        # record, so there is nothing here for a force-push or a race to
+        # corrupt. A repo with no prior successful run (the first night, or
+        # every one before this rolled out) falls back to the previous
+        # commit, matching what the per-push job measured on an ordinary night.
+        id: checkpoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          base=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow nightly-mutants.yml \
+            --status success --branch main -L 1 --json headSha --jq '.[0].headSha // empty' || true)
+          if [ -z "$base" ] || ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+            base=$(git rev-parse --verify --quiet "HEAD~1^{commit}" || git rev-parse HEAD)
+            echo "no prior successful run found -- falling back to $base"
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+      - name: Install gremlins
+        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+      - name: Build the CLI from main
+        run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
+      # Carries measurements across nights the same way the per-push job
+      # carried them across pushes: keyed on this run's id, found again next
+      # time via restore-keys' prefix match.
+      - name: Restore the mutation outcome store
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .mutants-store
+          key: nightly-mutants-store-${{ github.run_id }}
+          restore-keys: |
+            nightly-mutants-store-
+      - name: aphrollo gate mutants go --diff
+        id: run_mutants
+        run: |
+          set -euo pipefail
+          base="${{ steps.checkpoint.outputs.base }}"
+          head=$(git rev-parse HEAD)
+          if [ "$base" = "$head" ]; then
+            echo "nothing merged to main since the checkpoint ($base) -- nothing to measure tonight"
+            exit 0
+          fi
+          echo "scoping the run to $base..HEAD"
+          ./bin/aphrollo gate mutants go --diff "$base" --receipt mutation-receipt.json --store .mutants-store
+      - name: Save the mutation outcome store
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .mutants-store
+          key: nightly-mutants-store-${{ github.run_id }}
+      - name: Upload the receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutation-receipt
+          path: mutation-receipt.json
+          if-no-files-found: ignore
+      - name: Record an escape
+        # A red here is the same shape pipeline.yml's escape-record job
+        # covers for the per-push checks: a tripwire failing on main, after
+        # the local gate already passed it. Recorded once per failing run
+        # via the same fingerprinting `gate escape record` always applies --
+        # it will not duplicate an issue two nights running for the same cause.
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh run view "$GITHUB_RUN_ID" --log-failed > failed.log 2>/dev/null || true
+          ./bin/aphrollo gate escape record \
+            "nightly mutants failed on main (${{ steps.checkpoint.outputs.base }}..HEAD)" \
+            --from-ci "nightly-mutants" \
+            --evidence "$(head -c 8000 failed.log)
+          run: $RUN_URL"
