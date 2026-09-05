@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // isolateGit points git's global/system config at temp files so a test that
@@ -772,6 +774,14 @@ func TestRun_TDDInit_UnwritableShimDir_WarnsButSucceeds(t *testing.T) {
 	}
 	t.Chdir(t.TempDir()) // init patches the CWD repo's CLAUDE.md — never this repo's
 	isolateGit(t)
+	// This test is about the SHIM dir being unwritable, not about the git
+	// hooks dir — hooks below is a t.TempDir() purely as fixture hygiene, the
+	// same sanctioned dogfooding shape (isolated GIT_CONFIG_GLOBAL, from
+	// isolateGit above) every other git-gate fixture in this suite already
+	// carries the escape hatch for (#394's temp/scratchpad refusal). Missed
+	// in the original sweep; this run never touches the box's real global
+	// config either way.
+	t.Setenv(tdd.HooksDirUnsafeEnv, "1")
 	cfg := t.TempDir()
 	hooks := filepath.Join(t.TempDir(), "githooks")
 	bin := filepath.Join(t.TempDir(), "aphrollo.exe")

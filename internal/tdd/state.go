@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -283,21 +284,46 @@ func AppendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
 	appendGateLog(stage, root, cmd, verdict, dur)
 }
 
+// appendGateLogWarnOnce keeps a failed gate.log write to one line per
+// process: appendGateLog fires on every stage transition, and a screenful of
+// identical complaints would bury the one fact that matters — the trail has
+// stopped recording. Reset for tests that need to observe it more than once
+// per test binary, same as deferredSweepOnce/resetDeferredSweepForTest.
+var appendGateLogWarnOnce sync.Once
+
+func resetAppendGateLogWarnForTest() { appendGateLogWarnOnce = sync.Once{} }
+
+// warnGateLogUnwritable is the one place appendGateLog's best-effort write
+// becomes visible: it never affects the gate's actual decision, but a state
+// dir that stays unwritable for a whole session used to lose every verdict
+// with nothing said anywhere — the exact shape that let a real refusal (a
+// hooks-dir install rejected under #394) surface only as a missing gate.log
+// line in a caller three frames away, instead of as this line.
+func warnGateLogUnwritable(reason string) {
+	appendGateLogWarnOnce.Do(func() {
+		fmt.Fprintf(os.Stderr, "aphrollo gate: gate.log is not being written: %s\n", reason)
+	})
+}
+
 // appendGateLog appends one line to <stateDir>/gate.log:
 // "<RFC3339> <precommit|postedit> <root> <cmd> <verdict> <secs>s" — so a
 // session (or a human) can reconstruct what every gate stage actually did,
 // not just what the LAST advisory said. Best-effort: a logging failure never
-// affects the gate's actual decision, only its trail.
+// affects the gate's actual decision, only its trail — but that failure is
+// no longer silent, see warnGateLogUnwritable.
 func appendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
 	dir := stateDir()
 	if dir == "" {
+		warnGateLogUnwritable("no state directory (CLAUDE_CONFIG_DIR unset and no resolvable home)")
 		return
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		warnGateLogUnwritable(fmt.Sprintf("could not create %s: %v", dir, err))
 		return
 	}
 	f, err := os.OpenFile(filepath.Join(dir, "gate.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
+		warnGateLogUnwritable(fmt.Sprintf("could not open %s: %v", filepath.Join(dir, "gate.log"), err))
 		return
 	}
 	stampGateLogSchema()
