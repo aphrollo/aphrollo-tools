@@ -1539,7 +1539,11 @@ slots and adding `extends = "preset:<group>/<name>"` plus a `[params]` table
 recording what it used. A preset with an unfilled slot is `[skip]`ped, named,
 with what `--param` it still needs — nothing half-rendered is ever written —
 and a name already under `laws/` is `[skip]`ped too: `init` is idempotent,
-safe to re-run over a partly-adopted set.
+safe to re-run over a partly-adopted set. `common/test_removed` is the
+`symbol-removed` example: `go/test_removed` and `rust/test_removed` are its
+concrete, already-filled-in forms (a Go `Test`-prefixed function, a Rust
+`#[test]`/`#[tokio::test]` function), the same relationship `go/module_size`
+already has to `common/module_size`.
 
 The written file is otherwise an ORDINARY law: `extends` and `[params]`
 change nothing about how it is scanned. What they buy is drift detection —
