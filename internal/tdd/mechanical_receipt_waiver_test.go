@@ -90,7 +90,7 @@ func TestMechanical_ReceiptRefusalStillShortCircuits(t *testing.T) {
 	if len(seen) != 0 {
 		t.Fatalf("a refused receipt must short-circuit before any suite runs, ran %+v", seen)
 	}
-	requireLoggedVerdict(t, cfg, "receipt-rejected")
+	requireLoggedVerdict(t, cfg, "receipt-rejected:missing")
 }
 
 // TestMechanical_CatchUpMergeStillRefusesOnARatchetHit proves the fall-through

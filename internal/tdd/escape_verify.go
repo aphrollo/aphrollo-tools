@@ -178,18 +178,53 @@ func closureChangesACheck(patch map[string]string, issueBody string) (string, bo
 	}
 	sort.Strings(rels)
 	for _, rel := range rels {
+		// A comment- or whitespace-only edit changes nothing a check depends
+		// on: a reflowed comment in a gate stage used to satisfy every case
+		// below by touching the right FILE without touching what it DOES
+		// (issue #292).
+		if !patchHasSubstantiveChange(patch[rel]) {
+			continue
+		}
 		switch {
 		case hasAnyPrefix(rel, lawPathPrefixes):
 			return rel, true
-		case isCheckCode(rel):
-			return rel, true
 		case rel == "Cargo.toml" && touchesGateMetadata(patch[rel]):
 			return rel + " (gate metadata)", true
+		// Gate code (internal/tdd, internal/ratchet) used to close ANY
+		// escape by the mere fact of being touched, unrelated to the issue
+		// being closed — the closes-by naming discipline tests already owed
+		// (TestVerifyClosureRejectsATestFileNobodyNamed) now applies to
+		// non-test code too: a closure names the stage or law it closes,
+		// same as a test-only fix always had to (issue #292).
+		case isCheckCode(rel) && named[rel]:
+			return rel + " (gate code, named on closes-by)", true
 		case named[rel]:
 			return rel + " (named on closes-by)", true
 		}
 	}
 	return "", false
+}
+
+// patchHasSubstantiveChange reports whether a file's patch adds or removes at
+// least one line that is neither blank nor a line comment. A diff header line
+// (---/+++) starts with the same '-'/'+' byte as a real change and is skipped
+// explicitly rather than counted as one.
+func patchHasSubstantiveChange(patch string) bool {
+	for _, line := range strings.Split(patch, "\n") {
+		if line == "" || strings.HasPrefix(line, "--- ") || strings.HasPrefix(line, "+++ ") {
+			continue
+		}
+		mark := line[0]
+		if mark != '+' && mark != '-' {
+			continue
+		}
+		text := strings.TrimSpace(line[1:])
+		if text == "" || strings.HasPrefix(text, "//") || strings.HasPrefix(text, "#") {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func hasAnyPrefix(rel string, prefixes []string) bool {

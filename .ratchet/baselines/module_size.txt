@@ -2,6 +2,6 @@ internal/cli/cli_test.go | 914
 internal/ratchet/check.go | 700
 internal/ratchet/law.go | 671
 internal/tdd/autoescape_test.go | 729
-internal/tdd/precommit.go | 1083
+internal/tdd/precommit.go | 1071
 internal/tdd/precommit_test.go | 691
 internal/tdd/runner.go | 810

@@ -126,10 +126,19 @@ func GateStats(r io.Reader, since time.Time) Stats {
 // so the one number that would have shown a session hand-writing a receipt was
 // invisible. queue-bypass is the same shape: the bypass is tolerated, and what
 // makes it tolerable is that every use is counted.
+//
+// receipt-rejected: (trailing colon, unlike its unsuffixed neighbours here)
+// is every blockReceipt/blockMissingReceipt cause, each carrying its own
+// reason as a suffix — base-mismatch, worktree-dirty, unaccepted-survivor,
+// missing, and so on. Before this they shared one undifferentiated
+// receipt-rejected counter, so a 68% rejection rate over two days could not
+// say which of eleven opposite-fix causes made it up (issue #376); this is
+// what gives each cause its own row in the table below, the same way
+// receipt-unsigned already got one.
 var denyVerdictPrefixes = []string{
 	"pretooluse-denied:", "commitmsg-rejected:", "override-", "smell-escape:",
-	"receipt-forged", "receipt-unsigned", "queue-bypass", "mutants-worktree-failed",
-	"git-discard-refused:", "standdown-",
+	"receipt-forged", "receipt-unsigned", "receipt-rejected:", "queue-bypass",
+	"mutants-worktree-failed", "git-discard-refused:", "standdown-",
 }
 
 func isDenyVerdict(verdict string) bool {

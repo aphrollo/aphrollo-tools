@@ -198,6 +198,14 @@ type MutantsDeath struct {
 	// tail null, and a merge blocked with no way to find out what to fix.
 	Log  string   `json:"log"`
 	Tail []string `json:"tail"`
+	// Rewritten and RewrittenTip mark the OTHER way a job leaves no receipt:
+	// the job's own tip commit is no longer an object this repo can resolve
+	// (a reset, amend, rebase or squash-merge after the job was recorded, or
+	// gc reclaiming it while queued) rather than the run having started and
+	// failed. Exit/ErrLog/Log/Tail carry nothing in this case — there was no
+	// process to exit (issue #367).
+	Rewritten    bool   `json:"rewritten,omitempty"`
+	RewrittenTip string `json:"rewritten_tip,omitempty"`
 }
 
 // mutantsDeathTail is the last few lines of whichever of the job's logs has
@@ -235,6 +243,27 @@ func recordMutantsDeath(j MutantsJob, exit int, tail []string) {
 	for _, line := range tail {
 		appendGateLog("mutants", logToken(j.Repo), "mutants-stderr", logToken(line), 0)
 	}
+}
+
+// recordMutantsTipRewritten writes down that a queued job's own tip commit is
+// no longer an object this repo can resolve: the lane was reset, amended,
+// rebased or squash-merged out from under a job that had been sitting behind
+// the box-wide run lock, or gc reclaimed the orphaned commit before the job's
+// turn came. It is a DIFFERENT fact from a run that started and died — there
+// was no process, no exit code, nothing to prepare a worktree from — but it
+// belongs in the same file a merge already reads (loadMutantsDeath), so the
+// refusal at merge time can say "your run was recorded against a commit you
+// deleted" instead of the misleading "you did not run mutants" (issue #367).
+func recordMutantsTipRewritten(j MutantsJob) {
+	path := mutantsDeathPath(j.TipTree)
+	if path == "" {
+		return
+	}
+	d := MutantsDeath{Tree: j.TipTree, At: time.Now(), Rewritten: true, RewrittenTip: j.Tip}
+	if data, err := json.Marshal(d); err == nil {
+		_ = writeFileAtomic(path, data)
+	}
+	appendGateLog("mutants", logToken(j.Repo), "mutants", "mutants-tip-rewritten:"+short(j.Tip), 0)
 }
 
 func loadMutantsDeath(tree string) (MutantsDeath, bool) {
@@ -278,4 +307,25 @@ func stderrTail(path string, n int) []string {
 		lines = lines[len(lines)-n:]
 	}
 	return lines
+}
+
+// mutantsDeathRemedyLine is the second half of a missing-receipt refusal, for
+// whichever of the two ways a job leaves loadMutantsDeath something to read:
+// a run that started and died with an exit code, or one whose own tip
+// commit was rewritten out from under it before it ever ran (issue #367).
+// "Run it again" is wrong advice for either — the first already ran and the
+// second needs a fresh job against whatever the lane's tip is NOW, not a
+// retry of a commit that no longer exists.
+func mutantsDeathRemedyLine(d MutantsDeath) string {
+	if d.Rewritten {
+		return fmt.Sprintf("the lane's tip %s was rewritten (reset, amend, rebase or squash) before the queued run reached it — nothing was measured; re-run in the lane", short(d.RewrittenTip))
+	}
+	// Name the log the tail actually came from: pointing at an empty stderr
+	// file while the reason sat in stdout is what made a death undiagnosable
+	// (issue #198).
+	logPath := d.ErrLog
+	if len(d.Tail) > 0 && stderrTail(d.ErrLog, 1) == nil && d.Log != "" {
+		logPath = d.Log
+	}
+	return fmt.Sprintf("the run died (exit %d) at %s — see %s", d.Exit, d.At.Format("15:04"), logPath)
 }
