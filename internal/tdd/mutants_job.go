@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -259,31 +260,28 @@ func mutantsLaneKey(repoRoot string) string {
 	return projectKey(lane)
 }
 
-// chooseMutantsWorktree decides base's fate — reused, or a per-tip
-// alternate when a still-running job already occupies it (the false PASS
-// traced on issue #283) — and CLAIMS the answer in the same locked section
-// that decided it, before returning to the caller's own synchronous,
-// possibly expensive prepareMutantsWorktree.
+// chooseMutantsWorktree picks the first name not currently held by a live
+// job — base, then base+"-"+short(tipTree), then a further-numbered one —
+// and CLAIMS it in the same section, locked on the jobs registry, that read
+// the held set. Deciding and claiming as one atomic step is what closes
+// issue #405: a hand-typed `gate mutants run` racing the post-commit hook
+// for the same lane can no longer land inside the old window between
+// "decide" and "buildMutantsJob's own synchronous prepare has registered
+// nothing yet".
 //
-// The two used to be separate: a plain read of RunningMutantsJobs to decide,
-// then buildMutantsJob preparing the tree synchronously, then saveMutantsJob
-// registering the job only once it had a spawned pid to record. Between the
-// read and that registration there was a job that existed, held a worktree,
-// and was invisible to any second caller's own read — a hand-typed
-// `gate mutants run` racing the post-commit hook for the same lane could
-// choose and start preparing the SAME base directory the first caller was
-// still resetting or recloning (issue #405). Deciding and claiming under one
-// path lock closes it: no second reader can land inside the first caller's
-// window, because the registry already names the claim before the lock
-// releases.
+// It checks every CANDIDATE, not just base: the first fix checked base
+// alone and picked base+"-"+short(tipTree) as its one alternate with no
+// check of its own — a pure function of (base, tipTree), so two callers at
+// the SAME tip who both found base occupied computed the identical
+// alternate and collided on it exactly as #283 collided on base (issue
+// #436).
 //
 // The claim is keyed on the CALLING process's own pid, not a spawned
 // child's: this process is alive for the whole synchronous section that
-// follows, whether it goes on to spawn a detached job (the post-commit path)
-// or measures the run itself in the foreground, and it self-expires the
-// moment that process exits — saveMutantsJob's own "same worktree supersedes"
-// rule (below) then folds it into whichever job record follows, or, on
-// failure, liveness alone drops it with nothing to release explicitly.
+// follows, and it self-expires the moment that process exits —
+// saveMutantsJob's own same-worktree-same-pid rule (below) then folds it
+// into whichever record follows from THIS process, or, on failure,
+// liveness alone drops it with nothing to release explicitly.
 func chooseMutantsWorktree(repo, base, tipTree string) string {
 	path := mutantsJobsPath(repo)
 	if path == "" {
@@ -291,12 +289,17 @@ func chooseMutantsWorktree(repo, base, tipTree string) string {
 	}
 	release := acquirePathLock(path)
 	defer release()
-	worktree := base
+	held := make(map[string]bool)
 	for _, r := range liveJobsAt(path) {
-		if r.Worktree == base {
+		held[r.Worktree] = true
+	}
+	worktree := base
+	for n := 1; held[worktree]; n++ {
+		if n == 1 {
 			worktree = base + "-" + short(tipTree)
-			break
+			continue
 		}
+		worktree = base + "-" + short(tipTree) + "-" + strconv.Itoa(n)
 	}
 	saveMutantsJobLocked(path, MutantsJob{
 		Repo: repo, Worktree: worktree, TipTree: tipTree,
@@ -485,7 +488,13 @@ func saveMutantsJob(j MutantsJob) {
 func saveMutantsJobLocked(path string, j MutantsJob) {
 	var jobs []MutantsJob
 	for _, r := range liveJobsAt(path) {
-		if r.Worktree != "" && r.Worktree == j.Worktree {
+		// Same worktree AND same pid: only THIS call's own earlier
+		// reservation can match both. A worktree name alone used to be
+		// treated as proof of that, but two different processes can be
+		// handed the identical name only by a bug in the picker above
+		// (issue #436) — matching on the name alone would then drop the
+		// OTHER process's still-live claim right here.
+		if r.Worktree != "" && r.Worktree == j.Worktree && r.PID == j.PID {
 			continue
 		}
 		jobs = append(jobs, r)

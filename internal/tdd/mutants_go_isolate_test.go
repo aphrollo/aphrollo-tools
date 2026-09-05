@@ -301,3 +301,53 @@ func TestRunGoMutantsJob_WaitsForTheBoxWideMutationRunLockBeforeRunningGremlins(
 		t.Fatal("gremlins never started after the box-wide lock was released")
 	}
 }
+
+// cloneMutantsRunTree does an unconditional os.RemoveAll plus reclone of a
+// deterministically-named directory with no lock of its own — the box-wide
+// run lock used to guard only the producer call below it, leaving this
+// destructive step to run whenever it liked (issue #436). It is now
+// acquired before goMutantsTree runs at all, so the clone itself — not just
+// gremlins afterward — waits for it too. Unlike the sibling test above,
+// this job's worktree is left LINKED (linkedMutantsJob's own default), so
+// goMutantsTree actually reaches cloneMutantsRunTree instead of skipping it.
+func TestRunGoMutantsJob_WaitsForTheBoxWideLockBeforeCloningTheIsolatedTree(t *testing.T) {
+	withIsolatedMutantsRunLock(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	j := linkedMutantsJob(t)
+	cloneDir := goMutantsCloneDir(j.Worktree)
+
+	prev := goMutantsJobRunFn
+	goMutantsJobRunFn = func(job MutantsJob, outPath string, _ int, _ []string) int {
+		mustWrite(t, outPath, ciReport)
+		return 0
+	}
+	t.Cleanup(func() { goMutantsJobRunFn = prev })
+
+	release := acquireMutantsRunLock("holder", "/repo/holder")
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		RunGoMutantsJob(writeJobFile(t, j))
+	}()
+
+	// Polled rather than checked once after a fixed wait: cloning is real
+	// `git clone` work, not instant, so a single early check would pass
+	// whether or not the lock is doing anything at all.
+	deadline := time.Now().Add(3 * time.Second)
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(cloneDir); err == nil {
+			t.Fatalf("clone dir %q exists while another mutation run still held the box-wide lock", cloneDir)
+		}
+		<-ticker.C
+	}
+
+	release()
+	<-done
+
+	if _, err := os.Stat(cloneDir); err != nil {
+		t.Fatalf("clone dir %q was never created once the box-wide lock was released: %v", cloneDir, err)
+	}
+}

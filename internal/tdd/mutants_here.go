@@ -173,14 +173,20 @@ func RunMutantsHere(dir string, out io.Writer) int {
 	// serializes them, and it QUEUES rather than refusing, so the second lane
 	// keeps its place instead of being told to go away.
 	//
-	// r.Worktree == j.Worktree skips exactly one entry: buildMutantsJob's own
-	// chooseMutantsWorktree (issue #405) already registered a reservation for
-	// j's OWN worktree, under this same process, before this function ever
-	// gets to ask "is anything else measuring this tree" — without the skip
-	// every hand-typed run found itself in the registry and refused itself as
-	// a duplicate.
+	// r.Worktree == j.Worktree AND r.PID == os.Getpid() skips exactly one
+	// entry: buildMutantsJob's own chooseMutantsWorktree (issue #405)
+	// already registered a reservation for j's OWN worktree, under THIS
+	// process, before this function ever gets to ask "is anything else
+	// measuring this tree" — without the skip every hand-typed run found
+	// itself in the registry and refused itself as a duplicate. Worktree
+	// name alone is not proof of that: chooseMutantsWorktree now checks
+	// every candidate it hands out precisely so two DIFFERENT processes
+	// can never be given the same name (issue #436) — but trusting the
+	// name alone here would still treat a third caller who somehow landed
+	// on this same worktree as this call's own reservation instead of the
+	// duplicate it actually is.
 	for _, r := range RunningMutantsJobs(j.Repo) {
-		if r.Worktree == j.Worktree {
+		if r.Worktree == j.Worktree && r.PID == os.Getpid() {
 			continue
 		}
 		if !strings.EqualFold(r.TipTree, j.TipTree) {
