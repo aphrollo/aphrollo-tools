@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // Upgrading the gate in place is the one operation the obvious sequence gets
@@ -116,6 +118,16 @@ func runGateSelfInstall(args []string, stdout, stderr io.Writer) int {
 	return runGateInit(append([]string{"--bin", bin}, fs.Args()...), stdout, stderr)
 }
 
+// renameFn indirects os.Rename inside swapBinary so a test can force the
+// exact double-failure sequence (the forward move fails, then the rollback
+// meant to restore the previous binary ALSO fails) that a real filesystem
+// has no reliable, portable way to reproduce on demand.
+var renameFn = os.Rename
+
+// replacedBinaryJobsLineFn indirects tdd.ReplacedBinaryJobsLine so a test can
+// state its finding without needing a real live process to point at.
+var replacedBinaryJobsLineFn = tdd.ReplacedBinaryJobsLine
+
 // swapBinary renames bin aside (if one exists yet), moves staged into its
 // place, and sweeps whatever earlier upgrades left beside it — the sequence
 // any verb that replaces the running binary needs, shared so `gate
@@ -131,7 +143,7 @@ func swapBinary(prefix, bin, staged string, stdout io.Writer) (stale string, err
 	stale = siblingPath(bin, fmt.Sprintf("%s%d", stalePrefix, time.Now().Unix()))
 	renamed := false
 	if _, statErr := os.Stat(bin); statErr == nil {
-		if err := os.Rename(bin, stale); err != nil {
+		if err := renameFn(bin, stale); err != nil {
 			return "", fmt.Errorf("cannot move %s aside: %w", bin, err)
 		}
 		renamed = true
@@ -141,14 +153,14 @@ func swapBinary(prefix, bin, staged string, stdout io.Writer) (stale string, err
 		stale = ""
 	}
 
-	if err := os.Rename(staged, bin); err != nil {
+	if err := renameFn(staged, bin); err != nil {
 		// Put the box back the way it was: a bin dir with no binary at all is
 		// worse than one running the previous build. If the restore ITSELF
 		// fails, that must reach the operator too — the earlier code
 		// discarded this error, which is exactly how a box can be left with
 		// nothing at bin and a report that only mentions the first failure.
 		if renamed {
-			if rerr := os.Rename(stale, bin); rerr != nil {
+			if rerr := renameFn(stale, bin); rerr != nil {
 				return "", fmt.Errorf("cannot move %s into place: %w; restoring the previous binary from %s also failed: %v; %s still holds it, move it back by hand", staged, err, stale, rerr, stale)
 			}
 		}
@@ -166,6 +178,16 @@ func swapBinary(prefix, bin, staged string, stdout io.Writer) (stale string, err
 
 	removed, held := sweepStaleBinaries(filepath.Dir(bin), filepath.Base(bin), stale)
 	fmt.Fprintf(stdout, "%s: sweep  %d stale copy/copies reclaimed, %d still in use\n", prefix, removed, held)
+
+	// #338: a job still executing the copy just renamed to `stale` holds the
+	// box-wide mutation-run lock and produces results from code no longer
+	// installed. This is the one moment that fact is free — the installer
+	// already knows it just replaced the binary, and every pid is already on
+	// record — so it is named here rather than only to whoever queues behind
+	// the job later (#311's queue-side notice).
+	if line := replacedBinaryJobsLineFn(stale); line != "" {
+		fmt.Fprintln(stdout, line)
+	}
 
 	return stale, nil
 }

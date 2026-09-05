@@ -129,7 +129,7 @@ func GateStats(r io.Reader, since time.Time) Stats {
 var denyVerdictPrefixes = []string{
 	"pretooluse-denied:", "commitmsg-rejected:", "override-", "smell-escape:",
 	"receipt-forged", "receipt-unsigned", "queue-bypass", "mutants-worktree-failed",
-	"git-discard-refused:",
+	"git-discard-refused:", "standdown-",
 }
 
 func isDenyVerdict(verdict string) bool {

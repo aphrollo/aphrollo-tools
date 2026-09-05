@@ -8,6 +8,51 @@ import (
 	"testing"
 )
 
+// A state dir that cannot be created (a FILE sits where "gate-state" needs to
+// be a directory) must not lose the fact silently: before this, appendGateLog
+// returned on os.MkdirAll's error with nothing said anywhere, which is
+// exactly how #394's own hooks-dir refusal surfaced three frames away as a
+// missing gate.log line instead of as the refusal that caused it.
+func TestAppendGateLog_WarnsWhenTheStateDirCannotBeCreated(t *testing.T) {
+	resetAppendGateLogWarnForTest()
+	base := t.TempDir()
+	// gate-state must be a FILE, so os.MkdirAll(dir, ...) fails with "not a
+	// directory" rather than succeeding over an existing empty dir.
+	if err := os.WriteFile(filepath.Join(base, "gate-state"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", base)
+
+	stderr := captureStderr(t, func() {
+		appendGateLog("precommit", "/some/repo", "gate", "green", 0)
+	})
+
+	if !strings.Contains(stderr, "gate.log is not being written") {
+		t.Fatalf("appendGateLog's failure was not reported on stderr, got:\n%s", stderr)
+	}
+}
+
+// The warning fires at most once per process, so a state dir that stays
+// unwritable for a whole session does not bury the one useful line under a
+// screenful of identical repeats.
+func TestAppendGateLog_WarnsOnlyOncePerProcess(t *testing.T) {
+	resetAppendGateLogWarnForTest()
+	base := t.TempDir()
+	if err := os.WriteFile(filepath.Join(base, "gate-state"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", base)
+
+	stderr := captureStderr(t, func() {
+		appendGateLog("precommit", "/some/repo", "gate", "green", 0)
+		appendGateLog("postedit", "/some/repo", "gate", "green", 0)
+	})
+
+	if n := strings.Count(stderr, "gate.log is not being written"); n != 1 {
+		t.Fatalf("warning printed %d time(s) across two failed writes, want 1:\n%s", n, stderr)
+	}
+}
+
 func TestFingerprintsMatch(t *testing.T) {
 	a := &fingerprint{Branch: "main", HeadSHA: "abc", IndexMtime: 1}
 	b := &fingerprint{Branch: "main", HeadSHA: "abc", IndexMtime: 1}

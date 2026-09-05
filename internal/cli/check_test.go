@@ -103,6 +103,17 @@ func cleanCheckRepo(t *testing.T) string {
 	userPathDirsFn = func() []string { return []string{shim} }
 	t.Cleanup(func() { userPathDirsFn = origPathDirs })
 
+	// A managed hooks dir, built by writing the same shim install writes —
+	// never through a real `git config --global`, which is why isolateGit
+	// runs first below regardless.
+	hooksDir := t.TempDir()
+	if err := tdd.WriteManagedHookForTest(hooksDir, "pre-commit", bin, "precommit"); err != nil {
+		t.Fatal(err)
+	}
+	origHooksPath := gitHooksPathFn
+	gitHooksPathFn = func() string { return hooksDir }
+	t.Cleanup(func() { gitHooksPathFn = origHooksPath })
+
 	isolateGit(t)
 	root := t.TempDir()
 	gitInitRepo(t, root)

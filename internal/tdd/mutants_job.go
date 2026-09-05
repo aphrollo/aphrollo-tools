@@ -459,6 +459,13 @@ func RunningMutantsJobs(repo string) []MutantsJob {
 	if path == "" {
 		return nil
 	}
+	return liveJobsAt(path)
+}
+
+// liveJobsAt is RunningMutantsJobs' filter, taking the registry FILE
+// directly rather than deriving it from a repo — shared with
+// allRunningMutantsJobs, which reads every repo's registry rather than one.
+func liveJobsAt(path string) []MutantsJob {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
