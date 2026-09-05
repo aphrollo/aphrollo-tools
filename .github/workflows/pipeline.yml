@@ -104,10 +104,18 @@ jobs:
           else
             echo "bench=false" >> "$GITHUB_OUTPUT"
           fi
-          # refactor=true iff a changed file sits under the refactor/sqlc
-          # packages, so `test` only pays for installing gopls + sqlc on the
-          # PRs whose e2e suites can actually exercise them.
-          if printf '%s\n' "$changed" | grep -qE '^(internal/refactor/|internal/sqlc/)'; then
+          # refactor=true iff a changed file sits under a package the gated
+          # gopls/sqlc e2e tests actually exercise transitively, not just the
+          # two packages the tests themselves live in -- a change to the LSP
+          # client or the diff-apply code they both drive must install the
+          # real binaries too, or the tests self-skip on exactly the commit
+          # most likely to break them. Derived, not guessed: `go list -deps
+          # ./internal/refactor/... ./internal/sqlc/... | grep
+          # '^github.com/aphrollo/aphrollo-tools/internal/'` names
+          # internal/diff, internal/lsp, internal/refactor and internal/sqlc
+          # -- keep this pattern in sync with that command's output when
+          # either package's imports change.
+          if printf '%s\n' "$changed" | grep -qE '^(internal/refactor/|internal/sqlc/|internal/lsp/|internal/diff/)'; then
             echo "refactor=true" >> "$GITHUB_OUTPUT"
           else
             echo "refactor=false" >> "$GITHUB_OUTPUT"
@@ -186,10 +194,11 @@ jobs:
       # issue tracker recorded — not both, or vet coverage disappears
       # entirely on a lint-skipping docs-only PR.
       #
-      # Neither invocation type-checks the 8 windows-tagged files under
-      # internal/ (Go excludes *_windows.go and //go:build windows from a
-      # linux/amd64 vet or build), so a cross-compiled vet+build stands in:
-      # cheap (~20s) because it only type-checks, it never runs anything.
+      # Neither invocation type-checks the 9 windows-tagged files under
+      # internal/ (6 production + 3 _test.go; Go excludes *_windows.go and
+      # //go:build windows from a linux/amd64 vet or build), so a
+      # cross-compiled vet+build stands in: cheap (~20s) because it only
+      # type-checks, it never runs anything.
       - name: Vet + build the platform-tagged files (windows, darwin)
         if: needs.changes.outputs.code == 'true'
         run: |
@@ -199,12 +208,17 @@ jobs:
           GOOS=darwin GOARCH=arm64 go build -o /dev/null ./cmd/aphrollo
       # gopls and sqlc back the e2e suites in internal/refactor and
       # internal/sqlc, which self-skip via exec.LookPath when the binary is
-      # missing. Installed only when a PR touches those packages: on every
-      # other PR the suites stay skipped exactly as before, and the box pays
-      # nothing for LSP/sqlc binaries it cannot exercise. rust-analyzer,
-      # pyright-langserver and typescript-language-server stay uninstalled —
-      # none of them is `go install`-able, so wiring them in costs a second
-      # toolchain per language rather than one `go install` line; their e2e
+      # missing. Installed when a PR touches the `refactor` filter's paths —
+      # the two test packages AND the internal/lsp + internal/diff code they
+      # transitively exercise (see the filter's own comment in `changes`): a
+      # PR that only edits the JSON-RPC client, say, must not let these tests
+      # self-skip through the one class of change most likely to break them.
+      # On every other PR the suites stay skipped exactly as before, and the
+      # box pays nothing for LSP/sqlc binaries it cannot exercise.
+      # rust-analyzer, pyright-langserver and typescript-language-server stay
+      # uninstalled — none of them is `go install`-able, so wiring them in
+      # costs a second toolchain per language rather than one `go install`
+      # line; their e2e
       # suites keep self-skipping.
       - name: Install gopls
         if: needs.changes.outputs.refactor == 'true'
@@ -412,10 +426,10 @@ jobs:
     # measure AFTER `deploy` has already shipped (issue #334) — moving it off
     # the critical path needs either a runner label this workflow cannot
     # confirm exists, or a scheduled/batched trigger, either of which is a
-    # bigger behavioural change than this pass makes. What is fixed here: the
-    # outcome-store cache key below was never restoring anything (dead code,
-    # not merely a stale comment), which made every run re-measure mutants
-    # the previous push had already judged.
+    # bigger behavioural change than this pass makes. What is fixed here is
+    # narrower: the stale comment below wrongly described the outcome-store
+    # cache as PR-scoped when this job never runs on a PR; the cache itself
+    # was confirmed working (see the comment) and is unchanged.
     if: github.event_name == 'push'
     needs: [changes, test]
     runs-on: self-hosted
@@ -447,24 +461,23 @@ jobs:
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
       # The outcome store carries measurements across successive pushes to
       # main. This job only ever runs on `push` (see the `if:` above), where
-      # `github.head_ref` is empty — an earlier version of this comment
-      # described the issue #143 PR-carry-over case and keyed on head_ref for
-      # it, which on THIS job's own trigger produced a fresh, never-restored
-      # key every single run and carried nothing (issue #334). Keyed on
-      # `ref_name` (`main` for every run of this job) instead, with the run id
-      # making every save a NEW cache entry (a key already in the cache
-      # namespace cannot be overwritten) and restore-keys picking up the most
-      # recent one for that ref. Without this, a merge landing right after
-      # another re-measures every mutant their union touches instead of
-      # reusing what the previous push already judged.
+      # `github.head_ref` is documented as empty — which does not break the
+      # carry-over the way an earlier version of this comment (describing
+      # issue #143's PR-scoped case) implied: an always-empty head_ref makes
+      # the key's branch component a CONSTANT across every run of this job,
+      # so the run id is what keeps entries distinct and restore-keys'
+      # prefix match reliably finds the previous push's save. Confirmed
+      # against this repo's own run logs rather than assumed: a prior run
+      # logged `restore-keys: mutants-store--` and the next one logged
+      # `Cache restored from key: mutants-store--<that run's id>`.
       - name: Restore the mutation outcome store
         if: needs.changes.outputs.code == 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .mutants-store
-          key: mutants-store-${{ github.ref_name }}-${{ github.run_id }}
+          key: mutants-store-${{ github.head_ref }}-${{ github.run_id }}
           restore-keys: |
-            mutants-store-${{ github.ref_name }}-
+            mutants-store-${{ github.head_ref }}-
       - name: aphrollo gate mutants go --diff
         if: needs.changes.outputs.code == 'true'
         env:
@@ -487,12 +500,12 @@ jobs:
         # that job's log) -- exactly the run whose measurements a fix-up push
         # most wants to reuse. An explicit save step run unconditionally
         # closes that hole; restore-keys above still lets the next push adopt
-        # whatever the newest saved key under this ref_name holds.
+        # whatever the newest saved key under this (constant, on push) head_ref holds.
         if: ${{ always() && needs.changes.outputs.code == 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .mutants-store
-          key: mutants-store-${{ github.ref_name }}-${{ github.run_id }}
+          key: mutants-store-${{ github.head_ref }}-${{ github.run_id }}
       - name: Upload the receipt
         # always(): the receipt of a run that FAILED is the one somebody needs
         # to read, and it is written before the check decides.
