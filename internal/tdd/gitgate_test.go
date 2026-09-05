@@ -32,6 +32,17 @@ func isolateGitConfig(t *testing.T) string {
 	}
 	t.Setenv("GIT_CONFIG_GLOBAL", gc)
 	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+	// CLAUDE_CONFIG_DIR is deliberately left alone here: TestMain already
+	// isolates the whole package from the operator's real ~/.claude, and a
+	// caller that also builds a git-hosting FIXTURE through this helper (
+	// makeCargoRepo/makeGoRepo) may have its OWN CLAUDE_CONFIG_DIR already
+	// set for a reason — to read gate.log back out of it later. Setting one
+	// here unconditionally used to clobber that (#394 review): a workspace-
+	// check test's own isolated state dir was silently swapped out from
+	// under it, so its gate.log assertion failed against a directory that
+	// was never written to. A test that specifically needs gate.log
+	// isolated to ITSELF sets its own t.Setenv("CLAUDE_CONFIG_DIR", ...),
+	// same as every test in behind_test.go already does.
 	// Every caller of this helper points core.hooksPath at a hooks dir under
 	// t.TempDir() while the global config it writes to is ALSO isolated here
 	// — exactly the sanctioned dogfooding shape installGitGate's temp/
@@ -292,11 +303,14 @@ func TestUnsafeHooksDirReason_AcceptsADurableDir(t *testing.T) {
 // forced a manual `git config --global --unset core.hooksPath` on this box.
 func TestInstallGitGate_ReclaimsADanglingHooksPath(t *testing.T) {
 	isolateGitConfig(t)
-	dangling := filepath.Join(t.TempDir(), "gone")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	parent := t.TempDir()
+	dangling := filepath.Join(parent, "gone")
 	if out, err := exec.Command(gitBinary(), "config", "--global", "core.hooksPath", dangling).CombinedOutput(); err != nil {
 		t.Fatalf("seed core.hooksPath: %v: %s", err, out)
 	}
-	// dangling is never created: this is what "cleaned up later" looks like.
+	// dangling itself is never created, but parent IS: this is what "cleaned
+	// up later" looks like — confidently a deletion, not merely unreachable.
 
 	hooksDir := filepath.Join(t.TempDir(), "hooks")
 	changed, err := InitGitGate(hooksDir, "/usr/local/bin/aphrollo", false)
@@ -308,6 +322,45 @@ func TestInstallGitGate_ReclaimsADanglingHooksPath(t *testing.T) {
 	}
 	if got := globalHooksPath(t); got != hooksDir {
 		t.Errorf("core.hooksPath = %q, want %q", got, hooksDir)
+	}
+	log := gateLogContent(t)
+	if !strings.Contains(log, "hookspath-dangling-repaired") {
+		t.Fatalf("the repair must be recorded through appendGateLog so it lands in gate.log and is countable, got:\n%s", log)
+	}
+	if !strings.Contains(log, dangling) {
+		t.Fatalf("the log line must name the previous value so it can be restored by hand: %q not found in:\n%s", dangling, log)
+	}
+}
+
+// A core.hooksPath naming something merely UNREACHABLE right now — an
+// unmounted or not-yet-reconnected mapped network drive returns the exact
+// same "not found" error on Windows a deleted directory does — must be
+// refused, never silently repointed: the depender may be fine and the stat
+// transiently wrong, and rewriting a machine-wide setting out from under
+// that is strictly worse than the unconditional refusal it would replace.
+// The distinguishing signal this test drives: dangling's own PARENT also
+// does not exist (neither was ever created), which a genuinely deleted
+// directory's parent would not exhibit.
+func TestInstallGitGate_RefusesAnUnreachableHooksPathRatherThanReclaimingIt(t *testing.T) {
+	isolateGitConfig(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	unreachable := filepath.Join(root, "never-mounted", "shared-hooks")
+	if out, err := exec.Command(gitBinary(), "config", "--global", "core.hooksPath", unreachable).CombinedOutput(); err != nil {
+		t.Fatalf("seed core.hooksPath: %v: %s", err, out)
+	}
+	// Neither unreachable nor its parent is ever created.
+
+	hooksDir := filepath.Join(t.TempDir(), "hooks")
+	_, err := InitGitGate(hooksDir, "/usr/local/bin/aphrollo", false)
+	if err == nil {
+		t.Fatal("InitGitGate: want error refusing an unreachable core.hooksPath rather than reclaiming it, got nil")
+	}
+	if got := globalHooksPath(t); got != unreachable {
+		t.Errorf("unreachable core.hooksPath was changed to %q, want preserved %q", got, unreachable)
+	}
+	if log := gateLogContent(t); strings.Contains(log, "hookspath-dangling-repaired") {
+		t.Fatalf("an unreachable path must never be logged as repaired:\n%s", log)
 	}
 }
 

@@ -162,13 +162,36 @@ func cleanForCompare(p string) string {
 	return clean
 }
 
+// gitGateStage names the appendGateLog stage a dangling-hooksPath reclaim
+// records under, so it lands in gate.log and gate stats can count it.
+const gitGateStage = "git-gate"
+
 // hooksPathDangling reports whether dir — a current core.hooksPath value —
-// no longer exists on disk. A dangling hooksPath is RECLAIMABLE: nothing
-// could still be depending on hooks that cannot run. A dir that exists but
-// holds something else is FOREIGN and stays refused.
+// has genuinely been DELETED, as opposed to merely unreachable right now. An
+// unmounted or not-yet-reconnected mapped network drive returns the exact
+// same "not found" error os.Stat gives a deleted directory, and a
+// core.hooksPath legitimately pointing at one (a shared `Z:\hooks`) must
+// never be silently repointed on the strength of a transient stat failure —
+// the depender is fine, and rewriting a machine-wide setting out from under
+// it is the same class of mistake the temp/scratchpad refusal above exists
+// to prevent, only aimed the other way.
+//
+// Requiring dir's PARENT to exist and be a readable directory is what tells
+// the two apart as far as the platform allows: a directory that was
+// genuinely deleted leaves its parent standing, while an unreachable network
+// path's parent (often the drive root itself) fails the identical way. A dir
+// with no distinct parent (a bare drive root, or ".") has nothing to
+// corroborate against and is never called a deletion.
 func hooksPathDangling(dir string) bool {
-	_, err := os.Stat(dir)
-	return errors.Is(err, os.ErrNotExist)
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	parent := filepath.Dir(dir)
+	if parent == dir {
+		return false
+	}
+	fi, err := os.Stat(parent)
+	return err == nil && fi.IsDir()
 }
 
 func installGitGate(hooksDir, bin string) (bool, error) {
@@ -223,6 +246,10 @@ func installGitGate(hooksDir, bin string) (bool, error) {
 				fmt.Fprintf(os.Stderr,
 					"aphrollo gate: hookspath-dangling-repaired — core.hooksPath was %q, which no longer exists; repointing to %s\n",
 					cur, hooksDir)
+				// Recorded through the same ledger `gate stats` reads, naming
+				// the previous value as the root so it can be restored by
+				// hand if the reclaim turns out to have been wrong.
+				appendGateLog(gitGateStage, cur, "core.hooksPath -> "+hooksDir, "hookspath-dangling-repaired", 0)
 			} else {
 				return false, fmt.Errorf(
 					"refusing to overwrite existing global core.hooksPath %q.\n"+
