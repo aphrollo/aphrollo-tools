@@ -27,25 +27,53 @@ func runGateDoctor(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+	out, code := tdd.RenderDoctor(tdd.Doctor(doctorInput(*configDir, *shimDir, *repo)))
+	fmt.Fprint(stdout, out)
+	return code
+}
 
+// doctorInput builds the tdd.DoctorInput the checks read, resolving each
+// empty override to the same default runGateDoctor always used — shared with
+// `check`'s doctor guard (runDoctorCheck below) so the two can never drift
+// apart into judging a different install.
+func doctorInput(configDir, shimDir, repo string) tdd.DoctorInput {
 	bin := defaultBinPath()
-	dir := *configDir
+	dir := configDir
 	if dir == "" {
 		dir = defaultClaudeDir()
 	}
-	shim := *shimDir
+	shim := shimDir
 	if shim == "" {
 		shim = filepath.Join(filepath.Dir(bin), "cargo-queue")
 	}
-	out, code := tdd.RenderDoctor(tdd.Doctor(tdd.DoctorInput{
+	return tdd.DoctorInput{
 		ConfigDir: dir,
 		Bin:       bin,
 		ShimDir:   shim,
-		Repo:      *repo,
-		PathDirs:  userPathDirs(),
-	}))
-	fmt.Fprint(stdout, out)
-	return code
+		Repo:      repo,
+		PathDirs:  userPathDirsFn(),
+	}
+}
+
+// userPathDirsFn indirects userPathDirs so a test can fake the PATH doctor
+// judges without touching the box's own registry — mirroring the
+// ratchetCheckFn seam other guards already use.
+var userPathDirsFn = userPathDirs
+
+// runDoctorCheck runs the doctor checks against repo with default resolution
+// (no CLI overrides), writes tdd.RenderDoctor's report to w, and returns the
+// number of FAILED checks — the miss count `check`'s doctor guard reports.
+func runDoctorCheck(w io.Writer, repo string) int {
+	checks := tdd.Doctor(doctorInput("", "", repo))
+	out, _ := tdd.RenderDoctor(checks)
+	fmt.Fprint(w, out)
+	misses := 0
+	for _, c := range checks {
+		if !c.OK {
+			misses++
+		}
+	}
+	return misses
 }
 
 // userPathDirs is the PATH as the USER has it configured, not as this process

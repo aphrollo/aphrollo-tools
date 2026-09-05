@@ -3,6 +3,7 @@ package tdd
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -149,17 +150,18 @@ func baselineGlobs(repoRoot string) []string {
 	return defaultBaselineGlobs
 }
 
+// matchesAnyGlob judges every glob with path.Match on slash-normalised
+// strings, never filepath.Match: filepath.Match's separator is
+// filepath.Separator, which is `\` on Windows and `/` on Linux, so `*` in
+// the exact same pattern crossed a directory boundary on one OS and not the
+// other even though every stored glob and every rel path here is always
+// forward-slashed. path.Match always treats `/` as the separator regardless
+// of OS, so the same pattern selects the same files everywhere.
 func matchesAnyGlob(globs []string, rel string) bool {
+	rel = filepath.ToSlash(rel)
 	for _, g := range globs {
-		if ok, err := filepath.Match(g, rel); err == nil && ok {
+		if ok, err := path.Match(filepath.ToSlash(g), rel); err == nil && ok {
 			return true
-		}
-		// filepath.Match's `*` never crosses a separator, so a glob naming a
-		// directory prefix is matched against the tail too.
-		if dir, pattern := filepath.Split(g); dir != "" && strings.HasPrefix(rel, dir) {
-			if ok, err := filepath.Match(pattern, rel[len(dir):]); err == nil && ok {
-				return true
-			}
 		}
 	}
 	return false
@@ -168,22 +170,26 @@ func matchesAnyGlob(globs []string, rel string) bool {
 // baselineDeclare matches a law's `baseline = "<path>"` line.
 var baselineDeclare = regexp.MustCompile(`(?m)^\s*baseline\s*=\s*"([^"]*)"`)
 
-// sectionPattern extracts one `[name]` table's body, up to the next `[` at
-// the start of a line or end of file — good enough for the coarse "did
-// matcher or scope move" comparison this guard needs, without pulling in the
-// ratchet package's own (unexported) TOML parser.
-func sectionPattern(name string) *regexp.Regexp {
-	return regexp.MustCompile(`(?ms)^\[` + regexp.QuoteMeta(name) + `\]\s*\n(.*?)(?:\n\[|\z)`)
-}
-
-var scopeSection, matcherSection = sectionPattern("scope"), sectionPattern("matcher")
-
-func section(re *regexp.Regexp, text string) string {
-	m := re.FindStringSubmatch(text)
-	if m == nil {
-		return ""
+// lawSemanticsChanged reports whether staged and head differ in what the law
+// actually catches — [matcher], [scope], severity — via
+// ratchet.RuleSemantics, the same canonicalised fingerprint the CLI's own
+// --adopt changed-since-HEAD guard uses (lawChangedSinceHEAD in
+// internal/cli/ratchet.go). A raw byte or raw-section-text diff would let a
+// comment added inside [matcher], or whitespace reflowed there, "change" a
+// law that still catches exactly what it always did — the cosmetic-edit
+// laundering this guard exists to close. Either version failing to parse
+// answers true: a box that cannot tell says "changed" rather than silently
+// waving a raise through.
+func lawSemanticsChanged(staged, head string) bool {
+	s, err := ratchet.RuleSemantics(staged)
+	if err != nil {
+		return true
 	}
-	return strings.TrimSpace(m[1])
+	h, err := ratchet.RuleSemantics(head)
+	if err != nil {
+		return true
+	}
+	return s != h
 }
 
 // adoptionCovers reports whether the law that declares baselineRel as its
@@ -227,8 +233,7 @@ func adoptionCovers(repoRoot, baselineRel string, rows int) (lawName string, _ i
 			// and a new law's first baseline is exactly the adoption case.
 			return name, rows, true
 		}
-		changed := section(scopeSection, staged) != section(scopeSection, head) ||
-			section(matcherSection, staged) != section(matcherSection, head)
+		changed := lawSemanticsChanged(staged, head)
 		if !changed && !lawOnTrunk(repoRoot, lawRel) && mergedTrunkAtHead(repoRoot) {
 			// The law is the lane's own, not yet on trunk, AND this commit
 			// sits right on top of a REAL merge of trunk (mergedTrunkAtHead):
