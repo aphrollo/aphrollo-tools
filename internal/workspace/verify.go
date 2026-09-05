@@ -79,6 +79,14 @@ func appsForRepo(repo string) []appSpec {
 	return out
 }
 
+// HasAppProfile reports whether repoName has a declared verification profile
+// in the table above. `aphrollo check`'s app-trio guard uses this to decide
+// [skip] "no app declared" without needing a resolved Target first — a repo
+// the table does not cover is never in scope for the trio.
+func HasAppProfile(repoName string) bool {
+	return len(appsForRepo(repoName)) > 0
+}
+
 // knownRepos lists the repos the table covers, for an actionable error.
 func knownRepos() string {
 	seen := map[string]bool{}
