@@ -25,7 +25,7 @@ import (
 // worktree, and a primary checkout parked on a branch are all untouched.
 
 // PrimaryEditsEnv turns the rule off for one process. The second escape is
-// `/tdd primary-edits on`, per session; both are stated in the refusal.
+// `aphrollo gate allow primary`, per session; both are stated in the refusal.
 const PrimaryEditsEnv = "APHROLLO_PRIMARY_EDITS"
 
 // primaryBranch is the branch a primary checkout is expected to hold. Not a
@@ -177,7 +177,8 @@ func repoRootNear(dir string) string {
 func PrimaryMergeOnlyReason(root string) string {
 	path := filepath.Join(filepath.Dir(root), ".worktrees", filepath.Base(root), "<name>")
 	reason := "primary checkout is merge-only — git worktree add -b lane/<name> " +
-		shellPath(path) + " " + primaryBranch
+		shellPath(path) + " " + primaryBranch +
+		" (override with `aphrollo gate allow primary`, the only one of these that works from inside a turn)"
 	if hasStaleWorktreeEntry(commonGitDir(root)) {
 		reason += " (a lane dir was removed by hand — git worktree prune clears the stale entry)"
 	}
@@ -282,16 +283,12 @@ func PrimaryEditsAllowed(session string) bool {
 	if os.Getenv(PrimaryEditsEnv) == "1" {
 		return true
 	}
-	s, _ := loadSession(session)
-	return s != nil && s.Overrides.PrimaryEdits
+	return waivedForSession(session, WallPrimary)
 }
 
-// setPrimaryEdits persists the per-session waiver.
+// setPrimaryEdits persists the per-session waiver on WallPrimary — the
+// `/tdd primary-edits on|off` route into the same wall the allow/revoke
+// family (Allow/Revoke) already writes.
 func setPrimaryEdits(session string, on bool) error {
-	s, path := loadSession(session)
-	if s == nil {
-		return errNoSession
-	}
-	s.Overrides.PrimaryEdits = on
-	return s.save(path)
+	return setWaiver(session, WallPrimary, on)
 }

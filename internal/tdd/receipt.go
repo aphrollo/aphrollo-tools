@@ -466,7 +466,7 @@ func missingReceiptRemedy(ctx receiptContext) string {
 // script it does not have (issue #141).
 func blockReceipt(root, format string, args ...any) *GateResult {
 	return &GateResult{Blocked: true, Message: fmt.Sprintf(
-		"gate premergecommit: %s. Fail-first proves a test failed once; the receipt proves it constrains behaviour — %s.",
+		"gate premerge: %s. Fail-first proves a test failed once; the receipt proves it constrains behaviour — %s.",
 		fmt.Sprintf(format, args...), mutationGateHint(root))}
 }
 

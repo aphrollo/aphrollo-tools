@@ -51,10 +51,13 @@ type sessionState struct {
 		// Style is the session's `/tdd style` override ("terse" or "plain").
 		// Empty means unset — the env default decides, see replyStyleFor.
 		Style string `json:"style,omitempty"`
-		// PrimaryEdits waives the merge-only rule on the primary checkout for
-		// this session (`/tdd primary-edits on`), the per-session twin of
-		// APHROLLO_PRIMARY_EDITS=1.
-		PrimaryEdits bool `json:"primary_edits,omitempty"`
+		// Waivers holds one entry per WALL this session has waived (`gate
+		// allow <wall>`), keyed by wall name — generalises the old single
+		// primary_edits bool into a family the discard wall (#343) joins
+		// without a new mechanism. Absence means "not waived"; Allow/Revoke
+		// add and remove keys rather than flipping a flag, so ListWaivers
+		// only ever reports what is actually active.
+		Waivers map[string]waiverEntry `json:"waivers,omitempty"`
 	} `json:"overrides"`
 	// Notices records one-shot advisories that must fire at most once per
 	// session, so re-firing them on every edit never becomes noise.
@@ -286,6 +289,61 @@ func setOff(session string, off bool) error {
 	}
 	s.Overrides.Off = off
 	return s.save(path)
+}
+
+// waiverEntry is one active wall waiver's persisted shape: just when, since
+// the session holding it is the state file's own name.
+type waiverEntry struct {
+	Since string `json:"since"` // RFC3339
+}
+
+// waivedForSession reports whether session has an active waiver on wall.
+func waivedForSession(session, wall string) bool {
+	s, _ := loadSession(session)
+	if s == nil {
+		return false
+	}
+	_, ok := s.Overrides.Waivers[wall]
+	return ok
+}
+
+// setWaiver persists (on) or clears (off) session's waiver on wall.
+func setWaiver(session, wall string, on bool) error {
+	s, path := loadSession(session)
+	if s == nil {
+		return errNoSession
+	}
+	if on {
+		if s.Overrides.Waivers == nil {
+			s.Overrides.Waivers = map[string]waiverEntry{}
+		}
+		s.Overrides.Waivers[wall] = waiverEntry{Since: time.Now().UTC().Format(time.RFC3339)}
+	} else {
+		delete(s.Overrides.Waivers, wall)
+	}
+	return s.save(path)
+}
+
+// everySessionID lists every session id with a state file on disk, so
+// ListWaivers can report a waiver regardless of which session holds it —
+// `gate allow` (bare) is typically run from a different shell than the one
+// that waived the rule.
+func everySessionID() []string {
+	entries, err := os.ReadDir(stateDir())
+	if err != nil {
+		return nil
+	}
+	var ids []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if id, ok := strings.CutSuffix(name, ".json"); ok {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // StateDir is where the gate keeps its per-session state, gate.log, caches and
