@@ -311,6 +311,51 @@ func TestSwapBinary_ReportsBothErrorsWhenTheRollbackAlsoFails(t *testing.T) {
 	}
 }
 
+// #338: a job still executing the binary just replaced holds the box-wide
+// mutation-run lock and produces results from code no longer installed —
+// self-install must print that at the one moment it has the fact for free,
+// not leave it to whoever happens to queue behind the job later (#311).
+func TestSwapBinary_PrintsTheReplacedBinaryJobsLineWhenOneIsFound(t *testing.T) {
+	bin := selfInstallFixture(t, "NEW")
+
+	orig := replacedBinaryJobsLineFn
+	t.Cleanup(func() { replacedBinaryJobsLineFn = orig })
+	var gotStale string
+	replacedBinaryJobsLineFn = func(stalePath string) string {
+		gotStale = stalePath
+		return "gate: 1 mutation run(s) are still executing the binary just replaced (lane/x pid 999) — their results predate this install"
+	}
+
+	var out, errb bytes.Buffer
+	if code := runGateSelfInstall([]string{"--bin", bin, "--repo", t.TempDir(), "--no-init"}, &out, &errb); code != 0 {
+		t.Fatalf("self-install exit = %d\nstdout:%s\nstderr:%s", code, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), "gate: 1 mutation run(s) are still executing the binary just replaced (lane/x pid 999) — their results predate this install") {
+		t.Fatalf("stdout does not carry the replaced-binary-jobs line:\n%s", out.String())
+	}
+	stale := staleCopies(t, filepath.Dir(bin))
+	if len(stale) != 1 || gotStale != stale[0] {
+		t.Fatalf("the check must run against the stale path this swap just created: got %q, want %q", gotStale, stale)
+	}
+}
+
+// The common case: nothing is running the replaced binary, so nothing prints.
+func TestSwapBinary_PrintsNothingWhenNoJobIsRunningTheReplacedBinary(t *testing.T) {
+	bin := selfInstallFixture(t, "NEW")
+
+	orig := replacedBinaryJobsLineFn
+	t.Cleanup(func() { replacedBinaryJobsLineFn = orig })
+	replacedBinaryJobsLineFn = func(stalePath string) string { return "" }
+
+	var out, errb bytes.Buffer
+	if code := runGateSelfInstall([]string{"--bin", bin, "--repo", t.TempDir(), "--no-init"}, &out, &errb); code != 0 {
+		t.Fatalf("self-install exit = %d\nstdout:%s\nstderr:%s", code, out.String(), errb.String())
+	}
+	if strings.Contains(out.String(), "mutation run(s)") {
+		t.Fatalf("stdout must carry no replaced-binary-jobs line when there is none:\n%s", out.String())
+	}
+}
+
 // A binary replaced without rewiring leaves settings.json pointing at a build
 // that is no longer there, so the run has to finish the job.
 func TestSelfInstall_RewiresTheHooksAtTheNewBinary(t *testing.T) {
