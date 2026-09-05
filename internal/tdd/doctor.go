@@ -211,21 +211,63 @@ func doctorHookTimeouts(in DoctorInput) DoctorCheck {
 	return c
 }
 
-// doctorShimPath checks the queue dir is the FIRST PATH entry. Behind any
-// other entry it shadows nothing, and a direct `cargo` builds without ever
-// taking a slot.
+// doctorShimPath checks that no `git`/`cargo` resolves BEFORE the queue dir
+// — not that the queue dir is literally PathDirs[0]. Windows composes a
+// fresh process's PATH from two hives (see userPathDirs), and the
+// machine-wide one is never empty on a real box — System32 and friends
+// always precede anything a user configures — so "the shim is first" fails
+// permanently on every correctly configured box (#293). What actually
+// matters, and what stays true across both scopes, is whether an earlier
+// entry shadows the shim for either command it queues.
 func doctorShimPath(in DoctorInput) DoctorCheck {
 	c := DoctorCheck{Name: "shim dir on PATH"}
 	if len(in.PathDirs) == 0 {
 		c.Detail = "could not read the user PATH"
 		return c
 	}
-	if !samePath(in.PathDirs[0], in.ShimDir) {
-		c.Detail = fmt.Sprintf("PATH starts with %s, not %s — put the queue dir first", in.PathDirs[0], in.ShimDir)
+	shimAt := -1
+	for i, dir := range in.PathDirs {
+		if samePath(dir, in.ShimDir) {
+			shimAt = i
+			break
+		}
+	}
+	if shimAt < 0 {
+		c.Detail = fmt.Sprintf("%s is not on PATH at all — put the queue dir on PATH", in.ShimDir)
+		return c
+	}
+	if dir, name, shadowed := shadowingCommand(in.PathDirs[:shimAt]); shadowed {
+		c.Detail = fmt.Sprintf("%s in %s resolves before the queue dir %s — a direct %s never queues; put the queue dir first or ahead of that entry",
+			name, dir, in.ShimDir, strings.TrimSuffix(name, ".exe"))
 		return c
 	}
 	c.OK = true
 	return c
+}
+
+// shadowingCommand reports the first of dirs (searched IN ORDER, since order
+// is exactly what PATH resolution means) that holds a git or cargo
+// executable — the machine-wide install this check exists to catch.
+// ok=false means none of dirs would ever be reached first for either
+// command.
+func shadowingCommand(dirs []string) (dir, name string, ok bool) {
+	for _, d := range dirs {
+		for _, n := range commandExeNames() {
+			if fi, err := os.Stat(filepath.Join(d, n)); err == nil && !fi.IsDir() {
+				return d, n, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+// commandExeNames is what a shell actually resolves "git"/"cargo" to on this
+// OS: only Windows tries an extension (matches shimExeNames' own reasoning).
+func commandExeNames() []string {
+	if runtime.GOOS != "windows" {
+		return []string{"git", "cargo"}
+	}
+	return []string{"git.exe", "cargo.exe"}
 }
 
 // doctorShimExes checks the queue dir actually holds the shims. A dir first on
