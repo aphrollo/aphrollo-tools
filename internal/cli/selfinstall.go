@@ -104,32 +104,10 @@ func runGateSelfInstall(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "gate self-install: build  %s -> %s\n", desc, staged)
 
-	stale := siblingPath(bin, fmt.Sprintf("%s%d", stalePrefix, time.Now().Unix()))
-	renamed := false
-	if _, err := os.Stat(bin); err == nil {
-		if err := os.Rename(bin, stale); err != nil {
-			fmt.Fprintf(stderr, "aphrollo gate self-install: cannot move %s aside: %v\n", bin, err)
-			return 1
-		}
-		renamed = true
-		fmt.Fprintf(stdout, "gate self-install: rename %s -> %s\n", bin, stale)
-	} else {
-		fmt.Fprintf(stdout, "gate self-install: rename skipped, no binary at %s yet\n", bin)
-	}
-
-	if err := os.Rename(staged, bin); err != nil {
-		// Put the box back the way it was: a bin dir with no binary at all is
-		// worse than one running the previous build.
-		if renamed {
-			_ = os.Rename(stale, bin)
-		}
-		fmt.Fprintf(stderr, "aphrollo gate self-install: cannot move %s into place: %v\n", staged, err)
+	if _, err := swapBinary("gate self-install", bin, staged, stdout); err != nil {
+		fmt.Fprintf(stderr, "aphrollo gate self-install: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "gate self-install: move   %s -> %s\n", staged, bin)
-
-	removed, held := sweepStaleBinaries(filepath.Dir(bin), filepath.Base(bin), stale)
-	fmt.Fprintf(stdout, "gate self-install: sweep  %d stale copy/copies reclaimed, %d still in use\n", removed, held)
 
 	if *noInit {
 		return 0
@@ -138,6 +116,44 @@ func runGateSelfInstall(args []string, stdout, stderr io.Writer) int {
 	// `--config-dir`, `--git-hooks-dir` and friends reach it without
 	// self-install having to restate every one of them.
 	return runGateInit(append([]string{"--bin", bin}, fs.Args()...), stdout, stderr)
+}
+
+// swapBinary renames bin aside (if one exists yet), moves staged into its
+// place, and sweeps whatever earlier upgrades left beside it — the sequence
+// any verb that replaces the running binary needs, shared so `gate
+// self-install` and `update` behave byte-identically instead of drifting.
+// prefix names the caller in the three lines this prints to stdout (e.g.
+// "gate self-install" or "aphrollo update"), so an operator watching either
+// verb sees its own name. stale is the path the previous binary was renamed
+// to, or "" when there was nothing at bin yet.
+func swapBinary(prefix, bin, staged string, stdout io.Writer) (stale string, err error) {
+	stale = siblingPath(bin, fmt.Sprintf("%s%d", stalePrefix, time.Now().Unix()))
+	renamed := false
+	if _, statErr := os.Stat(bin); statErr == nil {
+		if err := os.Rename(bin, stale); err != nil {
+			return "", fmt.Errorf("cannot move %s aside: %w", bin, err)
+		}
+		renamed = true
+		fmt.Fprintf(stdout, "%s: rename %s -> %s\n", prefix, bin, stale)
+	} else {
+		fmt.Fprintf(stdout, "%s: rename skipped, no binary at %s yet\n", prefix, bin)
+		stale = ""
+	}
+
+	if err := os.Rename(staged, bin); err != nil {
+		// Put the box back the way it was: a bin dir with no binary at all is
+		// worse than one running the previous build.
+		if renamed {
+			_ = os.Rename(stale, bin)
+		}
+		return "", fmt.Errorf("cannot move %s into place: %w", staged, err)
+	}
+	fmt.Fprintf(stdout, "%s: move   %s -> %s\n", prefix, staged, bin)
+
+	removed, held := sweepStaleBinaries(filepath.Dir(bin), filepath.Base(bin), stale)
+	fmt.Fprintf(stdout, "%s: sweep  %d stale copy/copies reclaimed, %d still in use\n", prefix, removed, held)
+
+	return stale, nil
 }
 
 // siblingPath spells a name beside bin: `aphrollo.exe` + ".new" is

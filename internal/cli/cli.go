@@ -40,6 +40,7 @@ Commands:
   sqlc        Guard sqlc-generated code against drift (check / scoped regen)
   docs        Guard doc-cited repo paths against dangling references (check)
   version     Print the commit and build time this binary was stamped with
+  update      Fetch, build ./cmd/aphrollo from origin/main in a temporary worktree, swap it in, sweep stale copies, re-run init (--repo, --bin, --no-init)
 `
 
 // commandTimeout bounds a single language-server-backed command end to end —
@@ -100,6 +101,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runDocs(args[1:], stdout, stderr)
 	case "version":
 		return runVersion(args[1:], stdout, stderr)
+	case "update":
+		return runUpdate(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "aphrollo: unknown command %q\n\n%s", args[0], rootUsage)
 		return 2
