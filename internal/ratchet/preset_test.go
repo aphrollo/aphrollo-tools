@@ -289,3 +289,49 @@ include = ["a", "b"]
 		t.Errorf(`RuleSemantics(["a,b"]) = RuleSemantics(["a","b"]) = %q, want them to differ`, one)
 	}
 }
+
+// TestRuleSemantics_AStringValueCannotForgeASiblingFieldAcrossTheSectionJoin
+// proves the same class of collision one level up: canonicalSection joined
+// its `k=v` parts with a bare `;`, and canonicalTOMLValue's tomlString case
+// is a raw passthrough, so an unescaped `;` and `=` inside a string VALUE
+// could forge a following field's canonical text. Law A folds everything
+// into one `alias` string; law B has that same text split across a real
+// `alias` and a real `exclude` — today they fingerprint identically even
+// though they judge the tree differently (B excludes "target", A excludes
+// nothing).
+func TestRuleSemantics_AStringValueCannotForgeASiblingFieldAcrossTheSectionJoin(t *testing.T) {
+	lawA := `
+name     = "a"
+severity = "deny"
+
+[matcher]
+kind    = "regex-absent"
+pattern = "x"
+
+[scope]
+alias = "X;exclude=6:target"
+`
+	lawB := `
+name     = "a"
+severity = "deny"
+
+[matcher]
+kind    = "regex-absent"
+pattern = "x"
+
+[scope]
+alias   = "X"
+exclude = ["target"]
+`
+	a, err := RuleSemantics(lawA)
+	if err != nil {
+		t.Fatalf("RuleSemantics(lawA): %v", err)
+	}
+	b, err := RuleSemantics(lawB)
+	if err != nil {
+		t.Fatalf("RuleSemantics(lawB): %v", err)
+	}
+	if a == b {
+		t.Errorf("RuleSemantics(lawA) = RuleSemantics(lawB) = %q, want them to differ — lawA's alias value forges lawB's separate exclude field", a)
+	}
+}
