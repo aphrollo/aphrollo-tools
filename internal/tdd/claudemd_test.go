@@ -32,6 +32,23 @@ func TestClaudeMDBlockCarriesTheOperatingInstructions(t *testing.T) {
 	}
 }
 
+// The block described the mutation run only as something post-commit spawns,
+// so every repo that gets it learned the gate's mutation half without ever
+// learning the command a person types. Four sessions independently reached for
+// the repo's own producer script instead — which runs outside the box-wide
+// lock and in the wrong tree — and one traced the habit to a skill that
+// spelled the script out as a numbered step. A block that names the spawned
+// form and not the typed one is where that starts.
+func TestClaudeMDBlock_NamesTheHandTypedMutationRunNotOnlyTheSpawnedOne(t *testing.T) {
+	block := ClaudeMDBlock(shimDir, false)
+	if !strings.Contains(block, "aphrollo gate mutants run") {
+		t.Error("the block never names the command that measures the current lane by hand")
+	}
+	if !strings.Contains(block, "lock") {
+		t.Error("the block never says why a producer script must not be invoked directly")
+	}
+}
+
 // A rule the gate enforces but never states reads to a session as an
 // arbitrary refusal, so the merge-only rule and its recipe ride in the block
 // every repo gets.
