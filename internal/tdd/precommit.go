@@ -188,7 +188,7 @@ func mutationReceiptStage(repoRoot string) *GateResult {
 		// The gate failed on its own inputs, so it says which input: a clean
 		// automerge has no MERGE_HEAD yet, and only GIT_REFLOG_ACTION names
 		// the branch coming in.
-		return blockReceipt(repoRoot, "no lane tip to look a receipt up by (neither .git/MERGE_HEAD nor %s names a merged branch)", reflogActionEnv)
+		return blockReceipt(repoRoot, "no-lane-tip", "no lane tip to look a receipt up by (neither .git/MERGE_HEAD nor %s names a merged branch)", reflogActionEnv)
 	}
 	return checkMutationReceipt(newReceiptContext(repoRoot, tip))
 }
