@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -125,6 +126,14 @@ func dropOrphanMarkers(text string) string {
 	return strings.Join(kept, "\n")
 }
 
+// ErrManagedBlockInPrimary is returned by WriteClaudeMD when repoRoot is the
+// primary checkout of a repo that has any linked worktree and sits on main:
+// that checkout is merge-only (the git shim refuses a commit there at all),
+// so writing the block there would leave it permanently dirty with no commit
+// able to clear it, blocking workspace sync and leaving self-install to build
+// off a stale tree. Land the block through a lane instead.
+var ErrManagedBlockInPrimary = errors.New("managed CLAUDE.md block not written: merge-only primary checkout")
+
 // WriteClaudeMD writes the managed block into repoRoot's CLAUDE.md. force
 // creates the file when there is none; without it an absent CLAUDE.md is a
 // no-op, so a plain `gate init` never invents a file in a repo that keeps none.
@@ -132,6 +141,9 @@ func dropOrphanMarkers(text string) string {
 func WriteClaudeMD(repoRoot, shimDir string, force bool) (bool, error) {
 	if repoRoot == "" {
 		return false, nil
+	}
+	if _, ok := PrimaryMergeOnly(repoRoot); ok {
+		return false, ErrManagedBlockInPrimary
 	}
 	path := filepath.Join(repoRoot, "CLAUDE.md")
 	existing, err := os.ReadFile(path)
