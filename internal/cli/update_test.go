@@ -268,6 +268,7 @@ func TestUpdate_SwapsAndSweepsLikeSelfInstall(t *testing.T) {
 // build somewhere exec.LookPath (and everything Go spawns) can find it, not
 // only a human's shell — the same fix self-install got, shared.
 func TestUpdate_NormalizesAnExtensionlessBinFlagToExe(t *testing.T) {
+	pinBinGOOS(t, "windows")
 	_, clone, _ := updateFixture(t)
 	prev := buildAphrollo
 	buildAphrollo = func(repo, out string) (string, error) {
@@ -304,6 +305,7 @@ func TestUpdate_NormalizesAnExtensionlessBinFlagToExe(t *testing.T) {
 // binary instead of renaming it aside. This pins that once bin is
 // normalized, the pre-existing .exe IS found and preserved.
 func TestUpdate_RenamesThePreExistingExeAsideWhenBinFlagOmitsTheExtension(t *testing.T) {
+	pinBinGOOS(t, "windows")
 	_, clone, _ := updateFixture(t)
 	prev := buildAphrollo
 	buildAphrollo = func(repo, out string) (string, error) {

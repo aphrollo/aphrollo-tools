@@ -103,10 +103,21 @@ func selfInstallBuildStub(t *testing.T, built string) {
 	t.Cleanup(func() { buildAphrollo = prev })
 }
 
+// pinBinGOOS forces resolveBinPath's OS check to goos for the duration of a
+// test, restoring it after. Windows-only (or non-Windows-only) outcomes need
+// to hold on every CI host, not only the one actually running the test.
+func pinBinGOOS(t *testing.T, goos string) {
+	t.Helper()
+	prev := binGOOS
+	binGOOS = goos
+	t.Cleanup(func() { binGOOS = prev })
+}
+
 // #366: an explicit --bin with no extension on Windows must still land the
 // build somewhere exec.LookPath (and everything Go spawns) can find it, not
 // only a human's shell.
 func TestSelfInstall_NormalizesAnExtensionlessBinFlagToExe(t *testing.T) {
+	pinBinGOOS(t, "windows")
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "aphrollo") // deliberately no extension
 	selfInstallBuildStub(t, "NEW")
@@ -133,6 +144,7 @@ func TestSelfInstall_NormalizesAnExtensionlessBinFlagToExe(t *testing.T) {
 // binary instead of renaming it aside. This pins that once bin is
 // normalized, the pre-existing .exe IS found and preserved.
 func TestSelfInstall_RenamesThePreExistingExeAsideWhenBinFlagOmitsTheExtension(t *testing.T) {
+	pinBinGOOS(t, "windows")
 	dir := t.TempDir()
 	exe := filepath.Join(dir, "aphrollo.exe")
 	if err := os.WriteFile(exe, []byte("OLD"), 0o755); err != nil {
@@ -158,6 +170,39 @@ func TestSelfInstall_RenamesThePreExistingExeAsideWhenBinFlagOmitsTheExtension(t
 	got, err := os.ReadFile(exe)
 	if err != nil || string(got) != "NEW" {
 		t.Fatalf("%s = %q (%v), want the freshly built bytes", exe, got, err)
+	}
+}
+
+// The other side of #366: off Windows, --bin must land exactly where it was
+// pointed, with no .exe sibling ever created — the extension the two tests
+// above require is Windows-only behavior, not a platform-independent
+// default. This pins resolveBinPath directly rather than the full
+// self-install flow: swapBinary's post-move exec.LookPath check (#366) is a
+// real, host-native check, not one binGOOS can simulate — an extensionless
+// file is genuinely unrunnable on an actual Windows box, seam or no seam. So
+// only the OS-independent part of the claim — the path resolution itself,
+// and that it touches no file — can be proven on every host.
+func TestResolveBinPath_LeavesTheNameAloneOffWindows(t *testing.T) {
+	pinBinGOOS(t, "linux")
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "aphrollo") // no extension — the linux-native name
+
+	var out bytes.Buffer
+	got := resolveBinPath(bin, "test", &out)
+	if got != bin {
+		t.Fatalf("resolveBinPath(%q) = %q, want it unchanged off Windows", bin, got)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("resolveBinPath printed a normalization step off Windows: %q", out.String())
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".exe") {
+			t.Fatalf("resolveBinPath must not create any file, found %s", e.Name())
+		}
 	}
 }
 
