@@ -39,6 +39,7 @@ Commands:
   ratchet     Judge a repo against its declared code laws (.ratchet/laws/*.toml)
   sqlc        Guard sqlc-generated code against drift (check / scoped regen)
   docs        Guard doc-cited repo paths against dangling references (check)
+  version     Print the commit and build time this binary was stamped with
 `
 
 // commandTimeout bounds a single language-server-backed command end to end —
@@ -97,6 +98,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runSqlc(args[1:], stdout, stderr)
 	case "docs":
 		return runDocs(args[1:], stdout, stderr)
+	case "version":
+		return runVersion(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "aphrollo: unknown command %q\n\n%s", args[0], rootUsage)
 		return 2
