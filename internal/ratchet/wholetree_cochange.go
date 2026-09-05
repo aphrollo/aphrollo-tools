@@ -167,33 +167,48 @@ func coChangeHits(law Law, base BaseReader, changed []string, content map[string
 			if m == nil {
 				continue
 			}
-			decl := declLineFor(raw, i)
-			start, end := funcExtent(raw, decl)
-			markers = append(markers, marker{file: rel, raw: raw, lineIdx: i, start: start, end: end, target: parseCoChangeTarget(m[1])})
+			target := parseCoChangeTarget(m[1])
+			start, end := 1, len(raw)
+			if target.Func != "" {
+				// A function-scoped target judges only the marked
+				// declaration's own extent; a bare-path target is whole-file
+				// on BOTH sides — the marker itself may sit anywhere (the
+				// top of the file is the natural spot), not just above one
+				// declaration that happens to follow it.
+				start, end = funcExtent(raw, declLineFor(raw, i))
+			}
+			markers = append(markers, marker{file: rel, raw: raw, lineIdx: i, start: start, end: end, target: target})
 		}
 	}
 
 	var hits []Hit
 	for _, mk := range markers {
 		fd := diffs[mk.file]
-		if !hunkTouches(fd.Ops, mk.start, mk.end) {
-			continue // the marked declaration itself did not change
-		}
-		if coChangeEscaped(mk.raw, mk.lineIdx) {
+		selfChanged := hunkTouches(fd.Ops, mk.start, mk.end)
+		targetChanged := twinTouched(diffs, mk.target)
+		// The marker states `A twin B`, and the engine treats that as also
+		// `B twin A` — one annotation covers both directions, so a hit fires
+		// whenever exactly one side moved, never when both did (moved
+		// together) or neither did (nothing relevant happened here).
+		if selfChanged == targetChanged {
 			continue
 		}
-		if twinTouched(diffs, mk.target) {
+		if coChangeEscaped(mk.raw, mk.lineIdx) {
 			continue
 		}
 		target := mk.target.Path
 		if mk.target.Func != "" {
 			target += "#" + mk.target.Func
 		}
+		mover, laggard := mk.file, target
+		if targetChanged {
+			mover, laggard = target, mk.file
+		}
 		hits = append(hits, Hit{
 			Law: law.Name, File: mk.file, Line: mk.lineIdx + 1, Weight: 1,
 			Key: mk.file + " | twin:" + target,
-			What: fmt.Sprintf("changed but its twin %s did not — escape with `// %s <why>` on the marker line, or update the twin",
-				target, coChangeEscapeToken),
+			What: fmt.Sprintf("%s changed but its twin %s did not — escape with `// %s <why>` on the marker line, or update the twin",
+				mover, laggard, coChangeEscapeToken),
 		})
 	}
 	sort.Slice(hits, func(i, j int) bool {

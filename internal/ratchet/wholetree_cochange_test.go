@@ -80,6 +80,32 @@ func TestCoChange_SilentWhenBothTwinsChangeTogether(t *testing.T) {
 	}
 }
 
+// TestCoChange_FlagsTheOtherDirectionTooWithOneAnnotation proves the stated
+// symmetry: `A twin B` is also `B twin A`, so ONE marker (on F, naming G) is
+// enough to catch B.G changing while F does not — the reverse of the first
+// test, with no marker needed on G's side at all.
+func TestCoChange_FlagsTheOtherDirectionTooWithOneAnnotation(t *testing.T) {
+	root := coChangeRepo(t)
+	write(t, filepath.Join(root, "a.go"), aGoBase)
+	write(t, filepath.Join(root, "b.go"), bGoBase)
+	gitRun(t, root, "add", ".")
+	gitRun(t, root, "commit", "-qm", "base")
+
+	write(t, filepath.Join(root, "b.go"), "package a\n\nfunc G() {\n\ty := 2\n\t_ = y\n}\n")
+	gitRun(t, root, "add", "b.go")
+
+	res, err := Check(Options{Root: root, Base: "HEAD", StagedFiles: []string{"a.go", "b.go"}})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("findings = %+v, want exactly one — G changed, F (its unmarked twin) did not", res.Findings)
+	}
+	if res.Findings[0].File != "a.go" || res.Findings[0].Line != 3 {
+		t.Errorf("finding = %+v, want reported at a.go:3, the only marker there is", res.Findings[0])
+	}
+}
+
 // TestCoChange_EscapedByTwinDivergesOkOnTheMarkerLine proves the stated
 // escape: `// twin-diverges-ok: <why>` waives one marked declaration's
 // divergence for this commit.
@@ -100,6 +126,33 @@ func TestCoChange_EscapedByTwinDivergesOkOnTheMarkerLine(t *testing.T) {
 	}
 	if len(res.Findings) != 0 {
 		t.Fatalf("findings = %+v, want none — the marker line carries the escape", res.Findings)
+	}
+}
+
+// TestCoChange_WholeFileTwinComparesTheWholeFileNotOneDeclaration proves a
+// bare `// twin: <path>` (no `#func`) is a WHOLE-FILE twin: the marker's own
+// side is judged as the whole file too, not just whatever declaration
+// happens to sit directly below the marker line — deferred_windows.go's
+// marker sits at the top of the file, and a change to ANY function in it
+// must be caught, not only one right beneath the comment.
+func TestCoChange_WholeFileTwinComparesTheWholeFileNotOneDeclaration(t *testing.T) {
+	root := coChangeRepo(t)
+	write(t, filepath.Join(root, "a.go"), "// twin: b.go\npackage a\n\nfunc F() {\n\tx := 1\n\t_ = x\n}\n\nfunc H() {\n\tz := 1\n\t_ = z\n}\n")
+	write(t, filepath.Join(root, "b.go"), bGoBase)
+	gitRun(t, root, "add", ".")
+	gitRun(t, root, "commit", "-qm", "base")
+
+	// H, not F (the declaration right beneath the marker), is the one that
+	// changes — a whole-file twin must still catch it.
+	write(t, filepath.Join(root, "a.go"), "// twin: b.go\npackage a\n\nfunc F() {\n\tx := 1\n\t_ = x\n}\n\nfunc H() {\n\tz := 2\n\t_ = z\n}\n")
+	gitRun(t, root, "add", "a.go")
+
+	res, err := Check(Options{Root: root, Base: "HEAD", StagedFiles: []string{"a.go"}})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("findings = %+v, want exactly one — a whole-file twin catches a change anywhere in the file", res.Findings)
 	}
 }
 

@@ -138,6 +138,7 @@ func redStands(session, root string, now time.Time) bool {
 // alike -- so reading it is how the badge sees a green it was not present for.
 // `at` is inclusive: the log stamps whole seconds, and a commit gate that
 // cleared a red within the same second still cleared it.
+// twin: internal/tdd/statusline.go#lastRunQueued
 func greenLoggedSince(root string, at time.Time) bool {
 	dir := stateDir()
 	if dir == "" {

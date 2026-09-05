@@ -222,6 +222,10 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 // it hit. Classification goes through errors.As against ratchet's own typed
 // error, never string-matching — the design contract's "fail loud with a
 // fix suggestion" applies to the classification itself, not just the block.
+// Both this and ratchetFixtureStage classify a ratchet-tooling failure into
+// the same REJECTED shape; a new failure class recognized here needs the
+// same recognition there.
+// twin: internal/tdd/ratchetgate.go#ratchetFixtureStage
 func ratchetCheckErrorResult(gateName, repoRoot string, err error, started time.Time) GateResult {
 	var readErr *ratchet.ScanReadError
 	if errors.As(err, &readErr) {
