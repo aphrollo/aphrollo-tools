@@ -43,13 +43,15 @@ func escapePrefixFor(l Law, file string) (prefix string, prose bool) {
 
 // escapedInProse accepts the escape token anywhere on the trigger's line or
 // within EscapeLines above it. There is no comment to open and no code to
-// hide in, so position is all the file affords.
+// hide in, so position is all the file affords — but a bare token with
+// nothing after it still carries no reviewed reason, so escapeCarriesReason
+// gates it exactly as it does in a real comment.
 func (l Law) escapedInProse(raw []string, idx int) bool {
-	if idx >= 0 && idx < len(raw) && strings.Contains(raw[idx], l.Escape) {
+	if idx >= 0 && idx < len(raw) && escapeCarriesReason(raw[idx], l.Escape) {
 		return true
 	}
 	for i := idx - 1; i >= 0 && i >= idx-l.EscapeLines; i-- {
-		if strings.Contains(raw[i], l.Escape) {
+		if escapeCarriesReason(raw[i], l.Escape) {
 			return true
 		}
 	}
