@@ -168,6 +168,12 @@ type Matcher struct {
 	JSONPath     string
 	TolerancePct int
 	EnabledEnv   string
+	// Hunk-regex fields (KindHunkRegex) — see wholetree_hunkregex.go.
+	Removed   *regexp.Regexp
+	Added     *regexp.Regexp
+	Paired    bool
+	HunkMode  HunkRegexMode
+	NameGroup bool
 }
 
 // SchemaVersion is the law schema this binary understands. A law may declare
@@ -400,52 +406,6 @@ func ParseLaw(text, wantName string) (Law, error) {
 	return law, nil
 }
 
-func parseScope(doc *tomlDoc) (Scope, error) {
-	if !doc.has("scope") {
-		return Scope{}, fmt.Errorf("missing [scope] — a law must say which files it judges")
-	}
-	var s Scope
-	for _, k := range doc.keys("scope") {
-		v, _ := doc.value("scope", k)
-		if k == "min_files" {
-			if v.kind != tomlInt || v.i < 0 {
-				return Scope{}, fmt.Errorf("scope.min_files is a non-negative integer")
-			}
-			s.MinFiles = v.i
-			continue
-		}
-		if k == "ignore_gitignore" {
-			if v.kind != tomlBool {
-				return Scope{}, fmt.Errorf("scope.ignore_gitignore is a boolean, got %s", v.kind)
-			}
-			s.IgnoreGitignore = v.b
-			continue
-		}
-		if k == "alias" {
-			if v.kind != tomlString || v.s == "" {
-				return Scope{}, fmt.Errorf("scope.alias is a non-empty string naming a set in %s", ScopesFile)
-			}
-			s.Alias = v.s
-			continue
-		}
-		if v.kind != tomlArray {
-			return Scope{}, fmt.Errorf("scope.%s is an array of globs, got %s", k, v.kind)
-		}
-		switch k {
-		case "include":
-			s.Include = v.list
-		case "exclude":
-			s.Exclude = v.list
-		default:
-			return Scope{}, fmt.Errorf("unknown key scope.%s — [scope] takes include, exclude, alias, ignore_gitignore and min_files", k)
-		}
-	}
-	if len(s.Include) == 0 && s.Alias == "" {
-		return Scope{}, fmt.Errorf("scope.include is required and must name at least one glob, or scope.alias a set in %s", ScopesFile)
-	}
-	return s, nil
-}
-
 // parseSchema reads the optional `schema = N` version stamp. Absent is
 // SchemaVersion — every law written before the key existed. A value ABOVE
 // SchemaVersion means the file came from a newer binary: newer=true switches
@@ -587,11 +547,16 @@ func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
 			}
 			m.Edges = v.s
 		}
-		if v, ok := doc.value("matcher", "min_reachable"); ok {
-			if v.kind != tomlInt || v.i < 0 {
-				return Matcher{}, fmt.Errorf("matcher.min_reachable is a non-negative integer")
-			}
-			m.MinReachable = v.i
+		if ferr := setMinReachable(doc, &m); ferr != nil {
+			return Matcher{}, ferr
+		}
+		if ferr := setDepGraphForbidsFields(doc, &m); ferr != nil {
+			return Matcher{}, ferr
+		}
+	case KindGoDepGraphForbids:
+		m.Key = KeyLineContent
+		if ferr := setMinReachable(doc, &m); ferr != nil {
+			return Matcher{}, ferr
 		}
 		if ferr := setDepGraphForbidsFields(doc, &m); ferr != nil {
 			return Matcher{}, ferr
@@ -620,6 +585,13 @@ func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
 	case KindSymbolRemoved:
 		m.Pattern, m.Key = get("pattern"), KeyLineContent
 		err = requireOneCaptureGroupSymbolRemoved(err, lawName, m.Pattern)
+	case KindCoChange:
+		m.Key = KeyLineContent
+	case KindHunkRegex:
+		m.Key = KeyLineContent
+		if ferr := setHunkRegexFields(doc, &m, lawName); ferr != nil {
+			return Matcher{}, ferr
+		}
 	case KindRegistryBothWays:
 		m.EntryPattern, m.UsePattern = get("entry_pattern"), get("use_pattern")
 		m.RegistryFile = doc.str("matcher", "registry_file")

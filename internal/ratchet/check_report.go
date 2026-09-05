@@ -84,6 +84,12 @@ func remedyFor(law Law) string {
 	if law.Matcher.Kind == KindSymbolRemoved {
 		return fmt.Sprintf("test removed without a tombstone; add `// ratchet: %s <name>: <why>` where it stood, or restore it", law.Name)
 	}
+	if law.Matcher.Kind == KindCoChange {
+		return fmt.Sprintf("escape: %s <why> on the marker line, or update the twin", coChangeEscapeToken)
+	}
+	if law.Matcher.Kind == KindHunkRegex && law.Matcher.NameGroup {
+		return "add a `Removes-test: <name>: <why>` trailer to the commit message, or restore the declaration"
+	}
 	if law.Escape == "" {
 		return "no escape: lower the code"
 	}
