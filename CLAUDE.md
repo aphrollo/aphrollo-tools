@@ -105,11 +105,11 @@ internal/sqlc/       sqlc drift guard: config discovery, regen-into-temp, check,
   tested. A merge needs the receipt the gate actually demands, not one waved
   through. A new hit is admitted by the law's escape comment, never by editing
   a baseline.
-- **Attribution: honest here.** This is first-party tooling, not a client-facing
-  undercover repo — the `🤖 Generated with Claude Code` footer + `Co-Authored-By`
-  are fine (matches aphrollo-agents; per the box `~/CLAUDE.md` per-repo rule).
-  (Coder/devops agent sessions suppress the byline via `includeCoAuthoredBy:false`
-  regardless — that's their global default, not this repo's call.)
+- **Attribution: undercover, always.** Commit messages, PR bodies and issues say
+  what changed and nothing about how they were written: no `Co-Authored-By`
+  trailer, no `🤖 Generated with Claude Code` footer. `aphrollo.toml` sets
+  `undercover = true` and the commit-msg gate rejects the trailer; a builder
+  brief must say so up front, or its first commit is refused.
 
 ## Deploy
 
