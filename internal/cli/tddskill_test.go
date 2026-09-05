@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // The procedure the gate assumes has to be reachable from the box the gate is
@@ -14,6 +16,7 @@ import (
 // dir back.
 func TestGateInitWritesTheTDDSkillAndRetiresTheCommandStub(t *testing.T) {
 	isolateGit(t)
+	t.Setenv(tdd.HooksDirUnsafeEnv, "1") // --git-hooks-dir below sits under t.TempDir()
 	// init patches the CWD repo's CLAUDE.md; run from a dir that is no repo
 	// so the suite never edits this one.
 	elsewhere := t.TempDir()

@@ -89,15 +89,34 @@ func runLsRemote(ctx context.Context, gitProgram string) (string, error) {
 	return fields[0], nil
 }
 
+// binaryBehindStage and its two failure verdicts are the tokens this check
+// writes to gate.log when it gives up, so a permanently broken `ls-remote`
+// leaves a trail in the same ledger `gate stats` reads instead of vanishing
+// into the same silence as a healthy "already current" answer. A timeout and
+// a plain command failure are different problems (a hung remote vs. a
+// rejected one) and must not collapse into one token.
+const (
+	binaryBehindStage            = "binary-behind"
+	binaryBehindCmd              = "git ls-remote"
+	binaryBehindStanddownTimeout = "standdown-timeout"
+	binaryBehindStanddownFailed  = "standdown-failed"
+	binaryBehindRecovered        = "recovered"
+)
+
 // binaryBehindCache is the remembered answer to "what is the tip of main".
 // FailedAt is set (and CheckedAt/Head left as whatever the last SUCCESSFUL
 // lookup produced, possibly zero/"" if there never was one) when the most
 // recent lookup errored, so a later success can still overwrite it; a
-// successful write always omits FailedAt, clearing the backoff.
+// successful write always omits FailedAt, clearing the backoff. FailKind is
+// the reason last RECORDED in gate.log ("" when the last recorded outcome
+// was a success): comparing against it is what lets a failure that persists
+// across many session starts log its standdown exactly once, at the
+// transition, rather than every time the backoff clears.
 type binaryBehindCache struct {
 	CheckedAt time.Time `json:"checked_at"`
 	Head      string    `json:"head"`
 	FailedAt  time.Time `json:"failed_at,omitzero"`
+	FailKind  string    `json:"fail_kind,omitempty"`
 }
 
 // BinaryBehindLine is the session-start line naming a binary built from an
@@ -123,8 +142,18 @@ func BinaryBehindLine(now time.Time) string {
 		defer cancel()
 		h, err := lsRemoteFn(ctx)
 		if err != nil || h == "" {
-			recordBinaryBehindFailure(path, cache, now)
+			kind := binaryBehindStanddownFailed
+			if ctx.Err() != nil {
+				kind = binaryBehindStanddownTimeout
+			}
+			recordBinaryBehindFailure(path, cache, now, kind)
 			return ""
+		}
+		if cache.FailKind != "" {
+			// The transition OUT of failure is as much a state change as the
+			// one into it — logged once, here, never on a plain success that
+			// never failed.
+			appendGateLog(binaryBehindStage, "", binaryBehindCmd, binaryBehindRecovered, 0)
 		}
 		head = h
 		if path != "" {
@@ -186,12 +215,29 @@ func recentlyFailedBinaryBehindLookup(c binaryBehindCache, now time.Time) bool {
 // recordBinaryBehindFailure remembers a failed lookup without disturbing
 // whatever CheckedAt/Head the last SUCCESSFUL lookup left behind, so a retry
 // once the backoff clears still has the old answer to fall back on if it
-// fails again immediately.
-func recordBinaryBehindFailure(path string, prev binaryBehindCache, now time.Time) {
+// fails again immediately. It also logs kind ONCE per transition — only when
+// it differs from the reason last recorded — so a repeat of the SAME failure
+// across many session starts stays silent in the ledger.
+//
+// The log call is written before the path=="" cache-write bailout, but that
+// ordering buys NOTHING extra: path comes from gcStatePath, which derives
+// dir from the same stateDir() and runs the same os.MkdirAll(dir, 0o700)
+// appendGateLog (state.go) independently repeats before it will write a
+// line. Every real cause of path=="" — no CLAUDE_CONFIG_DIR and no resolvable
+// home, or a dir this account cannot create — reproduces inside
+// appendGateLog too, so the standdown token is silently lost in exactly the
+// case this comment used to claim it was protected. There is nowhere else on
+// this box to write it; a state dir this unwritable is a separate, larger
+// problem the doctor's own "lock dirs writable" check exists to catch.
+func recordBinaryBehindFailure(path string, prev binaryBehindCache, now time.Time, kind string) {
+	if prev.FailKind != kind {
+		appendGateLog(binaryBehindStage, "", binaryBehindCmd, kind, 0)
+	}
+	prev.FailedAt = now
+	prev.FailKind = kind
 	if path == "" {
 		return
 	}
-	prev.FailedAt = now
 	if data, err := json.Marshal(prev); err == nil {
 		_ = writeFileAtomic(path, data)
 	}

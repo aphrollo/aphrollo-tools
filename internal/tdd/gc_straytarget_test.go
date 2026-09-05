@@ -104,11 +104,21 @@ func TestStrayTargetDirsScansEveryGivenRootAtDepthOneOnly(t *testing.T) {
 	}
 }
 
-// A stray target is not the live target, so nothing can be compiling into it
-// and the sweep never waits for a build slot.
-func TestStrayTargetSweepTakesNoBuildSlot(t *testing.T) {
-	if got := gcTargetInterlock(t.TempDir(), GCCandidate{Kind: GCKindStrayTarget, Path: "x"}); got != "" {
-		t.Errorf("interlock = %q, want none", got)
+// ratchet: test_removed TestStrayTargetSweepTakesNoBuildSlot: renamed to
+// TestStrayTargetSweep_TakesABuildSlotOnItsOwnPath, asserting the OPPOSITE
+// of the old name's claim — see issue #285, the old assumption was wrong.
+//
+// A "stray" target is only stray because it does not match this repo's OWN
+// resolved target dir — which is exactly the comparison a target-dir
+// misresolution gets wrong (issue #285: a repo configuring build.target-dir
+// through .cargo/config.toml had its real, LIVE target dir proposed here).
+// Even a genuinely stray one can be the live target of some OTHER ad hoc
+// `--target-dir` invocation on the box. Interlocked on its OWN path, like
+// every other target-scoped category, rather than assumed safe.
+func TestStrayTargetSweep_TakesABuildSlotOnItsOwnPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "target-sky")
+	if got := gcTargetInterlock(t.TempDir(), GCCandidate{Kind: GCKindStrayTarget, Path: path}); got != path {
+		t.Errorf("interlock = %q, want the candidate's own path %q", got, path)
 	}
 }
 

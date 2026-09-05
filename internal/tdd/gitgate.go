@@ -1,10 +1,12 @@
 package tdd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -98,7 +100,109 @@ func InitGitGate(hooksDir, bin string, uninstall bool) (bool, error) {
 	return installGitGate(hooksDir, bin)
 }
 
+// HooksDirUnsafeEnv forces installGitGate past the temp/scratchpad refusal
+// below, for the one caller that means it: a dogfood run that ALSO points
+// GIT_CONFIG_GLOBAL at a throwaway file, never the box's real global config.
+const HooksDirUnsafeEnv = "APHROLLO_HOOKS_DIR_UNSAFE"
+
+// unsafeHooksDirReason names why hooksDir is not a durable place for the
+// global git gate to live, or "" when it looks durable. core.hooksPath is
+// MACHINE-WIDE: a dir under a temp root or a session scratchpad works right
+// up until whatever created it cleans up, and git then silently runs NO
+// hooks at all — the box stays that way until a human notices and runs
+// `git config --global --unset core.hooksPath` by hand.
+func unsafeHooksDirReason(hooksDir string) string {
+	clean := cleanForCompare(hooksDir)
+	for _, root := range temporaryRoots() {
+		root = cleanForCompare(root)
+		if root == "" {
+			continue
+		}
+		if clean == root || strings.HasPrefix(clean, root+string(filepath.Separator)) {
+			return fmt.Sprintf("it is under the temporary directory %s", root)
+		}
+	}
+	for _, part := range strings.Split(filepath.ToSlash(clean), "/") {
+		if strings.EqualFold(part, "scratchpad") {
+			return "it has a scratchpad path segment"
+		}
+	}
+	return ""
+}
+
+// temporaryRoots is every directory this box treats as throwaway: the OS
+// default plus the env vars a shell or a session sets to mean "delete this
+// later."
+func temporaryRoots() []string {
+	roots := []string{os.TempDir()}
+	for _, name := range []string{"TMPDIR", "TEMP", "TMP"} {
+		if v := os.Getenv(name); v != "" {
+			roots = append(roots, v)
+		}
+	}
+	if v := os.Getenv("LOCALAPPDATA"); v != "" {
+		roots = append(roots, filepath.Join(v, "Temp"))
+	}
+	return roots
+}
+
+// cleanForCompare normalizes a path for prefix comparison: absolute, cleaned,
+// and lower-cased on Windows where the filesystem is case-insensitive.
+func cleanForCompare(p string) string {
+	if p == "" {
+		return ""
+	}
+	clean := filepath.Clean(p)
+	if abs, err := filepath.Abs(clean); err == nil {
+		clean = abs
+	}
+	if runtime.GOOS == "windows" {
+		clean = strings.ToLower(clean)
+	}
+	return clean
+}
+
+// gitGateStage names the appendGateLog stage a dangling-hooksPath reclaim
+// records under, so it lands in gate.log and gate stats can count it.
+const gitGateStage = "git-gate"
+
+// hooksPathDangling reports whether dir — a current core.hooksPath value —
+// has genuinely been DELETED, as opposed to merely unreachable right now. An
+// unmounted or not-yet-reconnected mapped network drive returns the exact
+// same "not found" error os.Stat gives a deleted directory, and a
+// core.hooksPath legitimately pointing at one (a shared `Z:\hooks`) must
+// never be silently repointed on the strength of a transient stat failure —
+// the depender is fine, and rewriting a machine-wide setting out from under
+// it is the same class of mistake the temp/scratchpad refusal above exists
+// to prevent, only aimed the other way.
+//
+// Requiring dir's PARENT to exist and be a readable directory is what tells
+// the two apart as far as the platform allows: a directory that was
+// genuinely deleted leaves its parent standing, while an unreachable network
+// path's parent (often the drive root itself) fails the identical way. A dir
+// with no distinct parent (a bare drive root, or ".") has nothing to
+// corroborate against and is never called a deletion.
+func hooksPathDangling(dir string) bool {
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	parent := filepath.Dir(dir)
+	if parent == dir {
+		return false
+	}
+	fi, err := os.Stat(parent)
+	return err == nil && fi.IsDir()
+}
+
 func installGitGate(hooksDir, bin string) (bool, error) {
+	if reason := unsafeHooksDirReason(hooksDir); reason != "" && os.Getenv(HooksDirUnsafeEnv) != "1" {
+		return false, fmt.Errorf(
+			"refusing to install the global git gate into %q: %s.\n"+
+				"  core.hooksPath is machine-wide; a dir under a temp or scratch location\n"+
+				"  gets cleaned up later and leaves every commit on the box silently\n"+
+				"  ungated. Pick a durable --git-hooks-dir, or set %s=1 to force it",
+			hooksDir, reason, HooksDirUnsafeEnv)
+	}
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		return false, err
 	}
@@ -134,14 +238,26 @@ func installGitGate(hooksDir, bin string) (bool, error) {
 		// Never clobber a foreign global core.hooksPath: the user has their own
 		// global hooks. We could not restore it on uninstall (we only know our own
 		// dir), so refuse and tell them how to proceed. A path we already manage
-		// (its shims carry installMarker) is safe to repoint.
+		// (its shims carry installMarker) is safe to repoint, and so is one that
+		// is simply GONE — a dangling hooksPath cannot belong to anyone, since
+		// whatever wrote hooks there no longer exists to depend on them.
 		if cur != "" && !managedHooksDir(cur) {
-			return false, fmt.Errorf(
-				"refusing to overwrite existing global core.hooksPath %q.\n"+
-					"  It points at hooks this tool does not manage. To install the gate, either\n"+
-					"  merge your hooks into %s and run again, or unset it first:\n"+
-					"    git config --global --unset core.hooksPath",
-				cur, hooksDir)
+			if hooksPathDangling(cur) {
+				fmt.Fprintf(os.Stderr,
+					"aphrollo gate: hookspath-dangling-repaired — core.hooksPath was %q, which no longer exists; repointing to %s\n",
+					cur, hooksDir)
+				// Recorded through the same ledger `gate stats` reads, naming
+				// the previous value as the root so it can be restored by
+				// hand if the reclaim turns out to have been wrong.
+				appendGateLog(gitGateStage, cur, "core.hooksPath -> "+hooksDir, "hookspath-dangling-repaired", 0)
+			} else {
+				return false, fmt.Errorf(
+					"refusing to overwrite existing global core.hooksPath %q.\n"+
+						"  It points at hooks this tool does not manage. To install the gate, either\n"+
+						"  merge your hooks into %s and run again, or unset it first:\n"+
+						"    git config --global --unset core.hooksPath",
+					cur, hooksDir)
+			}
 		}
 		if err := gitConfigSet("core.hooksPath", hooksDir); err != nil {
 			return false, err
@@ -212,6 +328,25 @@ func uninstallGitGate(hooksDir string) (bool, error) {
 		changed = true
 	}
 	return changed, nil
+}
+
+// WriteManagedHookForTest writes a shim this package recognizes as its own
+// (carries installMarker) at hooksDir/name, for a doctor fixture in another
+// package that needs a "managed hooks dir" WITHOUT going through InitGitGate
+// — which would touch the box's real global git config.
+func WriteManagedHookForTest(hooksDir, name, bin, sub string) error {
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(hooksDir, name), []byte(binShim(bin, sub, "")), 0o755)
+}
+
+// GlobalHooksPath reads the box's current global core.hooksPath, empty when
+// unset. Doctor uses it to judge whether the git gate can run at all before
+// judging anything the hooks it names would do.
+func GlobalHooksPath() string {
+	v, _ := gitConfigGet("core.hooksPath")
+	return v
 }
 
 func gitConfigGet(key string) (string, error) {

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // lawRepo is a repo carrying one deny law and its baseline, plus one file that
@@ -428,6 +429,7 @@ func TestRatchetPresets_ListsGroupsAndParams(t *testing.T) {
 // the one file a session always reads — and a second init changes nothing.
 func TestGateInitWritesTheManagedClaudeMDBlockIdempotently(t *testing.T) {
 	isolateGit(t)
+	t.Setenv(tdd.HooksDirUnsafeEnv, "1") // --git-hooks-dir below sits under t.TempDir()
 	repo := t.TempDir()
 	gitInitRepo(t, repo)
 	claude := filepath.Join(repo, "CLAUDE.md")
@@ -498,7 +500,8 @@ func gitInitRepo(t *testing.T, dir string) {
 // `gate init` leaves the law schema in the repo it initialises, so a law can
 // cite `.ratchet/README.md` instead of a path on one developer's machine.
 func TestGateInitWritesTheLawSpecBesideTheLaws(t *testing.T) {
-	isolateGit(t) // init sets core.hooksPath; without this it is the RUNNER's
+	isolateGit(t)                        // init sets core.hooksPath; without this it is the RUNNER's
+	t.Setenv(tdd.HooksDirUnsafeEnv, "1") // --git-hooks-dir below sits under t.TempDir()
 	repo := t.TempDir()
 	gitInitRepo(t, repo)
 	writeFile(t, filepath.Join(repo, ".ratchet", "laws", "placeholder.txt"), "")

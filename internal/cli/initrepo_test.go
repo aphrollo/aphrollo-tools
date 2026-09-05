@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // `gate init` edits a source file in whatever repo the shell happens to be
@@ -13,6 +15,7 @@ import (
 // file it touched.
 func TestGateInit_WritesTheBlockIntoTheNamedRepo(t *testing.T) {
 	isolateGit(t)
+	t.Setenv(tdd.HooksDirUnsafeEnv, "1") // --git-hooks-dir below sits under t.TempDir()
 	target := t.TempDir()
 	gitInitRepo(t, target)
 	writeFile(t, filepath.Join(target, "CLAUDE.md"), "# Project\n\nGuidance.\n")

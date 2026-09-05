@@ -1,6 +1,8 @@
 package tdd
 
 import (
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,7 +18,17 @@ import (
 func stubWorkspaceGraph(t *testing.T, graph map[string][]string) {
 	t.Helper()
 	prev := cargoWorkspaceDepsFn
-	cargoWorkspaceDepsFn = func(string) map[string][]string { return graph }
+	cargoWorkspaceDepsFn = func(string) (map[string][]string, error) { return graph, nil }
+	t.Cleanup(func() { cargoWorkspaceDepsFn = prev })
+}
+
+// stubWorkspaceGraphError states that the graph read itself failed — cargo
+// missing, a broken manifest, unparsable output — distinct from a workspace
+// that legitimately has no edges.
+func stubWorkspaceGraphError(t *testing.T, err error) {
+	t.Helper()
+	prev := cargoWorkspaceDepsFn
+	cargoWorkspaceDepsFn = func(string) (map[string][]string, error) { return nil, err }
 	t.Cleanup(func() { cargoWorkspaceDepsFn = prev })
 }
 
@@ -48,7 +60,7 @@ func TestClippyScope_TakesTheTouchedCrateAndEveryCrateDownstreamOfIt(t *testing.
 	})
 	clippyCleanWorkspace(t, ws, "top", "aside")
 
-	got := clippyScope(ws, []string{"leaf"})
+	got := clippyScope("g", "r", ws, []string{"leaf"})
 	if strings.Join(got, ",") != "leaf,mid,top" {
 		t.Fatalf("scope = %v, want the touched crate plus its dependents, and nothing it cannot reach", got)
 	}
@@ -62,7 +74,7 @@ func TestClippyScope_KeepsADependentThatIsNotClippyClean(t *testing.T) {
 	stubWorkspaceGraph(t, map[string][]string{"leaf": nil, "mid": {"leaf"}})
 	clippyCleanWorkspace(t, ws) // nothing declared clean
 
-	got := clippyScope(ws, []string{"leaf"})
+	got := clippyScope("g", "r", ws, []string{"leaf"})
 	if strings.Join(got, ",") != "leaf,mid" {
 		t.Fatalf("scope = %v, want the dependent compiled even though it is not clippy-clean", got)
 	}
@@ -73,7 +85,7 @@ func TestClippyScope_ReadsTheGraphTransitively(t *testing.T) {
 	stubWorkspaceGraph(t, map[string][]string{"leaf": nil, "mid": {"leaf"}, "top": {"mid"}})
 	clippyCleanWorkspace(t, ws)
 
-	got := clippyScope(ws, []string{"leaf"})
+	got := clippyScope("g", "r", ws, []string{"leaf"})
 	if strings.Join(got, ",") != "leaf,mid,top" {
 		t.Fatalf("scope = %v, want every crate downstream of the change", got)
 	}
@@ -81,12 +93,52 @@ func TestClippyScope_ReadsTheGraphTransitively(t *testing.T) {
 
 func TestClippyScope_FallsBackToTheTouchedCratesWhenTheGraphIsUnreadable(t *testing.T) {
 	ws := t.TempDir()
-	stubWorkspaceGraph(t, nil) // cargo metadata unavailable
+	stubWorkspaceGraphError(t, errors.New("exec: \"cargo\": executable file not found in $PATH"))
 	clippyCleanWorkspace(t, ws, "top")
 
-	got := clippyScope(ws, []string{"leaf"})
+	got := clippyScope("g", "r", ws, []string{"leaf"})
 	if strings.Join(got, ",") != "leaf" {
 		t.Fatalf("scope = %v, want the touched crates — never the whole workspace", got)
+	}
+}
+
+// A graph read failure must not pass through in silence: the crates
+// downstream of the change are exactly the ones this stage exists to
+// compile, and a commit that skips them has to be able to tell.
+func TestClippyScope_LogsAndPrintsWhenTheGraphReadFails(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	ws := t.TempDir()
+	stubWorkspaceGraphError(t, errors.New("boom"))
+	clippyCleanWorkspace(t, ws, "top")
+
+	stderr := captureStderr(t, func() {
+		clippyScope("mygate", ws, ws, []string{"leaf"})
+	})
+	if !strings.Contains(stderr, "mygate") || !strings.Contains(stderr, "boom") {
+		t.Fatalf("stderr = %q, want it to name the gate and the read error", stderr)
+	}
+	requireLoggedVerdict(t, cfg, "clippy-scope-degraded:boom")
+}
+
+// The two quiet cases — no workspace to ask, and a workspace that genuinely
+// has no intra-workspace edges — must stay silent: neither is a defect, and
+// logging them would bury the one case that is.
+func TestClippyScope_StaysSilentWhenTheGraphHasNoEdges(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	ws := t.TempDir()
+	stubWorkspaceGraph(t, nil) // a real, error-free answer: no edges
+	clippyCleanWorkspace(t, ws, "top")
+
+	stderr := captureStderr(t, func() {
+		clippyScope("mygate", ws, ws, []string{"leaf"})
+	})
+	if strings.Contains(stderr, "degraded") || strings.Contains(stderr, "unreadable") {
+		t.Fatalf("stderr = %q, want no degradation notice for a genuinely empty graph", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(cfg, "gate-state", "gate.log")); err == nil {
+		t.Fatalf("gate.log written for a genuinely empty graph:\n%s", gateLogText(t, cfg))
 	}
 }
 
@@ -99,12 +151,24 @@ func TestParseWorkspaceDeps_KeepsOnlyIntraWorkspaceEdges(t *testing.T) {
 	  {"name":"forge_math","dependencies":[{"name":"libm"}]}
 	],"workspace_root":"/w"}`
 
-	got := parseWorkspaceDeps([]byte(doc))
+	got, err := parseWorkspaceDeps([]byte(doc))
+	if err != nil {
+		t.Fatalf("parseWorkspaceDeps returned an error on well-formed input: %v", err)
+	}
 	if strings.Join(got["forge"], ",") != "forge_math" {
 		t.Fatalf("forge deps = %v, want the workspace member only", got["forge"])
 	}
 	if len(got["forge_math"]) != 0 {
 		t.Fatalf("forge_math deps = %v, want none — libm is not a workspace member", got["forge_math"])
+	}
+}
+
+// Malformed metadata output must surface as an error, not a silent empty
+// graph — the two look identical to a caller that only checks len(map).
+func TestParseWorkspaceDeps_ErrorsOnUnparsableJSON(t *testing.T) {
+	_, err := parseWorkspaceDeps([]byte("not json"))
+	if err == nil {
+		t.Fatal("parseWorkspaceDeps returned nil error for unparsable input")
 	}
 }
 

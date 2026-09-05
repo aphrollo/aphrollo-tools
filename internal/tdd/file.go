@@ -86,6 +86,31 @@ var sourceExts = map[string]bool{
 	".ron": true,
 }
 
+// manifestFiles are dependency manifests and lockfiles across the languages
+// the gates support. A version bump, a member-list edit or a feature-flag
+// change here can break or reshape every crate downstream, exactly the class
+// of change gateConfigName already guards (issue #278).
+var manifestFiles = map[string]bool{
+	"Cargo.toml":     true,
+	"Cargo.lock":     true,
+	"go.mod":         true,
+	"go.sum":         true,
+	"package.json":   true,
+	"pyproject.toml": true,
+}
+
+// isCargoConfigToml reports whether p is a `.cargo/config.toml` (the legacy
+// `.cargo/config` name too), wherever it sits in the tree. Matched by path
+// segment rather than base name alone: "config.toml" is too generic a
+// basename to treat as a manifest on its own.
+func isCargoConfigToml(p string) bool {
+	dir, base := path.Split(p)
+	if base != "config.toml" && base != "config" {
+		return false
+	}
+	return path.Base(strings.TrimSuffix(dir, "/")) == ".cargo"
+}
+
 // ClassifyFile maps a file path to the role the TDD gates should treat it as.
 func ClassifyFile(p string) Kind {
 	p = strings.ReplaceAll(p, "\\", "/")
@@ -106,6 +131,21 @@ func ClassifyFile(p string) Kind {
 		// Ignore, a commit that touched nothing else took the docs-only fast
 		// path -- no suite, by design -- and changed the gate's own behaviour
 		// without running the test that pins it (issue #212).
+		return Source
+	}
+	if manifestFiles[base] {
+		// A manifest or lockfile carries the same weight: a dependency bump,
+		// a workspace member list edit, a feature-flag change or a lints
+		// table edit changes what builds and how every downstream crate
+		// compiles. Left as Ignore, a commit staging only one of these took
+		// the docs-only fast path -- no build, no suite -- and a broken bump
+		// landed green (issue #278, generalizing #212 beyond aphrollo.toml).
+		return Source
+	}
+	if isCargoConfigToml(p) {
+		// .cargo/config.toml carries build.jobs, target-dir and rustflags --
+		// build BEHAVIOUR, not build INPUT, but the same class of file the
+		// docs-only path must never wave through untested (issue #365).
 		return Source
 	}
 	ext := strings.ToLower(path.Ext(base))

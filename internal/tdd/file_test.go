@@ -53,7 +53,10 @@ func TestClassifyFile(t *testing.T) {
 		// Non-code is ignored entirely
 		{"README.md", Ignore},
 		{"config.yaml", Ignore},
-		{"go.mod", Ignore},
+		// A manifest/lockfile is Source — see file_gateconfig_test.go
+		// (issue #278): a dependency bump or member-list edit changes what
+		// builds, so it is never waved through as prose.
+		{"go.mod", Source},
 		// Windows separators normalise
 		{`src\widget_test.go`, Test},
 	}
