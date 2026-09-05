@@ -75,7 +75,7 @@ func runMutantsJob(j MutantsJob, log io.Writer) int {
 		appendGateLog("mutants", logToken(j.Repo), "mutants", "mutants-worktree-failed", 0)
 		return 1
 	}
-	plan, carried := scopeMutantsRun(j)
+	plan, carried, now := scopeMutantsRun(j)
 	// Whatever an interrupted attempt on this same tree already reached: those
 	// mutants are excluded from this run and their verdicts kept.
 	judged := loadMutantsPartials(j.TipTree)
@@ -126,7 +126,7 @@ func runMutantsJob(j MutantsJob, log io.Writer) int {
 	appendGateLog("mutants", logToken(j.Repo), "mutants", mutantsVerdict(code)+":"+short(j.TipTree), time.Since(start))
 	if code == 0 {
 		clearMutantsDeath(j.TipTree)
-		adoptCarriedOutcomes(j, append(append([]MutantOutcome{}, carried...), judged...))
+		adoptCarriedOutcomes(j, append(append([]MutantOutcome{}, carried...), judged...), now)
 		// Every finished run feeds the shared cache, which is what makes the
 		// NEXT lane over these blobs cheap.
 		if r, ok := readReceiptFile(MutationReceiptPathFor(j.TipTree)); ok {
@@ -152,23 +152,6 @@ func mutantNames(judged []MutantOutcome) []string {
 		}
 		out = append(out, mutantLineOf(m.File, m.Line, m.Col, m.Mutation))
 	}
-	return out
-}
-
-// laneWants is every mutant the store knows that lives in a file THIS lane
-// changed: the receipt describes the lane, so nothing else belongs in it.
-func laneWants(cached map[mutantKey]MutantOutcome, lane []string) []MutantOutcome {
-	inLane := make(map[string]bool, len(lane))
-	for _, p := range lane {
-		inLane[p] = true
-	}
-	out := make([]MutantOutcome, 0, len(cached))
-	for _, m := range cached {
-		if inLane[m.File] {
-			out = append(out, m)
-		}
-	}
-	sortOutcomes(out)
 	return out
 }
 
@@ -206,27 +189,6 @@ func prepareMutantsWorktree(j MutantsJob) error {
 		return errors.New(strings.TrimSpace(out))
 	}
 	return nil
-}
-
-// scopeMutantsRun decides what this run must measure and what it inherits:
-// the lane's changed files minus the ones whose blob and whose package's test
-// set are both unchanged since the newest receipt on the same base.
-func scopeMutantsRun(j MutantsJob) (files []string, carried []MutantOutcome) {
-	lane, ok := changedPaths(j.RepoRoot, j.BaseSHA, j.Tip)
-	if !ok {
-		return nil, nil
-	}
-	now := treeStateAt(j.RepoRoot, j.Tip)
-	// The repo-wide store, not this lane's own last receipt: a verdict is a
-	// fact about a blob and a test set, so a lane that touches a file another
-	// lane already measured at the same blob measures nothing for it.
-	cached := LoadMutantStore(j.Repo)
-	files = PlanDiffFiles(j.RepoRoot, lane, now, cached)
-	// Scoped to the LANE's own files: planning the carry over the whole store
-	// stamped a one-file lane's receipt with outcomes for every unchanged file
-	// in the repo, and mutants_total stopped describing the commit.
-	carried = PlanMutants(laneWants(cached, lane), now, cached).Carry
-	return files, carried
 }
 
 // mutantsProducerFn is the producer, a seam so a run's own decisions can be
@@ -363,10 +325,17 @@ const mutantsGreenWindow = 30 * time.Minute
 // adoptCarriedOutcomes folds the outcomes this run inherited into the receipt
 // the producer wrote, so the receipt describes the WHOLE lane diff rather than
 // only the part that was re-measured — and so the next run has something to
-// carry in turn.
-func adoptCarriedOutcomes(j MutantsJob, carried []MutantOutcome) {
+// carry in turn. now is the gate's own reading of this job's tip
+// (scopeMutantsRun), and re-stamps every outcome's blob, fence and package
+// before anything reaches the shared store: the worktree was reset to this
+// exact tip before the producer ever ran, so that reading is the one true
+// measurement of what every outcome here was actually taken against. A
+// producer's own self-reported blob is unverified, and trusting it let a
+// wrong or stale claim enter the repo-wide store and later match some OTHER
+// tree's real blob by coincidence — the false carry issue #336 reports.
+func adoptCarriedOutcomes(j MutantsJob, carried []MutantOutcome, now TreeState) {
 	path := MutationReceiptPathFor(j.TipTree)
-	if path == "" || len(carried) == 0 {
+	if path == "" {
 		return
 	}
 	r, ok := readReceiptFile(path)
@@ -382,6 +351,7 @@ func adoptCarriedOutcomes(j MutantsJob, carried []MutantOutcome) {
 			r.Outcomes = append(r.Outcomes, m)
 		}
 	}
+	r.Outcomes = stampTreeState(r.Outcomes, now)
 	recountReceipt(&r)
 	// The producer already signed r before this ran; the merge just changed
 	// its body, which leaves the old mac describing outcomes that are no
