@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -147,14 +148,22 @@ func RunMutantsHere(dir string, out io.Writer) int {
 		logf(out, "aphrollo gate mutants run: %s", refusal.Reason)
 		return 1
 	}
-	// A run for this repo is ALREADY going in almost every case that brings
-	// somebody here: post-commit started one, and this is a session that
-	// cannot see it. Starting a second measures the same mutants twice and
-	// makes both slower; the lock would serialize them, so the waste would
-	// just be quieter.
-	if running := RunningMutantsJobs(j.Repo); len(running) > 0 {
-		r := running[len(running)-1]
-		logf(out, "aphrollo gate mutants run: a run for this repo is already going (%s, pid %d, since %s) — it writes the same receipt this one would",
+	// Only a run for THIS TREE is duplicate work. A receipt is keyed on the
+	// tip tree (MutationReceiptPathFor), so a job measuring another lane's
+	// tree writes a different file and answers a different question — this
+	// guard used to compare the REPO, which made one lane's run refuse every
+	// other lane in the same checkout for as long as it lasted, with a
+	// message claiming the two would write the same receipt. They would not.
+	//
+	// Two lanes measuring different trees at once is not waste and needs no
+	// guard here: the box-wide lock inside the producer call already
+	// serializes them, and it QUEUES rather than refusing, so the second lane
+	// keeps its place instead of being told to go away.
+	for _, r := range RunningMutantsJobs(j.Repo) {
+		if !strings.EqualFold(r.TipTree, j.TipTree) {
+			continue
+		}
+		logf(out, "aphrollo gate mutants run: a run for this exact tree is already going (%s, pid %d, since %s) — it writes the receipt this one would",
 			r.Branch, r.PID, r.Started.Format("15:04"))
 		return 1
 	}
