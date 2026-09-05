@@ -29,6 +29,15 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, "claude")); err != nil {
 		panic(err)
 	}
+	// Same net for the OPERATOR's real ~/.cargo/config.toml: cargoConfigTargetDir
+	// (issue #285) reads a user cargo config as part of resolveTargetDir's
+	// normal path, which every cargo-runner test in this package reaches. A
+	// dev box that sets build.target-dir globally would otherwise make every
+	// such test's expected `<tmp>/target` wrong, depending on whichever
+	// machine happens to run the suite.
+	if err := os.Setenv("CARGO_HOME", filepath.Join(dir, "cargo-home")); err != nil {
+		panic(err)
+	}
 	// Same net for the LOCK files: a test that reaches runCargoLocked without
 	// setting its own override used to write target locks, slot files and
 	// owner records into the operator's real %TEMP% (871 of them, measured).

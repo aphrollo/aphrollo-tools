@@ -81,7 +81,11 @@ func resolveTargetDir(env func(string) string, workspaceRoot string) string {
 		}
 		return filepath.Clean(explicit)
 	}
-	return filepath.Join(cargoWorkspaceRoot(workspaceRoot), "target")
+	ws := cargoWorkspaceRoot(workspaceRoot)
+	if dir := cargoConfigTargetDir(ws); dir != "" {
+		return dir
+	}
+	return filepath.Join(ws, "target")
 }
 
 // ResolveCargoTargetDir resolves the target dir a cargo invocation run from
