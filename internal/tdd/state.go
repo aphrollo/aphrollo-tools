@@ -332,9 +332,15 @@ func setOff(session string, off bool) error {
 }
 
 // waiverEntry is one active wall waiver's persisted shape: just when, since
-// the session holding it is the state file's own name.
+// the session holding it is the state file's own name. Armed and Until carry
+// ONE-SHOT semantics (the discard wall, #343): Armed marks an entry that is
+// spent by the first command that consumes it rather than one that lasts
+// until revoked, and Until is the RFC3339 deadline past which it is spent
+// anyway. A plain session-scoped waiver (primary) leaves both zero.
 type waiverEntry struct {
 	Since string `json:"since"` // RFC3339
+	Armed bool   `json:"armed,omitempty"`
+	Until string `json:"until,omitempty"` // RFC3339
 }
 
 // waivedForSession reports whether session has an active waiver on wall.
