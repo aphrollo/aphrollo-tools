@@ -905,6 +905,8 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		if root := tdd.RepoRoot(*repo); root != "" {
 			changed, err := tdd.WriteClaudeMD(root, cdir, *claudeMD)
 			switch {
+			case errors.Is(err, tdd.ErrManagedBlockInPrimary):
+				fmt.Fprintf(stdout, "gate init: CLAUDE.md managed block is behind the template in the merge-only primary; land it through a lane (aphrollo gate init --repo <lane>)\n")
 			case err != nil:
 				fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 				return 1
