@@ -333,6 +333,9 @@ func TestPrune_SkipsDirtyMerged(t *testing.T) {
 func TestPrune_ForceRemovesDirtyMerged(t *testing.T) {
 	repo, wt, branch := preparedRepo(t)
 	dirty(t, wt)
+	// A forced removal of a dirty tree is a discard the shim's wall refuses;
+	// this models the operator arming it, so the verdict holds on shim or real git.
+	t.Setenv("APHROLLO_DISCARD", "1")
 	stubPRState(t, func(_, b string) (string, error) {
 		if b == branch {
 			return "MERGED", nil

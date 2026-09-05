@@ -112,6 +112,10 @@ func TestRemove_KeepBranchLeavesTheBranch(t *testing.T) {
 func TestRemove_ForceRemovesADirtyWorktree(t *testing.T) {
 	repo, wt, branch := preparedRepo(t)
 	dirty(t, wt)
+	// A forced removal of a dirty tree is a discard the git shim's wall refuses;
+	// the test models the operator arming the override, so its verdict is the
+	// same whether PATH's git is the shim (this box) or real git (CI).
+	t.Setenv("APHROLLO_DISCARD", "1")
 
 	cmd, err := RemovePlan(repo, branch, "")
 	if err != nil {

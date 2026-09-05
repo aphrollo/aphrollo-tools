@@ -355,7 +355,13 @@ func TestDiscardRefusalLine_RendersEachShape(t *testing.T) {
 			"worktree remove --force",
 			"worktree remove --force",
 			discardCost{Files: 1, Insertions: 3, Deletions: 1, Worktree: "/w"},
-			"gate: refused — worktree remove --force discards 1 file(s), +3/-1 uncommitted in /w" + tail,
+			"gate: refused — worktree remove --force discards 1 file(s), +3/-1 uncommitted, 0 untracked in /w" + tail,
+		},
+		{
+			"worktree remove --force with untracked",
+			"worktree remove --force",
+			discardCost{Untracked: 1, Worktree: "/w/x"},
+			"gate: refused — worktree remove --force discards 0 file(s), +0/-0 uncommitted, 1 untracked in /w/x" + tail,
 		},
 	}
 	for _, c := range cases {
@@ -364,5 +370,32 @@ func TestDiscardRefusalLine_RendersEachShape(t *testing.T) {
 				t.Fatalf("discardRefusalLine(%q, %+v) =\n%q\nwant\n%q", c.form, c.cost, got, c.want)
 			}
 		})
+	}
+}
+
+// TestWorktreeRemoveForce_RefusalNamesTheUntrackedFileItWouldDiscard proves
+// the untracked count end to end, against a real repo with a real linked
+// worktree that holds nothing but one untracked file: discardCostOf must
+// count it (zero() false), and discardRefusalLine must name it, not print a
+// refusal that claims 0 file(s)/+0/-0 while a file sits in the worktree.
+func TestWorktreeRemoveForce_RefusalNamesTheUntrackedFileItWouldDiscard(t *testing.T) {
+	isolateGitConfigCLI(t)
+	realGit := realGitForTest(t)
+	repo, _ := newDiscardFixture(t)
+	wt := filepath.Join(t.TempDir(), "wt")
+	runFixtureGit(t, realGit, repo, "worktree", "add", "-q", wt, "-b", "side")
+	writeFixtureFile(t, wt, "u.txt", []string{"untracked"})
+
+	c := discardCostOf(realGit, repo, "worktree remove --force", []string{wt})
+	if c.zero() {
+		t.Fatalf("discardCostOf(worktree remove --force, [%s]) with one untracked file = %+v, want zero() = false", wt, c)
+	}
+	if c.Untracked != 1 {
+		t.Fatalf("discardCostOf(worktree remove --force, [%s]): Untracked=%d, want 1", wt, c.Untracked)
+	}
+
+	line := discardRefusalLine("worktree remove --force", c)
+	if !strings.Contains(line, "1 untracked") {
+		t.Fatalf("discardRefusalLine(worktree remove --force, %+v) =\n%q\nwant it to contain %q", c, line, "1 untracked")
 	}
 }
