@@ -192,3 +192,17 @@ func resolveBaseTree(opts Options) BaseReader {
 	}
 	return &gitBaseReader{root: opts.Root, ref: opts.Base}
 }
+
+// resolveLaneBaseTree is resolveBaseTree's twin for `[scope] changed = "lane"`:
+// whatever Options supplied outright, else a git-backed reader over LaneBase —
+// nil when neither is set, the same "no base" tolerance every diff-scoped kind
+// already has.
+func resolveLaneBaseTree(opts Options) BaseReader {
+	if opts.LaneBaseTree != nil {
+		return opts.LaneBaseTree
+	}
+	if opts.LaneBase == "" {
+		return nil
+	}
+	return &gitBaseReader{root: opts.Root, ref: opts.LaneBase}
+}

@@ -257,7 +257,7 @@ func TestPrecommit_Mechanical_ScopedToStagedGoPackages(t *testing.T) {
 	if len(seen) != 1 {
 		t.Fatalf("expected one mechanical run at root, got %d: %+v", len(seen), seen)
 	}
-	want := Runner{"go", []string{"test", "./internal/x"}, "", time.Time{}}
+	want := Runner{"go", []string{"test", "-count=1", "-shuffle=on", "./internal/x"}, "", time.Time{}}
 	if !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("mechanical runner = %+v, want %+v", seen[0], want)
 	}
@@ -298,7 +298,7 @@ func TestPrecommit_Mechanical_ScopedToStagedGoTestOnly(t *testing.T) {
 	if len(seen) != 1 {
 		t.Fatalf("expected one scoped mechanical run, got %d: %+v", len(seen), seen)
 	}
-	want := Runner{"go", []string{"test", "./internal/x"}, "", time.Time{}}
+	want := Runner{"go", []string{"test", "-count=1", "-shuffle=on", "./internal/x"}, "", time.Time{}}
 	if !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("test-only mechanical runner = %+v, want %+v", seen[0], want)
 	}

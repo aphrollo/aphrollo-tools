@@ -70,6 +70,15 @@ const (
 // redirected to the job's log file at spawn; for a hand-typed foreground run
 // it is the session's terminal.
 func runMutantsJob(j MutantsJob, log io.Writer) int {
+	// A queued job can wait long enough for its lane to be reset, amended,
+	// rebased or squash-merged, or for gc to reclaim an orphaned commit — not
+	// a worktree fault, so it is checked and dropped before
+	// prepareMutantsWorktree touches disk (issue #367).
+	if !mutantsTipResolvable(j.RepoRoot, j.Tip) {
+		logf(log, "aphrollo: lane tip %s no longer resolves in %s — the lane was rewritten after this job was recorded; dropping it", short(j.Tip), j.RepoRoot)
+		recordMutantsTipRewritten(j)
+		return 0
+	}
 	if err := prepareMutantsWorktree(j); err != nil {
 		logf(log, "aphrollo: could not prepare %s: %v", j.Worktree, err)
 		appendGateLog("mutants", logToken(j.Repo), "mutants", "mutants-worktree-failed", 0)
@@ -172,6 +181,18 @@ func mutantsVerdict(code int) string {
 		return "mutants-finished"
 	}
 	return "mutants-failed"
+}
+
+// mutantsTipResolvable answers true when the tip resolves OR the question is
+// inconclusive (git failed to even run) — only a clean git invocation that
+// explicitly reports the object missing counts as a confirmed rewrite.
+func mutantsTipResolvable(repoRoot, tip string) bool {
+	_, err := git(repoRoot, "cat-file", "-e", tip+"^{commit}")
+	if err == nil {
+		return true
+	}
+	var exitErr *exec.ExitError
+	return !errors.As(err, &exitErr)
 }
 
 // prepareMutantsWorktree checks the dedicated worktree out at the tip,

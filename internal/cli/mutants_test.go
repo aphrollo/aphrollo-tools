@@ -277,3 +277,18 @@ func TestMutants_RejectsAnUnknownVerb(t *testing.T) {
 		t.Fatalf("stderr = %q, want it to name the verb", errb.String())
 	}
 }
+
+// GITHUB_ACTIONS=true is the one explicit signal `go --diff` reads to set
+// GoMutantsCI.OneJobPerContainer (issue #406) — set by GitHub's own runner
+// for every job it starts, never inferred from anything about the
+// invocation itself.
+func TestRunningOnHostedCIRunner_ReadsExactlyTheGitHubActionsSignal(t *testing.T) {
+	t.Setenv("GITHUB_ACTIONS", "true")
+	if !runningOnHostedCIRunner() {
+		t.Fatal("GITHUB_ACTIONS=true must read as a hosted CI runner")
+	}
+	t.Setenv("GITHUB_ACTIONS", "")
+	if runningOnHostedCIRunner() {
+		t.Fatal("an unset GITHUB_ACTIONS must not read as a hosted CI runner — a developer's own shell must take the run lock")
+	}
+}

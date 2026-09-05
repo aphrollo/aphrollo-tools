@@ -139,32 +139,58 @@ func vacuousGoPackages(rawJSON string) ([]string, error) {
 }
 
 // isGoTestInvocation reports whether cmd/args is a `go test ...` command —
-// the shape goJSONArgs arms and RunSuite reads a JSON stream from.
+// the shape goExecArgs arms and RunSuite reads a JSON stream from.
 func isGoTestInvocation(cmd string, args []string) bool {
 	return cmd == "go" && len(args) > 0 && args[0] == "test"
 }
 
-// goJSONArgs inserts -json right after "test" for a `go test` invocation.
-// -json already implies -v's per-test verbosity (confirmed against the Go
-// toolchain: a bare `-json` run emits the same "=== RUN"/"--- PASS" lines a
-// `-v` run would, inside each event's Output field), so this carries BOTH
-// the human-readable text RunSuite reconstructs into SuiteResult.Output and
-// the structured stream vacuousGoPackages needs, from one invocation.
-// Idempotent (already-JSON args pass through unchanged) and a no-op for
-// anything that is not `go test ...`.
-func goJSONArgs(cmd string, args []string) []string {
-	if !isGoTestInvocation(cmd, args) {
-		return args
-	}
+// ensureGoTestArg inserts flag right after "test" in a `go test` argv,
+// unless it is already present — idempotent so a caller that already named
+// the flag (or a second pass over the same args) never doubles it.
+func ensureGoTestArg(args []string, flag string) []string {
 	for _, a := range args {
-		if a == "-json" {
+		if a == flag {
 			return args
 		}
 	}
 	out := make([]string, 0, len(args)+1)
-	out = append(out, args[0], "-json")
+	out = append(out, args[0], flag)
 	out = append(out, args[1:]...)
 	return out
+}
+
+// goExecArgs is RunSuite's one place every `go test` invocation is finalized
+// right before it actually executes, regardless of which detector or
+// narrowing built the Runner. It inserts two flags, for two different
+// reasons:
+//
+//   - -json carries the human-readable text RunSuite reconstructs into
+//     SuiteResult.Output (it already implies -v's per-test verbosity —
+//     confirmed against the toolchain: a bare -json run emits the same
+//     "=== RUN"/"--- PASS" lines a -v run would, inside each event's Output
+//     field) AND the structured stream vacuousGoPackages needs, from one
+//     invocation.
+//   - -count=1 defeats go's own test-result cache. A cached PASS is a
+//     record of an EARLIER tree, not a measurement of the one on disk right
+//     now, and this is the one seam every "go test" the gate runs —
+//     post-edit advisory, fail-first, and the mechanical suite — passes
+//     through on its way to exec.CommandContext, so adding it here is what
+//     makes "-count=1 belongs anywhere the gate claims to have tested the
+//     current tree" (issue #421) true without touching every
+//     Runner-construction call site. The mechanical stage (withGoCIParity)
+//     also names -count=1 explicitly among its own CI-parity flags; the
+//     idempotent insert here is a deliberate no-op in that case, not a
+//     second flag.
+//
+// Idempotent in both flags, and a no-op for anything that is not
+// `go test ...`.
+func goExecArgs(cmd string, args []string) []string {
+	if !isGoTestInvocation(cmd, args) {
+		return args
+	}
+	args = ensureGoTestArg(args, "-json")
+	args = ensureGoTestArg(args, "-count=1")
+	return args
 }
 
 // renderGoTestJSON reconstructs the plain-text stream a `-v` run would have
@@ -185,7 +211,17 @@ func renderGoTestJSON(raw string) (humanOutput, rawJSON string, ok bool) {
 	for {
 		var e goTestEvent
 		if err := dec.Decode(&e); err != nil {
-			break
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			// A real decode error partway through the stream (a killed
+			// process, an interleaved non-JSON write) is not the same as a
+			// clean end-of-input: whatever was decoded before it is a
+			// PARTIAL reconstruction, and presenting it as complete could
+			// silently drop a failing test's own output from the tail this
+			// never got to read. The raw stream is the same honest fallback
+			// the whole-stream failure below already returns.
+			return raw, "", false
 		}
 		seen = true
 		if e.Action == "output" || e.Action == "build-output" {
@@ -200,7 +236,7 @@ func renderGoTestJSON(raw string) (humanOutput, rawJSON string, ok bool) {
 
 // goRenderedOutput is RunSuite's one call into this file: raw is the
 // subprocess's captured stdout+stderr for cmd/args exactly as spawned
-// (already carrying -json for a go test invocation, via goJSONArgs). For
+// (already carrying -json for a go test invocation, via goExecArgs). For
 // anything else it passes raw straight through with no GoTestJSON. A stream
 // renderGoTestJSON cannot parse at all falls back to raw as Output too,
 // rather than handing SuiteResult.Output a broken reconstruction.

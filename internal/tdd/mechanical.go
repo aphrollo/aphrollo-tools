@@ -33,9 +33,13 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 	// Message rides along in notes the same way a passing stage's does below.
 	if res := mutationReceiptStage(repoRoot); res != nil {
 		if res.Blocked {
-			// Printing it here too would state the same paragraph twice: the
-			// hook that called this prints what it is given.
-			appendGateLog(premergeLogToken, repoRoot, "mutation-receipt", "receipt-rejected", 0)
+			// The stage already recorded its own receipt-rejected:<reason>
+			// token at the call site that actually judged the receipt
+			// (issue #376) — logging a second, undifferentiated one here
+			// would double-count every rejection under one bucket again,
+			// and printing the message here too would state the same
+			// paragraph twice: the hook that called this prints what it is
+			// given.
 			return *res
 		}
 		// The inner stage already logged which waiver this is

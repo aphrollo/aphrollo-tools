@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // foregroundRuns replaces the in-process run with a recorder, so these tests
@@ -188,5 +189,50 @@ func TestRunMutantsJob_UnreadableJobPathIsAnErrorNotAQuietZero(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "no-such-job.json") {
 		t.Fatalf("output %q never names the job path it could not read", out.String())
+	}
+}
+
+// The duplicate-tip guard's skip used to trust worktree-name equality alone
+// to mean "my own reservation" — the same invariant chooseMutantsWorktree's
+// own picker fix (issue #436) protects, but the guard here must not ALSO
+// depend on that picker being correct: a different process's live claim at
+// the exact name this call ends up choosing must still read as a duplicate,
+// never as itself.
+//
+// A pid that reads as dead the FIRST time (chooseMutantsWorktree's own read
+// inside buildMutantsJob, so it never influences this call's choice of
+// worktree — it lands on the SAME base a normal, uncontested run would) and
+// alive from then on (this function's own duplicate-tip read) constructs
+// that state directly, without a picker bug or a race, by making the same
+// pid answer differently to the two separate reads that happen either side
+// of this call's own reservation being written.
+func TestRunMutantsHere_ADifferentProcessAtTheSameWorktreeNameIsNeverTreatedAsSelf(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var ran []MutantsJob
+	foregroundRuns(t, &ran)
+	root := optedInLane(t)
+	repo := commonGitDir(root)
+	base := MutantsWorktreeDir(root)
+	tip := gitOut(root, "rev-parse", "HEAD:")
+
+	const impostorPID = 918273
+	saveMutantsJob(MutantsJob{Repo: repo, Worktree: base, TipTree: tip, PID: impostorPID, Started: time.Now()})
+	seenImpostor := 0
+	prevPidRunning := pidRunningFn
+	pidRunningFn = func(pid int) bool {
+		if pid == impostorPID {
+			seenImpostor++
+			return seenImpostor > 1
+		}
+		return prevPidRunning(pid)
+	}
+	t.Cleanup(func() { pidRunningFn = prevPidRunning })
+
+	var out bytes.Buffer
+	if code := RunMutantsHere(root, &out); code == 0 {
+		t.Fatalf("RunMutantsHere = 0 while a different process's job already measures this exact tree\noutput: %s", out.String())
+	}
+	if len(ran) != 0 {
+		t.Fatalf("ran %d jobs, want none — a genuinely different process already claims this tree", len(ran))
 	}
 }

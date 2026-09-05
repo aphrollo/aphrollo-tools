@@ -293,6 +293,58 @@ func TestVacuousGoPackages_ReturnsAnErrorOnATruncatedStream(t *testing.T) {
 	}
 }
 
+// TestRenderGoTestJSON_PartialParseIsNotPresentedAsComplete is issue #415:
+// the sibling function to vacuousGoPackages used to treat ANY decode error
+// (including a real one partway through the stream) the same as a clean
+// io.EOF end-of-stream, setting ok=true and handing the caller a TRUNCATED
+// human-readable reconstruction as though it were the whole run. A failing
+// test's "--- FAIL:" line living in an event AFTER the cut would then be
+// silently missing from SuiteResult.Output, which ExtractFailingTests and
+// the post-edit zeroTestsRe both read. The stream below decodes one full
+// event and then ends mid-object (no closing brace) — exactly
+// vacuousGoPackages' own truncation fixture — so the decoder fails with
+// something other than io.EOF partway through, not at the very start.
+func TestRenderGoTestJSON_PartialParseIsNotPresentedAsComplete(t *testing.T) {
+	truncated := `{"Action":"output","Package":"example.com/m","Test":"TestFoo","Output":"--- PASS: TestFoo (0.00s)\n"}
+{"Action":"output","Package":"example.com/m","Test":"TestBar","Output":"--- FAIL: TestBar (0.00s)\n"`
+	human, rawJSON, ok := renderGoTestJSON(truncated)
+	if ok {
+		t.Fatalf("renderGoTestJSON(truncated) ok = true, want false — a real decode error partway through must not read as a complete reconstruction (got human=%q)", human)
+	}
+	if human != truncated {
+		t.Fatalf("renderGoTestJSON(truncated) human = %q, want the raw stream back as the honest fallback (matching the total-failure path)", human)
+	}
+	if rawJSON != "" {
+		t.Fatalf("renderGoTestJSON(truncated) rawJSON = %q, want empty on !ok (matching the total-failure path)", rawJSON)
+	}
+}
+
+// TestGoExecArgs_AddsCountEqualsOneAlongsideJSON is issue #421's "-count=1
+// belongs everywhere the gate claims to have tested the current tree":
+// RunSuite's one seam before every `go test` actually executes must defeat
+// go's own test-result cache, or a cached PASS from an earlier tree could
+// stand in for a run never made against the one on disk right now — exactly
+// as true for the post-edit advisory and the fail-first worktree run as for
+// the mechanical suite.
+func TestGoExecArgs_AddsCountEqualsOneAlongsideJSON(t *testing.T) {
+	got := goExecArgs("go", []string{"test", "./..."})
+	want := []string{"test", "-count=1", "-json", "./..."}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("goExecArgs = %v, want %v", got, want)
+	}
+}
+
+// TestGoExecArgs_NeverDoublesAFlagAlreadyPresent guards idempotency: a
+// second pass over already-armed args (RunSuite only calls this once, but
+// nothing enforces that at the type level) must not repeat -json or -count.
+func TestGoExecArgs_NeverDoublesAFlagAlreadyPresent(t *testing.T) {
+	once := goExecArgs("go", []string{"test", "./..."})
+	twice := goExecArgs("go", once)
+	if !reflect.DeepEqual(once, twice) {
+		t.Fatalf("goExecArgs applied twice = %v, want unchanged %v", twice, once)
+	}
+}
+
 func TestOutcome_IsRed(t *testing.T) {
 	red := []Outcome{RedMissingImpl, RedBogus, Red}
 	for _, o := range red {

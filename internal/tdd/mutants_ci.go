@@ -40,6 +40,20 @@ type GoMutantsCI struct {
 	// forward instead of re-running the whole diff (issue #143). "" keeps the
 	// machine-local default (the detached local job's own cache).
 	Store string
+	// OneJobPerContainer says this run may assume nothing else on the
+	// machine is measuring mutants at the same time — true on a hosted
+	// GitHub Actions runner, which never shares its container with a second
+	// job. RunGoMutantsCI takes the box-wide mutation-run lock UNLESS this
+	// is set, because the zero value is the case the lock exists to protect:
+	// a developer typing `aphrollo gate mutants go --diff` by hand on a box
+	// that may already be running a detached local job (issue #406), the
+	// same oversubscription issue #253 describes for two local jobs. A
+	// hosted runner gains nothing from the lock — it is the only job on the
+	// machine — and only risks blocking on a stale lock file left by
+	// something else, so it is the one caller that sets this explicitly,
+	// from the one signal that actually says so (GITHUB_ACTIONS), rather
+	// than this type inferring it from anything about the run itself.
+	OneJobPerContainer bool
 }
 
 // goMutantsRunFn is the tool, as a seam: a test proves the judging without a
@@ -209,6 +223,16 @@ func RunGoMutantsCI(c GoMutantsCI, out io.Writer) int {
 	// costs that file's package, not the whole lane.
 	excludeFiles := exceptFiles(lane, files)
 	report := filepath.Join(dir, "gremlins.json")
+	if !c.OneJobPerContainer {
+		// The same box-wide lock the local Go job path takes (mutants_go.go,
+		// issue #253's own fix): gremlins re-runs the whole package's test
+		// suite per mutant, the identical wall-clock-threads resource a
+		// second concurrent run oversubscribes. This path never took it at
+		// all until issue #406 — a developer running `mutants-ci` by hand
+		// on a box already running a detached local job did exactly that.
+		releaseRunLock := acquireMutantsRunLock("mutants-ci for "+commonGitDir(root), root)
+		defer releaseRunLock()
+	}
 	code := goMutantsRunFn(root, c.BaseSHA, report, workers, excludeFiles)
 
 	data, err := os.ReadFile(report)
@@ -293,7 +317,7 @@ func exceptFiles(lane, files []string) []string {
 // lane's remaining files changed — a real, explained answer, not a scope
 // that matched nothing.
 func judgeGoMutantsCI(r MutationReceipt, measured int, baseSHA string, out io.Writer) int {
-	if measured == 0 && r.MutantsTotal == 0 && r.MovedLines == 0 {
+	if measured == 0 && vacuousMutationRun(r.MutantsTotal, r.MovedLines) {
 		logf(out, "aphrollo: the run measured NO mutants over %s..HEAD — a scope that matches nothing"+
 			" is not a proof: check that the base is the merge base this branch actually diverged from", baseSHA)
 		return 1

@@ -63,7 +63,7 @@ func checkReceiptUnacceptedCoherence(root string, present map[string]bool, r Mut
 		return nil
 	}
 	if len(r.Unaccepted) > len(r.Survivors) {
-		return blockReceipt(root,
+		return blockReceipt(root, "incoherent-unaccepted",
 			"unaccepted (%d) exceeds survivors (%d) — an unaccepted mutant is one of the run's own survivors, so there can never be more of the former",
 			len(r.Unaccepted), len(r.Survivors))
 	}
@@ -73,7 +73,7 @@ func checkReceiptUnacceptedCoherence(root string, present map[string]bool, r Mut
 	}
 	for _, u := range r.Unaccepted {
 		if !survived[u.key()] {
-			return blockReceipt(root, "unaccepted entry %s names no survivor the run measured", u.String())
+			return blockReceipt(root, "incoherent-unaccepted", "unaccepted entry %s names no survivor the run measured", u.String())
 		}
 	}
 	return nil
@@ -87,15 +87,51 @@ func checkReceiptUnacceptedCoherence(root string, present map[string]bool, r Mut
 // that would otherwise merge silently, as in the real case above.
 func checkReceiptCountCoherence(root string, present map[string]bool, r MutationReceipt) *GateResult {
 	if present["accepted"] && present["mutants_total"] && r.Accepted > r.MutantsTotal {
-		return blockReceipt(root, "accepted (%d) exceeds mutants_total (%d) — a receipt cannot accept more mutants than it measured",
+		return blockReceipt(root, "incoherent-counts", "accepted (%d) exceeds mutants_total (%d) — a receipt cannot accept more mutants than it measured",
 			r.Accepted, r.MutantsTotal)
 	}
 	if present["caught"] && present["survivors"] && present["timeout"] && present["unviable"] && present["mutants_total"] {
 		measured := r.Caught + len(r.Survivors) + r.Timeout + r.Unviable
 		if measured > r.MutantsTotal {
-			return blockReceipt(root, "caught+survivors+timeout+unviable (%d) exceeds mutants_total (%d) — the categories overcount what the run measured",
+			return blockReceipt(root, "incoherent-counts", "caught+survivors+timeout+unviable (%d) exceeds mutants_total (%d) — the categories overcount what the run measured",
 				measured, r.MutantsTotal)
 		}
 	}
 	return nil
+}
+
+// vacuousMutationRun reports whether a run's own counts describe a run that
+// measured nothing: no mutants generated, and no diff lines moved to explain
+// why. MovedLines > 0 stays exempt — the plan decided there was nothing left
+// to measure because git's own move detection accounted for every line the
+// diff changed, a real, explained answer rather than a scope that matched
+// nothing.
+//
+// judgeGoMutantsCI (mutants_ci.go) and checkReceiptNotVacuous below share
+// this one predicate, so the CI judge and the merge gate cannot again
+// disagree about the same receipt the way issue #386 found them doing: CI
+// called an all-zero receipt not-a-proof while the merge gate, which never
+// looked at mutants_total at all, called it a pass and let it in.
+func vacuousMutationRun(mutantsTotal, movedLines int) bool {
+	return mutantsTotal == 0 && movedLines == 0
+}
+
+// checkReceiptNotVacuous refuses a receipt that is not self-contradictory
+// (checkReceiptCountCoherence's family) but simply empty: mutants_total and
+// moved_lines both zero, on a lane laneHasNothingToMutate has already ruled
+// out as having no source or test file to mutate in the first place. A run
+// that measured nothing over a diff that plainly has something to mutate is
+// indistinguishable from a run that never happened — most often gremlins
+// walking a stale or wrong --diff base and reporting the resulting empty
+// scope as a clean pass (issue #386).
+//
+// Judged only when the producer actually wrote mutants_total: an older
+// producer that never emitted the field is neither confirmed nor
+// contradicted, same doctrine as every other check in this file.
+func checkReceiptNotVacuous(root string, present map[string]bool, r MutationReceipt) *GateResult {
+	if !present["mutants_total"] || !vacuousMutationRun(r.MutantsTotal, r.MovedLines) {
+		return nil
+	}
+	return blockReceipt(root, "vacuous", "mutants_total is 0 and moved_lines is 0 — a scope that matches nothing is not a proof: "+
+		"check that the base is the merge base this branch actually diverged from")
 }
