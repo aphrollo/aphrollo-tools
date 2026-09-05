@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -155,15 +156,21 @@ func TestPruneMergedLanesAfterMerge_NeverPrunesTheMainCloneItself(t *testing.T) 
 	}
 }
 
-// A worktree `git worktree remove` genuinely refuses — dirty, here, since a
-// removal without --force refuses one with modified or untracked files — is
-// reported on stderr and left alone. Pressing on to `branch -D` anyway would
-// delete the branch out from under a worktree that is STILL THERE; the
-// removal error must stop it there. The failure on one lane must not stop
-// the sweep from reaching the others.
+// A worktree `git worktree remove` genuinely refuses for a reason OTHER than
+// an uncommitted tree — locked, here — is reported on stderr and left alone.
+// Pressing on to `branch -D` anyway would delete the branch out from under a
+// worktree that is STILL THERE; the removal error must stop it there. The
+// failure on one lane must not stop the sweep from reaching the others.
+//
+// Before issue #382's clean-tree guard this scenario used a DIRTY worktree to
+// make git itself refuse the removal; that path is now caught earlier, by
+// worktreeHasUncommittedWork, with its own "kept ... uncommitted work"
+// message (see TestPruneMergedLanes_KeepsADirtyMergeCommitLandedLane). A lock
+// is what still forces `worktree remove` itself to fail on an otherwise CLEAN
+// tree, exercising the removal-error path this test is actually for.
 func TestPruneMergedLanesAfterMerge_RemovalFailureIsReportedAndTheBranchSurvives(t *testing.T) {
 	mainRepo, mergedWT, freshWT := pruneRepo(t)
-	write(t, mergedWT, "dirty.txt", "uncommitted\n")
+	gitDo(t, mainRepo, "worktree", "lock", mergedWT)
 
 	var out, errb bytes.Buffer
 	pruned := PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)
@@ -175,7 +182,7 @@ func TestPruneMergedLanesAfterMerge_RemovalFailureIsReportedAndTheBranchSurvives
 		t.Fatalf("stderr = %q, want the failed removal reported by lane", errb.String())
 	}
 	// The propagated error must be `worktree remove`'s own (git's fatal exit
-	// 128 on a dirty worktree), never `branch -D`'s (exit 1) from having
+	// 128 on a locked worktree), never `branch -D`'s (exit 1) from having
 	// pressed on to it anyway — that second command failing too, because the
 	// worktree is still there holding the branch, is a coincidence of THIS
 	// fixture, not a check the code makes; a bare "return err" reporting the
@@ -192,5 +199,93 @@ func TestPruneMergedLanesAfterMerge_RemovalFailureIsReportedAndTheBranchSurvives
 	gitValue(t, mainRepo, "rev-parse", "--verify", "refs/heads/lane/merged")
 	if _, err := os.Stat(freshWT); err != nil {
 		t.Fatalf("the failure on lane/merged must not stop the sweep from leaving lane/fresh alone, got err=%v", err)
+	}
+}
+
+// A lane created at trunk's tip, with no commits of its own, must survive
+// the sweep even after trunk advances past that shared starting point by an
+// unrelated commit — issue #382: `git for-each-ref --merged` still lists
+// such a lane (its tip is an ancestor of the NEW trunk tip too), and the old
+// #144 guard only ever compared a branch's tip against trunk's CURRENT tip,
+// so it stopped catching this case the moment trunk moved on. Both a dirty
+// and a clean fresh lane must survive: uncommitted builder work must never
+// be the thing that decides whether a lane with no commits of its own gets
+// read as "merged".
+func TestPruneMergedLanes_KeepsAFreshLaneAfterTrunkAdvances(t *testing.T) {
+	mainRepo := t.TempDir()
+	gitInit(t, mainRepo)
+	gitDo(t, mainRepo, "checkout", "-q", "-B", "main")
+	commitInitial(t, mainRepo)
+
+	dirtyWT := filepath.Join(t.TempDir(), "fresh-dirty")
+	gitDo(t, mainRepo, "worktree", "add", "-q", "-b", "lane/fresh-dirty", dirtyWT)
+	write(t, dirtyWT, "wip.txt", "not committed\n")
+
+	cleanWT := filepath.Join(t.TempDir(), "fresh-clean")
+	gitDo(t, mainRepo, "worktree", "add", "-q", "-b", "lane/fresh-clean", cleanWT)
+
+	// Advance trunk past both lanes' shared starting tip.
+	write(t, mainRepo, "advance.go", "package main\n\n// advance\n")
+	gitDo(t, mainRepo, "add", "-A")
+	gitDo(t, mainRepo, "commit", "-qm", "trunk advances")
+
+	var out, errb bytes.Buffer
+	pruned := PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)
+
+	if _, err := os.Stat(dirtyWT); err != nil {
+		t.Fatalf("dirty fresh lane at %s must survive, got err=%v", dirtyWT, err)
+	}
+	if _, err := os.Stat(cleanWT); err != nil {
+		t.Fatalf("clean fresh lane at %s must survive, got err=%v", cleanWT, err)
+	}
+	if len(pruned) != 0 {
+		t.Fatalf("pruned = %+v, want nothing — neither lane has a commit of its own", pruned)
+	}
+}
+
+// A lane genuinely landed by a real merge commit must still survive the
+// sweep while its worktree carries uncommitted work — issue #382: pruning it
+// anyway is exactly how 15 minutes of builder work was destroyed. The sweep
+// must now check the tree itself, before ever calling `git worktree remove`.
+func TestPruneMergedLanes_KeepsADirtyMergeCommitLandedLane(t *testing.T) {
+	mainRepo, mergedWT, _ := pruneRepo(t)
+	write(t, mergedWT, "dirty.txt", "uncommitted\n")
+
+	var out, errb bytes.Buffer
+	pruned := PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)
+
+	if _, err := os.Stat(mergedWT); err != nil {
+		t.Fatalf("dirty merged lane at %s must survive, got err=%v", mergedWT, err)
+	}
+	if len(pruned) != 0 {
+		t.Fatalf("pruned = %+v, want nothing — the lane is dirty", pruned)
+	}
+	if !strings.Contains(errb.String(), "kept") || !strings.Contains(errb.String(), "uncommitted work") {
+		t.Fatalf("stderr = %q, want a kept/uncommitted-work line", errb.String())
+	}
+}
+
+// The clean-tree guard must not block the case it is not meant to guard: a
+// lane landed by a real merge commit, with a clean tree, is pruned exactly
+// as it was before issue #382.
+func TestPruneMergedLanes_StillPrunesACleanMergeCommitLandedLane(t *testing.T) {
+	mainRepo, mergedWT, _ := pruneRepo(t)
+	trunk := trunkBranch(mainRepo)
+
+	var out, errb bytes.Buffer
+	pruned := PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)
+
+	if _, err := os.Stat(mergedWT); !os.IsNotExist(err) {
+		t.Fatalf("clean merged lane at %s must be pruned, got err=%v", mergedWT, err)
+	}
+	wantSuffix := fmt.Sprintf("(lane/merged, merged into %s)", trunk)
+	if !strings.HasPrefix(out.String(), "prune-lanes: pruned ") || !strings.Contains(out.String(), wantSuffix) {
+		t.Fatalf("stdout = %q, want a %q line naming lane/merged and %s", out.String(), "prune-lanes: pruned ", wantSuffix)
+	}
+	if len(pruned) != 1 || pruned[0].Branch != "lane/merged" {
+		t.Fatalf("pruned = %+v, want exactly lane/merged", pruned)
+	}
+	if errb.String() != "" {
+		t.Fatalf("stderr = %q, want a clean sweep", errb.String())
 	}
 }
