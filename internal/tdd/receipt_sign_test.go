@@ -76,6 +76,37 @@ func TestReceiptSigning_RefusesAnUnsignedReceiptEvenWithAMatchingTipAndBase(t *t
 	requireLoggedVerdict(t, cfg, "receipt-forged")
 }
 
+// An unreadable key must never verify as "no key, so allow" — a signature
+// that cannot be checked is not a valid one (issue #281). This used to log
+// receipt-unverifiable and return nil (allow), so a receipt carrying any
+// non-empty fabricated mac merged on any box where the key could not be
+// read. Making the key PATH a directory forces every read and write
+// receiptKey attempts to fail without touching real file permissions, which
+// Windows does not enforce the same way a Unix mode bit does.
+func TestReceiptSigning_BlocksWhenTheSigningKeyCannotBeRead(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	r := passingReceipt()
+	writeReceipt(t, r)
+
+	keyPath := ReceiptKeyPath()
+	if err := os.RemoveAll(keyPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(keyPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: r.TipTree})
+	if got == nil || !got.Blocked {
+		t.Fatal("a receipt whose signing key cannot be read must not merge")
+	}
+	if !strings.Contains(got.Message, "signing key could not be read") {
+		t.Fatalf("message = %q, want it to say the key could not be read", got.Message)
+	}
+	requireLoggedVerdict(t, cfg, "receipt-unverifiable")
+}
+
 // The key is per-machine and private: a key anybody can read is a key
 // anybody can sign with.
 func TestReceiptKey_IsCreatedOncePrivateToThisUser(t *testing.T) {

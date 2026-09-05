@@ -182,10 +182,16 @@ func verifyReceiptMAC(data []byte, repo, tipTree string) *GateResult {
 	}
 	key, err := receiptKey()
 	if err != nil {
-		// No key on this box: the gate cannot tell signed from forged, and
-		// its own blind spot must not reject somebody's proof.
+		// A signature that cannot be checked is never a valid one. This used
+		// to stand down and allow — "the gate's own blind spot must not
+		// reject somebody's proof" — but that reasoning let a non-empty
+		// fabricated mac verify as allowed on any box where the key could
+		// not be read: no HOME/USERPROFILE (a real condition on a service
+		// account or stripped container), a MkdirAll or ReadFile failure, or
+		// any other transient error. Every one of those is now loud and
+		// blocking (issue #281); reject over substitute.
 		appendGateLog(premergeLogToken, logToken(repo), "mutation-receipt", "receipt-unverifiable", 0)
-		return nil
+		return &GateResult{Blocked: true, Message: "gate: the receipt's signing key could not be read, so its signature cannot be verified: " + err.Error()}
 	}
 	want, err := receiptMAC(data, key)
 	if err != nil || !hmac.Equal([]byte(want), []byte(probe.MAC)) {
