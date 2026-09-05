@@ -183,8 +183,14 @@ func setHunkRegexFields(doc *tomlDoc, m *Matcher, lawName string) error {
 		return fmt.Errorf("law %q: matcher.name_group and matcher.paired are exclusive", lawName)
 	}
 	if m.NameGroup || m.HunkMode == HunkDiffers {
-		if m.Removed == nil || m.Removed.NumSubexp() != 1 {
-			return fmt.Errorf("law %q: matcher.removed must capture exactly one group (the name/literal), got %v", lawName, m.Removed)
+		// At least one group, never "exactly one": a multi-language law
+		// (Go, Rust, Python, JS in the same `removed` pattern) alternates
+		// one branch per language, each capturing into its OWN group — the
+		// same shape registry-both-ways' entry_pattern/use_pattern already
+		// allow, resolved the same way (lastCapture: whichever branch
+		// actually matched is the only one with a non-empty group).
+		if m.Removed == nil || m.Removed.NumSubexp() < 1 {
+			return fmt.Errorf("law %q: matcher.removed must capture at least one group (the name/literal), got %v", lawName, m.Removed)
 		}
 		if m.Added == nil {
 			m.Added = m.Removed

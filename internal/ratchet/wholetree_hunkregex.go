@@ -153,8 +153,11 @@ func pairedHits(law Law, rel string, fd FileDiff, raw []string) []Hit {
 		if rm == nil || am == nil {
 			continue
 		}
-		if law.Matcher.HunkMode == HunkDiffers && (len(rm) < 2 || len(am) < 2 || rm[1] == am[1]) {
-			continue
+		if law.Matcher.HunkMode == HunkDiffers {
+			rc, ac := lastCapture(rm), lastCapture(am)
+			if rc == "" || ac == "" || rc == ac {
+				continue
+			}
 		}
 		idx := p.added.NewPos - 1
 		if law.escaped(rel, raw, idx) {
@@ -182,7 +185,9 @@ func nameGroupHits(law Law, rel string, fd FileDiff, escapedNames map[string]boo
 			continue
 		}
 		if m := law.Matcher.Added.FindStringSubmatch(o.Line); m != nil {
-			added[m[1]] = true
+			if name := lastCapture(m); name != "" {
+				added[name] = true
+			}
 		}
 	}
 	var hits []Hit
@@ -194,7 +199,10 @@ func nameGroupHits(law Law, rel string, fd FileDiff, escapedNames map[string]boo
 		if m == nil {
 			continue
 		}
-		name := m[1]
+		name := lastCapture(m)
+		if name == "" {
+			continue
+		}
 		if added[name] || escapedNames[name] {
 			continue
 		}
