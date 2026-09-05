@@ -1142,7 +1142,10 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   it is a real answer. `unaccepted`'s entries are opaque to the gate — the
   producing repo decides how it names a mutant — and only the first is quoted
   in the rejection, which also names the command that produces a receipt. It
-  runs BEFORE any suite compiles.
+  runs BEFORE any suite compiles. A receipt WAIVER (a catch-up merge of main
+  into a lane, or `mutants-local = false` below) is only ever noted, never a
+  rejection — `premergecommit` still runs baselineStage, `ratchet check`,
+  `docs check` and the touched project roots' suites against the merged tree.
 - **`mutants-local`** (bool, default `true`) — where the proof is MEASURED.
   A Cargo repo has no runner that will do it, so the post-commit hook starts a
   detached run on the box and the key can stay unwritten. A repo whose pipeline
@@ -1621,6 +1624,16 @@ rule that changed drops the cache instead of inheriting verdicts reached under
 the old one. A repo with no laws dir under `.ratchet` says `no laws` and exits 0.
 
 <!-- ratchet-spec:end -->
+
+#### Preset catalogue example: `test_removed`
+
+`common/test_removed` is the `symbol-removed` kind's template: `go/test_removed`
+and `rust/test_removed` are its concrete, already-filled-in forms (a Go
+`Test`-prefixed function, a Rust `#[test]`/`#[tokio::test]` function), the same
+relationship `go/module_size` already has to `common/module_size`. This repo's
+own `.ratchet/laws/test_removed.toml` extends `go/test_removed`; a deliberate
+removal (a test found redundant, not just moved to another file) is admitted
+by leaving `// ratchet: test_removed <Name>: <why>` where the function stood.
 
 ### Pipeline health (`aphrollo gate stats`)
 
