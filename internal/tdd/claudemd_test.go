@@ -135,6 +135,30 @@ func TestPatchClaudeMDRecoversFromAnOrphanMarker(t *testing.T) {
 	}
 }
 
+// The file's last byte can be the end marker itself, with no trailing
+// newline at all — a CLAUDE.md someone truncated exactly there, or one whose
+// editor strips a final newline. The replace-in-place branch must not assume
+// a byte survives past the marker to skip. Found by issue #286.
+func TestPatchClaudeMD_ReplacesInPlaceWhenFileEndsExactlyAtTheEndMarkerWithNoTrailingNewline(t *testing.T) {
+	stale := "# Project\n\n" + claudeMDBegin + "\nold text\n" + claudeMDEnd
+	block := ClaudeMDBlock(shimDir, false)
+
+	out, changed := PatchClaudeMD([]byte(stale), block)
+	got := string(out)
+	if !changed {
+		t.Fatal("a stale block must be replaced")
+	}
+	if strings.Contains(got, "old text") {
+		t.Errorf("the stale block survived:\n%s", got)
+	}
+	if strings.Count(got, claudeMDBegin) != 1 || strings.Count(got, claudeMDEnd) != 1 {
+		t.Errorf("markers were duplicated:\n%s", got)
+	}
+	if !strings.HasPrefix(got, "# Project") {
+		t.Errorf("content before the block was lost:\n%s", got)
+	}
+}
+
 func TestPatchClaudeMDPreservesCRLF(t *testing.T) {
 	block := ClaudeMDBlock(shimDir, false)
 	out, _ := PatchClaudeMD([]byte("# Project\r\n\r\nGuidance.\r\n"), block)
