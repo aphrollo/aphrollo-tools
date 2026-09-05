@@ -151,7 +151,7 @@ func RunGoMutantsCI(c GoMutantsCI, out io.Writer) int {
 	var carried []MutantOutcome
 	if laneOK {
 		files = PlanDiffFiles(root, lane, now, cached, producerVersion)
-		carried = PlanMutants(laneWants(cached, lane), now, cached).Carry
+		carried = PlanMutants(laneWants(cached, lane), now, cached, producerVersion).Carry
 	}
 
 	// Move-aware, on top of the store's own plan: a file left in `files`
@@ -229,6 +229,11 @@ func RunGoMutantsCI(c GoMutantsCI, out io.Writer) int {
 	fresh = stampTreeState(fresh, now, producerVersion)
 	mergeMutantStoreAt(storePath, fresh)
 
+	// De-duplicated by mutant key, the same guard adoptCarriedOutcomes
+	// applies on the job path: a file can land in both `fresh` and `carried`
+	// for the same tip when its cached ProducerVersion put it back into the
+	// re-measure set — fresh, the just-measured answer, always wins.
+	carried = dedupByMutantKey(fresh, carried)
 	r := writeReceiptFor(append(append([]MutantOutcome{}, fresh...), carried...))
 
 	logf(out, "aphrollo: %d measured, %d carried over %s..HEAD — %d caught, %d timed out, %d unviable, %d survived (%d accepted)",

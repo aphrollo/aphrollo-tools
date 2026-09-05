@@ -209,7 +209,7 @@ func measuredUnchanged(p string, now TreeState, cached map[mutantKey]MutantOutco
 		return false
 	}
 	for _, m := range cached {
-		if m.File == p && carriesOver(m, blob, fence) && m.ProducerVersion == producerVersion {
+		if m.File == p && carriesOver(m, blob, fence, producerVersion) {
 			return true
 		}
 	}

@@ -102,10 +102,16 @@ type MutantsPlan struct {
 // mutant lister named them; cached is the repo-wide outcome store
 // (mutants_store.go), which is deliberately not per-branch: a verdict is a
 // fact about a blob and a test set, so a second lane over the same blob reuses
-// the first lane's measurement. The plan stamps what it judged against onto
-// every entry it returns, so what this run stores is what the next one
-// compares to.
-func PlanMutants(want []MutantOutcome, now TreeState, cached map[mutantKey]MutantOutcome) MutantsPlan {
+// the first lane's measurement. producerVersion is threaded to carriesOver
+// the same way blob and fence are — the SAME rule measuredUnchanged
+// (mutants_treestate.go) judges a file's exclusion by, so the two decisions
+// can never disagree about whether a cached outcome is still current (issue
+// #298's carry-duplication: a version bump used to put a file back into the
+// re-measure set here while carrying its old mutants forward unchanged,
+// landing the same mutant in a receipt twice). The plan stamps what it
+// judged against onto every entry it returns, so what this run stores is
+// what the next one compares to.
+func PlanMutants(want []MutantOutcome, now TreeState, cached map[mutantKey]MutantOutcome, producerVersion string) MutantsPlan {
 	byContent := contentIndex(cached)
 	var plan MutantsPlan
 	for _, m := range want {
@@ -120,7 +126,7 @@ func PlanMutants(want []MutantOutcome, now TreeState, cached map[mutantKey]Mutan
 			// package — where different tests constrain it — re-measures.
 			old, ok = byContent[m.contentKey()]
 		}
-		if ok && carriesOver(old, blob, fence) {
+		if ok && carriesOver(old, blob, fence, producerVersion) {
 			old.File, old.Package = m.File, m.Package
 			old.Blob, old.Fence = blob, fence
 			plan.Carry = append(plan.Carry, old)
@@ -161,12 +167,46 @@ func contentIndex(cached map[mutantKey]MutantOutcome) map[contentKey]MutantOutco
 	return out
 }
 
-// carriesOver reports whether a recorded outcome still describes the tip.
-// An empty recorded measurement never carries: "not measured" and "measured
-// and identical" are the same bytes, and only one of them is proof.
-func carriesOver(old MutantOutcome, blob, fence string) bool {
+// dedupByMutantKey drops from extra anything already present, by mutant key,
+// in primary — the same guard adoptCarriedOutcomes (mutants_run.go) already
+// applies before a carried outcome joins a receipt's freshly measured ones.
+// A file whose blob and fence never moved but whose cached ProducerVersion
+// did can land in BOTH a run's fresh measurements and its carried set for
+// the same tip (mutants_ci.go, mutants_scope.go): PlanDiffFiles put the file
+// back in `files` for the version mismatch, so it was measured fresh, while
+// laneWants still hands every one of its cached mutants to PlanMutants to
+// judge. carriesOver now judges the SAME rule for both, so the two sets
+// should already agree — but a signed receipt that COULD still contain one
+// mutant twice, from two call sites that build it independently, is worth
+// making structurally impossible rather than trusting that agreement.
+func dedupByMutantKey(primary, extra []MutantOutcome) []MutantOutcome {
+	have := make(map[mutantKey]bool, len(primary))
+	for _, m := range primary {
+		have[m.key()] = true
+	}
+	out := make([]MutantOutcome, 0, len(extra))
+	for _, m := range extra {
+		if !have[m.key()] {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// carriesOver reports whether a recorded outcome still describes the tip: the
+// ONE rule both the file-level incremental filter (measuredUnchanged) and the
+// mutant-level carry (PlanMutants) judge by, so they can never disagree about
+// which outcomes are still current. An empty recorded measurement never
+// carries: "not measured" and "measured and identical" are the same bytes,
+// and only one of them is proof. A producer-version mismatch is read the
+// same as a blob or fence mismatch (issue #298): before this was folded in
+// here, a version bump put a file back into measuredUnchanged's re-measure
+// set while PlanMutants kept carrying its old mutants forward unchanged, and
+// the two lists overlapped — the same mutant reaching a receipt twice, once
+// freshly measured and once as a stale carried copy.
+func carriesOver(old MutantOutcome, blob, fence, producerVersion string) bool {
 	if old.Blob == "" || old.Fence == "" {
 		return false
 	}
-	return old.Blob == blob && old.Fence == fence
+	return old.Blob == blob && old.Fence == fence && old.ProducerVersion == producerVersion
 }

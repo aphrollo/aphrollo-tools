@@ -26,7 +26,7 @@ func TestMutantStore_CarriesAcrossLanesForTheSameBlobAndTestSet(t *testing.T) {
 	plan := PlanMutants(
 		[]MutantOutcome{{File: "crates/a/src/lib.rs", Line: 12, Mutation: "replace + with -", Package: "crates/a"}},
 		TreeState{Blobs: map[string]string{"crates/a/src/lib.rs": "blobA"}, Fences: map[string]string{"crates/a": "tsA"}},
-		LoadMutantStore("borld"))
+		LoadMutantStore("borld"), "")
 
 	if len(plan.Run) != 0 {
 		t.Fatalf("Run = %+v, want another lane's measurement reused", plan.Run)
@@ -180,7 +180,7 @@ func TestMergeMutantStore_AConcurrentMergeWaitsForOneAlreadyInFlight(t *testing.
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	path := MutantStorePath("borld")
 
-	release, ok := acquireMutantStoreLockWithDeadline(path, time.Second)
+	release, ok := acquirePathLockWithDeadline(path, time.Second)
 	if !ok {
 		t.Fatal("setup: could not take the store lock")
 	}
@@ -191,7 +191,7 @@ func TestMergeMutantStore_AConcurrentMergeWaitsForOneAlreadyInFlight(t *testing.
 		MergeMutantStore("borld", []MutantOutcome{stored("b.rs", 2, "b", "blobB", "ts", "caught")})
 	}()
 
-	if _, gotLock := acquireMutantStoreLockWithDeadline(path, 150*time.Millisecond); gotLock {
+	if _, gotLock := acquirePathLockWithDeadline(path, 150*time.Millisecond); gotLock {
 		t.Fatal("setup: a probe acquired the store lock this test still holds")
 	}
 	select {

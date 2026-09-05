@@ -18,11 +18,16 @@ func scopeMutantsRun(j MutantsJob) (files []string, carried []MutantOutcome, now
 	// fact about a blob and a test set, so a lane that touches a file another
 	// lane already measured at the same blob measures nothing for it.
 	cached := LoadMutantStore(j.Repo)
-	files = PlanDiffFiles(j.RepoRoot, lane, now, cached, mutantsProducerVersion(j.Worktree))
+	producerVersion := mutantsProducerVersion(j.Worktree)
+	files = PlanDiffFiles(j.RepoRoot, lane, now, cached, producerVersion)
 	// Scoped to the LANE's own files: planning the carry over the whole store
 	// stamped a one-file lane's receipt with outcomes for every unchanged file
-	// in the repo, and mutants_total stopped describing the commit.
-	plan := PlanMutants(laneWants(cached, lane), now, cached)
+	// in the repo, and mutants_total stopped describing the commit. The SAME
+	// producerVersion as above: a version bump that puts a file back into
+	// `files` must never leave PlanMutants still carrying that file's old
+	// mutants forward, or the two sets overlap and a receipt counts one
+	// mutant twice (issue #298).
+	plan := PlanMutants(laneWants(cached, lane), now, cached, producerVersion)
 	return files, plan.Carry, now, plan.Skipped
 }
 

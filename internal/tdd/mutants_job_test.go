@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -524,5 +525,61 @@ func stampGreenSuiteForTest(t *testing.T, root string) {
 	}
 	if err := os.WriteFile(path, []byte(tree), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// saveMutantsJob's append is a read-modify-write with no lock between two
+// StartMutantsJob calls registering close together (issue #284 follow-up):
+// whichever writes second silently drops the other's job, invisibly to
+// mutantsWorktreeAvoidingLiveJob (#283). This drives the actual contention:
+// jobB's own save is stood up while the test itself holds the registry's own
+// lock (exactly what saveMutantsJob's critical section would hold mid
+// read-modify-write), and a bounded probe of that SAME lock doubles as the
+// wait, so an unlocked save has every chance to have already raced ahead and
+// finished by the time the probe returns.
+func TestSaveMutantsJob_AConcurrentSaveWaitsForOneAlreadyInFlightRatherThanLosingAnEntry(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := "borld"
+	path := mutantsJobsPath(repo)
+
+	release, ok := acquirePathLockWithDeadline(path, time.Second)
+	if !ok {
+		t.Fatal("setup: could not take the jobs registry lock")
+	}
+
+	jobB := MutantsJob{Repo: repo, TipTree: "b", PID: os.Getpid(), Started: time.Now()}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		saveMutantsJob(jobB)
+	}()
+
+	if _, gotLock := acquirePathLockWithDeadline(path, 150*time.Millisecond); gotLock {
+		t.Fatal("setup: a probe acquired the jobs registry lock this test still holds")
+	}
+	select {
+	case <-done:
+		t.Fatal("saveMutantsJob finished while another still held the registry lock — it never waited " +
+			"for it, so its read missed the entry the in-flight save was about to write")
+	default:
+	}
+
+	// The in-flight save finishes: its own write, exactly what saveMutantsJob's
+	// own critical section would have produced for jobA, then its release.
+	jobA := MutantsJob{Repo: repo, TipTree: "a", PID: os.Getpid(), Started: time.Now()}
+	data, err := json.Marshal([]MutantsJob{jobA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(path, data); err != nil {
+		t.Fatal(err)
+	}
+	release()
+
+	<-done
+	jobs := RunningMutantsJobs(repo)
+	if len(jobs) != 2 {
+		t.Fatalf("running jobs = %d, want both jobA and jobB registered after a save that started "+
+			"while another was in flight: %+v", len(jobs), jobs)
 	}
 }

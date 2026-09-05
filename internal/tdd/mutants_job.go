@@ -427,11 +427,23 @@ func mutantsJobsPath(repo string) string {
 // saveMutantsJob APPENDS a job to its repo's registry, dropping the entries
 // that are over. It never removes a live one: superseding a run is not
 // cancelling it.
+//
+// Read-modify-write, locked across the whole critical section (pathlock.go)
+// for the identical reason mergeMutantStoreAt is (issue #284 follow-up): two
+// commits on two lanes of the same repo can both call StartMutantsJob close
+// together, and an unlocked pair each reads the registry before either
+// writes, so whichever writes second's append silently loses the other's
+// job. A job dropped this way is invisible to mutantsWorktreeAvoidingLiveJob
+// (issue #283) — the very next caller then computes the lane's BASE
+// worktree as free and resets or reclones the tree the lost job's producer
+// is still using.
 func saveMutantsJob(j MutantsJob) {
 	path := mutantsJobsPath(j.Repo)
 	if path == "" {
 		return
 	}
+	release := acquirePathLock(path)
+	defer release()
 	jobs := append(RunningMutantsJobs(j.Repo), j)
 	data, err := json.Marshal(jobs)
 	if err != nil {

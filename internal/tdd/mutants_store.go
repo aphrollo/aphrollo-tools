@@ -133,14 +133,14 @@ func MergeMutantStore(repo string, outcomes []MutantOutcome) {
 // Read-merge-write, and neither runner's caller serialised it: two lanes'
 // detached jobs finishing close together each read the store, each folded in
 // their OWN outcomes, and whichever wrote last discarded the other's —
-// silently, since neither write failed (issue #284). acquireMutantStoreLock
-// holds a per-store advisory lock across the whole critical section, so a
-// second merge's read always sees the first merge's write.
+// silently, since neither write failed (issue #284). acquirePathLock
+// (pathlock.go) holds a per-store advisory lock across the whole critical
+// section, so a second merge's read always sees the first merge's write.
 func mergeMutantStoreAt(path string, outcomes []MutantOutcome) {
 	if path == "" || len(outcomes) == 0 {
 		return
 	}
-	release := acquireMutantStoreLock(path)
+	release := acquirePathLock(path)
 	defer release()
 	merged := map[mutantKey]storedOutcome{}
 	for _, e := range readMutantStoreFile(path).Entries {
@@ -158,47 +158,6 @@ func mergeMutantStoreAt(path string, outcomes []MutantOutcome) {
 	}
 	writeMutantStore(path, merged)
 }
-
-// acquireMutantStoreLock blocks until this process holds the advisory lock
-// for the store at storePath. Production always calls this, never the
-// bounded primitive below, the same split as acquireMutantsRunLock's own.
-func acquireMutantStoreLock(storePath string) (release func()) {
-	release, _ = acquireMutantStoreLockWithDeadline(storePath, mutantStoreLockForever)
-	return release
-}
-
-// mutantStoreLockForever stands in for "no deadline" — a merge is
-// milliseconds, so a caller waiting on this lock is never abandoning
-// anything meaningful by waiting; production never reaches the deadline
-// branch below.
-const mutantStoreLockForever = 365 * 24 * time.Hour
-
-// acquireMutantStoreLockWithDeadline is the bounded primitive
-// acquireMutantStoreLock wraps, built on the same TryAcquireFileLock
-// primitive as the box-wide mutation-run lock (mutants_runlock.go) — an
-// OS-mandatory, per-open-file-description lock that a crashed holder's
-// closed descriptor releases on its own. Split out, mirroring
-// acquireMutantsRunLockWithDeadline, so a contention test can bound the wait
-// without needing an actually-unbounded one in the suite itself.
-func acquireMutantStoreLockWithDeadline(storePath string, deadline time.Duration) (release func(), ok bool) {
-	path := storePath + ".lock"
-	start := time.Now()
-	for {
-		if rel, acquired := TryAcquireFileLock(path); acquired {
-			return rel, true
-		}
-		if time.Since(start) >= deadline {
-			return func() {}, false
-		}
-		time.Sleep(mutantStoreLockPollInterval)
-	}
-}
-
-// mutantStoreLockPollInterval is how often acquireMutantStoreLock retries.
-// Short, the same reasoning as buildLockPollInterval: a merge is fast, so a
-// waiter should not sit out a whole poll interval doing nothing after the
-// holder has already finished.
-const mutantStoreLockPollInterval = 5 * time.Millisecond
 
 // PruneMutantStore drops the entries that can no longer be trusted: older than
 // maxAge, or naming a blob the repo's object store no longer has. It returns
