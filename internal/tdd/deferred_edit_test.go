@@ -160,6 +160,43 @@ func TestPostEdit_HarvestsAFinishedDeferredBuild(t *testing.T) {
 	}
 }
 
+// TestPostEdit_HarvestWarmRunSpawnFailureIsLogged pins a cold-review YELLOW:
+// when a harvested build is warm and the follow-up run phase fails to
+// SPAWN, every sibling infra-failure site in this file logs an
+// appendGateLog entry — this one did not, so the failure never reached
+// gate.log and gate stats would never see it.
+func TestPostEdit_HarvestWarmRunSpawnFailureIsLogged(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := mkProject(t, "Cargo.toml")
+	target := root + "/src/widget.rs"
+
+	prev := spawnPhaseFn
+	spawnPhaseFn = func(j DeferredJob) (DeferredJob, bool) { return j, false }
+	t.Cleanup(func() { spawnPhaseFn = prev })
+	EnableDeferredPhases(true)
+	t.Cleanup(func() { EnableDeferredPhases(false) })
+
+	saveDeferredJob(DeferredJob{
+		Project: root, Session: "sess-post", Phase: "build", Dir: root, PID: 999,
+		Started: time.Now().Add(-time.Minute),
+		HeadSHA: headSHAFor(root), FileHash: fileContentHash(target),
+		Runner: []string{"cargo", "test", "--no-run"},
+	})
+	job, _ := loadDeferredJob("sess-post", root)
+	if err := os.WriteFile(job.Log, []byte("Compiling widget\nFinished"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writePhaseResult(job.Result, PhaseOutcome{ExitCode: 0, Seconds: 42})
+
+	got := PostEdit(postPayload("Edit", target), fakeRun(true, "ok"))
+
+	if !strings.Contains(got, InfraFailed) {
+		t.Fatalf("advisory = %q, want %s for a run phase that never started", got, InfraFailed)
+	}
+	requireLoggedVerdict(t, cfg, InfraFailed)
+}
+
 // TestPostEdit_EditDuringADeferredBuildMarksItDirty pins the no-kill rule: a
 // second edit to the same project must NOT kill the running build (cargo is
 // doing real, incremental work) — it marks the job dirty so the harvest
@@ -189,6 +226,100 @@ func TestPostEdit_EditDuringADeferredBuildMarksItDirty(t *testing.T) {
 	}
 	if job.PID != 4242 {
 		t.Fatal("the running build must be left alone, not replaced")
+	}
+}
+
+// TestEditResultAdvisory_DropsStalePrevFailingWhenTheIndexMovedWithoutHead
+// pins issue #295: editResultAdvisory used to read state.ByProject[root]'s
+// FailingTests straight, with no fingerprint check at all, unlike every
+// foreground path (which gates on fingerprintsMatch — branch, HEAD, AND
+// index mtime). A `git add`, stash, or partial staging from another process
+// between a job's spawn and its harvest moves the index without moving HEAD;
+// deferredMatchesSource never sees that (it only guards HeadSHA plus content
+// hash), so the stale FailingTests survived to mask a same-named failure as
+// NoDelta forever. Once the harvest routes through the same fingerprint gate,
+// a fingerprint mismatch drops the stale set and the failure is reported.
+func TestEditResultAdvisory_DropsStalePrevFailingWhenTheIndexMovedWithoutHead(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "go.mod", "module x\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-q", "-m", "init")
+
+	fp0 := computeFingerprint(root)
+	if fp0 == nil {
+		t.Fatal("want a real fingerprint for an initialised repo")
+	}
+
+	state, statePath := loadSession("sess-advisory")
+	state.stamp(root, projectState{Outcome: string(RedMissingImpl), FailingTests: []string{"TestFoo"}, Fingerprint: fp0})
+	if err := state.save(statePath); err != nil {
+		t.Fatal(err)
+	}
+
+	// The index moves without HEAD moving — a stage, stash, or partial
+	// staging from another process, invisible to deferredMatchesSource.
+	idx := filepath.Join(root, ".git", "index")
+	future := time.Now().Add(time.Hour)
+	if err := os.Chtimes(idx, future, future); err != nil {
+		t.Fatal(err)
+	}
+
+	logPath := filepath.Join(t.TempDir(), "job.log")
+	if err := os.WriteFile(logPath, []byte("--- FAIL: TestFoo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	j := DeferredJob{Project: root, Phase: "run", Runner: []string{"go", "test", "./..."}, Log: logPath}
+
+	got := editResultAdvisory(j, PhaseOutcome{ExitCode: 1}, root, state, statePath, headSHAFor(root))
+
+	ps := state.ByProject[root]
+	if ps.Outcome == string(NoDelta) {
+		t.Fatalf("outcome = %q from advisory %q, want the stale FailingTests dropped once the index moved without HEAD — TestFoo must be reported, not hidden as no-delta", ps.Outcome, got)
+	}
+}
+
+// TestFinishedEditOutcome_ExitCode125WithoutSetupFailedIsARealResult pins a
+// cold-review RED: phaseSetupFailure's value (125) used to be the
+// discriminator itself (out.ExitCode == phaseSetupFailure), and 125 is not
+// reserved for RunPhase — it is `git bisect`'s skip code, Docker's
+// daemon-failure code, and a plain `make`/shell wrapper's exit status too. A
+// genuine runner exiting 125 must classify as a real (if ugly) result, not
+// vanish into "the code was NOT tested". Only RunPhase's own
+// PhaseOutcome.SetupFailed may route a result to infra.
+func TestFinishedEditOutcome_ExitCode125WithoutSetupFailedIsARealResult(t *testing.T) {
+	got := finishedEditOutcome(DeferredJob{}, PhaseOutcome{ExitCode: 125})
+	if got.infra {
+		t.Fatal("ExitCode 125 alone must not be read as an infra failure — a real runner can legitimately exit 125")
+	}
+}
+
+// TestEditResultAdvisory_RealExitCode125IsNotMistakenForInfraFailure is the
+// harvest-path twin: a genuinely red run reported with ExitCode 125 must
+// still reach ClassifyOutcome and get stamped into session state, exactly
+// as it did before this lane's InfraFailed classification existed.
+func TestEditResultAdvisory_RealExitCode125IsNotMistakenForInfraFailure(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "job.log")
+	if err := os.WriteFile(logPath, []byte("--- FAIL: TestFoo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state, statePath := loadSession("sess-125")
+	j := DeferredJob{Project: root, Phase: "run", Runner: []string{"make", "test"}, Log: logPath}
+
+	got := editResultAdvisory(j, PhaseOutcome{ExitCode: 125}, root, state, statePath, "")
+
+	if strings.Contains(got, InfraFailed) {
+		t.Fatalf("advisory = %q, a genuine exit-125 run must not read as %s", got, InfraFailed)
+	}
+	ps, ok := state.ByProject[root]
+	if !ok {
+		t.Fatal("a real result must be stamped into session state, not skipped as an infra failure")
+	}
+	if ps.Outcome == "" {
+		t.Fatalf("stamped outcome is empty, want the real classified outcome, got %+v", ps)
 	}
 }
 

@@ -380,9 +380,7 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// smell already blocking keeps its own reason; otherwise the more severe
 	// verdict wins, so a deny law denies the write before it lands.
 	if decision.Action != tdd.Block {
-		if r := tdd.RatchetAdvisory(raw); r.Action > decision.Action {
-			decision = r
-		}
+		decision = mergeRatchetAdvisory(decision, tdd.RatchetAdvisory(raw))
 	}
 	// When everything above allows the edit, fall through to the worktree
 	// advisory: a once-per-session nudge when the edit lands in a main clone
@@ -396,6 +394,40 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		stdout.Write(payload)
 	}
 	return code
+}
+
+// mergeRatchetAdvisory folds a ratchet-law verdict r into the edit-time
+// decision. A strictly more severe r replaces it outright — a deny law wins
+// over a suppression-only warn, as before. But a TIE used to discard r
+// entirely (r.Action > decision.Action was the only branch that fired), so a
+// warn-severity law hit on the same edit as an already-Warn decision (a
+// suppression note, a test-quality note) vanished — its law name, location
+// and remedy never reached the model, though the commit-time stage still
+// enforced the law (issue #296, the "lossless advisory" contract). A tie
+// keeps BOTH: they are two independently true facts about this edit, not a
+// choice between them.
+func mergeRatchetAdvisory(decision, r tdd.Decision) tdd.Decision {
+	switch {
+	case r.Action > decision.Action:
+		return r
+	case r.Action == decision.Action && r.Action != tdd.Allow:
+		merged := decision
+		switch {
+		case merged.Reason == "":
+			merged.Reason = r.Reason
+		case r.Reason != "":
+			merged.Reason = strings.TrimRight(merged.Reason, "\n") + "\n" + r.Reason
+		}
+		if merged.Policy == "" {
+			merged.Policy = r.Policy
+		}
+		if len(r.Escapes) > 0 {
+			merged.Escapes = append(append([]string{}, decision.Escapes...), r.Escapes...)
+		}
+		return merged
+	default:
+		return decision
+	}
 }
 
 // runGateInstall writes the git-hook shims into a single repo. tdd/refactor

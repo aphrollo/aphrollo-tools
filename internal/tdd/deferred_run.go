@@ -41,7 +41,8 @@ func spawnPhase(j DeferredJob) (DeferredJob, bool) {
 		return saved, false
 	}
 	saved.PID = cmd.Process.Pid
-	saved.Started = time.Now()
+	spawnTime := time.Now()
+	saved.Started = spawnTime
 	// Sampled once, right here, and never touched again: it is the identity
 	// a later kill site checks the live pid against, not the build's own
 	// clock (Started moves to when the build actually began — see
@@ -50,9 +51,29 @@ func spawnPhase(j DeferredJob) (DeferredJob, bool) {
 	if t, ok := processStartTimeFn(saved.PID); ok {
 		saved.PIDCreatedAt = t
 	}
-	saveDeferredJob(saved)
+	recordSpawnedProcess(saved.Session, saved.Project, saved.PID, saved.PIDCreatedAt, spawnTime)
 	_ = cmd.Process.Release()
 	return saved, true
+}
+
+// recordSpawnedProcess persists the pid identity a just-started detached
+// phase got, once cmd.Start() has returned. Routed through updateDeferredJob,
+// not a bare saveDeferredJob: the detached child reaches stampDeferredStart
+// within microseconds (a non-cargo runner skips the build-slot wait entirely
+// — see RunPhase), and an unlocked overwrite here from a pre-Start()
+// snapshot could land AFTER the child's own locked write and revert Started
+// back to spawn time — precisely the "killable the moment it finally
+// started" bug stampDeferredStart's own redesign exists to avoid. Started is
+// set here only when the child has not already advanced it past zero;
+// PID/PIDCreatedAt are always this call's, since nothing else ever sets them.
+func recordSpawnedProcess(session, root string, pid int, pidCreatedAt, spawnTime time.Time) {
+	updateDeferredJob(session, root, func(cur *DeferredJob) {
+		cur.PID = pid
+		cur.PIDCreatedAt = pidCreatedAt
+		if cur.Started.IsZero() {
+			cur.Started = spawnTime
+		}
+	})
 }
 
 // waitPhase waits up to budget for a spawned phase to write its result. A
@@ -85,28 +106,57 @@ func RunPhase(jobPath string) int {
 	}
 	start := time.Now()
 	if len(j.Runner) == 0 {
-		writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure})
+		writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure, SetupFailed: true})
 		return 0
 	}
 	log, err := os.Create(j.Log)
 	if err != nil {
-		writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure})
+		writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure, SetupFailed: true})
 		return 0
 	}
 	defer log.Close()
 
 	r := runnerFromArgv(j.Runner, j.Dir)
-	slot, release, held := acquireBuildSlot(runnerTargetDir(r, j.Project), deferredSlotWait(), cmdString(r), j.Dir)
-	if !held {
-		// Building without a slot would compile into a target dir another
-		// build owns, and the shimmed cargo inside would queue on the very
-		// slot this phase could not get.
-		fmt.Fprintln(log, "aphrollo: no build slot came free for this phase")
-		writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure, Seconds: time.Since(start).Seconds()})
-		return 0
+	// The TARGET-DIR flock mirrors cargo's own build-directory lock (one
+	// build per target dir, ever) and only cargo has such a directory to
+	// protect: resolveTargetDir's cargo-shaped fallback would otherwise key
+	// a Go run onto <workspace>/target under whatever CARGO_TARGET_DIR the
+	// shell happens to export — the SAME target dir every cargo build on
+	// the box shares — serialising unrelated Go projects against unrelated
+	// cargo builds for no reason (issue #354). But the GLOBAL slots are a
+	// box-wide OOM/CPU governor (buildslots.go's header comment), not a
+	// cargo-specific one, and a non-cargo runner skipping them entirely —
+	// this fix's first version — left them running fully unbounded; a cold
+	// review caught it. So: the flock only for cargo, the global cap for
+	// everyone.
+	if r.Cmd == "cargo" {
+		targetDir := runnerTargetDir(r, j.Project)
+		slot, release, held := acquireBuildSlot(targetDir, deferredSlotWait(), cmdString(r), j.Dir)
+		if !held {
+			// Building without a slot would compile into a target dir another
+			// build owns, and the shimmed cargo inside would queue on the very
+			// slot this phase could not get. Naming the target dir and its
+			// holder is what lets a session read this as "the box was full",
+			// not as a red the tests themselves produced.
+			fmt.Fprintf(log, "aphrollo: no build slot came free for %s (%s)\n", targetDir, buildSlotHolderDescription(targetDir))
+			writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure, Seconds: time.Since(start).Seconds(), SetupFailed: true})
+			return 0
+		}
+		defer release()
+		defer setBuildJobs(slot.Jobs)()
+	} else {
+		// Global slot only: a non-cargo runner has no build directory for
+		// the flock to protect, but it still counts against the box's
+		// OOM/CPU budget. CARGO_BUILD_JOBS is meaningless to a `go test`/
+		// pytest/npm child, so there is no per-slot job count to set here.
+		_, release, held := acquireGlobalSlot(deferredSlotWait(), cmdString(r), j.Dir)
+		if !held {
+			fmt.Fprintf(log, "aphrollo: no build slot came free (%s)\n", globalCapacityHolderDescription())
+			writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure, Seconds: time.Since(start).Seconds(), SetupFailed: true})
+			return 0
+		}
+		defer release()
 	}
-	defer release()
-	defer setBuildJobs(slot.Jobs)()
 
 	// The abandon clock starts HERE, not when the hook spawned this: time
 	// spent queuing is not time spent building, and charging it made a phase
@@ -141,19 +191,22 @@ func RunPhase(jobPath string) int {
 	return 0
 }
 
-// phaseSetupFailure is the exit code the wrapper reports when the phase
-// never ran at all (no command, no log, no slot). It is distinct from a
-// test failure only in the log line beside it; both are "not green".
+// phaseSetupFailure is the ExitCode the wrapper reports alongside
+// SetupFailed: true when the phase never ran at all (no command, no log, no
+// slot) — a human-legible placeholder for a run that produced no real exit
+// status, never itself the signal a consumer branches on (that is
+// PhaseOutcome.SetupFailed; see its doc comment for why a bare exit-code
+// value cannot carry this safely).
 const phaseSetupFailure = 125
 
 // stampDeferredStart moves the job's clock to when the build actually began.
+// Runs in the detached runphase process, concurrently with a PostToolUse
+// hook's markDeferredDirty in the process that spawned it — updateDeferredJob
+// (deferred.go) is what keeps the two from clobbering each other.
 func stampDeferredStart(session, root string, at time.Time) {
-	j, ok := loadDeferredJob(session, root)
-	if !ok {
-		return
-	}
-	j.Started = at
-	saveDeferredJob(j)
+	updateDeferredJob(session, root, func(j *DeferredJob) {
+		j.Started = at
+	})
 }
 
 // deferredSlotWait bounds how long a detached phase queues for a build slot:

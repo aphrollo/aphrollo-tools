@@ -194,7 +194,7 @@ func PostBash(raw []byte, run SuiteRunner) string {
 
 	var notes []string
 	seenRoot := map[string]bool{}
-	for _, rel := range changed {
+	for i, rel := range changed {
 		appendGateLog("postedit", before.Root, rel, "bash-edit:"+logToken(rel), 0)
 		target := filepath.Join(before.Root, filepath.FromSlash(rel))
 		root := FindProjectRoot(target)
@@ -209,11 +209,44 @@ func PostBash(raw []byte, run SuiteRunner) string {
 		if deferred {
 			// One detached build per Bash call: a second project's cold build
 			// started here would run unwatched beside the first, and neither
-			// result would describe the tree by the time they land.
+			// result would describe the tree by the time they land. The other
+			// roots are not silently dropped, though: they stay unexercised
+			// until a later Edit or commit touches them, so say so here —
+			// otherwise the only trace was a per-file "bash-edit:" log line
+			// nothing reads as "this root never got a run" (issue #306).
+			if skipped := otherRootsAmong(changed[i+1:], before.Root, seenRoot); len(skipped) > 0 {
+				line := fmt.Sprintf("gate: deferred %s skipped, %d other root(s) changed by this command: %s",
+					root, len(skipped), strings.Join(skipped, ", "))
+				appendGateLog("postedit", before.Root, rel, fmt.Sprintf("bash-roots-skipped:%d", len(skipped)), 0)
+				notes = append(notes, line)
+			}
 			break
 		}
 	}
 	return strings.Join(notes, "\n")
+}
+
+// otherRootsAmong finds the distinct project roots among rest (the changed
+// paths not yet visited) that are not already in seen, in the order they
+// first appear. It is what lets PostBash name every root a Bash command
+// touched but never ran a gate for, once the first root's phase deferred and
+// stopped the loop.
+func otherRootsAmong(rest []string, base string, seen map[string]bool) []string {
+	local := make(map[string]bool, len(seen))
+	for k := range seen {
+		local[k] = true
+	}
+	var out []string
+	for _, rel := range rest {
+		target := filepath.Join(base, filepath.FromSlash(rel))
+		root := FindProjectRoot(target)
+		if root == "" || local[root] {
+			continue
+		}
+		local[root] = true
+		out = append(out, root)
+	}
+	return out
 }
 
 // changedSince names every source path whose dirty stamp moved, entered the
