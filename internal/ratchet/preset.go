@@ -228,7 +228,16 @@ func canonicalTOMLValue(v tomlValue) string {
 	case tomlBool:
 		return strconv.FormatBool(v.b)
 	case tomlArray:
-		return strings.Join(v.list, ",")
+		// Length-prefix each element before joining: a bare comma join makes
+		// ["a,b"] and ["a","b"] indistinguishable, and RuleSemantics (which
+		// --adopt's changed-since-HEAD guard, and the baseline guard routed
+		// through it, both rely on) would then call a real [scope]/[matcher]
+		// list change "unchanged".
+		parts := make([]string, len(v.list))
+		for i, e := range v.list {
+			parts[i] = strconv.Itoa(len(e)) + ":" + e
+		}
+		return strings.Join(parts, ",")
 	default:
 		return ""
 	}

@@ -107,6 +107,30 @@ func TestBaselineGuardIgnoresFilesOutsideTheDeclaredGlobs(t *testing.T) {
 	}
 }
 
+// TestMatchesAnyGlob_StarDoesNotCrossASeparatorOnEitherForwardOrBackslashInput
+// proves a single `*` segment glob never reaches into a nested directory,
+// and that a path spelled with backslashes (as `filepath.ToSlash` would
+// leave it before normalisation, or as a caller might pass by mistake)
+// judges identically to the same path spelled with forward slashes. Before
+// the fix, `filepath.Match` treated `*` as crossing `/` on Windows (where
+// `filepath.Separator` is `\`) while stopping at it on Linux, so the same
+// repo state was guarded differently depending on which OS ran the check.
+func TestMatchesAnyGlob_StarDoesNotCrossASeparatorOnEitherForwardOrBackslashInput(t *testing.T) {
+	globs := []string{".ratchet/baselines/*.txt"}
+	nestedForward := ".ratchet/baselines/sub/dir/x.txt"
+	nestedBackslash := `.ratchet\baselines\sub\dir\x.txt`
+	if matchesAnyGlob(globs, nestedForward) {
+		t.Errorf("matchesAnyGlob(%q, %q) = true, want false — a nested path must not match a flat *.txt glob", globs, nestedForward)
+	}
+	if matchesAnyGlob(globs, nestedBackslash) {
+		t.Errorf("matchesAnyGlob(%q, %q) = true, want false — must judge identically for a backslash path", globs, nestedBackslash)
+	}
+	direct := ".ratchet/baselines/module_size.txt"
+	if !matchesAnyGlob(globs, direct) {
+		t.Errorf("matchesAnyGlob(%q, %q) = false, want true — a direct child must still match", globs, direct)
+	}
+}
+
 func TestBaselineGuardHonoursTheWorkspaceGlobList(t *testing.T) {
 	root := t.TempDir()
 	gitInit(t, root)
@@ -187,6 +211,29 @@ func TestBaselineGuard_RefusesARaiseWhenTheLawIsUnchanged(t *testing.T) {
 	res := baselineStage("precommit", root)
 	if !res.Blocked {
 		t.Fatal("the law never changed — the same new row must still be rejected")
+	}
+	if !strings.Contains(res.Message, "tools/b.rs") {
+		t.Errorf("message must name the offending row: %s", res.Message)
+	}
+}
+
+// TestBaselineGuard_RefusesARaiseWhenOnlyACommentInsideMatcherChanged is the
+// "1048 to 1049 hand edit" case this guard's own header describes: a comment
+// line added inside [matcher], with no field that decides what the law
+// catches actually different, must not read as the law "changing" — a
+// raw-text comparison of the [matcher] section body sees new bytes and
+// wrongly adopts the raise; comparing ratchet.RuleSemantics (matcher, scope,
+// severity only, comments never parsed) sees no change and refuses it, same
+// as an untouched law.
+func TestBaselineGuard_RefusesARaiseWhenOnlyACommentInsideMatcherChanged(t *testing.T) {
+	cosmeticLaw := strings.Replace(nanGuardLawText,
+		`kind = "regex-absent"`, "# cosmetic note, no field below changed\nkind = \"regex-absent\"", 1)
+	root := lawAndBaselineRepo(t, nanGuardLawText, "crates/a.rs | let a = x.clamp(0.0, 1.0);\n",
+		cosmeticLaw, "crates/a.rs | let a = x.clamp(0.0, 1.0);\ntools/b.rs | let b = y.clamp(0.0, 1.0);\n")
+
+	res := baselineStage("precommit", root)
+	if !res.Blocked {
+		t.Fatal("a comment-only edit inside [matcher] must not launder a raised baseline")
 	}
 	if !strings.Contains(res.Message, "tools/b.rs") {
 		t.Errorf("message must name the offending row: %s", res.Message)

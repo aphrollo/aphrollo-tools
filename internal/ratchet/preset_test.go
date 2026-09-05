@@ -246,3 +246,46 @@ key     = "file:line-content-hash"
 		t.Errorf("note = %q, must name the law and the preset", note)
 	}
 }
+
+// TestRuleSemantics_ArrayElementsWithEmbeddedCommaDoNotCollideWithASplitList
+// proves ["a,b"] and ["a","b"] fingerprint differently. canonicalTOMLValue
+// used to join array elements with a bare comma, so a single element
+// containing a comma was indistinguishable from two elements split at that
+// comma — --adopt's changed-since-HEAD guard (and the commit-time baseline
+// guard routed through the same function) would then call a real [scope]
+// change "unchanged".
+func TestRuleSemantics_ArrayElementsWithEmbeddedCommaDoNotCollideWithASplitList(t *testing.T) {
+	oneElement := `
+name     = "x"
+severity = "deny"
+
+[matcher]
+kind    = "regex-absent"
+pattern = "x"
+
+[scope]
+include = ["a,b"]
+`
+	twoElements := `
+name     = "x"
+severity = "deny"
+
+[matcher]
+kind    = "regex-absent"
+pattern = "x"
+
+[scope]
+include = ["a", "b"]
+`
+	one, err := RuleSemantics(oneElement)
+	if err != nil {
+		t.Fatalf("RuleSemantics(oneElement): %v", err)
+	}
+	two, err := RuleSemantics(twoElements)
+	if err != nil {
+		t.Fatalf("RuleSemantics(twoElements): %v", err)
+	}
+	if one == two {
+		t.Errorf(`RuleSemantics(["a,b"]) = RuleSemantics(["a","b"]) = %q, want them to differ`, one)
+	}
+}
