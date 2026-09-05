@@ -172,7 +172,7 @@ func TestMutationReceipt_MissingReceiptRejectsWithOneRemedyLine(t *testing.T) {
 	if lines := strings.Count(strings.TrimSpace(got.Message), "\n"); lines != 0 {
 		t.Fatalf("message spans %d extra lines, want exactly one:\n%s", lines, got.Message)
 	}
-	want := "gate: mutation receipt missing for tree " + short(laneTip) + " — run aphrollo gate mutants main"
+	want := "gate: mutation receipt missing for tree " + short(laneTip) + " — run `aphrollo gate mutants run` in the lane"
 	if got.Message != want {
 		t.Fatalf("message = %q, want %q", got.Message, want)
 	}
@@ -191,14 +191,16 @@ func TestMutationReceipt_MissingReceiptNeverNamesAScriptTheRepoLacks(t *testing.
 	if got == nil || !got.Blocked {
 		t.Fatal("no receipt must not merge")
 	}
-	want := "gate: mutation receipt missing for tree " + short(laneTip) + " — run aphrollo gate mutants master"
+	want := "gate: mutation receipt missing for tree " + short(laneTip) + " — run `aphrollo gate mutants run` in the lane"
 	if got.Message != want {
 		t.Fatalf("message = %q, want %q (this repo has no tools/mutation_gate.sh)", got.Message, want)
 	}
 }
 
-// A repo that actually carries the script gets named by it — the script is
-// exactly the command that would fix this.
+// A repo that actually carries the script has it NAMED, as what the run will
+// drive. It is not offered as the command to type: invoked by hand it runs
+// outside the box-wide lock and in the wrong tree, which is how one box ended
+// up with several cold builds fighting for the same cores.
 func TestMutationReceipt_MissingReceiptNamesTheScriptWhenTheRepoHasOne(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -209,7 +211,7 @@ func TestMutationReceipt_MissingReceiptNamesTheScriptWhenTheRepoHasOne(t *testin
 	if got == nil || !got.Blocked {
 		t.Fatal("no receipt must not merge")
 	}
-	want := "gate: mutation receipt missing for tree " + short(laneTip) + " — run tools/mutation_gate.sh master"
+	want := "gate: mutation receipt missing for tree " + short(laneTip) + " — run `aphrollo gate mutants run` in the lane — it drives tools/mutation_gate.sh for you, under the box-wide lock"
 	if got.Message != want {
 		t.Fatalf("message = %q, want %q", got.Message, want)
 	}
@@ -240,7 +242,7 @@ func TestMutationReceipt_MissingReceiptNamesTheDeclaredRunner(t *testing.T) {
 	if got == nil || !got.Blocked {
 		t.Fatal("no receipt must not merge")
 	}
-	want := "gate: mutation receipt missing for tree " + short(laneTip) + " — run tools/mutants.sh master"
+	want := "gate: mutation receipt missing for tree " + short(laneTip) + " — run `aphrollo gate mutants run` in the lane — it drives tools/mutants.sh for you, under the box-wide lock"
 	if got.Message != want {
 		t.Fatalf("message = %q, want %q", got.Message, want)
 	}

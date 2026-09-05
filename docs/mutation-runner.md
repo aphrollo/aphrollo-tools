@@ -29,6 +29,40 @@ go to files under the mutation worktree's build dir. It is never cancelled by a
 later commit: a superseded run finishes, and its outcomes are what the next
 run carries instead of re-measuring.
 
+### Starting one by hand
+
+`aphrollo gate mutants run`, typed in the lane, with no arguments. It builds
+the same job the hook builds — same worktree, same base, same lock — and runs
+it in the FOREGROUND so the output is on the terminal rather than in a log
+file.
+
+Do not invoke the repo's own producer directly. The lock is held by the gate
+around the producer call, not by the producer itself, so a script invoked by
+hand runs outside it; it also runs in whatever checkout it was typed in rather
+than the mutation worktree, and puts its scratch wherever the ambient
+`CARGO_TARGET_DIR` points. The producer is named in refusal messages as what
+the run will drive, never as the command to type.
+
+Two things `run` will refuse rather than do:
+
+- **A second run while one is already going for this repo.** Both would measure
+  the same mutants for the same receipt, and the box-wide lock would serialize
+  them, so the waste would be quiet rather than absent. The refusal names the
+  branch, pid and start time of the run already going.
+- **Anything on `main`/`master`, in a repo that has not opted in, or in a repo
+  whose mutants run in CI.** These are refusals the post-commit hook makes
+  silently, because it fires after every commit on the box. Typed by hand they
+  are printed, because there the refusal is the answer to what was just asked.
+
+A run measures the tip's TREE, and a receipt is keyed on that tree. To re-run
+against the tree a merge will land on, `git commit --allow-empty` on the lane:
+an empty commit preserves the tree, so the run measures exactly what the merge
+gate will check.
+
+There is no verb for asking whether a receipt has arrived. Attempt the merge:
+the pre-merge gate consumes the receipt and names what is missing, including
+whether a run is still going and when it started.
+
 ## Where a run happens
 
 One worktree per repo, `<parent>/.worktrees/<repo>/mutants`, checked out

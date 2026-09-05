@@ -25,7 +25,7 @@ import (
 
 // mutantsRefusal is the whole rejection: what to run instead, and why the
 // invocation typed was not it.
-const mutantsRefusal = "gate: run tools/mutation_gate.sh <base> — bare cargo mutants builds a cold copy in the OS temp dir and holds the build lock for hours"
+const mutantsRefusal = "gate: run `aphrollo gate mutants run` — bare cargo mutants builds a cold copy in the OS temp dir and holds the build lock for hours, and a producer invoked directly runs outside the box-wide mutation lock"
 
 // deprecatedMutationGateEnv is the one-release grace: the old handshake
 // variable no longer decides anything (a nested `cargo mutants` is let

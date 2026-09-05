@@ -87,55 +87,20 @@ func StartMutantsJob(repoRoot string) (MutantsJob, bool) {
 // somewhere to put it — can tell an operator what happened instead of
 // printing "started" for a run that never began.
 func startMutantsJob(repoRoot string) (MutantsJob, bool, error) {
-	root := RepoRoot(repoRoot)
-	if root == "" {
-		return MutantsJob{}, false, nil
-	}
-	branch := gitOut(root, "rev-parse", "--abbrev-ref", "HEAD")
-	if branch == "" || isDefaultBranch(branch) || !mutationReceiptOptIn(root) || !mutationRunsLocally(root) {
-		return MutantsJob{}, false, nil
-	}
-	j := MutantsJob{
-		Schema: StateSchema, Repo: commonGitDir(root), RepoID: repoIdentity(root), RepoRoot: root, Branch: branch,
-		Tip: gitOut(root, "rev-parse", "HEAD"), TipTree: gitOut(root, "rev-parse", "HEAD:"),
-		BaseRef: laneBaseRef(root), Worktree: MutantsWorktreeDir(root), TargetDir: MutantsTargetDir(root),
-	}
-	// Not merge-base(BaseRef, HEAD): BaseRef prefers origin/main, which no
-	// fetch ever updates, so a lane that caught up by merging LOCAL main
-	// would measure from before that merge and be charged for trunk's own
-	// changes (issue #261). laneBaseSHA keeps the newest trunk commit the
-	// lane already contains.
-	j.BaseSHA = laneBaseSHA(root)
-	if j.Tip == "" || j.TipTree == "" || j.BaseSHA == "" {
-		return MutantsJob{}, false, nil
-	}
-	j.Diff = filepath.Join(mutantsStateDir(), "lane."+projectKey(root)+".diff")
-	// Beside the gate's other state, never inside the worktree cargo-mutants
-	// mutates in place: a log file created there before the worktree exists is
-	// a log the worktree's own creation can never reach, and one written
-	// during a run is an untracked file that makes the run's own dirty check
-	// fail the tree it is describing.
-	logDir := mutantsLogDir(j.RepoRoot)
-	j.Log = filepath.Join(logDir, short(j.TipTree)+".log")
-	j.ErrLog = filepath.Join(logDir, short(j.TipTree)+".err.log")
-	j.Started = time.Now()
-	// Before anything is spawned: a run that cannot fit its copies fills the
-	// drive and dies mid-way, taking every verdict it had reached with it.
-	if jobs, _ := mutantsJobsForThisBox(); true {
-		if ok, line := mutantsDiskOK(j.TargetDir, jobs); !ok {
-			appendGateLog("postcommit", logToken(j.Repo), "mutants", "mutants-refused:disk", 0)
-			fmt.Fprintln(os.Stderr, line)
-			return MutantsJob{}, false, nil
-		}
-	}
-	// The worktree is prepared HERE, synchronously, rather than left to the
-	// detached child: a bad path (or a drive that cannot create it) is then
-	// caught before this process ever reports the run as started, instead of
-	// the child discovering it seconds later with nowhere left to say so but
-	// a log line nobody watching the hook's own output would see.
-	if err := prepareMutantsWorktree(j); err != nil {
-		appendGateLog("postcommit", logToken(j.Repo), "mutants", "mutants-worktree-failed:"+logToken(err.Error()), 0)
+	j, refusal, err := buildMutantsJob(repoRoot, "postcommit")
+	if err != nil {
 		return MutantsJob{}, false, err
+	}
+	if refusal.refused() {
+		// Routine refusals are the design working -- a commit on trunk has no
+		// lane to prove -- and the post-commit hook fires after EVERY commit
+		// on the box, so saying so every time would be noise on the one
+		// output a session cannot turn off. The rest mean something is wrong,
+		// and a run that silently did not happen is worse than a line.
+		if !refusal.Routine {
+			fmt.Fprintln(os.Stderr, "gate: no mutation run — "+refusal.Reason)
+		}
+		return MutantsJob{}, false, nil
 	}
 	pid, err := mutantsSpawnFn(j)
 	if err != nil {
