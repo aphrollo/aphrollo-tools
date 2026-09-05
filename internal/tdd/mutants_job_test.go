@@ -199,8 +199,8 @@ func TestMutantsWorktree_IsOneDedicatedTreeUnderTheRepoMutantsRoot(t *testing.T)
 	if got := MutantsWorktreeDir(repo); !strings.HasPrefix(got, want+string(filepath.Separator)) {
 		t.Fatalf("MutantsWorktreeDir = %q, want a lane directory under %q", got, want)
 	}
-	// The target dir lives INSIDE that worktree: it is what makes the build
-	// warm across runs, and what the queue bypass is keyed on.
+	// The target dir lives under that same root — shared by every lane's tree,
+	// never inside one — because the root is what the queue bypass is keyed on.
 	if got := MutantsTargetDir(repo); !strings.HasPrefix(got, want) {
 		t.Fatalf("MutantsTargetDir = %q, want it under %q", got, want)
 	}
