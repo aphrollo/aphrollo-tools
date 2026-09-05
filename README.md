@@ -460,7 +460,11 @@ aphrollo workspace merge         # gh pr merge --squash --delete-branch
   **honoring GitHub's gates** — gh refuses a non-mergeable or red-CI PR, and `merge`
   never passes `--admin`, so it cannot force past a failing check. `--squash`
   (default) / `--merge` / `--rebase`; `--keep-branch` to skip the branch delete.
-  It deliberately does **not** touch the local worktree — that is `prune`'s job.
+  It deliberately does **not** touch the local worktree — that is `prune`'s job —
+  except for one best-effort housekeeping sweep, after the merge lands, of every
+  OTHER linked worktree whose branch is now merged into trunk: it keeps a
+  worktree with any uncommitted work, and keeps a branch with no commits of its
+  own even after trunk has since advanced past the commit it sits at.
 
 > Merge stays a deliberate step: in the hub-and-spoke flow it is gated on the
 > operator's "ship" + green CI, so a coder runs `merge` on instruction, not
