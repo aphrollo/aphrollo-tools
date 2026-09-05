@@ -82,20 +82,57 @@ func runDoctorCheck(w io.Writer, repo string) int {
 	return misses
 }
 
-// userPathDirs is the PATH as the USER has it configured, not as this process
-// inherited it: a shell profile or a parent process can prepend anything, so a
-// check that read os.Getenv("PATH") would pass on a box whose next session
-// starts without the shim dir. On Windows that is HKCU\Environment; elsewhere
-// the environment is the configuration.
+// machineEnvKey and userEnvKey are the two registry hives Windows composes a
+// fresh process's PATH from. CreateProcess (via userenv's environment-block
+// construction) concatenates the machine-wide value ahead of the per-user
+// one, so a machine-wide git or cargo resolves before anything the user's own
+// PATH names, even when the user put the shim dir first in THEIR list.
+const (
+	machineEnvKey = `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment`
+	userEnvKey    = `HKCU\Environment`
+)
+
+// userPathDirs is the PATH a freshly spawned process on this box actually
+// resolves an unqualified command against — not as this process inherited
+// it (a shell profile or a parent can prepend anything, so a check on
+// os.Getenv("PATH") would pass on a box whose next session starts without
+// the shim dir), and not just the user's OWN configuration either: a
+// machine-wide install shadows the shim even when HKCU\Environment alone
+// looks fine. On Windows that means reading both hives and combining them in
+// the order Windows actually applies; elsewhere the environment is the
+// configuration.
 func userPathDirs() []string {
 	if runtime.GOOS != "windows" {
 		return filepath.SplitList(os.Getenv("PATH"))
 	}
-	out, err := exec.Command("reg", "query", `HKCU\Environment`, "/v", "Path").Output()
-	if err != nil {
+	machine := regPathDirs(machineEnvKey)
+	user := regPathDirs(userEnvKey)
+	if machine == nil && user == nil {
 		return filepath.SplitList(os.Getenv("PATH"))
 	}
+	return combinePathScopes(machine, user)
+}
+
+// regPathDirs queries one registry hive's PATH value, returning nil when the
+// query fails so the caller can fall back rather than judging a half-read
+// scope as empty.
+func regPathDirs(key string) []string {
+	out, err := exec.Command("reg", "query", key, "/v", "Path").Output()
+	if err != nil {
+		return nil
+	}
 	return parseRegPath(string(out))
+}
+
+// combinePathScopes orders machine-wide entries ahead of the user's own,
+// matching how Windows composes a fresh process's PATH from the two hives
+// (see userPathDirs) — a check against the merged list sees what the shim
+// actually shadows, not just what one scope contains.
+func combinePathScopes(machine, user []string) []string {
+	out := make([]string, 0, len(machine)+len(user))
+	out = append(out, machine...)
+	out = append(out, user...)
+	return out
 }
 
 // parseRegPath pulls the value out of `reg query` output, whose data line is

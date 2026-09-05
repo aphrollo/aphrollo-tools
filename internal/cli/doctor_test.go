@@ -32,6 +32,22 @@ func TestParseRegPath_IgnoresOutputWithNoPathValue(t *testing.T) {
 	}
 }
 
+// TestCombinePathScopes_PutsMachineWidePathAheadOfTheUsersOwn pins the order
+// doctor must judge PATH in: Windows concatenates the machine-wide hive ahead
+// of the user's own when it builds a fresh process's environment, so a
+// machine-installed git ahead of the shim shadows it for every process on the
+// box even when the user's OWN PATH lists the shim first.
+func TestCombinePathScopes_PutsMachineWidePathAheadOfTheUsersOwn(t *testing.T) {
+	machine := []string{`C:\Program Files\Git\cmd`}
+	user := []string{`C:\Users\olive\bin\cargo-queue`}
+
+	got := combinePathScopes(machine, user)
+	want := []string{`C:\Program Files\Git\cmd`, `C:\Users\olive\bin\cargo-queue`}
+	if !slices.Equal(got, want) {
+		t.Fatalf("combinePathScopes(%v, %v) = %v, want %v", machine, user, got, want)
+	}
+}
+
 // TestExpandWindowsVars_LeavesAnUnpairedPercentAlone guards the parser against
 // eating a path: a lone percent sign is a literal, not the start of a name.
 func TestExpandWindowsVars_LeavesAnUnpairedPercentAlone(t *testing.T) {
