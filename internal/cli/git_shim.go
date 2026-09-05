@@ -153,6 +153,12 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 			fmt.Fprintln(stderr, line)
 			return 1
 		}
+		// The discard wall (#343): same placement again — a `reset --hard`
+		// that already ran cannot be un-run by a refusal printed after it.
+		if line, refuse := discardWallRefusal(cfg, rest, workDir); refuse {
+			fmt.Fprintln(stderr, line)
+			return 1
+		}
 	}
 
 	scope := gitLockScopeFor(rest)

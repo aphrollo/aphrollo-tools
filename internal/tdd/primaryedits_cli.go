@@ -14,11 +14,13 @@ import (
 const WallPrimary = "primary"
 
 // Waiver is one active wall waiver, as ListWaivers reports it: which wall,
-// since when, and which session holds it.
+// since when, and which session holds it. Until is zero for a plain
+// session-scoped waiver, and the one-shot arm's deadline for one that isn't.
 type Waiver struct {
 	Wall    string
 	Since   time.Time
 	Session string
+	Until   time.Time
 }
 
 // AllowWall waives wall for the session the environment names, and returns
@@ -39,6 +41,14 @@ func AllowWall(wall string) (string, error) {
 	session, err := envSession()
 	if err != nil {
 		return "", err
+	}
+	if wall == WallDiscard {
+		until, err := armDiscardWaiver(session)
+		if err != nil {
+			return "", err
+		}
+		logOverride("override-"+wall+"-allow", session, "")
+		return discardArmedMessage(until), nil
 	}
 	if err := setWaiver(session, wall, true); err != nil {
 		return "", err
@@ -84,7 +94,11 @@ func ListWaivers() []Waiver {
 		}
 		for wall, entry := range s.Overrides.Waivers {
 			since, _ := time.Parse(time.RFC3339, entry.Since)
-			out = append(out, Waiver{Wall: wall, Since: since, Session: session})
+			w := Waiver{Wall: wall, Since: since, Session: session}
+			if entry.Armed {
+				w.Until, _ = time.Parse(time.RFC3339, entry.Until)
+			}
+			out = append(out, w)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -114,6 +128,15 @@ func waiverAllowedMessage(wall string) string {
 		return "Primary-checkout edits ALLOWED for this session — the merge-only rule is waived. Run `aphrollo gate revoke primary` to restore it."
 	}
 	return wall + " ALLOWED for this session. Run `aphrollo gate revoke " + wall + "` to restore it."
+}
+
+// discardArmedMessage is AllowWall(WallDiscard)'s reply: it names the
+// deadline rather than "for this session" (waiverAllowedMessage's shape),
+// since the arm is spent by the next command it applies to, not by the
+// session ending.
+func discardArmedMessage(until time.Time) string {
+	return "Discard ARMED for one command in this session (until " + until.UTC().Format(time.RFC3339) +
+		"). Run `aphrollo gate revoke discard` to disarm."
 }
 
 func waiverRevokedMessage(wall string) string {

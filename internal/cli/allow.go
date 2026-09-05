@@ -15,8 +15,8 @@ func runGateAllow(args []string, stdout, stderr io.Writer) int {
 		printWaivers(stdout)
 		return 0
 	}
-	if len(args) != 1 || args[0] != tdd.WallPrimary {
-		fmt.Fprintln(stderr, "usage: aphrollo gate allow [primary]")
+	if len(args) != 1 || !isKnownWall(args[0]) {
+		fmt.Fprintln(stderr, "usage: aphrollo gate allow [primary|discard]")
 		return 2
 	}
 	msg, err := tdd.AllowWall(args[0])
@@ -35,8 +35,8 @@ func runGateRevoke(args []string, stdout, stderr io.Writer) int {
 		printWaivers(stdout)
 		return 0
 	}
-	if len(args) != 1 || args[0] != tdd.WallPrimary {
-		fmt.Fprintln(stderr, "usage: aphrollo gate revoke [primary]")
+	if len(args) != 1 || !isKnownWall(args[0]) {
+		fmt.Fprintln(stderr, "usage: aphrollo gate revoke [primary|discard]")
 		return 2
 	}
 	msg, err := tdd.Revoke(args[0])
@@ -49,7 +49,9 @@ func runGateRevoke(args []string, stdout, stderr io.Writer) int {
 }
 
 // printWaivers renders every active waiver, one per line as
-// "<wall> since <RFC3339> by <session>", or "no waivers" when there are none.
+// "<wall> since <RFC3339> by <session>" for a session-scoped waiver, or
+// "<wall> armed until <RFC3339> by <session>" for a one-shot arm (the
+// discard wall); "no waivers" when there are none.
 func printWaivers(stdout io.Writer) {
 	ws := tdd.ListWaivers()
 	if len(ws) == 0 {
@@ -57,6 +59,16 @@ func printWaivers(stdout io.Writer) {
 		return
 	}
 	for _, w := range ws {
+		if !w.Until.IsZero() {
+			fmt.Fprintf(stdout, "%s armed until %s by %s\n", w.Wall, w.Until.Format(time.RFC3339), w.Session)
+			continue
+		}
 		fmt.Fprintf(stdout, "%s since %s by %s\n", w.Wall, w.Since.Format(time.RFC3339), w.Session)
 	}
+}
+
+// isKnownWall reports whether wall is one `gate allow`/`gate revoke` knows
+// how to waive.
+func isKnownWall(wall string) bool {
+	return wall == tdd.WallPrimary || wall == tdd.WallDiscard
 }

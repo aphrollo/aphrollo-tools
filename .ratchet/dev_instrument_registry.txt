@@ -18,6 +18,7 @@ APHROLLO_SLOT_TOKEN | internal/tdd/buildslots.go | Carries the build slot a long
 
 # --- the anti-cheat / edit-time gate (internal/tdd) ---
 APHROLLO_DEFERRED_MAX_SECS | internal/tdd/deferred.go | Bounds how long a detached build/run phase may run before the next hook gives up on it (default 600s).
+APHROLLO_DISCARD | internal/cli/git_shim_discard_wall.go | Set to "1" to pass a discarding git verb (reset --hard, clean -fd, branch -D, ...) straight through the discard wall for one invocation; every use is logged as override-discard-env. The one-shot alternative is `aphrollo gate allow discard`.
 APHROLLO_POSTEDIT_BUDGET_SECS | internal/tdd/deferred.go | The edit hook's one foreground budget, covering the build and run phases together (default 100s).
 APHROLLO_PRIMARY_EDITS | internal/tdd/primary.go | Turns off, for one process, the refusal to edit source in a primary checkout that has linked worktrees and holds main. The per-session escape is `/tdd primary-edits on`.
 APHROLLO_REPLY_STYLE | internal/tdd/style.go | Sets the machine-wide default reply style ("plain" turns the terse-reply block off everywhere unless a session overrides it back).

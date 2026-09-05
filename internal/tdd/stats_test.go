@@ -182,3 +182,29 @@ func TestGateStats_CountsMutationReceiptOutcomesSideBySide(t *testing.T) {
 		}
 	}
 }
+
+// The discard wall's refusals and its two overrides all reach gate.log —
+// until this, none of them was counted, so a session that hit `reset --hard`
+// twice and bypassed it twice left no number anywhere.
+func TestStats_CountsDiscardRefusalsAndOverrides(t *testing.T) {
+	log := strings.Join([]string{
+		stamp(time.Now().UTC(), "git", "/repo", "git", "git-discard-refused:reset---hard", 0),
+		stamp(time.Now().UTC(), "git", "/repo", "git", "git-discard-refused:reset---hard", 0),
+		stamp(time.Now().UTC(), "session", "/repo", "s1", "override-discard-used", 0),
+		stamp(time.Now().UTC(), "session", "/repo", "s1", "override-discard-env", 0),
+	}, "\n") + "\n"
+
+	s := GateStats(strings.NewReader(log), time.Time{})
+	if s.Denies["git-discard-refused:reset---hard"] != 2 {
+		t.Fatalf("denies = %v, want the refusal counted twice", s.Denies)
+	}
+	if s.Denies["override-discard-used"] != 1 || s.Denies["override-discard-env"] != 1 {
+		t.Fatalf("denies = %v, want both overrides counted once each", s.Denies)
+	}
+	out := RenderGateStats(s)
+	for _, want := range []string{"git-discard-refused:reset---hard=2", "override-discard-used=1", "override-discard-env=1"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered stats never mention %s:\n%s", want, out)
+		}
+	}
+}
