@@ -74,9 +74,9 @@ func cargoQualityStage(gateName, ws, root string, pkgs []string, run SuiteRunner
 }
 
 // qualityVerdict turns one check's result into a block, or nil to continue.
-// A timeout or an unavailable build slot is inconclusive, not a failure:
-// it is announced on stderr and the commit proceeds, exactly as the
-// mechanical stage does.
+// A timeout and a check-error BLOCK via verdictFor, the same policy the
+// mechanical stage holds; an unavailable build slot blocks here directly
+// because it is not one of verdictFor's six outcomes.
 func qualityVerdict(gateName, root, pkg, stage string, r Runner, res SuiteResult, acquired bool) *GateResult {
 	switch {
 	case !acquired:
@@ -88,8 +88,14 @@ func qualityVerdict(gateName, root, pkg, stage string, r Runner, res SuiteResult
 			"gate %s: could not run %s -p %s in %s: every build slot stayed busy for the whole wait, so nothing was checked and the commit is refused. Retry when the build finishes.",
 			gateName, stage, pkg, root)}
 	case res.TimedOut:
-		fmt.Fprintf(os.Stderr, "gate %s: %s -p %s in %s → TIMEOUT (FAIL-OPEN — not checked)\n", gateName, stage, pkg, root)
-		return nil
+		got := verdictFor(gateName, stage, root, cmdString(r), stageOutcome{
+			kind:   outcomeTimeout,
+			result: res,
+			message: fmt.Sprintf(
+				"gate %s: %s -p %s in %s did not finish, so nothing was checked and the commit is refused.",
+				gateName, stage, pkg, root),
+		})
+		return &got
 	case !res.Passed:
 		fmt.Fprintf(os.Stderr, "gate %s: %s -p %s in %s → blocked\n", gateName, stage, pkg, root)
 		appendGateLog(gateName, root, cmdString(r), stage+"-blocked", res.Duration)

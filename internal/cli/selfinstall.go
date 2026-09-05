@@ -23,15 +23,40 @@ import (
 // So it is one verb, and it prints one line per step: an operator who sees
 // the run stop knows which step failed and what state the box is in.
 
-// buildAphrollo compiles the binary to out from the module at repo, returning
-// the command it ran so the step line can name it. A var so a test can state
-// the build's outcome without a toolchain run.
+// buildArgs is the `go` argv buildAphrollo runs. Pure so the stamping
+// logic can be tested without a toolchain run: sha and now are passed in
+// rather than discovered here.
 //
 // -buildvcs=false: the build routinely runs from a linked worktree with a
 // dirty index, where stamping VCS info either fails outright or embeds the
-// wrong revision.
+// wrong revision. The commit and build time are stamped instead through
+// -ldflags -X into internal/buildinfo, which `aphrollo version` reads back —
+// the thing -buildvcs=false took away.
+func buildArgs(repo, out, sha string, now time.Time) []string {
+	ldflags := fmt.Sprintf(
+		"-X github.com/aphrollo/aphrollo-tools/internal/buildinfo.commit=%s -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.builtAt=%s",
+		sha, now.UTC().Format(time.RFC3339),
+	)
+	return []string{"build", "-buildvcs=false", "-ldflags", ldflags, "-o", out, "./cmd/aphrollo"}
+}
+
+// commitAt returns the current HEAD sha of repo, or "" if it cannot be
+// determined (not a git checkout, git not on PATH, etc). A failure here must
+// not fail the build — it only means the binary comes out unstamped.
+func commitAt(repo string) string {
+	cmd := exec.Command("git", "-C", repo, "rev-parse", "HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// buildAphrollo compiles the binary to out from the module at repo, returning
+// the command it ran so the step line can name it. A var so a test can state
+// the build's outcome without a toolchain run.
 var buildAphrollo = func(repo, out string) (string, error) {
-	args := []string{"build", "-buildvcs=false", "-o", out, "./cmd/aphrollo"}
+	args := buildArgs(repo, out, commitAt(repo), time.Now())
 	cmd := exec.Command("go", args...)
 	cmd.Dir = repo
 	var stderr bytes.Buffer

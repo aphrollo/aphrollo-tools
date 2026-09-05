@@ -59,27 +59,79 @@ against the tree a merge will land on, `git commit --allow-empty` on the lane:
 an empty commit preserves the tree, so the run measures exactly what the merge
 gate will check.
 
-There is no verb for asking whether a receipt has arrived. Attempt the merge:
-the pre-merge gate consumes the receipt and names what is missing, including
-whether a run is still going and when it started.
+In the normal case, do not check whether a receipt has arrived at all. Attempt
+the merge: the pre-merge gate consumes the receipt on its own and names
+whatever is missing, including whether a run is still going and when it
+started. `aphrollo gate mutants status` (below) exists for when someone
+genuinely wants to watch, or needs to answer "why is nothing happening" — not
+as a step in the routine path.
+
+### Asking instead of polling
+
+`aphrollo gate mutants status` answers for the checkout it is standing in —
+never for any other lane — and reads exactly the files the pre-merge gate
+itself reads (`RunningMutantsJobs`, the death record, the receipt), so the two
+can never disagree about the same tree:
+
+- **no run for this tree** — nothing has ever measured it: no receipt, no
+  running job, no death record.
+- **going** — a job for this repo is alive, naming its branch, pid and start
+  time, and saying whether it is still queued behind the box-wide
+  mutation-run lock (naming the holder) rather than actually measuring.
+- **died** — the run ended without ever writing a receipt: the exit code and
+  the log to read.
+- **done** — a receipt for this exact tree is on disk: its verdict and every
+  count (`mutants_total`, `caught`, `timeout`, `unviable`, `not_covered`,
+  `excluded`, `accepted`, `unaccepted`).
+
+`--wait` blocks the CALLING PROCESS on the running job's own pid until this
+tree reaches a terminal state (died or done — "no run" and "already done" are
+already terminal and return at once), then prints the same answer. It is a
+real block on the process, never a loop sampling the receipt file on an
+interval: the twenty-line polling loop this verb replaces (fixed 2700 s
+timeout, a hard-coded receipt path, grepping the JSON by hand) should never be
+written again.
+
+Exit codes, so a script can tell every state apart without parsing the text:
+
+| code | meaning |
+|---|---|
+| 0 | a receipt exists and would merge (verdict `pass`, no unaccepted survivor, no timeout) |
+| 1 | the checkout itself could not be read (not a git repository, HEAD names no tree) |
+| 2 | bad flags |
+| 3 | no run has ever been started for this tree |
+| 4 | a run is going right now (`status` only — `--wait` never returns this) |
+| 5 | the run ended without ever writing a receipt |
+| 6 | a receipt exists but would NOT merge (bad verdict, unaccepted survivor, or timeout) |
+
+`status` does not repeat the pre-merge gate's repo-identity, base-sha or MAC
+checks — those are about which MERGE a receipt is for, not what its counts
+say, and receipt 4/5/6 for the same field said one way is what a script and
+the merge gate both need to agree on.
 
 ## Where a run happens
 
-One worktree per repo, `<parent>/.worktrees/<repo>/mutants`, checked out
-detached at the tip and `git reset --hard`ed between runs (untracked files are
-NOT cleaned — the warm build dir lives there). Its build dir is
-`<worktree>/target`, which is the name every Rust repo already ignores.
+One worktree per LANE, `<parent>/.worktrees/<repo>/mutants/<lane-key>`,
+checked out detached at the tip and `git reset --hard`ed between runs. One
+build dir per REPO, `<parent>/.worktrees/<repo>/mutants/target`, shared by
+every lane's tree.
 
-**One worktree per repo, not one per lane.** A checkout of another tip in the
-same worktree rebuilds only the crates whose files actually changed — cargo's
-fingerprints for everything else still match, so two lanes alternating tips
-cost the incremental rebuild of what differs between them, not a cold build.
-One worktree per LANE would avoid even that, at roughly 15 GB of build
-directory each (borld's debug target dir was measured at 207 GB across its
-accumulated fingerprints), and every one of them cold on its first run. The
-alternation cost is the cheaper side of that trade by a wide margin, and it is
-bounded: the crates two lanes share are exactly the ones neither of them
-touched.
+**One worktree per lane.** A repo-wide tree was destructive with two lanes in
+flight: a commit in either fires the post-commit hook, and the second run
+checked the shared tree out to its own tip under whichever run was still
+working in it (issue #221 — six attempts, four hours, no receipt for anyone).
+Two lanes are two directories, keyed on the lane's own checkout path.
+
+**One target dir per repo.** The build directory did not need to follow the
+split. Cargo keys a workspace crate's artifacts on the path it was compiled
+from, so lanes sharing one target dir share the dependency graph and keep their
+own crates apart; and the collision a shared directory risked — two producers
+linking into it at once — is ruled out by the box-wide run lock below. A target
+per lane paid for that guarantee twice over: measured on borld 2026-09-05, nine
+per-lane target dirs of 8.3-18.4 GB, and across 44 runs the unmutated baseline
+builds cost 180 min against 116 min for every per-mutant rebuild put together.
+A tree's own legacy `target` is reclaimed by the next run's sweep, never under
+a live producer.
 
 **One run per BOX, not one per repo.** Before the producer is invoked at all,
 the gate takes a machine-wide advisory lock and holds it for the run's whole

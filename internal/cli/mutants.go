@@ -62,6 +62,14 @@ func runGateMutants(args []string, stdout, stderr io.Writer) int {
 	case "-h", "--help", "help":
 		fmt.Fprint(stderr, mutantsUsage)
 		return 0
+	case "status":
+		fs := flag.NewFlagSet("mutants status", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		wait := fs.Bool("wait", false, "block until the run reaches a terminal state, then print it")
+		if err := fs.Parse(args[1:]); err != nil {
+			return tdd.ExitMutantsStatusUsage
+		}
+		return runMutantsStatus(".", *wait, stdout)
 	case "run", "go":
 		fs := flag.NewFlagSet("mutants "+args[0], flag.ContinueOnError)
 		fs.SetOutput(stderr)
@@ -152,6 +160,26 @@ func runGateMutants(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
+// runMutantsStatus is `gate mutants status[--wait]`: it answers for the
+// checkout it is standing in and never for another lane, printing the one
+// line FormatMutantsStatus renders and exiting with the code that goes with
+// it — the exit codes are the contract a script reads, spelled out in
+// mutantsUsage below and in docs/mutation-runner.md.
+func runMutantsStatus(dir string, wait bool, out io.Writer) int {
+	compute := tdd.ComputeMutantsStatus
+	if wait {
+		compute = tdd.WaitMutantsStatus
+	}
+	rep, err := compute(dir)
+	if err != nil {
+		fmt.Fprintf(out, "aphrollo gate mutants status: %v\n", err)
+		return tdd.ExitMutantsStatusError
+	}
+	line, code := tdd.FormatMutantsStatus(rep)
+	fmt.Fprintln(out, line)
+	return code
+}
+
 // mutantsUsage is what an absent, unknown or -h verb prints. `run` with no
 // --job is the line a session needs and the one that did not exist: without
 // it, the only thing that actually measured anything was the repo's own
@@ -166,8 +194,27 @@ const mutantsUsage = `usage: aphrollo gate mutants <verb>
                      detached run addresses itself, rarely typed by hand.
   go                 the Go runner's half of a detached job.
   go --diff <base>   run in the foreground and judge, for CI.
+  status             answer for THIS checkout's own tree, without waiting:
+                     no run started, a run going (naming the holder if it is
+                     queued behind the box-wide lock rather than measuring),
+                     died (exit code, log), or a receipt (verdict, counts).
+                     In the normal case, do not check at all — attempt the
+                     merge and read its refusal; status is for watching a run
+                     or answering "why is nothing happening".
+  status --wait      block on the running job's own process (never a poll
+                     loop) until this tree reaches a terminal state, then
+                     print the same answer.
 
 Flags for run: --jobs N, --base <ref>, --timeout-multiplier, --minimum-test-timeout.
 Never invoke a repo's own mutation producer (for example tools/mutation_gate.sh)
 directly: it runs outside the lock and in the wrong tree.
+
+Exit codes for status (and status --wait):
+  0  a receipt exists and would merge (verdict pass, no unaccepted survivor, no timeout)
+  1  the checkout itself could not be read (not a git repository, HEAD names no tree)
+  2  bad flags
+  3  no run has ever been started for this tree
+  4  a run is going right now (status only; --wait never returns this)
+  5  the run ended without ever writing a receipt
+  6  a receipt exists but would NOT merge (bad verdict, unaccepted survivor, or timeout)
 `

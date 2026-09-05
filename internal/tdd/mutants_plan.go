@@ -79,6 +79,11 @@ type TreeState struct {
 type MutantsPlan struct {
 	Run   []MutantOutcome
 	Carry []MutantOutcome
+	// Skipped is why each entry in Run could not be answered from the store.
+	// The plan already made this comparison to decide the carry; keeping it
+	// is what lets an operator tell "this lane edited the file" from "another
+	// lane's test change moved my package's fence" (mutants_carry_reason.go).
+	Skipped []CarrySkip
 }
 
 // PlanMutants decides, for each mutant the current diff generates, whether a
@@ -110,6 +115,9 @@ func PlanMutants(want []MutantOutcome, now TreeState, cached map[mutantKey]Mutan
 			plan.Carry = append(plan.Carry, old)
 			continue
 		}
+		plan.Skipped = append(plan.Skipped, CarrySkip{
+			File: m.File, Package: m.Package, Reason: carryReasonFor(old, ok, blob, fence),
+		})
 		plan.Run = append(plan.Run, m)
 	}
 	return plan

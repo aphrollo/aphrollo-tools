@@ -68,8 +68,8 @@ func (p *Push) Render(apply bool) string {
 // "--force-with-lease" and fail with "src refspec ... does not match any". The
 // "--" still guards the branch name from being parsed as a flag (defense in
 // depth behind Slugify's leading-dash rejection).
-func pushArgs(wt, branch string, forceWithLease bool) []string {
-	args := []string{"-C", wt, "push", "-u"}
+func pushArgs(branch string, forceWithLease bool) []string {
+	args := []string{"push", "-u"}
 	if forceWithLease {
 		args = append(args, "--force-with-lease")
 	}
@@ -87,9 +87,8 @@ func (p *Push) Apply(stdout, stderr io.Writer) error {
 	// Refresh immediately before pushing — see resolveAhead's doc comment for
 	// why the Plan-time snapshot can be stale by the time Apply runs.
 	p.hasUpstream, p.ahead = resolveAhead(wt, branch)
-	cmd := exec.Command("git", pushArgs(wt, branch, p.ForceWithLease)...)
-	cmd.Stdout, cmd.Stderr = stderr, stderr // git's own progress goes to stderr, keeping stdout the parseable receipt
-	if err := cmd.Run(); err != nil {
+	// git's own progress goes to stderr, keeping stdout the parseable receipt.
+	if err := gitNetworkStream(wt, stderr, stderr, pushArgs(branch, p.ForceWithLease)...); err != nil {
 		return fmt.Errorf("git push: %w", err)
 	}
 	suffix := ""

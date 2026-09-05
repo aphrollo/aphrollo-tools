@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -59,8 +60,8 @@ func ClaudeMDBlock(shimDir string, undercover bool) string {
 	b.WriteString("  git shim (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit) is the WALL.\n")
 	b.WriteString("  Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override\n")
 	b.WriteString("  with `aphrollo gate primary-edits on` (the only one of these that works from inside a turn), `APHROLLO_PRIMARY_EDITS=1` or `/tdd primary-edits on`.\n")
-	b.WriteString("- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc`\n")
-	b.WriteString("  (dry run; `--apply` reclaims stale build dirs) · `gate postcommit` starts `gate mutants run`.\n")
+	b.WriteString("- **A mutation receipt is earned by the COMMIT:** `gate postcommit` starts the lane's run; `aphrollo gate mutants run` (no arguments, in the lane) runs one in the FOREGROUND. Never a repo's own producer script — the box-wide lock wraps the CALL, so a hand-run script is outside it.\n")
+	b.WriteString("- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).\n")
 	if undercover {
 		b.WriteString("- **Commit messages** say what the change does and nothing about how it was\n")
 		b.WriteString("  written: no attribution trailers, tool names, or model names. The `commit-msg`\n")
@@ -125,6 +126,14 @@ func dropOrphanMarkers(text string) string {
 	return strings.Join(kept, "\n")
 }
 
+// ErrManagedBlockInPrimary is returned by WriteClaudeMD when repoRoot is the
+// primary checkout of a repo that has any linked worktree and sits on main:
+// that checkout is merge-only (the git shim refuses a commit there at all),
+// so writing the block there would leave it permanently dirty with no commit
+// able to clear it, blocking workspace sync and leaving self-install to build
+// off a stale tree. Land the block through a lane instead.
+var ErrManagedBlockInPrimary = errors.New("managed CLAUDE.md block not written: merge-only primary checkout")
+
 // WriteClaudeMD writes the managed block into repoRoot's CLAUDE.md. force
 // creates the file when there is none; without it an absent CLAUDE.md is a
 // no-op, so a plain `gate init` never invents a file in a repo that keeps none.
@@ -151,6 +160,13 @@ func WriteClaudeMD(repoRoot, shimDir string, force bool) (bool, error) {
 	out, changed := PatchClaudeMD(existing, ClaudeMDBlock(shimDir, cargoAphrolloFlag(ws, "undercover")))
 	if !changed {
 		return false, nil
+	}
+	// The sentinel means "a write would have changed this file and this is
+	// the merge-only primary" — checked only once a write is actually due,
+	// so a primary whose block is current, or that keeps no CLAUDE.md at
+	// all, never gets told it is behind.
+	if _, ok := PrimaryMergeOnly(repoRoot); ok {
+		return false, ErrManagedBlockInPrimary
 	}
 	if err := os.WriteFile(path, out, 0o644); err != nil {
 		return false, fmt.Errorf("writing %s: %w", path, err)

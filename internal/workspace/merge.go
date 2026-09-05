@@ -3,7 +3,6 @@ package workspace
 import (
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 )
 
@@ -25,9 +24,7 @@ var ghMergePR = func(wt, branch, method string) error {
 	// Flags first, then "--" so the branch is always a positional and never
 	// parsed as an option (defense in depth behind Slugify).
 	args := []string{"pr", "merge", "--" + method, "--", branch}
-	cmd := exec.Command("gh", args...)
-	cmd.Dir = wt
-	out, err := cmd.CombinedOutput()
+	out, err := ghCombinedOutput(wt, args...)
 	if err != nil {
 		return fmt.Errorf("gh pr merge: %v\n%s", err, strings.TrimSpace(string(out)))
 	}
@@ -40,8 +37,7 @@ var ghMergePR = func(wt, branch, method string) error {
 // The local branch and worktree are left to `prune`. A branch GitHub already
 // reaped (repos with auto-delete-on-merge) is treated as success.
 var ghDeleteRemoteBranch = func(wt, branch string) error {
-	cmd := exec.Command("git", "-C", wt, "push", "origin", "--delete", "--", branch)
-	out, err := cmd.CombinedOutput()
+	out, err := gitNetworkOutput(wt, "push", "origin", "--delete", "--", branch)
 	if err != nil {
 		if strings.Contains(string(out), "does not exist") {
 			return nil // already gone — nothing to delete

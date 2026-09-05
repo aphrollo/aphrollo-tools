@@ -34,6 +34,52 @@ func pruneRepo(t *testing.T) (mainRepo, mergedWT, freshWT string) {
 	return mainRepo, mergedWT, freshWT
 }
 
+// pruneRepoOnBranch is pruneRepo generalized to an arbitrary trunk name, with
+// init.defaultBranch set in the repo's own config so trunk resolution has
+// something to find in a repo with no origin remote.
+func pruneRepoOnBranch(t *testing.T, trunk string) (mainRepo, mergedWT, freshWT string) {
+	t.Helper()
+	mainRepo = t.TempDir()
+	gitInit(t, mainRepo)
+	gitDo(t, mainRepo, "checkout", "-q", "-B", trunk)
+	gitDo(t, mainRepo, "config", "init.defaultBranch", trunk)
+	commitInitial(t, mainRepo)
+
+	gitDo(t, mainRepo, "branch", "lane/merged")
+	mergedWT = filepath.Join(t.TempDir(), "merged")
+	gitDo(t, mainRepo, "worktree", "add", "-q", mergedWT, "lane/merged")
+	write(t, mergedWT, "landed.go", "package main\n\n// landed\n")
+	gitDo(t, mergedWT, "add", "-A")
+	gitDo(t, mergedWT, "commit", "-qm", "lane work")
+	gitDo(t, mainRepo, "merge", "-q", "--no-ff", "-m", "merge lane/merged", "lane/merged")
+
+	freshWT = filepath.Join(t.TempDir(), "fresh")
+	gitDo(t, mainRepo, "worktree", "add", "-q", "-b", "lane/fresh", freshWT)
+
+	return mainRepo, mergedWT, freshWT
+}
+
+// A repo whose default branch is NOT "main" (issue #291: the sweep hardcoded
+// `rev-parse main` / `--merged main`) must sweep exactly as well as a
+// main-default repo — the resolved trunk, not the literal string "main", is
+// what decides what counts as landed.
+func TestPruneMergedLanesAfterMerge_ResolvesANonMainTrunk(t *testing.T) {
+	mainRepo, mergedWT, freshWT := pruneRepoOnBranch(t, "trunk")
+
+	var out, errb bytes.Buffer
+	pruned := PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)
+
+	if _, err := os.Stat(mergedWT); !os.IsNotExist(err) {
+		t.Fatalf("lane/merged's worktree at %s must be pruned on a trunk-default repo too, got err=%v", mergedWT, err)
+	}
+	if _, err := os.Stat(freshWT); err != nil {
+		t.Fatalf("lane/fresh's worktree at %s must survive, got err=%v", freshWT, err)
+	}
+	if len(pruned) != 1 || pruned[0].Branch != "lane/merged" {
+		t.Fatalf("pruned = %+v, want exactly lane/merged", pruned)
+	}
+}
+
 // A fresh, unmerged lane sitting at main's own tip survives the post-merge
 // sweep; a lane whose branch has actually landed is removed. `git branch
 // --merged main` alone would prune BOTH — a branch created minutes earlier
