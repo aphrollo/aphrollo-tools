@@ -103,7 +103,7 @@ func TestGoMutantsReceipt_AcceptsOnlyTheSurvivorsWithAReason(t *testing.T) {
 		{File: "calc.go", Line: 9, Mutation: "CONDITIONALS_NEGATION", Status: "missed"},
 	}
 	list, _ := acceptedMutants(root)
-	accepted, unaccepted, _ := splitAcceptedSurvivors(list, survivors)
+	accepted, unaccepted, _, _ := splitAcceptedSurvivors(list, survivors)
 	if len(accepted) != 1 || accepted[0].Line != 4 {
 		t.Fatalf("accepted = %+v, want only the entry that states a reason", accepted)
 	}
@@ -134,7 +134,7 @@ func TestTomlStringsIn_AQuotedBracketDoesNotCloseTheArrayEarly(t *testing.T) {
 		{File: "calc.go", Line: 3, Mutation: "CONDITIONALS_NEGATION", Status: "missed"},
 	}
 	list, _ := acceptedMutants(root)
-	accepted, unaccepted, _ := splitAcceptedSurvivors(list, survivors)
+	accepted, unaccepted, _, _ := splitAcceptedSurvivors(list, survivors)
 	if len(accepted) != 3 {
 		t.Fatalf("accepted = %+v, unaccepted = %+v, want all three entries read past the one with a bracket in its own reason", accepted, unaccepted)
 	}

@@ -347,6 +347,17 @@ mutation-accept = [
 ]
 ```
 
+An entry may also name a column — `<file>:<line>:<col> <MUTATOR> # why` —
+which is the only way to accept one of several mutants sharing a line: a real
+receipt carried three distinct survivors on
+`crates/editor_client/src/creator.rs:108` at columns 5, 33 and 71 (issue
+#282). A column-less entry matches by file, line and mutator alone, which is
+fine for the overwhelmingly common case of one mutant per line and keeps
+every accept-list written before this existed working unchanged; the gate
+refuses to APPLY a column-less entry to a line that turns out to carry more
+than one mutant, so an unexamined sibling stays unaccepted and blocks rather
+than being silently admitted alongside the one somebody actually reviewed.
+
 ## The receipt
 
 ```jsonc
