@@ -179,6 +179,10 @@ func Check(opts Options) (Result, error) {
 			if hits, err = depGraphHits(opts.Root, law); err != nil {
 				return Result{}, err
 			}
+		case KindGoDepGraphForbids:
+			if hits, err = goDepGraphHits(opts.Root, law); err != nil {
+				return Result{}, err
+			}
 		case KindFileSetContainment:
 			if hits, err = containmentHits(opts.Root, law); err != nil {
 				return Result{}, err

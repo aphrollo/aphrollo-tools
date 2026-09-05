@@ -32,6 +32,23 @@ var matcherKeys = map[MatcherKind][]matcherKeySpec{
 	KindSymbolRemoved:      {{"kind", true}, {"pattern", true}},
 	KindCoChange:           {{"kind", true}},
 	KindHunkRegex:          {{"kind", true}, {"removed", false}, {"added", false}, {"paired", false}, {"mode", false}, {"name_group", false}},
+	KindGoDepGraphForbids:  {{"kind", true}, {"roots", true}, {"forbidden", true}, {"min_reachable", false}},
+}
+
+// setMinReachable validates and fills the vacuity floor shared by every
+// dependency-graph matcher kind (cargo's and Go's): a walk that reached
+// fewer packages than this is not a clean verdict, it is a walk that
+// resolved nothing.
+func setMinReachable(doc *tomlDoc, m *Matcher) error {
+	v, ok := doc.value("matcher", "min_reachable")
+	if !ok {
+		return nil
+	}
+	if v.kind != tomlInt || v.i < 0 {
+		return fmt.Errorf("matcher.min_reachable is a non-negative integer")
+	}
+	m.MinReachable = v.i
+	return nil
 }
 
 // matcherKeyAllowed reports whether key is one of allowed, by name.

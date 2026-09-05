@@ -547,11 +547,16 @@ func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
 			}
 			m.Edges = v.s
 		}
-		if v, ok := doc.value("matcher", "min_reachable"); ok {
-			if v.kind != tomlInt || v.i < 0 {
-				return Matcher{}, fmt.Errorf("matcher.min_reachable is a non-negative integer")
-			}
-			m.MinReachable = v.i
+		if ferr := setMinReachable(doc, &m); ferr != nil {
+			return Matcher{}, ferr
+		}
+		if ferr := setDepGraphForbidsFields(doc, &m); ferr != nil {
+			return Matcher{}, ferr
+		}
+	case KindGoDepGraphForbids:
+		m.Key = KeyLineContent
+		if ferr := setMinReachable(doc, &m); ferr != nil {
+			return Matcher{}, ferr
 		}
 		if ferr := setDepGraphForbidsFields(doc, &m); ferr != nil {
 			return Matcher{}, ferr

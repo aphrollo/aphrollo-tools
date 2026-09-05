@@ -208,6 +208,8 @@ func fixtureWholeTreeHits(base string, law Law, files []string, content map[stri
 		return registryHits(base, law, files, content, false, true)
 	case KindDepGraphForbids:
 		return depGraphHits(base, law)
+	case KindGoDepGraphForbids:
+		return goDepGraphHits(base, law)
 	case KindFileSetContainment:
 		return containmentHits(base, law)
 	case KindJSONNumberCeiling, KindGoBenchCeiling:
