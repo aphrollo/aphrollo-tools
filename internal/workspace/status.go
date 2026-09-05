@@ -3,7 +3,6 @@ package workspace
 import (
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strings"
 )
 
@@ -33,10 +32,8 @@ type checkEntry struct {
 // rendering without gh or the network. It returns (nil, nil) when the branch has
 // no PR — the "nothing to report" signal, not an error (mirrors ghViewPR).
 var ghViewPRStatus = func(wt, branch string) (*PRStatus, error) {
-	cmd := exec.Command("gh", "pr", "view",
+	out, err := ghOutput(wt, "pr", "view",
 		"--json", "number,state,isDraft,mergedAt,mergeable,mergeStateStatus,statusCheckRollup", "--", branch)
-	cmd.Dir = wt
-	out, err := cmd.Output()
 	if err != nil {
 		return nil, nil // no PR for the branch
 	}

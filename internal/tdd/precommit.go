@@ -81,7 +81,7 @@ func stagedRootGroups(repoRoot string) []rootGroup {
 // Any inability to VERIFY fail-first (worktree/apply error) fails OPEN: the
 // gate never blocks because its own tooling tripped. run is injected so the
 // mechanical and worktree runs are testable.
-func Precommit(repoRoot string, run SuiteRunner) GateResult {
+func precommitDecide(repoRoot string, run SuiteRunner) GateResult {
 	// Concluding a CONFLICTED merge/cherry-pick/revert with `git commit`
 	// fires git's pre-commit hook (pre-merge-commit only fires for an
 	// AUTOMATIC, conflict-free merge commit) — task A10. Judging the WHOLE
