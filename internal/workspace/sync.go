@@ -21,11 +21,15 @@ import (
 //     minimum win and a clone with nothing to fetch toward is still a success.
 //   - Fast-forward the LOCAL default branch (resolved, never hardcoded "main")
 //     to origin/<default> ONLY when it is a strict fast-forward:
-//   - HEAD is the default branch AND the worktree is clean => merge --ff-only.
+//   - HEAD is the default branch => merge --ff-only. A dirty worktree is NOT
+//     refused up front: git itself refuses a fast-forward only when it would
+//     overwrite an uncommitted change to a path the incoming commits touch, so
+//     sync just asks git and reports git's own reason — an unrelated dirty
+//     file never blocks a fast-forward it doesn't conflict with.
 //   - the default branch is NOT the checked-out one => advance its ref with
 //     update-ref (no checkout, so a sibling worktree's files are untouched).
-//   - NEVER reset --hard, NEVER force, NEVER touch a dirty worktree, NEVER move
-//     the branch when it has diverged (local commits ahead) — leave it, say why.
+//   - NEVER reset --hard, NEVER force, NEVER move the branch when it has
+//     diverged (local commits ahead) — leave it, say why.
 //
 // Only the default branch is synced; ticket branches and other worktrees are
 // left alone. Re-running on an already-current clone is a no-op success. --dry
@@ -79,25 +83,20 @@ func Sync(repoArg string, dry bool, stdout, stderr io.Writer) error {
 
 	onDefault := currentBranch(top) == def
 
-	// HEAD is the default branch but the worktree is dirty: a fast-forward would
-	// touch uncommitted work. Refuse — commit/stash, then re-run.
-	if onDefault && !worktreeClean(top) {
-		fmt.Fprintf(stdout, "%s is checked out with uncommitted changes — leaving it untouched (commit or stash, then re-run)\n", def)
-		return nil
-	}
-
 	if dry {
 		fmt.Fprintf(stdout, "would fast-forward %s to %s (%d commit(s) behind)\n", def, remote, behind)
 		return nil
 	}
 
 	if onDefault {
-		// Clean and on the default branch: --ff-only advances HEAD + ref together,
-		// and refuses anything that isn't a fast-forward (a second guard atop the
-		// ancestry check above).
+		// On the default branch: --ff-only advances HEAD + ref together. It also
+		// refuses anything that isn't a fast-forward — including a dirty tracked
+		// path the incoming commits would overwrite — so git is the judge of
+		// "safe to move", not a pre-check here. A refusal is reported, never
+		// treated as an error: it is non-destructive, and the reason is git's own.
 		if out, err := exec.Command("git", "-C", top, "merge", "--ff-only", remote).CombinedOutput(); err != nil {
-			fmt.Fprint(stderr, string(out))
-			return fmt.Errorf("git merge --ff-only %s: %w", remote, err)
+			fmt.Fprintf(stdout, "%s could not fast-forward: %s\n", def, firstLine(strings.TrimSpace(string(out))))
+			return nil
 		}
 		fmt.Fprintf(stdout, "fast-forwarded %s to %s (%d commit(s))\n", def, remote, behind)
 		return nil
