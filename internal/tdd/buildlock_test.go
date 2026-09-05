@@ -206,6 +206,70 @@ func TestRunCargoLocked_DeadlineCarvesLockWaitOutOfStageBudget(t *testing.T) {
 	}
 }
 
+// TestRunCargoLocked_GoRaceRunnerTakesTheSameGovernorAsCargo is the cold-review
+// finding on #421: a plain `go test` never contended for anything (fine,
+// while the Go mechanical stage was cheap), but `-race` makes a Go build
+// several times slower and genuinely CPU/RAM-heavy — exactly the box-wide
+// contention buildLockPath's own doc comment names for cargo. A `go test
+// -race` Runner must now take the SAME governor (target lock + global slot
+// pool) a cargo build does, keyed on goRaceLockKey rather than a resolved
+// cargo target dir, so concurrent lanes' `-race` runs serialize instead of
+// stacking. Proven the same way TestRunCargoLocked_DeadlineCarvesLockWaitOutOfStageBudget
+// proves it for cargo: hold the SAME key on another "acquirer", show
+// runCargoLocked's own acquisition is forced to actually wait.
+func TestRunCargoLocked_GoRaceRunnerTakesTheSameGovernorAsCargo(t *testing.T) {
+	withIsolatedBuildLock(t)
+
+	const holdFor = 80 * time.Millisecond
+	_, release, ok := acquireBuildSlot(goRaceLockKey(), time.Second, "go test -race ./other/...", "/some/other/repo")
+	if !ok {
+		t.Fatal("setup: must be able to take the go-race governor slot")
+	}
+	go func() {
+		// real-time: the OS file lock has no observable hand-off event
+		time.Sleep(holdFor)
+		release()
+	}()
+
+	res, waited, acquired := runCargoLocked(
+		func(r Runner, root string) SuiteResult { return SuiteResult{Passed: true} },
+		Runner{Cmd: "go", Args: []string{"test", "-race", "-count=1", "-shuffle=on", "./..."}},
+		t.TempDir(), time.Second, 500*time.Millisecond,
+	)
+	if !acquired || !res.Passed {
+		t.Fatalf("expected the go-race runner to acquire the governor once released, acquired=%v res=%+v", acquired, res)
+	}
+	if waited < 40*time.Millisecond {
+		t.Fatalf("expected a go -race runner to actually wait behind the held governor slot, waited=%s — it must not be passing straight through unlocked", waited)
+	}
+}
+
+// TestRunCargoLocked_PlainGoRunnerStillPassesThroughUnlocked guards the
+// unchanged fast path: a `go test` Runner with NO -race (post-edit's plain
+// command, fail-first, `go vet`) must never contend for the governor, even
+// while its slot is fully held — exactly the pre-#421-review behavior.
+func TestRunCargoLocked_PlainGoRunnerStillPassesThroughUnlocked(t *testing.T) {
+	withIsolatedBuildLock(t)
+
+	_, release, ok := acquireBuildSlot(goRaceLockKey(), time.Second, "go test -race ./other/...", "/some/other/repo")
+	if !ok {
+		t.Fatal("setup: must be able to take the go-race governor slot")
+	}
+	defer release()
+
+	res, waited, acquired := runCargoLocked(
+		func(r Runner, root string) SuiteResult { return SuiteResult{Passed: true} },
+		Runner{Cmd: "go", Args: []string{"test", "-count=1", "./..."}},
+		t.TempDir(), time.Second, 500*time.Millisecond,
+	)
+	if !acquired || !res.Passed {
+		t.Fatalf("a plain go test runner must never be blocked by the (fully held) go-race governor, acquired=%v res=%+v", acquired, res)
+	}
+	if waited != 0 {
+		t.Fatalf("a plain go test runner must pass straight through with zero wait, waited=%s", waited)
+	}
+}
+
 // TestRunSuite_HonorsEarlierRunnerDeadline pins the OTHER half of the fix:
 // when Runner.Deadline is earlier than RunSuite's own configured timeout,
 // RunSuite must actually bound itself to the EARLIER deadline and report
