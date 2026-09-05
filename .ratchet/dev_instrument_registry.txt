@@ -23,6 +23,9 @@ APHROLLO_POSTEDIT_BUDGET_SECS | internal/tdd/deferred.go | The edit hook's one f
 APHROLLO_PRIMARY_EDITS | internal/tdd/primary.go | Turns off, for one process, the refusal to edit source in a primary checkout that has linked worktrees and holds main. The per-session escape is `/tdd primary-edits on`.
 APHROLLO_REPLY_STYLE | internal/tdd/style.go | Sets the machine-wide default reply style ("plain" turns the terse-reply block off everywhere unless a session overrides it back).
 
+# --- the global git gate install (internal/tdd/gitgate.go) ---
+APHROLLO_HOOKS_DIR_UNSAFE | internal/tdd/gitgate.go | Set to "1" to force installGitGate past its refusal of a --git-hooks-dir under a temp root or a scratchpad segment; the one sanctioned caller is a dogfood run that also points GIT_CONFIG_GLOBAL at a throwaway file, never the box's real global config.
+
 # --- real-binary override escapes, so a shim never shims itself ---
 APHROLLO_REAL_CARGO | internal/cli/cargo_shim.go | Overrides the cargo shim's resolution of the real cargo binary it dispatches to.
 APHROLLO_REAL_GIT | internal/cli/git_shim.go | Overrides the git shim's resolution of the real git binary it dispatches to.

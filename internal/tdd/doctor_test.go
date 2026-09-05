@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -44,12 +45,20 @@ func healthyInstall(t *testing.T) DoctorInput {
 	if _, err := installShimExes(shim, bin, doctorShimExeNames()); err != nil {
 		t.Fatal(err)
 	}
+	// A managed hooks dir, built by writing the same shim install writes —
+	// never through InitGitGate, which would touch the box's own real global
+	// git config.
+	hooksDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(hooksDir, "pre-commit"), []byte(binShim(bin, "precommit", "")), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	return DoctorInput{
-		ConfigDir: cfg,
-		Bin:       bin,
-		ShimDir:   shim,
-		Repo:      t.TempDir(),
-		PathDirs:  []string{shim, binDir},
+		ConfigDir:    cfg,
+		Bin:          bin,
+		ShimDir:      shim,
+		Repo:         t.TempDir(),
+		PathDirs:     []string{shim, binDir},
+		GitHooksPath: hooksDir,
 	}
 }
 
@@ -82,6 +91,49 @@ func TestDoctor_HealthyInstallPassesEveryCheck(t *testing.T) {
 		if !c.OK {
 			t.Errorf("check %q failed on a healthy install: %s", c.Name, c.Detail)
 		}
+	}
+}
+
+// TestDoctor_SeesAnUnsetGitHooksPath is the failure that disarmed this box on
+// 2026-09-05: nothing else can tell that git runs no hooks at all when
+// core.hooksPath is unset, and every other check still reads "ok".
+func TestDoctor_SeesAnUnsetGitHooksPath(t *testing.T) {
+	in := healthyInstall(t)
+	in.GitHooksPath = ""
+
+	c := check(t, Doctor(in), "git hooks path")
+	if c.OK {
+		t.Fatal("an unset core.hooksPath must fail the check")
+	}
+}
+
+// TestDoctor_SeesADanglingGitHooksPath catches the exact incident: the
+// configured hooks dir has been deleted out from under core.hooksPath, so
+// git silently runs nothing.
+func TestDoctor_SeesADanglingGitHooksPath(t *testing.T) {
+	in := healthyInstall(t)
+	in.GitHooksPath = filepath.Join(t.TempDir(), "gone")
+
+	c := check(t, Doctor(in), "git hooks path")
+	if c.OK {
+		t.Fatal("a core.hooksPath naming a missing directory must fail the check")
+	}
+	if !strings.Contains(c.Detail, "does not exist") {
+		t.Fatalf("the failure must say the dir is missing, got: %s", c.Detail)
+	}
+}
+
+// TestDoctor_SeesAForeignGitHooksPath catches core.hooksPath pointed at a
+// real directory that carries no marker this tool wrote — hooks that exist
+// but were never installed by aphrollo, or an empty leftover dir.
+func TestDoctor_SeesAForeignGitHooksPath(t *testing.T) {
+	in := healthyInstall(t)
+	foreign := t.TempDir()
+	in.GitHooksPath = foreign
+
+	c := check(t, Doctor(in), "git hooks path")
+	if c.OK {
+		t.Fatal("a core.hooksPath dir with no managed shim must fail the check")
 	}
 }
 
@@ -132,16 +184,73 @@ func TestDoctor_SeesAStaleHookBinary(t *testing.T) {
 	}
 }
 
-// TestDoctor_SeesTheShimDirNotFirstOnPath catches the setup where a direct
-// `cargo` reaches the real toolchain and never queues — the build lock is
-// simply not in the path any more.
-func TestDoctor_SeesTheShimDirNotFirstOnPath(t *testing.T) {
+// TestDoctor_SeesAGitOrCargoResolvingBeforeTheShimDir catches the setup where
+// a direct `cargo`/`git` reaches the real toolchain and never queues: the
+// criterion is not "the shim is literally first" (machine PATH on a real
+// Windows box always starts with System32 and friends, ahead of anything a
+// user configures — #293), it is that nothing ahead of the shim actually
+// resolves either command.
+//
+// ratchet: test_removed TestDoctor_SeesTheShimDirNotFirstOnPath: asserted the
+// literal-first criterion the comment above replaces; superseded by this test
+// plus TestDoctor_AcceptsTheShimDirBehindHarmlessEntries and
+// TestDoctor_SeesTheShimDirMissingFromPathEntirely.
+func TestDoctor_SeesAGitOrCargoResolvingBeforeTheShimDir(t *testing.T) {
 	in := healthyInstall(t)
-	in.PathDirs = []string{filepath.Join(t.TempDir(), "somewhere-else"), in.ShimDir}
+	shadowing := t.TempDir()
+	if err := os.WriteFile(filepath.Join(shadowing, realCommandExeName(t)), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	in.PathDirs = []string{shadowing, in.ShimDir}
+
+	c := check(t, Doctor(in), "shim dir on PATH")
+	if c.OK {
+		t.Fatal("a real git/cargo executable ahead of the shim must fail the check")
+	}
+	if !strings.Contains(c.Detail, shadowing) {
+		t.Fatalf("the failure must name the shadowing dir, got: %s", c.Detail)
+	}
+}
+
+// TestDoctor_AcceptsTheShimDirBehindHarmlessEntries is #293's healthy case:
+// on a real Windows box the machine-wide PATH (System32 and friends) is
+// NEVER empty and always precedes a user's own configuration, so the shim
+// is never literally PathDirs[0] on a correctly configured box. The check
+// must pass as long as none of those earlier entries actually holds a git or
+// cargo executable.
+func TestDoctor_AcceptsTheShimDirBehindHarmlessEntries(t *testing.T) {
+	in := healthyInstall(t)
+	harmless := t.TempDir()
+	if err := os.WriteFile(filepath.Join(harmless, "notepad.exe"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	in.PathDirs = []string{harmless, in.ShimDir}
+
+	if c := check(t, Doctor(in), "shim dir on PATH"); !c.OK {
+		t.Fatalf("an entry ahead of the shim with no git/cargo in it must not fail the check: %s", c.Detail)
+	}
+}
+
+// TestDoctor_SeesTheShimDirMissingFromPathEntirely is the other failure
+// shape: the shim never appears in PathDirs at all, not merely behind
+// something — a box where the queue dir fell off PATH altogether.
+func TestDoctor_SeesTheShimDirMissingFromPathEntirely(t *testing.T) {
+	in := healthyInstall(t)
+	in.PathDirs = []string{t.TempDir(), t.TempDir()}
 
 	if c := check(t, Doctor(in), "shim dir on PATH"); c.OK {
-		t.Fatal("a shim dir behind another entry must fail the check")
+		t.Fatal("a shim dir absent from PATH entirely must fail the check")
 	}
+}
+
+// realCommandExeName is the filename that would actually shadow the shim on
+// this OS: only Windows resolves by extension.
+func realCommandExeName(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		return "git.exe"
+	}
+	return "git"
 }
 
 // TestDoctor_SeesALeftoverBatchShim catches the shim that mangles arguments:

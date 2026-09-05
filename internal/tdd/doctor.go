@@ -37,12 +37,20 @@ type DoctorInput struct {
 	ShimDir   string
 	Repo      string
 	PathDirs  []string
+	// GitHooksPath is the box's current global core.hooksPath, resolved by
+	// the caller (empty when unset) — injected the same way PathDirs is, so
+	// a test drives every branch without reading or writing the box's own
+	// git config.
+	GitHooksPath string
 }
 
 // Doctor runs every check and returns the verdicts in a fixed order, so two
-// runs read the same way.
+// runs read the same way. doctorGitHooksPath runs FIRST: every other check
+// here describes a hook that depends on git actually running it, and a
+// dangling or unset core.hooksPath means git runs NONE of them, silently.
 func Doctor(in DoctorInput) []DoctorCheck {
 	checks := []DoctorCheck{
+		doctorGitHooksPath(in),
 		doctorHookBinary(in),
 		doctorHookTimeouts(in),
 		doctorShimPath(in),
@@ -66,6 +74,33 @@ func Doctor(in DoctorInput) []DoctorCheck {
 		checks = append(checks, c)
 	}
 	return checks
+}
+
+// doctorGitHooksPath checks the git gate can run at all: core.hooksPath must
+// be set, name a directory that exists, and hold shims this tool wrote. A
+// dangling or unset hooksPath is the single failure that disarms every other
+// check on this list — git runs no hook, produces no error, and every other
+// row reads "ok" while every commit on the box is ungated. That happened on
+// this box 2026-09-05: a --git-hooks-dir under a session scratchpad was
+// installed then cleaned up, and `aphrollo gate doctor` printed ok on every
+// row for the whole window.
+func doctorGitHooksPath(in DoctorInput) DoctorCheck {
+	c := DoctorCheck{Name: "git hooks path"}
+	if in.GitHooksPath == "" {
+		c.Detail = "core.hooksPath is not set — run `aphrollo gate init`"
+		return c
+	}
+	fi, err := os.Stat(in.GitHooksPath)
+	if err != nil || !fi.IsDir() {
+		c.Detail = fmt.Sprintf("core.hooksPath is set to %s, which does not exist — git runs no hooks at all; run `aphrollo gate init`", in.GitHooksPath)
+		return c
+	}
+	if !managedHooksDir(in.GitHooksPath) {
+		c.Detail = fmt.Sprintf("core.hooksPath %s does not carry this tool's managed shims — run `aphrollo gate init`", in.GitHooksPath)
+		return c
+	}
+	c.OK = true
+	return c
 }
 
 // doctorPrimaryCheckout checks the primary checkout still holds main. It
@@ -176,21 +211,63 @@ func doctorHookTimeouts(in DoctorInput) DoctorCheck {
 	return c
 }
 
-// doctorShimPath checks the queue dir is the FIRST PATH entry. Behind any
-// other entry it shadows nothing, and a direct `cargo` builds without ever
-// taking a slot.
+// doctorShimPath checks that no `git`/`cargo` resolves BEFORE the queue dir
+// — not that the queue dir is literally PathDirs[0]. Windows composes a
+// fresh process's PATH from two hives (see userPathDirs), and the
+// machine-wide one is never empty on a real box — System32 and friends
+// always precede anything a user configures — so "the shim is first" fails
+// permanently on every correctly configured box (#293). What actually
+// matters, and what stays true across both scopes, is whether an earlier
+// entry shadows the shim for either command it queues.
 func doctorShimPath(in DoctorInput) DoctorCheck {
 	c := DoctorCheck{Name: "shim dir on PATH"}
 	if len(in.PathDirs) == 0 {
 		c.Detail = "could not read the user PATH"
 		return c
 	}
-	if !samePath(in.PathDirs[0], in.ShimDir) {
-		c.Detail = fmt.Sprintf("PATH starts with %s, not %s — put the queue dir first", in.PathDirs[0], in.ShimDir)
+	shimAt := -1
+	for i, dir := range in.PathDirs {
+		if samePath(dir, in.ShimDir) {
+			shimAt = i
+			break
+		}
+	}
+	if shimAt < 0 {
+		c.Detail = fmt.Sprintf("%s is not on PATH at all — put the queue dir on PATH", in.ShimDir)
+		return c
+	}
+	if dir, name, shadowed := shadowingCommand(in.PathDirs[:shimAt]); shadowed {
+		c.Detail = fmt.Sprintf("%s in %s resolves before the queue dir %s — a direct %s never queues; put the queue dir first or ahead of that entry",
+			name, dir, in.ShimDir, strings.TrimSuffix(name, ".exe"))
 		return c
 	}
 	c.OK = true
 	return c
+}
+
+// shadowingCommand reports the first of dirs (searched IN ORDER, since order
+// is exactly what PATH resolution means) that holds a git or cargo
+// executable — the machine-wide install this check exists to catch.
+// ok=false means none of dirs would ever be reached first for either
+// command.
+func shadowingCommand(dirs []string) (dir, name string, ok bool) {
+	for _, d := range dirs {
+		for _, n := range commandExeNames() {
+			if fi, err := os.Stat(filepath.Join(d, n)); err == nil && !fi.IsDir() {
+				return d, n, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+// commandExeNames is what a shell actually resolves "git"/"cargo" to on this
+// OS: only Windows tries an extension (matches shimExeNames' own reasoning).
+func commandExeNames() []string {
+	if runtime.GOOS != "windows" {
+		return []string{"git", "cargo"}
+	}
+	return []string{"git.exe", "cargo.exe"}
 }
 
 // doctorShimExes checks the queue dir actually holds the shims. A dir first on
