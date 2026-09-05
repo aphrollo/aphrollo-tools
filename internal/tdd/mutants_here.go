@@ -89,6 +89,14 @@ func buildMutantsJob(repoRoot, stage string) (MutantsJob, mutantsRefusal, error)
 			Reason: fmt.Sprintf("could not resolve what to measure on %s (tip %q, base %q) — is there a commit on this lane, and a trunk it branched from?", branch, j.Tip, j.BaseSHA),
 		}, nil
 	}
+	// A still-running job for this SAME lane already owns j.Worktree, and
+	// prepareMutantsWorktree below is a `git reset --hard` (or, for Go, an
+	// os.RemoveAll plus reclone of goMutantsCloneDir(j.Worktree)) — either one
+	// run against the tree that job's producer is currently mutating and
+	// testing in. "One warm directory per lane" and "never cancel the run it
+	// supersedes" cannot both hold across two overlapping commits (issue
+	// #283); this keeps the second and pays a cold worktree for the overlap.
+	j.Worktree = mutantsWorktreeAvoidingLiveJob(j.Repo, j.Worktree, j.TipTree)
 	j.Diff = filepath.Join(mutantsStateDir(), "lane."+projectKey(root)+".diff")
 	// Beside the gate's other state, never inside the worktree cargo-mutants
 	// mutates in place: a log file created there before the worktree exists is

@@ -26,7 +26,7 @@ func TestMutantStore_CarriesAcrossLanesForTheSameBlobAndTestSet(t *testing.T) {
 	plan := PlanMutants(
 		[]MutantOutcome{{File: "crates/a/src/lib.rs", Line: 12, Mutation: "replace + with -", Package: "crates/a"}},
 		TreeState{Blobs: map[string]string{"crates/a/src/lib.rs": "blobA"}, Fences: map[string]string{"crates/a": "tsA"}},
-		LoadMutantStore("borld"))
+		LoadMutantStore("borld"), "")
 
 	if len(plan.Run) != 0 {
 		t.Fatalf("Run = %+v, want another lane's measurement reused", plan.Run)
@@ -39,7 +39,7 @@ func TestMutantStore_CarriesAcrossLanesForTheSameBlobAndTestSet(t *testing.T) {
 		TreeState{Blobs: map[string]string{"crates/a/src/lib.rs": "blobA"},
 			Packages: map[string]string{"crates/a/src/lib.rs": "crates/a"},
 			Fences:   map[string]string{"crates/a": "tsA"}},
-		LoadMutantStore("borld"))
+		LoadMutantStore("borld"), "")
 	if len(files) != 0 {
 		t.Fatalf("PlanDiffFiles = %v, want zero mutants run for a file another lane measured", files)
 	}
@@ -59,7 +59,7 @@ func TestMutantStore_AChangedTestSetInvalidatesOnlyItsOwnPackage(t *testing.T) {
 		Packages: map[string]string{"crates/a/src/lib.rs": "crates/a", "crates/b/src/lib.rs": "crates/b"},
 		Fences:   map[string]string{"crates/a": "tsA-NEW", "crates/b": "tsB"},
 	}
-	files := PlanDiffFiles("", []string{"crates/a/src/lib.rs", "crates/b/src/lib.rs"}, now, LoadMutantStore("borld"))
+	files := PlanDiffFiles("", []string{"crates/a/src/lib.rs", "crates/b/src/lib.rs"}, now, LoadMutantStore("borld"), "")
 	if len(files) != 1 || files[0] != "crates/a/src/lib.rs" {
 		t.Fatalf("PlanDiffFiles = %v, want only the package whose test set moved", files)
 	}
@@ -164,6 +164,56 @@ func TestMergeMutantStore_KeepsTheNewestVerdictPerMutant(t *testing.T) {
 		if m.Status != "caught" || m.Fence != "tsNEW" {
 			t.Fatalf("entry = %+v, want the newer measurement", m)
 		}
+	}
+}
+
+// Two runners finishing close together each read-merge-write the SAME store
+// file with no lock between them: whichever writes second silently discards
+// whatever the first one just added, since neither write itself fails
+// (issue #284). This drives the actual contention: a first "merge" is stood
+// up directly by holding the store's own lock (exactly what MergeMutantStore
+// would hold mid read-merge-write), and a second, real MergeMutantStore call
+// is proven to still be waiting on it — a bounded probe of that SAME lock
+// doubles as the wait, so an unlocked merge has every chance to have already
+// raced ahead and finished by the time the probe returns.
+func TestMergeMutantStore_AConcurrentMergeWaitsForOneAlreadyInFlight(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	path := MutantStorePath("borld")
+
+	release, ok := acquirePathLockWithDeadline(path, time.Second)
+	if !ok {
+		t.Fatal("setup: could not take the store lock")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		MergeMutantStore("borld", []MutantOutcome{stored("b.rs", 2, "b", "blobB", "ts", "caught")})
+	}()
+
+	if _, gotLock := acquirePathLockWithDeadline(path, 150*time.Millisecond); gotLock {
+		t.Fatal("setup: a probe acquired the store lock this test still holds")
+	}
+	select {
+	case <-done:
+		t.Fatal("a merge finished while another still held the store lock — it never waited for it, " +
+			"so its read missed whatever the in-flight one was about to write")
+	default:
+	}
+
+	// The in-flight merge finishes: its own write, exactly what its critical
+	// section would have produced, then its release.
+	writeMutantStore(path, map[mutantKey]storedOutcome{
+		(MutantOutcome{File: "a.rs", Line: 1, Mutation: "replace + with -"}).key(): {
+			MutantOutcome: stored("a.rs", 1, "a", "blobA", "ts", "caught"), At: time.Now().UTC(),
+		},
+	})
+	release()
+
+	<-done
+	store := LoadMutantStore("borld")
+	if len(store) != 2 {
+		t.Fatalf("store has %d entries after a merge that started while another was in flight, want both to survive: %+v", len(store), store)
 	}
 }
 

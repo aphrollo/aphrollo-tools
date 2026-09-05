@@ -33,7 +33,7 @@ func TestPlanMutants_SaysTheBlobMovedWhenTheFileItselfChanged(t *testing.T) {
 	cached := map[mutantKey]MutantOutcome{old.key(): old}
 	want := []MutantOutcome{measured("a/x.rs", "a", "", "", 12)}
 
-	plan := PlanMutants(want, stateOf("a/x.rs", "a", "blob2", "fence1"), cached)
+	plan := PlanMutants(want, stateOf("a/x.rs", "a", "blob2", "fence1"), cached, "")
 
 	if len(plan.Carry) != 0 {
 		t.Fatalf("carried %d outcome(s) over a changed blob, want none", len(plan.Carry))
@@ -55,7 +55,7 @@ func TestPlanMutants_SaysTheFenceMovedWhenOnlyThePackagesTestsChanged(t *testing
 	cached := map[mutantKey]MutantOutcome{old.key(): old}
 	want := []MutantOutcome{measured("a/x.rs", "a", "", "", 12)}
 
-	plan := PlanMutants(want, stateOf("a/x.rs", "a", "blob1", "fence2"), cached)
+	plan := PlanMutants(want, stateOf("a/x.rs", "a", "blob1", "fence2"), cached, "")
 
 	if len(plan.Carry) != 0 {
 		t.Fatalf("carried %d outcome(s) over a changed fence, want none", len(plan.Carry))
@@ -73,7 +73,7 @@ func TestPlanMutants_SaysTheFenceMovedWhenOnlyThePackagesTestsChanged(t *testing
 func TestPlanMutants_SaysUnmeasuredRatherThanBlamingABlobThatNeverHadAVerdict(t *testing.T) {
 	want := []MutantOutcome{measured("a/x.rs", "a", "", "", 12)}
 
-	plan := PlanMutants(want, stateOf("a/x.rs", "a", "blob1", "fence1"), map[mutantKey]MutantOutcome{})
+	plan := PlanMutants(want, stateOf("a/x.rs", "a", "blob1", "fence1"), map[mutantKey]MutantOutcome{}, "")
 
 	if len(plan.Skipped) != 1 {
 		t.Fatalf("recorded %d skip reason(s), want one", len(plan.Skipped))
@@ -90,7 +90,7 @@ func TestPlanMutants_RecordsNoReasonForAMutantThatCarried(t *testing.T) {
 	cached := map[mutantKey]MutantOutcome{old.key(): old}
 	want := []MutantOutcome{measured("a/x.rs", "a", "", "", 12)}
 
-	plan := PlanMutants(want, stateOf("a/x.rs", "a", "blob1", "fence1"), cached)
+	plan := PlanMutants(want, stateOf("a/x.rs", "a", "blob1", "fence1"), cached, "")
 
 	if len(plan.Carry) != 1 {
 		t.Fatalf("carried %d, want the one unchanged mutant", len(plan.Carry))
