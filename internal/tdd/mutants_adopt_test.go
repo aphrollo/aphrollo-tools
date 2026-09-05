@@ -6,18 +6,36 @@ import (
 
 // carriedReceipt writes a producer's receipt for laneTip with the outcomes it
 // measured itself, then folds in what the run carried, and reads the result.
+// The TreeState it hands adoptCarriedOutcomes trusts measured's and carried's
+// own Blob/Package/Fence exactly — these tests are about the recount, not
+// about blob identity, so the gate's re-stamp must be a no-op here.
 func carriedReceipt(t *testing.T, measured []MutantOutcome, carried []MutantOutcome, r MutationReceipt) MutationReceipt {
 	t.Helper()
 	r.Repo, r.TipTree, r.Verdict = "borld", laneTip, receiptVerdictPass
 	r.Outcomes = measured
 	path := MutationReceiptPathFor(laneTip)
 	writeReceiptFile(path, r)
-	adoptCarriedOutcomes(MutantsJob{Repo: "borld", TipTree: laneTip}, carried)
+	now := treeStateOfOutcomes(append(append([]MutantOutcome{}, measured...), carried...))
+	adoptCarriedOutcomes(MutantsJob{Repo: "borld", TipTree: laneTip}, carried, now)
 	got, ok := readReceiptFile(path)
 	if !ok {
 		t.Fatal("the receipt disappeared")
 	}
 	return got
+}
+
+// treeStateOfOutcomes builds the TreeState a fixture's own outcomes already
+// declare, so a test asserting on recounting rather than on blob identity can
+// hand adoptCarriedOutcomes a "gate's own reading" that matches what it wrote
+// by hand.
+func treeStateOfOutcomes(outcomes []MutantOutcome) TreeState {
+	st := TreeState{Blobs: map[string]string{}, Packages: map[string]string{}, Fences: map[string]string{}}
+	for _, m := range outcomes {
+		st.Blobs[m.File] = m.Blob
+		st.Packages[m.File] = m.Package
+		st.Fences[m.Package] = m.Fence
+	}
+	return st
 }
 
 // The hole: a carried outcome was added to Outcomes and MutantsTotal, and
