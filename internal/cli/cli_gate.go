@@ -58,8 +58,9 @@ Subcommands:
                     by init
   stats             Tally gate.log by stage and outcome (--since 7d), and the open
                     escape count
-  issue             Open one labelled issue against the repo's GitHub remote and
-                    print its URL (--label, --body, --repo, --new-label). An open
+  issue             (alias of aphrollo issue; retiring next release) Open one
+                    labelled issue against the repo's GitHub remote and print
+                    its URL (--label, --body, --repo, --new-label). An open
                     point is an issue, never a markdown follow-up
   feedback          Report a defect in the GATE ITSELF to the tool's tracker, with
                     the reporting repo and tip attached
@@ -69,8 +70,10 @@ Subcommands:
                     changing a law, a gate stage or a named test
   gc                Reclaim stale build dirs: idle incremental caches, dead gate dirs,
                     orphan worktree builds (--repo, --older-than 3d, --apply)
-  install           Install the git-hook shims into a repo (--repo, --apply)
-  init              Set up TDD: session hooks in settings.json + the global git gate
+  install           (alias of aphrollo install; retiring next release) Install
+                    the git-hook shims into a repo (--repo, --apply)
+  init              (alias of aphrollo install; retiring next release) Set up TDD:
+                    session hooks in settings.json + the global git gate
                     (--no-git, --uninstall). ALSO EDITS FILES IN A REPO: the managed
                     block in <repo>/CLAUDE.md and <repo>/.ratchet/README.md, where
                     <repo> is --repo (default: the working directory's repo)
