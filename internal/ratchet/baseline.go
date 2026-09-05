@@ -117,10 +117,21 @@ func ParseBaseline(text string, form Form) (*Baseline, error) {
 			b.lines = append(b.lines, baselineLine{data: true, key: trimmed, count: 1})
 			continue
 		}
-		key, countText, ok := strings.Cut(trimmed, " | ")
-		if !ok {
+		// The count sits after the RIGHTMOST " | ": a key can itself carry a
+		// stray "|" (a lone mid-line CR can shift an embedded pipe out of a
+		// clean " | " triple, which then survives TrimSpace into the key), and
+		// splitting on the first occurrence swallowed it silently. Render()
+		// then wrote a line with two " | " triples, and re-parsing it with a
+		// first-occurrence split cut the key short and left a non-numeric
+		// count -- a self-inflicted error on the file's own output. The count
+		// field is always pure digits, so it is the unambiguous anchor:
+		// splitting on the last occurrence makes a key carrying its own "|"
+		// round-trip as a fixed point (found by FuzzBaseline, issue #414).
+		idx := strings.LastIndex(trimmed, " | ")
+		if idx < 0 {
 			return nil, fmt.Errorf("line %d: a counted baseline line is `<key> | <count>`: %s", lineNo, trimmed)
 		}
+		key, countText := trimmed[:idx], trimmed[idx+len(" | "):]
 		count, err := strconv.Atoi(strings.TrimSpace(countText))
 		if err != nil {
 			return nil, fmt.Errorf("line %d: a baseline count is an integer: %s", lineNo, trimmed)
