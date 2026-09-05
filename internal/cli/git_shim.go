@@ -141,7 +141,15 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 	// the lock and git itself: a branch that already moved cannot be un-moved
 	// by a message.
 	if cwd, err := os.Getwd(); err == nil {
-		if line := primaryRefusalLine(cfg.realGit, rest, gitWorkingDir(args, cwd)); line != "" {
+		workDir := gitWorkingDir(args, cwd)
+		if line := primaryRefusalLine(cfg.realGit, rest, workDir); line != "" {
+			fmt.Fprintln(stderr, line)
+			return 1
+		}
+		// Same "before the lock, before git runs" placement as the
+		// primary-checkout refusal above: a push that already reached the
+		// remote is not one this stage refused anything about (issue #266).
+		if line := staleBranchRefusalLine(cfg.realGit, rest, workDir); line != "" {
 			fmt.Fprintln(stderr, line)
 			return 1
 		}
