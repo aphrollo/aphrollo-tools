@@ -18,7 +18,7 @@ import (
 // merged).
 var gitGateHooks = []struct{ name, sub string }{
 	{"pre-commit", "precommit"},
-	{"pre-merge-commit", "premergecommit"},
+	{"pre-merge-commit", "premerge"},
 	// ONE post-commit hook, doing two things in order: it writes the gate note
 	// on the commit just made — what lets CI tell a red on a gated tip from a
 	// red on an ungated one — and then starts the lane's mutation run. At

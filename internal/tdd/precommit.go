@@ -160,7 +160,7 @@ func mutationReceiptStage(repoRoot string) *GateResult {
 	// refuse every lane merge forever. The stand-down is logged, so "no
 	// receipt was required" never reads as "a receipt was checked".
 	if !mutationJudgedLocally(repoRoot) {
-		appendGateLog("premergecommit", logToken(repoRoot), "receipt", "receipt-measured-in-ci", 0)
+		appendGateLog(premergeLogToken, logToken(repoRoot), "receipt", "receipt-measured-in-ci", 0)
 		return &GateResult{Message: "mutation receipt not judged here: this repo measures it on the CI runner (mutants-local = false)"}
 	}
 	// Only the direction that matters. A receipt proves a LANE was measured
@@ -169,7 +169,7 @@ func mutationReceiptStage(repoRoot string) *GateResult {
 	// instead — which polluted the lane's merge-base diff with all of main's
 	// changes and made every later mutation run measure them (issue #110).
 	if why, catchUp := catchUpMerge(repoRoot); catchUp {
-		appendGateLog("premergecommit", repoRoot, "receipt", "catchup-merge", 0)
+		appendGateLog(premergeLogToken, repoRoot, "receipt", "catchup-merge", 0)
 		return &GateResult{Message: "mutation receipt not judged: " + why}
 	}
 	tip, ok := mergeTipOf(repoRoot)

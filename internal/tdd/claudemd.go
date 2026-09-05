@@ -59,7 +59,7 @@ func ClaudeMDBlock(shimDir string, undercover bool) string {
 	b.WriteString("  `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL, the\n")
 	b.WriteString("  git shim (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit) is the WALL.\n")
 	b.WriteString("  Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override\n")
-	b.WriteString("  with `aphrollo gate primary-edits on` (the only one of these that works from inside a turn), `APHROLLO_PRIMARY_EDITS=1` or `/tdd primary-edits on`.\n")
+	b.WriteString("  with `aphrollo gate allow primary` (the only one of these that works from inside a turn), `APHROLLO_PRIMARY_EDITS=1` or `/tdd primary-edits on`.\n")
 	b.WriteString("- **A mutation receipt is earned by the COMMIT:** `gate postcommit` starts the lane's run; `aphrollo gate mutants run` (no arguments, in the lane) runs one in the FOREGROUND. Never a repo's own producer script — the box-wide lock wraps the CALL, so a hand-run script is outside it.\n")
 	b.WriteString("- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).\n")
 	if undercover {

@@ -35,7 +35,7 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		if res.Blocked {
 			// Printing it here too would state the same paragraph twice: the
 			// hook that called this prints what it is given.
-			appendGateLog("premergecommit", repoRoot, "mutation-receipt", "receipt-rejected", 0)
+			appendGateLog(premergeLogToken, repoRoot, "mutation-receipt", "receipt-rejected", 0)
 			return *res
 		}
 		// The inner stage already logged which waiver this is
@@ -46,7 +46,7 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		}
 	}
 	if docsOnly(repoRoot) {
-		res := docsOnlyFastPath("premergecommit", repoRoot)
+		res := docsOnlyFastPath(premergeDisplayName, repoRoot)
 		if len(notes) > 0 {
 			notes = append(notes, res.Message)
 			res.Message = strings.Join(notes, "\n")
@@ -57,15 +57,15 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 	// Same order as Precommit, and for the same reason: a merge carrying only
 	// a raised baseline or a law regression must answer for it before the
 	// has-code check can wave it through.
-	if res := baselineStage("premergecommit", repoRoot); res.Blocked {
+	if res := baselineStage(premergeDisplayName, repoRoot); res.Blocked {
 		return res
 	}
-	if res := ratchetStage("premergecommit", repoRoot); res.Blocked {
+	if res := ratchetStage(premergeDisplayName, repoRoot); res.Blocked {
 		return res
 	} else if res.Message != "" {
 		notes = append(notes, res.Message)
 	}
-	if res := docsCheckStage("premergecommit", repoRoot); res.Blocked {
+	if res := docsCheckStage(premergeDisplayName, repoRoot); res.Blocked {
 		return res
 	} else if res.Message != "" {
 		notes = append(notes, res.Message)
@@ -73,13 +73,13 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 
 	groups := stagedRootGroups(repoRoot)
 	if len(groups) == 0 {
-		line := nothingToTestLine("premergecommit")
+		line := nothingToTestLine(premergeDisplayName)
 		fmt.Fprintln(os.Stderr, line)
 		notes = append(notes, line)
 		return GateResult{Message: strings.Join(notes, "\n")}
 	}
 	for _, g := range groups {
-		res := gateRoot("premergecommit", repoRoot, g, run, false)
+		res := gateRoot(premergeDisplayName, repoRoot, g, run, false)
 		if res.Blocked {
 			return res
 		}
