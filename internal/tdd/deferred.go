@@ -98,10 +98,12 @@ func deferredDir() string {
 	return dir
 }
 
-// projectKey names a project's files in the deferred dir. Hashed because a
-// path is not a filename, and case-folded on Windows for the same reason the
-// build lock's key is.
-func projectKey(root string) string {
+// normalizeProjectPath is the identity two mentions of the same project
+// directory reduce to before either naming a file (projectKey) or comparing
+// against another mention of it (sameProject): absolute, cleaned, and
+// case-folded on Windows, where one project routinely appears under two
+// drive-letter or slash-direction spellings.
+func normalizeProjectPath(root string) string {
 	clean := filepath.Clean(root)
 	if abs, err := filepath.Abs(clean); err == nil {
 		clean = abs
@@ -109,7 +111,24 @@ func projectKey(root string) string {
 	if runtime.GOOS == "windows" {
 		clean = strings.ToLower(clean)
 	}
-	sum := sha256.Sum256([]byte(clean))
+	return clean
+}
+
+// sameDeferredProject reports whether a and b name the same project
+// directory, once normalized -- the exact-identity comparison
+// findDeferredJobForProject needs, since a job record's Project field is the
+// raw root string a caller passed, not the hashed key its filename carries.
+// Distinct from statusline.go's sameProject, which additionally matches a
+// NESTED root against a gate-log entry; a deferred job's Project is always
+// the exact root it was recorded for.
+func sameDeferredProject(a, b string) bool {
+	return normalizeProjectPath(a) == normalizeProjectPath(b)
+}
+
+// projectKey names a project's files in the deferred dir. Hashed because a
+// path is not a filename.
+func projectKey(root string) string {
+	sum := sha256.Sum256([]byte(normalizeProjectPath(root)))
 	return hex.EncodeToString(sum[:8])
 }
 

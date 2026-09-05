@@ -62,6 +62,11 @@ Subcommands:
                     by init
   stats             Tally gate.log by stage and outcome (--since 7d), and the open
                     escape count
+  status            Read-only: deferred edit jobs on this box, every build slot's
+                    holder, and this checkout's own mutation-run state — what an
+                    inconclusive BUILDING/TIMEOUT/QUEUED-SKIPPED gate line points
+                    at instead of a rerun. --wait blocks until THIS checkout's own
+                    deferred edit job has a verdict and prints it verbatim
   issue             (alias of aphrollo issue; retiring next release) Open one
                     labelled issue against the repo's GitHub remote and print
                     its URL (--label, --body, --repo, --new-label). An open
@@ -248,6 +253,11 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if args[0] == "stats" {
 		// Read-only report over gate.log: pipeline health as a number.
 		return runGateStats(args[1:], stdout, stderr)
+	}
+	if args[0] == "status" {
+		// Read-only: what an inconclusive gate line points at instead of a
+		// rerun — deferred edit jobs, build slots, this checkout's mutation run.
+		return runGateStatus(args[1:], stdout, stderr)
 	}
 	if args[0] == "gc" {
 		// Disk hygiene: dry-run by default, --apply reclaims.

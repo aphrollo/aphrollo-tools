@@ -407,6 +407,31 @@ func ReadBuildSlotOwnerPath(targetDir string) string {
 	return targetLockPath(targetDir) + ".owner"
 }
 
+// BuildSlotStatus is one global slot's current holder, for `gate status`
+// (issue #430) — a QUEUED-SKIPPED advisory used to name only the ONE holder
+// blocking the edit that hit it; this is the whole box's slot table, so a
+// session can tell a busy box from a wedged one.
+type BuildSlotStatus struct {
+	Index int
+	Held  bool
+	Owner BuildLockOwner
+}
+
+// SnapshotBuildSlots reads every global build slot's current holder,
+// best-effort: a slot with no readable owner file reports Held=false,
+// whether that is because it truly is idle or because the read raced a
+// concurrent acquire/release — the same inherent race ReadBuildSlotOwner
+// already lives with for a single target dir.
+func SnapshotBuildSlots() []BuildSlotStatus {
+	n := buildSlotCount()
+	out := make([]BuildSlotStatus, n)
+	for i := range n {
+		owner, held := readBuildLockOwnerAt(globalSlotOwnerPath(i))
+		out[i] = BuildSlotStatus{Index: i, Held: held, Owner: owner}
+	}
+	return out
+}
+
 // slotJobs is one slot's share of the box's job budget, never below 1
 // (cargo rejects --jobs 0). Integer division deliberately rounds DOWN: the
 // cap exists to keep N concurrent link waves inside memory, so the residue

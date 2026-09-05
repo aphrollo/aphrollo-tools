@@ -31,20 +31,34 @@ var ghMergePR = func(wt, branch, method string) error {
 	return nil
 }
 
+// remoteBranchAlreadyGone reports whether a failed `git push origin --delete`
+// means the branch was already absent on the remote rather than that the
+// delete itself failed. Two message shapes are known: git's own "does not
+// exist", and the one a repo with auto-delete-head-branch produces after a
+// squash merge already reaped the branch by the time this call lands —
+// "! [remote rejected] lane/x (cannot lock ref 'refs/heads/lane/x': unable to
+// resolve reference 'refs/heads/lane/x')" (issue #410, PRs #402 and #408).
+func remoteBranchAlreadyGone(output string) bool {
+	return strings.Contains(output, "does not exist") ||
+		strings.Contains(output, "unable to resolve reference")
+}
+
 // ghDeleteRemoteBranch deletes the PR's head branch on the remote with
 // `git push origin --delete`, a ref update that touches no working tree — so it
 // is safe from inside a worktree, unlike gh's `--delete-branch` (see ghMergePR).
 // The local branch and worktree are left to `prune`. A branch GitHub already
-// reaped (repos with auto-delete-on-merge) is treated as success.
-var ghDeleteRemoteBranch = func(wt, branch string) error {
+// reaped (repos with auto-delete-on-merge) is treated as success, and the
+// bool return tells the caller so it reports "[skip]" rather than claiming a
+// deletion that never happened.
+var ghDeleteRemoteBranch = func(wt, branch string) (bool, error) {
 	out, err := gitNetworkOutput(wt, "push", "origin", "--delete", "--", branch)
 	if err != nil {
-		if strings.Contains(string(out), "does not exist") {
-			return nil // already gone — nothing to delete
+		if remoteBranchAlreadyGone(string(out)) {
+			return true, nil // already gone — nothing to delete
 		}
-		return fmt.Errorf("git push origin --delete %s: %v\n%s", branch, err, strings.TrimSpace(string(out)))
+		return false, fmt.Errorf("git push origin --delete %s: %v\n%s", branch, err, strings.TrimSpace(string(out)))
 	}
-	return nil
+	return false, nil
 }
 
 // syncMainClone is the seam over Sync that merge calls to fast-forward the
@@ -104,10 +118,15 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "merged PR #%d (%s): %s\n", pr.Number, m.Method, pr.URL)
 	if m.DeleteBranch {
-		if err := ghDeleteRemoteBranch(m.Target.Worktree, m.Target.Branch); err != nil {
+		skipped, err := ghDeleteRemoteBranch(m.Target.Worktree, m.Target.Branch)
+		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "  deleted remote branch %s (local worktree left for prune)\n", m.Target.Branch)
+		if skipped {
+			fmt.Fprintf(stdout, "  [skip] remote branch %s — already deleted\n", m.Target.Branch)
+		} else {
+			fmt.Fprintf(stdout, "  deleted remote branch %s (local worktree left for prune)\n", m.Target.Branch)
+		}
 	}
 
 	// Best-effort: catch the canonical clone's local default branch up to the
