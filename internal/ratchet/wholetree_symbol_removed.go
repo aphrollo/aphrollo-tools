@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 )
 
 // --- symbol-removed ----------------------------------------------------
@@ -16,12 +17,32 @@ func symbolRemovedTombstoneRe(lawName string) *regexp.Regexp {
 	return regexp.MustCompile(`(?m)^[ \t]*(?://|#)[ \t]*ratchet:[ \t]*` + regexp.QuoteMeta(lawName) + `[ \t]+([A-Za-z0-9_]+):[ \t]*\S`)
 }
 
+// wholeFileSymbolPattern recompiles a symbol-removed law's pattern to match
+// against a whole file's text rather than one physical line at a time — the
+// idiomatic Rust layout puts `#[test]` on its own line above the `fn` it
+// marks, and a line-by-line scan never joins the two into one match. `(?m)`
+// is prepended so a pattern anchored with `^`/`$` still binds to each
+// line's start/end within the file rather than the file's as a whole (a Go
+// test law's `^func (Test...)\(` keeps matching once per line); a pattern
+// that already opens with its own `(?...)` flag group is trusted to have
+// chosen its own semantics and is left as-is.
+func wholeFileSymbolPattern(p *regexp.Regexp) *regexp.Regexp {
+	src := p.String()
+	if strings.HasPrefix(src, "(?") {
+		return p
+	}
+	return regexp.MustCompile("(?m)" + src)
+}
+
 // symbolRemovedHits reports every symbol law.Matcher.Pattern captured at
 // BASE that is absent from every in-scope file at TIP and carries no
 // tombstone, keyed `<base path>:<name>` — the base path is what a person
 // restores the symbol to, so a plain rename reports under its OLD name
-// while a move to a different file, name unchanged, reports nothing.
+// while a move to a different file, name unchanged, reports nothing. The
+// pattern is matched against each file's whole text (see
+// wholeFileSymbolPattern), not one physical line at a time.
 func symbolRemovedHits(law Law, base BaseReader, files []string, content map[string]string) ([]Hit, error) {
+	pattern := wholeFileSymbolPattern(law.Matcher.Pattern)
 	tombstoneRe := symbolRemovedTombstoneRe(law.Name)
 	tipNames, tombstoned := map[string]bool{}, map[string]bool{}
 	for _, rel := range files {
@@ -32,10 +53,8 @@ func symbolRemovedHits(law Law, base BaseReader, files []string, content map[str
 		if !ok {
 			continue
 		}
-		for _, line := range splitLines(text) {
-			if m := law.Matcher.Pattern.FindStringSubmatch(line); m != nil {
-				tipNames[m[1]] = true
-			}
+		for _, idx := range pattern.FindAllStringSubmatchIndex(text, -1) {
+			tipNames[text[idx[2]:idx[3]]] = true
 		}
 		for _, m := range tombstoneRe.FindAllStringSubmatch(text, -1) {
 			tombstoned[m[1]] = true
@@ -68,15 +87,16 @@ func symbolRemovedHits(law Law, base BaseReader, files []string, content map[str
 		if !ok {
 			continue
 		}
-		for _, line := range splitLines(string(data)) {
-			m := law.Matcher.Pattern.FindStringSubmatch(line)
-			if m == nil || tipNames[m[1]] || tombstoned[m[1]] {
+		text := string(data)
+		for _, idx := range pattern.FindAllStringSubmatchIndex(text, -1) {
+			name := text[idx[2]:idx[3]]
+			if tipNames[name] || tombstoned[name] {
 				continue
 			}
 			hits = append(hits, Hit{
 				Law: law.Name, File: rel, Weight: 1,
-				Key:  rel + ":" + m[1],
-				What: fmt.Sprintf("%s is gone from %s with no tombstone", m[1], rel),
+				Key:  rel + ":" + name,
+				What: fmt.Sprintf("%s is gone from %s with no tombstone", name, rel),
 			})
 		}
 	}

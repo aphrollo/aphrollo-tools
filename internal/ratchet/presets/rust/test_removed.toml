@@ -1,0 +1,11 @@
+name        = "test_removed"
+description = "A Rust test present at the base ref and gone at the tip needs a tombstone — see common/test_removed for the rule and the tombstone form. Matches a `#[test]` or `#[tokio::test]` attribute (sync or async) followed by its `fn`, capturing only the function name — including the idiomatic rustfmt layout where the attribute sits on its own line above the `fn` it marks, since this kind's engine (internal/ratchet/wholetree_symbol_removed.go) matches `pattern` against the whole file's text, not one physical line at a time."
+severity    = "deny"
+
+[scope]
+include = ["**/*.rs"]
+exclude = ["**/target/**"]
+
+[matcher]
+kind    = "symbol-removed"
+pattern = "#\\[(?:tokio::)?test\\]\\s*(?:async\\s+)?fn\\s+([A-Za-z0-9_]+)"

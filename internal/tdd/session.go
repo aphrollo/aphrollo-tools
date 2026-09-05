@@ -106,6 +106,8 @@ func tddCommand(sub, arg, session, cwd string) string {
 		logOverride("override-on", session, cwd)
 		return "TDD enforcement ON for this session."
 	case "primary-edits":
+		// Pre-rename spelling, retiring next release: same wall, same
+		// storage as /tdd allow|revoke primary below.
 		switch arg {
 		case "on", "off":
 			if err := setPrimaryEdits(session, arg == "on"); err != nil {
@@ -119,6 +121,28 @@ func tddCommand(sub, arg, session, cwd string) string {
 		default:
 			return "gate: /tdd primary-edits needs on or off, got " + arg
 		}
+	case "allow":
+		switch arg {
+		case WallPrimary:
+			if err := setWaiver(session, arg, true); err != nil {
+				return "gate: could not persist the override (" + err.Error() + ")"
+			}
+			logOverride("override-"+arg+"-allow", session, cwd)
+			return waiverAllowedMessage(arg)
+		default:
+			return "gate: /tdd allow needs a wall (primary), got " + arg
+		}
+	case "revoke":
+		switch arg {
+		case WallPrimary:
+			if err := setWaiver(session, arg, false); err != nil {
+				return "gate: could not persist the override (" + err.Error() + ")"
+			}
+			logOverride("override-"+arg+"-revoke", session, cwd)
+			return waiverRevokedMessage(arg)
+		default:
+			return "gate: /tdd revoke needs a wall (primary), got " + arg
+		}
 	case "style":
 		switch arg {
 		case "terse", "plain":
@@ -131,7 +155,7 @@ func tddCommand(sub, arg, session, cwd string) string {
 			return "gate: /tdd style needs terse or plain, got " + arg
 		}
 	default:
-		return "gate: unknown subcommand " + sub + " — valid: /gate [status|off|on|reset|style|primary-edits]"
+		return "gate: unknown subcommand " + sub + " — valid: /gate [status|off|on|reset|style|allow|revoke|primary-edits]"
 	}
 }
 
