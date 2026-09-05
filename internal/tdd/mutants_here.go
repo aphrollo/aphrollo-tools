@@ -89,14 +89,6 @@ func buildMutantsJob(repoRoot, stage string) (MutantsJob, mutantsRefusal, error)
 			Reason: fmt.Sprintf("could not resolve what to measure on %s (tip %q, base %q) — is there a commit on this lane, and a trunk it branched from?", branch, j.Tip, j.BaseSHA),
 		}, nil
 	}
-	// A still-running job for this SAME lane already owns j.Worktree, and
-	// prepareMutantsWorktree below is a `git reset --hard` (or, for Go, an
-	// os.RemoveAll plus reclone of goMutantsCloneDir(j.Worktree)) — either one
-	// run against the tree that job's producer is currently mutating and
-	// testing in. "One warm directory per lane" and "never cancel the run it
-	// supersedes" cannot both hold across two overlapping commits (issue
-	// #283); this keeps the second and pays a cold worktree for the overlap.
-	j.Worktree = mutantsWorktreeAvoidingLiveJob(j.Repo, j.Worktree, j.TipTree)
 	j.Diff = filepath.Join(mutantsStateDir(), "lane."+projectKey(root)+".diff")
 	// Beside the gate's other state, never inside the worktree cargo-mutants
 	// mutates in place: a log file created there before the worktree exists is
@@ -114,6 +106,19 @@ func buildMutantsJob(repoRoot, stage string) (MutantsJob, mutantsRefusal, error)
 		appendGateLog(stage, logToken(j.Repo), "mutants", "mutants-refused:disk", 0)
 		return MutantsJob{}, mutantsRefusal{Reason: line}, nil
 	}
+	// Chosen and CLAIMED as one locked step, immediately before the
+	// synchronous, possibly expensive prepare below: a still-running job for
+	// this SAME lane already owning j.Worktree would otherwise see
+	// prepareMutantsWorktree run a `git reset --hard` (or, for Go, an
+	// os.RemoveAll plus reclone) against the tree that job's producer is
+	// currently mutating and testing in. "One warm directory per lane" and
+	// "never cancel the run it supersedes" cannot both hold across two
+	// overlapping commits (issue #283); this keeps the second and pays a
+	// cold worktree for the overlap. Claiming right here, rather than
+	// deciding earlier and claiming only once this whole function returns,
+	// is what closes issue #405: the choice and the claim share one lock, so
+	// no concurrent caller's own choice can land inside this call's window.
+	j.Worktree = chooseMutantsWorktree(j.Repo, j.Worktree, j.TipTree)
 	// The worktree is prepared HERE, synchronously, rather than left to the
 	// detached child: a bad path (or a drive that cannot create it) is then
 	// caught before this process ever reports the run as started, instead of
@@ -167,7 +172,17 @@ func RunMutantsHere(dir string, out io.Writer) int {
 	// guard here: the box-wide lock inside the producer call already
 	// serializes them, and it QUEUES rather than refusing, so the second lane
 	// keeps its place instead of being told to go away.
+	//
+	// r.Worktree == j.Worktree skips exactly one entry: buildMutantsJob's own
+	// chooseMutantsWorktree (issue #405) already registered a reservation for
+	// j's OWN worktree, under this same process, before this function ever
+	// gets to ask "is anything else measuring this tree" — without the skip
+	// every hand-typed run found itself in the registry and refused itself as
+	// a duplicate.
 	for _, r := range RunningMutantsJobs(j.Repo) {
+		if r.Worktree == j.Worktree {
+			continue
+		}
 		if !strings.EqualFold(r.TipTree, j.TipTree) {
 			continue
 		}

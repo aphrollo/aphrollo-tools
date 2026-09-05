@@ -531,7 +531,7 @@ func stampGreenSuiteForTest(t *testing.T, root string) {
 // saveMutantsJob's append is a read-modify-write with no lock between two
 // StartMutantsJob calls registering close together (issue #284 follow-up):
 // whichever writes second silently drops the other's job, invisibly to
-// mutantsWorktreeAvoidingLiveJob (#283). This drives the actual contention:
+// chooseMutantsWorktree (#283). This drives the actual contention:
 // jobB's own save is stood up while the test itself holds the registry's own
 // lock (exactly what saveMutantsJob's critical section would hold mid
 // read-modify-write), and a bounded probe of that SAME lock doubles as the
