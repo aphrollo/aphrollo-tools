@@ -110,6 +110,10 @@ func TestRun_Workspace_Prune_Ticket_ForceRemovesADirtyTree(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(wt, "dirty.txt"), []byte("x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A forced removal of a dirty tree is a discard the git shim's wall refuses;
+	// the test models the operator arming the override, so its verdict is the
+	// same whether PATH's git is the shim (this box) or real git (CI).
+	t.Setenv("APHROLLO_DISCARD", "1")
 
 	var out, errb bytes.Buffer
 	if code := Run([]string{"workspace", "prune", repo, branch, "--force"}, strings.NewReader(""), &out, &errb); code != 0 {
