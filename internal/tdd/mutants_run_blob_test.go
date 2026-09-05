@@ -76,7 +76,7 @@ func TestRunMutantsJob_DoesNotCarryAnOutcomeMeasuredAtAnotherBlob(t *testing.T) 
 	// The consequence that actually matters: lane 2's own plan must still
 	// think this file needs measuring, not treat the poisoned entry as
 	// already answering for its real content.
-	_, carried, _ := scopeMutantsRun(j2)
+	_, carried, _, _ := scopeMutantsRun(j2)
 	for _, m := range carried {
 		if m.key() == key {
 			t.Fatalf("lane 2 carried an outcome measured at another blob: %+v", m)

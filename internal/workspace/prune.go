@@ -117,9 +117,7 @@ func PrunePlan(repoArg string) (*Prune, error) {
 // "no PR". The real implementation shells gh in the worktree, where gh resolves
 // the repo from origin.
 var ghPRState = func(wt, branch string) (string, error) {
-	cmd := exec.Command("gh", "pr", "view", "--json", "state", "-q", ".state", "--", branch)
-	cmd.Dir = wt
-	out, err := cmd.CombinedOutput()
+	out, err := ghCombinedOutput(wt, "pr", "view", "--json", "state", "-q", ".state", "--", branch)
 	if err != nil {
 		// gh exits non-zero both for "no PR for this branch" and for genuine
 		// failures. Only the former is an absence; distinguish on gh's message
@@ -142,9 +140,7 @@ var ghPRState = func(wt, branch string) (string, error) {
 // after the merge — see #163: `git status --porcelain` alone cannot make that
 // distinction, since new commits leave the tree clean again.
 var ghPRHeadOid = func(wt, branch string) (string, error) {
-	cmd := exec.Command("gh", "pr", "view", "--json", "headRefOid", "-q", ".headRefOid", "--", branch)
-	cmd.Dir = wt
-	out, err := cmd.CombinedOutput()
+	out, err := ghCombinedOutput(wt, "pr", "view", "--json", "headRefOid", "-q", ".headRefOid", "--", branch)
 	if err != nil {
 		return "", fmt.Errorf("gh pr view %s: %v: %s", branch, err, strings.TrimSpace(string(out)))
 	}
