@@ -205,12 +205,28 @@ func applyFileEdits(fileEdits []lsp.FileEdit, root, mainPath, mainSrc string, ap
 // rename, so a reader never observes a partially written file and an aborted
 // write leaves the original intact. The existing file's permission bits are
 // preserved (falling back to 0644 for a new file).
+//
+// When path is itself a symlink, os.Rename(tmp, path) would replace the LINK
+// with a plain file — the target the link pointed at is left untouched (or, if
+// nothing else references it, effectively orphaned) and the path silently
+// stops being a symlink. That is a worse outcome than the edit itself failing,
+// so the write instead targets the link's resolved destination, leaving the
+// link entry untouched and writing THROUGH it. A symlink whose target cannot
+// be resolved (broken link, or a cycle) is refused rather than guessed at.
 func writeFileAtomic(path, content string) error {
+	target := path
+	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return fmt.Errorf("%s is a symlink whose target cannot be resolved: %w", path, err)
+		}
+		target = resolved
+	}
 	mode := os.FileMode(0o644)
-	if fi, err := os.Stat(path); err == nil {
+	if fi, err := os.Stat(target); err == nil {
 		mode = fi.Mode().Perm()
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".aphrollo-rename-*")
+	tmp, err := os.CreateTemp(filepath.Dir(target), ".aphrollo-rename-*")
 	if err != nil {
 		return err
 	}
@@ -226,7 +242,7 @@ func writeFileAtomic(path, content string) error {
 	if err := os.Chmod(tmpName, mode); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, path)
+	return os.Rename(tmpName, target)
 }
 
 // withinRoot reports whether path is root itself or lies beneath it, comparing

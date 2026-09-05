@@ -167,7 +167,11 @@ func changedQueries(cfg Config, base string) ([]string, error) {
 }
 
 // queryFiles lists the .sql query files for every entry in cfg, as repo-relative
-// paths. An entry's `queries` may name a single file or a directory.
+// paths. Each of an entry's `queries` paths (sqlc v2 allows either a single
+// scalar or a list) may name a single file or a directory. An entry with no
+// queries path is refused rather than silently falling back to a directory
+// stat of "" (== the repo root), which would walk the entire repository for
+// .sql files instead of the configured scope.
 func queryFiles(cfg Config) ([]string, error) {
 	seen := map[string]bool{}
 	var out []string
@@ -178,28 +182,33 @@ func queryFiles(cfg Config) ([]string, error) {
 		}
 	}
 	for _, e := range cfg.Entries {
-		abs := filepath.Join(cfg.Repo, e.Queries)
-		info, err := os.Stat(abs)
-		if err != nil {
-			return nil, fmt.Errorf("queries path %s: %w", e.Queries, err)
+		if len(e.Queries) == 0 {
+			return nil, fmt.Errorf("sql entry for %s has no queries path", e.Out)
 		}
-		if !info.IsDir() {
-			add(filepath.ToSlash(e.Queries))
-			continue
-		}
-		err = filepath.WalkDir(abs, func(path string, d os.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".sql") {
-				return err
-			}
-			rel, err := filepath.Rel(cfg.Repo, path)
+		for _, q := range e.Queries {
+			abs := filepath.Join(cfg.Repo, q)
+			info, err := os.Stat(abs)
 			if err != nil {
-				return err
+				return nil, fmt.Errorf("queries path %s: %w", q, err)
 			}
-			add(filepath.ToSlash(rel))
-			return nil
-		})
-		if err != nil {
-			return nil, err
+			if !info.IsDir() {
+				add(filepath.ToSlash(q))
+				continue
+			}
+			err = filepath.WalkDir(abs, func(path string, d os.DirEntry, err error) error {
+				if err != nil || d.IsDir() || !strings.HasSuffix(path, ".sql") {
+					return err
+				}
+				rel, err := filepath.Rel(cfg.Repo, path)
+				if err != nil {
+					return err
+				}
+				add(filepath.ToSlash(rel))
+				return nil
+			})
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	sort.Strings(out)

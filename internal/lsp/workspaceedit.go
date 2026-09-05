@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -15,9 +16,18 @@ type DocumentURI string
 
 // WorkspaceEdit is the result of a refactoring request such as
 // textDocument/rename. Servers populate either Changes or DocumentChanges.
+//
+// DocumentChanges is decoded as raw JSON, not []TextDocumentEdit directly,
+// because the spec lets that array mix a resource operation (CreateFile,
+// RenameFile, DeleteFile — each carrying a "kind" field TextDocumentEdit does
+// not have) in among the per-document edits. Decoding straight into
+// TextDocumentEdit would silently zero such an element (empty URI, no edits)
+// rather than erroring, and FileEdits would then fail on that zero value with
+// an error naming no file and no operation. FileEdits.go dispatches on "kind"
+// per element instead.
 type WorkspaceEdit struct {
 	Changes         map[DocumentURI][]TextEdit `json:"changes,omitempty"`
-	DocumentChanges []TextDocumentEdit         `json:"documentChanges,omitempty"`
+	DocumentChanges []json.RawMessage          `json:"documentChanges,omitempty"`
 }
 
 // TextDocumentEdit is the documentChanges form: edits scoped to one document.
@@ -28,6 +38,26 @@ type TextDocumentEdit struct {
 	Edits []TextEdit `json:"edits"`
 }
 
+// resourceOperationKind is just enough of documentChanges' CreateFile/
+// RenameFile/DeleteFile shape to name what it is and where: a plain
+// TextDocumentEdit carries none of these fields, so a present, non-empty Kind
+// is what distinguishes a resource operation from an ordinary edit.
+type resourceOperationKind struct {
+	Kind   string      `json:"kind"`
+	URI    DocumentURI `json:"uri"`    // create, delete
+	OldURI DocumentURI `json:"oldUri"` // rename
+	NewURI DocumentURI `json:"newUri"` // rename
+}
+
+// document names the file a resource operation targets, for an error message:
+// the new location for a rename, the sole uri for create/delete.
+func (op resourceOperationKind) document() DocumentURI {
+	if op.Kind == "rename" {
+		return op.NewURI
+	}
+	return op.URI
+}
+
 // FileEdit is a resolved, path-addressed set of edits for one file.
 type FileEdit struct {
 	Path  string
@@ -36,6 +66,10 @@ type FileEdit struct {
 
 // FileEdits flattens the WorkspaceEdit into per-file edits keyed by filesystem
 // path, sorted by path for deterministic output. Both LSP shapes are merged.
+// A documentChanges element carrying a resource-operation "kind"
+// (CreateFile/RenameFile/DeleteFile) is refused with an error naming the
+// operation and the document it targets, rather than silently decoding to a
+// zero TextDocumentEdit and failing on an empty path that names nothing.
 func (w WorkspaceEdit) FileEdits() ([]FileEdit, error) {
 	byPath := map[string][]TextEdit{}
 	add := func(uri DocumentURI, edits []TextEdit) error {
@@ -51,7 +85,18 @@ func (w WorkspaceEdit) FileEdits() ([]FileEdit, error) {
 			return nil, err
 		}
 	}
-	for _, dc := range w.DocumentChanges {
+	for _, raw := range w.DocumentChanges {
+		var probe resourceOperationKind
+		if err := json.Unmarshal(raw, &probe); err != nil {
+			return nil, fmt.Errorf("decode documentChanges entry: %w", err)
+		}
+		if probe.Kind != "" {
+			return nil, fmt.Errorf("documentChanges: unsupported %q resource operation on %s", probe.Kind, probe.document())
+		}
+		var dc TextDocumentEdit
+		if err := json.Unmarshal(raw, &dc); err != nil {
+			return nil, fmt.Errorf("decode documentChanges text edit: %w", err)
+		}
 		if err := add(dc.TextDocument.URI, dc.Edits); err != nil {
 			return nil, err
 		}

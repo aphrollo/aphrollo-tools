@@ -197,6 +197,72 @@ func TestSubmit_ActsOnExactlyOneWorktree(t *testing.T) {
 	}
 }
 
+// Push.Apply already performs a `gh pr checks` read to render its own (here
+// suppressed) receipt line; submit must reuse that read rather than issuing a
+// second one — the second call is pure avoidable gh latency (and, for the
+// mergeable poll on the same path, up to mergeablePollAttempts *
+// mergeablePollDelay of it).
+func TestSubmit_CallsGhCIStatusExactlyOnce(t *testing.T) {
+	repo := pushedRepo(t)
+	stubGH(t,
+		func(wt, branch string) (*PRInfo, error) {
+			return &PRInfo{Number: 42, URL: "https://github.com/o/r/pull/42", State: "OPEN", IsDraft: true}, nil
+		},
+		func(wt string, req PRCreate) (*PRInfo, error) { return nil, nil },
+	)
+	stubReady(t, func(wt, branch string) error { return nil })
+	stubBody(t, func(wt, branch, body string) error { return nil })
+	ciCalls := 0
+	stubCI(t, func(wt, branch string) (CIStatus, error) {
+		ciCalls++
+		return CIStatus{State: "green"}, nil
+	})
+
+	s, err := SubmitPlan(targetFor(repo, "feat/y"), "summary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if err := s.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
+	}
+	if ciCalls != 1 {
+		t.Errorf("ghCIStatus called %d times during submit, want exactly 1 (submit must reuse push's read, not re-poll)", ciCalls)
+	}
+}
+
+// Push.Apply's own mergeable-poll read (viewPRMergeable, itself built on
+// ghViewPR) is likewise cached and reused by submit rather than re-polled: the
+// stub here never reports Mergeable as UNKNOWN, so each poll resolves after
+// exactly one ghViewPR call — reuseOpenPR's own lookup (1) plus Push.Apply's
+// mergeable poll (1) is the minimum of 2; a third would mean submit re-polled.
+func TestSubmit_DoesNotRepollMergeableAfterPush(t *testing.T) {
+	repo := pushedRepo(t)
+	viewCalls := 0
+	stubGH(t,
+		func(wt, branch string) (*PRInfo, error) {
+			viewCalls++
+			return &PRInfo{Number: 42, URL: "https://github.com/o/r/pull/42", State: "OPEN", IsDraft: true}, nil
+		},
+		func(wt string, req PRCreate) (*PRInfo, error) { return nil, nil },
+	)
+	stubReady(t, func(wt, branch string) error { return nil })
+	stubBody(t, func(wt, branch, body string) error { return nil })
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
+
+	s, err := SubmitPlan(targetFor(repo, "feat/y"), "summary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if err := s.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
+	}
+	if viewCalls != 2 {
+		t.Errorf("ghViewPR called %d times during submit, want exactly 2 (reuseOpenPR + Push's own mergeable poll — submit must reuse Push's result, not re-poll)", viewCalls)
+	}
+}
+
 // After a SUCCESSFUL flip, a failing body edit is best-effort: submit still
 // succeeds (the PR is in review; the body is cosmetic) and prints a warning.
 func TestSubmit_FlipOKBodyFailsStillSucceeds(t *testing.T) {

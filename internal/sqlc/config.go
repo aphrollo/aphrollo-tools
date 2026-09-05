@@ -33,11 +33,14 @@ import (
 	"strings"
 )
 
-// SQLEntry is one `sql:` list item from a sqlc config: the query source, the
-// schema source, and the Go output dir, each a path relative to the repo root.
+// SQLEntry is one `sql:` list item from a sqlc config: the query source(s),
+// the schema source(s), and the Go output dir. Each path is relative to the
+// repo root. sqlc v2 allows queries:/schema: to be either a single scalar path
+// or a YAML list of paths; either form parses to a slice here (length 1 for
+// the scalar form) so every consumer sees one shape.
 type SQLEntry struct {
-	Queries string
-	Schema  string
+	Queries []string
+	Schema  []string
 	Out     string
 }
 
@@ -114,11 +117,17 @@ func isSqlcConfigName(name string) bool {
 // zero-dependency). Each list item under `sql:` opens a new entry; within an
 // entry the first queries:/schema:/out: lines are captured. out: lives under
 // gen.go but is unique within an entry, so no nesting tracking is needed.
+// queries:/schema: is either a scalar ("queries: path") or a YAML list (a bare
+// "queries:" line followed by deeper "- path" items); listKey/listIndent track
+// which of the two keys, if either, is currently open so a "- path" item with
+// no colon is attributed to it rather than dropped as an unrecognized line.
 func parseConfig(data []byte) ([]SQLEntry, error) {
 	var entries []SQLEntry
 	inSQL := false
 	cur := -1
 	entryIndent := -1 // indent of the sql: list items; deeper "- " lines are nested
+	listKey := ""     // "queries" or "schema" while its list form is open; "" otherwise
+	listIndent := -1  // indent of the open listKey's own "key:" line
 	for _, raw := range strings.Split(string(data), "\n") {
 		line := stripComment(raw)
 		trimmed := strings.TrimSpace(line)
@@ -131,12 +140,35 @@ func parseConfig(data []byte) ([]SQLEntry, error) {
 		if indent == 0 {
 			inSQL = strings.HasPrefix(trimmed, "sql:")
 			entryIndent = -1
+			listKey = ""
 			continue
 		}
 		if !inSQL {
 			continue
 		}
 		isItem := strings.HasPrefix(trimmed, "- ") || trimmed == "-"
+
+		// A "- value" item deeper than an open queries:/schema: key is that
+		// key's list-form value, not a new sql entry or an unrelated nested
+		// list (e.g. gen.go.overrides' "- db_type:").
+		if isItem && listKey != "" && indent > listIndent {
+			if val := unquote(strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))); val != "" && cur >= 0 {
+				switch listKey {
+				case "queries":
+					entries[cur].Queries = append(entries[cur].Queries, val)
+				case "schema":
+					entries[cur].Schema = append(entries[cur].Schema, val)
+				}
+			}
+			continue
+		}
+		if !isItem {
+			// A plain key line ends whatever list form a previous queries:/
+			// schema: opened; the switch below reopens it if this line is
+			// itself one.
+			listKey = ""
+		}
+
 		// A list item at the sql: list's own indent opens a new sql entry. A
 		// list item that is MORE indented (e.g. gen.go.overrides' "- db_type:")
 		// belongs to a nested list and must not be mistaken for a new entry — we
@@ -145,6 +177,7 @@ func parseConfig(data []byte) ([]SQLEntry, error) {
 			entryIndent = indent
 			entries = append(entries, SQLEntry{})
 			cur = len(entries) - 1
+			listKey = ""
 			trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
 			if trimmed == "" {
 				continue
@@ -164,12 +197,16 @@ func parseConfig(data []byte) ([]SQLEntry, error) {
 		}
 		switch key {
 		case "queries":
-			if entries[cur].Queries == "" {
-				entries[cur].Queries = val
+			if val == "" {
+				listKey, listIndent = "queries", indent
+			} else if len(entries[cur].Queries) == 0 {
+				entries[cur].Queries = []string{val}
 			}
 		case "schema":
-			if entries[cur].Schema == "" {
-				entries[cur].Schema = val
+			if val == "" {
+				listKey, listIndent = "schema", indent
+			} else if len(entries[cur].Schema) == 0 {
+				entries[cur].Schema = []string{val}
 			}
 		case "out":
 			if entries[cur].Out == "" {
@@ -183,6 +220,9 @@ func parseConfig(data []byte) ([]SQLEntry, error) {
 	for i, e := range entries {
 		if e.Out == "" {
 			return nil, fmt.Errorf("sql entry %d has no gen.go.out", i)
+		}
+		if len(e.Queries) == 0 {
+			return nil, fmt.Errorf("sql entry %d has no queries", i)
 		}
 	}
 	return entries, nil

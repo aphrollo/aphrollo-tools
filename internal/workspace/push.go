@@ -15,6 +15,15 @@ type Push struct {
 	ForceWithLease bool
 	hasUpstream    bool
 	ahead          string // commits the local branch is ahead ("" => unknown/new)
+
+	// prInfo/prInfoErr and ci/ciErr cache the mergeable-poll and CI-check reads
+	// Apply performs to render its own (often-suppressed) receipt lines. Submit
+	// reuses them instead of re-issuing the same bounded mergeable poll and the
+	// same `gh pr checks` call a second time — see Submit.Apply.
+	prInfo    *PRInfo
+	prInfoErr error
+	ci        CIStatus
+	ciErr     error
 }
 
 // PushPlan resolves the push without executing it: whether an upstream exists and
@@ -116,7 +125,10 @@ func (p *Push) Apply(stdout, stderr io.Writer) error {
 	// Surface merge conflicts on every push — push always runs, so a coder who only
 	// pushes still sees them. Non-fatal: push's job is to publish. Re-poll past
 	// GitHub's async UNKNOWN window so a fresh push isn't a false all-clear.
-	if mi, err := viewPRMergeable(wt, branch); err == nil && mi != nil {
+	// Cached on p so Submit.Apply can reuse this exact read instead of re-polling.
+	mi, miErr := viewPRMergeable(wt, branch)
+	p.prInfo, p.prInfoErr = mi, miErr
+	if miErr == nil && mi != nil {
 		switch {
 		case isConflicting(mi):
 			fmt.Fprintf(stdout, "CONFLICT: branch has merge conflicts — rebase onto %s and resolve before submit\n", resolveDefaultBranch(wt))
@@ -125,8 +137,11 @@ func (p *Push) Apply(stdout, stderr io.Writer) error {
 		}
 	}
 
-	// Read CI so the receipt carries it without a follow-up call.
-	if ci, err := ghCIStatus(wt, branch); err == nil {
+	// Read CI so the receipt carries it without a follow-up call. Cached on p
+	// for the same reason as prInfo above.
+	ci, ciErr := ghCIStatus(wt, branch)
+	p.ci, p.ciErr = ci, ciErr
+	if ciErr == nil {
 		fmt.Fprintf(stdout, "ci %s\n", ci.State)
 	}
 	return nil

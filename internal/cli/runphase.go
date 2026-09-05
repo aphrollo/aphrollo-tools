@@ -16,11 +16,11 @@ func runPhase(args []string, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	job := fs.String("job", "", "path to the deferred job record")
 	if err := fs.Parse(args); err != nil {
-		return 0
+		return 2
 	}
 	if *job == "" {
 		fmt.Fprintln(stderr, "aphrollo tdd runphase: --job is required")
-		return 0
+		return 2
 	}
 	return tdd.RunPhase(*job)
 }

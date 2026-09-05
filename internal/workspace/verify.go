@@ -17,8 +17,8 @@ import (
 // mechanical suite + anti-cheat, but NOT typecheck or lint, so a type regression
 // (e.g. svelte-check) or a lint failure slips past `ship` and only surfaces in
 // CI. `verify` is read-only — it does not commit, push, or mutate source, and
-// adds no privilege surface. Dry-run by default (lists the exact commands);
-// --apply runs them in order and stops at the first failure.
+// adds no privilege surface. Execute by default (runs the trio in order and
+// stops at the first failure); --dry lists the exact commands and stops.
 type Verify struct {
 	Target *Target
 	Apps   []appVerify

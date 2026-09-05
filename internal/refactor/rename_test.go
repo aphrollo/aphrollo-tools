@@ -155,6 +155,81 @@ func TestApplyFileEdits_RejectsEditOutsideRoot(t *testing.T) {
 	}
 }
 
+// writeFileAtomic's rename step must write THROUGH a symlinked target rather
+// than replacing the link itself: os.Rename(tmp, path) on a path that is a
+// symlink swaps in a plain file at that path, dropping the link and leaving
+// its former target's content stale (or orphaned). This asserts on the real
+// filesystem state after the write — path must still be a symlink, and its
+// resolved target must hold the new content — because a check on the returned
+// error or a printed message alone would not have caught the conversion.
+func TestWriteFileAtomic_WritesThroughASymlinkRatherThanReplacingIt(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real.txt")
+	if err := os.WriteFile(real, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.txt")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeFileAtomic(link, "new"); err != nil {
+		t.Fatalf("writeFileAtomic: %v", err)
+	}
+
+	fi, err := os.Lstat(link)
+	if err != nil {
+		t.Fatalf("Lstat(%s): %v", link, err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("%s is no longer a symlink after writeFileAtomic — the link was replaced by a plain file", link)
+	}
+	dest, err := os.Readlink(link)
+	if err != nil {
+		t.Fatalf("Readlink(%s): %v", link, err)
+	}
+	if dest != real {
+		t.Fatalf("symlink now points at %q, want unchanged target %q", dest, real)
+	}
+	gotViaLink, err := os.ReadFile(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotViaLink) != "new" {
+		t.Fatalf("content read through the link = %q, want %q", gotViaLink, "new")
+	}
+	gotViaReal, err := os.ReadFile(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotViaReal) != "new" {
+		t.Fatalf("real.txt content = %q, want %q — the write must land on the link's target", gotViaReal, "new")
+	}
+}
+
+// A symlink whose target does not exist cannot be written through; refusing
+// loudly is the contract, not silently converting the link into a plain file
+// (which writeFileAtomic must not do — see the test above).
+func TestWriteFileAtomic_RefusesABrokenSymlink(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(dir, "broken.txt")
+	if err := os.Symlink(filepath.Join(dir, "does-not-exist.txt"), link); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeFileAtomic(link, "new"); err == nil {
+		t.Fatalf("writeFileAtomic on a broken symlink: want error, got nil")
+	}
+
+	fi, err := os.Lstat(link)
+	if err != nil {
+		t.Fatalf("Lstat(%s): %v", link, err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("%s is no longer a symlink after the refused write", link)
+	}
+}
+
 // samePath folds case on Windows (a case-insensitive filesystem) and compares
 // exactly everywhere else. This test runs the real runtime.GOOS check the
 // function itself makes, so on a non-Windows runner it has nothing to prove
