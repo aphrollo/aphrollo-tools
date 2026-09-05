@@ -473,7 +473,14 @@ aphrollo workspace merge         # gh pr merge --squash --delete-branch
   **honoring GitHub's gates** — gh refuses a non-mergeable or red-CI PR, and `merge`
   never passes `--admin`, so it cannot force past a failing check. `--squash`
   (default) / `--merge` / `--rebase`; `--keep-branch` to skip the branch delete.
-  It deliberately does **not** touch the local worktree — that is `prune`'s job.
+  It deliberately does **not** touch the local worktree — that is `prune`'s job —
+  except for one best-effort housekeeping sweep, after the merge lands, of every
+  OTHER linked worktree whose branch is now merged into trunk: it leaves alone a
+  branch with no commits of its own — including one landed by fast-forward,
+  whose tip sits on trunk's own history for good and whose worktree
+  `aphrollo workspace prune` still reclaims by PR state — and any worktree with
+  uncommitted work, the guard that matters once a builder has actually written
+  a file.
 
 > Merge stays a deliberate step: in the hub-and-spoke flow it is gated on the
 > operator's "ship" + green CI, so a coder runs `merge` on instruction, not
@@ -1314,6 +1321,7 @@ accepts either. `contiguous` applies in whichever direction is chosen.
 | `dep-graph-forbids` | `roots`, `forbidden`, `edges`, `min_reachable` | no root package may REACH a forbidden one (glob) through the resolved dependency graph; `edges = "normal"` (default) never follows dev/build edges, which is the whole distinction | dev-only tooling in a shipping binary |
 | `file-set-containment` | `superset_file`, `subset_file`, `capture` | every capture in `subset_file` must also appear in `superset_file` | a headless stand-in whose query must refuse at least what the real one refuses |
 | `json-number-ceiling` | `files`, `path`, `tolerance_pct`, `enabled_env` | a number read out of generated JSON may not exceed its baseline by more than the tolerance | a criterion bench figure nobody was reading |
+| `symbol-removed` | `pattern` (exactly one capture group) | a symbol captured at `--base <ref>` must still be captured somewhere in scope at the current tree, or be admitted by a tombstone comment naming it and a reason | a deleted test, invisible to every file-at-a-time law |
 
 The last three judge a whole TREE rather than a file at a time, and each
 refuses to reach a VACUOUS verdict: a dependency walk that resolved nothing, a
@@ -1396,6 +1404,30 @@ identity and a rename is a new key at a ceiling of zero.
 The pre-edit hook judges ONE file, so it cannot see a workspace total: an
 added line whose text is already at its ceiling somewhere else is caught by
 the whole-tree run at commit, not by the write.
+
+#### Diff-scoped kinds
+
+`symbol-removed` answers a different question from every other kind above:
+not "does the tree, right now, obey the rule" but "did something the tree
+used to carry silently vanish". It needs the OTHER side of a diff, so it
+takes `--base <ref>` (git `pre-commit`/`pre-merge-commit` pass `HEAD`
+automatically; `ratchet check` run by hand needs `--base` given) and, for
+every file its `[scope]` matches, collects every name `pattern`'s one
+capture group caught at `base` and at the current tree — the CURRENT tree,
+never `base` twice, so `--proposed` and a staged `--files` narrowing are
+honored on the tip side exactly as every other kind honors them. A name
+present at `base` and absent everywhere at tip is a hit, keyed `<base
+path>:<name>` — the base path, not wherever (if anywhere) the name turns up
+again, so a plain rename reports under the OLD name while a name that moved
+to a different file, unchanged, reports nothing at all. The one way through
+besides restoring it is a tombstone comment left where the symbol stood:
+`// ratchet: <law name> <symbol>: <reason>` (or `#`), with a REASON after
+the colon — a stub with nothing after it admits nothing. Run with no base at
+all (the pre-edit hook's shape: one `--proposed` file and nothing else) the
+law answers nothing rather than guessing, and says so once in a note rather
+than reporting a false clean. It carries no baseline file of its own: every
+hit is a regression from a ceiling of zero, paid down only by a tombstone or
+a restore, never by a floor row creeping up.
 
 #### The baseline law
 
@@ -1559,6 +1591,7 @@ aphrollo ratchet check --format json         # what the hooks read
 aphrollo ratchet check --no-tighten          # report only
 aphrollo ratchet check --proposed crates/a.rs=/tmp/new.rs   # judge content not on disk
 aphrollo ratchet check --adopt nan-guard     # write nan-guard's baseline from the tree (new or widened law only)
+aphrollo ratchet check --base HEAD~1         # judge a diff-scoped law (symbol-removed) against that ref
 aphrollo ratchet test                        # prove every law against its fixtures
 aphrollo ratchet presets                     # list every embedded preset and its params
 aphrollo ratchet init --preset common,rust --param pattern=TODO\( --param prefixes=BORLD

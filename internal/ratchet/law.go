@@ -277,10 +277,6 @@ var rootKeys = map[string]bool{
 	"extends": true,
 }
 
-// matcherKeys (law_matcher_fields.go) is the exact key set each matcher
-// kind accepts, in a fixed declaration order — never a map — and whether
-// each is required.
-
 // ParseLaw parses one law file. wantName is the file's stem: the two must
 // agree, so the law's fixtures and baseline can be found by name alone.
 func ParseLaw(text, wantName string) (Law, error) {
@@ -395,7 +391,7 @@ func ParseLaw(text, wantName string) (Law, error) {
 	if law.Scope, err = parseScope(doc); err != nil {
 		return Law{}, err
 	}
-	if law.Matcher, err = parseMatcher(doc, newer); err != nil {
+	if law.Matcher, err = parseMatcher(doc, newer, law.Name); err != nil {
 		return Law{}, err
 	}
 	if law.Matcher.Contiguous {
@@ -467,7 +463,7 @@ func parseSchema(doc *tomlDoc) (schema int, newer bool, err error) {
 	return v.i, v.i > SchemaVersion, nil
 }
 
-func parseMatcher(doc *tomlDoc, newer bool) (Matcher, error) {
+func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
 	if !doc.has("matcher") {
 		return Matcher{}, fmt.Errorf("missing [matcher] — a law must state exactly one rule")
 	}
@@ -621,6 +617,9 @@ func parseMatcher(doc *tomlDoc, newer bool) (Matcher, error) {
 		if ferr := setCeilingCommonFields(doc, &m); ferr != nil {
 			return Matcher{}, ferr
 		}
+	case KindSymbolRemoved:
+		m.Pattern, m.Key = get("pattern"), KeyLineContent
+		err = requireOneCaptureGroupSymbolRemoved(err, lawName, m.Pattern)
 	case KindRegistryBothWays:
 		m.EntryPattern, m.UsePattern = get("entry_pattern"), get("use_pattern")
 		m.RegistryFile = doc.str("matcher", "registry_file")

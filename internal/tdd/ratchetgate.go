@@ -174,6 +174,9 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 		Tracked:        trackedFiles(repoRoot),
 		TrackedIgnored: trackedIgnoredFiles(repoRoot),
 		CacheDir:       stateDir(),
+		// A diff-scoped law (symbol-removed) needs the commit it is about to
+		// land on top of — HEAD, both for a plain commit and a merge commit.
+		Base: "HEAD",
 	})
 	if err != nil {
 		return ratchetCheckErrorResult(gateName, repoRoot, err, started)

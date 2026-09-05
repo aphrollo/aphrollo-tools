@@ -29,6 +29,7 @@ var matcherKeys = map[MatcherKind][]matcherKeySpec{
 	KindFileSetContainment: {{"kind", true}, {"superset_file", true}, {"subset_file", true}, {"capture", true}},
 	KindJSONNumberCeiling:  {{"kind", true}, {"files", true}, {"path", true}, {"tolerance_pct", false}, {"enabled_env", false}},
 	KindGoBenchCeiling:     {{"kind", true}, {"files", true}, {"tolerance_pct", false}, {"enabled_env", false}},
+	KindSymbolRemoved:      {{"kind", true}, {"pattern", true}},
 }
 
 // matcherKeyAllowed reports whether key is one of allowed, by name.
@@ -89,6 +90,19 @@ func setCeilingCommonFields(doc *tomlDoc, m *Matcher) error {
 		m.EnabledEnv = v.s
 	}
 	return nil
+}
+
+// requireOneCaptureGroupSymbolRemoved is symbol-removed's own capture-group
+// check: its `pattern` must capture exactly the symbol name, in exactly one
+// group — that group is the identity every finding is keyed by, so a
+// pattern with none (or several, an ambiguous identity) is rejected at
+// load, named by the law that declared it.
+func requireOneCaptureGroupSymbolRemoved(err error, lawName string, pattern *regexp.Regexp) error {
+	if err != nil || pattern.NumSubexp() == 1 {
+		return err
+	}
+	return fmt.Errorf("law %q: matcher.pattern must have exactly one capture group (the symbol name), got %d",
+		lawName, pattern.NumSubexp())
 }
 
 // requireCaptureGroups checks entry_pattern before use_pattern — a fixed

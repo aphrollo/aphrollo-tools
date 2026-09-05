@@ -24,7 +24,11 @@ func killTreePlan(pid int) []string {
 	return []string{"kill", "-KILL", "-" + strconv.Itoa(pid)}
 }
 
-// killTree signals the phase's whole process group.
+// killTree signals the phase's whole process group. Because this is a
+// negative-pid group signal, a cmd whose Cancel calls killTree must itself
+// have been started with a group-creating SysProcAttr (suiteAttrs,
+// detachedAttrs or belowNormalAttrs) — otherwise the signal misses every
+// descendant of a child that never became a group leader.
 func killTree(pid int) error {
 	return syscall.Kill(-pid, syscall.SIGKILL)
 }
