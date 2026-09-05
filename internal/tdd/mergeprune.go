@@ -16,25 +16,35 @@ type PrunedLane struct {
 // PruneMergedLanesAfterMerge sweeps mainRepo's LINKED worktrees, removing
 // every one whose checked-out branch is MERGED into the repo's resolved
 // trunk (never hardcoded "main" — `trunkBranch` is the same resolution every
-// law in this package uses) — `git branch --merged <trunk>` — with one
-// narrowing: a branch whose tip IS trunk's own tip never counts as merged,
-// even though `--merged` alone would say so. A branch created moments
-// earlier, with no commits of its own yet, trivially satisfies "merged" that
-// way — its tip already equals trunk's — without having landed any work at
-// all. That gap is issue #144: a fresh lane, still clean because a builder
-// had not yet made an edit in it, was pruned out from under them by a sweep
-// that read "clean" as "merged".
+// law in this package uses) — `git for-each-ref --merged <trunk>` — with
+// two narrowings:
+//
+//  1. A branch with no commits of its own never counts as merged, even
+//     though `--merged` alone would say so: its tip already sits somewhere
+//     on trunk's own first-parent history, either because it was created at
+//     trunk's current tip (issue #144: a fresh lane, still clean because a
+//     builder had not yet made an edit in it, was pruned out from under them
+//     by a sweep that read "clean" as "merged") or because trunk has simply
+//     advanced past an older commit the branch never moved beyond (issue
+//     #382: the same fresh lane, now merely a few commits behind, passed the
+//     #144 check — tip != trunk's CURRENT tip — while still holding no work
+//     of its own).
+//  2. A worktree with uncommitted work — staged, unstaged, or untracked — is
+//     never removed regardless of its branch's merge state: the ONE fact
+//     that only the live working tree can answer, checked immediately
+//     before the removal it gates, never inferred from ref state.
 //
 // exclude is the worktree running THIS merge (or "" to exclude none) — the
 // ground under the process calling this, which must never be swept
 // regardless of its own branch's merge state.
 //
-// A merged branch is, by definition, work already landed on trunk, so there
-// is nothing an --apply opt-in would protect that `--merged` does not
-// already guarantee; every prune is announced on stdout as it happens.
-// Removal errors are reported on stderr and do not stop the sweep — one
-// worktree a lock or a permission refuses is not a reason to leave every
-// other landed lane behind too.
+// A merged branch with a clean tree is, by definition, work already landed
+// on trunk with nothing left uncommitted, so there is nothing an --apply
+// opt-in would protect that these two checks do not already guarantee;
+// every prune is announced on stdout as it happens. A kept lane (rule 2) and
+// a removal error are both reported on stderr and do not stop the sweep —
+// one worktree a dirty tree, a lock, or a permission refuses is not a reason
+// to leave every other landed lane behind too.
 func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writer) []PrunedLane {
 	if mainRepo == "" {
 		return nil
@@ -43,11 +53,11 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 	if trunk == "" {
 		return nil
 	}
-	trunkTip := gitOut(mainRepo, "rev-parse", trunk)
-	if trunkTip == "" {
+	if gitOut(mainRepo, "rev-parse", trunk) == "" {
 		return nil
 	}
 	merged := mergedBranchTips(mainRepo, trunk)
+	mainlineTips := trunkFirstParentTips(mainRepo, trunk)
 	mainClean := cleanWorktreePath(mainRepo)
 	excludeClean := cleanWorktreePath(exclude)
 	var pruned []PrunedLane
@@ -60,8 +70,20 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 			continue
 		}
 		tip, ok := merged[wt.branch]
-		if !ok || tip == trunkTip {
-			continue // not merged, or a fresh branch sitting at trunk's own tip
+		if !ok {
+			continue // not merged into trunk at all
+		}
+		if mainlineTips[tip] {
+			continue // no commits of its own (issue #144, generalized by #382)
+		}
+		dirty, err := worktreeHasUncommittedWork(wt.path)
+		if err != nil {
+			fmt.Fprintf(stderr, "prune-lanes: could not check %s (%s): %v\n", wt.path, wt.branch, err)
+			continue
+		}
+		if dirty {
+			fmt.Fprintf(stderr, "prune-lanes: kept %s (%s): uncommitted work\n", wt.path, wt.branch)
+			continue
 		}
 		if err := removeMergedLaneWorktree(mainRepo, wt.path, wt.branch); err != nil {
 			fmt.Fprintf(stderr, "prune-lanes: could not prune %s (%s): %v\n", wt.path, wt.branch, err)
@@ -71,6 +93,63 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 		pruned = append(pruned, PrunedLane{Worktree: wt.path, Branch: wt.branch})
 	}
 	return pruned
+}
+
+// worktreeHasUncommittedWork reports whether path's tree has anything `git
+// status` would show — staged, unstaged, or untracked. It is the ONE check
+// in this sweep that reads the live working tree rather than ref state, run
+// immediately before the removal it gates: a fresh lane with no commits of
+// its own, or a real merge commit having landed, are facts about the
+// BRANCH, settled the moment this function is called; "clean" is a fact
+// about the WORKTREE that can flip between one sweep and the next, so it is
+// never cached or inferred.
+//
+// Issue #382's two pruned worktrees were in fact CLEAN — their builders had
+// not yet written a file — which is why the old code's bare `git worktree
+// remove`, with no check of its own, still succeeded: git itself already
+// refuses a dirty tree. This check is not what would have saved them
+// (trunkFirstParentTips is); it turns git's own dirty-tree refusal into an
+// explicit, NAMED keep rule — the "kept ... uncommitted work" stderr line —
+// instead of a reported removal error, and it is the guard that would
+// actually matter once a builder has written a file before the sweep runs.
+func worktreeHasUncommittedWork(path string) (bool, error) {
+	out, err := git(path, "status", "--porcelain", "--untracked-files=all")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) != "", nil
+}
+
+// trunkFirstParentTips is every commit on trunk's OWN mainline — its
+// first-parent history — keyed for a tip lookup. A merged branch whose tip
+// lands in this set never brought any commit of its own to trunk that is
+// not already trunk's own history: either it is the literal issue #144 case
+// (a fresh branch created at trunk's current tip), trunk has simply
+// advanced past an older commit the branch never moved beyond (issue #382's
+// actual bug — see PruneMergedLanesAfterMerge's doc comment), or the branch
+// was landed by FAST-FORWARD, which moves trunk's own pointer onto the
+// branch's commits, so its tip sits directly on trunk's mainline exactly
+// like a never-diverged branch's would. Either way there is no work here
+// for THIS sweep to land, so the branch is skipped exactly as #144 already
+// did — just no longer keyed to trunk's CURRENT tip alone.
+//
+// Unlike the other two cases, a fast-forward-landed lane is skipped for
+// good, every run, since its tip never stops being a member of this set;
+// leaving its worktree behind is always safe (every commit in it already IS
+// trunk), and `aphrollo workspace prune` — the separate PR-state-driven
+// sweep — still reclaims it once its PR reads MERGED. A lane genuinely
+// landed by a real merge commit has a tip that is a SECOND parent of one of
+// these mainline commits, never a member of the set itself, so this check
+// never catches it.
+func trunkFirstParentTips(mainRepo, trunk string) map[string]bool {
+	out := gitOut(mainRepo, "rev-list", "--first-parent", trunk)
+	tips := map[string]bool{}
+	for line := range strings.SplitSeq(out, "\n") {
+		if sha := strings.TrimSpace(line); sha != "" {
+			tips[sha] = true
+		}
+	}
+	return tips
 }
 
 // cleanWorktreePath normalizes a worktree path for comparison: forward
@@ -143,6 +222,13 @@ func mergePruneWorktrees(mainRepo string) []mergePruneWorktree {
 
 // removeMergedLaneWorktree removes a merged lane's worktree and its local
 // branch, folding in `git worktree prune` so no stale admin record lingers.
+// It never passes --force to `worktree remove`: the caller already proved
+// the tree clean via worktreeHasUncommittedWork immediately before calling
+// this, in the same single-threaded sweep, so a plain removal succeeds on
+// its own. --force would only paper over something this call has no
+// business overriding — a lock, or a tree that somehow turned dirty between
+// that check and this one — and a removal error from either is exactly what
+// the caller needs to report and skip, not force past.
 func removeMergedLaneWorktree(mainRepo, path, branch string) error {
 	if _, err := git(mainRepo, "worktree", "remove", path); err != nil {
 		return err
