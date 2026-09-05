@@ -177,14 +177,64 @@ func TestVerifyClosureRejectsAGateDocWithNoGateChange(t *testing.T) {
 	}
 }
 
-func TestVerifyClosureAcceptsAGateStageChange(t *testing.T) {
+// ratchet: test_removed TestVerifyClosureAcceptsAGateStageChange: it pinned
+// the hole issue #292 fixes (an unnamed gate-stage change closed ANY
+// escape); renamed and inverted below as
+// TestVerifyClosure_RejectsAGateStageChangeNobodyNamed.
+//
+// A gate-stage change used to close ANY escape by the mere fact of touching
+// internal/tdd or internal/ratchet, with no relation to the escape being
+// closed at all — this pinned the hole (issue #292). Naming the stage on
+// closes-by is now required for code exactly as it already was for a test.
+func TestVerifyClosure_RejectsAGateStageChangeNobodyNamed(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	verifyStub(t, `{"body":"Closes #42\n","commits":[]}`,
 		diffFor("internal/tdd/precommit_go.go", "+	lint.Args = append(lint.Args, \"--strict\")"), escapeLabelled)
 
 	var out strings.Builder
+	if ok, _ := VerifyClosure(t.TempDir(), "31", &out); ok {
+		t.Fatalf("an unnamed gate stage change must not close an unrelated escape:\n%s", out.String())
+	}
+}
+
+// Naming the stage on closes-by is what makes the SAME diff close the escape
+// it actually names.
+func TestVerifyClosure_AcceptsAGateStageChangeTheIssueNamed(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	verifyStub(t, `{"body":"Closes #42\n","commits":[]}`,
+		diffFor("internal/tdd/precommit_go.go", "+	lint.Args = append(lint.Args, \"--strict\")"),
+		`{"labels":[{"name":"escape"}],"body":"closes-by: internal/tdd/precommit_go.go\n"}`)
+
+	var out strings.Builder
 	if ok, _ := VerifyClosure(t.TempDir(), "31", &out); !ok {
-		t.Fatalf("a gate stage change closes an escape:\n%s", out.String())
+		t.Fatalf("a gate stage change the issue named closes it:\n%s", out.String())
+	}
+}
+
+// A comment reflowed onto the exact file an issue names must not close it:
+// naming the right FILE is not the same as changing what it DOES.
+func TestVerifyClosure_RejectsACommentOnlyEditToTheNamedFile(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	verifyStub(t, `{"body":"Closes #42\n","commits":[]}`,
+		diffFor("internal/tdd/precommit_go.go", "+	// re-flowed for clarity"),
+		`{"labels":[{"name":"escape"}],"body":"closes-by: internal/tdd/precommit_go.go\n"}`)
+
+	var out strings.Builder
+	if ok, _ := VerifyClosure(t.TempDir(), "31", &out); ok {
+		t.Fatalf("a comment-only edit changes nothing a check depends on:\n%s", out.String())
+	}
+}
+
+// A whitespace-only edit is the same hole by another route.
+func TestVerifyClosure_RejectsAWhitespaceOnlyEditToTheNamedFile(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	verifyStub(t, `{"body":"Closes #42\n","commits":[]}`,
+		diffFor("internal/tdd/precommit_go.go", "+   "),
+		`{"labels":[{"name":"escape"}],"body":"closes-by: internal/tdd/precommit_go.go\n"}`)
+
+	var out strings.Builder
+	if ok, _ := VerifyClosure(t.TempDir(), "31", &out); ok {
+		t.Fatalf("a whitespace-only edit changes nothing a check depends on:\n%s", out.String())
 	}
 }
 
