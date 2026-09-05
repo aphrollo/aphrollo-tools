@@ -314,7 +314,13 @@ func goMutantsReceipt(j goMutantsRun, mutants []MutantOutcome, now TreeState) Mu
 		}
 	}
 	r.Outcomes = mutants
-	accepted, unaccepted := splitAcceptedSurvivors(j.Worktree, survivors)
+	list, bad := acceptedMutants(j.Worktree)
+	for _, entry := range bad {
+		// Loud and NAMED: a misspelled kind must never look like it landed
+		// as an ordinary equivalence claim (issue #268).
+		logf(os.Stdout, "aphrollo: mutation-accept entry refused (bad kind): %q", entry)
+	}
+	accepted, unaccepted, kinds := splitAcceptedSurvivors(list, survivors)
 	// A timeout is normally an UNMEASURED mutant rather than a result, and the
 	// merge gate refuses one for exactly that reason. But some mutants cannot
 	// be measured by any run: an INCREMENT_DECREMENT on a loop index cancels
@@ -329,9 +335,11 @@ func goMutantsReceipt(j goMutantsRun, mutants []MutantOutcome, now TreeState) Mu
 	// waives a timeout there -- including one caused by a slow box rather
 	// than by non-termination. Every accepted timeout is therefore named in
 	// the receipt below, so the waiver is auditable instead of silent.
-	acceptedTimeouts, unmeasured := splitAcceptedSurvivors(j.Worktree, timedOut)
+	acceptedTimeouts, unmeasured, timeoutKinds := splitAcceptedSurvivors(list, timedOut)
 	r.Timeout = len(unmeasured)
 	r.Accepted = len(accepted) + len(acceptedTimeouts)
+	kinds.merge(timeoutKinds)
+	r.AcceptKindCounts = kinds
 	// An accepted timeout is NAMED in Survivors, exactly as an accepted
 	// survivor is. That list is how the decision survives: a carried receipt
 	// is recounted from its outcomes by recountReceipt, which has no
@@ -365,37 +373,50 @@ func worktreeDirty(worktree string) bool {
 	return strings.TrimSpace(out) != ""
 }
 
-// splitAcceptedSurvivors divides survivors by the repo's own accept-list,
-// mutation-accept under [aphrollo] in aphrollo.toml. An entry reads
-// "<file>:<line> <MUTATOR> # why it is acceptable", and the reason is not
-// decoration: an accept-list nobody had to justify is a list of survivors
-// somebody silenced.
-func splitAcceptedSurvivors(root string, survivors []MutantOutcome) (accepted, unaccepted []MutantOutcome) {
-	list := acceptedMutants(root)
+// splitAcceptedSurvivors divides survivors by an already-parsed accept-list
+// (acceptedMutants), tallying the KIND each matched entry claims alongside
+// the accepted/unaccepted split.
+func splitAcceptedSurvivors(list map[string]acceptEntry, survivors []MutantOutcome) (accepted, unaccepted []MutantOutcome, kinds AcceptKindCounts) {
 	for _, m := range survivors {
-		if list[survivorKey(m.File, m.Line, m.Mutation)] {
-			accepted = append(accepted, m)
+		entry, found := list[survivorKey(m.File, m.Line, m.Mutation)]
+		if !found {
+			unaccepted = append(unaccepted, m)
 			continue
 		}
-		unaccepted = append(unaccepted, m)
+		accepted = append(accepted, m)
+		kinds.add(entry.Kind)
 	}
-	return accepted, unaccepted
+	return accepted, unaccepted, kinds
 }
 
 func survivorKey(file string, line int, mutation string) string {
 	return filepath.ToSlash(file) + ":" + strconv.Itoa(line) + " " + strings.TrimSpace(mutation)
 }
 
-// acceptedMutants reads the accept-list, keeping only entries that state a
-// reason.
-func acceptedMutants(root string) map[string]bool {
-	out := map[string]bool{}
-	for _, entry := range tomlStringsIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", "mutation-accept") {
-		key, reason, ok := strings.Cut(entry, "#")
-		if !ok || strings.TrimSpace(reason) == "" {
+// acceptedMutants reads the accept-list, mutation-accept under [aphrollo] in
+// aphrollo.toml. An entry reads "<file>:<line> <MUTATOR> # why it is
+// acceptable", and the reason is not decoration: an accept-list nobody had
+// to justify is a list of survivors somebody silenced, so an entry with no
+// reason at all is dropped rather than kept.
+//
+// bad names every entry whose reason DID carry a "kind=" directive that
+// failed to parse — a misspelled kind, or a runner/capability kind missing
+// its required test=/issue= evidence — verbatim, so the caller can refuse it
+// loudly instead of letting it read as an ordinary equivalence claim.
+func acceptedMutants(root string) (list map[string]acceptEntry, bad []string) {
+	list = map[string]acceptEntry{}
+	for _, raw := range tomlStringsIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", "mutation-accept") {
+		key, reason, ok := strings.Cut(raw, "#")
+		reason = strings.TrimSpace(reason)
+		if !ok || reason == "" {
 			continue
 		}
-		out[strings.TrimSpace(key)] = true
+		kind, evidence, kindOK := parseAcceptKind(reason)
+		if !kindOK {
+			bad = append(bad, raw)
+			continue
+		}
+		list[strings.TrimSpace(key)] = acceptEntry{Kind: kind, Evidence: evidence}
 	}
-	return out
+	return list, bad
 }
