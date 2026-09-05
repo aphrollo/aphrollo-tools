@@ -103,12 +103,40 @@ func TestGoMutantsReceipt_AcceptsOnlyTheSurvivorsWithAReason(t *testing.T) {
 		{File: "calc.go", Line: 9, Mutation: "CONDITIONALS_NEGATION", Status: "missed"},
 	}
 	list, _ := acceptedMutants(root)
-	accepted, unaccepted, _ := splitAcceptedSurvivors(list, survivors)
+	accepted, unaccepted, _, _ := splitAcceptedSurvivors(list, survivors)
 	if len(accepted) != 1 || accepted[0].Line != 4 {
 		t.Fatalf("accepted = %+v, want only the entry that states a reason", accepted)
 	}
 	if len(unaccepted) != 2 {
 		t.Fatalf("unaccepted = %+v, want the unlisted survivor AND the one with no reason", unaccepted)
+	}
+}
+
+// TestGoMutantsReceipt_AnAcceptListNamingUnmeasuredEntriesDoesNotInflateAccepted
+// pins the contract issue #339 depends on: Accepted counts mutants THIS RUN
+// measured and accepted, never the accept-list's own size. An accept-list
+// can carry entries for mutants long since fixed or renamed — normal debt —
+// and a run that measures nothing must report zero accepted regardless of
+// how many entries the list carries.
+func TestGoMutantsReceipt_AnAcceptListNamingUnmeasuredEntriesDoesNotInflateAccepted(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "aphrollo.toml", strings.Join([]string{
+		"[aphrollo]",
+		`mutation-accept = [`,
+		`  "calc.go:1 CONDITIONALS_BOUNDARY # accepted on an earlier run",`,
+		`  "calc.go:2 ARITHMETIC_BASE # accepted on an earlier run",`,
+		`  "calc.go:3 CONDITIONALS_NEGATION # accepted on an earlier run",`,
+		"]",
+	}, "\n"))
+
+	// This run measured nothing: no survivors, no timeouts, nothing at all.
+	r := goMutantsReceipt(goMutantsRun{Worktree: root}, nil, TreeState{})
+
+	if r.MutantsTotal != 0 {
+		t.Fatalf("MutantsTotal = %d, want 0 — nothing was measured", r.MutantsTotal)
+	}
+	if r.Accepted != 0 {
+		t.Fatalf("Accepted = %d, want 0 — the accept list's own size must never stand in for what this run measured and accepted", r.Accepted)
 	}
 }
 
@@ -134,7 +162,7 @@ func TestTomlStringsIn_AQuotedBracketDoesNotCloseTheArrayEarly(t *testing.T) {
 		{File: "calc.go", Line: 3, Mutation: "CONDITIONALS_NEGATION", Status: "missed"},
 	}
 	list, _ := acceptedMutants(root)
-	accepted, unaccepted, _ := splitAcceptedSurvivors(list, survivors)
+	accepted, unaccepted, _, _ := splitAcceptedSurvivors(list, survivors)
 	if len(accepted) != 3 {
 		t.Fatalf("accepted = %+v, unaccepted = %+v, want all three entries read past the one with a bracket in its own reason", accepted, unaccepted)
 	}

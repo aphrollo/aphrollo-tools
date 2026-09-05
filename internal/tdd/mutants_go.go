@@ -3,6 +3,7 @@ package tdd
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -324,7 +325,13 @@ func goMutantsReceipt(j goMutantsRun, mutants []MutantOutcome, now TreeState) Mu
 		// as an ordinary equivalence claim (issue #268).
 		logf(os.Stdout, "aphrollo: mutation-accept entry refused (bad kind): %q", entry)
 	}
-	accepted, unaccepted, kinds := splitAcceptedSurvivors(list, survivors)
+	accepted, unaccepted, kinds, ambiguous := splitAcceptedSurvivors(list, survivors)
+	for _, entry := range ambiguous {
+		// Loud and NAMED, the same as a bad accept-kind entry: a column-less
+		// entry that admits an unreviewed sibling must never look like an
+		// ordinary accepted survivor (issue #282).
+		logf(os.Stdout, "aphrollo: mutation-accept entry refused (%s)", entry)
+	}
 	// A timeout is normally an UNMEASURED mutant rather than a result, and the
 	// merge gate refuses one for exactly that reason. But some mutants cannot
 	// be measured by any run: an INCREMENT_DECREMENT on a loop index cancels
@@ -339,7 +346,10 @@ func goMutantsReceipt(j goMutantsRun, mutants []MutantOutcome, now TreeState) Mu
 	// waives a timeout there -- including one caused by a slow box rather
 	// than by non-termination. Every accepted timeout is therefore named in
 	// the receipt below, so the waiver is auditable instead of silent.
-	acceptedTimeouts, unmeasured, timeoutKinds := splitAcceptedSurvivors(list, timedOut)
+	acceptedTimeouts, unmeasured, timeoutKinds, ambiguousTimeouts := splitAcceptedSurvivors(list, timedOut)
+	for _, entry := range ambiguousTimeouts {
+		logf(os.Stdout, "aphrollo: mutation-accept entry refused (%s)", entry)
+	}
 	r.Timeout = len(unmeasured)
 	r.Accepted = len(accepted) + len(acceptedTimeouts)
 	kinds.merge(timeoutKinds)
@@ -377,38 +387,107 @@ func worktreeDirty(worktree string) bool {
 	return strings.TrimSpace(out) != ""
 }
 
+// acceptEntryGroup is every accept-list entry written for one file:line
+// mutator combination. cargo-mutants and gremlins both regularly emit
+// several distinct mutants on one line with identical mutator text — a real
+// accept-list carries entries for creator.rs:108 at columns 5, 33 and 71
+// side by side (issue #282) — so a group holds any number of column-specific
+// entries plus at most one column-less Fallback.
+type acceptEntryGroup struct {
+	ByCol    map[int]acceptEntry
+	Fallback *acceptEntry
+}
+
 // splitAcceptedSurvivors divides survivors by an already-parsed accept-list
 // (acceptedMutants), tallying the KIND each matched entry claims alongside
-// the accepted/unaccepted split.
-func splitAcceptedSurvivors(list map[string]acceptEntry, survivors []MutantOutcome) (accepted, unaccepted []MutantOutcome, kinds AcceptKindCounts) {
+// the accepted/unaccepted split. ambiguous names every column-less entry that
+// matched a line carrying more than one distinct mutant: such an entry
+// cannot tell its reviewed mutant apart from an unreviewed sibling, so it is
+// refused rather than applied to any of them — the caller is expected to log
+// each one (see goMutantsReceipt), the same way a bad accept-kind entry is.
+func splitAcceptedSurvivors(list map[string]acceptEntryGroup, survivors []MutantOutcome) (accepted, unaccepted []MutantOutcome, kinds AcceptKindCounts, ambiguous []string) {
+	sameLine := make(map[string]int, len(survivors))
 	for _, m := range survivors {
-		entry, found := list[survivorKey(m.File, m.Line, m.Mutation)]
+		sameLine[survivorKey(m.File, m.Line, m.Mutation)]++
+	}
+	warned := map[string]bool{}
+	for _, m := range survivors {
+		key := survivorKey(m.File, m.Line, m.Mutation)
+		group, found := list[key]
 		if !found {
 			unaccepted = append(unaccepted, m)
 			continue
 		}
+		if entry, ok := group.ByCol[m.Col]; ok {
+			accepted = append(accepted, m)
+			kinds.add(entry.Kind)
+			continue
+		}
+		if group.Fallback == nil {
+			unaccepted = append(unaccepted, m)
+			continue
+		}
+		if sameLine[key] > 1 {
+			if !warned[key] {
+				ambiguous = append(ambiguous, fmt.Sprintf(
+					"column-less entry for %s admits %d same-line mutants — add a column to disambiguate", key, sameLine[key]))
+				warned[key] = true
+			}
+			unaccepted = append(unaccepted, m)
+			continue
+		}
 		accepted = append(accepted, m)
-		kinds.add(entry.Kind)
+		kinds.add(group.Fallback.Kind)
 	}
-	return accepted, unaccepted, kinds
+	return accepted, unaccepted, kinds, ambiguous
 }
 
 func survivorKey(file string, line int, mutation string) string {
 	return filepath.ToSlash(file) + ":" + strconv.Itoa(line) + " " + strings.TrimSpace(mutation)
 }
 
+// acceptEntryLocationWithColRe and acceptEntryLocationRe parse the location
+// half of an accept-list key, tried in this order so "file:108:33" is never
+// misread as file "file:108" at line 33: the three-group pattern is tried
+// FIRST, and only a location with exactly two trailing colon-digit groups
+// matches it.
+var (
+	acceptEntryLocationWithColRe = regexp.MustCompile(`^(.+):(\d+):(\d+)$`)
+	acceptEntryLocationRe        = regexp.MustCompile(`^(.+):(\d+)$`)
+)
+
+// parseAcceptEntryLocation splits "<file>:<line>" or "<file>:<line>:<col>"
+// into its parts. ok is false when loc matches neither shape.
+func parseAcceptEntryLocation(loc string) (file string, line, col int, hasCol, ok bool) {
+	if m := acceptEntryLocationWithColRe.FindStringSubmatch(loc); m != nil {
+		l, lerr := strconv.Atoi(m[2])
+		c, cerr := strconv.Atoi(m[3])
+		if lerr == nil && cerr == nil {
+			return m[1], l, c, true, true
+		}
+	}
+	if m := acceptEntryLocationRe.FindStringSubmatch(loc); m != nil {
+		if l, err := strconv.Atoi(m[2]); err == nil {
+			return m[1], l, 0, false, true
+		}
+	}
+	return "", 0, 0, false, false
+}
+
 // acceptedMutants reads the accept-list, mutation-accept under [aphrollo] in
 // aphrollo.toml. An entry reads "<file>:<line> <MUTATOR> # why it is
-// acceptable", and the reason is not decoration: an accept-list nobody had
-// to justify is a list of survivors somebody silenced, so an entry with no
-// reason at all is dropped rather than kept.
+// acceptable" or, to name one mutant among several sharing a line,
+// "<file>:<line>:<col> <MUTATOR> # why". The reason is not decoration: an
+// accept-list nobody had to justify is a list of survivors somebody
+// silenced, so an entry with no reason at all is dropped rather than kept.
 //
 // bad names every entry whose reason DID carry a "kind=" directive that
 // failed to parse — a misspelled kind, or a runner/capability kind missing
-// its required test=/issue= evidence — verbatim, so the caller can refuse it
-// loudly instead of letting it read as an ordinary equivalence claim.
-func acceptedMutants(root string) (list map[string]acceptEntry, bad []string) {
-	list = map[string]acceptEntry{}
+// its required test=/issue= evidence — or whose location half parsed as
+// neither shape above, verbatim, so the caller can refuse it loudly instead
+// of letting it read as an ordinary equivalence claim.
+func acceptedMutants(root string) (list map[string]acceptEntryGroup, bad []string) {
+	list = map[string]acceptEntryGroup{}
 	for _, raw := range tomlStringsIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", "mutation-accept") {
 		key, reason, ok := strings.Cut(raw, "#")
 		reason = strings.TrimSpace(reason)
@@ -420,7 +499,28 @@ func acceptedMutants(root string) (list map[string]acceptEntry, bad []string) {
 			bad = append(bad, raw)
 			continue
 		}
-		list[strings.TrimSpace(key)] = acceptEntry{Kind: kind, Evidence: evidence}
+		loc, mutation, ok := strings.Cut(strings.TrimSpace(key), " ")
+		if !ok {
+			bad = append(bad, raw)
+			continue
+		}
+		file, line, col, hasCol, locOK := parseAcceptEntryLocation(loc)
+		if !locOK {
+			bad = append(bad, raw)
+			continue
+		}
+		groupKey := survivorKey(file, line, mutation)
+		entry := acceptEntry{Kind: kind, Evidence: evidence}
+		group := list[groupKey]
+		if hasCol {
+			if group.ByCol == nil {
+				group.ByCol = map[int]acceptEntry{}
+			}
+			group.ByCol[col] = entry
+		} else {
+			group.Fallback = &entry
+		}
+		list[groupKey] = group
 	}
 	return list, bad
 }

@@ -200,6 +200,13 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return blockReceipt(ctx.RepoRoot, "the mutation receipt at %s is unreadable (%v)", path, err)
 	}
+	// Fields as the WIRE bytes actually carried them, not the Go zero value a
+	// field an older producer never wrote is indistinguishable from — see
+	// checkReceiptUnacceptedCoherence and checkReceiptCountCoherence.
+	present := receiptFieldPresence(data)
+	if res := checkReceiptUnacceptedCoherence(ctx.RepoRoot, present, r); res != nil {
+		return res
+	}
 	if res := judgeReceiptRepo(r, ctx); res != nil {
 		return res
 	}
@@ -215,6 +222,9 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 	}
 	if r.Timeout > 0 {
 		return blockReceipt(ctx.RepoRoot, "%s", mutantsTimedOutLine(r.Timeout))
+	}
+	if res := checkReceiptCountCoherence(ctx.RepoRoot, present, r); res != nil {
+		return res
 	}
 	switch {
 	case r.BaseSHA == "":
