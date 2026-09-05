@@ -305,6 +305,21 @@ func TestPrimaryMergeOnlyReason_NamesPruneWhenAStaleEntryExists(t *testing.T) {
 	}
 }
 
+// The refusal used to name only the worktree remedy; the session override
+// that actually works from inside a turn belongs in the same sentence, under
+// its renamed spelling — never the retired "primary-edits" one.
+func TestPrimaryRefusal_NamesAllowPrimary(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary, _ := primaryRepo(t)
+	reason := PrimaryMergeOnlyReason(primary)
+	if !strings.Contains(reason, "aphrollo gate allow primary") {
+		t.Fatalf("reason %q must name `aphrollo gate allow primary`", reason)
+	}
+	if strings.Contains(reason, "primary-edits") {
+		t.Fatalf("reason %q must not name the retired primary-edits spelling", reason)
+	}
+}
+
 // A session's project directory can be a DIFFERENT repo entirely from the one
 // a Bash command writes into — a borld-rooted session `cd`ing into an
 // aphrollo-tools worktree, say. The classifier must resolve the repo (and

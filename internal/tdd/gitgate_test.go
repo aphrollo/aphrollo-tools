@@ -54,7 +54,7 @@ func TestInitGitGate_Installs(t *testing.T) {
 	if !changed {
 		t.Fatal("expected changed=true installing the git gate")
 	}
-	for name, sub := range map[string]string{"pre-commit": "precommit", "pre-merge-commit": "premergecommit"} {
+	for name, sub := range map[string]string{"pre-commit": "precommit", "pre-merge-commit": "premerge"} {
 		data, err := os.ReadFile(filepath.Join(hooksDir, name))
 		if err != nil {
 			t.Fatalf("%s not written: %v", name, err)
@@ -75,6 +75,29 @@ func TestInitGitGate_Installs(t *testing.T) {
 	}
 	if got := globalHooksPath(t); got != hooksDir {
 		t.Errorf("core.hooksPath = %q, want %q", got, hooksDir)
+	}
+}
+
+// The global git gate's pre-merge-commit shim must invoke the same renamed
+// "premerge" subcommand the per-repo install already does (see
+// TestInstall_WiresPreMergeCommitToGatePremerge) — one gate, one spelling,
+// not the pre-rename "premergecommit" alias surviving in just this copy.
+func TestInitGitGate_WiresPreMergeCommitToGatePremerge(t *testing.T) {
+	isolateGitConfig(t)
+	hooksDir := filepath.Join(t.TempDir(), "hooks")
+
+	if _, err := InitGitGate(hooksDir, "/usr/local/bin/aphrollo", false); err != nil {
+		t.Fatalf("InitGitGate: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(hooksDir, "pre-merge-commit"))
+	if err != nil {
+		t.Fatalf("pre-merge-commit not written: %v", err)
+	}
+	if !strings.Contains(string(data), "gate premerge") {
+		t.Fatalf("global pre-merge-commit shim does not invoke gate premerge:\n%s", data)
+	}
+	if strings.Contains(string(data), "premergecommit") {
+		t.Fatalf("global pre-merge-commit shim still invokes the pre-rename spelling:\n%s", data)
 	}
 }
 
