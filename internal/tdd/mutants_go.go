@@ -169,6 +169,15 @@ func RunGoMutantsJob(jobPath string) int {
 	// scope matched no files reads differently from one whose reused worktree
 	// was not the tree it assumed (issue #283).
 	logf(os.Stdout, "aphrollo: mutants worktree %s is at %s (job tip %s)", j.Worktree, strings.TrimSpace(gitOut(j.Worktree, "rev-parse", "HEAD")), j.Tip)
+	// The box-wide run lock, taken HERE rather than only around the producer
+	// call below: goMutantsTree's cloneMutantsRunTree does an unconditional
+	// os.RemoveAll plus reclone of a deterministically-named directory with
+	// no lock of its own (issue #436). Acquiring it before that runs, not
+	// after, means the whole run — clone included — is what the lock
+	// serializes, matching what its own doc already claims ("covering the
+	// run's own build AND its test phase").
+	releaseRunLock := acquireMutantsRunLock("mutants run for "+j.Repo, j.RepoRoot)
+	defer releaseRunLock()
 	// Never in a linked worktree: a mutated gate test rewrites whatever
 	// repository it lands in, and a linked worktree's is the lane's own
 	// (issue #156). Everything downstream — the run, the dirty check, the
@@ -197,15 +206,10 @@ func RunGoMutantsJob(jobPath string) int {
 		excludeFiles, movedLines = movedOnlyFiles(j.RepoRoot, j.BaseSHA, j.Tip, lane)
 	}
 
+	// start times gremlins alone, for the finished log line below; the box-wide
+	// lock guarding this whole run (including the clone above) was already
+	// taken near the top of this function.
 	start := time.Now()
-	// The same box-wide lock the Rust runner's producer call holds
-	// (mutants_run.go): gremlins re-runs the WHOLE package's test suite per
-	// mutant, which is the identical wall-clock-threads resource issue #253
-	// serialises whole runs over, and this path never took it at all — two
-	// Go lanes' detached jobs ran that concurrently, and their unlocked
-	// MergeMutantStore calls (issue #284) then raced on top of it.
-	releaseRunLock := acquireMutantsRunLock("mutants run for "+j.Repo, j.RepoRoot)
-	defer releaseRunLock()
 	code := goMutantsJobRunFn(j, out, jobs, excludeFiles)
 	data, err := os.ReadFile(out)
 	if err != nil {

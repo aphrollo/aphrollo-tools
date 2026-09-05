@@ -33,22 +33,26 @@ func TestRunGoMutantsCI_WaitsForTheBoxWideMutationRunLockBeforeRunningGremlins(t
 		RunGoMutantsCI(GoMutantsCI{Root: root, BaseSHA: "abc123"}, &bytes.Buffer{})
 	}()
 
-	// A bounded probe of the SAME lock this test holds: it can only fail
-	// while the test holds the lock, and by the time it returns, gremlins
-	// would already have started had RunGoMutantsCI not waited for it too.
-	// The deadline is generous rather than tight, unlike the local job's own
-	// version of this test: RunGoMutantsCI runs several real `git` plumbing
-	// calls (diffHasMutableGo, the incremental plan) BEFORE it ever reaches
-	// the lock, measured at 1.5 s on a loaded box — nowhere near instant, so
-	// a short probe window would let gremlins simply not have gotten there
-	// yet regardless of whether the lock is doing anything at all.
-	if _, gotLock := acquireMutantsRunLockWithDeadline("probe", "/repo/probe", 5*time.Second); gotLock {
-		t.Fatal("setup: a probe acquired the box-wide lock this test still holds")
-	}
-	select {
-	case <-started:
-		t.Fatal("gremlins started while another mutation run still held the box-wide lock")
-	default:
+	// Polled, not checked once after a fixed delay: RunGoMutantsCI runs
+	// several real `git` plumbing calls (diffHasMutableGo, the incremental
+	// plan) BEFORE it ever reaches the lock, measured at 1.5 s on a loaded
+	// box — nowhere near instant. A single check after one fixed wait races
+	// that plumbing: on a box loaded enough to push it past the wait, the
+	// check fires before gremlins ever could, and the test passes even with
+	// the lock skipped entirely (issue #436) — a false negative on exactly
+	// the revert this test exists to catch. Watching for the whole window
+	// instead means `started` firing at ANY point while this test still
+	// holds the lock is a failure, however long the plumbing took to get
+	// there.
+	deadline := time.Now().Add(5 * time.Second)
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		select {
+		case <-started:
+			t.Fatal("gremlins started while another mutation run still held the box-wide lock")
+		case <-ticker.C:
+		}
 	}
 
 	release()
