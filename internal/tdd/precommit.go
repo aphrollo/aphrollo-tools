@@ -287,31 +287,9 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	rootFiles := append(append([]string{}, g.tests...), g.srcs...)
 
 	if runner.Cmd == "cargo" {
-		plan, ok := planCargoStages(gateName, repoRoot, g.root, rootFiles)
-		if !ok {
-			return GateResult{}
-		}
-		if res := cargoQualityStage(gateName, plan.ws, g.root, plan.touched, run, repoRoot, qualityFmt); res.Blocked {
-			return res
-		}
-		if res := alwaysRunStage(gateName, repoRoot, g.root, plan, run); res.Blocked {
-			return res
-		}
-		if res := cargoQualityStage(gateName, plan.ws, g.root, plan.touched, run, repoRoot, qualityClippy); res.Blocked {
-			return res
-		}
-		if res := workspaceCheckStage(gateName, repoRoot, g.root, plan, run); res.Blocked {
-			return res
-		}
-		if failFirst {
-			if res := failFirstStageWithRustNotice(repoRoot, g.root, g.tests, g.srcs, run); res.Blocked {
-				return res
-			}
-		}
-		if res := suiteStage(gateName, repoRoot, g.root, plan.suiteRunner(), run); res.Blocked {
-			return res
-		}
-		return doctestStage(gateName, repoRoot, g.root, plan, run)
+		// The cargo branch moved to precommit_wsmanifest.go, alongside the
+		// workspace-manifest plumbing it now also drives (issue #365).
+		return gateRootCargo(gateName, repoRoot, g, rootFiles, run, failFirst)
 	}
 
 	// Scope the mechanical run to the related tests of the staged
@@ -340,12 +318,14 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 
 // cargoStagePlan is what the cargo stages of one root need: the workspace
 // commands run from, the packages this commit TOUCHED (never the always-run
-// additions — no staged file belongs to those), and the guard packages the
-// workspace declares.
+// additions — no staged file belongs to those), the guard packages the
+// workspace declares, and any staged files that ARE the workspace's own
+// manifest/lockfile/build config rather than a member's.
 type cargoStagePlan struct {
-	ws        string
-	touched   []string
-	alwaysRun []string
+	ws            string
+	touched       []string
+	alwaysRun     []string
+	wsManifestHit []string
 }
 
 // suiteRunner is the touched crates' own scoped test command — the guard
@@ -369,25 +349,25 @@ func (p cargoStagePlan) guardRunner() Runner {
 
 // planCargoStages resolves package ownership for a cargo root. Ownership is
 // judged PER FILE against the [package] Cargo.toml that covers it: a file no
-// package owns (a virtual workspace manifest, a path outside any member) is
-// SKIPPED with a stderr note, never a trigger to widen the run to the whole
-// workspace. ok=false means nothing staged here is owned by any package.
+// package owns is SKIPPED, never a trigger to widen the run — except the
+// workspace's OWN manifest/lockfile/config, pulled out as wsManifestHit
+// rather than skipped (classifyUnownedCargoFiles, issue #365). ok=false means
+// nothing here is owned AND no workspace manifest file was staged either.
 func planCargoStages(gateName, repoRoot, root string, rootFiles []string) (cargoStagePlan, bool) {
 	owned, unowned := cargoOwnedFiles(repoRoot, root, rootFiles)
-	for _, f := range unowned {
-		fmt.Fprintf(os.Stderr, "gate %s: %s has no owning cargo package — not tested\n", gateName, f)
-	}
-	if len(owned) == 0 {
-		return cargoStagePlan{}, false
-	}
 	// The actual WORKSPACE root: a checked-in .config/nextest.toml and the
 	// workspace's Cargo.lock live there, not in a member crate's own
 	// directory. State/mech-cache keys still use the crate root.
 	ws := cargoWorkspaceRoot(root)
+	wsManifestHit := classifyUnownedCargoFiles(gateName, repoRoot, ws, unowned)
+	if len(owned) == 0 && len(wsManifestHit) == 0 {
+		return cargoStagePlan{}, false
+	}
 	return cargoStagePlan{
-		ws:        ws,
-		touched:   cargoPackagesOwning(root, toRootRelative(repoRoot, root, owned)),
-		alwaysRun: cargoAlwaysRunPackages(ws),
+		ws:            ws,
+		touched:       cargoPackagesOwning(root, toRootRelative(repoRoot, root, owned)),
+		alwaysRun:     cargoAlwaysRunPackages(ws),
+		wsManifestHit: wsManifestHit,
 	}, true
 }
 
