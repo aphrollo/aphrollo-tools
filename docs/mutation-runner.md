@@ -160,6 +160,24 @@ sha>`, with:
 | `APHROLLO_MUTANTS_JOBS` | the concurrency cap the gate computed, with `APHROLLO_MUTANTS_JOBS_WHY` explaining it |
 | `APHROLLO_MUTANTS_BASELINE_EXCLUDED` | how many `mutation-baseline-exclude` entries the gate folded into the nextest passthrough below |
 
+A producer MUST append `$APHROLLO_MUTANTS_ARGS` to its own `cargo mutants`
+invocation, verbatim and unmodified. A script that instead builds its own
+fixed argv (its own `--in-diff`, its own `--package` list, no `--exclude-re`
+at all) silently drops every one of these onto the floor: the touched-package
+narrowing (which packages the unmutated BASELINE even builds), the
+already-judged-mutant exclusion a restart depends on to avoid re-measuring
+what an earlier attempt already caught, and the `mutation-baseline-exclude`
+filterset a repo declared to keep a flaky wall-clock test from vetoing every
+receipt. None of this fails loudly — cargo-mutants still runs, the receipt
+still gets signed, and the ONLY visible difference is that the run measures
+more than it needed to and never appears to shrink no matter how much of the
+diff or the exclusion list grows (issue #423). The gate's own signal for this
+failure mode is the `APHROLLO_MUTANTS_ARGS unread` warning: if it computed a
+non-empty value here and the producer's own stdout/stderr shows no trace of
+it, the gate logs one line naming the variable rather than staying silent —
+worth checking whenever it appears, but its ABSENCE is not proof the args
+were read, only that nothing looked wrong from the outside.
+
 `APHROLLO_MUTANTS_ARGS` is always of the shape
 
 ```
