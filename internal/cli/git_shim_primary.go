@@ -32,16 +32,28 @@ import (
 // take the primary checkout off main, "" when the invocation is fine. It is
 // asked BEFORE any lock is taken and before git runs: a refusal that arrives
 // after the branch moved has refused nothing.
-func primaryRefusalLine(realGit string, rest []string, workDir string) string {
+//
+// rest is already the CLASSIFICATION form: the caller resolves any git alias
+// once (resolveAlias) and hands in the expansion, so a repo or global alias
+// such as `[alias] cob = checkout -b` is judged as checkout -b rather than as
+// the unrecognized verb "cob" walking straight through. shellAlias reports a
+// "!"-prefixed alias, whose expansion is arbitrary shell rather than a git
+// verb sequence -- there is no token to classify, so it is refused outright
+// whenever this checkout is the merge-only primary one, without going
+// through primaryRefusedVerb at all.
+func primaryRefusalLine(realGit string, rest []string, workDir string, shellAlias bool) string {
 	if len(rest) == 0 || tdd.PrimaryEditsAllowed("") {
 		return ""
 	}
-	if !primaryRefusedVerb(realGit, rest, workDir) {
+	if !shellAlias && !primaryRefusedVerb(realGit, rest, workDir) {
 		return ""
 	}
 	root, ok := tdd.PrimaryMergeOnly(workDir)
 	if !ok {
 		return ""
+	}
+	if shellAlias {
+		return "gate: " + tdd.PrimaryMergeOnlyReason(root) + " -- " + rest[0] + " is a shell alias; its expansion cannot be classified, so it is refused outright"
 	}
 	return "gate: " + tdd.PrimaryMergeOnlyReason(root)
 }
@@ -190,4 +202,31 @@ func refResolves(realGit, workDir, ref string) bool {
 	cmd.Dir = workDir
 	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
 	return cmd.Run() == nil
+}
+
+// resolveAlias expands rest[0] once, via `git config --get alias.<verb>`, so
+// a caller classifying the invocation sees what actually runs rather than
+// the bare alias name. found is false when rest[0] names no alias (the
+// ordinary case, and any rest[0] that is itself a flag) -- callers then
+// classify rest verbatim, unchanged. A value alias expands to its own
+// tokens followed by rest's remaining arguments, exactly as git itself
+// splices them in. A "!"-prefixed alias runs an arbitrary shell command
+// rather than a git verb sequence; shellAlias reports that case and expanded
+// is rest, unchanged, since there is no verb in it to classify.
+func resolveAlias(realGit, workDir string, rest []string) (expanded []string, shellAlias, found bool) {
+	if len(rest) == 0 || strings.HasPrefix(rest[0], "-") {
+		return rest, false, false
+	}
+	value := gitShimOut(realGit, workDir, "config", "--get", "alias."+rest[0])
+	if value == "" {
+		return rest, false, false
+	}
+	if strings.HasPrefix(value, "!") {
+		return rest, true, true
+	}
+	fields := strings.Fields(value)
+	if len(fields) == 0 {
+		return rest, false, false
+	}
+	return append(append([]string{}, fields...), rest[1:]...), false, true
 }

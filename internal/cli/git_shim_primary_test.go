@@ -313,6 +313,61 @@ func TestRunGitShim_PrimaryEditsEnvWaivesTheRefusal(t *testing.T) {
 	}
 }
 
+// A repo alias that expands to a refused verb must not walk past the wall
+// just because primaryRefusedVerb only ever saw the literal alias name
+// (issue #279): `[alias] cob = checkout -b` is exactly `checkout -b` once
+// git itself expands it, and the primary checkout must refuse it the same
+// way it refuses `checkout -b` spelled out.
+func TestRunGitShim_RefusesAnAliasThatExpandsToBranchCreation(t *testing.T) {
+	primary, _, cfg := primaryShimRepo(t)
+	cmd := exec.Command(cfg.realGit, "-C", primary, "config", "alias.cob", "checkout -b")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git config alias.cob: %v\n%s", err, out)
+	}
+
+	var out, errb bytes.Buffer
+	code := runGitShim([]string{"cob", "lane/new"}, strings.NewReader(""), &out, &errb, cfg)
+	if code == 0 {
+		t.Fatalf("git cob lane/new (alias for checkout -b) should be refused, got exit 0")
+	}
+	if !strings.Contains(errb.String(), "primary checkout is merge-only") {
+		t.Fatalf("refusal must name the rule, got %q", errb.String())
+	}
+	if b := currentBranch(t, cfg.realGit, primary); b != "main" {
+		t.Fatalf("the primary checkout moved to %q via an alias — the refusal must happen before git runs", b)
+	}
+}
+
+// A shell (`!`-prefixed) alias's expansion is arbitrary shell, not a git
+// verb sequence, so it cannot be classified by primaryRefusedVerb at all.
+// The primary checkout must refuse it outright rather than let it through
+// for lack of a recognized verb (issue #279): a marker file the shell
+// command would create must never appear, proving the shell alias never ran.
+func TestRunGitShim_RefusesAShellAliasOutrightInThePrimaryCheckout(t *testing.T) {
+	primary, _, cfg := primaryShimRepo(t)
+	marker := filepath.Join(primary, "shell-alias-ran")
+	aliasCmd := "!touch " + strings.ReplaceAll(marker, `\`, `/`)
+	cmd := exec.Command(cfg.realGit, "-C", primary, "config", "alias.pwn", aliasCmd)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git config alias.pwn: %v\n%s", err, out)
+	}
+
+	var out, errb bytes.Buffer
+	code := runGitShim([]string{"pwn"}, strings.NewReader(""), &out, &errb, cfg)
+	if code == 0 {
+		t.Fatalf("git pwn (a shell alias) in the primary checkout should be refused, got exit 0")
+	}
+	if !strings.Contains(errb.String(), "primary checkout is merge-only") {
+		t.Fatalf("refusal must name the rule, got %q", errb.String())
+	}
+	if !strings.Contains(errb.String(), "shell alias") {
+		t.Fatalf("refusal must say why it could not classify the invocation, got %q", errb.String())
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatalf("the shell alias ran (marker file exists) — it must be refused before git executes it")
+	}
+}
+
 // writeAndCommit puts one file in dir and commits it with the real git.
 func writeAndCommit(t *testing.T, realGit, dir, rel, body, msg string) {
 	t.Helper()
