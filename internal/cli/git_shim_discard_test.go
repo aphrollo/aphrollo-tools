@@ -35,14 +35,22 @@ func TestDiscardIntent_ClassifiesEachForm(t *testing.T) {
 		{"checkout -f branch", []string{"checkout", "-f", "main"}, "checkout -f", nil, true},
 		{"restore path", []string{"restore", "b.txt"}, "restore <paths>", []string{"b.txt"}, true},
 		{"restore --staged alone is not a discard", []string{"restore", "--staged", "b.txt"}, "", nil, false},
+		{"restore -S alone is not a discard", []string{"restore", "-S", "b.txt"}, "", nil, false},
+		{"restore -SW bundled", []string{"restore", "-SW", "b.txt"}, "restore <paths>", []string{"b.txt"}, true},
+		{"restore --source= doesn't change classification", []string{"restore", "--source=HEAD~1", "b.txt"}, "restore <paths>", []string{"b.txt"}, true},
+		{"restore -- ends options", []string{"restore", "--", "-x"}, "restore <paths>", []string{"-x"}, true},
 		{"clean -fd", []string{"clean", "-fd"}, "clean -fd", nil, true},
 		{"clean -n is a dry run", []string{"clean", "-n"}, "", nil, false},
 		{"clean -fdn is still a dry run", []string{"clean", "-fdn"}, "", nil, false},
+		{"clean -- ends options", []string{"clean", "-fd", "--", "-weird"}, "clean -fd", []string{"-weird"}, true},
 		{"stash drop", []string{"stash", "drop"}, "stash drop", nil, true},
 		{"stash push is reversible", []string{"stash", "push"}, "", nil, false},
 		{"branch -D", []string{"branch", "-D", "x"}, "branch -D x", nil, true},
 		{"branch -d is not forced", []string{"branch", "-d", "x"}, "", nil, false},
+		{"branch -fD bundled", []string{"branch", "-fD", "x"}, "branch -D x", nil, true},
+		{"branch -Df bundled", []string{"branch", "-Df", "x"}, "branch -D x", nil, true},
 		{"worktree remove --force", []string{"worktree", "remove", "--force", "/w"}, "worktree remove --force", []string{"/w"}, true},
+		{"worktree remove -f short form", []string{"worktree", "remove", "-f", "/w"}, "worktree remove --force", []string{"/w"}, true},
 		{"worktree remove without force", []string{"worktree", "remove", "/w"}, "", nil, false},
 		{"status is read-only", []string{"status"}, "", nil, false},
 	}
@@ -179,11 +187,70 @@ func TestDiscardCost_RestrictsToTheNamedPaths(t *testing.T) {
 	}
 }
 
+// TestDiscardCost_RestoreCountsOnlyUnstagedChanges pins that `restore
+// <paths>` (and, by the same code path, `checkout -- <paths>`) measure the
+// worktree against the INDEX, not HEAD: those forms only overwrite the
+// worktree from what is already staged, so staged-but-uncommitted work is
+// not part of what they would destroy. `reset --hard`, by contrast, still
+// measures against HEAD -- it discards staged work too.
+func TestDiscardCost_RestoreCountsOnlyUnstagedChanges(t *testing.T) {
+	repo, realGit := newDiscardFixture(t)
+	writeFixtureFile(t, repo, "a.txt", distinctLines("staged", 2))
+	runFixtureGit(t, realGit, repo, "add", "a.txt")
+	writeFixtureFile(t, repo, "a.txt", append(distinctLines("staged", 2), distinctLines("unstaged", 1)...))
+
+	c := discardCostOf(realGit, repo, "restore <paths>", []string{"a.txt"})
+	if c.Files != 1 || c.Insertions != 1 {
+		t.Fatalf("discardCostOf(restore, [a.txt]) with a staged and an unstaged edit: Files=%d Insertions=%d, want 1/1", c.Files, c.Insertions)
+	}
+
+	runFixtureGit(t, realGit, repo, "add", "a.txt")
+	fullyStaged := discardCostOf(realGit, repo, "restore <paths>", []string{"a.txt"})
+	if !fullyStaged.zero() {
+		t.Fatalf("discardCostOf(restore, [a.txt]) with everything staged = %+v, want zero()", fullyStaged)
+	}
+
+	reset := discardCostOf(realGit, repo, "reset --hard", nil)
+	if reset.Insertions != 3 {
+		t.Fatalf("discardCostOf(reset --hard) over the same tree: Insertions=%d, want 3", reset.Insertions)
+	}
+}
+
 func TestDiscardCost_IsZeroOnACleanTree(t *testing.T) {
 	repo, realGit := newDiscardFixture(t)
 	c := discardCostOf(realGit, repo, "reset --hard", nil)
 	if !c.zero() {
 		t.Fatalf("discardCostOf on a clean tree = %+v, want zero()", c)
+	}
+}
+
+// TestDiscardCost_WorktreeCostResolvesARelativePathAgainstWorkDir pins that
+// `worktree remove --force <path>` measures inside <path> even when <path>
+// is relative -- git itself accepts a relative worktree path, and a relative
+// cmd.Dir resolves against the CALLING process's cwd, not workDir, so the
+// measurement has to join it onto workDir itself first.
+func TestDiscardCost_WorktreeCostResolvesARelativePathAgainstWorkDir(t *testing.T) {
+	isolateGitConfigCLI(t)
+	realGit := realGitForTest(t)
+	root := t.TempDir()
+	repoDir := filepath.Join(root, "wt")
+	if err := os.Mkdir(repoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runFixtureGit(t, realGit, repoDir, "init", "-q", "-b", "main")
+	runFixtureGit(t, realGit, repoDir, "config", "user.email", "t@t")
+	runFixtureGit(t, realGit, repoDir, "config", "user.name", "t")
+	writeFixtureFile(t, repoDir, "seed.txt", []string{"seed"})
+	runFixtureGit(t, realGit, repoDir, "add", ".")
+	runFixtureGit(t, realGit, repoDir, "commit", "-qm", "seed")
+	writeFixtureFile(t, repoDir, "seed.txt", distinctLines("seed-new", 3))
+
+	c := discardCostOf(realGit, root, "worktree remove --force", []string{"wt"})
+	if c.Files != 1 || c.Insertions != 3 || c.Deletions != 1 {
+		t.Fatalf("discardCostOf(worktree remove, relative path) from workDir %s: Files=%d Insertions=%d Deletions=%d, want 1/3/1", root, c.Files, c.Insertions, c.Deletions)
+	}
+	if c.Worktree != repoDir {
+		t.Fatalf("discardCostOf(worktree remove, relative path): Worktree = %q, want %q", c.Worktree, repoDir)
 	}
 }
 
@@ -227,6 +294,31 @@ func TestDiscardCost_CountsStashEntries(t *testing.T) {
 // prints for each form's shape, including that untracked count rides along
 // on discardCost but is never printed for reset (git's reset --hard leaves
 // untracked files alone -- nothing was actually destroyed there).
+// TestDiscardCost_ReportsAMeasurementFailureInsteadOfZero pins fail-closed:
+// a git that cannot even run (never mind measure) must not read as "nothing
+// to discard" -- that would let the wall wave the command through on its
+// own failure. Err carries the failure; zero() is false; the refusal line
+// names the error and the retry instead of a (bogus) file/diff count.
+func TestDiscardCost_ReportsAMeasurementFailureInsteadOfZero(t *testing.T) {
+	repo := t.TempDir()
+	brokenGit := filepath.Join(t.TempDir(), "no-such-git-binary")
+
+	c := discardCostOf(brokenGit, repo, "reset --hard", nil)
+	if c.Err == nil {
+		t.Fatalf("discardCostOf with a broken git binary: Err = nil, want non-nil")
+	}
+	if c.zero() {
+		t.Fatalf("discardCostOf with a broken git binary: zero() = true, want false (Err = %v)", c.Err)
+	}
+
+	line := discardRefusalLine("reset --hard", c)
+	wantPrefix := "gate: refused — reset --hard: could not measure what it would discard ("
+	wantSuffix := "); retry, or APHROLLO_DISCARD=1 to bypass"
+	if !strings.HasPrefix(line, wantPrefix) || !strings.HasSuffix(line, wantSuffix) {
+		t.Fatalf("discardRefusalLine on a measurement failure =\n%q\nwant prefix %q and suffix %q", line, wantPrefix, wantSuffix)
+	}
+}
+
 func TestDiscardRefusalLine_RendersEachShape(t *testing.T) {
 	const tail = "; aphrollo gate allow discard arms one command, APHROLLO_DISCARD=1 for scripts"
 	cases := []struct {

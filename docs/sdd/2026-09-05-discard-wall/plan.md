@@ -25,7 +25,7 @@ Measurement (`discardCost`):
 - Untracked: `git ls-files --others --exclude-standard -- <paths>` line count; with `-x` drop `--exclude-standard`.
 - Stashes: `git stash list` line count.
 - UnmergedCommits: `git rev-list --count HEAD..<b>`.
-- Any git error → treat as zero for that number (the wall never blocks on its own failure to measure; a refusal needs evidence).
+- chose fail-closed on a measurement error over treating it as zero, because a git that cannot measure also cannot be trusted to run the discard safely, and the refusal names the error and the retry.
 
 Tests (fixture: `t.TempDir()` git repo with one commit; helpers may be copied from the shim's existing tests, see `internal/cli/git_shim_test.go`):
 - `TestDiscardIntent_ClassifiesEachForm`: table with these exact inputs and expected `(form, paths, ok)`: `["reset","--hard"]` → `("reset --hard", nil, true)`; `["reset","--soft","HEAD~1"]` → `(_, _, false)`; `["checkout","--","a.txt","b.txt"]` → `("checkout -- <paths>", ["a.txt","b.txt"], true)`; `["checkout","."]` → `("checkout -- <paths>", ["."], true)`; `["checkout","main"]` → false; `["checkout","-f","main"]` → `("checkout -f", nil, true)`; `["restore","b.txt"]` → `("restore <paths>", ["b.txt"], true)`; `["restore","--staged","b.txt"]` → false; `["clean","-fd"]` → `("clean -fd", nil, true)`; `["clean","-n"]` → false; `["clean","-fdn"]` → false; `["stash","drop"]` → `("stash drop", nil, true)`; `["stash","push"]` → false; `["branch","-D","x"]` → `("branch -D x", nil, true)`; `["branch","-d","x"]` → false; `["worktree","remove","--force","/w"]` → `("worktree remove --force", ["/w"], true)`; `["worktree","remove","/w"]` → false; `["status"]` → false.

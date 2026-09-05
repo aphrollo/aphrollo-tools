@@ -11,6 +11,7 @@ Done work gets deleted by a reflexive `git reset --hard`, `git checkout -- .`, `
 - chose the git shim over a git hook, because git has no hook that fires before a checkout, reset, restore or clean; the shim is the only point that sees the command before it runs.
 - chose refuse-with-numbers over a confirmation prompt, because hooks and shims cannot ask a question; the refusal names what would be lost and the one way through, the shape every gate refusal already has.
 - chose measuring the actual loss (modified files, insertions and deletions, untracked files, unmerged commits) over refusing the verb form outright, because a `reset --hard` on a clean tree destroys nothing and must pass silently; a wall that fires on clean trees is turned off within a week.
+- chose fail-closed on a measurement error over treating it as zero, because a git that cannot measure also cannot be trusted to run the discard safely, and the refusal names the error and the retry.
 - chose a one-shot waiver (`gate allow discard` arms exactly one discarding command, expiring after 5 minutes) over a session switch, because the failure this wall exists for is "turned it off to reset one file, forgot, reset --hard an hour later" (user decision 2026-09-05).
 - chose `APHROLLO_DISCARD=1` as the scripted override over none, because a script that must discard (a fixture reset) has no session to arm; every use is logged and counted in `gate stats` beside the primary waiver and the queue bypass.
 - chose leaving the gate's own git calls out of scope by construction over an allow-list, because the tdd package resolves real git past the queue dir; only typed and agent-typed commands reach the shim.
@@ -37,3 +38,4 @@ Done work gets deleted by a reflexive `git reset --hard`, `git checkout -- .`, `
 9. `APHROLLO_DISCARD=1 git reset --hard` passes and logs `override-discard-env`.
 10. `aphrollo gate stats` counts both override rows under denies / overrides, and counts each refusal as `git-discard-refused:<form>`.
 11. The gate's own `reset --hard` in the mutants worktree and `worktree remove --force` in prune still run without a refusal (they never enter the shim).
+12. A measurement failure refuses with `could not measure what it would discard` and never passes silently.
