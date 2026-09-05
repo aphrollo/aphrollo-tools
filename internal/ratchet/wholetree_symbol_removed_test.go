@@ -149,6 +149,32 @@ func TestSymbolRemoved_SkipsWithoutABaseAndSaysSo(t *testing.T) {
 	}
 }
 
+func TestSymbolRemoved_SkipsWhenTheBaseRefDoesNotResolve(t *testing.T) {
+	root := symbolRemovedRepo(t)
+	write(t, filepath.Join(root, "a_test.go"), "package a\n\nfunc TestFoo(t *testing.T) {}\n")
+	// No commit: HEAD is unborn, so `git ls-tree -r --name-only HEAD` exits
+	// 128 with `fatal: Not a valid object name HEAD` — the base ref itself
+	// does not resolve, distinct from having no base at all.
+
+	res, err := Check(Options{Root: root, Base: "HEAD"})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 0 {
+		t.Fatalf("findings = %+v, want none — the base ref does not resolve", res.Findings)
+	}
+	want := "test_removed: skipped, base HEAD not found (pass --base <ref>)"
+	found := false
+	for _, n := range res.Notes {
+		if n == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("Notes = %v, want %q", res.Notes, want)
+	}
+}
+
 func TestSymbolRemoved_ReadsTheTipFromTheProposedOverlay(t *testing.T) {
 	root := symbolRemovedRepo(t)
 	write(t, filepath.Join(root, "a_test.go"), "package a\n\nfunc TestFoo(t *testing.T) {}\n")
