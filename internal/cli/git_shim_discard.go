@@ -507,8 +507,9 @@ const discardRefusalTail = "; aphrollo gate allow discard arms one command, APHR
 // reset/checkout/restore show the file/diff numbers (never untracked --
 // none of those forms touch untracked files); clean shows only the
 // untracked count; stash shows the stash-entry count; branch shows the
-// unmerged-commit count; worktree remove shows the file/diff numbers plus
-// the worktree they were measured in.
+// unmerged-commit count; worktree remove shows the file/diff numbers, the
+// untracked count, and the worktree they were measured in -- everything
+// zero() counted for that form.
 func discardRefusalLine(form string, c discardCost) string {
 	if c.Err != nil {
 		return fmt.Sprintf("gate: refused — %s: could not measure what it would discard (%s); retry, or APHROLLO_DISCARD=1 to bypass", form, firstErrorLine(c.Err))
@@ -516,7 +517,7 @@ func discardRefusalLine(form string, c discardCost) string {
 	var body string
 	switch {
 	case form == "worktree remove --force":
-		body = fmt.Sprintf("%s discards %d file(s), +%d/-%d uncommitted in %s", form, c.Files, c.Insertions, c.Deletions, c.Worktree)
+		body = fmt.Sprintf("%s discards %d file(s), +%d/-%d uncommitted, %d untracked in %s", form, c.Files, c.Insertions, c.Deletions, c.Untracked, c.Worktree)
 	case strings.HasPrefix(form, "clean "):
 		body = fmt.Sprintf("%s discards %d untracked file(s)", form, c.Untracked)
 	case strings.HasPrefix(form, "stash "):

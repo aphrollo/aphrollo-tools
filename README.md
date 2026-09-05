@@ -1069,6 +1069,12 @@ invocation through for a script. Both are counted in `gate stats`:
 `git-discard-refused:<form>` under denies, `override-discard-used` and
 `override-discard-env` under denies / overrides.
 
+`aphrollo workspace remove --force` and `workspace prune --force` run
+`git worktree remove --force` as their own subprocess, so a dirty target hits
+this same wall and needs the same arming — neither verb sets the override on
+its own subprocess, since a forced removal of a dirty tree is exactly the
+reflex the wall exists to stop.
+
 ### The queue shims are executables, not batch files
 
 The queue dir shadows `cargo` and `git` on PATH. On Windows that shadow used to
