@@ -360,11 +360,11 @@ func TestUnacceptedSurvivorsAtMergeRecordAnEscape(t *testing.T) {
 // reworded and the predicate is not, the trigger goes quietly dead.
 func TestTheSurvivorPredicateMatchesTheReceiptGatesOwnRejection(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	res := blockReceipt("", "%d unaccepted survivor(s), starting with %s — a code path no test constrains", 2, "x.rs:1")
+	res := blockReceipt("", "unaccepted-survivor", "%d unaccepted survivor(s), starting with %s — a code path no test constrains", 2, "x.rs:1")
 	if !isUnacceptedSurvivorRejection(res.Message) {
 		t.Fatalf("the predicate must recognise the receipt gate's rejection:\n%s", res.Message)
 	}
-	other := blockReceipt("", "worktree_dirty: the run measured uncommitted work, not what is being merged")
+	other := blockReceipt("", "worktree-dirty", "worktree_dirty: the run measured uncommitted work, not what is being merged")
 	if isUnacceptedSurvivorRejection(other.Message) {
 		t.Fatalf("a different receipt rejection is not a survivor escape:\n%s", other.Message)
 	}
@@ -494,7 +494,7 @@ func noteLaneTipGreen(t *testing.T, root string) {
 // unacceptedSurvivorRejectionSample is the receipt gate's own words, so this
 // fixture cannot drift from the sentence the trigger reads.
 func unacceptedSurvivorRejectionSample() string {
-	return blockReceipt("", "%d unaccepted survivor(s), starting with %s — a code path no test constrains",
+	return blockReceipt("", "unaccepted-survivor", "%d unaccepted survivor(s), starting with %s — a code path no test constrains",
 		1, "src/lib.rs:12").Message
 }
 
@@ -613,7 +613,7 @@ func TestARecordWhoseIssueNeverOpenedIsRetriedRatherThanSuppressing(t *testing.T
 // missingReceiptRejectionSample is the receipt gate's own words for the most
 // common merge rejection, so this fixture cannot drift from what it reads.
 func missingReceiptRejectionSample() string {
-	return blockReceipt("", "no mutation receipt for %s's lane tip %s at %s", "/r/.git", "abc1234", "/state/x.json").Message
+	return blockReceipt("", "no-tip-tree", "no mutation receipt for %s's lane tip %s at %s", "/r/.git", "abc1234", "/state/x.json").Message
 }
 
 // The receipt-family predicate reads the receipt gate's OWN rejections. If

@@ -83,44 +83,60 @@ func TestMutationReceipt_RefusesAMergeWithoutProof(t *testing.T) {
 		// this repo actually has (issue #141, building on issue #117's
 		// missing-receipt fix).
 		cmdWant string
+		// reason is the receipt-rejected:<reason> token this cause must
+		// record in gate.log (issue #376): eleven call sites used to share
+		// one undifferentiated counter, so a 68% rejection rate could not
+		// say whether the gate was catching real survivors or wasting time
+		// on a stale base. The three verdict variants below deliberately
+		// share "bad-verdict" — same cause, different values — while every
+		// OTHER case must record a reason none of its siblings do.
+		reason string
 	}{
-		{"no receipt for this tree", nil, "mutation receipt missing", "mutation_gate.sh"},
+		{"no receipt for this tree", nil, "mutation receipt missing", "mutation_gate.sh", "missing"},
 		{"taken over a dirty worktree", func() *MutationReceipt {
 			r := passingReceipt()
 			r.WorktreeDirty = true
 			return &r
-		}(), "worktree_dirty", "mutation_gate.sh"},
+		}(), "worktree_dirty", "mutation_gate.sh", "worktree-dirty"},
 		{"a failing verdict", func() *MutationReceipt {
 			r := passingReceipt()
 			r.Verdict = "fail"
 			return &r
-		}(), `verdict "fail"`, "mutation_gate.sh"},
+		}(), `verdict "fail"`, "mutation_gate.sh", "bad-verdict"},
 		{"a verdict this gate has never heard of", func() *MutationReceipt {
 			r := passingReceipt()
 			r.Verdict = "probably-fine"
 			return &r
-		}(), "verdict", "mutation_gate.sh"},
+		}(), "verdict", "mutation_gate.sh", "bad-verdict"},
 		{"an empty verdict", func() *MutationReceipt {
 			r := passingReceipt()
 			r.Verdict = ""
 			return &r
-		}(), "verdict", "mutation_gate.sh"},
+		}(), "verdict", "mutation_gate.sh", "bad-verdict"},
 		{"survivors nobody signed off on", func() *MutationReceipt {
 			r := passingReceipt()
 			r.Accepted = 1
 			r.Survivors = []MutantName{{Raw: "src/a.rs:12: replace + with -"}, {Raw: "src/b.rs:3: replace * with +"}}
 			r.Unaccepted = []MutantName{{Raw: "src/a.rs:12: replace + with -"}}
 			return &r
-		}(), "src/a.rs:12", "mutation_gate.sh"},
+		}(), "src/a.rs:12", "mutation_gate.sh", "unaccepted-survivor"},
 		{"a receipt for another repo", func() *MutationReceipt {
 			r := passingReceipt()
 			r.Repo = "other"
 			return &r
-		}(), "not borld", "mutation_gate.sh"},
+		}(), "not borld", "mutation_gate.sh", "repo-mismatch"},
+		{"a run that measured no mutants and moved none", func() *MutationReceipt {
+			r := passingReceipt()
+			r.MutantsTotal = 0
+			r.Caught = 0
+			return &r
+		}(), "mutants_total is 0 and moved_lines is 0", "mutation_gate.sh", "vacuous"},
 	}
+	seenReasons := map[string]string{}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			cfg := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 			if c.receipt != nil {
 				writeReceipt(t, *c.receipt)
 			}
@@ -128,6 +144,17 @@ func TestMutationReceipt_RefusesAMergeWithoutProof(t *testing.T) {
 			if got == nil || !got.Blocked {
 				t.Fatalf("merge allowed with %s", c.name)
 			}
+			requireLoggedVerdict(t, cfg, "receipt-rejected:"+c.reason)
+			// Two DIFFERENT causes must never record the same token — the
+			// three "bad-verdict" cases above are the one deliberate
+			// exception, since they are the same cause with different
+			// values, not two causes.
+			if c.reason != "bad-verdict" {
+				if prior, ok := seenReasons[c.reason]; ok {
+					t.Fatalf("reason %q already recorded by case %q — two distinct causes must not share a token", c.reason, prior)
+				}
+			}
+			seenReasons[c.reason] = c.name
 			if !strings.Contains(got.Message, c.want) {
 				t.Fatalf("message = %q, want it to name %q", got.Message, c.want)
 			}
@@ -234,7 +261,10 @@ func TestMutationReceipt_IsFoundByTheLaneTipTreeAlone(t *testing.T) {
 func TestMutationReceipt_AcceptsAProvenTree(t *testing.T) {
 	for _, r := range []MutationReceipt{
 		passingReceipt(),
-		{Repo: "borld", TipTree: laneTip, MutantsTotal: 0, Verdict: "pass"},
+		// mutants_total is 0, but moved_lines explains it: git's own move
+		// detection accounted for every changed line, a real answer rather
+		// than a scope that matched nothing (issue #386).
+		{Repo: "borld", TipTree: laneTip, MutantsTotal: 0, MovedLines: 4, Verdict: "pass"},
 		{Repo: "borld", TipTree: laneTip, MutantsTotal: 3, Caught: 2, Timeout: 0, Unviable: 0,
 			Survivors: []MutantName{{Raw: "src/a.rs:12: replace + with -"}}, Accepted: 1, Unaccepted: []MutantName{}, Verdict: "pass"},
 	} {
