@@ -185,7 +185,17 @@ func renderGoTestJSON(raw string) (humanOutput, rawJSON string, ok bool) {
 	for {
 		var e goTestEvent
 		if err := dec.Decode(&e); err != nil {
-			break
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			// A real decode error partway through the stream (a killed
+			// process, an interleaved non-JSON write) is not the same as a
+			// clean end-of-input: whatever was decoded before it is a
+			// PARTIAL reconstruction, and presenting it as complete could
+			// silently drop a failing test's own output from the tail this
+			// never got to read. The raw stream is the same honest fallback
+			// the whole-stream failure below already returns.
+			return raw, "", false
 		}
 		seen = true
 		if e.Action == "output" || e.Action == "build-output" {

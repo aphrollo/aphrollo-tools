@@ -293,6 +293,32 @@ func TestVacuousGoPackages_ReturnsAnErrorOnATruncatedStream(t *testing.T) {
 	}
 }
 
+// TestRenderGoTestJSON_PartialParseIsNotPresentedAsComplete is issue #415:
+// the sibling function to vacuousGoPackages used to treat ANY decode error
+// (including a real one partway through the stream) the same as a clean
+// io.EOF end-of-stream, setting ok=true and handing the caller a TRUNCATED
+// human-readable reconstruction as though it were the whole run. A failing
+// test's "--- FAIL:" line living in an event AFTER the cut would then be
+// silently missing from SuiteResult.Output, which ExtractFailingTests and
+// the post-edit zeroTestsRe both read. The stream below decodes one full
+// event and then ends mid-object (no closing brace) — exactly
+// vacuousGoPackages' own truncation fixture — so the decoder fails with
+// something other than io.EOF partway through, not at the very start.
+func TestRenderGoTestJSON_PartialParseIsNotPresentedAsComplete(t *testing.T) {
+	truncated := `{"Action":"output","Package":"example.com/m","Test":"TestFoo","Output":"--- PASS: TestFoo (0.00s)\n"}
+{"Action":"output","Package":"example.com/m","Test":"TestBar","Output":"--- FAIL: TestBar (0.00s)\n"`
+	human, rawJSON, ok := renderGoTestJSON(truncated)
+	if ok {
+		t.Fatalf("renderGoTestJSON(truncated) ok = true, want false — a real decode error partway through must not read as a complete reconstruction (got human=%q)", human)
+	}
+	if human != truncated {
+		t.Fatalf("renderGoTestJSON(truncated) human = %q, want the raw stream back as the honest fallback (matching the total-failure path)", human)
+	}
+	if rawJSON != "" {
+		t.Fatalf("renderGoTestJSON(truncated) rawJSON = %q, want empty on !ok (matching the total-failure path)", rawJSON)
+	}
+}
+
 func TestOutcome_IsRed(t *testing.T) {
 	red := []Outcome{RedMissingImpl, RedBogus, Red}
 	for _, o := range red {
