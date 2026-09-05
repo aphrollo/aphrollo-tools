@@ -107,6 +107,58 @@ func TestResolveTargetDir_FallsBackWhenProjectConfigDeclaresNoTargetDir(t *testi
 	}
 }
 
+// A build.target-dir declared one level ABOVE the workspace root -- a
+// documented cargo mechanism and a normal monorepo/CI-mount layout where
+// several checkouts share one build cache -- used to be invisible: the
+// resolver checked only workspaceRoot itself, then jumped straight to
+// $CARGO_HOME. Real cargo walks every ancestor directory, so this must be
+// found before the user config is even consulted (issue #422).
+func TestResolveTargetDir_HonoursAncestorCargoConfigTargetDir(t *testing.T) {
+	parent := t.TempDir()
+	ws := filepath.Join(parent, "workspace")
+	if err := os.MkdirAll(filepath.Join(parent, ".cargo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parent, ".cargo", "config.toml"),
+		[]byte("[build]\ntarget-dir = \"shared-target\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(ws, "shared-target")
+	if got := resolveTargetDir(noTargetDirEnv, ws); got != want {
+		t.Fatalf("resolveTargetDir = %q, want the ancestor config's target-dir %q", got, want)
+	}
+}
+
+// A workspace-root config and an ancestor config both declaring
+// build.target-dir: cargo's hierarchical merge lets the level closer to the
+// invocation directory win for a scalar key, so the workspace root's own
+// answer must not be shadowed by the one above it.
+func TestResolveTargetDir_WorkspaceCargoConfigWinsOverAncestor(t *testing.T) {
+	parent := t.TempDir()
+	ws := filepath.Join(parent, "workspace")
+	if err := os.MkdirAll(filepath.Join(parent, ".cargo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(ws, ".cargo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parent, ".cargo", "config.toml"),
+		[]byte("[build]\ntarget-dir = \"shared-target\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, ".cargo", "config.toml"),
+		[]byte("[build]\ntarget-dir = \"own-target\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(ws, "own-target")
+	if got := resolveTargetDir(noTargetDirEnv, ws); got != want {
+		t.Fatalf("resolveTargetDir = %q, want the workspace's own target-dir %q over the ancestor's", got, want)
+	}
+}
+
 // With no project config at all, the USER cargo config's target-dir is the
 // next answer cargo itself would give.
 func TestResolveTargetDir_FallsBackToUserCargoConfigTargetDir(t *testing.T) {
