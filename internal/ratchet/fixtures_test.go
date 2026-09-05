@@ -88,6 +88,48 @@ func TestRunFixturesFailsALawWithNoFixtures(t *testing.T) {
 	}
 }
 
+// symbolRemovedFixtureRepo carries a symbol-removed law whose `hit` and
+// `clean` fixtures each lay out `base/` and `tip/` — the diff-scoped shape
+// this kind's fixtures need instead of a single flat directory.
+func symbolRemovedFixtureRepo(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	writeLaw(t, root, "test_removed", symbolRemovedLaw)
+	fx := filepath.Join(root, ".ratchet", "fixtures", "test_removed")
+	write(t, filepath.Join(fx, "hit", "base", "a_test.go"), "package a\n\nfunc TestFoo(t *testing.T) {}\n")
+	write(t, filepath.Join(fx, "hit", "tip", "a_test.go"), "package a\n")
+	write(t, filepath.Join(fx, "expected.txt"), "a_test.go:TestFoo\n")
+	write(t, filepath.Join(fx, "clean", "base", "a_test.go"), "package a\n\nfunc TestFoo(t *testing.T) {}\n")
+	write(t, filepath.Join(fx, "clean", "tip", "a_test.go"), "package a\n\nfunc TestFoo(t *testing.T) {}\n")
+	return root
+}
+
+func TestFixtures_JudgeTipAgainstBaseWhenBothDirsExist(t *testing.T) {
+	root := symbolRemovedFixtureRepo(t)
+	results, err := RunFixtures(root)
+	if err != nil {
+		t.Fatalf("RunFixtures: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results = %+v", results)
+	}
+	if len(results[0].Failures) != 0 {
+		t.Fatalf("failures = %v, want none", results[0].Failures)
+	}
+
+	// Removing expected.txt's line must turn the fixture's own hit into an
+	// unexpected one — the fixture proves the harness reads it, not just that
+	// the law fires.
+	write(t, filepath.Join(root, ".ratchet", "fixtures", "test_removed", "expected.txt"), "")
+	results, err = RunFixtures(root)
+	if err != nil {
+		t.Fatalf("RunFixtures: %v", err)
+	}
+	if len(results[0].Failures) == 0 {
+		t.Fatalf("expected a mismatch failure once expected.txt no longer lists the hit")
+	}
+}
+
 func TestRunFixturesFailsWhenOnlyOneDirectionIsProved(t *testing.T) {
 	root := fixtureRepo(t)
 	if err := os.RemoveAll(filepath.Join(root, ".ratchet", "fixtures", "nan-guard", "clean")); err != nil {
