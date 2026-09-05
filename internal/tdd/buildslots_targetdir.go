@@ -28,26 +28,19 @@ func cargoConfigTargetDir(workspaceRoot string) string {
 	if dir := targetDirFromConfigFile(filepath.Join(workspaceRoot, ".cargo", "config"), workspaceRoot); dir != "" {
 		return dir
 	}
-	home := cargoHomeDir()
-	if home == "" {
+	// cargoConfigPath (buildslots.go) is the same $CARGO_HOME/else-~/.cargo
+	// resolution totalCargoJobs already uses for the user config -- reused
+	// rather than re-derived, so the two readers can never disagree about
+	// where the user config lives.
+	userToml := cargoConfigPath()
+	if userToml == "" {
 		return ""
 	}
-	if dir := targetDirFromConfigFile(filepath.Join(home, "config.toml"), workspaceRoot); dir != "" {
+	if dir := targetDirFromConfigFile(userToml, workspaceRoot); dir != "" {
 		return dir
 	}
-	return targetDirFromConfigFile(filepath.Join(home, "config"), workspaceRoot)
-}
-
-// cargoHomeDir is where the user config lives: CARGO_HOME when set, else
-// ~/.cargo, cargo's own default.
-func cargoHomeDir() string {
-	if home := strings.TrimSpace(os.Getenv("CARGO_HOME")); home != "" {
-		return home
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".cargo")
-	}
-	return ""
+	legacy := filepath.Join(filepath.Dir(userToml), "config")
+	return targetDirFromConfigFile(legacy, workspaceRoot)
 }
 
 // targetDirFromConfigFile reads `target-dir` under a [build] table, "" when
@@ -59,28 +52,51 @@ func targetDirFromConfigFile(path, base string) string {
 	if err != nil {
 		return ""
 	}
-	inBuild := false
-	for line := range strings.Lines(string(data)) {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "[") {
-			inBuild = trimmed == "[build]"
-			continue
-		}
-		if !inBuild {
-			continue
-		}
-		key, val, ok := strings.Cut(trimmed, "=")
-		if !ok || strings.TrimSpace(key) != "target-dir" {
-			continue
-		}
-		raw := strings.Trim(strings.TrimSpace(val), `"`)
-		if raw == "" {
-			return ""
-		}
-		if filepath.IsAbs(raw) {
-			return filepath.Clean(raw)
-		}
-		return filepath.Clean(filepath.Join(base, raw))
+	raw, ok := cargoConfigTableValue(string(data), "[build]", "target-dir")
+	if !ok {
+		return ""
 	}
-	return ""
+	raw = strings.Trim(raw, `"`)
+	if raw == "" {
+		return ""
+	}
+	if filepath.IsAbs(raw) {
+		return filepath.Clean(raw)
+	}
+	return filepath.Clean(filepath.Join(base, raw))
+}
+
+// cargoConfigTableValue reads one key's raw value (comment-stripped, still
+// quoted) under a named TOML table header from an already-read config's
+// text. Shared by every .cargo/config.toml reader in this package —
+// cargoConfigJobs (buildslots.go) used to do this same scan on its own and
+// missed exactly the case this one now handles: `key = "value"  # comment`
+// left `TrimSpace` seeing a trailing comment character, not the closing
+// quote, so `strings.Trim(v, `+"`\"`"+`)` stripped only the LEADING quote and
+// silently fed a bogus path (the value plus its trailing quote and comment
+// text) to every caller -- a confident wrong answer, not the documented
+// parse-miss fallback, and this reader's answer feeds build-slot and GC
+// deletion decisions.
+func cargoConfigTableValue(data, table, key string) (string, bool) {
+	inTable := false
+	for line := range strings.Lines(data) {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "[") {
+			inTable = strings.HasPrefix(trimmed, table)
+			continue
+		}
+		if !inTable {
+			continue
+		}
+		k, val, found := strings.Cut(trimmed, "=")
+		if !found || strings.TrimSpace(k) != key {
+			continue
+		}
+		val, _, _ = strings.Cut(val, "#")
+		return strings.TrimSpace(val), true
+	}
+	return "", false
 }

@@ -140,6 +140,7 @@ func TestCargoConfigJobs_ParsesBuildJobs(t *testing.T) {
 	}{
 		{"build jobs", "[build]\njobs = 15\nincremental = true\n", 15, true},
 		{"tight spacing", "[build]\n  jobs=7\n", 7, true},
+		{"inline comment", "[build]\njobs = 15  # shared box\n", 15, true},
 		{"other table", "[net]\njobs = 15\n", 0, false},
 		{"commented out", "[build]\n# jobs = 15\n", 0, false},
 		{"absent", "[build]\nincremental = true\n", 0, false},

@@ -30,6 +30,26 @@ func TestResolveTargetDir_HonoursProjectCargoConfigTargetDir(t *testing.T) {
 	}
 }
 
+// A legal, common line — `target-dir = "custom-target"  # shared cache` —
+// used to leave TrimSpace looking at a value ending in the comment text, not
+// the closing quote, so strings.Trim stripped only the leading quote and fed
+// `custom-target"  # shared cache` to every lock and GC decision: a
+// confident WRONG path, not the documented parse-miss fallback.
+func TestResolveTargetDir_StripsInlineCommentFromProjectConfigTargetDir(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".cargo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, ".cargo", "config.toml"),
+		[]byte("[build]\ntarget-dir = \"custom-target\"  # shared cache\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(ws, "custom-target")
+	if got := resolveTargetDir(noTargetDirEnv, ws); got != want {
+		t.Fatalf("resolveTargetDir = %q, want the project config's target-dir %q (comment must not leak into the path)", got, want)
+	}
+}
+
 // An absolute target-dir in the project config is used as-is, not joined to
 // the workspace root.
 func TestResolveTargetDir_HonoursAbsoluteProjectCargoConfigTargetDir(t *testing.T) {

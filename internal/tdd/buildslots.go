@@ -394,31 +394,18 @@ func cargoConfigJobs(path string) (int, bool) {
 	if err != nil {
 		return 0, false
 	}
-	inBuild := false
-	for line := range strings.Lines(string(data)) {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "[") {
-			inBuild = strings.HasPrefix(trimmed, "[build]")
-			continue
-		}
-		if !inBuild {
-			continue
-		}
-		key, val, found := strings.Cut(trimmed, "=")
-		if !found || strings.TrimSpace(key) != "jobs" {
-			continue
-		}
-		val, _, _ = strings.Cut(val, "#")
-		n, err := strconv.Atoi(strings.TrimSpace(val))
-		if err != nil || n < 1 {
-			return 0, false
-		}
-		return n, true
+	// cargoConfigTableValue (buildslots_targetdir.go): shared with
+	// targetDirFromConfigFile, so a comment-handling fix never has to be
+	// found twice in two divergent scanners over the same file shape.
+	val, ok := cargoConfigTableValue(string(data), "[build]", "jobs")
+	if !ok {
+		return 0, false
 	}
-	return 0, false
+	n, err := strconv.Atoi(val)
+	if err != nil || n < 1 {
+		return 0, false
+	}
+	return n, true
 }
 
 // EnvWithBuildJobs returns env with CARGO_BUILD_JOBS set to jobs, unless the
