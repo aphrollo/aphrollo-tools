@@ -15,12 +15,12 @@ import (
 	"time"
 )
 
-// GateResult is the verdict of a git-time gate (precommit, prepush). A blocked
-// action always carries a Message explaining what failed and how to proceed.
-// Message can also be set with Blocked false — a mechanical-stage TIMEOUT
-// fails open (the commit is never blocked over a stopwatch) but must never be
-// silent about it either, so the fail-open line rides in Message even though
-// nothing was actually rejected.
+// GateResult is the verdict of a git-time gate (precommit, prepush). A
+// blocked action always carries a Message explaining what failed and how to
+// proceed. verdictFor owns the actual outcome→verdict mapping: a TIMEOUT or
+// a check-error (the check's own machinery could not answer) BLOCKS like a
+// failure, since a commit the gate never tested must not land. Message can
+// also ride with Blocked false — a deliberate, logged stand-down.
 type GateResult struct {
 	Blocked bool
 	Message string
@@ -81,7 +81,7 @@ func stagedRootGroups(repoRoot string) []rootGroup {
 // Any inability to VERIFY fail-first (worktree/apply error) fails OPEN: the
 // gate never blocks because its own tooling tripped. run is injected so the
 // mechanical and worktree runs are testable.
-func Precommit(repoRoot string, run SuiteRunner) GateResult {
+func precommitDecide(repoRoot string, run SuiteRunner) GateResult {
 	// Concluding a CONFLICTED merge/cherry-pick/revert with `git commit`
 	// fires git's pre-commit hook (pre-merge-commit only fires for an
 	// AUTOMATIC, conflict-free merge commit) — task A10. Judging the WHOLE

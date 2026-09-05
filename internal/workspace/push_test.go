@@ -124,7 +124,7 @@ func indexOf(args []string, v string) int {
 }
 
 func TestPushArgs_ForceWithLeaseBeforeTerminator(t *testing.T) {
-	args := pushArgs("/wt", "feat/x", true)
+	args := pushArgs("feat/x", true)
 
 	flag := indexOf(args, "--force-with-lease")
 	term := indexOf(args, "--")
@@ -146,7 +146,7 @@ func TestPushArgs_ForceWithLeaseBeforeTerminator(t *testing.T) {
 }
 
 func TestPushArgs_NoForceWithLeaseWhenDisabled(t *testing.T) {
-	args := pushArgs("/wt", "feat/x", false)
+	args := pushArgs("feat/x", false)
 	if i := indexOf(args, "--force-with-lease"); i >= 0 {
 		t.Errorf("--force-with-lease should be absent when disabled: %v", args)
 	}

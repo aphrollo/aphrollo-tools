@@ -5,7 +5,22 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
+
+// precommitRanSince is the seam over tdd.PrecommitRanSince — the ground truth
+// that a pre-commit hook actually executed, not just that `git commit`
+// exited 0. A package var so tests drive Commit.Apply's receipt text without
+// depending on gate.log or a real installed hook.
+var precommitRanSince = tdd.PrecommitRanSince
+
+// timeNow is the seam over time.Now for the "started" capture below — a
+// package var so a test can pin a sub-second fraction and prove the
+// whole-second floor against a REAL gate.log marker, not just a stubbed
+// precommitRanSince.
+var timeNow = time.Now
 
 // Commit is a resolved, not-yet-executed commit in a worktree. It folds the
 // stage→commit dance into one command and reports back exactly what landed (sha,
@@ -82,6 +97,16 @@ func (c *Commit) Apply(stdout, stderr io.Writer) error {
 	if c.NoVerify {
 		args = append(args, "--no-verify")
 	}
+	// Captured before the commit so the marker lookup below only accepts
+	// evidence from THIS commit's own pre-commit run, never a stale one from
+	// an earlier commit in the same worktree. Floored to the second: gate.log
+	// timestamps truncate to whole seconds (appendGateLog formats with
+	// time.RFC3339), so a REAL hook finishing a fraction of a second after
+	// `started` still logs a marker whose floored second equals this one —
+	// comparing against an un-floored `started` read that marker as "before
+	// started" and reported "gate not run" on a commit the gate had actually
+	// verified.
+	started := timeNow().Truncate(time.Second)
 	out, err := exec.Command("git", args...).CombinedOutput()
 	if err != nil {
 		if !c.NoVerify {
@@ -105,9 +130,18 @@ func (c *Commit) Apply(stdout, stderr io.Writer) error {
 	if stat := shortstat(wt); stat != "" {
 		fmt.Fprintf(stdout, "  delta %s\n", stat)
 	}
-	gate := "TDD pass"
-	if c.NoVerify {
+	// A successful `git commit` proves nothing about whether a hook actually
+	// ran: with no core.hooksPath configured (a fresh clone, a broken
+	// profile, or a test harness's own git isolation) the commit lands with
+	// zero verification and still exited 0. "gate TDD pass" is a claim of
+	// verification, so it is made only when the marker confirms the
+	// pre-commit gate actually fired for this commit.
+	gate := "not run — no pre-commit hook fired (check core.hooksPath is configured)"
+	switch {
+	case c.NoVerify:
 		gate = "skipped (--no-verify)"
+	case precommitRanSince(wt, started):
+		gate = "TDD pass"
 	}
 	fmt.Fprintf(stdout, "  gate %s\n", gate)
 	return nil

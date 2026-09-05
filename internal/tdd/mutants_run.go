@@ -75,7 +75,7 @@ func runMutantsJob(j MutantsJob, log io.Writer) int {
 		appendGateLog("mutants", logToken(j.Repo), "mutants", "mutants-worktree-failed", 0)
 		return 1
 	}
-	plan, carried, now := scopeMutantsRun(j)
+	plan, carried, now, skipped := scopeMutantsRun(j)
 	// Whatever an interrupted attempt on this same tree already reached: those
 	// mutants are excluded from this run and their verdicts kept.
 	judged := loadMutantsPartials(j.TipTree)
@@ -108,6 +108,12 @@ func runMutantsJob(j MutantsJob, log io.Writer) int {
 	}
 	logf(log, "aphrollo: %d file(s) to measure, %d carried, %d already judged by an interrupted attempt, %d moved line(s) skipped",
 		len(plan), len(carried), len(judged), movedLines)
+	// Why each file has to be paid for again. A run that re-measures a file
+	// the lane never edited is the expensive case, and without this the log
+	// gave no way to tell it from an ordinary first measurement.
+	for _, line := range CarrySkipSummary(skipped) {
+		logf(log, "aphrollo: %s", line)
+	}
 
 	start := time.Now()
 	// The box-wide lock covers the WHOLE producer call, its own cold build

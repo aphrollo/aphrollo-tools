@@ -1,0 +1,45 @@
+internal/tdd/precommit.go | return &GateResult{Message: "mutation receipt not judged here: this repo measures it on the CI runner (mutants-local = false)"}
+internal/tdd/precommit.go | return &GateResult{Message: "mutation receipt not judged: " + why}
+internal/tdd/docsonly.go | return GateResult{Message: strings.Join(notes, "\n")}
+internal/tdd/precommit.go | return GateResult{Message: strings.Join(notes, "\n")}
+internal/tdd/precommit.go | return GateResult{Message: strings.Join(notes, "\n")}
+internal/tdd/precommit.go | return GateResult{Message: strings.Join(notes, "\n")}
+internal/tdd/precommit.go | return GateResult{Message: strings.Join(notes, "\n")}
+internal/tdd/baselineguard.go | return GateResult{}
+internal/tdd/commitmsg.go | return GateResult{}
+internal/tdd/commitmsg.go | return GateResult{}
+internal/tdd/commitmsg.go | return GateResult{}
+internal/tdd/precommit.go | return GateResult{}
+internal/tdd/precommit.go | return GateResult{}
+internal/tdd/precommit.go | return GateResult{}
+internal/tdd/precommit.go | return GateResult{}
+internal/tdd/precommit.go | return GateResult{}
+internal/tdd/precommit.go | return GateResult{}
+internal/tdd/precommit.go | return GateResult{}
+internal/tdd/precommit.go | return GateResult{}
+internal/tdd/precommit.go | return GateResult{}
+internal/tdd/precommit_go.go | return GateResult{}
+internal/tdd/precommit_go.go | return GateResult{}
+internal/tdd/precommit_go.go | return GateResult{}
+internal/tdd/precommit_go.go | return GateResult{}
+internal/tdd/precommit_go.go | return GateResult{}
+internal/tdd/precommit_go.go | return GateResult{}
+internal/tdd/precommit_quality.go | return GateResult{}
+internal/tdd/precommit_quality.go | return GateResult{}
+internal/tdd/ratchetgate.go | return GateResult{}
+internal/tdd/ratchetgate.go | return GateResult{}
+internal/tdd/ratchetgate.go | return GateResult{}
+internal/tdd/trunkmergepreview.go | return GateResult{}
+internal/tdd/trunkmergepreview.go | return GateResult{}
+internal/tdd/trunkmergepreview.go | return GateResult{}
+internal/tdd/trunkmergepreview.go | return GateResult{}
+internal/tdd/trunkmergepreview.go | return GateResult{}
+internal/tdd/trunkmergepreview.go | return GateResult{}
+internal/tdd/trunkmergepreview.go | return GateResult{}
+internal/tdd/trunkmergepreview.go | return GateResult{}
+internal/tdd/trunkmergepreview.go | return GateResult{}
+internal/tdd/trunkmergepreview.go | return GateResult{}
+internal/tdd/trunkmergepreview.go | return GateResult{}
+internal/tdd/trunkmergepreview.go | return GateResult{}
+internal/tdd/trunkmergepreview.go | return GateResult{} // this checkout IS trunk: nothing to preview against
+internal/tdd/trunkmergepreview.go | return GateResult{} // trunk has not moved past this lane's merge-base

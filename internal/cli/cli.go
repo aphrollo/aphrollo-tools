@@ -905,6 +905,8 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		if root := tdd.RepoRoot(*repo); root != "" {
 			changed, err := tdd.WriteClaudeMD(root, cdir, *claudeMD)
 			switch {
+			case errors.Is(err, tdd.ErrManagedBlockInPrimary):
+				fmt.Fprintf(stdout, "gate init: CLAUDE.md managed block is behind the template in the merge-only primary; land it through a lane (aphrollo gate init --repo <lane>)\n")
 			case err != nil:
 				fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 				return 1
@@ -1505,7 +1507,7 @@ func runWorkspacePR(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	var (
 		dry   = fs.Bool("dry", false, "print the plan and stop (default: execute)")
-		base  = fs.String("base", "main", "base branch for the PR")
+		base  = fs.String("base", "", "base branch for the PR (default: the repo's resolved default branch)")
 		title = fs.String("title", "", "PR title (default: filled from the commits)")
 		body  = fs.String("body", "", "PR body")
 		ready = fs.Bool("ready", false, "open the PR ready for review instead of as a draft")
@@ -1544,7 +1546,7 @@ func runWorkspaceShip(args []string, stdout, stderr io.Writer) int {
 		dry        = fs.Bool("dry", false, "print the plan and stop (default: execute)")
 		noVerify   = fs.Bool("no-verify", false, "skip the pre-commit gate")
 		stagedOnly = fs.Bool("staged-only", false, "commit the index as-is instead of git add -A")
-		base       = fs.String("base", "main", "base branch for the PR")
+		base       = fs.String("base", "", "base branch for the PR (default: the repo's resolved default branch)")
 		title      = fs.String("title", "", "PR title (default: filled from the commits)")
 		body       = fs.String("body", "", "PR body")
 		ready      = fs.Bool("ready", false, "open the PR ready for review instead of as a draft")

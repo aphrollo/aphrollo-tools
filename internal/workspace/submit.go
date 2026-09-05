@@ -3,7 +3,6 @@ package workspace
 import (
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 )
 
@@ -11,9 +10,7 @@ import (
 // flip logic without gh or the network. The real implementation marks the
 // branch's draft PR as ready-for-review in the worktree's repo.
 var ghReadyPR = func(wt, branch string) error {
-	cmd := exec.Command("gh", "pr", "ready", "--", branch)
-	cmd.Dir = wt
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := ghCombinedOutput(wt, "pr", "ready", "--", branch); err != nil {
 		return fmt.Errorf("gh pr ready: %v\n%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
@@ -35,9 +32,7 @@ func ghEditPRBodyArgs(branch, body string) []string {
 // ghEditPRBody is the seam over `gh pr edit --body`, set so the submit summary
 // lands on the PR. A package var so tests observe the body without gh.
 var ghEditPRBody = func(wt, branch, body string) error {
-	cmd := exec.Command("gh", ghEditPRBodyArgs(branch, body)...)
-	cmd.Dir = wt
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := ghCombinedOutput(wt, ghEditPRBodyArgs(branch, body)...); err != nil {
 		return fmt.Errorf("gh pr edit --body: %v\n%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil

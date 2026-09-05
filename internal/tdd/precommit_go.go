@@ -291,14 +291,19 @@ func pinnedLinterVersion(repoRoot string) string {
 	return ""
 }
 
-// goCheckStage runs one check and turns it into a verdict. A timeout fails
-// OPEN, exactly as the suite stages do: a stopwatch is not a finding.
+// goCheckStage runs one check and turns it into a verdict, via verdictFor
+// for the outcomes it owns.
 func goCheckStage(gateName, stage, root string, r Runner, run SuiteRunner) GateResult {
 	res := run(r, root)
 	switch {
 	case res.TimedOut:
-		fmt.Fprintf(os.Stderr, "gate %s: %s in %s → TIMEOUT (FAIL-OPEN — not checked)\n", gateName, stage, root)
-		return GateResult{}
+		return verdictFor(gateName, stage, root, cmdString(r), stageOutcome{
+			kind:   outcomeTimeout,
+			result: res,
+			message: fmt.Sprintf(
+				"gate %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused; retry once it finishes.",
+				gateName, cmdString(r), res.Duration.Seconds()),
+		})
 	case !res.Passed:
 		fmt.Fprintf(os.Stderr, "gate %s: %s in %s → blocked\n", gateName, stage, root)
 		appendGateLog(gateName, root, cmdString(r), stage+"-blocked", res.Duration)
@@ -363,12 +368,16 @@ func docsCheckStage(gateName, repoRoot string) GateResult {
 	}
 	findings, err := docs.CheckFiles(repoRoot, md)
 	if err != nil {
-		// A file the check could not read is a defect in the check, not in
-		// the commit: say so and let the commit through.
-		line := fmt.Sprintf("gate %s: docs → skipped (%v)", gateName, err)
-		fmt.Fprintln(os.Stderr, line)
-		appendGateLog(gateName, repoRoot, "docs check", "docs-skipped", 0)
-		return GateResult{Message: line}
+		// A file the check could not read leaves this stage's zero-bar
+		// unproven, not satisfied: block, the way ratchetCheckErrorResult
+		// does for the same shape.
+		return verdictFor(gateName, "docs", repoRoot, "docs check", stageOutcome{
+			kind: outcomeCheckError,
+			err:  err,
+			message: fmt.Sprintf(
+				"gate %s: docs → REJECTED (%v)\n  the commit cannot be judged against a file this check could not read",
+				gateName, err),
+		})
 	}
 	if len(findings) == 0 {
 		fmt.Fprintf(os.Stderr, "gate %s: docs → clean (%d file(s))\n", gateName, len(md))

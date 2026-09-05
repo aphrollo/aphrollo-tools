@@ -38,7 +38,7 @@ func Update(t *Target, dry bool, stdout, stderr io.Writer) error {
 	// Refresh origin so the behind-count and rebase base are the live tip. Fetch
 	// touches only remote-tracking refs, never HEAD or the working tree, so it is
 	// safe in --dry too.
-	if out, err := exec.Command("git", "-C", wt, "fetch", "origin", "--quiet").CombinedOutput(); err != nil {
+	if out, err := gitNetworkOutput(wt, "fetch", "origin", "--quiet"); err != nil {
 		// A remote-less / offline repo can't update; surface it but don't crash.
 		fmt.Fprintf(stderr, "git fetch origin: %v\n%s\n", err, strings.TrimSpace(string(out)))
 	}
@@ -84,7 +84,7 @@ func Update(t *Target, dry bool, stdout, stderr io.Writer) error {
 		fmt.Fprintf(stdout, "not on origin yet — run: aphrollo workspace push\n")
 		return nil
 	}
-	pushOut, perr := exec.Command("git", "-C", wt, "push", "--force-with-lease", "origin", "--", t.Branch).CombinedOutput()
+	pushOut, perr := gitNetworkOutput(wt, "push", "--force-with-lease", "origin", "--", t.Branch)
 	if perr != nil {
 		fmt.Fprint(stderr, string(pushOut))
 		return fmt.Errorf("git push --force-with-lease: %w", perr)
