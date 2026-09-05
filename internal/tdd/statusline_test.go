@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -197,6 +198,30 @@ func TestStatusLine_SeesAQueuedRunForAProjectWhosePathHasASpace(t *testing.T) {
 
 	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:queued]" {
 		t.Fatalf("StatusLine = %q, want the queued tag", got)
+	}
+}
+
+// TestStatusLine_LastRunQueuedMatchesARootLoggedWithDifferentCasing pins that
+// lastRunQueued routes its root comparison through sameProject, the same way
+// greenLoggedSince already does. Off Windows two differently-cased paths name
+// different files, so the queued badge is right to miss them; on Windows they
+// name the same tree, and the badge missing it is the queued run silently
+// reading as a quiet green.
+func TestStatusLine_LastRunQueuedMatchesARootLoggedWithDifferentCasing(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := filepath.Join(t.TempDir(), "myrepo")
+	appendGateLog("postedit", root, "cargo nextest run", "queued-skipped", 0)
+
+	differentCase := strings.ToUpper(root)
+	got := lastRunQueued(differentCase)
+	if runtime.GOOS == "windows" {
+		if !got {
+			t.Fatal("lastRunQueued must case-fold on Windows, or a queued run logged under one casing vanishes for every other")
+		}
+		return
+	}
+	if got {
+		t.Fatal("lastRunQueued must stay case-SENSITIVE off Windows")
 	}
 }
 
