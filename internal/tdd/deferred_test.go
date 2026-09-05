@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -84,6 +85,39 @@ func TestDeferredJob_DirtyMarkSurvivesTheReload(t *testing.T) {
 	}
 	if got.FileHash != "new-hash" {
 		t.Fatalf("FileHash = %q, want the latest edit's hash %q", got.FileHash, "new-hash")
+	}
+}
+
+// TestUpdateDeferredJob_ConcurrentWritersNeverLoseAnUpdate pins issue #294:
+// the detached runphase process (stampDeferredStart) and a later PostToolUse
+// hook (markDeferredDirty) write the SAME job record from two OS processes.
+// A plain load-mutate-save on both sides drops whichever wrote first. Every
+// goroutine here increments the same field by one; if any update is lost the
+// final count comes up short.
+func TestUpdateDeferredJob_ConcurrentWritersNeverLoseAnUpdate(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	saveDeferredJob(DeferredJob{Project: root})
+
+	const writers = 50
+	var wg sync.WaitGroup
+	wg.Add(writers)
+	for range writers {
+		go func() {
+			defer wg.Done()
+			updateDeferredJob("", root, func(j *DeferredJob) {
+				j.PID++
+			})
+		}()
+	}
+	wg.Wait()
+
+	got, ok := loadDeferredJob("", root)
+	if !ok {
+		t.Fatal("the job must survive concurrent updates")
+	}
+	if got.PID != writers {
+		t.Fatalf("PID = %d after %d concurrent read-modify-write increments, want %d — an update was lost to a race", got.PID, writers, writers)
 	}
 }
 

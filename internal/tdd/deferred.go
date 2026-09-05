@@ -65,6 +65,16 @@ type PhaseOutcome struct {
 	Schema   int     `json:"schema"`
 	ExitCode int     `json:"exit_code"`
 	Seconds  float64 `json:"seconds"`
+	// SetupFailed is true when RunPhase's OWN setup — no runner, no log
+	// file, no build slot — failed before the phase's command ever started,
+	// so ExitCode carries no meaning about the code under test. This is a
+	// SEPARATE field, not a sentinel ExitCode value, because ExitCode is the
+	// runner's real exit status and a real run can legitimately exit with
+	// any value (125 is `git bisect`'s reserved skip code, Docker's
+	// daemon-failure code, and a plain `make`/shell wrapper's too) —
+	// overloading one integer for both meanings made a genuine red exiting
+	// 125 indistinguishable from "no build slot came free".
+	SetupFailed bool `json:"setup_failed,omitempty"`
 }
 
 // deferredMaxEnv bounds how long a detached phase may run before the next
@@ -130,6 +140,10 @@ func sessionKey(session string) string {
 
 // saveDeferredJob records a job, filling in the log/result paths it owns.
 // Best-effort: losing the record only means the next hook starts fresh.
+// Written with writeFileAtomic (a poller must see either the old content or
+// the whole new one, never a torn write it has to quarantine) — see
+// updateDeferredJob for the read-modify-write callers must use instead of
+// calling this directly after a load.
 func saveDeferredJob(j DeferredJob) {
 	path := deferredJobPath(j.Session, j.Project)
 	if path == "" {
@@ -144,7 +158,7 @@ func saveDeferredJob(j DeferredJob) {
 	}
 	j.Schema = StateSchema
 	if data, err := json.MarshalIndent(j, "", "  "); err == nil {
-		_ = os.WriteFile(path, data, 0o600)
+		_ = writeFileAtomic(path, data)
 	}
 }
 
@@ -174,20 +188,40 @@ func clearDeferredJob(session, root string) {
 	_ = os.Remove(path)
 }
 
+// updateDeferredJob loads a job, lets mutate change it, and saves it back —
+// holding acquirePathLock (pathlock.go, the same primitive the mutant store's
+// merge and the mutation-job registry's append already serialize on) across
+// the whole read-modify-write. Two processes touch one job record concurrently
+// (the detached runphase process's stampDeferredStart and a later
+// PostToolUse hook's markDeferredDirty): without the lock, whichever saved
+// last discarded the other's update. mutate is skipped, and nothing is
+// written, when there is no job to update.
+func updateDeferredJob(session, root string, mutate func(j *DeferredJob)) {
+	path := deferredJobPath(session, root)
+	if path == "" {
+		return
+	}
+	release := acquirePathLock(path)
+	defer release()
+	var j DeferredJob
+	if ok, _ := readStateJSON(path, &j); !ok {
+		return
+	}
+	mutate(&j)
+	saveDeferredJob(j)
+}
+
 // markDeferredDirty records that the source moved on under a running build:
 // the build is NOT killed (it is doing real work and cargo is incremental),
 // but its result will describe code that is no longer current, so the
 // harvest must rebuild.
 func markDeferredDirty(session, root, fileHash string) {
-	j, ok := loadDeferredJob(session, root)
-	if !ok {
-		return
-	}
-	j.Dirty = true
-	if fileHash != "" {
-		j.FileHash = fileHash
-	}
-	saveDeferredJob(j)
+	updateDeferredJob(session, root, func(j *DeferredJob) {
+		j.Dirty = true
+		if fileHash != "" {
+			j.FileHash = fileHash
+		}
+	})
 }
 
 // writePhaseResult records a finished phase. Called by the runphase wrapper

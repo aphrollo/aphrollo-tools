@@ -300,12 +300,74 @@ func buildSlotHolderDescription(targetDir string) string {
 	// slot is taken by builds in other target dirs. Those are nameable too,
 	// and saying "holder unknown" about a build whose record is right there is
 	// what sent an operator looking for a phantom.
+	return globalCapacityHolderDescription()
+}
+
+// globalCapacityHolderDescription names whichever build currently holds a
+// global slot, for a waiter who has no target dir of its own to check first
+// (buildSlotHolderDescription's own fallback, and acquireGlobalSlot's only
+// source of a holder name).
+func globalCapacityHolderDescription() string {
 	for i := range buildSlotCount() {
 		if o, ok := readBuildLockOwnerAt(globalSlotOwnerPath(i)); ok {
 			return describeOwner(o) + " (the box is at capacity)"
 		}
 	}
 	return "another build (holder unknown)"
+}
+
+// TryAcquireGlobalSlot takes ONE of the box's N global slots without the
+// per-target-dir flock TryAcquireBuildSlot also takes. A cargo build needs
+// both (the flock mirrors cargo's own build-directory lock, one build per
+// target dir ever); a runner with no shared build directory of its own — go
+// test, pytest, npm — has nothing for the flock to protect, but the box's
+// OOM/CPU governor still applies to it: the global slots exist because
+// separate target dirs (or no target dir at all) still compete for the same
+// box (buildslots.go's header comment), and a non-cargo runner skipping the
+// governor ENTIRELY left it running fully unbounded (issue #354's own fix
+// went too far the other way — a cold review caught it).
+func TryAcquireGlobalSlot(cmd, cwd string) (BuildSlot, func(), bool) {
+	n := buildSlotCount()
+	jobs := slotJobs(totalCargoJobs(), n)
+	if token := inheritedSlotToken(); token != "" {
+		// A child of a long verb runs under the slot its parent already
+		// holds — see TryAcquireBuildSlot's own doc comment.
+		return BuildSlot{Index: inheritedSlotIndex, Jobs: jobs}, func() {}, true
+	}
+	for i := range n {
+		if releaseSlot, ok := TryAcquireFileLock(globalSlotPath(i)); ok {
+			slot := BuildSlot{Index: i, Jobs: jobs}
+			writeBuildLockOwnerAt(globalSlotOwnerPath(i), cmd, cwd)
+			return slot, func() {
+				removeBuildLockOwnerAt(globalSlotOwnerPath(i))
+				releaseSlot()
+			}, true
+		}
+	}
+	return BuildSlot{}, func() {}, false
+}
+
+// acquireGlobalSlot polls for a global slot until one is held or deadline
+// elapses, announcing the holder every buildLockQueueNoticeEvery while it
+// waits — the non-cargo twin of acquireBuildSlot, minus the target-dir lock.
+func acquireGlobalSlot(deadline time.Duration, cmd, cwd string) (BuildSlot, func(), bool) {
+	start := time.Now()
+	nextNotice := buildLockQueueNoticeEvery
+	for {
+		if slot, release, ok := TryAcquireGlobalSlot(cmd, cwd); ok {
+			return slot, release, true
+		}
+		waited := time.Since(start)
+		if waited >= deadline {
+			return BuildSlot{}, func() {}, false
+		}
+		if waited >= nextNotice {
+			fmt.Fprintf(os.Stderr, "gate: queued behind %s (waited %.0fs)\n",
+				globalCapacityHolderDescription(), waited.Seconds())
+			nextNotice += buildLockQueueNoticeEvery
+		}
+		time.Sleep(buildLockPollInterval)
+	}
 }
 
 func describeOwner(o BuildLockOwner) string {

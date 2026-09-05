@@ -13,7 +13,10 @@ import (
 // TestPostEdit_SpawnFailureIsReportedNotDeferred pins a lie: when the spawn
 // itself fails, nothing is running, so BUILDING is false — and the job record
 // written with a zero Started expires instantly and stamps a timeout streak
-// for a run that never happened.
+// for a run that never happened. It reports InfraFailed, never RedBogus: the
+// tooling failed to start, not the test's own setup (issue #350) — a session
+// pattern-matching on "red-bogus" would otherwise go looking for a broken
+// test that does not exist.
 func TestPostEdit_SpawnFailureIsReportedNotDeferred(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "Cargo.toml")
@@ -28,8 +31,11 @@ func TestPostEdit_SpawnFailureIsReportedNotDeferred(t *testing.T) {
 	if strings.Contains(got, "BUILDING") {
 		t.Fatalf("advisory = %q, want a failure — nothing was started", got)
 	}
-	if !strings.Contains(got, "red-bogus") {
-		t.Fatalf("advisory = %q, want the run reported as red-bogus", got)
+	if strings.Contains(got, "red-bogus") {
+		t.Fatalf("advisory = %q, must not read as a broken TEST setup — nothing was ever tested", got)
+	}
+	if !strings.Contains(got, InfraFailed) {
+		t.Fatalf("advisory = %q, want the run reported as %s", got, InfraFailed)
 	}
 	if _, ok := loadDeferredJob("sess-post", root); ok {
 		t.Fatal("a failed spawn must leave no job record to expire and stamp a streak")
