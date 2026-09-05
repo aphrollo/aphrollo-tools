@@ -183,12 +183,16 @@ func mutantsVerdict(code int) string {
 	return "mutants-failed"
 }
 
-// mutantsTipResolvable reports whether a job's tip commit still resolves in
-// repoRoot — the cheap existence check `git worktree add` would otherwise
-// fail on with "Could not parse object" (issue #367).
+// mutantsTipResolvable answers true when the tip resolves OR the question is
+// inconclusive (git failed to even run) — only a clean git invocation that
+// explicitly reports the object missing counts as a confirmed rewrite.
 func mutantsTipResolvable(repoRoot, tip string) bool {
 	_, err := git(repoRoot, "cat-file", "-e", tip+"^{commit}")
-	return err == nil
+	if err == nil {
+		return true
+	}
+	var exitErr *exec.ExitError
+	return !errors.As(err, &exitErr)
 }
 
 // prepareMutantsWorktree checks the dedicated worktree out at the tip,
