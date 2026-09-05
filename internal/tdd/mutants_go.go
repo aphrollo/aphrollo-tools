@@ -155,9 +155,13 @@ const gremlinsSkipped = "skipped"
 // Rust run writes.
 func RunGoMutantsJob(jobPath string) int {
 	lowerOwnPriority()
-	j, ok := readMutantsJob(jobPath)
-	if !ok {
-		return 0
+	j, err := readMutantsJob(jobPath)
+	if err != nil {
+		// An unreadable job is an error, not an empty result: exiting 0 here
+		// reported a clean run to anyone reading the log, having measured
+		// nothing at all.
+		logf(os.Stdout, "aphrollo gate mutants run: %v", err)
+		return 2
 	}
 	// Never in a linked worktree: a mutated gate test rewrites whatever
 	// repository it lands in, and a linked worktree's is the lane's own

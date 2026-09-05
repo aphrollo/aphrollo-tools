@@ -60,24 +60,20 @@ const (
 	MutantsMinTestTimeoutEnv    = "APHROLLO_MUTANTS_MIN_TEST_TIMEOUT"
 )
 
-// RunMutantsJob is the detached wrapper's body. It never blocks anything, so
-// it always exits 0; what it has to say goes in the job's log and in
-// gate.log.
-// Its own stdout and stderr ARE the job's log files: the parent redirected
-// them at spawn, so everything this function and the producer print is already
-// going where a later merge can read it.
-func RunMutantsJob(jobPath string) int {
-	lowerOwnPriority()
-	j, ok := readMutantsJob(jobPath)
-	if !ok {
-		return 0
-	}
-	log := os.Stdout
-
+// runMutantsJob measures one described job. It never blocks a commit, so a
+// finished run exits 0 whatever the verdict -- what it has to say goes in the
+// job's log and in gate.log. An ERROR that stopped it measuring at all is the
+// exception and exits non-zero: a caller that asked for a run and got none is
+// owed the difference.
+//
+// For the detached wrapper, log is this process's own stdout, which the parent
+// redirected to the job's log file at spawn; for a hand-typed foreground run
+// it is the session's terminal.
+func runMutantsJob(j MutantsJob, log io.Writer) int {
 	if err := prepareMutantsWorktree(j); err != nil {
 		logf(log, "aphrollo: could not prepare %s: %v", j.Worktree, err)
 		appendGateLog("mutants", logToken(j.Repo), "mutants", "mutants-worktree-failed", 0)
-		return 0
+		return 1
 	}
 	plan, carried := scopeMutantsRun(j)
 	// Whatever an interrupted attempt on this same tree already reached: those
@@ -108,7 +104,7 @@ func RunMutantsJob(jobPath string) int {
 	}
 	if err := os.WriteFile(j.Diff, []byte(laneDiff), 0o600); err != nil {
 		logf(log, "aphrollo: could not write the lane diff: %v", err)
-		return 0
+		return 1
 	}
 	logf(log, "aphrollo: %d file(s) to measure, %d carried, %d already judged by an interrupted attempt, %d moved line(s) skipped",
 		len(plan), len(carried), len(judged), movedLines)
@@ -569,16 +565,23 @@ func writeMutantsJobFile(path string, j MutantsJob) error {
 	return writeFileAtomic(path, data)
 }
 
-func readMutantsJob(path string) (MutantsJob, bool) {
-	data, err := os.ReadFile(strings.TrimSpace(path))
+func readMutantsJob(path string) (MutantsJob, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return MutantsJob{}, errors.New("no job file given")
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return MutantsJob{}, false
+		return MutantsJob{}, fmt.Errorf("cannot read the job file %s: %w", path, err)
 	}
 	var j MutantsJob
 	if err := json.Unmarshal(data, &j); err != nil {
-		return MutantsJob{}, false
+		return MutantsJob{}, fmt.Errorf("the job file %s is not readable JSON: %w", path, err)
 	}
-	return j, j.Worktree != "" && j.Tip != ""
+	if j.Worktree == "" || j.Tip == "" {
+		return MutantsJob{}, fmt.Errorf("the job file %s names no worktree or no tip, so there is nothing to measure", path)
+	}
+	return j, nil
 }
 
 func fileExists(path string) bool {
