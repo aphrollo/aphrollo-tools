@@ -313,6 +313,26 @@ func TestSync_ReturnsAnErrorWhenGitFailsForAnotherReason(t *testing.T) {
 	}
 }
 
+// TestSync_DefaultsToTheCwdRepo: an empty repoArg resolves the caller's cwd
+// repo, the same rule commit uses (ResolveTarget("","","")), rather than
+// erroring on a missing positional.
+func TestSync_DefaultsToTheCwdRepo(t *testing.T) {
+	clone := repoWithOrigin(t)
+	advanceOrigin(t, clone, "other.txt", "other\n")
+	t.Chdir(clone)
+
+	var out, errb bytes.Buffer
+	if err := Sync("", false, &out, &errb); err != nil {
+		t.Fatalf("Sync: %v\n%s", err, errb.String())
+	}
+	if !strings.Contains(out.String(), "fast-forward") {
+		t.Errorf("cwd-resolved sync should report a fast-forward:\n%s", out.String())
+	}
+	if revOf(t, clone, "refs/heads/main") != revOf(t, clone, "refs/remotes/origin/main") {
+		t.Errorf("local main should have advanced to origin/main")
+	}
+}
+
 func TestSync_RemotelessIsNonFatal(t *testing.T) {
 	repo := initRepo(t) // a plain repo, no origin remote
 

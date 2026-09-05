@@ -3,11 +3,28 @@ package tdd
 import (
 	"errors"
 	"os"
+	"sort"
+	"time"
 )
 
-// SetPrimaryEditsForEnvSession waives (or restores) the primary-checkout
-// merge-only rule for the session the ENVIRONMENT names, and returns the line
-// to print.
+// WallPrimary is the primary-checkout merge-only rule — the one wall this
+// release's allow/revoke family covers. A later lane adds WallDiscard, and
+// every wall shares this same mechanism: its refusal and its doc read the
+// same regardless of which wall it names.
+const WallPrimary = "primary"
+
+// Waiver is one active wall waiver, as ListWaivers reports it: which wall,
+// since when, and which session holds it. Until is zero for a plain
+// session-scoped waiver, and the one-shot arm's deadline for one that isn't.
+type Waiver struct {
+	Wall    string
+	Since   time.Time
+	Session string
+	Until   time.Time
+}
+
+// AllowWall waives wall for the session the environment names, and returns
+// the line to print.
 //
 // The refusal names two overrides and neither was reachable from inside a
 // turn. `/tdd primary-edits on` is a UserPromptSubmit hook, so it fires on
@@ -20,24 +37,120 @@ import (
 // CLAUDE_SESSION_ID is already in the environment of everything the tool
 // spawns (the build lock reads it), which makes it the one identifier a
 // command run from inside a turn can rely on.
-func SetPrimaryEditsForEnvSession(on bool) (string, error) {
+func AllowWall(wall string) (string, error) {
+	session, err := envSession()
+	if err != nil {
+		return "", err
+	}
+	if wall == WallDiscard {
+		until, err := armDiscardWaiver(session)
+		if err != nil {
+			return "", err
+		}
+		logOverride("override-"+wall+"-allow", session, "")
+		return discardArmedMessage(until), nil
+	}
+	if err := setWaiver(session, wall, true); err != nil {
+		return "", err
+	}
+	logOverride("override-"+wall+"-allow", session, "")
+	return waiverAllowedMessage(wall), nil
+}
+
+// Revoke restores wall for the session the environment names, and returns
+// the line to print.
+func Revoke(wall string) (string, error) {
+	session, err := envSession()
+	if err != nil {
+		return "", err
+	}
+	if err := setWaiver(session, wall, false); err != nil {
+		return "", err
+	}
+	logOverride("override-"+wall+"-revoke", session, "")
+	return waiverRevokedMessage(wall), nil
+}
+
+// Waived reports whether the environment's session has an active waiver on
+// wall.
+func Waived(wall string) bool {
+	session := os.Getenv("CLAUDE_SESSION_ID")
+	if session == "" {
+		return false
+	}
+	return waivedForSession(session, wall)
+}
+
+// ListWaivers returns every active wall waiver recorded in any session's
+// state file, sorted by wall then session — so `gate allow` (bare) prints a
+// deterministic picture of what is waived on this box right now, regardless
+// of which session waived it.
+func ListWaivers() []Waiver {
+	var out []Waiver
+	for _, session := range everySessionID() {
+		s, _ := loadSession(session)
+		if s == nil {
+			continue
+		}
+		for wall, entry := range s.Overrides.Waivers {
+			since, _ := time.Parse(time.RFC3339, entry.Since)
+			w := Waiver{Wall: wall, Since: since, Session: session}
+			if entry.Armed {
+				w.Until, _ = time.Parse(time.RFC3339, entry.Until)
+			}
+			out = append(out, w)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Wall != out[j].Wall {
+			return out[i].Wall < out[j].Wall
+		}
+		return out[i].Session < out[j].Session
+	})
+	return out
+}
+
+// envSession is the one identifier a command run from inside a turn can rely
+// on — see Allow's doc comment.
+func envSession() (string, error) {
 	session := os.Getenv("CLAUDE_SESSION_ID")
 	if session == "" {
 		return "", errors.New("no session in the environment (CLAUDE_SESSION_ID is unset), so there is nothing to override — an edit would still be refused")
 	}
-	if err := setPrimaryEdits(session, on); err != nil {
-		return "", err
-	}
-	logOverride("override-primary-edits-"+onOff(on), session, "")
-	if on {
-		return "Primary-checkout edits ALLOWED for this session — the merge-only rule is waived. Run `aphrollo gate primary-edits off` to restore it.", nil
-	}
-	return "Primary-checkout edits refused again for this session.", nil
+	return session, nil
 }
 
-func onOff(on bool) string {
-	if on {
-		return "on"
+// waiverAllowedMessage and waiverRevokedMessage are wall-specific only for
+// the wall this release actually has; a later wall picks its own wording the
+// same way.
+func waiverAllowedMessage(wall string) string {
+	if wall == WallPrimary {
+		return "Primary-checkout edits ALLOWED for this session — the merge-only rule is waived. Run `aphrollo gate revoke primary` to restore it."
 	}
-	return "off"
+	return wall + " ALLOWED for this session. Run `aphrollo gate revoke " + wall + "` to restore it."
+}
+
+// discardArmedMessage is AllowWall(WallDiscard)'s reply: it names the
+// deadline rather than "for this session" (waiverAllowedMessage's shape),
+// since the arm is spent by the next command it applies to, not by the
+// session ending.
+func discardArmedMessage(until time.Time) string {
+	return "Discard ARMED for one command in this session (until " + until.UTC().Format(time.RFC3339) +
+		"). Run `aphrollo gate revoke discard` to disarm."
+}
+
+func waiverRevokedMessage(wall string) string {
+	if wall == WallPrimary {
+		return "Primary-checkout edits refused again for this session."
+	}
+	return wall + " restored for this session."
+}
+
+// SetPrimaryEditsForEnvSession is the pre-rename spelling of AllowWall/Revoke
+// applied to WallPrimary, kept as a silent alias for one release.
+func SetPrimaryEditsForEnvSession(on bool) (string, error) {
+	if on {
+		return AllowWall(WallPrimary)
+	}
+	return Revoke(WallPrimary)
 }

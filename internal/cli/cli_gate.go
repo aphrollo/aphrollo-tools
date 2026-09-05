@@ -21,7 +21,11 @@ Subcommands:
   userpromptsubmit  Handle the /gate command and re-inject a RED reminder
   sessionend        Drop the session's state file
   precommit         Git pre-commit gate: fail-first + mechanical (run in the repo)
-  premergecommit    Git pre-merge-commit gate: mechanical ONLY, no fail-first/anti-cheat
+  premerge          Git pre-merge-commit gate: mechanical ONLY, no fail-first/anti-cheat
+  premergecommit    (alias of premerge; retiring next release)
+  allow             allow [primary]: waive a wall for this session (bare: list waivers)
+  revoke            revoke [primary]: restore a wall waived by allow (bare: list waivers)
+  primary-edits     on|off (alias of allow/revoke primary; retiring next release)
   postcommit        Git post-commit hook: write the refs/notes/gate note on the
                     commit just made — what lets CI tell a red on a gated tip
                     from a red on an ungated one — then start the lane's
@@ -96,11 +100,14 @@ a failure summary (silent unless RED). userpromptsubmit intercepts
 /gate [status|off|on|reset] and otherwise re-injects the last RED outcome.
 sessionend cleans up the per-session state file. precommit verifies fail-first,
 blocks a newly-added suppression, and runs the suite, exiting non-zero to block.
-premergecommit runs ONLY the mechanical stage over the merge's staged files —
-no fail-first (a fresh test's RED/GREEN belongs to the authoring commit,
-already proven by precommit there) and no anti-cheat suppression scan (same
-reasoning) — so a git merge, which never fires pre-commit, still proves the
-COMBINED result compiles and passes before it lands. prepush is a
+premerge (alias: premergecommit) runs ONLY the mechanical stage over the
+merge's staged files — no fail-first (a fresh test's RED/GREEN belongs to the
+authoring commit, already proven by precommit there) and no anti-cheat
+suppression scan (same reasoning) — so a git merge, which never fires
+pre-commit, still proves the COMBINED result compiles and passes before it
+lands. allow/revoke waive or restore a wall (currently just primary, the
+merge-only primary-checkout rule) for the session; primary-edits on|off is
+the pre-rename alias. prepush is a
 mechanical-only no-op (adversarial review lives in the separate reviewer
 agent now), kept only so a lingering pre-push shim exits cleanly. cargo is
 the cargo-queue shim: a session that prepends the installed cargo-queue dir
@@ -200,7 +207,15 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runGateInit(args[1:], stdout, stderr)
 	}
 	if args[0] == "primary-edits" {
+		// Pre-rename spelling, retiring next release: dispatches to the same
+		// allow/revoke code as `gate allow primary` / `gate revoke primary`.
 		return runGatePrimaryEdits(args[1:], stdout, stderr)
+	}
+	if args[0] == "allow" {
+		return runGateAllow(args[1:], stdout, stderr)
+	}
+	if args[0] == "revoke" {
+		return runGateRevoke(args[1:], stdout, stderr)
 	}
 	if args[0] == "self-install" {
 		// Rebuild this binary from source and put it in place of the
@@ -278,69 +293,11 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runGateGit(args[1:], stdin, stdout, stderr)
 	}
 
-	// precommit/premergecommit/prepush are git hooks: no stdin, exit non-zero
-	// to block.
-	if args[0] == "precommit" || args[0] == "premergecommit" || args[0] == "prepush" {
-		// prepush is a mechanical no-op: the tdd gate is mechanical-only and
-		// adversarial review lives in the separate reviewer agent, not this
-		// binary. It NEVER blocks. We keep the subcommand so a pre-push shim
-		// present on a box exits cleanly.
-		if args[0] == "prepush" {
-			fmt.Fprintln(stderr, "gate prepush: mechanical-only, no-op")
-			return 0
-		}
-		root := tdd.RepoRoot(".")
-		if root == "" {
-			return 0 // not in a git repo — nothing to gate
-		}
-		// premergecommit runs ONLY the mechanical stage: a git merge never
-		// fires pre-commit, so nothing else has proven the COMBINED tree
-		// still compiles and passes — fail-first and the anti-cheat scan are
-		// both judgments about how a change was AUTHORED, already settled by
-		// precommit on the commits being merged.
-		defer tdd.SetPrecommitLockWait(precommitLockWait())()
-		var res tdd.GateResult
-		if args[0] == "premergecommit" {
-			res = tdd.Mechanical(root, tdd.RunSuite(precommitTimeout))
-			// A rejection HERE is the pre-merge-commit hook blocking an
-			// automatic, conflict-free merge — the one case where git still
-			// leaves MERGE_HEAD and the merged index in the checkout ("Not
-			// committing merge; use 'git commit' to complete the merge."),
-			// refusing every OTHER session sharing it until a human runs
-			// `git merge --abort`. The marker lets the git-queue shim
-			// recognise its own rejection and clean that up automatically.
-			// Concluding a CONFLICTED merge fires pre-commit instead (routed
-			// to Mechanical internally by Precommit, task A10) and must
-			// never reach here — scoping the write to this branch is what
-			// keeps that path untouched.
-			if res.Blocked {
-				tdd.WriteMergeRejectedMarker(root, res.Message)
-				// Two gates disagreeing about one tree, or a survivor
-				// reaching the last gate that could stop it, is the loop's
-				// own evidence about a missing stage. Nothing recorded it
-				// before; now it records itself, deduped by fingerprint.
-				tdd.NoteMergeGateEscape(root, res.Message, stderr)
-			}
-		} else {
-			res = tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
-			if !res.Blocked {
-				// Stamp the tree a suite actually RAN GREEN on, so the
-				// post-commit hook can put the gate note on the commit and
-				// CI can tell a red on a proven tip from a red on an
-				// ungated one. A gate that allowed the commit because there
-				// was nothing to test has proven nothing and stamps nothing.
-				tdd.StampGreenSuiteIfProven(root)
-			}
-		}
-		// Surface the note (e.g. a fail-open skip) even when allowing — the gate
-		// is never silent about why it did or didn't run.
-		if res.Message != "" {
-			fmt.Fprintln(stderr, res.Message)
-		}
-		if res.Blocked {
-			return 1
-		}
-		return 0
+	// precommit/premerge/prepush are git hooks: no stdin, exit non-zero to
+	// block. "premergecommit" is the pre-rename spelling, a silent alias for
+	// one release. See gatehooks.go for the routine itself.
+	if args[0] == "precommit" || args[0] == "premergecommit" || args[0] == "premerge" || args[0] == "prepush" {
+		return runGateMergeHook(args[0], stderr)
 	}
 
 	switch args[0] {
