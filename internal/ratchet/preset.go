@@ -193,12 +193,21 @@ func canonicalMatcher(doc *tomlDoc) string {
 }
 
 // canonicalSection is canonicalMatcher's shape generalized to any one TOML
-// table: an order-independent `key=value;key=value` fingerprint.
+// table: an order-independent, unambiguous fingerprint of its `key=value`
+// pairs. Each pair is length-prefixed before joining — the same discipline
+// canonicalTOMLValue applies to array elements — because canonicalTOMLValue's
+// tomlString case is a raw, unescaped passthrough: a bare `;` join would let
+// a string VALUE embed `;` and `=` and forge a following field's canonical
+// text (e.g. `alias = "X;exclude=6:target"` colliding with a real
+// `alias = "X"` plus `exclude = ["target"]`). Length-prefixing each whole
+// `key=value` pair makes the join unambiguous regardless of what characters
+// the value contains.
 func canonicalSection(doc *tomlDoc, section string) string {
 	parts := make([]string, 0, len(doc.keys(section)))
 	for _, k := range doc.keys(section) {
 		v, _ := doc.value(section, k)
-		parts = append(parts, k+"="+canonicalTOMLValue(v))
+		kv := k + "=" + canonicalTOMLValue(v)
+		parts = append(parts, strconv.Itoa(len(kv))+":"+kv)
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, ";")
@@ -228,7 +237,16 @@ func canonicalTOMLValue(v tomlValue) string {
 	case tomlBool:
 		return strconv.FormatBool(v.b)
 	case tomlArray:
-		return strings.Join(v.list, ",")
+		// Length-prefix each element before joining: a bare comma join makes
+		// ["a,b"] and ["a","b"] indistinguishable, and RuleSemantics (which
+		// --adopt's changed-since-HEAD guard, and the baseline guard routed
+		// through it, both rely on) would then call a real [scope]/[matcher]
+		// list change "unchanged".
+		parts := make([]string, len(v.list))
+		for i, e := range v.list {
+			parts[i] = strconv.Itoa(len(e)) + ":" + e
+		}
+		return strings.Join(parts, ",")
 	default:
 		return ""
 	}

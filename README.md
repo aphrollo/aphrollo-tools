@@ -1030,8 +1030,8 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
 ```
 
 - **`issue-labels`** (string array) — the themes this repo files open points
-  under, and the list `aphrollo gate issue --label` and `gate escape record
-  --label` judge a label against. A label outside it is refused with the list
+  under, and the list [`aphrollo issue --label`](#open-points-aphrollo-issue)
+  and `gate escape record --label` judge a label against. A label outside it is refused with the list
   in the message, because the common case is a typo and a typo opens a theme
   nobody ever filters on; `--new-label` admits a deliberate new one. A repo
   that declares no list is not checked at all. A repo that is not a cargo
@@ -1756,18 +1756,87 @@ hook. **The bar is zero**: no baseline file, no allowlist, no suppression commen
 (`node_modules/`) or a path in *another* repo, keep it out of path-citation form
 (drop the slash, or describe it in prose) rather than reaching for a suppression.
 
-## Setup — `aphrollo gate init`
+### Judge the tree — `aphrollo check`
 
-One command wires the whole gate — the native replacement for
-`claude-code-tdd`'s `install.sh`:
+The commit gate and CI run several guards separately, each scoped to what it
+touched; `check` runs all of them over the whole tree in one pass, for a
+reviewer or a session that wants the tree's verdict without stitching several
+commands together:
 
 ```sh
-aphrollo gate init                    # session hooks + global git gate
-aphrollo gate init --no-git           # session hooks only (skip the git gate)
-aphrollo gate init --uninstall        # remove everything again
+aphrollo check                 # judge the cwd repo
+aphrollo check --repo path/to/repo
 ```
 
-`init` does two things:
+It runs, in order, and never stops at the first miss — every guard runs, then
+the command exits 1 if any of them did:
+
+1. **ratchet** — [`ratchet check`](#ratchet-laws-aphrollo-ratchet) with
+   tightening OFF: `check` only ever reports, it never writes a baseline down.
+   `[skip] no laws declared` when the repo has none.
+2. **docs** — the [doc-reference guard](#doc-reference-guard-aphrollo-docs-check)
+   over every tracked `*.md`.
+3. **sqlc** — [`sqlc check`](#sqlc-drift-guard-aphrollo-sqlc) over every
+   discovered config; `[skip] no sqlc config` when the repo has none.
+4. **doctor** — the same checks [`gate doctor`](#aphrollo-gate-doctor) reports.
+5. **app trio** — the same `{test, typecheck, lint}` plan
+   [`workspace verify`](#verify--the-typechecklint-the-commit-gate-misses) runs,
+   for whichever app the cwd's worktree resolves to; `[skip] no app declared`
+   for a repo the app table does not cover.
+
+One line per guard:
+
+```
+check: ratchet → clean (6 law(s), 561 file(s))
+check: docs → clean
+check: sqlc → [skip] no sqlc config
+check: doctor → clean
+check: app trio → [skip] no app declared
+```
+
+A miss reports `check: <guard> → <n> miss(es)`, with that guard's own detail
+above the summary line — the same output `ratchet check`/`docs check`/`sqlc
+check`/`gate doctor` print standalone. Read-only: `check` mutates nothing.
+
+## Open points — `aphrollo issue`
+
+An open point belongs in an issue, not a line in a markdown follow-up list: an
+issue has an owner, a label, and a close event, and a document has none of the
+three.
+
+```sh
+aphrollo issue "the rig drifts at 60 Hz" --label physics
+# https://github.com/o/r/issues/12
+```
+
+Opens one issue against `--repo`'s (default: cwd) GitHub remote and prints its
+URL — the only line on stdout, so the command pipes. `--label` is repeatable
+and judged against the repo's declared `issue-labels` (see [Cargo workspace
+metadata](#cargo-workspace-metadata-workspacemetadataaphrollo)); a label
+outside that list is refused with the declared list attached, because the
+common case is a typo and a typo opens a theme nobody ever filters on —
+`--new-label` admits a deliberate new one. `--body` sets the issue body.
+
+A gate MISS — a red that arrived after a local green — is [`gate escape
+record`](#the-escape-loop-aphrollo-gate-escape) instead, which records it
+locally as well as opening the issue. `gate issue` remains as an alias for one
+release.
+
+## `aphrollo install`
+
+One command wires the whole gate — the native replacement for
+`claude-code-tdd`'s `install.sh` — AND, for `--repo` (default: the working
+directory's), that repo's own `.git/hooks` shims, in one run:
+
+```sh
+aphrollo install                    # session hooks + global git gate + this repo's own hooks
+aphrollo install --no-git           # session hooks only (skip the git gate)
+aphrollo install --uninstall        # remove the session hooks + git gate again
+```
+
+`install` runs two steps, in order — the two `gate init`/`gate install --apply`
+used to be typed separately (both spellings still work, as aliases retiring
+next release):
 
 1. **Session hooks** — patches `settings.json` (`$CLAUDE_CONFIG_DIR` or
    `~/.claude`) so `pretooluse` / `posttooluse` / `userpromptsubmit` /
@@ -1784,12 +1853,13 @@ aphrollo gate init --uninstall        # remove everything again
    repo is gated. Hand-written hooks are never clobbered. `--no-git` skips this
    layer. The gate has no pre-push stage, so a re-init also **prunes** any managed
    `pre-push` shim it finds, leaving hand-written hooks untouched.
+3. **`--repo`'s own hooks** — writes the same shims into `--repo`'s
+   `.git/hooks` directly (opt-in, no `core.hooksPath`) — the one useful step
+   for a repo that will never get the global gate. Skipped when `--uninstall`
+   is passed: the repo shims have no removal of their own.
 
 It resolves the invoking binary via `os.Executable`, so the installed hooks
 call the same binary that wrote them; ansible runs it once per session HOME.
-
-For a single repo without the global gate, `aphrollo gate install --apply` writes
-the same shims into that repo's `.git/hooks` instead (opt-in, no `core.hooksPath`).
 
 The gate is **solely mechanical**: edit-time smell blocks + commit-time
 anti-cheat/fail-first/suite. Adversarial review lives in the reviewer agent,
