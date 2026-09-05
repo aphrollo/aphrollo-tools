@@ -22,7 +22,7 @@ type ShipRequest struct {
 	Message  string // commit message (required)
 	StageAll bool   // git add -A before committing
 	NoVerify bool   // skip the pre-commit gate
-	Base     string // PR base (default main)
+	Base     string // PR base ("" resolves the repo's default branch)
 	Title    string // PR title ("" => filled from commits)
 	Body     string // PR body
 	Draft    bool   // open the PR as a draft

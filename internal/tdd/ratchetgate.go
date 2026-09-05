@@ -338,9 +338,16 @@ func ratchetFixtureStage(gateName, repoRoot string) GateResult {
 	started := time.Now()
 	results, err := ratchet.RunFixtures(repoRoot)
 	if err != nil {
-		line := fmt.Sprintf("gate %s: ratchet fixtures → skipped (%v)", gateName, err)
-		fmt.Fprintln(os.Stderr, line)
-		return GateResult{Message: line}
+		// The same shape #158 fixed for ratchet check: a law this binary's
+		// schema cannot even parse must not disarm the fixture proof for
+		// every OTHER law alongside it.
+		return verdictFor(gateName, "ratchet-fixtures", repoRoot, "ratchet test", stageOutcome{
+			kind: outcomeCheckError,
+			err:  err,
+			message: fmt.Sprintf(
+				"gate %s: ratchet fixtures → REJECTED (the law tooling could not run: %v)\n  fix the law file named above, or reinstall aphrollo if it predates a matcher kind or schema a law declares",
+				gateName, err),
+		})
 	}
 	var failures []string
 	for _, r := range results {
