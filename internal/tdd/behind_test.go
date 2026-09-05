@@ -314,6 +314,23 @@ func TestBinaryBehindLine_RecordsNoTokenOnAPlainSuccess(t *testing.T) {
 	}
 }
 
+// recordBinaryBehindFailure's log call is not protected by the path=="" cache
+// write it precedes — appendGateLog derives its own path from the same
+// stateDir() and no-ops the identical way when that fails. Calling the
+// function directly with path=="" is the only way to exercise that case
+// without also breaking appendGateLog's own attempt to write, which would
+// prove nothing about the ORDERING the comment used to (falsely) claim
+// mattered.
+func TestRecordBinaryBehindFailure_StillLogsWhenPathIsEmpty(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+
+	recordBinaryBehindFailure("", binaryBehindCache{}, time.Now(), binaryBehindStanddownFailed)
+
+	if !strings.Contains(gateLogContent(t), "standdown-failed") {
+		t.Fatalf("gate.log does not record the standdown when path is empty:\n%s", gateLogContent(t))
+	}
+}
+
 // The line must reach the session, not just the unit under test.
 func TestHandleSessionStart_CarriesTheBehindLine(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

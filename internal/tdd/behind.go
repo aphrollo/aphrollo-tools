@@ -215,13 +215,20 @@ func recentlyFailedBinaryBehindLookup(c binaryBehindCache, now time.Time) bool {
 // recordBinaryBehindFailure remembers a failed lookup without disturbing
 // whatever CheckedAt/Head the last SUCCESSFUL lookup left behind, so a retry
 // once the backoff clears still has the old answer to fall back on if it
-// fails again immediately.
-// recordBinaryBehindFailure logs kind ONCE per transition — only when it
-// differs from the reason last recorded — then persists it as the new
-// FailKind so a repeat of the SAME failure across many session starts stays
-// silent in the ledger. The log call runs before the path=="" cache-write
-// bailout on purpose: a state dir this box cannot write to must not ALSO
-// swallow the one thing that would tell an operator ls-remote is broken.
+// fails again immediately. It also logs kind ONCE per transition — only when
+// it differs from the reason last recorded — so a repeat of the SAME failure
+// across many session starts stays silent in the ledger.
+//
+// The log call is written before the path=="" cache-write bailout, but that
+// ordering buys NOTHING extra: path comes from gcStatePath, which derives
+// dir from the same stateDir() and runs the same os.MkdirAll(dir, 0o700)
+// appendGateLog (state.go) independently repeats before it will write a
+// line. Every real cause of path=="" — no CLAUDE_CONFIG_DIR and no resolvable
+// home, or a dir this account cannot create — reproduces inside
+// appendGateLog too, so the standdown token is silently lost in exactly the
+// case this comment used to claim it was protected. There is nowhere else on
+// this box to write it; a state dir this unwritable is a separate, larger
+// problem the doctor's own "lock dirs writable" check exists to catch.
 func recordBinaryBehindFailure(path string, prev binaryBehindCache, now time.Time, kind string) {
 	if prev.FailKind != kind {
 		appendGateLog(binaryBehindStage, "", binaryBehindCmd, kind, 0)
