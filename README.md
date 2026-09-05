@@ -649,21 +649,23 @@ live where being wrong only costs a re-run):
 | `ratchet check` | git `pre-commit`/`pre-merge-commit`, and manual | Judges the tree against `.ratchet/laws/*.toml` (see [Ratchet laws](#ratchet-laws-aphrollo-ratchet)). |
 | `gate prepush` | git `pre-push` | **No-op** (mechanical-only mode). The gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
 | `gate premerge` | git `pre-merge-commit` | Runs ONLY the mechanical stage over the merge's staged files — no fail-first (a fresh test's RED/GREEN belongs to the authoring commit, already proven by `precommit` there) and no anti-cheat suppression scan (same reasoning) — so a git merge, which never fires `pre-commit`, still proves the COMBINED result compiles and passes before it lands. `gate premergecommit` is the pre-rename spelling, kept as a silent alias for one release; every line the routine prints starts `gate premerge:`. |
-| `gate allow` / `gate revoke` | manual | `allow <wall>` waives a wall for the session (`primary` today; `discard` joins later); bare `allow` (or `revoke`) lists the active waivers. See [Waivers](#waivers) below. |
+| `gate allow` / `gate revoke` | manual | `allow <wall>` waives a wall (`primary` or `discard`); bare `allow` (or `revoke`) lists the active waivers. See [Waivers](#waivers) below. |
 
 #### Waivers
 
 A wall's refusal and its doc read the same, because every wall shares one
-mechanism: `aphrollo gate allow <wall>` waives it for
-the session, `aphrollo gate revoke <wall>` restores it, and a bare `gate
-allow` (or `gate revoke`) lists every active waiver as `<wall> since
-<RFC3339> by <session>`, or `no waivers`. The scope is a property of the
-wall, not of the verb — `allow primary` is session-scoped, because a lane's
-worth of edits needs it; a later wall can be one-shot instead. `primary` is
-the primary-checkout merge-only rule (worktrees stay editable; the checkout
-holding `main` refuses a write when the repo has any linked worktree);
-`gate primary-edits on|off` and `/tdd primary-edits on|off` are the
-pre-rename spellings, kept as silent aliases for one release.
+mechanism: `aphrollo gate allow <wall>` waives it, `aphrollo gate revoke
+<wall>` restores it, and a bare `gate allow` (or `gate revoke`) lists every
+active waiver, or `no waivers`. The scope is a property of the wall, not of
+the verb: `primary` is session-scoped, listed as `primary since <RFC3339> by
+<session>`, because a lane's worth of edits needs it; `discard` is
+one-shot — spent by the first discarding command that checks it, or after 5
+minutes, whichever comes first — listed as `discard armed until <RFC3339> by
+<session>` while it is still live. `primary` is the primary-checkout
+merge-only rule (worktrees stay editable; the checkout holding `main` refuses
+a write when the repo has any linked worktree); `gate primary-edits on|off`
+and `/tdd primary-edits on|off` are the pre-rename spellings, kept as silent
+aliases for one release. `discard` is [the discard wall](#the-discard-wall).
 
 #### Gate stage order (cheapest first)
 
@@ -1040,6 +1042,32 @@ the same repo.
 One `queued behind "<cmd>" in <cwd>` line when it has to wait, one on
 acquire, exit 75 after `APHROLLO_GIT_WAIT_SECS` (default 20 min). A stray
 `index.lock` left by a git process that bypassed the shim is waited out too.
+
+#### The discard wall
+
+Before the lock, the shim measures every git verb that would throw away
+uncommitted or unmerged work — `reset --hard`/`--merge`, `checkout -f`/
+`checkout -- <paths>`, `restore <paths>` (not a bare `restore --staged`),
+`clean -f*` (not `-n`), `stash drop`/`clear`, `branch -D`, `worktree remove
+--force` — and refuses it when the cost is non-zero:
+
+```
+gate: refused — reset --hard discards 3 file(s), +212/-40 uncommitted; aphrollo gate allow discard arms one command, APHROLLO_DISCARD=1 for scripts
+```
+
+A measurement that could not even run (a broken git, an index.lock
+collision) refuses too, fail-closed, rather than reading as nothing to lose:
+
+```
+gate: refused — reset --hard: could not measure what it would discard (<error>); retry, or APHROLLO_DISCARD=1 to bypass
+```
+
+Two overrides, same shape as the primary wall's: `aphrollo gate allow
+discard` arms the wall for exactly the next discarding command in this
+session (see [Waivers](#waivers)), and `APHROLLO_DISCARD=1` passes one
+invocation through for a script. Both are counted in `gate stats`:
+`git-discard-refused:<form>` under denies, `override-discard-used` and
+`override-discard-env` under denies / overrides.
 
 ### The queue shims are executables, not batch files
 
