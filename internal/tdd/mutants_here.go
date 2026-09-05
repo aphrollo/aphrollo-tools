@@ -32,8 +32,14 @@ func (r mutantsRefusal) refused() bool { return r.Reason != "" }
 func buildMutantsJob(repoRoot, stage string) (MutantsJob, mutantsRefusal, error) {
 	root := RepoRoot(repoRoot)
 	if root == "" {
+		// The caller's spelling is usually ".", which names nothing to
+		// somebody reading the line afterwards in a log.
+		where := repoRoot
+		if abs, err := filepath.Abs(repoRoot); err == nil {
+			where = abs
+		}
 		return MutantsJob{}, mutantsRefusal{
-			Reason:  fmt.Sprintf("%s is not inside a git repository", repoRoot),
+			Reason:  fmt.Sprintf("%s is not inside a git repository", where),
 			Routine: true,
 		}, nil
 	}
