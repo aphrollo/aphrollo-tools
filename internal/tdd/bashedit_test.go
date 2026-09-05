@@ -242,6 +242,12 @@ func TestPostBashNoticesAFileTheCommandCreated(t *testing.T) {
 // by the time it lands), but it now names every root left untested.
 func TestPostBash_NamesEveryRootAChangeTouchedEvenWhenOneDefers(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	// A budget that has already run out still SPAWNS (startAndWait's own
+	// contract) but returns "still running" immediately instead of polling
+	// for real seconds: fakePhases below queues no outcome, so without this
+	// the test burns the full 110s production DefaultPostEditTimeout waiting
+	// out a phase that can never finish.
+	t.Setenv("APHROLLO_POSTEDIT_BUDGET_SECS", "0")
 	root := makeGoRepo(t)
 	write(t, root, "pkga/go.mod", "module pkga\n\ngo 1.21\n")
 	write(t, root, "pkga/a.go", "package pkga\n\nfunc A() int { return 1 }\n")

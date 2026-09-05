@@ -65,6 +65,16 @@ type PhaseOutcome struct {
 	Schema   int     `json:"schema"`
 	ExitCode int     `json:"exit_code"`
 	Seconds  float64 `json:"seconds"`
+	// SetupFailed is true when RunPhase's OWN setup — no runner, no log
+	// file, no build slot — failed before the phase's command ever started,
+	// so ExitCode carries no meaning about the code under test. This is a
+	// SEPARATE field, not a sentinel ExitCode value, because ExitCode is the
+	// runner's real exit status and a real run can legitimately exit with
+	// any value (125 is `git bisect`'s reserved skip code, Docker's
+	// daemon-failure code, and a plain `make`/shell wrapper's too) —
+	// overloading one integer for both meanings made a genuine red exiting
+	// 125 indistinguishable from "no build slot came free".
+	SetupFailed bool `json:"setup_failed,omitempty"`
 }
 
 // deferredMaxEnv bounds how long a detached phase may run before the next

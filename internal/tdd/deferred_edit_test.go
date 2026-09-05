@@ -160,6 +160,43 @@ func TestPostEdit_HarvestsAFinishedDeferredBuild(t *testing.T) {
 	}
 }
 
+// TestPostEdit_HarvestWarmRunSpawnFailureIsLogged pins a cold-review YELLOW:
+// when a harvested build is warm and the follow-up run phase fails to
+// SPAWN, every sibling infra-failure site in this file logs an
+// appendGateLog entry — this one did not, so the failure never reached
+// gate.log and gate stats would never see it.
+func TestPostEdit_HarvestWarmRunSpawnFailureIsLogged(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := mkProject(t, "Cargo.toml")
+	target := root + "/src/widget.rs"
+
+	prev := spawnPhaseFn
+	spawnPhaseFn = func(j DeferredJob) (DeferredJob, bool) { return j, false }
+	t.Cleanup(func() { spawnPhaseFn = prev })
+	EnableDeferredPhases(true)
+	t.Cleanup(func() { EnableDeferredPhases(false) })
+
+	saveDeferredJob(DeferredJob{
+		Project: root, Session: "sess-post", Phase: "build", Dir: root, PID: 999,
+		Started: time.Now().Add(-time.Minute),
+		HeadSHA: headSHAFor(root), FileHash: fileContentHash(target),
+		Runner: []string{"cargo", "test", "--no-run"},
+	})
+	job, _ := loadDeferredJob("sess-post", root)
+	if err := os.WriteFile(job.Log, []byte("Compiling widget\nFinished"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writePhaseResult(job.Result, PhaseOutcome{ExitCode: 0, Seconds: 42})
+
+	got := PostEdit(postPayload("Edit", target), fakeRun(true, "ok"))
+
+	if !strings.Contains(got, InfraFailed) {
+		t.Fatalf("advisory = %q, want %s for a run phase that never started", got, InfraFailed)
+	}
+	requireLoggedVerdict(t, cfg, InfraFailed)
+}
+
 // TestPostEdit_EditDuringADeferredBuildMarksItDirty pins the no-kill rule: a
 // second edit to the same project must NOT kill the running build (cargo is
 // doing real, incremental work) — it marks the job dirty so the harvest
@@ -240,6 +277,49 @@ func TestEditResultAdvisory_DropsStalePrevFailingWhenTheIndexMovedWithoutHead(t 
 	ps := state.ByProject[root]
 	if ps.Outcome == string(NoDelta) {
 		t.Fatalf("outcome = %q from advisory %q, want the stale FailingTests dropped once the index moved without HEAD — TestFoo must be reported, not hidden as no-delta", ps.Outcome, got)
+	}
+}
+
+// TestFinishedEditOutcome_ExitCode125WithoutSetupFailedIsARealResult pins a
+// cold-review RED: phaseSetupFailure's value (125) used to be the
+// discriminator itself (out.ExitCode == phaseSetupFailure), and 125 is not
+// reserved for RunPhase — it is `git bisect`'s skip code, Docker's
+// daemon-failure code, and a plain `make`/shell wrapper's exit status too. A
+// genuine runner exiting 125 must classify as a real (if ugly) result, not
+// vanish into "the code was NOT tested". Only RunPhase's own
+// PhaseOutcome.SetupFailed may route a result to infra.
+func TestFinishedEditOutcome_ExitCode125WithoutSetupFailedIsARealResult(t *testing.T) {
+	got := finishedEditOutcome(DeferredJob{}, PhaseOutcome{ExitCode: 125})
+	if got.infra {
+		t.Fatal("ExitCode 125 alone must not be read as an infra failure — a real runner can legitimately exit 125")
+	}
+}
+
+// TestEditResultAdvisory_RealExitCode125IsNotMistakenForInfraFailure is the
+// harvest-path twin: a genuinely red run reported with ExitCode 125 must
+// still reach ClassifyOutcome and get stamped into session state, exactly
+// as it did before this lane's InfraFailed classification existed.
+func TestEditResultAdvisory_RealExitCode125IsNotMistakenForInfraFailure(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "job.log")
+	if err := os.WriteFile(logPath, []byte("--- FAIL: TestFoo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state, statePath := loadSession("sess-125")
+	j := DeferredJob{Project: root, Phase: "run", Runner: []string{"make", "test"}, Log: logPath}
+
+	got := editResultAdvisory(j, PhaseOutcome{ExitCode: 125}, root, state, statePath, "")
+
+	if strings.Contains(got, InfraFailed) {
+		t.Fatalf("advisory = %q, a genuine exit-125 run must not read as %s", got, InfraFailed)
+	}
+	ps, ok := state.ByProject[root]
+	if !ok {
+		t.Fatal("a real result must be stamped into session state, not skipped as an infra failure")
+	}
+	if ps.Outcome == "" {
+		t.Fatalf("stamped outcome is empty, want the real classified outcome, got %+v", ps)
 	}
 }
 

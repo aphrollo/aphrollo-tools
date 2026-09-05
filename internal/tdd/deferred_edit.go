@@ -50,18 +50,18 @@ type deferredEditOutcome struct {
 	spawnFailed bool
 	// infra says the phase DID spawn and finish, but RunPhase's own setup
 	// failed before the phase's command ever ran (no build slot came free,
-	// or it could not even open its log file) — res.ExitCode ==
-	// phaseSetupFailure. Like spawnFailed, this is never a real test result:
-	// ClassifyOutcome must not see it, or a capacity refusal reads as a
-	// genuine assertion failure (issues #350, #354).
+	// or it could not even open its log file) — out.SetupFailed was true.
+	// Like spawnFailed, this is never a real test result: ClassifyOutcome
+	// must not see it, or a capacity refusal reads as a genuine assertion
+	// failure (issues #350, #354).
 	infra bool
 }
 
 // finishedEditOutcome turns a completed phase into the outcome runEditPhases
-// reports, routing a RunPhase setup failure (phaseSetupFailure) to infra
+// reports, routing a RunPhase setup failure (out.SetupFailed) to infra
 // instead of letting it masquerade as a real (if ugly) test result.
 func finishedEditOutcome(j DeferredJob, out PhaseOutcome) deferredEditOutcome {
-	if out.ExitCode == phaseSetupFailure {
+	if out.SetupFailed {
 		return deferredEditOutcome{res: phaseSuiteResult(j, out), infra: true}
 	}
 	return deferredEditOutcome{res: phaseSuiteResult(j, out)}
@@ -193,6 +193,7 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 		runPhase.Log, runPhase.Result = "", ""
 		startedRun, runOut, status := startAndWait(runPhase, budget)
 		if status == phaseFailedToStart {
+			appendGateLog("postedit", root, strings.Join(runPhase.Runner, " "), InfraFailed, 0)
 			return spawnFailedLine(root, "run"), false
 		}
 		if status == phaseRunning {
@@ -218,7 +219,7 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 // rather than always missing on a nil fingerprint.
 func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *sessionState, statePath, headSHA string) string {
 	res := phaseSuiteResult(j, out)
-	if out.ExitCode == phaseSetupFailure {
+	if out.SetupFailed {
 		// RunPhase's own setup failed (no build slot, no log file) before the
 		// phase's command ever ran: nothing about the TEST is under
 		// suspicion, so this must never reach ClassifyOutcome, and must never
@@ -282,8 +283,8 @@ func spawnFailedLine(root, phase string) string {
 }
 
 // infraFailureLine reports a phase that DID spawn and finish, but whose own
-// setup failed before its command ever ran (RunPhase's phaseSetupFailure
-// exit code) — no build slot came free, or it could not open its log file.
+// setup failed before its command ever ran (RunPhase's PhaseOutcome.SetupFailed)
+// — no build slot came free, or it could not open its log file.
 // Same InfraFailed family as spawnFailedLine, named by the wrapper's own
 // first log line where there is one, so a capacity refusal names the
 // resource it waited for rather than reading as a bare assertion failure.
