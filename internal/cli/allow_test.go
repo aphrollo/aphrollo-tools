@@ -73,7 +73,7 @@ func TestAllow_RefusesAnUnknownWall(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("exit = %d, want 2", code)
 	}
-	const want = "usage: aphrollo gate allow [primary]\n"
+	const want = "usage: aphrollo gate allow [primary|discard]\n"
 	if errb.String() != want {
 		t.Fatalf("stderr = %q, want %q", errb.String(), want)
 	}
