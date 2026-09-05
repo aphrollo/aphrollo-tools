@@ -19,6 +19,18 @@ func TestBashWriteTargets_ClaimsNothingForARootedNulDevice(t *testing.T) {
 	}
 }
 
+// A dropped leading slash (`>dev/null`) is judged the same as the rooted
+// spelling: the operand resolved onto cwd (`/repo/lane/dev/null`) and the
+// guardrail claimed it as a real write into the repo — the false block this
+// file's contract rules out. Found by FuzzBashWriteTargets (issue #413).
+func TestBashWriteTargets_ClaimsNothingForAnUnrootedDevNull(t *testing.T) {
+	for _, cmd := range []string{">dev/null", "echo hi > dev/null"} {
+		if got := bashWriteTargets(cmd, filepath.FromSlash("/repo/lane")); len(got) != 0 {
+			t.Errorf("bashWriteTargets(%q) = %q, want nothing — a dropped leading slash still names the null device, not a real write", cmd, got)
+		}
+	}
+}
+
 // ...and the guard is on the DEVICE name, not on any path containing it: a
 // file whose name merely starts with those letters is an ordinary write.
 func TestBashWriteTargets_StillClaimsAFileNamedLikeTheDevice(t *testing.T) {
