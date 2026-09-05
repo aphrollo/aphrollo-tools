@@ -648,12 +648,28 @@ live where being wrong only costs a re-run):
 | `gate postcommit` | git `post-commit` | Writes `refs/notes/gate` on the commit just made — `green <tree>` — when a root group's suite actually RAN green for exactly that tree. A cache hit is not that, so an amend (which re-runs the gate and hits the cache) leaves no note, which is the right answer for a commit no suite has run against. The note is what lets CI tell a red on a gated tip from a red on an ungated one; the git shim pushes the ref alongside a branch push. Then, for a commit on a lane branch in a repo opted in (`mutation-receipt = true`, in `[workspace.metadata.aphrollo]` for a Cargo workspace or a root `aphrollo.toml` otherwise), starts that lane's mutation run detached and at below-normal process priority — spawned by `gate mutants run --job <file>`. The same verb WITHOUT `--job` is the hand-typed entry point: it builds the same job for the checkout it is standing in and runs it in the foreground, under the same box-wide lock. A commit on `main`/`master`, a repo not opted in, or a box the run cannot fit on a drive skips silently. Never blocks — the commit already exists. |
 | `ratchet check` | git `pre-commit`/`pre-merge-commit`, and manual | Judges the tree against `.ratchet/laws/*.toml` (see [Ratchet laws](#ratchet-laws-aphrollo-ratchet)). |
 | `gate prepush` | git `pre-push` | **No-op** (mechanical-only mode). The gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
+| `gate premerge` | git `pre-merge-commit` | Runs ONLY the mechanical stage over the merge's staged files — no fail-first (a fresh test's RED/GREEN belongs to the authoring commit, already proven by `precommit` there) and no anti-cheat suppression scan (same reasoning) — so a git merge, which never fires `pre-commit`, still proves the COMBINED result compiles and passes before it lands. `gate premergecommit` is the pre-rename spelling, kept as a silent alias for one release; every line the routine prints starts `gate premerge:`. |
+| `gate allow` / `gate revoke` | manual | `allow <wall>` waives a wall for the session (`primary` today; `discard` joins later); bare `allow` (or `revoke`) lists the active waivers. See [Waivers](#waivers) below. |
+
+#### Waivers
+
+A wall's refusal and its doc read the same, because every wall shares one
+mechanism: `aphrollo gate allow <wall>` waives it for
+the session, `aphrollo gate revoke <wall>` restores it, and a bare `gate
+allow` (or `gate revoke`) lists every active waiver as `<wall> since
+<RFC3339> by <session>`, or `no waivers`. The scope is a property of the
+wall, not of the verb — `allow primary` is session-scoped, because a lane's
+worth of edits needs it; a later wall can be one-shot instead. `primary` is
+the primary-checkout merge-only rule (worktrees stay editable; the checkout
+holding `main` refuses a write when the repo has any linked worktree);
+`gate primary-edits on|off` and `/tdd primary-edits on|off` are the
+pre-rename spellings, kept as silent aliases for one release.
 
 #### Gate stage order (cheapest first)
 
-`precommit` and `premergecommit` run the same pipeline per project root and
-**stop at the first rejection**, so a formatting slip costs milliseconds
-instead of a full test build:
+`precommit` and `premerge` (alias: `premergecommit`) run the same pipeline
+per project root and **stop at the first rejection**, so a formatting slip
+costs milliseconds instead of a full test build:
 
 | # | stage | cost | notes |
 |---|---|---|---|
@@ -1106,7 +1122,7 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   Fail-first proves a test FAILED once; it says nothing about whether the
   test constrains behaviour, and a test that asserts nothing satisfies
   fail-first perfectly. A MERGE needs both. With the key set,
-  `premergecommit` looks up `<stateDir>/mutation-receipt.<tip_tree>.json`,
+  `premerge` (alias: `premergecommit`) looks up `<stateDir>/mutation-receipt.<tip_tree>.json`,
   where `<tip_tree>` is the LANE TIP's tree (`git rev-parse MERGE_HEAD:`
   — never the merge result, which nobody has mutation-tested). The file is
   written by the consuming repo's own mutation run (borld's
@@ -1138,7 +1154,10 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   it is a real answer. `unaccepted`'s entries are opaque to the gate — the
   producing repo decides how it names a mutant — and only the first is quoted
   in the rejection, which also names the command that produces a receipt. It
-  runs BEFORE any suite compiles.
+  runs BEFORE any suite compiles. A receipt WAIVER (a catch-up merge of main
+  into a lane, or `mutants-local = false` below) is only ever noted, never a
+  rejection — `premergecommit` still runs baselineStage, `ratchet check`,
+  `docs check` and the touched project roots' suites against the merged tree.
 - **`mutants-local`** (bool, default `true`) — where the proof is MEASURED.
   A Cargo repo has no runner that will do it, so the post-commit hook starts a
   detached run on the box and the key can stay unwritten. A repo whose pipeline
@@ -1617,6 +1636,16 @@ rule that changed drops the cache instead of inheriting verdicts reached under
 the old one. A repo with no laws dir under `.ratchet` says `no laws` and exits 0.
 
 <!-- ratchet-spec:end -->
+
+#### Preset catalogue example: `test_removed`
+
+`common/test_removed` is the `symbol-removed` kind's template: `go/test_removed`
+and `rust/test_removed` are its concrete, already-filled-in forms (a Go
+`Test`-prefixed function, a Rust `#[test]`/`#[tokio::test]` function), the same
+relationship `go/module_size` already has to `common/module_size`. This repo's
+own `.ratchet/laws/test_removed.toml` extends `go/test_removed`; a deliberate
+removal (a test found redundant, not just moved to another file) is admitted
+by leaving `// ratchet: test_removed <Name>: <why>` where the function stood.
 
 ### Pipeline health (`aphrollo gate stats`)
 

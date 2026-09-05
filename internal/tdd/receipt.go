@@ -179,7 +179,7 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 		return blockReceipt(ctx.RepoRoot, "no mutation receipt for %s (there is no lane tip to look one up by)", repo)
 	}
 	if laneHasNothingToMutate(ctx) {
-		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-not-required:"+short(tipTree), 0)
+		appendGateLog(premergeLogToken, logToken(repo), "mutation-receipt", "receipt-not-required:"+short(tipTree), 0)
 		return nil
 	}
 	data, err := os.ReadFile(path)
@@ -200,6 +200,13 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return blockReceipt(ctx.RepoRoot, "the mutation receipt at %s is unreadable (%v)", path, err)
 	}
+	// Fields as the WIRE bytes actually carried them, not the Go zero value a
+	// field an older producer never wrote is indistinguishable from — see
+	// checkReceiptUnacceptedCoherence and checkReceiptCountCoherence.
+	present := receiptFieldPresence(data)
+	if res := checkReceiptUnacceptedCoherence(ctx.RepoRoot, present, r); res != nil {
+		return res
+	}
 	if res := judgeReceiptRepo(r, ctx); res != nil {
 		return res
 	}
@@ -216,12 +223,15 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 	if r.Timeout > 0 {
 		return blockReceipt(ctx.RepoRoot, "%s", mutantsTimedOutLine(r.Timeout))
 	}
+	if res := checkReceiptCountCoherence(ctx.RepoRoot, present, r); res != nil {
+		return res
+	}
 	switch {
 	case r.BaseSHA == "":
 		// An older producer. Accepted, and counted: an unverifiable proof is
 		// not the same thing as a verified one, and the tally is how that
 		// stops being invisible.
-		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-unpinned", 0)
+		appendGateLog(premergeLogToken, logToken(repo), "mutation-receipt", "receipt-unpinned", 0)
 	case ctx.BaseSHA != "" && !strings.EqualFold(r.BaseSHA, ctx.BaseSHA):
 		return blockReceipt(ctx.RepoRoot, "the receipt was measured against base %s, but this merge lands against %s — a different diff, so different mutants",
 			short(r.BaseSHA), short(ctx.BaseSHA))
@@ -237,7 +247,7 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 		// gate.log is space-separated (see appendGateLog), so the verdict is
 		// ONE token: underscores stand in for the spaces the issue's own
 		// wording uses.
-		appendGateLog("premergecommit", logToken(repo), "mutation-receipt",
+		appendGateLog(premergeLogToken, logToken(repo), "mutation-receipt",
 			fmt.Sprintf("receipt-accepted:%s_caught=%d_missed=%d_accepted=%d", short(tipTree), r.Caught, len(r.Survivors), r.Accepted), 0)
 	}
 	return nil
@@ -466,7 +476,7 @@ func missingReceiptRemedy(ctx receiptContext) string {
 // script it does not have (issue #141).
 func blockReceipt(root, format string, args ...any) *GateResult {
 	return &GateResult{Blocked: true, Message: fmt.Sprintf(
-		"gate premergecommit: %s. Fail-first proves a test failed once; the receipt proves it constrains behaviour — %s.",
+		"gate premerge: %s. Fail-first proves a test failed once; the receipt proves it constrains behaviour — %s.",
 		fmt.Sprintf(format, args...), mutationGateHint(root))}
 }
 

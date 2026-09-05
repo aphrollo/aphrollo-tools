@@ -72,7 +72,7 @@ func carryReceiptForward(ctx receiptContext) ([]byte, bool) {
 				_ = writeFileAtomic(path, data)
 			}
 		}
-		appendGateLog("premergecommit", logToken(ctx.Repo), "mutation-receipt",
+		appendGateLog(premergeLogToken, logToken(ctx.Repo), "mutation-receipt",
 			"receipt-carried:"+short(from)+"->"+short(ctx.TipTree), 0)
 		return data, true
 	}

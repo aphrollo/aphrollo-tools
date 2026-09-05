@@ -175,6 +175,42 @@ func TestSymbolRemoved_SkipsWhenTheBaseRefDoesNotResolve(t *testing.T) {
 	}
 }
 
+// TestSymbolRemoved_MatchesADeclarationThatSpansTwoLines proves the engine
+// evaluates a symbol-removed law's pattern against the whole file, not one
+// physical line at a time: the Rust preset's `#[test]` attribute sits on its
+// own line above the `fn` it marks, the idiomatic rustfmt layout, and a
+// line-by-line scan never joins the two into one match.
+func TestSymbolRemoved_MatchesADeclarationThatSpansTwoLines(t *testing.T) {
+	rustRaw, err := LoadPresetText("rust", "test_removed")
+	if err != nil {
+		t.Fatalf("LoadPresetText(rust, test_removed): %v", err)
+	}
+
+	root := t.TempDir()
+	isolateGitConfigRatchet(t)
+	gitRun(t, root, "init", "-q", "-b", "main")
+	gitRun(t, root, "config", "user.email", "t@t")
+	gitRun(t, root, "config", "user.name", "t")
+	writeLaw(t, root, "test_removed", rustRaw)
+
+	write(t, filepath.Join(root, "a.rs"), "#[test]\nfn it_works() {}\n\n#[tokio::test]\nasync fn runs() {}\n")
+	gitRun(t, root, "add", ".")
+	gitRun(t, root, "commit", "-qm", "base")
+
+	write(t, filepath.Join(root, "a.rs"), "#[tokio::test]\nasync fn runs() {}\n")
+
+	res, err := Check(Options{Root: root, Base: "HEAD"})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("findings = %+v, want exactly one", res.Findings)
+	}
+	if res.Findings[0].Key != "a.rs:it_works" {
+		t.Errorf("key = %q, want %q", res.Findings[0].Key, "a.rs:it_works")
+	}
+}
+
 func TestSymbolRemoved_ReadsTheTipFromTheProposedOverlay(t *testing.T) {
 	root := symbolRemovedRepo(t)
 	write(t, filepath.Join(root, "a_test.go"), "package a\n\nfunc TestFoo(t *testing.T) {}\n")
