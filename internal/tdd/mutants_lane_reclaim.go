@@ -20,17 +20,26 @@ func writeMutantsLaneMarker(tree, lane string) {
 }
 
 // reclaimStaleMutantsLanes removes the mutants tree of every lane whose
-// checkout no longer exists. One tree per lane means one warm target dir per
-// lane, and the run refuses to start below 15 GB free per job -- so a merged
-// lane that left its tree behind eventually stops every other lane on the box
-// with `mutation run refused`.
+// checkout no longer exists, and the legacy per-lane target dir of every lane
+// that still does. The run refuses to start below 15 GB free per job -- so a
+// merged lane that left its tree behind eventually stops every other lane on
+// the box with `mutation run refused`.
 //
 // It is deliberately conservative in both directions: a directory with no
 // marker is left alone (it predates the marker, or something else made it),
-// and a lane that still exists keeps its tree, because reclaiming a live
-// lane's warm build is the cold rebuild this design exists to avoid.
+// and a lane that still exists keeps its tree, because a live lane's worktree
+// is the warm checkout its next run resets rather than re-adds.
+//
+// The build directory used to live INSIDE each lane's tree; it is now the
+// repo's one MutantsTargetDir, shared. A tree's own `target` is therefore a
+// layout nothing builds into any more -- 8-18 GB per lane, measured -- and is
+// reclaimed whether or not its lane is alive. Never under a live producer: a
+// run started by the binary that still built per lane holds that directory
+// for hours, and deleting it mid-link is the collision the run lock exists to
+// prevent.
 func reclaimStaleMutantsLanes(repoRoot string) {
 	root := MutantsRootDir(repoRoot)
+	producerAlive := mutantsRunningFn()
 	for _, e := range readDir(root) {
 		if !e.IsDir() {
 			continue
@@ -45,6 +54,9 @@ func reclaimStaleMutantsLanes(repoRoot string) {
 			continue
 		}
 		if _, err := os.Stat(path); err == nil {
+			if !producerAlive {
+				_ = os.RemoveAll(filepath.Join(tree, "target"))
+			}
 			continue
 		}
 		// Unregister before deleting: the tree is a linked worktree, and a

@@ -65,21 +65,27 @@ whether a run is still going and when it started.
 
 ## Where a run happens
 
-One worktree per repo, `<parent>/.worktrees/<repo>/mutants`, checked out
-detached at the tip and `git reset --hard`ed between runs (untracked files are
-NOT cleaned — the warm build dir lives there). Its build dir is
-`<worktree>/target`, which is the name every Rust repo already ignores.
+One worktree per LANE, `<parent>/.worktrees/<repo>/mutants/<lane-key>`,
+checked out detached at the tip and `git reset --hard`ed between runs. One
+build dir per REPO, `<parent>/.worktrees/<repo>/mutants/target`, shared by
+every lane's tree.
 
-**One worktree per repo, not one per lane.** A checkout of another tip in the
-same worktree rebuilds only the crates whose files actually changed — cargo's
-fingerprints for everything else still match, so two lanes alternating tips
-cost the incremental rebuild of what differs between them, not a cold build.
-One worktree per LANE would avoid even that, at roughly 15 GB of build
-directory each (borld's debug target dir was measured at 207 GB across its
-accumulated fingerprints), and every one of them cold on its first run. The
-alternation cost is the cheaper side of that trade by a wide margin, and it is
-bounded: the crates two lanes share are exactly the ones neither of them
-touched.
+**One worktree per lane.** A repo-wide tree was destructive with two lanes in
+flight: a commit in either fires the post-commit hook, and the second run
+checked the shared tree out to its own tip under whichever run was still
+working in it (issue #221 — six attempts, four hours, no receipt for anyone).
+Two lanes are two directories, keyed on the lane's own checkout path.
+
+**One target dir per repo.** The build directory did not need to follow the
+split. Cargo keys a workspace crate's artifacts on the path it was compiled
+from, so lanes sharing one target dir share the dependency graph and keep their
+own crates apart; and the collision a shared directory risked — two producers
+linking into it at once — is ruled out by the box-wide run lock below. A target
+per lane paid for that guarantee twice over: measured on borld 2026-09-05, nine
+per-lane target dirs of 8.3-18.4 GB, and across 44 runs the unmutated baseline
+builds cost 180 min against 116 min for every per-mutant rebuild put together.
+A tree's own legacy `target` is reclaimed by the next run's sweep, never under
+a live producer.
 
 **One run per BOX, not one per repo.** Before the producer is invoked at all,
 the gate takes a machine-wide advisory lock and holds it for the run's whole
