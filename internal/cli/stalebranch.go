@@ -68,10 +68,7 @@ func staleBranchRefusalLine(realGit string, rest []string, workDir string) strin
 		return ""
 	}
 
-	remote := trunk
-	if i := strings.IndexByte(trunk, '/'); i >= 0 {
-		remote = trunk[:i]
-	}
+	remote := trunkRemote(realGit, workDir, trunk)
 	return fmt.Sprintf(
 		"gate: this push's diff against %s deletes paths this lane never touched: %s\n"+
 			"  %s gained these after this lane branched -- that reads as a deletion this push is proposing, not one it made.\n"+
@@ -131,4 +128,22 @@ func staleBranchGit(realGit, workDir string, args ...string) (string, error) {
 	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
 	out, err := cmd.Output()
 	return string(out), err
+}
+
+// trunkRemote names the remote to fetch from in the refusal's remedy. A trunk
+// spelled `origin/main` carries its own remote; a trunk spelled `main` does
+// not, and taking the branch name as the remote produced `git fetch main`,
+// which fails with "'main' does not appear to be a git repository". A remedy
+// that errors when typed is worse than no remedy, because acting on it is the
+// only reason the line exists.
+func trunkRemote(realGit, workDir, trunk string) string {
+	if i := strings.IndexByte(trunk, '/'); i >= 0 {
+		return trunk[:i]
+	}
+	if out, err := staleBranchGit(realGit, workDir, "config", "--get", "branch."+trunk+".remote"); err == nil {
+		if r := strings.TrimSpace(out); r != "" {
+			return r
+		}
+	}
+	return "origin"
 }
