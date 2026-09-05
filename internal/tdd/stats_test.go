@@ -97,6 +97,24 @@ func TestRenderGateStats_NamesEveryColumnItCounted(t *testing.T) {
 	}
 }
 
+// TestGateStats_CountsVacuousRejectedBesideTimeoutRejected pins #317's ask:
+// a zero-tests-executed block is counted in `gate stats`, with its own
+// column next to timeout-rejected — the two share the "nothing was tested"
+// shape but have different causes, and collapsing them would hide which one
+// a pipeline is actually seeing.
+func TestGateStats_CountsVacuousRejectedBesideTimeoutRejected(t *testing.T) {
+	now := time.Now().UTC()
+	log := stamp(now, "precommit", `D:\repo`, "go test .", "vacuous-rejected", 0.4)
+
+	got := GateStats(strings.NewReader(log), time.Time{})
+	if n := got.Count("precommit", "vacuous-rejected"); n != 1 {
+		t.Errorf("precommit vacuous-rejected = %d, want 1", n)
+	}
+	if !strings.Contains(RenderGateStats(got), "vacuous-rejected") {
+		t.Fatal("RenderGateStats table is missing the vacuous-rejected column")
+	}
+}
+
 // stamp writes one gate.log line in the format appendGateLog produces.
 func stamp(at time.Time, stage, root, cmd, verdict string, secs float64) string {
 	return at.UTC().Format(time.RFC3339) + " " + stage + " " + root + " " + cmd + " " + verdict + " " +

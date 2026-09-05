@@ -41,6 +41,50 @@ func (o Outcome) IsRed() bool {
 // explicit so the Zig signal is legible.
 var zeroTestsRe = regexp.MustCompile(`(?i)no tests? (?:found|to run|ran|executed)|no test files|collected 0 items|\b0 tests?\b|\btests?:\s+0\b|testing: warning: no tests to run|all 0 tests? passed`)
 
+// goExecutedTestRe matches one Go test's per-test result line, printed only
+// under `-v`: "--- PASS:"/"--- FAIL:"/"--- SKIP:" followed by its name. This
+// is the count #317 asks the commit/merge gate to prefer over zeroTestsRe's
+// phrase-matching: a number the runner itself reports is a fact a test's own
+// output text cannot imitate the way a stray "0 tests" substring could.
+var goExecutedTestRe = regexp.MustCompile(`(?m)^\s*--- (?:PASS|FAIL|SKIP):\s+\S+`)
+
+// goPackageRanRe matches `go test`'s per-package "ok" summary line — a test
+// BINARY was built and actually executed, as opposed to `?   pkg  [no test
+// files]` (no binary ever existed for that package), which zeroTestsRe
+// already treats as a legitimate empty pass.
+var goPackageRanRe = regexp.MustCompile(`(?m)^ok\s+\S+`)
+
+// goRunIsVacuous reports whether a PASSING `go test -v` run built and ran a
+// test binary (an "ok" summary is present) but executed zero individual
+// tests — the #194 shape: a TestMain that returns or calls os.Exit(0) before
+// m.Run() lets the binary exit 0 with nothing behind it, indistinguishable
+// from a real pass in plain (non -v) output. A package with no test files at
+// all is excluded on purpose: that prints `?`, never `ok`, and is already an
+// ordinary empty pass, not a vacuous one.
+func goRunIsVacuous(output string) bool {
+	return goPackageRanRe.MatchString(output) && !goExecutedTestRe.MatchString(output)
+}
+
+// goVerboseArgs inserts -v right after "test" for a `go test` invocation, so
+// its output carries the per-test lines goRunIsVacuous needs — plain (non
+// -v) `go test` prints nothing distinguishing a real pass from one that
+// executed zero tests. Idempotent (already-verbose args pass through
+// unchanged) and a no-op for anything that is not `go test ...`.
+func goVerboseArgs(cmd string, args []string) []string {
+	if cmd != "go" || len(args) == 0 || args[0] != "test" {
+		return args
+	}
+	for _, a := range args {
+		if a == "-v" {
+			return args
+		}
+	}
+	out := make([]string, 0, len(args)+1)
+	out = append(out, args[0], "-v")
+	out = append(out, args[1:]...)
+	return out
+}
+
 // warningRe marks otherwise-clean output as carrying warnings.
 var warningRe = regexp.MustCompile(`(?i)\bwarning:|\bdeprecat|\bunused (?:variable|import)\b`)
 

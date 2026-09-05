@@ -522,7 +522,7 @@ func RunSuite(timeout time.Duration) SuiteRunner {
 		if r.Dir != "" {
 			dir = r.Dir
 		}
-		cmd := exec.CommandContext(ctx, r.Cmd, r.Args...)
+		cmd := exec.CommandContext(ctx, r.Cmd, goVerboseArgs(r.Cmd, r.Args)...)
 		cmd.Dir = dir
 		cmd.Env = suiteEnv()
 		// The default cancel kills the direct child and nothing else, and

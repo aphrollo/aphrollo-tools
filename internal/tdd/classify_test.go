@@ -160,6 +160,40 @@ func TestExtractFailingTests(t *testing.T) {
 	}
 }
 
+// TestGoRunIsVacuous_TrueWhenThePackageRanButExecutedNoTest pins the #194
+// shape: a TestMain that returns (or calls os.Exit(0)) before m.Run() makes
+// `go test -v` print an ordinary "ok" package summary with no per-test
+// "--- PASS/FAIL/SKIP:" line behind it at all — the same text a package with
+// a hundred passing tests would print if -v were stripped away, and the
+// fact this function exists to keep that from happening at commit time.
+func TestGoRunIsVacuous_TrueWhenThePackageRanButExecutedNoTest(t *testing.T) {
+	output := "ok  \texample.com/m\t0.004s\n"
+	if !goRunIsVacuous(output) {
+		t.Fatalf("goRunIsVacuous(%q) = false, want true (a package that ran but tested nothing)", output)
+	}
+}
+
+// TestGoRunIsVacuous_FalseWhenNoTestFilesExist keeps the legitimate empty
+// pass (a package with no _test.go files at all, `?   pkg  [no test
+// files]`) from being caught by the same rule: zeroTestsRe already treats
+// this as an ordinary green, and #317 must not turn every commit touching a
+// test-less package into a refusal.
+func TestGoRunIsVacuous_FalseWhenNoTestFilesExist(t *testing.T) {
+	output := "?   \texample.com/m\t[no test files]\n"
+	if goRunIsVacuous(output) {
+		t.Fatalf("goRunIsVacuous(%q) = true, want false (no test files is a legitimate empty pass)", output)
+	}
+}
+
+// TestGoRunIsVacuous_FalseWhenTestsActuallyRan is the base case: a package
+// whose tests really executed must never be flagged, whatever their count.
+func TestGoRunIsVacuous_FalseWhenTestsActuallyRan(t *testing.T) {
+	output := "=== RUN   TestWidget\n--- PASS: TestWidget (0.00s)\nPASS\nok  \texample.com/m\t0.004s\n"
+	if goRunIsVacuous(output) {
+		t.Fatalf("goRunIsVacuous(%q) = true, want false (a real test ran)", output)
+	}
+}
+
 func TestOutcome_IsRed(t *testing.T) {
 	red := []Outcome{RedMissingImpl, RedBogus, Red}
 	for _, o := range red {

@@ -1,0 +1,2 @@
+internal/pkg/exitzero_test.go:8
+internal/pkg2/bareexit_test.go:8
