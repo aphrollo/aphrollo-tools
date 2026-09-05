@@ -115,7 +115,11 @@ func TestRunPhase_FailsWhenItCannotHoldASlot(t *testing.T) {
 	}
 	defer release()
 
-	j := DeferredJob{Project: dir, Phase: "run", Dir: dir, Runner: writeMarkerCmd(marker),
+	// argv[0] is "cargo": only a cargo runner takes the build-slot governor
+	// at all (issue #354), and the denied branch returns before ever calling
+	// exec.Command — "cargo" is never actually spawned here, so this needs
+	// no real cargo on PATH.
+	j := DeferredJob{Project: dir, Phase: "run", Dir: dir, Runner: append([]string{"cargo"}, writeMarkerCmd(marker)[1:]...),
 		Log: filepath.Join(dir, "p.log"), Result: filepath.Join(dir, "p.result.json")}
 	RunPhase(writeJob(t, j))
 
@@ -125,6 +129,48 @@ func TestRunPhase_FailsWhenItCannotHoldASlot(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("the phase ran without a slot")
+	}
+}
+
+// TestRunPhase_NonCargoRunnerNeverTakesABuildSlot pins issue #354's fix: a
+// `go test`/pytest/npm runner has no target dir to contend for, so it must
+// not go through cargo's build-slot governor at all — even when every slot
+// on the box is occupied, its phase runs anyway.
+func TestRunPhase_NonCargoRunnerNeverTakesABuildSlot(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	withIsolatedBuildLock(t)
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ran.txt")
+
+	// Occupy every global slot, exactly as a box saturated with cargo builds
+	// would.
+	var releases []func()
+	for range buildSlotCount() {
+		_, release, ok := TryAcquireBuildSlot(ResolveCargoTargetDir(t.TempDir()), "cargo build", "/repo")
+		if !ok {
+			t.Fatal("could not occupy a slot")
+		}
+		releases = append(releases, release)
+	}
+	defer func() {
+		for _, r := range releases {
+			r()
+		}
+	}()
+
+	j := DeferredJob{Project: dir, Phase: "run", Dir: dir, Runner: writeMarkerCmd(marker),
+		Log: filepath.Join(dir, "p.log"), Result: filepath.Join(dir, "p.result.json")}
+	RunPhase(writeJob(t, j))
+
+	out, done := deferredResult(j)
+	if !done {
+		t.Fatal("no result written")
+	}
+	if out.ExitCode != 0 {
+		t.Fatalf("result = %+v, want a real run — a non-cargo phase must never be denied on a cargo slot it never asked for", out)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("the phase never ran despite every global slot being held elsewhere: %v", err)
 	}
 }
 

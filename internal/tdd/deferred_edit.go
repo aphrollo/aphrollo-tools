@@ -48,6 +48,23 @@ type deferredEditOutcome struct {
 	// lie, and the job record it would leave expires into a bogus timeout
 	// streak for a run that never started.
 	spawnFailed bool
+	// infra says the phase DID spawn and finish, but RunPhase's own setup
+	// failed before the phase's command ever ran (no build slot came free,
+	// or it could not even open its log file) — res.ExitCode ==
+	// phaseSetupFailure. Like spawnFailed, this is never a real test result:
+	// ClassifyOutcome must not see it, or a capacity refusal reads as a
+	// genuine assertion failure (issues #350, #354).
+	infra bool
+}
+
+// finishedEditOutcome turns a completed phase into the outcome runEditPhases
+// reports, routing a RunPhase setup failure (phaseSetupFailure) to infra
+// instead of letting it masquerade as a real (if ugly) test result.
+func finishedEditOutcome(j DeferredJob, out PhaseOutcome) deferredEditOutcome {
+	if out.ExitCode == phaseSetupFailure {
+		return deferredEditOutcome{res: phaseSuiteResult(j, out), infra: true}
+	}
+	return deferredEditOutcome{res: phaseSuiteResult(j, out)}
 }
 
 // phaseStatus is what became of a spawn: finished inside the budget, still
@@ -82,7 +99,7 @@ func runEditPhases(runner Runner, root, headSHA, fileHash, session string, budge
 		if status == phaseRunning {
 			return deferredEditOutcome{deferred: true, notice: buildingLine(root, "run", 0)}
 		}
-		return deferredEditOutcome{res: phaseSuiteResult(started, out)}
+		return finishedEditOutcome(started, out)
 	}
 	startedBuild, out, status := startAndWait(build, time.Until(deadline))
 	if status == phaseFailedToStart {
@@ -93,8 +110,10 @@ func runEditPhases(runner Runner, root, headSHA, fileHash, session string, budge
 	}
 	if out.ExitCode != 0 {
 		// A failed build IS the answer — the same red the foreground run
-		// would have produced, classified from the same output.
-		return deferredEditOutcome{res: phaseSuiteResult(startedBuild, out)}
+		// would have produced, classified from the same output. Unless
+		// RunPhase itself never got to invoke the build at all (no slot),
+		// which finishedEditOutcome routes to infra instead.
+		return finishedEditOutcome(startedBuild, out)
 	}
 	runPhase := build
 	runPhase.Phase = "run"
@@ -106,7 +125,7 @@ func runEditPhases(runner Runner, root, headSHA, fileHash, session string, budge
 	if status == phaseRunning {
 		return deferredEditOutcome{deferred: true, notice: buildingLine(root, "run", 0)}
 	}
-	return deferredEditOutcome{res: phaseSuiteResult(startedRun, out)}
+	return finishedEditOutcome(startedRun, out)
 }
 
 // startAndWait spawns a phase and waits up to budget for it to finish. A
@@ -199,6 +218,15 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 // rather than always missing on a nil fingerprint.
 func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *sessionState, statePath, headSHA string) string {
 	res := phaseSuiteResult(j, out)
+	if out.ExitCode == phaseSetupFailure {
+		// RunPhase's own setup failed (no build slot, no log file) before the
+		// phase's command ever ran: nothing about the TEST is under
+		// suspicion, so this must never reach ClassifyOutcome, and must never
+		// overwrite the last REAL outcome in state — same posture as a
+		// timeout (issues #350, #354).
+		appendGateLog("postedit", root, strings.Join(j.Runner, " "), InfraFailed, res.Duration)
+		return infraFailureLine(root, res)
+	}
 	runner := runnerFromArgv(j.Runner, j.Dir)
 	fp := computeFingerprint(root)
 	prev := []string(nil)
@@ -234,11 +262,37 @@ func markDeferred(advisory string) string {
 	return "gate: deferred " + advisory
 }
 
-// spawnFailedLine reports a phase that never started. It is red-bogus, the
-// same class as a broken test setup: the tooling failed, the code was never
-// exercised, and nothing about it has been proven either way.
+// InfraFailed is the verdict for a phase the tooling never actually got to
+// run: the OS could not spawn the detached runner, or RunPhase's own setup
+// (no build slot came free, no log file) failed before the phase's command
+// started. It reads distinctly from RedBogus (a real run whose TEST setup
+// broke — a syntax or import error) on purpose: RedBogus sends a session to
+// fix its test, which is the wrong move when nothing about the test was ever
+// exercised (issues #350, #354). It joins TIMEOUT/SKIPPED/QUEUED-SKIPPED in
+// the inconclusive family rather than the Outcome enum in classify.go,
+// because no test output was ever classified — there is nothing for
+// ClassifyOutcome to have seen.
+const InfraFailed = "infra-failed"
+
+// spawnFailedLine reports a phase that never started at all: the hook could
+// not even launch the detached runphase wrapper. InfraFailed, not RedBogus —
+// see its doc comment for why the two must never be confused.
 func spawnFailedLine(root, phase string) string {
-	return fmt.Sprintf("gate: → %s (could not start the %s phase in %s — the code was NOT tested)", RedBogus, phase, root)
+	return fmt.Sprintf("gate: → %s (could not start the %s phase in %s — the code was NOT tested)", InfraFailed, phase, root)
+}
+
+// infraFailureLine reports a phase that DID spawn and finish, but whose own
+// setup failed before its command ever ran (RunPhase's phaseSetupFailure
+// exit code) — no build slot came free, or it could not open its log file.
+// Same InfraFailed family as spawnFailedLine, named by the wrapper's own
+// first log line where there is one, so a capacity refusal names the
+// resource it waited for rather than reading as a bare assertion failure.
+func infraFailureLine(root string, res SuiteResult) string {
+	reason := strings.TrimSpace(firstLine(res.Output))
+	if reason == "" {
+		reason = "the phase's own setup failed before its command started"
+	}
+	return fmt.Sprintf("gate: → %s in %s (%s — the code was NOT tested)", InfraFailed, root, reason)
 }
 
 // sourceIdentity is what a deferred result claims to be about: the whole
@@ -443,12 +497,16 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	}
 	out := runEditPhases(snap.runner, root, headSHA, fileHash, session, budget)
 	if out.spawnFailed {
-		appendGateLog("postedit", root, cmdString(snap.runner), string(RedBogus), 0)
+		appendGateLog("postedit", root, cmdString(snap.runner), InfraFailed, 0)
 		return spawnFailedLine(root, "build"), false
 	}
 	if out.deferred {
 		appendGateLog("postedit", root, cmdString(snap.runner), "deferred", 0)
 		return out.notice, true
+	}
+	if out.infra {
+		appendGateLog("postedit", root, cmdString(snap.runner), InfraFailed, out.res.Duration)
+		return infraFailureLine(root, out.res), false
 	}
 	res := out.res
 	if treatAsEmptyPass(res) {

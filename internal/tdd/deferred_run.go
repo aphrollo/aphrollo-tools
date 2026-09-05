@@ -96,17 +96,31 @@ func RunPhase(jobPath string) int {
 	defer log.Close()
 
 	r := runnerFromArgv(j.Runner, j.Dir)
-	slot, release, held := acquireBuildSlot(runnerTargetDir(r, j.Project), deferredSlotWait(), cmdString(r), j.Dir)
-	if !held {
-		// Building without a slot would compile into a target dir another
-		// build owns, and the shimmed cargo inside would queue on the very
-		// slot this phase could not get.
-		fmt.Fprintln(log, "aphrollo: no build slot came free for this phase")
-		writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure, Seconds: time.Since(start).Seconds()})
-		return 0
+	// The build-slot governor exists to mirror CARGO's own build-directory
+	// flock and cap the link-wave OOM many cargo builds sharing one target
+	// dir produce (buildslots.go's header comment). `go test`/pytest/npm have
+	// no such directory to contend for, and resolveTargetDir's cargo-shaped
+	// fallback would otherwise key a Go run onto <workspace>/target under
+	// whatever CARGO_TARGET_DIR the shell happens to export — the SAME
+	// target dir, and the SAME two global slots, every cargo build on the
+	// box is fighting over, starving a runner that never needed either
+	// (issue #354). Only cargo takes the slot at all.
+	if r.Cmd == "cargo" {
+		targetDir := runnerTargetDir(r, j.Project)
+		slot, release, held := acquireBuildSlot(targetDir, deferredSlotWait(), cmdString(r), j.Dir)
+		if !held {
+			// Building without a slot would compile into a target dir another
+			// build owns, and the shimmed cargo inside would queue on the very
+			// slot this phase could not get. Naming the target dir and its
+			// holder is what lets a session read this as "the box was full",
+			// not as a red the tests themselves produced.
+			fmt.Fprintf(log, "aphrollo: no build slot came free for %s (%s)\n", targetDir, buildSlotHolderDescription(targetDir))
+			writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure, Seconds: time.Since(start).Seconds()})
+			return 0
+		}
+		defer release()
+		defer setBuildJobs(slot.Jobs)()
 	}
-	defer release()
-	defer setBuildJobs(slot.Jobs)()
 
 	// The abandon clock starts HERE, not when the hook spawned this: time
 	// spent queuing is not time spent building, and charging it made a phase
