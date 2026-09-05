@@ -12,18 +12,27 @@ import (
 // parse, ratchet.RunFixtures erroring before it ran a single fixture — the
 // same "nothing was proven" shape a timeout is, just from a different cause.
 //
-// This is the seam #317's "zero tests executed" outcome slots into: one more
-// const here, one more case in verdictFor's switch, no existing case's
-// behavior touched.
+// The zero value is outcomeUnset, deliberately NOT outcomePass: a
+// stageOutcome literal that omits kind is a defect in the CALLER (a stage
+// that forgot to classify its own result), never a stage that genuinely
+// passed, and verdictFor's default branch treats it exactly like a kind it
+// does not recognize — both block, loudly, rather than falling through to a
+// silent, unlogged pass (#361).
 type stageOutcomeKind int
 
 const (
-	outcomePass stageOutcomeKind = iota
+	outcomeUnset stageOutcomeKind = iota
+	outcomePass
 	outcomeFail
 	outcomeTimeout
 	outcomeSkipped
 	outcomeRunnerMissing
 	outcomeCheckError
+	// outcomeVacuous is #317's "zero tests executed" outcome: the runner
+	// exited 0, but the count it actually ran was zero — a TestMain that
+	// skipped m.Run(), a gremlin walk over an empty tree, a --diff base that
+	// excluded every mutant. Never a pass; always a block.
+	outcomeVacuous
 )
 
 // stageOutcome is what a stage hands verdictFor: which of the shapes this
@@ -88,7 +97,23 @@ func verdictFor(gateName, stage, root, cmd string, o stageOutcome) GateResult {
 		fmt.Fprintf(os.Stderr, "gate %s: %s %s in %s → blocked\n", gateName, stage, cmd, root)
 		appendGateLog(gateName, root, cmd, stage+"-blocked", o.result.Duration)
 		return GateResult{Blocked: true, Message: o.message}
+	case outcomeVacuous:
+		line := fmt.Sprintf("gate %s: %s %s in %s → REJECTED (0 tests executed; nothing was tested)",
+			gateName, stage, cmd, root)
+		fmt.Fprintln(os.Stderr, line)
+		appendGateLog(gateName, root, cmd, "vacuous-rejected", o.result.Duration)
+		return GateResult{Blocked: true, Message: o.message}
 	default:
-		return GateResult{}
+		// outcomeUnset (a stageOutcome literal that never set kind) and any
+		// kind this switch does not recognize land here. Neither is a pass:
+		// the first is a caller defect, the second is an outcome added to
+		// the enum without teaching this function about it, and a stage
+		// whose outcome the gate cannot classify is exactly the case where
+		// continuing is unsafe.
+		line := fmt.Sprintf("gate %s: %s %s in %s → REJECTED (unclassified stage outcome kind %d)",
+			gateName, stage, cmd, root, o.kind)
+		fmt.Fprintln(os.Stderr, line)
+		appendGateLog(gateName, root, cmd, "unclassified-outcome-rejected", 0)
+		return GateResult{Blocked: true, Message: line}
 	}
 }
