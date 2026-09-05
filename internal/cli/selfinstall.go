@@ -187,6 +187,12 @@ func binExtForOS(bin, goos string) (normalized string, appended bool) {
 	return bin + ".exe", true
 }
 
+// binGOOS is the OS resolveBinPath normalizes bin's extension for. A var
+// rather than a direct runtime.GOOS read so a test can pin it to "windows"
+// and prove the extension logic without the test's own outcome depending on
+// which OS actually runs it.
+var binGOOS = runtime.GOOS
+
 // resolveBinPath applies --bin (or the running binary's own path when it was
 // left blank) and normalizes its extension for the current OS, printing the
 // same one-line step style the rest of the swap already uses. Shared by
@@ -197,7 +203,7 @@ func resolveBinPath(binFlag, prefix string, stdout io.Writer) string {
 	if bin == "" {
 		bin = defaultBinPath()
 	}
-	if normalized, appended := binExtForOS(bin, runtime.GOOS); appended {
+	if normalized, appended := binExtForOS(bin, binGOOS); appended {
 		fmt.Fprintf(stdout, "%s: bin    %s -> %s (Windows needs the extension to run it)\n", prefix, bin, normalized)
 		bin = normalized
 	}
