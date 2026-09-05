@@ -176,7 +176,7 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 	tipTree, repo := ctx.TipTree, ctx.Repo
 	path := MutationReceiptPathFor(tipTree)
 	if path == "" {
-		return blockReceipt(ctx.RepoRoot, "no mutation receipt for %s (there is no lane tip to look one up by)", repo)
+		return blockReceipt(ctx.RepoRoot, "no-tip-tree", "no mutation receipt for %s (there is no lane tip to look one up by)", repo)
 	}
 	if laneHasNothingToMutate(ctx) {
 		appendGateLog(premergeLogToken, logToken(repo), "mutation-receipt", "receipt-not-required:"+short(tipTree), 0)
@@ -198,7 +198,7 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 	}
 	var r MutationReceipt
 	if err := json.Unmarshal(data, &r); err != nil {
-		return blockReceipt(ctx.RepoRoot, "the mutation receipt at %s is unreadable (%v)", path, err)
+		return blockReceipt(ctx.RepoRoot, "unreadable", "the mutation receipt at %s is unreadable (%v)", path, err)
 	}
 	// Fields as the WIRE bytes actually carried them, not the Go zero value a
 	// field an older producer never wrote is indistinguishable from — see
@@ -211,19 +211,22 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 		return res
 	}
 	if r.WorktreeDirty {
-		return blockReceipt(ctx.RepoRoot, "worktree_dirty: the run measured uncommitted work, not what is being merged")
+		return blockReceipt(ctx.RepoRoot, "worktree-dirty", "worktree_dirty: the run measured uncommitted work, not what is being merged")
 	}
 	if r.Verdict != receiptVerdictPass {
-		return blockReceipt(ctx.RepoRoot, "verdict %q — only %q merges", r.Verdict, receiptVerdictPass)
+		return blockReceipt(ctx.RepoRoot, "bad-verdict", "verdict %q — only %q merges", r.Verdict, receiptVerdictPass)
 	}
 	if len(r.Unaccepted) > 0 {
-		return blockReceipt(ctx.RepoRoot, "%d unaccepted survivor(s), starting with %s — a code path no test constrains",
+		return blockReceipt(ctx.RepoRoot, "unaccepted-survivor", "%d unaccepted survivor(s), starting with %s — a code path no test constrains",
 			len(r.Unaccepted), firstUnaccepted(r.Unaccepted))
 	}
 	if r.Timeout > 0 {
-		return blockReceipt(ctx.RepoRoot, "%s", mutantsTimedOutLine(r.Timeout))
+		return blockReceipt(ctx.RepoRoot, "timeout", "%s", mutantsTimedOutLine(r.Timeout))
 	}
 	if res := checkReceiptCountCoherence(ctx.RepoRoot, present, r); res != nil {
+		return res
+	}
+	if res := checkReceiptNotVacuous(ctx.RepoRoot, present, r); res != nil {
 		return res
 	}
 	switch {
@@ -233,7 +236,7 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 		// stops being invisible.
 		appendGateLog(premergeLogToken, logToken(repo), "mutation-receipt", "receipt-unpinned", 0)
 	case ctx.BaseSHA != "" && !strings.EqualFold(r.BaseSHA, ctx.BaseSHA):
-		return blockReceipt(ctx.RepoRoot, "the receipt was measured against base %s, but this merge lands against %s — a different diff, so different mutants",
+		return blockReceipt(ctx.RepoRoot, "base-mismatch", "the receipt was measured against base %s, but this merge lands against %s — a different diff, so different mutants",
 			short(r.BaseSHA), short(ctx.BaseSHA))
 	}
 	// Every other outcome this stage can reach leaves a line — not-required,
@@ -287,13 +290,13 @@ func mergeBaseSHA(repoRoot, tipRev string) string {
 func judgeReceiptRepo(r MutationReceipt, ctx receiptContext) *GateResult {
 	if r.RepoID != "" && ctx.RepoID != "" {
 		if !strings.EqualFold(r.RepoID, ctx.RepoID) {
-			return blockReceipt(ctx.RepoRoot, "the receipt for tree %s was measured in repository %s, and this merge is landing in %s",
+			return blockReceipt(ctx.RepoRoot, "repo-mismatch", "the receipt for tree %s was measured in repository %s, and this merge is landing in %s",
 				short(ctx.TipTree), r.RepoID, ctx.RepoID)
 		}
 		return nil
 	}
 	if r.Repo != "" && ctx.Repo != "" && !sameRepo(r.Repo, ctx.Repo) {
-		return blockReceipt(ctx.RepoRoot, "the receipt for tree %s is for %s, not %s", short(ctx.TipTree), r.Repo, ctx.Repo)
+		return blockReceipt(ctx.RepoRoot, "repo-mismatch", "the receipt for tree %s is for %s, not %s", short(ctx.TipTree), r.Repo, ctx.Repo)
 	}
 	return nil
 }
@@ -421,6 +424,7 @@ func short(sha string) string {
 // what a session at a blocked merge needs — the paragraph explaining what a
 // receipt is belongs to the rules, not to every rejection.
 func blockMissingReceipt(ctx receiptContext) *GateResult {
+	appendGateLog(premergeLogToken, logToken(ctx.Repo), "mutation-receipt", "receipt-rejected:missing", 0)
 	return &GateResult{Blocked: true, Message: fmt.Sprintf(
 		"gate: %s %s — %s", missingReceiptMarker, short(ctx.TipTree), missingReceiptRemedy(ctx))}
 }
@@ -443,16 +447,10 @@ func missingReceiptRemedy(ctx receiptContext) string {
 	}
 	// A run that ENDED without a receipt is the third answer, and the one a
 	// session cannot work out for itself: "run it again" is wrong advice when
-	// the last run died, and the reason is already written down.
+	// the last run died — or its own tip was rewritten out from under it
+	// (issue #367) — and the reason is already written down.
 	if d, ok := loadMutantsDeath(ctx.TipTree); ok {
-		// Name the log the tail actually came from: pointing at an empty
-		// stderr file while the reason sat in stdout is what made a death
-		// undiagnosable (issue #198).
-		logPath := d.ErrLog
-		if len(d.Tail) > 0 && stderrTail(d.ErrLog, 1) == nil && d.Log != "" {
-			logPath = d.Log
-		}
-		return fmt.Sprintf("the run died (exit %d) at %s — see %s", d.Exit, d.At.Format("15:04"), logPath)
+		return mutantsDeathRemedyLine(d)
 	}
 	// No base to name: `run` derives it from the lane itself (laneBaseSHA),
 	// which is the same base this gate checks the receipt against. A base
@@ -473,8 +471,12 @@ func missingReceiptRemedy(ctx receiptContext) string {
 // mutantsRunnerCommand lookup missingReceiptRemedy uses, so a Go-only repo
 // hitting a dirty-worktree, bad-verdict, wrong-repo, unaccepted-survivor or
 // base-mismatch refusal is never told to run tools/mutation_gate.sh, a
-// script it does not have (issue #141).
-func blockReceipt(root, format string, args ...any) *GateResult {
+// script it does not have (issue #141). reason is a fixed short name for
+// WHICH cause fired, logged as receipt-rejected:<reason> before the message
+// is built — required, not optional, so a new call site cannot forget it and
+// land back on one undifferentiated counter (issue #376).
+func blockReceipt(root, reason, format string, args ...any) *GateResult {
+	appendGateLog(premergeLogToken, logToken(root), "mutation-receipt", "receipt-rejected:"+reason, 0)
 	return &GateResult{Blocked: true, Message: fmt.Sprintf(
 		"gate premerge: %s. Fail-first proves a test failed once; the receipt proves it constrains behaviour — %s.",
 		fmt.Sprintf(format, args...), mutationGateHint(root))}

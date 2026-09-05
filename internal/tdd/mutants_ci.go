@@ -317,7 +317,7 @@ func exceptFiles(lane, files []string) []string {
 // lane's remaining files changed — a real, explained answer, not a scope
 // that matched nothing.
 func judgeGoMutantsCI(r MutationReceipt, measured int, baseSHA string, out io.Writer) int {
-	if measured == 0 && r.MutantsTotal == 0 && r.MovedLines == 0 {
+	if measured == 0 && vacuousMutationRun(r.MutantsTotal, r.MovedLines) {
 		logf(out, "aphrollo: the run measured NO mutants over %s..HEAD — a scope that matches nothing"+
 			" is not a proof: check that the base is the merge base this branch actually diverged from", baseSHA)
 		return 1
