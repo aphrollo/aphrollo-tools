@@ -146,10 +146,11 @@ func RunGoMutantsCI(c GoMutantsCI, out io.Writer) int {
 	cached := loadMutantStoreAt(storePath)
 	lane, laneOK := changedPaths(root, c.BaseSHA, "HEAD")
 	now := treeStateAt(root, "HEAD")
+	producerVersion := mutantsProducerVersion(root)
 	files := lane
 	var carried []MutantOutcome
 	if laneOK {
-		files = PlanDiffFiles(root, lane, now, cached)
+		files = PlanDiffFiles(root, lane, now, cached, producerVersion)
 		carried = PlanMutants(laneWants(cached, lane), now, cached).Carry
 	}
 
@@ -220,11 +221,12 @@ func RunGoMutantsCI(c GoMutantsCI, out io.Writer) int {
 		logf(out, "aphrollo: unreadable gremlins report: %v", err)
 		return 1
 	}
-	// Stamped with the CURRENT blob and fence before it reaches the store:
-	// mergeMutantStoreAt drops an entry carrying neither, on purpose (an
-	// unmeasurable entry can never be shown to still hold), and a raw
-	// gremlins outcome carries neither until something stamps it.
-	fresh = stampTreeState(fresh, now)
+	// Stamped with the CURRENT blob, fence and producer version before it
+	// reaches the store: mergeMutantStoreAt drops an entry carrying no blob or
+	// fence, on purpose (an unmeasurable entry can never be shown to still
+	// hold), and a raw gremlins outcome carries none of the three until
+	// something stamps it.
+	fresh = stampTreeState(fresh, now, producerVersion)
 	mergeMutantStoreAt(storePath, fresh)
 
 	r := writeReceiptFor(append(append([]MutantOutcome{}, fresh...), carried...))
@@ -235,14 +237,16 @@ func RunGoMutantsCI(c GoMutantsCI, out io.Writer) int {
 	return judgeGoMutantsCI(r, len(fresh), c.BaseSHA, out)
 }
 
-// stampTreeState fills in each mutant's package, blob and fence from now,
-// the measurement that decides whether a later run may carry it forward
-// instead of re-measuring it (mutants_plan.go).
-func stampTreeState(mutants []MutantOutcome, now TreeState) []MutantOutcome {
+// stampTreeState fills in each mutant's package, blob, fence and producer
+// version from now and producerVersion — everything that decides whether a
+// later run may carry it forward instead of re-measuring it (mutants_plan.go,
+// mutants_treestate.go).
+func stampTreeState(mutants []MutantOutcome, now TreeState, producerVersion string) []MutantOutcome {
 	out := make([]MutantOutcome, len(mutants))
 	for i, m := range mutants {
 		m.Package = now.Packages[m.File]
 		m.Blob, m.Fence = now.Blobs[m.File], now.Fences[m.Package]
+		m.ProducerVersion = producerVersion
 		out[i] = m
 	}
 	return out

@@ -18,7 +18,7 @@ func scopeMutantsRun(j MutantsJob) (files []string, carried []MutantOutcome, now
 	// fact about a blob and a test set, so a lane that touches a file another
 	// lane already measured at the same blob measures nothing for it.
 	cached := LoadMutantStore(j.Repo)
-	files = PlanDiffFiles(j.RepoRoot, lane, now, cached)
+	files = PlanDiffFiles(j.RepoRoot, lane, now, cached, mutantsProducerVersion(j.Worktree))
 	// Scoped to the LANE's own files: planning the carry over the whole store
 	// stamped a one-file lane's receipt with outcomes for every unchanged file
 	// in the repo, and mutants_total stopped describing the commit.

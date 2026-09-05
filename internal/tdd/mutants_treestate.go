@@ -184,13 +184,13 @@ func packageOf(p string, pkgDirs []string) string {
 // happens to have as its current one — or this and laneHasNothingToMutate
 // (mutants_carry.go), which already classifies through repoRoot, can decide
 // a lane has something to judge when the other decided it did not.
-func PlanDiffFiles(repoRoot string, lane []string, now TreeState, cached map[mutantKey]MutantOutcome) []string {
+func PlanDiffFiles(repoRoot string, lane []string, now TreeState, cached map[mutantKey]MutantOutcome, producerVersion string) []string {
 	var out []string
 	for _, p := range lane {
 		if classifyRepoPath(repoRoot, p) == Ignore {
 			continue
 		}
-		if measuredUnchanged(p, now, cached) {
+		if measuredUnchanged(p, now, cached, producerVersion) {
 			continue
 		}
 		out = append(out, p)
@@ -199,14 +199,17 @@ func PlanDiffFiles(repoRoot string, lane []string, now TreeState, cached map[mut
 }
 
 // measuredUnchanged reports whether the store already answers for this exact
-// file blob, behind this exact fence.
-func measuredUnchanged(p string, now TreeState, cached map[mutantKey]MutantOutcome) bool {
+// file blob, behind this exact fence, at the CURRENT producer's version. A
+// version mismatch (an upgraded tool, or an old entry stamped before this
+// field existed) is read the same as a blob or fence mismatch: the file is
+// walked again, once, so a newly added mutator gets its chance (issue #298).
+func measuredUnchanged(p string, now TreeState, cached map[mutantKey]MutantOutcome, producerVersion string) bool {
 	blob, fence := now.Blobs[p], now.Fences[now.Packages[p]]
 	if blob == "" {
 		return false
 	}
 	for _, m := range cached {
-		if m.File == p && carriesOver(m, blob, fence) {
+		if m.File == p && carriesOver(m, blob, fence) && m.ProducerVersion == producerVersion {
 			return true
 		}
 	}

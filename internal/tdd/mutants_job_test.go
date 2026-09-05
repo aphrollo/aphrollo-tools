@@ -84,6 +84,40 @@ func TestStartMutantsJob_NeverCancelsTheRunItSupersedes(t *testing.T) {
 	requireLoggedVerdict(t, cfg, "mutants-started:"+short(second.TipTree))
 }
 
+// A second commit's own prepare must never land on the SAME directory a
+// still-running job owns: prepareMutantsWorktree is a `git reset --hard` (or,
+// for Go, an os.RemoveAll plus reclone of the deterministic clone dir keyed
+// on this same path), and running it against the tree the first job's
+// producer is currently mutating and testing in moves the tree out from
+// under that measurement mid-run — traced as the likely cause of a signed
+// `verdict: pass`, `mutants_total: 0` receipt on a 25-file diff (issue #283).
+func TestStartMutantsJob_ASecondCommitGetsADifferentWorktreeWhileTheFirstJobStillRuns(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	noKills(t)
+	var started []MutantsJob
+	fakeSpawn(t, &started)
+	root := optedInLane(t)
+
+	first, ok := StartMutantsJob(root)
+	if !ok {
+		t.Fatal("an opted-in lane commit must start a job")
+	}
+	write(t, root, "src/extra.rs", "pub fn two() -> i32 { 3 }\n")
+	gitDo(t, root, "add", "-A")
+	gitDo(t, root, "commit", "-qm", "second")
+	second, ok := StartMutantsJob(root)
+	if !ok {
+		t.Fatal("the second commit must start its own job")
+	}
+
+	if second.Worktree == first.Worktree {
+		t.Fatalf("both commits share worktree %s while the first job (pid %d) is still running — "+
+			"the second job's prepare resets or reclones the tree the first is mutating and testing in",
+			first.Worktree, first.PID)
+	}
+}
+
 // main is not a lane: nothing is being prepared for a merge, so nothing is
 // measured. A repo that never asked for receipts is left alone entirely.
 func TestStartMutantsJob_OnlyForAnOptedInLane(t *testing.T) {

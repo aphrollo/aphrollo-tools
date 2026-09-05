@@ -46,6 +46,17 @@ type MutantOutcome struct {
 	Status string `json:"status,omitempty"`
 	Blob   string `json:"blob,omitempty"`
 	Fence  string `json:"fence,omitempty"`
+	// ProducerVersion is the mutation tool's own version string
+	// (mutantsProducerVersion) at the moment this outcome was stamped into
+	// the shared store. A blob and a fence unchanged since the last measured
+	// push say nothing about whether the tool's MUTATOR SET has: an upgrade
+	// that adds a mutator changes neither, so a FILE the store already
+	// answers for would never be walked again and the new mutator would
+	// never be measured (issue #298) — measuredUnchanged reads this
+	// alongside Blob/Fence to decide whether a file may be skipped this way.
+	// Empty describes an outcome written before this field existed, or by a
+	// producer this box could not query.
+	ProducerVersion string `json:"producer_version,omitempty"`
 }
 
 // mutantKey identifies one mutant across runs. Line is safe to key on
