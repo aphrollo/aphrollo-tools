@@ -81,6 +81,10 @@ type Options struct {
 	TrackedIgnored []string
 	// Tighten writes every baseline down to what this run measured.
 	Tighten bool
+	// Base is a git ref symbol-removed judges the tree against; empty skips it.
+	Base string
+	// BaseTree overrides Base's git read; nil derives it, a fixture supplies one.
+	BaseTree BaseReader
 	// CacheDir holds the per-file scan cache; empty disables caching.
 	CacheDir string
 }
@@ -218,6 +222,10 @@ func Check(opts Options) (Result, error) {
 			}
 		case KindJSONNumberCeiling, KindGoBenchCeiling:
 			if hits, err = ceilingHits(opts.Root, law, true, cargoTargetDir()); err != nil {
+				return Result{}, err
+			}
+		case KindSymbolRemoved:
+			if hits, err = symbolRemovedLawHits(law, resolveBaseTree(opts), scan.files, scan.content, &res); err != nil {
 				return Result{}, err
 			}
 		}
@@ -385,6 +393,9 @@ func scanTree(opts Options, laws []Law) (*treeScan, error) {
 		// cache's "unchanged, no hits" fast path never reads that file's
 		// content otherwise.
 		if l.Matcher.Kind == KindLineCount && l.Matcher.LineMode == LineCountCode {
+			contentLaws = append(contentLaws, l)
+		}
+		if l.Matcher.Kind == KindSymbolRemoved {
 			contentLaws = append(contentLaws, l)
 		}
 	}

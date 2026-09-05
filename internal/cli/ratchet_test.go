@@ -109,6 +109,30 @@ func TestRatchetCheckJudgesProposedContentFromAFile(t *testing.T) {
 	}
 }
 
+// TestRatchetCheckCLI_BaseFlagReachesOptions proves `--base` is wired through
+// to ratchet.Options.Base, via the ratchetCheckFn seam (mirroring the tdd
+// package's own ratchetCheckFn) rather than a real git ref, since the point
+// here is the CLI's plumbing, not the diff-scoped law itself.
+func TestRatchetCheckCLI_BaseFlagReachesOptions(t *testing.T) {
+	root := lawRepo(t)
+	original := ratchetCheckFn
+	t.Cleanup(func() { ratchetCheckFn = original })
+	var got ratchet.Options
+	ratchetCheckFn = func(opts ratchet.Options) (ratchet.Result, error) {
+		got = opts
+		return ratchet.Result{}, nil
+	}
+
+	var out, errb bytes.Buffer
+	code := Run([]string{"ratchet", "check", "--repo", root, "--base", "HEAD~1"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
+	}
+	if got.Base != "HEAD~1" {
+		t.Errorf("Options.Base = %q, want %q", got.Base, "HEAD~1")
+	}
+}
+
 func TestRatchetCheckSaysSoWhenARepoHasNoLaws(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := Run([]string{"ratchet", "check", "--repo", t.TempDir()}, strings.NewReader(""), &out, &errb)
