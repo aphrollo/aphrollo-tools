@@ -187,6 +187,9 @@ func queryFiles(cfg Config) ([]string, error) {
 		}
 		for _, q := range e.Queries {
 			abs := filepath.Join(cfg.Repo, q)
+			if !withinRepo(abs, cfg.Repo) {
+				return nil, fmt.Errorf("queries path %s escapes the repo root %s", q, cfg.Repo)
+			}
 			info, err := os.Stat(abs)
 			if err != nil {
 				return nil, fmt.Errorf("queries path %s: %w", q, err)
@@ -213,4 +216,18 @@ func queryFiles(cfg Config) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// withinRepo reports whether abs — already filepath.Join(repo, q)'d — still
+// resolves inside repo. filepath.Join lexically collapses "..", so a config
+// value like `queries: "../../secrets"` walks straight back out of the repo
+// it was joined against; the config is repo-authored rather than
+// server-supplied, but a stray ".." must not let regen/check read or walk
+// files outside the repo it was invoked against.
+func withinRepo(abs, repo string) bool {
+	rel, err := filepath.Rel(repo, abs)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }

@@ -62,3 +62,20 @@ func TestQueryFiles_RefusesAnEntryWithNoQueriesPath(t *testing.T) {
 		t.Fatal("queryFiles with no queries path: want error, got nil")
 	}
 }
+
+// A ".." in a config's queries value walks filepath.Join right back out of the
+// repo it was joined against — `queries: "../secrets"` resolves to a sibling
+// directory. queryFiles must refuse this rather than silently walking outside
+// the repo it was invoked against.
+func TestQueryFiles_RefusesAPathEscapingTheRepoRoot(t *testing.T) {
+	parent := t.TempDir()
+	repo := filepath.Join(parent, "repo")
+	mustWrite(t, filepath.Join(repo, "queries", "a.sql"), "-- name: A :one\nSELECT 1;\n")
+	mustWrite(t, filepath.Join(parent, "secrets", "leak.sql"), "-- name: Leak :one\nSELECT 1;\n")
+
+	cfg := Config{Repo: repo, Entries: []SQLEntry{{Queries: []string{"../secrets"}, Out: "out"}}}
+
+	if _, err := queryFiles(cfg); err == nil {
+		t.Fatal("queryFiles with a queries path escaping the repo root: want error, got nil")
+	}
+}

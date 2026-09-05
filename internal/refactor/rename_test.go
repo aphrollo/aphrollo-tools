@@ -155,14 +155,19 @@ func TestApplyFileEdits_RejectsEditOutsideRoot(t *testing.T) {
 	}
 }
 
-// writeFileAtomic's rename step must write THROUGH a symlinked target rather
-// than replacing the link itself: os.Rename(tmp, path) on a path that is a
-// symlink swaps in a plain file at that path, dropping the link and leaving
-// its former target's content stale (or orphaned). This asserts on the real
-// filesystem state after the write — path must still be a symlink, and its
-// resolved target must hold the new content — because a check on the returned
-// error or a printed message alone would not have caught the conversion.
-func TestWriteFileAtomic_WritesThroughASymlinkRatherThanReplacingIt(t *testing.T) {
+// ratchet: test_removed TestWriteFileAtomic_WritesThroughASymlinkRatherThanReplacingIt: split into
+// TestResolveWriteTarget_FollowsASymlinkToItsRealTarget (the resolution, unit-level) and
+// TestApplyFileEdits_WritesThroughAnInRootSymlinkRatherThanReplacingIt (the FS-state assertion,
+// now at applyFileEdits since resolution moved there so containment could be checked on the
+// resolved path too — see rename.go's resolveWriteTarget/applyFileEdits doc comments).
+// ratchet: test_removed TestWriteFileAtomic_RefusesABrokenSymlink: split into
+// TestResolveWriteTarget_RefusesABrokenSymlink, same reason as above.
+
+// resolveWriteTarget must follow a symlink to its real target: writeFileAtomic
+// renames onto whatever path it is handed, so applyFileEdits must resolve a
+// symlink itself and hand writeFileAtomic the real path — otherwise the write
+// replaces the LINK with a plain file rather than writing through it.
+func TestResolveWriteTarget_FollowsASymlinkToItsRealTarget(t *testing.T) {
 	dir := t.TempDir()
 	real := filepath.Join(dir, "real.txt")
 	if err := os.WriteFile(real, []byte("old"), 0o644); err != nil {
@@ -173,8 +178,69 @@ func TestWriteFileAtomic_WritesThroughASymlinkRatherThanReplacingIt(t *testing.T
 		t.Fatal(err)
 	}
 
-	if err := writeFileAtomic(link, "new"); err != nil {
-		t.Fatalf("writeFileAtomic: %v", err)
+	got, err := resolveWriteTarget(link)
+	if err != nil {
+		t.Fatalf("resolveWriteTarget: %v", err)
+	}
+	if got != real {
+		t.Fatalf("resolveWriteTarget(%s) = %q, want the resolved real path %q", link, got, real)
+	}
+}
+
+// An ordinary (non-symlink) path is returned unchanged.
+func TestResolveWriteTarget_LeavesAnOrdinaryPathUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	plain := filepath.Join(dir, "plain.txt")
+	if err := os.WriteFile(plain, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveWriteTarget(plain)
+	if err != nil {
+		t.Fatalf("resolveWriteTarget: %v", err)
+	}
+	if got != plain {
+		t.Fatalf("resolveWriteTarget(%s) = %q, want unchanged", plain, got)
+	}
+}
+
+// A symlink whose target does not exist cannot be resolved to a real path;
+// refusing loudly is the contract, not guessing or silently falling back to
+// the link path itself (which would let writeFileAtomic convert the link into
+// a plain file).
+func TestResolveWriteTarget_RefusesABrokenSymlink(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(dir, "broken.txt")
+	if err := os.Symlink(filepath.Join(dir, "does-not-exist.txt"), link); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := resolveWriteTarget(link); err == nil {
+		t.Fatalf("resolveWriteTarget on a broken symlink: want error, got nil")
+	}
+}
+
+// End to end: applyFileEdits must write THROUGH an in-root symlink rather than
+// replacing the link itself. This asserts on the real filesystem state after
+// the write — the link path must still be a symlink, and its resolved target
+// must hold the new content, read both through the link and directly — because
+// a check on the returned error or a printed message alone would not have
+// caught a silent link-to-plain-file conversion.
+func TestApplyFileEdits_WritesThroughAnInRootSymlinkRatherThanReplacingIt(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real.txt")
+	if err := os.WriteFile(real, []byte("AAAA"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link.txt")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+
+	fileEdits := []lsp.FileEdit{
+		{Path: link, Edits: []lsp.TextEdit{edit(0, 0, 4, "Z")}},
+	}
+	if _, err := applyFileEdits(fileEdits, root, "", "", true); err != nil {
+		t.Fatalf("applyFileEdits: %v", err)
 	}
 
 	fi, err := os.Lstat(link)
@@ -182,7 +248,7 @@ func TestWriteFileAtomic_WritesThroughASymlinkRatherThanReplacingIt(t *testing.T
 		t.Fatalf("Lstat(%s): %v", link, err)
 	}
 	if fi.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("%s is no longer a symlink after writeFileAtomic — the link was replaced by a plain file", link)
+		t.Fatalf("%s is no longer a symlink after applyFileEdits — the link was replaced by a plain file", link)
 	}
 	dest, err := os.Readlink(link)
 	if err != nil {
@@ -195,38 +261,58 @@ func TestWriteFileAtomic_WritesThroughASymlinkRatherThanReplacingIt(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(gotViaLink) != "new" {
-		t.Fatalf("content read through the link = %q, want %q", gotViaLink, "new")
+	if string(gotViaLink) != "Z" {
+		t.Fatalf("content read through the link = %q, want %q", gotViaLink, "Z")
 	}
 	gotViaReal, err := os.ReadFile(real)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(gotViaReal) != "new" {
-		t.Fatalf("real.txt content = %q, want %q — the write must land on the link's target", gotViaReal, "new")
+	if string(gotViaReal) != "Z" {
+		t.Fatalf("real.txt content = %q, want %q — the write must land on the link's target", gotViaReal, "Z")
 	}
 }
 
-// A symlink whose target does not exist cannot be written through; refusing
-// loudly is the contract, not silently converting the link into a plain file
-// (which writeFileAtomic must not do — see the test above).
-func TestWriteFileAtomic_RefusesABrokenSymlink(t *testing.T) {
-	dir := t.TempDir()
-	link := filepath.Join(dir, "broken.txt")
-	if err := os.Symlink(filepath.Join(dir, "does-not-exist.txt"), link); err != nil {
+// The containment check must follow a symlink: a path that is LEXICALLY inside
+// root but a symlink to somewhere OUTSIDE it must be refused, and the outside
+// file must be left byte-identical — an ordinary in-root TextDocumentEdit is
+// enough to trigger this, no malformed server response required. This is the
+// escape writing through the link (the test above) reopens if containment is
+// checked only on the lexical path: withinRoot(fe.Path, root) passes because
+// link.txt lexically sits under root, and the write would otherwise land on
+// whatever the link resolves to.
+func TestApplyFileEdits_RefusesASymlinkResolvingOutsideRoot(t *testing.T) {
+	root := t.TempDir()
+	outsideDir := t.TempDir() // a sibling temp dir, not under root
+	outside := filepath.Join(outsideDir, "victim.txt")
+	if err := os.WriteFile(outside, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link.txt") // lexically inside root
+	if err := os.Symlink(outside, link); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := writeFileAtomic(link, "new"); err == nil {
-		t.Fatalf("writeFileAtomic on a broken symlink: want error, got nil")
+	fileEdits := []lsp.FileEdit{
+		{Path: link, Edits: []lsp.TextEdit{edit(0, 0, 8, "PWNED")}},
+	}
+	if _, err := applyFileEdits(fileEdits, root, "", "", true); err == nil {
+		t.Fatalf("applyFileEdits: want containment error for a symlink resolving outside root, got nil")
 	}
 
-	fi, err := os.Lstat(link)
+	got, err := os.ReadFile(outside)
 	if err != nil {
-		t.Fatalf("Lstat(%s): %v", link, err)
+		t.Fatal(err)
 	}
-	if fi.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("%s is no longer a symlink after the refused write", link)
+	if string(got) != "original" {
+		t.Fatalf("victim.txt = %q, want unchanged %q — a symlink escape must not be written", got, "original")
+	}
+	dest, err := os.Readlink(link)
+	if err != nil {
+		t.Fatalf("Readlink(%s): %v", link, err)
+	}
+	if dest != outside {
+		t.Fatalf("link.txt now points at %q, want unchanged target %q", dest, outside)
 	}
 }
 

@@ -92,6 +92,46 @@ func TestParseConfig_ParsesListFormQueriesAndSchema(t *testing.T) {
 	}
 }
 
+// YAML also allows a sequence's dashes to sit at the SAME indent as their
+// parent key rather than deeper — the "compact" style, equally valid and
+// equally common in hand-written config. This must parse identically to
+// listFormCfg above.
+const compactListFormCfg = `version: "2"
+sql:
+  - engine: "postgresql"
+    queries:
+    - "queries/a.sql"
+    - "queries/b.sql"
+    schema:
+    - "migrations/a"
+    gen:
+      go:
+        package: "compactgen"
+        out: "internal/store/postgres/compactgen"
+`
+
+func TestParseConfig_ParsesCompactIndentListForm(t *testing.T) {
+	entries, err := parseConfig([]byte(compactListFormCfg))
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("want 1 sql entry, got %d", len(entries))
+	}
+	e := entries[0]
+	wantQueries := []string{"queries/a.sql", "queries/b.sql"}
+	if len(e.Queries) != len(wantQueries) || e.Queries[0] != wantQueries[0] || e.Queries[1] != wantQueries[1] {
+		t.Errorf("queries = %v, want %v", e.Queries, wantQueries)
+	}
+	wantSchema := []string{"migrations/a"}
+	if len(e.Schema) != len(wantSchema) || e.Schema[0] != wantSchema[0] {
+		t.Errorf("schema = %v, want %v", e.Schema, wantSchema)
+	}
+	if e.Out != "internal/store/postgres/compactgen" {
+		t.Errorf("out = %q, want internal/store/postgres/compactgen", e.Out)
+	}
+}
+
 // An entry with no queries path at all (list or scalar) must be refused at
 // parse time rather than silently producing an empty Queries — an empty value
 // reaching queryFiles resolves to the repo root and walks the whole tree.

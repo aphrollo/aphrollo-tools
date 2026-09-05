@@ -118,9 +118,11 @@ func isSqlcConfigName(name string) bool {
 // entry the first queries:/schema:/out: lines are captured. out: lives under
 // gen.go but is unique within an entry, so no nesting tracking is needed.
 // queries:/schema: is either a scalar ("queries: path") or a YAML list (a bare
-// "queries:" line followed by deeper "- path" items); listKey/listIndent track
-// which of the two keys, if either, is currently open so a "- path" item with
-// no colon is attributed to it rather than dropped as an unrecognized line.
+// "queries:" line followed by "- path" items, indented EITHER deeper than the
+// key — the common hand-written style — OR at the key's own indent, which is
+// equally valid YAML and equally common); listKey/listIndent track which of
+// the two keys, if either, is currently open so a "- path" item with no colon
+// is attributed to it rather than dropped as an unrecognized line.
 func parseConfig(data []byte) ([]SQLEntry, error) {
 	var entries []SQLEntry
 	inSQL := false
@@ -148,10 +150,15 @@ func parseConfig(data []byte) ([]SQLEntry, error) {
 		}
 		isItem := strings.HasPrefix(trimmed, "- ") || trimmed == "-"
 
-		// A "- value" item deeper than an open queries:/schema: key is that
-		// key's list-form value, not a new sql entry or an unrelated nested
-		// list (e.g. gen.go.overrides' "- db_type:").
-		if isItem && listKey != "" && indent > listIndent {
+		// A "- value" item at or deeper than an open queries:/schema: key's own
+		// indent is that key's list-form value — YAML allows a sequence's dashes
+		// to align with their parent key ("queries:\n- a") as well as sit deeper
+		// ("queries:\n  - a"); either is a list value here, never a new sql entry
+		// or an unrelated nested list (e.g. gen.go.overrides' "- db_type:"), which
+		// sits at a strictly SHALLOWER indent than any open listKey (nested one
+		// level inside the entry that opened it, never inside a queries:/schema:
+		// key that itself nests deeper still).
+		if isItem && listKey != "" && indent >= listIndent {
 			if val := unquote(strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))); val != "" && cur >= 0 {
 				switch listKey {
 				case "queries":
