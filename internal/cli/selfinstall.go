@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -88,10 +89,7 @@ func runGateSelfInstall(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	bin := *binPath
-	if bin == "" {
-		bin = defaultBinPath()
-	}
+	bin := resolveBinPath(*binPath, "gate self-install", stdout)
 
 	staged := siblingPath(bin, ".new")
 	// A leftover from an upgrade that died mid-flight would otherwise be
@@ -125,7 +123,10 @@ func runGateSelfInstall(args []string, stdout, stderr io.Writer) int {
 // prefix names the caller in the three lines this prints to stdout (e.g.
 // "gate self-install" or "aphrollo update"), so an operator watching either
 // verb sees its own name. stale is the path the previous binary was renamed
-// to, or "" when there was nothing at bin yet.
+// to, or "" when there was nothing at bin yet. After the move, this verifies
+// bin actually resolves via exec.LookPath before declaring success (#366) —
+// a wrong-shaped bin (an extensionless path with no sibling .exe) moves the
+// build into place fine and is still not runnable by anything Go spawns.
 func swapBinary(prefix, bin, staged string, stdout io.Writer) (stale string, err error) {
 	stale = siblingPath(bin, fmt.Sprintf("%s%d", stalePrefix, time.Now().Unix()))
 	renamed := false
@@ -142,18 +143,65 @@ func swapBinary(prefix, bin, staged string, stdout io.Writer) (stale string, err
 
 	if err := os.Rename(staged, bin); err != nil {
 		// Put the box back the way it was: a bin dir with no binary at all is
-		// worse than one running the previous build.
+		// worse than one running the previous build. If the restore ITSELF
+		// fails, that must reach the operator too — the earlier code
+		// discarded this error, which is exactly how a box can be left with
+		// nothing at bin and a report that only mentions the first failure.
 		if renamed {
-			_ = os.Rename(stale, bin)
+			if rerr := os.Rename(stale, bin); rerr != nil {
+				return "", fmt.Errorf("cannot move %s into place: %w; restoring the previous binary from %s also failed: %v; %s still holds it, move it back by hand", staged, err, stale, rerr, stale)
+			}
 		}
 		return "", fmt.Errorf("cannot move %s into place: %w", staged, err)
 	}
 	fmt.Fprintf(stdout, "%s: move   %s -> %s\n", prefix, staged, bin)
 
+	// #366: the move can succeed and still leave nothing spawnable — an
+	// extensionless bin on Windows is the case that happened for real. Catch
+	// it here, at the moment it happens, instead of letting a caller report
+	// success and find out from a spawn failure later.
+	if _, err := exec.LookPath(bin); err != nil {
+		return stale, fmt.Errorf("%s was moved into place but does not resolve as a runnable binary: %w", bin, err)
+	}
+
 	removed, held := sweepStaleBinaries(filepath.Dir(bin), filepath.Base(bin), stale)
 	fmt.Fprintf(stdout, "%s: sweep  %d stale copy/copies reclaimed, %d still in use\n", prefix, removed, held)
 
 	return stale, nil
+}
+
+// binExtForOS appends the extension Windows executables need when bin was
+// given with none, so an explicit --bin cannot produce a binary only a
+// human's shell will run (#366) — the earlier bug had `--bin` reach
+// siblingPath and swapBinary verbatim, so the staged, stale and installed
+// names all lost the extension together. goos is a parameter, rather than
+// this reading runtime.GOOS itself, so both platforms' behavior can be
+// proven from one machine.
+func binExtForOS(bin, goos string) (normalized string, appended bool) {
+	if goos != "windows" {
+		return bin, false
+	}
+	if filepath.Ext(bin) != "" {
+		return bin, false
+	}
+	return bin + ".exe", true
+}
+
+// resolveBinPath applies --bin (or the running binary's own path when it was
+// left blank) and normalizes its extension for the current OS, printing the
+// same one-line step style the rest of the swap already uses. Shared by
+// `gate self-install` and `update` so the second installer cannot
+// reintroduce the extension bug the first one had (#366).
+func resolveBinPath(binFlag, prefix string, stdout io.Writer) string {
+	bin := binFlag
+	if bin == "" {
+		bin = defaultBinPath()
+	}
+	if normalized, appended := binExtForOS(bin, runtime.GOOS); appended {
+		fmt.Fprintf(stdout, "%s: bin    %s -> %s (Windows needs the extension to run it)\n", prefix, bin, normalized)
+		bin = normalized
+	}
+	return bin
 }
 
 // siblingPath spells a name beside bin: `aphrollo.exe` + ".new" is

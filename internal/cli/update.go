@@ -35,7 +35,7 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		repo    = fs.String("repo", ".", "module to build ./cmd/aphrollo from")
+		repo    = fs.String("repo", ".", "aphrollo-tools checkout whose remote to fetch from (the build runs in a temporary worktree)")
 		binPath = fs.String("bin", "", "binary to replace (default: this executable)")
 		noInit  = fs.Bool("no-init", false, "replace the binary only; skip `gate init`")
 		remote  = fs.String("remote", "origin", "remote to fetch and build from")
@@ -50,10 +50,7 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	bin := *binPath
-	if bin == "" {
-		bin = defaultBinPath()
-	}
+	bin := resolveBinPath(*binPath, "aphrollo update", stdout)
 
 	git, err := resolveRealGit()
 	if err != nil {
@@ -136,18 +133,26 @@ func shortSHA(sha string) string {
 }
 
 // checkAphrolloModule reports an error unless repo's go.mod declares module
-// github.com/aphrollo/aphrollo-tools as its first line — the check that
-// keeps `update` from being pointed at some unrelated checkout and building
-// whatever ./cmd/aphrollo happens to mean there.
+// github.com/aphrollo/aphrollo-tools — the check that keeps `update` from
+// being pointed at some unrelated checkout and building whatever
+// ./cmd/aphrollo happens to mean there. go.mod permits blank lines and `//`
+// comments before the module directive, so this skips those before looking
+// for the directive on the first line that is neither.
 func checkAphrolloModule(repo string) error {
 	const want = "module github.com/aphrollo/aphrollo-tools"
 	data, err := os.ReadFile(filepath.Join(repo, "go.mod"))
 	if err != nil {
 		return fmt.Errorf("%s does not look like this module: %w", repo, err)
 	}
-	first, _, _ := strings.Cut(string(data), "\n")
-	if strings.TrimSpace(first) != want {
-		return fmt.Errorf("%s does not look like github.com/aphrollo/aphrollo-tools (go.mod says %q)", repo, strings.TrimSpace(first))
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		if trimmed == want {
+			return nil
+		}
+		return fmt.Errorf("%s does not look like github.com/aphrollo/aphrollo-tools (go.mod says %q)", repo, trimmed)
 	}
-	return nil
+	return fmt.Errorf("%s does not look like github.com/aphrollo/aphrollo-tools (go.mod says %q)", repo, "")
 }

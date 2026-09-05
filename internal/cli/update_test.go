@@ -250,6 +250,144 @@ func TestUpdate_SwapsAndSweepsLikeSelfInstall(t *testing.T) {
 	if body, err := os.ReadFile(stale[0]); err != nil || string(body) != "OLD" {
 		t.Fatalf("the stale copy must hold the replaced binary, got %q (%v)", body, err)
 	}
+	// One line per step, so an operator can see which one failed, each
+	// prefixed the same way self-install's are.
+	for _, want := range []string{"build", "rename", "move", "sweep"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output does not report the %q step:\n%s", want, out.String())
+		}
+	}
+	for _, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
+		if !strings.HasPrefix(line, "aphrollo update") {
+			t.Errorf("line %q does not carry the %q prefix", line, "aphrollo update")
+		}
+	}
+}
+
+// #366: an explicit --bin with no extension on Windows must still land the
+// build somewhere exec.LookPath (and everything Go spawns) can find it, not
+// only a human's shell — the same fix self-install got, shared.
+func TestUpdate_NormalizesAnExtensionlessBinFlagToExe(t *testing.T) {
+	_, clone, _ := updateFixture(t)
+	prev := buildAphrollo
+	buildAphrollo = func(repo, out string) (string, error) {
+		if err := os.WriteFile(out, []byte("NEW"), 0o755); err != nil {
+			return "", err
+		}
+		return "go build", nil
+	}
+	t.Cleanup(func() { buildAphrollo = prev })
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "aphrollo") // deliberately no extension
+
+	var out, errb bytes.Buffer
+	code := runUpdate([]string{"--repo", clone, "--bin", bin, "--no-init"}, &out, &errb)
+	if code != 0 {
+		t.Fatalf("update exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	wantBin := bin + ".exe"
+	got, err := os.ReadFile(wantBin)
+	if err != nil {
+		t.Fatalf("%s does not exist after update: %v", wantBin, err)
+	}
+	if string(got) != "NEW" {
+		t.Fatalf("%s content = %q, want the freshly built one", wantBin, got)
+	}
+	if _, err := os.Stat(bin); err == nil {
+		t.Fatalf("an extensionless %s must not exist beside %s", bin, wantBin)
+	}
+}
+
+// #366: the outage traced to this exact step — with the extension dropped,
+// swapBinary stat'd the wrong name, found nothing, and swept the good
+// binary instead of renaming it aside. This pins that once bin is
+// normalized, the pre-existing .exe IS found and preserved.
+func TestUpdate_RenamesThePreExistingExeAsideWhenBinFlagOmitsTheExtension(t *testing.T) {
+	_, clone, _ := updateFixture(t)
+	prev := buildAphrollo
+	buildAphrollo = func(repo, out string) (string, error) {
+		if err := os.WriteFile(out, []byte("NEW"), 0o755); err != nil {
+			return "", err
+		}
+		return "go build", nil
+	}
+	t.Cleanup(func() { buildAphrollo = prev })
+
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "aphrollo.exe")
+	if err := os.WriteFile(exe, []byte("OLD"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "aphrollo") // the flag as a caller who forgot the extension would pass it
+
+	var out, errb bytes.Buffer
+	code := runUpdate([]string{"--repo", clone, "--bin", bin, "--no-init"}, &out, &errb)
+	if code != 0 {
+		t.Fatalf("update exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	if strings.Contains(out.String(), "rename skipped") {
+		t.Fatalf("the pre-existing binary was not found under its real name, output:\n%s", out.String())
+	}
+	stale := staleCopies(t, dir)
+	if len(stale) != 1 {
+		t.Fatalf("the replaced binary must be renamed aside, found %v", stale)
+	}
+	if body, err := os.ReadFile(stale[0]); err != nil || string(body) != "OLD" {
+		t.Fatalf("the stale copy must hold the previous binary, got %q (%v)", body, err)
+	}
+	got, err := os.ReadFile(exe)
+	if err != nil || string(got) != "NEW" {
+		t.Fatalf("%s = %q (%v), want the freshly built bytes", exe, got, err)
+	}
+}
+
+func TestUpdate_RepoHelpDescribesFetchNotBuild(t *testing.T) {
+	var out, errb bytes.Buffer
+	runUpdate([]string{"--bogus"}, &out, &errb)
+
+	want := "aphrollo-tools checkout whose remote to fetch from (the build runs in a temporary worktree)"
+	if !strings.Contains(errb.String(), want) {
+		t.Fatalf("stderr = %q, want it to contain %q", errb.String(), want)
+	}
+	if strings.Contains(errb.String(), "module to build") {
+		t.Fatalf("stderr = %q, still carries self-install's stale wording", errb.String())
+	}
+}
+
+func TestUpdate_AcceptsAGoModWithALeadingComment(t *testing.T) {
+	_, clone, _ := updateFixture(t)
+	git := realGitForTest(t)
+	run := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command(git, append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	mustWriteFile(t, filepath.Join(clone, "go.mod"), "// first-party tooling\n\nmodule github.com/aphrollo/aphrollo-tools\n\ngo 1.26.6\n")
+	run(clone, "add", "-A")
+	run(clone, "commit", "-q", "-m", "leading comment in go.mod")
+
+	prev := buildAphrollo
+	buildAphrollo = func(repo, out string) (string, error) {
+		if err := os.WriteFile(out, []byte("NEW"), 0o755); err != nil {
+			return "", err
+		}
+		return "go build", nil
+	}
+	t.Cleanup(func() { buildAphrollo = prev })
+
+	bin := filepath.Join(t.TempDir(), "aphrollo.exe")
+	if err := os.WriteFile(bin, []byte("OLD"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	code := runUpdate([]string{"--repo", clone, "--bin", bin, "--no-init"}, &out, &errb)
+	if code == 2 {
+		t.Fatalf("update rejected a go.mod with a leading comment: stderr = %q", errb.String())
+	}
 }
 
 func TestUpdate_RefusesARepoThatIsNotAphrolloTools(t *testing.T) {
