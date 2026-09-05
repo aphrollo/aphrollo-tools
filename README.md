@@ -462,9 +462,12 @@ aphrollo workspace merge         # gh pr merge --squash --delete-branch
   (default) / `--merge` / `--rebase`; `--keep-branch` to skip the branch delete.
   It deliberately does **not** touch the local worktree — that is `prune`'s job —
   except for one best-effort housekeeping sweep, after the merge lands, of every
-  OTHER linked worktree whose branch is now merged into trunk: it keeps a
-  worktree with any uncommitted work, and keeps a branch with no commits of its
-  own even after trunk has since advanced past the commit it sits at.
+  OTHER linked worktree whose branch is now merged into trunk: it leaves alone a
+  branch with no commits of its own — including one landed by fast-forward,
+  whose tip sits on trunk's own history for good and whose worktree
+  `aphrollo workspace prune` still reclaims by PR state — and any worktree with
+  uncommitted work, the guard that matters once a builder has actually written
+  a file.
 
 > Merge stays a deliberate step: in the hub-and-spoke flow it is gated on the
 > operator's "ship" + green CI, so a coder runs `merge` on instruction, not

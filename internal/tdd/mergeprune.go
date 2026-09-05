@@ -16,8 +16,8 @@ type PrunedLane struct {
 // PruneMergedLanesAfterMerge sweeps mainRepo's LINKED worktrees, removing
 // every one whose checked-out branch is MERGED into the repo's resolved
 // trunk (never hardcoded "main" — `trunkBranch` is the same resolution every
-// law in this package uses) — `git branch --merged <trunk>` — with two
-// narrowings:
+// law in this package uses) — `git for-each-ref --merged <trunk>` — with
+// two narrowings:
 //
 //  1. A branch with no commits of its own never counts as merged, even
 //     though `--merged` alone would say so: its tip already sits somewhere
@@ -102,9 +102,16 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 // its own, or a real merge commit having landed, are facts about the
 // BRANCH, settled the moment this function is called; "clean" is a fact
 // about the WORKTREE that can flip between one sweep and the next, so it is
-// never cached or inferred — issue #382, where 15 minutes of uncommitted
-// builder work in a worktree the ref checks alone called "merged" was
-// destroyed by a sweep that never asked the tree itself.
+// never cached or inferred.
+//
+// Issue #382's two pruned worktrees were in fact CLEAN — their builders had
+// not yet written a file — which is why the old code's bare `git worktree
+// remove`, with no check of its own, still succeeded: git itself already
+// refuses a dirty tree. This check is not what would have saved them
+// (trunkFirstParentTips is); it turns git's own dirty-tree refusal into an
+// explicit, NAMED keep rule — the "kept ... uncommitted work" stderr line —
+// instead of a reported removal error, and it is the guard that would
+// actually matter once a builder has written a file before the sweep runs.
 func worktreeHasUncommittedWork(path string) (bool, error) {
 	out, err := git(path, "status", "--porcelain", "--untracked-files=all")
 	if err != nil {
@@ -115,15 +122,25 @@ func worktreeHasUncommittedWork(path string) (bool, error) {
 
 // trunkFirstParentTips is every commit on trunk's OWN mainline — its
 // first-parent history — keyed for a tip lookup. A merged branch whose tip
-// lands in this set never brought any commit of its own to trunk: either it
-// is the literal issue #144 case (a fresh branch created at trunk's current
-// tip) or trunk has simply advanced past an older commit the branch never
-// moved beyond (issue #382). Either way there is no work here for the sweep
-// to have landed, so the branch is skipped exactly as #144 already did —
-// just no longer keyed to trunk's CURRENT tip alone. A lane genuinely landed
-// by a real merge commit has a tip that is a SECOND parent of one of these
-// mainline commits, never a member of the set itself, so this check never
-// catches it.
+// lands in this set never brought any commit of its own to trunk that is
+// not already trunk's own history: either it is the literal issue #144 case
+// (a fresh branch created at trunk's current tip), trunk has simply
+// advanced past an older commit the branch never moved beyond (issue #382's
+// actual bug — see PruneMergedLanesAfterMerge's doc comment), or the branch
+// was landed by FAST-FORWARD, which moves trunk's own pointer onto the
+// branch's commits, so its tip sits directly on trunk's mainline exactly
+// like a never-diverged branch's would. Either way there is no work here
+// for THIS sweep to land, so the branch is skipped exactly as #144 already
+// did — just no longer keyed to trunk's CURRENT tip alone.
+//
+// Unlike the other two cases, a fast-forward-landed lane is skipped for
+// good, every run, since its tip never stops being a member of this set;
+// leaving its worktree behind is always safe (every commit in it already IS
+// trunk), and `aphrollo workspace prune` — the separate PR-state-driven
+// sweep — still reclaims it once its PR reads MERGED. A lane genuinely
+// landed by a real merge commit has a tip that is a SECOND parent of one of
+// these mainline commits, never a member of the set itself, so this check
+// never catches it.
 func trunkFirstParentTips(mainRepo, trunk string) map[string]bool {
 	out := gitOut(mainRepo, "rev-list", "--first-parent", trunk)
 	tips := map[string]bool{}
