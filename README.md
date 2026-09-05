@@ -1114,7 +1114,10 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   it is a real answer. `unaccepted`'s entries are opaque to the gate — the
   producing repo decides how it names a mutant — and only the first is quoted
   in the rejection, which also names the command that produces a receipt. It
-  runs BEFORE any suite compiles.
+  runs BEFORE any suite compiles. A receipt WAIVER (a catch-up merge of main
+  into a lane, or `mutants-local = false` below) is only ever noted, never a
+  rejection — `premergecommit` still runs baselineStage, `ratchet check`,
+  `docs check` and the touched project roots' suites against the merged tree.
 - **`mutants-local`** (bool, default `true`) — where the proof is MEASURED.
   A Cargo repo has no runner that will do it, so the post-commit hook starts a
   detached run on the box and the key can stay unwritten. A repo whose pipeline
