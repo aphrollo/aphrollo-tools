@@ -316,6 +316,55 @@ func TestApplyFileEdits_RefusesASymlinkResolvingOutsideRoot(t *testing.T) {
 	}
 }
 
+// A project reached through a symlinked ANCESTOR directory (a symlinked
+// second-drive checkout, or macOS where /tmp itself is a symlink) must not
+// have its own in-project symlinks refused. root is passed to applyFileEdits
+// unresolved (as FindProjectRoot returns it); resolveWriteTarget resolves a
+// file that is ITSELF a symlink through every symlink on its path, including
+// root's own ancestor link, producing a fully-resolved target with no "link"
+// segment left in it — so before the fix, comparing that resolved target
+// against the still-unresolved root refused a legitimate in-project symlink
+// (via_link.txt, resolving to target.txt in the same directory) purely
+// because root's ancestor happened to be a symlink too, calling a file that
+// never left the project "outside project root".
+func TestApplyFileEdits_AppliesEditToInProjectSymlinkThroughSymlinkedRootAncestor(t *testing.T) {
+	base := t.TempDir() // t.TempDir() already resolves symlinks in its own path
+	real := filepath.Join(base, "real")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	root := link // the project root, reached through the symlinked ancestor
+
+	target := filepath.Join(real, "target.txt")
+	if err := os.WriteFile(target, []byte("AAAA"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	viaLink := filepath.Join(real, "via_link.txt") // an ordinary in-project symlink
+	if err := os.Symlink(target, viaLink); err != nil {
+		t.Fatal(err)
+	}
+
+	fePath := filepath.Join(root, "via_link.txt") // reached through the symlinked ancestor
+	fileEdits := []lsp.FileEdit{
+		{Path: fePath, Edits: []lsp.TextEdit{edit(0, 0, 4, "Z")}},
+	}
+	if _, err := applyFileEdits(fileEdits, root, "", "", true); err != nil {
+		t.Fatalf("applyFileEdits: %v, want nil — an in-project symlink must not be refused merely because root's own ancestor is also a symlink", err)
+	}
+
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "Z" {
+		t.Fatalf("target.txt = %q, want %q", got, "Z")
+	}
+}
+
 // samePath folds case on Windows (a case-insensitive filesystem) and compares
 // exactly everywhere else. This test runs the real runtime.GOOS check the
 // function itself makes, so on a non-Windows runner it has nothing to prove
