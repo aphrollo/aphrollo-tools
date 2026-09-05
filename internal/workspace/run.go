@@ -1,12 +1,15 @@
 package workspace
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Render returns the human-readable plan. With apply=false it is the dry-run
@@ -119,10 +122,12 @@ func reportBase(p *Plan, stdout io.Writer) {
 // List renders one line per worktree in repo (resolved to its toplevel,
 // including the main clone): path, branch ("detached" for none), whole days
 // since the last commit, the dirty-file count, and the branch's PR state
-// ("none" when there is no PR) — a read-only survey, so a coder can see at a
-// glance which worktrees are live, idle, or already merged, without running a
-// per-worktree operation. PR state comes from the same seam the prune sweeps
-// use.
+// ("none" when there is no PR, "?" when the lookup failed or timed out) — a
+// read-only survey, so a coder can see at a glance which worktrees are live,
+// idle, or already merged, without running a per-worktree operation. PR
+// state comes from the same seam the prune sweeps use, resolved
+// concurrently (resolvePRStates) so one slow/hung lookup cannot hold up
+// every other line.
 func List(repo string) (string, error) {
 	if repo == "" {
 		return "", fmt.Errorf("repo path required")
@@ -135,8 +140,10 @@ func List(repo string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("git worktree list: %w", err)
 	}
+	entries := parseWorktreeList(string(out))
+	states := resolvePRStates(entries)
 	var b strings.Builder
-	for _, e := range parseWorktreeList(string(out)) {
+	for i, e := range entries {
 		branch := e.Branch
 		if branch == "HEAD" {
 			branch = "detached"
@@ -145,13 +152,76 @@ func List(repo string) (string, error) {
 		if t, ok := lastCommitTime(e.Path); ok {
 			days = ageDays(now().Sub(t))
 		}
-		state, err := ghPRState(e.Path, prBranchKey(e))
-		if err != nil || state == "" {
-			state = "none"
-		}
-		fmt.Fprintf(&b, "%s  %s  %dd  %d dirty  PR %s\n", e.Path, branch, days, dirtyCount(e.Path), state)
+		fmt.Fprintf(&b, "%s  %s  %dd  %d dirty  PR %s\n", e.Path, branch, days, dirtyCount(e.Path), states[i])
 	}
 	return b.String(), nil
+}
+
+// listPRLookupConcurrency bounds how many gh PR-state lookups List runs at
+// once — the whole point is that a lookup runs while others are still in
+// flight, but an unbounded fan-out for a repo with dozens of worktrees would
+// just trade "slow" for "gh rate-limited".
+const listPRLookupConcurrency = 4
+
+// listPRLookupTimeout caps how long List waits for one worktree's PR-state
+// lookup before rendering "?" — a var (not const), like gitNetworkTimeout and
+// ghTimeout, so a test can shrink it and prove the deadline actually fires.
+var listPRLookupTimeout = 5 * time.Second
+
+// resolvePRStates runs ghPRState for every entry CONCURRENTLY, bounded to
+// listPRLookupConcurrency in flight at once, each capped at
+// listPRLookupTimeout. Results come back in the SAME order as entries — List
+// renders deterministically regardless of which lookup finishes first.
+func resolvePRStates(entries []worktreeEntry) []string {
+	states := make([]string, len(entries))
+	sem := make(chan struct{}, listPRLookupConcurrency)
+	var wg sync.WaitGroup
+	for i, e := range entries {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, e worktreeEntry) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			states[i] = prStateOrUnknown(e)
+		}(i, e)
+	}
+	wg.Wait()
+	return states
+}
+
+// prStateOrUnknown resolves one worktree's PR state, racing ghPRState against
+// listPRLookupTimeout. "none" means the lookup succeeded and found no PR; "?"
+// means the lookup itself failed or did not return in time — a different
+// fact, never conflated.
+func prStateOrUnknown(e worktreeEntry) string {
+	ctx, cancel := context.WithTimeout(context.Background(), listPRLookupTimeout)
+	defer cancel()
+	result := make(chan string, 1)
+	// Capture the seam's CURRENT function value here, on this goroutine, before
+	// spawning: ghPRState has no context param, so a lookup that outruns the
+	// timeout below keeps running in an abandoned goroutine. If that goroutine
+	// read the package var ghPRState directly, it would race a later test's
+	// stubPRState reassigning it after THIS test has already returned (real
+	// failure caught under -race). Calling the captured value instead means the
+	// abandoned goroutine never touches the package var again.
+	fn := ghPRState
+	go func() {
+		state, err := fn(e.Path, prBranchKey(e))
+		if err != nil {
+			result <- "?"
+			return
+		}
+		if state == "" {
+			state = "none"
+		}
+		result <- state
+	}()
+	select {
+	case s := <-result:
+		return s
+	case <-ctx.Done():
+		return "?"
+	}
 }
 
 // Removal tears down a ticket's worktree AND its local branch, kept dry-run
@@ -160,6 +230,7 @@ func List(repo string) (string, error) {
 // so a cleanup path can re-run on redelivery without wedging.
 type Removal struct {
 	KeepBranch bool   // leave the local branch in place (default: delete it)
+	Force      bool   // remove even a dirty worktree
 	top        string // main clone toplevel the worktree + branch belong to
 	worktree   string // the linked worktree dir to remove
 	branch     string // the local branch to delete (original name, not the slug)
@@ -234,7 +305,12 @@ func (r *Removal) removeWorktree(stdout io.Writer) error {
 		fmt.Fprintf(stdout, "[skip] worktree %s — already gone\n", r.worktree)
 		return nil
 	}
-	out, err := exec.Command("git", "-C", r.top, "worktree", "remove", r.worktree).CombinedOutput()
+	args := []string{"-C", r.top, "worktree", "remove"}
+	if r.Force {
+		args = append(args, "--force")
+	}
+	args = append(args, r.worktree)
+	out, err := exec.Command("git", args...).CombinedOutput()
 	if err != nil {
 		if isNotAWorktree(string(out)) {
 			fmt.Fprintf(stdout, "[skip] worktree %s — already gone\n", r.worktree)

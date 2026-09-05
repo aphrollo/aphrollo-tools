@@ -165,3 +165,79 @@ func TestParseStaleDuration_AcceptsDayShorthandAndGoSyntax(t *testing.T) {
 		t.Errorf("ParseStaleDuration(48h) = %v, want %v", got, want)
 	}
 }
+
+// TestPrune_StaleIgnoresGitignoredBuildDirMtime: a tree whose tracked content
+// is 5 days old is still swept at --stale 3d even though a gitignored build
+// dir (target/) holds a file touched moments ago — walking the raw
+// filesystem (the old approach) would see that fresh mtime and never call
+// the tree idle, no matter how stale the actual tracked work is.
+func TestPrune_StaleIgnoresGitignoredBuildDirMtime(t *testing.T) {
+	at := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	stubNow(t, at)
+	stubPRState(t, func(_, _ string) (string, error) { return "", nil })
+
+	repo, wt, _ := preparedRepo(t)
+	if err := os.WriteFile(filepath.Join(wt, "work.txt"), []byte("work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, ".gitignore"), []byte("target/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, wt, "add", ".")
+	commitDate := at.AddDate(0, 0, -5).Format(time.RFC3339)
+	t.Setenv("GIT_COMMITTER_DATE", commitDate)
+	t.Setenv("GIT_AUTHOR_DATE", commitDate)
+	gitRun(t, wt, "commit", "-q", "-m", "ticket work")
+	gitRun(t, wt, "checkout", "-q", "--detach")
+
+	touch := at.AddDate(0, 0, -5)
+	entries, err := os.ReadDir(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() == ".git" {
+			continue
+		}
+		if err := os.Chtimes(filepath.Join(wt, e.Name()), touch, touch); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Freshly-touched, gitignored build output — must not count against
+	// idleness.
+	if err := os.MkdirAll(filepath.Join(wt, "target"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, "target", "x"), []byte("built\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := StaleSweepPlan(repo, 3*24*time.Hour)
+	if err != nil {
+		t.Fatalf("StaleSweepPlan: %v", err)
+	}
+	var out, errb bytes.Buffer
+	if err := s.Run(true, &out, &errb); err != nil {
+		t.Fatalf("Run: %v\n%s", err, errb.String())
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Errorf("a tree with only a fresh, gitignored build artifact should still be swept:\n%s", out.String())
+	}
+}
+
+// TestParseStaleDuration_RejectsZeroAndNegative: a non-positive bar would
+// make every age gate pass immediately, sweeping trees that are not idle at
+// all — reject both the day-shorthand and the Go-duration spellings.
+func TestParseStaleDuration_RejectsZeroAndNegative(t *testing.T) {
+	for _, s := range []string{"-3d", "0d", "-72h", "0h", "0s"} {
+		got, err := ParseStaleDuration(s)
+		if err == nil {
+			t.Errorf("ParseStaleDuration(%q) = %v, want an error", s, got)
+			continue
+		}
+		if want := "stale must be a positive duration such as 3d or 36h"; !strings.Contains(err.Error(), want) {
+			t.Errorf("ParseStaleDuration(%q) error = %q, want it to contain %q", s, err.Error(), want)
+		}
+	}
+}

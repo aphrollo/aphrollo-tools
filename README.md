@@ -195,11 +195,15 @@ aphrollo workspace list ~/spaces/aphrollo/aphrollo-web           # or an explici
 
 aphrollo workspace remove ~/spaces/aphrollo/aphrollo-web feat/kanban
 aphrollo workspace remove ~/spaces/aphrollo/aphrollo-web feat/kanban --keep-branch  # worktree only, branch stays
+aphrollo workspace remove ~/spaces/aphrollo/aphrollo-web feat/kanban --force        # also drop a dirty worktree
 ```
 
 `list` renders one line per worktree: path, branch (`detached` for none),
 whole days since its last commit, the dirty-file count, and the branch's PR
-state (`none` when there isn't one — the same `gh pr view` seam `prune` uses).
+state (`none` when there isn't one, `?` when the lookup itself failed or did
+not answer in time — the same `gh pr view` seam `prune` uses, resolved
+concurrently, capped per worktree, so one slow lookup never holds up the rest
+of the listing).
 
 Exit codes: `0` ok, `1` runtime error, `2` usage error.
 
@@ -512,12 +516,15 @@ apart: it removes that one ticket's worktree and leaves the local branch in
 place (deleting the branch is plain `remove`'s job). It is **idempotent** — a
 re-run on an already-gone worktree is a no-op success (`[skip] … already
 gone`), not an error — so a post-merge cleanup can re-run safely on
-redelivery, and it folds in the stale admin-record prune:
+redelivery, and it folds in the stale admin-record prune. `--force` forwards
+straight through to the underlying `remove`, so a dirty ticket worktree still
+goes; without it, a dirty tree is refused (git's own refusal) and left intact:
 
 ```sh
 aphrollo workspace prune aphrollo-web feat/kanban --dry   # "would run: git … worktree remove …"
 aphrollo workspace prune aphrollo-web feat/kanban         # "[removed] worktree …"
 aphrollo workspace prune aphrollo-web feat/kanban         # "[skip] worktree … — already gone" (re-run, still exit 0)
+aphrollo workspace prune aphrollo-web feat/kanban --force # removes even a dirty ticket worktree
 ```
 
 So `prune` with **no branch** performs the full merged-worktree sweep
@@ -529,12 +536,19 @@ use `remove <repo> <branch>` (drop `--keep-branch`).
 never see: a **detached** (no branch checked out) worktree with no PR for its
 directory's slug. A candidate must be ALL of: detached, no PR, no `<tree>.lane`
 marker beside it (an operator's explicit "still using this" flag), clean, its
-last commit older than `<dur>`, AND every file's mtime older than `<dur>`.
-`<dur>` accepts a plain Go duration (`72h`) or a trailing-`d` day count (`3d`):
+last commit older than `<dur>`, AND the newest mtime among its **tracked and
+untracked-but-not-gitignored** files older than `<dur>` — an ignored build dir
+(`target/`, `node_modules/`, `vendor/`, `.venv/`, …) never counts, so a rebuild
+artifact's fresh mtime can't mask an otherwise-idle tree. `<dur>` accepts a
+plain Go duration (`72h`) or a trailing-`d` day count (`3d`); it must be
+**positive** — `0d` or a negative duration is rejected outright, since either
+would make every age comparison pass immediately and sweep trees that are not
+idle at all:
 
 ```sh
 aphrollo workspace prune --stale 3d --dry   # lists "would prune: … (stale)" + "skip: … (reason)"
 aphrollo workspace prune --stale 3d         # removes the idle detached trees
+aphrollo workspace prune --stale -3d        # rejected: "stale must be a positive duration such as 3d or 36h"
 ```
 
 ### Dev-tier control plane (`aphrollo dev`)

@@ -107,6 +107,45 @@ func TestRemove_KeepBranchLeavesTheBranch(t *testing.T) {
 	}
 }
 
+// TestRemove_ForceRemovesADirtyWorktree: with Force set, a dirty worktree
+// still goes — the flag reaches `git worktree remove --force`.
+func TestRemove_ForceRemovesADirtyWorktree(t *testing.T) {
+	repo, wt, branch := preparedRepo(t)
+	dirty(t, wt)
+
+	cmd, err := RemovePlan(repo, branch, "")
+	if err != nil {
+		t.Fatalf("RemovePlan: %v", err)
+	}
+	cmd.Force = true
+	var out, errb bytes.Buffer
+	if err := cmd.Run(&out, &errb); err != nil {
+		t.Fatalf("Run: %v\n%s", err, errb.String())
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Errorf("--force should remove a dirty worktree, stat err = %v", err)
+	}
+}
+
+// TestRemove_WithoutForceRefusesADirtyWorktree: the default (no Force) leaves
+// a dirty worktree in place — git itself refuses, and the caller sees why.
+func TestRemove_WithoutForceRefusesADirtyWorktree(t *testing.T) {
+	repo, wt, branch := preparedRepo(t)
+	dirty(t, wt)
+
+	cmd, err := RemovePlan(repo, branch, "")
+	if err != nil {
+		t.Fatalf("RemovePlan: %v", err)
+	}
+	var out, errb bytes.Buffer
+	if err := cmd.Run(&out, &errb); err == nil {
+		t.Fatal("Run should refuse a dirty worktree without --force")
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("a refused remove must leave the worktree intact: %v", err)
+	}
+}
+
 // TestRemove_DisplayReflectsKeepBranch: the dry-run preview must not claim a
 // branch delete it will not perform — Display() is read AFTER KeepBranch is
 // set, so it has to compute the line then, not bake a stale one in at plan

@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"slices"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -45,23 +44,27 @@ Worktree lifecycle:
                             Inverse of claim (--dry).
   list <repo>               List the repo's git worktrees: path, branch (or
                             "detached"), age since the last commit, dirty-file
-                            count, and PR state ("none" when there isn't one)
-                            (read-only).
+                            count, and PR state ("none" when there isn't one,
+                            "?" when the lookup failed or timed out) — the PR
+                            lookups run concurrently, capped per worktree, so
+                            one slow one never holds up the rest (read-only).
   remove <repo> <branch>    Remove a prepared worktree AND delete its local
-                            branch (--dry; --keep-branch to leave the branch).
-                            Idempotent: an already-gone worktree or branch is a
-                            [skip], so re-running is a no-op.
+                            branch (--dry; --keep-branch to leave the branch;
+                            --force to drop a dirty worktree). Idempotent: an
+                            already-gone worktree or branch is a [skip], so
+                            re-running is a no-op.
   prune [repo]              Sweep the repo's worktrees and remove the merged ones:
                             a worktree goes only if its PR is MERGED, the tree is
                             CLEAN, and it is not the cwd. Others are skipped with a
                             reason (open PR / no PR / dirty / current). Folds in the
                             stale admin-record prune (--dry lists; --force removes a
                             dirty merged tree too; --stale <dur> instead sweeps
-                            detached, PR-less, idle worktrees past that age).
+                            detached, PR-less, idle worktrees past that age — a
+                            positive duration only, e.g. 3d or 36h).
   prune <repo> <branch>    Per-ticket form: same as remove <repo> <branch>
                             --keep-branch — removes exactly that one ticket's
                             worktree, idempotently, and leaves the local branch
-                            in place (--dry).
+                            in place (--dry; --force forwards to remove too).
 
 Operator / outside-use verbs (pass [repo] [branch] to target a worktree):
   update                    Rebase the cwd worktree onto origin/<default> and, on a
@@ -241,13 +244,10 @@ func runWorkspaceSync(args []string, stdout, stderr io.Writer) int {
 }
 
 // runCheckFn is the seam `workspace verify` calls through to run the actual
-// {test, typecheck, lint} trio. A parallel lane is adding a `runCheck` entry
-// point elsewhere in this package; until it merges, this default reproduces
-// verify's pre-rename behavior so there is exactly ONE landing spot to
-// repoint once runCheck exists.
-var runCheckFn = func(args []string, stdout, stderr io.Writer) int {
-	return legacyWorkspaceVerify(args, stdout, stderr)
-}
+// checks — pointed at the real `aphrollo check` (internal/cli/check.go,
+// landed in #388) now that it exists, so a test can still swap it for a spy
+// without touching runCheck itself.
+var runCheckFn = runCheck
 
 // runWorkspaceVerify is `workspace verify`'s new body: it is a renamed verb,
 // not a distinct command any more, so it says so and calls through to the
@@ -255,43 +255,6 @@ var runCheckFn = func(args []string, stdout, stderr io.Writer) int {
 func runWorkspaceVerify(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintln(stdout, "workspace verify is now aphrollo check")
 	return runCheckFn(args, stdout, stderr)
-}
-
-// legacyWorkspaceVerify is verify's pre-rename implementation of the
-// {test, typecheck, lint} trio — runCheckFn's default body until runCheck
-// lands and repoints the seam.
-func legacyWorkspaceVerify(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	dry := fs.Bool("dry", false, "print the plan and stop (default: execute)")
-	into := fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
-	pos, err := parseFlagsAnywhere(fs, args)
-	if err != nil {
-		return 2
-	}
-	t, ok := resolveVerbTarget(pos, *into, stderr)
-	if !ok {
-		return 2
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = t.Worktree
-	}
-	v, err := workspace.BuildVerify(t, cwd)
-	if err != nil {
-		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-		return 1
-	}
-	apply := !*dry
-	fmt.Fprint(stdout, v.Render(apply))
-	if !apply {
-		return 0
-	}
-	if err := v.Apply(stdout, stderr); err != nil {
-		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-		return 1
-	}
-	return 0
 }
 
 func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {

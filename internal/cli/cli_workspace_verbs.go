@@ -228,7 +228,7 @@ func runWorkspacePrune(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("prune", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dry := fs.Bool("dry", false, "print the plan and stop (default: execute)")
-	force := fs.Bool("force", false, "remove even a dirty worktree (sweep form only)")
+	force := fs.Bool("force", false, "remove even a dirty worktree")
 	stale := fs.String("stale", "", "sweep detached, PR-less, idle worktrees older than this (e.g. 3d, 72h); sweep form only")
 	into := fs.String("into", "", "base dir for worktrees (default: <repo-parent>/.worktrees/<repo-name>)")
 	pos, err := parseFlagsAnywhere(fs, args)
@@ -250,6 +250,9 @@ func runWorkspacePrune(args []string, stdout, stderr io.Writer) int {
 		removeArgs := []string{pos[0], pos[1], "--keep-branch"}
 		if *dry {
 			removeArgs = append(removeArgs, "--dry")
+		}
+		if *force {
+			removeArgs = append(removeArgs, "--force")
 		}
 		if *into != "" {
 			removeArgs = append(removeArgs, "--into", *into)
@@ -391,6 +394,7 @@ func runWorkspaceRemove(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	dry := fs.Bool("dry", false, "print the plan and stop (default: execute)")
 	keepBranch := fs.Bool("keep-branch", false, "keep the local branch (default: delete it)")
+	force := fs.Bool("force", false, "remove even a dirty worktree")
 	into := fs.String("into", "", "base dir for worktrees (default: <repo-parent>/.worktrees/<repo-name>)")
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
@@ -406,6 +410,7 @@ func runWorkspaceRemove(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	cmd.KeepBranch = *keepBranch
+	cmd.Force = *force
 	if *dry {
 		fmt.Fprintf(stdout, "would run: %s\nrun again without --dry to execute.\n", cmd.Display())
 		return 0

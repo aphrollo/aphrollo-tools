@@ -102,3 +102,42 @@ func TestRun_Workspace_Prune_Ticket_DryDoesNotRemove(t *testing.T) {
 		t.Errorf("dry-run preview must not claim a branch delete --keep-branch skips:\n%s", out.String())
 	}
 }
+
+// `workspace prune <repo> <branch> --force` must forward --force through to
+// the underlying remove, so a dirty ticket worktree still goes.
+func TestRun_Workspace_Prune_Ticket_ForceRemovesADirtyTree(t *testing.T) {
+	repo, wt, branch := prunableWorktree(t)
+	if err := os.WriteFile(filepath.Join(wt, "dirty.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	if code := Run([]string{"workspace", "prune", repo, branch, "--force"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("prune --force exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Fatalf("--force should remove the dirty ticket worktree, stat err = %v", err)
+	}
+	if !localBranchListedCLI(t, repo, branch) {
+		t.Errorf("prune's ticket form must keep the local branch %s even with --force", branch)
+	}
+}
+
+// Without --force, `workspace prune <repo> <branch>` on a dirty worktree is
+// refused (git's own refusal) and the tree is left intact — the flag must
+// not be silently dropped in either direction.
+func TestRun_Workspace_Prune_Ticket_WithoutForceRefusesADirtyTree(t *testing.T) {
+	repo, wt, branch := prunableWorktree(t)
+	if err := os.WriteFile(filepath.Join(wt, "dirty.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	code := Run([]string{"workspace", "prune", repo, branch}, strings.NewReader(""), &out, &errb)
+	if code == 0 {
+		t.Fatalf("prune without --force on a dirty worktree should not exit 0\nstdout: %s", out.String())
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("a refused prune must leave the dirty worktree intact: %v", err)
+	}
+}

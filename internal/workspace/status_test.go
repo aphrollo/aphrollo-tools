@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -147,5 +148,74 @@ func TestList_ShowsAgeDirtyAndPRState(t *testing.T) {
 	want2 := fmt.Sprintf("%s  detached  5d  0 dirty  PR none", wt2)
 	if !strings.Contains(listing, want2) {
 		t.Errorf("listing missing line:\n%q\ngot:\n%s", want2, listing)
+	}
+}
+
+// TestResolvePRStates_RunsConcurrentlyBoundedAndReportsErrorsAsUnknown: with a
+// gh seam that sleeps 200ms per call, 6 worktrees must resolve in well under
+// the 1.2s a fully serial run would take (bounded to 4 concurrent, so two
+// batches of ~200ms), results land back in the SAME order as the input
+// regardless of which goroutine finishes first, and a seam error renders "?"
+// rather than "none" (which means "no PR", a different fact from "could not
+// ask").
+func TestResolvePRStates_RunsConcurrentlyBoundedAndReportsErrorsAsUnknown(t *testing.T) {
+	entries := make([]worktreeEntry, 6)
+	for i := range entries {
+		entries[i] = worktreeEntry{Path: fmt.Sprintf("/wt/%d", i), Branch: fmt.Sprintf("feat/%d", i)}
+	}
+	stubPRState(t, func(_, branch string) (string, error) {
+		// real-time: proves real bounded-concurrency overlap across goroutines
+		time.Sleep(200 * time.Millisecond)
+		if branch == "feat/3" {
+			return "", errors.New("gh: boom")
+		}
+		return "OPEN", nil
+	})
+
+	start := time.Now()
+	states := resolvePRStates(entries)
+	elapsed := time.Since(start)
+
+	if elapsed >= time.Second {
+		t.Errorf("resolvePRStates took %s for 6 lookups at 200ms each — want overlap (bounded to 4 concurrent), not serial", elapsed)
+	}
+	if len(states) != len(entries) {
+		t.Fatalf("len(states) = %d, want %d", len(states), len(entries))
+	}
+	for i, s := range states {
+		want := "OPEN"
+		if i == 3 {
+			want = "?"
+		}
+		if s != want {
+			t.Errorf("states[%d] = %q, want %q", i, s, want)
+		}
+	}
+}
+
+// TestResolvePRStates_TimesOutToUnknown: a lookup that outruns
+// listPRLookupTimeout renders "?" rather than blocking the whole render —
+// the var is shrunk here (like gitNetworkTimeout/ghTimeout elsewhere in this
+// package) so the test proves the deadline fires without waiting out a real
+// one.
+func TestResolvePRStates_TimesOutToUnknown(t *testing.T) {
+	oldTimeout := listPRLookupTimeout
+	listPRLookupTimeout = 30 * time.Millisecond
+	t.Cleanup(func() { listPRLookupTimeout = oldTimeout })
+	stubPRState(t, func(_, _ string) (string, error) {
+		// real-time: proves the real context deadline fires past its window
+		time.Sleep(500 * time.Millisecond)
+		return "OPEN", nil
+	})
+
+	start := time.Now()
+	states := resolvePRStates([]worktreeEntry{{Path: "/wt/0", Branch: "feat/x"}})
+	elapsed := time.Since(start)
+
+	if elapsed >= 200*time.Millisecond {
+		t.Errorf("resolvePRStates should have returned at the shrunk timeout, took %s", elapsed)
+	}
+	if len(states) != 1 || states[0] != "?" {
+		t.Errorf("states = %v, want [\"?\"]", states)
 	}
 }
