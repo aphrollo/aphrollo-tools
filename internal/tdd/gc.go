@@ -479,6 +479,14 @@ func gcTargetInterlock(repo string, c GCCandidate) string {
 		// These live INSIDE the target dir: a build mid-way must not lose an
 		// rlib it is about to link.
 		return ResolveCargoTargetDir(repo)
+	case GCKindStrayTarget:
+		// The candidate IS a target dir by construction (isCargoTargetDir
+		// required both marker files) — interlocked on ITS OWN path, not
+		// repo's resolved target: a misresolution (issue #285) is what put
+		// a LIVE target dir in this category at all, and a config-set
+		// target-dir elsewhere on the box can be building into it right now
+		// regardless of what this repo resolves to.
+		return c.Path
 	default:
 		return ""
 	}

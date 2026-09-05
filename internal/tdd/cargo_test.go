@@ -446,8 +446,15 @@ func TestCargoAlwaysRunPackages_OtherToolsMetadataIgnored(t *testing.T) {
 func TestMechanical_CargoAlwaysRunPackage_RunsFirstAsItsOwnCommand(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeCargoWorkspaceRepo(t)
+	// The always-run declaration is the workspace's own standing policy, not
+	// part of the commit under test: committed on its own first (Cargo.toml
+	// is Source since #278, so leaving it staged alongside the touched crate
+	// would open a SECOND rootGroup for the manifest and race its own
+	// always-run invocation against this one over the shared mech-cache key).
 	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/alpha\", \"crates/beta\"]\n\n"+
 		"[workspace.metadata.aphrollo]\nalways-run = [\"beta\"]\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "declare always-run")
 	write(t, root, "crates/alpha/src/lib.rs", "pub fn widget() -> i32 { 1 }\n")
 	gitDo(t, root, "add", ".")
 
@@ -474,8 +481,12 @@ func TestMechanical_CargoAlwaysRunPackage_RunsFirstAsItsOwnCommand(t *testing.T)
 func TestMechanical_CargoAlwaysRunPackage_NotDuplicatedWhenAlsoStaged(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeCargoWorkspaceRepo(t)
+	// Same reason as the sibling test above: the always-run declaration is
+	// committed on its own, so only the touched crate is staged.
 	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/alpha\", \"crates/beta\"]\n\n"+
 		"[workspace.metadata.aphrollo]\nalways-run = [\"beta\"]\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "declare always-run")
 	write(t, root, "crates/beta/src/lib.rs", "pub fn widget() -> i32 { 1 }\n")
 	gitDo(t, root, "add", ".")
 

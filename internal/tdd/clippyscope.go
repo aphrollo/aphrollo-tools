@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,7 +23,10 @@ import (
 
 // cargoWorkspaceDepsFn reads a workspace's intra-workspace dependency edges
 // (package -> the workspace members it depends on). A var so a test can state
-// a graph without a cargo run.
+// a graph without a cargo run. The error is nil for the two QUIET cases (no
+// workspace to ask; a workspace that genuinely has no intra-workspace edges)
+// and non-nil only when the graph read itself failed — that is the one case
+// clippyScope must not pass through in silence.
 var cargoWorkspaceDepsFn = cargoPackageDeps
 
 // clippyScope is the crate list the check stage selects with -p: the touched
@@ -30,9 +34,10 @@ var cargoWorkspaceDepsFn = cargoPackageDeps
 // so two runs read the same way.
 //
 // A graph it cannot read falls back to the touched crates alone. That is the
-// safe direction in cost and the honest one in coverage: it under-covers
-// loudly rather than quietly reinstating a whole-workspace compile.
-func clippyScope(ws string, touched []string) []string {
+// safe direction in cost, but it is honest only if the narrowing is stated —
+// a dependent crate the change can break goes uncompiled, and gateName/
+// repoRoot let this print and log exactly that, with the read's own error.
+func clippyScope(gateName, repoRoot, ws string, touched []string) []string {
 	scope := map[string]bool{}
 	for _, p := range touched {
 		scope[p] = true
@@ -40,7 +45,14 @@ func clippyScope(ws string, touched []string) []string {
 	if len(scope) == 0 {
 		return nil
 	}
-	for _, p := range dependentsOf(cargoWorkspaceDepsFn(ws), touched) {
+	deps, err := cargoWorkspaceDepsFn(ws)
+	if err != nil {
+		fmt.Fprintf(os.Stderr,
+			"gate %s: check scope → dependency graph unreadable (%v); scoping to the touched crates only, not everything downstream of them\n",
+			gateName, err)
+		appendGateLog(gateName, repoRoot, "clippy-scope", "clippy-scope-degraded:"+logToken(err.Error()), 0)
+	}
+	for _, p := range dependentsOf(deps, touched) {
 		scope[p] = true
 	}
 	out := make([]string, 0, len(scope))
@@ -86,12 +98,16 @@ func dependentsOf(deps map[string][]string, seeds []string) []string {
 // question keyed by directory, for a different consumer). `--no-deps`
 // resolves nothing from the registry, so it is a manifest read rather than a
 // dependency resolution -- and `metadata` is a read-only verb, so the queue
-// shim passes it through without taking a build slot. nil when there is no
-// cargo, no workspace, or unreadable output: the caller then scopes to the
-// touched crates alone.
-func cargoPackageDeps(ws string) map[string][]string {
+// shim passes it through without taking a build slot.
+//
+// A nil, nil return means there was nothing to ask (no workspace) or the
+// workspace genuinely has no intra-workspace edges — both quiet, both
+// legitimate. A non-nil error means the read itself failed (no cargo, a
+// broken manifest, unparsable output); the caller must not treat that the
+// same as an empty graph, because the two mean opposite things for coverage.
+func cargoPackageDeps(ws string) (map[string][]string, error) {
 	if ws == "" {
-		return nil
+		return nil, nil
 	}
 	cargo := os.Getenv("CARGO")
 	if cargo == "" {
@@ -101,7 +117,7 @@ func cargoPackageDeps(ws string) map[string][]string {
 		"--manifest-path", filepath.Join(ws, "Cargo.toml"))
 	out, err := cmd.Output()
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("cargo metadata: %w", err)
 	}
 	return parseWorkspaceDeps(out)
 }
@@ -110,7 +126,7 @@ func cargoPackageDeps(ws string) map[string][]string {
 // intra-workspace edges. With --no-deps the package list IS the workspace
 // membership, so an edge naming anything outside it is a registry dependency
 // and not a crate -p can select.
-func parseWorkspaceDeps(data []byte) map[string][]string {
+func parseWorkspaceDeps(data []byte) (map[string][]string, error) {
 	var doc struct {
 		Packages []struct {
 			Name         string `json:"name"`
@@ -120,7 +136,7 @@ func parseWorkspaceDeps(data []byte) map[string][]string {
 		} `json:"packages"`
 	}
 	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil
+		return nil, fmt.Errorf("parse cargo metadata output: %w", err)
 	}
 	members := map[string]bool{}
 	for _, p := range doc.Packages {
@@ -136,5 +152,5 @@ func parseWorkspaceDeps(data []byte) map[string][]string {
 		}
 		graph[p.Name] = dedupeSorted(on)
 	}
-	return graph
+	return graph, nil
 }
