@@ -42,6 +42,14 @@ func TestClassifyFile(t *testing.T) {
 		{"vendor/x/y_test.go", Ignore},
 		{"internal/scan/testdata/sample_test.go", Ignore},
 		{"dist/bundle.js", Ignore},
+		// A .ratchet/fixtures tree exists to be SCANNED by a law, never
+		// executed as this repo's own test — a staged fixture _test.go
+		// carrying a deliberately-vacuous or -bad TestMain must never enter
+		// fail-first/postedit/mechanical's Test/Source split, or the gate
+		// runs it as a real suite and blocks on exactly the shape the
+		// fixture exists to demonstrate to the LAW, not to the runner.
+		{".ratchet/fixtures/test_main_exit/hit/internal/pkg/exitzero_test.go", Ignore},
+		{".ratchet/laws/test_main_exit.toml", Ignore},
 		// Non-code is ignored entirely
 		{"README.md", Ignore},
 		{"config.yaml", Ignore},
