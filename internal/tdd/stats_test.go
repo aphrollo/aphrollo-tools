@@ -144,6 +144,33 @@ func TestGateStats_CountsTheReceiptVerdicts(t *testing.T) {
 	}
 }
 
+// Eleven blockReceipt/blockMissingReceipt call sites used to share one
+// undifferentiated receipt-rejected counter, so a 68% rejection rate could
+// not say whether the gate was catching real survivors or wasting time on a
+// stale base (issue #376). Each cause's own receipt-rejected:<reason> token
+// must land as its OWN row in the denies table, beside receipt-unsigned,
+// rather than collapsing back into one aggregate the way the bare
+// colon-less "receipt-rejected" (asserted only via s.Receipts elsewhere)
+// already did before this fix.
+func TestGateStats_CountsReceiptRejectionsByReasonInTheDeniesTable(t *testing.T) {
+	log := strings.Join([]string{
+		stamp(time.Now().UTC(), "premergecommit", "/repo", "mutation-receipt", "receipt-rejected:base-mismatch", 0),
+		stamp(time.Now().UTC(), "premergecommit", "/repo", "mutation-receipt", "receipt-rejected:base-mismatch", 0),
+		stamp(time.Now().UTC(), "premergecommit", "/repo", "mutation-receipt", "receipt-rejected:unaccepted-survivor", 0),
+	}, "\n") + "\n"
+
+	s := GateStats(strings.NewReader(log), time.Time{})
+	if s.Denies["receipt-rejected:base-mismatch"] != 2 || s.Denies["receipt-rejected:unaccepted-survivor"] != 1 {
+		t.Fatalf("denies = %v, want two base-mismatch and one unaccepted-survivor, each its own row", s.Denies)
+	}
+	out := RenderGateStats(s)
+	for _, want := range []string{"receipt-rejected:base-mismatch=2", "receipt-rejected:unaccepted-survivor=1"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered stats never break the rejection down by reason (want %q):\n%s", want, out)
+		}
+	}
+}
+
 // The queue bypass is a tolerated hole: anything can set it. What makes it
 // tolerable is that every use is counted, so a bypass nobody expected shows up
 // in the same table as every other waiver.
