@@ -62,7 +62,8 @@ func TestSync_RefusesDirtyWorktree(t *testing.T) {
 	clone := repoWithOrigin(t)
 	advanceOrigin(t, clone, "base.txt", "origin base\n")
 	// Leave an uncommitted, conflicting change to the same file.
-	if err := os.WriteFile(filepath.Join(clone, "base.txt"), []byte("dirty\n"), 0o644); err != nil {
+	dirtyContent := []byte("dirty\n")
+	if err := os.WriteFile(filepath.Join(clone, "base.txt"), dirtyContent, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -80,6 +81,13 @@ func TestSync_RefusesDirtyWorktree(t *testing.T) {
 	// Fetch still happened: origin/main is the advanced tip.
 	if revOf(t, clone, "refs/remotes/origin/main") == headBefore {
 		t.Errorf("sync should still fetch origin even when it refuses the fast-forward")
+	}
+	gotContent, err := os.ReadFile(filepath.Join(clone, "base.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotContent, dirtyContent) {
+		t.Errorf("a refused sync must not touch the uncommitted content: got %q, want %q", gotContent, dirtyContent)
 	}
 }
 
@@ -121,7 +129,8 @@ func TestSync_FastForwardsPastADirtyFileTheUpdateDoesNotTouch(t *testing.T) {
 func TestSync_LeavesATreeWhoseDirtyFileTheUpdateTouches(t *testing.T) {
 	clone := repoWithOrigin(t)
 	advanceOrigin(t, clone, "base.txt", "origin base\n") // origin's update touches base.txt
-	if err := os.WriteFile(filepath.Join(clone, "base.txt"), []byte("dirty base\n"), 0o644); err != nil {
+	dirtyContent := []byte("dirty base\n")
+	if err := os.WriteFile(filepath.Join(clone, "base.txt"), dirtyContent, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -138,6 +147,13 @@ func TestSync_LeavesATreeWhoseDirtyFileTheUpdateTouches(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "would be overwritten by merge") {
 		t.Errorf("stdout should carry git's own reason:\n%s", out.String())
+	}
+	gotContent, err := os.ReadFile(filepath.Join(clone, "base.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotContent, dirtyContent) {
+		t.Errorf("a refused fast-forward must not touch the uncommitted content: got %q, want %q", gotContent, dirtyContent)
 	}
 }
 
@@ -222,7 +238,7 @@ func TestSyncReasonLine_PrefersTheErrorLineOverProgress(t *testing.T) {
 		{
 			name: "error line after progress noise",
 			in:   "Updating ab12..cd34\nerror: Your local changes to the following files would be overwritten by merge:\n\ta.txt\n",
-			want: "error: Your local changes to the following files would be overwritten by merge:",
+			want: "error: Your local changes to the following files would be overwritten by merge:\na.txt",
 		},
 		{
 			name: "fatal line alone",
@@ -241,6 +257,20 @@ func TestSyncReasonLine_PrefersTheErrorLineOverProgress(t *testing.T) {
 				t.Errorf("reasonLine(%q) = %q, want %q", c.in, got, c.want)
 			}
 		})
+	}
+}
+
+// TestReasonLine_KeepsThePathGitNamedNotJustTheSentence: git's real refusal
+// output puts the offending path on a tab-indented line right after the
+// error: sentence — dropping it (the old behavior) leaves the user with the
+// generic sentence and no idea which file to look at.
+func TestReasonLine_KeepsThePathGitNamedNotJustTheSentence(t *testing.T) {
+	// Real git ff-only refusal output, verbatim.
+	out := "error: Your local changes to the following files would be overwritten by merge:\n\tbase.txt\nPlease commit your changes or stash them before you merge.\nAborting\n"
+
+	got := reasonLine([]byte(out))
+	if !strings.Contains(got, "base.txt") {
+		t.Errorf("reasonLine(%q) = %q, want it to contain the path %q git named", out, got, "base.txt")
 	}
 }
 

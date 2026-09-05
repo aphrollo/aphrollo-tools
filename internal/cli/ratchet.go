@@ -14,11 +14,16 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
+// ratchetCheckFn is ratchet.Check, indirected so a test can substitute an
+// observer for the Options this CLI builds — mirroring the tdd package's own
+// ratchetCheckFn seam — without needing a real git ref for --base.
+var ratchetCheckFn = ratchet.Check
+
 const ratchetUsage = `usage: aphrollo ratchet <subcommand>
 
 Subcommands:
   check    Judge the tree against .ratchet/laws/*.toml (--repo, --only, --proposed
-           file=contentfile, --format text|json, --no-tighten, --no-cache)
+           file=contentfile, --format text|json, --no-tighten, --no-cache, --base <ref>)
   test     Run every law against its .ratchet/fixtures/<law>/{hit,clean} files
   init     Copy embedded law presets into .ratchet/laws/ (--repo, --preset
            group[,group...], --param name=value, repeatable)
@@ -83,6 +88,7 @@ func runRatchetCheck(args []string, stdout, stderr io.Writer) int {
 		noTighten = fs.Bool("no-tighten", false, "never write a baseline down (report only)")
 		noCache   = fs.Bool("no-cache", false, "ignore the per-file scan cache")
 		adopt     = fs.String("adopt", "", "write <law>'s baseline from the current tree (new law, or one whose .toml differs from HEAD)")
+		base      = fs.String("base", "", "git ref a diff-scoped law (symbol-removed) compares the tree against")
 		proposed  = proposedFlag{}
 	)
 	fs.Var(proposed, "proposed", "judge <path>=<contentfile> instead of what is on disk (repeatable)")
@@ -115,11 +121,12 @@ func runRatchetCheck(args []string, stdout, stderr io.Writer) int {
 		Only:     *only,
 		Proposed: proposed,
 		Tighten:  !*noTighten,
+		Base:     *base,
 	}
 	if !*noCache {
 		opts.CacheDir = tdd.StateDir()
 	}
-	res, err := ratchet.Check(opts)
+	res, err := ratchetCheckFn(opts)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo ratchet: %v\n", err)
 		return 1

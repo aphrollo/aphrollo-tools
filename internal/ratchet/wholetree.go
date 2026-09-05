@@ -23,11 +23,18 @@ import (
 // wholeTreeKinds are the matchers the checker answers itself.
 func wholeTreeKind(k MatcherKind) bool {
 	switch k {
-	case KindRegistryBothWays, KindDepGraphForbids, KindFileSetContainment, KindJSONNumberCeiling, KindGoBenchCeiling:
+	case KindRegistryBothWays, KindDepGraphForbids, KindFileSetContainment, KindJSONNumberCeiling, KindGoBenchCeiling, KindSymbolRemoved:
 		return true
 	}
 	return false
 }
+
+// KindSymbolRemoved: a symbol `pattern` captures at BASE must still be
+// captured somewhere in scope at TIP, or be admitted by a tombstone comment
+// naming it and a reason — a deleted test is invisible to every other kind,
+// which only ever judges the tree that exists right now. Diff-scoped: it
+// answers nothing without a BaseReader (see resolveBaseTree in basetree.go).
+const KindSymbolRemoved MatcherKind = "symbol-removed"
 
 // --- dep-graph-forbids ------------------------------------------------------
 
