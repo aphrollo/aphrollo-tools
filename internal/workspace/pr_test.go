@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // stubGH swaps the gh seam for the duration of a test and restores it after.
@@ -270,6 +271,47 @@ func TestGhCIStatusArgs_GuardsBranchBehindTerminator(t *testing.T) {
 	want := []string{"pr", "checks", "--json", "state", "--", "--repo=owner/other-repo"}
 	if !slices.Equal(got, want) {
 		t.Errorf("ghCIStatusArgs(...) = %v, want %v", got, want)
+	}
+}
+
+// A stalled `gh pr view` is a real failure, not an answer about whether a PR
+// exists — ghViewPRReal must propagate the (timeout) error rather than
+// reading any non-nil error as absence. Before #290's network deadline, a
+// stalled call hung forever and never reached this branch; the deadline
+// making it return an error at all means the absence-vs-failure distinction
+// downstream now has to be explicit.
+func TestGhViewPRReal_ATimeoutIsPropagatedNotReadAsNoPR(t *testing.T) {
+	putSlowStubOnPath(t)
+	t.Setenv("SLOWSTUB_SLEEP_MS", "3000")
+	defer func(d time.Duration) { ghTimeout = d }(ghTimeout)
+	ghTimeout = 200 * time.Millisecond
+
+	info, err := ghViewPRReal(t.TempDir(), "feat/x")
+	if err == nil {
+		t.Fatal("a timed-out gh pr view must return an error, not be read as no-PR")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("error should name the timeout, got: %v", err)
+	}
+	if info != nil {
+		t.Errorf("expected nil info on a real failure, got %+v", info)
+	}
+}
+
+// The legitimate case must still work: gh's own "no PR for this branch"
+// message is absence, not a failure, and must still yield (nil, nil) so
+// Apply creates one.
+func TestGhViewPRReal_StillReadsGhsOwnNoPRMessageAsAbsence(t *testing.T) {
+	putSlowStubOnPath(t)
+	t.Setenv("SLOWSTUB_EXIT", "1")
+	t.Setenv("SLOWSTUB_STDERR", "no pull requests found for branch \"feat/x\"\n")
+
+	info, err := ghViewPRReal(t.TempDir(), "feat/x")
+	if err != nil {
+		t.Fatalf("gh's own no-PR message must be read as absence, not an error: %v", err)
+	}
+	if info != nil {
+		t.Errorf("expected nil info for a branch with no PR, got %+v", info)
 	}
 }
 

@@ -55,14 +55,16 @@ func TestNetworkTimeoutErr_NamesTheStalledCommandAndDeadline(t *testing.T) {
 func context_DeadlineExceededStandin() error { return errors.New("signal: killed") }
 
 // slowStubSource is a tiny compiled binary standing in for "git"/"gh": it
-// sleeps for SLOWSTUB_SLEEP_MS (if set) then exits 0 printing nothing. A
-// compiled binary, not a shell script, because Windows cannot exec a shell
-// script through CreateProcess. It never touches the network — the "network"
-// subprocess under test is this local stub, so the deadline is proven without
-// any real fetch/push/gh call.
+// sleeps for SLOWSTUB_SLEEP_MS (if set), prints SLOWSTUB_STDOUT/STDERR (if
+// set), then exits with SLOWSTUB_EXIT (default 0). A compiled binary, not a
+// shell script, because Windows cannot exec a shell script through
+// CreateProcess. It never touches the network — the "network" subprocess
+// under test is this local stub, so a deadline or an error-text distinction
+// is proven without any real fetch/push/gh call.
 const slowStubSource = `package main
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -74,6 +76,19 @@ func main() {
 			time.Sleep(time.Duration(n) * time.Millisecond)
 		}
 	}
+	if s := os.Getenv("SLOWSTUB_STDOUT"); s != "" {
+		fmt.Fprint(os.Stdout, s)
+	}
+	if s := os.Getenv("SLOWSTUB_STDERR"); s != "" {
+		fmt.Fprint(os.Stderr, s)
+	}
+	code := 0
+	if c := os.Getenv("SLOWSTUB_EXIT"); c != "" {
+		if n, err := strconv.Atoi(c); err == nil {
+			code = n
+		}
+	}
+	os.Exit(code)
 }
 `
 

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // targetFor builds a Target for a repo's main tree without going through cwd
@@ -161,6 +163,42 @@ func TestCommit_NoVerifyStillReportsSkippedRegardlessOfTheSeam(t *testing.T) {
 	s := out.String()
 	if !strings.Contains(s, "skipped (--no-verify)") {
 		t.Errorf("--no-verify must report itself as skipped, not TDD pass:\n%s", s)
+	}
+}
+
+// gate.log timestamps truncate to whole seconds (tdd's appendGateLog calls
+// time.Now().UTC().Format(time.RFC3339)), so a REAL hook that finishes a
+// fraction of a second after `started` was captured still logs a marker
+// whose floored second equals `started`'s own integer second. Comparing the
+// marker against the un-floored `started` reads that marker as "before
+// started" and reports "gate not run" on a commit the gate actually
+// verified — this test exercises the REAL precommitRanSince (unstubbed)
+// against a REAL marker to prove the floor, not a mocked boolean.
+func TestCommit_ReportsGateTDDPassWhenTheRealMarkerLandsInTheSameWallClockSecondAsStarted(t *testing.T) {
+	repo := initRepo(t)
+	writeFile(t, repo, "new.txt", "hello\n")
+	c, err := CommitPlan(targetFor(repo, "main"), "add new.txt", true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write the REAL marker now (real time.Now() inside AppendGateLog), then
+	// pin Commit.Apply's `started` to a LATER fraction of THIS SAME second —
+	// mirroring a hook that finished a few hundred ms after Apply captured
+	// `started`, both still inside one wall-clock second.
+	sec := time.Now().Truncate(time.Second)
+	tdd.AppendGateLog("precommit", repo, "gate", "ran", 0)
+	orig := timeNow
+	timeNow = func() time.Time { return sec.Add(900 * time.Millisecond) }
+	t.Cleanup(func() { timeNow = orig })
+
+	var out, errb bytes.Buffer
+	if err := c.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
+	}
+	s := out.String()
+	if !strings.Contains(s, "gate TDD pass") {
+		t.Errorf("a marker logged within the same wall-clock second `started` was captured must still count as a verified run:\n%s", s)
 	}
 }
 

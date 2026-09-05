@@ -16,6 +16,12 @@ import (
 // depending on gate.log or a real installed hook.
 var precommitRanSince = tdd.PrecommitRanSince
 
+// timeNow is the seam over time.Now for the "started" capture below — a
+// package var so a test can pin a sub-second fraction and prove the
+// whole-second floor against a REAL gate.log marker, not just a stubbed
+// precommitRanSince.
+var timeNow = time.Now
+
 // Commit is a resolved, not-yet-executed commit in a worktree. It folds the
 // stage→commit dance into one command and reports back exactly what landed (sha,
 // subject, file/line delta) so the agent doesn't spend a round trip on
@@ -93,8 +99,14 @@ func (c *Commit) Apply(stdout, stderr io.Writer) error {
 	}
 	// Captured before the commit so the marker lookup below only accepts
 	// evidence from THIS commit's own pre-commit run, never a stale one from
-	// an earlier commit in the same worktree.
-	started := time.Now()
+	// an earlier commit in the same worktree. Floored to the second: gate.log
+	// timestamps truncate to whole seconds (appendGateLog formats with
+	// time.RFC3339), so a REAL hook finishing a fraction of a second after
+	// `started` still logs a marker whose floored second equals this one —
+	// comparing against an un-floored `started` read that marker as "before
+	// started" and reported "gate not run" on a commit the gate had actually
+	// verified.
+	started := timeNow().Truncate(time.Second)
 	out, err := exec.Command("git", args...).CombinedOutput()
 	if err != nil {
 		if !c.NoVerify {

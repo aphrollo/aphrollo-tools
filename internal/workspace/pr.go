@@ -46,26 +46,41 @@ func prStateWord(info *PRInfo) string {
 // real implementations shell `gh` in the worktree.
 //
 // ghViewPR returns (nil, nil) when no PR exists for the branch — that is the
-// signal to create one, not an error.
-var (
-	ghViewPR = func(wt, branch string) (*PRInfo, error) {
-		// gh resolves the repo from the worktree's origin. It exits non-zero when
-		// no PR exists for the branch — absence, not a failure: return (nil, nil)
-		// so Apply creates one. A real PR with malformed JSON is the only error.
-		out, err := ghOutput(wt, "pr", "view", "--json", "number,url,state,isDraft,mergeable,mergeStateStatus", "--", branch)
-		if err != nil {
-			return nil, nil
-		}
-		var info PRInfo
-		if err := json.Unmarshal(out, &info); err != nil {
-			return nil, fmt.Errorf("parsing gh pr view: %w", err)
-		}
-		if info.Number == 0 {
-			return nil, nil
-		}
-		return &info, nil
-	}
+// signal to create one, not an error. It is a var (bound to ghViewPRReal) so
+// tests can drive pr's reuse-vs-create logic without gh or the network.
+var ghViewPR = ghViewPRReal
 
+// ghViewPRReal is ghViewPR's real implementation, named so a test can call it
+// directly regardless of what another test's stubGH last pointed the ghViewPR
+// var at.
+//
+// gh exits non-zero both for "no PR exists for this branch" (absence) and for
+// a genuine failure — a network timeout (see #290's networkTimeoutErr), a
+// missing gh, no auth. Only the FIRST is absence: isNoPRError distinguishes
+// on gh's own message text (the same check ghPRState in prune.go already
+// makes for the identical reason), and everything else propagates as an
+// error. A stalled gh pr view used to hang forever and never reach this
+// function at all; now that it returns promptly, silently reading ITS error
+// as "no PR" would open a duplicate PR on a branch that already has one.
+func ghViewPRReal(wt, branch string) (*PRInfo, error) {
+	out, err := ghCombinedOutput(wt, "pr", "view", "--json", "number,url,state,isDraft,mergeable,mergeStateStatus", "--", branch)
+	if err != nil {
+		if isNoPRError(string(out)) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("gh pr view %s: %v: %s", branch, err, strings.TrimSpace(string(out)))
+	}
+	var info PRInfo
+	if err := json.Unmarshal(out, &info); err != nil {
+		return nil, fmt.Errorf("parsing gh pr view: %w", err)
+	}
+	if info.Number == 0 {
+		return nil, nil
+	}
+	return &info, nil
+}
+
+var (
 	ghCreatePR = func(wt string, req PRCreate) (*PRInfo, error) {
 		// "--base=" / "--head=" attach the value to the flag so a branch name
 		// can't be misparsed as a separate option (defense in depth behind
