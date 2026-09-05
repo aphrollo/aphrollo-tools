@@ -38,7 +38,7 @@ func TestCommit_StageAllAndApply(t *testing.T) {
 	repo := initRepo(t)
 	writeFile(t, repo, "new.txt", "hello\n")
 
-	c, err := CommitPlan(targetFor(repo, "main"), "add new.txt", true, false)
+	c, err := CommitPlan(targetFor(repo, "main"), "add new.txt", true, false, "")
 	if err != nil {
 		t.Fatalf("CommitPlan: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestCommit_StatefulReceipt(t *testing.T) {
 	run("checkout", "-q", "-b", "feat/z")
 	writeFile(t, repo, "new.txt", "hello\n")
 
-	c, err := CommitPlan(targetFor(repo, "feat/z"), "feat: add new", true, false)
+	c, err := CommitPlan(targetFor(repo, "feat/z"), "feat: add new", true, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestCommit_ReportsGateNotRunWhenNoPrecommitHookFired(t *testing.T) {
 	stubPrecommitRanSince(t, false)
 	repo := initRepo(t)
 	writeFile(t, repo, "new.txt", "hello\n")
-	c, err := CommitPlan(targetFor(repo, "main"), "add new.txt", true, false)
+	c, err := CommitPlan(targetFor(repo, "main"), "add new.txt", true, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestCommit_ReportsGateTDDPassWhenThePrecommitHookFired(t *testing.T) {
 	stubPrecommitRanSince(t, true)
 	repo := initRepo(t)
 	writeFile(t, repo, "new.txt", "hello\n")
-	c, err := CommitPlan(targetFor(repo, "main"), "add new.txt", true, false)
+	c, err := CommitPlan(targetFor(repo, "main"), "add new.txt", true, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestCommit_NoVerifyStillReportsSkippedRegardlessOfTheSeam(t *testing.T) {
 	stubPrecommitRanSince(t, true)
 	repo := initRepo(t)
 	writeFile(t, repo, "new.txt", "hello\n")
-	c, err := CommitPlan(targetFor(repo, "main"), "add new.txt", true, true)
+	c, err := CommitPlan(targetFor(repo, "main"), "add new.txt", true, true, "test bypass")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestCommit_NoVerifyStillReportsSkippedRegardlessOfTheSeam(t *testing.T) {
 func TestCommit_ReportsGateTDDPassWhenTheRealMarkerLandsInTheSameWallClockSecondAsStarted(t *testing.T) {
 	repo := initRepo(t)
 	writeFile(t, repo, "new.txt", "hello\n")
-	c, err := CommitPlan(targetFor(repo, "main"), "add new.txt", true, false)
+	c, err := CommitPlan(targetFor(repo, "main"), "add new.txt", true, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestCommit_ReportsGateTDDPassWhenTheRealMarkerLandsInTheSameWallClockSecond
 
 func TestCommit_CleanTreeIsNoOp(t *testing.T) {
 	repo := initRepo(t)
-	c, err := CommitPlan(targetFor(repo, "main"), "nothing", true, false)
+	c, err := CommitPlan(targetFor(repo, "main"), "nothing", true, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestCommit_CleanTreeIsNoOp(t *testing.T) {
 
 func TestCommit_EmptyMessageRejected(t *testing.T) {
 	repo := initRepo(t)
-	if _, err := CommitPlan(targetFor(repo, "main"), "   ", true, false); err == nil {
+	if _, err := CommitPlan(targetFor(repo, "main"), "   ", true, false, ""); err == nil {
 		t.Fatal("expected an error for an empty commit message")
 	}
 }
@@ -235,7 +235,7 @@ func TestCommit_StagedOnly_SkipsUnstaged(t *testing.T) {
 		t.Fatalf("git add: %v\n%s", err, out)
 	}
 
-	c, err := CommitPlan(targetFor(repo, "main"), "only staged", false /*stageAll*/, false)
+	c, err := CommitPlan(targetFor(repo, "main"), "only staged", false /*stageAll*/, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +253,7 @@ func TestCommit_StagedOnly_SkipsUnstaged(t *testing.T) {
 func TestCommit_StagedOnly_NothingStaged(t *testing.T) {
 	repo := initRepo(t)
 	writeFile(t, repo, "loose.txt", "b\n") // present but never staged
-	c, err := CommitPlan(targetFor(repo, "main"), "noop", false, false)
+	c, err := CommitPlan(targetFor(repo, "main"), "noop", false, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,5 +263,86 @@ func TestCommit_StagedOnly_NothingStaged(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "nothing staged") {
 		t.Errorf("--staged-only with empty index should report nothing staged:\n%s", out.String())
+	}
+}
+
+// --no-verify with no stated reason is an unexplained bypass gate stats has
+// nothing to attribute it to (issue #314) -- CommitPlan refuses to build the
+// plan at all, the same way an empty message never reaches Apply.
+func TestCommitPlan_NoVerifyWithoutReasonRejected(t *testing.T) {
+	repo := initRepo(t)
+	if _, err := CommitPlan(targetFor(repo, "main"), "add new.txt", true, true, ""); err == nil {
+		t.Fatal("expected an error for --no-verify with no --reason")
+	}
+	if _, err := CommitPlan(targetFor(repo, "main"), "add new.txt", true, true, "   "); err == nil {
+		t.Fatal("expected an error for --no-verify with a blank --reason")
+	}
+}
+
+// A --no-verify commit logs "override-no-verify" to gate.log carrying the
+// stated reason, the same verdict token the git shim's own hooks-bypass door
+// writes (issue #314) -- so a hatch that used to leave no trace anywhere now
+// shows up in `gate stats` regardless of which of the two doors was used.
+func TestCommit_NoVerifyLogsOverrideTokenWithReason(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := initRepo(t)
+	writeFile(t, repo, "new.txt", "hello\n")
+	c, err := CommitPlan(targetFor(repo, "main"), "add new.txt", true, true, "verifying a false-positive gate rejection")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if err := c.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
+	}
+	data, err := os.ReadFile(filepath.Join(tdd.StateDir(), "gate.log"))
+	if err != nil {
+		t.Fatalf("reading gate.log: %v", err)
+	}
+	log := string(data)
+	if !strings.Contains(log, "override-no-verify") {
+		t.Fatalf("gate.log missing the override-no-verify token:\n%s", log)
+	}
+	if !strings.Contains(log, "verifying_a_false-positive_gate_rejection") {
+		t.Fatalf("gate.log missing the stated reason:\n%s", log)
+	}
+}
+
+// installFailingPreCommitHook plants a REAL pre-commit hook that refuses
+// every commit with a distinctive message, so Apply's rejection path is
+// exercised against git's own hook plumbing rather than a stubbed error.
+func installFailingPreCommitHook(t *testing.T, repo string) {
+	t.Helper()
+	hooksDir := filepath.Join(repo, ".git", "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\necho 'REJECTED by fake pre-commit hook' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(hooksDir, "pre-commit"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A gate rejection must surface the failing stage's own stderr and recommend
+// nothing further -- the old message pointed straight at --no-verify, so the
+// documented remedy for a red gate was the bypass itself (issue #314).
+func TestCommit_RejectionMessageDropsTheNoVerifyBypassHint(t *testing.T) {
+	repo := initRepo(t)
+	installFailingPreCommitHook(t, repo)
+	writeFile(t, repo, "new.txt", "hello\n")
+	c, err := CommitPlan(targetFor(repo, "main"), "add new.txt", true, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	err = c.Apply(&out, &errb)
+	if err == nil {
+		t.Fatal("expected the hook rejection to surface as an error")
+	}
+	if strings.Contains(err.Error(), "--no-verify") {
+		t.Fatalf("rejection error must not recommend the bypass, got %q", err.Error())
+	}
+	if !strings.Contains(errb.String(), "REJECTED by fake pre-commit hook") {
+		t.Fatalf("rejection must surface the hook's own stderr, got %q", errb.String())
 	}
 }

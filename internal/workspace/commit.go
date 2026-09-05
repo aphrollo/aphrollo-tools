@@ -31,21 +31,29 @@ type Commit struct {
 	Message  string
 	StageAll bool   // git add -A before committing (false => commit the index as-is)
 	NoVerify bool   // skip the pre-commit gate (the documented false-positive escape)
+	Reason   string // required alongside NoVerify — why the gate is being skipped
 	dirty    string // porcelain status captured at plan time ("" => clean)
 }
 
 // CommitPlan resolves the worktree and snapshots its working-tree state without
 // mutating anything. A clean tree (nothing staged and nothing to stage) yields a
 // plan whose Apply is a no-op — reported, not an error.
-func CommitPlan(t *Target, message string, stageAll, noVerify bool) (*Commit, error) {
+//
+// noVerify requires a non-empty reason, the same way a smell-escape comment
+// requires prose: --no-verify with no stated reason is an unexplained bypass
+// gate stats has nothing to attribute it to.
+func CommitPlan(t *Target, message string, stageAll, noVerify bool, reason string) (*Commit, error) {
 	if strings.TrimSpace(message) == "" {
 		return nil, fmt.Errorf("a commit message is required (-m)")
+	}
+	if noVerify && strings.TrimSpace(reason) == "" {
+		return nil, fmt.Errorf(`--no-verify requires --reason "<text>"`)
 	}
 	status, err := porcelainStatus(t.Worktree)
 	if err != nil {
 		return nil, err
 	}
-	return &Commit{Target: t, Message: message, StageAll: stageAll, NoVerify: noVerify, dirty: status}, nil
+	return &Commit{Target: t, Message: message, StageAll: stageAll, NoVerify: noVerify, Reason: reason, dirty: status}, nil
 }
 
 // Render previews the commit. apply=false is the dry-run; apply=true is the terse
@@ -79,8 +87,9 @@ func (c *Commit) Render(apply bool) string {
 }
 
 // Apply stages (when StageAll) and commits, then prints the precise outcome. A
-// clean tree is a reported no-op. A gate rejection surfaces git's stderr and a
-// pointer to --no-verify rather than a bare non-zero.
+// clean tree is a reported no-op. A gate rejection surfaces the failing
+// stage's own stderr rather than a bare non-zero, and recommends nothing
+// further — that stderr already says what failed and how to proceed.
 func (c *Commit) Apply(stdout, stderr io.Writer) error {
 	if c.clean() {
 		fmt.Fprintf(stdout, "%s\n", c.noopMsg())
@@ -96,6 +105,12 @@ func (c *Commit) Apply(stdout, stderr io.Writer) error {
 	args := []string{"-C", wt, "commit", "-m", c.Message}
 	if c.NoVerify {
 		args = append(args, "--no-verify")
+		// Logged when the bypass is DECIDED, not gated on the commit's own
+		// success — a git failure past this point is unrelated to the gate
+		// (it was already skipped), and the decision to skip it still
+		// happened. Same verdict token the git shim's own no-verify door
+		// writes (issue #314), so `gate stats` counts both under one row.
+		tdd.AppendGateLog("precommit", tdd.LogToken(wt), tdd.LogToken(c.Reason), "override-no-verify", 0)
 	}
 	// Captured before the commit so the marker lookup below only accepts
 	// evidence from THIS commit's own pre-commit run, never a stale one from
@@ -111,7 +126,7 @@ func (c *Commit) Apply(stdout, stderr io.Writer) error {
 	if err != nil {
 		if !c.NoVerify {
 			fmt.Fprintf(stderr, "%s\n", strings.TrimRight(string(out), "\n"))
-			return fmt.Errorf("commit rejected (pre-commit gate?) — re-run with --no-verify to bypass")
+			return fmt.Errorf("commit rejected by the pre-commit gate")
 		}
 		return fmt.Errorf("git commit: %v\n%s", err, out)
 	}

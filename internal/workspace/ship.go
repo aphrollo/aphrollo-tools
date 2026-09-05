@@ -22,6 +22,7 @@ type ShipRequest struct {
 	Message  string // commit message (required)
 	StageAll bool   // git add -A before committing
 	NoVerify bool   // skip the pre-commit gate
+	Reason   string // required alongside NoVerify — why the gate is being skipped
 	Base     string // PR base ("" resolves the repo's default branch)
 	Title    string // PR title ("" => filled from commits)
 	Body     string // PR body
@@ -31,7 +32,7 @@ type ShipRequest struct {
 // ShipPlan resolves all three stages up front so the dry-run can show the whole
 // sequence and an addressing/usage error surfaces before anything runs.
 func ShipPlan(t *Target, req ShipRequest) (*Ship, error) {
-	c, err := CommitPlan(t, req.Message, req.StageAll, req.NoVerify)
+	c, err := CommitPlan(t, req.Message, req.StageAll, req.NoVerify, req.Reason)
 	if err != nil {
 		return nil, err
 	}

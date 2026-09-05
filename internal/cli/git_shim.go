@@ -135,14 +135,38 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 		return execGit(cfg.realGit, args, stdin, stdout, stderr)
 	}
 
-	_, rest := gitGlobalArgs(args)
+	prefix, rest := gitGlobalArgs(args)
+
+	// classifyRest is what primaryRefusalLine and gitLockScopeFor actually
+	// switch on. Left as rest by default; resolved to a configured alias's
+	// expansion below, ONCE, so `[alias] cob = checkout -b` classifies as
+	// checkout -b rather than as the unrecognized verb "cob" (issue #279).
+	classifyRest := rest
+	shellAlias := false
 
 	// The primary checkout is merge-only, and the refusal comes before both
 	// the lock and git itself: a branch that already moved cannot be un-moved
 	// by a message.
 	if cwd, err := os.Getwd(); err == nil {
 		workDir := gitWorkingDir(args, cwd)
-		if line := primaryRefusalLine(cfg.realGit, rest, workDir); line != "" {
+		if expanded, isShell, found := resolveAlias(cfg.realGit, workDir, rest); found {
+			shellAlias = isShell
+			if !isShell {
+				classifyRest = expanded
+			}
+		}
+		// The three doors past the commit gate (issue #314): a verb-level
+		// --no-verify/-n, or -c core.hooksPath in the global prefix. Refused
+		// outright in the primary checkout; a lane's use is allowed but
+		// logged, so `gate stats` sees every use of the hatch.
+		if hooksBypassDoor(prefix, classifyRest) {
+			if line := hooksBypassRefusalLine(prefix, classifyRest, workDir); line != "" {
+				fmt.Fprintln(stderr, line)
+				return 1
+			}
+			tdd.AppendGateLog("precommit", tdd.LogToken(cwd), tdd.LogToken(strings.Join(args, " ")), "override-no-verify", 0)
+		}
+		if line := primaryRefusalLine(cfg.realGit, classifyRest, workDir, shellAlias); line != "" {
 			fmt.Fprintln(stderr, line)
 			return 1
 		}
@@ -161,7 +185,7 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 		}
 	}
 
-	scope := gitLockScopeFor(rest)
+	scope := gitLockScopeFor(classifyRest)
 	if scope == gitNoLock {
 		return execGit(cfg.realGit, args, stdin, stdout, stderr)
 	}

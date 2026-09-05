@@ -176,6 +176,21 @@ func applyFileEdits(fileEdits []lsp.FileEdit, root, mainPath, mainSrc string, ap
 	result := &RenameResult{Applied: apply}
 	writes := make([]pendingWrite, 0, len(fileEdits))
 
+	// resolvedRoot resolves any symlink in root itself (a symlinked parent
+	// directory, or /tmp on macOS) exactly once, up front, so the
+	// resolved-target check below compares like with like. The FIRST
+	// withinRoot check, just below, must keep comparing fe.Path (unresolved)
+	// against root (unresolved): it is the lexical guard against a
+	// server-supplied "../.." escape, and resolving either side would defeat
+	// it. Only the second check, against the resolved write target, uses
+	// resolvedRoot.
+	resolvedRoot := root
+	if root != "" {
+		if r, err := filepath.EvalSymlinks(root); err == nil {
+			resolvedRoot = r
+		}
+	}
+
 	for _, fe := range fileEdits {
 		if root != "" && !withinRoot(fe.Path, root) {
 			return nil, fmt.Errorf("refusing edit outside project root: %s is not within %s", fe.Path, root)
@@ -184,7 +199,20 @@ func applyFileEdits(fileEdits []lsp.FileEdit, root, mainPath, mainSrc string, ap
 		if err != nil {
 			return nil, err
 		}
-		if root != "" && !withinRoot(target, root) {
+		// resolveWriteTarget only resolves target when fe.Path's OWN final
+		// component is a symlink; an ordinary file reached through a
+		// symlinked ANCESTOR directory comes back unresolved, still carrying
+		// that ancestor's unresolved form. checkTarget resolves it fully
+		// (a no-op if target is already canonical) so the comparison below
+		// always meets resolvedRoot on the same footing, whichever branch
+		// resolveWriteTarget took. The actual write still targets `target`,
+		// not checkTarget: writeFileAtomic must write through fe.Path's own
+		// symlink if it has one, not chase every ancestor link too.
+		checkTarget := target
+		if resolved, err := filepath.EvalSymlinks(target); err == nil {
+			checkTarget = resolved
+		}
+		if root != "" && !withinRoot(checkTarget, resolvedRoot) {
 			return nil, fmt.Errorf("refusing edit: %s is a symlink resolving to %s, which is outside project root %s", fe.Path, target, root)
 		}
 		before := mainSrc
