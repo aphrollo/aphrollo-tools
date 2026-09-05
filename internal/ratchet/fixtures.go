@@ -107,9 +107,17 @@ type fixtureScan struct {
 
 // fixtureHits applies one law to every file under <dir>/<sub>, treating that
 // directory as the whole world — the law's scope globs are written against the
-// real tree, and a fixture lives somewhere else entirely.
+// real tree, and a fixture lives somewhere else entirely. When <dir>/<sub>
+// itself holds `base/` and `tip/` (a diff-scoped law's fixture shape), `tip/`
+// is judged as that world and `base/` stands in for the OTHER side of the
+// diff, through the same BaseReader a real run would derive from git.
 func fixtureHits(dir, sub string, law Law) (fixtureScan, error) {
 	base := filepath.Join(dir, sub)
+	var baseTree BaseReader
+	if isDir(filepath.Join(base, "base")) && isDir(filepath.Join(base, "tip")) {
+		baseTree = dirBaseReader{dir: filepath.Join(base, "base")}
+		base = filepath.Join(base, "tip")
+	}
 	var scan fixtureScan
 	content := map[string]string{}
 	var files []string
@@ -141,7 +149,7 @@ func fixtureHits(dir, sub string, law Law) (fixtureScan, error) {
 		if scan.files == 0 {
 			return scan, nil
 		}
-		hits, err := fixtureWholeTreeHits(base, law, files, content)
+		hits, err := fixtureWholeTreeHits(base, law, files, content, baseTree)
 		if err != nil {
 			return scan, err
 		}
@@ -191,8 +199,10 @@ func readExpected(path string) (map[string]bool, error) {
 
 // fixtureWholeTreeHits answers a whole-tree law with the fixture directory as
 // the whole world: its registry file, its checked-in `cargo metadata`
-// document, its own pair of files, its own generated JSON.
-func fixtureWholeTreeHits(base string, law Law, files []string, content map[string]string) ([]Hit, error) {
+// document, its own pair of files, its own generated JSON, or — for a
+// diff-scoped law — its own `base/` tree via baseTree (nil when the fixture
+// carries no `base/`, which is a clean case that never judges one).
+func fixtureWholeTreeHits(base string, law Law, files []string, content map[string]string, baseTree BaseReader) ([]Hit, error) {
 	switch law.Matcher.Kind {
 	case KindRegistryBothWays:
 		return registryHits(base, law, files, content, false, true)
@@ -202,6 +212,17 @@ func fixtureWholeTreeHits(base string, law Law, files []string, content map[stri
 		return containmentHits(base, law)
 	case KindJSONNumberCeiling, KindGoBenchCeiling:
 		return ceilingHits(base, law, false, "")
+	case KindSymbolRemoved:
+		if baseTree == nil {
+			return nil, nil
+		}
+		return symbolRemovedHits(law, baseTree, files, content)
 	}
 	return nil, nil
+}
+
+// isDir reports whether path exists and is a directory.
+func isDir(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.IsDir()
 }

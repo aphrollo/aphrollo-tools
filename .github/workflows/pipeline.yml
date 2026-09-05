@@ -48,9 +48,12 @@ jobs:
   changes:
     if: github.event.pull_request.draft != true
     runs-on: self-hosted
+    timeout-minutes: 2
     outputs:
       code: ${{ steps.filter.outputs.code }}
       docs: ${{ steps.filter.outputs.docs }}
+      bench: ${{ steps.filter.outputs.bench }}
+      refactor: ${{ steps.filter.outputs.refactor }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -92,6 +95,31 @@ jobs:
           else
             echo "docs=false" >> "$GITHUB_OUTPUT"
           fi
+          # bench=true iff a changed file sits under one of the three benchmarked
+          # packages or the baseline it compares against, so `benchmarks` skips
+          # (while still reporting) a PR that cannot move any of the four numbers
+          # it gates.
+          if printf '%s\n' "$changed" | grep -qE '^(internal/ratchet/|internal/tdd/|internal/docs/|testdata/bench/)'; then
+            echo "bench=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "bench=false" >> "$GITHUB_OUTPUT"
+          fi
+          # refactor=true iff a changed file sits under a package the gated
+          # gopls/sqlc e2e tests actually exercise transitively, not just the
+          # two packages the tests themselves live in -- a change to the LSP
+          # client or the diff-apply code they both drive must install the
+          # real binaries too, or the tests self-skip on exactly the commit
+          # most likely to break them. Derived, not guessed: `go list -deps
+          # ./internal/refactor/... ./internal/sqlc/... | grep
+          # '^github.com/aphrollo/aphrollo-tools/internal/'` names
+          # internal/diff, internal/lsp, internal/refactor and internal/sqlc
+          # -- keep this pattern in sync with that command's output when
+          # either package's imports change.
+          if printf '%s\n' "$changed" | grep -qE '^(internal/refactor/|internal/sqlc/|internal/lsp/|internal/diff/)'; then
+            echo "refactor=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "refactor=false" >> "$GITHUB_OUTPUT"
+          fi
 
   # Doc-reference guard (`aphrollo docs check`): every repo path a CHANGED
   # markdown file cites must resolve. Gated on the `changes` filter (docs=true ⇔
@@ -105,6 +133,7 @@ jobs:
     if: github.event.pull_request.draft != true
     needs: changes
     runs-on: self-hosted
+    timeout-minutes: 5
     steps:
       - if: needs.changes.outputs.docs == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -131,11 +160,14 @@ jobs:
           "$aphrollo" docs check "${mds[@]}"
 
   test:
-    # Checks gate PRs; on push-to-main they're skipped and `deploy` runs behind
-    # an always()+needs-result guard (mirrors aphrollo-api/pipeline.yml).
+    # Checks run on both a PR and a push to main (see the header note above):
+    # `deploy` runs behind them either way, via an always()+needs-result guard
+    # (mirrors aphrollo-api/pipeline.yml) rather than the checks standing down
+    # on push.
     if: github.event.pull_request.draft != true
     needs: changes
     runs-on: self-hosted
+    timeout-minutes: 10
     steps:
       - if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -155,21 +187,83 @@ jobs:
         run: |
           go mod tidy
           git diff --exit-code
-      - if: needs.changes.outputs.code == 'true'
-        run: go vet ./...
+      # No standalone `go vet ./...` here: golangci-lint's standard linter set
+      # (`lint`, below) already runs govet over the same Linux/amd64 target,
+      # so a second invocation here bought nothing but a duplicate pass on a
+      # serial runner. Dropping ONE of the two per the choice this repo's own
+      # issue tracker recorded — not both, or vet coverage disappears
+      # entirely on a lint-skipping docs-only PR.
+      #
+      # Neither invocation type-checks the 9 windows-tagged files under
+      # internal/ (6 production + 3 _test.go; Go excludes *_windows.go and
+      # //go:build windows from a linux/amd64 vet or build), so a
+      # cross-compiled vet+build stands in: cheap (~20s) because it only
+      # type-checks, it never runs anything.
+      - name: Vet + build the platform-tagged files (windows, darwin)
+        if: needs.changes.outputs.code == 'true'
+        run: |
+          set -euo pipefail
+          GOOS=windows GOARCH=amd64 go vet ./...
+          GOOS=windows GOARCH=amd64 go build -o /dev/null ./cmd/aphrollo
+          GOOS=darwin GOARCH=arm64 go build -o /dev/null ./cmd/aphrollo
+      # gopls and sqlc back the e2e suites in internal/refactor and
+      # internal/sqlc, which self-skip via exec.LookPath when the binary is
+      # missing. Installed when a PR touches the `refactor` filter's paths —
+      # the two test packages AND the internal/lsp + internal/diff code they
+      # transitively exercise (see the filter's own comment in `changes`): a
+      # PR that only edits the JSON-RPC client, say, must not let these tests
+      # self-skip through the one class of change most likely to break them.
+      # On every other PR the suites stay skipped exactly as before, and the
+      # box pays nothing for LSP/sqlc binaries it cannot exercise.
+      # rust-analyzer, pyright-langserver and typescript-language-server stay
+      # uninstalled — none of them is `go install`-able, so wiring them in
+      # costs a second toolchain per language rather than one `go install`
+      # line; their e2e
+      # suites keep self-skipping.
+      - name: Install gopls
+        if: needs.changes.outputs.refactor == 'true'
+        run: go install golang.org/x/tools/gopls@v0.23.0
+      - name: Install sqlc
+        if: needs.changes.outputs.refactor == 'true'
+        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
       # -race catches data races, -shuffle=on catches order-dependent tests,
       # -count=1 disables the test cache so a stale pass can't hide a regression.
       # The tdd package's real-git integration tests need `git` on PATH (the
       # runner has it) and inject a fake suite runner, so no live toolchain
-      # is required.
+      # is required. -v costs nothing extra to RUN (no re-execution), only a
+      # bigger log — the SKIP-visibility step below reads it back rather than
+      # invoking `go test` a second time.
       - name: Test (race + shuffle)
         if: needs.changes.outputs.code == 'true'
-        run: go test -race -count=1 -shuffle=on -timeout=180s ./...
+        run: |
+          set -o pipefail
+          go test -race -count=1 -shuffle=on -timeout=180s -v ./... | tee test-output.log
+      # The refactor/sqlc e2e tests self-skip silently (a `t.Skip` reads as a
+      # pass), so a pipe wiring or capability-negotiation regression could
+      # land on main green with nobody noticing the coverage never ran. This
+      # names each one explicitly from the single -v run above, so PASS vs.
+      # SKIP is a line in the job summary rather than something a reader has
+      # to go dig the raw log for.
+      - name: Report refactor/sqlc e2e coverage
+        if: needs.changes.outputs.code == 'true'
+        run: |
+          set -uo pipefail
+          names='TestRename_Gopls_CrossFile TestFindReferences_Gopls TestRename_Gopls_Apply TestOutline_Gopls TestShow_Gopls TestRename_Pyright TestRename_RustAnalyzer TestRename_TypeScript TestCheckCleanRepoReportsNoDrift TestCheckDetectsDrift TestReportedOnlyConfigDoesNotFlagGatedDrift TestRegenScopedAppliesOnlyChangedQuery'
+          {
+            echo "### refactor/sqlc e2e coverage (LSP servers + sqlc binary)"
+            echo
+            for n in $names; do
+              line=$(grep -E "^--- (PASS|SKIP|FAIL): $n \(" test-output.log)
+              if [ -z "$line" ]; then line="--- ????: $n (not found in test output)"; fi
+              echo "- $line"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
 
   lint:
     if: github.event.pull_request.draft != true
     needs: changes
     runs-on: self-hosted
+    timeout-minutes: 5
     steps:
       - if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -207,6 +301,11 @@ jobs:
   # B/op, allocs/op) fails the job. The baseline file is only ever LOWERED,
   # by hand, after a real improvement is measured here — never raised to make
   # a slow change pass.
+  #
+  # Gated on `bench` rather than `code`: this job's own steps cost ~0.7m even
+  # on a PR that never touches internal/ratchet, internal/tdd, internal/docs
+  # or testdata/bench — packages whose behaviour cannot move any of the four
+  # numbers below. `bench` narrows that to the PRs that can.
   benchmarks:
     if: github.event.pull_request.draft != true
     needs: changes
@@ -218,15 +317,15 @@ jobs:
     # PR's budget; benchstat compares samples of different size fine.
     timeout-minutes: 25
     steps:
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.bench == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.bench == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
       - name: Run the benchmarks
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.bench == 'true'
         shell: bash
         run: |
           # set -e alone lets `go test ... | tee new-bench.txt` pass with
@@ -245,10 +344,10 @@ jobs:
             -bench '^(BenchmarkRatchetCheckCold|BenchmarkRatchetCheckWarm|BenchmarkPreEditJudge|BenchmarkDocsCheck)$' \
             -benchmem -cpu=1 -count=3 -timeout=20m | tee new-bench.txt
       - name: Install benchstat
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.bench == 'true'
         run: go install golang.org/x/perf/cmd/benchstat@v0.0.0-20260825160852-19be9d8e6c70
       - name: Compare against the baseline, fail on a >20% regression
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.bench == 'true'
         run: |
           set -euo pipefail
           # benchstat groups by the FULL config (goos/goarch/cpu lines
@@ -286,7 +385,7 @@ jobs:
             exit 1
           fi
       - name: Upload the comparison
-        if: ${{ always() && needs.changes.outputs.code == 'true' }}
+        if: ${{ always() && needs.changes.outputs.bench == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: benchstat-comparison
@@ -322,6 +421,15 @@ jobs:
     # Pushes to main only: the merge was judged locally under the pre-merge gate,
     # which consumed the lane's own signed receipt. This run is the tripwire; a red
     # here records an escape instead of blocking anyone.
+    #
+    # Still holds this serial runner for however long the diff takes to
+    # measure AFTER `deploy` has already shipped (issue #334) — moving it off
+    # the critical path needs either a runner label this workflow cannot
+    # confirm exists, or a scheduled/batched trigger, either of which is a
+    # bigger behavioural change than this pass makes. What is fixed here is
+    # narrower: the stale comment below wrongly described the outcome-store
+    # cache as PR-scoped when this job never runs on a PR; the cache itself
+    # was confirmed working (see the comment) and is unchanged.
     if: github.event_name == 'push'
     needs: [changes, test]
     runs-on: self-hosted
@@ -351,13 +459,17 @@ jobs:
       - name: Build the CLI from this PR
         if: needs.changes.outputs.code == 'true'
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
-      # The outcome store carries measurements across PUSHES on the same PR
-      # (issue #143): keyed on the head branch, with the run id making every
-      # save a NEW cache entry (a key already in the cache namespace cannot
-      # be overwritten) and restore-keys picking up the most recent one for
-      # this branch. Without this a one-file fix-round push re-measured the
-      # WHOLE diff every time: six pushes on PR 138 cost six full ~10-minute
-      # runs on this serial runner.
+      # The outcome store carries measurements across successive pushes to
+      # main. This job only ever runs on `push` (see the `if:` above), where
+      # `github.head_ref` is documented as empty — which does not break the
+      # carry-over the way an earlier version of this comment (describing
+      # issue #143's PR-scoped case) implied: an always-empty head_ref makes
+      # the key's branch component a CONSTANT across every run of this job,
+      # so the run id is what keeps entries distinct and restore-keys'
+      # prefix match reliably finds the previous push's save. Confirmed
+      # against this repo's own run logs rather than assumed: a prior run
+      # logged `restore-keys: mutants-store--` and the next one logged
+      # `Cache restored from key: mutants-store--<that run's id>`.
       - name: Restore the mutation outcome store
         if: needs.changes.outputs.code == 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -387,8 +499,8 @@ jobs:
         # survivors, and no "Cache saved with key: ..." line ever appeared in
         # that job's log) -- exactly the run whose measurements a fix-up push
         # most wants to reuse. An explicit save step run unconditionally
-        # closes that hole; restore-keys above still lets a later push adopt
-        # whatever the newest saved key under this head_ref holds.
+        # closes that hole; restore-keys above still lets the next push adopt
+        # whatever the newest saved key under this (constant, on push) head_ref holds.
         if: ${{ always() && needs.changes.outputs.code == 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -419,6 +531,7 @@ jobs:
     # request, so it says so rather than running and failing on every merge.
     if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
     runs-on: self-hosted
+    timeout-minutes: 5
     permissions:
       contents: read
       issues: read
@@ -465,6 +578,7 @@ jobs:
     needs: [test, lint, vulncheck, sast, secret-scan, mutants]
     if: ${{ always() && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && github.event.pull_request.head.repo.fork != true)) && contains(needs.*.result, 'failure') }}
     runs-on: self-hosted
+    timeout-minutes: 5
     permissions:
       contents: read
       issues: write
@@ -512,6 +626,7 @@ jobs:
     if: github.event.pull_request.draft != true
     needs: changes
     runs-on: self-hosted
+    timeout-minutes: 5
     steps:
       - if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -533,6 +648,7 @@ jobs:
     if: github.event.pull_request.draft != true
     needs: changes
     runs-on: self-hosted
+    timeout-minutes: 5
     steps:
       - if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -570,6 +686,7 @@ jobs:
   secret-scan:
     if: github.event.pull_request.draft != true
     runs-on: self-hosted
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -580,11 +697,31 @@ jobs:
         with:
           path: gitleaks
           key: gitleaks-8.30.1-linux-x64
+      # SHA-pinned the way the adjacent `sast` job pins opengrep -- this and
+      # that job apply different supply-chain rules to the same kind of raw
+      # binary download otherwise. Verified against the published checksum
+      # AND re-verified on every run (cache-hit included): a binary
+      # pre-planted on the persistent self-hosted-runner cache would
+      # otherwise run unverified.
       - name: Download gitleaks
         if: steps.gitleaks-cache.outputs.cache-hit != 'true'
+        env:
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
         run: |
-          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
-            | tar xz gitleaks
+          set -euo pipefail
+          curl -fsSL --retry 3 --retry-delay 2 \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            -o gitleaks.tar.gz
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar xz -f gitleaks.tar.gz gitleaks
+          rm -f gitleaks.tar.gz
+      - name: Verify the gitleaks binary
+        env:
+          GITLEAKS_BINARY_SHA256: 88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509
+        # A distinct hash from the tar.gz above -- this is the EXTRACTED
+        # binary, checked on a cache-hit as well as a fresh download, so a
+        # cache entry cannot silently carry a swapped binary forward.
+        run: echo "${GITLEAKS_BINARY_SHA256}  gitleaks" | sha256sum -c -
       - name: gitleaks
         run: ./gitleaks detect --no-banner --redact -v --exit-code 1
 
@@ -594,6 +731,7 @@ jobs:
     if: github.event.pull_request.draft != true
     needs: [changes, test, lint, vulncheck, sast, secret-scan]
     runs-on: self-hosted
+    timeout-minutes: 5
     steps:
       - if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -614,10 +752,10 @@ jobs:
         run: ./bin/aphrollo tdd --help >/dev/null && ./bin/aphrollo --help >/dev/null
 
   # On merge to main (and manual dispatch), build + install /usr/local/bin/aphrollo.
-  # Checks are skipped on push, so this uses the same always()+needs-result guard
-  # as aphrollo-api: run after a green-PR merge, but a red required check that
-  # blocked the merge means this never fires. A manual workflow_dispatch stays
-  # gated behind the same guard.
+  # Checks run on push too (see the header note above), so this uses the same
+  # always()+needs-result guard as aphrollo-api regardless: run after they are
+  # all green, but a red one means this never fires. A manual workflow_dispatch
+  # stays gated behind the same guard.
   deploy:
     needs: [test, lint, vulncheck, sast, secret-scan]
     if: ${{ always() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
