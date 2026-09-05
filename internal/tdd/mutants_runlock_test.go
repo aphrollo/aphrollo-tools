@@ -113,6 +113,82 @@ func TestAcquireMutantsRunLock_AnnouncesTheQueueWhileItWaits(t *testing.T) {
 	}
 }
 
+// TestAcquireMutantsRunLock_NamesStaleHolderWhenBinaryWasReplaced pins issue
+// #311: aphrollo's own self-install renames the running binary aside and
+// leaves it executing, so a job that started before a deploy keeps holding
+// the box-wide lock under a binary that no longer exists on disk under that
+// name. Its results were produced by different code, and a waiter reading
+// only "queued behind X" has no way to know that -- the queue line has to
+// say so itself, at the moment someone is waiting on it.
+func TestAcquireMutantsRunLock_NamesStaleHolderWhenBinaryWasReplaced(t *testing.T) {
+	withIsolatedMutantsRunLock(t)
+	release := acquireMutantsRunLock("cargo-mutants for /repo/holder", "/repo/holder")
+	defer release()
+
+	prevExe, prevSelf := processExePathFn, selfExePathFn
+	processExePathFn = func(pid int) (string, bool) { return `C:\bin\aphrollo.stale-1788569851.exe`, true }
+	selfExePathFn = func() string { return `C:\bin\aphrollo.exe` }
+	t.Cleanup(func() { processExePathFn, selfExePathFn = prevExe, prevSelf })
+
+	prevNotice := mutantsRunLockNoticeEvery
+	mutantsRunLockNoticeEvery = 30 * time.Millisecond
+	t.Cleanup(func() { mutantsRunLockNoticeEvery = prevNotice })
+
+	stderr := captureStderr(t, func() {
+		acquireMutantsRunLockWithDeadline("cargo-mutants for /repo/waiter", "/repo/waiter", 120*time.Millisecond)
+	})
+	if !strings.Contains(stderr, "queued behind") || !strings.Contains(stderr, "replaced") {
+		t.Fatalf("a waiter behind a holder running a replaced binary must say so, got: %q", stderr)
+	}
+}
+
+// TestAcquireMutantsRunLock_SaysNothingWhenHolderRunsTheSameBinary pins the
+// other half: a holder whose executable matches the waiter's own gets no
+// stale notice appended -- the common case, where nothing has been deployed
+// between the holder starting and the waiter queueing.
+func TestAcquireMutantsRunLock_SaysNothingWhenHolderRunsTheSameBinary(t *testing.T) {
+	withIsolatedMutantsRunLock(t)
+	release := acquireMutantsRunLock("cargo-mutants for /repo/holder", "/repo/holder")
+	defer release()
+
+	prevExe, prevSelf := processExePathFn, selfExePathFn
+	processExePathFn = func(pid int) (string, bool) { return `C:\bin\aphrollo.exe`, true }
+	selfExePathFn = func() string { return `C:\bin\aphrollo.exe` }
+	t.Cleanup(func() { processExePathFn, selfExePathFn = prevExe, prevSelf })
+
+	prevNotice := mutantsRunLockNoticeEvery
+	mutantsRunLockNoticeEvery = 30 * time.Millisecond
+	t.Cleanup(func() { mutantsRunLockNoticeEvery = prevNotice })
+
+	stderr := captureStderr(t, func() {
+		acquireMutantsRunLockWithDeadline("cargo-mutants for /repo/waiter", "/repo/waiter", 120*time.Millisecond)
+	})
+	if strings.Contains(stderr, "replaced") {
+		t.Fatalf("a holder running the same binary as the waiter must get no stale notice, got: %q", stderr)
+	}
+}
+
+// TestStaleHolderNotice_SaysNothingWhenEitherSideIsUnreadable pins the
+// degrade-to-silence rule: a comparison that cannot be made must never
+// produce a claim, in either direction of failure -- the holder's exe path
+// unreadable, or this process's own.
+func TestStaleHolderNotice_SaysNothingWhenEitherSideIsUnreadable(t *testing.T) {
+	prevExe, prevSelf := processExePathFn, selfExePathFn
+	defer func() { processExePathFn, selfExePathFn = prevExe, prevSelf }()
+
+	processExePathFn = func(pid int) (string, bool) { return "", false }
+	selfExePathFn = func() string { return `C:\bin\aphrollo.exe` }
+	if got := staleHolderNotice(4321); got != "" {
+		t.Fatalf("an unreadable holder path must produce no notice, got %q", got)
+	}
+
+	processExePathFn = func(pid int) (string, bool) { return `C:\bin\aphrollo.stale-1.exe`, true }
+	selfExePathFn = func() string { return "" }
+	if got := staleHolderNotice(4321); got != "" {
+		t.Fatalf("an unreadable self path must produce no notice, got %q", got)
+	}
+}
+
 // TestRunMutantsJob_HoldsTheMutantsRunLockForTheWholeProducerInvocation pins
 // the wiring: the box-wide lock has to cover the run's own BUILD as well as
 // its test phase (a cold `cargo mutants` baseline build was separately

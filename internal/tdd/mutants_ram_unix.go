@@ -97,3 +97,17 @@ func processStartToken(pid int) string {
 	}
 	return strings.TrimSpace(string(out))
 }
+
+// processExePath is the live image path the OS reports for pid right now,
+// "" when it cannot be read (a permissions problem, or a non-Linux unix with
+// no /proc). /proc/<pid>/exe is a symlink the kernel keeps pointed at the
+// running image's CURRENT path even after the file on disk is renamed or
+// unlinked, which is exactly the case this exists to catch: aphrollo's own
+// self-install renames the running binary aside and lets it keep executing.
+func processExePath(pid int) (string, bool) {
+	p, err := os.Readlink("/proc/" + strconv.Itoa(pid) + "/exe")
+	if err != nil {
+		return "", false
+	}
+	return p, true
+}
