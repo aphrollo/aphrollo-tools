@@ -69,6 +69,55 @@ func TestReclaimStaleMutantsLanes_LeavesADirectoryItCannotAccountFor(t *testing.
 	}
 }
 
+// Before the build directory moved to the repo's one shared target dir, every
+// lane's tree carried its own — 8-18 GB each, nine of them measured on borld.
+// A binary that no longer builds there must still reclaim them, or the drive
+// keeps paying for a layout nothing uses; and the LIVE lane's tree stays,
+// because its worktree is still the warm checkout the next run resets.
+func TestReclaimStaleMutantsLanes_RemovesALegacyPerLaneTargetDir(t *testing.T) {
+	root := makeGoRepo(t)
+	live := addWorktree(t, root, "live-lane")
+	prev := mutantsRunningFn
+	t.Cleanup(func() { mutantsRunningFn = prev })
+	mutantsRunningFn = func() bool { return false }
+
+	tree := MutantsWorktreeDir(live)
+	legacy := filepath.Join(tree, "target")
+	mustMkdir(t, filepath.Join(legacy, "debug", "deps"))
+	writeMutantsLaneMarker(tree, live)
+
+	reclaimStaleMutantsLanes(root)
+
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Errorf("%q survived (stat err = %v) — a per-lane target dir is a layout nothing builds into any more", legacy, err)
+	}
+	if _, err := os.Stat(tree); err != nil {
+		t.Errorf("%q was removed while its lane still exists: %v", tree, err)
+	}
+}
+
+// ...but never under a running producer. A run started by the binary that
+// still built per lane holds that directory open for hours; deleting it
+// mid-link is the collision the lock exists to prevent.
+func TestReclaimStaleMutantsLanes_KeepsALegacyTargetDirWhileARunIsAlive(t *testing.T) {
+	root := makeGoRepo(t)
+	live := addWorktree(t, root, "live-lane")
+	prev := mutantsRunningFn
+	t.Cleanup(func() { mutantsRunningFn = prev })
+	mutantsRunningFn = func() bool { return true }
+
+	tree := MutantsWorktreeDir(live)
+	legacy := filepath.Join(tree, "target")
+	mustMkdir(t, filepath.Join(legacy, "debug", "deps"))
+	writeMutantsLaneMarker(tree, live)
+
+	reclaimStaleMutantsLanes(root)
+
+	if _, err := os.Stat(legacy); err != nil {
+		t.Errorf("%q was removed under a live mutation run: %v", legacy, err)
+	}
+}
+
 func mustMkdir(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

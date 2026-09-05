@@ -22,7 +22,8 @@ import (
 //
 // Two lanes are two directories. The key is the lane's own checkout, not its
 // branch: the branch is renameable and carries path separators, while the
-// worktree path is what the run actually operates in.
+// worktree path is what the run actually operates in. (The BUILD directory is
+// the one thing they share — see TestMutantsTargetDir_IsOnePerRepoSharedByEveryLane.)
 func TestMutantsWorktreeDir_GivesTwoLanesOfOneRepoTwoDirectories(t *testing.T) {
 	root := makeGoRepo(t)
 	laneA := addWorktree(t, root, "lane-a")
@@ -31,9 +32,6 @@ func TestMutantsWorktreeDir_GivesTwoLanesOfOneRepoTwoDirectories(t *testing.T) {
 	a, b := MutantsWorktreeDir(laneA), MutantsWorktreeDir(laneB)
 	if a == b {
 		t.Fatalf("both lanes measure in %q — the second run checks the tree out from under the first, and neither reaches a verdict", a)
-	}
-	if ta, tb := MutantsTargetDir(laneA), MutantsTargetDir(laneB); ta == tb {
-		t.Errorf("both lanes build into %q — a shared target dir is the link-step corruption half of the same collision", ta)
 	}
 }
 
