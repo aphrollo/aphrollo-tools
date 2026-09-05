@@ -2,11 +2,14 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
+	"github.com/aphrollo/aphrollo-tools/internal/workspace"
 )
 
 // checkMissRepo carries a ratchet law that misses once (a second offender
@@ -107,7 +110,10 @@ func cleanCheckRepo(t *testing.T) string {
 }
 
 // TestCheck_IsCleanOnACleanRepo proves the other half: nothing to report
-// reads as clean or [skip] on every guard, never a miss, and exits 0.
+// reads as clean or [skip] on every guard, never a miss, and exits 0. stdout
+// carries EXACTLY one line per guard — the per-check breakdown (doctor's
+// checks, the app trio's [run]/[skip] steps) belongs on stderr, never mixed
+// in between the guard lines a review is scanning.
 func TestCheck_IsCleanOnACleanRepo(t *testing.T) {
 	root := cleanCheckRepo(t)
 	var out, errb bytes.Buffer
@@ -115,17 +121,82 @@ func TestCheck_IsCleanOnACleanRepo(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0\nstdout: %s\nstderr: %s", code, out.String(), errb.String())
 	}
-	var guardLines int
-	for _, line := range strings.Split(out.String(), "\n") {
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	if len(lines) != 5 {
+		t.Fatalf("stdout has %d line(s), want exactly 5 (one per guard):\n%s", len(lines), out.String())
+	}
+	for _, line := range lines {
 		if !strings.HasPrefix(line, "check: ") {
-			continue
+			t.Errorf("guard line does not start with %q: %q", "check: ", line)
 		}
-		guardLines++
 		if !strings.Contains(line, "→ clean") && !strings.Contains(line, "[skip]") {
 			t.Errorf("guard line is neither clean nor [skip]: %q", line)
 		}
 	}
-	if guardLines != 5 {
-		t.Fatalf("got %d guard lines, want 5 (one per guard):\n%s", guardLines, out.String())
-	}
+}
+
+// TestCheck_AppTrioJudgesTheRepoFlagNotTheCwd proves the app-trio guard
+// resolves its target from --repo's root, never from the process cwd: a
+// review running `check --repo <other>` from an unrelated checkout must
+// judge <other>, not wherever the shell happens to stand.
+func TestCheck_AppTrioJudgesTheRepoFlagNotTheCwd(t *testing.T) {
+	isolateGit(t)
+	// The cwd repo is a plain repo the app-trio guard must never touch, no
+	// matter what --repo says.
+	cwdRepo := t.TempDir()
+	gitInitRepo(t, cwdRepo)
+	t.Chdir(cwdRepo)
+
+	t.Run("fixture with no app profile skips, cwd untouched", func(t *testing.T) {
+		original := checkAppTrioResolve
+		called := false
+		checkAppTrioResolve = func(root string) (*workspace.Target, error) {
+			called = true
+			return nil, fmt.Errorf("checkAppTrioResolve must not run for a repo with no app profile")
+		}
+		t.Cleanup(func() { checkAppTrioResolve = original })
+
+		fixture := t.TempDir()
+		gitInitRepo(t, fixture)
+
+		var out, errb bytes.Buffer
+		Run([]string{"check", "--repo", fixture}, strings.NewReader(""), &out, &errb)
+
+		if called {
+			t.Error("checkAppTrioResolve ran for a repo with no declared app profile")
+		}
+		if !strings.Contains(out.String(), "check: app trio → [skip] no app declared") {
+			t.Errorf("stdout missing the no-app-declared skip line, got:\n%s", out.String())
+		}
+	})
+
+	t.Run("fixture with an app profile resolves the --repo root, not cwd", func(t *testing.T) {
+		// HasAppProfile keys on the repo's basename ("aphrollo-web" is the one
+		// entry in the table), so the fixture dir must be named that.
+		parent := t.TempDir()
+		fixture := filepath.Join(parent, "aphrollo-web")
+		if err := os.Mkdir(fixture, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		gitInitRepo(t, fixture)
+
+		// Stub the trio runner (BuildVerify), one seam below the resolve step,
+		// to RECORD the Target's MainRepo without needing a real app checkout —
+		// this observes what the (unstubbed) default resolve step actually
+		// produced, which is the thing under test.
+		var gotMainRepo string
+		original := checkAppTrioBuildVerify
+		checkAppTrioBuildVerify = func(tg *workspace.Target, root string) (*workspace.Verify, error) {
+			gotMainRepo = tg.MainRepo
+			return nil, fmt.Errorf("stub: no verify plan needed for this assertion")
+		}
+		t.Cleanup(func() { checkAppTrioBuildVerify = original })
+
+		var out, errb bytes.Buffer
+		Run([]string{"check", "--repo", fixture}, strings.NewReader(""), &out, &errb)
+
+		if gotMainRepo != fixture {
+			t.Errorf("app trio resolved MainRepo = %q, want the --repo fixture %q (cwd was %q)", gotMainRepo, fixture, cwdRepo)
+		}
+	})
 }

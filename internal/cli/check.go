@@ -44,14 +44,14 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	}
 
 	exit := 0
-	for _, guard := range []func(string, io.Writer) bool{
+	for _, guard := range []func(string, io.Writer, io.Writer) bool{
 		checkRatchet,
 		checkDocs,
 		checkSqlc,
 		checkDoctor,
 		checkAppTrio,
 	} {
-		if !guard(root, stdout) {
+		if !guard(root, stdout, stderr) {
 			exit = 1
 		}
 	}
@@ -61,7 +61,7 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 // checkRatchet is `check`'s ratchet guard: the same ratchetCheckFn seam
 // `ratchet check` runs, with tightening OFF — `check` only ever reports, it
 // never writes a baseline down.
-func checkRatchet(root string, stdout io.Writer) bool {
+func checkRatchet(root string, stdout, stderr io.Writer) bool {
 	if !ratchet.HasLaws(root) {
 		fmt.Fprintln(stdout, "check: ratchet → [skip] no laws declared")
 		return true
@@ -85,7 +85,7 @@ func checkRatchet(root string, stdout io.Writer) bool {
 // checkDocs is `check`'s doc-reference guard: the same matcher `docs check`
 // runs (TrackedMarkdown + CheckFiles are the two exported halves docs.Check
 // itself composes), over every tracked *.md under root.
-func checkDocs(root string, stdout io.Writer) bool {
+func checkDocs(root string, stdout, stderr io.Writer) bool {
 	files, err := docs.TrackedMarkdown(root, nil)
 	if err != nil {
 		fmt.Fprintf(stdout, "check: docs → error: %v\n", err)
@@ -110,7 +110,7 @@ func checkDocs(root string, stdout io.Writer) bool {
 // checkSqlc is `check`'s sqlc guard: sqlc.Check over every discovered config,
 // [skip] when the repo has none — a repo with no sqlc config is not gated by
 // it at all, that is not a finding.
-func checkSqlc(root string, stdout io.Writer) bool {
+func checkSqlc(root string, stdout, stderr io.Writer) bool {
 	cfgs, err := sqlc.DiscoverConfigs(root)
 	if err != nil || len(cfgs) == 0 {
 		fmt.Fprintln(stdout, "check: sqlc → [skip] no sqlc config")
@@ -137,9 +137,10 @@ func checkSqlc(root string, stdout io.Writer) bool {
 }
 
 // checkDoctor is `check`'s install-doctor guard: the same checks `gate
-// doctor` reports, through the shared runDoctorCheck callable.
-func checkDoctor(root string, stdout io.Writer) bool {
-	misses := runDoctorCheck(stdout, root)
+// doctor` reports, through the shared runDoctorCheck callable — the per-check
+// breakdown goes to stderr, so stdout carries only this guard's one line.
+func checkDoctor(root string, stdout, stderr io.Writer) bool {
+	misses := runDoctorCheck(stderr, root)
 	if misses == 0 {
 		fmt.Fprintln(stdout, "check: doctor → clean")
 		return true
@@ -149,25 +150,42 @@ func checkDoctor(root string, stdout io.Writer) bool {
 }
 
 // checkAppTrio is `check`'s app guard: the same plan `workspace verify` runs,
-// for whichever app the cwd's worktree resolves to — [skip] when the repo
+// for whichever app --repo's root resolves to — [skip] when the repo
 // declares no app profile at all, so a non-monorepo repo is never charged for
 // a check that does not apply to it.
-func checkAppTrio(root string, stdout io.Writer) bool {
+//
+// checkAppTrioResolve resolves the Target checkAppTrio verifies, scoped to
+// root (the --repo the caller named), never the process cwd — a `check
+// --repo <other>` run from a different repo must judge <other>, not wherever
+// the shell happens to stand.
+var checkAppTrioResolve = func(root string) (*workspace.Target, error) {
+	return workspace.ResolveTargetForRepo(root)
+}
+
+// checkAppTrioBuildVerify builds the verification plan, indirected so a test
+// can record which Target reached it without needing a real app checkout.
+var checkAppTrioBuildVerify = func(t *workspace.Target, root string) (*workspace.Verify, error) {
+	return workspace.BuildVerify(t, root)
+}
+
+func checkAppTrio(root string, stdout, stderr io.Writer) bool {
 	if !workspace.HasAppProfile(filepath.Base(root)) {
 		fmt.Fprintln(stdout, "check: app trio → [skip] no app declared")
 		return true
 	}
-	t, err := workspace.ResolveTarget("", "", "")
+	t, err := checkAppTrioResolve(root)
 	if err != nil {
 		fmt.Fprintln(stdout, "check: app trio → [skip] no app declared")
 		return true
 	}
-	v, err := workspace.BuildVerify(t, root)
+	v, err := checkAppTrioBuildVerify(t, root)
 	if err != nil {
 		fmt.Fprintln(stdout, "check: app trio → [skip] no app declared")
 		return true
 	}
-	if err := v.Apply(stdout, stdout); err != nil {
+	// [run]/[skip] step lines and the subprocess output both go to stderr:
+	// stdout carries only this guard's one summary line.
+	if err := v.Apply(stderr, stderr); err != nil {
 		fmt.Fprintln(stdout, "check: app trio → 1 miss(es)")
 		return false
 	}

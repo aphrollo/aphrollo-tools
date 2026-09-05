@@ -39,7 +39,14 @@ func ResolveTarget(repoArg, branchArg, into string) (*Target, error) {
 
 // resolveFromCwd resolves the worktree the caller is standing in.
 func resolveFromCwd() (*Target, error) {
-	top, err := gitToplevel(".")
+	return resolveFromDir(".")
+}
+
+// resolveFromDir resolves the worktree at dir, the same way resolveFromCwd
+// resolves ".". ResolveTargetForRepo uses this to scope resolution to a
+// caller-named directory instead of the process's cwd.
+func resolveFromDir(dir string) (*Target, error) {
+	top, err := gitToplevel(dir)
 	if err != nil {
 		return nil, fmt.Errorf("not inside a git worktree (cd into one, or pass <repo> <branch>)")
 	}
@@ -53,6 +60,13 @@ func resolveFromCwd() (*Target, error) {
 		MainRepo: main,
 		RepoName: filepath.Base(main),
 	}, nil
+}
+
+// ResolveTargetForRepo resolves the Target for a directory the caller names
+// explicitly (root), rather than the process's cwd — what a --repo flag
+// needs to judge a named tree without cd'ing into it first.
+func ResolveTargetForRepo(root string) (*Target, error) {
+	return resolveFromDir(root)
 }
 
 // resolveFromArgs resolves the prepared worktree for repo+branch, the same path

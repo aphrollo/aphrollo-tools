@@ -77,5 +77,9 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		// its own; undoing the gate stops at the session/git-gate side above.
 		return 0
 	}
-	return runGateInstall([]string{"--repo", *repo, "--apply"}, stdout, stderr)
+	installArgs := []string{"--repo", *repo, "--apply"}
+	if *binPath != "" {
+		installArgs = append(installArgs, "--bin", *binPath)
+	}
+	return runGateInstall(installArgs, stdout, stderr)
 }
