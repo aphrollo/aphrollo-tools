@@ -142,9 +142,6 @@ func WriteClaudeMD(repoRoot, shimDir string, force bool) (bool, error) {
 	if repoRoot == "" {
 		return false, nil
 	}
-	if _, ok := PrimaryMergeOnly(repoRoot); ok {
-		return false, ErrManagedBlockInPrimary
-	}
 	path := filepath.Join(repoRoot, "CLAUDE.md")
 	existing, err := os.ReadFile(path)
 	switch {
@@ -163,6 +160,13 @@ func WriteClaudeMD(repoRoot, shimDir string, force bool) (bool, error) {
 	out, changed := PatchClaudeMD(existing, ClaudeMDBlock(shimDir, cargoAphrolloFlag(ws, "undercover")))
 	if !changed {
 		return false, nil
+	}
+	// The sentinel means "a write would have changed this file and this is
+	// the merge-only primary" — checked only once a write is actually due,
+	// so a primary whose block is current, or that keeps no CLAUDE.md at
+	// all, never gets told it is behind.
+	if _, ok := PrimaryMergeOnly(repoRoot); ok {
+		return false, ErrManagedBlockInPrimary
 	}
 	if err := os.WriteFile(path, out, 0o644); err != nil {
 		return false, fmt.Errorf("writing %s: %w", path, err)

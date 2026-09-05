@@ -72,6 +72,60 @@ func TestWriteClaudeMD_StillWritesTheBlockInALaneOfThatRepo(t *testing.T) {
 	}
 }
 
+// The sentinel means "a write would have changed this file and this is the
+// merge-only primary" — not "this is the merge-only primary", full stop. A
+// primary whose block is already current must be left alone in silence: no
+// write, no error, nothing for gate init to relay as a lie about being
+// behind the template.
+func TestWriteClaudeMD_SaysNothingWhenThePrimaryBlockIsCurrent(t *testing.T) {
+	root := makeGoRepo(t)
+	gitDo(t, root, "branch", "-M", "main")
+	addWorktree(t, root, "lane-a")
+
+	shimDir := t.TempDir()
+	path := filepath.Join(root, "CLAUDE.md")
+	before := "# repo\n\n" + ClaudeMDBlock(shimDir, false)
+	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := WriteClaudeMD(root, shimDir, false)
+	if err != nil {
+		t.Fatalf("err = %v, want nil — the block is already current", err)
+	}
+	if changed {
+		t.Fatalf("changed = true, want false — nothing needed writing")
+	}
+	after, rerr := os.ReadFile(path)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if string(after) != before {
+		t.Fatalf("CLAUDE.md changed:\nbefore: %q\nafter:  %q", before, string(after))
+	}
+}
+
+// A merge-only primary that keeps no CLAUDE.md at all, asked without force,
+// is the same no-op it is everywhere else — there is no write the primary
+// check needs to veto.
+func TestWriteClaudeMD_SaysNothingWhenThePrimaryHasNoClaudeMD(t *testing.T) {
+	root := makeGoRepo(t)
+	gitDo(t, root, "branch", "-M", "main")
+	addWorktree(t, root, "lane-a")
+
+	path := filepath.Join(root, "CLAUDE.md")
+	changed, err := WriteClaudeMD(root, t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("err = %v, want nil — no CLAUDE.md, force=false is a no-op", err)
+	}
+	if changed {
+		t.Fatalf("changed = true, want false")
+	}
+	if _, serr := os.Stat(path); !os.IsNotExist(serr) {
+		t.Fatalf("CLAUDE.md was created: %v", serr)
+	}
+}
+
 func TestWriteClaudeMD_StillWritesInASingleCheckoutClone(t *testing.T) {
 	root := makeGoRepo(t)
 	gitDo(t, root, "branch", "-M", "main")
