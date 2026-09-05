@@ -9,8 +9,13 @@ import (
 
 // runVersion prints what the linker stamped into this binary (see
 // internal/buildinfo and selfinstall.go's buildArgs), or says plainly that
-// it was not stamped rather than printing a misleading empty commit.
-func runVersion(stdout io.Writer) int {
+// it was not stamped rather than printing a misleading empty commit. version
+// takes no arguments at all, so any (including -h/--help) is a usage error.
+func runVersion(args []string, stdout, stderr io.Writer) int {
+	if len(args) != 0 {
+		fmt.Fprintln(stderr, "usage: aphrollo version")
+		return 2
+	}
 	commit, builtAt, stamped := buildinfo.Stamp()
 	if !stamped {
 		fmt.Fprintln(stdout, "aphrollo (unstamped)")

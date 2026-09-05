@@ -99,7 +99,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "docs":
 		return runDocs(args[1:], stdout, stderr)
 	case "version":
-		return runVersion(stdout)
+		return runVersion(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "aphrollo: unknown command %q\n\n%s", args[0], rootUsage)
 		return 2

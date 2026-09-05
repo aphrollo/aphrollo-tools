@@ -163,7 +163,7 @@ func TestSelfInstall_LeavesTheBinaryAloneWhenTheBuildFails(t *testing.T) {
 // lane: a binary built with -buildvcs=false otherwise has no idea what it
 // is (see internal/buildinfo).
 func TestBuildArgs_StampsCommitAndBuildTimeThroughLdflags(t *testing.T) {
-	got := buildArgs("/r", "/o", "ca47dba1e9d1b7d8f0c3a2b4c5d6e7f8a9b0c1d2", time.Date(2026, 9, 5, 2, 57, 0, 0, time.UTC))
+	got := buildArgs("/r", "/o", "ca47dba1e9d1b7d8f0c3a2b4c5d6e7f8a9b0c1d2", time.Date(2026, 9, 5, 4, 57, 0, 0, time.FixedZone("CEST", 2*3600)))
 	want := []string{
 		"build", "-buildvcs=false",
 		"-ldflags", "-X github.com/aphrollo/aphrollo-tools/internal/buildinfo.commit=ca47dba1e9d1b7d8f0c3a2b4c5d6e7f8a9b0c1d2 -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.builtAt=2026-09-05T02:57:00Z",
