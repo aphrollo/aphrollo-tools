@@ -569,7 +569,7 @@ func TestRun_Workspace_Commit_AppliesByDefault(t *testing.T) {
 	repo := commitRepo(t)
 	var out, errb bytes.Buffer
 	// no-verify so the global TDD gate doesn't run inside the test repo.
-	code := Run([]string{"workspace", "commit", "-m", "land it", "--no-verify"}, strings.NewReader(""), &out, &errb)
+	code := Run([]string{"workspace", "commit", "-m", "land it", "--no-verify", "--reason", "test fixture"}, strings.NewReader(""), &out, &errb)
 	if code != 0 {
 		t.Fatalf("commit exit = %d, want 0\nstderr: %s", code, errb.String())
 	}

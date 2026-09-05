@@ -63,7 +63,7 @@ func TestShipApply_ReportsAheadCountFromTheCommitItJustCreated(t *testing.T) {
 
 	writeFile(t, repo, "g.txt", "y\n") // the change ship itself will commit
 
-	s, err := ShipPlan(targetFor(repo, "feat/y"), ShipRequest{Message: "followup", StageAll: true, NoVerify: true})
+	s, err := ShipPlan(targetFor(repo, "feat/y"), ShipRequest{Message: "followup", StageAll: true, NoVerify: true, Reason: "test bypass"})
 	if err != nil {
 		t.Fatalf("ShipPlan: %v", err)
 	}

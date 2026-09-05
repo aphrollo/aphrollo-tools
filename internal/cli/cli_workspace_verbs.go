@@ -15,6 +15,7 @@ func runWorkspaceCommit(args []string, stdout, stderr io.Writer) int {
 		msg        = fs.String("m", "", "commit message (required)")
 		dry        = fs.Bool("dry", false, "print the plan and stop (default: execute)")
 		noVerify   = fs.Bool("no-verify", false, "skip the pre-commit gate (the documented false-positive escape)")
+		reason     = fs.String("reason", "", "required with --no-verify: why the gate is being skipped")
 		stagedOnly = fs.Bool("staged-only", false, "commit the index as-is instead of git add -A")
 	)
 	pos, err := parseFlagsAnywhere(fs, args)
@@ -25,7 +26,7 @@ func runWorkspaceCommit(args []string, stdout, stderr io.Writer) int {
 	if !ok {
 		return 2
 	}
-	c, err := workspace.CommitPlan(t, *msg, !*stagedOnly, *noVerify)
+	c, err := workspace.CommitPlan(t, *msg, !*stagedOnly, *noVerify, *reason)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
@@ -117,6 +118,7 @@ func runWorkspaceShip(args []string, stdout, stderr io.Writer) int {
 		msg        = fs.String("m", "", "commit message (required)")
 		dry        = fs.Bool("dry", false, "print the plan and stop (default: execute)")
 		noVerify   = fs.Bool("no-verify", false, "skip the pre-commit gate")
+		reason     = fs.String("reason", "", "required with --no-verify: why the gate is being skipped")
 		stagedOnly = fs.Bool("staged-only", false, "commit the index as-is instead of git add -A")
 		base       = fs.String("base", "", "base branch for the PR (default: the repo's resolved default branch)")
 		title      = fs.String("title", "", "PR title (default: filled from the commits)")
@@ -136,6 +138,7 @@ func runWorkspaceShip(args []string, stdout, stderr io.Writer) int {
 		Message:  *msg,
 		StageAll: !*stagedOnly,
 		NoVerify: *noVerify,
+		Reason:   *reason,
 		Base:     *base,
 		Title:    *title,
 		Body:     *body,
