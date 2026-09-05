@@ -301,6 +301,9 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	if scoped, narrowed := narrowToStaged(runner, g.root, rootRelFiles); narrowed {
 		runner = scoped
 	}
+	if runner.Cmd == "go" {
+		runner = withGoCIParity(runner)
+	}
 	// CI parity for a Go root: the same vet and lint the branch is judged by,
 	// both cheaper than the suite and therefore ahead of it.
 	if runner.Cmd == "go" {

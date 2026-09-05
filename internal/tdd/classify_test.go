@@ -319,6 +319,32 @@ func TestRenderGoTestJSON_PartialParseIsNotPresentedAsComplete(t *testing.T) {
 	}
 }
 
+// TestGoExecArgs_AddsCountEqualsOneAlongsideJSON is issue #421's "-count=1
+// belongs everywhere the gate claims to have tested the current tree":
+// RunSuite's one seam before every `go test` actually executes must defeat
+// go's own test-result cache, or a cached PASS from an earlier tree could
+// stand in for a run never made against the one on disk right now — exactly
+// as true for the post-edit advisory and the fail-first worktree run as for
+// the mechanical suite.
+func TestGoExecArgs_AddsCountEqualsOneAlongsideJSON(t *testing.T) {
+	got := goExecArgs("go", []string{"test", "./..."})
+	want := []string{"test", "-count=1", "-json", "./..."}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("goExecArgs = %v, want %v", got, want)
+	}
+}
+
+// TestGoExecArgs_NeverDoublesAFlagAlreadyPresent guards idempotency: a
+// second pass over already-armed args (RunSuite only calls this once, but
+// nothing enforces that at the type level) must not repeat -json or -count.
+func TestGoExecArgs_NeverDoublesAFlagAlreadyPresent(t *testing.T) {
+	once := goExecArgs("go", []string{"test", "./..."})
+	twice := goExecArgs("go", once)
+	if !reflect.DeepEqual(once, twice) {
+		t.Fatalf("goExecArgs applied twice = %v, want unchanged %v", twice, once)
+	}
+}
+
 func TestOutcome_IsRed(t *testing.T) {
 	red := []Outcome{RedMissingImpl, RedBogus, Red}
 	for _, o := range red {
