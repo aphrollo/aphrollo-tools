@@ -230,7 +230,7 @@ func lastRunQueued(root string) bool {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
-		if e, ok := parseGateLine(sc.Text()); ok && e.root == logToken(root) {
+		if e, ok := parseGateLine(sc.Text()); ok && sameProject(e.root, root) {
 			last = e.verdict
 		}
 	}

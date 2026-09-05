@@ -37,7 +37,17 @@ func (k Kind) String() string {
 // ignoredDirs are path segments whose contents the project does not author.
 // Editing a `*.test.ts` inside node_modules must never trip a TDD gate.
 // Go's `testdata` is fixtures, not test code — the go tool ignores it, so do
-// we. `.git` guards against tooling that surfaces objects as paths.
+// we. `.git` guards against tooling that surfaces objects as paths. `.ratchet`
+// is this repo's own law data: a `.ratchet/fixtures/**` file exists to be
+// SCANNED by a law (aphrollo ratchet test/check), never executed as this
+// repo's own suite — a fixture `_test.go` deliberately shaped to trip a law
+// (a vacuous TestMain, a bad suppression) must never enter the Test/Source
+// split that feeds postedit, fail-first and the mechanical stage, or the
+// gate runs it as a real test and blocks on the exact shape the fixture
+// exists to demonstrate to the law rather than to the runner (found in
+// review of #411: `go test ./...` happens to skip dot-prefixed dirs, so this
+// was masked everywhere except failFirstStage's explicit per-file runner,
+// which does not).
 var ignoredDirs = map[string]bool{
 	"node_modules": true,
 	"vendor":       true,
@@ -46,6 +56,7 @@ var ignoredDirs = map[string]bool{
 	"build":        true,
 	".next":        true,
 	".git":         true,
+	".ratchet":     true,
 }
 
 // testDirs are segments that mark a directory of tests in JS/TS layouts, where

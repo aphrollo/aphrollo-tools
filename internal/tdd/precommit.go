@@ -31,6 +31,17 @@ const failFirstMessage = "TDD fail-first: this commit adds tests AND implementat
 	"A test that never went RED can't prove the implementation. Write the test first and watch it fail, " +
 	"or split the test into its own earlier commit."
 
+// vacuousFailFirstMessage names the package(s) the fail-first proof executed
+// zero tests in — "something in this run was vacuous" is not actionable, so
+// the message states exactly which package(s) to check.
+func vacuousFailFirstMessage(pkgs []string) string {
+	return fmt.Sprintf(
+		"TDD fail-first: the pre-edit proof executed zero tests in %s despite exiting 0, "+
+			"so nothing was actually proven either way there. Check that the staged test is reachable by the runner "+
+			"(a name/filter mismatch is the usual cause) and retry the commit.",
+		strings.Join(pkgs, ", "))
+}
+
 // rootGroup is one project root's staged Test/Source files (repo-root-
 // relative paths), the unit both Precommit and Mechanical iterate.
 type rootGroup struct {
@@ -212,16 +223,21 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		if r, ok := DetectRunner(root); ok {
 			ffCmd = cmdString(r)
 		}
-		violated, conclusive, dur := failFirstViolatedAt(repoRoot, root, tests, run)
+		violated, conclusive, vacuous, vacuousPkgs, dur := failFirstViolatedAt(repoRoot, root, tests, run)
 		// The gate must never be silent about a stage it ran, whatever the
 		// verdict — a session watching stderr needs to see fail-first
 		// happened, not infer it from the commit's exit code. Timeout and
 		// "nothing was runnable" both collapse to "inconclusive (fail-open)"
 		// here: failFirstViolatedAt's (violated, conclusive) pair doesn't
 		// carry WHY it was inconclusive, and neither ever blocks, so the
-		// coarser label loses no decision-relevant information.
+		// coarser label loses no decision-relevant information. vacuous is
+		// checked first: #317's "executed zero tests" is neither a red proof
+		// nor a genuine violation, and reporting it as either would misname
+		// the actual defect.
 		verdict := "inconclusive (fail-open)"
 		switch {
+		case vacuous:
+			verdict = "vacuous-rejected"
 		case conclusive && violated:
 			verdict = "violated"
 		case conclusive && !violated:
@@ -230,6 +246,9 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		line := fmt.Sprintf("gate precommit: fail-first %s in %s → %s (%.1fs)", ffCmd, root, verdict, dur.Seconds())
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog("precommit", root, ffCmd, verdict, dur)
+		if vacuous {
+			return GateResult{Blocked: true, Message: vacuousFailFirstMessage(vacuousPkgs)}
+		}
 		if conclusive && violated {
 			return GateResult{Blocked: true, Message: failFirstMessage}
 		}
@@ -484,6 +503,37 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	}
 	if treatAsEmptyPass(res) {
 		res.Passed = true
+	}
+	// A Go run that exited 0 having executed zero tests IN SOME PACKAGE (the
+	// #194 shape: a TestMain that returns or calls os.Exit(0) before
+	// m.Run()) is not a pass — judged per package via the run's own -json
+	// stream, since a sibling package's real tests passing must never hide
+	// another package going quietly vacuous beside them. Checked before the
+	// switch below so it never falls into the ordinary green case.
+	if res.Passed && !res.TimedOut && runner.Cmd == "go" {
+		pkgs, err := vacuousGoPackages(res.GoTestJSON)
+		if err != nil {
+			// The run exited 0, but this gate could not read what it
+			// actually tested — the same "nothing was proven" shape as any
+			// other check-error, not a clean pass (#317: an unmeasured run
+			// must never read as one).
+			return verdictFor(gateName, stage, root, cmdString(runner), stageOutcome{
+				kind: outcomeCheckError,
+				err:  err,
+				message: fmt.Sprintf(
+					"gate %s: %s → REJECTED (%v)\n  the commit cannot be judged against a test-result stream this gate could not read",
+					gateName, cmdString(runner), err),
+			})
+		}
+		if len(pkgs) > 0 {
+			return verdictFor(gateName, stage, root, cmdString(runner), stageOutcome{
+				kind:   outcomeVacuous,
+				result: res,
+				message: fmt.Sprintf(
+					"gate %s: %s executed zero tests in %s despite exiting 0, so nothing was tested there and the commit is refused.",
+					gateName, cmdString(runner), strings.Join(pkgs, ", ")),
+			})
+		}
 	}
 	switch {
 	case res.TimedOut:

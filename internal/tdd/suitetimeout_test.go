@@ -80,7 +80,7 @@ func TestSuiteTimeout_IsNotARed(t *testing.T) {
 		root := makeGoRepo(t)
 		write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestWidget(t *testing.T) { _ = 1 }\n")
 		gitDo(t, root, "add", ".")
-		if _, conclusive, _ := failFirstViolated(root, []string{"widget_test.go"}, timedOut); conclusive {
+		if _, conclusive, _, _, _ := failFirstViolated(root, []string{"widget_test.go"}, timedOut); conclusive {
 			t.Fatal("a timed-out fail-first run must be inconclusive, not a conclusive verdict")
 		}
 	})

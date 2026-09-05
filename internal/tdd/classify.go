@@ -1,6 +1,10 @@
 package tdd
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"regexp"
 	"sort"
 	"strings"
@@ -39,7 +43,176 @@ func (o Outcome) IsRed() bool {
 // `zig test` prints `All 0 tests passed.` when a file/step executed none.
 // `\b0 tests?\b` already covers the bare count, but the phrase is kept
 // explicit so the Zig signal is legible.
+//
+// Authority split with vacuousGoPackages below: zeroTestsRe is the ONLY
+// signal at post-edit (the WritingTest advisory, every runner, never
+// blocking) because post-edit has no structured per-package data to read —
+// a phrase guess is all there is. At the commit/merge stages, for Go
+// specifically, vacuousGoPackages is authoritative and zeroTestsRe plays no
+// part in that decision at all: a phrase match is a text pattern a test's
+// own output could imitate, while a package-level PASS with no per-test
+// event behind it is a fact `go test -json` states about itself. Neither
+// function calls the other; this comment is the only place the split is
+// recorded, so read it before changing either.
 var zeroTestsRe = regexp.MustCompile(`(?i)no tests? (?:found|to run|ran|executed)|no test files|collected 0 items|\b0 tests?\b|\btests?:\s+0\b|testing: warning: no tests to run|all 0 tests? passed`)
+
+// goTestEvent is the subset of `go test -json`'s per-line event schema this
+// package reads. Package is empty for a build-output/build-fail event
+// (which carries ImportPath instead, not read here — those precede any
+// Package-scoped event and only matter to a run that never got to build,
+// which res.Passed already excludes from every caller below). Test is empty
+// for a package-level event, set for a per-test one.
+type goTestEvent struct {
+	Action  string
+	Package string
+	Test    string
+	Output  string
+}
+
+// vacuousGoPackages returns the sorted, de-duplicated set of packages whose
+// `go test -json` stream shows a package-level PASS (Action=="pass", Test
+// unset — go test's own "ok" verdict for that package) with not one
+// per-test PASS/FAIL/SKIP event behind it: the #194 shape, attributed to
+// the exact package it happened in.
+//
+// Package attribution matters because judgement over the whole run's
+// concatenated TEXT cannot tell packages apart: one sibling package's real
+// "--- PASS" line anywhere in a multi-package run's output used to make
+// the entire run read as non-vacuous, even with another package's TestMain
+// never calling m.Run() right beside it — inert on exactly the multi-package
+// case #194 was (`go test ./...` is DetectRunner's Go default). `-json`
+// carries an explicit Package field on every event, so this reads that fact
+// directly rather than inferring package boundaries from interleaved text —
+// parallel package execution interleaves the plain-text stream, so a
+// text-segmentation approach would be guessing at a boundary the data
+// already states outright.
+//
+// A package with no test files at all reports Action=="skip" at the
+// package level, never "pass" — go test's own distinction — so it is
+// excluded without a "no test files" text guess.
+//
+// A stream that stops with io.EOF is the normal, complete end of a `go test
+// -json` run and is not an error. Any OTHER decode failure — a truncated
+// write from a killed process, an interleaved non-JSON line — means this
+// function cannot tell what it did not get to see, so it returns an error
+// rather than judging the partial prefix it decoded so far: reporting on
+// half a stream as though it were the whole thing would silently
+// under-report a vacuous package hiding in the unread remainder, which is
+// exactly the "unmeasured run reads as a pass" shape #317 exists to refuse.
+// The caller (runSuiteStage's check-error path, failFirstViolatedAt's
+// vacuous path) treats "could not read the stream" as its own block rather
+// than folding it into "wrote a clean pass".
+func vacuousGoPackages(rawJSON string) ([]string, error) {
+	ranPkgs := map[string]bool{}
+	testedPkgs := map[string]bool{}
+	dec := json.NewDecoder(strings.NewReader(rawJSON))
+	for {
+		var e goTestEvent
+		if err := dec.Decode(&e); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("vacuousGoPackages: reading go test -json stream: %w", err)
+		}
+		if e.Package == "" {
+			continue
+		}
+		if e.Test != "" {
+			switch e.Action {
+			case "pass", "fail", "skip":
+				testedPkgs[e.Package] = true
+			}
+			continue
+		}
+		if e.Action == "pass" {
+			ranPkgs[e.Package] = true
+		}
+	}
+	var vacuous []string
+	for pkg := range ranPkgs {
+		if !testedPkgs[pkg] {
+			vacuous = append(vacuous, pkg)
+		}
+	}
+	sort.Strings(vacuous)
+	return vacuous, nil
+}
+
+// isGoTestInvocation reports whether cmd/args is a `go test ...` command —
+// the shape goJSONArgs arms and RunSuite reads a JSON stream from.
+func isGoTestInvocation(cmd string, args []string) bool {
+	return cmd == "go" && len(args) > 0 && args[0] == "test"
+}
+
+// goJSONArgs inserts -json right after "test" for a `go test` invocation.
+// -json already implies -v's per-test verbosity (confirmed against the Go
+// toolchain: a bare `-json` run emits the same "=== RUN"/"--- PASS" lines a
+// `-v` run would, inside each event's Output field), so this carries BOTH
+// the human-readable text RunSuite reconstructs into SuiteResult.Output and
+// the structured stream vacuousGoPackages needs, from one invocation.
+// Idempotent (already-JSON args pass through unchanged) and a no-op for
+// anything that is not `go test ...`.
+func goJSONArgs(cmd string, args []string) []string {
+	if !isGoTestInvocation(cmd, args) {
+		return args
+	}
+	for _, a := range args {
+		if a == "-json" {
+			return args
+		}
+	}
+	out := make([]string, 0, len(args)+1)
+	out = append(out, args[0], "-json")
+	out = append(out, args[1:]...)
+	return out
+}
+
+// renderGoTestJSON reconstructs the plain-text stream a `-v` run would have
+// printed (concatenating each "output"/"build-output" event's own Output
+// field, in stream order) alongside the untouched raw JSON, from one
+// `go test -json` capture. The reconstruction is what lets every existing
+// text-based consumer (ExtractFailingTests, zeroTestsRe, blockedVerdict's
+// diagnostic scan) read SuiteResult.Output exactly as before, unaware the
+// invocation changed at all; rawJSON exists ONLY so vacuousGoPackages can
+// attribute a pass to the package that produced it. ok is false when raw
+// parses as NO recognisable event at all (an unexpected toolchain, a
+// completely garbled stream) — the caller must then fall back to raw as
+// Output and treat this run as having no package-level data to check.
+func renderGoTestJSON(raw string) (humanOutput, rawJSON string, ok bool) {
+	dec := json.NewDecoder(strings.NewReader(raw))
+	var b strings.Builder
+	seen := false
+	for {
+		var e goTestEvent
+		if err := dec.Decode(&e); err != nil {
+			break
+		}
+		seen = true
+		if e.Action == "output" || e.Action == "build-output" {
+			b.WriteString(e.Output)
+		}
+	}
+	if !seen {
+		return raw, "", false
+	}
+	return b.String(), raw, true
+}
+
+// goRenderedOutput is RunSuite's one call into this file: raw is the
+// subprocess's captured stdout+stderr for cmd/args exactly as spawned
+// (already carrying -json for a go test invocation, via goJSONArgs). For
+// anything else it passes raw straight through with no GoTestJSON. A stream
+// renderGoTestJSON cannot parse at all falls back to raw as Output too,
+// rather than handing SuiteResult.Output a broken reconstruction.
+func goRenderedOutput(cmd string, args []string, raw string) (output, testJSON string) {
+	if !isGoTestInvocation(cmd, args) {
+		return raw, ""
+	}
+	if human, rawJSON, ok := renderGoTestJSON(raw); ok {
+		return human, rawJSON
+	}
+	return raw, ""
+}
 
 // warningRe marks otherwise-clean output as carrying warnings.
 var warningRe = regexp.MustCompile(`(?i)\bwarning:|\bdeprecat|\bunused (?:variable|import)\b`)
