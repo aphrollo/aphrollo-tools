@@ -302,7 +302,7 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 		runner = scoped
 	}
 	if runner.Cmd == "go" {
-		runner = withGoCIParity(runner)
+		runner = withGoCIParity(runner, gateName == premergeDisplayName)
 	}
 	// CI parity for a Go root: the same vet and lint the branch is judged by,
 	// both cheaper than the suite and therefore ahead of it.

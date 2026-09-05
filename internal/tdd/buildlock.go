@@ -124,16 +124,51 @@ func SetPrecommitLockWait(d time.Duration) (restore func()) {
 	return func() { buildLockPrecommitDeadline = prev }
 }
 
+// goRaceLockKey is the synthetic "target dir" a `go test -race` run is
+// governed under, shared by every repo/worktree on the box: unlike a cargo
+// target dir this is not where anything is actually written — Go's own
+// build cache (GOCACHE) is already safe for concurrent writers — so there is
+// no per-repo directory to key on and no reason to invent one. The point is
+// not per-repo exclusivity, it is that `-race` is genuinely CPU/RAM-heavy
+// (several times slower — the same box-wide contention buildLockPath's own
+// doc comment names for cargo) and now needs the SAME governor: a single
+// shared key means every `-race` run across every lane serializes on the
+// target lock AND draws from the SAME global slot pool cargo builds do, so
+// a `-race` compile and a cargo build never stack uncounted on top of each
+// other either (cold review on #421).
+func goRaceLockKey() string {
+	return filepath.Join(lockDir(), "go-race")
+}
+
+// hasRaceFlag reports whether a `go test` Runner carries -race — the one
+// flag on the Go path expensive enough to need runCargoLocked's governor.
+// Every other go invocation (post-edit's plain command, fail-first, `go
+// vet`, the linter) is untouched by this and keeps passing straight
+// through unlocked, exactly as before #421's CI-parity flags existed.
+func hasRaceFlag(r Runner) bool {
+	if r.Cmd != "go" {
+		return false
+	}
+	for _, a := range r.Args {
+		if a == "-race" {
+			return true
+		}
+	}
+	return false
+}
+
 // runCargoLocked wraps a SuiteRunner invocation with the machine-wide build
-// lock: only cargo runners take it (go/pytest/vitest don't saturate the box
-// the way a cargo build does), so a non-cargo runner passes straight through,
-// untouched, regardless of who holds the lock. The lock is held ONLY for the
-// duration of THIS run — acquired immediately before, released immediately
-// after — never across stages, and never across a whole Precommit call that
-// spans multiple project roots. acquired=false (and a zero-value res) means
-// the deadline elapsed before the lock came free; the caller reports that as
-// a distinct QUEUED-SKIPPED outcome, never as a timeout (a stopwatch verdict
-// on this project's suite) or a failure.
+// lock: a cargo runner always takes it, and a `go test -race` runner takes
+// it too (see hasRaceFlag) — every OTHER runner (plain go, pytest, vitest;
+// none saturates the box the way an uncapped cargo build or a `-race`
+// compile does) passes straight through, untouched, regardless of who holds
+// the lock. The lock is held ONLY for the duration of THIS run — acquired
+// immediately before, released immediately after — never across stages, and
+// never across a whole Precommit call that spans multiple project roots.
+// acquired=false (and a zero-value res) means the deadline elapsed before
+// the lock came free; the caller reports that as a distinct QUEUED-SKIPPED
+// outcome, never as a timeout (a stopwatch verdict on this project's suite)
+// or a failure.
 //
 // stageBudget is the OVERALL time this call may spend, lock-wait AND suite
 // run combined — NOT additional to it. Found in review: with only
@@ -146,7 +181,8 @@ func SetPrecommitLockWait(d time.Duration) (restore func()) {
 // is shorter: its own configured timeout, or the time remaining until
 // Deadline.
 func runCargoLocked(run SuiteRunner, r Runner, root string, lockDeadline, stageBudget time.Duration) (res SuiteResult, waited time.Duration, acquired bool) {
-	if r.Cmd != "cargo" {
+	racy := hasRaceFlag(r)
+	if r.Cmd != "cargo" && !racy {
 		return run(r, root), 0, true
 	}
 	start := time.Now()
@@ -155,25 +191,33 @@ func runCargoLocked(run SuiteRunner, r Runner, root string, lockDeadline, stageB
 	if r.Dir != "" {
 		dir = r.Dir
 	}
-	target := runnerTargetDir(r, root)
+	target := goRaceLockKey()
+	if !racy {
+		target = runnerTargetDir(r, root)
+	}
 	slot, release, ok := acquireBuildSlot(target, lockDeadline, cmdString(r), dir)
 	waited = time.Since(start)
 	if !ok {
 		return SuiteResult{}, waited, false
 	}
 	defer release()
-	defer setBuildJobs(slot.Jobs)()
-	// The target lock above is exclusive per target dir, so nothing else can
-	// be writing into target while this runs — see buildlock_futuremtime.go.
-	invalidateFutureStampedArtifacts(target)
+	if !racy {
+		defer setBuildJobs(slot.Jobs)()
+		// The target lock above is exclusive per target dir, so nothing else
+		// can be writing into target while this runs — see
+		// buildlock_futuremtime.go. goRaceLockKey names no real directory, so
+		// this has nothing to scan for a `-race` run.
+		invalidateFutureStampedArtifacts(target)
+	}
 
 	// A nested cargo invocation (task A7's cargo-queue shim, IF a session
 	// prepended it to PATH) that happens to resolve "cargo" to the shim
 	// instead of the real binary must recognize the lock is ALREADY held by
 	// THIS process and pass straight through, or it deadlocks on the same
-	// lock. suiteEnv() inherits os.Environ(), so setting this in the
-	// process's own environment is what actually propagates it to the
-	// child.
+	// lock — true whether THIS process is holding it for a cargo build or
+	// for a `-race` Go run, since both draw from the same global slot pool.
+	// suiteEnv() inherits os.Environ(), so setting this in the process's own
+	// environment is what actually propagates it to the child.
 	prevHeld, hadHeld := os.LookupEnv(BuildLockHeldEnv)
 	os.Setenv(BuildLockHeldEnv, "1")
 	defer func() {
