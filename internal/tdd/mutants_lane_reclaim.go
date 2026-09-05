@@ -20,15 +20,18 @@ func writeMutantsLaneMarker(tree, lane string) {
 }
 
 // reclaimStaleMutantsLanes removes the mutants tree of every lane whose
-// checkout no longer exists, and the legacy per-lane target dir of every lane
-// that still does. The run refuses to start below 15 GB free per job -- so a
-// merged lane that left its tree behind eventually stops every other lane on
-// the box with `mutation run refused`.
+// checkout no longer exists, the legacy per-lane target dir of every lane
+// that still does, and every ALTERNATE tree (chooseMutantsWorktree,
+// mutants_job.go) no live job still holds. The run refuses to start below
+// 15 GB free per job -- so a merged lane, or an abandoned alternate, that
+// left its tree behind eventually stops every other lane on the box with
+// `mutation run refused`.
 //
-// It is deliberately conservative in both directions: a directory with no
-// marker is left alone (it predates the marker, or something else made it),
-// and a lane that still exists keeps its tree, because a live lane's worktree
-// is the warm checkout its next run resets rather than re-adds.
+// It is deliberately conservative in every direction it can be: a directory
+// with no marker is left alone (it predates the marker, or something else
+// made it), a lane's BASE tree survives its lane existing, because a live
+// lane's warm checkout is what its next run resets rather than re-adds, and
+// an alternate survives while any live job still names it as its Worktree.
 //
 // The build directory used to live INSIDE each lane's tree; it is now the
 // repo's one MutantsTargetDir, shared. A tree's own `target` is therefore a
@@ -40,6 +43,7 @@ func writeMutantsLaneMarker(tree, lane string) {
 func reclaimStaleMutantsLanes(repoRoot string) {
 	root := MutantsRootDir(repoRoot)
 	producerAlive := mutantsRunningFn()
+	liveJobs := RunningMutantsJobs(commonGitDir(repoRoot))
 	for _, e := range readDir(root) {
 		if !e.IsDir() {
 			continue
@@ -54,20 +58,50 @@ func reclaimStaleMutantsLanes(repoRoot string) {
 			continue
 		}
 		if _, err := os.Stat(path); err == nil {
+			// An alternate carries the SAME lane marker as its lane's base
+			// (prepareMutantsWorktree writes j.RepoRoot either way), so "the
+			// lane still exists" cannot be what keeps an alternate the way
+			// it keeps the base: the base is reused on purpose, and an
+			// alternate earns no such reuse — the job that needed one
+			// already has its own base to fall back to next time. Once no
+			// live job still holds it, an alternate is exactly as
+			// reclaimable as if its lane were gone (issue #404); a job
+			// killed rather than exited cleanly is caught by the same
+			// liveness check, since a lane-gone hook never fires for it.
+			if tree != MutantsWorktreeDir(path) && !mutantsWorktreeHeldBy(liveJobs, tree) {
+				removeMutantsTree(repoRoot, tree)
+				continue
+			}
 			if !producerAlive {
 				_ = os.RemoveAll(filepath.Join(tree, "target"))
 			}
 			continue
 		}
-		// Unregister before deleting: the tree is a linked worktree, and a
-		// directory removed behind git's back leaves an entry that makes every
-		// later `worktree add` at that path fail.
-		_, _ = git(repoRoot, "worktree", "remove", "--force", tree)
-		_ = os.RemoveAll(tree)
-		// The Go job runs in a private clone beside the tree rather than in
-		// the linked worktree itself, so a lane leaves TWO full trees behind
-		// and both have to go.
-		_ = os.RemoveAll(goMutantsCloneDir(tree))
-		_ = os.Remove(tree + mutantsLaneMarkerName)
+		removeMutantsTree(repoRoot, tree)
 	}
+}
+
+// mutantsWorktreeHeldBy reports whether any job in jobs is still using tree.
+func mutantsWorktreeHeldBy(jobs []MutantsJob, tree string) bool {
+	for _, j := range jobs {
+		if j.Worktree == tree {
+			return true
+		}
+	}
+	return false
+}
+
+// removeMutantsTree drops one mutants worktree, its private Go clone (if
+// any) and its lane marker. Unregistering the worktree before deleting it
+// matters: it is a linked worktree, and a directory removed behind git's
+// back leaves an entry that makes every later `worktree add` at that path
+// fail.
+func removeMutantsTree(repoRoot, tree string) {
+	_, _ = git(repoRoot, "worktree", "remove", "--force", tree)
+	_ = os.RemoveAll(tree)
+	// The Go job runs in a private clone beside the tree rather than in
+	// the linked worktree itself, so a lane leaves TWO full trees behind
+	// and both have to go.
+	_ = os.RemoveAll(goMutantsCloneDir(tree))
+	_ = os.Remove(tree + mutantsLaneMarkerName)
 }

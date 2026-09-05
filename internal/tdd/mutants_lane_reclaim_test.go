@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // One mutants tree per lane costs one warm target dir per lane, and the run
@@ -115,6 +116,48 @@ func TestReclaimStaleMutantsLanes_KeepsALegacyTargetDirWhileARunIsAlive(t *testi
 
 	if _, err := os.Stat(legacy); err != nil {
 		t.Errorf("%q was removed under a live mutation run: %v", legacy, err)
+	}
+}
+
+// An alternate is born when a commit overlap makes the lane's own base
+// unsafe to reuse (chooseMutantsWorktree, mutants_job.go); it carries the
+// SAME lane marker as the base, so "the lane still exists" — the rule that
+// rightly keeps the base warm — must not also keep an alternate whose job
+// is long over: the base is the one tree the lane's next run reuses, and an
+// alternate earns no such reuse (issue #404).
+func TestReclaimStaleMutantsLanes_RemovesAnAlternateWhoseJobIsOverEvenThoughItsLaneStillExists(t *testing.T) {
+	root := makeGoRepo(t)
+	live := addWorktree(t, root, "live-lane")
+
+	alt := MutantsWorktreeDir(live) + "-deadbeef"
+	mustMkdir(t, alt)
+	writeMutantsLaneMarker(alt, live)
+
+	reclaimStaleMutantsLanes(root)
+
+	if _, err := os.Stat(alt); !os.IsNotExist(err) {
+		t.Errorf("%q survived (stat err = %v) — no live job holds it, and its lane's base is the tree that stays warm, not this one", alt, err)
+	}
+}
+
+// ...but not while a live job still names it as its own Worktree: that is
+// exactly the reservation issue #405 introduced chooseMutantsWorktree to
+// make, and liveness is what must decide here, not the hook that fires when
+// a job exits cleanly — the same check also protects an alternate whose job
+// was killed rather than exiting on its own.
+func TestReclaimStaleMutantsLanes_KeepsAnAlternateAJobStillHolds(t *testing.T) {
+	root := makeGoRepo(t)
+	live := addWorktree(t, root, "live-lane")
+
+	alt := MutantsWorktreeDir(live) + "-deadbeef"
+	mustMkdir(t, alt)
+	writeMutantsLaneMarker(alt, live)
+	saveMutantsJob(MutantsJob{Repo: commonGitDir(root), Worktree: alt, PID: os.Getpid(), Started: time.Now()})
+
+	reclaimStaleMutantsLanes(root)
+
+	if _, err := os.Stat(alt); err != nil {
+		t.Errorf("%q was removed while a live job still holds it: %v", alt, err)
 	}
 }
 
