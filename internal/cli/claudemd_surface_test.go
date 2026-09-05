@@ -125,12 +125,17 @@ func TestClaudeMD_CommandSurfaceNamesEveryTopLevelVerb(t *testing.T) {
 
 // assertNeverUnknown fails if the dispatcher reported the verb as
 // unrecognized — the one thing TestSurface_TablesMatchDispatch exists to
-// catch: a table entry the real dispatch has no case for.
-func assertNeverUnknown(t *testing.T, verb string, out, errb string) {
+// catch: a table entry the real dispatch has no case for. A `--help` run
+// exits 0 (help printed) or 2 (usage refusal); any other code means the
+// verb did real work or failed instead of dispatching to a help path.
+func assertNeverUnknown(t *testing.T, verb string, code int, out, errb string) {
 	t.Helper()
 	combined := out + errb
 	if strings.Contains(combined, "unknown command") || strings.Contains(combined, "unknown subcommand") {
 		t.Errorf("dispatch reports %q as unknown\nstdout: %s\nstderr: %s", verb, out, errb)
+	}
+	if code != 0 && code != 2 {
+		t.Errorf("%q --help exited %d, want 0 or 2\nstdout: %s\nstderr: %s", verb, code, out, errb)
 	}
 }
 
@@ -154,8 +159,8 @@ func TestSurface_TablesMatchDispatch(t *testing.T) {
 
 	for _, v := range TopLevelVerbs() {
 		var out, errb bytes.Buffer
-		Run([]string{v, "--help"}, strings.NewReader(""), &out, &errb)
-		assertNeverUnknown(t, v, out.String(), errb.String())
+		code := Run([]string{v, "--help"}, strings.NewReader(""), &out, &errb)
+		assertNeverUnknown(t, v, code, out.String(), errb.String())
 	}
 
 	for _, v := range GateVerbs() {
@@ -163,13 +168,13 @@ func TestSurface_TablesMatchDispatch(t *testing.T) {
 			continue
 		}
 		var out, errb bytes.Buffer
-		runGate([]string{v, "--help"}, strings.NewReader(""), &out, &errb)
-		assertNeverUnknown(t, v, out.String(), errb.String())
+		code := runGate([]string{v, "--help"}, strings.NewReader(""), &out, &errb)
+		assertNeverUnknown(t, v, code, out.String(), errb.String())
 	}
 
 	for _, v := range WorkspaceVerbs() {
 		var out, errb bytes.Buffer
-		runWorkspace([]string{v, "--help"}, &out, &errb)
-		assertNeverUnknown(t, v, out.String(), errb.String())
+		code := runWorkspace([]string{v, "--help"}, &out, &errb)
+		assertNeverUnknown(t, v, code, out.String(), errb.String())
 	}
 }

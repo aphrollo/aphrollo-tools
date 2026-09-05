@@ -376,7 +376,7 @@ func runWorkspaceClaim(args []string, stdout, stderr io.Writer) int {
 }
 
 func runWorkspaceList(args []string, stdout, stderr io.Writer) int {
-	if len(args) != 1 {
+	if len(args) != 1 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		fmt.Fprintln(stderr, "aphrollo: usage: workspace list <repo>")
 		return 2
 	}
