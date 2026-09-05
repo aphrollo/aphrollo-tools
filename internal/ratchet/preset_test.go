@@ -279,6 +279,32 @@ func TestGoTestRemovedPattern_IgnoresBenchmarksAndHelpers(t *testing.T) {
 	}
 }
 
+// TestPresets_CommonTestRemovedDescriptionHasNoParamTokensAfterRender proves
+// the common preset's description reads as prose once rendered, not a
+// half-filled template: RenderPresetText substitutes every `{{name}}` slot
+// across the WHOLE text, so a `{{pattern}}` token left in the description
+// would echo back whatever regex the caller supplied, mid-sentence.
+func TestPresets_CommonTestRemovedDescriptionHasNoParamTokensAfterRender(t *testing.T) {
+	raw, err := LoadPresetText("common", "test_removed")
+	if err != nil {
+		t.Fatalf("LoadPresetText(common, test_removed): %v", err)
+	}
+	rendered, missing := RenderPresetText(raw, sampleParams)
+	if len(missing) != 0 {
+		t.Fatalf("RenderPresetText missing = %v, want none", missing)
+	}
+	law, err := ParseLaw(rendered, "test_removed")
+	if err != nil {
+		t.Fatalf("ParseLaw: %v\n%s", err, rendered)
+	}
+	if strings.Contains(law.Description, "{{") {
+		t.Errorf("description = %q, want no leftover {{ template token", law.Description)
+	}
+	if strings.Contains(law.Description, sampleParams["pattern"]) {
+		t.Errorf("description = %q, must not echo the substituted pattern %q", law.Description, sampleParams["pattern"])
+	}
+}
+
 const extendingLaw = `
 name = "nan-guard-local"
 description = "should be ignored — a preset supplies the real one"

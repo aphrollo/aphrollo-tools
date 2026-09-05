@@ -1539,11 +1539,7 @@ slots and adding `extends = "preset:<group>/<name>"` plus a `[params]` table
 recording what it used. A preset with an unfilled slot is `[skip]`ped, named,
 with what `--param` it still needs — nothing half-rendered is ever written —
 and a name already under `laws/` is `[skip]`ped too: `init` is idempotent,
-safe to re-run over a partly-adopted set. `common/test_removed` is the
-`symbol-removed` example: `go/test_removed` and `rust/test_removed` are its
-concrete, already-filled-in forms (a Go `Test`-prefixed function, a Rust
-`#[test]`/`#[tokio::test]` function), the same relationship `go/module_size`
-already has to `common/module_size`.
+safe to re-run over a partly-adopted set.
 
 The written file is otherwise an ORDINARY law: `extends` and `[params]`
 change nothing about how it is scanned. What they buy is drift detection —
@@ -1574,6 +1570,13 @@ rule that changed drops the cache instead of inheriting verdicts reached under
 the old one. A repo with no laws dir under `.ratchet` says `no laws` and exits 0.
 
 <!-- ratchet-spec:end -->
+
+#### Preset catalogue example: `test_removed`
+
+`common/test_removed` is the `symbol-removed` kind's template: `go/test_removed`
+and `rust/test_removed` are its concrete, already-filled-in forms (a Go
+`Test`-prefixed function, a Rust `#[test]`/`#[tokio::test]` function), the same
+relationship `go/module_size` already has to `common/module_size`.
 
 ### Pipeline health (`aphrollo gate stats`)
 

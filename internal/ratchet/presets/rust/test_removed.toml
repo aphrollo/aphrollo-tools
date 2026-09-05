@@ -8,4 +8,4 @@ exclude = ["**/target/**"]
 
 [matcher]
 kind    = "symbol-removed"
-pattern = "(?s)#\\[(?:tokio::)?test\\]\\s*(?:async\\s+)?fn\\s+([A-Za-z0-9_]+)"
+pattern = "#\\[(?:tokio::)?test\\]\\s*(?:async\\s+)?fn\\s+([A-Za-z0-9_]+)"
