@@ -112,6 +112,34 @@ func TestGoMutantsReceipt_AcceptsOnlyTheSurvivorsWithAReason(t *testing.T) {
 	}
 }
 
+// TestGoMutantsReceipt_AnAcceptListNamingUnmeasuredEntriesDoesNotInflateAccepted
+// pins the contract issue #339 depends on: Accepted counts mutants THIS RUN
+// measured and accepted, never the accept-list's own size. An accept-list
+// can carry entries for mutants long since fixed or renamed — normal debt —
+// and a run that measures nothing must report zero accepted regardless of
+// how many entries the list carries.
+func TestGoMutantsReceipt_AnAcceptListNamingUnmeasuredEntriesDoesNotInflateAccepted(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "aphrollo.toml", strings.Join([]string{
+		"[aphrollo]",
+		`mutation-accept = [`,
+		`  "calc.go:1 CONDITIONALS_BOUNDARY # accepted on an earlier run",`,
+		`  "calc.go:2 ARITHMETIC_BASE # accepted on an earlier run",`,
+		`  "calc.go:3 CONDITIONALS_NEGATION # accepted on an earlier run",`,
+		"]",
+	}, "\n"))
+
+	// This run measured nothing: no survivors, no timeouts, nothing at all.
+	r := goMutantsReceipt(goMutantsRun{Worktree: root}, nil, TreeState{})
+
+	if r.MutantsTotal != 0 {
+		t.Fatalf("MutantsTotal = %d, want 0 — nothing was measured", r.MutantsTotal)
+	}
+	if r.Accepted != 0 {
+		t.Fatalf("Accepted = %d, want 0 — the accept list's own size must never stand in for what this run measured and accepted", r.Accepted)
+	}
+}
+
 // A `]` INSIDE a reason's own quoted text (describing bracket-indexing code,
 // say) is not the array's closing bracket. tomlStringsIn used to close the
 // whole array on the first line containing any `]`, quoted or not, which
