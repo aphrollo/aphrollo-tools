@@ -190,8 +190,16 @@ Companion read/remove subcommands:
 ```sh
 aphrollo workspace list aphrollo-web                             # bare name, from anywhere under the spaces tree
 aphrollo workspace list ~/spaces/aphrollo/aphrollo-web           # or an explicit path
+# …/.worktrees/aphrollo-web/feat-kanban  feat/kanban  2d  0 dirty  PR OPEN
+# …/.worktrees/aphrollo-web/old-spike    detached     9d  0 dirty  PR none
+
 aphrollo workspace remove ~/spaces/aphrollo/aphrollo-web feat/kanban
+aphrollo workspace remove ~/spaces/aphrollo/aphrollo-web feat/kanban --keep-branch  # worktree only, branch stays
 ```
+
+`list` renders one line per worktree: path, branch (`detached` for none),
+whole days since its last commit, the dirty-file count, and the branch's PR
+state (`none` when there isn't one — the same `gh pr view` seam `prune` uses).
 
 Exit codes: `0` ok, `1` runtime error, `2` usage error.
 
@@ -337,17 +345,21 @@ aphrollo workspace submit -m "Kanban drag-and-drop. Closes #200."
 
 ### Verify — the typecheck/lint the commit gate misses
 
-The TDD pre-commit gate runs the mechanical test suite (plus the anti-cheat and
-fail-first checks), but **not** typecheck or lint. So a type regression
-(`svelte-check`) or a lint failure sails past `commit`/`ship` and only turns up in
-CI. `verify` closes that gap: it resolves the **affected app** and runs that app's
-`{test, typecheck, lint}` trio. It is verification only — it never commits,
-pushes, or mutates source. Like the other `workspace` verbs it addresses the
-cwd's worktree (or `<repo> <branch>`) and **executes by default** (`--dry` previews).
+`workspace verify` is a **legacy name**: it prints `workspace verify is now
+aphrollo check` as its first line, then runs the same check it always did — the
+rename is in the name only, not (yet) the behavior. The TDD pre-commit gate runs
+the mechanical test suite (plus the anti-cheat and fail-first checks), but
+**not** typecheck or lint. So a type regression (`svelte-check`) or a lint
+failure sails past `commit`/`ship` and only turns up in CI. Verify closes that
+gap: it resolves the **affected app** and runs that app's `{test, typecheck,
+lint}` trio. It is verification only — it never commits, pushes, or mutates
+source. Like the other `workspace` verbs it addresses the cwd's worktree (or
+`<repo> <branch>`) and **executes by default** (`--dry` previews).
 
 ```sh
 # from inside aphrollo-web/apps/rlndx (or with rlndx files changed on the branch)
 aphrollo workspace verify --dry
+# workspace verify is now aphrollo check
 # workspace verify: aphrollo-web @ feat/kanban  (worktree …/aphrollo-web)
 #   app rlndx (apps/rlndx)
 #     1. test      npx vitest run
@@ -384,18 +396,18 @@ aphrollo workspace diff --stat           # diffstat only
 aphrollo workspace diff aphrollo-web feat/kanban   # target a worktree from outside
 ```
 
-### Catch a branch up to the default branch (update)
+### Catch a branch up to the default branch (update / rebase)
 
-`update` rebases the cwd worktree onto the fresh tip of `origin/<default>` and,
-on a clean rebase, force-pushes (with lease) so the open PR shows the rebased
-branch:
+`update` — alias `rebase`, same verb — rebases the cwd worktree onto the fresh
+tip of `origin/<default>` and, on a clean rebase, force-pushes (with lease) so
+the open PR shows the rebased branch:
 
 ```sh
 aphrollo workspace update                # fetch → rebase → push --force-with-lease
 # rebased feat/kanban onto origin/main
 # pushed feat/kanban -> origin --force-with-lease (3 commit(s) ahead of origin/main)
 
-aphrollo workspace update --dry          # "behind origin/main by N; would rebase"
+aphrollo workspace rebase --dry          # same verb: "behind origin/main by N; would rebase"
 ```
 
 - It runs `git fetch origin`, then rebases HEAD onto `origin/<default>` (resolved,
@@ -411,17 +423,18 @@ aphrollo workspace update --dry          # "behind origin/main by N; would rebas
 
 ### Catch the base clone up after a merge (sync)
 
-`sync <repo>` brings a base clone's **local default branch** up to the remote
+`sync [repo]` brings a base clone's **local default branch** up to the remote
 tip. `create`/`prepare` cut fresh worktrees from `origin/<default>` (post-fetch),
 but the canonical clone's own checked-out default branch never refreshes — it
 drifts further behind on every merge. `sync` is the non-destructive "catch the
-clone up to origin" primitive (the post-merge cleanup path calls it):
+clone up to origin" primitive (the post-merge cleanup path calls it). With no
+`<repo>` it resolves the caller's cwd repo — the same rule `commit` uses:
 
 ```sh
 aphrollo workspace sync aphrollo-web      # fetch → fast-forward local <default>
 # fast-forwarded main to origin/main (3 commit(s))
 
-aphrollo workspace sync aphrollo-web      # idempotent: re-running is a no-op
+aphrollo workspace sync                   # cwd-resolved, same effect from inside the clone
 # main already current with origin/main [skip]
 
 aphrollo workspace sync aphrollo-web --dry   # "would fast-forward main to origin/main (N behind)"
@@ -486,23 +499,36 @@ aphrollo workspace prune                 # removes the merged-clean worktrees
 aphrollo workspace prune --force         # also remove a dirty MERGED worktree
 ```
 
-`prune <repo> <branch>` is the **per-ticket form**: it removes exactly that one
-ticket's worktree (per-repo) instead of sweeping. It is **idempotent** — a
-re-run on an already-gone worktree is a no-op success (`already gone`), not an
-error — so a post-merge cleanup can re-run safely on redelivery. Like the sweep
-it leaves the **local branch** in place (deleting the branch is `remove`'s job)
-and folds in the stale admin-record prune:
+`prune <repo> <branch>` is the **per-ticket form** — exactly `remove <repo>
+<branch> --keep-branch`, same underlying code, so the two can never drift
+apart: it removes that one ticket's worktree and leaves the local branch in
+place (deleting the branch is plain `remove`'s job). It is **idempotent** — a
+re-run on an already-gone worktree is a no-op success (`[skip] … already
+gone`), not an error — so a post-merge cleanup can re-run safely on
+redelivery, and it folds in the stale admin-record prune:
 
 ```sh
-aphrollo workspace prune aphrollo-web feat/kanban --dry   # "would prune: …"
-aphrollo workspace prune aphrollo-web feat/kanban         # "pruned: …"
-aphrollo workspace prune aphrollo-web feat/kanban         # "already gone: …" (re-run, still exit 0)
+aphrollo workspace prune aphrollo-web feat/kanban --dry   # "would run: git … worktree remove …"
+aphrollo workspace prune aphrollo-web feat/kanban         # "[removed] worktree …"
+aphrollo workspace prune aphrollo-web feat/kanban         # "[skip] worktree … — already gone" (re-run, still exit 0)
 ```
 
 So `prune` with **no branch** performs the full merged-worktree sweep
 (auto-detecting which worktrees are merged); `prune <repo> <branch>` targets a
 single ticket's worktree. To remove a worktree **and** delete its local branch,
-use `remove <repo> <branch>`.
+use `remove <repo> <branch>` (drop `--keep-branch`).
+
+**`--stale <dur>`** is a separate sweep, for worktrees the merged-PR rule can
+never see: a **detached** (no branch checked out) worktree with no PR for its
+directory's slug. A candidate must be ALL of: detached, no PR, no `<tree>.lane`
+marker beside it (an operator's explicit "still using this" flag), clean, its
+last commit older than `<dur>`, AND every file's mtime older than `<dur>`.
+`<dur>` accepts a plain Go duration (`72h`) or a trailing-`d` day count (`3d`):
+
+```sh
+aphrollo workspace prune --stale 3d --dry   # lists "would prune: … (stale)" + "skip: … (reason)"
+aphrollo workspace prune --stale 3d         # removes the idle detached trees
+```
 
 ### Dev-tier control plane (`aphrollo dev`)
 

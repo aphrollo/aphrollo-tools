@@ -83,3 +83,43 @@ func TestRemove_RefusesCwd(t *testing.T) {
 		t.Fatal("RemovePlan should refuse to remove the worktree the caller stands in")
 	}
 }
+
+// TestRemove_KeepBranchLeavesTheBranch: with KeepBranch set, the worktree still
+// goes but the local branch survives; without it (the default) the branch is
+// deleted, as TestRemove_DeletesWorktreeAndBranch already pins.
+func TestRemove_KeepBranchLeavesTheBranch(t *testing.T) {
+	repo, wt, branch := preparedRepo(t)
+
+	cmd, err := RemovePlan(repo, branch, "")
+	if err != nil {
+		t.Fatalf("RemovePlan: %v", err)
+	}
+	cmd.KeepBranch = true
+	var out, errb bytes.Buffer
+	if err := cmd.Run(&out, &errb); err != nil {
+		t.Fatalf("Run: %v\n%s", err, errb.String())
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Errorf("worktree should be gone, stat err = %v", err)
+	}
+	if !localBranchListed(t, repo, branch) {
+		t.Errorf("--keep-branch should leave local branch %s in place", branch)
+	}
+}
+
+// TestRemove_DisplayReflectsKeepBranch: the dry-run preview must not claim a
+// branch delete it will not perform — Display() is read AFTER KeepBranch is
+// set, so it has to compute the line then, not bake a stale one in at plan
+// time.
+func TestRemove_DisplayReflectsKeepBranch(t *testing.T) {
+	repo, _, branch := preparedRepo(t)
+
+	cmd, err := RemovePlan(repo, branch, "")
+	if err != nil {
+		t.Fatalf("RemovePlan: %v", err)
+	}
+	cmd.KeepBranch = true
+	if strings.Contains(cmd.Display(), "branch -D") {
+		t.Errorf("Display() with KeepBranch should not mention deleting the branch: %q", cmd.Display())
+	}
+}

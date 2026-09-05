@@ -116,8 +116,13 @@ func reportBase(p *Plan, stdout io.Writer) {
 	}
 }
 
-// List returns `git worktree list` output for the repo (resolved to its
-// toplevel) — a read-only view of every worktree, prepared or not.
+// List renders one line per worktree in repo (resolved to its toplevel,
+// including the main clone): path, branch ("detached" for none), whole days
+// since the last commit, the dirty-file count, and the branch's PR state
+// ("none" when there is no PR) — a read-only survey, so a coder can see at a
+// glance which worktrees are live, idle, or already merged, without running a
+// per-worktree operation. PR state comes from the same seam the prune sweeps
+// use.
 func List(repo string) (string, error) {
 	if repo == "" {
 		return "", fmt.Errorf("repo path required")
@@ -126,11 +131,27 @@ func List(repo string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err := exec.Command("git", "-C", top, "worktree", "list").Output()
+	out, err := exec.Command("git", "-C", top, "worktree", "list", "--porcelain").Output()
 	if err != nil {
 		return "", fmt.Errorf("git worktree list: %w", err)
 	}
-	return string(out), nil
+	var b strings.Builder
+	for _, e := range parseWorktreeList(string(out)) {
+		branch := e.Branch
+		if branch == "HEAD" {
+			branch = "detached"
+		}
+		days := 0
+		if t, ok := lastCommitTime(e.Path); ok {
+			days = ageDays(now().Sub(t))
+		}
+		state, err := ghPRState(e.Path, prBranchKey(e))
+		if err != nil || state == "" {
+			state = "none"
+		}
+		fmt.Fprintf(&b, "%s  %s  %dd  %d dirty  PR %s\n", e.Path, branch, days, dirtyCount(e.Path), state)
+	}
+	return b.String(), nil
 }
 
 // Removal tears down a ticket's worktree AND its local branch, kept dry-run
@@ -138,10 +159,10 @@ func List(repo string) (string, error) {
 // idempotent — an already-gone worktree or branch is a [skip], not a failure —
 // so a cleanup path can re-run on redelivery without wedging.
 type Removal struct {
-	Display  string
-	top      string // main clone toplevel the worktree + branch belong to
-	worktree string // the linked worktree dir to remove
-	branch   string // the local branch to delete (original name, not the slug)
+	KeepBranch bool   // leave the local branch in place (default: delete it)
+	top        string // main clone toplevel the worktree + branch belong to
+	worktree   string // the linked worktree dir to remove
+	branch     string // the local branch to delete (original name, not the slug)
 }
 
 // RemovePlan resolves the worktree path + local branch for repo+branch and
@@ -169,11 +190,21 @@ func RemovePlan(repo, branch, into string) (*Removal, error) {
 		return nil, fmt.Errorf("refusing to remove the worktree you're standing in — cd out first:\n  cd %s && aphrollo workspace remove %s", top, branch)
 	}
 	return &Removal{
-		Display:  fmt.Sprintf("git -C %s worktree remove %s && git -C %s branch -D %s", top, wt, top, branch),
 		top:      top,
 		worktree: wt,
 		branch:   branch,
 	}, nil
+}
+
+// Display renders the dry-run preview command line. Read it AFTER setting
+// KeepBranch — it reflects that flag rather than baking a stale line in at
+// plan time, so a --dry preview never claims a branch delete Run will not
+// perform.
+func (r *Removal) Display() string {
+	if r.KeepBranch {
+		return fmt.Sprintf("git -C %s worktree remove %s", r.top, r.worktree)
+	}
+	return fmt.Sprintf("git -C %s worktree remove %s && git -C %s branch -D %s", r.top, r.worktree, r.top, r.branch)
 }
 
 // Run removes the worktree and deletes the local branch, streaming a per-step
@@ -188,6 +219,10 @@ func (r *Removal) Run(stdout, stderr io.Writer) error {
 	// Drop any stale admin record left behind (the dir is gone but git may still
 	// list the worktree) before deleting the branch it pointed at.
 	_ = exec.Command("git", "-C", r.top, "worktree", "prune").Run()
+	if r.KeepBranch {
+		fmt.Fprintf(stdout, "[kept] branch %s\n", r.branch)
+		return nil
+	}
 	return r.deleteBranch(stdout)
 }
 

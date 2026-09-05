@@ -43,39 +43,42 @@ Worktree lifecycle:
                             --no-migrate to skip.) (--dry).
   unclaim [repo] [branch]   Repoint the dev tier back at the main clone + restart.
                             Inverse of claim (--dry).
-  list <repo>               List the repo's git worktrees (read-only).
+  list <repo>               List the repo's git worktrees: path, branch (or
+                            "detached"), age since the last commit, dirty-file
+                            count, and PR state ("none" when there isn't one)
+                            (read-only).
   remove <repo> <branch>    Remove a prepared worktree AND delete its local
-                            branch (--dry). Idempotent: an already-gone worktree
-                            or branch is a [skip], so re-running is a no-op.
+                            branch (--dry; --keep-branch to leave the branch).
+                            Idempotent: an already-gone worktree or branch is a
+                            [skip], so re-running is a no-op.
   prune [repo]              Sweep the repo's worktrees and remove the merged ones:
                             a worktree goes only if its PR is MERGED, the tree is
                             CLEAN, and it is not the cwd. Others are skipped with a
                             reason (open PR / no PR / dirty / current). Folds in the
                             stale admin-record prune (--dry lists; --force removes a
-                            dirty merged tree too).
-  prune <repo> <branch>    Per-ticket form: remove exactly that one ticket's
-                            worktree. Idempotent — re-running on an already-gone
-                            worktree is a no-op success ("already gone"), so a
-                            post-merge cleanup can re-run safely. Leaves the local
-                            branch in place (that is the remove verb's job).
-                            (--dry; --force).
+                            dirty merged tree too; --stale <dur> instead sweeps
+                            detached, PR-less, idle worktrees past that age).
+  prune <repo> <branch>    Per-ticket form: same as remove <repo> <branch>
+                            --keep-branch — removes exactly that one ticket's
+                            worktree, idempotently, and leaves the local branch
+                            in place (--dry).
 
 Operator / outside-use verbs (pass [repo] [branch] to target a worktree):
   update                    Rebase the cwd worktree onto origin/<default> and, on a
                             clean rebase, force-push (with lease) to refresh the PR.
                             Conflict: left in progress, non-zero, with resolve hints.
-                            cwd-only (--dry reports the behind-count).
-  sync <repo>               Fetch + fast-forward the base clone's LOCAL default
+                            cwd-only (--dry reports the behind-count). Alias: rebase.
+  sync [repo]               Fetch + fast-forward the base clone's LOCAL default
                             branch to origin/<default> — the non-destructive
-                            "catch the clone up after a merge" primitive. Strict
-                            FF only: a dirty or diverged clone is left untouched,
-                            exit 0 with the reason. Idempotent (--dry previews).
+                            "catch the clone up after a merge" primitive. No <repo>
+                            resolves the cwd's repo (the same rule commit uses).
+                            Strict FF only: a dirty or diverged clone is left
+                            untouched, exit 0 with the reason. Idempotent (--dry
+                            previews).
   diff                      Print the branch's PR diff vs origin/<default>
                             (read-only; --stat for the diffstat).
-  verify                    Run the affected app's {test, typecheck, lint} trio —
-                            the typecheck/lint the commit gate does NOT cover
-                            (--dry lists the commands; default runs them, stops
-                            at the first failure).
+  verify                    Legacy name — prints "workspace verify is now aphrollo
+                            check" and runs it.
   status                    One terse line: PR state (merged/open/draft),
                             mergeability gate, and a pass/total check tally
                             (read-only).
@@ -127,7 +130,7 @@ func runWorkspace(args []string, stdout, stderr io.Writer) int {
 		return runWorkspaceStatus(args[1:], stdout, stderr)
 	case "diff":
 		return runWorkspaceDiff(args[1:], stdout, stderr)
-	case "update":
+	case "update", "rebase":
 		return runWorkspaceUpdate(args[1:], stdout, stderr)
 	case "sync":
 		return runWorkspaceSync(args[1:], stdout, stderr)
@@ -210,8 +213,9 @@ func runWorkspaceUpdate(args []string, stdout, stderr io.Writer) int {
 
 // runWorkspaceSync fast-forwards a base clone's LOCAL default branch to the
 // remote tip after a merge — the non-destructive "catch the clone up to origin"
-// primitive. Takes an explicit <repo>. --dry previews the fetch + fast-forward
-// without mutating the local branch.
+// primitive. No <repo> resolves the caller's cwd repo (the same rule commit
+// uses). --dry previews the fetch + fast-forward without mutating the local
+// branch.
 func runWorkspaceSync(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -220,18 +224,43 @@ func runWorkspaceSync(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return 2
 	}
-	if len(pos) != 1 {
-		fmt.Fprintln(stderr, "aphrollo: usage: workspace sync <repo>")
+	var repo string
+	switch len(pos) {
+	case 0:
+	case 1:
+		repo = pos[0]
+	default:
+		fmt.Fprintln(stderr, "aphrollo: usage: workspace sync [repo]")
 		return 2
 	}
-	if err := workspace.Sync(pos[0], *dry, stdout, stderr); err != nil {
+	if err := workspace.Sync(repo, *dry, stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
+// runCheckFn is the seam `workspace verify` calls through to run the actual
+// {test, typecheck, lint} trio. A parallel lane is adding a `runCheck` entry
+// point elsewhere in this package; until it merges, this default reproduces
+// verify's pre-rename behavior so there is exactly ONE landing spot to
+// repoint once runCheck exists.
+var runCheckFn = func(args []string, stdout, stderr io.Writer) int {
+	return legacyWorkspaceVerify(args, stdout, stderr)
+}
+
+// runWorkspaceVerify is `workspace verify`'s new body: it is a renamed verb,
+// not a distinct command any more, so it says so and calls through to the
+// same check the name change points at.
 func runWorkspaceVerify(args []string, stdout, stderr io.Writer) int {
+	fmt.Fprintln(stdout, "workspace verify is now aphrollo check")
+	return runCheckFn(args, stdout, stderr)
+}
+
+// legacyWorkspaceVerify is verify's pre-rename implementation of the
+// {test, typecheck, lint} trio — runCheckFn's default body until runCheck
+// lands and repoints the seam.
+func legacyWorkspaceVerify(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dry := fs.Bool("dry", false, "print the plan and stop (default: execute)")

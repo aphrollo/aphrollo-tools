@@ -1,4 +1,4 @@
-internal/cli/cli_test.go | 991
+internal/cli/cli_test.go | 914
 internal/ratchet/check.go | 726
 internal/ratchet/law.go | 672
 internal/tdd/autoescape_test.go | 729
