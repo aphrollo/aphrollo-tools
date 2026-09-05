@@ -39,7 +39,7 @@ func TestPlanMutants_CarriesAnUnchangedFilesOutcomes(t *testing.T) {
 	plan := PlanMutants(
 		[]MutantOutcome{want("crates/a/src/lib.rs", 12, "a")},
 		state(map[string]string{"crates/a/src/lib.rs": "blobA"}, map[string]string{"a": "tsA"}),
-		prev)
+		prev, "")
 
 	if len(plan.Run) != 0 {
 		t.Fatalf("Run = %v, want nothing to re-run for an untouched crate", plan.Run)
@@ -61,7 +61,7 @@ func TestPlanMutants_RerunsAPackageWhoseTestSetHashChanged(t *testing.T) {
 		[]MutantOutcome{want("crates/a/src/lib.rs", 12, "a"), want("crates/b/src/lib.rs", 3, "b")},
 		state(map[string]string{"crates/a/src/lib.rs": "blobA", "crates/b/src/lib.rs": "blobB"},
 			map[string]string{"a": "tsA-NEW", "b": "tsB"}),
-		prev)
+		prev, "")
 
 	if len(plan.Run) != 1 || plan.Run[0].Package != "a" {
 		t.Fatalf("Run = %+v, want only crate a's mutants re-run", plan.Run)
@@ -80,7 +80,7 @@ func TestPlanMutants_RunsAMutantWhoseFileBlobChanged(t *testing.T) {
 	plan := PlanMutants(
 		[]MutantOutcome{want("crates/a/src/lib.rs", 12, "a")},
 		state(map[string]string{"crates/a/src/lib.rs": "blobA-NEW"}, map[string]string{"a": "tsA"}),
-		prev)
+		prev, "")
 
 	if len(plan.Run) != 1 || len(plan.Carry) != 0 {
 		t.Fatalf("Run = %+v, Carry = %+v, want the changed file's mutant re-run", plan.Run, plan.Carry)
@@ -96,7 +96,7 @@ func TestPlanMutants_RunsAMutantThePreviousRunNeverMeasured(t *testing.T) {
 	plan := PlanMutants(
 		[]MutantOutcome{want("crates/a/src/lib.rs", 40, "a")},
 		state(map[string]string{"crates/a/src/lib.rs": "blobA"}, map[string]string{"a": "tsA"}),
-		prev)
+		prev, "")
 
 	if len(plan.Run) != 1 || plan.Run[0].Line != 40 {
 		t.Fatalf("Run = %+v, want the unmeasured mutant to run", plan.Run)
@@ -113,7 +113,7 @@ func TestPlanMutants_RunsEverythingWhenThePreviousReceiptRecordsNoBlobs(t *testi
 	plan := PlanMutants(
 		[]MutantOutcome{want("crates/a/src/lib.rs", 12, "a")},
 		state(map[string]string{"crates/a/src/lib.rs": "blobA"}, map[string]string{"a": "tsA"}),
-		prev)
+		prev, "")
 
 	if len(plan.Run) != 1 || len(plan.Carry) != 0 {
 		t.Fatalf("Run = %+v, Carry = %+v, want an unmeasured receipt to carry nothing", plan.Run, plan.Carry)
@@ -124,7 +124,7 @@ func TestPlanMutants_RunsEverythingWhenThePreviousReceiptRecordsNoBlobs(t *testi
 // without dereferencing anything.
 func TestPlanMutants_RunsEverythingWithNoPreviousReceipt(t *testing.T) {
 	plan := PlanMutants([]MutantOutcome{want("crates/a/src/lib.rs", 12, "a")},
-		state(map[string]string{"crates/a/src/lib.rs": "blobA"}, map[string]string{"a": "tsA"}), nil)
+		state(map[string]string{"crates/a/src/lib.rs": "blobA"}, map[string]string{"a": "tsA"}), nil, "")
 	if len(plan.Run) != 1 || len(plan.Carry) != 0 {
 		t.Fatalf("Run = %+v, Carry = %+v, want a first run to measure everything", plan.Run, plan.Carry)
 	}
@@ -143,7 +143,7 @@ func TestPlanMutants_StampsTheMeasurementItJudgedAgainst(t *testing.T) {
 		[]MutantOutcome{want("crates/a/src/lib.rs", 12, "a"), want("crates/b/src/lib.rs", 3, "b")},
 		state(map[string]string{"crates/a/src/lib.rs": "blobA", "crates/b/src/lib.rs": "blobB"},
 			map[string]string{"a": "tsA", "b": "tsB"}),
-		prev)
+		prev, "")
 
 	for _, m := range append(append([]MutantOutcome{}, plan.Run...), plan.Carry...) {
 		if m.Blob != map[string]string{"a": "blobA", "b": "blobB"}[m.Package] {
@@ -152,5 +152,61 @@ func TestPlanMutants_StampsTheMeasurementItJudgedAgainst(t *testing.T) {
 		if m.Fence == "" {
 			t.Fatalf("%s carries no test-set hash", m.Package)
 		}
+	}
+}
+
+// A blob and a fence describe the SOURCE, never the tool that measured it: an
+// upgraded producer changes neither, so before this a cached outcome carried
+// forward under a tool version that never actually re-confirmed it.
+// carriesOver now reads a version mismatch the same as a blob or fence one —
+// the SAME rule measuredUnchanged (mutants_treestate.go) judges a file's
+// re-measure-or-skip decision by, so the two can never disagree (issue #298
+// follow-up: that disagreement is what let one mutant land in a receipt
+// twice).
+func TestPlanMutants_DoesNotCarryAMutantMeasuredUnderADifferentProducerVersion(t *testing.T) {
+	prev := cachedOutcomes([]MutantOutcome{
+		{File: "crates/a/src/lib.rs", Line: 12, Mutation: "replace + with -", Package: "a",
+			Blob: "blobA", Fence: "tsA", Status: "caught", ProducerVersion: "cargo-mutants 27.0.0"},
+	})
+	plan := PlanMutants(
+		[]MutantOutcome{want("crates/a/src/lib.rs", 12, "a")},
+		state(map[string]string{"crates/a/src/lib.rs": "blobA"}, map[string]string{"a": "tsA"}),
+		prev, "cargo-mutants 27.1.0")
+
+	if len(plan.Run) != 1 || len(plan.Carry) != 0 {
+		t.Fatalf("Run = %+v, Carry = %+v, want the mutant re-run under the new producer version, not carried under the old one",
+			plan.Run, plan.Carry)
+	}
+
+	// The SAME version still carries — this is not "always re-measure",
+	// only a version change forces it.
+	plan = PlanMutants(
+		[]MutantOutcome{want("crates/a/src/lib.rs", 12, "a")},
+		state(map[string]string{"crates/a/src/lib.rs": "blobA"}, map[string]string{"a": "tsA"}),
+		prev, "cargo-mutants 27.0.0")
+	if len(plan.Run) != 0 || len(plan.Carry) != 1 {
+		t.Fatalf("Run = %+v, Carry = %+v, want the mutant carried when the producer version has not changed",
+			plan.Run, plan.Carry)
+	}
+}
+
+// A signed receipt that could contain the same mutant twice is worth making
+// structurally impossible, even once the carry and the re-measure decisions
+// agree: dedupByMutantKey is the backstop mutants_ci.go applies at the
+// receipt append, the same guard adoptCarriedOutcomes already applies on the
+// job path.
+func TestDedupByMutantKey_DropsAnEntryFromExtraAlreadyPresentInPrimary(t *testing.T) {
+	primary := []MutantOutcome{
+		{File: "a.rs", Line: 1, Mutation: "m1", Status: "caught"},
+	}
+	extra := []MutantOutcome{
+		{File: "a.rs", Line: 1, Mutation: "m1", Status: "missed"}, // same key, stale duplicate
+		{File: "b.rs", Line: 2, Mutation: "m2", Status: "caught"}, // distinct, kept
+	}
+
+	got := dedupByMutantKey(primary, extra)
+
+	if len(got) != 1 || got[0].File != "b.rs" {
+		t.Fatalf("dedupByMutantKey = %+v, want only the entry extra does not share a key with primary", got)
 	}
 }

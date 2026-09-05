@@ -1,10 +1,40 @@
 package tdd
 
 import (
+	"bytes"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+// captureStdout redirects os.Stdout for the duration of fn and returns
+// whatever was written to it — RunGoMutantsJob logs to os.Stdout directly
+// rather than through an io.Writer parameter, the same way captureStderr's
+// subject does.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = orig }()
+
+	fn()
+
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatal(err)
+	}
+	return buf.String()
+}
 
 // linkedMutantsJob is the shape the local Go job was in when it did the
 // damage: a lane commit, and a mutation worktree LINKED to that repository —
@@ -192,5 +222,82 @@ func TestRunGoMutantsJob_RunsGremlinsOutsideTheLinkedWorktree(t *testing.T) {
 	}
 	if !standalone(t, ranIn) {
 		t.Errorf("gremlins ran in %s, which still shares a git common dir", ranIn)
+	}
+}
+
+// The same diagnostic the Rust runner prints, on the Go path: a run that
+// measured nothing because its reused linked worktree was not the tree the
+// job assumed reads identically to a run that measured nothing because its
+// scope matched no files, unless the worktree's own HEAD is printed too
+// (issue #283).
+func TestRunGoMutantsJob_PrintsTheMutantsWorktreesOwnHeadEveryRun(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	j := linkedMutantsJob(t)
+	prev := goMutantsJobRunFn
+	goMutantsJobRunFn = func(job MutantsJob, outPath string, _ int, _ []string) int {
+		mustWrite(t, outPath, ciReport)
+		return 0
+	}
+	t.Cleanup(func() { goMutantsJobRunFn = prev })
+
+	out := captureStdout(t, func() { RunGoMutantsJob(writeJobFile(t, j)) })
+
+	wantHead := gitValue(t, j.Worktree, "rev-parse", "HEAD")
+	if !strings.Contains(out, wantHead) {
+		t.Fatalf("run output never printed the mutants worktree's own HEAD (%s), got: %s", wantHead, out)
+	}
+}
+
+// gremlins re-runs a package's WHOLE test suite once per mutant — the exact
+// wall-clock-threads resource issue #253 serialises whole mutation RUNS over
+// — and the Go job never took that box-wide lock at all, so two Go lanes'
+// detached jobs ran it concurrently (issue #284). This proves gremlins
+// itself does not start while another mutation run already holds the lock,
+// and does once it is free.
+func TestRunGoMutantsJob_WaitsForTheBoxWideMutationRunLockBeforeRunningGremlins(t *testing.T) {
+	withIsolatedMutantsRunLock(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	j := linkedMutantsJob(t)
+	// A standalone checkout as its own run tree: goMutantsTree then clones
+	// nothing, so the only thing standing between the job starting and
+	// gremlins running is whatever this test is actually proving.
+	j.Worktree = j.RepoRoot
+
+	started := make(chan struct{})
+	prev := goMutantsJobRunFn
+	goMutantsJobRunFn = func(job MutantsJob, outPath string, _ int, _ []string) int {
+		close(started)
+		mustWrite(t, outPath, ciReport)
+		return 0
+	}
+	t.Cleanup(func() { goMutantsJobRunFn = prev })
+
+	release := acquireMutantsRunLock("holder", "/repo/holder")
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		RunGoMutantsJob(writeJobFile(t, j))
+	}()
+
+	// A bounded probe of the SAME lock this test holds: it can only fail
+	// while the test holds the lock, and by the time it returns, gremlins
+	// would already have started had RunGoMutantsJob not waited for it too.
+	if _, gotLock := acquireMutantsRunLockWithDeadline("probe", "/repo/probe", 150*time.Millisecond); gotLock {
+		t.Fatal("setup: a probe acquired the box-wide lock this test still holds")
+	}
+	select {
+	case <-started:
+		t.Fatal("gremlins started while another mutation run still held the box-wide lock")
+	default:
+	}
+
+	release()
+
+	<-done
+	select {
+	case <-started:
+	default:
+		t.Fatal("gremlins never started after the box-wide lock was released")
 	}
 }

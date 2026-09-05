@@ -164,6 +164,11 @@ func RunGoMutantsJob(jobPath string) int {
 		logf(os.Stdout, "aphrollo gate mutants run: %v", err)
 		return 2
 	}
+	// Printed on EVERY run: the same diagnostic the Rust runner prints beside
+	// its own changed-file count, so a run that measured nothing because its
+	// scope matched no files reads differently from one whose reused worktree
+	// was not the tree it assumed (issue #283).
+	logf(os.Stdout, "aphrollo: mutants worktree %s is at %s (job tip %s)", j.Worktree, strings.TrimSpace(gitOut(j.Worktree, "rev-parse", "HEAD")), j.Tip)
 	// Never in a linked worktree: a mutated gate test rewrites whatever
 	// repository it lands in, and a linked worktree's is the lane's own
 	// (issue #156). Everything downstream — the run, the dirty check, the
@@ -193,6 +198,14 @@ func RunGoMutantsJob(jobPath string) int {
 	}
 
 	start := time.Now()
+	// The same box-wide lock the Rust runner's producer call holds
+	// (mutants_run.go): gremlins re-runs the WHOLE package's test suite per
+	// mutant, which is the identical wall-clock-threads resource issue #253
+	// serialises whole runs over, and this path never took it at all — two
+	// Go lanes' detached jobs ran that concurrently, and their unlocked
+	// MergeMutantStore calls (issue #284) then raced on top of it.
+	releaseRunLock := acquireMutantsRunLock("mutants run for "+j.Repo, j.RepoRoot)
+	defer releaseRunLock()
 	code := goMutantsJobRunFn(j, out, jobs, excludeFiles)
 	data, err := os.ReadFile(out)
 	if err != nil {
@@ -206,6 +219,10 @@ func RunGoMutantsJob(jobPath string) int {
 		recordMutantsDeath(j, code, mutantsDeathTail(j))
 		return 0
 	}
+	// Stamped with the tool's OWN version before anything reaches the receipt
+	// or the store: a blob and a fence unchanged since the last measured push
+	// say nothing about whether the mutator SET has (issue #298).
+	mutants = stampProducerVersion(mutants, mutantsProducerVersion(j.Worktree))
 	writeGoMutantsReceipt(j, mutants, treeStateAt(j.RepoRoot, j.Tip), movedLines)
 	MergeMutantStore(j.Repo, mutants)
 	clearMutantsDeath(j.TipTree)

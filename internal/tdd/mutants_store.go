@@ -129,10 +129,19 @@ func MergeMutantStore(repo string, outcomes []MutantOutcome) {
 
 // mergeMutantStoreAt is MergeMutantStore over an already-resolved path — the
 // CI `--store <dir>` override's write side.
+//
+// Read-merge-write, and neither runner's caller serialised it: two lanes'
+// detached jobs finishing close together each read the store, each folded in
+// their OWN outcomes, and whichever wrote last discarded the other's —
+// silently, since neither write failed (issue #284). acquirePathLock
+// (pathlock.go) holds a per-store advisory lock across the whole critical
+// section, so a second merge's read always sees the first merge's write.
 func mergeMutantStoreAt(path string, outcomes []MutantOutcome) {
 	if path == "" || len(outcomes) == 0 {
 		return
 	}
+	release := acquirePathLock(path)
+	defer release()
 	merged := map[mutantKey]storedOutcome{}
 	for _, e := range readMutantStoreFile(path).Entries {
 		merged[e.key()] = e

@@ -259,6 +259,23 @@ func mutantsLaneKey(repoRoot string) string {
 	return projectKey(lane)
 }
 
+// mutantsWorktreeAvoidingLiveJob returns base unless a still-running job for
+// repo already occupies it, in which case it returns a per-tip alternate.
+// base is the lane's one warm directory, reused across ordinary sequential
+// commits; when two commits on the same lane overlap, buildMutantsJob's own
+// prepareMutantsWorktree would otherwise reset (or, for Go, remove and
+// reclone) the exact tree the still-running job's producer is mutating and
+// testing in — the false PASS traced on issue #283. A cold worktree for the
+// rare overlap is the price of never touching a live one.
+func mutantsWorktreeAvoidingLiveJob(repo, base, tipTree string) string {
+	for _, r := range RunningMutantsJobs(repo) {
+		if r.Worktree == base {
+			return base + "-" + short(tipTree)
+		}
+	}
+	return base
+}
+
 // primaryCheckoutRoot resolves repoRoot's PRIMARY checkout — the directory
 // holding the `.git` that `--git-common-dir` names — or "" when repoRoot is
 // not (yet) a git repository at all, in which case the caller falls back to
@@ -410,11 +427,23 @@ func mutantsJobsPath(repo string) string {
 // saveMutantsJob APPENDS a job to its repo's registry, dropping the entries
 // that are over. It never removes a live one: superseding a run is not
 // cancelling it.
+//
+// Read-modify-write, locked across the whole critical section (pathlock.go)
+// for the identical reason mergeMutantStoreAt is (issue #284 follow-up): two
+// commits on two lanes of the same repo can both call StartMutantsJob close
+// together, and an unlocked pair each reads the registry before either
+// writes, so whichever writes second's append silently loses the other's
+// job. A job dropped this way is invisible to mutantsWorktreeAvoidingLiveJob
+// (issue #283) — the very next caller then computes the lane's BASE
+// worktree as free and resets or reclones the tree the lost job's producer
+// is still using.
 func saveMutantsJob(j MutantsJob) {
 	path := mutantsJobsPath(j.Repo)
 	if path == "" {
 		return
 	}
+	release := acquirePathLock(path)
+	defer release()
 	jobs := append(RunningMutantsJobs(j.Repo), j)
 	data, err := json.Marshal(jobs)
 	if err != nil {

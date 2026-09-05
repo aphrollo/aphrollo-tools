@@ -75,6 +75,12 @@ func runMutantsJob(j MutantsJob, log io.Writer) int {
 		appendGateLog("mutants", logToken(j.Repo), "mutants", "mutants-worktree-failed", 0)
 		return 1
 	}
+	// Printed on EVERY run, whatever it goes on to measure: a run that found
+	// nothing because its scope matched no files and a run that found nothing
+	// because the worktree it reused was not the tree it assumed both read
+	// identically otherwise, and the difference was destroyed the moment a
+	// later run re-prepared the same directory (issue #283).
+	logf(log, "aphrollo: mutants worktree %s is at %s (job tip %s)", j.Worktree, strings.TrimSpace(gitOut(j.Worktree, "rev-parse", "HEAD")), j.Tip)
 	plan, carried, now, skipped := scopeMutantsRun(j)
 	// Whatever an interrupted attempt on this same tree already reached: those
 	// mutants are excluded from this run and their verdicts kept.
@@ -357,7 +363,7 @@ func adoptCarriedOutcomes(j MutantsJob, carried []MutantOutcome, now TreeState) 
 			r.Outcomes = append(r.Outcomes, m)
 		}
 	}
-	r.Outcomes = stampTreeState(r.Outcomes, now)
+	r.Outcomes = stampTreeState(r.Outcomes, now, mutantsProducerVersion(j.Worktree))
 	recountReceipt(&r)
 	// The producer already signed r before this ran; the merge just changed
 	// its body, which leaves the old mac describing outcomes that are no

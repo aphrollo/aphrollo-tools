@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 )
@@ -77,6 +78,45 @@ func TestRunMutantsJob_WritesTheCarriedReceiptWithoutStartingAProducer(t *testin
 	}
 	if !strings.Contains(gateLogText(t, cfg), "mutants-fully-carried") {
 		t.Fatal("nothing in the log says the run was answered entirely from the cache")
+	}
+}
+
+// A run that measured nothing (because a scope matched no files) and a run
+// that measured nothing (because a reused worktree was not the tree the run
+// assumed) look identical in every other line this runner prints. The
+// worktree's own HEAD beside that is the fact that tells them apart, and it
+// has to print on EVERY run, not only a measured one — this exercises the
+// cheapest path, a fully-carried run, on purpose (issue #283).
+func TestRunMutantsJob_PrintsTheMutantsWorktreesOwnHeadEveryRun(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := optedInLane(t)
+	j := laneJob(t, root)
+
+	now := treeStateAt(root, j.Tip)
+	lane, _ := changedPaths(root, j.BaseSHA, j.Tip)
+	var cached []MutantOutcome
+	for _, file := range lane {
+		if ClassifyFile(file) != Source {
+			continue
+		}
+		pkg := now.Packages[file]
+		cached = append(cached, MutantOutcome{File: file, Line: 1, Col: 1, Mutation: "replace two -> i32 with 0",
+			Package: pkg, Blob: now.Blobs[file], Fence: now.Fences[pkg], Status: "caught"})
+	}
+	if len(cached) == 0 {
+		t.Fatal("setup: the fixture lane changed no source file")
+	}
+	MergeMutantStore(j.Repo, cached)
+
+	var buf bytes.Buffer
+	RunMutantsJobTo(writeJobFile(t, j), &buf)
+
+	wantHead := gitValue(t, j.Worktree, "rev-parse", "HEAD")
+	if !strings.Contains(buf.String(), wantHead) {
+		t.Fatalf("run output never printed the mutants worktree's own HEAD (%s) — "+
+			"cannot tell a scope that matched nothing from a worktree that was not the tree the run assumed, got: %s",
+			wantHead, buf.String())
 	}
 }
 
