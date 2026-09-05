@@ -91,3 +91,31 @@ func processStartToken(pid int) string {
 	}
 	return strconv.FormatInt(creation.Nanoseconds(), 10)
 }
+
+// processExePath is the live image path the OS reports for pid right now,
+// "" when it cannot be read (an OpenProcess denied, or the pid already
+// gone). QueryFullProcessImageName needs only the same
+// QUERY_LIMITED_INFORMATION right as GetProcessTimes above, and it resolves
+// through the process's own open handle to its image, not by re-walking a
+// name — so renaming the file out from under its own running process
+// (aphrollo's self-install does exactly this) changes what this call
+// reports, to the renamed name. That is the whole point: it is how a waiter
+// tells a holder still running a binary that has since been replaced.
+func processExePath(pid int) (string, bool) {
+	const queryLimitedInformation = 0x1000
+	k32 := syscall.NewLazyDLL("kernel32.dll")
+	open := k32.NewProc("OpenProcess")
+	query := k32.NewProc("QueryFullProcessImageNameW")
+	handle, _, _ := open.Call(uintptr(queryLimitedInformation), 0, uintptr(pid))
+	if handle == 0 {
+		return "", false
+	}
+	defer func() { _ = syscall.CloseHandle(syscall.Handle(handle)) }()
+	buf := make([]uint16, syscall.MAX_PATH)
+	size := uint32(len(buf))
+	ret, _, _ := query.Call(handle, 0, uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)))
+	if ret == 0 {
+		return "", false
+	}
+	return syscall.UTF16ToString(buf[:size]), true
+}
