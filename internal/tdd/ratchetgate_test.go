@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
 )
 
 // lawTree is a git repo carrying one deny law whose baseline records the one
@@ -218,5 +220,32 @@ func TestRatchetAdvisoryAllowsAWriteOutsideAnyRepo(t *testing.T) {
 	})
 	if d := RatchetAdvisory(raw); d.Action != Allow {
 		t.Fatalf("action = %v (%s), want Allow — no repo, no laws", d.Action, d.Reason)
+	}
+}
+
+// TestRatchetStage_PassesHeadAsTheBase proves the commit gate always judges
+// a diff-scoped law (symbol-removed) against the commit it is about to
+// land on top of, for both shapes of commit this stage runs under.
+func TestRatchetStage_PassesHeadAsTheBase(t *testing.T) {
+	root := lawTree(t, "deny")
+	gitAddAll(t, root)
+
+	var got ratchet.Options
+	original := ratchetCheckFn
+	t.Cleanup(func() { ratchetCheckFn = original })
+	ratchetCheckFn = func(opts ratchet.Options) (ratchet.Result, error) {
+		got = opts
+		return ratchet.Result{}, nil
+	}
+
+	ratchetStage("precommit", root)
+	if got.Base != "HEAD" {
+		t.Errorf("precommit: Options.Base = %q, want %q", got.Base, "HEAD")
+	}
+
+	got = ratchet.Options{}
+	ratchetStage("premergecommit", root)
+	if got.Base != "HEAD" {
+		t.Errorf("premergecommit: Options.Base = %q, want %q", got.Base, "HEAD")
 	}
 }

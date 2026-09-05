@@ -81,6 +81,9 @@ func remedyFor(law Law) string {
 	if law.Matcher.Kind == KindLineCount {
 		return fmt.Sprintf("split the file; the ceiling is %d", law.Matcher.Max)
 	}
+	if law.Matcher.Kind == KindSymbolRemoved {
+		return fmt.Sprintf("test removed without a tombstone; add `// ratchet: %s <name>: <why>` where it stood, or restore it", law.Name)
+	}
 	if law.Escape == "" {
 		return "no escape: lower the code"
 	}
