@@ -259,21 +259,50 @@ func mutantsLaneKey(repoRoot string) string {
 	return projectKey(lane)
 }
 
-// mutantsWorktreeAvoidingLiveJob returns base unless a still-running job for
-// repo already occupies it, in which case it returns a per-tip alternate.
-// base is the lane's one warm directory, reused across ordinary sequential
-// commits; when two commits on the same lane overlap, buildMutantsJob's own
-// prepareMutantsWorktree would otherwise reset (or, for Go, remove and
-// reclone) the exact tree the still-running job's producer is mutating and
-// testing in — the false PASS traced on issue #283. A cold worktree for the
-// rare overlap is the price of never touching a live one.
-func mutantsWorktreeAvoidingLiveJob(repo, base, tipTree string) string {
-	for _, r := range RunningMutantsJobs(repo) {
+// chooseMutantsWorktree decides base's fate — reused, or a per-tip
+// alternate when a still-running job already occupies it (the false PASS
+// traced on issue #283) — and CLAIMS the answer in the same locked section
+// that decided it, before returning to the caller's own synchronous,
+// possibly expensive prepareMutantsWorktree.
+//
+// The two used to be separate: a plain read of RunningMutantsJobs to decide,
+// then buildMutantsJob preparing the tree synchronously, then saveMutantsJob
+// registering the job only once it had a spawned pid to record. Between the
+// read and that registration there was a job that existed, held a worktree,
+// and was invisible to any second caller's own read — a hand-typed
+// `gate mutants run` racing the post-commit hook for the same lane could
+// choose and start preparing the SAME base directory the first caller was
+// still resetting or recloning (issue #405). Deciding and claiming under one
+// path lock closes it: no second reader can land inside the first caller's
+// window, because the registry already names the claim before the lock
+// releases.
+//
+// The claim is keyed on the CALLING process's own pid, not a spawned
+// child's: this process is alive for the whole synchronous section that
+// follows, whether it goes on to spawn a detached job (the post-commit path)
+// or measures the run itself in the foreground, and it self-expires the
+// moment that process exits — saveMutantsJob's own "same worktree supersedes"
+// rule (below) then folds it into whichever job record follows, or, on
+// failure, liveness alone drops it with nothing to release explicitly.
+func chooseMutantsWorktree(repo, base, tipTree string) string {
+	path := mutantsJobsPath(repo)
+	if path == "" {
+		return base
+	}
+	release := acquirePathLock(path)
+	defer release()
+	worktree := base
+	for _, r := range liveJobsAt(path) {
 		if r.Worktree == base {
-			return base + "-" + short(tipTree)
+			worktree = base + "-" + short(tipTree)
+			break
 		}
 	}
-	return base
+	saveMutantsJobLocked(path, MutantsJob{
+		Repo: repo, Worktree: worktree, TipTree: tipTree,
+		PID: os.Getpid(), PIDStart: processStartToken(os.Getpid()), Started: time.Now(),
+	})
+	return worktree
 }
 
 // primaryCheckoutRoot resolves repoRoot's PRIMARY checkout — the directory
@@ -425,18 +454,20 @@ func mutantsJobsPath(repo string) string {
 }
 
 // saveMutantsJob APPENDS a job to its repo's registry, dropping the entries
-// that are over. It never removes a live one: superseding a run is not
-// cancelling it.
+// that are over. It never removes a live one — superseding a run is not
+// cancelling it — with ONE exception: a live entry at the SAME worktree as j
+// is dropped, because the only way that can happen is j's own earlier
+// reservation from chooseMutantsWorktree, now folded into the real record.
 //
 // Read-modify-write, locked across the whole critical section (pathlock.go)
 // for the identical reason mergeMutantStoreAt is (issue #284 follow-up): two
 // commits on two lanes of the same repo can both call StartMutantsJob close
 // together, and an unlocked pair each reads the registry before either
 // writes, so whichever writes second's append silently loses the other's
-// job. A job dropped this way is invisible to mutantsWorktreeAvoidingLiveJob
-// (issue #283) — the very next caller then computes the lane's BASE
-// worktree as free and resets or reclones the tree the lost job's producer
-// is still using.
+// job. A job dropped this way is invisible to chooseMutantsWorktree (issue
+// #283) — the very next caller then computes the lane's BASE worktree as
+// free and resets or reclones the tree the lost job's producer is still
+// using.
 func saveMutantsJob(j MutantsJob) {
 	path := mutantsJobsPath(j.Repo)
 	if path == "" {
@@ -444,7 +475,22 @@ func saveMutantsJob(j MutantsJob) {
 	}
 	release := acquirePathLock(path)
 	defer release()
-	jobs := append(RunningMutantsJobs(j.Repo), j)
+	saveMutantsJobLocked(path, j)
+}
+
+// saveMutantsJobLocked is saveMutantsJob's critical section, taking the
+// registry path directly so a caller that already holds path's lock — only
+// chooseMutantsWorktree, deciding and claiming as one step — can write
+// without acquiring it a second time (acquirePathLock is not reentrant).
+func saveMutantsJobLocked(path string, j MutantsJob) {
+	var jobs []MutantsJob
+	for _, r := range liveJobsAt(path) {
+		if r.Worktree != "" && r.Worktree == j.Worktree {
+			continue
+		}
+		jobs = append(jobs, r)
+	}
+	jobs = append(jobs, j)
 	data, err := json.Marshal(jobs)
 	if err != nil {
 		return
