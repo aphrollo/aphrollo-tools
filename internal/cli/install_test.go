@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // TestInstall_PerformsInitThenInstallWrites proves the merge: one `install`
@@ -13,6 +15,7 @@ import (
 // .git/hooks shims — all three, in one run, with no second command.
 func TestInstall_PerformsInitThenInstallWrites(t *testing.T) {
 	isolateGit(t)
+	t.Setenv(tdd.HooksDirUnsafeEnv, "1")
 	repo := t.TempDir()
 	gitInitRepo(t, repo)
 
@@ -50,6 +53,7 @@ func TestInstall_PerformsInitThenInstallWrites(t *testing.T) {
 // in, exactly what `gate doctor`'s doctorHookBinary check exists to catch.
 func TestInstall_WritesTheSameBinaryIntoSessionHooksAndRepoShims(t *testing.T) {
 	isolateGit(t)
+	t.Setenv(tdd.HooksDirUnsafeEnv, "1")
 	repo := t.TempDir()
 	gitInitRepo(t, repo)
 
@@ -98,6 +102,7 @@ func TestInstall_WritesTheSameBinaryIntoSessionHooksAndRepoShims(t *testing.T) {
 // aliases of the merged top-level verb.
 func TestGateInitAndGateInstall_StillWork(t *testing.T) {
 	isolateGit(t)
+	t.Setenv(tdd.HooksDirUnsafeEnv, "1")
 	repo := t.TempDir()
 	gitInitRepo(t, repo)
 

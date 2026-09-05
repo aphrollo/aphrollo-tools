@@ -37,12 +37,20 @@ type DoctorInput struct {
 	ShimDir   string
 	Repo      string
 	PathDirs  []string
+	// GitHooksPath is the box's current global core.hooksPath, resolved by
+	// the caller (empty when unset) — injected the same way PathDirs is, so
+	// a test drives every branch without reading or writing the box's own
+	// git config.
+	GitHooksPath string
 }
 
 // Doctor runs every check and returns the verdicts in a fixed order, so two
-// runs read the same way.
+// runs read the same way. doctorGitHooksPath runs FIRST: every other check
+// here describes a hook that depends on git actually running it, and a
+// dangling or unset core.hooksPath means git runs NONE of them, silently.
 func Doctor(in DoctorInput) []DoctorCheck {
 	checks := []DoctorCheck{
+		doctorGitHooksPath(in),
 		doctorHookBinary(in),
 		doctorHookTimeouts(in),
 		doctorShimPath(in),
@@ -66,6 +74,33 @@ func Doctor(in DoctorInput) []DoctorCheck {
 		checks = append(checks, c)
 	}
 	return checks
+}
+
+// doctorGitHooksPath checks the git gate can run at all: core.hooksPath must
+// be set, name a directory that exists, and hold shims this tool wrote. A
+// dangling or unset hooksPath is the single failure that disarms every other
+// check on this list — git runs no hook, produces no error, and every other
+// row reads "ok" while every commit on the box is ungated. That happened on
+// this box 2026-09-05: a --git-hooks-dir under a session scratchpad was
+// installed then cleaned up, and `aphrollo gate doctor` printed ok on every
+// row for the whole window.
+func doctorGitHooksPath(in DoctorInput) DoctorCheck {
+	c := DoctorCheck{Name: "git hooks path"}
+	if in.GitHooksPath == "" {
+		c.Detail = "core.hooksPath is not set — run `aphrollo gate init`"
+		return c
+	}
+	fi, err := os.Stat(in.GitHooksPath)
+	if err != nil || !fi.IsDir() {
+		c.Detail = fmt.Sprintf("core.hooksPath is set to %s, which does not exist — git runs no hooks at all; run `aphrollo gate init`", in.GitHooksPath)
+		return c
+	}
+	if !managedHooksDir(in.GitHooksPath) {
+		c.Detail = fmt.Sprintf("core.hooksPath %s does not carry this tool's managed shims — run `aphrollo gate init`", in.GitHooksPath)
+		return c
+	}
+	c.OK = true
+	return c
 }
 
 // doctorPrimaryCheckout checks the primary checkout still holds main. It

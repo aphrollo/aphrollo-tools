@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // primaryWorktreeRepo builds a repo on `main` with one linked worktree and
@@ -19,6 +21,7 @@ func primaryWorktreeRepo(t *testing.T) (primary, linked string) {
 		t.Skip("git not available")
 	}
 	isolateGit(t)
+	t.Setenv(tdd.HooksDirUnsafeEnv, "1") // a caller's --git-hooks-dir routinely sits under t.TempDir()
 	primary = t.TempDir()
 	run := func(dir string, args ...string) {
 		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)

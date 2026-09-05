@@ -47,11 +47,12 @@ func doctorInput(configDir, shimDir, repo string) tdd.DoctorInput {
 		shim = filepath.Join(filepath.Dir(bin), "cargo-queue")
 	}
 	return tdd.DoctorInput{
-		ConfigDir: dir,
-		Bin:       bin,
-		ShimDir:   shim,
-		Repo:      repo,
-		PathDirs:  userPathDirsFn(),
+		ConfigDir:    dir,
+		Bin:          bin,
+		ShimDir:      shim,
+		Repo:         repo,
+		PathDirs:     userPathDirsFn(),
+		GitHooksPath: gitHooksPathFn(),
 	}
 }
 
@@ -59,6 +60,11 @@ func doctorInput(configDir, shimDir, repo string) tdd.DoctorInput {
 // judges without touching the box's own registry — mirroring the
 // ratchetCheckFn seam other guards already use.
 var userPathDirsFn = userPathDirs
+
+// gitHooksPathFn indirects tdd.GlobalHooksPath so a test can fake the
+// configured core.hooksPath doctor judges without reading the box's own
+// global git config.
+var gitHooksPathFn = tdd.GlobalHooksPath
 
 // runDoctorCheck runs the doctor checks against repo with default resolution
 // (no CLI overrides), writes tdd.RenderDoctor's report to w, and returns the

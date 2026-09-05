@@ -44,12 +44,20 @@ func healthyInstall(t *testing.T) DoctorInput {
 	if _, err := installShimExes(shim, bin, doctorShimExeNames()); err != nil {
 		t.Fatal(err)
 	}
+	// A managed hooks dir, built by writing the same shim install writes —
+	// never through InitGitGate, which would touch the box's own real global
+	// git config.
+	hooksDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(hooksDir, "pre-commit"), []byte(binShim(bin, "precommit", "")), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	return DoctorInput{
-		ConfigDir: cfg,
-		Bin:       bin,
-		ShimDir:   shim,
-		Repo:      t.TempDir(),
-		PathDirs:  []string{shim, binDir},
+		ConfigDir:    cfg,
+		Bin:          bin,
+		ShimDir:      shim,
+		Repo:         t.TempDir(),
+		PathDirs:     []string{shim, binDir},
+		GitHooksPath: hooksDir,
 	}
 }
 
@@ -82,6 +90,49 @@ func TestDoctor_HealthyInstallPassesEveryCheck(t *testing.T) {
 		if !c.OK {
 			t.Errorf("check %q failed on a healthy install: %s", c.Name, c.Detail)
 		}
+	}
+}
+
+// TestDoctor_SeesAnUnsetGitHooksPath is the failure that disarmed this box on
+// 2026-09-05: nothing else can tell that git runs no hooks at all when
+// core.hooksPath is unset, and every other check still reads "ok".
+func TestDoctor_SeesAnUnsetGitHooksPath(t *testing.T) {
+	in := healthyInstall(t)
+	in.GitHooksPath = ""
+
+	c := check(t, Doctor(in), "git hooks path")
+	if c.OK {
+		t.Fatal("an unset core.hooksPath must fail the check")
+	}
+}
+
+// TestDoctor_SeesADanglingGitHooksPath catches the exact incident: the
+// configured hooks dir has been deleted out from under core.hooksPath, so
+// git silently runs nothing.
+func TestDoctor_SeesADanglingGitHooksPath(t *testing.T) {
+	in := healthyInstall(t)
+	in.GitHooksPath = filepath.Join(t.TempDir(), "gone")
+
+	c := check(t, Doctor(in), "git hooks path")
+	if c.OK {
+		t.Fatal("a core.hooksPath naming a missing directory must fail the check")
+	}
+	if !strings.Contains(c.Detail, "does not exist") {
+		t.Fatalf("the failure must say the dir is missing, got: %s", c.Detail)
+	}
+}
+
+// TestDoctor_SeesAForeignGitHooksPath catches core.hooksPath pointed at a
+// real directory that carries no marker this tool wrote — hooks that exist
+// but were never installed by aphrollo, or an empty leftover dir.
+func TestDoctor_SeesAForeignGitHooksPath(t *testing.T) {
+	in := healthyInstall(t)
+	foreign := t.TempDir()
+	in.GitHooksPath = foreign
+
+	c := check(t, Doctor(in), "git hooks path")
+	if c.OK {
+		t.Fatal("a core.hooksPath dir with no managed shim must fail the check")
 	}
 }
 

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // Replacing the gate binary is the one upgrade that cannot be done the
@@ -258,6 +260,7 @@ func TestSelfInstall_KeepsAStaleCopyItCannotDelete(t *testing.T) {
 // that is no longer there, so the run has to finish the job.
 func TestSelfInstall_RewiresTheHooksAtTheNewBinary(t *testing.T) {
 	isolateGit(t)
+	t.Setenv(tdd.HooksDirUnsafeEnv, "1") // --git-hooks-dir below sits under t.TempDir()
 	cfg := gateConfigDir(t)
 	t.Chdir(t.TempDir()) // init patches the CWD repo's CLAUDE.md — never this repo's
 	bin := selfInstallFixture(t, "NEW")
