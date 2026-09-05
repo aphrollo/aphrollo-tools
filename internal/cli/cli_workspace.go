@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"slices"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -43,39 +42,46 @@ Worktree lifecycle:
                             --no-migrate to skip.) (--dry).
   unclaim [repo] [branch]   Repoint the dev tier back at the main clone + restart.
                             Inverse of claim (--dry).
-  list <repo>               List the repo's git worktrees (read-only).
+  list <repo>               List the repo's git worktrees: path, branch (or
+                            "detached"), age since the last commit, dirty-file
+                            count, and PR state ("none" when there isn't one,
+                            "?" when the lookup failed or timed out) — the PR
+                            lookups run concurrently, capped per worktree, so
+                            one slow one never holds up the rest (read-only).
   remove <repo> <branch>    Remove a prepared worktree AND delete its local
-                            branch (--dry). Idempotent: an already-gone worktree
-                            or branch is a [skip], so re-running is a no-op.
+                            branch (--dry; --keep-branch to leave the branch;
+                            --force to drop a dirty worktree). Idempotent: an
+                            already-gone worktree or branch is a [skip], so
+                            re-running is a no-op.
   prune [repo]              Sweep the repo's worktrees and remove the merged ones:
                             a worktree goes only if its PR is MERGED, the tree is
                             CLEAN, and it is not the cwd. Others are skipped with a
                             reason (open PR / no PR / dirty / current). Folds in the
                             stale admin-record prune (--dry lists; --force removes a
-                            dirty merged tree too).
-  prune <repo> <branch>    Per-ticket form: remove exactly that one ticket's
-                            worktree. Idempotent — re-running on an already-gone
-                            worktree is a no-op success ("already gone"), so a
-                            post-merge cleanup can re-run safely. Leaves the local
-                            branch in place (that is the remove verb's job).
-                            (--dry; --force).
+                            dirty merged tree too; --stale <dur> instead sweeps
+                            detached, PR-less, idle worktrees past that age — a
+                            positive duration only, e.g. 3d or 36h).
+  prune <repo> <branch>    Per-ticket form: same as remove <repo> <branch>
+                            --keep-branch — removes exactly that one ticket's
+                            worktree, idempotently, and leaves the local branch
+                            in place (--dry; --force forwards to remove too).
 
 Operator / outside-use verbs (pass [repo] [branch] to target a worktree):
   update                    Rebase the cwd worktree onto origin/<default> and, on a
                             clean rebase, force-push (with lease) to refresh the PR.
                             Conflict: left in progress, non-zero, with resolve hints.
-                            cwd-only (--dry reports the behind-count).
-  sync <repo>               Fetch + fast-forward the base clone's LOCAL default
+                            cwd-only (--dry reports the behind-count). Alias: rebase.
+  sync [repo]               Fetch + fast-forward the base clone's LOCAL default
                             branch to origin/<default> — the non-destructive
-                            "catch the clone up after a merge" primitive. Strict
-                            FF only: a dirty or diverged clone is left untouched,
-                            exit 0 with the reason. Idempotent (--dry previews).
+                            "catch the clone up after a merge" primitive. No <repo>
+                            resolves the cwd's repo (the same rule commit uses).
+                            Strict FF only: a dirty or diverged clone is left
+                            untouched, exit 0 with the reason. Idempotent (--dry
+                            previews).
   diff                      Print the branch's PR diff vs origin/<default>
                             (read-only; --stat for the diffstat).
-  verify                    Run the affected app's {test, typecheck, lint} trio —
-                            the typecheck/lint the commit gate does NOT cover
-                            (--dry lists the commands; default runs them, stops
-                            at the first failure).
+  verify                    Legacy name — prints "workspace verify is now aphrollo
+                            check" and runs it.
   status                    One terse line: PR state (merged/open/draft),
                             mergeability gate, and a pass/total check tally
                             (read-only).
@@ -127,7 +133,7 @@ func runWorkspace(args []string, stdout, stderr io.Writer) int {
 		return runWorkspaceStatus(args[1:], stdout, stderr)
 	case "diff":
 		return runWorkspaceDiff(args[1:], stdout, stderr)
-	case "update":
+	case "update", "rebase":
 		return runWorkspaceUpdate(args[1:], stdout, stderr)
 	case "sync":
 		return runWorkspaceSync(args[1:], stdout, stderr)
@@ -210,8 +216,9 @@ func runWorkspaceUpdate(args []string, stdout, stderr io.Writer) int {
 
 // runWorkspaceSync fast-forwards a base clone's LOCAL default branch to the
 // remote tip after a merge — the non-destructive "catch the clone up to origin"
-// primitive. Takes an explicit <repo>. --dry previews the fetch + fast-forward
-// without mutating the local branch.
+// primitive. No <repo> resolves the caller's cwd repo (the same rule commit
+// uses). --dry previews the fetch + fast-forward without mutating the local
+// branch.
 func runWorkspaceSync(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -220,49 +227,34 @@ func runWorkspaceSync(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return 2
 	}
-	if len(pos) != 1 {
-		fmt.Fprintln(stderr, "aphrollo: usage: workspace sync <repo>")
+	var repo string
+	switch len(pos) {
+	case 0:
+	case 1:
+		repo = pos[0]
+	default:
+		fmt.Fprintln(stderr, "aphrollo: usage: workspace sync [repo]")
 		return 2
 	}
-	if err := workspace.Sync(pos[0], *dry, stdout, stderr); err != nil {
+	if err := workspace.Sync(repo, *dry, stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
+// runCheckFn is the seam `workspace verify` calls through to run the actual
+// checks — pointed at the real `aphrollo check` (internal/cli/check.go,
+// landed in #388) now that it exists, so a test can still swap it for a spy
+// without touching runCheck itself.
+var runCheckFn = runCheck
+
+// runWorkspaceVerify is `workspace verify`'s new body: it is a renamed verb,
+// not a distinct command any more, so it says so and calls through to the
+// same check the name change points at.
 func runWorkspaceVerify(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	dry := fs.Bool("dry", false, "print the plan and stop (default: execute)")
-	into := fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
-	pos, err := parseFlagsAnywhere(fs, args)
-	if err != nil {
-		return 2
-	}
-	t, ok := resolveVerbTarget(pos, *into, stderr)
-	if !ok {
-		return 2
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = t.Worktree
-	}
-	v, err := workspace.BuildVerify(t, cwd)
-	if err != nil {
-		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-		return 1
-	}
-	apply := !*dry
-	fmt.Fprint(stdout, v.Render(apply))
-	if !apply {
-		return 0
-	}
-	if err := v.Apply(stdout, stderr); err != nil {
-		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-		return 1
-	}
-	return 0
+	fmt.Fprintln(stdout, "workspace verify is now aphrollo check")
+	return runCheckFn(args, stdout, stderr)
 }
 
 func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {

@@ -36,7 +36,7 @@ import (
 // previews the fast-forward (the fetch still runs — it only touches
 // remote-tracking refs) and mutates nothing else.
 func Sync(repoArg string, dry bool, stdout, stderr io.Writer) error {
-	top, err := resolveMainRepo(repoArg)
+	top, err := resolveSyncRepo(repoArg)
 	if err != nil {
 		return err
 	}
@@ -116,6 +116,21 @@ func Sync(repoArg string, dry bool, stdout, stderr io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "fast-forwarded %s ref to %s (%d commit(s))\n", def, remote, behind)
 	return nil
+}
+
+// resolveSyncRepo turns Sync's optional repoArg into a repo toplevel: empty
+// resolves the caller's cwd repo, the same rule commit's cwd-only resolution
+// uses (ResolveTarget with both args empty), so `sync` with no argument
+// matches what a coder standing in a worktree expects.
+func resolveSyncRepo(repoArg string) (string, error) {
+	if repoArg == "" {
+		t, err := ResolveTarget("", "", "")
+		if err != nil {
+			return "", err
+		}
+		return t.MainRepo, nil
+	}
+	return resolveMainRepo(repoArg)
 }
 
 // isAncestor reports whether ancestor is reachable from descendant — i.e. moving
