@@ -179,7 +179,7 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 		return blockReceipt(ctx.RepoRoot, "no mutation receipt for %s (there is no lane tip to look one up by)", repo)
 	}
 	if laneHasNothingToMutate(ctx) {
-		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-not-required:"+short(tipTree), 0)
+		appendGateLog(premergeLogToken, logToken(repo), "mutation-receipt", "receipt-not-required:"+short(tipTree), 0)
 		return nil
 	}
 	data, err := os.ReadFile(path)
@@ -221,7 +221,7 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 		// An older producer. Accepted, and counted: an unverifiable proof is
 		// not the same thing as a verified one, and the tally is how that
 		// stops being invisible.
-		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-unpinned", 0)
+		appendGateLog(premergeLogToken, logToken(repo), "mutation-receipt", "receipt-unpinned", 0)
 	case ctx.BaseSHA != "" && !strings.EqualFold(r.BaseSHA, ctx.BaseSHA):
 		return blockReceipt(ctx.RepoRoot, "the receipt was measured against base %s, but this merge lands against %s — a different diff, so different mutants",
 			short(r.BaseSHA), short(ctx.BaseSHA))
@@ -237,7 +237,7 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 		// gate.log is space-separated (see appendGateLog), so the verdict is
 		// ONE token: underscores stand in for the spaces the issue's own
 		// wording uses.
-		appendGateLog("premergecommit", logToken(repo), "mutation-receipt",
+		appendGateLog(premergeLogToken, logToken(repo), "mutation-receipt",
 			fmt.Sprintf("receipt-accepted:%s_caught=%d_missed=%d_accepted=%d", short(tipTree), r.Caught, len(r.Survivors), r.Accepted), 0)
 	}
 	return nil

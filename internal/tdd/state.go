@@ -58,6 +58,12 @@ type sessionState struct {
 		// add and remove keys rather than flipping a flag, so ListWaivers
 		// only ever reports what is actually active.
 		Waivers map[string]waiverEntry `json:"waivers,omitempty"`
+		// PrimaryEdits is the pre-#343 single-wall shape, read for migration
+		// only: loadSession folds a `true` here into Waivers[WallPrimary] and
+		// clears the field (see migrateLegacyPrimaryEdits), so a state file
+		// written before Waivers existed never silently loses its waiver.
+		// Never set true by anything this binary writes now.
+		PrimaryEdits bool `json:"primary_edits,omitempty"`
 	} `json:"overrides"`
 	// Notices records one-shot advisories that must fire at most once per
 	// session, so re-firing them on every edit never becomes noise.
@@ -126,7 +132,33 @@ func loadSession(session string) (*sessionState, string) {
 	if s.ByProject == nil {
 		s.ByProject = map[string]projectState{}
 	}
+	migrateLegacyPrimaryEdits(s, path)
 	return s, path
+}
+
+// migrateLegacyPrimaryEdits folds the pre-#343 single-wall
+// `overrides.primary_edits` bool into Waivers[WallPrimary], in memory, every
+// time such a file is read. Since is the file's own mtime (the closest
+// available fact to "when this session waived it"), falling back to now only
+// when the file cannot be stat'd. Clearing the legacy field here means the
+// very next save drops it: the migration is one-way and costs nothing on a
+// file that never carried the field (the early return).
+func migrateLegacyPrimaryEdits(s *sessionState, path string) {
+	if !s.Overrides.PrimaryEdits {
+		return
+	}
+	s.Overrides.PrimaryEdits = false
+	if s.Overrides.Waivers == nil {
+		s.Overrides.Waivers = map[string]waiverEntry{}
+	}
+	if _, exists := s.Overrides.Waivers[WallPrimary]; exists {
+		return
+	}
+	since := time.Now().UTC().Format(time.RFC3339)
+	if fi, err := os.Stat(path); err == nil {
+		since = fi.ModTime().UTC().Format(time.RFC3339)
+	}
+	s.Overrides.Waivers[WallPrimary] = waiverEntry{Since: since}
 }
 
 // save writes the session state, creating the directory if needed. It
@@ -270,6 +302,14 @@ func appendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
 	}
 	stampGateLogSchema()
 	defer f.Close()
+	if stage == premergeDisplayName {
+		// The merge gate PRINTS "premerge" (its current git-hook name) but
+		// every already-written gate.log line indexes on the pre-rename
+		// "premergecommit" — remapped here, the one place a stage token
+		// becomes a log line, so `gate stats` and every other log reader
+		// keep seeing one stage under one name across the rename.
+		stage = premergeLogToken
+	}
 	// The root goes through logToken because the line is space-separated and
 	// the COMMAND in the middle already carries spaces: a root with one of
 	// its own (`C:/My Projects/borld`) split into two fields, and every
@@ -324,12 +364,65 @@ func setWaiver(session, wall string, on bool) error {
 	return s.save(path)
 }
 
+// reservedStateBasenames and reservedStateFilePrefixes name every OTHER json
+// file this state dir holds beside per-session files: mech-cache.json (one,
+// fixed name), and one mutation-receipt.<tree>.json / issues.<repo>.json per
+// tree or repo the box has touched. everySessionID must recognise every one
+// of them and skip it — a session id is whatever CLAUDE_SESSION_ID happens to
+// be, so this is a blocklist of the names this package itself reserves for
+// something else, not a grammar for what a session id looks like.
+var (
+	reservedStateBasenames    = map[string]bool{"mech-cache": true}
+	reservedStateFilePrefixes = []string{"mutation-receipt.", "issues."}
+)
+
+// looksLikeSessionID reports whether id (a *.json file's basename with the
+// extension already stripped) names something other than one of this
+// package's reserved non-session files.
+func looksLikeSessionID(id string) bool {
+	if reservedStateBasenames[id] {
+		return false
+	}
+	for _, prefix := range reservedStateFilePrefixes {
+		if strings.HasPrefix(id, prefix) {
+			return false
+		}
+	}
+	return true
+}
+
+// hasSchemaKey reports whether path's JSON carries a top-level "schema" key
+// — every state file this binary writes does, by construction (save() always
+// sets Schema before marshaling). A second, content-based check beside the
+// name blocklist: a JSON file dropped into the state dir that this package
+// does not otherwise recognise is still not treated as a session merely for
+// carrying a name nothing above happens to reserve.
+func hasSchemaKey(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var probe struct {
+		Schema *int `json:"schema"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return false
+	}
+	return probe.Schema != nil
+}
+
 // everySessionID lists every session id with a state file on disk, so
 // ListWaivers can report a waiver regardless of which session holds it —
 // `gate allow` (bare) is typically run from a different shell than the one
-// that waived the rule.
+// that waived the rule. That walk is READ-ONLY from its caller's point of
+// view, so it must never hand mech-cache.json, a mutation receipt or an
+// issues cache to loadSession as if they were a session file: an unmarshal
+// type conflict on any of them would otherwise trip readStateJSON's
+// corrupt-file path and rename a legitimate receipt aside, from a listing
+// that was never supposed to touch anything.
 func everySessionID() []string {
-	entries, err := os.ReadDir(stateDir())
+	dir := stateDir()
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
@@ -338,10 +431,14 @@ func everySessionID() []string {
 		if e.IsDir() {
 			continue
 		}
-		name := e.Name()
-		if id, ok := strings.CutSuffix(name, ".json"); ok {
-			ids = append(ids, id)
+		id, ok := strings.CutSuffix(e.Name(), ".json")
+		if !ok || !looksLikeSessionID(id) {
+			continue
 		}
+		if !hasSchemaKey(filepath.Join(dir, e.Name())) {
+			continue
+		}
+		ids = append(ids, id)
 	}
 	return ids
 }

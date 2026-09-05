@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -40,12 +39,14 @@ func runGateMergeHook(name string, stderr io.Writer) int {
 	var res tdd.GateResult
 	if isMerge {
 		premergeRoutineSeam("runGatePremerge")
+		// Mechanical prints "gate premerge:" itself now — every stage
+		// function that builds a message takes the display name, not the
+		// pre-rename "premergecommit", so there is nothing to rewrite here.
+		// The routine's own internals (gate.log stage tokens, receipt hints,
+		// escape fingerprints) still index on "premergecommit" — see
+		// premergeLogToken and appendGateLog's remap — because those are
+		// read by tooling, never by a human staring at this stderr line.
 		res = tdd.Mechanical(root, tdd.RunSuite(precommitTimeout))
-		// The routine's own internals still speak the pre-rename name
-		// (gate.log stage tokens, receipt hints and escape fingerprints all
-		// index on it) — only what a human or hook actually reads is
-		// renamed here, at the one place both spellings converge.
-		res.Message = strings.ReplaceAll(res.Message, "gate premergecommit:", "gate premerge:")
 		// A rejection HERE is the pre-merge-commit hook blocking an
 		// automatic, conflict-free merge — the one case where git still
 		// leaves MERGE_HEAD and the merged index in the checkout ("Not

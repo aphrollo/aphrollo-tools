@@ -26,7 +26,7 @@ Tests:
 - `TestPrimaryRefusal_NamesAllowPrimary`: `PrimaryMergeOnlyReason(root)` contains `aphrollo gate allow primary` and not `primary-edits`.
 
 Interfaces (used by #343 later):
-- `tdd.Allow(wall string) (msg string, err error)`, `tdd.Revoke(wall string) (msg string, err error)`, `tdd.ListWaivers() []tdd.Waiver`, `tdd.Waived(wall string) bool`; `wall` is one of the constants `tdd.WallPrimary = "primary"` (and later `tdd.WallDiscard`).
+- `tdd.AllowWall(wall string) (msg string, err error)` (named `AllowWall`, not `Allow` — that name is already the Action constant), `tdd.Revoke(wall string) (msg string, err error)`, `tdd.ListWaivers() []tdd.Waiver`, `tdd.Waived(wall string) bool`; `wall` is one of the constants `tdd.WallPrimary = "primary"` (and later `tdd.WallDiscard`).
 
 ## B2: install, check and issue at top level (#342, part 2)
 
