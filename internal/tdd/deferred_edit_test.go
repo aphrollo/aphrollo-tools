@@ -192,6 +192,57 @@ func TestPostEdit_EditDuringADeferredBuildMarksItDirty(t *testing.T) {
 	}
 }
 
+// TestEditResultAdvisory_DropsStalePrevFailingWhenTheIndexMovedWithoutHead
+// pins issue #295: editResultAdvisory used to read state.ByProject[root]'s
+// FailingTests straight, with no fingerprint check at all, unlike every
+// foreground path (which gates on fingerprintsMatch — branch, HEAD, AND
+// index mtime). A `git add`, stash, or partial staging from another process
+// between a job's spawn and its harvest moves the index without moving HEAD;
+// deferredMatchesSource never sees that (it only guards HeadSHA plus content
+// hash), so the stale FailingTests survived to mask a same-named failure as
+// NoDelta forever. Once the harvest routes through the same fingerprint gate,
+// a fingerprint mismatch drops the stale set and the failure is reported.
+func TestEditResultAdvisory_DropsStalePrevFailingWhenTheIndexMovedWithoutHead(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "go.mod", "module x\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-q", "-m", "init")
+
+	fp0 := computeFingerprint(root)
+	if fp0 == nil {
+		t.Fatal("want a real fingerprint for an initialised repo")
+	}
+
+	state, statePath := loadSession("sess-advisory")
+	state.stamp(root, projectState{Outcome: string(RedMissingImpl), FailingTests: []string{"TestFoo"}, Fingerprint: fp0})
+	if err := state.save(statePath); err != nil {
+		t.Fatal(err)
+	}
+
+	// The index moves without HEAD moving — a stage, stash, or partial
+	// staging from another process, invisible to deferredMatchesSource.
+	idx := filepath.Join(root, ".git", "index")
+	future := time.Now().Add(time.Hour)
+	if err := os.Chtimes(idx, future, future); err != nil {
+		t.Fatal(err)
+	}
+
+	logPath := filepath.Join(t.TempDir(), "job.log")
+	if err := os.WriteFile(logPath, []byte("--- FAIL: TestFoo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	j := DeferredJob{Project: root, Phase: "run", Runner: []string{"go", "test", "./..."}, Log: logPath}
+
+	got := editResultAdvisory(j, PhaseOutcome{ExitCode: 1}, root, state, statePath, headSHAFor(root))
+
+	ps := state.ByProject[root]
+	if ps.Outcome == string(NoDelta) {
+		t.Fatalf("outcome = %q from advisory %q, want the stale FailingTests dropped once the index moved without HEAD — TestFoo must be reported, not hidden as no-delta", ps.Outcome, got)
+	}
+}
+
 // TestPostEdit_AbandonsAJobPastTheMaximum pins the one kill: a phase that has
 // outlived any plausible build is abandoned and a fresh one starts, so a
 // wedged process cannot block a project forever.

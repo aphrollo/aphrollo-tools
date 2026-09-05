@@ -187,14 +187,23 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 // editResultAdvisory turns a finished phase into the same advisory a
 // foreground run would have produced, and stamps the same session state, so
 // a deferred answer reads exactly like a prompt one.
+//
+// prev is read through state.prevFailing against the fingerprint computed
+// HERE, at harvest — not the bare FailingTests field. A foreground run gates
+// its own prevFailing on fingerprintsMatch (branch, HEAD, index mtime); this
+// path used to skip that gate entirely, so a `git add`, stash or partial
+// staging between the job's spawn and its harvest left a stale failing set
+// in place to mask a genuinely new failure as NoDelta (issue #295). Every
+// foreground path stamps the fingerprint it read alongside the outcome; this
+// one now does too, so the NEXT harvest has something real to compare against
+// rather than always missing on a nil fingerprint.
 func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *sessionState, statePath, headSHA string) string {
 	res := phaseSuiteResult(j, out)
 	runner := runnerFromArgv(j.Runner, j.Dir)
+	fp := computeFingerprint(root)
 	prev := []string(nil)
 	if state != nil {
-		if ps, ok := state.ByProject[root]; ok {
-			prev = ps.FailingTests
-		}
+		prev = state.prevFailing(root, fp)
 	}
 	if treatAsEmptyPass(res) {
 		res.Passed = true
@@ -205,6 +214,7 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 			Outcome:      string(outcome),
 			FailingTests: ExtractFailingTests(res.Output),
 			Runner:       j.Runner,
+			Fingerprint:  fp,
 		})
 		_ = state.save(statePath)
 	}
