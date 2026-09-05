@@ -216,6 +216,39 @@ exports each one for the mutation run. Every switch named there must be
 registered in the repo's dev-instrument registry — an env switch that gates a
 suite is exactly the kind the registry law exists to catch.
 
+### Tests that read the source tree at run time
+
+Mutants run in a COPY of the tree, so a test that resolves a path at RUN time
+rather than at compile time is reading a directory that no longer exists. The
+failure looks nothing like the cause:
+
+```
+FAIL client anim::driver::tests::bone_map_is_only_referenced_by_driver_setup_and_tests
+panicked at crates/client/src/anim/driver.rs:345:
+Os { code: 3, kind: NotFound }
+ERROR cargo test failed in an unmutated tree, so no mutants were tested
+```
+
+That test walked `CARGO_MANIFEST_DIR` at run time to assert which files
+reference a symbol. It passes everywhere else and can never pass under a
+mutation run. The reported error says the unmutated tree is broken, which
+sends a reader looking for a regression that is not there.
+
+The diagnostic: a baseline failure whose error is a missing PATH, rather than
+a failed assertion, is this shape almost every time.
+
+Anything resolved through `CARGO_MANIFEST_DIR` at execution — the crate's own
+sources, the workspace manifest, `.ratchet/` data, a fixture directory — is
+incompatible with the copy tree. This is cargo-mutants' design and not
+something the gate can paper over.
+
+The fix is placement, not a workaround. A check that observes FILES ON DISK is
+a law, under `.ratchet/laws/`, where it runs against the real tree once per
+commit instead of once per mutant. `bone_map_scope` is that case, resolved
+that way. Where a test genuinely must stay in-crate, embed what it needs at
+compile time (`include_str!`, `include_dir!`) so no path is resolved at run
+time.
+
 ## Which merges a receipt gates
 
 A receipt proves a LANE was measured before it lands on main, and that is the
