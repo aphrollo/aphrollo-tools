@@ -14,20 +14,22 @@ type PrunedLane struct {
 }
 
 // PruneMergedLanesAfterMerge sweeps mainRepo's LINKED worktrees, removing
-// every one whose checked-out branch is MERGED into main — `git branch
-// --merged main` — with one narrowing: a branch whose tip IS main's own tip
-// never counts as merged, even though `--merged` alone would say so. A
-// branch created moments earlier, with no commits of its own yet, trivially
-// satisfies "merged" that way — its tip already equals main's — without
-// having landed any work at all. That gap is issue #144: a fresh lane, still
-// clean because a builder had not yet made an edit in it, was pruned out
-// from under them by a sweep that read "clean" as "merged".
+// every one whose checked-out branch is MERGED into the repo's resolved
+// trunk (never hardcoded "main" — `trunkBranch` is the same resolution every
+// law in this package uses) — `git branch --merged <trunk>` — with one
+// narrowing: a branch whose tip IS trunk's own tip never counts as merged,
+// even though `--merged` alone would say so. A branch created moments
+// earlier, with no commits of its own yet, trivially satisfies "merged" that
+// way — its tip already equals trunk's — without having landed any work at
+// all. That gap is issue #144: a fresh lane, still clean because a builder
+// had not yet made an edit in it, was pruned out from under them by a sweep
+// that read "clean" as "merged".
 //
 // exclude is the worktree running THIS merge (or "" to exclude none) — the
 // ground under the process calling this, which must never be swept
 // regardless of its own branch's merge state.
 //
-// A merged branch is, by definition, work already landed on main, so there
+// A merged branch is, by definition, work already landed on trunk, so there
 // is nothing an --apply opt-in would protect that `--merged` does not
 // already guarantee; every prune is announced on stdout as it happens.
 // Removal errors are reported on stderr and do not stop the sweep — one
@@ -37,11 +39,15 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 	if mainRepo == "" {
 		return nil
 	}
-	mainTip := gitOut(mainRepo, "rev-parse", "main")
-	if mainTip == "" {
+	trunk := trunkBranch(mainRepo)
+	if trunk == "" {
 		return nil
 	}
-	merged := mergedBranchTips(mainRepo)
+	trunkTip := gitOut(mainRepo, "rev-parse", trunk)
+	if trunkTip == "" {
+		return nil
+	}
+	merged := mergedBranchTips(mainRepo, trunk)
 	mainClean := cleanWorktreePath(mainRepo)
 	excludeClean := cleanWorktreePath(exclude)
 	var pruned []PrunedLane
@@ -54,14 +60,14 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 			continue
 		}
 		tip, ok := merged[wt.branch]
-		if !ok || tip == mainTip {
-			continue // not merged, or a fresh branch sitting at main's own tip
+		if !ok || tip == trunkTip {
+			continue // not merged, or a fresh branch sitting at trunk's own tip
 		}
 		if err := removeMergedLaneWorktree(mainRepo, wt.path, wt.branch); err != nil {
 			fmt.Fprintf(stderr, "prune-lanes: could not prune %s (%s): %v\n", wt.path, wt.branch, err)
 			continue
 		}
-		fmt.Fprintf(stdout, "prune-lanes: pruned %s (%s, merged into main)\n", wt.path, wt.branch)
+		fmt.Fprintf(stdout, "prune-lanes: pruned %s (%s, merged into %s)\n", wt.path, wt.branch, trunk)
 		pruned = append(pruned, PrunedLane{Worktree: wt.path, Branch: wt.branch})
 	}
 	return pruned
@@ -78,11 +84,11 @@ func cleanWorktreePath(p string) string {
 	return strings.ToLower(strings.TrimRight(filepath.ToSlash(filepath.Clean(p)), "/"))
 }
 
-// mergedBranchTips is every local branch merged into main, mapped to its own
+// mergedBranchTips is every local branch merged into trunk, mapped to its own
 // tip SHA — the SHA is what tells a genuinely-landed branch apart from a
-// fresh one sitting at main's own tip.
-func mergedBranchTips(mainRepo string) map[string]string {
-	out, err := git(mainRepo, "for-each-ref", "--merged", "main",
+// fresh one sitting at trunk's own tip.
+func mergedBranchTips(mainRepo, trunk string) map[string]string {
+	out, err := git(mainRepo, "for-each-ref", "--merged", trunk,
 		"--format=%(refname:short) %(objectname)", "refs/heads/")
 	if err != nil {
 		return nil

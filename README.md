@@ -430,16 +430,18 @@ aphrollo workspace sync aphrollo-web --dry   # "would fast-forward main to origi
 - It runs `git fetch origin` (an offline / remote-less repo is a **non-fatal
   warning** — refreshing `origin/<default>` is the minimum win), then resolves
   the default branch (never hardcoded) and **fast-forwards it — strict FF only**:
-  - HEAD **is** the default branch and the worktree is **clean** → `git merge
-    --ff-only origin/<default>`;
+  - HEAD **is** the default branch → `git merge --ff-only origin/<default>`.
+    Git, not a pre-check, judges whether that is safe: an unrelated dirty file
+    is carried across untouched, and only a dirty path the incoming commits
+    themselves touch makes git refuse — sync prints git's own reason
+    (`main could not fast-forward: <git's reason>`) and **exits 0**;
   - the default branch is **not** the checked-out one → advance its ref with
     `git update-ref` (no checkout, so a sibling worktree's files are untouched).
-- It **never** `reset --hard`s, forces, touches a dirty worktree, or moves the
-  branch when it has **diverged** (local commits ahead). A dirty or diverged
-  clone is **left untouched** with a clear reason and **exit 0** (best-effort).
-  The fetch still happens in that case. Only the default branch is synced —
-  ticket branches and other worktrees are left alone. `--dry` previews and
-  mutates nothing.
+- It **never** `reset --hard`s, forces, or moves the branch when it has
+  **diverged** (local commits ahead). A diverged clone is **left untouched**
+  with a clear reason and **exit 0** (best-effort). The fetch still happens in
+  that case. Only the default branch is synced — ticket branches and other
+  worktrees are left alone. `--dry` previews and mutates nothing.
 
 ### Close the loop — merge / prune
 

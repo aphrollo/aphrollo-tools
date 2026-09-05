@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // stubGH swaps the gh seam for the duration of a test and restores it after.
@@ -110,6 +111,46 @@ func TestPR_ReusesExisting(t *testing.T) {
 	}
 }
 
+// A branch whose most recent PR is MERGED or CLOSED is a branch with no OPEN
+// PR: `gh pr view` returns the most recent PR for the branch regardless of
+// state, so PR.Apply must not read that hit as "already open" and stand
+// down — it must open a fresh one, exactly like reuseOpenPR's own dead-PR
+// path (push.go).
+func TestPR_OpensANewPRWhenTheExistingOneIsMergedOrClosed(t *testing.T) {
+	for _, state := range []string{"MERGED", "CLOSED"} {
+		t.Run(state, func(t *testing.T) {
+			repo := repoWithRemote(t)
+			var created *PRCreate
+			stubGH(t,
+				func(wt, branch string) (*PRInfo, error) {
+					return &PRInfo{Number: 5, URL: "https://github.com/o/r/pull/5", State: state}, nil
+				},
+				func(wt string, req PRCreate) (*PRInfo, error) {
+					created = &req
+					return &PRInfo{Number: 9, URL: "https://github.com/o/r/pull/9", State: "OPEN"}, nil
+				},
+			)
+			pr, err := PRPlan(targetFor(repo, "main"), "main", "", "", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var out, errb bytes.Buffer
+			if err := pr.Apply(&out, &errb); err != nil {
+				t.Fatalf("Apply: %v\n%s", err, errb.String())
+			}
+			if created == nil {
+				t.Fatalf("a %s PR must not be reused — a fresh one must be opened", state)
+			}
+			if !strings.Contains(out.String(), "opened PR #9") {
+				t.Errorf("output should report the newly opened PR:\n%s", out.String())
+			}
+			if strings.Contains(out.String(), "already open") {
+				t.Errorf("a %s PR must never be reported as already open:\n%s", state, out.String())
+			}
+		})
+	}
+}
+
 func TestPR_BranchNotOnOrigin(t *testing.T) {
 	repo := initRepo(t) // no remote at all
 	stubGH(t,
@@ -132,13 +173,17 @@ func TestPRPlan_DetachedHEAD(t *testing.T) {
 	}
 }
 
-func TestPRPlan_BaseDefaultsToMain(t *testing.T) {
-	pr, err := PRPlan(targetFor("/x", "feat"), "", "", "", false)
+// An empty base must resolve the repo's ACTUAL default branch, never assume
+// "main" — a repo whose default is "trunk" must get "trunk".
+func TestPRPlan_BaseDefaultsToTheRepoResolvedTrunkNotLiteralMain(t *testing.T) {
+	upstream := upstreamRepo(t, "trunk")
+	clone := cloneOf(t, upstream)
+	pr, err := PRPlan(targetFor(clone, "feat"), "", "", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pr.Create.Base != "main" {
-		t.Errorf("base = %q, want main", pr.Create.Base)
+	if pr.Create.Base != "trunk" {
+		t.Errorf("base = %q, want trunk (the repo's resolved default)", pr.Create.Base)
 	}
 }
 
@@ -226,6 +271,47 @@ func TestGhCIStatusArgs_GuardsBranchBehindTerminator(t *testing.T) {
 	want := []string{"pr", "checks", "--json", "state", "--", "--repo=owner/other-repo"}
 	if !slices.Equal(got, want) {
 		t.Errorf("ghCIStatusArgs(...) = %v, want %v", got, want)
+	}
+}
+
+// A stalled `gh pr view` is a real failure, not an answer about whether a PR
+// exists — ghViewPRReal must propagate the (timeout) error rather than
+// reading any non-nil error as absence. Before #290's network deadline, a
+// stalled call hung forever and never reached this branch; the deadline
+// making it return an error at all means the absence-vs-failure distinction
+// downstream now has to be explicit.
+func TestGhViewPRReal_ATimeoutIsPropagatedNotReadAsNoPR(t *testing.T) {
+	putSlowStubOnPath(t)
+	t.Setenv("SLOWSTUB_SLEEP_MS", "3000")
+	defer func(d time.Duration) { ghTimeout = d }(ghTimeout)
+	ghTimeout = 200 * time.Millisecond
+
+	info, err := ghViewPRReal(t.TempDir(), "feat/x")
+	if err == nil {
+		t.Fatal("a timed-out gh pr view must return an error, not be read as no-PR")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("error should name the timeout, got: %v", err)
+	}
+	if info != nil {
+		t.Errorf("expected nil info on a real failure, got %+v", info)
+	}
+}
+
+// The legitimate case must still work: gh's own "no PR for this branch"
+// message is absence, not a failure, and must still yield (nil, nil) so
+// Apply creates one.
+func TestGhViewPRReal_StillReadsGhsOwnNoPRMessageAsAbsence(t *testing.T) {
+	putSlowStubOnPath(t)
+	t.Setenv("SLOWSTUB_EXIT", "1")
+	t.Setenv("SLOWSTUB_STDERR", "no pull requests found for branch \"feat/x\"\n")
+
+	info, err := ghViewPRReal(t.TempDir(), "feat/x")
+	if err != nil {
+		t.Fatalf("gh's own no-PR message must be read as absence, not an error: %v", err)
+	}
+	if info != nil {
+		t.Errorf("expected nil info for a branch with no PR, got %+v", info)
 	}
 }
 
