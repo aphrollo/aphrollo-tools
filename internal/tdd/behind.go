@@ -70,6 +70,7 @@ var lsRemoteFn = func(ctx context.Context) (string, error) {
 // the helper never exits on its own.
 func runLsRemote(ctx context.Context, gitProgram string) (string, error) {
 	cmd := exec.CommandContext(ctx, gitProgram, "ls-remote", "--heads", binaryBehindRemote, "main")
+	cmd.SysProcAttr = suiteAttrs()
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
 			return nil
