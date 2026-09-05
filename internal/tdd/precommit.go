@@ -159,26 +159,26 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 	if res := mutationReceiptStage(repoRoot); res != nil {
 		// Printing it here too would state the same paragraph twice: the hook
 		// that called this prints what it is given.
-		appendGateLog("premergecommit", repoRoot, "mutation-receipt", "receipt-rejected", 0)
+		appendGateLog(premergeLogToken, repoRoot, "mutation-receipt", "receipt-rejected", 0)
 		return *res
 	}
 	if docsOnly(repoRoot) {
-		return docsOnlyFastPath("premergecommit", repoRoot)
+		return docsOnlyFastPath(premergeDisplayName, repoRoot)
 	}
 
 	var notes []string
 	// Same order as Precommit, and for the same reason: a merge carrying only
 	// a raised baseline or a law regression must answer for it before the
 	// has-code check can wave it through.
-	if res := baselineStage("premergecommit", repoRoot); res.Blocked {
+	if res := baselineStage(premergeDisplayName, repoRoot); res.Blocked {
 		return res
 	}
-	if res := ratchetStage("premergecommit", repoRoot); res.Blocked {
+	if res := ratchetStage(premergeDisplayName, repoRoot); res.Blocked {
 		return res
 	} else if res.Message != "" {
 		notes = append(notes, res.Message)
 	}
-	if res := docsCheckStage("premergecommit", repoRoot); res.Blocked {
+	if res := docsCheckStage(premergeDisplayName, repoRoot); res.Blocked {
 		return res
 	} else if res.Message != "" {
 		notes = append(notes, res.Message)
@@ -186,13 +186,13 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 
 	groups := stagedRootGroups(repoRoot)
 	if len(groups) == 0 {
-		line := nothingToTestLine("premergecommit")
+		line := nothingToTestLine(premergeDisplayName)
 		fmt.Fprintln(os.Stderr, line)
 		notes = append(notes, line)
 		return GateResult{Message: strings.Join(notes, "\n")}
 	}
 	for _, g := range groups {
-		res := gateRoot("premergecommit", repoRoot, g, run, false)
+		res := gateRoot(premergeDisplayName, repoRoot, g, run, false)
 		if res.Blocked {
 			return res
 		}
@@ -222,7 +222,7 @@ func mutationReceiptStage(repoRoot string) *GateResult {
 	// refuse every lane merge forever. The stand-down is logged, so "no
 	// receipt was required" never reads as "a receipt was checked".
 	if !mutationJudgedLocally(repoRoot) {
-		appendGateLog("premergecommit", logToken(repoRoot), "receipt", "receipt-measured-in-ci", 0)
+		appendGateLog(premergeLogToken, logToken(repoRoot), "receipt", "receipt-measured-in-ci", 0)
 		return &GateResult{Message: "mutation receipt not judged here: this repo measures it on the CI runner (mutants-local = false)"}
 	}
 	// Only the direction that matters. A receipt proves a LANE was measured
@@ -231,7 +231,7 @@ func mutationReceiptStage(repoRoot string) *GateResult {
 	// instead — which polluted the lane's merge-base diff with all of main's
 	// changes and made every later mutation run measure them (issue #110).
 	if why, catchUp := catchUpMerge(repoRoot); catchUp {
-		appendGateLog("premergecommit", repoRoot, "receipt", "catchup-merge", 0)
+		appendGateLog(premergeLogToken, repoRoot, "receipt", "catchup-merge", 0)
 		return &GateResult{Message: "mutation receipt not judged: " + why}
 	}
 	tip, ok := mergeTipOf(repoRoot)
