@@ -135,26 +135,58 @@ func isDirtyPathRefusal(out []byte) bool {
 	return strings.Contains(s, "would be overwritten by") || strings.Contains(s, "Not possible to fast-forward")
 }
 
-// reasonLine picks the one line of git's CombinedOutput worth reporting as
-// "why" a merge failed: the first line starting with "error:" or "fatal:" —
-// git's own diagnostic — falling back to the first non-empty line when
-// neither is present. CombinedOutput interleaves stdout (git's "Updating
-// a..b" progress) and stderr (the actual reason) only through stdio
-// buffering order, so picking the first non-empty line unconditionally can
-// surface the progress noise instead of the diagnostic.
+// reasonMaxLines caps how many lines reasonLine returns for a single
+// refusal: the error:/fatal: sentence plus its indented continuation. Git's
+// "would be overwritten" refusal lists one indented path per conflicting
+// file, and a pathological many-file conflict must not turn into an
+// unbounded stdout line — a handful of paths is already enough to act on.
+const reasonMaxLines = 8
+
+// reasonLine picks the lines of git's CombinedOutput worth reporting as "why"
+// a merge failed: starting from the first line prefixed "error:" or
+// "fatal:" — git's own diagnostic — it also keeps every line immediately
+// after that is indented (tab or space), because that is where git puts the
+// offending path(s) ("would be overwritten by merge:\n\tbase.txt"); dropping
+// those leaves the generic sentence with the actionable part stripped off.
+// It stops at the first line that is neither indented nor another
+// error:/fatal: line — that drops git's trailing "Please commit your
+// changes..." / "Aborting" boilerplate, which is noise. Falls back to the
+// first non-empty line when no error:/fatal: line is present at all.
+// CombinedOutput interleaves stdout (git's "Updating a..b" progress) and
+// stderr (the actual reason) only through stdio buffering order, so picking
+// the first non-empty line unconditionally can surface the progress noise
+// instead of the diagnostic.
 func reasonLine(out []byte) string {
-	var fallback string
-	for _, line := range strings.Split(string(out), "\n") {
+	lines := strings.Split(string(out), "\n")
+	for i, line := range lines {
 		l := strings.TrimSpace(line)
 		if l == "" {
 			continue
 		}
 		if strings.HasPrefix(l, "error:") || strings.HasPrefix(l, "fatal:") {
-			return l
-		}
-		if fallback == "" {
-			fallback = l
+			kept := []string{l}
+			for _, cont := range lines[i+1:] {
+				if len(kept) >= reasonMaxLines {
+					break
+				}
+				if strings.TrimSpace(cont) == "" {
+					continue
+				}
+				indented := strings.HasPrefix(cont, " ") || strings.HasPrefix(cont, "\t")
+				contTrimmed := strings.TrimSpace(cont)
+				isDiagLine := strings.HasPrefix(contTrimmed, "error:") || strings.HasPrefix(contTrimmed, "fatal:")
+				if !indented && !isDiagLine {
+					break
+				}
+				kept = append(kept, contTrimmed)
+			}
+			return strings.Join(kept, "\n")
 		}
 	}
-	return fallback
+	for _, line := range lines {
+		if l := strings.TrimSpace(line); l != "" {
+			return l
+		}
+	}
+	return ""
 }
