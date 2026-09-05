@@ -366,23 +366,33 @@ func TestRunGoMutantsCI_MeasuresFromTheRepoRootNotTheDirectoryItWasHanded(t *tes
 	}
 }
 
+// ratchet: test_removed TestPipeline_RunsTheMutationCheckOnPushesToMainOnly: renamed to
+// TestNightlyMutants_RunsOnScheduleNotPerPush below and retargeted at nightly-mutants.yml,
+// the job's new home since issue #334 moved it off pipeline.yml's per-push path.
+
 // A mutation gate nobody runs is the failure mode this whole design is
-// against, so the wiring is pinned rather than assumed: the pipeline carries
-// the job, it invokes the runner in this package, and it keeps the receipt.
-// The job is a tripwire, not a gate: a merge is judged locally under the
-// pre-merge-commit gate, and this run on main records an escape when it
-// disagrees. Nothing waits for it, so it never runs on a pull request.
-func TestPipeline_RunsTheMutationCheckOnPushesToMainOnly(t *testing.T) {
-	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
+// against, so the wiring is pinned rather than assumed: nightly-mutants.yml
+// carries the job, it invokes the runner in this package, and it keeps the
+// receipt. The job is a tripwire, not a gate: a merge is judged locally under
+// the pre-merge-commit gate, and this run on main records an escape when it
+// disagrees. It runs on a schedule rather than per push (issue #334: a
+// per-push job held one of the two self-hosted runners shared by nine repos
+// for its own budget after that push's own deploy had already shipped), so
+// nothing here waits for a pull request either.
+func TestNightlyMutants_RunsOnScheduleNotPerPush(t *testing.T) {
+	wf := repoFile(t, ".github", "workflows", "nightly-mutants.yml")
 	for want, why := range map[string]string{
-		"\n  mutants:\n":                      "the pipeline must declare a `mutants` job: the tripwire that runs after a local merge lands",
-		"    if: github.event_name == 'push'": "the job runs on pushes to main only; a pull request is never judged by it, the local pre-merge gate is",
-		"gate mutants go --diff":              "the job must run the diff-scoped CI runner, not the detached local job",
-		"upload-artifact":                     "the run's receipt is its evidence and must leave the runner",
+		"\n  mutants:\n":         "the workflow must declare a `mutants` job: the tripwire that runs after a local merge lands",
+		"  schedule:\n":          "the job runs on a schedule, not per push (issue #334): batching merges is the whole point of moving it off the per-merge critical path",
+		"gate mutants go --diff": "the job must run the diff-scoped CI runner, not the detached local job",
+		"upload-artifact":        "the run's receipt is its evidence and must leave the runner",
 	} {
 		if !strings.Contains(wf, want) {
-			t.Errorf("%s (looked for %q in .github/workflows/pipeline.yml)", why, want)
+			t.Errorf("%s (looked for %q in .github/workflows/nightly-mutants.yml)", why, want)
 		}
+	}
+	if strings.Contains(wf, "if: github.event_name == 'push'") {
+		t.Error("must not gate on push any more — that is the per-merge critical path issue #334 moved this job off of")
 	}
 }
 

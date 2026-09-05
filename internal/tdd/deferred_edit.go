@@ -312,9 +312,14 @@ func sourceIdentity(root, target string) string {
 // this closes is that "result at the next hook" reads as "in progress",
 // which invites a caller to stop and wait, but nothing delivers the verdict
 // unless another edit or prompt arrives to harvest it — the very thing
-// waiting removes. Committing is the answer that needs nothing new from the
+// waiting removes. Committing is one answer that needs nothing new from the
 // caller: the precommit gate runs the suite itself and judges the work.
-const buildingEscape = "no verdict until then — commit and precommit will judge it, or rerun the suite yourself"
+// `gate status --wait` is the other, and the one actually meant for a
+// caller who wants the verdict NOW: it blocks on this same job rather than
+// spawning a second run that queues behind the first (issue #430) — a
+// rerun is deliberately NOT offered here any more, since it is exactly the
+// double run the deferred phase exists to avoid.
+const buildingEscape = "no verdict until then — commit and precommit will judge it, or run: aphrollo gate status --wait"
 
 // buildingLine is the ONE line an edit gets when its work is still running.
 // It names the crate and how long it has been going, so a session can tell

@@ -12,12 +12,12 @@ import (
 //
 //	fatal: ambiguous argument '': unknown revision or path not in the working tree.
 //
-// exit 128. Every job that needs it -- test, lint, vulncheck, sast,
-// benchmarks, docs-check, build and the mutants tripwire, which is declared
-// to run on pushes to main and ONLY there -- is then skipped. A push to main
-// therefore reported a red pipeline having run no check at all, which is the
-// worst of both: no coverage, and a failure signal that says nothing about
-// the code.
+// exit 128. Every job that needs it -- test, lint, scan, benchmarks,
+// docs-check and build -- is then skipped. A push to main therefore reported
+// a red pipeline having run no check at all, which is the worst of both: no
+// coverage, and a failure signal that says nothing about the code. (The
+// mutants tripwire itself moved to nightly-mutants.yml, issue #334, and no
+// longer runs on push at all.)
 //
 // A push carries its own base in `github.event.before`, so every site that
 // reads a base must fall back to it.
