@@ -3,6 +3,7 @@ package tdd
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -164,6 +165,152 @@ func TestBinaryBehindLine_BacksOffTenMinutesAfterAFailedLookup(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatalf("lsRemoteFn called %d times after the backoff cleared, want 2", calls)
+	}
+}
+
+// gateLogContent reads the whole gate.log the test's isolated CLAUDE_CONFIG_DIR
+// wrote, "" when nothing was ever logged (no state dir, or nothing appended).
+func gateLogContent(t *testing.T) string {
+	t.Helper()
+	path := GateLogPath()
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// A command failure (not a timeout) must never be silent in the ledger: it
+// is recorded once through appendGateLog, distinguishable from a timeout, and
+// the user-facing return value is untouched.
+func TestBinaryBehindLine_RecordsAStanddownOnCommandFailure(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setStamp(t, stampedCommit)
+	stubLsRemote(t, func(ctx context.Context) (string, error) {
+		return "", errors.New("network unreachable")
+	})
+
+	if got := BinaryBehindLine(time.Now()); got != "" {
+		t.Fatalf("BinaryBehindLine() = %q, want \"\"", got)
+	}
+	log := gateLogContent(t)
+	if !strings.Contains(log, "standdown-failed") {
+		t.Fatalf("gate.log does not record the command-failure standdown:\n%s", log)
+	}
+	if strings.Contains(log, "standdown-timeout") {
+		t.Fatalf("a command failure must not be recorded as a timeout:\n%s", log)
+	}
+}
+
+// A timeout must record a DISTINCT reason from a command failure — they are
+// different problems (a hung remote vs. a rejected one) with different fixes.
+func TestBinaryBehindLine_RecordsAStanddownOnTimeoutDistinctFromFailure(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setStamp(t, stampedCommit)
+	stubLsRemote(t, func(ctx context.Context) (string, error) {
+		<-ctx.Done()
+		return "", ctx.Err()
+	})
+
+	if got := BinaryBehindLine(time.Now()); got != "" {
+		t.Fatalf("BinaryBehindLine() = %q, want \"\"", got)
+	}
+	log := gateLogContent(t)
+	if !strings.Contains(log, "standdown-timeout") {
+		t.Fatalf("gate.log does not record the timeout standdown:\n%s", log)
+	}
+	if strings.Contains(log, "standdown-failed") {
+		t.Fatalf("a timeout must not be recorded as a plain failure:\n%s", log)
+	}
+}
+
+// Two consecutive calls in the SAME failure state must record the standdown
+// only once: a box with no network must not write a line every session
+// start, only when the state actually CHANGES.
+func TestBinaryBehindLine_RecordsTheStanddownOnceAcrossRepeatedSameFailures(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setStamp(t, stampedCommit)
+	stubLsRemote(t, func(ctx context.Context) (string, error) {
+		return "", errors.New("network unreachable")
+	})
+
+	t0 := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	BinaryBehindLine(t0)
+	// Past the 10-minute backoff, so the second call re-hits the network and
+	// fails again in the SAME way — the interesting case, not the backoff.
+	BinaryBehindLine(t0.Add(11 * time.Minute))
+
+	if n := strings.Count(gateLogContent(t), "standdown-failed"); n != 1 {
+		t.Fatalf("standdown-failed recorded %d time(s) across two same-state failures, want 1:\n%s", n, gateLogContent(t))
+	}
+}
+
+// A recovery followed by a new failure records the standdown again: the
+// transition is what gets logged, and going healthy resets it.
+func TestBinaryBehindLine_RecordsAgainAfterARecoveryThenANewFailure(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setStamp(t, stampedCommit)
+
+	calls := 0
+	stubLsRemote(t, func(ctx context.Context) (string, error) {
+		calls++
+		if calls == 2 {
+			return originHead, nil // the recovery, sandwiched between two failures
+		}
+		return "", errors.New("network unreachable")
+	})
+
+	t0 := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	BinaryBehindLine(t0)                                               // 1: fails
+	BinaryBehindLine(t0.Add(11 * time.Minute))                         // 2: recovers
+	BinaryBehindLine(t0.Add(11*time.Minute + time.Hour + time.Minute)) // 3: fails again, past the success TTL
+
+	if n := strings.Count(gateLogContent(t), "standdown-failed"); n != 2 {
+		t.Fatalf("standdown-failed recorded %d time(s) across fail/recover/fail, want 2:\n%s", n, gateLogContent(t))
+	}
+}
+
+// A recovery itself is logged too — the Fix's other half of "once per
+// transition": going healthy is as much a state change as going unhealthy.
+func TestBinaryBehindLine_RecordsRecoveryAfterAFailure(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setStamp(t, stampedCommit)
+
+	calls := 0
+	stubLsRemote(t, func(ctx context.Context) (string, error) {
+		calls++
+		if calls == 1 {
+			return "", errors.New("network unreachable")
+		}
+		return originHead, nil
+	})
+
+	t0 := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	BinaryBehindLine(t0)
+	BinaryBehindLine(t0.Add(11 * time.Minute))
+
+	if !strings.Contains(gateLogContent(t), "recovered") {
+		t.Fatalf("gate.log does not record the recovery:\n%s", gateLogContent(t))
+	}
+}
+
+// A lookup that succeeds and has NEVER failed before must write no standdown
+// (or recovery) token at all — success is silent in the ledger too, not just
+// to the user.
+func TestBinaryBehindLine_RecordsNoTokenOnAPlainSuccess(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setStamp(t, stampedCommit)
+	stubLsRemote(t, func(ctx context.Context) (string, error) {
+		return originHead, nil
+	})
+
+	BinaryBehindLine(time.Now())
+
+	if log := gateLogContent(t); log != "" {
+		t.Fatalf("a plain success must record nothing in gate.log, got:\n%s", log)
 	}
 }
 

@@ -140,6 +140,29 @@ func TestGateStats_CountsAQueueBypass(t *testing.T) {
 	}
 }
 
+// A binary-behind standdown (#374) is the same shape as every other silent
+// give-up here: it reaches gate.log outside the fixed stage/outcome
+// vocabulary, and until it is counted as a deny, a permanently broken
+// `git ls-remote` is invisible to `gate stats` the same way a hand-written
+// receipt used to be.
+func TestGateStats_CountsABinaryBehindStanddown(t *testing.T) {
+	log := strings.Join([]string{
+		stamp(time.Now().UTC(), "binary-behind", "-", "git ls-remote", "standdown-timeout", 0),
+		stamp(time.Now().UTC(), "binary-behind", "-", "git ls-remote", "standdown-failed", 0),
+	}, "") + "\n"
+
+	s := GateStats(strings.NewReader(log), time.Time{})
+	if s.Denies["standdown-timeout"] != 1 || s.Denies["standdown-failed"] != 1 {
+		t.Fatalf("denies = %v, want one of each standdown reason", s.Denies)
+	}
+	out := RenderGateStats(s)
+	for _, want := range []string{"standdown-timeout", "standdown-failed"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered stats never mention %s:\n%s", want, out)
+		}
+	}
+}
+
 // A worktree the post-commit hook could not prepare is a run that never
 // happened, and until now it fell through every tally: not in the fixed
 // stage/outcome vocabulary, not in Denies. `gate stats` must show it, error
