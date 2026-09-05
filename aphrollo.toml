@@ -40,6 +40,15 @@ mutants-judge-local = true
 # Survivors somebody signed off on: "<file>:<line> <MUTATOR> # why". The
 # reason is not decoration — an entry without one is not an accepted survivor,
 # and the CI check goes red for it. Empty is the state to keep it in.
+#
+# The reason may open with a machine-readable "kind=<kind>: " directive
+# (issue #268), naming which of three claims it makes; a reason with no
+# directive is legacy shorthand for "kind=equivalent". A misspelled kind is
+# refused loudly rather than read as equivalent.
+#
+#   kind=equivalent: <why the two forms compute the same thing>
+#   kind=unobservable-runner test=<TestName>: <why only that test covers it>
+#   kind=unobservable-capability issue=<ref>: <why no test can exist yet>
 mutation-accept = [
   "internal/cli/mergerecover.go:134 CONDITIONALS_BOUNDARY # `time.Since(info.ModTime()) > staleMarkerAge` versus `>=` differ only when the elapsed wall-clock duration equals staleMarkerAge to the nanosecond. A test cannot produce that equality: it does not control the clock at that resolution, and freshRejectionMarker reads a real file mtime. It is also semantically equivalent AT the boundary — a marker exactly staleMarkerAge old is litter either way, and the function's contract (reclaim a marker no newer than this invocation) is satisfied by reclaiming it or by falling through to the ModTime comparison that then rejects it. Proven by hand-mutating > to >= and running the full internal/cli suite: `ok github.com/aphrollo/aphrollo-tools/internal/cli 113.764s`, no test distinguishes them; the file was restored byte-identically",
   "internal/ratchet/preset.go:66 CONDITIONALS_BOUNDARY # ties never occur among distinct groups, so < vs <= never diverges on the real embedded data — proven by TestListPresets_ReturnsEntriesSortedByGroupThenName, which stays green under this boundary mutant",

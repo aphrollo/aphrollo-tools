@@ -72,8 +72,12 @@ type MutationReceipt struct {
 	// with one accepted survivor, because tools/mutation_gate.sh writes each
 	// as {"file","line","mutation"}. MutantName takes either spelling. A
 	// non-empty Unaccepted is the whole rule.
-	Survivors  []MutantName `json:"survivors"`
-	Accepted   int          `json:"accepted"`
+	Survivors []MutantName `json:"survivors"`
+	Accepted  int          `json:"accepted"`
+	// AcceptKindCounts splits Accepted by claim (issue #268): closed
+	// equivalence versus the two kinds of parked debt. Zero fields for a
+	// producer that predates it, same as every other omitempty count here.
+	AcceptKindCounts
 	Unaccepted []MutantName `json:"unaccepted"`
 	Verdict    string       `json:"verdict"`
 	FinishedAt time.Time    `json:"finished_at"`
