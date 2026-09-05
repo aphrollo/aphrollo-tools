@@ -1,0 +1,10 @@
+name        = "test_removed"
+description = "A test present at the base ref and gone at the tip needs a tombstone, not silence — a test can be renamed, moved to another file, or genuinely retired, and only the last of those is a regression. Admit a real removal with `// ratchet: test_removed <name>: <reason>` (or `# ratchet: test_removed <name>: <reason>` where `#` is the comment syntax) placed anywhere in an in-scope file at the tip; a tombstone with nothing after the colon does not count. `pattern` names the language's test-declaration shape and must capture exactly the test's name in its one group — see the language presets in this same family for a worked example — the language preset supplies the pattern."
+severity    = "deny"
+
+[scope]
+include = [{{include}}]
+
+[matcher]
+kind    = "symbol-removed"
+pattern = "{{pattern}}"

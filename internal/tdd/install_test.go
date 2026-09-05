@@ -37,6 +37,36 @@ func TestInstallPlan_ShimUsesResolvedBinPath(t *testing.T) {
 	}
 }
 
+// The pre-merge-commit shim invokes the renamed "premerge" subcommand, not
+// the pre-rename "premergecommit" spelling — git's hook FILE keeps git's own
+// name, only the aphrollo verb it calls changes.
+func TestInstall_WiresPreMergeCommitToGatePremerge(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git", "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildInstallPlan(root, testBin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, h := range plan.Hooks {
+		if filepath.Base(h.Path) != "pre-merge-commit" {
+			continue
+		}
+		found = true
+		if !strings.Contains(h.Content, "gate premerge") {
+			t.Fatalf("pre-merge-commit shim does not invoke gate premerge:\n%s", h.Content)
+		}
+		if strings.Contains(h.Content, "premergecommit") {
+			t.Fatalf("pre-merge-commit shim still invokes the pre-rename spelling:\n%s", h.Content)
+		}
+	}
+	if !found {
+		t.Fatal("BuildInstallPlan did not produce a pre-merge-commit hook")
+	}
+}
+
 func TestInstallPlan_ApplyWritesExecutableShims(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".git", "hooks"), 0o755); err != nil {
@@ -50,7 +80,7 @@ func TestInstallPlan_ApplyWritesExecutableShims(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for name, sub := range map[string]string{"pre-commit": "precommit", "pre-merge-commit": "premergecommit"} {
+	for name, sub := range map[string]string{"pre-commit": "precommit", "pre-merge-commit": "premerge"} {
 		p := filepath.Join(root, ".git", "hooks", name)
 		fi, err := os.Stat(p)
 		if err != nil {

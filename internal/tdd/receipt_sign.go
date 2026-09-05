@@ -177,19 +177,19 @@ func verifyReceiptMAC(data []byte, repo, tipTree string) *GateResult {
 		return nil // the caller's own decode reports an unreadable receipt
 	}
 	if probe.MAC == "" {
-		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-forged", 0)
+		appendGateLog(premergeLogToken, logToken(repo), "mutation-receipt", "receipt-forged", 0)
 		return &GateResult{Blocked: true, Message: "gate: receipt not written by the runner (unsigned)"}
 	}
 	key, err := receiptKey()
 	if err != nil {
 		// No key on this box: the gate cannot tell signed from forged, and
 		// its own blind spot must not reject somebody's proof.
-		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-unverifiable", 0)
+		appendGateLog(premergeLogToken, logToken(repo), "mutation-receipt", "receipt-unverifiable", 0)
 		return nil
 	}
 	want, err := receiptMAC(data, key)
 	if err != nil || !hmac.Equal([]byte(want), []byte(probe.MAC)) {
-		appendGateLog("premergecommit", logToken(repo), "mutation-receipt", "receipt-forged", 0)
+		appendGateLog(premergeLogToken, logToken(repo), "mutation-receipt", "receipt-forged", 0)
 		return &GateResult{Blocked: true, Message: "gate: receipt not written by tools/mutation_gate.sh — the mutation receipt for tree " +
 			short(tipTree) + " does not verify against this machine's signing key"}
 	}

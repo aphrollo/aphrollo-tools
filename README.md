@@ -190,8 +190,20 @@ Companion read/remove subcommands:
 ```sh
 aphrollo workspace list aphrollo-web                             # bare name, from anywhere under the spaces tree
 aphrollo workspace list ~/spaces/aphrollo/aphrollo-web           # or an explicit path
+# …/.worktrees/aphrollo-web/feat-kanban  feat/kanban  2d  0 dirty  PR OPEN
+# …/.worktrees/aphrollo-web/old-spike    detached     9d  0 dirty  PR none
+
 aphrollo workspace remove ~/spaces/aphrollo/aphrollo-web feat/kanban
+aphrollo workspace remove ~/spaces/aphrollo/aphrollo-web feat/kanban --keep-branch  # worktree only, branch stays
+aphrollo workspace remove ~/spaces/aphrollo/aphrollo-web feat/kanban --force        # also drop a dirty worktree
 ```
+
+`list` renders one line per worktree: path, branch (`detached` for none),
+whole days since its last commit, the dirty-file count, and the branch's PR
+state (`none` when there isn't one, `?` when the lookup itself failed or did
+not answer in time — the same `gh pr view` seam `prune` uses, resolved
+concurrently, capped per worktree, so one slow lookup never holds up the rest
+of the listing).
 
 Exit codes: `0` ok, `1` runtime error, `2` usage error.
 
@@ -337,17 +349,21 @@ aphrollo workspace submit -m "Kanban drag-and-drop. Closes #200."
 
 ### Verify — the typecheck/lint the commit gate misses
 
-The TDD pre-commit gate runs the mechanical test suite (plus the anti-cheat and
-fail-first checks), but **not** typecheck or lint. So a type regression
-(`svelte-check`) or a lint failure sails past `commit`/`ship` and only turns up in
-CI. `verify` closes that gap: it resolves the **affected app** and runs that app's
-`{test, typecheck, lint}` trio. It is verification only — it never commits,
-pushes, or mutates source. Like the other `workspace` verbs it addresses the
-cwd's worktree (or `<repo> <branch>`) and **executes by default** (`--dry` previews).
+`workspace verify` is a **legacy name**: it prints `workspace verify is now
+aphrollo check` as its first line, then runs the same check it always did — the
+rename is in the name only, not (yet) the behavior. The TDD pre-commit gate runs
+the mechanical test suite (plus the anti-cheat and fail-first checks), but
+**not** typecheck or lint. So a type regression (`svelte-check`) or a lint
+failure sails past `commit`/`ship` and only turns up in CI. Verify closes that
+gap: it resolves the **affected app** and runs that app's `{test, typecheck,
+lint}` trio. It is verification only — it never commits, pushes, or mutates
+source. Like the other `workspace` verbs it addresses the cwd's worktree (or
+`<repo> <branch>`) and **executes by default** (`--dry` previews).
 
 ```sh
 # from inside aphrollo-web/apps/rlndx (or with rlndx files changed on the branch)
 aphrollo workspace verify --dry
+# workspace verify is now aphrollo check
 # workspace verify: aphrollo-web @ feat/kanban  (worktree …/aphrollo-web)
 #   app rlndx (apps/rlndx)
 #     1. test      npx vitest run
@@ -384,18 +400,18 @@ aphrollo workspace diff --stat           # diffstat only
 aphrollo workspace diff aphrollo-web feat/kanban   # target a worktree from outside
 ```
 
-### Catch a branch up to the default branch (update)
+### Catch a branch up to the default branch (update / rebase)
 
-`update` rebases the cwd worktree onto the fresh tip of `origin/<default>` and,
-on a clean rebase, force-pushes (with lease) so the open PR shows the rebased
-branch:
+`update` — alias `rebase`, same verb — rebases the cwd worktree onto the fresh
+tip of `origin/<default>` and, on a clean rebase, force-pushes (with lease) so
+the open PR shows the rebased branch:
 
 ```sh
 aphrollo workspace update                # fetch → rebase → push --force-with-lease
 # rebased feat/kanban onto origin/main
 # pushed feat/kanban -> origin --force-with-lease (3 commit(s) ahead of origin/main)
 
-aphrollo workspace update --dry          # "behind origin/main by N; would rebase"
+aphrollo workspace rebase --dry          # same verb: "behind origin/main by N; would rebase"
 ```
 
 - It runs `git fetch origin`, then rebases HEAD onto `origin/<default>` (resolved,
@@ -411,17 +427,18 @@ aphrollo workspace update --dry          # "behind origin/main by N; would rebas
 
 ### Catch the base clone up after a merge (sync)
 
-`sync <repo>` brings a base clone's **local default branch** up to the remote
+`sync [repo]` brings a base clone's **local default branch** up to the remote
 tip. `create`/`prepare` cut fresh worktrees from `origin/<default>` (post-fetch),
 but the canonical clone's own checked-out default branch never refreshes — it
 drifts further behind on every merge. `sync` is the non-destructive "catch the
-clone up to origin" primitive (the post-merge cleanup path calls it):
+clone up to origin" primitive (the post-merge cleanup path calls it). With no
+`<repo>` it resolves the caller's cwd repo — the same rule `commit` uses:
 
 ```sh
 aphrollo workspace sync aphrollo-web      # fetch → fast-forward local <default>
 # fast-forwarded main to origin/main (3 commit(s))
 
-aphrollo workspace sync aphrollo-web      # idempotent: re-running is a no-op
+aphrollo workspace sync                   # cwd-resolved, same effect from inside the clone
 # main already current with origin/main [skip]
 
 aphrollo workspace sync aphrollo-web --dry   # "would fast-forward main to origin/main (N behind)"
@@ -493,23 +510,46 @@ aphrollo workspace prune                 # removes the merged-clean worktrees
 aphrollo workspace prune --force         # also remove a dirty MERGED worktree
 ```
 
-`prune <repo> <branch>` is the **per-ticket form**: it removes exactly that one
-ticket's worktree (per-repo) instead of sweeping. It is **idempotent** — a
-re-run on an already-gone worktree is a no-op success (`already gone`), not an
-error — so a post-merge cleanup can re-run safely on redelivery. Like the sweep
-it leaves the **local branch** in place (deleting the branch is `remove`'s job)
-and folds in the stale admin-record prune:
+`prune <repo> <branch>` is the **per-ticket form** — exactly `remove <repo>
+<branch> --keep-branch`, same underlying code, so the two can never drift
+apart: it removes that one ticket's worktree and leaves the local branch in
+place (deleting the branch is plain `remove`'s job). It is **idempotent** — a
+re-run on an already-gone worktree is a no-op success (`[skip] … already
+gone`), not an error — so a post-merge cleanup can re-run safely on
+redelivery, and it folds in the stale admin-record prune. `--force` forwards
+straight through to the underlying `remove`, so a dirty ticket worktree still
+goes; without it, a dirty tree is refused (git's own refusal) and left intact:
 
 ```sh
-aphrollo workspace prune aphrollo-web feat/kanban --dry   # "would prune: …"
-aphrollo workspace prune aphrollo-web feat/kanban         # "pruned: …"
-aphrollo workspace prune aphrollo-web feat/kanban         # "already gone: …" (re-run, still exit 0)
+aphrollo workspace prune aphrollo-web feat/kanban --dry   # "would run: git … worktree remove …"
+aphrollo workspace prune aphrollo-web feat/kanban         # "[removed] worktree …"
+aphrollo workspace prune aphrollo-web feat/kanban         # "[skip] worktree … — already gone" (re-run, still exit 0)
+aphrollo workspace prune aphrollo-web feat/kanban --force # removes even a dirty ticket worktree
 ```
 
 So `prune` with **no branch** performs the full merged-worktree sweep
 (auto-detecting which worktrees are merged); `prune <repo> <branch>` targets a
 single ticket's worktree. To remove a worktree **and** delete its local branch,
-use `remove <repo> <branch>`.
+use `remove <repo> <branch>` (drop `--keep-branch`).
+
+**`--stale <dur>`** is a separate sweep, for worktrees the merged-PR rule can
+never see: a **detached** (no branch checked out) worktree with no PR for its
+directory's slug. A candidate must be ALL of: detached, no PR, no `<tree>.lane`
+marker beside it (an operator's explicit "still using this" flag), clean, its
+last commit older than `<dur>`, AND the newest mtime among its **tracked and
+untracked-but-not-gitignored** files older than `<dur>` — an ignored build dir
+(`target/`, `node_modules/`, `vendor/`, `.venv/`, …) never counts, so a rebuild
+artifact's fresh mtime can't mask an otherwise-idle tree. `<dur>` accepts a
+plain Go duration (`72h`) or a trailing-`d` day count (`3d`); it must be
+**positive** — `0d` or a negative duration is rejected outright, since either
+would make every age comparison pass immediately and sweep trees that are not
+idle at all:
+
+```sh
+aphrollo workspace prune --stale 3d --dry   # lists "would prune: … (stale)" + "skip: … (reason)"
+aphrollo workspace prune --stale 3d         # removes the idle detached trees
+aphrollo workspace prune --stale -3d        # rejected: "stale must be a positive duration such as 3d or 36h"
+```
 
 ### Dev-tier control plane (`aphrollo dev`)
 
@@ -608,12 +648,28 @@ live where being wrong only costs a re-run):
 | `gate postcommit` | git `post-commit` | Writes `refs/notes/gate` on the commit just made — `green <tree>` — when a root group's suite actually RAN green for exactly that tree. A cache hit is not that, so an amend (which re-runs the gate and hits the cache) leaves no note, which is the right answer for a commit no suite has run against. The note is what lets CI tell a red on a gated tip from a red on an ungated one; the git shim pushes the ref alongside a branch push. Then, for a commit on a lane branch in a repo opted in (`mutation-receipt = true`, in `[workspace.metadata.aphrollo]` for a Cargo workspace or a root `aphrollo.toml` otherwise), starts that lane's mutation run detached and at below-normal process priority — spawned by `gate mutants run --job <file>`. The same verb WITHOUT `--job` is the hand-typed entry point: it builds the same job for the checkout it is standing in and runs it in the foreground, under the same box-wide lock. A commit on `main`/`master`, a repo not opted in, or a box the run cannot fit on a drive skips silently. Never blocks — the commit already exists. |
 | `ratchet check` | git `pre-commit`/`pre-merge-commit`, and manual | Judges the tree against `.ratchet/laws/*.toml` (see [Ratchet laws](#ratchet-laws-aphrollo-ratchet)). |
 | `gate prepush` | git `pre-push` | **No-op** (mechanical-only mode). The gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
+| `gate premerge` | git `pre-merge-commit` | Runs ONLY the mechanical stage over the merge's staged files — no fail-first (a fresh test's RED/GREEN belongs to the authoring commit, already proven by `precommit` there) and no anti-cheat suppression scan (same reasoning) — so a git merge, which never fires `pre-commit`, still proves the COMBINED result compiles and passes before it lands. `gate premergecommit` is the pre-rename spelling, kept as a silent alias for one release; every line the routine prints starts `gate premerge:`. |
+| `gate allow` / `gate revoke` | manual | `allow <wall>` waives a wall for the session (`primary` today; `discard` joins later); bare `allow` (or `revoke`) lists the active waivers. See [Waivers](#waivers) below. |
+
+#### Waivers
+
+A wall's refusal and its doc read the same, because every wall shares one
+mechanism: `aphrollo gate allow <wall>` waives it for
+the session, `aphrollo gate revoke <wall>` restores it, and a bare `gate
+allow` (or `gate revoke`) lists every active waiver as `<wall> since
+<RFC3339> by <session>`, or `no waivers`. The scope is a property of the
+wall, not of the verb — `allow primary` is session-scoped, because a lane's
+worth of edits needs it; a later wall can be one-shot instead. `primary` is
+the primary-checkout merge-only rule (worktrees stay editable; the checkout
+holding `main` refuses a write when the repo has any linked worktree);
+`gate primary-edits on|off` and `/tdd primary-edits on|off` are the
+pre-rename spellings, kept as silent aliases for one release.
 
 #### Gate stage order (cheapest first)
 
-`precommit` and `premergecommit` run the same pipeline per project root and
-**stop at the first rejection**, so a formatting slip costs milliseconds
-instead of a full test build:
+`precommit` and `premerge` (alias: `premergecommit`) run the same pipeline
+per project root and **stop at the first rejection**, so a formatting slip
+costs milliseconds instead of a full test build:
 
 | # | stage | cost | notes |
 |---|---|---|---|
@@ -1066,7 +1122,7 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   Fail-first proves a test FAILED once; it says nothing about whether the
   test constrains behaviour, and a test that asserts nothing satisfies
   fail-first perfectly. A MERGE needs both. With the key set,
-  `premergecommit` looks up `<stateDir>/mutation-receipt.<tip_tree>.json`,
+  `premerge` (alias: `premergecommit`) looks up `<stateDir>/mutation-receipt.<tip_tree>.json`,
   where `<tip_tree>` is the LANE TIP's tree (`git rev-parse MERGE_HEAD:`
   — never the merge result, which nobody has mutation-tested). The file is
   written by the consuming repo's own mutation run (borld's
@@ -1098,7 +1154,10 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   it is a real answer. `unaccepted`'s entries are opaque to the gate — the
   producing repo decides how it names a mutant — and only the first is quoted
   in the rejection, which also names the command that produces a receipt. It
-  runs BEFORE any suite compiles.
+  runs BEFORE any suite compiles. A receipt WAIVER (a catch-up merge of main
+  into a lane, or `mutants-local = false` below) is only ever noted, never a
+  rejection — `premergecommit` still runs baselineStage, `ratchet check`,
+  `docs check` and the touched project roots' suites against the merged tree.
 - **`mutants-local`** (bool, default `true`) — where the proof is MEASURED.
   A Cargo repo has no runner that will do it, so the post-commit hook starts a
   detached run on the box and the key can stay unwritten. A repo whose pipeline
@@ -1577,6 +1636,16 @@ rule that changed drops the cache instead of inheriting verdicts reached under
 the old one. A repo with no laws dir under `.ratchet` says `no laws` and exits 0.
 
 <!-- ratchet-spec:end -->
+
+#### Preset catalogue example: `test_removed`
+
+`common/test_removed` is the `symbol-removed` kind's template: `go/test_removed`
+and `rust/test_removed` are its concrete, already-filled-in forms (a Go
+`Test`-prefixed function, a Rust `#[test]`/`#[tokio::test]` function), the same
+relationship `go/module_size` already has to `common/module_size`. This repo's
+own `.ratchet/laws/test_removed.toml` extends `go/test_removed`; a deliberate
+removal (a test found redundant, not just moved to another file) is admitted
+by leaving `// ratchet: test_removed <Name>: <why>` where the function stood.
 
 ### Pipeline health (`aphrollo gate stats`)
 
