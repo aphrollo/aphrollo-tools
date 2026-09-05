@@ -147,13 +147,13 @@ func RunPhase(jobPath string) int {
 const phaseSetupFailure = 125
 
 // stampDeferredStart moves the job's clock to when the build actually began.
+// Runs in the detached runphase process, concurrently with a PostToolUse
+// hook's markDeferredDirty in the process that spawned it — updateDeferredJob
+// (deferred.go) is what keeps the two from clobbering each other.
 func stampDeferredStart(session, root string, at time.Time) {
-	j, ok := loadDeferredJob(session, root)
-	if !ok {
-		return
-	}
-	j.Started = at
-	saveDeferredJob(j)
+	updateDeferredJob(session, root, func(j *DeferredJob) {
+		j.Started = at
+	})
 }
 
 // deferredSlotWait bounds how long a detached phase queues for a build slot:
