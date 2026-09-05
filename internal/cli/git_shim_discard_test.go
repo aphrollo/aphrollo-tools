@@ -379,7 +379,6 @@ func TestDiscardRefusalLine_RendersEachShape(t *testing.T) {
 // count it (zero() false), and discardRefusalLine must name it, not print a
 // refusal that claims 0 file(s)/+0/-0 while a file sits in the worktree.
 func TestWorktreeRemoveForce_RefusalNamesTheUntrackedFileItWouldDiscard(t *testing.T) {
-	isolateGitConfigCLI(t)
 	realGit := realGitForTest(t)
 	repo, _ := newDiscardFixture(t)
 	wt := filepath.Join(t.TempDir(), "wt")
