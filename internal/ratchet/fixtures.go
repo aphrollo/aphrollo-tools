@@ -217,6 +217,16 @@ func fixtureWholeTreeHits(base string, law Law, files []string, content map[stri
 			return nil, nil
 		}
 		return symbolRemovedHits(law, baseTree, files, content)
+	case KindCoChange:
+		if baseTree == nil {
+			return nil, nil
+		}
+		return coChangeHits(law, baseTree, files, content)
+	case KindHunkRegex:
+		if baseTree == nil {
+			return nil, nil
+		}
+		return hunkRegexHits(law, baseTree, files, content, "")
 	}
 	return nil, nil
 }

@@ -1,6 +1,31 @@
 package ratchet
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
+
+// ChangedScope names how a law's [scope] narrows its file set to a
+// diff-relational input — what a COMMIT changed — rather than the whole tree
+// every other scope judges. Empty (ChangedNone) is that ordinary tree-state
+// scope; a law with either other value answers nothing unless the caller
+// supplies the matching Options field (StagedFiles/LaneFiles) and a
+// pre-image reader, exactly like symbol-removed answers nothing without
+// --base.
+type ChangedScope string
+
+const (
+	// ChangedNone is no diff restriction: every other scope's tree-state
+	// question, unchanged.
+	ChangedNone ChangedScope = ""
+	// ChangedStaged is the files THIS COMMIT stages (Options.StagedFiles),
+	// pre-image at Options.Base (HEAD at commit time).
+	ChangedStaged ChangedScope = "staged"
+	// ChangedLane is the files the current lane has changed since it branched
+	// (Options.LaneFiles), pre-image at Options.LaneBase (the lane's
+	// merge-base).
+	ChangedLane ChangedScope = "lane"
+)
 
 // Scope is the set of files a law judges: slash-relative globs against the
 // repo root. Exclude always wins, so a law can name a broad include and carve
@@ -25,6 +50,67 @@ type Scope struct {
 	// law whose scope silently stopped matching (a crate renamed, a typo in a
 	// glob) reports green over files it never opened.
 	MinFiles int
+	// Changed narrows the file set to a diff-relational input instead of tree
+	// state — see ChangedScope.
+	Changed ChangedScope
+}
+
+// parseScope reads a law's [scope] table. Lives beside Scope itself rather
+// than in law.go's own top-level key parsing, which every other [scope] key
+// also does — scope parsing is one mechanism, not a table's worth of law.go.
+func parseScope(doc *tomlDoc) (Scope, error) {
+	if !doc.has("scope") {
+		return Scope{}, fmt.Errorf("missing [scope] — a law must say which files it judges")
+	}
+	var s Scope
+	for _, k := range doc.keys("scope") {
+		v, _ := doc.value("scope", k)
+		if k == "min_files" {
+			if v.kind != tomlInt || v.i < 0 {
+				return Scope{}, fmt.Errorf("scope.min_files is a non-negative integer")
+			}
+			s.MinFiles = v.i
+			continue
+		}
+		if k == "ignore_gitignore" {
+			if v.kind != tomlBool {
+				return Scope{}, fmt.Errorf("scope.ignore_gitignore is a boolean, got %s", v.kind)
+			}
+			s.IgnoreGitignore = v.b
+			continue
+		}
+		if k == "alias" {
+			if v.kind != tomlString || v.s == "" {
+				return Scope{}, fmt.Errorf("scope.alias is a non-empty string naming a set in %s", ScopesFile)
+			}
+			s.Alias = v.s
+			continue
+		}
+		if k == "changed" {
+			switch ChangedScope(v.s) {
+			case ChangedStaged, ChangedLane:
+				s.Changed = ChangedScope(v.s)
+			default:
+				return Scope{}, fmt.Errorf("scope.changed = %q — a changed scope is %q or %q", v.s, ChangedStaged, ChangedLane)
+			}
+			continue
+		}
+		if v.kind != tomlArray {
+			return Scope{}, fmt.Errorf("scope.%s is an array of globs, got %s", k, v.kind)
+		}
+		switch k {
+		case "include":
+			s.Include = v.list
+		case "exclude":
+			s.Exclude = v.list
+		default:
+			return Scope{}, fmt.Errorf("unknown key scope.%s — [scope] takes include, exclude, alias, ignore_gitignore, min_files and changed", k)
+		}
+	}
+	if len(s.Include) == 0 && s.Alias == "" {
+		return Scope{}, fmt.Errorf("scope.include is required and must name at least one glob, or scope.alias a set in %s", ScopesFile)
+	}
+	return s, nil
 }
 
 // ExplicitPaths are the include entries that name ONE file rather than a set.

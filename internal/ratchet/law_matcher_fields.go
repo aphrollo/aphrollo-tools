@@ -30,6 +30,8 @@ var matcherKeys = map[MatcherKind][]matcherKeySpec{
 	KindJSONNumberCeiling:  {{"kind", true}, {"files", true}, {"path", true}, {"tolerance_pct", false}, {"enabled_env", false}},
 	KindGoBenchCeiling:     {{"kind", true}, {"files", true}, {"tolerance_pct", false}, {"enabled_env", false}},
 	KindSymbolRemoved:      {{"kind", true}, {"pattern", true}},
+	KindCoChange:           {{"kind", true}},
+	KindHunkRegex:          {{"kind", true}, {"removed", false}, {"added", false}, {"paired", false}, {"mode", false}, {"name_group", false}},
 }
 
 // matcherKeyAllowed reports whether key is one of allowed, by name.
@@ -103,6 +105,78 @@ func requireOneCaptureGroupSymbolRemoved(err error, lawName string, pattern *reg
 	}
 	return fmt.Errorf("law %q: matcher.pattern must have exactly one capture group (the symbol name), got %d",
 		lawName, pattern.NumSubexp())
+}
+
+// setHunkRegexFields validates and fills a hunk-regex law's fields. At least
+// one of removed/added is required; name_group and paired are exclusive
+// (name_group already answers a whole-file question, not a per-pair one);
+// name_group and HunkDiffers both need a captured NAME/literal, so both
+// require removed to carry exactly one capture group, and default added to
+// the same pattern when the law left it unset.
+func setHunkRegexFields(doc *tomlDoc, m *Matcher, lawName string) error {
+	var err error
+	compile := func(key string) *regexp.Regexp {
+		if err != nil {
+			return nil
+		}
+		v, ok := doc.value("matcher", key)
+		if !ok {
+			return nil
+		}
+		if v.kind != tomlString || v.s == "" {
+			err = fmt.Errorf("matcher.%s is a non-empty regex string", key)
+			return nil
+		}
+		var re *regexp.Regexp
+		if re, err = regexp.Compile(v.s); err != nil {
+			err = fmt.Errorf("matcher.%s does not compile: %w", key, err)
+		}
+		return re
+	}
+	m.Removed = compile("removed")
+	m.Added = compile("added")
+	if err != nil {
+		return err
+	}
+	if v, ok := doc.value("matcher", "paired"); ok {
+		if v.kind != tomlBool {
+			return fmt.Errorf("matcher.paired is a boolean, got %s", v.kind)
+		}
+		m.Paired = v.b
+	}
+	if v, ok := doc.value("matcher", "name_group"); ok {
+		if v.kind != tomlBool {
+			return fmt.Errorf("matcher.name_group is a boolean, got %s", v.kind)
+		}
+		m.NameGroup = v.b
+	}
+	m.HunkMode = HunkForbid
+	if v, ok := doc.value("matcher", "mode"); ok {
+		switch HunkRegexMode(v.s) {
+		case HunkForbid, HunkDiffers:
+			m.HunkMode = HunkRegexMode(v.s)
+		default:
+			return fmt.Errorf("matcher.mode = %q — a mode is %q or %q", v.s, HunkForbid, HunkDiffers)
+		}
+	}
+	if m.Removed == nil && m.Added == nil {
+		return fmt.Errorf("law %q: matcher.removed and matcher.added are both absent — a hunk-regex law needs at least one", lawName)
+	}
+	if m.NameGroup && m.Paired {
+		return fmt.Errorf("law %q: matcher.name_group and matcher.paired are exclusive", lawName)
+	}
+	if m.NameGroup || m.HunkMode == HunkDiffers {
+		if m.Removed == nil || m.Removed.NumSubexp() != 1 {
+			return fmt.Errorf("law %q: matcher.removed must capture exactly one group (the name/literal), got %v", lawName, m.Removed)
+		}
+		if m.Added == nil {
+			m.Added = m.Removed
+		}
+	}
+	if m.HunkMode == HunkDiffers && !m.Paired {
+		return fmt.Errorf("law %q: matcher.mode = %q requires matcher.paired = true", lawName, HunkDiffers)
+	}
+	return nil
 }
 
 // requireCaptureGroups checks entry_pattern before use_pattern — a fixed
