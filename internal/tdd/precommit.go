@@ -141,68 +141,6 @@ func precommitDecide(repoRoot string, run SuiteRunner) GateResult {
 	return GateResult{Message: strings.Join(notes, "\n")}
 }
 
-// Mechanical runs ONLY the mechanical stage of the commit-time TDD wall,
-// grouped by project root exactly like Precommit — but with NO fail-first (a
-// fresh test's RED/GREEN belongs to the AUTHORING commit, already proven
-// there by Precommit) and NO anti-cheat suppression scan (same reasoning:
-// both are judgments about how a change was AUTHORED, not whether the
-// resulting combined tree still compiles and passes, which is the only thing
-// a merge can meaningfully re-check). Used by the pre-merge-commit gate: two
-// branches that each individually passed Precommit can still integrate
-// broken — that's what a merge combining them can introduce, and only the
-// mechanical stage catches it. A merge whose staged set has nothing to test
-// (e.g. a docs-only merge) says so explicitly rather than returning a bare
-// empty result indistinguishable from "the gate never ran".
-func Mechanical(repoRoot string, run SuiteRunner) GateResult {
-	// The cheapest possible rejection comes first: a lane with no mutation
-	// proof is refused before a single suite compiles.
-	if res := mutationReceiptStage(repoRoot); res != nil {
-		// Printing it here too would state the same paragraph twice: the hook
-		// that called this prints what it is given.
-		appendGateLog("premergecommit", repoRoot, "mutation-receipt", "receipt-rejected", 0)
-		return *res
-	}
-	if docsOnly(repoRoot) {
-		return docsOnlyFastPath("premergecommit", repoRoot)
-	}
-
-	var notes []string
-	// Same order as Precommit, and for the same reason: a merge carrying only
-	// a raised baseline or a law regression must answer for it before the
-	// has-code check can wave it through.
-	if res := baselineStage("premergecommit", repoRoot); res.Blocked {
-		return res
-	}
-	if res := ratchetStage("premergecommit", repoRoot); res.Blocked {
-		return res
-	} else if res.Message != "" {
-		notes = append(notes, res.Message)
-	}
-	if res := docsCheckStage("premergecommit", repoRoot); res.Blocked {
-		return res
-	} else if res.Message != "" {
-		notes = append(notes, res.Message)
-	}
-
-	groups := stagedRootGroups(repoRoot)
-	if len(groups) == 0 {
-		line := nothingToTestLine("premergecommit")
-		fmt.Fprintln(os.Stderr, line)
-		notes = append(notes, line)
-		return GateResult{Message: strings.Join(notes, "\n")}
-	}
-	for _, g := range groups {
-		res := gateRoot("premergecommit", repoRoot, g, run, false)
-		if res.Blocked {
-			return res
-		}
-		if res.Message != "" {
-			notes = append(notes, res.Message)
-		}
-	}
-	return GateResult{Message: strings.Join(notes, "\n")}
-}
-
 // mutationReceiptStage judges the lane's mutation receipt, for workspaces
 // that asked for it (`mutation-receipt = true`). nil means "allow": the
 // workspace has not opted in, or the receipt covers this tree.
