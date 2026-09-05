@@ -229,42 +229,61 @@ func runWorkspacePrune(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	dry := fs.Bool("dry", false, "print the plan and stop (default: execute)")
 	force := fs.Bool("force", false, "remove even a dirty worktree")
+	stale := fs.String("stale", "", "sweep detached, PR-less, idle worktrees older than this (e.g. 3d, 72h); sweep form only")
 	into := fs.String("into", "", "base dir for worktrees (default: <repo-parent>/.worktrees/<repo-name>)")
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
 		return 2
 	}
+	if *stale != "" && len(pos) == 2 {
+		fmt.Fprintln(stderr, "aphrollo: --stale applies to the sweep form only: workspace prune [repo] --stale <dur>")
+		return 2
+	}
 	switch len(pos) {
 	case 0:
-		return pruneSweep("", !*dry, *force, stdout, stderr)
+		return pruneSweep("", !*dry, *force, *stale, stdout, stderr)
 	case 1:
-		return pruneSweep(pos[0], !*dry, *force, stdout, stderr)
+		return pruneSweep(pos[0], !*dry, *force, *stale, stdout, stderr)
 	case 2:
-		return pruneTicket(pos[0], pos[1], *into, !*dry, *force, stdout, stderr)
+		// Per-ticket form: exactly `remove <repo> <branch> --keep-branch` — same
+		// target function, so the two verbs can never drift apart.
+		removeArgs := []string{pos[0], pos[1], "--keep-branch"}
+		if *dry {
+			removeArgs = append(removeArgs, "--dry")
+		}
+		if *force {
+			removeArgs = append(removeArgs, "--force")
+		}
+		if *into != "" {
+			removeArgs = append(removeArgs, "--into", *into)
+		}
+		return runWorkspaceRemove(removeArgs, stdout, stderr)
 	default:
 		fmt.Fprintln(stderr, "aphrollo: usage: workspace prune [repo] | workspace prune <repo> <branch>")
 		return 2
 	}
 }
 
-// pruneTicket resolves repo+branch and idempotently removes that one ticket's
-// worktree (safe to re-run: an already-gone worktree is a no-op success).
-func pruneTicket(repo, branch, into string, apply, force bool, stdout, stderr io.Writer) int {
-	p, err := workspace.PruneTicketPlan(repo, branch, into)
-	if err != nil {
-		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-		return 1
+// pruneSweep resolves the repo and runs `prune`'s sweep: the merged-PR sweep
+// by default, or the --stale idle-detached sweep when staleArg is set.
+func pruneSweep(repo string, apply, force bool, staleArg string, stdout, stderr io.Writer) int {
+	if staleArg != "" {
+		dur, err := workspace.ParseStaleDuration(staleArg)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 2
+		}
+		s, err := workspace.StaleSweepPlan(repo, dur)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		if err := s.Run(apply, stdout, stderr); err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		return 0
 	}
-	p.Force = force
-	if err := p.Run(apply, stdout, stderr); err != nil {
-		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-		return 1
-	}
-	return 0
-}
-
-// pruneSweep resolves the repo and runs the merged-worktree sweep for `prune`.
-func pruneSweep(repo string, apply, force bool, stdout, stderr io.Writer) int {
 	p, err := workspace.PrunePlan(repo)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
@@ -374,6 +393,8 @@ func runWorkspaceRemove(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("remove", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dry := fs.Bool("dry", false, "print the plan and stop (default: execute)")
+	keepBranch := fs.Bool("keep-branch", false, "keep the local branch (default: delete it)")
+	force := fs.Bool("force", false, "remove even a dirty worktree")
 	into := fs.String("into", "", "base dir for worktrees (default: <repo-parent>/.worktrees/<repo-name>)")
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
@@ -388,8 +409,10 @@ func runWorkspaceRemove(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
+	cmd.KeepBranch = *keepBranch
+	cmd.Force = *force
 	if *dry {
-		fmt.Fprintf(stdout, "would run: %s\nrun again without --dry to execute.\n", cmd.Display)
+		fmt.Fprintf(stdout, "would run: %s\nrun again without --dry to execute.\n", cmd.Display())
 		return 0
 	}
 	if err := cmd.Run(stdout, stderr); err != nil {
