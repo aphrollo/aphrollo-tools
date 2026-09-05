@@ -59,9 +59,55 @@ against the tree a merge will land on, `git commit --allow-empty` on the lane:
 an empty commit preserves the tree, so the run measures exactly what the merge
 gate will check.
 
-There is no verb for asking whether a receipt has arrived. Attempt the merge:
-the pre-merge gate consumes the receipt and names what is missing, including
-whether a run is still going and when it started.
+In the normal case, do not check whether a receipt has arrived at all. Attempt
+the merge: the pre-merge gate consumes the receipt on its own and names
+whatever is missing, including whether a run is still going and when it
+started. `aphrollo gate mutants status` (below) exists for when someone
+genuinely wants to watch, or needs to answer "why is nothing happening" — not
+as a step in the routine path.
+
+### Asking instead of polling
+
+`aphrollo gate mutants status` answers for the checkout it is standing in —
+never for any other lane — and reads exactly the files the pre-merge gate
+itself reads (`RunningMutantsJobs`, the death record, the receipt), so the two
+can never disagree about the same tree:
+
+- **no run for this tree** — nothing has ever measured it: no receipt, no
+  running job, no death record.
+- **going** — a job for this repo is alive, naming its branch, pid and start
+  time, and saying whether it is still queued behind the box-wide
+  mutation-run lock (naming the holder) rather than actually measuring.
+- **died** — the run ended without ever writing a receipt: the exit code and
+  the log to read.
+- **done** — a receipt for this exact tree is on disk: its verdict and every
+  count (`mutants_total`, `caught`, `timeout`, `unviable`, `not_covered`,
+  `excluded`, `accepted`, `unaccepted`).
+
+`--wait` blocks the CALLING PROCESS on the running job's own pid until this
+tree reaches a terminal state (died or done — "no run" and "already done" are
+already terminal and return at once), then prints the same answer. It is a
+real block on the process, never a loop sampling the receipt file on an
+interval: the twenty-line polling loop this verb replaces (fixed 2700 s
+timeout, a hard-coded receipt path, grepping the JSON by hand) should never be
+written again.
+
+Exit codes, so a script can tell every state apart without parsing the text:
+
+| code | meaning |
+|---|---|
+| 0 | a receipt exists and would merge (verdict `pass`, no unaccepted survivor, no timeout) |
+| 1 | the checkout itself could not be read (not a git repository, HEAD names no tree) |
+| 2 | bad flags |
+| 3 | no run has ever been started for this tree |
+| 4 | a run is going right now (`status` only — `--wait` never returns this) |
+| 5 | the run ended without ever writing a receipt |
+| 6 | a receipt exists but would NOT merge (bad verdict, unaccepted survivor, or timeout) |
+
+`status` does not repeat the pre-merge gate's repo-identity, base-sha or MAC
+checks — those are about which MERGE a receipt is for, not what its counts
+say, and receipt 4/5/6 for the same field said one way is what a script and
+the merge gate both need to agree on.
 
 ## Where a run happens
 
