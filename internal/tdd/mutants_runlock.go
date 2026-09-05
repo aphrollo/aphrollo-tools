@@ -102,10 +102,51 @@ func acquireMutantsRunLockWithDeadline(cmd, cwd string, deadline time.Duration) 
 // mutantsRunLockHolderDescription names the current holder of the box-wide
 // mutation-run lock for a waiting acquirer's line, or says the holder is
 // unknown — the owner file is best-effort, racy by construction, exactly
-// like buildSlotHolderDescription's own.
+// like buildSlotHolderDescription's own, and appends a stale-binary notice
+// when the holder's executable is not the one this process runs.
 func mutantsRunLockHolderDescription() string {
 	if o, ok := readBuildLockOwnerAt(mutantsRunLockOwnerPath()); ok {
-		return describeOwner(o)
+		return describeOwner(o) + staleHolderNotice(o.PID)
 	}
 	return "another mutation run (holder unknown)"
+}
+
+// processExePathFn is the seam a test overrides instead of depending on the
+// real OS query, exactly like pidRunningFn/processStartTokenFn: same shape,
+// same reason.
+var processExePathFn = processExePath
+
+// selfExePathFn is the seam a test overrides with a synthetic path instead
+// of depending on the actual test binary's own location.
+var selfExePathFn = selfExePath
+
+// selfExePath is this process's own executable path, "" when it cannot be
+// read (a permissions problem, an exotic OS) — callers must not build a
+// claim on top of that.
+func selfExePath() string {
+	p, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return p
+}
+
+// staleHolderNotice reports what to append to a holder's description when
+// its executable is not the one THIS waiting process was started from — the
+// deploy-mid-run scenario issue #311 describes: aphrollo's own self-install
+// renames the running binary aside and lets it keep executing, so a job that
+// started before the deploy holds the box-wide lock for as long as its run
+// takes, producing results from code that was already replaced. Either side
+// unreadable degrades to "" (say nothing), never a claim built on half the
+// comparison.
+func staleHolderNotice(pid int) string {
+	holder, ok := processExePathFn(pid) // best-effort, racy by construction
+	if !ok || holder == "" {
+		return ""
+	}
+	mine := selfExePathFn()
+	if mine == "" || holder == mine {
+		return ""
+	}
+	return " (running a binary replaced since it started — its results predate this deploy)"
 }

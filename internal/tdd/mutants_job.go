@@ -275,14 +275,23 @@ func primaryCheckoutRoot(repoRoot string) string {
 	return dir
 }
 
-// MutantsTargetDir is that worktree's own persistent build directory. It is
-// inside the worktree deliberately: the build-slot bypass is keyed on exactly
-// that containment, so a target dir anywhere else queues like every other
-// build. It is named `target` because that is the name every Rust repo
-// already ignores — an untracked directory the repo does NOT ignore would
-// make the run's own worktree read as dirty.
+// MutantsTargetDir is the repo's ONE persistent mutation build directory,
+// shared by every lane's mutants worktree. The worktree is per lane so two
+// runs never check a tree out from under each other; the build directory does
+// not need to follow it. Cargo keys a workspace crate's artifacts on the path
+// it was compiled from, so lanes sharing one target dir share the dependency
+// graph and keep their own crates apart — and the collision a shared
+// directory risked, two producers linking into it at once, is ruled out by the
+// box-wide mutation-run lock that serializes every producer's build. A target
+// per lane paid for that guarantee twice: measured on borld 2026-09-05, nine
+// per-lane target dirs of 8.3-18.4 GB, and across 44 runs the unmutated
+// baseline builds cost 180 min against 116 min for every per-mutant rebuild.
+//
+// It sits directly under the mutants root rather than anywhere else because
+// the build-slot bypass is keyed on exactly that containment: a target dir
+// outside it queues like every other build.
 func MutantsTargetDir(repoRoot string) string {
-	return filepath.Join(MutantsWorktreeDir(repoRoot), "target")
+	return filepath.Join(MutantsRootDir(repoRoot), "target")
 }
 
 // mutantsRunDir holds the job's own output inside that build directory.

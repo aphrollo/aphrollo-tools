@@ -117,6 +117,12 @@ func TestQueueBypass_IsHonouredOnlyUnderTheMutantsTargetDir(t *testing.T) {
 	if !queueBypassAllowed(filepath.Join(mutants, "debug", "deps")) {
 		t.Fatal("a directory under the mutants target dir is still the mutation run's own")
 	}
+	// The repo's one shared mutation target dir sits DIRECTLY under the mutants
+	// root, beside the per-lane trees, and is what every lane's run builds into.
+	shared := tdd.MutantsTargetDir(filepath.Join(parent, "borld"))
+	if !queueBypassAllowed(filepath.Join(shared, "debug", "deps")) {
+		t.Fatalf("the repo's shared mutation target dir (%s) must bypass the queue, or every lane's run queues behind every editor", shared)
+	}
 	if queueBypassAllowed(ordinary) {
 		t.Fatalf("an ordinary target dir (%s) must never bypass the queue", ordinary)
 	}
