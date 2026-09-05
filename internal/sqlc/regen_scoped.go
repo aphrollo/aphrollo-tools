@@ -167,7 +167,11 @@ func changedQueries(cfg Config, base string) ([]string, error) {
 }
 
 // queryFiles lists the .sql query files for every entry in cfg, as repo-relative
-// paths. An entry's `queries` may name a single file or a directory.
+// paths. Each of an entry's `queries` paths (sqlc v2 allows either a single
+// scalar or a list) may name a single file or a directory. An entry with no
+// queries path is refused rather than silently falling back to a directory
+// stat of "" (== the repo root), which would walk the entire repository for
+// .sql files instead of the configured scope.
 func queryFiles(cfg Config) ([]string, error) {
 	seen := map[string]bool{}
 	var out []string
@@ -178,30 +182,52 @@ func queryFiles(cfg Config) ([]string, error) {
 		}
 	}
 	for _, e := range cfg.Entries {
-		abs := filepath.Join(cfg.Repo, e.Queries)
-		info, err := os.Stat(abs)
-		if err != nil {
-			return nil, fmt.Errorf("queries path %s: %w", e.Queries, err)
+		if len(e.Queries) == 0 {
+			return nil, fmt.Errorf("sql entry for %s has no queries path", e.Out)
 		}
-		if !info.IsDir() {
-			add(filepath.ToSlash(e.Queries))
-			continue
-		}
-		err = filepath.WalkDir(abs, func(path string, d os.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".sql") {
-				return err
+		for _, q := range e.Queries {
+			abs := filepath.Join(cfg.Repo, q)
+			if !withinRepo(abs, cfg.Repo) {
+				return nil, fmt.Errorf("queries path %s escapes the repo root %s", q, cfg.Repo)
 			}
-			rel, err := filepath.Rel(cfg.Repo, path)
+			info, err := os.Stat(abs)
 			if err != nil {
-				return err
+				return nil, fmt.Errorf("queries path %s: %w", q, err)
 			}
-			add(filepath.ToSlash(rel))
-			return nil
-		})
-		if err != nil {
-			return nil, err
+			if !info.IsDir() {
+				add(filepath.ToSlash(q))
+				continue
+			}
+			err = filepath.WalkDir(abs, func(path string, d os.DirEntry, err error) error {
+				if err != nil || d.IsDir() || !strings.HasSuffix(path, ".sql") {
+					return err
+				}
+				rel, err := filepath.Rel(cfg.Repo, path)
+				if err != nil {
+					return err
+				}
+				add(filepath.ToSlash(rel))
+				return nil
+			})
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// withinRepo reports whether abs — already filepath.Join(repo, q)'d — still
+// resolves inside repo. filepath.Join lexically collapses "..", so a config
+// value like `queries: "../../secrets"` walks straight back out of the repo
+// it was joined against; the config is repo-authored rather than
+// server-supplied, but a stray ".." must not let regen/check read or walk
+// files outside the repo it was invoked against.
+func withinRepo(abs, repo string) bool {
+	rel, err := filepath.Rel(repo, abs)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }

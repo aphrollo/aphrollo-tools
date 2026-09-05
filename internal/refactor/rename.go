@@ -159,11 +159,19 @@ func samePathOn(goos, a, b string) bool {
 // root is the project root the rename is scoped to. Every target path is a
 // server-supplied WorkspaceEdit path, so each is checked to live within root
 // before any write — a buggy or hostile server cannot redirect a rename onto an
-// arbitrary file outside the project (e.g. ~/.bashrc). The whole batch is
-// refused on the first out-of-root path, before phase 2 mutates anything.
+// arbitrary file outside the project (e.g. ~/.bashrc). A path that is ITSELF
+// inside root but a SYMLINK to somewhere outside it is checked too: the write
+// resolves the link exactly once here — feeding both this check and the write
+// below — and is refused if the resolved destination escapes root, naming both
+// the link and where it actually points. Resolving once (rather than again at
+// write time) closes the TOCTOU window a second resolution would reopen: a
+// link that changed between the check and the write would otherwise be
+// resolved-and-trusted without ever being re-checked. The whole batch is
+// refused on the first out-of-root path (lexical or resolved), before phase 2
+// mutates anything.
 func applyFileEdits(fileEdits []lsp.FileEdit, root, mainPath, mainSrc string, apply bool) (*RenameResult, error) {
 	type pendingWrite struct {
-		path, content string
+		path, content string // path is the RESOLVED write target (see resolveWriteTarget)
 	}
 	result := &RenameResult{Applied: apply}
 	writes := make([]pendingWrite, 0, len(fileEdits))
@@ -171,6 +179,13 @@ func applyFileEdits(fileEdits []lsp.FileEdit, root, mainPath, mainSrc string, ap
 	for _, fe := range fileEdits {
 		if root != "" && !withinRoot(fe.Path, root) {
 			return nil, fmt.Errorf("refusing edit outside project root: %s is not within %s", fe.Path, root)
+		}
+		target, err := resolveWriteTarget(fe.Path)
+		if err != nil {
+			return nil, err
+		}
+		if root != "" && !withinRoot(target, root) {
+			return nil, fmt.Errorf("refusing edit: %s is a symlink resolving to %s, which is outside project root %s", fe.Path, target, root)
 		}
 		before := mainSrc
 		if !samePath(fe.Path, mainPath) {
@@ -188,7 +203,7 @@ func applyFileEdits(fileEdits []lsp.FileEdit, root, mainPath, mainSrc string, ap
 			Path: fe.Path,
 			Diff: diff.Unified(relOrAbs(fe.Path), before, after),
 		})
-		writes = append(writes, pendingWrite{path: fe.Path, content: after})
+		writes = append(writes, pendingWrite{path: target, content: after})
 	}
 
 	if apply {
@@ -201,10 +216,38 @@ func applyFileEdits(fileEdits []lsp.FileEdit, root, mainPath, mainSrc string, ap
 	return result, nil
 }
 
+// resolveWriteTarget follows path if it is a symlink, returning the real file
+// a write should land on: writeFileAtomic's rename-based swap replaces
+// whatever sits AT the path it is given, so handing it a symlink path directly
+// would replace the LINK with a plain file rather than writing through it —
+// the link's former target would be left untouched (or, if nothing else
+// references it, effectively orphaned) and the path would silently stop being
+// a symlink. An ordinary file, or a path that does not exist yet, is returned
+// unchanged. A symlink whose target cannot be resolved (broken link, or a
+// cycle) is refused rather than guessed at. Callers that also enforce
+// containment (applyFileEdits) must check the RESOLVED result, not just path
+// itself — see applyFileEdits' doc comment.
+func resolveWriteTarget(path string) (string, error) {
+	fi, err := os.Lstat(path)
+	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		return path, nil
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("%s is a symlink whose target cannot be resolved: %w", path, err)
+	}
+	return resolved, nil
+}
+
 // writeFileAtomic writes content to path via a same-directory temp file and a
 // rename, so a reader never observes a partially written file and an aborted
 // write leaves the original intact. The existing file's permission bits are
-// preserved (falling back to 0644 for a new file).
+// preserved (falling back to 0644 for a new file). It performs no symlink
+// resolution or containment check of its own — a caller writing through a
+// possible symlink (applyFileEdits) must resolve it FIRST via
+// resolveWriteTarget and check containment on the result, then pass that
+// resolved path here, so this function and the caller's check never disagree
+// about which file a write actually lands on.
 func writeFileAtomic(path, content string) error {
 	mode := os.FileMode(0o644)
 	if fi, err := os.Stat(path); err == nil {

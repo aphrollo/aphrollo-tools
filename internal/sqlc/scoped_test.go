@@ -293,7 +293,7 @@ func TestGitShow_ReturnsErrorWhenTheShowCommandFails(t *testing.T) {
 func TestChangedQueries_WrapsAGitShowFailure(t *testing.T) {
 	repo := t.TempDir()
 	mustWrite(t, filepath.Join(repo, "queries.sql"), "-- name: GetWidget :one\nSELECT 1;\n")
-	cfg := Config{Repo: repo, Entries: []SQLEntry{{Queries: "queries.sql"}}}
+	cfg := Config{Repo: repo, Entries: []SQLEntry{{Queries: []string{"queries.sql"}}}}
 
 	dir := gitShowFailsStubDir(t)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))

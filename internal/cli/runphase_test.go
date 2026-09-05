@@ -56,6 +56,26 @@ func TestRunPhase_RunsTheJobAndRecordsItsOutcome(t *testing.T) {
 	}
 }
 
+// TestRunPhase_MissingJobFlagExitsTwo pins the usage-error contract: a
+// flag-parse failure or a missing --job is a caller mistake, not a phase
+// outcome, and the CLI's usage-error convention is exit 2 — 0 would tell a
+// script the (nonexistent) phase succeeded.
+func TestRunPhase_MissingJobFlagExitsTwo(t *testing.T) {
+	var out, errBuf bytes.Buffer
+	if code := runGate([]string{"runphase"}, strings.NewReader(""), &out, &errBuf); code != 2 {
+		t.Fatalf("runphase with no --job exit = %d, want 2 (usage error)", code)
+	}
+}
+
+// TestRunPhase_UnknownFlagExitsTwo covers the sibling case: flag.Parse itself
+// failing (an unknown flag), not just an empty --job.
+func TestRunPhase_UnknownFlagExitsTwo(t *testing.T) {
+	var out, errBuf bytes.Buffer
+	if code := runGate([]string{"runphase", "--nope"}, strings.NewReader(""), &out, &errBuf); code != 2 {
+		t.Fatalf("runphase with an unknown flag exit = %d, want 2 (usage error)", code)
+	}
+}
+
 // TestPostToolUse_EnablesDeferredPhases pins the wiring: the real edit hook is
 // the ONE caller that may leave work running past its budget, so it turns
 // deferral on. Nothing else does — a unit test's injected runner must never be
