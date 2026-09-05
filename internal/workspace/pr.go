@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 )
 
@@ -53,9 +52,7 @@ var (
 		// gh resolves the repo from the worktree's origin. It exits non-zero when
 		// no PR exists for the branch — absence, not a failure: return (nil, nil)
 		// so Apply creates one. A real PR with malformed JSON is the only error.
-		cmd := exec.Command("gh", "pr", "view", "--json", "number,url,state,isDraft,mergeable,mergeStateStatus", "--", branch)
-		cmd.Dir = wt
-		out, err := cmd.Output()
+		out, err := ghOutput(wt, "pr", "view", "--json", "number,url,state,isDraft,mergeable,mergeStateStatus", "--", branch)
 		if err != nil {
 			return nil, nil
 		}
@@ -84,9 +81,7 @@ var (
 		if req.Draft {
 			args = append(args, "--draft")
 		}
-		cmd := exec.Command("gh", args...)
-		cmd.Dir = wt
-		out, err := cmd.CombinedOutput()
+		out, err := ghCombinedOutput(wt, args...)
 		if err != nil {
 			return nil, fmt.Errorf("gh pr create: %v\n%s", err, strings.TrimSpace(string(out)))
 		}
@@ -127,9 +122,7 @@ func ghCIStatusArgs(branch string) []string {
 }
 
 var ghCIStatus = func(wt, branch string) (CIStatus, error) {
-	cmd := exec.Command("gh", ghCIStatusArgs(branch)...)
-	cmd.Dir = wt
-	out, err := cmd.Output()
+	out, err := ghOutput(wt, ghCIStatusArgs(branch)...)
 	if err == nil && len(strings.TrimSpace(string(out))) == 0 {
 		return CIStatus{State: "none"}, nil
 	}
@@ -178,7 +171,8 @@ type PR struct {
 	Create PRCreate
 }
 
-// PRPlan resolves the PR open without touching gh. base defaults to main; an
+// PRPlan resolves the PR open without touching gh. An empty base resolves the
+// repo's actual default branch (never assumed to be literally "main"); an
 // empty title means "let gh fill it from the commits". It refuses a detached
 // HEAD and requires the branch to be on origin (gh pr create needs it there).
 func PRPlan(t *Target, base, title, body string, draft bool) (*PR, error) {
@@ -186,7 +180,7 @@ func PRPlan(t *Target, base, title, body string, draft bool) (*PR, error) {
 		return nil, fmt.Errorf("detached HEAD in %s — check out a branch before opening a PR", t.Worktree)
 	}
 	if base == "" {
-		base = "main"
+		base = resolveDefaultBranch(t.Worktree)
 	}
 	return &PR{
 		Target: t,
@@ -214,12 +208,13 @@ func (p *PR) Render(apply bool) string {
 	return b.String()
 }
 
-// Apply reuses an existing open PR or creates one, printing the URL either way.
+// Apply reuses an existing OPEN PR or creates one, printing the URL either
+// way. It goes through reuseOpenPR rather than ghViewPR directly: `gh pr
+// view` returns the most recent PR for the branch regardless of state, so a
+// MERGED or CLOSED PR is dead and must be treated as none — reused only when
+// still OPEN.
 func (p *PR) Apply(stdout, stderr io.Writer) error {
-	if !remoteBranchExists(p.Target.Worktree, p.Create.Branch) {
-		return fmt.Errorf("branch %s is not on origin — run: aphrollo workspace push", p.Create.Branch)
-	}
-	if existing, err := ghViewPR(p.Target.Worktree, p.Create.Branch); err != nil {
+	if existing, err := reuseOpenPR(p.Target.Worktree, p.Create.Branch); err != nil {
 		return err
 	} else if existing != nil {
 		fmt.Fprintf(stdout, "PR #%d already open: %s\n", existing.Number, existing.URL)

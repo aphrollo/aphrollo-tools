@@ -40,7 +40,7 @@ func Sync(repoArg string, dry bool, stdout, stderr io.Writer) error {
 	// Refresh origin so origin/<default> is the live tip. Fetch touches only
 	// remote-tracking refs, never HEAD or the working tree, so it is safe even in
 	// --dry. An offline / remote-less repo can't refresh — warn, don't crash.
-	if out, err := exec.Command("git", "-C", top, "fetch", "origin", "--quiet").CombinedOutput(); err != nil {
+	if out, err := gitNetworkOutput(top, "fetch", "origin", "--quiet"); err != nil {
 		fmt.Fprintf(stderr, "git fetch origin: %v\n%s\n", err, strings.TrimSpace(string(out)))
 	}
 
