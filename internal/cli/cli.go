@@ -28,9 +28,14 @@ Commands:
   dev         Dev-tier control plane: up/down/restart/status/logs
   guardrail   PreToolUse policy hook for coder/devops sessions
   gate        Autonomous TDD + law gates (Claude + git hooks); tdd is a silent alias
+  install     Wire the whole gate (session hooks, global git gate) and a repo's
+              git-hook shims in one run — merges gate init + gate install --apply
+  issue       Open one labelled issue against the repo's GitHub remote and print its URL
   ratchet     Judge a repo against its declared code laws (.ratchet/laws/*.toml)
   sqlc        Guard sqlc-generated code against drift (check / scoped regen)
   docs        Guard doc-cited repo paths against dangling references (check)
+  check       Judge the tree: ratchet laws, docs, sqlc drift, the install doctor,
+              and (if declared) the app trio — one line per guard
   version     Print the commit and build time this binary was stamped with
   update      Fetch, build ./cmd/aphrollo from origin/main in a temporary worktree, swap it in, sweep stale copies, re-run init (--repo, --bin, --no-init)
 `
@@ -85,12 +90,18 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// or shim installed before the rename keeps working until init rewrites it.
 	case "gate", "tdd":
 		return runGate(args[1:], stdin, stdout, stderr)
+	case "install":
+		return runInstall(args[1:], stdout, stderr)
+	case "issue":
+		return runGateIssue(args[1:], stdout, stderr)
 	case "ratchet":
 		return runRatchet(args[1:], stdout, stderr)
 	case "sqlc":
 		return runSqlc(args[1:], stdout, stderr)
 	case "docs":
 		return runDocs(args[1:], stdout, stderr)
+	case "check":
+		return runCheck(args[1:], stdout, stderr)
 	case "version":
 		return runVersion(args[1:], stdout, stderr)
 	case "update":

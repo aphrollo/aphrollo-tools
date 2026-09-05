@@ -10,7 +10,7 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-const gateInitPrimaryNotice = "gate init: CLAUDE.md managed block is behind the template in the merge-only primary; land it through a lane (aphrollo gate init --repo <lane>)"
+const gateInitPrimaryNotice = "gate init: CLAUDE.md managed block is behind the template in the merge-only primary; land it through a lane (aphrollo install --repo <lane>)"
 
 // The merge-only primary cannot commit at all — writing the managed
 // CLAUDE.md block there left the checkout permanently dirty with no commit

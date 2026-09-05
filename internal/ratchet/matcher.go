@@ -447,7 +447,9 @@ func (l Law) hit(file string, line int, what string) Hit {
 // the trigger's own line the token must sit past where code ends (the same
 // quote-aware split code_only pattern matching already trusts); on a line
 // above, the trimmed line must itself open a comment — what inCommentRun
-// already tests — regardless of Contiguous.
+// already tests — regardless of Contiguous. The token alone is not enough
+// either: escapeCarriesReason demands non-empty text after it, so a bare
+// `// nan-safe:` with nothing else on the line does not suppress.
 func (l Law) escaped(file string, raw []string, idx int) bool {
 	if l.Escape == "" {
 		return false
@@ -458,7 +460,7 @@ func (l Law) escaped(file string, raw []string, idx int) bool {
 	}
 	if idx >= 0 && idx < len(raw) {
 		_, comment := splitTrailingComment(raw[idx], prefix)
-		if strings.Contains(comment, l.Escape) {
+		if escapeCarriesReason(comment, l.Escape) {
 			return true
 		}
 	}
@@ -471,11 +473,25 @@ func (l Law) escaped(file string, raw []string, idx int) bool {
 			return false
 		}
 		t := strings.TrimSpace(raw[i])
-		if strings.HasPrefix(t, prefix) && strings.Contains(raw[i], l.Escape) {
+		if strings.HasPrefix(t, prefix) && escapeCarriesReason(raw[i], l.Escape) {
 			return true
 		}
 	}
 	return false
+}
+
+// escapeCarriesReason reports whether text holds token followed by
+// non-empty text on the same line — the design contract's `escape: <token>
+// <why>`, mirrored from how `mutation-accept` refuses an entry without a
+// `# why`. A comment that stops at the token (`// nan-safe:` with nothing
+// after it, possibly trailing whitespace) is presence with no reviewed
+// reason, so it must not read as an escape at all.
+func escapeCarriesReason(text, token string) bool {
+	i := strings.Index(text, token)
+	if i < 0 {
+		return false
+	}
+	return strings.TrimSpace(text[i+len(token):]) != ""
 }
 
 func splitLines(content string) []string {
