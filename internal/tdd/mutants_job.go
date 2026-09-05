@@ -100,7 +100,12 @@ func startMutantsJob(repoRoot string) (MutantsJob, bool, error) {
 		Tip: gitOut(root, "rev-parse", "HEAD"), TipTree: gitOut(root, "rev-parse", "HEAD:"),
 		BaseRef: laneBaseRef(root), Worktree: MutantsWorktreeDir(root), TargetDir: MutantsTargetDir(root),
 	}
-	j.BaseSHA = gitOut(root, "merge-base", j.BaseRef, "HEAD")
+	// Not merge-base(BaseRef, HEAD): BaseRef prefers origin/main, which no
+	// fetch ever updates, so a lane that caught up by merging LOCAL main
+	// would measure from before that merge and be charged for trunk's own
+	// changes (issue #261). laneBaseSHA keeps the newest trunk commit the
+	// lane already contains.
+	j.BaseSHA = laneBaseSHA(root)
 	if j.Tip == "" || j.TipTree == "" || j.BaseSHA == "" {
 		return MutantsJob{}, false, nil
 	}
