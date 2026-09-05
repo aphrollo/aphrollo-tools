@@ -423,7 +423,7 @@ func workspaceCheckStage(gateName, repoRoot, root string, plan cargoStagePlan, r
 	// Scoped, never --workspace: see clippyscope.go. The crates are named on
 	// stderr because a scoped stage that does not say what it covered cannot
 	// be told from one that silently stopped covering something.
-	scope := clippyScope(ws, plan.touched)
+	scope := clippyScope(gateName, repoRoot, ws, plan.touched)
 	if len(scope) == 0 {
 		fmt.Fprintf(os.Stderr, "gate %s: check → skipped (no cargo package owns anything staged)\n", gateName)
 		return GateResult{}
