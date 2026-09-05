@@ -116,6 +116,12 @@ func runGateSelfInstall(args []string, stdout, stderr io.Writer) int {
 	return runGateInit(append([]string{"--bin", bin}, fs.Args()...), stdout, stderr)
 }
 
+// renameFn indirects os.Rename inside swapBinary so a test can force the
+// exact double-failure sequence (the forward move fails, then the rollback
+// meant to restore the previous binary ALSO fails) that a real filesystem
+// has no reliable, portable way to reproduce on demand.
+var renameFn = os.Rename
+
 // swapBinary renames bin aside (if one exists yet), moves staged into its
 // place, and sweeps whatever earlier upgrades left beside it — the sequence
 // any verb that replaces the running binary needs, shared so `gate
@@ -131,7 +137,7 @@ func swapBinary(prefix, bin, staged string, stdout io.Writer) (stale string, err
 	stale = siblingPath(bin, fmt.Sprintf("%s%d", stalePrefix, time.Now().Unix()))
 	renamed := false
 	if _, statErr := os.Stat(bin); statErr == nil {
-		if err := os.Rename(bin, stale); err != nil {
+		if err := renameFn(bin, stale); err != nil {
 			return "", fmt.Errorf("cannot move %s aside: %w", bin, err)
 		}
 		renamed = true
@@ -141,14 +147,14 @@ func swapBinary(prefix, bin, staged string, stdout io.Writer) (stale string, err
 		stale = ""
 	}
 
-	if err := os.Rename(staged, bin); err != nil {
+	if err := renameFn(staged, bin); err != nil {
 		// Put the box back the way it was: a bin dir with no binary at all is
 		// worse than one running the previous build. If the restore ITSELF
 		// fails, that must reach the operator too — the earlier code
 		// discarded this error, which is exactly how a box can be left with
 		// nothing at bin and a report that only mentions the first failure.
 		if renamed {
-			if rerr := os.Rename(stale, bin); rerr != nil {
+			if rerr := renameFn(stale, bin); rerr != nil {
 				return "", fmt.Errorf("cannot move %s into place: %w; restoring the previous binary from %s also failed: %v; %s still holds it, move it back by hand", staged, err, stale, rerr, stale)
 			}
 		}

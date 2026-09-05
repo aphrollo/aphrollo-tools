@@ -256,6 +256,61 @@ func TestSelfInstall_KeepsAStaleCopyItCannotDelete(t *testing.T) {
 	}
 }
 
+// #305: when the forward move fails AND the rollback meant to restore the
+// previous binary also fails, the box is left with NOTHING at bin — the
+// worst outcome swapBinary's own doc comment names. The error must say so:
+// both failures, plus the path of the stale copy that still holds the old
+// binary, since that is the one thing left for an operator to act on.
+func TestSwapBinary_ReportsBothErrorsWhenTheRollbackAlsoFails(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "aphrollo.exe")
+	if err := os.WriteFile(bin, []byte("OLD"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	staged := filepath.Join(dir, "aphrollo.new.exe")
+	if err := os.WriteFile(staged, []byte("NEW"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := renameFn
+	t.Cleanup(func() { renameFn = orig })
+	renameFn = func(oldpath, newpath string) error {
+		switch oldpath {
+		case bin:
+			return os.Rename(oldpath, newpath) // the aside-move: real, so stale exists
+		case staged:
+			return errors.New("forward move: simulated disk full")
+		default:
+			return errors.New("rollback: simulated disk full too") // the rollback attempt
+		}
+	}
+
+	var out bytes.Buffer
+	_, err := swapBinary("gate self-install", bin, staged, &out)
+	if err == nil {
+		t.Fatal("swapBinary: want an error when both the forward move and the rollback fail, got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{"forward move: simulated disk full", "rollback: simulated disk full too"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("error does not carry %q: %v", want, err)
+		}
+	}
+	staleGlob, _ := filepath.Glob(filepath.Join(dir, "aphrollo.stale-*.exe"))
+	if len(staleGlob) != 1 {
+		t.Fatalf("want exactly one stale copy on disk, got %v", staleGlob)
+	}
+	if !strings.Contains(msg, staleGlob[0]) {
+		t.Fatalf("error does not name the surviving stale copy %s: %v", staleGlob[0], err)
+	}
+	if got, err := os.ReadFile(staleGlob[0]); err != nil || string(got) != "OLD" {
+		t.Fatalf("the stale copy must still hold the old binary, got %q (%v)", got, err)
+	}
+	if _, err := os.Stat(bin); !os.IsNotExist(err) {
+		t.Fatalf("bin must hold nothing when both renames failed, stat err=%v", err)
+	}
+}
+
 // A binary replaced without rewiring leaves settings.json pointing at a build
 // that is no longer there, so the run has to finish the job.
 func TestSelfInstall_RewiresTheHooksAtTheNewBinary(t *testing.T) {
