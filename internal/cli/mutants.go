@@ -50,6 +50,18 @@ func isFlagSet(fs *flag.FlagSet, name string) bool {
 	return set
 }
 
+// runningOnHostedCIRunner is the ONE explicit signal `go --diff` uses to set
+// GoMutantsCI.OneJobPerContainer (issue #406): GITHUB_ACTIONS is set to
+// exactly "true" by GitHub's own runner, hosted or self-hosted, for every
+// job it starts — the one fact this binary can actually check, rather than
+// inferring "am I in CI" from anything about the invocation itself. A
+// self-hosted runner that DOES share its box with other mutation jobs is not
+// this repo's problem to solve here: nothing today configures one that way,
+// and the field stays a plain bool a future flag could still override.
+func runningOnHostedCIRunner() bool {
+	return os.Getenv("GITHUB_ACTIONS") == "true"
+}
+
 // runGateMutants dispatches the mutation job's own verbs. They are addressed
 // by a job FILE rather than by flags because the wrapper is spawned detached:
 // the description of the run has to outlive the process that decided it.
@@ -114,7 +126,10 @@ func runGateMutants(args []string, stdout, stderr io.Writer) int {
 		}
 		if args[0] == "go" {
 			if isFlagSet(fs, "diff") {
-				return tdd.RunGoMutantsCI(tdd.GoMutantsCI{BaseSHA: *diff, Receipt: *receipt, Store: *store}, stderr)
+				return tdd.RunGoMutantsCI(tdd.GoMutantsCI{
+					BaseSHA: *diff, Receipt: *receipt, Store: *store,
+					OneJobPerContainer: runningOnHostedCIRunner(),
+				}, stderr)
 			}
 			// --receipt names where the CI run leaves its proof, so it means
 			// nothing without --diff. Falling through here handed the detached
