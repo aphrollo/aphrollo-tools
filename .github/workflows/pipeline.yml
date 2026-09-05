@@ -575,7 +575,7 @@ jobs:
   # skipped there and the miss is picked up by `gate escape sync` on the box
   # that owns the lane.
   escape-record:
-    needs: [test, lint, vulncheck, sast, secret-scan, mutants]
+    needs: [test, lint, scan, mutants]
     if: ${{ always() && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && github.event.pull_request.head.repo.fork != true)) && contains(needs.*.result, 'failure') }}
     runs-on: self-hosted
     timeout-minutes: 5
@@ -622,14 +622,27 @@ jobs:
             --from-ci "pipeline: $failed" \
             --evidence "$(head -c 8000 failed.log)
           run: $RUN_URL"
-  vulncheck:
+  # vulncheck, sast and secret-scan folded into one job (#335): three
+  # independent checks that each paid their own checkout, and vulncheck also
+  # its own setup-go, for no reason beyond having been three jobs. One
+  # checkout (fetch-depth 0, gitleaks' own requirement) and one setup-go now
+  # cover all three; each keeps its OWN step name so a failure is still
+  # attributable at a glance, and `continue-on-error` + a final gate step
+  # make sure one check's failure does not hide the other two's the way a
+  # short-circuiting `run:` block would.
+  #
+  # secret-scan's steps stay UNGATED by `needs.changes.outputs.code`, exactly
+  # as the job was before folding: a secret can land in any file, docs
+  # included, so this is the one check in this job that must not narrow.
+  scan:
     if: github.event.pull_request.draft != true
     needs: changes
     runs-on: self-hosted
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - if: needs.changes.outputs.code == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # secret-scan (gitleaks) needs the full history
       - if: needs.changes.outputs.code == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -639,19 +652,13 @@ jobs:
           # and its post-job save tars+uploads ~5GB that stalls the upload (~98.7%),
           # wedging the run. The persistent disk is the cache.
           cache: false
-      - if: needs.changes.outputs.code == 'true'
-        run: go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
-      - if: needs.changes.outputs.code == 'true'
-        run: govulncheck ./...
-
-  sast:
-    if: github.event.pull_request.draft != true
-    needs: changes
-    runs-on: self-hosted
-    timeout-minutes: 5
-    steps:
-      - if: needs.changes.outputs.code == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: govulncheck
+        id: vulncheck
+        if: needs.changes.outputs.code == 'true'
+        continue-on-error: true
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
+          govulncheck ./...
       - name: Install Opengrep
         if: needs.changes.outputs.code == 'true'
         # Replaces the fragile `curl install.sh | bash` with a SHA-pinned binary download.
@@ -675,31 +682,24 @@ jobs:
           echo "${OPENGREP_SHA256}  $DEST/opengrep" | sha256sum -c -
           ln -sfn "$DEST" "$HOME/.opengrep/cli/latest"
       - name: Opengrep scan
+        id: sast
         if: needs.changes.outputs.code == 'true'
+        continue-on-error: true
         run: |
           ~/.opengrep/cli/latest/opengrep scan \
             --config p/golang \
             --severity ERROR \
             --no-rewrite-rule-ids \
             .
-
-  secret-scan:
-    if: github.event.pull_request.draft != true
-    runs-on: self-hosted
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
       - name: Cache gitleaks binary
         id: gitleaks-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: gitleaks
           key: gitleaks-8.30.1-linux-x64
-      # SHA-pinned the way the adjacent `sast` job pins opengrep -- this and
-      # that job apply different supply-chain rules to the same kind of raw
-      # binary download otherwise. Verified against the published checksum
+      # SHA-pinned the way the `sast` step above pins opengrep -- this used to
+      # be a different job applying a different supply-chain rule to the same
+      # kind of raw binary download. Verified against the published checksum
       # AND re-verified on every run (cache-hit included): a binary
       # pre-planted on the persistent self-hosted-runner cache would
       # otherwise run unverified.
@@ -723,13 +723,30 @@ jobs:
         # cache entry cannot silently carry a swapped binary forward.
         run: echo "${GITLEAKS_BINARY_SHA256}  gitleaks" | sha256sum -c -
       - name: gitleaks
+        id: secretscan
+        continue-on-error: true
         run: ./gitleaks detect --no-banner --redact -v --exit-code 1
+      - name: Fail if any scan step failed
+        # Each check above runs regardless of an earlier one's outcome
+        # (continue-on-error), so this is the one place the job's overall
+        # verdict is decided -- a step that never ran (skipped, outcome
+        # "skipped") must not count as a failure here.
+        run: |
+          set -uo pipefail
+          failed=""
+          if [ "${{ steps.vulncheck.outcome }}" = "failure" ]; then failed="$failed govulncheck"; fi
+          if [ "${{ steps.sast.outcome }}" = "failure" ]; then failed="$failed opengrep-sast"; fi
+          if [ "${{ steps.secretscan.outcome }}" = "failure" ]; then failed="$failed gitleaks"; fi
+          if [ -n "$failed" ]; then
+            echo "::error::scan step(s) failed:$failed"
+            exit 1
+          fi
 
   # PR deploy-readiness: prove the binary compiles + runs with the same flags
   # the deploy uses, so a broken build can't merge. Does NOT install (PR-only).
   build:
     if: github.event.pull_request.draft != true
-    needs: [changes, test, lint, vulncheck, sast, secret-scan]
+    needs: [changes, test, lint, scan]
     runs-on: self-hosted
     timeout-minutes: 5
     steps:
@@ -757,7 +774,7 @@ jobs:
   # all green, but a red one means this never fires. A manual workflow_dispatch
   # stays gated behind the same guard.
   deploy:
-    needs: [test, lint, vulncheck, sast, secret-scan]
+    needs: [test, lint, scan]
     if: ${{ always() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: self-hosted
     timeout-minutes: 10
