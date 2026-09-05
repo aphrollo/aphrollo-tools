@@ -10,13 +10,14 @@ import (
 // loadable law once a repo supplies values, not just text that happens to
 // parse as TOML.
 var sampleParams = map[string]string{
-	"pattern":       "TODO\\(",
+	"pattern":       "(TODO)\\(",
 	"prefixes":      "BORLD",
 	"registry_file": "docs/dev_instruments.md",
 	"files":         `"crates/a/src/b.rs"`,
 	"roots":         `"server"`,
 	"forbidden":     `"testrig"`,
 	"min_reachable": "5",
+	"include":       `"**/*_test.go"`,
 }
 
 // TestEveryPreset_RendersIntoAValidLaw proves every embedded preset, once its
@@ -187,6 +188,120 @@ func TestParsePresetRef_RejectsAMalformedReference(t *testing.T) {
 	group, name, err := ParsePresetRef("preset:rust/nan_guard")
 	if err != nil || group != "rust" || name != "nan_guard" {
 		t.Errorf("ParsePresetRef = %q, %q, %v", group, name, err)
+	}
+}
+
+// TestPresets_TestRemovedRendersForGoAndRust proves the two language presets
+// (fully concrete, no `{{name}}` slots of their own) render into a loadable
+// symbol-removed law: the Go one scoped to `_test.go`, the Rust one scoped to
+// `.rs` and excluding `target/`.
+func TestPresets_TestRemovedRendersForGoAndRust(t *testing.T) {
+	goRaw, err := LoadPresetText("go", "test_removed")
+	if err != nil {
+		t.Fatalf("LoadPresetText(go, test_removed): %v", err)
+	}
+	goLaw, err := ParseLaw(goRaw, "test_removed")
+	if err != nil {
+		t.Fatalf("go/test_removed does not parse as a law: %v\n%s", err, goRaw)
+	}
+	if goLaw.Matcher.Kind != KindSymbolRemoved {
+		t.Errorf("go/test_removed kind = %q, want %q", goLaw.Matcher.Kind, KindSymbolRemoved)
+	}
+	if !goLaw.Scope.Matches("internal/x/a_test.go") {
+		t.Error("go/test_removed scope must reach a _test.go file")
+	}
+	if goLaw.Scope.Matches("internal/x/a.go") {
+		t.Error("go/test_removed scope must not reach a non-test .go file")
+	}
+
+	rustRaw, err := LoadPresetText("rust", "test_removed")
+	if err != nil {
+		t.Fatalf("LoadPresetText(rust, test_removed): %v", err)
+	}
+	rustLaw, err := ParseLaw(rustRaw, "test_removed")
+	if err != nil {
+		t.Fatalf("rust/test_removed does not parse as a law: %v\n%s", err, rustRaw)
+	}
+	if rustLaw.Matcher.Kind != KindSymbolRemoved {
+		t.Errorf("rust/test_removed kind = %q, want %q", rustLaw.Matcher.Kind, KindSymbolRemoved)
+	}
+	if !rustLaw.Scope.Matches("crates/a/src/lib.rs") {
+		t.Error("rust/test_removed scope must reach a .rs file")
+	}
+	if rustLaw.Scope.Matches("target/debug/lib.rs") {
+		t.Error("rust/test_removed scope must exclude target/")
+	}
+}
+
+// TestRustTestRemovedPattern_MatchesPlainTokioAndAsync proves the rendered
+// Rust pattern captures the function name for both a plain `#[test]` and an
+// async `#[tokio::test]`, and never matches an ordinary helper function.
+func TestRustTestRemovedPattern_MatchesPlainTokioAndAsync(t *testing.T) {
+	raw, err := LoadPresetText("rust", "test_removed")
+	if err != nil {
+		t.Fatalf("LoadPresetText(rust, test_removed): %v", err)
+	}
+	law, err := ParseLaw(raw, "test_removed")
+	if err != nil {
+		t.Fatalf("ParseLaw: %v", err)
+	}
+	if m := law.Matcher.Pattern.FindStringSubmatch("#[test]\nfn it_works() {"); m == nil || m[1] != "it_works" {
+		t.Errorf("plain #[test] match = %v, want capture \"it_works\"", m)
+	}
+	if m := law.Matcher.Pattern.FindStringSubmatch("#[tokio::test]\nasync fn runs() {"); m == nil || m[1] != "runs" {
+		t.Errorf("#[tokio::test] async match = %v, want capture \"runs\"", m)
+	}
+	if m := law.Matcher.Pattern.FindStringSubmatch("fn helper() {"); m != nil {
+		t.Errorf("plain fn helper() must not match, got %v", m)
+	}
+}
+
+// TestGoTestRemovedPattern_IgnoresBenchmarksAndHelpers proves the rendered Go
+// pattern captures only a Test-prefixed function, never a Benchmark or a
+// lowercase helper that merely starts with "test".
+func TestGoTestRemovedPattern_IgnoresBenchmarksAndHelpers(t *testing.T) {
+	raw, err := LoadPresetText("go", "test_removed")
+	if err != nil {
+		t.Fatalf("LoadPresetText(go, test_removed): %v", err)
+	}
+	law, err := ParseLaw(raw, "test_removed")
+	if err != nil {
+		t.Fatalf("ParseLaw: %v", err)
+	}
+	if m := law.Matcher.Pattern.FindStringSubmatch("func TestFoo(t *testing.T) {"); m == nil || m[1] != "TestFoo" {
+		t.Errorf("TestFoo match = %v, want capture \"TestFoo\"", m)
+	}
+	if m := law.Matcher.Pattern.FindStringSubmatch("func BenchmarkFoo(b *testing.B) {"); m != nil {
+		t.Errorf("BenchmarkFoo must not match, got %v", m)
+	}
+	if m := law.Matcher.Pattern.FindStringSubmatch("func testHelper() {"); m != nil {
+		t.Errorf("testHelper must not match, got %v", m)
+	}
+}
+
+// TestPresets_CommonTestRemovedDescriptionHasNoParamTokensAfterRender proves
+// the common preset's description reads as prose once rendered, not a
+// half-filled template: RenderPresetText substitutes every `{{name}}` slot
+// across the WHOLE text, so a `{{pattern}}` token left in the description
+// would echo back whatever regex the caller supplied, mid-sentence.
+func TestPresets_CommonTestRemovedDescriptionHasNoParamTokensAfterRender(t *testing.T) {
+	raw, err := LoadPresetText("common", "test_removed")
+	if err != nil {
+		t.Fatalf("LoadPresetText(common, test_removed): %v", err)
+	}
+	rendered, missing := RenderPresetText(raw, sampleParams)
+	if len(missing) != 0 {
+		t.Fatalf("RenderPresetText missing = %v, want none", missing)
+	}
+	law, err := ParseLaw(rendered, "test_removed")
+	if err != nil {
+		t.Fatalf("ParseLaw: %v\n%s", err, rendered)
+	}
+	if strings.Contains(law.Description, "{{") {
+		t.Errorf("description = %q, want no leftover {{ template token", law.Description)
+	}
+	if strings.Contains(law.Description, sampleParams["pattern"]) {
+		t.Errorf("description = %q, must not echo the substituted pattern %q", law.Description, sampleParams["pattern"])
 	}
 }
 

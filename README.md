@@ -1594,6 +1594,13 @@ the old one. A repo with no laws dir under `.ratchet` says `no laws` and exits 0
 
 <!-- ratchet-spec:end -->
 
+#### Preset catalogue example: `test_removed`
+
+`common/test_removed` is the `symbol-removed` kind's template: `go/test_removed`
+and `rust/test_removed` are its concrete, already-filled-in forms (a Go
+`Test`-prefixed function, a Rust `#[test]`/`#[tokio::test]` function), the same
+relationship `go/module_size` already has to `common/module_size`.
+
 ### Pipeline health (`aphrollo gate stats`)
 
 ```sh

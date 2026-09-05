@@ -1,0 +1,10 @@
+name        = "test_removed"
+description = "A Go test present at the base ref and gone at the tip needs a tombstone — see common/test_removed for the rule and the tombstone form. `pattern` captures only a `Test`-prefixed top-level function, so a `Benchmark` function or a lowercase helper coming or going is never this law's business, and it never fires inside a file the base ref never had."
+severity    = "deny"
+
+[scope]
+include = ["**/*_test.go"]
+
+[matcher]
+kind    = "symbol-removed"
+pattern = "^func (Test[A-Za-z0-9_]+)\\("
