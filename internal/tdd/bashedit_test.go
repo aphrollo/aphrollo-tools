@@ -233,6 +233,43 @@ func TestPostBashNoticesAFileTheCommandCreated(t *testing.T) {
 	}
 }
 
+// TestPostBash_NamesEveryRootAChangeTouchedEvenWhenOneDefers pins issue #306:
+// PostBash used to break after the FIRST root whose phase deferred, leaving
+// every other root a single Bash command touched silently unexercised — with
+// nothing beyond a per-file "bash-edit:" log line to say so. The loop still
+// stops after one deferred phase (a second project's cold build here would
+// run unwatched beside the first, and neither result would describe the tree
+// by the time it lands), but it now names every root left untested.
+func TestPostBash_NamesEveryRootAChangeTouchedEvenWhenOneDefers(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "pkga/go.mod", "module pkga\n\ngo 1.21\n")
+	write(t, root, "pkga/a.go", "package pkga\n\nfunc A() int { return 1 }\n")
+	write(t, root, "pkgb/go.mod", "module pkgb\n\ngo 1.21\n")
+	write(t, root, "pkgb/b.go", "package pkgb\n\nfunc B() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "two roots")
+
+	PreBash(bashPayload(t, "s-roots", root, "sed -i s/1/2/ pkga/a.go pkgb/b.go"))
+	write(t, root, "pkga/a.go", "package pkga\n\nfunc A() int { return 2 }\n")
+	write(t, root, "pkgb/b.go", "package pkgb\n\nfunc B() int { return 2 }\n")
+
+	spawned := fakePhases(t) // no outcome queued: the spawned phase stays running
+
+	text := PostBash(bashPayload(t, "s-roots", root, "sed -i s/1/2/ pkga/a.go pkgb/b.go"), fakeRun(true, "ok"))
+
+	if len(*spawned) != 1 {
+		t.Fatalf("spawned %d phases, want exactly 1 — a second project's cold build must not start unwatched beside the first", len(*spawned))
+	}
+	pkgbRoot := filepath.Join(root, "pkgb")
+	if !strings.Contains(text, pkgbRoot) {
+		t.Fatalf("advisory = %q, want it to name %s as a root this command changed but never ran a gate for", text, pkgbRoot)
+	}
+	if !strings.Contains(text, "skipped") {
+		t.Fatalf("advisory = %q, want it to say the other root was skipped", text)
+	}
+}
+
 // No snapshot means no diff, and guessing would run a suite for a command
 // that changed nothing. A Bash call outside any repo is skipped entirely.
 func TestPostBashIsSilentWithoutASnapshot(t *testing.T) {
