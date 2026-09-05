@@ -88,6 +88,105 @@ func TestSelfInstall_SweepsTheStaleCopiesTheLastUpgradeLeft(t *testing.T) {
 	}
 }
 
+// selfInstallBuildStub swaps buildAphrollo for one that writes built to out
+// and restores it at test end — the mutation-proof twin of
+// selfInstallFixture for tests that lay out the bin dir themselves.
+func selfInstallBuildStub(t *testing.T, built string) {
+	t.Helper()
+	prev := buildAphrollo
+	buildAphrollo = func(repo, out string) (string, error) {
+		if err := os.WriteFile(out, []byte(built), 0o755); err != nil {
+			return "", err
+		}
+		return "go build -buildvcs=false -o " + out + " ./cmd/aphrollo", nil
+	}
+	t.Cleanup(func() { buildAphrollo = prev })
+}
+
+// #366: an explicit --bin with no extension on Windows must still land the
+// build somewhere exec.LookPath (and everything Go spawns) can find it, not
+// only a human's shell.
+func TestSelfInstall_NormalizesAnExtensionlessBinFlagToExe(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "aphrollo") // deliberately no extension
+	selfInstallBuildStub(t, "NEW")
+
+	var out, errb bytes.Buffer
+	if code := runGateSelfInstall([]string{"--bin", bin, "--repo", t.TempDir(), "--no-init"}, &out, &errb); code != 0 {
+		t.Fatalf("self-install exit = %d\nstdout:%s\nstderr:%s", code, out.String(), errb.String())
+	}
+	wantBin := bin + ".exe"
+	got, err := os.ReadFile(wantBin)
+	if err != nil {
+		t.Fatalf("%s does not exist after install: %v", wantBin, err)
+	}
+	if string(got) != "NEW" {
+		t.Fatalf("%s content = %q, want the freshly built one", wantBin, got)
+	}
+	if _, err := os.Stat(bin); err == nil {
+		t.Fatalf("an extensionless %s must not exist beside %s", bin, wantBin)
+	}
+}
+
+// #366: the outage traced to this exact step — with the extension dropped,
+// swapBinary stat'd the wrong name, found nothing, and swept the good
+// binary instead of renaming it aside. This pins that once bin is
+// normalized, the pre-existing .exe IS found and preserved.
+func TestSelfInstall_RenamesThePreExistingExeAsideWhenBinFlagOmitsTheExtension(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "aphrollo.exe")
+	if err := os.WriteFile(exe, []byte("OLD"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "aphrollo") // the flag as a caller who forgot the extension would pass it
+	selfInstallBuildStub(t, "NEW")
+
+	var out, errb bytes.Buffer
+	if code := runGateSelfInstall([]string{"--bin", bin, "--repo", t.TempDir(), "--no-init"}, &out, &errb); code != 0 {
+		t.Fatalf("self-install exit = %d\nstdout:%s\nstderr:%s", code, out.String(), errb.String())
+	}
+	if strings.Contains(out.String(), "rename skipped") {
+		t.Fatalf("the pre-existing binary was not found under its real name, output:\n%s", out.String())
+	}
+	stale := staleCopies(t, dir)
+	if len(stale) != 1 {
+		t.Fatalf("the replaced binary must be renamed aside, found %v", stale)
+	}
+	if body, err := os.ReadFile(stale[0]); err != nil || string(body) != "OLD" {
+		t.Fatalf("the stale copy must hold the previous binary, got %q (%v)", body, err)
+	}
+	got, err := os.ReadFile(exe)
+	if err != nil || string(got) != "NEW" {
+		t.Fatalf("%s = %q (%v), want the freshly built bytes", exe, got, err)
+	}
+}
+
+// #366's fix must apply to both installers from one place: this exercises
+// the shared normalization directly, including the non-Windows case that
+// this box cannot exercise by actually switching GOOS.
+func TestBinExtForOS_AppendsExeOnlyOnWindowsWhenBinHasNoExtension(t *testing.T) {
+	cases := []struct {
+		name     string
+		bin      string
+		goos     string
+		want     string
+		appended bool
+	}{
+		{"windows extensionless", `C:\bin\aphrollo`, "windows", `C:\bin\aphrollo.exe`, true},
+		{"windows already has .exe", `C:\bin\aphrollo.exe`, "windows", `C:\bin\aphrollo.exe`, false},
+		{"linux extensionless is unchanged", "/usr/local/bin/aphrollo", "linux", "/usr/local/bin/aphrollo", false},
+		{"darwin extensionless is unchanged", "/usr/local/bin/aphrollo", "darwin", "/usr/local/bin/aphrollo", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, appended := binExtForOS(c.bin, c.goos)
+			if got != c.want || appended != c.appended {
+				t.Fatalf("binExtForOS(%q, %q) = (%q, %v), want (%q, %v)", c.bin, c.goos, got, appended, c.want, c.appended)
+			}
+		})
+	}
+}
+
 func TestSelfInstall_KeepsAStaleCopyItCannotDelete(t *testing.T) {
 	bin := selfInstallFixture(t, "NEW")
 	dir := filepath.Dir(bin)
