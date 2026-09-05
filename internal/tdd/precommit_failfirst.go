@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -189,7 +190,18 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	// either (the test never actually passed against the pre-edit code,
 	// because it never ran at all): name it as its own outcome, per package.
 	if runner.Cmd == "go" && res.Passed {
-		if pkgs := vacuousGoPackages(res.GoTestJSON); len(pkgs) > 0 {
+		pkgs, err := vacuousGoPackages(res.GoTestJSON)
+		if err != nil {
+			// Same stance as runSuiteStage: a stream this function could not
+			// finish reading is not distinguishable from one that measured
+			// nothing, so it is reported through the SAME vacuous/blocking
+			// path rather than falling open into "no verdict either way" —
+			// #317's point is exactly that an unmeasured run must never look
+			// like a pass, and "unreadable" is the same category as
+			// "measured nothing".
+			return false, false, true, []string{fmt.Sprintf("(unreadable test-result stream: %v)", err)}, res.Duration
+		}
+		if len(pkgs) > 0 {
 			return false, false, true, pkgs, res.Duration
 		}
 	}

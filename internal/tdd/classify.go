@@ -2,6 +2,9 @@ package tdd
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"regexp"
 	"sort"
 	"strings"
@@ -86,19 +89,30 @@ type goTestEvent struct {
 //
 // A package with no test files at all reports Action=="skip" at the
 // package level, never "pass" — go test's own distinction — so it is
-// excluded without a "no test files" text guess. A stream that fails to
-// parse at all (or partway through, e.g. a killed run) simply yields fewer
-// recognised events, never a hit: the safe direction is under-reporting a
-// vacuous package, not manufacturing one from a stream this function could
-// not read.
-func vacuousGoPackages(rawJSON string) []string {
+// excluded without a "no test files" text guess.
+//
+// A stream that stops with io.EOF is the normal, complete end of a `go test
+// -json` run and is not an error. Any OTHER decode failure — a truncated
+// write from a killed process, an interleaved non-JSON line — means this
+// function cannot tell what it did not get to see, so it returns an error
+// rather than judging the partial prefix it decoded so far: reporting on
+// half a stream as though it were the whole thing would silently
+// under-report a vacuous package hiding in the unread remainder, which is
+// exactly the "unmeasured run reads as a pass" shape #317 exists to refuse.
+// The caller (runSuiteStage's check-error path, failFirstViolatedAt's
+// vacuous path) treats "could not read the stream" as its own block rather
+// than folding it into "wrote a clean pass".
+func vacuousGoPackages(rawJSON string) ([]string, error) {
 	ranPkgs := map[string]bool{}
 	testedPkgs := map[string]bool{}
 	dec := json.NewDecoder(strings.NewReader(rawJSON))
 	for {
 		var e goTestEvent
 		if err := dec.Decode(&e); err != nil {
-			break
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("vacuousGoPackages: reading go test -json stream: %w", err)
 		}
 		if e.Package == "" {
 			continue
@@ -121,7 +135,7 @@ func vacuousGoPackages(rawJSON string) []string {
 		}
 	}
 	sort.Strings(vacuous)
-	return vacuous
+	return vacuous, nil
 }
 
 // isGoTestInvocation reports whether cmd/args is a `go test ...` command —

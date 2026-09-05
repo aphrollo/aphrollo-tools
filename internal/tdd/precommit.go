@@ -511,7 +511,21 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	// another package going quietly vacuous beside them. Checked before the
 	// switch below so it never falls into the ordinary green case.
 	if res.Passed && !res.TimedOut && runner.Cmd == "go" {
-		if pkgs := vacuousGoPackages(res.GoTestJSON); len(pkgs) > 0 {
+		pkgs, err := vacuousGoPackages(res.GoTestJSON)
+		if err != nil {
+			// The run exited 0, but this gate could not read what it
+			// actually tested — the same "nothing was proven" shape as any
+			// other check-error, not a clean pass (#317: an unmeasured run
+			// must never read as one).
+			return verdictFor(gateName, stage, root, cmdString(runner), stageOutcome{
+				kind: outcomeCheckError,
+				err:  err,
+				message: fmt.Sprintf(
+					"gate %s: %s → REJECTED (%v)\n  the commit cannot be judged against a test-result stream this gate could not read",
+					gateName, cmdString(runner), err),
+			})
+		}
+		if len(pkgs) > 0 {
 			return verdictFor(gateName, stage, root, cmdString(runner), stageOutcome{
 				kind:   outcomeVacuous,
 				result: res,

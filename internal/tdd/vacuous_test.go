@@ -36,7 +36,11 @@ func TestRunSuite_GoTestJSONCanBeJudgedByVacuousGoPackages(t *testing.T) {
 	if !res.Passed {
 		t.Fatalf("setup: expected the TestMain-exit(0) binary to exit 0, got Passed=false output=%q err=%q", res.Output, res.Err)
 	}
-	if got := vacuousGoPackages(res.GoTestJSON); len(got) == 0 {
+	got, err := vacuousGoPackages(res.GoTestJSON)
+	if err != nil {
+		t.Fatalf("vacuousGoPackages error = %v, want nil", err)
+	}
+	if len(got) == 0 {
 		t.Fatalf("vacuousGoPackages saw nothing to catch in RunSuite's own GoTestJSON (%q) — RunSuite must run `go test -json` for the package data to exist at all", res.GoTestJSON)
 	}
 }
@@ -55,7 +59,11 @@ func TestRunSuite_GoTestWithRealPassingTestsIsNeverVacuous(t *testing.T) {
 	if !res.Passed {
 		t.Fatalf("setup: expected a real passing test to exit 0, got Passed=false output=%q err=%q", res.Output, res.Err)
 	}
-	if got := vacuousGoPackages(res.GoTestJSON); len(got) != 0 {
+	got, err := vacuousGoPackages(res.GoTestJSON)
+	if err != nil {
+		t.Fatalf("vacuousGoPackages error = %v, want nil", err)
+	}
+	if len(got) != 0 {
 		t.Fatalf("vacuousGoPackages = %v, want none — a real test ran", got)
 	}
 }
@@ -81,7 +89,10 @@ func TestRunSuite_MultiPackageRunAttributesVacuousToTheRightPackage(t *testing.T
 	if !res.Passed {
 		t.Fatalf("setup: expected the run to exit 0 (pkgok passes, pkgvacuous exits 0), got Passed=false output=%q err=%q", res.Output, res.Err)
 	}
-	got := vacuousGoPackages(res.GoTestJSON)
+	got, err := vacuousGoPackages(res.GoTestJSON)
+	if err != nil {
+		t.Fatalf("vacuousGoPackages error = %v, want nil", err)
+	}
 	if len(got) != 1 || !strings.HasSuffix(got[0], "pkgvacuous") {
 		t.Fatalf("vacuousGoPackages = %v, want exactly [multipkg/pkgvacuous] — pkgok's real pass must not hide pkgvacuous", got)
 	}

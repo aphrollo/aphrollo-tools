@@ -201,7 +201,11 @@ const realTestPkgJSON = `{"Action":"run","Package":"example.com/m","Test":"TestW
 // single-package case: vacuousGoPackages names the one package whose
 // package-level PASS carries no per-test event.
 func TestVacuousGoPackages_NamesThePackageThatRanButExecutedNoTest(t *testing.T) {
-	if got := vacuousGoPackages(vacuousPkgJSON); !reflect.DeepEqual(got, []string{"example.com/m"}) {
+	got, err := vacuousGoPackages(vacuousPkgJSON)
+	if err != nil {
+		t.Fatalf("vacuousGoPackages error = %v, want nil", err)
+	}
+	if !reflect.DeepEqual(got, []string{"example.com/m"}) {
 		t.Fatalf("vacuousGoPackages = %v, want [example.com/m]", got)
 	}
 }
@@ -210,7 +214,11 @@ func TestVacuousGoPackages_NamesThePackageThatRanButExecutedNoTest(t *testing.T)
 // empty pass (go test's own package-level SKIP) from being caught by the
 // same rule as a real vacuous PASS.
 func TestVacuousGoPackages_EmptyWhenNoTestFilesExist(t *testing.T) {
-	if got := vacuousGoPackages(noTestFilesPkgJSON); len(got) != 0 {
+	got, err := vacuousGoPackages(noTestFilesPkgJSON)
+	if err != nil {
+		t.Fatalf("vacuousGoPackages error = %v, want nil", err)
+	}
+	if len(got) != 0 {
 		t.Fatalf("vacuousGoPackages = %v, want none (no test files is a legitimate empty pass)", got)
 	}
 }
@@ -218,7 +226,11 @@ func TestVacuousGoPackages_EmptyWhenNoTestFilesExist(t *testing.T) {
 // TestVacuousGoPackages_EmptyWhenTestsActuallyRan is the base case: a
 // package whose tests really executed must never be flagged.
 func TestVacuousGoPackages_EmptyWhenTestsActuallyRan(t *testing.T) {
-	if got := vacuousGoPackages(realTestPkgJSON); len(got) != 0 {
+	got, err := vacuousGoPackages(realTestPkgJSON)
+	if err != nil {
+		t.Fatalf("vacuousGoPackages error = %v, want nil", err)
+	}
+	if len(got) != 0 {
 		t.Fatalf("vacuousGoPackages = %v, want none (a real test ran)", got)
 	}
 }
@@ -242,10 +254,42 @@ func TestVacuousGoPackages_AttributesPerPackageInAMultiPackageRun(t *testing.T) 
 {"Action":"output","Package":"multipkg/pkgok","Output":"ok  \tmultipkg/pkgok\t0.104s\n"}
 {"Action":"pass","Package":"multipkg/pkgok","Elapsed":0.105}
 `
-	got := vacuousGoPackages(multiPkgJSON)
+	got, err := vacuousGoPackages(multiPkgJSON)
+	if err != nil {
+		t.Fatalf("vacuousGoPackages error = %v, want nil", err)
+	}
 	want := []string{"multipkg/pkgvacuous"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("vacuousGoPackages = %v, want %v — pkgok's real pass must not hide pkgvacuous", got, want)
+	}
+}
+
+// TestVacuousGoPackages_EmptyStreamIsNotAnError pins the io.EOF exemption:
+// an empty GoTestJSON (a non-Go runner, or a stub SuiteResult built without
+// setting the field) is a clean zero-event read, never a decode failure.
+func TestVacuousGoPackages_EmptyStreamIsNotAnError(t *testing.T) {
+	got, err := vacuousGoPackages("")
+	if err != nil {
+		t.Fatalf("vacuousGoPackages(\"\") error = %v, want nil (an empty stream is a clean end-of-input, not a decode failure)", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("vacuousGoPackages(\"\") = %v, want none", got)
+	}
+}
+
+// TestVacuousGoPackages_ReturnsAnErrorOnATruncatedStream is the review
+// finding after PR #411's per-package fix: a JSON decode failure partway
+// through the stream (a killed process, an interleaved non-JSON write) used
+// to be treated identically to a clean end-of-stream (`break` on any error),
+// silently under-reporting whatever package's events came after the cut.
+// This event is deliberately cut mid-object — no closing brace — so the
+// decoder fails with something other than io.EOF.
+func TestVacuousGoPackages_ReturnsAnErrorOnATruncatedStream(t *testing.T) {
+	truncated := `{"Action":"start","Package":"example.com/m"}
+{"Action":"pass","Package":"example.com/m"`
+	got, err := vacuousGoPackages(truncated)
+	if err == nil {
+		t.Fatalf("vacuousGoPackages(truncated) = %v, err = nil — a malformed/truncated stream must be surfaced as an error, not silently read as a clean (possibly empty) result", got)
 	}
 }
 
