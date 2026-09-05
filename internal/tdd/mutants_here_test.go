@@ -92,6 +92,39 @@ func TestRunMutantsHere_RefusesASecondRunWhileThisRepoIsAlreadyMeasuring(t *test
 	}
 }
 
+// Two lanes in one checkout measure two different trees, and a receipt is
+// keyed on the tree — so the run already going answers a question this lane
+// never asked. Scoping the guard to the REPO refused every other lane for as
+// long as any one run lasted (observed: one lane blocked from 03:48 to 06:19,
+// with a message claiming the going run "writes the same receipt this one
+// would", which was false), and it refused rather than queuing, so the blocked
+// lane held no place either.
+func TestRunMutantsHere_RunsWhenTheGoingRunIsMeasuringADifferentTree(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	noKills(t)
+	var started []MutantsJob
+	fakeSpawn(t, &started)
+	var ran []MutantsJob
+	foregroundRuns(t, &ran)
+	root := optedInLane(t)
+	if _, ok := StartMutantsJob(root); !ok {
+		t.Fatal("an opted-in lane commit must start a job")
+	}
+	// A second commit moves this checkout to a different tree; the job started
+	// above is still running against the old one.
+	write(t, root, "src/extra.rs", "pub fn two() -> i32 { 3 }\n")
+	gitDo(t, root, "add", "-A")
+	gitDo(t, root, "commit", "-qm", "different tree")
+
+	var out bytes.Buffer
+	if code := RunMutantsHere(root, &out); code != 0 {
+		t.Fatalf("RunMutantsHere = %d for a tree nothing is measuring, want 0\noutput: %s", code, out.String())
+	}
+	if len(ran) != 1 {
+		t.Fatalf("ran %d jobs, want the one for this tree\noutput: %s", len(ran), out.String())
+	}
+}
+
 // A refusal is an ANSWER, and the hand-typed caller is owed it. Standing on
 // trunk is a perfectly good reason to run nothing, and saying nothing about it
 // is what sends a session back to the unlocked script.

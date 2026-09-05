@@ -1,0 +1,475 @@
+package cli
+
+import (
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
+)
+
+const gateUsage = `usage: aphrollo gate <subcommand>
+
+Subcommands:
+  sessionstart      Inject the build-skill nudge at session start
+  pretooluse        Evaluate a Claude Code PreToolUse edit payload from stdin
+  posttooluse       Run related tests after an edit and report RED/GREEN
+  userpromptsubmit  Handle the /gate command and re-inject a RED reminder
+  sessionend        Drop the session's state file
+  precommit         Git pre-commit gate: fail-first + mechanical (run in the repo)
+  premergecommit    Git pre-merge-commit gate: mechanical ONLY, no fail-first/anti-cheat
+  postcommit        Git post-commit hook: write the refs/notes/gate note on the
+                    commit just made — what lets CI tell a red on a gated tip
+                    from a red on an ungated one — then start the lane's
+                    mutation run detached and below normal priority (opt-in per
+                    repo: mutation-receipt = true). Never blocks, never fails
+  mutants           The mutation job's own verbs. run|go --job <file> is the
+                    DETACHED local run, spawned by postcommit and not typed by
+                    hand; the go verb drives gremlins over the lane diff and
+                    writes the same receipt the Rust runner does.
+                    go --diff <base> [--receipt <path>] [--store <dir>] is CI's:
+                    it measures <base>..HEAD in this checkout in the FOREGROUND
+                    and is the check — exit 1 on an unaccepted survivor, a
+                    timeout, or a run that measured nothing; exit 2 on a bad
+                    invocation. --store names the outcome cache's directory
+                    (an actions/cache path keyed on the head branch), so a
+                    push that changed one file carries the rest of the PR's
+                    prior measurements forward instead of re-running them
+  receipt           receipt sign [--outcomes <path>] <file>: stamp a mutation
+                    receipt with this machine's MAC. The ONLY writer of one —
+                    every runner signs through it
+  prepush           No-op (mechanical-only mode); kept for back-compat with a
+                    lingering pre-push shim. Never blocks.
+  runphase          Run one deferred build/run phase from its job record (--job);
+                    spawned by posttooluse, not typed by hand
+  commitmsg         commit-msg hook: reject a message carrying a deny pattern
+                    (opt-in per workspace: undercover = true)
+  doctor            Report one line per install check (hooks, shims, locks, managed
+                    skills/agents, the primary checkout branch, the golangci-lint
+                    version CI pins, CI clippy list); exit 1 on any FAIL
+  statusline        Render the one-line gate badge from a statusline payload on
+                    stdin: the colour is the state (green armed, red standing
+                    failure, yellow running, gray off), with a tag inside the
+                    brackets when yellow needs naming; wired into settings.json
+                    by init
+  stats             Tally gate.log by stage and outcome (--since 7d), and the open
+                    escape count
+  issue             Open one labelled issue against the repo's GitHub remote and
+                    print its URL (--label, --body, --repo, --new-label). An open
+                    point is an issue, never a markdown follow-up
+  feedback          Report a defect in the GATE ITSELF to the tool's tracker, with
+                    the reporting repo and tip attached
+  escape            The escape loop: record | sync | list | verify-closure <pr>.
+                    A red after a local green is recorded and opened as a labelled
+                    issue; verify-closure refuses a PR that closes one without
+                    changing a law, a gate stage or a named test
+  gc                Reclaim stale build dirs: idle incremental caches, dead gate dirs,
+                    orphan worktree builds (--repo, --older-than 3d, --apply)
+  install           Install the git-hook shims into a repo (--repo, --apply)
+  init              Set up TDD: session hooks in settings.json + the global git gate
+                    (--no-git, --uninstall). ALSO EDITS FILES IN A REPO: the managed
+                    block in <repo>/CLAUDE.md and <repo>/.ratchet/README.md, where
+                    <repo> is --repo (default: the working directory's repo)
+  self-install      Rebuild ./cmd/aphrollo (--repo, -buildvcs=false), rename the running
+                    binary aside as aphrollo.stale-<unix>, move the new one into its
+                    place, reclaim the stale copies nothing is holding, then run init
+                    (--bin, --no-init; flags after a bare -- are forwarded to init)
+  cargo             cargo-queue shim: queue a DIRECT cargo invocation behind the same
+                    per-target-dir build slots the hooks/gates use (APHROLLO_CARGO_WAIT_SECS,
+                    APHROLLO_BUILD_SLOTS, APHROLLO_REAL_CARGO)
+  git               git-queue shim: queue a DIRECT index-mutating git invocation behind a
+                    per-repo lock so concurrent sessions sharing one checkout don't collide
+                    on .git/index.lock (APHROLLO_GIT_WAIT_SECS, APHROLLO_REAL_GIT)
+
+Autonomous TDD gates. pretooluse reads the hook JSON on stdin; on a smell in a
+test file (real-time sleep, tautological assertion, focused/disabled test) it
+exits 2 with a deny envelope, and warns on a suppression; otherwise it is
+silent. posttooluse runs the project's related tests after an edit and surfaces
+a failure summary (silent unless RED). userpromptsubmit intercepts
+/gate [status|off|on|reset] and otherwise re-injects the last RED outcome.
+sessionend cleans up the per-session state file. precommit verifies fail-first,
+blocks a newly-added suppression, and runs the suite, exiting non-zero to block.
+premergecommit runs ONLY the mechanical stage over the merge's staged files —
+no fail-first (a fresh test's RED/GREEN belongs to the authoring commit,
+already proven by precommit there) and no anti-cheat suppression scan (same
+reasoning) — so a git merge, which never fires pre-commit, still proves the
+COMBINED result compiles and passes before it lands. prepush is a
+mechanical-only no-op (adversarial review lives in the separate reviewer
+agent now), kept only so a lingering pre-push shim exits cleanly. cargo is
+the cargo-queue shim: a session that prepends the installed cargo-queue dir
+to its OWN PATH gets a DIRECT cargo invocation queued behind the same
+machine-wide lock the hooks/gates use, instead of silently waiting on
+cargo's own build-dir lock with zero visibility — silent when the lock is
+free, one line when it has to wait, one line when it acquires, exits 75
+(EX_TEMPFAIL) on giving up. git is the analogous shim for git: only
+index-mutating verbs (add, commit, merge, checkout, switch, restore
+--staged, reset, stash, rm, mv, rebase, cherry-pick, revert, am, apply
+--index/--cached, worktree add/remove, pull) queue behind a per-repo lock;
+read-only verbs (status, diff, log, show, ...) pass straight through
+untouched. Source edits always flow.
+`
+
+// postEditTimeout bounds a PostToolUse suite run so a hung test can't wedge the
+// session. Bumped 60s -> 100s 2026-08-15 (build-infra-fix task A2): a scoped
+// per-edit cargo build on a Bevy-sized crate routinely blew the old 60s
+// budget on a cold cache, which — before PostEdit became loud on every
+// outcome — silently read as "nothing to report" instead of the TIMEOUT it
+// actually was. precommitTimeout is longer: the commit gate runs the staged
+// crates' suites (and the fail-first worktree build), and on heavy-dependency
+// repos a first-warm build alone can pass five minutes; a timeout fails open,
+// so the ceiling only caps how long a commit can stall, never what it
+// proves.
+//
+// Both alias the canonical tdd.Default*Timeout constants (single source of
+// truth, tdd package) rather than redeclaring the numbers here — a 2026-08-15
+// review found init.go's PostToolUse hook-TEMPLATE timeout had silently
+// drifted to 90s after this Go-side value moved to 100s, so the Claude Code
+// harness was killing the hook process from OUTSIDE before RunSuite's own
+// context deadline ever fired. init.go's template is now DERIVED from
+// tdd.DefaultPostEditTimeout too, so the two can't drift apart again.
+const (
+	postEditTimeout  = tdd.DefaultPostEditTimeout
+	precommitTimeout = tdd.DefaultPrecommitTimeout
+)
+
+// defaultPrecommitLockWait is how long a commit's cargo stage queues for a
+// build slot before REJECTING the commit. Twenty minutes: the gate's target
+// dir is one per repo, so two lanes committing at once serialise behind each
+// other's full suite, and a short wait would throw away a legitimate commit.
+// It mirrors the tdd package's own default; the knob below is what an
+// operator on a busy box turns.
+const defaultPrecommitLockWait = 1200 * time.Second
+
+// The operator budget knobs live HERE, beside the defaults they override,
+// so every env switch this binary reads is declared in one place instead of
+// wherever it happens to be used:
+//
+//	APHROLLO_POSTEDIT_BUDGET_SECS  the edit hook's suite budget (default 100s)
+//	APHROLLO_LOCK_WAIT_SECS        the commit gate's build-slot wait (default 1200s)
+//
+// The edit hook's own build-slot wait is deliberately NOT tunable: it is
+// zero by contract (one try, then QUEUED-SKIPPED), because an edit that
+// waits spends its whole test budget losing a race to a multi-minute build.
+func postEditBudget() time.Duration {
+	return tdd.PostEditBudget()
+}
+
+func precommitLockWait() time.Duration {
+	return envDurationSecs("APHROLLO_LOCK_WAIT_SECS", defaultPrecommitLockWait)
+}
+
+// envDurationSecs reads a whole-number-of-seconds env knob. Anything that is
+// not one — unset, empty, negative, junk — keeps the shipped default: a
+// mistyped budget must never silently become zero and turn every run into an
+// instant timeout.
+func envDurationSecs(key string, def time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return def
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return def
+	}
+	return time.Duration(n) * time.Second
+}
+
+// runGate dispatches the TDD hook subcommands. Like the guardrail hook, every
+// path reads from the provided reader and a parse error fails OPEN (exit 0) so
+// a malformed payload can never wedge the session.
+func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		w, code := stderr, 2
+		if len(args) > 0 {
+			w, code = stdout, 0
+		}
+		fmt.Fprint(w, gateUsage)
+		return code
+	}
+	if args[0] == "install" {
+		return runGateInstall(args[1:], stdout, stderr)
+	}
+	if args[0] == "init" {
+		return runGateInit(args[1:], stdout, stderr)
+	}
+	if args[0] == "primary-edits" {
+		return runGatePrimaryEdits(args[1:], stdout, stderr)
+	}
+	if args[0] == "self-install" {
+		// Rebuild this binary from source and put it in place of the
+		// installed one, then rewire the hooks at the new build.
+		return runGateSelfInstall(args[1:], stdout, stderr)
+	}
+	if args[0] == "commitmsg" {
+		// The commit-msg git hook: git hands it the message file path.
+		return runGateCommitMsg(args[1:], stderr)
+	}
+	if args[0] == "postcommit" {
+		// The post-commit git hook, and there is only one: it writes the gate
+		// note on the commit just made, THEN starts the lane's mutation run
+		// detached. The note first, because it describes a commit that
+		// already exists and costs nothing; the run second, because it
+		// outlives this process. Neither can block — the commit is made.
+		return runPostCommit(stderr)
+	}
+	if args[0] == "doctor" {
+		// Read-only install report: one line per check, exit 1 on any FAIL.
+		return runGateDoctor(args[1:], stdout, stderr)
+	}
+	if args[0] == "statusline" {
+		// The statusline: one badge line on stdout, per prompt render. It
+		// never blocks and never errors — there is nowhere to report one.
+		raw, _ := io.ReadAll(stdin)
+		fmt.Fprintln(stdout, tdd.StatusLine(raw))
+		return 0
+	}
+	if args[0] == "stats" {
+		// Read-only report over gate.log: pipeline health as a number.
+		return runGateStats(args[1:], stdout, stderr)
+	}
+	if args[0] == "gc" {
+		// Disk hygiene: dry-run by default, --apply reclaims.
+		return runGateGC(args[1:], stdout, stderr)
+	}
+	if args[0] == "issue" {
+		// The general issue verb: an open point is a row somebody can
+		// filter, not a line in a markdown list.
+		return runGateIssue(args[1:], stdout, stderr)
+	}
+	if args[0] == "feedback" {
+		// The same, aimed the other way: a defect in the TOOL belongs on the
+		// tool's tracker, not in front of maintainers who cannot fix it.
+		return runGateFeedback(args[1:], stdout, stderr)
+	}
+	if args[0] == "escape" {
+		// The escape loop: record a red that got past a local green, and
+		// refuse a PR that closes one without changing a check.
+		return runGateEscape(args[1:], stdout, stderr)
+	}
+	if args[0] == "runphase" {
+		// The detached build/run phase's wrapper: it holds the build slot,
+		// logs, and writes the result file the next hook harvests. It never
+		// blocks anything, so its exit code is always 0.
+		return runPhase(args[1:], stderr)
+	}
+	if args[0] == "receipt" {
+		// The mutation receipt's signer: the one writer of a receipt's MAC.
+		return runGateReceipt(args[1:], stdout, stderr)
+	}
+	if args[0] == "mutants" {
+		// The mutation job's own verbs, addressed by a job file.
+		return runGateMutants(args[1:], stdout, stderr)
+	}
+	if args[0] == "cargo" {
+		// The cargo-queue shim (task A7): real terminal stdio, not the hook
+		// JSON protocol the rest of this switch reads.
+		return runGateCargo(args[1:], stdin, stdout, stderr)
+	}
+	if args[0] == "git" {
+		// The git-queue shim (task A11): same shape as cargo above -- real
+		// terminal stdio, not the hook JSON protocol.
+		return runGateGit(args[1:], stdin, stdout, stderr)
+	}
+
+	// precommit/premergecommit/prepush are git hooks: no stdin, exit non-zero
+	// to block.
+	if args[0] == "precommit" || args[0] == "premergecommit" || args[0] == "prepush" {
+		// prepush is a mechanical no-op: the tdd gate is mechanical-only and
+		// adversarial review lives in the separate reviewer agent, not this
+		// binary. It NEVER blocks. We keep the subcommand so a pre-push shim
+		// present on a box exits cleanly.
+		if args[0] == "prepush" {
+			fmt.Fprintln(stderr, "gate prepush: mechanical-only, no-op")
+			return 0
+		}
+		root := tdd.RepoRoot(".")
+		if root == "" {
+			return 0 // not in a git repo — nothing to gate
+		}
+		// premergecommit runs ONLY the mechanical stage: a git merge never
+		// fires pre-commit, so nothing else has proven the COMBINED tree
+		// still compiles and passes — fail-first and the anti-cheat scan are
+		// both judgments about how a change was AUTHORED, already settled by
+		// precommit on the commits being merged.
+		defer tdd.SetPrecommitLockWait(precommitLockWait())()
+		var res tdd.GateResult
+		if args[0] == "premergecommit" {
+			res = tdd.Mechanical(root, tdd.RunSuite(precommitTimeout))
+			// A rejection HERE is the pre-merge-commit hook blocking an
+			// automatic, conflict-free merge — the one case where git still
+			// leaves MERGE_HEAD and the merged index in the checkout ("Not
+			// committing merge; use 'git commit' to complete the merge."),
+			// refusing every OTHER session sharing it until a human runs
+			// `git merge --abort`. The marker lets the git-queue shim
+			// recognise its own rejection and clean that up automatically.
+			// Concluding a CONFLICTED merge fires pre-commit instead (routed
+			// to Mechanical internally by Precommit, task A10) and must
+			// never reach here — scoping the write to this branch is what
+			// keeps that path untouched.
+			if res.Blocked {
+				tdd.WriteMergeRejectedMarker(root, res.Message)
+				// Two gates disagreeing about one tree, or a survivor
+				// reaching the last gate that could stop it, is the loop's
+				// own evidence about a missing stage. Nothing recorded it
+				// before; now it records itself, deduped by fingerprint.
+				tdd.NoteMergeGateEscape(root, res.Message, stderr)
+			}
+		} else {
+			res = tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
+			if !res.Blocked {
+				// Stamp the tree a suite actually RAN GREEN on, so the
+				// post-commit hook can put the gate note on the commit and
+				// CI can tell a red on a proven tip from a red on an
+				// ungated one. A gate that allowed the commit because there
+				// was nothing to test has proven nothing and stamps nothing.
+				tdd.StampGreenSuiteIfProven(root)
+			}
+		}
+		// Surface the note (e.g. a fail-open skip) even when allowing — the gate
+		// is never silent about why it did or didn't run.
+		if res.Message != "" {
+			fmt.Fprintln(stderr, res.Message)
+		}
+		if res.Blocked {
+			return 1
+		}
+		return 0
+	}
+
+	switch args[0] {
+	case "sessionstart", "pretooluse", "posttooluse", "userpromptsubmit", "sessionend":
+	default:
+		fmt.Fprintf(stderr, "aphrollo gate: unknown subcommand %q\n\n%s", args[0], gateUsage)
+		return 2
+	}
+
+	raw, err := io.ReadAll(stdin)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: reading hook input: %v\n", err)
+		return 1
+	}
+
+	switch args[0] {
+	case "sessionstart":
+		// SessionStart only ever emits advisory context; it never blocks.
+		payload, code := tdd.RenderSessionStart(tdd.HandleSessionStart(raw))
+		if len(payload) > 0 {
+			stdout.Write(payload)
+		}
+		return code
+	case "posttooluse":
+		// PostToolUse never blocks: it only ever emits advisory context. It is
+		// also the one hook allowed to leave work running past its budget — a
+		// cold Bevy build does not fit in 110s and killing it establishes
+		// nothing.
+		tdd.EnableDeferredPhases(true)
+		if tdd.IsBashHook(raw) {
+			payload, code := tdd.RenderPostToolUse(tdd.PostBash(raw, tdd.RunSuite(postEditBudget())))
+			if len(payload) > 0 {
+				stdout.Write(payload)
+			}
+			return code
+		}
+		payload, code := tdd.RenderPostToolUse(tdd.PostEdit(raw, tdd.RunSuite(postEditBudget())))
+		if len(payload) > 0 {
+			stdout.Write(payload)
+		}
+		return code
+	case "userpromptsubmit":
+		// Handles the /tdd command and the RED reminder; never errors the turn.
+		payload, code := tdd.RenderPrompt(tdd.HandlePrompt(raw))
+		if len(payload) > 0 {
+			stdout.Write(payload)
+		}
+		return code
+	case "sessionend":
+		tdd.EndSession(raw)
+		return 0
+	}
+
+	// The primary checkout is merge-only, and that is decided before anything
+	// reads the content: WHERE a write lands does not depend on what it says,
+	// and it covers the shell too, which no content gate can judge.
+	if decision := tdd.PrimaryCheckoutDecision(raw); decision.Action == tdd.Block {
+		tdd.LogEditDecision(raw, decision)
+		payload, code := tdd.RenderPreToolUse(decision)
+		if len(payload) > 0 {
+			stdout.Write(payload)
+		}
+		return code
+	}
+
+	// A Bash call gets a snapshot, not a verdict: what it will write does not
+	// exist yet, so the pre-edit half only records the tree for PostToolUse
+	// to diff. It never blocks.
+	if tdd.IsBashHook(raw) {
+		tdd.PreBash(raw)
+		return 0
+	}
+
+	decision, err := tdd.DecidePreEdit(raw)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo gate: %v (allowing)\n", err)
+		return 0
+	}
+	// The declared laws judge the content this edit WOULD write. A content
+	// smell already blocking keeps its own reason; otherwise the more severe
+	// verdict wins, so a deny law denies the write before it lands.
+	if decision.Action != tdd.Block {
+		if r := tdd.RatchetAdvisory(raw); r.Action > decision.Action {
+			decision = r
+		}
+	}
+	// When everything above allows the edit, fall through to the worktree
+	// advisory: a once-per-session nudge when the edit lands in a main clone
+	// rather than a prepared worktree.
+	if decision.Action == tdd.Allow {
+		decision = tdd.WorktreeAdvisory(raw)
+	}
+	tdd.LogEditDecision(raw, decision)
+	payload, code := tdd.RenderPreToolUse(decision)
+	if len(payload) > 0 {
+		stdout.Write(payload)
+	}
+	return code
+}
+
+// runGateInstall writes the git-hook shims into a single repo. tdd/refactor
+// mutations kept the older dry-run-by-default + --apply model, so this defaults
+// to a dry-run and requires --apply; only the workspace verbs inverted to
+// execute-by-default with --dry.
+func runGateInstall(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("install", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var (
+		repo  = fs.String("repo", ".", "repository to install the hooks into")
+		apply = fs.Bool("apply", false, "write the hooks (default: print the plan and stop)")
+	)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	root := tdd.RepoRoot(*repo)
+	if root == "" {
+		fmt.Fprintf(stderr, "aphrollo: %s is not inside a git repository\n", *repo)
+		return 1
+	}
+	plan, err := tdd.BuildInstallPlan(root, defaultBinPath())
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, plan.Render(*apply))
+	if !*apply {
+		return 0
+	}
+	if err := plan.Apply(); err != nil {
+		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+		return 1
+	}
+	return 0
+}

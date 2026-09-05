@@ -1,4 +1,3 @@
-internal/cli/cli.go | 2131
 internal/cli/cli_test.go | 991
 internal/ratchet/check.go | 726
 internal/ratchet/law.go | 672
