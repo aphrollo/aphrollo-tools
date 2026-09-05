@@ -155,13 +155,17 @@ func runCargoLocked(run SuiteRunner, r Runner, root string, lockDeadline, stageB
 	if r.Dir != "" {
 		dir = r.Dir
 	}
-	slot, release, ok := acquireBuildSlot(runnerTargetDir(r, root), lockDeadline, cmdString(r), dir)
+	target := runnerTargetDir(r, root)
+	slot, release, ok := acquireBuildSlot(target, lockDeadline, cmdString(r), dir)
 	waited = time.Since(start)
 	if !ok {
 		return SuiteResult{}, waited, false
 	}
 	defer release()
 	defer setBuildJobs(slot.Jobs)()
+	// The target lock above is exclusive per target dir, so nothing else can
+	// be writing into target while this runs — see buildlock_futuremtime.go.
+	invalidateFutureStampedArtifacts(target)
 
 	// A nested cargo invocation (task A7's cargo-queue shim, IF a session
 	// prepended it to PATH) that happens to resolve "cargo" to the shim

@@ -31,6 +31,17 @@ const failFirstMessage = "TDD fail-first: this commit adds tests AND implementat
 	"A test that never went RED can't prove the implementation. Write the test first and watch it fail, " +
 	"or split the test into its own earlier commit."
 
+// vacuousFailFirstMessage names the package(s) the fail-first proof executed
+// zero tests in — "something in this run was vacuous" is not actionable, so
+// the message states exactly which package(s) to check.
+func vacuousFailFirstMessage(pkgs []string) string {
+	return fmt.Sprintf(
+		"TDD fail-first: the pre-edit proof executed zero tests in %s despite exiting 0, "+
+			"so nothing was actually proven either way there. Check that the staged test is reachable by the runner "+
+			"(a name/filter mismatch is the usual cause) and retry the commit.",
+		strings.Join(pkgs, ", "))
+}
+
 // rootGroup is one project root's staged Test/Source files (repo-root-
 // relative paths), the unit both Precommit and Mechanical iterate.
 type rootGroup struct {
@@ -212,16 +223,21 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		if r, ok := DetectRunner(root); ok {
 			ffCmd = cmdString(r)
 		}
-		violated, conclusive, dur := failFirstViolatedAt(repoRoot, root, tests, run)
+		violated, conclusive, vacuous, vacuousPkgs, dur := failFirstViolatedAt(repoRoot, root, tests, run)
 		// The gate must never be silent about a stage it ran, whatever the
 		// verdict — a session watching stderr needs to see fail-first
 		// happened, not infer it from the commit's exit code. Timeout and
 		// "nothing was runnable" both collapse to "inconclusive (fail-open)"
 		// here: failFirstViolatedAt's (violated, conclusive) pair doesn't
 		// carry WHY it was inconclusive, and neither ever blocks, so the
-		// coarser label loses no decision-relevant information.
+		// coarser label loses no decision-relevant information. vacuous is
+		// checked first: #317's "executed zero tests" is neither a red proof
+		// nor a genuine violation, and reporting it as either would misname
+		// the actual defect.
 		verdict := "inconclusive (fail-open)"
 		switch {
+		case vacuous:
+			verdict = "vacuous-rejected"
 		case conclusive && violated:
 			verdict = "violated"
 		case conclusive && !violated:
@@ -230,6 +246,9 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		line := fmt.Sprintf("gate precommit: fail-first %s in %s → %s (%.1fs)", ffCmd, root, verdict, dur.Seconds())
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog("precommit", root, ffCmd, verdict, dur)
+		if vacuous {
+			return GateResult{Blocked: true, Message: vacuousFailFirstMessage(vacuousPkgs)}
+		}
 		if conclusive && violated {
 			return GateResult{Blocked: true, Message: failFirstMessage}
 		}
@@ -268,31 +287,9 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	rootFiles := append(append([]string{}, g.tests...), g.srcs...)
 
 	if runner.Cmd == "cargo" {
-		plan, ok := planCargoStages(gateName, repoRoot, g.root, rootFiles)
-		if !ok {
-			return GateResult{}
-		}
-		if res := cargoQualityStage(gateName, plan.ws, g.root, plan.touched, run, repoRoot, qualityFmt); res.Blocked {
-			return res
-		}
-		if res := alwaysRunStage(gateName, repoRoot, g.root, plan, run); res.Blocked {
-			return res
-		}
-		if res := cargoQualityStage(gateName, plan.ws, g.root, plan.touched, run, repoRoot, qualityClippy); res.Blocked {
-			return res
-		}
-		if res := workspaceCheckStage(gateName, repoRoot, g.root, plan, run); res.Blocked {
-			return res
-		}
-		if failFirst {
-			if res := failFirstStageWithRustNotice(repoRoot, g.root, g.tests, g.srcs, run); res.Blocked {
-				return res
-			}
-		}
-		if res := suiteStage(gateName, repoRoot, g.root, plan.suiteRunner(), run); res.Blocked {
-			return res
-		}
-		return doctestStage(gateName, repoRoot, g.root, plan, run)
+		// The cargo branch moved to precommit_wsmanifest.go, alongside the
+		// workspace-manifest plumbing it now also drives (issue #365).
+		return gateRootCargo(gateName, repoRoot, g, rootFiles, run, failFirst)
 	}
 
 	// Scope the mechanical run to the related tests of the staged
@@ -321,12 +318,14 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 
 // cargoStagePlan is what the cargo stages of one root need: the workspace
 // commands run from, the packages this commit TOUCHED (never the always-run
-// additions — no staged file belongs to those), and the guard packages the
-// workspace declares.
+// additions — no staged file belongs to those), the guard packages the
+// workspace declares, and any staged files that ARE the workspace's own
+// manifest/lockfile/build config rather than a member's.
 type cargoStagePlan struct {
-	ws        string
-	touched   []string
-	alwaysRun []string
+	ws            string
+	touched       []string
+	alwaysRun     []string
+	wsManifestHit []string
 }
 
 // suiteRunner is the touched crates' own scoped test command — the guard
@@ -350,25 +349,25 @@ func (p cargoStagePlan) guardRunner() Runner {
 
 // planCargoStages resolves package ownership for a cargo root. Ownership is
 // judged PER FILE against the [package] Cargo.toml that covers it: a file no
-// package owns (a virtual workspace manifest, a path outside any member) is
-// SKIPPED with a stderr note, never a trigger to widen the run to the whole
-// workspace. ok=false means nothing staged here is owned by any package.
+// package owns is SKIPPED, never a trigger to widen the run — except the
+// workspace's OWN manifest/lockfile/config, pulled out as wsManifestHit
+// rather than skipped (classifyUnownedCargoFiles, issue #365). ok=false means
+// nothing here is owned AND no workspace manifest file was staged either.
 func planCargoStages(gateName, repoRoot, root string, rootFiles []string) (cargoStagePlan, bool) {
 	owned, unowned := cargoOwnedFiles(repoRoot, root, rootFiles)
-	for _, f := range unowned {
-		fmt.Fprintf(os.Stderr, "gate %s: %s has no owning cargo package — not tested\n", gateName, f)
-	}
-	if len(owned) == 0 {
-		return cargoStagePlan{}, false
-	}
 	// The actual WORKSPACE root: a checked-in .config/nextest.toml and the
 	// workspace's Cargo.lock live there, not in a member crate's own
 	// directory. State/mech-cache keys still use the crate root.
 	ws := cargoWorkspaceRoot(root)
+	wsManifestHit := classifyUnownedCargoFiles(gateName, repoRoot, ws, unowned)
+	if len(owned) == 0 && len(wsManifestHit) == 0 {
+		return cargoStagePlan{}, false
+	}
 	return cargoStagePlan{
-		ws:        ws,
-		touched:   cargoPackagesOwning(root, toRootRelative(repoRoot, root, owned)),
-		alwaysRun: cargoAlwaysRunPackages(ws),
+		ws:            ws,
+		touched:       cargoPackagesOwning(root, toRootRelative(repoRoot, root, owned)),
+		alwaysRun:     cargoAlwaysRunPackages(ws),
+		wsManifestHit: wsManifestHit,
 	}, true
 }
 
@@ -404,7 +403,7 @@ func workspaceCheckStage(gateName, repoRoot, root string, plan cargoStagePlan, r
 	// Scoped, never --workspace: see clippyscope.go. The crates are named on
 	// stderr because a scoped stage that does not say what it covered cannot
 	// be told from one that silently stopped covering something.
-	scope := clippyScope(ws, plan.touched)
+	scope := clippyScope(gateName, repoRoot, ws, plan.touched)
 	if len(scope) == 0 {
 		fmt.Fprintf(os.Stderr, "gate %s: check → skipped (no cargo package owns anything staged)\n", gateName)
 		return GateResult{}
@@ -484,6 +483,37 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	}
 	if treatAsEmptyPass(res) {
 		res.Passed = true
+	}
+	// A Go run that exited 0 having executed zero tests IN SOME PACKAGE (the
+	// #194 shape: a TestMain that returns or calls os.Exit(0) before
+	// m.Run()) is not a pass — judged per package via the run's own -json
+	// stream, since a sibling package's real tests passing must never hide
+	// another package going quietly vacuous beside them. Checked before the
+	// switch below so it never falls into the ordinary green case.
+	if res.Passed && !res.TimedOut && runner.Cmd == "go" {
+		pkgs, err := vacuousGoPackages(res.GoTestJSON)
+		if err != nil {
+			// The run exited 0, but this gate could not read what it
+			// actually tested — the same "nothing was proven" shape as any
+			// other check-error, not a clean pass (#317: an unmeasured run
+			// must never read as one).
+			return verdictFor(gateName, stage, root, cmdString(runner), stageOutcome{
+				kind: outcomeCheckError,
+				err:  err,
+				message: fmt.Sprintf(
+					"gate %s: %s → REJECTED (%v)\n  the commit cannot be judged against a test-result stream this gate could not read",
+					gateName, cmdString(runner), err),
+			})
+		}
+		if len(pkgs) > 0 {
+			return verdictFor(gateName, stage, root, cmdString(runner), stageOutcome{
+				kind:   outcomeVacuous,
+				result: res,
+				message: fmt.Sprintf(
+					"gate %s: %s executed zero tests in %s despite exiting 0, so nothing was tested there and the commit is refused.",
+					gateName, cmdString(runner), strings.Join(pkgs, ", ")),
+			})
+		}
 	}
 	switch {
 	case res.TimedOut:

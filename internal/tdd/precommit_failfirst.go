@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -63,10 +64,13 @@ func cargoPackagesInArgs(args []string) []string {
 // staged test changes, and runs the suite there. It returns (violated,
 // conclusive): violated is true when the tests pass without the new source
 // (they should fail first); conclusive is false when the check could not run,
-// in which case the caller must not block. This is failFirstViolatedAt with
-// root == repoRoot, kept as its own name for the (still common) single-root
-// case and for direct callers/tests.
-func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violated, conclusive bool, dur time.Duration) {
+// in which case the caller must not block. vacuous is #317's orthogonal
+// third state: the run exited 0 having executed zero tests, which is
+// neither a red proof nor a genuine violation and must be named as its own
+// outcome rather than folded into "violated". This is failFirstViolatedAt
+// with root == repoRoot, kept as its own name for the (still common)
+// single-root case and for direct callers/tests.
+func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violated, conclusive, vacuous bool, vacuousPkgs []string, dur time.Duration) {
 	return failFirstViolatedAt(repoRoot, repoRoot, tests, run)
 }
 
@@ -82,12 +86,12 @@ func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) (violat
 // review 2026-08-15: the fail-first stage line/gate.log entry always showed
 // "0.0s" regardless of how long the worktree run actually took, because
 // nothing threaded the real Duration out of here.
-func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner) (violated, conclusive bool, dur time.Duration) {
+func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner) (violated, conclusive, vacuous bool, vacuousPkgs []string, dur time.Duration) {
 	wt := failFirstWorktreeDir(repoRoot)
 	if wt == "" {
 		var err error
 		if wt, err = os.MkdirTemp("", "gate-failfirst-"); err != nil {
-			return false, false, 0
+			return false, false, false, nil, 0
 		}
 	} else {
 		// Stable per-repo path: a leftover registration from a crashed run
@@ -97,7 +101,7 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	}
 	defer os.RemoveAll(wt)
 	if _, err := git(repoRoot, "worktree", "add", "--detach", wt, "HEAD"); err != nil {
-		return false, false, 0
+		return false, false, false, nil, 0
 	}
 	defer func() { _, _ = git(repoRoot, "worktree", "remove", "--force", wt) }() // best-effort cleanup
 
@@ -107,19 +111,19 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	// mistaken for one that went red against missing code.
 	diff, err := gitStaged(repoRoot, append(append([]string{}, tests...), proofInputs(repoRoot, tests)...))
 	if err != nil || strings.TrimSpace(diff) == "" {
-		return false, false, 0
+		return false, false, false, nil, 0
 	}
 	if err := gitApply(wt, diff); err != nil {
-		return false, false, 0 // can't reproduce the test state → don't block
+		return false, false, false, nil, 0 // can't reproduce the test state → don't block
 	}
 
 	execRoot, err := execRootIn(wt, repoRoot, root)
 	if err != nil {
-		return false, false, 0
+		return false, false, false, nil, 0
 	}
 	runner, ok := DetectRunner(execRoot)
 	if !ok {
-		return false, false, 0
+		return false, false, false, nil, 0
 	}
 	relTests := toRootRelative(repoRoot, root, tests)
 	if runner.Cmd == "cargo" {
@@ -130,7 +134,7 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 		// would be exactly the unrunnable-in-time full suite this stage
 		// exists to avoid. Check ownership before ever invoking it.
 		if len(cargoPackagesOwning(execRoot, relTests)) == 0 {
-			return false, false, 0
+			return false, false, false, nil, 0
 		}
 	}
 	// Scope to the staged TEST targets under judgment: the full unnarrowed
@@ -171,14 +175,35 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	// the new tests against the old implementation, which reports green for a
 	// test that should be red.
 	if !acquired {
-		return false, false, 0 // another cargo build holds the machine lock — no verdict either way
+		return false, false, false, nil, 0 // another cargo build holds the machine lock — no verdict either way
 	}
 	// Only now: a run that never acquired the lock built nothing, and
 	// cleaning for it would evict a warm cache to undo writes that never
 	// happened.
 	defer invalidateFailFirstArtifacts(run, runner, repoRoot)
 	if res.TimedOut {
-		return false, false, res.Duration // a killed run reaches no verdict either way
+		return false, false, false, nil, res.Duration // a killed run reaches no verdict either way
+	}
+	// #317: the proof worktree exited 0 having executed zero Go tests in
+	// some package — a narrowed -run filter matching nothing, say. That is
+	// not a red proof (nothing ran to go red) and not a genuine violation
+	// either (the test never actually passed against the pre-edit code,
+	// because it never ran at all): name it as its own outcome, per package.
+	if runner.Cmd == "go" && res.Passed {
+		pkgs, err := vacuousGoPackages(res.GoTestJSON)
+		if err != nil {
+			// Same stance as runSuiteStage: a stream this function could not
+			// finish reading is not distinguishable from one that measured
+			// nothing, so it is reported through the SAME vacuous/blocking
+			// path rather than falling open into "no verdict either way" —
+			// #317's point is exactly that an unmeasured run must never look
+			// like a pass, and "unreadable" is the same category as
+			// "measured nothing".
+			return false, false, true, []string{fmt.Sprintf("(unreadable test-result stream: %v)", err)}, res.Duration
+		}
+		if len(pkgs) > 0 {
+			return false, false, true, pkgs, res.Duration
+		}
 	}
 	// Tests PASS without the new source ⇒ they never went RED ⇒ violation.
 	//
@@ -190,7 +215,7 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	// but it fails in the safe direction — non-violation never blocks — so the
 	// gate stays fail-open. Correcting the label needs a distinct couldn't-run
 	// signal on SuiteResult, which is left for a runner-contract change.
-	return res.Passed, true, res.Duration
+	return res.Passed, true, false, nil, res.Duration
 }
 
 // execRootIn maps root (a project root under repoRoot) to its equivalent

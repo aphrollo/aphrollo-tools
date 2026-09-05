@@ -60,6 +60,62 @@ func TestVerdictFor_PassNeverBlocks(t *testing.T) {
 	}
 }
 
+// TestVerdictFor_TreatsAnOmittedKindAsBlockedNotPass pins #361: a
+// stageOutcome literal that never sets kind (a defect in the CALLER, not a
+// stage that genuinely passed) used to fall through outcomePass's zero value
+// and return an empty, unblocked, unlogged GateResult — a pass nobody
+// classified. The zero value must not be a valid pass at all.
+func TestVerdictFor_TreatsAnOmittedKindAsBlockedNotPass(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := t.TempDir()
+
+	got := verdictFor("precommit", "vet", root, "some-cmd", stageOutcome{})
+	if !got.Blocked {
+		t.Fatal("a stageOutcome with no kind set must block, not silently pass")
+	}
+	requireLoggedVerdict(t, cfg, "unclassified-outcome-rejected")
+}
+
+// TestVerdictFor_BlocksAndLogsAnUnrecognizedOutcomeKind is the default
+// branch's own defect: a kind outside the switch's named cases (a future
+// outcome added to the enum without a case here, e.g. #317's vacuous before
+// this change) fell through to the same silent empty pass. The default
+// branch must be as loud and blocking as every named case.
+func TestVerdictFor_BlocksAndLogsAnUnrecognizedOutcomeKind(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := t.TempDir()
+
+	got := verdictFor("precommit", "vet", root, "some-cmd", stageOutcome{kind: stageOutcomeKind(999)})
+	if !got.Blocked {
+		t.Fatal("an outcome kind verdictFor cannot classify must block, not silently pass")
+	}
+	requireLoggedVerdict(t, cfg, "unclassified-outcome-rejected")
+}
+
+// TestVerdictFor_BlocksOnVacuousForEveryRegisteredStage is #317's outcome
+// slotting into the same shared mapping #361 hardened: zero tests executed
+// blocks for every registered stage, with its own log token distinct from
+// "blocked" (a real failure) and "timeout-rejected" (never finished) — `gate
+// stats` needs to count these separately.
+func TestVerdictFor_BlocksOnVacuousForEveryRegisteredStage(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := t.TempDir()
+
+	for _, stage := range registeredStages {
+		got := verdictFor("precommit", stage, root, "some-cmd", stageOutcome{
+			kind:    outcomeVacuous,
+			message: "executed zero tests",
+		})
+		if !got.Blocked {
+			t.Fatalf("stage %q: a vacuous run must block, got unblocked GateResult %+v", stage, got)
+		}
+	}
+	requireLoggedVerdict(t, cfg, "vacuous-rejected")
+}
+
 // TestGoCheckStage_BlocksOnTimeoutInsteadOfFailingOpen: goCheckStage backs
 // `go vet` and golangci-lint. Before this change a TimedOut SuiteResult
 // returned an empty, non-blocking GateResult and printed only to stderr — a

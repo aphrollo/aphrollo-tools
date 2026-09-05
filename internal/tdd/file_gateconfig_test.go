@@ -29,3 +29,44 @@ func TestDocsOnly_IsFalseWhenTheGateConfigIsStaged(t *testing.T) {
 		t.Errorf("srcs = %q, want [aphrollo.toml] — otherwise docsOnly reports true and the suite never runs", srcs)
 	}
 }
+
+// A manifest or lockfile carries the identical weight aphrollo.toml does — a
+// dependency bump or a workspace member edit changes what builds — and #212
+// never extended past the gate's own config file. Left Ignore, a commit
+// staging only one of these took the docs-only fast path: no build, no
+// suite, and a broken bump landed green (issue #278).
+func TestClassifyFile_TreatsManifestsAndLockfilesAsSourceSoADependencyBumpCannotTakeTheDocsOnlyPath(t *testing.T) {
+	paths := []string{
+		"Cargo.toml", "sub/Cargo.toml", `sub\Cargo.toml`,
+		"Cargo.lock", "go.mod", "go.sum", "package.json", "pyproject.toml",
+		".cargo/config.toml", `.cargo\config.toml`,
+	}
+	for _, p := range paths {
+		if got := ClassifyFile(p); got != Source {
+			t.Errorf("ClassifyFile(%q) = %v, want %v — a manifest/lockfile edit changes what builds, so it must never be waived as prose", p, got, Source)
+		}
+	}
+}
+
+// A config.toml that is not under a .cargo/ directory is an ordinary config
+// file with no special build-behaviour meaning to this gate, and must stay
+// Ignore — the manifest match is by path shape, not by the generic basename
+// alone.
+func TestClassifyFile_DoesNotTreatUnrelatedConfigTomlAsSource(t *testing.T) {
+	if got := ClassifyFile("app/config.toml"); got != Ignore {
+		t.Errorf("ClassifyFile(%q) = %v, want %v — only .cargo/config.toml is special", "app/config.toml", got, Ignore)
+	}
+}
+
+// TestDocsOnly_IsFalseWhenAManifestIsStaged is the consequence asserted where
+// it actually bites, mirroring TestDocsOnly_IsFalseWhenTheGateConfigIsStaged
+// for a dependency manifest instead of the gate's own config.
+func TestDocsOnly_IsFalseWhenAManifestIsStaged(t *testing.T) {
+	tests, srcs := splitKinds([]string{"README.md", "Cargo.toml"})
+	if len(tests) != 0 {
+		t.Errorf("tests = %q, want none", tests)
+	}
+	if len(srcs) != 1 || srcs[0] != "Cargo.toml" {
+		t.Errorf("srcs = %q, want [Cargo.toml] — otherwise docsOnly reports true and the suite never runs", srcs)
+	}
+}

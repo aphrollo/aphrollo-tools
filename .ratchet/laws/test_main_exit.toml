@@ -1,0 +1,16 @@
+name        = "test_main_exit"
+description = "A `TestMain(m *testing.M)` that never reaches `m.Run()` — a bare `return`, or `os.Exit(0)` before ever calling it — silently skips every test in the package while the process still exits 0: exactly the shape that made an 8.3k-line package read green for weeks (#194) and that #317's runtime executed-count check exists to catch the other half of. The trigger is the TestMain declaration itself; the hit fires when `m.Run(` does not appear anywhere in the lines below it, whatever the reason (an early return, an os.Exit(0) literal, or simply forgetting). A TestMain that deliberately never runs the suite (a placeholder in a package still being scaffolded) escapes with a comment on or above the declaration."
+severity    = "deny"
+escape      = "testmain-exit-ok:"
+
+[scope]
+include = ["cmd/**/*_test.go", "internal/**/*_test.go"]
+exclude = ["**/testdata/**"]
+min_files = 370
+
+[matcher]
+kind      = "marker-within-lines"
+trigger   = "^func TestMain\\(m \\*testing\\.M\\)"
+marker    = "m\\.Run\\("
+direction = "below"
+lines     = 60

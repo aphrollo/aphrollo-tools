@@ -90,6 +90,38 @@ func TestApplyGC_TakesTheLockForAnyCargoTarget(t *testing.T) {
 	}
 }
 
+// TestApplyGC_TakesTheLockForAStrayTarget pins the consequence of issue
+// #285's fix at the level that matters: `gate gc --apply` must not delete a
+// stray-target candidate while something else holds a build slot for that
+// EXACT path — a misresolved live target dir (the reported failure) or a
+// genuinely stray one some other ad hoc `--target-dir` invocation is
+// building into right now.
+func TestApplyGC_TakesTheLockForAStrayTarget(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	withIsolatedBuildLock(t)
+	repo := t.TempDir()
+	stray := filepath.Join(repo, "target-sky")
+	if err := os.MkdirAll(filepath.Join(stray, "debug"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, release, ok := TryAcquireBuildSlot(stray, "cargo build --target-dir target-sky", "/repo")
+	if !ok {
+		t.Fatal("could not occupy the stray target's slot")
+	}
+	defer release()
+
+	freed, refused, skipped := ApplyGCFor(repo, []GCCandidate{{
+		Path: stray, Reason: "stray cargo target dir", Kind: GCKindStrayTarget,
+	}})
+	if _, err := os.Stat(stray); err != nil {
+		t.Fatalf("deleted a stray target dir a build holds (freed %d, refused %v, skipped %d)", freed, refused, skipped)
+	}
+	if skipped == 0 {
+		t.Fatal("a candidate left for next time must be reported as skipped")
+	}
+}
+
 // TestGCStamp_OnlyOneSweeperWins pins the double sweep: two sessions
 // starting together both saw the stamp as due and both spawned a sweep, so
 // two RemoveAll walks ran over one tree.

@@ -50,6 +50,11 @@ type SuiteResult struct {
 	// reports "Ns" reads this field rather than re-timing itself, so a fake
 	// SuiteRunner in a test can pin an exact duration deterministically.
 	Duration time.Duration
+	// GoTestJSON is the raw `go test -json` event stream, set by RunSuite
+	// only for a go test invocation (empty otherwise). Output stays
+	// reconstructed human text for existing consumers; vacuousGoPackages
+	// reads this field to attribute a pass to its actual package.
+	GoTestJSON string
 }
 
 // SuiteRunner executes a runner in a project root. It is injected so the
@@ -522,7 +527,7 @@ func RunSuite(timeout time.Duration) SuiteRunner {
 		if r.Dir != "" {
 			dir = r.Dir
 		}
-		cmd := exec.CommandContext(ctx, r.Cmd, r.Args...)
+		cmd := exec.CommandContext(ctx, r.Cmd, goJSONArgs(r.Cmd, r.Args)...)
 		cmd.Dir = dir
 		cmd.Env = suiteEnv()
 		// The default cancel kills the direct child and nothing else, and
@@ -556,7 +561,8 @@ func RunSuite(timeout time.Duration) SuiteRunner {
 		if err != nil {
 			errText = err.Error()
 		}
-		return SuiteResult{Passed: passed, Output: string(out), TimedOut: timedOut, Err: errText, Duration: dur}
+		outputText, testJSON := goRenderedOutput(r.Cmd, r.Args, string(out))
+		return SuiteResult{Passed: passed, Output: outputText, TimedOut: timedOut, Err: errText, Duration: dur, GoTestJSON: testJSON}
 	}
 }
 

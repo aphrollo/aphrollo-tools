@@ -105,9 +105,19 @@ func TestRunMutantsJob_ALaneOfPureMovesGetsAZeroMutantReceipt(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root, _ := movedRepo(t)
+	// The mutation-receipt opt-in is the repo's OWN standing configuration,
+	// not part of the lane under test — folded into master (re-branching
+	// lane/move from the result) so the lane's own diff stays a pure move.
+	// Landing it as a commit ON the lane used to work only because Cargo.toml
+	// classified as Ignore; once #278 made a manifest edit real Source (and
+	// so mutation-relevant), that same commit was a genuine, non-moved edit
+	// sitting in the lane's own diff, and the producer ran for a lane the
+	// test's whole premise says moved code only.
+	gitDo(t, root, "checkout", "-q", "master")
 	write(t, root, "Cargo.toml", "[package]\nname = \"m\"\nversion = \"0.1.0\"\n[workspace]\n[workspace.metadata.aphrollo]\nmutation-receipt = true\n")
 	gitDo(t, root, "add", "-A")
 	gitDo(t, root, "commit", "-qm", "opt in")
+	gitDo(t, root, "checkout", "-q", "-B", "lane/move")
 	moveTheFunction(t, root, "")
 	withFreeSpace(t, 200)
 
