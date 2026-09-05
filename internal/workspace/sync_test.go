@@ -208,6 +208,81 @@ func TestSync_DryMutatesNothing(t *testing.T) {
 	}
 }
 
+// TestSyncReasonLine_PrefersTheErrorLineOverProgress: git's ff-only failure
+// writes `Updating a..b` to stdout and its actual reason (`error: ...` /
+// `fatal: ...`) to stderr; CombinedOutput only happens to interleave the
+// error first through stdio buffering, so reasonLine must pick the
+// diagnostic line explicitly rather than trust output order.
+func TestSyncReasonLine_PrefersTheErrorLineOverProgress(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "error line after progress noise",
+			in:   "Updating ab12..cd34\nerror: Your local changes to the following files would be overwritten by merge:\n\ta.txt\n",
+			want: "error: Your local changes to the following files would be overwritten by merge:",
+		},
+		{
+			name: "fatal line alone",
+			in:   "fatal: not a git repository\n",
+			want: "fatal: not a git repository",
+		},
+		{
+			name: "no error/fatal line falls back to first non-empty line",
+			in:   "Updating ab12..cd34\n",
+			want: "Updating ab12..cd34",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := reasonLine([]byte(c.in)); got != c.want {
+				t.Errorf("reasonLine(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+// TestSync_ReturnsAnErrorWhenGitFailsForAnotherReason: a `git merge --ff-only`
+// failure that is NOT a dirty-path refusal — here, the object git needs to
+// write into the worktree is missing from the local object store (corrupted
+// clone, interrupted transfer) — must surface as a real error, not the
+// silent "could not fast-forward" report the refusal case gets. HEAD must
+// still not move. (A stale .git/index.lock was tried first: this box's git
+// queue shim treats that file as a live-contention signal and waits on it
+// forever, so it is not a usable fixture here — a missing object is
+// deterministic and does not touch that shim's own lock detection.)
+func TestSync_ReturnsAnErrorWhenGitFailsForAnotherReason(t *testing.T) {
+	clone := repoWithOrigin(t)
+	advanceOrigin(t, clone, "other.txt", "other\n")
+
+	// Fetch now so the incoming blob is in the local object store, then
+	// delete its loose object file: the fast-forward needs that content to
+	// populate the worktree, and a missing object fails for a reason that has
+	// nothing to do with a dirty path.
+	gitRun(t, clone, "fetch", "-q", "origin")
+	blobOut, err := exec.Command("git", "-C", clone, "rev-parse", "origin/main:other.txt").Output()
+	if err != nil {
+		t.Fatalf("rev-parse origin/main:other.txt: %v", err)
+	}
+	blob := strings.TrimSpace(string(blobOut))
+	objPath := filepath.Join(clone, ".git", "objects", blob[:2], blob[2:])
+	if err := os.Remove(objPath); err != nil {
+		t.Fatalf("remove blob object %s: %v", objPath, err)
+	}
+
+	headBefore := revOf(t, clone, "HEAD")
+	var out, errb bytes.Buffer
+	err = Sync(clone, false, &out, &errb)
+	if err == nil {
+		t.Fatalf("a git failure that is not a dirty-path refusal should return an error, stdout:\n%s", out.String())
+	}
+	if revOf(t, clone, "HEAD") != headBefore {
+		t.Errorf("a failed merge must not move HEAD")
+	}
+}
+
 func TestSync_RemotelessIsNonFatal(t *testing.T) {
 	repo := initRepo(t) // a plain repo, no origin remote
 

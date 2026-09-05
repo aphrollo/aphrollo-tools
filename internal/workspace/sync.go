@@ -95,7 +95,11 @@ func Sync(repoArg string, dry bool, stdout, stderr io.Writer) error {
 		// "safe to move", not a pre-check here. A refusal is reported, never
 		// treated as an error: it is non-destructive, and the reason is git's own.
 		if out, err := exec.Command("git", "-C", top, "merge", "--ff-only", remote).CombinedOutput(); err != nil {
-			fmt.Fprintf(stdout, "%s could not fast-forward: %s\n", def, firstLine(strings.TrimSpace(string(out))))
+			if !isDirtyPathRefusal(out) {
+				fmt.Fprint(stderr, string(out))
+				return fmt.Errorf("git merge --ff-only %s: %w", remote, err)
+			}
+			fmt.Fprintf(stdout, "%s could not fast-forward: %s\n", def, reasonLine(out))
 			return nil
 		}
 		fmt.Fprintf(stdout, "fast-forwarded %s to %s (%d commit(s))\n", def, remote, behind)
@@ -118,4 +122,39 @@ func Sync(repoArg string, dry bool, stdout, stderr io.Writer) error {
 // from ancestor to descendant is a strict fast-forward (no rewrite, no merge).
 func isAncestor(repo, ancestor, descendant string) bool {
 	return exec.Command("git", "-C", repo, "merge-base", "--is-ancestor", ancestor, descendant).Run() == nil
+}
+
+// isDirtyPathRefusal reports whether a `git merge --ff-only` failure is
+// specifically git refusing because the fast-forward would overwrite a dirty
+// path the incoming commits touch — the ONE case sync treats as a non-fatal,
+// exit-0 report rather than an error. Every other failure (a stale
+// index.lock, a missing/renamed ref, a corrupt repo, ...) keeps returning a
+// real error so the caller can tell "refused" from "broken".
+func isDirtyPathRefusal(out []byte) bool {
+	s := string(out)
+	return strings.Contains(s, "would be overwritten by") || strings.Contains(s, "Not possible to fast-forward")
+}
+
+// reasonLine picks the one line of git's CombinedOutput worth reporting as
+// "why" a merge failed: the first line starting with "error:" or "fatal:" —
+// git's own diagnostic — falling back to the first non-empty line when
+// neither is present. CombinedOutput interleaves stdout (git's "Updating
+// a..b" progress) and stderr (the actual reason) only through stdio
+// buffering order, so picking the first non-empty line unconditionally can
+// surface the progress noise instead of the diagnostic.
+func reasonLine(out []byte) string {
+	var fallback string
+	for _, line := range strings.Split(string(out), "\n") {
+		l := strings.TrimSpace(line)
+		if l == "" {
+			continue
+		}
+		if strings.HasPrefix(l, "error:") || strings.HasPrefix(l, "fatal:") {
+			return l
+		}
+		if fallback == "" {
+			fallback = l
+		}
+	}
+	return fallback
 }
