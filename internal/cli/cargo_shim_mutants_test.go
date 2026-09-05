@@ -34,7 +34,7 @@ func TestRunCargoShim_RefusesABareCargoMutants(t *testing.T) {
 	if code == 0 {
 		t.Fatal("a bare cargo mutants must not run, MUTATION_GATE=1 or not — that variable is dead")
 	}
-	want := "gate: run tools/mutation_gate.sh <base> — bare cargo mutants builds a cold copy in the OS temp dir and holds the build lock for hours"
+	want := "gate: run `aphrollo gate mutants run` — bare cargo mutants builds a cold copy in the OS temp dir and holds the build lock for hours, and a producer invoked directly runs outside the box-wide mutation lock"
 	if got := strings.TrimSpace(stderr.String()); got != want {
 		t.Fatalf("stderr = %q, want exactly %q", got, want)
 	}
@@ -52,7 +52,7 @@ func TestRunCargoShim_RefusesABareCargoMutantsWithALeadingToolchainOverride(t *t
 	if code == 0 {
 		t.Fatal("a bare `cargo +nightly mutants` must not run either")
 	}
-	want := "gate: run tools/mutation_gate.sh <base> — bare cargo mutants builds a cold copy in the OS temp dir and holds the build lock for hours"
+	want := "gate: run `aphrollo gate mutants run` — bare cargo mutants builds a cold copy in the OS temp dir and holds the build lock for hours, and a producer invoked directly runs outside the box-wide mutation lock"
 	if got := strings.TrimSpace(stderr.String()); got != want {
 		t.Fatalf("stderr = %q, want exactly %q", got, want)
 	}

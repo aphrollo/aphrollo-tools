@@ -72,8 +72,12 @@ type MutationReceipt struct {
 	// with one accepted survivor, because tools/mutation_gate.sh writes each
 	// as {"file","line","mutation"}. MutantName takes either spelling. A
 	// non-empty Unaccepted is the whole rule.
-	Survivors  []MutantName `json:"survivors"`
-	Accepted   int          `json:"accepted"`
+	Survivors []MutantName `json:"survivors"`
+	Accepted  int          `json:"accepted"`
+	// AcceptKindCounts splits Accepted by claim (issue #268): closed
+	// equivalence versus the two kinds of parked debt. Zero fields for a
+	// producer that predates it, same as every other omitempty count here.
+	AcceptKindCounts
 	Unaccepted []MutantName `json:"unaccepted"`
 	Verdict    string       `json:"verdict"`
 	FinishedAt time.Time    `json:"finished_at"`
@@ -122,7 +126,10 @@ func MutationReceiptPathFor(tipTree string) string {
 // dirty-worktree or bad-verdict refusal was told to run a script it does not
 // have.
 func mutationGateHint(root string) string {
-	return "run " + mutantsRunnerCommand(root) + " on the lane tip (with a clean worktree) and merge again"
+	// The command to TYPE, not the producer it drives: naming the producer as
+	// the remedy sent every session that read this refusal to the script by
+	// hand, outside the lock the script is supposed to run under.
+	return "run `aphrollo gate mutants run` on the lane tip (with a clean worktree) and merge again" + drivesClause(root)
 }
 
 // receiptRejectionMarker is the sentence every blockReceipt message carries
@@ -437,11 +444,11 @@ func missingReceiptRemedy(ctx receiptContext) string {
 		}
 		return fmt.Sprintf("the run died (exit %d) at %s — see %s", d.Exit, d.At.Format("15:04"), logPath)
 	}
-	base := "main"
-	if ctx.RepoRoot != "" {
-		base = laneBaseRef(ctx.RepoRoot)
-	}
-	return "run " + mutantsRunnerCommand(ctx.RepoRoot) + " " + base
+	// No base to name: `run` derives it from the lane itself (laneBaseSHA),
+	// which is the same base this gate checks the receipt against. A base
+	// spelled out here for the caller to retype is a base the two can
+	// disagree about.
+	return "run `aphrollo gate mutants run` in the lane" + drivesClause(ctx.RepoRoot)
 }
 
 // mutantsRunnerCommand names the command that would actually produce a
@@ -450,25 +457,6 @@ func missingReceiptRemedy(ctx receiptContext) string {
 // aphrollo.toml), `tools/mutation_gate.sh` only when the repo genuinely
 // carries one, and this binary's own runner otherwise — never a script name
 // the repo does not have.
-func mutantsRunnerCommand(root string) string {
-	const fallback = "aphrollo gate mutants"
-	if root == "" {
-		return fallback
-	}
-	// cargoWorkspaceRoot answers `root` when it finds no workspace table, so
-	// a single-crate repo's own Cargo.toml is what gets read here.
-	ws := cargoWorkspaceRoot(root)
-	if name, ok := cargoAphrolloString(ws, "mutation-runner"); ok && name != "" {
-		return name
-	}
-	if name, ok := aphrolloTomlString(root, "mutation-runner"); ok && name != "" {
-		return name
-	}
-	if fileExists(filepath.Join(root, "tools", "mutation_gate.sh")) {
-		return "tools/mutation_gate.sh"
-	}
-	return fallback
-}
 
 // blockReceipt refuses a merge over the receipt stage. root is the repo
 // checkout the hint is named for — every refusal now routes through the same

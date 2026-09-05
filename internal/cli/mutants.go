@@ -53,12 +53,15 @@ func isFlagSet(fs *flag.FlagSet, name string) bool {
 // runGateMutants dispatches the mutation job's own verbs. They are addressed
 // by a job FILE rather than by flags because the wrapper is spawned detached:
 // the description of the run has to outlive the process that decided it.
-func runGateMutants(args []string, stderr io.Writer) int {
+func runGateMutants(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "aphrollo gate mutants: expected a verb (run, go)")
+		fmt.Fprint(stderr, mutantsUsage)
 		return 2
 	}
 	switch args[0] {
+	case "-h", "--help", "help":
+		fmt.Fprint(stderr, mutantsUsage)
+		return 0
 	case "run", "go":
 		fs := flag.NewFlagSet("mutants "+args[0], flag.ContinueOnError)
 		fs.SetOutput(stderr)
@@ -129,9 +132,42 @@ func runGateMutants(args []string, stderr io.Writer) int {
 		if isFlagSet(fs, "minimum-test-timeout") {
 			os.Setenv(tdd.MutantsMinTestTimeoutEnv, *minTestTimeout)
 		}
-		return tdd.RunMutantsJob(*job)
+		// The sensible default for an OMITTED --job: the job for the checkout
+		// the caller is standing in. `run` is normally spawned by post-commit
+		// with a job file, but typed by hand there is exactly one run anybody
+		// means, and it used to be answered with an empty path, a failed read
+		// and exit 0. An explicitly EMPTY --job stays an error: a default
+		// answers a question nobody asked, never a bad answer somebody gave.
+		if !isFlagSet(fs, "job") {
+			return tdd.RunMutantsHere(".", stderr)
+		}
+		// The detached child's stdout IS the job log -- the parent redirected
+		// it at spawn -- so a job that cannot be read reports there, where
+		// somebody looking for the missing receipt will find it.
+		return tdd.RunMutantsJobTo(*job, stdout)
 	default:
-		fmt.Fprintf(stderr, "aphrollo gate mutants: unknown verb %q (expected run or go)\n", args[0])
+		fmt.Fprintf(stderr, "aphrollo gate mutants: unknown verb %q\n", args[0])
+		fmt.Fprint(stderr, mutantsUsage)
 		return 2
 	}
 }
+
+// mutantsUsage is what an absent, unknown or -h verb prints. `run` with no
+// --job is the line a session needs and the one that did not exist: without
+// it, the only thing that actually measured anything was the repo's own
+// producer script invoked directly, outside the box-wide mutation lock.
+const mutantsUsage = `usage: aphrollo gate mutants <verb>
+
+  run                measure THIS checkout's lane in the foreground, under the
+                     box-wide mutation lock. The base is the newest trunk
+                     commit the lane already contains, which is what the merge
+                     gate checks the receipt against.
+  run --job <path>   measure a job file written by the post-commit hook: how a
+                     detached run addresses itself, rarely typed by hand.
+  go                 the Go runner's half of a detached job.
+  go --diff <base>   run in the foreground and judge, for CI.
+
+Flags for run: --jobs N, --base <ref>, --timeout-multiplier, --minimum-test-timeout.
+Never invoke a repo's own mutation producer (for example tools/mutation_gate.sh)
+directly: it runs outside the lock and in the wrong tree.
+`

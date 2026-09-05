@@ -102,15 +102,20 @@ func TestRunPostCommit_ReportsAWorktreePrepareFailure(t *testing.T) {
 }
 
 // The detached wrapper is addressed by a job file. Pointed at one that is not
-// there it exits clean: it is spawned with nowhere to report, so failing
-// loudly would only leave an unreadable process behind.
-func TestMutantsRun_ExitsCleanWithoutAJobFile(t *testing.T) {
+// there it used to exit 0 in silence, on the theory that a spawned process has
+// nowhere to report — but its stdout IS the job log, which is exactly where a
+// run that measured nothing needs to say so. Silence there is a receipt that
+// never arrives for no stated reason.
+func TestMutantsRun_ReportsAJobFileItCannotRead(t *testing.T) {
 	gateConfigDir(t)
+	missing := filepath.Join(t.TempDir(), "nope.json")
 	var out, errb bytes.Buffer
-	code := Run([]string{"gate", "mutants", "run", "--job", filepath.Join(t.TempDir(), "nope.json")},
-		strings.NewReader(""), &out, &errb)
-	if code != 0 {
-		t.Fatalf("mutants run exit = %d, want 0\nstderr: %s", code, errb.String())
+	code := Run([]string{"gate", "mutants", "run", "--job", missing}, strings.NewReader(""), &out, &errb)
+	if code == 0 {
+		t.Fatalf("mutants run exit = 0 for a job file that is not there\nstdout: %s\nstderr: %s", out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), "nope.json") {
+		t.Fatalf("the job log never names the file it could not read: %q", out.String())
 	}
 }
 
@@ -130,8 +135,11 @@ func TestMutantsRun_FlagsSetTheOverrideEnvBeforeTheJobRuns(t *testing.T) {
 		"--job", filepath.Join(t.TempDir(), "nope.json"),
 		"--jobs", "4", "--base", "abc123", "--timeout-multiplier", "3", "--minimum-test-timeout", "20s",
 	}, strings.NewReader(""), &out, &errb)
-	if code != 0 {
-		t.Fatalf("mutants run exit = %d, want 0\nstderr: %s", code, errb.String())
+	// 2, not 0: the job file named here does not exist. What this test is
+	// about is that the overrides were already set when the run was reached,
+	// which a refusal downstream of that does not disturb.
+	if code != 2 {
+		t.Fatalf("mutants run exit = %d, want 2 for an unreadable job\nstderr: %s", code, errb.String())
 	}
 	if got := os.Getenv(tdd.MutantsJobsEnv); got != "4" {
 		t.Errorf("%s = %q, want the --jobs flag's value", tdd.MutantsJobsEnv, got)

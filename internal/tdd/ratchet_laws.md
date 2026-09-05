@@ -283,6 +283,19 @@ A fixture the scope could never reach fails the test rather than being
 skipped — otherwise a typo in `include` disarms the law in the real tree while
 its fixtures stay green, which is the exact failure fixtures exist to catch.
 
+A fixture is never compiled — the ratchet reads it as text, exactly like the
+tree it stands in for — which is what the gate's own `<path> has no owning
+cargo package — not tested` line is reporting: correct and harmless, but it
+means an invalid fixture never fails as a syntax error. A typo in a string
+literal or an unbalanced brace still scans, the law still counts whatever its
+matcher sees, and the mistake surfaces as a wrong hit count rather than a
+compiler error. That is tolerable for a matcher that only reads lines; it
+sharpens for a `code_only` law, whose comment-stripping depends on the file
+actually parsing — a fixture with an unterminated string or an unbalanced
+block comment can make the law look right against input no compiler would ever
+accept. Where a law reads STRUCTURE rather than lines, write the fixture so it
+would compile, and keep it small enough to check by eye.
+
 #### Pre-edit denial
 
 The PreToolUse hook reconstructs what a `Write`/`Edit`/`MultiEdit` would leave

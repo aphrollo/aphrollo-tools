@@ -462,7 +462,7 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "mutants" {
 		// The mutation job's own verbs, addressed by a job file.
-		return runGateMutants(args[1:], stderr)
+		return runGateMutants(args[1:], stdout, stderr)
 	}
 	if args[0] == "cargo" {
 		// The cargo-queue shim (task A7): real terminal stdio, not the hook
