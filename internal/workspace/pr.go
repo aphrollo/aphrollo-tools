@@ -116,8 +116,9 @@ type CIStatus struct {
 
 // ghCIStatus is the seam over `gh pr checks` — a package var so submit/push tests
 // drive the CI gate without gh or the network. The real implementation reads the
-// branch PR's combined check state in the worktree's repo. It is the ONLY gh
-// check-state read, done inside submit so the caller needs no extra call.
+// branch PR's combined check state in the worktree's repo. Push.Apply is the
+// ONLY caller that issues it during a submit; Submit reuses Push's cached
+// result (p.ci/p.ciErr) rather than calling it again.
 //
 // `gh pr checks` exits 0 when all checks pass, 8 when checks are pending, and
 // non-zero otherwise (failures). We parse its TSV rows for the per-check verdict

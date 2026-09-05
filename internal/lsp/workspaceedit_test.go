@@ -1,8 +1,10 @@
 package lsp
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -110,5 +112,66 @@ func TestWorkspaceEdit_FileEdits_Changes(t *testing.T) {
 	}
 	if len(files[0].Edits) != 2 {
 		t.Fatalf("alpha.go edits = %d, want 2", len(files[0].Edits))
+	}
+}
+
+// The documentChanges shape must merge the same way Changes does: grouped by
+// path and sorted. Constructed by unmarshaling actual JSON (rather than a Go
+// literal) since DocumentChanges is now decoded as raw messages, matching how
+// a real LSP response arrives over the wire.
+func TestWorkspaceEdit_FileEdits_DocumentChanges(t *testing.T) {
+	raw := `{"documentChanges": [
+		{"textDocument":{"uri":"file:///proj/zeta.go"},
+		 "edits":[{"range":{"start":{"line":0,"character":2},"end":{"line":0,"character":3}},"newText":"x"}]},
+		{"textDocument":{"uri":"file:///proj/alpha.go"},
+		 "edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"newText":"x"},
+		          {"range":{"start":{"line":0,"character":5},"end":{"line":0,"character":6}},"newText":"x"}]}
+	]}`
+	var w WorkspaceEdit
+	if err := json.Unmarshal([]byte(raw), &w); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	files, err := w.FileEdits()
+	if err != nil {
+		t.Fatalf("FileEdits: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("got %d files, want 2", len(files))
+	}
+	if files[0].Path != "/proj/alpha.go" || files[1].Path != "/proj/zeta.go" {
+		t.Fatalf("files not sorted by path: %q, %q", files[0].Path, files[1].Path)
+	}
+	if len(files[0].Edits) != 2 {
+		t.Fatalf("alpha.go edits = %d, want 2", len(files[0].Edits))
+	}
+}
+
+// A documentChanges array may mix a resource operation (CreateFile/RenameFile/
+// DeleteFile) in among ordinary TextDocumentEdits — gopls emits exactly this
+// shape for a package rename. FileEdits must refuse the whole batch with an
+// error naming the operation's kind and the document it targets, not decode
+// the resource op into a zero TextDocumentEdit and fail on an empty path that
+// names nothing (the old `not a file URI: ""` error).
+func TestWorkspaceEdit_FileEdits_DocumentChangesNamesAResourceOperationItCannotApply(t *testing.T) {
+	raw := `{"documentChanges": [
+		{"kind":"rename","oldUri":"file:///proj/old.go","newUri":"file:///proj/new.go"},
+		{"textDocument":{"uri":"file:///proj/a.go"},
+		 "edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"newText":"x"}]}
+	]}`
+	var w WorkspaceEdit
+	if err := json.Unmarshal([]byte(raw), &w); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	_, err := w.FileEdits()
+	if err == nil {
+		t.Fatal("FileEdits with a rename resource operation: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "rename") {
+		t.Errorf("error %q does not name the operation kind (rename)", err.Error())
+	}
+	if !strings.Contains(err.Error(), "file:///proj/new.go") {
+		t.Errorf("error %q does not name the target document", err.Error())
 	}
 }

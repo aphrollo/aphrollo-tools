@@ -49,10 +49,11 @@ func Regenerate(cfg Config) (map[string]string, error) {
 		return nil, fmt.Errorf("copying config: %w", err)
 	}
 	// Copy each entry's query + schema inputs, preserving their repo-relative
-	// paths. Dedup so two entries sharing a schema dir copy it once.
+	// paths. Dedup so two entries sharing a schema dir copy it once. Each of
+	// Queries/Schema may list more than one path (sqlc v2's list form).
 	copied := map[string]bool{}
 	for _, e := range cfg.Entries {
-		for _, rel := range []string{e.Queries, e.Schema} {
+		for _, rel := range append(append([]string{}, e.Queries...), e.Schema...) {
 			if rel == "" || copied[rel] {
 				continue
 			}

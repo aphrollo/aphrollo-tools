@@ -39,9 +39,11 @@ var ghEditPRBody = func(wt, branch, body string) error {
 }
 
 // Submit is the coder's ONE-SHOT handoff that moves a card in_progress -> review.
-// It pushes (idempotent), reads the branch PR's CI state INSIDE the verb (the only
-// gh check-state read, so the caller needs no extra call), and is the SOLE opener
-// of the PR: when none exists yet it OPENS ONE READY (not draft) so CI fires
+// It pushes (idempotent) and reuses that push's own CI-state and mergeable
+// reads (the ONE gh check-state read and the ONE mergeable poll per submit —
+// see Push.Apply's prInfo/ci fields — so the caller needs no extra call and
+// submit itself makes no second one), and is the SOLE opener of the PR: when
+// none exists yet it OPENS ONE READY (not draft) so CI fires
 // exactly once, at the handoff; when a draft already exists (a legacy or
 // in-flight PR) it flips it ready; when one is already ready it is a no-op
 // [skip]. The handoff happens unconditionally — on green, pending, red, or a
@@ -106,9 +108,10 @@ func (s *Submit) Apply(stdout, stderr io.Writer) error {
 		return err
 	}
 
-	// Read the PR, re-polling past GitHub's async UNKNOWN window so a conflicted
-	// branch is caught here while the coder is still live.
-	info, err := viewPRMergeable(wt, branch)
+	// Push.Apply above just performed this exact bounded mergeable poll (to
+	// decide its own CONFLICT/unknown line, suppressed here via io.Discard) —
+	// reuse its cached result rather than re-polling GitHub a second time.
+	info, err := s.push.prInfo, s.push.prInfoErr
 	if err != nil {
 		return err
 	}
@@ -126,7 +129,8 @@ func (s *Submit) Apply(stdout, stderr io.Writer) error {
 		opened = true
 	}
 
-	ci, err := ghCIStatus(wt, branch)
+	// Likewise reuse Push's own CI read instead of a second `gh pr checks` call.
+	ci, err := s.push.ci, s.push.ciErr
 	if err != nil {
 		return err
 	}

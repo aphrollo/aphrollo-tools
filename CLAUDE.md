@@ -32,10 +32,10 @@ and acts now.
 
 ## Command surface (see README for usage)
 
-- `refactor rename-symbol` / `find-references`, `outline <file>`, `show <file> <symbol>`
+- `refactor rename-symbol` / `find`, `outline <file>`, `show <file> <symbol>`
   — LSP-backed (one client, one registry entry per language; columns are UTF-16).
-- `workspace` — worktree lifecycle (`prepare`/`claim`/`unclaim`/`list`/`remove`/
-  `prune`/`cleanup`) + git verbs (`commit`/`push`/`pr`/`ship`/`merge`).
+- `workspace` — worktree lifecycle (`create`/`claim`/`unclaim`/`list`/`remove`/
+  `prune`) + git verbs (`commit`/`push`/`pr`/`ship`/`submit`/`merge`).
 - `dev` — `up`/`down`/`restart`/`status`/`logs` (replaces the retired
   `aphrollo-dev` bash wrapper).
 - `guardrail pretooluse` — Claude PreToolUse policy hook (block long fg waits, warn noisy cmds).
@@ -46,7 +46,9 @@ and acts now.
   embedded law library (`internal/ratchet/presets/{common,rust,go}`) into a
   repo via `extends`/`[params]`.
 - `gate` — the TDD + law gates (`pretooluse`/`posttooluse`/`userpromptsubmit`/`sessionend`/
-  `precommit`/`prepush`) + `gate init` (wires session hooks + global git gate); `tdd` is a silent alias for one release.
+  `precommit`/`premerge`/`prepush`) + `allow <wall>`/`revoke <wall>` (waive or
+  restore a wall, e.g. `allow primary`) + `gate init` (wires session hooks +
+  global git gate); `tdd` is a silent alias for one release.
   Ported from the retired `claude-code-tdd` Node hooks (this binary IS the gate now).
 - `docs check` — doc-reference guard: every repo path a tracked `*.md` cites must
   resolve (relative to the citing file, then repo root); exit 1 on any miss. Bar
@@ -60,6 +62,10 @@ and acts now.
   query the working tree changed, backing out the rest as pre-existing drift.
   Gating (clean vs reported-only per config) comes from a committed
   `.aphrollo-sqlc.yaml` sidecar.
+- `install` / `check` / `issue` / `update` / `version` — box setup (session
+  hooks + git-hook shims in one run), read-only tree judgment (ratchet + docs +
+  sqlc + doctor + the app trio), open an issue against the repo's remote,
+  rebuild from `origin/main` and swap it in, and print the build stamp.
 
 ## Layout
 
@@ -166,9 +172,9 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL, the
   git shim (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit) is the WALL.
   Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override
-  with `APHROLLO_PRIMARY_EDITS=1` or `/tdd primary-edits on`.
-- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc`
-  (dry run; `--apply` reclaims stale build dirs) · `gate postcommit` starts `gate mutants run`.
+  with `aphrollo gate allow primary` (the only one of these that works from inside a turn), `APHROLLO_PRIMARY_EDITS=1` or `/tdd primary-edits on`.
+- **A mutation receipt is earned by the COMMIT:** `gate postcommit` starts the lane's run; `aphrollo gate mutants run` (no arguments, in the lane) runs one in the FOREGROUND. Never a repo's own producer script — the box-wide lock wraps the CALL, so a hand-run script is outside it.
+- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).
 
 _This block is written by `aphrollo gate init`. Edit the template in aphrollo, not
 the block — the next init overwrites whatever is between the markers._
