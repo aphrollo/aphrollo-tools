@@ -58,7 +58,7 @@ func TestPrecommitGoRootRunsVetThenLintThenTheSuite(t *testing.T) {
 	for _, r := range seen {
 		order = append(order, cmdLine(r))
 	}
-	want := []string{"go vet ./...", "golangci-lint run --allow-serial-runners .", "go test ."}
+	want := []string{"go vet ./...", "golangci-lint run --allow-serial-runners .", "go test -race -count=1 -shuffle=on -timeout=180s ."}
 	if strings.Join(order, " | ") != strings.Join(want, " | ") {
 		t.Fatalf("stages ran %v, want %v", order, want)
 	}
