@@ -2,6 +2,8 @@ package tdd
 
 import "testing"
 
+// ratchet: test_removed TestSmell_AssertionFree: assertion-free is dropped, 0 of 8 #319 incidents caught, measurement recorded on the issue
+
 // blocks reports whether content trips a blocking smell, for terse assertions.
 func blocks(content string) bool { return smellCheck(content).Action == Block }
 
@@ -201,17 +203,22 @@ func TestSmell_TestSleep(t *testing.T) {
 	}
 }
 
-// TestSmell_AssertionFree covers Go/Rust/Python/JS: a test declaration whose
-// body carries no assertion token at all warns at edit and blocks at commit
-// (see policy_registry_test.go for the generic hit/clean fixture proof, and
-// precommit_diffscan_errorkindblind_test.go for the commit-time integration —
-// including the escape — through newSuppression).
-func TestSmell_AssertionFree(t *testing.T) {
+// TestSmell_PanicOnlyOracle covers issue #319's incident 8 directly: a
+// Fuzz/Test function whose only assertion is a defer/recover panic-catcher,
+// with the function under test's return value discarded elsewhere in the
+// body. Mirrors FuzzCargoShimArgv/FuzzGitShimArgv/FuzzBashWriteTargets/
+// FuzzReceipt as they stood at 76f9c48~1, before that commit fixed all four.
+func TestSmell_PanicOnlyOracle(t *testing.T) {
 	hit := []string{
-		"func TestAdd(t *testing.T) {\n\tgot := add(1, 2)\n\t_ = got\n}",
-		"#[test]\nfn adds() {\n    let x = add(1, 2);\n    println!(\"{}\", x);\n}",
-		"def test_add():\n    x = add(1, 2)\n    print(x)\n",
-		"it('adds', () => {\n  const x = add(1, 2);\n  console.log(x);\n})",
+		// FuzzCargoShimArgv's shape, minimally: the return value of the call
+		// under test discarded, no other assertion anywhere.
+		"func FuzzCargoShimArgv(f *testing.F) {\n\tf.Fuzz(func(t *testing.T, blob string) {\n" +
+			"\t\tdefer func() {\n\t\t\tif r := recover(); r != nil {\n\t\t\t\tt.Fatalf(\"panicked: %v\", r)\n\t\t\t}\n\t\t}()\n" +
+			"\t\targs := argvFromBlob(blob)\n\t\t_ = cargoVerb(args)\n\t\t_ = cargoRunArgsToBuildArgs(args)\n\t})\n}",
+		// FuzzGitShimArgv's shape: a tuple discard (`_, rest :=`) still counts.
+		"func FuzzGitShimArgv(f *testing.F) {\n\tf.Fuzz(func(t *testing.T, blob string) {\n" +
+			"\t\tdefer func() {\n\t\t\tif r := recover(); r != nil {\n\t\t\t\tt.Fatalf(\"panicked: %v\", r)\n\t\t\t}\n\t\t}()\n" +
+			"\t\targs := argvFromBlob(blob)\n\t\t_, rest := gitGlobalArgs(args)\n\t\t_ = isPlainMerge(rest)\n\t})\n}",
 	}
 	for _, src := range hit {
 		if got := oracleWarnAction(src, editPhase); got != Warn {
@@ -223,23 +230,26 @@ func TestSmell_AssertionFree(t *testing.T) {
 	}
 
 	allowed := []string{
-		"func TestAdd(t *testing.T) {\n\tgot := add(1, 2)\n\tif got != 3 {\n\t\tt.Errorf(\"got %d, want 3\", got)\n\t}\n}",
-		"#[test]\nfn adds() {\n    assert_eq!(add(1, 2), 3);\n}",
-		"def test_add():\n    assert add(1, 2) == 3\n",
-		"it('adds', () => {\n  expect(add(1, 2)).toBe(3);\n})",
-		// Structurally exempt — never required to assert.
-		"func TestMain(m *testing.M) {\n\tos.Exit(m.Run())\n}",
-		"func BenchmarkAdd(b *testing.B) {\n\tfor i := 0; i < b.N; i++ {\n\t\tadd(1, 2)\n\t}\n}",
-		// A table-driven test's real assertion lives inside the t.Run
-		// closure's loop body, not on the outer TestX declaration's own
-		// lines — the outer function must not be judged as if it stopped at
-		// the first t.Run call.
-		"func TestTableDriven(t *testing.T) {\n\tfor _, tt := range cases {\n\t\tt.Run(tt.name, func(t *testing.T) {\n" +
-			"\t\t\tif got := f(tt.in); got != tt.want {\n\t\t\t\tt.Errorf(\"got %v want %v\", got, tt.want)\n\t\t\t}\n\t\t})\n\t}\n}",
+		// A real assertion OUTSIDE the recover block: this is FuzzCargoShimArgv
+		// as 76f9c48 actually fixed it — checked, not panic-only anymore.
+		"func FuzzCargoShimArgv(f *testing.F) {\n\tf.Fuzz(func(t *testing.T, blob string) {\n" +
+			"\t\tdefer func() {\n\t\t\tif r := recover(); r != nil {\n\t\t\t\tt.Fatalf(\"panicked: %v\", r)\n\t\t\t}\n\t\t}()\n" +
+			"\t\targs := argvFromBlob(blob)\n\t\trewritten := cargoRunArgsToBuildArgs(args)\n" +
+			"\t\tif len(rewritten) != len(args) {\n\t\t\tt.Fatalf(\"want %d, got %d\", len(args), len(rewritten))\n\t\t}\n\t})\n}",
+		// A genuine void-returning smoke check: nothing is discarded because
+		// there is nothing to discard — the legitimate case the discard
+		// requirement exists to spare.
+		"func FuzzWrite(f *testing.F) {\n\tf.Fuzz(func(t *testing.T, data []byte) {\n" +
+			"\t\tdefer func() {\n\t\t\tif r := recover(); r != nil {\n\t\t\t\tt.Fatalf(\"panicked: %v\", r)\n\t\t\t}\n\t\t}()\n" +
+			"\t\twriteToBuffer(data)\n\t})\n}",
+		// No defer/recover at all: an ordinary assertion-free-shaped test
+		// (which this policy does not name — see git history) is out of scope
+		// for panic-only-oracle specifically.
+		"func TestAdd(t *testing.T) {\n\tgot := add(1, 2)\n\t_ = got\n}",
 	}
 	for _, src := range allowed {
 		if got := oracleWarnAction(src, commitPhase); got != Allow {
-			t.Errorf("false assertion-free block for legitimate %q: got %v", src, got)
+			t.Errorf("false panic-only-oracle block for legitimate %q: got %v", src, got)
 		}
 	}
 }

@@ -39,7 +39,7 @@ func TestPrecommit_TrunkMergePreview_BlocksWhenTrunkRenameBreaksLaneMerge(t *tes
 	// Back on the lane (still has Foo), stage a new test that calls it — this
 	// commit's OWN tree vets clean.
 	gitDo(t, root, "checkout", "lane")
-	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestFoo(t *testing.T) { Foo() } // smoke-ok: proves the merge-preview's compile check, not Foo's behavior\n")
+	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestFoo(t *testing.T) { Foo() }\n")
 	gitDo(t, root, "add", ".")
 
 	res := Precommit(root, RunSuite(precommitTestTimeout))
