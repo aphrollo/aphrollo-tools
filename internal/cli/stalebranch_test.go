@@ -78,12 +78,21 @@ func remoteHasBranch(t *testing.T, realGit, origin, branch string) bool {
 	return cmd.Run() == nil
 }
 
-// TestStaleBranchRefusalLine_CatchesALaneThatNeverSawTrunksLatestFile is
-// PR #264's own shape: the lane branched before trunk gained a file, never
-// merged trunk back in, and its diff against trunk's current tip reads as
-// deleting that file -- evidence the lane is stale, not that it means to
-// remove anything.
-func TestStaleBranchRefusalLine_CatchesALaneThatNeverSawTrunksLatestFile(t *testing.T) {
+// ratchet: test_removed TestStaleBranchRefusalLine_CatchesALaneThatNeverSawTrunksLatestFile: split
+// by #443's fix into TestStaleBranchRefusalLine_AllowsALaneWhoseTrialMergeIsClean (this exact
+// shape is now provably safe and must go through) and
+// TestStaleBranchRefusalLine_RefusesWhenTrialMergeConflicts (the refusal that must still fire).
+
+// TestStaleBranchRefusalLine_AllowsALaneWhoseTrialMergeIsClean is PR #264's
+// own shape -- the lane branched before trunk gained a file and never
+// merged trunk back in, so the naive diff against trunk's current tip reads
+// as deleting that file -- but GitHub diffs a PR against its MERGE BASE,
+// never against trunk's moving tip, so that "deletion" never reaches the
+// PR and never reaches trunk (issue #443). `git merge-tree --write-tree`
+// against trunk and this lane is clean here (two branches each only adding
+// their own file never conflicts), so the push is provably safe and must
+// go through.
+func TestStaleBranchRefusalLine_AllowsALaneWhoseTrialMergeIsClean(t *testing.T) {
 	realGit, origin, seed := staleBranchOrigin(t)
 	lane := staleBranchLane(t, realGit, origin)
 	run := func(dir string, args ...string) {
@@ -107,6 +116,51 @@ func TestStaleBranchRefusalLine_CatchesALaneThatNeverSawTrunksLatestFile(t *test
 
 	// The lane learns about it (a fetch that happened for any reason, or a
 	// CI runner's own checkout) without merging it in.
+	run(lane, "fetch", "-q", "origin")
+
+	code, errb := staleBranchRun(t, realGit, lane, []string{"push", "origin", "lane/x"})
+
+	if code != 0 {
+		t.Fatalf("a push whose trial merge is clean should not be refused, exit %d\n%s", code, errb)
+	}
+	if strings.Contains(errb, "gate: this push's diff against") {
+		t.Fatalf("the trial merge is clean, but the refusal fired anyway: %q", errb)
+	}
+	if !remoteHasBranch(t, realGit, origin, "lane/x") {
+		t.Fatalf("the push should have reached origin")
+	}
+}
+
+// TestStaleBranchRefusalLine_RefusesWhenTrialMergeConflicts is the case the
+// merge-tree escape must NOT swallow: trunk gained a file the lane never
+// touched (the same apparent-deletion shape as above) AND trunk and the
+// lane edited the same line of a shared file differently, so trial-merging
+// trunk into the lane hits a real content conflict. The trial merge cannot
+// prove this push safe, so the original refusal must still fire.
+func TestStaleBranchRefusalLine_RefusesWhenTrialMergeConflicts(t *testing.T) {
+	realGit, origin, seed := staleBranchOrigin(t)
+	lane := staleBranchLane(t, realGit, origin)
+	run := func(dir string, args ...string) {
+		cmd := exec.Command(realGit, append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	// The lane edits the line seed's init commit wrote.
+	mustWriteFile(t, filepath.Join(lane, "base.go"), "package base // lane\n")
+	run(lane, "add", "-A")
+	run(lane, "commit", "-q", "-m", "lane edits base.go")
+
+	// Trunk edits the SAME line differently, and separately gains a file
+	// the lane branched before -- the box-wide lock, standing in for #253.
+	mustWriteFile(t, filepath.Join(seed, "base.go"), "package base // trunk\n")
+	mustWriteFile(t, filepath.Join(seed, "locked.go"), "package base\n\nfunc Locked() {}\n")
+	run(seed, "add", "-A")
+	run(seed, "commit", "-q", "-m", "trunk edits base.go and adds the mutation-run lock")
+	run(seed, "push", "-q", "origin", "main")
+
+	// The lane learns about it without merging it in.
 	run(lane, "fetch", "-q", "origin")
 
 	code, errb := staleBranchRun(t, realGit, lane, []string{"push", "origin", "lane/x"})
