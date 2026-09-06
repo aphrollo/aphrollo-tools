@@ -85,7 +85,7 @@ func TestCommitMsg_RejectionIsLogged(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := undercoverRepo(t, true)
 
-	res := CommitMsg(root, msgFile(t, "Fix the thing\n\nCo-Authored-By: Someone <s@example.com>\n"))
+	res := CommitMsg(root, msgFile(t, "Fix the flaky retry timer\n\nCo-Authored-By: Someone <s@example.com>\n"))
 	if !res.Blocked {
 		t.Fatal("fixture must be rejected")
 	}

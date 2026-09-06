@@ -35,25 +35,25 @@ func undercoverRepo(t *testing.T, on bool) string {
 // it.
 func TestCommitMsg_RejectsATellAndNamesTheLine(t *testing.T) {
 	bad := []struct{ name, body string }{
-		{"trailer", "Fix the thing\n\nCo-Authored-By: Someone <s@example.com>\n"},
-		{"model name", "Fix the thing\n\nWritten with Claude's help\n"},
-		{"vendor", "Fix the thing\n\nAnthropic tooling made this easier\n"},
-		{"generated-with", "Fix the thing\n\nGenerated with a code assistant\n"},
-		{"model id opus", "Fix the thing\n\nran under opus-5\n"},
-		{"model id sonnet", "Fix the thing\n\nsonnet-4 wrote the test\n"},
-		{"model id haiku", "Fix the thing\n\nhaiku-3 drafted it\n"},
-		{"codename fable", "Fix the thing\n\nper the fable harness\n"},
-		{"product", "Fix the thing\n\nclaude-code ran the gate\n"},
-		{"internal link", "Fix the thing\n\nsee go/build-policy for the rule\n"},
+		{"trailer", "Fix the flaky retry timer\n\nCo-Authored-By: Someone <s@example.com>\n"},
+		{"model name", "Fix the flaky retry timer\n\nWritten with Claude's help\n"},
+		{"vendor", "Fix the flaky retry timer\n\nAnthropic tooling made this easier\n"},
+		{"generated-with", "Fix the flaky retry timer\n\nGenerated with a code assistant\n"},
+		{"model id opus", "Fix the flaky retry timer\n\nran under opus-5\n"},
+		{"model id sonnet", "Fix the flaky retry timer\n\nsonnet-4 wrote the test\n"},
+		{"model id haiku", "Fix the flaky retry timer\n\nhaiku-3 drafted it\n"},
+		{"codename fable", "Fix the flaky retry timer\n\nper the fable harness\n"},
+		{"product", "Fix the flaky retry timer\n\nclaude-code ran the gate\n"},
+		{"internal link", "Fix the flaky retry timer\n\nsee go/build-policy for the rule\n"},
 		// Inline, not leading: a line STARTING with # is a git comment and
 		// never reaches history, so this pattern is about a mention inside
 		// a real line.
-		{"tag", "Fix the thing\n\nasked for #claude-review on this\n"},
-		{"org", "Fix the thing\n\nsee anthropics/aphrollo#12\n"},
-		{"ai assistant", "Fix the thing\n\nAI assistant paired on this\n"},
-		{"ai generated", "Fix the thing\n\nAI generated the fixture\n"},
-		{"codename capybara", "Fix the thing\n\nthe Capybara run agreed\n"},
-		{"codename tengu", "Fix the thing\n\nTengu flagged it\n"},
+		{"tag", "Fix the flaky retry timer\n\nasked for #claude-review on this\n"},
+		{"org", "Fix the flaky retry timer\n\nsee anthropics/aphrollo#12\n"},
+		{"ai assistant", "Fix the flaky retry timer\n\nAI assistant paired on this\n"},
+		{"ai generated", "Fix the flaky retry timer\n\nAI generated the fixture\n"},
+		{"codename capybara", "Fix the flaky retry timer\n\nthe Capybara run agreed\n"},
+		{"codename tengu", "Fix the flaky retry timer\n\nTengu flagged it\n"},
 		{"merge commit", "Merge branch 'lane/x'\n\nCo-Authored-By: Someone <s@example.com>\n"},
 	}
 	root := undercoverRepo(t, true)
@@ -77,9 +77,9 @@ func TestCommitMsg_RejectsATellAndNamesTheLine(t *testing.T) {
 func TestCommitMsg_AllowsAnOrdinaryMessage(t *testing.T) {
 	good := []struct{ name, body string }{
 		{"plain", "Refuse a commit whose suite never finished\n\nThe untested code stays in history either way.\n"},
-		{"comments are ignored", "Fix the thing\n\n# Co-Authored-By: Someone <s@example.com>\n# Please enter the commit message\n"},
+		{"comments are ignored", "Fix the flaky retry timer\n\n# Co-Authored-By: Someone <s@example.com>\n# Please enter the commit message\n"},
 		{"ai as a word part", "Fix the retail pipeline\n\nThe AIR filter case is covered.\n"},
-		{"bare ai without a following word", "Fix the thing\n\nThe AI is not mentioned as an author here.\n"},
+		{"bare ai without a following word", "Fix the flaky retry timer\n\nThe AI is not mentioned as an author here.\n"},
 		{"claude as a substring of nothing", "Rename claudication_test to intermittent_test\n"},
 	}
 	root := undercoverRepo(t, true)
@@ -97,7 +97,7 @@ func TestCommitMsg_AllowsAnOrdinaryMessage(t *testing.T) {
 // the gate everywhere cannot start rejecting anyone's commits.
 func TestCommitMsg_OffUnlessTheWorkspaceAsksForIt(t *testing.T) {
 	root := undercoverRepo(t, false)
-	body := "Fix the thing\n\nCo-Authored-By: Someone <s@example.com>\n"
+	body := "Fix the flaky retry timer\n\nCo-Authored-By: Someone <s@example.com>\n"
 	if got := CommitMsg(root, msgFile(t, body)); got.Blocked {
 		t.Fatalf("a repo that never opted in was blocked: %s", got.Message)
 	}
@@ -113,13 +113,13 @@ func TestCommitMsg_HonoursThePerRepoDenyList(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[workspace]\n[workspace.metadata.aphrollo]\nundercover = true\ncommit-message-deny = [\"(?i)\\bskunkworks\\b\", \"WIP:\"]\n")
 
-	if got := CommitMsg(root, msgFile(t, "Fix the thing\n\nper the Skunkworks plan\n")); !got.Blocked {
+	if got := CommitMsg(root, msgFile(t, "Fix the flaky retry timer\n\nper the Skunkworks plan\n")); !got.Blocked {
 		t.Fatal("a repo's own deny pattern must reject")
 	}
 	if got := CommitMsg(root, msgFile(t, "WIP: still shaping this\n")); !got.Blocked {
 		t.Fatal("the second pattern in the list must apply too")
 	}
-	if got := CommitMsg(root, msgFile(t, "Fix the thing properly\n")); got.Blocked {
+	if got := CommitMsg(root, msgFile(t, "Fix the flaky retry timer properly\n")); got.Blocked {
 		t.Fatalf("an unrelated message was rejected: %s", got.Message)
 	}
 }
@@ -192,7 +192,7 @@ func TestCommitMsg_ReadsTheUndercoverFlagFromAphrolloTomlWhenThereIsNoCargoToml(
 	write(t, root, "go.mod", "module m\n\ngo 1.24\n")
 	write(t, root, "aphrollo.toml", "[aphrollo]\nundercover = true\n")
 
-	got := CommitMsg(root, msgFile(t, "Fix the thing\n\nCo-Authored-By: Someone <s@example.com>\n"))
+	got := CommitMsg(root, msgFile(t, "Fix the flaky retry timer\n\nCo-Authored-By: Someone <s@example.com>\n"))
 	if !got.Blocked {
 		t.Error("a message carrying a Co-Authored-By trailer was accepted in a Go repo that asked to stay undercover")
 	}
@@ -204,7 +204,7 @@ func TestCommitMsg_LeavesAGoRepoThatNeverAskedAlone(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "go.mod", "module m\n\ngo 1.24\n")
 
-	got := CommitMsg(root, msgFile(t, "Fix the thing\n\nCo-Authored-By: Someone <s@example.com>\n"))
+	got := CommitMsg(root, msgFile(t, "Fix the flaky retry timer\n\nCo-Authored-By: Someone <s@example.com>\n"))
 	if got.Blocked {
 		t.Errorf("a repo that never set undercover had a commit rejected: %s", got.Message)
 	}
