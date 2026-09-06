@@ -27,6 +27,7 @@ var matcherKeys = map[MatcherKind][]matcherKeySpec{
 	KindMarkerInPackage:    {{"kind", true}, {"trigger", true}, {"marker", true}},
 	KindRegistryBothWays:   {{"kind", true}, {"registry_file", true}, {"entry_pattern", true}, {"use_pattern", true}, {"entry_column", false}},
 	KindDocPathResolves:    {{"kind", true}, {"pattern", true}},
+	KindIdentResolves:      {{"kind", true}, {"pattern", true}},
 	KindDepGraphForbids:    {{"kind", true}, {"roots", true}, {"forbidden", true}, {"edges", false}, {"min_reachable", false}},
 	KindDepGraphCeiling:    {{"kind", true}, {"roots", true}, {"edges", false}, {"counts", false}, {"min_reachable", false}},
 	KindFileSetContainment: {{"kind", true}, {"superset_file", true}, {"subset_file", true}, {"capture", false}, {"subset_capture", false}, {"superset_capture", false}},
@@ -380,10 +381,10 @@ func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
 	case KindPathRegexAbsent:
 		m.Pattern = get("pattern")
 		m.Key = KeyFile
-	case KindRegexPresent, KindDocPathResolves:
+	case KindRegexPresent, KindDocPathResolves, KindIdentResolves:
 		m.Pattern = get("pattern")
 		m.Key = KeyFile
-		if kind == KindDocPathResolves {
+		if kind == KindDocPathResolves || kind == KindIdentResolves {
 			m.Key = KeyLineContent
 		}
 	case KindMarkerWithinLines:

@@ -214,6 +214,8 @@ func Check(opts Options) (Result, error) {
 			if hits, err = containmentHits(opts.Root, law); err != nil {
 				return Result{}, err
 			}
+		case KindIdentResolves:
+			hits = identResolvesHits(law, scan.files, scan.content)
 		case KindJSONNumberCeiling, KindGoBenchCeiling:
 			if hits, err = ceilingHits(opts.Root, law, true, cargoTargetDir()); err != nil {
 				return Result{}, err
