@@ -132,6 +132,19 @@ func runRatchetCheck(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	// On the refusing path only (#497): a stale baseline row a prior,
+	// interrupted or otherwise buggy run left deleted on disk without ever
+	// committing it reads today as an ordinary "baseline 0" regression, with
+	// nothing in the finding pointing at .ratchet/baselines/ as the actual
+	// place to look. tdd.GitShowBatch runs the git subprocess through the
+	// same scrubbed-environment plumbing baselineguard_repath.go already
+	// carries for the identical hazard, whether or not this particular
+	// invocation happens to be nested inside another git process.
+	if res.Blocked() {
+		res.Notes = append(res.Notes, ratchet.BaselineHeadRegressionNotes(root, res.RegressedBaselines,
+			func(rels []string) map[string]string { return tdd.GitShowBatch(root, "HEAD", rels) })...)
+	}
+
 	// One line per law this binary is too old to read in full — a rule judged
 	// with half its keys skipped reports clean exactly like a rule that is
 	// being obeyed, so the difference is stated rather than inferred.

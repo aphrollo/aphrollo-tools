@@ -99,6 +99,11 @@ type Result struct {
 	// regression (the measure only went down), but the ceiling is stale and
 	// a report-only run would otherwise say nothing about it.
 	Notes []string `json:"notes,omitempty"`
+	// RegressedBaselines names, for every law with at least one Finding this
+	// run, the baseline file responsible — see RegressedBaseline. A caller on
+	// the refusing path uses it to ask BaselineHeadRegressionNotes whether
+	// that file lost a row relative to HEAD before this run ever started.
+	RegressedBaselines []RegressedBaseline `json:"regressed_baselines,omitempty"`
 	// PresetDrift names every law that `extends` a preset whose [matcher],
 	// re-rendered with the law's own Params, no longer matches what the law
 	// actually declares — a hand-fork nobody flagged as one.
@@ -272,6 +277,7 @@ func Check(opts Options) (Result, error) {
 			repathCountedBaseline(opts, baseline, measured)
 		}
 		baselineKeys := baseline.LiteralKeyCounts()
+		findingsBefore := len(res.Findings)
 		for _, r := range regressions(baseline, measured, law.Matcher.TolerancePct) {
 			h := representativeHit(r.Key, sites[r.Key], hitsByKey, baselineKeys, located)
 			res.Findings = append(res.Findings, Finding{
@@ -285,6 +291,21 @@ func Check(opts Options) (Result, error) {
 				Measured: r.Measured,
 				Escape:   law.Escape,
 				Remedy:   remedyFor(law),
+			})
+		}
+		// A law with at least one finding this run is a caller's candidate for
+		// the baseline-history note (#497): a run that reports ANY regression
+		// never writes ANY baseline (see commitTightened's guard below), so a
+		// caller comparing this file's disk content to HEAD is asking whether
+		// the row this law is missing was already missing before this run
+		// ever started — the aftermath of an interrupted or otherwise stale
+		// write, a hand edit, or a rebase that dropped it, never something
+		// this run itself could have done.
+		if len(res.Findings) > findingsBefore && law.Baseline != "" {
+			res.RegressedBaselines = append(res.RegressedBaselines, RegressedBaseline{
+				Law:  law.Name,
+				Path: law.Baseline,
+				Form: baseline.form,
 			})
 		}
 		// A law switched from text to code counting measures FEWER lines than

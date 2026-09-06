@@ -187,6 +187,18 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 	if err != nil {
 		return ratchetCheckErrorResult(gateName, repoRoot, err, started)
 	}
+	// On the refusing path only (#497): a stale baseline row a PRIOR,
+	// interrupted or otherwise buggy run left deleted on disk without ever
+	// committing it reads today as an ordinary "baseline 0" regression, with
+	// nothing in the finding pointing at .ratchet/baselines/ as the actual
+	// place to look. gitBatchBlobs already runs every git subprocess this
+	// hook spawns through cleanGitEnv, the same discipline
+	// baselineguard_repath.go uses for the identical hazard (a nested git
+	// call must not inherit this process's own GIT_DIR/GIT_INDEX_FILE).
+	if res.Blocked() {
+		res.Notes = append(res.Notes, ratchet.BaselineHeadRegressionNotes(repoRoot, res.RegressedBaselines,
+			func(rels []string) map[string]string { return gitBatchBlobs(repoRoot, "HEAD", rels) })...)
+	}
 	noteNewerLaws(gateName, repoRoot, res.NewerLaws)
 	noteSkippedLaws(gateName, repoRoot, res.SkippedLaws)
 	for _, note := range res.Notes {
