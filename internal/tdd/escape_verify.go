@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
 )
 
 // The closure half of the escape loop. An escape is closed by a change to a
@@ -65,6 +67,28 @@ func VerifyClosure(repo, pr string, w io.Writer) (bool, error) {
 		judged++
 		if why, ok := closureChangesACheck(closure.patch, issueBody); ok {
 			fmt.Fprintf(w, "#%s ok — %s\n", number, why)
+			continue
+		}
+		// A false-positive issue has a second, narrower door: #321 established
+		// that every deny check ships an escape, a fixture pair and a counted
+		// override, and the closing half (#468) is that a false positive
+		// leaves a fixture behind too, not just a sentence. A law CHANGE (the
+		// honest fix is narrowing the rule itself) already satisfies the
+		// generic check above through lawPathPrefixes, so this only ever
+		// fires for the fixture-only case.
+		if labels[FalsePositiveKind] {
+			why, ok, fixtureErr := closureChangesAFixture(repo, closure.patch)
+			if fixtureErr != nil {
+				all = false
+				fmt.Fprintf(w, "#%s FAIL — could not judge its fixture: %v\n", number, fixtureErr)
+				continue
+			}
+			if ok {
+				fmt.Fprintf(w, "#%s ok — %s\n", number, why)
+				continue
+			}
+			all = false
+			fmt.Fprintf(w, "#%s FAIL — a false-positive issue changes no check: a fixture under .ratchet/fixtures/<law>/ that `aphrollo ratchet test` proves in both directions, a narrowed law under .ratchet/laws/, or a file named on its closes-by line\n", number)
 			continue
 		}
 		all = false
@@ -165,6 +189,72 @@ func diffHeaderPath(line string) (string, bool) {
 		return "", false
 	}
 	return strings.Trim(strings.TrimSpace(rest[i+3:]), `"`), true
+}
+
+// fixtureLawFromPath extracts the law name from a path under
+// .ratchet/fixtures/<law>/..., ok=false when rel names no fixture at all.
+func fixtureLawFromPath(rel string) (string, bool) {
+	prefix := ratchet.FixturesDir + "/"
+	if !strings.HasPrefix(rel, prefix) {
+		return "", false
+	}
+	rest := strings.TrimPrefix(rel, prefix)
+	i := strings.Index(rest, "/")
+	if i <= 0 {
+		return "", false
+	}
+	return rest[:i], true
+}
+
+// closureChangesAFixture is the false-positive-specific half of #468: #321
+// already requires a fixture PAIR for every deny check, so the closing half
+// this issue asks for is that a false-positive fix actually leaves one
+// behind — not merely a file touched under .ratchet/fixtures/, but a law
+// that RunFixtures proves in BOTH directions once the diff lands (a hit case
+// and a clean case, the same distinction fixtures.go's own header comment
+// draws). root is the local checkout VerifyClosure already runs `gh` inside,
+// which is the PR's own tree when this runs as the CI job the package
+// comment describes — the same ground fixtures.go's own RunFixtures reads
+// for `aphrollo ratchet test`, never a second computation of it.
+//
+// err is non-nil only when RunFixtures itself could not run (a malformed
+// law elsewhere in the tree, an unreadable fixtures dir) -- a caller must
+// see that reason rather than reading it as "no fixture proved", the two
+// being very different claims about the same false-positive issue.
+func closureChangesAFixture(root string, patch map[string]string) (string, bool, error) {
+	laws := map[string]bool{}
+	for rel, p := range patch {
+		if !patchHasSubstantiveChange(p) {
+			continue
+		}
+		if law, ok := fixtureLawFromPath(rel); ok {
+			laws[law] = true
+		}
+	}
+	if len(laws) == 0 {
+		return "", false, nil
+	}
+	results, err := ratchet.RunFixtures(root)
+	if err != nil {
+		return "", false, fmt.Errorf("aphrollo ratchet test: %w", err)
+	}
+	names := make([]string, 0, len(laws))
+	for name := range laws {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		for _, r := range results {
+			if r.Law != name || r.Skipped || len(r.Failures) != 0 {
+				continue
+			}
+			if r.HitFiles == 0 || r.CleanFiles == 0 {
+				continue
+			}
+			return fmt.Sprintf("%s/%s (aphrollo ratchet test proves it in both directions)", ratchet.FixturesDir, name), true, nil
+		}
+	}
+	return "", false, nil
 }
 
 // closureChangesACheck reports whether the PR touches something that actually
