@@ -28,6 +28,10 @@ Commands:
   dev         Dev-tier control plane: up/down/restart/status/logs
   guardrail   PreToolUse policy hook for coder/devops sessions
   gate        Autonomous TDD + law gates (Claude + git hooks); tdd is a silent alias
+  status      One call for "what is running right now, in this checkout" — deferred
+              edit jobs, every build slot's holder, and the mutation run; alias for
+              gate status so a caller who knows nothing need not know which
+              subsystem to ask (--wait blocks on this checkout's own work)
   install     Wire the whole gate (session hooks, global git gate) and a repo's
               git-hook shims in one run — merges gate init + gate install --apply
   issue       Open one labelled issue against the repo's GitHub remote and print its URL
@@ -90,6 +94,13 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// or shim installed before the rename keeps working until init rewrites it.
 	case "gate", "tdd":
 		return runGate(args[1:], stdin, stdout, stderr)
+	// `status` is `gate status` typed at the top level (issue #435): a caller
+	// who knows nothing about which subsystem owns a wait should not have to
+	// learn `gate` first to ask "what is running". Same flags, same report —
+	// runGateStatus IS the implementation, never a second one that could
+	// disagree with it.
+	case "status":
+		return runGateStatus(args[1:], stdout, stderr)
 	case "install":
 		return runInstall(args[1:], stdout, stderr)
 	case "issue":

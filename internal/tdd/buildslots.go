@@ -422,11 +422,21 @@ type BuildSlotStatus struct {
 // whether that is because it truly is idle or because the read raced a
 // concurrent acquire/release — the same inherent race ReadBuildSlotOwner
 // already lives with for a single target dir.
+//
+// The slot's own OS-level lock releases itself the instant its holder
+// process dies; the owner FILE next to it does not — nothing removes it. So
+// a held record is trusted only once its pid is confirmed alive: a build
+// that crashed or was killed without releasing must read as idle, not as
+// still running (issue #435 — the same liveness gap #451 already closed for
+// deferred edit jobs).
 func SnapshotBuildSlots() []BuildSlotStatus {
 	n := buildSlotCount()
 	out := make([]BuildSlotStatus, n)
 	for i := range n {
 		owner, held := readBuildLockOwnerAt(globalSlotOwnerPath(i))
+		if held && !pidRunningFn(owner.PID) {
+			held = false
+		}
 		out[i] = BuildSlotStatus{Index: i, Held: held, Owner: owner}
 	}
 	return out
