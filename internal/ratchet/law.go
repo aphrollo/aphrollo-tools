@@ -194,10 +194,16 @@ type Matcher struct {
 	// MinReachable is the vacuity floor: a walk that reached fewer packages
 	// than this is not a clean verdict, it is a walk that resolved nothing.
 	MinReachable int
-	// Containment fields (KindFileSetContainment).
-	SupersetFile string
-	SubsetFile   string
-	Capture      *regexp.Regexp
+	// Containment fields (KindFileSetContainment). SubsetCapture and
+	// SupersetCapture are the two extraction patterns, always both set
+	// after parsing: `capture` in TOML is shorthand that fills both with
+	// the same pattern for when subset and superset share one notation;
+	// `subset_capture`/`superset_capture` are given together when they do
+	// not (a Cargo.toml members line vs a markdown table cell).
+	SupersetFile    string
+	SubsetFile      string
+	SubsetCapture   *regexp.Regexp
+	SupersetCapture *regexp.Regexp
 	// JSON-ceiling fields (KindJSONNumberCeiling).
 	Files        string
 	JSONPath     string
