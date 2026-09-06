@@ -177,6 +177,7 @@ func Check(opts Options) (Result, error) {
 	}
 	res.FilesScanned, res.FilesRead, res.FilesMatched = scan.scanned, scan.read, scan.matched
 
+	var pending []pendingTighten
 	for _, law := range laws {
 		if disarmed(law) {
 			continue
@@ -263,6 +264,13 @@ func Check(opts Options) (Result, error) {
 		for _, keys := range sites {
 			sort.Strings(keys)
 		}
+		// A whole-tree comparison is meaningless over a hypothetical overlay or a
+		// narrowed single-file scan -- the pre-edit hook's two uses of Check --
+		// so repathing, like tightening itself, is scoped to a real run over
+		// the real tree (#490).
+		if len(opts.Proposed) == 0 && len(opts.Files) == 0 {
+			repathCountedBaseline(opts, baseline, measured)
+		}
 		baselineKeys := baseline.LiteralKeyCounts()
 		for _, r := range regressions(baseline, measured, law.Matcher.TolerancePct) {
 			h := representativeHit(r.Key, sites[r.Key], hitsByKey, baselineKeys, located)
@@ -296,13 +304,19 @@ func Check(opts Options) (Result, error) {
 			}
 			res.Notes = append(res.Notes, lineModeNotes(law.Name, baseline.Counts(), actual)...)
 		}
-		tightened, err := tightenBaseline(opts, law, baseline, path, measured, sites)
+		if tightenBaseline(opts, law, baseline, path, measured, sites) {
+			pending = append(pending, pendingTighten{law: law, baseline: baseline, path: path})
+		}
+	}
+	// A run that reports a regression must leave every baseline
+	// byte-identical -- even one belonging to an unrelated, perfectly clean
+	// law -- so writing waits until every law has been judged (#490).
+	if len(res.Findings) == 0 {
+		tightened, err := commitTightened(pending)
 		if err != nil {
 			return Result{}, err
 		}
-		if tightened != "" {
-			res.Tightened = append(res.Tightened, tightened)
-		}
+		res.Tightened = tightened
 	}
 	return res, nil
 }

@@ -1,7 +1,8 @@
 package tdd
 
 import (
-	"sort"
+	"os/exec"
+	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
 )
@@ -23,61 +24,58 @@ func countedForm(text string) bool {
 // content, and rewrites old in place so the raise scan in raisedKeys reads
 // the pair as unchanged rather than a brand-new key over the ceiling.
 //
-// Pairing is by CONTENT, never by count alone: two different files landing
-// at the same line count must never swap identities, and a count that also
-// rose is never eligible in the first place, since the counts must match
-// exactly for a pair to be considered at all.
+// The pairing RULE — exact count match, then a batched content comparison —
+// is ratchet.RepathCountedKeys, shared with `ratchet check`'s own tighten
+// path (#490 asked for one mechanism, not two copies; #489 is the batching
+// this buys, one `git cat-file --batch` process for every removed key and
+// one for every added key, rather than up to two `git show` calls per
+// candidate PAIR). What stays local to this package is HOW the content is
+// read: every git subprocess a hook spawns goes through cleanGitEnv
+// (gitBatchBlobs below), because a nested git call inheriting the hook's own
+// GIT_DIR/GIT_INDEX_FILE would run against the wrong repo state — a hazard
+// ratchet's own git plumbing, run outside a hook, does not share.
 func repathCountedKeys(repoRoot, base string, old, now map[string]int) {
-	var removed []string
-	for k := range old {
-		if _, ok := now[k]; !ok {
-			removed = append(removed, k)
-		}
-	}
-	if len(removed) == 0 {
-		return
-	}
-	sort.Strings(removed)
-
-	var added []string
-	for k := range now {
-		if _, ok := old[k]; !ok {
-			added = append(added, k)
-		}
-	}
-	sort.Strings(added)
-
-	paired := make(map[string]bool, len(removed))
-	for _, addedKey := range added {
-		for _, removedKey := range removed {
-			if paired[removedKey] {
-				continue
-			}
-			if old[removedKey] != now[addedKey] {
-				continue
-			}
-			if !sameStagedBlob(repoRoot, base, removedKey, addedKey) {
-				continue
-			}
-			old[addedKey] = now[addedKey]
-			paired[removedKey] = true
-			break
-		}
+	pairs := ratchet.RepathCountedKeys(old, now,
+		func(rels []string) map[string]string { return gitBatchBlobs(repoRoot, base, rels) },
+		// "" is git's own bare `:path` syntax for the STAGED INDEX — the
+		// pre-commit view of every added key.
+		func(rels []string) map[string]string { return gitBatchBlobs(repoRoot, "", rels) },
+	)
+	for _, newKey := range pairs {
+		old[newKey] = now[newKey]
 	}
 }
 
-// sameStagedBlob compares the git blob of oldRel at the base ref against the
-// blob of newRel in the staged index — content identity, not merely an
-// unchanged line count, so a rename that also edited the file still reads as
-// a new key over the ceiling.
-func sameStagedBlob(repoRoot, base, oldRel, newRel string) bool {
-	before, ok := gitBlob(repoRoot, base+":"+oldRel)
-	if !ok {
-		return false
+// gitBatchBlobs reads every rel's blob content at ref (ref == "" reads the
+// staged index) in ONE `git cat-file --batch` process, through this
+// package's scrubbed-environment plumbing — rather than one `git show` per
+// path, which is what made #489 O(N^2) in subprocess spawns. Any failure
+// (git missing, a malformed batch stream) answers an empty map: every
+// candidate then reads as "content unknown", which RepathCountedKeys treats
+// as never eligible to pair — a hook that cannot run git must refuse a
+// laundered raise, never wave one through.
+func gitBatchBlobs(repoRoot, ref string, rels []string) map[string]string {
+	if len(rels) == 0 {
+		return map[string]string{}
 	}
-	after, ok := gitBlob(repoRoot, ":"+newRel)
-	if !ok {
-		return false
+	var stdin strings.Builder
+	for _, rel := range rels {
+		stdin.WriteString(ref + ":" + rel + "\n")
 	}
-	return before == after
+	cmd := exec.Command(gitBinary(), "-C", repoRoot, "cat-file", "--batch")
+	cmd.Env = cleanGitEnv()
+	cmd.Stdin = strings.NewReader(stdin.String())
+	out, err := cmd.Output() // stderr-ok: a failed batch read reads as "content unknown" for every candidate below, never surfaced
+	if err != nil {
+		return map[string]string{} // absence-ok: a failed batch read reads as "content unknown" for every candidate, never eligible to pair
+	}
+	blobs, err := ratchet.ParseCatFileBatch(out, rels)
+	if err != nil {
+		return map[string]string{} // absence-ok: a malformed batch stream reads as "content unknown" for every candidate, never eligible to pair
+	}
+	result := make(map[string]string, len(blobs))
+	for k, v := range blobs {
+		result[k] = string(v)
+	}
+	return result
 }
