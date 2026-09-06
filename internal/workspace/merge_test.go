@@ -34,6 +34,7 @@ func TestMerge_SyncsCanonicalCloneAfterSuccess(t *testing.T) {
 		func(wt, branch, method string) error { return nil },
 		func(wt, branch string) (bool, error) { return false, nil },
 	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
 	var syncedRepo string
 	var syncedDry bool
 	synced := 0
@@ -67,6 +68,7 @@ func TestMerge_SyncFailureDoesNotFailMerge(t *testing.T) {
 		func(wt, branch, method string) error { return nil },
 		func(wt, branch string) (bool, error) { return false, nil },
 	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
 	stubSync(t, func(repoArg string, dry bool, stdout, stderr io.Writer) error {
 		return fmt.Errorf("clone offline")
 	})
@@ -108,6 +110,7 @@ func TestMerge_MergesOpenPR(t *testing.T) {
 		func(wt, branch, method string) error { gotMethod = method; return nil },
 		func(wt, branch string) (bool, error) { deletedBranch = branch; return false, nil },
 	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
 	m, err := MergePlan(targetFor("/x", "feat/z"), "squash", true)
 	if err != nil {
 		t.Fatal(err)
@@ -127,6 +130,81 @@ func TestMerge_MergesOpenPR(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "prune") {
 		t.Errorf("output should point at prune next:\n%s", out.String())
+	}
+}
+
+// TestMerge_RefusesRedCI is the #385 regression: a PR whose required checks
+// are failing must never reach ghMergePR, no matter what a wrapping shell
+// pipeline around a separate watch would have reported.
+func TestMerge_RefusesRedCI(t *testing.T) {
+	stubMerge(t,
+		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 363, URL: "u"}, nil },
+		func(wt, branch, method string) error {
+			t.Fatal("merge must not run while a required check is red")
+			return nil
+		},
+		func(wt, branch string) (bool, error) { t.Fatal("delete must not run"); return false, nil },
+	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "red", Failing: 4}, nil })
+
+	m, _ := MergePlan(targetFor("/x", "feat/z"), "squash", true)
+	var out, errb bytes.Buffer
+	err := m.Apply(&out, &errb)
+	if err == nil {
+		t.Fatal("expected merge to be refused while CI is red")
+	}
+	if !strings.Contains(err.Error(), "red") {
+		t.Errorf("expected the refusal to name the red state, got: %v", err)
+	}
+}
+
+// TestMerge_RefusesPendingCI: a required check still running must also block —
+// not just an outright failure.
+func TestMerge_RefusesPendingCI(t *testing.T) {
+	stubMerge(t,
+		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 364, URL: "u"}, nil },
+		func(wt, branch, method string) error {
+			t.Fatal("merge must not run while a required check is pending")
+			return nil
+		},
+		func(wt, branch string) (bool, error) { t.Fatal("delete must not run"); return false, nil },
+	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "pending"}, nil })
+
+	m, _ := MergePlan(targetFor("/x", "feat/z"), "squash", true)
+	var out, errb bytes.Buffer
+	err := m.Apply(&out, &errb)
+	if err == nil {
+		t.Fatal("expected merge to be refused while CI is pending")
+	}
+	if !strings.Contains(err.Error(), "pending") {
+		t.Errorf("expected the refusal to name the pending state, got: %v", err)
+	}
+}
+
+// TestMerge_RefusesWhenCIStatusCannotBeDetermined covers the corroborating
+// incident on #385: a broken read (a missing tool in a pipe, a network
+// hiccup) must never be treated as "nothing pending". ghCIStatus returning an
+// error is exactly that "could not determine" case, and it must refuse rather
+// than fall through to the merge.
+func TestMerge_RefusesWhenCIStatusCannotBeDetermined(t *testing.T) {
+	stubMerge(t,
+		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 365, URL: "u"}, nil },
+		func(wt, branch, method string) error {
+			t.Fatal("merge must not run when CI status could not be determined")
+			return nil
+		},
+		func(wt, branch string) (bool, error) { t.Fatal("delete must not run"); return false, nil },
+	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) {
+		return CIStatus{}, fmt.Errorf("gh pr checks: network timeout")
+	})
+
+	m, _ := MergePlan(targetFor("/x", "feat/z"), "squash", true)
+	var out, errb bytes.Buffer
+	err := m.Apply(&out, &errb)
+	if err == nil {
+		t.Fatal("expected merge to be refused when CI status could not be read")
 	}
 }
 
@@ -207,6 +285,7 @@ func TestMerge_AlreadyDeletedRemoteBranchStillSyncs(t *testing.T) {
 		func(wt, branch, method string) error { return nil },
 		func(wt, branch string) (bool, error) { return true, nil }, // already gone
 	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
 	synced := 0
 	stubSync(t, func(repoArg string, dry bool, stdout, stderr io.Writer) error {
 		synced++
@@ -236,6 +315,7 @@ func TestMerge_KeepBranch(t *testing.T) {
 		func(wt, branch, method string) error { return nil },
 		func(wt, branch string) (bool, error) { deleteCalled = true; return false, nil },
 	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
 	m, _ := MergePlan(targetFor("/x", "feat"), "merge", false /*deleteBranch*/)
 	var out, errb bytes.Buffer
 	if err := m.Apply(&out, &errb); err != nil {
