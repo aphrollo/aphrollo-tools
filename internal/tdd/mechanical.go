@@ -93,3 +93,44 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 	}
 	return GateResult{Message: strings.Join(notes, "\n")}
 }
+
+// mutationReceiptStage judges the lane's mutation receipt, for workspaces
+// that asked for it (`mutation-receipt = true`). nil means "allow": the
+// workspace has not opted in, or the receipt covers this tree.
+func mutationReceiptStage(repoRoot string) *GateResult {
+	// Whichever manifest the repo has: a Cargo workspace declares the opt-in
+	// in [workspace.metadata.aphrollo], a Go or Python repo in a root
+	// aphrollo.toml. Reading only the first made the key inert in every repo
+	// that has no Cargo.toml — aphrollo-tools declared it and merged on
+	// nothing at all.
+	if !mutationReceiptOptIn(repoRoot) {
+		return nil
+	}
+	// A repo whose proof is measured in CI has no local producer to demand a
+	// receipt from: `mutants-local = false` stops the post-commit run, and the
+	// receipt the runner writes is signed with the RUNNER's machine key, so
+	// this gate could neither find it nor verify it. Refusing anyway would
+	// refuse every lane merge forever. The stand-down is logged, so "no
+	// receipt was required" never reads as "a receipt was checked".
+	if !mutationJudgedLocally(repoRoot) {
+		appendGateLog(premergeLogToken, logToken(repoRoot), "receipt", "receipt-measured-in-ci", 0)
+		return &GateResult{Message: "mutation receipt not judged here: this repo measures it on the CI runner (mutants-local = false)"}
+	}
+	// Only the direction that matters. A receipt proves a LANE was measured
+	// before it lands on main; a catch-up merge of main INTO a lane proves
+	// nothing about the lane, and refusing it drove a builder to squash-merge
+	// instead — which polluted the lane's merge-base diff with all of main's
+	// changes and made every later mutation run measure them (issue #110).
+	if why, catchUp := catchUpMerge(repoRoot); catchUp {
+		appendGateLog(premergeLogToken, repoRoot, "receipt", "catchup-merge", 0)
+		return &GateResult{Message: "mutation receipt not judged: " + why}
+	}
+	tip, ok := mergeTipOf(repoRoot)
+	if !ok {
+		// The gate failed on its own inputs, so it says which input: a clean
+		// automerge has no MERGE_HEAD yet, and only GIT_REFLOG_ACTION names
+		// the branch coming in.
+		return blockReceipt(repoRoot, "no-lane-tip", "no lane tip to look a receipt up by (neither .git/MERGE_HEAD nor %s names a merged branch)", reflogActionEnv)
+	}
+	return checkMutationReceipt(newReceiptContext(repoRoot, tip))
+}
