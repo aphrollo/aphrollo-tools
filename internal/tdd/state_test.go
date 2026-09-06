@@ -53,6 +53,20 @@ func TestAppendGateLog_WarnsOnlyOncePerProcess(t *testing.T) {
 	}
 }
 
+// #467: failFirstStage's default verdict, "inconclusive (fail-open)", has a
+// space in it. appendGateLog wrote it as two whitespace-separated fields and
+// parseGateLine's `f[len(f)-2]` recovered only "(fail-open)" — the word
+// "inconclusive" silently vanished for every reader, including `gate stats`,
+// the one place an operator most needs a fail-open to read correctly.
+func TestAppendGateLog_RoundTripsAVerdictContainingASpace(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+
+	appendGateLog("precommit", "/some/repo", "gate", "inconclusive (fail-open)", 0)
+
+	requireLoggedVerdict(t, cfg, "inconclusive (fail-open)")
+}
+
 func TestFingerprintsMatch(t *testing.T) {
 	a := &fingerprint{Branch: "main", HeadSHA: "abc", IndexMtime: 1}
 	b := &fingerprint{Branch: "main", HeadSHA: "abc", IndexMtime: 1}

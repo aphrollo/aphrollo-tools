@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -305,6 +306,19 @@ func warnGateLogUnwritable(reason string) {
 	})
 }
 
+// quoteVerdict wraps verdict in a Go string literal (strconv.Quote) whenever
+// it carries whitespace of its own, so the line's trailing "<verdict>
+// <secs>s" stays two fields instead of splitting the verdict apart.
+// parseGateLine's quotedVerdict is the matching read side. Left bare when
+// verdict has no whitespace, so the overwhelming majority of gate.log lines
+// ("green", "red", "pretooluse-denied:foo") render exactly as before.
+func quoteVerdict(verdict string) string {
+	if strings.ContainsAny(verdict, " \t\n") {
+		return strconv.Quote(verdict)
+	}
+	return verdict
+}
+
 // appendGateLog appends one line to <stateDir>/gate.log:
 // "<RFC3339> <precommit|postedit> <root> <cmd> <verdict> <secs>s" — so a
 // session (or a human) can reconstruct what every gate stage actually did,
@@ -340,9 +354,16 @@ func appendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
 	// the COMMAND in the middle already carries spaces: a root with one of
 	// its own (`C:/My Projects/borld`) split into two fields, and every
 	// reader that matches on the root -- the statusline's red-clearing and
-	// its queued state -- stopped seeing that project's entries at all.
+	// its queued state -- stopped seeing that project's entries at all. The
+	// verdict is positioned the same way (read from the END, right before
+	// the duration), so it needs the same protection -- but unlike root it
+	// legitimately carries its own spaces sometimes (failFirstStage's
+	// "inconclusive (fail-open)"), where logToken's lossy underscore
+	// substitution would just move the defect rather than fix it. quoteVerdict
+	// wraps it in a Go string literal instead, which parseGateLine's
+	// quotedVerdict unwraps byte-for-byte (issue #467).
 	fmt.Fprintf(f, "%s %s %s %s %s %.1fs\n",
-		time.Now().UTC().Format(time.RFC3339), stage, logToken(root), cmd, verdict, dur.Seconds())
+		time.Now().UTC().Format(time.RFC3339), stage, logToken(root), cmd, quoteVerdict(verdict), dur.Seconds())
 }
 
 // setOff persists the per-session enforcement override (the `/tdd off|on`
