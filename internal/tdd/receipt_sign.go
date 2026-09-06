@@ -146,6 +146,15 @@ func SignReceiptFile(path, outcomesPath string) error {
 		}
 		obj["outcomes_sha"] = sum
 	}
+	// Stamped here, not left to the producer, the same reasoning as
+	// outcomes_sha above: this is the ONE choke point every producer's raw
+	// bytes pass through before they are trusted (borld's tools/mutation_gate.sh
+	// included), so it is where "which binary is vouching for this receipt"
+	// gets recorded rather than left to a shell script that has never heard
+	// of the field. Overwritten unconditionally, same as outcomes_sha: a
+	// caller cannot claim an older or newer schema than the binary signing it
+	// actually is.
+	obj["schema"] = ReceiptSchemaVersion
 	delete(obj, "mac")
 	body, err := json.Marshal(obj)
 	if err != nil {
@@ -173,6 +182,11 @@ func SignReceiptFile(path, outcomesPath string) error {
 // receipt that kept the old MAC would read as forged.
 func signReceipt(r *MutationReceipt) {
 	r.MAC = ""
+	// Overwritten unconditionally, same reasoning as SignReceiptFile's own
+	// "schema" stamp: this is the binary about to vouch for the receipt, so
+	// its version is what gets recorded, not whatever a caller happened to
+	// set on the struct.
+	r.Schema = ReceiptSchemaVersion
 	body, err := json.Marshal(r)
 	if err != nil {
 		return
