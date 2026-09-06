@@ -61,6 +61,21 @@ func goPackageDir(root, dir string) string {
 // dirHasGoFiles reports whether dir holds at least one .go file. An unreadable
 // directory reads as none, which walks the search one level up rather than
 // naming a package that may not exist.
+// goDataFileScope maps a NON-Go repo-relative file this repo's own Go tests
+// read by literal path (gateOwnInputs' membership already promoted it out of
+// Ignore) to the package directory whose tests actually read it. Ordinary
+// goPackageDir walks UP from the file's own directory looking for .go files,
+// which for .github/workflows/pipeline.yml lands on the module root ("."),
+// not internal/tdd — the package pipeline_push_test.go and friends actually
+// live in — so without this the mechanical stage would scope to a package
+// with nothing testing the file at all (#444). Aphrollo-tools-specific by
+// nature (a different repo's Go module has no internal/tdd to point at);
+// harmless elsewhere because dirHasGoFiles then filters an entry naming a
+// directory that does not exist.
+var goDataFileScope = map[string]string{
+	".github/workflows/pipeline.yml": "internal/tdd",
+}
+
 func dirHasGoFiles(dir string) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -85,7 +100,10 @@ func narrowToStaged(r Runner, root string, files []string) (Runner, bool) {
 		seen := map[string]bool{}
 		var pkgs []string
 		for _, f := range files {
-			dir := goPackageDir(root, filepath.Dir(f))
+			dir, ok := goDataFileScope[filepath.ToSlash(f)]
+			if !ok {
+				dir = goPackageDir(root, filepath.Dir(f))
+			}
 			// A directory with no .go files is not a package `go test` can
 			// load: naming it does not skip it, it fails the run outright
 			// with "[setup failed]". The repo root is the case that bites,

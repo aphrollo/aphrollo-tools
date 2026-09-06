@@ -111,6 +111,40 @@ func isCargoConfigToml(p string) bool {
 	return path.Base(strings.TrimSuffix(dir, "/")) == ".cargo"
 }
 
+// gateOwnInputs are non-code files THIS TOOL reads or runs by a literal path
+// against whatever repo it is gating -- never merely a file a repo's own
+// tooling happens to carry. Three prior fixes (gateConfigName #212,
+// manifestFiles #278, isCargoConfigToml #365) each added a bespoke special
+// case to this function for the same sentence: a file the docs-only fast
+// path waves through untested can change what the gate itself does. #444
+// and #469 are that sentence's fourth and fifth instance, and rather than
+// add two more bespoke checks this is the one general list they both fall
+// out of: a literal repo-relative path this tool's OWN source reads or
+// executes by that exact name.
+//
+// The discriminator is narrower than "mentioned in a string literal" --
+// measured against this repo's own source: tools/clippy_clean_list.sh
+// appears as a literal too (internal/tdd/doctor.go's clippyCleanListScript),
+// but only inside a diagnostic string a "doctor" check prints; nothing ever
+// opens, executes or reads that path, so it does NOT belong here. Every
+// entry below is checked at a real fileExists/exec/ReadFile call site (or,
+// for a checked-in fixture a test reads at its literal path, a real
+// test-time read of that exact file) -- named on the entry.
+var gateOwnInputs = map[string]bool{
+	// mutants_runner_name.go, mutants_run.go, mutants_producer_version.go all
+	// do fileExists(filepath.Join(root, "tools", "mutation_gate.sh")) to pick
+	// the mutation producer -- a change to the script at this exact path
+	// changes gate BEHAVIOUR for every repo that carries one (#469).
+	"tools/mutation_gate.sh": true,
+	// pipeline_push_test.go reads this repo's own checked-in
+	// .github/workflows/pipeline.yml at its literal path and asserts on its
+	// contents (a BASE_SHA site, an escape-closure job); precommit_go_test.go
+	// and mutants_ci_test.go/mutants_ci_pipeline_test.go do the same against
+	// synthesized copies of it. A change here is untested exactly when the
+	// commit is otherwise docs-only (#444).
+	".github/workflows/pipeline.yml": true,
+}
+
 // ClassifyFile maps a file path to the role the TDD gates should treat it as.
 func ClassifyFile(p string) Kind {
 	p = strings.ReplaceAll(p, "\\", "/")
@@ -146,6 +180,9 @@ func ClassifyFile(p string) Kind {
 		// .cargo/config.toml carries build.jobs, target-dir and rustflags --
 		// build BEHAVIOUR, not build INPUT, but the same class of file the
 		// docs-only path must never wave through untested (issue #365).
+		return Source
+	}
+	if gateOwnInputs[p] {
 		return Source
 	}
 	ext := strings.ToLower(path.Ext(base))
