@@ -183,6 +183,10 @@ func Check(opts Options) (Result, error) {
 		}
 		hits := scan.byLaw[law.Name]
 		switch law.Matcher.Kind {
+		case KindMarkerInPackage:
+			if hits, err = packageMarkerHits(opts.Root, law, scan.files, scan.content); err != nil {
+				return Result{}, err
+			}
 		case KindRegistryBothWays:
 			// A narrowed run has read ONE file, so it can see a use nobody
 			// registered but never that a registry line is stale — that needs
@@ -328,6 +332,7 @@ var lineKeyedKinds = map[MatcherKind]bool{
 	KindRegexAbsent:       true,
 	KindMarkerWithinLines: true,
 	KindRegexNear:         true,
+	KindMarkerInPackage:   true,
 	KindDocPathResolves:   true,
 	KindHunkRegex:         true,
 }

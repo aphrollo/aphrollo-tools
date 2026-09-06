@@ -23,7 +23,7 @@ import (
 // wholeTreeKinds are the matchers the checker answers itself.
 func wholeTreeKind(k MatcherKind) bool {
 	switch k {
-	case KindRegistryBothWays, KindDepGraphForbids, KindGoDepGraphForbids, KindFileSetContainment, KindJSONNumberCeiling, KindGoBenchCeiling, KindSymbolRemoved, KindCoChange, KindHunkRegex:
+	case KindMarkerInPackage, KindRegistryBothWays, KindDepGraphForbids, KindGoDepGraphForbids, KindFileSetContainment, KindJSONNumberCeiling, KindGoBenchCeiling, KindSymbolRemoved, KindCoChange, KindHunkRegex:
 		return true
 	}
 	return false

@@ -57,6 +57,16 @@ const (
 	// EXCUSES the trigger; here, finding the context is what MAKES it an
 	// offence — a trigger alone must never be a hit.
 	KindRegexNear MatcherKind = "regex-near"
+	// KindMarkerInPackage: a `trigger` line is a hit only when NEITHER its own
+	// file NOR any other file beside it (same directory, in the law's own
+	// scope) contains `marker` ANYWHERE — the package-scoped complement of
+	// marker-within-lines' line-windowed excuse. It exists for isolation that
+	// is a fact about the PACKAGE, not the file: a `TestMain` that seeds
+	// `t.Setenv` for the whole package lives in one sibling file, and a
+	// file-at-a-time matcher reads every OTHER file in that package as
+	// unisolated even though it is exactly as covered as the file that
+	// declares it.
+	KindMarkerInPackage MatcherKind = "marker-in-package"
 	// KindRegistryBothWays: every use is registered and every registry line is
 	// used (the dev-instrument registry).
 	KindRegistryBothWays MatcherKind = "registry-both-ways"
