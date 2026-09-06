@@ -28,6 +28,7 @@ var matcherKeys = map[MatcherKind][]matcherKeySpec{
 	KindRegistryBothWays:   {{"kind", true}, {"registry_file", true}, {"entry_pattern", true}, {"use_pattern", true}},
 	KindDocPathResolves:    {{"kind", true}, {"pattern", true}},
 	KindDepGraphForbids:    {{"kind", true}, {"roots", true}, {"forbidden", true}, {"edges", false}, {"min_reachable", false}},
+	KindDepGraphCeiling:    {{"kind", true}, {"roots", true}, {"edges", false}, {"counts", false}, {"min_reachable", false}},
 	KindFileSetContainment: {{"kind", true}, {"superset_file", true}, {"subset_file", true}, {"capture", true}},
 	KindJSONNumberCeiling:  {{"kind", true}, {"files", true}, {"path", true}, {"tolerance_pct", false}, {"enabled_env", false}},
 	KindGoBenchCeiling:     {{"kind", true}, {"files", true}, {"tolerance_pct", false}, {"enabled_env", false}},
@@ -89,6 +90,28 @@ func setDepGraphForbidsFields(doc *tomlDoc, m *Matcher) error {
 			return fmt.Errorf("matcher.%s is a non-empty array of package names", f.key)
 		}
 		*f.dest = v.list
+	}
+	return nil
+}
+
+// setDepGraphCeilingFields validates and fills a dep-graph-ceiling law's
+// roots (the same "*"-wildcard-or-non-empty-array rule setDepGraphForbidsFields
+// applies to matcher.roots) and its counts mode.
+func setDepGraphCeilingFields(doc *tomlDoc, m *Matcher) error {
+	v, _ := doc.value("matcher", "roots")
+	if v.kind == tomlString && v.s == AllRoots {
+		m.Roots = []string{AllRoots}
+	} else if v.kind != tomlArray || len(v.list) == 0 {
+		return fmt.Errorf("matcher.roots is a non-empty array of package names")
+	} else {
+		m.Roots = v.list
+	}
+	m.Counts = "workspace"
+	if cv, ok := doc.value("matcher", "counts"); ok {
+		if cv.kind != tomlString || (cv.s != "workspace" && cv.s != "all") {
+			return fmt.Errorf("matcher.counts is %q or %q, got %s", "workspace", "all", cv.kind)
+		}
+		m.Counts = cv.s
 	}
 	return nil
 }
@@ -226,7 +249,16 @@ func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
 	if !doc.has("matcher") {
 		return Matcher{}, fmt.Errorf("missing [matcher] — a law must state exactly one rule")
 	}
-	kind := MatcherKind(doc.str("matcher", "kind"))
+	// A missing or non-string matcher.kind is a malformed law, rejected
+	// outright — never routed through UnknownMatcherKindError's forward-
+	// compat skip, which exists for a kind THIS binary predates, not for a
+	// law that never named one. Skipping a nameless kind would load clean
+	// and judge nothing, the exact failure the skip path must never produce.
+	kindVal, ok := doc.value("matcher", "kind")
+	if !ok || kindVal.kind != tomlString || kindVal.s == "" {
+		return Matcher{}, fmt.Errorf("matcher.kind is required — a law must name the one rule kind it states")
+	}
+	kind := MatcherKind(kindVal.s)
 	allowed, ok := matcherKeys[kind]
 	if !ok {
 		return Matcher{}, &UnknownMatcherKindError{Kind: kind}
@@ -368,6 +400,21 @@ func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
 			return Matcher{}, ferr
 		}
 		if ferr := setDepGraphForbidsFields(doc, &m); ferr != nil {
+			return Matcher{}, ferr
+		}
+	case KindDepGraphCeiling:
+		m.Key = KeyFile
+		m.Edges = "normal"
+		if v, ok := doc.value("matcher", "edges"); ok {
+			if v.s != "normal" && v.s != "all" {
+				return Matcher{}, fmt.Errorf("matcher.edges is %q or %q, got %q", "normal", "all", v.s)
+			}
+			m.Edges = v.s
+		}
+		if ferr := setMinReachable(doc, &m); ferr != nil {
+			return Matcher{}, ferr
+		}
+		if ferr := setDepGraphCeilingFields(doc, &m); ferr != nil {
 			return Matcher{}, ferr
 		}
 	case KindGoDepGraphForbids:

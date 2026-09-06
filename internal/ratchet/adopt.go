@@ -105,6 +105,8 @@ func adoptHits(root string, law Law) ([]Hit, error) {
 		return registryHits(root, law, scan.files, scan.content, true, true)
 	case KindDepGraphForbids:
 		return depGraphHits(root, law)
+	case KindDepGraphCeiling:
+		return depGraphCeilingHits(root, law)
 	case KindFileSetContainment:
 		return containmentHits(root, law)
 	case KindJSONNumberCeiling, KindGoBenchCeiling:

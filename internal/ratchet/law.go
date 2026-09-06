@@ -78,6 +78,15 @@ const (
 	// KindDepGraphForbids: a production root may not REACH a forbidden package
 	// through normal dependency edges (dev-only tooling in a shipping binary).
 	KindDepGraphForbids MatcherKind = "dep-graph-forbids"
+	// KindDepGraphCeiling: a root may not reach MORE workspace packages than
+	// its baseline, through normal dependency edges — the complement of
+	// dep-graph-forbids, which answers "may it reach THIS one" and has
+	// nothing to say about "how much may it reach at all". One hit per root,
+	// weighted by the count of packages reached, ceilinged like any other
+	// counted baseline (a login/signup crate whose `shared` surface is ten
+	// wire types pulling in 17 unrelated workspace crates through one
+	// unpriced edge).
+	KindDepGraphCeiling MatcherKind = "dep-graph-ceiling"
 	// KindFileSetContainment: every capture in one file must appear in another
 	// (a stand-in may refuse MORE than the real query, never less).
 	KindFileSetContainment MatcherKind = "file-set-containment"
@@ -173,10 +182,15 @@ type Matcher struct {
 	RegistryFile string
 	EntryPattern *regexp.Regexp
 	UsePattern   *regexp.Regexp
-	// Dependency-graph fields (KindDepGraphForbids).
+	// Dependency-graph fields (KindDepGraphForbids, KindDepGraphCeiling).
 	Roots     []string
 	Forbidden []string
 	Edges     string
+	// Counts (KindDepGraphCeiling only) is "workspace" (default — only
+	// reached packages that are themselves workspace members count toward
+	// the ceiling) or "all" (every reached package counts, third-party
+	// included).
+	Counts string
 	// MinReachable is the vacuity floor: a walk that reached fewer packages
 	// than this is not a clean verdict, it is a walk that resolved nothing.
 	MinReachable int
