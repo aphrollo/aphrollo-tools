@@ -276,3 +276,59 @@ func TestStats_CountsDiscardRefusalsAndOverrides(t *testing.T) {
 		}
 	}
 }
+
+// TestRenderGateStats_UnmeasuredStageReadsAsDashNotZero pins issue #369: a
+// stage whose only entries fall outside this table's fixed outcome
+// vocabulary (mutants-started:... is not green/red/blocked/timeout/...) must
+// never render as a row of confirmed zeros -- that reads as "ran clean" when
+// the truth is "this table's vocabulary never applies to this stage".
+func TestRenderGateStats_UnmeasuredStageReadsAsDashNotZero(t *testing.T) {
+	log := stamp(time.Now().UTC(), "mutants", "/repo", "mutants", "mutants-started:abc123", 0) + "\n"
+	out := RenderGateStats(GateStats(strings.NewReader(log), time.Time{}))
+
+	line := statsRowFor(t, out, "mutants")
+	if strings.ContainsAny(line, "0123456789") {
+		t.Fatalf("mutants row should carry no digit (unmeasured by this table's vocabulary), got: %q", line)
+	}
+	if !strings.Contains(line, "-") {
+		t.Fatalf("mutants row should render dashes for an unmeasured stage, got: %q", line)
+	}
+}
+
+// TestRenderGateStats_MeasuredStageStillShowsARealZero is the other half of
+// #369's fix: once a stage posts even one TRACKED outcome, every cell in its
+// row is a real count -- including a column that legitimately never fired,
+// which must still read as 0, never as a dash meant for "never measured".
+func TestRenderGateStats_MeasuredStageStillShowsARealZero(t *testing.T) {
+	log := stamp(time.Now().UTC(), "postedit", "/repo", "cargo", "green", 1.0) + "\n"
+	out := RenderGateStats(GateStats(strings.NewReader(log), time.Time{}))
+
+	line := statsRowFor(t, out, "postedit")
+	fields := strings.Fields(line)
+	blockedCol := 1 + indexOfString(statsOutcomes, "blocked")
+	if blockedCol >= len(fields) || fields[blockedCol] != "0" {
+		t.Fatalf("postedit's blocked column wants a real 0 (measured, never fired), row: %q", line)
+	}
+}
+
+// statsRowFor returns the one line of a rendered table whose stage column
+// names stage, so a test can inspect a specific row's cells directly.
+func statsRowFor(t *testing.T, table, stage string) string {
+	t.Helper()
+	for _, line := range strings.Split(table, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), stage) {
+			return line
+		}
+	}
+	t.Fatalf("no row for stage %q in:\n%s", stage, table)
+	return ""
+}
+
+func indexOfString(xs []string, x string) int {
+	for i, v := range xs {
+		if v == x {
+			return i
+		}
+	}
+	return -1
+}
