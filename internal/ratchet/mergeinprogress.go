@@ -21,35 +21,55 @@ func mergeHeadPresent(root string) bool {
 	return isFile(filepath.Join(gitDirFor(root), "MERGE_HEAD"))
 }
 
-// tightenBaseline applies one law's tightening -- extracted from Check so
-// the merge-in-progress refusal lives beside the marker it tests. Every
-// existing condition still applies (an actual Tighten run, a real baseline
-// path, a whole, non-hypothetical scan); the fix this adds is refusing when
-// root is mid-merge, the same way a hypothetical or narrowed scan already
-// refuses -- a tree mid-merge is not a tree any commit will ever equal, so a
-// baseline it writes is derived from a state that never existed as one. It
-// returns the law's baseline name when it actually wrote a changed file, ""
-// otherwise, so the caller only appends when something really moved.
-func tightenBaseline(opts Options, law Law, baseline *Baseline, path string, measured map[string]int, sites map[string][]string) (string, error) {
+// pendingTighten is one law's tightening, computed but not yet written --
+// see tightenBaseline and commitTightened.
+type pendingTighten struct {
+	law      Law
+	baseline *Baseline
+	path     string
+}
+
+// tightenBaseline applies one law's tightening IN MEMORY -- extracted from
+// Check so the merge-in-progress refusal lives beside the marker it tests.
+// Every existing condition still applies (an actual Tighten run, a real
+// baseline path, a whole, non-hypothetical scan, no mid-merge); it no
+// longer writes anything itself. Writing is deferred to commitTightened,
+// called once EVERY law has been judged: a run that reports a regression
+// must leave every baseline byte-identical, even one belonging to an
+// unrelated, perfectly clean law (#490's second defect) -- which a
+// per-law write, right here, cannot know to refuse. eligible is false when
+// none of the write-gating conditions above hold, so the caller never adds
+// a law to the pending set it does not mean to write.
+func tightenBaseline(opts Options, law Law, baseline *Baseline, path string, measured map[string]int, sites map[string][]string) (eligible bool) {
 	if !opts.Tighten || path == "" || len(opts.Proposed) > 0 || len(opts.Files) > 0 {
-		return "", nil
+		return false
 	}
 	if mergeHeadPresent(opts.Root) {
-		return "", nil
+		return false
 	}
 	// Tighten unconditionally and let WriteIfChanged decide: a count that
 	// did not move can still leave a row naming a file that is gone, and
 	// re-pathing it is the whole point of a path-agnostic key. The write is
 	// byte-stable, so a tree with nothing to fix still writes nothing.
 	baseline.TightenWithSites(measured, sites)
-	wrote, err := baseline.WriteIfChanged(path)
-	if err != nil {
-		return "", err
+	return true
+}
+
+// commitTightened writes every eligible law's baseline -- called only once
+// Check has judged the whole law set and confirmed no regression anywhere,
+// so a refusing run never reaches this at all (#490).
+func commitTightened(pending []pendingTighten) ([]string, error) {
+	var tightened []string
+	for _, p := range pending {
+		wrote, err := p.baseline.WriteIfChanged(p.path)
+		if err != nil {
+			return nil, err
+		}
+		if wrote {
+			tightened = append(tightened, p.law.Baseline)
+		}
 	}
-	if !wrote {
-		return "", nil
-	}
-	return law.Baseline, nil
+	return tightened, nil
 }
 
 // gitDirFor resolves root's git directory, following a WORKTREE's ".git"

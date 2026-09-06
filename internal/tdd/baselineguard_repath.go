@@ -1,10 +1,6 @@
 package tdd
 
-import (
-	"sort"
-
-	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
-)
+import "github.com/aphrollo/aphrollo-tools/internal/ratchet"
 
 // countedForm reports whether text parses as a Counted baseline (`<key> |
 // <count>`, one line per key) — the same first-try test baselineCounts
@@ -23,61 +19,21 @@ func countedForm(text string) bool {
 // content, and rewrites old in place so the raise scan in raisedKeys reads
 // the pair as unchanged rather than a brand-new key over the ceiling.
 //
-// Pairing is by CONTENT, never by count alone: two different files landing
-// at the same line count must never swap identities, and a count that also
-// rose is never eligible in the first place, since the counts must match
-// exactly for a pair to be considered at all.
+// The pairing RULE — exact count match, then a content comparison — is
+// ratchet.RepathCountedKeys, shared with `ratchet check`'s own tighten path
+// (#490 asked for one mechanism, not two copies). Reading the content stays
+// local to this package: every git subprocess a hook spawns goes through
+// gitBlob's scrubbed environment, because a nested git call inheriting the
+// hook's own GIT_DIR/GIT_INDEX_FILE would run against the wrong repo state —
+// a hazard ratchet's own git plumbing, run outside a hook, does not share.
 func repathCountedKeys(repoRoot, base string, old, now map[string]int) {
-	var removed []string
-	for k := range old {
-		if _, ok := now[k]; !ok {
-			removed = append(removed, k)
-		}
+	pairs := ratchet.RepathCountedKeys(old, now,
+		func(rel string) (string, bool) { return gitBlob(repoRoot, base+":"+rel) },
+		// ":" + rel is git's own bare syntax for the STAGED INDEX — the
+		// pre-commit view of every added key.
+		func(rel string) (string, bool) { return gitBlob(repoRoot, ":"+rel) },
+	)
+	for _, newKey := range pairs {
+		old[newKey] = now[newKey]
 	}
-	if len(removed) == 0 {
-		return
-	}
-	sort.Strings(removed)
-
-	var added []string
-	for k := range now {
-		if _, ok := old[k]; !ok {
-			added = append(added, k)
-		}
-	}
-	sort.Strings(added)
-
-	paired := make(map[string]bool, len(removed))
-	for _, addedKey := range added {
-		for _, removedKey := range removed {
-			if paired[removedKey] {
-				continue
-			}
-			if old[removedKey] != now[addedKey] {
-				continue
-			}
-			if !sameStagedBlob(repoRoot, base, removedKey, addedKey) {
-				continue
-			}
-			old[addedKey] = now[addedKey]
-			paired[removedKey] = true
-			break
-		}
-	}
-}
-
-// sameStagedBlob compares the git blob of oldRel at the base ref against the
-// blob of newRel in the staged index — content identity, not merely an
-// unchanged line count, so a rename that also edited the file still reads as
-// a new key over the ceiling.
-func sameStagedBlob(repoRoot, base, oldRel, newRel string) bool {
-	before, ok := gitBlob(repoRoot, base+":"+oldRel)
-	if !ok {
-		return false
-	}
-	after, ok := gitBlob(repoRoot, ":"+newRel)
-	if !ok {
-		return false
-	}
-	return before == after
 }
