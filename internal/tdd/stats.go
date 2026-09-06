@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -236,10 +237,23 @@ type gateEntry struct {
 	secs    float64
 }
 
+// quotedVerdict finds a verdict quoteVerdict wrote as a Go string literal:
+// greedy `.*` before the literal lands on the LAST quoted span in the line,
+// which is exactly where quoteVerdict puts it (immediately before the
+// trailing duration field) even if an earlier field — the command — carries
+// quotes of its own (issue #467).
+var quotedVerdict = regexp.MustCompile(`^\S+ \S+ \S+ .* "((?:[^"\\]|\\.)*)" \S+$`)
+
 // parseGateLine reads "<ts> <stage> <root> <cmd...> <verdict> <secs>s". The
-// COMMAND contains spaces, so the line is read from both ends inward.
+// COMMAND contains spaces, so the line is read from both ends inward. A
+// verdict with no whitespace of its own is the LAST field before the
+// duration, f[len(f)-2]; one quoteVerdict quoted because it carries
+// whitespace (failFirstStage's "inconclusive (fail-open)") is recovered
+// whole via quotedVerdict instead, since strings.Fields alone would split it
+// and silently keep only its last word.
 func parseGateLine(line string) (gateEntry, bool) {
-	f := strings.Fields(strings.TrimSpace(line))
+	line = strings.TrimSpace(line)
+	f := strings.Fields(line)
 	if len(f) < 5 {
 		return gateEntry{}, false
 	}
@@ -251,7 +265,13 @@ func parseGateLine(line string) (gateEntry, bool) {
 	if err != nil {
 		return gateEntry{}, false
 	}
-	return gateEntry{at: at, stage: f[1], root: f[2], verdict: f[len(f)-2], secs: secs}, true
+	verdict := f[len(f)-2]
+	if m := quotedVerdict.FindStringSubmatch(line); m != nil {
+		if uq, err := strconv.Unquote(`"` + m[1] + `"`); err == nil {
+			verdict = uq
+		}
+	}
+	return gateEntry{at: at, stage: f[1], root: f[2], verdict: verdict, secs: secs}, true
 }
 
 // stageMeasured reports whether stage has at least one entry counted under
