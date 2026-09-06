@@ -23,6 +23,7 @@ var matcherKeys = map[MatcherKind][]matcherKeySpec{
 	KindRegexPresent:       {{"kind", true}, {"pattern", true}},
 	KindPathRegexAbsent:    {{"kind", true}, {"pattern", true}},
 	KindMarkerWithinLines:  {{"kind", true}, {"trigger", true}, {"marker", true}, {"lines", false}, {"contiguous", false}, {"direction", false}},
+	KindRegexNear:          {{"kind", true}, {"trigger", true}, {"context", true}, {"lines", false}, {"direction", false}},
 	KindRegistryBothWays:   {{"kind", true}, {"registry_file", true}, {"entry_pattern", true}, {"use_pattern", true}},
 	KindDocPathResolves:    {{"kind", true}, {"pattern", true}},
 	KindDepGraphForbids:    {{"kind", true}, {"roots", true}, {"forbidden", true}, {"edges", false}, {"min_reachable", false}},
@@ -327,6 +328,22 @@ func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
 			m.Contiguous = v.b
 			if _, both := doc.value("matcher", "lines"); both && v.b {
 				return Matcher{}, fmt.Errorf("matcher.contiguous and matcher.lines say different things — the comment run above the trigger IS the window")
+			}
+		}
+		if v, ok := doc.value("matcher", "lines"); ok {
+			if v.kind != tomlInt || v.i < 0 {
+				return Matcher{}, fmt.Errorf("matcher.lines is a non-negative integer")
+			}
+			m.Lines = v.i
+		}
+	case KindRegexNear:
+		m.Trigger, m.Context = get("trigger"), get("context")
+		if v, ok := doc.value("matcher", "direction"); ok {
+			switch Direction(v.s) {
+			case DirectionAbove, DirectionBelow, DirectionBoth:
+				m.Direction = Direction(v.s)
+			default:
+				return Matcher{}, fmt.Errorf("matcher.direction = %q — a direction is %q, %q or %q", v.s, DirectionAbove, DirectionBelow, DirectionBoth)
 			}
 		}
 		if v, ok := doc.value("matcher", "lines"); ok {

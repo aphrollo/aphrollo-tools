@@ -1,0 +1,16 @@
+name        = "discarded_error_absence"
+description = "A discarded error returned as an empty return, one line below its own `if err != nil {` check, as though the answer were merely ABSENT rather than an error the caller could not evaluate (issue #360, the sibling of `discarded_error_success`'s `, nil` shape). Most instances of this text shape ARE honest not-found lookups — 154 lines end in `, nil` or `, false` returned directly, of which only these are also within 3 lines of an `if err != nil {` check, which is the narrower, mechanically scannable subset the issue measured. Because the trigger alone is common and not every co-occurring instance is a defect (`readMutantsJob` folding a read failure and a JSON-parse error into a bare `false`, turned by its caller into a silent exit 0, is one that was; a lookup whose miss is genuinely indistinguishable from an error by construction is not), the baseline carries the tree's present count and only ever goes down — paid off one call site at a time, each either fixed to propagate the error or marked `absence-ok: <why>` when the miss really is the honest answer."
+severity    = "deny"
+escape      = "absence-ok:"
+baseline    = ".ratchet/baselines/discarded_error_absence.txt"
+
+[scope]
+include = ["cmd/**/*.go", "internal/**/*.go"]
+exclude = ["**/*_test.go", "**/testdata/**", ".ratchet/**"]
+min_files = 275
+
+[matcher]
+kind    = "regex-near"
+trigger = "return\\s+(nil|[A-Za-z_]+\\{\\}|\"\")\\s*,\\s*false\\s*$"
+context = "if err != nil \\{"
+lines   = 3

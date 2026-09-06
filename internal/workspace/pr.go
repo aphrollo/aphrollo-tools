@@ -66,7 +66,7 @@ func ghViewPRReal(wt, branch string) (*PRInfo, error) {
 	out, err := ghCombinedOutput(wt, "pr", "view", "--json", "number,url,state,isDraft,mergeable,mergeStateStatus", "--", branch)
 	if err != nil {
 		if isNoPRError(string(out)) {
-			return nil, nil
+			return nil, nil // absence-ok: gh's own no-PR message, checked above, not a blind swallow
 		}
 		return nil, fmt.Errorf("gh pr view %s: %v: %s", branch, err, strings.TrimSpace(string(out)))
 	}
