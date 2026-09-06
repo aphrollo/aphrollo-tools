@@ -226,7 +226,16 @@ func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
 	if !doc.has("matcher") {
 		return Matcher{}, fmt.Errorf("missing [matcher] — a law must state exactly one rule")
 	}
-	kind := MatcherKind(doc.str("matcher", "kind"))
+	// A missing or non-string matcher.kind is a malformed law, rejected
+	// outright — never routed through UnknownMatcherKindError's forward-
+	// compat skip, which exists for a kind THIS binary predates, not for a
+	// law that never named one. Skipping a nameless kind would load clean
+	// and judge nothing, the exact failure the skip path must never produce.
+	kindVal, ok := doc.value("matcher", "kind")
+	if !ok || kindVal.kind != tomlString || kindVal.s == "" {
+		return Matcher{}, fmt.Errorf("matcher.kind is required — a law must name the one rule kind it states")
+	}
+	kind := MatcherKind(kindVal.s)
 	allowed, ok := matcherKeys[kind]
 	if !ok {
 		return Matcher{}, &UnknownMatcherKindError{Kind: kind}
