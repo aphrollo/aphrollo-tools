@@ -245,9 +245,10 @@ capability lands in three separate steps, never one:
 1. Land the engine change (`internal/ratchet`), proved by `RunFixtures()`
    against synthetic trees under `t.TempDir()`, never against this repo's
    own tracked `.ratchet/fixtures/`. Name the kind (or the kind and field)
-   in `matcherUsageAllowlist`
-   (`internal/ratchet/law_matcher_usage_test.go`) with a reason, so nothing
-   silently forgets the capability has no real user yet.
+   in `matcherUsageAllowlist` (`internal/ratchet/law_matcher_usage_test.go`)
+   as `matcherUsageBootstrap`, with the `Ref` of the issue or PR that owes
+   the real law, so nothing silently forgets the capability has no real
+   user yet.
 2. Merge, and let the box's installed `aphrollo` binary get rebuilt against
    the new commit.
 3. Land the real law under `.ratchet/laws/` and its tracked fixtures under
@@ -263,15 +264,43 @@ allow-list entry a law now exercises (stale — a fixed gap left in the list
 would let this check nag forever about something already settled). Like a
 baseline, the allow-list only ever gets shorter: widening it back out after
 a law is removed on purpose is a decision the test forces onto the same
-commit, with the reason stated, never a silent ratchet up. The mechanism
-only sees matcher kind/field usage, never a LAW that was considered and
-declined on real evidence rather than never attempted (`#324`'s `readme_flag_registry` measured 40 stale and 17
-unregistered names against 69 defined flags and was dropped as noise, not
-bootstrap debt — but its kind, `registry-both-ways`, already has a real law
-elsewhere, so this check never had an opinion on it either way). Where a
-decline DOES leave a kind or field with no real user, the allow-list entry's
-reason says so plainly rather than reading like a TODO; review is what
-tells "awaiting its bootstrap commit" apart from "considered and declined".
+commit, with the reason stated, never a silent ratchet up.
+
+The allow-list carries two categories, not one flat list with a free-text
+reason, because "awaiting its bootstrap commit" and "this repo has no
+occasion for it" are different populations that happen to share one
+symptom — a kind or field no real law here exercises. Mixing them hides the
+few that matter among the many that do not: within a month nobody re-reads
+a wall of reasons, and a bootstrap entry that has sat for six months reads
+exactly like one that will never move.
+
+- **`matcherUsageBootstrap`** is DEBT with a named owner: `Ref` is the
+  issue or PR that owes the real law (`ident-resolves` owes `#324`,
+  `registry-both-ways`'s `entry_column` owes `#492`), required on every
+  entry in this category — debt with nobody named as owing it is debt that
+  gets lost, which is #501's own failure mode. It is meant to shrink to
+  zero and stay there; the test logs its current members every run
+  (`3 kind(s)/field(s) awaiting their bootstrap law: …`) so the count stays
+  visible without dumping the much larger `unused-here` population beside
+  it.
+- **`matcherUsageUnusedHere`** is NOT debt: this repo's own dogfood law set
+  has no occasion for the kind or field — several are cargo/JSON-shaped
+  matchers a Go-only repo's laws never need, or a capability aimed at a
+  downstream CONSUMING repo (`dep-graph-ceiling`'s own `#437`/`#480` were
+  reported and fixed for borld, not this repo). `Ref` is refused on this
+  category: nobody owes it a law, so there is nothing to name as owing one.
+  It may sit here indefinitely — that is the correct steady state, not a
+  backlog — and the check never mistakes it for one, because it is never
+  logged as awaiting anything.
+
+Neither category sees a LAW that was considered and declined on real
+evidence rather than never attempted: `#324`'s own `readme_flag_registry`
+measured 40 stale and 17 unregistered names against 69 defined flags and
+was dropped as noise, but its kind, `registry-both-ways`, already has a
+real law elsewhere, so this check never had an opinion on it either way. A
+future decline that DOES leave a kind or field with no real law belongs in
+`matcherUsageUnusedHere`, its reason naming the decision rather than
+reading like a TODO.
 
 #### Diff-scoped kinds
 

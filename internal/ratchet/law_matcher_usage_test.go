@@ -1,6 +1,7 @@
 package ratchet
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -29,44 +30,128 @@ func matcherUsageRepoRoot(t *testing.T) string {
 	}
 }
 
-// matcherUsageAllowance is one matcher KIND, or one optional FIELD of a kind
-// that does have a real law, this repo's own .ratchet/laws tree does not yet
-// exercise — engine capability proved only through RunFixtures' synthetic
-// trees, never through real law loading, baselines or escapes. Field == ""
-// names the whole kind (no law of that kind exists at all); a non-empty
-// Field names one optional field of a kind that DOES have a real law, but
-// no law of that kind ever sets. Required fields are never listed here: a
-// law of a kind cannot load at all without them, so their use is implied by
-// the kind's own use.
+// matcherUsageCategory tells apart two populations that share one symptom
+// (no real law exercises this kind/field) but nothing else: one is debt
+// with an owner, the other is a correct steady state that may last
+// forever. Mixing them in one flat list is the failure mode this type
+// exists to prevent — within a month nobody re-reads free-text reasons,
+// and a bootstrap entry that has sat for six months looks exactly like one
+// that will never move.
+type matcherUsageCategory string
+
+const (
+	// matcherUsageBootstrap is DEBT: a real law is owed, tracked by Ref,
+	// and the entry should disappear within a release or two. If it does
+	// not, that is exactly the signal this check exists to raise.
+	matcherUsageBootstrap matcherUsageCategory = "bootstrap"
+	// matcherUsageUnusedHere is NOT debt: this repo's own law set has no
+	// occasion for the kind or field (several are cargo/JSON-shaped
+	// matchers a Go-only repo's dogfood laws never need, or a capability
+	// aimed at a downstream CONSUMING repo — see json-number-ceiling and
+	// dep-graph-ceiling's own #437/#480). It may sit here indefinitely
+	// with nobody owing anything.
+	matcherUsageUnusedHere matcherUsageCategory = "unused-here"
+)
+
+// matcherUsageAllowance is one matcher KIND, or one optional FIELD of a
+// kind that does have a real law, this repo's own .ratchet/laws tree does
+// not yet exercise. Field == "" names the whole kind (no law of that kind
+// exists at all); a non-empty Field names one optional field of a kind
+// that DOES have a real law, but no law of that kind ever sets. Required
+// fields are never listed here: a law of a kind cannot load at all without
+// them, so their use is implied by the kind's own use.
 type matcherUsageAllowance struct {
-	Kind   MatcherKind
-	Field  string
+	Kind     MatcherKind
+	Field    string
+	Category matcherUsageCategory
+	// Ref names the issue or PR that OWES the real law — who was going to
+	// do it. Required for Category == matcherUsageBootstrap: debt with no
+	// named owner is debt that gets lost, which is the failure #501 itself
+	// describes. Left empty for matcherUsageUnusedHere, which by
+	// definition owes nobody anything.
+	Ref string
+	// Reason says WHY this entry is in the category it is in, read at
+	// review — it is what tells "awaiting its bootstrap commit" apart from
+	// "measured and declined" within the same category.
 	Reason string
 }
 
 // matcherUsageAllowlist is the ONLY place a matcher kind or optional field
 // may go unexercised by a real law — see .ratchet/README.md's "landing a
-// new matcher field" section for the three-step bootstrap sequence this
-// list tracks the middle of. It shrinks only: landing the real law and its
-// tracked fixtures removes the entry in the same commit, never edits it in
-// place to widen it.
+// new matcher field" section for the three-step bootstrap sequence a
+// matcherUsageBootstrap entry tracks the middle of. It shrinks only:
+// landing the real law and its tracked fixtures removes a bootstrap entry
+// in the same commit, never edits it in place to widen it. An unused-here
+// entry may be promoted to bootstrap (a real need showed up) or removed
+// (a law landed after all), but never silently reclassified the other way
+// to escape this check.
 var matcherUsageAllowlist = []matcherUsageAllowance{
-	{Kind: KindIdentResolves, Reason: "landed engine-only (#324/#501): the installed aphrollo binary predates it, so a real law using it would reject every commit on this checkout until that binary is rebuilt post-merge; its real law and fixtures are the deferred next step"},
-	{Kind: KindRegexPresent, Reason: "no law in this repo currently needs \"every file in scope must contain a pattern\" (a seeded proptest's explicit seed, in the docstring's own example) — this repo is Go, which has no proptest seed convention; proved only by RunFixtures"},
-	{Kind: KindPathRegexAbsent, Reason: "no law in this repo currently needs a bare path-shape ban (a filename carrying a plan-item stamp); proved only by RunFixtures"},
-	{Kind: KindDepGraphForbids, Reason: "this repo's one dependency-direction rule is Go-specific (go_dep_graph_no_reach.toml, kind go-dep-graph-forbids, which reuses this kind's required-field shape); the cargo-flavored dep-graph-forbids has no consumer in a Go-only repo, proved only by RunFixtures"},
-	{Kind: KindDepGraphCeiling, Reason: "no law in this repo currently ceilings a root's reachable-package count; proved only by RunFixtures"},
-	{Kind: KindFileSetContainment, Reason: "#492's split subset_capture/superset_capture landed fixture-only; no real law in this repo compares a superset/subset file pair yet"},
-	{Kind: KindJSONNumberCeiling, Reason: "no law in this repo currently ceilings a number read out of generated JSON; proved only by RunFixtures"},
-	{Kind: KindLineCount, Field: "count", Reason: "module_size.toml, the one line-count law here, accepts the LineCountText default; none opts into count = \"code\""},
-	{Kind: KindLineCount, Field: "unit_split", Reason: "module_size.toml never splits a file into a second counted unit"},
-	{Kind: KindRegexAbsent, Field: "count", Reason: "every regex-absent law here accepts the CountLines default; none opts into count = \"matches\""},
-	{Kind: KindRegexNear, Field: "direction", Reason: "both regex-near laws (discarded_error_absence, discarded_error_success) accept the DirectionAbove default"},
-	{Kind: KindRegistryBothWays, Field: "entry_column", Reason: "#492 landed the split registry-entry column addressing fixture-only; both registry-both-ways laws here (dev_instrument_registry, readme_verb_registry) read the entry name from the whole line, not one `|`-delimited cell"},
-	{Kind: KindGoBenchCeiling, Field: "tolerance_pct", Reason: "bench_ceiling.toml accepts the default tolerance; no bench law here widens it"},
-	{Kind: KindGoBenchCeiling, Field: "enabled_env", Reason: "bench_ceiling.toml runs unconditionally; no bench law here gates itself behind an env switch"},
-	{Kind: KindHunkRegex, Field: "added", Reason: "expectation_moved.toml judges only matcher.removed; no hunk-regex law here is ADDED-only (the \"an assertion weakened\" case, judged on the added side alone)"},
-	{Kind: KindHunkRegex, Field: "name_group", Reason: "abba95e's multi-group support landed fixture-only; expectation_moved.toml uses matcher.mode = \"differs\" with a single capture group instead"},
+	// --- bootstrap: debt, with an owner, expected to shrink ---
+	{
+		Kind: KindIdentResolves, Category: matcherUsageBootstrap, Ref: "#324",
+		Reason: "landed engine-only (#501's bootstrap gap): the installed aphrollo binary predates it, so a real law would reject every commit on this checkout until that binary is rebuilt post-merge",
+	},
+	{
+		Kind: KindRegistryBothWays, Field: "entry_column", Category: matcherUsageBootstrap, Ref: "#492",
+		Reason: "landed fixture-only; both registry-both-ways laws here (dev_instrument_registry, readme_verb_registry) still read the entry name from the whole line, not one `|`-delimited cell",
+	},
+	{
+		Kind: KindHunkRegex, Field: "name_group", Category: matcherUsageBootstrap, Ref: "#318",
+		Reason: "relaxed to \"at least one group\" for a multi-language test_removed law, but that law's own escape (a `Removes-test: <name>: <why>` commit-message trailer) has nowhere to read the real commit message from until precommit.go wires Options.CommitMessage — landing the law before that would make a legitimate removal unescapable",
+	},
+	// --- unused-here: a correct steady state, nobody owes this ---
+	{
+		Kind: KindRegexPresent, Category: matcherUsageUnusedHere,
+		Reason: "\"every file in scope must contain a pattern\" (a seeded proptest's explicit seed, per its own docstring) has no analogue in this repo's Go tests; proved only by RunFixtures",
+	},
+	{
+		Kind: KindPathRegexAbsent, Category: matcherUsageUnusedHere,
+		Reason: "no law in this repo needs a bare path-shape ban (a filename carrying a plan-item stamp); proved only by RunFixtures",
+	},
+	{
+		Kind: KindDepGraphForbids, Category: matcherUsageUnusedHere,
+		Reason: "this repo's one dependency-direction rule is Go-specific (go_dep_graph_no_reach.toml, kind go-dep-graph-forbids); the cargo-flavored dep-graph-forbids has no consumer in a Go-only repo, proved only by RunFixtures",
+	},
+	{
+		Kind: KindDepGraphCeiling, Category: matcherUsageUnusedHere,
+		Reason: "the matcher (#437) and its baseline-guard fix (#480) are complete and correct; the consuming repo that asked for both was borld, not this one, and this repo's own dependency graph has no root anybody has measured a ceiling for",
+	},
+	{
+		Kind: KindFileSetContainment, Category: matcherUsageUnusedHere,
+		Reason: "this repo's two \"every X is registered in Y\" needs both fit registry-both-ways instead (see .ratchet/README.md); file-set-containment's split subset_capture/superset_capture (#492) has no consumer here",
+	},
+	{
+		Kind: KindJSONNumberCeiling, Category: matcherUsageUnusedHere,
+		Reason: "no law in this repo ceilings a number read out of generated JSON; proved only by RunFixtures",
+	},
+	{
+		Kind: KindLineCount, Field: "count", Category: matcherUsageUnusedHere,
+		Reason: "module_size.toml, the one line-count law here, accepts the LineCountText default; none opts into count = \"code\"",
+	},
+	{
+		Kind: KindLineCount, Field: "unit_split", Category: matcherUsageUnusedHere,
+		Reason: "module_size.toml never splits a file into a second counted unit",
+	},
+	{
+		Kind: KindRegexAbsent, Field: "count", Category: matcherUsageUnusedHere,
+		Reason: "every regex-absent law here accepts the CountLines default; none opts into count = \"matches\"",
+	},
+	{
+		Kind: KindRegexNear, Field: "direction", Category: matcherUsageUnusedHere,
+		Reason: "both regex-near laws (discarded_error_absence, discarded_error_success) accept the DirectionAbove default",
+	},
+	{
+		Kind: KindGoBenchCeiling, Field: "tolerance_pct", Category: matcherUsageUnusedHere,
+		Reason: "bench_ceiling.toml accepts the default tolerance; no bench law here widens it",
+	},
+	{
+		Kind: KindGoBenchCeiling, Field: "enabled_env", Category: matcherUsageUnusedHere,
+		Reason: "bench_ceiling.toml runs unconditionally; no bench law here gates itself behind an env switch",
+	},
+	{
+		Kind: KindHunkRegex, Field: "added", Category: matcherUsageUnusedHere,
+		Reason: "expectation_moved.toml judges only matcher.removed; no hunk-regex law here is ADDED-only (the \"an assertion weakened\" case, judged on the added side alone)",
+	},
 }
 
 // TestMatcherUsage_EveryKindAndOptionalFieldHasARealLawOrAnAllowlistEntry
@@ -76,9 +161,9 @@ var matcherUsageAllowlist = []matcherUsageAllowance{
 // law under this repo's .ratchet/laws against it. A kind or field neither
 // used by a real law NOR named in matcherUsageAllowlist means a capability
 // landed with no user in this repo and nothing tracking it (#501); an
-// allow-list entry a real law now exercises means the bootstrap's last step
-// landed and the entry is stale debt the allow-list must drop, never carry
-// forward — the same monotone, only-ever-shrinks shape the baselines take.
+// allow-list entry a real law now exercises means the gap closed and the
+// entry is stale debt the allow-list must drop, never carry forward — the
+// same monotone, only-ever-shrinks shape the baselines take.
 func TestMatcherUsage_EveryKindAndOptionalFieldHasARealLawOrAnAllowlistEntry(t *testing.T) {
 	root := matcherUsageRepoRoot(t)
 	lawDir := filepath.Join(root, ".ratchet", "laws")
@@ -133,11 +218,25 @@ func TestMatcherUsage_EveryKindAndOptionalFieldHasARealLawOrAnAllowlistEntry(t *
 		}
 	}
 
-	allowed := map[string]string{}
+	allowed := map[string]matcherUsageAllowance{}
+	var bootstrap []string
 	for _, a := range matcherUsageAllowlist {
 		key := string(a.Kind)
 		if a.Field != "" {
 			key += ":" + a.Field
+		}
+		switch a.Category {
+		case matcherUsageBootstrap:
+			if a.Ref == "" {
+				t.Fatalf("matcherUsageAllowlist entry %q is bootstrap debt with no Ref — debt with no named owner is debt that gets lost", key)
+			}
+			bootstrap = append(bootstrap, fmt.Sprintf("%s (%s)", key, a.Ref))
+		case matcherUsageUnusedHere:
+			if a.Ref != "" {
+				t.Fatalf("matcherUsageAllowlist entry %q is unused-here but carries Ref %q — unused-here owes nobody anything; either drop the Ref or recategorize as bootstrap", key, a.Ref)
+			}
+		default:
+			t.Fatalf("matcherUsageAllowlist entry %q has no valid Category (got %q, want %q or %q)", key, a.Category, matcherUsageBootstrap, matcherUsageUnusedHere)
 		}
 		if a.Reason == "" {
 			t.Fatalf("matcherUsageAllowlist entry %q carries no reason", key)
@@ -145,8 +244,14 @@ func TestMatcherUsage_EveryKindAndOptionalFieldHasARealLawOrAnAllowlistEntry(t *
 		if _, dup := allowed[key]; dup {
 			t.Fatalf("matcherUsageAllowlist entry %q listed twice", key)
 		}
-		allowed[key] = a.Reason
+		allowed[key] = a
 	}
+	sort.Strings(bootstrap)
+	// Logged, never printed unconditionally: a passing run stays quiet
+	// about the (much larger) unused-here population and surfaces only
+	// the debt that is supposed to be shrinking — the useful sentence, not
+	// sixteen entries with a reason nobody re-reads.
+	t.Logf("%d kind(s)/field(s) awaiting their bootstrap law: %s", len(bootstrap), strings.Join(bootstrap, ", "))
 
 	var newlyUnused, stale []string
 	for k := range unused {
@@ -163,7 +268,7 @@ func TestMatcherUsage_EveryKindAndOptionalFieldHasARealLawOrAnAllowlistEntry(t *
 	sort.Strings(stale)
 
 	if len(newlyUnused) > 0 {
-		t.Errorf("matcher kind/field with no real law and no matcherUsageAllowlist entry: %s — add one with a reason, or land the real law instead", strings.Join(newlyUnused, ", "))
+		t.Errorf("matcher kind/field with no real law and no matcherUsageAllowlist entry: %s — either write the real law under .ratchet/laws, or add a matcherUsageAllowlist entry: matcherUsageBootstrap with the Ref that owes the law if one is coming, matcherUsageUnusedHere with a reason if this repo genuinely has no occasion for it", strings.Join(newlyUnused, ", "))
 	}
 	if len(stale) > 0 {
 		t.Errorf("matcherUsageAllowlist entry no longer unused, a real law now exercises it — remove it: %s", strings.Join(stale, ", "))
