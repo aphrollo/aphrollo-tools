@@ -386,9 +386,38 @@ func stashCost(realGit, workDir string, paths []string) discardCost {
 	return discardCost{Stashes: countLines(out)}
 }
 
+// branchCost counts commits `branch -D <name>` would make unreachable from
+// EVERY ref this repo knows about, local or remote -- not merely absent from
+// local HEAD. `rev-list --count HEAD..<name>` (the previous form) reads a
+// perfectly safe deletion as destructive whenever local HEAD has not been
+// fast-forwarded past a merge yet: the ordinary state right after a lane's
+// PR merges upstream and before the operator's next `git fetch`/`pull`, since
+// merging on GitHub advances origin/main without ever touching local HEAD.
+// `--not HEAD --remotes` asks what is reachable from NEITHER HEAD NOR any
+// remote-tracking ref, so a branch merged into origin/main reads 0 even from
+// a stale local HEAD.
+//
+// A branch pushed only to its own origin/<lane>, with no PR merged anywhere,
+// also reads 0 here -- deliberately, not as an oversight. `branch -D` only
+// ever removes the LOCAL ref; origin/<lane> and its commits are untouched by
+// it, so `git fetch` plus recreating the branch from origin/<lane> recovers
+// exactly what `-D` removed regardless of merge status. Warning on that case
+// would call deleting a pointer a discard of work it does not touch, and
+// would reopen the same "refuses on every lane's ordinary cleanup" failure
+// this fixes, just retimed to "review still open" instead of "already
+// merged". The guard's job is commits that live NOWHERE but this local
+// branch; any remote copy, merged or not, is outside that by definition.
 func branchCost(realGit, workDir, form string) discardCost {
 	name := strings.TrimPrefix(form, "branch -D ")
-	out, err := runGitCapture(realGit, workDir, "rev-list", "--count", "HEAD.."+name)
+	if _, err := runGitCapture(realGit, workDir, "rev-parse", "--verify", "--quiet", "refs/heads/"+name); err != nil {
+		// No local branch by this name: git's own `branch -D` refuses this
+		// itself with its own clear message, and retrying a measurement
+		// against a name that will never exist cannot help -- a legitimate
+		// "nothing to drop by that name", exactly stashCost's reasoning for
+		// a bad ref, not a measurement failure that warrants "retry".
+		return discardCost{}
+	}
+	out, err := runGitCapture(realGit, workDir, "rev-list", "--count", name, "--not", "HEAD", "--remotes")
 	if err != nil {
 		return discardCost{Err: err}
 	}
@@ -506,9 +535,10 @@ const discardRefusalTail = "; aphrollo gate allow discard arms one command, APHR
 // discard. The shape depends on which counters that form actually measures:
 // reset/checkout/restore show the file/diff numbers (never untracked --
 // none of those forms touch untracked files); clean shows only the
-// untracked count; stash shows the stash-entry count; branch shows the
-// unmerged-commit count; worktree remove shows the file/diff numbers, the
-// untracked count, and the worktree they were measured in -- everything
+// untracked count; stash shows the stash-entry count; branch shows the count
+// of commits unreachable from HEAD or any remote; worktree remove shows the
+// file/diff numbers, the untracked count, and the worktree they were
+// measured in -- everything
 // zero() counted for that form.
 func discardRefusalLine(form string, c discardCost) string {
 	if c.Err != nil {
@@ -523,7 +553,13 @@ func discardRefusalLine(form string, c discardCost) string {
 	case strings.HasPrefix(form, "stash "):
 		body = fmt.Sprintf("%s discards %d stash entry(ies)", form, c.Stashes)
 	case strings.HasPrefix(form, "branch -D "):
-		body = fmt.Sprintf("%s discards %d unmerged commit(s)", form, c.UnmergedCommits)
+		// "unmerged" was the misleading word: a commit already sitting on
+		// origin/main reads exactly as "unmerged" from a stale local HEAD as
+		// one that lives nowhere at all. Naming the actual check
+		// (unreachable from HEAD or any remote) lets the operator verify the
+		// claim themselves with `git branch -r --contains <name>` instead of
+		// trusting a count.
+		body = fmt.Sprintf("%s discards %d commit(s) unreachable from HEAD or any remote", form, c.UnmergedCommits)
 	default:
 		body = fmt.Sprintf("%s discards %d file(s), +%d/-%d uncommitted", form, c.Files, c.Insertions, c.Deletions)
 	}

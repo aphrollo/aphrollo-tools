@@ -277,6 +277,99 @@ func TestDiscardCost_CountsUnmergedCommitsForBranchDelete(t *testing.T) {
 	}
 }
 
+// TestDiscardCost_BranchDeleteAllowedOnceCommitsAreOnAnyRemote reproduces
+// issue #499's real scenario: a lane's PR merges upstream by landing its
+// commits on origin/main directly (a GitHub merge), while the operator's
+// local main ref sits exactly where it was before the merge -- nobody has
+// run `git fetch`/`pull` yet. Measured from that stale local HEAD, the old
+// `rev-list --count HEAD..lane` read the lane's two commits as "unmerged"
+// even though they are safely on origin/main. Counting against `--not HEAD
+// --remotes` instead asks what is reachable from NO ref at all, local or
+// remote, which is 0 here regardless of how stale local HEAD is.
+func TestDiscardCost_BranchDeleteAllowedOnceCommitsAreOnAnyRemote(t *testing.T) {
+	isolateGitConfigCLI(t)
+	realGit := realGitForTest(t)
+	originDir := t.TempDir()
+	runFixtureGit(t, realGit, originDir, "init", "-q", "--bare", "-b", "main")
+
+	repo, _ := newDiscardFixture(t)
+	runFixtureGit(t, realGit, repo, "remote", "add", "origin", originDir)
+	runFixtureGit(t, realGit, repo, "push", "-q", "origin", "main")
+
+	runFixtureGit(t, realGit, repo, "branch", "lane")
+	runFixtureGit(t, realGit, repo, "checkout", "-q", "lane")
+	writeFixtureFile(t, repo, "lane1.txt", []string{"one"})
+	runFixtureGit(t, realGit, repo, "add", ".")
+	runFixtureGit(t, realGit, repo, "commit", "-qm", "lane commit 1")
+	writeFixtureFile(t, repo, "lane2.txt", []string{"two"})
+	runFixtureGit(t, realGit, repo, "add", ".")
+	runFixtureGit(t, realGit, repo, "commit", "-qm", "lane commit 2")
+
+	// The PR merges: the lane's commits land on origin/main directly, never
+	// touching the local main ref.
+	runFixtureGit(t, realGit, repo, "push", "-q", "origin", "lane:main")
+	runFixtureGit(t, realGit, repo, "checkout", "-q", "main")
+	runFixtureGit(t, realGit, repo, "fetch", "-q", "origin")
+
+	c := discardCostOf(realGit, repo, "branch -D lane", nil)
+	if !c.zero() {
+		t.Fatalf("discardCostOf(branch -D lane) once its commits are on origin/main, local HEAD still stale = %+v, want zero()", c)
+	}
+}
+
+// TestDiscardCost_BranchDeleteAllowedWhenPushedToItsOwnRemoteButNotMerged
+// pins the deliberate behaviour choice for a branch pushed to its own
+// origin/<lane> that no PR has merged anywhere yet: `branch -D` removes only
+// the LOCAL ref, and origin/<lane> together with its commits is untouched,
+// so `git fetch` plus recreating the branch from origin/<lane> recovers
+// exactly what `-D` removed. Warning here would call deleting a pointer a
+// discard of work it does not touch, and would reopen the same "refuses on
+// every lane's ordinary cleanup" failure the issue reports, just retimed to
+// "review still open" instead of "already merged".
+func TestDiscardCost_BranchDeleteAllowedWhenPushedToItsOwnRemoteButNotMerged(t *testing.T) {
+	isolateGitConfigCLI(t)
+	realGit := realGitForTest(t)
+	originDir := t.TempDir()
+	runFixtureGit(t, realGit, originDir, "init", "-q", "--bare", "-b", "main")
+
+	repo, _ := newDiscardFixture(t)
+	runFixtureGit(t, realGit, repo, "remote", "add", "origin", originDir)
+	runFixtureGit(t, realGit, repo, "push", "-q", "origin", "main")
+
+	runFixtureGit(t, realGit, repo, "branch", "lane")
+	runFixtureGit(t, realGit, repo, "checkout", "-q", "lane")
+	writeFixtureFile(t, repo, "lane1.txt", []string{"one"})
+	runFixtureGit(t, realGit, repo, "add", ".")
+	runFixtureGit(t, realGit, repo, "commit", "-qm", "lane commit 1")
+
+	// Pushed to review, never merged anywhere.
+	runFixtureGit(t, realGit, repo, "push", "-q", "-u", "origin", "lane")
+	runFixtureGit(t, realGit, repo, "checkout", "-q", "main")
+
+	c := discardCostOf(realGit, repo, "branch -D lane", nil)
+	if !c.zero() {
+		t.Fatalf("discardCostOf(branch -D lane) pushed to its own origin/lane but not merged = %+v, want zero(): the commits survive on origin/lane", c)
+	}
+}
+
+// TestDiscardCost_BranchNotFoundIsARealZeroNotAMeasurementFailure pins the
+// second defect from issue #499: `rev-list` against a branch name that does
+// not exist exits 128, but that is not evidence the measurement APPARATUS is
+// broken -- it is the legitimate "nothing to drop by that name" this
+// package's own stashCost already treats as a real zero for the same reason.
+// Reading it as Err instead would print "could not measure...retry", which
+// is useless advice for a branch that will never start existing.
+func TestDiscardCost_BranchNotFoundIsARealZeroNotAMeasurementFailure(t *testing.T) {
+	repo, realGit := newDiscardFixture(t)
+	c := discardCostOf(realGit, repo, "branch -D does-not-exist", nil)
+	if c.Err != nil {
+		t.Fatalf("discardCostOf(branch -D does-not-exist): Err = %v, want nil", c.Err)
+	}
+	if !c.zero() {
+		t.Fatalf("discardCostOf(branch -D does-not-exist) = %+v, want zero()", c)
+	}
+}
+
 func TestDiscardCost_CountsStashEntries(t *testing.T) {
 	repo, realGit := newDiscardFixture(t)
 	writeFixtureFile(t, repo, "seed.txt", []string{"seed", "changed"})
@@ -349,7 +442,7 @@ func TestDiscardRefusalLine_RendersEachShape(t *testing.T) {
 			"branch -D x",
 			"branch -D x",
 			discardCost{UnmergedCommits: 2},
-			"gate: refused — branch -D x discards 2 unmerged commit(s)" + tail,
+			"gate: refused — branch -D x discards 2 commit(s) unreachable from HEAD or any remote" + tail,
 		},
 		{
 			"worktree remove --force",

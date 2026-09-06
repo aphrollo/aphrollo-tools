@@ -176,8 +176,8 @@ func TestGitShim_BranchDeleteForceRefusedWhenUnmerged(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("branch -D x while unmerged: exit = %d, want 1\nstderr: %s", code, errb.String())
 	}
-	if !strings.Contains(errb.String(), "2 unmerged commit(s)") {
-		t.Fatalf("branch -D x refusal = %q, want it to name 2 unmerged commits", errb.String())
+	if !strings.Contains(errb.String(), "2 commit(s) unreachable from HEAD or any remote") {
+		t.Fatalf("branch -D x refusal = %q, want it to name 2 commits unreachable from HEAD or any remote", errb.String())
 	}
 
 	runFixtureGit(t, cfg.realGit, repo, "merge", "-q", "x")
@@ -186,6 +186,66 @@ func TestGitShim_BranchDeleteForceRefusedWhenUnmerged(t *testing.T) {
 	code2 := runGitShim([]string{"branch", "-D", "x"}, strings.NewReader(""), &out2, &errb2, cfg)
 	if code2 != 0 {
 		t.Fatalf("branch -D x once merged: exit = %d, want 0\nstderr: %s", code2, errb2.String())
+	}
+}
+
+// TestGitShim_BranchDeleteAllowedOnceMergedEvenWithStaleLocalHead is the
+// end-to-end shape of issue #499: the lane's PR has merged its commits onto
+// origin/main, but local main was never fast-forwarded, and `branch -D
+// lane` must be allowed to run for real, not merely measured as zero.
+func TestGitShim_BranchDeleteAllowedOnceMergedEvenWithStaleLocalHead(t *testing.T) {
+	gateConfigDir(t)
+	repo, cfg := discardWallFixture(t)
+	originDir := t.TempDir()
+	runFixtureGit(t, cfg.realGit, originDir, "init", "-q", "--bare", "-b", "main")
+	runFixtureGit(t, cfg.realGit, repo, "remote", "add", "origin", originDir)
+	runFixtureGit(t, cfg.realGit, repo, "push", "-q", "origin", "main")
+
+	runFixtureGit(t, cfg.realGit, repo, "branch", "lane")
+	runFixtureGit(t, cfg.realGit, repo, "checkout", "-q", "lane")
+	writeFixtureFile(t, repo, "lane1.txt", []string{"one"})
+	runFixtureGit(t, cfg.realGit, repo, "add", ".")
+	runFixtureGit(t, cfg.realGit, repo, "commit", "-qm", "lane commit 1")
+	writeFixtureFile(t, repo, "lane2.txt", []string{"two"})
+	runFixtureGit(t, cfg.realGit, repo, "add", ".")
+	runFixtureGit(t, cfg.realGit, repo, "commit", "-qm", "lane commit 2")
+
+	// The PR merges upstream by landing the lane's commits on origin/main
+	// directly, the way a GitHub merge does -- local main never
+	// fast-forwards.
+	runFixtureGit(t, cfg.realGit, repo, "push", "-q", "origin", "lane:main")
+	runFixtureGit(t, cfg.realGit, repo, "checkout", "-q", "main")
+	runFixtureGit(t, cfg.realGit, repo, "fetch", "-q", "origin")
+
+	var out, errb bytes.Buffer
+	code := runGitShim([]string{"branch", "-D", "lane"}, strings.NewReader(""), &out, &errb, cfg)
+	if code != 0 {
+		t.Fatalf("branch -D lane once its commits are on origin/main, local HEAD stale: exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	if strings.Contains(errb.String(), "gate: refused") {
+		t.Fatalf("branch -D lane refusal = %q, want none: the commits are on origin/main", errb.String())
+	}
+}
+
+// TestGitShim_BranchDeleteMissingBranchLetsGitsOwnErrorThrough pins the
+// second defect from issue #499: a branch that does not exist must not print
+// the discard wall's own "could not measure...retry" wrapper -- there is
+// nothing to retry into existing -- and must instead run the real git
+// command, which refuses with its own message.
+func TestGitShim_BranchDeleteMissingBranchLetsGitsOwnErrorThrough(t *testing.T) {
+	gateConfigDir(t)
+	_, cfg := discardWallFixture(t)
+
+	var out, errb bytes.Buffer
+	code := runGitShim([]string{"branch", "-D", "does-not-exist"}, strings.NewReader(""), &out, &errb, cfg)
+	if code == 0 {
+		t.Fatalf("branch -D does-not-exist: exit = 0, want nonzero (git itself refuses this)")
+	}
+	if strings.Contains(errb.String(), "gate: refused") {
+		t.Fatalf("branch -D does-not-exist stderr = %q, must not print the discard wall's own refusal", errb.String())
+	}
+	if !strings.Contains(errb.String(), "not found") {
+		t.Fatalf("branch -D does-not-exist stderr = %q, want git's own \"not found\" message", errb.String())
 	}
 }
 
