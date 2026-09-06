@@ -60,6 +60,10 @@ func CommitMsg(repoRoot, msgPath string) GateResult {
 		return res
 	}
 
+	if res, blocked := verificationClaimCheck(repoRoot, body); blocked {
+		return res
+	}
+
 	// A repo with no Cargo.toml (Go, Python, Node) has nowhere to put
 	// [workspace.metadata.aphrollo], so the flag is read from a root
 	// aphrollo.toml too — the same fallback the mutation job uses. Without
