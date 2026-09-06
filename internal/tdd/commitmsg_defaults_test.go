@@ -8,10 +8,11 @@ import (
 	"testing"
 )
 
-// plainRepo is a repo with no [workspace.metadata.aphrollo] at all — the
-// default checks must still apply, since they are not gated behind
-// undercover the way the tell-detection layer is.
-func plainRepo(t *testing.T) string {
+// gitRepo returns the root of a freshly initialized, otherwise empty git
+// repository — no aphrollo.toml, no Cargo.toml, nothing that tells this gate
+// the repo has ever heard of it. This is the shape a throwaway git init in a
+// test's temp dir produces.
+func gitRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	for _, args := range [][]string{
@@ -23,6 +24,18 @@ func plainRepo(t *testing.T) string {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
 	}
+	return root
+}
+
+// plainRepo is a repo that HAS opted into aphrollo (a root aphrollo.toml, the
+// same manifest a Go/Python/Node repo already uses for the undercover flag)
+// but sets none of the default checks' own keys — the checks below must
+// still apply on their own, since nothing here gates them the way
+// `undercover = true` gates the tell-detection layer.
+func plainRepo(t *testing.T) string {
+	t.Helper()
+	root := gitRepo(t)
+	write(t, root, "aphrollo.toml", "[aphrollo]\n")
 	return root
 }
 
@@ -112,6 +125,32 @@ func TestCommitMsg_RequiresABodyWhenTheStagedDiffIsLarge(t *testing.T) {
 	}
 }
 
+// TestCommitMsg_AllowsAMergeCommitWithALargeDiffAndNoBody pins the merge
+// exemption on the body-required rule: git writes the merge subject itself
+// and gives the merger no body to begin with, so a routine merge bringing in
+// someone else's large diff must not be blocked for lacking prose nobody had
+// a chance to write.
+func TestCommitMsg_AllowsAMergeCommitWithALargeDiffAndNoBody(t *testing.T) {
+	root := plainRepo(t)
+	stageLines(t, root, 60)
+	got := CommitMsg(root, msgFile(t, "Merge branch 'lane/x'\n"))
+	if got.Blocked {
+		t.Fatalf("a merge commit with a large diff and no body was rejected: %s", got.Message)
+	}
+}
+
+// TestCommitMsg_StillRequiresABodyForANonMergeCommitWithTheSameDiff pins the
+// other side of the same fix: the merge exemption must not leak into an
+// ordinary, hand-authored commit that happens to carry the same large diff.
+func TestCommitMsg_StillRequiresABodyForANonMergeCommitWithTheSameDiff(t *testing.T) {
+	root := plainRepo(t)
+	stageLines(t, root, 60)
+	got := CommitMsg(root, msgFile(t, "Add the big generated fixture file\n"))
+	if !got.Blocked {
+		t.Fatal("a non-merge commit with a large diff and no body was allowed")
+	}
+}
+
 // TestCommitMsg_ALargeDiffWithAnExplanationIsAllowed pins the other side: a
 // body that actually explains the change lets the same diff through.
 func TestCommitMsg_ALargeDiffWithAnExplanationIsAllowed(t *testing.T) {
@@ -158,5 +197,29 @@ func TestCommitMsg_HonoursTheCommitMessageAllowList(t *testing.T) {
 	got := CommitMsg(root, msgFile(t, "v1.2.3\n"))
 	if got.Blocked {
 		t.Fatalf("an allow-listed release-bump subject was rejected: %s", got.Message)
+	}
+}
+
+// TestCommitMsg_AllowsATerseSubjectWithNoAphrolloConfig pins the scoping fix:
+// a repo that has never told aphrollo it exists — no aphrollo.toml, no
+// [workspace.metadata.aphrollo] — is exactly the shape a test helper's
+// throwaway `git init` in a temp dir produces, hundreds of times over in this
+// repo's own suite, and #329's house style must never reach it.
+func TestCommitMsg_AllowsATerseSubjectWithNoAphrolloConfig(t *testing.T) {
+	root := gitRepo(t)
+	got := CommitMsg(root, msgFile(t, "wip\n"))
+	if got.Blocked {
+		t.Fatalf("a terse subject was rejected in a repo with no aphrollo config: %s", got.Message)
+	}
+}
+
+// TestCommitMsg_RejectsATerseSubjectWithAphrolloConfig pins the other side of
+// the same fix: a repo that HAS opted into aphrollo (even with none of the
+// default checks' own keys set) keeps #329's rule intact.
+func TestCommitMsg_RejectsATerseSubjectWithAphrolloConfig(t *testing.T) {
+	root := plainRepo(t)
+	got := CommitMsg(root, msgFile(t, "wip\n"))
+	if !got.Blocked {
+		t.Fatal("a terse subject was allowed in a repo configured for aphrollo")
 	}
 }

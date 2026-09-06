@@ -2,7 +2,9 @@ package tdd
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -12,8 +14,14 @@ import (
 // HOW it was written"; the checks here answer the plainer question every
 // repo asks regardless of that flag: does the subject say WHAT changed, and
 // does a diff big enough to need one carry an explanation (issue #329). On
-// for every repo the hook is installed in — nothing here can leak anything,
-// so there is no reason to gate it behind an opt-in the way undercover is.
+// for every repo aphrolloConfigured recognizes as having opted in — not
+// behind a dedicated flag the way undercover needs `undercover = true`
+// (that would leave every repo already relying on these checks, this one
+// included, silently disabled until it set a key it never had to before),
+// but not unconditional either: a synthetic git repository a test helper
+// builds in a temp dir has no aphrollo.toml and no Cargo.toml naming
+// aphrollo at all, and house style must never reach it just because the
+// hook happens to be installed globally.
 
 // vagueSubject is a subject that opens with a word carrying no information
 // about what changed, followed by at most a few more characters: "fix",
@@ -28,11 +36,47 @@ var vagueSubject = regexp.MustCompile(`(?i)^(fix|fixes|update|updates|wip|cleanu
 var pathToken = regexp.MustCompile(`(?i)(/|\.(go|rs|md)$)`)
 
 // mergeSubject is git's own auto-generated merge subject ("Merge branch
-// 'lane/x'", "Merge pull request #4 from …"): nobody composes this line by
-// hand, so the subject-shape rules below — which judge what a human chose to
-// write — do not apply to it. The tell-detection layer still reads a merge
+// 'lane/x'", "Merge pull request #4 from …"): nobody composes this line, or
+// the rest of the message, by hand, so neither the subject-shape rules nor
+// the body-required rule below — both of which judge what a human chose to
+// write — apply to it. A routine merge bringing in someone else's work is
+// exactly the large-diff-with-nothing-to-say case, and git never gives the
+// merger a body to begin with. The tell-detection layer still reads a merge
 // commit's full message, unaffected by this exemption.
 var mergeSubject = regexp.MustCompile(`^Merge (branch|tag|remote-tracking branch|pull request) `)
+
+// aphrolloConfigured reports whether ws is a repo aphrollo already has a
+// hand in, as opposed to one the hook merely happens to run inside: a root
+// aphrollo.toml (the same fallback undercover uses for a repo with no
+// Cargo.toml to put [workspace.metadata.aphrollo] in), or that table present
+// in Cargo.toml at all — regardless of which keys either one sets. A repo
+// that has never written either file has not opted into aphrollo, and #329's
+// house style is aphrollo's opinion, not git's: a throwaway git repository a
+// test helper builds in a temp dir has neither, and must read as
+// unconfigured no matter how many times a real project's hook installs
+// globally and happens to run inside it.
+func aphrolloConfigured(ws string) bool {
+	if _, err := os.Stat(filepath.Join(ws, "aphrollo.toml")); err == nil {
+		return true
+	}
+	return tomlTableExists(filepath.Join(ws, "Cargo.toml"), "[workspace.metadata.aphrollo]")
+}
+
+// tomlTableExists reports whether path declares the given table header at
+// all, keys or not — the presence question tomlBoolIn's key lookup cannot
+// answer on its own, since an empty table has no key to find.
+func tomlTableExists(path, table string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	for line := range strings.Lines(string(data)) {
+		if strings.TrimSpace(line) == table {
+			return true
+		}
+	}
+	return false
+}
 
 // defaultCommitMsgCheck runs the default (undercover-independent) checks
 // against a message already read from disk, returning the blocking result
@@ -64,10 +108,11 @@ func defaultCommitMsgCheck(repoRoot, ws, body string) (GateResult, bool) {
 		}
 	}
 
-	if !mergeSubject.MatchString(subject) {
-		if rule, msg := subjectShapeIssue(subject); rule != "" {
-			return denyDefault(repoRoot, rule, msg), true
-		}
+	if mergeSubject.MatchString(subject) {
+		return none, false
+	}
+	if rule, msg := subjectShapeIssue(subject); rule != "" {
+		return denyDefault(repoRoot, rule, msg), true
 	}
 
 	if changed := stagedChangedLines(repoRoot); changed > 50 && !bodyExplains(lines[1:]) {
