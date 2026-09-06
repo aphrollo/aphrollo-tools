@@ -18,7 +18,7 @@ func TestRename_Gopls_CrossFile(t *testing.T) {
 		t.Skip("gopls not on PATH; skipping e2e")
 	}
 
-	dir := t.TempDir()
+	dir := resolvedTempDir(t)
 	write := func(name, body string) {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
@@ -69,7 +69,7 @@ func TestFindReferences_Gopls(t *testing.T) {
 		t.Skip("gopls not on PATH; skipping e2e")
 	}
 
-	dir := t.TempDir()
+	dir := resolvedTempDir(t)
 	write := func(name, body string) {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
@@ -112,7 +112,7 @@ func TestRename_Gopls_Apply(t *testing.T) {
 		t.Skip("gopls not on PATH; skipping e2e")
 	}
 
-	dir := t.TempDir()
+	dir := resolvedTempDir(t)
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/m\n\ngo 1.21\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
