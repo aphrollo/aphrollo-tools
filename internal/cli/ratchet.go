@@ -139,6 +139,12 @@ func runRatchetCheck(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "ratchet: law %q declares schema %d; this binary supports %d — unknown keys skipped\n",
 			l.Name, l.Schema, ratchet.SchemaVersion)
 	}
+	// One line per law naming a matcher kind this binary predates: not
+	// judged at all, rather than rejecting every other law alongside it.
+	for _, l := range res.SkippedLaws {
+		fmt.Fprintf(stderr, "ratchet: law %q declares matcher kind %q, unknown to this binary — SKIPPED; rebuild aphrollo\n",
+			l.Name, l.Kind)
+	}
 	for _, name := range res.UnusedScopeSets {
 		fmt.Fprintf(stderr, "ratchet: scope set %q in %s is defined but no law's [scope].alias uses it\n", name, ratchet.ScopesFile)
 	}
@@ -203,6 +209,10 @@ func runRatchetTest(args []string, stdout, stderr io.Writer) int {
 	}
 	failed := 0
 	for _, r := range results {
+		if r.Skipped {
+			fmt.Fprintf(stdout, "ratchet: %s SKIPPED — unknown matcher kind, rebuild aphrollo\n", r.Law)
+			continue
+		}
 		if len(r.Failures) == 0 {
 			fmt.Fprintf(stdout, "ratchet: %s ok (%d hit, %d clean)\n", r.Law, r.HitFiles, r.CleanFiles)
 			continue

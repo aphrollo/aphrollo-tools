@@ -1,0 +1,12 @@
+name        = "go_dep_graph_no_reach"
+description = "internal/ratchet is the law engine every gate stage in internal/tdd consumes; the dependency runs one way. internal/ratchet reaching internal/tdd is the 63-file-cycle shape #135/#330 exists to refuse before it can start, and a package split has nothing else holding the line once it begins. go-dep-graph-forbids is the Go twin of the cargo dep-graph-forbids law, walking `go list -deps -json ./...` the same way the cargo kind walks `cargo metadata`."
+severity    = "deny"
+
+[scope]
+include = ["**/*.go"]
+
+[matcher]
+kind          = "go-dep-graph-forbids"
+roots         = ["github.com/aphrollo/aphrollo-tools/internal/ratchet"]
+forbidden     = ["github.com/aphrollo/aphrollo-tools/internal/tdd"]
+min_reachable = 1

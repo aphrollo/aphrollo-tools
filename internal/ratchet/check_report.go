@@ -24,6 +24,14 @@ type NewerLaw struct {
 	Schema int    `json:"schema"`
 }
 
+// SkippedLaw is one law this binary could not judge at all: its
+// `[matcher].kind` is not in the compiled matcherKeys table, so nothing ran
+// for it. See UnknownMatcherKindError and Law.UnknownKind.
+type SkippedLaw struct {
+	Name string `json:"law"`
+	Kind string `json:"kind"`
+}
+
 // Blocked reports whether any deny law regressed — the exit-1 condition.
 func (r Result) Blocked() bool {
 	for _, f := range r.Findings {

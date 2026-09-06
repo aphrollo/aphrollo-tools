@@ -125,18 +125,12 @@ func TestRatchetStage_BlocksWhenAScopedFileCannotBeRead(t *testing.T) {
 	}
 }
 
-// The same fail-open shape is also issue #158: a law whose matcher kind the
-// installed binary does not know made LoadLaws (and so ratchet.Check) fail
-// outright, and skipping here did not just excuse that ONE law — it
-// disarmed every OTHER law in the repo until the box reinstalled. The law
-// tooling failing to even START is a different offence from a single
-// unreadable file (nothing here names one path to retry), but it deserves
-// the same verdict: a gate that cannot read its own laws is not a gate, so
-// this blocks too, with a remedy a reader can act on.
-func TestRatchetStage_BlocksAndNamesARemedyWhenALawFileIsUnparseable(t *testing.T) {
-	root := t.TempDir()
-	gitInit(t, root)
-	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "future.toml"), `
+// ratchet: test_removed TestRatchetStage_BlocksAndNamesARemedyWhenALawFileIsUnparseable: superseded by TestRatchetStage_UnknownMatcherKindDoesNotBlockTheCommit and TestRatchetStage_UnknownMatcherKindIsLoggedAsAStandDown below — #440 changed an unknown matcher kind from a hard block to a skip-and-warn, so this test's own claim ("must block, not skip") became the bug it used to guard against.
+
+// futureKindLaw is a law naming a matcher kind no binary in this tree
+// compiles in — the shape a lane lands before every checkout on the box
+// rebuilds from it (#439/#440).
+const futureKindLaw = `
 name = "future"
 description = "a matcher kind this binary does not know"
 severity = "deny"
@@ -146,15 +140,84 @@ include = ["crates/**/*.rs"]
 
 [matcher]
 kind = "bench-metric-ceiling-not-yet-invented"
+`
+
+// This used to be issue #158's shape: a law whose matcher kind the installed
+// binary does not know made LoadLaws (and so ratchet.Check) fail outright,
+// and treating that as "tooling problem, skip it" did not just excuse that
+// ONE law — it disarmed every OTHER law in the repo until the box
+// reinstalled, so the old fix was to BLOCK the whole commit instead. #440 is
+// that block itself turning into the SAME hazard one level up: the block
+// fires in every checkout on the box the moment a lane's `.ratchet/laws/`
+// commit reaches it, including checkouts on a lane that never asked for the
+// new kind — so unknown-kind is not "law tooling could not start" (a
+// malformed TOML) at all; it skips that ONE law and lets every OTHER law,
+// deny or not, keep judging the commit.
+func TestRatchetStage_UnknownMatcherKindDoesNotBlockTheCommit(t *testing.T) {
+	root := lawTree(t, "deny")
+	addFixtures(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "future.toml"), futureKindLaw)
+	gitAddAll(t, root)
+
+	res := ratchetStage("precommit", root)
+	if res.Blocked {
+		t.Fatalf("a law naming an unknown matcher kind must be SKIPPED, not block every other law in the repo: %s", res.Message)
+	}
+}
+
+// The skip above must not be silent — #320 is exactly a guard that stops
+// enforcing without anyone able to see it happened — so it is counted the
+// same way every other stand-down in gate.log is (denyVerdictPrefixes'
+// "standdown-" prefix).
+func TestRatchetStage_UnknownMatcherKindIsLoggedAsAStandDown(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := lawTree(t, "deny")
+	addFixtures(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "future.toml"), futureKindLaw)
+	gitAddAll(t, root)
+
+	ratchetStage("precommit", root)
+
+	log := gateLogContent(t)
+	if !strings.Contains(log, "standdown-unknown-matcher-kind:future") {
+		t.Fatalf("skipping law %q for an unknown matcher kind must be recorded through appendGateLog, got:\n%s", "future", log)
+	}
+}
+
+// A `[scope] changed = "staged"` law (co-change, hunk-regex) answers nothing
+// without Options.StagedFiles — silently, since changedLawHits only leaves a
+// Note, and ratchetStage used not to even print those. Wiring it in is what
+// makes such a law real at a commit rather than decoration only the ratchet
+// package's own unit tests (and `ratchet check` run by hand) ever exercise.
+func TestRatchetStage_WiresStagedFilesSoADiffScopedLawActuallyFires(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "twins.toml"), `
+name = "twins"
+description = "a twin pair must change together"
+severity = "deny"
+
+[scope]
+changed = "staged"
+include = ["**/*.go"]
+
+[matcher]
+kind = "co-change"
 `)
+	mustWrite(t, filepath.Join(root, "a.go"), "package a\n\n// twin: b.go#B\nfunc A() {}\n")
+	mustWrite(t, filepath.Join(root, "b.go"), "package a\n\nfunc B() {}\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+
+	// Only a.go changes in this commit; its twin b.go does not — the law's
+	// own fixtures are not re-proved here since .ratchet/ is untouched by
+	// this second commit (see TestRatchetStageSkipsFixturesWhenNoLawFileIsStaged).
+	mustWrite(t, filepath.Join(root, "a.go"), "package a\n\n// twin: b.go#B\nfunc A() { println(1) }\n")
 	gitAddAll(t, root)
 
 	res := ratchetStage("precommit", root)
 	if !res.Blocked {
-		t.Fatalf("law tooling that cannot parse a law must block, not skip: %+v", res)
-	}
-	if !strings.Contains(res.Message, "unknown matcher kind") {
-		t.Errorf("message %q does not name the parse failure", res.Message)
+		t.Fatalf("a.go changed but its twin b.go did not — the co-change law must block this commit: %+v", res)
 	}
 }
 

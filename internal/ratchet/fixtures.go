@@ -23,6 +23,10 @@ type FixtureResult struct {
 	HitFiles   int      `json:"hit_files"`
 	CleanFiles int      `json:"clean_files"`
 	Failures   []string `json:"failures,omitempty"`
+	// Skipped is set when the law's matcher kind is unknown to this binary:
+	// no fixture ran at all, so an empty Failures here must never be read as
+	// "proved clean" — the caller reports the skip instead of the usual ok.
+	Skipped bool `json:"skipped,omitempty"`
 }
 
 // RunFixtures runs every law against its own fixtures.
@@ -33,6 +37,10 @@ func RunFixtures(root string) ([]FixtureResult, error) {
 	}
 	var out []FixtureResult
 	for _, law := range laws {
+		if law.UnknownKind != "" {
+			out = append(out, FixtureResult{Law: law.Name, Skipped: true})
+			continue
+		}
 		out = append(out, runLawFixtures(root, law))
 	}
 	return out, nil

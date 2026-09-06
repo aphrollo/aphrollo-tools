@@ -1,0 +1,1 @@
+github.com/aphrollo/aphrollo-tools/internal/ratchet->github.com/aphrollo/aphrollo-tools/internal/diff->github.com/aphrollo/aphrollo-tools/internal/tdd
