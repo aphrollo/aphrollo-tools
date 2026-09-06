@@ -113,3 +113,75 @@ kind = "vibes"
 		t.Fatalf("laws = %+v, want one law with UnknownKind = %q", laws, "vibes")
 	}
 }
+
+// TestLoadLaws_DepGraphCeilingDefaultsCountsToWorkspace proves a
+// dep-graph-ceiling law that never states matcher.counts gets the safe
+// default: third-party fan-out never silently inflates the ceiling.
+func TestLoadLaws_DepGraphCeilingDefaultsCountsToWorkspace(t *testing.T) {
+	dir := t.TempDir()
+	writeLaw(t, dir, "crate-fanout", `
+name = "crate-fanout"
+description = "a root may not reach more of the workspace than its baseline"
+severity = "deny"
+
+[scope]
+include = ["**/Cargo.toml"]
+
+[matcher]
+kind = "dep-graph-ceiling"
+roots = ["account"]
+`)
+	laws, err := LoadLaws(dir)
+	if err != nil {
+		t.Fatalf("LoadLaws: %v", err)
+	}
+	if laws[0].Matcher.Counts != "workspace" {
+		t.Errorf("Counts = %q, want the default %q", laws[0].Matcher.Counts, "workspace")
+	}
+	if laws[0].Matcher.Key != KeyFile {
+		t.Errorf("Key = %q, want %q — a ceiling is counted per root, not a multiset of text", laws[0].Matcher.Key, KeyFile)
+	}
+}
+
+// TestLoadLaws_DepGraphCeilingRejectsAnUnknownCounts names the field a
+// typo'd matcher.counts value is rejected under.
+func TestLoadLaws_DepGraphCeilingRejectsAnUnknownCounts(t *testing.T) {
+	dir := t.TempDir()
+	writeLaw(t, dir, "c", `
+name = "c"
+description = "d"
+severity = "deny"
+
+[scope]
+include = ["**/Cargo.toml"]
+
+[matcher]
+kind = "dep-graph-ceiling"
+roots = ["account"]
+counts = "everything"
+`)
+	if _, err := LoadLaws(dir); err == nil || !strings.Contains(err.Error(), "counts") {
+		t.Fatalf("err = %v, want one naming matcher.counts", err)
+	}
+}
+
+// TestLoadLaws_DepGraphCeilingRequiresRoots mirrors dep-graph-forbids'
+// missing-roots rejection: a ceiling with nothing to ceiling is malformed,
+// not a law that judges the whole workspace by accident.
+func TestLoadLaws_DepGraphCeilingRequiresRoots(t *testing.T) {
+	dir := t.TempDir()
+	writeLaw(t, dir, "c", `
+name = "c"
+description = "d"
+severity = "deny"
+
+[scope]
+include = ["**/Cargo.toml"]
+
+[matcher]
+kind = "dep-graph-ceiling"
+`)
+	if _, err := LoadLaws(dir); err == nil || !strings.Contains(err.Error(), "roots") {
+		t.Fatalf("err = %v, want one naming matcher.roots", err)
+	}
+}
