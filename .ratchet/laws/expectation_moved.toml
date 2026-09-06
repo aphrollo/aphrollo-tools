@@ -1,0 +1,14 @@
+name        = "expectation_moved"
+description = "A `want := \"<literal>\"` golden value changed to a DIFFERENT literal in the same commit as the source or assertion it checks — #318's rule for a test's expected value moving to match new behavior instead of catching it as a regression. Same shape, a different value: `mode = \"differs\"` fires only when the removed and added `want` lines hold different literals, never on a pure rename or a line that moved unchanged. Escaped with `// expectation-changed: <why>` on the added line."
+severity    = "deny"
+escape      = "// expectation-changed:"
+
+[scope]
+changed = "staged"
+include = ["**/*_test.go"]
+
+[matcher]
+kind    = "hunk-regex"
+removed = "want := \"([^\"]*)\""
+paired  = true
+mode    = "differs"

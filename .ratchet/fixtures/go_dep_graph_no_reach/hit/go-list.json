@@ -1,0 +1,3 @@
+{"ImportPath":"github.com/aphrollo/aphrollo-tools/internal/ratchet","Imports":["github.com/aphrollo/aphrollo-tools/internal/diff"],"Standard":false}
+{"ImportPath":"github.com/aphrollo/aphrollo-tools/internal/diff","Imports":["github.com/aphrollo/aphrollo-tools/internal/tdd"],"Standard":false}
+{"ImportPath":"github.com/aphrollo/aphrollo-tools/internal/tdd","Imports":[],"Standard":false}
