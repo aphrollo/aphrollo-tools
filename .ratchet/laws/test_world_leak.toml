@@ -1,0 +1,15 @@
+name        = "test_world_leak"
+description = "A test that reaches the real world — the operator's own home directory or gitconfig, a real `gh`/`gremlins`/`cargo mutants` subprocess, the box's own config dir — outside the isolation the suite is supposed to run under (#322: 13 incidents, including the real `main` force-moved, `~/.gitconfig` appended, real GitHub issues filed \"by nobody\", 871 lock files left in `%TEMP%`). Excused when the same PACKAGE — not necessarily the same file — declares the isolation: a `t.Setenv(` call or a `TestMain` reference anywhere in the triggering file or a sibling. This repo's isolation is package-level (`TestMain` in a standalone `main_test.go` beside the tests it covers), which is exactly what a file-at-a-time matcher cannot see — the two `exec.Command(\"git\", \"config\", \"--global\", ...)` call sites this law's trigger reaches are both correctly isolated by a sibling `TestMain`, and marker-in-package is what lets the law say so instead of flagging the best-covered code in the tree. Bar zero, no baseline: every trigger this tree carries today is already excused."
+severity    = "deny"
+escape      = "// world-ok:"
+code_only   = true
+
+[scope]
+include = ["**/*_test.go"]
+exclude = ["**/testdata/**", ".ratchet/**"]
+min_files = 400
+
+[matcher]
+kind    = "marker-in-package"
+trigger = "os\\.UserHomeDir\\(|os\\.Getenv\\(\"HOME\"\\)|\"USERPROFILE\"|exec\\.Command\\(\"gh\"|exec\\.Command\\(\"git\", \"config\", \"--global\"|exec\\.Command\\(\"gremlins\"|exec\\.Command\\(\"cargo\", \"mutants\"|os\\.Getenv\\(\"CLAUDE_CONFIG_DIR\"\\)"
+marker  = "t\\.Setenv\\(|TestMain"
