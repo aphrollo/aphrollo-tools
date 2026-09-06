@@ -245,7 +245,8 @@ func runMutantsProducer(j MutantsJob, judged []MutantOutcome) int {
 	// pointed at the job's log files -- runProducerProcess
 	// (mutants_argswarning.go) tees a capped copy of the same streams to
 	// check issue #423's contract before returning the exit code.
-	return runProducerProcess(cmd, mutantsEnvValue(env, MutantsArgsEnv))
+	code, output := runProducerProcess(cmd, mutantsEnvValue(env, MutantsArgsEnv))
+	return handleProducerExit(j, code, output)
 }
 
 // mutantsProducerArgv picks the runner the repo actually has. The Rust runner

@@ -26,24 +26,29 @@ import (
 // combined stdout/stderr to check whether the computed argsEnvValue ever
 // showed up in it, and returns the same exit-code mapping
 // runMutantsProducer always has: the child's own code on a clean exit, or 1
-// when the process could not even be judged.
-func runProducerProcess(cmd *exec.Cmd, argsEnvValue string) int {
+// when the process could not even be judged. The captured output is handed
+// back too — the args-unread check is not the only reader of it: a producer
+// that exits non-zero because its own tool found nothing to mutate says so
+// in that same text (see producerFoundNothingToMutate), and this is the one
+// place that text is available before it scrolls off into the log file.
+func runProducerProcess(cmd *exec.Cmd, argsEnvValue string) (int, string) {
 	capture := &mutantsOutputCapture{limit: mutantsOutputCaptureLimit}
 	cmd.Stdout = io.MultiWriter(os.Stdout, capture)
 	cmd.Stderr = io.MultiWriter(os.Stderr, capture)
 	runErr := cmd.Run()
-	if msg := mutantsArgsUnreadWarning(argsEnvValue, capture.buf.String()); msg != "" {
+	output := capture.buf.String()
+	if msg := mutantsArgsUnreadWarning(argsEnvValue, output); msg != "" {
 		logf(os.Stdout, "%s", msg)
 	}
 	if runErr != nil {
 		var ee *exec.ExitError
 		if errors.As(runErr, &ee) {
-			return ee.ExitCode()
+			return ee.ExitCode(), output
 		}
 		logf(os.Stdout, "aphrollo: %v", runErr)
-		return 1
+		return 1, output
 	}
-	return 0
+	return 0, output
 }
 
 // mutantsOutputCaptureLimit bounds how much of the producer's combined

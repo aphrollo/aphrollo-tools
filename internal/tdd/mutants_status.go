@@ -156,11 +156,21 @@ func mutantsDeathLogPath(d MutantsDeath) string {
 	return logPath
 }
 
-// receiptWouldMerge judges a receipt the same three ways the merge gate's
+// receiptWouldMerge judges a receipt the same four ways the merge gate's
 // checkMutationReceipt does — worktree_dirty, verdict, unaccepted survivors,
-// timeouts — without repeating its repo-identity or base-sha checks, which
-// are about which MERGE the receipt is for rather than what it says. "" ok
-// means the merge gate has nothing further to say about the counts alone.
+// timeouts, and (see below) an unexplained vacuous scope — without repeating
+// its repo-identity or base-sha checks, which are about which MERGE the
+// receipt is for rather than what it says. "" ok means the merge gate has
+// nothing further to say about the counts alone.
+//
+// The vacuous check used to be missing here entirely, which let this
+// function and checkMutationReceipt disagree about the exact same receipt:
+// `aphrollo gate mutants status` reported lane/testrig-edge's honestly-zero,
+// zero_reason-less receipt as mergeable right up until the merge itself
+// refused it as vacuous (issue #494). vacuousMutationRun is the same
+// predicate checkReceiptNotVacuous reads — this is the one other place that
+// fact is judged, so it reads the function rather than re-deriving the
+// arithmetic a second time.
 func receiptWouldMerge(r MutationReceipt) (bool, string) {
 	if r.WorktreeDirty {
 		return false, "worktree_dirty: it measured uncommitted work"
@@ -173,6 +183,9 @@ func receiptWouldMerge(r MutationReceipt) (bool, string) {
 	}
 	if r.Timeout > 0 {
 		return false, mutantsTimedOutLine(r.Timeout)
+	}
+	if vacuousMutationRun(r.MutantsTotal, r.MovedLines) && r.ZeroReason == "" {
+		return false, "mutants_total is 0 and moved_lines is 0 with no zero_reason — a scope that matches nothing is not a proof"
 	}
 	return true, ""
 }

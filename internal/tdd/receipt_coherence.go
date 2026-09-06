@@ -119,11 +119,19 @@ func vacuousMutationRun(mutantsTotal, movedLines int) bool {
 // checkReceiptNotVacuous refuses a receipt that is not self-contradictory
 // (checkReceiptCountCoherence's family) but simply empty: mutants_total and
 // moved_lines both zero, on a lane laneHasNothingToMutate has already ruled
-// out as having no source or test file to mutate in the first place. A run
-// that measured nothing over a diff that plainly has something to mutate is
-// indistinguishable from a run that never happened — most often gremlins
-// walking a stale or wrong --diff base and reporting the resulting empty
-// scope as a clean pass (issue #386).
+// out as having no source or test file to mutate BY PATH. A run that measured
+// nothing over a diff that plainly has something to mutate is
+// indistinguishable, from the zero counts alone, from a run that genuinely
+// had nothing to measure — a wrong or stale --diff base and a diff whose only
+// changed source is a deletion or a comment-only edit produce the identical
+// pair of zeros (issue #386, sharpened by issue #494's two further cases).
+//
+// ZeroReason breaks that tie by reading a fact the producer already has
+// rather than inferring one from the two counts: a receipt that names its own
+// reason is judged by it, never re-guessed at from mutants_total and
+// moved_lines a second time (the whole point of #494 — PATH-based
+// classification here must not grow a clause for every new way cargo-mutants
+// can find nothing).
 //
 // Judged only when the producer actually wrote mutants_total: an older
 // producer that never emitted the field is neither confirmed nor
@@ -132,6 +140,13 @@ func checkReceiptNotVacuous(root string, present map[string]bool, r MutationRece
 	if !present["mutants_total"] || !vacuousMutationRun(r.MutantsTotal, r.MovedLines) {
 		return nil
 	}
+	if r.ZeroReason != "" {
+		// The producer already said why: a scope that resolved and
+		// genuinely holds no mutable content is a different fact from a
+		// scope that resolved to nothing, and only the producer can tell
+		// them apart. It just did.
+		return nil
+	}
 	return blockReceipt(root, "vacuous", "mutants_total is 0 and moved_lines is 0 — a scope that matches nothing is not a proof: "+
-		"check that the base is the merge base this branch actually diverged from")
+		"either the base is wrong (check it is the merge base this branch actually diverged from), or the diff genuinely holds no mutable source and this producer has not caught up to say so (docs/mutation-runner.md)")
 }
