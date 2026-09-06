@@ -16,7 +16,7 @@ func TestRename_Pyright(t *testing.T) {
 		t.Skip("pyright-langserver not on PATH; skipping e2e")
 	}
 
-	dir := t.TempDir()
+	dir := resolvedTempDir(t)
 	if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte("[tool.pyright]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

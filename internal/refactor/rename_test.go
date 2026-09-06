@@ -416,9 +416,20 @@ func TestSamePath_FoldsCaseOnWindows(t *testing.T) {
 // rather than weakening the comparison at the assertion.
 func resolvedTempDir(t *testing.T) string {
 	t.Helper()
-	dir, err := filepath.EvalSymlinks(t.TempDir())
+	return resolvePath(t, t.TempDir())
+}
+
+// resolvePath is the resolution resolvedTempDir applies: EvalSymlinks, which
+// on Windows also expands an 8.3 short-form path (C:\Users\RUNNER~1\...) to
+// its long form — the specific behaviour the GitHub Windows runner's TMP
+// forces this package to depend on. Split out from resolvedTempDir so a test
+// can drive it against a path it did not get from t.TempDir() itself (see
+// tempdir_windows_test.go).
+func resolvePath(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
-		t.Fatalf("resolve temp dir: %v", err)
+		t.Fatalf("resolve path %q: %v", path, err)
 	}
-	return dir
+	return resolved
 }
