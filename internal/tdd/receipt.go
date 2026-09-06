@@ -440,10 +440,28 @@ const missingReceiptMarker = "mutation receipt missing for tree"
 // going is the remedy: told only to run the script, a session starts a second
 // mutation run on top of the first, which is how a box ends up with two
 // multi-hour builds fighting for the same cores.
+//
+// The job named here is the one that would actually WRITE ctx.TipTree's
+// receipt — matchingRunningJob, not "whichever job is newest in the repo's
+// registry" (issue #431): a repo with several lanes running at once has
+// several live jobs, and naming the wrong one reads as "your receipt is
+// minutes away" when the run that will produce it started much earlier and
+// is queued behind the one actually holding the box-wide lock. The line
+// itself is FormatMutantsStatus's own MutantsRunGoing rendering — the same
+// one `aphrollo gate mutants status` prints for this exact state — so this
+// message and that command can never describe the same run two ways.
 func missingReceiptRemedy(ctx receiptContext) string {
-	if jobs := RunningMutantsJobs(ctx.Repo); len(jobs) > 0 {
-		j := jobs[len(jobs)-1]
-		return fmt.Sprintf("running since %s (pid %d)", j.Started.Format("15:04"), j.PID)
+	if j, ok := matchingRunningJob(ctx.Repo, ctx.TipTree); ok {
+		rep := MutantsStatusReport{
+			Branch: j.Branch, TipTree: ctx.TipTree,
+			State: MutantsRunGoing, JobPID: j.PID, JobStarted: j.Started,
+		}
+		if owner, held := readBuildLockOwnerAt(mutantsRunLockOwnerPath()); held && owner.PID != j.PID {
+			rep.WaitingOnLock = true
+			rep.LockHolder = describeOwner(owner)
+		}
+		line, _ := FormatMutantsStatus(rep)
+		return strings.TrimPrefix(line, mutantsStatusLinePrefix)
 	}
 	// A run that ENDED without a receipt is the third answer, and the one a
 	// session cannot work out for itself: "run it again" is wrong advice when
@@ -491,104 +509,4 @@ func blockReceipt(root, reason, format string, args ...any) *GateResult {
 // receipt reported it as a result.
 func mutantsTimedOutLine(n int) string {
 	return fmt.Sprintf("%d mutant(s) timed out — an unmeasured mutant is not a result: rerun with fewer jobs", n)
-}
-
-// mergeTip is the commit being merged IN — the tree a mutation run measured,
-// and a revision the base check can still resolve.
-type mergeTip struct {
-	Rev, Tree, From string
-}
-
-// reflogActionEnv is what git tells a hook it is doing: during a merge it
-// reads `merge <ref>`. It is the ONLY signal a clean automerge gives, because
-// pre-merge-commit fires BEFORE .git/MERGE_HEAD is written — that file exists
-// only for a conflicted or --no-commit merge. Reading it from this process's
-// own environment is safe: cleanGitEnv scrubs GIT_* from the CHILD git's
-// environment, never from ours.
-const reflogActionEnv = "GIT_REFLOG_ACTION"
-
-// mergeTipOf names the lane tip of the merge in progress, preferring
-// MERGE_HEAD (when it exists it IS the merge) and falling back to the branch
-// git says it is merging.
-func mergeTipOf(repoRoot string) (mergeTip, bool) {
-	if tree, ok := revTree(repoRoot, "MERGE_HEAD"); ok {
-		return mergeTip{Rev: "MERGE_HEAD", Tree: tree, From: "MERGE_HEAD"}, true
-	}
-	if rev := reflogMergeRev(); rev != "" {
-		if tree, ok := revTree(repoRoot, rev); ok {
-			return mergeTip{Rev: rev, Tree: tree, From: reflogActionEnv}, true
-		}
-	}
-	return mergeTip{}, false
-}
-
-// revTree resolves a revision's tree. `<rev>:` names it, and unlike
-// `<rev>^{tree}` it survives any cmd.exe wrapper on the way to git — a caret
-// is an escape character there.
-func revTree(repoRoot, rev string) (string, bool) {
-	out, err := git(repoRoot, "rev-parse", rev+":")
-	if err != nil {
-		return "", false
-	}
-	tree := strings.TrimSpace(out)
-	return tree, tree != ""
-}
-
-// reflogMergeRev is the ref named by `merge <ref>`, "" for any other action.
-func reflogMergeRev() string {
-	f := strings.Fields(os.Getenv(reflogActionEnv))
-	if len(f) < 2 || f[0] != "merge" {
-		return ""
-	}
-	return f[1]
-}
-
-// mergeTipTree is the tree of the commit being merged IN, which is what the
-// mutation run measured. "" when nothing names a merge.
-func mergeTipTree(repoRoot string) string {
-	tip, _ := mergeTipOf(repoRoot)
-	return tip.Tree
-}
-
-// catchUpMerge reports whether the merge in progress is one a mutation receipt
-// has nothing to say about, and why.
-//
-// Two shapes qualify, and both are "nothing new is arriving on main":
-//
-//	main into a lane — HEAD is not the repo's main branch, so whatever is
-//	   being merged is already reviewed, merged code arriving in a working
-//	   branch. The lane still owes a receipt when IT lands.
-//	an already-contained branch — MERGE_HEAD is an ancestor of main, so main
-//	   already holds every commit in it.
-//
-// A repo with no main branch at all is never a catch-up: the gate does not
-// guess which branch is authoritative.
-func catchUpMerge(repoRoot string) (string, bool) {
-	main, ok := mainBranchRef(repoRoot)
-	if !ok {
-		return "", false
-	}
-	head := strings.TrimSpace(gitOut(repoRoot, "rev-parse", "--abbrev-ref", "HEAD"))
-	if head != "" && head != "HEAD" && !isDefaultBranch(head) {
-		return "merging into " + head + ", not " + main, true
-	}
-	tip, ok := mergeTipOf(repoRoot)
-	if !ok {
-		return "", false
-	}
-	if _, err := git(repoRoot, "merge-base", "--is-ancestor", tip.Rev, main); err == nil {
-		return main + " already contains what is being merged", true
-	}
-	return "", false
-}
-
-// mainBranchRef names the branch a receipt gates entry to, preferring the
-// remote's: `origin/main` is what a lane is actually measured against.
-func mainBranchRef(repoRoot string) (string, bool) {
-	for _, ref := range []string{"main", "master"} {
-		if _, err := git(repoRoot, "rev-parse", "--verify", "--quiet", ref); err == nil {
-			return ref, true
-		}
-	}
-	return "", false
 }

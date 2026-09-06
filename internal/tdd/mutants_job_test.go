@@ -386,14 +386,14 @@ func TestTipSuiteGreen_ReadsTheLastGateRunForThisCheckout(t *testing.T) {
 func TestMutationReceipt_MissingReceiptNamesTheRunningJob(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	started := time.Now().Add(-9 * time.Minute)
-	saveMutantsJob(MutantsJob{Repo: "borld", TipTree: laneTip, PID: os.Getpid(), Started: started})
+	saveMutantsJob(MutantsJob{Repo: "borld", Branch: "lane/x", TipTree: laneTip, PID: os.Getpid(), Started: started})
 
 	got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: laneTip})
 	if got == nil || !got.Blocked {
 		t.Fatal("a running job is not a receipt: the merge still waits for one")
 	}
 	want := "gate: mutation receipt missing for tree " + short(laneTip) +
-		" — running since " + started.Format("15:04") + " (pid " + strconv.Itoa(os.Getpid()) + ")"
+		" — lane/x (pid " + strconv.Itoa(os.Getpid()) + ", started " + started.Format("15:04:05") + ") is measuring"
 	if got.Message != want {
 		t.Fatalf("message = %q, want %q", got.Message, want)
 	}

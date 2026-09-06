@@ -3,6 +3,7 @@ package tdd
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -76,6 +77,23 @@ type MutantsStatusReport struct {
 	Receipt MutationReceipt
 }
 
+// matchingRunningJob returns the running mutation job actually measuring
+// tipTree, if any. RunningMutantsJobs(repo) holds every LANE's live job
+// sharing this repo's common git dir — taking "the last one" (as both this
+// function's callers used to) named whichever lane's run happened to be
+// newest in the registry, not the one that would write THIS tree's receipt
+// (issue #431). RunningMutantsJobs is already newest-first, so the first
+// TipTree match is the newest job actually for tipTree — the same rule
+// RunMutantsHere applies (mutants_here.go) before refusing a duplicate run.
+func matchingRunningJob(repo, tipTree string) (MutantsJob, bool) {
+	for _, j := range RunningMutantsJobs(repo) {
+		if strings.EqualFold(j.TipTree, tipTree) {
+			return j, true
+		}
+	}
+	return MutantsJob{}, false
+}
+
 // ComputeMutantsStatus answers for the checkout dir stands in, never for any
 // other lane: it names dir's own HEAD tree and looks up only that tree's own
 // receipt, job and death records.
@@ -103,11 +121,10 @@ func ComputeMutantsStatus(dir string) (MutantsStatusReport, error) {
 		rep.Receipt = r
 		return rep, nil
 	}
-	// Same lookup, same "last one" pick, as missingReceiptRemedy — the merge
+	// Same lookup, matchingRunningJob, as missingReceiptRemedy — the merge
 	// gate's own answer for "no receipt, is something running" — so the two
-	// never name a different job for the same repo.
-	if jobs := RunningMutantsJobs(repo); len(jobs) > 0 {
-		j := jobs[len(jobs)-1]
+	// never name a different job for the same tree.
+	if j, ok := matchingRunningJob(repo, tipTree); ok {
 		rep.State = MutantsRunGoing
 		rep.JobPID = j.PID
 		rep.JobStarted = j.Started
@@ -185,12 +202,19 @@ const (
 	ExitMutantsStatusFail = 6
 )
 
+// mutantsStatusLinePrefix is FormatMutantsStatus's own prefix, exported as a
+// constant (not just a literal inside that function) so a caller that wants
+// its BODY — missingReceiptRemedy embeds the MutantsRunGoing line rather than
+// composing a second description of the same state — can strip it without
+// guessing at the string FormatMutantsStatus happens to use today.
+const mutantsStatusLinePrefix = "aphrollo gate mutants status: "
+
 // FormatMutantsStatus renders rep the way `aphrollo gate mutants status`
 // prints it, and picks the exit code that goes with it — the one function
 // both `status` and `status --wait` print through, so the two can never say
 // the same state two different ways.
 func FormatMutantsStatus(rep MutantsStatusReport) (string, int) {
-	const prefix = "aphrollo gate mutants status: "
+	const prefix = mutantsStatusLinePrefix
 	switch rep.State {
 	case MutantsRunNone:
 		return fmt.Sprintf("%sno run has been started for %s (tree %s)", prefix, rep.Branch, short(rep.TipTree)), ExitMutantsStatusNone
