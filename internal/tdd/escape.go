@@ -24,16 +24,22 @@ import (
 // one is normally lost — noticed in a terminal, fixed, forgotten, and the
 // same class escapes again a month later.
 //
-// So an escape is RECORDED (a schema-stamped line in escapes.jsonl) and, when
-// there is a GitHub remote and a `gh` to reach it, opened as a labelled issue
-// with a fixed body. The body's third line is the whole point: an escape is
-// closed by a LAW or a STAGE named in the fix, never by a sentence in a
-// document. `verify-closure` is what enforces that at the PR, and the count
-// is printed weekly at session start so it stays a number somebody owns.
+// So an escape is RECORDED (a line in escapes.jsonl) and, when there is a
+// GitHub remote and a `gh` to reach it, opened as a labelled issue with a
+// fixed body. The body's third line is the whole point: an escape is closed
+// by a LAW or a STAGE named in the fix, never by a sentence in a document.
+// `verify-closure` is what enforces that at the PR, and the count is printed
+// weekly at session start so it stays a number somebody owns.
 //
 // A false positive is the same loop pointing the other way: a check that
 // refuses correct work is debt too, and the record is what turns "this rule
 // is annoying" into a demotion somebody can defend.
+//
+// escapes.jsonl carries no schema field of its own: every reader here decodes
+// a line straight into EscapeRecord with the stock JSON decoder, which drops
+// an unrecognised key rather than failing on it — so a field a newer binary
+// adds is read safely, if silently, by an older one with no version check
+// needed on either side. See issue #511.
 
 const (
 	// EscapeKind is a red the gate should have caught and did not.
@@ -44,7 +50,6 @@ const (
 
 // EscapeRecord is one entry in escapes.jsonl.
 type EscapeRecord struct {
-	Schema   int       `json:"schema"`
 	ID       string    `json:"id"`
 	Kind     string    `json:"kind"`
 	Reason   string    `json:"reason"`
@@ -111,7 +116,6 @@ func RecordEscape(o EscapeOptions, w io.Writer) (EscapeRecord, error) {
 	}
 	now := time.Now().UTC()
 	r := EscapeRecord{
-		Schema:      StateSchema,
 		ID:          escapeID(now, reason),
 		Kind:        kind,
 		Reason:      reason,
