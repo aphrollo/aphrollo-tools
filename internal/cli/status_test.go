@@ -53,3 +53,25 @@ func TestGateStatus_UnknownFlagIsUsageError(t *testing.T) {
 		t.Fatalf("exit = %d, want 2 for an unknown flag\nstderr: %s", code, errb.String())
 	}
 }
+
+// TestRun_TopLevelStatus_PrintsTheSameReportAsGateStatus pins issue #435: a
+// caller who does not know to type `gate` first must still be able to run
+// one command and learn what is running. `aphrollo status` at the top level
+// must print exactly what `aphrollo gate status` prints — the same call,
+// never a second computation that could drift from it.
+func TestRun_TopLevelStatus_PrintsTheSameReportAsGateStatus(t *testing.T) {
+	gateConfigDir(t)
+	inDir(t, t.TempDir())
+
+	var top, gate bytes.Buffer
+	var topErr, gateErr bytes.Buffer
+	topCode := Run([]string{"status"}, strings.NewReader(""), &top, &topErr)
+	gateCode := Run([]string{"gate", "status"}, strings.NewReader(""), &gate, &gateErr)
+
+	if topCode != gateCode {
+		t.Fatalf("exit codes differ: status=%d, gate status=%d", topCode, gateCode)
+	}
+	if top.String() != gate.String() {
+		t.Fatalf("reports differ:\naphrollo status:\n%s\naphrollo gate status:\n%s", top.String(), gate.String())
+	}
+}
