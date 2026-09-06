@@ -1,0 +1,4 @@
+internal/pkg/goos_check.go:8
+internal/pkg/match_check.go:8
+internal/pkg/home_check.go:7
+internal/pkg/tmp_check.go:5

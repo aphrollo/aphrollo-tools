@@ -1,0 +1,15 @@
+name        = "platform_seam"
+description = "A direct runtime.GOOS/filepath.Match/HOME/tmp read in non-test Go outside *_windows.go, *_unix.go and a file named *seam* is a platform assumption baked in where no test can pin the OTHER host's branch — the exact shape behind #165 (URI backslashes on Windows), the cmd `^` escaping in MERGE_HEAD^{tree} (#95), CRLF in go:embed, per-OS filepath.Match, os.Rename on directory symlinks, and the per-call tasklist reads: eighteen incidents, each caught only after it shipped. The fix already in this tree (internal/cli/selfinstall.go's `binGOOS` package variable) is the model: read the OS once behind a seam a test can override, so both branches run on either host. Every occurrence today is grandfathered in the baseline, which only ever goes down; a new one lands behind a seam or earns `// goos-ok: <why>`."
+severity    = "deny"
+escape      = "// goos-ok:"
+baseline    = ".ratchet/baselines/platform_seam.txt"
+
+[scope]
+include = ["cmd/**/*.go", "internal/**/*.go"]
+exclude = ["**/*_test.go", "**/*_windows.go", "**/*_unix.go", "**/*seam*", "**/testdata/**"]
+min_files = 240
+
+[matcher]
+kind    = "regex-absent"
+pattern = "runtime\\.GOOS\\s*==|filepath\\.Match\\(|os\\.Getenv\\(\"HOME\"\\)|\"/tmp\""
+key     = "file:line-content-hash"
