@@ -68,9 +68,8 @@ func (g *gitBaseReader) Read(path string) ([]byte, error) {
 // left out of the result rather than treated as a read failure — the same
 // tolerance List()+Read() already had for a path that vanished mid-walk.
 func (g *gitBaseReader) ReadAll(paths []string) (map[string][]byte, error) {
-	result := map[string][]byte{}
 	if len(paths) == 0 {
-		return result, nil
+		return map[string][]byte{}, nil
 	}
 	var stdin strings.Builder
 	for _, p := range paths {
@@ -82,6 +81,25 @@ func (g *gitBaseReader) ReadAll(paths []string) (map[string][]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("git cat-file --batch: %w", err)
 	}
+	return ParseCatFileBatch(out, paths)
+}
+
+// ParseCatFileBatch reads one `git cat-file --batch` invocation's stdout,
+// for the SAME paths (in the SAME order) that were fed to it on stdin --
+// git's own ordering guarantee is what lets each header be read against the
+// path that produced it. A path git reports "missing" (absent at whatever
+// ref it was asked for) is left out of the result rather than treated as a
+// read failure, matching the tolerance a single `git show` already has for
+// a path absent at a ref.
+//
+// Exported so a caller with its own reasons to build the `exec.Command`
+// itself — the staged-baseline guard runs every git subprocess through a
+// scrubbed environment, because a nested git call inheriting a hook's own
+// GIT_DIR/GIT_INDEX_FILE would operate on the wrong repo state — reuses the
+// batch protocol's parsing without also reusing gitBaseReader's own,
+// unscrubbed exec.Command (#489).
+func ParseCatFileBatch(out []byte, paths []string) (map[string][]byte, error) {
+	result := map[string][]byte{}
 	r := bufio.NewReader(bytes.NewReader(out))
 	for _, p := range paths {
 		header, err := r.ReadString('\n')

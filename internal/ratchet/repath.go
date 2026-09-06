@@ -1,6 +1,9 @@
 package ratchet
 
-import "path/filepath"
+import (
+	"path/filepath"
+	"sort"
+)
 
 // RepathCountedKeys pairs a key that disappeared between old and now with a
 // key that appeared, when both carry the SAME count and IDENTICAL content —
@@ -15,10 +18,16 @@ import "path/filepath"
 // rename, and never mutates old or now itself: a caller applies the pairing
 // to whatever its own baseline representation is — a bare map (the staged-
 // baseline guard, which never writes a file) or a *Baseline's line (ratchet
-// check's tighten path, which does). This is the pairing RULE shared by both
-// callers (#490 asked for one mechanism, not two copies); #489 is about the
-// COST of the oldContent/newContent reads this makes, tracked separately.
-func RepathCountedKeys(old, now map[string]int, oldContent, newContent func(rel string) (string, bool)) map[string]string {
+// check's tighten path, which does).
+//
+// oldContent and newContent each answer every CANDIDATE path's content in
+// ONE round trip — a git batch read or a plain map lookup — rather than one
+// call per pair, so pairing N removed keys against M added ones costs
+// O(N+M) content fetches, never the O(N*M) `git show` calls a naive nested
+// loop pays (#489, measured at ~168x for a 90-rename batch: 32.0s vs
+// 190.6ms). A path absent from the result reads as "content unknown", never
+// eligible to pair.
+func RepathCountedKeys(old, now map[string]int, oldContent, newContent func(rels []string) map[string]string) map[string]string {
 	var removed []string
 	for k := range old {
 		if _, ok := now[k]; !ok {
@@ -28,6 +37,7 @@ func RepathCountedKeys(old, now map[string]int, oldContent, newContent func(rel 
 	if len(removed) == 0 {
 		return nil
 	}
+	sort.Strings(removed)
 
 	var added []string
 	for k := range now {
@@ -38,22 +48,31 @@ func RepathCountedKeys(old, now map[string]int, oldContent, newContent func(rel 
 	if len(added) == 0 {
 		return nil
 	}
+	sort.Strings(added)
+
+	// Indexing removed keys by count means each added key only ever walks
+	// the rows that could possibly match it, instead of every removed row —
+	// the other half of #489's fix, independent of the batched content read.
+	byCount := map[int][]string{}
+	for _, k := range removed {
+		byCount[old[k]] = append(byCount[old[k]], k)
+	}
+
+	oldBlobs := oldContent(removed)
+	newBlobs := newContent(added)
 
 	pairs := make(map[string]string, len(removed))
 	paired := make(map[string]bool, len(removed))
 	for _, addedKey := range added {
-		for _, removedKey := range removed {
+		newBlob, ok := newBlobs[addedKey]
+		if !ok {
+			continue
+		}
+		for _, removedKey := range byCount[now[addedKey]] {
 			if paired[removedKey] {
 				continue
 			}
-			if old[removedKey] != now[addedKey] {
-				continue
-			}
-			oldBlob, ok := oldContent(removedKey)
-			if !ok {
-				continue
-			}
-			newBlob, ok := newContent(addedKey)
+			oldBlob, ok := oldBlobs[removedKey]
 			if !ok || oldBlob != newBlob {
 				continue
 			}
@@ -65,15 +84,41 @@ func RepathCountedKeys(old, now map[string]int, oldContent, newContent func(rel 
 	return pairs
 }
 
-// GitShowBlob reads one path's content at ref via a single `git show` — the
-// "old" side of a Counted-form repath, whose file no longer exists on disk
-// once it has moved.
-func GitShowBlob(root, ref, rel string) (string, bool) {
-	data, err := (&gitBaseReader{root: root, ref: ref}).Read(rel)
+// GitBatchBlobs reads every rel's blob content at ref in one `git cat-file
+// --batch` process (gitBaseReader.ReadAll) — ref == "" reads the STAGED
+// INDEX, via git's own bare `:path` revision syntax. A caller outside this
+// package (the staged-baseline guard, which judges git refs directly rather
+// than through a BaseReader, and runs every git subprocess through its own
+// scrubbed environment) uses ParseCatFileBatch directly instead, over its
+// own exec.Command.
+func GitBatchBlobs(root, ref string, rels []string) (map[string]string, error) {
+	data, err := (&gitBaseReader{root: root, ref: ref}).ReadAll(rels)
 	if err != nil {
-		return "", false // absence-ok: absent at ref reads as "content unknown", never eligible to pair
+		return nil, err
 	}
-	return string(data), true
+	out := make(map[string]string, len(data))
+	for k, v := range data {
+		out[k] = string(v)
+	}
+	return out, nil
+}
+
+// diskBlobs reads every rel straight off root's working tree — the "new"
+// side of a Counted-form repath, which (unlike the vanished old path) is
+// still sitting on disk and needs no git call at all. A rel this cannot
+// read (permission, or a race with a concurrent delete) is simply absent
+// from the result, the same "content unknown, never eligible" tolerance
+// RepathCountedKeys already has for a missing git blob.
+func diskBlobs(root string, rels []string) map[string]string {
+	out := make(map[string]string, len(rels))
+	for _, rel := range rels {
+		data, err := readFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			continue // absence-ok: unreadable on disk reads as "content unknown", never eligible to pair
+		}
+		out[rel] = string(data)
+	}
+	return out
 }
 
 // renameKey rewrites the one Counted-form line carrying key `from` to key
@@ -108,14 +153,14 @@ func repathCountedBaseline(opts Options, baseline *Baseline, measured map[string
 		base = "HEAD"
 	}
 	pairs := RepathCountedKeys(baseline.Counts(), measured,
-		func(rel string) (string, bool) { return GitShowBlob(opts.Root, base, rel) },
-		func(rel string) (string, bool) {
-			data, err := readFile(filepath.Join(opts.Root, filepath.FromSlash(rel)))
+		func(rels []string) map[string]string {
+			blobs, err := GitBatchBlobs(opts.Root, base, rels)
 			if err != nil {
-				return "", false // absence-ok: unreadable on disk reads as "content unknown", never eligible to pair
+				return nil // absence-ok: a failed batch read reads as "content unknown" for every candidate, never eligible to pair
 			}
-			return string(data), true
+			return blobs
 		},
+		func(rels []string) map[string]string { return diskBlobs(opts.Root, rels) },
 	)
 	for oldKey, newKey := range pairs {
 		baseline.renameKey(oldKey, newKey)
