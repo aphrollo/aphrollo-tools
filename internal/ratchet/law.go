@@ -182,6 +182,15 @@ type Matcher struct {
 	RegistryFile string
 	EntryPattern *regexp.Regexp
 	UsePattern   *regexp.Regexp
+	// EntryColumn scopes EntryPattern to one `|`-delimited cell of a
+	// registry line rather than the whole line — a markdown table's crates
+	// column and the prose column beside it both carry backticked names,
+	// and only a cell-aware scope can tell them apart. 0-based: a leading
+	// `|` is stripped first, so column 0 is the first cell after it.
+	// HasEntryColumn distinguishes "column 0 was given" from "no column
+	// given", which the zero value of EntryColumn cannot.
+	EntryColumn    int
+	HasEntryColumn bool
 	// Dependency-graph fields (KindDepGraphForbids, KindDepGraphCeiling).
 	Roots     []string
 	Forbidden []string

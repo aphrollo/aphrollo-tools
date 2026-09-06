@@ -125,10 +125,10 @@ accepts either. `contiguous` applies in whichever direction is chosen.
 | `path-regex-absent` | `pattern` | the repo-relative PATH must not match; key = the path, no line | a filename carrying a plan-item stamp or a serial letter |
 | `regex-present` | `pattern` | every file in scope MUST contain it | a proptest that must carry an explicit seed |
 | `marker-within-lines` | `trigger`, `marker`, `lines`, `contiguous`, `direction` | a `trigger` line requires a `marker` within N lines above (or below, or either), or in the comment run beside it | `// bound:` over a collection that grows |
-| `registry-both-ways` | `registry_file`, `entry_pattern`, `use_pattern` | every use is registered AND every registry line is used; the LAST non-empty capture of a use match is the name, so an alternation with one group per branch works | the dev-instrument (env switch) registry |
+| `registry-both-ways` | `registry_file`, `entry_pattern`, `use_pattern`, `entry_column` | every use is registered AND every registry line is used; the LAST non-empty capture of a use match is the name, so an alternation with one group per branch works; `entry_column` scopes `entry_pattern` to one `\|`-delimited cell of the registry line | the dev-instrument (env switch) registry, and "every crate is documented in this markdown table" |
 | `doc-path-resolves` | `pattern` | a captured path must resolve relative to the CITING file's own directory, then the repo root, then inside its own `crates/<x>`/`tools/<x>` unit | doc citations |
 | `dep-graph-forbids` | `roots`, `forbidden`, `edges`, `min_reachable` | no root package may REACH a forbidden one (glob) through the resolved dependency graph; `edges = "normal"` (default) never follows dev/build edges, which is the whole distinction | dev-only tooling in a shipping binary |
-| `file-set-containment` | `superset_file`, `subset_file`, `capture` | every capture in `subset_file` must also appear in `superset_file` | a headless stand-in whose query must refuse at least what the real one refuses |
+| `file-set-containment` | `superset_file`, `subset_file`, `capture` OR `subset_capture`+`superset_capture` | every capture in `subset_file` must also appear in `superset_file` | a headless stand-in whose query must refuse at least what the real one refuses |
 | `json-number-ceiling` | `files`, `path`, `tolerance_pct`, `enabled_env` | a number read out of generated JSON may not exceed its baseline by more than the tolerance | a criterion bench figure nobody was reading |
 | `symbol-removed` | `pattern` (exactly one capture group) | a symbol captured at `--base <ref>` must still be captured somewhere in scope at the current tree, or be admitted by a tombstone comment naming it and a reason | a deleted test, invisible to every file-at-a-time law |
 
@@ -172,12 +172,32 @@ loudly instead of reporting green over files they never opened.
 - **`registry-both-ways`** reads uses out of whatever the scope includes, source
   or not: put `tools/**/*.sh` in `include` and a switch read only by a shell
   script counts as a use, so it is neither reported unregistered nor reported
-  stale.
+  stale. `entry_column` (0-based) scopes `entry_pattern` to one cell of a
+  `\|`-delimited registry line — a leading and trailing `\|` are stripped first,
+  so column 0 is the first cell after that — which is what a markdown table
+  needs: the crate column and the prose column beside it both carry backticked
+  names, and separating them needs a lookbehind or a repeated capture group
+  that Go's RE2 has neither of. A row with fewer cells than `entry_column`
+  names (the table's own separator row, a stray `\|` in prose) registers
+  nothing rather than reading the wrong column out of it. **This is the
+  matcher that owns "every X is registered in Y"** — `file-set-containment`
+  looks like the same shape but is for containment between two ARBITRARY
+  files, one notation each; reach for `registry-both-ways` first for a
+  registry, and only fall back to `file-set-containment` when the "registry"
+  side does not have the two-pattern (entry vs. use) structure at all.
 - **`file-set-containment`** is containment, never equality: the stand-in may
   refuse MORE than the real system, never less. A deliberate deviation puts the
   law's `escape` marker in `superset_file`, and a marker with nothing left to
   waive is itself a finding — stale waivers are how a guard quietly stops
-  guarding.
+  guarding. `capture` is a single regex applied to BOTH files, which only
+  works when they spell the fact identically — the uncommon case. The normal
+  case is two notations for one name (a Cargo.toml members line, `"crates/zone"`,
+  against a markdown table cell, `` `zone` ``); `subset_capture` and
+  `superset_capture`, given TOGETHER, are the two extraction patterns for that
+  case. The two forms are exclusive: a law naming `capture` alongside either
+  split field is rejected at load, never silently resolved by preferring one —
+  preferring `capture` would leave the OTHER side's notation uncompared
+  against anything, which defeats the law without saying so.
 - **`json-number-ceiling`** is a MEASUREMENT law: every value it reads is a
   hit, weighted by the number (rounded up), and the `tolerance_pct` is applied
   when comparing to the baseline rather than when measuring — a figure inside

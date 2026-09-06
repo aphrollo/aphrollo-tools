@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // registryHits answers a registry-both-ways law: every use must be registered
@@ -20,6 +21,26 @@ func lastCapture(m []string) string {
 	return ""
 }
 
+// tableCell splits a `|`-delimited markdown table row and returns the col-th
+// cell (0-based, trimmed), after a leading and trailing `|` are stripped —
+// the shape a GFM table row is written in. ok is false when the row does not
+// carry that many cells, which lets a caller skip a line that is not really
+// a table row (the separator row, a stray `|` in prose) rather than reading
+// the wrong column out of it.
+func tableCell(line string, col int) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	trimmed = strings.TrimPrefix(trimmed, "|")
+	trimmed = strings.TrimSuffix(trimmed, "|")
+	if trimmed == "" {
+		return "", false
+	}
+	cells := strings.Split(trimmed, "|")
+	if col < 0 || col >= len(cells) {
+		return "", false
+	}
+	return strings.TrimSpace(cells[col]), true
+}
+
 func registryHits(root string, law Law, files []string, content map[string]string, applyScope, wholeTree bool) ([]Hit, error) {
 	registryPath := filepath.Join(root, filepath.FromSlash(law.Matcher.RegistryFile))
 	data, err := os.ReadFile(registryPath)
@@ -29,7 +50,15 @@ func registryHits(root string, law Law, files []string, content map[string]strin
 	registered := map[string]int{}
 	var order []string
 	for i, line := range splitLines(string(data)) {
-		m := law.Matcher.EntryPattern.FindStringSubmatch(line)
+		text := line
+		if law.Matcher.HasEntryColumn {
+			cell, ok := tableCell(line, law.Matcher.EntryColumn)
+			if !ok {
+				continue
+			}
+			text = cell
+		}
+		m := law.Matcher.EntryPattern.FindStringSubmatch(text)
 		if m == nil {
 			continue
 		}

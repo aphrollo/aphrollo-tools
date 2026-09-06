@@ -25,7 +25,7 @@ var matcherKeys = map[MatcherKind][]matcherKeySpec{
 	KindMarkerWithinLines:  {{"kind", true}, {"trigger", true}, {"marker", true}, {"lines", false}, {"contiguous", false}, {"direction", false}},
 	KindRegexNear:          {{"kind", true}, {"trigger", true}, {"context", true}, {"lines", false}, {"direction", false}},
 	KindMarkerInPackage:    {{"kind", true}, {"trigger", true}, {"marker", true}},
-	KindRegistryBothWays:   {{"kind", true}, {"registry_file", true}, {"entry_pattern", true}, {"use_pattern", true}},
+	KindRegistryBothWays:   {{"kind", true}, {"registry_file", true}, {"entry_pattern", true}, {"use_pattern", true}, {"entry_column", false}},
 	KindDocPathResolves:    {{"kind", true}, {"pattern", true}},
 	KindDepGraphForbids:    {{"kind", true}, {"roots", true}, {"forbidden", true}, {"edges", false}, {"min_reachable", false}},
 	KindDepGraphCeiling:    {{"kind", true}, {"roots", true}, {"edges", false}, {"counts", false}, {"min_reachable", false}},
@@ -501,6 +501,12 @@ func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
 		m.EntryPattern, m.UsePattern = get("entry_pattern"), get("use_pattern")
 		m.RegistryFile = doc.str("matcher", "registry_file")
 		m.Key = KeyLineContent
+		if v, ok := doc.value("matcher", "entry_column"); ok {
+			if v.kind != tomlInt || v.i < 0 {
+				return Matcher{}, fmt.Errorf("matcher.entry_column is a non-negative integer — 0-based, the first cell after a leading `|` is stripped")
+			}
+			m.EntryColumn, m.HasEntryColumn = v.i, true
+		}
 		if err == nil {
 			if ferr := requireCaptureGroups(m.EntryPattern, m.UsePattern); ferr != nil {
 				return Matcher{}, ferr
