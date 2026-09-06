@@ -41,8 +41,12 @@ var undercoverPatterns = []*regexp.Regexp{
 // `undercover = true`, so installing the hook everywhere cannot start
 // rejecting a repo that never asked; the DEFAULT layer
 // (commitmsg_defaults.go) is house style, not an information boundary, and
-// runs for every repo the hook is installed in. Merge commits go through
-// both — a non-fast-forward merge writes a message like any other.
+// runs for every repo that has told aphrollo it exists at all — a root
+// aphrollo.toml, or a [workspace.metadata.aphrollo] table in Cargo.toml,
+// checked by aphrolloConfigured — never for a repo the hook merely happens
+// to run inside, such as a synthetic git repository a test helper builds in
+// a temp dir. Merge commits go through both — a non-fast-forward merge
+// writes a message like any other.
 func CommitMsg(repoRoot, msgPath string) GateResult {
 	ws := cargoWorkspaceRoot(repoRoot)
 	if ws == "" {
@@ -56,8 +60,10 @@ func CommitMsg(repoRoot, msgPath string) GateResult {
 	}
 	body := strings.ReplaceAll(string(data), "\r\n", "\n")
 
-	if res, blocked := defaultCommitMsgCheck(repoRoot, ws, body); blocked {
-		return res
+	if aphrolloConfigured(ws) {
+		if res, blocked := defaultCommitMsgCheck(repoRoot, ws, body); blocked {
+			return res
+		}
 	}
 
 	if res, blocked := verificationClaimCheck(repoRoot, body); blocked {
