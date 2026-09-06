@@ -437,6 +437,40 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: ./bin/aphrollo gate escape verify-closure "$PR_NUMBER"
 
+  # Belongs beside `escape-closure` (issue #463): the same `gh pr view` the
+  # closure check already reads is also where three PRs tonight named issues
+  # and never actually closed them -- no closing keyword at all in two cases,
+  # a silently-truncated `Closes #A, #B` in a third -- costing seven manual
+  # closes because the miss surfaces only on a hand audit of the issue list.
+  # A bare "#123" mention warns (it may be a legitimate cross-reference, e.g.
+  # "related to #123") and never fails the job; a comma list after one
+  # closing keyword errors, since GitHub honours only the first number and
+  # the rewrite (`closes #A, closes #B`) is mechanical with no legitimate
+  # exception. NOT gated on `changes`: a docs-only PR is exactly the kind
+  # that can still misname an issue in its body. The CLI is built from THIS
+  # PR, same reasoning as `escape-closure` above.
+  pr-closes-check:
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
+    runs-on: self-hosted
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # false: see the note in `test` -- the persistent disk is the cache.
+          cache: false
+      - name: Build the CLI from this PR
+        run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
+      - name: aphrollo gate escape check-closes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: ./bin/aphrollo gate escape check-closes "$PR_NUMBER"
+
   # The escape loop's OPENING half, and the only trigger that lives off this
   # box. A red here after a green local gate is the loop's sharpest evidence:
   # two runs of the same checks over the same tree disagreed.

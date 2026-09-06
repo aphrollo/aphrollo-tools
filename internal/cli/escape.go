@@ -24,6 +24,9 @@ Subcommands:
                       closed the ones GitHub already closed
   list                Print the open records (--all for closed ones too)
   verify-closure <pr> Refuse a PR that closes an escape without changing a check
+  check-closes <pr>   Warn on a bare "#123" mention with no closing keyword and
+                      error on a comma list after one ("closes #A, #B" -- GitHub
+                      honours only #A)
 
 An ESCAPE is the gate's only direct evidence about what it is missing: CI red
 after a local green, a merge gate refusing what precommit allowed, a surviving
@@ -57,6 +60,8 @@ func runGateEscape(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "verify-closure":
 		return runEscapeVerifyClosure(args[1:], stdout, stderr)
+	case "check-closes":
+		return runEscapeCheckCloses(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "aphrollo gate escape: unknown subcommand %q\n\n%s", args[0], escapeUsage)
 		return 2
@@ -217,6 +222,28 @@ func runEscapeVerifyClosure(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	ok, err := tdd.VerifyClosure(tdd.RepoRoot(*repo), fs.Arg(0), stdout)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo gate escape: %v\n", err)
+		return 1
+	}
+	if !ok {
+		return 1
+	}
+	return 0
+}
+
+func runEscapeCheckCloses(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("check-closes", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	repo := fs.String("repo", ".", "the checkout the PR belongs to")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(stderr, "aphrollo gate escape check-closes: one PR number, please")
+		return 2
+	}
+	ok, err := tdd.CheckPRCloses(tdd.RepoRoot(*repo), fs.Arg(0), stdout)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo gate escape: %v\n", err)
 		return 1

@@ -73,10 +73,12 @@ Subcommands:
                     point is an issue, never a markdown follow-up
   feedback          Report a defect in the GATE ITSELF to the tool's tracker, with
                     the reporting repo and tip attached
-  escape            The escape loop: record | sync | list | verify-closure <pr>.
-                    A red after a local green is recorded and opened as a labelled
-                    issue; verify-closure refuses a PR that closes one without
-                    changing a law, a gate stage or a named test
+  escape            The escape loop: record | sync | list | verify-closure <pr> |
+                    check-closes <pr>. A red after a local green is recorded
+                    and opened as a labelled issue; verify-closure refuses a PR
+                    that closes one without changing a law, a gate stage or a
+                    named test; check-closes warns on a bare issue mention and
+                    errors on a comma list after one closing keyword
   gc                Reclaim stale build dirs: idle incremental caches, dead gate dirs,
                     orphan worktree builds (--repo, --older-than 3d, --apply)
   install           (alias of aphrollo install; retiring next release) Install
