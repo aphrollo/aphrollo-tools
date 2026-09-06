@@ -24,6 +24,7 @@ var matcherKeys = map[MatcherKind][]matcherKeySpec{
 	KindPathRegexAbsent:    {{"kind", true}, {"pattern", true}},
 	KindMarkerWithinLines:  {{"kind", true}, {"trigger", true}, {"marker", true}, {"lines", false}, {"contiguous", false}, {"direction", false}},
 	KindRegexNear:          {{"kind", true}, {"trigger", true}, {"context", true}, {"lines", false}, {"direction", false}},
+	KindMarkerInPackage:    {{"kind", true}, {"trigger", true}, {"marker", true}},
 	KindRegistryBothWays:   {{"kind", true}, {"registry_file", true}, {"entry_pattern", true}, {"use_pattern", true}},
 	KindDocPathResolves:    {{"kind", true}, {"pattern", true}},
 	KindDepGraphForbids:    {{"kind", true}, {"roots", true}, {"forbidden", true}, {"edges", false}, {"min_reachable", false}},
@@ -352,6 +353,8 @@ func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
 			}
 			m.Lines = v.i
 		}
+	case KindMarkerInPackage:
+		m.Trigger, m.Marker = get("trigger"), get("marker")
 	case KindDepGraphForbids:
 		m.Key = KeyLineContent
 		m.Edges = "normal"

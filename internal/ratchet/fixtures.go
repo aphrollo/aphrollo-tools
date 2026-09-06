@@ -212,6 +212,8 @@ func readExpected(path string) (map[string]bool, error) {
 // carries no `base/`, which is a clean case that never judges one).
 func fixtureWholeTreeHits(base string, law Law, files []string, content map[string]string, baseTree BaseReader) ([]Hit, error) {
 	switch law.Matcher.Kind {
+	case KindMarkerInPackage:
+		return packageMarkerHits(base, law, files, content)
 	case KindRegistryBothWays:
 		return registryHits(base, law, files, content, false, true)
 	case KindDepGraphForbids:

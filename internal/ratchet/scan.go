@@ -39,7 +39,7 @@ func scanTree(opts Options, laws []Law) (*treeScan, error) {
 	// measured in borld, 26 laws over 1936 files, 5.6s became 1.2s.
 	var contentLaws []Law
 	for _, l := range laws {
-		if l.Matcher.Kind == KindRegistryBothWays {
+		if l.Matcher.Kind == KindRegistryBothWays || l.Matcher.Kind == KindMarkerInPackage {
 			contentLaws = append(contentLaws, l)
 		}
 		// A code-mode line-count law's stale-baseline note needs the actual
