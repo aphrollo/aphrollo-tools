@@ -184,7 +184,7 @@ func TestCheck_AppTrioJudgesTheRepoFlagNotTheCwd(t *testing.T) {
 	t.Run("fixture with an app profile resolves the --repo root, not cwd", func(t *testing.T) {
 		// HasAppProfile keys on the repo's basename ("aphrollo-web" is the one
 		// entry in the table), so the fixture dir must be named that.
-		parent := t.TempDir()
+		parent := resolvedTempDir(t)
 		fixture := filepath.Join(parent, "aphrollo-web")
 		if err := os.Mkdir(fixture, 0o755); err != nil {
 			t.Fatal(err)

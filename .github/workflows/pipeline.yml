@@ -259,6 +259,81 @@ jobs:
             done
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # #323: the local gate runs on Windows, `test` above runs on Linux, and
+  # nothing made that difference visible before a merge — #380 and #417 are
+  # both a Windows-only or Linux-only expectation that a same-OS gate can
+  # never see fail. This is the other side: a real windows-latest job rather
+  # than trusting a goos-seamed test to be enough on its own.
+  #
+  # Scope, deliberately narrow rather than the whole suite: `internal/tdd`
+  # and `internal/workspace` are e2e-heavy (real git/go subprocesses per
+  # test) and do not finish inside a sane budget even off this box — plain
+  # `go test ./internal/tdd/...` here ran past 480s and `./internal/workspace/...`
+  # past 180s with no other load on the machine, matching the pre-existing
+  # #446/#424 slowness the mechanical stage already tracks for that package.
+  # Doubling that cost on a second, typically-slower-per-syscall OS pays for
+  # coverage this job cannot use: neither package's failure mode here would
+  # be a platform divergence, it would be a timeout. The other eleven
+  # packages measured clean and fast (internal/cli — the one #380's four
+  # tests live in — at 192s, everything else under a minute). Growing this
+  # list to include internal/tdd/internal/workspace is the "ratchet the
+  # allow-list down" #323 asks for, done deliberately once their own runtime
+  # is brought under budget, not folded in here to make the matrix look
+  # complete.
+  #
+  # continue-on-error is NOT set anywhere in this job: every package in the
+  # list is a real gate, exactly as #323 specifies ("Windows first as
+  # continue-on-error: false only for packages that already pass there").
+  #
+  # windows-latest rather than a windows self-hosted runner: this org's own
+  # self-hosted box is Linux (see the linux-only binary downloads in `scan`
+  # below), and nothing in this repo names a registered Windows self-hosted
+  # label to target. A GitHub-hosted runner also means this job never
+  # contends with the shared self-hosted box's serial queue — the exact
+  # contention #334 moved the mutation run off of.
+  test-windows:
+    if: github.event.pull_request.draft != true
+    needs: changes
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # cache defaults to true here (unlike the self-hosted `test` job, which
+      # sets it false): this runner is a fresh VM every run with no
+      # persistent module cache of its own to make setup-go's cache redundant.
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # Mirrors the Linux job's conditional install: the refactor/sqlc e2e
+      # tests self-skip via exec.LookPath without these, so a Windows-only
+      # regression in the LSP client or diff-apply code is invisible here
+      # exactly like it would be on Linux without this step.
+      - name: Install gopls
+        if: needs.changes.outputs.refactor == 'true'
+        run: go install golang.org/x/tools/gopls@v0.23.0
+      - name: Install sqlc
+        if: needs.changes.outputs.refactor == 'true'
+        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+      - name: Test (windows allow-list)
+        if: needs.changes.outputs.code == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -shuffle=on -timeout=170s \
+            ./cmd/... \
+            ./internal/buildinfo/... \
+            ./internal/cli/... \
+            ./internal/dev/... \
+            ./internal/diff/... \
+            ./internal/docs/... \
+            ./internal/guardrail/... \
+            ./internal/lsp/... \
+            ./internal/ratchet/... \
+            ./internal/refactor/... \
+            ./internal/sqlc/...
+
   lint:
     if: github.event.pull_request.draft != true
     needs: changes
@@ -461,7 +536,7 @@ jobs:
   # skipped there and the miss is picked up by `gate escape sync` on the box
   # that owns the lane.
   escape-record:
-    needs: [test, lint, scan]
+    needs: [test, test-windows, lint, scan]
     if: ${{ always() && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && github.event.pull_request.head.repo.fork != true)) && contains(needs.*.result, 'failure') }}
     runs-on: self-hosted
     timeout-minutes: 5
@@ -632,7 +707,7 @@ jobs:
   # the deploy uses, so a broken build can't merge. Does NOT install (PR-only).
   build:
     if: github.event.pull_request.draft != true
-    needs: [changes, test, lint, scan]
+    needs: [changes, test, test-windows, lint, scan]
     runs-on: self-hosted
     timeout-minutes: 5
     steps:
@@ -660,7 +735,7 @@ jobs:
   # all green, but a red one means this never fires. A manual workflow_dispatch
   # stays gated behind the same guard.
   deploy:
-    needs: [test, lint, scan]
+    needs: [test, test-windows, lint, scan]
     if: ${{ always() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: self-hosted
     timeout-minutes: 10

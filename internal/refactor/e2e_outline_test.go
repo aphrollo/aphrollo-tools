@@ -16,7 +16,7 @@ const outlineSrc = "package m\n\n" +
 
 func writeOutlineProject(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
+	dir := resolvedTempDir(t)
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/m\n\ngo 1.21\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

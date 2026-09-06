@@ -16,7 +16,7 @@ import (
 func TestGateInit_WritesTheBlockIntoTheNamedRepo(t *testing.T) {
 	isolateGit(t)
 	t.Setenv(tdd.HooksDirUnsafeEnv, "1") // --git-hooks-dir below sits under t.TempDir()
-	target := t.TempDir()
+	target := resolvedTempDir(t)
 	gitInitRepo(t, target)
 	writeFile(t, filepath.Join(target, "CLAUDE.md"), "# Project\n\nGuidance.\n")
 

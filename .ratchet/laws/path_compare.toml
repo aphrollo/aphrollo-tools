@@ -1,0 +1,14 @@
+name        = "path_compare"
+description = "A path compared with == or a prefix checked with strings.HasPrefix in non-test Go is a Windows/unix divergence waiting to happen: case sensitivity, \\ vs /, drive letters and 8.3 short names all make two spellings of the same path compare unequal or make a real prefix miss. samePath (internal/cli/doctor.go, internal/refactor/rename.go, internal/workspace/prune.go) and insideDir (internal/tdd/precommit.go) already exist to answer this correctly on both hosts. Warn rather than deny: this is advisory until the three samePath copies converge on one helper, tracked separately."
+severity    = "warn"
+baseline    = ".ratchet/baselines/path_compare.txt"
+
+[scope]
+include = ["cmd/**/*.go", "internal/**/*.go"]
+exclude = ["**/*_test.go", "**/testdata/**"]
+min_files = 250
+
+[matcher]
+kind    = "regex-absent"
+pattern = "==\\s*\\w*[Pp]ath\\b|\\w*[Pp]ath\\s*==|strings\\.HasPrefix\\(\\w*[Pp]ath"
+key     = "file:line-content-hash"
