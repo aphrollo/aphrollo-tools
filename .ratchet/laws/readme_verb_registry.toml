@@ -1,0 +1,14 @@
+name        = "readme_verb_registry"
+description = "Every top-level verb `Run`'s dispatch switch in internal/cli/cli.go actually handles is demonstrated in README.md as `aphrollo <verb>`, and every `aphrollo <word>` the README shows names a real verb — registered both ways, README as the registry, the dispatch switch as the use (issue #324's second check). A renamed or removed verb left in an example reads as a real command to a reader who tries it; a new verb with no README example is invisible. Measured 15 `aphrollo <word>` captures against 17 dispatch case labels: 14 agree, `binary` is prose noise (\"the aphrollo binary\", not an invocation — RE2 has no lookahead to exclude it, so it is carried as debt) and `version`/`update` are real gaps the dispatch switch answers that no README line demonstrates. Baselined at that count, paid down by adding the missing examples or rewording the prose, never by widening the pattern."
+severity    = "deny"
+baseline    = ".ratchet/baselines/readme_verb_registry.txt"
+
+[scope]
+include = ["README.md", "internal/cli/cli.go"]
+min_files = 2
+
+[matcher]
+kind          = "registry-both-ways"
+registry_file = "README.md"
+entry_pattern = "aphrollo ([a-z][a-z-]*)"
+use_pattern   = "case \"([a-z][a-z-]*)\"(?:, \"[a-z-]+\")*:"
