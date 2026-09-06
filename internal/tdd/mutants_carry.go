@@ -176,15 +176,28 @@ func changedPaths(repoRoot, from, to string) ([]string, bool) {
 
 // readReceiptFile decodes one receipt from disk.
 func readReceiptFile(path string) (MutationReceipt, bool) {
+	r, _, ok := readReceiptFileRaw(path)
+	return r, ok
+}
+
+// readReceiptFileRaw decodes one receipt from disk and also hands back the
+// bytes it was decoded from. The raw bytes are what recountReceipt needs to
+// tell "the producer supports Outcomes and genuinely measured none this run"
+// (the key present, an empty array) from "the producer never emits Outcomes
+// at all" (tools/mutation_gate.sh, borld's own, writes mutants_total, caught,
+// timeout, unviable, survivors and unaccepted directly) — a distinction the
+// decoded struct alone cannot make, since Go's zero value for a missing slice
+// and an explicit empty one are the same nil.
+func readReceiptFileRaw(path string) (MutationReceipt, []byte, bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return MutationReceipt{}, false
+		return MutationReceipt{}, nil, false
 	}
 	var r MutationReceipt
 	if err := json.Unmarshal(data, &r); err != nil {
-		return MutationReceipt{}, false
+		return MutationReceipt{}, nil, false
 	}
-	return r, true
+	return r, data, true
 }
 
 // writeReceiptFile publishes a receipt, atomically: a merge reading a
