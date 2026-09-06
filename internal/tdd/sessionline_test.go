@@ -86,7 +86,7 @@ func TestIssueSummaryLine_ReconcilesAClosedEscapeWithinTheSameFetch(t *testing.T
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := makeGitHubRepo(t)
 	if err := appendEscape(EscapeRecord{
-		Schema: StateSchema, ID: "x", Kind: EscapeKind, Reason: "already fixed",
+		ID: "x", Kind: EscapeKind, Reason: "already fixed",
 		At: time.Now().UTC(), Issue: "https://github.com/o/r/issues/9", Number: 9,
 	}); err != nil {
 		t.Fatal(err)

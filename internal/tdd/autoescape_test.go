@@ -238,7 +238,6 @@ func TestTheSameEscapeAfterTheWindowIsRecordedAgain(t *testing.T) {
 	t.Setenv("PATH", "")
 	o := EscapeOptions{Reason: "the merge gate refused a green lane", Evidence: "clippy: unused variable"}
 	stale := EscapeRecord{
-		Schema:      StateSchema,
 		ID:          "old",
 		Kind:        EscapeKind,
 		Reason:      o.Reason,
@@ -261,7 +260,6 @@ func TestAClosedEscapeDoesNotSuppressItsRecurrence(t *testing.T) {
 	t.Setenv("PATH", "")
 	o := EscapeOptions{Reason: "the merge gate refused a green lane"}
 	closed := EscapeRecord{
-		Schema:      StateSchema,
 		ID:          "fixed",
 		Kind:        EscapeKind,
 		Reason:      o.Reason,

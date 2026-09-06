@@ -158,7 +158,11 @@ func readEscapes(t *testing.T) []EscapeRecord {
 // A red after a local green is the only evidence the gate has that it is
 // missing a check. Losing it means the same class escapes again next month,
 // so it is written down before anything else can fail.
-func TestRecordEscapeWritesASchemaStampedRecord(t *testing.T) {
+//
+// ratchet: test_removed TestRecordEscapeWritesASchemaStampedRecord: renamed —
+// EscapeRecord.Schema was written and never read by anything that branched
+// on it (issue #511), so the field is gone and this test no longer checks it.
+func TestRecordEscape_WritesARecord(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", "")
 	if _, err := RecordEscape(EscapeOptions{Reason: "CI caught a clippy warning the gate did not"}, io.Discard); err != nil {
@@ -169,9 +173,6 @@ func TestRecordEscapeWritesASchemaStampedRecord(t *testing.T) {
 		t.Fatalf("recorded %d escapes, want 1", len(recs))
 	}
 	r := recs[0]
-	if r.Schema != StateSchema {
-		t.Errorf("schema = %d, want %d", r.Schema, StateSchema)
-	}
 	if r.Kind != EscapeKind {
 		t.Errorf("kind = %q, want %q by default", r.Kind, EscapeKind)
 	}
@@ -280,7 +281,7 @@ func TestSyncEscapes_MarksARecordClosedWhenItsIssueClosedOnGitHub(t *testing.T) 
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := makeGitHubRepo(t)
 	if err := appendEscape(EscapeRecord{
-		Schema: StateSchema, ID: "x", Kind: EscapeKind, Reason: "already fixed",
+		ID: "x", Kind: EscapeKind, Reason: "already fixed",
 		At: time.Now().UTC(), Issue: "https://github.com/o/r/issues/9", Number: 9,
 	}); err != nil {
 		t.Fatal(err)
@@ -310,7 +311,7 @@ func TestSyncEscapes_LeavesAStillOpenIssueAlone(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := makeGitHubRepo(t)
 	if err := appendEscape(EscapeRecord{
-		Schema: StateSchema, ID: "x", Kind: EscapeKind, Reason: "still open",
+		ID: "x", Kind: EscapeKind, Reason: "still open",
 		At: time.Now().UTC(), Issue: "https://github.com/o/r/issues/9", Number: 9,
 	}); err != nil {
 		t.Fatal(err)
@@ -338,7 +339,7 @@ func TestSyncClosedEscapes_SkipsRecordsWithNoIssueNumber(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := makeGitHubRepo(t)
 	if err := appendEscape(EscapeRecord{
-		Schema: StateSchema, ID: "x", Kind: EscapeKind, Reason: "never synced",
+		ID: "x", Kind: EscapeKind, Reason: "never synced",
 		At: time.Now().UTC(),
 	}); err != nil {
 		t.Fatal(err)
@@ -357,9 +358,9 @@ func TestSyncClosedEscapes_SkipsRecordsWithNoIssueNumber(t *testing.T) {
 func TestOpenEscapesCountsTheUnclosedAndTheOldest(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", "")
-	old := EscapeRecord{Schema: StateSchema, ID: "a", Kind: EscapeKind, Reason: "old", At: time.Now().UTC().Add(-30 * 24 * time.Hour)}
-	recent := EscapeRecord{Schema: StateSchema, ID: "b", Kind: EscapeKind, Reason: "new", At: time.Now().UTC().Add(-2 * 24 * time.Hour)}
-	closed := EscapeRecord{Schema: StateSchema, ID: "c", Kind: EscapeKind, Reason: "done", At: time.Now().UTC().Add(-90 * 24 * time.Hour), Closed: true}
+	old := EscapeRecord{ID: "a", Kind: EscapeKind, Reason: "old", At: time.Now().UTC().Add(-30 * 24 * time.Hour)}
+	recent := EscapeRecord{ID: "b", Kind: EscapeKind, Reason: "new", At: time.Now().UTC().Add(-2 * 24 * time.Hour)}
+	closed := EscapeRecord{ID: "c", Kind: EscapeKind, Reason: "done", At: time.Now().UTC().Add(-90 * 24 * time.Hour), Closed: true}
 	for _, r := range []EscapeRecord{old, recent, closed} {
 		if err := appendEscape(r); err != nil {
 			t.Fatal(err)
@@ -381,7 +382,7 @@ func TestListEscapes_PrintsTheRecordsAgeInWholeDays(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", "")
 	if err := appendEscape(EscapeRecord{
-		Schema: StateSchema, ID: "a", Kind: EscapeKind, Reason: "ten days old",
+		ID: "a", Kind: EscapeKind, Reason: "ten days old",
 		At: time.Now().UTC().Add(-10 * 24 * time.Hour),
 	}); err != nil {
 		t.Fatal(err)
@@ -400,8 +401,8 @@ func TestListEscapes_OpenByDefaultAllWithTheFlag(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", "")
 	for _, r := range []EscapeRecord{
-		{Schema: StateSchema, ID: "a", Kind: EscapeKind, Reason: "still open", At: time.Now().UTC()},
-		{Schema: StateSchema, ID: "b", Kind: EscapeKind, Reason: "already fixed", At: time.Now().UTC(), Closed: true},
+		{ID: "a", Kind: EscapeKind, Reason: "still open", At: time.Now().UTC()},
+		{ID: "b", Kind: EscapeKind, Reason: "already fixed", At: time.Now().UTC(), Closed: true},
 	} {
 		if err := appendEscape(r); err != nil {
 			t.Fatal(err)

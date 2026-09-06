@@ -39,7 +39,7 @@ func TestWeeklyDigestReportsRatesDeniesAndOpenEscapes(t *testing.T) {
 	}, "\n")
 	writeGateLog(t, log)
 	if err := appendEscape(EscapeRecord{
-		Schema: StateSchema, ID: "a", Kind: EscapeKind, Reason: "x",
+		ID: "a", Kind: EscapeKind, Reason: "x",
 		At: now.Add(-11 * 24 * time.Hour),
 	}); err != nil {
 		t.Fatal(err)
@@ -82,7 +82,7 @@ func TestSessionStartPrintsTheDigestOncePerWeek(t *testing.T) {
 func TestRenderGateStatsCarriesTheOpenEscapeCount(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	if err := appendEscape(EscapeRecord{
-		Schema: StateSchema, ID: "a", Kind: EscapeKind, Reason: "x",
+		ID: "a", Kind: EscapeKind, Reason: "x",
 		At: time.Now().UTC().Add(-5 * 24 * time.Hour),
 	}); err != nil {
 		t.Fatal(err)
