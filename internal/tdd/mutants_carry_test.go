@@ -66,6 +66,69 @@ func TestMutationReceipt_NotRequiredWhenTheLaneChangesNoSourceOrTestFile(t *test
 	requireLoggedVerdict(t, cfg, "receipt-not-required:"+short(tree))
 }
 
+// A lane whose entire diff is Test-kind files has no mutable scope either:
+// cargo-mutants only ever generates a mutant from a package's own SOURCE, so
+// a diff that moves or edits only tests/*.rs can never produce one. Refusing
+// its honestly-zero receipt sent the author to "check the merge base" for a
+// base that was never wrong (issue #488).
+func TestMutationReceipt_NotRequiredWhenTheLaneChangesOnlyTestFiles(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root, base := carryRepo(t)
+	write(t, root, "tests/moved.rs", "#[test]\nfn it_works() {}\n")
+	tree := commitLane(t, root, "move an integration test into this crate")
+
+	if got := checkMutationReceipt(laneContext(root, tree, base)); got != nil {
+		t.Fatalf("a lane touching only test files must merge without a receipt: %s", got.Message)
+	}
+	requireLoggedVerdict(t, cfg, "receipt-not-required:"+short(tree))
+}
+
+// A lane whose entire diff is manifest files has no mutable scope either,
+// for the same reason as a Test-only diff: cargo-mutants generates a mutant
+// from a package's own source, and a Cargo.toml/Cargo.lock edit holds no
+// function body to mutate. ClassifyFile answers Source for a manifest ON
+// PURPOSE (a dependency bump must still run the suite, issue #278), so the
+// naive "no Source path" reading of laneHasNothingToMutate would still
+// refuse this diff — a second lane hit exactly that (three Cargo.toml edits
+// plus Cargo.lock, no .rs file touched) under issue #488.
+func TestMutationReceipt_NotRequiredWhenTheLaneChangesOnlyManifestFiles(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root, base := carryRepo(t)
+	write(t, root, "Cargo.toml", "[package]\nname = \"m\"\nversion = \"0.1.0\"\n\n[dependencies]\n")
+	write(t, root, "Cargo.lock", "# lockfile placeholder\n")
+	tree := commitLane(t, root, "drop an unused dependency")
+
+	if got := checkMutationReceipt(laneContext(root, tree, base)); got != nil {
+		t.Fatalf("a lane touching only manifest files must merge without a receipt: %s", got.Message)
+	}
+	requireLoggedVerdict(t, cfg, "receipt-not-required:"+short(tree))
+}
+
+// A Test-kind diff earns the early not-required exemption directly; it must
+// never fall through to the vacuous-receipt check and be refused for the
+// zero counts that diff can only ever produce. A receipt existing at all
+// here (with the shape issue #488 describes: zero mutants, zero moved
+// lines, a passing verdict) still must not be read — the lane needed none.
+func TestMutationReceipt_TestOnlyDiffNeverReachesTheVacuousCheck(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root, base := carryRepo(t)
+	write(t, root, "tests/moved.rs", "#[test]\nfn it_works() {}\n")
+	tree := commitLane(t, root, "move an integration test into this crate")
+
+	r := passingReceipt()
+	r.TipTree, r.BaseSHA = tree, base
+	r.MutantsTotal, r.MovedLines = 0, 0
+	writeReceipt(t, r)
+
+	if got := checkMutationReceipt(laneContext(root, tree, base)); got != nil {
+		t.Fatalf("a test-only diff must be waived before the vacuous check ever runs: %s", got.Message)
+	}
+	requireLoggedVerdict(t, cfg, "receipt-not-required:"+short(tree))
+}
+
 // One .rs in the diff is the whole reason the gate exists.
 func TestMutationReceipt_StillRequiredWhenTheDiffCarriesOneSourceFile(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

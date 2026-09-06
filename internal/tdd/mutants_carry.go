@@ -16,22 +16,32 @@ import (
 // decided from git's own diff rather than from anybody's memory of what they
 // edited:
 //
-//	not-required — the lane's whole diff against the merge base is
-//	               Ignore-kind. There is no mutant to generate, so there is
-//	               nothing a receipt could say (issue #102: a workflow-only
-//	               lane was refused while a Markdown-only lane passed).
+//	not-required — the lane's whole diff against the merge base has no
+//	               MUTABLE Source path in it (see isMutableSourcePath).
+//	               cargo-mutants generates a mutant from a package's own
+//	               source only, so a diff with none has no mutant to
+//	               generate, whatever else it touches (issue #102: a
+//	               workflow-only lane was refused while a Markdown-only lane
+//	               passed; issue #488: a lane whose whole diff was Test
+//	               files, and separately one whose whole diff was three
+//	               Cargo.toml files plus Cargo.lock, each tripped the SAME
+//	               refusal a diff with no mutable source cannot actually
+//	               earn).
 //	carried      — a receipt exists for an EARLIER tree of the same lane, and
 //	               every path that differs between that tree and this one is
 //	               Ignore-kind. The measured answer still describes the code
 //	               being merged, so it is re-stamped under the new tree.
 //
-// Neither rule ever widens what counts as proof: a single differing .rs blob
-// refuses both.
+// The two rules are deliberately NOT the same predicate: carrying forward
+// stays Ignore-only, because a changed Test file can change which mutants an
+// earlier run's tests still catch, so widening it there would carry forward
+// a proof that no longer applies. Neither rule ever admits one real changed
+// source blob.
 
 // laneHasNothingToMutate reports whether the lane's diff against its merge
-// base contains no Source or Test file. A diff the gate cannot compute (no
-// repo root, no base, a git that failed) is never waived — the gate's own
-// blind spot must not become a way past it.
+// base contains no path cargo-mutants could generate a mutant from. A diff
+// the gate cannot compute (no repo root, no base, a git that failed) is
+// never waived — the gate's own blind spot must not become a way past it.
 func laneHasNothingToMutate(ctx receiptContext) bool {
 	if ctx.RepoRoot == "" || ctx.BaseSHA == "" {
 		return false
@@ -40,7 +50,7 @@ func laneHasNothingToMutate(ctx receiptContext) bool {
 	if !ok {
 		return false
 	}
-	return onlyIgnoreKind(ctx.RepoRoot, changed)
+	return noneMutableSource(ctx.RepoRoot, changed)
 }
 
 // carryReceiptForward looks for a receipt of an earlier tree that still
@@ -128,6 +138,44 @@ func carryCandidates(ctx receiptContext) []MutationReceipt {
 func onlyIgnoreKind(repoRoot string, changed []string) bool {
 	for _, p := range changed {
 		if classifyRepoPath(repoRoot, p) != Ignore {
+			return false
+		}
+	}
+	return true
+}
+
+// isMutableSourcePath reports whether p is a path cargo-mutants could
+// actually generate a mutant from. This is a NARROWER question than
+// ClassifyFile's Source/Test/Ignore, which decides "should the suite run for
+// this path?" and answers Source for a manifest (manifestFiles in file.go —
+// Cargo.toml, Cargo.lock, go.mod, go.sum, package.json, pyproject.toml) on
+// PURPOSE: a dependency bump changes what builds, and a manifest-only commit
+// must not take the docs-only fast path past the suite (issue #278). None of
+// those files hold a function body a mutation tool could touch, so a path
+// counts as mutable source only when it classifies Source AND is not one of
+// them.
+func isMutableSourcePath(repoRoot, p string) bool {
+	if classifyRepoPath(repoRoot, p) != Source {
+		return false
+	}
+	base := path.Base(strings.ReplaceAll(p, "\\", "/"))
+	return !manifestFiles[base]
+}
+
+// noneMutableSource reports whether no changed path is mutable source: every
+// one is either Ignore- or Test-kind, or a Source file that is Source only
+// because it is a manifest rather than actual code. cargo-mutants can never
+// generate a mutant over a diff shaped this way, so the honest zero a
+// receipt reports over it is not a run that never happened, it is the only
+// possible answer (issue #488: a Test-only diff and, separately, a
+// manifest-only diff each tripped the vacuous-receipt refusal this predicate
+// exists to waive). Used by laneHasNothingToMutate ONLY — never by
+// carryReceiptForward, where a changed Test file can change which mutants an
+// earlier receipt's tests still catch, so carrying a passing verdict across
+// one would carry forward a proof that no longer applies.
+func noneMutableSource(repoRoot string, changed []string) bool {
+	for _, p := range changed {
+		if isMutableSourcePath(repoRoot, p) {
 			return false
 		}
 	}
