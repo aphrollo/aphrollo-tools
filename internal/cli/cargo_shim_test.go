@@ -179,6 +179,59 @@ func TestRunCargoShim_WaitsPrintsQueuedOnceAndAcquiredOnce(t *testing.T) {
 	}
 }
 
+// TestRunCargoShim_RecordsQueueWaiterWhileWaitingThenRemoves pins issue
+// #435's stated residual: while the shim is blocked polling, a SEPARATE
+// caller (tdd.QueueWaitersForRoot) can see this invocation is queued and
+// for which target -- and once the wait ends, the record is gone, so a
+// later status call never reports a wait that finished.
+func TestRunCargoShim_RecordsQueueWaiterWhileWaitingThenRemoves(t *testing.T) {
+	withIsolatedCargoLock(t)
+
+	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
+	if !ok {
+		t.Fatal("setup: must be able to take the isolated lock")
+	}
+	releaseAfter := make(chan struct{})
+	go func() {
+		<-releaseAfter
+		release()
+	}()
+
+	recorded := make(chan struct{})
+	origHook := queueWaiterRecordedForTest
+	queueWaiterRecordedForTest = func() { close(recorded) }
+	t.Cleanup(func() { queueWaiterRecordedForTest = origHook })
+
+	cfg := cargoShimConfig{
+		waitBudget:   2 * time.Second,
+		pollInterval: 20 * time.Millisecond,
+		realCargo:    stubCargo(),
+	}
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- runCargoShim(stubCargoArgsExit(0), strings.NewReader(""), &stdout, &stderr, cfg)
+	}()
+
+	<-recorded
+	waiters := tdd.QueueWaitersForRoot(shimCwd())
+	if len(waiters) != 1 {
+		t.Fatalf("expected exactly one queue-waiter record while blocked, got %d", len(waiters))
+	}
+	if waiters[0].Target != shimTargetDir() {
+		t.Errorf("waiter target = %q, want %q", waiters[0].Target, shimTargetDir())
+	}
+
+	close(releaseAfter)
+	if code := <-done; code != 0 {
+		t.Fatalf("exit = %d, want 0 (must eventually acquire and succeed)", code)
+	}
+
+	if got := tdd.QueueWaitersForRoot(shimCwd()); len(got) != 0 {
+		t.Fatalf("queue-waiter record must be removed once the wait ends, got %+v", got)
+	}
+}
+
 // TestRunCargoShim_GivesUpAfterWaitBudget_Exits75 pins requirement (b): a
 // lock held for longer than waitBudget makes the shim give up, exit 75
 // (EX_TEMPFAIL), and print the give-up line -- all within a short, bounded
