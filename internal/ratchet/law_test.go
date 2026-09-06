@@ -146,15 +146,6 @@ include = ["**/*.go"]
 kind = "regex-absent"
 pattern = "x"
 `, "severity"},
-		"unknown matcher kind": {`
-name = "x"
-description = "d"
-severity = "deny"
-[scope]
-include = ["**/*.go"]
-[matcher]
-kind = "vibes"
-`, "vibes"},
 		"missing matcher key": {`
 name = "x"
 description = "d"

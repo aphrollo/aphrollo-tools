@@ -9,6 +9,7 @@
 package ratchet
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -188,8 +189,19 @@ type Law struct {
 	// the keys this binary knows, unknown keys are skipped rather than
 	// rejected, and the run names it so the half-read rule is visible. A repo
 	// upgrading its laws ahead of a box's binary must never wedge that box.
-	Schema      int
-	Newer       bool
+	Schema int
+	Newer  bool
+	// UnknownKind is the raw `[matcher].kind` string this binary's compiled
+	// matcherKeys table does not recognize, "" for every ordinarily-parsed
+	// law. Set only when ParseLaw deliberately stopped short of building a
+	// Matcher: a repo's laws can move ahead of a box's aphrollo binary (a
+	// lane lands a new matcher kind before every checkout on the box is
+	// rebuilt from it), and a law naming a kind this binary has never heard
+	// of must not reject every OTHER law's commit — it is skipped instead,
+	// loudly, by whichever caller judges the whole set (see Check's
+	// SkippedLaws). Every consumer must check this before treating Matcher
+	// as meaningful: a zero Matcher looks structurally valid.
+	UnknownKind string
 	Name        string
 	Description string
 	Severity    Severity
@@ -398,6 +410,15 @@ func ParseLaw(text, wantName string) (Law, error) {
 		return Law{}, err
 	}
 	if law.Matcher, err = parseMatcher(doc, newer, law.Name); err != nil {
+		// The rest of the file parsed fine, so the law is returned intact
+		// with UnknownKind set rather than failed outright — a caller that
+		// judges the whole set (Check, RunFixtures) is the one that decides
+		// to skip it and report the skip; a bare parse never does.
+		var unknown *UnknownMatcherKindError
+		if errors.As(err, &unknown) {
+			law.UnknownKind = string(unknown.Kind)
+			return law, nil
+		}
 		return Law{}, err
 	}
 	if law.Matcher.Contiguous {
@@ -421,214 +442,6 @@ func parseSchema(doc *tomlDoc) (schema int, newer bool, err error) {
 		return 0, false, fmt.Errorf("schema is a positive integer version, got %s", v.kind)
 	}
 	return v.i, v.i > SchemaVersion, nil
-}
-
-func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
-	if !doc.has("matcher") {
-		return Matcher{}, fmt.Errorf("missing [matcher] — a law must state exactly one rule")
-	}
-	kind := MatcherKind(doc.str("matcher", "kind"))
-	allowed, ok := matcherKeys[kind]
-	if !ok {
-		return Matcher{}, fmt.Errorf("unknown matcher kind %q — known kinds: %s", kind, knownKinds())
-	}
-	if !newer {
-		for _, k := range doc.keys("matcher") {
-			if !matcherKeyAllowed(allowed, k) {
-				return Matcher{}, fmt.Errorf("unknown key matcher.%s for kind %q", k, kind)
-			}
-		}
-	}
-	for _, spec := range allowed {
-		if !spec.required {
-			continue
-		}
-		if _, ok := doc.value("matcher", spec.name); !ok {
-			return Matcher{}, fmt.Errorf("matcher.%s is required for kind %q", spec.name, kind)
-		}
-	}
-
-	m := Matcher{Kind: kind, Key: KeyLineContent, Lines: 2, Count: CountLines, Direction: DirectionAbove}
-	var err error
-	get := func(key string) *regexp.Regexp {
-		if err != nil {
-			return nil
-		}
-		var re *regexp.Regexp
-		re, err = compileField(doc, key)
-		return re
-	}
-	switch kind {
-	case KindLineCount:
-		v, _ := doc.value("matcher", "max")
-		if v.kind != tomlInt || v.i <= 0 {
-			return Matcher{}, fmt.Errorf("matcher.max is a positive integer")
-		}
-		m.Max, m.Key = v.i, KeyFile
-		m.LineMode = LineCountText
-		if v, ok := doc.value("matcher", "count"); ok {
-			switch LineCountMode(v.s) {
-			case LineCountText, LineCountCode:
-				m.LineMode = LineCountMode(v.s)
-			default:
-				return Matcher{}, fmt.Errorf("matcher.count = %q — a count is %q or %q", v.s, LineCountText, LineCountCode)
-			}
-		}
-		if v, ok := doc.value("matcher", "unit_split"); ok {
-			if v.kind != tomlString || v.s == "" {
-				return Matcher{}, fmt.Errorf("matcher.unit_split is a non-empty regex string")
-			}
-			re, reErr := regexp.Compile(v.s)
-			if reErr != nil {
-				return Matcher{}, fmt.Errorf("matcher.unit_split does not compile: %w", reErr)
-			}
-			m.UnitSplit = re
-		}
-	case KindRegexAbsent:
-		m.Pattern = get("pattern")
-		if v, ok := doc.value("matcher", "count"); ok {
-			switch CountKind(v.s) {
-			case CountLines, CountMatches:
-				m.Count = CountKind(v.s)
-			default:
-				return Matcher{}, fmt.Errorf("matcher.count = %q — a count is %q or %q", v.s, CountLines, CountMatches)
-			}
-		}
-		if v, ok := doc.value("matcher", "key"); ok {
-			switch KeyKind(v.s) {
-			case KeyFile:
-				m.Key = KeyFile
-			case KeyLineContent, "file:line-content":
-				m.Key = KeyLineContent
-			default:
-				return Matcher{}, fmt.Errorf("matcher.key = %q — a key is %q or %q", v.s, KeyFile, KeyLineContent)
-			}
-		}
-	case KindPathRegexAbsent:
-		m.Pattern = get("pattern")
-		m.Key = KeyFile
-	case KindRegexPresent, KindDocPathResolves:
-		m.Pattern = get("pattern")
-		m.Key = KeyFile
-		if kind == KindDocPathResolves {
-			m.Key = KeyLineContent
-		}
-	case KindMarkerWithinLines:
-		m.Trigger, m.Marker = get("trigger"), get("marker")
-		if v, ok := doc.value("matcher", "direction"); ok {
-			switch Direction(v.s) {
-			case DirectionAbove, DirectionBelow, DirectionBoth:
-				m.Direction = Direction(v.s)
-			default:
-				return Matcher{}, fmt.Errorf("matcher.direction = %q — a direction is %q, %q or %q", v.s, DirectionAbove, DirectionBelow, DirectionBoth)
-			}
-		}
-		if v, ok := doc.value("matcher", "contiguous"); ok {
-			if v.kind != tomlBool {
-				return Matcher{}, fmt.Errorf("matcher.contiguous is a boolean, got %s", v.kind)
-			}
-			m.Contiguous = v.b
-			if _, both := doc.value("matcher", "lines"); both && v.b {
-				return Matcher{}, fmt.Errorf("matcher.contiguous and matcher.lines say different things — the comment run above the trigger IS the window")
-			}
-		}
-		if v, ok := doc.value("matcher", "lines"); ok {
-			if v.kind != tomlInt || v.i < 0 {
-				return Matcher{}, fmt.Errorf("matcher.lines is a non-negative integer")
-			}
-			m.Lines = v.i
-		}
-	case KindDepGraphForbids:
-		m.Key = KeyLineContent
-		m.Edges = "normal"
-		if v, ok := doc.value("matcher", "edges"); ok {
-			if v.s != "normal" && v.s != "all" {
-				return Matcher{}, fmt.Errorf("matcher.edges is %q or %q, got %q", "normal", "all", v.s)
-			}
-			m.Edges = v.s
-		}
-		if ferr := setMinReachable(doc, &m); ferr != nil {
-			return Matcher{}, ferr
-		}
-		if ferr := setDepGraphForbidsFields(doc, &m); ferr != nil {
-			return Matcher{}, ferr
-		}
-	case KindGoDepGraphForbids:
-		m.Key = KeyLineContent
-		if ferr := setMinReachable(doc, &m); ferr != nil {
-			return Matcher{}, ferr
-		}
-		if ferr := setDepGraphForbidsFields(doc, &m); ferr != nil {
-			return Matcher{}, ferr
-		}
-	case KindFileSetContainment:
-		m.Key = KeyLineContent
-		m.Capture = get("capture")
-		m.SupersetFile = doc.str("matcher", "superset_file")
-		m.SubsetFile = doc.str("matcher", "subset_file")
-		if err == nil && m.Capture.NumSubexp() < 1 {
-			return Matcher{}, fmt.Errorf("matcher.capture must capture the name in group 1")
-		}
-	case KindJSONNumberCeiling:
-		m.Key = KeyFile
-		m.Files = doc.str("matcher", "files")
-		m.JSONPath = doc.str("matcher", "path")
-		if ferr := setCeilingCommonFields(doc, &m); ferr != nil {
-			return Matcher{}, ferr
-		}
-	case KindGoBenchCeiling:
-		m.Key = KeyFile
-		m.Files = doc.str("matcher", "files")
-		if ferr := setCeilingCommonFields(doc, &m); ferr != nil {
-			return Matcher{}, ferr
-		}
-	case KindSymbolRemoved:
-		m.Pattern, m.Key = get("pattern"), KeyLineContent
-		err = requireOneCaptureGroupSymbolRemoved(err, lawName, m.Pattern)
-	case KindCoChange:
-		m.Key = KeyLineContent
-	case KindHunkRegex:
-		m.Key = KeyLineContent
-		if ferr := setHunkRegexFields(doc, &m, lawName); ferr != nil {
-			return Matcher{}, ferr
-		}
-	case KindRegistryBothWays:
-		m.EntryPattern, m.UsePattern = get("entry_pattern"), get("use_pattern")
-		m.RegistryFile = doc.str("matcher", "registry_file")
-		m.Key = KeyLineContent
-		if err == nil {
-			if ferr := requireCaptureGroups(m.EntryPattern, m.UsePattern); ferr != nil {
-				return Matcher{}, ferr
-			}
-		}
-	}
-	if err != nil {
-		return Matcher{}, err
-	}
-	return m, nil
-}
-
-// compileField compiles one matcher regex, naming the key when it does not
-// compile — a broken pattern is a defect in the law, not in the tree.
-func compileField(doc *tomlDoc, key string) (*regexp.Regexp, error) {
-	v, ok := doc.value("matcher", key)
-	if !ok || v.kind != tomlString {
-		return nil, fmt.Errorf("matcher.%s is a regex string", key)
-	}
-	re, err := regexp.Compile(v.s)
-	if err != nil {
-		return nil, fmt.Errorf("matcher.%s does not compile: %w", key, err)
-	}
-	return re, nil
-}
-
-func knownKinds() string {
-	names := make([]string, 0, len(matcherKeys))
-	for k := range matcherKeys {
-		names = append(names, string(k))
-	}
-	sort.Strings(names)
-	return strings.Join(names, ", ")
 }
 
 func requiredString(doc *tomlDoc, section, key string) (string, error) {

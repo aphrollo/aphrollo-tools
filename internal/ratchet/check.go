@@ -85,6 +85,11 @@ type Result struct {
 	// The caller warns once per name and logs `ratchet-law-newer:<law>` — a
 	// half-read rule that says nothing looks exactly like a clean one.
 	NewerLaws []NewerLaw `json:"newer_laws,omitempty"`
+	// SkippedLaws names every law whose [matcher].kind this binary's compiled
+	// matcherKeys table does not recognize at all — not judged, not scanned,
+	// not baselined. The caller warns once per name and counts it the way it
+	// counts every other stand-down (see Law.UnknownKind).
+	SkippedLaws []SkippedLaw `json:"skipped_laws,omitempty"`
 	// UnusedScopeSets names every set declared in .ratchet/scopes.toml that no
 	// law's [scope].alias references — a set nobody uses is dead weight the
 	// next reader has no way to tell from a live one.
@@ -137,10 +142,19 @@ func Check(opts Options) (Result, error) {
 		}
 		laws = kept
 	}
-	res := Result{Laws: len(laws), UnusedScopeSets: unusedScopeSets}
+	res := Result{UnusedScopeSets: unusedScopeSets}
+	var judged []Law
 	for _, l := range laws {
 		if l.Newer {
 			res.NewerLaws = append(res.NewerLaws, NewerLaw{Name: l.Name, Schema: l.Schema})
+		}
+		// An unknown matcher kind is a binary that predates this law, not a
+		// broken law: skip judging it — and it alone — rather than reject
+		// the whole set the way LoadLaws itself did before #440. The caller
+		// (ratchetStage) is what turns this into a loud, counted warning.
+		if l.UnknownKind != "" {
+			res.SkippedLaws = append(res.SkippedLaws, SkippedLaw{Name: l.Name, Kind: l.UnknownKind})
+			continue
 		}
 		note, err := presetDrift(l)
 		if err != nil {
@@ -149,7 +163,10 @@ func Check(opts Options) (Result, error) {
 		if note != "" {
 			res.PresetDrift = append(res.PresetDrift, note)
 		}
+		judged = append(judged, l)
 	}
+	laws = judged
+	res.Laws = len(laws)
 	if len(laws) == 0 {
 		return res, nil
 	}
@@ -339,216 +356,6 @@ func loadLawBaseline(root string, law Law) (*Baseline, string, error) {
 	return b, path, err
 }
 
-// treeScan is one walk's result: every in-scope file's content-derived hits,
-// grouped by law, plus the file contents the registry matcher needs.
-type treeScan struct {
-	byLaw                  map[string][]Hit
-	ignored                map[string]bool
-	files                  []string
-	content                map[string]string
-	scanned, read, matched int
-}
-
-// scanTree walks every law's scope ONCE, reading each file at most once and
-// serving unchanged files from the mtime cache.
-func scanTree(opts Options, laws []Law) (*treeScan, error) {
-	scan := &treeScan{byLaw: map[string][]Hit{}, content: map[string]string{}}
-	cache := loadCache(opts.CacheDir, opts.Root, laws)
-
-	paths, ignored, err := collectFiles(opts, laws)
-	if err != nil {
-		return nil, err
-	}
-	scan.ignored = ignored
-	// A registry-both-ways law answers a WHOLE-TREE question, so it needs the
-	// raw content of every file in ITS scope. That is a reason to read those
-	// files again; it is not a reason to re-run 26 laws' matchers over the
-	// whole tree. Keeping the two apart is what makes a repeat run cheap:
-	// measured in borld, 26 laws over 1936 files, 5.6s became 1.2s.
-	var contentLaws []Law
-	for _, l := range laws {
-		if l.Matcher.Kind == KindRegistryBothWays {
-			contentLaws = append(contentLaws, l)
-		}
-		// A code-mode line-count law's stale-baseline note needs the actual
-		// measured count on a file that no longer produces a hit at all — the
-		// cache's "unchanged, no hits" fast path never reads that file's
-		// content otherwise.
-		if l.Matcher.Kind == KindLineCount && l.Matcher.LineMode == LineCountCode {
-			contentLaws = append(contentLaws, l)
-		}
-		if l.Matcher.Kind == KindSymbolRemoved || l.Matcher.Kind == KindCoChange || l.Matcher.Kind == KindHunkRegex {
-			contentLaws = append(contentLaws, l)
-		}
-	}
-	for _, rel := range paths {
-		scan.scanned++
-		proposed, overlaid := opts.Proposed[rel]
-		needsContent := scopedByAny(contentLaws, rel)
-		var hits map[string][]Hit
-		var ok bool
-		if !overlaid {
-			hits, ok = cache.lookup(opts.Root, rel)
-		}
-		content := proposed
-		if !overlaid && (!ok || needsContent) {
-			data, err := readFile(filepath.Join(opts.Root, filepath.FromSlash(rel)))
-			if err != nil {
-				if vanished(err) {
-					continue // a file that vanished mid-walk is not a finding
-				}
-				return nil, &ScanReadError{Path: rel, Err: err}
-			}
-			content = string(data)
-			scan.read++
-		}
-		if needsContent {
-			scan.content[rel] = content
-		}
-		if !ok {
-			scan.matched++
-			hits = map[string][]Hit{}
-			fl := newFileLines(content)
-			for _, law := range laws {
-				if !law.Scope.Matches(rel) {
-					continue
-				}
-				if h := law.hitsInLines(rel, fl); len(h) > 0 {
-					hits[law.Name] = h
-				}
-			}
-			if !overlaid {
-				cache.store(opts.Root, rel, hits)
-			}
-		}
-		for name, h := range hits {
-			scan.byLaw[name] = append(scan.byLaw[name], h...)
-		}
-		scan.files = append(scan.files, rel)
-	}
-	cache.save()
-	return scan, nil
-}
-
-// scopedByAny reports whether any of these laws claims rel.
-func scopedByAny(laws []Law, rel string) bool {
-	for _, l := range laws {
-		if l.Scope.Matches(rel) {
-			return true
-		}
-	}
-	return false
-}
-
-// collectFiles is the union of every law's scope, walked once and sorted, plus
-// any proposed file that does not exist on disk yet.
-func collectFiles(opts Options, laws []Law) ([]string, map[string]bool, error) {
-	ignoredFiles := map[string]bool{}
-	if len(opts.Files) > 0 {
-		return dedupe(append([]string{}, opts.Files...)), ignoredFiles, nil
-	}
-	// A gitignored path is judged only by a law that opted out, so the walk
-	// carries whether it is under one: a repo that ignores a whole extension
-	// (borld ignores *.md) would otherwise hide the very files a doc law is about.
-	inScope := func(rel string, ignored bool) bool {
-		for _, l := range laws {
-			if ignored && !l.Scope.IgnoreGitignore {
-				continue
-			}
-			if l.Scope.Matches(rel) {
-				return true
-			}
-		}
-		return false
-	}
-	walkable := func(rel string, ignored bool) bool {
-		for _, l := range laws {
-			if ignored && !l.Scope.IgnoreGitignore {
-				continue
-			}
-			if l.Scope.couldMatchUnder(rel) {
-				return true
-			}
-		}
-		return false
-	}
-
-	// A tracked set replaces the walk entirely — but it carries the SAME
-	// gitignore flag the walk would have computed, so a law that never opted
-	// into ignored files does not suddenly see them just because git tracks
-	// them.
-	if len(opts.Tracked) > 0 {
-		ignoredTracked := map[string]bool{}
-		for _, rel := range opts.TrackedIgnored {
-			ignoredTracked[normalizeSlashes(rel)] = true
-		}
-		var out []string
-		for _, rel := range opts.Tracked {
-			rel = normalizeSlashes(rel)
-			if rel == "" || !inScope(rel, ignoredTracked[rel]) {
-				continue
-			}
-			out = append(out, rel)
-			if ignoredTracked[rel] {
-				ignoredFiles[rel] = true
-			}
-		}
-		for rel := range opts.Proposed {
-			if inScope(rel, false) {
-				out = append(out, rel)
-			}
-		}
-		sort.Strings(out)
-		return dedupe(out), ignoredFiles, nil
-	}
-
-	ignore := loadGitignore(opts.Root)
-	var out []string
-	var walk func(dir, rel string, ignored bool) error
-	walk = func(dir, rel string, ignored bool) error {
-		entries, err := readDir(dir)
-		if err != nil {
-			if vanished(err) {
-				return nil // a dir that vanished mid-walk is not a finding
-			}
-			return &ScanReadError{Path: dir, Err: err}
-		}
-		for _, e := range entries {
-			child := path(rel, e.Name())
-			if e.IsDir() && e.Name() == ".git" {
-				continue // never a subject, and no law may opt into it
-			}
-			childIgnored := ignored || ignore.ignored(child, e.IsDir())
-			if e.IsDir() {
-				if !walkable(child, childIgnored) {
-					continue
-				}
-				if err := walk(filepath.Join(dir, e.Name()), child, childIgnored); err != nil {
-					return err
-				}
-				continue
-			}
-			if inScope(child, childIgnored) {
-				out = append(out, child)
-				if childIgnored {
-					ignoredFiles[child] = true
-				}
-			}
-		}
-		return nil
-	}
-	if err := walk(opts.Root, "", false); err != nil {
-		return nil, nil, err
-	}
-	for rel := range opts.Proposed {
-		if inScope(rel, false) {
-			out = append(out, rel)
-		}
-	}
-	sort.Strings(out)
-	return dedupe(out), ignoredFiles, nil
-}
-
 func plural(n int, word string) string {
 	if n == 1 {
 		return word
@@ -591,17 +398,6 @@ func scopeHits(root string, law Law, files []string, ignored map[string]bool) []
 		Law: law.Name, Weight: 1, Key: "scope-floor",
 		What: fmt.Sprintf("scope matched %d %s, min_files = %d", matched, plural(matched, "file"), law.Scope.MinFiles),
 	})
-}
-
-func dedupe(in []string) []string {
-	sort.Strings(in)
-	out := in[:0]
-	for i, s := range in {
-		if i == 0 || in[i-1] != s {
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 // LawNames lists a repo's law names, for a caller that wants to say "no laws"

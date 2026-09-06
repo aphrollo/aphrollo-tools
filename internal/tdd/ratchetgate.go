@@ -174,14 +174,24 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 		Tracked:        trackedFiles(repoRoot),
 		TrackedIgnored: trackedIgnoredFiles(repoRoot),
 		CacheDir:       stateDir(),
-		// A diff-scoped law (symbol-removed) needs the commit it is about to
-		// land on top of — HEAD, both for a plain commit and a merge commit.
-		Base: "HEAD",
+		// A diff-scoped law (symbol-removed, co-change, hunk-regex) needs the
+		// commit it is about to land on top of — HEAD, both for a plain
+		// commit and a merge commit — plus, for a `[scope] changed =
+		// "staged"` law, the files THIS commit actually stages: without it
+		// co-change/hunk-regex answer nothing on every real commit (see
+		// changedInput), which is the "law that silently does nothing"
+		// shape #320 is about, not a rejection anyone would ever see.
+		Base:        "HEAD",
+		StagedFiles: stagedFiles(repoRoot),
 	})
 	if err != nil {
 		return ratchetCheckErrorResult(gateName, repoRoot, err, started)
 	}
 	noteNewerLaws(gateName, repoRoot, res.NewerLaws)
+	noteSkippedLaws(gateName, repoRoot, res.SkippedLaws)
+	for _, note := range res.Notes {
+		fmt.Fprintf(os.Stderr, "gate %s: ratchet: %s\n", gateName, note)
+	}
 	if res.Blocked() {
 		msg := fmt.Sprintf("gate %s: ratchet → REJECTED\n  %s",
 			gateName, strings.Join(res.Lines(), "\n  "))
@@ -209,13 +219,17 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 //     and names the path — the concrete #164 scenario: a tracked .rs file
 //     locked by an editor swap file or an AV scan while `git commit` runs.
 //   - anything else: the law tooling could not even START (a malformed law
-//     TOML, a matcher kind this binary's schema predates). Skipping used to
-//     read as "clean" to every stage after it, and it does not just excuse
-//     ONE law — every OTHER law in the repo goes unjudged with it until the
-//     box catches up (#158: one law a binary is too old to parse disarmed
-//     the whole ratchet stage, and `docs check` alongside it, until
-//     reinstall). A gate that cannot read its own laws is not a gate, so
-//     this blocks too, with a remedy: fix the law, or reinstall aphrollo.
+//     TOML — a broken regex, a typo'd key, a name that disagrees with its
+//     file). Skipping used to read as "clean" to every stage after it, and
+//     it does not just excuse ONE law — every OTHER law in the repo goes
+//     unjudged with it until the box catches up (#158: one law a binary
+//     could not even parse disarmed the whole ratchet stage, and `docs
+//     check` alongside it, until reinstall). A gate that cannot read its own
+//     laws is not a gate, so this blocks too, with a remedy: fix the law.
+//     An unknown MATCHER KIND is deliberately not this shape (#440): it
+//     reaches Check as a per-law skip in Result.SkippedLaws instead of an
+//     error, precisely so the one law a binary predates cannot take every
+//     other law down with it — see noteSkippedLaws.
 //
 // Both block; only the message differs, because the two need different
 // fixes and a session reading gate.log should not have to guess which one
@@ -237,7 +251,7 @@ func ratchetCheckErrorResult(gateName, repoRoot string, err error, started time.
 		return GateResult{Blocked: true, Message: msg}
 	}
 	msg := fmt.Sprintf(
-		"gate %s: ratchet → REJECTED (the law tooling could not run: %v)\n  fix the law file named above, or reinstall aphrollo if it predates a matcher kind or schema a law declares",
+		"gate %s: ratchet → REJECTED (the law tooling could not run: %v)\n  fix the law file named above, or reinstall aphrollo if it predates a schema a law declares",
 		gateName, err)
 	fmt.Fprintln(os.Stderr, msg)
 	appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-rejected", time.Since(started))
@@ -254,6 +268,23 @@ func noteNewerLaws(gateName, repoRoot string, laws []ratchet.NewerLaw) {
 		fmt.Fprintf(os.Stderr, "gate %s: ratchet law %q declares schema %d; this binary supports %d — unknown keys skipped\n",
 			gateName, l.Name, l.Schema, ratchet.SchemaVersion)
 		appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-law-newer:"+logToken(l.Name), 0)
+	}
+}
+
+// noteSkippedLaws reports every law whose [matcher].kind this binary does
+// not compile in at all — the #440 bootstrap hazard: a lane lands a new
+// matcher kind before every checkout on the box rebuilds from it, and the
+// old fix (reject the commit) took every OTHER law down with the one this
+// binary cannot read. It warns once per law on stderr, loudly enough to name
+// the law and the unknown kind, and leaves a `standdown-unknown-matcher-
+// kind:<law>` line in gate.log — counted the same way every other stand-down
+// is (see denyVerdictPrefixes), because a law that silently stops enforcing
+// is the exact defect #320 is about.
+func noteSkippedLaws(gateName, repoRoot string, laws []ratchet.SkippedLaw) {
+	for _, l := range laws {
+		fmt.Fprintf(os.Stderr, "gate %s: ratchet law %q declares matcher kind %q, unknown to this binary — SKIPPED, not judged; rebuild aphrollo\n",
+			gateName, l.Name, l.Kind)
+		appendGateLog(gateName, repoRoot, "ratchet check", "standdown-unknown-matcher-kind:"+logToken(l.Name), 0)
 	}
 }
 
@@ -352,12 +383,20 @@ func ratchetFixtureStage(gateName, repoRoot string) GateResult {
 			kind: outcomeCheckError,
 			err:  err,
 			message: fmt.Sprintf(
-				"gate %s: ratchet fixtures → REJECTED (the law tooling could not run: %v)\n  fix the law file named above, or reinstall aphrollo if it predates a matcher kind or schema a law declares",
+				"gate %s: ratchet fixtures → REJECTED (the law tooling could not run: %v)\n  fix the law file named above, or reinstall aphrollo if it predates a schema a law declares",
 				gateName, err),
 		})
 	}
 	var failures []string
+	tested := 0
 	for _, r := range results {
+		// Already warned and counted by noteSkippedLaws, which ran ahead of
+		// this stage in ratchetStage: a law this binary cannot even build a
+		// Matcher for has no fixture verdict to report, ok or failed.
+		if r.Skipped {
+			continue
+		}
+		tested++
 		for _, f := range r.Failures {
 			failures = append(failures, r.Law+": "+f)
 		}
@@ -367,7 +406,7 @@ func ratchetFixtureStage(gateName, repoRoot string) GateResult {
 		return GateResult{Blocked: true, Message: fmt.Sprintf(
 			"gate %s: ratchet fixtures → REJECTED\n  %s", gateName, strings.Join(failures, "\n  "))}
 	}
-	fmt.Fprintf(os.Stderr, "gate %s: ratchet fixtures → green (%d law(s))\n", gateName, len(results))
+	fmt.Fprintf(os.Stderr, "gate %s: ratchet fixtures → green (%d law(s))\n", gateName, tested)
 	appendGateLog(gateName, repoRoot, "ratchet test", "green", time.Since(started))
 	return GateResult{}
 }

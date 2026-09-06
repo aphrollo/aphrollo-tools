@@ -48,6 +48,9 @@ func Adopt(opts AdoptOptions) (AdoptResult, error) {
 	if law == nil {
 		return AdoptResult{}, fmt.Errorf("no law named %q under %s", opts.Law, LawsDir)
 	}
+	if law.UnknownKind != "" {
+		return AdoptResult{}, fmt.Errorf("%s: matcher kind %q is unknown to this binary — rebuild aphrollo before adopting it", law.Name, law.UnknownKind)
+	}
 	if law.Baseline == "" {
 		return AdoptResult{}, fmt.Errorf("%s declares no baseline — there is nothing to adopt", law.Name)
 	}
