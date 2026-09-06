@@ -28,7 +28,7 @@ func TestRename_RustAnalyzer(t *testing.T) {
 		t.Skipf("rust-analyzer on PATH but not runnable (%v); skipping e2e", err)
 	}
 
-	dir := t.TempDir()
+	dir := resolvedTempDir(t)
 	if err := os.WriteFile(filepath.Join(dir, "Cargo.toml"),
 		[]byte("[package]\nname = \"m\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"), 0o644); err != nil {
 		t.Fatal(err)

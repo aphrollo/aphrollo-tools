@@ -16,7 +16,7 @@ func TestRename_TypeScript(t *testing.T) {
 		t.Skip("typescript-language-server not on PATH; skipping e2e")
 	}
 
-	dir := t.TempDir()
+	dir := resolvedTempDir(t)
 	if err := os.WriteFile(filepath.Join(dir, "tsconfig.json"),
 		[]byte("{\"compilerOptions\":{\"strict\":true},\"include\":[\"*.ts\"]}\n"), 0o644); err != nil {
 		t.Fatal(err)
