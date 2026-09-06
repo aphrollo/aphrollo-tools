@@ -1,0 +1,10 @@
+func FuzzWidget(f *testing.F) {
+	f.Fuzz(func(t *testing.T, blob string) {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("panicked: %v", r)
+			}
+		}()
+		_ = widgetFromBlob(blob)
+	})
+}

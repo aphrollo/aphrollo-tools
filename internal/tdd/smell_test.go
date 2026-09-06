@@ -2,8 +2,17 @@ package tdd
 
 import "testing"
 
+// ratchet: test_removed TestSmell_AssertionFree: assertion-free is dropped, 0 of 8 #319 incidents caught, measurement recorded on the issue
+
 // blocks reports whether content trips a blocking smell, for terse assertions.
 func blocks(content string) bool { return smellCheck(content).Action == Block }
+
+// oracleWarnAction reports the action testOracleWarnings takes on content at a
+// given phase — the same shape suppressAt (suppress_test.go) uses for the
+// any-code-file suppressions, mirrored here for the test-scoped ones.
+func oracleWarnAction(content string, p phase) Action {
+	return evaluate(content, testOracleWarnings, p, defaultLang).Action
+}
 
 func TestSmell_Tautology(t *testing.T) {
 	blocked := []string{
@@ -15,6 +24,15 @@ func TestSmell_Tautology(t *testing.T) {
 		"expect(user.id).toEqual(user.id)",
 		"assert.strictEqual(result, result)",
 		"assert.equal(x, x)",
+		// Single-operand forms: the literal IS the second operand, so there is
+		// really only one value in play — just as vacuous as comparing a
+		// value to itself.
+		"assert.True(t, true)",
+		"require.True(t, true)",
+		"assert!(true)",
+		"assert True",
+		"assert True,",
+		"expect(true).toBe(true)", // already covered by the two-operand path (both captures are the literal "true")
 	}
 	for _, src := range blocked {
 		if !blocks(src) {
@@ -32,6 +50,9 @@ func TestSmell_Tautology(t *testing.T) {
 		"// assert x == x",           // self-compare only in a comment
 		`msg = "assert x == x here"`, // self-compare only in a string
 		"expect(a).toBe(b)",
+		"assert.True(t, isValid)",  // a real variable, not the hardcoded literal
+		"assert True == checkOK()", // a genuine (if oddly written) comparison, not a bare literal
+		"assert False",             // a different literal entirely
 	}
 	for _, src := range allowed {
 		if blocks(src) {
@@ -178,6 +199,95 @@ func TestSmell_TestSleep(t *testing.T) {
 	for _, src := range allowed {
 		if blocks(src) {
 			t.Errorf("false sleep block for legitimate %q", src)
+		}
+	}
+}
+
+// TestSmell_PanicOnlyOracle covers issue #319's incident 8 directly: a
+// Fuzz/Test function whose only assertion is a defer/recover panic-catcher,
+// with the function under test's return value discarded elsewhere in the
+// body. Mirrors FuzzCargoShimArgv/FuzzGitShimArgv/FuzzBashWriteTargets/
+// FuzzReceipt as they stood at 76f9c48~1, before that commit fixed all four.
+func TestSmell_PanicOnlyOracle(t *testing.T) {
+	hit := []string{
+		// FuzzCargoShimArgv's shape, minimally: the return value of the call
+		// under test discarded, no other assertion anywhere.
+		"func FuzzCargoShimArgv(f *testing.F) {\n\tf.Fuzz(func(t *testing.T, blob string) {\n" +
+			"\t\tdefer func() {\n\t\t\tif r := recover(); r != nil {\n\t\t\t\tt.Fatalf(\"panicked: %v\", r)\n\t\t\t}\n\t\t}()\n" +
+			"\t\targs := argvFromBlob(blob)\n\t\t_ = cargoVerb(args)\n\t\t_ = cargoRunArgsToBuildArgs(args)\n\t})\n}",
+		// FuzzGitShimArgv's shape: a tuple discard (`_, rest :=`) still counts.
+		"func FuzzGitShimArgv(f *testing.F) {\n\tf.Fuzz(func(t *testing.T, blob string) {\n" +
+			"\t\tdefer func() {\n\t\t\tif r := recover(); r != nil {\n\t\t\t\tt.Fatalf(\"panicked: %v\", r)\n\t\t\t}\n\t\t}()\n" +
+			"\t\targs := argvFromBlob(blob)\n\t\t_, rest := gitGlobalArgs(args)\n\t\t_ = isPlainMerge(rest)\n\t})\n}",
+	}
+	for _, src := range hit {
+		if got := oracleWarnAction(src, editPhase); got != Warn {
+			t.Errorf("edit phase: got %v for %q, want Warn", got, src)
+		}
+		if got := oracleWarnAction(src, commitPhase); got != Block {
+			t.Errorf("commit phase: got %v for %q, want Block", got, src)
+		}
+	}
+
+	allowed := []string{
+		// A real assertion OUTSIDE the recover block: this is FuzzCargoShimArgv
+		// as 76f9c48 actually fixed it — checked, not panic-only anymore.
+		"func FuzzCargoShimArgv(f *testing.F) {\n\tf.Fuzz(func(t *testing.T, blob string) {\n" +
+			"\t\tdefer func() {\n\t\t\tif r := recover(); r != nil {\n\t\t\t\tt.Fatalf(\"panicked: %v\", r)\n\t\t\t}\n\t\t}()\n" +
+			"\t\targs := argvFromBlob(blob)\n\t\trewritten := cargoRunArgsToBuildArgs(args)\n" +
+			"\t\tif len(rewritten) != len(args) {\n\t\t\tt.Fatalf(\"want %d, got %d\", len(args), len(rewritten))\n\t\t}\n\t})\n}",
+		// A genuine void-returning smoke check: nothing is discarded because
+		// there is nothing to discard — the legitimate case the discard
+		// requirement exists to spare.
+		"func FuzzWrite(f *testing.F) {\n\tf.Fuzz(func(t *testing.T, data []byte) {\n" +
+			"\t\tdefer func() {\n\t\t\tif r := recover(); r != nil {\n\t\t\t\tt.Fatalf(\"panicked: %v\", r)\n\t\t\t}\n\t\t}()\n" +
+			"\t\twriteToBuffer(data)\n\t})\n}",
+		// No defer/recover at all: an ordinary assertion-free-shaped test
+		// (which this policy does not name — see git history) is out of scope
+		// for panic-only-oracle specifically.
+		"func TestAdd(t *testing.T) {\n\tgot := add(1, 2)\n\t_ = got\n}",
+	}
+	for _, src := range allowed {
+		if got := oracleWarnAction(src, commitPhase); got != Allow {
+			t.Errorf("false panic-only-oracle block for legitimate %q: got %v", src, got)
+		}
+	}
+}
+
+// TestSmell_ErrorKindBlind covers the four blind-check shapes named in the
+// issue, each immunized by a safety-net token within two lines.
+func TestSmell_ErrorKindBlind(t *testing.T) {
+	hit := []string{
+		"err := doThing()\nrequire.Error(t, err)",
+		"err := doThing()\nassert.Error(t, err)",
+		"let result = do_thing();\nassert!(result.is_err());",
+		"with pytest.raises(Exception):\n    do_thing()",
+		"expect(() => doThing()).toThrow()",
+	}
+	for _, src := range hit {
+		if got := oracleWarnAction(src, editPhase); got != Warn {
+			t.Errorf("edit phase: got %v for %q, want Warn", got, src)
+		}
+		if got := oracleWarnAction(src, commitPhase); got != Block {
+			t.Errorf("commit phase: got %v for %q, want Block", got, src)
+		}
+	}
+
+	allowed := []string{
+		"err := doThing()\nrequire.ErrorIs(t, err, ErrNotFound)",
+		"err := doThing()\nassert.ErrorContains(t, err, \"not found\")",
+		"err := doThing()\nrequire.EqualError(t, err, \"not found\")",
+		"let result = do_thing();\nassert!(result.is_err());\nassert!(matches!(result, Err(MyError::NotFound)));",
+		"with pytest.raises(NotFoundError):\n    do_thing()",
+		"with pytest.raises(Exception, match=\"not found\"):\n    do_thing()",
+		"expect(() => doThing()).toThrow(NotFoundError)",
+		"expect(() => doThing()).toThrow(\"not found\")",
+		// A genuinely different assertion — no blind-check token at all.
+		"got := doThing()\nrequire.Equal(t, want, got)",
+	}
+	for _, src := range allowed {
+		if got := oracleWarnAction(src, commitPhase); got != Allow {
+			t.Errorf("false error-kind-blind block for legitimate %q: got %v", src, got)
 		}
 	}
 }

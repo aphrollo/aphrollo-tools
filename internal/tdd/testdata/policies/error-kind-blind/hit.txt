@@ -1,0 +1,13 @@
+err := doThing()
+require.Error(t, err)
+
+err := doThing()
+assert.Error(t, err)
+
+let result = do_thing();
+assert!(result.is_err());
+
+with pytest.raises(Exception):
+    do_thing()
+
+expect(() => doThing()).toThrow()

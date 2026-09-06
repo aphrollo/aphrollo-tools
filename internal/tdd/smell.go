@@ -1,6 +1,9 @@
 package tdd
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
 // Smell reasons name the problem AND the fix — a blocked edit must tell the
 // agent how to proceed, never just "no".
@@ -14,6 +17,14 @@ const (
 	disabledTestReason = "Test is disabled (it.skip / xit / t.Skip / @pytest.mark.skip / return error.SkipZigTest). " +
 		"A skipped test reports green while proving nothing, so a disabled test is an oracle that can never fail. " +
 		"Delete the test or fix it — do not skip it to get a passing run."
+	errorKindBlindReason = "Test asserts only that an error occurred (require.Error(/assert.Error(/.is_err()/" +
+		"pytest.raises(Exception)/toThrow() with no argument), never WHICH one — any failure, including the wrong " +
+		"one, passes. Assert the specific error (ErrorIs/ErrorAs/ErrorContains/EqualError, matches!/match=, or " +
+		"toThrow(SpecificError)), or justify checking only occurrence with `// any-error-ok: <why>`."
+	panicOnlyOracleReason = "Test's only assertion is a defer/recover panic-catcher, and a call under test has its " +
+		"result discarded (`_ = fn(...)`) rather than checked — this proves the code does not panic and nothing " +
+		"whatsoever about what it computes. If not panicking really is the whole claim (a void-returning smoke " +
+		"check has nothing else to assert), mark it `// panic-only-ok: <why>`; otherwise assert on the discarded value."
 )
 
 // sleepRe matches the real-time sleep calls that show up in test code across
@@ -103,6 +114,55 @@ var skipGoRe = regexp.MustCompile(`\b[a-z][a-z0-9]?\.Skip(?:Now|f)?\s*\(`)
 // skipPyRe matches the pytest / unittest skip decorators (skip and skipif).
 var skipPyRe = regexp.MustCompile(`@\s*(?:pytest\s*\.\s*mark\s*\.\s*skip(?:if)?|unittest\s*\.\s*skip)`)
 
+// assertTrueLiteralRe matches a single-OPERAND tautological assertion —
+// hardcoding the boolean literal instead of comparing two values — alongside
+// the two-operand self-comparisons above: Go/testify `assert.True(t, true)` /
+// `require.True(t, true)`, Rust `assert!(true)`, and Python's bare
+// `assert True`. Each can never fail no matter what the implementation does;
+// there is simply only one operand to name. `expect(true).toBe(true)` needs no
+// entry here — expectSelfRe already treats it as a two-operand self-compare
+// since both captured operands are the literal text "true".
+var assertTrueLiteralRe = regexp.MustCompile(`(?m)(?:assert|require)\.True\s*\(\s*[\w.]+\s*,\s*true\s*\)|assert!\s*\(\s*true\s*\)|\bassert\s+True\s*(?:,|$)`)
+
+// errorKindBlindRe matches an assertion that checks only THAT an error
+// occurred, never WHICH one: Go testify's require.Error(/assert.Error(, Rust's
+// `.is_err()` inside an assert!/assert_eq!/… call, Python's
+// pytest.raises(Exception) (the base class matches anything), and JS's bare
+// toThrow() (no expected error/message).
+var errorKindBlindRe = regexp.MustCompile(`require\.Error\(|assert\.Error\(|assert\w*!\s*\([^\n]*?\.is_err\(\)|pytest\.raises\(\s*Exception\s*\)|toThrow\(\s*\)`)
+
+// errorKindSafeRe is what immunizes a blind check: naming the SPECIFIC error
+// (ErrorIs/ErrorAs/ErrorContains/EqualError, matches!, match=) or a
+// toThrow(...) that DOES carry an argument. The toThrow alternative requires a
+// non-close-paren first character so it can never self-satisfy on the bare
+// toThrow() the policy is looking for.
+var errorKindSafeRe = regexp.MustCompile(`ErrorIs|ErrorAs|ErrorContains|EqualError|matches!|match\s*=|toThrow\(\s*[^\s)]`)
+
+// goDeferRecoverRe matches the opening of a deferred anonymous func literal —
+// `defer func() {` — the exact shape every recover-guarded panic check in
+// this repo's fuzz/property tests uses (issue #319's incident 8).
+var goDeferRecoverRe = regexp.MustCompile(`^\s*defer\s+func\s*\(\s*\)\s*\{`)
+
+// recoverCallRe matches the recover() call itself, distinguishing a genuine
+// panic-catching defer from an unrelated deferred cleanup (t.Cleanup-style)
+// that happens to also assert — only a defer that actually calls recover()
+// is "the panic handler" for panicOnlyOracleBody's purposes.
+var recoverCallRe = regexp.MustCompile(`\brecover\s*\(\s*\)`)
+
+// goAssertionTokenRe matches a Go assertion call: t.Error/t.Fatal/t.Fail (no
+// trailing word boundary, so the formatted Errorf/Fatalf/Failf siblings still
+// match), testify's require./assert., rapid's rapid., and go-cmp's cmp.Diff.
+var goAssertionTokenRe = regexp.MustCompile(`\bt\.(?:Error|Fatal|Fail)|\brequire\.|\bassert\.|\brapid\.|\bcmp\.Diff\b`)
+
+// goDiscardCallRe matches a blank-identifier discard of a function call's
+// return value(s) — `_ = f(...)`, `_, x := f(...)`, `_, _ = f(...)` — the
+// shape a fuzz/property target that computes something and checks nothing
+// about it uses. The discard is load-bearing: it is what turns "asserts only
+// that the code does not panic" from a legitimate void-returning smoke check
+// into a finding — a fuzz target whose function under test truly returns
+// nothing has no discard to match, and never trips this policy.
+var goDiscardCallRe = regexp.MustCompile(`\b_\s*(?:,\s*[\w.]+\s*)*:?=\s*[A-Za-z_][\w.]*\s*\(`)
+
 // The test-oracle smells, as policies. Each runs against the code view (strings
 // and comments blanked) because every one matches executable test code, never a
 // directive in a comment.
@@ -131,6 +191,49 @@ var (
 // only — a sleep or a focused marker has no meaning in source — and block at
 // every phase because each one is near-zero-false-positive.
 var oracleSmells = []policy{sleepPolicy, tautologyPolicy, focusedPolicy, disabledTestPolicy}
+
+// errorKindBlindPolicy is test-oracle-scoped like the smells above (a blind
+// error-occurred check has no meaning in source), but suppressionCat rather
+// than smellCat: unlike a tautology or a focused marker, checking only that
+// SOME error occurred has a real use (a boundary test that genuinely does not
+// care which failure mode fires), so it warns at edit and only blocks at
+// commit — where the diff-scoped check (precommit_diffscan.go's
+// newSuppression) judges solely the lines a commit ADDS, so a blind check that
+// already lived in the tree never blocks a later, unrelated commit; only one
+// this change introduces does.
+var errorKindBlindPolicy = policy{
+	name: "error-kind-blind", category: suppressionCat, reason: errorKindBlindReason,
+	hit:    func(v view) bool { return hasErrorKindBlind(v.code) },
+	escape: escapeAnyError,
+}
+
+// panicOnlyOraclePolicy names issue #319's own incident 8: six fuzz tests
+// fixed in one commit (76f9c48) shared this exact shape — `defer func(){ if
+// r := recover(); r != nil { t.Fatalf(...) } }()` as the ONLY assertion, with
+// the function under test's return value discarded (`_ = fn(...)`)
+// elsewhere in the body. Unlike assertion-free (dropped — see git history
+// and #319: 0 of 8 recorded incidents caught, 3 measured hits all false
+// positives), this shape is the one the issue's own evidence actually
+// contains: 4 of the 6 named fuzz tests reconstruct exactly this way at
+// 76f9c48~1 (FuzzCargoShimArgv, FuzzGitShimArgv, FuzzBashWriteTargets,
+// FuzzReceipt — the other two named, FuzzDocsOnlyClassifier and
+// law_fuzz_test.go's FuzzParseLaw, turned out to be a different production
+// bug and an already-partially-asserting test respectively, not this shape).
+// suppressionCat: a fuzz/property target whose function under test
+// genuinely returns nothing has no discard to trip this, so the legitimate
+// "just don't panic" case is common and structural — warn at edit, deny at
+// commit, escaped with `// panic-only-ok: <why>`.
+var panicOnlyOraclePolicy = policy{
+	name: "panic-only-oracle", category: suppressionCat, reason: panicOnlyOracleReason,
+	hit:    func(v view) bool { return hasPanicOnlyOracle(v.code) },
+	escape: escapePanicOnly,
+}
+
+// testOracleWarnings are suppressionCat policies scoped to test files only
+// (like oracleSmells, not like suppressionPolicies' any-code-file scope) —
+// composed into testPolicies for the edit-time gate and into the commit-time
+// gate's test-file branch (precommit_diffscan.go's commitSuppressionPolicies).
+var testOracleWarnings = []policy{errorKindBlindPolicy, panicOnlyOraclePolicy}
 
 // smellCheck runs the test-oracle smell policies at edit phase against new test
 // content. It is a thin wrapper over the engine; the broader policy sets (which
@@ -162,7 +265,7 @@ func hasTautology(masked string) bool {
 			return true
 		}
 	}
-	return false
+	return assertTrueLiteralRe.MatchString(masked)
 }
 
 // hasFocused reports whether masked source contains a focused-test marker,
@@ -199,4 +302,170 @@ func hasDisabledTest(masked string) bool {
 func isMemberAccess(c byte) bool {
 	return c == '.' || c == '_' ||
 		(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+}
+
+// topLevelStartRe is what a line must begin with (after masking, so a blanked
+// string/comment byte never counts) to plausibly be the STATEMENT that ends a
+// test function's body: a letter, underscore, `}`, or `@` (a Python
+// decorator). Punctuation alone — most commonly the closing backtick of a Go
+// raw-string literal embedding TOML/YAML/JSON verbatim at column zero, a bare
+// backtick-close-paren on its own line — is excluded, because it is a stray
+// delimiter fragment, never a real dedent back to a new top-level construct.
+// Without this, that fragment's zero leading whitespace reads as "the
+// function ended", truncating the body before it ever reaches what the scan
+// is actually looking for.
+var topLevelStartRe = regexp.MustCompile(`^[A-Za-z_}@]`)
+
+// testFunctionBody returns lines[i:j] joined: from declaration line i through
+// the line before indentation returns to (or below) the declaration's own
+// AND plausibly starts a new top-level construct (see topLevelStartRe) — the
+// closing brace for a brace language (Go/Rust/JS/Zig), or the next top-level
+// statement for Python's indentation-only blocks. Ending is gated on having
+// first seen a line MORE indented than the declaration (entered): Rust's
+// `#[test]` attribute and the `fn` line it decorates share the SAME
+// indentation, so without this gate the `fn` line itself would misread as an
+// immediate dedent and truncate the body to the bare attribute, before ever
+// reaching the real one. This is also why the scan does NOT stop at the next
+// test-shaped line unconditionally: a `t.Run(` subtest inside a table-driven
+// test's loop is a NESTED declaration, not a new top-level test — ending
+// there would truncate the outer test right before the loop that carries its
+// actual assertion, the single most common Go test shape in this repo. No
+// ending line found at all (the function runs to the end of what this edit
+// shows) returns everything from i to EOF. Blank lines never end the body —
+// an intervening blank inside a table-driven test is not a dedent. Reused by
+// panicOnlyOraclePolicy below to bound both a Fuzz/Test function's own body
+// and, recursively, its deferred recover closure's body.
+func testFunctionBody(lines []string, i int) string {
+	indent := leadingWidth(lines[i])
+	entered := false
+	j := i + 1
+	for ; j < len(lines); j++ {
+		trimmed := strings.TrimSpace(lines[j])
+		if trimmed == "" {
+			continue
+		}
+		if leadingWidth(lines[j]) > indent {
+			entered = true
+			continue
+		}
+		if entered && topLevelStartRe.MatchString(trimmed) {
+			break
+		}
+	}
+	return strings.Join(lines[i:j], "\n")
+}
+
+// leadingWidth counts the leading spaces/tabs on a line.
+func leadingWidth(line string) int {
+	n := 0
+	for n < len(line) && (line[n] == ' ' || line[n] == '\t') {
+		n++
+	}
+	return n
+}
+
+// hasErrorKindBlind reports whether masked source contains a blind
+// error-occurred-only check with no error-KIND safety net within two lines
+// either side.
+func hasErrorKindBlind(masked string) bool {
+	lines := strings.Split(masked, "\n")
+	for i, line := range lines {
+		if !errorKindBlindRe.MatchString(line) {
+			continue
+		}
+		if !errorKindSafeNearby(lines, i) {
+			return true
+		}
+	}
+	return false
+}
+
+// errorKindSafeNearby reports whether a safety-net token appears within two
+// lines either side of i (inclusive of i itself, so a same-line
+// `assert.ErrorIs(...)` written on the one line still counts).
+func errorKindSafeNearby(lines []string, i int) bool {
+	lo, hi := max(0, i-2), min(len(lines)-1, i+2)
+	return errorKindSafeRe.MatchString(strings.Join(lines[lo:hi+1], "\n"))
+}
+
+// hasPanicOnlyOracle reports whether masked source declares a Go
+// Test/Benchmark/Fuzz/Example function (or a t.Run subtest) whose ONLY
+// assertion sits inside a defer/recover panic-catcher, while some OTHER call
+// in the same body has its result discarded: the function proves the code
+// under test does not panic and asserts nothing about what it computes.
+// Go-scoped only — recover() and the blank-identifier discard idiom are
+// Go's own; the evidence for this shape (issue #319's incident 8) is
+// entirely Go.
+func hasPanicOnlyOracle(masked string) bool {
+	lines := strings.Split(masked, "\n")
+	for i, line := range lines {
+		if !isGoTestDeclLine(line) {
+			continue
+		}
+		if panicOnlyOracleBody(strings.Split(testFunctionBody(lines, i), "\n")) {
+			return true
+		}
+	}
+	return false
+}
+
+// isGoTestDeclLine reports whether line is one of testDeclRes[".go"]'s
+// shapes (precommit_diffscan.go's fail-first declaration table) — reused
+// rather than redefined.
+func isGoTestDeclLine(line string) bool {
+	for _, re := range testDeclRes[".go"] {
+		if re.MatchString(line) {
+			return true
+		}
+	}
+	return false
+}
+
+// panicOnlyOracleBody judges one function's body (already sliced by
+// testFunctionBody, so index 0 is the function's own declaration line):
+// true when the function's only assertion token lives inside a
+// defer/recover block, AND some line OUTSIDE that block discards a call's
+// result. Either condition failing means this is not the shape: a real
+// assertion outside the recover block means the function does check
+// something, and no discard outside it means there is nothing left
+// unchecked — the legitimate case of a fuzz target whose function under
+// test returns nothing at all.
+func panicOnlyOracleBody(body []string) bool {
+	deferAt := -1
+	for i, l := range body {
+		if goDeferRecoverRe.MatchString(l) {
+			deferAt = i
+			break
+		}
+	}
+	if deferAt < 0 {
+		return false
+	}
+	deferBody := strings.Split(testFunctionBody(body, deferAt), "\n")
+	deferEnd := deferAt + len(deferBody) // exclusive, in body's own indices
+	recovers := false
+	for _, l := range deferBody {
+		if recoverCallRe.MatchString(l) {
+			recovers = true
+			break
+		}
+	}
+	if !recovers {
+		return false
+	}
+	sawAssertionInRecover := false
+	discardOutsideRecover := false
+	for i, l := range body {
+		inRecover := i >= deferAt && i < deferEnd
+		if goAssertionTokenRe.MatchString(l) {
+			if !inRecover {
+				return false // a real assertion lives outside the panic-catcher
+			}
+			sawAssertionInRecover = true
+		}
+		if !inRecover && goDiscardCallRe.MatchString(l) {
+			discardOutsideRecover = true
+		}
+	}
+	return sawAssertionInRecover && discardOutsideRecover
 }

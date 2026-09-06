@@ -52,19 +52,6 @@ func newView(content string, l lang) view {
 	}
 }
 
-// addedView masks the FULL post-image of a file (so the lexer sees balanced
-// string/comment context across every line) and then keeps only the lines this
-// change added. Detectors thus judge solely the introduced lines while the
-// masking can never be fooled by an opener whose partner sits on an unchanged
-// line. added holds 1-based line numbers in postImage.
-func addedView(postImage string, added map[int]bool, l lang) view {
-	full := newView(postImage, l)
-	return view{
-		code:       keepLines(full.code, added),
-		directives: keepLines(full.directives, added),
-	}
-}
-
 // keepLines returns masked restricted to the 1-based line numbers in keep,
 // preserving their content (already masked) and order.
 func keepLines(masked string, keep map[int]bool) string {
@@ -122,10 +109,13 @@ type policy struct {
 // smell.go and suppressionPolicies in suppress.go; here they are combined into
 // the sets the edit-time gate selects between by file kind.
 var (
-	// testPolicies gate a test-file edit: oracle smells AND suppressions.
-	testPolicies = concatPolicies(oracleSmells, suppressionPolicies)
+	// testPolicies gate a test-file edit: oracle smells, the test-scoped
+	// suppressionCat warnings (testOracleWarnings), AND the any-code-file
+	// suppressions.
+	testPolicies = concatPolicies(oracleSmells, testOracleWarnings, suppressionPolicies)
 	// sourcePolicies gate a source-file edit: suppressions only, since the
-	// oracle smells have no meaning outside test code.
+	// oracle smells and the test-scoped warnings have no meaning outside test
+	// code.
 	sourcePolicies = suppressionPolicies
 )
 
@@ -170,11 +160,13 @@ func evaluate(content string, policies []policy, p phase, l lang) Decision {
 	return evaluateView(newView(content, l), policies, p)
 }
 
-// evaluateView is evaluate over a pre-built view. The commit gate uses it so it
-// can mask a file's FULL post-image (balanced quote/comment context) and then
-// restrict the view to added lines, instead of masking the deletion-stripped
-// added-only buffer — where an unbalanced quote on one added line would blank a
-// later added line's directive to EOF and smuggle it past the gate.
+// evaluateView is evaluate over a pre-built view. A diff-scoped caller wants
+// evaluateAdded instead (below) — it masks a file's FULL post-image (balanced
+// quote/comment context) before restricting to added lines, instead of
+// masking the deletion-stripped added-only buffer where an unbalanced quote on
+// one added line would blank a later added line's directive to EOF and
+// smuggle it past the gate — and it honours each policy's escape marker,
+// which evaluateView does not.
 func evaluateView(v view, policies []policy, p phase) Decision {
 	best := Decision{Action: Allow}
 	for _, pol := range policies {

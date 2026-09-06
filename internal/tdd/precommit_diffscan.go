@@ -20,21 +20,43 @@ const suppressionCommitHeader = "TDD anti-cheat: this commit introduces a suppre
 // added directive behind an unbalanced opener. Returns "" when nothing blocks.
 func newSuppression(repoRoot string) string {
 	for _, fa := range stagedAdds(repoRoot) {
-		switch ClassifyFile(fa.path) {
-		case Source, Test:
-		default:
+		policies := commitSuppressionPolicies(ClassifyFile(fa.path))
+		if policies == nil {
 			continue
 		}
 		post, err := git(repoRoot, "show", ":"+fa.path)
 		if err != nil {
 			continue // file not in the index (e.g. deletion) → nothing to judge
 		}
-		v := addedView(post, fa.added, langOf(fa.path))
-		if d := evaluateView(v, suppressionPolicies, commitPhase); d.Action == Block {
+		// evaluateAdded (not the plain evaluateView(addedView(...)) this used
+		// to call) so a policy that DOES carry a per-line escape — currently
+		// only error-kind-blind's `// any-error-ok:` — is honoured here too,
+		// not just at edit time. The legacy lint/type/coverage suppressions
+		// carry no escape at all (see policy_registry_test.go's
+		// noEscapeAllowlist), so this is unchanged for them: every line stays
+		// judged either way.
+		if d := evaluateAdded(post, fa.added, langOf(fa.path), policies, commitPhase); d.Action == Block {
 			return suppressionCommitHeader + "\n  " + fa.path + ": " + d.Reason
 		}
 	}
 	return ""
+}
+
+// commitSuppressionPolicies is the commit-time gate's policy set for one
+// classified file: any code file gets the cross-cutting lint/type/coverage
+// suppressions; a test file additionally gets the test-scoped suppressionCat
+// warnings (testOracleWarnings — error-kind-blind), which have no meaning in
+// source, exactly like the oracleSmells scoping above. nil for anything else,
+// so the caller skips it.
+func commitSuppressionPolicies(kind Kind) []policy {
+	switch kind {
+	case Test:
+		return concatPolicies(suppressionPolicies, testOracleWarnings)
+	case Source:
+		return suppressionPolicies
+	default:
+		return nil
+	}
 }
 
 // testDeclRes recognises an ADDED line that declares a test, per supported
