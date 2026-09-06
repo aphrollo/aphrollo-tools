@@ -79,3 +79,12 @@ func gitBatchBlobs(repoRoot, ref string, rels []string) map[string]string {
 	}
 	return result
 }
+
+// GitShowBatch is gitBatchBlobs, exported for a caller outside this package
+// with the same "batch, one subprocess, scrubbed environment" need — the
+// ratchet CLI's own baseline-history note (#497) runs the identical git
+// plumbing this package already carries, rather than a second copy over an
+// unscrubbed exec.Command.
+func GitShowBatch(repoRoot, ref string, rels []string) map[string]string {
+	return gitBatchBlobs(repoRoot, ref, rels)
+}
