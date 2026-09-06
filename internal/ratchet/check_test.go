@@ -65,6 +65,35 @@ func TestCheckReportsANewSiteWithItsLineBaselineAndEscape(t *testing.T) {
 	}
 }
 
+// TestCheckRegression_NamesTheNewFileNotAMatchingBaselinedFile reproduces
+// #481: a path-agnostic multiset (identity is the trimmed TEXT, not the
+// path) whose baseline already carries one file's line must, on a count
+// regression, report the NEW file that carries the second occurrence of that
+// same text — never the already-baselined file the scan happens to visit
+// first.
+func TestCheckRegression_NamesTheNewFileNotAMatchingBaselinedFile(t *testing.T) {
+	root := repoWithNanGuard(t)
+	// crates/a/src/lib.rs already carries the baselined occurrence. A second,
+	// unrelated file gains the SAME trimmed line text — same identity, new
+	// site — which must be the one named, not crates/a's already-known line.
+	write(t, filepath.Join(root, "crates", "b", "src", "lib.rs"), "let a = x.clamp(0.0, 1.0);\n")
+
+	res, err := Check(Options{Root: root})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("findings = %+v", res.Findings)
+	}
+	f := res.Findings[0]
+	if f.File != "crates/b/src/lib.rs" {
+		t.Errorf("finding named %s:%d — the new occurrence is in crates/b/src/lib.rs, which the commit actually touched; crates/a/src/lib.rs was already in the baseline and untouched", f.File, f.Line)
+	}
+	if f.Baseline != 1 || f.Measured != 2 {
+		t.Errorf("finding = %+v", f)
+	}
+}
+
 func TestCheckSkipsExcludedAndGitignoredTrees(t *testing.T) {
 	root := repoWithNanGuard(t)
 	write(t, filepath.Join(root, ".gitignore"), "generated/\n")
