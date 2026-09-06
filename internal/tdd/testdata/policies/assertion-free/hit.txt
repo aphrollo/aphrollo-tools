@@ -1,0 +1,19 @@
+func TestAdd(t *testing.T) {
+	got := add(1, 2)
+	_ = got
+}
+
+#[test]
+fn adds() {
+    let x = add(1, 2);
+    println!("{}", x);
+}
+
+def test_add():
+    x = add(1, 2)
+    print(x)
+
+it('adds', () => {
+  const x = add(1, 2);
+  console.log(x);
+})

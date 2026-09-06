@@ -5,6 +5,13 @@ import "testing"
 // blocks reports whether content trips a blocking smell, for terse assertions.
 func blocks(content string) bool { return smellCheck(content).Action == Block }
 
+// oracleWarnAction reports the action testOracleWarnings takes on content at a
+// given phase — the same shape suppressAt (suppress_test.go) uses for the
+// any-code-file suppressions, mirrored here for the test-scoped ones.
+func oracleWarnAction(content string, p phase) Action {
+	return evaluate(content, testOracleWarnings, p, defaultLang).Action
+}
+
 func TestSmell_Tautology(t *testing.T) {
 	blocked := []string{
 		"assert x == x",
@@ -15,6 +22,15 @@ func TestSmell_Tautology(t *testing.T) {
 		"expect(user.id).toEqual(user.id)",
 		"assert.strictEqual(result, result)",
 		"assert.equal(x, x)",
+		// Single-operand forms: the literal IS the second operand, so there is
+		// really only one value in play — just as vacuous as comparing a
+		// value to itself.
+		"assert.True(t, true)",
+		"require.True(t, true)",
+		"assert!(true)",
+		"assert True",
+		"assert True,",
+		"expect(true).toBe(true)", // already covered by the two-operand path (both captures are the literal "true")
 	}
 	for _, src := range blocked {
 		if !blocks(src) {
@@ -32,6 +48,9 @@ func TestSmell_Tautology(t *testing.T) {
 		"// assert x == x",           // self-compare only in a comment
 		`msg = "assert x == x here"`, // self-compare only in a string
 		"expect(a).toBe(b)",
+		"assert.True(t, isValid)",  // a real variable, not the hardcoded literal
+		"assert True == checkOK()", // a genuine (if oddly written) comparison, not a bare literal
+		"assert False",             // a different literal entirely
 	}
 	for _, src := range allowed {
 		if blocks(src) {
@@ -178,6 +197,87 @@ func TestSmell_TestSleep(t *testing.T) {
 	for _, src := range allowed {
 		if blocks(src) {
 			t.Errorf("false sleep block for legitimate %q", src)
+		}
+	}
+}
+
+// TestSmell_AssertionFree covers Go/Rust/Python/JS: a test declaration whose
+// body carries no assertion token at all warns at edit and blocks at commit
+// (see policy_registry_test.go for the generic hit/clean fixture proof, and
+// precommit_diffscan_errorkindblind_test.go for the commit-time integration —
+// including the escape — through newSuppression).
+func TestSmell_AssertionFree(t *testing.T) {
+	hit := []string{
+		"func TestAdd(t *testing.T) {\n\tgot := add(1, 2)\n\t_ = got\n}",
+		"#[test]\nfn adds() {\n    let x = add(1, 2);\n    println!(\"{}\", x);\n}",
+		"def test_add():\n    x = add(1, 2)\n    print(x)\n",
+		"it('adds', () => {\n  const x = add(1, 2);\n  console.log(x);\n})",
+	}
+	for _, src := range hit {
+		if got := oracleWarnAction(src, editPhase); got != Warn {
+			t.Errorf("edit phase: got %v for %q, want Warn", got, src)
+		}
+		if got := oracleWarnAction(src, commitPhase); got != Block {
+			t.Errorf("commit phase: got %v for %q, want Block", got, src)
+		}
+	}
+
+	allowed := []string{
+		"func TestAdd(t *testing.T) {\n\tgot := add(1, 2)\n\tif got != 3 {\n\t\tt.Errorf(\"got %d, want 3\", got)\n\t}\n}",
+		"#[test]\nfn adds() {\n    assert_eq!(add(1, 2), 3);\n}",
+		"def test_add():\n    assert add(1, 2) == 3\n",
+		"it('adds', () => {\n  expect(add(1, 2)).toBe(3);\n})",
+		// Structurally exempt — never required to assert.
+		"func TestMain(m *testing.M) {\n\tos.Exit(m.Run())\n}",
+		"func BenchmarkAdd(b *testing.B) {\n\tfor i := 0; i < b.N; i++ {\n\t\tadd(1, 2)\n\t}\n}",
+		// A table-driven test's real assertion lives inside the t.Run
+		// closure's loop body, not on the outer TestX declaration's own
+		// lines — the outer function must not be judged as if it stopped at
+		// the first t.Run call.
+		"func TestTableDriven(t *testing.T) {\n\tfor _, tt := range cases {\n\t\tt.Run(tt.name, func(t *testing.T) {\n" +
+			"\t\t\tif got := f(tt.in); got != tt.want {\n\t\t\t\tt.Errorf(\"got %v want %v\", got, tt.want)\n\t\t\t}\n\t\t})\n\t}\n}",
+	}
+	for _, src := range allowed {
+		if got := oracleWarnAction(src, commitPhase); got != Allow {
+			t.Errorf("false assertion-free block for legitimate %q: got %v", src, got)
+		}
+	}
+}
+
+// TestSmell_ErrorKindBlind covers the four blind-check shapes named in the
+// issue, each immunized by a safety-net token within two lines.
+func TestSmell_ErrorKindBlind(t *testing.T) {
+	hit := []string{
+		"err := doThing()\nrequire.Error(t, err)",
+		"err := doThing()\nassert.Error(t, err)",
+		"let result = do_thing();\nassert!(result.is_err());",
+		"with pytest.raises(Exception):\n    do_thing()",
+		"expect(() => doThing()).toThrow()",
+	}
+	for _, src := range hit {
+		if got := oracleWarnAction(src, editPhase); got != Warn {
+			t.Errorf("edit phase: got %v for %q, want Warn", got, src)
+		}
+		if got := oracleWarnAction(src, commitPhase); got != Block {
+			t.Errorf("commit phase: got %v for %q, want Block", got, src)
+		}
+	}
+
+	allowed := []string{
+		"err := doThing()\nrequire.ErrorIs(t, err, ErrNotFound)",
+		"err := doThing()\nassert.ErrorContains(t, err, \"not found\")",
+		"err := doThing()\nrequire.EqualError(t, err, \"not found\")",
+		"let result = do_thing();\nassert!(result.is_err());\nassert!(matches!(result, Err(MyError::NotFound)));",
+		"with pytest.raises(NotFoundError):\n    do_thing()",
+		"with pytest.raises(Exception, match=\"not found\"):\n    do_thing()",
+		"expect(() => doThing()).toThrow(NotFoundError)",
+		"expect(() => doThing()).toThrow(\"not found\")",
+		// A genuinely different assertion — no blind-check token at all.
+		"got := doThing()\nrequire.Equal(t, want, got)",
+	}
+	for _, src := range allowed {
+		if got := oracleWarnAction(src, commitPhase); got != Allow {
+			t.Errorf("false error-kind-blind block for legitimate %q: got %v", src, got)
 		}
 	}
 }

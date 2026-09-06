@@ -1,6 +1,9 @@
 package tdd
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
 // Smell reasons name the problem AND the fix — a blocked edit must tell the
 // agent how to proceed, never just "no".
@@ -14,6 +17,15 @@ const (
 	disabledTestReason = "Test is disabled (it.skip / xit / t.Skip / @pytest.mark.skip / return error.SkipZigTest). " +
 		"A skipped test reports green while proving nothing, so a disabled test is an oracle that can never fail. " +
 		"Delete the test or fix it — do not skip it to get a passing run."
+	assertionFreeReason = "Test declares no assertion for its language anywhere in its body " +
+		"(Go: t.Error/t.Fatal/t.Fail/require./assert./rapid./cmp.Diff; Rust: assert; Python: assert / pytest.raises; " +
+		"JS: expect(). An oracle with no assertion passes no matter what the implementation does. " +
+		"Add an assertion, or mark a deliberate no-assertion test with `// smoke-ok: <why>` trailing " +
+		"on the test's own declaration line (or on the line directly above it)."
+	errorKindBlindReason = "Test asserts only that an error occurred (require.Error(/assert.Error(/.is_err()/" +
+		"pytest.raises(Exception)/toThrow() with no argument), never WHICH one — any failure, including the wrong " +
+		"one, passes. Assert the specific error (ErrorIs/ErrorAs/ErrorContains/EqualError, matches!/match=, or " +
+		"toThrow(SpecificError)), or justify checking only occurrence with `// any-error-ok: <why>`."
 )
 
 // sleepRe matches the real-time sleep calls that show up in test code across
@@ -103,6 +115,71 @@ var skipGoRe = regexp.MustCompile(`\b[a-z][a-z0-9]?\.Skip(?:Now|f)?\s*\(`)
 // skipPyRe matches the pytest / unittest skip decorators (skip and skipif).
 var skipPyRe = regexp.MustCompile(`@\s*(?:pytest\s*\.\s*mark\s*\.\s*skip(?:if)?|unittest\s*\.\s*skip)`)
 
+// assertTrueLiteralRe matches a single-OPERAND tautological assertion —
+// hardcoding the boolean literal instead of comparing two values — alongside
+// the two-operand self-comparisons above: Go/testify `assert.True(t, true)` /
+// `require.True(t, true)`, Rust `assert!(true)`, and Python's bare
+// `assert True`. Each can never fail no matter what the implementation does;
+// there is simply only one operand to name. `expect(true).toBe(true)` needs no
+// entry here — expectSelfRe already treats it as a two-operand self-compare
+// since both captured operands are the literal text "true".
+var assertTrueLiteralRe = regexp.MustCompile(`(?m)(?:assert|require)\.True\s*\(\s*[\w.]+\s*,\s*true\s*\)|assert!\s*\(\s*true\s*\)|\bassert\s+True\s*(?:,|$)`)
+
+// assertionFreeDeclRes flattens testDeclRes (precommit_diffscan.go's per-
+// language test-declaration shapes — the same ones fail-first uses to find a
+// staged test) into one slice, matched per line without knowing the file's
+// own extension: cross-language collision is implausible for these fixed
+// declaration keywords, the same reasoning the combined regexes above already
+// rely on.
+var assertionFreeDeclRes = flattenTestDeclRes()
+
+func flattenTestDeclRes() []*regexp.Regexp {
+	var out []*regexp.Regexp
+	for _, res := range testDeclRes {
+		out = append(out, res...)
+	}
+	return out
+}
+
+// exemptDeclRe matches declaration shapes assertionFreeDeclRes's Go pattern
+// also recognises (it is one combined `(Test|Benchmark|Fuzz|Example)`
+// alternation, reused rather than duplicated) but whose absence of an
+// assertion call is not a smell: TestMain is the package-level `go test`
+// entry point (it calls m.Run(), never asserts anything itself); a
+// Benchmark measures throughput, never asserts; an Example's oracle is its
+// `// Output:` comment, matched against stdout by `go test` itself, never a
+// call in the body.
+var exemptDeclRe = regexp.MustCompile(`^\s*func\s+(?:TestMain\s*\(|Benchmark\w*\s*\(|Example\w*\s*\()`)
+
+// assertionTokenRe matches ANY language's assertion call, checked without
+// regard to which language the test is in, exactly like sleepRe already spans
+// five languages in one pattern. Go: t.Error/t.Fatal/t.Fail (no trailing word
+// boundary, so the formatted Errorf/Fatalf variants — the overwhelmingly
+// common shape in table-driven tests — still match), require., assert.,
+// rapid., cmp.Diff. Rust: assert (covers assert!/assert_eq!/assert_ne!/
+// debug_assert!, and doubles as Go's testify assert. prefix). Python: assert /
+// pytest.raises. JS: expect(. Zig rides along on the same two tokens the
+// oracle smells above already cover it with (assertionFreeDeclRes reuses
+// testDeclRes[".zig"], so a Zig `test { }` block is judged here too):
+// `std.testing.expect(` matches expect( already, and expectEqual (plus its
+// Strings/Slices/Deep siblings, exactly as zigExpectEqualRe above enumerates)
+// needs its own alternative since "Equal" sits between "expect" and "(".
+var assertionTokenRe = regexp.MustCompile(`\bt\.(?:Error|Fatal|Fail)|\brequire\.|\bassert|\brapid\.|\bcmp\.Diff\b|pytest\.raises|expect\s*\(|expectEqual`)
+
+// errorKindBlindRe matches an assertion that checks only THAT an error
+// occurred, never WHICH one: Go testify's require.Error(/assert.Error(, Rust's
+// `.is_err()` inside an assert!/assert_eq!/… call, Python's
+// pytest.raises(Exception) (the base class matches anything), and JS's bare
+// toThrow() (no expected error/message).
+var errorKindBlindRe = regexp.MustCompile(`require\.Error\(|assert\.Error\(|assert\w*!\s*\([^\n]*?\.is_err\(\)|pytest\.raises\(\s*Exception\s*\)|toThrow\(\s*\)`)
+
+// errorKindSafeRe is what immunizes a blind check: naming the SPECIFIC error
+// (ErrorIs/ErrorAs/ErrorContains/EqualError, matches!, match=) or a
+// toThrow(...) that DOES carry an argument. The toThrow alternative requires a
+// non-close-paren first character so it can never self-satisfy on the bare
+// toThrow() the policy is looking for.
+var errorKindSafeRe = regexp.MustCompile(`ErrorIs|ErrorAs|ErrorContains|EqualError|matches!|match\s*=|toThrow\(\s*[^\s)]`)
+
 // The test-oracle smells, as policies. Each runs against the code view (strings
 // and comments blanked) because every one matches executable test code, never a
 // directive in a comment.
@@ -131,6 +208,46 @@ var (
 // only — a sleep or a focused marker has no meaning in source — and block at
 // every phase because each one is near-zero-false-positive.
 var oracleSmells = []policy{sleepPolicy, tautologyPolicy, focusedPolicy, disabledTestPolicy}
+
+// assertionFreePolicy is deliberately suppressionCat, NOT smellCat, despite
+// living in the same family as the oracle smells above: it is NOT
+// near-zero-false-positive. Measured against this repo's own 251 test files
+// (issue #319) with a naive "block on any hit" reading, it fired on 3 of
+// ~1385 test functions — and all three were legitimate: a concurrent-access
+// test whose only oracle is the race detector / absence of a panic
+// (buildlock_test.go), and two tests that delegate their actual assertion to
+// a shared helper (denylog_test.go, state_test.go) — exactly the two
+// false-positive shapes the issue itself named as a concern before wiring
+// this as a block. So it warns at edit and only denies at commit, same as
+// error-kind-blind below, where a human is about to vouch for the change and
+// a real hit gets `// smoke-ok: <why>` instead of silently blocking the edit
+// loop on legitimate code.
+var assertionFreePolicy = policy{
+	name: "assertion-free", category: suppressionCat, reason: assertionFreeReason,
+	hit:    func(v view) bool { return hasAssertionFreeTest(v.code) },
+	escape: escapeSmoke,
+}
+
+// errorKindBlindPolicy is test-oracle-scoped like the smells above (a blind
+// error-occurred check has no meaning in source), but suppressionCat rather
+// than smellCat: unlike a tautology or a focused marker, checking only that
+// SOME error occurred has a real use (a boundary test that genuinely does not
+// care which failure mode fires), so it warns at edit and only blocks at
+// commit — where the diff-scoped check (precommit_diffscan.go's
+// newSuppression) judges solely the lines a commit ADDS, so a blind check that
+// already lived in the tree never blocks a later, unrelated commit; only one
+// this change introduces does.
+var errorKindBlindPolicy = policy{
+	name: "error-kind-blind", category: suppressionCat, reason: errorKindBlindReason,
+	hit:    func(v view) bool { return hasErrorKindBlind(v.code) },
+	escape: escapeAnyError,
+}
+
+// testOracleWarnings are suppressionCat policies scoped to test files only
+// (like oracleSmells, not like suppressionPolicies' any-code-file scope) —
+// composed into testPolicies for the edit-time gate and into the commit-time
+// gate's test-file branch (precommit_diffscan.go's commitSuppressionPolicies).
+var testOracleWarnings = []policy{assertionFreePolicy, errorKindBlindPolicy}
 
 // smellCheck runs the test-oracle smell policies at edit phase against new test
 // content. It is a thin wrapper over the engine; the broader policy sets (which
@@ -162,7 +279,7 @@ func hasTautology(masked string) bool {
 			return true
 		}
 	}
-	return false
+	return assertTrueLiteralRe.MatchString(masked)
 }
 
 // hasFocused reports whether masked source contains a focused-test marker,
@@ -199,4 +316,120 @@ func hasDisabledTest(masked string) bool {
 func isMemberAccess(c byte) bool {
 	return c == '.' || c == '_' ||
 		(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+}
+
+// hasAssertionFreeTest reports whether masked source declares a test function
+// whose body — from its declaration line through the line where indentation
+// returns to the declaration's own level — carries no assertion token at all:
+// an oracle that cannot fail no matter what the implementation does.
+func hasAssertionFreeTest(masked string) bool {
+	lines := strings.Split(masked, "\n")
+	for i, line := range lines {
+		if !isTestDeclLine(line) {
+			continue
+		}
+		if !assertionTokenRe.MatchString(testFunctionBody(lines, i)) {
+			return true
+		}
+	}
+	return false
+}
+
+// isTestDeclLine reports whether line is shaped like a test declaration this
+// policy judges — one of assertionFreeDeclRes's shapes, minus exemptDeclRe's
+// TestMain/Benchmark/Example carve-out.
+func isTestDeclLine(line string) bool {
+	if exemptDeclRe.MatchString(line) {
+		return false
+	}
+	for _, re := range assertionFreeDeclRes {
+		if re.MatchString(line) {
+			return true
+		}
+	}
+	return false
+}
+
+// topLevelStartRe is what a line must begin with (after masking, so a blanked
+// string/comment byte never counts) to plausibly be the STATEMENT that ends a
+// test function's body: a letter, underscore, `}`, or `@` (a Python
+// decorator). Punctuation alone — most commonly the closing backtick of a Go
+// raw-string literal embedding TOML/YAML/JSON verbatim at column zero, a bare
+// backtick-close-paren on its own line — is excluded, because it is a stray
+// delimiter fragment, never a real dedent back to a new top-level construct.
+// Without this, that fragment's zero leading whitespace reads as "the
+// function ended", truncating the body before it ever reaches the test's
+// real assertion — the single largest false-positive source measured
+// against this repo's own suite (issue #319).
+var topLevelStartRe = regexp.MustCompile(`^[A-Za-z_}@]`)
+
+// testFunctionBody returns lines[i:j] joined: from declaration line i through
+// the line before indentation returns to (or below) the declaration's own
+// AND plausibly starts a new top-level construct (see topLevelStartRe) — the
+// closing brace for a brace language (Go/Rust/JS/Zig), or the next top-level
+// statement for Python's indentation-only blocks. Ending is gated on having
+// first seen a line MORE indented than the declaration (entered): Rust's
+// `#[test]` attribute and the `fn` line it decorates share the SAME
+// indentation, so without this gate the `fn` line itself would misread as an
+// immediate dedent and truncate the body to the bare attribute, before ever
+// reaching the real one. This is also why the scan does NOT stop at the next
+// test-shaped line unconditionally: a `t.Run(` subtest inside a table-driven
+// test's loop matches assertionFreeDeclRes too, but it is NESTED, not a new
+// top-level test — ending there would truncate the outer test right before
+// the loop that carries its actual assertion, the single most common Go test
+// shape in this repo. No ending line found at all (the function runs to the
+// end of what this edit shows) returns everything from i to EOF. Blank lines
+// never end the body — an intervening blank inside a table-driven test is not
+// a dedent.
+func testFunctionBody(lines []string, i int) string {
+	indent := leadingWidth(lines[i])
+	entered := false
+	j := i + 1
+	for ; j < len(lines); j++ {
+		trimmed := strings.TrimSpace(lines[j])
+		if trimmed == "" {
+			continue
+		}
+		if leadingWidth(lines[j]) > indent {
+			entered = true
+			continue
+		}
+		if entered && topLevelStartRe.MatchString(trimmed) {
+			break
+		}
+	}
+	return strings.Join(lines[i:j], "\n")
+}
+
+// leadingWidth counts the leading spaces/tabs on a line.
+func leadingWidth(line string) int {
+	n := 0
+	for n < len(line) && (line[n] == ' ' || line[n] == '\t') {
+		n++
+	}
+	return n
+}
+
+// hasErrorKindBlind reports whether masked source contains a blind
+// error-occurred-only check with no error-KIND safety net within two lines
+// either side.
+func hasErrorKindBlind(masked string) bool {
+	lines := strings.Split(masked, "\n")
+	for i, line := range lines {
+		if !errorKindBlindRe.MatchString(line) {
+			continue
+		}
+		if !errorKindSafeNearby(lines, i) {
+			return true
+		}
+	}
+	return false
+}
+
+// errorKindSafeNearby reports whether a safety-net token appears within two
+// lines either side of i (inclusive of i itself, so a same-line
+// `assert.ErrorIs(...)` written on the one line still counts).
+func errorKindSafeNearby(lines []string, i int) bool {
+	lo, hi := max(0, i-2), min(len(lines)-1, i+2)
+	return errorKindSafeRe.MatchString(strings.Join(lines[lo:hi+1], "\n"))
 }

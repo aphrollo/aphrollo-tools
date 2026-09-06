@@ -12,12 +12,15 @@ import (
 // the two kinds that have legitimate uses an escape that says why. An escape
 // is recorded, so a waiver is a number in the stats rather than a habit.
 
-// escapeSkip / escapeSleep are the markers, matched in the comment-preserving
-// view so a quoted one cannot admit anything. They read as a sentence in any
-// comment syntax: `// skip-ok: <why>`, `# real-time: <why>`.
+// escapeSkip / escapeSleep / escapeSmoke / escapeAnyError are the markers,
+// matched in the comment-preserving view so a quoted one cannot admit
+// anything. They read as a sentence in any comment syntax: `// skip-ok: <why>`,
+// `# real-time: <why>`, `// smoke-ok: <why>`, `// any-error-ok: <why>`.
 const (
-	escapeSkip  = "skip-ok:"
-	escapeSleep = "real-time:"
+	escapeSkip     = "skip-ok:"
+	escapeSleep    = "real-time:"
+	escapeSmoke    = "smoke-ok:"
+	escapeAnyError = "any-error-ok:"
 )
 
 // editImages reconstructs what the file holds BEFORE and AFTER an edit. A tool
