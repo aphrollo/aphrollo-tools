@@ -234,6 +234,74 @@ The pre-edit hook judges ONE file, so it cannot see a workspace total: an
 added line whose text is already at its ceiling somewhere else is caught by
 the whole-tree run at commit, not by the write.
 
+#### Landing a new matcher field
+
+This repo's own commit gate runs the GLOBALLY INSTALLED `aphrollo` binary,
+which predates any matcher kind or field this checkout's engine code just
+added. A law under `.ratchet/laws/` naming that kind or field would reject
+every commit here until the binary is rebuilt post-merge — so a new
+capability lands in three separate steps, never one:
+
+1. Land the engine change (`internal/ratchet`), proved by `RunFixtures()`
+   against synthetic trees under `t.TempDir()`, never against this repo's
+   own tracked `.ratchet/fixtures/`. Name the kind (or the kind and field)
+   in `matcherUsageAllowlist` (`internal/ratchet/law_matcher_usage_test.go`)
+   as `matcherUsageBootstrap`, with the `Ref` of the issue or PR that owes
+   the real law, so nothing silently forgets the capability has no real
+   user yet.
+2. Merge, and let the box's installed `aphrollo` binary get rebuilt against
+   the new commit.
+3. Land the real law under `.ratchet/laws/` and its tracked fixtures under
+   `.ratchet/fixtures/`, and remove the `matcherUsageAllowlist` entry in the
+   same commit.
+
+`TestMatcherUsage_EveryKindAndOptionalFieldHasARealLawOrAnAllowlistEntry`
+enforces step 1 stays honest and step 3 actually happens: it enumerates the
+matcher kinds and optional fields the engine's own `matcherKeys` map
+accepts, cross-references every real law under this repo's `.ratchet/laws`,
+and fails on either a kind/field with no law and no allow-list entry, or an
+allow-list entry a law now exercises (stale — a fixed gap left in the list
+would let this check nag forever about something already settled). Like a
+baseline, the allow-list only ever gets shorter: widening it back out after
+a law is removed on purpose is a decision the test forces onto the same
+commit, with the reason stated, never a silent ratchet up.
+
+The allow-list carries two categories, not one flat list with a free-text
+reason, because "awaiting its bootstrap commit" and "this repo has no
+occasion for it" are different populations that happen to share one
+symptom — a kind or field no real law here exercises. Mixing them hides the
+few that matter among the many that do not: within a month nobody re-reads
+a wall of reasons, and a bootstrap entry that has sat for six months reads
+exactly like one that will never move.
+
+- **`matcherUsageBootstrap`** is DEBT with a named owner: `Ref` is the
+  issue or PR that owes the real law (`ident-resolves` owes `#324`,
+  `registry-both-ways`'s `entry_column` owes `#492`), required on every
+  entry in this category — debt with nobody named as owing it is debt that
+  gets lost, which is #501's own failure mode. It is meant to shrink to
+  zero and stay there; the test logs its current members every run
+  (`3 kind(s)/field(s) awaiting their bootstrap law: …`) so the count stays
+  visible without dumping the much larger `unused-here` population beside
+  it.
+- **`matcherUsageUnusedHere`** is NOT debt: this repo's own dogfood law set
+  has no occasion for the kind or field — several are cargo/JSON-shaped
+  matchers a Go-only repo's laws never need, or a capability aimed at a
+  downstream CONSUMING repo (`dep-graph-ceiling`'s own `#437`/`#480` were
+  reported and fixed for borld, not this repo). `Ref` is refused on this
+  category: nobody owes it a law, so there is nothing to name as owing one.
+  It may sit here indefinitely — that is the correct steady state, not a
+  backlog — and the check never mistakes it for one, because it is never
+  logged as awaiting anything.
+
+Neither category sees a LAW that was considered and declined on real
+evidence rather than never attempted: `#324`'s own `readme_flag_registry`
+measured 40 stale and 17 unregistered names against 69 defined flags and
+was dropped as noise, but its kind, `registry-both-ways`, already has a
+real law elsewhere, so this check never had an opinion on it either way. A
+future decline that DOES leave a kind or field with no real law belongs in
+`matcherUsageUnusedHere`, its reason naming the decision rather than
+reading like a TODO.
+
 #### Diff-scoped kinds
 
 `symbol-removed` answers a different question from every other kind above:
