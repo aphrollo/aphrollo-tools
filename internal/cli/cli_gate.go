@@ -63,9 +63,11 @@ Subcommands:
   stats             Tally gate.log by stage and outcome (--since 7d), and the open
                     escape count
   status            Read-only: deferred edit jobs on this box, every build slot's
-                    holder, and this checkout's own mutation-run state — what an
-                    inconclusive BUILDING/TIMEOUT/QUEUED-SKIPPED gate line points
-                    at instead of a rerun. --wait blocks until THIS checkout's own
+                    holder, this checkout's own position in the cargo-shim queue
+                    (queued, and behind what), and this checkout's own
+                    mutation-run state — what an inconclusive
+                    BUILDING/TIMEOUT/QUEUED-SKIPPED gate line points at instead
+                    of a rerun. --wait blocks until THIS checkout's own
                     deferred edit job has a verdict and prints it verbatim
   issue             (alias of aphrollo issue; retiring next release) Open one
                     labelled issue against the repo's GitHub remote and print

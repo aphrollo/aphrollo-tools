@@ -119,8 +119,17 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 		return runWithLock(slot, releaseTarget, releaseAll, cfg.realCargo, args, stdin, stdout, stderr)
 	}
 
-	// Contended: report it exactly once, then poll silently.
+	// Contended: report it exactly once, then poll silently. Also record
+	// THIS wait (issue #435): a separate `aphrollo status` invocation has no
+	// other way to see it -- gate.log's "queued-skipped" token names only
+	// the outcome of a past run, never a wait in progress. The record is
+	// removed however the wait ends, acquired or given up.
 	fmt.Fprintln(stderr, queuedLine(target))
+	removeWaiter := tdd.WriteQueueWaiter(target, shimOwnerCommand(args), shimCwd())
+	defer removeWaiter()
+	if queueWaiterRecordedForTest != nil {
+		queueWaiterRecordedForTest()
+	}
 	start := time.Now()
 	for {
 		elapsed := time.Since(start)
@@ -424,6 +433,13 @@ func resolveRealCargo() (string, error) {
 // (build vs run) actually executes, without the external stub process
 // needing to talk back to the Go test itself. Always nil in production.
 var execCargoHookForTest func(args []string)
+
+// queueWaiterRecordedForTest, when set, is called immediately after
+// runCargoShim writes its queue-waiter record (issue #435) -- test-only
+// instrumentation letting a test synchronize on the wait actually starting,
+// the same shape as execCargoHookForTest, instead of polling the record on
+// disk with a real-time sleep. Always nil in production.
+var queueWaiterRecordedForTest func()
 
 func execCargo(realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer, jobs int) int {
 	return execCargoHeld(realCargo, args, stdin, stdout, stderr, jobs, jobs > 0)
