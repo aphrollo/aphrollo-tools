@@ -233,11 +233,24 @@ jobs:
       # is required. -v costs nothing extra to RUN (no re-execution), only a
       # bigger log — the SKIP-visibility step below reads it back rather than
       # invoking `go test` a second time.
+      # -timeout is per test BINARY, not per package, so `go test ./...`
+      # gives every package the same deadline as the slowest one. #424/#135:
+      # internal/tdd measured `ok 552.491s` sequentially with exit 0 (it
+      # finishes correctly, it is not hung), and `ok 733.951s` under
+      # `-timeout 900s`; -race is not the cause (heaviest test 23.76s
+      # without it, 23.56s with, since it is subprocess-I/O-bound, not
+      # CPU-bound). 180s produced three false-red timeouts tonight (#473,
+      # #484, and one prior), each panicking whichever unrelated test
+      # happened to be in flight when the alarm fired. 600s matches the
+      # budget the local gate already uses for this package and passes
+      # there. This is a stopgap raising the deadline to the number the
+      # package needs, not a fix for the underlying runtime: #135 (splitting
+      # the package) is the real fix, tracked by #424, which stays open.
       - name: Test (race + shuffle)
         if: needs.changes.outputs.code == 'true'
         run: |
           set -o pipefail
-          go test -race -count=1 -shuffle=on -timeout=180s -v ./... | tee test-output.log
+          go test -race -count=1 -shuffle=on -timeout=600s -v ./... | tee test-output.log
       # The refactor/sqlc e2e tests self-skip silently (a `t.Skip` reads as a
       # pass), so a pipe wiring or capability-negotiation regression could
       # land on main green with nobody noticing the coverage never ran. This
