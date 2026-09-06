@@ -570,6 +570,48 @@ signs a receipt with `mutants_total: 0`, `verdict: "pass"` and `moved_lines: N`,
 and logs `mutants-all-moved:<tree>`. The count is what makes a zero-mutant
 receipt readable — it says why it is zero.
 
+### A zero the producer's own tool explains
+
+`moved_lines` explains a zero the GATE computed by diffing lines itself. Some
+zeros only the producer's own tool can explain, and cargo-mutants prints one
+of two fixed messages for them:
+
+- `INFO Diff changes no Rust source files` — none of the diff's paths are
+  recognized Rust source at all. A deletion has nothing left to scan, and
+  this one is FATAL: cargo-mutants exits non-zero without ever writing a
+  receipt.
+- `INFO No mutants to filter` — a real source file's own generated mutants
+  simply do not intersect the diff's changed lines: an edit confined to a
+  comment, whitespace or a string literal. This one is NOT fatal — cargo-
+  mutants writes a perfectly ordinary pass, `mutants_total: 0`.
+
+This side reads whichever message the producer's own combined output
+carries. For the fatal one, instead of recording a death, it writes the same
+shape of receipt a real zero-mutant run would (`mutants_total: 0`,
+`verdict: "pass"`); for the non-fatal one, the producer (`tools/mutation_gate.sh`
+included) already wrote and signed a receipt, and this side stamps it rather
+than writing a second one. Either way the receipt carries one field a
+measured run never sets:
+
+```jsonc
+"zero_reason": "no_mutable_source"
+```
+
+A producer invoked directly by cargo-mutants gets this for free; a repo's own
+`tools/mutation_gate.sh` gets it too, since it is written by whichever side
+of the exec boundary actually saw the message, never re-derived from paths a
+second time. Empty (the field is omitted, as on every receipt written before
+it existed) is judged exactly as before: `mutants_total: 0` and
+`moved_lines: 0` together, with no explanation, is still refused as vacuous
+(see "What the runner must do" and issue #494) — a wrong or stale `--diff`
+base produces the identical pair of zeros, and only this field tells the two
+apart. `aphrollo gate mutants status` reads it too, for the exact same
+reason: it used to judge a receipt's mergeability without ever looking at
+`mutants_total` or `moved_lines`, so it reported a vacuous receipt as
+mergeable right up until the real merge refused it. A producer that
+discovers its own reason for a zero — cargo-mutants today, something else
+tomorrow — writes it here rather than leaving either reader to guess.
+
 ### The fence
 
 A verdict is invalidated by anything whose change could flip it, which is more

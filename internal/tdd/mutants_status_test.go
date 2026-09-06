@@ -176,13 +176,64 @@ func TestComputeMutantsStatus_DoneTakesPrecedenceOverARunningJobRecord(t *testin
 
 // FormatMutantsStatus's exit code is what a script actually reads; the text
 // is for the human. A clean pass merges, so it is the only receipt state
-// that gets exit 0.
+// that gets exit 0. The fixture carries a real measured mutant (not just a
+// bare "pass" verdict on zero counts) precisely so this test still means
+// what it says once the vacuous check below reads mutants_total and
+// moved_lines too: a zero-count receipt is its own, separate case.
 func TestFormatMutantsStatus_ExitPassWhenReceiptVerdictIsCleanPass(t *testing.T) {
 	rep := MutantsStatusReport{Branch: "lane/x", TipTree: "abcd1234", State: MutantsRunDone,
-		Receipt: MutationReceipt{Verdict: "pass"}}
+		Receipt: MutationReceipt{Verdict: "pass", MutantsTotal: 1, Caught: 1}}
 	_, code := FormatMutantsStatus(rep)
 	if code != ExitMutantsStatusPass {
 		t.Fatalf("code = %d, want ExitMutantsStatusPass (%d)", code, ExitMutantsStatusPass)
+	}
+}
+
+// `status` used to judge a receipt's own counts only through verdict,
+// unaccepted survivors and timeouts, so an unexplained zero-mutant,
+// zero-moved-line receipt read as mergeable here right up until the real
+// merge gate refused it as vacuous (lane/testrig-edge, issue #494) — the
+// same receipt, two different answers. This is the read-alone half of that
+// bug: no zero_reason means status must agree with the merge gate and say
+// so would not merge.
+func TestFormatMutantsStatus_ReportsWouldNotMergeForAVacuousReceiptWithNoZeroReason(t *testing.T) {
+	rep := MutantsStatusReport{Branch: "lane/x", TipTree: "abcd1234", State: MutantsRunDone,
+		Receipt: MutationReceipt{Verdict: "pass"}}
+	text, code := FormatMutantsStatus(rep)
+	if code != ExitMutantsStatusFail {
+		t.Fatalf("code = %d, want ExitMutantsStatusFail (%d) — an unexplained zero must not read as mergeable", code, ExitMutantsStatusFail)
+	}
+	if !strings.Contains(text, "would not merge") {
+		t.Errorf("text = %q, want it to say the receipt would not merge", text)
+	}
+}
+
+// The producer's own reason for the zero is what makes it mergeable, and
+// status must read it exactly as the merge gate does: two receipts that are
+// otherwise identical (verdict pass, 0 mutants, 0 moved lines) must render
+// DIFFERENTLY once one of them carries zero_reason and the other does not —
+// the acceptance test issue #494 poses directly: from the receipt alone,
+// nothing could tell an explained zero apart from an unexplained one.
+func TestFormatMutantsStatus_AZeroReasonMakesAnOtherwiseVacuousReceiptMergeable(t *testing.T) {
+	unexplained := MutantsStatusReport{Branch: "lane/x", TipTree: "abcd1234", State: MutantsRunDone,
+		Receipt: MutationReceipt{Verdict: "pass"}}
+	explained := MutantsStatusReport{Branch: "lane/y", TipTree: "efab5678", State: MutantsRunDone,
+		Receipt: MutationReceipt{Verdict: "pass", ZeroReason: ReceiptZeroReasonNoMutableSource}}
+
+	unexplainedText, unexplainedCode := FormatMutantsStatus(unexplained)
+	explainedText, explainedCode := FormatMutantsStatus(explained)
+
+	if unexplainedCode == explainedCode {
+		t.Fatalf("both receipts reported the same exit code (%d) — a zero_reason must change the verdict, not just decorate the text", unexplainedCode)
+	}
+	if explainedCode != ExitMutantsStatusPass {
+		t.Fatalf("explained code = %d, want ExitMutantsStatusPass (%d)", explainedCode, ExitMutantsStatusPass)
+	}
+	if strings.Contains(explainedText, "would not merge") {
+		t.Fatalf("explained text = %q, must not say would not merge", explainedText)
+	}
+	if !strings.Contains(unexplainedText, "would not merge") {
+		t.Fatalf("unexplained text = %q, want would not merge", unexplainedText)
 	}
 }
 

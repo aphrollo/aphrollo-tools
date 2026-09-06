@@ -48,11 +48,24 @@ type MutationReceipt struct {
 	// therefore never mutated. A crate-topology lane moves code byte for
 	// byte, and mutating a moved line measures nothing; the count is here so
 	// a zero-mutant receipt says why it is zero.
-	MovedLines   int `json:"moved_lines,omitempty"`
-	MutantsTotal int `json:"mutants_total"`
-	Caught       int `json:"caught"`
-	Timeout      int `json:"timeout"`
-	Unviable     int `json:"unviable"`
+	MovedLines int `json:"moved_lines,omitempty"`
+	// ZeroReason is the producer's own explanation for why MutantsTotal and
+	// MovedLines are both zero — a fact only the producer can know, because
+	// it comes from CONTENT (what cargo-mutants' own mutators found in the
+	// diff), never from the PATH-based guess the gate would otherwise have
+	// to make and keep re-guessing (issue #494: a deleted source file and a
+	// comment-only edit each look mutable by path and are not, by content).
+	// Empty means the producer gave no reason, judged exactly as before this
+	// field existed: see checkReceiptNotVacuous, which refuses that case
+	// precisely because an unexplained zero and a wrong-base zero are
+	// otherwise indistinguishable from here. See
+	// ReceiptZeroReasonNoMutableSource for the one value this binary itself
+	// ever writes.
+	ZeroReason   string `json:"zero_reason,omitempty"`
+	MutantsTotal int    `json:"mutants_total"`
+	Caught       int    `json:"caught"`
+	Timeout      int    `json:"timeout"`
+	Unviable     int    `json:"unviable"`
 	// NotCovered is how many mutants the runner never ran a test for. They are
 	// neither caught nor survived: nothing was measured. Counted so a receipt
 	// says how much of its diff went unproven rather than implying the whole
@@ -108,6 +121,15 @@ type MutationReceipt struct {
 // because a gate that treats an unrecognised verdict as permission is not a
 // gate.
 const receiptVerdictPass = "pass"
+
+// ReceiptZeroReasonNoMutableSource is the one ZeroReason value this binary
+// itself ever writes: the producer's own tool (cargo-mutants) reported that
+// the diff it was given carries no mutable Rust source — a deletion, or an
+// edit confined to a comment, whitespace or a string literal, none of which
+// any mutator touches. A producer's own reason string, once it writes one
+// directly, is honoured verbatim; this binary never manufactures a different
+// value.
+const ReceiptZeroReasonNoMutableSource = "no_mutable_source"
 
 // MutationReceiptPathFor is where the consuming repo's mutation run leaves the
 // receipt for one tree.
