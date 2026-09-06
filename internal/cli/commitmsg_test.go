@@ -18,7 +18,7 @@ func TestCommitMsgHook_BlocksWithANonZeroExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	msg := filepath.Join(repo, "COMMIT_EDITMSG")
-	if err := os.WriteFile(msg, []byte("Fix it\n\nCo-Authored-By: Someone <s@example.com>\n"), 0o600); err != nil {
+	if err := os.WriteFile(msg, []byte("Fix the flaky retry timer\n\nCo-Authored-By: Someone <s@example.com>\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -31,7 +31,7 @@ func TestCommitMsgHook_BlocksWithANonZeroExit(t *testing.T) {
 		t.Fatalf("stderr = %q, want the offending line quoted", errBuf.String())
 	}
 
-	if err := os.WriteFile(msg, []byte("Fix it properly\n"), 0o600); err != nil {
+	if err := os.WriteFile(msg, []byte("Fix the flaky retry timer properly\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if code := runGate([]string{"commitmsg", msg, "--repo", repo}, strings.NewReader(""), &out, &errBuf); code != 0 {

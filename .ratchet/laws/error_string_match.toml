@@ -1,0 +1,14 @@
+name        = "error_string_match"
+description = "Matching an error by its rendered text (`strings.Contains(err.Error(), \"…\")` or `err.Error() == \"…\"`) is brittle: the text is not part of any contract, and a message that gains a prefix, a wrapped `%w`, or a locale change silently stops matching, turning a specific check into a false negative nobody sees fail. Measured 0 occurrences in non-test Go today (all 41 raw hits for this shape are `strings.Contains(err.Error(), …)` assertions inside `_test.go` files, checking an error the test itself produced — exactly the sanctioned use, and out of this law's scope) — the bar is zero and there is no baseline. Use a sentinel error and `errors.Is`, or a typed error and `errors.As`. `git`/`gh` output genuinely has no other way to be told apart in a few spots (a missing ref, a network timeout) — that call site escapes with `// error-text-ok: <why>` naming which spot."
+severity    = "deny"
+escape      = "// error-text-ok:"
+
+[scope]
+include = ["cmd/**/*.go", "internal/**/*.go"]
+exclude = ["**/*_test.go", "**/testdata/**", ".ratchet/**"]
+min_files = 270
+
+[matcher]
+kind    = "regex-absent"
+pattern = "strings\\.Contains\\(\\s*\\w*err\\w*\\.Error\\(\\)|strings\\.Contains\\(err\\b|err\\.Error\\(\\)\\s*=="
+key     = "file:line-content-hash"

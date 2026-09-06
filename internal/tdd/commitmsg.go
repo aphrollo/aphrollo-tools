@@ -35,16 +35,31 @@ var undercoverPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\b(?:Capybara|Tengu)\b`),
 }
 
-// CommitMsg is the `commit-msg` gate: it rejects a commit whose message
-// carries one of the deny patterns, naming the line. Inactive unless the
-// workspace manifest says `undercover = true`, so installing the hook
-// everywhere cannot start rejecting a repo that never asked. Merge commits go
-// through it too — a non-fast-forward merge writes a message like any other.
+// CommitMsg is the `commit-msg` gate. Two layers, independently gated: the
+// UNDERCOVER layer (below) rejects a message carrying one of the deny
+// patterns and is inactive unless the workspace manifest says
+// `undercover = true`, so installing the hook everywhere cannot start
+// rejecting a repo that never asked; the DEFAULT layer
+// (commitmsg_defaults.go) is house style, not an information boundary, and
+// runs for every repo the hook is installed in. Merge commits go through
+// both — a non-fast-forward merge writes a message like any other.
 func CommitMsg(repoRoot, msgPath string) GateResult {
 	ws := cargoWorkspaceRoot(repoRoot)
 	if ws == "" {
 		ws = repoRoot
 	}
+	data, err := os.ReadFile(msgPath)
+	if err != nil {
+		// This gate protects a convention, not correctness: an unreadable
+		// message file must never wedge a commit.
+		return GateResult{}
+	}
+	body := strings.ReplaceAll(string(data), "\r\n", "\n")
+
+	if res, blocked := defaultCommitMsgCheck(repoRoot, ws, body); blocked {
+		return res
+	}
+
 	// A repo with no Cargo.toml (Go, Python, Node) has nowhere to put
 	// [workspace.metadata.aphrollo], so the flag is read from a root
 	// aphrollo.toml too — the same fallback the mutation job uses. Without
@@ -53,15 +68,9 @@ func CommitMsg(repoRoot, msgPath string) GateResult {
 	if !cargoAphrolloFlag(ws, "undercover") && !aphrolloTomlFlag(ws, "undercover") {
 		return GateResult{}
 	}
-	data, err := os.ReadFile(msgPath)
-	if err != nil {
-		// This gate protects a convention, not correctness: an unreadable
-		// message file must never wedge a commit.
-		return GateResult{}
-	}
 	patterns := append(append([]*regexp.Regexp{}, undercoverPatterns...), repoDenyPatterns(ws)...)
 
-	for i, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+	for i, line := range strings.Split(body, "\n") {
 		// git's own comment lines are stripped before the message is stored,
 		// and the template itself mentions plenty of words a pattern would
 		// match.

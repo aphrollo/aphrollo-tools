@@ -1,0 +1,17 @@
+name        = "subprocess_stderr_dropped"
+description = "`cmd.Output()` captures the child's stdout only; on a non-zero exit the returned *exec.ExitError carries the child's stderr in its own Stderr field, but nothing surfaces it unless the caller reads that field back out. Left alone, every failure of the shape this repo runs constantly (`git`, `gh`, `tasklist`) collapses to \"exit status 1\", exactly the shape #183 recorded (`gitShow` returning empty on any failure, the specific message never seen). Measured 61 `.Output()` call sites in non-test Go; even a generous 20-line, both-direction window around each one only excuses 6 of them (a `.Stderr` reference genuinely nearby), leaving 55 real hits today, carried as the baseline and paid down one call site at a time. Use `CombinedOutput`, or the package's own `gitOut`/`ghOut`-shaped helper that reads `.Stderr` back out of the `*exec.ExitError` and folds it into the returned error. A site that legitimately never needs the child's stderr (the exit code alone is the whole signal) escapes with `// stderr-ok: <why>`."
+severity    = "deny"
+escape      = "// stderr-ok:"
+baseline    = ".ratchet/baselines/subprocess_stderr_dropped.txt"
+
+[scope]
+include = ["cmd/**/*.go", "internal/**/*.go"]
+exclude = ["**/*_test.go", "**/testdata/**", ".ratchet/**"]
+min_files = 270
+
+[matcher]
+kind      = "marker-within-lines"
+trigger   = "\\.Output\\(\\)\\s*$"
+marker    = "\\.Stderr\\b"
+lines     = 20
+direction = "both"
