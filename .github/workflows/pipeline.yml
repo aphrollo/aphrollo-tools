@@ -717,3 +717,79 @@ jobs:
         env:
           GITHUB_SHA: ${{ github.sha }}
         run: ./deploy/deploy-prod.sh
+
+  # Judges the MERGED TREE itself (#372): every check above judges a PR
+  # against ITS OWN base, so a lane that tightens a baseline and a lane that
+  # grows the same file can each be green on their own diff and combine into
+  # a tree neither ever saw. This is what actually happened -- PR #441 grew
+  # internal/tdd/precommit.go to 1054 lines, PR #449 landed afterwards
+  # carrying a module_size baseline of 1051 recorded against its OWN
+  # (pre-#441) base, and the squash-merged result on main violated its own
+  # law from the moment it landed, with nothing before this job ever
+  # rechecking it.
+  #
+  # Runs `aphrollo ratchet check` over the tree exactly as it landed, on
+  # every push to main -- not gated on the `changes` filter, because the
+  # regression here was in a file NEITHER of the two merges that produced it
+  # would have flagged as "changed" from its own PR's perspective. `--no-tighten`
+  # and `--no-cache` keep this a pure judgement: no baseline write, no shared
+  # scan-cache state with the box's own local gate.
+  #
+  # This CANNOT block: the push already landed by the time Actions runs, and
+  # there is no such thing as rejecting a GitHub-UI merge after the fact
+  # (that is the gap #372 is about in the first place). What it CAN do is
+  # (a) fail loudly and by construction name the culprit merge -- this run
+  # corresponds 1:1 with the push that caused it, so $GITHUB_SHA and its own
+  # subject line ARE the answer, no bisection needed -- and (b) record the
+  # miss as an ESCAPE, since a red the local gate never saw is exactly what
+  # that loop exists to catch (issue #375). The `gh issue list --search`
+  # guard keeps repeated reds on the same still-broken tree from opening a
+  # new issue on every subsequent push; `aphrollo gate escape record`'s own
+  # dedupe (fingerprinted, GitHub-remote-backed) is for a gate that ran and
+  # disagreed with a green note on HEAD, which a GitHub-UI merge commit never
+  # carries -- reusing it here would silently record nothing, the same hole
+  # this job exists to close.
+  merged-tree-ratchet:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    runs-on: self-hosted
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # false: see the note in `test` -- the persistent disk is the cache.
+          cache: false
+      - name: Build the CLI from this tree
+        run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
+      - name: aphrollo ratchet check (the tree as it landed)
+        id: ratchet
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          ./bin/aphrollo ratchet check --no-tighten --no-cache | tee ratchet-merged-tree.txt
+      - name: Record the miss as an escape (idempotent per still-broken tree)
+        if: steps.ratchet.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          culprit="$(git log -1 --format='%h %s' HEAD)"
+          title_needle="ratchet check red on main after a merge"
+          open_count=$(gh issue list --label escape --state open \
+            --search "\"$title_needle\" in:title" --json number --jq 'length')
+          if [ "${open_count:-0}" -gt 0 ]; then
+            echo "an open escape for a still-broken merged tree already exists -- not opening a second"
+          else
+            ./bin/aphrollo gate escape record \
+              "$title_needle: $culprit" \
+              --evidence "$(head -c 4000 ratchet-merged-tree.txt)"
+          fi
+      - name: Fail loudly, naming the culprit merge
+        if: steps.ratchet.outcome == 'failure'
+        run: |
+          echo "::error::aphrollo ratchet check is RED on main at $(git rev-parse HEAD) ($(git log -1 --format='%s')) -- this push is the merge that produced (or has not yet fixed) the regression; see the ratchet output above for which law and file"
+          exit 1
