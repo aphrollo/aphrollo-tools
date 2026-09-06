@@ -229,6 +229,57 @@ were read, only that nothing looked wrong from the outside.
   counting its own `mutation-baseline-exclude` entries, the way it already
   counts `mutation-accept` entries for `accepted`.
 
+### The baseline and the mutants share one profile — cargo-mutants gives no way to split them
+
+A repo cannot give the unmutated baseline `retries > 0` while keeping
+`retries = 0` for every mutant. Checked directly against cargo-mutants
+27.1.0's own source and config schema, not inferred:
+
+- `NEXTEST_PROFILE` (the env var `--test-tool=nextest` runs under, and how
+  `.config/nextest.toml`'s `[profile.mutants]` gets selected at all — confirmed
+  against `cargo-nextest`'s own CLI, `dispatch/common.rs`: `--profile` is
+  declared `env = "NEXTEST_PROFILE"`) is set ONCE, by the runner script,
+  before `cargo mutants` starts, and cargo-mutants never touches it again: it
+  is inherited unchanged into every child process the run spawns.
+- Inside cargo-mutants, `cargo_argv`/`run_cargo` (`src/cargo.rs`) build the
+  test-tool invocation from `Phase` (`Build`/`Check`/`Test`) and the global
+  `Options` alone. Neither function takes the `Scenario` (`Baseline` vs.
+  `Mutant(_)`) that `src/lab.rs`'s `run_baseline` and per-mutant runs both
+  eventually call through — so the unmutated baseline and every mutant
+  literally run the identical argv and environment for the test phase.
+- `cargo mutants --emit-schema config` — the tool's own config schema — has
+  no baseline-specific key: `additional_cargo_test_args`, `test_tool`,
+  `timeout_multiplier`, all apply uniformly to `Phase::Test` regardless of
+  scenario. There is no `--baseline-test-arg` or equivalent CLI flag either.
+
+So: cargo-mutants does not expose the baseline run separately, categorically,
+and nothing on the gate side of the call can make it do so — the two
+questions ("does this test catch the mutation?" vs. "is the tree green
+before we start?") share one process-wide test invocation because
+cargo-mutants' own architecture shares it. The only way to actually decouple
+them is to run the baseline OURSELVES, outside cargo-mutants, under a
+different profile, then invoke `cargo mutants --baseline skip` — which
+duplicates cargo-mutants' own build+test machinery and is not something the
+gate does today.
+
+Two remedies work without any of that, and neither needs a change here:
+
+- **`mutation-baseline-exclude`** (above) already solves this for a NAMED
+  test: excluded from both phases, it can never veto a receipt under load
+  again. The cost is permanent: a mutant caught only by an excluded test is
+  never caught again.
+- **Make the test load-insensitive**, the fix issue #230 already used for
+  `headless_glue`/`reconnect` (`.config/nextest.toml`'s own comment on
+  `[profile.mutants]`): an ephemeral port, `threads-required = "num-cpus"`,
+  or a dedicated `test-group` so the test stops competing with the run's own
+  concurrent build for whatever makes it flaky. This is the only remedy that
+  keeps full mutation coverage, and it is work in the consuming repo on the
+  named test, never a runner-side setting.
+
+A run that dies because the baseline failed already reaches this contract's
+`died` state (no receipt ever written), not a receipt with a false verdict —
+that distinction needs no fix here either.
+
 ## What the runner must do
 
 1. Run cargo-mutants with `$APHROLLO_MUTANTS_ARGS` plus the timeout flags
