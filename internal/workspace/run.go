@@ -74,12 +74,7 @@ func Apply(p *Plan, stdout, stderr io.Writer) error {
 		if len(s.Cmd) == 0 {
 			continue
 		}
-		cmd := exec.Command(s.Cmd[0], s.Cmd[1:]...)
-		cmd.Dir = s.Dir
-		cmd.Env = env
-		cmd.Stdout = stdout
-		cmd.Stderr = stderr
-		if err := cmd.Run(); err != nil {
+		if err := runStep(s, env, stdout, stderr); err != nil {
 			if s.NonFatal {
 				// e.g. an offline `fetch origin` — warn, keep going (the worktree
 				// falls back to the local tip), don't abort the whole prepare.
@@ -92,6 +87,32 @@ func Apply(p *Plan, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "\nready: %s\n", p.Worktree)
 	reportBase(p, stdout)
 	return nil
+}
+
+// runStep runs one step's command, bounding it to gitNetworkTimeout when the
+// step touches the network (Step.Network) instead of letting it run with no
+// deadline at all: `workspace create`/`prepare`'s own `fetch origin` was
+// still a bare exec.Command with no timeout even after #290 bounded every
+// network call sync/push/gh made (issue #351). A non-network step keeps its
+// original unbounded exec.Command — a local `git worktree add` or an
+// `npm install` is not the hang this bounds.
+func runStep(s Step, env []string, stdout, stderr io.Writer) error {
+	if !s.Network {
+		cmd := exec.Command(s.Cmd[0], s.Cmd[1:]...)
+		cmd.Dir = s.Dir
+		cmd.Env = env
+		cmd.Stdout = stdout
+		cmd.Stderr = stderr
+		return cmd.Run()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gitNetworkTimeout)
+	defer cancel()
+	cmd := networkCmd(ctx, s.Dir, s.Cmd[0], s.Cmd[1:]...)
+	cmd.Env = append(env, "GIT_TERMINAL_PROMPT=0")
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	err := cmd.Run()
+	return networkTimeoutErr(ctx.Err() == context.DeadlineExceeded, gitNetworkTimeout, s.Cmd[0], s.Cmd[1:], err)
 }
 
 // reportBase prints the worktree's base commit and, when a default remote branch

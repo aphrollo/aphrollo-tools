@@ -183,6 +183,13 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 			fmt.Fprintln(stderr, line)
 			return 1
 		}
+		// The shared-stash wall (#384): refs/stash is one ref for the whole
+		// repo, not per-worktree — a pop that already took another lane's
+		// entry cannot be undone by a refusal printed after it either.
+		if line, refuse := stashRefusalLine(cfg.realGit, rest, workDir); refuse {
+			fmt.Fprintln(stderr, line)
+			return 1
+		}
 	}
 
 	scope := gitLockScopeFor(classifyRest)

@@ -430,7 +430,13 @@ func unresolvable(p string) bool {
 // a file. `/dev/null` is the POSIX spelling; `nul` is a DOS device name
 // RESERVED IN EVERY DIRECTORY on Windows, so `> /nul`, a drive-qualified
 // `nul` and `> sub/nul` all discard their output and none of them creates a
-// file.
+// file. A `dev/null` missing its leading slash (`>dev/null`) is judged the
+// same way: the shell would resolve it relative to cwd and, if a `dev`
+// directory happened to exist there, write a real file — but the overwhelming
+// likelihood is a dropped slash, not a deliberate write to a path ending in
+// exactly those two segments, and claiming it as a repo write is the false
+// block this file's contract rules out (found by FuzzBashWriteTargets,
+// issue #413).
 //
 // The base name is judged on every platform, not only Windows. On POSIX a
 // file actually named `nul` is an ordinary file, so not claiming it is a
@@ -442,5 +448,6 @@ func isNullDevice(p string) bool {
 	if base == "nul" || base == "nul:" {
 		return true
 	}
-	return strings.ToLower(filepath.ToSlash(p)) == "/dev/null"
+	norm := strings.ToLower(filepath.ToSlash(p))
+	return norm == "/dev/null" || norm == "dev/null" || strings.HasSuffix(norm, "/dev/null")
 }

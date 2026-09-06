@@ -21,6 +21,7 @@
 package workspace
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -49,6 +50,11 @@ type Step struct {
 	Dir      string   // working directory for Cmd ("" => inherit)
 	Skip     string   // non-empty => already satisfied, won't execute
 	NonFatal bool     // a failure warns and continues instead of aborting the plan
+	// Network marks a step that touches a remote (git fetch/push, gh) so
+	// Apply bounds it to gitNetworkTimeout instead of running it with no
+	// deadline at all (issue #351: workspace create/prepare's own fetch was
+	// the one network call in this package Apply ran unbounded).
+	Network bool
 }
 
 // Plan is the fully-resolved prepare sequence for one repo+branch.
@@ -170,7 +176,10 @@ func BuildPlan(req Request) (*Plan, error) {
 	// up front while the actual worktree-add still runs after the Apply-time fetch.
 	remoteBranch := false
 	if !branchExists {
-		remoteBranch = gitRemoteBranchExists(top, req.Branch)
+		remoteBranch, err = gitRemoteBranchExists(top, req.Branch)
+		if err != nil {
+			return nil, err
+		}
 	}
 	wtExists := dirExists(wt)
 
@@ -214,6 +223,7 @@ func BuildPlan(req Request) (*Plan, error) {
 		Title:    "fetch origin",
 		Cmd:      []string{"git", "-C", top, "fetch", "origin", "--quiet"},
 		NonFatal: true,
+		Network:  true,
 	})
 
 	// 3. Create the worktree. Branch-resolution precedence:
@@ -291,15 +301,33 @@ func gitBranchExists(repo, branch string) bool {
 // gitRemoteBranchExists reports whether origin carries refs/heads/<branch>, via a
 // read-only ls-remote that queries the remote directly (so it sees a branch
 // pushed after a one-shot clone, before any fetch populates a local tracking
-// ref). Mirrors the Apply-time fetch's offline tolerance: no origin / unreachable
-// remote => the command fails => false, and BuildPlan falls through to the
-// new-branch path rather than hard-failing.
-func gitRemoteBranchExists(repo, branch string) bool {
-	out, err := exec.Command("git", "-C", repo, "ls-remote", "--heads", "origin", "refs/heads/"+branch).Output()
+// ref), bounded to gitNetworkTimeout so a stalled query cannot hang
+// BuildPlan forever (issue #351). Mirrors the Apply-time fetch's offline
+// tolerance for an ORDINARY failure: no origin / a remote that answers
+// "no such ref" => false, nil, and BuildPlan falls through to the new-branch
+// path.
+//
+// A TIMEOUT is not an ordinary failure and must not collapse into that same
+// false: "the branch isn't on origin" and "we couldn't ask origin" are
+// different facts, and treating a timeout as the former is exactly the wrong
+// answer a bounded `gh` call produced once already (the earlier fix to #290
+// this issue is a follow-up to). Here the wrong answer is worse than a
+// mapped-to-"no PR" string: BuildPlan would create a brand-new local branch
+// off the default start point while a same-named branch already sits on
+// origin, diverging from it. So a timeout is returned as an error, and
+// BuildPlan must fail loudly on it rather than guess.
+func gitRemoteBranchExists(repo, branch string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitNetworkTimeout)
+	defer cancel()
+	cmd := networkCmd(ctx, "", "git", "-C", repo, "ls-remote", "--heads", "origin", "refs/heads/"+branch)
+	out, err := cmd.Output()
 	if err != nil {
-		return false
+		if ctx.Err() == context.DeadlineExceeded {
+			return false, fmt.Errorf("checking origin for refs/heads/%s: timed out after %s — check network connectivity/credentials and retry", branch, gitNetworkTimeout)
+		}
+		return false, nil
 	}
-	return strings.TrimSpace(string(out)) != ""
+	return strings.TrimSpace(string(out)) != "", nil
 }
 
 // resolveDefaultBranch returns the repo's default remote branch short name —

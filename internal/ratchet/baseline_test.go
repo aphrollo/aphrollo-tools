@@ -282,6 +282,31 @@ func TestBaselineMalformedCountedLineIsAParseError(t *testing.T) {
 	}
 }
 
+// A key that itself ends in "|" produces a rendered line with two " | "
+// triples ("<key with |> | <count>" becomes e.g. "0 | | 0"), and that
+// rendered text must parse back to the SAME key and count rather than error:
+// a first-occurrence split on " | " cuts the key short and leaves a
+// non-numeric count field. Found by FuzzBaseline (issue #414); the input is
+// its minimized reproducer, a lone mid-line CR ("0 |\r | 0") that trims down
+// to a key of "0 |".
+func TestBaselineCounted_RoundTripsAKeyEndingInPipe(t *testing.T) {
+	b, err := ParseBaseline("0 |\r | 0", Counted)
+	if err != nil {
+		t.Fatalf("ParseBaseline: %v", err)
+	}
+	rendered := b.Render()
+	if rendered != "0 | | 0\n" {
+		t.Fatalf("Render() = %q, want %q", rendered, "0 | | 0\n")
+	}
+	again, err := ParseBaseline(rendered, Counted)
+	if err != nil {
+		t.Fatalf("re-parsing Render()'s own output failed: %v\nrendered: %s", err, rendered)
+	}
+	if got := again.Render(); got != rendered {
+		t.Fatalf("re-parse did not reach a fixed point: got %q, want %q", got, rendered)
+	}
+}
+
 func TestBaselineWriteIfChangedIsByteStableAndAtomic(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "b.txt")
 	if err := os.WriteFile(path, []byte("crates/a.rs | 600\n"), 0o644); err != nil {

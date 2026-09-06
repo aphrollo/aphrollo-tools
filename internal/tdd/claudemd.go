@@ -90,7 +90,13 @@ func PatchClaudeMD(existing []byte, block string) ([]byte, bool) {
 	case start >= 0 && end > start:
 		// Replace IN PLACE: the block may have been put somewhere deliberate,
 		// and moving it to the end on every init would churn the file forever.
-		out = text[:start] + block + text[end+len(claudeMDEnd)+1:]
+		// The +1 skips the newline after the end marker — but the file can
+		// END exactly at the marker with no trailing newline (a truncated
+		// CLAUDE.md, or an editor that strips the final newline), in which
+		// case there is no such byte to skip: clamp to len(text) so the slice
+		// never runs past it (issue #286).
+		tail := min(len(text), end+len(claudeMDEnd)+1)
+		out = text[:start] + block + text[tail:]
 	case start >= 0 || end > 0:
 		// One marker without the other: the file was hand-edited mid-block.
 		// Drop the orphan and append a whole one rather than nesting markers.
