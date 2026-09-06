@@ -95,38 +95,47 @@ func narrowToStaged(r Runner, root string, files []string) (Runner, bool) {
 	}
 	switch r.Cmd {
 	case "go":
-		// Dedupe the package dir of each staged file; a root-level file maps to
+		// Dedupe the package dir of each staged file (plus, below, the
+		// dirs its reverse dependents add — #399); a root-level file maps to
 		// the "." package. Sorted for a deterministic command.
 		seen := map[string]bool{}
-		var pkgs []string
-		for _, f := range files {
-			dir, ok := goDataFileScope[filepath.ToSlash(f)]
-			if !ok {
-				dir = goPackageDir(root, filepath.Dir(f))
-			}
+		var dirs []string
+		addDir := func(dir string) {
 			// A directory with no .go files is not a package `go test` can
 			// load: naming it does not skip it, it fails the run outright
 			// with "[setup failed]". The repo root is the case that bites,
 			// because a change to aphrollo.toml is Source -- it configures
 			// the gate -- while the Go files live under cmd/ and internal/.
 			if !dirHasGoFiles(filepath.Join(root, dir)) {
-				continue
+				return
 			}
+			if !seen[dir] {
+				seen[dir] = true
+				dirs = append(dirs, dir)
+			}
+		}
+		for _, f := range files {
+			dir, ok := goDataFileScope[filepath.ToSlash(f)]
+			if !ok {
+				dir = goPackageDir(root, filepath.Dir(f))
+			}
+			addDir(dir)
+		}
+		if len(dirs) == 0 {
+			// Nothing staged belongs to a Go package, so there is nothing to
+			// narrow TO — and nothing to widen from either.
+			return r, false
+		}
+		for _, dep := range goReverseDependents(root, dirs) {
+			addDir(dep)
+		}
+		pkgs := make([]string, 0, len(dirs))
+		for _, dir := range dirs {
 			pkg := "./" + dir
 			if dir == "." {
 				pkg = "."
 			}
-			if !seen[pkg] {
-				seen[pkg] = true
-				pkgs = append(pkgs, pkg)
-			}
-		}
-		if len(pkgs) == 0 {
-			// Nothing staged belongs to a Go package, so there is nothing to
-			// narrow TO. `go test` with no packages tests the current
-			// directory and fails the same way, so hand the caller back its
-			// unnarrowed runner instead.
-			return r, false
+			pkgs = append(pkgs, pkg)
 		}
 		sort.Strings(pkgs)
 		return Runner{Cmd: "go", Args: append([]string{"test"}, pkgs...)}, true
