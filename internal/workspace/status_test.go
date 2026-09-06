@@ -219,3 +219,41 @@ func TestResolvePRStates_TimesOutToUnknown(t *testing.T) {
 		t.Errorf("states = %v, want [\"?\"]", states)
 	}
 }
+
+// A stalled `gh pr view` is a real failure, not an answer about whether a PR
+// exists — ghViewPRStatusReal must propagate the (timeout) error rather than
+// reading any non-nil error as "no PR" (the same shape #348 fixed in
+// ghViewPRReal; this one was recorded separately as #351).
+func TestGhViewPRStatusReal_ATimeoutIsPropagatedNotReadAsNoPR(t *testing.T) {
+	putSlowStubOnPath(t)
+	t.Setenv("SLOWSTUB_SLEEP_MS", "3000")
+	defer func(d time.Duration) { ghTimeout = d }(ghTimeout)
+	ghTimeout = 200 * time.Millisecond
+
+	s, err := ghViewPRStatusReal(t.TempDir(), "feat/x")
+	if err == nil {
+		t.Fatal("a timed-out gh pr view must return an error, not be read as no-PR")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("error should name the timeout, got: %v", err)
+	}
+	if s != nil {
+		t.Errorf("expected nil status on a real failure, got %+v", s)
+	}
+}
+
+// The legitimate case must still work: gh's own "no PR for this branch"
+// message is absence, not a failure, and must still yield (nil, nil).
+func TestGhViewPRStatusReal_StillReadsGhsOwnNoPRMessageAsAbsence(t *testing.T) {
+	putSlowStubOnPath(t)
+	t.Setenv("SLOWSTUB_EXIT", "1")
+	t.Setenv("SLOWSTUB_STDERR", "no pull requests found for branch \"feat/x\"\n")
+
+	s, err := ghViewPRStatusReal(t.TempDir(), "feat/x")
+	if err != nil {
+		t.Fatalf("gh's own no-PR message must be read as absence, not an error: %v", err)
+	}
+	if s != nil {
+		t.Errorf("expected nil status for a branch with no PR, got %+v", s)
+	}
+}

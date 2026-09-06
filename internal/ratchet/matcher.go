@@ -84,6 +84,8 @@ func (l Law) hitsInLines(file string, fl *FileLines) []Hit {
 		return l.regexPresentHits(file, code)
 	case KindMarkerWithinLines:
 		return l.markerHits(file, raw, code)
+	case KindRegexNear:
+		return l.regexNearHits(file, raw, code)
 	case KindDocPathResolves:
 		return l.docPathHits(file, code)
 	}
@@ -345,6 +347,34 @@ func inCommentRun(line, prefix string) bool {
 		return true
 	}
 	return (strings.HasPrefix(t, "#[") || strings.HasPrefix(t, "#![")) && strings.HasSuffix(t, "]")
+}
+
+// regexNearHits is markerHits' complement: a trigger is a hit only when the
+// context pattern co-occurs within the window, rather than being excused by
+// it. A trigger with no co-occurring context is never a hit — that is the
+// whole reason this kind exists (see law.go's KindRegexNear doc).
+func (l Law) regexNearHits(file string, raw, code []string) []Hit {
+	var hits []Hit
+	for i, line := range code {
+		if l.excluded(line) || !l.Matcher.Trigger.MatchString(line) || l.escaped(file, raw, i) {
+			continue
+		}
+		if !l.contextNear(raw, i) {
+			continue
+		}
+		hits = append(hits, l.hit(file, i+1, strings.TrimSpace(raw[i])))
+	}
+	return hits
+}
+
+// contextNear looks for the required context on the trigger's own line and
+// in the window around it, in the configured direction — the same window
+// walk markerAbove uses, with the polarity of the RESULT flipped by the
+// caller rather than by this function.
+func (l Law) contextNear(raw []string, idx int) bool {
+	return l.foundNear(raw, idx, l.Matcher.Lines, l.Matcher.Direction, func(line string) bool {
+		return l.Matcher.Context.MatchString(line)
+	})
 }
 
 func (l Law) docPathHits(file string, code []string) []Hit {

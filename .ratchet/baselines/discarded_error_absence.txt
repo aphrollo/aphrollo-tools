@@ -1,0 +1,34 @@
+# A discarded error, one line below its own `if err != nil {` check, returned
+# as though the answer were merely absence rather than an error the caller
+# could not evaluate. Format: one line per occurrence, "<path> | <trimmed
+# line>" — the TEXT is the identity (a git mv is not a regression, a new
+# occurrence of a line already at its ceiling is). See
+# .ratchet/laws/discarded_error_absence.toml. Grandfathered debt, only ever
+# paid down: fix the call site to propagate the error, or mark it
+# `absence-ok: <why>` when the miss really is the honest answer.
+internal/cli/cli_workspace.go | return nil, false
+internal/cli/cli_workspace.go | return nil, false
+internal/cli/git_shim.go | return "", false
+internal/ratchet/cache.go | return nil, false
+internal/ratchet/wholetree.go | return nil, false
+internal/tdd/agents.go | return "", false
+internal/tdd/autoescape.go | return EscapeRecord{}, false
+internal/tdd/baselineguard.go | return "", false
+internal/tdd/bashsuite.go | return gateEntry{}, false
+internal/tdd/behind.go | return binaryBehindCache{}, false
+internal/tdd/buildlock.go | return BuildLockOwner{}, false
+internal/tdd/buildlock_futuremtime.go | return futureMtimeMarker{}, false
+internal/tdd/deferred_run.go | return DeferredJob{}, false
+internal/tdd/gc_mutantstemp.go | return nil, false
+internal/tdd/mechcache.go | return nil, false
+internal/tdd/mutants_carry.go | return nil, false
+internal/tdd/mutants_ram_unix.go | return "", false
+internal/tdd/mutants_resume.go | return MutantsDeath{}, false
+internal/tdd/mutants_run.go | return nil, false
+internal/tdd/receipt_mergetip.go | return "", false
+internal/tdd/runner.go | return "", false
+internal/tdd/sessionline.go | return issuesCache{}, false
+internal/tdd/sessionline.go | return "", false
+internal/tdd/stats.go | return gateEntry{}, false
+internal/tdd/stats.go | return gateEntry{}, false
+internal/workspace/prune_stale.go | return nil, false

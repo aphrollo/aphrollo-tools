@@ -1,0 +1,17 @@
+name        = "standdown_logged"
+description = "Every skip, fail-open, or unverifiable path prints a message carrying that vocabulary, so a stand-down is at least visible on stderr — but visible is not counted, and a line that only prints leaves no trace in gate.log once the terminal scrolls past it. A stand-down message with no appendGateLog call within a few lines is a stage that decided not to block and then told nobody durably: `gateRoot`'s \"no detected runner\" and `workspaceCheckStage`'s \"no cargo package owns anything staged\" were exactly this shape until this law's own landing fixed them (issue #320). The bar is zero and there is no baseline. A message that genuinely IS logged, just not textually adjacent (a verdict variable assigned here and passed to appendGateLog after an intervening switch, as `failFirstStage`'s `inconclusive (fail-open)` default does), says so with the escape: `standdown-logged: <where>` on the line."
+severity    = "deny"
+escape      = "standdown-logged:"
+code_only   = true
+
+[scope]
+include = ["internal/tdd/**/*.go", "internal/cli/**/*.go"]
+exclude = ["**/*_test.go", "**/testdata/**"]
+min_files = 192
+
+[matcher]
+kind      = "marker-within-lines"
+trigger   = "\"[^\"]*(→ skipped|fail-open|stand(s)? down|unverifiable|not checked)[^\"]*\""
+marker    = "appendGateLog"
+lines     = 3
+direction = "both"

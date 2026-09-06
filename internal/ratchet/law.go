@@ -50,6 +50,13 @@ const (
 	// KindMarkerWithinLines: a `trigger` line requires a `marker` within N
 	// lines above it (`// bound:` over a growing collection).
 	KindMarkerWithinLines MatcherKind = "marker-within-lines"
+	// KindRegexNear: a `trigger` line is a hit only when a `context` pattern
+	// co-occurs within N lines (a discarded error whose branch returns an
+	// empty value as though absence were the answer). It is the COMPLEMENT
+	// of marker-within-lines, not a variant of it: there, finding the marker
+	// EXCUSES the trigger; here, finding the context is what MAKES it an
+	// offence — a trigger alone must never be a hit.
+	KindRegexNear MatcherKind = "regex-near"
 	// KindRegistryBothWays: every use is registered and every registry line is
 	// used (the dev-instrument registry).
 	KindRegistryBothWays MatcherKind = "registry-both-ways"
@@ -135,6 +142,9 @@ type Matcher struct {
 	Pattern *regexp.Regexp
 	Trigger *regexp.Regexp
 	Marker  *regexp.Regexp
+	// Context (KindRegexNear only) is the co-occurring pattern that turns a
+	// Trigger match into a hit — the complement of Marker, which excuses one.
+	Context *regexp.Regexp
 	Max     int
 	Lines   int
 	// LineMode (KindLineCount only) is "text" (every line, the default) or

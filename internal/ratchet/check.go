@@ -327,6 +327,7 @@ func regressions(baseline *Baseline, measured map[string]int, tolerancePct int) 
 var lineKeyedKinds = map[MatcherKind]bool{
 	KindRegexAbsent:       true,
 	KindMarkerWithinLines: true,
+	KindRegexNear:         true,
 	KindDocPathResolves:   true,
 	KindHunkRegex:         true,
 }

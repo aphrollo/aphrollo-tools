@@ -171,6 +171,66 @@ func TestGateStats_CountsReceiptRejectionsByReasonInTheDeniesTable(t *testing.T)
 	}
 }
 
+// A stand-down that only prints leaves no trace once the terminal scrolls
+// past it: "skipped", "runner-missing", "lint-skipped" and the receipt
+// stage's "unverifiable"/"unpinned" outcomes all reached gate.log and none
+// of them had a row anywhere (issue #320). "vet-fail-open" pins that a
+// verdict carrying a prefix is still caught, not just an exact "fail-open"
+// token — gate.log is space-delimited, so a verdict itself can never carry a
+// space (unlike the "inconclusive (fail-open)" token precommit_failfirst.go
+// actually writes: that one is a pre-existing, separate parsing defect,
+// tracked on its own rather than fixed here).
+func TestGateStats_CountsEveryStandDownVerdict(t *testing.T) {
+	log := strings.Join([]string{
+		stamp(time.Now().UTC(), "precommit", "/repo", "go test .", "skipped", 0),
+		stamp(time.Now().UTC(), "precommit", "/repo", "go vet ./...", "runner-missing", 0),
+		stamp(time.Now().UTC(), "precommit", "/repo", "golangci-lint run ./...", "lint-skipped", 0),
+		stamp(time.Now().UTC(), "premergecommit", "/repo", "mutation-receipt", "receipt-unverifiable", 0),
+		stamp(time.Now().UTC(), "premergecommit", "/repo", "mutation-receipt", "receipt-unpinned", 0),
+		stamp(time.Now().UTC(), "precommit", "/repo", "go test .", "vet-fail-open", 0),
+	}, "")
+
+	s := GateStats(strings.NewReader(log), time.Time{})
+	want := map[string]int{
+		"skipped": 1, "runner-missing": 1, "lint-skipped": 1,
+		"receipt-unverifiable": 1, "receipt-unpinned": 1, "vet-fail-open": 1,
+	}
+	for verdict, n := range want {
+		if s.StandDowns[verdict] != n {
+			t.Errorf("StandDowns[%q] = %d, want %d (StandDowns = %v)", verdict, s.StandDowns[verdict], n, s.StandDowns)
+		}
+	}
+	out := RenderGateStats(s)
+	if !strings.Contains(out, "stand-downs:") {
+		t.Fatalf("rendered stats carry no stand-downs row:\n%s", out)
+	}
+	for _, want := range []string{"skipped=1", "runner-missing=1", "lint-skipped=1"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered stats never mention %s:\n%s", want, out)
+		}
+	}
+}
+
+// "queued-skipped" is a stand-down too (it ends in "-skipped"), so it counts
+// in BOTH places: the contention line answers "is the box busy", the
+// stand-downs row answers "is every stand-down counted somewhere" — the two
+// questions are not mutually exclusive, and folding one into the other would
+// lose whichever answer nobody asked for.
+func TestGateStats_QueuedSkippedCountsInStandDownsAlongsideContention(t *testing.T) {
+	log := stamp(time.Now().UTC(), "postedit", `D:\repo\crates\pose`, "cargo nextest run -p pose", "queued-skipped", 0)
+	s := GateStats(strings.NewReader(log), time.Time{})
+	if s.StandDowns["queued-skipped"] != 1 {
+		t.Fatalf("StandDowns[queued-skipped] = %d, want 1", s.StandDowns["queued-skipped"])
+	}
+	out := RenderGateStats(s)
+	if !strings.Contains(out, "contention:") {
+		t.Fatal("contention line missing")
+	}
+	if !strings.Contains(out, "stand-downs: queued-skipped=1") {
+		t.Fatalf("stand-downs row missing queued-skipped:\n%s", out)
+	}
+}
+
 // The queue bypass is a tolerated hole: anything can set it. What makes it
 // tolerable is that every use is counted, so a bypass nobody expected shows up
 // in the same table as every other waiver.

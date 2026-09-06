@@ -1,0 +1,15 @@
+name        = "discarded_error_success"
+description = "A discarded error returned as an empty return, one line below its own `if err != nil {` check, as though the answer were SUCCESS rather than an error the caller never saw (issue #360). `ghViewPR`'s pre-#348 shape — mapping ANY non-nil error to (nil, nil), which read a stalled `gh pr view` as \"no PR\" and opened a duplicate once the call stopped hanging forever — is the model defect this law catches going forward. The bar is zero and there is no baseline: this shape is rare (measured at 1 live occurrence, `internal/workspace/status.go`'s `ghViewPRStatusReal`, tracked separately as #351) and always worth a second look, unlike the sibling `,  false` shape (`discarded_error_absence`), which is common enough that most instances are an honest not-found lookup. A genuine case — the miss is indistinguishable from an error by construction, checked explicitly rather than assumed — says so with the escape: `absence-ok: <why>` on the `return nil, nil` line itself, the shape both of this tree's two present sites (`ghViewPRReal`, `ghViewPRStatusReal`) already carry, having checked gh's own message text first."
+severity    = "deny"
+escape      = "absence-ok:"
+
+[scope]
+include = ["cmd/**/*.go", "internal/**/*.go"]
+exclude = ["**/*_test.go", "**/testdata/**", ".ratchet/**"]
+min_files = 275
+
+[matcher]
+kind    = "regex-near"
+trigger = "return\\s+(nil|[A-Za-z_]+\\{\\}|\"\")\\s*,\\s*nil\\s*$"
+context = "if err != nil \\{"
+lines   = 3

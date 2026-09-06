@@ -28,14 +28,32 @@ type checkEntry struct {
 	State      string `json:"state"`
 }
 
-// ghViewPRStatus is the seam over `gh pr view`, a package var so tests drive the
-// rendering without gh or the network. It returns (nil, nil) when the branch has
-// no PR — the "nothing to report" signal, not an error (mirrors ghViewPR).
-var ghViewPRStatus = func(wt, branch string) (*PRStatus, error) {
-	out, err := ghOutput(wt, "pr", "view",
+// ghViewPRStatus is the seam over `gh pr view`, a package var (bound to
+// ghViewPRStatusReal) so tests drive the rendering without gh or the
+// network. It returns (nil, nil) when the branch has no PR — the "nothing
+// to report" signal, not an error (mirrors ghViewPR).
+var ghViewPRStatus = ghViewPRStatusReal
+
+// ghViewPRStatusReal is ghViewPRStatus's real implementation, named so a
+// test can call it directly regardless of what another test's stub last
+// pointed the ghViewPRStatus var at.
+//
+// gh exits non-zero both for "no PR exists for this branch" (absence) and
+// for a genuine failure — a network timeout, a missing gh, no auth. Before
+// this, ANY non-nil error read as "no PR", so a stalled gh (or any other
+// failure) silently reported the branch as unmerged and un-PR'd instead of
+// propagating the error — the same shape ghViewPR had until #348. isNoPRError
+// is the same check ghViewPR and ghPRState already make, and combined output
+// is needed because gh writes its "no PR" message to stderr, which ghOutput
+// discards.
+func ghViewPRStatusReal(wt, branch string) (*PRStatus, error) {
+	out, err := ghCombinedOutput(wt, "pr", "view",
 		"--json", "number,state,isDraft,mergedAt,mergeable,mergeStateStatus,statusCheckRollup", "--", branch)
 	if err != nil {
-		return nil, nil // no PR for the branch
+		if isNoPRError(string(out)) {
+			return nil, nil // absence-ok: gh's own no-PR message, checked above, not a blind swallow
+		}
+		return nil, fmt.Errorf("gh pr view %s: %v: %s", branch, err, strings.TrimSpace(string(out)))
 	}
 	var raw struct {
 		Number           int          `json:"number"`
