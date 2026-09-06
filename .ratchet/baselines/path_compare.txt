@@ -1,89 +1,8 @@
 internal/tdd/mergeprune.go | // PATH (cleanWorktreePath(wt.path) == cleanWorktreePath(mainRepo)), never by
-internal/tdd/behind.go | // The log call is written before the path=="" cache-write bailout, but that
-internal/tdd/behind.go | // line. Every real cause of path=="" — no CLAUDE_CONFIG_DIR and no resolvable
-internal/cli/git_shim_discard.go | if !forced || path == "" {
-internal/tdd/posttooluse.go | if !gatedPostTools[in.ToolName] || in.ToolInput.FilePath == "" {
-internal/cli/ratchet.go | if !ok || path == "" || contentFile == "" {
-internal/ratchet/mergeinprogress.go | if !opts.Tighten || path == "" || len(opts.Proposed) > 0 || len(opts.Files) > 0 {
 internal/tdd/precommit_wsmanifest.go | if abs == filepath.Clean(filepath.Join(ws, name)) {
-internal/cli/cli_gate.go | if binPath == "" {
-internal/ratchet/cache.go | if c.path == "" {
-internal/ratchet/cache.go | if c.path == "" {
-internal/ratchet/cache.go | if c.path == "" || (!c.dirty && len(c.next) == len(c.Files)) {
-internal/tdd/mutants_deps.go | if d.Path == "" {
-internal/tdd/mutants_deps.go | if from == "" && p.ManifestPath == "" {
-internal/tdd/buildlock_futuremtime.go | if futurePath == "" {
-internal/tdd/doctor.go | if in.GitHooksPath == "" {
 internal/tdd/mutants_replaced.go | if p, ok := processExePathFn(j.PID); ok && p == stalePath {
 internal/ratchet/wholetree_godepgraph.go | if p.ImportPath == prefix || strings.HasPrefix(p.ImportPath, prefix+"/") {
-internal/cli/escape.go | if path == "" {
-internal/cli/escape.go | if path == "" {
-internal/cli/git_shim.go | if path == "" {
-internal/cli/mergerecover.go | if path == "" {
-internal/cli/stats.go | if path == "" {
-internal/tdd/autoescape.go | if path == "" {
-internal/tdd/behind.go | if path == "" {
-internal/tdd/behind.go | if path == "" {
-internal/tdd/buildlock_futuremtime.go | if path == "" {
-internal/tdd/buildlock_futuremtime.go | if path == "" {
-internal/tdd/deferred.go | if path == "" {
-internal/tdd/deferred.go | if path == "" {
-internal/tdd/deferred.go | if path == "" {
-internal/tdd/deferred.go | if path == "" {
-internal/tdd/deferred.go | if path == "" {
-internal/tdd/denylog.go | if path == "" {
-internal/tdd/escape.go | if path == "" {
-internal/tdd/escape.go | if path == "" {
-internal/tdd/escape.go | if path == "" {
-internal/tdd/gc_session.go | if path == "" {
-internal/tdd/gc_session.go | if path == "" {
-internal/tdd/gc_session.go | if path == "" {
-internal/tdd/gc_session.go | if path == "" {
-internal/tdd/gc_session.go | if path == "" {
-internal/tdd/mechcache.go | if path == "" {
-internal/tdd/mechcache.go | if path == "" {
-internal/tdd/mergereject.go | if path == "" {
-internal/tdd/mutants_ci.go | if path == "" {
-internal/tdd/mutants_job.go | if path == "" {
-internal/tdd/mutants_job.go | if path == "" {
-internal/tdd/mutants_job.go | if path == "" {
-internal/tdd/mutants_job.go | if path == "" {
-internal/tdd/mutants_lane_reclaim.go | if path == "" {
-internal/tdd/mutants_resume.go | if path == "" {
-internal/tdd/mutants_resume.go | if path == "" {
-internal/tdd/mutants_resume.go | if path == "" {
-internal/tdd/mutants_resume.go | if path == "" {
-internal/tdd/mutants_resume.go | if path == "" {
-internal/tdd/mutants_run.go | if path == "" {
-internal/tdd/mutants_run.go | if path == "" {
-internal/tdd/mutants_run.go | if path == "" {
-internal/tdd/mutants_run.go | if path == "" {
-internal/tdd/mutants_store.go | if path == "" {
-internal/tdd/mutants_store.go | if path == "" {
-internal/tdd/primary.go | if path == "" {
-internal/tdd/primary.go | if path == "" {
-internal/tdd/ratchetgate.go | if path == "" {
-internal/tdd/receipt.go | if path == "" {
-internal/tdd/receipt_sign.go | if path == "" {
-internal/tdd/receipt_sign.go | if path == "" {
-internal/tdd/sessionline.go | if path == "" {
-internal/tdd/smellscope.go | if path == "" {
-internal/tdd/state.go | if path == "" {
-internal/tdd/stateschema.go | if path == "" {
-internal/tdd/stateschema.go | if path == "" {
-internal/tdd/stateschema.go | if path == "" {
-internal/tdd/weekly.go | if path == "" {
-internal/tdd/worktree.go | if path == "" {
-internal/tdd/worktree.go | if path == "" {
-internal/workspace/prune.go | if path == "" {
-internal/workspace/prune_stale.go | if path == "" {
-internal/ratchet/wholetree.go | if path == "" || fingerprint == "" {
-internal/ratchet/wholetree.go | if path == "" || fingerprint == "" {
-internal/tdd/mutants_store.go | if path == "" || len(outcomes) == 0 {
-internal/tdd/autoescape.go | if path == "" || tree == "" {
 internal/cli/selfinstall.go | if path == keep {
-internal/tdd/bashedit.go | if s == nil || path == "" {
-internal/tdd/mutants_replaced.go | if stalePath == "" {
 internal/tdd/ratchetgate.go | if strings.HasPrefix(filepath.ToSlash(f), ".ratchet/") {
 internal/workspace/workspace.go | if t := strings.TrimSpace(line); t == path || t == "*" {
 internal/tdd/deferred.go | return normalizeProjectPath(a) == normalizeProjectPath(b)
