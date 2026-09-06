@@ -210,6 +210,26 @@ func parseGateLine(line string) (gateEntry, bool) {
 	return gateEntry{at: at, stage: f[1], root: f[2], verdict: f[len(f)-2], secs: secs}, true
 }
 
+// stageMeasured reports whether stage has at least one entry counted under
+// one of the tracked outcome columns (statsOutcomes) in this reading. A
+// stage that only ever wrote OTHER verdicts — commitmsg-rejected:...,
+// mutants-started:..., pretooluse-denied:... — is real activity (it lands in
+// Denies or Receipts, and s.ByStage[stage] is non-nil), but this table's
+// fixed vocabulary never applies to it, so every cell in its row is a
+// confirmed-zero that never actually got measured. Rendering that row as
+// nine zeros reads as "ran clean"; issue #369 is that it means "this table
+// cannot see this stage" instead. A stage that DOES post at least one
+// tracked outcome is measured, and every cell in its row — including a
+// genuine zero among them — is a real count.
+func stageMeasured(s Stats, stage string) bool {
+	for _, o := range statsOutcomes {
+		if s.Count(stage, o) != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // RenderGateStats draws the one table the command prints.
 func RenderGateStats(s Stats) string {
 	var b strings.Builder
@@ -227,7 +247,12 @@ func RenderGateStats(s Stats) string {
 	sort.Strings(stages)
 	for _, stage := range stages {
 		fmt.Fprintf(&b, "%-16s", stage)
+		measured := stageMeasured(s, stage)
 		for _, o := range statsOutcomes {
+			if !measured {
+				fmt.Fprintf(&b, "%17s", "-")
+				continue
+			}
 			fmt.Fprintf(&b, "%17d", s.Count(stage, o))
 		}
 		b.WriteString("\n")
