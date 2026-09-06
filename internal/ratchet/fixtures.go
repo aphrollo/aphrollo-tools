@@ -224,6 +224,8 @@ func fixtureWholeTreeHits(base string, law Law, files []string, content map[stri
 		return goDepGraphHits(base, law)
 	case KindFileSetContainment:
 		return containmentHits(base, law)
+	case KindIdentResolves:
+		return identResolvesHits(law, files, content), nil
 	case KindJSONNumberCeiling, KindGoBenchCeiling:
 		return ceilingHits(base, law, false, "")
 	case KindSymbolRemoved:
