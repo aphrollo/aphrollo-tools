@@ -247,6 +247,7 @@ func Check(opts Options) (Result, error) {
 		// owns it, because it is the file whose rows define the identity.
 		measured := map[string]int{}
 		located := map[string]Hit{}
+		hitsByKey := map[string]Hit{}
 		sites := map[string][]string{}
 		for _, h := range hits {
 			id := baseline.Identity(h.Key)
@@ -255,12 +256,16 @@ func Check(opts Options) (Result, error) {
 			if _, seen := located[id]; !seen {
 				located[id] = h
 			}
+			if _, seen := hitsByKey[h.Key]; !seen {
+				hitsByKey[h.Key] = h
+			}
 		}
 		for _, keys := range sites {
 			sort.Strings(keys)
 		}
+		baselineKeys := baseline.LiteralKeyCounts()
 		for _, r := range regressions(baseline, measured, law.Matcher.TolerancePct) {
-			h := located[r.Key]
+			h := representativeHit(r.Key, sites[r.Key], hitsByKey, baselineKeys, located)
 			res.Findings = append(res.Findings, Finding{
 				Law:      law.Name,
 				Severity: law.Severity.String(),
@@ -300,6 +305,34 @@ func Check(opts Options) (Result, error) {
 		}
 	}
 	return res, nil
+}
+
+// representativeHit picks the occurrence a regression finding NAMES. keys is
+// every literal `<path> | <text>` site this scan found under the regressed
+// identity, sorted; baselineKeys is the same law's baseline read as a bag of
+// literal keys (LiteralKeyCounts). Subtracting one baseline occurrence for
+// every already-recorded site the scan revisits leaves exactly the literal
+// keys the baseline has never seen — the first of those, not the first key
+// in scan order, is the occurrence that actually caused the regression. Only
+// a path-agnostic multiset (several literal keys sharing one identity) can
+// disagree with scan order; every other baseline form has one literal key
+// per identity, so the subtraction always leaves that same key and this is a
+// no-op for it. located is the fallback for the case every site the scan
+// found is already accounted for in the baseline (should not arise for a
+// real regression, but a missing representative must never panic).
+func representativeHit(id string, keys []string, hitsByKey map[string]Hit, baselineKeys map[string]int, located map[string]Hit) Hit {
+	remaining := make(map[string]int, len(baselineKeys))
+	for k, n := range baselineKeys {
+		remaining[k] = n
+	}
+	for _, k := range keys {
+		if remaining[k] > 0 {
+			remaining[k]--
+			continue
+		}
+		return hitsByKey[k]
+	}
+	return located[id]
 }
 
 // disarmed reports whether a law declares an arming switch that is not set.

@@ -55,7 +55,7 @@ func baselineStage(gateName, repoRoot string) GateResult {
 		if !ok {
 			continue
 		}
-		raised := raisedKeys(repoRoot, base, rel, before, after)
+		raised := raisedKeys(repoRoot, base, rel, before, after, wholeTreeCeilingBaseline(repoRoot, rel))
 		if len(raised) == 0 {
 			continue
 		}
@@ -82,7 +82,14 @@ func baselineStage(gateName, repoRoot string) GateResult {
 // the SAME count and BYTE-IDENTICAL content is a re-path, not a raise — the
 // row moved with the file, the same case a line-keyed baseline already
 // handles by dropping the path from its identity.
-func raisedKeys(repoRoot, base, file, before, after string) []string {
+//
+// admitNewRootKeys is true only for a whole-tree ceiling law keyed on a
+// workspace ROOT rather than a file (see wholeTreeCeilingBaseline): there, a
+// key absent from the baseline is a newly added workspace member reaching
+// its first-ever measurement, not the "somebody must say so" case this guard
+// exists to catch, so its first row is admitted at whatever the scan
+// measured (#480). It never excuses an EXISTING key's count going up.
+func raisedKeys(repoRoot, base, file, before, after string, admitNewRootKeys bool) []string {
 	old := baselineCounts(before)
 	now := baselineCounts(after)
 	if countedForm(before) && countedForm(after) {
@@ -95,11 +102,57 @@ func raisedKeys(repoRoot, base, file, before, after string) []string {
 	sort.Strings(keys)
 	var out []string
 	for _, k := range keys {
-		if now[k] > old[k] {
-			out = append(out, fmt.Sprintf("%s %s %d -> %d", file, offendingRow(after, k), old[k], now[k]))
+		if now[k] <= old[k] {
+			continue
 		}
+		if _, existed := old[k]; !existed && admitNewRootKeys {
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s %s %d -> %d", file, offendingRow(after, k), old[k], now[k]))
 	}
 	return out
+}
+
+// wholeTreeCeilingBaseline reports whether the law that declares
+// baselineRel as its `baseline` is a whole-tree ceiling kind keyed on a
+// workspace ROOT — today, KindDepGraphCeiling — rather than on a file. That
+// key space grows as a normal consequence of ordinary work (a repo adding a
+// crate), unlike every per-file law's key space, so a first-ever row under
+// it is adoption, not a hand-raise (#480). Read the STAGED law text where
+// this commit touches it, falling back to HEAD/disk otherwise — the law
+// itself is not what changed, only the workspace it measures. Anything this
+// cannot resolve (no owning law found, unreadable, fails to parse) answers
+// false, keeping raisedKeys' strict per-file rule as the default.
+func wholeTreeCeilingBaseline(repoRoot, baselineRel string) bool {
+	lawsDir := filepath.Join(repoRoot, ".ratchet", "laws")
+	entries, err := os.ReadDir(lawsDir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".toml") {
+			continue
+		}
+		lawRel := filepath.ToSlash(filepath.Join(".ratchet", "laws", e.Name()))
+		text, ok := gitBlob(repoRoot, ":"+lawRel)
+		if !ok {
+			data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(lawRel)))
+			if err != nil {
+				continue
+			}
+			text = string(data)
+		}
+		if !ownsBaseline(text, baselineRel) {
+			continue
+		}
+		name := strings.TrimSuffix(e.Name(), ".toml")
+		law, err := ratchet.ParseLaw(text, name)
+		if err != nil {
+			return false
+		}
+		return law.Matcher.Kind == ratchet.KindDepGraphCeiling
+	}
+	return false
 }
 
 // offendingRow is the baseline line that carries key, verbatim. The identity

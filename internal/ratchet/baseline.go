@@ -178,6 +178,23 @@ func (b *Baseline) Counts() map[string]int {
 	return out
 }
 
+// LiteralKeyCounts is the bag of exact recorded lines, BEFORE identity
+// collapses a path-agnostic multiset's several files down to one text. A
+// regression report needs this: Counts (and Regressions) can only say an
+// IDENTITY went over its ceiling, and for a MultisetByText baseline several
+// literal `<path> | <text>` keys can share one identity, so naming "the"
+// offending site from Counts alone has no way to prefer the literal key the
+// baseline has never seen over one it already carries.
+func (b *Baseline) LiteralKeyCounts() map[string]int {
+	out := map[string]int{}
+	for _, l := range b.lines {
+		if l.data {
+			out[l.key]++
+		}
+	}
+	return out
+}
+
 // Regressions names every key whose measured count exceeds its ceiling (0 for
 // a key the baseline has never seen), sorted for stable output.
 func (b *Baseline) Regressions(measured map[string]int) []Regression {
