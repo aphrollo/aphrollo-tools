@@ -35,6 +35,14 @@ type Stats struct {
 	// otherwise every accepted receipt would be its own one-off row, and an
 	// accepted receipt used to leave no count at all (issue #136).
 	Receipts map[string]int
+	// StandDowns counts every verdict that decided not to block and told
+	// nobody but stderr about it — a skip, a fail-open, or an unverifiable
+	// result — keyed by the verdict itself. Before this, "queued-skipped" was
+	// the only stand-down with a row anywhere; "skipped", "runner-missing",
+	// "lint-skipped", "receipt-unverifiable" and "receipt-unpinned" reached
+	// gate.log and stopped being counted at all (issue #320). bound: one
+	// entry per stand-down verdict the log contains.
+	StandDowns map[string]int
 	// LockWaitMax is the longest build-slot wait seen, in seconds. It is kept
 	// out of Median/Max on purpose: a queued gate run is a busy box, not a
 	// slow suite, and folding the two made contention look like a regression.
@@ -69,11 +77,12 @@ const lockWaitVerdict = "lock-wait"
 // several processes, and a torn write must not distort a tally.
 func GateStats(r io.Reader, since time.Time) Stats {
 	s := Stats{
-		ByStage:  map[string]map[string]int{},
-		Timeouts: map[string]int{},
-		Deferred: map[string]int{},
-		Denies:   map[string]int{},
-		Receipts: map[string]int{},
+		ByStage:    map[string]map[string]int{},
+		Timeouts:   map[string]int{},
+		Deferred:   map[string]int{},
+		Denies:     map[string]int{},
+		Receipts:   map[string]int{},
+		StandDowns: map[string]int{},
 	}
 	var secs []float64
 	sc := bufio.NewScanner(r)
@@ -97,6 +106,9 @@ func GateStats(r io.Reader, since time.Time) Stats {
 		}
 		if isDenyVerdict(e.verdict) {
 			s.Denies[e.verdict]++
+		}
+		if isStandDownVerdict(e.verdict) {
+			s.StandDowns[e.verdict]++
 		}
 		if outcome, ok := receiptOutcome(e.verdict); ok {
 			s.Receipts[outcome]++
@@ -144,6 +156,38 @@ var denyVerdictPrefixes = []string{
 func isDenyVerdict(verdict string) bool {
 	for _, p := range denyVerdictPrefixes {
 		if strings.HasPrefix(verdict, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// standDownVerdictSuffixes is issue #320's own vocabulary: every verdict
+// ending in one of these names a stage that decided not to block and is
+// therefore counted, not just printed or logged uncounted. "-skipped" is a
+// suffix ("lint-skipped", "docs-skipped", "no-runner-skipped"); the other
+// three are Contains rather than HasSuffix because the logged verdict can
+// carry trailing detail (failFirstStage's default verdict is literally
+// "inconclusive (fail-open)", parenthesis and all).
+var standDownVerdictSuffixes = []string{"unverifiable", "unpinned", "fail-open"} // standdown-logged: vocabulary constant, not a call site that itself stands down
+
+// isStandDownVerdict reports whether verdict is a stand-down: "skipped" and
+// "runner-missing" are bare exact matches (verdictFor's own two deliberate,
+// non-blocking outcomes), everything else is judged by
+// standDownVerdictSuffixes. "queued-skipped" also matches (HasSuffix
+// "-skipped"), so it is counted here AND kept in its own contention line —
+// the two answer different questions ("is the box busy" vs "is every
+// stand-down counted somewhere") and are not mutually exclusive.
+func isStandDownVerdict(verdict string) bool {
+	switch verdict {
+	case "skipped", "runner-missing":
+		return true
+	}
+	if strings.HasSuffix(verdict, "-skipped") {
+		return true
+	}
+	for _, s := range standDownVerdictSuffixes {
+		if strings.Contains(verdict, s) {
 			return true
 		}
 	}
@@ -263,6 +307,7 @@ func RenderGateStats(s Stats) string {
 	writeCounts(&b, "timeouts by crate", s.Timeouts)
 	writeCounts(&b, "deferred by crate", s.Deferred)
 	writeCounts(&b, "denies / overrides", s.Denies)
+	writeCounts(&b, "stand-downs", s.StandDowns)
 	writeCounts(&b, "mutation receipts", s.Receipts)
 	b.WriteString(escapeDebtLine())
 	return b.String()

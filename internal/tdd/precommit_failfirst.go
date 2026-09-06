@@ -295,7 +295,7 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		// checked first: #317's "executed zero tests" is neither a red proof
 		// nor a genuine violation, and reporting it as either would misname
 		// the actual defect.
-		verdict := "inconclusive (fail-open)"
+		verdict := "inconclusive (fail-open)" // standdown-logged: default value; every path below still reaches the appendGateLog(verdict) call after the switch
 		switch {
 		case vacuous:
 			verdict = "vacuous-rejected"
