@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
 )
 
 // BaseReader answers a diff-scoped law's OTHER tree: every path present, and
@@ -38,7 +40,9 @@ type gitBaseReader struct {
 }
 
 func (g *gitBaseReader) List() ([]string, error) {
-	out, err := exec.Command("git", "-C", g.root, "ls-tree", "-r", "--name-only", g.ref).Output()
+	lsTreeCmd := exec.Command("git", "-C", g.root, "ls-tree", "-r", "--name-only", g.ref)
+	lsTreeCmd.Env = gitenv.Clean()
+	out, err := gitOutput(lsTreeCmd)
 	if err != nil {
 		return nil, fmt.Errorf("git ls-tree -r --name-only %s: %w", g.ref, err)
 	}
@@ -53,7 +57,9 @@ func (g *gitBaseReader) List() ([]string, error) {
 }
 
 func (g *gitBaseReader) Read(path string) ([]byte, error) {
-	out, err := exec.Command("git", "-C", g.root, "show", g.ref+":"+path).Output()
+	showCmd := exec.Command("git", "-C", g.root, "show", g.ref+":"+path)
+	showCmd.Env = gitenv.Clean()
+	out, err := gitOutput(showCmd)
 	if err != nil {
 		return nil, fmt.Errorf("git show %s:%s: %w", g.ref, path, err)
 	}
@@ -76,12 +82,31 @@ func (g *gitBaseReader) ReadAll(paths []string) (map[string][]byte, error) {
 		stdin.WriteString(g.ref + ":" + p + "\n")
 	}
 	cmd := exec.Command("git", "-C", g.root, "cat-file", "--batch")
+	cmd.Env = gitenv.Clean()
 	cmd.Stdin = strings.NewReader(stdin.String())
-	out, err := cmd.Output()
+	out, err := gitOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("git cat-file --batch: %w", err)
 	}
 	return ParseCatFileBatch(out, paths)
+}
+
+// gitOutput runs cmd and returns its stdout, folding the child's stderr into
+// the error on a non-zero exit: cmd.Output() alone keeps stdout clean (the
+// object content/tree listing gitBaseReader parses) but discards stderr,
+// which is exactly the "exit status 128" with no actual message shape #183
+// found. *exec.ExitError.Stderr already carries it; this is the one place
+// that reads it back out for gitBaseReader's three call sites.
+func gitOutput(cmd *exec.Cmd) ([]byte, error) {
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
+		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(exitErr.Stderr)))
+	}
+	return nil, err
 }
 
 // ParseCatFileBatch reads one `git cat-file --batch` invocation's stdout,
@@ -93,11 +118,11 @@ func (g *gitBaseReader) ReadAll(paths []string) (map[string][]byte, error) {
 // a path absent at a ref.
 //
 // Exported so a caller with its own reasons to build the `exec.Command`
-// itself — the staged-baseline guard runs every git subprocess through a
-// scrubbed environment, because a nested git call inheriting a hook's own
-// GIT_DIR/GIT_INDEX_FILE would operate on the wrong repo state — reuses the
-// batch protocol's parsing without also reusing gitBaseReader's own,
-// unscrubbed exec.Command (#489).
+// itself — the staged-baseline guard runs its batch reads through
+// internal/tdd's own git plumbing, which layers a git-queue-shim
+// passthrough marker on top of the same GIT_* scrub gitBaseReader uses
+// (gitenv.Clean) — reuses the batch protocol's parsing without also
+// reusing gitBaseReader's own exec.Command (#489, #504).
 func ParseCatFileBatch(out []byte, paths []string) (map[string][]byte, error) {
 	result := map[string][]byte{}
 	r := bufio.NewReader(bytes.NewReader(out))

@@ -3,27 +3,22 @@ package tdd
 import (
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
 )
 
 // --- git plumbing (scrubbed environment) ------------------------------------
 
-// cleanGitEnv strips every GIT_* variable from the environment. A git hook runs
-// with GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE / GIT_OBJECT_DIRECTORY and
-// friends pointing at the OUTER repo; leaking any of them makes worktree
-// commands operate on the wrong state. An allowlist (drop all GIT_*) is safer
-// than blocklisting the few that were known to cause trouble.
+// cleanGitEnv strips every GIT_* variable from the environment (gitenv.Clean
+// — a git hook runs with GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE /
+// GIT_OBJECT_DIRECTORY and friends pointing at the OUTER repo; leaking any of
+// them makes worktree commands operate on the wrong state) and layers this
+// package's own belt-and-braces marker on top.
 func cleanGitEnv() []string {
-	env := os.Environ()
-	out := env[:0]
-	for _, kv := range env {
-		if !strings.HasPrefix(kv, "GIT_") {
-			out = append(out, kv)
-		}
-	}
+	out := gitenv.Clean()
 	// Belt and braces (task A11): mark every git subprocess aphrollo itself
 	// spawns as already-queued, so if one of these (worktree add/remove,
 	// apply, diff --cached, rev-parse, ...) happens to route back through
