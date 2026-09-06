@@ -43,16 +43,49 @@ func allDeferredJobRecords() []DeferredJob {
 }
 
 // ActiveDeferredJobs lists every deferred edit job on this box that has not
-// yet produced a result — one entry per project+session pair still running
-// (or abandoned but not yet swept). Exported for `gate status`.
+// yet produced a result AND whose process can be confirmed still running —
+// one entry per project+session pair genuinely still going. Exported for
+// `gate status`. A job with no result whose pid is dead, expired past the
+// deferral ceiling, or unverifiable is not "abandoned but not yet swept" here
+// — it is excluded outright, so the report never reads a day-old dead job as
+// running (issue #451): the 24h file sweep is what eventually deletes the
+// record, this is only about what the report SAYS while it is waiting to.
 func ActiveDeferredJobs() []DeferredJob {
+	now := time.Now()
 	var active []DeferredJob
 	for _, j := range allDeferredJobRecords() {
-		if _, done := deferredResult(j); !done {
-			active = append(active, j)
+		if _, done := deferredResult(j); done {
+			continue
 		}
+		if !deferredJobLive(j, now) {
+			continue
+		}
+		active = append(active, j)
 	}
 	return active
+}
+
+// deferredJobLive reports whether a deferred job with no result yet is one a
+// caller should actually wait on. Unlike pidStillOurs — a KILL site, where
+// "cannot tell" defaults to permission to act, because the cost of a wrong
+// "yes" is a live build losing its warm cache — nothing here deletes or
+// kills anything, so this defaults the other way: an unresolvable pid must
+// never be reported as a definite "running" (issue #451). A dead pid, a
+// ceiling-expired job, and a record with no PIDCreatedAt to check identity
+// against (so a recycled pid on Windows could be a different process
+// entirely) are all treated the same: not live.
+func deferredJobLive(j DeferredJob, now time.Time) bool {
+	if j.PID <= 0 || deferredExpired(j, now) {
+		return false
+	}
+	live, ok := processStartTimeFn(j.PID)
+	if !ok {
+		return false
+	}
+	if j.PIDCreatedAt.IsZero() {
+		return false
+	}
+	return live.Sub(j.PIDCreatedAt).Abs() <= pidIdentityTolerance
 }
 
 // findDeferredJobForProject returns the most recently started deferred job
@@ -95,6 +128,14 @@ const waitDeferredPollInterval = 2 * time.Second
 func WaitDeferredEditJob(root string) (advisory string, ok bool) {
 	j, found := findDeferredJobForProject(root)
 	if !found {
+		return "", false
+	}
+	if _, done := deferredResult(j); !done && !deferredJobLive(j, time.Now()) {
+		// No result yet, and the process behind this record cannot be
+		// confirmed alive: a zombie record, not a run to wait on. Reported
+		// as "nothing recorded" rather than polled to the deferral
+		// ceiling — the whole point of issue #451 is that a caller must
+		// never be left blocking on a pid that is already gone.
 		return "", false
 	}
 	headSHA := headSHAFor(root)
