@@ -168,7 +168,7 @@ func TestApplyFileEdits_RejectsEditOutsideRoot(t *testing.T) {
 // symlink itself and hand writeFileAtomic the real path — otherwise the write
 // replaces the LINK with a plain file rather than writing through it.
 func TestResolveWriteTarget_FollowsASymlinkToItsRealTarget(t *testing.T) {
-	dir := t.TempDir()
+	dir := resolvedTempDir(t)
 	real := filepath.Join(dir, "real.txt")
 	if err := os.WriteFile(real, []byte("old"), 0o644); err != nil {
 		t.Fatal(err)
@@ -403,4 +403,22 @@ func TestSamePath_FoldsCaseOnWindows(t *testing.T) {
 	if !samePath(a, b) {
 		t.Fatalf("samePath(%q, %q) = false, want true — windows folds case", a, b)
 	}
+}
+
+// resolvedTempDir is t.TempDir() with every symlink and short name expanded.
+//
+// GitHub's Windows runner sets TMP to the 8.3 SHORT form
+// (C:\Users\RUNNER~1\...), which t.TempDir() inherits. Production code that
+// canonicalises a path — anything reaching filepath.EvalSymlinks — returns the
+// LONG form (C:\Users\runneradmin\...). Comparing a resolved result against an
+// unresolved fixture root then fails while both strings name the same
+// directory. Resolve the root once here so a test compares like with like,
+// rather than weakening the comparison at the assertion.
+func resolvedTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolve temp dir: %v", err)
+	}
+	return dir
 }

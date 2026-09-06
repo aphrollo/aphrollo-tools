@@ -15,6 +15,18 @@ func TestRename_RustAnalyzer(t *testing.T) {
 	if _, err := exec.LookPath("rust-analyzer"); err != nil {
 		t.Skip("rust-analyzer not on PATH; skipping e2e")
 	}
+	// On PATH is not the same as usable. GitHub's Windows runner ships a
+	// rust-analyzer that resolves but dies during LSP initialize with a bare
+	// EOF, which surfaced as a Rename failure indistinguishable from a real
+	// regression. Probe it once: a binary that cannot report its own version
+	// cannot serve a rename either, and that is an environment fact rather
+	// than something this test can assert about.
+	probe, cancelProbe := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelProbe()
+	if err := exec.CommandContext(probe, "rust-analyzer", "--version").Run(); err != nil {
+		// skip-ok: an environment probe, not a disabled assertion — this test still asserts for real once rust-analyzer actually runs.
+		t.Skipf("rust-analyzer on PATH but not runnable (%v); skipping e2e", err)
+	}
 
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "Cargo.toml"),
