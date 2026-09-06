@@ -34,7 +34,23 @@ type MutationReceipt struct {
 	// other, so judging by path refused every receipt a Linux run produced
 	// (issue #202). Empty means an older producer wrote the receipt, and the
 	// path comparison stands in.
-	RepoID        string `json:"repo_id,omitempty"`
+	RepoID string `json:"repo_id,omitempty"`
+	// Schema is the schema THIS RECEIPT was written at — ReceiptSchemaVersion
+	// on whichever binary produced it, stamped by signReceipt/SignReceiptFile
+	// so no call site can forget it. It describes the MEASURER, unlike every
+	// field above it, which describes the measurement: issue #505 found the
+	// receipt's zero_reason field indistinguishable, in an old receipt, from
+	// a current producer that simply left it empty — every field here was
+	// omitempty, so "wrote before the field existed" and "wrote after, with
+	// nothing to say" were the identical bytes.
+	//
+	// Absent (0) means either of those, still: this field cannot retroactively
+	// fix a receipt that already exists on disk without it, only the NEXT
+	// field the receipt grows — a reader can finally say "older producer"
+	// instead of guessing, but only once ReceiptSchemaVersion has moved past
+	// the value this field would need to name. See checkReceiptSchema and
+	// checkReceiptNotVacuous's use of it.
+	Schema        int    `json:"schema,omitempty"`
 	Branch        string `json:"branch"`
 	TipTree       string `json:"tip_tree"`
 	WorktreeDirty bool   `json:"worktree_dirty"`
@@ -121,6 +137,23 @@ type MutationReceipt struct {
 // because a gate that treats an unrecognised verdict as permission is not a
 // gate.
 const receiptVerdictPass = "pass"
+
+// ReceiptSchemaVersion is the schema this binary stamps into every receipt it
+// signs (signReceipt, SignReceiptFile). It is its OWN version, deliberately
+// separate from StateSchema (stateschema.go) and mutantOutcomeSchema
+// (mutants_store.go): those version a whole-file shape a reader either
+// understands or does not, where the receipt already has a per-FIELD
+// backward-compatibility mechanism (receiptFieldPresence) that has served it
+// fine for every field before this one. What per-field presence cannot say is
+// "an older producer wrote this receipt", which is exactly the fact issue
+// #505 needed and could not get: a receipt from before ZeroReason existed and
+// one from after that leaves it empty are the same bytes. This field is
+// deliberately for the NEXT such gap, not this one — see MutationReceipt.Schema.
+//
+// Bumped only when a reader needs to tell an older producer's receipt apart
+// from a current one's, i.e. when the ambiguity ZeroReason hit recurs for a
+// new field.
+const ReceiptSchemaVersion = 1
 
 // ReceiptZeroReasonNoMutableSource is the one ZeroReason value this binary
 // itself ever writes: the producer's own tool (cargo-mutants) reported that
@@ -221,6 +254,11 @@ func checkMutationReceipt(ctx receiptContext) *GateResult {
 	var r MutationReceipt
 	if err := json.Unmarshal(data, &r); err != nil {
 		return blockReceipt(ctx.RepoRoot, "unreadable", "the mutation receipt at %s is unreadable (%v)", path, err)
+	}
+	// Before any other field on it is trusted: a schema newer than this
+	// binary understands may carry meanings the checks below cannot see.
+	if res := checkReceiptSchema(ctx.RepoRoot, r); res != nil {
+		return res
 	}
 	// Fields as the WIRE bytes actually carried them, not the Go zero value a
 	// field an older producer never wrote is indistinguishable from — see

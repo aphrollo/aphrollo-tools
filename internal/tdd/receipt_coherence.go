@@ -1,6 +1,9 @@
 package tdd
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // A receipt the gate accepted once carried mutants_total=34, caught=28,
 // survivors=4, accepted=41 — 41 accepted out of 34 measured, an arithmetic
@@ -19,6 +22,27 @@ import "encoding/json"
 // A receipt failing one is not a receipt the gate can reason about, and is
 // refused through blockReceipt — the same rejection family and remedy every
 // other receipt refusal uses.
+
+// checkReceiptSchema judges the receipt's OWN producer version before any
+// other field on it is trusted. A schema OLDER than this binary's degrades
+// gracefully by construction — every check in this file already reads
+// presence off the wire per field (receiptFieldPresence), which is exactly
+// what let every receipt-shape change before this one land without a version
+// at all. A schema NEWER than this binary understands is the opposite risk:
+// it may carry fields, or field MEANINGS, this binary has never seen, and
+// reading it as if nothing changed could pass a receipt a binary that
+// actually understood it would refuse. So newer is refused outright, naming
+// the fix (upgrade the binary) rather than silently interpreted with unknown
+// risk — "reject over substitute" for the one field that says how much of
+// the rest of the receipt this binary can even read (issue #505).
+func checkReceiptSchema(root string, r MutationReceipt) *GateResult {
+	if r.Schema <= ReceiptSchemaVersion {
+		return nil
+	}
+	return blockReceipt(root, "schema-newer",
+		"this receipt was written by a newer producer (schema %d) than this binary understands (schema %d) — upgrade aphrollo before judging it",
+		r.Schema, ReceiptSchemaVersion)
+}
 
 // receiptCoherenceFields are the JSON keys the checks below read. Decoding
 // into MutationReceipt can never tell "the producer wrote zero" from "the
@@ -147,6 +171,34 @@ func checkReceiptNotVacuous(root string, present map[string]bool, r MutationRece
 		// them apart. It just did.
 		return nil
 	}
+	// The producer's OWN version, when it is present and behind this
+	// binary's, resolves the exact ambiguity the fallback message below has
+	// to hedge about: an older producer that never learned to explain a zero
+	// is a known cause, not a maybe, so name it instead of sending the
+	// session to re-check a base that was never wrong. r.Schema == 0 is
+	// EXCLUDED here on purpose — it is every receipt written before this
+	// field existed, still indistinguishable from a current producer that
+	// left it unset (issue #505's stated limit: this does not retroactively
+	// help those; it starts paying off at the field ReceiptSchemaVersion
+	// grows to 2 for).
+	if r.Schema != 0 && r.Schema < ReceiptSchemaVersion {
+		return blockReceipt(root, "vacuous-older-producer", "%s", olderProducerZeroReasonMessage(r.Schema, ReceiptSchemaVersion))
+	}
 	return blockReceipt(root, "vacuous", "mutants_total is 0 and moved_lines is 0 — a scope that matches nothing is not a proof: "+
 		"either the base is wrong (check it is the merge base this branch actually diverged from), or the diff genuinely holds no mutable source and this producer has not caught up to say so (docs/mutation-runner.md)")
+}
+
+// olderProducerZeroReasonMessage is the message checkReceiptNotVacuous names
+// once a receipt's own schema says it predates the field it needs. Split out
+// as a pure function of both schema numbers, rather than reading
+// ReceiptSchemaVersion directly, so the exact wording is pinned at the unit
+// level independent of the current version constant: today ReceiptSchemaVersion
+// is 1 and no receipt can carry a present-but-lower schema (the only value
+// below 1 is 0, which reads as absent, not older — see checkReceiptNotVacuous),
+// so this branch is not yet reachable through a real receipt. It starts firing
+// the day ReceiptSchemaVersion moves to 2, and is tested now so the wording is
+// right before that day, not after.
+func olderProducerZeroReasonMessage(producerSchema, wantSchema int) string {
+	return fmt.Sprintf("this receipt was written by an older producer (schema %d, this binary writes %d) — re-run `aphrollo gate mutants run` rather than checking the base",
+		producerSchema, wantSchema)
 }
