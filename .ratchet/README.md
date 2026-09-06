@@ -234,6 +234,45 @@ The pre-edit hook judges ONE file, so it cannot see a workspace total: an
 added line whose text is already at its ceiling somewhere else is caught by
 the whole-tree run at commit, not by the write.
 
+#### Landing a new matcher field
+
+This repo's own commit gate runs the GLOBALLY INSTALLED `aphrollo` binary,
+which predates any matcher kind or field this checkout's engine code just
+added. A law under `.ratchet/laws/` naming that kind or field would reject
+every commit here until the binary is rebuilt post-merge — so a new
+capability lands in three separate steps, never one:
+
+1. Land the engine change (`internal/ratchet`), proved by `RunFixtures()`
+   against synthetic trees under `t.TempDir()`, never against this repo's
+   own tracked `.ratchet/fixtures/`. Name the kind (or the kind and field)
+   in `matcherUsageAllowlist`
+   (`internal/ratchet/law_matcher_usage_test.go`) with a reason, so nothing
+   silently forgets the capability has no real user yet.
+2. Merge, and let the box's installed `aphrollo` binary get rebuilt against
+   the new commit.
+3. Land the real law under `.ratchet/laws/` and its tracked fixtures under
+   `.ratchet/fixtures/`, and remove the `matcherUsageAllowlist` entry in the
+   same commit.
+
+`TestMatcherUsage_EveryKindAndOptionalFieldHasARealLawOrAnAllowlistEntry`
+enforces step 1 stays honest and step 3 actually happens: it enumerates the
+matcher kinds and optional fields the engine's own `matcherKeys` map
+accepts, cross-references every real law under this repo's `.ratchet/laws`,
+and fails on either a kind/field with no law and no allow-list entry, or an
+allow-list entry a law now exercises (stale — a fixed gap left in the list
+would let this check nag forever about something already settled). Like a
+baseline, the allow-list only ever gets shorter: widening it back out after
+a law is removed on purpose is a decision the test forces onto the same
+commit, with the reason stated, never a silent ratchet up. The mechanism
+only sees matcher kind/field usage, never a LAW that was considered and
+declined on real evidence rather than never attempted (`#324`'s `readme_flag_registry` measured 40 stale and 17
+unregistered names against 69 defined flags and was dropped as noise, not
+bootstrap debt — but its kind, `registry-both-ways`, already has a real law
+elsewhere, so this check never had an opinion on it either way). Where a
+decline DOES leave a kind or field with no real user, the allow-list entry's
+reason says so plainly rather than reading like a TODO; review is what
+tells "awaiting its bootstrap commit" apart from "considered and declined".
+
 #### Diff-scoped kinds
 
 `symbol-removed` answers a different question from every other kind above:
