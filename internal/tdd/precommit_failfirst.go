@@ -187,13 +187,14 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	if res.TimedOut {
 		return false, false, false, nil, res.Duration // a killed run reaches no verdict either way
 	}
-	// #317: the proof worktree exited 0 having executed zero Go tests in
-	// some package — a narrowed -run filter matching nothing, say. That is
-	// not a red proof (nothing ran to go red) and not a genuine violation
-	// either (the test never actually passed against the pre-edit code,
-	// because it never ran at all): name it as its own outcome, per package.
-	if runner.Cmd == "go" && res.Passed {
-		pkgs, err := vacuousGoPackages(res.GoTestJSON)
+	// #317: the proof worktree exited 0 having executed zero tests — a
+	// narrowed -run/-k/name filter matching nothing, say. That is not a red
+	// proof (nothing ran to go red) and not a genuine violation either (the
+	// test never actually passed against the pre-edit code, because it never
+	// ran at all): name it as its own outcome, per package/target
+	// (vacuousNames, vacuous_dispatch.go — Go, cargo, pytest, vitest alike).
+	if res.Passed {
+		names, err := vacuousNames(runner, res)
 		if err != nil {
 			// Same stance as runSuiteStage: a stream this function could not
 			// finish reading is not distinguishable from one that measured
@@ -204,8 +205,8 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 			// "measured nothing".
 			return false, false, true, []string{fmt.Sprintf("(unreadable test-result stream: %v)", err)}, res.Duration
 		}
-		if len(pkgs) > 0 {
-			return false, false, true, pkgs, res.Duration
+		if len(names) > 0 {
+			return false, false, true, names, res.Duration
 		}
 	}
 	// Tests PASS without the new source ⇒ they never went RED ⇒ violation.

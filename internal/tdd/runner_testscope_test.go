@@ -56,3 +56,27 @@ func TestNarrowToStaged_DeclinesWhenNoStagedFileHasAGoPackage(t *testing.T) {
 		t.Errorf("narrowToStaged narrowed to %q; with no Go package staged it must decline", got.Args)
 	}
 }
+
+// A staged .github/workflows/pipeline.yml maps to internal/tdd, not to the
+// package goPackageDir would otherwise land on by walking UP from
+// .github/workflows looking for .go files (the module root, "."): pipeline.yml
+// is not Go source, and nothing under .github lives inside internal/tdd's own
+// directory tree, so the ordinary per-file walk cannot reach the package whose
+// tests actually read it. Without goDataFileScope the mechanical stage would
+// scope to "." (or decline entirely, if the root holds no .go files either)
+// and never run the package that pins pipeline.yml's contents (#444).
+func TestNarrowToStaged_MapsThePipelineWorkflowToInternalTDD(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, ".github/workflows/pipeline.yml", "jobs: {}\n")
+	write(t, root, "internal/tdd/x.go", "package tdd\n")
+	write(t, root, "main.go", "package main\n\nfunc main() {}\n")
+
+	got, ok := narrowToStaged(Runner{Cmd: "go"}, root, []string{".github/workflows/pipeline.yml"})
+
+	if !ok {
+		t.Fatal("narrowToStaged declined to narrow; pipeline.yml maps to a real package")
+	}
+	if want := []string{"test", "./internal/tdd"}; !slices.Equal(got.Args, want) {
+		t.Errorf("args = %q, want %q — a pipeline.yml-only change must scope to the package that reads it, not the module root", got.Args, want)
+	}
+}

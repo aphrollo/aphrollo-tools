@@ -52,14 +52,15 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	if treatAsEmptyPass(res) {
 		res.Passed = true
 	}
-	// A Go run that exited 0 having executed zero tests IN SOME PACKAGE (the
-	// #194 shape: a TestMain that returns or calls os.Exit(0) before
-	// m.Run()) is not a pass — judged per package via the run's own -json
-	// stream, since a sibling package's real tests passing must never hide
-	// another package going quietly vacuous beside them. Checked before the
-	// switch below so it never falls into the ordinary green case.
-	if res.Passed && !res.TimedOut && runner.Cmd == "go" {
-		pkgs, err := vacuousGoPackages(res.GoTestJSON)
+	// A run that exited 0 having executed zero tests (the #194 shape for Go:
+	// a TestMain that returns or calls os.Exit(0) before m.Run(); its cargo,
+	// pytest and vitest counterparts in vacuous_dispatch.go) is not a pass —
+	// judged from the run's own output, since a sibling package/target's real
+	// tests passing must never hide another going quietly vacuous beside it.
+	// Checked before the switch below so it never falls into the ordinary
+	// green case.
+	if res.Passed && !res.TimedOut {
+		names, err := vacuousNames(runner, res)
 		if err != nil {
 			// The run exited 0, but this gate could not read what it
 			// actually tested — the same "nothing was proven" shape as any
@@ -73,13 +74,13 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 					gateName, cmdString(runner), err),
 			})
 		}
-		if len(pkgs) > 0 {
+		if len(names) > 0 {
 			return verdictFor(gateName, stage, root, cmdString(runner), stageOutcome{
 				kind:   outcomeVacuous,
 				result: res,
 				message: fmt.Sprintf(
 					"gate %s: %s executed zero tests in %s despite exiting 0, so nothing was tested there and the commit is refused.",
-					gateName, cmdString(runner), strings.Join(pkgs, ", ")),
+					gateName, cmdString(runner), strings.Join(names, ", ")),
 			})
 		}
 	}

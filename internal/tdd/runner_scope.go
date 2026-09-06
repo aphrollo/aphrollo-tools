@@ -61,6 +61,21 @@ func goPackageDir(root, dir string) string {
 // dirHasGoFiles reports whether dir holds at least one .go file. An unreadable
 // directory reads as none, which walks the search one level up rather than
 // naming a package that may not exist.
+// goDataFileScope maps a NON-Go repo-relative file this repo's own Go tests
+// read by literal path (gateOwnInputs' membership already promoted it out of
+// Ignore) to the package directory whose tests actually read it. Ordinary
+// goPackageDir walks UP from the file's own directory looking for .go files,
+// which for .github/workflows/pipeline.yml lands on the module root ("."),
+// not internal/tdd — the package pipeline_push_test.go and friends actually
+// live in — so without this the mechanical stage would scope to a package
+// with nothing testing the file at all (#444). Aphrollo-tools-specific by
+// nature (a different repo's Go module has no internal/tdd to point at);
+// harmless elsewhere because dirHasGoFiles then filters an entry naming a
+// directory that does not exist.
+var goDataFileScope = map[string]string{
+	".github/workflows/pipeline.yml": "internal/tdd",
+}
+
 func dirHasGoFiles(dir string) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -80,35 +95,47 @@ func narrowToStaged(r Runner, root string, files []string) (Runner, bool) {
 	}
 	switch r.Cmd {
 	case "go":
-		// Dedupe the package dir of each staged file; a root-level file maps to
+		// Dedupe the package dir of each staged file (plus, below, the
+		// dirs its reverse dependents add — #399); a root-level file maps to
 		// the "." package. Sorted for a deterministic command.
 		seen := map[string]bool{}
-		var pkgs []string
-		for _, f := range files {
-			dir := goPackageDir(root, filepath.Dir(f))
+		var dirs []string
+		addDir := func(dir string) {
 			// A directory with no .go files is not a package `go test` can
 			// load: naming it does not skip it, it fails the run outright
 			// with "[setup failed]". The repo root is the case that bites,
 			// because a change to aphrollo.toml is Source -- it configures
 			// the gate -- while the Go files live under cmd/ and internal/.
 			if !dirHasGoFiles(filepath.Join(root, dir)) {
-				continue
+				return
 			}
+			if !seen[dir] {
+				seen[dir] = true
+				dirs = append(dirs, dir)
+			}
+		}
+		for _, f := range files {
+			dir, ok := goDataFileScope[filepath.ToSlash(f)]
+			if !ok {
+				dir = goPackageDir(root, filepath.Dir(f))
+			}
+			addDir(dir)
+		}
+		if len(dirs) == 0 {
+			// Nothing staged belongs to a Go package, so there is nothing to
+			// narrow TO — and nothing to widen from either.
+			return r, false
+		}
+		for _, dep := range goReverseDependents(root, dirs) {
+			addDir(dep)
+		}
+		pkgs := make([]string, 0, len(dirs))
+		for _, dir := range dirs {
 			pkg := "./" + dir
 			if dir == "." {
 				pkg = "."
 			}
-			if !seen[pkg] {
-				seen[pkg] = true
-				pkgs = append(pkgs, pkg)
-			}
-		}
-		if len(pkgs) == 0 {
-			// Nothing staged belongs to a Go package, so there is nothing to
-			// narrow TO. `go test` with no packages tests the current
-			// directory and fails the same way, so hand the caller back its
-			// unnarrowed runner instead.
-			return r, false
+			pkgs = append(pkgs, pkg)
 		}
 		sort.Strings(pkgs)
 		return Runner{Cmd: "go", Args: append([]string{"test"}, pkgs...)}, true

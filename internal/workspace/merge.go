@@ -105,6 +105,19 @@ func (m *Merge) Render(apply bool) string {
 
 // Apply resolves the branch's open PR and merges it, printing the outcome. A
 // branch with no PR points at `pr`; the merge itself is gh's call.
+//
+// Before merging it reads CI through ghCIStatus and refuses unless the state is
+// exactly "green" (#385): `gh pr merge` without `--admin` does not itself
+// require every check to be green — it refuses on a genuine merge conflict but
+// not on a failing or still-running required check — so a shell pipeline
+// wrapped around a separate watch (as the merge-on-green flow used to do) could
+// lose that signal and report success anyway (a `gh pr checks --watch
+// --fail-fast | grep | head` pipeline's exit status is `head`'s, not `gh`'s).
+// Reading the status here, structurally, closes that gap in the merge verb
+// itself rather than in a wrapper around it. "red" and "pending" refuse by
+// name; "none" and a read error refuse too — an indeterminate status must
+// never be treated as clear (the corroborating incident on #385 was exactly a
+// broken read silently parsed as "nothing pending").
 func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	pr, err := ghViewPR(m.Target.Worktree, m.Target.Branch)
 	if err != nil {
@@ -112,6 +125,17 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	}
 	if pr == nil {
 		return fmt.Errorf("no open PR for %s — run: aphrollo workspace pr", m.Target.Branch)
+	}
+	ci, ciErr := ghCIStatus(m.Target.Worktree, m.Target.Branch)
+	if ciErr != nil {
+		return fmt.Errorf("checking CI status for %s: %w", m.Target.Branch, ciErr)
+	}
+	if ci.State != "green" {
+		detail := ci.State
+		if ci.State == "red" && ci.Failing > 0 {
+			detail = fmt.Sprintf("red (%d failing)", ci.Failing)
+		}
+		return fmt.Errorf("refusing to merge %s: required checks are not green (%s)", m.Target.Branch, detail)
 	}
 	if err := ghMergePR(m.Target.Worktree, m.Target.Branch, m.Method); err != nil {
 		return err
