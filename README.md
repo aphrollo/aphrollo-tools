@@ -1,9 +1,12 @@
 # aphrollo-tools
 
 First-party dev-env tooling for the Aphrollo agent platform, shipped as a single
-zero-dependency Go binary: **`aphrollo`**. The goal is to move deterministic
-developer work *out of the agent token stream into code* — the agent spends
-tokens on judgment, not on mechanical read→grep→multi-edit→verify loops.
+Go binary: **`aphrollo`**. Nothing to install alongside it — no runtime module
+dependency of its own — though it shells out to `git` for nearly everything, and
+to `gh`, `cargo`, or a language's LSP server for the specific verbs that need
+them (see below). The goal is to move deterministic developer work *out of the
+agent token stream into code* — the agent spends tokens on judgment, not on
+mechanical read→grep→multi-edit→verify loops.
 
 Design contract for every tool here:
 
