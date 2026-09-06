@@ -130,6 +130,11 @@ func runGateGit(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 // no repo-dir resolution, no output. Otherwise it resolves the repo's
 // common git dir, and for a MUTATING verb only, acquires the per-repo lock
 // (task A11 requirement 3) before running.
+//
+// #443: yes, this also skips every refusal below -- load-bearing (pinned by
+// TestRunGitShim_PassthroughWhenGitQueuedEnvSet; the gate's own harness
+// sets the var so a nested call skips a lock the outer run holds), not a
+// sanctioned way past a refused push -- staleBranchMergeIsClean is that.
 func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gitShimConfig) int {
 	if os.Getenv(tdd.GitQueuedEnv) == "1" || os.Getenv(tdd.BuildLockHeldEnv) == "1" {
 		return execGit(cfg.realGit, args, stdin, stdout, stderr)

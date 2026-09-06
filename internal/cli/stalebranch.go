@@ -68,12 +68,41 @@ func staleBranchRefusalLine(realGit string, rest []string, workDir string) strin
 		return ""
 	}
 
+	// The apparent deletion is exactly what a stale branch produces when
+	// trunk moved without the lane merging it back in -- but GitHub diffs a
+	// PR against its MERGE BASE, never against trunk's current tip, so that
+	// "deletion" never reaches the PR and never reaches trunk. A clean trial
+	// merge is the direct proof: nothing this push carries actually removes
+	// the stale paths from the tree trunk would have after taking it.
+	if staleBranchMergeIsClean(realGit, workDir, trunk, branch) {
+		return ""
+	}
+
 	remote := trunkRemote(realGit, workDir, trunk)
 	return fmt.Sprintf(
 		"gate: this push's diff against %s deletes paths this lane never touched: %s\n"+
 			"  %s gained these after this lane branched -- that reads as a deletion this push is proposing, not one it made.\n"+
 			"  run `git fetch %s && git merge %s` here, then re-check, before pushing.",
 		trunk, strings.Join(stale, ", "), trunk, remote, trunk)
+}
+
+// staleBranchMergeIsClean reports whether trunk merges into branch's tip
+// without conflict -- git's own trial merge (`merge-tree --write-tree`,
+// git >= 2.38), never a re-implementation of one. It exits 0 for a clean
+// result and 1 when the trial merge hits a real content conflict (verified
+// against real git: two branches editing the same line exits 1; two
+// branches each only adding their own file, the stale-deletion shape this
+// check exists for, exits 0). Any other failure (git too old for the flag,
+// an I/O error) reads as "could not confirm safety" and keeps the existing
+// refusal, the same fail-toward-refusing-only-here direction this one call
+// takes -- every OTHER uncertainty in this file fails open, but this is the
+// one call whose whole job is proving safety, so its own failure proves
+// nothing.
+func staleBranchMergeIsClean(realGit, workDir, trunk, branch string) bool {
+	cmd := exec.Command(realGit, "merge-tree", "--write-tree", trunk, branch)
+	cmd.Dir = workDir
+	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
+	return cmd.Run() == nil
 }
 
 // staleBranchDeletions is the evidence staleBranchRefusalLine names: paths
