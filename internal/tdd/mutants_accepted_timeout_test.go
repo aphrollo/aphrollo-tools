@@ -101,7 +101,7 @@ func TestRecountReceipt_KeepsATimedOutMutantTheProducerAccepted(t *testing.T) {
 	m := MutantOutcome{File: "src/lib.rs", Line: 10, Mutation: "INCREMENT_DECREMENT", Status: "timeout"}
 	r := MutationReceipt{Outcomes: []MutantOutcome{m}, Survivors: []MutantName{m.name()}}
 
-	recountReceipt(&r)
+	recountReceipt(&r, true)
 
 	if r.Timeout != 0 {
 		t.Errorf("Timeout = %d, want 0 — the producer accepted it, and a recount must not overturn that", r.Timeout)
@@ -117,7 +117,7 @@ func TestRecountReceipt_StillCountsATimedOutMutantTheProducerDidNotAccept(t *tes
 	m := MutantOutcome{File: "src/lib.rs", Line: 10, Mutation: "INCREMENT_DECREMENT", Status: "timeout"}
 	r := MutationReceipt{Outcomes: []MutantOutcome{m}}
 
-	recountReceipt(&r)
+	recountReceipt(&r, true)
 
 	if r.Timeout != 1 {
 		t.Errorf("Timeout = %d, want 1 — nothing named this mutant as accepted", r.Timeout)

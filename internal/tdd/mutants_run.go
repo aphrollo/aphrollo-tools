@@ -364,10 +364,11 @@ func adoptCarriedOutcomes(j MutantsJob, carried []MutantOutcome, now TreeState) 
 	if path == "" {
 		return
 	}
-	r, ok := readReceiptFile(path)
+	r, data, ok := readReceiptFileRaw(path)
 	if !ok {
 		return
 	}
+	outcomesFieldPresent := receiptHasOutcomesField(data)
 	have := map[mutantKey]bool{}
 	for _, m := range r.Outcomes {
 		have[m.key()] = true
@@ -378,7 +379,7 @@ func adoptCarriedOutcomes(j MutantsJob, carried []MutantOutcome, now TreeState) 
 		}
 	}
 	r.Outcomes = stampTreeState(r.Outcomes, now, mutantsProducerVersion(j.Worktree))
-	recountReceipt(&r)
+	recountReceipt(&r, outcomesFieldPresent)
 	// The producer already signed r before this ran; the merge just changed
 	// its body, which leaves the old mac describing outcomes that are no
 	// longer there. Re-signed here, the same way a carried receipt written
@@ -415,65 +416,10 @@ func writeCarriedReceipt(j MutantsJob, carried []MutantOutcome, movedLines int) 
 			r.Fences[m.Package] = m.Fence
 		}
 	}
-	recountReceipt(&r)
+	recountReceipt(&r, true)
 	signReceipt(&r)
 	writeReceiptFile(path, r)
 	return r
-}
-
-// recountReceipt derives every count and every survivor list from the merged
-// outcome set. Counting only the CAUGHT carried ones was the hole: a survivor
-// measured on an earlier commit was added to the outcomes and to the total but
-// left out of Survivors and Unaccepted, so a commit touching only a.rs merged
-// with a known unkilled mutant in b.rs.
-//
-// The producer's accept-list is honoured rather than re-derived: a survivor
-// the receipt listed WITHOUT listing it as unaccepted is one the repo accepted
-// with a reason, and that decision is the producer's to make.
-func recountReceipt(r *MutationReceipt) {
-	accepted := map[mutantKey]bool{}
-	unaccepted := map[mutantKey]bool{}
-	for _, m := range r.Unaccepted {
-		unaccepted[m.key()] = true
-	}
-	for _, m := range r.Survivors {
-		if !unaccepted[m.key()] {
-			accepted[m.key()] = true
-		}
-	}
-
-	sortOutcomes(r.Outcomes)
-	r.MutantsTotal, r.Caught, r.Timeout, r.Unviable, r.Accepted = 0, 0, 0, 0, 0
-	r.Survivors, r.Unaccepted = nil, nil
-	for _, m := range r.Outcomes {
-		r.MutantsTotal++
-		switch m.Status {
-		case "caught":
-			r.Caught++
-		case "timeout":
-			// A timeout the producer accepted is a decision, not an
-			// unmeasured mutant: some mutations cannot be measured by any
-			// run (an INCREMENT_DECREMENT on a loop index cancels the loop's
-			// own increment, so the function never returns). Honour it the
-			// same way an accepted survivor is honoured -- by the names the
-			// receipt carries -- and count every other timeout as before.
-			if accepted[m.key()] {
-				r.Survivors = append(r.Survivors, m.name())
-				r.Accepted++
-				continue
-			}
-			r.Timeout++
-		case "unviable":
-			r.Unviable++
-		default:
-			r.Survivors = append(r.Survivors, m.name())
-			if accepted[m.key()] {
-				r.Accepted++
-				continue
-			}
-			r.Unaccepted = append(r.Unaccepted, m.name())
-		}
-	}
 }
 
 // spawnMutantsJob starts the wrapper detached and below normal priority, and
