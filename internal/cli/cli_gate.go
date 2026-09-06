@@ -363,6 +363,23 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return code
 	}
 
+	// A redundant whole-suite invocation (`go test`, `cargo test`, `cargo
+	// nextest run`, no narrowing) is judged before the snapshot/diff pair
+	// runs at all: PreBash only ever records a snapshot, so nothing else
+	// would ever refuse the run itself. Anything that is not a whole-suite
+	// invocation, or carries no fresh verdict to be redundant against, falls
+	// through to PreBash/DecidePreEdit exactly as before.
+	if bashDecision, judged := tdd.DecideBashSuite(raw); judged {
+		tdd.LogBashSuiteDecision(raw, bashDecision)
+		if bashDecision.Action == tdd.Block {
+			payload, code := tdd.RenderPreToolUse(bashDecision)
+			if len(payload) > 0 {
+				stdout.Write(payload)
+			}
+			return code
+		}
+	}
+
 	// A Bash call gets a snapshot, not a verdict: what it will write does not
 	// exist yet, so the pre-edit half only records the tree for PostToolUse
 	// to diff. It never blocks.
