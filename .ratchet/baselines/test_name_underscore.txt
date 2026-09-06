@@ -276,7 +276,6 @@ internal/tdd/gc_straytarget_test.go | func TestStrayTargetDirsIgnoresADirectoryT
 internal/tdd/gc_straytarget_test.go | func TestStrayTargetDirsProposesAnIdleHandMadeTargetDir(t *testing.T) {
 internal/tdd/gc_straytarget_test.go | func TestStrayTargetDirsScansEveryGivenRootAtDepthOneOnly(t *testing.T) {
 internal/tdd/gc_straytarget_test.go | func TestStrayTargetDirsSpareTheResolvedTargetAndTheStillWarmOne(t *testing.T) {
-internal/tdd/gc_straytarget_test.go | func TestStrayTargetSweepTakesNoBuildSlot(t *testing.T) {
 internal/tdd/issue_test.go | func TestAFailedLabelCreateIsRetriedNotCached(t *testing.T) {
 internal/tdd/issue_test.go | func TestClaudeMDBlockNamesTheIssueAndEscapeVerbs(t *testing.T) {
 internal/tdd/issue_test.go | func TestIssueLabelsReadsAphrolloTomlForANonCargoRepo(t *testing.T) {

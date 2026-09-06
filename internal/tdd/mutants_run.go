@@ -239,20 +239,13 @@ func runMutantsProducer(j MutantsJob, judged []MutantOutcome) int {
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = j.Worktree
-	cmd.Env = mutantsChildEnv(j, judged)
+	env := mutantsChildEnv(j, judged)
+	cmd.Env = env
 	// The producer inherits this process's own streams, which the parent
-	// pointed at the job's log files: one place to look, whether the run
-	// finished or died.
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	if err := cmd.Run(); err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			return ee.ExitCode()
-		}
-		logf(os.Stdout, "aphrollo: %v", err)
-		return 1
-	}
-	return 0
+	// pointed at the job's log files -- runProducerProcess
+	// (mutants_argswarning.go) tees a capped copy of the same streams to
+	// check issue #423's contract before returning the exit code.
+	return runProducerProcess(cmd, mutantsEnvValue(env, MutantsArgsEnv))
 }
 
 // mutantsProducerArgv picks the runner the repo actually has. The Rust runner

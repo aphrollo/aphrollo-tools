@@ -17,7 +17,6 @@ internal/tdd/precommit.go | return GateResult{}
 internal/tdd/precommit.go | return GateResult{}
 internal/tdd/precommit.go | return GateResult{}
 internal/tdd/precommit.go | return GateResult{}
-internal/tdd/precommit.go | return GateResult{}
 internal/tdd/precommit_go.go | return GateResult{}
 internal/tdd/precommit_go.go | return GateResult{}
 internal/tdd/precommit_go.go | return GateResult{}
@@ -26,6 +25,7 @@ internal/tdd/precommit_go.go | return GateResult{}
 internal/tdd/precommit_go.go | return GateResult{}
 internal/tdd/precommit_quality.go | return GateResult{}
 internal/tdd/precommit_quality.go | return GateResult{}
+internal/tdd/precommit_wsmanifest.go | return GateResult{}
 internal/tdd/ratchetgate.go | return GateResult{}
 internal/tdd/ratchetgate.go | return GateResult{}
 internal/tdd/ratchetgate.go | return GateResult{}

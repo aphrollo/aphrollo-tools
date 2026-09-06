@@ -84,13 +84,40 @@ func gateRootCargo(gateName, repoRoot string, g rootGroup, rootFiles []string, r
 // workspaceManifestCheckStage answers issue #365's harder half: a workspace-
 // root manifest, lockfile or cargo config change can reshape or break every
 // crate at once and owns no [package] to scope a suite to, so a cheap
-// `cargo check --workspace --tests` stands in for the per-crate suites here —
-// a compile-coverage proof over the whole tree, not a test RUN of it, which
+// `cargo check --tests` stands in for the per-crate suites here — a
+// compile-coverage proof over the affected tree, not a test RUN of it, which
 // keeps the cost in the same tier as workspaceCheckStage rather than the
-// heavy nextest suites.
+// heavy nextest suites. A Cargo.toml or .cargo/config.toml change keeps
+// `--workspace`: either can reshape how everything builds. A Cargo.lock-only
+// change (issue #423) narrows to lockfileScope's answer — the packages whose
+// locked version moved plus their workspace dependents — since a version
+// bump can only affect what depends on it, directly or transitively; an
+// unreadable or unparsable diff falls back to `--workspace` rather than
+// guessing narrower.
 func workspaceManifestCheckStage(gateName, repoRoot string, plan cargoStagePlan, run SuiteRunner) GateResult {
-	fmt.Fprintf(os.Stderr, "gate %s: workspace manifest changed (%v) → cargo check --workspace --tests\n",
-		gateName, plan.wsManifestHit)
-	runner := withGateProfile(Runner{Cmd: "cargo", Args: []string{"check", "--workspace", "--tests"}, Dir: plan.ws}, plan.ws)
+	scope := lockfileScope(gateName, repoRoot, plan.ws, plan.wsManifestHit)
+	if scope != nil && len(scope) == 0 {
+		// verdictFor (verdict.go) is the one place a stage outcome becomes a
+		// GateResult -- outcomeSkipped is the deliberate, logged stand-down
+		// that still lets the commit through.
+		return verdictFor(gateName, "workspace-manifest-check", plan.ws, "cargo check", stageOutcome{
+			kind:   outcomeSkipped,
+			reason: fmt.Sprintf("%v moved no package a workspace crate depends on", plan.wsManifestHit),
+		})
+	}
+	var args []string
+	if scope == nil {
+		fmt.Fprintf(os.Stderr, "gate %s: workspace manifest changed (%v) → cargo check --workspace --tests\n",
+			gateName, plan.wsManifestHit)
+		args = []string{"check", "--workspace", "--tests"}
+	} else {
+		fmt.Fprintf(os.Stderr, "gate %s: %v moved → cargo check --tests scoped to %v\n",
+			gateName, plan.wsManifestHit, scope)
+		args = []string{"check", "--tests"}
+		for _, p := range scope {
+			args = append(args, "-p", p)
+		}
+	}
+	runner := withGateProfile(Runner{Cmd: "cargo", Args: args, Dir: plan.ws}, plan.ws)
 	return runSuiteStage(gateName, "workspace-manifest-check", repoRoot, plan.ws, runner, run)
 }
