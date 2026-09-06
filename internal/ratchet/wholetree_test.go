@@ -205,6 +205,66 @@ func TestContainmentRefusesAVacuousComparison(t *testing.T) {
 	}
 }
 
+// splitCaptureLaw is #492's own crate-registration shape: the subset side
+// (Cargo.toml) spells a crate "crates/zone", the superset side (a markdown
+// table) spells it `zone` — a single `capture` shared across both sides
+// cannot express this, since the permissive branch that matches the
+// markdown notation would also match inside Cargo.toml and the two
+// extracted sets would stop being comparable.
+func splitCaptureLaw(t *testing.T, root string) Law {
+	t.Helper()
+	law, err := ParseLaw(`
+name = "crate-registered"
+description = "every workspace crate is documented"
+severity = "deny"
+
+[scope]
+include = ["Cargo.toml"]
+
+[matcher]
+kind = "file-set-containment"
+superset_file = "CRATES.md"
+subset_file = "Cargo.toml"
+subset_capture = "\"crates/([a-z_]+)\""
+superset_capture = "`+"`([a-z_]+)`"+`"
+`, "crate-registered")
+	if err != nil {
+		t.Fatal(err)
+	}
+	law.Root = root
+	return law
+}
+
+func TestContainment_SplitCapturesCompareTwoDifferentNotations(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "Cargo.toml"),
+		"[workspace]\nmembers = [\"crates/zone\", \"crates/item\"]\n")
+	write(t, filepath.Join(root, "CRATES.md"), "| `zone` | allegiance |\n")
+
+	hits, err := containmentHits(root, splitCaptureLaw(t, root))
+	if err != nil {
+		t.Fatalf("containmentHits: %v", err)
+	}
+	if len(hits) != 1 || !strings.HasSuffix(hits[0].Key, "| item") {
+		t.Fatalf("hits = %v, want exactly one naming the undocumented crate item", keys(hits))
+	}
+}
+
+func TestContainment_SplitCapturesAgreeWhenBothSidesDocumentTheSameNames(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "Cargo.toml"),
+		"[workspace]\nmembers = [\"crates/zone\"]\n")
+	write(t, filepath.Join(root, "CRATES.md"), "| `zone` | allegiance |\n")
+
+	hits, err := containmentHits(root, splitCaptureLaw(t, root))
+	if err != nil {
+		t.Fatalf("containmentHits: %v", err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("hits = %v, want none — both sides name the same crate", keys(hits))
+	}
+}
+
 func jsonCeilingLaw(t *testing.T, root string) Law {
 	t.Helper()
 	law, err := ParseLaw(`

@@ -25,11 +25,11 @@ var matcherKeys = map[MatcherKind][]matcherKeySpec{
 	KindMarkerWithinLines:  {{"kind", true}, {"trigger", true}, {"marker", true}, {"lines", false}, {"contiguous", false}, {"direction", false}},
 	KindRegexNear:          {{"kind", true}, {"trigger", true}, {"context", true}, {"lines", false}, {"direction", false}},
 	KindMarkerInPackage:    {{"kind", true}, {"trigger", true}, {"marker", true}},
-	KindRegistryBothWays:   {{"kind", true}, {"registry_file", true}, {"entry_pattern", true}, {"use_pattern", true}},
+	KindRegistryBothWays:   {{"kind", true}, {"registry_file", true}, {"entry_pattern", true}, {"use_pattern", true}, {"entry_column", false}},
 	KindDocPathResolves:    {{"kind", true}, {"pattern", true}},
 	KindDepGraphForbids:    {{"kind", true}, {"roots", true}, {"forbidden", true}, {"edges", false}, {"min_reachable", false}},
 	KindDepGraphCeiling:    {{"kind", true}, {"roots", true}, {"edges", false}, {"counts", false}, {"min_reachable", false}},
-	KindFileSetContainment: {{"kind", true}, {"superset_file", true}, {"subset_file", true}, {"capture", true}},
+	KindFileSetContainment: {{"kind", true}, {"superset_file", true}, {"subset_file", true}, {"capture", false}, {"subset_capture", false}, {"superset_capture", false}},
 	KindJSONNumberCeiling:  {{"kind", true}, {"files", true}, {"path", true}, {"tolerance_pct", false}, {"enabled_env", false}},
 	KindGoBenchCeiling:     {{"kind", true}, {"files", true}, {"tolerance_pct", false}, {"enabled_env", false}},
 	KindSymbolRemoved:      {{"kind", true}, {"pattern", true}},
@@ -223,6 +223,48 @@ func setHunkRegexFields(doc *tomlDoc, m *Matcher, lawName string) error {
 	}
 	if m.HunkMode == HunkDiffers && !m.Paired {
 		return fmt.Errorf("law %q: matcher.mode = %q requires matcher.paired = true", lawName, HunkDiffers)
+	}
+	return nil
+}
+
+// setContainmentCaptureFields validates and fills file-set-containment's
+// capture patterns. `capture` alone is shorthand for both sides sharing one
+// notation; `subset_capture` and `superset_capture` given TOGETHER are for
+// when they do not (a Cargo.toml members line vs a markdown table cell). The
+// two forms are exclusive — never silently preferring one when both are
+// given, which would leave the other side's notation uncompared against
+// anything — and exactly one form is required.
+func setContainmentCaptureFields(doc *tomlDoc, m *Matcher, lawName string) error {
+	_, hasCapture := doc.value("matcher", "capture")
+	_, hasSubset := doc.value("matcher", "subset_capture")
+	_, hasSuperset := doc.value("matcher", "superset_capture")
+
+	switch {
+	case hasCapture && (hasSubset || hasSuperset):
+		return fmt.Errorf("law %q: matcher.capture and matcher.subset_capture/superset_capture are exclusive — capture is the shorthand for when both sides share one notation, the split fields are for when they do not", lawName)
+	case hasCapture:
+		re, err := compileField(doc, "capture")
+		if err != nil {
+			return err
+		}
+		m.SubsetCapture, m.SupersetCapture = re, re
+	case hasSubset && hasSuperset:
+		subsetRe, err := compileField(doc, "subset_capture")
+		if err != nil {
+			return err
+		}
+		supersetRe, err := compileField(doc, "superset_capture")
+		if err != nil {
+			return err
+		}
+		m.SubsetCapture, m.SupersetCapture = subsetRe, supersetRe
+	case hasSubset || hasSuperset:
+		return fmt.Errorf("law %q: matcher.subset_capture and matcher.superset_capture must both be given — one alone cannot extract a comparable set from the other side", lawName)
+	default:
+		return fmt.Errorf("law %q: matcher.capture, or matcher.subset_capture and matcher.superset_capture together, is required", lawName)
+	}
+	if m.SubsetCapture.NumSubexp() < 1 || m.SupersetCapture.NumSubexp() < 1 {
+		return fmt.Errorf("law %q: matcher capture patterns must capture the name in group 1", lawName)
 	}
 	return nil
 }
@@ -427,11 +469,10 @@ func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
 		}
 	case KindFileSetContainment:
 		m.Key = KeyLineContent
-		m.Capture = get("capture")
 		m.SupersetFile = doc.str("matcher", "superset_file")
 		m.SubsetFile = doc.str("matcher", "subset_file")
-		if err == nil && m.Capture.NumSubexp() < 1 {
-			return Matcher{}, fmt.Errorf("matcher.capture must capture the name in group 1")
+		if ferr := setContainmentCaptureFields(doc, &m, lawName); ferr != nil {
+			return Matcher{}, ferr
 		}
 	case KindJSONNumberCeiling:
 		m.Key = KeyFile
@@ -460,6 +501,12 @@ func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
 		m.EntryPattern, m.UsePattern = get("entry_pattern"), get("use_pattern")
 		m.RegistryFile = doc.str("matcher", "registry_file")
 		m.Key = KeyLineContent
+		if v, ok := doc.value("matcher", "entry_column"); ok {
+			if v.kind != tomlInt || v.i < 0 {
+				return Matcher{}, fmt.Errorf("matcher.entry_column is a non-negative integer — 0-based, the first cell after a leading `|` is stripped")
+			}
+			m.EntryColumn, m.HasEntryColumn = v.i, true
+		}
 		if err == nil {
 			if ferr := requireCaptureGroups(m.EntryPattern, m.UsePattern); ferr != nil {
 				return Matcher{}, ferr

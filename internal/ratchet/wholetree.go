@@ -329,11 +329,11 @@ func matchesAny(patterns []string, name string) bool {
 // from the superset file. Containment, not equality: a stand-in may refuse
 // MORE than the real system, never less.
 func containmentHits(root string, law Law) ([]Hit, error) {
-	superset, err := captureSet(root, law.Matcher.SupersetFile, law.Matcher.Capture)
+	superset, err := captureSet(root, law.Matcher.SupersetFile, law.Matcher.SupersetCapture)
 	if err != nil {
 		return nil, fmt.Errorf("law %q: %w", law.Name, err)
 	}
-	subset, err := captureSet(root, law.Matcher.SubsetFile, law.Matcher.Capture)
+	subset, err := captureSet(root, law.Matcher.SubsetFile, law.Matcher.SubsetCapture)
 	if err != nil {
 		return nil, fmt.Errorf("law %q: %w", law.Name, err)
 	}

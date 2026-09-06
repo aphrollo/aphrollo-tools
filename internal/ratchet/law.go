@@ -182,6 +182,15 @@ type Matcher struct {
 	RegistryFile string
 	EntryPattern *regexp.Regexp
 	UsePattern   *regexp.Regexp
+	// EntryColumn scopes EntryPattern to one `|`-delimited cell of a
+	// registry line rather than the whole line — a markdown table's crates
+	// column and the prose column beside it both carry backticked names,
+	// and only a cell-aware scope can tell them apart. 0-based: a leading
+	// `|` is stripped first, so column 0 is the first cell after it.
+	// HasEntryColumn distinguishes "column 0 was given" from "no column
+	// given", which the zero value of EntryColumn cannot.
+	EntryColumn    int
+	HasEntryColumn bool
 	// Dependency-graph fields (KindDepGraphForbids, KindDepGraphCeiling).
 	Roots     []string
 	Forbidden []string
@@ -194,10 +203,16 @@ type Matcher struct {
 	// MinReachable is the vacuity floor: a walk that reached fewer packages
 	// than this is not a clean verdict, it is a walk that resolved nothing.
 	MinReachable int
-	// Containment fields (KindFileSetContainment).
-	SupersetFile string
-	SubsetFile   string
-	Capture      *regexp.Regexp
+	// Containment fields (KindFileSetContainment). SubsetCapture and
+	// SupersetCapture are the two extraction patterns, always both set
+	// after parsing: `capture` in TOML is shorthand that fills both with
+	// the same pattern for when subset and superset share one notation;
+	// `subset_capture`/`superset_capture` are given together when they do
+	// not (a Cargo.toml members line vs a markdown table cell).
+	SupersetFile    string
+	SubsetFile      string
+	SubsetCapture   *regexp.Regexp
+	SupersetCapture *regexp.Regexp
 	// JSON-ceiling fields (KindJSONNumberCeiling).
 	Files        string
 	JSONPath     string
