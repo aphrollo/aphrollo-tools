@@ -106,6 +106,31 @@ func TestMutationReceipt_NotRequiredWhenTheLaneChangesOnlyManifestFiles(t *testi
 	requireLoggedVerdict(t, cfg, "receipt-not-required:"+short(tree))
 }
 
+// A real lane arrives with Test, manifest and Ignore paths together, never
+// one kind alone — the isolated cases above are the artificial ones. The
+// reported case, lane/crate-registry, deletes an empty placeholder crate and
+// adds a guard test: its diff against main was one Test file, three
+// manifests, a law and several docs, and nothing Source that was not itself
+// a manifest. This sits between the Test-only and manifest-only cases and
+// fails if either half of isMutableSourcePath's predicate is dropped: a
+// manifest edit here counting as mutable source (isMutableSourcePath
+// narrowed to bare Source) or the guard test itself somehow counting as one.
+func TestMutationReceipt_NotRequiredWhenTheLaneMixesTestManifestAndIgnorePaths(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root, base := carryRepo(t)
+	write(t, root, "tests/guard.rs", "#[test]\nfn it_works() {}\n")
+	write(t, root, "Cargo.toml", "[package]\nname = \"m\"\nversion = \"0.1.0\"\n\n[dependencies]\n")
+	write(t, root, "Cargo.lock", "# lockfile placeholder\n")
+	write(t, root, "docs/notes.md", "explain the removal\n")
+	tree := commitLane(t, root, "drop the placeholder crate and add a guard test")
+
+	if got := checkMutationReceipt(laneContext(root, tree, base)); got != nil {
+		t.Fatalf("a lane mixing Test, manifest and Ignore paths must merge without a receipt: %s", got.Message)
+	}
+	requireLoggedVerdict(t, cfg, "receipt-not-required:"+short(tree))
+}
+
 // A Test-kind diff earns the early not-required exemption directly; it must
 // never fall through to the vacuous-receipt check and be refused for the
 // zero counts that diff can only ever produce. A receipt existing at all
