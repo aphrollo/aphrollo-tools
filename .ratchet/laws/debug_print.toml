@@ -1,0 +1,14 @@
+name        = "debug_print"
+description = "fmt.Println/log.Print in non-cmd/, non-test Go is a debug leftover: this repo logs through logfmt or returns the value to its caller, so a bare console print in a library package is either a forgotten trace or a symptom that the real return path is missing. cmd/ is exempt (a CLI entrypoint's job is printing to the user) and so are tests (test output has its own conventions). This repo counts zero today, so the bar is zero: any new occurrence is a regression, not debt to grandfather."
+severity    = "warn"
+escape      = "// debug-ok:"
+
+[scope]
+include = ["internal/**/*.go"]
+exclude = ["**/testdata/**", "**/*_test.go"]
+min_files = 260
+
+[matcher]
+kind  = "regex-absent"
+pattern = "fmt\\.Println\\(|log\\.Print"
+key   = "file:line-content-hash"

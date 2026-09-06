@@ -1,0 +1,7 @@
+# Lines reading the source tree by relative path from a test. Format: one
+# line per occurrence, "<path> | <trimmed line>" — the TEXT is the identity.
+# See .ratchet/laws/test_tree_read.toml. Both rows are grandfathered debt,
+# only ever lowered: a new test lands reading through t.TempDir()/an
+# embedded fixture, or through CARGO_MANIFEST_DIR-style resolution, instead.
+internal/tdd/ratchetreadme_test.go | data, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+internal/cli/isolation_test.go | _, self, _, ok := runtime.Caller(0)

@@ -1,0 +1,15 @@
+name        = "test_tree_read"
+description = "A test that reads the source tree by relative path (two or more '..' segments in one filepath.Join call, a bare os.ReadFile(\"../…\"), or runtime.Caller( used to locate a path) depends on where the test binary runs from and on the tree around it still having the shape it was written against — exactly the two incidents this law is named for (#262, #112): a test that passed in the working tree and failed in a mutants copy, for a reason the failure never named. Measured 2 hits in this tree today: one (ratchetreadme_test.go reading '../../README.md') is the real shape of the incident, carried as debt below; the other (isolation_test.go's runtime.Caller(0)) locates the calling test's OWN file to read its sibling test files, a different and safer use the escape comment exists to say so for."
+severity    = "deny"
+escape      = "// tree-read-ok:"
+baseline    = ".ratchet/baselines/test_tree_read.txt"
+
+[scope]
+include = ["**/*_test.go"]
+exclude = ["**/testdata/**", ".ratchet/**"]
+min_files = 380
+
+[matcher]
+kind    = "regex-absent"
+pattern = "filepath\\.Join\\([^()]*\"\\.\\.\"[^()]*\"\\.\\.|os\\.ReadFile\\(\"\\.\\./|runtime\\.Caller\\("
+key     = "file:line-content-hash"
