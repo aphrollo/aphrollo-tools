@@ -1,8 +1,11 @@
 package tdd
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -221,3 +224,95 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 // execRootIn maps root (a project root under repoRoot) to its equivalent
 // directory inside the fail-first worktree wt, which mirrors repoRoot's tree
 // at HEAD. root == repoRoot maps to wt itself.
+func execRootIn(wt, repoRoot, root string) (string, error) {
+	rel, err := filepath.Rel(repoRoot, root)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." {
+		return wt, nil
+	}
+	return filepath.Join(wt, rel), nil
+}
+
+// failFirstWorktreeDir returns the stable per-repo path for the fail-first
+// worktree, under the state dir. Stability is the point: cargo fingerprints
+// bake in absolute source paths, so a fresh MkdirTemp per commit cold-rebuilds
+// the workspace crates every time even with a warm CARGO_TARGET_DIR. "" when
+// there is no state dir (the caller then falls back to a temp dir).
+func failFirstWorktreeDir(repoRoot string) string {
+	base := stateDir()
+	if base == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(repoRoot))
+	dir := filepath.Join(base, "failfirst-wt", hex.EncodeToString(sum[:8]))
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+		return ""
+	}
+	writeGateOrigin(dir, repoRoot)
+	return dir
+}
+
+// failFirstStage runs the fail-first check for ONE project root's staged
+// files, in a throwaway worktree at HEAD. That worktree has no node_modules
+// — worktrees don't share gitignored deps and we do NOT `pnpm install` per
+// commit (too slow) — so for vitest/jest repos the suite can't run there and
+// fail-first is effectively Go-only. It still fails OPEN (an unrunnable
+// suite is inconclusive, never a block).
+//
+// Zig fails OPEN here by construction, and deliberately so. Its tests are
+// `test "..." {}` blocks INLINE in src/*.zig, so an inline-test commit stages
+// only Source-classified .zig files (ClassifyFile flips only *_test.zig /
+// tests/*.zig to Test) — len(tests) is 0 and this guard skips fail-first.
+// That is correct: the test and the impl it exercises live in the SAME hunk
+// and cannot be cleanly separated, so applying "just the test" to a HEAD
+// worktree would drag the impl along and make the check meaningless. An
+// EXPLICIT tests/*.zig staged alongside its source DOES enter fail-first, but
+// an integration test cannot compile without the source it imports, so the
+// worktree run fails to RUN and falls through the unrunnable-suite path above
+// (Passed=false ⇒ violated=false). Either way fail-first never false-blocks a
+// Zig commit; the mechanical stage's full `zig build test` is the real gate.
+// Fail-first judges NEW tests only, so it fires when the staged test
+// changes actually ADD a test declaration. A declaration-free test edit
+// (lint reflow, gofmt, a renamed local) has nothing to prove RED — and
+// judging it would false-block, since a reformatted EXISTING test passes
+// at HEAD by construction. The mechanical stage still gates those.
+func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner) GateResult {
+	if len(tests) > 0 && len(srcs) > 0 && stagedTestsAddDeclIn(repoRoot, tests) {
+		ffCmd := ""
+		if r, ok := DetectRunner(root); ok {
+			ffCmd = cmdString(r)
+		}
+		violated, conclusive, vacuous, vacuousPkgs, dur := failFirstViolatedAt(repoRoot, root, tests, run)
+		// The gate must never be silent about a stage it ran, whatever the
+		// verdict — a session watching stderr needs to see fail-first
+		// happened, not infer it from the commit's exit code. Timeout and
+		// "nothing was runnable" both collapse to "inconclusive (fail-open)"
+		// here: failFirstViolatedAt's (violated, conclusive) pair doesn't
+		// carry WHY it was inconclusive, and neither ever blocks, so the
+		// coarser label loses no decision-relevant information. vacuous is
+		// checked first: #317's "executed zero tests" is neither a red proof
+		// nor a genuine violation, and reporting it as either would misname
+		// the actual defect.
+		verdict := "inconclusive (fail-open)"
+		switch {
+		case vacuous:
+			verdict = "vacuous-rejected"
+		case conclusive && violated:
+			verdict = "violated"
+		case conclusive && !violated:
+			verdict = "red-proven"
+		}
+		line := fmt.Sprintf("gate precommit: fail-first %s in %s → %s (%.1fs)", ffCmd, root, verdict, dur.Seconds())
+		fmt.Fprintln(os.Stderr, line)
+		appendGateLog("precommit", root, ffCmd, verdict, dur)
+		if vacuous {
+			return GateResult{Blocked: true, Message: vacuousFailFirstMessage(vacuousPkgs)}
+		}
+		if conclusive && violated {
+			return GateResult{Blocked: true, Message: failFirstMessage}
+		}
+	}
+	return GateResult{}
+}

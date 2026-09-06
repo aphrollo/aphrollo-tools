@@ -1,5 +1,5 @@
-internal/tdd/precommit.go | return &GateResult{Message: "mutation receipt not judged here: this repo measures it on the CI runner (mutants-local = false)"}
-internal/tdd/precommit.go | return &GateResult{Message: "mutation receipt not judged: " + why}
+internal/tdd/mechanical.go | return &GateResult{Message: "mutation receipt not judged here: this repo measures it on the CI runner (mutants-local = false)"}
+internal/tdd/mechanical.go | return &GateResult{Message: "mutation receipt not judged: " + why}
 internal/tdd/docsonly.go | return GateResult{Message: strings.Join(notes, "\n")}
 internal/tdd/mechanical.go | return GateResult{Message: strings.Join(notes, "\n")}
 internal/tdd/mechanical.go | return GateResult{Message: strings.Join(notes, "\n")}
@@ -9,14 +9,14 @@ internal/tdd/baselineguard.go | return GateResult{}
 internal/tdd/commitmsg.go | return GateResult{}
 internal/tdd/commitmsg.go | return GateResult{}
 internal/tdd/commitmsg.go | return GateResult{}
-internal/tdd/precommit.go | return GateResult{}
-internal/tdd/precommit.go | return GateResult{}
-internal/tdd/precommit.go | return GateResult{}
-internal/tdd/precommit.go | return GateResult{}
-internal/tdd/precommit.go | return GateResult{}
-internal/tdd/precommit.go | return GateResult{}
-internal/tdd/precommit.go | return GateResult{}
-internal/tdd/precommit.go | return GateResult{}
+internal/tdd/mechrun.go | return GateResult{}
+internal/tdd/mechrun.go | return GateResult{}
+internal/tdd/precommit_failfirst.go | return GateResult{}
+internal/tdd/precommit_gateroot.go | return GateResult{}
+internal/tdd/precommit_gateroot.go | return GateResult{}
+internal/tdd/precommit_gateroot.go | return GateResult{}
+internal/tdd/precommit_gateroot.go | return GateResult{}
+internal/tdd/precommit_gateroot.go | return GateResult{}
 internal/tdd/precommit_go.go | return GateResult{}
 internal/tdd/precommit_go.go | return GateResult{}
 internal/tdd/precommit_go.go | return GateResult{}
