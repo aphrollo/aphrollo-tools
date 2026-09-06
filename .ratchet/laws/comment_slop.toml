@@ -1,0 +1,15 @@
+name        = "comment_slop"
+description = "A comment carrying a hedge word is the tell of a change that was not finished or not understood: 'for now', 'quick fix', 'hacky', 'hopefully', 'probably', 'not sure', 'should work', 'as an AI'. The full word list from the slop-pack proposal (also banning 'temporary', 'simply', 'just', 'note that', 'worth noting', 'no-op', 'legacy', 'TODO', 'FIXME', 'XXX') was measured first and produces 311 hits in this tree, nearly all of them this repo's own dense connecting prose ('just', 'no-op', 'legacy' are ordinary technical vocabulary here, not hedging) — that pattern is wrong, not narrow. This narrowed list measures 1 hit today, itself a quoted classifier label rather than real hedging, carried in the baseline below as honest debt rather than tuned away."
+severity    = "warn"
+escape      = "// slop-ok:"
+baseline    = ".ratchet/baselines/comment_slop.txt"
+
+[scope]
+include = ["cmd/**/*.go", "internal/**/*.go"]
+exclude = ["**/testdata/**"]
+min_files = 650
+
+[matcher]
+kind    = "regex-absent"
+pattern = "(?i)//.*\\b(for now|quick fix|hackily|hacky|hopefully|probably|not sure|should work|as an ai)\\b"
+key     = "file:line-content-hash"

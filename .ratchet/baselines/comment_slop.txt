@@ -1,0 +1,7 @@
+# Comment lines carrying a hedge word from comment_slop's narrowed list.
+# Format: one line per occurrence, "<path> | <trimmed line>" — the TEXT is
+# the identity (a git mv is not a regression, a new occurrence of a line
+# already at its ceiling is). See .ratchet/laws/comment_slop.toml. The one
+# row below is a quoted classifier label ("not sure"), not real hedging by
+# the author; carried as debt rather than tuned out of the pattern.
+internal/tdd/bashsuite.go | // answer "not sure" as "not narrowed" only where narrowing is genuinely
