@@ -3,6 +3,7 @@ package tdd
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -105,6 +106,49 @@ func TestReceiptSigning_BlocksWhenTheSigningKeyCannotBeRead(t *testing.T) {
 		t.Fatalf("message = %q, want it to say the key could not be read", got.Message)
 	}
 	requireLoggedVerdict(t, cfg, "receipt-unverifiable")
+}
+
+// A truncated key file used to read as "absent" and get silently
+// overwritten, so a receipt honestly signed under the lost key then failed
+// its MAC check and was reported "receipt-forged" -- a false claim about
+// tampering when the real fact was a corrupt key on this box (issue #429).
+// The fix must report it as "receipt-unverifiable" instead, name the
+// truncated path and length, and never silently regenerate it.
+func TestReceiptSigning_ReportsTruncatedKeyAsUnverifiableNotForgedAndNeverOverwritesIt(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	r := passingReceipt()
+	r.MAC = "0123456789abcdef" // any non-empty MAC: reaching receiptKey() is the point
+	writeReceipt(t, r)
+
+	keyPath := ReceiptKeyPath()
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	truncated := []byte("only-ten-")
+	if err := os.WriteFile(keyPath, truncated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: r.TipTree})
+	if got == nil || !got.Blocked {
+		t.Fatal("a receipt whose key is truncated must not merge")
+	}
+	if strings.Contains(got.Message, "does not verify against this machine's signing key") {
+		t.Fatalf("message = %q, must not blame forgery for a truncated key", got.Message)
+	}
+	if !strings.Contains(got.Message, keyPath) || !strings.Contains(got.Message, "9 bytes") {
+		t.Fatalf("message = %q, want it to name the truncated path and its length", got.Message)
+	}
+	requireLoggedVerdict(t, cfg, "receipt-unverifiable")
+
+	after, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(truncated) {
+		t.Fatalf("the truncated key must not be silently overwritten, got %q want %q", after, truncated)
+	}
 }
 
 // The key is per-machine and private: a key anybody can read is a key

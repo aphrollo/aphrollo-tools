@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -43,13 +44,30 @@ func ReceiptKeyPath() string {
 // receiptKey reads the machine's signing secret, creating it the first time.
 // Written 0600 and never logged: a key anybody can read is a key anybody can
 // sign with.
+//
+// Absent and malformed are different facts and get different handling
+// (issue #429): a file that is not there yet is the ordinary first-run case
+// and gets a fresh key generated silently. A file that IS there but shorter
+// than a usable key is truncation evidence — a partial write, a full disk,
+// an interrupted first run, a restored backup — and is reported with its
+// path and length rather than silently overwritten. Overwriting it would
+// make the next receipt look normal while erasing the evidence, and every
+// receipt honestly signed under the lost key would then fail its MAC check
+// and read as forged, which is a different and false claim.
 func receiptKey() ([]byte, error) {
 	path := ReceiptKeyPath()
 	if path == "" {
 		return nil, errors.New("no state dir, so nowhere to keep a signing key")
 	}
-	if data, err := os.ReadFile(path); err == nil && len(data) >= 32 {
-		return data, nil
+	data, err := os.ReadFile(path)
+	if err == nil {
+		if len(data) >= 32 {
+			return data, nil
+		}
+		return nil, fmt.Errorf("receipt signing key %s is %d bytes, want at least 32 -- truncated or corrupt, not absent; move it aside and re-run to generate a fresh one", path, len(data))
+	}
+	if !os.IsNotExist(err) {
+		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
