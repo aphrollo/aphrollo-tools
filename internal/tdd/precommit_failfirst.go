@@ -279,8 +279,20 @@ func failFirstWorktreeDir(repoRoot string) string {
 // (lint reflow, gofmt, a renamed local) has nothing to prove RED — and
 // judging it would false-block, since a reformatted EXISTING test passes
 // at HEAD by construction. The mechanical stage still gates those.
+// failFirstWouldRun reports whether failFirstStage will actually launch a
+// worktree run for this staged change, rather than no-op through it — the
+// same guard failFirstStage itself opens on, exported as its own predicate
+// so a caller can decide whether pairing fail-first with the mechanical
+// suite concurrently is worth its own cost (runFailFirstAndMechanicalConcurrently,
+// precommit_concurrent.go) BEFORE launching anything: a commit with no
+// staged test, or one whose test adds no new declaration, never runs
+// fail-first at all, so there is nothing there to run concurrently with.
+func failFirstWouldRun(repoRoot string, tests, srcs []string) bool {
+	return len(tests) > 0 && len(srcs) > 0 && stagedTestsAddDeclIn(repoRoot, tests)
+}
+
 func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner) GateResult {
-	if len(tests) > 0 && len(srcs) > 0 && stagedTestsAddDeclIn(repoRoot, tests) {
+	if failFirstWouldRun(repoRoot, tests, srcs) {
 		ffCmd := ""
 		if r, ok := DetectRunner(root); ok {
 			ffCmd = cmdString(r)
@@ -305,7 +317,7 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		case conclusive && !violated:
 			verdict = "red-proven"
 		}
-		line := fmt.Sprintf("gate precommit: fail-first %s in %s → %s (%.1fs)", ffCmd, root, verdict, dur.Seconds())
+		line := fmt.Sprintf("[fail-first] gate precommit: %s in %s → %s (%.1fs)", ffCmd, root, verdict, dur.Seconds())
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog("precommit", root, ffCmd, verdict, dur)
 		if vacuous {

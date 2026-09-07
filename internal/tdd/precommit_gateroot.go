@@ -63,6 +63,19 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 		}
 	}
 	if failFirst {
+		// Only pair the two stages when fail-first will actually launch a
+		// worktree run: a commit with no staged test, or one whose test adds
+		// no new declaration (failFirstWouldRun == false), makes
+		// failFirstStage a same-line no-op, so pairing it here would cap the
+		// mechanical suite's own parallelism (capGoTestParallelism) for a
+		// concurrency that never happens. Fail-first and the mechanical
+		// suite read different trees and neither writes state the other
+		// reads — see runFailFirstAndMechanicalConcurrently's own doc
+		// comment for why that is NOT true of gateRootCargo's cargo branch
+		// below, which keeps its two stages sequential.
+		if failFirstWouldRun(repoRoot, g.tests, g.srcs) {
+			return runFailFirstAndMechanicalConcurrently(gateName, repoRoot, g.root, g.tests, g.srcs, runner, run)
+		}
 		if res := failFirstStage(repoRoot, g.root, g.tests, g.srcs, run); res.Blocked {
 			return res
 		}

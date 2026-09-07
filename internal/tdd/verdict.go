@@ -73,33 +73,33 @@ func verdictFor(gateName, stage, root, cmd string, o stageOutcome) GateResult {
 	case outcomePass:
 		return GateResult{}
 	case outcomeSkipped:
-		line := fmt.Sprintf("gate %s: %s in %s → skipped (%s)", gateName, stage, root, o.reason)
+		line := fmt.Sprintf("[%s] gate %s: in %s → skipped (%s)", stage, gateName, root, o.reason)
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmd, "skipped", o.result.Duration)
 		return GateResult{Message: line}
 	case outcomeRunnerMissing:
-		line := fmt.Sprintf("gate %s: %s in %s → skipped (%s)", gateName, stage, root, o.reason)
+		line := fmt.Sprintf("[%s] gate %s: in %s → skipped (%s)", stage, gateName, root, o.reason)
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmd, "runner-missing", 0)
 		return GateResult{Message: line}
 	case outcomeTimeout:
-		line := fmt.Sprintf("gate %s: %s %s in %s TIMEOUT after %.0fs REJECTED (nothing was tested)",
-			gateName, stage, cmd, root, o.result.Duration.Seconds())
+		line := fmt.Sprintf("[%s] gate %s: %s in %s TIMEOUT after %.0fs REJECTED (nothing was tested)",
+			stage, gateName, cmd, root, o.result.Duration.Seconds())
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmd, "timeout-rejected", o.result.Duration)
 		return GateResult{Blocked: true, Message: o.message}
 	case outcomeCheckError:
-		line := fmt.Sprintf("gate %s: %s in %s → REJECTED (%v)", gateName, stage, root, o.err)
+		line := fmt.Sprintf("[%s] gate %s: in %s → REJECTED (%v)", stage, gateName, root, o.err)
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmd, "check-error-rejected", 0)
 		return GateResult{Blocked: true, Message: o.message}
 	case outcomeFail:
-		fmt.Fprintf(os.Stderr, "gate %s: %s %s in %s → blocked\n", gateName, stage, cmd, root)
+		fmt.Fprintf(os.Stderr, "[%s] gate %s: %s in %s → blocked\n", stage, gateName, cmd, root)
 		appendGateLog(gateName, root, cmd, stage+"-blocked", o.result.Duration)
 		return GateResult{Blocked: true, Message: o.message}
 	case outcomeVacuous:
-		line := fmt.Sprintf("gate %s: %s %s in %s → REJECTED (0 tests executed; nothing was tested)",
-			gateName, stage, cmd, root)
+		line := fmt.Sprintf("[%s] gate %s: %s in %s → REJECTED (0 tests executed; nothing was tested)",
+			stage, gateName, cmd, root)
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmd, "vacuous-rejected", o.result.Duration)
 		return GateResult{Blocked: true, Message: o.message}
@@ -110,8 +110,8 @@ func verdictFor(gateName, stage, root, cmd string, o stageOutcome) GateResult {
 		// the enum without teaching this function about it, and a stage
 		// whose outcome the gate cannot classify is exactly the case where
 		// continuing is unsafe.
-		line := fmt.Sprintf("gate %s: %s %s in %s → REJECTED (unclassified stage outcome kind %d)",
-			gateName, stage, cmd, root, o.kind)
+		line := fmt.Sprintf("[%s] gate %s: %s in %s → REJECTED (unclassified stage outcome kind %d)",
+			stage, gateName, cmd, root, o.kind)
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmd, "unclassified-outcome-rejected", 0)
 		return GateResult{Blocked: true, Message: line}
