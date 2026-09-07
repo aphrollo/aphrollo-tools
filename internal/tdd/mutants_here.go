@@ -75,6 +75,15 @@ func buildMutantsJob(repoRoot, stage string) (MutantsJob, mutantsRefusal, error)
 		Tip: gitOut(root, "rev-parse", "HEAD"), TipTree: gitOut(root, "rev-parse", "HEAD:"),
 		BaseRef: laneBaseRef(root), Worktree: MutantsWorktreeDir(root), TargetDir: MutantsTargetDir(root),
 	}
+	if j.Worktree == "" || j.TargetDir == "" {
+		// MutantsRootDir could not resolve root's primary checkout — root's own
+		// --git-common-dir failed just now, moments after RepoRoot succeeded on
+		// the same directory. Refuse rather than guess where the mutants area
+		// lives (issue #515).
+		return MutantsJob{}, mutantsRefusal{
+			Reason: fmt.Sprintf("could not resolve %s's primary checkout to place the mutants area — git could not answer --git-common-dir there", root),
+		}, nil
+	}
 	// Not merge-base(BaseRef, HEAD): BaseRef prefers origin/main, which no
 	// fetch ever updates, so a lane that caught up by merging LOCAL main
 	// would measure from before that merge and be charged for trunk's own
