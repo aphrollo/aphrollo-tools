@@ -490,7 +490,7 @@ func RunSuite(timeout time.Duration) SuiteRunner {
 		}
 		cmd := exec.CommandContext(ctx, r.Cmd, goExecArgs(r.Cmd, r.Args)...)
 		cmd.Dir = dir
-		cmd.Env = suiteEnv()
+		cmd.Env = suiteEnv(r, dir)
 		// The default cancel kills the direct child and nothing else, and
 		// every runner here is a LAUNCHER: `go test` compiles a test binary
 		// and runs it as a grandchild, cargo spawns rustc. Killing the
@@ -534,8 +534,19 @@ func RunSuite(timeout time.Duration) SuiteRunner {
 // suite's `go test` makes its git-e2e fixtures commit against the WRONG repo and
 // clobber its HEAD. cleanGitEnv (in precommit.go, same package) drops them so the
 // suite runs as if invoked from a plain shell.
-func suiteEnv() []string {
-	return append(cleanGitEnv(), "CI=1", "NO_COLOR=1")
+//
+// A `go` runner also gets goTmpEnv(dir): otherwise `go test` stages its
+// compiled test binary under the OS temp dir, which is how tdd.test.exe ended
+// up Defender-quarantined and 133 go-build* dirs survived killed runs (issue
+// #520). Every other runner (cargo, pytest, vitest, ...) is left exactly as
+// it was — cargo's own target dir already lands inside the project, so it has
+// no analogous problem to fix.
+func suiteEnv(r Runner, dir string) []string {
+	env := append(cleanGitEnv(), "CI=1", "NO_COLOR=1")
+	if r.Cmd == "go" {
+		env = append(env, goTmpEnv(dir)...)
+	}
+	return env
 }
 
 // postToolUseOutput mirrors the PostToolUse hook output contract.
