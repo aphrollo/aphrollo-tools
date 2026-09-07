@@ -22,7 +22,7 @@ func discardWallRefusal(cfg gitShimConfig, rest []string, workDir string) (line 
 	if cost.zero() {
 		return "", false
 	}
-	session := os.Getenv("CLAUDE_SESSION_ID")
+	session := tdd.SessionID()
 	if os.Getenv("APHROLLO_DISCARD") == "1" {
 		tdd.LogOverride("override-discard-env", session, workDir)
 		return "", false

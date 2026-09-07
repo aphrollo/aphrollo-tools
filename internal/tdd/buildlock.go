@@ -275,7 +275,7 @@ func writeBuildLockOwnerAt(path, cmd, cwd string) {
 		Cwd:       cwd,
 		Cmd:       cmd,
 		Started:   time.Now().UTC(),
-		SessionID: os.Getenv("CLAUDE_SESSION_ID"),
+		SessionID: SessionID(),
 	}
 	data, err := json.MarshalIndent(o, "", "  ")
 	if err != nil {
