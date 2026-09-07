@@ -59,7 +59,7 @@ func TestPrecommit_MechanicalTimeoutNamesTheBoxLoad(t *testing.T) {
 		}
 		return SuiteResult{Passed: false, TimedOut: true, Duration: 90 * time.Second}
 	}
-	res := Precommit(root, run)
+	res := Mechanical(root, run)
 
 	if !res.Blocked {
 		t.Fatal("a commit whose suite never finished must be refused")
@@ -127,8 +127,8 @@ func TestMechCache_NeverCachesATimedOutRun(t *testing.T) {
 		runs++
 		return SuiteResult{Passed: false, TimedOut: true, Duration: time.Second}
 	}
-	Precommit(root, timedOut)
-	Precommit(root, timedOut)
+	Mechanical(root, timedOut)
+	Mechanical(root, timedOut)
 	if runs != 2 {
 		t.Fatalf("the suite ran %d times, want 2 — a timed-out run must never be cached as green", runs)
 	}

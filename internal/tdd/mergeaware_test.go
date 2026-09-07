@@ -122,7 +122,7 @@ func TestPrecommit_NoMergeInProgress_NeverPrintsTheMergeLine(t *testing.T) {
 	var seen []Runner
 	var res GateResult
 	stderr := captureStderr(t, func() {
-		res = Precommit(root, recordRunner(&seen, root))
+		res = Mechanical(root, recordRunner(&seen, root))
 	})
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)

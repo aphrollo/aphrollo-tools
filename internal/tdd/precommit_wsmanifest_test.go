@@ -59,7 +59,7 @@ func TestPrecommit_WorkspaceManifestChangeAlongsideTouchedCrate_RunsBoth(t *test
 	// wants the workspace-wide check counted, so it records everything
 	// itself rather than reusing that filter.
 	var seen []Runner
-	res := Precommit(root, func(r Runner, dir string) SuiteResult {
+	res := Mechanical(root, func(r Runner, dir string) SuiteResult {
 		r.Deadline = time.Time{}
 		seen = append(seen, r)
 		return SuiteResult{Passed: true}

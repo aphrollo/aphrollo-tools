@@ -8,6 +8,7 @@ import (
 
 // ratchet: test_removed TestWithGoCIParity_InsertsRaceCountShuffleAndTimeout: withGoCIParity gained an atMerge parameter (cold review on #421 moved -race to the merge-only path), splitting the one "always all four flags" case into TestWithGoCIParity_AtPrecommitInsertsCountShuffleAndTimeoutOnly and TestWithGoCIParity_AtMergeAlsoInsertsRace below.
 // ratchet: test_removed TestWithGoCIParity_AtPrecommitInsertsCountShuffleAndTimeoutOnly: -timeout=180s came off both stages entirely (second cold review on #421/#434 — CI's 180s bound does not fit this box's load and never will), so the "count, shuffle, timeout" case became TestWithGoCIParity_AtPrecommitInsertsCountAndShuffleOnly below, minus timeout.
+// ratchet: test_removed TestPrecommitGoSuite_NeverPaysForRace: it asserted the commit-time suite's argv carried no -race, and the commit gate runs no suite at all now, so there is no argv left to make the claim about. What it protected -- that -race is paid at the merge and nowhere else -- is still pinned by TestWithGoCIParity_AtPrecommitInsertsCountAndShuffleOnly and TestWithGoCIParity_AtMergeAlsoInsertsRace below.
 // ratchet: test_removed TestWithGoCIParity_AtMergeAlsoInsertsRace: same -timeout removal — its want no longer carries -timeout=180s, and the case is restated below under the same name with a corrected argv.
 
 // TestWithGoCIParity_AtPrecommitInsertsCountAndShuffleOnly is the cold-review
@@ -82,24 +83,10 @@ func TestWithGoCIParity_LeavesNonGoTestRunnersUntouched(t *testing.T) {
 	}
 }
 
-// TestPrecommitGoSuite_NeverPaysForRace proves the commit-time end-to-end
-// path: Precommit's own mechanical run must never carry -race, only the
-// two cheap flags, even though Mechanical (premerge) also gets -race.
-func TestPrecommitGoSuite_NeverPaysForRace(t *testing.T) {
-	root := makeGoRepo(t)
-	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
-	gitDo(t, root, "add", ".")
-
-	var seen []Runner
-	res := Precommit(root, recordRunner(&seen, root))
-	if res.Blocked {
-		t.Fatalf("unexpected block: %s", res.Message)
-	}
-	want := Runner{Cmd: "go", Args: []string{"test", "-count=1", "-shuffle=on", "./internal/x"}}
-	if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
-		t.Fatalf("precommit go runner = %+v, want one %+v (no -race, no -timeout)", seen, want)
-	}
-}
+// The commit gate's "never pays for -race" test is gone with the stage it
+// tested: the commit gate runs no suite at all now, so there is no runner
+// left to check for the flag. TestPrecommit_RunsNoSuiteAtCommitTime pins
+// the stronger claim, and the premerge half below still pins -race.
 
 // TestMechanicalGoSuite_CarriesCIParityFlags proves the premergecommit path
 // pays for -race on top of the two cheap flags: the merge is where CI's

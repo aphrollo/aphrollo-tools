@@ -213,7 +213,7 @@ func TestPrecommit_Mechanical_BlocksFailingSuite(t *testing.T) {
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 2 }\n")
 	gitDo(t, root, "add", ".")
 
-	res := Precommit(root, RunSuite(precommitTestTimeout))
+	res := Mechanical(root, RunSuite(precommitTestTimeout))
 	if !res.Blocked || !strings.Contains(res.Message, "mechanical") {
 		t.Fatalf("expected mechanical block, got %+v", res)
 	}
@@ -250,14 +250,14 @@ func TestPrecommit_Mechanical_ScopedToStagedGoPackages(t *testing.T) {
 	gitDo(t, root, "add", ".")
 
 	var seen []Runner
-	res := Precommit(root, recordRunner(&seen, root))
+	res := Mechanical(root, recordRunner(&seen, root))
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
 	if len(seen) != 1 {
 		t.Fatalf("expected one mechanical run at root, got %d: %+v", len(seen), seen)
 	}
-	want := Runner{"go", []string{"test", "-count=1", "-shuffle=on", "./internal/x"}, "", time.Time{}}
+	want := Runner{"go", []string{"test", "-race", "-count=1", "-shuffle=on", "./internal/x"}, "", time.Time{}}
 	if !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("mechanical runner = %+v, want %+v", seen[0], want)
 	}
@@ -291,14 +291,14 @@ func TestPrecommit_Mechanical_ScopedToStagedGoTestOnly(t *testing.T) {
 	gitDo(t, root, "add", ".")
 
 	var seen []Runner
-	res := Precommit(root, recordRunner(&seen, root))
+	res := Mechanical(root, recordRunner(&seen, root))
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
 	if len(seen) != 1 {
 		t.Fatalf("expected one scoped mechanical run, got %d: %+v", len(seen), seen)
 	}
-	want := Runner{"go", []string{"test", "-count=1", "-shuffle=on", "./internal/x"}, "", time.Time{}}
+	want := Runner{"go", []string{"test", "-race", "-count=1", "-shuffle=on", "./internal/x"}, "", time.Time{}}
 	if !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("test-only mechanical runner = %+v, want %+v", seen[0], want)
 	}
@@ -314,7 +314,7 @@ func TestPrecommit_Mechanical_ScopedToStagedVitest(t *testing.T) {
 	gitDo(t, root, "add", ".")
 
 	var seen []Runner
-	res := Precommit(root, recordRunner(&seen, root))
+	res := Mechanical(root, recordRunner(&seen, root))
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
@@ -333,7 +333,7 @@ func TestPrecommit_Mechanical_ScopedToStagedJest(t *testing.T) {
 	gitDo(t, root, "add", ".")
 
 	var seen []Runner
-	res := Precommit(root, recordRunner(&seen, root))
+	res := Mechanical(root, recordRunner(&seen, root))
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
@@ -352,7 +352,7 @@ func TestPrecommit_Mechanical_UnknownRunnerFullSuiteFallback(t *testing.T) {
 	gitDo(t, root, "add", ".")
 
 	var seen []Runner
-	res := Precommit(root, recordRunner(&seen, root))
+	res := Mechanical(root, recordRunner(&seen, root))
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
@@ -402,10 +402,10 @@ func TestPrecommit_Mechanical_GreenResultCached(t *testing.T) {
 	gitDo(t, root, "add", ".")
 
 	var seen []Runner
-	if res := Precommit(root, recordRunner(&seen, root)); res.Blocked {
+	if res := Mechanical(root, recordRunner(&seen, root)); res.Blocked {
 		t.Fatalf("first run must not block: %s", res.Message)
 	}
-	if res := Precommit(root, recordRunner(&seen, root)); res.Blocked {
+	if res := Mechanical(root, recordRunner(&seen, root)); res.Blocked {
 		t.Fatalf("second run must not block: %s", res.Message)
 	}
 	if len(seen) != 1 {
@@ -422,10 +422,10 @@ func TestPrecommit_Mechanical_CacheMissAfterEdit(t *testing.T) {
 	gitDo(t, root, "add", ".")
 
 	var seen []Runner
-	Precommit(root, recordRunner(&seen, root))
+	Mechanical(root, recordRunner(&seen, root))
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 2 }\n")
 	gitDo(t, root, "add", ".")
-	Precommit(root, recordRunner(&seen, root))
+	Mechanical(root, recordRunner(&seen, root))
 	if len(seen) != 2 {
 		t.Fatalf("an edited worktree must re-run the suite, ran %d times", len(seen))
 	}
@@ -629,7 +629,7 @@ func TestPrecommit_Zig_InlineTestCommit_RunsFullSuite_NoFailFirst(t *testing.T) 
 	}
 
 	var seen []loggedRun
-	res := Precommit(root, recordAllRuns(&seen, func(string) bool { return true }))
+	res := Mechanical(root, recordAllRuns(&seen, func(string) bool { return true }))
 	if res.Blocked {
 		t.Fatalf("inline-test commit must not block: %s", res.Message)
 	}

@@ -72,7 +72,7 @@ func TestPrecommit_OneStagedSourceFileLeavesTheFastPath(t *testing.T) {
 	})
 
 	var ran []loggedRun
-	if res := Precommit(root, recordAllRuns(&ran, func(string) bool { return true })); res.Blocked {
+	if res := Mechanical(root, recordAllRuns(&ran, func(string) bool { return true })); res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
 	if len(ran) == 0 {

@@ -348,7 +348,7 @@ func TestPrecommit_Mechanical_CargoWorkspaceScopedToStagedPackages(t *testing.T)
 		gitDo(t, root, "add", ".")
 
 		var seen []loggedRun
-		res := Precommit(root, recordAllRuns(&seen, func(string) bool { return true }))
+		res := Mechanical(root, recordAllRuns(&seen, func(string) bool { return true }))
 		if res.Blocked {
 			t.Fatalf("unexpected block: %s", res.Message)
 		}
@@ -378,7 +378,7 @@ func TestPrecommit_Mechanical_CargoWorkspaceScopedToStagedPackages(t *testing.T)
 		var seen []Runner
 		var res GateResult
 		stderr := captureStderr(t, func() {
-			res = Precommit(root, recordRunner(&seen, root))
+			res = Mechanical(root, recordRunner(&seen, root))
 		})
 		if res.Blocked {
 			t.Fatalf("unexpected block: %s", res.Message)
@@ -386,7 +386,7 @@ func TestPrecommit_Mechanical_CargoWorkspaceScopedToStagedPackages(t *testing.T)
 		if len(seen) != 0 {
 			t.Fatalf("an unowned file must run NOTHING (full-suite fallback removed), ran: %+v", seen)
 		}
-		wantNote := "gate precommit: tools/gen.rs has no owning cargo package — not tested"
+		wantNote := "gate premerge: tools/gen.rs has no owning cargo package — not tested"
 		if !strings.Contains(stderr, wantNote) {
 			t.Fatalf("expected unowned-file note %q, got stderr: %q", wantNote, stderr)
 		}

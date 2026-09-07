@@ -63,22 +63,19 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 		}
 	}
 	if failFirst {
-		// Only pair the two stages when fail-first will actually launch a
-		// worktree run: a commit with no staged test, or one whose test adds
-		// no new declaration (failFirstWouldRun == false), makes
-		// failFirstStage a same-line no-op, so pairing it here would cap the
-		// mechanical suite's own parallelism (capGoTestParallelism) for a
-		// concurrency that never happens. Fail-first and the mechanical
-		// suite read different trees and neither writes state the other
-		// reads — see runFailFirstAndMechanicalConcurrently's own doc
-		// comment for why that is NOT true of gateRootCargo's cargo branch
-		// below, which keeps its two stages sequential.
-		if failFirstWouldRun(repoRoot, g.tests, g.srcs) {
-			return runFailFirstAndMechanicalConcurrently(gateName, repoRoot, g.root, g.tests, g.srcs, runner, run)
-		}
-		if res := failFirstStage(repoRoot, g.root, g.tests, g.srcs, run); res.Blocked {
-			return res
-		}
+		// The commit gate proves the staged test goes RED and stops there.
+		// The mechanical suite it used to run afterwards now runs only at the
+		// merge: measured over 90 days of this tool's own consumer, the
+		// commit-time suite ran 2353 times, reported a plain assertion failure
+		// 0 times, and rejected 58 commits for exceeding its own budget under
+		// box load. The post-edit hook had already run the same scoped suite
+		// on the same code under a stricter timeout profile, and the commit
+		// gate could not even reuse that result — mechKey carries the full
+		// argv, and the two differ in profile and package set.
+		//
+		// With no suite left here there is nothing for fail-first to run
+		// concurrently WITH, so the pairing that issue #535 added goes with it.
+		return failFirstStage(repoRoot, g.root, g.tests, g.srcs, run)
 	}
 	return suiteStage(gateName, repoRoot, g.root, runner, run)
 }

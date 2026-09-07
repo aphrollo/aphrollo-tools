@@ -123,7 +123,7 @@ func TestPrecommit_RejectsAGoSuiteThatExecutedZeroTests(t *testing.T) {
 		return SuiteResult{Passed: true, Output: "ok  \texample.com/m\t0.004s\n", GoTestJSON: vacuousPkgJSONLine}
 	}
 
-	res := Precommit(root, run)
+	res := Mechanical(root, run)
 	if !res.Blocked {
 		t.Fatal("a suite that executed zero tests despite exiting 0 must block the commit, not pass")
 	}
@@ -160,7 +160,7 @@ func TestPrecommit_NamesTheVacuousPackageAmongInnocentSiblings(t *testing.T) {
 		return SuiteResult{Passed: true, Output: "ok\n", GoTestJSON: multiPkgJSON}
 	}
 
-	res := Precommit(root, run)
+	res := Mechanical(root, run)
 	if !res.Blocked {
 		t.Fatal("a run with any vacuous package must block the commit")
 	}
