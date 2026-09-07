@@ -19,6 +19,7 @@ import (
 // template timeout must exceed DefaultPostEditTimeout by a REAL margin
 // (>= 10s), not just be numerically larger by one second.
 func TestManagedEvents_PostToolUseHarnessTimeout_ExceedsGoDeadline(t *testing.T) {
+	t.Parallel()
 	for _, me := range managedEvents {
 		if me.event != "PostToolUse" {
 			continue
@@ -77,6 +78,7 @@ const bin = "/usr/local/bin/aphrollo"
 // Installing into an empty settings file wires all session-hook events to the
 // aphrollo tdd subcommands.
 func TestPatchSettings_InstallsAllEvents(t *testing.T) {
+	t.Parallel()
 	out, changed, err := PatchSettings(nil, bin)
 	if err != nil {
 		t.Fatalf("PatchSettings: %v", err)
@@ -99,6 +101,7 @@ func TestPatchSettings_InstallsAllEvents(t *testing.T) {
 
 // A second patch over our own output is a no-op: changed=false, byte-identical.
 func TestPatchSettings_Idempotent(t *testing.T) {
+	t.Parallel()
 	first, _, err := PatchSettings(nil, bin)
 	if err != nil {
 		t.Fatalf("first patch: %v", err)
@@ -118,6 +121,7 @@ func TestPatchSettings_Idempotent(t *testing.T) {
 // Foreign hooks (e.g. caveman on UserPromptSubmit) survive the patch; the
 // aphrollo entry is added alongside, not in place of them.
 func TestPatchSettings_PreservesForeignHooks(t *testing.T) {
+	t.Parallel()
 	in := []byte(`{
 	  "hooks": {
 	    "UserPromptSubmit": [
@@ -148,6 +152,7 @@ func TestPatchSettings_PreservesForeignHooks(t *testing.T) {
 // Old claude-code-tdd Node hook entries are migrated out: after the patch the
 // only TDD commands are the aphrollo ones, the node tdd-*.js entries are gone.
 func TestPatchSettings_MigratesNodeHooks(t *testing.T) {
+	t.Parallel()
 	in := []byte(`{
 	  "hooks": {
 	    "PreToolUse": [
@@ -174,6 +179,7 @@ func TestPatchSettings_MigratesNodeHooks(t *testing.T) {
 // install), re-patching must still recognise and replace its own entries rather
 // than append duplicates.
 func TestPatchSettings_IdempotentWithRenamedBinary(t *testing.T) {
+	t.Parallel()
 	const altbin = "/opt/custom/mytool"
 	first, _, err := PatchSettings(nil, altbin)
 	if err != nil {
@@ -201,6 +207,7 @@ func TestPatchSettings_IdempotentWithRenamedBinary(t *testing.T) {
 
 // Uninstall must also recognise a renamed binary's entries.
 func TestStripSettings_RenamedBinary(t *testing.T) {
+	t.Parallel()
 	installed, _, err := PatchSettings(nil, "/opt/custom/mytool")
 	if err != nil {
 		t.Fatalf("setup: %v", err)
@@ -221,6 +228,7 @@ func TestStripSettings_RenamedBinary(t *testing.T) {
 
 // Uninstall strips every aphrollo tdd entry but leaves foreign hooks intact.
 func TestStripSettings_RemovesOnlyManaged(t *testing.T) {
+	t.Parallel()
 	installed, _, err := PatchSettings([]byte(`{
 	  "hooks": {"UserPromptSubmit": [
 	    {"hooks": [{"type": "command", "command": "node caveman-mode-tracker.js"}]}

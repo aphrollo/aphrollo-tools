@@ -31,6 +31,7 @@ var noEscapeAllowlist = map[string]string{
 // what the ratchet engine already requires of a law's escape: absence is a
 // stated choice, never a default nobody noticed.
 func TestPolicyRegistry_EveryPolicyHasAnEscapeOrIsOnTheNoEscapeAllowlist(t *testing.T) {
+	t.Parallel()
 	for _, p := range testPolicies {
 		if p.escape != "" {
 			continue
@@ -62,6 +63,7 @@ func policyRegistered(name string) bool {
 // fixtures prove it — hit-only proves a policy fires, never that it
 // discriminates; both directions are required.
 func TestPolicyRegistry_EveryPolicyHasAHitAndCleanFixture(t *testing.T) {
+	t.Parallel()
 	for _, p := range testPolicies {
 		dir := filepath.Join("testdata", "policies", p.name)
 		hit, err := os.ReadFile(filepath.Join(dir, "hit.txt"))

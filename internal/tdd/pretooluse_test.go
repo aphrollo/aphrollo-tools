@@ -15,6 +15,7 @@ func decide(t *testing.T, payload string) Decision {
 }
 
 func TestDecidePreEdit(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		payload string
@@ -109,6 +110,7 @@ func TestDecidePreEdit(t *testing.T) {
 }
 
 func TestDecidePreEdit_ParseError(t *testing.T) {
+	t.Parallel()
 	if _, err := DecidePreEdit([]byte("{not json")); err == nil {
 		t.Fatal("expected a parse error for malformed JSON")
 	}
@@ -130,6 +132,7 @@ func zigEdit(t *testing.T, path, content string) string {
 }
 
 func TestDecidePreEdit_Zig(t *testing.T) {
+	t.Parallel()
 	// A zeta-style src file: production code that legitimately sleeps, plus an
 	// inline test. The production sleep must NOT block; only the test body is
 	// gated. We vary the inline test's body to exercise each oracle smell.
@@ -214,6 +217,7 @@ func TestDecidePreEdit_Zig(t *testing.T) {
 }
 
 func TestRenderPreToolUse(t *testing.T) {
+	t.Parallel()
 	// Block renders a deny envelope and exits 2.
 	body, code := RenderPreToolUse(Decision{Action: Block, Reason: "bad"})
 	if code != 2 {

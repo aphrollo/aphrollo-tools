@@ -34,6 +34,7 @@ func undercoverRepo(t *testing.T, on bool) string {
 // SHOW the offending line makes the author guess which of thirty lines tripped
 // it.
 func TestCommitMsg_RejectsATellAndNamesTheLine(t *testing.T) {
+	t.Parallel()
 	bad := []struct{ name, body string }{
 		{"trailer", "Fix the flaky retry timer\n\nCo-Authored-By: Someone <s@example.com>\n"},
 		{"model name", "Fix the flaky retry timer\n\nWritten with Claude's help\n"},
@@ -75,6 +76,7 @@ func TestCommitMsg_RejectsATellAndNamesTheLine(t *testing.T) {
 // TestCommitMsg_AllowsAnOrdinaryMessage pins the other half: the check must
 // not fire on ordinary prose, or every commit becomes a fight with the hook.
 func TestCommitMsg_AllowsAnOrdinaryMessage(t *testing.T) {
+	t.Parallel()
 	good := []struct{ name, body string }{
 		{"plain", "Refuse a commit whose suite never finished\n\nThe untested code stays in history either way.\n"},
 		{"comments are ignored", "Fix the flaky retry timer\n\n# Co-Authored-By: Someone <s@example.com>\n# Please enter the commit message\n"},
@@ -96,6 +98,7 @@ func TestCommitMsg_AllowsAnOrdinaryMessage(t *testing.T) {
 // has not set undercover = true never sees this hook's opinion, so installing
 // the gate everywhere cannot start rejecting anyone's commits.
 func TestCommitMsg_OffUnlessTheWorkspaceAsksForIt(t *testing.T) {
+	t.Parallel()
 	root := undercoverRepo(t, false)
 	body := "Fix the flaky retry timer\n\nCo-Authored-By: Someone <s@example.com>\n"
 	if got := CommitMsg(root, msgFile(t, body)); got.Blocked {
@@ -110,6 +113,7 @@ func TestCommitMsg_OffUnlessTheWorkspaceAsksForIt(t *testing.T) {
 // built-in list cannot know a repo's own tells, so the workspace can add its
 // own patterns beside the flag.
 func TestCommitMsg_HonoursThePerRepoDenyList(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[workspace]\n[workspace.metadata.aphrollo]\nundercover = true\ncommit-message-deny = [\"(?i)\\bskunkworks\\b\", \"WIP:\"]\n")
 
@@ -128,6 +132,7 @@ func TestCommitMsg_HonoursThePerRepoDenyList(t *testing.T) {
 // direction: this gate protects a convention, not correctness, so a missing
 // or unreadable file must never wedge a commit.
 func TestCommitMsg_UnreadableMessageFilePassesThrough(t *testing.T) {
+	t.Parallel()
 	root := undercoverRepo(t, true)
 	if got := CommitMsg(root, filepath.Join(t.TempDir(), "nope")); got.Blocked {
 		t.Fatal("an unreadable message file must pass through")
@@ -137,6 +142,7 @@ func TestCommitMsg_UnreadableMessageFilePassesThrough(t *testing.T) {
 // A repo whose own guidance file is called CLAUDE.md cannot describe editing
 // it: the file NAME is not a tell about how the commit was written.
 func TestCommitMsg_TheGuidanceFileNameIsNotATell(t *testing.T) {
+	t.Parallel()
 	root := undercoverRepo(t, true)
 
 	allowed := []string{
@@ -158,6 +164,7 @@ func TestCommitMsg_TheGuidanceFileNameIsNotATell(t *testing.T) {
 }
 
 func TestCommitMsg_RefsAndPathsSpelledWithTheWordAreNotTells(t *testing.T) {
+	t.Parallel()
 	root := undercoverRepo(t, true)
 
 	allowed := []string{
@@ -188,6 +195,7 @@ func TestCommitMsg_RefsAndPathsSpelledWithTheWordAreNotTells(t *testing.T) {
 // `Co-Authored-By:` trailer reached a public remote through a hook that was
 // installed, ran, and returned clean on every one of them.
 func TestCommitMsg_ReadsTheUndercoverFlagFromAphrolloTomlWhenThereIsNoCargoToml(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "go.mod", "module m\n\ngo 1.24\n")
 	write(t, root, "aphrollo.toml", "[aphrollo]\nundercover = true\n")
@@ -201,6 +209,7 @@ func TestCommitMsg_ReadsTheUndercoverFlagFromAphrolloTomlWhenThereIsNoCargoToml(
 // ...and the flag still has to be ASKED for: a repo that never opted in must
 // not start having its commits rejected the day the hook is installed.
 func TestCommitMsg_LeavesAGoRepoThatNeverAskedAlone(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "go.mod", "module m\n\ngo 1.24\n")
 

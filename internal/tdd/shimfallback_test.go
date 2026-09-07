@@ -24,6 +24,7 @@ import (
 // it is the interpreter the shim itself names on its shebang line, and the
 // Windows boxes this gate runs on have it.
 func TestBinShim_RunsTheRealToolWhenTheBinaryIsGone(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	// A "real git" that proves it ran, standing in for the tool on PATH.
@@ -54,6 +55,7 @@ func TestBinShim_RunsTheRealToolWhenTheBinaryIsGone(t *testing.T) {
 // ...and with the binary present nothing changes: the shim still hands every
 // argument to the gate, because that is the whole point of it being there.
 func TestBinShim_StillExecsTheGateWhenTheBinaryIsThere(t *testing.T) {
+	t.Parallel()
 	script := binShim("/opt/aphrollo", "cargo", "/usr/bin/cargo")
 
 	if !strings.Contains(script, `exec "/opt/aphrollo" `+CmdName+" cargo") {
@@ -65,6 +67,7 @@ func TestBinShim_StillExecsTheGateWhenTheBinaryIsThere(t *testing.T) {
 // of the empty string, which the shell reads as running the shim's own
 // directory. With no fallback the shim says what is wrong and stops.
 func TestBinShim_WithNoFallbackRefusesRatherThanExecNothing(t *testing.T) {
+	t.Parallel()
 	script := binShim("/opt/aphrollo", "git", "")
 
 	if strings.Contains(script, `exec "" `) {

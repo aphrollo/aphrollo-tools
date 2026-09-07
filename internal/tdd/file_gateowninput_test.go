@@ -12,6 +12,7 @@ import "testing"
 // guards ran, no suite, no build lock, and the change went untested by
 // anything but a human running the 10 cases by hand (issue #469).
 func TestClassifyFile_TreatsTheMutationRunnerScriptAsSourceSoItCannotTakeTheDocsOnlyPath(t *testing.T) {
+	t.Parallel()
 	if got := ClassifyFile("tools/mutation_gate.sh"); got != Source {
 		t.Errorf("ClassifyFile(%q) = %v, want %v — the gate's own producer script is judged by hand only when the tree guards at least ran", "tools/mutation_gate.sh", got, Source)
 	}
@@ -23,6 +24,7 @@ func TestClassifyFile_TreatsTheMutationRunnerScriptAsSourceSoItCannotTakeTheDocs
 // opened, read or executed by that literal path, so it carries none of the
 // weight that makes mutation_gate.sh load-bearing.
 func TestClassifyFile_DoesNotTreatAnArbitraryToolingScriptAsSource(t *testing.T) {
+	t.Parallel()
 	if got := ClassifyFile("tools/clippy_clean_list.sh"); got != Ignore {
 		t.Errorf("ClassifyFile(%q) = %v, want %v — being executable tooling is not the discriminator; being read or run BY NAME from this tool's own source is", "tools/clippy_clean_list.sh", got, Ignore)
 	}
@@ -32,6 +34,7 @@ func TestClassifyFile_DoesNotTreatAnArbitraryToolingScriptAsSource(t *testing.T)
 // asserted where it actually bites, mirroring
 // TestDocsOnly_IsFalseWhenTheGateConfigIsStaged for the producer script.
 func TestDocsOnly_IsFalseWhenTheMutationRunnerScriptIsStaged(t *testing.T) {
+	t.Parallel()
 	tests, srcs := splitKinds([]string{"README.md", "tools/mutation_gate.sh"})
 	if len(tests) != 0 {
 		t.Errorf("tests = %q, want none", tests)
@@ -50,6 +53,7 @@ func TestDocsOnly_IsFalseWhenTheMutationRunnerScriptIsStaged(t *testing.T) {
 // had nothing to scope to and never ran internal/tdd, the package whose own
 // tests read it (issue #444).
 func TestClassifyFile_TreatsThePipelineWorkflowAsSourceSoItCannotTakeTheDocsOnlyPath(t *testing.T) {
+	t.Parallel()
 	if got := ClassifyFile(".github/workflows/pipeline.yml"); got != Source {
 		t.Errorf("ClassifyFile(%q) = %v, want %v — this repo's own CI definition is judged by the suite that reads it", ".github/workflows/pipeline.yml", got, Source)
 	}
@@ -58,6 +62,7 @@ func TestClassifyFile_TreatsThePipelineWorkflowAsSourceSoItCannotTakeTheDocsOnly
 // TestDocsOnly_IsFalseWhenThePipelineWorkflowIsStaged is the consequence
 // asserted where it actually bites.
 func TestDocsOnly_IsFalseWhenThePipelineWorkflowIsStaged(t *testing.T) {
+	t.Parallel()
 	tests, srcs := splitKinds([]string{"README.md", ".github/workflows/pipeline.yml"})
 	if len(tests) != 0 {
 		t.Errorf("tests = %q, want none", tests)

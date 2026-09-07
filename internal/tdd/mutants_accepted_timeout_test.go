@@ -18,6 +18,7 @@ import (
 // progress, which the runner reports as TIMED OUT. Accepting it is the only
 // available answer, so acceptance has to reach it.
 func TestGoMutantsReceipt_AcceptsATimedOutMutantThatIsOnTheAcceptList(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "aphrollo.toml", "[aphrollo]\nmutation-accept = [\n  \"internal/cli/loop.go:10 INCREMENT_DECREMENT # decrementing the loop index cancels the loop's own increment, so the function never returns and no test can observe a value\",\n]\n")
 
@@ -40,6 +41,7 @@ func TestGoMutantsReceipt_AcceptsATimedOutMutantThatIsOnTheAcceptList(t *testing
 // against over-correcting: a timeout with no accept-list entry is still an
 // unmeasured mutant and must still block.
 func TestGoMutantsReceipt_StillCountsATimedOutMutantNobodyAccepted(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "aphrollo.toml", "[aphrollo]\nmutation-accept = []\n")
 
@@ -59,6 +61,7 @@ func TestGoMutantsReceipt_StillCountsATimedOutMutantNobodyAccepted(t *testing.T)
 // must not silence a timeout either. acceptedMutants already drops those; this
 // pins that the timeout path reads the same list rather than a laxer one.
 func TestGoMutantsReceipt_IgnoresAnAcceptEntryWithNoReasonForATimeout(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "aphrollo.toml", "[aphrollo]\nmutation-accept = [\n  \"internal/cli/loop.go:10 INCREMENT_DECREMENT\",\n]\n")
 
@@ -80,6 +83,7 @@ func TestGoMutantsReceipt_IgnoresAnAcceptEntryWithNoReasonForATimeout(t *testing
 // of re-measuring. That path is the generic producer's, which is what a Rust
 // consumer of this gate uses.
 func TestGoMutantsReceipt_NamesAnAcceptedTimeoutSoACarryCanSeeTheDecision(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "aphrollo.toml", "[aphrollo]\nmutation-accept = [\n  \"internal/cli/loop.go:10 INCREMENT_DECREMENT # the loop index cancels its own increment, so the function never returns\",\n]\n")
 
@@ -98,6 +102,7 @@ func TestGoMutantsReceipt_NamesAnAcceptedTimeoutSoACarryCanSeeTheDecision(t *tes
 // TestRecountReceipt_KeepsATimedOutMutantTheProducerAccepted is the consequence
 // at the reader: recounting must reach the same verdict the producer did.
 func TestRecountReceipt_KeepsATimedOutMutantTheProducerAccepted(t *testing.T) {
+	t.Parallel()
 	m := MutantOutcome{File: "src/lib.rs", Line: 10, Mutation: "INCREMENT_DECREMENT", Status: "timeout"}
 	r := MutationReceipt{Outcomes: []MutantOutcome{m}, Survivors: []MutantName{m.name()}}
 
@@ -114,6 +119,7 @@ func TestRecountReceipt_KeepsATimedOutMutantTheProducerAccepted(t *testing.T) {
 // ...and a timeout the producer did NOT accept still counts, so a carry cannot
 // launder an unmeasured mutant into a pass.
 func TestRecountReceipt_StillCountsATimedOutMutantTheProducerDidNotAccept(t *testing.T) {
+	t.Parallel()
 	m := MutantOutcome{File: "src/lib.rs", Line: 10, Mutation: "INCREMENT_DECREMENT", Status: "timeout"}
 	r := MutationReceipt{Outcomes: []MutantOutcome{m}}
 

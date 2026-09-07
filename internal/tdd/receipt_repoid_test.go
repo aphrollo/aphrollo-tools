@@ -16,6 +16,7 @@ import "testing"
 // proves the repo identity decides, not the path: a receipt measured in a
 // Linux clone merges on Windows.
 func TestCheckMutationReceipt_AcceptsAReceiptFromAnotherCheckoutOfTheSameRepo(t *testing.T) {
+	t.Parallel()
 	r := passingReceipt()
 	r.Repo = "/home/harry/aphmut/aphrollo-tools/.git"
 	r.RepoID = "root:" + laneTip
@@ -36,6 +37,7 @@ func TestCheckMutationReceipt_AcceptsAReceiptFromAnotherCheckoutOfTheSameRepo(t 
 // different root commits, and a receipt from one must never merge in the
 // other however its path is spelled.
 func TestCheckMutationReceipt_RefusesAReceiptFromADifferentRepository(t *testing.T) {
+	t.Parallel()
 	r := passingReceipt()
 	r.Repo = "D:/Projects/aphrollo-tools/.git"
 	r.RepoID = "root:2222222222222222222222222222222222222222"
@@ -56,6 +58,7 @@ func TestCheckMutationReceipt_RefusesAReceiptFromADifferentRepository(t *testing
 // merges where its path spelling agrees, so adding the field does not
 // invalidate proofs already on the box.
 func TestCheckMutationReceipt_FallsBackToThePathWhenAReceiptCarriesNoIdentity(t *testing.T) {
+	t.Parallel()
 	r := passingReceipt()
 	r.Repo = "D:/Projects/aphrollo-tools/.git"
 	r.RepoID = ""

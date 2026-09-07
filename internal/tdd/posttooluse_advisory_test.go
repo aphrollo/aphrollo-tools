@@ -11,6 +11,7 @@ import (
 // name `gate status` and warn that a rerun queues behind the same holder,
 // rather than leaving silence where a rerun used to be the only visible move.
 func TestTimeoutAdvisory_PointsAtGateStatusNotARerun(t *testing.T) {
+	t.Parallel()
 	got := timeoutAdvisory(Runner{Cmd: "cargo", Args: []string{"test"}}, "/repo/a", 42*time.Second)
 	if !strings.Contains(got, "TIMEOUT after 42s") || !strings.Contains(got, "inconclusive") {
 		t.Fatalf("advisory lost its core claim: %q", got)
@@ -28,6 +29,7 @@ func TestTimeoutAdvisory_PointsAtGateStatusNotARerun(t *testing.T) {
 // edit; it must now also point at `gate status` for the box's full slot
 // table, and carry the same "a rerun queues too" caution.
 func TestQueuedSkippedAdvisory_PointsAtGateStatusToo(t *testing.T) {
+	t.Parallel()
 	got := queuedSkippedAdvisory("/repo/a", "/repo/a/target")
 	if !strings.Contains(got, "QUEUED-SKIPPED") || !strings.Contains(got, "inconclusive") {
 		t.Fatalf("advisory lost its core claim: %q", got)

@@ -6,6 +6,7 @@ import (
 )
 
 func TestActionFor(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		c    category
 		p    phase
@@ -24,6 +25,7 @@ func TestActionFor(t *testing.T) {
 }
 
 func TestEvaluate_MostSevereWins(t *testing.T) {
+	t.Parallel()
 	warnPol := policy{
 		name: "warner", category: suppressionCat, reason: "warn",
 		hit: func(v view) bool { return true },
@@ -61,6 +63,7 @@ func TestEvaluate_MostSevereWins(t *testing.T) {
 // comment text, while one reading the directives view does — the split that
 // lets smells ignore prose and suppressions read comments.
 func TestEvaluate_ViewSelection(t *testing.T) {
+	t.Parallel()
 	codeReader := policy{
 		name: "code", category: smellCat, reason: "code",
 		hit: func(v view) bool { return strings.Contains(v.code, "MARK") },

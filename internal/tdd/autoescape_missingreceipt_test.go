@@ -18,6 +18,7 @@ import "testing"
 // fell through to the generic branch and was filed as an escape against the
 // pre-commit gate, which never had a receipt stage to miss.
 func TestIsReceiptRejection_RecognisesTheMissingReceiptRefusalToo(t *testing.T) {
+	t.Parallel()
 	msg := blockMissingReceipt(receiptContext{TipTree: "a1d6c360b0b5c0de1234"}).Message
 
 	if !isReceiptRejection(msg) {
@@ -28,6 +29,7 @@ func TestIsReceiptRejection_RecognisesTheMissingReceiptRefusalToo(t *testing.T) 
 // ...and the family stays narrow: a stage rejection is still an escape
 // candidate, which is the whole point of the loop.
 func TestIsReceiptRejection_IsStillFalseForAStageRejection(t *testing.T) {
+	t.Parallel()
 	for _, msg := range []string{
 		"gate premergecommit: clippy failed on the combined tree",
 		"gate premergecommit: gofmt → REJECTED\n  internal/workspace/pr_test.go",

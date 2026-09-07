@@ -29,6 +29,7 @@ func stateOf(file, pkg, blob, fence string) TreeState {
 // to re-run, a moved fence is somebody else's test change invalidating a file
 // this lane never opened.
 func TestPlanMutants_SaysTheBlobMovedWhenTheFileItselfChanged(t *testing.T) {
+	t.Parallel()
 	old := measured("a/x.rs", "a", "blob1", "fence1", 12)
 	cached := map[mutantKey]MutantOutcome{old.key(): old}
 	want := []MutantOutcome{measured("a/x.rs", "a", "", "", 12)}
@@ -51,6 +52,7 @@ func TestPlanMutants_SaysTheBlobMovedWhenTheFileItselfChanged(t *testing.T) {
 // The fence is package-wide, so one unrelated test edit re-measures every
 // mutant in the package.
 func TestPlanMutants_SaysTheFenceMovedWhenOnlyThePackagesTestsChanged(t *testing.T) {
+	t.Parallel()
 	old := measured("a/x.rs", "a", "blob1", "fence1", 12)
 	cached := map[mutantKey]MutantOutcome{old.key(): old}
 	want := []MutantOutcome{measured("a/x.rs", "a", "", "", 12)}
@@ -71,6 +73,7 @@ func TestPlanMutants_SaysTheFenceMovedWhenOnlyThePackagesTestsChanged(t *testing
 // A mutant nobody has ever measured is not a carry failure, and counting it as
 // one would hide the two reasons above behind first-run noise.
 func TestPlanMutants_SaysUnmeasuredRatherThanBlamingABlobThatNeverHadAVerdict(t *testing.T) {
+	t.Parallel()
 	want := []MutantOutcome{measured("a/x.rs", "a", "", "", 12)}
 
 	plan := PlanMutants(want, stateOf("a/x.rs", "a", "blob1", "fence1"), map[mutantKey]MutantOutcome{}, "")
@@ -86,6 +89,7 @@ func TestPlanMutants_SaysUnmeasuredRatherThanBlamingABlobThatNeverHadAVerdict(t 
 // A carried mutant records nothing: the log is for what the run has to pay
 // for, and a silent carry is the outcome that costs nothing.
 func TestPlanMutants_RecordsNoReasonForAMutantThatCarried(t *testing.T) {
+	t.Parallel()
 	old := measured("a/x.rs", "a", "blob1", "fence1", 12)
 	cached := map[mutantKey]MutantOutcome{old.key(): old}
 	want := []MutantOutcome{measured("a/x.rs", "a", "", "", 12)}
@@ -103,6 +107,7 @@ func TestPlanMutants_RecordsNoReasonForAMutantThatCarried(t *testing.T) {
 // The operator-facing half: one line per FILE, not per mutant, or a package
 // with 200 mutants drowns the log it is supposed to explain.
 func TestCarrySkipSummary_IsOneLinePerFileNamingTheReasonAndTheCount(t *testing.T) {
+	t.Parallel()
 	skipped := []CarrySkip{
 		{File: "a/x.rs", Package: "a", Reason: CarryFenceMoved},
 		{File: "a/x.rs", Package: "a", Reason: CarryFenceMoved},

@@ -21,6 +21,7 @@ func lsTree(entries ...string) string {
 // file, one package per file (the nearest manifest above it), and one fence
 // per package.
 func TestTreeStateFromListing_ReadsABlobAndAPackageForEveryFile(t *testing.T) {
+	t.Parallel()
 	st := treeStateWithDeps(lsTree(
 		"m0 Cargo.toml",
 		"a0 crates/a/Cargo.toml",
@@ -53,6 +54,7 @@ func TestTreeStateFromListing_ReadsABlobAndAPackageForEveryFile(t *testing.T) {
 // rule let a mutant in a.rs keep a "caught" verdict after the sibling code
 // that caught it changed, so the fence now moves for either edit.
 func TestFence_MovesForASourceEditAndForATestEdit(t *testing.T) {
+	t.Parallel()
 	base := lsTree("a0 crates/a/Cargo.toml", "a1 crates/a/src/lib.rs", "a2 crates/a/tests/behaviour.rs")
 	srcMoved := lsTree("a0 crates/a/Cargo.toml", "a1-NEW crates/a/src/lib.rs", "a2 crates/a/tests/behaviour.rs")
 	testMoved := lsTree("a0 crates/a/Cargo.toml", "a1 crates/a/src/lib.rs", "a2-NEW crates/a/tests/behaviour.rs")
@@ -76,6 +78,7 @@ func TestFence_MovesForASourceEditAndForATestEdit(t *testing.T) {
 // takes: a file whose blob and whose package's test set are both unchanged
 // since the previous receipt is left out of the diff entirely.
 func TestPlanDiffFiles_LeavesOutAFileNothingChangedAround(t *testing.T) {
+	t.Parallel()
 	now := TreeState{
 		Blobs:    map[string]string{"crates/a/src/lib.rs": "a1", "crates/b/src/lib.rs": "b1"},
 		Packages: map[string]string{"crates/a/src/lib.rs": "crates/a", "crates/b/src/lib.rs": "crates/b"},
@@ -94,6 +97,7 @@ func TestPlanDiffFiles_LeavesOutAFileNothingChangedAround(t *testing.T) {
 // A changed TEST file pulls its whole package back into the run: every mutant
 // in it may now be caught by a test that did not exist last time.
 func TestPlanDiffFiles_PullsInAWholePackageWhoseTestSetChanged(t *testing.T) {
+	t.Parallel()
 	now := TreeState{
 		Blobs:    map[string]string{"crates/a/src/lib.rs": "a1", "crates/a/tests/x.rs": "t2"},
 		Packages: map[string]string{"crates/a/src/lib.rs": "crates/a", "crates/a/tests/x.rs": "crates/a"},
@@ -116,6 +120,7 @@ func TestPlanDiffFiles_PullsInAWholePackageWhoseTestSetChanged(t *testing.T) {
 // mutator is never measured (issue #298). A version MISMATCH must be read
 // the same as a blob or fence mismatch — the file goes back into the run.
 func TestPlanDiffFiles_AProducerVersionMismatchPutsAnOtherwiseUnchangedFileBackInTheRun(t *testing.T) {
+	t.Parallel()
 	now := TreeState{
 		Blobs:    map[string]string{"crates/a/src/lib.rs": "a1"},
 		Packages: map[string]string{"crates/a/src/lib.rs": "crates/a"},
@@ -142,6 +147,7 @@ func TestPlanDiffFiles_AProducerVersionMismatchPutsAnOtherwiseUnchangedFileBackI
 // With no previous receipt every mutable file is in the run, and the files no
 // mutant can live in never are.
 func TestPlanDiffFiles_TakesEveryMutableFileOnAFirstRun(t *testing.T) {
+	t.Parallel()
 	now := TreeState{Blobs: map[string]string{"src/lib.rs": "a1"}}
 	got := PlanDiffFiles("", []string{"src/lib.rs", "README.md", ".github/workflows/ci.yml"}, now, nil, "")
 	if len(got) != 1 || got[0] != "src/lib.rs" {

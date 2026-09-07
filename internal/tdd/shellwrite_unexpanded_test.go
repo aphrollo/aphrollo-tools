@@ -21,6 +21,7 @@ import (
 // that wedged a real session: the variable is assigned in the same command,
 // and the path it holds is nowhere near the repo the shell happens to sit in.
 func TestBashWriteTargets_ClaimsNothingForAnUnexpandedVariablePath(t *testing.T) {
+	t.Parallel()
 	repo := filepath.FromSlash("/repo")
 	cmd := `cd /repo && S="/tmp/scratch" && cat > "$S/a.md"`
 
@@ -34,6 +35,7 @@ func TestBashWriteTargets_ClaimsNothingForAnUnexpandedVariablePath(t *testing.T)
 // TestBashWriteTargets_ClaimsNothingForACommandSubstitutionPath is the same
 // rule for the other unevaluated form.
 func TestBashWriteTargets_ClaimsNothingForACommandSubstitutionPath(t *testing.T) {
+	t.Parallel()
 	repo := filepath.FromSlash("/repo")
 	cmd := "cd /repo && echo hi > $(mktemp)/out.txt"
 
@@ -48,6 +50,7 @@ func TestBashWriteTargets_ClaimsNothingForACommandSubstitutionPath(t *testing.T)
 // direction: dropping unresolvable paths must not drop ordinary ones. A plain
 // relative redirect after a cd is exactly what the guard is for.
 func TestBashWriteTargets_StillClaimsAPlainRelativeWrite(t *testing.T) {
+	t.Parallel()
 	repo := filepath.FromSlash("/repo")
 	cmd := "cd /repo && echo hi > notes.txt"
 
@@ -68,6 +71,7 @@ func TestBashWriteTargets_StillClaimsAPlainRelativeWrite(t *testing.T) {
 // part of the path. An absolute path is resolvable whatever else the command
 // line mentions.
 func TestBashWriteTargets_StillClaimsAnAbsoluteWriteThatEmbedsAVariableElsewhere(t *testing.T) {
+	t.Parallel()
 	repo := filepath.FromSlash("/repo")
 	cmd := `cd /elsewhere && MSG="$USER" && echo "$MSG" > /repo/notes.txt`
 
@@ -90,6 +94,7 @@ func TestBashWriteTargets_StillClaimsAnAbsoluteWriteThatEmbedsAVariableElsewhere
 // resolve those writes into the repo the shell started in and block them —
 // the same false block an unexpanded variable caused.
 func TestBashWriteTargets_ClaimsNothingAfterABareCd(t *testing.T) {
+	t.Parallel()
 	repo := filepath.FromSlash("/repo")
 
 	for _, cmd := range []string{"cd && echo hi > f.txt", "cd - && echo hi > f.txt"} {

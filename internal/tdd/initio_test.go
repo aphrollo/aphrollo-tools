@@ -9,6 +9,7 @@ import (
 
 // Init on a config dir with no settings.json creates one wired to the binary.
 func TestInitSettings_CreatesFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	changed, err := InitSettings(dir, bin, false)
 	if err != nil {
@@ -28,6 +29,7 @@ func TestInitSettings_CreatesFile(t *testing.T) {
 
 // Init is idempotent: the second run reports no change and rewrites nothing new.
 func TestInitSettings_Idempotent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := InitSettings(dir, bin, false); err != nil {
 		t.Fatalf("first init: %v", err)
@@ -49,6 +51,7 @@ func TestInitSettings_Idempotent(t *testing.T) {
 // Modifying an existing settings.json leaves a timestamped backup behind so the
 // operator can recover the pre-init file.
 func TestInitSettings_BacksUpExisting(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
 	orig := `{"theme":"dark"}`
@@ -70,6 +73,7 @@ func TestInitSettings_BacksUpExisting(t *testing.T) {
 
 // Uninstall strips the aphrollo hooks from an initialised dir.
 func TestInitSettings_Uninstall(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := InitSettings(dir, bin, false); err != nil {
 		t.Fatalf("install: %v", err)
@@ -89,6 +93,7 @@ func TestInitSettings_Uninstall(t *testing.T) {
 
 // Uninstall on a dir that was never initialised is a harmless no-op.
 func TestInitSettings_UninstallMissingIsNoop(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	changed, err := InitSettings(dir, bin, true)
 	if err != nil {

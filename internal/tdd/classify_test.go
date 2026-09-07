@@ -63,6 +63,7 @@ error: 1 compilation errors
 )
 
 func TestClassifyOutcome(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		passed      bool
@@ -139,6 +140,7 @@ func TestClassifyOutcome(t *testing.T) {
 }
 
 func TestExtractFailingTests(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		output string
@@ -201,6 +203,7 @@ const realTestPkgJSON = `{"Action":"run","Package":"example.com/m","Test":"TestW
 // single-package case: vacuousGoPackages names the one package whose
 // package-level PASS carries no per-test event.
 func TestVacuousGoPackages_NamesThePackageThatRanButExecutedNoTest(t *testing.T) {
+	t.Parallel()
 	got, err := vacuousGoPackages(vacuousPkgJSON)
 	if err != nil {
 		t.Fatalf("vacuousGoPackages error = %v, want nil", err)
@@ -214,6 +217,7 @@ func TestVacuousGoPackages_NamesThePackageThatRanButExecutedNoTest(t *testing.T)
 // empty pass (go test's own package-level SKIP) from being caught by the
 // same rule as a real vacuous PASS.
 func TestVacuousGoPackages_EmptyWhenNoTestFilesExist(t *testing.T) {
+	t.Parallel()
 	got, err := vacuousGoPackages(noTestFilesPkgJSON)
 	if err != nil {
 		t.Fatalf("vacuousGoPackages error = %v, want nil", err)
@@ -226,6 +230,7 @@ func TestVacuousGoPackages_EmptyWhenNoTestFilesExist(t *testing.T) {
 // TestVacuousGoPackages_EmptyWhenTestsActuallyRan is the base case: a
 // package whose tests really executed must never be flagged.
 func TestVacuousGoPackages_EmptyWhenTestsActuallyRan(t *testing.T) {
+	t.Parallel()
 	got, err := vacuousGoPackages(realTestPkgJSON)
 	if err != nil {
 		t.Fatalf("vacuousGoPackages error = %v, want nil", err)
@@ -244,6 +249,7 @@ func TestVacuousGoPackages_EmptyWhenTestsActuallyRan(t *testing.T) {
 // name pkgvacuous here even though pkgok, in the SAME run, genuinely ran
 // and passed a test.
 func TestVacuousGoPackages_AttributesPerPackageInAMultiPackageRun(t *testing.T) {
+	t.Parallel()
 	multiPkgJSON := `{"Action":"start","Package":"multipkg/pkgok"}
 {"Action":"start","Package":"multipkg/pkgvacuous"}
 {"Action":"output","Package":"multipkg/pkgvacuous","Output":"ok  \tmultipkg/pkgvacuous\t0.087s\n"}
@@ -268,6 +274,7 @@ func TestVacuousGoPackages_AttributesPerPackageInAMultiPackageRun(t *testing.T) 
 // an empty GoTestJSON (a non-Go runner, or a stub SuiteResult built without
 // setting the field) is a clean zero-event read, never a decode failure.
 func TestVacuousGoPackages_EmptyStreamIsNotAnError(t *testing.T) {
+	t.Parallel()
 	got, err := vacuousGoPackages("")
 	if err != nil {
 		t.Fatalf("vacuousGoPackages(\"\") error = %v, want nil (an empty stream is a clean end-of-input, not a decode failure)", err)
@@ -285,6 +292,7 @@ func TestVacuousGoPackages_EmptyStreamIsNotAnError(t *testing.T) {
 // This event is deliberately cut mid-object — no closing brace — so the
 // decoder fails with something other than io.EOF.
 func TestVacuousGoPackages_ReturnsAnErrorOnATruncatedStream(t *testing.T) {
+	t.Parallel()
 	truncated := `{"Action":"start","Package":"example.com/m"}
 {"Action":"pass","Package":"example.com/m"`
 	got, err := vacuousGoPackages(truncated)
@@ -305,6 +313,7 @@ func TestVacuousGoPackages_ReturnsAnErrorOnATruncatedStream(t *testing.T) {
 // vacuousGoPackages' own truncation fixture — so the decoder fails with
 // something other than io.EOF partway through, not at the very start.
 func TestRenderGoTestJSON_PartialParseIsNotPresentedAsComplete(t *testing.T) {
+	t.Parallel()
 	truncated := `{"Action":"output","Package":"example.com/m","Test":"TestFoo","Output":"--- PASS: TestFoo (0.00s)\n"}
 {"Action":"output","Package":"example.com/m","Test":"TestBar","Output":"--- FAIL: TestBar (0.00s)\n"`
 	human, rawJSON, ok := renderGoTestJSON(truncated)
@@ -327,6 +336,7 @@ func TestRenderGoTestJSON_PartialParseIsNotPresentedAsComplete(t *testing.T) {
 // as true for the post-edit advisory and the fail-first worktree run as for
 // the mechanical suite.
 func TestGoExecArgs_AddsCountEqualsOneAlongsideJSON(t *testing.T) {
+	t.Parallel()
 	got := goExecArgs("go", []string{"test", "./..."})
 	want := []string{"test", "-count=1", "-json", "./..."}
 	if !reflect.DeepEqual(got, want) {
@@ -338,6 +348,7 @@ func TestGoExecArgs_AddsCountEqualsOneAlongsideJSON(t *testing.T) {
 // second pass over already-armed args (RunSuite only calls this once, but
 // nothing enforces that at the type level) must not repeat -json or -count.
 func TestGoExecArgs_NeverDoublesAFlagAlreadyPresent(t *testing.T) {
+	t.Parallel()
 	once := goExecArgs("go", []string{"test", "./..."})
 	twice := goExecArgs("go", once)
 	if !reflect.DeepEqual(once, twice) {
@@ -346,6 +357,7 @@ func TestGoExecArgs_NeverDoublesAFlagAlreadyPresent(t *testing.T) {
 }
 
 func TestOutcome_IsRed(t *testing.T) {
+	t.Parallel()
 	red := []Outcome{RedMissingImpl, RedBogus, Red}
 	for _, o := range red {
 		if !o.IsRed() {

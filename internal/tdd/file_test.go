@@ -3,6 +3,7 @@ package tdd
 import "testing"
 
 func TestClassifyFile(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		path string
 		want Kind

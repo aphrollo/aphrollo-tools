@@ -15,6 +15,7 @@ func oracleWarnAction(content string, p phase) Action {
 }
 
 func TestSmell_Tautology(t *testing.T) {
+	t.Parallel()
 	blocked := []string{
 		"assert x == x",
 		"assert user.name == user.name",
@@ -62,6 +63,7 @@ func TestSmell_Tautology(t *testing.T) {
 }
 
 func TestSmell_FocusedTest(t *testing.T) {
+	t.Parallel()
 	blocked := []string{
 		"it.only('x', () => {})",
 		"describe.only('suite', () => {})",
@@ -92,6 +94,7 @@ func TestSmell_FocusedTest(t *testing.T) {
 }
 
 func TestSmell_DisabledTest(t *testing.T) {
+	t.Parallel()
 	blocked := []string{
 		"it.skip('x', () => {})",
 		"describe.skip('suite', fn)",
@@ -127,6 +130,7 @@ func TestSmell_DisabledTest(t *testing.T) {
 }
 
 func TestSmell_Zig(t *testing.T) {
+	t.Parallel()
 	blocked := []string{
 		// sleep — Zig's real-time sleeps.
 		"std.time.sleep(100 * std.time.ns_per_ms)",
@@ -162,6 +166,7 @@ func TestSmell_Zig(t *testing.T) {
 }
 
 func TestSmell_TestSleep(t *testing.T) {
+	t.Parallel()
 	blocked := []string{
 		"time.Sleep(2 * time.Second)",
 		"time.sleep(5)", // Python sync sleep (time.[Ss]leep covers it)
@@ -209,6 +214,7 @@ func TestSmell_TestSleep(t *testing.T) {
 // body. Mirrors FuzzCargoShimArgv/FuzzGitShimArgv/FuzzBashWriteTargets/
 // FuzzReceipt as they stood at 76f9c48~1, before that commit fixed all four.
 func TestSmell_PanicOnlyOracle(t *testing.T) {
+	t.Parallel()
 	hit := []string{
 		// FuzzCargoShimArgv's shape, minimally: the return value of the call
 		// under test discarded, no other assertion anywhere.
@@ -257,6 +263,7 @@ func TestSmell_PanicOnlyOracle(t *testing.T) {
 // TestSmell_ErrorKindBlind covers the four blind-check shapes named in the
 // issue, each immunized by a safety-net token within two lines.
 func TestSmell_ErrorKindBlind(t *testing.T) {
+	t.Parallel()
 	hit := []string{
 		"err := doThing()\nrequire.Error(t, err)",
 		"err := doThing()\nassert.Error(t, err)",

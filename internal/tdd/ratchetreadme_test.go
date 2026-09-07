@@ -8,6 +8,7 @@ import (
 )
 
 func TestWriteRatchetReadmeIsByteIdenticalOnASecondRun(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".ratchet", "laws"), 0o755); err != nil {
 		t.Fatal(err)
@@ -46,6 +47,7 @@ func TestWriteRatchetReadmeIsByteIdenticalOnASecondRun(t *testing.T) {
 }
 
 func TestWriteRatchetReadmeSkipsARepoWithNoRatchetDir(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	if changed, err := WriteRatchetReadme(repo, false); err != nil || changed {
 		t.Fatalf("changed = %v, err = %v — a repo with no laws gets no file", changed, err)
@@ -66,6 +68,7 @@ func TestWriteRatchetReadmeSkipsARepoWithNoRatchetDir(t *testing.T) {
 // were reverted). This test is the guard: it goes red the moment the tracked
 // file and the template diverge.
 func TestOwnRatchetReadme_MatchesTheGeneratedOutput(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(repoRootForTest(t), ".ratchet", "README.md")
 	have, err := os.ReadFile(path)
 	if err != nil {
@@ -80,6 +83,7 @@ func TestOwnRatchetReadme_MatchesTheGeneratedOutput(t *testing.T) {
 // The spec has ONE source: aphrollo's README carries the same text between its
 // ratchet-spec markers, so a schema change cannot land in one and not the other.
 func TestRatchetSpecIsTheSameTextAsTheReadmeSection(t *testing.T) {
+	t.Parallel()
 	data, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
 	if err != nil {
 		t.Fatalf("reading README.md: %v", err)

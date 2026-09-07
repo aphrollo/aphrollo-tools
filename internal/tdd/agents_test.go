@@ -13,6 +13,7 @@ import (
 // that edits, a reviewer that does not, a researcher that only reads). They
 // travel with the tool that enforces their rules so the two cannot drift.
 func TestWriteAgents_InstallsTheThreeManagedAgents(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	written, err := WriteAgents(dir)
@@ -40,6 +41,7 @@ func TestWriteAgents_InstallsTheThreeManagedAgents(t *testing.T) {
 // TestWriteAgents_SecondRunWritesNothing keeps `gate init` idempotent and its
 // output quiet: re-running it must not churn three files it already owns.
 func TestWriteAgents_SecondRunWritesNothing(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := WriteAgents(dir); err != nil {
 		t.Fatal(err)
@@ -57,6 +59,7 @@ func TestWriteAgents_SecondRunWritesNothing(t *testing.T) {
 // templates ship with the binary, so a stale copy on disk means a session
 // runs last release's rules.
 func TestWriteAgents_RefreshesAnEditedManagedAgent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := WriteAgents(dir); err != nil {
 		t.Fatal(err)
@@ -85,6 +88,7 @@ func TestWriteAgents_RefreshesAnEditedManagedAgent(t *testing.T) {
 // an agent of the same name written by the user carries no marker, and
 // uninstall deleting it would be the tool destroying someone's work.
 func TestRemoveAgents_LeavesAgentsThisToolNeverWrote(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := WriteAgents(dir); err != nil {
 		t.Fatal(err)
@@ -113,6 +117,7 @@ func TestRemoveAgents_LeavesAgentsThisToolNeverWrote(t *testing.T) {
 // it as a suite that could not be parsed. An embedded template belongs to the
 // package whose directive names it — the nearest ancestor holding Go files.
 func TestNarrowToStaged_MapsAnEmbedAssetToItsOwningGoPackage(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	pkg := filepath.Join(root, "internal", "tdd")
 	assets := filepath.Join(pkg, "agents")
@@ -144,6 +149,7 @@ func TestNarrowToStaged_MapsAnEmbedAssetToItsOwningGoPackage(t *testing.T) {
 // checkout with core.autocrlf=true embeds the template with CRLF and the
 // installed agent is a different file on every developer's box.
 func TestAgents_CarryNoWindowsLineEndings(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"builder", "reviewer", "researcher"} {
 		body, ok := ManagedAgent(name)
 		if !ok {

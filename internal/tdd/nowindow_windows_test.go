@@ -18,6 +18,7 @@ import (
 // child a console that is never shown and that its children INHERIT, which is
 // the difference between "no window" and "a window per compiler process".
 func TestDetachedAttrs_UseCreateNoWindowNotDetachedProcess(t *testing.T) {
+	t.Parallel()
 	const (
 		createNewProcessGroup = 0x00000200
 		detachedProcess       = 0x00000008
@@ -38,6 +39,7 @@ func TestDetachedAttrs_UseCreateNoWindowNotDetachedProcess(t *testing.T) {
 // The end-to-end statement: a child spawned the way the hooks spawn one has no
 // visible console window, asked of Windows itself rather than of our flags.
 func TestSpawnedPhaseHasNoConsoleWindow(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	probe := filepath.Join(dir, "probe.go")
 	out := filepath.Join(dir, "answer.txt")
@@ -116,6 +118,7 @@ func main() {
 // left inheriting the session's console hands the child a console to write to
 // and a window to show, whatever the creation flags say.
 func TestSilentStdioPointsEveryStreamAtTheNullDevice(t *testing.T) {
+	t.Parallel()
 	cmd := exec.Command("cmd", "/c", "echo hi")
 	closeStdio := silentStdio(cmd)
 	defer closeStdio()
@@ -141,6 +144,7 @@ func TestSilentStdioPointsEveryStreamAtTheNullDevice(t *testing.T) {
 // shell's, so a timeout that kills the shell's console tree does not reach it,
 // and that console is never shown and is inherited by every compiler below.
 func TestBelowNormalAttrs_UseCreateNoWindowNotDetachedProcess(t *testing.T) {
+	t.Parallel()
 	const (
 		createNewProcessGroup   = 0x00000200
 		detachedProcess         = 0x00000008

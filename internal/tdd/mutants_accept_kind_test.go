@@ -10,6 +10,7 @@ import (
 // #268. It must keep working exactly as before: read as equivalent, never
 // refused (backward compatibility).
 func TestParseAcceptKind_UnkindedReasonReadsAsEquivalent(t *testing.T) {
+	t.Parallel()
 	kind, evidence, ok := parseAcceptKind("the two forms compute the same thing")
 	if !ok {
 		t.Fatal("an unkinded reason must parse, not be refused")
@@ -26,6 +27,7 @@ func TestParseAcceptKind_UnkindedReasonReadsAsEquivalent(t *testing.T) {
 // field the CLAIM they make requires: none for equivalent, the test name for
 // runner-scoped, the tracking issue for capability-parked.
 func TestParseAcceptKind_EachOfTheThreeKindsParsesSeparately(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name         string
 		reason       string
@@ -57,6 +59,7 @@ func TestParseAcceptKind_EachOfTheThreeKindsParsesSeparately(t *testing.T) {
 // presence of. Missing it, or naming the wrong evidence key, is refused
 // rather than silently downgraded to equivalent.
 func TestParseAcceptKind_UnobservableRunnerWithoutTestEvidenceIsRefused(t *testing.T) {
+	t.Parallel()
 	for _, reason := range []string{
 		"kind=unobservable-runner: only the soak tier exercises this",
 		"kind=unobservable-runner issue=310: wrong evidence key for this kind",
@@ -71,6 +74,7 @@ func TestParseAcceptKind_UnobservableRunnerWithoutTestEvidenceIsRefused(t *testi
 // exist yet, so the tracking reference is what makes it revisitable — missing
 // it, or naming the wrong evidence key, is refused.
 func TestParseAcceptKind_UnobservableCapabilityWithoutIssueEvidenceIsRefused(t *testing.T) {
+	t.Parallel()
 	for _, reason := range []string{
 		"kind=unobservable-capability: bevy exposes no reader for this yet",
 		"kind=unobservable-capability test=TestFoo: wrong evidence key for this kind",
@@ -85,6 +89,7 @@ func TestParseAcceptKind_UnobservableCapabilityWithoutIssueEvidenceIsRefused(t *
 // equivalent — that would be the exact silent-degradation failure issue #268
 // exists to close.
 func TestParseAcceptKind_MisspelledKindIsRefusedNotReadAsEquivalent(t *testing.T) {
+	t.Parallel()
 	kind, _, ok := parseAcceptKind("kind=unobservable: which of the two new kinds is this?")
 	if ok {
 		t.Fatal("a misspelled kind parsed as if it were valid")
@@ -98,6 +103,7 @@ func TestParseAcceptKind_MisspelledKindIsRefusedNotReadAsEquivalent(t *testing.T
 // accept-list's own historical header claim) but names a misspelled-kind
 // entry in bad rather than silently dropping or accepting it.
 func TestAcceptedMutants_NamesAMisspelledKindEntryInBad(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "aphrollo.toml", strings.Join([]string{
 		"[aphrollo]",
@@ -123,6 +129,7 @@ func TestAcceptedMutants_NamesAMisspelledKindEntryInBad(t *testing.T) {
 // versus parked (the two unobservable kinds) SEPARATELY, so a reader — and a
 // merge gate — never reads parked work as merely out of scope.
 func TestGoMutantsReceipt_CountsAcceptedSurvivorsByKindSeparately(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "aphrollo.toml", strings.Join([]string{
 		"[aphrollo]",

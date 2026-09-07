@@ -10,6 +10,7 @@ import (
 const shimDir = "C:/Users/olive/bin/cargo-queue"
 
 func TestClaudeMDBlockCarriesTheOperatingInstructions(t *testing.T) {
+	t.Parallel()
 	block := ClaudeMDBlock(shimDir, false)
 	for _, want := range []string{
 		claudeMDBegin, claudeMDEnd, shimDir,
@@ -40,6 +41,7 @@ func TestClaudeMDBlockCarriesTheOperatingInstructions(t *testing.T) {
 // spelled the script out as a numbered step. A block that names the spawned
 // form and not the typed one is where that starts.
 func TestClaudeMDBlock_NamesTheHandTypedMutationRunNotOnlyTheSpawnedOne(t *testing.T) {
+	t.Parallel()
 	block := ClaudeMDBlock(shimDir, false)
 	if !strings.Contains(block, "aphrollo gate mutants run") {
 		t.Error("the block never names the command that measures the current lane by hand")
@@ -53,6 +55,7 @@ func TestClaudeMDBlock_NamesTheHandTypedMutationRunNotOnlyTheSpawnedOne(t *testi
 // arbitrary refusal, so the merge-only rule and its recipe ride in the block
 // every repo gets.
 func TestClaudeMDBlockStatesThePrimaryCheckoutRule(t *testing.T) {
+	t.Parallel()
 	block := ClaudeMDBlock(shimDir, false)
 	for _, want := range []string{
 		"primary checkout",
@@ -74,6 +77,7 @@ func TestClaudeMDBlockStatesThePrimaryCheckoutRule(t *testing.T) {
 }
 
 func TestPatchClaudeMDAppendsOnceAndIsIdempotent(t *testing.T) {
+	t.Parallel()
 	block := ClaudeMDBlock(shimDir, false)
 	first, changed := PatchClaudeMD([]byte("# Project\n\nSome guidance.\n"), block)
 	if !changed {
@@ -99,6 +103,7 @@ func TestPatchClaudeMDAppendsOnceAndIsIdempotent(t *testing.T) {
 // somewhere deliberate, and moving it to the end on every init would churn the
 // file forever.
 func TestPatchClaudeMDReplacesAnExistingBlockInPlace(t *testing.T) {
+	t.Parallel()
 	stale := "# Project\n\n" + claudeMDBegin + "\nold text nobody updated\n" + claudeMDEnd + "\n\n## Conventions\n\nkeep me\n"
 	block := ClaudeMDBlock(shimDir, false)
 
@@ -124,6 +129,7 @@ func TestPatchClaudeMDReplacesAnExistingBlockInPlace(t *testing.T) {
 // A file hand-edited mid-block leaves one marker behind. Nesting a fresh block
 // inside a half-open one would make every later init unparseable.
 func TestPatchClaudeMDRecoversFromAnOrphanMarker(t *testing.T) {
+	t.Parallel()
 	block := ClaudeMDBlock(shimDir, false)
 	out, _ := PatchClaudeMD([]byte("# Project\n\n"+claudeMDBegin+"\nhalf a block\n"), block)
 	got := string(out)
@@ -140,6 +146,7 @@ func TestPatchClaudeMDRecoversFromAnOrphanMarker(t *testing.T) {
 // editor strips a final newline. The replace-in-place branch must not assume
 // a byte survives past the marker to skip. Found by issue #286.
 func TestPatchClaudeMD_ReplacesInPlaceWhenFileEndsExactlyAtTheEndMarkerWithNoTrailingNewline(t *testing.T) {
+	t.Parallel()
 	stale := "# Project\n\n" + claudeMDBegin + "\nold text\n" + claudeMDEnd
 	block := ClaudeMDBlock(shimDir, false)
 
@@ -160,6 +167,7 @@ func TestPatchClaudeMD_ReplacesInPlaceWhenFileEndsExactlyAtTheEndMarkerWithNoTra
 }
 
 func TestPatchClaudeMDPreservesCRLF(t *testing.T) {
+	t.Parallel()
 	block := ClaudeMDBlock(shimDir, false)
 	out, _ := PatchClaudeMD([]byte("# Project\r\n\r\nGuidance.\r\n"), block)
 	if strings.Contains(strings.ReplaceAll(string(out), "\r\n", ""), "\n") {
@@ -172,6 +180,7 @@ func TestPatchClaudeMDPreservesCRLF(t *testing.T) {
 }
 
 func TestWriteClaudeMDIsANoOpWithoutTheFileUnlessForced(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	changed, err := WriteClaudeMD(repo, shimDir, false)
 	if err != nil || changed {
@@ -194,6 +203,7 @@ func TestWriteClaudeMDIsANoOpWithoutTheFileUnlessForced(t *testing.T) {
 // Run twice, byte-identical: the file is a source file in the consuming repo,
 // and a block that churned would show up as a diff on every session start.
 func TestWriteClaudeMDIsByteIdenticalOnASecondRun(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	path := filepath.Join(repo, "CLAUDE.md")
 	mustWrite(t, path, "# Borld\n\nProject guide.\n")

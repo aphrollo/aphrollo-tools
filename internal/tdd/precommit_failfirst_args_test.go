@@ -10,6 +10,7 @@ import (
 // loop reads args[i+1], so the guard is a real bound: a trailing `-p` with no
 // value must yield nothing rather than read past the end.
 func TestCargoPackagesInArgs_StopsAtATrailingFlagWithNoValue(t *testing.T) {
+	t.Parallel()
 	if got := cargoPackagesInArgs([]string{"test", "-p"}); len(got) != 0 {
 		t.Errorf("cargoPackagesInArgs = %q, want none — a -p with no value names no package", got)
 	}
@@ -19,6 +20,7 @@ func TestCargoPackagesInArgs_StopsAtATrailingFlagWithNoValue(t *testing.T) {
 // both spellings, and pins that a flag's VALUE is never itself read as a
 // package name.
 func TestCargoPackagesInArgs_ReadsEveryNamedPackage(t *testing.T) {
+	t.Parallel()
 	got := cargoPackagesInArgs([]string{"test", "-p", "movement", "--package", "terrain", "--test", "floor"})
 
 	if want := []string{"movement", "terrain"}; !slices.Equal(got, want) {
@@ -29,6 +31,7 @@ func TestCargoPackagesInArgs_ReadsEveryNamedPackage(t *testing.T) {
 // TestCargoPackagesInArgs_ReadsNothingFromAnArgvWithNoPackages guards the
 // other direction: no -p means nothing to invalidate, never a blanket clean.
 func TestCargoPackagesInArgs_ReadsNothingFromAnArgvWithNoPackages(t *testing.T) {
+	t.Parallel()
 	if got := cargoPackagesInArgs([]string{"test", "--workspace"}); len(got) != 0 {
 		t.Errorf("cargoPackagesInArgs = %q, want none", got)
 	}

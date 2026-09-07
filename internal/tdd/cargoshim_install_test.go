@@ -13,6 +13,7 @@ import (
 // this dir to its OWN PATH (never touched here). The Windows half is an
 // executable copy of the binary, installed by InstallShimExes.
 func TestInstallCargoShim_WritesThePosixScript(t *testing.T) {
+	t.Parallel()
 	shimDir := filepath.Join(t.TempDir(), "cargo-queue")
 	bin := `C:\Users\olive\bin\aphrollo.exe`
 
@@ -41,6 +42,7 @@ func TestInstallCargoShim_WritesThePosixScript(t *testing.T) {
 // changed=false the second time, matching every other managed-shim writer
 // in this package.
 func TestInstallCargoShim_IdempotentSecondCall(t *testing.T) {
+	t.Parallel()
 	shimDir := filepath.Join(t.TempDir(), "cargo-queue")
 	bin := `C:\Users\olive\bin\aphrollo.exe`
 
@@ -60,6 +62,7 @@ func TestInstallCargoShim_IdempotentSecondCall(t *testing.T) {
 // aphrollo binary renamed) actually rewriting the shim content, not silently
 // keeping the stale path forever.
 func TestInstallCargoShim_UpdatesWhenBinPathChanges(t *testing.T) {
+	t.Parallel()
 	shimDir := filepath.Join(t.TempDir(), "cargo-queue")
 	binOld := `C:\Users\olive\bin\aphrollo.exe`
 	if _, err := InstallCargoShim(shimDir, binOld); err != nil {

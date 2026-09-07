@@ -22,6 +22,7 @@ func keptLines(src string) []int {
 }
 
 func TestZigTestLines(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		src  string

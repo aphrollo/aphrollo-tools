@@ -12,6 +12,7 @@ import (
 const testBin = "/opt/aphrollo/bin/aphrollo"
 
 func TestBuildInstallPlan_RequiresGitRepo(t *testing.T) {
+	t.Parallel()
 	if _, err := BuildInstallPlan(t.TempDir(), testBin); err == nil {
 		t.Fatal("expected an error for a non-git directory")
 	}
@@ -20,6 +21,7 @@ func TestBuildInstallPlan_RequiresGitRepo(t *testing.T) {
 // The installed shim must exec the RESOLVED binary path, not a bare `aphrollo`
 // that depends on the hook process's PATH (mirroring the global git gate).
 func TestInstallPlan_ShimUsesResolvedBinPath(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".git", "hooks"), 0o755); err != nil {
 		t.Fatal(err)
@@ -41,6 +43,7 @@ func TestInstallPlan_ShimUsesResolvedBinPath(t *testing.T) {
 // the pre-rename "premergecommit" spelling — git's hook FILE keeps git's own
 // name, only the aphrollo verb it calls changes.
 func TestInstall_WiresPreMergeCommitToGatePremerge(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".git", "hooks"), 0o755); err != nil {
 		t.Fatal(err)
@@ -68,6 +71,7 @@ func TestInstall_WiresPreMergeCommitToGatePremerge(t *testing.T) {
 }
 
 func TestInstallPlan_ApplyWritesExecutableShims(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".git", "hooks"), 0o755); err != nil {
 		t.Fatal(err)
@@ -106,6 +110,7 @@ func TestInstallPlan_ApplyWritesExecutableShims(t *testing.T) {
 // A stranded managed pre-push shim (from an earlier install) is pruned, while a
 // foreign pre-push hook is left untouched.
 func TestInstallPlan_PrunesStrandedManagedPrePush(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	hooks := filepath.Join(root, ".git", "hooks")
 	if err := os.MkdirAll(hooks, 0o755); err != nil {
@@ -133,6 +138,7 @@ func TestInstallPlan_PrunesStrandedManagedPrePush(t *testing.T) {
 
 // A foreign pre-push hook (no marker) is never pruned.
 func TestInstallPlan_LeavesForeignPrePush(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	hooks := filepath.Join(root, ".git", "hooks")
 	if err := os.MkdirAll(hooks, 0o755); err != nil {
@@ -157,6 +163,7 @@ func TestInstallPlan_LeavesForeignPrePush(t *testing.T) {
 }
 
 func TestInstallPlan_DoesNotClobberForeignHook(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	hooks := filepath.Join(root, ".git", "hooks")
 	if err := os.MkdirAll(hooks, 0o755); err != nil {
@@ -187,6 +194,7 @@ func TestInstallPlan_DoesNotClobberForeignHook(t *testing.T) {
 
 // A re-install overwrites our OWN shim (it carries the marker) without warning.
 func TestInstallPlan_ReinstallOverOwnHook(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	hooks := filepath.Join(root, ".git", "hooks")
 	if err := os.MkdirAll(hooks, 0o755); err != nil {

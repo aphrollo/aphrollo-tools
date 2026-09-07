@@ -22,6 +22,7 @@ import (
 // A push carries its own base in `github.event.before`, so every site that
 // reads a base must fall back to it.
 func TestPipeline_ResolvesADiffBaseOnAPushWhereThereIsNoPullRequest(t *testing.T) {
+	t.Parallel()
 	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
 
 	sites := 0
@@ -44,6 +45,7 @@ func TestPipeline_ResolvesADiffBaseOnAPushWhereThereIsNoPullRequest(t *testing.T
 // force-push. The resolver must survive that rather than trade one exit 128
 // for another, so it verifies the base is a real commit before diffing.
 func TestPipeline_VerifiesTheDiffBaseIsACommitBeforeDiffingAgainstIt(t *testing.T) {
+	t.Parallel()
 	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
 
 	if !strings.Contains(wf, "rev-parse --verify") {
@@ -60,6 +62,7 @@ func TestPipeline_VerifiesTheDiffBaseIsACommitBeforeDiffingAgainstIt(t *testing.
 // nothing. The job is about a pull request, so it must say so in its `if`
 // rather than run and fail.
 func TestPipeline_DoesNotAskForAPullRequestNumberOnAPush(t *testing.T) {
+	t.Parallel()
 	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
 
 	start := strings.Index(wf, "\n  escape-closure:")
@@ -85,6 +88,7 @@ func TestPipeline_DoesNotAskForAPullRequestNumberOnAPush(t *testing.T) {
 // file sitting in a package directory is code, and only a top-level or
 // docs/ markdown is docs.
 func TestPipeline_DoesNotTreatAPackageLocalMarkdownAsDocsOnly(t *testing.T) {
+	t.Parallel()
 	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
 
 	if strings.Contains(wf, `grep -qvE '(\.md$|^docs/`) {

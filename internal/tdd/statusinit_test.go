@@ -28,6 +28,7 @@ func statusLineCommand(t *testing.T, doc []byte) string {
 // statusline the same way it owns the hooks: pointed at the binary that wrote
 // it, so the badge and the gate can never be different builds.
 func TestPatchSettings_WiresTheStatusLineAtTheBinary(t *testing.T) {
+	t.Parallel()
 	out, changed, err := PatchSettings(nil, `C:\bin\aphrollo.exe`)
 	if err != nil {
 		t.Fatal(err)
@@ -53,6 +54,7 @@ func TestPatchSettings_WiresTheStatusLineAtTheBinary(t *testing.T) {
 // aphrollo supersedes. Leaving one in place means the badge reports a gate
 // that no longer exists.
 func TestPatchSettings_ReplacesARetiredStatusLineScript(t *testing.T) {
+	t.Parallel()
 	for _, script := range []string{"caveman-statusline.sh", "tdd-statusline.sh"} {
 		existing := []byte(`{"statusLine":{"type":"command","command":"bash ~/.claude/hooks/` + script + `","padding":0}}`)
 		out, _, err := PatchSettings(existing, "/bin/aphrollo")
@@ -73,6 +75,7 @@ func TestPatchSettings_ReplacesARetiredStatusLineScript(t *testing.T) {
 // ownership: a statusline this tool never wrote, and did not supersede, is the
 // user's — overwriting it would be init deleting a setting nobody asked it to.
 func TestPatchSettings_LeavesAForeignStatusLineAlone(t *testing.T) {
+	t.Parallel()
 	existing := []byte(`{"statusLine":{"type":"command","command":"my-own-prompt --fancy"}}`)
 	out, _, err := PatchSettings(existing, "/bin/aphrollo")
 	if err != nil {
@@ -86,6 +89,7 @@ func TestPatchSettings_LeavesAForeignStatusLineAlone(t *testing.T) {
 // TestStripSettings_RemovesOnlyTheManagedStatusLine keeps uninstall honest:
 // it takes back what it wrote and nothing else.
 func TestStripSettings_RemovesOnlyTheManagedStatusLine(t *testing.T) {
+	t.Parallel()
 	managed, _, err := PatchSettings(nil, "/bin/aphrollo")
 	if err != nil {
 		t.Fatal(err)
@@ -113,6 +117,7 @@ func TestStripSettings_RemovesOnlyTheManagedStatusLine(t *testing.T) {
 // them double-fired every event, and a leftover statusline script reports on a
 // gate that is not installed.
 func TestPruneRetiredHooks_DeletesTheNodePluginLeftovers(t *testing.T) {
+	t.Parallel()
 	cfg := t.TempDir()
 	hooks := filepath.Join(cfg, "hooks")
 	if err := os.MkdirAll(hooks, 0o755); err != nil {

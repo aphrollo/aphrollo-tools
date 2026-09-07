@@ -10,6 +10,7 @@ import (
 // tdd skill body was wrapped mid-phrase and its own test never ran because
 // the commit gate saw a docs-only .md.
 func TestClassifyFile_GoEmbeddedFileIsSource(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	write := func(name, body string) {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {

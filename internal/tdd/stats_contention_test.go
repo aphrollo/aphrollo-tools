@@ -11,6 +11,7 @@ import (
 // for a build slot and 56 runs deferred, and finding that out took a hand
 // tally of gate.log. The report states it.
 func TestRenderGateStats_StatesTheContentionItMeasured(t *testing.T) {
+	t.Parallel()
 	log := strings.Join([]string{
 		"2026-09-02T10:00:00Z postedit D:/repo/crates/a cargo_test lock-wait 619.0s",
 		"2026-09-02T10:01:00Z postedit D:/repo/crates/a cargo_test lock-wait 12.0s",
@@ -30,6 +31,7 @@ func TestRenderGateStats_StatesTheContentionItMeasured(t *testing.T) {
 // Zero is a reading, not a blank: a report that only mentions contention when
 // there is some cannot be used to say the box was healthy.
 func TestRenderGateStats_SaysSoWhenThereWasNoContention(t *testing.T) {
+	t.Parallel()
 	log := "2026-09-02T10:05:00Z postedit D:/repo/crates/b cargo_test green 8.0s"
 	got := RenderGateStats(GateStats(strings.NewReader(log), time.Time{}))
 	if !strings.Contains(got, "contention: longest build-slot wait 0s, 0 deferred, 0 queued-skipped") {

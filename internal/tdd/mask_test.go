@@ -6,6 +6,7 @@ import (
 )
 
 func TestMask_BlanksStringsAndComments(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		src  string
@@ -81,6 +82,7 @@ func TestMask_BlanksStringsAndComments(t *testing.T) {
 }
 
 func TestMaskTokens_HashComment(t *testing.T) {
+	t.Parallel()
 	// In a JS/TS file (#-is-code), the `#` must NOT make the lexer skip the rest
 	// of the line, so the string still gets blanked and its content cannot leak.
 	js := `this.#count = "use // nolint maybe"` // reason: fixture text, not a real suppression — the # is a JS private field here
@@ -101,6 +103,7 @@ func TestMaskTokens_HashComment(t *testing.T) {
 }
 
 func TestMask_PreservesNewlines(t *testing.T) {
+	t.Parallel()
 	src := "line1 // c\nline2"
 	got := mask(src)
 	if strings.Count(got, "\n") != 1 {
@@ -113,6 +116,7 @@ func TestMask_PreservesNewlines(t *testing.T) {
 // inside it stays visible to the detectors and can trip a FALSE edit-time block.
 // Each `\\` line is a raw string running to end-of-line and must be blanked.
 func TestMask_ZigMultilineString(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		src    string
@@ -166,6 +170,7 @@ func TestMask_ZigMultilineString(t *testing.T) {
 // the surrounding real code is still detectable, and a `'='` char literal must
 // not swallow the rest of the line.
 func TestMask_ZigCharLiteral(t *testing.T) {
+	t.Parallel()
 	// `'\''` is an escaped-quote char literal; the surrounding `x == x` real
 	// code must remain visible (the lexer must not lose sync).
 	src := "if (x == x and c == '\\'') {}"
@@ -191,6 +196,7 @@ func TestMask_ZigCharLiteral(t *testing.T) {
 // opener. The string branch consumes it first, so masking is identical to any
 // other string and the trailing real code stays visible.
 func TestMask_BackslashEscapeNotMultiline(t *testing.T) {
+	t.Parallel()
 	src := `s := "a\\b"; if (z == z) {}`
 	got := mask(src)
 	if len(got) != len(src) {

@@ -10,6 +10,7 @@ import "testing"
 // no suite, by design -- so the change sailed past the very test that pins it
 // and main went red on a commit whose gate was green (issue #212).
 func TestClassifyFile_TreatsTheGateConfigAsSourceSoItCannotTakeTheDocsOnlyPath(t *testing.T) {
+	t.Parallel()
 	for _, p := range []string{"aphrollo.toml", "sub/aphrollo.toml", `sub\aphrollo.toml`} {
 		if got := ClassifyFile(p); got != Source {
 			t.Errorf("ClassifyFile(%q) = %v, want %v — the gate's own config is judged by the suite, so it must never be waived as prose", p, got, Source)
@@ -21,6 +22,7 @@ func TestClassifyFile_TreatsTheGateConfigAsSourceSoItCannotTakeTheDocsOnlyPath(t
 // classification exists for, asserted where it actually bites: the fast path
 // must not swallow a commit that changes how the gate itself behaves.
 func TestDocsOnly_IsFalseWhenTheGateConfigIsStaged(t *testing.T) {
+	t.Parallel()
 	tests, srcs := splitKinds([]string{"README.md", "aphrollo.toml"})
 	if len(tests) != 0 {
 		t.Errorf("tests = %q, want none", tests)
@@ -36,6 +38,7 @@ func TestDocsOnly_IsFalseWhenTheGateConfigIsStaged(t *testing.T) {
 // staging only one of these took the docs-only fast path: no build, no
 // suite, and a broken bump landed green (issue #278).
 func TestClassifyFile_TreatsManifestsAndLockfilesAsSourceSoADependencyBumpCannotTakeTheDocsOnlyPath(t *testing.T) {
+	t.Parallel()
 	paths := []string{
 		"Cargo.toml", "sub/Cargo.toml", `sub\Cargo.toml`,
 		"Cargo.lock", "go.mod", "go.sum", "package.json", "pyproject.toml",
@@ -53,6 +56,7 @@ func TestClassifyFile_TreatsManifestsAndLockfilesAsSourceSoADependencyBumpCannot
 // Ignore — the manifest match is by path shape, not by the generic basename
 // alone.
 func TestClassifyFile_DoesNotTreatUnrelatedConfigTomlAsSource(t *testing.T) {
+	t.Parallel()
 	if got := ClassifyFile("app/config.toml"); got != Ignore {
 		t.Errorf("ClassifyFile(%q) = %v, want %v — only .cargo/config.toml is special", "app/config.toml", got, Ignore)
 	}
@@ -62,6 +66,7 @@ func TestClassifyFile_DoesNotTreatUnrelatedConfigTomlAsSource(t *testing.T) {
 // it actually bites, mirroring TestDocsOnly_IsFalseWhenTheGateConfigIsStaged
 // for a dependency manifest instead of the gate's own config.
 func TestDocsOnly_IsFalseWhenAManifestIsStaged(t *testing.T) {
+	t.Parallel()
 	tests, srcs := splitKinds([]string{"README.md", "Cargo.toml"})
 	if len(tests) != 0 {
 		t.Errorf("tests = %q, want none", tests)

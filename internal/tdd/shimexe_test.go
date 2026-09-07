@@ -22,6 +22,7 @@ func fakeBinary(t *testing.T, dir, content string) string {
 // binary, so the argv it receives is the caller's own. A .cmd file cannot do
 // this — cmd.exe strips `^` from an argument and re-splits quoted ones.
 func TestInstallShimExes_CopiesTheBinaryUnderEachShimName(t *testing.T) {
+	t.Parallel()
 	base := t.TempDir()
 	src := fakeBinary(t, base, "APHROLLO-V1")
 	dir := filepath.Join(base, "cargo-queue")
@@ -51,6 +52,7 @@ func TestInstallShimExes_CopiesTheBinaryUnderEachShimName(t *testing.T) {
 // init` cheap and quiet: an unchanged binary must not recopy 20 MB twice per
 // run, and must report nothing installed.
 func TestInstallShimExes_SecondCallWithTheSameBinaryCopiesNothing(t *testing.T) {
+	t.Parallel()
 	base := t.TempDir()
 	src := fakeBinary(t, base, "APHROLLO-V1")
 	dir := filepath.Join(base, "cargo-queue")
@@ -71,6 +73,7 @@ func TestInstallShimExes_SecondCallWithTheSameBinaryCopiesNothing(t *testing.T) 
 // rebuilt aphrollo binary must reach the shims, or every session keeps running
 // last week's gate under the name `cargo`.
 func TestInstallShimExes_RefreshesAStaleCopy(t *testing.T) {
+	t.Parallel()
 	base := t.TempDir()
 	src := fakeBinary(t, base, "APHROLLO-V1")
 	dir := filepath.Join(base, "cargo-queue")
@@ -100,6 +103,7 @@ func TestInstallShimExes_RefreshesAStaleCopy(t *testing.T) {
 // TestInstallShimExes_MissingSourceIsAnError guards the silent-nothing case: a
 // bin path that does not exist must be reported, never reported as installed.
 func TestInstallShimExes_MissingSourceIsAnError(t *testing.T) {
+	t.Parallel()
 	base := t.TempDir()
 	_, err := installShimExes(filepath.Join(base, "q"), filepath.Join(base, "nope.exe"), []string{"cargo.exe"})
 	if err == nil {
@@ -112,6 +116,7 @@ func TestInstallShimExes_MissingSourceIsAnError(t *testing.T) {
 // and nextest's `-E test(/^mod::/)` both arrive mangled), so init deletes them
 // and says so once. A file that is not one of the two names is left alone.
 func TestRemoveCmdShims_DeletesTheBatchShims(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	for _, name := range []string{"cargo.cmd", "git.cmd", "rustup.cmd"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("@echo off\r\n"), 0o755); err != nil {
@@ -146,6 +151,7 @@ func TestRemoveCmdShims_DeletesTheBatchShims(t *testing.T) {
 // TestInstallCargoShim_WritesNoBatchFile is the other side of the retirement:
 // the installer must not put back what RemoveCmdShims deletes.
 func TestInstallCargoShim_WritesNoBatchFile(t *testing.T) {
+	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "cargo-queue")
 	if _, err := InstallCargoShim(dir, `C:\Users\olive\bin\aphrollo.exe`); err != nil {
 		t.Fatal(err)

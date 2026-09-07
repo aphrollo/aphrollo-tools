@@ -38,6 +38,7 @@ func writeLaneDiff(t *testing.T, dir, rel string, touchedFiles ...string) string
 // the set --package later carries into cargo-mutants' baseline, which is
 // what keeps beta's own tests out of the run entirely.
 func TestMutantsTouchedPackages_NamesOnlyThePackageOwningTheDiffFile(t *testing.T) {
+	t.Parallel()
 	root := mutantsBaselineScopeFixture(t)
 	diff := writeLaneDiff(t, root, "lane.diff", "crates/alpha/src/lib.rs")
 	j := MutantsJob{RepoRoot: root, Diff: diff}
@@ -53,6 +54,7 @@ func TestMutantsTouchedPackages_NamesOnlyThePackageOwningTheDiffFile(t *testing.
 // deduped — the same shape cargoPackagesOwning already guarantees for the
 // commit gate's own touched-crates stage.
 func TestMutantsTouchedPackages_NamesEveryPackageADiffFileTouches(t *testing.T) {
+	t.Parallel()
 	root := mutantsBaselineScopeFixture(t)
 	diff := writeLaneDiff(t, root, "lane.diff", "crates/beta/src/lib.rs", "crates/alpha/src/lib.rs")
 	j := MutantsJob{RepoRoot: root, Diff: diff}
@@ -68,6 +70,7 @@ func TestMutantsTouchedPackages_NamesEveryPackageADiffFileTouches(t *testing.T) 
 // UNDETERMINABLE: nil, never an empty-but-meaningful answer, so the caller's
 // only sound move is the current whole-workspace behaviour.
 func TestMutantsTouchedPackages_NilOnUnreadableDiff(t *testing.T) {
+	t.Parallel()
 	root := mutantsBaselineScopeFixture(t)
 	j := MutantsJob{RepoRoot: root, Diff: filepath.Join(root, "does-not-exist.diff")}
 
@@ -80,6 +83,7 @@ func TestMutantsTouchedPackages_NilOnUnreadableDiff(t *testing.T) {
 // manifest, or a path outside any member) is exactly as undeterminable as a
 // missing diff: nil, not an empty scope silently measuring nothing.
 func TestMutantsTouchedPackages_NilWhenNoTouchedFileIsCargoOwned(t *testing.T) {
+	t.Parallel()
 	root := mutantsBaselineScopeFixture(t)
 	diff := writeLaneDiff(t, root, "lane.diff", "README.md")
 	j := MutantsJob{RepoRoot: root, Diff: diff}

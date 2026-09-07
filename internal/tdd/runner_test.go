@@ -23,6 +23,7 @@ func mkProject(t *testing.T, markers ...string) string {
 }
 
 func TestFindProjectRoot(t *testing.T) {
+	t.Parallel()
 	root := mkProject(t, "go.mod")
 	sub := filepath.Join(root, "internal", "x")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
@@ -43,6 +44,7 @@ func TestFindProjectRoot(t *testing.T) {
 // command has no related-tests mode, every narrowing path leaves it unchanged
 // — same full-suite fallback as cargo/pytest.
 func TestZigRunner(t *testing.T) {
+	t.Parallel()
 	root := mkProject(t, "build.zig")
 	sub := filepath.Join(root, "src")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
@@ -69,6 +71,7 @@ func TestZigRunner(t *testing.T) {
 }
 
 func TestDetectRunner(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		marker string
 		want   Runner
@@ -93,6 +96,7 @@ func TestDetectRunner(t *testing.T) {
 }
 
 func TestDetectRunner_Vitest(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	pkg := `{"devDependencies":{"vitest":"^1.0.0"}}`
 	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(pkg), 0o600); err != nil {
@@ -106,6 +110,7 @@ func TestDetectRunner_Vitest(t *testing.T) {
 }
 
 func TestNarrowToRelatedTests(t *testing.T) {
+	t.Parallel()
 	root := "/proj"
 	// Go test edit narrows to the package; source edit narrows to its package.
 	goR := Runner{"go", []string{"test", "./..."}, "", time.Time{}}
@@ -127,6 +132,7 @@ func TestNarrowToRelatedTests(t *testing.T) {
 // reaches the edited file, per runner. Unknown runners fall back to the broad
 // suite.
 func TestNarrowToRelatedTests_SourceEdits(t *testing.T) {
+	t.Parallel()
 	root := "/proj"
 	cases := []struct {
 		name   string
@@ -202,6 +208,7 @@ func TestNarrowToRelatedTests_SourceEdits(t *testing.T) {
 // detected runner name, not just "is it npx": vitest uses `related … --run`
 // while jest uses `--findRelatedTests …`.
 func TestNarrowToRelatedTests_VitestVsJest(t *testing.T) {
+	t.Parallel()
 	root := "/proj"
 	vitest := NarrowToRelatedTests(Runner{"npx", []string{"vitest", "run"}, "", time.Time{}}, "/proj/a/b.ts", root)
 	if !reflect.DeepEqual(vitest, Runner{"npx", []string{"vitest", "related", "a/b.ts", "--run"}, "", time.Time{}}) {
@@ -217,6 +224,7 @@ func TestNarrowToRelatedTests_VitestVsJest(t *testing.T) {
 // union of staged files is scoped to one command per runner. Unknown runners
 // (and runners with no related mode) fall back to the broad suite unchanged.
 func TestNarrowToStaged(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		runner Runner

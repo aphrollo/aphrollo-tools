@@ -69,6 +69,7 @@ test "add sums its two arguments" {
 // toolchain is never faked. With zig present it exercises BOTH a real green run
 // and a real red run against one inline-test fixture.
 func TestE2E_Zig_BuildTest(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("zig"); err != nil {
 		t.Skip("zig not on PATH; skipping e2e")
 	}

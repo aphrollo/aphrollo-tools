@@ -13,6 +13,7 @@ import (
 // live pid, so the OS's creation timestamp must come back rather than the
 // zero-value failure this function returns when either call errors.
 func TestProcessStartTime_ReturnsCreationTimeForTheCallingProcess(t *testing.T) {
+	t.Parallel()
 	got, ok := processStartTime(os.Getpid())
 
 	if !ok {

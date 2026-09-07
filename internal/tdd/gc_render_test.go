@@ -10,6 +10,7 @@ import (
 // `> 0` slipping to `>= 0` would show "stray target dirs   0 B" on every
 // scan that never found one, noise the operator would learn to ignore.
 func TestWriteTierTotals_omitsTierWhenTotalIsZero(t *testing.T) {
+	t.Parallel()
 	var b strings.Builder
 	writeTierTotals(&b, []GCCandidate{
 		{Path: "a", Size: 100, Reason: "r1", Kind: GCKindIncremental},
@@ -31,6 +32,7 @@ func TestWriteTierTotals_omitsTierWhenTotalIsZero(t *testing.T) {
 // on the wrong side) shows up as a literal mismatch rather than a missing
 // substring.
 func TestRenderGC_padsShorterPathToLongestPathWidth(t *testing.T) {
+	t.Parallel()
 	out := RenderGC([]GCCandidate{
 		{Path: "a", Size: 100, Reason: "r1", Kind: GCKindIncremental},
 		{Path: "bbbb", Size: 200, Reason: "r2", Kind: GCKindIncremental},
@@ -50,6 +52,7 @@ func TestRenderGC_padsShorterPathToLongestPathWidth(t *testing.T) {
 // short of it stays "B", exactly at it must already read "KB". A `<`
 // slipping to `<=` would keep 1024 itself in the bytes branch.
 func TestFormatBytes_crossesToKilobytesAtOneKibibyteBoundary(t *testing.T) {
+	t.Parallel()
 	if got := formatBytes(1024); got != "1.0 KB" {
 		t.Fatalf("formatBytes(1024) = %q, want %q", got, "1.0 KB")
 	}
@@ -63,6 +66,7 @@ func TestFormatBytes_crossesToKilobytesAtOneKibibyteBoundary(t *testing.T) {
 // input (staying above the 1024 threshold through all three promotions)
 // exercises the `exp < 3` ceiling directly rather than the `v >= unit` arm.
 func TestFormatBytes_capsExponentAtTebibytesAndNeverIndexesPastIt(t *testing.T) {
+	t.Parallel()
 	n := int64(1)
 	for i := 0; i < 6; i++ {
 		n *= 1024 // 1024^6 = 2^60, well within int64
@@ -76,6 +80,7 @@ func TestFormatBytes_capsExponentAtTebibytesAndNeverIndexesPastIt(t *testing.T) 
 // still read in hours, exactly at it must already read "1d". This pins both
 // the boundary and the /24 division that decides it.
 func TestFormatDays_crossesToDaysAtTwentyFourHourBoundary(t *testing.T) {
+	t.Parallel()
 	if got := formatDays(24 * time.Hour); got != "1d" {
 		t.Fatalf("formatDays(24h) = %q, want %q", got, "1d")
 	}
