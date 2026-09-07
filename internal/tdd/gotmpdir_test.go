@@ -66,8 +66,13 @@ func TestSuiteEnv_GoRunnerGetsRepoLocalGotmpdir(t *testing.T) {
 // so redirecting TMPDIR for it would be an unrequested behavior change with
 // no bug behind it.
 func TestSuiteEnv_NonGoRunnerLeavesTempVarsAlone(t *testing.T) {
-	t.Setenv("TMPDIR", "/somewhere/real")
+	// t.TempDir() must be taken BEFORE the sentinel TMPDIR is set: on Unix the
+	// helper resolves through TMPDIR, so pointing it at a path that does not
+	// exist makes t.TempDir() itself fail ("TempDir: stat /somewhere/real: no
+	// such file or directory") before this test asserts anything. Windows hid
+	// that, because t.TempDir() reads TMP/TEMP there and never consults TMPDIR.
 	dir := t.TempDir()
+	t.Setenv("TMPDIR", "/somewhere/real")
 
 	env := suiteEnv(Runner{Cmd: "cargo", Args: []string{"test"}}, dir)
 
