@@ -405,6 +405,47 @@ func TestSelfInstall_LeavesTheBinaryAloneWhenTheBuildFails(t *testing.T) {
 	}
 }
 
+// TestSwapBinary_RefusesAndKeepsTheOldBinaryWhenTheCandidateFailsItsOwnSmokeCheck
+// closes issue #532's install-time hole: `aphrollo update` used to swap a
+// candidate in without ever proving it could still judge a tree correctly.
+// A candidate whose own smoke check fails must be refused BEFORE anything is
+// renamed, leaving the installed binary exactly as it was.
+func TestSwapBinary_RefusesAndKeepsTheOldBinaryWhenTheCandidateFailsItsOwnSmokeCheck(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "aphrollo.exe")
+	if err := os.WriteFile(bin, []byte("OLD"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	staged := filepath.Join(dir, "aphrollo.new.exe")
+	if err := os.WriteFile(staged, []byte("NEW"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := runSmokeCheckFn
+	t.Cleanup(func() { runSmokeCheckFn = orig })
+	runSmokeCheckFn = func(candidate string) error {
+		if candidate != staged {
+			t.Fatalf("smoke check ran against %q, want the staged candidate %q", candidate, staged)
+		}
+		return errors.New("FindProjectRoot returned a root for a marker-less tree")
+	}
+
+	var out bytes.Buffer
+	_, err := swapBinary("gate self-install", bin, staged, &out)
+	if err == nil {
+		t.Fatal("swapBinary: want an error when the candidate fails its own smoke check")
+	}
+	if !strings.Contains(err.Error(), "FindProjectRoot returned a root for a marker-less tree") {
+		t.Fatalf("error does not carry the smoke check's own message: %v", err)
+	}
+	if got, err := os.ReadFile(bin); err != nil || string(got) != "OLD" {
+		t.Fatalf("the installed binary must be untouched when the candidate fails its smoke check, got %q (%v)", got, err)
+	}
+	if len(staleCopies(t, dir)) != 0 {
+		t.Fatal("nothing may be renamed aside when the candidate fails its smoke check")
+	}
+}
+
 // buildArgs is what buildAphrollo actually invokes `go` with. Stamping the
 // commit and build time through -ldflags -X is the whole point of this
 // lane: a binary built with -buildvcs=false otherwise has no idea what it

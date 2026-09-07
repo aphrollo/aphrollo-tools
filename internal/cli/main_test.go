@@ -62,6 +62,12 @@ func TestMain(m *testing.M) {
 		}
 	}
 	restoreLocks := tdd.SetLockDirForTest(locks)
+	// The real smoke check spawns the candidate binary (see selfinstall.go);
+	// nothing in this package's suite ever builds one — buildAphrollo is
+	// stubbed everywhere it is reached — so it would refuse every fixture's
+	// plain-byte "binary". Default it permissive here; the one test that
+	// pins the refusal overrides it locally.
+	runSmokeCheckFn = func(string) error { return nil }
 	code := m.Run()
 	restoreLocks()
 	os.RemoveAll(dir)

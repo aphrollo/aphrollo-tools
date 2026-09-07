@@ -5,23 +5,43 @@ import (
 	"path/filepath"
 )
 
-// goTmpDirName is the repo-local directory a `go test`/`go build`/`go vet`
-// child writes its scratch into: unset GOTMPDIR left 133 go-build* survivors
-// in the OS temp dir (one killed run apiece), six of them Defender-quarantined
-// as tdd.test.exe (Behavior:Win32/DefenseEvasion.A!ml). Landing it inside the
-// project root means a lane's scratch dies with `git worktree remove` — no
-// sweep, no accumulation — instead of outliving the worktree that made it.
-const goTmpDirName = ".aphrollo-gotmp"
+// goTmpDirName is the leaf GoTmpRootDir creates beside the worktrees, the
+// same convention MutantsRootDir's own "mutants" leaf uses.
+const goTmpDirName = "gotmp"
 
-// goTmpDir is the scratch directory itself, rooted at the go command's own
-// working directory (root for a plain runner, r.Dir for a resolved one — see
-// runnerDir) rather than some other project boundary, so it always lands
-// exactly where `git worktree remove` will remove it from.
-func goTmpDir(dir string) string {
+// GoTmpRootDir is the repo's shared go-scratch directory, resolved the same
+// way MutantsRootDir resolves the mutation runner's own directory: beside
+// the worktrees, keyed on the PRIMARY checkout, never nested inside dir.
+//
+// dir is routinely a LANE worktree, and `.git` is one of rootMarkers
+// (runner.go): landing the scratch dir inside dir meant every t.TempDir()
+// fixture a `go test` child created under it inherited the worktree as its
+// own project root, even though the test asked for none — and a test that
+// then wrote through that resolved root wrote into the real tracked tree
+// (issue #532). Resolving beside the worktrees instead
+// (`<parent-of-primary>/.worktrees/<repo>/gotmp`) keeps no `.git` above it
+// while still landing in the project area, where `git worktree remove`
+// leaves nothing else to sweep.
+//
+// "" when dir's primary checkout cannot be resolved — refuse rather than
+// fall back to a path inside dir, which reproduces the bug this fixes (the
+// same refusal MutantsRootDir makes for the identical reason, issue #515).
+func GoTmpRootDir(dir string) string {
 	if dir == "" {
 		return ""
 	}
-	return filepath.Join(dir, goTmpDirName)
+	primary := primaryCheckoutRoot(dir)
+	if primary == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(primary), ".worktrees", filepath.Base(primary), goTmpDirName)
+}
+
+// goTmpDir is the scratch directory itself, resolved from the go command's
+// own working directory (root for a plain runner, r.Dir for a resolved one —
+// see runnerDir) via GoTmpRootDir rather than joined onto dir directly.
+func goTmpDir(dir string) string {
+	return GoTmpRootDir(dir) // see GoTmpRootDir's doc comment for the refusal shape
 }
 
 // goTmpEnv is the temp-dir variables a `go` child needs, all pointing at the
