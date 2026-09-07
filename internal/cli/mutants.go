@@ -82,6 +82,14 @@ func runGateMutants(args []string, stdout, stderr io.Writer) int {
 			return tdd.ExitMutantsStatusUsage
 		}
 		return runMutantsStatus(".", *wait, stdout)
+	case "watch":
+		fs := flag.NewFlagSet("mutants watch", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		job := fs.String("job", "", "path to the job file to watch (default: the tree this checkout stands in)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return tdd.ExitMutantsWatchUsage
+		}
+		return tdd.WatchMutantsHere(".", *job, stdout)
 	case "audit":
 		fs := flag.NewFlagSet("mutants audit", flag.ContinueOnError)
 		fs.SetOutput(stderr)
@@ -245,6 +253,18 @@ const mutantsUsage = `usage: aphrollo gate mutants <verb>
   status --wait      block on the running job's own process (never a poll
                      loop) until this tree reaches a terminal state, then
                      print the same answer.
+  watch              subscribe to THIS checkout's own run: one line per state
+                     transition (baseline build done, baseline test done,
+                     each mutant as it is judged, each survivor as it is
+                     found), blocking until a terminal state — a receipt, a
+                     died run, a killed process, or one that stopped
+                     advancing — and a final line naming the receipt path or
+                     the reason there is none. Unlike status, terminal
+                     covers every ending: a caller never has to infer an
+                     outcome from silence.
+  watch --job <path> watch the job a --job file describes instead of this
+                     checkout's own tree, the same addressing "run --job"
+                     uses.
   audit --package <name>
                      an on-demand whole-crate (Rust) or whole-package (Go)
                      run, never a diff. Reach for it when reviewing a unit,
@@ -284,4 +304,13 @@ Exit codes for status (and status --wait):
   4  a run is going right now (status only; --wait never returns this)
   5  the run ended without ever writing a receipt
   6  a receipt exists but would NOT merge (bad verdict, unaccepted survivor, or timeout)
+
+Exit codes for watch:
+  0  a receipt was written
+  1  the checkout itself could not be read, or the named --job file could not be
+  2  bad flags
+  3  no run has ever been started for this tree
+  4  the run ended with a recorded exit code and no receipt
+  5  the run's process is gone with no recorded exit and no receipt (killed)
+  6  the run's process is alive but stopped advancing (stalled)
 `

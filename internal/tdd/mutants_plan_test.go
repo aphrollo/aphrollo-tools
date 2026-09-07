@@ -18,6 +18,15 @@ func state(blobs, fences map[string]string) TreeState {
 	return TreeState{Blobs: blobs, Fences: fences}
 }
 
+// constInvocation is every fixture's own stand-in for a per-package
+// invocation lookup that does not vary — the same value regardless of which
+// package asks, which is what every one of these tests wants except the
+// ones proving the per-package split itself
+// (mutants_invocation_version_test.go).
+func constInvocation(v string) InvocationVersionFor {
+	return func(string) string { return v }
+}
+
 // cachedOutcomes is the repo-wide store as the plan reads it: outcomes keyed
 // by the mutant they describe.
 func cachedOutcomes(out []MutantOutcome) map[mutantKey]MutantOutcome {
@@ -40,7 +49,7 @@ func TestPlanMutants_CarriesAnUnchangedFilesOutcomes(t *testing.T) {
 	plan := PlanMutants(
 		[]MutantOutcome{want("crates/a/src/lib.rs", 12, "a")},
 		state(map[string]string{"crates/a/src/lib.rs": "blobA"}, map[string]string{"a": "tsA"}),
-		prev, "")
+		prev, "", constInvocation(""))
 
 	if len(plan.Run) != 0 {
 		t.Fatalf("Run = %v, want nothing to re-run for an untouched crate", plan.Run)
@@ -63,7 +72,7 @@ func TestPlanMutants_RerunsAPackageWhoseTestSetHashChanged(t *testing.T) {
 		[]MutantOutcome{want("crates/a/src/lib.rs", 12, "a"), want("crates/b/src/lib.rs", 3, "b")},
 		state(map[string]string{"crates/a/src/lib.rs": "blobA", "crates/b/src/lib.rs": "blobB"},
 			map[string]string{"a": "tsA-NEW", "b": "tsB"}),
-		prev, "")
+		prev, "", constInvocation(""))
 
 	if len(plan.Run) != 1 || plan.Run[0].Package != "a" {
 		t.Fatalf("Run = %+v, want only crate a's mutants re-run", plan.Run)
@@ -83,7 +92,7 @@ func TestPlanMutants_RunsAMutantWhoseFileBlobChanged(t *testing.T) {
 	plan := PlanMutants(
 		[]MutantOutcome{want("crates/a/src/lib.rs", 12, "a")},
 		state(map[string]string{"crates/a/src/lib.rs": "blobA-NEW"}, map[string]string{"a": "tsA"}),
-		prev, "")
+		prev, "", constInvocation(""))
 
 	if len(plan.Run) != 1 || len(plan.Carry) != 0 {
 		t.Fatalf("Run = %+v, Carry = %+v, want the changed file's mutant re-run", plan.Run, plan.Carry)
@@ -100,7 +109,7 @@ func TestPlanMutants_RunsAMutantThePreviousRunNeverMeasured(t *testing.T) {
 	plan := PlanMutants(
 		[]MutantOutcome{want("crates/a/src/lib.rs", 40, "a")},
 		state(map[string]string{"crates/a/src/lib.rs": "blobA"}, map[string]string{"a": "tsA"}),
-		prev, "")
+		prev, "", constInvocation(""))
 
 	if len(plan.Run) != 1 || plan.Run[0].Line != 40 {
 		t.Fatalf("Run = %+v, want the unmeasured mutant to run", plan.Run)
@@ -118,7 +127,7 @@ func TestPlanMutants_RunsEverythingWhenThePreviousReceiptRecordsNoBlobs(t *testi
 	plan := PlanMutants(
 		[]MutantOutcome{want("crates/a/src/lib.rs", 12, "a")},
 		state(map[string]string{"crates/a/src/lib.rs": "blobA"}, map[string]string{"a": "tsA"}),
-		prev, "")
+		prev, "", constInvocation(""))
 
 	if len(plan.Run) != 1 || len(plan.Carry) != 0 {
 		t.Fatalf("Run = %+v, Carry = %+v, want an unmeasured receipt to carry nothing", plan.Run, plan.Carry)
@@ -130,7 +139,7 @@ func TestPlanMutants_RunsEverythingWhenThePreviousReceiptRecordsNoBlobs(t *testi
 func TestPlanMutants_RunsEverythingWithNoPreviousReceipt(t *testing.T) {
 	t.Parallel()
 	plan := PlanMutants([]MutantOutcome{want("crates/a/src/lib.rs", 12, "a")},
-		state(map[string]string{"crates/a/src/lib.rs": "blobA"}, map[string]string{"a": "tsA"}), nil, "")
+		state(map[string]string{"crates/a/src/lib.rs": "blobA"}, map[string]string{"a": "tsA"}), nil, "", constInvocation(""))
 	if len(plan.Run) != 1 || len(plan.Carry) != 0 {
 		t.Fatalf("Run = %+v, Carry = %+v, want a first run to measure everything", plan.Run, plan.Carry)
 	}
@@ -150,7 +159,7 @@ func TestPlanMutants_StampsTheMeasurementItJudgedAgainst(t *testing.T) {
 		[]MutantOutcome{want("crates/a/src/lib.rs", 12, "a"), want("crates/b/src/lib.rs", 3, "b")},
 		state(map[string]string{"crates/a/src/lib.rs": "blobA", "crates/b/src/lib.rs": "blobB"},
 			map[string]string{"a": "tsA", "b": "tsB"}),
-		prev, "")
+		prev, "", constInvocation(""))
 
 	for _, m := range append(append([]MutantOutcome{}, plan.Run...), plan.Carry...) {
 		if m.Blob != map[string]string{"a": "blobA", "b": "blobB"}[m.Package] {
@@ -179,7 +188,7 @@ func TestPlanMutants_DoesNotCarryAMutantMeasuredUnderADifferentProducerVersion(t
 	plan := PlanMutants(
 		[]MutantOutcome{want("crates/a/src/lib.rs", 12, "a")},
 		state(map[string]string{"crates/a/src/lib.rs": "blobA"}, map[string]string{"a": "tsA"}),
-		prev, "cargo-mutants 27.1.0")
+		prev, "cargo-mutants 27.1.0", constInvocation(""))
 
 	if len(plan.Run) != 1 || len(plan.Carry) != 0 {
 		t.Fatalf("Run = %+v, Carry = %+v, want the mutant re-run under the new producer version, not carried under the old one",
@@ -191,7 +200,7 @@ func TestPlanMutants_DoesNotCarryAMutantMeasuredUnderADifferentProducerVersion(t
 	plan = PlanMutants(
 		[]MutantOutcome{want("crates/a/src/lib.rs", 12, "a")},
 		state(map[string]string{"crates/a/src/lib.rs": "blobA"}, map[string]string{"a": "tsA"}),
-		prev, "cargo-mutants 27.0.0")
+		prev, "cargo-mutants 27.0.0", constInvocation(""))
 	if len(plan.Run) != 0 || len(plan.Carry) != 1 {
 		t.Fatalf("Run = %+v, Carry = %+v, want the mutant carried when the producer version has not changed",
 			plan.Run, plan.Carry)
