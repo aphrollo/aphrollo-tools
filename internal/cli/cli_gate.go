@@ -90,10 +90,15 @@ Subcommands:
                     (--no-git, --uninstall). ALSO EDITS FILES IN A REPO: the managed
                     block in <repo>/CLAUDE.md and <repo>/.ratchet/README.md, where
                     <repo> is --repo (default: the working directory's repo)
-  self-install      Rebuild ./cmd/aphrollo (--repo, -buildvcs=false), rename the running
-                    binary aside as aphrollo.stale-<unix>, move the new one into its
-                    place, reclaim the stale copies nothing is holding, then run init
-                    (--bin, --no-init; flags after a bare -- are forwarded to init)
+  self-install      Rebuild ./cmd/aphrollo (--repo, -buildvcs=false), run selfcheck
+                    against the freshly built binary and refuse (leaving the running
+                    one alone) if it fails, else rename the running binary aside as
+                    aphrollo.stale-<unix>, move the new one into its place, reclaim the
+                    stale copies nothing is holding, then run init (--bin, --no-init;
+                    flags after a bare -- are forwarded to init)
+  selfcheck         Install-time smoke test: build a marker-less temp tree and require
+                    FindProjectRoot to come back empty for it. self-install/update run
+                    this against the CANDIDATE binary before swapping it in (#532)
   cargo             cargo-queue shim: queue a DIRECT cargo invocation behind the same
                     per-target-dir build slots the hooks/gates use (APHROLLO_CARGO_WAIT_SECS,
                     APHROLLO_BUILD_SLOTS, APHROLLO_REAL_CARGO)
@@ -230,6 +235,11 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// Rebuild this binary from source and put it in place of the
 		// installed one, then rewire the hooks at the new build.
 		return runGateSelfInstall(args[1:], stdout, stderr)
+	}
+	if args[0] == "selfcheck" {
+		// The install-time smoke test swapBinary runs against a candidate
+		// before self-install/update replace the binary with it (#532).
+		return runGateSelfCheck(args[1:], stdout, stderr)
 	}
 	if args[0] == "commitmsg" {
 		// The commit-msg git hook: git hands it the message file path.

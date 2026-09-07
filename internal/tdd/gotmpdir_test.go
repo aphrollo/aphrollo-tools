@@ -2,7 +2,6 @@ package tdd
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -43,13 +42,17 @@ func lastEnvValue(env []string, key string) string {
 // where 133 go-build* survivors and a Defender quarantine of tdd.test.exe
 // were measured. GOTMPDIR (what the go tool itself reads) and TMPDIR/TMP/TEMP
 // (what os.TempDir() reads, for any test that shells out or calls
-// t.TempDir() itself) must all point at the same directory, inside dir, and
+// t.TempDir() itself) must all point at the same directory, resolved beside
+// the worktrees rather than inside dir (issue #532 — see GoTmpRootDir), and
 // that directory must actually exist once suiteEnv returns.
 func TestSuiteEnv_GoRunnerGetsRepoLocalGotmpdir(t *testing.T) {
-	dir := t.TempDir()
+	dir := makeGoRepo(t)
 	env := suiteEnv(Runner{Cmd: "go", Args: []string{"test", "./..."}}, dir)
 
-	want := filepath.Join(dir, ".aphrollo-gotmp")
+	want := GoTmpRootDir(dir)
+	if want == "" {
+		t.Fatalf("GoTmpRootDir(%q) = \"\", want a resolved path for a real git checkout", dir)
+	}
 	for _, key := range []string{"GOTMPDIR", "TMPDIR", "TMP", "TEMP"} {
 		if got := lastEnvValue(env, key); got != want {
 			t.Errorf("suiteEnv %s = %q, want %q", key, got, want)

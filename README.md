@@ -2062,12 +2062,18 @@ the fail-first + mechanical suite cover the same ground without the flakiness.
 ### Upgrading in place — `aphrollo gate self-install`
 
 `aphrollo gate self-install` rebuilds `./cmd/aphrollo` from the checkout it is
-run in, renames the currently-running binary aside as `aphrollo.stale-<unix>`,
-moves the freshly built one into its place, reclaims stale copies nothing
-still holds open, then runs `init` so hooks and skills pick up whatever the
-rebuild changed. `--bin` targets a binary other than the default install
-path, `--no-init` skips the trailing `init`, and flags after a bare `--` are
-forwarded to it.
+run in, runs `gate selfcheck` against the freshly built binary, renames the
+currently-running binary aside as `aphrollo.stale-<unix>`, moves the freshly
+built one into its place, reclaims stale copies nothing still holds open,
+then runs `init` so hooks and skills pick up whatever the rebuild changed.
+`--bin` targets a binary other than the default install path, `--no-init`
+skips the trailing `init`, and flags after a bare `--` are forwarded to it.
+`aphrollo update` shares the same swap and gets the same check.
+
+`gate selfcheck` is the install-time smoke test that closes issue #532: it
+builds a marker-less temp tree and requires `FindProjectRoot` to come back
+empty for it. A candidate that fails it is refused before anything is
+renamed, so the box keeps running the binary already installed.
 
 ### The managed CLAUDE.md block
 

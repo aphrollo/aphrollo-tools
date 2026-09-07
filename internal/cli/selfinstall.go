@@ -78,6 +78,26 @@ var buildAphrollo = func(repo, out string) (string, error) {
 // nothing else in the bin dir is ever a candidate for deletion.
 const stalePrefix = ".stale-"
 
+// selfCheckArgs is the argv swapBinary runs against a candidate before it
+// replaces the installed binary: exit 0 means the candidate's own
+// FindProjectRoot still refuses a marker-less tree (issue #532); anything
+// else means installing it would repeat that regression.
+var selfCheckArgs = []string{"gate", "selfcheck"}
+
+// runSmokeCheckFn indirects the actual subprocess spawn so a test can force
+// pass/fail without a real aphrollo binary on disk. This package's own suite
+// never builds one — buildAphrollo is stubbed everywhere it is reached — so
+// TestMain defaults this to permissive and only the refusal test overrides
+// it locally.
+var runSmokeCheckFn = func(candidate string) error {
+	cmd := exec.Command(candidate, selfCheckArgs...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s %s: %w\n%s", candidate, strings.Join(selfCheckArgs, " "), err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // runGateSelfInstall rebuilds this binary from source, puts it in place of the
 // installed one, reclaims what earlier upgrades left, and rewires the hooks.
 func runGateSelfInstall(args []string, stdout, stderr io.Writer) int {
@@ -140,6 +160,15 @@ var replacedBinaryJobsLineFn = tdd.ReplacedBinaryJobsLine
 // a wrong-shaped bin (an extensionless path with no sibling .exe) moves the
 // build into place fine and is still not runnable by anything Go spawns.
 func swapBinary(prefix, bin, staged string, stdout io.Writer) (stale string, err error) {
+	// Checked BEFORE anything is renamed: a refusal here leaves bin exactly
+	// as it was, with nothing to roll back (issue #532 — `aphrollo update`
+	// used to swap a candidate in without ever proving it could still judge
+	// a tree correctly).
+	if err := runSmokeCheckFn(staged); err != nil {
+		return "", fmt.Errorf("%s: %s failed its own smoke check, keeping %s in place: %w", prefix, staged, bin, err)
+	}
+	fmt.Fprintf(stdout, "%s: smoke  %s passed selfcheck\n", prefix, staged)
+
 	stale = siblingPath(bin, fmt.Sprintf("%s%d", stalePrefix, time.Now().Unix()))
 	renamed := false
 	if _, statErr := os.Stat(bin); statErr == nil {
