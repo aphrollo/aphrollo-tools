@@ -33,6 +33,29 @@ func TestClaudeMDBlockCarriesTheOperatingInstructions(t *testing.T) {
 	}
 }
 
+// TestClaudeMDBlock_VetLintClaimMatchesGoOnlyGuard is a cheap trip-wire for
+// #548's cold-review yellow: the block claims a Go root runs vet/lint,
+// which is true only because precommit_gateroot.go's goQualityStage is
+// guarded by `runner.Cmd == "go"` — pytest/vitest/zig roots get neither.
+// This does not verify the prose is accurate in general (no general
+// truth-checker over English is being attempted here) — only that the ONE
+// condition this specific claim depends on has not silently moved
+// underneath it, which is the same block-versus-binary drift #518 exists to
+// close, caught here instead of by a human re-reading both by hand.
+func TestClaudeMDBlock_VetLintClaimMatchesGoOnlyGuard(t *testing.T) {
+	src, err := os.ReadFile("precommit_gateroot.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), `if runner.Cmd == "go" {`) {
+		t.Fatal(`precommit_gateroot.go no longer guards goQualityStage with runner.Cmd == "go" — update the "a Go root also runs vet/lint" claim in ClaudeMDBlock's stage-list bullet to match`)
+	}
+	block := ClaudeMDBlock(shimDir, false)
+	if !strings.Contains(block, "a Go root also runs vet/lint") {
+		t.Fatal(`ClaudeMDBlock no longer scopes its vet/lint claim to "a Go root" — check it still matches precommit_gateroot.go's runner.Cmd == "go" guard before broadening it`)
+	}
+}
+
 // The block described the mutation run only as something post-commit spawns,
 // so every repo that gets it learned the gate's mutation half without ever
 // learning the command a person types. Four sessions independently reached for

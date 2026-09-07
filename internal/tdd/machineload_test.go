@@ -5,18 +5,33 @@ import (
 	"testing"
 )
 
+// ratchet: test_removed TestForeignProcs_IncludesANonDescendant: superseded
+// by TestForeignProcs_IncludesAFullyResolvedForeignChain below — its old
+// synthetic data (an unrelated pid with an unresolvable one-hop ancestry)
+// stopped proving inclusion once classifyAncestry started requiring a fully
+// validated chain, and now proves the opposite (exclusion) instead. Not a
+// coverage loss: the replacement asserts the same "inclusion still works"
+// claim under the stricter, creation-time-aware classifier (#548 cold
+// review, RED 1).
+// ratchet: test_removed TestIsSelfOrDescendant_BoundedAgainstCyclicParents: renamed to
+// TestClassifyAncestry_BoundedAgainstCyclicParents below, testing the same depth-bound
+// safety property against classifyAncestry (isSelfOrDescendant no longer exists — the
+// ancestry walk gained a third answer, unknown, that a bare bool could not carry).
+
 // TestForeignProcs_ExcludesADescendantOfSelf pins the direction the issue
 // warns is easiest to get backwards (#526): a process this gate invocation
 // spawned, however many generations down, must never show up as "foreign
 // load" — reporting the gate's own work as an outside culprit is worse than
-// reporting nothing.
+// reporting nothing. Every pid here has a fully live, validly-timed chain,
+// so this exercises the ancestrySelfOrDescendant path specifically, not the
+// unknown/broken-chain one the tests below cover.
 func TestForeignProcs_ExcludesADescendantOfSelf(t *testing.T) {
 	const self = 100
 	all := []procSample{
-		{pid: self, ppid: 1, name: "aphrollo.exe"},
-		{pid: 200, ppid: self, name: "go.exe"},     // direct child
-		{pid: 300, ppid: 200, name: "go_test.exe"}, // grandchild
-		{pid: 999, ppid: 1, name: "find.exe"},      // unrelated
+		{pid: self, ppid: 1, name: "aphrollo.exe", creation: 10},
+		{pid: 200, ppid: self, name: "go.exe", creation: 20},     // direct child
+		{pid: 300, ppid: 200, name: "go_test.exe", creation: 30}, // grandchild
+		{pid: 999, ppid: 1, name: "find.exe", creation: 5},       // unrelated, no valid chain given
 	}
 	got := foreignProcs(self, all)
 	for _, p := range got {
@@ -26,40 +41,125 @@ func TestForeignProcs_ExcludesADescendantOfSelf(t *testing.T) {
 	}
 }
 
-// TestForeignProcs_IncludesANonDescendant is the other half of the same
-// proof: a filter that excludes everything looks identical, in a green run,
-// to one that correctly excludes only self's own tree. This pins that a real
-// stranger survives the filter.
-func TestForeignProcs_IncludesANonDescendant(t *testing.T) {
-	const self = 100
-	all := []procSample{
-		{pid: self, ppid: 1, name: "aphrollo.exe"},
-		{pid: 200, ppid: self, name: "go.exe"},
-		{pid: 999, ppid: 1, name: "find.exe"},
+// foreignChainSample builds a fully-resolved, definitely-foreign process at
+// pid leaf: a synthetic ancestor chain long enough to satisfy
+// classifyAncestry's own bound (maxAncestryDepth) with every hop valid and
+// strictly earlier-created going up, never touching any pid this package's
+// tests use as self. Shared with the integration tests in
+// timeout_reject_test.go, which run against the REAL test process's own pid
+// and so cannot risk a chain that merely looks foreign without being
+// provably so under the stricter, creation-time-aware classifier (#548 cold
+// review, RED 1).
+func foreignChainSample(leaf int, name string, pctOneCore, cpuHours float64) []procSample {
+	samples := []procSample{{
+		pid: leaf, ppid: leaf + 1, name: name,
+		pctOneCore: pctOneCore, cpuHours: cpuHours, creation: 1_000_000,
+	}}
+	for i := 1; i <= maxAncestryDepth+1; i++ {
+		samples = append(samples, procSample{
+			pid:      leaf + i,
+			ppid:     leaf + i + 1,
+			name:     "stranger.exe",
+			creation: uint64(1_000_000 - i),
+		})
 	}
+	return samples
+}
+
+// TestForeignProcs_IncludesAFullyResolvedForeignChain is the other half of
+// the same proof: a filter that excludes everything looks identical, in a
+// green run, to one that correctly excludes only self's own tree.
+func TestForeignProcs_IncludesAFullyResolvedForeignChain(t *testing.T) {
+	const self = 100
+	all := append([]procSample{{pid: self, ppid: 1, name: "aphrollo.exe", creation: 1}},
+		foreignChainSample(9000, "stranger-leaf.exe", 42, 1)...)
+
 	got := foreignProcs(self, all)
 	found := false
 	for _, p := range got {
-		if p.pid == 999 {
+		if p.pid == 9000 {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("foreignProcs(%d, ...) = %+v, want pid 999 (find.exe, unrelated to self) included", self, got)
+		t.Errorf("foreignProcs(%d, ...) = %+v, want pid 9000 (a fully resolved, unrelated chain) included", self, got)
 	}
 }
 
-// TestIsSelfOrDescendant_BoundedAgainstCyclicParents guards the walk itself:
+// TestForeignProcs_ExcludesAGateDescendantWhoseImmediateParentExited pins
+// the cold-review fix directly: Windows never reparents an orphan, so a
+// legitimate gate descendant whose immediate parent already exited has a
+// ppid pointing at a pid that is simply gone from this snapshot — pid 200
+// (self's real child) is not in `all` at all. The old walk read "parent not
+// found" as "not self, therefore foreign"; this pins that such a descendant
+// is now UNKNOWN and excluded, never reported as the culprit.
+func TestForeignProcs_ExcludesAGateDescendantWhoseImmediateParentExited(t *testing.T) {
+	const self = 100
+	all := []procSample{
+		{pid: self, ppid: 1, name: "aphrollo.exe", creation: 10},
+		// pid 200 (self's direct child) already exited and is absent —
+		// only its orphaned grandchild survives into this snapshot.
+		{pid: 300, ppid: 200, name: "leftover-test.exe", creation: 20},
+	}
+	got := foreignProcs(self, all)
+	for _, p := range got {
+		if p.pid == 300 {
+			t.Fatalf("foreignProcs(%d, ...) wrongly named pid 300 (leftover-test.exe) foreign — its parent simply exited and it cannot be attributed either way, got %+v", self, got)
+		}
+	}
+}
+
+// TestForeignProcs_ExcludesAGateDescendantBehindARecycledPid pins the other
+// half: pid 200 (self's real child) exited, and the OS handed pid 200 to an
+// unrelated process before this sample ran. A walk that trusts the ppid
+// number alone would follow it into the stranger's ancestry and conclude
+// "not self" — the creation-time check must catch that the new pid-200
+// process was created AFTER the child (300) it supposedly parented, and
+// refuse the hop rather than wander through it. Pid 200's OWN ancestry is
+// made to resolve fully and cleanly (never touching self, never hitting a
+// missing parent) specifically so that ONLY the creation-time check, not an
+// incidental missing-parent break further up, is what can be excluding
+// pid 300 — bypassing the creation check here must let the walk sail
+// through into ancestryForeign, proving that check is load-bearing.
+func TestForeignProcs_ExcludesAGateDescendantBehindARecycledPid(t *testing.T) {
+	const self = 100
+	all := []procSample{
+		{pid: self, ppid: 1, name: "aphrollo.exe", creation: 10},
+		// pid 300 is self's real grandchild, created while the ORIGINAL
+		// pid-200 child was still alive.
+		{pid: 300, ppid: 200, name: "leftover-test.exe", creation: 20},
+		// pid 200 now belongs to an unrelated process, created AFTER 300 —
+		// proof it cannot be the same process that parented 300.
+		{pid: 200, ppid: 201, name: "unrelated.exe", creation: 30},
+	}
+	// pid 200's own ancestor chain: fully valid, never touching self.
+	all = append(all, foreignChainSample(201, "stranger-ancestor.exe", 0, 0)...)
+
+	got := foreignProcs(self, all)
+	for _, p := range got {
+		if p.pid == 300 {
+			t.Fatalf("foreignProcs(%d, ...) followed a recycled pid into a stranger's ancestry and wrongly named pid 300 foreign, got %+v", self, got)
+		}
+	}
+}
+
+// TestClassifyAncestry_BoundedAgainstCyclicParents guards the walk itself:
 // a snapshot torn mid-read (or simply wrong) could hand back a parent chain
 // that cycles. Sampling runs on a box already in trouble — an infinite loop
 // here would hang the very rejection path it is meant to make more useful.
-// No local timer wraps this call on purpose (the gate itself already scans
-// test files for real-time waits): a regression that removes the depth
-// bound hangs this test, and the suite's own run budget is what catches it.
-func TestIsSelfOrDescendant_BoundedAgainstCyclicParents(t *testing.T) {
-	parents := map[int]int{1: 2, 2: 1} // 1 and 2 are each other's "parent"
-	if got := isSelfOrDescendant(999, 1, parents); got {
-		t.Errorf("isSelfOrDescendant(999, 1, cyclic parents) = true, want false — 999 never appears in the cycle")
+// No local timer wraps this call on purpose (the gate itself scans test
+// files for real-time waits): a regression that removes the depth bound
+// hangs this test, and the suite's own run budget is what catches it.
+func TestClassifyAncestry_BoundedAgainstCyclicParents(t *testing.T) {
+	// 1 and 2 are each other's "parent", both with equal, non-decreasing
+	// creation times so the creation-time check alone cannot break the
+	// cycle — only the depth bound can.
+	byPID := map[int]procSample{
+		1: {pid: 1, ppid: 2, creation: 10},
+		2: {pid: 2, ppid: 1, creation: 10},
+	}
+	if got := classifyAncestry(999, 1, byPID); got == ancestrySelfOrDescendant {
+		t.Errorf("classifyAncestry(999, 1, cyclic byPID) = %v, want anything but ancestrySelfOrDescendant — 999 never appears in the cycle", got)
 	}
 }
 
@@ -117,7 +217,7 @@ func TestTopByLoad_SortsDescendingAndCaps(t *testing.T) {
 // rather than a zeroed-out, misleadingly confident report.
 func TestForeignLoadReport_UnavailableWhenProbeFails(t *testing.T) {
 	prev := machineLoadSampleFn
-	machineLoadSampleFn = func() (int, float64, []procSample, bool) { return 0, 0, nil, false }
+	machineLoadSampleFn = func(<-chan struct{}) (int, float64, []procSample, bool) { return 0, 0, nil, false }
 	t.Cleanup(func() { machineLoadSampleFn = prev })
 
 	got := foreignLoadReport(1234)
@@ -128,14 +228,18 @@ func TestForeignLoadReport_UnavailableWhenProbeFails(t *testing.T) {
 
 // TestForeignLoadReport_BoundedAgainstAHungProbe is the sampling-hangs case
 // #526 calls out explicitly: a probe that never returns must not hang the
-// rejection it is trying to make more useful. foreignLoadReport owns its own
-// bound internally (foreignLoadBudget) — calling it directly here and
-// relying on the suite's own run budget to catch a regression keeps this
-// test itself free of a real-time wait.
+// rejection it is trying to make more useful. The stub blocks on stop
+// itself (the way a real probe should) rather than looping forever, so the
+// goroutine foreignLoadReport starts is cleanly released once the budget
+// expires and closes stop — never leaked past this test, and never holding
+// machineLoadMu for a later test to trip over.
 func TestForeignLoadReport_BoundedAgainstAHungProbe(t *testing.T) {
 	prev := machineLoadSampleFn
-	machineLoadSampleFn = func() (int, float64, []procSample, bool) {
-		select {} // never returns
+	unblocked := make(chan struct{})
+	machineLoadSampleFn = func(stop <-chan struct{}) (int, float64, []procSample, bool) {
+		<-stop
+		close(unblocked)
+		return 0, 0, nil, false
 	}
 	t.Cleanup(func() { machineLoadSampleFn = prev })
 
@@ -143,4 +247,41 @@ func TestForeignLoadReport_BoundedAgainstAHungProbe(t *testing.T) {
 	if !strings.Contains(got, "load unavailable") {
 		t.Errorf("foreignLoadReport(...) = %q, want load unavailable once the sampling budget expires", got)
 	}
+
+	// Proves stop was actually closed, not just that the OUTER call has its
+	// own independent timeout: a regression that drops close(stop) would
+	// leave the stub blocked on <-stop forever, never freeing machineLoadMu
+	// for the next rejection — this line would hang, and the suite's own
+	// run budget (not a local timer; see the cyclic-parents test above for
+	// why none lives here) is what would catch it.
+	<-unblocked
+}
+
+// TestForeignLoadReport_SecondSampleWhileFirstInFlightDeclines proves the
+// single-flight guard #548's cold review asked for: a second rejection
+// landing while one sample is still in progress must not stack a second
+// full double-enumeration on an already-overloaded box — it declines
+// immediately instead of waiting or starting its own probe.
+func TestForeignLoadReport_SecondSampleWhileFirstInFlightDeclines(t *testing.T) {
+	prev := machineLoadSampleFn
+	started := make(chan struct{})
+	release := make(chan struct{})
+	machineLoadSampleFn = func(<-chan struct{}) (int, float64, []procSample, bool) {
+		close(started)
+		<-release
+		return 1, 0, nil, true
+	}
+	t.Cleanup(func() { machineLoadSampleFn = prev })
+
+	done := make(chan string, 1)
+	go func() { done <- foreignLoadReport(1) }()
+	<-started // the first sample now holds machineLoadMu
+
+	second := foreignLoadReport(2)
+	if !strings.Contains(second, "already in progress") {
+		t.Errorf("foreignLoadReport(...) while a first sample is in flight = %q, want it to decline immediately", second)
+	}
+
+	close(release)
+	<-done // let the first call finish so nothing leaks past this test
 }

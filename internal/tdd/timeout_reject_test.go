@@ -48,8 +48,8 @@ func TestPrecommit_MechanicalTimeoutNamesTheBoxLoad(t *testing.T) {
 	gitDo(t, root, "add", ".")
 
 	prev := machineLoadSampleFn
-	machineLoadSampleFn = func() (int, float64, []procSample, bool) {
-		return 4, 55, []procSample{{pid: 999, name: "find.exe", pctOneCore: 90, cpuHours: 2}}, true
+	machineLoadSampleFn = func(<-chan struct{}) (int, float64, []procSample, bool) {
+		return 4, 55, foreignChainSample(999, "find.exe", 90, 2), true
 	}
 	t.Cleanup(func() { machineLoadSampleFn = prev })
 
@@ -80,8 +80,8 @@ func TestGoCheckStage_TimeoutNamesTheBoxLoad(t *testing.T) {
 	root := t.TempDir()
 
 	prev := machineLoadSampleFn
-	machineLoadSampleFn = func() (int, float64, []procSample, bool) {
-		return 8, 12, []procSample{{pid: 42, name: "rustc.exe", pctOneCore: 75, cpuHours: 1.25}}, true
+	machineLoadSampleFn = func(<-chan struct{}) (int, float64, []procSample, bool) {
+		return 8, 12, foreignChainSample(42, "rustc.exe", 75, 1.25), true
 	}
 	t.Cleanup(func() { machineLoadSampleFn = prev })
 

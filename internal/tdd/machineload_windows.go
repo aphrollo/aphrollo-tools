@@ -17,14 +17,21 @@ import (
 const machineLoadSampleWindow = 200 * time.Millisecond
 
 // machineLoadSample is machineLoadSampleFn's real, OS-specific probe: the
-// box's overall CPU load and every live process's current CPU share, via
-// two full snapshots straddling machineLoadSampleWindow. It never shells
-// out — CreateToolhelp32Snapshot/OpenProcess/GetProcessTimes are the same
-// syscall-only shape pidRunning and processExePath already use for exactly
-// this reason (#204: a shelled-out probe run repeatedly opens a console
-// every time; this one runs once per rejection, but staying syscall-only
-// costs nothing and keeps the same discipline).
-func machineLoadSample() (cores int, loadPct float64, procs []procSample, ok bool) {
+// box's overall CPU load and every live process's current CPU share and
+// creation time, via two full snapshots straddling machineLoadSampleWindow.
+// It never shells out — CreateToolhelp32Snapshot/OpenProcess/GetProcessTimes
+// are the same syscall-only shape pidRunning and processExePath already use
+// for exactly this reason (#204: a shelled-out probe run repeatedly opens a
+// console every time; this one runs once per rejection, but staying
+// syscall-only costs nothing and keeps the same discipline).
+//
+// stop is checked ONCE, between the two snapshots: the second one repeats
+// the FULL enumeration (a fresh CreateToolhelp32Snapshot plus an
+// OpenProcess/GetProcessTimes pair for every live process), which is exactly
+// the work a caller that has already given up on this sample must not pay
+// for on a box already established to be in trouble (cold review of #526's
+// first version).
+func machineLoadSample(stop <-chan struct{}) (cores int, loadPct float64, procs []procSample, ok bool) {
 	cores = runtime.NumCPU()
 	idle0, kernel0, user0, sysOK0 := systemTimes()
 	before, ok0 := processCPUSnapshot()
@@ -32,6 +39,11 @@ func machineLoadSample() (cores int, loadPct float64, procs []procSample, ok boo
 		return 0, 0, nil, false
 	}
 	time.Sleep(machineLoadSampleWindow)
+	select {
+	case <-stop:
+		return 0, 0, nil, false
+	default:
+	}
 	idle1, kernel1, user1, sysOK1 := systemTimes()
 	after, ok1 := processCPUSnapshot()
 	if !sysOK1 || !ok1 {
@@ -49,21 +61,26 @@ func machineLoadSample() (cores int, loadPct float64, procs []procSample, ok boo
 		beforeTicks[p.pid] = p.cpuTicks
 	}
 	windowSecs := machineLoadSampleWindow.Seconds()
+	// Every process in the SECOND snapshot is kept, even one with no usable
+	// delta (new since the first sample, or a recycled pid) — it reports
+	// pctOneCore 0 rather than being dropped outright, because its
+	// pid/ppid/creation triple still has to be in the graph for
+	// classifyAncestry to walk THROUGH it correctly; only the reported
+	// CURRENT share, never its presence in the ancestry graph, depends on
+	// having two comparable samples.
 	procs = make([]procSample, 0, len(after))
 	for _, p := range after {
-		prev, seenBefore := beforeTicks[p.pid]
-		if !seenBefore || p.cpuTicks < prev {
-			// New since the first sample, or the pid was recycled between
-			// samples: no valid delta to report a CURRENT share from.
-			continue
+		pctOneCore := 0.0
+		if prev, seenBefore := beforeTicks[p.pid]; seenBefore && p.cpuTicks >= prev {
+			pctOneCore = 100 * ticksToSeconds(p.cpuTicks-prev) / windowSecs
 		}
-		deltaSecs := ticksToSeconds(p.cpuTicks - prev)
 		procs = append(procs, procSample{
 			pid:        p.pid,
 			ppid:       p.ppid,
 			name:       p.name,
-			pctOneCore: 100 * deltaSecs / windowSecs,
+			pctOneCore: pctOneCore,
 			cpuHours:   ticksToSeconds(p.cpuTicks) / 3600,
+			creation:   p.creation,
 		})
 	}
 	return cores, loadPct, procs, true
@@ -101,21 +118,25 @@ func systemTimes() (idle, kernel, user uint64, ok bool) {
 	return filetimeTicks(idleFT), filetimeTicks(kernelFT), filetimeTicks(userFT), true
 }
 
-// rawProc is one process as processCPUSnapshot sees it: identity plus its
-// cumulative CPU tick count at the moment of the call.
+// rawProc is one process as processCPUSnapshot sees it: identity, its
+// cumulative CPU tick count, and its creation tick count, at the moment of
+// the call.
 type rawProc struct {
 	pid      int
 	ppid     int
 	name     string
 	cpuTicks uint64
+	creation uint64
 }
 
 // processCPUSnapshot enumerates every live process via
 // CreateToolhelp32Snapshot (no shelling out, no console) and reads each
-// one's cumulative kernel+user CPU time via OpenProcess/GetProcessTimes.
-// A process this token cannot open (most protected system processes) is
-// skipped rather than failing the whole snapshot — the same "best effort,
-// never mistaken for a full answer" stance processExePath already takes.
+// one's cumulative kernel+user CPU time and creation time via
+// OpenProcess/GetProcessTimes. A process this token cannot open (most
+// protected system processes) gets creationUnknown/0 CPU rather than
+// failing the whole snapshot — the same "best effort, never mistaken for a
+// full answer" stance processExePath already takes; classifyAncestry treats
+// creationUnknown as a broken link, never as a false "definitely foreign".
 // false only when the snapshot itself could not be taken at all.
 func processCPUSnapshot() ([]rawProc, bool) {
 	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
@@ -138,11 +159,13 @@ func processCPUSnapshot() ([]rawProc, bool) {
 	}
 	for {
 		pid := int(entry.ProcessID)
+		cpuTicks, creation := processTimes(pid)
 		out = append(out, rawProc{
 			pid:      pid,
 			ppid:     int(entry.ParentProcessID),
 			name:     windows.UTF16ToString(entry.ExeFile[:]),
-			cpuTicks: processCPUTicks(pid),
+			cpuTicks: cpuTicks,
+			creation: creation,
 		})
 		entry.Size = uint32(unsafe.Sizeof(entry))
 		if err := windows.Process32Next(snap, &entry); err != nil {
@@ -152,21 +175,22 @@ func processCPUSnapshot() ([]rawProc, bool) {
 	return out, true
 }
 
-// processCPUTicks reads pid's cumulative kernel+user CPU time, 0 when the
-// process cannot be opened (already exited, or protected). A 0 here just
-// drops the process from processCPUSnapshot's usable delta set on the next
-// sample (its ticks would read as "no time used" or a spurious negative
-// delta, both filtered by the seenBefore/monotonic check in
-// machineLoadSample), never a crash or a hang.
-func processCPUTicks(pid int) uint64 {
+// processTimes reads pid's cumulative kernel+user CPU time and its creation
+// time from ONE OpenProcess/GetProcessTimes pair — both zero when the
+// process cannot be opened (already exited, or protected) or its times
+// cannot be read. A zero cpuTicks just drops the process from
+// machineLoadSample's usable delta set; a zero (creationUnknown) creation
+// stops classifyAncestry from trusting any hop through this pid, in either
+// direction, rather than crashing or hanging.
+func processTimes(pid int) (cpuTicks, creation uint64) {
 	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
 	if err != nil {
-		return 0
+		return 0, 0
 	}
 	defer func() { _ = windows.CloseHandle(h) }()
-	var creation, exit, kernel, user windows.Filetime
-	if err := windows.GetProcessTimes(h, &creation, &exit, &kernel, &user); err != nil {
-		return 0
+	var creationFT, exit, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(h, &creationFT, &exit, &kernel, &user); err != nil {
+		return 0, 0
 	}
-	return filetimeTicks(kernel) + filetimeTicks(user)
+	return filetimeTicks(kernel) + filetimeTicks(user), filetimeTicks(creationFT)
 }
