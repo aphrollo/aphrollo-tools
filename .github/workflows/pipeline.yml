@@ -375,15 +375,18 @@ jobs:
   #
   # Scoped to ./internal/tdd/..., the package suiteEnv/goTmpEnv live in --
   # not folded into `test`/`test-windows` above, whose own budgets are sized
-  # for the rest of the tree. -timeout=900s rather than go test's 600s
+  # for the rest of the tree. -timeout=1500s rather than go test's 600s
   # default: this package alone measured `733.951s` under load in the `test`
   # job's own history (see that job's "Test (race + shuffle)" step comment),
   # and a plain `go test ./internal/tdd/...` here measured past the 600s
   # default and hit its own internal alarm before finishing, on this
   # contended box -- an unrelated timeout must not read as this job's
-  # signal. timeout-minutes leaves headroom over that on top of
-  # checkout/setup, matching test-windows's own 15-minute budget for a
-  # narrower package list.
+  # signal. 900s was the previous figure and is no longer enough: the
+  # package measures 927s locally, so a 900s alarm fires on a healthy run.
+  # 1500s keeps roughly 60% headroom over that measurement while still being
+  # far short of a hung run. timeout-minutes leaves headroom over the go
+  # alarm on top of checkout/setup, so it moves with it: 30 minutes against
+  # a 25-minute test budget.
   #
   # The four variable names below are hardcoded rather than derived from
   # goTmpEnv (internal/tdd/gotmpdir.go) at YAML-eval time: goTmpEnv is
@@ -406,7 +409,7 @@ jobs:
             runner: windows-latest
             cache: true
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -433,7 +436,7 @@ jobs:
           # normalization filepath.Join would, without literal escapes here.
           if [ "${RUNNER_OS:-}" = "Windows" ]; then dir="$(cygpath -w "$dir")"; fi
           export GOTMPDIR="$dir" TMPDIR="$dir" TMP="$dir" TEMP="$dir"
-          go test ./internal/tdd/... -count=1 -timeout=900s
+          go test ./internal/tdd/... -count=1 -timeout=1500s
 
   lint:
     if: github.event.pull_request.draft != true

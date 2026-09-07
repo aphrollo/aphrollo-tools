@@ -256,13 +256,35 @@ func TestTopByLoad_SortsDescendingAndCaps(t *testing.T) {
 // rather than a zeroed-out, misleadingly confident report.
 func TestForeignLoadReport_UnavailableWhenProbeFails(t *testing.T) {
 	prev := machineLoadSampleFn
-	machineLoadSampleFn = func(<-chan struct{}) (int, float64, []procSample, bool) { return 0, 0, nil, false }
+	sampled := make(chan struct{})
+	machineLoadSampleFn = func(<-chan struct{}) (int, float64, []procSample, bool) {
+		close(sampled)
+		return 0, 0, nil, false
+	}
 	t.Cleanup(func() { machineLoadSampleFn = prev })
 
 	got := foreignLoadReport(1234)
 	if !strings.Contains(got, "load unavailable") {
-		t.Errorf("foreignLoadReport(...) = %q, want it to say load unavailable when the probe fails", got)
+		t.Fatalf("foreignLoadReport(...) = %q, want it to say load unavailable when the probe fails", got)
 	}
+
+	// A returned "load unavailable" does not prove this test's own stub ever
+	// ran: the budget-expiry path says "load unavailable" too, and on a box
+	// loaded enough to miss foreignLoadBudget the call returns while its
+	// sampling goroutine is still queued. Left there, this test's Cleanup
+	// restores machineLoadSampleFn while that straggler is still in flight —
+	// the shape that produced the -race report in #549/#552. Waiting for the
+	// stub pins the assertion to the failing-probe path it is named for AND
+	// keeps the goroutine inside the test that started it.
+	//
+	// The decline verdict is the one reply that means no goroutine of ours
+	// exists (a straggler from an earlier test still holds machineLoadMu),
+	// and it also contains "load unavailable" — caught here so it reports as
+	// a failure with its message rather than hanging on the receive below.
+	if strings.Contains(got, "already in progress") {
+		t.Fatalf("foreignLoadReport(...) = %q — no sample of this test's own was started, so the failing-probe path went unexercised", got)
+	}
+	<-sampled
 }
 
 // TestForeignLoadReport_BoundedAgainstAHungProbe is the sampling-hangs case

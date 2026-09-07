@@ -212,9 +212,21 @@ func foreignLoadReport(selfPID int) string {
 		ok      bool
 	}
 	ch := make(chan sample, 1)
+	// Read the probe seam HERE, on the caller's goroutine, and hand the
+	// sampling goroutine the captured func. Loading machineLoadSampleFn
+	// inside the goroutine body made that read genuinely unordered against
+	// the tests that swap the seam: this function can return down the
+	// budget-expiry path while its goroutine has not been scheduled yet, so
+	// a t.Cleanup restoring machineLoadSampleFn wrote the var while a
+	// straggler was still about to read it (escapes #549 and #552 — CI's
+	// `go test -race` flagged the same write/read pair twice). Captured on
+	// the caller, the goroutine never touches the package var at all, and
+	// the read is ordered before this function returns whichever path it
+	// takes.
+	sampleFn := machineLoadSampleFn
 	go func() {
 		defer machineLoadMu.Unlock()
-		cores, loadPct, procs, ok := machineLoadSampleFn(stop)
+		cores, loadPct, procs, ok := sampleFn(stop)
 		ch <- sample{cores, loadPct, procs, ok}
 	}()
 	select {
