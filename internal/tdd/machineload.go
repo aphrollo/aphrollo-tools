@@ -99,24 +99,35 @@ func classifyAncestry(self, pid int, byPID map[int]procSample) ancestry {
 	return ancestryForeign // walked the full bound on a fully validated chain, self never appeared
 }
 
-// foreignProcs returns every sample from all that classifyAncestry can
-// CONFIRM is neither self nor spawned by self, directly or transitively, in
-// the same order given. A sample this cannot confidently attribute either
-// way (classifyAncestry's ancestryUnknown) is left out just like a
-// descendant is: reporting it would risk exactly the misdirection this
-// function exists to avoid.
-func foreignProcs(self int, all []procSample) []procSample {
+// classifyAll sorts every sample in all into exactly the two buckets that
+// are ever worth showing a reader, in the same order given; a sample that is
+// self or one of its descendants is dropped from both, never shown either
+// way. foreign holds what classifyAncestry could POSITIVELY resolve to a
+// root without ever passing through self (ancestryForeign) — safe to name as
+// the outside culprit. unattributed holds everything the walk could not
+// settle (ancestryUnknown: a missing parent, a failed creation-time check, a
+// broken chain) — never proven foreign, so never accused, but a box under
+// load with its two hottest processes sitting in this bucket and nowhere
+// else is not a box a silent report should leave the reader guessing about
+// (#548 cold review, round 2: reporting nothing here traded a real
+// misattribution risk for an equally real chance of reporting NOTHING on a
+// box that demonstrably has a culprit — quieter, not safer). Read the
+// caller's label on this bucket, never "foreign": it is actionable — here is
+// what to look at — without asserting whose it is.
+func classifyAll(self int, all []procSample) (foreign, unattributed []procSample) {
 	byPID := make(map[int]procSample, len(all))
 	for _, p := range all {
 		byPID[p.pid] = p
 	}
-	out := make([]procSample, 0, len(all))
 	for _, p := range all {
-		if classifyAncestry(self, p.pid, byPID) == ancestryForeign {
-			out = append(out, p)
+		switch classifyAncestry(self, p.pid, byPID) {
+		case ancestryForeign:
+			foreign = append(foreign, p)
+		case ancestryUnknown:
+			unattributed = append(unattributed, p)
 		}
 	}
-	return out
+	return foreign, unattributed
 }
 
 // topByLoad returns the n samples with the highest pctOneCore, descending,
@@ -130,14 +141,22 @@ func topByLoad(in []procSample, n int) []procSample {
 	return sorted
 }
 
-// formatMachineLoad renders the box-load line and one "foreign load:" line
-// per entry in top, in the order given (the caller sorts). No trailing
-// newline: every call site is interpolating this into a larger message.
-func formatMachineLoad(cores int, loadPct float64, top []procSample) string {
+// formatMachineLoad renders the box-load line, then one "foreign load:" line
+// per entry in foreign, then one "unattributed load:" line per entry in
+// unattributed — both already the caller's top few, in the order given.
+// Foreign is a POSITIVE claim (the walk proved it is not self's own tree);
+// unattributed is not an accusation, only a pointer at CPU this box cannot
+// explain — never merged into the foreign section, and never dropped
+// (#548 cold review, round 2). No trailing newline: every call site
+// interpolates this into a larger message.
+func formatMachineLoad(cores int, loadPct float64, foreign, unattributed []procSample) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "box: %d cores, load %.0f%%", cores, loadPct)
-	for _, p := range top {
+	for _, p := range foreign {
 		fmt.Fprintf(&b, "\nforeign load: %s (pid %d) %.0f%% of one core, %.1fh CPU", p.name, p.pid, p.pctOneCore, p.cpuHours)
+	}
+	for _, p := range unattributed {
+		fmt.Fprintf(&b, "\nunattributed load: %s (pid %d) %.0f%% of one core, %.1fh CPU", p.name, p.pid, p.pctOneCore, p.cpuHours)
 	}
 	return b.String()
 }
@@ -203,8 +222,10 @@ func foreignLoadReport(selfPID int) string {
 		if !s.ok {
 			return "box: load unavailable"
 		}
-		top := topByLoad(foreignProcs(selfPID, s.procs), foreignLoadTopN)
-		return formatMachineLoad(s.cores, s.loadPct, top)
+		foreign, unattributed := classifyAll(selfPID, s.procs)
+		return formatMachineLoad(s.cores, s.loadPct,
+			topByLoad(foreign, foreignLoadTopN),
+			topByLoad(unattributed, foreignLoadTopN))
 	case <-time.After(foreignLoadBudget):
 		close(stop)
 		return "box: load unavailable (sampling exceeded its own budget)"

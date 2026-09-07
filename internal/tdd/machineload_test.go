@@ -33,10 +33,10 @@ func TestForeignProcs_ExcludesADescendantOfSelf(t *testing.T) {
 		{pid: 300, ppid: 200, name: "go_test.exe", creation: 30}, // grandchild
 		{pid: 999, ppid: 1, name: "find.exe", creation: 5},       // unrelated, no valid chain given
 	}
-	got := foreignProcs(self, all)
-	for _, p := range got {
+	foreign, unattributed := classifyAll(self, all)
+	for _, p := range append(append([]procSample{}, foreign...), unattributed...) {
 		if p.pid == self || p.pid == 200 || p.pid == 300 {
-			t.Errorf("foreignProcs(%d, ...) included pid %d (%s), a descendant of self — got %+v", self, p.pid, p.name, got)
+			t.Errorf("classifyAll(%d, ...) placed pid %d (%s), a descendant of self, in foreign=%+v or unattributed=%+v", self, p.pid, p.name, foreign, unattributed)
 		}
 	}
 }
@@ -74,15 +74,15 @@ func TestForeignProcs_IncludesAFullyResolvedForeignChain(t *testing.T) {
 	all := append([]procSample{{pid: self, ppid: 1, name: "aphrollo.exe", creation: 1}},
 		foreignChainSample(9000, "stranger-leaf.exe", 42, 1)...)
 
-	got := foreignProcs(self, all)
+	foreign, _ := classifyAll(self, all)
 	found := false
-	for _, p := range got {
+	for _, p := range foreign {
 		if p.pid == 9000 {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("foreignProcs(%d, ...) = %+v, want pid 9000 (a fully resolved, unrelated chain) included", self, got)
+		t.Errorf("classifyAll(%d, ...) foreign = %+v, want pid 9000 (a fully resolved, unrelated chain) included", self, foreign)
 	}
 }
 
@@ -92,7 +92,10 @@ func TestForeignProcs_IncludesAFullyResolvedForeignChain(t *testing.T) {
 // ppid pointing at a pid that is simply gone from this snapshot — pid 200
 // (self's real child) is not in `all` at all. The old walk read "parent not
 // found" as "not self, therefore foreign"; this pins that such a descendant
-// is now UNKNOWN and excluded, never reported as the culprit.
+// is now UNKNOWN — never named foreign — but also never dropped silently:
+// it must surface in unattributed, so a reader still sees the CPU it is
+// spending even though nobody can prove whose it is (#548 cold review,
+// round 2).
 func TestForeignProcs_ExcludesAGateDescendantWhoseImmediateParentExited(t *testing.T) {
 	const self = 100
 	all := []procSample{
@@ -101,11 +104,20 @@ func TestForeignProcs_ExcludesAGateDescendantWhoseImmediateParentExited(t *testi
 		// only its orphaned grandchild survives into this snapshot.
 		{pid: 300, ppid: 200, name: "leftover-test.exe", creation: 20},
 	}
-	got := foreignProcs(self, all)
-	for _, p := range got {
+	foreign, unattributed := classifyAll(self, all)
+	for _, p := range foreign {
 		if p.pid == 300 {
-			t.Fatalf("foreignProcs(%d, ...) wrongly named pid 300 (leftover-test.exe) foreign — its parent simply exited and it cannot be attributed either way, got %+v", self, got)
+			t.Fatalf("classifyAll(%d, ...) wrongly named pid 300 (leftover-test.exe) foreign — its parent simply exited and it cannot be attributed either way, foreign=%+v", self, foreign)
 		}
+	}
+	found := false
+	for _, p := range unattributed {
+		if p.pid == 300 {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("classifyAll(%d, ...) unattributed = %+v, want pid 300 present (unresolved, not dropped)", self, unattributed)
 	}
 }
 
@@ -135,11 +147,20 @@ func TestForeignProcs_ExcludesAGateDescendantBehindARecycledPid(t *testing.T) {
 	// pid 200's own ancestor chain: fully valid, never touching self.
 	all = append(all, foreignChainSample(201, "stranger-ancestor.exe", 0, 0)...)
 
-	got := foreignProcs(self, all)
-	for _, p := range got {
+	foreign, unattributed := classifyAll(self, all)
+	for _, p := range foreign {
 		if p.pid == 300 {
-			t.Fatalf("foreignProcs(%d, ...) followed a recycled pid into a stranger's ancestry and wrongly named pid 300 foreign, got %+v", self, got)
+			t.Fatalf("classifyAll(%d, ...) followed a recycled pid into a stranger's ancestry and wrongly named pid 300 foreign, foreign=%+v", self, foreign)
 		}
+	}
+	found := false
+	for _, p := range unattributed {
+		if p.pid == 300 {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("classifyAll(%d, ...) unattributed = %+v, want pid 300 present (recycled parent, unresolved rather than dropped)", self, unattributed)
 	}
 }
 
@@ -168,11 +189,11 @@ func TestClassifyAncestry_BoundedAgainstCyclicParents(t *testing.T) {
 // its own "foreign load:" line naming image, pid, current share of one core,
 // and cumulative CPU time.
 func TestFormatMachineLoad_RendersBoxLoadAndTopForeignProcesses(t *testing.T) {
-	top := []procSample{
+	foreign := []procSample{
 		{pid: 21768, name: "find.exe", pctOneCore: 99, cpuHours: 4.5},
 		{pid: 33356, name: "find.exe", pctOneCore: 99, cpuHours: 4.0},
 	}
-	got := formatMachineLoad(24, 61, top)
+	got := formatMachineLoad(24, 61, foreign, nil)
 	want := "box: 24 cores, load 61%\n" +
 		"foreign load: find.exe (pid 21768) 99% of one core, 4.5h CPU\n" +
 		"foreign load: find.exe (pid 33356) 99% of one core, 4.0h CPU"
@@ -181,15 +202,33 @@ func TestFormatMachineLoad_RendersBoxLoadAndTopForeignProcesses(t *testing.T) {
 	}
 }
 
+// TestFormatMachineLoad_RendersUnattributedSeparatelyFromForeign pins the
+// round-2 fix directly: a process the walk could not settle must still
+// reach the reader, under its own "unattributed load:" heading, never
+// merged into "foreign load:" and never silently dropped (#548 cold review,
+// round 2 — reporting nothing here is not safer than the misattribution it
+// replaced, only quieter about failing).
+func TestFormatMachineLoad_RendersUnattributedSeparatelyFromForeign(t *testing.T) {
+	foreign := []procSample{{pid: 9000, name: "stranger.exe", pctOneCore: 50, cpuHours: 1}}
+	unattributed := []procSample{{pid: 300, name: "leftover-test.exe", pctOneCore: 90, cpuHours: 2.5}}
+	got := formatMachineLoad(4, 55, foreign, unattributed)
+	want := "box: 4 cores, load 55%\n" +
+		"foreign load: stranger.exe (pid 9000) 50% of one core, 1.0h CPU\n" +
+		"unattributed load: leftover-test.exe (pid 300) 90% of one core, 2.5h CPU"
+	if got != want {
+		t.Errorf("formatMachineLoad(...) =\n%q\nwant\n%q", got, want)
+	}
+}
+
 // TestFormatMachineLoad_NoForeignProcessesStillRendersBox is the clean-box
-// case: a box under 600s but with nothing foreign running must still say so,
-// not print a bare "box: ..." line with a trailing newline into nothing or
-// an empty foreign section that looks like a bug.
+// case: a box under 600s but with nothing foreign or unattributed running
+// must still say so, not print a bare "box: ..." line with a trailing
+// newline into nothing or an empty section that looks like a bug.
 func TestFormatMachineLoad_NoForeignProcessesStillRendersBox(t *testing.T) {
-	got := formatMachineLoad(8, 12, nil)
+	got := formatMachineLoad(8, 12, nil, nil)
 	want := "box: 8 cores, load 12%"
 	if got != want {
-		t.Errorf("formatMachineLoad(8, 12, nil) = %q, want %q", got, want)
+		t.Errorf("formatMachineLoad(8, 12, nil, nil) = %q, want %q", got, want)
 	}
 }
 
