@@ -12,6 +12,10 @@ import (
 
 // optedInLane is a repo that asked for mutation receipts, standing on a lane
 // branch with one commit of its own — the state a post-commit hook fires in.
+// The commit carries the `Mutants: run` trailer (issue #521): the post-commit
+// path only starts a job when the author asked for one, so a fixture meant to
+// exercise "a lane commit starts a job" has to say so the same way a real
+// commit would.
 func optedInLane(t *testing.T) string {
 	t.Helper()
 	// Pin the disk answer: these tests are about the job lifecycle, and a CI
@@ -25,7 +29,7 @@ func optedInLane(t *testing.T) string {
 	gitDo(t, root, "checkout", "-q", "-b", "lane/x")
 	write(t, root, "src/extra.rs", "pub fn two() -> i32 { 2 }\n")
 	gitDo(t, root, "add", "-A")
-	gitDo(t, root, "commit", "-qm", "lane work")
+	gitDo(t, root, "commit", "-qm", "lane work\n\nMutants: run")
 	return root
 }
 
@@ -70,7 +74,7 @@ func TestStartMutantsJob_NeverCancelsTheRunItSupersedes(t *testing.T) {
 	}
 	write(t, root, "src/extra.rs", "pub fn two() -> i32 { 3 }\n")
 	gitDo(t, root, "add", "-A")
-	gitDo(t, root, "commit", "-qm", "second")
+	gitDo(t, root, "commit", "-qm", "second\n\nMutants: run")
 	second, ok := StartMutantsJob(root)
 	if !ok {
 		t.Fatal("the second commit must start its own job")
@@ -106,7 +110,7 @@ func TestStartMutantsJob_ASecondCommitGetsADifferentWorktreeWhileTheFirstJobStil
 	}
 	write(t, root, "src/extra.rs", "pub fn two() -> i32 { 3 }\n")
 	gitDo(t, root, "add", "-A")
-	gitDo(t, root, "commit", "-qm", "second")
+	gitDo(t, root, "commit", "-qm", "second\n\nMutants: run")
 	second, ok := StartMutantsJob(root)
 	if !ok {
 		t.Fatal("the second commit must start its own job")
@@ -160,7 +164,7 @@ func TestStartMutantsJob_OptsInThroughAphrolloToml(t *testing.T) {
 	gitDo(t, root, "checkout", "-q", "-b", "lane/x")
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", "-A")
-	gitDo(t, root, "commit", "-qm", "lane work")
+	gitDo(t, root, "commit", "-qm", "lane work\n\nMutants: run")
 
 	if _, ok := StartMutantsJob(root); !ok {
 		t.Fatal("aphrollo.toml's [aphrollo] mutation-receipt = true must opt a repo in")

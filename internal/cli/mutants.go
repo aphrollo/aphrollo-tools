@@ -82,6 +82,14 @@ func runGateMutants(args []string, stdout, stderr io.Writer) int {
 			return tdd.ExitMutantsStatusUsage
 		}
 		return runMutantsStatus(".", *wait, stdout)
+	case "audit":
+		fs := flag.NewFlagSet("mutants audit", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		pkg := fs.String("package", "", "the crate (Rust) or package path (Go) to audit in full")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		return tdd.RunMutantsAudit(".", *pkg, stdout, stderr)
 	case "run", "go":
 		fs := flag.NewFlagSet("mutants "+args[0], flag.ContinueOnError)
 		fs.SetOutput(stderr)
@@ -219,6 +227,12 @@ const mutantsUsage = `usage: aphrollo gate mutants <verb>
   status --wait      block on the running job's own process (never a poll
                      loop) until this tree reaches a terminal state, then
                      print the same answer.
+  audit --package <name>
+                     an on-demand whole-crate (Rust) or whole-package (Go)
+                     run, never a diff. Reach for it when reviewing a unit,
+                     not as part of merging a lane: it never writes a
+                     receipt, so nothing it finds satisfies the merge gate.
+                     Prints ranked survivors as "file:line: mutation".
 
 Flags for run: --jobs N, --base <ref>, --timeout-multiplier, --minimum-test-timeout.
 Never invoke a repo's own mutation producer (for example tools/mutation_gate.sh)
