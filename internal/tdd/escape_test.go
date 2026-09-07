@@ -47,6 +47,14 @@ func main() {
 		key = "GH_STUB_" + strings.ToUpper(os.Args[1]) + "_" + strings.ToUpper(os.Args[2])
 		out = os.Getenv(key)
 	}
+	// A response can be keyed by the LABEL SET a call asked for, which is how
+	// a test states what the real gh does with repeated --label flags: it
+	// ANDs them, so a two-label query answers only the issues carrying both.
+	if labels := labelKey(key, os.Args); labels != "" {
+		if v := os.Getenv(labels); v != "" {
+			out = v
+		}
+	}
 	if out == "" {
 		out = os.Getenv("GH_STUB_OUT")
 	}
@@ -57,6 +65,41 @@ func main() {
 		fmt.Fprintln(os.Stderr, boom)
 		os.Exit(1)
 	}
+}
+
+// labelKey names the env var holding the response for this call's --label
+// set, in the order the flags were given: GH_STUB_ISSUE_LIST_LABELS_ESCAPE,
+// GH_STUB_ISSUE_LIST_LABELS_ESCAPE_FALSE_POSITIVE, and so on. "" when the
+// call passed no label, or when there is no verb/noun key to hang it off.
+func labelKey(verbNoun string, args []string) string {
+	if verbNoun == "" {
+		return ""
+	}
+	names := []string{}
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--label" {
+			names = append(names, envName(args[i+1]))
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	return verbNoun + "_LABELS_" + strings.Join(names, "_")
+}
+
+// envName upper-cases a label into something an env var can be named after:
+// every character outside A-Z0-9 becomes an underscore, so false-positive
+// reads as FALSE_POSITIVE.
+func envName(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(s) {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteByte('_')
+	}
+	return b.String()
 }
 `
 

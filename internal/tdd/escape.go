@@ -261,28 +261,32 @@ func SyncEscapes(repo string, w io.Writer) (int, error) {
 }
 
 // syncClosedEscapes marks every synced-but-not-yet-closed local record
-// closed once its GitHub issue actually is — ONE call rather than one per
-// record: every issue this loop ever opened carries the escape or
+// closed once its GitHub issue actually is — one pair of calls rather than
+// one per record: every issue this loop ever opened carries the escape or
 // false-positive label, whichever repo theme it also carries.
+//
+// Only records pointing INTO the repo being queried take part. An issue
+// number is meaningless on its own (number 9 exists in every repository) and
+// the store holds records opened against several, so a closed issue 9 here
+// must not close a record whose issue 9 is still open elsewhere.
 func syncClosedEscapes(repo string) int {
-	pending := map[int]bool{}
+	slug := githubSlug(repo)
+	if slug == "" {
+		return 0
+	}
+	pending := map[string]bool{} // record ID -> waiting on this repo's GitHub
 	for _, r := range loadEscapes() {
-		if !r.Closed && r.Number > 0 {
-			pending[r.Number] = true
+		if !r.Closed && r.Number > 0 && githubSlugFromURL(r.Issue) == slug {
+			pending[r.ID] = true
 		}
 	}
-	if len(pending) == 0 || !ghAvailable() || !hasGitHubRemote(repo) {
+	if len(pending) == 0 || !ghAvailable() {
 		return 0
 	}
-	out, err := runGh(repo, "issue", "list", "--label", EscapeKind, "--label", FalsePositiveKind,
-		"--state", "all", "--limit", "1000", "--json", "number,state")
-	if err != nil {
-		return 0
-	}
-	closedNow := closedIssueNumbers(out)
+	closedNow := closedEscapeIssues(repo)
 	n := 0
 	for _, r := range loadEscapes() {
-		if r.Closed || !pending[r.Number] || !closedNow[r.Number] {
+		if !pending[r.ID] || !closedNow[r.Number] {
 			continue
 		}
 		r.Closed = true
@@ -290,6 +294,65 @@ func syncClosedEscapes(repo string) int {
 		n++
 	}
 	return n
+}
+
+// closedEscapeIssues asks GitHub which of its escape issues are closed, ONE
+// QUERY PER KIND LABEL. Not one query carrying both: gh reads repeated
+// --label flags as an AND, and no escape issue carries both kinds, so the
+// two-label query answered [] for every store — measured on this repo as
+// "closed nothing" while all 39 issues its records pointed at were closed on
+// GitHub. A label whose query fails contributes nothing, and when every
+// query fails the result is empty: a fetch that failed reconciles nothing
+// rather than guessing.
+func closedEscapeIssues(repo string) map[int]bool {
+	closed := map[int]bool{}
+	for _, label := range []string{EscapeKind, FalsePositiveKind} {
+		out, err := runGh(repo, "issue", "list", "--label", label,
+			"--state", "all", "--limit", "1000", "--json", "number,state")
+		if err != nil {
+			continue
+		}
+		for number := range closedIssueNumbers(out) {
+			closed[number] = true
+		}
+	}
+	return closed
+}
+
+// githubSlug is the owner/name repo pushes to on GitHub, "" when it does not
+// push to GitHub at all — which is also the answer to "is there a GitHub
+// remote here" that syncClosedEscapes needs before it asks anything.
+func githubSlug(repo string) string {
+	if repo == "" {
+		return ""
+	}
+	out, err := gitRead(repo, "remote", "-v")
+	if err != nil {
+		return ""
+	}
+	for line := range strings.SplitSeq(out, "\n") {
+		for _, field := range strings.Fields(line) {
+			if slug := githubSlugFromURL(field); slug != "" {
+				return slug
+			}
+		}
+	}
+	return ""
+}
+
+// githubSlugFromURL reads owner/name out of any GitHub URL spelling: an ssh
+// remote (git@github.com:o/r.git), an https one, and the issue link a record
+// carries all name the same repository and must compare equal.
+func githubSlugFromURL(link string) string {
+	i := strings.Index(link, "github.com")
+	if i < 0 {
+		return ""
+	}
+	parts := strings.Split(strings.TrimLeft(link[i+len("github.com"):], "/:"), "/")
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return ""
+	}
+	return strings.ToLower(parts[0] + "/" + strings.TrimSuffix(parts[1], ".git"))
 }
 
 // closedIssueNumbers reads a `gh issue list --json number,state` payload into
