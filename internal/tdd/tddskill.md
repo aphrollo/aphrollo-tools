@@ -56,10 +56,16 @@ touched suites.
 
 ## Existing code
 
-No natural RED → **mutation proof**: one specific error in production code
-(flip a sign, drop a term), that exact test fails, restore byte-identically,
-report mutation + failing line. Unmutated tests over existing code certify
-nothing.
+No natural RED → **mutation proof**: name the ONE test expected to fail
+first, introduce one specific error in production code (flip a sign, drop a
+term), confirm THAT test — not merely "something" — is what moved, restore
+byte-identically, report mutation + failing line. A generic red is not
+evidence; the predicted line moving is. Before trusting any of that, confirm
+the edit actually landed (`git diff --numstat` on the file, non-empty) — a
+pattern that silently matched nothing (stale CRLF bytes, a typo, the wrong
+worktree) leaves the file untouched and an unrelated green then reads as a
+survivor that never existed. `aphrollo gate mutants prove` does both checks
+mechanically. Unmutated tests over existing code certify nothing.
 
 ## Done means evidence
 
