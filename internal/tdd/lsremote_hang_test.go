@@ -81,15 +81,18 @@ var lsRemoteHangFixtureBinary = sync.OnceValues(func() (string, error) {
 func TestRunLsRemote_ReturnsWithinTheBudgetWhenTheHelperHangs(t *testing.T) {
 	// Deliberately not t.Parallel(): the assertion below is a real wall-clock
 	// budget on process spawn/kill/wait, not a logic check. Marked parallel it
-	// measured 1.691s against a 1.5s ceiling under -shuffle=on (this package's
-	// other newly-parallel tests compete for the same OS process-table/CPU
-	// budget); serial, the same fixture stays inside 1.5s. A real defect in
-	// runLsRemote itself would still show serially — this is a resource-
-	// contention hazard specific to this test's own timing assertion, not a
-	// case for widening the tolerance. Left unmarked rather than fixed: even
-	// serial, 1.691s against a 1.5s ceiling on a contended box means this
-	// budget is already marginal — see #543 for the measurement and why it
-	// is filed rather than papered over here.
+	// measured 1.691s against the old 1.5s ceiling under -shuffle=on (this
+	// package's other newly-parallel tests compete for the same OS
+	// process-table/CPU budget); serial, the same fixture stayed inside 1.5s.
+	// A real defect in runLsRemote itself would still show serially — this is
+	// a resource-contention hazard specific to this test's own timing
+	// assertion. Left unmarked, and the ceiling raised to 5s (#543): a
+	// measured 1.691s against a 1.5s bar is a flake waiting to happen, and
+	// the ceiling is not what gives this test its teeth. The regression it
+	// guards is the fixture's 30s hang leaking past the 300ms context — 5s
+	// still fails that by a factor of six, while leaving room for process
+	// spawn and kill on a box under concurrent builds. The 300ms context
+	// budget below is the tight number and is deliberately untouched.
 	bin, err := lsRemoteHangFixtureBinary()
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +108,7 @@ func TestRunLsRemote_ReturnsWithinTheBudgetWhenTheHelperHangs(t *testing.T) {
 	if err == nil {
 		t.Fatal("runLsRemote succeeded against a helper that never answers, want an error")
 	}
-	if elapsed > 1500*time.Millisecond {
-		t.Errorf("runLsRemote took %s to return (budget 300ms + a bounded wind-down), want at most 1.5s", elapsed)
+	if elapsed > 5*time.Second {
+		t.Errorf("runLsRemote took %s to return (budget 300ms + a bounded wind-down), want at most 5s — the hang this guards is 30s", elapsed)
 	}
 }
