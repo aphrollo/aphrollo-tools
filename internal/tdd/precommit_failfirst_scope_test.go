@@ -37,8 +37,8 @@ func TestPrecommit_FailFirst_SkipsWhenNoTestDeclarationAdded(t *testing.T) {
 			t.Fatalf("fail-first (worktree run in %s) must not fire when the staged test changes add no test declaration", r.dir)
 		}
 	}
-	if len(runs) != 1 {
-		t.Fatalf("exactly the mechanical run should remain, got %d runs", len(runs))
+	if len(runs) != 0 {
+		t.Fatalf("the commit gate runs no suite, so a declaration-free test edit must run nothing; got %d runs: %+v", len(runs), runs)
 	}
 }
 

@@ -31,7 +31,7 @@ func TestPrecommit_MechanicalRejectionNamesTheFailure(t *testing.T) {
 		return SuiteResult{Passed: false, Output: fullOutput, Err: "exit status 1"}
 	}
 
-	res := Precommit(root, red)
+	res := Mechanical(root, red)
 	if !res.Blocked {
 		t.Fatal("a red mechanical run must block")
 	}
@@ -73,7 +73,7 @@ func TestPrecommit_MechanicalRejectionSurfacesRunnerError(t *testing.T) {
 		}
 		return SuiteResult{Passed: false, Output: "error: linking with `link.exe` failed\n", Err: "exit status 101"}
 	}
-	res := Precommit(root, red)
+	res := Mechanical(root, red)
 	if !res.Blocked {
 		t.Fatal("a red mechanical run must block")
 	}

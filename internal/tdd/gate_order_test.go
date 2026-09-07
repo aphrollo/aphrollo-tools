@@ -58,7 +58,10 @@ func TestPrecommit_StagesRunCheapestFirst(t *testing.T) {
 		return SuiteResult{Passed: true}
 	})
 
-	want := []string{"fmt", "always-run", "clippy", "check", "suite"}
+	// No "suite": the commit gate stops after the cheap stages. The touched
+	// packages' tests run at the merge instead — see
+	// TestPrecommit_RunsNoSuiteAtCommitTime for the measurement.
+	want := []string{"fmt", "always-run", "clippy", "check"}
 	if strings.Join(order, ",") != strings.Join(want, ",") {
 		t.Fatalf("stage order = %v, want %v", order, want)
 	}

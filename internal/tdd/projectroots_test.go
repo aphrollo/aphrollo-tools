@@ -74,7 +74,7 @@ func TestPrecommit_MultiRoot_PytestSubdirNeverTouchesCargo(t *testing.T) {
 	gitDo(t, root, "add", ".")
 
 	var seen []loggedRun
-	res := Precommit(root, recordAllRuns(&seen, func(string) bool { return true }))
+	res := Mechanical(root, recordAllRuns(&seen, func(string) bool { return true }))
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
@@ -110,7 +110,7 @@ func TestPrecommit_MultiRoot_CargoMemberScopedToOwnPackage(t *testing.T) {
 	gitDo(t, root, "add", ".")
 
 	var seen []Runner
-	res := Precommit(root, recordRunner(&seen, root+string(os.PathSeparator)+"crates"+string(os.PathSeparator)+"a"))
+	res := Mechanical(root, recordRunner(&seen, root+string(os.PathSeparator)+"crates"+string(os.PathSeparator)+"a"))
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
@@ -162,7 +162,7 @@ func TestPrecommit_MultiRoot_MixedCommit_BothRootsRun(t *testing.T) {
 	gitDo(t, root, "add", ".")
 
 	var seen []loggedRun
-	res := Precommit(root, recordAllRuns(&seen, func(string) bool { return true }))
+	res := Mechanical(root, recordAllRuns(&seen, func(string) bool { return true }))
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}

@@ -278,15 +278,13 @@ func failFirstWorktreeDir(repoRoot string) string {
 // changes actually ADD a test declaration. A declaration-free test edit
 // (lint reflow, gofmt, a renamed local) has nothing to prove RED — and
 // judging it would false-block, since a reformatted EXISTING test passes
-// at HEAD by construction. The mechanical stage still gates those.
+// at HEAD by construction. The merge gate's suite still covers those.
 // failFirstWouldRun reports whether failFirstStage will actually launch a
 // worktree run for this staged change, rather than no-op through it — the
-// same guard failFirstStage itself opens on, exported as its own predicate
-// so a caller can decide whether pairing fail-first with the mechanical
-// suite concurrently is worth its own cost (runFailFirstAndMechanicalConcurrently,
-// precommit_concurrent.go) BEFORE launching anything: a commit with no
+// same guard failFirstStage itself opens on, named as its own predicate so a
+// caller can ask the question without launching anything. A commit with no
 // staged test, or one whose test adds no new declaration, never runs
-// fail-first at all, so there is nothing there to run concurrently with.
+// fail-first at all.
 func failFirstWouldRun(repoRoot string, tests, srcs []string) bool {
 	return len(tests) > 0 && len(srcs) > 0 && stagedTestsAddDeclIn(repoRoot, tests)
 }

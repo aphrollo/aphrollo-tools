@@ -40,11 +40,14 @@ func runsAt(seen *[]Runner, root string) SuiteRunner {
 
 func cmdLine(r Runner) string { return strings.TrimSpace(r.Cmd + " " + strings.Join(r.Args, " ")) }
 
+// ratchet: test_removed TestPrecommitGoRootRunsVetThenLintThenTheSuite: the commit gate no longer runs a suite, so the third element of its want is gone and the claim is a different one; restated below as TestPrecommitGo_RootRunsVetThenLintAndStopsThere.
+
 // CI runs vet and the linter; a gate that does not runs a different check
 // from the one that decides whether the branch is green. Order is the cost
-// order: vet compiles nothing extra, lint is a full analysis pass, the suite
-// builds and links.
-func TestPrecommitGoRootRunsVetThenLintThenTheSuite(t *testing.T) {
+// order: vet compiles nothing extra, lint is a full analysis pass. Nothing
+// follows them at commit time: a suite reappearing here is the break this
+// test catches, and it is the merge gate's job now.
+func TestPrecommitGo_RootRunsVetThenLintAndStopsThere(t *testing.T) {
 	root := makeGoRepo(t)
 	withLinter(t, true)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
@@ -58,7 +61,9 @@ func TestPrecommitGoRootRunsVetThenLintThenTheSuite(t *testing.T) {
 	for _, r := range seen {
 		order = append(order, cmdLine(r))
 	}
-	want := []string{"go vet ./...", "golangci-lint run --allow-serial-runners .", "go test -count=1 -shuffle=on ."}
+	// The suite is absent by design: vet and lint are the commit gate's
+	// remaining Go stages, and the suite runs at the merge.
+	want := []string{"go vet ./...", "golangci-lint run --allow-serial-runners ."}
 	if strings.Join(order, " | ") != strings.Join(want, " | ") {
 		t.Fatalf("stages ran %v, want %v", order, want)
 	}

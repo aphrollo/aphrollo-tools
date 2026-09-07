@@ -171,7 +171,7 @@ func TestPrecommit_Mechanical_CargoMember_RunsFromWorkspaceRoot(t *testing.T) {
 	gitDo(t, root, "add", ".")
 
 	var seen []Runner
-	res := Precommit(root, recordRunner(&seen, filepath.Join(root, "crates", "alpha")))
+	res := Mechanical(root, recordRunner(&seen, filepath.Join(root, "crates", "alpha")))
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}

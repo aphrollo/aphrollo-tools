@@ -77,13 +77,16 @@ func gateRootCargo(gateName, repoRoot string, g rootGroup, rootFiles []string, r
 	// read artifacts fail-first built from HEAD before they are removed.
 	// That is real shared state, not incidental sequencing, so cargo stays
 	// out of scope for the concurrency change — see
-	// runFailFirstAndMechanicalConcurrently's own doc comment.
+	// the commit gate no longer runs a suite here at all.
 	if failFirst {
 		if res := failFirstStageWithRustNotice(repoRoot, g.root, g.tests, g.srcs, run); res.Blocked {
 			return res
 		}
 	}
-	if len(plan.touched) > 0 {
+	// The touched crates' suite runs at the merge, not at every commit — see
+	// gateRoot for the measurement behind that. failFirst is true only for the
+	// commit gate, so this is the merge path.
+	if !failFirst && len(plan.touched) > 0 {
 		if res := suiteStage(gateName, repoRoot, g.root, plan.suiteRunner(), run); res.Blocked {
 			return res
 		}
