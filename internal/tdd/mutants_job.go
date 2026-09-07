@@ -223,7 +223,11 @@ func mutationJudgedLocally(root string) bool {
 // checkout is `--git-common-dir`'s PARENT: that path names the one `.git`
 // directory every worktree of the repo shares, regardless of which one asked.
 func MutantsWorktreeDir(repoRoot string) string {
-	return filepath.Join(MutantsRootDir(repoRoot), mutantsLaneKey(repoRoot))
+	root := MutantsRootDir(repoRoot)
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(root, mutantsLaneKey(repoRoot))
 }
 
 // MutantsRootDir is the repo's one mutants directory, holding a subdirectory
@@ -231,10 +235,13 @@ func MutantsWorktreeDir(repoRoot string) string {
 // tree: the build-slot bypass, the gc sweep and the primary-checkout guardrail
 // all ask "is this path inside the repo's mutants area", a question that must
 // stay true however many lanes are measuring.
+//
+// "" when repoRoot's primary cannot be resolved (issue #515) — refuse rather
+// than fall back to repoRoot, which reproduces the nested path above.
 func MutantsRootDir(repoRoot string) string {
 	primary := primaryCheckoutRoot(repoRoot)
 	if primary == "" {
-		primary = filepath.Clean(repoRoot)
+		return ""
 	}
 	return filepath.Join(filepath.Dir(primary), ".worktrees", filepath.Base(primary), "mutants")
 }
@@ -340,7 +347,10 @@ func primaryCheckoutRoot(repoRoot string) string {
 // the build-slot bypass is keyed on exactly that containment: a target dir
 // outside it queues like every other build.
 func MutantsTargetDir(repoRoot string) string {
-	return filepath.Join(MutantsRootDir(repoRoot), "target")
+	if root := MutantsRootDir(repoRoot); root != "" {
+		return filepath.Join(root, "target")
+	}
+	return ""
 }
 
 // mutantsRunDir holds the job's own output inside that build directory.

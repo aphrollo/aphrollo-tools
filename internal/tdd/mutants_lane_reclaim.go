@@ -42,6 +42,12 @@ func writeMutantsLaneMarker(tree, lane string) {
 // prevent.
 func reclaimStaleMutantsLanes(repoRoot string) {
 	root := MutantsRootDir(repoRoot)
+	if root == "" {
+		// repoRoot's primary checkout could not be resolved: there is no known
+		// mutants area to sweep, and reclaiming under a guess is worse than
+		// reclaiming nothing.
+		return
+	}
 	producerAlive := mutantsRunningFn()
 	liveJobs := RunningMutantsJobs(commonGitDir(repoRoot))
 	for _, e := range readDir(root) {

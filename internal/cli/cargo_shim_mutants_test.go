@@ -119,7 +119,9 @@ func TestQueueBypass_IsHonouredOnlyUnderTheMutantsTargetDir(t *testing.T) {
 	}
 	// The repo's one shared mutation target dir sits DIRECTLY under the mutants
 	// root, beside the per-lane trees, and is what every lane's run builds into.
-	shared := tdd.MutantsTargetDir(filepath.Join(parent, "borld"))
+	// A real repo, not a bare path: MutantsTargetDir only resolves one.
+	repo := gitInit(t, map[string]string{"x.txt": "x\n"})
+	shared := tdd.MutantsTargetDir(repo)
 	if !queueBypassAllowed(filepath.Join(shared, "debug", "deps")) {
 		t.Fatalf("the repo's shared mutation target dir (%s) must bypass the queue, or every lane's run queues behind every editor", shared)
 	}
@@ -129,6 +131,23 @@ func TestQueueBypass_IsHonouredOnlyUnderTheMutantsTargetDir(t *testing.T) {
 	t.Setenv(tdd.QueueEnv, "")
 	if queueBypassAllowed(mutants) {
 		t.Fatal("without the environment asking for it, nothing bypasses")
+	}
+}
+
+// A repo whose primary checkout cannot be resolved (issue #515) makes
+// MutantsTargetDir answer "" rather than a guessed path — and the bypass must
+// read that as NOT contained, never as everything. queueBypassAllowed's own
+// `targetDir == ""` check already refuses this; this pins it so the answer
+// stays NO once MutantsTargetDir can reach it in practice.
+func TestQueueBypass_RefusesWhenTheMutantsTargetCannotBeResolved(t *testing.T) {
+	unresolved := filepath.Join(t.TempDir(), "never-a-repo")
+	target := tdd.MutantsTargetDir(unresolved)
+	if target != "" {
+		t.Fatalf("MutantsTargetDir(%q) = %q, want \"\" — nothing here has ever been a git repository", unresolved, target)
+	}
+	t.Setenv(tdd.QueueEnv, tdd.QueueBypass)
+	if queueBypassAllowed(target) {
+		t.Fatal(`queueBypassAllowed("") must never bypass the queue — an unresolved root is not contained in anything`)
 	}
 }
 

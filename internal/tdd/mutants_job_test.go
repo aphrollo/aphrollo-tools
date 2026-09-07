@@ -225,18 +225,17 @@ func TestStartMutantsJob_TheCargoWorkspaceDeclaresTheSameOptOut(t *testing.T) {
 // build this whole design removes. The root is what every containment check
 // keys on.
 func TestMutantsWorktree_IsOneDedicatedTreeUnderTheRepoMutantsRoot(t *testing.T) {
-	parent := t.TempDir()
-	repo := filepath.Join(parent, "borld")
-	want := filepath.Join(parent, ".worktrees", "borld", "mutants")
-	if got := MutantsRootDir(repo); got != want {
+	root := makeCargoRepo(t)
+	want := filepath.Join(filepath.Dir(root), ".worktrees", filepath.Base(root), "mutants")
+	if got := MutantsRootDir(root); got != want {
 		t.Fatalf("MutantsRootDir = %q, want %q", got, want)
 	}
-	if got := MutantsWorktreeDir(repo); !strings.HasPrefix(got, want+string(filepath.Separator)) {
+	if got := MutantsWorktreeDir(root); !strings.HasPrefix(got, want+string(filepath.Separator)) {
 		t.Fatalf("MutantsWorktreeDir = %q, want a lane directory under %q", got, want)
 	}
 	// The target dir lives under that same root — shared by every lane's tree,
 	// never inside one — because the root is what the queue bypass is keyed on.
-	if got := MutantsTargetDir(repo); !strings.HasPrefix(got, want) {
+	if got := MutantsTargetDir(root); !strings.HasPrefix(got, want) {
 		t.Fatalf("MutantsTargetDir = %q, want it under %q", got, want)
 	}
 }
