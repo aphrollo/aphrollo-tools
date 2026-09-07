@@ -29,7 +29,7 @@ func TestRunMutantsJob_DoesNotCarryAnOutcomeMeasuredAtAnotherBlob(t *testing.T) 
 	gitDo(t, root, "checkout", "-q", "-b", "lane/y")
 	write(t, root, "src/extra.rs", "pub fn two() -> i32 { 3 }\n")
 	gitDo(t, root, "add", "-A")
-	gitDo(t, root, "commit", "-qm", "lane y work")
+	gitDo(t, root, "commit", "-qm", "lane y work\n\nMutants: run")
 	j2 := laneJob(t, root)
 
 	now1 := treeStateAt(root, j1.Tip)

@@ -70,6 +70,34 @@ func buildMutantsJob(repoRoot, stage string) (MutantsJob, mutantsRefusal, error)
 			Routine: true,
 		}, nil
 	}
+	// Checked only once every earlier gate has passed — never for a commit on
+	// main, a repo that never opted in, or one whose mutants run in CI — so
+	// the post-commit hook, which fires after EVERY commit on the box, pays
+	// for this extra `git log` only on a commit that would otherwise start a
+	// run. Only `stage == "postcommit"` is gated at all: `stage == "mutants"`
+	// is `aphrollo gate mutants run`, typed by hand, which IS the explicit
+	// signal (issue #521) and must keep working with no trailer — it is
+	// named as the bare fallback for "I forgot" or "I want another one" in
+	// the same design that adds this gate.
+	if stage == "postcommit" {
+		requested, err := mutantsRunRequested(root)
+		switch {
+		case err != nil:
+			// NOT routine, unlike every refusal above and below it that reads
+			// as "nothing to do": a git failure here means "could not tell",
+			// and reading it as "no trailer" would drop an explicitly
+			// requested run with nothing logged — the one case this trigger
+			// exists to serve.
+			return MutantsJob{}, mutantsRefusal{
+				Reason: fmt.Sprintf("could not read HEAD's commit message to check for a `Mutants: run` trailer: %v", err),
+			}, nil
+		case !requested:
+			return MutantsJob{}, mutantsRefusal{
+				Reason:  "the last commit carries no `Mutants: run` trailer — add one and commit again, or run `aphrollo gate mutants run` by hand",
+				Routine: true,
+			}, nil
+		}
+	}
 	j := MutantsJob{
 		Schema: StateSchema, Repo: commonGitDir(root), RepoID: repoIdentity(root), RepoRoot: root, Branch: branch,
 		Tip: gitOut(root, "rev-parse", "HEAD"), TipTree: gitOut(root, "rev-parse", "HEAD:"),

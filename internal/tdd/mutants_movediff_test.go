@@ -119,6 +119,11 @@ func TestRunMutantsJob_ALaneOfPureMovesGetsAZeroMutantReceipt(t *testing.T) {
 	gitDo(t, root, "commit", "-qm", "opt in")
 	gitDo(t, root, "checkout", "-q", "-B", "lane/move")
 	moveTheFunction(t, root, "")
+	// laneJob below goes through the post-commit path (issue #521), which
+	// only starts a job when HEAD's own message carries the trailer —
+	// amended on, not part of moveTheFunction's own commit, since that
+	// helper is shared with tests that never start a job at all.
+	gitDo(t, root, "commit", "--amend", "-qm", "move it\n\nMutants: run")
 	withFreeSpace(t, 200)
 
 	j := laneJob(t, root)

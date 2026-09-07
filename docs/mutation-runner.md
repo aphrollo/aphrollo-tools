@@ -22,7 +22,18 @@ of these hold:
 - the commit is NOT on `main`/`master`;
 - the repo opts in — `[workspace.metadata.aphrollo] mutation-receipt = true` in
   the Cargo workspace manifest, or `[aphrollo] mutation-receipt = true` in a
-  repo-root `aphrollo.toml` for a repo with no `Cargo.toml`.
+  repo-root `aphrollo.toml` for a repo with no `Cargo.toml`;
+- the commit being made carries a `Mutants: run` trailer (issue #521; the key
+  is matched case-insensitively the way git matches every trailer key, and so
+  is the value, so `mutants: RUN` counts too).
+
+A time-based debounce was considered here instead and rejected: with a
+box-wide lock and few build slots, every speculative run displaces a real
+one, and a debounce guesses wrong in both directions — a long pause mid-lane
+spawns a run that is superseded anyway, a fast final commit starts the run
+late. The author knows when a lane is ready to be measured; the trailer is
+how they say so. Every other commit — the overwhelming majority — starts
+nothing, silently, which is the routine case.
 
 The job is started DETACHED, below normal priority, and its stdout and stderr
 go to files under the mutation worktree's build dir. It is never cancelled by a
@@ -34,7 +45,9 @@ run carries instead of re-measuring.
 `aphrollo gate mutants run`, typed in the lane, with no arguments. It builds
 the same job the hook builds — same worktree, same base, same lock — and runs
 it in the FOREGROUND so the output is on the terminal rather than in a log
-file.
+file. It is the other explicit signal issue #521 names beside the trailer —
+typed by hand it needs no `Mutants: run` trailer on anything: typing the
+command IS asking.
 
 Do not invoke the repo's own producer directly. The lock is held by the gate
 around the producer call, not by the producer itself, so a script invoked by
@@ -108,6 +121,31 @@ Exit codes, so a script can tell every state apart without parsing the text:
 checks — those are about which MERGE a receipt is for, not what its counts
 say, and receipt 4/5/6 for the same field said one way is what a script and
 the merge gate both need to agree on.
+
+### Auditing a whole crate or package
+
+A lane's own run — hooked, hand-typed, or CI's `go --diff` — measures ONE
+diff. That leaves a gap: a test weakened by a change AROUND the code it
+guards generates no mutant on a diff-scoped run, so nothing re-proves it.
+
+`aphrollo gate mutants audit --package <name>` (issue #522) closes that gap
+on demand: a whole-crate (Rust) or whole-package (Go) run, with no
+`--in-diff` at all, reached for when auditing or reviewing a unit rather than
+merging a lane. It prints its cost before starting (a whole-crate run is the
+expensive shape — baseline builds alone measured 180 min across 44 runs even
+with a warm shared target dir), and reports survivors ranked as
+`file:line: mutation`, read by a person deciding where to write a test.
+
+It is NEVER a gate and never wired into precommit, premerge or CI, and it
+writes NO receipt at all — not to `MutationReceiptPathFor`, not anywhere a
+merge could find it. A receipt is a claim about one tip tree's DIFF; a
+whole-crate run measures strictly more than any lane diff, and letting that
+satisfy the merge gate would launder a proof for a lane it never measured.
+For the same reason it drives `cargo mutants`/gremlins directly rather than a
+consuming repo's own `tools/mutation_gate.sh` — that script writes to the
+receipt path unconditionally, keyed on whatever tree it runs against, and an
+audit at the same commit a lane shares would collide with that lane's own
+receipt.
 
 ## Where a run happens
 

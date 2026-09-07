@@ -68,7 +68,9 @@ func TestRunPostCommit_ReportsAWorktreePrepareFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	run("add", "-A")
-	run("commit", "-qm", "lane work")
+	// Carries the `Mutants: run` trailer (issue #521): the post-commit path
+	// only starts a job when the author asked for one.
+	run("commit", "-qm", "lane work\n\nMutants: run")
 
 	// Block the mutants worktree's own parent directory with a FILE, so its
 	// mkdir fails.
@@ -290,5 +292,37 @@ func TestRunningOnHostedCIRunner_ReadsExactlyTheGitHubActionsSignal(t *testing.T
 	t.Setenv("GITHUB_ACTIONS", "")
 	if runningOnHostedCIRunner() {
 		t.Fatal("an unset GITHUB_ACTIONS must not read as a hosted CI runner — a developer's own shell must take the run lock")
+	}
+}
+
+// `audit` with no --package must be a usage error routed to
+// tdd.RunMutantsAudit — proven here through the dispatch, not by testing
+// RunMutantsAudit's own body again.
+func TestMutantsAudit_RefusesWithNoPackageFlag(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := Run([]string{"gate", "mutants", "audit"}, strings.NewReader(""), &out, &errb)
+	if code != 2 {
+		t.Fatalf("mutants audit with no --package exit = %d, want 2\nstderr: %s", code, errb.String())
+	}
+	if !strings.Contains(errb.String(), "--package") {
+		t.Fatalf("stderr = %q, want it to name the missing flag", errb.String())
+	}
+}
+
+// A flag `audit` does not have is a real parse error, not a silent ignore.
+func TestMutantsAudit_RejectsAnUnknownFlag(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := Run([]string{"gate", "mutants", "audit", "--bogus"}, strings.NewReader(""), &out, &errb)
+	if code != 2 {
+		t.Fatalf("mutants audit --bogus exit = %d, want 2\nstderr: %s", code, errb.String())
+	}
+}
+
+// The verb has to be findable from the usage text the way every other one is.
+func TestGateUsage_DocumentsTheAuditVerb(t *testing.T) {
+	for _, want := range []string{"audit --package <name>", "file:line: mutation"} {
+		if !strings.Contains(mutantsUsage, want) {
+			t.Errorf("mutantsUsage does not carry %q — an operator cannot find the audit verb", want)
+		}
 	}
 }
