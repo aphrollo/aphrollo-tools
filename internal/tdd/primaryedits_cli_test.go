@@ -65,7 +65,11 @@ func TestSetPrimaryEditsFromEnvSession_RestoresTheRule(t *testing.T) {
 // a waiver is in force while every edit is still refused.
 func TestSetPrimaryEditsFromEnvSession_RefusesWhenTheEnvironmentNamesNoSession(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("CLAUDE_SESSION_ID", "")
+	// Both names, or this is not the no-session case: SessionID falls back to
+	// CLAUDE_CODE_SESSION_ID, which the real environment running this test
+	// does set.
+	t.Setenv(sessionEnv, "")
+	t.Setenv(sessionCodeEnv, "")
 
 	if _, err := SetPrimaryEditsForEnvSession(true); err == nil {
 		t.Error("SetPrimaryEditsForEnvSession returned no error with no session to apply it to")
