@@ -63,9 +63,12 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 		}
 	}
 	if failFirst {
-		if res := failFirstStage(repoRoot, g.root, g.tests, g.srcs, run); res.Blocked {
-			return res
-		}
+		// Fail-first and the mechanical suite read different trees and
+		// neither writes state the other reads — see
+		// runFailFirstAndMechanicalConcurrently's own doc comment for why
+		// that is NOT true of gateRootCargo's cargo branch below, which
+		// keeps its two stages sequential.
+		return runFailFirstAndMechanicalConcurrently(gateName, repoRoot, g.root, g.tests, g.srcs, runner, run)
 	}
 	return suiteStage(gateName, repoRoot, g.root, runner, run)
 }

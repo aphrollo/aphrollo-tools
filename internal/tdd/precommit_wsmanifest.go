@@ -68,6 +68,16 @@ func gateRootCargo(gateName, repoRoot string, g rootGroup, rootFiles []string, r
 	if res := workspaceCheckStage(gateName, repoRoot, g.root, plan, run); res.Blocked {
 		return res
 	}
+	// Deliberately sequential, unlike gateRoot's non-cargo branch (issue
+	// #535): fail-first shares this workspace's own CARGO_TARGET_DIR with
+	// the mechanical stage below it and undoes the contamination with a
+	// `cargo clean` that runs AFTER the build's target-lock hold has already
+	// been released (invalidateFailFirstArtifacts, precommit_failfirst.go) —
+	// a window a concurrently-started mechanical run could slip into and
+	// read artifacts fail-first built from HEAD before they are removed.
+	// That is real shared state, not incidental sequencing, so cargo stays
+	// out of scope for the concurrency change — see
+	// runFailFirstAndMechanicalConcurrently's own doc comment.
 	if failFirst {
 		if res := failFirstStageWithRustNotice(repoRoot, g.root, g.tests, g.srcs, run); res.Blocked {
 			return res
