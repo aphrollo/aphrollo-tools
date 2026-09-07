@@ -122,7 +122,7 @@ func TestIssueLabelsReadsAphrolloTomlForANonCargoRepo(t *testing.T) {
 func TestClaudeMDBlockNamesTheIssueAndEscapeVerbs(t *testing.T) {
 	block := ClaudeMDBlock("/tmp/shims", false)
 	for _, want := range []string{
-		"aphrollo gate issue",
+		"aphrollo issue",
 		"aphrollo gate escape record",
 		"never a markdown follow-up",
 	} {

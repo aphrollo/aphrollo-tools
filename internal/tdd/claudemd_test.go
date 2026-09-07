@@ -16,7 +16,7 @@ func TestClaudeMDBlockCarriesTheOperatingInstructions(t *testing.T) {
 		claudeMDBegin, claudeMDEnd, shimDir,
 		"gate:", "QUEUED-SKIPPED", "cargo check -p", ".ratchet/laws",
 		"aphrollo ratchet", "aphrollo gate gc", "aphrollo gate stats",
-		"aphrollo gate init",
+		"aphrollo install",
 	} {
 		if !strings.Contains(block, want) {
 			t.Errorf("the block does not mention %q", want)
@@ -62,8 +62,8 @@ func TestClaudeMDBlockStatesThePrimaryCheckoutRule(t *testing.T) {
 		"merge-only",
 		"git worktree add -b lane/<name>",
 		".worktrees/<repo>/<name>",
-		"APHROLLO_PRIMARY_EDITS=1",
-		"/tdd primary-edits on",
+		"aphrollo gate allow primary",
+		"aphrollo gate revoke primary",
 		// The Bash/PowerShell hooks classify a command before it runs and can
 		// miss; the git shim judges the actual command and is what a session
 		// must not mistake the hook for (issue #118).
