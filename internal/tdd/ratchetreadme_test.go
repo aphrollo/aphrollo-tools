@@ -58,6 +58,25 @@ func TestWriteRatchetReadmeSkipsARepoWithNoRatchetDir(t *testing.T) {
 	}
 }
 
+// This repo's own .ratchet/README.md is written by the SAME generator every
+// consuming repo gets. A hand edit landing here instead of in the template
+// survives review and CI, then is discarded without warning the next time
+// `gate init`/`update` regenerates the file (issue #517: two merged PRs'
+// documentation ended up in this generated file instead of the template and
+// were reverted). This test is the guard: it goes red the moment the tracked
+// file and the template diverge.
+func TestOwnRatchetReadme_MatchesTheGeneratedOutput(t *testing.T) {
+	path := filepath.Join(repoRootForTest(t), ".ratchet", "README.md")
+	have, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	want := RatchetReadme()
+	if string(have) != want {
+		t.Errorf("%s has drifted from RatchetReadme()'s output — port the content into internal/tdd/ratchet_laws.md, never hand-edit the generated file", path)
+	}
+}
+
 // The spec has ONE source: aphrollo's README carries the same text between its
 // ratchet-spec markers, so a schema change cannot land in one and not the other.
 func TestRatchetSpecIsTheSameTextAsTheReadmeSection(t *testing.T) {
