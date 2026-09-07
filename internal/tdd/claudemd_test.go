@@ -16,7 +16,7 @@ func TestClaudeMDBlockCarriesTheOperatingInstructions(t *testing.T) {
 		claudeMDBegin, claudeMDEnd, shimDir,
 		"gate:", "QUEUED-SKIPPED", "cargo check -p", ".ratchet/laws",
 		"aphrollo ratchet", "aphrollo gate gc", "aphrollo gate stats",
-		"aphrollo gate init",
+		"aphrollo install",
 	} {
 		if !strings.Contains(block, want) {
 			t.Errorf("the block does not mention %q", want)
@@ -30,6 +30,29 @@ func TestClaudeMDBlockCarriesTheOperatingInstructions(t *testing.T) {
 	}
 	if !strings.Contains(ClaudeMDBlock(shimDir, true), "commit-msg") {
 		t.Error("a workspace with undercover = true must get the commit-message rule")
+	}
+}
+
+// TestClaudeMDBlock_VetLintClaimMatchesGoOnlyGuard is a cheap trip-wire for
+// #548's cold-review yellow: the block claims a Go root runs vet/lint,
+// which is true only because precommit_gateroot.go's goQualityStage is
+// guarded by `runner.Cmd == "go"` — pytest/vitest/zig roots get neither.
+// This does not verify the prose is accurate in general (no general
+// truth-checker over English is being attempted here) — only that the ONE
+// condition this specific claim depends on has not silently moved
+// underneath it, which is the same block-versus-binary drift #518 exists to
+// close, caught here instead of by a human re-reading both by hand.
+func TestClaudeMDBlock_VetLintClaimMatchesGoOnlyGuard(t *testing.T) {
+	src, err := os.ReadFile("precommit_gateroot.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), `if runner.Cmd == "go" {`) {
+		t.Fatal(`precommit_gateroot.go no longer guards goQualityStage with runner.Cmd == "go" — update the "a Go root also runs vet/lint" claim in ClaudeMDBlock's stage-list bullet to match`)
+	}
+	block := ClaudeMDBlock(shimDir, false)
+	if !strings.Contains(block, "a Go root also runs vet/lint") {
+		t.Fatal(`ClaudeMDBlock no longer scopes its vet/lint claim to "a Go root" — check it still matches precommit_gateroot.go's runner.Cmd == "go" guard before broadening it`)
 	}
 }
 
@@ -62,8 +85,8 @@ func TestClaudeMDBlockStatesThePrimaryCheckoutRule(t *testing.T) {
 		"merge-only",
 		"git worktree add -b lane/<name>",
 		".worktrees/<repo>/<name>",
-		"APHROLLO_PRIMARY_EDITS=1",
-		"/tdd primary-edits on",
+		"aphrollo gate allow primary",
+		"aphrollo gate revoke primary",
 		// The Bash/PowerShell hooks classify a command before it runs and can
 		// miss; the git shim judges the actual command and is what a session
 		// must not mistake the hook for (issue #118).

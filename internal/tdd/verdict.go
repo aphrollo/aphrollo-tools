@@ -83,11 +83,18 @@ func verdictFor(gateName, stage, root, cmd string, o stageOutcome) GateResult {
 		appendGateLog(gateName, root, cmd, "runner-missing", 0)
 		return GateResult{Message: line}
 	case outcomeTimeout:
-		line := fmt.Sprintf("[%s] gate %s: %s in %s TIMEOUT after %.0fs REJECTED (nothing was tested)",
-			stage, gateName, cmd, root, o.result.Duration.Seconds())
+		// A timeout is the one verdict where the code under test may be
+		// entirely innocent (#526): sample the machine once, here on the
+		// rejection path only, and carry it in both the console line and
+		// the message a session actually reads, so "this suite got slower"
+		// and "something unrelated ate the cores" no longer have to be
+		// argued from the log alone.
+		load := foreignLoadReport(os.Getpid())
+		line := fmt.Sprintf("[%s] gate %s: %s in %s TIMEOUT after %.0fs REJECTED (nothing was tested)\n%s",
+			stage, gateName, cmd, root, o.result.Duration.Seconds(), load)
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmd, "timeout-rejected", o.result.Duration)
-		return GateResult{Blocked: true, Message: o.message}
+		return GateResult{Blocked: true, Message: o.message + "\n" + load}
 	case outcomeCheckError:
 		line := fmt.Sprintf("[%s] gate %s: in %s → REJECTED (%v)", stage, gateName, root, o.err)
 		fmt.Fprintln(os.Stderr, line)

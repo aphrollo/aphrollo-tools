@@ -90,12 +90,19 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		// unlike an edit-time timeout the consequence outlives the moment:
 		// the untested code stays in history. The gate target is warm by the
 		// time this fires, so the retry usually finishes.
-		line := fmt.Sprintf("[%s] gate %s: %s in %s TIMEOUT after %.0fs REJECTED (nothing was tested)", stage, gateName, cmdString(runner), root, res.Duration.Seconds())
+		//
+		// A timeout is the one verdict where the code under test may be
+		// entirely innocent (#526): sampled once, here, never on a green
+		// run, so the reader can tell "this suite got slower" from
+		// "something unrelated ate the cores" without reasoning about it
+		// from the log alone.
+		load := foreignLoadReport(os.Getpid())
+		line := fmt.Sprintf("[%s] gate %s: %s in %s TIMEOUT after %.0fs REJECTED (nothing was tested)\n%s", stage, gateName, cmdString(runner), root, res.Duration.Seconds(), load)
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmdString(runner), "timeout-rejected", res.Duration)
 		return GateResult{Blocked: true, Message: fmt.Sprintf(
-			"gate %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused. The gate target is now warm; retry the commit.",
-			gateName, cmdString(runner), res.Duration.Seconds())}
+			"gate %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused. The gate target is now warm; retry the commit.\n%s",
+			gateName, cmdString(runner), res.Duration.Seconds(), load)}
 	case !res.Passed:
 		fmt.Fprintf(os.Stderr, "[%s] gate %s: %s in %s → blocked\n", stage, gateName, cmdString(runner), root)
 		appendGateLog(gateName, root, cmdString(runner), blockedVerdict(stage, res.Output), res.Duration)
