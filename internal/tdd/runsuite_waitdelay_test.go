@@ -15,6 +15,7 @@ import (
 // Windows, where lingering build/tool children — mspdbsrv and friends —
 // inherit the pipe and outlive cargo).
 func TestRunSuite_OrphanHeldPipeAfterCleanExit(t *testing.T) {
+	t.Parallel()
 	var r Runner
 	if runtime.GOOS == "windows" {
 		// `start /b` spawns ping sharing cmd's std handles; cmd itself exits 0

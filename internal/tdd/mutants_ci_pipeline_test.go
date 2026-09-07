@@ -17,6 +17,7 @@ import (
 // nothing behind, and the next push re-measured the whole diff from scratch.
 // The fix is an explicit `actions/cache/save` step that runs unconditionally.
 func TestNightlyMutants_SavesTheMutationOutcomeStoreEvenWhenTheMutantsStepFails(t *testing.T) {
+	t.Parallel()
 	wf := repoFile(t, ".github", "workflows", "nightly-mutants.yml")
 	for want, why := range map[string]string{
 		"actions/cache/restore@": "the store must be restored through the split action, not the combined one whose save half is unreliable on failure",

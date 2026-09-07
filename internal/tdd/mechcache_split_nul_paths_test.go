@@ -8,6 +8,7 @@ import "testing"
 // must be dropped — never left for a caller to join against a base
 // directory and stamp the base itself "gone".
 func TestSplitNulPaths_DropsOnlyTheTrailingEmptyField(t *testing.T) {
+	t.Parallel()
 	got := splitNulPaths("a\x00b\x00")
 	want := []string{"a", "b"}
 	if len(got) != len(want) {
@@ -25,6 +26,7 @@ func TestSplitNulPaths_DropsOnlyTheTrailingEmptyField(t *testing.T) {
 // path. A mutant that strips whenever the last field is non-empty (instead
 // of when it is empty) would drop "b" here.
 func TestSplitNulPaths_KeepsANonEmptyLastFieldIntact(t *testing.T) {
+	t.Parallel()
 	got := splitNulPaths("a\x00b")
 	want := []string{"a", "b"}
 	if len(got) != len(want) {
@@ -41,6 +43,7 @@ func TestSplitNulPaths_KeepsANonEmptyLastFieldIntact(t *testing.T) {
 // smallest input that reaches the trim: a single path plus its terminator
 // must yield exactly that one path, not an empty set and not two entries.
 func TestSplitNulPaths_SinglePathTerminatedByNulYieldsOneEntry(t *testing.T) {
+	t.Parallel()
 	got := splitNulPaths("a\x00")
 	want := []string{"a"}
 	if len(got) != 1 || got[0] != want[0] {

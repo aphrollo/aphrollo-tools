@@ -16,6 +16,7 @@ import (
 // so every commit touching aphrollo.toml was rejected by a stage that had
 // nothing to say about the code.
 func TestTouchedGoLintPackages_SkipsADirectoryWithNoGoFiles(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "aphrollo.toml", "[aphrollo]\n")
 	write(t, root, "internal/x/x.go", "package x\n")
@@ -33,6 +34,7 @@ func TestTouchedGoLintPackages_SkipsADirectoryWithNoGoFiles(t *testing.T) {
 // ...and a root that DOES hold Go files is still linted: the rule is "no Go
 // files here", not "never the root".
 func TestTouchedGoLintPackages_StillScopesARootThatHoldsGoFiles(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "main.go", "package main\n\nfunc main() {}\n")
 
@@ -46,6 +48,7 @@ func TestTouchedGoLintPackages_StillScopesARootThatHoldsGoFiles(t *testing.T) {
 // scope, and turning a config-only commit into a full-module lint is how a
 // cheap stage becomes the slowest one.
 func TestTouchedGoLintPackages_LintsNothingWhenNoTouchedFileHasAGoPackage(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "aphrollo.toml", "[aphrollo]\n")
 

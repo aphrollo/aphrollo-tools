@@ -35,6 +35,7 @@ func paths(cands []GCCandidate) map[string]bool {
 }
 
 func TestStrayTargetDirsProposesAnIdleHandMadeTargetDir(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	stray := filepath.Join(root, "target-sky")
 	resolved := filepath.Join(root, "target")
@@ -51,6 +52,7 @@ func TestStrayTargetDirsProposesAnIdleHandMadeTargetDir(t *testing.T) {
 }
 
 func TestStrayTargetDirsSpareTheResolvedTargetAndTheStillWarmOne(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	resolved := filepath.Join(root, "target")
 	warm := filepath.Join(root, "target-sky")
@@ -63,6 +65,7 @@ func TestStrayTargetDirsSpareTheResolvedTargetAndTheStillWarmOne(t *testing.T) {
 }
 
 func TestStrayTargetDirsIgnoresADirectoryThatIsNotACargoTarget(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	src := filepath.Join(root, "crates")
 	if err := os.MkdirAll(src, 0o755); err != nil {
@@ -87,6 +90,7 @@ func TestStrayTargetDirsIgnoresADirectoryThatIsNotACargoTarget(t *testing.T) {
 }
 
 func TestStrayTargetDirsScansEveryGivenRootAtDepthOneOnly(t *testing.T) {
+	t.Parallel()
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	worktree := filepath.Join(base, "lane")
@@ -116,6 +120,7 @@ func TestStrayTargetDirsScansEveryGivenRootAtDepthOneOnly(t *testing.T) {
 // `--target-dir` invocation on the box. Interlocked on its OWN path, like
 // every other target-scoped category, rather than assumed safe.
 func TestStrayTargetSweep_TakesABuildSlotOnItsOwnPath(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "target-sky")
 	if got := gcTargetInterlock(t.TempDir(), GCCandidate{Kind: GCKindStrayTarget, Path: path}); got != path {
 		t.Errorf("interlock = %q, want the candidate's own path %q", got, path)
@@ -123,6 +128,7 @@ func TestStrayTargetSweep_TakesABuildSlotOnItsOwnPath(t *testing.T) {
 }
 
 func TestAllGCScopesIncludesStrayTargets(t *testing.T) {
+	t.Parallel()
 	if !AllGCScopes().StrayTargets {
 		t.Error("the manual sweep must consider stray target dirs")
 	}

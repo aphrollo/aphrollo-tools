@@ -47,6 +47,7 @@ func isDocsOnlyDiff(paths []string) bool {
 // exception: an empty staged set is never read as docs-only, whatever
 // splitKinds alone would say about it.
 func TestDocsOnlyClassifier_EmptyDiffIsNotDocsOnly(t *testing.T) {
+	t.Parallel()
 	if isDocsOnlyDiff(nil) {
 		t.Fatalf("isDocsOnlyDiff(nil) = true, want false: an empty staged set is not docs-only")
 	}
@@ -58,6 +59,7 @@ func TestDocsOnlyClassifier_EmptyDiffIsNotDocsOnly(t *testing.T) {
 // different claim (TestDocsOnlyClassifier_EmptyDiffIsNotDocsOnly above), not
 // this property's "whatever their number".
 func TestDocsOnlyClassifier_AllIgnoreDiffIsDocsOnly(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(rt *rapid.T) {
 		paths := rapid.SliceOfN(rapid.Custom(func(t *rapid.T) string { return ignoreOnlyPath(t, "p") }), 1, 8).Draw(rt, "paths")
 		for _, p := range paths {
@@ -76,6 +78,7 @@ func TestDocsOnlyClassifier_AllIgnoreDiffIsDocsOnly(t *testing.T) {
 // the property that makes docsOnly's fast path safe to trust: it never skips
 // a diff that carries even one line of real code.
 func TestDocsOnlyClassifier_OneSourceFileFlipsIt(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(rt *rapid.T) {
 		paths := rapid.SliceOfN(rapid.Custom(func(t *rapid.T) string { return ignoreOnlyPath(t, "p") }), 0, 8).Draw(rt, "paths")
 		insertAt := rapid.IntRange(0, len(paths)).Draw(rt, "insertAt")

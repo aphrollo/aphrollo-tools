@@ -21,6 +21,7 @@ func preEditPayload(path, content string) []byte {
 // number whose closed form is known is the closed form, not its sign — the
 // borld case was a perpendicular-stiffness test asserting `> 1.0`.
 func TestQualityNotes_WeakPhysicsBar(t *testing.T) {
+	t.Parallel()
 	src := "#[test]\nfn stiffness_is_right() {\n    assert!(k > 0.0);\n}\n"
 	notes := TestQualityNotes(`D:\borld\crates\forge_solver\src\truss_tests.rs`, src)
 	if len(notes) == 0 || !strings.Contains(strings.Join(notes, "\n"), "closed-form") {
@@ -41,6 +42,7 @@ func TestQualityNotes_WeakPhysicsBar(t *testing.T) {
 // `_works` describes nothing, so it cannot say which production change makes
 // it red — which is the question every test must answer.
 func TestQualityNotes_GenericTestName(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"fn test_apply()", "fn apply_works()", "fn apply_basic()", "fn smoke_apply()"} {
 		src := "#[test]\n" + name + " {}\n"
 		notes := TestQualityNotes(`D:\borld\crates\ui\src\a_tests.rs`, src)
@@ -58,6 +60,7 @@ func TestQualityNotes_GenericTestName(t *testing.T) {
 // the size of the tolerance unless something says who needs it. The note is
 // silenced by a `// tolerance:` or `// why:` line above the assertion.
 func TestQualityNotes_UnexplainedTolerance(t *testing.T) {
+	t.Parallel()
 	bare := "#[test]\nfn t() {\n    assert!(approx_eq(a, b));\n}\n"
 	if notes := TestQualityNotes(`D:\borld\crates\pose\src\a_tests.rs`, bare); len(notes) == 0 {
 		t.Fatal("an unexplained tolerance must be named")
@@ -72,6 +75,7 @@ func TestQualityNotes_UnexplainedTolerance(t *testing.T) {
 // records what a machine DOES, so a sign bar or a tolerance there is the
 // point of the file.
 func TestQualityNotes_SkipPlatformPins(t *testing.T) {
+	t.Parallel()
 	src := "#[test]\nfn test_x() {\n    assert!(k > 0.0);\n}\n"
 	if notes := TestQualityNotes(`D:\borld\crates\forge_math\src\libm_platform_pin.rs`, src); len(notes) != 0 {
 		t.Fatalf("notes = %v, want a platform pin left alone", notes)
@@ -82,6 +86,7 @@ func TestQualityNotes_SkipPlatformPins(t *testing.T) {
 // judgement calls, not oracle defects. A false deny wedges the session, so
 // they ride along as advice and the edit goes through.
 func TestPreEdit_QualitySmellsWarnNeverDeny(t *testing.T) {
+	t.Parallel()
 	src := "#[test]\nfn test_apply() {\n    assert!(k > 0.0);\n}\n"
 	got, err := DecidePreEdit(preEditPayload(`D:\borld\crates\movement\src\apply_tests.rs`, src))
 	if err != nil {

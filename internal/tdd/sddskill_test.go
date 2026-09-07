@@ -15,6 +15,7 @@ func sddSkillFile(dir string) string {
 // the tdd skill carries: written on init, byte-identical on a second run, so a
 // re-init never churns the config dir.
 func TestWriteSDDSkill_WritesThenIsIdempotent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	changed, err := WriteSDDSkill(dir)
 	if err != nil {
@@ -48,6 +49,7 @@ func TestWriteSDDSkill_WritesThenIsIdempotent(t *testing.T) {
 // from, and that the tree is deleted at the end. A skill missing any of those
 // sends a session to invent its own process.
 func TestSDDSkill_StatesItsContract(t *testing.T) {
+	t.Parallel()
 	body := SDDSkill()
 	for _, want := range []string{
 		"/sdd <slug>",
@@ -87,6 +89,7 @@ func TestSDDSkill_StatesItsContract(t *testing.T) {
 // TestRemoveSDDSkill_LeavesASkillThisToolNeverWrote is the ownership limit:
 // a hand-written skill of the same name carries no marker and is the user's.
 func TestRemoveSDDSkill_LeavesASkillThisToolNeverWrote(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := WriteSDDSkill(dir); err != nil {
 		t.Fatal(err)

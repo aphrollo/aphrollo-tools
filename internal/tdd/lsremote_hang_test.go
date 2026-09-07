@@ -79,6 +79,17 @@ var lsRemoteHangFixtureBinary = sync.OnceValues(func() (string, error) {
 // exists to prevent — proving runLsRemote itself returns promptly matters
 // independently of the higher-level cache/timeout wiring in BinaryBehindLine.
 func TestRunLsRemote_ReturnsWithinTheBudgetWhenTheHelperHangs(t *testing.T) {
+	// Deliberately not t.Parallel(): the assertion below is a real wall-clock
+	// budget on process spawn/kill/wait, not a logic check. Marked parallel it
+	// measured 1.691s against a 1.5s ceiling under -shuffle=on (this package's
+	// other newly-parallel tests compete for the same OS process-table/CPU
+	// budget); serial, the same fixture stays inside 1.5s. A real defect in
+	// runLsRemote itself would still show serially — this is a resource-
+	// contention hazard specific to this test's own timing assertion, not a
+	// case for widening the tolerance. Left unmarked rather than fixed: even
+	// serial, 1.691s against a 1.5s ceiling on a contended box means this
+	// budget is already marginal — see #543 for the measurement and why it
+	// is filed rather than papered over here.
 	bin, err := lsRemoteHangFixtureBinary()
 	if err != nil {
 		t.Fatal(err)

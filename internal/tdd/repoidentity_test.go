@@ -36,6 +36,7 @@ func initRepoWithCommit(t *testing.T, content string) string {
 // Windows checkout are the same repository, and must agree even though the
 // two directories share no path spelling at all.
 func TestRepoIdentity_IsTheSameInACloneAsInTheOriginal(t *testing.T) {
+	t.Parallel()
 	origin := initRepoWithCommit(t, "hello")
 	clone := filepath.Join(t.TempDir(), "clone")
 	if out, err := git(t.TempDir(), "clone", "-q", origin, clone); err != nil {
@@ -59,6 +60,7 @@ func TestRepoIdentity_IsTheSameInACloneAsInTheOriginal(t *testing.T) {
 // identity than the checkout it was cloned from, and the receipt it produced
 // was refused. The identity is HEAD's history, which every clone shares.
 func TestRepoIdentity_IgnoresRootsReachableOnlyFromNonHeadRefs(t *testing.T) {
+	t.Parallel()
 	root := initRepoWithCommit(t, "hello")
 	before := repoIdentity(root)
 
@@ -83,6 +85,7 @@ func TestRepoIdentity_IgnoresRootsReachableOnlyFromNonHeadRefs(t *testing.T) {
 // still separates repositories: two repos with unrelated histories must never
 // share one, or a receipt from anywhere would merge anywhere.
 func TestRepoIdentity_DiffersBetweenTwoUnrelatedRepositories(t *testing.T) {
+	t.Parallel()
 	a := repoIdentity(initRepoWithCommit(t, "a"))
 	b := repoIdentity(initRepoWithCommit(t, "b"))
 	if a == "" || b == "" {
@@ -97,6 +100,7 @@ func TestRepoIdentity_DiffersBetweenTwoUnrelatedRepositories(t *testing.T) {
 // no git answer there is no identity, and judgeReceiptRepo then falls back to
 // comparing paths rather than treating "" as a match with everything.
 func TestRepoIdentity_IsEmptyOutsideARepository(t *testing.T) {
+	t.Parallel()
 	if got := repoIdentity(t.TempDir()); got != "" {
 		t.Errorf("repoIdentity(non-repo) = %q, want the empty string", got)
 	}

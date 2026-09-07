@@ -14,6 +14,7 @@ func nextestWorkspace(t *testing.T, config string) string {
 }
 
 func TestHasGateProfileReadsTheTableHeader(t *testing.T) {
+	t.Parallel()
 	cases := map[string]struct {
 		config string
 		want   bool
@@ -37,6 +38,7 @@ func TestHasGateProfileReadsTheTableHeader(t *testing.T) {
 }
 
 func TestWithGateProfileAddsTheFlagOnlyToANextestRun(t *testing.T) {
+	t.Parallel()
 	ws := nextestWorkspace(t, "[profile.gate]\nslow-timeout = { period = \"120s\" }\n")
 
 	got := withGateProfile(Runner{Cmd: "cargo", Args: []string{"nextest", "run", "-p", "solver"}, Dir: ws}, ws)
@@ -61,6 +63,7 @@ func TestWithGateProfileAddsTheFlagOnlyToANextestRun(t *testing.T) {
 // edit-time run that quietly waited longer would hide the slow test instead of
 // reporting it.
 func TestGateStageRunnersCarryTheProfileAndPostEditDoesNot(t *testing.T) {
+	t.Parallel()
 	ws := nextestWorkspace(t, "[profile.gate]\nslow-timeout = { period = \"120s\" }\n")
 	mustWrite(t, filepath.Join(ws, "Cargo.toml"), "[workspace]\nmembers = [\"solver\"]\n")
 	mustWrite(t, filepath.Join(ws, "solver", "Cargo.toml"), "[package]\nname = \"solver\"\nversion = \"0.1.0\"\n")

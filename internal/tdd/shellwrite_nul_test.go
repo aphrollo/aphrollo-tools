@@ -12,6 +12,7 @@ import (
 // guardrail read it as a write into the repo — the false block this file's
 // contract rules out. Found by FuzzBashWriteTargets (issue #218).
 func TestBashWriteTargets_ClaimsNothingForARootedNulDevice(t *testing.T) {
+	t.Parallel()
 	for _, cmd := range []string{">/nul", "echo hi > /nul", "echo hi > sub/nul", "echo hi > NUL"} {
 		if got := bashWriteTargets(cmd, filepath.FromSlash("/repo/lane")); len(got) != 0 {
 			t.Errorf("bashWriteTargets(%q) = %q, want nothing — nul is the null device in any directory, so nothing is written", cmd, got)
@@ -24,6 +25,7 @@ func TestBashWriteTargets_ClaimsNothingForARootedNulDevice(t *testing.T) {
 // guardrail claimed it as a real write into the repo — the false block this
 // file's contract rules out. Found by FuzzBashWriteTargets (issue #413).
 func TestBashWriteTargets_ClaimsNothingForAnUnrootedDevNull(t *testing.T) {
+	t.Parallel()
 	for _, cmd := range []string{">dev/null", "echo hi > dev/null"} {
 		if got := bashWriteTargets(cmd, filepath.FromSlash("/repo/lane")); len(got) != 0 {
 			t.Errorf("bashWriteTargets(%q) = %q, want nothing — a dropped leading slash still names the null device, not a real write", cmd, got)
@@ -34,6 +36,7 @@ func TestBashWriteTargets_ClaimsNothingForAnUnrootedDevNull(t *testing.T) {
 // ...and the guard is on the DEVICE name, not on any path containing it: a
 // file whose name merely starts with those letters is an ordinary write.
 func TestBashWriteTargets_StillClaimsAFileNamedLikeTheDevice(t *testing.T) {
+	t.Parallel()
 	repo := filepath.FromSlash("/repo/lane")
 	want := filepath.Join(repo, "nullable.txt")
 

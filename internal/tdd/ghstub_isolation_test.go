@@ -26,6 +26,7 @@ import (
 // the lock dir away from their real %TEMP%. A mutated guard then reaches the
 // stub, which files nothing anywhere.
 func TestGh_ResolvesToTheStubForEveryTestInThePackage(t *testing.T) {
+	t.Parallel()
 	stub, err := ghStubDir()
 	if err != nil {
 		t.Fatal(err)

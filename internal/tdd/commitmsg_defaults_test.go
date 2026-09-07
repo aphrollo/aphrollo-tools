@@ -42,6 +42,7 @@ func plainRepo(t *testing.T) string {
 // TestCommitMsg_RejectsAVagueOpenWord pins the vocabulary half of #329's
 // subject deny list: an open word that says how much changed, not what.
 func TestCommitMsg_RejectsAVagueOpenWord(t *testing.T) {
+	t.Parallel()
 	root := plainRepo(t)
 	for _, subject := range []string{"fix bug", "wip", "cleanup src dir", "misc changes here"} {
 		got := CommitMsg(root, msgFile(t, subject+"\n"))
@@ -54,6 +55,7 @@ func TestCommitMsg_RejectsAVagueOpenWord(t *testing.T) {
 // TestCommitMsg_RejectsASubjectUnderFourWords pins the length half of the
 // same deny list, independent of vocabulary.
 func TestCommitMsg_RejectsASubjectUnderFourWords(t *testing.T) {
+	t.Parallel()
 	root := plainRepo(t)
 	got := CommitMsg(root, msgFile(t, "Rename the helper\n"))
 	if !got.Blocked {
@@ -64,6 +66,7 @@ func TestCommitMsg_RejectsASubjectUnderFourWords(t *testing.T) {
 // TestCommitMsg_RejectsAFileListSubject pins the "subject that lists the
 // touched files" rule: two or more path-shaped tokens and nothing else.
 func TestCommitMsg_RejectsAFileListSubject(t *testing.T) {
+	t.Parallel()
 	root := plainRepo(t)
 	got := CommitMsg(root, msgFile(t, "internal/foo.go and internal/bar.rs\n"))
 	if !got.Blocked {
@@ -74,6 +77,7 @@ func TestCommitMsg_RejectsAFileListSubject(t *testing.T) {
 // TestCommitMsg_AllowsAnOrdinarySubject pins the negative: a normal,
 // specific subject must not trip any default check.
 func TestCommitMsg_AllowsAnOrdinarySubject(t *testing.T) {
+	t.Parallel()
 	root := plainRepo(t)
 	for _, subject := range []string{
 		"Refuse a commit whose suite never finished",
@@ -91,6 +95,7 @@ func TestCommitMsg_AllowsAnOrdinarySubject(t *testing.T) {
 // asks for: these checks are on for every repo, not gated behind the
 // undercover opt-in the tell-detection layer needs.
 func TestCommitMsg_DefaultsApplyWithoutUndercover(t *testing.T) {
+	t.Parallel()
 	root := plainRepo(t)
 	got := CommitMsg(root, msgFile(t, "wip\n"))
 	if !got.Blocked {
@@ -117,6 +122,7 @@ func stageLines(t *testing.T, root string, n int) {
 // TestCommitMsg_RequiresABodyWhenTheStagedDiffIsLarge pins the third default
 // rule: a big diff with no explanation beyond the subject is rejected.
 func TestCommitMsg_RequiresABodyWhenTheStagedDiffIsLarge(t *testing.T) {
+	t.Parallel()
 	root := plainRepo(t)
 	stageLines(t, root, 60)
 	got := CommitMsg(root, msgFile(t, "Add the big generated fixture file\n"))
@@ -131,6 +137,7 @@ func TestCommitMsg_RequiresABodyWhenTheStagedDiffIsLarge(t *testing.T) {
 // someone else's large diff must not be blocked for lacking prose nobody had
 // a chance to write.
 func TestCommitMsg_AllowsAMergeCommitWithALargeDiffAndNoBody(t *testing.T) {
+	t.Parallel()
 	root := plainRepo(t)
 	stageLines(t, root, 60)
 	got := CommitMsg(root, msgFile(t, "Merge branch 'lane/x'\n"))
@@ -143,6 +150,7 @@ func TestCommitMsg_AllowsAMergeCommitWithALargeDiffAndNoBody(t *testing.T) {
 // other side of the same fix: the merge exemption must not leak into an
 // ordinary, hand-authored commit that happens to carry the same large diff.
 func TestCommitMsg_StillRequiresABodyForANonMergeCommitWithTheSameDiff(t *testing.T) {
+	t.Parallel()
 	root := plainRepo(t)
 	stageLines(t, root, 60)
 	got := CommitMsg(root, msgFile(t, "Add the big generated fixture file\n"))
@@ -154,6 +162,7 @@ func TestCommitMsg_StillRequiresABodyForANonMergeCommitWithTheSameDiff(t *testin
 // TestCommitMsg_ALargeDiffWithAnExplanationIsAllowed pins the other side: a
 // body that actually explains the change lets the same diff through.
 func TestCommitMsg_ALargeDiffWithAnExplanationIsAllowed(t *testing.T) {
+	t.Parallel()
 	root := plainRepo(t)
 	stageLines(t, root, 60)
 	body := "Add the big generated fixture file\n\n" +
@@ -169,6 +178,7 @@ func TestCommitMsg_ALargeDiffWithAnExplanationIsAllowed(t *testing.T) {
 // half: a body carrying only file names says nothing more than the subject
 // already did, and must not satisfy the requirement.
 func TestCommitMsg_ABodyThatIsJustFileNamesDoesNotCount(t *testing.T) {
+	t.Parallel()
 	root := plainRepo(t)
 	stageLines(t, root, 60)
 	body := "Add the big generated fixture file\n\ninternal/big.txt and internal/other.txt\n"
@@ -181,6 +191,7 @@ func TestCommitMsg_ABodyThatIsJustFileNamesDoesNotCount(t *testing.T) {
 // TestCommitMsg_ASmallDiffNeedsNoBody pins the threshold: #329 draws the
 // line at 50 changed lines, not at "has no body at all".
 func TestCommitMsg_ASmallDiffNeedsNoBody(t *testing.T) {
+	t.Parallel()
 	root := plainRepo(t)
 	stageLines(t, root, 10)
 	got := CommitMsg(root, msgFile(t, "Add a small fixture file for the parser test\n"))
@@ -192,6 +203,7 @@ func TestCommitMsg_ASmallDiffNeedsNoBody(t *testing.T) {
 // TestCommitMsg_HonoursTheCommitMessageAllowList pins the escape #329 asks
 // for: a repo-declared shape (a release bump) is exempt from the defaults.
 func TestCommitMsg_HonoursTheCommitMessageAllowList(t *testing.T) {
+	t.Parallel()
 	root := plainRepo(t)
 	write(t, root, "Cargo.toml", "[workspace]\n[workspace.metadata.aphrollo]\ncommit-message-allow = [\"^v\\d+\\.\\d+\\.\\d+$\"]\n")
 	got := CommitMsg(root, msgFile(t, "v1.2.3\n"))
@@ -206,6 +218,7 @@ func TestCommitMsg_HonoursTheCommitMessageAllowList(t *testing.T) {
 // throwaway `git init` in a temp dir produces, hundreds of times over in this
 // repo's own suite, and #329's house style must never reach it.
 func TestCommitMsg_AllowsATerseSubjectWithNoAphrolloConfig(t *testing.T) {
+	t.Parallel()
 	root := gitRepo(t)
 	got := CommitMsg(root, msgFile(t, "wip\n"))
 	if got.Blocked {
@@ -217,6 +230,7 @@ func TestCommitMsg_AllowsATerseSubjectWithNoAphrolloConfig(t *testing.T) {
 // the same fix: a repo that HAS opted into aphrollo (even with none of the
 // default checks' own keys set) keeps #329's rule intact.
 func TestCommitMsg_RejectsATerseSubjectWithAphrolloConfig(t *testing.T) {
+	t.Parallel()
 	root := plainRepo(t)
 	got := CommitMsg(root, msgFile(t, "wip\n"))
 	if !got.Blocked {

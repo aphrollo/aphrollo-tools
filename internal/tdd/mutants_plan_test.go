@@ -33,6 +33,7 @@ func cachedOutcomes(out []MutantOutcome) map[mutantKey]MutantOutcome {
 // test-set hash, so it is still true, and re-measuring it is the cold build
 // the incremental plan exists to avoid.
 func TestPlanMutants_CarriesAnUnchangedFilesOutcomes(t *testing.T) {
+	t.Parallel()
 	prev := cachedOutcomes([]MutantOutcome{
 		outcome("crates/a/src/lib.rs", 12, "a", "blobA", "tsA", "caught"),
 	})
@@ -53,6 +54,7 @@ func TestPlanMutants_CarriesAnUnchangedFilesOutcomes(t *testing.T) {
 // file is byte-identical: the new test may catch a mutant the old test set
 // missed, so every outcome in that package is stale.
 func TestPlanMutants_RerunsAPackageWhoseTestSetHashChanged(t *testing.T) {
+	t.Parallel()
 	prev := cachedOutcomes([]MutantOutcome{
 		outcome("crates/a/src/lib.rs", 12, "a", "blobA", "tsA", "caught"),
 		outcome("crates/b/src/lib.rs", 3, "b", "blobB", "tsB", "caught"),
@@ -74,6 +76,7 @@ func TestPlanMutants_RerunsAPackageWhoseTestSetHashChanged(t *testing.T) {
 // The file the mutant lives in changed, so the outcome describes source that
 // is no longer there.
 func TestPlanMutants_RunsAMutantWhoseFileBlobChanged(t *testing.T) {
+	t.Parallel()
 	prev := cachedOutcomes([]MutantOutcome{
 		outcome("crates/a/src/lib.rs", 12, "a", "blobA", "tsA", "caught"),
 	})
@@ -90,6 +93,7 @@ func TestPlanMutants_RunsAMutantWhoseFileBlobChanged(t *testing.T) {
 // A mutant the previous run never saw (a line the lane just added) has no
 // outcome to carry, whatever the rest of the file did.
 func TestPlanMutants_RunsAMutantThePreviousRunNeverMeasured(t *testing.T) {
+	t.Parallel()
 	prev := cachedOutcomes([]MutantOutcome{
 		outcome("crates/a/src/lib.rs", 12, "a", "blobA", "tsA", "caught"),
 	})
@@ -107,6 +111,7 @@ func TestPlanMutants_RunsAMutantThePreviousRunNeverMeasured(t *testing.T) {
 // hash. Nothing about them is checkable, so nothing carries: a plan that
 // trusted a blank measurement would report an untested mutant as caught.
 func TestPlanMutants_RunsEverythingWhenThePreviousReceiptRecordsNoBlobs(t *testing.T) {
+	t.Parallel()
 	prev := cachedOutcomes([]MutantOutcome{
 		{File: "crates/a/src/lib.rs", Line: 12, Mutation: "replace + with -", Status: "caught"},
 	})
@@ -123,6 +128,7 @@ func TestPlanMutants_RunsEverythingWhenThePreviousReceiptRecordsNoBlobs(t *testi
 // With no previous receipt at all every mutant runs, and the plan says so
 // without dereferencing anything.
 func TestPlanMutants_RunsEverythingWithNoPreviousReceipt(t *testing.T) {
+	t.Parallel()
 	plan := PlanMutants([]MutantOutcome{want("crates/a/src/lib.rs", 12, "a")},
 		state(map[string]string{"crates/a/src/lib.rs": "blobA"}, map[string]string{"a": "tsA"}), nil, "")
 	if len(plan.Run) != 1 || len(plan.Carry) != 0 {
@@ -135,6 +141,7 @@ func TestPlanMutants_RunsEverythingWithNoPreviousReceipt(t *testing.T) {
 // after this one compares against, so an entry that kept a stale blob would
 // carry forever.
 func TestPlanMutants_StampsTheMeasurementItJudgedAgainst(t *testing.T) {
+	t.Parallel()
 	prev := cachedOutcomes([]MutantOutcome{
 		outcome("crates/a/src/lib.rs", 12, "a", "blobA", "tsA", "caught"),
 		outcome("crates/b/src/lib.rs", 3, "b", "blobB-OLD", "tsB", "caught"),
@@ -164,6 +171,7 @@ func TestPlanMutants_StampsTheMeasurementItJudgedAgainst(t *testing.T) {
 // follow-up: that disagreement is what let one mutant land in a receipt
 // twice).
 func TestPlanMutants_DoesNotCarryAMutantMeasuredUnderADifferentProducerVersion(t *testing.T) {
+	t.Parallel()
 	prev := cachedOutcomes([]MutantOutcome{
 		{File: "crates/a/src/lib.rs", Line: 12, Mutation: "replace + with -", Package: "a",
 			Blob: "blobA", Fence: "tsA", Status: "caught", ProducerVersion: "cargo-mutants 27.0.0"},
@@ -196,6 +204,7 @@ func TestPlanMutants_DoesNotCarryAMutantMeasuredUnderADifferentProducerVersion(t
 // receipt append, the same guard adoptCarriedOutcomes already applies on the
 // job path.
 func TestDedupByMutantKey_DropsAnEntryFromExtraAlreadyPresentInPrimary(t *testing.T) {
+	t.Parallel()
 	primary := []MutantOutcome{
 		{File: "a.rs", Line: 1, Mutation: "m1", Status: "caught"},
 	}

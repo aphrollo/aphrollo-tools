@@ -16,6 +16,7 @@ import (
 // the survivor at that column, leaving its same-line siblings exactly as
 // unaccepted as if no entry existed for the line at all.
 func TestSplitAcceptedSurvivors_ExactColumnEntryAcceptsOnlyItsOwnMutant(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "aphrollo.toml", strings.Join([]string{
 		"[aphrollo]",
@@ -48,6 +49,7 @@ func TestSplitAcceptedSurvivors_ExactColumnEntryAcceptsOnlyItsOwnMutant(t *testi
 // several same-line mutants it was written for, so it must not silently
 // admit any of them.
 func TestSplitAcceptedSurvivors_RefusesAColumnLessEntryWhenSameLineSiblingsExist(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "aphrollo.toml", strings.Join([]string{
 		"[aphrollo]",
@@ -80,6 +82,7 @@ func TestSplitAcceptedSurvivors_RefusesAColumnLessEntryWhenSameLineSiblingsExist
 // per line, and an accept-list entry written before #282 has no column at
 // all. It must keep matching exactly as before.
 func TestSplitAcceptedSurvivors_ColumnLessEntryStillAcceptsTheOnlyMutantOnItsLine(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "aphrollo.toml", strings.Join([]string{
 		"[aphrollo]",
@@ -109,6 +112,7 @@ func TestSplitAcceptedSurvivors_ColumnLessEntryStillAcceptsTheOnlyMutantOnItsLin
 // extension itself: three entries naming the same file, line and mutator but
 // different columns must all parse, none refused as a duplicate key.
 func TestAcceptedMutants_ParsesDistinctColumnEntriesOnOneLine(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "aphrollo.toml", strings.Join([]string{
 		"[aphrollo]",

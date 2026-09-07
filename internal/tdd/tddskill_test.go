@@ -14,6 +14,7 @@ func skillPath(dir string) string {
 // The skill is a managed file like the CLAUDE.md block: written on init,
 // byte-identical on a second run, so a re-init never churns the config dir.
 func TestWriteTDDSkill_WritesThenIsIdempotent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	changed, err := WriteTDDSkill(dir)
 	if err != nil {
@@ -45,6 +46,7 @@ func TestWriteTDDSkill_WritesThenIsIdempotent(t *testing.T) {
 // A hand edit is overwritten: the file says so in its header, and init is the
 // only writer.
 func TestWriteTDDSkill_OverwritesHandEdits(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := WriteTDDSkill(dir); err != nil {
 		t.Fatal(err)
@@ -71,6 +73,7 @@ func TestWriteTDDSkill_OverwritesHandEdits(t *testing.T) {
 // verification rule. Phrase checks, not a full-text compare, so prose edits
 // are free and a dropped rule is not.
 func TestTDDSkill_StatesItsContract(t *testing.T) {
+	t.Parallel()
 	body := TDDSkill()
 	for _, want := range []string{
 		"name: tdd",
@@ -102,6 +105,7 @@ func TestTDDSkill_StatesItsContract(t *testing.T) {
 // NAME: leaving both means two definitions of /tdd. Only the managed stub is
 // removed -- a hand-written command of the same name is the user's.
 func TestWriteTDDSkill_RetiresTheManagedCommandStub(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	cmd := filepath.Join(dir, "commands", "tdd.md")
 	if err := os.MkdirAll(filepath.Dir(cmd), 0o755); err != nil {
@@ -119,6 +123,7 @@ func TestWriteTDDSkill_RetiresTheManagedCommandStub(t *testing.T) {
 }
 
 func TestWriteTDDSkill_KeepsAForeignCommandStub(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	cmd := filepath.Join(dir, "commands", "tdd.md")
 	if err := os.MkdirAll(filepath.Dir(cmd), 0o755); err != nil {
@@ -137,6 +142,7 @@ func TestWriteTDDSkill_KeepsAForeignCommandStub(t *testing.T) {
 }
 
 func TestRemoveTDDSkill(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := WriteTDDSkill(dir); err != nil {
 		t.Fatal(err)
@@ -158,6 +164,7 @@ func TestRemoveTDDSkill(t *testing.T) {
 
 // A skill of the same name this tool did not write is the user's file.
 func TestRemoveTDDSkill_KeepsAForeignSkill(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := skillPath(dir)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

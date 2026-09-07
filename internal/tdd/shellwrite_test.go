@@ -7,6 +7,7 @@ import "testing"
 // read past the end of argv — it names no file, so psFileTarget falls
 // through to the positional scan rather than indexing one past the last arg.
 func TestPsFileTarget_ATrailingFlagWithNoValueNamesNoFile(t *testing.T) {
+	t.Parallel()
 	if got := psFileTarget([]string{"-Path"}, "-Path"); got != nil {
 		t.Fatalf("psFileTarget = %v, want nil — the flag names no file with nothing after it", got)
 	}
@@ -14,6 +15,7 @@ func TestPsFileTarget_ATrailingFlagWithNoValueNamesNoFile(t *testing.T) {
 
 // The normal case: the flag's own next argument is the file.
 func TestPsFileTarget_ReadsTheValueAfterAMatchingFlag(t *testing.T) {
+	t.Parallel()
 	got := psFileTarget([]string{"-Value", "hi", "-Path", "notes.txt"}, "-Path")
 	if len(got) != 1 || got[0] != "notes.txt" {
 		t.Fatalf("psFileTarget = %v, want [notes.txt]", got)

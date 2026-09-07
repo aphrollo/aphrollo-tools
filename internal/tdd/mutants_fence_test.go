@@ -32,6 +32,7 @@ func fenceListing(coreBlob string) string {
 var fenceDeps = map[string][]string{"crates/app": {"crates/core"}}
 
 func TestFence_ChangesWhenADependencyCrateChanges(t *testing.T) {
+	t.Parallel()
 	before := treeStateWithDeps(fenceListing("sCore"), fenceDeps)
 	after := treeStateWithDeps(fenceListing("sCore-EDITED"), fenceDeps)
 
@@ -46,6 +47,7 @@ func TestFence_ChangesWhenADependencyCrateChanges(t *testing.T) {
 // The package's own sibling source files count too: a mutant in a.rs may be
 // caught only through b.rs's behaviour, and both live in one crate.
 func TestFence_ChangesWhenASiblingSourceFileInTheSamePackageChanges(t *testing.T) {
+	t.Parallel()
 	before := treeStateWithDeps(fenceListing("sCore"), fenceDeps)
 	edited := strings.Replace(fenceListing("sCore"), "blob sApp", "blob sApp-EDITED", 1)
 	after := treeStateWithDeps(edited, fenceDeps)
@@ -57,6 +59,7 @@ func TestFence_ChangesWhenASiblingSourceFileInTheSamePackageChanges(t *testing.T
 
 // A test file still invalidates, which is what the fence replaced.
 func TestFence_ChangesWhenThePackagesTestSetChanges(t *testing.T) {
+	t.Parallel()
 	before := treeStateWithDeps(fenceListing("sCore"), fenceDeps)
 	edited := strings.Replace(fenceListing("sCore"), "blob tApp", "blob tApp-EDITED", 1)
 	if before.Fences["crates/app"] == treeStateWithDeps(edited, fenceDeps).Fences["crates/app"] {
@@ -66,6 +69,7 @@ func TestFence_ChangesWhenThePackagesTestSetChanges(t *testing.T) {
 
 // Transitively: app -> mid -> core.
 func TestFence_FollowsTheDependencyGraphTransitively(t *testing.T) {
+	t.Parallel()
 	listing := func(coreBlob string) string {
 		return strings.Join([]string{
 			"100644 blob mA\tcrates/core/Cargo.toml",
@@ -85,6 +89,7 @@ func TestFence_FollowsTheDependencyGraphTransitively(t *testing.T) {
 
 // A cyclic or self-referential graph must not hang the plan.
 func TestFence_TerminatesOnACycle(t *testing.T) {
+	t.Parallel()
 	deps := map[string][]string{"crates/app": {"crates/core"}, "crates/core": {"crates/app"}}
 	st := treeStateWithDeps(fenceListing("sCore"), deps)
 	if st.Fences["crates/app"] == "" {
@@ -96,6 +101,7 @@ func TestFence_TerminatesOnACycle(t *testing.T) {
 // workspace's path dependencies are edges, because a registry crate cannot
 // change under a lane.
 func TestCargoWorkspaceDeps_ReadsPathDependenciesFromMetadata(t *testing.T) {
+	t.Parallel()
 	meta := `{"packages":[
 	  {"name":"app","manifest_path":"/repo/crates/app/Cargo.toml","dependencies":[
 	    {"name":"core","path":"/repo/crates/core"},
@@ -115,6 +121,7 @@ func TestCargoWorkspaceDeps_ReadsPathDependenciesFromMetadata(t *testing.T) {
 // store stamped it with outcomes for every unchanged file in the repo, so
 // mutants_total stopped meaning anything about the commit.
 func TestScopeCarry_IsLimitedToTheLanesOwnFiles(t *testing.T) {
+	t.Parallel()
 	cached := cachedOutcomes([]MutantOutcome{
 		{File: "crates/app/src/lib.rs", Line: 1, Col: 5, Mutation: "m", Package: "crates/app", Blob: "sApp", Fence: "f1", Status: "caught"},
 		{File: "crates/other/src/lib.rs", Line: 2, Col: 5, Mutation: "m", Package: "crates/other", Blob: "sOther", Fence: "f2", Status: "caught"},
@@ -130,6 +137,7 @@ func TestScopeCarry_IsLimitedToTheLanesOwnFiles(t *testing.T) {
 // away by a rename — the most expensive possible re-measure for the least
 // possible change.
 func TestPlanMutants_CarriesAnOutcomeAcrossARename(t *testing.T) {
+	t.Parallel()
 	measured := MutantOutcome{File: "crates/a/src/old_name.rs", Line: 12, Col: 5,
 		Mutation: "replace > with >= in f", Package: "crates/a",
 		Blob: "sameblob", Fence: "samefence", Status: "caught"}
@@ -159,6 +167,7 @@ func TestPlanMutants_CarriesAnOutcomeAcrossARename(t *testing.T) {
 // Same content, different fence — the crate it landed in has other tests — is
 // not a carry: the code that catches it is not the code that caught it.
 func TestPlanMutants_DoesNotCarryAcrossAMoveIntoAnotherPackage(t *testing.T) {
+	t.Parallel()
 	cached := cachedOutcomes([]MutantOutcome{{File: "crates/a/src/x.rs", Line: 12, Col: 5,
 		Mutation: "replace > with >= in f", Package: "crates/a",
 		Blob: "sameblob", Fence: "fence-a", Status: "caught"}})

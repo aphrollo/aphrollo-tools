@@ -9,6 +9,7 @@ func suppressAt(content string, p phase) Action {
 }
 
 func TestSuppress_Detected(t *testing.T) {
+	t.Parallel()
 	// Each value carries a suppression directive in a comment. At edit phase it
 	// is advisory (Warn); at commit phase it is a hard block.
 	directives := []string{
@@ -37,6 +38,7 @@ func TestSuppress_Detected(t *testing.T) {
 }
 
 func TestSuppress_Allowed(t *testing.T) {
+	t.Parallel()
 	// A directive that lives in a STRING, or ordinary code, must not trip.
 	allowed := []string{
 		`msg := "remember to add //nolint here"`, // reason: directive quoted in a string, must not trip

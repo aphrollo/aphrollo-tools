@@ -21,6 +21,7 @@ func cargoCrate(t *testing.T, pkg string) string {
 // there is no `tests/image_period_tests.rs` for `--test` to select. The run
 // must be `--lib`, narrowed to that module's own tests.
 func TestNarrow_TestModuleUnderSrcRunsTheLib(t *testing.T) {
+	t.Parallel()
 	root := cargoCrate(t, "clouds")
 	base := Runner{Cmd: "cargo", Args: []string{"nextest", "run"}}
 
@@ -40,6 +41,7 @@ func TestNarrow_TestModuleUnderSrcRunsTheLib(t *testing.T) {
 // TestNarrow_NestedSrcModuleFilterUsesTheModulePath pins the derivation: the
 // path under src/ IS the module path, so src/a/b_tests.rs is a::b_tests.
 func TestNarrow_NestedSrcModuleFilterUsesTheModulePath(t *testing.T) {
+	t.Parallel()
 	root := cargoCrate(t, "forge_solver")
 	base := Runner{Cmd: "cargo", Args: []string{"nextest", "run"}}
 
@@ -52,6 +54,7 @@ func TestNarrow_NestedSrcModuleFilterUsesTheModulePath(t *testing.T) {
 // TestNarrow_LibRootHasNoFilter pins the exception: src/lib.rs IS the crate,
 // so there is no submodule to narrow to.
 func TestNarrow_LibRootHasNoFilter(t *testing.T) {
+	t.Parallel()
 	root := cargoCrate(t, "shared")
 	base := Runner{Cmd: "cargo", Args: []string{"nextest", "run"}}
 
@@ -69,6 +72,7 @@ func TestNarrow_LibRootHasNoFilter(t *testing.T) {
 // must keep working: a file directly under tests/ is its own test binary, and
 // tests/<dir>/main.rs is the <dir> binary.
 func TestNarrow_IntegrationTestsStillMapToTheirTarget(t *testing.T) {
+	t.Parallel()
 	root := cargoCrate(t, "server")
 	base := Runner{Cmd: "cargo", Args: []string{"nextest", "run"}}
 
@@ -86,6 +90,7 @@ func TestNarrow_IntegrationTestsStillMapToTheirTarget(t *testing.T) {
 // no tests at all: an example is built, a bench is built and NOT run (a bench
 // run at edit time costs minutes and proves nothing about correctness).
 func TestNarrow_ExamplesAndBenchesBuildOnly(t *testing.T) {
+	t.Parallel()
 	root := cargoCrate(t, "movement")
 	base := Runner{Cmd: "cargo", Args: []string{"nextest", "run"}}
 
@@ -103,6 +108,7 @@ func TestNarrow_ExamplesAndBenchesBuildOnly(t *testing.T) {
 // TestCargoModuleFilter_DerivesTheModulePath pins the mapping itself, so the
 // rule is readable without a runner around it.
 func TestCargoModuleFilter_DerivesTheModulePath(t *testing.T) {
+	t.Parallel()
 	cases := []struct{ rel, want string }{
 		{"src/image_period_tests.rs", "image_period_tests"},
 		{"src/truss/state_tests.rs", "truss::state_tests"},

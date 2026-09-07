@@ -15,6 +15,7 @@ import (
 // unopenable lock reads as HELD (it fails closed, deliberately) — so a shared
 // lock created private is a lock that blocks every other user forever.
 func TestTryAcquireFileLock_LeavesTheLockFileWritableByEveryAccount(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "shared.lock")
 	release, ok := TryAcquireFileLock(path)
 	if !ok {

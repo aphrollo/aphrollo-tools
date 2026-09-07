@@ -15,6 +15,7 @@ import (
 //
 // which rejected a lane merge for a reason that was not about the code.
 func TestNarrowToStaged_SkipsAPackageDirectoryWithNoGoFiles(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "aphrollo.toml", "[aphrollo]\n")
 	write(t, root, "internal/x/x.go", "package x\n")
@@ -35,6 +36,7 @@ func TestNarrowToStaged_SkipsAPackageDirectoryWithNoGoFiles(t *testing.T) {
 // A root that DOES hold Go files is still tested: the rule is "no Go files
 // here", not "never the root".
 func TestNarrowToStaged_StillNamesARootThatHoldsGoFiles(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "main.go", "package main\n\nfunc main() {}\n")
 
@@ -49,6 +51,7 @@ func TestNarrowToStaged_StillNamesARootThatHoldsGoFiles(t *testing.T) {
 // a `go test` with no packages, which tests the current directory and fails
 // the same way.
 func TestNarrowToStaged_DeclinesWhenNoStagedFileHasAGoPackage(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "aphrollo.toml", "[aphrollo]\n")
 
@@ -66,6 +69,7 @@ func TestNarrowToStaged_DeclinesWhenNoStagedFileHasAGoPackage(t *testing.T) {
 // scope to "." (or decline entirely, if the root holds no .go files either)
 // and never run the package that pins pipeline.yml's contents (#444).
 func TestNarrowToStaged_MapsThePipelineWorkflowToInternalTDD(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, ".github/workflows/pipeline.yml", "jobs: {}\n")
 	write(t, root, "internal/tdd/x.go", "package tdd\n")

@@ -12,6 +12,7 @@ import (
 // gated commit dies with "not found". The shim must embed the path
 // slash-normalized AND quoted (quoting also survives `C:\Program Files\…`).
 func TestBinShim_WindowsPathIsShSafe(t *testing.T) {
+	t.Parallel()
 	got := binShim(`C:\Users\me\bin\aphrollo.exe`, "precommit", "")
 	want := "exec \"C:/Users/me/bin/aphrollo.exe\" gate precommit \"$@\"\n"
 	if !strings.HasSuffix(got, want) {
@@ -21,6 +22,7 @@ func TestBinShim_WindowsPathIsShSafe(t *testing.T) {
 
 // The POSIX path keeps working — quoted now, but the same binary invocation.
 func TestBinShim_PosixPathQuoted(t *testing.T) {
+	t.Parallel()
 	got := binShim("/usr/local/bin/aphrollo", "precommit", "")
 	want := "exec \"/usr/local/bin/aphrollo\" gate precommit \"$@\"\n"
 	if !strings.HasSuffix(got, want) {
@@ -30,6 +32,7 @@ func TestBinShim_PosixPathQuoted(t *testing.T) {
 
 // Same defect, per-repo installer's generator.
 func TestShim_WindowsPathIsShSafe(t *testing.T) {
+	t.Parallel()
 	got := shim(`C:\Users\me\bin\aphrollo.exe`, "precommit")
 	if !strings.Contains(got, "\"C:/Users/me/bin/aphrollo.exe\"") {
 		t.Fatalf("shim must quote + slash-normalize a windows path, got: %q", got)
@@ -46,6 +49,7 @@ func TestShim_WindowsPathIsShSafe(t *testing.T) {
 // hook died "command not found" live. The written command must be
 // slash-normalized and quoted.
 func TestPatchSettings_WindowsBinPathIsShellSafe(t *testing.T) {
+	t.Parallel()
 	out, _, err := PatchSettings([]byte(`{}`), `C:\Users\me\bin\aphrollo.exe`)
 	if err != nil {
 		t.Fatal(err)
@@ -63,6 +67,7 @@ func TestPatchSettings_WindowsBinPathIsShellSafe(t *testing.T) {
 // And the patch must still recognise its own quoted-path entries as managed on
 // a re-run (idempotence), not append duplicates beside them.
 func TestPatchSettings_IdempotentWithWindowsQuotedPath(t *testing.T) {
+	t.Parallel()
 	bin := `C:\Users\me\bin\aphrollo.exe`
 	first, _, err := PatchSettings([]byte(`{}`), bin)
 	if err != nil {
@@ -86,6 +91,7 @@ func TestPatchSettings_IdempotentWithWindowsQuotedPath(t *testing.T) {
 // marker list only knew `/hooks/tdd-`. Result observed live: init APPENDED the
 // aphrollo hooks beside the node ones and every event double-fired.
 func TestPatchSettings_RemovesWindowsPathNodeEntries(t *testing.T) {
+	t.Parallel()
 	existing := []byte(`{
 	  "hooks": {
 	    "PostToolUse": [

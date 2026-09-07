@@ -18,6 +18,7 @@ import (
 // on (the package only builds deferred_windows.go there); it is verified
 // with `GOOS=linux go vet ./internal/tdd/` instead of `go test`.
 func TestProcessStartTime_ReturnsCreationTimeForTheCallingProcess(t *testing.T) {
+	t.Parallel()
 	got, ok := processStartTime(os.Getpid())
 
 	if !ok {

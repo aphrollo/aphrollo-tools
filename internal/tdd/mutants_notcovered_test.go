@@ -24,6 +24,7 @@ import "testing"
 
 // TestGremlinsStatus_NotCoveredIsItsOwnStatusNotAMiss pins the mapping.
 func TestGremlinsStatus_NotCoveredIsItsOwnStatusNotAMiss(t *testing.T) {
+	t.Parallel()
 	if got := gremlinsStatus("NOT COVERED"); got != gremlinsNotCovered {
 		t.Errorf("gremlinsStatus(%q) = %q, want %q — an unmeasured mutant is not a miss", "NOT COVERED", got, gremlinsNotCovered)
 	}
@@ -39,6 +40,7 @@ func TestGremlinsStatus_NotCoveredIsItsOwnStatusNotAMiss(t *testing.T) {
 // Survivors or Unaccepted, because a non-empty Unaccepted is what refuses a
 // merge.
 func TestGoMutantsReceipt_DoesNotCountAnUnmeasuredMutantAsASurvivor(t *testing.T) {
+	t.Parallel()
 	mutants := []MutantOutcome{
 		{File: "a.go", Line: 1, Mutation: "x", Status: "caught"},
 		{File: "a.go", Line: 2, Mutation: "y", Status: gremlinsNotCovered},
@@ -62,6 +64,7 @@ func TestGoMutantsReceipt_DoesNotCountAnUnmeasuredMutantAsASurvivor(t *testing.T
 // TestGoMutantsReceipt_StillCountsALivedMutantAsASurvivor guards the other
 // direction: this change must not make a real survivor disappear.
 func TestGoMutantsReceipt_StillCountsALivedMutantAsASurvivor(t *testing.T) {
+	t.Parallel()
 	mutants := []MutantOutcome{
 		{File: "a.go", Line: 3, Mutation: "z", Status: "missed"},
 	}

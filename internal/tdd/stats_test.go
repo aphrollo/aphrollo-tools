@@ -11,6 +11,7 @@ import (
 // to know how often the gate timed out, queued or deferred was to read
 // thousands of gate.log lines by eye.
 func TestGateStats_TalliesTheLogByStageAndOutcome(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
 	log := strings.Join([]string{
 		stamp(now.Add(-30*time.Minute), "postedit", `D:\repo\crates\server`, "cargo nextest run -p server", "green", 12.5),
@@ -53,6 +54,7 @@ func TestGateStats_TalliesTheLogByStageAndOutcome(t *testing.T) {
 // on those, so every Windows-written entry was tallied under the whole path
 // as if it were one enormous crate name.
 func TestGateStats_DerivesTheCrateFromEitherSeparator(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
 	log := stamp(at, "postedit", `D:\repo\crates\server`, "cargo nextest run -p server", "timeout", 110) +
 		stamp(at, "postedit", "/home/runner/repo/crates/pose", "cargo nextest run -p pose", "timeout", 110) +
@@ -74,6 +76,7 @@ func TestGateStats_DerivesTheCrateFromEitherSeparator(t *testing.T) {
 // TestGateStats_WithoutASinceCoversTheWholeLog pins the default: an operator
 // asking "how is the pipeline doing" with no window means all of it.
 func TestGateStats_WithoutASinceCoversTheWholeLog(t *testing.T) {
+	t.Parallel()
 	old := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	log := stamp(old, "precommit", `D:\repo`, "go test ./...", "green", 3)
 
@@ -87,6 +90,7 @@ func TestGateStats_WithoutASinceCoversTheWholeLog(t *testing.T) {
 // stage with no rows still appears, so "zero timeouts" and "never ran" are
 // not the same blank.
 func TestRenderGateStats_NamesEveryColumnItCounted(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC()
 	log := stamp(now, "postedit", `D:\repo\crates\pose`, "cargo nextest run -p pose", "queued-skipped", 0)
 	out := RenderGateStats(GateStats(strings.NewReader(log), time.Time{}))
@@ -103,6 +107,7 @@ func TestRenderGateStats_NamesEveryColumnItCounted(t *testing.T) {
 // shape but have different causes, and collapsing them would hide which one
 // a pipeline is actually seeing.
 func TestGateStats_CountsVacuousRejectedBesideTimeoutRejected(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC()
 	log := stamp(now, "precommit", `D:\repo`, "go test .", "vacuous-rejected", 0.4)
 
@@ -125,6 +130,7 @@ func stamp(at time.Time, stage, root, cmd, verdict string, secs float64) string 
 // gate.log, and until now nothing in `gate stats` counted it, so the one
 // number that would have shown a session hand-writing a receipt was invisible.
 func TestGateStats_CountsTheReceiptVerdicts(t *testing.T) {
+	t.Parallel()
 	log := strings.Join([]string{
 		stamp(time.Now().UTC(), "premergecommit", "/repo", "receipt", "receipt-forged", 0),
 		stamp(time.Now().UTC(), "premergecommit", "/repo", "receipt", "receipt-unsigned", 0),
@@ -153,6 +159,7 @@ func TestGateStats_CountsTheReceiptVerdicts(t *testing.T) {
 // colon-less "receipt-rejected" (asserted only via s.Receipts elsewhere)
 // already did before this fix.
 func TestGateStats_CountsReceiptRejectionsByReasonInTheDeniesTable(t *testing.T) {
+	t.Parallel()
 	log := strings.Join([]string{
 		stamp(time.Now().UTC(), "premergecommit", "/repo", "mutation-receipt", "receipt-rejected:base-mismatch", 0),
 		stamp(time.Now().UTC(), "premergecommit", "/repo", "mutation-receipt", "receipt-rejected:base-mismatch", 0),
@@ -181,6 +188,7 @@ func TestGateStats_CountsReceiptRejectionsByReasonInTheDeniesTable(t *testing.T)
 // actually writes: that one is a pre-existing, separate parsing defect,
 // tracked on its own rather than fixed here).
 func TestGateStats_CountsEveryStandDownVerdict(t *testing.T) {
+	t.Parallel()
 	log := strings.Join([]string{
 		stamp(time.Now().UTC(), "precommit", "/repo", "go test .", "skipped", 0),
 		stamp(time.Now().UTC(), "precommit", "/repo", "go vet ./...", "runner-missing", 0),
@@ -217,6 +225,7 @@ func TestGateStats_CountsEveryStandDownVerdict(t *testing.T) {
 // questions are not mutually exclusive, and folding one into the other would
 // lose whichever answer nobody asked for.
 func TestGateStats_QueuedSkippedCountsInStandDownsAlongsideContention(t *testing.T) {
+	t.Parallel()
 	log := stamp(time.Now().UTC(), "postedit", `D:\repo\crates\pose`, "cargo nextest run -p pose", "queued-skipped", 0)
 	s := GateStats(strings.NewReader(log), time.Time{})
 	if s.StandDowns["queued-skipped"] != 1 {
@@ -235,6 +244,7 @@ func TestGateStats_QueuedSkippedCountsInStandDownsAlongsideContention(t *testing
 // tolerable is that every use is counted, so a bypass nobody expected shows up
 // in the same table as every other waiver.
 func TestGateStats_CountsAQueueBypass(t *testing.T) {
+	t.Parallel()
 	log := stamp(time.Now().UTC(), "precommit", "/repo", "cargo", "queue-bypass", 0) + "\n"
 	s := GateStats(strings.NewReader(log), time.Time{})
 	if s.Denies["queue-bypass"] != 1 {
@@ -251,6 +261,7 @@ func TestGateStats_CountsAQueueBypass(t *testing.T) {
 // `git ls-remote` is invisible to `gate stats` the same way a hand-written
 // receipt used to be.
 func TestGateStats_CountsABinaryBehindStanddown(t *testing.T) {
+	t.Parallel()
 	log := strings.Join([]string{
 		stamp(time.Now().UTC(), "binary-behind", "-", "git ls-remote", "standdown-timeout", 0),
 		stamp(time.Now().UTC(), "binary-behind", "-", "git ls-remote", "standdown-failed", 0),
@@ -274,6 +285,7 @@ func TestGateStats_CountsABinaryBehindStanddown(t *testing.T) {
 // text and all, so a session watching the box sees a lane's mutation proof
 // silently not-starting.
 func TestGateStats_CountsAMutantsWorktreeFailure(t *testing.T) {
+	t.Parallel()
 	log := stamp(time.Now().UTC(), "postcommit", "/repo", "mutants",
 		"mutants-worktree-failed:fatal:_could_not_create_leading_directories", 0) + "\n"
 	s := GateStats(strings.NewReader(log), time.Time{})
@@ -289,6 +301,7 @@ func TestGateStats_CountsAMutantsWorktreeFailure(t *testing.T) {
 // side by side, so an audit can tell an accepted receipt (once it left a
 // line at all, issue #136) from a stage that never ran.
 func TestGateStats_CountsMutationReceiptOutcomesSideBySide(t *testing.T) {
+	t.Parallel()
 	log := strings.Join([]string{
 		stamp(time.Now().UTC(), "premergecommit", "/repo", "mutation-receipt",
 			"receipt-accepted:abc123_caught=5_missed=0_accepted=0", 0),
@@ -315,6 +328,7 @@ func TestGateStats_CountsMutationReceiptOutcomesSideBySide(t *testing.T) {
 // until this, none of them was counted, so a session that hit `reset --hard`
 // twice and bypassed it twice left no number anywhere.
 func TestStats_CountsDiscardRefusalsAndOverrides(t *testing.T) {
+	t.Parallel()
 	log := strings.Join([]string{
 		stamp(time.Now().UTC(), "git", "/repo", "git", "git-discard-refused:reset---hard", 0),
 		stamp(time.Now().UTC(), "git", "/repo", "git", "git-discard-refused:reset---hard", 0),
@@ -343,6 +357,7 @@ func TestStats_CountsDiscardRefusalsAndOverrides(t *testing.T) {
 // never render as a row of confirmed zeros -- that reads as "ran clean" when
 // the truth is "this table's vocabulary never applies to this stage".
 func TestRenderGateStats_UnmeasuredStageReadsAsDashNotZero(t *testing.T) {
+	t.Parallel()
 	log := stamp(time.Now().UTC(), "mutants", "/repo", "mutants", "mutants-started:abc123", 0) + "\n"
 	out := RenderGateStats(GateStats(strings.NewReader(log), time.Time{}))
 
@@ -360,6 +375,7 @@ func TestRenderGateStats_UnmeasuredStageReadsAsDashNotZero(t *testing.T) {
 // row is a real count -- including a column that legitimately never fired,
 // which must still read as 0, never as a dash meant for "never measured".
 func TestRenderGateStats_MeasuredStageStillShowsARealZero(t *testing.T) {
+	t.Parallel()
 	log := stamp(time.Now().UTC(), "postedit", "/repo", "cargo", "green", 1.0) + "\n"
 	out := RenderGateStats(GateStats(strings.NewReader(log), time.Time{}))
 
