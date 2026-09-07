@@ -22,21 +22,27 @@ import (
 // fourth alias added to either table is caught the moment the block
 // mentions it, with no edit to this test required.
 func TestClaudeMDBlock_NeverTeachesARetiringAlias(t *testing.T) {
-	checkTable := func(t *testing.T, block string, table []Verb, prefix string) {
-		t.Helper()
-		for _, v := range table {
-			if !v.Alias {
-				continue
-			}
-			phrase := prefix + v.Name
-			if strings.Contains(block, phrase) {
-				t.Errorf("ClaudeMDBlock contains %q, a retiring alias of %q — point it at the canonical spelling instead", phrase, v.Of)
-			}
-		}
-	}
 	for _, undercover := range []bool{false, true} {
 		block := tdd.ClaudeMDBlock(`C:\shim`, undercover)
 		checkTable(t, block, topLevelVerbTable, "aphrollo ")
 		checkTable(t, block, gateVerbTable, "gate ")
+	}
+}
+
+// checkTable fails t for every alias in table whose phrase (prefix + the
+// alias's own name, e.g. "aphrollo init" or "gate issue") appears in block —
+// shared by every generated-text surface that must never teach a retiring
+// alias (#551), so each surface's own test names only the block it renders
+// and the two tables, never a hardcoded verb.
+func checkTable(t *testing.T, block string, table []Verb, prefix string) {
+	t.Helper()
+	for _, v := range table {
+		if !v.Alias {
+			continue
+		}
+		phrase := prefix + v.Name
+		if strings.Contains(block, phrase) {
+			t.Errorf("output contains %q, a retiring alias of %q — point it at the canonical spelling instead", phrase, v.Of)
+		}
 	}
 }

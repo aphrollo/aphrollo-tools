@@ -87,16 +87,16 @@ func Doctor(in DoctorInput) []DoctorCheck {
 func doctorGitHooksPath(in DoctorInput) DoctorCheck {
 	c := DoctorCheck{Name: "git hooks path"}
 	if in.GitHooksPath == "" {
-		c.Detail = "core.hooksPath is not set — run `aphrollo gate init`"
+		c.Detail = "core.hooksPath is not set — run `aphrollo install`"
 		return c
 	}
 	fi, err := os.Stat(in.GitHooksPath)
 	if err != nil || !fi.IsDir() {
-		c.Detail = fmt.Sprintf("core.hooksPath is set to %s, which does not exist — git runs no hooks at all; run `aphrollo gate init`", in.GitHooksPath)
+		c.Detail = fmt.Sprintf("core.hooksPath is set to %s, which does not exist — git runs no hooks at all; run `aphrollo install`", in.GitHooksPath)
 		return c
 	}
 	if !managedHooksDir(in.GitHooksPath) {
-		c.Detail = fmt.Sprintf("core.hooksPath %s does not carry this tool's managed shims — run `aphrollo gate init`", in.GitHooksPath)
+		c.Detail = fmt.Sprintf("core.hooksPath %s does not carry this tool's managed shims — run `aphrollo install`", in.GitHooksPath)
 		return c
 	}
 	c.OK = true
@@ -156,11 +156,11 @@ func doctorHookBinary(in DoctorInput) DoctorCheck {
 	c := DoctorCheck{Name: "hook binary"}
 	paths := managedHookBinaries(in.ConfigDir)
 	if len(paths) == 0 {
-		c.Detail = "no aphrollo hooks in settings.json — run `aphrollo gate init`"
+		c.Detail = "no aphrollo hooks in settings.json — run `aphrollo install`"
 		return c
 	}
 	if len(paths) > 1 {
-		c.Detail = "hooks point at " + strings.Join(paths, " and ") + " — run `aphrollo gate init` to repoint them"
+		c.Detail = "hooks point at " + strings.Join(paths, " and ") + " — run `aphrollo install` to repoint them"
 		return c
 	}
 	installed := paths[0]
@@ -171,11 +171,11 @@ func doctorHookBinary(in DoctorInput) DoctorCheck {
 	}
 	have, err := os.Stat(fromShellPath(installed))
 	if err != nil {
-		c.Detail = fmt.Sprintf("the hooks run %s, which does not exist — run `aphrollo gate init`", installed)
+		c.Detail = fmt.Sprintf("the hooks run %s, which does not exist — run `aphrollo install`", installed)
 		return c
 	}
 	if have.Size() != want.Size() || !have.ModTime().Equal(want.ModTime()) {
-		c.Detail = fmt.Sprintf("the hooks run %s, which is not this build (%s) — run `aphrollo gate init`", installed, in.Bin)
+		c.Detail = fmt.Sprintf("the hooks run %s, which is not this build (%s) — run `aphrollo install`", installed, in.Bin)
 		return c
 	}
 	c.OK = true
@@ -204,7 +204,7 @@ func doctorHookTimeouts(in DoctorInput) DoctorCheck {
 		}
 	}
 	if len(short) > 0 {
-		c.Detail = strings.Join(short, ", ") + " — run `aphrollo gate init`"
+		c.Detail = strings.Join(short, ", ") + " — run `aphrollo install`"
 		return c
 	}
 	c.OK = true
@@ -282,7 +282,7 @@ func doctorShimExes(in DoctorInput) DoctorCheck {
 		}
 	}
 	if len(missing) > 0 {
-		c.Detail = "missing " + strings.Join(missing, ", ") + " in " + in.ShimDir + " — run `aphrollo gate init`"
+		c.Detail = "missing " + strings.Join(missing, ", ") + " in " + in.ShimDir + " — run `aphrollo install`"
 		return c
 	}
 	c.OK = true
@@ -301,7 +301,7 @@ func doctorBatchShims(in DoctorInput) DoctorCheck {
 		}
 	}
 	if len(found) > 0 {
-		c.Detail = strings.Join(found, ", ") + " still in " + in.ShimDir + " — run `aphrollo gate init`"
+		c.Detail = strings.Join(found, ", ") + " still in " + in.ShimDir + " — run `aphrollo install`"
 		return c
 	}
 	c.OK = true
@@ -329,7 +329,7 @@ func doctorRetiredCommand(in DoctorInput) DoctorCheck {
 	c := DoctorCheck{Name: "retired /tdd command"}
 	path := filepath.Join(in.ConfigDir, "commands", "tdd.md")
 	if _, err := os.Stat(path); err == nil {
-		c.Detail = path + " still defines /tdd beside the skill — run `aphrollo gate init`"
+		c.Detail = path + " still defines /tdd beside the skill — run `aphrollo install`"
 		return c
 	}
 	c.OK = true
@@ -364,7 +364,7 @@ func doctorManagedFiles(in DoctorInput) DoctorCheck {
 	}
 	if len(stale) > 0 {
 		sortStrings(stale)
-		c.Detail = strings.Join(stale, ", ") + " — run `aphrollo gate init`"
+		c.Detail = strings.Join(stale, ", ") + " — run `aphrollo install`"
 		return c
 	}
 	c.OK = true
@@ -558,7 +558,7 @@ func readSettings(configDir string) (map[string]any, error) {
 	path := filepath.Join(configDir, "settings.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("cannot read %s — run `aphrollo gate init`", path)
+		return nil, fmt.Errorf("cannot read %s — run `aphrollo install`", path)
 	}
 	var root map[string]any
 	if err := json.Unmarshal(data, &root); err != nil {

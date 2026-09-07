@@ -23,7 +23,7 @@ func TestIssueSummaryLineCountsOpenIssuesByLabel(t *testing.T) {
 	}
 
 	line := issueSummaryLine(repo, time.Now())
-	for _, want := range []string{"3 open issues", "physics:2", "netcode:1", "1 open escape", "aphrollo gate issue", "gate escape record"} {
+	for _, want := range []string{"3 open issues", "physics:2", "netcode:1", "1 open escape", "aphrollo issue", "gate escape record"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("the session line must state %q; got %q", want, line)
 		}

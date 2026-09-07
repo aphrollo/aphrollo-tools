@@ -1,4 +1,4 @@
-<!-- Written by `aphrollo gate init`. Edit the aphrollo README's
+<!-- Written by `aphrollo install`. Edit the aphrollo README's
 ratchet-spec section, not this file: the next init overwrites it. -->
 
 ### Ratchet laws (`aphrollo ratchet`)
