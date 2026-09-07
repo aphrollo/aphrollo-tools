@@ -24,7 +24,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		key = mechKey(root, h, runner)
 	}
 	if mechCacheHit(key) {
-		line := fmt.Sprintf("gate %s: %s %s in %s → cache-hit", gateName, stage, cmdString(runner), root)
+		line := fmt.Sprintf("[%s] gate %s: %s in %s → cache-hit", stage, gateName, cmdString(runner), root)
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmdString(runner), "cache-hit", 0)
 		return GateResult{}
@@ -43,8 +43,8 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		// the full budget, logged queued-skipped, landed with zero tests
 		// run. Rejecting is loud and recoverable (wait, or --no-verify
 		// deliberately); failing open is silent and is not.
-		line := fmt.Sprintf("gate %s: %s %s in %s → REJECTED (waited %.0fs, every build slot for %s is busy%s) — nothing was tested",
-			gateName, stage, cmdString(runner), root, waited.Seconds(), target, buildLockHolderNote(target))
+		line := fmt.Sprintf("[%s] gate %s: %s in %s → REJECTED (waited %.0fs, every build slot for %s is busy%s) — nothing was tested",
+			stage, gateName, cmdString(runner), root, waited.Seconds(), target, buildLockHolderNote(target))
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmdString(runner), "queued-rejected", waited)
 		return GateResult{Blocked: true, Message: queuedRejectMessage(runner, target, waited)}
@@ -90,14 +90,14 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		// unlike an edit-time timeout the consequence outlives the moment:
 		// the untested code stays in history. The gate target is warm by the
 		// time this fires, so the retry usually finishes.
-		line := fmt.Sprintf("gate %s: %s %s in %s TIMEOUT after %.0fs REJECTED (nothing was tested)", gateName, stage, cmdString(runner), root, res.Duration.Seconds())
+		line := fmt.Sprintf("[%s] gate %s: %s in %s TIMEOUT after %.0fs REJECTED (nothing was tested)", stage, gateName, cmdString(runner), root, res.Duration.Seconds())
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmdString(runner), "timeout-rejected", res.Duration)
 		return GateResult{Blocked: true, Message: fmt.Sprintf(
 			"gate %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused. The gate target is now warm; retry the commit.",
 			gateName, cmdString(runner), res.Duration.Seconds())}
 	case !res.Passed:
-		fmt.Fprintf(os.Stderr, "gate %s: %s %s in %s → blocked\n", gateName, stage, cmdString(runner), root)
+		fmt.Fprintf(os.Stderr, "[%s] gate %s: %s in %s → blocked\n", stage, gateName, cmdString(runner), root)
 		appendGateLog(gateName, root, cmdString(runner), blockedVerdict(stage, res.Output), res.Duration)
 		return GateResult{Blocked: true, Message: mechRejectMessage(runner, res)}
 	default:
@@ -138,7 +138,7 @@ var disallowedLintRe = regexp.MustCompile(`disallowed[_-](?:method|type)s?|use o
 // PostEdit's greenLabel renderer (passed count, or nextest's empty-crate
 // exit-4 case) so the two call sites can't drift apart.
 func mechGreenLine(gateName, stage string, r Runner, root string, res SuiteResult) string {
-	return fmt.Sprintf("gate %s: %s %s in %s → %s", gateName, stage, cmdString(r), root, greenLabel(Green, res.Output, res.Duration))
+	return fmt.Sprintf("[%s] gate %s: %s in %s → %s", stage, gateName, cmdString(r), root, greenLabel(Green, res.Output, res.Duration))
 }
 
 // cargoOwnedFiles splits repo-root-relative files into those owned by SOME
