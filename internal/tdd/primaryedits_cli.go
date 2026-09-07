@@ -2,7 +2,6 @@ package tdd
 
 import (
 	"errors"
-	"os"
 	"sort"
 	"time"
 )
@@ -34,9 +33,11 @@ type Waiver struct {
 // PreToolUse hook judging an Edit never sees it. So a session that hit the
 // rule legitimately had no way to act on what the message told it to do.
 //
-// CLAUDE_SESSION_ID is already in the environment of everything the tool
-// spawns (the build lock reads it), which makes it the one identifier a
-// command run from inside a turn can rely on.
+// The session id is read through SessionID, which knows both names the
+// environment may carry: Claude Code sets CLAUDE_CODE_SESSION_ID, and every
+// reader here originally asked only for CLAUDE_SESSION_ID, which nothing
+// sets. That is why this override answered "no session in the environment"
+// to every caller — the session was there under the other name.
 func AllowWall(wall string) (string, error) {
 	session, err := envSession()
 	if err != nil {
@@ -74,7 +75,7 @@ func Revoke(wall string) (string, error) {
 // Waived reports whether the environment's session has an active waiver on
 // wall.
 func Waived(wall string) bool {
-	session := os.Getenv("CLAUDE_SESSION_ID")
+	session := SessionID()
 	if session == "" {
 		return false
 	}
@@ -113,9 +114,9 @@ func ListWaivers() []Waiver {
 // envSession is the one identifier a command run from inside a turn can rely
 // on — see Allow's doc comment.
 func envSession() (string, error) {
-	session := os.Getenv("CLAUDE_SESSION_ID")
+	session := SessionID()
 	if session == "" {
-		return "", errors.New("no session in the environment (CLAUDE_SESSION_ID is unset), so there is nothing to override — an edit would still be refused")
+		return "", errors.New("no session in the environment (neither CLAUDE_SESSION_ID nor CLAUDE_CODE_SESSION_ID is set), so there is nothing to override — an edit would still be refused")
 	}
 	return session, nil
 }

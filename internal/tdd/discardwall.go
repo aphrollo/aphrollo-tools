@@ -1,7 +1,6 @@
 package tdd
 
 import (
-	"os"
 	"sync/atomic"
 	"time"
 )
@@ -67,7 +66,7 @@ func armDiscardWaiver(session string) (time.Time, error) {
 // trip over. False when there is no session in the environment, no armed
 // waiver for wall, or the arm's deadline has already passed.
 func ConsumeOneShot(wall string) bool {
-	session := os.Getenv("CLAUDE_SESSION_ID")
+	session := SessionID()
 	if session == "" {
 		return false
 	}
