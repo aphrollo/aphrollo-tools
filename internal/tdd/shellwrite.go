@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -443,11 +444,18 @@ func unresolvable(p string) bool {
 // miss -- which is the fail-open direction this file owes, and cheaper than a
 // guardrail that refuses a write to a sink because the session happened to be
 // on the other operating system.
+//
+// The comparison runs on the CLEANED slash form, not the raw one: a doubled
+// separator (`dev//null`, `dev///null`) is the same path as `dev/null` to
+// every shell that would actually resolve it, but a plain string comparison
+// treated it as a different, ordinary target and let it through — the null
+// sink resolving into a real write target this file's contract rules out
+// (found by FuzzBashWriteTargets, issue #537).
 func isNullDevice(p string) bool {
 	base := strings.ToLower(filepath.Base(filepath.FromSlash(p)))
 	if base == "nul" || base == "nul:" {
 		return true
 	}
-	norm := strings.ToLower(filepath.ToSlash(p))
+	norm := strings.ToLower(path.Clean(filepath.ToSlash(p)))
 	return norm == "/dev/null" || norm == "dev/null" || strings.HasSuffix(norm, "/dev/null")
 }
