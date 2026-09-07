@@ -85,6 +85,32 @@ func TestPrecommit_ConcurrentPair_CapsGoTestParallelism(t *testing.T) {
 	}
 }
 
+// TestGoTestJobsFor_matches_closed_form pins the formula itself against
+// literals, never against runtime.NumCPU() or the production function that
+// calls it: an expectation computed by calling concurrentGoTestJobs() (the
+// wiring test above does this deliberately, to prove the cap is THREADED
+// through correctly) would still pass if the formula changed underneath it
+// — e.g. NumCPU/3 instead of NumCPU/2, or a dropped floor-at-1 — because the
+// test would recompute the same, now-wrong, N and watch it flow through.
+// These five cases are the closed form: floor(cpuCount/2), floored at 1.
+func TestGoTestJobsFor_matches_closed_form(t *testing.T) {
+	cases := []struct {
+		cpuCount int
+		want     int
+	}{
+		{24, 12},
+		{4, 2},
+		{2, 1},
+		{1, 1},
+		{0, 1},
+	}
+	for _, c := range cases {
+		if got := goTestJobsFor(c.cpuCount); got != c.want {
+			t.Errorf("goTestJobsFor(%d) = %d, want %d", c.cpuCount, got, c.want)
+		}
+	}
+}
+
 // TestPrecommit_ConcurrentPair_RejectionsAreDistinguishable pins the other
 // half of issue #535: running the two stages concurrently must not blur
 // which one rejected. A fail-first violation and a mechanical failure must

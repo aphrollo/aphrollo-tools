@@ -57,7 +57,8 @@ import (
 // comment describes for cargo's build-slot pool (two capped builds costing
 // about what one uncapped one used to) — applied here because a Go root has
 // no target-dir build lock to route that governor through in the first
-// place.
+// place. The cap's own VALUE is a reasoned starting point, not a measured
+// one — see goTestJobsFor's doc comment and issue #546.
 //
 // When both stages reject, fail-first's verdict wins — the same priority
 // the sequential version had, where fail-first ran and blocked before
@@ -83,16 +84,37 @@ func runFailFirstAndMechanicalConcurrently(gateName, repoRoot, root string, test
 }
 
 // concurrentGoTestJobs is the parallelism ceiling capGoTestParallelism gives
-// EACH of the two `go test` invocations this file launches at once: half of
-// NumCPU, floored at 1. Two processes each capped to half the box's cores
-// then compete for about the same total the box already gave one uncapped
-// `go test` — the identical headroom buildSlotCount's own doc comment
-// describes for cargo's two-slot default ("N builds cost about what one
-// uncapped build used to"), picked here for the same reason: this pair has
-// no build lock to route a governor through, so the cap has to be a flag on
-// the command itself.
+// EACH of the two `go test` invocations this file launches at once — the
+// thin caller that hands goTestJobsFor the box's real core count, kept
+// separate so the formula itself can be pinned against literals rather than
+// against runtime.NumCPU() (goTestJobsFor's own doc comment carries that
+// reasoning, and the caveat this value is unmeasured).
 func concurrentGoTestJobs() int {
-	n := runtime.NumCPU() / 2
+	return goTestJobsFor(runtime.NumCPU())
+}
+
+// goTestJobsFor is the pure half-of-cpuCount formula, floored at 1: two
+// processes each capped to half the box's cores then compete for about the
+// same total the box already gave one uncapped `go test` — the identical
+// headroom buildSlotCount's own doc comment describes for cargo's two-slot
+// default ("N builds cost about what one uncapped build used to"), picked
+// here for the same reason: this pair has no build lock to route a governor
+// through, so the cap has to be a flag on the command itself.
+//
+// UNMEASURED, unlike buildSlotCount's cargo default (an empirically observed
+// link-wave-OOM sweet spot): this number is a reasoned starting value, not a
+// measured one, and there is a specific reason to doubt the cargo analogy
+// transfers. The mechanical side of this pair is internal/tdd itself, which
+// PR #544 made heavily parallel (318 t.Parallel() calls), and that suite is
+// largely I/O- and subprocess-bound (git worktrees, spawned `go test`
+// processes) rather than CPU-bound compute — halving -parallel for an
+// I/O-wait-heavy suite can cost real wall clock without buying much of the
+// CPU-contention safety this cap is for. That matters because
+// failFirstWouldRun true (a staged test and its impl together) is ORDINARY
+// TDD on this repo, not a rare case. Left open, tracked at issue #546 —
+// measure on an idle box before treating half-of-NumCPU as settled.
+func goTestJobsFor(cpuCount int) int {
+	n := cpuCount / 2
 	if n < 1 {
 		return 1
 	}
@@ -127,7 +149,10 @@ func capGoTestParallelism(run SuiteRunner) SuiteRunner {
 
 // withGoJobCap inserts -p=n and -parallel=n right after "test" — the same
 // position withGoCIParity uses for its own flags — skipping either one
-// already present, so applying this twice is harmless.
+// already present, so applying this twice is harmless. Only the -flag=value
+// form is checked: every flag-insertion site in this package (withGoCIParity
+// included) produces that shape, and nothing anywhere produces the
+// two-element ["-p", "N"] form, so there is no second shape to guard against.
 func withGoJobCap(args []string, n int) []string {
 	hasFlag := func(prefix string) bool {
 		for _, a := range args[1:] {
@@ -139,10 +164,10 @@ func withGoJobCap(args []string, n int) []string {
 	}
 	out := make([]string, 0, len(args)+2)
 	out = append(out, args[0])
-	if !hasFlag("-p=") && !hasFlag("-p ") {
+	if !hasFlag("-p=") {
 		out = append(out, fmt.Sprintf("-p=%d", n))
 	}
-	if !hasFlag("-parallel=") && !hasFlag("-parallel ") {
+	if !hasFlag("-parallel=") {
 		out = append(out, fmt.Sprintf("-parallel=%d", n))
 	}
 	out = append(out, args[1:]...)
