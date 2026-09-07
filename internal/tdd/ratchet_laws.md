@@ -122,10 +122,10 @@ accepts either. `contiguous` applies in whichever direction is chosen.
 | `path-regex-absent` | `pattern` | the repo-relative PATH must not match; key = the path, no line | a filename carrying a plan-item stamp or a serial letter |
 | `regex-present` | `pattern` | every file in scope MUST contain it | a proptest that must carry an explicit seed |
 | `marker-within-lines` | `trigger`, `marker`, `lines`, `contiguous`, `direction` | a `trigger` line requires a `marker` within N lines above (or below, or either), or in the comment run beside it | `// bound:` over a collection that grows |
-| `registry-both-ways` | `registry_file`, `entry_pattern`, `use_pattern` | every use is registered AND every registry line is used; the LAST non-empty capture of a use match is the name, so an alternation with one group per branch works | the dev-instrument (env switch) registry |
+| `registry-both-ways` | `registry_file`, `entry_pattern`, `use_pattern`, `entry_column` | every use is registered AND every registry line is used; the LAST non-empty capture of a use match is the name, so an alternation with one group per branch works; `entry_column` scopes `entry_pattern` to one `\|`-delimited cell of the registry line | the dev-instrument (env switch) registry, and "every crate is documented in this markdown table" |
 | `doc-path-resolves` | `pattern` | a captured path must resolve relative to the CITING file's own directory, then the repo root, then inside its own `crates/<x>`/`tools/<x>` unit | doc citations |
 | `dep-graph-forbids` | `roots`, `forbidden`, `edges`, `min_reachable` | no root package may REACH a forbidden one (glob) through the resolved dependency graph; `edges = "normal"` (default) never follows dev/build edges, which is the whole distinction | dev-only tooling in a shipping binary |
-| `file-set-containment` | `superset_file`, `subset_file`, `capture` | every capture in `subset_file` must also appear in `superset_file` | a headless stand-in whose query must refuse at least what the real one refuses |
+| `file-set-containment` | `superset_file`, `subset_file`, `capture` OR `subset_capture`+`superset_capture` | every capture in `subset_file` must also appear in `superset_file` | a headless stand-in whose query must refuse at least what the real one refuses |
 | `json-number-ceiling` | `files`, `path`, `tolerance_pct`, `enabled_env` | a number read out of generated JSON may not exceed its baseline by more than the tolerance | a criterion bench figure nobody was reading |
 | `symbol-removed` | `pattern` (exactly one capture group) | a symbol captured at `--base <ref>` must still be captured somewhere in scope at the current tree, or be admitted by a tombstone comment naming it and a reason | a deleted test, invisible to every file-at-a-time law |
 
@@ -169,12 +169,32 @@ loudly instead of reporting green over files they never opened.
 - **`registry-both-ways`** reads uses out of whatever the scope includes, source
   or not: put `tools/**/*.sh` in `include` and a switch read only by a shell
   script counts as a use, so it is neither reported unregistered nor reported
-  stale.
+  stale. `entry_column` (0-based) scopes `entry_pattern` to one cell of a
+  `\|`-delimited registry line — a leading and trailing `\|` are stripped first,
+  so column 0 is the first cell after that — which is what a markdown table
+  needs: the crate column and the prose column beside it both carry backticked
+  names, and separating them needs a lookbehind or a repeated capture group
+  that Go's RE2 has neither of. A row with fewer cells than `entry_column`
+  names (the table's own separator row, a stray `\|` in prose) registers
+  nothing rather than reading the wrong column out of it. **This is the
+  matcher that owns "every X is registered in Y"** — `file-set-containment`
+  looks like the same shape but is for containment between two ARBITRARY
+  files, one notation each; reach for `registry-both-ways` first for a
+  registry, and only fall back to `file-set-containment` when the "registry"
+  side does not have the two-pattern (entry vs. use) structure at all.
 - **`file-set-containment`** is containment, never equality: the stand-in may
   refuse MORE than the real system, never less. A deliberate deviation puts the
   law's `escape` marker in `superset_file`, and a marker with nothing left to
   waive is itself a finding — stale waivers are how a guard quietly stops
-  guarding.
+  guarding. `capture` is a single regex applied to BOTH files, which only
+  works when they spell the fact identically — the uncommon case. The normal
+  case is two notations for one name (a Cargo.toml members line, `"crates/zone"`,
+  against a markdown table cell, `` `zone` ``); `subset_capture` and
+  `superset_capture`, given TOGETHER, are the two extraction patterns for that
+  case. The two forms are exclusive: a law naming `capture` alongside either
+  split field is rejected at load, never silently resolved by preferring one —
+  preferring `capture` would leave the OTHER side's notation uncompared
+  against anything, which defeats the law without saying so.
 - **`json-number-ceiling`** is a MEASUREMENT law: every value it reads is a
   hit, weighted by the number (rounded up), and the `tolerance_pct` is applied
   when comparing to the baseline rather than when measuring — a figure inside
@@ -210,6 +230,74 @@ identity and a rename is a new key at a ceiling of zero.
 The pre-edit hook judges ONE file, so it cannot see a workspace total: an
 added line whose text is already at its ceiling somewhere else is caught by
 the whole-tree run at commit, not by the write.
+
+#### Landing a new matcher field
+
+This repo's own commit gate runs the GLOBALLY INSTALLED `aphrollo` binary,
+which predates any matcher kind or field this checkout's engine code just
+added. A law under `.ratchet/laws/` naming that kind or field would reject
+every commit here until the binary is rebuilt post-merge — so a new
+capability lands in three separate steps, never one:
+
+1. Land the engine change (`internal/ratchet`), proved by `RunFixtures()`
+   against synthetic trees under `t.TempDir()`, never against this repo's
+   own tracked `.ratchet/fixtures/`. Name the kind (or the kind and field)
+   in `matcherUsageAllowlist` (`internal/ratchet/law_matcher_usage_test.go`)
+   as `matcherUsageBootstrap`, with the `Ref` of the issue or PR that owes
+   the real law, so nothing silently forgets the capability has no real
+   user yet.
+2. Merge, and let the box's installed `aphrollo` binary get rebuilt against
+   the new commit.
+3. Land the real law under `.ratchet/laws/` and its tracked fixtures under
+   `.ratchet/fixtures/`, and remove the `matcherUsageAllowlist` entry in the
+   same commit.
+
+`TestMatcherUsage_EveryKindAndOptionalFieldHasARealLawOrAnAllowlistEntry`
+enforces step 1 stays honest and step 3 actually happens: it enumerates the
+matcher kinds and optional fields the engine's own `matcherKeys` map
+accepts, cross-references every real law under this repo's `.ratchet/laws`,
+and fails on either a kind/field with no law and no allow-list entry, or an
+allow-list entry a law now exercises (stale — a fixed gap left in the list
+would let this check nag forever about something already settled). Like a
+baseline, the allow-list only ever gets shorter: widening it back out after
+a law is removed on purpose is a decision the test forces onto the same
+commit, with the reason stated, never a silent ratchet up.
+
+The allow-list carries two categories, not one flat list with a free-text
+reason, because "awaiting its bootstrap commit" and "this repo has no
+occasion for it" are different populations that happen to share one
+symptom — a kind or field no real law here exercises. Mixing them hides the
+few that matter among the many that do not: within a month nobody re-reads
+a wall of reasons, and a bootstrap entry that has sat for six months reads
+exactly like one that will never move.
+
+- **`matcherUsageBootstrap`** is DEBT with a named owner: `Ref` is the
+  issue or PR that owes the real law (`ident-resolves` owes `#324`,
+  `registry-both-ways`'s `entry_column` owes `#492`), required on every
+  entry in this category — debt with nobody named as owing it is debt that
+  gets lost, which is #501's own failure mode. It is meant to shrink to
+  zero and stay there; the test logs its current members every run
+  (`3 kind(s)/field(s) awaiting their bootstrap law: …`) so the count stays
+  visible without dumping the much larger `unused-here` population beside
+  it.
+- **`matcherUsageUnusedHere`** is NOT debt: this repo's own dogfood law set
+  has no occasion for the kind or field — several are cargo/JSON-shaped
+  matchers a Go-only repo's laws never need, or a capability aimed at a
+  downstream CONSUMING repo (`dep-graph-ceiling`'s own `#437`/`#480` were
+  reported and fixed for borld, not this repo). `Ref` is refused on this
+  category: nobody owes it a law, so there is nothing to name as owing one.
+  It may sit here indefinitely — that is the correct steady state, not a
+  backlog — and the check never mistakes it for one, because it is never
+  logged as awaiting anything.
+
+Neither category sees a LAW that was considered and declined on real
+evidence rather than never attempted: `#324`'s own `readme_flag_registry`
+measured 40 stale and 17 unregistered names against 69 defined flags and
+was dropped as noise, but its kind, `registry-both-ways`, already has a
+real law elsewhere, so this check never had an opinion on it either way. A
+future decline that DOES leave a kind or field with no real law belongs in
+`matcherUsageUnusedHere`, its reason naming the decision rather than
+reading like a TODO.
 
 #### Diff-scoped kinds
 
