@@ -3,7 +3,7 @@ name: sdd
 description: /sdd <slug> — spec-driven development: brainstorm to a spec, plan it into lanes, execute one lane per builder under the tdd skill, then close the tree out into its durable homes
 ---
 
-<!-- Written by `aphrollo gate init` -- edit the template in aphrollo, not this file. -->
+<!-- Written by `aphrollo install` -- edit the template in aphrollo, not this file. -->
 
 # Spec-driven development
 
@@ -64,7 +64,7 @@ exists, and the gate's own line is the evidence — never a claim without it.
 
 Review each lane cold, by someone who did not write it. At most two fix rounds,
 then park with a ruling. Merge a lane only with the gate green and every
-finding fixed or accepted in the merge body. At lane end the spec tree is committed or deleted, never left untracked, or a hand-edit left uncommitted is invisible to the next `gate init` and gets overwritten.
+finding fixed or accepted in the merge body. At lane end the spec tree is committed or deleted, never left untracked, or a hand-edit left uncommitted is invisible to the next `aphrollo install` and gets overwritten.
 
 ## 4. Close
 

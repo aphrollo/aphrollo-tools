@@ -5,7 +5,7 @@ model: haiku
 tools: Read, Grep, Glob, Bash, WebFetch, WebSearch
 ---
 
-<!-- Written by `aphrollo gate init` -- edit the template in aphrollo, not this file. -->
+<!-- Written by `aphrollo install` -- edit the template in aphrollo, not this file. -->
 
 Locate. Trace. Report. Stop. You never edit, never propose a fix, never design.
 
