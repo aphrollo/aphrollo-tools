@@ -184,13 +184,13 @@ func packageOf(p string, pkgDirs []string) string {
 // happens to have as its current one — or this and laneHasNothingToMutate
 // (mutants_carry.go), which already classifies through repoRoot, can decide
 // a lane has something to judge when the other decided it did not.
-func PlanDiffFiles(repoRoot string, lane []string, now TreeState, cached map[mutantKey]MutantOutcome, producerVersion, invocationVersion string) []string {
+func PlanDiffFiles(repoRoot string, lane []string, now TreeState, cached map[mutantKey]MutantOutcome, producerVersion string, invocationVersionFor InvocationVersionFor) []string {
 	var out []string
 	for _, p := range lane {
 		if classifyRepoPath(repoRoot, p) == Ignore {
 			continue
 		}
-		if measuredUnchanged(p, now, cached, producerVersion, invocationVersion) {
+		if measuredUnchanged(p, now, cached, producerVersion, invocationVersionFor) {
 			continue
 		}
 		out = append(out, p)
@@ -204,12 +204,16 @@ func PlanDiffFiles(repoRoot string, lane []string, now TreeState, cached map[mut
 // runner flag, or an old entry stamped before either field existed) is read
 // the same as a blob or fence mismatch: the file is walked again, once, so a
 // newly added mutator — or a newly meaningful runner flag (issue #531) —
-// gets its chance (issue #298).
-func measuredUnchanged(p string, now TreeState, cached map[mutantKey]MutantOutcome, producerVersion, invocationVersion string) bool {
-	blob, fence := now.Blobs[p], now.Fences[now.Packages[p]]
+// gets its chance (issue #298). invocationVersionFor is resolved against
+// THIS file's own package, the same way PlanMutants resolves it per mutant —
+// never one value for the whole call.
+func measuredUnchanged(p string, now TreeState, cached map[mutantKey]MutantOutcome, producerVersion string, invocationVersionFor InvocationVersionFor) bool {
+	pkg := now.Packages[p]
+	blob, fence := now.Blobs[p], now.Fences[pkg]
 	if blob == "" {
 		return false
 	}
+	invocationVersion := invocationVersionFor(pkg)
 	for _, m := range cached {
 		if m.File == p && carriesOver(m, blob, fence, producerVersion, invocationVersion) {
 			return true

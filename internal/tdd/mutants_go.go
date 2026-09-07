@@ -226,10 +226,17 @@ func RunGoMutantsJob(jobPath string) int {
 	// Stamped with the tool's OWN version before anything reaches the receipt
 	// or the store: a blob and a fence unchanged since the last measured push
 	// say nothing about whether the mutator SET has (issue #298).
+	now := treeStateAt(j.RepoRoot, j.Tip)
 	producerVersion := mutantsProducerVersion(j.Worktree)
 	mutants = stampProducerVersion(mutants, producerVersion)
-	mutants = stampInvocationVersion(mutants, mutantsInvocationVersion(j.Worktree, producerVersion))
-	writeGoMutantsReceipt(j, mutants, treeStateAt(j.RepoRoot, j.Tip), movedLines)
+	// now is threaded in because the RAW gremlins report carries no Package
+	// yet (goMutantsReceipt below is what fills it in) — stampInvocationVersion
+	// resolves each entry's OWN package from now.Packages[m.File] rather than
+	// assuming Package is already stamped, so a future per-package invocation
+	// split (issue #531) reads the right package instead of every entry
+	// silently resolving against pkg="".
+	mutants = stampInvocationVersion(mutants, now, mutantsInvocationVersionFor(j.Worktree, producerVersion))
+	writeGoMutantsReceipt(j, mutants, now, movedLines)
 	MergeMutantStore(j.Repo, mutants)
 	clearMutantsDeath(j.TipTree)
 	appendGateLog("mutants", logToken(j.Repo), "mutants-go", "mutants-finished:"+short(j.TipTree), time.Since(start))

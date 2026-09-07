@@ -35,7 +35,7 @@ func TestPlanDiffFiles_AgreesWithLaneHasNothingToMutateOnAnUnownedRonFile(t *tes
 	}
 
 	now := TreeState{Blobs: map[string]string{"assets/foo.ron": "b1"}}
-	got := PlanDiffFiles(repoRoot, []string{"assets/foo.ron"}, now, nil, "", "")
+	got := PlanDiffFiles(repoRoot, []string{"assets/foo.ron"}, now, nil, "", constInvocation(""))
 	if len(got) != 0 {
 		t.Fatalf("PlanDiffFiles = %v, want none — it must classify assets/foo.ron the same way "+
 			"laneHasNothingToMutate just did, not against whatever crate happens to sit above the "+

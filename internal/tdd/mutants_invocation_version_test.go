@@ -99,7 +99,7 @@ func TestMutantsInvocationVersion_EmptyWhenTheProducerVersionIsEmpty(t *testing.
 // reuses its outcomes slice for the signed receipt right after stamping it.
 func TestStampInvocationVersion_LeavesTheInputSliceUntouched(t *testing.T) {
 	in := []MutantOutcome{{File: "a.rs", Line: 1, Mutation: "m"}}
-	out := stampInvocationVersion(in, "test-tool=go test run-ignored= nextest-profile= db=false")
+	out := stampInvocationVersion(in, TreeState{}, constInvocation("test-tool=go test run-ignored= nextest-profile= db=false"))
 
 	if in[0].InvocationVersion != "" {
 		t.Fatalf("input outcome mutated in place: %+v", in[0])
@@ -123,7 +123,7 @@ func TestPlanMutants_DoesNotCarryAMutantMeasuredUnderADifferentInvocationVersion
 	plan := PlanMutants(
 		[]MutantOutcome{want("crates/a/src/lib.rs", 12, "a")},
 		state(map[string]string{"crates/a/src/lib.rs": "blobA"}, map[string]string{"a": "tsA"}),
-		prev, "", newInvocation)
+		prev, "", constInvocation(newInvocation))
 
 	if len(plan.Run) != 1 || len(plan.Carry) != 0 {
 		t.Fatalf("Run = %+v, Carry = %+v, want the mutant re-run under the new invocation, not carried under the old one",
@@ -135,9 +135,52 @@ func TestPlanMutants_DoesNotCarryAMutantMeasuredUnderADifferentInvocationVersion
 	plan = PlanMutants(
 		[]MutantOutcome{want("crates/a/src/lib.rs", 12, "a")},
 		state(map[string]string{"crates/a/src/lib.rs": "blobA"}, map[string]string{"a": "tsA"}),
-		prev, "", oldInvocation)
+		prev, "", constInvocation(oldInvocation))
 	if len(plan.Run) != 0 || len(plan.Carry) != 1 {
 		t.Fatalf("Run = %+v, Carry = %+v, want the mutant carried when the invocation has not changed",
 			plan.Run, plan.Carry)
+	}
+}
+
+// The point of #531's per-package constraint: two packages measured in the
+// SAME run, where only one of them actually sits behind a verdict-affecting
+// invocation change (a database tier active for one package and not the
+// other). A run-wide InvocationVersion could not express this at all — it
+// would stamp the SAME string onto both packages, either re-measuring the
+// package nothing changed for or, worse, silently carrying the package the
+// flag change actually affects. PlanMutants must resolve each mutant's
+// invocation against ITS OWN package and judge carry independently.
+func TestPlanMutants_CarriesOnePackageWhileReRunningAnotherUnderADifferentInvocation(t *testing.T) {
+	const dbOff = "test-tool=nextest run-ignored= nextest-profile= db=false"
+	const dbOn = "test-tool=nextest run-ignored= nextest-profile= db=true"
+
+	// Package "a" was last measured with the database tier off and still is:
+	// nothing about its invocation changed. Package "b" was last measured
+	// with the tier off too, but this run turns it on for "b" alone.
+	prev := cachedOutcomes([]MutantOutcome{
+		{File: "crates/a/src/lib.rs", Line: 12, Mutation: "replace + with -", Package: "a",
+			Blob: "blobA", Fence: "tsA", Status: "caught", InvocationVersion: dbOff},
+		{File: "crates/b/src/lib.rs", Line: 3, Mutation: "replace + with -", Package: "b",
+			Blob: "blobB", Fence: "tsB", Status: "caught", InvocationVersion: dbOff},
+	})
+
+	perPackage := func(pkg string) string {
+		if pkg == "b" {
+			return dbOn
+		}
+		return dbOff
+	}
+
+	plan := PlanMutants(
+		[]MutantOutcome{want("crates/a/src/lib.rs", 12, "a"), want("crates/b/src/lib.rs", 3, "b")},
+		state(map[string]string{"crates/a/src/lib.rs": "blobA", "crates/b/src/lib.rs": "blobB"},
+			map[string]string{"a": "tsA", "b": "tsB"}),
+		prev, "", perPackage)
+
+	if len(plan.Carry) != 1 || plan.Carry[0].Package != "a" {
+		t.Fatalf("Carry = %+v, want only package a's outcome carried — its invocation did not change", plan.Carry)
+	}
+	if len(plan.Run) != 1 || plan.Run[0].Package != "b" {
+		t.Fatalf("Run = %+v, want package b re-run under its new, database-on invocation", plan.Run)
 	}
 }

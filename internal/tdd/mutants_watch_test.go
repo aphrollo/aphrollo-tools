@@ -218,6 +218,17 @@ func TestWatchMutantsHere_ReportsKilledWhenTheProcessIsGoneWithNoDeathRecord(t *
 	pidRunningFn = func(pid int) bool { return false }
 	t.Cleanup(func() { pidRunningFn = prev })
 
+	// Milliseconds, not the 30-minute default: a mutation that turned the
+	// liveness check into a no-op would otherwise only surface as this
+	// test's whole binary getting killed by the outer timeout (CI's 600s,
+	// or a bare `go test`'s 10-minute default) rather than as a clean,
+	// single-test failure — the same reasoning the stalled test above
+	// already applies to mutantsWatchStallTimeout.
+	prevPoll, prevStall := mutantsWatchPollInterval, mutantsWatchStallTimeout
+	mutantsWatchPollInterval = time.Millisecond
+	mutantsWatchStallTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { mutantsWatchPollInterval, mutantsWatchStallTimeout = prevPoll, prevStall })
+
 	var buf bytes.Buffer
 	code := WatchMutantsHere(t.TempDir(), jobPath, &buf)
 	if code != ExitMutantsWatchKilled {

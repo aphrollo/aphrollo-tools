@@ -59,6 +59,23 @@ func (inv MutantsInvocation) Version() string {
 		inv.TestTool, inv.RunIgnored, inv.NextestProfile, inv.DatabaseProvisioned)
 }
 
+// InvocationVersionFor is a run's invocation, PER PACKAGE. Every call site
+// today builds one from mutantsInvocationVersionFor, which returns the same
+// string for every package, because nothing in this codebase yet varies
+// TestTool, RunIgnored, NextestProfile or DatabaseProvisioned by package —
+// but the shape is per-package from the start. #531's own motivating case
+// (a database tier active only for packages that need it, e.g. `persistence`
+// or `dev_server`) is why: a single run-wide invocation string is the easy
+// way to wire that, and it is wrong — it would stamp DatabaseProvisioned=true
+// onto every OTHER package measured in the same run too, invalidating their
+// cache the next time they are measured ALONE with the tier off, which is
+// exactly the "strictly worse than not having the field at all" outcome
+// #531 names. Carrying the invocation as a function of package, all the way
+// through carriesOver's callers, means the day that split lands, only
+// mutantsInvocationVersionFor's BODY changes — carriesOver, PlanMutants,
+// PlanDiffFiles and stampTreeState never do.
+type InvocationVersionFor func(pkg string) string
+
 // mutantsInvocationVersion is the invocation this box would run worktree's
 // suite with today, threaded through PlanMutants, PlanDiffFiles and
 // stampTreeState the same way mutantsProducerVersion already is — so a
@@ -95,14 +112,33 @@ func mutantsInvocationVersion(worktree, producerVersion string) string {
 	return inv.Version()
 }
 
+// mutantsInvocationVersionFor wraps mutantsInvocationVersion's single
+// worktree-wide answer as an InvocationVersionFor: every package gets the
+// same value, since the answer does not depend on pkg today. Every
+// production call site uses this rather than calling mutantsInvocationVersion
+// and wrapping it by hand, so there is one place that decision is made.
+func mutantsInvocationVersionFor(worktree, producerVersion string) InvocationVersionFor {
+	version := mutantsInvocationVersion(worktree, producerVersion)
+	return func(string) string { return version }
+}
+
 // stampInvocationVersion returns a COPY of outcomes with every entry's
-// InvocationVersion set to version, leaving the input slice untouched — the
-// same shape as stampProducerVersion, which the gremlins job path
-// (mutants_go.go) always runs alongside.
-func stampInvocationVersion(outcomes []MutantOutcome, version string) []MutantOutcome {
+// InvocationVersion set from versionFor, resolved against ITS OWN package —
+// m.Package when already stamped, now.Packages[m.File] otherwise, the same
+// resolution stampTreeState applies — so a caller whose outcomes have not
+// had Package stamped yet (the gremlins job path, whose raw report carries
+// no package until goMutantsReceipt fills it in) still gets the RIGHT
+// package's invocation rather than every entry silently resolving against
+// pkg="". The input slice is left untouched, the same shape as
+// stampProducerVersion, which the gremlins job path always runs alongside.
+func stampInvocationVersion(outcomes []MutantOutcome, now TreeState, versionFor InvocationVersionFor) []MutantOutcome {
 	out := make([]MutantOutcome, len(outcomes))
 	for i, m := range outcomes {
-		m.InvocationVersion = version
+		pkg := m.Package
+		if pkg == "" {
+			pkg = now.Packages[m.File]
+		}
+		m.InvocationVersion = versionFor(pkg)
 		out[i] = m
 	}
 	return out

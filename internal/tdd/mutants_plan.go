@@ -123,15 +123,20 @@ type MutantsPlan struct {
 // can never disagree about whether a cached outcome is still current (issue
 // #298's carry-duplication: a version bump used to put a file back into the
 // re-measure set here while carrying its old mutants forward unchanged,
-// landing the same mutant in a receipt twice). The plan stamps what it
+// landing the same mutant in a receipt twice). invocationVersionFor is
+// resolved PER MUTANT, against its own m.Package (mutants_invocation_version.go)
+// — never a single value for the whole call — so a run whose invocation
+// genuinely differs by package (issue #531's database-tier case) can
+// invalidate only the packages it actually affects. The plan stamps what it
 // judged against onto every entry it returns, so what this run stores is
 // what the next one compares to.
-func PlanMutants(want []MutantOutcome, now TreeState, cached map[mutantKey]MutantOutcome, producerVersion, invocationVersion string) MutantsPlan {
+func PlanMutants(want []MutantOutcome, now TreeState, cached map[mutantKey]MutantOutcome, producerVersion string, invocationVersionFor InvocationVersionFor) MutantsPlan {
 	byContent := contentIndex(cached)
 	var plan MutantsPlan
 	for _, m := range want {
 		blob, fence := now.Blobs[m.File], now.Fences[m.Package]
 		m.Blob, m.Fence = blob, fence
+		invocationVersion := invocationVersionFor(m.Package)
 		old, ok := cached[m.key()]
 		if !ok {
 			// The same content at another PATH: a crate-topology lane moves
