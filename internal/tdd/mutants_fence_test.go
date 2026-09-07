@@ -152,7 +152,7 @@ func TestPlanMutants_CarriesAnOutcomeAcrossARename(t *testing.T) {
 		Fences:   map[string]string{"crates/a": "samefence"},
 	}
 
-	plan := PlanMutants([]MutantOutcome{want}, now, cached, "")
+	plan := PlanMutants([]MutantOutcome{want}, now, cached, "", "")
 	if len(plan.Run) != 0 {
 		t.Fatalf("Run = %+v, want the renamed file's verdict reused", plan.Run)
 	}
@@ -180,7 +180,7 @@ func TestPlanMutants_DoesNotCarryAcrossAMoveIntoAnotherPackage(t *testing.T) {
 		Fences:   map[string]string{"crates/b": "fence-b"},
 	}
 
-	if plan := PlanMutants([]MutantOutcome{want}, now, cached, ""); len(plan.Carry) != 0 {
+	if plan := PlanMutants([]MutantOutcome{want}, now, cached, "", ""); len(plan.Carry) != 0 {
 		t.Fatalf("Carry = %+v, want a move into a differently fenced package re-measured", plan.Carry)
 	}
 }

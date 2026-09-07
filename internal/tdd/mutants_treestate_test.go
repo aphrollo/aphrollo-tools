@@ -88,7 +88,7 @@ func TestPlanDiffFiles_LeavesOutAFileNothingChangedAround(t *testing.T) {
 		{File: "crates/a/src/lib.rs", Line: 1, Mutation: "m", Package: "crates/a", Blob: "a1", Fence: "tsA"},
 		{File: "crates/b/src/lib.rs", Line: 1, Mutation: "m", Package: "crates/b", Blob: "b0-OLD", Fence: "tsB"},
 	})
-	got := PlanDiffFiles("", []string{"crates/a/src/lib.rs", "crates/b/src/lib.rs", "README.md"}, now, prev, "")
+	got := PlanDiffFiles("", []string{"crates/a/src/lib.rs", "crates/b/src/lib.rs", "README.md"}, now, prev, "", "")
 	if len(got) != 1 || got[0] != "crates/b/src/lib.rs" {
 		t.Fatalf("PlanDiffFiles = %v, want only the file whose blob moved", got)
 	}
@@ -107,7 +107,7 @@ func TestPlanDiffFiles_PullsInAWholePackageWhoseTestSetChanged(t *testing.T) {
 		{File: "crates/a/src/lib.rs", Line: 1, Mutation: "m", Package: "crates/a", Blob: "a1", Fence: "tsA"},
 		{File: "crates/a/tests/x.rs", Line: 1, Mutation: "m", Package: "crates/a", Blob: "t1", Fence: "tsA"},
 	})
-	got := PlanDiffFiles("", []string{"crates/a/src/lib.rs", "crates/a/tests/x.rs"}, now, prev, "")
+	got := PlanDiffFiles("", []string{"crates/a/src/lib.rs", "crates/a/tests/x.rs"}, now, prev, "", "")
 	if len(got) != 2 {
 		t.Fatalf("PlanDiffFiles = %v, want the whole package back in the run", got)
 	}
@@ -131,14 +131,14 @@ func TestPlanDiffFiles_AProducerVersionMismatchPutsAnOtherwiseUnchangedFileBackI
 			Blob: "a1", Fence: "tsA", ProducerVersion: "gremlins 0.6.0"},
 	})
 
-	got := PlanDiffFiles("", []string{"crates/a/src/lib.rs"}, now, prev, "gremlins 0.7.0")
+	got := PlanDiffFiles("", []string{"crates/a/src/lib.rs"}, now, prev, "gremlins 0.7.0", "")
 	if len(got) != 1 || got[0] != "crates/a/src/lib.rs" {
 		t.Fatalf("PlanDiffFiles = %v, want the file back in the run after a producer upgrade even though its blob and fence did not move", got)
 	}
 
 	// The SAME version is still answered from the cache — this is not a
 	// blanket "always re-measure", only an upgrade forces it.
-	got = PlanDiffFiles("", []string{"crates/a/src/lib.rs"}, now, prev, "gremlins 0.6.0")
+	got = PlanDiffFiles("", []string{"crates/a/src/lib.rs"}, now, prev, "gremlins 0.6.0", "")
 	if len(got) != 0 {
 		t.Fatalf("PlanDiffFiles = %v, want the file still excluded when the producer version has not changed", got)
 	}
@@ -149,7 +149,7 @@ func TestPlanDiffFiles_AProducerVersionMismatchPutsAnOtherwiseUnchangedFileBackI
 func TestPlanDiffFiles_TakesEveryMutableFileOnAFirstRun(t *testing.T) {
 	t.Parallel()
 	now := TreeState{Blobs: map[string]string{"src/lib.rs": "a1"}}
-	got := PlanDiffFiles("", []string{"src/lib.rs", "README.md", ".github/workflows/ci.yml"}, now, nil, "")
+	got := PlanDiffFiles("", []string{"src/lib.rs", "README.md", ".github/workflows/ci.yml"}, now, nil, "", "")
 	if len(got) != 1 || got[0] != "src/lib.rs" {
 		t.Fatalf("PlanDiffFiles = %v, want just the source file", got)
 	}

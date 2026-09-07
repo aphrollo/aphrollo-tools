@@ -226,7 +226,9 @@ func RunGoMutantsJob(jobPath string) int {
 	// Stamped with the tool's OWN version before anything reaches the receipt
 	// or the store: a blob and a fence unchanged since the last measured push
 	// say nothing about whether the mutator SET has (issue #298).
-	mutants = stampProducerVersion(mutants, mutantsProducerVersion(j.Worktree))
+	producerVersion := mutantsProducerVersion(j.Worktree)
+	mutants = stampProducerVersion(mutants, producerVersion)
+	mutants = stampInvocationVersion(mutants, mutantsInvocationVersion(j.Worktree, producerVersion))
 	writeGoMutantsReceipt(j, mutants, treeStateAt(j.RepoRoot, j.Tip), movedLines)
 	MergeMutantStore(j.Repo, mutants)
 	clearMutantsDeath(j.TipTree)

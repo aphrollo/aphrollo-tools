@@ -379,7 +379,7 @@ func adoptCarriedOutcomes(j MutantsJob, carried []MutantOutcome, now TreeState) 
 			r.Outcomes = append(r.Outcomes, m)
 		}
 	}
-	r.Outcomes = stampTreeState(r.Outcomes, now, mutantsProducerVersion(j.Worktree))
+	r.Outcomes = stampTreeState(r.Outcomes, now, mutantsProducerVersion(j.Worktree), mutantsInvocationVersion(j.Worktree, mutantsProducerVersion(j.Worktree)))
 	recountReceipt(&r, outcomesFieldPresent)
 	// The producer already signed r before this ran; the merge just changed
 	// its body, which leaves the old mac describing outcomes that are no

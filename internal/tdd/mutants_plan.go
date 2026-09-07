@@ -57,6 +57,21 @@ type MutantOutcome struct {
 	// Empty describes an outcome written before this field existed, or by a
 	// producer this box could not query.
 	ProducerVersion string `json:"producer_version,omitempty"`
+	// InvocationVersion is MutantsInvocation.Version() at the moment this
+	// outcome was stamped: the test tool, the ignored-test policy, the
+	// nextest profile and whether a database was provisioned — the subset of
+	// a run's OWN flags that can flip a verdict, never anything naming what
+	// the run happened to measure (mutants_invocation_version.go). Blob and
+	// Fence describe the SOURCE; ProducerVersion describes the TOOL;
+	// InvocationVersion describes how THIS run drove that tool — change the
+	// runner's flags with neither of the other two moving, and this is the
+	// only field that notices (issue #531). Compared in carriesOver by plain
+	// equality, exactly like ProducerVersion: empty describes an outcome
+	// written before this field existed, and carries only against another
+	// empty (a run whose invocation this box could not resolve either) —
+	// never a second convention beyond the one ProducerVersion already
+	// established.
+	InvocationVersion string `json:"invocation_version,omitempty"`
 }
 
 // mutantKey identifies one mutant across runs. Line is safe to key on
@@ -111,7 +126,7 @@ type MutantsPlan struct {
 // landing the same mutant in a receipt twice). The plan stamps what it
 // judged against onto every entry it returns, so what this run stores is
 // what the next one compares to.
-func PlanMutants(want []MutantOutcome, now TreeState, cached map[mutantKey]MutantOutcome, producerVersion string) MutantsPlan {
+func PlanMutants(want []MutantOutcome, now TreeState, cached map[mutantKey]MutantOutcome, producerVersion, invocationVersion string) MutantsPlan {
 	byContent := contentIndex(cached)
 	var plan MutantsPlan
 	for _, m := range want {
@@ -126,7 +141,7 @@ func PlanMutants(want []MutantOutcome, now TreeState, cached map[mutantKey]Mutan
 			// package — where different tests constrain it — re-measures.
 			old, ok = byContent[m.contentKey()]
 		}
-		if ok && carriesOver(old, blob, fence, producerVersion) {
+		if ok && carriesOver(old, blob, fence, producerVersion, invocationVersion) {
 			old.File, old.Package = m.File, m.Package
 			old.Blob, old.Fence = blob, fence
 			plan.Carry = append(plan.Carry, old)
@@ -204,9 +219,10 @@ func dedupByMutantKey(primary, extra []MutantOutcome) []MutantOutcome {
 // set while PlanMutants kept carrying its old mutants forward unchanged, and
 // the two lists overlapped — the same mutant reaching a receipt twice, once
 // freshly measured and once as a stale carried copy.
-func carriesOver(old MutantOutcome, blob, fence, producerVersion string) bool {
+func carriesOver(old MutantOutcome, blob, fence, producerVersion, invocationVersion string) bool {
 	if old.Blob == "" || old.Fence == "" {
 		return false
 	}
-	return old.Blob == blob && old.Fence == fence && old.ProducerVersion == producerVersion
+	return old.Blob == blob && old.Fence == fence &&
+		old.ProducerVersion == producerVersion && old.InvocationVersion == invocationVersion
 }
