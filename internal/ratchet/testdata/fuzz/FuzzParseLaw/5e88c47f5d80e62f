@@ -1,0 +1,3 @@
+go test fuzz v1
+string("name=\"x\"\ndescription=\"0\"\nseverity=\"warn\"\n[scope]\ninclude=[\"\"]\n[matcher]\nkind=\"0\"")
+string("x")

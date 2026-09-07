@@ -90,6 +90,31 @@ kind = ""
 	}
 }
 
+// TestParseLaw_NumericLookingMatcherKindIsRejected is #538: FuzzParseLaw found
+// that `kind = "0"` parsed clean with a nil error and a zero-value
+// Matcher.Kind — ParseLaw itself swallowed the forward-compat
+// UnknownMatcherKindError instead of leaving that stand-down to LoadLaws (the
+// caller UnknownMatcherKindError's own doc comment says handles it), so a
+// direct ParseLaw call returned "loaded fine, matches nothing" for any kind
+// this binary does not recognize, numeric-looking or not.
+func TestParseLaw_NumericLookingMatcherKindIsRejected(t *testing.T) {
+	_, err := ParseLaw(`name="x"
+description="0"
+severity="warn"
+[scope]
+include=[""]
+[matcher]
+kind="0"
+`, "x")
+	if err == nil {
+		t.Fatal("err = nil, want a rejection — a direct ParseLaw call must never return nil error with an empty Matcher.Kind")
+	}
+	var unknown *UnknownMatcherKindError
+	if !errors.As(err, &unknown) || unknown.Kind != "0" {
+		t.Errorf("err = %v, want an UnknownMatcherKindError{Kind: %q}", err, "0")
+	}
+}
+
 // TestLoadLaws_UnknownStringMatcherKindStillSkips proves the fix does not
 // regress #440's forward-compat path: a kind that IS a non-empty string but
 // simply is not one this binary's matcherKeys table knows must still load

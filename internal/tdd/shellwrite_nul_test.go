@@ -33,6 +33,20 @@ func TestBashWriteTargets_ClaimsNothingForAnUnrootedDevNull(t *testing.T) {
 	}
 }
 
+// A doubled separator (`dev//null`, `dev///null`) still names the null
+// device once the repeated slashes collapse — the string comparison in
+// isNullDevice missed this because it compared against the literal
+// "dev/null" without normalising runs of separators first. Found by
+// FuzzBashWriteTargets (issue #537).
+func TestBashWriteTargets_ClaimsNothingForADoubledSeparatorDevNull(t *testing.T) {
+	t.Parallel()
+	for _, cmd := range []string{">dev//null", ">dev///null"} {
+		if got := bashWriteTargets(cmd, filepath.FromSlash("/repo/lane")); len(got) != 0 {
+			t.Errorf("bashWriteTargets(%q) = %q, want nothing — a doubled separator still names the null device, not a real write", cmd, got)
+		}
+	}
+}
+
 // ...and the guard is on the DEVICE name, not on any path containing it: a
 // file whose name merely starts with those letters is an ordinary write.
 func TestBashWriteTargets_StillClaimsAFileNamedLikeTheDevice(t *testing.T) {

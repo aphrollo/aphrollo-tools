@@ -320,7 +320,15 @@ func LoadLaws(root string) ([]Law, error) {
 		}
 		law, err := ParseLaw(string(text), strings.TrimSuffix(e.Name(), ".toml"))
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+			// A kind this binary predates is a defect in the BINARY, not the
+			// law file (see UnknownMatcherKindError's doc comment): that one
+			// law stands down and reports itself via UnknownKind, but every
+			// other law in the tree still loads. Every other ParseLaw error
+			// is a malformed file and still takes the whole load down.
+			var unknown *UnknownMatcherKindError
+			if !errors.As(err, &unknown) {
+				return nil, fmt.Errorf("%s: %w", path, err)
+			}
 		}
 		law.Path, law.Root = path, root
 		laws = append(laws, law)
@@ -459,16 +467,19 @@ func ParseLaw(text, wantName string) (Law, error) {
 		return Law{}, err
 	}
 	if law.Matcher, err = parseMatcher(doc, newer, law.Name); err != nil {
-		// The rest of the file parsed fine, so the law is returned intact
-		// with UnknownKind set rather than failed outright — a caller that
-		// judges the whole set (Check, RunFixtures) is the one that decides
-		// to skip it and report the skip; a bare parse never does.
+		// The rest of the file parsed fine, so the law comes back alongside
+		// the error rather than zeroed out — LoadLaws is the one that tells
+		// an UnknownMatcherKindError apart from every other malformed-law
+		// failure and decides to stand the law down and report it (see that
+		// error type's doc comment). ParseLaw itself never swallows it: a nil
+		// error out of THIS function always means a matcher this binary can
+		// run, never an empty Matcher.Kind reporting "loaded fine, matches
+		// nothing" (found by FuzzParseLaw, issue #538).
 		var unknown *UnknownMatcherKindError
 		if errors.As(err, &unknown) {
 			law.UnknownKind = string(unknown.Kind)
-			return law, nil
 		}
-		return Law{}, err
+		return law, err
 	}
 	if law.Matcher.Contiguous {
 		law.Contiguous = true
