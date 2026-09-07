@@ -420,9 +420,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          export GOTMPDIR="$RUNNER_TEMP/gate-env"
-          export TMPDIR="$GOTMPDIR" TMP="$GOTMPDIR" TEMP="$GOTMPDIR"
-          mkdir -p "$GOTMPDIR"
+          dir="$RUNNER_TEMP/gate-env"
+          mkdir -p "$dir"
+          # Hand Go an OS-native path, the way goTmpEnv does. goTmpEnv builds its
+          # directory with filepath.Join, which on Windows yields backslashes
+          # throughout, so os.TempDir() there returns a path already in the form
+          # production normalizes to. Exporting "$RUNNER_TEMP/gate-env" verbatim
+          # instead gives Windows a mixed separator the real gate can never
+          # produce, and tests comparing a raw os.TempDir() against a
+          # filepath-normalized path then fail on the separator rather than
+          # on anything this job exists to catch. cygpath -w does the same
+          # normalization filepath.Join would, without literal escapes here.
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then dir="$(cygpath -w "$dir")"; fi
+          export GOTMPDIR="$dir" TMPDIR="$dir" TMP="$dir" TEMP="$dir"
           go test ./internal/tdd/... -count=1 -timeout=900s
 
   lint:
