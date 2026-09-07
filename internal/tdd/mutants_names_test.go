@@ -80,9 +80,10 @@ func TestMutantStore_KeepsBothMutantsOnOneLineApart(t *testing.T) {
 // A resumed run must exclude what it already judged, and the exclusion is the
 // verbatim line anchored: cargo-mutants matches --exclude-re against exactly
 // the string it prints.
-func TestMutantsArgv_ExcludesTheVerbatimLineAnchored(t *testing.T) {
+// ratchet: test_removed TestMutantsArgv_ExcludesTheVerbatimLineAnchored: renamed with the function it tests, MutantsArgv -> mutantsProducerFlags; the assertions are unchanged
+func TestMutantsProducerFlags_ExcludesTheVerbatimLineAnchored(t *testing.T) {
 	m, _ := parseMutantLine(realCaughtLines[3])
-	argv := MutantsArgv("d.diff", false, mutantNames([]MutantOutcome{m}), nil, "")
+	argv := mutantsProducerFlags("d.diff", false, mutantNames([]MutantOutcome{m}), nil, "")
 
 	want := "^" + regexp.QuoteMeta(realCaughtLines[3]) + "$"
 	found := false
@@ -100,14 +101,15 @@ func TestMutantsArgv_ExcludesTheVerbatimLineAnchored(t *testing.T) {
 // and every exclusion rides in one environment variable: Windows caps the
 // whole block at 32,767 characters, so an unbounded list silently truncates
 // the run's own arguments.
-func TestMutantsArgv_StaysInsideTheEnvironmentBlockLimit(t *testing.T) {
+// ratchet: test_removed TestMutantsArgv_StaysInsideTheEnvironmentBlockLimit: renamed with the function it tests, MutantsArgv -> mutantsProducerFlags; the assertions are unchanged
+func TestMutantsProducerFlags_StaysInsideTheEnvironmentBlockLimit(t *testing.T) {
 	var judged []string
 	for _, line := range realCaughtLines {
 		for i := 0; i < 2000; i++ {
 			judged = append(judged, line)
 		}
 	}
-	argv := MutantsArgv("d.diff", false, judged, nil, "")
+	argv := mutantsProducerFlags("d.diff", false, judged, nil, "")
 	size := len(strings.Join(argv, " "))
 	if size > mutantsArgvBudget {
 		t.Fatalf("argv is %d chars, over the %d budget: the environment block would truncate", size, mutantsArgvBudget)

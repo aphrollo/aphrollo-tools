@@ -30,7 +30,7 @@ import "os"
 //
 // A touched-crate set this run cannot determine — the diff cannot be read
 // back, or no touched file resolves to an owning package — returns nil, and
-// MutantsArgv then emits no --package flag at all: today's whole-workspace
+// mutantsProducerFlags then emits no --package flag at all: today's whole-workspace
 // behaviour, never a silent "measure nothing".
 func mutantsTouchedPackages(j MutantsJob) []string {
 	data, err := os.ReadFile(j.Diff)

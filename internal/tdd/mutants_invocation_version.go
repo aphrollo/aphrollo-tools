@@ -24,7 +24,7 @@ import (
 // is read the same as a blob or fence mismatch.
 
 // MutantsInvocation is the subset of a run's own flags that can flip a
-// mutant's VERDICT. It is deliberately narrow: MutantsArgv's `--in-diff` is a
+// mutant's VERDICT. It is deliberately narrow: mutantsProducerFlags's `--in-diff` is a
 // temp path that differs every run, and its `--package` list and resume
 // exclusions vary with what is being measured — hashing those would
 // invalidate every cached outcome on every run, which is strictly worse than
@@ -32,7 +32,7 @@ import (
 // Version().
 type MutantsInvocation struct {
 	// TestTool is the suite runner driving the mutated build: "nextest" for
-	// MutantsArgv's Cargo workspace runs, "go test" for gremlins' Go ones —
+	// mutantsProducerFlags's Cargo workspace runs, "go test" for gremlins' Go ones —
 	// the two producers this package knows about today.
 	TestTool string
 	// RunIgnored is cargo-mutants' own `--run-ignored` value, "" for its
@@ -41,8 +41,8 @@ type MutantsInvocation struct {
 	// database tier that activates `--run-ignored all` for the packages that
 	// need it) will set once that lands.
 	RunIgnored string
-	// NextestProfile is the `--profile` MutantsArgv passes nextest, "" for
-	// its default profile. MutantsArgv never sets one today.
+	// NextestProfile is the `--profile` mutantsProducerFlags passes nextest, "" for
+	// its default profile. mutantsProducerFlags never sets one today.
 	NextestProfile string
 	// DatabaseProvisioned is whether this run stood up a scratch database for
 	// the suite. Nothing in this package provisions one yet.

@@ -1,0 +1,140 @@
+package tdd
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// The mutation stage is configured the way ratchet is: keys in the repo's own
+// manifest, under `[workspace.metadata.aphrollo]` for a Cargo workspace and
+// `[aphrollo]` in aphrollo.toml for everything else. No environment variable,
+// no repo-owned runner script — the script the binary used to drive
+// re-implemented the runner contract by hand and drifted from it, dropping
+// the package scoping and the exclusion filter this side had computed on
+// every run it ever did.
+
+// MutantsConfig is every mutation key the repo may declare, read from
+// [workspace.metadata.aphrollo] or aphrollo.toml's [aphrollo] table.
+type MutantsConfig struct {
+	AtMerge         bool     // mutants-at-merge
+	Env             []string // mutants-env, "K=V" each
+	BaselineExclude []string // mutation-baseline-exclude, raw entries
+	Accept          []string // mutation-accept, raw entries
+	After           string   // mutants-after, repo-relative path or ""
+}
+
+// The keys a repo declares. mutants-at-merge is the only switch: the trio it
+// replaces encoded where a receipt was produced and where it was judged, and
+// there is no receipt any more.
+const (
+	mutantsAtMergeKey = "mutants-at-merge"
+	mutantsEnvKey     = "mutants-env"
+	mutantsAcceptKey  = "mutation-accept"
+	mutantsAfterKey   = "mutants-after"
+)
+
+// retiredMutantsKeys are the keys that no longer do anything. A repo that
+// still declares one believes it is gated and is not, so each is refused by
+// name rather than ignored — the whole point of the refusal is that somebody
+// reads it.
+var retiredMutantsKeys = []string{
+	"mutation-receipt", "mutants-local", "mutants-judge-local", "mutation-runner",
+}
+
+// mutantsConfigTable is one place a key may be written: a file and the table
+// inside it. The Cargo spelling is tried first and aphrollo.toml is the
+// fallback, the same precedence IssueLabels and mutation-baseline-exclude
+// already use for a repo that may or may not be a Cargo workspace.
+type mutantsConfigTable struct{ path, table string }
+
+func mutantsConfigTables(root string) []mutantsConfigTable {
+	ws := cargoWorkspaceRoot(root)
+	if ws == "" {
+		ws = root
+	}
+	return []mutantsConfigTable{
+		{filepath.Join(ws, "Cargo.toml"), "[workspace.metadata.aphrollo]"},
+		{filepath.Join(root, "aphrollo.toml"), "[aphrollo]"},
+	}
+}
+
+// ReadMutantsConfig refuses a retired key with a message naming its
+// replacement; a repo declaring nothing returns the zero value, nil.
+func ReadMutantsConfig(root string) (MutantsConfig, error) {
+	tables := mutantsConfigTables(root)
+	// Before anything else is read: a repo whose config is addressed to a
+	// mechanism that is gone must be told so, not partially obeyed.
+	for _, key := range retiredMutantsKeys {
+		for _, t := range tables {
+			if tomlKeySetIn(t.path, t.table, key) {
+				return MutantsConfig{}, fmt.Errorf("%s is retired: declare %s = true instead", key, mutantsAtMergeKey)
+			}
+		}
+	}
+	var cfg MutantsConfig
+	for _, t := range tables {
+		if v, set := tomlBoolSetIn(t.path, t.table, mutantsAtMergeKey); set {
+			cfg.AtMerge = v
+			break
+		}
+	}
+	cfg.Env = firstDeclaredList(tables, mutantsEnvKey)
+	cfg.BaselineExclude = firstDeclaredList(tables, mutationBaselineExcludeKey)
+	cfg.Accept = firstDeclaredList(tables, mutantsAcceptKey)
+	for _, t := range tables {
+		if v, set := tomlStringIn(t.path, t.table, mutantsAfterKey); set && strings.TrimSpace(v) != "" {
+			cfg.After = strings.TrimSpace(v)
+			break
+		}
+	}
+	if cfg.After != "" {
+		// Named but absent is the case nobody notices: the hook is what a
+		// repo whose tier writes to a shared database uses to reclaim the
+		// rows a timeout-killed test binary left behind, and one that never
+		// ran leaves them there silently.
+		if path := filepath.Join(root, filepath.FromSlash(cfg.After)); !fileExists(path) {
+			return MutantsConfig{}, fmt.Errorf("mutants-after names %s, and there is no file there (%s)", cfg.After, path)
+		}
+	}
+	return cfg, nil
+}
+
+// firstDeclaredList reads one string-array key from the first table that
+// declares a non-empty one.
+func firstDeclaredList(tables []mutantsConfigTable, key string) []string {
+	for _, t := range tables {
+		if entries := tomlStringsIn(t.path, t.table, key); len(entries) > 0 {
+			return entries
+		}
+	}
+	return nil
+}
+
+// tomlKeySetIn reports whether a key is WRITTEN in one table of a TOML file,
+// whatever its value is. tomlBoolSetIn answers that question only for a
+// boolean, and a retired key is refused for being declared at all — a repo
+// that wrote `mutation-runner = "tools/mutation_gate.sh"` is exactly as
+// mistaken as one that wrote `mutation-receipt = true`.
+func tomlKeySetIn(path, table, key string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	inTable := false
+	for line := range strings.Lines(string(data)) {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			inTable = trimmed == table
+			continue
+		}
+		if !inTable {
+			continue
+		}
+		if k, _, found := strings.Cut(trimmed, "="); found && strings.TrimSpace(k) == key {
+			return true
+		}
+	}
+	return false
+}

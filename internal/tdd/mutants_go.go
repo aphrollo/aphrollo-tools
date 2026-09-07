@@ -517,8 +517,16 @@ func parseAcceptEntryLocation(loc string) (file string, line, col int, hasCol, o
 // neither shape above, verbatim, so the caller can refuse it loudly instead
 // of letting it read as an ordinary equivalence claim.
 func acceptedMutants(root string) (list map[string]acceptEntryGroup, bad []string) {
+	return parseAcceptedMutants(tomlStringsIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", mutantsAcceptKey))
+}
+
+// parseAcceptedMutants is acceptedMutants over entries somebody else read:
+// MeasureLane takes the list off MutantsConfig, which resolves both the Cargo
+// and the aphrollo.toml spelling of the table, and must key it exactly the
+// way the reader above does.
+func parseAcceptedMutants(entries []string) (list map[string]acceptEntryGroup, bad []string) {
 	list = map[string]acceptEntryGroup{}
-	for _, raw := range tomlStringsIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", "mutation-accept") {
+	for _, raw := range entries {
 		key, reason, ok := strings.Cut(raw, "#")
 		reason = strings.TrimSpace(reason)
 		if !ok || reason == "" {
