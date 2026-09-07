@@ -50,6 +50,73 @@ const (
 	ExitMutantsProveTimedOut = 5
 )
 
+// repoRelSlashPath computes the repoRoot-relative slash path to absFile,
+// canonicalising both sides through filepath.EvalSymlinks first so a path
+// that reaches the same directory through two different spellings — a
+// symlink, or on Windows an 8.3 short name (GitHub's Windows runner sets TMP
+// to C:\Users\RUNNER~1\...) — still agrees rather than producing a bogus
+// filepath.Rel result that walks out of the repository. EvalSymlinks is a
+// no-op off Windows and on any path that does not exist yet, so a missing
+// path falls back to its original spelling rather than losing the lookup.
+// ok is false only when filepath.Rel itself errors (e.g. the two paths name
+// different volumes on Windows); a relative path that walks outside repoRoot
+// ("../...") is still returned with ok true — the caller decides what an
+// escaping path means.
+func repoRelSlashPath(repoRoot, absFile string) (relPath string, ok bool) {
+	canonRoot, canonFile := repoRoot, absFile
+	if resolved, err := filepath.EvalSymlinks(repoRoot); err == nil {
+		canonRoot = resolved
+	}
+	if resolved, err := filepath.EvalSymlinks(absFile); err == nil {
+		canonFile = resolved
+	}
+	rel, err := filepath.Rel(canonRoot, canonFile)
+	if err != nil {
+		// absence-ok: filepath.Rel errors only when the two paths cannot be
+		// made relative at all (e.g. different Windows volumes) — the sole
+		// caller already treats ok=false identically to "not a git repo" by
+		// leaving repoRoot unset, unchanged from the inline `err == nil`
+		// check this replaces.
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
+}
+
+// mutationDiffVerdict is what the numstat check below found: a real diff
+// (the mutation registered), a relPath that never named a location inside
+// repoRoot at all, a git invocation failure, or git running cleanly and
+// reporting nothing to diff.
+type mutationDiffVerdict int
+
+const (
+	mutationDiffChanged mutationDiffVerdict = iota
+	mutationDiffEscapesRepo
+	mutationDiffGitFailed
+	mutationDiffNoChange
+)
+
+// classifyMutationDiff separates three situations `gitErr != nil ||
+// strings.TrimSpace(numstat) == ""` used to collapse into a single "reports
+// no change" message: relPath resolving outside repoRoot (a caller/resolution
+// mistake, checked first — git reporting nothing for a pathspec outside the
+// repository is not evidence the file did not change), the git invocation
+// itself failing, and git running fine inside the repo and reporting nothing.
+// A caller cannot tell these apart from one message, and the collapsed
+// message asserts the third even when it was the first (issue #360's
+// class: absence returned from an error branch).
+func classifyMutationDiff(relPathEscapesRepo bool, gitErr error, numstat string) mutationDiffVerdict {
+	switch {
+	case relPathEscapesRepo:
+		return mutationDiffEscapesRepo
+	case gitErr != nil:
+		return mutationDiffGitFailed
+	case strings.TrimSpace(numstat) == "":
+		return mutationDiffNoChange
+	default:
+		return mutationDiffChanged
+	}
+}
+
 // RunMutantsProve is the hand mutation proof the tdd skill's "existing code"
 // step describes in prose: introduce one specific error, watch the named test
 // fail, restore byte-identically. Nothing before this verb checked that the
@@ -86,12 +153,27 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	// mismatch as a likely CAUSE alongside its own, EOL-independent reason.
 	// "" for either just means no such note is available; it never changes
 	// what the refusal itself checks or reports.
+	//
+	// rr (from `git rev-parse --show-toplevel`) and absFile (from the caller,
+	// via filepath.Abs) can spell the SAME directory two different ways on
+	// Windows: GitHub's Windows runner sets TMP to an 8.3 short name
+	// (C:\Users\RUNNER~1\...), and only one of the two sides may have gone
+	// through it. filepath.Rel compares strings, not filesystem identity, so
+	// a spelling mismatch produces a bogus multi-level "../" path that
+	// escapes the repo entirely rather than an error — EvalSymlinks resolves
+	// an 8.3 component to its long form on Windows and is a no-op elsewhere,
+	// so canonicalising both sides through it before Rel makes them agree. A
+	// path that does not exist (rare here, since the mutation is already
+	// written) falls back to its original spelling rather than losing the
+	// lookup.
 	var repoRoot, relPath string
+	var relPathEscapesRepo bool
 	root := FindProjectRoot(absFile)
 	if root != "" {
 		if rr := RepoRoot(root); rr != "" {
-			if rel, err := filepath.Rel(rr, absFile); err == nil {
-				repoRoot, relPath = rr, filepath.ToSlash(rel)
+			if rel, ok := repoRelSlashPath(rr, absFile); ok {
+				repoRoot, relPath = rr, rel
+				relPathEscapesRepo = !filepath.IsLocal(filepath.FromSlash(rel))
 			}
 		}
 	}
@@ -147,9 +229,33 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 			"restored, nothing was run\n", root)
 		return ExitMutantsProveRefused
 	}
+	// A caller mistake (the file genuinely lives outside repoRoot), not a
+	// missing change — reported as such rather than folded into the "no
+	// change" message below, which would otherwise assert the file did not
+	// change when it was never even in scope for git to report on.
+	if relPathEscapesRepo {
+		restore()
+		fmt.Fprintf(stderr, "gate: mutants prove refused — %s resolves outside the repository at %s (relative path "+
+			"%q escapes it); restored, nothing was proved\n", absFile, repoRoot, relPath)
+		return ExitMutantsProveRefused
+	}
 
 	numstat, gitErr := git(repoRoot, "diff", "--numstat", "--", relPath)
-	if gitErr != nil || strings.TrimSpace(numstat) == "" {
+	switch classifyMutationDiff(relPathEscapesRepo, gitErr, numstat) {
+	case mutationDiffEscapesRepo:
+		// Unreachable here — the earlier relPathEscapesRepo check already
+		// returned — but classifyMutationDiff stays the single place this
+		// three-way split is decided, so a future caller that skips the
+		// early check still gets the right message instead of "no change".
+		restore()
+		fmt.Fprintf(stderr, "gate: mutants prove refused — %s resolves outside the repository at %s (relative path "+
+			"%q escapes it); restored, nothing was proved\n", absFile, repoRoot, relPath)
+		return ExitMutantsProveRefused
+	case mutationDiffGitFailed:
+		restore()
+		fmt.Fprintf(stderr, "gate: mutants prove refused — git diff --numstat failed for %s: %v\n", relPath, gitErr)
+		return ExitMutantsProveRefused
+	case mutationDiffNoChange:
 		restore()
 		fmt.Fprintf(stderr, "gate: mutants prove refused — git diff --numstat reports no change for %s after the "+
 			"mutation; restored, nothing was proved. Common causes: the file is untracked, the edit landed in a "+
