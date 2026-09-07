@@ -78,7 +78,7 @@ func TestTDDSkill_StatesItsContract(t *testing.T) {
 	for _, want := range []string{
 		"name: tdd",
 		"argument-hint:",
-		"aphrollo gate init",
+		"aphrollo install",
 		"aphrollo gate userpromptsubmit",
 		"red-missing-impl",
 		"red-bogus",
@@ -182,5 +182,31 @@ func TestRemoveTDDSkill_KeepsAForeignSkill(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Errorf("foreign skill was deleted: %v", err)
+	}
+}
+
+// TestManagedTemplates_CarryTheCurrentMarker proves tddSkillMarker (which
+// RemoveTDDSkill, RemoveSDDSkill and RemoveAgents all match uninstall against)
+// still appears verbatim in every template it is meant to identify. A
+// template's own "Written by ..." line edited without updating the constant
+// (or the reverse) breaks uninstall silently: a managed file stops being
+// recognised as this tool's own, so removal skips it, or the marker drifts
+// far enough that a foreign file could collide with it.
+func TestManagedTemplates_CarryTheCurrentMarker(t *testing.T) {
+	bodies := map[string]string{
+		"tdd skill": TDDSkill(),
+		"sdd skill": SDDSkill(),
+	}
+	for _, name := range managedAgentNames {
+		body, ok := ManagedAgent(name)
+		if !ok {
+			t.Fatalf("no embedded agent template named %q", name)
+		}
+		bodies["agent "+name] = body
+	}
+	for label, body := range bodies {
+		if !strings.Contains(body, tddSkillMarker) {
+			t.Errorf("%s does not carry the marker %q — the template and tddSkillMarker have drifted", label, tddSkillMarker)
+		}
 	}
 }

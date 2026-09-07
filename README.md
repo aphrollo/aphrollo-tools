@@ -2159,7 +2159,7 @@ ship with the binary that enforces their rules so the two cannot drift.
 
 Same management contract as the skills: idempotent, refreshed when the
 binary's copy moves on, and `--uninstall` removes only files still carrying the
-`Written by aphrollo gate init` marker — an agent of the same name that you
+`Written by aphrollo install` marker — an agent of the same name that you
 wrote is yours and survives.
 
 ### `aphrollo gate doctor`
@@ -2177,7 +2177,7 @@ aphrollo gate doctor
 # ok    batch shims removed
 # ok    lock dirs writable — C:\ProgramData\aphrollo\locks
 # ok    retired /tdd command
-# FAIL  managed skills and agents — agents/reviewer.md (edited) — run `aphrollo gate init`
+# FAIL  managed skills and agents — agents/reviewer.md (edited) — run `aphrollo install`
 ```
 
 The checks: every managed hook runs the SAME binary and it is this build (size

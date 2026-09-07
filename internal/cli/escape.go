@@ -19,7 +19,7 @@ Subcommands:
                       --evidence <text>, --repo <dir>, --label <theme>,
                       --check <stage|law>). A themed defect needs --check: an
                       escape is a claim that some check could have caught it,
-                      and a plain defect belongs in aphrollo gate issue
+                      and a plain defect belongs in aphrollo issue
   sync                Open issues for every record that has none yet, and mark
                       closed the ones GitHub already closed
   list                Print the open records (--all for closed ones too)
@@ -101,7 +101,7 @@ func runEscapeRecord(args []string, stdout, stderr io.Writer) int {
 	// about a missing stage. A false positive is the other direction (a check
 	// refusing correct work), so it owes no such name.
 	if len(labels) > 0 && *kind != tdd.FalsePositiveKind && strings.TrimSpace(*check) == "" {
-		fmt.Fprintf(stderr, "aphrollo gate escape record: a themed defect is an escape only when a check could have caught it — pass --check <stage|law>, or open it as a plain defect with `aphrollo gate issue %q --label %s`\n",
+		fmt.Fprintf(stderr, "aphrollo gate escape record: a themed defect is an escape only when a check could have caught it — pass --check <stage|law>, or open it as a plain defect with `aphrollo issue %q --label %s`\n",
 			reason, strings.Join(labels, " --label "))
 		return 2
 	}

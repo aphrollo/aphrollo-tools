@@ -17,7 +17,7 @@ import (
 //go:embed ratchet_laws.md
 var ratchetLawsSpec string
 
-const ratchetReadmeHeader = `<!-- Written by ` + "`aphrollo gate init`" + `. Edit the aphrollo README's
+const ratchetReadmeHeader = `<!-- Written by ` + "`aphrollo install`" + `. Edit the aphrollo README's
 ratchet-spec section, not this file: the next init overwrites it. -->
 
 `

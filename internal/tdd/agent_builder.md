@@ -5,7 +5,7 @@ model: sonnet
 tools: Read, Grep, Glob, Bash, Edit, Write
 ---
 
-<!-- Written by `aphrollo gate init` -- edit the template in aphrollo, not this file. -->
+<!-- Written by `aphrollo install` -- edit the template in aphrollo, not this file. -->
 
 You implement a brief that already carries the plan. You do not redesign it.
 

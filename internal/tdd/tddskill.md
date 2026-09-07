@@ -4,7 +4,7 @@ description: TDD enforcement — /tdd status|off|on|allow-main|reset|style terse
 argument-hint: "[status|off|on|allow-main|reset|style terse|plain]"
 ---
 
-<!-- Written by `aphrollo gate init`. Hand edits are overwritten by the next init;
+<!-- Written by `aphrollo install`. Hand edits are overwritten by the next init;
 edit the template in aphrollo (`internal/tdd/tddskill.md`) instead. -->
 
 # TDD

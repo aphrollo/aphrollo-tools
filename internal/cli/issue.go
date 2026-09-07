@@ -10,7 +10,7 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-const issueUsage = `usage: aphrollo gate issue "<title>" [--label <name>]... [--body <text>] [--repo <dir>] [--new-label]
+const issueUsage = `usage: aphrollo issue "<title>" [--label <name>]... [--body <text>] [--repo <dir>] [--new-label]
 
 Opens one issue against the repo's GitHub remote and prints its URL — the only
 line on stdout, so the command pipes. A label the repo has not declared is
@@ -67,7 +67,7 @@ func runGateIssue(args []string, stdout, stderr io.Writer) int {
 	}
 	title := strings.Join(append(leading, fs.Args()...), " ")
 	if strings.TrimSpace(title) == "" {
-		fmt.Fprintf(stderr, "aphrollo gate issue: an issue needs a title\n\n%s", issueUsage)
+		fmt.Fprintf(stderr, "aphrollo issue: an issue needs a title\n\n%s", issueUsage)
 		return 2
 	}
 
@@ -83,10 +83,10 @@ func runGateIssue(args []string, stdout, stderr io.Writer) int {
 		// plainer words: there is no local record here to fall back on, so
 		// unlike an escape this command has genuinely done nothing.
 		if errors.Is(err, tdd.ErrNoIssueTarget) {
-			fmt.Fprintf(stderr, "aphrollo gate issue: nothing to open an issue against — %s has no GitHub remote, or gh is not on PATH\n", *repo)
+			fmt.Fprintf(stderr, "aphrollo issue: nothing to open an issue against — %s has no GitHub remote, or gh is not on PATH\n", *repo)
 			return 1
 		}
-		fmt.Fprintf(stderr, "aphrollo gate issue: %v\n", err)
+		fmt.Fprintf(stderr, "aphrollo issue: %v\n", err)
 		return 1
 	}
 	fmt.Fprintln(stdout, url)

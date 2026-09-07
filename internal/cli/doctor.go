@@ -15,7 +15,7 @@ import (
 
 // runGateDoctor reports one line per install check and exits 1 if any FAILED.
 // It changes nothing: every check names its own fix, and the fix is almost
-// always `aphrollo gate init`.
+// always `aphrollo install`.
 func runGateDoctor(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.SetOutput(stderr)

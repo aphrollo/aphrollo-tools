@@ -68,7 +68,7 @@ func TestRun_GateDoctor_ExitsOneAndNamesTheFixOnABrokenInstall(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit = %d on an uninstalled config dir, want 1\n%s", code, out.String())
 	}
-	if !strings.Contains(out.String(), "aphrollo gate init") {
+	if !strings.Contains(out.String(), "aphrollo install") {
 		t.Fatalf("every failure must name its fix, got:\n%s", out.String())
 	}
 	if !strings.Contains(out.String(), "hook binary") {

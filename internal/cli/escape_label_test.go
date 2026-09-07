@@ -33,7 +33,7 @@ func TestEscapeRecordCarriesTheThemeLabelOntoTheIssue(t *testing.T) {
 
 // An escape is a claim ABOUT THE GATE: some check could have caught this and
 // did not. A themed defect with no check named is not that claim — it is a
-// plain defect, and plain defects go through `gate issue`.
+// plain defect, and plain defects go through `aphrollo issue`.
 func TestEscapeRecordWithAThemeRefusesWithoutTheCheckThatCouldHaveCaughtIt(t *testing.T) {
 	repo, log := stubIssueRepo(t, "https://github.com/o/r/issues/5")
 	var out, errb bytes.Buffer
@@ -42,7 +42,7 @@ func TestEscapeRecordWithAThemeRefusesWithoutTheCheckThatCouldHaveCaughtIt(t *te
 	if code == 0 {
 		t.Fatal("a themed defect with no check named must be refused")
 	}
-	for _, want := range []string{"--check", "gate issue"} {
+	for _, want := range []string{"--check", "aphrollo issue"} {
 		if !strings.Contains(errb.String(), want) {
 			t.Errorf("the refusal must point at %q; stderr was %q", want, errb.String())
 		}

@@ -125,7 +125,7 @@ func fetchIssueSummary(repo string, now time.Time) (string, bool) {
 	// call: it is the number this tool owns, it is free, and it is the one
 	// `gate stats` prints, so the two can never disagree.
 	open, _ := OpenEscapes()
-	return renderIssueSummary(total, byLabel, IssueLabels(repo), open), true
+	return RenderIssueSummary(total, byLabel, IssueLabels(repo), open), true
 }
 
 // parseIssueLabels counts the open issues and their labels. A payload it
@@ -156,10 +156,12 @@ func parseIssueLabels(out string) (total int, byLabel map[string]int, ok bool) {
 // one line.
 const issueSummaryLabels = 8
 
-// renderIssueSummary draws the line. Themes come in the repo's DECLARED order
+// RenderIssueSummary draws the line. Themes come in the repo's DECLARED order
 // when it declares one — that order is the project's own, and a count sorted
-// by size reshuffles the line every day for no reason.
-func renderIssueSummary(total int, byLabel map[string]int, declared []string, escapes int) string {
+// by size reshuffles the line every day for no reason. Exported so a test in
+// internal/cli can drive it without a live gh fetch, to prove the line never
+// teaches a retiring alias (#551).
+func RenderIssueSummary(total int, byLabel map[string]int, declared []string, escapes int) string {
 	var parts []string
 	seen := map[string]bool{}
 	for _, name := range declared {
@@ -186,7 +188,7 @@ func renderIssueSummary(total int, byLabel map[string]int, declared []string, es
 	if len(parts) > 0 {
 		fmt.Fprintf(&b, " (%s)", strings.Join(parts, " "))
 	}
-	fmt.Fprintf(&b, ", %d open escape%s - aphrollo gate issue / gate escape record", escapes, plural(escapes))
+	fmt.Fprintf(&b, ", %d open escape%s - aphrollo issue / gate escape record", escapes, plural(escapes))
 	return b.String()
 }
 

@@ -19,7 +19,7 @@ var tddSkillBody string
 
 // tddSkillMarker identifies a file this tool wrote, so uninstall never deletes
 // a user's own skill of the same name.
-const tddSkillMarker = "Written by `aphrollo gate init`"
+const tddSkillMarker = "Written by `aphrollo install`"
 
 // TDDSkill is the managed skill file's exact bytes. Line endings are
 // normalized: a Windows checkout with core.autocrlf=true embeds the template
