@@ -28,24 +28,14 @@ Subcommands:
   primary-edits     on|off (alias of allow/revoke primary; retiring next release)
   postcommit        Git post-commit hook: write the refs/notes/gate note on the
                     commit just made — what lets CI tell a red on a gated tip
-                    from a red on an ungated one — then start the lane's
-                    mutation run detached and below normal priority (opt-in per
-                    repo: mutation-receipt = true). Never blocks, never fails
-  mutants           The mutation job's own verbs. run|go --job <file> is the
-                    DETACHED local run, spawned by postcommit and not typed by
-                    hand; the go verb drives gremlins over the lane diff and
-                    writes the same receipt the Rust runner does.
-                    go --diff <base> [--receipt <path>] [--store <dir>] is CI's:
-                    it measures <base>..HEAD in this checkout in the FOREGROUND
-                    and is the check — exit 1 on an unaccepted survivor, a
-                    timeout, or a run that measured nothing; exit 2 on a bad
-                    invocation. --store names the outcome cache's directory
-                    (an actions/cache path keyed on the head branch), so a
-                    push that changed one file carries the rest of the PR's
-                    prior measurements forward instead of re-running them
-  receipt           receipt sign [--outcomes <path>] <file>: stamp a mutation
-                    receipt with this machine's MAC. The ONLY writer of one —
-                    every runner signs through it
+                    from a red on an ungated one. Never blocks, never fails
+  mutants           run measures THIS checkout's lane against its base in the
+                    FOREGROUND and is the check — exit 1 on an unaccepted
+                    survivor, a mutant that stayed unmeasured, or a run that
+                    reached no verdict; exit 2 on a bad invocation.
+                    run --base <ref> measures against that ref instead, which
+                    is what nightly CI on main passes its checkpoint to.
+                    prove is the HAND mutation proof for existing code
   prepush           No-op (mechanical-only mode); kept for back-compat with a
                     lingering pre-push shim. Never blocks.
   runphase          Run one deferred build/run phase from its job record (--job);
@@ -247,10 +237,7 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "postcommit" {
 		// The post-commit git hook, and there is only one: it writes the gate
-		// note on the commit just made, THEN starts the lane's mutation run
-		// detached. The note first, because it describes a commit that
-		// already exists and costs nothing; the run second, because it
-		// outlives this process. Neither can block — the commit is made.
+		// note on the commit just made. It cannot block — the commit is made.
 		return runPostCommit(stderr)
 	}
 	if args[0] == "doctor" {
@@ -297,10 +284,6 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// logs, and writes the result file the next hook harvests. It never
 		// blocks anything, so its exit code is always 0.
 		return runPhase(args[1:], stderr)
-	}
-	if args[0] == "receipt" {
-		// The mutation receipt's signer: the one writer of a receipt's MAC.
-		return runGateReceipt(args[1:], stdout, stderr)
 	}
 	if args[0] == "mutants" {
 		// The mutation job's own verbs, addressed by a job file.

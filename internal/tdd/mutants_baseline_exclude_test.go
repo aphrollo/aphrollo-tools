@@ -1,36 +1,37 @@
 package tdd
 
 import (
-	"bytes"
-	"encoding/json"
-	"strconv"
 	"strings"
 	"testing"
 )
 
 // A declared exclusion reaches the SAME nextest passthrough flag whether the
 // call is building a baseline run's own argv or a mutant run's — cargo-mutants
-// invokes the same test command for both, so one flag placed after mutantsProducerFlags's
+// invokes the same test command for both, so one flag placed after MutantsArgv's
 // own `--` is what makes one declared exclusion cover both phases (issue #265).
-// ratchet: test_removed TestMutantsArgv_CarriesTheDeclaredExclusionForBothBaselineAndMutantTesting: renamed with the function it tests, MutantsArgv -> mutantsProducerFlags; the assertions are unchanged
-func TestMutantsProducerFlags_CarriesTheDeclaredExclusionForBothBaselineAndMutantTesting(t *testing.T) {
-	want := "-- -E not(test(conditioner_burst))"
-	for _, baselineSkip := range []bool{false, true} {
-		got := strings.Join(mutantsProducerFlags("lane.diff", baselineSkip, nil, nil, "not(test(conditioner_burst))"), " ")
-		if !strings.Contains(got, want) {
-			t.Fatalf("baselineSkip=%v: mutantsProducerFlags = %q, want it to contain %q", baselineSkip, got, want)
-		}
+// ratchet: test_removed TestMutantsProducerFlags_CarriesTheDeclaredExclusionForBothBaselineAndMutantTesting: renamed with the function it tests, mutantsProducerFlags -> MutantsArgv; the claim is unchanged
+// ratchet: test_removed TestMutantsProducerFlags_OmitsTheNextestPassthroughWhenNoExclusionIsDeclared: renamed with the function it tests, mutantsProducerFlags -> MutantsArgv; the claim is unchanged
+func TestMutantsArgv_CarriesTheDeclaredExclusionAfterThePassthrough(t *testing.T) {
+	t.Parallel()
+	expr, _, _ := mutationBaselineExcludeParse([]string{"test(conditioner_burst) # box-contended wall-clock test"})
+
+	got := strings.Join(MutantsArgv("lane.diff", 1, 120, nil, expr), " ")
+
+	if !strings.HasSuffix(got, "-- -E not(test(conditioner_burst))") {
+		t.Fatalf("MutantsArgv = %q, want the exclusion after the `--` cargo-mutants forwards to nextest", got)
 	}
 }
 
-// A repo that declares no exclusion must see today's argv, byte for byte:
-// this feature is opt-in.
-// ratchet: test_removed TestMutantsArgv_OmitsTheNextestPassthroughWhenNoExclusionIsDeclared: renamed with the function it tests, MutantsArgv -> mutantsProducerFlags; the assertions are unchanged
-func TestMutantsProducerFlags_OmitsTheNextestPassthroughWhenNoExclusionIsDeclared(t *testing.T) {
-	got := strings.Join(mutantsProducerFlags("lane.diff", false, nil, nil, ""), " ")
-	want := "--in-place --in-diff lane.diff --test-tool=nextest"
-	if got != want {
-		t.Fatalf("mutantsProducerFlags = %q, want %q unchanged", got, want)
+// A repo that declares no exclusion must see no passthrough at all: the
+// feature is opt-in, and a stray `--` changes what cargo-mutants forwards.
+func TestMutantsArgv_OmitsThePassthroughWhenNoExclusionIsDeclared(t *testing.T) {
+	t.Parallel()
+	got := MutantsArgv("lane.diff", 1, 120, nil, "")
+
+	for _, arg := range got {
+		if arg == "--" || arg == "-E" {
+			t.Fatalf("MutantsArgv = %v, want no nextest passthrough with nothing declared", got)
+		}
 	}
 }
 
@@ -135,93 +136,8 @@ func TestMutationBaselineExcludeEntries_FallsBackToAphrolloTomlWithNoCargoToml(t
 	}
 }
 
-// The point of the whole feature: a refused entry is LOGGED, naming itself,
-// never silently dropped -- a typo must not look like it is still excluding.
-func TestMutationBaselineExcludeForRun_LogsTheRefusedEntryByName(t *testing.T) {
-	root := t.TempDir()
-	write(t, root, "aphrollo.toml", "[aphrollo]\nmutation-baseline-exclude = [\n  \"test(conditioner_burst)\",\n]\n")
-
-	var buf bytes.Buffer
-	expr, count := mutationBaselineExcludeForRun(root, &buf)
-	if expr != "" || count != 0 {
-		t.Fatalf("expr=%q count=%d, want nothing excluded from a reason-less entry", expr, count)
-	}
-	if !strings.Contains(buf.String(), "test(conditioner_burst)") {
-		t.Fatalf("log = %q, want the refused entry named", buf.String())
-	}
-}
-
-// End to end: a declared exclusion reaches the child environment the
-// producer actually runs with, both as the nextest passthrough inside
-// APHROLLO_MUTANTS_ARGS and as the count in APHROLLO_MUTANTS_BASELINE_EXCLUDED
-// -- so the runner can carry it into the receipt without re-parsing config.
-func TestMutantsChildEnv_CarriesTheDeclaredExclusionAndItsCount(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	worktree := t.TempDir()
-	write(t, worktree, "aphrollo.toml", "[aphrollo]\nmutation-baseline-exclude = [\n"+
-		"  \"test(conditioner_burst) # box-contended wall-clock test, not tree-caused\",\n"+
-		"]\n")
-	target := worktree + "/target"
-	j := MutantsJob{RepoRoot: t.TempDir(), Worktree: worktree, TargetDir: target, TipTree: laneTip}
-
-	env := mutantsChildEnv(j, nil)
-	args := mustEnvValue(t, env, MutantsArgsEnv)
-	if !strings.Contains(args, "-- -E not(test(conditioner_burst))") {
-		t.Fatalf("args = %q, want the declared exclusion forwarded to nextest", args)
-	}
-	if got := mustEnvValue(t, env, MutantsBaselineExcludedEnv); got != strconv.Itoa(1) {
-		t.Fatalf("%s = %q, want \"1\"", MutantsBaselineExcludedEnv, got)
-	}
-}
-
-// A worktree that declares no exclusion must see NEITHER the passthrough flag
-// nor a nonzero count: opt-in, so a repo that says nothing behaves exactly as
-// today.
-func TestMutantsChildEnv_CarriesNoExclusionWhenNoneIsDeclared(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	worktree := t.TempDir()
-	target := worktree + "/target"
-	j := MutantsJob{RepoRoot: t.TempDir(), Worktree: worktree, TargetDir: target, TipTree: laneTip}
-
-	env := mutantsChildEnv(j, nil)
-	if args := mustEnvValue(t, env, MutantsArgsEnv); strings.Contains(args, "-E") {
-		t.Fatalf("args = %q, want no nextest passthrough with nothing declared", args)
-	}
-	if got := mustEnvValue(t, env, MutantsBaselineExcludedEnv); got != "0" {
-		t.Fatalf("%s = %q, want \"0\"", MutantsBaselineExcludedEnv, got)
-	}
-}
-
-// The receipt the merge gate consumes must carry the excluded count in its
-// own JSON body, not only in the repo's config -- the whole mitigation for a
-// repo quietly excluding its way to a green receipt.
-func TestMutationReceipt_RoundTripsTheExcludedCount(t *testing.T) {
-	r := MutationReceipt{Verdict: receiptVerdictPass, Excluded: 2}
-	data, err := json.Marshal(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), `"excluded":2`) {
-		t.Fatalf("receipt JSON = %s, want an excluded field carrying the count", data)
-	}
-	var got MutationReceipt
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Excluded != 2 {
-		t.Fatalf("Excluded = %d after round-trip, want 2", got.Excluded)
-	}
-}
-
-// A receipt that excludes nothing must not carry the field at all --
-// `omitempty` is what keeps every receipt written before this feature
-// existed byte-identical in shape.
-func TestMutationReceipt_OmitsExcludedWhenZero(t *testing.T) {
-	data, err := json.Marshal(MutationReceipt{Verdict: receiptVerdictPass})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(data), "excluded") {
-		t.Fatalf("receipt JSON = %s, want no excluded field for a zero count", data)
-	}
-}
+// ratchet: test_removed TestMutationBaselineExcludeForRun_LogsTheRefusedEntryByName: mutationBaselineExcludeForRun is deleted with the producer's env; MeasureLane parses the list off MutantsConfig and logs each refused entry itself
+// ratchet: test_removed TestMutantsChildEnv_CarriesTheDeclaredExclusionAndItsCount: mutantsChildEnv is deleted with the detached producer; the exclusion now reaches the tool through MutantsArgv, proved above
+// ratchet: test_removed TestMutantsChildEnv_CarriesNoExclusionWhenNoneIsDeclared: same deletion, same replacement
+// ratchet: test_removed TestMutationReceipt_RoundTripsTheExcludedCount: there is no receipt to carry a count into
+// ratchet: test_removed TestMutationReceipt_OmitsExcludedWhenZero: there is no receipt to carry a count into

@@ -125,10 +125,10 @@ func TestAcceptedMutants_NamesAMisspelledKindEntryInBad(t *testing.T) {
 	}
 }
 
-// The receipt reports how much of the accepted set is closed (equivalent)
+// The split reports how much of the accepted set is closed (equivalent)
 // versus parked (the two unobservable kinds) SEPARATELY, so a reader — and a
 // merge gate — never reads parked work as merely out of scope.
-func TestGoMutantsReceipt_CountsAcceptedSurvivorsByKindSeparately(t *testing.T) {
+func TestSplitAcceptedSurvivors_CountsAcceptedSurvivorsByKindSeparately(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "aphrollo.toml", strings.Join([]string{
@@ -140,25 +140,29 @@ func TestGoMutantsReceipt_CountsAcceptedSurvivorsByKindSeparately(t *testing.T) 
 		"]",
 	}, "\n"))
 
-	r := goMutantsReceipt(goMutantsRun{Worktree: root}, []MutantOutcome{
+	list, bad := acceptedMutants(root)
+	if len(bad) != 0 {
+		t.Fatalf("bad = %q, want none — all three entries carry a valid kind", bad)
+	}
+	accepted, unaccepted, kinds, _ := splitAcceptedSurvivors(list, []MutantOutcome{
 		{File: filepath.FromSlash("calc.go"), Line: 1, Mutation: "CONDITIONALS_BOUNDARY", Status: "missed"},
 		{File: filepath.FromSlash("calc.go"), Line: 2, Mutation: "ARITHMETIC_BASE", Status: "missed"},
 		{File: filepath.FromSlash("calc.go"), Line: 3, Mutation: "CONDITIONALS_NEGATION", Status: "missed"},
-	}, TreeState{})
+	})
 
-	if r.Accepted != 3 {
-		t.Fatalf("Accepted = %d, want 3", r.Accepted)
+	if len(accepted) != 3 {
+		t.Fatalf("accepted = %d, want 3", len(accepted))
 	}
-	if r.AcceptedEquivalent != 1 {
-		t.Errorf("AcceptedEquivalent = %d, want 1", r.AcceptedEquivalent)
+	if kinds.AcceptedEquivalent != 1 {
+		t.Errorf("AcceptedEquivalent = %d, want 1", kinds.AcceptedEquivalent)
 	}
-	if r.AcceptedUnobservableRunner != 1 {
-		t.Errorf("AcceptedUnobservableRunner = %d, want 1", r.AcceptedUnobservableRunner)
+	if kinds.AcceptedUnobservableRunner != 1 {
+		t.Errorf("AcceptedUnobservableRunner = %d, want 1", kinds.AcceptedUnobservableRunner)
 	}
-	if r.AcceptedUnobservableCapability != 1 {
-		t.Errorf("AcceptedUnobservableCapability = %d, want 1", r.AcceptedUnobservableCapability)
+	if kinds.AcceptedUnobservableCapability != 1 {
+		t.Errorf("AcceptedUnobservableCapability = %d, want 1", kinds.AcceptedUnobservableCapability)
 	}
-	if len(r.Unaccepted) != 0 {
-		t.Fatalf("Unaccepted = %q, want none — all three entries carry a valid kind", r.Unaccepted)
+	if len(unaccepted) != 0 {
+		t.Fatalf("unaccepted = %d, want none — all three entries carry a valid kind", len(unaccepted))
 	}
 }

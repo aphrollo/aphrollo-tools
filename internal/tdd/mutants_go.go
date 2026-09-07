@@ -2,22 +2,18 @@ package tdd
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 )
 
-// The Rust runner is the consuming repo's own script. The Go one is here,
-// because a Go repo has no script to write it in and the receipt has to be the
-// same document either way.
+// gremlins is the Go half of the runner, invoked by MeasureLane exactly as
+// cargo-mutants is invoked for a Cargo repo, and its report read into the
+// same outcome shape.
 //
-// The tool is gremlins, and the choice was measured rather than argued:
+// The tool was chosen by measurement rather than argument:
 // go-mutesting does not BUILD on this box (its osutil dependency uses
 // syscall.Dup and RLIMIT_NOFILE, neither of which exists on Windows), so its
 // wall time is not a number that exists. gremlins builds, scopes to a diff
@@ -27,7 +23,7 @@ import (
 // coverage) in 2.6 s, behind one full coverage run of the module.
 
 // gremlinsBin is the tool this runner drives. Resolved from PATH: a box
-// without it gets a receipt that says so rather than a silent pass.
+// without it reaches no verdict and says so rather than passing silently.
 const gremlinsBin = "gremlins"
 
 // gremlinsArgv is one diff-scoped run: mutate only what the lane changed,
@@ -150,272 +146,6 @@ const gremlinsNotCovered = "notcovered"
 // found, and on a lane diff that is thousands of them against a handful the
 // run actually measured.
 const gremlinsSkipped = "skipped"
-
-// RunGoMutantsJob is the Go half of the detached job: run gremlins over the
-// lane's diff in the warm worktree, then write and sign the same receipt a
-// Rust run writes.
-func RunGoMutantsJob(jobPath string) int {
-	lowerOwnPriority()
-	j, err := readMutantsJob(jobPath)
-	if err != nil {
-		// An unreadable job is an error, not an empty result: exiting 0 here
-		// reported a clean run to anyone reading the log, having measured
-		// nothing at all.
-		logf(os.Stdout, "aphrollo gate mutants run: %v", err)
-		return 2
-	}
-	// Printed on EVERY run: the same diagnostic the Rust runner prints beside
-	// its own changed-file count, so a run that measured nothing because its
-	// scope matched no files reads differently from one whose reused worktree
-	// was not the tree it assumed (issue #283).
-	logf(os.Stdout, "aphrollo: mutants worktree %s is at %s (job tip %s)", j.Worktree, strings.TrimSpace(gitOut(j.Worktree, "rev-parse", "HEAD")), j.Tip)
-	// The box-wide run lock, taken HERE rather than only around the producer
-	// call below: goMutantsTree's cloneMutantsRunTree does an unconditional
-	// os.RemoveAll plus reclone of a deterministically-named directory with
-	// no lock of its own (issue #436). Acquiring it before that runs, not
-	// after, means the whole run — clone included — is what the lock
-	// serializes, matching what its own doc already claims ("covering the
-	// run's own build AND its test phase").
-	releaseRunLock := acquireMutantsRunLock("mutants run for "+j.Repo, j.RepoRoot)
-	defer releaseRunLock()
-	// Never in a linked worktree: a mutated gate test rewrites whatever
-	// repository it lands in, and a linked worktree's is the lane's own
-	// (issue #156). Everything downstream — the run, the dirty check, the
-	// accept-list — reads the tree the run actually happened in.
-	tree, err := goMutantsTree(j)
-	if err != nil {
-		logf(os.Stdout, "aphrollo: no isolated tree to mutate in: %v", err)
-		appendGateLog("mutants", logToken(j.Repo), "mutants-go", "mutants-refused:no-isolated-tree", 0)
-		return 0
-	}
-	j.Worktree = tree
-	out := filepath.Join(j.TargetDir, mutantsRunDir, "gremlins.json")
-	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
-		logf(os.Stdout, "aphrollo: %v", err)
-		return 0
-	}
-	jobs, why := mutantsJobsForThisBox()
-	logf(os.Stdout, "aphrollo: %d worker(s) — %s", jobs, why)
-
-	// Move-aware, the same as the Rust runner: a file git's move detection
-	// emptied entirely is excluded from gremlins' own walk rather than
-	// re-mutated for having "changed" lines that are really just relocated.
-	var excludeFiles []string
-	var movedLines int
-	if lane, ok := changedPaths(j.RepoRoot, j.BaseSHA, j.Tip); ok {
-		excludeFiles, movedLines = movedOnlyFiles(j.RepoRoot, j.BaseSHA, j.Tip, lane)
-	}
-
-	// start times gremlins alone, for the finished log line below; the box-wide
-	// lock guarding this whole run (including the clone above) was already
-	// taken near the top of this function.
-	start := time.Now()
-	code := goMutantsJobRunFn(j, out, jobs, excludeFiles)
-	data, err := os.ReadFile(out)
-	if err != nil {
-		logf(os.Stdout, "aphrollo: gremlins wrote no report (exit %d): %v", code, err)
-		recordMutantsDeath(j, code, mutantsDeathTail(j))
-		return 0
-	}
-	mutants, err := parseGremlinsReport(data)
-	if err != nil {
-		logf(os.Stdout, "aphrollo: unreadable gremlins report: %v", err)
-		recordMutantsDeath(j, code, mutantsDeathTail(j))
-		return 0
-	}
-	// Stamped with the tool's OWN version before anything reaches the receipt
-	// or the store: a blob and a fence unchanged since the last measured push
-	// say nothing about whether the mutator SET has (issue #298).
-	now := treeStateAt(j.RepoRoot, j.Tip)
-	producerVersion := mutantsProducerVersion(j.Worktree)
-	mutants = stampProducerVersion(mutants, producerVersion)
-	// now is threaded in because the RAW gremlins report carries no Package
-	// yet (goMutantsReceipt below is what fills it in) — stampInvocationVersion
-	// resolves each entry's OWN package from now.Packages[m.File] rather than
-	// assuming Package is already stamped, so a future per-package invocation
-	// split (issue #531) reads the right package instead of every entry
-	// silently resolving against pkg="".
-	mutants = stampInvocationVersion(mutants, now, mutantsInvocationVersionFor(j.Worktree, producerVersion))
-	writeGoMutantsReceipt(j, mutants, now, movedLines)
-	MergeMutantStore(j.Repo, mutants)
-	clearMutantsDeath(j.TipTree)
-	appendGateLog("mutants", logToken(j.Repo), "mutants-go", "mutants-finished:"+short(j.TipTree), time.Since(start))
-	return 0
-}
-
-// goMutantsJobRunFn is the local job's spawn, as a seam: a test proves where
-// the run happens without a mutation tool on the box.
-var goMutantsJobRunFn = runGremlins
-
-// runGremlins runs the tool in the job's run tree, with the run's own temp
-// dirs and target dir. Its output is this process's, which the parent pointed
-// at the job's log files. excludeFiles drops the paths whose only change was
-// a move, so a pure relocation is not re-measured.
-func runGremlins(j MutantsJob, outPath string, workers int, excludeFiles []string) int {
-	cmd := exec.Command(gremlinsBin, gremlinsArgv(j.BaseSHA, outPath, workers, excludeFiles)...)
-	cmd.Dir = j.Worktree
-	cmd.Env = mutantsChildEnv(j, nil)
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	if err := cmd.Run(); err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			return ee.ExitCode()
-		}
-		logf(os.Stdout, "aphrollo: %v", err)
-		return 1
-	}
-	return 0
-}
-
-// runCommandIn runs one command in dir with this process's own output, and
-// reports its exit code. It is the CI half's spawn: no detached job's env, no
-// log files — the workflow's own log is where the tool's output belongs.
-func runCommandIn(dir, bin string, args []string) int {
-	cmd := exec.Command(bin, args...)
-	cmd.Dir = dir
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	if err := cmd.Run(); err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			return ee.ExitCode()
-		}
-		logf(os.Stdout, "aphrollo: %v", err)
-		return 1
-	}
-	return 0
-}
-
-// goMutantsRun is what a receipt needs to name the run it describes, whether
-// that run was the detached local job or the pull request's own.
-type goMutantsRun struct {
-	Repo, RepoID, Branch, TipTree, BaseRef, BaseSHA, Worktree string
-	// MovedLines is how many diff lines git judged to be MOVED and this run
-	// therefore excluded from what it walked — see MutationReceipt.MovedLines.
-	MovedLines int
-}
-
-// writeGoMutantsReceipt renders one detached run into the receipt every merge
-// reads, and writes it to the machine's receipt store.
-func writeGoMutantsReceipt(j MutantsJob, mutants []MutantOutcome, now TreeState, movedLines int) {
-	r := goMutantsReceipt(goMutantsRun{
-		Repo: j.Repo, RepoID: j.RepoID, Branch: j.Branch, TipTree: j.TipTree,
-		BaseRef: j.BaseRef, BaseSHA: j.BaseSHA, Worktree: j.Worktree,
-		MovedLines: movedLines,
-	}, mutants, now)
-	if path := MutationReceiptPathFor(j.TipTree); path != "" {
-		writeReceiptFile(path, r)
-	}
-}
-
-// goMutantsReceipt renders one run into the receipt every merge reads, and
-// signs it. The verdict is "pass" whatever the numbers say: the runner
-// reports and the merge gate judges — a runner that decided its own verdict
-// would be marking its own homework. It also fills in each mutant's package,
-// blob and fence in place, which is what the store carries forward.
-func goMutantsReceipt(j goMutantsRun, mutants []MutantOutcome, now TreeState) MutationReceipt {
-	r := MutationReceipt{
-		Repo: j.Repo, RepoID: j.RepoID, Branch: j.Branch, TipTree: j.TipTree,
-		BaseRef: j.BaseRef, BaseSHA: j.BaseSHA,
-		Verdict: receiptVerdictPass, FinishedAt: time.Now().UTC(),
-		Files: map[string]string{}, Fences: map[string]string{},
-		MovedLines: j.MovedLines,
-	}
-	var survivors, timedOut []MutantOutcome
-	for i, m := range mutants {
-		m.Package = now.Packages[m.File]
-		m.Blob, m.Fence = now.Blobs[m.File], now.Fences[m.Package]
-		mutants[i] = m
-		r.MutantsTotal++
-		switch m.Status {
-		case "caught":
-			r.Caught++
-		case "timeout":
-			// Counted below, once the accept-list has had its say: a mutant
-			// whose argument is that NO run can measure it would otherwise
-			// block every merge forever.
-			timedOut = append(timedOut, m)
-		case "unviable":
-			r.Unviable++
-		case gremlinsNotCovered:
-			r.NotCovered++
-		default:
-			survivors = append(survivors, m)
-		}
-		if m.Blob != "" {
-			r.Files[m.File] = m.Blob
-		}
-		if m.Fence != "" {
-			r.Fences[m.Package] = m.Fence
-		}
-	}
-	r.Outcomes = mutants
-	list, bad := acceptedMutants(j.Worktree)
-	for _, entry := range bad {
-		// Loud and NAMED: a misspelled kind must never look like it landed
-		// as an ordinary equivalence claim (issue #268).
-		logf(os.Stdout, "aphrollo: mutation-accept entry refused (bad kind): %q", entry)
-	}
-	accepted, unaccepted, kinds, ambiguous := splitAcceptedSurvivors(list, survivors)
-	for _, entry := range ambiguous {
-		// Loud and NAMED, the same as a bad accept-kind entry: a column-less
-		// entry that admits an unreviewed sibling must never look like an
-		// ordinary accepted survivor (issue #282).
-		logf(os.Stdout, "aphrollo: mutation-accept entry refused (%s)", entry)
-	}
-	// A timeout is normally an UNMEASURED mutant rather than a result, and the
-	// merge gate refuses one for exactly that reason. But some mutants cannot
-	// be measured by any run: an INCREMENT_DECREMENT on a loop index cancels
-	// the loop's own increment, so the function never returns and there is no
-	// value to assert and no message to match. The only observable is the
-	// absence of progress. Acceptance is the sole available answer, so it is
-	// read here too -- through the same list, which still requires a stated
-	// reason.
-	//
-	// The list is keyed on file:line MUTATOR and nothing reads the argument
-	// itself, so an entry written about a SURVIVOR at that coordinate also
-	// waives a timeout there -- including one caused by a slow box rather
-	// than by non-termination. Every accepted timeout is therefore named in
-	// the receipt below, so the waiver is auditable instead of silent.
-	acceptedTimeouts, unmeasured, timeoutKinds, ambiguousTimeouts := splitAcceptedSurvivors(list, timedOut)
-	for _, entry := range ambiguousTimeouts {
-		logf(os.Stdout, "aphrollo: mutation-accept entry refused (%s)", entry)
-	}
-	r.Timeout = len(unmeasured)
-	r.Accepted = len(accepted) + len(acceptedTimeouts)
-	kinds.merge(timeoutKinds)
-	r.AcceptKindCounts = kinds
-	// An accepted timeout is NAMED in Survivors, exactly as an accepted
-	// survivor is. That list is how the decision survives: a carried receipt
-	// is recounted from its outcomes by recountReceipt, which has no
-	// accept-list of its own and honours the producer by reading the names --
-	// a mutant listed as a survivor and NOT as unaccepted. Recorded nowhere,
-	// the acceptance would be re-derived as an unmeasured mutant the first
-	// time the lane carried outcomes forward instead of re-measuring.
-	for _, m := range acceptedTimeouts {
-		r.Survivors = append(r.Survivors, m.name())
-	}
-	for _, m := range survivors {
-		r.Survivors = append(r.Survivors, m.name())
-	}
-	for _, m := range unaccepted {
-		r.Unaccepted = append(r.Unaccepted, m.name())
-	}
-	r.WorktreeDirty = worktreeDirty(j.Worktree)
-	signReceipt(&r)
-	return r
-}
-
-// worktreeDirty reports whether TRACKED files in the worktree differ from the
-// commit being measured. Untracked files are excluded deliberately: the run's
-// own build dir, logs and report live in there, and counting them would make
-// every run report itself dirty.
-func worktreeDirty(worktree string) bool {
-	out, err := git(worktree, "status", "--porcelain", "--untracked-files=no")
-	if err != nil {
-		return false
-	}
-	return strings.TrimSpace(out) != ""
-}
 
 // acceptEntryGroup is every accept-list entry written for one file:line
 // mutator combination. cargo-mutants and gremlins both regularly emit

@@ -150,3 +150,26 @@ func staleHolderNotice(pid int) string {
 	}
 	return " (running a binary replaced since it started — its results predate this deploy)"
 }
+
+// ReplacedBinaryJobsLine names a mutation run that is still executing the
+// binary self-install just renamed aside to stalePath. Such a run holds this
+// box-wide lock and produces results from code that is no longer installed,
+// and INSTALL time is the one moment that fact is free: the installer already
+// knows it just replaced the binary, and the lock's own owner record already
+// holds the pid (#338). "" — nothing was replaced, nothing is running, or the
+// holder is running the current binary — is the common case and stays silent.
+func ReplacedBinaryJobsLine(stalePath string) string {
+	if stalePath == "" {
+		return ""
+	}
+	o, ok := readBuildLockOwnerAt(mutantsRunLockOwnerPath())
+	if !ok {
+		return ""
+	}
+	holder, ok := processExePathFn(o.PID)
+	if !ok || holder != stalePath {
+		return ""
+	}
+	return fmt.Sprintf("gate: a mutation run (pid %d, in %s) is still executing the binary just replaced (%s) — its results predate this install",
+		o.PID, o.Cwd, stalePath)
+}

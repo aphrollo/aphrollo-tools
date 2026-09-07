@@ -29,13 +29,14 @@ type Stats struct {
 	// "override-off", "smell-escape:disabled-test"). A hatch nobody counts is
 	// a hatch nobody manages. bound: one entry per policy name in the log.
 	Denies map[string]int
-	// Receipts counts the mutation-receipt stage's outcome side by side:
-	// "accepted", "carried", "rejected". Each carries a dynamic suffix in the
-	// log itself (a tree hash, counts, a from->to pair), so this collapses
-	// them by PREFIX rather than by the full verdict the way Denies does —
-	// otherwise every accepted receipt would be its own one-off row, and an
-	// accepted receipt used to leave no count at all (issue #136).
-	Receipts map[string]int
+	// Mutants counts why the mutation stage did not simply pass, keyed by the
+	// reason: "survivor" for a refusal that measured something and found a
+	// mutant nobody accepted, "disk"/"tree-changed"/"no-verdict" for one that
+	// never reached a measurement, and "skipped:<why>" for a stand-down. The
+	// stage this replaces refused 150 merges in three weeks and logged no
+	// reason for 141 of them — this row is that number, per cause. bound: one
+	// entry per reason token the stage can write.
+	Mutants map[string]int
 	// StandDowns counts every verdict that decided not to block and told
 	// nobody but stderr about it — a skip, a fail-open, or an unverifiable
 	// result — keyed by the verdict itself. Before this, "queued-skipped" was
@@ -60,7 +61,7 @@ func (s Stats) Count(stage, outcome string) int {
 
 // statsStages is the stage vocabulary the table always shows, so "zero" and
 // "never ran" are not the same blank.
-var statsStages = []string{"postedit", "precommit", "premergecommit"}
+var statsStages = []string{"mutants", "postedit", "precommit", "premergecommit"}
 
 // statsOutcomes is the outcome vocabulary, in the order a reader cares about.
 var statsOutcomes = []string{
@@ -82,7 +83,7 @@ func GateStats(r io.Reader, since time.Time) Stats {
 		Timeouts:   map[string]int{},
 		Deferred:   map[string]int{},
 		Denies:     map[string]int{},
-		Receipts:   map[string]int{},
+		Mutants:    map[string]int{},
 		StandDowns: map[string]int{},
 	}
 	var secs []float64
@@ -111,8 +112,13 @@ func GateStats(r io.Reader, since time.Time) Stats {
 		if isStandDownVerdict(e.verdict) {
 			s.StandDowns[e.verdict]++
 		}
-		if outcome, ok := receiptOutcome(e.verdict); ok {
-			s.Receipts[outcome]++
+		if outcome, reason, ok := mutantsOutcome(e.verdict); ok {
+			if outcome != "" {
+				s.ByStage[e.stage][outcome]++
+			}
+			if reason != "" {
+				s.Mutants[reason]++
+			}
 		}
 		if e.verdict == lockWaitVerdict {
 			if e.secs > s.LockWaitMax {
@@ -195,25 +201,32 @@ func isStandDownVerdict(verdict string) bool {
 	return false
 }
 
-// receiptOutcomePrefixes maps a gate.log verdict PREFIX to the mutation-
-// receipt outcome it counts under. receipt-rejected is checked last: it is
-// also a prefix of nothing else here, but the order keeps the intent
-// explicit — the dynamic-suffix ones are matched first.
-var receiptOutcomePrefixes = []struct{ prefix, outcome string }{
-	{"receipt-accepted:", "accepted"},
-	{"receipt-carried:", "carried"},
-	{"receipt-rejected", "rejected"},
-}
-
-// receiptOutcome classifies a verdict as one of the receipt stage's three
-// outcomes, "" and false for anything else.
-func receiptOutcome(verdict string) (string, bool) {
-	for _, p := range receiptOutcomePrefixes {
-		if strings.HasPrefix(verdict, p.prefix) {
-			return p.outcome, true
-		}
+// mutantsOutcome classifies one of the mutation stage's own verdicts: which
+// column of the table it belongs in, and which reason row it adds to.
+//
+// A run that REACHED a verdict is a green or a red — it measured the lane's
+// mutants and either found one surviving or did not. One that never measured
+// anything (no disk, a tree the run left changed, an exit that reached no
+// verdict) has nothing to report in those columns: it is counted by its
+// reason alone, because a red there would read as "a mutant survived" and
+// send a reader looking for a survivor that was never measured.
+func mutantsOutcome(verdict string) (outcome, reason string, ok bool) {
+	if strings.HasPrefix(verdict, "mutants-passed:") {
+		return "green", "", true
 	}
-	return "", false
+	if rest, found := strings.CutPrefix(verdict, "mutants-refused:"); found {
+		// The counted form (tested=…,caught=…) is the one that measured
+		// something, and what it found is a survivor: the word the receipt
+		// stage's own log never once contained.
+		if strings.Contains(rest, "=") {
+			return "red", "survivor", true
+		}
+		return "", rest, true
+	}
+	if rest, found := strings.CutPrefix(verdict, "mutants-skipped:"); found {
+		return "", "skipped:" + rest, true
+	}
+	return "", "", false
 }
 
 // logRootCrate names the crate a log entry's root belongs to: the root's
@@ -328,7 +341,7 @@ func RenderGateStats(s Stats) string {
 	writeCounts(&b, "deferred by crate", s.Deferred)
 	writeCounts(&b, "denies / overrides", s.Denies)
 	writeCounts(&b, "stand-downs", s.StandDowns)
-	writeCounts(&b, "mutation receipts", s.Receipts)
+	writeCounts(&b, "mutation stage", s.Mutants)
 	b.WriteString(escapeDebtLine())
 	return b.String()
 }

@@ -9,33 +9,26 @@
 # [workspace.metadata.aphrollo] and this repo has no Cargo.toml to put it in.
 undercover = true
 
-# A lane merges on a mutation proof, not on a green suite alone. Read by
-# mutationReceiptStage, which stands down here because of the next key --
-# see it for who does the judging instead.
-mutation-receipt = true
+# A lane merges on a mutation proof, not on a green suite alone: the merge
+# gate measures the tree being merged, in the foreground, and refuses on a
+# surviving mutant nobody accepted. It replaces the trio this key retires
+# (mutation-receipt / mutants-local / mutants-judge-local), which encoded
+# where a document was produced and where it was judged; there is no document.
+mutants-at-merge = true
 
-# ...and the proof is NOT measured by the post-commit hook on this box, because
-# gremlins cannot measure this module on Windows. `gremlins unleash --dry-run`
-# there reports `Runnable: 0, Not covered: 4890, Mutator coverage: 0.00%`: Go's
-# coverage profile comes back empty, every mutant is filed NOT COVERED, and the
-# receipt that lands says every mutant survived. A dogfood lane measured 50
-# mutants / 0 caught / 50 survivors on Windows against 50 / 44 caught for the
-# same tree on Linux. That receipt is not merely useless, it is wrong in the
-# direction that blocks merges, and producing it costs a full mutation run of
-# CPU plus a console window per git the suite spawns.
-#
-# So the run is deliberately off here and the receipt is earned on Linux
-# instead -- see docs/mutation-runner.md for the route. Set this back to true
-# on a box whose gremlins reports a non-zero mutator coverage.
-mutants-local = false
-
-# ...but the receipt is still JUDGED here. The Linux clone that measures it
-# shares this machine's CLAUDE_CONFIG_DIR, so it signs with the same key and
-# the pre-merge gate can both find and verify what it wrote. Without this key
-# the gate reads `mutants-local = false` as "CI judges it" and stands down --
-# which, on a repo whose CI does not judge it, means every lane merges on no
-# proof at all.
-mutants-judge-local = true
+# The Windows stand-down, and why it is not a hole. gremlins cannot measure
+# this module on Windows: `gremlins unleash --dry-run` there reports
+# `Runnable: 0, Not covered: 4890, Mutator coverage: 0.00%` -- Go's coverage
+# profile comes back empty and every mutant is filed NOT COVERED. A dogfood
+# lane measured 50 mutants / 0 caught / 50 survivors on Windows against
+# 50 / 44 caught for the same tree on Linux. Reporting that would be wrong in
+# the direction that blocks merges, so on a Go repo on Windows the stage
+# stands down with `mutants-skipped:gremlins-windows` and passes, and the
+# measurement happens on Linux instead -- nightly CI runs
+# `aphrollo gate mutants run --base <checkpoint>` against main
+# (.github/workflows/nightly-mutants.yml) and records an escape on a non-zero
+# exit. On a box whose gremlins reports a non-zero mutator coverage the stage
+# measures here with no further configuration.
 
 # Survivors somebody signed off on: "<file>:<line> <MUTATOR> # why". The
 # reason is not decoration — an entry without one is not an accepted survivor,

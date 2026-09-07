@@ -7,14 +7,14 @@ import (
 )
 
 // FormatGateStatus renders `aphrollo gate status`'s one report: every
-// deferred edit job on the box, every global build slot's holder, this
-// checkout's own position in the cargo-shim queue, and this checkout's own
-// mutation-run state — the sources an inconclusive gate line (issue #430)
+// deferred edit job on the box, every global build slot's holder, and this
+// checkout's own position in the cargo-shim queue — the sources an
+// inconclusive gate line (issue #430)
 // now tells a session to go look at instead of rerunning into the same
 // queue. The queue section answers issue #435's stated residual: "am I
 // queued, and behind what" was previously observable only as the last
 // token in gate.log.
-func FormatGateStatus(jobs []DeferredJob, slots []BuildSlotStatus, waiters []QueueWaiter, mutants MutantsStatusReport, mutantsErr error, now time.Time) string {
+func FormatGateStatus(jobs []DeferredJob, slots []BuildSlotStatus, waiters []QueueWaiter, now time.Time) string {
 	var b strings.Builder
 	b.WriteString("deferred edit jobs:\n")
 	if len(jobs) == 0 {
@@ -39,13 +39,6 @@ func FormatGateStatus(jobs []DeferredJob, slots []BuildSlotStatus, waiters []Que
 		for _, w := range waiters {
 			fmt.Fprintf(&b, "  %q queued %s behind %s for %s\n", w.Cmd, formatElapsedSecs(now.Sub(w.Started)), buildSlotHolderDescription(w.Target), w.Target)
 		}
-	}
-	b.WriteString("mutation run (this checkout):\n")
-	if mutantsErr != nil {
-		fmt.Fprintf(&b, "  %v\n", mutantsErr)
-	} else {
-		line, _ := FormatMutantsStatus(mutants)
-		b.WriteString("  " + line + "\n")
 	}
 	return b.String()
 }

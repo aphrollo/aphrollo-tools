@@ -35,42 +35,43 @@ func TestGremlinsStatus_NotCoveredIsItsOwnStatusNotAMiss(t *testing.T) {
 	}
 }
 
-// TestGoMutantsReceipt_DoesNotCountAnUnmeasuredMutantAsASurvivor is the
-// behaviour the merge gate reads: a NOT COVERED mutant must not appear in
-// Survivors or Unaccepted, because a non-empty Unaccepted is what refuses a
-// merge.
-func TestGoMutantsReceipt_DoesNotCountAnUnmeasuredMutantAsASurvivor(t *testing.T) {
+// The behaviour the merge reads: a NOT COVERED mutant must not appear among
+// the unaccepted survivors, because a non-empty unaccepted list is what
+// refuses a merge.
+// ratchet: test_removed TestGoMutantsReceipt_DoesNotCountAnUnmeasuredMutantAsASurvivor: renamed and re-pointed at judgeMutants, which is what classifies an outcome now; the claim is unchanged
+func TestJudgeMutants_DoesNotCountAnUnmeasuredMutantAsASurvivor(t *testing.T) {
 	t.Parallel()
-	mutants := []MutantOutcome{
+	v := judgeMutants(MutantsConfig{}, []MutantOutcome{
 		{File: "a.go", Line: 1, Mutation: "x", Status: "caught"},
 		{File: "a.go", Line: 2, Mutation: "y", Status: gremlinsNotCovered},
-	}
-	r := goMutantsReceipt(goMutantsRun{Worktree: t.TempDir()}, mutants, TreeState{})
+	})
 
-	if len(r.Unaccepted) != 0 {
-		t.Errorf("Unaccepted = %v, want empty — an unmeasured mutant must not refuse a merge", r.Unaccepted)
+	if v.Refused {
+		t.Errorf("verdict refused on an unmeasured mutant:\n%s", v.Message)
 	}
-	if len(r.Survivors) != 0 {
-		t.Errorf("Survivors = %v, want empty", r.Survivors)
+	if len(v.Unaccepted) != 0 {
+		t.Errorf("Unaccepted = %v, want empty — an unmeasured mutant must not refuse a merge", v.Unaccepted)
 	}
-	if r.NotCovered != 1 {
-		t.Errorf("NotCovered = %d, want 1 — the unmeasured mutant must still be counted", r.NotCovered)
+	if v.NotCovered != 1 {
+		t.Errorf("NotCovered = %d, want 1 — the unmeasured mutant must still be counted", v.NotCovered)
 	}
-	if r.Caught != 1 {
-		t.Errorf("Caught = %d, want 1", r.Caught)
+	if v.Unviable != 0 {
+		t.Errorf("Unviable = %d, want 0 — not-covered is counted on its own, never folded into unviable", v.Unviable)
+	}
+	if v.Caught != 1 {
+		t.Errorf("Caught = %d, want 1", v.Caught)
 	}
 }
 
-// TestGoMutantsReceipt_StillCountsALivedMutantAsASurvivor guards the other
-// direction: this change must not make a real survivor disappear.
-func TestGoMutantsReceipt_StillCountsALivedMutantAsASurvivor(t *testing.T) {
+// The other direction: this must not make a real survivor disappear.
+// ratchet: test_removed TestGoMutantsReceipt_StillCountsALivedMutantAsASurvivor: renamed and re-pointed at judgeMutants; the claim is unchanged
+func TestJudgeMutants_StillCountsALivedMutantAsASurvivor(t *testing.T) {
 	t.Parallel()
-	mutants := []MutantOutcome{
-		{File: "a.go", Line: 3, Mutation: "z", Status: "missed"},
-	}
-	r := goMutantsReceipt(goMutantsRun{Worktree: t.TempDir()}, mutants, TreeState{})
+	v := judgeMutants(MutantsConfig{}, []MutantOutcome{
+		{File: "a.go", Line: 3, Col: 1, Mutation: "z", Status: "missed"},
+	})
 
-	if len(r.Unaccepted) != 1 {
-		t.Errorf("Unaccepted = %v, want the one LIVED mutant — a measured survivor must still refuse a merge", r.Unaccepted)
+	if len(v.Unaccepted) != 1 || !v.Refused {
+		t.Errorf("verdict = %+v, want the one LIVED mutant to refuse the merge", v)
 	}
 }

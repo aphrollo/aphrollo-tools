@@ -43,7 +43,6 @@ func runGateStatus(args []string, stdout, stderr io.Writer) int {
 	jobs := tdd.ActiveDeferredJobs()
 	slots := tdd.SnapshotBuildSlots()
 	waiters := tdd.QueueWaitersForRoot(root)
-	mutants, err := tdd.ComputeMutantsStatus(root)
-	fmt.Fprint(stdout, tdd.FormatGateStatus(jobs, slots, waiters, mutants, err, time.Now()))
+	fmt.Fprint(stdout, tdd.FormatGateStatus(jobs, slots, waiters, time.Now()))
 	return 0
 }

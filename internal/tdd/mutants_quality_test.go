@@ -7,45 +7,40 @@ import (
 
 // Nine mutants "timed out" at 30 s on one lane while eight cold tree copies
 // were compiling at once. Every one of them was an unmeasured mutant reported
-// as a result. A timeout is not a caught mutant and not a missed one: it is a
-// run that has to be done again with fewer jobs.
-func TestMutationReceipt_RefusesAReceiptWithTimeouts(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	r := passingReceipt()
-	r.Timeout = 9
-	writeReceipt(t, r)
+// as a result. A timeout is not a caught mutant and not a missed one, and a
+// mutant that timed out even with the box to itself stays unmeasured — which
+// refuses the merge, naming it.
+// ratchet: test_removed TestMutationReceipt_RefusesAReceiptWithTimeouts: there is no receipt; the same claim is made against judgeMutants, which is what decides a verdict now
+func TestJudgeMutants_RefusesAMutantThatStayedUnmeasured(t *testing.T) {
+	t.Parallel()
+	v := judgeMutants(MutantsConfig{}, []MutantOutcome{
+		{File: "a.rs", Line: 7, Col: 2, Mutation: "replace + with -", Status: "timeout"},
+	})
 
-	got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: laneTip})
-	if got == nil || !got.Blocked {
-		t.Fatal("a receipt carrying timeouts must not merge")
+	if !v.Refused {
+		t.Fatalf("an unmeasured mutant must not merge:\n%s", v.Message)
 	}
-	if !strings.Contains(got.Message, "9") || !strings.Contains(got.Message, "rerun with fewer jobs") {
-		t.Fatalf("message = %q, want the count and the remedy", got.Message)
+	if len(v.Unmeasured) != 1 {
+		t.Fatalf("Unmeasured = %v, want the one that timed out twice", v.Unmeasured)
+	}
+	if !strings.Contains(v.Message, "a.rs:7:2: replace + with -") {
+		t.Fatalf("message = %q, want the unmeasured mutant named", v.Message)
 	}
 }
 
 // A `--jobs` flag typed for THIS run is the most specific thing said about
-// it, so it beats the session-wide APHROLLO_MUTANTS_JOBS override, which in
-// turn beats the per-box formula — never the other way around.
-func TestResolveMutantsJobs_FlagBeatsEnvBeatsFormula(t *testing.T) {
-	t.Setenv(MutantsJobsEnv, "5")
-	if got, why := resolveMutantsJobs(3, true); got != 3 || why != "flag" {
-		t.Fatalf("resolveMutantsJobs(3, true) = (%d, %q), want (3, \"flag\")", got, why)
+// it, so it beats the per-box formula. There is no third layer any more: the
+// session-wide env override existed to reach a detached job's own process,
+// and there is no detached job.
+// ratchet: test_removed TestResolveMutantsJobs_FlagBeatsEnvBeatsFormula: resolveMutantsJobs and its env layer are deleted with the detached job; measureJobs is the whole rule now
+func TestMeasureJobs_FlagBeatsTheBoxFormula(t *testing.T) {
+	t.Parallel()
+	if got, why := measureJobs(3); got != 3 || why != "flag" {
+		t.Fatalf("measureJobs(3) = (%d, %q), want (3, \"flag\")", got, why)
 	}
-	if got, why := resolveMutantsJobs(0, false); got != 5 || !strings.Contains(why, MutantsJobsEnv) {
-		t.Fatalf("resolveMutantsJobs(0, false) = (%d, %q), want (5, mentions %q)", got, why, MutantsJobsEnv)
-	}
-	t.Setenv(MutantsJobsEnv, "")
 	wantJobs, wantWhy := mutantsJobsForThisBox()
-	if got, why := resolveMutantsJobs(0, false); got != wantJobs || why != wantWhy {
-		t.Fatalf("resolveMutantsJobs(0, false) with no env = (%d, %q), want the formula's own (%d, %q)", got, why, wantJobs, wantWhy)
-	}
-	// A non-positive env value names no real concurrency (0 or negative jobs
-	// is not a run), so it is not an override either — the formula still
-	// decides, the same as an unset or unparsable one.
-	t.Setenv(MutantsJobsEnv, "0")
-	if got, why := resolveMutantsJobs(0, false); got != wantJobs || why != wantWhy {
-		t.Fatalf("resolveMutantsJobs(0, false) with %s=0 = (%d, %q), want the formula's own (%d, %q)", MutantsJobsEnv, got, why, wantJobs, wantWhy)
+	if got, why := measureJobs(0); got != wantJobs || why != wantWhy {
+		t.Fatalf("measureJobs(0) = (%d, %q), want the formula's own (%d, %q)", got, why, wantJobs, wantWhy)
 	}
 }
 
@@ -80,16 +75,26 @@ func TestMutantsJobsCap_IsTheSmallestOfCoresRamAndTwo(t *testing.T) {
 // definition: 101 of 167 mutants on one lane lived in render-world code that
 // only the GPU parity tests reach. The repo names the switches its mutation
 // run must set, and the gate hands them over.
-func TestCargoMutantsEnv_ReadsTheSwitchesTheWorkspaceNames(t *testing.T) {
+// ratchet: test_removed TestCargoMutantsEnv_ReadsTheSwitchesTheWorkspaceNames: cargoMutantsEnv is deleted with the producer's own environment; ReadMutantsConfig reads the same key from the same table, and measureEnv exports what it read
+func TestReadMutantsConfig_ReadsTheSwitchesTheWorkspaceNames(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	write(t, ws, "Cargo.toml", "[workspace]\n")
-	if got := cargoMutantsEnv(ws); len(got) != 0 {
-		t.Fatalf("mutants-env = %v, want none for a workspace that names none", got)
+	cfg, err := ReadMutantsConfig(ws)
+	if err != nil {
+		t.Fatal(err)
 	}
+	if len(cfg.Env) != 0 {
+		t.Fatalf("mutants-env = %v, want none for a workspace that names none", cfg.Env)
+	}
+
 	write(t, ws, "Cargo.toml", "[workspace]\n[workspace.metadata.aphrollo]\nmutants-env = [\"FORGE_GPU_TESTS=1\", \"BORLD_SOAK=1\"]\n")
-	got := cargoMutantsEnv(ws)
-	if len(got) != 2 || got[0] != "BORLD_SOAK=1" || got[1] != "FORGE_GPU_TESTS=1" {
-		t.Fatalf("mutants-env = %v, want both switches, sorted", got)
+	cfg, err = ReadMutantsConfig(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Env) != 2 || cfg.Env[0] != "BORLD_SOAK=1" || cfg.Env[1] != "FORGE_GPU_TESTS=1" {
+		t.Fatalf("mutants-env = %v, want both switches, sorted", cfg.Env)
 	}
 }
 

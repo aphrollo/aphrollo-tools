@@ -4,7 +4,6 @@ package tdd
 
 import (
 	"os/exec"
-	"strconv"
 	"syscall"
 	"unsafe"
 )
@@ -65,31 +64,6 @@ func buildToolPids() ([]int, bool) {
 		pids = append(pids, csvPids(string(out))...)
 	}
 	return pids, asked
-}
-
-// processStartToken is the OS's own record of when the process under pid
-// started, "" when it cannot be read. Recorded beside a pid so a recycled pid
-// — routine on a busy box, and certain across a reboot — cannot read as the
-// job that was started. On Windows the creation time comes from
-// GetProcessTimes, which needs only QUERY_LIMITED_INFORMATION.
-func processStartToken(pid int) string {
-	const queryLimitedInformation = 0x1000
-	k32 := syscall.NewLazyDLL("kernel32.dll")
-	open := k32.NewProc("OpenProcess")
-	times := k32.NewProc("GetProcessTimes")
-	handle, _, _ := open.Call(uintptr(queryLimitedInformation), 0, uintptr(pid))
-	if handle == 0 {
-		return ""
-	}
-	defer func() { _ = syscall.CloseHandle(syscall.Handle(handle)) }()
-	var creation, exit, kernel, user syscall.Filetime
-	ret, _, _ := times.Call(handle,
-		uintptr(unsafe.Pointer(&creation)), uintptr(unsafe.Pointer(&exit)),
-		uintptr(unsafe.Pointer(&kernel)), uintptr(unsafe.Pointer(&user)))
-	if ret == 0 {
-		return ""
-	}
-	return strconv.FormatInt(creation.Nanoseconds(), 10)
 }
 
 // processExePath is the live image path the OS reports for pid right now,

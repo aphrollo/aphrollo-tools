@@ -2,7 +2,6 @@ package tdd
 
 import (
 	"os/exec"
-	"strings"
 	"testing"
 )
 
@@ -23,9 +22,9 @@ func laneRepo(t *testing.T) (root, base, laneTree string) {
 
 // An AUTOMERGE — the clean `git merge --no-ff lane` every lane lands with —
 // fires pre-merge-commit BEFORE .git/MERGE_HEAD is written. MERGE_HEAD exists
-// only for a conflicted or --no-commit merge, so the receipt gate looked for a
-// lane tip that does not exist yet and refused every clean merge. git names
-// the branch it is merging in GIT_REFLOG_ACTION.
+// only for a conflicted or --no-commit merge, so a stage that looks for the
+// lane tip there alone finds one that does not exist yet and refuses every
+// clean merge. git names the branch it is merging in GIT_REFLOG_ACTION.
 func TestMergeTipTree_ResolvesTheLaneTipFromTheReflogAction(t *testing.T) {
 	root, _, laneTree := laneRepo(t)
 	t.Setenv("GIT_REFLOG_ACTION", "merge lane")
@@ -66,22 +65,4 @@ func TestMergeTipTree_EmptyWhenNothingNamesAMerge(t *testing.T) {
 	}
 }
 
-// A merge refused for a missing lane tip must say WHICH signal was missing,
-// or the operator is left guessing at a gate that failed on its own inputs.
-func TestMechanical_ReceiptRejectionNamesTheMissingMergeSignal(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	root := makeCargoRepo(t)
-	write(t, root, "Cargo.toml", "[package]\nname = \"a\"\nversion = \"0.1.0\"\n[workspace]\n[workspace.metadata.aphrollo]\nmutation-receipt = true\n")
-	write(t, root, "src/lib.rs", "pub fn one() -> i32 { 1 }\n")
-	gitDo(t, root, "add", ".")
-
-	res := Mechanical(root, func(Runner, string) SuiteResult { return SuiteResult{Passed: true} })
-	if !res.Blocked {
-		t.Fatal("a merge with no receipt must not land")
-	}
-	for _, want := range []string{"MERGE_HEAD", "GIT_REFLOG_ACTION"} {
-		if !strings.Contains(res.Message, want) {
-			t.Errorf("message %q does not name %q", res.Message, want)
-		}
-	}
-}
+// ratchet: test_removed TestMechanical_ReceiptRejectionNamesTheMissingMergeSignal: the receipt stage that refused on a missing lane tip is deleted; mergeTipTree still resolves the tip, proved by the three tests above

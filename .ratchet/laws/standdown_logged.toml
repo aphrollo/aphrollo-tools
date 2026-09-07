@@ -7,7 +7,7 @@ code_only   = true
 [scope]
 include = ["internal/tdd/**/*.go", "internal/cli/**/*.go"]
 exclude = ["**/*_test.go", "**/testdata/**"]
-min_files = 192
+min_files = 189
 
 [matcher]
 kind      = "marker-within-lines"

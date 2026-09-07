@@ -1,7 +1,6 @@
 package tdd
 
 import (
-	"io"
 	"path/filepath"
 	"strings"
 )
@@ -22,12 +21,6 @@ import (
 // both spellings, the same fallback IssueLabels already uses for a repo that
 // may or may not be a Cargo workspace.
 const mutationBaselineExcludeKey = "mutation-baseline-exclude"
-
-// MutantsBaselineExcludedEnv is how many mutation-baseline-exclude entries
-// this side folded into APHROLLO_MUTANTS_ARGS's nextest passthrough — so the
-// runner can carry the count into the receipt's own excluded field without
-// re-parsing the repo's config itself.
-const MutantsBaselineExcludedEnv = "APHROLLO_MUTANTS_BASELINE_EXCLUDED"
 
 // mutationBaselineExcludeEntries reads the repo's declared exclusion list,
 // preferring a non-empty Cargo.toml declaration and falling back to
@@ -71,25 +64,7 @@ func mutationBaselineExcludeParse(entries []string) (expr string, count int, bad
 	}
 	// A single `not(...)` over the union of every declared filter excludes
 	// each named test from BOTH the baseline and every mutant's own test run
-	// — mutantsProducerFlags passes this to cargo-mutants as one trailing passthrough
+	// — MutantsArgv passes this to cargo-mutants as one trailing passthrough
 	// flag, and cargo-mutants runs the SAME test command for both phases.
 	return "not(" + strings.Join(filters, " + ") + ")", len(filters), bad
-}
-
-// mutationBaselineExclude reads and parses root's declared exclusion list in
-// one call — the production seam mutationBaselineExcludeForRun wraps with
-// loud logging for the entries it refused.
-func mutationBaselineExclude(root string) (expr string, count int, bad []string) {
-	return mutationBaselineExcludeParse(mutationBaselineExcludeEntries(root))
-}
-
-// mutationBaselineExcludeForRun resolves root's exclusion filter for a live
-// run, logging each refused entry loudly — naming it — rather than letting a
-// typo silently stop excluding while looking like it still works.
-func mutationBaselineExcludeForRun(root string, out io.Writer) (string, int) {
-	expr, count, bad := mutationBaselineExclude(root)
-	for _, entry := range bad {
-		logf(out, "aphrollo: mutation-baseline-exclude entry refused (needs \"<nextest filter> # reason\"): %q", entry)
-	}
-	return expr, count
 }

@@ -275,31 +275,15 @@ func commitCarriesGreenGate(repoRoot, rev string) bool {
 
 // --- trigger (a) and (c): the merge gate ------------------------------------
 
-// unacceptedSurvivorMarker is the phrase the receipt gate's own rejection
-// uses. A pinned test builds that rejection and asserts the predicate reads
-// it, so a reworded sentence fails loudly instead of silently killing the
-// trigger.
-const unacceptedSurvivorMarker = "unaccepted survivor"
+// unacceptedSurvivorMarker is the phrase the mutation stage's own refusal
+// uses — the remedy line it prints under the survivors it just named. A
+// pinned test builds that refusal from the judge itself and asserts the
+// predicate reads it, so a reworded sentence fails loudly instead of silently
+// killing the trigger.
+const unacceptedSurvivorMarker = "mutants: write the test that fails"
 
 func isUnacceptedSurvivorRejection(message string) bool {
 	return strings.Contains(message, unacceptedSurvivorMarker)
-}
-
-// isReceiptRejection reports whether the receipt stage produced the
-// rejection. Every one of them carries receiptRejectionMarker — the sentence
-// constant across every root, since the hint half now names a per-repo
-// runner — which is what makes the family recognisable; a pinned test builds
-// two of them and asserts this reads both.
-func isReceiptRejection(message string) bool {
-	// Two markers, because the family has two shapes. blockReceipt writes the
-	// explaining sentence; blockMissingReceipt deliberately does not — it is
-	// ONE line ending in the remedy, which is what a session at a blocked
-	// merge needs. Reading only the first marker meant the most common merge
-	// refusal there is fell through to the generic branch and was filed as an
-	// escape against a pre-commit gate that has no receipt stage to miss,
-	// which is the noise this exclusion exists to prevent.
-	return strings.Contains(message, receiptRejectionMarker) ||
-		strings.Contains(message, missingReceiptMarker)
 }
 
 // NoteMergeGateEscape records the merge gate's rejection as an escape when the
@@ -311,11 +295,7 @@ func isReceiptRejection(message string) bool {
 //     merge gate is now refusing: two gates disagreed about one tree, so the
 //     cheaper one is missing a stage.
 //
-// Every other rejection is the gate WORKING. The receipt family in particular
-// is excluded wholesale apart from survivors: a lane with no receipt, or one
-// measured against another base, is refused by a stage the pre-commit gate
-// does not run at all, and it is the most common merge rejection there is —
-// recording it would make the loop's loudest signal its noisiest.
+// Every other rejection is the gate WORKING.
 //
 // Best-effort and silent on failure: the merge has already been refused by
 // the time this runs, and its verdict is not this function's to change.
@@ -323,10 +303,8 @@ func NoteMergeGateEscape(repoRoot, message string, w io.Writer) {
 	stage, reason := "", ""
 	switch {
 	case isUnacceptedSurvivorRejection(message):
-		stage = "merge:mutation-receipt"
+		stage = "merge:mutants"
 		reason = "a lane reached the merge gate with unaccepted mutation survivors — a code path no test constrains"
-	case isReceiptRejection(message):
-		return
 	case mergeTipCarriesGreenGate(repoRoot):
 		stage = "merge:premergecommit"
 		reason = "the merge gate refused a lane whose pre-commit gate had run a suite green on the same tree"

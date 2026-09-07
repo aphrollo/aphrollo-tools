@@ -77,6 +77,17 @@ func runMutantsTool(dir string, env []string, argv []string, log io.Writer) (int
 	return 0, nil
 }
 
+// SetMutantsExecForTest replaces that seam for one test and answers the
+// restore. Exported because what the CLI layer does with a verdict — the
+// report it prints, the stream it prints it on, the exit code it turns it
+// into — is only provable from the package that owns the command, and no box
+// running that test has a mutation tool installed.
+func SetMutantsExecForTest(fn func(dir string, env, argv []string, log io.Writer) (int, error)) (restore func()) {
+	prev := mutantsExecFn
+	mutantsExecFn = fn
+	return func() { mutantsExecFn = prev }
+}
+
 // mutantsGOOSFn names the platform the stage judges itself on, a seam so the
 // Windows stand-down can be proved on any box.
 var mutantsGOOSFn = func() string { return runtime.GOOS }
