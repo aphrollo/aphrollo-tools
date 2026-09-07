@@ -161,11 +161,12 @@ func RunGoMutantsCI(c GoMutantsCI, out io.Writer) int {
 	lane, laneOK := changedPaths(root, c.BaseSHA, "HEAD")
 	now := treeStateAt(root, "HEAD")
 	producerVersion := mutantsProducerVersion(root)
+	invocationVersionFor := mutantsInvocationVersionFor(root, producerVersion)
 	files := lane
 	var carried []MutantOutcome
 	if laneOK {
-		files = PlanDiffFiles(root, lane, now, cached, producerVersion)
-		carried = PlanMutants(laneWants(cached, lane), now, cached, producerVersion).Carry
+		files = PlanDiffFiles(root, lane, now, cached, producerVersion, invocationVersionFor)
+		carried = PlanMutants(laneWants(cached, lane), now, cached, producerVersion, invocationVersionFor).Carry
 	}
 
 	// Move-aware, on top of the store's own plan: a file left in `files`
@@ -250,7 +251,7 @@ func RunGoMutantsCI(c GoMutantsCI, out io.Writer) int {
 	// fence, on purpose (an unmeasurable entry can never be shown to still
 	// hold), and a raw gremlins outcome carries none of the three until
 	// something stamps it.
-	fresh = stampTreeState(fresh, now, producerVersion)
+	fresh = stampTreeState(fresh, now, producerVersion, invocationVersionFor)
 	mergeMutantStoreAt(storePath, fresh)
 
 	// De-duplicated by mutant key, the same guard adoptCarriedOutcomes
@@ -266,16 +267,20 @@ func RunGoMutantsCI(c GoMutantsCI, out io.Writer) int {
 	return judgeGoMutantsCI(r, len(fresh), c.BaseSHA, out)
 }
 
-// stampTreeState fills in each mutant's package, blob, fence and producer
-// version from now and producerVersion — everything that decides whether a
-// later run may carry it forward instead of re-measuring it (mutants_plan.go,
-// mutants_treestate.go).
-func stampTreeState(mutants []MutantOutcome, now TreeState, producerVersion string) []MutantOutcome {
+// stampTreeState fills in each mutant's package, blob, fence, producer
+// version and invocation version from now, producerVersion and
+// invocationVersionFor — everything that decides whether a later run may
+// carry it forward instead of re-measuring it (mutants_plan.go,
+// mutants_treestate.go, mutants_invocation_version.go). Package is resolved
+// FIRST and invocationVersionFor read against IT, never a value fixed before
+// the loop, so a future per-package split (issue #531) needs no change here.
+func stampTreeState(mutants []MutantOutcome, now TreeState, producerVersion string, invocationVersionFor InvocationVersionFor) []MutantOutcome {
 	out := make([]MutantOutcome, len(mutants))
 	for i, m := range mutants {
 		m.Package = now.Packages[m.File]
 		m.Blob, m.Fence = now.Blobs[m.File], now.Fences[m.Package]
 		m.ProducerVersion = producerVersion
+		m.InvocationVersion = invocationVersionFor(m.Package)
 		out[i] = m
 	}
 	return out
