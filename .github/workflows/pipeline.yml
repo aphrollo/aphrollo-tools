@@ -347,6 +347,84 @@ jobs:
             ./internal/refactor/... \
             ./internal/sqlc/...
 
+  # Issue #542 / escape #541: every job above runs `go test` directly, and
+  # nothing sets the environment `suiteEnv` (internal/tdd/posttooluse.go)
+  # actually builds around a suite it runs as a `go` runner -- goTmpEnv's four
+  # temp-dir variables, redirected to a repo-local scratch dir. So a
+  # regression in that redirect is green in every job above and red on the
+  # next developer's commit, the moment the gate itself runs this package.
+  # That already escaped twice: #532 (the scratch dir resolved INSIDE the
+  # worktree, so `.git` as a rootMarker made every t.TempDir() fixture
+  # inherit it as an unrequested project root) and #541
+  # (TestSuiteEnv_NonGoRunnerLeavesTempVarsAlone asserted the ABSENCE of
+  # GOTMPDIR, which is exactly the variable the gate's own `go` runner sets,
+  # so the test flagged the gate's own environment as a defect).
+  #
+  # This does NOT run the real `aphrollo gate precommit` (440-780s, and
+  # pointing the gate at its own repository invites recursion) -- it
+  # reproduces the one piece of the gate's environment these escapes are
+  # about, at the price of an ordinary test job, exactly as proposed in #542.
+  #
+  # Both platforms, deliberately: #532/#528's split between the two came from
+  # t.TempDir() reading TMPDIR on Unix and TMP/TEMP on Windows, so a
+  # single-platform version of this job would have caught only half of it.
+  # windows-latest rather than the self-hosted box's own Windows runner, for
+  # the same reason test-windows (above) chose it: this org's self-hosted
+  # runner is Linux, and a GitHub-hosted runner never contends with its
+  # serial queue.
+  #
+  # Scoped to ./internal/tdd/..., the package suiteEnv/goTmpEnv live in --
+  # not folded into `test`/`test-windows` above, whose own budgets are sized
+  # for the rest of the tree. -timeout=900s rather than go test's 600s
+  # default: this package alone measured `733.951s` under load in the `test`
+  # job's own history (see that job's "Test (race + shuffle)" step comment),
+  # and a plain `go test ./internal/tdd/...` here measured past the 600s
+  # default and hit its own internal alarm before finishing, on this
+  # contended box -- an unrelated timeout must not read as this job's
+  # signal. timeout-minutes leaves headroom over that on top of
+  # checkout/setup, matching test-windows's own 15-minute budget for a
+  # narrower package list.
+  #
+  # The four variable names below are hardcoded rather than derived from
+  # goTmpEnv (internal/tdd/gotmpdir.go) at YAML-eval time: goTmpEnv is
+  # unexported, and nothing short of a build-time entry point added solely to
+  # serve this one step would let a workflow step read it from outside the
+  # package. Keep this list in sync with goTmpEnv's own return slice (and the
+  # tempEnvKeys var internal/tdd/gotmpdir_test.go asserts both suiteEnv halves
+  # against) if either changes.
+  gate-env:
+    if: github.event.pull_request.draft != true
+    needs: changes
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            runner: self-hosted
+            cache: false
+          - name: windows
+            runner: windows-latest
+            cache: true
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: ${{ matrix.cache }}
+      - name: Test under the gate's own suiteEnv (GOTMPDIR/TMPDIR/TMP/TEMP)
+        if: needs.changes.outputs.code == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GOTMPDIR="$RUNNER_TEMP/gate-env"
+          export TMPDIR="$GOTMPDIR" TMP="$GOTMPDIR" TEMP="$GOTMPDIR"
+          mkdir -p "$GOTMPDIR"
+          go test ./internal/tdd/... -count=1 -timeout=900s
+
   lint:
     if: github.event.pull_request.draft != true
     needs: changes
