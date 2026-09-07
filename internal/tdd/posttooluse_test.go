@@ -25,7 +25,7 @@ func TestSuiteEnv_ScrubsGitVars(t *testing.T) {
 	t.Setenv("GIT_WORK_TREE", "/outer")
 	t.Setenv("KEEP_ME", "bar")
 
-	env := suiteEnv()
+	env := suiteEnv(Runner{Cmd: "cargo"}, t.TempDir())
 
 	for _, kv := range env {
 		if strings.HasPrefix(kv, "GIT_") {

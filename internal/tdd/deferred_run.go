@@ -171,7 +171,7 @@ func RunPhase(jobPath string) int {
 	os.Setenv(BuildLockHeldEnv, "1")
 	cmd := exec.Command(j.Runner[0], j.Runner[1:]...)
 	cmd.Dir = j.Dir
-	cmd.Env = suiteEnv()
+	cmd.Env = suiteEnv(r, j.Project)
 	if hadHeld {
 		os.Setenv(BuildLockHeldEnv, prevHeld)
 	} else {
