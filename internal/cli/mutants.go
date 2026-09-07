@@ -168,6 +168,24 @@ func runGateMutants(args []string, stdout, stderr io.Writer) int {
 		// it at spawn -- so a job that cannot be read reports there, where
 		// somebody looking for the missing receipt will find it.
 		return tdd.RunMutantsJobTo(*job, stdout)
+	case "prove":
+		fs := flag.NewFlagSet("mutants prove", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		file := fs.String("file", "", "the file the mutation edits")
+		oldStr := fs.String("old", "", "the exact text the mutation replaces (must match exactly once)")
+		newStr := fs.String("new", "", "the one specific error to introduce in its place")
+		wantFail := fs.String("want-fail", "", "the test name (or a unique substring of it) the mutation is predicted to fail")
+		if err := fs.Parse(args[1:]); err != nil {
+			return tdd.ExitMutantsProveUsage
+		}
+		if *file == "" || *oldStr == "" || *newStr == "" || *wantFail == "" {
+			fmt.Fprintln(stderr, "aphrollo gate mutants prove: --file, --old, --new and --want-fail are all "+
+				"required — a proof names the test it expects to fail before it runs, or it is not a proof")
+			return tdd.ExitMutantsProveUsage
+		}
+		return tdd.RunMutantsProve(tdd.MutantsProveOptions{
+			File: *file, Old: *oldStr, New: *newStr, WantFail: *wantFail,
+		}, tdd.RunSuite(tdd.DefaultPrecommitTimeout), stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "aphrollo gate mutants: unknown verb %q\n", args[0])
 		fmt.Fprint(stderr, mutantsUsage)
@@ -219,10 +237,30 @@ const mutantsUsage = `usage: aphrollo gate mutants <verb>
   status --wait      block on the running job's own process (never a poll
                      loop) until this tree reaches a terminal state, then
                      print the same answer.
+  prove --file <path> --old <text> --new <text> --want-fail <test>
+                     the HAND mutation proof (existing code, no natural RED):
+                     replace --old with --new in --file — must match exactly
+                     once — verify with "git diff --numstat" that the file
+                     actually changed, run the file's related tests, and
+                     restore the file byte-identically. Refuses rather than
+                     running when the pattern matched zero or more than one
+                     time, or when git sees no diff after the write: a
+                     mutation that never registered proves nothing about
+                     the test, whatever the run says (issue #519).
 
 Flags for run: --jobs N, --base <ref>, --timeout-multiplier, --minimum-test-timeout.
 Never invoke a repo's own mutation producer (for example tools/mutation_gate.sh)
 directly: it runs outside the lock and in the wrong tree.
+
+Exit codes for prove:
+  0  killed — verified applied, the named test failed as predicted
+  1  refused — the mutation never registered (bad pattern, ambiguous match,
+     --old equal to --new, or an empty git diff); nothing was proved
+  2  bad flags
+  3  survived — verified applied, but the suite stayed green: a real survivor
+  4  wrong failure — verified applied, the suite went red, but not on the
+     named test
+  5  timed out — the run never reached a verdict either way
 
 Exit codes for status (and status --wait):
   0  a receipt exists and would merge (verdict pass, no unaccepted survivor, no timeout)
