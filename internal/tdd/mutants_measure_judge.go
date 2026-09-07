@@ -49,10 +49,13 @@ func judgeMutants(cfg MutantsConfig, mutants []MutantOutcome) Verdict {
 			missed = append(missed, m)
 		case "timeout":
 			timedOut = append(timedOut, m)
+		case gremlinsNotCovered:
+			// Counted apart from unviable: "no coverage block maps here" is
+			// a different claim from "this mutant does not compile", and it
+			// is the one that goes to 100% of a module when the coverage
+			// mapping breaks. Neither refuses a merge on its own.
+			v.NotCovered++
 		default:
-			// unviable, and gremlins' NOT COVERED with it: neither is a
-			// mutant a test ran and failed to notice, so neither refuses a
-			// merge on its own.
 			v.Unviable++
 		}
 	}
@@ -98,6 +101,12 @@ func measureReport(v Verdict, ambiguous []string) string {
 	}
 	fmt.Fprintf(&b, "mutants: %d tested, %d caught, %d unviable, %d missed (%d accepted), %d unmeasured",
 		v.Tested, v.Caught, v.Unviable, v.Missed, v.Accepted, len(v.Unmeasured))
+	if v.NotCovered > 0 {
+		// Only when there are any: a Cargo run has no such category at all,
+		// and a trailing ", 0 not covered" on every one of its reports is a
+		// column about a tool it does not use.
+		fmt.Fprintf(&b, ", %d not covered", v.NotCovered)
+	}
 	if v.Refused {
 		b.WriteString("\n" + measureRemedy)
 	}
@@ -143,8 +152,8 @@ func measureLogVerdict(v Verdict) string {
 	if v.Refused {
 		state = "refused"
 	}
-	return fmt.Sprintf("mutants-%s:tested=%d,caught=%d,unviable=%d,missed=%d,accepted=%d,unmeasured=%d",
-		state, v.Tested, v.Caught, v.Unviable, v.Missed, v.Accepted, len(v.Unmeasured))
+	return fmt.Sprintf("mutants-%s:tested=%d,caught=%d,unviable=%d,missed=%d,accepted=%d,unmeasured=%d,notcovered=%d",
+		state, v.Tested, v.Caught, v.Unviable, v.Missed, v.Accepted, len(v.Unmeasured), v.NotCovered)
 }
 
 // mutantsAfterStatusEnv carries the measurement's own verdict to the repo's

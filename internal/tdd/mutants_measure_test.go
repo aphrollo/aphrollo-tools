@@ -2,7 +2,6 @@ package tdd
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
@@ -36,62 +35,13 @@ func stubMutantsExec(t *testing.T, reply func(n int, c measuredCall) (int, error
 	return calls
 }
 
-// writeOutcomes puts a cargo-mutants outcomes file where a run in root would
-// have left one, from the mutants it names.
-func writeOutcomes(t *testing.T, root string, mutants ...MutantOutcome) {
-	t.Helper()
-	type span struct {
-		Start struct {
-			Line   int `json:"line"`
-			Column int `json:"column"`
-		} `json:"start"`
-	}
-	type mutant struct {
-		Name    string `json:"name"`
-		Package string `json:"package"`
-		File    string `json:"file"`
-		Span    span   `json:"span"`
-	}
-	type scenario struct {
-		Mutant mutant `json:"Mutant"`
-	}
-	type outcome struct {
-		Scenario scenario `json:"scenario"`
-		Summary  string   `json:"summary"`
-	}
-	summary := map[string]string{
-		"caught": "CaughtMutant", "missed": "MissedMutant",
-		"unviable": "Unviable", "timeout": "Timeout",
-	}
-	doc := struct {
-		Outcomes []outcome `json:"outcomes"`
-	}{}
-	for _, m := range mutants {
-		var o outcome
-		o.Summary = summary[m.Status]
-		o.Scenario.Mutant = mutant{Name: mutantLineOf(m.File, m.Line, m.Col, m.Mutation), Package: m.Package, File: m.File}
-		o.Scenario.Mutant.Span.Start.Line = m.Line
-		o.Scenario.Mutant.Span.Start.Column = m.Col
-		doc.Outcomes = append(doc.Outcomes, o)
-	}
-	data, err := json.Marshal(doc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mustWrite(t, filepath.Join(root, "mutants.out", "outcomes.json"), string(data))
-}
-
 // makeMeasureRepo builds a one-crate cargo workspace with a base commit and a
 // lane commit on top of it, and answers the root and the base sha.
 func makeMeasureRepo(t *testing.T, lane map[string]string) (root, base string) {
 	t.Helper()
 	root = t.TempDir()
 	gitInit(t, root)
-	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/a\"]\n")
-	write(t, root, "crates/a/Cargo.toml", "[package]\nname = \"a\"\nversion = \"0.1.0\"\n")
-	write(t, root, "crates/a/src/lib.rs", "pub fn add(a: i32, b: i32) -> i32 { a + b }\n")
-	write(t, root, "crates/a/tests/t.rs", "#[test]\nfn t() {}\n")
-	write(t, root, "README.md", "base\n")
+	writeMeasureBase(t, root)
 	gitDo(t, root, "add", ".")
 	gitDo(t, root, "commit", "-qm", "base")
 	base = strings.TrimSpace(gitOutT(t, root, "rev-parse", "HEAD"))
@@ -119,22 +69,52 @@ var laneSource = map[string]string{"crates/a/src/lib.rs": "pub fn add(a: i32, b:
 // The measured diff is the lane's own changed CRATE SOURCES against the merge
 // base — a test file is not mutated, and the crate set is what scopes both
 // the mutant pool and the unmutated baseline (criterion 4).
+//
+// Both states have to give the same answer. At pre-merge-commit HEAD is still
+// trunk and the merged tree exists only in the index and the worktree, so a
+// selection taken against HEAD names nothing at all and the stage would pass
+// on "nothing to measure" — while the diff FILE handed to the runner was
+// rendered against the worktree all along. Selection and content are one
+// diff, base against the worktree, in both states.
 func TestMeasureDiff_ScopesToCrateSourcesAtMergeBase(t *testing.T) {
-	root, base := measureFixture(t, map[string]string{
+	lane := map[string]string{
 		"crates/a/src/lib.rs": "pub fn add(a: i32, b: i32) -> i32 { a + b + 0 }\n",
 		"crates/a/tests/t.rs": "#[test]\nfn t() { assert_eq!(1, 1); }\n",
-	})
-
-	files, crates, err := measureDiff(root, base)
-
-	if err != nil {
-		t.Fatalf("measureDiff: %v", err)
 	}
-	if len(files) != 1 || files[0] != "crates/a/src/lib.rs" {
-		t.Errorf("files = %v, want only the changed crate source", files)
-	}
-	if len(crates) != 1 || crates[0] != "a" {
-		t.Errorf("crates = %v, want the one crate owning it", crates)
+	for _, tc := range []struct {
+		name  string
+		build func(*testing.T, map[string]string) (string, string)
+	}{
+		{"lane checkout", makeMeasureRepo},
+		{"merge staged in the index and worktree", makeStagedMergeRepo},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			root, base := tc.build(t, lane)
+
+			files, crates, err := measureDiff(root, base)
+
+			if err != nil {
+				t.Fatalf("measureDiff: %v", err)
+			}
+			if len(files) != 1 || files[0] != "crates/a/src/lib.rs" {
+				t.Fatalf("files = %v, want only the changed crate source", files)
+			}
+			if len(crates) != 1 || crates[0] != "a" {
+				t.Errorf("crates = %v, want the one crate owning it", crates)
+			}
+			path, err := writeMeasureDiff(root, base, files)
+			if err != nil {
+				t.Fatalf("writeMeasureDiff: %v", err)
+			}
+			patch, readErr := os.ReadFile(path)
+			if readErr != nil {
+				t.Fatalf("no diff written for the runner: %v", readErr)
+			}
+			if !strings.Contains(string(patch), "a + b + 0") {
+				t.Errorf("diff file =\n%s\nwant the changed line's own hunk", patch)
+			}
+		})
 	}
 }
 
@@ -569,4 +549,26 @@ func makeGoMeasureRepo(t *testing.T) (root, base string) {
 	gitDo(t, root, "add", ".")
 	gitDo(t, root, "commit", "-qm", "lane")
 	return root, base
+}
+
+// writeMeasureBase lays down the one-crate workspace both fixtures start
+// from: a workspace manifest, a crate with a mutable source and a test, and
+// a file that is neither.
+func writeMeasureBase(t *testing.T, root string) {
+	t.Helper()
+	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/a\"]\n")
+	write(t, root, "crates/a/Cargo.toml", "[package]\nname = \"a\"\nversion = \"0.1.0\"\n")
+	write(t, root, "crates/a/src/lib.rs", "pub fn add(a: i32, b: i32) -> i32 { a + b }\n")
+	write(t, root, "crates/a/tests/t.rs", "#[test]\nfn t() {}\n")
+	write(t, root, "README.md", "base\n")
+}
+
+// readFileString reads a file the run may have rewritten.
+func readFileString(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }

@@ -37,13 +37,19 @@ type MeasureOpts struct {
 // refused merge is a fact the caller prints, and an error is reserved for the
 // runner failing to start at all.
 type Verdict struct {
-	Refused    bool
-	Skipped    string // non-empty when nothing ran, with the reason
-	Tested     int
-	Caught     int
-	Unviable   int
-	Missed     int
-	Accepted   int
+	Refused  bool
+	Skipped  string // non-empty when nothing ran, with the reason
+	Tested   int
+	Caught   int
+	Unviable int
+	Missed   int
+	Accepted int
+	// NotCovered is gremlins' NOT COVERED, counted apart from Unviable. It
+	// is not "a test ran and did not notice" but "no coverage block maps
+	// here", which on Windows it reports for every mutant in a module —
+	// folded into unviable that fact disappears, and a report that is mostly
+	// uncovered reads like a report that is mostly fine.
+	NotCovered int
 	Unaccepted []MutantOutcome // missed and not in mutation-accept
 	Unmeasured []MutantOutcome // timed out twice
 	Message    string          // criterion 12's report, verbatim
@@ -141,6 +147,11 @@ func measureCargoLane(root string, cfg MutantsConfig, opts MeasureOpts, base str
 	// run that writes none reached no verdict, and the difference between
 	// those two is invisible once the stale file is still sitting there.
 	_ = os.Remove(cargoMutantsOutcomesPath(root))
+	// What the tree looked like before the tool touched it. cargo-mutants
+	// mutates in place and restores as it goes, so a run that is killed
+	// leaves the last mutation in the source — and merging that is merging a
+	// mutant.
+	before := snapshotWorktree(root)
 	code, runLog, err := runMutantsMeasured(root, measureEnv(root, cfg), argv, log)
 	if err != nil {
 		return Verdict{}, err
@@ -151,11 +162,19 @@ func measureCargoLane(root string, cfg MutantsConfig, opts MeasureOpts, base str
 	recordMutantsBaseline(root, runLog)
 	mutants, err := readCargoMutantsOutcomes(root)
 	if err != nil || !cargoMutantsReachedVerdict(code) {
-		return measureNoVerdict(root, code, err, log), nil
+		return measureNoVerdictOrTreeChanged(root, code, err, before, log), nil
 	}
 	mutants, err = rerunTimedOutMutants(root, cfg, argv, mutants, log)
 	if err != nil {
 		return Verdict{}, err
+	}
+	// Asked AFTER the lone re-run as well as after the first run: the re-run
+	// is a second in-place mutation pass and can be killed exactly the same
+	// way. Ahead of the judgement, because a tree that is no longer the one
+	// that was measured makes every count in it a claim about something
+	// else.
+	if v, refused := refuseIfTreeChanged(root, before, log); refused {
+		return v, nil
 	}
 	return finishMeasure(root, cfg, mutants, log), nil
 }
@@ -191,17 +210,23 @@ func measureGoLane(root string, cfg MutantsConfig, opts MeasureOpts, base string
 	// run's, and a run that wrote none reached no verdict.
 	_ = os.Remove(out)
 	argv := append([]string{gremlinsBin}, gremlinsArgv(base, out, jobs, nil)...)
+	// gremlins rewrites the source it mutates too, and is killed by the same
+	// things: the tree is snapshotted here for the same reason.
+	before := snapshotWorktree(root)
 	code, _, err := runMutantsMeasured(root, measureEnv(root, cfg), argv, log)
 	if err != nil {
 		return Verdict{}, err
 	}
 	data, readErr := os.ReadFile(out)
 	if readErr != nil {
-		return measureNoVerdict(root, code, readErr, log), nil
+		return measureNoVerdictOrTreeChanged(root, code, readErr, before, log), nil
 	}
 	mutants, parseErr := parseGremlinsReport(data)
 	if parseErr != nil {
-		return measureNoVerdict(root, code, parseErr, log), nil
+		return measureNoVerdictOrTreeChanged(root, code, parseErr, before, log), nil
+	}
+	if v, refused := refuseIfTreeChanged(root, before, log); refused {
+		return v, nil
 	}
 	return finishMeasure(root, cfg, mutants, log), nil
 }
@@ -328,70 +353,6 @@ func hasMutantsNextestProfile(root string) bool {
 	}
 	ws := cargoWorkspaceRoot(root)
 	return ws != "" && ws != root && hasNextestProfile(ws, mutantsNextestProfile)
-}
-
-// measureDiff is what the lane actually proposes to change: its own crate
-// SOURCES against the merge base. A test file is not mutated (mutating the
-// oracle proves nothing), and the crate set that falls out of it is what
-// scopes both the mutant pool and the unmutated baseline.
-func measureDiff(root, base string) (files, crates []string, err error) {
-	changed, ok := changedPaths(root, base, "HEAD")
-	if !ok {
-		return nil, nil, fmt.Errorf("could not read %s's diff against %s", root, base)
-	}
-	for _, p := range changed {
-		if isMutableRustSource(p) {
-			files = append(files, filepath.ToSlash(p))
-		}
-	}
-	sortStrings(files)
-	ws := cargoWorkspaceRoot(root)
-	if ws == "" {
-		ws = root
-	}
-	return files, cargoPackagesOwning(ws, toRootRelative(root, ws, files)), nil
-}
-
-// isMutableRustSource matches `crates/**/src/**.rs` and the single-crate
-// `src/**.rs` that is the same shape without the workspace directory.
-func isMutableRustSource(p string) bool {
-	p = filepath.ToSlash(p)
-	return strings.HasSuffix(p, ".rs") && (strings.HasPrefix(p, "src/") || strings.Contains(p, "/src/"))
-}
-
-// measureGoDiff is the same question for a Go module: the changed sources,
-// with the test files left out for the same reason.
-func measureGoDiff(root, base string) ([]string, error) {
-	changed, ok := changedPaths(root, base, "HEAD")
-	if !ok {
-		return nil, fmt.Errorf("could not read %s's diff against %s", root, base)
-	}
-	var files []string
-	for _, p := range changed {
-		p = filepath.ToSlash(p)
-		if strings.HasSuffix(p, ".go") && !strings.HasSuffix(p, "_test.go") {
-			files = append(files, p)
-		}
-	}
-	sortStrings(files)
-	return files, nil
-}
-
-// writeMeasureDiff renders the scoped diff cargo-mutants is pointed at with
-// --in-diff, beside the run's other temporary files.
-func writeMeasureDiff(root, base string, files []string) (string, error) {
-	out, err := git(root, append([]string{"diff", base, "--"}, files...)...)
-	if err != nil {
-		return "", err
-	}
-	path := filepath.Join(measureTempDir(root), "changed.diff")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(path, []byte(out), 0o600); err != nil {
-		return "", err
-	}
-	return path, nil
 }
 
 // refuseOnDisk stops a run that cannot fit its temp copies BEFORE it starts.
