@@ -244,7 +244,6 @@ internal/tdd/escape_test.go | func TestOpenEscapesCountsTheUnclosedAndTheOldest(
 internal/tdd/escape_test.go | func TestRecordEscapeOpensALabelledIssue(t *testing.T) {
 internal/tdd/escape_test.go | func TestRecordEscapeRefusesAnUnknownKind(t *testing.T) {
 internal/tdd/escape_test.go | func TestRecordEscapeStillRecordsWithoutGh(t *testing.T) {
-internal/tdd/escape_test.go | func TestRecordEscapeWritesASchemaStampedRecord(t *testing.T) {
 internal/tdd/escape_test.go | func TestSyncEscapesOpensOnlyTheUnsyncedOnes(t *testing.T) {
 internal/tdd/escape_verify_test.go | func TestEscapeIssueTitleTruncatesOnRunes(t *testing.T) {
 internal/tdd/escape_verify_test.go | func TestRecordEscapeCreatesItsLabelBeforeOpeningTheIssue(t *testing.T) {
@@ -290,7 +289,6 @@ internal/tdd/policy_test.go | func TestActionFor(t *testing.T) {
 internal/tdd/posttooluse_test.go | func TestPostEdit(t *testing.T) {
 internal/tdd/posttooluse_test.go | func TestRenderPostToolUse(t *testing.T) {
 internal/tdd/precommit_go_test.go | func TestPrecommitChecksStagedMarkdownOnADocsOnlyCommit(t *testing.T) {
-internal/tdd/precommit_go_test.go | func TestPrecommitGoRootRunsVetThenLintThenTheSuite(t *testing.T) {
 internal/tdd/precommit_go_test.go | func TestPrecommitIsQuietWhenTheLinterMatchesTheWorkflowPin(t *testing.T) {
 internal/tdd/precommit_go_test.go | func TestPrecommitLogsLintVersionDriftAndStillRuns(t *testing.T) {
 internal/tdd/precommit_go_test.go | func TestPrecommitPassesAllowSerialRunnersToTheLinter(t *testing.T) {

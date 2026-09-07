@@ -317,10 +317,10 @@ func mutantsChildEnv(j MutantsJob, judged []MutantOutcome) []string {
 	// so a single-crate repo's own Cargo.toml is what gets read here.
 	ws := cargoWorkspaceRoot(j.Worktree)
 	excludeFilter, excludedCount := mutationBaselineExcludeForRun(ws, os.Stdout)
-	argv := MutantsArgv(j.Diff, TipSuiteGreen(j.RepoRoot, j.Started.Add(-mutantsGreenWindow)), mutantNames(judged), mutantsTouchedPackages(j), excludeFilter)
+	argv := mutantsProducerFlags(j.Diff, TipSuiteGreen(j.RepoRoot, j.Started.Add(-mutantsGreenWindow)), mutantNames(judged), mutantsTouchedPackages(j), excludeFilter)
 	// `--timeout-multiplier`/`--minimum-test-timeout` are cargo-mutants' own
 	// flags; a run typed with either rides through unchanged rather than
-	// through the exclusion-list budget MutantsArgv already bounds.
+	// through the exclusion-list budget mutantsProducerFlags already bounds.
 	if tm := strings.TrimSpace(os.Getenv(MutantsTimeoutMultiplierEnv)); tm != "" {
 		argv = append(argv, "--timeout-multiplier", tm)
 	}

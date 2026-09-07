@@ -10,25 +10,27 @@ import (
 
 // A declared exclusion reaches the SAME nextest passthrough flag whether the
 // call is building a baseline run's own argv or a mutant run's — cargo-mutants
-// invokes the same test command for both, so one flag placed after MutantsArgv's
+// invokes the same test command for both, so one flag placed after mutantsProducerFlags's
 // own `--` is what makes one declared exclusion cover both phases (issue #265).
-func TestMutantsArgv_CarriesTheDeclaredExclusionForBothBaselineAndMutantTesting(t *testing.T) {
+// ratchet: test_removed TestMutantsArgv_CarriesTheDeclaredExclusionForBothBaselineAndMutantTesting: renamed with the function it tests, MutantsArgv -> mutantsProducerFlags; the assertions are unchanged
+func TestMutantsProducerFlags_CarriesTheDeclaredExclusionForBothBaselineAndMutantTesting(t *testing.T) {
 	want := "-- -E not(test(conditioner_burst))"
 	for _, baselineSkip := range []bool{false, true} {
-		got := strings.Join(MutantsArgv("lane.diff", baselineSkip, nil, nil, "not(test(conditioner_burst))"), " ")
+		got := strings.Join(mutantsProducerFlags("lane.diff", baselineSkip, nil, nil, "not(test(conditioner_burst))"), " ")
 		if !strings.Contains(got, want) {
-			t.Fatalf("baselineSkip=%v: MutantsArgv = %q, want it to contain %q", baselineSkip, got, want)
+			t.Fatalf("baselineSkip=%v: mutantsProducerFlags = %q, want it to contain %q", baselineSkip, got, want)
 		}
 	}
 }
 
 // A repo that declares no exclusion must see today's argv, byte for byte:
 // this feature is opt-in.
-func TestMutantsArgv_OmitsTheNextestPassthroughWhenNoExclusionIsDeclared(t *testing.T) {
-	got := strings.Join(MutantsArgv("lane.diff", false, nil, nil, ""), " ")
+// ratchet: test_removed TestMutantsArgv_OmitsTheNextestPassthroughWhenNoExclusionIsDeclared: renamed with the function it tests, MutantsArgv -> mutantsProducerFlags; the assertions are unchanged
+func TestMutantsProducerFlags_OmitsTheNextestPassthroughWhenNoExclusionIsDeclared(t *testing.T) {
+	got := strings.Join(mutantsProducerFlags("lane.diff", false, nil, nil, ""), " ")
 	want := "--in-place --in-diff lane.diff --test-tool=nextest"
 	if got != want {
-		t.Fatalf("MutantsArgv = %q, want %q unchanged", got, want)
+		t.Fatalf("mutantsProducerFlags = %q, want %q unchanged", got, want)
 	}
 }
 

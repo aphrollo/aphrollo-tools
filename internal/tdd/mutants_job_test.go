@@ -313,20 +313,22 @@ func TestStartMutantsJob_WorktreePrepareFailureIsLoggedAndReturned(t *testing.T)
 // The run mutates the warm worktree IN PLACE over the lane's own diff. A tree
 // copy is what put 135 MB per run in the OS temp dir and rebuilt the world
 // cold each time.
-func TestMutantsArgv_MutatesInPlaceOverTheLaneDiff(t *testing.T) {
-	got := strings.Join(MutantsArgv("D:/tmp/lane.diff", false, nil, nil, ""), " ")
+// ratchet: test_removed TestMutantsArgv_MutatesInPlaceOverTheLaneDiff: renamed with the function it tests, MutantsArgv -> mutantsProducerFlags; the assertions are unchanged
+func TestMutantsProducerFlags_MutatesInPlaceOverTheLaneDiff(t *testing.T) {
+	got := strings.Join(mutantsProducerFlags("D:/tmp/lane.diff", false, nil, nil, ""), " ")
 	want := "--in-place --in-diff D:/tmp/lane.diff --test-tool=nextest"
 	if got != want {
-		t.Fatalf("MutantsArgv = %q, want %q", got, want)
+		t.Fatalf("mutantsProducerFlags = %q, want %q", got, want)
 	}
 }
 
 // The baseline run re-proves the unmutated tree passes. The gate already
 // proved exactly that on this tree seconds earlier, so a green log entry buys
 // the run its whole baseline back.
-func TestMutantsArgv_SkipsTheBaselineOnlyWhenItWasAlreadyProven(t *testing.T) {
-	if got := strings.Join(MutantsArgv("lane.diff", true, nil, nil, ""), " "); !strings.Contains(got, "--baseline skip") {
-		t.Fatalf("MutantsArgv = %q, want the baseline skipped once the suite is proven green", got)
+// ratchet: test_removed TestMutantsArgv_SkipsTheBaselineOnlyWhenItWasAlreadyProven: renamed with the function it tests, MutantsArgv -> mutantsProducerFlags; the assertions are unchanged
+func TestMutantsProducerFlags_SkipsTheBaselineOnlyWhenItWasAlreadyProven(t *testing.T) {
+	if got := strings.Join(mutantsProducerFlags("lane.diff", true, nil, nil, ""), " "); !strings.Contains(got, "--baseline skip") {
+		t.Fatalf("mutantsProducerFlags = %q, want the baseline skipped once the suite is proven green", got)
 	}
 }
 
@@ -336,23 +338,25 @@ func TestMutantsArgv_SkipsTheBaselineOnlyWhenItWasAlreadyProven(t *testing.T) {
 // both the baseline and the mutants, so a --package list naming only alpha is
 // what keeps beta's own tests from ever running, and so from ever being able
 // to veto this receipt over a failure that has nothing to do with this lane.
-func TestMutantsArgv_ScopesTheBaselineToTouchedPackagesOnly(t *testing.T) {
-	got := strings.Join(MutantsArgv("lane.diff", false, nil, []string{"alpha"}, ""), " ")
+// ratchet: test_removed TestMutantsArgv_ScopesTheBaselineToTouchedPackagesOnly: renamed with the function it tests, MutantsArgv -> mutantsProducerFlags; the assertions are unchanged
+func TestMutantsProducerFlags_ScopesTheBaselineToTouchedPackagesOnly(t *testing.T) {
+	got := strings.Join(mutantsProducerFlags("lane.diff", false, nil, []string{"alpha"}, ""), " ")
 	if !strings.Contains(got, "--package alpha") {
-		t.Fatalf("MutantsArgv = %q, want the touched package named", got)
+		t.Fatalf("mutantsProducerFlags = %q, want the touched package named", got)
 	}
 	if strings.Contains(got, "beta") {
-		t.Fatalf("MutantsArgv = %q, want no mention of an untouched package", got)
+		t.Fatalf("mutantsProducerFlags = %q, want no mention of an untouched package", got)
 	}
 }
 
 // An undeterminable touched-crate set (mutantsTouchedPackages returning nil)
 // must fall back to today's whole-workspace behaviour — no --package flag at
 // all — rather than silently measuring nothing.
-func TestMutantsArgv_OmitsPackageFlagsWhenTouchedSetIsUndeterminable(t *testing.T) {
-	got := strings.Join(MutantsArgv("lane.diff", false, nil, nil, ""), " ")
+// ratchet: test_removed TestMutantsArgv_OmitsPackageFlagsWhenTouchedSetIsUndeterminable: renamed with the function it tests, MutantsArgv -> mutantsProducerFlags; the assertions are unchanged
+func TestMutantsProducerFlags_OmitsPackageFlagsWhenTouchedSetIsUndeterminable(t *testing.T) {
+	got := strings.Join(mutantsProducerFlags("lane.diff", false, nil, nil, ""), " ")
 	if strings.Contains(got, "--package") {
-		t.Fatalf("MutantsArgv = %q, want no --package flag for an undeterminable touched-crate set", got)
+		t.Fatalf("mutantsProducerFlags = %q, want no --package flag for an undeterminable touched-crate set", got)
 	}
 }
 

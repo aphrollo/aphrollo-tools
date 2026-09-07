@@ -1,0 +1,169 @@
+{
+ "outcomes": [
+  {
+   "scenario": "Baseline",
+   "summary": "Success",
+   "log_path": "log/baseline.log",
+   "diff_path": null
+  },
+  {
+   "scenario": {
+    "Mutant": {
+     "name": "crates/particles/src/components/tick.rs:34:5: replace nearest_active_camera_distance -> Option<f32> with None",
+     "package": "particles",
+     "file": "crates/particles/src/components/tick.rs",
+     "function": {
+      "function_name": "nearest_active_camera_distance",
+      "return_type": "-> Option<f32>",
+      "span": {
+       "start": {
+        "line": 27,
+        "column": 1
+       },
+       "end": {
+        "line": 40,
+        "column": 2
+       }
+      }
+     },
+     "span": {
+      "start": {
+       "line": 34,
+       "column": 5
+      },
+      "end": {
+       "line": 39,
+       "column": 26
+      }
+     },
+     "replacement": "None",
+     "genre": "FnValue"
+    }
+   },
+   "summary": "CaughtMutant",
+   "log_path": "log/crates__particles__src__components__tick.rs_line_34_col_5.log",
+   "diff_path": "diff/crates__particles__src__components__tick.rs_line_34_col_5.diff"
+  },
+  {
+   "scenario": {
+    "Mutant": {
+     "name": "crates/particles/src/readback.rs:43:40: replace * with + in GpuParticle::decode",
+     "package": "particles",
+     "file": "crates/particles/src/readback.rs",
+     "function": {
+      "function_name": "GpuParticle::decode",
+      "return_type": "-> Self",
+      "span": {
+       "start": {
+        "line": 40,
+        "column": 5
+       },
+       "end": {
+        "line": 52,
+        "column": 6
+       }
+      }
+     },
+     "span": {
+      "start": {
+       "line": 43,
+       "column": 40
+      },
+      "end": {
+       "line": 43,
+       "column": 41
+      }
+     },
+     "replacement": "+",
+     "genre": "BinaryOperator"
+    }
+   },
+   "summary": "MissedMutant",
+   "log_path": "log/crates__particles__src__readback.rs_line_43_col_40.log",
+   "diff_path": "diff/crates__particles__src__readback.rs_line_43_col_40.diff"
+  },
+  {
+   "scenario": {
+    "Mutant": {
+     "name": "crates/particles/src/readback.rs:41:9: replace GpuParticle::decode -> Self with Default::default()",
+     "package": "particles",
+     "file": "crates/particles/src/readback.rs",
+     "function": {
+      "function_name": "GpuParticle::decode",
+      "return_type": "-> Self",
+      "span": {
+       "start": {
+        "line": 40,
+        "column": 5
+       },
+       "end": {
+        "line": 52,
+        "column": 6
+       }
+      }
+     },
+     "span": {
+      "start": {
+       "line": 41,
+       "column": 9
+      },
+      "end": {
+       "line": 51,
+       "column": 10
+      }
+     },
+     "replacement": "Default::default()",
+     "genre": "FnValue"
+    }
+   },
+   "summary": "Unviable",
+   "log_path": "log/crates__particles__src__readback.rs_line_41_col_9.log",
+   "diff_path": "diff/crates__particles__src__readback.rs_line_41_col_9.diff"
+  },
+  {
+   "scenario": {
+    "Mutant": {
+     "name": "crates/particles/src/readback.rs:44:13: replace += with -= in GpuParticle::decode",
+     "package": "particles",
+     "file": "crates/particles/src/readback.rs",
+     "function": {
+      "function_name": "GpuParticle::decode",
+      "return_type": "-> Self",
+      "span": {
+       "start": {
+        "line": 40,
+        "column": 5
+       },
+       "end": {
+        "line": 52,
+        "column": 6
+       }
+      }
+     },
+     "span": {
+      "start": {
+       "line": 44,
+       "column": 13
+      },
+      "end": {
+       "line": 44,
+       "column": 15
+      }
+     },
+     "replacement": "-=",
+     "genre": "BinaryOperator"
+    }
+   },
+   "summary": "Timeout",
+   "log_path": "log/crates__particles__src__readback.rs_line_43_col_40.log",
+   "diff_path": "diff/crates__particles__src__readback.rs_line_43_col_40.diff"
+  }
+ ],
+ "total_mutants": 4,
+ "missed": 1,
+ "caught": 1,
+ "timeout": 1,
+ "unviable": 1,
+ "success": 1,
+ "cargo_mutants_version": "27.1.0"
+}

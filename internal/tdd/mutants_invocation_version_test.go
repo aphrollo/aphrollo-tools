@@ -32,7 +32,7 @@ func TestMutantsInvocation_Version_DiffersOnEachVerdictAffectingField(t *testing
 }
 
 // Two runs of the SAME repo, scoped to different diffs and different
-// package lists, must stamp the SAME InvocationVersion: MutantsArgv's own
+// package lists, must stamp the SAME InvocationVersion: mutantsProducerFlags's own
 // --in-diff is a temp path that differs every run and --package narrows
 // what is measured, never HOW. Hashing either into the invocation would
 // invalidate every cached outcome on every run — "strictly worse than not
@@ -41,9 +41,9 @@ func TestMutantsInvocationVersion_SameAcrossDifferentDiffsAndPackageLists(t *tes
 	root := t.TempDir()
 	mustWriteFile(filepath.Join(root, "tools", "mutation_gate.sh"), "#!/bin/sh\n")
 
-	// Two runs MutantsArgv itself renders very differently...
-	argvA := MutantsArgv(filepath.Join(t.TempDir(), "a.diff"), true, nil, []string{"crates/a"}, "")
-	argvB := MutantsArgv(filepath.Join(t.TempDir(), "b.diff"), true, nil, []string{"crates/a", "crates/b", "crates/c"}, "")
+	// Two runs mutantsProducerFlags itself renders very differently...
+	argvA := mutantsProducerFlags(filepath.Join(t.TempDir(), "a.diff"), true, nil, []string{"crates/a"}, "")
+	argvB := mutantsProducerFlags(filepath.Join(t.TempDir(), "b.diff"), true, nil, []string{"crates/a", "crates/b", "crates/c"}, "")
 	if strings.Join(argvA, " ") == strings.Join(argvB, " ") {
 		t.Fatalf("test setup: the two argvs must actually differ in --in-diff/--package, both rendered %v", argvA)
 	}

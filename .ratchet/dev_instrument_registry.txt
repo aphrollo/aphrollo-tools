@@ -71,3 +71,4 @@ APHROLLO_MUTANTS_TIMEOUT_MULTIPLIER | internal/tdd/mutants_run.go | Carries the 
 APHROLLO_MUTANTS_MIN_TEST_TIMEOUT | internal/tdd/mutants_run.go | Carries the --minimum-test-timeout flag of aphrollo gate mutants run into the in-process job the same way.
 APHROLLO_MUTANTS_BASELINE_EXCLUDED | internal/tdd/mutants_run.go | How many mutation-baseline-exclude entries this side folded into the nextest passthrough, so the runner can carry the count into the receipt without re-parsing the repo's config.
 APHROLLO_MUTATION_GATE | internal/cli/cargo_shim_mutants.go | Deprecated one-release handshake: a nested cargo mutants is let through by its target dir now; a caller still setting this is let through once more and logged.
+APHROLLO_MUTANTS_STATUS | internal/tdd/mutants_measure_judge.go | The measurement's own verdict (0 passed, 1 refused), handed to the repo's mutants-after command so it can reclaim what a timeout-killed test binary left behind.

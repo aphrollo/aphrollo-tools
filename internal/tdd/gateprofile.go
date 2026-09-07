@@ -21,11 +21,19 @@ const gateNextestProfile = "gate"
 // `[profile.gate]`. Line-matched rather than parsed: the shape is a TOML table
 // header, and a header is a whole line.
 func hasGateProfile(ws string) bool {
+	return hasNextestProfile(ws, gateNextestProfile)
+}
+
+// hasNextestProfile reports whether ws's checked-in nextest config declares
+// `[profile.<name>]`. Line-matched rather than parsed: the shape is a TOML
+// table header, and a header is a whole line. The mutation runner asks the
+// same question about its own `[profile.mutants]`.
+func hasNextestProfile(ws, name string) bool {
 	data, err := os.ReadFile(filepath.Join(ws, ".config", "nextest.toml"))
 	if err != nil {
 		return false
 	}
-	header := "[profile." + gateNextestProfile + "]"
+	header := "[profile." + name + "]"
 	for line := range strings.Lines(string(data)) {
 		if strings.TrimSpace(line) == header {
 			return true

@@ -80,13 +80,14 @@ func TestResumeMutants_MeasuresOnlyTheMutantsWithoutAVerdict(t *testing.T) {
 
 // The exclusions the restart hands the tool are the judged mutants, quoted so
 // a mutation's own punctuation cannot become a pattern.
-func TestMutantsArgv_ExcludesTheMutantsAlreadyJudged(t *testing.T) {
-	got := strings.Join(MutantsArgv("lane.diff", false, []string{"a.rs:1:5: replace + with -"}, nil, ""), " ")
+// ratchet: test_removed TestMutantsArgv_ExcludesTheMutantsAlreadyJudged: renamed with the function it tests, MutantsArgv -> mutantsProducerFlags; the assertions are unchanged
+func TestMutantsProducerFlags_ExcludesTheMutantsAlreadyJudged(t *testing.T) {
+	got := strings.Join(mutantsProducerFlags("lane.diff", false, []string{"a.rs:1:5: replace + with -"}, nil, ""), " ")
 	if !strings.Contains(got, "--exclude-re") {
-		t.Fatalf("MutantsArgv = %q, want the judged mutants excluded", got)
+		t.Fatalf("mutantsProducerFlags = %q, want the judged mutants excluded", got)
 	}
 	if !strings.Contains(got, `\+`) {
-		t.Fatalf("MutantsArgv = %q, want the mutation text quoted for a regex", got)
+		t.Fatalf("mutantsProducerFlags = %q, want the mutation text quoted for a regex", got)
 	}
 }
 

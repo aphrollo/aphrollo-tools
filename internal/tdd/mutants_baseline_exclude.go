@@ -71,7 +71,7 @@ func mutationBaselineExcludeParse(entries []string) (expr string, count int, bad
 	}
 	// A single `not(...)` over the union of every declared filter excludes
 	// each named test from BOTH the baseline and every mutant's own test run
-	// — MutantsArgv passes this to cargo-mutants as one trailing passthrough
+	// — mutantsProducerFlags passes this to cargo-mutants as one trailing passthrough
 	// flag, and cargo-mutants runs the SAME test command for both phases.
 	return "not(" + strings.Join(filters, " + ") + ")", len(filters), bad
 }
