@@ -44,7 +44,10 @@ const (
 type gitShimConfig struct {
 	waitBudget   time.Duration
 	pollInterval time.Duration
-	realGit      string
+	// indexLockGrace is how long an index.lock must sit unchanged before
+	// the shim stops waiting on it; zero means defaultGitIndexLockGrace.
+	indexLockGrace time.Duration
+	realGit        string
 }
 
 // runGateGit is the `aphrollo tdd git [git args...]` entry point: resolves
@@ -57,9 +60,10 @@ func runGateGit(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	cfg := gitShimConfig{
-		waitBudget:   defaultGitWaitBudget,
-		pollInterval: defaultGitPollInterval,
-		realGit:      realGit,
+		waitBudget:     defaultGitWaitBudget,
+		pollInterval:   defaultGitPollInterval,
+		indexLockGrace: defaultGitIndexLockGrace,
+		realGit:        realGit,
 	}
 	if raw := strings.TrimSpace(os.Getenv("APHROLLO_GIT_WAIT_SECS")); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
@@ -176,10 +180,12 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 	// independently-announced ones.
 	start := time.Now()
 	printedQueued := false
+	var indexWatch gitIndexLockWatch
 	for {
 		release, acquired := tdd.TryAcquireFileLock(lockPath)
 		heldByOther := !acquired
-		if acquired && indexLockPresent(indexLockPath) {
+		blockedByIndexLock := acquired && indexLockPresent(indexLockPath)
+		if blockedByIndexLock {
 			// We hold the advisory lock, but a git process that bypassed
 			// the shim (found the real git first on PATH, or ran without
 			// the shim dir prepended) is mid-write on index.lock directly.
@@ -205,6 +211,13 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 			fmt.Fprintln(stderr, gitQueuedLine(ownerPath, indexLockPath))
 			printedQueued = true
 		}
+		// A lock nobody is writing to is the one thing this wait can never
+		// outlast (issue #608): report it with its remedy in seconds rather
+		// than spend the whole budget proving it silently.
+		if line, stalled := indexWatch.stallLine(indexLockPath, cfg.indexLockGrace, blockedByIndexLock); stalled {
+			fmt.Fprintln(stderr, line)
+			return exGitTempFail
+		}
 		elapsed := time.Since(start)
 		if elapsed >= cfg.waitBudget {
 			fmt.Fprintln(stderr, gitGiveUpLine(elapsed, ownerPath))
@@ -212,17 +225,6 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 		}
 		time.Sleep(cfg.pollInterval)
 	}
-}
-
-// indexLockPresent reports whether path exists -- best-effort, any stat
-// error (including "not found") reads as absent. An empty path is "no index
-// lock to wait for" (a repo-scoped verb).
-func indexLockPresent(path string) bool {
-	if path == "" {
-		return false
-	}
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 // runGitWithLock writes the owner file, runs the real git, then removes the
