@@ -83,12 +83,13 @@ func baselineStage(gateName, repoRoot string) GateResult {
 // row moved with the file, the same case a line-keyed baseline already
 // handles by dropping the path from its identity.
 //
-// admitNewRootKeys is true only for a whole-tree ceiling law keyed on a
-// workspace ROOT rather than a file (see wholeTreeCeilingBaseline): there, a
-// key absent from the baseline is a newly added workspace member reaching
-// its first-ever measurement, not the "somebody must say so" case this guard
-// exists to catch, so its first row is admitted at whatever the scan
-// measured (#480). It never excuses an EXISTING key's count going up.
+// admitNewRootKeys is true only for a counted whole-tree ceiling law, keyed
+// on a subject rather than a file (see wholeTreeCeilingBaseline): there, a
+// key absent from the baseline is a newly added workspace member or bench
+// case reaching its first-ever measurement, not the "somebody must say so"
+// case this guard exists to catch, so its first row is admitted at whatever
+// the scan measured (#480, #577). It never excuses an EXISTING key's count
+// going up.
 func raisedKeys(repoRoot, base, file, before, after string, admitNewRootKeys bool) []string {
 	old := baselineCounts(before)
 	now := baselineCounts(after)
@@ -115,10 +116,14 @@ func raisedKeys(repoRoot, base, file, before, after string, admitNewRootKeys boo
 
 // wholeTreeCeilingBaseline reports whether the law that declares
 // baselineRel as its `baseline` is a whole-tree ceiling kind keyed on a
-// workspace ROOT — today, KindDepGraphCeiling — rather than on a file. That
-// key space grows as a normal consequence of ordinary work (a repo adding a
-// crate), unlike every per-file law's key space, so a first-ever row under
-// it is adoption, not a hand-raise (#480). Read the STAGED law text where
+// SUBJECT the tree gains through ordinary work — a workspace root
+// (KindDepGraphCeiling, #480), or a bench case (KindJSONNumberCeiling and
+// KindGoBenchCeiling, #577) — rather than on a file. Those key spaces grow
+// as a normal consequence of work: a repo adds a crate, someone writes a
+// bench. A per-file law's does not, which is why it keeps the strict rule
+// that a new key is a hit somebody has to admit. So a first-ever row under a
+// counted ceiling is adoption at its measured value, not a hand-raise, and
+// it holds monotone from there. Read the STAGED law text where
 // this commit touches it, falling back to HEAD/disk otherwise — the law
 // itself is not what changed, only the workspace it measures. Anything this
 // cannot resolve (no owning law found, unreadable, fails to parse) answers
@@ -150,7 +155,11 @@ func wholeTreeCeilingBaseline(repoRoot, baselineRel string) bool {
 		if err != nil {
 			return false
 		}
-		return law.Matcher.Kind == ratchet.KindDepGraphCeiling
+		switch law.Matcher.Kind {
+		case ratchet.KindDepGraphCeiling, ratchet.KindJSONNumberCeiling, ratchet.KindGoBenchCeiling:
+			return true
+		}
+		return false
 	}
 	return false
 }

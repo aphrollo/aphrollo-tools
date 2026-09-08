@@ -80,16 +80,109 @@ func TestBaselineGuard_StillRefusesANewKeyUnderAPerFileLaw(t *testing.T) {
 	}
 }
 
-func TestWholeTreeCeilingBaseline_TrueOnlyForDepGraphCeiling(t *testing.T) {
+// benchCeilingLawText is a go-bench-ceiling law, keyed on the BENCH CASE
+// name. That key space grows as a normal consequence of work — adding a bench
+// adds a key — exactly like the workspace-root key space #480 covered.
+const benchCeilingLawText = `name = "bench-ceiling"
+description = "a benchmark's allocations may only fall"
+severity = "deny"
+baseline = ".ratchet/baselines/bench-ceiling.txt"
+
+[scope]
+include = ["testdata/bench/baseline.txt"]
+
+[matcher]
+kind  = "go-bench-ceiling"
+files = "testdata/bench/baseline.txt"
+`
+
+// jsonCeilingLawText is the same shape read out of generated JSON — the kind
+// borld #227's live case uses, whose `sample_ground/inside_tile` and
+// `sample_ground/on_seam` figures could not be committed at all.
+const jsonCeilingLawText = `name = "perf"
+description = "a tier-1 kernel bench may not regress"
+severity = "deny"
+baseline = ".ratchet/baselines/perf.txt"
+
+[scope]
+include = ["**/*.json"]
+
+[matcher]
+kind = "json-number-ceiling"
+files = "criterion/**/new/estimates.json"
+path = "mean.point_estimate"
+`
+
+// benchCeilingRepo commits bench-ceiling.toml unchanged across seed and
+// staged — #577 is about the BENCH SET growing, not the law — with its
+// baseline at seedBaseline, then stages stagedBaseline on top.
+func benchCeilingRepo(t *testing.T, seedBaseline, stagedBaseline string) string {
+	t.Helper()
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "bench-ceiling.toml"), benchCeilingLawText)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "bench-ceiling.txt"), seedBaseline)
+	gitAddAll(t, root)
+	commitAll(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "bench-ceiling.txt"), stagedBaseline)
+	gitAddAll(t, root)
+	return root
+}
+
+// TestBaselineGuard_NewBenchKeyUnderUnchangedCeilingLawIsAdmitted is #577:
+// adding a bench case adds a baseline key, the guard reads the missing HEAD
+// row as `0 -> N` and refuses the commit as a raise, so a new bench can never
+// receive its first ceiling under a law nobody touched — the same gap #480
+// closed for dep-graph-ceiling's workspace roots.
+func TestBaselineGuard_NewBenchKeyUnderUnchangedCeilingLawIsAdmitted(t *testing.T) {
+	root := benchCeilingRepo(t, "sample_ground/inside_tile | 120\n",
+		"sample_ground/inside_tile | 120\nsample_ground/on_seam | 340\n")
+
+	res := baselineStage("precommit", root)
+
+	if res.Blocked {
+		t.Fatalf("a new bench case's first-ever ceiling must not be refused as a hand-raise: %s", res.Message)
+	}
+}
+
+// TestBaselineGuard_RaisedBenchKeyUnderUnchangedLawIsStillRefused is the other
+// direction the same fix must prove: admitting a brand-new bench key must not
+// widen into ignoring an EXISTING case's figure going up.
+func TestBaselineGuard_RaisedBenchKeyUnderUnchangedLawIsStillRefused(t *testing.T) {
+	root := benchCeilingRepo(t, "sample_ground/inside_tile | 120\nsample_ground/on_seam | 340\n",
+		"sample_ground/inside_tile | 130\nsample_ground/on_seam | 340\n")
+
+	res := baselineStage("precommit", root)
+
+	if !res.Blocked {
+		t.Fatal("an existing bench case's figure going up is still a hand-raise and must be refused")
+	}
+	if !strings.Contains(res.Message, "sample_ground/inside_tile") || !strings.Contains(res.Message, "120 -> 130") {
+		t.Errorf("message must name the raised row: %s", res.Message)
+	}
+}
+
+// ratchet: test_removed TestWholeTreeCeilingBaseline_TrueOnlyForDepGraphCeiling: the
+// discriminator covers three ceiling kinds since #577, not one; renamed to
+// TestWholeTreeCeilingBaseline_TrueForACountedCeilingLawFalseForAPerFileLaw below.
+func TestWholeTreeCeilingBaseline_TrueForACountedCeilingLawFalseForAPerFileLaw(t *testing.T) {
 	root := t.TempDir()
 	gitInit(t, root)
 	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "crate-fanout.toml"), depGraphCeilingLawText)
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "bench-ceiling.toml"), benchCeilingLawText)
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "perf.toml"), jsonCeilingLawText)
 	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "nan-guard.toml"), nanGuardLawText)
 	gitAddAll(t, root)
 	commitAll(t, root)
 
 	if !wholeTreeCeilingBaseline(root, ".ratchet/baselines/crate-fanout.txt") {
 		t.Error("a dep-graph-ceiling law's own baseline must report true")
+	}
+	if !wholeTreeCeilingBaseline(root, ".ratchet/baselines/bench-ceiling.txt") {
+		t.Error("a go-bench-ceiling law's own baseline must report true")
+	}
+	if !wholeTreeCeilingBaseline(root, ".ratchet/baselines/perf.txt") {
+		t.Error("a json-number-ceiling law's own baseline must report true")
 	}
 	if wholeTreeCeilingBaseline(root, ".ratchet/baselines/nan-guard.txt") {
 		t.Error("a per-file law's baseline must report false")
