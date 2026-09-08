@@ -26,6 +26,7 @@ import (
 // path built from it needs nothing from the real git.
 const fakeGitCommonDir = "/tmp/aphrollo-fake-common/.git"
 
+// testmain-exit-ok: the os.Exit below is the stand-in git exiting, taken only when this binary was invoked AS git with a rev-parse argv; every real test run reaches m.Run()
 func TestMain(m *testing.M) {
 	// A test that needs a git which WRITES TO STDERR points APHROLLO_REAL_GIT
 	// at this binary; git's own argv is what arrives here, so the branch is
