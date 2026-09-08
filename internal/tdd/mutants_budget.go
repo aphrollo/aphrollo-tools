@@ -168,13 +168,27 @@ func mutantsShardsThatFit(freeGB int, needs []shardNeed) int {
 // sharded Cargo runner, "job" for gremlins' workers — so the refusal speaks
 // the run's vocabulary rather than a word from an older design.
 func refuseOnDisk(root string, want int, unit string, log io.Writer) (Verdict, int, bool) {
-	free, ok := freeSpaceGBFn(nearestExistingDir(measureTempDir(root)))
+	dir := nearestExistingDir(measureTempDir(root))
+	free, ok := freeSpaceGBFn(dir)
 	if !ok {
+		// Say so. A blind spot that returns quietly is indistinguishable from
+		// a budget that passed, and that silence is how the flat 15 GB-per-
+		// unit guess this file replaced survived for months.
+		logf(log, "mutants: free space on %s could not be read — running all %d %s%s unbudgeted",
+			dir, want, unit, plural(want))
 		return Verdict{}, want, false
 	}
 	needs := mutantsShardNeeds(root, want)
 	fit := mutantsShardsThatFit(free, needs)
 	if fit >= want {
+		// The path that works says what it measured, in the same vocabulary
+		// the reduction and refusal lines below use: a budget nobody can read
+		// on a good run cannot be diagnosed on a bad one.
+		if len(needs) > 0 {
+			logf(log, "mutants: %d GB free fits all %d %s%s — %s needed, one %s is %s, %s kept free",
+				free, want, unit, plural(want), formatBytes(shardNeedsTotal(needs)), unit,
+				shardNeedText(needs[0]), formatBytes(mutantsDiskReserveBytes))
+		}
 		return Verdict{}, want, false
 	}
 	if fit > 0 {
@@ -188,6 +202,16 @@ func refuseOnDisk(root string, want int, unit string, log io.Writer) (Verdict, i
 	logf(log, "%s", msg)
 	appendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-refused:disk", 0)
 	return Verdict{Refused: true, Message: msg}, 0, true
+}
+
+// shardNeedsTotal is what the whole run puts on the drive — the number the
+// reserve is subtracted from, and the one worth reading beside the free space.
+func shardNeedsTotal(needs []shardNeed) int64 {
+	var total int64
+	for _, n := range needs {
+		total += n.total()
+	}
+	return total
 }
 
 // shardNeedText spells one shard's budget out, saying plainly which half was

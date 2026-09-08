@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -63,6 +64,72 @@ func TestMutantsShardNeeds_MeasuresTheTrackedTreeAndEachShardsOwnTargetDir(t *te
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("shard needs = %+v, want %+v — the ignored %d-byte build product is not part of the copy",
 			got, want, 1<<20)
+	}
+}
+
+// The budget spoke only when it REDUCED the unit count or REFUSED, so both
+// paths where it works were silent: the fit, and its own blind spot when free
+// space cannot be read. A production run of the sharded runner printed 78
+// lines with nothing matching `disk`, `budget`, `estimat`, `measur`, `MB` or
+// `GB` past the two header lines — and the flat 15 GB-per-job guess this
+// budget replaced survived for months on exactly that silence. Both paths now
+// carry the numbers, and neither changes what the run does.
+func TestRefuseOnDisk_SaysWhatItMeasuredOnBothSilentPaths(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, ".gitignore", "target/\n")
+	write(t, root, "src/lib.rs", strings.Repeat("x", 4096))
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "base")
+	// Shard 0 built on an earlier run, so its build dir is a MEASUREMENT;
+	// shard 1 has never built, so its figure is the cold estimate.
+	warm := mutantsShardTargetDir(root, 0)
+	if err := os.MkdirAll(warm, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(warm, "libx.rlib"), make([]byte, 8192), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	copyBytes := fileSize(t, filepath.Join(root, ".gitignore")) + fileSize(t, filepath.Join(root, "src", "lib.rs"))
+	total := 2*copyBytes + 8192 + mutantsColdTargetBytes
+
+	var fits bytes.Buffer
+	withFreeSpace(t, 900)
+	v, got, refused := refuseOnDisk(root, 2, "shard", &fits)
+
+	if v.Refused || refused || got != 2 {
+		t.Fatalf("verdict = %+v, units = %d, refused = %v — a drive with room runs every shard", v, got, refused)
+	}
+	line := strings.TrimSpace(fits.String())
+	if strings.Count(line, "\n") != 0 {
+		t.Fatalf("output = %q, want one line", line)
+	}
+	for _, fact := range []string{
+		"900",                  // the free space it observed
+		"2 shard",              // how many units it is admitting, in the run's own vocabulary
+		formatBytes(total),     // what they need together
+		formatBytes(copyBytes), // the tracked tree it stat'd, per shard
+		formatBytes(8192),      // shard 0's build dir, from the directory itself
+		"measured",             // and said so: a figure presented as measured when it was assumed is the whole defect
+	} {
+		if !strings.Contains(line, fact) {
+			t.Errorf("fits line = %q, want it to carry %q", line, fact)
+		}
+	}
+
+	var blind bytes.Buffer
+	t.Cleanup(SetFreeSpaceForTest(0, false))
+	v, got, refused = refuseOnDisk(root, 2, "shard", &blind)
+
+	if v.Refused || refused || got != 2 {
+		t.Fatalf("verdict = %+v, units = %d, refused = %v — this side's blind spot must not stop a run", v, got, refused)
+	}
+	if !strings.Contains(blind.String(), "free") || !strings.Contains(blind.String(), "2 shard") {
+		t.Errorf("blind-spot line = %q, want it to name the unreadable free space and the units running unbudgeted",
+			blind.String())
+	}
+	if strings.Contains(blind.String(), "GB free") {
+		t.Errorf("blind-spot line = %q, want no free-space figure it never read", blind.String())
 	}
 }
 
