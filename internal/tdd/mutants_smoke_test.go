@@ -31,14 +31,6 @@ func TestMeasureLane_RealCargoMutantsOnAMinimalCrate(t *testing.T) {
 
 	root := t.TempDir()
 	gitInit(t, root)
-	// The fixture's files are written with LF by this test, while Git for
-	// Windows' SYSTEM config turns core.autocrlf on. Under that combination
-	// git prints "warning: in the working copy of 'src/lib.rs', LF will be
-	// replaced by CRLF the next time Git touches it" the first time it looks
-	// at the file after the run rewrote it — with no content difference at
-	// all. The line endings are the fixture's business, so they are pinned
-	// here rather than left to the box.
-	gitDo(t, root, "config", "core.autocrlf", "false")
 	write(t, root, "Cargo.toml", "[package]\nname = \"m\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
 	// The profile the runner selects with NEXTEST_PROFILE. It inherits every
 	// default; it exists so the measured run reaches the same profile a
@@ -79,6 +71,10 @@ func TestMeasureLane_RealCargoMutantsOnAMinimalCrate(t *testing.T) {
 	if got := readFileString(t, filepath.Join(root, "after-ran.txt")); got != "0" {
 		t.Errorf("mutants-after recorded %q, want the passing run's own status 0", got)
 	}
+	// Under -v: what the real tool actually said. A green e2e test that
+	// keeps the tool's own narrative to itself leaves nobody able to check
+	// which flags ran, or how many mutants there were to catch.
+	t.Logf("cargo-mutants said:\n%s", strings.TrimRight(log.String(), "\n"))
 }
 
 // minimalCrateBase is the crate before the lane: one function and the test

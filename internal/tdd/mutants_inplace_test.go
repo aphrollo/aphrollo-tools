@@ -5,6 +5,57 @@ import (
 	"testing"
 )
 
+// git prints advice on STDERR, and advice is not a change to the tree. The
+// tree-changed guard read the COMBINED output, so the first `git diff` after
+// cargo-mutants rewrote a source file — which on a box with core.autocrlf on
+// and LF bytes in the worktree adds "warning: in the working copy of
+// 'src/lib.rs', LF will be replaced by CRLF the next time Git touches it" —
+// no longer matched the snapshot taken before the run. The measurement was
+// refused with an EMPTY `--stat`, no file named and every mutant caught: a
+// merge blocked by a line-ending warning.
+//
+// Closed form: the same patch on stdout before and after, a warning on
+// stderr only afterwards. What decides the verdict is stdout alone.
+func TestMeasure_GitWarningOnStderrIsNotATreeChange(t *testing.T) {
+	root, base := measureFixture(t, laneSource)
+	const patch = "diff --git a/crates/a/src/lib.rs b/crates/a/src/lib.rs\n@@ -1 +1 @@\n-a + b\n+a - b\n"
+	const warning = "warning: in the working copy of 'crates/a/src/lib.rs', " +
+		"LF will be replaced by CRLF the next time Git touches it\n"
+	diffs := 0
+	t.Cleanup(setGitDiffOutForTest(func(_ string, args ...string) (string, string, error) {
+		if len(args) > 1 && args[1] == "--stat" {
+			return " crates/a/src/lib.rs | 1 +\n", "", nil
+		}
+		diffs++
+		if diffs == 1 {
+			return patch, "", nil
+		}
+		// Every look after the run carries the advice, and the tree it
+		// describes is byte for byte the one that went in.
+		return patch, warning, nil
+	}))
+	stubMutantsExec(t, func(int, measuredCall) (int, error) {
+		writeOutcomes(t, root, MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 36,
+			Mutation: "replace + with -", Package: "a", Status: "caught"})
+		return 0, nil
+	})
+
+	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base})
+
+	if err != nil {
+		t.Fatalf("MeasureLane: %v", err)
+	}
+	if v.Refused {
+		t.Fatalf("verdict = %+v, want a pass: git said the same patch both times and warned about line endings on stderr", v)
+	}
+	if diffs < 2 {
+		t.Fatalf("the tree was read %d time(s), want it snapshotted before the run and read again after it", diffs)
+	}
+	if v.Caught != 1 {
+		t.Errorf("Caught = %d, want the one caught mutant judged", v.Caught)
+	}
+}
+
 // cargo-mutants REFUSES `--jobs` together with `--in-place`: an in-place run
 // mutates the single tree it is measuring, so there is no second tree for a
 // second job to work on. Emitting both killed the first real pre-merge

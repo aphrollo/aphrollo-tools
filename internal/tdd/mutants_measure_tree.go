@@ -1,9 +1,11 @@
 package tdd
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -39,11 +41,43 @@ type worktreeSnapshot struct {
 // directory and diff file all land there, and counting them would make every
 // run report itself as having changed the tree.
 func snapshotWorktree(root string) worktreeSnapshot {
-	out, err := git(root, "diff")
+	// STDOUT alone is the patch. git prints ADVICE on stderr — "warning: in
+	// the working copy of 'src/lib.rs', LF will be replaced by CRLF the next
+	// time Git touches it" is what a box with core.autocrlf on says the
+	// first time it looks at a file the run rewrote — and advice is not a
+	// change to the tree. Read as part of the patch it made the after
+	// snapshot differ from the before one with no content difference at all,
+	// and refused a measurement whose every mutant had been caught, naming
+	// no files and printing an empty --stat.
+	out, _, err := gitDiffOutFn(root, "diff")
 	if err != nil {
 		return worktreeSnapshot{}
 	}
 	return worktreeSnapshot{patch: out, ok: true}
+}
+
+// gitDiffExecFn is the seam every diff that decides this verdict goes
+// through: one call, both streams kept apart, so a test can say what git
+// printed where.
+var gitDiffOutFn = gitDiffOut
+
+// gitDiffOut runs git in dir with the same scrubbed environment the rest of
+// this package uses, and answers stdout and stderr SEPARATELY.
+func gitDiffOut(dir string, args ...string) (stdout, stderr string, err error) {
+	cmd := exec.Command(gitBinary(), args...)
+	cmd.Dir = dir
+	cmd.Env = cleanGitEnv()
+	var out, errBuf bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errBuf
+	err = cmd.Run()
+	return out.String(), errBuf.String(), err
+}
+
+// setGitDiffOutForTest replaces that seam for one test.
+func setGitDiffOutForTest(fn func(dir string, args ...string) (string, string, error)) (restore func()) {
+	prev := gitDiffOutFn
+	gitDiffOutFn = fn
+	return func() { gitDiffOutFn = prev }
 }
 
 // refuseIfTreeChanged compares the tree with what it looked like before the
@@ -58,7 +92,7 @@ func refuseIfTreeChanged(root string, before worktreeSnapshot, log io.Writer) (V
 	files := changedBetweenPatches(before.patch, after.patch)
 	var b strings.Builder
 	b.WriteString("mutants: the run left the working tree changed:\n")
-	if stat, err := git(root, "diff", "--stat"); err == nil {
+	if stat, _, err := gitDiffOutFn(root, "diff", "--stat"); err == nil {
 		b.WriteString(strings.TrimRight(stat, "\n") + "\n")
 	}
 	b.WriteString("mutants: cargo-mutants restores each mutation as it finishes with it, so a mutation still in the tree " +
