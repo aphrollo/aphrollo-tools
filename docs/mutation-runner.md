@@ -281,9 +281,29 @@ mutants: write the test that fails, or add the line to mutation-accept with a re
 `, K not covered` is appended to the counts only when a gremlins run reported
 not-covered mutants; they are counted on their own and never as unviable.
 
-An accept entry is `"<file>:<line>[:<col>] <mutation> # <reason>"`, and the
-reason may open with a machine-readable `kind=` directive naming which claim
-it makes:
+An accept entry comes in one of three key shapes, each carrying a reason.
+`"<file>:<line> <mutation> # why"` matches that mutation on that line, at
+whatever column it is at. `"<file>:<line>:<col> <mutation> # why"` names one
+mutant among several sharing a line, the only way to accept one of them
+without admitting its unexamined siblings. `"<file> <mutation> # why"` drops
+the line altogether and matches that mutation anywhere in that file, at any
+line and any column, for a list that is reviewed once and must not rot the
+next time an edit above the mutant shifts it (issue #578) — it is applied to
+every site it finds, and the report says how many:
+
+```
+mutation-accept: line-free entry for <file> <mutation> admits N sites
+```
+
+The most specific shape that names a survivor wins: column, then line, then
+line-free. A column-less entry that cannot tell its own line's mutants apart
+is refused rather than guessed at, unless a line-free entry behind it admits
+them all anyway. A location written line-keyed whose line did not parse
+(`lib.rs:4x`, `lib.rs:12:x`, or a path with a space in it) is refused and
+quoted back, never re-read as a line-free key that could match nothing.
+
+The reason may open with a machine-readable `kind=` directive naming which
+claim it makes:
 
 ```
 kind=equivalent: <why the two forms compute the same thing>
@@ -327,7 +347,9 @@ nothing and the run measures the whole diff again. A column-less accept entry
 matches by file, line and mutator alone — fine for the common case of one
 mutant per line — but it is refused when the line turns out to carry more than
 one mutant, so an unexamined sibling stays unaccepted and blocks rather than
-being admitted alongside the one somebody reviewed.
+being admitted alongside the one somebody reviewed — unless the list also
+carries a line-free entry for that mutation, which admits every site of it by
+definition and so has already spoken for both.
 
 ## Go repos
 

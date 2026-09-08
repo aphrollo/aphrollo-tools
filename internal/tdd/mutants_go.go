@@ -3,8 +3,10 @@ package tdd
 import (
 	"encoding/json"
 	"fmt"
+	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -158,53 +160,152 @@ type acceptEntryGroup struct {
 	Fallback *acceptEntry
 }
 
+// acceptList is one parsed mutation-accept list, held in the two shapes a
+// survivor is looked up by. ByLine is keyed on survivorKey — file, line and
+// mutation; LineFree is keyed on lineFreeKey — file and mutation alone, the
+// shape a repo writes when it does not want every entry in its accept-list
+// to rot the moment an edit above the mutant shifts its line (issue #578).
+type acceptList struct {
+	ByLine   map[string]acceptEntryGroup
+	LineFree map[string]acceptEntry
+}
+
+// acceptNote is one thing the accept-list did to this run's survivors that
+// the report has to say out loud. Refused marks an entry that was NOT
+// applied, and the caller renders it as a refusal; the rest are entries that
+// WERE applied in a way a reviewer must be told about rather than infer.
+type acceptNote struct {
+	Refused bool
+	Text    string
+}
+
+// acceptMatch is which entry, if any, was written about one survivor.
+type acceptMatch int
+
+const (
+	// acceptMatchNone: no entry names this survivor at all.
+	acceptMatchNone acceptMatch = iota
+	// acceptMatchAmbiguous: a column-less entry names its line, but the line
+	// carries several distinct mutants and the entry cannot say which one of
+	// them it was written for.
+	acceptMatchAmbiguous
+	acceptMatchCol
+	acceptMatchLine
+	acceptMatchLineFree
+)
+
+// matchAcceptEntry finds the entry written about THIS survivor, most
+// specific shape first: the one naming its column, then the one naming its
+// line, then the line-free one naming only its file and its mutation.
+//
+// A column-less entry that cannot tell its own line's mutants apart does not
+// end the search: the line-free entry admits every site of that mutation by
+// definition, so it admits these too, and a list that offers one has already
+// said so. The ambiguity is refused only when nothing further down matches,
+// which is the case the refusal was written for — an unexamined sibling
+// admitted alongside the one somebody actually reviewed.
+func matchAcceptEntry(list acceptList, sameLine map[string]int, m MutantOutcome) (acceptEntry, acceptMatch) {
+	key := survivorKey(m.File, m.Line, m.Mutation)
+	ambiguous := false
+	if group, found := list.ByLine[key]; found {
+		if entry, ok := group.ByCol[m.Col]; ok {
+			return entry, acceptMatchCol
+		}
+		if group.Fallback != nil {
+			if sameLine[key] == 1 {
+				return *group.Fallback, acceptMatchLine
+			}
+			ambiguous = true
+		}
+	}
+	if entry, ok := list.LineFree[lineFreeKey(m.File, m.Mutation)]; ok {
+		return entry, acceptMatchLineFree
+	}
+	if ambiguous {
+		return acceptEntry{}, acceptMatchAmbiguous
+	}
+	return acceptEntry{}, acceptMatchNone
+}
+
 // splitAcceptedSurvivors divides survivors by an already-parsed accept-list
 // (acceptedMutants), tallying the KIND each matched entry claims alongside
-// the accepted/unaccepted split. ambiguous names every column-less entry that
-// matched a line carrying more than one distinct mutant: such an entry
-// cannot tell its reviewed mutant apart from an unreviewed sibling, so it is
-// refused rather than applied to any of them — the caller is expected to
-// report each one (judgeMutants passes them to measureReport, the same way a
-// bad accept-kind entry is quoted).
-func splitAcceptedSurvivors(list map[string]acceptEntryGroup, survivors []MutantOutcome) (accepted, unaccepted []MutantOutcome, kinds AcceptKindCounts, ambiguous []string) {
+// the accepted/unaccepted split. notes is what the caller must report about
+// the list itself: every column-less entry that matched a line carrying more
+// than one distinct mutant with no line-free entry behind it to admit them,
+// refused rather than applied to any of them (judgeMutants passes them to
+// measureReport, the same way a bad accept-kind entry is quoted), and every
+// line-free entry that admitted more than one site, applied and named.
+func splitAcceptedSurvivors(list acceptList, survivors []MutantOutcome) (accepted, unaccepted []MutantOutcome, kinds AcceptKindCounts, notes []acceptNote) {
 	sameLine := make(map[string]int, len(survivors))
 	for _, m := range survivors {
 		sameLine[survivorKey(m.File, m.Line, m.Mutation)]++
 	}
 	warned := map[string]bool{}
+	lineFreeSites := map[string]map[string]bool{}
 	for _, m := range survivors {
-		key := survivorKey(m.File, m.Line, m.Mutation)
-		group, found := list[key]
-		if !found {
+		entry, match := matchAcceptEntry(list, sameLine, m)
+		switch match {
+		case acceptMatchNone:
 			unaccepted = append(unaccepted, m)
 			continue
-		}
-		if entry, ok := group.ByCol[m.Col]; ok {
-			accepted = append(accepted, m)
-			kinds.add(entry.Kind)
-			continue
-		}
-		if group.Fallback == nil {
-			unaccepted = append(unaccepted, m)
-			continue
-		}
-		if sameLine[key] > 1 {
+		case acceptMatchAmbiguous:
+			key := survivorKey(m.File, m.Line, m.Mutation)
 			if !warned[key] {
-				ambiguous = append(ambiguous, fmt.Sprintf(
-					"column-less entry for %s admits %d same-line mutants — add a column to disambiguate", key, sameLine[key]))
+				notes = append(notes, acceptNote{Refused: true, Text: fmt.Sprintf(
+					"column-less entry for %s admits %d same-line mutants — add a column to disambiguate", key, sameLine[key])})
 				warned[key] = true
 			}
 			unaccepted = append(unaccepted, m)
 			continue
+		case acceptMatchLineFree:
+			recordLineFreeSite(lineFreeSites, m)
 		}
 		accepted = append(accepted, m)
-		kinds.add(group.Fallback.Kind)
+		kinds.add(entry.Kind)
 	}
-	return accepted, unaccepted, kinds, ambiguous
+	return accepted, unaccepted, kinds, append(notes, lineFreeNotes(lineFreeSites)...)
+}
+
+// recordLineFreeSite remembers that a line-free entry admitted the mutant at
+// this position. What is counted is POSITIONS, not survivors, so an entry is
+// only ever called out for sites it actually covered.
+func recordLineFreeSite(sites map[string]map[string]bool, m MutantOutcome) {
+	key := lineFreeKey(m.File, m.Mutation)
+	if sites[key] == nil {
+		sites[key] = map[string]bool{}
+	}
+	sites[key][strconv.Itoa(m.Line)+":"+strconv.Itoa(m.Col)] = true
+}
+
+// lineFreeNotes names every line-free entry that admitted more than one
+// site, in one order whatever the map iteration did. Admitting all of them
+// is the trade a repo makes knowingly when it strips the line (issue #578),
+// so it is not refused — but one reviewed line signing off on three mutants
+// is exactly the thing a reviewer has to be TOLD, not left to work out.
+func lineFreeNotes(sites map[string]map[string]bool) []acceptNote {
+	var keys []string
+	for key, at := range sites {
+		if len(at) > 1 {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	var notes []acceptNote
+	for _, key := range keys {
+		notes = append(notes, acceptNote{Text: fmt.Sprintf(
+			"line-free entry for %s admits %d sites", key, len(sites[key]))})
+	}
+	return notes
 }
 
 func survivorKey(file string, line int, mutation string) string {
 	return filepath.ToSlash(file) + ":" + strconv.Itoa(line) + " " + strings.TrimSpace(mutation)
+}
+
+// lineFreeKey is how a survivor is looked up by file and mutation alone, and
+// the key a line-free accept entry is stored under.
+func lineFreeKey(file, mutation string) string {
+	return filepath.ToSlash(file) + " " + strings.TrimSpace(mutation)
 }
 
 // acceptEntryLocationWithColRe and acceptEntryLocationRe parse the location
@@ -212,42 +313,75 @@ func survivorKey(file string, line int, mutation string) string {
 // misread as file "file:108" at line 33: the three-group pattern is tried
 // FIRST, and only a location with exactly two trailing colon-digit groups
 // matches it.
+//
+// acceptEntryLineRefRe is the third shape's guard, over the MUTATION half:
+// a colon followed by a digit is a line reference, and a mutation carrying
+// one is the tell of a path with a space in it — "my dir/lib.rs:4 X" splits
+// on the space into location "my" and mutation "dir/lib.rs:4 X", which reads
+// as a perfectly well-formed line-free key for a file that does not exist.
+// A mutation's own text never carries one: cargo-mutants writes Rust paths
+// ("replace Foo::bar with Default::default()") and gremlins writes bare
+// mutator names, so the colons that do occur are followed by a letter.
 var (
 	acceptEntryLocationWithColRe = regexp.MustCompile(`^(.+):(\d+):(\d+)$`)
 	acceptEntryLocationRe        = regexp.MustCompile(`^(.+):(\d+)$`)
+	acceptEntryLineRefRe         = regexp.MustCompile(`:\d`)
 )
 
-// parseAcceptEntryLocation splits "<file>:<line>" or "<file>:<line>:<col>"
-// into its parts. ok is false when loc matches neither shape.
-func parseAcceptEntryLocation(loc string) (file string, line, col int, hasCol, ok bool) {
+// acceptEntryLoc is the parsed location half of an accept-list key. HasLine
+// is false for the line-free shape, which names a file and nothing else and
+// so matches its mutant at whatever line the file carries it today.
+type acceptEntryLoc struct {
+	File    string
+	Line    int
+	Col     int
+	HasLine bool
+	HasCol  bool
+}
+
+// parseAcceptEntryLocation splits "<file>", "<file>:<line>" or
+// "<file>:<line>:<col>" into its parts. ok is false when loc matches none of
+// the three shapes: an empty location, or one whose own BASENAME carries a
+// colon, which is a location that was written line-keyed and did not parse
+// ("lib.rs:4x", "lib.rs:12:x", a line number too large for an int). Refusing
+// it beats reading it as a line-free key naming a file that does not exist,
+// which is stored, never matches a survivor, and never says why. A drive
+// letter's colon is in no basename, so "C:/src/lib.rs" is unaffected.
+func parseAcceptEntryLocation(loc string) (acceptEntryLoc, bool) {
 	if m := acceptEntryLocationWithColRe.FindStringSubmatch(loc); m != nil {
 		l, lerr := strconv.Atoi(m[2])
 		c, cerr := strconv.Atoi(m[3])
 		if lerr == nil && cerr == nil {
-			return m[1], l, c, true, true
+			return acceptEntryLoc{File: m[1], Line: l, Col: c, HasLine: true, HasCol: true}, true
 		}
 	}
 	if m := acceptEntryLocationRe.FindStringSubmatch(loc); m != nil {
 		if l, err := strconv.Atoi(m[2]); err == nil {
-			return m[1], l, 0, false, true
+			return acceptEntryLoc{File: m[1], Line: l, HasLine: true}, true
 		}
 	}
-	return "", 0, 0, false, false
+	if loc == "" || strings.Contains(path.Base(filepath.ToSlash(loc)), ":") {
+		return acceptEntryLoc{}, false
+	}
+	return acceptEntryLoc{File: loc}, true
 }
 
 // acceptedMutants reads the accept-list, mutation-accept under [aphrollo] in
 // aphrollo.toml. An entry reads "<file>:<line> <MUTATOR> # why it is
-// acceptable" or, to name one mutant among several sharing a line,
-// "<file>:<line>:<col> <MUTATOR> # why". The reason is not decoration: an
-// accept-list nobody had to justify is a list of survivors somebody
-// silenced, so an entry with no reason at all is dropped rather than kept.
+// acceptable"; to name one mutant among several sharing a line,
+// "<file>:<line>:<col> <MUTATOR> # why"; or, dropping the line so the entry
+// survives every edit made above the mutant, "<file> <MUTATOR> # why", which
+// matches that mutation anywhere in that file and is applied to every site
+// it finds. The reason is not decoration: an accept-list nobody had to
+// justify is a list of survivors somebody silenced, so an entry with no
+// reason at all is dropped rather than kept, in all three shapes.
 //
 // bad names every entry whose reason DID carry a "kind=" directive that
 // failed to parse — a misspelled kind, or a runner/capability kind missing
 // its required test=/issue= evidence — or whose location half parsed as
-// neither shape above, verbatim, so the caller can refuse it loudly instead
-// of letting it read as an ordinary equivalence claim.
-func acceptedMutants(root string) (list map[string]acceptEntryGroup, bad []string) {
+// none of the shapes above, verbatim, so the caller can refuse it loudly
+// instead of letting it read as an ordinary equivalence claim.
+func acceptedMutants(root string) (list acceptList, bad []string) {
 	return parseAcceptedMutants(tomlStringsIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", mutantsAcceptKey))
 }
 
@@ -255,8 +389,8 @@ func acceptedMutants(root string) (list map[string]acceptEntryGroup, bad []strin
 // MeasureLane takes the list off MutantsConfig, which resolves both the Cargo
 // and the aphrollo.toml spelling of the table, and must key it exactly the
 // way the reader above does.
-func parseAcceptedMutants(entries []string) (list map[string]acceptEntryGroup, bad []string) {
-	list = map[string]acceptEntryGroup{}
+func parseAcceptedMutants(entries []string) (list acceptList, bad []string) {
+	list = acceptList{ByLine: map[string]acceptEntryGroup{}, LineFree: map[string]acceptEntry{}}
 	for _, raw := range entries {
 		key, reason, ok := strings.Cut(raw, "#")
 		reason = strings.TrimSpace(reason)
@@ -268,28 +402,36 @@ func parseAcceptedMutants(entries []string) (list map[string]acceptEntryGroup, b
 			bad = append(bad, raw)
 			continue
 		}
-		loc, mutation, ok := strings.Cut(strings.TrimSpace(key), " ")
+		locText, mutation, ok := strings.Cut(strings.TrimSpace(key), " ")
 		if !ok {
 			bad = append(bad, raw)
 			continue
 		}
-		file, line, col, hasCol, locOK := parseAcceptEntryLocation(loc)
+		loc, locOK := parseAcceptEntryLocation(locText)
 		if !locOK {
 			bad = append(bad, raw)
 			continue
 		}
-		groupKey := survivorKey(file, line, mutation)
 		entry := acceptEntry{Kind: kind, Evidence: evidence}
-		group := list[groupKey]
-		if hasCol {
+		if !loc.HasLine {
+			if acceptEntryLineRefRe.MatchString(mutation) {
+				bad = append(bad, raw)
+				continue
+			}
+			list.LineFree[lineFreeKey(loc.File, mutation)] = entry
+			continue
+		}
+		groupKey := survivorKey(loc.File, loc.Line, mutation)
+		group := list.ByLine[groupKey]
+		if loc.HasCol {
 			if group.ByCol == nil {
 				group.ByCol = map[int]acceptEntry{}
 			}
-			group.ByCol[col] = entry
+			group.ByCol[loc.Col] = entry
 		} else {
 			group.Fallback = &entry
 		}
-		list[groupKey] = group
+		list.ByLine[groupKey] = group
 	}
 	return list, bad
 }
