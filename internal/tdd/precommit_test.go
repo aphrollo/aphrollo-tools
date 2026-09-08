@@ -549,7 +549,7 @@ func TestPrecommit_FailFirst_StableWorktreeUnderStateDir(t *testing.T) {
 		return SuiteResult{Passed: false, Output: "undefined: Widget"}
 	}
 	for i := 0; i < 2; i++ {
-		if _, conclusive, _, _, _ := failFirstViolated(root, []string{"widget_test.go"}, run); !conclusive {
+		if !failFirstViolated(root, []string{"widget_test.go"}, run).conclusive {
 			t.Fatalf("fail-first run %d must be conclusive", i)
 		}
 	}

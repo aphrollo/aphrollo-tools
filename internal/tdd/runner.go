@@ -692,10 +692,7 @@ func dedupeSorted(names []string) []string {
 
 func narrowFailFirstTests(r Runner, wt string, tests []string) Runner {
 	if r.Cmd != "cargo" {
-		if scoped, narrowed := narrowToStaged(r, wt, tests); narrowed {
-			return scoped
-		}
-		return r
+		return narrowNonCargoFailFirst(r, wt, tests)
 	}
 
 	seenPkg := map[string]bool{}

@@ -190,5 +190,8 @@ func narrowToStaged(r Runner, root string, files []string) (Runner, bool) {
 // must check ownership itself before ever invoking it, or a fully-unowned
 // test set would still run the unscoped full suite.
 //
-// Non-cargo runners defer entirely to narrowToStaged; when it reports no
-// related mode (pytest, zig, an unknown command) the runner stays unnarrowed.
+// Non-cargo runners go through narrowNonCargoFailFirst: a Go runner is scoped
+// to the staged tests BY NAME (`-run '^(TestA|TestB)$'`, runner_scope_gorun.go)
+// when every staged file yields one, else it falls back to narrowToStaged's
+// package granularity; when that reports no related mode either (pytest, zig,
+// an unknown command) the runner stays unnarrowed.
