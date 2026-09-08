@@ -520,3 +520,43 @@ func TestNarrowFailFirstTests_CargoIgnoresAlwaysRun(t *testing.T) {
 		}
 	}
 }
+
+// TestNarrowToRelatedTests_CargoTestsDirUnderSrcIsAModuleNotATarget pins
+// issue #580: a directory named tests/ BELOW src/ is a unit-test module
+// compiled into the lib target (`mod tests;`), never the crate's
+// integration-test dir. borld's src/tire_rig/tests/vertical_ladder.rs was
+// mapped to `--test vertical_ladder` and every edit printed
+// `error: no test target named 'vertical_ladder'` -- a red on green code.
+// The file must run on the lib target filtered by its module path, and a
+// mod.rs there filters to the directory's own module.
+func TestNarrowToRelatedTests_CargoTestsDirUnderSrcIsAModuleNotATarget(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "Cargo.toml", "[package]\nname = \"forge\"\nversion = \"0.1.0\"\n")
+	write(t, root, "src/tire_rig/tests/vertical_ladder.rs", "#[test]\nfn climbs() {}\n")
+	write(t, root, "src/tire_rig/tests/mod.rs", "mod vertical_ladder;\n")
+	stubCargoTestTargets(t, map[string]map[string]bool{
+		"forge": {}, // no integration-test targets at all
+	})
+
+	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	cases := []struct {
+		file string
+		want Runner
+	}{
+		{
+			file: filepath.Join(root, "src", "tire_rig", "tests", "vertical_ladder.rs"),
+			want: Runner{"cargo", []string{"test", "-p", "forge", "--lib", "tire_rig::tests::vertical_ladder::"}, root, time.Time{}},
+		},
+		{
+			file: filepath.Join(root, "src", "tire_rig", "tests", "mod.rs"),
+			want: Runner{"cargo", []string{"test", "-p", "forge", "--lib", "tire_rig::tests::"}, root, time.Time{}},
+		},
+	}
+	for _, c := range cases {
+		t.Run(filepath.Base(c.file), func(t *testing.T) {
+			if got := NarrowToRelatedTests(cargo, c.file, root); !reflect.DeepEqual(got, c.want) {
+				t.Fatalf("NarrowToRelatedTests = %+v, want %+v (never --test on a src/ module)", got, c.want)
+			}
+		})
+	}
+}

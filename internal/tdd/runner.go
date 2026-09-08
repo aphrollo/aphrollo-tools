@@ -408,32 +408,6 @@ func cargoRunnerAt(root string, extraArgs ...string) (Runner, bool) {
 	return Runner{Cmd: "cargo", Args: args, Dir: ws}, true
 }
 
-// cargoTestTarget maps a repo-relative Rust test path to its cargo
-// test-target CANDIDATE and reports nested: true when name is only a GUESS
-// that needs confirming against cargo metadata. A flat tests/<stem>.rs and a
-// cargo-guaranteed tests/<dir>/main.rs (cargo's own directory-binary
-// convention, unambiguous regardless of what main.rs contains) both report
-// false; any OTHER file inside tests/<dir>/ is a module folded into some
-// binary that may not even be named <dir>, so that candidate is nested.
-// "" when the file sits outside any tests/ segment.
-func cargoTestTarget(rel string) (name string, nested bool) {
-	parts := strings.Split(filepath.ToSlash(rel), "/")
-	for i, seg := range parts {
-		if seg != "tests" || i+1 >= len(parts) {
-			continue
-		}
-		next := parts[i+1]
-		if i+1 == len(parts)-1 {
-			return strings.TrimSuffix(next, filepath.Ext(next)), false
-		}
-		if i+2 == len(parts)-1 && parts[i+2] == "main.rs" {
-			return next, false
-		}
-		return next, true
-	}
-	return "", false
-}
-
 // stagedProjectRoots returns the sorted, deduped set of project roots (per
 // FindProjectRoot) that own at least one of the given repo-root-relative
 // staged files. A monorepo can stage a cargo crate's tests alongside a
