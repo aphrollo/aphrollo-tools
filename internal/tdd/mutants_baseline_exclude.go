@@ -7,7 +7,7 @@ import (
 
 // A wall-clock test in the mutation baseline measures the BOX, not the tree:
 // under load it fails whether or not a mutation is applied, so it both vetoes
-// a receipt for a reason the tree is not responsible for and — worse — reads
+// a merge for a reason the tree is not responsible for and — worse — reads
 // a mutant as CAUGHT when the load, not the mutation, is what failed the
 // test. Nothing ever re-examines a false CAUGHT (issue #265).
 //

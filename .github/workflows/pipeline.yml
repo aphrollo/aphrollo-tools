@@ -578,8 +578,8 @@ jobs:
   # shared self-hosted runners for the length of the run right after a
   # deploy that already shipped (issue #334). See
   # .github/workflows/nightly-mutants.yml for the job and why moving it was
-  # safe: the merge itself is still judged locally, before it lands, by the
-  # pre-merge gate's own signed receipt.
+  # safe: the merge itself is still measured locally, before it lands, by the
+  # pre-merge gate.
 
   # The escape loop's closing half. `verify-closure` refuses a PR that says it
   # closes a labelled escape issue without changing a CHECK -- a law, a gate

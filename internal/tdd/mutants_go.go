@@ -103,7 +103,7 @@ func parseGremlinsReport(data []byte) ([]MutantOutcome, error) {
 	return out, nil
 }
 
-// gremlinsStatus maps gremlins' vocabulary onto the receipt's. NOT COVERED is
+// gremlinsStatus maps gremlins' vocabulary onto the verdict's. NOT COVERED is
 // a MISS: "no test runs this code at all" is the strongest version of the
 // thing a survivor reports. Anything unrecognised is unviable — never caught,
 // because a gate that reads an unknown status as a pass is not a gate.

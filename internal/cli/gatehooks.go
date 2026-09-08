@@ -42,8 +42,8 @@ func runGateMergeHook(name string, stderr io.Writer) int {
 		// Mechanical prints "gate premerge:" itself now — every stage
 		// function that builds a message takes the display name, not the
 		// pre-rename "premergecommit", so there is nothing to rewrite here.
-		// The routine's own internals (gate.log stage tokens, receipt hints,
-		// escape fingerprints) still index on "premergecommit" — see
+		// The routine's own internals (gate.log stage tokens and escape
+		// fingerprints) still index on "premergecommit" — see
 		// premergeLogToken and appendGateLog's remap — because those are
 		// read by tooling, never by a human staring at this stderr line.
 		res = tdd.Mechanical(root, tdd.RunSuite(precommitTimeout))

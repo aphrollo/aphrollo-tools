@@ -60,7 +60,7 @@ func ClaudeMDBlock(shimDir string, undercover bool) string {
 	b.WriteString("  git shim (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit) is the WALL.\n")
 	b.WriteString("  Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override\n")
 	b.WriteString("  with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).\n")
-	b.WriteString("- **A lane is measured, not certified:** `aphrollo gate mutants run` measures THIS checkout's changes against its base in the foreground, cargo-mutants or gremlins driven by the binary itself, and refuses an unaccepted survivor by name; the repo configures the run through `mutants-at-merge`, `mutants-env`, `mutation-baseline-exclude`, `mutation-accept` and `mutants-after` in its TOML table.\n")
+	b.WriteString("- **A merge is measured, not certified:** with `mutants-at-merge = true` the pre-merge gate runs the lane's mutation measurement in the foreground and refuses an unaccepted survivor by name; `aphrollo gate mutants run` measures THIS checkout the same way before you merge.\n")
 	b.WriteString("- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).\n")
 	if undercover {
 		b.WriteString("- **Commit messages** say what the change does and nothing about how it was\n")

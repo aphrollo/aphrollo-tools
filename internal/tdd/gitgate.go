@@ -21,14 +21,11 @@ import (
 var gitGateHooks = []struct{ name, sub string }{
 	{"pre-commit", "precommit"},
 	{"pre-merge-commit", "premerge"},
-	// ONE post-commit hook, doing two things in order: it writes the gate note
-	// on the commit just made — what lets CI tell a red on a gated tip from a
-	// red on an ungated one — and then starts the lane's mutation run. At
-	// commit time that run has the whole review to finish in, where a run
-	// started at merge time is a multi-hour wall in front of the one action
-	// that needed it. Neither half can block: the commit has already
-	// happened. The run half is inert unless the repo declares
-	// `mutation-receipt = true`.
+	// post-commit writes the gate note on the commit just made — what lets CI
+	// tell a red on a gated tip from a red on an ungated one — and that is the
+	// whole of it. It starts nothing: the mutation measurement runs in the
+	// foreground at merge time, on the merged tree. It cannot block either
+	// way, because the commit has already happened.
 	{"post-commit", "postcommit"},
 	// commit-msg fires for EVERY commit, including a non-fast-forward merge,
 	// which is the point: the message is the one artefact that leaves the

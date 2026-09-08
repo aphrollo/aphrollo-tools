@@ -6,10 +6,11 @@ name: Nightly mutants
 # for the length of the run -- 14.6 minutes measured -- AFTER the `deploy`
 # job for that same push had already shipped. That is a throughput cost
 # that grows with merge rate, not a correctness gap: the merge itself was
-# already judged by the LOCAL pre-merge gate, which consumed the lane's own
-# signed mutation receipt before it was allowed to land. This tripwire
-# exists to catch what that local gate could have missed -- an unreceipted
-# or forged proof, drift between a local run and CI -- not to gate every
+# already measured by the LOCAL pre-merge gate, which runs the mutation
+# measurement on the merged tree before it is allowed to land. This tripwire
+# re-measures trunk itself, catching what that local gate could not -- a
+# merge that landed without the gate, or drift between a local run and the
+# CI runner -- not to gate every
 # merge in real time, so batching several merges into one nightly run (the
 # same shape `nightly-fuzz.yml` already uses for the fuzz targets) trades
 # latency for the throughput this issue is about, without dropping a diff:
@@ -17,8 +18,8 @@ name: Nightly mutants
 # successfully, found by asking GitHub for it rather than by writing state
 # back into the repo.
 #
-# Still per-repo, still self-hosted, still exactly the same `gate mutants
-# go` command pipeline.yml's job ran -- what changed is WHEN, not whether.
+# Still per-repo, still self-hosted, running the same `gate mutants run
+# --base` the pre-merge gate runs -- what changed is WHEN, not whether.
 
 on:
   schedule:
