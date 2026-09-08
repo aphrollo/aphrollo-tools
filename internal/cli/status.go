@@ -11,9 +11,8 @@ import (
 
 // runGateStatus is `aphrollo gate status` (issue #430): read-only, prints
 // what an inconclusive gate line now tells a session to go look at instead
-// of rerunning into the same queue — the deferred edit jobs on this box,
-// every global build slot's holder, and this checkout's own mutation-run
-// state (the same read `gate mutants status` already does). --wait
+// of rerunning into the same queue — the deferred edit jobs on this box and
+// every global build slot's holder. --wait
 // additionally blocks until THIS checkout's own deferred edit job, if any,
 // reaches a verdict, and prints that verdict line verbatim instead of the
 // report.

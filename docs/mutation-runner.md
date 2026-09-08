@@ -9,27 +9,10 @@ nothing signs anything.
 
 ## Where a run happens
 
-One worktree per LANE, `<parent>/.worktrees/<repo>/mutants/<lane-key>`,
-checked out detached at the tip and `git reset --hard`ed between runs. One
-build dir per REPO, `<parent>/.worktrees/<repo>/mutants/target`, shared by
-every lane's tree.
-
-**One worktree per lane.** A repo-wide tree was destructive with two lanes in
-flight: a commit in either fires the post-commit hook, and the second run
-checked the shared tree out to its own tip under whichever run was still
-working in it (issue #221 — six attempts, four hours, no receipt for anyone).
-Two lanes are two directories, keyed on the lane's own checkout path.
-
-**One target dir per repo.** The build directory did not need to follow the
-split. Cargo keys a workspace crate's artifacts on the path it was compiled
-from, so lanes sharing one target dir share the dependency graph and keep their
-own crates apart; and the collision a shared directory risked — two producers
-linking into it at once — is ruled out by the box-wide run lock below. A target
-per lane paid for that guarantee twice over: measured on borld 2026-09-05, nine
-per-lane target dirs of 8.3-18.4 GB, and across 44 runs the unmutated baseline
-builds cost 180 min against 116 min for every per-mutant rebuild put together.
-A tree's own legacy `target` is reclaimed by the next run's sweep, never under
-a live producer.
+The run measures the checkout it was typed in, in place. Its build directory
+is its own, `<resolved target dir>/mutants/target`, beside the temp dir it
+keeps off the system drive: it goes around the build queue, so nothing else
+may be compiling where it compiles.
 
 **One run per BOX, not one per repo.** Before the producer is invoked at all,
 the gate takes a machine-wide advisory lock and holds it for the run's whole
@@ -43,13 +26,12 @@ same machine queues rather than starting, announcing who it is waiting for
 this wait — a lane that abandoned it and ran anyway would recreate the exact
 oversubscription the lock exists to prevent.
 
-The runner is invoked in that worktree as `bash tools/mutation_gate.sh <base
-sha>`, with:
+The tool is invoked with:
 
 | variable | meaning |
 |---|---|
 | `APHROLLO_MUTATION_GATE=1` | this run came through the gate. The cargo shim REFUSES `cargo mutants` without it, and lets a run carrying it past the build queue |
-| `CARGO_TARGET_DIR` | the warm build dir. Do not override it |
+| `CARGO_TARGET_DIR` | the run's own build dir, `<resolved target dir>/mutants/target`, which nothing the build queue schedules ever compiles into |
 | `APHROLLO_MUTANTS_ARGS` | the cargo-mutants flags the gate computed — pass them through VERBATIM |
 | `APHROLLO_MUTANTS_DIFF` | the reduced lane diff the run is scoped to |
 | `APHROLLO_MUTANTS_BASE` | the base sha the receipt must record |
@@ -177,13 +159,10 @@ A run that dies because the baseline failed already reaches this contract's
 `died` state (no receipt ever written), not a receipt with a false verdict —
 that distinction needs no fix here either.
 
-## What the runner must do
+## What the run must do
 
-1. Run cargo-mutants with `$APHROLLO_MUTANTS_ARGS` plus the timeout flags
-   below, in the worktree it was invoked in.
-2. Write the receipt JSON to
-   `~/.claude/gate-state/mutation-receipt.<tip tree>.json`, where `<tip tree>`
-   is `git rev-parse HEAD:`.
+Run cargo-mutants with the flags below in the checkout being measured.
+
 ### Timeouts
 
 Nine timeouts at 30 s were measured on one lane, every one of them a mutant

@@ -321,6 +321,13 @@ func measureTempDir(root string) string {
 	return filepath.Join(ResolveCargoTargetDir(root), "mutants")
 }
 
+// measureTargetDir is where the measurement itself compiles: under the same
+// parent as its temp dir, and never the directory the lane's own builds and
+// the gate's own suites share.
+func measureTargetDir(root string) string {
+	return filepath.Join(measureTempDir(root), "target")
+}
+
 // measureEnv is the environment the run's children inherit: all three temp
 // names pointing at the same directory on the build drive, the switches the
 // repo declares its mutation run must set, and the nextest profile it
@@ -332,7 +339,7 @@ func measureEnv(root string, cfg MutantsConfig) []string {
 	// others is the bug: whichever the tool reads is the one that decides,
 	// and a Windows cargo-mutants that ignored a lone TMPDIR filled C: to
 	// 98% with tree copies.
-	drop := map[string]bool{"TMPDIR": true, "TMP": true, "TEMP": true, "NEXTEST_PROFILE": true}
+	drop := map[string]bool{"TMPDIR": true, "TMP": true, "TEMP": true, "NEXTEST_PROFILE": true, "CARGO_TARGET_DIR": true}
 	out := make([]string, 0, len(os.Environ())+8)
 	for _, kv := range os.Environ() {
 		if k, _, ok := strings.Cut(kv, "="); !ok || !drop[k] {
@@ -340,6 +347,13 @@ func measureEnv(root string, cfg MutantsConfig) []string {
 		}
 	}
 	out = append(out, "TMPDIR="+tmp, "TMP="+tmp, "TEMP="+tmp)
+	// And a build directory of its own, beside them. The marked run goes
+	// around the build queue, so nothing arbitrates who else compiles into
+	// the directory it builds in — and it owns that directory for hours
+	// behind cargo's own blocking lock. Sharing the lane's target dir would
+	// put an editor's slotted build behind the whole mutation run with the
+	// queue none the wiser.
+	out = append(out, "CARGO_TARGET_DIR="+measureTargetDir(root))
 	// Without these, every mutant behind an env-gated suite is missed by
 	// construction: 101 of 167 on one lane lived in code only a GPU suite
 	// reaches.

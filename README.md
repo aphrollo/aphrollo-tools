@@ -950,10 +950,11 @@ never leaves target dirs locked by builds that never started.
   `cargo build --tests` otherwise), then RELEASE THE TARGET LOCK and keep the
   global slot until they exit. In practice `bench` and `install` are the two
   that reach it: a bare `cargo mutants` is refused outright, and the gate's
-  own marked run is let past the queue before the classifier is consulted. The long phase and every cargo it spawns
-  inherit `APHROLLO_SLOT_TOKEN=<slot lock>`, which skips the global semaphore
-  but NOT the per-target lock: each mutation copy still holds the lock for
-  its own target dir, so cargo's one-build-per-target invariant survives.
+  own marked run is let past the queue before the classifier is consulted.
+  The long phase and every cargo it spawns inherit
+  `APHROLLO_SLOT_TOKEN=<slot lock>`, which skips the global semaphore but NOT
+  the per-target lock: each build still holds the lock for the target dir it
+  compiles into, so cargo's one-build-per-target invariant survives.
   Measured 2026-09-02: without this, a four-job `cargo mutants` run had each
   inner build take a slot of its own, and both slots stayed held for hours
   while every other session queued. `cargo run` is the other split: it builds
@@ -2219,6 +2220,12 @@ the window in which nobody else can start one. It marks its children with
 cargo shim asks about a mutation run: `cargo mutants` may be invoked at all
 (a bare one is refused and told to run this verb instead), and the build need
 not queue.
+
+The marked run also builds in a target dir of its own,
+`<resolved target dir>/mutants/target`, beside the temp dir it keeps off the
+system drive. That is what makes skipping the queue safe rather than merely
+faster: a mutation build owns its directory for hours behind cargo's own
+blocking lock, and nothing the queue schedules ever compiles into it.
 
 It is not a security boundary, and it is not meant to be. Any process on the
 box can set the marker and skip the queue. The harm is bounded to that one
