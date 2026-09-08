@@ -73,6 +73,24 @@ func gcMutantsRunDirs(area string, olderThan time.Duration, now time.Time) []GCC
 	return out
 }
 
+// mutantsCopyDirs is every directory a leaked cargo-mutants tree copy can sit
+// in: the OS temp dirs a BARE run copies into, and each checkout's own
+// `.mutants` area, where a sharded run makes its copies beside its shard dirs.
+//
+// The area half is a RECOVERY path, not routine housekeeping. A run that
+// completes deletes its own copies; only a killed or crashed one leaks. Of
+// five lane areas measured on one box, four held nothing but a diff, and the
+// fifth held 169 GB from two dead runs — 155 GB from one killed mid-copy and
+// 14 GB from one that died before writing its outcomes. So liveness decides
+// and nothing else: the two leaks were an order of magnitude apart, so any
+// size bar that caught one would have missed the other, and both were hours
+// old on the day they mattered, so an age bar would have caught neither.
+func mutantsCopyDirs(areas []string) []string {
+	dirs := make([]string, 0, len(areas)+2)
+	dirs = append(dirs, areas...)
+	return append(dirs, MutantsTempDirs()...)
+}
+
 // mutantsRunAreas is every `.mutants/<checkout>` area this repo can see: its
 // own, the main checkout's, and every registered worktree's — and then every
 // checkout directory inside those areas' parents, which is what finds the

@@ -123,6 +123,39 @@ func TestGCTargetInterlock_LocksAMutationBuildDirOnItsOwnPath(t *testing.T) {
 	}
 }
 
+// A run that COMPLETES tidies its own tree copies; a killed one leaks them
+// where it made them, INSIDE the area, beside the shard dirs. That is where
+// 169 GB sat while the sweep reported 806.4 KB: the run-dir rule matches only
+// `shard-`/`target-`, and the rule that does know these names was only ever
+// handed the OS temp directories. Ownership decides here, not age — the leak
+// is hours old on the day it matters, and the two real ones were 155 GB and
+// 14 GB, so no size or age bar would have caught both.
+func TestScanGC_ReclaimsATreeCopyAKilledRunLeftInItsMutantsArea(t *testing.T) {
+	noMutationRunLive(t)
+	repo := makeCargoRepo(t)
+	lane := filepath.Join(t.TempDir(), "lane-x")
+	gitDo(t, repo, "worktree", "add", "-q", "-b", "lane/x", lane)
+	leak := filepath.Join(measureTempDir(lane), "cargo-mutants-borld-9f2c.tmp")
+	mkFile(t, filepath.Join(leak, "src", "lib.rs"), "fn main() {}", 2*time.Hour)
+
+	got := ScanGC(repo, 3*24*time.Hour, GCScope{Mutants: true})
+
+	c, found := candidateAt(got, leak)
+	if !found {
+		t.Fatalf("scan missed the killed run's own tree copy %s:\n%+v", leak, got)
+	}
+	if c.Kind != GCKindMutantsTemp {
+		t.Errorf("kind = %v, want the tree-copy kind: it is judged by ownership, not by the area's age bar", c.Kind)
+	}
+
+	// And the ownership rule still protects it: a copy a run holds is the
+	// tree it is mutating right now, and a probe that cannot answer says live.
+	mutantsCopyOwnerFn = func(string) (int, bool) { return 4242, true }
+	if _, proposed := candidateAt(ScanGC(repo, 3*24*time.Hour, GCScope{Mutants: true}), leak); proposed {
+		t.Errorf("proposed %s while a run owns it — that is the tree it is mutating", leak)
+	}
+}
+
 // A lane's leftovers sit beside the LANE. A sweep run from the primary
 // checkout that looked only at its own area reported 18 GB of stale artifacts
 // while 350 GB of a lane's mutation run sat in a sibling directory nobody
