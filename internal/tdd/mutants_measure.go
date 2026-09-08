@@ -252,7 +252,7 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base str
 	}
 	// gremlins copies nothing into the tree it measures and takes a worker
 	// count happily, so the Go half keeps the box's own cap.
-	jobs, why := mutantsJobsForThisBox()
+	jobs, why := mutantsJobsForThisBoxFn()
 	logf(log, "mutants: %d jobs (%s)", jobs, why)
 	if v, refused := refuseOnDisk(root, jobs, log); refused {
 		return v, nil

@@ -531,6 +531,12 @@ func TestMeasure_GoRepoUsesGremlinsScopedToMergeBase(t *testing.T) {
 	t.Cleanup(SetFreeSpaceForTest(999, true))
 	root, base := makeGoMeasureRepo(t)
 	t.Cleanup(setMutantsGOOSForTest("linux"))
+	// The worker count is the BOX's, and the argv below is asserted exactly:
+	// pinned here, this test is about what gremlins is asked to do rather
+	// than how many cores the machine running the suite has. A CI runner
+	// derives one and a developer box two, and the argv is the same
+	// otherwise.
+	t.Cleanup(setMutantsJobsForTest(2, "min(cores 24/6=4, ram 64GB/6=10, cap 2) — cap 2"))
 	calls := stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
 		mustWrite(t, gremlinsReportPath(root), `{"files":[{"file_name":"calc.go","mutations":[
 			{"type":"ARITHMETIC_BASE","status":"KILLED","line":3,"column":20}]}]}`)
