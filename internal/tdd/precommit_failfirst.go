@@ -179,15 +179,21 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	// the new tests against the old implementation, which reports green for a
 	// test that should be red.
 	if !acquired {
-		return failFirstOutcome{cmd: cmdString(runner)} // another cargo build holds the machine lock — no verdict either way
+		// Another build held the machine lock for the whole wait, so the
+		// proof never ran. Named as its own stand-down: the caller refuses
+		// the commit with the remedy for a queued box, not the one for a
+		// slow suite (#561).
+		return failFirstOutcome{cmd: cmdString(runner), standDown: failFirstNoBuildSlot, waited: waited}
 	}
 	// Only now: a run that never acquired the lock built nothing, and
 	// cleaning for it would evict a warm cache to undo writes that never
 	// happened.
 	defer invalidateFailFirstArtifacts(run, runner, repoRoot)
 	if res.TimedOut {
-		// A killed run reaches no verdict either way.
-		return failFirstOutcome{dur: res.Duration, cmd: cmdString(runner)}
+		// A killed run reaches no verdict either way — and measured
+		// nothing, so the caller refuses rather than landing the commit on
+		// an unproven test (#561).
+		return failFirstOutcome{dur: res.Duration, cmd: cmdString(runner), standDown: failFirstOverBudget}
 	}
 	// #317: the proof worktree exited 0 having executed zero tests — a
 	// narrowed -run/-k/name filter matching nothing, say. That is not a red
@@ -303,6 +309,16 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 			if r, ok := DetectRunner(root); ok {
 				ffCmd = cmdString(r)
 			}
+		}
+		// A proof that measured nothing is refused, not folded into a
+		// fail-open pass — each cause with its own remedy (#561). Both
+		// print and log through verdictFor, so neither reaches the
+		// inconclusive line below.
+		switch out.standDown {
+		case failFirstNoBuildSlot:
+			return failFirstNoBuildSlotRefusal(root, ffCmd, out)
+		case failFirstOverBudget:
+			return failFirstOverBudgetRefusal(root, ffCmd, out)
 		}
 		// The gate must never be silent about a stage it ran, whatever the
 		// verdict — a session watching stderr needs to see fail-first

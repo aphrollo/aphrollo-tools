@@ -22,4 +22,27 @@ type failFirstOutcome struct {
 	dur time.Duration
 	// cmd is the executed argv, "" when nothing ran.
 	cmd string
+	// standDown names WHY an inconclusive proof was inconclusive, for the
+	// two causes the stage refuses on rather than letting the commit land.
+	standDown failFirstStandDown
+	// waited is how long the proof queued for a build slot before giving
+	// up, meaningful only for failFirstNoBuildSlot.
+	waited time.Duration
 }
+
+// failFirstStandDown distinguishes the two ways a fail-first proof ends having
+// measured nothing (#561). They read identically in a log and need different
+// remedies: a run killed at its budget says the proof itself (or the box) is
+// too slow, while a proof that never got a build slot says nothing about the
+// tests at all — it queued behind another lane and gave up. Both used to
+// collapse into "inconclusive (fail-open)" and let the commit land unproven,
+// observed three times on 2026-09-07 with four lanes sharing two slots.
+type failFirstStandDown int
+
+const (
+	// failFirstProofRan is the zero value: no stand-down, so the outcome's
+	// own conclusive/vacuous fields carry the verdict.
+	failFirstProofRan failFirstStandDown = iota
+	failFirstNoBuildSlot
+	failFirstOverBudget
+)
