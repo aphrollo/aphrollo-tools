@@ -1,5 +1,3 @@
-internal/tdd/mechanical.go | return &GateResult{Message: "mutation receipt not judged here: this repo measures it on the CI runner (mutants-local = false)"}
-internal/tdd/mechanical.go | return &GateResult{Message: "mutation receipt not judged: " + why}
 internal/tdd/docsonly.go | return GateResult{Message: strings.Join(notes, "\n")}
 internal/tdd/mechanical.go | return GateResult{Message: strings.Join(notes, "\n")}
 internal/tdd/mechanical.go | return GateResult{Message: strings.Join(notes, "\n")}

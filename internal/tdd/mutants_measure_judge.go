@@ -59,11 +59,11 @@ func judgeMutants(cfg MutantsConfig, mutants []MutantOutcome) Verdict {
 			v.Unviable++
 		}
 	}
-	accepted, unaccepted, _, ambiguous := splitAcceptedSurvivors(list, missed)
+	accepted, unaccepted, _, notes := splitAcceptedSurvivors(list, missed)
 	v.Missed, v.Accepted = len(missed), len(accepted)
 	v.Unaccepted, v.Unmeasured = unaccepted, timedOut
 	v.Refused = len(unaccepted) > 0 || len(timedOut) > 0
-	v.Message = measureReport(v, ambiguous)
+	v.Message = measureReport(v, notes)
 	return v
 }
 
@@ -88,7 +88,7 @@ const measureRemedy = "mutants: write the test that fails, or add the line to mu
 
 // measureReport renders the verdict: the mutants first, then one summary
 // line, then the remedy when there is something to remedy.
-func measureReport(v Verdict, ambiguous []string) string {
+func measureReport(v Verdict, notes []acceptNote) string {
 	var b strings.Builder
 	for _, m := range v.Unaccepted {
 		b.WriteString(outcomeName(m) + "\n")
@@ -96,8 +96,14 @@ func measureReport(v Verdict, ambiguous []string) string {
 	for _, m := range v.Unmeasured {
 		b.WriteString(outcomeName(m) + " — timed out twice, unmeasured\n")
 	}
-	for _, entry := range ambiguous {
-		fmt.Fprintf(&b, "mutation-accept entry refused (%s)\n", entry)
+	for _, n := range notes {
+		if n.Refused {
+			fmt.Fprintf(&b, "mutation-accept entry refused (%s)\n", n.Text)
+			continue
+		}
+		// Applied, not refused: the report says what the entry admitted, so a
+		// reviewer sees it, and the verdict itself is unchanged.
+		fmt.Fprintf(&b, "mutation-accept: %s\n", n.Text)
 	}
 	fmt.Fprintf(&b, "mutants: %d tested, %d caught, %d unviable, %d missed (%d accepted), %d unmeasured",
 		v.Tested, v.Caught, v.Unviable, v.Missed, v.Accepted, len(v.Unmeasured))

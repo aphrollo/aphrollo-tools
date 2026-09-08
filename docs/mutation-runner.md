@@ -326,6 +326,18 @@ refuses to APPLY a column-less entry to a line that turns out to carry more
 than one mutant, so an unexamined sibling stays unaccepted and blocks rather
 than being silently admitted alongside the one somebody actually reviewed.
 
+An entry may also drop the line entirely — `<file> <MUTATOR> # why` — and then
+matches that mutation anywhere in that file, at any line and any column (issue
+#578). A line-keyed entry shifts under every edit made above it and rots into
+noise within a week, which is why an accept-list reviewed once and expected to
+hold across unrelated edits may prefer to key on the file plus the mutant's own
+text, the way this repo's ratchet baselines key on content rather than line.
+The cost is stated rather than hidden: precedence is column entry, then line
+entry, then line-free entry, so a more specific entry always wins; a line-free
+entry that admits more than one site is applied to all of them, and the report
+carries `mutation-accept: line-free entry for <file> <MUTATOR> admits N sites`
+so a reviewer sees how many mutants one line signed off on.
+
 ## How a mutant is named
 
 cargo-mutants 27.1.0 names a mutant `<file>:<line>:<col>: <mutation>`:

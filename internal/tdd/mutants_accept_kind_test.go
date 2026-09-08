@@ -114,10 +114,10 @@ func TestAcceptedMutants_NamesAMisspelledKindEntryInBad(t *testing.T) {
 	}, "\n"))
 
 	list, bad := acceptedMutants(root)
-	if _, ok := list["calc.go:1 CONDITIONALS_BOUNDARY"]; !ok {
+	if _, ok := list.ByLine["calc.go:1 CONDITIONALS_BOUNDARY"]; !ok {
 		t.Fatal("the unkinded legacy entry must still be in the accepted list")
 	}
-	if _, ok := list["calc.go:2 ARITHMETIC_BASE"]; ok {
+	if _, ok := list.ByLine["calc.go:2 ARITHMETIC_BASE"]; ok {
 		t.Fatal("the misspelled-kind entry must not be accepted")
 	}
 	if len(bad) != 1 || !strings.Contains(bad[0], "calc.go:2 ARITHMETIC_BASE") {
