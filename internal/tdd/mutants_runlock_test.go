@@ -209,7 +209,7 @@ func TestMeasureLane_HoldsTheMutantsRunLockForTheWholeToolInvocation(t *testing.
 		return 0, nil
 	})
 
-	if _, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base, Jobs: 1}); err != nil {
+	if _, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base}); err != nil {
 		t.Fatalf("MeasureLane: %v", err)
 	}
 

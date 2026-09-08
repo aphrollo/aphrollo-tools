@@ -27,9 +27,11 @@ import (
 // left for a cache to carry between them.
 
 // MeasureOpts is what the caller knows that the repo's config does not.
+// There is no Jobs: a Cargo measurement is in-place and therefore one job by
+// construction (cargo-mutants refuses --jobs with --in-place), and the Go
+// half derives its cap from the box it runs on.
 type MeasureOpts struct {
 	Base string    // sha or ref the lane is measured against
-	Jobs int       // 0 = derive from the box
 	Log  io.Writer // the run's own narrative; never the verdict
 }
 
@@ -119,9 +121,9 @@ func MeasureLane(root string, cfg MutantsConfig, opts MeasureOpts) (Verdict, err
 		return Verdict{}, fmt.Errorf("no base to measure %s against", root)
 	}
 	if isGoModuleRepo(root) {
-		return measureGoLane(root, cfg, opts, base, log)
+		return measureGoLane(root, cfg, base, log)
 	}
-	return measureCargoLane(root, cfg, opts, base, log)
+	return measureCargoLane(root, cfg, base, log)
 }
 
 // isGoModuleRepo picks the runner. Cargo wins a repo carrying both manifests:
@@ -132,7 +134,7 @@ func isGoModuleRepo(root string) bool {
 }
 
 // measureCargoLane is the Cargo half: scope, run, re-run the timeouts, judge.
-func measureCargoLane(root string, cfg MutantsConfig, opts MeasureOpts, base string, log io.Writer) (Verdict, error) {
+func measureCargoLane(root string, cfg MutantsConfig, base string, log io.Writer) (Verdict, error) {
 	files, crates, err := measureDiff(root, base)
 	if err != nil {
 		return Verdict{}, err
@@ -140,9 +142,13 @@ func measureCargoLane(root string, cfg MutantsConfig, opts MeasureOpts, base str
 	if len(files) == 0 {
 		return measureSkipped(root, "nothing to measure (0 changed source files)", "nothing-to-measure", log), nil
 	}
-	jobs, why := measureJobs(opts.Jobs)
-	logf(log, "mutants: %d jobs (%s)", jobs, why)
-	if v, refused := refuseOnDisk(root, jobs, log); refused {
+	// One job, always, and said out loud rather than derived: cargo-mutants
+	// REFUSES `--jobs` together with `--in-place` — an in-place run mutates
+	// the single tree it is measuring, so there is no second tree for a
+	// second job — and a run that asked for both died before its first
+	// mutant (issue #592).
+	logf(log, "mutants: in-place, 1 job (cargo-mutants forbids --jobs with --in-place)")
+	if v, refused := refuseOnDisk(root, mutantsInPlaceJobs, log); refused {
 		return v, nil
 	}
 	diffPath, err := writeMeasureDiff(root, base, files)
@@ -153,7 +159,7 @@ func measureCargoLane(root string, cfg MutantsConfig, opts MeasureOpts, base str
 	for _, entry := range bad {
 		logf(log, "mutants: mutation-baseline-exclude entry refused (needs \"<nextest filter> # reason\"): %q", entry)
 	}
-	argv := cargoMutantsArgv(MutantsArgv(diffPath, jobs, mutantsMinTestTimeout(root), crates, excludeFilter))
+	argv := cargoMutantsArgv(MutantsArgv(diffPath, mutantsMinTestTimeout(root), crates, excludeFilter))
 	// An outcomes file left by an EARLIER run describes a different tree. A
 	// run that writes none reached no verdict, and the difference between
 	// those two is invisible once the stale file is still sitting there.
@@ -193,7 +199,7 @@ func measureCargoLane(root string, cfg MutantsConfig, opts MeasureOpts, base str
 // measureGoLane is the Go half. gremlins is invoked exactly as the detached
 // job invoked it, scoped to the same merge base, and its report is read the
 // same way.
-func measureGoLane(root string, cfg MutantsConfig, opts MeasureOpts, base string, log io.Writer) (Verdict, error) {
+func measureGoLane(root string, cfg MutantsConfig, base string, log io.Writer) (Verdict, error) {
 	if mutantsGOOSFn() == "windows" {
 		// gremlins reports 0.00% mutator coverage here — 4890 mutants NOT
 		// COVERED on this repo's own tree. A verdict saying every mutant
@@ -208,7 +214,9 @@ func measureGoLane(root string, cfg MutantsConfig, opts MeasureOpts, base string
 	if len(files) == 0 {
 		return measureSkipped(root, "nothing to measure (0 changed source files)", "nothing-to-measure", log), nil
 	}
-	jobs, why := measureJobs(opts.Jobs)
+	// gremlins copies nothing into the tree it measures and takes a worker
+	// count happily, so the Go half keeps the box's own cap.
+	jobs, why := mutantsJobsForThisBox()
 	logf(log, "mutants: %d jobs (%s)", jobs, why)
 	if v, refused := refuseOnDisk(root, jobs, log); refused {
 		return v, nil
@@ -269,7 +277,13 @@ func cargoMutantsArgv(flags []string) []string {
 // one place so what the tool is asked to do is one literal a reviewer reads:
 // mutate the tree IN PLACE (never a copy), only inside the lane's diff, in
 // the order the diff names them, through nextest, with a timeout budget
-// derived from the last measured baseline and the box's own job cap.
+// derived from the last measured baseline.
+//
+// There is no `--jobs`, in any spelling: cargo-mutants refuses it together
+// with `--in-place`, since an in-place run mutates the one tree it is
+// measuring and a second job would have nothing to mutate. An argv carrying
+// both exits before the first mutant with "error: the argument '--in-place'
+// cannot be used with '--jobs <JOBS>'" (issue #592).
 //
 // packages narrows both the mutant pool and the unmutated BASELINE to the
 // crates the diff touches; empty falls back to the whole workspace rather
@@ -277,10 +291,7 @@ func cargoMutantsArgv(flags []string) []string {
 // mutation-baseline-exclude, already combined into one nextest filterset —
 // passed after `--`, which is where cargo-mutants forwards it to the SAME
 // test command it runs for both the baseline and every mutant.
-func MutantsArgv(diffPath string, jobs, minTestTimeout int, packages []string, excludeFilter string) []string {
-	if jobs < 1 {
-		jobs = 1
-	}
+func MutantsArgv(diffPath string, minTestTimeout int, packages []string, excludeFilter string) []string {
 	if minTestTimeout < mutantsMinTestTimeoutFloor {
 		minTestTimeout = mutantsMinTestTimeoutFloor
 	}
@@ -291,7 +302,6 @@ func MutantsArgv(diffPath string, jobs, minTestTimeout int, packages []string, e
 		"--in-place", "--in-diff", diffPath, "--no-shuffle", "--test-tool=nextest",
 		"--minimum-test-timeout", strconv.Itoa(minTestTimeout),
 		"--timeout-multiplier", strconv.Itoa(mutantsTimeoutMultiplier),
-		"--jobs", strconv.Itoa(jobs),
 	}
 	for _, pkg := range packages {
 		argv = append(argv, "--package", pkg)
@@ -306,14 +316,11 @@ func MutantsArgv(diffPath string, jobs, minTestTimeout int, packages []string, e
 // mutant's suite may take before it is called a timeout.
 const mutantsTimeoutMultiplier = 3
 
-// measureJobs is the concurrency this run uses and the reason for it. A
-// caller that typed a number gets it; everyone else gets the box's own cap.
-func measureJobs(want int) (int, string) {
-	if want > 0 {
-		return want, "flag"
-	}
-	return mutantsJobsForThisBox()
-}
+// mutantsInPlaceJobs is the concurrency of every Cargo measurement: one. It
+// is not a cap anyone may raise — cargo-mutants refuses `--jobs` beside
+// `--in-place` — so it is named here for the one place that still needs a
+// number, the free-space budget the run is refused against.
+const mutantsInPlaceJobs = 1
 
 // measureTempDir is where every child of the run writes its temporary files:
 // under the target dir, on the build drive, never the system one.
@@ -467,12 +474,12 @@ func rerunTimedOutMutants(root string, cfg MutantsConfig, argv []string, mutants
 	return mutants, nil
 }
 
-// runMutantsMeasuredRerun is the lone re-run: the same argv with the
-// concurrency forced to one and a name filter naming only the mutants under
-// re-examination.
+// runMutantsMeasuredRerun is the lone re-run: the same argv plus a name
+// filter naming only the mutants under re-examination, and nothing else. The
+// mutant has the box to itself either way — an in-place run is one job by
+// construction, so there is no concurrency here to force down.
 func runMutantsMeasuredRerun(root string, cfg MutantsConfig, argv, names []string, log io.Writer) ([]MutantOutcome, error) {
-	rerun := withJobsOne(argv)
-	rerun = insertBeforePassthrough(rerun, []string{"--re", mutantsNameFilter(names)})
+	rerun := insertBeforePassthrough(argv, []string{"--re", mutantsNameFilter(names)})
 	if _, _, err := runMutantsMeasured(root, measureEnv(root, cfg), rerun, log); err != nil {
 		return nil, err
 	}
@@ -484,18 +491,6 @@ func runMutantsMeasuredRerun(root string, cfg MutantsConfig, argv, names []strin
 		return nil, nil
 	}
 	return out, nil
-}
-
-// withJobsOne rewrites --jobs to 1: the whole point of the re-run is that the
-// mutant has the box to itself.
-func withJobsOne(argv []string) []string {
-	out := append([]string{}, argv...)
-	for i := 0; i+1 < len(out); i++ {
-		if out[i] == "--jobs" {
-			out[i+1] = "1"
-		}
-	}
-	return out
 }
 
 // insertBeforePassthrough puts flags before the `--` that hands the rest to

@@ -144,11 +144,11 @@ func TestMeasureDiff_NoMutableSourcePassesWithoutRunning(t *testing.T) {
 // literal a reviewer can read (criterion 5).
 func TestMutantsArgv_ExactForACargoLane(t *testing.T) {
 	t.Parallel()
-	got := MutantsArgv("/w/changed.diff", 2, 120, []string{"a"}, "not(test(slow))")
+	got := MutantsArgv("/w/changed.diff", 120, []string{"a"}, "not(test(slow))")
 
 	want := []string{
 		"--in-place", "--in-diff", "/w/changed.diff", "--no-shuffle", "--test-tool=nextest",
-		"--minimum-test-timeout", "120", "--timeout-multiplier", "3", "--jobs", "2",
+		"--minimum-test-timeout", "120", "--timeout-multiplier", "3",
 		"--package", "a", "--", "-E", "not(test(slow))",
 	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
@@ -183,11 +183,13 @@ func TestJobsCap_MinOfCoresRamAndTwo(t *testing.T) {
 func TestDiskCheck_RefusesNamingBothNumbers(t *testing.T) {
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
-	t.Cleanup(SetFreeSpaceForTest(20, true))
+	// Under the one job an in-place run is (#592) the budget is 15 GB, so a
+	// drive with 10 GB free is the shortfall this test is about.
+	t.Cleanup(SetFreeSpaceForTest(10, true))
 	root, base := makeMeasureRepo(t, laneSource)
 	calls := stubMutantsExec(t, nil)
 
-	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base, Jobs: 2})
+	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base})
 
 	if err != nil {
 		t.Fatalf("MeasureLane: %v", err)
@@ -195,7 +197,7 @@ func TestDiskCheck_RefusesNamingBothNumbers(t *testing.T) {
 	if !v.Refused {
 		t.Fatalf("a run that cannot fit must be refused, got %+v", v)
 	}
-	if !strings.Contains(v.Message, "20 GB free, jobs=2 needs 30 GB") {
+	if !strings.Contains(v.Message, "10 GB free, jobs=1 needs 15 GB") { // expectation-changed: the Cargo run is one job now, so the same shortfall is stated against a 15 GB budget (#592)
 		t.Errorf("message = %q, want both numbers", v.Message)
 	}
 	if len(*calls) != 0 {
@@ -288,7 +290,7 @@ func TestMeasure_NoVerdictExitRefusesWithStatusAndLog(t *testing.T) {
 	root, base := measureFixture(t, laneSource)
 	stubMutantsExec(t, func(int, measuredCall) (int, error) { return 1, nil })
 
-	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base, Jobs: 1})
+	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base})
 
 	if err != nil {
 		t.Fatalf("MeasureLane: %v", err)
@@ -313,7 +315,7 @@ func TestMeasure_StaleOutcomesFromAnEarlierRunAreNeverJudged(t *testing.T) {
 		Mutation: "replace + with -", Package: "a", Status: "caught"})
 	stubMutantsExec(t, func(int, measuredCall) (int, error) { return 0, nil })
 
-	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base, Jobs: 1})
+	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base})
 
 	if err != nil {
 		t.Fatalf("MeasureLane: %v", err)
@@ -350,7 +352,7 @@ func TestMeasure_TimedOutMutantRerunsOnceAloneThenRefuses(t *testing.T) {
 				return 0, nil
 			})
 
-			v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base, Jobs: 2})
+			v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base})
 
 			if err != nil {
 				t.Fatalf("MeasureLane: %v", err)
@@ -358,10 +360,12 @@ func TestMeasure_TimedOutMutantRerunsOnceAloneThenRefuses(t *testing.T) {
 			if len(*calls) != 2 {
 				t.Fatalf("ran the tool %d time(s), want the run plus one lone re-run", len(*calls))
 			}
+			// The re-run is alone on the box by construction — an in-place
+			// run is one job and cannot be told otherwise (#592) — so what
+			// is asserted here is the filter that makes it about this
+			// mutant; the whole argv is pinned by
+			// TestMutantsRerun_KeepsInPlaceAndAddsOnlyTheNameFilter.
 			rerun := strings.Join((*calls)[1].Argv, " ")
-			if !strings.Contains(rerun, "--jobs 1") {
-				t.Errorf("re-run argv = %q, want it alone on the box", rerun)
-			}
 			if !strings.Contains(rerun, `--re ^crates/a/src/lib\.rs:1:36: replace \+ with -$`) {
 				t.Errorf("re-run argv = %q, want a name filter for the timed-out mutant alone", rerun)
 			}
@@ -392,7 +396,7 @@ func TestJudge_UnacceptedMissedRefusesNamingMutantFirst(t *testing.T) {
 		"crates/a/src/lib.rs:1:36 replace + with - # kind=equivalent: addition is commutative here",
 	}}
 
-	v, err := MeasureLane(root, cfg, MeasureOpts{Base: base, Jobs: 1})
+	v, err := MeasureLane(root, cfg, MeasureOpts{Base: base})
 
 	if err != nil {
 		t.Fatalf("MeasureLane: %v", err)
@@ -425,7 +429,7 @@ func TestJudge_MalformedAcceptEntryIsARefusalNamingIt(t *testing.T) {
 	})
 	entry := "crates/a/src/lib.rs:3:5: replace x with y # kind=bogus: why"
 
-	v, err := MeasureLane(root, MutantsConfig{AtMerge: true, Accept: []string{entry}}, MeasureOpts{Base: base, Jobs: 1})
+	v, err := MeasureLane(root, MutantsConfig{AtMerge: true, Accept: []string{entry}}, MeasureOpts{Base: base})
 
 	if err != nil {
 		t.Fatalf("MeasureLane: %v", err)
@@ -465,7 +469,7 @@ func TestAfterHook_RunsWithStatusAndNeverChangesVerdict(t *testing.T) {
 			var log bytes.Buffer
 
 			v, err := MeasureLane(root, MutantsConfig{AtMerge: true, After: "tools/after.sh"},
-				MeasureOpts{Base: base, Jobs: 1, Log: &log})
+				MeasureOpts{Base: base, Log: &log})
 
 			if err != nil {
 				t.Fatalf("MeasureLane: %v", err)
@@ -498,7 +502,7 @@ func TestMeasure_GoRepoOnWindowsStandsDown(t *testing.T) {
 	t.Cleanup(setMutantsGOOSForTest("windows"))
 	calls := stubMutantsExec(t, nil)
 
-	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base, Jobs: 2})
+	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base})
 
 	if err != nil {
 		t.Fatalf("MeasureLane: %v", err)
@@ -530,7 +534,7 @@ func TestMeasure_GoRepoUsesGremlinsScopedToMergeBase(t *testing.T) {
 		return 0, nil
 	})
 
-	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base, Jobs: 2})
+	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base})
 
 	if err != nil {
 		t.Fatalf("MeasureLane: %v", err)

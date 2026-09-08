@@ -28,7 +28,7 @@ func TestMutantsArgv_NeverRunsIgnoredTests(t *testing.T) {
 		{"nothing declared", MutantsConfig{}},
 	} {
 		expr, _, _ := mutationBaselineExcludeParse(tc.cfg.BaselineExclude)
-		argv := MutantsArgv("/w/changed.diff", 2, 120, []string{"a"}, expr)
+		argv := MutantsArgv("/w/changed.diff", 120, []string{"a"}, expr)
 
 		for _, arg := range argv {
 			for _, banned := range []string{"--run-ignored", "--ignored", "--include-ignored"} {

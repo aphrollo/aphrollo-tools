@@ -15,7 +15,7 @@ func TestMutantsArgv_CarriesTheDeclaredExclusionAfterThePassthrough(t *testing.T
 	t.Parallel()
 	expr, _, _ := mutationBaselineExcludeParse([]string{"test(conditioner_burst) # box-contended wall-clock test"})
 
-	got := strings.Join(MutantsArgv("lane.diff", 1, 120, nil, expr), " ")
+	got := strings.Join(MutantsArgv("lane.diff", 120, nil, expr), " ")
 
 	if !strings.HasSuffix(got, "-- -E not(test(conditioner_burst))") {
 		t.Fatalf("MutantsArgv = %q, want the exclusion after the `--` cargo-mutants forwards to nextest", got)
@@ -26,7 +26,7 @@ func TestMutantsArgv_CarriesTheDeclaredExclusionAfterThePassthrough(t *testing.T
 // feature is opt-in, and a stray `--` changes what cargo-mutants forwards.
 func TestMutantsArgv_OmitsThePassthroughWhenNoExclusionIsDeclared(t *testing.T) {
 	t.Parallel()
-	got := MutantsArgv("lane.diff", 1, 120, nil, "")
+	got := MutantsArgv("lane.diff", 120, nil, "")
 
 	for _, arg := range got {
 		if arg == "--" || arg == "-E" {

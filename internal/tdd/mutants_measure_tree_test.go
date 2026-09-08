@@ -120,7 +120,7 @@ func TestMeasure_RunThatLeavesTheTreeChangedIsRefused(t *testing.T) {
 		return 0, nil
 	})
 
-	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base, Jobs: 1})
+	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base})
 
 	if err != nil {
 		t.Fatalf("MeasureLane: %v", err)
@@ -162,7 +162,7 @@ func TestJudge_NotCoveredIsCountedApartFromUnviable(t *testing.T) {
 		return 0, nil
 	})
 
-	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base, Jobs: 2})
+	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base})
 
 	if err != nil {
 		t.Fatalf("MeasureLane: %v", err)
@@ -200,7 +200,7 @@ func TestMeasure_GateLogCarriesTheVerdictAndItsCounts(t *testing.T) {
 				return 0, nil
 			})
 
-			if _, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base, Jobs: 1}); err != nil {
+			if _, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base}); err != nil {
 				t.Fatalf("MeasureLane: %v", err)
 			}
 
