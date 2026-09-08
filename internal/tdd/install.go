@@ -67,9 +67,9 @@ func shim(bin, sub string) string {
 // shims invoke the binary at bin. It returns an error if repoRoot is not a git
 // repository.
 func BuildInstallPlan(repoRoot, bin string) (InstallPlan, error) {
-	hooksDir := filepath.Join(repoRoot, ".git", "hooks")
-	if fi, err := os.Stat(filepath.Join(repoRoot, ".git")); err != nil || !fi.IsDir() {
-		return InstallPlan{}, fmt.Errorf("%s is not a git repository (no .git directory)", repoRoot)
+	hooksDir, err := repoHooksDir(repoRoot)
+	if err != nil {
+		return InstallPlan{}, err
 	}
 
 	plan := InstallPlan{RepoRoot: repoRoot}
@@ -91,6 +91,44 @@ func BuildInstallPlan(repoRoot, bin string) (InstallPlan, error) {
 		}
 	}
 	return plan, nil
+}
+
+// repoHooksDir resolves the directory git will actually run repoRoot's hooks
+// from. A checkout whose `.git` is a DIRECTORY keeps the direct answer,
+// `<root>/.git/hooks`. A LINKED WORKTREE's `.git` is a FILE holding
+// `gitdir: <common>/.git/worktrees/<name>`, and its hooks are shared: they
+// live in the COMMON git dir every worktree of the repo has. Statting `.git`
+// and demanding a directory refused every lane `git worktree add` creates,
+// which is the one place the merge-only primary checkout tells you to
+// regenerate the managed CLAUDE.md block from (#588).
+//
+// git answers the linked case itself, via `rev-parse --git-common-dir`, read
+// through the STDOUT-ONLY gitRead: git writes warnings to stderr while still
+// answering on stdout, and folding the two together (CombinedOutput) makes the
+// warning part of the path — a directory `install --apply` then creates, with
+// every hook written under it. Deliberately not `--git-path hooks`, which
+// HONOURS `core.hooksPath`. That
+// setting is global on a box running the gate's own git hooks, so
+// `--git-path` would point every per-repo install at the box-wide hooks
+// directory and let the prune step delete the global gate's own shims.
+//
+// A directory with no `.git` at all is not a repository, the same refusal as
+// before.
+func repoHooksDir(repoRoot string) (string, error) {
+	fi, err := os.Stat(filepath.Join(repoRoot, ".git"))
+	if err != nil {
+		return "", fmt.Errorf("%s is not a git repository (no .git directory or file)", repoRoot)
+	}
+	if fi.IsDir() {
+		return filepath.Join(repoRoot, ".git", "hooks"), nil
+	}
+	out, gitErr := gitRead(repoRoot, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	common := strings.TrimSpace(out)
+	if gitErr != nil || common == "" {
+		return "", fmt.Errorf("%s has a .git file (a linked worktree) whose common git directory git could not "+
+			"resolve: %v", repoRoot, gitErr)
+	}
+	return filepath.Join(filepath.FromSlash(common), "hooks"), nil
 }
 
 // foreignHookExists reports whether path holds a hook this tool did NOT write.

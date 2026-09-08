@@ -49,6 +49,11 @@ type cargoMetadata struct {
 	Packages []struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
+		// ManifestPath is where cargo says the package's own Cargo.toml is —
+		// the file a dep-graph-ceiling escape comment has to sit in. A
+		// checked-in metadata fixture may omit it; see
+		// depGraphCeilingManifest for what stands in then.
+		ManifestPath string `json:"manifest_path"`
 	} `json:"packages"`
 	WorkspaceMembers []string `json:"workspace_members"`
 	Resolve          struct {

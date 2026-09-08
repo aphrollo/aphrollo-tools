@@ -21,7 +21,24 @@ import (
 // and restores it via its own registered cleanup — so per-test isolation
 // keeps working exactly as before; this is purely the fallback net for the
 // subset that had none.
+// fakeGitCommonDir is what this binary prints on STDOUT when it is standing in
+// as `git` (see below). A fixed sentinel, so the test asserting on the hooks
+// path built from it needs nothing from the real git.
+const fakeGitCommonDir = "/tmp/aphrollo-fake-common/.git"
+
 func TestMain(m *testing.M) {
+	// A test that needs a git which WRITES TO STDERR points APHROLLO_REAL_GIT
+	// at this binary; git's own argv is what arrives here, so the branch is
+	// taken on the verb and must be answered before testing parses flags it
+	// would reject. A git that warns is the only way to tell a caller reading
+	// git's STDOUT apart from one reading stdout and stderr folded together,
+	// and no git CONFIG produces a warning on `rev-parse` — every invalid
+	// value is fatal instead. See TestBuildInstallPlan_IgnoresGitWarningsOnStderr.
+	if len(os.Args) > 1 && os.Args[1] == "rev-parse" {
+		os.Stderr.WriteString("warning: unable to access '/nowhere/.config/git/config': Not a directory\n")
+		os.Stdout.WriteString(fakeGitCommonDir + "\n")
+		os.Exit(0)
+	}
 	dir, err := os.MkdirTemp("", "aphrollo-tdd-pkgtest-")
 	if err != nil {
 		panic(err)

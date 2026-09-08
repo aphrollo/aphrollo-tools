@@ -101,10 +101,28 @@ func runLawFixtures(root string, law Law) FixtureResult {
 		}
 	}
 	for _, h := range clean.hits {
+		if zeroBaselineCleanKind(law.Matcher.Kind) && h.Weight == 0 {
+			continue
+		}
 		res.Failures = append(res.Failures, fmt.Sprintf(
 			"clean fixture %s/clean/%s:%d hit: %s", rel, h.File, h.Line, h.What))
 	}
 	return res
+}
+
+// zeroBaselineCleanKind names the whole-tree kinds whose hits are a COUNT
+// rather than an offence: every subject in scope emits one unconditionally,
+// weight 0 included. Reading "any hit at all under clean/" as a failure denies
+// such a kind a clean fixture entirely — and with it a passing `ratchet test`,
+// which the commit gate runs, so no repo could carry the law at all (#589).
+// Its clean fixtures are judged against a ZERO baseline instead: a measured 0
+// is the clean verdict, and anything above it still fails.
+//
+// json-number-ceiling and go-bench-ceiling are deliberately absent: their
+// clean fixture is a file the glob must REFUSE (see .ratchet/README.md), which
+// is a case they can already express.
+func zeroBaselineCleanKind(k MatcherKind) bool {
+	return k == KindDepGraphCeiling
 }
 
 type fixtureScan struct {

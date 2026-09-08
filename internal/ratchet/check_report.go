@@ -101,6 +101,13 @@ func remedyFor(law Law) string {
 	if law.Escape == "" {
 		return "no escape: lower the code"
 	}
+	if law.Matcher.Kind == KindDepGraphCeiling {
+		// A whole-root measurement is filed at line 0, so escapeWindow's
+		// "on the line", the only window it knows, names a position that does
+		// not exist. The kind reads its escape from the ROOT's own manifest,
+		// in any `#` comment line of it.
+		return fmt.Sprintf("escape: a `# %s <why>` comment line anywhere in <root>/Cargo.toml", law.Escape)
+	}
 	return fmt.Sprintf("escape: %s <why> %s", law.Escape, escapeWindow(law))
 }
 

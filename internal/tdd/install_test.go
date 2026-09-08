@@ -208,3 +208,61 @@ func TestInstallPlan_ReinstallOverOwnHook(t *testing.T) {
 		t.Fatal("our own managed hook must not count as a conflict")
 	}
 }
+
+// #588: a linked worktree's `.git` is a FILE (`gitdir: <common>/.git/worktrees/
+// <name>`), not a directory, so a plan that stats it and demands a directory
+// refuses every lane `git worktree add` creates — the one place the primary
+// checkout tells you to regenerate the managed CLAUDE.md block from. The hooks
+// themselves are shared: they live in the COMMON git dir, which is where the
+// plan must aim them, not in a `.git/hooks` under the lane that does not exist.
+func TestBuildInstallPlan_AcceptsALinkedWorktree(t *testing.T) {
+	main := makeGoRepo(t)
+	lane := filepath.Join(t.TempDir(), "lane")
+	gitDo(t, main, "worktree", "add", "-q", "-b", "lane/install-probe", lane)
+
+	plan, err := BuildInstallPlan(lane, testBin)
+
+	if err != nil {
+		t.Fatalf("a linked worktree was refused: %v", err)
+	}
+	if len(plan.Hooks) == 0 {
+		t.Fatal("the plan for a linked worktree carries no hooks at all")
+	}
+	wantDir := filepath.ToSlash(filepath.Join(main, ".git", "hooks"))
+	for _, h := range plan.Hooks {
+		if got := filepath.ToSlash(filepath.Dir(h.Path)); !strings.EqualFold(got, wantDir) {
+			t.Fatalf("hook %q sits in %q, want the common git dir %q", filepath.Base(h.Path), got, wantDir)
+		}
+	}
+}
+
+// git writes warnings to STDERR — an unreadable config, a CRLF conversion — and
+// keeps answering on STDOUT. A caller that reads the two folded together
+// (CombinedOutput) turns the warning into part of the value, and here the value
+// is a DIRECTORY PATH that `install --apply` then MkdirAlls: a warning line
+// would be created on disk as a directory, and every hook written under it.
+func TestBuildInstallPlan_IgnoresGitWarningsOnStderr(t *testing.T) {
+	main := makeGoRepo(t)
+	lane := filepath.Join(t.TempDir(), "lane")
+	gitDo(t, main, "worktree", "add", "-q", "-b", "lane/warning-probe", lane)
+
+	// Only now stand this binary in as git — the fixture above needs the real
+	// one. It prints a warning on stderr and fakeGitCommonDir on stdout.
+	t.Setenv(realGitEnv, os.Args[0])
+
+	plan, err := BuildInstallPlan(lane, testBin)
+
+	if err != nil {
+		t.Fatalf("a git that warns must still resolve: %v", err)
+	}
+	if len(plan.Hooks) == 0 {
+		t.Fatal("the plan carries no hooks at all")
+	}
+	want := filepath.Join(filepath.FromSlash(fakeGitCommonDir), "hooks")
+	for _, h := range plan.Hooks {
+		if got := filepath.Dir(h.Path); got != want {
+			t.Fatalf("hook %q sits in %q, want %q — git's stderr became part of the path install would create",
+				filepath.Base(h.Path), got, want)
+		}
+	}
+}

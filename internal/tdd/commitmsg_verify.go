@@ -27,11 +27,15 @@ var verificationClaimPattern = regexp.MustCompile(
 // stamp, non-destructively (PostCommit is still the only consumer that
 // deletes it), rather than inventing a second notion of "proven".
 //
-// A cache-hit precommit run (the identical tree already proven earlier)
-// deliberately does not satisfy this either, matching stampGreenSuite's own
-// rule: a cache hit "is a fine reason to skip a rerun and a poor basis for a
-// claim CI will weigh its own red against" (autoescape.go) — the same
-// reasoning applies to a claim written into the message itself.
+// A cache-hit precommit run is RESOLVED rather than refused on sight (#591).
+// stampGreenSuite's rule — a cache hit "is a fine reason to skip a rerun and a
+// poor basis for a claim CI will weigh its own red against" (autoescape.go) —
+// is about the CI note, which vouches for one commit to a reader who has no
+// access to this box's cache. Here the cache IS available, and the hit can be
+// followed back to the run it hit: see cacheHitResolvesGreen. A hit that
+// resolves to a green on this exact tree is the same evidence one process
+// earlier, and refusing it blocked precisely the mutation-proof record the tdd
+// skill requires in the body. A hit that resolves to nothing still refuses.
 //
 // A repoRoot outside a real git work tree (indexTree returns "") fails OPEN:
 // this gate protects a convention, not correctness, and must never wedge a
@@ -49,6 +53,9 @@ func verificationClaimCheck(repoRoot, body string) (GateResult, bool) {
 		return none, false
 	}
 	verdict := lastPrecommitVerdict(repoRoot)
+	if verdict == mechCacheHitVerdict && cacheHitResolvesGreen(repoRoot) {
+		return none, false
+	}
 	if verdict == "" {
 		verdict = "no precommit run recorded"
 	}
@@ -57,6 +64,65 @@ func verificationClaimCheck(repoRoot, body string) (GateResult, bool) {
 		"gate commit-msg: this message claims verification, but no green suite ran against the tree being "+
 			"committed — the last precommit verdict for this tree is %q.\nRewrite the claim to match what actually ran, then commit again.",
 		verdict)}, true
+}
+
+// mechCacheHitVerdict is the verdict runSuiteStage logs when it skips a rerun
+// because the identical worktree state is already recorded green (mechrun.go).
+const mechCacheHitVerdict = "cache-hit"
+
+// cacheHitResolvesGreen follows a "cache-hit" precommit verdict back to the run
+// it hit. The mechanical green cache is keyed on (repo, worktree state hash,
+// exact command) and records ONLY greens — a red must always re-run, see
+// mechcache.go — so an entry under this tree's CURRENT state hash is the
+// earlier green run itself, on a tree identical by construction. Any command
+// satisfies it: the hit this resolves was logged by the stage that owns the
+// suite, and which argv that stage chose is its business, not this guard's.
+//
+// Nothing recorded for this state resolves to nothing and keeps the refusal:
+// a timeout or a deferred run is never cached, and a tree that moved between
+// the pre-commit stage and this hook hashes differently, so its cache-hit was
+// about some other content.
+func cacheHitResolvesGreen(repoRoot string) bool {
+	path := mechCachePath()
+	if path == "" {
+		return false
+	}
+	green := loadMechCache(path).Green
+	for _, root := range cacheHitRoots(repoRoot) {
+		hash := worktreeStateHash(root)
+		if hash == "" {
+			continue
+		}
+		prefix := mechKeyRepo(root) + "\x00" + hash + "\x00"
+		for key := range green {
+			if strings.HasPrefix(key, prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// cacheHitRoots are the roots a cache hit could have been computed at: the
+// PROJECT roots stagedRootGroups derived for this commit (FindProjectRoot),
+// which is exactly where runSuiteStage hashes and keys.
+//
+// The repo root is not interchangeable with them. worktreeStateHash is
+// cwd-scoped — `git ls-files --others` lists only what sits under the
+// directory it runs in — so in a monorepo an untracked scratch file at the
+// repo root moves the repo-root hash and leaves the crate's alone, and a
+// prefix built at the repo root is one the cache can never hold. repoRoot
+// stands in only for a commit that grouped no roots at all, which is a commit
+// whose suite stage never ran.
+func cacheHitRoots(repoRoot string) []string {
+	var roots []string
+	for _, g := range stagedRootGroups(repoRoot) {
+		roots = append(roots, g.root)
+	}
+	if len(roots) == 0 {
+		return []string{repoRoot}
+	}
+	return roots
 }
 
 // readCurrentGreenSuiteStamp reads the tree stampGreenSuite last recorded for
