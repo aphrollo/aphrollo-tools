@@ -98,7 +98,7 @@ func stateDir() string {
 }
 
 // migrateStateDir MOVES the pre-rename state dir to its new name, once. The
-// gate.log history, the mechanical-run cache, the receipts and every live
+// gate.log history, the mechanical-run cache, the issue caches and every live
 // session file live there, so a rename that abandoned them would silently
 // throw away the pipeline's whole record. It runs only when the new dir does
 // not exist yet, and a failure is ignored: the caller then simply starts a
@@ -419,14 +419,17 @@ func setWaiver(session, wall string, on bool) error {
 
 // reservedStateBasenames and reservedStateFilePrefixes name every OTHER json
 // file this state dir holds beside per-session files: mech-cache.json (one,
-// fixed name), and one mutation-receipt.<tree>.json / issues.<repo>.json per
-// tree or repo the box has touched. everySessionID must recognise every one
+// fixed name), one issues.<repo>.json per repo the box has touched, and the
+// files a retired stage left behind under its own prefix. everySessionID
+// must recognise every one
 // of them and skip it — a session id is whatever CLAUDE_SESSION_ID happens to
 // be, so this is a blocklist of the names this package itself reserves for
 // something else, not a grammar for what a session id looks like.
 var (
-	reservedStateBasenames    = map[string]bool{"mech-cache": true}
-	reservedStateFilePrefixes = []string{"mutation-receipt.", "issues."}
+	reservedStateBasenames = map[string]bool{"mech-cache": true}
+	// A filename prefix nothing writes any more; a stale file left from
+	// before the deletion must still never be read as a session.
+	reservedStateFilePrefixes = []string{"mutation-receipt.", "issues."} // receipt-word-ok: that stale filename
 )
 
 // looksLikeSessionID reports whether id (a *.json file's basename with the
@@ -468,11 +471,11 @@ func hasSchemaKey(path string) bool {
 // ListWaivers can report a waiver regardless of which session holds it —
 // `gate allow` (bare) is typically run from a different shell than the one
 // that waived the rule. That walk is READ-ONLY from its caller's point of
-// view, so it must never hand mech-cache.json, a mutation receipt or an
-// issues cache to loadSession as if they were a session file: an unmarshal
-// type conflict on any of them would otherwise trip readStateJSON's
-// corrupt-file path and rename a legitimate receipt aside, from a listing
-// that was never supposed to touch anything.
+// view, so it must never hand mech-cache.json or an issues cache to
+// loadSession as if it were a session file: an unmarshal type conflict on
+// either would otherwise trip readStateJSON's corrupt-file path and rename a
+// legitimate cache aside, from a listing that was never supposed to touch
+// anything.
 func everySessionID() []string {
 	dir := stateDir()
 	entries, err := os.ReadDir(dir)
@@ -496,7 +499,7 @@ func everySessionID() []string {
 	return ids
 }
 
-// StateDir is where the gate keeps its per-session state, gate.log, caches and
-// receipts. Exported so a sibling package (the ratchet engine's scan cache) can
+// StateDir is where the gate keeps its per-session state, gate.log and its
+// caches. Exported so a sibling package (the ratchet engine's scan cache) can
 // share the one directory without re-deriving the CLAUDE_CONFIG_DIR rule.
 func StateDir() string { return stateDir() }

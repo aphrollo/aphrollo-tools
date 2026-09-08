@@ -23,7 +23,7 @@ import (
 //
 //	(a) the merge gate refusing a lane the commit gate passed on the same tree
 //	(b) CI red on a tip whose commit carries the local gate's green trailer
-//	(c) a mutation receipt reaching the merge with unaccepted survivors
+//	(c) the merge gate's own mutation measurement finding unaccepted survivors
 //	(d) an override — the gate turned off, a check talked past — which is the
 //	    same loop pointing the other way, and is opened by `escape sync`
 //	    rather than immediately, because one annoyed session is not evidence.

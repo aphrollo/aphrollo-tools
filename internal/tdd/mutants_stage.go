@@ -8,7 +8,7 @@ import (
 
 // The merge is measured here, on the tree that is about to land, in the
 // foreground. What used to sit at this point was a document: the lane's own
-// background run wrote a receipt, and this stage ran seven paperwork checks
+// background run wrote a document, and this stage ran seven paperwork checks
 // on it before it ever asked whether a mutant had survived. Over three weeks
 // that stage refused 150 merges, logged no reason for 141 of them and named a
 // survivor in none. The measurement is the whole point, so the measurement is
@@ -34,8 +34,9 @@ func mutantsResult(blocked bool, message string) GateResult {
 // mutantsConfigStage reads what the repo declares about its mutation run and
 // refuses a configuration that addresses a mechanism which no longer exists.
 // It is cheap enough to run before every other stage, and that is where it
-// belongs: `mutation-receipt = true` is a repo waiting for a proof nobody
-// writes, and it must hear so in one line rather than after a full suite.
+// belongs: a repo that still declares one of the retired keys is waiting for
+// a proof nobody writes, and it must hear so in one line rather than after a
+// full suite.
 func mutantsConfigStage(displayName, repoRoot string) (MutantsConfig, GateResult) {
 	cfg, err := ReadMutantsConfig(repoRoot)
 	if err == nil {
@@ -61,6 +62,11 @@ func mutantsStage(displayName, repoRoot string) GateResult {
 		appendGateLog(displayName, repoRoot, "mutants", "mutants-skipped:not-declared", 0)
 		return mutantsResult(false, "")
 	}
+	if reason, token := mutantsStandDown(repoRoot); token != "" {
+		fmt.Fprintf(os.Stderr, "gate %s: mutants → skipped (%s)\n", displayName, reason)
+		appendGateLog(displayName, repoRoot, "mutants", "mutants-skipped:"+token, 0)
+		return mutantsResult(false, "")
+	}
 	base, why := mergeMeasureBase(repoRoot)
 	if why != "" {
 		msg := fmt.Sprintf("gate %s: mutants → REJECTED\n  %s", displayName, why)
@@ -81,6 +87,44 @@ func mutantsStage(displayName, repoRoot string) GateResult {
 	}
 	return mutantsResult(v.Refused, v.Message)
 }
+
+// mutantsStandDown names what this routine has been handed that is NOT a lane
+// landing on trunk, and the token the stand-down is counted under. Empty when
+// the merge is one this stage judges.
+//
+// Two shapes reach the merge routine that a measurement has no business
+// judging, and refusing either would break work the gate is not entitled to
+// stop:
+//
+//   - a conflicted cherry-pick or revert, concluded with `git commit`, which
+//     routes here through precommitDecide. Neither writes MERGE_HEAD nor a
+//     `merge <ref>` reflog action, so there is no incoming tip at all — and
+//     nothing is being merged, so there is nothing a measurement would mean.
+//   - a CATCH-UP merge of trunk into a lane, which is the push guard's own
+//     printed remedy. Nothing lands: the base becomes the fork point and the
+//     measured diff becomes the lane's own change PLUS everything trunk did
+//     since, so the lane pays for trunk's work and a survivor trunk already
+//     accepted refuses the catch-up. The lane is measured when it lands, on
+//     trunk, which is the merge that means something.
+func mutantsStandDown(repoRoot string) (reason, token string) {
+	if ref := mergeInProgressRef(repoRoot); ref != "" && ref != mergeHeadRef {
+		return ref + " in progress, which is not a merge", "not-a-merge"
+	}
+	trunk := trunkBranch(repoRoot)
+	branch := gitOut(repoRoot, "rev-parse", "--abbrev-ref", "HEAD")
+	if trunk == "" || branch == "" || branch == "HEAD" || branchIsTrunk(branch, trunk) {
+		// No trunk to compare against, a detached HEAD, or HEAD IS trunk:
+		// the last is the merge this stage exists for, and the first two are
+		// this side's own blind spot, which must not stand a measurement
+		// down on its own.
+		return "", ""
+	}
+	return "merging into " + branch + " rather than " + trunk + ", so nothing lands here", "catch-up"
+}
+
+// mergeHeadRef is the one in-progress ref that names a merge. The other two
+// (CHERRY_PICK_HEAD, REVERT_HEAD) share the hook and share nothing else.
+const mergeHeadRef = "MERGE_HEAD"
 
 // mergeMeasureBase is the commit the merged tree is measured against, and why
 // it could not be found. At pre-merge-commit HEAD is still trunk and the merge

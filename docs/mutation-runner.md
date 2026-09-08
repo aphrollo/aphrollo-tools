@@ -70,6 +70,20 @@ The measured side is always the **working tree** against a base:
   branch coming in. Neither resolving is a refusal that says so;
 - `--base <sha>` overrides both.
 
+The pre-merge stage measures a lane LANDING ON TRUNK and nothing else. Two
+other things reach the same hook and are stood down with a logged reason
+rather than measured or refused:
+
+- a **catch-up merge** of trunk into a lane (HEAD is not the default branch),
+  which is the push guard's own printed remedy. Nothing lands: the base would
+  become the fork point, so the lane would pay for every change trunk made
+  since, and a survivor trunk already accepted would refuse the catch-up.
+  Token `mutants-skipped:catch-up`.
+- a **conflicted cherry-pick or revert**, concluded with `git commit`, which
+  git routes through `pre-commit` and the gate routes into the merge routine.
+  Neither writes `MERGE_HEAD` nor a `merge <ref>` reflog action, and nothing
+  is being merged. Token `mutants-skipped:not-a-merge`.
+
 File selection is `git diff --name-only <base> -- 'crates/**/src/**.rs'` and
 the diff handed to cargo-mutants is `git diff <base> -- <those files>`, with
 no `HEAD` operand in either: selection and content are one diff, or a run
@@ -364,7 +378,10 @@ stage refused and for what without re-running anything.
 | `mutants-refused:no-verdict` | an exit status cargo-mutants does not use for a verdict |
 | `mutants-refused:config` | a retired key, or a `mutants-after` naming a file that is not there |
 | `mutants-refused:no-lane-tip` | neither `MERGE_HEAD` nor `GIT_REFLOG_ACTION` named the branch coming in |
+| `mutants-refused:runner-failed` | the runner never started, so nothing was measured |
 | `mutants-skipped:not-declared` | the repo declares no `mutants-at-merge` |
+| `mutants-skipped:catch-up` | trunk merged INTO a lane; nothing lands, so nothing is measured |
+| `mutants-skipped:not-a-merge` | a conflicted cherry-pick or revert being concluded |
 | `mutants-skipped:nothing-to-measure` | the diff named no mutable source |
 | `mutants-skipped:gremlins-windows` | the Go runner cannot measure on this platform |
 
