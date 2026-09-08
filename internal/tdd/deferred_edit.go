@@ -80,11 +80,12 @@ const (
 // runEditPhases executes the edit's tests as build-then-run inside budget,
 // deferring whatever does not finish. It reports deferred=true when a phase
 // was left running, in which case res is meaningless.
-func runEditPhases(runner Runner, root, headSHA, fileHash, session string, budget time.Duration) deferredEditOutcome {
+func runEditPhases(runner Runner, root, target, headSHA, fileHash, session string, budget time.Duration) deferredEditOutcome {
 	deadline := time.Now().Add(budget)
 	build := DeferredJob{
 		Project: root, Phase: "build", Dir: runnerDir(runner, root),
-		Runner: phaseArgv(runner, "build"), HeadSHA: headSHA, FileHash: fileHash, Session: session,
+		Runner: phaseArgv(runner, "build"), HeadSHA: headSHA, FileHash: fileHash,
+		File: target, Session: session,
 	}
 	if !splittable(runner) {
 		// Only cargo can build tests without running them; `go test --no-run`
@@ -236,6 +237,9 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 	}
 	if treatAsEmptyPass(res) {
 		res.Passed = true
+	}
+	if line := foreignBuildAdvisory(root, j.File, strings.Join(j.Runner, " "), res); line != "" {
+		return line
 	}
 	outcome := ClassifyOutcome(res.Passed, res.Output, prev)
 	if state != nil {
@@ -501,7 +505,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	if !fresh {
 		return advisory, false
 	}
-	out := runEditPhases(snap.runner, root, headSHA, fileHash, session, budget)
+	out := runEditPhases(snap.runner, root, target, headSHA, fileHash, session, budget)
 	if out.spawnFailed {
 		appendGateLog("postedit", root, cmdString(snap.runner), InfraFailed, 0)
 		return spawnFailedLine(root, "build"), false
@@ -517,6 +521,9 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	res := out.res
 	if treatAsEmptyPass(res) {
 		res.Passed = true
+	}
+	if line := foreignBuildAdvisory(root, target, cmdString(snap.runner), res); line != "" {
+		return line, false
 	}
 	outcome := ClassifyOutcome(res.Passed, res.Output, snap.prevFailing)
 	if snap.state != nil {

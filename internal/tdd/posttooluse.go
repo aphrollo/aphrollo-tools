@@ -151,6 +151,12 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 	if treatAsEmptyPass(res) {
 		res.Passed = true
 	}
+	// Same posture as a timeout: a build that failed to link a crate this
+	// edit did not touch reached no verdict about the edit, so the last real
+	// outcome stays authoritative and state is left untouched (issue #593).
+	if line := foreignBuildAdvisory(root, target, cmdString(snap.runner), res); line != "" {
+		return line, false
+	}
 	outcome := ClassifyOutcome(res.Passed, res.Output, snap.prevFailing)
 	failing := ExtractFailingTests(res.Output)
 	passed, hasCount := parsePassedCount(res.Output)

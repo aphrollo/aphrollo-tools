@@ -653,7 +653,7 @@ live where being wrong only costs a re-run):
 | `ratchet check` | git `pre-commit`/`pre-merge-commit`, and manual | Judges the tree against `.ratchet/laws/*.toml` (see [Ratchet laws](#ratchet-laws-aphrollo-ratchet)). |
 | `gate prepush` | git `pre-push` | **No-op** (mechanical-only mode). The gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
 | `gate premerge` | git `pre-merge-commit` | Runs ONLY the mechanical stage over the merge's staged files — no fail-first (a fresh test's RED/GREEN belongs to the authoring commit, already proven by `precommit` there) and no anti-cheat suppression scan (same reasoning) — so a git merge, which never fires `pre-commit`, still proves the COMBINED result compiles and passes before it lands. `gate premergecommit` is the pre-rename spelling, kept as a silent alias for one release; every line the routine prints starts `gate premerge:`. A repo declaring `mutants-at-merge = true` also gets its mutation measurement here: the configuration is read FIRST (a retired key is refused before a single suite runs) and the measurement itself runs LAST, after the suites, against `merge-base(HEAD, <incoming tip>)` — a merge whose suite is red never pays for a mutation run. |
-| `gate mutants` | manual | `run` measures THIS checkout's lane in the foreground, under the box-wide mutation lock, and prints every unaccepted surviving mutant first, then the counts, then the remedy — exit 1 when one survived, one stayed unmeasured, or the run reached no verdict. `run --base <ref>` measures against that ref instead (what nightly CI on `main` passes its checkpoint to). There is no `--jobs`: a Cargo run measures the tree in place, cargo-mutants refuses `--jobs` beside `--in-place`, and the run is therefore one job. `prove --file --old --new --want-fail` is the HAND mutation proof for existing code: it applies one specific error, verifies with `git diff --numstat` that the write actually landed, runs the file's related tests, and restores the file byte-identically. See [The mutation runner contract](docs/mutation-runner.md). |
+| `gate mutants` | manual | `run` measures THIS checkout's lane in the foreground, under the box-wide mutation lock, and prints every unaccepted surviving mutant first, then the counts, then the remedy — exit 1 when one survived, one stayed unmeasured, or the run reached no verdict. `run --base <ref>` measures against that ref instead (what nightly CI on `main` passes its checkpoint to). There is no `--jobs`: a Cargo run is N cargo-mutants processes, one per shard of the mutant pool, each with `--jobs 1` and its own persistent target dir, and N comes from the box rather than from a caller. `prove --file --old --new --want-fail` is the HAND mutation proof for existing code: it applies one specific error, verifies with `git diff --numstat` that the write actually landed, runs the file's related tests, and restores the file byte-identically. See [The mutation runner contract](docs/mutation-runner.md). |
 | `gate allow` / `gate revoke` | manual | `allow <wall>` waives a wall (`primary` or `discard`); bare `allow` (or `revoke`) lists the active waivers. See [Waivers](#waivers) below. |
 
 #### Waivers
@@ -1813,7 +1813,11 @@ rather than on every session start.
 Build caches this binary's own gates create and use are the biggest thing on
 a Rust box's disk (a measured 417 GB `target/`, 202 GB of it
 `debug/incremental`, plus orphan worktree build dirs and stray target dirs
-with nothing left pointing at them). `gc` reclaims exactly six kinds of leftover and nothing else:
+with nothing left pointing at them). `gc` reclaims exactly the kinds of
+leftover below and nothing else. Every area it looks in belongs to some
+checkout of this repo — the invoking one, the main one, and every registered
+worktree — because a lane's mutation run leaves its directories beside the
+LANE while the merge that would sweep them is run from the primary:
 
 | category | what qualifies |
 |---|---|
@@ -1821,9 +1825,11 @@ with nothing left pointing at them). `gc` reclaims exactly six kinds of leftover
 | dead gate dirs | `<stateDir>/failfirst-wt/<hash>` whose `origin.txt` (written at creation) names a repo that no longer exists |
 | stale lock litter | orphan `.owner` records in the temp dir, idle **> 1 day** (`--lock-age`), whose lock nobody currently holds — the acquire attempt IS the liveness test — plus this binary's own `aphrollo-*-stub-*` / `*-pkgtest-*` test dirs. A `.lock` file itself is NEVER deleted: it is the mutual exclusion, and on Windows a delete-pending name makes the next open fail, which reads as "acquired" |
 | stale build artifacts | cargo never deletes a SUPERSEDED metadata hash, so `deps/` keeps one set of outputs per worktree path and per profile change forever (borld measured 2026-09-02: `target/debug/deps` at 207 GB / 24,260 files, 234 distinct `server-<hash>` fingerprints). Two tiers by what a rebuild COSTS: **workspace members at 3d** (they relink in seconds) and **third-party artifacts at 14d**. Matches only cargo's own `<crate>-<hash16>` shape in `deps/`, `.fingerprint/`, `build/` and `incremental/`; anything else is left alone |
-| mutants tree copies | `../.mutants/<worktree>/*` older than 1d, and ONLY while no `cargo-mutants` process is alive (those copies are the trees a live run is testing) |
+| mutants tree copies | what an UNSHARDED run left in `../.mutants/<worktree>/` — anything there that is not a `shard-<i>` or `target-<i>`, older than 1d, and ONLY while no `cargo-mutants` process is alive (those copies are the trees a live run is testing) |
+| mutants shard dirs | `../.mutants/<worktree>/shard-<i>` — one process's output, logs and tree copies. No age bar: ownership decides, and a shard directory whose run is over is garbage the moment that process exits |
+| mutants build dirs | `../.mutants/<worktree>/target-<i>` — a shard's PERSISTENT build dir, kept on purpose so the next run copies megabytes and still builds incrementally. Reclaimable once idle past `--older-than`, listed with what deleting it costs (the next run there builds cold), never while a live build owns it, and swept while HOLDING that directory's own build lock |
 | orphan worktree builds | a directory beside a repo's registered external worktrees that holds nothing but `target/` — git dropped the worktree, the build dir survived |
-| stray target dirs | a directory at depth 1 under the repo root or a registered worktree root that carries cargo's own `CACHEDIR.TAG` **and** `.rustc_info.json`, is **not** the resolved target dir, and is idle **> 3d** — a hand-made `target-sky/` nobody builds into any more (33 GB found on one box). Both marker files are required, so a cache that merely carries a tag is never proposed; it takes **no build slot**, because by definition nothing is compiling into it |
+| stray target dirs | a directory at depth 1 under the repo root or a registered worktree root that carries cargo's own `.rustc_info.json`, is **not** the resolved target dir, and is idle **> 3d** — a hand-made `target-sky/` nobody builds into any more (33 GB found on one box), or a lane worktree's own `target/` nobody has built in for days (102 GB found on another). `.rustc_info.json` is the whole test: `CACHEDIR.TAG` is written only when cargo CREATES the directory, so a target dir a copy or a restore left behind has none, and a cache that carries a tag alone is not a target dir at all. It is swept while HOLDING that path's own build lock — a stray one can still be some ad hoc `--target-dir` invocation's live target |
 
 ```sh
 aphrollo gate gc                      # dry run: path, size, reason, total
@@ -1835,9 +1841,14 @@ aphrollo gate gc --apply --lock-age 1h  # clear today's lock litter on an idle b
 `deps/` is reclaimable ONLY through the artifact rules above: by cargo's own
 `<crate>-<hash16>` stem and an mtime bar, never by name and never wholesale.
 A **registered worktree is never touched**, a gate dir with no `origin.txt` is
-UNKNOWN and left alone, and every deletion inside a target dir happens while
+UNKNOWN and left alone, every directory is listed exactly ONCE however many
+categories propose it, and every deletion inside a target dir happens while
 this process HOLDS that target's build lock, so a build mid-way cannot lose an
-rlib it is about to link. The dry run reports a total per tier, because the
+rlib it is about to link. The one lock that does NOT protect a directory is a
+lock whose recorded holder is **provably gone** from the process list: nothing
+is building there, and no later sweep would ever get that slot either. A holder
+that is alive, or one that cannot be identified at all (no owner record, a pid
+the OS will not answer for), keeps its directory. The dry run reports a total per tier, because the
 tiers carry different risk.
 
 Two things run it for you:

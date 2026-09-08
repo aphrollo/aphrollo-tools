@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -23,6 +24,10 @@ type MutantsConfig struct {
 	BaselineExclude []string // mutation-baseline-exclude, raw entries
 	Accept          []string // mutation-accept, raw entries
 	After           string   // mutants-after, repo-relative path or ""
+	// BuildJobs is mutants-build-jobs: how wide ONE shard's cargo may build,
+	// declared by a repo whose box the derivation reads wrong. Zero means
+	// derive it from the box (mutants_buildjobs.go).
+	BuildJobs int
 }
 
 // The keys a repo declares. mutants-at-merge is the only switch: the trio it
@@ -89,6 +94,22 @@ func ReadMutantsConfig(root string) (MutantsConfig, error) {
 			cfg.After = strings.TrimSpace(v)
 			break
 		}
+	}
+	for _, t := range tables {
+		v, set := tomlStringIn(t.path, t.table, mutantsBuildJobsKey)
+		if !set {
+			continue
+		}
+		// Declared but unreadable is refused, never quietly derived: a repo
+		// that wrote a build width believes it is being obeyed, and a run
+		// that silently ignored it is a box tuned by nobody.
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil || n < 1 {
+			return MutantsConfig{}, fmt.Errorf("%s must be a positive whole number of cargo jobs, got %q",
+				mutantsBuildJobsKey, strings.TrimSpace(v))
+		}
+		cfg.BuildJobs = n
+		break
 	}
 	if cfg.After != "" {
 		// Named but absent is the case nobody notices: the hook is what a

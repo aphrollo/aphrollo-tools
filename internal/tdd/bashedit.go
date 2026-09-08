@@ -43,12 +43,17 @@ import (
 // the session file forever; past this the oldest is dropped.
 const maxBashSnapshots = 16
 
-// bashInput is the slice of a Bash hook payload these two need.
+// bashInput is the slice of a Bash hook payload these two need. The command
+// itself is read for ONE question — which tree this call is answerable for
+// (bashSnapshotDir) — never to judge what the command does.
 type bashInput struct {
 	SessionID string `json:"session_id"`
 	ToolUseID string `json:"tool_use_id"`
 	Cwd       string `json:"cwd"`
 	ToolName  string `json:"tool_name"`
+	ToolInput struct {
+		Command string `json:"command"`
+	} `json:"tool_input"`
 }
 
 // bashSnapshot is the tree as it stood before one shell command ran.
@@ -97,7 +102,7 @@ func PreBash(raw []byte) {
 	if s == nil || path == "" {
 		return
 	}
-	snap := takeBashSnapshot(in.Cwd)
+	snap := takeBashSnapshot(bashSnapshotDir(in.Cwd, in.ToolInput.Command))
 	if snap == nil {
 		return
 	}
@@ -120,6 +125,51 @@ func pruneBashSnapshots(snaps map[string]*bashSnapshot) {
 		}
 		delete(snaps, oldestKey)
 	}
+}
+
+// bashSnapshotDir names the directory whose repo this command is answerable
+// for, which is not always the one it was typed in. A primary checkout is
+// shared: several sessions stand in it at once, and a snapshot taken there is
+// diffed against whatever ANY of them did in between, so a command whose only
+// writes land in a lane worktree was reported as having changed the primary
+// and ran a suite in a tree it never touched (issue #593). When the cwd is a
+// merge-only primary and every write this command can be seen to make lands
+// in one OTHER repo, that repo is the one to snapshot. Every other case —
+// an ordinary checkout, a write into the primary itself, writes spread over
+// two repos, a command whose writes this scanner cannot see — keeps the cwd,
+// which is the pre-existing behaviour rather than a guess.
+func bashSnapshotDir(cwd, cmd string) string {
+	primary, ok := PrimaryMergeOnly(cwd)
+	if !ok {
+		return cwd
+	}
+	if wt := soleRepoWrittenTo(primary, bashWriteTargets(cmd, cwd)); wt != "" {
+		return wt
+	}
+	return cwd
+}
+
+// soleRepoWrittenTo returns the one repo root, other than primary, that every
+// write target lands in. A target inside no repo at all (a scratch file, a
+// log outside the tree) cannot move any repo's status and is skipped rather
+// than treated as a second repo; a target in the primary, or in a second
+// repo, answers "" — the command is not attributable to a single other tree.
+func soleRepoWrittenTo(primary string, targets []string) string {
+	found := ""
+	for _, p := range targets {
+		root := repoRootNear(filepath.Dir(p))
+		if root == "" {
+			continue
+		}
+		if samePath(root, primary) {
+			return ""
+		}
+		if found != "" && !samePath(found, root) {
+			return ""
+		}
+		found = root
+	}
+	return found
 }
 
 // takeBashSnapshot asks git once what is dirty and stamps the source paths in
@@ -191,6 +241,9 @@ func PostBash(raw []byte, run SuiteRunner) string {
 	if len(changed) == 0 {
 		return ""
 	}
+	if line := foreignStagedLine(before.Root, changed); line != "" {
+		return line
+	}
 
 	var notes []string
 	seenRoot := map[string]bool{}
@@ -224,6 +277,37 @@ func PostBash(raw []byte, run SuiteRunner) string {
 		}
 	}
 	return strings.Join(notes, "\n")
+}
+
+// foreignStagedLine is the refusal for a harvest that found another session's
+// work rather than this command's. A merge-only primary checkout takes merges
+// and nothing else, so a source path STAGED in its index belongs to whoever
+// is working there, not to the shell call this hook is closing — running a
+// suite over it reports a red for code this session never wrote, on a tree
+// that is halfway through somebody else's edit (issue #593). "" whenever the
+// question does not arise: an ordinary checkout, or a primary whose changed
+// paths are all unstaged.
+func foreignStagedLine(root string, changed []string) string {
+	if _, ok := PrimaryMergeOnly(root); !ok {
+		return ""
+	}
+	staged := map[string]bool{}
+	for _, rel := range stagedFiles(root) {
+		staged[filepath.ToSlash(rel)] = true
+	}
+	var hits []string
+	for _, rel := range changed {
+		if staged[filepath.ToSlash(rel)] {
+			hits = append(hits, rel)
+		}
+	}
+	if len(hits) == 0 {
+		return ""
+	}
+	appendGateLog("postedit", root, logToken(hits[0]), "foreign-staged-skipped", 0)
+	return fmt.Sprintf("gate: → skipped in %s (%d changed path(s) are staged in this merge-only primary's index — "+
+		"another session's work, not this command's: %s; the code was NOT tested)",
+		root, len(hits), strings.Join(hits, ", "))
 }
 
 // otherRootsAmong finds the distinct project roots among rest (the changed

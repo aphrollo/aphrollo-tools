@@ -52,10 +52,17 @@ type DeferredJob struct {
 	PIDCreatedAt time.Time `json:"pid_created_at"`
 	HeadSHA      string    `json:"head_sha"`
 	FileHash     string    `json:"file_hash"`
-	Dirty        bool      `json:"dirty"`
-	Session      string    `json:"session"`
-	Log          string    `json:"log"`
-	Result       string    `json:"result"`
+	// File is the edited path this phase was started for, absolute. The
+	// harvest runs in a LATER hook, which otherwise knows only the project:
+	// it is what lets a link failure be attributed to a crate ("did this
+	// edit even touch it?") instead of read as a plain red. Empty in a
+	// record written before this field existed, which every reader must
+	// treat as "cannot say" rather than as "no crate".
+	File    string `json:"file"`
+	Dirty   bool   `json:"dirty"`
+	Session string `json:"session"`
+	Log     string `json:"log"`
+	Result  string `json:"result"`
 }
 
 // PhaseOutcome is what the runphase wrapper records when its cargo exits.

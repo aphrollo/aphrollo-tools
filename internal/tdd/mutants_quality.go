@@ -47,12 +47,26 @@ func MutantsJobsCap(cores, ramGB int) (int, string) {
 	return jobs, fmt.Sprintf("min(cores %d/3=%d, %s, cap 8) — %s", cores, byCores, ram, why)
 }
 
+// mutantsBoxShapeFn is the box itself: how many cores it has and how much
+// memory, both read at runtime. ONE seam for both numbers, because every
+// derivation that divides the box between concurrent builds — the shard
+// count here, the per-shard build width in mutants_buildjobs.go — has to be
+// testable against a hypothetical box without acquiring one.
+var mutantsBoxShapeFn = func() (cores, ramGB int) { return runtime.NumCPU(), machineRAMGB() }
+
+// setMutantsBoxForTest pins the box's shape for one test.
+func setMutantsBoxForTest(cores, ramGB int) (restore func()) {
+	prev := mutantsBoxShapeFn
+	mutantsBoxShapeFn = func() (int, int) { return cores, ramGB }
+	return func() { mutantsBoxShapeFn = prev }
+}
+
 // mutantsJobsForThisBox is the cap for the machine the job runs on. Memory is
 // read where it can be; where it cannot, the core count decides alone — a
 // wrong-way guess about RAM would raise the cap, and this cap only ever
 // lowers.
 func mutantsJobsForThisBox() (int, string) {
-	return MutantsJobsCap(runtime.NumCPU(), machineRAMGB())
+	return MutantsJobsCap(mutantsBoxShapeFn())
 }
 
 // mutantsJobsForThisBoxFn is that derivation as a seam. The Go runner's argv

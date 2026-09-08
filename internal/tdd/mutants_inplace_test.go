@@ -2,7 +2,7 @@ package tdd
 
 import (
 	"context"
-	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -59,63 +59,65 @@ func TestMeasure_GitWarningOnStderrIsNotATreeChange(t *testing.T) {
 	}
 }
 
-// The run copies the tree per job and mutates the copies: `--in-place`
-// mutates the one checkout and so forbids `--jobs` (cargo-mutants refuses
-// the pair, issue #592), which measured 739 mutants in 16 h on a box that
-// could run eight copies. So: --in-place is absent from the flag set, and
-// the run itself carries the box's job count.
+// `--in-place` mutates the one checkout and so forbids `--jobs` (cargo-mutants
+// refuses the pair, issue #592), which made the run one job by construction:
+// 739 mutants in 16 h on a box that could measure eight at once. So --in-place
+// is absent from the flag set — and so is --jobs, which belongs to the shard
+// that carries it (mutantsShardArgv), never to the flags every shard shares.
+//
+// What the copy carries is the SOURCE TREE ONLY. `--copy-target=true` carried
+// the workspace target dir into every copy: 375 GB per job on a real repo,
+// 1 h 47 min for the first copy, a full drive and no verdict.
 func TestMutantsArgv_NeverPassesJobsWithInPlace(t *testing.T) {
 	t.Parallel()
 	argv := MutantsArgv("/w/changed.diff", 120, []string{"a"}, "not(test(slow))")
-	warm := false
+	sourceOnly := false
 	for _, arg := range argv {
 		if arg == "--in-place" {
-			t.Errorf("argv = %v, want no --in-place: the run copies the tree so its jobs can run side by side", argv)
+			t.Errorf("argv = %v, want no --in-place: the run copies the tree so its shards can run side by side", argv)
+		}
+		if arg == "--jobs" {
+			t.Errorf("argv = %v, want no --jobs in the shared flags: one process per shard carries its own", argv)
 		}
 		if arg == "--copy-target=true" {
-			warm = true
+			t.Errorf("argv = %v, want no --copy-target=true: copying the target dir is what cost 375 GB a job", argv)
+		}
+		if arg == "--copy-target=false" {
+			sourceOnly = true
 		}
 	}
-	if !warm {
-		t.Errorf("argv = %v, want --copy-target=true: every copy must start from the lane's warm target dir, never build cold", argv)
+	if !sourceOnly {
+		t.Errorf("argv = %v, want --copy-target=false: the copy is the source tree, and the warm build "+
+			"products live in the shard's own persistent target dir", argv)
 	}
 }
 
-// The measurement hands cargo-mutants the box's job count: the whole point
-// of copying the tree is that the copies are measured at the same time.
-func TestMeasure_CargoRunCarriesTheBoxJobCount(t *testing.T) {
-	t.Cleanup(setMutantsJobsForTest(3, "pinned"))
+// The lone re-run of a timed-out mutant is the run's argv plus a name filter,
+// and nothing else — pinned here as a closed form, because the two ways to
+// get it wrong are both silent. It used to rewrite `--jobs` to 1, a flag that
+// must not appear in an in-place argv at all (issue #592); and now that the
+// run is N sharded processes, a `--shard i/n` inherited from one of them
+// would re-run a FRACTION of the named mutants and leave the rest timed out
+// for a reason that has nothing to do with them.
+func TestMutantsRerun_AddsOnlyTheNameFilterAndNeverAShardFlag(t *testing.T) {
 	root, base := measureFixture(t, laneSource)
-	calls := stubMutantsExec(t, func(_ context.Context, _ int, _ measuredCall) (int, error) {
-		writeOutcomes(t, root, MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 36, Mutation: "replace + with -", Package: "a", Status: "caught"})
-		return 0, nil
-	})
-	if _, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base, Log: io.Discard}); err != nil {
-		t.Fatal(err)
-	}
-	argv := (*calls)[0].Argv
-	for i, arg := range argv {
-		if arg == "--jobs" && i+1 < len(argv) && argv[i+1] == "3" {
-			return
-		}
-	}
-	t.Errorf("argv = %v, want --jobs 3 from the box seam", argv)
-}
-
-// The lone re-run of a timed-out mutant is the first run's argv plus a name
-// filter, and nothing else. It used to rewrite `--jobs` to 1 — a flag that
-// must not appear in an in-place argv at all — so what it hands the tool is
-// pinned here as a closed form: exactly the argv that ran, plus `--re`
-// (issue #592).
-func TestMutantsRerun_KeepsInPlaceAndAddsOnlyTheNameFilter(t *testing.T) {
-	root, base := measureFixture(t, laneSource)
+	t.Cleanup(setMutantsJobsForTest(2, "pinned"))
 	slow := MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 36, Mutation: "replace + with -", Package: "a", Status: "timeout"}
-	calls := stubMutantsExec(t, func(_ context.Context, n int, _ measuredCall) (int, error) {
-		m := slow
-		if n == 2 {
-			m.Status = "caught"
+	calls := stubMutantsExec(t, func(_ context.Context, _ int, c measuredCall) (int, error) {
+		out := c.Argv[len(c.Argv)-1]
+		if strings.HasPrefix(out, "^") {
+			// The re-run, which settles the mutant it names.
+			settled := slow
+			settled.Status = "caught"
+			writeOutcomesIn(t, mutantsShardDir(root, 0), settled)
+			return 0, nil
 		}
-		writeOutcomes(t, root, m)
+		if shardIndexOf(c.Argv) == 0 {
+			writeOutcomesIn(t, flagValue(c.Argv, "--output"), slow)
+			return 0, nil
+		}
+		writeOutcomesIn(t, flagValue(c.Argv, "--output"), MutantOutcome{File: "crates/a/src/lib.rs",
+			Line: 2, Col: 5, Mutation: "replace * with /", Package: "a", Status: "caught"})
 		return 0, nil
 	})
 
@@ -123,12 +125,18 @@ func TestMutantsRerun_KeepsInPlaceAndAddsOnlyTheNameFilter(t *testing.T) {
 		t.Fatalf("MeasureLane: %v", err)
 	}
 
-	if len(*calls) != 2 {
-		t.Fatalf("ran the tool %d time(s), want the run plus one lone re-run", len(*calls))
+	if len(*calls) != 3 {
+		t.Fatalf("ran the tool %d time(s), want two shards plus one lone re-run", len(*calls))
 	}
-	first, rerun := (*calls)[0].Argv, (*calls)[1].Argv
-	want := append(append([]string{}, first...), "--re", `^crates/a/src/lib\.rs:1:36: replace \+ with -$`)
+	rerun := (*calls)[2].Argv
+	want := []string{
+		"cargo", "mutants", "--copy-target=false", "--in-diff",
+		filepath.Join(measureTempDir(root), "changed.diff"), "--no-shuffle", "--test-tool=nextest",
+		"--minimum-test-timeout", "120", "--timeout-multiplier", "3", "--package", "a",
+		"--jobs", "1", "--output", mutantsShardDir(root, 0),
+		"--re", `^crates/a/src/lib\.rs:1:36: replace \+ with -$`,
+	}
 	if strings.Join(rerun, " ") != strings.Join(want, " ") {
-		t.Fatalf("re-run argv =\n  %v\nwant the first run's argv plus only the name filter\n  %v", rerun, want)
+		t.Fatalf("re-run argv =\n  %v\nwant the run's own argv, unsharded, plus only the name filter\n  %v", rerun, want)
 	}
 }

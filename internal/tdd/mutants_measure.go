@@ -29,9 +29,9 @@ import (
 // left for a cache to carry between them.
 
 // MeasureOpts is what the caller knows that the repo's config does not.
-// There is no Jobs: a Cargo measurement is in-place and therefore one job by
-// construction (cargo-mutants refuses --jobs with --in-place), and the Go
-// half derives its cap from the box it runs on.
+// There is no Jobs: both halves derive their concurrency from the box they
+// run on — the Cargo half as a shard count, the Go half as gremlins' worker
+// count — and neither takes a number from a caller.
 type MeasureOpts struct {
 	// Ctx is the caller's patience. Cancelling it kills the tool's whole
 	// process tree and releases the box-wide mutation-run lock, so a caller
@@ -133,8 +133,8 @@ func setMutantsGOOSForTest(goos string) (restore func()) {
 	return func() { mutantsGOOSFn = prev }
 }
 
-// MeasureLane measures root's changes against opts.Base in root itself
-// (cargo-mutants --in-place, or gremlins), judges them against the repo's
+// MeasureLane measures root's changes against opts.Base (sharded
+// cargo-mutants, or gremlins), judges them against the repo's
 // mutation-accept, runs mutants-after, and returns the verdict. A verdict is
 // never an error; an error is the runner failing to start.
 func MeasureLane(root string, cfg MutantsConfig, opts MeasureOpts) (Verdict, error) {
@@ -178,14 +178,16 @@ func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base 
 	if len(files) == 0 {
 		return measureSkipped(root, "nothing to measure (0 changed source files)", "nothing-to-measure", log), nil
 	}
-	// cargo-mutants copies the tree once per job and mutates the copies, so
-	// the checkout is never touched and the jobs run side by side. In-place
-	// (one tree, one job) measured 739 mutants in 16 h on a box that could
-	// run eight copies; the copies cost a few GB each, which refuseOnDisk
-	// budgets for.
-	jobs, why := mutantsJobsForThisBoxFn()
-	logf(log, "mutants: %d jobs (%s)", jobs, why)
-	if v, refused := refuseOnDisk(root, jobs, log); refused {
+	// One cargo-mutants process per SHARD, side by side: each copies the
+	// source tree, mutates its own copy and builds into a persistent target
+	// directory of its own (mutants_shards.go), so the checkout is never
+	// touched. In-place (one tree, one job) measured 739 mutants in 16 h on
+	// a box that could run eight copies; the number the box derives is how
+	// many shards the mutant pool is divided into, and refuseOnDisk fits that
+	// number to what the build drive measures.
+	shards, why := mutantsJobsForThisBoxFn()
+	v, shards, refused := refuseOnDisk(root, shards, "shard", log)
+	if refused {
 		return v, nil
 	}
 	diffPath, err := writeMeasureDiff(root, base, files)
@@ -197,27 +199,34 @@ func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base 
 		logf(log, "mutants: mutation-baseline-exclude entry refused (needs \"<nextest filter> # reason\"): %q", entry)
 	}
 	argv := cargoMutantsArgv(MutantsArgv(diffPath, mutantsMinTestTimeout(root), crates, excludeFilter))
-	argv = insertBeforePassthrough(argv, []string{"--jobs", strconv.Itoa(jobs)})
-	// An outcomes file left by an EARLIER run describes a different tree. A
-	// run that writes none reached no verdict, and the difference between
-	// those two is invisible once the stale file is still sitting there.
-	_ = os.Remove(cargoMutantsOutcomesPath(root))
+	// The last thing that lowers the count, after the drive has had its say:
+	// a shard with no mutants in its slice still pays a cold baseline build to
+	// report nothing.
+	shards, why = capShardsToMutants(ctx, root, cfg, argv, shards, why, log)
+	logf(log, "mutants: %d shards (%s)", shards, why)
+	// Both numbers said out loud, and in the same shape, once they are the
+	// numbers the run will actually use: a run slower than it should be is
+	// then explainable from the log rather than from a code read.
+	buildJobs, whyJobs := mutantsBuildJobsForShards(cfg, shards)
+	logf(log, "mutants: %d cargo build jobs per shard (%s)", buildJobs, whyJobs)
 	// What the tree looked like before the tool touched it. cargo-mutants
-	// mutates in place and restores as it goes, so a run that is killed
-	// leaves the last mutation in the source — and merging that is merging a
+	// mutates its copy, but a run that is killed part-way can still leave a
+	// mutation in the source it copied from — and merging that is merging a
 	// mutant.
 	before := snapshotWorktree(root)
-	code, runLog, err := runMutantsMeasured(ctx, root, measureEnv(root, cfg), argv, log)
+	runs, err := runMutantsShards(ctx, root, cfg, argv, shards, log)
 	if err != nil {
 		return Verdict{}, err
 	}
 	// The run's own baseline timing, for the NEXT run's timeout budget: a
 	// budget derived from a suite that actually ran is the only one that
-	// distinguishes a slow test from a mutant that hangs.
-	recordMutantsBaseline(root, runLog)
-	mutants, err := readCargoMutantsOutcomes(root)
-	if err != nil || !cargoMutantsReachedVerdict(code) {
-		return measureNoVerdictOrTreeChanged(root, code, err, before, log), nil
+	// distinguishes a slow test from a mutant that hangs. Every shard runs
+	// its own baseline and calibrates its own mutant timeout from it; what
+	// is recorded here is the first shard's, in shard order.
+	recordMutantsBaseline(root, shardLogText(runs))
+	mutants, code, logDir, cause := mergeShardOutcomes(root, runs)
+	if cause != nil {
+		return measureNoVerdictOrTreeChanged(root, logDir, code, cause, before, log), nil
 	}
 	mutants, err = rerunTimedOutMutants(ctx, root, cfg, argv, mutants, log)
 	if err != nil {
@@ -256,7 +265,8 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base str
 	// count happily, so the Go half keeps the box's own cap.
 	jobs, why := mutantsJobsForThisBoxFn()
 	logf(log, "mutants: %d jobs (%s)", jobs, why)
-	if v, refused := refuseOnDisk(root, jobs, log); refused {
+	v, jobs, refused := refuseOnDisk(root, jobs, "job", log)
+	if refused {
 		return v, nil
 	}
 	out := gremlinsReportPath(root)
@@ -274,13 +284,16 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base str
 	if err != nil {
 		return Verdict{}, err
 	}
+	// The Go runner keeps no per-mutant log directory, so a refusal points
+	// at the area it writes its report into rather than at a cargo-mutants
+	// layout it never produces.
 	data, readErr := os.ReadFile(out)
 	if readErr != nil {
-		return measureNoVerdictOrTreeChanged(root, code, readErr, before, log), nil
+		return measureNoVerdictOrTreeChanged(root, measureTempDir(root), code, readErr, before, log), nil
 	}
 	mutants, parseErr := parseGremlinsReport(data)
 	if parseErr != nil {
-		return measureNoVerdictOrTreeChanged(root, code, parseErr, before, log), nil
+		return measureNoVerdictOrTreeChanged(root, measureTempDir(root), code, parseErr, before, log), nil
 	}
 	if v, refused := refuseIfTreeChanged(root, before, log); refused {
 		return v, nil
@@ -313,15 +326,17 @@ func cargoMutantsArgv(flags []string) []string {
 
 // MutantsArgv is cargo-mutants' own flags for a lane measurement, built in
 // one place so what the tool is asked to do is one literal a reviewer reads:
-// mutate the tree IN PLACE (never a copy), only inside the lane's diff, in
-// the order the diff names them, through nextest, with a timeout budget
-// derived from the last measured baseline.
+// mutate a copy of the SOURCE tree, only inside the lane's diff, in the order
+// the diff names them, through nextest, with a timeout budget derived from
+// the last measured baseline.
 //
-// There is no `--jobs`, in any spelling: cargo-mutants refuses it together
-// with `--in-place`, since an in-place run mutates the one tree it is
-// measuring and a second job would have nothing to mutate. An argv carrying
-// both exits before the first mutant with "error: the argument '--in-place'
-// cannot be used with '--jobs <JOBS>'" (issue #592).
+// There is no `--in-place`: it mutates the one checkout and forbids `--jobs`
+// with it, which made the run one job by construction — 739 mutants in 16 h
+// on a box that could measure eight at once. An argv carrying both exits
+// before the first mutant with "error: the argument '--in-place' cannot be
+// used with '--jobs <JOBS>'" (issue #592). There is no `--jobs` here either:
+// concurrency is one PROCESS per shard, and mutantsShardArgv gives each of
+// them `--jobs 1`.
 //
 // packages narrows both the mutant pool and the unmutated BASELINE to the
 // crates the diff touches; empty falls back to the whole workspace rather
@@ -337,12 +352,15 @@ func MutantsArgv(diffPath string, minTestTimeout int, packages []string, exclude
 		// --no-shuffle: two runs of the same tree must name their mutants in
 		// the same order, or a report is not comparable with the one before
 		// it.
-		// --copy-target=true: every job's copy carries the lane's own warm
-		// target dir, so a copy builds incrementally from the first mutant
-		// instead of cold. One target dir shared by all copies is not an
-		// option: cargo serialises builds on its build-directory lock, which
-		// is the one-job run the copies exist to end.
-		"--copy-target=true", "--in-diff", diffPath, "--no-shuffle", "--test-tool=nextest",
+		// --copy-target=false: the copy carries the SOURCE TREE ONLY. With
+		// it true every copy also carried the workspace target dir — on the
+		// repo that produced this design, 294 GB of build products against
+		// 37 MB of sources, copied byte for byte because NTFS has no
+		// reflink: 375 GB in 1 h 47 min, then a full drive and no verdict.
+		// The warm build products live outside the copies instead, one
+		// PERSISTENT target dir per shard (mutants_shards.go), so a copy is
+		// megabytes and still builds incrementally.
+		"--copy-target=false", "--in-diff", diffPath, "--no-shuffle", "--test-tool=nextest",
 		"--minimum-test-timeout", strconv.Itoa(minTestTimeout),
 		"--timeout-multiplier", strconv.Itoa(mutantsTimeoutMultiplier),
 	}
@@ -359,14 +377,15 @@ func MutantsArgv(diffPath string, minTestTimeout int, packages []string, exclude
 // mutant's suite may take before it is called a timeout.
 const mutantsTimeoutMultiplier = 3
 
-// measureTempDir is where every child of the run writes its temporary files:
-// under the target dir, on the build drive, never the system one.
+// measureTempDir is the run's own area on the build drive, never the system
+// one: the scoped diff, one output directory per shard, and the persistent
+// per-shard target directories that make the next run warm.
 func measureTempDir(root string) string {
-	// Beside the checkout, never inside it: the copies carry the tree's own
-	// target dir (--copy-target=true), so a temp dir under <root>/target
-	// copied itself into every copy, without end. The parent of the
-	// worktree keeps the copies on the same disk as the lane, next to it,
-	// and out of anything cargo or git would walk.
+	// Beside the checkout, never inside it: a temp dir under <root> is a
+	// directory the source-tree copy would copy into itself, and a target
+	// dir under <root>/target is one an editor's own build shares. The
+	// parent of the worktree keeps all of it on the same disk as the lane,
+	// next to it, and out of anything cargo or git would walk.
 	return filepath.Join(filepath.Dir(root), ".mutants", filepath.Base(root))
 }
 
@@ -389,13 +408,13 @@ func measureEnv(root string, cfg MutantsConfig) []string {
 		}
 	}
 	out = append(out, "TMPDIR="+tmp, "TMP="+tmp, "TEMP="+tmp)
-	// No CARGO_TARGET_DIR: every job is its own copy of the tree under tmp,
-	// carrying a copy of the lane's warm target dir (--copy-target=true),
-	// and builds there. One target dir shared by all copies would put them
-	// behind cargo's build-directory lock one after the other, which is the
-	// serial run the copies exist to end; and the lane's own directory is
-	// never written, so an editor's slotted build never waits on the
-	// measurement.
+	// No CARGO_TARGET_DIR here, and never the LANE's: an editor's slotted
+	// build owns that directory behind cargo's own blocking lock, and a
+	// measurement that took it would hold it for hours. measureShardEnv
+	// gives each shard a persistent directory of its own instead. Distinct
+	// per shard is the load-bearing part — ONE dir shared by N processes
+	// would put them behind that same build-directory lock one after
+	// another, which is the serial run the shards exist to end.
 	// Without these, every mutant behind an env-gated suite is missed by
 	// construction: 101 of 167 on one lane lived in code only a GPU suite
 	// reaches.
@@ -428,46 +447,27 @@ func hasMutantsNextestProfile(root string) bool {
 	return ws != "" && ws != root && hasNextestProfile(ws, mutantsNextestProfile)
 }
 
-// refuseOnDisk stops a run that cannot fit its temp copies BEFORE it starts.
-// Three runs died at mutant 101 of 131 on a full drive, and every verdict
-// they had reached went with them. A drive whose free space cannot be read
-// never refuses: this side's own blind spot must not stop a run that would
-// have been fine.
-func refuseOnDisk(root string, jobs int, log io.Writer) (Verdict, bool) {
-	free, ok := freeSpaceGBFn(nearestExistingDir(measureTempDir(root)))
-	if !ok {
-		return Verdict{}, false
-	}
-	need := jobs * mutantsDiskPerJobGB
-	if free >= need {
-		return Verdict{}, false
-	}
-	msg := fmt.Sprintf("mutants: refused — %d GB free, jobs=%d needs %d GB (%d GB per job); "+
-		"a run that fills the drive dies mid-way and takes every verdict with it",
-		free, jobs, need, mutantsDiskPerJobGB)
-	logf(log, "%s", msg)
-	appendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-refused:disk", 0)
-	return Verdict{Refused: true, Message: msg}, true
-}
-
-// readCargoMutantsOutcomes reads the run's verdicts from the file
-// cargo-mutants writes them to, never from its log text.
-func readCargoMutantsOutcomes(root string) ([]MutantOutcome, error) {
-	data, err := os.ReadFile(cargoMutantsOutcomesPath(root))
+// readCargoMutantsOutcomes reads one shard's verdicts from the file
+// cargo-mutants writes them to, never from its log text. outDir is what that
+// shard was given as `--output`, since N shards cannot share one.
+func readCargoMutantsOutcomes(outDir string) ([]MutantOutcome, error) {
+	data, err := os.ReadFile(cargoMutantsOutcomesPath(outDir))
 	if err != nil {
 		return nil, err
 	}
 	return parseCargoMutantsOutcomes(data)
 }
 
-func cargoMutantsOutcomesPath(root string) string {
-	return filepath.Join(root, "mutants.out", "outcomes.json")
+// cargoMutantsOutcomesPath is the outcomes file inside one `--output`
+// directory.
+func cargoMutantsOutcomesPath(outDir string) string {
+	return filepath.Join(outDir, "mutants.out", "outcomes.json")
 }
 
 // cargoMutantsLogDir is where cargo-mutants keeps the per-mutant logs that
-// explain a run that reached no verdict.
-func cargoMutantsLogDir(root string) string {
-	return filepath.Join(root, "mutants.out", "log")
+// explain a run that reached no verdict, in that same directory.
+func cargoMutantsLogDir(outDir string) string {
+	return filepath.Join(outDir, "mutants.out", "log")
 }
 
 // cargoMutantsReachedVerdict reports whether an exit status is one
@@ -509,16 +509,25 @@ func rerunTimedOutMutants(ctx context.Context, root string, cfg MutantsConfig, a
 	return mutants, nil
 }
 
-// runMutantsMeasuredRerun is the lone re-run: the same argv plus a name
-// filter naming only the mutants under re-examination, and nothing else. The
-// mutant has the box to itself either way — an in-place run is one job by
-// construction, so there is no concurrency here to force down.
+// runMutantsMeasuredRerun is the lone re-run: the run's own argv plus a name
+// filter naming only the mutants under re-examination, and nothing else. It
+// is ONE process with the box to itself, never a sharded one — a `--shard
+// i/n` inherited from the first run would re-run a fraction of the named
+// mutants and leave the rest timed out for a reason that has nothing to do
+// with them. It borrows shard 0's warm target dir and output directory, whose
+// stale outcomes are cleared first so a re-run that writes none settles
+// nothing.
 func runMutantsMeasuredRerun(ctx context.Context, root string, cfg MutantsConfig, argv, names []string, log io.Writer) ([]MutantOutcome, error) {
-	rerun := insertBeforePassthrough(argv, []string{"--re", mutantsNameFilter(names)})
-	if _, _, err := runMutantsMeasured(ctx, root, measureEnv(root, cfg), rerun, log); err != nil {
+	dir := mutantsShardDir(root, 0)
+	rerun := insertBeforePassthrough(mutantsShardArgv(argv, 0, 1, dir), []string{"--re", mutantsNameFilter(names)})
+	_ = os.Remove(cargoMutantsOutcomesPath(dir))
+	// One shard, so the build width is the whole box: the re-run exists to
+	// give a mutant the machine to itself, and a third of the cores would
+	// time it out again for the same reason the first run did.
+	if _, _, err := runMutantsMeasured(ctx, root, measureShardEnv(root, cfg, 0, 1), rerun, log); err != nil {
 		return nil, err
 	}
-	out, err := readCargoMutantsOutcomes(root)
+	out, err := readCargoMutantsOutcomes(dir)
 	if err != nil {
 		// The re-run wrote nothing readable, so it settled nothing: the
 		// mutants stay timed out and the merge is refused naming them.

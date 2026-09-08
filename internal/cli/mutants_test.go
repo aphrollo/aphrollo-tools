@@ -44,10 +44,10 @@ func TestMutants_RejectsAnUnknownVerb(t *testing.T) {
 	}
 }
 
-// There is no concurrency to override any more: a Cargo measurement is
-// in-place, cargo-mutants refuses `--jobs` beside `--in-place`, and a flag
-// that quietly accepted a number would be promising something the tool will
-// not do (issue #592). The flag package's own "not defined" message is the
+// There is no concurrency to override: a Cargo measurement derives its shard
+// count from the box that has to hold N builds, and a flag that quietly
+// accepted a number would let a caller ask for more copies than the drive can
+// fit (issue #592). The flag package's own "not defined" message is the
 // answer, and the run stops before it measures anything.
 func TestGateMutantsRun_RejectsAJobsFlag(t *testing.T) {
 	gateConfigDir(t)

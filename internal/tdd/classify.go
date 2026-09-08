@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Outcome is the classified result of a test run after an edit. It is the
@@ -279,6 +281,110 @@ var setupErrRe = regexp.MustCompile(`(?i)syntaxerror|indentationerror|importerro
 // directory" in an assertion message is a plain failure, not a missing
 // implementation.
 var missingImplRe = regexp.MustCompile(`(?i)undefined: |is not defined|has no attribute|cannot find name|cannot find (?:function|value|struct|type|trait|macro|method)|no method named|undeclared name|use of undeclared (?:identifier|crate or module)|use of undefined identifier|has no member named`)
+
+// linkFailureRes are the signatures of a build that died at the LINK step
+// rather than at a test. A linker never sees an assertion: it reports the
+// symbols the object files do or do not carry, so its failure describes the
+// artifacts on disk — a stale one, a half-written sibling crate, another
+// session's concurrent build — as readily as it describes anything the edit
+// did. That is only ever a REASON to look further, never a verdict on its
+// own: foreignBuildFailure pairs it with the crate the failure names.
+var linkFailureRes = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)rust-lld: error:`),
+	regexp.MustCompile(`(?i)error: linking with `),
+	regexp.MustCompile(`(?i)undefined symbols? for architecture`),
+}
+
+// couldNotCompileRe captures the crate rustc gave up on. cargo prints one
+// such line per crate it could not finish, and the name in it is the only
+// place the output states WHOSE failure this is.
+var couldNotCompileRe = regexp.MustCompile("(?m)^\\s*error: could not compile `([^`]+)`")
+
+// foreignBuildFailure names the crates a failing run could not link or
+// compile when the crate this edit touched is not among them — the shape
+// issue #593 reported: a docs-only change harvested against a shared tree
+// ran a suite that died with `rust-lld: error: undefined symbol` in a crate
+// the session had never opened, and the gate called it RED. It is nil (judge
+// the run normally) whenever the failure could be this edit's: no link-step
+// signature at all, no crate named, or the edited crate among the names.
+//
+// edited is the [package] name owning the edited file. "" — no cargo package
+// owns it, or the caller could not say — answers nil in every case: a run
+// this cannot attribute to a crate is one it cannot call foreign either, and
+// downgrading an unattributable failure would hide a red that IS the
+// session's. Conservative in the direction that keeps failures visible.
+func foreignBuildFailure(output, edited string) []string {
+	if edited == "" || !matchesAny(linkFailureRes, output) {
+		return nil
+	}
+	seen := map[string]bool{}
+	var crates []string
+	for _, m := range couldNotCompileRe.FindAllStringSubmatch(output, -1) {
+		name := m[1]
+		if name == edited {
+			return nil
+		}
+		if !seen[name] {
+			seen[name] = true
+			crates = append(crates, name)
+		}
+	}
+	sort.Strings(crates)
+	return crates
+}
+
+// matchesAny reports whether output matches at least one of the patterns.
+func matchesAny(res []*regexp.Regexp, output string) bool {
+	for _, re := range res {
+		if re.MatchString(output) {
+			return true
+		}
+	}
+	return false
+}
+
+// foreignBuildAdvisory is the ONE place a foreign link failure becomes a
+// verdict, for the foreground run, the same-hook deferred phase and the
+// later harvest alike — three paths that reach ClassifyOutcome from three
+// different places and would otherwise each decide this for themselves. "" —
+// judge the run normally — for a pass, for a failure this edit's crate is
+// named in, and for anything with no crate to attribute at all. It logs the
+// InfraFailed verdict it returns, so the stand-down is counted, not just
+// printed.
+func foreignBuildAdvisory(root, target, runnerText string, res SuiteResult) string {
+	if res.Passed {
+		return ""
+	}
+	crates := foreignBuildFailure(res.Output, editedCargoPackage(root, target))
+	if len(crates) == 0 {
+		return ""
+	}
+	appendGateLog("postedit", root, runnerText, InfraFailed, res.Duration)
+	return foreignBuildFailureLine(root, crates, res.Duration)
+}
+
+// editedCargoPackage is the [package] name owning the edited file, "" when
+// no cargo package does (a Go or JS project, a doc file under a virtual
+// workspace manifest, a path that cannot be related to root at all).
+func editedCargoPackage(root, target string) string {
+	if target == "" {
+		return ""
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return "" // absence-ok: a path that cannot be related to root owns no package
+	}
+	return cargoPackageFor(root, filepath.ToSlash(rel))
+}
+
+// foreignBuildFailureLine is what that run reports instead of a RED summary:
+// the InfraFailed family, named by the crate whose build actually failed, so
+// the session reads "not your edit, and nothing was tested" rather than going
+// to fix a crate it never wrote to.
+func foreignBuildFailureLine(root string, crates []string, dur time.Duration) string {
+	return fmt.Sprintf("gate: → %s in %s (the build failed to link %s, which this edit did not change, in %.1fs — the code was NOT tested)",
+		InfraFailed, root, strings.Join(crates, ", "), dur.Seconds())
+}
 
 // ClassifyOutcome maps a test run to an Outcome. prevFailing is the failing-test
 // set recorded after the previous edit, used to recognise that a still-failing
