@@ -131,7 +131,9 @@ cargo mutants --copy-target=false --in-diff <diff> --no-shuffle --test-tool=next
   better than a contiguous slice). Shard indexes are 0-based with k < N:
   `--shard 3/3` is refused with "shard k must be less than n", and the union
   of shards 0, 1 and 2 of 3 is exactly the unsharded list, nothing dropped and
-  nothing measured twice.
+  nothing measured twice. N is then lowered to what the drive fits and to the
+  number of mutants the diff has, so a small lane does not start empty shards
+  that each pay a cold baseline build.
 - **`--copy-target=false`: the copy is the SOURCE TREE ONLY.** With it true
   every job's copy also carried the workspace target dir. On a repo with 294
   GB of build products and 37 MB of sources that is a 375 GB byte-for-byte
@@ -225,6 +227,14 @@ usefully for any of them (issue #253). A second run queues, announcing who it
 is waiting for about once a minute. There is no timeout on that wait.
 
 ### Temp dirs, build dir, free space
+
+The shard count is what the BOX allows, lowered by what the drive fits and
+then by how many mutants the lane's diff actually has — asked of the tool
+itself with `--list --json` over the run's own scoped argv, which builds
+nothing. A shard that draws an empty slice is counted as empty rather than as
+no-verdict, so that last term is wall clock rather than correctness: a
+two-mutant diff used to start one cold baseline build per core. A probe that
+cannot answer never lowers anything.
 
 Three runs died at mutant 101 of 131 on a full disk: `TMPDIR` alone was
 exported, a Windows cargo-mutants ignored it, and the tree copies took `C:`

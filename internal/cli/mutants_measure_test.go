@@ -174,14 +174,22 @@ func TestGateMutantsRun_BaseDefaultsToMergeBaseWithDefaultBranch(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 when every mutant was caught\nstdout: %s\nstderr: %s", code, out.String(), errb.String())
 	}
-	if len(measured) != 1 {
-		t.Fatalf("the runner was handed %d diffs, want exactly one\nstderr: %s", len(measured), errb.String())
+	if len(measured) == 0 {
+		t.Fatalf("the runner was handed no diff at all\nstderr: %s", errb.String())
 	}
-	if !strings.Contains(measured[0], "a + b + 0") {
-		t.Errorf("diff =\n%s\nwant the lane's own hunk", measured[0])
-	}
-	if strings.Contains(measured[0], "trunk_only") {
-		t.Errorf("diff =\n%s\nwant nothing trunk wrote after the lane branched", measured[0])
+	// Every invocation the run makes — the mutant listing that sizes the
+	// shard count, then the shards themselves — is handed the SAME diff, and
+	// what this test is about is what is in it.
+	for i, diff := range measured {
+		if diff != measured[0] {
+			t.Fatalf("invocation %d was handed a different diff:\n%s\nvs\n%s", i, diff, measured[0])
+		}
+		if !strings.Contains(diff, "a + b + 0") {
+			t.Errorf("diff =\n%s\nwant the lane's own hunk", diff)
+		}
+		if strings.Contains(diff, "trunk_only") {
+			t.Errorf("diff =\n%s\nwant nothing trunk wrote after the lane branched", diff)
+		}
 	}
 }
 

@@ -186,16 +186,10 @@ func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base 
 	// many shards the mutant pool is divided into, and refuseOnDisk fits that
 	// number to what the build drive measures.
 	shards, why := mutantsJobsForThisBoxFn()
-	logf(log, "mutants: %d shards (%s)", shards, why)
 	v, shards, refused := refuseOnDisk(root, shards, "shard", log)
 	if refused {
 		return v, nil
 	}
-	// Said out loud, after the reduction and in the same shape the shard
-	// count states its own: a run that is slower than it should be is then
-	// explainable from the log rather than from a code read.
-	buildJobs, whyJobs := mutantsBuildJobsForShards(cfg, shards)
-	logf(log, "mutants: %d cargo build jobs per shard (%s)", buildJobs, whyJobs)
 	diffPath, err := writeMeasureDiff(root, base, files)
 	if err != nil {
 		return Verdict{}, err
@@ -205,6 +199,16 @@ func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base 
 		logf(log, "mutants: mutation-baseline-exclude entry refused (needs \"<nextest filter> # reason\"): %q", entry)
 	}
 	argv := cargoMutantsArgv(MutantsArgv(diffPath, mutantsMinTestTimeout(root), crates, excludeFilter))
+	// The last thing that lowers the count, after the drive has had its say:
+	// a shard with no mutants in its slice still pays a cold baseline build to
+	// report nothing.
+	shards, why = capShardsToMutants(ctx, root, cfg, argv, shards, why, log)
+	logf(log, "mutants: %d shards (%s)", shards, why)
+	// Both numbers said out loud, and in the same shape, once they are the
+	// numbers the run will actually use: a run slower than it should be is
+	// then explainable from the log rather than from a code read.
+	buildJobs, whyJobs := mutantsBuildJobsForShards(cfg, shards)
+	logf(log, "mutants: %d cargo build jobs per shard (%s)", buildJobs, whyJobs)
 	// What the tree looked like before the tool touched it. cargo-mutants
 	// mutates its copy, but a run that is killed part-way can still leave a
 	// mutation in the source it copied from — and merging that is merging a

@@ -27,6 +27,11 @@ type measuredCall struct {
 // until its context ends while the others run.
 func stubMutantsExec(t *testing.T, reply func(ctx context.Context, n int, c measuredCall) (int, error)) *[]measuredCall {
 	t.Helper()
+	// The mutant-count probe is stood down with the tool it would ask: a
+	// stand-in cannot answer a `--list --json`, and a probe that cannot answer
+	// changes no shard count. A test ABOUT the cap pins the probe itself with
+	// setMutantsListCountForTest.
+	t.Cleanup(setMutantsListCountForTest(0, false))
 	prev := mutantsExecFn
 	calls := &[]measuredCall{}
 	var mu sync.Mutex
