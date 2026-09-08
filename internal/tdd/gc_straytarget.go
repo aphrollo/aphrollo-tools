@@ -10,9 +10,9 @@ import (
 // Category (h): a cargo target dir that is not THE target dir. They appear by
 // hand — a `target-sky/` built once with a different CARGO_TARGET_DIR, 33 GB
 // of it found idle on one box — and nothing ever collects them, because every
-// other category is about a directory this binary itself created. Two files
-// cargo always writes identify one beyond doubt, and being idle for days is
-// what says nobody is building into it.
+// other category is about a directory this binary itself created. The file
+// cargo writes at the top of every target dir identifies one, and being idle
+// for days is what says nobody is building into it.
 const (
 	cargoCacheTag  = "CACHEDIR.TAG"
 	cargoInfoFile  = ".rustc_info.json"
@@ -58,16 +58,16 @@ func gcStrayTargetDirs(roots []string, resolved string, olderThan time.Duration,
 	return out
 }
 
-// isCargoTargetDir reports whether dir carries BOTH files cargo writes at the
-// top of a target dir. The tag alone is not enough — plenty of caches carry
-// one — and requiring both is what keeps this from proposing somebody's data.
+// isCargoTargetDir reports whether dir carries the one file only cargo writes
+// at the top of a target dir, .rustc_info.json. CACHEDIR.TAG is neither
+// required nor sufficient: plenty of caches that are nobody's build directory
+// carry a tag alone, and cargo writes the tag only when it CREATES the target
+// dir, so one that a copy, a restore or a tool that made the directory first
+// left behind carries the rustc info and no tag at all — which is how a lane
+// worktree's own 102 GB target dir stayed invisible to the sweep (issue #565).
 func isCargoTargetDir(dir string) bool {
-	for _, name := range []string{cargoCacheTag, cargoInfoFile} {
-		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
-			return false
-		}
-	}
-	return true
+	_, err := os.Stat(filepath.Join(dir, cargoInfoFile))
+	return err == nil
 }
 
 // strayTargetRoots is where a stray can appear: the repo root and every

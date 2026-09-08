@@ -110,8 +110,8 @@ func AllGCScopes() GCScope {
 }
 
 // ScanGC collects the reclaimable directories for the workspace containing
-// repo, sorted biggest-first so the table's first line is the one worth
-// reading. It only ever READS.
+// repo, each named once, sorted biggest-first so the table's first line is
+// the one worth reading. It only ever READS.
 func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 	// Absolute from here on: the command defaults to --repo ".", and a
 	// candidate named relatively means a different directory the moment the
@@ -152,6 +152,13 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 		out = append(out, gcStrayTargetDirs(strayTargetRoots(repo), ResolveCargoTargetDir(repo),
 			olderThan, time.Now())...)
 	}
+	// One directory can qualify under two categories at once — an incremental
+	// unit dir is both "an idle incremental cache" and "an idle unit dir of
+	// crate X" — and a path proposed twice is printed twice and has its bytes
+	// counted twice by a sweep. Deduped BEFORE the sort, so which category's
+	// reason survives is decided by the order they run in rather than by how a
+	// sort happened to break a tie between two rows of identical size.
+	out = dedupeCandidates(out)
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Size != out[j].Size {
 			return out[i].Size > out[j].Size
@@ -454,7 +461,17 @@ func ApplyGCFor(repo string, cands []GCCandidate) (freed int64, refused []string
 		group := byTarget[target]
 		_, release, ok := TryAcquireBuildSlot(target, gcOwnerCommand, repo)
 		if !ok {
-			skipped += len(group)
+			if !staleTargetLock(target) {
+				skipped += len(group)
+				continue
+			}
+			// The lock is guarding nobody: the build it was taken for is not on
+			// the box any more, and no later sweep will get the slot either, so
+			// waiting for it is a directory kept forever (issue #565: 7.5 GB idle
+			// for three days, refused run after run).
+			gFreed, gRefused := ApplyGC(group)
+			freed += gFreed
+			refused = append(refused, gRefused...)
 			continue
 		}
 		gFreed, gRefused := ApplyGC(group)

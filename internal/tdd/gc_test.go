@@ -244,3 +244,33 @@ func TestScanGC_ReportsAbsolutePaths(t *testing.T) {
 		t.Fatalf("candidate path = %q, want an absolute path", got[0].Path)
 	}
 }
+
+// TestScanGC_ListsEachDirectoryOnce pins issue #565's third item: an
+// incremental unit dir belongs to two categories at once — the incremental
+// sweep proposes it as "incremental cache" and the deps tiers propose the
+// same directory as "<crate> unit dir" — so the table printed every one of
+// them twice, same path and same size, and a sweep counted its bytes twice
+// over (the second RemoveAll of a path already gone reports no error).
+func TestScanGC_ListsEachDirectoryOnce(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CARGO_TARGET_DIR", "")
+	repo := t.TempDir()
+	cache := filepath.Join(repo, "target", "debug", "incremental", "server-1a2b3c4d5e6f7a8b")
+	mkFile(t, filepath.Join(cache, "f"), "x", 30*24*time.Hour)
+	// A profile counts as one only when it has a deps/ dir, and this is the
+	// artifact tier's own candidate — one more path that must appear once.
+	mkFile(t, filepath.Join(repo, "target", "debug", "deps", "libserver-0123456789abcdef.rlib"), "x", 30*24*time.Hour)
+
+	times := map[string]int{}
+	for _, c := range ScanGC(repo, 3*24*time.Hour, GCScope{Incremental: true, DepsArtifacts: true}) {
+		times[c.Path]++
+	}
+	if times[cache] != 1 {
+		t.Errorf("the incremental cache is listed %d times, want once", times[cache])
+	}
+	for path, n := range times {
+		if n != 1 {
+			t.Errorf("%s is listed %d times, want once", path, n)
+		}
+	}
+}

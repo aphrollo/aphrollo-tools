@@ -133,3 +133,26 @@ func TestAllGCScopesIncludesStrayTargets(t *testing.T) {
 		t.Error("the manual sweep must consider stray target dirs")
 	}
 }
+
+// TestStrayTargetDirs_ProposesATargetDirWithNoCachedirTag pins issue #565's
+// first item: a lane worktree's own `target` (measured at 102 GB, idle for
+// days, deleted by hand in the end) was never listed, while a smaller one in
+// the primary checkout was. The difference on disk was one file — cargo writes
+// CACHEDIR.TAG only when it CREATES the directory, so a target dir made by
+// anything else (a copy, a restore, a tool that mkdir'd it first) carries the
+// .rustc_info.json and no tag — and requiring both files made the biggest
+// directory on the disk invisible to the sweep.
+func TestStrayTargetDirs_ProposesATargetDirWithNoCachedirTag(t *testing.T) {
+	t.Parallel()
+	worktree := t.TempDir()
+	untagged := filepath.Join(worktree, "target")
+	makeTargetDir(t, untagged, 5*24*time.Hour)
+	if err := os.Remove(filepath.Join(untagged, "CACHEDIR.TAG")); err != nil {
+		t.Fatal(err)
+	}
+
+	got := gcStrayTargetDirs([]string{worktree}, filepath.Join(t.TempDir(), "target"), DefaultGCAge, time.Now())
+	if len(got) != 1 || got[0].Path != untagged {
+		t.Fatalf("candidates = %v, want the untagged target dir %s", paths(got), untagged)
+	}
+}

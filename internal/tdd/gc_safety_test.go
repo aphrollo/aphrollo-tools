@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -143,5 +144,92 @@ func TestGCStamp_OnlyOneSweeperWins(t *testing.T) {
 func TestSpawnBackgroundGC_IsDetached(t *testing.T) {
 	if !strings.Contains(backgroundGCSpawnDescription(), "detached") {
 		t.Fatal("the background sweep must outlive the hook that starts it")
+	}
+}
+
+// writeLockOwnerPid records an arbitrary process as a lock's holder, which
+// writeBuildLockOwnerAt cannot do — it always names the calling process.
+func writeLockOwnerPid(t *testing.T, path string, pid int) {
+	t.Helper()
+	data, err := json.Marshal(BuildLockOwner{PID: pid, Cmd: "cargo build -p server", Cwd: "/repo", Started: time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestApplyGCFor_OnlyAProvablyDeadHolderLosesItsProtection pins issue #565's
+// second item: `gate gc --apply` reported "freed 0 B, a build holds every slot
+// for this target dir" over a 7.5 GB target dir idle for three days whose
+// recorded holder was not in the process list at all. A lock whose pid is dead
+// is stale and protects nothing; a holder that is alive, or one that cannot be
+// identified at all, keeps protecting the directory — deleting a target dir a
+// live build is writing into is the expensive way to be wrong here.
+func TestApplyGCFor_OnlyAProvablyDeadHolderLosesItsProtection(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	withIsolatedBuildLock(t)
+	// Three target dirs are held at once here, and one global slot has to stay
+	// free, or the sweep's own acquire would fail for a reason (a full box)
+	// that has nothing to do with the lock under test.
+	t.Setenv(buildSlotsEnv, "4")
+	repo := t.TempDir()
+
+	occupied := func(name string) string {
+		t.Helper()
+		dir := filepath.Join(repo, name)
+		if err := os.MkdirAll(filepath.Join(dir, "debug"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		_, release, ok := TryAcquireBuildSlot(dir, "cargo build -p server", repo)
+		if !ok {
+			t.Fatalf("setup: could not occupy the lock for %s", name)
+		}
+		t.Cleanup(release)
+		return dir
+	}
+	sweep := func(dir string) (int64, int) {
+		freed, refused, skipped := ApplyGCFor(repo, []GCCandidate{{
+			Path: dir, Size: 7, Reason: "stray cargo target dir", Kind: GCKindStrayTarget,
+		}})
+		if len(refused) != 0 {
+			t.Fatalf("refused %v", refused)
+		}
+		return freed, skipped
+	}
+
+	// A holder that is alive: the acquire above recorded THIS process, which
+	// is as alive as a holder gets.
+	live := occupied("target-live")
+	if freed, skipped := sweep(live); skipped != 1 || freed != 0 {
+		t.Errorf("live holder: freed=%d skipped=%d, want the dir left for next time", freed, skipped)
+	}
+	if _, err := os.Stat(live); err != nil {
+		t.Errorf("deleted a target dir a live build holds: %v", err)
+	}
+
+	// A holder nobody can name: no owner record at all, which is what a lock
+	// taken by something that never wrote one looks like.
+	unknown := occupied("target-unknown")
+	if err := os.Remove(ReadBuildSlotOwnerPath(unknown)); err != nil {
+		t.Fatal(err)
+	}
+	if freed, skipped := sweep(unknown); skipped != 1 || freed != 0 {
+		t.Errorf("unknown holder: freed=%d skipped=%d, want the dir left for next time", freed, skipped)
+	}
+	if _, err := os.Stat(unknown); err != nil {
+		t.Errorf("deleted a target dir whose holder could not be identified: %v", err)
+	}
+
+	// A holder that is gone: a pid this large is no process on any OS this
+	// runs on, asked of the real OS rather than a mock.
+	dead := occupied("target-dead")
+	writeLockOwnerPid(t, ReadBuildSlotOwnerPath(dead), 0x7FFFFFF0)
+	if freed, skipped := sweep(dead); skipped != 0 || freed != 7 {
+		t.Errorf("dead holder: freed=%d skipped=%d, want the 7 bytes reclaimed", freed, skipped)
+	}
+	if _, err := os.Stat(dead); !os.IsNotExist(err) {
+		t.Errorf("a lock whose holder is not on the box must not protect a target dir: %v", err)
 	}
 }

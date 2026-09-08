@@ -1823,7 +1823,7 @@ with nothing left pointing at them). `gc` reclaims exactly six kinds of leftover
 | stale build artifacts | cargo never deletes a SUPERSEDED metadata hash, so `deps/` keeps one set of outputs per worktree path and per profile change forever (borld measured 2026-09-02: `target/debug/deps` at 207 GB / 24,260 files, 234 distinct `server-<hash>` fingerprints). Two tiers by what a rebuild COSTS: **workspace members at 3d** (they relink in seconds) and **third-party artifacts at 14d**. Matches only cargo's own `<crate>-<hash16>` shape in `deps/`, `.fingerprint/`, `build/` and `incremental/`; anything else is left alone |
 | mutants tree copies | `../.mutants/<worktree>/*` older than 1d, and ONLY while no `cargo-mutants` process is alive (those copies are the trees a live run is testing) |
 | orphan worktree builds | a directory beside a repo's registered external worktrees that holds nothing but `target/` — git dropped the worktree, the build dir survived |
-| stray target dirs | a directory at depth 1 under the repo root or a registered worktree root that carries cargo's own `CACHEDIR.TAG` **and** `.rustc_info.json`, is **not** the resolved target dir, and is idle **> 3d** — a hand-made `target-sky/` nobody builds into any more (33 GB found on one box). Both marker files are required, so a cache that merely carries a tag is never proposed; it takes **no build slot**, because by definition nothing is compiling into it |
+| stray target dirs | a directory at depth 1 under the repo root or a registered worktree root that carries cargo's own `.rustc_info.json`, is **not** the resolved target dir, and is idle **> 3d** — a hand-made `target-sky/` nobody builds into any more (33 GB found on one box), or a lane worktree's own `target/` nobody has built in for days (102 GB found on another). `.rustc_info.json` is the whole test: `CACHEDIR.TAG` is written only when cargo CREATES the directory, so a target dir a copy or a restore left behind has none, and a cache that carries a tag alone is not a target dir at all. It is swept while HOLDING that path's own build lock — a stray one can still be some ad hoc `--target-dir` invocation's live target |
 
 ```sh
 aphrollo gate gc                      # dry run: path, size, reason, total
@@ -1835,9 +1835,14 @@ aphrollo gate gc --apply --lock-age 1h  # clear today's lock litter on an idle b
 `deps/` is reclaimable ONLY through the artifact rules above: by cargo's own
 `<crate>-<hash16>` stem and an mtime bar, never by name and never wholesale.
 A **registered worktree is never touched**, a gate dir with no `origin.txt` is
-UNKNOWN and left alone, and every deletion inside a target dir happens while
+UNKNOWN and left alone, every directory is listed exactly ONCE however many
+categories propose it, and every deletion inside a target dir happens while
 this process HOLDS that target's build lock, so a build mid-way cannot lose an
-rlib it is about to link. The dry run reports a total per tier, because the
+rlib it is about to link. The one lock that does NOT protect a directory is a
+lock whose recorded holder is **provably gone** from the process list: nothing
+is building there, and no later sweep would ever get that slot either. A holder
+that is alive, or one that cannot be identified at all (no owner record, a pid
+the OS will not answer for), keeps its directory. The dry run reports a total per tier, because the
 tiers carry different risk.
 
 Two things run it for you:
