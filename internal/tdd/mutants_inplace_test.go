@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"context"
+	"io"
 	"strings"
 	"testing"
 )
@@ -58,30 +59,47 @@ func TestMeasure_GitWarningOnStderrIsNotATreeChange(t *testing.T) {
 	}
 }
 
-// cargo-mutants REFUSES `--jobs` together with `--in-place`: an in-place run
-// mutates the single tree it is measuring, so there is no second tree for a
-// second job to work on. Emitting both killed the first real pre-merge
-// measurement on a Cargo consumer before its first mutant —
-// "error: the argument '--in-place' cannot be used with '--jobs <JOBS>'" —
-// and the argv had only ever been exercised through the exec seam (issue
-// #592). So: --in-place is present and --jobs is absent, in every position
-// and every spelling.
+// The run copies the tree per job and mutates the copies: `--in-place`
+// mutates the one checkout and so forbids `--jobs` (cargo-mutants refuses
+// the pair, issue #592), which measured 739 mutants in 16 h on a box that
+// could run eight copies. So: --in-place is absent from the flag set, and
+// the run itself carries the box's job count.
 func TestMutantsArgv_NeverPassesJobsWithInPlace(t *testing.T) {
 	t.Parallel()
 	argv := MutantsArgv("/w/changed.diff", 120, []string{"a"}, "not(test(slow))")
-
-	inPlace := false
+	warm := false
 	for _, arg := range argv {
 		if arg == "--in-place" {
-			inPlace = true
+			t.Errorf("argv = %v, want no --in-place: the run copies the tree so its jobs can run side by side", argv)
 		}
-		if arg == "--jobs" || strings.HasPrefix(arg, "--jobs=") || arg == "-j" {
-			t.Errorf("argv carries %q beside --in-place, which cargo-mutants refuses: %v", arg, argv)
+		if arg == "--copy-target=true" {
+			warm = true
 		}
 	}
-	if !inPlace {
-		t.Errorf("argv = %v, want --in-place: the run must never copy the tree", argv)
+	if !warm {
+		t.Errorf("argv = %v, want --copy-target=true: every copy must start from the lane's warm target dir, never build cold", argv)
 	}
+}
+
+// The measurement hands cargo-mutants the box's job count: the whole point
+// of copying the tree is that the copies are measured at the same time.
+func TestMeasure_CargoRunCarriesTheBoxJobCount(t *testing.T) {
+	t.Cleanup(setMutantsJobsForTest(3, "pinned"))
+	root, base := measureFixture(t, laneSource)
+	calls := stubMutantsExec(t, func(_ context.Context, _ int, _ measuredCall) (int, error) {
+		writeOutcomes(t, root, MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 36, Mutation: "replace + with -", Package: "a", Status: "caught"})
+		return 0, nil
+	})
+	if _, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base, Log: io.Discard}); err != nil {
+		t.Fatal(err)
+	}
+	argv := (*calls)[0].Argv
+	for i, arg := range argv {
+		if arg == "--jobs" && i+1 < len(argv) && argv[i+1] == "3" {
+			return
+		}
+	}
+	t.Errorf("argv = %v, want --jobs 3 from the box seam", argv)
 }
 
 // The lone re-run of a timed-out mutant is the first run's argv plus a name

@@ -114,20 +114,22 @@ mid-incident. Token: `mutants-refused:tree-changed`.
 Exactly this, for a Cargo repo:
 
 ```
-cargo mutants --in-place --in-diff <diff> --no-shuffle --test-tool=nextest \
+cargo mutants --copy-target=true --in-diff <diff> --no-shuffle --test-tool=nextest \
   --minimum-test-timeout <T> --timeout-multiplier 3 \
   [--package <p> ...] [-- -E not(<filter>)]
 ```
 
-- `--in-place` — never let cargo-mutants copy the tree: the copies land in the
-  OS temp dir, build cold, and nothing collects them (11 copies, ~135 MB each,
-  measured on one box).
-- **no `--jobs`, in any spelling.** cargo-mutants refuses the two flags
-  together — an in-place run mutates the single tree it is measuring, so there
-  is no second tree for a second job. An argv carrying both dies before its
-  first mutant with `error: the argument '--in-place' cannot be used with
-  '--jobs <JOBS>'`, which is exactly how the first real pre-merge measurement
-  on a Cargo consumer ended (issue #592).
+- **no `--in-place`; `--jobs N` from the box.** cargo-mutants copies the
+  tree once per job under the run's temp dir (`.mutants/<worktree name>` beside
+  the worktree, on its disk, never the OS temp dir) and mutates the copies side by side; the
+  checkout itself is never touched. In place was one tree and therefore one
+  job (the two flags refuse each other), which measured 739 mutants in 16 h
+  on a box that could run eight copies. N is `MutantsJobsCap`: cores/3 and
+  RAM/8 GB, at most 8; each copy builds in its own target dir, and the disk
+  budget refuses a run that cannot afford N copies. `--copy-target=true`
+  copies the lane's warm target dir into every copy, so no copy builds cold;
+  one target dir shared by all copies is not possible, cargo serialises
+  builds on its build-directory lock.
 - `--no-shuffle` — two runs of the same tree must name their mutants in the
   same order, or one report cannot be compared with the one before it.
 - `--package` — one per crate the diff touches. This scopes the unmutated

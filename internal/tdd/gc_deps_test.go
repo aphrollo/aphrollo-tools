@@ -105,9 +105,9 @@ func TestGCDeps_LeavesUnrecognisedFilesAlone(t *testing.T) {
 // the tree it is testing, so a live process vetoes the whole category.
 func TestGCMutants_OnlyWhenNoRunIsAlive(t *testing.T) {
 	target := t.TempDir()
-	tree := filepath.Join(target, "mutants", "mutants.out-1")
+	tree := filepath.Join(target, "mutants.out-1")
 	agedDir(t, tree, 3*24*time.Hour)
-	fresh := filepath.Join(target, "mutants", "mutants.out-2")
+	fresh := filepath.Join(target, "mutants.out-2")
 	agedDir(t, fresh, time.Hour)
 
 	prev := mutantsRunningFn

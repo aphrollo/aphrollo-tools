@@ -129,15 +129,15 @@ func readDir(dir string) []os.DirEntry {
 	return entries
 }
 
-// gcMutantsTrees proposes the tree copies cargo-mutants leaves under
-// <target>/mutants. A LIVE cargo-mutants vetoes the whole category: those
+// gcMutantsTrees proposes the tree copies cargo-mutants leaves under the
+// measurement's temp dir (measureTempDir: beside the worktree, under
+// .mutants/<name>). A LIVE cargo-mutants vetoes the whole category: those
 // copies are the trees it is testing right now.
-func gcMutantsTrees(target string, minAge time.Duration, now time.Time) []GCCandidate {
+func gcMutantsTrees(base string, minAge time.Duration, now time.Time) []GCCandidate {
 	if mutantsRunningFn() {
 		return nil
 	}
 	var out []GCCandidate
-	base := filepath.Join(target, "mutants")
 	for _, e := range readDir(base) {
 		if !e.IsDir() {
 			continue

@@ -39,9 +39,9 @@ func TestMutantsJobsCap_IsTheSmallestOfCoresRamAndTwo(t *testing.T) {
 		cores, ramGB, want int
 		reason             string
 	}{
-		{cores: 24, ramGB: 64, want: 2, reason: "cap 2"},
+		{cores: 24, ramGB: 64, want: 8, reason: "cap 8"},
 		{cores: 8, ramGB: 8, want: 1, reason: "ram"},
-		{cores: 4, ramGB: 64, want: 1, reason: "cores"},
+		{cores: 3, ramGB: 64, want: 1, reason: "cores"},
 		{cores: 1, ramGB: 1, want: 1, reason: "cores"},
 	}
 	for _, c := range cases {
@@ -91,8 +91,8 @@ func TestReadMutantsConfig_ReadsTheSwitchesTheWorkspaceNames(t *testing.T) {
 // Unknown means the cores decide alone.
 func TestMutantsJobsCap_UnknownMemoryLetsTheCoresDecide(t *testing.T) {
 	jobs, why := MutantsJobsCap(24, 0)
-	if jobs != 2 {
-		t.Fatalf("jobs = %d on a 24-core box with unreadable memory, want the core count to decide (2)", jobs)
+	if jobs != 8 {
+		t.Fatalf("jobs = %d on a 24-core box with unreadable memory, want the cores and the cap to decide (8)", jobs)
 	}
 	if !strings.Contains(why, "unknown") {
 		t.Fatalf("reason = %q, want it to say the memory was not readable", why)

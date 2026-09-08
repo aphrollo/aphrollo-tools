@@ -213,8 +213,8 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 		return execGit(cfg.realGit, args, stdin, stdout, stderr)
 	}
 
-	lockPath := lockDir + "/" + gitLockFileName
-	ownerPath := lockDir + "/" + gitOwnerFileName
+	lockPath := lockDir + "/" + gitLockFileFor(scope)
+	ownerPath := lockDir + "/" + gitOwnerFileFor(scope)
 	// index.lock lives in the worktree's OWN git dir, which is exactly the
 	// directory a worktree-scoped lock already keys on. A repo-scoped verb
 	// does not touch the index, so it has none to wait for.
