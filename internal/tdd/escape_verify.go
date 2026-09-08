@@ -156,9 +156,12 @@ func readPRMeta(repo, pr string) (prMeta, error) {
 // readPRPatch fetches the PR's full patch (not --name-only: a manifest is
 // judged on WHICH table it changed, which only the hunks say) keyed by file.
 // When gh refuses because the diff is too large to serve (#569), it falls
-// back to a local `git diff base...head` in repo — the CI checkout that runs
-// verify-closure has both commits, even when GitHub will not hand back the
-// diff over its API. Only when that local diff also fails does this error.
+// back to a local `git diff base...head` in repo. The CI checkout that runs
+// verify-closure is a shallow depth-1 fetch of the merge ref, so it holds
+// NEITHER base nor head as a reachable object — the fallback fetches both by
+// id from origin (GitHub serves any sha it knows about, reachable or not)
+// before diffing them. Only when that preparation and the diff both fail
+// does this error.
 func readPRPatch(repo, pr, base, head string) (map[string]string, error) {
 	diff, err := runGh(repo, "pr", "diff", pr)
 	if err == nil {
@@ -170,11 +173,39 @@ func readPRPatch(repo, pr, base, head string) (map[string]string, error) {
 	if base == "" || head == "" {
 		return nil, fmt.Errorf("PR #%s diff is too large for gh and no base/head commit to diff locally: %w", pr, err)
 	}
+	if fetchErr := ensureCommitsFetched(repo, base, head); fetchErr != nil {
+		return nil, fmt.Errorf("PR #%s diff is too large for gh (%v), and the local fallback could not prepare it: %w", pr, err, fetchErr)
+	}
 	local, gitErr := gitRead(repo, "diff", base+"..."+head)
 	if gitErr != nil {
 		return nil, fmt.Errorf("PR #%s diff is too large for gh (%v), and the local fallback `git diff %s...%s` also failed: %w", pr, err, base, head, gitErr)
 	}
 	return parsePatch(local), nil
+}
+
+// ensureCommitsFetched makes sure base and head are reachable objects in
+// repo before a local diff between them is attempted. A shallow checkout
+// (the CI job's actions/checkout, depth 1 on the merge ref) has neither, so
+// this fetches both by sha directly from origin — GitHub serves any commit
+// it knows about that way, reachable or not, unlike a ref-based fetch. A
+// fetch failure is only reported if the objects genuinely are not already
+// present (e.g. a full checkout where the fetch itself is superfluous and a
+// network hiccup on it must not block a diff that would have worked anyway).
+func ensureCommitsFetched(repo, base, head string) error {
+	if _, err := gitRead(repo, "fetch", "--no-tags", "origin", base, head); err == nil {
+		return nil
+	} else if commitExists(repo, base) && commitExists(repo, head) {
+		return nil
+	} else {
+		return fmt.Errorf("fetching %s and %s from origin: %w", base, head, err)
+	}
+}
+
+// commitExists reports whether sha names a commit object already present in
+// repo's object store, without requiring it to be reachable from any ref.
+func commitExists(repo, sha string) bool {
+	_, err := gitRead(repo, "cat-file", "-e", sha+"^{commit}")
+	return err == nil
 }
 
 // diffTooLargeForGitHub reports whether gh's own failure is the specific
