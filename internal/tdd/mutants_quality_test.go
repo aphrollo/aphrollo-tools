@@ -28,21 +28,8 @@ func TestJudgeMutants_RefusesAMutantThatStayedUnmeasured(t *testing.T) {
 	}
 }
 
-// A `--jobs` flag typed for THIS run is the most specific thing said about
-// it, so it beats the per-box formula. There is no third layer any more: the
-// session-wide env override existed to reach a detached job's own process,
-// and there is no detached job.
-// ratchet: test_removed TestResolveMutantsJobs_FlagBeatsEnvBeatsFormula: resolveMutantsJobs and its env layer are deleted with the detached job; measureJobs is the whole rule now
-func TestMeasureJobs_FlagBeatsTheBoxFormula(t *testing.T) {
-	t.Parallel()
-	if got, why := measureJobs(3); got != 3 || why != "flag" {
-		t.Fatalf("measureJobs(3) = (%d, %q), want (3, \"flag\")", got, why)
-	}
-	wantJobs, wantWhy := mutantsJobsForThisBox()
-	if got, why := measureJobs(0); got != wantJobs || why != wantWhy {
-		t.Fatalf("measureJobs(0) = (%d, %q), want the formula's own (%d, %q)", got, why, wantJobs, wantWhy)
-	}
-}
+// ratchet: test_removed TestResolveMutantsJobs_FlagBeatsEnvBeatsFormula: resolveMutantsJobs and its env layer are deleted with the detached job; the box formula is the whole rule now
+// ratchet: test_removed TestMeasureJobs_FlagBeatsTheBoxFormula: there is no flag left to beat the formula — `--jobs` cannot be passed to an in-place cargo-mutants run at all (#592), so measureJobs and MeasureOpts.Jobs are gone and the Cargo half is one job by construction, proved by TestMutantsArgv_NeverPassesJobsWithInPlace
 
 // The cap is deliberately mean: a mutation run competes with the editors on
 // the box, and one that takes every core is the contention this whole design

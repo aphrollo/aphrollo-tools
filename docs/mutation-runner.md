@@ -115,13 +115,19 @@ Exactly this, for a Cargo repo:
 
 ```
 cargo mutants --in-place --in-diff <diff> --no-shuffle --test-tool=nextest \
-  --minimum-test-timeout <T> --timeout-multiplier 3 --jobs <J> \
+  --minimum-test-timeout <T> --timeout-multiplier 3 \
   [--package <p> ...] [-- -E not(<filter>)]
 ```
 
 - `--in-place` — never let cargo-mutants copy the tree: the copies land in the
   OS temp dir, build cold, and nothing collects them (11 copies, ~135 MB each,
   measured on one box).
+- **no `--jobs`, in any spelling.** cargo-mutants refuses the two flags
+  together — an in-place run mutates the single tree it is measuring, so there
+  is no second tree for a second job. An argv carrying both dies before its
+  first mutant with `error: the argument '--in-place' cannot be used with
+  '--jobs <JOBS>'`, which is exactly how the first real pre-merge measurement
+  on a Cargo consumer ended (issue #592).
 - `--no-shuffle` — two runs of the same tree must name their mutants in the
   same order, or one report cannot be compared with the one before it.
 - `--package` — one per crate the diff touches. This scopes the unmutated
@@ -140,8 +146,9 @@ cargo mutants --in-place --in-diff <diff> --no-shuffle --test-tool=nextest \
   profile's own `default-filter` intersected with
   `not(<mutation-baseline-exclude>)`, and nothing else.
 
-A timed-out mutant is re-run once, alone, with `--jobs 1` and an anchored
-`--re` naming only the mutants under re-examination. Nine timeouts on one lane
+A timed-out mutant is re-run once with an anchored `--re` naming only the
+mutants under re-examination, and nothing else added — it is alone on the box
+because an in-place run is one job to begin with. Nine timeouts on one lane
 were all contention, and a refusal that names contention as a survivor is a
 false report; one that times out again with the box to itself stays
 **unmeasured**, which is not the same as caught, and refuses the merge by
@@ -158,15 +165,31 @@ cargo-mutants' own 30 s default while eight cold builds shared the box.
 
 ### Concurrency
 
-`<J> = min(cores / 6, ram_gb / 6, 2)`, floored at 1, and the run PRINTS the
-cap with the limit that bound it — "2 jobs" without "cap 2" says nothing:
+A **Cargo** run is one job, always, and says so rather than deriving a number
+nobody can use:
+
+```
+mutants: in-place, 1 job (cargo-mutants forbids --jobs with --in-place)
+```
+
+There is nothing to override — no `--jobs` on the argv and none on
+`gate mutants run`, which refuses one with `flag provided but not defined:
+-jobs` rather than accepting a number the tool will reject (issue #592). The
+free-space budget below is therefore one job's worth.
+
+A **Go** run (gremlins) copies nothing into the tree it measures and takes a
+worker count happily, so it keeps the per-box cap
+`min(cores / 6, ram_gb / 6, 2)`, floored at 1, and PRINTS it with the limit
+that bound it — "2 jobs" without "cap 2" says nothing:
 
 ```
 mutants: 2 jobs (min(cores 24/6=4, ram 64GB/6=10, cap 2) — cap 2)
 ```
 
 Memory that cannot be READ is not memory that is absent: an unreadable reading
-prints `ram unknown` and lets the cores decide alone. `--jobs <n>` overrides.
+prints `ram unknown` and lets the cores decide alone. `--jobs` is gone from
+both halves: the Go run derives its count from the box it is on, and no
+caller may type a number for either.
 
 **One run per BOX, not one per repo.** The call is wrapped in a machine-wide
 advisory lock held for its whole duration, cold build included. A wall-clock
@@ -397,6 +420,7 @@ stage refused and for what without re-running anything.
 | `mutants-refused:` + the same counts | a run that reached a verdict and found a survivor or an unmeasured mutant |
 | `mutants-refused:disk` | not enough free space for `jobs × 15 GB` |
 | `mutants-refused:tree-changed` | the run left the working tree different from how it found it |
+| `mutants-refused:git-failed` | git could not read the tree, so the tree that was measured cannot be compared with the one the run started from — the refusal carries git's own stderr |
 | `mutants-refused:no-verdict` | an exit status cargo-mutants does not use for a verdict |
 | `mutants-refused:config` | a retired key, or a `mutants-after` naming a file that is not there |
 | `mutants-refused:no-lane-tip` | neither `MERGE_HEAD` nor `GIT_REFLOG_ACTION` named the branch coming in |

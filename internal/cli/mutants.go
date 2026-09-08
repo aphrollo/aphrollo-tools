@@ -84,7 +84,10 @@ func runGateMutantsRun(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("mutants run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	base := fs.String("base", "", "base ref or sha to measure against (default: the merge base with the default branch)")
-	jobs := fs.Int("jobs", 0, "concurrency cap for this run (default: min(cores/6, RAM/6, 2))")
+	// There is no --jobs: a Cargo measurement is in-place and cargo-mutants
+	// refuses --jobs beside --in-place, so a flag taking a number here would
+	// promise concurrency the tool will not give (issue #592). An unknown
+	// flag is refused by the flag package's own message rather than ignored.
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -98,7 +101,7 @@ func runGateMutantsRun(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo gate mutants run: %v\n", err)
 		return 1
 	}
-	v, err := tdd.MeasureLane(root, cfg, tdd.MeasureOpts{Base: *base, Jobs: *jobs, Log: stderr})
+	v, err := tdd.MeasureLane(root, cfg, tdd.MeasureOpts{Base: *base, Log: stderr})
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo gate mutants run: %v\n", err)
 		return 1
@@ -122,7 +125,10 @@ const mutantsUsage = `usage: aphrollo gate mutants <verb>
                      contains — the same diff the merge will measure.
   run --base <ref>   measure against that ref or sha instead. What nightly CI
                      on main passes its checkpoint to.
-  run --jobs <n>     override the per-box concurrency cap for this run.
+
+                     There is no --jobs: a Cargo run measures the tree
+                     in place, and cargo-mutants refuses --jobs beside
+                     --in-place, so the run is one job by construction.
   prove --file <path> --old <text> --new <text> --want-fail <test>
                      the HAND mutation proof (existing code, no natural RED):
                      replace --old with --new in --file — must match exactly

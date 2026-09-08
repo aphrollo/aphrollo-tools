@@ -54,3 +54,18 @@ func MutantsJobsCap(cores, ramGB int) (int, string) {
 func mutantsJobsForThisBox() (int, string) {
 	return MutantsJobsCap(runtime.NumCPU(), machineRAMGB())
 }
+
+// mutantsJobsForThisBoxFn is that derivation as a seam. The Go runner's argv
+// carries the number, so a test asserting the argv EXACTLY would otherwise be
+// asserting how many cores and how much memory the machine running it has: it
+// passed on a 24-core developer box and failed on every CI runner, which
+// derive one. The box is the thing under test in MutantsJobsCap's own cases,
+// and nowhere else.
+var mutantsJobsForThisBoxFn = mutantsJobsForThisBox
+
+// setMutantsJobsForTest pins the derived cap for one test.
+func setMutantsJobsForTest(jobs int, why string) (restore func()) {
+	prev := mutantsJobsForThisBoxFn
+	mutantsJobsForThisBoxFn = func() (int, string) { return jobs, why }
+	return func() { mutantsJobsForThisBoxFn = prev }
+}

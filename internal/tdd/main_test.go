@@ -35,6 +35,11 @@ func TestMain(m *testing.M) {
 	// dev box that sets build.target-dir globally would otherwise make every
 	// such test's expected `<tmp>/target` wrong, depending on whichever
 	// machine happens to run the suite.
+	// What the box actually had is remembered first: the ONE test that runs
+	// the real toolchain (the cargo-mutants smoke test) has to put it back,
+	// because the cargo the box resolves lives under it and an empty
+	// cargo-home resolves to nothing at all.
+	realCargoHome, hadRealCargoHome = os.LookupEnv("CARGO_HOME")
 	if err := os.Setenv("CARGO_HOME", filepath.Join(dir, "cargo-home")); err != nil {
 		panic(err)
 	}
