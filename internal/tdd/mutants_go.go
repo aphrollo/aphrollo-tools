@@ -3,6 +3,7 @@ package tdd
 import (
 	"encoding/json"
 	"fmt"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -195,25 +196,33 @@ const (
 
 // matchAcceptEntry finds the entry written about THIS survivor, most
 // specific shape first: the one naming its column, then the one naming its
-// line, then the line-free one naming only its file and its mutation. A
-// column-less entry that cannot tell its own line's mutants apart is refused
-// HERE and the search stops — a line-free entry must never quietly rescue a
-// survivor the report is about to call refused.
+// line, then the line-free one naming only its file and its mutation.
+//
+// A column-less entry that cannot tell its own line's mutants apart does not
+// end the search: the line-free entry admits every site of that mutation by
+// definition, so it admits these too, and a list that offers one has already
+// said so. The ambiguity is refused only when nothing further down matches,
+// which is the case the refusal was written for — an unexamined sibling
+// admitted alongside the one somebody actually reviewed.
 func matchAcceptEntry(list acceptList, sameLine map[string]int, m MutantOutcome) (acceptEntry, acceptMatch) {
 	key := survivorKey(m.File, m.Line, m.Mutation)
+	ambiguous := false
 	if group, found := list.ByLine[key]; found {
 		if entry, ok := group.ByCol[m.Col]; ok {
 			return entry, acceptMatchCol
 		}
 		if group.Fallback != nil {
-			if sameLine[key] > 1 {
-				return acceptEntry{}, acceptMatchAmbiguous
+			if sameLine[key] == 1 {
+				return *group.Fallback, acceptMatchLine
 			}
-			return *group.Fallback, acceptMatchLine
+			ambiguous = true
 		}
 	}
 	if entry, ok := list.LineFree[lineFreeKey(m.File, m.Mutation)]; ok {
 		return entry, acceptMatchLineFree
+	}
+	if ambiguous {
+		return acceptEntry{}, acceptMatchAmbiguous
 	}
 	return acceptEntry{}, acceptMatchNone
 }
@@ -222,10 +231,10 @@ func matchAcceptEntry(list acceptList, sameLine map[string]int, m MutantOutcome)
 // (acceptedMutants), tallying the KIND each matched entry claims alongside
 // the accepted/unaccepted split. notes is what the caller must report about
 // the list itself: every column-less entry that matched a line carrying more
-// than one distinct mutant, refused rather than applied to any of them
-// (judgeMutants passes them to measureReport, the same way a bad
-// accept-kind entry is quoted), and every line-free entry that admitted more
-// than one site, applied and named.
+// than one distinct mutant with no line-free entry behind it to admit them,
+// refused rather than applied to any of them (judgeMutants passes them to
+// measureReport, the same way a bad accept-kind entry is quoted), and every
+// line-free entry that admitted more than one site, applied and named.
 func splitAcceptedSurvivors(list acceptList, survivors []MutantOutcome) (accepted, unaccepted []MutantOutcome, kinds AcceptKindCounts, notes []acceptNote) {
 	sameLine := make(map[string]int, len(survivors))
 	for _, m := range survivors {
@@ -303,14 +312,20 @@ func lineFreeKey(file, mutation string) string {
 // half of an accept-list key, tried in this order so "file:108:33" is never
 // misread as file "file:108" at line 33: the three-group pattern is tried
 // FIRST, and only a location with exactly two trailing colon-digit groups
-// matches it. acceptEntryTrailingLineRe guards the third, line-free shape: a
-// location ENDING in ":<digits>" was written as a line-keyed entry whatever
-// went wrong parsing it, so it is refused as malformed rather than re-read
-// as a line-free key naming a file whose name happens to end in a number.
+// matches it.
+//
+// acceptEntryLineRefRe is the third shape's guard, over the MUTATION half:
+// a colon followed by a digit is a line reference, and a mutation carrying
+// one is the tell of a path with a space in it — "my dir/lib.rs:4 X" splits
+// on the space into location "my" and mutation "dir/lib.rs:4 X", which reads
+// as a perfectly well-formed line-free key for a file that does not exist.
+// A mutation's own text never carries one: cargo-mutants writes Rust paths
+// ("replace Foo::bar with Default::default()") and gremlins writes bare
+// mutator names, so the colons that do occur are followed by a letter.
 var (
 	acceptEntryLocationWithColRe = regexp.MustCompile(`^(.+):(\d+):(\d+)$`)
 	acceptEntryLocationRe        = regexp.MustCompile(`^(.+):(\d+)$`)
-	acceptEntryTrailingLineRe    = regexp.MustCompile(`:\d+$`)
+	acceptEntryLineRefRe         = regexp.MustCompile(`:\d`)
 )
 
 // acceptEntryLoc is the parsed location half of an accept-list key. HasLine
@@ -326,7 +341,12 @@ type acceptEntryLoc struct {
 
 // parseAcceptEntryLocation splits "<file>", "<file>:<line>" or
 // "<file>:<line>:<col>" into its parts. ok is false when loc matches none of
-// the three shapes.
+// the three shapes: an empty location, or one whose own BASENAME carries a
+// colon, which is a location that was written line-keyed and did not parse
+// ("lib.rs:4x", "lib.rs:12:x", a line number too large for an int). Refusing
+// it beats reading it as a line-free key naming a file that does not exist,
+// which is stored, never matches a survivor, and never says why. A drive
+// letter's colon is in no basename, so "C:/src/lib.rs" is unaffected.
 func parseAcceptEntryLocation(loc string) (acceptEntryLoc, bool) {
 	if m := acceptEntryLocationWithColRe.FindStringSubmatch(loc); m != nil {
 		l, lerr := strconv.Atoi(m[2])
@@ -340,7 +360,7 @@ func parseAcceptEntryLocation(loc string) (acceptEntryLoc, bool) {
 			return acceptEntryLoc{File: m[1], Line: l, HasLine: true}, true
 		}
 	}
-	if loc == "" || acceptEntryTrailingLineRe.MatchString(loc) {
+	if loc == "" || strings.Contains(path.Base(filepath.ToSlash(loc)), ":") {
 		return acceptEntryLoc{}, false
 	}
 	return acceptEntryLoc{File: loc}, true
@@ -394,6 +414,10 @@ func parseAcceptedMutants(entries []string) (list acceptList, bad []string) {
 		}
 		entry := acceptEntry{Kind: kind, Evidence: evidence}
 		if !loc.HasLine {
+			if acceptEntryLineRefRe.MatchString(mutation) {
+				bad = append(bad, raw)
+				continue
+			}
 			list.LineFree[lineFreeKey(loc.File, mutation)] = entry
 			continue
 		}

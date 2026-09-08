@@ -1157,7 +1157,18 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   An unparseable entry is skipped with a stderr note, never silently disabling
   the gate nor blocking every commit.
 - **`mutation-accept`** (string array) — the survivors somebody signed off on,
-  each `"<file>:<line> <MUTATOR> # why it is acceptable"`. The reason is not
+  in one of three key shapes. `"<file>:<line> <MUTATOR> # why it is
+  acceptable"` matches that mutation on that line, whatever column it is at.
+  `"<file>:<line>:<col> <MUTATOR> # why"` names one mutant among several
+  sharing a line, which is the only way to accept one of them without
+  admitting its unexamined siblings. `"<file> <MUTATOR> # why"` drops the line
+  altogether and matches that mutation anywhere in that file, at any line and
+  any column, for a list that is reviewed once and must not rot the next time
+  an edit above the mutant shifts it — it is applied to every site it finds,
+  and the report says how many. The most specific shape that names a survivor
+  wins: column, then line, then line-free; a column-less entry that cannot
+  tell its own line's mutants apart is refused rather than guessed at, unless
+  a line-free entry behind it admits them all anyway. The reason is not
   decoration: an entry without one is not an accepted survivor. This is the
   list `aphrollo gate mutants run` judges a survivor against.
 - **`docs-check`** (bool) — turns on the staged-markdown citation stage for a
