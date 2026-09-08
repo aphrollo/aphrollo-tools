@@ -186,8 +186,10 @@ func TestJobsCap_MinOfCoresRamAndTwo(t *testing.T) {
 func TestDiskCheck_RefusesNamingBothNumbers(t *testing.T) {
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
-	// Under the one job an in-place run is (#592) the budget is 15 GB, so a
-	// drive with 10 GB free is the shortfall this test is about.
+	// Two copies at 15 GB each need 30 GB; a drive with 10 GB free is the
+	// shortfall this test is about. The job count is pinned, not read from
+	// the box, or the message would name whatever machine runs the test.
+	t.Cleanup(setMutantsJobsForTest(2, "pinned"))
 	t.Cleanup(SetFreeSpaceForTest(10, true))
 	root, base := makeMeasureRepo(t, laneSource)
 	calls := stubMutantsExec(t, nil)
@@ -200,7 +202,7 @@ func TestDiskCheck_RefusesNamingBothNumbers(t *testing.T) {
 	if !v.Refused {
 		t.Fatalf("a run that cannot fit must be refused, got %+v", v)
 	}
-	if !strings.Contains(v.Message, "10 GB free, jobs=1 needs 15 GB") { // expectation-changed: the Cargo run is one job now, so the same shortfall is stated against a 15 GB budget (#592)
+	if !strings.Contains(v.Message, "10 GB free, jobs=2 needs 30 GB") { // expectation-changed: the run is N copies again, so the shortfall is stated against N budgets
 		t.Errorf("message = %q, want both numbers", v.Message)
 	}
 	if len(*calls) != 0 {
