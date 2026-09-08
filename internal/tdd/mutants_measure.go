@@ -191,6 +191,11 @@ func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base 
 	if refused {
 		return v, nil
 	}
+	// Said out loud, after the reduction and in the same shape the shard
+	// count states its own: a run that is slower than it should be is then
+	// explainable from the log rather than from a code read.
+	buildJobs, whyJobs := mutantsBuildJobsForShards(cfg, shards)
+	logf(log, "mutants: %d cargo build jobs per shard (%s)", buildJobs, whyJobs)
 	diffPath, err := writeMeasureDiff(root, base, files)
 	if err != nil {
 		return Verdict{}, err
@@ -512,7 +517,10 @@ func runMutantsMeasuredRerun(ctx context.Context, root string, cfg MutantsConfig
 	dir := mutantsShardDir(root, 0)
 	rerun := insertBeforePassthrough(mutantsShardArgv(argv, 0, 1, dir), []string{"--re", mutantsNameFilter(names)})
 	_ = os.Remove(cargoMutantsOutcomesPath(dir))
-	if _, _, err := runMutantsMeasured(ctx, root, measureShardEnv(root, cfg, 0), rerun, log); err != nil {
+	// One shard, so the build width is the whole box: the re-run exists to
+	// give a mutant the machine to itself, and a third of the cores would
+	// time it out again for the same reason the first run did.
+	if _, _, err := runMutantsMeasured(ctx, root, measureShardEnv(root, cfg, 0, 1), rerun, log); err != nil {
 		return nil, err
 	}
 	out, err := readCargoMutantsOutcomes(dir)

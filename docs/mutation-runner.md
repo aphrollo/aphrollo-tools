@@ -32,6 +32,7 @@ everything else. The Cargo spelling wins when a repo has both.
 | `mutation-baseline-exclude` | string array | `"<nextest filter> # why"` entries, folded into one `-E not(...)` for the run's whole test invocation |
 | `mutation-accept` | string array | the survivors somebody signed off on, with a reason each |
 | `mutants-after` | string | a repo-relative path run after judgement, in the worktree. A path with no file there is a refusal, not a silent skip |
+| `mutants-build-jobs` | integer | how wide ONE shard's cargo may build, honoured verbatim. Absent: derived from the box (cores and RAM divided between the shards). A value that is not a positive whole number is refused, never quietly derived |
 
 Four keys are **retired** and refused by name, before any suite runs, with
 `mutants-at-merge` named as the replacement: `mutation-receipt`,
@@ -234,13 +235,28 @@ from 40 GB free to 12 GB. So:
    `.mutants/<worktree name>` beside the worktree, on its disk, never the OS
    temp dir. Setting one and inheriting the others is the bug: whichever name
    the tool reads is the one that decides.
-2. `CARGO_TARGET_DIR` is the shard's own `<run temp>/target-<i>` — never the
+2. `CARGO_BUILD_JOBS` is this shard's share of the box, both terms derived at
+   runtime and the smaller winning: `min(cores/shards, (ramGB/shards)/2)`,
+   floored at 1, where 2 GB per rustc job is a documented ESTIMATE rather
+   than a measurement. Cargo's own default is the whole machine, which for
+   seven shards on a 24-core box is up to 168 rustc processes — against a
+   shard count derived from `min(cores/3, ramGB/8, 8)`, a formula that has
+   already budgeted 8 GB of RAM per shard. Without the cap that RAM term
+   enforces nothing, and the run ends as an OOM or as swap thrash with every
+   verdict it had reached lost. It is computed from the FINAL shard count,
+   after the disk budget has reduced it, so a run cut to two shards uses the
+   width two shards may safely use. `mutants-build-jobs` overrides it
+   verbatim for a box whose shape the derivation reads wrong, and the run
+   logs which term decided: `mutants: 3 cargo build jobs per shard
+   (min(cores 24/7=3, ram 63GB/7/2=4) — cores)`. The lone re-run passes one
+   shard and gets the whole box, which is what having it to itself means.
+3. `CARGO_TARGET_DIR` is the shard's own `<run temp>/target-<i>` — never the
    lane's, which an editor's own builds compile into. That is what makes
    skipping the queue safe rather than merely faster: a mutation build owns
    its directory for hours behind cargo's own blocking lock. These
    directories are the run's one deliberate leftover, kept so the next run is
    warm; `gate gc` reclaims the ones no live build owns.
-3. Free space on that drive is MEASURED against what the run will actually
+4. Free space on that drive is MEASURED against what the run will actually
    put there BEFORE it starts: one copy of the tracked source tree per shard
    (`git ls-files`, since the copy is `--copy-target=false` and honours
    gitignore) plus what each shard's persistent `target-<i>` holds today —

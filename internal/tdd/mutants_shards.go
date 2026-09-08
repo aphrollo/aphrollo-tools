@@ -104,10 +104,14 @@ func mutantsShardArgv(argv []string, shard, shards int, outDir string) []string 
 }
 
 // measureShardEnv is the run's environment with this shard's own directories
-// in it: its temp names, and the persistent CARGO_TARGET_DIR it builds into.
-// Both are created here, before the process starts, so the shard never races
-// its own children to make them.
-func measureShardEnv(root string, cfg MutantsConfig, shard int) []string {
+// in it: its temp names, the persistent CARGO_TARGET_DIR it builds into, and
+// its share of the box's cores. The directories are created here, before the
+// process starts, so the shard never races its own children to make them.
+//
+// shards is how many shards are running beside this one, because that is what
+// the build width is divided by; the lone re-run passes 1 and gets the whole
+// box, which is what having it to itself means.
+func measureShardEnv(root string, cfg MutantsConfig, shard, shards int) []string {
 	tmp, target := mutantsShardTempDir(root, shard), mutantsShardTargetDir(root, shard)
 	_ = os.MkdirAll(tmp, 0o755)
 	_ = os.MkdirAll(target, 0o755)
@@ -118,12 +122,18 @@ func measureShardEnv(root string, cfg MutantsConfig, shard int) []string {
 			out = append(out, kv)
 		}
 	}
-	return append(out, "TMPDIR="+tmp, "TMP="+tmp, "TEMP="+tmp, "CARGO_TARGET_DIR="+target)
+	jobs, _ := mutantsBuildJobsForShards(cfg, shards)
+	return append(out, "TMPDIR="+tmp, "TMP="+tmp, "TEMP="+tmp, "CARGO_TARGET_DIR="+target,
+		"CARGO_BUILD_JOBS="+strconv.Itoa(jobs))
 }
 
 // mutantsShardEnvKeys are the names measureShardEnv owns: whatever the run's
-// own environment said about them is this shard's to decide.
-var mutantsShardEnvKeys = map[string]bool{"TMPDIR": true, "TMP": true, "TEMP": true, "CARGO_TARGET_DIR": true}
+// own environment said about them is this shard's to decide. CARGO_BUILD_JOBS
+// is one of them — an operator's own value is about their editor's builds,
+// not about how wide N mutation builds may run at once.
+var mutantsShardEnvKeys = map[string]bool{
+	"TMPDIR": true, "TMP": true, "TEMP": true, "CARGO_TARGET_DIR": true, "CARGO_BUILD_JOBS": true,
+}
 
 // shardRun is what one shard's process reported.
 type shardRun struct {
@@ -162,7 +172,7 @@ func runMutantsShards(ctx context.Context, root string, cfg MutantsConfig, argv 
 			// no verdict, and the difference between those two is invisible
 			// once the stale file is still sitting there.
 			_ = os.Remove(cargoMutantsOutcomesPath(out))
-			code, err := mutantsExecFn(ctx, root, measureShardEnv(root, cfg, shard),
+			code, err := mutantsExecFn(ctx, root, measureShardEnv(root, cfg, shard, shards),
 				mutantsShardArgv(argv, shard, shards, out), io.MultiWriter(shared, &tee))
 			runs[shard] = shardRun{Shard: shard, Shards: shards, Code: code, Log: tee.String(), Err: err}
 		}(i)
