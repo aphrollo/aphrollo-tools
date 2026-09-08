@@ -370,8 +370,8 @@ func gitCommonDirEnv(t *testing.T) string {
 func TestRunGitShim_WaitsPrintsQueuedOnceAndAcquiredOnce(t *testing.T) {
 	withDirectGitShim(t)
 	commonDir := gitCommonDirEnv(t)
-	lockPath := commonDir + "/" + gitLockFileName
-	ownerPath := commonDir + "/" + gitOwnerFileName
+	lockPath := commonDir + "/" + gitWorktreeLockFileName
+	ownerPath := commonDir + "/" + gitWorktreeOwnerFileName
 
 	release, ok := tdd.TryAcquireFileLock(lockPath)
 	if !ok {
@@ -418,7 +418,7 @@ func TestRunGitShim_WaitsPrintsQueuedOnceAndAcquiredOnce(t *testing.T) {
 func TestRunGitShim_GivesUpAfterWaitBudget_Exits75(t *testing.T) {
 	withDirectGitShim(t)
 	commonDir := gitCommonDirEnv(t)
-	lockPath := commonDir + "/" + gitLockFileName
+	lockPath := commonDir + "/" + gitWorktreeLockFileName
 
 	release, ok := tdd.TryAcquireFileLock(lockPath)
 	if !ok {
@@ -508,7 +508,7 @@ func TestRunGitShim_ExitCodePropagation(t *testing.T) {
 // finishes, the owner file it wrote while holding the lock must be gone.
 func TestRunGitShim_OwnerFileRemovedAfterRun(t *testing.T) {
 	commonDir := gitCommonDirEnv(t)
-	ownerPath := commonDir + "/" + gitOwnerFileName
+	ownerPath := commonDir + "/" + gitWorktreeOwnerFileName
 	cfg := testGitShimConfig(t)
 
 	var stdout, stderr bytes.Buffer

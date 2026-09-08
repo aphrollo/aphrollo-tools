@@ -150,7 +150,7 @@ func TestMutantsArgv_ExactForACargoLane(t *testing.T) {
 	got := MutantsArgv("/w/changed.diff", 120, []string{"a"}, "not(test(slow))")
 
 	want := []string{
-		"--in-place", "--in-diff", "/w/changed.diff", "--no-shuffle", "--test-tool=nextest",
+		"--copy-target=true", "--in-diff", "/w/changed.diff", "--no-shuffle", "--test-tool=nextest",
 		"--minimum-test-timeout", "120", "--timeout-multiplier", "3",
 		"--package", "a", "--", "-E", "not(test(slow))",
 	}
@@ -167,10 +167,10 @@ func TestJobsCap_MinOfCoresRamAndTwo(t *testing.T) {
 		cores, ramGB, jobs int
 		why                string
 	}{
-		{24, 64, 2, "min(cores 24/6=4, ram 64GB/6=10, cap 2) — cap 2"},
-		{6, 64, 1, "min(cores 6/6=1, ram 64GB/6=10, cap 2) — cores"},
-		{24, 0, 2, "min(cores 24/6=4, ram unknown, cap 2) — cap 2"},
-		{24, 6, 1, "min(cores 24/6=4, ram 6GB/6=1, cap 2) — ram"},
+		{24, 64, 8, "min(cores 24/3=8, ram 64GB/8=8, cap 8) — cap 8"},
+		{6, 64, 2, "min(cores 6/3=2, ram 64GB/8=8, cap 8) — cores"},
+		{24, 0, 8, "min(cores 24/3=8, ram unknown, cap 8) — cap 8"},
+		{24, 6, 1, "min(cores 24/3=8, ram 6GB/8=0, cap 8) — ram"},
 	} {
 		jobs, why := MutantsJobsCap(c.cores, c.ramGB)
 		if jobs != c.jobs || why != c.why {
@@ -221,7 +221,7 @@ func TestMeasureEnv_SetsAllThreeTempNamesAndProfile(t *testing.T) {
 
 	env := measureEnv(root, cfg)
 
-	wantTemp := filepath.Join(ResolveCargoTargetDir(root), "mutants")
+	wantTemp := measureTempDir(root)
 	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
 		if got := envValueOf(env, name); got != wantTemp {
 			t.Errorf("%s = %q, want %q", name, got, wantTemp)

@@ -1,7 +1,6 @@
 package tdd
 
 import (
-	"path/filepath"
 	"testing"
 )
 
@@ -18,12 +17,11 @@ func TestMeasureEnv_BuildsInItsOwnTargetDirRatherThanTheLanes(t *testing.T) {
 
 	env := measureEnv(root, MutantsConfig{})
 
-	want := filepath.Join(lane, "mutants", "target")
-	got := envValueOf(env, "CARGO_TARGET_DIR")
-	if got != want {
-		t.Errorf("CARGO_TARGET_DIR = %q, want %q", got, want)
-	}
-	if got == lane {
-		t.Error("the mutation run builds where the lane builds — an editor's build would queue behind it inside cargo's own lock, invisible to the queue")
+	// No CARGO_TARGET_DIR at all: every job builds in its own copy of the
+	// tree. Inheriting the lane's would put the run behind the editor's
+	// builds inside cargo's own lock, and one shared dir would put the
+	// copies behind each other.
+	if got := envValueOf(env, "CARGO_TARGET_DIR"); got != "" {
+		t.Errorf("CARGO_TARGET_DIR = %q, want unset: each copy builds in its own target dir", got)
 	}
 }

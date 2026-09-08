@@ -178,13 +178,14 @@ func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base 
 	if len(files) == 0 {
 		return measureSkipped(root, "nothing to measure (0 changed source files)", "nothing-to-measure", log), nil
 	}
-	// One job, always, and said out loud rather than derived: cargo-mutants
-	// REFUSES `--jobs` together with `--in-place` — an in-place run mutates
-	// the single tree it is measuring, so there is no second tree for a
-	// second job — and a run that asked for both died before its first
-	// mutant (issue #592).
-	logf(log, "mutants: in-place, 1 job (cargo-mutants forbids --jobs with --in-place)")
-	if v, refused := refuseOnDisk(root, mutantsInPlaceJobs, log); refused {
+	// cargo-mutants copies the tree once per job and mutates the copies, so
+	// the checkout is never touched and the jobs run side by side. In-place
+	// (one tree, one job) measured 739 mutants in 16 h on a box that could
+	// run eight copies; the copies cost a few GB each, which refuseOnDisk
+	// budgets for.
+	jobs, why := mutantsJobsForThisBoxFn()
+	logf(log, "mutants: %d jobs (%s)", jobs, why)
+	if v, refused := refuseOnDisk(root, jobs, log); refused {
 		return v, nil
 	}
 	diffPath, err := writeMeasureDiff(root, base, files)
@@ -196,6 +197,7 @@ func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base 
 		logf(log, "mutants: mutation-baseline-exclude entry refused (needs \"<nextest filter> # reason\"): %q", entry)
 	}
 	argv := cargoMutantsArgv(MutantsArgv(diffPath, mutantsMinTestTimeout(root), crates, excludeFilter))
+	argv = insertBeforePassthrough(argv, []string{"--jobs", strconv.Itoa(jobs)})
 	// An outcomes file left by an EARLIER run describes a different tree. A
 	// run that writes none reached no verdict, and the difference between
 	// those two is invisible once the stale file is still sitting there.
@@ -335,7 +337,12 @@ func MutantsArgv(diffPath string, minTestTimeout int, packages []string, exclude
 		// --no-shuffle: two runs of the same tree must name their mutants in
 		// the same order, or a report is not comparable with the one before
 		// it.
-		"--in-place", "--in-diff", diffPath, "--no-shuffle", "--test-tool=nextest",
+		// --copy-target=true: every job's copy carries the lane's own warm
+		// target dir, so a copy builds incrementally from the first mutant
+		// instead of cold. One target dir shared by all copies is not an
+		// option: cargo serialises builds on its build-directory lock, which
+		// is the one-job run the copies exist to end.
+		"--copy-target=true", "--in-diff", diffPath, "--no-shuffle", "--test-tool=nextest",
 		"--minimum-test-timeout", strconv.Itoa(minTestTimeout),
 		"--timeout-multiplier", strconv.Itoa(mutantsTimeoutMultiplier),
 	}
@@ -352,23 +359,15 @@ func MutantsArgv(diffPath string, minTestTimeout int, packages []string, exclude
 // mutant's suite may take before it is called a timeout.
 const mutantsTimeoutMultiplier = 3
 
-// mutantsInPlaceJobs is the concurrency of every Cargo measurement: one. It
-// is not a cap anyone may raise — cargo-mutants refuses `--jobs` beside
-// `--in-place` — so it is named here for the one place that still needs a
-// number, the free-space budget the run is refused against.
-const mutantsInPlaceJobs = 1
-
 // measureTempDir is where every child of the run writes its temporary files:
 // under the target dir, on the build drive, never the system one.
 func measureTempDir(root string) string {
-	return filepath.Join(ResolveCargoTargetDir(root), "mutants")
-}
-
-// measureTargetDir is where the measurement itself compiles: under the same
-// parent as its temp dir, and never the directory the lane's own builds and
-// the gate's own suites share.
-func measureTargetDir(root string) string {
-	return filepath.Join(measureTempDir(root), "target")
+	// Beside the checkout, never inside it: the copies carry the tree's own
+	// target dir (--copy-target=true), so a temp dir under <root>/target
+	// copied itself into every copy, without end. The parent of the
+	// worktree keeps the copies on the same disk as the lane, next to it,
+	// and out of anything cargo or git would walk.
+	return filepath.Join(filepath.Dir(root), ".mutants", filepath.Base(root))
 }
 
 // measureEnv is the environment the run's children inherit: all three temp
@@ -390,13 +389,13 @@ func measureEnv(root string, cfg MutantsConfig) []string {
 		}
 	}
 	out = append(out, "TMPDIR="+tmp, "TMP="+tmp, "TEMP="+tmp)
-	// And a build directory of its own, beside them. The marked run goes
-	// around the build queue, so nothing arbitrates who else compiles into
-	// the directory it builds in — and it owns that directory for hours
-	// behind cargo's own blocking lock. Sharing the lane's target dir would
-	// put an editor's slotted build behind the whole mutation run with the
-	// queue none the wiser.
-	out = append(out, "CARGO_TARGET_DIR="+measureTargetDir(root))
+	// No CARGO_TARGET_DIR: every job is its own copy of the tree under tmp,
+	// carrying a copy of the lane's warm target dir (--copy-target=true),
+	// and builds there. One target dir shared by all copies would put them
+	// behind cargo's build-directory lock one after the other, which is the
+	// serial run the copies exist to end; and the lane's own directory is
+	// never written, so an editor's slotted build never waits on the
+	// measurement.
 	// Without these, every mutant behind an env-gated suite is missed by
 	// construction: 101 of 167 on one lane lived in code only a GPU suite
 	// reaches.

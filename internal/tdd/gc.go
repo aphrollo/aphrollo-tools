@@ -130,7 +130,7 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 		out = append(out, gcDeferredJobFiles(deferredDirPath(), deferredJobMaxAge, time.Now())...)
 	}
 	if scope.Mutants {
-		out = append(out, gcMutantsTrees(ResolveCargoTargetDir(repo), DefaultMutantsAge, time.Now())...)
+		out = append(out, gcMutantsTrees(measureTempDir(repo), DefaultMutantsAge, time.Now())...)
 		out = append(out, gcMutantsTempCopies(MutantsTempDirs(), time.Now())...)
 		out = append(out, gcTempTargetDirs(MutantsTempDirs(), time.Now())...)
 	}

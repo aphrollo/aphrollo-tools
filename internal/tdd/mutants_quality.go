@@ -24,8 +24,8 @@ import (
 // is deliberately mean: one job per six cores, one per six gigabytes, never
 // more than two whatever the machine is, never less than one.
 func MutantsJobsCap(cores, ramGB int) (int, string) {
-	byCores := cores / 6
-	jobs, why := 2, "cap 2"
+	byCores := cores / 3
+	jobs, why := 8, "cap 8"
 	if byCores < jobs {
 		jobs, why = byCores, "cores"
 	}
@@ -35,8 +35,8 @@ func MutantsJobsCap(cores, ramGB int) (int, string) {
 	// not constrain, and the cores decide alone.
 	ram := "ram unknown"
 	if ramGB > 0 {
-		byRAM := ramGB / 6
-		ram = fmt.Sprintf("ram %dGB/6=%d", ramGB, byRAM)
+		byRAM := ramGB / 8
+		ram = fmt.Sprintf("ram %dGB/8=%d", ramGB, byRAM)
 		if byRAM < jobs {
 			jobs, why = byRAM, "ram"
 		}
@@ -44,7 +44,7 @@ func MutantsJobsCap(cores, ramGB int) (int, string) {
 	if jobs < 1 {
 		jobs = 1
 	}
-	return jobs, fmt.Sprintf("min(cores %d/6=%d, %s, cap 2) — %s", cores, byCores, ram, why)
+	return jobs, fmt.Sprintf("min(cores %d/3=%d, %s, cap 8) — %s", cores, byCores, ram, why)
 }
 
 // mutantsJobsForThisBox is the cap for the machine the job runs on. Memory is

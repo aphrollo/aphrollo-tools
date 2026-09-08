@@ -94,7 +94,7 @@ func TestRunGitShim_TwoWorktreesOfOneRepoDoNotBlockEachOther(t *testing.T) {
 
 	// Lane B's gate is mid-commit: its lock file is held in ITS git dir.
 	laneB := t.TempDir()
-	release, ok := tdd.TryAcquireFileLock(filepath.Join(laneB, gitLockFileName))
+	release, ok := tdd.TryAcquireFileLock(filepath.Join(laneB, gitWorktreeLockFileName))
 	if !ok {
 		t.Fatal("setup: must be able to hold lane B's lock")
 	}
@@ -120,7 +120,7 @@ func TestRunGitShim_SameWorktreeStillQueues(t *testing.T) {
 	lane := t.TempDir()
 	gitDirEnv(t, lane, common)
 
-	release, ok := tdd.TryAcquireFileLock(filepath.Join(lane, gitLockFileName))
+	release, ok := tdd.TryAcquireFileLock(filepath.Join(lane, gitWorktreeLockFileName))
 	if !ok {
 		t.Fatal("setup: must be able to hold this worktree's lock")
 	}
@@ -159,5 +159,30 @@ func TestRunGitShim_SharedStateVerbUsesTheCommonDir(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := runGitShim([]string{"worktree", "prune"}, strings.NewReader(""), &stdout, &stderr, cfg); code != exGitTempFail {
 		t.Fatalf("exit = %d, want %d — a shared-state verb must contend on the common dir", code, exGitTempFail)
+	}
+}
+
+// TestRunGitShim_PrimaryMergeDoesNotBlockRepoScopedVerbs pins the split: the
+// primary checkout's own git dir IS the common dir, so its `git merge` —
+// worktree-scoped, held for the whole pre-merge gate, hours when the merge
+// measures mutants — must not sit on the file a `worktree add` from any lane
+// waits for. Each scope has its own lock file.
+func TestRunGitShim_PrimaryMergeDoesNotBlockRepoScopedVerbs(t *testing.T) {
+	withDirectGitShim(t)
+	common := t.TempDir()
+	gitDirEnv(t, common, common)
+
+	release, ok := tdd.TryAcquireFileLock(filepath.Join(common, gitWorktreeLockFileName))
+	if !ok {
+		t.Fatal("setup: must be able to hold the primary's worktree lock")
+	}
+	defer release()
+
+	cfg := testGitShimConfig(t)
+	cfg.waitBudget = 80 * time.Millisecond
+	cfg.pollInterval = 10 * time.Millisecond
+	var stdout, stderr bytes.Buffer
+	if code := runGitShim([]string{"worktree", "prune"}, strings.NewReader(""), &stdout, &stderr, cfg); code != 0 {
+		t.Fatalf("exit = %d, want 0 — a repo-scoped verb must not queue behind the primary's merge: %s", code, stderr.String())
 	}
 }
