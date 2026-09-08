@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -338,6 +339,73 @@ func TestVerifyClosureJudgesAnIssueNamedTwiceOnlyOnce(t *testing.T) {
 	VerifyClosure(t.TempDir(), "31", &out)
 	if n := strings.Count(out.String(), "#42"); n != 1 {
 		t.Fatalf("#42 judged %d times, want 1:\n%s", n, out.String())
+	}
+}
+
+// A PR closing no escape/false-positive issue has nothing to verify, and
+// verifying nothing needs no diff: #569 had VerifyClosure fetch the PR diff
+// before it even knew whether the PR closed an escape at all, so a 147-file
+// PR that closed no escape still asked gh for a diff GitHub refuses to hand
+// back once it crosses 20000 lines.
+func TestVerifyClosure_PRClosingNoEscapePassesWithoutFetchingTheDiff(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	log := stubGhScript(t, map[string]string{
+		"pr view":    `{"body":"Closes #9\n","commits":[]}`,
+		"issue view": `{"labels":[{"name":"quality"}],"body":"just a quality issue\n"}`,
+	})
+
+	var out strings.Builder
+	ok, err := VerifyClosure(t.TempDir(), "31", &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatalf("a PR closing no escape issue has nothing to fail:\n%s", out.String())
+	}
+	if argv := ghArgv(t, log); strings.Contains(argv, "pr diff") {
+		t.Fatalf("pr diff must never be requested when the PR closes no escape:\n%s", argv)
+	}
+	if !strings.Contains(out.String(), "nothing to verify") {
+		t.Fatalf("expected a line saying there is nothing to verify:\n%s", out.String())
+	}
+}
+
+// When the PR DOES close an escape and gh refuses the diff for size, the
+// verifier falls back to a local `git diff base...head` in repo rather than
+// erroring out — the CI checkout that runs verify-closure has both refs.
+func TestVerifyClosure_FallsBackToLocalDiffWhenGitHubRefusesTheSize(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGoRepo(t)
+	baseOut, err := gitRead(repo, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := strings.TrimSpace(baseOut)
+
+	write(t, repo, "pkg/widget_test.go", "package pkg\n\nimport \"testing\"\n\nfunc TestWidget(t *testing.T) {}\n")
+	gitDo(t, repo, "add", ".")
+	gitDo(t, repo, "commit", "-qm", "add widget test")
+	headOut, err := gitRead(repo, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := strings.TrimSpace(headOut)
+
+	prView := fmt.Sprintf(`{"body":"Closes #42\n","commits":[],"baseRefOid":"%s","headRefOid":"%s"}`, base, head)
+	issue := `{"labels":[{"name":"escape"}],"body":"closes-by: pkg/widget_test.go\n"}`
+	verifyStub(t, prView, "unused: pr diff refuses below", issue)
+	stubGhFail(t, "pr diff", "could not find pull request diff: HTTP 406: Sorry, the diff exceeded the maximum number of lines (20000) (https://api.github.com/repos/aphrollo/aphrollo-tools/pulls/568)\nPullRequest.diff too_large")
+
+	var out strings.Builder
+	ok, err := VerifyClosure(repo, "31", &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatalf("the local diff fallback must find the named test file and close the escape:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "pkg/widget_test.go") {
+		t.Fatalf("verdict must name the file the local diff found:\n%s", out.String())
 	}
 }
 

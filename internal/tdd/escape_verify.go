@@ -35,28 +35,43 @@ var checkCodePrefixes = []string{"internal/tdd/", "internal/ratchet/"}
 // through. Any other table in the manifest is the project's own business.
 const gateMetadataSection = "workspace.metadata.aphrollo"
 
-// prClosure is what one PR says and does: the issue numbers it closes, in the
-// order they were first named, and the patch it lands keyed by file.
-type prClosure struct {
+// prMeta is what one PR says it closes, and the two ends of its diff — read
+// up front, before anything asks GitHub for the (possibly huge) patch itself.
+type prMeta struct {
 	closes []string
-	patch  map[string]string
+	base   string
+	head   string
+}
+
+// closingIssue is one issue a PR's body or commits named as closed, together
+// with what judging it needs: its body (for closureChangesACheck's
+// closes-by line) and whether it is the false-positive kind (which gets the
+// narrower fixture-only door below).
+type closingIssue struct {
+	number        string
+	body          string
+	falsePositive bool
 }
 
 // VerifyClosure judges a PR that claims to close escapes: each labelled issue
 // it closes must be accompanied by a diff that changes a CHECK. It prints one
 // verdict per issue and reports whether all of them passed.
+//
+// The PR diff is fetched only once it is known to be NEEDED: a PR closing no
+// escape or false-positive issue has nothing to verify, and GitHub refuses to
+// hand back the diff at all once a PR crosses 20000 lines (#569) — asking for
+// it on a PR that closes nothing errors out a check that should simply pass.
 func VerifyClosure(repo, pr string, w io.Writer) (bool, error) {
 	if !ghAvailable() {
 		return false, fmt.Errorf("verify-closure needs the GitHub CLI (gh) on PATH")
 	}
-	closure, err := readPRClosure(repo, pr)
+	meta, err := readPRMeta(repo, pr)
 	if err != nil {
 		return false, err
 	}
 
-	all := true
-	judged := 0
-	for _, number := range closure.closes {
+	var relevant []closingIssue
+	for _, number := range meta.closes {
 		labels, issueBody, err := issueLabelsAndBody(repo, number)
 		if err != nil {
 			return false, err
@@ -64,9 +79,22 @@ func VerifyClosure(repo, pr string, w io.Writer) (bool, error) {
 		if !labels[EscapeKind] && !labels[FalsePositiveKind] {
 			continue // somebody else's issue
 		}
-		judged++
-		if why, ok := closureChangesACheck(closure.patch, issueBody); ok {
-			fmt.Fprintf(w, "#%s ok — %s\n", number, why)
+		relevant = append(relevant, closingIssue{number: number, body: issueBody, falsePositive: labels[FalsePositiveKind]})
+	}
+	if len(relevant) == 0 {
+		fmt.Fprintf(w, "PR #%s closes no escape or false-positive issue — nothing to verify\n", pr)
+		return true, nil
+	}
+
+	patch, err := readPRPatch(repo, pr, meta.base, meta.head)
+	if err != nil {
+		return false, err
+	}
+
+	all := true
+	for _, ci := range relevant {
+		if why, ok := closureChangesACheck(patch, ci.body); ok {
+			fmt.Fprintf(w, "#%s ok — %s\n", ci.number, why)
 			continue
 		}
 		// A false-positive issue has a second, narrower door: #321 established
@@ -76,38 +104,35 @@ func VerifyClosure(repo, pr string, w io.Writer) (bool, error) {
 		// honest fix is narrowing the rule itself) already satisfies the
 		// generic check above through lawPathPrefixes, so this only ever
 		// fires for the fixture-only case.
-		if labels[FalsePositiveKind] {
-			why, ok, fixtureErr := closureChangesAFixture(repo, closure.patch)
+		if ci.falsePositive {
+			why, ok, fixtureErr := closureChangesAFixture(repo, patch)
 			if fixtureErr != nil {
 				all = false
-				fmt.Fprintf(w, "#%s FAIL — could not judge its fixture: %v\n", number, fixtureErr)
+				fmt.Fprintf(w, "#%s FAIL — could not judge its fixture: %v\n", ci.number, fixtureErr)
 				continue
 			}
 			if ok {
-				fmt.Fprintf(w, "#%s ok — %s\n", number, why)
+				fmt.Fprintf(w, "#%s ok — %s\n", ci.number, why)
 				continue
 			}
 			all = false
-			fmt.Fprintf(w, "#%s FAIL — a false-positive issue changes no check: a fixture under .ratchet/fixtures/<law>/ that `aphrollo ratchet test` proves in both directions, a narrowed law under .ratchet/laws/, or a file named on its closes-by line\n", number)
+			fmt.Fprintf(w, "#%s FAIL — a false-positive issue changes no check: a fixture under .ratchet/fixtures/<law>/ that `aphrollo ratchet test` proves in both directions, a narrowed law under .ratchet/laws/, or a file named on its closes-by line\n", ci.number)
 			continue
 		}
 		all = false
-		fmt.Fprintf(w, "#%s FAIL — the PR changes no check: an escape closes with a law under .ratchet/laws/, a gate stage, the workspace's gate metadata, or a test named on its closes-by line\n", number)
-	}
-	if judged == 0 {
-		fmt.Fprintf(w, "PR #%s closes no escape issue\n", pr)
+		fmt.Fprintf(w, "#%s FAIL — the PR changes no check: an escape closes with a law under .ratchet/laws/, a gate stage, the workspace's gate metadata, or a test named on its closes-by line\n", ci.number)
 	}
 	return all, nil
 }
 
-// readPRClosure asks gh what the PR closes and what it changes. The body is
-// not the only place that closes an issue: GitHub honours the same keyword in
-// a COMMIT message inside the PR, so a check reading only the body lets a PR
-// close an escape behind its back.
-func readPRClosure(repo, pr string) (prClosure, error) {
-	out, err := runGh(repo, "pr", "view", pr, "--json", "body,commits")
+// readPRMeta asks gh what the PR closes and the two ends of its diff, without
+// fetching the diff itself. The body is not the only place that closes an
+// issue: GitHub honours the same keyword in a COMMIT message inside the PR,
+// so a check reading only the body lets a PR close an escape behind its back.
+func readPRMeta(repo, pr string) (prMeta, error) {
+	out, err := runGh(repo, "pr", "view", pr, "--json", "body,commits,baseRefOid,headRefOid")
 	if err != nil {
-		return prClosure{}, err
+		return prMeta{}, err
 	}
 	var doc struct {
 		Body    string `json:"body"`
@@ -115,22 +140,50 @@ func readPRClosure(repo, pr string) (prClosure, error) {
 			MessageHeadline string `json:"messageHeadline"`
 			MessageBody     string `json:"messageBody"`
 		} `json:"commits"`
+		BaseRefOid string `json:"baseRefOid"`
+		HeadRefOid string `json:"headRefOid"`
 	}
 	if err := json.Unmarshal([]byte(firstJSONObject(out)), &doc); err != nil {
-		return prClosure{}, fmt.Errorf("reading PR #%s: %w", pr, err)
+		return prMeta{}, fmt.Errorf("reading PR #%s: %w", pr, err)
 	}
 	texts := []string{doc.Body}
 	for _, c := range doc.Commits {
 		texts = append(texts, c.MessageHeadline, c.MessageBody)
 	}
+	return prMeta{closes: closedIssues(texts), base: doc.BaseRefOid, head: doc.HeadRefOid}, nil
+}
 
-	// The full patch, not --name-only: a manifest is judged on WHICH table it
-	// changed, which only the hunks say.
+// readPRPatch fetches the PR's full patch (not --name-only: a manifest is
+// judged on WHICH table it changed, which only the hunks say) keyed by file.
+// When gh refuses because the diff is too large to serve (#569), it falls
+// back to a local `git diff base...head` in repo — the CI checkout that runs
+// verify-closure has both commits, even when GitHub will not hand back the
+// diff over its API. Only when that local diff also fails does this error.
+func readPRPatch(repo, pr, base, head string) (map[string]string, error) {
 	diff, err := runGh(repo, "pr", "diff", pr)
-	if err != nil {
-		return prClosure{}, err
+	if err == nil {
+		return parsePatch(diff), nil
 	}
-	return prClosure{closes: closedIssues(texts), patch: parsePatch(diff)}, nil
+	if !diffTooLargeForGitHub(err) {
+		return nil, err
+	}
+	if base == "" || head == "" {
+		return nil, fmt.Errorf("PR #%s diff is too large for gh and no base/head commit to diff locally: %w", pr, err)
+	}
+	local, gitErr := gitRead(repo, "diff", base+"..."+head)
+	if gitErr != nil {
+		return nil, fmt.Errorf("PR #%s diff is too large for gh (%v), and the local fallback `git diff %s...%s` also failed: %w", pr, err, base, head, gitErr)
+	}
+	return parsePatch(local), nil
+}
+
+// diffTooLargeForGitHub reports whether gh's own failure is the specific
+// "diff exceeded the maximum number of lines" refusal (HTTP 406,
+// PullRequest.diff too_large) rather than some other reason (auth, network,
+// a PR number that does not exist) that a local diff cannot substitute for.
+func diffTooLargeForGitHub(err error) bool {
+	s := err.Error()
+	return strings.Contains(s, "too_large") || strings.Contains(s, "HTTP 406")
 }
 
 // closedIssues is every issue number the given texts close, deduped and in
