@@ -74,17 +74,7 @@ jobs:
         run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
       - name: Build the CLI from main
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
-      # Carries measurements across nights the same way the per-push job
-      # carried them across pushes: keyed on this run's id, found again next
-      # time via restore-keys' prefix match.
-      - name: Restore the mutation outcome store
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .mutants-store
-          key: nightly-mutants-store-${{ github.run_id }}
-          restore-keys: |
-            nightly-mutants-store-
-      - name: aphrollo gate mutants go --diff
+      - name: aphrollo gate mutants run --base
         id: run_mutants
         run: |
           set -euo pipefail
@@ -95,20 +85,7 @@ jobs:
             exit 0
           fi
           echo "scoping the run to $base..HEAD"
-          ./bin/aphrollo gate mutants go --diff "$base" --receipt mutation-receipt.json --store .mutants-store
-      - name: Save the mutation outcome store
-        if: always()
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .mutants-store
-          key: nightly-mutants-store-${{ github.run_id }}
-      - name: Upload the receipt
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: mutation-receipt
-          path: mutation-receipt.json
-          if-no-files-found: ignore
+          ./bin/aphrollo gate mutants run --base "$base"
       - name: Record an escape
         # A red here is the same shape pipeline.yml's escape-record job
         # covers for the per-push checks: a tripwire failing on main, after

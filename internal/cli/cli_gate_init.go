@@ -58,16 +58,6 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	// The mutation receipt's signing key, before any run needs it: a key
-	// created mid-run is a key the run's own gate has never seen.
-	if !*uninstall {
-		if made, kerr := tdd.EnsureReceiptKey(); kerr != nil {
-			fmt.Fprintf(stderr, "aphrollo: %v\n", kerr)
-		} else if made {
-			fmt.Fprintf(stdout, "aphrollo gate: created the mutation receipt signing key in %s\n", tdd.ReceiptKeyPath())
-		}
-	}
-
 	path := filepath.Join(dir, "settings.json")
 	switch {
 	case !changed:

@@ -118,8 +118,11 @@ func TestDecideBashSuite_DeniesUnnarrowedCargoNextestWithAFreshVerdict(t *testin
 }
 
 // The deny message is the whole point: a bare refusal invites a reworded
-// resubmission, so it must name the verdict, its stage and the tool that
-// answers the mutation half, not just say no.
+// resubmission, so it must name the verdict, its stage and the commands that
+// answer what the line does not, not just say no. Every command it names has
+// to be one this binary still has: `gate mutants status` was in this message
+// after the verb was deleted, so a session following the advice got exit 2
+// and a usage line.
 func TestDecideBashSuite_DenyReasonNamesTheExistingVerdict(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -127,7 +130,10 @@ func TestDecideBashSuite_DenyReasonNamesTheExistingVerdict(t *testing.T) {
 	appendGateLog("postedit", root, "go test ./...", "green", 0)
 
 	d := decideBash(t, "s1", root, "go test ./...")
-	for _, want := range []string{"green", "postedit", "aphrollo gate stats", "aphrollo gate mutants status"} {
+	if strings.Contains(d.Reason, "gate mutants status") {
+		t.Fatalf("deny reason %q names a verb that no longer exists", d.Reason)
+	}
+	for _, want := range []string{"green", "postedit", "aphrollo gate stats", "aphrollo gate status"} {
 		if !strings.Contains(d.Reason, want) {
 			t.Fatalf("deny reason %q must name %q", d.Reason, want)
 		}

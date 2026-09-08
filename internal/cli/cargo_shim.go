@@ -90,7 +90,7 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 	}
 
 	target := shimTargetDir()
-	if refuseBareMutants(args, target, stderr) {
+	if refuseBareMutants(args, stderr) {
 		// Not a cargo failure and not a usage error of cargo's: the
 		// invocation is the wrong ENTRY POINT, and the line above names the
 		// right one.
@@ -105,11 +105,12 @@ func runCargoShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg 
 		return execCargo(cfg.realCargo, args, stdin, stdout, stderr, 0)
 	}
 
-	if queueBypassAllowed(target) {
-		// The mutation job owns this target dir outright, so there is nothing
-		// for it to contend with. It is told the lock is NOT held, because it
-		// holds none: a child that queues for some other directory it happens
-		// to build in must still queue for that one.
+	if queueBypassAllowed() {
+		// The mutation run already holds the box-wide mutation lock, so
+		// queueing it here only lengthens the window in which no other run
+		// can start. It is told the build lock is NOT held, because it holds
+		// none: a child that queues for some other directory it happens to
+		// build in must still queue for that one.
 		logQueueBypass(target)
 		return execCargo(cfg.realCargo, args, stdin, stdout, stderr, 0)
 	}

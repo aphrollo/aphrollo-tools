@@ -189,37 +189,68 @@ func TestStaleHolderNotice_SaysNothingWhenEitherSideIsUnreadable(t *testing.T) {
 	}
 }
 
-// TestRunMutantsJob_HoldsTheMutantsRunLockForTheWholeProducerInvocation pins
-// the wiring: the box-wide lock has to cover the run's own BUILD as well as
-// its test phase (a cold `cargo mutants` baseline build was separately
-// observed OOMing when several lanes built the same crates at once), so
-// RunMutantsJob must hold it around the WHOLE producer call — build and test
-// together — and release it once that call returns. The fake producer probes
-// the SAME lock reentrantly and synchronously, so this proves the hold
-// without any goroutine or real-time wait.
-func TestRunMutantsJob_HoldsTheMutantsRunLockForTheWholeProducerInvocation(t *testing.T) {
+// The wiring the box-wide lock exists for: it has to cover the run's own
+// BUILD as well as its test phase (a cold `cargo mutants` baseline build was
+// separately observed OOMing when several lanes built the same crates at
+// once), so MeasureLane holds it around the WHOLE tool invocation and
+// releases it once that call returns. The stubbed runner probes the SAME lock
+// reentrantly and synchronously, so this proves the hold without a goroutine
+// or a real-time wait.
+// ratchet: test_removed TestRunMutantsJob_HoldsTheMutantsRunLockForTheWholeProducerInvocation: RunMutantsJob is deleted with the detached job; the same claim is made here against MeasureLane, which is what invokes the tool now
+func TestMeasureLane_HoldsTheMutantsRunLockForTheWholeToolInvocation(t *testing.T) {
 	withIsolatedMutantsRunLock(t)
-	root := optedInLane(t)
-	j := laneJob(t, root)
+	root, base := measureFixture(t, laneSource)
 
-	prev := mutantsProducerFn
-	var lockWasHeldDuringProducer bool
-	mutantsProducerFn = func(j MutantsJob, judged []MutantOutcome) int {
+	var lockWasHeldDuringRun bool
+	stubMutantsExec(t, func(int, measuredCall) (int, error) {
 		_, ok := acquireMutantsRunLockWithDeadline("reentrant probe", "/probe", 50*time.Millisecond)
-		lockWasHeldDuringProducer = !ok
-		return 0
-	}
-	t.Cleanup(func() { mutantsProducerFn = prev })
+		lockWasHeldDuringRun = !ok
+		writeOutcomes(t, root)
+		return 0, nil
+	})
 
-	RunMutantsJob(writeJobFile(t, j))
-
-	if !lockWasHeldDuringProducer {
-		t.Fatal("RunMutantsJob must hold the box-wide mutation-run lock for the whole producer invocation")
+	if _, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base, Jobs: 1}); err != nil {
+		t.Fatalf("MeasureLane: %v", err)
 	}
 
+	if !lockWasHeldDuringRun {
+		t.Fatal("MeasureLane must hold the box-wide mutation-run lock for the whole tool invocation")
+	}
 	release, ok := acquireMutantsRunLockWithDeadline("after", "/after", 150*time.Millisecond)
 	if !ok {
-		t.Fatal("RunMutantsJob must release the box-wide mutation-run lock once the producer returns")
+		t.Fatal("MeasureLane must release the box-wide mutation-run lock once the tool returns")
 	}
 	release()
+}
+
+// Install time is the one moment "a run is still executing the binary I just
+// replaced" is free to know: the installer knows what it renamed, and the
+// lock's owner record already holds the pid. Said nowhere, that run's results
+// come from code no longer installed and nothing says so (#338).
+func TestReplacedBinaryJobsLine_NamesARunStillExecutingTheReplacedBinary(t *testing.T) {
+	withIsolatedMutantsRunLock(t)
+	stale := `C:\bin\aphrollo.stale-1.exe`
+	prev := processExePathFn
+	t.Cleanup(func() { processExePathFn = prev })
+
+	if got := ReplacedBinaryJobsLine(stale); got != "" {
+		t.Fatalf("with no run holding the lock the line must be empty, got %q", got)
+	}
+
+	release := acquireMutantsRunLock("mutants measure for /repo/lane", "/repo/lane")
+	defer release()
+
+	processExePathFn = func(int) (string, bool) { return stale, true }
+	got := ReplacedBinaryJobsLine(stale)
+	if !strings.Contains(got, stale) || !strings.Contains(got, "/repo/lane") {
+		t.Fatalf("line = %q, want it to name the replaced binary and the tree being measured", got)
+	}
+
+	processExePathFn = func(int) (string, bool) { return `C:\bin\aphrollo.exe`, true }
+	if got := ReplacedBinaryJobsLine(stale); got != "" {
+		t.Fatalf("a run on the CURRENT binary is not stale, got %q", got)
+	}
+	if got := ReplacedBinaryJobsLine(""); got != "" {
+		t.Fatalf("nothing was replaced, so there is nothing to say, got %q", got)
+	}
 }

@@ -93,9 +93,9 @@ type acceptEntry struct {
 	Evidence string
 }
 
-// AcceptKindCounts splits MutationReceipt.Accepted by the CLAIM each matched
-// entry makes, so a reader — and a merge gate — can see how much of the
-// accepted set is closed for good versus parked (issue #268).
+// AcceptKindCounts splits a measurement's accepted survivors by the CLAIM
+// each matched entry makes, so a reader — and a merge gate — can see how much
+// of the accepted set is closed for good versus parked (issue #268).
 type AcceptKindCounts struct {
 	AcceptedEquivalent             int `json:"accepted_equivalent,omitempty"`
 	AcceptedUnobservableRunner     int `json:"accepted_unobservable_runner,omitempty"`
@@ -112,12 +112,4 @@ func (c *AcceptKindCounts) add(kind acceptKind) {
 	default:
 		c.AcceptedEquivalent++
 	}
-}
-
-// merge folds other's tallies into c, for the two passes goMutantsReceipt
-// makes over one parsed accept-list (survivors, then accepted timeouts).
-func (c *AcceptKindCounts) merge(other AcceptKindCounts) {
-	c.AcceptedEquivalent += other.AcceptedEquivalent
-	c.AcceptedUnobservableRunner += other.AcceptedUnobservableRunner
-	c.AcceptedUnobservableCapability += other.AcceptedUnobservableCapability
 }

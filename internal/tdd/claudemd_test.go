@@ -22,6 +22,13 @@ func TestClaudeMDBlockCarriesTheOperatingInstructions(t *testing.T) {
 			t.Errorf("the block does not mention %q", want)
 		}
 	}
+	// The receipt is deleted: the run measures and refuses, and nothing signs,
+	// carries or checks a document afterwards. A block still promising one
+	// teaches every repo that gets it to wait for a proof that is never
+	// written.
+	if strings.Contains(strings.ToLower(block), "receipt") {
+		t.Error("the block still promises a mutation receipt — nothing produces one")
+	}
 	if n := strings.Count(block, "\n"); n < 15 || n > 40 {
 		t.Errorf("block is %d lines — it has to be readable in one glance", n)
 	}
@@ -61,16 +68,17 @@ func TestClaudeMDBlock_VetLintClaimMatchesGoOnlyGuard(t *testing.T) {
 // learning the command a person types. Four sessions independently reached for
 // the repo's own producer script instead — which runs outside the box-wide
 // lock and in the wrong tree — and one traced the habit to a skill that
-// spelled the script out as a numbered step. A block that names the spawned
-// form and not the typed one is where that starts.
+// spelled the script out as a numbered step. There is no spawned form left,
+// so the block names the typed one and nothing else: a session told the
+// commit starts a run waits for one that never starts.
 func TestClaudeMDBlock_NamesTheHandTypedMutationRunNotOnlyTheSpawnedOne(t *testing.T) {
 	t.Parallel()
 	block := ClaudeMDBlock(shimDir, false)
 	if !strings.Contains(block, "aphrollo gate mutants run") {
 		t.Error("the block never names the command that measures the current lane by hand")
 	}
-	if !strings.Contains(block, "lock") {
-		t.Error("the block never says why a producer script must not be invoked directly")
+	if strings.Contains(block, "postcommit") {
+		t.Error("the block still hands the mutation run to the commit — post-commit starts nothing")
 	}
 }
 

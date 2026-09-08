@@ -297,33 +297,7 @@ func TestGateStats_CountsAMutantsWorktreeFailure(t *testing.T) {
 	}
 }
 
-// The receipt stage's accepted, carried and rejected outcomes are counted
-// side by side, so an audit can tell an accepted receipt (once it left a
-// line at all, issue #136) from a stage that never ran.
-func TestGateStats_CountsMutationReceiptOutcomesSideBySide(t *testing.T) {
-	t.Parallel()
-	log := strings.Join([]string{
-		stamp(time.Now().UTC(), "premergecommit", "/repo", "mutation-receipt",
-			"receipt-accepted:abc123_caught=5_missed=0_accepted=0", 0),
-		stamp(time.Now().UTC(), "premergecommit", "/repo", "mutation-receipt",
-			"receipt-accepted:def456_caught=3_missed=0_accepted=0", 0),
-		stamp(time.Now().UTC(), "premergecommit", "/repo", "mutation-receipt",
-			"receipt-carried:aaa->bbb", 0),
-		stamp(time.Now().UTC(), "premergecommit", "/repo", "mutation-receipt", "receipt-rejected", 0),
-	}, "\n") + "\n"
-
-	s := GateStats(strings.NewReader(log), time.Time{})
-	if s.Receipts["accepted"] != 2 || s.Receipts["carried"] != 1 || s.Receipts["rejected"] != 1 {
-		t.Fatalf("receipts = %v, want 2 accepted, 1 carried, 1 rejected", s.Receipts)
-	}
-	out := RenderGateStats(s)
-	for _, want := range []string{"accepted=2", "carried=1", "rejected=1"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("rendered stats never mention %s:\n%s", want, out)
-		}
-	}
-}
-
+// ratchet: test_removed TestGateStats_CountsMutationReceiptOutcomesSideBySide: the receipt stage is deleted; TestStats_MutantsStageRowCountsRefusalsByReason counts the mutation stage's own outcomes in its place
 // The discard wall's refusals and its two overrides all reach gate.log —
 // until this, none of them was counted, so a session that hit `reset --hard`
 // twice and bypassed it twice left no number anywhere.

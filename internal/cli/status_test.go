@@ -6,13 +6,14 @@ import (
 	"testing"
 )
 
-// TestGateStatus_NoDeferredNoBuildNoMutants_StillPrintsAllThreeSections is
-// the plain, nothing-going-on case for `aphrollo gate status` (issue #430):
-// it must still print all three sections, each saying explicitly that it
-// found nothing, rather than a silent or partial report.
-func TestGateStatus_NoDeferredNoBuildNoMutants_StillPrintsAllThreeSections(t *testing.T) {
+// TestGateStatus_NothingGoingOn_StillPrintsEverySection is the plain,
+// nothing-going-on case for `aphrollo gate status` (issue #430): it must
+// still print every section, each saying explicitly that it found nothing,
+// rather than a silent or partial report.
+// ratchet: test_removed TestGateStatus_NoDeferredNoBuildNoMutants_StillPrintsAllThreeSections: renamed with the mutation-run section it named, which is deleted with the detached run it reported on; the remaining sections are asserted unchanged
+func TestGateStatus_NothingGoingOn_StillPrintsEverySection(t *testing.T) {
 	gateConfigDir(t)
-	inDir(t, t.TempDir()) // outside a git repo: the mutation section reports an error, not a hang
+	inDir(t, t.TempDir())
 
 	var out, errb bytes.Buffer
 	code := Run([]string{"gate", "status"}, strings.NewReader(""), &out, &errb)
@@ -20,7 +21,7 @@ func TestGateStatus_NoDeferredNoBuildNoMutants_StillPrintsAllThreeSections(t *te
 		t.Fatalf("exit = %d, want 0 (status is read-only and never fails the session)\nstdout: %s\nstderr: %s", code, out.String(), errb.String())
 	}
 	got := out.String()
-	for _, want := range []string{"deferred edit jobs:", "none running", "build slots (", "mutation run"} {
+	for _, want := range []string{"deferred edit jobs:", "none running", "build slots (", "queue (this checkout):", "not queued"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("report missing %q, got:\n%s", want, got)
 		}

@@ -134,15 +134,15 @@ func decideWholeSuite(cwd string) Decision {
 
 // denyWholeSuiteReason names where the answer already is, so the caller has
 // somewhere to look rather than just a refusal to reword around: the last
-// settled gate.log line for this root, and the mutation-status command for
-// the half that line does not cover.
+// settled gate.log line for this root, and the status verb for the queue
+// state that line does not cover.
 func denyWholeSuiteReason(root string, e gateEntry) string {
 	ago := time.Since(e.at).Round(time.Second)
 	return fmt.Sprintf(
 		"the gate already holds a %s verdict for %s from the %s stage, logged %s ago — "+
 			"re-running the whole suite by hand answers nothing that line does not. See "+
-			"`aphrollo gate stats` for the line, or `aphrollo gate mutants status` for the "+
-			"mutation state. Narrow this to `-run <TestName>`, `-p <crate> <filter>`, or a "+
+			"`aphrollo gate stats` for the line, or `aphrollo gate status` for this box's "+
+			"deferred jobs and build slots. Narrow this to `-run <TestName>`, `-p <crate> <filter>`, or a "+
 			"single package if you need a fresh answer for one test.",
 		e.verdict, root, e.stage, ago)
 }

@@ -1,105 +1,22 @@
 package tdd
 
 import (
-	"encoding/json"
-	"os"
 	"os/exec"
 	"path/filepath"
 
 	"strings"
 )
 
-// A mutant's verdict is only as stable as the code that KILLS it, and that
-// code need not live in the mutant's own file or even its own crate: a mutant
-// in a.rs may be caught solely through b.rs's behaviour. So the invalidation
-// fence follows the workspace's dependency graph, and this file is where that
-// graph comes from — the build tool's own answer, never a guess:
+// Which packages a change can reach, from the build tool's own answer rather
+// than a guess: `go list -deps`, keeping only packages inside this module,
+// because a module dependency is pinned by go.mod and cannot change under a
+// lane. The answers are keyed by the package directory relative to the repo
+// root. A tool that is not installed yields NO edges, which is the safe
+// failure: it under-reaches rather than over-reaches.
 //
-//	Cargo — `cargo metadata --no-deps`, keeping ONLY dependencies that carry a
-//	        path. A registry crate cannot change under a lane; a path
-//	        dependency is the workspace's own source.
-//	Go    — `go list -deps`, keeping only packages inside this module.
-//
-// Both answers are keyed the way TreeState keys packages: by the package
-// directory relative to the repo root. A tool that is not installed, or a
-// directory that is neither, yields NO edges — which fences every package by
-// its own files alone. That is the old behaviour, and it is the safe failure:
-// it under-carries rather than over-carries.
-
-// workspaceDepsFn is the graph probe, a seam so a plan can be tested without
-// a toolchain.
-var workspaceDepsFn = workspaceDeps
-
-// workspaceDeps reads the dependency graph of whatever kind of workspace root
-// is, empty when it cannot be read.
-func workspaceDeps(root string) map[string][]string {
-	if root == "" {
-		return nil
-	}
-	if fileExists(filepath.Join(root, "Cargo.toml")) {
-		if deps, err := cargoWorkspaceDeps(root); err == nil {
-			return deps
-		}
-	}
-	if fileExists(filepath.Join(root, "go.mod")) {
-		if deps, err := goWorkspaceDeps(root); err == nil {
-			return deps
-		}
-	}
-	return nil
-}
-
-// cargoWorkspaceDeps asks cargo. `--no-deps` keeps it to the workspace's own
-// manifests, which is both the fast answer and the only one that matters:
-// nothing outside the workspace changes under a lane.
-func cargoWorkspaceDeps(root string) (map[string][]string, error) {
-	cargo := os.Getenv("CARGO")
-	if cargo == "" {
-		cargo = "cargo"
-	}
-	out, err := exec.Command(cargo, "metadata", "--no-deps", "--format-version", "1",
-		"--manifest-path", filepath.Join(root, "Cargo.toml")).Output()
-	if err != nil {
-		return nil, err
-	}
-	return parseCargoWorkspaceDeps(out, root)
-}
-
-// parseCargoWorkspaceDeps turns `cargo metadata --no-deps` into package-dir
-// edges. Only dependencies with a `path` are edges.
-func parseCargoWorkspaceDeps(data []byte, root string) (map[string][]string, error) {
-	var meta struct {
-		Packages []struct {
-			Name         string `json:"name"`
-			ManifestPath string `json:"manifest_path"`
-			Dependencies []struct {
-				Name string `json:"name"`
-				Path string `json:"path"`
-			} `json:"dependencies"`
-		} `json:"packages"`
-	}
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return nil, err
-	}
-	deps := map[string][]string{}
-	for _, p := range meta.Packages {
-		from := relPackageDir(root, filepath.Dir(p.ManifestPath))
-		if from == "" && p.ManifestPath == "" {
-			continue
-		}
-		var to []string
-		for _, d := range p.Dependencies {
-			if d.Path == "" {
-				continue
-			}
-			to = append(to, relPackageDir(root, d.Path))
-		}
-		if len(to) > 0 {
-			deps[from] = dedupeSorted(to)
-		}
-	}
-	return deps, nil
-}
+// The Cargo half went with the mutation outcome store's invalidation fence:
+// it existed to decide whether a stored verdict still held, and a lane is
+// measured on its own tree now.
 
 // goWorkspaceDeps asks go. Only packages inside this module are edges: a
 // module dependency is pinned by go.mod and cannot change under a lane.

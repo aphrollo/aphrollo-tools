@@ -61,7 +61,6 @@ var gateVerbTable = []Verb{
 	{Name: "feedback"},
 	{Name: "escape"},
 	{Name: "runphase"},
-	{Name: "receipt"},
 	{Name: "mutants"},
 	{Name: "cargo"},
 	{Name: "git"},

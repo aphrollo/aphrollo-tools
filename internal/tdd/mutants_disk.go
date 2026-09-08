@@ -34,55 +34,6 @@ const mutantsDiskPerJobGB = 15
 // doctorDiskWarnGB is where `gate doctor` starts saying the box is tight.
 const doctorDiskWarnGB = 30
 
-// mutantsTempDir is the temp directory a run's children write to: inside the
-// run's own build dir, so a tree copy that escapes --in-place lands on the
-// build drive rather than the system one.
-func mutantsTempDir(j MutantsJob) string {
-	if j.TargetDir == "" {
-		return ""
-	}
-	return filepath.Join(j.TargetDir, "tmp")
-}
-
-// mutantsTempEnv is the three temp-dir variables, all pointing at the same
-// directory. TMPDIR is what a POSIX tool reads, TMP and TEMP what a Windows
-// one does, and Go's own os.TempDir reads TMP first on Windows: naming all
-// three is the only way to be sure every child agrees.
-func mutantsTempEnv(j MutantsJob) []string {
-	dir := mutantsTempDir(j)
-	if dir == "" {
-		return nil
-	}
-	_ = os.MkdirAll(dir, 0o755)
-	return []string{"TMPDIR=" + dir, "TMP=" + dir, "TEMP=" + dir}
-}
-
-// mutantsDiskOK reports whether the drive holding the run's build dir can fit
-// it, and the line to print when it cannot. A drive whose free space cannot be
-// read never refuses: the gate's own blind spot must not stop a run that would
-// have been fine.
-func mutantsDiskOK(targetDir string, jobs int) (bool, string) {
-	free, ok := freeSpaceGBFn(nearestExistingDir(targetDir))
-	if !ok {
-		return true, ""
-	}
-	if jobs < 1 {
-		jobs = 1
-	}
-	need := jobs * mutantsDiskPerJobGB
-	if free >= need {
-		return true, ""
-	}
-	return false, diskRefusalLine(free, need)
-}
-
-// diskRefusalLine is the whole refusal: what the drive has, what the run
-// needs, and what it was about to do with it.
-func diskRefusalLine(freeGB, needGB int) string {
-	return fmt.Sprintf("gate: mutation run refused — %d GB free on the build drive, %d GB needed (%d GB per job); "+
-		"a run that fills the drive dies mid-way and takes every verdict with it", freeGB, needGB, mutantsDiskPerJobGB)
-}
-
 // nearestExistingDir walks up until it finds a directory that exists, so a
 // build dir that has not been created yet is still measured on the right
 // drive.

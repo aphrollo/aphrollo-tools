@@ -38,9 +38,9 @@ func TestCargoChildEnv_TokenReachesALongVerbsChildren(t *testing.T) {
 
 // TestLongVerb_HoldsOneSlotAndLendsIt pins the shim's half end to end with a
 // stub cargo that records what it was handed: the long phase runs with the
-// parent's slot token, the caller's TARGET lock is free by then (the mutation
-// copies build elsewhere), and the global slot is still held — so the run
-// costs one slot, not every slot on the box.
+// parent's slot token, the caller's TARGET lock is free by then (the long
+// verb's own work compiles nothing into it), and the global slot is still
+// held — so the run costs one slot, not every slot on the box.
 func TestLongVerb_HoldsOneSlotAndLendsIt(t *testing.T) {
 	t.Setenv("APHROLLO_BUILD_SLOTS", "1")
 	// Restored on the way out: the override outliving the test points every
@@ -48,21 +48,20 @@ func TestLongVerb_HoldsOneSlotAndLendsIt(t *testing.T) {
 	// unopenable lock file reads as HELD.
 	t.Cleanup(tdd.SetLockDirForTest(t.TempDir()))
 	dir := chdirCargoProject(t)
-	// Only a gated mutation run reaches the slots at all; a bare `cargo
-	// mutants` is refused before them. The gated run is recognised by
-	// building into the dedicated mutants worktree's own target dir.
-	t.Setenv("CARGO_TARGET_DIR", mutantsTargetDirForTest(t))
 	stub := runVerbStub(t)
 	envOut := filepath.Join(t.TempDir(), "child-env")
 	t.Setenv("APHROLLO_TEST_STUB_ENV_OUT", envOut)
 
-	code := runCargoShim([]string{"mutants", "--in-diff", "d"}, strings.NewReader(""), io.Discard, io.Discard,
+	// `bench`, not `mutants`: the only `cargo mutants` that reaches the shim
+	// is the gate's own marked run, and that one is let past the queue before
+	// the slots are consulted at all.
+	code := runCargoShim([]string{"bench", "-p", "movement"}, strings.NewReader(""), io.Discard, io.Discard,
 		cargoShimConfig{realCargo: stub})
 	if code != 0 {
 		t.Fatalf("exit = %d", code)
 	}
 
-	token, err := os.ReadFile(envOut + ".mutants")
+	token, err := os.ReadFile(envOut + ".bench")
 	if err != nil {
 		t.Fatalf("the long phase left no record of its environment: %v", err)
 	}

@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// inDir runs the rest of the test standing somewhere else, because `run` with
-// no --job is defined by the checkout it is typed in.
+// inDir runs the rest of the test standing somewhere else, because `run` is
+// defined by the checkout it is typed in.
 func inDir(t *testing.T, dir string) {
 	t.Helper()
 	cwd, err := os.Getwd()
@@ -21,12 +21,10 @@ func inDir(t *testing.T, dir string) {
 	t.Cleanup(func() { _ = os.Chdir(cwd) })
 }
 
-// `run` with no --job used to parse an empty path, fail to read it, and return
-// 0: a command that asked for a mutation run, printed nothing and ran nothing.
-// Typed outside a repo it must now say why it measured nothing — the boundary
+// Typed outside a repo, `run` must say why it measured nothing — the boundary
 // that proves the verb reaches the current checkout at all, rather than
-// exiting clean on an empty job path.
-func TestGateMutantsRun_WithNoJobFlagAnswersForTheCurrentCheckout(t *testing.T) {
+// exiting clean having done nothing.
+func TestGateMutantsRun_OutsideARepositorySaysWhyItMeasuredNothing(t *testing.T) {
 	gateConfigDir(t)
 	inDir(t, t.TempDir())
 
@@ -37,24 +35,6 @@ func TestGateMutantsRun_WithNoJobFlagAnswersForTheCurrentCheckout(t *testing.T) 
 	}
 	if !strings.Contains(errb.String(), "git repository") {
 		t.Fatalf("stderr %q never says why nothing was measured", errb.String())
-	}
-}
-
-// An OMITTED flag takes a sensible default; an INVALID one is refused. The two
-// must not blur: `--job ""` is a caller naming a job file and getting it
-// wrong, and quietly measuring the current checkout instead would run
-// something other than what was asked for.
-func TestGateMutantsRun_AnExplicitlyEmptyJobIsRefusedRatherThanDefaulted(t *testing.T) {
-	gateConfigDir(t)
-	inDir(t, t.TempDir())
-
-	var out, errb bytes.Buffer
-	code := Run([]string{"gate", "mutants", "run", "--job", ""}, strings.NewReader(""), &out, &errb)
-	if code == 0 {
-		t.Fatalf("`--job \"\"` exited 0\nstdout: %s\nstderr: %s", out.String(), errb.String())
-	}
-	if strings.Contains(errb.String(), "git repository") {
-		t.Fatalf("`--job \"\"` fell back to the current checkout: %q", errb.String())
 	}
 }
 
@@ -71,7 +51,7 @@ func TestGateMutants_HelpPrintsTheVerbsInsteadOfRejectingHAsAVerb(t *testing.T) 
 		if strings.Contains(errb.String(), "unknown verb") {
 			t.Fatalf("`gate mutants %s` reported the help flag as an unknown verb: %s", arg, errb.String())
 		}
-		if !strings.Contains(errb.String(), "run") || !strings.Contains(errb.String(), "go") {
+		if !strings.Contains(errb.String(), "run ") || !strings.Contains(errb.String(), "prove ") {
 			t.Fatalf("`gate mutants %s` never lists the verbs: %s", arg, errb.String())
 		}
 	}
@@ -89,3 +69,6 @@ func TestCargoShimMutantsRefusal_NamesTheGateVerbNotTheUnlockedProducer(t *testi
 		t.Fatalf("the refusal still instructs the unlocked producer directly: %q", mutantsRefusal)
 	}
 }
+
+// ratchet: test_removed TestGateMutantsRun_WithNoJobFlagAnswersForTheCurrentCheckout: renamed now that there is no --job to be absent; the claim it makes about a run typed outside a repository is unchanged
+// ratchet: test_removed TestGateMutantsRun_AnExplicitlyEmptyJobIsRefusedRatherThanDefaulted: `--job` is deleted with the detached job, so there is no empty one to refuse

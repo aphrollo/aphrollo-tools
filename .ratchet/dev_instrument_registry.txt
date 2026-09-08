@@ -13,7 +13,6 @@ APHROLLO_CARGO_WAIT_SECS | internal/cli/cargo_shim.go | Overrides the cargo shim
 APHROLLO_GIT_QUEUED | internal/tdd/buildlock.go | Set to "1" around a git invocation that already holds the per-repo git lock, so a git call the pre-commit hook spawns (worktree add/remove, apply, diff --cached) never waits on the lock its own parent process holds.
 APHROLLO_GIT_WAIT_SECS | internal/cli/git_shim.go | Overrides the git shim's queue wait budget before it gives up and reports queued rather than running.
 APHROLLO_LOCK_WAIT_SECS | internal/cli/cli.go | The commit gate's build-slot wait budget (default 1200s).
-APHROLLO_QUEUE | internal/tdd/mutants_run.go | =bypass lets a mutation run past the build queue; honoured only when the target dir is the mutation worktree's own.
 APHROLLO_SLOT_TOKEN | internal/tdd/buildslots.go | Carries the build slot a long verb's spawned cargo children inherit rather than acquiring their own; stripped from a process (e.g. `cargo run`) that must not inherit it.
 
 # --- the anti-cheat / edit-time gate (internal/tdd) ---
@@ -29,14 +28,6 @@ APHROLLO_HOOKS_DIR_UNSAFE | internal/tdd/gitgate.go | Set to "1" to force instal
 # --- real-binary override escapes, so a shim never shims itself ---
 APHROLLO_REAL_CARGO | internal/cli/cargo_shim.go | Overrides the cargo shim's resolution of the real cargo binary it dispatches to.
 APHROLLO_REAL_GIT | internal/cli/git_shim.go | Overrides the git shim's resolution of the real git binary it dispatches to.
-
-# --- the mutation runner contract (internal/tdd/mutants_run.go; docs/mutation-runner.md is the spec) ---
-APHROLLO_MUTANTS_ARGS | internal/tdd/mutants_run.go | Carries the cargo-mutants flags this side computed for the producer script.
-APHROLLO_MUTANTS_BASE | internal/tdd/mutants_run.go | The base sha the mutation receipt must record.
-APHROLLO_MUTANTS_DIFF | internal/tdd/mutants_run.go | Names the reduced lane diff a mutation run is scoped to.
-APHROLLO_MUTANTS_ENV | internal/tdd/mutants_run.go | Carries the switches the workspace declares its mutation run must set, so an env-gated suite counts.
-APHROLLO_MUTANTS_JOBS | internal/tdd/mutants_run.go | The concurrency cap this box allows for a mutation run.
-APHROLLO_MUTANTS_JOBS_WHY | internal/tdd/mutants_run.go | The reason a runner prints beside the concurrency cap.
 
 # --- the dev tier / systemd control plane (internal/dev, internal/workspace) ---
 APHROLLO_DEVCLAIM_DIR | internal/workspace/claim.go | Overrides the directory holding the per-repo claim symlinks (tests, non-standard homes).
@@ -66,9 +57,5 @@ APHROLLO_TEST_GIT_COMMON_DIR | internal/cli/git_shim_scope_test.go | Read by a s
 APHROLLO_TEST_GIT_DIR | internal/cli/git_shim_scope_test.go | Read by the same synthetic fake-git binary, alongside APHROLLO_TEST_GIT_COMMON_DIR.
 APHROLLO_TEST_STUB_ENV_OUT | internal/cli/slottoken_test.go | Tells a synthetic fake-cargo binary to dump its received environment to this path, so the test can assert on what the shim passed through.
 APHROLLO_TEST_STUB_FAIL_ON | internal/cli/cargo_shim_run_test.go | Names the verb a synthetic fake-cargo binary should fail on, for exercising the shim's non-zero-exit path.
-APHROLLO_MUTANTS_BASE_OVERRIDE | internal/tdd/mutants_run.go | Carries the --base flag of aphrollo gate mutants run from the CLI layer into the in-process job; set on this process only, never forwarded to the producer.
-APHROLLO_MUTANTS_TIMEOUT_MULTIPLIER | internal/tdd/mutants_run.go | Carries the --timeout-multiplier flag of aphrollo gate mutants run into the in-process job the same way.
-APHROLLO_MUTANTS_MIN_TEST_TIMEOUT | internal/tdd/mutants_run.go | Carries the --minimum-test-timeout flag of aphrollo gate mutants run into the in-process job the same way.
-APHROLLO_MUTANTS_BASELINE_EXCLUDED | internal/tdd/mutants_run.go | How many mutation-baseline-exclude entries this side folded into the nextest passthrough, so the runner can carry the count into the receipt without re-parsing the repo's config.
-APHROLLO_MUTATION_GATE | internal/cli/cargo_shim_mutants.go | Deprecated one-release handshake: a nested cargo mutants is let through by its target dir now; a caller still setting this is let through once more and logged.
+APHROLLO_MUTATION_GATE | internal/tdd/mutants_env.go | =1 marks a child of `aphrollo gate mutants run`. The cargo shim reads it for both answers it owes a mutation run: `cargo mutants` may be invoked at all, and the build need not queue, because the call is already inside the box-wide mutation lock.
 APHROLLO_MUTANTS_STATUS | internal/tdd/mutants_measure_judge.go | The measurement's own verdict (0 passed, 1 refused), handed to the repo's mutants-after command so it can reclaim what a timeout-killed test binary left behind.

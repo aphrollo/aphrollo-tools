@@ -144,3 +144,12 @@ func TestWriteClaudeMD_StillWritesInASingleCheckoutClone(t *testing.T) {
 		t.Fatalf("changed = false, want true — a plain clone with no linked worktree is untouched by the rule")
 	}
 }
+
+// addWorktree links a second checkout of root, which is what makes the
+// primary one merge-only.
+func addWorktree(t *testing.T, root, name string) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), name)
+	gitDo(t, root, "worktree", "add", "-b", name, dir)
+	return dir
+}

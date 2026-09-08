@@ -179,25 +179,19 @@ func sameProject(logged, root string) bool {
 	return strings.HasPrefix(logged, root+string(filepath.Separator))
 }
 
-// mutantsRunning reports whether a mutation job is going for THIS working
-// tree. The job registry is the evidence -- the post-commit hook writes a
-// record with the pid it spawned, and RunningMutantsJobs drops the ones whose
-// process is gone -- so the badge sees a run that outlives the hook that
-// started it without probing anything itself.
+// mutantsRunning reports whether a mutation run is going for THIS working
+// tree. The box-wide run lock's own owner record is the evidence: a
+// measurement holds that lock from before its build starts until its last
+// mutant is judged, and the record names the tree it is measuring.
 //
-// Scoped to the ROOT, not the repo: the registry is keyed on the common git
-// dir, so every lane of a repo shares it, and a run measuring the lane beside
-// this one says nothing about this tree. An earlier version read the build
-// slot's owner record instead, which named a target DIR -- with a shared
+// Scoped to the ROOT, not the repo: a run measuring the lane beside this one
+// says nothing about this tree. An earlier version read the build slot's
+// owner record instead, which named a target DIR -- with a shared
 // CARGO_TARGET_DIR that is one directory for many projects, so a run anywhere
 // on the box rendered here.
 func mutantsRunning(root string) bool {
-	for _, j := range RunningMutantsJobs(commonGitDir(root)) {
-		if sameProject(j.RepoRoot, root) {
-			return true
-		}
-	}
-	return false
+	o, ok := readBuildLockOwnerAt(mutantsRunLockOwnerPath())
+	return ok && sameProject(o.Cwd, root)
 }
 
 // deferredBuildRunning reports whether THIS session's detached phase for root

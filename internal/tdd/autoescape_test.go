@@ -354,17 +354,22 @@ func TestUnacceptedSurvivorsAtMergeRecordAnEscape(t *testing.T) {
 	}
 }
 
-// The predicate reads the receipt gate's OWN rejection. If that sentence is
-// reworded and the predicate is not, the trigger goes quietly dead.
-func TestTheSurvivorPredicateMatchesTheReceiptGatesOwnRejection(t *testing.T) {
+// The predicate reads the mutation stage's OWN refusal, built here by the
+// judge that writes it. If that sentence is reworded and the predicate is
+// not, the trigger goes quietly dead.
+func TestTheSurvivorPredicate_MatchesTheMutationStagesOwnRefusal(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	res := blockReceipt("", "unaccepted-survivor", "%d unaccepted survivor(s), starting with %s — a code path no test constrains", 2, "x.rs:1")
-	if !isUnacceptedSurvivorRejection(res.Message) {
-		t.Fatalf("the predicate must recognise the receipt gate's rejection:\n%s", res.Message)
+	refused := judgeMutants(MutantsConfig{}, []MutantOutcome{
+		{File: "x.rs", Line: 1, Col: 3, Mutation: "replace + with -", Status: "missed"},
+	})
+	if !isUnacceptedSurvivorRejection(refused.Message) {
+		t.Fatalf("the predicate must recognise the stage's own refusal:\n%s", refused.Message)
 	}
-	other := blockReceipt("", "worktree-dirty", "worktree_dirty: the run measured uncommitted work, not what is being merged")
-	if isUnacceptedSurvivorRejection(other.Message) {
-		t.Fatalf("a different receipt rejection is not a survivor escape:\n%s", other.Message)
+	passed := judgeMutants(MutantsConfig{}, []MutantOutcome{
+		{File: "x.rs", Line: 1, Col: 3, Mutation: "replace + with -", Status: "caught"},
+	})
+	if isUnacceptedSurvivorRejection(passed.Message) {
+		t.Fatalf("a clean measurement is not a survivor escape:\n%s", passed.Message)
 	}
 }
 
@@ -489,11 +494,13 @@ func noteLaneTipGreen(t *testing.T, root string) {
 	gitDo(t, root, "notes", "--ref="+gateNotesRef, "add", "-f", "-m", gateGreenNote(tree), "lane")
 }
 
-// unacceptedSurvivorRejectionSample is the receipt gate's own words, so this
-// fixture cannot drift from the sentence the trigger reads.
+// unacceptedSurvivorRejectionSample is the mutation stage's own words, built
+// by the judge that writes them, so this fixture cannot drift from the
+// sentence the trigger reads.
 func unacceptedSurvivorRejectionSample() string {
-	return blockReceipt("", "unaccepted-survivor", "%d unaccepted survivor(s), starting with %s — a code path no test constrains",
-		1, "src/lib.rs:12").Message
+	return judgeMutants(MutantsConfig{}, []MutantOutcome{
+		{File: "src/lib.rs", Line: 12, Col: 5, Mutation: "replace + with -", Status: "missed"},
+	}).Message
 }
 
 // A waiver on a file no check ever refused is an author declaring an
@@ -504,23 +511,6 @@ func TestAWaiverWithNoPrecedingDenialIsNotACandidate(t *testing.T) {
 	log := gateLines(now, "preedit root a_test.go smell-escape:test-sleep")
 	if got := OverrideCandidates(strings.NewReader(log), now); len(got) != 0 {
 		t.Fatalf("got %d candidates, want 0: %+v", len(got), got)
-	}
-}
-
-// A lane arriving with no mutation receipt at all is refused by a stage the
-// pre-commit gate does not even run. That is the receipt gate WORKING, and it
-// is the most common merge rejection there is — recording it as "precommit
-// passed, merge refused" would make the loop's loudest signal its noisiest.
-func TestAMissingReceiptRejectionIsNotAnEscape(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	root := makeGoRepo(t)
-	makeMergeInProgress(t, root, "Land the lane")
-	noteLaneTipGreen(t, root)
-
-	NoteMergeGateEscape(root, missingReceiptRejectionSample(), io.Discard)
-
-	if n := len(readEscapes(t)); n != 0 {
-		t.Fatalf("recorded %d escapes, want 0 — no earlier stage judges receipts", n)
 	}
 }
 
@@ -605,27 +595,6 @@ func TestARecordWhoseIssueNeverOpenedIsRetriedRatherThanSuppressing(t *testing.T
 	}
 	if recs[0].Issue != "https://github.com/o/r/issues/11" {
 		t.Fatalf("the retry must attach the issue to the existing record: %+v", recs[0])
-	}
-}
-
-// missingReceiptRejectionSample is the receipt gate's own words for the most
-// common merge rejection, so this fixture cannot drift from what it reads.
-func missingReceiptRejectionSample() string {
-	return blockReceipt("", "no-tip-tree", "no mutation receipt for %s's lane tip %s at %s", "/r/.git", "abc1234", "/state/x.json").Message
-}
-
-// The receipt-family predicate reads the receipt gate's OWN rejections. If
-// the hint they all carry is reworded and the predicate is not, every
-// receipt rejection starts being recorded as a gate miss.
-func TestTheReceiptPredicateMatchesTheReceiptGatesOwnRejections(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, msg := range []string{missingReceiptRejectionSample(), unacceptedSurvivorRejectionSample()} {
-		if !isReceiptRejection(msg) {
-			t.Errorf("the predicate must recognise a receipt rejection:\n%s", msg)
-		}
-	}
-	if isReceiptRejection("gate premergecommit: clippy failed on the combined tree") {
-		t.Error("a stage rejection is not a receipt rejection")
 	}
 }
 

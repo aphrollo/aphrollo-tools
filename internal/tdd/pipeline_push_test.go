@@ -1,9 +1,32 @@
 package tdd
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// repoRootForTest is THIS repo's own root, which a workflow-pinning test
+// reads its assertions out of.
+func repoRootForTest(t *testing.T) string {
+	t.Helper()
+	root := RepoRoot(".")
+	if root == "" {
+		t.Fatal("these tests read this repo's own tree and could not find its root")
+	}
+	return root
+}
+
+// repoFile reads one of THIS repo's own tracked files.
+func repoFile(t *testing.T, parts ...string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(append([]string{repoRootForTest(t)}, parts...)...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
 
 // Every check job in the pipeline gates its real steps on the `changes` job's
 // diff, and that diff was computed from `github.event.pull_request.base.sha`

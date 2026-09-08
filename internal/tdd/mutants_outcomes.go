@@ -3,9 +3,96 @@ package tdd
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 )
+
+// MutantOutcome is one mutant and what happened to it. Both runners report
+// into this one shape, so a judgement cannot depend on which tool measured.
+//
+// It used to carry the source blob, the package fence, the producer version
+// and the invocation version as well — everything a stored outcome needed to
+// say whether it was still true when it was read back weeks later. Nothing
+// reads one back any more: a lane is measured on the tree that is about to
+// land, in the same event that judges it, so the only outcomes that exist are
+// this run's own.
+type MutantOutcome struct {
+	File string `json:"file"`
+	Line int    `json:"line"`
+	// Col is part of the identity, not decoration: cargo-mutants emits
+	// several distinct mutants on one line with identical text, and
+	// crates/editor_client/src/creator.rs:101:33 and :101:16 in a real run
+	// are two different `replace || with && in send_undo_redo`.
+	Col      int    `json:"col,omitempty"`
+	Mutation string `json:"mutation"`
+	// Name is the tool's own spelling of the mutant, kept verbatim because it
+	// is what a re-run's own name filter has to match.
+	Name string `json:"name,omitempty"`
+	// Package is the crate/package whose test set constrains this mutant.
+	Package string `json:"package,omitempty"`
+	// Status is the producer's own word for the result ("caught", "missed",
+	// "timeout", "unviable"); this package never invents one.
+	Status string `json:"status,omitempty"`
+}
+
+// mutantLineRe reads a mutant named as one line. The real shape, from a
+// cargo-mutants 27.1.0 run, is "<file>:<line>:<col>: <mutation>":
+//
+//	crates/editor_client/src/creator.rs:101:33: replace || with && in send_undo_redo
+//
+// The column is captured because it is part of the mutant's IDENTITY — the
+// same file names two `replace || with &&` mutants on line 101, at columns 33
+// and 16 — and the whole line is kept verbatim because that string, not a
+// rebuilt one, is what a re-run's name filter has to match.
+var mutantLineRe = regexp.MustCompile(`^(.+?):(\d+):(\d+): (.+)$`)
+
+// parseMutantLine reads one mutant out of the tool's own one-line spelling.
+func parseMutantLine(line string) (MutantOutcome, bool) {
+	m := mutantLineRe.FindStringSubmatch(line)
+	if m == nil {
+		return MutantOutcome{}, false
+	}
+	lineNo, lineErr := strconv.Atoi(m[2])
+	col, colErr := strconv.Atoi(m[3])
+	if lineErr != nil || colErr != nil {
+		return MutantOutcome{}, false
+	}
+	return MutantOutcome{
+		File:     filepath.ToSlash(m[1]),
+		Line:     lineNo,
+		Col:      col,
+		Mutation: strings.TrimSpace(m[4]),
+		Name:     line,
+	}, true
+}
+
+// mutantLineOf is the tool's own spelling of a mutant, for a producer that
+// reports its parts rather than a line.
+func mutantLineOf(file string, line, col int, mutation string) string {
+	return fmt.Sprintf("%s:%d:%d: %s", file, line, col, mutation)
+}
+
+// sortOutcomes puts a run's outcomes in one order whatever the tool did, so
+// two runs of the same tree produce the same report.
+func sortOutcomes(out []MutantOutcome) {
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.File != b.File {
+			return a.File < b.File
+		}
+		if a.Line != b.Line {
+			return a.Line < b.Line
+		}
+		if a.Col != b.Col {
+			return a.Col < b.Col
+		}
+		return a.Mutation < b.Mutation
+	})
+}
 
 // cargo-mutants writes every verdict twice: once as log text a human reads
 // and once as mutants.out/outcomes.json. Only the second is parsed here. The

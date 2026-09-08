@@ -87,7 +87,8 @@ func TestGremlinsStatus_MapsEveryVerdictItCanReport(t *testing.T) {
 
 // A survivor somebody signed off on, with a reason, is not an unaccepted one.
 // A survivor with no entry is the whole rule.
-func TestGoMutantsReceipt_AcceptsOnlyTheSurvivorsWithAReason(t *testing.T) {
+// ratchet: test_removed TestGoMutantsReceipt_AcceptsOnlyTheSurvivorsWithAReason: renamed for the function it actually calls, splitAcceptedSurvivors; the assertions are unchanged
+func TestSplitAcceptedSurvivors_AcceptsOnlyTheSurvivorsWithAReason(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "aphrollo.toml", strings.Join([]string{
 		"[aphrollo]",
@@ -112,31 +113,28 @@ func TestGoMutantsReceipt_AcceptsOnlyTheSurvivorsWithAReason(t *testing.T) {
 	}
 }
 
-// TestGoMutantsReceipt_AnAcceptListNamingUnmeasuredEntriesDoesNotInflateAccepted
-// pins the contract issue #339 depends on: Accepted counts mutants THIS RUN
-// measured and accepted, never the accept-list's own size. An accept-list
-// can carry entries for mutants long since fixed or renamed — normal debt —
-// and a run that measures nothing must report zero accepted regardless of
-// how many entries the list carries.
-func TestGoMutantsReceipt_AnAcceptListNamingUnmeasuredEntriesDoesNotInflateAccepted(t *testing.T) {
-	root := t.TempDir()
-	write(t, root, "aphrollo.toml", strings.Join([]string{
-		"[aphrollo]",
-		`mutation-accept = [`,
-		`  "calc.go:1 CONDITIONALS_BOUNDARY # accepted on an earlier run",`,
-		`  "calc.go:2 ARITHMETIC_BASE # accepted on an earlier run",`,
-		`  "calc.go:3 CONDITIONALS_NEGATION # accepted on an earlier run",`,
-		"]",
-	}, "\n"))
+// The contract issue #339 depends on: accepted counts mutants THIS RUN
+// measured and accepted, never the accept-list's own size. An accept-list can
+// carry entries for mutants long since fixed or renamed — normal debt — and a
+// run that measures nothing must report zero accepted regardless of how many
+// entries the list carries.
+// ratchet: test_removed TestGoMutantsReceipt_AnAcceptListNamingUnmeasuredEntriesDoesNotInflateAccepted: renamed and re-pointed at judgeMutants, which is what counts a measurement now; the claim is unchanged
+func TestJudgeMutants_AnAcceptListNamingUnmeasuredEntriesDoesNotInflateAccepted(t *testing.T) {
+	t.Parallel()
+	cfg := MutantsConfig{Accept: []string{
+		"calc.go:1 CONDITIONALS_BOUNDARY # kind=equivalent: accepted on an earlier run",
+		"calc.go:2 ARITHMETIC_BASE # kind=equivalent: accepted on an earlier run",
+		"calc.go:3 CONDITIONALS_NEGATION # kind=equivalent: accepted on an earlier run",
+	}}
 
 	// This run measured nothing: no survivors, no timeouts, nothing at all.
-	r := goMutantsReceipt(goMutantsRun{Worktree: root}, nil, TreeState{})
+	v := judgeMutants(cfg, nil)
 
-	if r.MutantsTotal != 0 {
-		t.Fatalf("MutantsTotal = %d, want 0 — nothing was measured", r.MutantsTotal)
+	if v.Tested != 0 {
+		t.Fatalf("Tested = %d, want 0 — nothing was measured", v.Tested)
 	}
-	if r.Accepted != 0 {
-		t.Fatalf("Accepted = %d, want 0 — the accept list's own size must never stand in for what this run measured and accepted", r.Accepted)
+	if v.Accepted != 0 {
+		t.Fatalf("Accepted = %d, want 0 — the accept list's own size must never stand in for what this run measured and accepted", v.Accepted)
 	}
 }
 
@@ -218,34 +216,4 @@ func TestGremlinsArgv_ExcludesAlreadyMeasuredFilesByAnchoredRegexp(t *testing.T)
 	}
 }
 
-// The receipt a Go run writes is the same document a Rust run writes: the
-// merge gate reads one shape, whatever measured it.
-func TestGoMutantsReceipt_IsTheSameReceiptTheRustRunnerWrites(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	root := t.TempDir()
-	j := MutantsJob{Repo: "borld", RepoRoot: root, Worktree: root, TipTree: laneTip,
-		BaseSHA: mergeBase, Branch: "lane/x", TargetDir: root}
-
-	mutants, err := parseGremlinsReport(gremlinsReport(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeGoMutantsReceipt(j, mutants, TreeState{}, 0)
-
-	r := readReceipt(t, laneTip)
-	if r.Repo != "borld" || r.TipTree != laneTip || r.BaseSHA != mergeBase {
-		t.Fatalf("receipt = %+v, want it to name the run it describes", r)
-	}
-	if r.MutantsTotal != 3 || r.Timeout != 3 {
-		t.Fatalf("receipt counts = total %d timeout %d, want 3 and 3", r.MutantsTotal, r.Timeout)
-	}
-	if r.Verdict != "pass" {
-		t.Fatalf("verdict = %q, want pass — timeouts are refused by the merge gate, not by the runner", r.Verdict)
-	}
-	if r.MAC == "" {
-		t.Fatal("a receipt the runner wrote must be signed")
-	}
-	if got := checkMutationReceipt(receiptContext{Repo: "borld", TipTree: laneTip}); got == nil || !got.Blocked {
-		t.Fatal("three timed-out mutants must not merge")
-	}
-}
+// ratchet: test_removed TestGoMutantsReceipt_IsTheSameReceiptTheRustRunnerWrites: there is no receipt; both runners now report into one Verdict, and MeasureLane's own tests judge a gremlins report through the same finishMeasure a Cargo run uses

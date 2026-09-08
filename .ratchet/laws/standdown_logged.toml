@@ -7,7 +7,9 @@ code_only   = true
 [scope]
 include = ["internal/tdd/**/*.go", "internal/cli/**/*.go"]
 exclude = ["**/*_test.go", "**/testdata/**"]
-min_files = 192
+# 189 in scope at this commit; the floor is a mis-scope tripwire (a scope that
+# suddenly matches almost nothing), never a bar on deleting files.
+min_files = 170
 
 [matcher]
 kind      = "marker-within-lines"

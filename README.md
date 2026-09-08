@@ -642,14 +642,14 @@ live where being wrong only costs a re-run):
 | `gate posttooluse` | Claude PostToolUse hook (stdin), matching the edit tools AND `Bash` | Runs the edited file's related tests as a build phase then a run phase under ONE budget, deferring whatever does not finish (see below); surfaces a RED summary. **Silent unless RED.** Source extensions include `.ron` — in a Rust workspace those are registries and fixtures whose edits change behaviour, resolved to the owning crate exactly as `.rs` is. |
 | `gate userpromptsubmit` | Claude UserPromptSubmit hook (stdin) | Intercepts `/gate [status\|off\|on\|reset]` — the per-session enforcement escape hatch. On any other prompt, re-injects the last RED outcome for the cwd's project so the gate survives context compaction. **Silent unless RED.** |
 | `gate stats` | manual | Tallies `gate.log` by stage and outcome, with per-crate timeout/deferred counts and median/max gate seconds (`--since 7d`), the open escape count and its oldest, and any `demote-candidate:` check. Read-only: it names the candidates, and `gate escape sync` is what opens their issues. |
-| `gate status` (also `aphrollo status` at the top level) | manual | Read-only: prints what an inconclusive gate line tells a session to go look at instead of rerunning into the same queue — this box's deferred edit jobs, every global build slot's holder, and this checkout's own mutation-run state. `--wait` blocks until this checkout's own deferred edit job reaches a verdict and prints that verdict line verbatim. |
+| `gate status` (also `aphrollo status` at the top level) | manual | Read-only: prints what an inconclusive gate line tells a session to go look at instead of rerunning into the same queue — this box's deferred edit jobs and every global build slot's holder. `--wait` blocks until this checkout's own deferred edit job reaches a verdict and prints that verdict line verbatim. |
 | `gate escape` | manual + the `escape-closure` CI job | `record` a red that arrived after a local green, `sync` the ones recorded offline (and open the false-positive issue for a demotion candidate), `list` the open ones, `verify-closure <pr>` to refuse a PR that closes one without changing a check. See [The escape loop](#the-escape-loop-aphrollo-gate-escape). |
 | `gate runphase` | spawned by `gate posttooluse` | The detached build/run phase's wrapper: holds the build slot, logs to the state dir, writes the result file the next hook harvests. Never typed by a human; never blocks. |
 | `gate sessionstart` | Claude SessionStart hook (stdin) | Injects the TDD-skill nudge, the previous session's disk-sweep result when it freed something, and — for a repo with a workspace manifest and no laws dir under `.ratchet` (an empty dir counts as none) — ONE line saying the gate is running suites only and pointing at [Ratchet laws](#ratchet-laws-aphrollo-ratchet). Never more than one extra line each, never blocks. |
 | `gate sessionend` | Claude SessionEnd hook (stdin) | Deletes the per-session state file so the state dir doesn't accumulate. |
 | `gate precommit` | git `pre-commit` | Blocks a newly-**added** suppression (anti-cheat). Then **fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. A worktree state already proven green under the exact same command (by a PostToolUse run or an earlier gate pass) is **not re-run** — the cache is keyed on the repo's git COMMON dir, so every linked worktree of one repo reuses the same proven-green facts — only green results are cached, keyed on content + runner argv (content covers tracked files AND the ignored configuration a suite reads: dotenv files and `config/` trees, never build output), so a red always re-runs with fresh output. Both gate stages build in the REPO'S OWN target dir (see below). |
 | `gate commitmsg` | git `commit-msg` | Rejects a commit whose MESSAGE carries a deny pattern, quoting the offending line. Opt-in per workspace (`undercover = true`); absent key = pass through. Fires for merge commits too. |
-| `gate postcommit` | git `post-commit` | Writes `refs/notes/gate` on the commit just made — `green <tree>` — when a root group's suite actually RAN green for exactly that tree. A cache hit is not that, so an amend (which re-runs the gate and hits the cache) leaves no note, which is the right answer for a commit no suite has run against. The note is what lets CI tell a red on a gated tip from a red on an ungated one; the git shim pushes the ref alongside a branch push. Then, for a commit on a lane branch in a repo opted in (`mutation-receipt = true`, in `[workspace.metadata.aphrollo]` for a Cargo workspace or a root `aphrollo.toml` otherwise) whose own message carries a `Mutants: run` trailer, starts that lane's mutation run detached and at below-normal process priority — spawned by `gate mutants run --job <file>`. The trailer, not a debounce, is what decides: with a box-wide lock and few build slots, every speculative run displaces a real one, so the hook starts nothing unless the author asked (issue #521). The same verb WITHOUT `--job` is the hand-typed entry point: it builds the same job for the checkout it is standing in and runs it in the foreground, under the same box-wide lock, and needs no trailer — typing the command is its own explicit ask. A commit on `main`/`master`, a repo not opted in, a commit with no trailer, or a box the run cannot fit on a drive skips silently. Never blocks — the commit already exists. `gate mutants audit --package <name>` is the on-demand whole-crate/whole-package counterpart: never a gate, never wired into a hook, writes no receipt. |
+| `gate postcommit` | git `post-commit` | Writes `refs/notes/gate` on the commit just made — `green <tree>` — when a root group's suite actually RAN green for exactly that tree. A cache hit is not that, so an amend (which re-runs the gate and hits the cache) leaves no note, which is the right answer for a commit no suite has run against. The note is what lets CI tell a red on a gated tip from a red on an ungated one; the git shim pushes the ref alongside a branch push. That note is the whole of it: the hook starts no mutation run of its own, and never blocks — the commit already exists. A lane is measured by typing `aphrollo gate mutants run` in it. |
 | `ratchet check` | git `pre-commit`/`pre-merge-commit`, and manual | Judges the tree against `.ratchet/laws/*.toml` (see [Ratchet laws](#ratchet-laws-aphrollo-ratchet)). |
 | `gate prepush` | git `pre-push` | **No-op** (mechanical-only mode). The gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
 | `gate premerge` | git `pre-merge-commit` | Runs ONLY the mechanical stage over the merge's staged files — no fail-first (a fresh test's RED/GREEN belongs to the authoring commit, already proven by `precommit` there) and no anti-cheat suppression scan (same reasoning) — so a git merge, which never fires `pre-commit`, still proves the COMBINED result compiles and passes before it lands. `gate premergecommit` is the pre-rename spelling, kept as a silent alias for one release; every line the routine prints starts `gate premerge:`. |
@@ -948,10 +948,13 @@ never leaves target dirs locked by builds that never started.
   `bench` and `install` take a slot, run a prewarm compile under it
   (`cargo check --tests` for mutants, `cargo build --benches` for bench,
   `cargo build --tests` otherwise), then RELEASE THE TARGET LOCK and keep the
-  global slot until they exit. The long phase and every cargo it spawns
-  inherit `APHROLLO_SLOT_TOKEN=<slot lock>`, which skips the global semaphore
-  but NOT the per-target lock: each mutation copy still holds the lock for
-  its own target dir, so cargo's one-build-per-target invariant survives.
+  global slot until they exit. In practice `bench` and `install` are the two
+  that reach it: a bare `cargo mutants` is refused outright, and the gate's
+  own marked run is let past the queue before the classifier is consulted.
+  The long phase and every cargo it spawns inherit
+  `APHROLLO_SLOT_TOKEN=<slot lock>`, which skips the global semaphore but NOT
+  the per-target lock: each build still holds the lock for the target dir it
+  compiles into, so cargo's one-build-per-target invariant survives.
   Measured 2026-09-02: without this, a four-job `cargo mutants` run had each
   inner build take a slot of its own, and both slots stayed held for hours
   while every other session queued. `cargo run` is the other split: it builds
@@ -1153,96 +1156,10 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   that gate, e.g. `commit-message-deny = ["(?i)\\bskunkworks\\b", "^WIP:"]` (a TOML basic string, so the regex backslash is doubled).
   An unparseable entry is skipped with a stderr note, never silently disabling
   the gate nor blocking every commit.
-- **`mutation-receipt`** (bool) — turns on the merge gate's receipt check. Read
-  from whichever manifest the repo has: `[workspace.metadata.aphrollo]` in a
-  Cargo workspace's `Cargo.toml`, `[aphrollo]` in a root `aphrollo.toml`
-  otherwise.
-  Fail-first proves a test FAILED once; it says nothing about whether the
-  test constrains behaviour, and a test that asserts nothing satisfies
-  fail-first perfectly. A MERGE needs both. With the key set,
-  `premerge` (alias: `premergecommit`) looks up `<stateDir>/mutation-receipt.<tip_tree>.json`,
-  where `<tip_tree>` is the LANE TIP's tree (`git rev-parse MERGE_HEAD:`
-  — never the merge result, which nobody has mutation-tested). The file is
-  written by the consuming repo's own mutation run (borld's
-  `mutation_gate.sh`). The schema, exactly as the producer writes it:
-  `repo` (string — a directory name or a path to the repo/git dir, compared by
-  name), `branch` (string), `tip_tree` (string), `worktree_dirty` (bool),
-  `base_ref` (string), `base_sha` (string), `mutants_total`, `caught`,
-  `timeout`, `unviable`, `accepted` (ints), `survivors` and `unaccepted`
-  (ARRAYS of mutant names — the count is the array's length; the entries are
-  opaque to the gate), `verdict` (string) and `finished_at` (RFC3339). A real
-  receipt is checked in at `internal/tdd/testdata/mutation-receipt.borld.json`
-  and decoded by the suite, because a schema whose only reader is its own
-  writer is untested by construction — this pair disagreed in production
-  (`survivors` declared an int against an array) and refused every merge.
-  The merge is
-  refused (`receipt-rejected`) when there is no receipt for that tree, when
-  `worktree_dirty` is set, when `verdict` is anything but `"pass"` (an
-  unrecognised verdict refuses — a gate that reads an unknown word as
-  permission is not a gate), or when `unaccepted` is non-empty. `base_sha` is
-  what `base_ref` RESOLVED to when the run took its diff: a ref name is not a
-  base (`origin/main` moves), so a receipt that carries one must match
-  `git merge-base MERGE_HEAD HEAD` or the merge is refused — it measured
-  different lines. A receipt with no `base_sha` is an older producer's: it is
-  accepted and logged `receipt-unpinned`, so an unverifiable proof is counted
-  rather than mistaken for a verified one. The receipt is
-  keyed by TREE in its FILENAME, so the lookup itself is the identity check and
-  two lanes measured minutes apart never read each other's answer;
-  `mutants_total: 0` is a valid receipt, since a diff with nothing mutable in
-  it is a real answer. `unaccepted`'s entries are opaque to the gate — the
-  producing repo decides how it names a mutant — and only the first is quoted
-  in the rejection, which also names the command that produces a receipt. It
-  runs BEFORE any suite compiles. A receipt WAIVER (a catch-up merge of main
-  into a lane, or `mutants-local = false` below) is only ever noted, never a
-  rejection — `premergecommit` still runs baselineStage, `ratchet check`,
-  `docs check` and the touched project roots' suites against the merged tree.
-- **`mutants-local`** (bool, default `true`) — where the proof is MEASURED.
-  A Cargo repo has no runner that will do it, so the post-commit hook starts a
-  detached run on the box and the key can stay unwritten. A repo whose pipeline
-  can run the tool says `mutants-local = false` and the hook stops: a Go mutant
-  is judged by re-running its WHOLE package (26 s for `internal/tdd` on the
-  Linux runner against 207 s on a Windows box, times the 1626 mutants gremlins
-  finds in that one package), so which machine measures decides whether the
-  proof is affordable. Only an explicit `false` turns it off — a repo that has
-  said nothing keeps the behaviour it has.
-  **`false` also stands the MERGE gate down.** It has to: the post-commit run is
-  the only producer of a local receipt, and the one the runner writes is signed
-  with the RUNNER's machine key, so a gate that kept demanding one would refuse
-  every lane merge forever. `mutationReceiptStage` logs `receipt-measured-in-ci`
-  and passes; the required CI check is what refuses the merge instead. So the
-  pair `mutation-receipt = true` + `mutants-local = false` means "the proof is
-  required, and CI is the judge" — do not set the second without a pipeline job
-  that runs `gate mutants go --diff`, or nothing judges the lane at all.
 - **`mutation-accept`** (string array) — the survivors somebody signed off on,
   each `"<file>:<line> <MUTATOR> # why it is acceptable"`. The reason is not
   decoration: an entry without one is not an accepted survivor. This is the
-  list `aphrollo gate mutants go --diff <base>` judges against.
-- **`aphrollo gate mutants go --diff <base> [--receipt <path>] [--store <dir>]`**
-  is the CI half of the Go runner: it runs gremlins over `<base>..HEAD` in the
-  current checkout, writes and signs the same receipt a local run writes, and
-  EXITS NON-ZERO on a survivor the accept-list does not carry. gremlins' own
-  exit code is not the verdict — it fails a run that misses its efficacy
-  threshold, which is a bar about the whole module, and the bar here is the
-  accept-list. Exit 2 is a bad invocation (no base: an unscoped run measures
-  everything), exit 1 is a failed check, a run that produced no report, a
-  mutant that timed out (an unmeasured mutant is not a result), or a run that
-  measured ZERO mutants over a diff that DID change production Go — a scope
-  matching nothing is what a stale base looks like. A zero is a real answer
-  only when there was nothing to mutate, so the runner lists `<base>..HEAD`
-  first: if no changed file is a non-test `.go` outside a `testdata` tree it
-  writes a signed zero-mutant receipt, prints `0 mutable Go lines in
-  <base>..HEAD: nothing to judge` and exits 0 without starting the tool. A
-  diff git cannot read counts as mutable: "I could not tell" is never the
-  reason a check passes. `--store <dir>` overrides where the outcome cache
-  (see [The outcome cache](docs/mutation-runner.md)) reads and writes
-  `outcomes.json`, in place of the machine-local `<gate-state>/mutants/<repo-token>/`
-  a detached local run uses — CI has no persistent gate-state directory
-  between jobs, so this repo's own pipeline (`.github/workflows/pipeline.yml`)
-  points `--store` at an `actions/cache` path keyed on the head branch
-  instead, carrying prior verdicts across pushes to the same PR. Omitted, CI
-  still runs, it just measures every mutant fresh each push. The same verb
-  with `--job <file>` instead is the detached local run. aphrollo-tools runs it as
-  the required `mutants` check in `.github/workflows/pipeline.yml`.
+  list `aphrollo gate mutants run` judges a survivor against.
 - **`docs-check`** (bool) — turns on the staged-markdown citation stage for a
   cargo workspace. A Go module is opted in by being one (aphrollo's own CI
   already runs the check), and any repo can opt in with a `.aphrollo/docs-check`
@@ -2261,8 +2178,7 @@ session hooks, `~/.config/git/hooks/*`, the per-repo hooks and the
 spellings so a re-init replaces its own older entries instead of stacking a
 second hook beside them. The state dir moves `~/.claude/tdd-state` →
 `~/.claude/gate-state` by MOVING the existing directory the first time any
-gate runs — gate.log history, the mechanical cache and the receipts come with
-it. Hook output lines are prefixed `gate:`; law lines are prefixed `ratchet:`.
+gate runs — gate.log history and the mechanical cache come with it. Hook output lines are prefixed `gate:`; law lines are prefixed `ratchet:`.
 The control command answers to both `/gate` and `/tdd`.
 
 ## Layout
@@ -2296,16 +2212,25 @@ internal/docs/       doc-reference guard: extract path citations from tracked *.
 
 ## The queue bypass, and what it is worth
 
-A mutation run goes around the build queue: it owns its own target dir, so it
-contends with nothing, and making it wait behind an editor's build is the
-delay this whole design exists to remove. The check is a SHAPE — the target
-dir must sit under `<parent>/.worktrees/<repo>/mutants` — rather than a path
-handed over in an environment variable.
+A mutation run goes around the build queue: `aphrollo gate mutants run` holds
+the box-wide mutation lock for its whole call, so there is at most one of it
+on the box at a time, and making it wait behind an editor's build only widens
+the window in which nobody else can start one. It marks its children with
+`APHROLLO_MUTATION_GATE=1`, and that one marker answers both questions the
+cargo shim asks about a mutation run: `cargo mutants` may be invoked at all
+(a bare one is refused and told to run this verb instead), and the build need
+not queue.
+
+The marked run also builds in a target dir of its own,
+`<resolved target dir>/mutants/target`, beside the temp dir it keeps off the
+system drive. That is what makes skipping the queue safe rather than merely
+faster: a mutation build owns its directory for hours behind cargo's own
+blocking lock, and nothing the queue schedules ever compiles into it.
 
 It is not a security boundary, and it is not meant to be. Any process on the
-box can set `APHROLLO_QUEUE=bypass` with a target dir of that shape and skip
-the queue. The harm is bounded to that one target dir: a bypassing run holds
-no lock, so it cannot make anything else wait, and it can only disturb builds
-that share the directory it was pointed at. What makes the tolerance
-manageable is that every bypass is COUNTED — one `queue-bypass` line per
-process, which `aphrollo gate stats` reports beside every other waiver.
+box can set the marker and skip the queue. The harm is bounded to that one
+target dir: a bypassing run holds no lock, so it cannot make anything else
+wait, and it can only disturb builds that share the directory it was pointed
+at. What makes the tolerance manageable is that every bypass is COUNTED — one
+`queue-bypass` line per process, which `aphrollo gate stats` reports beside
+every other waiver.
