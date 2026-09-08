@@ -38,67 +38,16 @@ const (
 	gitOwnerFileName = "aphrollo-git.owner"
 )
 
-// gitLockScope is WHICH git directory a verb's lock belongs in. The index
-// is per worktree (`index.lock` lives in that worktree's own git dir), so
-// keying every mutation on the shared common dir made one lane's commit gate
-// -- which holds its lock for the whole gate run -- block `git add` in every
-// other worktree of the same repo.
-type gitLockScope int
-
-const (
-	gitNoLock gitLockScope = iota
-	// gitWorktreeScope: the invocation mutates THIS worktree's index or
-	// HEAD. Lock lives in `git rev-parse --git-dir`.
-	gitWorktreeScope
-	// gitRepoScope: the invocation mutates state every worktree of the repo
-	// shares -- branches, the worktree registry, the object store. Lock
-	// lives in `git rev-parse --git-common-dir`.
-	gitRepoScope
-)
-
-// gitIndexVerbs mutate the invoking worktree's index/HEAD regardless of
-// their own flags. `pull` and `merge` are here rather than in the shared set
-// because what they contend for is the index they write into; git does its
-// own ref locking underneath.
-var gitIndexVerbs = map[string]bool{
-	"add":         true,
-	"commit":      true,
-	"checkout":    true,
-	"switch":      true,
-	"reset":       true,
-	"stash":       true,
-	"rm":          true,
-	"mv":          true,
-	"rebase":      true,
-	"cherry-pick": true,
-	"revert":      true,
-	"am":          true,
-	"merge":       true,
-	"pull":        true,
-}
-
-// gitSharedVerbs mutate state shared by every worktree of the repo.
-var gitSharedVerbs = map[string]bool{
-	"fetch": true,
-	"push":  true,
-	"gc":    true,
-}
-
-// gitBranchMutationFlags are the `git branch` forms that write refs; a bare
-// `git branch` (or --list) only reads, and must never take a lock.
-var gitBranchMutationFlags = map[string]bool{
-	"-d": true, "-D": true, "--delete": true,
-	"-m": true, "-M": true, "--move": true,
-	"-c": true, "-C": true, "--copy": true,
-}
-
 // gitShimConfig bundles the shim's tunable knobs, mirroring cargoShimConfig
 // so tests can shrink the wait budget/poll interval without touching
 // production defaults.
 type gitShimConfig struct {
 	waitBudget   time.Duration
 	pollInterval time.Duration
-	realGit      string
+	// indexLockGrace is how long an index.lock must sit unchanged before
+	// the shim stops waiting on it; zero means defaultGitIndexLockGrace.
+	indexLockGrace time.Duration
+	realGit        string
 }
 
 // runGateGit is the `aphrollo tdd git [git args...]` entry point: resolves
@@ -111,9 +60,10 @@ func runGateGit(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	cfg := gitShimConfig{
-		waitBudget:   defaultGitWaitBudget,
-		pollInterval: defaultGitPollInterval,
-		realGit:      realGit,
+		waitBudget:     defaultGitWaitBudget,
+		pollInterval:   defaultGitPollInterval,
+		indexLockGrace: defaultGitIndexLockGrace,
+		realGit:        realGit,
 	}
 	if raw := strings.TrimSpace(os.Getenv("APHROLLO_GIT_WAIT_SECS")); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
@@ -230,10 +180,12 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 	// independently-announced ones.
 	start := time.Now()
 	printedQueued := false
+	var indexWatch gitIndexLockWatch
 	for {
 		release, acquired := tdd.TryAcquireFileLock(lockPath)
 		heldByOther := !acquired
-		if acquired && indexLockPresent(indexLockPath) {
+		blockedByIndexLock := acquired && indexLockPresent(indexLockPath)
+		if blockedByIndexLock {
 			// We hold the advisory lock, but a git process that bypassed
 			// the shim (found the real git first on PATH, or ran without
 			// the shim dir prepended) is mid-write on index.lock directly.
@@ -259,6 +211,13 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 			fmt.Fprintln(stderr, gitQueuedLine(ownerPath, indexLockPath))
 			printedQueued = true
 		}
+		// A lock nobody is writing to is the one thing this wait can never
+		// outlast (issue #608): report it with its remedy in seconds rather
+		// than spend the whole budget proving it silently.
+		if line, stalled := indexWatch.stallLine(indexLockPath, cfg.indexLockGrace, blockedByIndexLock); stalled {
+			fmt.Fprintln(stderr, line)
+			return exGitTempFail
+		}
 		elapsed := time.Since(start)
 		if elapsed >= cfg.waitBudget {
 			fmt.Fprintln(stderr, gitGiveUpLine(elapsed, ownerPath))
@@ -266,17 +225,6 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 		}
 		time.Sleep(cfg.pollInterval)
 	}
-}
-
-// indexLockPresent reports whether path exists -- best-effort, any stat
-// error (including "not found") reads as absent. An empty path is "no index
-// lock to wait for" (a repo-scoped verb).
-func indexLockPresent(path string) bool {
-	if path == "" {
-		return false
-	}
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 // runGitWithLock writes the owner file, runs the real git, then removes the
@@ -406,64 +354,6 @@ func gitGlobalArgs(args []string) (prefix, rest []string) {
 		}
 	}
 	return prefix, args[i:]
-}
-
-// gitLockScopeFor classifies rest (args with any leading global options
-// already stripped, per gitGlobalArgs): no lock, the per-worktree index
-// lock, or the repo-wide one. restore/apply/branch/worktree are conditional
-// on their own flags or sub-verb; everything else is a fixed lookup.
-func gitLockScopeFor(rest []string) gitLockScope {
-	if len(rest) == 0 {
-		return gitNoLock
-	}
-	switch verb := rest[0]; verb {
-	case "restore":
-		if containsToken(rest[1:], "--staged") {
-			return gitWorktreeScope
-		}
-		return gitNoLock
-	case "apply":
-		if containsToken(rest[1:], "--index") || containsToken(rest[1:], "--cached") {
-			return gitWorktreeScope
-		}
-		return gitNoLock
-	case "worktree":
-		if len(rest) < 2 {
-			return gitNoLock
-		}
-		switch rest[1] {
-		case "add", "remove", "prune":
-			return gitRepoScope
-		}
-		return gitNoLock
-	case "branch":
-		for _, a := range rest[1:] {
-			if gitBranchMutationFlags[a] {
-				return gitRepoScope
-			}
-		}
-		return gitNoLock
-	default:
-		if gitIndexVerbs[verb] {
-			return gitWorktreeScope
-		}
-		if gitSharedVerbs[verb] {
-			return gitRepoScope
-		}
-		return gitNoLock
-	}
-}
-
-// containsToken reports whether needle appears as an EXACT element of args
-// -- not a prefix/substring match, since e.g. "--staged" and
-// "--staged-with-tree" are different flags.
-func containsToken(args []string, needle string) bool {
-	for _, a := range args {
-		if a == needle {
-			return true
-		}
-	}
-	return false
 }
 
 // gitLockDir resolves which directory a scope's lock file lives in by
