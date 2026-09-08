@@ -108,7 +108,7 @@ internal/sqlc/       sqlc drift guard: config discovery, regen-into-temp, check,
   issue is already closed and nobody looks again. The general rule it comes
   from: never record a status further along than the work actually is. A
   `deferred`, `TIMEOUT` or `SKIPPED` verdict is not a green — the code was not
-  tested. A merge needs the receipt the gate actually demands, not one waved
+  tested. A merge needs the proof the gate actually demands, not one waved
   through. A new hit is admitted by the law's escape comment, never by editing
   a baseline.
 - **Attribution: undercover, always.** Commit messages, PR bodies and issues say
@@ -152,16 +152,16 @@ retired the root build task). aphrollo-infra no longer force-installs it.
 - **What the line means:** `green (N passed)` · `red-missing-impl` (a clean RED) · `red` ·
   `red-bogus` (broken test setup, not a real RED) · `TIMEOUT` / `SKIPPED` / `QUEUED-SKIPPED`
   (**inconclusive — the code was NOT tested**) · `BUILDING (deferred)` (the build outran the
-  budget and continues; its result arrives at the next hook). The only sanctioned manual runs:
-  a mutation proof, a deliberate soak, or ONE targeted `-p <crate> <filter>` after a TIMEOUT.
-- **Commit gate, cheapest first:** staged-baseline guard → ratchet laws → `cargo fmt`
-  → always-run guards → clippy → workspace check → fail-first RED proof → the
-  touched crates' suites. It stops at the first rejection and names the stage.
+  budget and continues; its result arrives at the next hook). The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE targeted `-p <crate> <filter>` after a TIMEOUT.
+- **Commit gate, cheapest first:** staged-baseline guard → ratchet laws → docs check →
+  suppression check → per root: cargo sequential (fmt→guards→clippy→check→fail-first→
+  suites); a Go root also runs vet/lint first; every non-cargo root then runs fail-first
+  and the mechanical suite CONCURRENTLY.
 - **Laws are data:** `.ratchet/laws/*.toml` (scope + one matcher + severity), with baselines in
   the sibling `baselines` dir that only ever go DOWN. `aphrollo ratchet check` judges the tree
   and tightens; `aphrollo ratchet test` proves each law against its fixtures. A new hit is
   admitted by the law's escape comment, NEVER by editing a baseline — a raised one is rejected.
-- **An open point is an ISSUE, never a markdown follow-up:** `aphrollo gate issue "<title>"
+- **An open point is an ISSUE, never a markdown follow-up:** `aphrollo issue "<title>"
   --label <theme>` opens one against this repo's remote, labelled from the list it declares
   (`issue-labels`), and prints the URL as its only output — never park one in a document.
 - **Escapes close the loop.** A red after a local green (CI, merge gate, survivor mutant, a
@@ -172,10 +172,10 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL, the
   git shim (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit) is the WALL.
   Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override
-  with `aphrollo gate allow primary` (the only one of these that works from inside a turn), `APHROLLO_PRIMARY_EDITS=1` or `/tdd primary-edits on`.
-- **A mutation receipt is earned by the COMMIT:** `gate postcommit` starts the lane's run; `aphrollo gate mutants run` (no arguments, in the lane) runs one in the FOREGROUND. Never a repo's own producer script — the box-wide lock wraps the CALL, so a hand-run script is outside it.
+  with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).
+- **A lane is measured, not certified:** `aphrollo gate mutants run` measures THIS checkout's changes against its base in the foreground, cargo-mutants or gremlins driven by the binary itself, and refuses an unaccepted survivor by name; the repo configures the run through `mutants-at-merge`, `mutants-env`, `mutation-baseline-exclude`, `mutation-accept` and `mutants-after` in its TOML table.
 - **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).
 
-_This block is written by `aphrollo gate init`. Edit the template in aphrollo, not
+_This block is written by `aphrollo install`. Edit the template in aphrollo, not
 the block — the next init overwrites whatever is between the markers._
 <!-- aphrollo:end -->

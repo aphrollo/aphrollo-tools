@@ -344,6 +344,12 @@ func measureEnv(root string, cfg MutantsConfig) []string {
 	// construction: 101 of 167 on one lane lived in code only a GPU suite
 	// reaches.
 	out = append(out, cfg.Env...)
+	// The children reach cargo through the queue shim. This marker is the
+	// whole handshake: it is what lets `cargo mutants` run at all, and what
+	// lets the run build without queueing behind every editor on the box.
+	// The call it marks is already inside the box-wide mutation lock, which
+	// is the property the queue would otherwise be protecting.
+	out = append(out, MutationGateEnv+"="+MutationGateMarked)
 	if hasMutantsNextestProfile(root) {
 		out = append(out, "NEXTEST_PROFILE="+mutantsNextestProfile)
 	}

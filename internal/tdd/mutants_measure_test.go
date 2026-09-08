@@ -225,6 +225,14 @@ func TestMeasureEnv_SetsAllThreeTempNamesAndProfile(t *testing.T) {
 	if got := envValueOf(env, "BORLD_GPU"); got != "1" {
 		t.Errorf("BORLD_GPU = %q, want the declared switch exported", got)
 	}
+	// The children of this run reach cargo through the queue shim, which
+	// refuses a bare `cargo mutants` and queues every other build behind the
+	// editors on the box. This marker is what tells the shim the call is the
+	// gate's own: without it the run the gate just started is refused by the
+	// shim it started it through.
+	if got := envValueOf(env, MutationGateEnv); got != MutationGateMarked {
+		t.Errorf("%s = %q, want %q so the cargo shim lets the gate's own run through", MutationGateEnv, got, MutationGateMarked)
+	}
 	if got := envValueOf(env, "NEXTEST_PROFILE"); got != "" {
 		t.Errorf("NEXTEST_PROFILE = %q, want none until the repo declares [profile.mutants]", got)
 	}

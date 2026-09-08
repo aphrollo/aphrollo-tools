@@ -37,36 +37,6 @@ func mutantsLogDir(repoRoot string) string {
 	return filepath.Join(dir, projectKey(repoRoot))
 }
 
-// MutantsRootDir is the repo's one mutants directory. Every containment check
-// keys on this rather than on a lane's own tree: the build-slot bypass, the
-// gc sweep and the primary-checkout guardrail all ask "is this path inside
-// the repo's mutants area", a question that must stay true however many lanes
-// are measuring.
-//
-// "" when repoRoot's primary cannot be resolved (issue #515) — refuse rather
-// than fall back to repoRoot, which nests the tree under the LANE's own
-// .worktrees entry instead of the repo's.
-func MutantsRootDir(repoRoot string) string {
-	primary := primaryCheckoutRoot(repoRoot)
-	if primary == "" {
-		return ""
-	}
-	return filepath.Join(filepath.Dir(primary), ".worktrees", filepath.Base(primary), "mutants")
-}
-
-// MutantsTargetDir is the one build directory every mutation run on this repo
-// shares. A target per lane was measured on borld 2026-09-05 at nine per-lane
-// dirs of 8.3-18.4 GB, and across 44 runs the unmutated baseline builds cost
-// 180 min against 116 min for every per-mutant rebuild. It sits directly
-// under the mutants root because the build-slot bypass is keyed on exactly
-// that containment: a target dir outside it queues like every other build.
-func MutantsTargetDir(repoRoot string) string {
-	if root := MutantsRootDir(repoRoot); root != "" {
-		return filepath.Join(root, "target")
-	}
-	return ""
-}
-
 // primaryCheckoutRoot is the checkout holding the repo's shared git
 // directory: `--git-common-dir`'s PARENT names the one `.git` every worktree
 // of the repo shares, regardless of which one asked.

@@ -163,8 +163,9 @@ type acceptEntryGroup struct {
 // the accepted/unaccepted split. ambiguous names every column-less entry that
 // matched a line carrying more than one distinct mutant: such an entry
 // cannot tell its reviewed mutant apart from an unreviewed sibling, so it is
-// refused rather than applied to any of them — the caller is expected to log
-// each one (see goMutantsReceipt), the same way a bad accept-kind entry is.
+// refused rather than applied to any of them — the caller is expected to
+// report each one (judgeMutants passes them to measureReport, the same way a
+// bad accept-kind entry is quoted).
 func splitAcceptedSurvivors(list map[string]acceptEntryGroup, survivors []MutantOutcome) (accepted, unaccepted []MutantOutcome, kinds AcceptKindCounts, ambiguous []string) {
 	sameLine := make(map[string]int, len(survivors))
 	for _, m := range survivors {

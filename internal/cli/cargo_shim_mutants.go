@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -15,90 +13,48 @@ import (
 // Run bare it copies the whole tree into the OS temp dir and builds it cold,
 // once per job, for hours — measured: two runs, post-edit hooks waiting up to
 // 619 s, 56 deferred in three hours, 11 tree copies left behind at ~135 MB
-// each. Run through the gate's own job it mutates a dedicated warm worktree in
-// place and touches nobody else's target dir at all.
+// each. Run through `aphrollo gate mutants run` it is inside the box-wide
+// mutation lock, which is what keeps a second one from ever starting beside
+// it.
 //
-// So the shim takes two positions on it, and they are the same position:
-// the bare invocation is REFUSED, and the gated one is let PAST the queue —
-// because the thing that made queueing necessary (sharing a target dir) is
-// exactly what the gated run does not do.
+// So the shim takes two positions on it, and they are the same position: the
+// bare invocation is REFUSED, and the gated one is let PAST the queue —
+// because the gated run already holds the lock the queue exists to arbitrate,
+// and queueing it behind an editor's build only makes it hold that lock for
+// longer.
 
 // mutantsRefusal is the whole rejection: what to run instead, and why the
 // invocation typed was not it.
 const mutantsRefusal = "gate: run `aphrollo gate mutants run` — bare cargo mutants builds a cold copy in the OS temp dir and holds the build lock for hours, and a producer invoked directly runs outside the box-wide mutation lock"
 
-// deprecatedMutationGateEnv is the one-release grace: the old handshake
-// variable no longer decides anything (a nested `cargo mutants` is let
-// through by its target dir, same as everything else), but a caller still
-// setting it is not refused outright — it is let through once more and
-// logged, so the removal shows up before it breaks anyone.
-const deprecatedMutationGateEnv = "APHROLLO_MUTATION_GATE"
+// gateMarkedRun reports whether this invocation is a child of `aphrollo gate
+// mutants run`, which puts tdd.MutationGateEnv in the environment it hands
+// its children and is the only thing that does. One marker answers both
+// questions the shim asks about a mutation run — may it invoke `mutants`, and
+// may it skip the queue — because both are earned by the same fact: the call
+// is already inside the box-wide mutation lock.
+func gateMarkedRun() bool {
+	return os.Getenv(tdd.MutationGateEnv) == tdd.MutationGateMarked
+}
 
 // refuseBareMutants reports whether this invocation is a hand-typed `cargo
-// mutants`, and prints the one line that says what to do instead. targetDir
-// is the shim's own resolution of where THIS invocation would build: the
-// gated run mutates its dedicated worktree in place, so a call building into
-// that worktree's own target dir is the gated run, whatever environment it
-// carries or does not. The old MUTATION_GATE handshake variable is dead —
-// this no longer reads it at all.
-func refuseBareMutants(args []string, targetDir string, stderr io.Writer) bool {
-	if cargoVerb(args) != "mutants" || underMutantsWorktree(targetDir) {
-		return false
-	}
-	if os.Getenv(deprecatedMutationGateEnv) == "1" {
-		logDeprecatedMutationGateEnv(targetDir)
+// mutants`, and prints the one line that says what to do instead.
+func refuseBareMutants(args []string, stderr io.Writer) bool {
+	if cargoVerb(args) != "mutants" || gateMarkedRun() {
 		return false
 	}
 	fmt.Fprintln(stderr, mutantsRefusal)
 	return true
 }
 
-// deprecatedMutationGateLogged makes the deprecation notice fire once per
-// process, matching bypassLogged: a build invokes the shim many times, and
-// one line per invocation would drown the log it is meant to make readable.
-var deprecatedMutationGateLogged sync.Once
-
-// resetDeprecatedMutationGateLog lets a test observe the once-per-process rule.
-func resetDeprecatedMutationGateLog() { deprecatedMutationGateLogged = sync.Once{} }
-
-// logDeprecatedMutationGateEnv records a call that relied on the retired
-// handshake variable rather than on building into the mutants worktree.
-func logDeprecatedMutationGateEnv(targetDir string) {
-	deprecatedMutationGateLogged.Do(func() {
-		tdd.AppendGateLog("precommit", targetDir, "cargo", "mutation-gate-env-deprecated", 0)
-	})
-}
-
 // queueBypassAllowed reports whether this invocation may skip the build queue
-// entirely. Both halves are required: the environment must ASK for it (the
-// mutation job sets it), and the target dir being built into must be the
-// dedicated mutants worktree's own. The second half is what keeps the switch
-// from being a general-purpose "ignore the queue" — an ordinary build that
-// bypassed would compile into a directory another build owns.
-func queueBypassAllowed(targetDir string) bool {
-	if os.Getenv(tdd.QueueEnv) != tdd.QueueBypass || targetDir == "" {
-		return false
-	}
-	return underMutantsWorktree(targetDir)
-}
-
-// underMutantsWorktree reports whether dir is inside a
-// <parent>/.worktrees/<repo>/mutants tree — the layout MutantsWorktreeDir
-// creates, recognised by shape rather than by a path handed over in an
-// environment variable, which anything could set.
-func underMutantsWorktree(dir string) bool {
-	dir = filepath.Clean(dir)
-	for {
-		if filepath.Base(dir) == "mutants" && filepath.Base(filepath.Dir(filepath.Dir(dir))) == ".worktrees" {
-			return true
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir || strings.TrimSpace(parent) == "" {
-			return false
-		}
-		dir = parent
-	}
-}
+// entirely. The mutation run may, and nothing else does: it holds the
+// box-wide mutation lock for its whole call, so there is at most one of it on
+// the box, and making it wait for an editor's build only lengthens the window
+// in which nobody else can start one. A caller that sets the marker without
+// being that run bypasses too — the harm is bounded to its own target dir,
+// and every use is counted (see logQueueBypass).
+func queueBypassAllowed() bool { return gateMarkedRun() }
 
 // bypassLogged makes the bypass record itself exactly once per process: a
 // build invokes the shim many times, and one line per invocation would drown
@@ -109,10 +65,10 @@ var bypassLogged sync.Once
 func resetBypassLog() { bypassLogged = sync.Once{} }
 
 // logQueueBypass records that a run went around the build queue. The bypass is
-// a TOLERATED hole — any process can set APHROLLO_QUEUE=bypass with a target
-// dir shaped like the mutation run's, and the shim will honour it. The harm is
-// bounded to that one target dir, and what makes it tolerable is that every
-// use is counted: `gate stats` shows it beside every other waiver.
+// a TOLERATED hole — any process can set the marker the gate's runner sets and
+// the shim will honour it. The harm is bounded to that one target dir, and
+// what makes it tolerable is that every use is counted: `gate stats` shows it
+// beside every other waiver.
 func logQueueBypass(targetDir string) {
 	bypassLogged.Do(func() {
 		tdd.AppendGateLog("precommit", targetDir, "cargo", "queue-bypass", 0)

@@ -9,9 +9,10 @@
 # [workspace.metadata.aphrollo] and this repo has no Cargo.toml to put it in.
 undercover = true
 
-# A lane merges on a mutation proof, not on a green suite alone: the merge
-# gate measures the tree being merged, in the foreground, and refuses on a
-# surviving mutant nobody accepted. It replaces the trio this key retires
+# The key a pre-merge measurement will read: declared true here so the stage
+# that consumes it measures this repo when it lands. Nothing reads it yet, so
+# at this commit `aphrollo gate mutants run`, typed in a lane, is the only
+# thing that measures anything. It replaces the trio it retires
 # (mutation-receipt / mutants-local / mutants-judge-local), which encoded
 # where a document was produced and where it was judged; there is no document.
 mutants-at-merge = true

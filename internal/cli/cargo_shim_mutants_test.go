@@ -10,29 +10,32 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-// mutantsTargetDirForTest is a CARGO_TARGET_DIR shaped like the dedicated
-// mutants worktree's own — the shape `refuseBareMutants` recognises a gated
-// run by, in place of any environment handshake.
-func mutantsTargetDirForTest(t *testing.T) string {
+// ratchet: test_removed TestRunCargoShim_AllowsCargoMutantsThroughTheDeprecatedAliasAndLogsIt: there is no deprecated alias any more — the marker it named IS the handshake, so a call carrying it is the ordinary gated run TestCargoShim_AllowsMutantsWhenTheGateMarkedTheRun covers, not a graced one to count
+// ratchet: test_removed TestRunCargoShim_AllowsCargoMutantsThroughTheGatesRunner: the shim no longer tells a gated run apart by the target dir it builds into; TestCargoShim_AllowsMutantsWhenTheGateMarkedTheRun makes the same claim about the marker that replaced it
+// ratchet: test_removed TestQueueBypass_IsHonouredOnlyUnderTheMutantsTargetDir: the bypass is keyed on the gate's marker rather than on a path shape, so there is no per-directory answer left to pin; TestQueueBypass_IsHonouredForAGateMarkedRunAnywhere states the rule that replaced it
+// ratchet: test_removed TestQueueBypass_RefusesWhenTheMutantsTargetCannotBeResolved: MutantsTargetDir is deleted with the path-shaped bypass, so an unresolvable root is no longer an input the answer depends on
+
+// markGateRun puts the marker `aphrollo gate mutants run` gives its children
+// into this process's environment. It is the whole handshake: the gate's
+// runner holds the box-wide mutation lock around the call, and this is what
+// says so to the shim the call goes through.
+func markGateRun(t *testing.T) {
 	t.Helper()
-	return filepath.Join(t.TempDir(), ".worktrees", "repo", "mutants", "target")
+	t.Setenv(tdd.MutationGateEnv, tdd.MutationGateMarked)
 }
 
 // Two bare `cargo mutants` runs were measured holding the machine-wide build
 // lock for hours while building cold tree copies in the OS temp dir: post-edit
 // hooks waited up to 619 s and 56 were deferred in three hours. The shim
 // refuses the invocation that does that, and names the one command that does
-// it right. Building somewhere other than the mutants worktree's own target
-// dir is what makes it "bare" — no handshake variable rescues it, including
-// the retired MUTATION_GATE, which the shim no longer reads at all.
+// it right.
 func TestRunCargoShim_RefusesABareCargoMutants(t *testing.T) {
 	withIsolatedCargoLock(t)
-	t.Setenv(tdd.MutationGateEnv, "1")
 
 	var stdout, stderr bytes.Buffer
 	code := runCargoShim([]string{"mutants", "--in-diff", "lane.diff"}, strings.NewReader(""), &stdout, &stderr, testCargoShimConfig())
 	if code == 0 {
-		t.Fatal("a bare cargo mutants must not run, MUTATION_GATE=1 or not — that variable is dead")
+		t.Fatal("a bare cargo mutants must not run")
 	}
 	want := "gate: run `aphrollo gate mutants run` — bare cargo mutants builds a cold copy in the OS temp dir and holds the build lock for hours, and a producer invoked directly runs outside the box-wide mutation lock"
 	if got := strings.TrimSpace(stderr.String()); got != want {
@@ -45,7 +48,6 @@ func TestRunCargoShim_RefusesABareCargoMutants(t *testing.T) {
 // refusal exists to stop, and a hidden verb used to let it straight through.
 func TestRunCargoShim_RefusesABareCargoMutantsWithALeadingToolchainOverride(t *testing.T) {
 	withIsolatedCargoLock(t)
-	t.Setenv(tdd.MutationGateEnv, "1")
 
 	var stdout, stderr bytes.Buffer
 	code := runCargoShim([]string{"+nightly", "mutants", "--in-diff", "lane.diff"}, strings.NewReader(""), &stdout, &stderr, testCargoShimConfig())
@@ -58,34 +60,16 @@ func TestRunCargoShim_RefusesABareCargoMutantsWithALeadingToolchainOverride(t *t
 	}
 }
 
-// APHROLLO_MUTATION_GATE is the one-release grace for a caller still using
-// the old handshake: let through even outside the mutants worktree, but
-// counted, so the removal shows up before it breaks anyone.
-func TestRunCargoShim_AllowsCargoMutantsThroughTheDeprecatedAliasAndLogsIt(t *testing.T) {
-	withIsolatedCargoLock(t)
-	cfg := gateConfigDir(t)
-	t.Setenv(deprecatedMutationGateEnv, "1")
-	resetDeprecatedMutationGateLog()
-	t.Cleanup(resetDeprecatedMutationGateLog)
-
-	cfgShim := testCargoShimConfig()
-	cfgShim.realCargo = runVerbStub(t)
-	var stdout, stderr bytes.Buffer
-	code := runCargoShim([]string{"mutants", "--in-diff", "d.diff"}, strings.NewReader(""), &stdout, &stderr, cfgShim)
-	if code != 0 {
-		t.Fatalf("exit = %d, want the deprecated alias to still be honoured\nstderr: %s", code, stderr.String())
-	}
-	if n := countGateLogVerdict(t, cfg, "mutation-gate-env-deprecated"); n != 1 {
-		t.Fatalf("mutation-gate-env-deprecated logged %d times, want exactly once", n)
-	}
-}
-
 // Through the gate's own runner the same invocation is exactly what should
-// happen, and building into the dedicated mutants worktree's own target dir
-// is what tells them apart.
-func TestRunCargoShim_AllowsCargoMutantsThroughTheGatesRunner(t *testing.T) {
+// happen, and the marker in the environment is what tells them apart. The
+// runner sets it and nothing else does, so the refusal above still stands for
+// every hand-typed `cargo mutants`, wherever it builds.
+func TestCargoShim_AllowsMutantsWhenTheGateMarkedTheRun(t *testing.T) {
 	withIsolatedCargoLock(t)
-	t.Setenv("CARGO_TARGET_DIR", mutantsTargetDirForTest(t))
+	markGateRun(t)
+	// An ordinary target dir: the run is recognised by the marker, never by
+	// where it happens to build.
+	t.Setenv("CARGO_TARGET_DIR", filepath.Join(t.TempDir(), "target"))
 
 	cfg := testCargoShimConfig()
 	// A stub that ignores its argv: for the shim to SEE the verb it has to be
@@ -96,69 +80,33 @@ func TestRunCargoShim_AllowsCargoMutantsThroughTheGatesRunner(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want the gated run to proceed\nstderr: %s", code, stderr.String())
 	}
-	if strings.Contains(stderr.String(), "mutation_gate.sh") {
+	if strings.Contains(stderr.String(), "aphrollo gate mutants run") {
 		t.Fatalf("a gated run must not be refused: %q", stderr.String())
 	}
 }
 
-// The bypass is what keeps a mutation run from serializing against every
-// editor on the box. It is honoured ONLY for the dedicated mutants worktree's
-// own target dir: anywhere else it would let an ordinary build walk past every
-// waiter into a directory another build owns.
-func TestQueueBypass_IsHonouredOnlyUnderTheMutantsTargetDir(t *testing.T) {
-	parent := t.TempDir()
-	mutants := filepath.Join(parent, ".worktrees", "borld", "mutants", "target-mutants")
-	ordinary := filepath.Join(parent, "borld", "target")
-
-	t.Setenv(tdd.QueueEnv, tdd.QueueBypass)
-	if !queueBypassAllowed(mutants) {
-		t.Fatalf("the mutants worktree's own target dir (%s) must bypass the queue", mutants)
+// The bypass keeps a mutation run from serializing against every editor on
+// the box. What earns it is the box-wide mutation lock the gate's runner
+// holds around the whole call — a property of the CALLER, not of the
+// directory it builds into — so the marker carries it and the path does not
+// enter into it.
+func TestQueueBypass_IsHonouredForAGateMarkedRunAnywhere(t *testing.T) {
+	markGateRun(t)
+	if !queueBypassAllowed() {
+		t.Fatal("a run the gate marked holds the mutation lock already and must not queue behind the editors on the box")
 	}
-	if !queueBypassAllowed(filepath.Join(mutants, "debug", "deps")) {
-		t.Fatal("a directory under the mutants target dir is still the mutation run's own")
-	}
-	// The repo's one shared mutation target dir sits DIRECTLY under the mutants
-	// root, beside the per-lane trees, and is what every lane's run builds into.
-	// A real repo, not a bare path: MutantsTargetDir only resolves one.
-	repo := gitInit(t, map[string]string{"x.txt": "x\n"})
-	shared := tdd.MutantsTargetDir(repo)
-	if !queueBypassAllowed(filepath.Join(shared, "debug", "deps")) {
-		t.Fatalf("the repo's shared mutation target dir (%s) must bypass the queue, or every lane's run queues behind every editor", shared)
-	}
-	if queueBypassAllowed(ordinary) {
-		t.Fatalf("an ordinary target dir (%s) must never bypass the queue", ordinary)
-	}
-	t.Setenv(tdd.QueueEnv, "")
-	if queueBypassAllowed(mutants) {
-		t.Fatal("without the environment asking for it, nothing bypasses")
+	t.Setenv(tdd.MutationGateEnv, "")
+	if queueBypassAllowed() {
+		t.Fatal("without the marker, nothing bypasses the build queue")
 	}
 }
 
-// A repo whose primary checkout cannot be resolved (issue #515) makes
-// MutantsTargetDir answer "" rather than a guessed path — and the bypass must
-// read that as NOT contained, never as everything. queueBypassAllowed's own
-// `targetDir == ""` check already refuses this; this pins it so the answer
-// stays NO once MutantsTargetDir can reach it in practice.
-func TestQueueBypass_RefusesWhenTheMutantsTargetCannotBeResolved(t *testing.T) {
-	unresolved := filepath.Join(t.TempDir(), "never-a-repo")
-	target := tdd.MutantsTargetDir(unresolved)
-	if target != "" {
-		t.Fatalf("MutantsTargetDir(%q) = %q, want \"\" — nothing here has ever been a git repository", unresolved, target)
-	}
-	t.Setenv(tdd.QueueEnv, tdd.QueueBypass)
-	if queueBypassAllowed(target) {
-		t.Fatal(`queueBypassAllowed("") must never bypass the queue — an unresolved root is not contained in anything`)
-	}
-}
-
-// And the shim acts on that: with the lock held by somebody else, a bypassing
+// And the shim acts on that: with the lock held by somebody else, a marked
 // run goes ahead immediately and says nothing about a queue.
 func TestRunCargoShim_BypassRunsWhileAnotherBuildHoldsTheLock(t *testing.T) {
 	withIsolatedCargoLock(t)
-	target := filepath.Join(t.TempDir(), ".worktrees", "borld", "mutants", "target-mutants")
-	t.Setenv("CARGO_TARGET_DIR", target)
-	t.Setenv(tdd.QueueEnv, tdd.QueueBypass)
-	t.Setenv(tdd.MutationGateEnv, "1")
+	t.Setenv("CARGO_TARGET_DIR", filepath.Join(t.TempDir(), "target"))
+	markGateRun(t)
 
 	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 	if !ok {
@@ -183,16 +131,14 @@ func TestRunCargoShim_BypassRunsWhileAnotherBuildHoldsTheLock(t *testing.T) {
 	}
 }
 
-// The bypass is a tolerated hole: any process can set APHROLLO_QUEUE=bypass
-// with a target dir shaped like the mutation run's and skip the build queue.
-// The harm is bounded to that one target dir, and what makes it tolerable is
-// that every use is COUNTED — a bypass nobody can see is a bypass nobody
-// manages.
+// The bypass is a tolerated hole: any process can set the marker and skip the
+// build queue. The harm is bounded to that run's own target dir, and what
+// makes it tolerable is that every use is COUNTED — a bypass nobody can see
+// is a bypass nobody manages.
 func TestQueueBypass_IsLoggedOncePerProcess(t *testing.T) {
 	cfg := gateConfigDir(t)
-	target := filepath.Join(t.TempDir(), ".worktrees", "borld", "mutants", "target-mutants")
-	t.Setenv("CARGO_TARGET_DIR", target)
-	t.Setenv(tdd.QueueEnv, tdd.QueueBypass)
+	t.Setenv("CARGO_TARGET_DIR", filepath.Join(t.TempDir(), "target"))
+	markGateRun(t)
 	resetBypassLog()
 
 	cfgShim := testCargoShimConfig()

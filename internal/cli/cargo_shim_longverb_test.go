@@ -87,17 +87,16 @@ func chdirCargoProject(t *testing.T) string {
 }
 
 // TestRunCargoShim_LongVerb_PrewarmsUnderSlotThenRunsFree is the behaviour
-// that matters: `cargo mutants` records exactly two execCargo calls — the
+// that matters: `cargo bench` records exactly two execCargo calls — the
 // prewarm while a slot is HELD, then the ORIGINAL args once the slot is
 // free again — so a multi-hour run never owns the box's build capacity.
+// `mutants` is the other long verb and is deliberately NOT the example here:
+// the only one that reaches the shim at all is the gate's own run, which
+// carries the marker and is let past the queue before the long-verb path is
+// ever consulted, while a bare one is refused before it.
 func TestRunCargoShim_LongVerb_PrewarmsUnderSlotThenRunsFree(t *testing.T) {
 	withIsolatedCargoLock(t)
-	// A gated run is the only `cargo mutants` that reaches this path at all:
-	// a bare one is refused before the slots are ever consulted. The gated
-	// run is recognised by building into the dedicated mutants worktree's own
-	// target dir, not by any environment handshake.
 	chdirCargoProject(t)
-	t.Setenv("CARGO_TARGET_DIR", mutantsTargetDirForTest(t))
 	cfg := cargoShimConfig{
 		waitBudget:   time.Second,
 		pollInterval: 20 * time.Millisecond,
@@ -109,10 +108,10 @@ func TestRunCargoShim_LongVerb_PrewarmsUnderSlotThenRunsFree(t *testing.T) {
 	execCargoHookForTest = func(args []string) {
 		calls = append(calls, append([]string{}, args...))
 		switch args[0] {
-		case "check":
+		case "build":
 			_, _, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 			slotHeldDuringPrewarm = !ok
-		case "mutants":
+		case "bench":
 			_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 			slotFreeDuringLongRun = ok
 			if ok {
@@ -122,7 +121,7 @@ func TestRunCargoShim_LongVerb_PrewarmsUnderSlotThenRunsFree(t *testing.T) {
 	}
 	t.Cleanup(func() { execCargoHookForTest = nil })
 
-	inputArgs := []string{"mutants", "--in-diff", "d.diff"}
+	inputArgs := []string{"bench", "-p", "movement"}
 	var stdout, stderr bytes.Buffer
 	if code := runCargoShim(inputArgs, strings.NewReader(""), &stdout, &stderr, cfg); code != 0 {
 		t.Fatalf("exit = %d, want 0, stderr=%s", code, stderr.String())
@@ -131,7 +130,7 @@ func TestRunCargoShim_LongVerb_PrewarmsUnderSlotThenRunsFree(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("expected a prewarm then the long run, got %d calls: %+v", len(calls), calls)
 	}
-	if want := []string{"check", "--tests"}; !reflect.DeepEqual(calls[0], want) {
+	if want := []string{"build", "--benches"}; !reflect.DeepEqual(calls[0], want) {
 		t.Fatalf("first call = %+v, want the prewarm %+v", calls[0], want)
 	}
 	if !reflect.DeepEqual(calls[1], inputArgs) {

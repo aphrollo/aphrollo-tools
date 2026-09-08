@@ -5,13 +5,12 @@ import (
 	"path/filepath"
 )
 
-// goTmpDirName is the leaf GoTmpRootDir creates beside the worktrees, the
-// same convention MutantsRootDir's own "mutants" leaf uses.
+// goTmpDirName is the leaf GoTmpRootDir creates beside the worktrees, one
+// directory for the whole repo rather than one per lane.
 const goTmpDirName = "gotmp"
 
-// GoTmpRootDir is the repo's shared go-scratch directory, resolved the same
-// way MutantsRootDir resolves the mutation runner's own directory: beside
-// the worktrees, keyed on the PRIMARY checkout, never nested inside dir.
+// GoTmpRootDir is the repo's shared go-scratch directory: beside the
+// worktrees, keyed on the PRIMARY checkout, never nested inside dir.
 //
 // dir is routinely a LANE worktree, and `.git` is one of rootMarkers
 // (runner.go): landing the scratch dir inside dir meant every t.TempDir()
@@ -24,8 +23,8 @@ const goTmpDirName = "gotmp"
 // leaves nothing else to sweep.
 //
 // "" when dir's primary checkout cannot be resolved — refuse rather than
-// fall back to a path inside dir, which reproduces the bug this fixes (the
-// same refusal MutantsRootDir makes for the identical reason, issue #515).
+// fall back to a path inside dir, which reproduces the bug this fixes
+// (issue #515).
 func GoTmpRootDir(dir string) string {
 	if dir == "" {
 		return ""
