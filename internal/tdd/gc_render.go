@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -15,6 +16,7 @@ var gcTierNames = map[GCKind]string{
 	GCKindDepsMember:     "workspace artifacts",
 	GCKindDepsThirdParty: "third-party artifacts",
 	GCKindMutants:        "mutants trees",
+	GCKindMutantsTarget:  "mutants build dirs",
 	GCKindMutantsTemp:    "mutants temp copies",
 	GCKindStrayTarget:    "stray target dirs",
 }
@@ -26,7 +28,8 @@ func writeTierTotals(b *strings.Builder, cands []GCCandidate) {
 			totals[c.Kind] += c.Size
 		}
 	}
-	for _, k := range []GCKind{GCKindIncremental, GCKindDepsMember, GCKindDepsThirdParty, GCKindMutants, GCKindMutantsTemp, GCKindStrayTarget} {
+	for _, k := range []GCKind{GCKindIncremental, GCKindDepsMember, GCKindDepsThirdParty, GCKindMutants,
+		GCKindMutantsTarget, GCKindMutantsTemp, GCKindStrayTarget} {
 		if totals[k] > 0 {
 			fmt.Fprintf(b, "  %-22s %9s\n", gcTierNames[k], formatBytes(totals[k]))
 		}
@@ -66,6 +69,28 @@ func RenderGC(cands []GCCandidate, applied bool, freed int64) string {
 // out here; everything else falls through to time.ParseDuration. A negative
 // or unparseable age is an error, never a silent default -- it would
 // otherwise sweep everything.
+func ParseGCAge(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("empty age")
+	}
+	if days, ok := strings.CutSuffix(s, "d"); ok {
+		n, err := strconv.Atoi(days)
+		if err != nil || n <= 0 {
+			// Zero selects every cache there is, which is a cold rebuild of
+			// the workspace dressed up as disk hygiene.
+			return 0, fmt.Errorf("invalid age %q (must be greater than zero)", s)
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("invalid age %q (must be greater than zero)", s)
+	}
+	return d, nil
+}
+
+// formatBytes renders a size the way an operator reads one.
 func formatBytes(n int64) string {
 	const unit = 1024
 	if n < unit {

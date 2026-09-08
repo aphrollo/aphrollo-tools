@@ -1813,7 +1813,11 @@ rather than on every session start.
 Build caches this binary's own gates create and use are the biggest thing on
 a Rust box's disk (a measured 417 GB `target/`, 202 GB of it
 `debug/incremental`, plus orphan worktree build dirs and stray target dirs
-with nothing left pointing at them). `gc` reclaims exactly six kinds of leftover and nothing else:
+with nothing left pointing at them). `gc` reclaims exactly the kinds of
+leftover below and nothing else. Every area it looks in belongs to some
+checkout of this repo — the invoking one, the main one, and every registered
+worktree — because a lane's mutation run leaves its directories beside the
+LANE while the merge that would sweep them is run from the primary:
 
 | category | what qualifies |
 |---|---|
@@ -1822,6 +1826,8 @@ with nothing left pointing at them). `gc` reclaims exactly six kinds of leftover
 | stale lock litter | orphan `.owner` records in the temp dir, idle **> 1 day** (`--lock-age`), whose lock nobody currently holds — the acquire attempt IS the liveness test — plus this binary's own `aphrollo-*-stub-*` / `*-pkgtest-*` test dirs. A `.lock` file itself is NEVER deleted: it is the mutual exclusion, and on Windows a delete-pending name makes the next open fail, which reads as "acquired" |
 | stale build artifacts | cargo never deletes a SUPERSEDED metadata hash, so `deps/` keeps one set of outputs per worktree path and per profile change forever (borld measured 2026-09-02: `target/debug/deps` at 207 GB / 24,260 files, 234 distinct `server-<hash>` fingerprints). Two tiers by what a rebuild COSTS: **workspace members at 3d** (they relink in seconds) and **third-party artifacts at 14d**. Matches only cargo's own `<crate>-<hash16>` shape in `deps/`, `.fingerprint/`, `build/` and `incremental/`; anything else is left alone |
 | mutants tree copies | `../.mutants/<worktree>/*` older than 1d, and ONLY while no `cargo-mutants` process is alive (those copies are the trees a live run is testing) |
+| mutants shard dirs | `../.mutants/<worktree>/shard-<i>` — one process's output, logs and tree copies. No age bar: ownership decides, and a shard directory whose run is over is garbage the moment that process exits |
+| mutants build dirs | `../.mutants/<worktree>/target-<i>` — a shard's PERSISTENT build dir, kept on purpose so the next run copies megabytes and still builds incrementally. Reclaimable once idle past `--older-than`, listed with what deleting it costs (the next run there builds cold), never while a live build owns it, and swept while HOLDING that directory's own build lock |
 | orphan worktree builds | a directory beside a repo's registered external worktrees that holds nothing but `target/` — git dropped the worktree, the build dir survived |
 | stray target dirs | a directory at depth 1 under the repo root or a registered worktree root that carries cargo's own `.rustc_info.json`, is **not** the resolved target dir, and is idle **> 3d** — a hand-made `target-sky/` nobody builds into any more (33 GB found on one box), or a lane worktree's own `target/` nobody has built in for days (102 GB found on another). `.rustc_info.json` is the whole test: `CACHEDIR.TAG` is written only when cargo CREATES the directory, so a target dir a copy or a restore left behind has none, and a cache that carries a tag alone is not a target dir at all. It is swept while HOLDING that path's own build lock — a stray one can still be some ad hoc `--target-dir` invocation's live target |
 

@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -64,6 +63,7 @@ const (
 	GCKindOrphanWorktree
 	GCKindTempLitter
 	GCKindMutants
+	GCKindMutantsTarget
 	GCKindMutantsTemp
 	GCKindDepsMember
 	GCKindDepsThirdParty
@@ -130,7 +130,13 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 		out = append(out, gcDeferredJobFiles(deferredDirPath(), deferredJobMaxAge, time.Now())...)
 	}
 	if scope.Mutants {
-		out = append(out, gcMutantsTrees(measureTempDir(repo), DefaultMutantsAge, time.Now())...)
+		// Every checkout's own area, not just this one's: a lane's mutation
+		// run leaves its shard and build directories beside the LANE, and the
+		// merge that would sweep them is run from the primary.
+		for _, area := range mutantsRunAreas(repo) {
+			out = append(out, gcMutantsRunDirs(area, olderThan, time.Now())...)
+			out = append(out, gcMutantsTrees(area, DefaultMutantsAge, time.Now())...)
+		}
 		out = append(out, gcMutantsTempCopies(MutantsTempDirs(), time.Now())...)
 		out = append(out, gcTempTargetDirs(MutantsTempDirs(), time.Now())...)
 	}
@@ -496,6 +502,12 @@ func gcTargetInterlock(repo string, c GCCandidate) string {
 		// These live INSIDE the target dir: a build mid-way must not lose an
 		// rlib it is about to link.
 		return ResolveCargoTargetDir(repo)
+	case GCKindMutantsTarget:
+		// A shard's persistent build dir IS a cargo target dir, so the lock
+		// that protects it is its own. The repo's resolved target dir is a
+		// different directory with a different lock, and holding that one
+		// while deleting this one protects nothing at all.
+		return c.Path
 	case GCKindStrayTarget:
 		// The candidate IS a target dir by construction (isCargoTargetDir
 		// required both marker files) — interlocked on ITS OWN path, not
@@ -531,32 +543,6 @@ func gcProtected(path string) bool {
 		}
 	}
 	return false
-}
-
-// RenderGC formats a scan (or a sweep) for a terminal: one line per
-// candidate with path, size and reason, then a total. A dry run ends with
-// the exact command that acts on it; an applied run reports what it freed.
-// gcTierNames labels the categories whose RISK differs, so a reader can see
-// where the gigabytes come from instead of one lump sum.
-func ParseGCAge(s string) (time.Duration, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0, fmt.Errorf("empty age")
-	}
-	if days, ok := strings.CutSuffix(s, "d"); ok {
-		n, err := strconv.Atoi(days)
-		if err != nil || n <= 0 {
-			// Zero selects every cache there is, which is a cold rebuild of
-			// the workspace dressed up as disk hygiene.
-			return 0, fmt.Errorf("invalid age %q (must be greater than zero)", s)
-		}
-		return time.Duration(n) * 24 * time.Hour, nil
-	}
-	d, err := time.ParseDuration(s)
-	if err != nil || d <= 0 {
-		return 0, fmt.Errorf("invalid age %q (must be greater than zero)", s)
-	}
-	return d, nil
 }
 
 // dirNewestAndSize walks a directory once for both facts a candidate needs:

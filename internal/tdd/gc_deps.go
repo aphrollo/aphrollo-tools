@@ -142,6 +142,13 @@ func gcMutantsTrees(base string, minAge time.Duration, now time.Time) []GCCandid
 		if !e.IsDir() {
 			continue
 		}
+		// The sharded runner's own directories are judged by their own rules
+		// (gc_mutantsdirs.go): a shard dir has no age bar and a persistent
+		// build dir must say what deleting it costs. What is left here is
+		// what an unsharded run left behind — a bare tree copy.
+		if strings.HasPrefix(e.Name(), gcMutantsShardPrefix) || strings.HasPrefix(e.Name(), gcMutantsTargetPrefix) {
+			continue
+		}
 		path := filepath.Join(base, e.Name())
 		newest, size := dirNewestAndSize(path)
 		if newest.IsZero() || now.Sub(newest) < minAge {
