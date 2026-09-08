@@ -1,112 +1,207 @@
 # The mutation runner contract
 
-This describes the mutation run `aphrollo gate mutants run` performs: where
-it happens, what it may skip, what it must set for the tool it drives, and
-how it reads the answer back. Much of the text below still describes the
-retired arrangement in which a consuming repo owned the producer script and
-the run left a signed receipt behind; the run is in this binary now and
-nothing signs anything.
+The binary runs the mutation measurement itself. There is no producer script
+in the consuming repo, no environment-variable protocol between the two, and
+no document signed at the end of a run: the measurement and the judgement are
+one event, in the foreground, on the tree that is about to land.
 
-## Where a run happens
+Two entry points, one code path (`internal/tdd/mutants_measure.go`):
 
-The run measures the checkout it was typed in, in place. Its build directory
-is its own, `<resolved target dir>/mutants/target`, beside the temp dir it
-keeps off the system drive: it goes around the build queue, so nothing else
-may be compiling where it compiles.
+- the **pre-merge stage** (`internal/tdd/mutants_stage.go`), which runs when
+  the repo declares `mutants-at-merge = true` and refuses the merge on an
+  unaccepted survivor;
+- **`aphrollo gate mutants run`**, which measures THIS checkout against its
+  base and exits 1 on the same finding. Nightly CI on `main` calls it with
+  `--base <checkpoint>` (`.github/workflows/nightly-mutants.yml`).
 
-**One run per BOX, not one per repo.** Before the producer is invoked at all,
-the gate takes a machine-wide advisory lock and holds it for the run's whole
-duration — its own cold build included, not only its test phase. A wall-clock
-test with `threads-required = "num-cpus"` has already declared that a single
-run needs every thread on the box, and a cold build of the same crates from
-two lanes at once has been observed to OOM rustc; four runs sharing the box
-4:1 measure nothing usefully for any of them (issue #253). A second run on the
-same machine queues rather than starting, announcing who it is waiting for
-(and what repo) roughly once a minute while it does. There is no timeout on
-this wait — a lane that abandoned it and ran anyway would recreate the exact
-oversubscription the lock exists to prevent.
+What this replaces refused 150 merges over three weeks, logged no reason for
+141 of them, and named a surviving mutant in none: it judged a receipt, and
+the seven paperwork checks it ran on that receipt sat ahead of the only
+question worth asking. The rest of this page is what the run does instead.
 
-The tool is invoked with:
+## What a repo declares
 
-| variable | meaning |
-|---|---|
-| `APHROLLO_MUTATION_GATE=1` | this run came through the gate. The cargo shim REFUSES `cargo mutants` without it, and lets a run carrying it past the build queue |
-| `CARGO_TARGET_DIR` | the run's own build dir, `<resolved target dir>/mutants/target`, which nothing the build queue schedules ever compiles into |
-| `APHROLLO_MUTANTS_ARGS` | the cargo-mutants flags the gate computed — pass them through VERBATIM |
-| `APHROLLO_MUTANTS_DIFF` | the reduced lane diff the run is scoped to |
-| `APHROLLO_MUTANTS_BASE` | the base sha the receipt must record |
-| `APHROLLO_MUTANTS_ENV` | space-separated `NAME=VALUE` switches to set for the mutation run (see below) |
-| `APHROLLO_MUTANTS_JOBS` | the concurrency cap the gate computed, with `APHROLLO_MUTANTS_JOBS_WHY` explaining it |
-| `APHROLLO_MUTANTS_BASELINE_EXCLUDED` | how many `mutation-baseline-exclude` entries the gate folded into the nextest passthrough below |
+One table, the same one ratchet is configured from: `[workspace.metadata.aphrollo]`
+in `Cargo.toml` for a Cargo workspace, `[aphrollo]` in `aphrollo.toml` for
+everything else. The Cargo spelling wins when a repo has both.
 
-A producer MUST append `$APHROLLO_MUTANTS_ARGS` to its own `cargo mutants`
-invocation, verbatim and unmodified. A script that instead builds its own
-fixed argv (its own `--in-diff`, its own `--package` list, no `--exclude-re`
-at all) silently drops every one of these onto the floor: the touched-package
-narrowing (which packages the unmutated BASELINE even builds), the
-already-judged-mutant exclusion a restart depends on to avoid re-measuring
-what an earlier attempt already caught, and the `mutation-baseline-exclude`
-filterset a repo declared to keep a flaky wall-clock test from vetoing every
-receipt. None of this fails loudly — cargo-mutants still runs, the receipt
-still gets signed, and the ONLY visible difference is that the run measures
-more than it needed to and never appears to shrink no matter how much of the
-diff or the exclusion list grows (issue #423). The gate's own signal for this
-failure mode is the `APHROLLO_MUTANTS_ARGS unread` warning: if it computed a
-non-empty value here and the producer's own stdout/stderr shows no trace of
-it, the gate logs one line naming the variable rather than staying silent —
-worth checking whenever it appears, but its ABSENCE is not proof the args
-were read, only that nothing looked wrong from the outside.
+| key | type | meaning |
+|---|---|---|
+| `mutants-at-merge` | bool | run the measurement at pre-merge-commit. Absent or false: the stage logs `mutants-skipped:not-declared` and passes |
+| `mutants-env` | string array | `NAME=VALUE` switches exported for the run — the suites a mutant's code is only reachable from |
+| `mutation-baseline-exclude` | string array | `"<nextest filter> # why"` entries, folded into one `-E not(...)` for the run's whole test invocation |
+| `mutation-accept` | string array | the survivors somebody signed off on, with a reason each |
+| `mutants-after` | string | a repo-relative path run after judgement, in the worktree. A path with no file there is a refusal, not a silent skip |
 
-`APHROLLO_MUTANTS_ARGS` is always of the shape
+Four keys are **retired** and refused by name, before any suite runs, with
+`mutants-at-merge` named as the replacement: `mutation-receipt`,
+`mutants-local`, `mutants-judge-local`, `mutation-runner`. The trio encoded
+where a receipt was produced and where it was judged; the fourth named the
+script that produced it. A repo still declaring one believes it is gated and
+is not, which is the whole reason the refusal is loud rather than a shrug.
 
-```
---in-place --in-diff <diff> --test-tool=nextest [--baseline skip] [--package <name> ...] [--exclude-re <mutant> ...] [-- -E <filterset>]
+```toml
+[workspace.metadata.aphrollo]
+mutants-at-merge = true
+mutants-env = ["FORGE_GPU_TESTS=1"]
+mutation-baseline-exclude = [
+  "test(conditioner_burst) # box-contended wall-clock test; fails under load whether or not a mutation is applied (issue #265)",
+]
+mutants-after = "tools/mutants_after.sh"
 ```
 
-- `--in-place` — mutate the warm worktree. NEVER let cargo-mutants copy the
-  tree: the copies land in the OS temp dir, build cold, and nothing collects
-  them (11 copies, ~135 MB each, measured on one box).
-- `--baseline skip` appears only when the gate's own log shows this checkout's
-  last commit-gate run green inside the window; the run must not skip the
-  baseline on its own initiative.
-- `--package <name>` entries are the lane's own touched crates, one flag per
-  crate. This is what keeps the unmutated BASELINE scoped to the crates the
-  lane actually touched: the commit gate already proved the whole tree green
-  for this tip, so re-proving it here only widens the blast radius — a
-  wall-clock test failing in some other lane's untouched crate must not veto
-  this receipt (issue #251). Absent entirely when the touched-crate set could
-  not be determined, which means run the whole workspace, same as before this
-  flag existed — never pass `--package` for an empty or guessed set.
-- `--exclude-re` entries are mutants an interrupted earlier attempt already
-  judged. A restart measures what is left.
-- `-- -E <filterset>` appears only when the repo declares
-  `mutation-baseline-exclude`, and everything after `--` is cargo-mutants' own
-  passthrough to the test tool — forwarded to the SAME `cargo nextest run` it
-  invokes for the unmutated baseline and for every mutant, so one flag covers
-  both (issue #265: a wall-clock test that fails under load with or without a
-  mutation both vetoes a receipt for a reason the tree is not responsible for,
-  and reads a mutant as CAUGHT when the load, not the mutation, is what
-  failed it). A repo declares it under `[aphrollo]` in `aphrollo.toml`, or
-  `[workspace.metadata.aphrollo]` in `Cargo.toml`, as a list of `"<nextest
-  filter expression> # why"` entries — the same shape and validation
-  `mutation-accept` uses, and an entry with no reason does not count:
+Every switch named in `mutants-env` must also be registered in the repo's
+dev-instrument registry — an env switch that gates a suite is exactly the kind
+that law exists to catch.
 
-  ```toml
-  [workspace.metadata.aphrollo]
-  mutation-baseline-exclude = [
-    "test(conditioner_burst) # box-contended wall-clock test; fails under load whether or not a mutation is applied (issue #265)",
-    "test(moving_bandwidth) # ditto",
-  ]
-  ```
+## What is measured
 
-  The gate combines every reasoned entry into one `not(<f1> + <f2> + ...)`
-  filterset and reports how many entries made it up in
-  `APHROLLO_MUTANTS_BASELINE_EXCLUDED` and in the receipt's own `excluded`
-  field (see below) — visible in the artefact a merge reads, not only in
-  config, since the whole risk of this feature is a repo quietly excluding
-  its way to a green receipt. The runner may derive the same count itself by
-  counting its own `mutation-baseline-exclude` entries, the way it already
-  counts `mutation-accept` entries for `accepted`.
+The measured side is always the **working tree** against a base:
+
+- in a lane checkout, the base is `merge-base(HEAD, <default branch>)` — the
+  newest trunk commit the lane already contains, so a catch-up merge does not
+  charge the lane for everything trunk did in between;
+- at **pre-merge-commit**, HEAD is still trunk and the merge result exists
+  only in the index and the working tree, so the base is
+  `merge-base(HEAD, <incoming tip>)` and the merged tree is what gets
+  measured. The tip is read from `MERGE_HEAD`, and from `GIT_REFLOG_ACTION`
+  when there is none — a clean automerge fires this hook BEFORE `MERGE_HEAD`
+  is written, and the reflog action is then the only signal that names the
+  branch coming in. Neither resolving is a refusal that says so;
+- `--base <sha>` overrides both.
+
+File selection is `git diff --name-only <base> -- 'crates/**/src/**.rs'` and
+the diff handed to cargo-mutants is `git diff <base> -- <those files>`, with
+no `HEAD` operand in either: selection and content are one diff, or a run
+selects nothing while the diff file still describes the worktree. A diff
+naming no mutable source passes with `mutants: nothing to measure (0 changed
+source files)` and runs the tool zero times.
+
+### The tree is checked, not trusted
+
+cargo-mutants mutates the tree IN PLACE — that is what makes the run cheap
+(no 135 MB copy per mutant, no cold rebuild of the world) and it is the one
+way the run can damage what it is judging: the tool restores each mutation as
+it finishes with it, so a run that is killed, or that dies on a full drive,
+leaves the last mutation in the source. Merging that merges a mutant.
+
+So the whole `git diff` against HEAD is snapshotted before the run and
+compared after it, on every exit path including a no-verdict exit and the lone
+re-run. The comparison is with ITSELF, never against a clean tree: at
+pre-merge-commit the worktree legitimately carries the whole merge result, so
+"is it clean" is the wrong question and would refuse every merge. A difference
+refuses, with `git diff --stat` and the exact `git checkout -- <files>` that
+restores them. The tree is **never** restored automatically — a tool that
+rewrites source on its way out is not one anybody can reason about
+mid-incident. Token: `mutants-refused:tree-changed`.
+
+## The argv
+
+Exactly this, for a Cargo repo:
+
+```
+cargo mutants --in-place --in-diff <diff> --no-shuffle --test-tool=nextest \
+  --minimum-test-timeout <T> --timeout-multiplier 3 --jobs <J> \
+  [--package <p> ...] [-- -E not(<filter>)]
+```
+
+- `--in-place` — never let cargo-mutants copy the tree: the copies land in the
+  OS temp dir, build cold, and nothing collects them (11 copies, ~135 MB each,
+  measured on one box).
+- `--no-shuffle` — two runs of the same tree must name their mutants in the
+  same order, or one report cannot be compared with the one before it.
+- `--package` — one per crate the diff touches. This scopes the unmutated
+  BASELINE as well as the mutant pool: a wall-clock test failing in some other
+  lane's untouched crate must not veto this measurement (issue #251). Absent
+  when the touched-crate set could not be determined, which means the whole
+  workspace.
+- `-- -E not(<filter>)` — present only when `mutation-baseline-exclude` is
+  non-empty. Everything after `--` is cargo-mutants' own passthrough to the
+  test tool, forwarded to the SAME `cargo nextest run` it invokes for the
+  baseline and for every mutant, so one flag covers both.
+- `--run-ignored`, `--ignored` and `--include-ignored` never appear, in any
+  position, whatever the repo declares. nextest's filterset language has no
+  `ignored()` predicate, so "these ignored tests and no others" cannot be
+  expressed on a command line at all; the measured set is the nextest
+  profile's own `default-filter` intersected with
+  `not(<mutation-baseline-exclude>)`, and nothing else.
+
+A timed-out mutant is re-run once, alone, with `--jobs 1` and an anchored
+`--re` naming only the mutants under re-examination. Nine timeouts on one lane
+were all contention, and a refusal that names contention as a survivor is a
+false report; one that times out again with the box to itself stays
+**unmeasured**, which is not the same as caught, and refuses the merge by
+name.
+
+### Timeouts
+
+`<T> = max(3 × last baseline seconds, 120)`. The last baseline is read from
+`<state>/mutants/<repo>/baseline_seconds` (120 s when absent) and written back
+from the run's own `Unmutated baseline in Ns build + Ms test` line — a budget
+derived from a suite that actually ran on THIS box is the only one that tells
+a slow test from a mutant that hangs. Nine timeouts were measured at
+cargo-mutants' own 30 s default while eight cold builds shared the box.
+
+### Concurrency
+
+`<J> = min(cores / 6, ram_gb / 6, 2)`, floored at 1, and the run PRINTS the
+cap with the limit that bound it — "2 jobs" without "cap 2" says nothing:
+
+```
+mutants: 2 jobs (min(cores 24/6=4, ram 64GB/6=10, cap 2) — cap 2)
+```
+
+Memory that cannot be READ is not memory that is absent: an unreadable reading
+prints `ram unknown` and lets the cores decide alone. `--jobs <n>` overrides.
+
+**One run per BOX, not one per repo.** The call is wrapped in a machine-wide
+advisory lock held for its whole duration, cold build included. A wall-clock
+test with `threads-required = "num-cpus"` has already declared that one run
+needs every thread on the box, and four runs sharing it 4:1 measure nothing
+usefully for any of them (issue #253). A second run queues, announcing who it
+is waiting for about once a minute. There is no timeout on that wait.
+
+### Temp dirs, build dir, free space
+
+Three runs died at mutant 101 of 131 on a full disk: `TMPDIR` alone was
+exported, a Windows cargo-mutants ignored it, and the tree copies took `C:`
+from 40 GB free to 12 GB. So:
+
+1. **All three** of `TMPDIR`, `TMP` and `TEMP` are set, on every platform, to
+   `<resolved target dir>/mutants`. Setting one and inheriting the others is
+   the bug: whichever name the tool reads is the one that decides.
+2. `CARGO_TARGET_DIR` is `<resolved target dir>/mutants/target` — the run's
+   own build directory, which nothing the build queue schedules ever compiles
+   into. That is what makes skipping the queue safe rather than merely faster:
+   a mutation build owns its directory for hours behind cargo's own blocking
+   lock.
+3. Free space on that drive is checked against `jobs × 15 GB` BEFORE the run
+   starts; a shortfall refuses with one line naming both numbers and logs
+   `mutants-refused:disk`. A drive whose free space cannot be read never
+   refuses — this side's own blind spot must not stop a run that would have
+   been fine.
+
+`APHROLLO_MUTATION_GATE=1` marks the run's children. That one marker answers
+both questions the cargo shim asks: a bare `cargo mutants` is refused and told
+to type the verb instead, and a marked run builds without queueing behind
+every editor on the box. `gate doctor` reports free space on the drive holding
+each project's target dir and warns under 30 GB.
+
+### Env-gated suites and the nextest profile
+
+Mutants in code only a gated suite reaches are missed by definition: 101 of
+167 mutants on one lane lived in render-world code reached only by GPU parity
+tests. Each `mutants-env` entry is exported for the run, and
+`NEXTEST_PROFILE=mutants` is set when the repo's `.config/nextest.toml`
+declares `[profile.mutants]` (asked at the repo root and at the cargo
+workspace root, since a workspace keeps it at the latter).
+
+That profile is also where a repo selects its measured set. A tier that needs
+an environment stops being `#[ignore]`d, is made addressable by the filterset
+language (its own test binary, a package, or a name pattern), is excluded by
+`default-filter` in the everyday profile and included in `[profile.mutants]`.
+`#[ignore]` carries at least three unrelated meanings in a real consuming
+repo, so selecting by that attribute selects a category that does not exist.
 
 ### The baseline and the mutants share one profile — cargo-mutants gives no way to split them
 
@@ -115,11 +210,11 @@ A repo cannot give the unmutated baseline `retries > 0` while keeping
 27.1.0's own source and config schema, not inferred:
 
 - `NEXTEST_PROFILE` (the env var `--test-tool=nextest` runs under, and how
-  `.config/nextest.toml`'s `[profile.mutants]` gets selected at all — confirmed
-  against `cargo-nextest`'s own CLI, `dispatch/common.rs`: `--profile` is
-  declared `env = "NEXTEST_PROFILE"`) is set ONCE, by the runner script,
-  before `cargo mutants` starts, and cargo-mutants never touches it again: it
-  is inherited unchanged into every child process the run spawns.
+  `[profile.mutants]` gets selected at all — confirmed against
+  `cargo-nextest`'s own CLI, `dispatch/common.rs`: `--profile` is declared
+  `env = "NEXTEST_PROFILE"`) is set ONCE, before `cargo mutants` starts, and
+  cargo-mutants never touches it again: it is inherited unchanged into every
+  child process the run spawns.
 - Inside cargo-mutants, `cargo_argv`/`run_cargo` (`src/cargo.rs`) build the
   test-tool invocation from `Phase` (`Build`/`Check`/`Test`) and the global
   `Options` alone. Neither function takes the `Scenario` (`Baseline` vs.
@@ -128,203 +223,72 @@ A repo cannot give the unmutated baseline `retries > 0` while keeping
   literally run the identical argv and environment for the test phase.
 - `cargo mutants --emit-schema config` — the tool's own config schema — has
   no baseline-specific key: `additional_cargo_test_args`, `test_tool`,
-  `timeout_multiplier`, all apply uniformly to `Phase::Test` regardless of
+  `timeout_multiplier` all apply uniformly to `Phase::Test` regardless of
   scenario. There is no `--baseline-test-arg` or equivalent CLI flag either.
 
-So: cargo-mutants does not expose the baseline run separately, categorically,
-and nothing on the gate side of the call can make it do so — the two
-questions ("does this test catch the mutation?" vs. "is the tree green
-before we start?") share one process-wide test invocation because
-cargo-mutants' own architecture shares it. The only way to actually decouple
-them is to run the baseline OURSELVES, outside cargo-mutants, under a
-different profile, then invoke `cargo mutants --baseline skip` — which
-duplicates cargo-mutants' own build+test machinery and is not something the
-gate does today.
+So the two questions ("does this test catch the mutation?" and "is the tree
+green before we start?") share one process-wide test invocation because
+cargo-mutants' architecture shares it. Two remedies work without changing
+anything here:
 
-Two remedies work without any of that, and neither needs a change here:
-
-- **`mutation-baseline-exclude`** (above) already solves this for a NAMED
-  test: excluded from both phases, it can never veto a receipt under load
-  again. The cost is permanent: a mutant caught only by an excluded test is
-  never caught again.
-- **Make the test load-insensitive**, the fix issue #230 already used for
-  `headless_glue`/`reconnect` (`.config/nextest.toml`'s own comment on
-  `[profile.mutants]`): an ephemeral port, `threads-required = "num-cpus"`,
-  or a dedicated `test-group` so the test stops competing with the run's own
-  concurrent build for whatever makes it flaky. This is the only remedy that
+- **`mutation-baseline-exclude`** solves it for a NAMED test: excluded from
+  both phases, it can never veto a measurement under load again. The cost is
+  permanent — a mutant caught only by an excluded test is never caught again.
+- **Make the test load-insensitive** (an ephemeral port,
+  `threads-required = "num-cpus"`, a dedicated `test-group`) so it stops
+  competing with the run's own concurrent build. This is the only remedy that
   keeps full mutation coverage, and it is work in the consuming repo on the
   named test, never a runner-side setting.
 
-A run that dies because the baseline failed already reaches this contract's
-`died` state (no receipt ever written), not a receipt with a false verdict —
-that distinction needs no fix here either.
+## Reading the answer
 
-## What the run must do
+Outcomes are read from `mutants.out/outcomes.json` as cargo-mutants writes it,
+never from its log text. Any outcomes file an EARLIER run left behind is
+deleted first: it describes a different tree, and a run that writes none
+reached no verdict — the difference between those two disappears if the stale
+file is still sitting there.
 
-Run cargo-mutants with the flags below in the checkout being measured.
+Exit status 0, 2 and 3 are the ones cargo-mutants uses to describe a completed
+run. Anything else means the run stopped, and a stopped run's silence must
+never read as "nothing survived": it refuses with the status and the path to
+`mutants.out/log`, logging `mutants-refused:no-verdict`.
 
-### Timeouts
+## The judgement
 
-Nine timeouts at 30 s were measured on one lane, every one of them a mutant
-that was fine and a box that was busy — eight cold copies were compiling at
-once. Contention must not read as a timeout, so the runner passes:
-
-- `--minimum-test-timeout <T>` where `T = max(3 × measured baseline seconds,
-  120)`. The baseline is the unmutated suite's own wall time; when the baseline
-  was skipped, use the last recorded one, and 120 s when there is none.
-- `--timeout-multiplier 3`.
-
-A timeout is NOT a miss and is reported separately (`timeout` in the receipt).
-A receipt with `timeout > 0` is REFUSED at merge, with `rerun with fewer jobs`
-as the remedy: a timed-out mutant is an unmeasured mutant.
-
-### Temp dirs and free space
-
-Three runs died at mutant 101 of 131 on a full disk. The runner had exported
-`TMPDIR`, which a Windows binary ignores, so cargo-mutants wrote its tree
-copies to the OS temp dir on `C:` and took it from 40 GB free to 12 GB (98%).
-Two rules follow, and the runner must obey both:
-
-1. Export **all three** of `TMPDIR`, `TMP` and `TEMP`, on every platform,
-   pointing at a directory under `$CARGO_TARGET_DIR` (the gate sets them for
-   the runner it starts; a runner invoked by hand sets them itself). Setting
-   one and inheriting the others is the bug: whichever name the tool reads is
-   the one that decides.
-2. Check free space on the drive holding `$CARGO_TARGET_DIR` BEFORE starting,
-   against `jobs × 15 GB`, and exit with one line naming both numbers when it
-   is short. The gate does the same check before it starts a run and logs
-   `mutants-refused:disk`.
-
-`gate doctor` reports free space on the drive holding each project's target
-dir and on the OS temp dir's, and warns under 30 GB.
-
-### Concurrency
-
-`APHROLLO_MUTANTS_JOBS` defaults to `min(cores / 6, RAM_GB / 6, 2)`, floored
-at 1, and the runner PRINTS the cap and the reason it was derived from — the
-`— <reason>` suffix included, because "2 jobs" without "cap 2" or "ram" says
-nothing about which limit bound it:
+A `missed` mutant whose name is not in `mutation-accept` refuses. The report
+leads with the finding, because that is what somebody has to act on:
 
 ```
-mutants: 2 jobs (min(cores 24/6=4, ram 64GB/6=10, cap 2) — cap 2)
+crates/editor_client/src/creator.rs:101:33: replace || with && in send_undo_redo
+mutants: 12 tested, 10 caught, 1 unviable, 1 missed (0 accepted), 0 unmeasured
+mutants: write the test that fails, or add the line to mutation-accept with a reason (…)
 ```
 
-Memory that cannot be READ is not memory that is absent: an unreadable reading
-prints `ram unknown` and lets the cores decide alone, rather than pinning the
-run to one job.
+`, K not covered` is appended to the counts only when a gremlins run reported
+not-covered mutants; they are counted on their own and never as unviable.
 
-The gate computes the same number and passes it as `APHROLLO_MUTANTS_JOBS`
-with the reason in `APHROLLO_MUTANTS_JOBS_WHY`; a runner may use those instead
-of computing its own.
-
-### Env-gated suites
-
-Mutants in code only reached by an env-gated suite are missed by definition:
-101 of 167 mutants on one lane were in render-world code reached only by GPU
-parity tests. The repo names the switches its mutation run must set:
-
-```toml
-[workspace.metadata.aphrollo]
-mutants-env = ["FORGE_GPU_TESTS=1"]
-```
-
-The gate passes them to the runner in `APHROLLO_MUTANTS_ENV`, and the runner
-exports each one for the mutation run. Every switch named there must be
-registered in the repo's dev-instrument registry — an env switch that gates a
-suite is exactly the kind the registry law exists to catch.
-
-### Tests that read the source tree at run time
-
-Mutants run in a COPY of the tree, so a test that resolves a path at RUN time
-rather than at compile time is reading a directory that no longer exists. The
-failure looks nothing like the cause:
+An accept entry is `"<file>:<line>[:<col>] <mutation> # <reason>"`, and the
+reason may open with a machine-readable `kind=` directive naming which claim
+it makes:
 
 ```
-FAIL client anim::driver::tests::bone_map_is_only_referenced_by_driver_setup_and_tests
-panicked at crates/client/src/anim/driver.rs:345:
-Os { code: 3, kind: NotFound }
-ERROR cargo test failed in an unmutated tree, so no mutants were tested
+kind=equivalent: <why the two forms compute the same thing>
+kind=unobservable-runner test=<TestName>: <why only that test covers it>
+kind=unobservable-capability issue=<ref>: <why no test can exist yet>
 ```
 
-That test walked `CARGO_MANIFEST_DIR` at run time to assert which files
-reference a symbol. It passes everywhere else and can never pass under a
-mutation run. The reported error says the unmutated tree is broken, which
-sends a reader looking for a regression that is not there.
+A reason with no directive is legacy shorthand for `kind=equivalent`; a
+misspelled kind is refused by name rather than read as an equivalence claim.
+An entry with no reason at all is not an accepted survivor: a list nobody had
+to justify is a list of survivors somebody silenced.
 
-The diagnostic: a baseline failure whose error is a missing PATH, rather than
-a failed assertion, is this shape almost every time.
-
-Anything resolved through `CARGO_MANIFEST_DIR` at execution — the crate's own
-sources, the workspace manifest, `.ratchet/` data, a fixture directory — is
-incompatible with the copy tree. This is cargo-mutants' design and not
-something the gate can paper over.
-
-The fix is placement, not a workaround. A check that observes FILES ON DISK is
-a law, under `.ratchet/laws/`, where it runs against the real tree once per
-commit instead of once per mutant. `bone_map_scope` is that case, resolved
-that way. Where a test genuinely must stay in-crate, embed what it needs at
-compile time (`include_str!`, `include_dir!`) so no path is resolved at run
-time.
-
-## Go repos
-
-A repo whose worktree has a `go.mod` is measured with **gremlins**, and the
-choice was measured rather than argued:
-
-| tool | on this box |
-|---|---|
-| gremlins v0.6.0 | installs and runs; `--diff <ref>` scopes to the lane, `--output` writes machine-readable results, `--workers` caps concurrency. Analysis of `internal/tdd`: 1626 runnable mutants, 270 not covered, 85.76% mutator coverage, 2.6 s behind one full coverage run |
-| go-mutesting | does not BUILD on windows/amd64 — its `zimmski/osutil` dependency uses `syscall.Dup` and `syscall.RLIMIT_NOFILE`, neither of which exists there. No wall time to compare |
-
-gremlins' statuses map onto the receipt as: `KILLED` → caught, `LIVED` →
-missed, `NOT COVERED` → not_covered (never a survivor on its own — no test
-ran, so nothing "did not notice"), `TIMED OUT` → timeout, anything else →
-unviable. An unrecognised status is never read as caught. The outcome
-store's own schema is bumped whenever this mapping changes, so a store
-written under an older one is discarded rather than replayed under the new
-meaning.
-
-The diff-only pilot that preceded this wiring found the signal clean on this
-repo (4/4 survivors were real gaps, 0 equivalent-mutant noise) and surfaced
-one standing gap worth naming: gremlins gathers coverage from the UNIT suite
-only, so a repo whose real logic sits behind `//go:build integration` tests
-(a Postgres-backed store package, say) gets an empty or misleadingly-clean
-report over that code unless the run adds `--tags integration --integration`
-— which also re-runs the full suite per mutant, so it is a deliberate,
-slower opt-in rather than the default shape above.
-
-The same pilot named one operational hazard that follows from how that
-coverage is gathered: gremlins runs the WHOLE module's test suite once before
-it mutates anything, so a single failing or flaky test anywhere in the module
-aborts the entire run with `failed to gather coverage` — a rust-analyzer e2e
-flake did exactly that here. The failure names coverage rather than the test
-that caused it, which is the part worth knowing in advance. This repo's own CI
-does not hit it because the `mutants` job declares `needs: [changes, test]`
-and so cannot start over a red module, but that ordering was chosen to avoid a
-git-config lock collision and only incidentally covers this; a pipeline that
-runs `aphrollo gate mutants go` without a green suite ahead of it gets the
-abort with no hint of the cause.
-
-The accept-list for survivors lives in `aphrollo.toml`, with a reason per
-entry — an entry with no reason does not count as accepted:
-
-```toml
-[aphrollo]
-mutation-accept = [
-  "internal/tdd/gc.go:120 CONDITIONALS_BOUNDARY # the bar is the sweep's own, pinned by the sweep test",
-]
-```
-
-An entry may also name a column — `<file>:<line>:<col> <MUTATOR> # why` —
-which is the only way to accept one of several mutants sharing a line: a real
-receipt carried three distinct survivors on
-`crates/editor_client/src/creator.rs:108` at columns 5, 33 and 71 (issue
-#282). A column-less entry matches by file, line and mutator alone, which is
-fine for the overwhelmingly common case of one mutant per line and keeps
-every accept-list written before this existed working unchanged; the gate
-refuses to APPLY a column-less entry to a line that turns out to carry more
-than one mutant, so an unexamined sibling stays unaccepted and blocks rather
-than being silently admitted alongside the one somebody actually reviewed.
+`mutants-after` runs last, in the worktree, with the verdict in
+`APHROLLO_MUTANTS_STATUS` ("0" passed, "1" refused). Its own failure is logged
+and never changes the verdict — a cleanup script that fails must not turn a
+clean measurement into a refused merge, nor a refused one into a pass. The
+binary must not know what a test's side effects are; a repo whose tier writes
+to a shared database owns reclaiming the rows a timeout-killed test binary
+left behind, and this is the one hook it gets.
 
 ## How a mutant is named
 
@@ -337,15 +301,74 @@ crates/editor_client/src/creator.rs:101:16: replace || with && in send_undo_redo
 
 Those are two DIFFERENT mutants. The column is part of the identity, not
 decoration: that file emits several distinct mutants on line 101 with
-identical text. So an accept-list entry and a re-run's own name filter both
-carry the column, and both use the tool's own line VERBATIM, anchored:
+identical text (issue #282). So an accept-list entry and a re-run's own name
+filter both carry the column and use the tool's own line VERBATIM, anchored:
 
 ```
---exclude-re '^crates/editor_client/src/creator\.rs:101:33: replace \|\| with && in send_undo_redo$'
+--re '^crates/editor_client/src/creator\.rs:101:33: replace \|\| with && in send_undo_redo$'
 ```
 
 A rebuilt name that drops the column matches nothing, so the filter selects
-nothing and the run measures the whole diff again. The list is also bounded
-(8,000 characters of arguments): every name rides in the run's own argument
-block, Windows caps that block at 32,767, and an overflowing list truncates
-the arguments themselves.
+nothing and the run measures the whole diff again. A column-less accept entry
+matches by file, line and mutator alone — fine for the common case of one
+mutant per line — but it is refused when the line turns out to carry more than
+one mutant, so an unexamined sibling stays unaccepted and blocks rather than
+being admitted alongside the one somebody reviewed.
+
+## Go repos
+
+A repo whose worktree has a `go.mod` and no `Cargo.toml` is measured with
+**gremlins** (`internal/tdd/mutants_go.go`), scoped to the same base diff and
+judged by the same code. The choice was measured rather than argued:
+
+| tool | on this box |
+|---|---|
+| gremlins v0.6.0 | installs and runs; `--diff <ref>` scopes to the lane, `--output` writes machine-readable results, `--workers` caps concurrency. Analysis of `internal/tdd`: 1626 runnable mutants, 270 not covered, 85.76% mutator coverage, 2.6 s behind one full coverage run |
+| go-mutesting | does not BUILD on windows/amd64 — its `zimmski/osutil` dependency uses `syscall.Dup` and `syscall.RLIMIT_NOFILE`, neither of which exists there. No wall time to compare |
+
+gremlins' statuses map onto the same vocabulary: `KILLED` → caught, `LIVED` →
+missed, `NOT COVERED` → not covered (never a survivor on its own — no test
+ran, so nothing "did not notice"), `TIMED OUT` → timeout, anything else →
+unviable. An unrecognised status is never read as caught.
+
+**On Windows the stage stands down.** `gremlins unleash --dry-run` reports
+`Runnable: 0, Not covered: 4890, Mutator coverage: 0.00%` on this repo's own
+tree: Go's coverage profile comes back empty and every mutant is filed NOT
+COVERED. A dogfood lane measured 50 mutants / 0 caught / 50 survivors on
+Windows against 50 / 44 caught for the same tree on Linux. Reporting that
+would be wrong in the direction that blocks merges, so the stage logs
+`mutants-skipped:gremlins-windows` and passes, and Linux measures instead —
+nightly CI runs `gate mutants run --base <checkpoint>` against `main` and
+records an escape on a non-zero exit. On a box whose gremlins reports non-zero
+mutator coverage the stage measures with no further configuration.
+
+Two standing gaps, named where they were found rather than in an issue nobody
+reads: gremlins gathers coverage from the UNIT suite only, so a repo whose
+real logic sits behind `//go:build integration` tests gets an empty or
+misleadingly-clean report over that code; and it runs the WHOLE module's suite
+once before it mutates anything, so a single flaky test anywhere aborts the
+run with `failed to gather coverage`, naming coverage rather than the test
+that caused it.
+
+## Gate-log tokens
+
+Every verdict writes one line, so `gate stats` can answer how many merges the
+stage refused and for what without re-running anything.
+
+| token | meaning |
+|---|---|
+| `mutants-passed:tested=…,caught=…,unviable=…,missed=…,accepted=…,unmeasured=…,notcovered=…` | a run that reached a verdict and found nothing unaccepted |
+| `mutants-refused:` + the same counts | a run that reached a verdict and found a survivor or an unmeasured mutant |
+| `mutants-refused:disk` | not enough free space for `jobs × 15 GB` |
+| `mutants-refused:tree-changed` | the run left the working tree different from how it found it |
+| `mutants-refused:no-verdict` | an exit status cargo-mutants does not use for a verdict |
+| `mutants-refused:config` | a retired key, or a `mutants-after` naming a file that is not there |
+| `mutants-refused:no-lane-tip` | neither `MERGE_HEAD` nor `GIT_REFLOG_ACTION` named the branch coming in |
+| `mutants-skipped:not-declared` | the repo declares no `mutants-at-merge` |
+| `mutants-skipped:nothing-to-measure` | the diff named no mutable source |
+| `mutants-skipped:gremlins-windows` | the Go runner cannot measure on this platform |
+
+A run that reached a verdict lands in the green/red columns of the `mutants`
+row. One that never measured anything is counted by its reason alone: a red
+there would read as "a mutant survived" and send a reader looking for one that
+was never measured.

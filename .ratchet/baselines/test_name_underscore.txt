@@ -170,7 +170,6 @@ internal/sqlc/scoped_test.go | func TestScopedMergeAppliesInScopeAddition(t *tes
 internal/sqlc/scoped_test.go | func TestScopedMergeAppliesOnlyInScope(t *testing.T) {
 internal/tdd/autoescape_test.go | func TestAClosedEscapeDoesNotSuppressItsRecurrence(t *testing.T) {
 internal/tdd/autoescape_test.go | func TestADenialWithNoOverrideIsNotACandidate(t *testing.T) {
-internal/tdd/autoescape_test.go | func TestAMissingReceiptRejectionIsNotAnEscape(t *testing.T) {
 internal/tdd/autoescape_test.go | func TestANoteTransplantedOntoAnotherCommitIsIgnored(t *testing.T) {
 internal/tdd/autoescape_test.go | func TestARecordWhoseIssueNeverOpenedIsRetriedRatherThanSuppressing(t *testing.T) {
 internal/tdd/autoescape_test.go | func TestASecondIdenticalEscapeWithinTheWindowRecordsNothing(t *testing.T) {
@@ -193,11 +192,9 @@ internal/tdd/autoescape_test.go | func TestPostCommitWritesNoNoteForADifferentTr
 internal/tdd/autoescape_test.go | func TestPostCommitWritesNoNoteForATreeNoSuiteProved(t *testing.T) {
 internal/tdd/autoescape_test.go | func TestPostCommitWritesTheGateNoteForATreeWhoseSuiteWentGreen(t *testing.T) {
 internal/tdd/autoescape_test.go | func TestTheEscapeIssueBodyCarriesItsFingerprint(t *testing.T) {
-internal/tdd/autoescape_test.go | func TestTheReceiptPredicateMatchesTheReceiptGatesOwnRejections(t *testing.T) {
 internal/tdd/autoescape_test.go | func TestTheSameDiagnosticInTwoReposAreDifferentEscapes(t *testing.T) {
 internal/tdd/autoescape_test.go | func TestTheSameEscapeAfterTheWindowIsRecordedAgain(t *testing.T) {
 internal/tdd/autoescape_test.go | func TestTheSameFailingTestKeepsOneFingerprint(t *testing.T) {
-internal/tdd/autoescape_test.go | func TestTheSurvivorPredicateMatchesTheReceiptGatesOwnRejection(t *testing.T) {
 internal/tdd/autoescape_test.go | func TestTwoMechanicalRejectionsWithDifferentFailingTestsAreDifferentEscapes(t *testing.T) {
 internal/tdd/autoescape_test.go | func TestUnacceptedSurvivorsAtMergeRecordAnEscape(t *testing.T) {
 internal/tdd/baselineguard_test.go | func TestBaselineGuardAllowsABrandNewBaselineFile(t *testing.T) {
@@ -337,7 +334,6 @@ internal/tdd/ratchettracked_test.go | func TestRatchetStageJudgesATrackedGitigno
 internal/tdd/ratchettracked_test.go | func TestRatchetStageJudgesTheSameFileOnceItIsStaged(t *testing.T) {
 internal/tdd/ratchettracked_test.go | func TestRatchetStageSkipsATrackedButGitignoredFileForALawThatDidNotOptIn(t *testing.T) {
 internal/tdd/ratchettracked_test.go | func TestRatchetStageStillJudgesTrackedFilesInHead(t *testing.T) {
-internal/tdd/receipt_test.go | func TestMutationReceiptPathLivesInTheGateStateDir(t *testing.T) {
 internal/tdd/runner_test.go | func TestDetectRunner(t *testing.T) {
 internal/tdd/runner_test.go | func TestFindProjectRoot(t *testing.T) {
 internal/tdd/runner_test.go | func TestNarrowToRelatedTests(t *testing.T) {

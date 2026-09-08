@@ -1,6 +1,5 @@
 internal/tdd/mergeprune.go | // PATH (cleanWorktreePath(wt.path) == cleanWorktreePath(mainRepo)), never by
 internal/tdd/precommit_wsmanifest.go | if abs == filepath.Clean(filepath.Join(ws, name)) {
-internal/tdd/mutants_replaced.go | if p, ok := processExePathFn(j.PID); ok && p == stalePath {
 internal/ratchet/wholetree_godepgraph.go | if p.ImportPath == prefix || strings.HasPrefix(p.ImportPath, prefix+"/") {
 internal/cli/selfinstall.go | if path == keep {
 internal/tdd/ratchetgate.go | if strings.HasPrefix(filepath.ToSlash(f), ".ratchet/") {
