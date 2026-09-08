@@ -83,21 +83,46 @@ const mechCacheHitVerdict = "cache-hit"
 // the pre-commit stage and this hook hashes differently, so its cache-hit was
 // about some other content.
 func cacheHitResolvesGreen(repoRoot string) bool {
-	hash := worktreeStateHash(repoRoot)
-	if hash == "" {
-		return false
-	}
 	path := mechCachePath()
 	if path == "" {
 		return false
 	}
-	prefix := mechKeyRepo(repoRoot) + "\x00" + hash + "\x00"
-	for key := range loadMechCache(path).Green {
-		if strings.HasPrefix(key, prefix) {
-			return true
+	green := loadMechCache(path).Green
+	for _, root := range cacheHitRoots(repoRoot) {
+		hash := worktreeStateHash(root)
+		if hash == "" {
+			continue
+		}
+		prefix := mechKeyRepo(root) + "\x00" + hash + "\x00"
+		for key := range green {
+			if strings.HasPrefix(key, prefix) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// cacheHitRoots are the roots a cache hit could have been computed at: the
+// PROJECT roots stagedRootGroups derived for this commit (FindProjectRoot),
+// which is exactly where runSuiteStage hashes and keys.
+//
+// The repo root is not interchangeable with them. worktreeStateHash is
+// cwd-scoped — `git ls-files --others` lists only what sits under the
+// directory it runs in — so in a monorepo an untracked scratch file at the
+// repo root moves the repo-root hash and leaves the crate's alone, and a
+// prefix built at the repo root is one the cache can never hold. repoRoot
+// stands in only for a commit that grouped no roots at all, which is a commit
+// whose suite stage never ran.
+func cacheHitRoots(repoRoot string) []string {
+	var roots []string
+	for _, g := range stagedRootGroups(repoRoot) {
+		roots = append(roots, g.root)
+	}
+	if len(roots) == 0 {
+		return []string{repoRoot}
+	}
+	return roots
 }
 
 // readCurrentGreenSuiteStamp reads the tree stampGreenSuite last recorded for

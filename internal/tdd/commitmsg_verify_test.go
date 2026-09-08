@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -97,5 +98,40 @@ func TestVerificationClaim_CacheHitOnATimeoutTreeIsStillRefused(t *testing.T) {
 
 	if !got.Blocked {
 		t.Fatal("a cache-hit that resolves to no green for this tree is not evidence, and must still be refused")
+	}
+}
+
+// The resolution has to hash at the same root the SUITE STAGE hashed at, which
+// is the PROJECT root stagedRootGroups derived (FindProjectRoot), not the repo
+// root. worktreeStateHash is cwd-scoped — `git ls-files --others` lists only
+// what sits under the directory it runs in — so an untracked scratch file at
+// the repo root moves the repo-root hash and leaves the crate's alone. Hashing
+// at the repo root then produces a prefix the cache can never hold, and #591
+// refuses again in exactly the monorepo shape it came from.
+func TestVerificationClaim_CacheHitResolvesAtTheCrateRootNotTheRepoRoot(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/x\"]\n")
+	write(t, root, filepath.Join("crates", "x", "Cargo.toml"), "[package]\nname = \"x\"\n")
+	write(t, root, filepath.Join("crates", "x", "src", "lib.rs"), "pub fn f() -> u32 { 1 }\n")
+	gitDo(t, root, "add", ".")
+	// Untracked, at the REPO root, written after the add so it stays that way:
+	// the scratch file a lane is always carrying.
+	write(t, root, "scratch.log", "noise\n")
+
+	crate := filepath.Join(root, "crates", "x")
+	if worktreeStateHash(crate) == worktreeStateHash(root) {
+		t.Fatal("setup: the crate-root and repo-root hashes must differ for this test to mean anything — " +
+			"the untracked file at the repo root is what separates them")
+	}
+	// What the suite stage left behind: a green keyed at the CRATE root.
+	runner := Runner{Cmd: "cargo", Args: []string{"test", "-p", "x"}}
+	mechCacheAdd(mechKey(crate, worktreeStateHash(crate), runner))
+	appendGateLog("precommit", crate, cmdString(runner), "cache-hit", 0)
+
+	got := CommitMsg(root, msgFile(t, claimBody))
+
+	if got.Blocked {
+		t.Fatalf("the cache hit was computed at the crate root and must be resolved there too: %s", got.Message)
 	}
 }
