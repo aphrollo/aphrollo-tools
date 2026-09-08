@@ -102,8 +102,12 @@ func BuildInstallPlan(repoRoot, bin string) (InstallPlan, error) {
 // which is the one place the merge-only primary checkout tells you to
 // regenerate the managed CLAUDE.md block from (#588).
 //
-// git answers the linked case itself, via `rev-parse --git-common-dir` —
-// deliberately not `--git-path hooks`, which HONOURS `core.hooksPath`. That
+// git answers the linked case itself, via `rev-parse --git-common-dir`, read
+// through the STDOUT-ONLY gitRead: git writes warnings to stderr while still
+// answering on stdout, and folding the two together (CombinedOutput) makes the
+// warning part of the path — a directory `install --apply` then creates, with
+// every hook written under it. Deliberately not `--git-path hooks`, which
+// HONOURS `core.hooksPath`. That
 // setting is global on a box running the gate's own git hooks, so
 // `--git-path` would point every per-repo install at the box-wide hooks
 // directory and let the prune step delete the global gate's own shims.
@@ -118,7 +122,7 @@ func repoHooksDir(repoRoot string) (string, error) {
 	if fi.IsDir() {
 		return filepath.Join(repoRoot, ".git", "hooks"), nil
 	}
-	out, gitErr := git(repoRoot, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	out, gitErr := gitRead(repoRoot, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	common := strings.TrimSpace(out)
 	if gitErr != nil || common == "" {
 		return "", fmt.Errorf("%s has a .git file (a linked worktree) whose common git directory git could not "+

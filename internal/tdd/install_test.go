@@ -235,3 +235,34 @@ func TestBuildInstallPlan_AcceptsALinkedWorktree(t *testing.T) {
 		}
 	}
 }
+
+// git writes warnings to STDERR — an unreadable config, a CRLF conversion — and
+// keeps answering on STDOUT. A caller that reads the two folded together
+// (CombinedOutput) turns the warning into part of the value, and here the value
+// is a DIRECTORY PATH that `install --apply` then MkdirAlls: a warning line
+// would be created on disk as a directory, and every hook written under it.
+func TestBuildInstallPlan_IgnoresGitWarningsOnStderr(t *testing.T) {
+	main := makeGoRepo(t)
+	lane := filepath.Join(t.TempDir(), "lane")
+	gitDo(t, main, "worktree", "add", "-q", "-b", "lane/warning-probe", lane)
+
+	// Only now stand this binary in as git — the fixture above needs the real
+	// one. It prints a warning on stderr and fakeGitCommonDir on stdout.
+	t.Setenv(realGitEnv, os.Args[0])
+
+	plan, err := BuildInstallPlan(lane, testBin)
+
+	if err != nil {
+		t.Fatalf("a git that warns must still resolve: %v", err)
+	}
+	if len(plan.Hooks) == 0 {
+		t.Fatal("the plan carries no hooks at all")
+	}
+	want := filepath.Join(filepath.FromSlash(fakeGitCommonDir), "hooks")
+	for _, h := range plan.Hooks {
+		if got := filepath.Dir(h.Path); got != want {
+			t.Fatalf("hook %q sits in %q, want %q — git's stderr became part of the path install would create",
+				filepath.Base(h.Path), got, want)
+		}
+	}
+}
