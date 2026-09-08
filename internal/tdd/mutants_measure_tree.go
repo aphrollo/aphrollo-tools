@@ -197,12 +197,12 @@ func patchByFile(patch string) map[string]string {
 // verdict, preferring the tree damage when there is any: "the run exited 1"
 // is a fact about the run, and "it left a mutation in your source" is a fact
 // about the repository, which is the more urgent of the two.
-func measureNoVerdictOrTreeChanged(root string, code int, cause error, before worktreeSnapshot, log io.Writer) Verdict {
+func measureNoVerdictOrTreeChanged(root, logDir string, code int, cause error, before worktreeSnapshot, log io.Writer) Verdict {
 	if v, refused := refuseIfTreeChanged(root, before, log); refused {
 		logf(log, "mutants: the run also exited %d and reached no verdict", code)
 		return v
 	}
-	return measureNoVerdict(root, code, cause, log)
+	return measureNoVerdict(root, logDir, code, cause, log)
 }
 
 // worktreeChangedPaths lists the repo-relative paths that differ between a

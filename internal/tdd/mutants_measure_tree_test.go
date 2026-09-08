@@ -8,9 +8,16 @@ import (
 	"testing"
 )
 
-// writeOutcomes puts a cargo-mutants outcomes file where a run in root would
-// have left one, from the mutants it names.
+// writeOutcomes puts a cargo-mutants outcomes file where a one-shard run in
+// root would have left one, from the mutants it names.
 func writeOutcomes(t *testing.T, root string, mutants ...MutantOutcome) {
+	t.Helper()
+	writeOutcomesIn(t, mutantsShardDir(root, 0), mutants...)
+}
+
+// writeOutcomesIn is the same for one named shard's own output directory —
+// what that shard's argv carried as `--output`.
+func writeOutcomesIn(t *testing.T, outDir string, mutants ...MutantOutcome) {
 	t.Helper()
 	type span struct {
 		Start struct {
@@ -50,7 +57,7 @@ func writeOutcomes(t *testing.T, root string, mutants ...MutantOutcome) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustWrite(t, filepath.Join(root, "mutants.out", "outcomes.json"), string(data))
+	mustWrite(t, cargoMutantsOutcomesPath(outDir), string(data))
 }
 
 // makeStagedMergeRepo builds the state the pre-merge-commit hook actually

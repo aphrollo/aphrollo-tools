@@ -41,6 +41,11 @@ func TestMeasureLane_RealCargoMutantsOnAMinimalCrate(t *testing.T) {
 	// `build.target-dir` anywhere on the machine. Naming it here keeps the
 	// gigabytes where the test can clean them up.
 	t.Setenv("CARGO_TARGET_DIR", filepath.Join(root, "target"))
+	// The shards' own target directories are PERSISTENT by design: they sit
+	// beside the checkout and outlive the run, which is what makes the next
+	// measurement warm. Beside a t.TempDir() checkout that means gigabytes
+	// the test framework does not own, so this test takes them itself.
+	t.Cleanup(func() { _ = os.RemoveAll(measureTempDir(root)) })
 	gitInit(t, root)
 	write(t, root, "Cargo.toml", "[package]\nname = \"m\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
 	// The profile the runner selects with NEXTEST_PROFILE. It inherits every

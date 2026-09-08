@@ -3,7 +3,6 @@ package tdd
 import (
 	"bytes"
 	"context"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,37 +10,14 @@ import (
 	"testing"
 )
 
-// measuredCall is one invocation the runner's exec seam received.
-type measuredCall struct {
-	Dir  string
-	Env  []string
-	Argv []string
-}
-
-// stubMutantsExec replaces the runner's exec seam for one test and records
-// every call. reply is asked what that call should do — its exit code, and
-// whatever outcomes file it wants to leave behind. It is handed the run's own
-// context as well, so a test can stand in for a child that ends when, and
-// only when, its caller gives up.
-func stubMutantsExec(t *testing.T, reply func(ctx context.Context, n int, c measuredCall) (int, error)) *[]measuredCall {
-	t.Helper()
-	prev := mutantsExecFn
-	calls := &[]measuredCall{}
-	mutantsExecFn = func(ctx context.Context, dir string, env, argv []string, log io.Writer) (int, error) {
-		*calls = append(*calls, measuredCall{Dir: dir, Env: env, Argv: argv})
-		if reply == nil {
-			return 0, nil
-		}
-		return reply(ctx, len(*calls), (*calls)[len(*calls)-1])
-	}
-	t.Cleanup(func() { mutantsExecFn = prev })
-	return calls
-}
-
 // makeMeasureRepo builds a one-crate cargo workspace with a base commit and a
-// lane commit on top of it, and answers the root and the base sha.
+// lane commit on top of it, and answers the root and the base sha. The shard
+// count is pinned to ONE so a test built on it is about the step it names
+// rather than about how many cores the box running the suite has; a test
+// about the sharding pins its own number after this call.
 func makeMeasureRepo(t *testing.T, lane map[string]string) (root, base string) {
 	t.Helper()
+	t.Cleanup(setMutantsJobsForTest(1, "pinned"))
 	root = t.TempDir()
 	gitInit(t, root)
 	writeMeasureBase(t, root)
@@ -150,7 +126,7 @@ func TestMutantsArgv_ExactForACargoLane(t *testing.T) {
 	got := MutantsArgv("/w/changed.diff", 120, []string{"a"}, "not(test(slow))")
 
 	want := []string{
-		"--copy-target=true", "--in-diff", "/w/changed.diff", "--no-shuffle", "--test-tool=nextest",
+		"--copy-target=false", "--in-diff", "/w/changed.diff", "--no-shuffle", "--test-tool=nextest",
 		"--minimum-test-timeout", "120", "--timeout-multiplier", "3",
 		"--package", "a", "--", "-E", "not(test(slow))",
 	}
@@ -189,9 +165,9 @@ func TestDiskCheck_RefusesNamingBothNumbers(t *testing.T) {
 	// Two copies at 15 GB each need 30 GB; a drive with 10 GB free is the
 	// shortfall this test is about. The job count is pinned, not read from
 	// the box, or the message would name whatever machine runs the test.
-	t.Cleanup(setMutantsJobsForTest(2, "pinned"))
 	t.Cleanup(SetFreeSpaceForTest(10, true))
 	root, base := makeMeasureRepo(t, laneSource)
+	t.Cleanup(setMutantsJobsForTest(2, "pinned"))
 	calls := stubMutantsExec(t, nil)
 
 	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base})
@@ -306,8 +282,8 @@ func TestMeasure_NoVerdictExitRefusesWithStatusAndLog(t *testing.T) {
 	if !strings.Contains(v.Message, "exited 1") {
 		t.Errorf("message = %q, want the status named", v.Message)
 	}
-	if want := filepath.Join(root, "mutants.out", "log"); !strings.Contains(v.Message, want) {
-		t.Errorf("message = %q, want the log path %q", v.Message, want)
+	if want := cargoMutantsLogDir(mutantsShardDir(root, 0)); !strings.Contains(v.Message, want) {
+		t.Errorf("message = %q, want the failing shard's own log path %q", v.Message, want)
 	}
 }
 

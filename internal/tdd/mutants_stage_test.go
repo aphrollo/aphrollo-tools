@@ -70,6 +70,9 @@ func mergeStageFixture(t *testing.T) (cfgDir, root string) {
 	cfgDir = t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	t.Cleanup(SetFreeSpaceForTest(999, true))
+	// One shard, so a test about what the STAGE does is not also about how
+	// many cores the box running the suite has.
+	t.Cleanup(setMutantsJobsForTest(1, "pinned"))
 	return cfgDir, makeMergeInProgressRepo(t)
 }
 

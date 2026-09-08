@@ -93,11 +93,10 @@ source files)` and runs the tool zero times.
 
 ### The tree is checked, not trusted
 
-cargo-mutants mutates the tree IN PLACE — that is what makes the run cheap
-(no 135 MB copy per mutant, no cold rebuild of the world) and it is the one
-way the run can damage what it is judging: the tool restores each mutation as
-it finishes with it, so a run that is killed, or that dies on a full drive,
-leaves the last mutation in the source. Merging that merges a mutant.
+cargo-mutants mutates a COPY of the source tree, and restores each mutation
+as it finishes with it — but a run that is killed, or that dies on a full
+drive, can still leave the last mutation in the tree it copied from. Merging
+that merges a mutant.
 
 So the whole `git diff` against HEAD is snapshotted before the run and
 compared after it, on every exit path including a no-verdict exit and the lone
@@ -114,22 +113,43 @@ mid-incident. Token: `mutants-refused:tree-changed`.
 Exactly this, for a Cargo repo:
 
 ```
-cargo mutants --copy-target=true --in-diff <diff> --no-shuffle --test-tool=nextest \
+cargo mutants --copy-target=false --in-diff <diff> --no-shuffle --test-tool=nextest \
   --minimum-test-timeout <T> --timeout-multiplier 3 \
-  [--package <p> ...] [-- -E not(<filter>)]
+  [--package <p> ...] \
+  --jobs 1 --output <run temp>/shard-<i> [--shard <i>/<N> --sharding round-robin] \
+  [-- -E not(<filter>)]
 ```
 
-- **no `--in-place`; `--jobs N` from the box.** cargo-mutants copies the
-  tree once per job under the run's temp dir (`.mutants/<worktree name>` beside
-  the worktree, on its disk, never the OS temp dir) and mutates the copies side by side; the
-  checkout itself is never touched. In place was one tree and therefore one
-  job (the two flags refuse each other), which measured 739 mutants in 16 h
-  on a box that could run eight copies. N is `MutantsJobsCap`: cores/3 and
-  RAM/8 GB, at most 8; each copy builds in its own target dir, and the disk
-  budget refuses a run that cannot afford N copies. `--copy-target=true`
-  copies the lane's warm target dir into every copy, so no copy builds cold;
-  one target dir shared by all copies is not possible, cargo serialises
-  builds on its build-directory lock.
+- **no `--in-place`; N PROCESSES, one per shard.** In place was one tree and
+  therefore one job (the two flags refuse each other), which measured 739
+  mutants in 16 h on a box that could measure eight at once. N is
+  `MutantsJobsCap` — cores/3 and RAM/8 GB, at most 8 — and it is a SHARD count
+  now: cargo-mutants has no build-directory flag, so the concurrency lives
+  above it. N processes, each `--jobs 1`, each given `--shard i/N` with
+  `--sharding round-robin` (mutant `i` on shard `i % N`, which spreads cost
+  better than a contiguous slice). Shard indexes are 0-based with k < N:
+  `--shard 3/3` is refused with "shard k must be less than n", and the union
+  of shards 0, 1 and 2 of 3 is exactly the unsharded list, nothing dropped and
+  nothing measured twice.
+- **`--copy-target=false`: the copy is the SOURCE TREE ONLY.** With it true
+  every job's copy also carried the workspace target dir. On a repo with 294
+  GB of build products and 37 MB of sources that is a 375 GB byte-for-byte
+  copy, because NTFS has no reflink: one measured run spent 1 h 47 min on the
+  first copy, left 33 GB free so the other six never fit, ran its 7 requested
+  jobs one at a time, and exited 1 with no verdict after 54 of 742 mutants.
+  The warm build products live outside the copies instead — one PERSISTENT
+  target dir per shard, `<run temp>/target-<i>`, warmed once and kept between
+  runs. The first run pays N cold builds in parallel; every later one copies
+  megabytes. Distinct dirs per shard is the load-bearing part: cargo
+  serialises builds on its build-directory lock, so ONE dir shared by N
+  processes would run them one after another.
+- **`--output <run temp>/shard-<i>`.** Each shard writes its own
+  `mutants.out`, and the verdict is the MERGE of all N: counts summed,
+  survivors from every shard named. A shard that reached no verdict is never
+  dropped — the run reaches no verdict, and the refusal names WHICH shard and
+  what it exited with. A shard whose slice of the pool was empty (five mutants
+  over seven shards) is not that: it exits 0 with `mutants.json` as `[]` and
+  no outcomes file, and that empty list is what tells the two apart.
 - `--no-shuffle` — two runs of the same tree must name their mutants in the
   same order, or one report cannot be compared with the one before it.
 - `--package` — one per crate the diff touches. This scopes the unmutated
@@ -149,8 +169,10 @@ cargo mutants --copy-target=true --in-diff <diff> --no-shuffle --test-tool=nexte
   `not(<mutation-baseline-exclude>)`, and nothing else.
 
 A timed-out mutant is re-run once with an anchored `--re` naming only the
-mutants under re-examination, and nothing else added — it is alone on the box
-because an in-place run is one job to begin with. Nine timeouts on one lane
+mutants under re-examination, and nothing else added. It is ONE unsharded
+process with the box to itself, reusing shard 0's warm target dir: a `--shard
+i/N` inherited from the run would re-run a fraction of the named mutants and
+leave the rest timed out for a reason that has nothing to do with them. Nine timeouts on one lane
 were all contention, and a refusal that names contention as a survivor is a
 false report; one that times out again with the box to itself stays
 **unmeasured**, which is not the same as caught, and refuses the merge by
@@ -167,17 +189,18 @@ cargo-mutants' own 30 s default while eight cold builds shared the box.
 
 ### Concurrency
 
-A **Cargo** run is one job, always, and says so rather than deriving a number
-nobody can use:
+A **Cargo** run derives its shard count from the box and PRINTS it with the
+limit that bound it:
 
 ```
-mutants: in-place, 1 job (cargo-mutants forbids --jobs with --in-place)
+mutants: 7 shards (min(cores 24/3=8, ram 63GB/8=7, cap 8) — ram)
 ```
 
-There is nothing to override — no `--jobs` on the argv and none on
-`gate mutants run`, which refuses one with `flag provided but not defined:
--jobs` rather than accepting a number the tool will reject (issue #592). The
-free-space budget below is therefore one job's worth.
+There is nothing to override — no `--jobs` on the shared argv, since each
+shard carries its own `--jobs 1`, and none on `gate mutants run`, which
+refuses one with `flag provided but not defined: -jobs` rather than accepting
+a number the tool will reject (issue #592). The free-space budget below is per
+shard.
 
 A **Go** run (gremlins) copies nothing into the tree it measures and takes a
 worker count happily, so it keeps the per-box cap
@@ -207,14 +230,17 @@ exported, a Windows cargo-mutants ignored it, and the tree copies took `C:`
 from 40 GB free to 12 GB. So:
 
 1. **All three** of `TMPDIR`, `TMP` and `TEMP` are set, on every platform, to
-   `<resolved target dir>/mutants`. Setting one and inheriting the others is
-   the bug: whichever name the tool reads is the one that decides.
-2. `CARGO_TARGET_DIR` is `<resolved target dir>/mutants/target` — the run's
-   own build directory, which nothing the build queue schedules ever compiles
-   into. That is what makes skipping the queue safe rather than merely faster:
-   a mutation build owns its directory for hours behind cargo's own blocking
-   lock.
-3. Free space on that drive is checked against `jobs × 15 GB` BEFORE the run
+   the shard's own `<run temp>/shard-<i>/tmp`, where `<run temp>` is
+   `.mutants/<worktree name>` beside the worktree, on its disk, never the OS
+   temp dir. Setting one and inheriting the others is the bug: whichever name
+   the tool reads is the one that decides.
+2. `CARGO_TARGET_DIR` is the shard's own `<run temp>/target-<i>` — never the
+   lane's, which an editor's own builds compile into. That is what makes
+   skipping the queue safe rather than merely faster: a mutation build owns
+   its directory for hours behind cargo's own blocking lock. These
+   directories are the run's one deliberate leftover, kept so the next run is
+   warm; `gate gc` reclaims the ones no live build owns.
+3. Free space on that drive is checked against `shards × 15 GB` BEFORE the run
    starts; a shortfall refuses with one line naming both numbers and logs
    `mutants-refused:disk`. A drive whose free space cannot be read never
    refuses — this side's own blind spot must not stop a run that would have

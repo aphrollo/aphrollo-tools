@@ -131,9 +131,10 @@ func measureSkipped(root, reason, token string, log io.Writer) Verdict {
 // measureNoVerdict is the refusal for a run that stopped without reaching
 // one: the exit status, whatever went wrong reading its outcomes, and the log
 // that explains it. Never "0 missed" from a file that was never written.
-func measureNoVerdict(root string, code int, cause error, log io.Writer) Verdict {
-	msg := fmt.Sprintf("mutants: the run exited %d and reached no verdict — see %s",
-		code, cargoMutantsLogDir(root))
+// logDir is the failing SHARD's own log directory — with N processes writing
+// N logs, a refusal pointing at the run's general area names none of them.
+func measureNoVerdict(root, logDir string, code int, cause error, log io.Writer) Verdict {
+	msg := fmt.Sprintf("mutants: the run exited %d and reached no verdict — see %s", code, logDir)
 	if cause != nil {
 		msg += fmt.Sprintf(" (%v)", cause)
 	}

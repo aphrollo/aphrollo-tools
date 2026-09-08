@@ -77,6 +77,20 @@ func gitOutIn(t *testing.T, dir string, args ...string) string {
 	return string(out)
 }
 
+// shardOutputDir is where the shard this call belongs to was told to write
+// its mutants.out. A measurement is N processes with N output directories, so
+// a stand-in writes into the one it was given rather than into the checkout.
+func shardOutputDir(t *testing.T, argv []string) string {
+	t.Helper()
+	for i, a := range argv {
+		if a == "--output" && i+1 < len(argv) {
+			return argv[i+1]
+		}
+	}
+	t.Fatalf("argv carries no --output: %v", argv)
+	return ""
+}
+
 // missedOutcomes is a cargo-mutants outcomes.json naming one surviving
 // mutant, written by the stubbed runner where a real one would leave it.
 const missedOutcomes = `{"outcomes":[
@@ -98,9 +112,12 @@ const caughtOutcomes = `{"outcomes":[
 func TestGateMutantsRun_RefusesOnUnacceptedMissedNamingIt(t *testing.T) {
 	gateConfigDir(t)
 	t.Cleanup(tdd.SetFreeSpaceForTest(999, true))
+	// One shard, so this test is about what the VERB prints rather than
+	// about how many cores the box running it has.
+	t.Cleanup(tdd.SetMutantsShardsForTest(1))
 	root, base := cargoLaneRepo(t)
 	t.Cleanup(tdd.SetMutantsExecForTest(func(_ context.Context, dir string, env, argv []string, log io.Writer) (int, error) {
-		writeIn(t, dir, "mutants.out/outcomes.json", missedOutcomes)
+		writeIn(t, shardOutputDir(t, argv), "mutants.out/outcomes.json", missedOutcomes)
 		return 2, nil
 	}))
 	inDir(t, root)
@@ -124,6 +141,7 @@ func TestGateMutantsRun_RefusesOnUnacceptedMissedNamingIt(t *testing.T) {
 func TestGateMutantsRun_BaseDefaultsToMergeBaseWithDefaultBranch(t *testing.T) {
 	gateConfigDir(t)
 	t.Cleanup(tdd.SetFreeSpaceForTest(999, true))
+	t.Cleanup(tdd.SetMutantsShardsForTest(1))
 	root, _ := cargoLaneRepo(t)
 	// Trunk moves on after the lane branched. The lane never touched this
 	// file, so a correct base leaves it out of the measured diff entirely.
@@ -145,7 +163,7 @@ func TestGateMutantsRun_BaseDefaultsToMergeBaseWithDefaultBranch(t *testing.T) {
 				measured = append(measured, string(data))
 			}
 		}
-		writeIn(t, dir, "mutants.out/outcomes.json", caughtOutcomes)
+		writeIn(t, shardOutputDir(t, argv), "mutants.out/outcomes.json", caughtOutcomes)
 		return 0, nil
 	}))
 	inDir(t, root)

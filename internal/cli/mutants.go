@@ -84,10 +84,11 @@ func runGateMutantsRun(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("mutants run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	base := fs.String("base", "", "base ref or sha to measure against (default: the merge base with the default branch)")
-	// There is no --jobs: a Cargo measurement is in-place and cargo-mutants
-	// refuses --jobs beside --in-place, so a flag taking a number here would
-	// promise concurrency the tool will not give (issue #592). An unknown
-	// flag is refused by the flag package's own message rather than ignored.
+	// There is no --jobs: a Cargo measurement is N cargo-mutants processes,
+	// one per shard, each with --jobs 1, and N is derived from the box that
+	// has to hold their builds rather than typed by a caller (issue #592).
+	// An unknown flag is refused by the flag package's own message rather
+	// than ignored.
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -126,9 +127,9 @@ const mutantsUsage = `usage: aphrollo gate mutants <verb>
   run --base <ref>   measure against that ref or sha instead. What nightly CI
                      on main passes its checkpoint to.
 
-                     There is no --jobs: a Cargo run measures the tree
-                     in place, and cargo-mutants refuses --jobs beside
-                     --in-place, so the run is one job by construction.
+                     There is no --jobs: a Cargo run is one cargo-mutants
+                     process per shard of the mutant pool, each with
+                     --jobs 1, and the shard count comes from the box.
   prove --file <path> --old <text> --new <text> --want-fail <test>
                      the HAND mutation proof (existing code, no natural RED):
                      replace --old with --new in --file — must match exactly
