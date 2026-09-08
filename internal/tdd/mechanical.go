@@ -20,6 +20,13 @@ import (
 // empty result indistinguishable from "the gate never ran".
 func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 	var notes []string
+	// First, and ahead of the docs-only fast path as well: a repo whose
+	// mutation configuration names a retired key believes it is gated and is
+	// not, and that correction costs one line to deliver. Everything below
+	// this costs a build.
+	if _, res := mutantsConfigStage(premergeDisplayName, repoRoot); res.Blocked {
+		return res
+	}
 	if docsOnly(repoRoot) {
 		res := docsOnlyFastPath(premergeDisplayName, repoRoot)
 		if len(notes) > 0 {
@@ -61,6 +68,15 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		if res.Message != "" {
 			notes = append(notes, res.Message)
 		}
+	}
+	// Last, and only once the merged tree has proved itself green. The order
+	// is a cost argument in both directions: skipping a suite is cheaper than
+	// repeating a mutation run, but a merge whose suite is red must not spend
+	// twenty minutes measuring mutants it is never going to land.
+	if res := mutantsStage(premergeDisplayName, repoRoot); res.Blocked {
+		return res
+	} else if res.Message != "" {
+		notes = append(notes, res.Message)
 	}
 	return GateResult{Message: strings.Join(notes, "\n")}
 }

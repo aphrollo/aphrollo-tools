@@ -215,10 +215,11 @@ var errorKindBlindPolicy = policy{
 // and #319: 0 of 8 recorded incidents caught, 3 measured hits all false
 // positives), this shape is the one the issue's own evidence actually
 // contains: 4 of the 6 named fuzz tests reconstruct exactly this way at
-// 76f9c48~1 (FuzzCargoShimArgv, FuzzGitShimArgv, FuzzBashWriteTargets,
-// FuzzReceipt — the other two named, FuzzDocsOnlyClassifier and
-// law_fuzz_test.go's FuzzParseLaw, turned out to be a different production
-// bug and an already-partially-asserting test respectively, not this shape).
+// 76f9c48~1 (FuzzCargoShimArgv, FuzzGitShimArgv, FuzzBashWriteTargets and a
+// fourth since deleted with the stage it covered — the other two named,
+// FuzzDocsOnlyClassifier and law_fuzz_test.go's FuzzParseLaw, turned out to
+// be a different production bug and an already-partially-asserting test
+// respectively, not this shape).
 // suppressionCat: a fuzz/property target whose function under test
 // genuinely returns nothing has no discard to trip this, so the legitimate
 // "just don't panic" case is common and structural — warn at edit, deny at

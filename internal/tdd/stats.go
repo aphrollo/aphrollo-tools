@@ -41,7 +41,7 @@ type Stats struct {
 	// nobody but stderr about it — a skip, a fail-open, or an unverifiable
 	// result — keyed by the verdict itself. Before this, "queued-skipped" was
 	// the only stand-down with a row anywhere; "skipped", "runner-missing",
-	// "lint-skipped", "receipt-unverifiable" and "receipt-unpinned" reached
+	// "lint-skipped" and the retired mutation stage's own stand-downs reached
 	// gate.log and stopped being counted at all (issue #320). bound: one
 	// entry per stand-down verdict the log contains.
 	StandDowns map[string]int
@@ -139,23 +139,18 @@ func GateStats(r io.Reader, since time.Time) Stats {
 // denyVerdictPrefixes are the verdicts that record a REFUSAL or a waiver
 // rather than a run, and are therefore tallied by policy instead of by crate.
 //
-// receipt-forged and receipt-unsigned are here because they are exactly that:
-// a receipt nothing signed, or one signed by something that is not the runner,
-// is a rule being waived. Both reached gate.log and neither was ever counted,
-// so the one number that would have shown a session hand-writing a receipt was
-// invisible. queue-bypass is the same shape: the bypass is tolerated, and what
-// makes it tolerable is that every use is counted.
-//
-// receipt-rejected: (trailing colon, unlike its unsuffixed neighbours here)
-// is every blockReceipt/blockMissingReceipt cause, each carrying its own
-// reason as a suffix — base-mismatch, worktree-dirty, unaccepted-survivor,
-// missing, and so on. Before this they shared one undifferentiated
-// receipt-rejected counter, so a 68% rejection rate over two days could not
-// say which of eleven opposite-fix causes made it up (issue #376); this is
-// what gives each cause its own row in the table below, the same way
-// receipt-unsigned already got one.
+// Three of the prefixes below name the document stage that is deleted: the
+// forged form, the unsigned form, and every cause it was rejected for (each
+// carrying its own reason as a suffix, which is what gave a 68% rejection
+// rate its eleven separate rows — issue #376). Nothing can write them again,
+// and they stay because gate.log is APPEND-ONLY: a 90-day window still
+// reaches the weeks they were written in, and a reader asking what the
+// pipeline refused then deserves the answer rather than a silent zero.
+// queue-bypass is the live shape of the same idea — the bypass is tolerated,
+// and what makes it tolerable is that every use is counted.
 var denyVerdictPrefixes = []string{
 	"pretooluse-denied:", "commitmsg-rejected:", "override-", "smell-escape:",
+	// receipt-word-ok: history the append-only log still carries; see above.
 	"receipt-forged", "receipt-unsigned", "receipt-rejected:", "queue-bypass",
 	"mutants-worktree-failed", "git-discard-refused:", "standdown-",
 }
@@ -216,8 +211,8 @@ func mutantsOutcome(verdict string) (outcome, reason string, ok bool) {
 	}
 	if rest, found := strings.CutPrefix(verdict, "mutants-refused:"); found {
 		// The counted form (tested=…,caught=…) is the one that measured
-		// something, and what it found is a survivor: the word the receipt
-		// stage's own log never once contained.
+		// something, and what it found is a survivor: the word the stage this
+		// replaces never once logged.
 		if strings.Contains(rest, "=") {
 			return "red", "survivor", true
 		}
@@ -291,7 +286,7 @@ func parseGateLine(line string) (gateEntry, bool) {
 // one of the tracked outcome columns (statsOutcomes) in this reading. A
 // stage that only ever wrote OTHER verdicts — commitmsg-rejected:...,
 // mutants-started:..., pretooluse-denied:... — is real activity (it lands in
-// Denies or Receipts, and s.ByStage[stage] is non-nil), but this table's
+// Denies or Mutants, and s.ByStage[stage] is non-nil), but this table's
 // fixed vocabulary never applies to it, so every cell in its row is a
 // confirmed-zero that never actually got measured. Rendering that row as
 // nine zeros reads as "ran clean"; issue #369 is that it means "this table

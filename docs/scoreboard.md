@@ -97,3 +97,23 @@ Second, instrument the fail-first RED proof. It is the one high-scoring
 capability resting on judgment, and the suite stage is the standing proof of what
 happens to an uninstrumented stage: it survived 2353 runs of catching nothing,
 because nobody could see that it caught nothing.
+
+## 2026-09-08
+
+Only the rows that MOVED are repeated here; every other row stands at its
+2026-09-07 value and evidence.
+
+| capability | score | evidence | re-measure |
+|---|---|---|---|
+| Mutation measurement (`mutants` stage) | 5 `[judgment]` | Replaces the receipt row, which is deleted along with the thing it scored: there is no document to sign, forge or judge. The merge gate now runs the measurement itself, in the foreground, on the merged tree — configuration read first so a retired key is refused before a suite runs, the measurement last so a red suite never pays for one — and refuses an unaccepted survivor by name, with the mutant on the first line. Every verdict writes one gate-log line carrying the counts, which is what makes the row scoreable at all: the receipt stage refused 150 merges over three weeks and logged no reason for 141 of them. Scored on judgment because it has measured **zero merges so far**; the number is a claim about the design answering the receipt's named defects, not about observed catches. It moves the day the command below has runs to count. | `aphrollo gate stats --since 7d`, the `mutants` row: green/red counts and the reason column (`survivor=`, `disk=`, `skipped:not-declared=`, `skipped:gremlins-windows=`) |
+| Mutation receipts | — | Deleted. `gate receipt`, `gate mutants status`, `gate mutants watch`, `run --job` and `go` are unknown verbs; nothing signs, carries or checks a document. The "what to fix first" item this row carried on 2026-09-07 — make the receipt refuse to certify what it had already warned about — is closed by removing the receipt rather than by fixing it: the producer script that dropped `APHROLLO_MUTANTS_ARGS` is gone too, because the binary now builds the argv and runs the tool itself. | none; the row has no subject |
+
+The layer this changes is the one 2026-09-07 called weakest. Certification is
+gone as a category: there is no artifact between the measurement and the
+judgement for a reader to trust and then stop checking. What replaces it is a
+measurement whose refusal names the mutant, and whose every verdict is
+counted — which is the shape the strongest rows on this table already have.
+
+The fail-first RED proof is now the highest-value uninstrumented stage on the
+board, unchanged from 2026-09-07 and no longer second in line behind the
+receipt.

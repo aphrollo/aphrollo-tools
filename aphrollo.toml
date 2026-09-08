@@ -9,12 +9,13 @@
 # [workspace.metadata.aphrollo] and this repo has no Cargo.toml to put it in.
 undercover = true
 
-# The key a pre-merge measurement will read: declared true here so the stage
-# that consumes it measures this repo when it lands. Nothing reads it yet, so
-# at this commit `aphrollo gate mutants run`, typed in a lane, is the only
-# thing that measures anything. It replaces the trio it retires
-# (mutation-receipt / mutants-local / mutants-judge-local), which encoded
-# where a document was produced and where it was judged; there is no document.
+# The key the pre-merge gate reads: with it true, the merge gate measures the
+# merged tree in the foreground, after the suites have proved it green, and
+# refuses an unaccepted survivor by name. `aphrollo gate mutants run`, typed
+# in a lane, measures the same way before the merge. It replaces the trio it
+# retires (mutation-receipt / mutants-local / mutants-judge-local), which
+# encoded where a document was produced and where it was judged; there is no
+# document.
 mutants-at-merge = true
 
 # The Windows stand-down, and why it is not a hole. gremlins cannot measure

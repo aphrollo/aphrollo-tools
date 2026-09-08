@@ -15,7 +15,7 @@ import (
 //	   env-gated GPU suite reaches, and the run set no switches, so the tests
 //	   that would have caught them never ran.
 //
-// The first is answered by refusing a receipt with timeouts (a timeout is an
+// The first is answered by refusing a merge whose mutants timed out (a timeout is an
 // unmeasured mutant, not a result) and by capping concurrency hard. The second
 // by letting the repo name the switches its mutation run must set.
 

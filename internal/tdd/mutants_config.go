@@ -26,8 +26,8 @@ type MutantsConfig struct {
 }
 
 // The keys a repo declares. mutants-at-merge is the only switch: the trio it
-// replaces encoded where a receipt was produced and where it was judged, and
-// there is no receipt any more.
+// replaces encoded where a document was produced and where it was judged,
+// and the document is gone.
 const (
 	mutantsAtMergeKey = "mutants-at-merge"
 	mutantsEnvKey     = "mutants-env"
@@ -40,6 +40,7 @@ const (
 // name rather than ignored — the whole point of the refusal is that somebody
 // reads it.
 var retiredMutantsKeys = []string{
+	// receipt-word-ok: the retired KEY itself, quoted so the refusal can name it.
 	"mutation-receipt", "mutants-local", "mutants-judge-local", "mutation-runner",
 }
 
@@ -116,7 +117,8 @@ func firstDeclaredList(tables []mutantsConfigTable, key string) []string {
 // whatever its value is. tomlBoolSetIn answers that question only for a
 // boolean, and a retired key is refused for being declared at all — a repo
 // that wrote `mutation-runner = "tools/mutation_gate.sh"` is exactly as
-// mistaken as one that wrote `mutation-receipt = true`.
+// mistaken as one that wrote `mutation-receipt = true`. receipt-word-ok: the
+// retired key again, named because the refusal names it.
 func tomlKeySetIn(path, table, key string) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {

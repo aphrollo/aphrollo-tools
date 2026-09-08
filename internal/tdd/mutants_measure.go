@@ -22,7 +22,7 @@ import (
 //
 // So: one call, one tree, one verdict. MeasureLane runs the tool, reads its
 // machine-readable outcomes, judges them against the repo's own accept-list
-// and reports what it found. There is no store, no carry and no receipt: with
+// and reports what it found. There is no store, no carry and no document: with
 // the measurement and the judgement collapsed into one event there is nothing
 // left for a cache to carry between them.
 
