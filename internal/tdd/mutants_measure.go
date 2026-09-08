@@ -183,11 +183,12 @@ func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base 
 	// directory of its own (mutants_shards.go), so the checkout is never
 	// touched. In-place (one tree, one job) measured 739 mutants in 16 h on
 	// a box that could run eight copies; the number the box derives is how
-	// many shards the mutant pool is divided into, and refuseOnDisk budgets
-	// for one copy each.
+	// many shards the mutant pool is divided into, and refuseOnDisk fits that
+	// number to what the build drive measures.
 	shards, why := mutantsJobsForThisBoxFn()
 	logf(log, "mutants: %d shards (%s)", shards, why)
-	if v, refused := refuseOnDisk(root, shards, log); refused {
+	v, shards, refused := refuseOnDisk(root, shards, "shard", log)
+	if refused {
 		return v, nil
 	}
 	diffPath, err := writeMeasureDiff(root, base, files)
@@ -255,7 +256,8 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base str
 	// count happily, so the Go half keeps the box's own cap.
 	jobs, why := mutantsJobsForThisBoxFn()
 	logf(log, "mutants: %d jobs (%s)", jobs, why)
-	if v, refused := refuseOnDisk(root, jobs, log); refused {
+	v, jobs, refused := refuseOnDisk(root, jobs, "job", log)
+	if refused {
 		return v, nil
 	}
 	out := gremlinsReportPath(root)
@@ -434,28 +436,6 @@ func hasMutantsNextestProfile(root string) bool {
 	}
 	ws := cargoWorkspaceRoot(root)
 	return ws != "" && ws != root && hasNextestProfile(ws, mutantsNextestProfile)
-}
-
-// refuseOnDisk stops a run that cannot fit its temp copies BEFORE it starts.
-// Three runs died at mutant 101 of 131 on a full drive, and every verdict
-// they had reached went with them. A drive whose free space cannot be read
-// never refuses: this side's own blind spot must not stop a run that would
-// have been fine.
-func refuseOnDisk(root string, jobs int, log io.Writer) (Verdict, bool) {
-	free, ok := freeSpaceGBFn(nearestExistingDir(measureTempDir(root)))
-	if !ok {
-		return Verdict{}, false
-	}
-	need := jobs * mutantsDiskPerJobGB
-	if free >= need {
-		return Verdict{}, false
-	}
-	msg := fmt.Sprintf("mutants: refused — %d GB free, jobs=%d needs %d GB (%d GB per job); "+
-		"a run that fills the drive dies mid-way and takes every verdict with it",
-		free, jobs, need, mutantsDiskPerJobGB)
-	logf(log, "%s", msg)
-	appendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-refused:disk", 0)
-	return Verdict{Refused: true, Message: msg}, true
 }
 
 // readCargoMutantsOutcomes reads one shard's verdicts from the file

@@ -240,11 +240,21 @@ from 40 GB free to 12 GB. So:
    its directory for hours behind cargo's own blocking lock. These
    directories are the run's one deliberate leftover, kept so the next run is
    warm; `gate gc` reclaims the ones no live build owns.
-3. Free space on that drive is checked against `shards × 15 GB` BEFORE the run
-   starts; a shortfall refuses with one line naming both numbers and logs
-   `mutants-refused:disk`. A drive whose free space cannot be read never
-   refuses — this side's own blind spot must not stop a run that would have
-   been fine.
+3. Free space on that drive is MEASURED against what the run will actually
+   put there BEFORE it starts: one copy of the tracked source tree per shard
+   (`git ls-files`, since the copy is `--copy-target=false` and honours
+   gitignore) plus what each shard's persistent `target-<i>` holds today —
+   stat'd when that directory exists, and an estimate of 15 GB, reported as
+   an estimate, for a shard that has never built. 10 GB is kept free on top.
+   A drive that cannot carry every shard REDUCES the run to the shards that
+   fit rather than refusing it; only a drive that cannot carry one refuses,
+   naming the numbers, and logs `mutants-refused:disk`. A drive whose free
+   space cannot be read never refuses and never reduces — this side's own
+   blind spot must not stop a run that would have been fine.
+
+   The guess this replaced multiplied the shard count by a flat 15 GB and had
+   never stat'd anything: it asked for 105 GB against ~380 GB free and passed
+   a run whose single copy needed 375,067,198,764 bytes.
 
 `APHROLLO_MUTATION_GATE=1` marks the run's children. That one marker answers
 both questions the cargo shim asks: a bare `cargo mutants` is refused and told
@@ -446,10 +456,10 @@ stage refused and for what without re-running anything.
 |---|---|
 | `mutants-passed:tested=…,caught=…,unviable=…,missed=…,accepted=…,unmeasured=…,notcovered=…` | a run that reached a verdict and found nothing unaccepted |
 | `mutants-refused:` + the same counts | a run that reached a verdict and found a survivor or an unmeasured mutant |
-| `mutants-refused:disk` | not enough free space for `jobs × 15 GB` |
+| `mutants-refused:disk` | the build drive cannot carry even one shard's copy and build dir |
 | `mutants-refused:tree-changed` | the run left the working tree different from how it found it |
 | `mutants-refused:git-failed` | git could not read the tree, so the tree that was measured cannot be compared with the one the run started from — the refusal carries git's own stderr |
-| `mutants-refused:no-verdict` | an exit status cargo-mutants does not use for a verdict |
+| `mutants-refused:no-verdict` | an exit status cargo-mutants does not use for a verdict; the message names disk exhaustion as the probable cause when the drive is, at that moment, below what one measurement process needs |
 | `mutants-refused:config` | a retired key, or a `mutants-after` naming a file that is not there |
 | `mutants-refused:no-lane-tip` | neither `MERGE_HEAD` nor `GIT_REFLOG_ACTION` named the branch coming in |
 | `mutants-refused:runner-failed` | the runner never started, so nothing was measured |

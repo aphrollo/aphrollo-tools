@@ -138,6 +138,10 @@ func measureNoVerdict(root, logDir string, code int, cause error, log io.Writer)
 	if cause != nil {
 		msg += fmt.Sprintf(" (%v)", cause)
 	}
+	// What the drive looks like right now, when that is itself the answer: a
+	// run killed by a full disk otherwise reports its exit status and its log
+	// directory and nothing about the reason (issue #600).
+	msg += measureDiskNote(root)
 	logf(log, "%s", msg)
 	appendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-refused:no-verdict", 0)
 	return Verdict{Refused: true, Message: msg}

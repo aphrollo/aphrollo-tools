@@ -25,11 +25,10 @@ import (
 //	   like, so "the box is nearly full" is a line somebody reads rather than a
 //	   run that mysteriously exits 1.
 
-// mutantsDiskPerJobGB is what one concurrent mutant needs on the build drive:
-// a tree copy plus its build products, rounded up from the 135 MB copies and
-// the multi-gigabyte target dirs measured beside them. Deliberately generous —
-// the cost of refusing a run that would have fit is one message.
-const mutantsDiskPerJobGB = 15
+// What one shard needs is no longer a constant: mutants_budget.go measures
+// the tracked tree it copies and stats the persistent target dir it builds
+// in, because the flat per-job guess that used to live here passed a run that
+// then needed 375 GB for a single copy.
 
 // doctorDiskWarnGB is where `gate doctor` starts saying the box is tight.
 const doctorDiskWarnGB = 30
