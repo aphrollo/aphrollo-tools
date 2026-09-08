@@ -21,6 +21,10 @@ import (
 // It skips when the toolchain is not on the box, the same way the LSP e2e
 // tests skip when their server is not installed.
 func TestMeasureLane_RealCargoMutantsOnAMinimalCrate(t *testing.T) {
+	if testing.Short() {
+		// skip-ok: -short is the caller asking for the fast suite, and this test is minutes of real compiling by definition.
+		t.Skip("-short: this test compiles and mutates a real crate")
+	}
 	useRealCargoHome(t)
 	requireRealMutationToolchain(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -30,6 +34,13 @@ func TestMeasureLane_RealCargoMutantsOnAMinimalCrate(t *testing.T) {
 	t.Cleanup(SetFreeSpaceForTest(999, true))
 
 	root := t.TempDir()
+	// Everything the run compiles stays inside the temp tree. The
+	// measurement derives its own build directory from the box's resolved
+	// target dir, and the operator's real ~/.cargo/config.toml — which this
+	// test puts back so cargo resolves at all — may declare a
+	// `build.target-dir` anywhere on the machine. Naming it here keeps the
+	// gigabytes where the test can clean them up.
+	t.Setenv("CARGO_TARGET_DIR", filepath.Join(root, "target"))
 	gitInit(t, root)
 	write(t, root, "Cargo.toml", "[package]\nname = \"m\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
 	// The profile the runner selects with NEXTEST_PROFILE. It inherits every
@@ -51,8 +62,30 @@ func TestMeasureLane_RealCargoMutantsOnAMinimalCrate(t *testing.T) {
 	gitDo(t, root, "add", ".")
 	gitDo(t, root, "commit", "-qm", "lane")
 
+	// A real toolchain run gets a deadline of its own. Left to the package
+	// timeout, a hung measurement takes every other test's result down with
+	// it in a panic nobody can read; this names the test that stopped
+	// answering and how long it was given.
+	type measured struct {
+		v   Verdict
+		err error
+	}
 	var log strings.Builder
-	v, err := MeasureLane(root, MutantsConfig{AtMerge: true, After: "after.sh"}, MeasureOpts{Base: base, Log: &log})
+	answered := make(chan measured, 1)
+	go func() {
+		v, err := MeasureLane(root, MutantsConfig{AtMerge: true, After: "after.sh"}, MeasureOpts{Base: base, Log: &log})
+		answered <- measured{v, err}
+	}()
+	deadline, cancel := context.WithTimeout(context.Background(), smokeMeasureDeadline)
+	defer cancel()
+	var got measured
+	select {
+	case got = <-answered:
+	case <-deadline.Done():
+		t.Fatalf("the measurement did not answer within %s — five mutants on a crate with no dependencies "+
+			"is seconds of work, so something on this box or in the flag set is wrong", smokeMeasureDeadline)
+	}
+	v, err := got.v, got.err
 
 	if err != nil {
 		t.Fatalf("MeasureLane: %v\n%s", err, log.String())
@@ -68,6 +101,14 @@ func TestMeasureLane_RealCargoMutantsOnAMinimalCrate(t *testing.T) {
 	if v.Tested < 1 {
 		t.Fatalf("Tested = %d, want at least one mutant actually built and run\n%s", v.Tested, log.String())
 	}
+	// Tested alone is not enough: a run whose every mutant came back
+	// unviable never compiled a mutation, and a verdict of "nothing
+	// survived" out of eight failures to build proves only that the crate
+	// exists.
+	if v.Caught < 1 {
+		t.Fatalf("Caught = %d of %d tested, want at least one mutant the crate's own test actually killed\n%s",
+			v.Caught, v.Tested, log.String())
+	}
 	if got := readFileString(t, filepath.Join(root, "after-ran.txt")); got != "0" {
 		t.Errorf("mutants-after recorded %q, want the passing run's own status 0", got)
 	}
@@ -76,6 +117,10 @@ func TestMeasureLane_RealCargoMutantsOnAMinimalCrate(t *testing.T) {
 	// which flags ran, or how many mutants there were to catch.
 	t.Logf("cargo-mutants said:\n%s", strings.TrimRight(log.String(), "\n"))
 }
+
+// smokeMeasureDeadline is how long the real run gets before the test calls it
+// hung. Measured: 5 mutants on a dependency-free crate, cold, in 13-16 s.
+const smokeMeasureDeadline = 120 * time.Second
 
 // minimalCrateBase is the crate before the lane: one function and the test
 // that pins it.

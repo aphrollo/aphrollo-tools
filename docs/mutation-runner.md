@@ -187,7 +187,9 @@ mutants: 2 jobs (min(cores 24/6=4, ram 64GB/6=10, cap 2) — cap 2)
 ```
 
 Memory that cannot be READ is not memory that is absent: an unreadable reading
-prints `ram unknown` and lets the cores decide alone.
+prints `ram unknown` and lets the cores decide alone. `--jobs` is gone from
+both halves: the Go run derives its count from the box it is on, and no
+caller may type a number for either.
 
 **One run per BOX, not one per repo.** The call is wrapped in a machine-wide
 advisory lock held for its whole duration, cold build included. A wall-clock

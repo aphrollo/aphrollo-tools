@@ -34,6 +34,11 @@ import (
 type worktreeSnapshot struct {
 	patch string
 	ok    bool
+	// failed carries what git said when it could not answer. "Could not
+	// say" is not "did not change": a corrupt index, a repo that vanished
+	// under the run or a killed git would otherwise wave through exactly
+	// the tree this stage exists to check.
+	failed string
 }
 
 // snapshotWorktree records the tracked working tree as one patch. Untracked
@@ -49,14 +54,24 @@ func snapshotWorktree(root string) worktreeSnapshot {
 	// snapshot differ from the before one with no content difference at all,
 	// and refused a measurement whose every mutant had been caught, naming
 	// no files and printing an empty --stat.
-	out, _, err := gitDiffOutFn(root, "diff")
+	out, errText, err := gitDiffOutFn(root, "diff")
 	if err != nil {
-		return worktreeSnapshot{}
+		return worktreeSnapshot{failed: gitFailureText(errText, err)}
 	}
 	return worktreeSnapshot{patch: out, ok: true}
 }
 
-// gitDiffExecFn is the seam every diff that decides this verdict goes
+// gitFailureText is what to tell the operator when git could not answer: its
+// own stderr when it wrote any, and the exec error when it did not (a git
+// that never started prints nothing at all).
+func gitFailureText(stderr string, err error) string {
+	if text := strings.TrimSpace(stderr); text != "" {
+		return text
+	}
+	return err.Error()
+}
+
+// gitDiffOutFn is the seam every diff that decides this verdict goes
 // through: one call, both streams kept apart, so a test can say what git
 // printed where.
 var gitDiffOutFn = gitDiffOut
@@ -86,6 +101,9 @@ func setGitDiffOutForTest(fn func(dir string, args ...string) (string, string, e
 // re-run, because those are the paths a killed run actually takes.
 func refuseIfTreeChanged(root string, before worktreeSnapshot, log io.Writer) (Verdict, bool) {
 	after := snapshotWorktree(root)
+	if v, refused := refuseIfGitFailed(root, before, after, log); refused {
+		return v, true
+	}
 	if !before.ok || !after.ok || before.patch == after.patch {
 		return Verdict{}, false
 	}
@@ -105,6 +123,27 @@ func refuseIfTreeChanged(root string, before worktreeSnapshot, log io.Writer) (V
 	msg := b.String()
 	logf(log, "%s", msg)
 	appendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-refused:tree-changed", 0)
+	return Verdict{Refused: true, Message: msg}, true
+}
+
+// refuseIfGitFailed stops a measurement whose tree nobody could read. A
+// snapshot that failed answers neither "changed" nor "unchanged", and the
+// silent version of that — treating it as nothing to compare — is the one
+// answer that must never be given: it passes the merge on the strength of a
+// check that did not run. Either end of the comparison is enough, since one
+// missing end leaves nothing to compare against.
+func refuseIfGitFailed(root string, before, after worktreeSnapshot, log io.Writer) (Verdict, bool) {
+	said := before.failed
+	if said == "" {
+		said = after.failed
+	}
+	if said == "" {
+		return Verdict{}, false
+	}
+	msg := "mutants: refused — git could not read the working tree, so the tree the run measured cannot be " +
+		"compared with the one it started from: " + said
+	logf(log, "%s", msg)
+	appendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-refused:git-failed", 0)
 	return Verdict{Refused: true, Message: msg}, true
 }
 
@@ -182,7 +221,11 @@ func worktreeChangedPaths(root, base string) ([]string, bool) {
 	if root == "" || base == "" {
 		return nil, false
 	}
-	out, err := git(root, "diff", "--name-only", base)
+	// Stdout alone, for the same reason the snapshot reads stdout alone: on
+	// combined output a "warning: in the working copy of …" line becomes one
+	// more changed PATH, and a scope that claims a sentence about line
+	// endings as a file is a scope nobody can read.
+	out, _, err := gitDiffOutFn(root, "diff", "--name-only", base)
 	if err != nil {
 		// absence-ok: false is "git could not say", which measureDiff turns
 		// into an error naming root and base that the run then refuses on —
@@ -250,7 +293,11 @@ func measureGoDiff(root, base string) ([]string, error) {
 // writeMeasureDiff renders the scoped diff cargo-mutants is pointed at with
 // --in-diff, beside the run's other temporary files.
 func writeMeasureDiff(root, base string, files []string) (string, error) {
-	out, err := git(root, append([]string{"diff", base, "--"}, files...)...)
+	// Stdout alone again, and here it is the tool that would trip: this file
+	// is handed to cargo-mutants as --in-diff and PARSED as a patch. A
+	// warning line lands ahead of the first `diff --git`, where a patch
+	// parser has nowhere to put it.
+	out, _, err := gitDiffOutFn(root, append([]string{"diff", base, "--"}, files...)...)
 	if err != nil {
 		return "", err
 	}

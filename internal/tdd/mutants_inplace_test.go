@@ -19,21 +19,22 @@ import (
 func TestMeasure_GitWarningOnStderrIsNotATreeChange(t *testing.T) {
 	root, base := measureFixture(t, laneSource)
 	const patch = "diff --git a/crates/a/src/lib.rs b/crates/a/src/lib.rs\n@@ -1 +1 @@\n-a + b\n+a - b\n"
-	const warning = "warning: in the working copy of 'crates/a/src/lib.rs', " +
-		"LF will be replaced by CRLF the next time Git touches it\n"
 	diffs := 0
-	t.Cleanup(setGitDiffOutForTest(func(_ string, args ...string) (string, string, error) {
-		if len(args) > 1 && args[1] == "--stat" {
-			return " crates/a/src/lib.rs | 1 +\n", "", nil
+	stubGitDiff(t, func(args []string) (string, string, error, bool) {
+		switch {
+		case len(args) == 2 && args[1] == "--stat":
+			return " crates/a/src/lib.rs | 1 +\n", "", nil, true
+		case len(args) == 1 && args[0] == "diff":
+			diffs++
+			if diffs == 1 {
+				return patch, "", nil, true
+			}
+			// Every look after the run carries the advice, and the tree it
+			// describes is byte for byte the one that went in.
+			return patch, warningOnStderr, nil, true
 		}
-		diffs++
-		if diffs == 1 {
-			return patch, "", nil
-		}
-		// Every look after the run carries the advice, and the tree it
-		// describes is byte for byte the one that went in.
-		return patch, warning, nil
-	}))
+		return "", "", nil, false
+	})
 	stubMutantsExec(t, func(int, measuredCall) (int, error) {
 		writeOutcomes(t, root, MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 36,
 			Mutation: "replace + with -", Package: "a", Status: "caught"})
