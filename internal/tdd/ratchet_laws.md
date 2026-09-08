@@ -125,11 +125,12 @@ accepts either. `contiguous` applies in whichever direction is chosen.
 | `registry-both-ways` | `registry_file`, `entry_pattern`, `use_pattern`, `entry_column` | every use is registered AND every registry line is used; the LAST non-empty capture of a use match is the name, so an alternation with one group per branch works; `entry_column` scopes `entry_pattern` to one `\|`-delimited cell of the registry line | the dev-instrument (env switch) registry, and "every crate is documented in this markdown table" |
 | `doc-path-resolves` | `pattern` | a captured path must resolve relative to the CITING file's own directory, then the repo root, then inside its own `crates/<x>`/`tools/<x>` unit | doc citations |
 | `dep-graph-forbids` | `roots`, `forbidden`, `edges`, `min_reachable` | no root package may REACH a forbidden one (glob) through the resolved dependency graph; `edges = "normal"` (default) never follows dev/build edges, which is the whole distinction | dev-only tooling in a shipping binary |
+| `dep-graph-ceiling` | `roots`, `edges`, `counts`, `min_reachable` | how MUCH a root may reach at all: one hit per root, weighted by the count of packages reachable from it, so the baseline ceilings that count the way `json-number-ceiling` ceilings a measured number | a crate whose fan-out across the workspace nobody was watching |
 | `file-set-containment` | `superset_file`, `subset_file`, `capture` OR `subset_capture`+`superset_capture` | every capture in `subset_file` must also appear in `superset_file` | a headless stand-in whose query must refuse at least what the real one refuses |
 | `json-number-ceiling` | `files`, `path`, `tolerance_pct`, `enabled_env` | a number read out of generated JSON may not exceed its baseline by more than the tolerance | a criterion bench figure nobody was reading |
 | `symbol-removed` | `pattern` (exactly one capture group) | a symbol captured at `--base <ref>` must still be captured somewhere in scope at the current tree, or be admitted by a tombstone comment naming it and a reason | a deleted test, invisible to every file-at-a-time law |
 
-The last three judge a whole TREE rather than a file at a time, and each
+The last five judge a whole TREE rather than a file at a time, and each
 refuses to reach a VACUOUS verdict: a dependency walk that resolved nothing, a
 capture set that came out empty, or an armed perf law with no data all fail
 loudly instead of reporting green over files they never opened.
@@ -148,6 +149,19 @@ loudly instead of reporting green over files they never opened.
   is a leaf rather than a broken walk, so `min_reachable` is what answers
   vacuity there — a walk that reached fewer packages than the floor fails
   loudly instead of reporting clean.
+- **`dep-graph-ceiling`** asks the complementary question of the same resolved
+  graph, and shares its walk, its `roots = "*"` wildcard, its `min_reachable`
+  floor and its cache. `counts` decides what a reached package is worth:
+  the default counts only WORKSPACE members, `counts = "all"` counts every
+  package including registry crates. A root reaching nothing countable is a
+  hit of weight 0, not an offence — so its `clean/` fixture is judged against
+  a ZERO baseline (every hit weighing 0 passes, any weight above it fails),
+  which is what lets the kind have a clean fixture at all. Its `escape` is
+  read from the ROOT's own `Cargo.toml`, as a `#` comment carrying a reason:
+  a deliberate edge is admitted there, never by raising the baseline, which
+  the staged-baseline guard refuses. An escaped root drops out of the ceiling
+  for that run while its reachable packages still count toward the vacuity
+  floor, so waiving one never turns a broken walk into a clean verdict.
 - **`line-count`**'s `count = "code"` judges only lines that carry CODE: blank
   lines and comment-only lines (by extension — `//` and `/* */` for
   `.rs`/`.go`/`.ts`, `#` for `.py`/`.sh`/`.toml`) never count toward `max`. A
