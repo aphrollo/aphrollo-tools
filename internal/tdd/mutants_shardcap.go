@@ -66,7 +66,10 @@ func mutantsListCount(ctx context.Context, root string, cfg MutantsConfig, argv 
 	// persistent directory that shard will build in. io.Discard as the
 	// narrative: the list is JSON for this side to read, not a paragraph in
 	// the run's log.
-	code, out, err := runMutantsMeasured(ctx, root, measureShardEnv(root, cfg, 0, 1), list, io.Discard)
+	// Priced as a cold run: the listing compiles nothing, so the width it
+	// carries never matters, and the conservative number is the one to hand a
+	// pass whose cost this side has not measured.
+	code, out, err := runMutantsMeasured(ctx, root, measureShardEnv(root, cfg, 0, 1, true), list, io.Discard)
 	if err != nil || code != 0 {
 		logf(log, "mutants: could not list the diff's mutants (exit %d, %v) — the box's own shard count stands", code, err)
 		return 0, false

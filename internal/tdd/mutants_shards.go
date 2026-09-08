@@ -110,8 +110,11 @@ func mutantsShardArgv(argv []string, shard, shards int, outDir string) []string 
 //
 // shards is how many shards are running beside this one, because that is what
 // the build width is divided by; the lone re-run passes 1 and gets the whole
-// box, which is what having it to itself means.
-func measureShardEnv(root string, cfg MutantsConfig, shard, shards int) []string {
+// box, which is what having it to itself means. cold is the run's phase, and
+// it is passed in rather than read off this shard's directory: what a build
+// costs is a fact about the RUN — one shard building from scratch prices
+// every job the run may start at once.
+func measureShardEnv(root string, cfg MutantsConfig, shard, shards int, cold bool) []string {
 	tmp, target := mutantsShardTempDir(root, shard), mutantsShardTargetDir(root, shard)
 	_ = os.MkdirAll(tmp, 0o755)
 	_ = os.MkdirAll(target, 0o755)
@@ -122,7 +125,7 @@ func measureShardEnv(root string, cfg MutantsConfig, shard, shards int) []string
 			out = append(out, kv)
 		}
 	}
-	jobs, _ := mutantsBuildJobsForShards(cfg, shards)
+	jobs, _ := mutantsBuildJobsForShards(cfg, shards, cold)
 	return append(out, "TMPDIR="+tmp, "TMP="+tmp, "TEMP="+tmp, "CARGO_TARGET_DIR="+target,
 		"CARGO_BUILD_JOBS="+strconv.Itoa(jobs))
 }
@@ -135,12 +138,17 @@ var mutantsShardEnvKeys = map[string]bool{
 	"TMPDIR": true, "TMP": true, "TEMP": true, "CARGO_TARGET_DIR": true, "CARGO_BUILD_JOBS": true,
 }
 
-// shardRun is what one shard's process reported.
+// shardRun is what one shard's process reported. Env is non-empty only for a
+// shard the BOX killed twice — once as it ran, once more alone on a cleaned
+// build dir — and it names which of the machine's own failures that was, so
+// the refusal can say the difference between a lane that was measured and a
+// box that could not measure it.
 type shardRun struct {
 	Shard  int
 	Shards int
 	Code   int
 	Log    string
+	Env    string
 	Err    error
 }
 
@@ -158,6 +166,14 @@ func runMutantsShards(ctx context.Context, root string, cfg MutantsConfig, argv 
 	shared := &lockedWriter{to: log}
 	release := acquireMutantsRunLock("mutants measure for "+root, root)
 	defer release()
+	// Decided HERE, where the shards are about to start, rather than by the
+	// caller: the run's build width is a fact about the state of the
+	// persistent target dirs at the moment the processes are spawned, and the
+	// number is said out loud so a narrow run is explainable from the log
+	// rather than from a code read.
+	cold := mutantsShardsAreCold(root, shards)
+	buildJobs, whyJobs := mutantsBuildJobsForShards(cfg, shards, cold)
+	logf(log, "mutants: %d cargo build job%s per shard (%s)", buildJobs, plural(buildJobs), whyJobs)
 	runs := make([]shardRun, shards)
 	var wg sync.WaitGroup
 	for i := range shards {
@@ -172,12 +188,17 @@ func runMutantsShards(ctx context.Context, root string, cfg MutantsConfig, argv 
 			// no verdict, and the difference between those two is invisible
 			// once the stale file is still sitting there.
 			_ = os.Remove(cargoMutantsOutcomesPath(out))
-			code, err := mutantsExecFn(ctx, root, measureShardEnv(root, cfg, shard, shards),
+			code, err := mutantsExecFn(ctx, root, measureShardEnv(root, cfg, shard, shards, cold),
 				mutantsShardArgv(argv, shard, shards, out), io.MultiWriter(shared, &tee))
 			runs[shard] = shardRun{Shard: shard, Shards: shards, Code: code, Log: tee.String(), Err: err}
 		}(i)
 	}
 	wg.Wait()
+	// Before any of this is read as a result: a shard the box killed measured
+	// nothing, and it gets its one retry here, with every other shard already
+	// finished and the machine quiet again.
+	retryEnvironmentalShards(ctx, root, cfg, argv, runs, log)
+	reportShardBuildDirs(root, shards, log)
 	for _, r := range runs {
 		if r.Err != nil {
 			return runs, r.Err
@@ -266,7 +287,17 @@ func shardHadNoMutants(outDir string) bool {
 
 // shardNoVerdict says which shard stopped and why, in the one sentence an
 // operator needs before opening a log.
+//
+// A shard the BOX killed says that instead, because it is a different
+// instruction: there is nothing in the lane to fix, the retry it already got
+// with the machine to itself found the same thing, and the mutants it was
+// given were NOT measured — which is not the same as caught.
 func shardNoVerdict(r shardRun, err error) error {
+	if r.Env != "" {
+		return fmt.Errorf("shard %d/%d exited %d after an environmental build failure — %s — "+
+			"retried once alone on a cleaned build dir and hit it again, so its mutants were NOT measured",
+			r.Shard, r.Shards, r.Code, r.Env)
+	}
 	reason := errors.New("its exit status is not one cargo-mutants uses for a verdict")
 	if err != nil {
 		reason = err

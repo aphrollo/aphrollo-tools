@@ -204,11 +204,11 @@ func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base 
 	// report nothing.
 	shards, why = capShardsToMutants(ctx, root, cfg, argv, shards, why, log)
 	logf(log, "mutants: %d shards (%s)", shards, why)
-	// Both numbers said out loud, and in the same shape, once they are the
-	// numbers the run will actually use: a run slower than it should be is
-	// then explainable from the log rather than from a code read.
-	buildJobs, whyJobs := mutantsBuildJobsForShards(cfg, shards)
-	logf(log, "mutants: %d cargo build jobs per shard (%s)", buildJobs, whyJobs)
+	// The build width is said out loud too, in the same shape, but by
+	// runMutantsShards: it depends on whether the shards start warm, which is
+	// only settled once the run holds the box-wide lock and has done whatever
+	// warming it is going to do.
+	//
 	// What the tree looked like before the tool touched it. cargo-mutants
 	// mutates its copy, but a run that is killed part-way can still leave a
 	// mutation in the source it copied from — and merging that is merging a
@@ -524,7 +524,7 @@ func runMutantsMeasuredRerun(ctx context.Context, root string, cfg MutantsConfig
 	// One shard, so the build width is the whole box: the re-run exists to
 	// give a mutant the machine to itself, and a third of the cores would
 	// time it out again for the same reason the first run did.
-	if _, _, err := runMutantsMeasured(ctx, root, measureShardEnv(root, cfg, 0, 1), rerun, log); err != nil {
+	if _, _, err := runMutantsMeasured(ctx, root, measureShardEnv(root, cfg, 0, 1, mutantsShardTargetIsCold(root, 0)), rerun, log); err != nil {
 		return nil, err
 	}
 	out, err := readCargoMutantsOutcomes(dir)
