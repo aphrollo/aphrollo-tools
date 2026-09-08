@@ -128,3 +128,23 @@ func TestExtractFailingTests_Nextest(t *testing.T) {
 		t.Fatalf("want %v, got %v", want, got)
 	}
 }
+
+// The integration-test shape #590 reports. nextest narrating progress puts an
+// `(n/m)` counter between the duration and the binary id, and a test living in
+// an integration-test binary carries a binary id of its own
+// (`pose_ik::integration`) BEFORE its `module::name` path. The failing test's
+// name is the LAST whitespace-separated field on the line; reading the field at
+// a fixed offset from the duration instead picks up the binary id, which no
+// --want-fail can ever match, and the proof is ruled WRONG FAILURE against
+// evidence that never named a test at all.
+func TestExtractFailingTests_ReadsNextestFailLines(t *testing.T) {
+	out := "        FAIL [ 0.020s] (1/1) pose_ik::integration solve_clip_bin::solve_clip_exits_nonzero_on_bad_argv\n" +
+		"   Summary [ 0.021s] 1 test run: 0 passed, 1 failed, 40 skipped\n"
+
+	got := ExtractFailingTests(out)
+
+	want := []string{"solve_clip_bin::solve_clip_exits_nonzero_on_bad_argv"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ExtractFailingTests = %#v, want %#v", got, want)
+	}
+}

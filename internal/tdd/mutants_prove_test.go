@@ -177,3 +177,89 @@ func TestRepoRelSlashPath_AgreesWhenRepoRootIsSpelledThroughASymlink(t *testing.
 		t.Fatalf("repoRelSlashPath(%q, %q) = %q, want %q", alias, absFile, rel, "widget.go")
 	}
 }
+
+// A runner names a test by its module path, and --want-fail names the test.
+// Matching those two is a suffix question on `::`, not a bare substring scan:
+// a substring can land in the middle of an unrelated name, and since the
+// failing set is SORTED, an unrelated name that merely contains the want can
+// sort ahead of the real one and be reported as the killed test (#590).
+func TestProve_WantFailMatchesAsModuleSuffix(t *testing.T) {
+	cases := []struct {
+		name    string
+		failing []string
+		want    string
+		match   string
+	}{
+		{
+			name:    "a name qualified by its module path matches the bare test name",
+			failing: []string{"solve_clip_bin::solve_clip_exits_nonzero_on_bad_argv"},
+			want:    "solve_clip_exits_nonzero_on_bad_argv",
+			match:   "solve_clip_bin::solve_clip_exits_nonzero_on_bad_argv",
+		},
+		{
+			name:    "an unqualified name matches itself",
+			failing: []string{"TestAdd"},
+			want:    "TestAdd",
+			match:   "TestAdd",
+		},
+		{
+			name:    "the ::-suffix match wins over a substring that sorts ahead of it",
+			failing: []string{"helpers::solve_clip_exits_nonzero_on_bad_argv_smoke", "solve_clip_bin::solve_clip_exits_nonzero_on_bad_argv"},
+			want:    "solve_clip_exits_nonzero_on_bad_argv",
+			match:   "solve_clip_bin::solve_clip_exits_nonzero_on_bad_argv",
+		},
+		{
+			name:    "an unrelated failure is not the predicted one",
+			failing: []string{"other_bin::something_else", "pose_ik::integration"},
+			want:    "solve_clip_exits_nonzero_on_bad_argv",
+			match:   "",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := matchWantFail(c.failing, c.want); got != c.match {
+				t.Fatalf("matchWantFail(%v, %q) = %q, want %q", c.failing, c.want, got, c.match)
+			}
+		})
+	}
+}
+
+// The verdict #590 reports as contradicting its own evidence: the suite went
+// red, NO failing test name could be read out of the run at all, and the proof
+// was still ruled WRONG FAILURE — a verdict that asserts the mutation failed
+// some OTHER test, over evidence that named none. A run nothing can be read
+// from is unreadable, and says so, at its own non-zero exit.
+func TestProve_RedRunWithNoReadableNamesIsUnreadableNotWrongFailure(t *testing.T) {
+	root := makeGoRepo(t)
+	src := "package m\n\nfunc Add(a, b int) int { return a + b }\n"
+	write(t, root, "widget.go", src)
+	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif Add(2, 3) != 5 {\n\t\tt.Fatal(\"bad\")\n\t}\n}\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "base")
+
+	// A red run that never got as far as naming a test: a build failure, a
+	// linker error, a runner that printed only its own summary.
+	fakeRun := func(r Runner, root string) SuiteResult {
+		return SuiteResult{Passed: false, Output: "# github.com/example/m\n./widget.go:3:20: undefined: q\n"}
+	}
+
+	var out, errb bytes.Buffer
+	code := RunMutantsProve(MutantsProveOptions{
+		File:     filepath.Join(root, "widget.go"),
+		Old:      "return a + b",
+		New:      "return a - b",
+		WantFail: "TestAdd",
+	}, fakeRun, &out, &errb)
+
+	if code == ExitMutantsProveWrongFailure {
+		t.Fatal("a red run that named no failing test was ruled WRONG FAILURE — the verdict contradicts its own evidence")
+	}
+	if code != ExitMutantsProveUnreadable {
+		t.Fatalf("exit = %d, want ExitMutantsProveUnreadable (%d)\nstdout: %s\nstderr: %s",
+			code, ExitMutantsProveUnreadable, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String()+errb.String(),
+		"unreadable red run: no failing test name could be read from the output") {
+		t.Fatalf("the report never says the run was unreadable\nstdout: %s\nstderr: %s", out.String(), errb.String())
+	}
+}

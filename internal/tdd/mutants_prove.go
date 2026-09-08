@@ -48,7 +48,37 @@ const (
 	ExitMutantsProveWrongFailure = 4
 	// ExitMutantsProveTimedOut: the run never reached a verdict either way.
 	ExitMutantsProveTimedOut = 5
+	// ExitMutantsProveUnreadable: the mutation was verified applied and the
+	// suite went red, but not one failing test NAME could be read out of the
+	// run — a build or link failure, or a runner shape the extractor does not
+	// know. Distinct from ExitMutantsProveWrongFailure, which asserts the
+	// mutation failed some other named test: over evidence that names none,
+	// that verdict contradicts itself (#590).
+	ExitMutantsProveUnreadable = 6
 )
+
+// matchWantFail picks the failing test the prediction named, or "" when none
+// of them is it. A runner spells a test by its module path
+// (`solve_clip_bin::solve_clip_exits_nonzero_on_bad_argv`) while --want-fail
+// spells the test, so the match is a `::`-suffix question first. The plain
+// substring pass stays last because the flag documents "a unique substring of
+// it" — but it must never OUTRANK a real suffix match: the failing set is
+// sorted, so an unrelated name that merely contains the want
+// (`helpers::…_smoke`) can sort ahead of the predicted one and get reported
+// as the killed test (#590).
+func matchWantFail(failing []string, want string) string {
+	for _, name := range failing {
+		if name == want || strings.HasSuffix(name, "::"+want) {
+			return name
+		}
+	}
+	for _, name := range failing {
+		if strings.Contains(name, want) {
+			return name
+		}
+	}
+	return ""
+}
 
 // repoRelSlashPath computes the repoRoot-relative slash path to absFile,
 // canonicalising both sides through filepath.EvalSymlinks first so a path
@@ -280,19 +310,20 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	}
 
 	failing := ExtractFailingTests(res.Output)
-	matched := ""
-	for _, name := range failing {
-		if strings.Contains(name, opts.WantFail) {
-			matched = name
-			break
-		}
-	}
+	matched := matchWantFail(failing, opts.WantFail)
 
 	switch {
 	case !res.Passed && matched != "":
 		fmt.Fprintf(stdout, "gate: mutant KILLED — %s failed as predicted (mutation: %q -> %q in %s; "+
 			"git diff --numstat: %s)\n", matched, opts.Old, opts.New, relPath, strings.TrimSpace(numstat))
 		return ExitMutantsProveKilled
+	case !res.Passed && len(failing) == 0:
+		fmt.Fprintf(stdout, "gate: mutant UNREADABLE — unreadable red run: no failing test name could be read "+
+			"from the output, so nothing is proved either way about %q (mutation verified applied via "+
+			"git diff --numstat: %s; restored). Usually a build or link failure, or a runner shape the "+
+			"extractor does not know — the full run output says which.\n",
+			opts.WantFail, strings.TrimSpace(numstat))
+		return ExitMutantsProveUnreadable
 	case !res.Passed:
 		fmt.Fprintf(stdout, "gate: mutant WRONG FAILURE — the suite went red but not on %q; failing: %s "+
 			"(mutation verified applied via git diff --numstat: %s; restored)\n",

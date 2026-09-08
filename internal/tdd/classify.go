@@ -352,8 +352,16 @@ var failLineRes = []*regexp.Regexp{
 	regexp.MustCompile(`(?m)^(\S+::\S+)\s+FAILED`),                      // pytest: path::test FAILED
 	regexp.MustCompile(`(?m)^\s*[✗×]\s+(.+?)(?:\s+\(\d+\s*m?s\))?\s*$`), // vitest/jest
 	regexp.MustCompile(`(?m)^test\s+(\S+)\s+\.\.\.\s+FAILED`),           // cargo (libtest)
-	regexp.MustCompile(`(?m)^\s*FAIL\s+\[[^\]]*\]\s+\S+\s+(\S+)`),       // cargo nextest: FAIL [ 0.4s] binary-id test::name
-	regexp.MustCompile(`(?m)^\s*error: '([^']+)' failed:`),              // zig build test
+	// cargo nextest: FAIL [ 0.4s] <binary-id> <module::name>, optionally with
+	// an `(n/m)` progress counter after the duration. Everything before the
+	// LAST field is context — the counter, and a binary id that for an
+	// integration test is itself `::`-qualified (`pose_ik::integration`) — so
+	// the name is read from the end of the line, not at a fixed offset from
+	// the duration (#590). The whitespace classes are HORIZONTAL only: Go's
+	// `\s` matches `\n`, so a `$`-anchored tail written with `\s` runs past
+	// the end of its own line and captures the last word of the summary.
+	regexp.MustCompile(`(?m)^[^\S\n]*FAIL[^\S\n]+\[[^\]]*\][^\S\n]+(?:\S+[^\S\n]+)*(\S+)[^\S\n]*$`),
+	regexp.MustCompile(`(?m)^\s*error: '([^']+)' failed:`), // zig build test
 }
 
 // ExtractFailingTests returns the sorted, de-duplicated set of failing test
