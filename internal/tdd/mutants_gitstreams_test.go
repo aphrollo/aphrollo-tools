@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -43,7 +44,7 @@ func TestMeasure_GitFailureRefusesNotPasses(t *testing.T) {
 		}
 		return "", "", nil, false
 	})
-	stubMutantsExec(t, func(int, measuredCall) (int, error) {
+	stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
 		writeOutcomes(t, root, MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 36,
 			Mutation: "replace + with -", Package: "a", Status: "caught"})
 		return 0, nil

@@ -70,18 +70,24 @@ func TestMeasureLane_RealCargoMutantsOnAMinimalCrate(t *testing.T) {
 		v   Verdict
 		err error
 	}
+	deadline, cancel := context.WithTimeout(context.Background(), smokeMeasureDeadline)
+	defer cancel()
 	var log strings.Builder
 	answered := make(chan measured, 1)
 	go func() {
-		v, err := MeasureLane(root, MutantsConfig{AtMerge: true, After: "after.sh"}, MeasureOpts{Base: base, Log: &log})
+		v, err := MeasureLane(root, MutantsConfig{AtMerge: true, After: "after.sh"},
+			MeasureOpts{Ctx: deadline, Base: base, Log: &log})
 		answered <- measured{v, err}
 	}()
-	deadline, cancel := context.WithTimeout(context.Background(), smokeMeasureDeadline)
-	defer cancel()
 	var got measured
 	select {
 	case got = <-answered:
 	case <-deadline.Done():
+		// The run gets the deadline itself, so this is a kill and not a
+		// walk-away: waiting for the measurement to come back is what makes
+		// sure the child is dead and the box-wide lock is free before the
+		// next test in this package asks for it.
+		<-answered
 		t.Fatalf("the measurement did not answer within %s — five mutants on a crate with no dependencies "+
 			"is seconds of work, so something on this box or in the flag set is wrong", smokeMeasureDeadline)
 	}

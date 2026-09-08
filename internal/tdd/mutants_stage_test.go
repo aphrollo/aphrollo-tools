@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -138,7 +139,7 @@ func TestMutantsStage_NotDeclaredLogsSkipAndPasses(t *testing.T) {
 func TestMutantsStage_MeasuresTheMergedTreeAgainstTheMergeBase(t *testing.T) {
 	_, root := mergeStageFixture(t)
 	declareMutantsAtMerge(t, root)
-	calls := stubMutantsExec(t, func(int, measuredCall) (int, error) {
+	calls := stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
 		writeOutcomes(t, root, MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 36,
 			Mutation: "replace - with +", Package: "a", Status: "caught"})
 		return 0, nil
@@ -291,7 +292,7 @@ func TestMutantsStage_RefusesWithVerdictMessageVerbatim(t *testing.T) {
 	declareMutantsAtMerge(t, root)
 	survivor := MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 36,
 		Mutation: "replace - with +", Package: "a", Status: "missed"}
-	stubMutantsExec(t, func(int, measuredCall) (int, error) {
+	stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
 		writeOutcomes(t, root, survivor)
 		return 2, nil
 	})
@@ -317,7 +318,7 @@ func TestMutantsStage_RefusesWithVerdictMessageVerbatim(t *testing.T) {
 func TestMutantsStage_RunnerThatNeverStartedIsARefusal(t *testing.T) {
 	cfgDir, root := mergeStageFixture(t)
 	declareMutantsAtMerge(t, root)
-	stubMutantsExec(t, func(int, measuredCall) (int, error) {
+	stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
 		return 0, errors.New("exec: \"cargo\": executable file not found in %PATH%")
 	})
 
@@ -339,7 +340,7 @@ func TestMutantsStage_RunnerThatNeverStartedIsARefusal(t *testing.T) {
 func TestMechanical_PassingMeasurementAppendsItsCountsToTheNotes(t *testing.T) {
 	_, root := mergeStageFixture(t)
 	declareMutantsAtMerge(t, root)
-	stubMutantsExec(t, func(int, measuredCall) (int, error) {
+	stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
 		writeOutcomes(t, root,
 			MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 36, Mutation: "replace - with +", Package: "a", Status: "caught"},
 			MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 40, Mutation: "replace add -> i32 with 0", Package: "a", Status: "caught"})

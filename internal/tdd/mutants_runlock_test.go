@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -202,7 +203,7 @@ func TestMeasureLane_HoldsTheMutantsRunLockForTheWholeToolInvocation(t *testing.
 	root, base := measureFixture(t, laneSource)
 
 	var lockWasHeldDuringRun bool
-	stubMutantsExec(t, func(int, measuredCall) (int, error) {
+	stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
 		_, ok := acquireMutantsRunLockWithDeadline("reentrant probe", "/probe", 50*time.Millisecond)
 		lockWasHeldDuringRun = !ok
 		writeOutcomes(t, root)

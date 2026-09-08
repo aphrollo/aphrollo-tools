@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -35,7 +36,7 @@ func TestMeasure_GitWarningOnStderrIsNotATreeChange(t *testing.T) {
 		}
 		return "", "", nil, false
 	})
-	stubMutantsExec(t, func(int, measuredCall) (int, error) {
+	stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
 		writeOutcomes(t, root, MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 36,
 			Mutation: "replace + with -", Package: "a", Status: "caught"})
 		return 0, nil
@@ -91,7 +92,7 @@ func TestMutantsArgv_NeverPassesJobsWithInPlace(t *testing.T) {
 func TestMutantsRerun_KeepsInPlaceAndAddsOnlyTheNameFilter(t *testing.T) {
 	root, base := measureFixture(t, laneSource)
 	slow := MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 36, Mutation: "replace + with -", Package: "a", Status: "timeout"}
-	calls := stubMutantsExec(t, func(n int, _ measuredCall) (int, error) {
+	calls := stubMutantsExec(t, func(_ context.Context, n int, _ measuredCall) (int, error) {
 		m := slow
 		if n == 2 {
 			m.Status = "caught"

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"os/exec"
@@ -98,7 +99,7 @@ func TestGateMutantsRun_RefusesOnUnacceptedMissedNamingIt(t *testing.T) {
 	gateConfigDir(t)
 	t.Cleanup(tdd.SetFreeSpaceForTest(999, true))
 	root, base := cargoLaneRepo(t)
-	t.Cleanup(tdd.SetMutantsExecForTest(func(dir string, env, argv []string, log io.Writer) (int, error) {
+	t.Cleanup(tdd.SetMutantsExecForTest(func(_ context.Context, dir string, env, argv []string, log io.Writer) (int, error) {
 		writeIn(t, dir, "mutants.out/outcomes.json", missedOutcomes)
 		return 2, nil
 	}))
@@ -133,7 +134,7 @@ func TestGateMutantsRun_BaseDefaultsToMergeBaseWithDefaultBranch(t *testing.T) {
 	gitIn(t, root, "checkout", "-q", "lane")
 
 	var measured []string
-	t.Cleanup(tdd.SetMutantsExecForTest(func(dir string, env, argv []string, log io.Writer) (int, error) {
+	t.Cleanup(tdd.SetMutantsExecForTest(func(_ context.Context, dir string, env, argv []string, log io.Writer) (int, error) {
 		for i, a := range argv {
 			if a == "--in-diff" && i+1 < len(argv) {
 				data, err := os.ReadFile(argv[i+1])

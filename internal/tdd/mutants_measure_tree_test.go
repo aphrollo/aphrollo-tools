@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"context"
 	"encoding/json"
 	"path/filepath"
 	"strings"
@@ -110,7 +111,7 @@ func TestMeasure_RunThatLeavesTheTreeChangedIsRefused(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	t.Cleanup(SetFreeSpaceForTest(999, true))
 	root, base := makeMeasureRepo(t, laneSource)
-	stubMutantsExec(t, func(int, measuredCall) (int, error) {
+	stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
 		// Every mutant caught, and the mutation for the last one still in
 		// the file: the outcomes say the lane is fine and the tree says it
 		// is not this lane's tree any more.
@@ -155,7 +156,7 @@ func TestJudge_NotCoveredIsCountedApartFromUnviable(t *testing.T) {
 	t.Cleanup(SetFreeSpaceForTest(999, true))
 	root, base := makeGoMeasureRepo(t)
 	t.Cleanup(setMutantsGOOSForTest("linux"))
-	stubMutantsExec(t, func(int, measuredCall) (int, error) {
+	stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
 		mustWrite(t, gremlinsReportPath(root), `{"files":[{"file_name":"calc.go","mutations":[
 			{"type":"ARITHMETIC_BASE","status":"KILLED","line":3,"column":20},
 			{"type":"CONDITIONALS_BOUNDARY","status":"NOT COVERED","line":3,"column":26}]}]}`)
@@ -194,7 +195,7 @@ func TestMeasure_GateLogCarriesTheVerdictAndItsCounts(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 			t.Cleanup(SetFreeSpaceForTest(999, true))
 			root, base := makeMeasureRepo(t, laneSource)
-			stubMutantsExec(t, func(int, measuredCall) (int, error) {
+			stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
 				writeOutcomes(t, root, MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 36,
 					Mutation: "replace + with -", Package: "a", Status: tc.status})
 				return 0, nil

@@ -420,6 +420,7 @@ stage refused and for what without re-running anything.
 | `mutants-refused:` + the same counts | a run that reached a verdict and found a survivor or an unmeasured mutant |
 | `mutants-refused:disk` | not enough free space for `jobs × 15 GB` |
 | `mutants-refused:tree-changed` | the run left the working tree different from how it found it |
+| `mutants-refused:git-failed` | git could not read the tree, so the tree that was measured cannot be compared with the one the run started from — the refusal carries git's own stderr |
 | `mutants-refused:no-verdict` | an exit status cargo-mutants does not use for a verdict |
 | `mutants-refused:config` | a retired key, or a `mutants-after` naming a file that is not there |
 | `mutants-refused:no-lane-tip` | neither `MERGE_HEAD` nor `GIT_REFLOG_ACTION` named the branch coming in |

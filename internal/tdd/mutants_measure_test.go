@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"os/exec"
@@ -19,17 +20,19 @@ type measuredCall struct {
 
 // stubMutantsExec replaces the runner's exec seam for one test and records
 // every call. reply is asked what that call should do — its exit code, and
-// whatever outcomes file it wants to leave behind.
-func stubMutantsExec(t *testing.T, reply func(n int, c measuredCall) (int, error)) *[]measuredCall {
+// whatever outcomes file it wants to leave behind. It is handed the run's own
+// context as well, so a test can stand in for a child that ends when, and
+// only when, its caller gives up.
+func stubMutantsExec(t *testing.T, reply func(ctx context.Context, n int, c measuredCall) (int, error)) *[]measuredCall {
 	t.Helper()
 	prev := mutantsExecFn
 	calls := &[]measuredCall{}
-	mutantsExecFn = func(dir string, env, argv []string, log io.Writer) (int, error) {
+	mutantsExecFn = func(ctx context.Context, dir string, env, argv []string, log io.Writer) (int, error) {
 		*calls = append(*calls, measuredCall{Dir: dir, Env: env, Argv: argv})
 		if reply == nil {
 			return 0, nil
 		}
-		return reply(len(*calls), (*calls)[len(*calls)-1])
+		return reply(ctx, len(*calls), (*calls)[len(*calls)-1])
 	}
 	t.Cleanup(func() { mutantsExecFn = prev })
 	return calls
@@ -288,7 +291,7 @@ func TestMinTestTimeout_ThreeTimesLastBaselineFlooredAt120(t *testing.T) {
 // never "0 missed" from a file that was never written (criterion 9).
 func TestMeasure_NoVerdictExitRefusesWithStatusAndLog(t *testing.T) {
 	root, base := measureFixture(t, laneSource)
-	stubMutantsExec(t, func(int, measuredCall) (int, error) { return 1, nil })
+	stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) { return 1, nil })
 
 	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base})
 
@@ -313,7 +316,7 @@ func TestMeasure_StaleOutcomesFromAnEarlierRunAreNeverJudged(t *testing.T) {
 	root, base := measureFixture(t, laneSource)
 	writeOutcomes(t, root, MutantOutcome{File: "crates/a/src/lib.rs", Line: 9, Col: 1,
 		Mutation: "replace + with -", Package: "a", Status: "caught"})
-	stubMutantsExec(t, func(int, measuredCall) (int, error) { return 0, nil })
+	stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) { return 0, nil })
 
 	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base})
 
@@ -343,7 +346,7 @@ func TestMeasure_TimedOutMutantRerunsOnceAloneThenRefuses(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root, base := measureFixture(t, laneSource)
-			calls := stubMutantsExec(t, func(n int, c measuredCall) (int, error) {
+			calls := stubMutantsExec(t, func(_ context.Context, n int, c measuredCall) (int, error) {
 				m := slow
 				if n == 2 {
 					m.Status = tc.second
@@ -386,7 +389,7 @@ func TestJudge_UnacceptedMissedRefusesNamingMutantFirst(t *testing.T) {
 	root, base := measureFixture(t, laneSource)
 	accepted := MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 36, Mutation: "replace + with -", Package: "a", Status: "missed"}
 	survivor := MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 40, Mutation: "replace add -> i32 with 0", Package: "a", Status: "missed"}
-	stubMutantsExec(t, func(int, measuredCall) (int, error) {
+	stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
 		writeOutcomes(t, root, accepted, survivor,
 			MutantOutcome{File: "crates/a/src/lib.rs", Line: 2, Col: 5, Mutation: "replace * with /", Package: "a", Status: "caught"},
 			MutantOutcome{File: "crates/a/src/lib.rs", Line: 3, Col: 5, Mutation: "replace / with %", Package: "a", Status: "caught"})
@@ -423,7 +426,7 @@ func TestJudge_UnacceptedMissedRefusesNamingMutantFirst(t *testing.T) {
 // equivalence claim (criterion 13).
 func TestJudge_MalformedAcceptEntryIsARefusalNamingIt(t *testing.T) {
 	root, base := measureFixture(t, laneSource)
-	stubMutantsExec(t, func(int, measuredCall) (int, error) {
+	stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
 		writeOutcomes(t, root, MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 36, Mutation: "replace + with -", Package: "a", Status: "caught"})
 		return 0, nil
 	})
@@ -461,7 +464,7 @@ func TestAfterHook_RunsWithStatusAndNeverChangesVerdict(t *testing.T) {
 			root, base := measureFixture(t, laneSource)
 			mustWrite(t, filepath.Join(root, "tools", "after.sh"),
 				"#!/bin/sh\nprintf '%s' \"$APHROLLO_MUTANTS_STATUS\" > after-status.txt\nexit 3\n")
-			stubMutantsExec(t, func(int, measuredCall) (int, error) {
+			stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
 				writeOutcomes(t, root, MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 36,
 					Mutation: "replace + with -", Package: "a", Status: tc.status0})
 				return 0, nil
@@ -528,7 +531,7 @@ func TestMeasure_GoRepoUsesGremlinsScopedToMergeBase(t *testing.T) {
 	t.Cleanup(SetFreeSpaceForTest(999, true))
 	root, base := makeGoMeasureRepo(t)
 	t.Cleanup(setMutantsGOOSForTest("linux"))
-	calls := stubMutantsExec(t, func(int, measuredCall) (int, error) {
+	calls := stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
 		mustWrite(t, gremlinsReportPath(root), `{"files":[{"file_name":"calc.go","mutations":[
 			{"type":"ARITHMETIC_BASE","status":"KILLED","line":3,"column":20}]}]}`)
 		return 0, nil
