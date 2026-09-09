@@ -89,14 +89,23 @@ func deferredJobLive(j DeferredJob, now time.Time) bool {
 }
 
 // findDeferredJobForProject returns the most recently started deferred job
-// recorded for root, across every session — `gate status` has no session id
-// of its own to key on the way a hook's job record does, so it matches on
-// the project path instead.
+// recorded AT OR BELOW root, across every session — `gate status` has no
+// session id of its own to key on the way a hook's job record does, so it
+// matches on the project path instead.
+//
+// Nested, not exact (issue #571). An edit hook keys its job on the project
+// root it derived from the edited FILE — the nearest marker directory, which
+// in a Cargo workspace is the member crate's own subdirectory
+// (.../lane/crates/sim), never the checkout. `gate status --wait` has only a
+// checkout to ask about (RepoRoot of the cwd), so an exact-identity match
+// missed every crate-scoped job and answered "no deferred edit job recorded
+// for this checkout" seconds after the hook printed BUILDING for it. The job
+// was recorded; the query was asking under the wrong key.
 func findDeferredJobForProject(root string) (DeferredJob, bool) {
 	var best DeferredJob
 	found := false
 	for _, j := range allDeferredJobRecords() {
-		if !sameDeferredProject(j.Project, root) {
+		if !deferredProjectWithin(j.Project, root) {
 			continue
 		}
 		if !found || j.Started.After(best.Started) {
@@ -138,9 +147,16 @@ func WaitDeferredEditJob(root string) (advisory string, ok bool) {
 		// never be left blocking on a pid that is already gone.
 		return "", false
 	}
+	// The harvest is keyed on the job's OWN project, not the checkout the
+	// caller asked about: a job recorded for a member crate does not load
+	// back under the checkout root (deferredJobPath hashes the project path),
+	// so harvesting by the queried root would find the record, then look up
+	// nothing and report nothing (issue #571). HEAD is the checkout's either
+	// way — a crate inside it shares the commit.
+	project := j.Project
 	headSHA := headSHAFor(root)
 	for {
-		line, _ := harvestDeferred(root, headSHA, j.FileHash, j.Session, waitDeferredPollInterval, nil, "")
+		line, _ := harvestDeferred(project, headSHA, j.FileHash, j.Session, waitDeferredPollInterval, nil, "")
 		if strings.HasPrefix(line, "gate: → BUILDING") {
 			time.Sleep(waitDeferredPollInterval)
 			continue

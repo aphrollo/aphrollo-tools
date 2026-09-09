@@ -170,8 +170,15 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 				state.stampTimeout(root, headSHA)
 				_ = state.save(statePath)
 			}
-			appendGateLog("postedit", root, strings.Join(j.Runner, " "), "deferred-abandoned", time.Since(j.Started))
-			return "", true
+			elapsed := time.Since(j.Started)
+			appendGateLog("postedit", root, strings.Join(j.Runner, " "), DeferredAbandoned, elapsed)
+			// The abandonment is the VERDICT for that work, and the only one
+			// it will ever get: an inconclusive one. It used to be written to
+			// the gate log and nowhere else, so the session saw only the
+			// fresh run's BUILDING line and read "in progress" where the
+			// truth was "the previous run died without testing your code"
+			// (issue #571).
+			return deferredAbandonedLine(root, j.Phase, elapsed), true
 		}
 		// Still working: never kill it, just record that the source moved on.
 		if j.FileHash != fileHash {
@@ -362,7 +369,11 @@ func phaseArgv(r Runner, phase string) []string {
 	if phase == "build" {
 		return append(argv, "--no-run")
 	}
-	return argv
+	// A `go test` phase names its own -timeout, above the deferral ceiling:
+	// go's default 10m otherwise collides with that ceiling and both answers
+	// are lost (deferred_verdict.go, issue #571). Only cargo is splittable,
+	// so a go run never reaches the build branch above.
+	return withDeferredGoTimeout(argv)
 }
 
 // phaseArgvFromBuild recovers the run-phase argv from a recorded build one.
@@ -498,13 +509,18 @@ func headSHAFor(root string) string {
 // previous hook left running, then run this edit's own build and run phases
 // inside the one foreground budget. It reports exactly one line, like every
 // other PostEdit path.
-func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string) (string, bool) {
+func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string) (advisory string, stillRunning bool) {
 	budget := PostEditBudget()
 	fileHash := sourceIdentity(root, target)
-	advisory, fresh := harvestDeferred(root, headSHA, fileHash, session, budget, snap.state, snap.statePath)
+	carried, fresh := harvestDeferred(root, headSHA, fileHash, session, budget, snap.state, snap.statePath)
 	if !fresh {
-		return advisory, false
+		return carried, false
 	}
+	// Every line below has to carry whatever the harvest already concluded —
+	// today only an abandonment, which is a verdict about work this session
+	// asked for and has to hear about even though a fresh run is starting
+	// (issue #571). One defer beats repeating the fold at eight returns.
+	defer func() { advisory = joinDeferredAdvisory(carried, advisory) }()
 	out := runEditPhases(snap.runner, root, target, headSHA, fileHash, session, budget)
 	if out.spawnFailed {
 		appendGateLog("postedit", root, cmdString(snap.runner), InfraFailed, 0)

@@ -121,15 +121,21 @@ func normalizeProjectPath(root string) string {
 	return clean
 }
 
-// sameDeferredProject reports whether a and b name the same project
-// directory, once normalized -- the exact-identity comparison
-// findDeferredJobForProject needs, since a job record's Project field is the
-// raw root string a caller passed, not the hashed key its filename carries.
-// Distinct from statusline.go's sameProject, which additionally matches a
-// NESTED root against a gate-log entry; a deferred job's Project is always
-// the exact root it was recorded for.
-func sameDeferredProject(a, b string) bool {
-	return normalizeProjectPath(a) == normalizeProjectPath(b)
+// deferredProjectWithin reports whether a job recorded for project belongs to
+// the checkout at root: the same directory, or one nested inside it. A job
+// record's Project is the raw root string the hook passed, not the hashed key
+// its filename carries, so a query has a real path to compare against.
+//
+// The relation is NESTED, not exact identity (issue #571): a hook records a
+// job under the nearest marker directory — in a Cargo workspace, the member
+// crate — while a caller of `gate status` has only the checkout root to ask
+// about, and an exact match answered "nothing recorded" for every
+// crate-scoped job. Same shape as statusline.go's sameProject, which matches
+// a nested root against a gate-log entry, kept separate because that one
+// compares LOGGED spellings (logToken) rather than raw paths.
+func deferredProjectWithin(project, root string) bool {
+	p, r := normalizeProjectPath(project), normalizeProjectPath(root)
+	return p == r || strings.HasPrefix(p, r+string(filepath.Separator))
 }
 
 // projectKey names a project's files in the deferred dir. Hashed because a
