@@ -150,6 +150,17 @@ func inOtherCheckout(top, holder string) string {
 	return " in " + filepath.ToSlash(holder)
 }
 
+// Reading the symptom this exists to prevent: a checkout left behind its own
+// HEAD shows staged paths with no MERGE_HEAD, which is ALSO what a healthy
+// `merge --no-ff` looks like while it sits in the pre-merge gate — a clean
+// auto-merge writes no MERGE_HEAD, and the gate runs before the commit
+// exists, which on a repo measuring mutants at merge can be an hour. The
+// discriminator is whether a merge process is still alive: staged paths, no
+// MERGE_HEAD and NO running merge is the stranded checkout; the same state
+// with a live `git merge` is a measurement in progress and must be left
+// alone. Two sessions read this wrong on the same evening, one of them by
+// being told the incomplete version.
+
 // worktreeOnBranch returns the path of the worktree that has branch def checked
 // out, or "" when no checkout is on it. `git worktree list --porcelain` is the
 // authoritative answer for the WHOLE repo — the main working tree and every
