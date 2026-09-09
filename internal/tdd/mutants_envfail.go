@@ -22,13 +22,19 @@ import (
 // tree had been examined and found wanting, and it left every poisoned build
 // directory in place for the next run to read again.
 //
-// So this file draws one line: these signatures mean THE CODE WAS NOT TESTED.
-// It is the same judgement commit a00524e made for a foreign link failure at
-// edit time — that failure joined TIMEOUT in the InfraFailed family rather
-// than becoming a red — applied where a mutation shard makes it: the shard is
-// retried once, alone, on a build directory cleaned of the wreckage, and if
-// it fails the same way again the run refuses saying so instead of counting
-// it.
+// So this file draws one line: a shard that reached NO VERDICT was not a
+// measurement, and THE CODE WAS NOT TESTED. It is the same judgement commit
+// a00524e made for a foreign link failure at edit time — that failure joined
+// TIMEOUT in the InfraFailed family rather than becoming a red — applied
+// where a mutation shard makes it: the shard is retried once, alone, on a
+// build directory cleaned of the wreckage, and if it reaches no verdict again
+// the run refuses saying so instead of counting it.
+//
+// The signatures below no longer decide WHETHER that retry happens — the
+// missing measurement does (shardMeasuredNothing) — because a process the box
+// kills outright prints no diagnostic for any of them to match. They decide
+// what the log CALLS the failure, which is the difference between sending an
+// operator to the box and sending them to the lane.
 
 // mutantsEnvSignature is one recognisable way the box, rather than the lane,
 // kills a build: the pattern, and the plain sentence a refusal names it with.
@@ -72,9 +78,11 @@ func mutantsEnvironmentalBuildFailure(output string) (string, bool) {
 }
 
 // shardFailedEnvironmentally reports whether this shard reached no verdict
-// BECAUSE of the box. A shard that reached one is never re-examined however
-// alarming its log reads: a passing suite that printed one of these strings
-// is a suite that printed a string.
+// BECAUSE of the box, and names which of the machine's failures it was. A
+// shard that reached one is never re-examined however alarming its log reads:
+// a passing suite that printed one of these strings is a suite that printed a
+// string. It is what a REFUSAL is worded from, after the retry has been spent
+// — shardMeasuredNothing decides who gets that retry.
 func shardFailedEnvironmentally(r shardRun) (string, bool) {
 	if r.Err != nil || cargoMutantsReachedVerdict(r.Code) {
 		return "", false
@@ -82,18 +90,72 @@ func shardFailedEnvironmentally(r shardRun) (string, bool) {
 	return mutantsEnvironmentalBuildFailure(r.Log)
 }
 
-// retryEnvironmentalShards re-runs every shard the box killed, ONE AT A TIME
-// and after all of them have finished — which is the whole point: the box is
-// quiet now, and quiet is the condition that was missing. Called before any
-// verdict is decided, so a shard that comes back with an answer is merged
-// like any other and a shard that does not is refused like any other.
-func retryEnvironmentalShards(ctx context.Context, root string, cfg MutantsConfig, argv []string, runs []shardRun, log io.Writer) {
+// shardReachedNoVerdict reports whether this shard produced NO MEASUREMENT AT
+// ALL: an exit status cargo-mutants never uses for a verdict, or a run that
+// wrote no outcomes file to read. It is the same question mergeShardOutcomes
+// asks before it refuses, asked earlier, and it is asked the same way — the
+// empty slice excepted by exactly the same test, because a shard drawn no
+// mutants exits 0 with `mutants.json` as `[]` and no outcomes beside it, and
+// that is nothing to measure rather than a measurement that failed.
+//
+// The direction that matters is the other one: a shard that wrote outcomes
+// under a status cargo-mutants uses for a verdict MEASURED the lane, and this
+// says false about it whatever its log reads. Retrying a measurement is
+// re-rolling it until the box agrees with the lane.
+func shardReachedNoVerdict(root string, r shardRun) bool {
+	if r.Err != nil {
+		return false
+	}
+	if !cargoMutantsReachedVerdict(r.Code) {
+		return true
+	}
+	dir := mutantsShardDir(root, r.Shard)
+	if _, err := readCargoMutantsOutcomes(dir); err == nil {
+		return false
+	}
+	return !shardHadNoMutants(dir)
+}
+
+// shardMeasuredNothing is the whole trigger for the one retry, and the plain
+// phrase the log names it with.
+//
+// It used to be the LOG TEXT alone: a shard was retried when it printed one
+// of the signatures above. Seven recorded escapes (borld #308, #309, #356,
+// #361, #362, #370) were the same fingerprint — a merge refused on a tree the
+// commit gate had run green — and in every one the shard had been KILLED,
+// exit 4 or 4294967295 or 1, with no outcomes file and no diagnostic for any
+// signature to match. A process killed before it can complain is the case the
+// retry was written for and the one case it could not see.
+//
+// So the trigger is the missing measurement itself. The signature still
+// names the failure where there is one, because "rustc ran the box out of
+// memory" is a different instruction to an operator than "it stopped".
+func shardMeasuredNothing(root string, r shardRun) (string, bool) {
+	if !shardReachedNoVerdict(root, r) {
+		return "", false
+	}
+	if signature, ok := mutantsEnvironmentalBuildFailure(r.Log); ok {
+		return "after an environmental build failure — " + signature, true
+	}
+	if !cargoMutantsReachedVerdict(r.Code) {
+		return "and reached no verdict — its exit status is not one cargo-mutants uses for a verdict", true
+	}
+	return "and reached no verdict — it wrote no outcomes file to read", true
+}
+
+// retryShardsThatMeasuredNothing re-runs every shard that came back without a
+// measurement, ONE AT A TIME and after all of them have finished — which is
+// the whole point: the box is quiet now, and quiet is the condition that was
+// missing. Called before any verdict is decided, so a shard that comes back
+// with an answer is merged like any other and a shard that does not is
+// refused like any other.
+func retryShardsThatMeasuredNothing(ctx context.Context, root string, cfg MutantsConfig, argv []string, runs []shardRun, log io.Writer) {
 	for i := range runs {
-		signature, ok := shardFailedEnvironmentally(runs[i])
+		reason, ok := shardMeasuredNothing(root, runs[i])
 		if !ok {
 			continue
 		}
-		runs[i] = retryShardAlone(ctx, root, cfg, argv, runs[i], signature, log)
+		runs[i] = retryShardAlone(ctx, root, cfg, argv, runs[i], reason, log)
 	}
 }
 
@@ -105,9 +167,9 @@ func retryEnvironmentalShards(ctx context.Context, root string, cfg MutantsConfi
 // reads back: the first attempt's text is already in the operator's log, and
 // a timing line taken from a build that died is not a budget for the next
 // run.
-func retryShardAlone(ctx context.Context, root string, cfg MutantsConfig, argv []string, r shardRun, signature string, log io.Writer) shardRun {
-	logf(log, "mutants: shard %d/%d exited %d after an environmental build failure — %s — so it measured nothing; "+
-		"cleaning its build dir and retrying it once with the box to itself", r.Shard, r.Shards, r.Code, signature)
+func retryShardAlone(ctx context.Context, root string, cfg MutantsConfig, argv []string, r shardRun, reason string, log io.Writer) shardRun {
+	logf(log, "mutants: shard %d/%d exited %d %s — so it measured nothing; "+
+		"cleaning its build dir and retrying it once with the box to itself", r.Shard, r.Shards, r.Code, reason)
 	cleanPoisonedShardTarget(root, r.Shard, log)
 	out := mutantsShardDir(root, r.Shard)
 	_ = os.Remove(cargoMutantsOutcomesPath(out))
@@ -123,13 +185,19 @@ func retryShardAlone(ctx context.Context, root string, cfg MutantsConfig, argv [
 	jobs = waitForRoomToRetry(ctx, jobs, r.Shard, log)
 	code, err := mutantsExecFn(ctx, root, measureShardEnv(root, cfg, r.Shard, jobs),
 		mutantsShardArgv(argv, r.Shard, r.Shards, out), io.MultiWriter(log, &tee))
-	retried := shardRun{Shard: r.Shard, Shards: r.Shards, Code: code, Log: tee.String(), Err: err}
+	// Retried is set whatever the retry answered: the refusal that may follow
+	// has to say this shard already had its second chance, or an operator
+	// reads "exited 4294967295 and reached no verdict" and re-runs the whole
+	// merge to learn what this run already knows.
+	retried := shardRun{Shard: r.Shard, Shards: r.Shards, Code: code, Log: tee.String(), Err: err, Retried: true}
 	if again, ok := shardFailedEnvironmentally(retried); ok {
+		retried.Env = again
+	}
+	if retried.Env != "" || shardReachedNoVerdict(root, retried) {
 		// Twice, with the box to itself, is not a measurement anybody can
 		// make here. The directory goes with it: the next run must not build
 		// on this one's wreckage.
 		cleanPoisonedShardTarget(root, r.Shard, log)
-		retried.Env = again
 	}
 	return retried
 }

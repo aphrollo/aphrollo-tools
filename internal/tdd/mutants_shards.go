@@ -142,14 +142,18 @@ var mutantsShardEnvKeys = map[string]bool{
 // shard the BOX killed twice — once as it ran, once more alone on a cleaned
 // build dir — and it names which of the machine's own failures that was, so
 // the refusal can say the difference between a lane that was measured and a
-// box that could not measure it.
+// box that could not measure it. Retried is the wider fact underneath it:
+// this run is a SECOND attempt, whether or not the first one left a signature
+// to name, and a refusal that does not say so sends an operator to re-run a
+// merge that has already had its retry.
 type shardRun struct {
-	Shard  int
-	Shards int
-	Code   int
-	Log    string
-	Env    string
-	Err    error
+	Shard   int
+	Shards  int
+	Code    int
+	Log     string
+	Env     string
+	Retried bool
+	Err     error
 }
 
 // runMutantsShards runs every shard concurrently under ONE hold of the
@@ -199,10 +203,10 @@ func runMutantsShards(ctx context.Context, root string, cfg MutantsConfig, argv 
 		}(i)
 	}
 	wg.Wait()
-	// Before any of this is read as a result: a shard the box killed measured
-	// nothing, and it gets its one retry here, with every other shard already
-	// finished and the machine quiet again.
-	retryEnvironmentalShards(ctx, root, cfg, argv, runs, log)
+	// Before any of this is read as a result: a shard that came back without a
+	// measurement measured nothing, and it gets its one retry here, with every
+	// other shard already finished and the machine quiet again.
+	retryShardsThatMeasuredNothing(ctx, root, cfg, argv, runs, log)
 	reportShardBuildDirs(root, shards, log)
 	for _, r := range runs {
 		if r.Err != nil {
@@ -306,6 +310,13 @@ func shardNoVerdict(r shardRun, err error) error {
 	reason := errors.New("its exit status is not one cargo-mutants uses for a verdict")
 	if err != nil {
 		reason = err
+	}
+	if r.Retried {
+		// Once, not until it agrees. The second attempt had the box to itself
+		// and still measured nothing, so there is no third: unmeasured is the
+		// answer, and it is never the same thing as caught.
+		return fmt.Errorf("shard %d/%d exited %d and reached no verdict: %w — retried once alone with the box "+
+			"to itself and reached no verdict again, so its mutants were NOT measured", r.Shard, r.Shards, r.Code, reason)
 	}
 	return fmt.Errorf("shard %d/%d exited %d and reached no verdict: %w", r.Shard, r.Shards, r.Code, reason)
 }
