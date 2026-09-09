@@ -186,6 +186,9 @@ func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base 
 	// many shards the mutant pool is divided into, and refuseOnDisk fits that
 	// number to what the build drive measures.
 	shards, why := mutantsJobsForThisBoxFn()
+	// Before the drive has its say, because a repo that has lowered the count
+	// needs less of everything the budgets below measure.
+	shards, why = capShardsToConfig(cfg, shards, why)
 	v, shards, refused := refuseOnDisk(root, shards, "shard", log)
 	if refused {
 		return v, nil

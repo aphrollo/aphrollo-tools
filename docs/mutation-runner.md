@@ -32,7 +32,8 @@ everything else. The Cargo spelling wins when a repo has both.
 | `mutation-baseline-exclude` | string array | `"<nextest filter> # why"` entries, folded into one `-E not(...)` for the run's whole test invocation |
 | `mutation-accept` | string array | the survivors somebody signed off on, with a reason each |
 | `mutants-after` | string | a repo-relative path run after judgement, in the worktree. A path with no file there is a refusal, not a silent skip |
-| `mutants-build-jobs` | integer | how wide ONE shard's cargo may build, honoured verbatim. Absent: derived from the box (cores and RAM divided between the shards). A value that is not a positive whole number is refused, never quietly derived |
+| `mutants-build-jobs` | integer | how wide ONE shard's cargo may build, honoured verbatim. Absent: derived from the box (cores and free memory divided between the shards). A value that is not a positive whole number is refused, never quietly derived |
+| `mutants-shards` | integer | the most shards a measurement may divide itself into. A CAP: it lowers the count the box derived and never raises it above what that box allows, so a repo on a machine other sessions build on can stop the run taking the whole thing. Absent or zero: derive from the box. A value that is not a positive whole number is refused, never quietly derived |
 
 Four keys are **retired** and refused by name, before any suite runs, with
 `mutants-at-merge` named as the replacement: `mutation-receipt`,
@@ -133,9 +134,13 @@ cargo mutants --copy-target=false --in-diff <diff> --no-shuffle --test-tool=next
   better than a contiguous slice). Shard indexes are 0-based with k < N:
   `--shard 3/3` is refused with "shard k must be less than n", and the union
   of shards 0, 1 and 2 of 3 is exactly the unsharded list, nothing dropped and
-  nothing measured twice. N is then lowered to what the drive fits and to the
+  nothing measured twice. N is then lowered — in order — to the repo's own
+  `mutants-shards` when it declares one, to what the drive fits, and to the
   number of mutants the diff has, so a small lane does not start empty shards
-  that each pay a cold baseline build.
+  that each pay a cold baseline build. Every one of those only ever lowers N,
+  and the line the run prints names which of them bound the answer:
+  `mutants: 2 shards (min(cores 24/3=8, ram 63GB/8=7, cap 8) — ram, capped
+  to mutants-shards = 2)`.
 - **`--copy-target=false`: the copy is the SOURCE TREE ONLY.** With it true
   every job's copy also carried the workspace target dir. On a repo with 294
   GB of build products and 37 MB of sources that is a 375 GB byte-for-byte
