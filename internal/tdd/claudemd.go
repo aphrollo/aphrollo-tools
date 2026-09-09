@@ -23,8 +23,9 @@ const (
 
 // ClaudeMDBlock renders the managed block. shimDir is the queue-shim
 // directory a session prepends to PATH; undercover adds the commit-message
-// rule for a workspace that asked for it.
-func ClaudeMDBlock(shimDir string, undercover bool) string {
+// rule for a workspace that asked for it; mutantsAtMerge states what THIS
+// repo's merge actually requires rather than what the tool can be told to do.
+func ClaudeMDBlock(shimDir string, undercover, mutantsAtMerge bool) string {
 	dir := shellPath(shimDir)
 	var b strings.Builder
 	b.WriteString(claudeMDBegin + "\n")
@@ -60,7 +61,15 @@ func ClaudeMDBlock(shimDir string, undercover bool) string {
 	b.WriteString("  git shim (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit) is the WALL.\n")
 	b.WriteString("  Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override\n")
 	b.WriteString("  with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).\n")
-	b.WriteString("- **A merge is measured, not certified:** with `mutants-at-merge = true` the pre-merge gate runs the lane's mutation measurement in the foreground and refuses an unaccepted survivor by name; `aphrollo gate mutants run` measures THIS checkout the same way before you merge.\n")
+	// The merge line is about THIS repo, not about the tool: a conditional
+	// ("with `mutants-at-merge = true` ...") makes a reader go and find out
+	// which half applies to them, which is the errand the block exists to
+	// save them.
+	if mutantsAtMerge {
+		b.WriteString("- **A merge is measured, not certified:** the pre-merge gate runs this lane's mutation measurement in the foreground and refuses an unaccepted survivor by name; `aphrollo gate mutants run` measures THIS checkout the same way before you merge.\n")
+	} else {
+		b.WriteString("- **A merge is checked, not measured:** this repo declares no `mutants-at-merge`, so the merge gate runs the mechanical suite and NO mutation measurement; `aphrollo gate mutants run` measures THIS checkout by hand.\n")
+	}
 	b.WriteString("- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).\n")
 	if undercover {
 		b.WriteString("- **Commit messages** say what the change does and nothing about how it was\n")
@@ -83,7 +92,8 @@ func managedBlockFor(repoRoot, shimDir string) string {
 	if ws == "" {
 		ws = repoRoot
 	}
-	return ClaudeMDBlock(shimDir, cargoAphrolloFlag(ws, "undercover"))
+	cfg, _ := ReadMutantsConfig(repoRoot)
+	return ClaudeMDBlock(shimDir, cargoAphrolloFlag(ws, "undercover"), cfg.AtMerge)
 }
 
 // PatchClaudeMD returns existing with the managed block replaced in place, or

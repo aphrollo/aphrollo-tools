@@ -66,7 +66,7 @@ func TestWriteClaudeMD_StillWritesTheBlockInALaneOfThatRepo(t *testing.T) {
 	if rerr != nil {
 		t.Fatal(rerr)
 	}
-	want := ClaudeMDBlock(shimDir, false)
+	want := ClaudeMDBlock(shimDir, false, false)
 	if !strings.Contains(string(after), want) {
 		t.Fatalf("lane CLAUDE.md does not contain the current template verbatim:\n%s", after)
 	}
@@ -84,7 +84,7 @@ func TestWriteClaudeMD_SaysNothingWhenThePrimaryBlockIsCurrent(t *testing.T) {
 
 	shimDir := t.TempDir()
 	path := filepath.Join(root, "CLAUDE.md")
-	before := "# repo\n\n" + ClaudeMDBlock(shimDir, false)
+	before := "# repo\n\n" + ClaudeMDBlock(shimDir, false, false)
 	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
 		t.Fatal(err)
 	}

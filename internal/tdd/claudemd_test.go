@@ -11,7 +11,7 @@ const shimDir = "C:/Users/olive/bin/cargo-queue"
 
 func TestClaudeMDBlockCarriesTheOperatingInstructions(t *testing.T) {
 	t.Parallel()
-	block := ClaudeMDBlock(shimDir, false)
+	block := ClaudeMDBlock(shimDir, false, false)
 	for _, want := range []string{
 		claudeMDBegin, claudeMDEnd, shimDir,
 		"gate:", "QUEUED-SKIPPED", "cargo check -p", ".ratchet/laws",
@@ -35,7 +35,7 @@ func TestClaudeMDBlockCarriesTheOperatingInstructions(t *testing.T) {
 	if strings.Contains(block, "commit-msg") {
 		t.Error("a workspace that did not ask for the undercover rule must not be told it")
 	}
-	if !strings.Contains(ClaudeMDBlock(shimDir, true), "commit-msg") {
+	if !strings.Contains(ClaudeMDBlock(shimDir, true, false), "commit-msg") {
 		t.Error("a workspace with undercover = true must get the commit-message rule")
 	}
 }
@@ -57,7 +57,7 @@ func TestClaudeMDBlock_VetLintClaimMatchesGoOnlyGuard(t *testing.T) {
 	if !strings.Contains(string(src), `if runner.Cmd == "go" {`) {
 		t.Fatal(`precommit_gateroot.go no longer guards goQualityStage with runner.Cmd == "go" — update the "a Go root also runs vet/lint" claim in ClaudeMDBlock's stage-list bullet to match`)
 	}
-	block := ClaudeMDBlock(shimDir, false)
+	block := ClaudeMDBlock(shimDir, false, false)
 	if !strings.Contains(block, "a Go root also runs vet/lint") {
 		t.Fatal(`ClaudeMDBlock no longer scopes its vet/lint claim to "a Go root" — check it still matches precommit_gateroot.go's runner.Cmd == "go" guard before broadening it`)
 	}
@@ -87,7 +87,7 @@ func TestClaudeMDBlock_DoesNotPromiseASuiteTheCommitGateNoLongerRuns(t *testing.
 		t.Fatal("precommit_gateroot.go no longer ends its fail-first branch at failFirstStage — if the " +
 			"commit gate runs a suite again, restore the claim in ClaudeMDBlock's stage-list bullet")
 	}
-	block := ClaudeMDBlock(shimDir, false)
+	block := ClaudeMDBlock(shimDir, false, false)
 	if strings.Contains(block, "fail-first→\n  suites") || strings.Contains(block, "fail-first→suites") {
 		t.Error("the block still says the commit gate ends in suites, but the fail-first branch returns " +
 			"at failFirstStage — a session that believes it re-runs the package the gate deliberately skipped")
@@ -100,7 +100,7 @@ func TestClaudeMDBlock_DoesNotPromiseASuiteTheCommitGateNoLongerRuns(t *testing.
 
 func TestClaudeMDBlock_NamesTheHandTypedMutationRunNotOnlyTheSpawnedOne(t *testing.T) {
 	t.Parallel()
-	block := ClaudeMDBlock(shimDir, false)
+	block := ClaudeMDBlock(shimDir, false, false)
 	if !strings.Contains(block, "aphrollo gate mutants run") {
 		t.Error("the block never names the command that measures the current lane by hand")
 	}
@@ -114,7 +114,7 @@ func TestClaudeMDBlock_NamesTheHandTypedMutationRunNotOnlyTheSpawnedOne(t *testi
 // every repo gets.
 func TestClaudeMDBlockStatesThePrimaryCheckoutRule(t *testing.T) {
 	t.Parallel()
-	block := ClaudeMDBlock(shimDir, false)
+	block := ClaudeMDBlock(shimDir, false, false)
 	for _, want := range []string{
 		"primary checkout",
 		"merge-only",
@@ -136,7 +136,7 @@ func TestClaudeMDBlockStatesThePrimaryCheckoutRule(t *testing.T) {
 
 func TestPatchClaudeMDAppendsOnceAndIsIdempotent(t *testing.T) {
 	t.Parallel()
-	block := ClaudeMDBlock(shimDir, false)
+	block := ClaudeMDBlock(shimDir, false, false)
 	first, changed := PatchClaudeMD([]byte("# Project\n\nSome guidance.\n"), block)
 	if !changed {
 		t.Fatal("a file with no block must gain one")
@@ -163,7 +163,7 @@ func TestPatchClaudeMDAppendsOnceAndIsIdempotent(t *testing.T) {
 func TestPatchClaudeMDReplacesAnExistingBlockInPlace(t *testing.T) {
 	t.Parallel()
 	stale := "# Project\n\n" + claudeMDBegin + "\nold text nobody updated\n" + claudeMDEnd + "\n\n## Conventions\n\nkeep me\n"
-	block := ClaudeMDBlock(shimDir, false)
+	block := ClaudeMDBlock(shimDir, false, false)
 
 	out, changed := PatchClaudeMD([]byte(stale), block)
 	got := string(out)
@@ -188,7 +188,7 @@ func TestPatchClaudeMDReplacesAnExistingBlockInPlace(t *testing.T) {
 // inside a half-open one would make every later init unparseable.
 func TestPatchClaudeMDRecoversFromAnOrphanMarker(t *testing.T) {
 	t.Parallel()
-	block := ClaudeMDBlock(shimDir, false)
+	block := ClaudeMDBlock(shimDir, false, false)
 	out, _ := PatchClaudeMD([]byte("# Project\n\n"+claudeMDBegin+"\nhalf a block\n"), block)
 	got := string(out)
 	if strings.Count(got, claudeMDBegin) != 1 || strings.Count(got, claudeMDEnd) != 1 {
@@ -206,7 +206,7 @@ func TestPatchClaudeMDRecoversFromAnOrphanMarker(t *testing.T) {
 func TestPatchClaudeMD_ReplacesInPlaceWhenFileEndsExactlyAtTheEndMarkerWithNoTrailingNewline(t *testing.T) {
 	t.Parallel()
 	stale := "# Project\n\n" + claudeMDBegin + "\nold text\n" + claudeMDEnd
-	block := ClaudeMDBlock(shimDir, false)
+	block := ClaudeMDBlock(shimDir, false, false)
 
 	out, changed := PatchClaudeMD([]byte(stale), block)
 	got := string(out)
@@ -226,7 +226,7 @@ func TestPatchClaudeMD_ReplacesInPlaceWhenFileEndsExactlyAtTheEndMarkerWithNoTra
 
 func TestPatchClaudeMDPreservesCRLF(t *testing.T) {
 	t.Parallel()
-	block := ClaudeMDBlock(shimDir, false)
+	block := ClaudeMDBlock(shimDir, false, false)
 	out, _ := PatchClaudeMD([]byte("# Project\r\n\r\nGuidance.\r\n"), block)
 	if strings.Contains(strings.ReplaceAll(string(out), "\r\n", ""), "\n") {
 		t.Error("a CRLF file must stay CRLF throughout")
@@ -292,4 +292,42 @@ func TestWriteClaudeMDIsByteIdenticalOnASecondRun(t *testing.T) {
 	if !strings.Contains(string(second), "Project guide.") {
 		t.Error("the repo's own guidance was lost")
 	}
+}
+
+// The merge line used to state the mutation rule as a conditional — "with
+// `mutants-at-merge = true` the pre-merge gate runs …" — which is a sentence
+// about the tool rather than about THIS repo. A reader then has to go and
+// find out which half applies to them, and the block exists so they do not
+// have to. It is the third gap issue #584 names: the block takes no input
+// from the repo's own config, so the merge line reads the same whether the
+// repo declares the key or not.
+func TestManagedBlockFor_MergeLineStatesWhatThisRepoActuallyRequires(t *testing.T) {
+	measured := t.TempDir()
+	mustWrite(t, filepath.Join(measured, "aphrollo.toml"), "[aphrollo]\nmutants-at-merge = true\n")
+	plain := t.TempDir()
+	mustWrite(t, filepath.Join(plain, "aphrollo.toml"), "[aphrollo]\n")
+
+	withKey := managedBlockFor(measured, `C:\shim`)
+	withoutKey := managedBlockFor(plain, `C:\shim`)
+
+	if !strings.Contains(withKey, "runs this lane's mutation measurement") {
+		t.Errorf("a repo declaring mutants-at-merge must be told its merge IS measured, got:\n%s", mergeLineOf(withKey))
+	}
+	if !strings.Contains(withoutKey, "declares no `mutants-at-merge`") {
+		t.Errorf("a repo declaring nothing must be told its merge is NOT mutation-measured, got:\n%s", mergeLineOf(withoutKey))
+	}
+	if strings.Contains(withoutKey, "runs this lane's mutation measurement") {
+		t.Errorf("the block must not claim a measurement this repo never runs, got:\n%s", mergeLineOf(withoutKey))
+	}
+}
+
+// mergeLineOf is the one line under test, for a failure message that shows it
+// rather than the whole block.
+func mergeLineOf(block string) string {
+	for _, line := range strings.Split(block, "\n") {
+		if strings.Contains(line, "A merge is measured") {
+			return line
+		}
+	}
+	return "(no merge line)"
 }
