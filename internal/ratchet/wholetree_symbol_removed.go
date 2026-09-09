@@ -12,9 +12,47 @@ import (
 // symbolRemovedTombstoneRe is the tombstone marker this kind accepts, fixed
 // by the engine as `// ratchet: <law name> <symbol>: <reason>` (or `#`) —
 // requiring a non-empty reason after the colon tells a genuine admission
-// apart from a stub nobody filled in.
+// apart from a stub nobody filled in. What the marker names is either one
+// SYMBOL or one repo-relative PATH (see symbolRemovedClaimsAPath), so the
+// captured group carries `/`, `.` and `-` as well.
 func symbolRemovedTombstoneRe(lawName string) *regexp.Regexp {
-	return regexp.MustCompile(`(?m)^[ \t]*(?://|#)[ \t]*ratchet:[ \t]*` + regexp.QuoteMeta(lawName) + `[ \t]+([A-Za-z0-9_]+):[ \t]*\S`)
+	return regexp.MustCompile(`(?m)^[ \t]*(?://|#)[ \t]*ratchet:[ \t]*` + regexp.QuoteMeta(lawName) + `[ \t]+([A-Za-z0-9_][A-Za-z0-9_./-]*):[ \t]*\S`)
+}
+
+// symbolRemovedClaimsAPath tells the two things a tombstone can name apart: a
+// symbol is a bare identifier, so anything carrying a `/` or a `.` is a
+// repo-relative path instead. That is the whole classification — a language
+// whose test names contain a dot would need a different one, and none of the
+// preset patterns capture such a name.
+func symbolRemovedClaimsAPath(claim string) bool {
+	return strings.ContainsAny(claim, "/.")
+}
+
+// symbolRemovedFileAdmitted reports whether a file tombstone naming rel
+// admits every symbol that stood in rel at base — the #574 case, a whole test
+// file deleted along with the subject its tests exercised, where one line
+// saying so beats one line per test saying nothing a reader learns from.
+//
+// It is deliberately the narrowest reading of that claim, because a bulk
+// admission is also what a cheat looks like. Both conditions are checkable
+// facts about the tip, not statements of intent:
+//
+//   - rel must be GONE at tip. A file still standing admits nothing: deleting
+//     the one failing test out of a surviving file is the removal this law
+//     exists to report, and it still needs a tombstone naming that test.
+//   - NOTHING captured in rel at base may survive anywhere at tip. A file
+//     whose tests turn up elsewhere was split, not retired, and a test dropped
+//     on the way out is exactly the evidence a file-level line would hide.
+func symbolRemovedFileAdmitted(rel string, baseNames []string, tipNames, tipPaths, fileTombstoned map[string]bool) bool {
+	if !fileTombstoned[rel] || tipPaths[rel] {
+		return false
+	}
+	for _, name := range baseNames {
+		if tipNames[name] {
+			return false
+		}
+	}
+	return true
 }
 
 // wholeFileSymbolPattern recompiles a symbol-removed law's pattern to match
@@ -41,14 +79,24 @@ func wholeFileSymbolPattern(p *regexp.Regexp) *regexp.Regexp {
 // while a move to a different file, name unchanged, reports nothing. The
 // pattern is matched against each file's whole text (see
 // wholeFileSymbolPattern), not one physical line at a time.
+//
+// A tombstone naming a PATH rather than a symbol admits a whole file's
+// removed symbols at once, under the two conditions symbolRemovedFileAdmitted
+// checks.
 func symbolRemovedHits(law Law, base BaseReader, files []string, content map[string]string) ([]Hit, error) {
 	pattern := wholeFileSymbolPattern(law.Matcher.Pattern)
 	tombstoneRe := symbolRemovedTombstoneRe(law.Name)
 	tipNames, tombstoned := map[string]bool{}, map[string]bool{}
+	// tipPaths is every in-scope path the tip HAS, recorded before the
+	// content lookup below: a path present but unread still counts as
+	// standing, so a file tombstone naming it is refused rather than honored
+	// on a file nobody looked at.
+	tipPaths, fileTombstoned := map[string]bool{}, map[string]bool{}
 	for _, rel := range files {
 		if !law.Scope.Matches(rel) {
 			continue
 		}
+		tipPaths[rel] = true
 		text, ok := content[rel]
 		if !ok {
 			continue
@@ -57,6 +105,10 @@ func symbolRemovedHits(law Law, base BaseReader, files []string, content map[str
 			tipNames[text[idx[2]:idx[3]]] = true
 		}
 		for _, m := range tombstoneRe.FindAllStringSubmatch(text, -1) {
+			if symbolRemovedClaimsAPath(m[1]) {
+				fileTombstoned[m[1]] = true
+				continue
+			}
 			tombstoned[m[1]] = true
 		}
 	}
@@ -88,8 +140,14 @@ func symbolRemovedHits(law Law, base BaseReader, files []string, content map[str
 			continue
 		}
 		text := string(data)
+		var baseNames []string
 		for _, idx := range pattern.FindAllStringSubmatchIndex(text, -1) {
-			name := text[idx[2]:idx[3]]
+			baseNames = append(baseNames, text[idx[2]:idx[3]])
+		}
+		if symbolRemovedFileAdmitted(rel, baseNames, tipNames, tipPaths, fileTombstoned) {
+			continue
+		}
+		for _, name := range baseNames {
 			if tipNames[name] || tombstoned[name] {
 				continue
 			}
