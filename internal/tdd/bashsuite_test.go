@@ -312,7 +312,11 @@ func TestDecideBashSuite_NarrowedDenyReasonNamesTheVerdictAndItsAge(t *testing.T
 	if d.Action != Block {
 		t.Fatalf("setup: want Block, got %v (reason %q)", d.Action, d.Reason)
 	}
-	for _, want := range []string{"green", "2m0s"} {
+	// Minute granularity, not "2m0s": the age is measured from the seeded
+	// entry to the moment the decision renders it, so a loaded runner that
+	// takes a second to get there reports "2m1s" and a test pinned to the
+	// second fails for a reason that has nothing to do with the rule.
+	for _, want := range []string{"green", "logged 2m"} {
 		if !strings.Contains(d.Reason, want) {
 			t.Errorf("deny reason %q must name %q", d.Reason, want)
 		}
