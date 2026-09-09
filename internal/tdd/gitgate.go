@@ -31,6 +31,13 @@ var gitGateHooks = []struct{ name, sub string }{
 	// which is the point: the message is the one artefact that leaves the
 	// machine. Inert unless a workspace opts in with `undercover = true`.
 	{"commit-msg", "commitmsg"},
+	// post-merge closes the gap that let a hand-written hook exist on a box
+	// at all: a plain `git merge` never reached the lane sweep `aphrollo
+	// workspace merge` ends with. It fires in every repo on the box and on
+	// `git pull` too, so it is inert unless the repo declares
+	// `prune-lanes-on-merge = true` (see postmerge.go). It cannot block —
+	// the merge has already happened.
+	{"post-merge", "postmerge"},
 }
 
 // prunedHooks are hook names this tool prunes but never installs. A re-install

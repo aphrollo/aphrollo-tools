@@ -53,6 +53,7 @@ var gateVerbTable = []Verb{
 	{Name: "self-install"},
 	{Name: "commitmsg"},
 	{Name: "postcommit"},
+	{Name: "postmerge"},
 	{Name: "doctor"},
 	{Name: "statusline"},
 	{Name: "stats"},

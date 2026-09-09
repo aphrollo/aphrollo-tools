@@ -43,6 +43,10 @@ var perRepoHooks = []struct{ name, sub string }{
 	// mutation run. See gitGateHooks.
 	{"post-commit", "postcommit"},
 	{"commit-msg", "commitmsg"},
+	// post-merge runs the opt-in lane sweep after a merge git itself made —
+	// the sweep `aphrollo workspace merge` has always ended with, now
+	// reachable from a plain `git merge`. See gitGateHooks.
+	{"post-merge", "postmerge"},
 }
 
 // perRepoPrunedHooks are hook names per-repo install removes but never writes. A
