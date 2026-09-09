@@ -91,7 +91,12 @@ func checkDocs(root string, stdout, stderr io.Writer) bool {
 		fmt.Fprintf(stdout, "check: docs → error: %v\n", err)
 		return false
 	}
-	findings, err := docs.CheckFiles(root, files)
+	tracked, err := docs.TrackedPaths(root)
+	if err != nil {
+		fmt.Fprintf(stdout, "check: docs → error: %v\n", err)
+		return false
+	}
+	findings, err := docs.CheckFiles(root, files, tracked)
 	if err != nil {
 		fmt.Fprintf(stdout, "check: docs → error: %v\n", err)
 		return false

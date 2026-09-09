@@ -16,7 +16,11 @@ import (
 // rule that changed must never be answered from verdicts reached under the old
 // one, which is the failure mode that would make a stale cache look like a
 // clean tree.
-const cacheVersion = 2
+// 3: a doc-path-resolves citation is judged against what the commit contains,
+// not against the working tree (see docpath_committed.go). The law files did
+// not change, so the fingerprint below cannot see it — the version is what
+// says the recorded verdicts were reached under the older rule.
+const cacheVersion = 3
 
 type cacheEntry struct {
 	Size  int64            `json:"size"`

@@ -68,12 +68,19 @@ func docReferenceLaw(root string) (ratchet.Law, error) {
 
 // CheckFiles scans the given repo-root-relative markdown files under root and
 // returns every unresolved reference, in file-then-line order. It performs no
-// git or network access; the caller supplies the file list.
-func CheckFiles(root string, files []string) ([]Finding, error) {
+// git or network access; the caller supplies both lists.
+//
+// tracked is what the commit CONTAINS — every path `git ls-files` reports,
+// not just the markdown being scanned — and it is what a citation resolves
+// against: a file .gitignore kept out of the commit is on the author's disk
+// and in no other checkout (borld#301). Empty means the caller could not say,
+// and the working tree is the oracle instead.
+func CheckFiles(root string, files, tracked []string) ([]Finding, error) {
 	law, err := docReferenceLaw(root)
 	if err != nil {
 		return nil, err
 	}
+	law.Committed = ratchet.CommittedPathSet(tracked)
 	var findings []Finding
 	for _, f := range files {
 		if !law.Scope.Matches(f) {
@@ -94,22 +101,43 @@ func CheckFiles(root string, files []string) ([]Finding, error) {
 // optionally narrowed to the given pathspecs. Returned paths are relative to
 // root.
 func TrackedMarkdown(root string, paths []string) ([]string, error) {
-	args := []string{"-C", root, "ls-files", "-z", "--"}
 	if len(paths) == 0 {
-		args = append(args, "*.md")
-	} else {
-		args = append(args, paths...)
+		paths = []string{"*.md"}
 	}
-	out, err := exec.Command("git", args...).Output()
+	all, err := lsFiles(root, paths...)
 	if err != nil {
-		return nil, fmt.Errorf("git ls-files under %s: %w", root, err)
+		return nil, err
+	}
+	var files []string
+	for _, f := range all {
+		if strings.HasSuffix(f, ".md") {
+			files = append(files, f)
+		}
+	}
+	return files, nil
+}
+
+// TrackedPaths is every path in root's index — what the commit contains, and
+// so what a citation may resolve to. Returned paths are relative to root.
+func TrackedPaths(root string) ([]string, error) {
+	return lsFiles(root)
+}
+
+// lsFiles asks git for the index under root, narrowed to the given
+// pathspecs. Its stderr is carried into the error: `ls-files` says why it
+// refused (a root that is not a repository, a pathspec it cannot parse) on
+// stderr and nowhere else, and an exit status alone names none of it.
+func lsFiles(root string, paths ...string) ([]string, error) {
+	cmd := exec.Command("git", append([]string{"-C", root, "ls-files", "-z", "--"}, paths...)...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git ls-files under %s: %w: %s", root, err, strings.TrimSpace(stderr.String()))
 	}
 	var files []string
 	for f := range strings.SplitSeq(strings.TrimRight(string(out), "\x00"), "\x00") {
-		if f == "" {
-			continue
-		}
-		if strings.HasSuffix(f, ".md") {
+		if f != "" {
 			files = append(files, f)
 		}
 	}
@@ -129,7 +157,11 @@ func Check(root string, paths []string, w io.Writer) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	findings, err := CheckFiles(top, files)
+	tracked, err := TrackedPaths(top)
+	if err != nil {
+		return false, err
+	}
+	findings, err := CheckFiles(top, files, tracked)
 	if err != nil {
 		return false, err
 	}

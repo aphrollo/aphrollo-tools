@@ -429,15 +429,11 @@ func isPathContinuation(b byte) bool {
 // names a DIRECTORY, so resolution accepts either a file or a directory —
 // unlike scope.include's ExplicitPaths, which names one file and only one.
 func (l Law) docResolves(file, cited string) bool {
-	root := l.Root
-	if root == "" {
-		root = "."
-	}
 	citeDir := filepath.Dir(filepath.FromSlash(file))
-	if pathExists(filepath.Join(root, citeDir, filepath.FromSlash(cited))) {
+	if l.citedResolves(filepath.Join(citeDir, filepath.FromSlash(cited))) {
 		return true
 	}
-	if pathExists(filepath.Join(root, filepath.FromSlash(cited))) {
+	if l.citedResolves(filepath.FromSlash(cited)) {
 		return true
 	}
 	parts := strings.Split(normalizeSlashes(file), "/")
@@ -447,7 +443,7 @@ func (l Law) docResolves(file, cited string) bool {
 	if parts[0] != "crates" && parts[0] != "tools" {
 		return false
 	}
-	return pathExists(filepath.Join(root, parts[0], parts[1], filepath.FromSlash(cited)))
+	return l.citedResolves(filepath.Join(parts[0], parts[1], filepath.FromSlash(cited)))
 }
 
 func isFile(path string) bool {

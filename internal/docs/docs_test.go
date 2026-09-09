@@ -29,7 +29,7 @@ func check(t *testing.T, docContent string, resolvable ...string) []Finding {
 		writeRepoFile(t, root, rel, "x")
 	}
 	writeRepoFile(t, root, "docs/guide.md", docContent)
-	got, err := CheckFiles(root, []string{"docs/guide.md"})
+	got, err := CheckFiles(root, []string{"docs/guide.md"}, nil)
 	if err != nil {
 		t.Fatalf("CheckFiles: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestCheckFiles_ResolvesRelativeToCitingFileThenRoot(t *testing.T) {
 		"see `./sibling.md` and `../rooted.md`\n"+
 			"but `sub/nope.md` is dangling\n")
 
-	got, err := CheckFiles(root, []string{"a/doc.md"})
+	got, err := CheckFiles(root, []string{"a/doc.md"}, nil)
 	if err != nil {
 		t.Fatalf("CheckFiles: %v", err)
 	}
@@ -136,7 +136,7 @@ pattern = "(?:^|[\\s(\\[`+"`"+`])((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+\\.[A-Za-z
 `)
 	writeRepoFile(t, root, "docs/guide.md", "see `gone/missing.md` here\n")
 
-	got, err := CheckFiles(root, []string{"docs/guide.md"})
+	got, err := CheckFiles(root, []string{"docs/guide.md"}, nil)
 	if err != nil {
 		t.Fatalf("CheckFiles: %v", err)
 	}
