@@ -44,6 +44,12 @@ type mutantsEnvSignature struct {
 // are the lane's own and must never match here, because excusing one of those
 // as the box's is how a broken lane merges.
 var mutantsEnvBuildFailures = []mutantsEnvSignature{
+	// First, because it is the cause of most of what follows: a rustc that
+	// aborts for memory leaves the half-written rlib the next compilation
+	// reads as a metadata stub, and the ICE below is what its own allocation
+	// failure prints on the way out. Both spellings are from one run's log —
+	// LLVM's own abort, and rustc's failed allocation.
+	{"rustc ran the box out of memory", regexp.MustCompile(`(?i)LLVM ERROR: out of memory|memory allocation of \d+ bytes failed`)},
 	{"the paging file is too small (os error 1455)", regexp.MustCompile(`(?i)paging file is too small|os error 1455`)},
 	{"a child process that could not start (0xc0000142)", regexp.MustCompile(`0xc0000142`)},
 	{"a rustc internal compiler error", regexp.MustCompile(`internal compiler error|rustc_interface::util::run_in_thread`)},
@@ -110,6 +116,11 @@ func retryShardAlone(ctx context.Context, root string, cfg MutantsConfig, argv [
 	// does. cold = true: its build dir was just emptied, so it is. Derived
 	// here, once, for the one process this starts.
 	jobs, _ := mutantsBuildJobsForShards(cfg, 1, true)
+	// And then held until the box has room for those jobs. The run's own
+	// siblings have finished, but the pressure that killed this shard may be
+	// somebody else's build entirely, and finishing our shards freed none of
+	// it (mutants_drain.go).
+	jobs = waitForRoomToRetry(ctx, jobs, r.Shard, log)
 	code, err := mutantsExecFn(ctx, root, measureShardEnv(root, cfg, r.Shard, jobs),
 		mutantsShardArgv(argv, r.Shard, r.Shards, out), io.MultiWriter(log, &tee))
 	retried := shardRun{Shard: r.Shard, Shards: r.Shards, Code: code, Log: tee.String(), Err: err}

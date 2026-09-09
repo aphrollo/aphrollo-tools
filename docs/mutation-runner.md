@@ -220,11 +220,12 @@ limit that bound it:
 mutants: 7 shards (min(cores 24/3=8, ram 63GB/8=7, cap 8) — ram)
 ```
 
-There is nothing to override — no `--jobs` on the shared argv, since each
-shard carries its own `--jobs 1`, and none on `gate mutants run`, which
-refuses one with `flag provided but not defined: -jobs` rather than accepting
-a number the tool will reject (issue #592). The free-space budget below is per
-shard.
+There is nothing on the command line to override — no `--jobs` on the shared
+argv, since each shard carries its own `--jobs 1`, and none on `gate mutants
+run`, which refuses one with `flag provided but not defined: -jobs` rather
+than accepting a number the tool will reject (issue #592). The one override is
+the repo's `mutants-shards`, which lowers the count and never raises it. The
+free-space budget below is per shard.
 
 A **Go** run (gremlins) copies nothing into the tree it measures and takes a
 worker count happily, so it keeps the per-box cap
@@ -239,6 +240,20 @@ Memory that cannot be READ is not memory that is absent: an unreadable reading
 prints `ram unknown` and lets the cores decide alone. `--jobs` is gone from
 both halves: the Go run derives its count from the box it is on, and no
 caller may type a number for either.
+
+**A shard the BOX killed waits for the box before its retry.** The signatures
+that mean the machine rather than the lane — `rustc-LLVM ERROR: out of
+memory`, `memory allocation of N bytes failed`, os error 1455, `0xc0000142`,
+a rustc ICE, and the metadata wreckage a killed compiler leaves — buy that
+shard one retry on a cleaned build dir. The retry used to start immediately,
+which is right when the pressure was the run's own siblings and useless when
+it is three other sessions' builds: it runs into the same wall. So it first
+waits for the box to have room for the cold jobs it is about to start, up to
+10 minutes, polling every 15 s and printing what it is waiting for. If the
+room appears it retries at full width; if it does not, it retries at ONE
+build job rather than not at all. An unreadable free-memory reading never
+waits, and says so. Waiting can never buy a green: a shard that dies
+environmentally twice is reported as unmeasured, never as caught.
 
 **One run per BOX, not one per repo.** The call is wrapped in a machine-wide
 advisory lock held for its whole duration, cold build included. A wall-clock
