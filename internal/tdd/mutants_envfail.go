@@ -100,7 +100,7 @@ func retryEnvironmentalShards(ctx context.Context, root string, cfg MutantsConfi
 // a timing line taken from a build that died is not a budget for the next
 // run.
 func retryShardAlone(ctx context.Context, root string, cfg MutantsConfig, argv []string, r shardRun, signature string, log io.Writer) shardRun {
-	logf(log, "mutants: shard %d/%d exited %d on %s — the box's failure and not the lane's, so it measured nothing; "+
+	logf(log, "mutants: shard %d/%d exited %d after an environmental build failure — %s — so it measured nothing; "+
 		"cleaning its build dir and retrying it once with the box to itself", r.Shard, r.Shards, r.Code, signature)
 	cleanPoisonedShardTarget(root, r.Shard, log)
 	out := mutantsShardDir(root, r.Shard)
