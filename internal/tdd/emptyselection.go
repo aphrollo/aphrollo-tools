@@ -91,28 +91,6 @@ var (
 	cargoScopeValueFlags     = map[string]bool{"-p": true, "--package": true}
 )
 
-// cargoBuildOnlyFlags name a cargo target that runs no tests: an --example
-// is a binary the suite never executes, and a --bench is compiled with
-// --no-run because a bench RUN costs minutes and says nothing about
-// correctness (cargoTargetRunner's own reasoning). Under `cargo nextest run`
-// both select ZERO tests by construction, always — which is why they are
-// never widened and never judged as a selection that came back empty.
-var cargoBuildOnlyFlags = map[string]bool{"--example": true, "--bench": true}
-
-// buildOnlyRunner reports whether r asks cargo to COMPILE a target rather
-// than run tests.
-func buildOnlyRunner(r Runner) bool {
-	if r.Cmd != "cargo" {
-		return false
-	}
-	for _, a := range r.Args {
-		if cargoBuildOnlyFlags[flagName(a)] {
-			return true
-		}
-	}
-	return false
-}
-
 // widenCargoRunner drops a narrowed cargo run's within-package narrowing and
 // keeps its package scope, reporting false when there was nothing to drop
 // (the run is already as wide as this crate goes) or when the runner is a

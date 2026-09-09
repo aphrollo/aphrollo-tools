@@ -132,6 +132,11 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 	if terminal != "" {
 		return terminal, false
 	}
+	// A compile check ends here: an --example or --bench target ran no test,
+	// so there is no verdict to classify and nothing to widen into.
+	if line := buildOnlyTerminal(snap.runner, root, res); line != "" {
+		return line, false
+	}
 	widenNote := ""
 	// A NARROWED run that selected nothing has not judged the code: the
 	// crate's tests may simply live where the filter did not look. Widen
