@@ -241,19 +241,35 @@ prints `ram unknown` and lets the cores decide alone. `--jobs` is gone from
 both halves: the Go run derives its count from the box it is on, and no
 caller may type a number for either.
 
-**A shard the BOX killed waits for the box before its retry.** The signatures
-that mean the machine rather than the lane — `rustc-LLVM ERROR: out of
-memory`, `memory allocation of N bytes failed`, os error 1455, `0xc0000142`,
-a rustc ICE, and the metadata wreckage a killed compiler leaves — buy that
-shard one retry on a cleaned build dir. The retry used to start immediately,
+**A shard that measured NOTHING is retried once, and waits for the box first.**
+The trigger is the missing measurement, not the wording of the wreckage: a
+shard whose exit status is not one cargo-mutants uses for a verdict (0, 2, 3),
+or which wrote no `outcomes.json` while its `mutants.json` was not empty, buys
+one retry on a cleaned build dir. The signatures that mean the machine rather
+than the lane — `rustc-LLVM ERROR: out of memory`, `memory allocation of N
+bytes failed`, os error 1455, `0xc0000142`, a rustc ICE, and the metadata
+wreckage a killed compiler leaves — still NAME that failure in the log, because
+"rustc ran the box out of memory" is a different instruction to an operator
+than "it stopped"; they no longer decide whether the retry happens. They used
+to, and a process killed before it could print a diagnostic matched none of
+them: seven recorded escapes were one merge refused with `exited 4294967295 and
+reached no verdict` on a tree the commit gate had just run green.
+
+A shard that PRODUCED outcomes under a verdict status is a measurement and is
+never retried, however alarming its log reads — re-running one is re-rolling it
+until the box agrees with the lane. A shard drawn an empty slice (exit 0,
+`mutants.json` as `[]`, no outcomes) had nothing to measure and is not retried
+either. And it is one retry: a second no-verdict result refuses the merge
+saying it was retried alone and reached no verdict again, so its mutants were
+NOT measured. The retry used to start immediately,
 which is right when the pressure was the run's own siblings and useless when
 it is three other sessions' builds: it runs into the same wall. So it first
 waits for the box to have room for the cold jobs it is about to start, up to
 10 minutes, polling every 15 s and printing what it is waiting for. If the
 room appears it retries at full width; if it does not, it retries at ONE
 build job rather than not at all. An unreadable free-memory reading never
-waits, and says so. Waiting can never buy a green: a shard that dies
-environmentally twice is reported as unmeasured, never as caught.
+waits, and says so. Waiting can never buy a green: a shard that measures
+nothing twice is reported as unmeasured, never as caught.
 
 **One run per BOX, not one per repo.** The call is wrapped in a machine-wide
 advisory lock held for its whole duration, cold build included. A wall-clock
