@@ -173,7 +173,7 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   git shim (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit) is the WALL.
   Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override
   with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).
-- **A merge is measured, not certified:** with `mutants-at-merge = true` the pre-merge gate runs the lane's mutation measurement in the foreground and refuses an unaccepted survivor by name; `aphrollo gate mutants run` measures THIS checkout the same way before you merge.
+- **A merge is measured, not certified:** the pre-merge gate runs this lane's mutation measurement in the foreground and refuses an unaccepted survivor by name; `aphrollo gate mutants run` measures THIS checkout the same way before you merge.
 - **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).
 
 _This block is written by `aphrollo install`. Edit the template in aphrollo, not
