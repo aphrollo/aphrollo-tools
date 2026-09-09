@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -177,11 +178,22 @@ func TestMeasure_OutOfMemoryShardWaitsForTheBoxBeforeItsRetry(t *testing.T) {
 	// retry waits out its whole budget and then goes ahead narrow.
 	setBoxAvailSequenceForTest(t, 4)
 	countDrainWaitsForTest(t)
+	// The shards run concurrently, so the per-shard attempt count they share
+	// is written from several goroutines at once — the race detector fails
+	// the test on the unguarded map, and the count it reads decides which
+	// call fails, so a torn read would also make the fixture itself flaky.
+	var mu sync.Mutex
 	attempts := map[int]int{}
+	nthAttempt := func(shard int) int {
+		mu.Lock()
+		defer mu.Unlock()
+		attempts[shard]++
+		return attempts[shard]
+	}
 	calls := stubMutantsExec(t, func(_ context.Context, _ int, c measuredCall) (int, error) {
 		shard := shardIndexOf(c.Argv)
-		attempts[shard]++
-		if shard == 1 && attempts[shard] == 1 {
+		nth := nthAttempt(shard)
+		if shard == 1 && nth == 1 {
 			mustWrite(t, filepath.Join(mutantsShardTargetDir(root, 1), "debug", "deps", "libcore.rmeta"), "half\n")
 			fmt.Fprint(c.Log, "FAILED   Unmutated baseline in 1018s build\nrustc-LLVM ERROR: out of memory\n")
 			return 4, nil
