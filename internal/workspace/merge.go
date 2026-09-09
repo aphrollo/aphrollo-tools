@@ -99,6 +99,8 @@ func (m *Merge) Render(apply bool) string {
 		fmt.Fprintf(&b, "  deletes the PR's remote branch after merging (local worktree left for prune)\n")
 	}
 	fmt.Fprintf(&b, "  honors GitHub's gates — a non-mergeable or red-CI PR is refused (no force)\n")
+	fmt.Fprintf(&b, "  a repo declaring mutants-at-merge is judged locally first: the merge is built in a\n"+
+		"  throwaway checkout and run through the pre-merge gate before the PR lands\n")
 	fmt.Fprintf(&b, "\nrun again without --dry to merge (then: aphrollo workspace prune).\n")
 	return b.String()
 }
@@ -136,6 +138,17 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 			detail = fmt.Sprintf("red (%d failing)", ci.Failing)
 		}
 		return fmt.Errorf("refusing to merge %s: required checks are not green (%s)", m.Target.Branch, detail)
+	}
+	// The local pre-merge gate, on the tree this merge is about to create —
+	// before GitHub creates it. Landing through a PR makes no local merge
+	// commit, so the pre-merge-commit hook never fires and everything it
+	// carries (the mechanical suites, and the mutation measurement a repo
+	// declaring mutants-at-merge is promised) would otherwise be skipped for
+	// this path alone. It runs AFTER the two remote reads above because they
+	// are cheap and this is not: a PR GitHub itself refuses never pays for a
+	// local measurement.
+	if err := premergeGate(m.Target, stderr); err != nil {
+		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
 	if err := ghMergePR(m.Target.Worktree, m.Target.Branch, m.Method); err != nil {
 		return err

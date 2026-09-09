@@ -498,6 +498,23 @@ aphrollo workspace merge         # gh pr merge --squash --delete-branch
   uncommitted work, the guard that matters once a builder has actually written
   a file.
 
+The two ways a lane lands are now judged by ONE gate. A local
+`git merge --no-ff lane/<x>` in the primary checkout fires git's
+`pre-merge-commit` hook, which is [`gate premerge`](#tdd--law-gates-aphrollo-gate). A lane
+landed with this verb is merged by GitHub: no local merge commit is made, so that
+hook cannot fire (nor does it for a fast-forward). So `merge` runs the gate
+itself, before it calls `gh pr merge` — in a repo that declares
+`mutants-at-merge = true` it builds the merge locally in a throwaway checkout
+(trunk, with the lane merged `--no-commit` into it, which is exactly the state the
+hook fires in), hands that tree to the same `Mechanical` stage, and refuses the
+merge on a red suite or an unaccepted surviving mutant, naming it. A repo that
+declares nothing merges exactly as before, at no cost. Every uncertainty refuses
+rather than passes: a trunk that cannot be resolved, a lane that does not merge
+cleanly here, a checkout that cannot be made — none of those measured anything,
+and the reason is printed. What this cannot cover is a merge the local box never
+sees: a PR merged from GitHub's web UI, by another operator, or by an auto-merge
+queue passes through no local gate at all.
+
 > Merge stays a deliberate step: in the hub-and-spoke flow it is gated on the
 > operator's "ship" + green CI, so a coder runs `merge` on instruction, not
 > reflexively. The verb just makes the mechanical step one lossless call.
@@ -662,7 +679,7 @@ live where being wrong only costs a re-run):
 | `gate postmerge` | git `post-merge` | **Opt-in.** In a repo declaring `prune-lanes-on-merge = true`, runs the same guarded lane sweep [`workspace merge`](#close-the-loop--merge--prune) ends with — a lane is removed only when its branch brought commits of its own to the resolved trunk AND its worktree is clean — so a plain `git merge` sweeps too. The worktree git fired the hook in is excluded whatever its own branch's state. In a repo that did not declare the key it does **nothing and prints nothing**: `core.hooksPath` is machine-wide, so this hook fires in every repo on the box and after every `git pull`, and the sweep removes worktrees and deletes branches. Never blocks — the merge is already made. |
 | `ratchet check` | git `pre-commit`/`pre-merge-commit`, and manual | Judges the tree against `.ratchet/laws/*.toml` (see [Ratchet laws](#ratchet-laws-aphrollo-ratchet)). |
 | `gate prepush` | git `pre-push` | **No-op** (mechanical-only mode). The gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
-| `gate premerge` | git `pre-merge-commit` | Runs ONLY the mechanical stage over the merge's staged files — no fail-first (a fresh test's RED/GREEN belongs to the authoring commit, already proven by `precommit` there) and no anti-cheat suppression scan (same reasoning) — so a git merge, which never fires `pre-commit`, still proves the COMBINED result compiles and passes before it lands. `gate premergecommit` is the pre-rename spelling, kept as a silent alias for one release; every line the routine prints starts `gate premerge:`. A repo declaring `mutants-at-merge = true` also gets its mutation measurement here: the configuration is read FIRST (a retired key is refused before a single suite runs) and the measurement itself runs LAST, after the suites, against `merge-base(HEAD, <incoming tip>)` — a merge whose suite is red never pays for a mutation run. |
+| `gate premerge` | git `pre-merge-commit` | Runs ONLY the mechanical stage over the merge's staged files — no fail-first (a fresh test's RED/GREEN belongs to the authoring commit, already proven by `precommit` there) and no anti-cheat suppression scan (same reasoning) — so a git merge, which never fires `pre-commit`, still proves the COMBINED result compiles and passes before it lands. `gate premergecommit` is the pre-rename spelling, kept as a silent alias for one release; every line the routine prints starts `gate premerge:`. A repo declaring `mutants-at-merge = true` also gets its mutation measurement here: the configuration is read FIRST (a retired key is refused before a single suite runs) and the measurement itself runs LAST, after the suites, against `merge-base(HEAD, <incoming tip>)` — a merge whose suite is red never pays for a mutation run. The hook is not the only caller: [`workspace merge`](#close-the-loop--merge--prune) runs this same stage on a locally-built merge before a PR lands, because that path makes no local merge commit for git to fire a hook on. |
 | `gate mutants` | manual | `run` measures THIS checkout's lane in the foreground, under the box-wide mutation lock, and prints every unaccepted surviving mutant first, then the counts, then the remedy — exit 1 when one survived, one stayed unmeasured, or the run reached no verdict. `run --base <ref>` measures against that ref instead (what nightly CI on `main` passes its checkpoint to). There is no `--jobs`: a Cargo run is N cargo-mutants processes, one per shard of the mutant pool, each with `--jobs 1` and its own persistent target dir, and N comes from the box rather than from a caller. The box's memory term is what is FREE at the moment the budget is computed — available commit on Windows, `MemAvailable` on Linux — never total RAM, because a box shared with other sessions' builds has already charged most of it; the run logs `free 24GB/8=3 (measured)` when that reading bound the answer and `ram 63GB/8=7` when it could not be taken. A repo sharing its box with other work caps the count with `mutants-shards = N` in the same table as its other mutation keys — it lowers what the box derived and never raises it. `prove --file --old --new --want-fail` is the HAND mutation proof for existing code: it applies one specific error, verifies with `git diff --numstat` that the write actually landed, runs the file's related tests, and restores the file byte-identically. See [The mutation runner contract](docs/mutation-runner.md). |
 | `gate allow` / `gate revoke` | manual | `allow <wall>` waives a wall (`primary` or `discard`); bare `allow` (or `revoke`) lists the active waivers. See [Waivers](#waivers) below. |
 
