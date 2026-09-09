@@ -267,9 +267,11 @@ func PostBash(raw []byte, run SuiteRunner) string {
 			// until a later Edit or commit touches them, so say so here —
 			// otherwise the only trace was a per-file "bash-edit:" log line
 			// nothing reads as "this root never got a run" (issue #306).
+			// The count is the fact; the names are a courtesy, and
+			// skippedRootsPhrase caps them (issue #583).
 			if skipped := otherRootsAmong(changed[i+1:], before.Root, seenRoot); len(skipped) > 0 {
 				line := fmt.Sprintf("gate: deferred %s skipped, %d other root(s) changed by this command: %s",
-					root, len(skipped), strings.Join(skipped, ", "))
+					root, len(skipped), skippedRootsPhrase(skipped))
 				appendGateLog("postedit", before.Root, rel, fmt.Sprintf("bash-roots-skipped:%d", len(skipped)), 0)
 				notes = append(notes, line)
 			}
@@ -331,6 +333,27 @@ func otherRootsAmong(rest []string, base string, seen map[string]bool) []string 
 		out = append(out, root)
 	}
 	return out
+}
+
+// maxNamedSkippedRoots bounds how many unexercised roots the skip line
+// spells out. Three is what a reader can act on in one line; past that the
+// list stops describing this command and starts describing the size of the
+// tree (issue #583: a `git merge --no-ff` printed all 25 roots the merge
+// touched).
+const maxNamedSkippedRoots = 3
+
+// skippedRootsPhrase renders the roots a deferred phase left unexercised:
+// the first few by name, then a count of the rest. The COUNT is never
+// dropped — the line's whole job is to say how much of this command never
+// got a gate, and a truncation that hid that would be suppressing the fact
+// instead of shortening the sentence. The caller prints the exact total
+// alongside this phrase, so the two halves cannot disagree; `aphrollo gate
+// status` and gate.log's own bash-roots-skipped entry hold the full list.
+func skippedRootsPhrase(roots []string) string {
+	if len(roots) <= maxNamedSkippedRoots {
+		return strings.Join(roots, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(roots[:maxNamedSkippedRoots], ", "), len(roots)-maxNamedSkippedRoots)
 }
 
 // changedSince names every source path whose dirty stamp moved, entered the

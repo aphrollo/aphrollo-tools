@@ -55,6 +55,11 @@ type deferredEditOutcome struct {
 	// must not see it, or a capacity refusal reads as a genuine assertion
 	// failure (issues #350, #354).
 	infra bool
+	// job is the record the phase ran under, carried back so the verdict
+	// line can name the run it judges rather than only the build that
+	// blocked it (issue #583): the caller has the edit's Runner, but not
+	// which PHASE of it the failure belongs to.
+	job DeferredJob
 }
 
 // finishedEditOutcome turns a completed phase into the outcome runEditPhases
@@ -62,7 +67,7 @@ type deferredEditOutcome struct {
 // instead of letting it masquerade as a real (if ugly) test result.
 func finishedEditOutcome(j DeferredJob, out PhaseOutcome) deferredEditOutcome {
 	if out.SetupFailed {
-		return deferredEditOutcome{res: phaseSuiteResult(j, out), infra: true}
+		return deferredEditOutcome{res: phaseSuiteResult(j, out), infra: true, job: j}
 	}
 	return deferredEditOutcome{res: phaseSuiteResult(j, out)}
 }
@@ -234,7 +239,7 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 		// overwrite the last REAL outcome in state — same posture as a
 		// timeout (issues #350, #354).
 		appendGateLog("postedit", root, strings.Join(j.Runner, " "), InfraFailed, res.Duration)
-		return infraFailureLine(root, res)
+		return infraFailureLine(root, j, res)
 	}
 	runner := runnerFromArgv(j.Runner, j.Dir)
 	fp := computeFingerprint(root)
@@ -291,20 +296,6 @@ const InfraFailed = "infra-failed"
 // see its doc comment for why the two must never be confused.
 func spawnFailedLine(root, phase string) string {
 	return fmt.Sprintf("gate: → %s (could not start the %s phase in %s — the code was NOT tested)", InfraFailed, phase, root)
-}
-
-// infraFailureLine reports a phase that DID spawn and finish, but whose own
-// setup failed before its command ever ran (RunPhase's PhaseOutcome.SetupFailed)
-// — no build slot came free, or it could not open its log file.
-// Same InfraFailed family as spawnFailedLine, named by the wrapper's own
-// first log line where there is one, so a capacity refusal names the
-// resource it waited for rather than reading as a bare assertion failure.
-func infraFailureLine(root string, res SuiteResult) string {
-	reason := strings.TrimSpace(firstLine(res.Output))
-	if reason == "" {
-		reason = "the phase's own setup failed before its command started"
-	}
-	return fmt.Sprintf("gate: → %s in %s (%s — the code was NOT tested)", InfraFailed, root, reason)
 }
 
 // sourceIdentity is what a deferred result claims to be about: the whole
@@ -532,7 +523,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	}
 	if out.infra {
 		appendGateLog("postedit", root, cmdString(snap.runner), InfraFailed, out.res.Duration)
-		return infraFailureLine(root, out.res), false
+		return infraFailureLine(root, out.job, out.res), false
 	}
 	res := out.res
 	if treatAsEmptyPass(res) {

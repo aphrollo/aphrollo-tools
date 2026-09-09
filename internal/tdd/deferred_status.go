@@ -161,6 +161,14 @@ func WaitDeferredEditJob(root string) (advisory string, ok bool) {
 			time.Sleep(waitDeferredPollInterval)
 			continue
 		}
-		return line, line != ""
+		if line == "" {
+			return "", false
+		}
+		// This is the ONE harvest that reads across sessions — it found the
+		// job by project, having no session id of its own — so the verdict it
+		// prints may well belong to another window's edit. It says whose
+		// (issue #583); a hook's own harvest, keyed session+project, needs no
+		// such note.
+		return line + deferredOwnerNote(j.Session), true
 	}
 }
