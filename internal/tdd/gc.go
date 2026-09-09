@@ -470,7 +470,17 @@ func ApplyGCFor(repo string, cands []GCCandidate) (freed int64, refused []string
 	sort.Strings(targets)
 	for _, target := range targets {
 		group := byTarget[target]
-		_, release, ok := TryAcquireBuildSlot(target, gcOwnerCommand, repo)
+		// ONLY the target dir's own lock, never a global build slot: the
+		// slots are the box's OOM/CPU governor, and a RemoveAll consumes
+		// neither. Going through TryAcquireBuildSlot meant that when
+		// unrelated builds held every slot, no candidate's target lock was
+		// even attempted and every row came back skipped — the sweep
+		// reclaimed nothing exactly when the box was full and disk was the
+		// binding constraint. It also blurred what ok=false means, which is
+		// what staleTargetLock below has to be able to trust: with the
+		// target lock as the only question, a refusal means one thing —
+		// another process holds THIS target dir.
+		release, ok := TryAcquireFileLock(targetLockPath(target))
 		if !ok {
 			if !staleTargetLock(target) {
 				skipped += len(group)
