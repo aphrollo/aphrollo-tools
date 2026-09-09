@@ -61,6 +61,24 @@ func TestEscapeRecord_FlagsAfterTheReasonAreFlagsNotReasonText(t *testing.T) {
 	}
 }
 
+// The closes-by line is what verify-closure judges a fix against, and an
+// issue opened with the placeholder refuses every fix until a human edits the
+// body. The recorder states it once, at record time (issue #562).
+func TestEscapeRecord_ClosesByReachesTheRecord(t *testing.T) {
+	gateConfigDir(t)
+	var out, errBuf bytes.Buffer
+	code := runGate([]string{"escape", "record",
+		"a clippy warning reached main",
+		"--closes-by", "internal/tdd/precommit_go.go",
+	}, strings.NewReader(""), &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr: %s", code, errBuf.String())
+	}
+	if r := lastEscapeRecord(t); r.ClosesBy != "internal/tdd/precommit_go.go" {
+		t.Fatalf("closes-by = %q, want the value of --closes-by", r.ClosesBy)
+	}
+}
+
 func TestEscapeRecord_FlagsBeforeTheReasonStillWork(t *testing.T) {
 	gateConfigDir(t)
 	var out, errBuf bytes.Buffer

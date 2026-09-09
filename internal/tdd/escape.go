@@ -66,6 +66,11 @@ type EscapeRecord struct {
 	// separates an escape from a plain defect: a defect no check could have
 	// seen is not evidence about the gate, and belongs in `gate issue`.
 	Check string `json:"check,omitempty"`
+	// ClosesBy names the law, stage or test file whose change would close
+	// this escape. It fills the issue's closes-by line at record time, so the
+	// fix is judged against a declaration somebody made when the evidence was
+	// fresh rather than against an unfilled placeholder.
+	ClosesBy string `json:"closes_by,omitempty"`
 	// Fingerprint is stage + first diagnostic line, hashed. An automatic
 	// recorder dedupes on it, so one recurring failure is one issue rather
 	// than one per run.
@@ -81,9 +86,11 @@ type EscapeOptions struct {
 	// Repo is the checkout the issue would be opened against; empty means
 	// record locally and stop.
 	Repo string
-	// Labels, Check and Fingerprint carry into the record — see EscapeRecord.
+	// Labels, Check, ClosesBy and Fingerprint carry into the record — see
+	// EscapeRecord.
 	Labels      []string
 	Check       string
+	ClosesBy    string
 	Fingerprint string
 }
 
@@ -124,6 +131,7 @@ func RecordEscape(o EscapeOptions, w io.Writer) (EscapeRecord, error) {
 		At:          now,
 		Labels:      o.Labels,
 		Check:       o.Check,
+		ClosesBy:    o.ClosesBy,
 		Fingerprint: o.Fingerprint,
 	}
 	if err := appendEscape(r); err != nil {
@@ -427,20 +435,27 @@ func escapeIssueBody(r EscapeRecord) string {
 	if c := strings.TrimSpace(r.Check); c != "" {
 		stage = c
 	}
+	// The closes-by line is what verify-closure judges the fix against. An
+	// unfilled placeholder refuses every fix that does not restate the check
+	// itself, so a recorder that already knows the answer says it here.
+	closesBy := "law | stage | demote check X"
+	if c := strings.TrimSpace(r.ClosesBy); c != "" {
+		closesBy = c
+	}
 	return fmt.Sprintf(`**What got through:** %s
 
 **Which stage should have caught it:** %s
 
 **Evidence:** %s
 
-closes-by: law | stage | demote check X
+closes-by: %s
 
 %s %s
 
 Closing this needs a change to a check — a law under `+"`.ratchet/laws/`"+`, a gate
-stage, or a test named on the closes-by line. A sentence in a document does not
-close an escape.
-`, r.Reason, stage, evidence, issueFingerprintKey, r.Fingerprint)
+stage, or a test named on a closes-by line — this one, or one on the fixing PR
+or commit. A sentence in a document does not close an escape.
+`, r.Reason, stage, evidence, closesBy, issueFingerprintKey, r.Fingerprint)
 }
 
 // escapeIssueTitle keeps the subject short enough to read in a list. It cuts

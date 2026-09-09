@@ -17,7 +17,8 @@ Subcommands:
   record "<reason>"   Record a red that arrived after a local green, and open its
                       issue (--kind escape|false-positive, --from-ci <job>,
                       --evidence <text>, --repo <dir>, --label <theme>,
-                      --check <stage|law>). A themed defect needs --check: an
+                      --check <stage|law>, --closes-by <path>). A themed
+                      defect needs --check: an
                       escape is a claim that some check could have caught it,
                       and a plain defect belongs in aphrollo issue
   sync                Open issues for every record that has none yet, and mark
@@ -79,6 +80,7 @@ func runEscapeRecord(args []string, stdout, stderr io.Writer) int {
 		evidence = fs.String("evidence", "", "the failing output, in one paste")
 		repo     = fs.String("repo", ".", "the checkout whose GitHub remote the issue is opened against")
 		check    = fs.String("check", "", "the stage or law that could have caught it — required for a themed escape")
+		closesBy = fs.String("closes-by", "", "the law, stage or test file whose change closes it — fills the issue's closes-by line")
 		newLabel = fs.Bool("new-label", false, "admit a theme label the repo has not declared")
 	)
 	// Flags are read wherever they sit, not just before the reason. `flag`
@@ -125,6 +127,7 @@ func runEscapeRecord(args []string, stdout, stderr io.Writer) int {
 			Evidence: ev,
 			Labels:   labels,
 			Check:    *check,
+			ClosesBy: *closesBy,
 		}, stdout)
 		return 0
 	}
@@ -137,6 +140,7 @@ func runEscapeRecord(args []string, stdout, stderr io.Writer) int {
 		Repo:     root,
 		Labels:   labels,
 		Check:    *check,
+		ClosesBy: *closesBy,
 	}, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo gate escape: %v\n", err)

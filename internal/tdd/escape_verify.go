@@ -35,12 +35,20 @@ var checkCodePrefixes = []string{"internal/tdd/", "internal/ratchet/"}
 // through. Any other table in the manifest is the project's own business.
 const gateMetadataSection = "workspace.metadata.aphrollo"
 
-// prMeta is what one PR says it closes, and the two ends of its diff — read
-// up front, before anything asks GitHub for the (possibly huge) patch itself.
+// prMeta is what one PR says it closes, everywhere the PR itself states
+// something (its body and its commit messages), and the two ends of its diff
+// — read up front, before anything asks GitHub for the (possibly huge) patch
+// itself.
 type prMeta struct {
 	closes []string
-	base   string
-	head   string
+	// texts is the PR body and every commit message in it. Both the closes
+	// keyword and the closes-by declaration are read out of these: the issue
+	// is opened with an UNFILLED closes-by placeholder, so a fix that only
+	// ever states the check it closes on the work that carries it is the
+	// normal case, not the exception (issue #562).
+	texts []string
+	base  string
+	head  string
 }
 
 // closingIssue is one issue a PR's body or commits named as closed, together
@@ -93,7 +101,12 @@ func VerifyClosure(repo, pr string, w io.Writer) (bool, error) {
 
 	all := true
 	for _, ci := range relevant {
-		if why, ok := closureChangesACheck(patch, ci.body); ok {
+		// The declaration is read from the issue AND from the work that
+		// carries the fix. It says WHICH check is closed; it never stands in
+		// for changing one, which is why the named path still has to be code
+		// and still has to appear, substantively changed, in the diff.
+		declarations := append([]string{ci.body}, meta.texts...)
+		if why, ok := closureChangesACheck(patch, declarations...); ok {
 			fmt.Fprintf(w, "#%s ok — %s\n", ci.number, why)
 			continue
 		}
@@ -120,7 +133,7 @@ func VerifyClosure(repo, pr string, w io.Writer) (bool, error) {
 			continue
 		}
 		all = false
-		fmt.Fprintf(w, "#%s FAIL — the PR changes no check: an escape closes with a law under .ratchet/laws/, a gate stage, the workspace's gate metadata, or a test named on its closes-by line\n", ci.number)
+		fmt.Fprintf(w, "#%s FAIL — the PR changes no check: an escape closes with a law under .ratchet/laws/, a gate stage, the workspace's gate metadata, or a source or test file named on a closes-by line (in the issue, the PR body, or a commit message)\n", ci.number)
 	}
 	return all, nil
 }
@@ -150,7 +163,7 @@ func readPRMeta(repo, pr string) (prMeta, error) {
 	for _, c := range doc.Commits {
 		texts = append(texts, c.MessageHeadline, c.MessageBody)
 	}
-	return prMeta{closes: closedIssues(texts), base: doc.BaseRefOid, head: doc.HeadRefOid}, nil
+	return prMeta{closes: closedIssues(texts), texts: texts, base: doc.BaseRefOid, head: doc.HeadRefOid}, nil
 }
 
 // readPRPatch fetches the PR's full patch (not --name-only: a manifest is
@@ -344,8 +357,8 @@ func closureChangesAFixture(root string, patch map[string]string) (string, bool,
 // closureChangesACheck reports whether the PR touches something that actually
 // judges code, naming what it found. Paths are judged in sorted order so the
 // same patch always names the same file.
-func closureChangesACheck(patch map[string]string, issueBody string) (string, bool) {
-	named := closesByFiles(issueBody)
+func closureChangesACheck(patch map[string]string, declarations ...string) (string, bool) {
+	named := closesByFiles(declarations...)
 	rels := make([]string, 0, len(patch))
 	for rel := range patch {
 		rels = append(rels, rel)
@@ -448,13 +461,25 @@ func touchesGateMetadata(patch string) bool {
 	return false
 }
 
-// closesByFiles reads the paths an issue's closes-by line names, so a fix that
-// lands as a TEST can say which test and be judged on it. Only CODE counts: a
-// closes-by naming a document is the "a paragraph closes it" hatch wearing a
-// different hat.
-func closesByFiles(issueBody string) map[string]bool {
+// closesByFiles reads the paths a closes-by line names, so a fix that lands as
+// a TEST can say which test and be judged on it. EVERY text the closure is
+// stated in is read — the issue body, the PR body, each commit message — so a
+// fix that names its check where the WORK states it is judged on that name,
+// rather than refused because nobody hand-edited the placeholder the issue was
+// opened with. Only CODE counts: a closes-by naming a document is the "a
+// paragraph closes it" hatch wearing a different hat, whichever text it is
+// written in.
+func closesByFiles(texts ...string) map[string]bool {
 	out := map[string]bool{}
-	for line := range strings.SplitSeq(strings.ReplaceAll(issueBody, "\r\n", "\n"), "\n") {
+	for _, text := range texts {
+		addClosesByFiles(out, text)
+	}
+	return out
+}
+
+// addClosesByFiles collects the code paths one text's closes-by lines name.
+func addClosesByFiles(out map[string]bool, text string) {
+	for line := range strings.SplitSeq(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		t := strings.TrimSpace(line)
 		if !strings.HasPrefix(strings.ToLower(t), "closes-by:") {
 			continue
@@ -471,7 +496,6 @@ func closesByFiles(issueBody string) map[string]bool {
 			}
 		}
 	}
-	return out
 }
 
 // issueLabelsAndBody reads one issue's labels and body through gh.

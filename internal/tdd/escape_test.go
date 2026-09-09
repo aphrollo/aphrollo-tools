@@ -264,6 +264,33 @@ func TestRecordEscapeOpensALabelledIssue(t *testing.T) {
 	}
 }
 
+// The recorder can already name the STAGE; naming the file that will close it
+// is the same knowledge one step further, and an issue opened with the
+// unfilled `closes-by: law | stage | demote check X` placeholder is one that
+// verify-closure refuses every fix for until somebody hand-edits the body
+// (issue #562). --closes-by fills the line at record time.
+func TestEscapeIssueBody_StatesTheClosesByTheRecorderNamed(t *testing.T) {
+	body := escapeIssueBody(EscapeRecord{
+		Reason:   "a clippy warning reached main",
+		ClosesBy: "internal/tdd/precommit_go.go",
+	})
+	if !strings.Contains(body, "closes-by: internal/tdd/precommit_go.go") {
+		t.Fatalf("the body must state the closes-by it was given:\n%s", body)
+	}
+	if strings.Contains(body, "closes-by: law | stage") {
+		t.Errorf("the placeholder must be replaced, not kept beside it:\n%s", body)
+	}
+}
+
+// With nothing named, the line stays the prompt it always was — a blank means
+// the reader still has to answer it.
+func TestEscapeIssueBody_KeepsThePlaceholderWhenNothingIsNamed(t *testing.T) {
+	body := escapeIssueBody(EscapeRecord{Reason: "a clippy warning reached main"})
+	if !strings.Contains(body, "closes-by: law | stage") {
+		t.Fatalf("an unnamed closes-by stays the prompt:\n%s", body)
+	}
+}
+
 // A box with no gh, or a repo with no GitHub remote, still records: losing
 // the evidence because a CLI is missing is the worst of both worlds.
 func TestRecordEscapeStillRecordsWithoutGh(t *testing.T) {

@@ -341,11 +341,13 @@ type CIEscapeOptions struct {
 	Job      string
 	Reason   string
 	Evidence string
-	// Labels and Check ride through unchanged: a themed CI failure belongs in
-	// the project's own filter, and the check that could have caught it is
-	// the recorder's to name here as anywhere else.
-	Labels []string
-	Check  string
+	// Labels, Check and ClosesBy ride through unchanged: a themed CI failure
+	// belongs in the project's own filter, and the check that could have
+	// caught it — and the one whose change would close it — are the
+	// recorder's to name here as anywhere else.
+	Labels   []string
+	Check    string
+	ClosesBy string
 }
 
 // RecordCIEscape is what the CI job runs when a workflow fails: it records an
@@ -380,6 +382,7 @@ func RecordCIEscape(o CIEscapeOptions, w io.Writer) (EscapeRecord, bool) {
 		Repo:     o.Repo,
 		Labels:   o.Labels,
 		Check:    o.Check,
+		ClosesBy: o.ClosesBy,
 	}, w)
 }
 
