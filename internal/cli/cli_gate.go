@@ -29,6 +29,11 @@ Subcommands:
   postcommit        Git post-commit hook: write the refs/notes/gate note on the
                     commit just made — what lets CI tell a red on a gated tip
                     from a red on an ungated one. Never blocks, never fails
+  postmerge         Git post-merge hook: in a repo declaring
+                    prune-lanes-on-merge = true, sweep the lanes this merge
+                    landed (the same guarded sweep workspace merge runs,
+                    never the worktree the hook fired in). Silent and inert
+                    in a repo that did not declare it. Never blocks
   mutants           run measures THIS checkout's lane against its base in the
                     FOREGROUND and is the check — exit 1 on an unaccepted
                     survivor, a mutant that stayed unmeasured, or a run that
@@ -239,6 +244,11 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// The post-commit git hook, and there is only one: it writes the gate
 		// note on the commit just made. It cannot block — the commit is made.
 		return runPostCommit(stderr)
+	}
+	if args[0] == "postmerge" {
+		// The post-merge git hook: the opt-in lane sweep, in the repo the
+		// merge landed in. It cannot block either — the merge is made.
+		return runPostMerge(stdout, stderr)
 	}
 	if args[0] == "doctor" {
 		// Read-only install report: one line per check, exit 1 on any FAIL.

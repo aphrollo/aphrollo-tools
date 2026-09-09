@@ -30,6 +30,19 @@ func runPostCommit(stderr io.Writer) int {
 	return 0
 }
 
+// runPostMerge is the `gate postmerge` git hook: the opt-in lane sweep for
+// the repo the merge landed in, run from the worktree git fired the hook in
+// (which is therefore the one worktree the sweep must never remove). Like
+// post-commit it never blocks and never reports failure — the merge is
+// already made — and unlike it, it does nothing at all unless the repo
+// declared `prune-lanes-on-merge = true`: core.hooksPath is machine-wide, so
+// this fires in every repo on the box and after every `git pull`, and the
+// sweep removes worktrees and deletes branches.
+func runPostMerge(stdout, stderr io.Writer) int {
+	tdd.PostMergeSweep(".", stdout, stderr)
+	return 0
+}
+
 // runGateMutants dispatches the mutation verbs. There are two: measure this
 // checkout against its base, and prove one hand-written mutation. The verbs
 // that addressed, watched or judged a DETACHED run are gone with the run

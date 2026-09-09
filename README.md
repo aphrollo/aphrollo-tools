@@ -659,6 +659,7 @@ live where being wrong only costs a re-run):
 | `gate precommit` | git `pre-commit` | Blocks a newly-**added** suppression (anti-cheat). Then **fail-first**: a commit adding both tests and source must have tests that fail without the source. Then the suite must pass. A worktree state already proven green under the exact same command (by a PostToolUse run or an earlier gate pass) is **not re-run** — the cache is keyed on the repo's git COMMON dir, so every linked worktree of one repo reuses the same proven-green facts — only green results are cached, keyed on content + runner argv (content covers tracked files AND the ignored configuration a suite reads: dotenv files and `config/` trees, never build output), so a red always re-runs with fresh output. Both gate stages build in the REPO'S OWN target dir (see below). |
 | `gate commitmsg` | git `commit-msg` | Rejects a commit whose MESSAGE carries a deny pattern, quoting the offending line. Opt-in per workspace (`undercover = true`); absent key = pass through. Fires for merge commits too. |
 | `gate postcommit` | git `post-commit` | Writes `refs/notes/gate` on the commit just made — `green <tree>` — when a root group's suite actually RAN green for exactly that tree. A cache hit is not that, so an amend (which re-runs the gate and hits the cache) leaves no note, which is the right answer for a commit no suite has run against. The note is what lets CI tell a red on a gated tip from a red on an ungated one; the git shim pushes the ref alongside a branch push. That note is the whole of it: the hook starts no mutation run of its own, and never blocks — the commit already exists. |
+| `gate postmerge` | git `post-merge` | **Opt-in.** In a repo declaring `prune-lanes-on-merge = true`, runs the same guarded lane sweep [`workspace merge`](#close-the-loop--merge--prune) ends with — a lane is removed only when its branch brought commits of its own to the resolved trunk AND its worktree is clean — so a plain `git merge` sweeps too. The worktree git fired the hook in is excluded whatever its own branch's state. In a repo that did not declare the key it does **nothing and prints nothing**: `core.hooksPath` is machine-wide, so this hook fires in every repo on the box and after every `git pull`, and the sweep removes worktrees and deletes branches. Never blocks — the merge is already made. |
 | `ratchet check` | git `pre-commit`/`pre-merge-commit`, and manual | Judges the tree against `.ratchet/laws/*.toml` (see [Ratchet laws](#ratchet-laws-aphrollo-ratchet)). |
 | `gate prepush` | git `pre-push` | **No-op** (mechanical-only mode). The gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
 | `gate premerge` | git `pre-merge-commit` | Runs ONLY the mechanical stage over the merge's staged files — no fail-first (a fresh test's RED/GREEN belongs to the authoring commit, already proven by `precommit` there) and no anti-cheat suppression scan (same reasoning) — so a git merge, which never fires `pre-commit`, still proves the COMBINED result compiles and passes before it lands. `gate premergecommit` is the pre-rename spelling, kept as a silent alias for one release; every line the routine prints starts `gate premerge:`. A repo declaring `mutants-at-merge = true` also gets its mutation measurement here: the configuration is read FIRST (a retired key is refused before a single suite runs) and the measurement itself runs LAST, after the suites, against `merge-base(HEAD, <incoming tip>)` — a merge whose suite is red never pays for a mutation run. |
@@ -1162,6 +1163,15 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   an author who has to guess which of thirty lines offended will retype the
   message from memory. Absent key = the gate is inert, so installing the hook
   everywhere cannot start rejecting a repo that never asked.
+- **`prune-lanes-on-merge`** (bool) — turns on the `post-merge` hook's lane
+  sweep for this repo, so a plain `git merge` reclaims what `aphrollo
+  workspace merge` already does. It is opt-in because `core.hooksPath` is
+  machine-wide: the hook fires in every repo on the box, on `git pull` as
+  well as `git merge`, and what it runs removes worktrees and deletes
+  branches. Absent key, or `false` = the hook does nothing and prints
+  nothing. The sweep is the guarded one either way — a lane survives unless
+  its branch brought commits of its own to the resolved trunk and its
+  worktree is clean, and the worktree the hook fired in is never touched.
 - **`commit-message-deny`** (string array) — the repo's OWN extra patterns for
   that gate, e.g. `commit-message-deny = ["(?i)\\bskunkworks\\b", "^WIP:"]` (a TOML basic string, so the regex backslash is doubled).
   An unparseable entry is skipped with a stderr note, never silently disabling
@@ -2155,10 +2165,20 @@ aphrollo gate doctor
 # ok    batch shims removed
 # ok    lock dirs writable — C:\ProgramData\aphrollo\locks
 # ok    retired /tdd command
+# FAIL  foreign hooks — post-merge (2026-08-18 14:03, "# prune merged lanes") in
+#       C:\Users\olive\.config\git\hooks — not written by this tool, and git runs
+#       it on every matching event; move it out of the managed hooks dir or delete it
 # FAIL  managed skills and agents — agents/reviewer.md (edited) — run `aphrollo install`
 ```
 
-The checks: every managed hook runs the SAME binary and it is this build (size
+The checks: `core.hooksPath` is set, exists, and carries this tool's shims ·
+**no file git would run in that managed hooks dir was written by anything
+else** — a hand-written hook there is reported by name, mtime and first
+comment line, to be moved out of the dir or deleted (install refuses to
+clobber one, and until issue #582 nothing ever said it was there, while it
+ran destructive git on every merge; git's own `*.sample` files are not
+findings, and an empty or unreadable dir is never a failure) · every managed
+hook runs the SAME binary and it is this build (size
 and mtime, drift naming both paths) · each hook's `timeout` is at least the one
 init writes, since the harness kills the hook process from outside before its
 own deadline and cleanup can fire · the queue dir is first on the USER's PATH
