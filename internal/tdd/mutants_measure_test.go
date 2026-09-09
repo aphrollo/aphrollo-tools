@@ -148,7 +148,8 @@ func TestJobsCap_MinOfCoresRamAndTwo(t *testing.T) {
 		{24, 0, 8, "min(cores 24/3=8, ram unknown, cap 8) — cap 8"},
 		{24, 6, 1, "min(cores 24/3=8, ram 6GB/8=0, cap 8) — ram"},
 	} {
-		jobs, why := MutantsJobsCap(c.cores, c.ramGB)
+		// 0 free: unreadable, so these are the RAM term's own cases.
+		jobs, why := MutantsJobsCap(c.cores, c.ramGB, 0)
 		if jobs != c.jobs || why != c.why {
 			t.Errorf("MutantsJobsCap(%d, %d) = (%d, %q), want (%d, %q)", c.cores, c.ramGB, jobs, why, c.jobs, c.why)
 		}

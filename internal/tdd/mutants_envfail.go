@@ -107,8 +107,10 @@ func retryShardAlone(ctx context.Context, root string, cfg MutantsConfig, argv [
 	_ = os.Remove(cargoMutantsOutcomesPath(out))
 	var tee strings.Builder
 	// shards = 1: the retry has the box, exactly as the lone timeout re-run
-	// does. cold = true: its build dir was just emptied, so it is.
-	code, err := mutantsExecFn(ctx, root, measureShardEnv(root, cfg, r.Shard, 1, true),
+	// does. cold = true: its build dir was just emptied, so it is. Derived
+	// here, once, for the one process this starts.
+	jobs, _ := mutantsBuildJobsForShards(cfg, 1, true)
+	code, err := mutantsExecFn(ctx, root, measureShardEnv(root, cfg, r.Shard, jobs),
 		mutantsShardArgv(argv, r.Shard, r.Shards, out), io.MultiWriter(log, &tee))
 	retried := shardRun{Shard: r.Shard, Shards: r.Shards, Code: code, Log: tee.String(), Err: err}
 	if again, ok := shardFailedEnvironmentally(retried); ok {

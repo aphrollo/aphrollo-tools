@@ -16,13 +16,35 @@ import (
 // without procfs) — which makes the jobs cap fall back to the core count
 // alone rather than guessing high.
 func machineRAMGB() int {
+	return meminfoGB("MemTotal")
+}
+
+// machineAvailGB is how much memory this box can hand a new process right
+// now, in whole gigabytes, 0 when it cannot be read.
+//
+// MemAvailable rather than MemFree: the kernel's own estimate of what a
+// workload could allocate without swapping, which counts the reclaimable page
+// cache a build's own reads have just filled. MemFree on a box that has been
+// compiling reads near zero and would hold every run to the floor. It is the
+// Linux counterpart of the Windows reader's available commit — not the same
+// quantity, but the same question, and the same answer shape: what is
+// obtainable, not what is installed.
+func machineAvailGB() int {
+	return meminfoGB("MemAvailable")
+}
+
+// meminfoGB reads one /proc/meminfo key in whole gigabytes, 0 when the file,
+// the key or its number cannot be read (a non-Linux unix, a container without
+// procfs, a kernel too old for MemAvailable) — which every caller treats as
+// unknown rather than as zero bytes.
+func meminfoGB(want string) int {
 	data, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
 		return 0
 	}
 	for line := range strings.SplitSeq(string(data), "\n") {
 		key, val, ok := strings.Cut(line, ":")
-		if !ok || key != "MemTotal" {
+		if !ok || key != want {
 			continue
 		}
 		fields := strings.Fields(val)

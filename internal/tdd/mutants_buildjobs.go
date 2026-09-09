@@ -55,7 +55,7 @@ const mutantsBuildJobsKey = "mutants-build-jobs"
 // because a cargo asked for zero builds nothing — and when the floor is what
 // decides, the shards together are wider than the budget allowed, so the
 // report says so rather than presenting a number the box cannot keep.
-func mutantsBuildJobsCap(cores, ramGB, shards int, cold bool) (int, string) {
+func mutantsBuildJobsCap(cores, ramGB, availGB, shards int, cold bool) (int, string) {
 	if shards < 1 {
 		shards = 1
 	}
@@ -64,20 +64,16 @@ func mutantsBuildJobsCap(cores, ramGB, shards int, cold bool) (int, string) {
 		perJobGB, phase = mutantsRAMGBPerColdBuildJob, "cold"
 	}
 	total, why := cores, "cores"
-	ram := "ram unknown"
-	if ramGB > 0 {
-		byRAM := ramGB / perJobGB
-		ram = fmt.Sprintf("ram %dGB/%dGB=%d", ramGB, perJobGB, byRAM)
-		if byRAM < total {
-			total, why = byRAM, "ram"
-		}
+	byMem, memTerm, mem, known := mutantsMemoryTerm(ramGB, availGB, perJobGB, fmt.Sprintf("%dGB", perJobGB))
+	if known && byMem < total {
+		total, why = byMem, memTerm
 	}
 	jobs, floored := total/shards, ""
 	if jobs < 1 {
 		jobs, floored = 1, ", floored at 1 per shard"
 	}
 	return jobs, fmt.Sprintf("min(cores %d, %s) — %s: %d total across %d shard%s, %s%s",
-		cores, ram, why, total, shards, plural(shards), phase, floored)
+		cores, mem, why, total, shards, plural(shards), phase, floored)
 }
 
 // mutantsBuildJobsForShards is the number a run actually uses: the repo's
@@ -96,8 +92,8 @@ func mutantsBuildJobsForShards(cfg MutantsConfig, shards int, cold bool) (int, s
 	if cfg.BuildJobs > 0 {
 		return cfg.BuildJobs, fmt.Sprintf("%s = %d", mutantsBuildJobsKey, cfg.BuildJobs)
 	}
-	cores, ramGB := mutantsBoxShapeFn()
-	return mutantsBuildJobsCap(cores, ramGB, shards, cold)
+	cores, ramGB, availGB := mutantsBoxShapeFn()
+	return mutantsBuildJobsCap(cores, ramGB, availGB, shards, cold)
 }
 
 // mutantsShardTargetIsCold reports whether this shard would build from

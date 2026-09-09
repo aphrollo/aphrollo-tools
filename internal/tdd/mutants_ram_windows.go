@@ -8,28 +8,62 @@ import (
 	"unsafe"
 )
 
-// machineRAMGB reads this box's physical memory in whole gigabytes, 0 when it
-// cannot be read — which makes the jobs cap fall back to the core count alone
-// rather than guessing high.
-func machineRAMGB() int {
-	type memoryStatusEx struct {
-		length               uint32
-		memoryLoad           uint32
-		totalPhys            uint64
-		availPhys            uint64
-		totalPageFile        uint64
-		availPageFile        uint64
-		totalVirtual         uint64
-		availVirtual         uint64
-		availExtendedVirtual uint64
-	}
+// memoryStatusEx is GlobalMemoryStatusEx's out-parameter, in the order the
+// API declares it. Both memory readers below take the same struct from the
+// same call: the numbers a budget compares have to come from one instant, and
+// two calls straddling a rustc's allocation would disagree.
+type memoryStatusEx struct {
+	length               uint32
+	memoryLoad           uint32
+	totalPhys            uint64
+	availPhys            uint64
+	totalPageFile        uint64
+	availPageFile        uint64
+	totalVirtual         uint64
+	availVirtual         uint64
+	availExtendedVirtual uint64
+}
+
+// globalMemoryStatus reads the box's memory counters, false when the call
+// fails.
+func globalMemoryStatus() (memoryStatusEx, bool) {
 	proc := syscall.NewLazyDLL("kernel32.dll").NewProc("GlobalMemoryStatusEx")
 	var m memoryStatusEx
 	m.length = uint32(unsafe.Sizeof(m))
 	if ret, _, _ := proc.Call(uintptr(unsafe.Pointer(&m))); ret == 0 {
+		return memoryStatusEx{}, false
+	}
+	return m, true
+}
+
+// machineRAMGB reads this box's physical memory in whole gigabytes, 0 when it
+// cannot be read — which makes the jobs cap fall back to the core count alone
+// rather than guessing high.
+func machineRAMGB() int {
+	m, ok := globalMemoryStatus()
+	if !ok {
 		return 0
 	}
 	return int(m.totalPhys / (1 << 30))
+}
+
+// machineAvailGB is how much memory a NEW process on this box may actually
+// charge right now, in whole gigabytes, 0 when it cannot be read.
+//
+// It is availPageFile — available COMMIT — not availPhys. Windows charges
+// every private allocation against RAM plus the pagefile whether or not it is
+// ever touched, so commit is the limit a build actually hits: the box this
+// was written for has 63 GB of RAM and a pagefile pinned at 16 GB
+// (AutomaticManagedPagefile false), which makes its ceiling about 79 GB and
+// its LIMIT the part of that nobody has charged yet. Free physical memory
+// would read low on a box whose file cache is doing its job and say nothing
+// about what an allocation will be refused.
+func machineAvailGB() int {
+	m, ok := globalMemoryStatus()
+	if !ok {
+		return 0
+	}
+	return int(m.availPageFile / (1 << 30))
 }
 
 // freeSpaceGB reports the free space in whole gigabytes on the volume holding

@@ -23,7 +23,11 @@ import (
 // mutation run shares the box with the editors it exists to serve, so the cap
 // is deliberately mean: one job per six cores, one per six gigabytes, never
 // more than two whatever the machine is, never less than one.
-func MutantsJobsCap(cores, ramGB int) (int, string) {
+//
+// The memory term is what is FREE, not what is installed, whenever a free
+// reading can be taken — mutants_freemem.go has the incident it comes from.
+// availGB of 0 is an unreadable box and falls back to total RAM.
+func MutantsJobsCap(cores, ramGB, availGB int) (int, string) {
 	byCores := cores / 3
 	jobs, why := 8, "cap 8"
 	if byCores < jobs {
@@ -33,31 +37,35 @@ func MutantsJobsCap(cores, ramGB int) (int, string) {
 	// zero into the minimum pinned every non-Linux unix to one job — a wrong
 	// number derived from a missing one — so an unknown reading simply does
 	// not constrain, and the cores decide alone.
-	ram := "ram unknown"
-	if ramGB > 0 {
-		byRAM := ramGB / 8
-		ram = fmt.Sprintf("ram %dGB/8=%d", ramGB, byRAM)
-		if byRAM < jobs {
-			jobs, why = byRAM, "ram"
-		}
+	byMem, memTerm, mem, known := mutantsMemoryTerm(ramGB, availGB, 8, "8")
+	if known && byMem < jobs {
+		jobs, why = byMem, memTerm
 	}
 	if jobs < 1 {
 		jobs = 1
 	}
-	return jobs, fmt.Sprintf("min(cores %d/3=%d, %s, cap 8) — %s", cores, byCores, ram, why)
+	return jobs, fmt.Sprintf("min(cores %d/3=%d, %s, cap 8) — %s", cores, byCores, mem, why)
 }
 
-// mutantsBoxShapeFn is the box itself: how many cores it has and how much
-// memory, both read at runtime. ONE seam for both numbers, because every
-// derivation that divides the box between concurrent builds — the shard
-// count here, the per-shard build width in mutants_buildjobs.go — has to be
-// testable against a hypothetical box without acquiring one.
-var mutantsBoxShapeFn = func() (cores, ramGB int) { return runtime.NumCPU(), machineRAMGB() }
+// mutantsBoxShapeFn is the box itself: how many cores it has, how much memory
+// is installed, and how much of it is free at the moment of the call. ONE
+// seam for all three numbers, because every derivation that divides the box
+// between concurrent builds — the shard count here, the per-shard build width
+// in mutants_buildjobs.go — has to be testable against a hypothetical box
+// without acquiring one.
+//
+// The free reading is the one that MOVES, so a caller reads this seam once
+// per run and carries the answer: two shards of one measurement deriving
+// different widths from two instants would be one run that cannot explain
+// itself.
+var mutantsBoxShapeFn = func() (cores, ramGB, availGB int) {
+	return runtime.NumCPU(), machineRAMGB(), machineAvailGB()
+}
 
 // setMutantsBoxForTest pins the box's shape for one test.
-func setMutantsBoxForTest(cores, ramGB int) (restore func()) {
+func setMutantsBoxForTest(cores, ramGB, availGB int) (restore func()) {
 	prev := mutantsBoxShapeFn
-	mutantsBoxShapeFn = func() (int, int) { return cores, ramGB }
+	mutantsBoxShapeFn = func() (int, int, int) { return cores, ramGB, availGB }
 	return func() { mutantsBoxShapeFn = prev }
 }
 

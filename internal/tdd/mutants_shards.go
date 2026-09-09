@@ -108,13 +108,14 @@ func mutantsShardArgv(argv []string, shard, shards int, outDir string) []string 
 // its share of the box's cores. The directories are created here, before the
 // process starts, so the shard never races its own children to make them.
 //
-// shards is how many shards are running beside this one, because that is what
-// the build width is divided by; the lone re-run passes 1 and gets the whole
-// box, which is what having it to itself means. cold is the run's phase, and
-// it is passed in rather than read off this shard's directory: what a build
-// costs is a fact about the RUN — one shard building from scratch prices
-// every job the run may start at once.
-func measureShardEnv(root string, cfg MutantsConfig, shard, shards int, cold bool) []string {
+// buildJobs is handed in, already derived, rather than worked out here. It
+// used to take the shard count and the run's phase and derive the width per
+// shard — which re-read the box for every shard, and once the memory term
+// became a FREE reading (mutants_freemem.go) that is a different number each
+// time: one run whose shards disagree about the machine they are sharing, for
+// no reason a log could explain. The run derives it once and every shard is
+// given the same answer.
+func measureShardEnv(root string, cfg MutantsConfig, shard, buildJobs int) []string {
 	tmp, target := mutantsShardTempDir(root, shard), mutantsShardTargetDir(root, shard)
 	_ = os.MkdirAll(tmp, 0o755)
 	_ = os.MkdirAll(target, 0o755)
@@ -125,9 +126,8 @@ func measureShardEnv(root string, cfg MutantsConfig, shard, shards int, cold boo
 			out = append(out, kv)
 		}
 	}
-	jobs, _ := mutantsBuildJobsForShards(cfg, shards, cold)
 	return append(out, "TMPDIR="+tmp, "TMP="+tmp, "TEMP="+tmp, "CARGO_TARGET_DIR="+target,
-		"CARGO_BUILD_JOBS="+strconv.Itoa(jobs))
+		"CARGO_BUILD_JOBS="+strconv.Itoa(buildJobs))
 }
 
 // mutantsShardEnvKeys are the names measureShardEnv owns: whatever the run's
@@ -193,7 +193,7 @@ func runMutantsShards(ctx context.Context, root string, cfg MutantsConfig, argv 
 			// mtimes are older than those artifacts, so cargo would rebuild
 			// nothing and the baseline would link the previous mutant.
 			purgeMutatedArtifacts(root, mutantsShardTargetDir(root, shard), packagesInArgv(argv), shared)
-			code, err := mutantsExecFn(ctx, root, measureShardEnv(root, cfg, shard, shards, cold),
+			code, err := mutantsExecFn(ctx, root, measureShardEnv(root, cfg, shard, buildJobs),
 				mutantsShardArgv(argv, shard, shards, out), io.MultiWriter(shared, &tee))
 			runs[shard] = shardRun{Shard: shard, Shards: shards, Code: code, Log: tee.String(), Err: err}
 		}(i)
