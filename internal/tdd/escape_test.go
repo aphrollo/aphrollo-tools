@@ -473,7 +473,7 @@ func TestListEscapes_OpenByDefaultAllWithTheFlag(t *testing.T) {
 // The managed CLAUDE.md block is where a session reads the rule, so the rule
 // has to be in it.
 func TestClaudeMDBlockStatesTheEscapeLoop(t *testing.T) {
-	block := ClaudeMDBlock("/home/u/bin/cargo-queue", false)
+	block := ClaudeMDBlock("/home/u/bin/cargo-queue", false, false)
 	for _, want := range []string{
 		"**Escapes close the loop.**",
 		"aphrollo gate escape record",
