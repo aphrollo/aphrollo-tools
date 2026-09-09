@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -364,6 +365,16 @@ func TestSelfInstall_RewiresTheHooksAtTheNewBinary(t *testing.T) {
 	cfg := gateConfigDir(t)
 	t.Chdir(t.TempDir()) // init patches the CWD repo's CLAUDE.md — never this repo's
 	bin := selfInstallFixture(t, "NEW")
+
+	// init now runs UNDER the binary just installed (postswapinit_test.go
+	// pins that), and this fixture's "binary" is a few plain bytes no OS will
+	// execute. Stand in for the spawn with the init body itself, so this test
+	// keeps proving what it was written for: the hooks come out rewired.
+	prevInit := runInstalledInitFn
+	runInstalledInitFn = func(b string, args []string, stdout, stderr io.Writer) (int, error) {
+		return runGateInit(args[2:], stdout, stderr), nil // args[0:2] is "gate init"
+	}
+	t.Cleanup(func() { runInstalledInitFn = prevInit })
 
 	var out, errb bytes.Buffer
 	// --git-hooks-dir is forwarded to init: without it the run would rewrite
