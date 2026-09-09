@@ -18,7 +18,7 @@ func notesRepo(t *testing.T) (repo, remote string) {
 	remote = filepath.Join(t.TempDir(), "remote.git")
 	run := func(dir string, args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", args...)
+		cmd := fixtureGit(args...)
 		cmd.Dir = dir
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %s", args, out)
@@ -95,7 +95,7 @@ func TestAFailingNotesPushDoesNotFailTheBranchPush(t *testing.T) {
 
 func gitDoT(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := fixtureGit(args...)
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %s", args, out)
@@ -104,7 +104,7 @@ func gitDoT(t *testing.T, dir string, args ...string) {
 
 func gitOutLine(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := fixtureGit(args...)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
@@ -119,7 +119,7 @@ func TestNoNotesRefMeansNoNotesPush(t *testing.T) {
 	withDirectGitShim(t)
 	repo, remote := notesRepo(t)
 	t.Chdir(repo)
-	cmd := exec.Command("git", "update-ref", "-d", "refs/notes/gate")
+	cmd := fixtureGit("update-ref", "-d", "refs/notes/gate")
 	cmd.Dir = repo
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("dropping the notes ref: %s", out)

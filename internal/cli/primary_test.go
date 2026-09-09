@@ -24,7 +24,7 @@ func primaryWorktreeRepo(t *testing.T) (primary, linked string) {
 	t.Setenv(tdd.HooksDirUnsafeEnv, "1") // a caller's --git-hooks-dir routinely sits under t.TempDir()
 	primary = t.TempDir()
 	run := func(dir string, args ...string) {
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd := fixtureGit(append([]string{"-C", dir}, args...)...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}

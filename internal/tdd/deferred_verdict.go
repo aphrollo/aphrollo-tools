@@ -43,6 +43,66 @@ func deferredAbandonedLine(root, phase string, elapsed time.Duration) string {
 		DeferredAbandoned, phase, root, elapsed.Seconds())
 }
 
+// infraFailureLine reports a phase that DID spawn and finish, but whose own
+// setup failed before its command ever ran (RunPhase's PhaseOutcome.SetupFailed)
+// — no build slot came free, or it could not open its log file.
+// Same InfraFailed family as spawnFailedLine, named by the wrapper's own
+// first log line where there is one, so a capacity refusal names the
+// resource it waited for rather than reading as a bare assertion failure.
+//
+// It names the JOB first (issue #583). The wrapper's log line names whoever
+// held the slot, and that holder is routinely a build in another repo
+// entirely: `infra-failed in <root> (no build slot came free ("cargo nextest
+// run -p engine_audio" in borld))` carried no word about the run it was a
+// verdict on, so it read as a verdict about somebody else's work. The
+// blocker still has to be named — it is the only route to "the box was
+// full, wait or retry" — but after the run it blocked, never instead of it.
+func infraFailureLine(root string, j DeferredJob, res SuiteResult) string {
+	reason := strings.TrimSpace(firstLine(res.Output))
+	if reason == "" {
+		reason = "the phase's own setup failed before its command started"
+	}
+	if subject := deferredRunSubject(j); subject != "" {
+		return fmt.Sprintf("gate: → %s in %s (%s never ran: %s — the code was NOT tested)",
+			InfraFailed, root, subject, reason)
+	}
+	return fmt.Sprintf("gate: → %s in %s (%s — the code was NOT tested)", InfraFailed, root, reason)
+}
+
+// deferredRunSubject names the run a verdict is about, in the possessive:
+// `this session's run phase ("cargo nextest run -p sim")`. The possessive is
+// the load-bearing part — every other name in an infra-failure line belongs
+// to the build that blocked it, and a reader needs one clause that is
+// unambiguously about their own edit. Empty for a record with no runner (one
+// written before that field existed, or a setup that failed before a runner
+// was chosen), which infraFailureLine reads as "nothing to attribute this
+// to" rather than printing an empty subject.
+func deferredRunSubject(j DeferredJob) string {
+	cmd := strings.Join(j.Runner, " ")
+	if strings.TrimSpace(cmd) == "" {
+		return ""
+	}
+	if j.Phase == "" {
+		return fmt.Sprintf("this session's %q", cmd)
+	}
+	return fmt.Sprintf("this session's %s phase (%q)", j.Phase, cmd)
+}
+
+// deferredOwnerNote attributes a harvested verdict to the session that
+// started the run. Every hook harvest is keyed session+project
+// (deferredJobPath), so a hook only ever reads its own work and needs no
+// such note; `gate status --wait` is the one reader that finds a job by
+// PROJECT alone, across sessions, and printed the resulting verdict verbatim
+// — a line about somebody else's edit with nothing in it to say so (issue
+// #583). Empty session id -> no note: there is nothing to attribute to.
+func deferredOwnerNote(session string) string {
+	session = strings.TrimSpace(session)
+	if session == "" {
+		return ""
+	}
+	return fmt.Sprintf(" [that run was started by session %s]", session)
+}
+
 // joinDeferredAdvisory folds a carried-over verdict (an abandonment the
 // harvest just reported) and this edit's own line into the ONE line a hook
 // prints, without stacking a second "gate: " prefix. Both facts have to

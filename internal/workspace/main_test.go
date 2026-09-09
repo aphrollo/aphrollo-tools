@@ -28,6 +28,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	redirectHome(dir)
+	leaveTheBoxQueue()
 	ghRefusalPath = installRefusingGh()
 	code := m.Run()
 	if ghRefusalPath != "" {

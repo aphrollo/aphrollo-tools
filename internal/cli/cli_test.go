@@ -305,7 +305,7 @@ func gitInit(t *testing.T, files map[string]string) string {
 	isolateGit(t)
 	dir := t.TempDir()
 	run := func(args ...string) {
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd := fixtureGit(append([]string{"-C", dir}, args...)...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
@@ -535,7 +535,7 @@ func commitRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()
 	run := func(args ...string) {
-		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+		if out, err := fixtureGit(append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
 	}
