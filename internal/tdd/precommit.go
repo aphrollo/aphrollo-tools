@@ -51,9 +51,20 @@ type rootGroup struct {
 // commit under a Bevy-sized cargo workspace then pays a full `cargo nextest
 // run` (20 minutes) for a change cargo has nothing to do with.
 func stagedRootGroups(repoRoot string) []rootGroup {
-	staged := stagedFiles(repoRoot)
+	groups, _ := stagedRootGroupsErr(repoRoot)
+	return groups
+}
+
+// stagedRootGroupsErr is stagedRootGroups with the index-read failure kept,
+// for the gates that must tell "git says nothing is staged" from "git could
+// not be asked".
+func stagedRootGroupsErr(repoRoot string) ([]rootGroup, error) {
+	staged, err := stagedFilesErr(repoRoot)
+	if err != nil {
+		return nil, err
+	}
 	if len(staged) == 0 {
-		return nil
+		return nil, nil
 	}
 	tests, srcs := splitKinds(staged)
 	all := append(append([]string{}, tests...), srcs...)
@@ -65,7 +76,19 @@ func stagedRootGroups(repoRoot string) []rootGroup {
 			srcs:  filesUnderRoot(repoRoot, root, srcs),
 		})
 	}
-	return groups
+	return groups, nil
+}
+
+// unreadableIndexMessage is what a gate says when git could not tell it what
+// is staged. The distinction is the whole point: a gate that cannot read the
+// index does not know whether this change was proven, and the one verdict it
+// must never reach is the one it would have reached had everything worked.
+func unreadableIndexMessage(gateName string, err error) string {
+	return fmt.Sprintf("gate %s: cannot read the staged index — %v. "+
+		"An unreadable index is not an empty one: the gate cannot tell what this change touches, "+
+		"so every per-root stage would be skipped on no evidence. Fix the git failure "+
+		"(an index.lock left behind by another process, a stale GIT_DIR inherited by the hook, "+
+		"a git shim that failed to resolve) and retry.", gateName, err)
 }
 
 // Precommit runs the commit-time TDD wall in repoRoot:
@@ -125,7 +148,10 @@ func precommitDecide(repoRoot string, run SuiteRunner) GateResult {
 		return res
 	}
 
-	groups := stagedRootGroups(repoRoot)
+	groups, err := stagedRootGroupsErr(repoRoot)
+	if err != nil {
+		return GateResult{Blocked: true, Message: unreadableIndexMessage("precommit", err)}
+	}
 	if len(groups) == 0 {
 		return GateResult{Message: strings.Join(notes, "\n")}
 	}

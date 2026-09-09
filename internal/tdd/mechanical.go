@@ -53,7 +53,10 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		notes = append(notes, res.Message)
 	}
 
-	groups := stagedRootGroups(repoRoot)
+	groups, err := stagedRootGroupsErr(repoRoot)
+	if err != nil {
+		return GateResult{Blocked: true, Message: unreadableIndexMessage(premergeDisplayName, err)}
+	}
 	if len(groups) == 0 {
 		line := nothingToTestLine(premergeDisplayName)
 		fmt.Fprintln(os.Stderr, line)
