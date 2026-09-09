@@ -183,15 +183,19 @@ func checkAppTrio(root string, stdout, stderr io.Writer) bool {
 		fmt.Fprintln(stdout, "check: app trio → [skip] no app declared")
 		return true
 	}
+	// Past HasAppProfile the repo IS app-gated, so neither of the next two
+	// steps can fail into a skip: "no app declared" would contradict the fact
+	// just established, and it would drop the trio for the one kind of repo
+	// that owes it. A step that could not run is a miss naming its cause.
 	t, err := checkAppTrioResolve(root)
 	if err != nil {
-		fmt.Fprintln(stdout, "check: app trio → [skip] no app declared")
-		return true
+		fmt.Fprintf(stdout, "check: app trio → error: %v\n", err)
+		return false
 	}
 	v, err := checkAppTrioBuildVerify(t, root)
 	if err != nil {
-		fmt.Fprintln(stdout, "check: app trio → [skip] no app declared")
-		return true
+		fmt.Fprintf(stdout, "check: app trio → error: %v\n", err)
+		return false
 	}
 	// [run]/[skip] step lines and the subprocess output both go to stderr:
 	// stdout carries only this guard's one summary line.
