@@ -1,1 +1,8 @@
 internal/x/a_test.go:TestFoo
+# A path tombstone naming a file that STILL STANDS at tip admits nothing:
+# the one test dropped out of the surviving file is still reported.
+internal/standing/keep_test.go:TestQuietlyDropped
+# A path tombstone for a file that was SPLIT, not retired: TestMovedOut turns
+# up at tip, so the file-level admission is refused and the test that did not
+# make the move is reported under its base path.
+internal/split/all_test.go:TestLostInTheSplit
