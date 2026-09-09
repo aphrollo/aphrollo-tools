@@ -134,19 +134,29 @@ func decideNarrowedSuite(cwd, cmd string) Decision {
 	return Decision{Action: Allow}
 }
 
-// denyNarrowedRerunReason names the line the session should read instead: the
-// verdict, the stage that produced it and how old it is — without the age a
-// caller cannot tell an answer about the code just written from one about the
-// tree an hour back. It also names the two ways forward, because a refusal
-// with no route out is answered by rewording the command.
+// denyNarrowedRerunReason names what the gate already holds: the verdict, the
+// stage that produced it and how old it is — without the age a caller cannot
+// tell an answer about the code just written from one about the tree an hour
+// back — and BOTH routes to it, saying which answers which.
+//
+// Naming only `gate stats` made this refusal false for the commonest reason a
+// session re-runs a suite it just watched the gate run: it wants the OUTPUT,
+// not the verdict — one assertion line, at one file and line. `gate stats`
+// cannot answer that, so the refusal was a dead end, and a dead end is
+// answered by rewording the command (a real session met it with a six-shot
+// retry loop against a 28-minute timeout). `gate output` serves the bytes of
+// that very run, so the route out is the gate's own record rather than a
+// second suite.
 func denyNarrowedRerunReason(root string, e gateEntry) string {
 	ago := time.Since(e.at).Round(time.Second)
 	return fmt.Sprintf(
 		"the gate already holds a %s verdict for %s from the %s stage, logged %s ago — "+
-			"re-running one of its tests by hand answers nothing that line does not. Read it with "+
-			"`aphrollo gate stats`. A narrowed rerun is for an INCONCLUSIVE verdict (TIMEOUT, SKIPPED, "+
-			"QUEUED-SKIPPED, %s, %s, or none logged), where the code was never tested; if this is a "+
-			"mutation proof, name it (MUTATION=1 …) so it is allowed and counted.",
+			"re-running one of its tests by hand answers nothing that run does not already hold. "+
+			"Two routes to it: `aphrollo gate stats` for the verdict, `aphrollo gate output` for the "+
+			"text that run actually printed (its assertion lines, unfiltered). A narrowed rerun is for "+
+			"an INCONCLUSIVE verdict (TIMEOUT, SKIPPED, QUEUED-SKIPPED, %s, %s, or none logged), where "+
+			"the code was never tested; if this is a mutation proof, name it (MUTATION=1 …) so it is "+
+			"allowed and counted.",
 		e.verdict, root, e.stage, ago, DeferredAbandoned, InfraFailed)
 }
 

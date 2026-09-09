@@ -163,6 +163,40 @@ func TestRetainSuiteOutput_IsBestEffortWhenThereIsNoStateDir(t *testing.T) {
 	}
 }
 
+// The refusal used to name ONE route, `aphrollo gate stats`, and claim that
+// re-running answers nothing that line does not. False whenever the session
+// does not want a verdict: a session that needed the assertion text the gate
+// had printed 30 seconds earlier could get it from neither the log nor the
+// refusal, so it brute-forced the guard with a six-shot loop instead. Both
+// routes have to be named, and which answers which, or the refusal is still
+// a dead end for the question that was actually asked.
+func TestDenyNarrowedRerunReason_NamesBothRoutesAndWhichAnswersWhich(t *testing.T) {
+	root := mkProject(t, "go.mod")
+	reason := denyNarrowedRerunReason(root, gateEntry{
+		at: time.Now().Add(-90 * time.Second), stage: "postedit", root: root, verdict: "red",
+	})
+
+	for _, want := range []string{
+		"aphrollo gate stats",  // the verdict
+		"aphrollo gate output", // the text that run actually printed
+		"red", "postedit", "ago",
+		"INCONCLUSIVE", "TIMEOUT", "SKIPPED", "QUEUED-SKIPPED",
+		string(DeferredAbandoned), string(InfraFailed),
+		"MUTATION=1",
+	} {
+		if !strings.Contains(reason, want) {
+			t.Errorf("refusal must name %q:\n%s", want, reason)
+		}
+	}
+	// Naming both is not enough — a session has to be able to tell which
+	// question each answers without running one to find out.
+	stats := strings.Index(reason, "`aphrollo gate stats` for the verdict")
+	output := strings.Index(reason, "`aphrollo gate output` for the")
+	if stats < 0 || output < 0 {
+		t.Fatalf("each route must be named with the question it answers:\n%s", reason)
+	}
+}
+
 func firstBytes(s string, n int) string {
 	if len(s) <= n {
 		return s
