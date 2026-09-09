@@ -1815,19 +1815,23 @@ candidate that does not have one already. The issue is labelled
 `escape` or `false-positive` and carries a fixed body — **what got through**,
 **which stage should have caught it**, and a `closes-by:` line — because an
 escape is closed by a LAW or a STAGE named in the fix, never by a sentence in a
-document.
+document. `record --closes-by <path>` fills that line at record time instead of
+leaving the `law | stage | demote check X` prompt for somebody to edit later.
 
 `verify-closure <pr>` is what makes that mechanical, as a CI job: for every
 labelled issue the PR closes -- named in its body OR in any of its commit
 messages, since GitHub honours the keyword in both -- the diff must touch one
-of four things:
+of four things. The `closes-by:` declaration is read from the same three
+places, because the issue is opened with an UNFILLED placeholder and the work
+that carries the fix is where the check it closes is normally stated: the
+declaration says WHICH check, and the diff still has to change it.
 
 | what counts as changing a check | what does NOT |
 |---|---|
 | any file under the consuming repo's laws dir (`laws/` under its `.ratchet`) | anything else under that tree |
 | non-test Go under `internal/tdd/` or `internal/ratchet/` -- the code that performs a check | the markdown beside it, and `_test.go` files nobody named |
 | the workspace-ROOT `Cargo.toml`, changed inside its `[workspace.metadata.aphrollo]` table | a crate's own manifest, or a dependency bump in the root one |
-| a source or test file the issue's `closes-by:` line names | a `closes-by:` naming a document |
+| a source or test file a `closes-by:` line names -- in the issue, the PR body, or a commit message | a `closes-by:` naming a document, or naming a file the diff does not change |
 
 It prints `#N ok` or `#N FAIL` per issue and exits 1 on any FAIL. An issue
 carrying neither label is somebody else's and is left alone.

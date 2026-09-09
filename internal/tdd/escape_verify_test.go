@@ -279,6 +279,65 @@ func TestVerifyClosureRejectsADocNamedOnClosesBy(t *testing.T) {
 	}
 }
 
+// The fix states which check it closes: the escape issue is opened with the
+// unfilled `closes-by: law | stage | demote check X` placeholder, so reading
+// the declaration ONLY from the issue judges every fixing PR red by default
+// and the sole remedy was hand-editing the issue body (issue #562). The PR
+// that carries the fix names the stage on its own body, and that is where the
+// declaration is read from too.
+func TestVerifyClosure_AcceptsAStageNamedOnThePRBody(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	verifyStub(t, `{"body":"Closes #42\n\ncloses-by: internal/tdd/precommit_go.go\n","commits":[]}`,
+		diffFor("internal/tdd/precommit_go.go", "+	lint.Args = append(lint.Args, \"--strict\")"),
+		escapeLabelled)
+
+	var out strings.Builder
+	if ok, _ := VerifyClosure(t.TempDir(), "31", &out); !ok {
+		t.Fatalf("a stage the PR body names closes the escape:\n%s", out.String())
+	}
+}
+
+// The other place the fixing work states it: a closes-by trailer on the
+// commit that carries the fix.
+func TestVerifyClosure_AcceptsAStageNamedOnACommitTrailer(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	verifyStub(t, `{"body":"Closes #42\n","commits":[{"messageHeadline":"tighten the go lint stage","messageBody":"closes-by: internal/tdd/precommit_go.go\n"}]}`,
+		diffFor("internal/tdd/precommit_go.go", "+	lint.Args = append(lint.Args, \"--strict\")"),
+		escapeLabelled)
+
+	var out strings.Builder
+	if ok, _ := VerifyClosure(t.TempDir(), "31", &out); !ok {
+		t.Fatalf("a stage a commit trailer names closes the escape:\n%s", out.String())
+	}
+}
+
+// Reading the declaration from the PR must not widen what a declaration can
+// SAY: naming a document is the "a paragraph closes it" hatch wherever it is
+// written down.
+func TestVerifyClosure_RejectsADocNamedOnThePRBody(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	verifyStub(t, `{"body":"Closes #42\n\ncloses-by: docs/notes.md\n","commits":[]}`,
+		diffFor("docs/notes.md", "+a note"), escapeLabelled)
+
+	var out strings.Builder
+	if ok, _ := VerifyClosure(t.TempDir(), "31", &out); ok {
+		t.Fatalf("naming a doc must not close an escape, wherever it is named:\n%s", out.String())
+	}
+}
+
+// Nor may it let a PR close an escape by naming a check it did not touch: the
+// declaration says WHICH check, the diff still has to change it.
+func TestVerifyClosure_RejectsAPRBodyNamingACheckItDidNotChange(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	verifyStub(t, `{"body":"Closes #42\n\ncloses-by: internal/tdd/precommit_go.go\n","commits":[]}`,
+		diffFor("docs/notes.md", "+a note"), escapeLabelled)
+
+	var out strings.Builder
+	if ok, _ := VerifyClosure(t.TempDir(), "31", &out); ok {
+		t.Fatalf("a declaration is not a change to the check it names:\n%s", out.String())
+	}
+}
+
 // "Gate metadata" is the WORKSPACE manifest's aphrollo block. Accepting any
 // crate's Cargo.toml meant a dependency bump closed escapes.
 func TestVerifyClosureRejectsACrateManifest(t *testing.T) {
