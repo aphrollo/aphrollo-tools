@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -21,13 +22,14 @@ import (
 //     minimum win and a clone with nothing to fetch toward is still a success.
 //   - Fast-forward the LOCAL default branch (resolved, never hardcoded "main")
 //     to origin/<default> ONLY when it is a strict fast-forward:
-//   - HEAD is the default branch => merge --ff-only. A dirty worktree is NOT
-//     refused up front: git itself refuses a fast-forward only when it would
-//     overwrite an uncommitted change to a path the incoming commits touch, so
-//     sync just asks git and reports git's own reason — an unrelated dirty
-//     file never blocks a fast-forward it doesn't conflict with.
-//   - the default branch is NOT the checked-out one => advance its ref with
-//     update-ref (no checkout, so a sibling worktree's files are untouched).
+//   - SOME worktree of the repo has the default branch checked out => merge
+//     --ff-only IN THAT WORKTREE, so its HEAD, index and files move together.
+//     A dirty worktree is NOT refused up front: git itself refuses a
+//     fast-forward only when it would overwrite an uncommitted change to a
+//     path the incoming commits touch, so sync just asks git and reports git's
+//     own reason — an unrelated dirty file never blocks a fast-forward it
+//     doesn't conflict with.
+//   - NO worktree has it checked out => advance the ref alone, and say so.
 //   - NEVER reset --hard, NEVER force, NEVER move the branch when it has
 //     diverged (local commits ahead) — leave it, say why.
 //
@@ -81,20 +83,28 @@ func Sync(repoArg string, dry bool, stdout, stderr io.Writer) error {
 		return nil
 	}
 
-	onDefault := currentBranch(top) == def
+	// WHICH checkout holds the default branch — not "is it the one we were
+	// pointed at" — decides the shape of the move. refs/heads/<def> is shared by
+	// every worktree of the repo, so moving that ref on its own while a checkout
+	// sits on it leaves that checkout past its own HEAD: index and files still at
+	// the old commit, `git status` there reporting the commit that just landed as
+	// a STAGED REVERT, and the next commit made in it silently undoing it
+	// (issue #618). A held branch is therefore only ever advanced BY its holder.
+	holder := worktreeOnBranch(top, def)
 
 	if dry {
 		fmt.Fprintf(stdout, "would fast-forward %s to %s (%d commit(s) behind)\n", def, remote, behind)
 		return nil
 	}
 
-	if onDefault {
-		// On the default branch: --ff-only advances HEAD + ref together. It also
-		// refuses anything that isn't a fast-forward — including a dirty tracked
-		// path the incoming commits would overwrite — so git is the judge of
-		// "safe to move", not a pre-check here. A refusal is reported, never
-		// treated as an error: it is non-destructive, and the reason is git's own.
-		if out, err := exec.Command("git", "-C", top, "merge", "--ff-only", remote).CombinedOutput(); err != nil {
+	if holder != "" {
+		// --ff-only run in the holding checkout advances its HEAD, index and
+		// files together. It also refuses anything that isn't a fast-forward —
+		// including a dirty tracked path the incoming commits would overwrite —
+		// so git is the judge of "safe to move", not a pre-check here. A refusal
+		// is reported, never treated as an error: it is non-destructive, and the
+		// reason is git's own.
+		if out, err := exec.Command("git", "-C", holder, "merge", "--ff-only", remote).CombinedOutput(); err != nil {
 			if !isDirtyPathRefusal(out) {
 				fmt.Fprint(stderr, string(out))
 				return fmt.Errorf("git merge --ff-only %s: %w", remote, err)
@@ -102,20 +112,88 @@ func Sync(repoArg string, dry bool, stdout, stderr io.Writer) error {
 			fmt.Fprintf(stdout, "%s could not fast-forward: %s\n", def, reasonLine(out))
 			return nil
 		}
-		fmt.Fprintf(stdout, "fast-forwarded %s to %s (%d commit(s))\n", def, remote, behind)
+		fmt.Fprintf(stdout, "fast-forwarded %s to %s (%d commit(s))%s\n", def, remote, behind, inOtherCheckout(top, holder))
 		return nil
 	}
 
-	// The default branch is NOT checked out here: advance its ref directly.
-	// update-ref moves only the branch pointer, never a working tree, and we have
-	// already proven a strict fast-forward — so a sibling worktree currently on
-	// the default branch keeps its files untouched.
-	if out, err := exec.Command("git", "-C", top, "update-ref", local, remote).CombinedOutput(); err != nil {
+	// No worktree has the default branch checked out: nothing can be stranded, so
+	// advance the ref alone. `git branch --force` rather than `update-ref` is the
+	// point — it is the ref move git ITSELF refuses when a worktree holds the
+	// branch, so a wrong or raced answer above costs a refusal, never a checkout
+	// left behind its own HEAD. The message says "ref only" in full words: the
+	// working tree of the repo is NOT at the new tip and a reader must not have
+	// to run git to know that.
+	// --no-track keeps the move to the ref ALONE, exactly like the update-ref it
+	// replaces: without it, `branch --force` re-runs branch.autoSetupMerge and
+	// rewrites branch.<def>.remote/merge as a side effect of a fast-forward.
+	if out, err := exec.Command("git", "-C", top, "branch", "--force", "--no-track", def, remote).CombinedOutput(); err != nil {
+		if isCheckedOutRefusal(out) {
+			fmt.Fprintf(stdout, "%s ref NOT moved — a checkout holds it: %s\n", def, reasonLine(out))
+			fmt.Fprintf(stdout, "  fast-forward it from that checkout: git merge --ff-only %s\n", remote)
+			return nil
+		}
 		fmt.Fprint(stderr, string(out))
-		return fmt.Errorf("git update-ref %s %s: %w", local, remote, err)
+		return fmt.Errorf("git branch --force %s %s: %w", def, remote, err)
 	}
-	fmt.Fprintf(stdout, "fast-forwarded %s ref to %s (%d commit(s))\n", def, remote, behind)
+	fmt.Fprintf(stdout, "fast-forwarded %s ref to %s (%d commit(s)) — ref only, no checkout is on %s\n", def, remote, behind, def)
 	return nil
+}
+
+// inOtherCheckout names the working tree a fast-forward actually landed in when
+// it is NOT the repo sync was pointed at — a sibling worktree holding the
+// default branch. Empty for the ordinary case (the clone itself is on it), so
+// the common line stays exactly as it was.
+func inOtherCheckout(top, holder string) string {
+	if samePath(top, holder) {
+		return ""
+	}
+	return " in " + filepath.ToSlash(holder)
+}
+
+// worktreeOnBranch returns the path of the worktree that has branch def checked
+// out, or "" when no checkout is on it. `git worktree list --porcelain` is the
+// authoritative answer for the WHOLE repo — the main working tree and every
+// linked one — which is what a shared-ref move has to respect: refs/heads/<def>
+// belongs to all of them, so asking only "what is checked out HERE" cannot tell
+// whether moving it strands somebody. A read failure answers "" (unknown), and
+// the `git branch --force` that follows is what actually refuses the unsafe
+// move.
+func worktreeOnBranch(repo, def string) string {
+	// This is a probe, not the decision: an unreadable list answers "unknown" and
+	// the `git branch --force` below refuses the unsafe move on its own, carrying
+	// git's OWN stderr — surfacing this one too would report a failure the caller
+	// is never asked to act on.
+	// stderr-ok: a probe whose failure is already covered by the refusal below.
+	out, err := exec.Command("git", "-C", repo, "worktree", "list", "--porcelain").Output()
+	if err != nil {
+		return ""
+	}
+	want := "refs/heads/" + def
+	var path string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimRight(line, "\r")
+		if rest, ok := strings.CutPrefix(line, "worktree "); ok {
+			path = filepath.Clean(strings.TrimSpace(rest))
+			continue
+		}
+		if rest, ok := strings.CutPrefix(line, "branch "); ok && strings.TrimSpace(rest) == want {
+			return path
+		}
+	}
+	return ""
+}
+
+// isCheckedOutRefusal reports whether a `git branch --force` failure is git
+// refusing to move a branch some worktree has checked out — "cannot force
+// update the branch 'main' used by worktree at '<path>'", and the older
+// "Cannot force update the current branch." for the one you are standing in.
+// That refusal is a safe outcome (the ref did not move), so sync reports it and
+// exits 0; every other failure stays a real error.
+func isCheckedOutRefusal(out []byte) bool {
+	s := strings.ToLower(string(out))
+	return strings.Contains(s, "used by worktree at") ||
+		strings.Contains(s, "checked out at") ||
+		strings.Contains(s, "force update the current branch")
 }
 
 // resolveSyncRepo turns Sync's optional repoArg into a repo toplevel: empty
