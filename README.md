@@ -2096,6 +2096,17 @@ workspace with `undercover = true` — the commit-message rule.
   session start.
 - The text has ONE source (`internal/tdd/claudemd.go`), so a fix reaches every
   repo the next time init runs there. Edit that, never the block.
+- A template fix only reaches a repo where install RUNS, so
+  [`gate doctor`](#aphrollo-gate-doctor) judges the block on disk against the
+  one this build would write and reports a stale repo by the first entry that
+  differs (`internal/tdd/doctor_claudemd.go`). The check REPORTS; only install
+  writes, and it refreshes an existing block on every run — `--claude-md` is
+  only about creating a file that is not there. Entries are compared with
+  whitespace collapsed and the queue-dir path masked, so a re-wrapped block, a
+  CRLF one, or one written on another box is not a finding; a repo with no
+  block at all reports no line, since it never opted in. In the merge-only
+  primary the finding points at a lane, because that is where the refresh can
+  be committed.
 
 ### The `tdd` skill
 
@@ -2185,7 +2196,11 @@ own deadline and cleanup can fire · the queue dir is first on the USER's PATH
 (read from `HKCU\Environment` on Windows, not from this process's environment,
 which is whatever a profile prepended) and holds the shims · no `.cmd` shim is
 left · the machine-wide lock dir is writable · `<config-dir>/commands/tdd.md` is gone · every
-managed skill and agent is byte-identical to the template the binary carries.
+managed skill and agent is byte-identical to the template the binary carries ·
+**the repo's managed CLAUDE.md block still says what this build would write**,
+reported as `CLAUDE.md block` naming the first entry that differs and the run
+that refreshes it (issue #584: a block nothing re-rendered kept describing a
+merge step deleted months earlier, and a session obeyed it).
 
 In a cargo workspace it also checks the CI clippy list is DERIVED from
 `[workspace.metadata.aphrollo] clippy-clean` through

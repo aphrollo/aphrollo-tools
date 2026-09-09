@@ -4,4 +4,3 @@ internal/ratchet/wholetree_godepgraph.go | if p.ImportPath == prefix || strings.
 internal/cli/selfinstall.go | if path == keep {
 internal/tdd/ratchetgate.go | if strings.HasPrefix(filepath.ToSlash(f), ".ratchet/") {
 internal/workspace/workspace.go | if t := strings.TrimSpace(line); t == path || t == "*" {
-internal/tdd/deferred.go | return normalizeProjectPath(a) == normalizeProjectPath(b)

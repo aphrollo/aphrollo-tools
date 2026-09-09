@@ -73,6 +73,19 @@ func ClaudeMDBlock(shimDir string, undercover bool) string {
 	return b.String()
 }
 
+// managedBlockFor renders the block install would write into repoRoot: the
+// template above, with the flags this repo declares. Every caller that needs
+// to know what the block SHOULD say goes through here — the writer and the
+// check that judges an on-disk block against it — so the two can never
+// disagree about what "current" means.
+func managedBlockFor(repoRoot, shimDir string) string {
+	ws := cargoWorkspaceRoot(repoRoot)
+	if ws == "" {
+		ws = repoRoot
+	}
+	return ClaudeMDBlock(shimDir, cargoAphrolloFlag(ws, "undercover"))
+}
+
 // PatchClaudeMD returns existing with the managed block replaced in place, or
 // appended at the end when there is none. It reports whether anything changed,
 // so a second run over an unchanged file writes nothing at all.
@@ -159,11 +172,7 @@ func WriteClaudeMD(repoRoot, shimDir string, force bool) (bool, error) {
 		return false, fmt.Errorf("reading %s: %w", path, err)
 	}
 
-	ws := cargoWorkspaceRoot(repoRoot)
-	if ws == "" {
-		ws = repoRoot
-	}
-	out, changed := PatchClaudeMD(existing, ClaudeMDBlock(shimDir, cargoAphrolloFlag(ws, "undercover")))
+	out, changed := PatchClaudeMD(existing, managedBlockFor(repoRoot, shimDir))
 	if !changed {
 		return false, nil
 	}
