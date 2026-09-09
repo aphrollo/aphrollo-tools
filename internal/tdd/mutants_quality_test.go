@@ -45,7 +45,9 @@ func TestMutantsJobsCap_IsTheSmallestOfCoresRamAndTwo(t *testing.T) {
 		{cores: 1, ramGB: 1, want: 1, reason: "cores"},
 	}
 	for _, c := range cases {
-		got, why := MutantsJobsCap(c.cores, c.ramGB)
+		// Free memory unreadable, so the cases below are the RAM term's own:
+		// what a box with no measurement available still derives.
+		got, why := MutantsJobsCap(c.cores, c.ramGB, 0)
 		if got != c.want {
 			t.Errorf("MutantsJobsCap(%d cores, %d GB) = %d, want %d", c.cores, c.ramGB, got, c.want)
 		}
@@ -90,7 +92,7 @@ func TestReadMutantsConfig_ReadsTheSwitchesTheWorkspaceNames(t *testing.T) {
 // every one of them, which is a wrong number derived from a missing one.
 // Unknown means the cores decide alone.
 func TestMutantsJobsCap_UnknownMemoryLetsTheCoresDecide(t *testing.T) {
-	jobs, why := MutantsJobsCap(24, 0)
+	jobs, why := MutantsJobsCap(24, 0, 0)
 	if jobs != 8 {
 		t.Fatalf("jobs = %d on a 24-core box with unreadable memory, want the cores and the cap to decide (8)", jobs)
 	}
@@ -98,7 +100,7 @@ func TestMutantsJobsCap_UnknownMemoryLetsTheCoresDecide(t *testing.T) {
 		t.Fatalf("reason = %q, want it to say the memory was not readable", why)
 	}
 	// A real, small memory reading still constrains.
-	if jobs, _ := MutantsJobsCap(24, 8); jobs != 1 {
+	if jobs, _ := MutantsJobsCap(24, 8, 0); jobs != 1 {
 		t.Fatalf("jobs = %d on 8 GB, want 1 — a measured number still caps", jobs)
 	}
 }

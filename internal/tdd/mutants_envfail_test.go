@@ -75,7 +75,7 @@ func TestMutantsEnvironmentalBuildFailure_NamesTheBoxsFailuresAndNothingElse(t *
 func TestMeasure_EnvironmentalShardFailureIsRetriedAloneOnACleanBuildDir(t *testing.T) {
 	root, base := measureFixture(t, laneSource)
 	t.Cleanup(setMutantsJobsForTest(3, "pinned"))
-	t.Cleanup(setMutantsBoxForTest(24, 63)) // the box issue #609 died on
+	t.Cleanup(setMutantsBoxForTest(24, 63, 0)) // the box issue #609 died on, free memory unreadable
 	poison := filepath.Join(mutantsShardTargetDir(root, 1), "debug", "deps", "libcore.rmeta")
 	var mu sync.Mutex
 	seen := map[int]int{}

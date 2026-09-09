@@ -186,6 +186,9 @@ func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base 
 	// many shards the mutant pool is divided into, and refuseOnDisk fits that
 	// number to what the build drive measures.
 	shards, why := mutantsJobsForThisBoxFn()
+	// Before the drive has its say, because a repo that has lowered the count
+	// needs less of everything the budgets below measure.
+	shards, why = capShardsToConfig(cfg, shards, why)
 	v, shards, refused := refuseOnDisk(root, shards, "shard", log)
 	if refused {
 		return v, nil
@@ -523,8 +526,10 @@ func runMutantsMeasuredRerun(ctx context.Context, root string, cfg MutantsConfig
 	_ = os.Remove(cargoMutantsOutcomesPath(dir))
 	// One shard, so the build width is the whole box: the re-run exists to
 	// give a mutant the machine to itself, and a third of the cores would
-	// time it out again for the same reason the first run did.
-	if _, _, err := runMutantsMeasured(ctx, root, measureShardEnv(root, cfg, 0, 1, mutantsShardTargetIsCold(root, 0)), rerun, log); err != nil {
+	// time it out again for the same reason the first run did. Derived here,
+	// once, for the one process this starts.
+	jobs, _ := mutantsBuildJobsForShards(cfg, 1, mutantsShardTargetIsCold(root, 0))
+	if _, _, err := runMutantsMeasured(ctx, root, measureShardEnv(root, cfg, 0, jobs), rerun, log); err != nil {
 		return nil, err
 	}
 	out, err := readCargoMutantsOutcomes(dir)

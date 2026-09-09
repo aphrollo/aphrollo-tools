@@ -28,6 +28,11 @@ type MutantsConfig struct {
 	// declared by a repo whose box the derivation reads wrong. Zero means
 	// derive it from the box (mutants_buildjobs.go).
 	BuildJobs int
+	// Shards is mutants-shards: the most shards this repo's measurement may
+	// divide itself into, declared by a repo that shares its box with other
+	// sessions. It only ever LOWERS the count the box derives — see
+	// capShardsToConfig. Zero means derive it from the box.
+	Shards int
 }
 
 // The keys a repo declares. mutants-at-merge is the only switch: the trio it
@@ -95,21 +100,12 @@ func ReadMutantsConfig(root string) (MutantsConfig, error) {
 			break
 		}
 	}
-	for _, t := range tables {
-		v, set := tomlStringIn(t.path, t.table, mutantsBuildJobsKey)
-		if !set {
-			continue
-		}
-		// Declared but unreadable is refused, never quietly derived: a repo
-		// that wrote a build width believes it is being obeyed, and a run
-		// that silently ignored it is a box tuned by nobody.
-		n, err := strconv.Atoi(strings.TrimSpace(v))
-		if err != nil || n < 1 {
-			return MutantsConfig{}, fmt.Errorf("%s must be a positive whole number of cargo jobs, got %q",
-				mutantsBuildJobsKey, strings.TrimSpace(v))
-		}
-		cfg.BuildJobs = n
-		break
+	var err error
+	if cfg.BuildJobs, err = firstDeclaredCount(tables, mutantsBuildJobsKey, "cargo jobs"); err != nil {
+		return MutantsConfig{}, err
+	}
+	if cfg.Shards, err = firstDeclaredCount(tables, mutantsShardsKey, "shards"); err != nil {
+		return MutantsConfig{}, err
 	}
 	if cfg.After != "" {
 		// Named but absent is the case nobody notices: the hook is what a
@@ -121,6 +117,29 @@ func ReadMutantsConfig(root string) (MutantsConfig, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// firstDeclaredCount reads one whole-number key from the first table that
+// declares it, 0 when no table does. unit is what the number counts, for the
+// refusal.
+//
+// Declared but unreadable is REFUSED, never quietly derived: a repo that
+// wrote a number believes it is being obeyed, and a run that silently ignored
+// it is a box tuned by nobody. Zero is not a legal declaration either — a
+// measurement that runs nothing is not a narrower measurement.
+func firstDeclaredCount(tables []mutantsConfigTable, key, unit string) (int, error) {
+	for _, t := range tables {
+		v, set := tomlStringIn(t.path, t.table, key)
+		if !set {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil || n < 1 {
+			return 0, fmt.Errorf("%s must be a positive whole number of %s, got %q", key, unit, strings.TrimSpace(v))
+		}
+		return n, nil
+	}
+	return 0, nil
 }
 
 // firstDeclaredList reads one string-array key from the first table that

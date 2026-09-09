@@ -22,6 +22,28 @@ import (
 // The tool itself knows the number, and answers it without building anything:
 // `--list --json` over the run's own scoped argv.
 
+// mutantsShardsKey is the repo's own ceiling on that count, in the same TOML
+// family as the rest of the runner's keys. Every other term in the derivation
+// describes the BOX or the DIFF — cores, free memory, drive space, the mutant
+// pool — and none of them knows that three other sessions build on this
+// machine all day. `mutants-build-jobs` is the same admission one level down.
+const mutantsShardsKey = "mutants-shards"
+
+// capShardsToConfig lowers the derived count to what the repo declared, and
+// says so in the same breath the box's own derivation is reported in.
+//
+// It is a CAP: it may only ever lower. A repo declaring more shards than the
+// box's memory allows has not bought them — the arithmetic that refused them
+// is a fact about the machine, and honouring a bigger number would be exactly
+// the wrong-way guess the free-memory term exists to stop. Zero or absent
+// declares nothing and changes nothing.
+func capShardsToConfig(cfg MutantsConfig, shards int, why string) (int, string) {
+	if cfg.Shards < 1 || cfg.Shards >= shards {
+		return shards, why
+	}
+	return cfg.Shards, fmt.Sprintf("%s, capped to %s = %d", why, mutantsShardsKey, cfg.Shards)
+}
+
 // mutantsListCountFn is that probe, a seam so the cap can be proved without a
 // toolchain on the box.
 var mutantsListCountFn = mutantsListCount
@@ -69,7 +91,8 @@ func mutantsListCount(ctx context.Context, root string, cfg MutantsConfig, argv 
 	// Priced as a cold run: the listing compiles nothing, so the width it
 	// carries never matters, and the conservative number is the one to hand a
 	// pass whose cost this side has not measured.
-	code, out, err := runMutantsMeasured(ctx, root, measureShardEnv(root, cfg, 0, 1, true), list, io.Discard)
+	listJobs, _ := mutantsBuildJobsForShards(cfg, 1, true)
+	code, out, err := runMutantsMeasured(ctx, root, measureShardEnv(root, cfg, 0, listJobs), list, io.Discard)
 	if err != nil || code != 0 {
 		logf(log, "mutants: could not list the diff's mutants (exit %d, %v) — the box's own shard count stands", code, err)
 		return 0, false

@@ -47,7 +47,11 @@ func TestMutantsBuildJobsCap_TakesTheSmallerOfTheCoreAndMemoryTerms(t *testing.T
 		{name: "one shard has the box", cores: 12, ramGB: 64, shards: 1,
 			jobs: 12, why: "min(cores 12, ram 64GB/2GB=32) — cores: 12 total across 1 shard, warm"},
 	} {
-		jobs, why := mutantsBuildJobsCap(c.cores, c.ramGB, c.shards, false)
+		// 0 free memory: unreadable, so every case here is the RAM term's
+		// own — the arithmetic a box with no measurement available still
+		// derives. The free reading has its own cases in
+		// mutants_freemem_test.go.
+		jobs, why := mutantsBuildJobsCap(c.cores, c.ramGB, 0, c.shards, false)
 		if jobs != c.jobs || why != c.why {
 			t.Errorf("%s: mutantsBuildJobsCap(%d, %d, %d) = (%d, %q), want (%d, %q)",
 				c.name, c.cores, c.ramGB, c.shards, jobs, why, c.jobs, c.why)
@@ -74,8 +78,8 @@ func TestMutantsBuildJobsCap_PricesAColdJobAtWhatAColdJobCosts(t *testing.T) {
 	t.Parallel()
 	const cores, ramGB, shards = 24, 63, 7
 
-	cold, coldWhy := mutantsBuildJobsCap(cores, ramGB, shards, true)
-	warm, warmWhy := mutantsBuildJobsCap(cores, ramGB, shards, false)
+	cold, coldWhy := mutantsBuildJobsCap(cores, ramGB, 0, shards, true)
+	warm, warmWhy := mutantsBuildJobsCap(cores, ramGB, 0, shards, false)
 
 	if want := "min(cores 24, ram 63GB/6GB=10) — ram: 10 total across 7 shards, cold"; cold != 1 || coldWhy != want {
 		t.Errorf("cold = (%d, %q), want (1, %q)", cold, coldWhy, want)
@@ -97,7 +101,7 @@ func TestMutantsBuildJobsCap_PricesAColdJobAtWhatAColdJobCosts(t *testing.T) {
 // number it declares is honoured verbatim.
 func TestMutantsBuildJobs_RepoOverrideBeatsTheDerivedCap(t *testing.T) {
 	// A box the derivation would hold to one job per shard.
-	t.Cleanup(setMutantsBoxForTest(4, 4))
+	t.Cleanup(setMutantsBoxForTest(4, 4, 0))
 
 	derived, _ := mutantsBuildJobsForShards(MutantsConfig{}, 4, false)
 	if derived != 1 {
@@ -144,13 +148,17 @@ func TestMeasureShardEnv_CarriesTheBuildJobCapForTheShardsItRunsWith(t *testing.
 	// An operator's own value must not decide how wide a mutation build runs:
 	// the shard owns this name the way it owns CARGO_TARGET_DIR.
 	t.Setenv("CARGO_BUILD_JOBS", "64")
-	t.Cleanup(setMutantsBoxForTest(24, 64))
+	t.Cleanup(setMutantsBoxForTest(24, 64, 0))
 
-	four := envValueOf(measureShardEnv(root, MutantsConfig{}, 1, 4, false), "CARGO_BUILD_JOBS")
+	// Derived by the RUN and handed to the shard, which is the only way the
+	// free-memory term can be read once for a whole measurement.
+	fourJobs, _ := mutantsBuildJobsForShards(MutantsConfig{}, 4, false)
+	four := envValueOf(measureShardEnv(root, MutantsConfig{}, 1, fourJobs), "CARGO_BUILD_JOBS")
 	if four != "6" { // min(cores 24, ram 64GB/2GB=32) = 24 total, 6 each
 		t.Errorf("CARGO_BUILD_JOBS = %q with four shards, want %q", four, "6")
 	}
-	two := envValueOf(measureShardEnv(root, MutantsConfig{}, 1, 2, false), "CARGO_BUILD_JOBS")
+	twoJobs, _ := mutantsBuildJobsForShards(MutantsConfig{}, 2, false)
+	two := envValueOf(measureShardEnv(root, MutantsConfig{}, 1, twoJobs), "CARGO_BUILD_JOBS")
 	if two != "12" { // min(cores 24, ram 64GB/2GB=32) = 24 total, 12 each
 		t.Errorf("CARGO_BUILD_JOBS = %q with two shards, want %q — a run reduced to two shards must not "+
 			"keep the width it would have used with four", two, "12")

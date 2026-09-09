@@ -32,7 +32,8 @@ everything else. The Cargo spelling wins when a repo has both.
 | `mutation-baseline-exclude` | string array | `"<nextest filter> # why"` entries, folded into one `-E not(...)` for the run's whole test invocation |
 | `mutation-accept` | string array | the survivors somebody signed off on, with a reason each |
 | `mutants-after` | string | a repo-relative path run after judgement, in the worktree. A path with no file there is a refusal, not a silent skip |
-| `mutants-build-jobs` | integer | how wide ONE shard's cargo may build, honoured verbatim. Absent: derived from the box (cores and RAM divided between the shards). A value that is not a positive whole number is refused, never quietly derived |
+| `mutants-build-jobs` | integer | how wide ONE shard's cargo may build, honoured verbatim. Absent: derived from the box (cores and free memory divided between the shards). A value that is not a positive whole number is refused, never quietly derived |
+| `mutants-shards` | integer | the most shards a measurement may divide itself into. A CAP: it lowers the count the box derived and never raises it above what that box allows, so a repo on a machine other sessions build on can stop the run taking the whole thing. Absent or zero: derive from the box. A value that is not a positive whole number is refused, never quietly derived |
 
 Four keys are **retired** and refused by name, before any suite runs, with
 `mutants-at-merge` named as the replacement: `mutation-receipt`,
@@ -124,16 +125,22 @@ cargo mutants --copy-target=false --in-diff <diff> --no-shuffle --test-tool=next
 - **no `--in-place`; N PROCESSES, one per shard.** In place was one tree and
   therefore one job (the two flags refuse each other), which measured 739
   mutants in 16 h on a box that could measure eight at once. N is
-  `MutantsJobsCap` — cores/3 and RAM/8 GB, at most 8 — and it is a SHARD count
+  `MutantsJobsCap` — cores/3 and 8 GB per shard of whatever memory is free
+  (available commit, falling back to total RAM when it cannot be read; see
+  the environment section below), at most 8 — and it is a SHARD count
   now: cargo-mutants has no build-directory flag, so the concurrency lives
   above it. N processes, each `--jobs 1`, each given `--shard i/N` with
   `--sharding round-robin` (mutant `i` on shard `i % N`, which spreads cost
   better than a contiguous slice). Shard indexes are 0-based with k < N:
   `--shard 3/3` is refused with "shard k must be less than n", and the union
   of shards 0, 1 and 2 of 3 is exactly the unsharded list, nothing dropped and
-  nothing measured twice. N is then lowered to what the drive fits and to the
+  nothing measured twice. N is then lowered — in order — to the repo's own
+  `mutants-shards` when it declares one, to what the drive fits, and to the
   number of mutants the diff has, so a small lane does not start empty shards
-  that each pay a cold baseline build.
+  that each pay a cold baseline build. Every one of those only ever lowers N,
+  and the line the run prints names which of them bound the answer:
+  `mutants: 2 shards (min(cores 24/3=8, ram 63GB/8=7, cap 8) — ram, capped
+  to mutants-shards = 2)`.
 - **`--copy-target=false`: the copy is the SOURCE TREE ONLY.** With it true
   every job's copy also carried the workspace target dir. On a repo with 294
   GB of build products and 37 MB of sources that is a 375 GB byte-for-byte
@@ -213,11 +220,12 @@ limit that bound it:
 mutants: 7 shards (min(cores 24/3=8, ram 63GB/8=7, cap 8) — ram)
 ```
 
-There is nothing to override — no `--jobs` on the shared argv, since each
-shard carries its own `--jobs 1`, and none on `gate mutants run`, which
-refuses one with `flag provided but not defined: -jobs` rather than accepting
-a number the tool will reject (issue #592). The free-space budget below is per
-shard.
+There is nothing on the command line to override — no `--jobs` on the shared
+argv, since each shard carries its own `--jobs 1`, and none on `gate mutants
+run`, which refuses one with `flag provided but not defined: -jobs` rather
+than accepting a number the tool will reject (issue #592). The one override is
+the repo's `mutants-shards`, which lowers the count and never raises it. The
+free-space budget below is per shard.
 
 A **Go** run (gremlins) copies nothing into the tree it measures and takes a
 worker count happily, so it keeps the per-box cap
@@ -232,6 +240,20 @@ Memory that cannot be READ is not memory that is absent: an unreadable reading
 prints `ram unknown` and lets the cores decide alone. `--jobs` is gone from
 both halves: the Go run derives its count from the box it is on, and no
 caller may type a number for either.
+
+**A shard the BOX killed waits for the box before its retry.** The signatures
+that mean the machine rather than the lane — `rustc-LLVM ERROR: out of
+memory`, `memory allocation of N bytes failed`, os error 1455, `0xc0000142`,
+a rustc ICE, and the metadata wreckage a killed compiler leaves — buy that
+shard one retry on a cleaned build dir. The retry used to start immediately,
+which is right when the pressure was the run's own siblings and useless when
+it is three other sessions' builds: it runs into the same wall. So it first
+waits for the box to have room for the cold jobs it is about to start, up to
+10 minutes, polling every 15 s and printing what it is waiting for. If the
+room appears it retries at full width; if it does not, it retries at ONE
+build job rather than not at all. An unreadable free-memory reading never
+waits, and says so. Waiting can never buy a green: a shard that dies
+environmentally twice is reported as unmeasured, never as caught.
 
 **One run per BOX, not one per repo.** The call is wrapped in a machine-wide
 advisory lock held for its whole duration, cold build included. A wall-clock
@@ -259,22 +281,40 @@ from 40 GB free to 12 GB. So:
    `.mutants/<worktree name>` beside the worktree, on its disk, never the OS
    temp dir. Setting one and inheriting the others is the bug: whichever name
    the tool reads is the one that decides.
-2. `CARGO_BUILD_JOBS` is this shard's share of the box, both terms derived at
-   runtime and the smaller winning: `min(cores/shards, (ramGB/shards)/2)`,
-   floored at 1, where 2 GB per rustc job is a documented ESTIMATE rather
-   than a measurement. Cargo's own default is the whole machine, which for
-   seven shards on a 24-core box is up to 168 rustc processes — against a
-   shard count derived from `min(cores/3, ramGB/8, 8)`, a formula that has
-   already budgeted 8 GB of RAM per shard. Without the cap that RAM term
-   enforces nothing, and the run ends as an OOM or as swap thrash with every
-   verdict it had reached lost. It is computed from the FINAL shard count,
-   after the disk budget has reduced it, so a run cut to two shards uses the
-   width two shards may safely use. `mutants-build-jobs` overrides it
-   verbatim for a box whose shape the derivation reads wrong, and the run
-   logs which term decided: `mutants: 3 cargo build jobs per shard
-   (min(cores 24/7=3, ram 63GB/7/2=4) — cores)`. The lone re-run passes one
-   shard and gets the whole box, which is what having it to itself means.
-3. `CARGO_TARGET_DIR` is the shard's own `<run temp>/target-<i>` — never the
+2. `CARGO_BUILD_JOBS` is the RUN's total build width divided between its
+   shards, both terms derived at runtime and the smaller winning:
+   `min(cores, memGB/perJobGB)/shards`, floored at 1, where a job is priced
+   at 2 GB warm and 6 GB cold — documented ESTIMATES rather than
+   measurements. Cargo's own default is the whole machine, which for seven
+   shards on a 24-core box is up to 168 rustc processes, so without this cap
+   the run ends as an OOM or as swap thrash with every verdict it had
+   reached lost. It is computed from the FINAL shard count, after the disk
+   budget has reduced it, so a run cut to two shards uses the width two
+   shards may safely use, and it is derived ONCE per run and handed to every
+   shard — two shards of one measurement must not disagree about the machine
+   they share. `mutants-build-jobs` overrides it verbatim for a box whose
+   shape the derivation reads wrong, and the run logs which term decided:
+   `mutants: 1 cargo build job per shard (min(cores 24, ram 63GB/6GB=10) —
+   ram: 10 total across 7 shards, cold)`. The lone re-run passes one shard
+   and gets the whole box, which is what having it to itself means.
+3. **`memGB` is what is FREE, not what is installed.** Both budgets — the
+   shard count `min(cores/3, memGB/8, 8)` and the build width above — take
+   the SMALLER of total RAM and the memory the box can actually hand out
+   right now: available commit from `GlobalMemoryStatusEx` on Windows (RAM
+   plus pagefile minus everything already charged, which is the real ceiling
+   on a box whose pagefile is pinned), `MemAvailable` on Linux. A run on a
+   box with 25 of another session's cargo and rustc processes already
+   compiling still derived seven shards from 63 GB of total RAM and lost six
+   of its seven baselines to `rustc-LLVM ERROR: out of memory`. The reading
+   may only ever LOWER the derived numbers — an idle box reports more
+   available commit than it has RAM, and a budget that took that at its word
+   would start more work on the strength of a number that can vanish — and a
+   reading that cannot be taken is UNKNOWN, which falls back to total RAM
+   rather than to a guess. Neither budget ever derives fewer than one shard
+   or one job: a loaded box degrades to a slow correct run, never to no work.
+   The report names the binding term and says it was measured: `mutants: 3
+   shards (min(cores 24/3=8, free 24GB/8=3 (measured), cap 8) — free)`.
+4. `CARGO_TARGET_DIR` is the shard's own `<run temp>/target-<i>` — never the
    lane's, which an editor's own builds compile into. That is what makes
    skipping the queue safe rather than merely faster: a mutation build owns
    its directory for hours behind cargo's own blocking lock. These
@@ -283,7 +323,7 @@ from 40 GB free to 12 GB. So:
    the directory before the shard starts, because those artifacts belong to
    the previous run's last mutant. `gate gc` reclaims the ones no live build
    owns.
-4. Free space on that drive is MEASURED against what the run will actually
+5. Free space on that drive is MEASURED against what the run will actually
    put there BEFORE it starts: one copy of the tracked source tree per shard
    (`git ls-files`, since the copy is `--copy-target=false` and honours
    gitignore) plus what each shard's persistent `target-<i>` holds today —
