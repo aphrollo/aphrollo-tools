@@ -118,6 +118,14 @@ func Check(opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	// What the commit CONTAINS is already the set this run scans; it is also
+	// what a citation may resolve to (see committedPathSet). A run with no
+	// tracked set leaves this nil and every law falls back to the disk.
+	if committed := CommittedPathSet(opts.Tracked); committed != nil {
+		for i := range laws {
+			laws[i].Committed = committed
+		}
+	}
 	var unusedScopeSets []string
 	if sets, err := LoadScopeSets(opts.Root); err != nil {
 		return Result{}, err

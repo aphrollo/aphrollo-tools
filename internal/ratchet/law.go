@@ -276,6 +276,13 @@ type Law struct {
 	// Root is the tree the law is judged against; a doc-path-resolves law
 	// resolves its citations relative to it.
 	Root string
+	// Committed is what the commit CONTAINS, as the set of tracked paths plus
+	// their ancestor directories (see committedPathSet). A doc-path-resolves
+	// law resolves a citation against it, because a citation promises the
+	// next reader can open what it names and a file no commit carries breaks
+	// that promise however solidly it sits on the author's disk. nil means
+	// this run was handed no tracked set and the working tree is the oracle.
+	Committed map[string]bool
 	// Source is the law file's text, hashed into the scan cache key: a rule
 	// that changed must never be answered from a cache filled under the old one.
 	Source string

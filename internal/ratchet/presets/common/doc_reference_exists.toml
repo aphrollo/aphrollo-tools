@@ -1,5 +1,5 @@
 name        = "doc_reference_exists"
-description = "Every repo-relative path cited from an inline-code span or a markdown link target resolves — at the repo root, or inside the citing file's own crates/<x> or tools/<x> unit. The bar is zero: there is no baseline. The trigger is deliberately narrow (a backtick, or the exact `](` a markdown link opens with) rather than any delimiter, because bare prose is full of parenthetical, slash-separated word lists (`(commit/push/ship)`) that are not citations at all."
+description = "Every repo-relative path cited from an inline-code span or a markdown link target resolves to something THE COMMIT CARRIES — at the repo root, or inside the citing file's own crates/<x> or tools/<x> unit. The commit, not the working tree: a file .gitignore keeps out of it sits on the author's disk and in no other checkout, which is the escape recorded against this rule (borld#301). A run handed no tracked set falls back to the disk. The bar is zero: there is no baseline. The trigger is deliberately narrow (a backtick, or the exact `](` a markdown link opens with) rather than any delimiter, because bare prose is full of parenthetical, slash-separated word lists (`(commit/push/ship)`) that are not citations at all."
 severity    = "deny"
 
 [scope]

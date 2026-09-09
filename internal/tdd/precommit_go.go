@@ -366,7 +366,11 @@ func docsCheckStage(gateName, repoRoot string) GateResult {
 	if len(md) == 0 {
 		return GateResult{}
 	}
-	findings, err := docs.CheckFiles(repoRoot, md)
+	// trackedFiles, not the disk: a citation is judged against what this
+	// commit CONTAINS, so a file .gitignore kept out of it stops satisfying
+	// one (borld#301). It is the same index the ratchet stage judges the
+	// twin doc_reference_exists law against, one stage earlier.
+	findings, err := docs.CheckFiles(repoRoot, md, trackedFiles(repoRoot))
 	if err != nil {
 		// A file the check could not read leaves this stage's zero-bar
 		// unproven, not satisfied: block, the way ratchetCheckErrorResult
