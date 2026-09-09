@@ -2155,7 +2155,8 @@ is a warning, not a failure.
 which reads the session payload on stdin and prints ONE badge:
 
 ```
-[aphrollo]            green  — the gate is armed, nothing to report
+[aphrollo]            white  — the gate is on and nothing has measured this tree
+[aphrollo]            green  — a suite for THIS project ran and passed
 [aphrollo]            red    — a run for THIS project failed and still stands
 [aphrollo:off]        gray   — this session ran `/gate off`; edits are not gated
 [aphrollo:deferred]   yellow — a detached build for this project is running
@@ -2163,19 +2164,26 @@ which reads the session payload on stdin and prints ONE badge:
 [aphrollo:queued]     yellow — the last run only queued; the suite never started
 ```
 
-The BADGE carries the state, in its own colour. A tag goes inside the brackets
-where the colour is not enough: yellow has three causes, so it names which, and
-OFF says so in text because a badge whose colours are stripped — by a log, a
-screenshot, a statusline that drops SGR — must never read an ungated session as
-armed. Red and green are colour-only: both mean the gate is running, and a word
-the colour already carries is a word a session stops reading.
+The BADGE carries the state, in its own colour. White is the default: the gate
+is on, and nothing that ran has reported a verdict for this tree — no history
+at all, a stale red, or a deferred job that was abandoned without writing an
+outcome. Green is narrower than the badge used to make it, and means one thing:
+a suite ran and passed. Rendering the ABSENCE of a measurement in the colour of
+a good one is failing open, which is what white fixes.
+
+A tag goes inside the brackets where the colour is not enough: yellow has three
+causes, so it names which, and OFF says so in text because a badge whose
+colours are stripped — by a log, a screenshot, a statusline that drops SGR —
+must never read an ungated session as armed. White, red and green are
+colour-only: all three mean the gate is running, and a word the colour already
+carries is a word a session stops reading.
 
 A red is retired by either of two things, so the badge is never stale. ANY
 green outcome logged for this project clears it, from any stage — post-edit,
 pre-commit, pre-merge-commit or the post-Bash harvest — so a fix that lands
 through a commit clears the badge at the next render rather than waiting for
 the next edit. And a red older than 30 minutes with nothing logged after it is
-dropped outright, with nothing rendered in its place: the badge is a real-time
+dropped outright, leaving white rather than green: the badge is a real-time
 signal or it is noise, and one false red teaches a reader to ignore the true
 one. The hooks write the state; the statusline only reads it.
 

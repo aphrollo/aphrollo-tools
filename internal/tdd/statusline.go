@@ -23,26 +23,27 @@ type statusLineInput struct {
 	Cwd       string `json:"cwd"`
 }
 
-// The BADGE carries the state, in its own colour: green armed, red for a
-// standing failure, yellow while something this session started is still
-// running, gray for a gate the session turned off. A TAG is added inside the
-// brackets where the colour alone is not enough -- yellow has three causes, so
-// it names which, and OFF says so in text because a colour-stripped badge must
-// never read as armed. Red and green are colour-only: a word the colour
-// already carries is a word a session stops reading, and both of them mean the
-// gate is running.
+// The BADGE carries the state, in its own colour: white for a gate that is on
+// with nothing measured, green for a suite that passed, red for a standing
+// failure, yellow while something this session started is still running, gray
+// for a gate the session turned off. A TAG is added inside the brackets where
+// the colour alone is not enough -- yellow has three causes, so it names
+// which, and OFF says so in text because a colour-stripped badge must never
+// read as armed. White, red and green are colour-only: a word the colour
+// already carries is a word a session stops reading, and all three of them
+// mean the gate is running.
 const (
-	ansiReset   = "\x1b[0m"
-	ansiGreen   = "\x1b[32m"
-	ansiGray    = "\x1b[90m"
-	ansiRed     = "\x1b[31m"
-	ansiYellow  = "\x1b[33m"
-	badgeOn     = "[aphrollo]"
-	tagOff      = "off"
-	tagDefer    = "deferred"
-	tagQueued   = "queued"
-	tagMutants  = "mutants"
-	tagUnproven = "unproven"
+	ansiReset  = "\x1b[0m"
+	ansiGreen  = "\x1b[32m"
+	ansiGray   = "\x1b[90m"
+	ansiRed    = "\x1b[31m"
+	ansiYellow = "\x1b[33m"
+	ansiWhite  = "\x1b[37m"
+	badgeOn    = "[aphrollo]"
+	tagOff     = "off"
+	tagDefer   = "deferred"
+	tagQueued  = "queued"
+	tagMutants = "mutants"
 )
 
 // redGoesStaleAfter bounds how long a recorded red may speak for the tree with
@@ -70,8 +71,8 @@ func StatusLine(raw []byte) string {
 // badge renders the one shape: `[aphrollo]` when the colour says everything,
 // `[aphrollo:<tag>]` when it does not. OFF always carries its tag -- colour
 // alone cannot say "not gated" to a consumer that strips SGR, and reading an
-// ungated tree as gated is the one mistake this badge must not enable. Red
-// and green are colour-only: both of them mean the gate is running.
+// ungated tree as gated is the one mistake this badge must not enable. White,
+// red and green are colour-only: all three of them mean the gate is running.
 func badge(colour, tag string) string {
 	if tag == "" {
 		return colour + badgeOn + ansiReset
@@ -86,7 +87,7 @@ func badge(colour, tag string) string {
 func statusState(session, cwd string) (colour, tag string) {
 	root := findRootFrom(cwd)
 	if root == "" {
-		return ansiGreen, ""
+		return ansiWhite, ""
 	}
 	now := time.Now()
 	if redStands(session, root, now) {
@@ -107,10 +108,11 @@ func statusState(session, cwd string) (colour, tag string) {
 	// gone stale, included. That is failing open in a colour: the ABSENCE of a
 	// measurement shown as a good one. It compounds with an abandoned deferred
 	// job, which writes no outcome at all, so nothing turns the badge red while
-	// a session's edits go untested. The gate is still armed, so the colour
-	// stays green; the tag stops it claiming a verdict nobody holds.
+	// a session's edits go untested. The gate is still armed, so the badge
+	// stays on -- in white, which claims nothing, leaving green to mean the one
+	// thing it should: a suite that ran and passed.
 	if !greenRecorded(session, root) {
-		return ansiGreen, tagUnproven
+		return ansiWhite, ""
 	}
 	return ansiGreen, ""
 }

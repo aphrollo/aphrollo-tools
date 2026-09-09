@@ -14,37 +14,55 @@ import (
 //
 // It compounds with the deferred pipeline. When a post-edit job is abandoned
 // no outcome is written at all, so nothing ever turns the badge red and green
-// is what a session sees while its edits go untested. The badge is armed
-// either way, so the colour stays green; what changes is that it stops
-// claiming a verdict it does not have.
+// is what a session sees while its edits go untested.
+//
+// The unmeasured state is a COLOUR, not a word: white for a gate that is on
+// with nothing measured, gray for a gate that is off, green kept for a suite
+// that actually passed. A tag on every render is noise a reader stops seeing,
+// and "unproven" describes the common case -- most renders happen between
+// suites, not after one.
 
-func TestStatusState_SaysUnprovenWhenNoOutcomeWasEverRecorded(t *testing.T) {
+// ratchet: test_removed TestStatusState_SaysUnprovenWhenNoOutcomeWasEverRecorded: renamed,
+// not deleted. Same case, same seed -- what it asserts is now a colour
+// rather than a tag.
+func TestStatusState_IsWhiteWhenNoOutcomeWasEverRecorded(t *testing.T) {
 	root := statusRoot(t)
 
 	colour, tag := statusState("session-with-no-history", root)
 
-	if colour != ansiGreen {
-		t.Errorf("colour = %q, want green — the gate is armed, and that part is true", colour)
+	if colour != ansiWhite {
+		t.Errorf("colour = %q, want white — the gate is on, and nothing has measured this tree", colour)
 	}
-	if tag != tagUnproven {
-		t.Errorf("tag = %q, want %q — a session that has recorded nothing has not been measured, and a "+
-			"bare green badge says the suite passed", tag, tagUnproven)
+	if tag != "" {
+		t.Errorf("tag = %q, want none — the colour carries the state", tag)
 	}
 }
 
-func TestStatusState_SaysUnprovenWhenTheOnlyRedWentStale(t *testing.T) {
+// ratchet: test_removed TestStatusState_SaysUnprovenWhenTheOnlyRedWentStale: renamed,
+// not deleted. The stale red is still dropped; what it drops to is
+// white now, not a green carrying a tag.
+func TestStatusState_IsWhiteWhenTheOnlyRedWentStale(t *testing.T) {
 	root := statusRoot(t)
 	session := "session-with-a-stale-red"
 	stampOutcomeAt(t, session, root, string(Red), time.Now().Add(-2*redGoesStaleAfter))
 
 	colour, tag := statusState(session, root)
 
-	if colour != ansiGreen {
-		t.Errorf("colour = %q, want green — a red nobody has re-measured is not a red", colour)
+	if colour != ansiWhite {
+		t.Errorf("colour = %q, want white — the tree was last seen RED and nothing has measured it "+
+			"since, which is the one state that must never render as a pass", colour)
 	}
-	if tag != tagUnproven {
-		t.Errorf("tag = %q, want %q — the tree was last seen RED and nothing has measured it since, "+
-			"which is the one state that must never render as a pass", tag, tagUnproven)
+	if tag != "" {
+		t.Errorf("tag = %q, want none", tag)
+	}
+}
+
+func TestStatusState_IsWhiteWhenTheSessionStandsOutsideAnyRoot(t *testing.T) {
+	colour, tag := statusState("session-with-no-history", t.TempDir())
+
+	if colour != ansiWhite || tag != "" {
+		t.Errorf("badge = %q/%q, want a bare white — no root means no measurement, which is not a pass",
+			colour, tag)
 	}
 }
 
@@ -61,10 +79,17 @@ func TestStatusState_StaysBareGreenOnARecordedGreen(t *testing.T) {
 	}
 }
 
-func TestBadge_UnprovenSurvivesAColourStrippingConsumer(t *testing.T) {
-	got := badge(ansiGreen, tagUnproven)
-	if !strings.Contains(got, tagUnproven) {
-		t.Errorf("badge = %q, want the tag in the text — a consumer that strips colour must not read "+
-			"an unmeasured tree as a passing one", got)
+// ratchet: test_removed TestBadge_UnprovenSurvivesAColourStrippingConsumer: the
+// `unproven` tag it guarded is gone -- the unmeasured state is now white, and a
+// consumer that strips colour reads it as the plain armed badge. Only OFF still
+// carries a word, because reading an ungated tree as gated is the one mistake
+// the badge must not enable; an unmeasured armed tree read as armed is not.
+func TestBadge_RendersWhiteBare(t *testing.T) {
+	got := badge(ansiWhite, "")
+	if !strings.Contains(got, ansiWhite) || !strings.Contains(got, badgeOn) {
+		t.Errorf("badge = %q, want the white armed badge", got)
+	}
+	if strings.Contains(got, ":") {
+		t.Errorf("badge = %q, want no tag — white already says unmeasured", got)
 	}
 }
