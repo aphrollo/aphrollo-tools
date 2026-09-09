@@ -39,13 +39,20 @@ func statusRoot(t *testing.T) string {
 	return root
 }
 
-// TestStatusLine_IsAQuietBadgeWhenNothingIsWrong pins the default: one short
-// badge and no suffix. A statusline that reports every healthy state is a
-// statusline nobody reads, so the suffix is reserved for what matters.
-func TestStatusLine_IsAQuietBadgeWhenNothingIsWrong(t *testing.T) {
+// ratchet: test_removed TestStatusLine_IsAQuietBadgeWhenNothingIsWrong: renamed, not
+// deleted. It pinned a bare badge for a session that had measured nothing, which is the
+// behaviour this change removes — that state now reads unproven. The claim it made lives
+// on below under the name the new contract deserves.
+//
+// TestStatusLine_SaysUnprovenBeforeAnythingHasBeenMeasured pins the default
+// for a session that has measured nothing yet. The badge used to render this
+// state as a bare green, identical to a suite that had just passed, which made
+// the absence of a measurement look like a good one. The suffix stays reserved
+// for what matters, and "nobody has tested this tree" matters.
+func TestStatusLine_SaysUnprovenBeforeAnythingHasBeenMeasured(t *testing.T) {
 	root := statusRoot(t)
-	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo]" {
-		t.Fatalf("StatusLine = %q, want %q", got, "[aphrollo]")
+	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:unproven]" {
+		t.Fatalf("StatusLine = %q, want %q", got, "[aphrollo:unproven]")
 	}
 }
 
@@ -156,8 +163,9 @@ func TestStatusLine_ARedOlderThanTheWindowRendersGreen(t *testing.T) {
 	if !strings.HasPrefix(got, ansiGreen) {
 		t.Fatalf("a red past the window must render green, got %q", got)
 	}
-	if plain(got) != "[aphrollo]" {
-		t.Fatalf("StatusLine = %q, want the plain badge — a stale red says nothing", plain(got))
+	if plain(got) != "[aphrollo:unproven]" {
+		t.Fatalf("StatusLine = %q, want the unproven badge — the stale red is dropped, but the tree "+
+			"it described has still not been measured since, and a bare badge would claim it passed", plain(got))
 	}
 }
 
@@ -246,8 +254,9 @@ func TestStatusLine_IgnoresAnotherProjectsRed(t *testing.T) {
 	if err := s.save(path); err != nil {
 		t.Fatal(err)
 	}
-	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo]" {
-		t.Fatalf("StatusLine = %q, want a bare badge", got)
+	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:unproven]" {
+		t.Fatalf("StatusLine = %q, want no red — another project's red is not this one's state, and "+
+			"this one has measured nothing", got)
 	}
 }
 
@@ -273,8 +282,9 @@ func TestStatusLine_DropsDeferredOnceTheResultLanded(t *testing.T) {
 		t.Fatal("setup: job not saved")
 	}
 	writePhaseResult(j.Result, PhaseOutcome{ExitCode: 0, Seconds: 1})
-	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo]" {
-		t.Fatalf("StatusLine = %q, want a bare badge", got)
+	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:unproven]" {
+		t.Fatalf("StatusLine = %q, want the deferred tag gone — a landed build result stops the badge "+
+			"claiming a build is running, and it is not itself a suite that passed", got)
 	}
 }
 

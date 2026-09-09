@@ -32,16 +32,17 @@ type statusLineInput struct {
 // already carries is a word a session stops reading, and both of them mean the
 // gate is running.
 const (
-	ansiReset  = "\x1b[0m"
-	ansiGreen  = "\x1b[32m"
-	ansiGray   = "\x1b[90m"
-	ansiRed    = "\x1b[31m"
-	ansiYellow = "\x1b[33m"
-	badgeOn    = "[aphrollo]"
-	tagOff     = "off"
-	tagDefer   = "deferred"
-	tagQueued  = "queued"
-	tagMutants = "mutants"
+	ansiReset   = "\x1b[0m"
+	ansiGreen   = "\x1b[32m"
+	ansiGray    = "\x1b[90m"
+	ansiRed     = "\x1b[31m"
+	ansiYellow  = "\x1b[33m"
+	badgeOn     = "[aphrollo]"
+	tagOff      = "off"
+	tagDefer    = "deferred"
+	tagQueued   = "queued"
+	tagMutants  = "mutants"
+	tagUnproven = "unproven"
 )
 
 // redGoesStaleAfter bounds how long a recorded red may speak for the tree with
@@ -100,7 +101,70 @@ func statusState(session, cwd string) (colour, tag string) {
 	if lastRunQueued(root) {
 		return ansiYellow, tagQueued
 	}
+	// Green is the badge's fallback, so everything that is not a standing red
+	// or a running job used to render exactly like a suite that had just
+	// passed — a session that had recorded nothing, and one whose only red had
+	// gone stale, included. That is failing open in a colour: the ABSENCE of a
+	// measurement shown as a good one. It compounds with an abandoned deferred
+	// job, which writes no outcome at all, so nothing turns the badge red while
+	// a session's edits go untested. The gate is still armed, so the colour
+	// stays green; the tag stops it claiming a verdict nobody holds.
+	if !greenRecorded(session, root) {
+		return ansiGreen, tagUnproven
+	}
 	return ansiGreen, ""
+}
+
+// greenRecorded reports whether the last outcome this session recorded for the
+// project it is standing in was a pass. Only a recorded green earns the bare
+// badge; no history at all, and a red that has gone stale with nothing after
+// it, are both states where the tree has not been measured recently and the
+// badge must say so.
+func greenRecorded(session, root string) bool {
+	s, _ := loadSession(session)
+	if s == nil {
+		return false
+	}
+	if ps, ok := s.ByProject[root]; ok && isGreenVerdict(ps.Outcome) {
+		return true
+	}
+	// The gate log is the record EVERY stage writes, which is why redStands
+	// already reads it: a green this session was not present for still proves
+	// the tree. Without this the badge would call a tree unproven that a
+	// commit gate had just measured.
+	return isGreenVerdict(lastVerdictFor(root))
+}
+
+// isGreenVerdict reports whether a recorded verdict means tests ran and
+// passed. The green family only: `green`, `green-unconstrained` and
+// `green-with-warnings`. `writing-test` PASSED WITH NO TEST EXECUTED, and
+// `no-delta` failed against pre-existing failures, so neither one is a
+// measurement of this tree and neither may earn the bare badge.
+func isGreenVerdict(verdict string) bool {
+	return strings.HasPrefix(verdict, string(Green))
+}
+
+// lastVerdictFor is the last verdict any stage logged for this project, or ""
+// when the log has nothing to say about it.
+func lastVerdictFor(root string) string {
+	dir := stateDir()
+	if dir == "" {
+		return ""
+	}
+	f, err := os.Open(filepath.Join(dir, "gate.log"))
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	last := ""
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		if e, ok := parseGateLine(sc.Text()); ok && sameProject(e.root, root) {
+			last = e.verdict
+		}
+	}
+	return last
 }
 
 // redStands reports whether the session's recorded red for THIS project is
