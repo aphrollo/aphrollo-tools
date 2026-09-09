@@ -40,7 +40,13 @@ func ClaudeMDBlock(shimDir string, undercover, mutantsAtMerge bool) string {
 	b.WriteString("- **What the line means:** `green (N passed)` · `red-missing-impl` (a clean RED) · `red` ·\n")
 	b.WriteString("  `red-bogus` (broken test setup, not a real RED) · `TIMEOUT` / `SKIPPED` / `QUEUED-SKIPPED`\n")
 	b.WriteString("  (**inconclusive — the code was NOT tested**) · `BUILDING (deferred)` (the build outran the\n")
-	b.WriteString("  budget and continues; its result arrives at the next hook). The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE targeted `-p <crate> <filter>` after a TIMEOUT.\n")
+	// The route to the run's TEXT rides on this same bullet rather than a
+	// bullet of its own: the block is bounded at a length a session reads in
+	// one glance, and the rule it belongs to — what a manual run is FOR — is
+	// stated right here. Wanting the output was the commonest reason to
+	// re-run a suite the gate had just run, and `gate stats` cannot answer
+	// it, so a session told only about stats meets the refusal with no route.
+	b.WriteString("  budget and continues; its result arrives at the next hook). The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE targeted `-p <crate> <filter>` after a TIMEOUT. Wanting the run's TEXT is not one of them: `aphrollo gate stats` answers what the verdict WAS, `aphrollo gate output` prints what that run actually PRINTED — assertion lines and all, unfiltered.\n")
 	b.WriteString("- **Commit gate, cheapest first:** staged-baseline guard → ratchet laws → docs check →\n")
 	b.WriteString("  suppression check → per root: cargo sequential (fmt→guards→clippy→check→fail-first);\n")
 	b.WriteString("  a Go root also runs vet/lint first. It proves the staged test RED and STOPS — the\n")

@@ -197,6 +197,17 @@ func TestDenyNarrowedRerunReason_NamesBothRoutesAndWhichAnswersWhich(t *testing.
 	}
 }
 
+// The block `aphrollo install` writes into every repo's CLAUDE.md is where a
+// session learns the manual-run rules, and it told them to read `gate stats`
+// and nothing else. A session that wants the run's TEXT has to be told the
+// route exists there too, or it meets the refusal never having heard of it.
+func TestClaudeMDBlock_NamesTheRouteToTheRunsOwnText(t *testing.T) {
+	block := ClaudeMDBlock(shimDir, false, false)
+	if !strings.Contains(block, "aphrollo gate output") {
+		t.Errorf("the block must name the route to the run's own text:\n%s", block)
+	}
+}
+
 func firstBytes(s string, n int) string {
 	if len(s) <= n {
 		return s
