@@ -58,7 +58,22 @@ func TestFixtureGitEnv_CarriesTheQueueBypassMarker(t *testing.T) {
 // and stop exercising the queuing, the refusals and the locking they exist
 // to pin. A fixture opts out per command; the package never does.
 func TestPackageEnv_LeavesTheQueueMarkerUnsetForTheShimsOwnTests(t *testing.T) {
+	if inheritedQueueMarker == "1" {
+		// The gate's own deferred phase runs `go test` as a child of a git it
+		// has already queued, and passes the marker down. The environment came
+		// from OUTSIDE this binary, so what this test pins — that the package
+		// never sets it — cannot be observed here, and failing would report a
+		// pipeline condition as a defect in the package. The shim tests that
+		// depend on the marker being unset are the ones that would then fail,
+		// loudly and on their own terms.
+		t.Skipf("%s=1 was inherited from the environment this binary was started in", tdd.GitQueuedEnv)
+	}
 	if os.Getenv(tdd.GitQueuedEnv) == "1" {
 		t.Fatalf("%s=1 is set for the whole test binary — the shim's own queuing tests would pass through instead of queuing", tdd.GitQueuedEnv)
 	}
 }
+
+// inheritedQueueMarker is the marker's value as this test BINARY was started,
+// read before any test can set it. It is what separates "the package set it"
+// from "the process that launched us had it set".
+var inheritedQueueMarker = os.Getenv(tdd.GitQueuedEnv)
