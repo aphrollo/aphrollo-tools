@@ -133,11 +133,16 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 		// Every checkout's own area, not just this one's: a lane's mutation
 		// run leaves its shard and build directories beside the LANE, and the
 		// merge that would sweep them is run from the primary.
-		for _, area := range mutantsRunAreas(repo) {
+		areas := mutantsRunAreas(repo)
+		for _, area := range areas {
 			out = append(out, gcMutantsRunDirs(area, olderThan, time.Now())...)
 			out = append(out, gcMutantsTrees(area, DefaultMutantsAge, time.Now())...)
 		}
-		out = append(out, gcMutantsTempCopies(MutantsTempDirs(), time.Now())...)
+		// The areas too, not only the OS temp dirs: a killed sharded run
+		// leaks its tree copies INSIDE its own area, and a sweep handed only
+		// the temp dirs reported 806.4 KB reclaimable with 169 GB of dead
+		// copies beside a lane.
+		out = append(out, gcMutantsTempCopies(mutantsCopyDirs(areas), time.Now())...)
 		out = append(out, gcTempTargetDirs(MutantsTempDirs(), time.Now())...)
 	}
 	if scope.DepsArtifacts {
