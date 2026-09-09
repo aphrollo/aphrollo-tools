@@ -79,7 +79,7 @@ func stubIssueRepo(t *testing.T, stdout string) (repo, argvLog string) {
 		{"config", "user.name", "t"},
 		{"remote", "add", "origin", "https://github.com/o/r.git"},
 	} {
-		cmd := exec.Command("git", args...)
+		cmd := fixtureGit(args...)
 		cmd.Dir = repo
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %s", args, out)

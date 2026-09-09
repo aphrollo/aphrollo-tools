@@ -96,7 +96,7 @@ func makeMergeableRepo(t *testing.T) (repo, branch string) {
 	t.Helper()
 	repo = t.TempDir()
 	run := func(args ...string) {
-		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+		if out, err := fixtureGit(append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
 	}
@@ -125,7 +125,7 @@ func makeConflictingMergeRepo(t *testing.T) (repo, branch string) {
 	t.Helper()
 	repo = t.TempDir()
 	run := func(args ...string) {
-		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+		if out, err := fixtureGit(append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
 	}
@@ -190,7 +190,7 @@ func makeAbortFailingMergeRepo(t *testing.T) (repo, branch, filePath string) {
 	repo = t.TempDir()
 	filePath = "shared.txt"
 	run := func(args ...string) {
-		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+		if out, err := fixtureGit(append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
 	}
@@ -354,7 +354,7 @@ func TestRecoverRejectedMerge_ConflictedMerge_MarkerPresent_NotAborted(t *testin
 
 	start := time.Now()
 
-	mergeCmd := exec.Command("git", "-C", repo, "merge", branch)
+	mergeCmd := fixtureGit("-C", repo, "merge", branch)
 	mergeOut, mergeErr := mergeCmd.CombinedOutput()
 	if mergeErr == nil {
 		t.Fatalf("setup: expected `git merge %s` to conflict, but it succeeded:\n%s", branch, mergeOut)

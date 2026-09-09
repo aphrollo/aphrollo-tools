@@ -19,7 +19,7 @@ func prunableWorktree(t *testing.T) (repo, wt, branch string) {
 	repo = filepath.Join(parent, "myrepo")
 	branch = "feat/x"
 	run := func(dir string, args ...string) {
-		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+		if out, err := fixtureGit(append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
 	}

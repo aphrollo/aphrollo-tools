@@ -87,7 +87,7 @@ func stubGhForCLI(t *testing.T, stdout string) string {
 func gitHubRepoCwd(t *testing.T) {
 	t.Helper()
 	dir := gitInit(t, map[string]string{"a.txt": "x\n"})
-	cmd := exec.Command("git", "-C", dir, "remote", "add", "origin", "https://github.com/o/r.git")
+	cmd := fixtureGit("-C", dir, "remote", "add", "origin", "https://github.com/o/r.git")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}

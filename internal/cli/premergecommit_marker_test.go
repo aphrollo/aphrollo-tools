@@ -24,7 +24,7 @@ func stageBrokenGoModule(t *testing.T, repo string) {
 	if err := os.WriteFile(filepath.Join(repo, "broken.go"), []byte("package m\n\nfunc Broken() int { return }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("git", "-C", repo, "add", ".").CombinedOutput(); err != nil {
+	if out, err := fixtureGit("-C", repo, "add", ".").CombinedOutput(); err != nil {
 		t.Fatalf("git add: %v: %s", err, out)
 	}
 }

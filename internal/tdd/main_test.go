@@ -87,6 +87,20 @@ func TestMain(m *testing.M) {
 			panic(err)
 		}
 	}
+	// The box's git QUEUE is not this suite's either. `git` on an operator
+	// box resolves to the aphrollo shim, which takes a per-repo lock and
+	// waits on the rest of the box before a mutating verb runs — right for a
+	// session's own commit, wrong for a fixture building a throwaway repo,
+	// which wants git and not the gate in front of it (measured in
+	// internal/workspace: 25m and 60m dead in fixture git calls, against
+	// 117s with the shim off PATH). This package's PRODUCTION git already
+	// carries the marker (cleanGitEnv); this is the same statement for the
+	// fixtures' own bare exec.Command("git", ...) calls. Nothing here tests
+	// the shim's queuing — those tests live in internal/cli, which leaves
+	// this variable unset for exactly that reason.
+	if err := os.Setenv(GitQueuedEnv, "1"); err != nil {
+		panic(err)
+	}
 	// The golden git repos every fixture helper copies, built once here
 	// rather than spawned per test. See fixture_test.go.
 	buildFixtures(dir)

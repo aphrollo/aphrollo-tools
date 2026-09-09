@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -110,7 +109,7 @@ func commitSomething(t *testing.T, repo, subject string) {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"add", "."}, {"commit", "-q", "-m", subject}} {
-		cmd := exec.Command("git", args...)
+		cmd := fixtureGit(args...)
 		cmd.Dir = repo
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %s", args, out)
@@ -154,7 +153,7 @@ func commitWithGateNote(t *testing.T, repo, subject string) {
 
 func gitRun(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := fixtureGit(args...)
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %s", args, out)
@@ -163,7 +162,7 @@ func gitRun(t *testing.T, dir string, args ...string) {
 
 func gitLine(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := fixtureGit(args...)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
