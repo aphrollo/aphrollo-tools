@@ -61,13 +61,23 @@ func TestEmptyPass_NextestZeroTests_NeverBlocksNeverReadsAsFailure(t *testing.T)
 		}
 	})
 
-	t.Run("PostEdit reports the green-empty line, never red", func(t *testing.T) {
+	// The half of this contract that CHANGED (2026-09-10): the commit gate
+	// must still wave a dependency-only crate through, but PostEdit no
+	// longer reports it as a green. A run that executed zero tests said
+	// nothing about the code either way, and printing it as green is what
+	// let a whole feature's worth of edits read as tested when the narrowed
+	// selection was simply empty. Not RED either — nothing failed; the
+	// inconclusive family is where it belongs (emptyselection.go).
+	t.Run("PostEdit reports the zero-selection line, never red, never green", func(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		root := mkProject(t, "Cargo.toml")
 		got := PostEdit(postPayload("Edit", root+"/src/widget.rs"), nextestZeroTests)
-		wantSub := "green (0 tests — nothing to run"
+		wantSub := strings.ToUpper(NoTestsSelected)
 		if !strings.Contains(got, wantSub) {
-			t.Fatalf("expected the green-empty line containing %q, got: %s", wantSub, got)
+			t.Fatalf("expected the zero-selection line containing %q, got: %s", wantSub, got)
+		}
+		if strings.Contains(got, "green") {
+			t.Fatalf("a run that executed no test must never read as green, got: %s", got)
 		}
 		if strings.Contains(got, "outcome=red") || strings.Contains(got, "red-") {
 			t.Fatalf("a zero-tests nextest exit must never read as RED, got: %s", got)
