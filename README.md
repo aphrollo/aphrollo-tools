@@ -2156,10 +2156,20 @@ aphrollo gate doctor
 # ok    batch shims removed
 # ok    lock dirs writable — C:\ProgramData\aphrollo\locks
 # ok    retired /tdd command
+# FAIL  foreign hooks — post-merge (2026-08-18 14:03, "# prune merged lanes") in
+#       C:\Users\olive\.config\git\hooks — not written by this tool, and git runs
+#       it on every matching event; move it out of the managed hooks dir or delete it
 # FAIL  managed skills and agents — agents/reviewer.md (edited) — run `aphrollo install`
 ```
 
-The checks: every managed hook runs the SAME binary and it is this build (size
+The checks: `core.hooksPath` is set, exists, and carries this tool's shims ·
+**no file git would run in that managed hooks dir was written by anything
+else** — a hand-written hook there is reported by name, mtime and first
+comment line, to be moved out of the dir or deleted (install refuses to
+clobber one, and until issue #582 nothing ever said it was there, while it
+ran destructive git on every merge; git's own `*.sample` files are not
+findings, and an empty or unreadable dir is never a failure) · every managed
+hook runs the SAME binary and it is this build (size
 and mtime, drift naming both paths) · each hook's `timeout` is at least the one
 init writes, since the harness kills the hook process from outside before its
 own deadline and cleanup can fire · the queue dir is first on the USER's PATH

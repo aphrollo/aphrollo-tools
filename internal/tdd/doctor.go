@@ -48,9 +48,13 @@ type DoctorInput struct {
 // runs read the same way. doctorGitHooksPath runs FIRST: every other check
 // here describes a hook that depends on git actually running it, and a
 // dangling or unset core.hooksPath means git runs NONE of them, silently.
+// doctorForeignHooks follows it for the mirror-image reason: the same
+// directory may hold a hook this tool never wrote, which git DOES run
+// (issue #582).
 func Doctor(in DoctorInput) []DoctorCheck {
 	checks := []DoctorCheck{
 		doctorGitHooksPath(in),
+		doctorForeignHooks(in),
 		doctorHookBinary(in),
 		doctorHookTimeouts(in),
 		doctorShimPath(in),
