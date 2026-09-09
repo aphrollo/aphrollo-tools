@@ -146,6 +146,20 @@ cargo mutants --copy-target=false --in-diff <diff> --no-shuffle --test-tool=next
   megabytes. Distinct dirs per shard is the load-bearing part: cargo
   serialises builds on its build-directory lock, so ONE dir shared by N
   processes would run them one after another.
+
+  What persists is the DEPENDENCIES, never the mutated packages. Whatever a
+  previous run left of the packages it mutated was built from mutated source,
+  and the tree cargo-mutants copies for the next run carries the original
+  mtimes, which are OLDER than those artifacts — so cargo rebuilds nothing and
+  the baseline links the previous run's mutant. That was measured: test
+  binaries an hour newer than the source they were told to test, a build step
+  reporting `Finished 'test' profile [optimized + debuginfo] target(s) in
+  0.74s`, and a baseline failing on behaviour the current source cannot
+  produce. Each shard therefore cleans the packages the run mutates out of its
+  build dir before it starts, and removes the dir whole when it cannot — when
+  the run names no package, so the whole workspace is mutable, or when the
+  clean itself fails. Nothing mutates a dependency, so dependency artifacts
+  are always safe to keep, and they are the whole value of the directory.
 - **`--output <run temp>/shard-<i>`.** Each shard writes its own
   `mutants.out`, and the verdict is the MERGE of all N: counts summed,
   survivors from every shard named. A shard that reached no verdict is never
@@ -265,7 +279,10 @@ from 40 GB free to 12 GB. So:
    skipping the queue safe rather than merely faster: a mutation build owns
    its directory for hours behind cargo's own blocking lock. These
    directories are the run's one deliberate leftover, kept so the next run is
-   warm; `gate gc` reclaims the ones no live build owns.
+   warm in its DEPENDENCIES; the packages the run mutates are cleaned out of
+   the directory before the shard starts, because those artifacts belong to
+   the previous run's last mutant. `gate gc` reclaims the ones no live build
+   owns.
 4. Free space on that drive is MEASURED against what the run will actually
    put there BEFORE it starts: one copy of the tracked source tree per shard
    (`git ls-files`, since the copy is `--copy-target=false` and honours

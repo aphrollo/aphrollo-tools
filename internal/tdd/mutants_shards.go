@@ -188,6 +188,11 @@ func runMutantsShards(ctx context.Context, root string, cfg MutantsConfig, argv 
 			// no verdict, and the difference between those two is invisible
 			// once the stale file is still sitting there.
 			_ = os.Remove(cargoMutantsOutcomesPath(out))
+			// Whatever the previous run left in this shard's build dir was
+			// built from a MUTATED source, and the freshly copied tree's
+			// mtimes are older than those artifacts, so cargo would rebuild
+			// nothing and the baseline would link the previous mutant.
+			purgeMutatedArtifacts(root, mutantsShardTargetDir(root, shard), packagesInArgv(argv), shared)
 			code, err := mutantsExecFn(ctx, root, measureShardEnv(root, cfg, shard, shards, cold),
 				mutantsShardArgv(argv, shard, shards, out), io.MultiWriter(shared, &tee))
 			runs[shard] = shardRun{Shard: shard, Shards: shards, Code: code, Log: tee.String(), Err: err}
