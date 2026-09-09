@@ -40,19 +40,27 @@ func statusRoot(t *testing.T) string {
 }
 
 // ratchet: test_removed TestStatusLine_IsAQuietBadgeWhenNothingIsWrong: renamed, not
-// deleted. It pinned a bare badge for a session that had measured nothing, which is the
-// behaviour this change removes — that state now reads unproven. The claim it made lives
-// on below under the name the new contract deserves.
+// deleted (twice now -- once when the unmeasured state grew a tag, and again now that
+// the tag became a colour). The claim it made lives on below.
 //
-// TestStatusLine_SaysUnprovenBeforeAnythingHasBeenMeasured pins the default
-// for a session that has measured nothing yet. The badge used to render this
-// state as a bare green, identical to a suite that had just passed, which made
-// the absence of a measurement look like a good one. The suffix stays reserved
-// for what matters, and "nobody has tested this tree" matters.
-func TestStatusLine_SaysUnprovenBeforeAnythingHasBeenMeasured(t *testing.T) {
+// ratchet: test_removed TestStatusLine_SaysUnprovenBeforeAnythingHasBeenMeasured: renamed,
+// not deleted. It pinned an `unproven` TAG on the unmeasured default; the
+// state is now carried by the colour instead, so the same case is asserted below
+// under the name the new contract deserves.
+//
+// TestStatusLine_IsWhiteBeforeAnythingHasBeenMeasured pins the default for a
+// session that has measured nothing yet. The badge used to render this state
+// as a bare green, identical to a suite that had just passed, which made the
+// absence of a measurement look like a good one. White says the gate is on and
+// claims nothing further, which leaves green to mean the one thing it should.
+func TestStatusLine_IsWhiteBeforeAnythingHasBeenMeasured(t *testing.T) {
 	root := statusRoot(t)
-	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:unproven]" {
-		t.Fatalf("StatusLine = %q, want %q", got, "[aphrollo:unproven]")
+	got := StatusLine(statusPayload(t, "s1", root))
+	if !strings.HasPrefix(got, ansiWhite) {
+		t.Fatalf("StatusLine = %q, want white — nothing has measured this tree", got)
+	}
+	if plain(got) != "[aphrollo]" {
+		t.Fatalf("StatusLine = %q, want no tag — the colour carries it", plain(got))
 	}
 }
 
@@ -76,13 +84,17 @@ func TestStatusLine_SaysOffInTextSoAStrippedBadgeCannotReadAsArmed(t *testing.T)
 	}
 }
 
-// TestStatusLine_ColoursGreenWhenOnAndGrayWhenOff pins the at-a-glance signal:
+// ratchet: test_removed TestStatusLine_ColoursGreenWhenOnAndGrayWhenOff: renamed, not
+// deleted. ON is white until a suite has actually passed — green is now the measured
+// state, not the armed one — and the same on-vs-off claim is asserted below.
+//
+// TestStatusLine_ColoursWhiteWhenOnAndGrayWhenOff pins the at-a-glance signal:
 // the two states must be distinguishable without reading the text.
-func TestStatusLine_ColoursGreenWhenOnAndGrayWhenOff(t *testing.T) {
+func TestStatusLine_ColoursWhiteWhenOnAndGrayWhenOff(t *testing.T) {
 	root := statusRoot(t)
 	on := StatusLine(statusPayload(t, "s1", root))
-	if !strings.HasPrefix(on, "\x1b[32m") {
-		t.Fatalf("an armed gate must render green, got %q", on)
+	if !strings.HasPrefix(on, "\x1b[37m") {
+		t.Fatalf("an armed gate must render white, got %q", on)
 	}
 	if err := setOff("s1", true); err != nil {
 		t.Fatal(err)
@@ -150,22 +162,26 @@ func TestStatusLine_AGreenInAnotherProjectLeavesTheRedStanding(t *testing.T) {
 	}
 }
 
-// TestStatusLine_ARedOlderThanTheWindowRendersGreen states the other half of
+// ratchet: test_removed TestStatusLine_ARedOlderThanTheWindowRendersGreen: renamed,
+// not deleted. A stale red is still dropped; what it drops TO is white now, not a
+// green carrying an `unproven` tag. Same case, asserted below.
+//
+// TestStatusLine_ARedOlderThanTheWindowRendersWhite states the other half of
 // "real-time or nothing": an hour-old red with nothing after it describes a
 // tree the session has moved far past, and a badge nobody trusts is worse than
 // no badge. The age is written out rather than derived from the constant the
 // subject reads, so widening the window fails this test instead of moving it.
-func TestStatusLine_ARedOlderThanTheWindowRendersGreen(t *testing.T) {
+func TestStatusLine_ARedOlderThanTheWindowRendersWhite(t *testing.T) {
 	root := statusRoot(t)
 	stampOutcomeAt(t, "s1", root, string(Red), time.Now().Add(-31*time.Minute))
 
 	got := StatusLine(statusPayload(t, "s1", root))
-	if !strings.HasPrefix(got, ansiGreen) {
-		t.Fatalf("a red past the window must render green, got %q", got)
+	if !strings.HasPrefix(got, ansiWhite) {
+		t.Fatalf("a red past the window must stop reading as a failure, got %q", got)
 	}
-	if plain(got) != "[aphrollo:unproven]" {
-		t.Fatalf("StatusLine = %q, want the unproven badge — the stale red is dropped, but the tree "+
-			"it described has still not been measured since, and a bare badge would claim it passed", plain(got))
+	if plain(got) != "[aphrollo]" {
+		t.Fatalf("StatusLine = %q, want the plain badge — the stale red is dropped, and the colour "+
+			"already says the tree has not been measured since", plain(got))
 	}
 }
 
@@ -254,7 +270,7 @@ func TestStatusLine_IgnoresAnotherProjectsRed(t *testing.T) {
 	if err := s.save(path); err != nil {
 		t.Fatal(err)
 	}
-	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:unproven]" {
+	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo]" {
 		t.Fatalf("StatusLine = %q, want no red — another project's red is not this one's state, and "+
 			"this one has measured nothing", got)
 	}
@@ -282,7 +298,7 @@ func TestStatusLine_DropsDeferredOnceTheResultLanded(t *testing.T) {
 		t.Fatal("setup: job not saved")
 	}
 	writePhaseResult(j.Result, PhaseOutcome{ExitCode: 0, Seconds: 1})
-	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:unproven]" {
+	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo]" {
 		t.Fatalf("StatusLine = %q, want the deferred tag gone — a landed build result stops the badge "+
 			"claiming a build is running, and it is not itself a suite that passed", got)
 	}
