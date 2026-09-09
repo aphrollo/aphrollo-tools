@@ -110,9 +110,19 @@ func checkDocs(root string, stdout, stderr io.Writer) bool {
 // checkSqlc is `check`'s sqlc guard: sqlc.Check over every discovered config,
 // [skip] when the repo has none — a repo with no sqlc config is not gated by
 // it at all, that is not a finding.
+//
+// A discovery ERROR is a different thing entirely and is reported as a miss
+// with its reason: an unreadable repo dir or a config the parser rejects
+// leaves the guard unable to say whether the generated code has drifted, and
+// "this repo is not sqlc-gated" is a claim it has no evidence for. `sqlc
+// check` exits 1 on the identical call; the two verbs must not disagree.
 func checkSqlc(root string, stdout, stderr io.Writer) bool {
 	cfgs, err := sqlc.DiscoverConfigs(root)
-	if err != nil || len(cfgs) == 0 {
+	if err != nil {
+		fmt.Fprintf(stdout, "check: sqlc → error: %v\n", err)
+		return false
+	}
+	if len(cfgs) == 0 {
 		fmt.Fprintln(stdout, "check: sqlc → [skip] no sqlc config")
 		return true
 	}
