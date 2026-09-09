@@ -92,6 +92,19 @@ func packagesInArgv(argv []string) []string {
 	return out
 }
 
+// cleanExecFn runs the clean. Its OWN seam, deliberately not the mutation
+// run's: a test that stubs the run to inspect its argv would otherwise be
+// handed the clean's argv first, and would be asserting about the wrong
+// command.
+var cleanExecFn = runMutantsTool
+
+// setCleanExecForTest swaps the clean's runner for the duration of a test.
+func setCleanExecForTest(fn func(ctx context.Context, dir string, env, argv []string, log io.Writer) (int, error)) (restore func()) {
+	prev := cleanExecFn
+	cleanExecFn = fn
+	return func() { cleanExecFn = prev }
+}
+
 // cargoCleanTimeout bounds the clean. It reads a directory and unlinks files;
 // one that has not finished in this long is not going to.
 const cargoCleanTimeout = 2 * time.Minute
@@ -116,7 +129,7 @@ func cargoCleanPackages(root, target string, pkgs []string) error {
 	// REASON can appear. A locked file, a package spec that matched nothing
 	// and a broken toolchain all exit non-zero and are otherwise identical.
 	var said tailWriter
-	code, err := mutantsExecFn(ctx, root, env, argv, &said)
+	code, err := cleanExecFn(ctx, root, env, argv, &said)
 	if err != nil {
 		return err
 	}

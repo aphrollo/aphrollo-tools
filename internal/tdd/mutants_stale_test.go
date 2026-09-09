@@ -169,7 +169,7 @@ func writeArtifact(t *testing.T, path string) {
 // surgical clean falls back to removing the whole build dir, and it has to
 // carry cargo's own words.
 func TestCargoCleanPackages_FoldsCargosOwnMessageIntoTheError(t *testing.T) {
-	restore := SetMutantsExecForTest(func(ctx context.Context, dir string, env, argv []string, log io.Writer) (int, error) {
+	restore := setCleanExecForTest(func(ctx context.Context, dir string, env, argv []string, log io.Writer) (int, error) {
 		io.WriteString(log, "     Removing D:/Projects/.mutants/borld/target-0/debug\n"+
 			"error: failed to remove file `target-0/debug/deps/forge.pdb`\n"+
 			"Caused by: Access is denied. (os error 5)\n")
@@ -194,7 +194,7 @@ func TestCargoCleanPackages_FoldsCargosOwnMessageIntoTheError(t *testing.T) {
 // quotes is bounded: a clean that fails on every file in a build dir must not
 // paste that dir into the log.
 func TestCargoCleanPackages_BoundsWhatItQuotes(t *testing.T) {
-	restore := SetMutantsExecForTest(func(ctx context.Context, dir string, env, argv []string, log io.Writer) (int, error) {
+	restore := setCleanExecForTest(func(ctx context.Context, dir string, env, argv []string, log io.Writer) (int, error) {
 		for i := 0; i < 500; i++ {
 			io.WriteString(log, "error: failed to remove file number "+strconv.Itoa(i)+"\n")
 		}
