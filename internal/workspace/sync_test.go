@@ -344,3 +344,56 @@ func TestSync_RemotelessIsNonFatal(t *testing.T) {
 		t.Errorf("nothing to fast-forward toward should be a clean skip:\n%s", out.String())
 	}
 }
+
+// TestSync_NeverStrandsTheCheckoutHoldingTheDefaultBranch: the ref-only path
+// (`git update-ref refs/heads/<def> origin/<def>`) moves a ref that is SHARED
+// by every worktree of the repo, so it fires whenever the checkout sync was
+// pointed at is not itself on the default branch — including when another
+// worktree is. That checkout is then left past its own HEAD: its index and
+// files still hold the pre-merge content, so `git status` there shows the
+// commit that just landed as a STAGED REVERT (a `D <path>` for every file the
+// merge added), and the next commit made in it silently undoes the merge.
+// Issue #618, observed on the box after `workspace merge` landed PR #616.
+//
+// The invariant, whichever way the fix goes: the checkout that holds the
+// default branch is never left with a staged difference from its own HEAD, and
+// what stdout claims about the ref matches what the ref actually did.
+func TestSync_NeverStrandsTheCheckoutHoldingTheDefaultBranch(t *testing.T) {
+	clone := repoWithOrigin(t)
+	// The clone moves off main and a linked worktree takes it — so sync's
+	// "default branch is not checked out HERE" ref-only path is what runs,
+	// while a real checkout is sitting on the branch it moves.
+	gitRun(t, clone, "checkout", "-q", "-b", "feat/elsewhere")
+	holder := filepath.Join(t.TempDir(), "holder")
+	gitRun(t, clone, "worktree", "add", "-q", holder, "main")
+	advanceOrigin(t, clone, "other.txt", "other\n")
+
+	var out, errb bytes.Buffer
+	if err := Sync(clone, false, &out, &errb); err != nil {
+		t.Fatalf("Sync: %v\n%s", err, errb.String())
+	}
+
+	// STATE: no staged revert. An empty porcelain status is the whole point —
+	// the checkout's index and files agree with the HEAD it now reports.
+	st, err := exec.Command("git", "-C", holder, "status", "--porcelain").Output()
+	if err != nil {
+		t.Fatalf("git status in the holding worktree: %v", err)
+	}
+	if strings.TrimSpace(string(st)) != "" {
+		t.Errorf("the checkout holding main was left with uncommitted state — a staged revert of what just synced:\n%s\nstdout:\n%s", st, out.String())
+	}
+
+	// FACT: stdout's claim must match the ref. A reader must be able to tell
+	// "the checkout is at the new tip" from "the ref moved and it is not"
+	// without running a git command.
+	moved := revOf(t, clone, "refs/heads/main") == revOf(t, clone, "refs/remotes/origin/main")
+	claimed := strings.Contains(out.String(), "fast-forwarded main")
+	if claimed != moved {
+		t.Errorf("stdout claims a fast-forward=%v but refs/heads/main moved=%v:\n%s", claimed, moved, out.String())
+	}
+	if moved {
+		if _, err := os.Stat(filepath.Join(holder, "other.txt")); err != nil {
+			t.Errorf("main advanced, so the checkout holding it must have the new file: %v", err)
+		}
+	}
+}

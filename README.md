@@ -450,13 +450,22 @@ aphrollo workspace sync aphrollo-web --dry   # "would fast-forward main to origi
 - It runs `git fetch origin` (an offline / remote-less repo is a **non-fatal
   warning** — refreshing `origin/<default>` is the minimum win), then resolves
   the default branch (never hardcoded) and **fast-forwards it — strict FF only**:
-  - HEAD **is** the default branch → `git merge --ff-only origin/<default>`.
-    Git, not a pre-check, judges whether that is safe: an unrelated dirty file
-    is carried across untouched, and only a dirty path the incoming commits
-    themselves touch makes git refuse — sync prints git's own reason
+  - **some** worktree of the repo has the default branch checked out →
+    `git merge --ff-only origin/<default>` **in that worktree**, so its HEAD,
+    index and files move together (a sibling worktree holding it is named in
+    the output: `... (2 commit(s)) in <that worktree>`). Git, not a pre-check,
+    judges whether that is safe: an unrelated dirty file is carried across
+    untouched, and only a dirty path the incoming commits themselves touch
+    makes git refuse — sync prints git's own reason
     (`main could not fast-forward: <git's reason>`) and **exits 0**;
-  - the default branch is **not** the checked-out one → advance its ref with
-    `git update-ref` (no checkout, so a sibling worktree's files are untouched).
+  - **no** worktree has it checked out → advance the ref alone with
+    `git branch --force`, reported in full words so nobody has to run git to
+    know the tree did not move:
+    `fast-forwarded main ref to origin/main (2 commit(s)) — ref only, no checkout is on main`.
+    `branch --force` (not `update-ref`) is deliberate: it is the ref move git
+    itself refuses while a worktree holds the branch, so a raced answer costs a
+    refusal (`main ref NOT moved — a checkout holds it: …`), never a checkout
+    left behind its own HEAD with the merge staged as a revert.
 - It **never** `reset --hard`s, forces, or moves the branch when it has
   **diverged** (local commits ahead). A diverged clone is **left untouched**
   with a clear reason and **exit 0** (best-effort). The fetch still happens in
