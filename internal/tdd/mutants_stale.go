@@ -92,6 +92,19 @@ func packagesInArgv(argv []string) []string {
 	return out
 }
 
+// cleanExecFn runs the clean. Its OWN seam, deliberately not the mutation
+// run's: a test that stubs the run to inspect its argv would otherwise be
+// handed the clean's argv first, and would be asserting about the wrong
+// command.
+var cleanExecFn = runMutantsTool
+
+// setCleanExecForTest swaps the clean's runner for the duration of a test.
+func setCleanExecForTest(fn func(ctx context.Context, dir string, env, argv []string, log io.Writer) (int, error)) (restore func()) {
+	prev := cleanExecFn
+	cleanExecFn = fn
+	return func() { cleanExecFn = prev }
+}
+
 // cargoCleanTimeout bounds the clean. It reads a directory and unlinks files;
 // one that has not finished in this long is not going to.
 const cargoCleanTimeout = 2 * time.Minute
@@ -111,20 +124,67 @@ func cargoCleanPackages(root, target string, pkgs []string) error {
 	// cargo is part of a measurement that already holds the box-wide mutation
 	// lock, so it must not queue behind every editor on the machine.
 	env := append(os.Environ(), MutationGateEnv+"="+MutationGateMarked, "CI=1", "NO_COLOR=1")
-	code, err := runMutantsTool(ctx, root, env, argv, io.Discard)
+	// Kept, not discarded: when this fails the caller removes the whole build
+	// dir and prints one line about it, and that line is the only place the
+	// REASON can appear. A locked file, a package spec that matched nothing
+	// and a broken toolchain all exit non-zero and are otherwise identical.
+	var said tailWriter
+	code, err := cleanExecFn(ctx, root, env, argv, &said)
 	if err != nil {
 		return err
 	}
 	if code != 0 {
-		return &cleanExitError{code: code}
+		return &cleanExitError{code: code, said: said.String()}
 	}
 	return nil
 }
 
+// cleanTailBytes is how much of a failing clean's output is kept. Enough for
+// cargo's `error:` line and the `Caused by:` under it; far short of a build
+// dir's worth of removal failures, which belong in nobody's statusline.
+const cleanTailBytes = 400
+
+// tailWriter keeps the LAST cleanTailBytes written to it. The last lines are
+// where cargo puts its diagnosis; the first are a list of what it removed
+// before it hit the thing it could not.
+type tailWriter struct{ buf []byte }
+
+func (w *tailWriter) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+	if len(w.buf) > cleanTailBytes {
+		w.buf = w.buf[len(w.buf)-cleanTailBytes:]
+	}
+	return len(p), nil
+}
+
+// String folds the kept output into one line: this ends up inside a single
+// log line, and a message that breaks into five is one a reader skips.
+func (w *tailWriter) String() string {
+	var kept []string
+	for _, line := range strings.Split(string(w.buf), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			kept = append(kept, line)
+		}
+	}
+	if len(kept) > 3 {
+		// The first kept line is usually a fragment of one the cap cut in
+		// half, and the diagnosis is at the end regardless.
+		kept = kept[len(kept)-3:]
+	}
+	return strings.Join(kept, " / ")
+}
+
 // cleanExitError is a non-zero cargo clean, named so the caller's message says
 // what happened rather than printing a bare number.
-type cleanExitError struct{ code int }
+type cleanExitError struct {
+	code int
+	said string
+}
 
 func (e *cleanExitError) Error() string {
-	return "cargo clean exited " + strconv.Itoa(e.code)
+	msg := "cargo clean exited " + strconv.Itoa(e.code)
+	if e.said != "" {
+		msg += ": " + e.said
+	}
+	return msg
 }
