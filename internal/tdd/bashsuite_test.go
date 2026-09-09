@@ -1,11 +1,34 @@
 package tdd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+// seedGateLogEntry writes one gate.log line by hand, at a chosen age.
+// appendGateLog can only stamp "now", and a test about what a refusal SAYS
+// about a verdict's age needs an age it did not have to wait for.
+func seedGateLogEntry(t *testing.T, cfg, stage, root, verdict string, age time.Duration) {
+	t.Helper()
+	dir := filepath.Join(cfg, "gate-state")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line := fmt.Sprintf("%s %s %s go test ./... %s 1.0s\n",
+		time.Now().Add(-age).UTC().Format(time.RFC3339), stage, root, verdict)
+	f, err := os.OpenFile(filepath.Join(dir, "gate.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(line); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // bashSuiteRoot makes a directory findRootFrom resolves as a project root,
 // with no git and no suite actually runnable — DecideBashSuite never runs
@@ -61,8 +84,9 @@ func TestDecideBashSuite_AllowsWholeSuiteWhenNoFreshVerdictExists(t *testing.T) 
 }
 
 // The sanctioned escape after an inconclusive TIMEOUT/SKIPPED line is a
-// narrowed rerun, and it must stay allowed even beside a fresh verdict — the
-// fresh verdict just makes the run notable enough to count.
+// narrowed rerun: the code was not tested, so the rerun is the only way to
+// an answer and must never be refused. The recent (inconclusive) line is
+// what makes the run notable enough to count.
 func TestDecideBashSuite_AllowsANarrowedRerunAfterAFreshVerdict(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -76,12 +100,16 @@ func TestDecideBashSuite_AllowsANarrowedRerunAfterAFreshVerdict(t *testing.T) {
 }
 
 // cargo test's own narrowing shape (-p <crate> <filter>) must stay allowed
-// too — the classifier is not go-test-only.
+// too after an inconclusive verdict — the classifier is not go-test-only.
+// (The verdict seeded here was a green until issue #572 made a narrowed
+// rerun beside a SETTLED verdict a block; what this case is about is the
+// shape, so it now stands beside the inconclusive verdict the escape exists
+// for.)
 func TestDecideBashSuite_AllowsACargoPackageNarrowedRerun(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "cargo test", "green", 0)
+	appendGateLog("postedit", root, "cargo test", "timeout", 0)
 
 	d := decideBash(t, "s1", root, "cargo test -p widgets widget_roundtrip")
 	if d.Action != Allow {
@@ -90,12 +118,12 @@ func TestDecideBashSuite_AllowsACargoPackageNarrowedRerun(t *testing.T) {
 }
 
 // cargo nextest run's own -p narrowing must stay allowed too, matching
-// cargo test's.
+// cargo test's — same inconclusive-verdict standing, for the same reason.
 func TestDecideBashSuite_AllowsACargoNextestPackageNarrowedRerun(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "cargo nextest run", "green", 0)
+	appendGateLog("postedit", root, "cargo nextest run", "queued-skipped", 0)
 
 	d := decideBash(t, "s1", root, "cargo nextest run -p widgets")
 	if d.Action != Allow {
@@ -220,4 +248,96 @@ func TestDecideBashSuite_IgnoresCommandsThatAreNotTestRunners(t *testing.T) {
 	if judged {
 		t.Fatal("a non-test command must not be judged at all")
 	}
+}
+
+// TestDecideBashSuite_DeniesANarrowedRerunBesideAFreshGreen pins issue #572:
+// a narrowing was an unconditional pass, logged override-bash-narrowed 78
+// times in seven days. The rule it was written for is "never refuse a rerun
+// after an INCONCLUSIVE verdict"; beside a green the hook itself just
+// delivered, the same rerun is exactly the redundant run the policy forbids.
+func TestDecideBashSuite_DeniesANarrowedRerunBesideAFreshGreen(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := bashSuiteRoot(t)
+	appendGateLog("postedit", root, "go test ./internal/tdd", "green", 0)
+
+	d := decideBash(t, "s1", root, "go test -run TestWidget ./internal/tdd")
+	if d.Action != Block {
+		t.Fatalf("want Block for a narrowed rerun beside a fresh green, got %v (reason %q)", d.Action, d.Reason)
+	}
+}
+
+// A fresh RED is just as settled as a green: the hook already said what is
+// broken, and running one of its tests again by hand does not make that line
+// any truer.
+func TestDecideBashSuite_DeniesANarrowedRerunBesideAFreshRed(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := bashSuiteRoot(t)
+	appendGateLog("postedit", root, "go test ./internal/tdd", "red", 0)
+
+	d := decideBash(t, "s1", root, "go test -run TestWidget ./internal/tdd")
+	if d.Action != Block {
+		t.Fatalf("want Block for a narrowed rerun beside a fresh red, got %v (reason %q)", d.Action, d.Reason)
+	}
+}
+
+// The safety case #572 must not touch: after an inconclusive verdict the code
+// was NOT tested, and a narrowed rerun is the sanctioned way to get an answer
+// at all. deferred-abandoned is the newest member of that family (issue
+// #571), so it is the one asserted here.
+func TestDecideBashSuite_AllowsANarrowedRerunAfterAnAbandonedDeferredJob(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := bashSuiteRoot(t)
+	appendGateLog("postedit", root, "go test ./internal/tdd", DeferredAbandoned, 0)
+
+	d := decideBash(t, "s1", root, "go test -run TestWidget ./internal/tdd")
+	if d.Action != Allow {
+		t.Fatalf("a narrowed rerun after %s must stay allowed, got %v (reason %q)", DeferredAbandoned, d.Action, d.Reason)
+	}
+}
+
+// The refusal has to hand the session the log line it should read instead:
+// the verdict, and how long ago it was recorded. Without the age a session
+// cannot tell an answer about the code it just wrote from one about the tree
+// as it stood an hour back.
+func TestDecideBashSuite_NarrowedDenyReasonNamesTheVerdictAndItsAge(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := bashSuiteRoot(t)
+	seedGateLogEntry(t, cfg, "postedit", root, "green", 2*time.Minute)
+
+	d := decideBash(t, "s1", root, "go test -run TestWidget ./internal/tdd")
+	if d.Action != Block {
+		t.Fatalf("setup: want Block, got %v (reason %q)", d.Action, d.Reason)
+	}
+	for _, want := range []string{"green", "2m0s"} {
+		if !strings.Contains(d.Reason, want) {
+			t.Errorf("deny reason %q must name %q", d.Reason, want)
+		}
+	}
+}
+
+// A mutation proof IS a narrowed rerun beside a fresh green by construction
+// (mutate the code, run the one test, expect it to fail), and this repo
+// sanctions it explicitly. Marked like a soak, allowed like a soak, and
+// counted like a soak — an escape nobody can see is an escape nobody can
+// judge.
+func TestDecideBashSuite_AllowsAndCountsAMarkedMutationProof(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := bashSuiteRoot(t)
+	appendGateLog("postedit", root, "go test ./internal/tdd", "green", 0)
+
+	raw := bashPayload(t, "s1", root, "MUTATION=1 go test -run TestWidget ./internal/tdd")
+	d, judged := DecideBashSuite(raw)
+	if !judged {
+		t.Fatal("a marked mutation proof must still be judged")
+	}
+	if d.Action != Allow {
+		t.Fatalf("a marked mutation proof must stay allowed, got %v (reason %q)", d.Action, d.Reason)
+	}
+	LogBashSuiteDecision(raw, d)
+	requireLoggedVerdict(t, cfg, "override-bash-mutation-proof")
 }

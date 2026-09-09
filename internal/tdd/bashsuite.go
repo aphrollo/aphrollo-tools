@@ -87,28 +87,81 @@ func DecideBashSuite(raw []byte) (Decision, bool) {
 		return Decision{Action: Allow, Escapes: []string{"override-bash-soak"}}, true
 	}
 	if shape == narrowedSuiteInvocation {
-		return decideNarrowedSuite(in.Cwd), true
+		return decideNarrowedSuite(in.Cwd, cmd), true
 	}
 	return decideWholeSuite(in.Cwd), true
 }
 
-// decideNarrowedSuite always allows — a narrowed rerun is the sanctioned
-// escape after an inconclusive verdict and must never be refused. It is
-// counted only when it runs beside SOME recent gate.log activity for this
-// tree, settled or not: a recent timeout/skipped is exactly the case this
-// escape exists for, and a recent green makes it the same shape as a
-// mutation proof's targeted rerun. With nothing recent on record at all it
-// is the ordinary single-test run a session makes while writing code, which
-// is not notable and must not turn gate.log into a keystroke transcript.
-func decideNarrowedSuite(cwd string) Decision {
+// decideNarrowedSuite judges a narrowed rerun against what the gate already
+// answered for this tree. Three outcomes, and the split is the whole of issue
+// #572:
+//
+//   - A fresh SETTLED verdict (green/red) on record: blocked. The narrowing
+//     rule was written so that a rerun after an INCONCLUSIVE verdict is never
+//     refused, which is right; an unconditional allow also let a narrowed run
+//     stand beside a green or red the hook had just delivered — the redundant
+//     run the policy forbids, and 78 override-bash-narrowed lines in seven
+//     days. The refusal names the verdict and its age so the session reads
+//     that line instead of re-running for it.
+//   - Recent activity that is NOT a settled verdict (TIMEOUT, SKIPPED,
+//     QUEUED-SKIPPED, deferred-abandoned, infra-failed, a job still
+//     deferred): allowed and counted. The code was not tested; this rerun is
+//     the only route to an answer and must never be refused.
+//   - Nothing recent at all: allowed, uncounted. That is the ordinary
+//     single-test run a session makes while writing code, and counting it
+//     would turn gate.log into a keystroke transcript.
+//
+// A mutation proof is the one narrowed rerun that legitimately stands beside
+// a fresh green, and it says so for itself — see hasMutationProofMarker.
+func decideNarrowedSuite(cwd, cmd string) Decision {
 	root := findRootFrom(cwd)
 	if root == "" {
 		return Decision{Action: Allow}
+	}
+	if entry, fresh := lastFreshSuiteVerdict(root); fresh {
+		if hasMutationProofMarker(cmd) {
+			return Decision{Action: Allow, Escapes: []string{"override-bash-mutation-proof"}}
+		}
+		return Decision{
+			Action: Block,
+			Policy: "bash-narrowed-rerun",
+			Reason: denyNarrowedRerunReason(root, entry),
+		}
 	}
 	if _, recent := lastSuiteLogEntry(root, bashSuiteVerdictFreshFor); recent {
 		return Decision{Action: Allow, Escapes: []string{"override-bash-narrowed"}}
 	}
 	return Decision{Action: Allow}
+}
+
+// denyNarrowedRerunReason names the line the session should read instead: the
+// verdict, the stage that produced it and how old it is — without the age a
+// caller cannot tell an answer about the code just written from one about the
+// tree an hour back. It also names the two ways forward, because a refusal
+// with no route out is answered by rewording the command.
+func denyNarrowedRerunReason(root string, e gateEntry) string {
+	ago := time.Since(e.at).Round(time.Second)
+	return fmt.Sprintf(
+		"the gate already holds a %s verdict for %s from the %s stage, logged %s ago — "+
+			"re-running one of its tests by hand answers nothing that line does not. Read it with "+
+			"`aphrollo gate stats`. A narrowed rerun is for an INCONCLUSIVE verdict (TIMEOUT, SKIPPED, "+
+			"QUEUED-SKIPPED, %s, %s, or none logged), where the code was never tested; if this is a "+
+			"mutation proof, name it (MUTATION=1 …) so it is allowed and counted.",
+		e.verdict, root, e.stage, ago, DeferredAbandoned, InfraFailed)
+}
+
+// hasMutationProofMarker reports whether the raw command names a mutation
+// proof deliberately. Same shape as hasSoakMarker, for the same reason: a
+// mutation proof IS a narrowed rerun beside a fresh green by construction
+// (break the code, run the one test, expect it to fail), so it cannot be told
+// from a redundant one by looking at the command — the session says which it
+// is, and every use is counted. The match is deliberately loose (a test whose
+// own NAME carries the word passes too): fail-open is the direction this file
+// owes, since a false deny leaves a session with no way to prove a mutant
+// died.
+func hasMutationProofMarker(cmd string) bool {
+	lower := strings.ToLower(cmd)
+	return strings.Contains(lower, "mutation") || strings.Contains(lower, "mutant")
 }
 
 // decideWholeSuite denies only when the tree already carries a fresh,
