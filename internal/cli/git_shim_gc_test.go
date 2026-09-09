@@ -124,7 +124,7 @@ func TestWorktreeSweep_RunsAfterTheLockIsReleased(t *testing.T) {
 
 	release := func() { order = append(order, "release") }
 	runGitWithLock(release, "", gitStub(t), []string{"worktree", "prune"},
-		strings.NewReader(""), io.Discard, io.Discard)
+		strings.NewReader(""), io.Discard, io.Discard, nil)
 
 	if len(order) != 2 || order[0] != "release" || order[1] != "sweep" {
 		t.Fatalf("order = %v, want the lock released before the sweep walks the disk", order)
