@@ -1322,7 +1322,7 @@ accepts either. `contiguous` applies in whichever direction is chosen.
 | `dep-graph-ceiling` | `roots`, `edges`, `counts`, `min_reachable` | how MUCH a root may reach at all: one hit per root, weighted by the count of packages reachable from it, so the baseline ceilings that count the way `json-number-ceiling` ceilings a measured number | a crate whose fan-out across the workspace nobody was watching |
 | `file-set-containment` | `superset_file`, `subset_file`, `capture` OR `subset_capture`+`superset_capture` | every capture in `subset_file` must also appear in `superset_file` | a headless stand-in whose query must refuse at least what the real one refuses |
 | `json-number-ceiling` | `files`, `path`, `tolerance_pct`, `enabled_env` | a number read out of generated JSON may not exceed its baseline by more than the tolerance | a criterion bench figure nobody was reading |
-| `symbol-removed` | `pattern` (exactly one capture group) | a symbol captured at `--base <ref>` must still be captured somewhere in scope at the current tree, or be admitted by a tombstone comment naming it and a reason | a deleted test, invisible to every file-at-a-time law |
+| `symbol-removed` | `pattern` (exactly one capture group) | a symbol captured at `--base <ref>` must still be captured somewhere in scope at the current tree, or be admitted by a tombstone comment naming it and a reason (or naming the PATH it stood in, once that whole file is gone and nothing from it survives) | a deleted test, invisible to every file-at-a-time law |
 
 The last five judge a whole TREE rather than a file at a time, and each
 refuses to reach a VACUOUS verdict: a dependency walk that resolved nothing, a
@@ -1524,7 +1524,22 @@ again, so a plain rename reports under the OLD name while a name that moved
 to a different file, unchanged, reports nothing at all. The one way through
 besides restoring it is a tombstone comment left where the symbol stood:
 `// ratchet: <law name> <symbol>: <reason>` (or `#`), with a REASON after
-the colon — a stub with nothing after it admits nothing. Run with no base at
+the colon — a stub with nothing after it admits nothing.
+
+A tombstone may name a repo-relative PATH instead of a symbol (anything
+carrying a `/` or a `.` is read as one), and then it admits every symbol that
+stood in that file at base. That is for the case #574 measured — a whole test
+file deleted along with the subject its tests exercised, which cost one lane
+318 of its 369 tombstone lines, each naming a test whose subject was already
+gone. It is the narrowest reading of the claim, because a bulk admission is
+also what a cheat looks like: the file must be GONE at tip (a file still
+standing admits nothing, so deleting the one failing test out of a surviving
+file still needs a tombstone naming that test), and NOTHING captured in it at
+base may survive anywhere at tip (a file whose tests turn up elsewhere was
+split, not retired, and each still-missing test needs its own line). Neither
+condition is a statement of intent; both are checked against the tip.
+
+Run with no base at
 all (the pre-edit hook's shape: one `--proposed` file and nothing else) the
 law answers nothing rather than guessing, and says so once in a note rather
 than reporting a false clean. It carries no baseline file of its own: every
