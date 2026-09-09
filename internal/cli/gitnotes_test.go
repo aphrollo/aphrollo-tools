@@ -246,3 +246,52 @@ func TestPushRemote_StaysOutOfADeleteMirrorOrAllPush(t *testing.T) {
 		})
 	}
 }
+
+// `git -C <other repo> push` is a push against THAT repo, and the note that
+// belongs with it is that repo's. The shim resolved the note from its own
+// process cwd instead, so a push into a temp repo sent THIS checkout's
+// refs/notes/gate to THIS checkout's remote: the wrong note, the wrong
+// remote, and — with the remote reached over HTTPS and no credential helper
+// in scope for the repo the shim was standing in — a blocking `git-askpass`
+// dialog on the user's desktop, one per push, in the middle of a test run.
+func TestGitShim_PushesTheNoteOfTheRepoDashCNamed(t *testing.T) {
+	withDirectGitShim(t)
+	elsewhere, elsewhereRemote := notesRepo(t)
+	standingIn, standingRemote := notesRepo(t)
+	t.Chdir(standingIn)
+
+	var out, errb bytes.Buffer
+	cfg := gitShimConfig{waitBudget: 5 * time.Second, pollInterval: 10 * time.Millisecond, realGit: "git"}
+	if code := runGitShim([]string{"-C", elsewhere, "push", "origin", "main"}, strings.NewReader(""), &out, &errb, cfg); code != 0 {
+		t.Fatalf("push exit = %d\nstdout: %s\nstderr: %s", code, out.String(), errb.String())
+	}
+	if !remoteHasNotesRef(t, elsewhereRemote) {
+		t.Errorf("the note of the repo -C named did not reach its remote\nstderr: %s", errb.String())
+	}
+	if remoteHasNotesRef(t, standingRemote) {
+		t.Errorf("the shim pushed the note of the repo it was STANDING in — that remote is not the one " +
+			"the operator pushed to, and reaching it can cost a credential prompt nobody asked for")
+	}
+}
+
+// The notes push is best effort and runs behind the operator's push, so it
+// has no business asking anyone anything: git's terminal prompt is off, both
+// askpass hooks are cleared, and the credential helper is told not to go
+// interactive. Without this a push into a repo with no helper in scope opens
+// a `git-askpass` window and BLOCKS until a human dismisses it.
+func TestGateNotesPushCmd_CanNeverPrompt(t *testing.T) {
+	cmd := gateNotesPushCmd("git", t.TempDir(), "origin")
+
+	joined := strings.Join(cmd.Args, " ")
+	for _, want := range []string{"credential.interactive=false", "core.askPass="} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("argv = %q, want %q — a helper that opens a window blocks the push behind it", joined, want)
+		}
+	}
+	env := strings.Join(cmd.Env, "\n")
+	for _, want := range []string{"GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS="} {
+		if !strings.Contains(env, want) {
+			t.Errorf("env lacks %q — every path git can take to a prompt has to be closed, not most of them", want)
+		}
+	}
+}
