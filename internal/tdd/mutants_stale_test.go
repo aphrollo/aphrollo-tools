@@ -161,3 +161,57 @@ func writeArtifact(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 }
+
+// `cargo clean exited 101` names the code and nothing else, so a locked file,
+// an unmatched package spec and a broken toolchain all read identically —
+// and the run's output went to io.Discard, so the one place the reason
+// existed was thrown away. This is the line a session actually sees when a
+// surgical clean falls back to removing the whole build dir, and it has to
+// carry cargo's own words.
+func TestCargoCleanPackages_FoldsCargosOwnMessageIntoTheError(t *testing.T) {
+	restore := SetMutantsExecForTest(func(ctx context.Context, dir string, env, argv []string, log io.Writer) (int, error) {
+		io.WriteString(log, "     Removing D:/Projects/.mutants/borld/target-0/debug\n"+
+			"error: failed to remove file `target-0/debug/deps/forge.pdb`\n"+
+			"Caused by: Access is denied. (os error 5)\n")
+		return 101, nil
+	})
+	defer restore()
+
+	err := cargoCleanPackages(t.TempDir(), t.TempDir(), []string{"forge", "forge_solver"})
+
+	if err == nil {
+		t.Fatal("a non-zero clean must be an error")
+	}
+	for _, want := range []string{"101", "Access is denied. (os error 5)"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to name %q — the exit code alone tells a session nothing "+
+				"about which failure it hit", err.Error(), want)
+		}
+	}
+}
+
+// The message is one line inside a run that already prints a lot, so what it
+// quotes is bounded: a clean that fails on every file in a build dir must not
+// paste that dir into the log.
+func TestCargoCleanPackages_BoundsWhatItQuotes(t *testing.T) {
+	restore := SetMutantsExecForTest(func(ctx context.Context, dir string, env, argv []string, log io.Writer) (int, error) {
+		for i := 0; i < 500; i++ {
+			io.WriteString(log, "error: failed to remove file number "+strconv.Itoa(i)+"\n")
+		}
+		return 101, nil
+	})
+	defer restore()
+
+	err := cargoCleanPackages(t.TempDir(), t.TempDir(), []string{"forge"})
+
+	if err == nil {
+		t.Fatal("a non-zero clean must be an error")
+	}
+	if n := len(err.Error()); n > 600 {
+		t.Errorf("error is %d bytes, want it bounded — a failing clean must not paste a build dir "+
+			"into the run's log", n)
+	}
+	if !strings.Contains(err.Error(), "number 499") {
+		t.Errorf("error = %q, want the LAST lines — cargo's own diagnosis is what it ends with", err.Error())
+	}
+}
