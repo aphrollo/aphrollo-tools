@@ -154,9 +154,9 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   (**inconclusive — the code was NOT tested**) · `BUILDING (deferred)` (the build outran the
   budget and continues; its result arrives at the next hook). The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE targeted `-p <crate> <filter>` after a TIMEOUT.
 - **Commit gate, cheapest first:** staged-baseline guard → ratchet laws → docs check →
-  suppression check → per root: cargo sequential (fmt→guards→clippy→check→fail-first→
-  suites); a Go root also runs vet/lint first; every non-cargo root then runs fail-first
-  and the mechanical suite CONCURRENTLY.
+  suppression check → per root: cargo sequential (fmt→guards→clippy→check→fail-first);
+  a Go root also runs vet/lint first. It proves the staged test RED and STOPS — the
+  mechanical suite runs at the MERGE, so no suites line at commit is CORRECT, not missing.
 - **Laws are data:** `.ratchet/laws/*.toml` (scope + one matcher + severity), with baselines in
   the sibling `baselines` dir that only ever go DOWN. `aphrollo ratchet check` judges the tree
   and tightens; `aphrollo ratchet test` proves each law against its fixtures. A new hit is
