@@ -6,17 +6,16 @@ import (
 	"testing"
 )
 
-// The shard count is derived on the assumption that ONE shard is a bounded
-// build: MutantsJobsCap takes min(cores/3, ramGB/8, 8), which budgets 8 GB of
-// RAM for each shard. Nothing enforced that. Until the shards genuinely ran
-// side by side only one tree copy ever fit on the disk, so they ran one at a
-// time; now every shard's cargo defaults to the whole machine, and N shards
-// wide open is N times the memory the shard count budgeted — which ends as an
-// OOM or as swap thrash, losing every verdict the run had reached.
+// The shard count is derived on the assumption that the shards' builds are
+// bounded: MutantsJobsCap takes min(cores/3, ramGB/8, 8). Nothing enforced
+// that — every shard's cargo defaulted to the whole machine, and N shards
+// wide open is N times the memory the shard count budgeted, which ends as an
+// OOM or as swap thrash that takes every verdict the run had reached.
 //
-// Both terms are derived from the box at runtime and the smaller wins, which
-// is the same shape the shard count's own derivation has. The memory term is
-// the one that matters: it is the one the shard count claimed to enforce.
+// The budget is the RUN's: a total number of concurrent cargo jobs, the
+// smaller of the two terms the box offers, divided between the shards. Both
+// terms are derived from the box at runtime, and the arithmetic is in the
+// answer so a narrow run explains itself.
 func TestMutantsBuildJobsCap_TakesTheSmallerOfTheCoreAndMemoryTerms(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -25,32 +24,71 @@ func TestMutantsBuildJobsCap_TakesTheSmallerOfTheCoreAndMemoryTerms(t *testing.T
 		jobs                 int
 		why                  string
 	}{
-		// Cores to spare, memory the constraint: four shards of a 16 GB box
-		// have 4 GB each, which is two 2 GB rustc jobs.
+		// Cores to spare, memory the constraint: a 16 GB box carries eight
+		// warm 2 GB rustc jobs in total, which is two for each of four shards.
 		{name: "many cores, little memory", cores: 64, ramGB: 16, shards: 4,
-			jobs: 2, why: "min(cores 64/4=16, ram 16GB/4/2=2) — ram"},
+			jobs: 2, why: "min(cores 64, ram 16GB/2GB=8) — ram: 8 total across 4 shards, warm"},
 		// Memory to spare, cores the constraint.
 		{name: "much memory, few cores", cores: 8, ramGB: 256, shards: 4,
-			jobs: 2, why: "min(cores 8/4=2, ram 256GB/4/2=32) — cores"},
+			jobs: 2, why: "min(cores 8, ram 256GB/2GB=128) — cores: 8 total across 4 shards, warm"},
 		// More shards than cores: the floor, because cargo cannot build with
-		// no jobs at all. Both terms reach zero here and neither is SMALLER,
-		// so the cores term is named — a tie is not the memory term winning.
+		// no jobs at all — and the report says the floor was reached, since
+		// the shards then run wider together than the budget allowed. Both
+		// terms are 4 here and neither is SMALLER, so the cores term is named:
+		// a tie is not the memory term winning.
 		{name: "more shards than cores", cores: 4, ramGB: 8, shards: 8,
-			jobs: 1, why: "min(cores 4/8=0, ram 8GB/8/2=0) — cores"},
+			jobs: 1, why: "min(cores 4, ram 8GB/2GB=4) — cores: 4 total across 8 shards, warm, floored at 1 per shard"},
 		// Memory that could not be READ is not memory that is absent: an
 		// unknown reading does not constrain, exactly as in MutantsJobsCap.
 		{name: "memory unknown", cores: 12, ramGB: 0, shards: 3,
-			jobs: 4, why: "min(cores 12/3=4, ram unknown) — cores"},
+			jobs: 4, why: "min(cores 12, ram unknown) — cores: 12 total across 3 shards, warm"},
 		// The lone re-run: one shard, the whole box, which is what having it
 		// to itself means.
 		{name: "one shard has the box", cores: 12, ramGB: 64, shards: 1,
-			jobs: 12, why: "min(cores 12/1=12, ram 64GB/1/2=32) — cores"},
+			jobs: 12, why: "min(cores 12, ram 64GB/2GB=32) — cores: 12 total across 1 shard, warm"},
 	} {
-		jobs, why := mutantsBuildJobsCap(c.cores, c.ramGB, c.shards)
+		jobs, why := mutantsBuildJobsCap(c.cores, c.ramGB, c.shards, false)
 		if jobs != c.jobs || why != c.why {
 			t.Errorf("%s: mutantsBuildJobsCap(%d, %d, %d) = (%d, %q), want (%d, %q)",
 				c.name, c.cores, c.ramGB, c.shards, jobs, why, c.jobs, c.why)
 		}
+	}
+}
+
+// The budget is the whole RUN's, and a COLD job is priced at what a cold job
+// really costs. Both halves of that sentence are the regression (issue #609).
+//
+// The failing run's own numbers: 24 cores, 63 GB, a pagefile pinned at 16 GB,
+// seven shards. The per-shard cap answered `min(cores 24/7=3, ram 63GB/7/2=4)
+// — cores` and the memory term never bound anything, so 21 rustc processes
+// started cold builds together. A cold rustc on that repo's crates peaks at
+// 3-6 GB, so the run asked for 63-126 GB against about 79 GB of total commit
+// and every one of the seven baselines died — os error 1455, then
+// 0xc0000142, then the corrupted metadata of the processes that were killed.
+//
+// So the memory term is priced per PHASE and has to be able to bind: seven
+// cold shards get one job each, and the same box warm keeps the three it
+// always had, because the working repo's 15-minute seven-shard run must not
+// get slower.
+func TestMutantsBuildJobsCap_PricesAColdJobAtWhatAColdJobCosts(t *testing.T) {
+	t.Parallel()
+	const cores, ramGB, shards = 24, 63, 7
+
+	cold, coldWhy := mutantsBuildJobsCap(cores, ramGB, shards, true)
+	warm, warmWhy := mutantsBuildJobsCap(cores, ramGB, shards, false)
+
+	if want := "min(cores 24, ram 63GB/6GB=10) — ram: 10 total across 7 shards, cold"; cold != 1 || coldWhy != want {
+		t.Errorf("cold = (%d, %q), want (1, %q)", cold, coldWhy, want)
+	}
+	if want := "min(cores 24, ram 63GB/2GB=31) — cores: 24 total across 7 shards, warm"; warm != 3 || warmWhy != want {
+		t.Errorf("warm = (%d, %q), want (3, %q) — the working case must not get narrower", warm, warmWhy, want)
+	}
+	// Derived from the incident rather than from the formula: whatever the
+	// arithmetic is, every cold job the run may start at once has to fit in
+	// the memory the box actually has.
+	if got := cold * shards * mutantsRAMGBPerColdBuildJob; got > ramGB {
+		t.Errorf("%d shards x %d cold jobs x %d GB = %d GB on a %d GB box — the budget does not bound the run",
+			shards, cold, mutantsRAMGBPerColdBuildJob, got, ramGB)
 	}
 }
 
@@ -61,12 +99,12 @@ func TestMutantsBuildJobs_RepoOverrideBeatsTheDerivedCap(t *testing.T) {
 	// A box the derivation would hold to one job per shard.
 	t.Cleanup(setMutantsBoxForTest(4, 4))
 
-	derived, _ := mutantsBuildJobsForShards(MutantsConfig{}, 4)
+	derived, _ := mutantsBuildJobsForShards(MutantsConfig{}, 4, false)
 	if derived != 1 {
 		t.Fatalf("derived jobs = %d, want the floor on a box this small — the override has nothing to beat", derived)
 	}
 
-	jobs, why := mutantsBuildJobsForShards(MutantsConfig{BuildJobs: 9}, 4)
+	jobs, why := mutantsBuildJobsForShards(MutantsConfig{BuildJobs: 9}, 4, false)
 	if jobs != 9 {
 		t.Errorf("jobs = %d, want the declared 9 honoured verbatim", jobs)
 	}
@@ -108,12 +146,12 @@ func TestMeasureShardEnv_CarriesTheBuildJobCapForTheShardsItRunsWith(t *testing.
 	t.Setenv("CARGO_BUILD_JOBS", "64")
 	t.Cleanup(setMutantsBoxForTest(24, 64))
 
-	four := envValueOf(measureShardEnv(root, MutantsConfig{}, 1, 4), "CARGO_BUILD_JOBS")
-	if four != "6" { // min(cores 24/4=6, ram 64GB/4/2=8)
+	four := envValueOf(measureShardEnv(root, MutantsConfig{}, 1, 4, false), "CARGO_BUILD_JOBS")
+	if four != "6" { // min(cores 24, ram 64GB/2GB=32) = 24 total, 6 each
 		t.Errorf("CARGO_BUILD_JOBS = %q with four shards, want %q", four, "6")
 	}
-	two := envValueOf(measureShardEnv(root, MutantsConfig{}, 1, 2), "CARGO_BUILD_JOBS")
-	if two != "12" { // min(cores 24/2=12, ram 64GB/2/2=16)
+	two := envValueOf(measureShardEnv(root, MutantsConfig{}, 1, 2, false), "CARGO_BUILD_JOBS")
+	if two != "12" { // min(cores 24, ram 64GB/2GB=32) = 24 total, 12 each
 		t.Errorf("CARGO_BUILD_JOBS = %q with two shards, want %q — a run reduced to two shards must not "+
 			"keep the width it would have used with four", two, "12")
 	}

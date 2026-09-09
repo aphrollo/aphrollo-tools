@@ -7,11 +7,15 @@ import (
 	"testing"
 )
 
-// measuredCall is one invocation the runner's exec seam received.
+// measuredCall is one invocation the runner's exec seam received. Log is the
+// writer the real tool's stdout and stderr go to, so a stand-in can produce
+// the OUTPUT a run is judged on — a shard that died of the box is recognised
+// from what it printed, not from its exit code alone.
 type measuredCall struct {
 	Dir  string
 	Env  []string
 	Argv []string
+	Log  io.Writer
 }
 
 // stubMutantsExec replaces the runner's exec seam for one test and records
@@ -37,7 +41,7 @@ func stubMutantsExec(t *testing.T, reply func(ctx context.Context, n int, c meas
 	var mu sync.Mutex
 	mutantsExecFn = func(ctx context.Context, dir string, env, argv []string, log io.Writer) (int, error) {
 		mu.Lock()
-		*calls = append(*calls, measuredCall{Dir: dir, Env: env, Argv: argv})
+		*calls = append(*calls, measuredCall{Dir: dir, Env: env, Argv: argv, Log: log})
 		n, call := len(*calls), (*calls)[len(*calls)-1]
 		mu.Unlock()
 		if reply == nil {

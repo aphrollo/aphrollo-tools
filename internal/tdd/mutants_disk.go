@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,6 +33,26 @@ import (
 
 // doctorDiskWarnGB is where `gate doctor` starts saying the box is tight.
 const doctorDiskWarnGB = 30
+
+// reportShardBuildDirs says what the run's persistent build directories
+// actually hold, per shard and in total, once the shards have finished.
+//
+// It is the number nobody has: the disk budget guesses mutantsColdTargetBytes
+// for a shard that has never built, and every proposal to build one warm tree
+// and clone it to the other shards stands or falls on how big that tree
+// really is — a few gigabytes makes cloning obvious, thirty makes it a way to
+// fill a drive. Reported rather than acted on, in the run's own vocabulary
+// beside the shard count and the build width.
+func reportShardBuildDirs(root string, shards int, log io.Writer) {
+	parts := make([]string, 0, shards)
+	var total int64
+	for i := range shards {
+		_, size := dirNewestAndSize(mutantsShardTargetDir(root, i))
+		total += size
+		parts = append(parts, fmt.Sprintf("shard %d %s", i, formatBytes(size)))
+	}
+	logf(log, "mutants: build dirs after the run: %s (%s total)", strings.Join(parts, ", "), formatBytes(total))
+}
 
 // nearestExistingDir walks up until it finds a directory that exists, so a
 // build dir that has not been created yet is still measured on the right

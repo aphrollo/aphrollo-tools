@@ -26,7 +26,7 @@ func TestMeasureEnv_BuildsInItsOwnTargetDirRatherThanTheLanes(t *testing.T) {
 
 	seen := map[string]bool{}
 	for shard := range 2 {
-		env := measureShardEnv(root, MutantsConfig{}, shard, 2)
+		env := measureShardEnv(root, MutantsConfig{}, shard, 2, false)
 		got := envValueOf(env, "CARGO_TARGET_DIR")
 		if want := mutantsShardTargetDir(root, shard); got != want {
 			t.Errorf("shard %d builds in %q, want its own persistent %q", shard, got, want)

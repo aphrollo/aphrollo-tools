@@ -1,6 +1,8 @@
 package tdd
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,5 +111,38 @@ func TestGCTempTargetDir_IgnoresADirectoryCargoNeverMade(t *testing.T) {
 
 	if got := gcTempTargetDirs([]string{tmp}, time.Now()); len(got) != 0 {
 		t.Fatalf("candidates = %+v, want nothing without CACHEDIR.TAG", got)
+	}
+}
+
+// Nobody has ever measured what a shard's persistent build directory holds.
+// The disk budget falls back to a documented 15 GiB estimate for a shard that
+// has never built, and the question of whether those directories could be
+// cloned from one warm build instead of built N times is unanswerable without
+// the real number. So the run reports it, per shard and in total, in its own
+// vocabulary beside the shard count and the build width.
+func TestMeasure_ReportsWhatEachShardsBuildDirHoldsAfterTheRun(t *testing.T) {
+	root, base := measureFixture(t, laneSource)
+	t.Cleanup(setMutantsJobsForTest(2, "pinned"))
+	// 3 KiB in shard 0's build dir, 1 KiB in shard 1's: 4 KiB between them.
+	bytesFor := map[int]int{0: 3072, 1: 1024}
+	stubMutantsExec(t, func(_ context.Context, _ int, c measuredCall) (int, error) {
+		shard := shardIndexOf(c.Argv)
+		mustWrite(t, filepath.Join(envValueOf(c.Env, "CARGO_TARGET_DIR"), "debug", "deps", "a.rlib"),
+			strings.Repeat("x", bytesFor[shard]))
+		writeOutcomesIn(t, flagValue(c.Argv, "--output"), MutantOutcome{File: "crates/a/src/lib.rs",
+			Line: 1, Col: 30 + shard, Mutation: "replace + with -", Package: "a", Status: "caught"})
+		return 0, nil
+	})
+	var log bytes.Buffer
+
+	if _, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base, Log: &log}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{"shard 0 3.0 KB", "shard 1 1.0 KB", "4.0 KB"} {
+		if !strings.Contains(log.String(), want) {
+			t.Errorf("run log =\n%s\nwant %q in it: the size of a build dir is the number the disk budget "+
+				"guesses at today", log.String(), want)
+		}
 	}
 }
