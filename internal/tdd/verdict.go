@@ -103,7 +103,7 @@ func verdictFor(gateName, stage, root, cmd string, o stageOutcome) GateResult {
 		return GateResult{Blocked: true, Message: o.message}
 	case outcomeFail:
 		fmt.Fprintf(os.Stderr, "[%s] gate %s: %s in %s → blocked\n", stage, gateName, cmd, root)
-		appendGateLog(gateName, root, cmd, stage+"-blocked", o.result.Duration)
+		logSuiteVerdict(gateName, root, cmd, stage+"-blocked", o.result)
 		return GateResult{Blocked: true, Message: o.message}
 	case outcomeVacuous:
 		line := fmt.Sprintf("[%s] gate %s: %s in %s → REJECTED (0 tests executed; nothing was tested)",
