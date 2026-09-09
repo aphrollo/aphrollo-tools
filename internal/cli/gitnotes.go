@@ -37,11 +37,7 @@ func pushGateNotes(rest []string, cwd, realGit string, code int, stderr io.Write
 	if !hasLocalGateNotes(cwd, realGit) {
 		return
 	}
-	cmd := exec.Command(realGit, "push", remote, tdd.GateNotesRefFull)
-	cmd.Dir = cwd
-	// Marked as already-queued: this process holds the per-repo lock, and a
-	// child routed back through the shim by PATH would wait on it forever.
-	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
+	cmd := gateNotesPushCmd(realGit, cwd, remote)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		fmt.Fprintf(stderr, "gate: pushed the branch but not %s (%v: %s) — CI will read this tip as ungated\n",
 			tdd.GateNotesRefFull, err, strings.Join(strings.Fields(string(out)), " "))
@@ -77,6 +73,31 @@ var pushValueFlags = map[string]bool{
 	"--receive-pack":       true,
 	"--exec":               true,
 	"--recurse-submodules": true,
+}
+
+// gateNotesPushCmd builds the notes push. It can never ask anyone anything:
+// this runs behind the operator's own push, unattended, and a git that
+// decides it needs a credential opens `git-askpass` -- a WINDOW, which
+// blocks the push behind it until a human dismisses it, once per push. The
+// prompt is closed off at every door git has: the terminal prompt, both
+// askpass hooks, and the credential helper's own interactive mode. A note
+// that cannot be pushed without credentials is a note that does not get
+// pushed, and says so in one line.
+func gateNotesPushCmd(realGit, dir, remote string) *exec.Cmd {
+	cmd := exec.Command(realGit,
+		"-c", "credential.interactive=false",
+		"-c", "core.askPass=",
+		"push", remote, tdd.GateNotesRefFull)
+	cmd.Dir = dir
+	// Marked as already-queued: this process holds the per-repo lock, and a
+	// child routed back through the shim by PATH would wait on it forever.
+	cmd.Env = append(os.Environ(),
+		tdd.GitQueuedEnv+"=1",
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_ASKPASS=",
+		"SSH_ASKPASS=",
+	)
+	return cmd
 }
 
 // pushRemote is the remote a push names, "" when the arguments are a shape

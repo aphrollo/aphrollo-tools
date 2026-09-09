@@ -203,7 +203,11 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 			// The gate note does not ride along with a branch push, and a
 			// note nobody pushed reaches no CI runner. Best effort: it
 			// never changes the push's own exit code.
-			pushGateNotes(rest, cwd, cfg.realGit, code, stderr)
+			// The repo the push acted on, not the one this process happens
+			// to stand in: `git -C <elsewhere> push` carries ITS note to ITS
+			// remote, and reaching this checkout's remote instead is both the
+			// wrong note and a network round trip nobody asked for.
+			pushGateNotes(rest, gitWorkingDir(args, cwd), cfg.realGit, code, stderr)
 			return recoverRejectedMerge(rest, args, cwd, cfg.realGit, code, start, stderr)
 		}
 
