@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -135,7 +136,57 @@ func runGateSelfInstall(args []string, stdout, stderr io.Writer) int {
 	// Everything after a bare `--` is forwarded verbatim to init, so
 	// `--config-dir`, `--git-hooks-dir` and friends reach it without
 	// self-install having to restate every one of them.
-	return runGateInit(append([]string{"--bin", bin}, fs.Args()...), stdout, stderr)
+	return initAfterSwap("gate self-install", bin, fs.Args(), stdout, stderr)
+}
+
+// runInstalledInitFn indirects the spawn of the freshly installed binary for
+// the post-swap `gate init`, so a test can state that step's outcome without
+// a real build on disk. It reports the child's exit code alongside the error,
+// because that code is what the installing verb exits with.
+var runInstalledInitFn = func(bin string, args []string, stdout, stderr io.Writer) (int, error) {
+	cmd := exec.Command(bin, args...)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	err := cmd.Run()
+	if err == nil {
+		return 0, nil
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() > 0 {
+		return exit.ExitCode(), err
+	}
+	return 1, err
+}
+
+// initAfterSwap runs `gate init` under the binary that was JUST installed,
+// never in this process. Every managed file init writes -- .ratchet/README.md,
+// the CLAUDE.md block, the hook and queue shims -- comes from templates
+// EMBEDDED IN THE BINARY, so an in-process init after a swap writes the
+// OUTGOING build's templates over content the new build owns. That is not
+// theoretical: a box updating from a pre-#621 image rewrote the tracked
+// .ratchet/README.md without its path-tombstone paragraph, and the same
+// `gate init` under the new binary restored it byte for byte.
+//
+// bin is the path the swap just wrote, so this never depends on the new
+// binary being on PATH. extra is whatever the caller was told to forward
+// (--config-dir, --git-hooks-dir and friends).
+//
+// A failure here is REPORTED, never skipped, and says the swap already
+// happened: the binary is new, its managed files are not, and only an
+// operator who is told that knows to finish the job by hand.
+func initAfterSwap(prefix, bin string, extra []string, stdout, stderr io.Writer) int {
+	args := append([]string{"gate", "init", "--bin", bin}, extra...)
+	fmt.Fprintf(stdout, "%s: init   %s (under the newly installed binary)\n", prefix, strings.Join(args, " "))
+	code, err := runInstalledInitFn(bin, args, stdout, stderr)
+	if err == nil {
+		return 0
+	}
+	if code == 0 {
+		code = 1
+	}
+	fmt.Fprintf(stderr, "%s: %s failed under the binary just installed at %s: %v\n", prefix, strings.Join(args, " "), bin, err)
+	fmt.Fprintf(stderr, "%s: the box is half-updated -- the swap stands, the managed files were NOT rewritten; re-run `%s gate init` once the cause is fixed\n", prefix, bin)
+	return code
 }
 
 // renameFn indirects os.Rename inside swapBinary so a test can force the

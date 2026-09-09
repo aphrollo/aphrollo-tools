@@ -24,7 +24,9 @@ const updateUsage = `usage: aphrollo update [--repo DIR] [--bin PATH] [--remote 
 Fetches <remote>/<branch>, builds ./cmd/aphrollo from a detached temporary
 worktree at that commit (never the working tree, which may be behind or
 dirty), swaps it in for --bin the same way gate self-install does, sweeps
-stale copies beside it, then re-runs gate init unless --no-init.
+stale copies beside it, then runs gate init UNDER THE NEW BINARY (so the
+managed files come from its templates, not the outgoing build's) unless
+--no-init.
 `
 
 func runUpdate(args []string, stdout, stderr io.Writer) int {
@@ -120,7 +122,7 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 	if *noInit {
 		return 0
 	}
-	return runGateInit(append([]string{"--bin", bin}, fs.Args()...), stdout, stderr)
+	return initAfterSwap("aphrollo update", bin, fs.Args(), stdout, stderr)
 }
 
 // shortSHA reports the first 7 characters of a full commit sha, the width
