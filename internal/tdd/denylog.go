@@ -24,8 +24,7 @@ func LogEditDecision(raw []byte, d Decision) {
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return
 	}
-	_, path := editTarget(in)
-	root, rel := logPlace(path)
+	root, rel := logPlace(editLogPath(in))
 	if d.Action == Block {
 		appendGateLog("preedit", root, rel, "pretooluse-denied:"+logToken(policyName(d)), 0)
 	}

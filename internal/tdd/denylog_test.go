@@ -78,6 +78,61 @@ func TestLogEditDecision_NamesTheLawThatDenied(t *testing.T) {
 	requireLoggedVerdict(t, cfg, "pretooluse-denied:ratchet:nan-guard")
 }
 
+// lawTreeMD is lawTree's twin scoped to Markdown: the file a ratchet law can
+// deny on (doc_reference_exists' whole domain) but that ClassifyFile ranks
+// Ignore for the SEPARATE question of whether an edit needs a test run.
+func lawTreeMD(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "no-todo.toml"), `
+name = "no-todo"
+description = "no bare TODO markers in docs"
+severity = "deny"
+escape = "// todo-ok:"
+baseline = ".ratchet/baselines/no-todo.txt"
+
+[scope]
+include = ["**/*.md"]
+
+[matcher]
+kind = "regex-absent"
+pattern = "TODO"
+`)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "no-todo.txt"), "")
+	mustWrite(t, filepath.Join(root, "docs", "notes.md"), "# Notes\n")
+	return root
+}
+
+// The path a refusal fired on is exactly the evidence a law review needs —
+// and doc_reference_exists' whole domain is Markdown, which ClassifyFile
+// ranks Ignore for the UNRELATED question of whether an edit needs a test
+// run. LogEditDecision must record the path a denial fired on regardless of
+// that ranking: a "-  -" line is a law hit nobody can trace back to a file.
+func TestLogEditDecision_RecordsThePathOnAnIgnoreRankedFile(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := lawTreeMD(t)
+	path := filepath.Join(root, "docs", "notes.md")
+	raw := ratchetPayload(t, "Write", path, map[string]any{
+		"content": "# Notes\nTODO: fix this\n",
+	})
+
+	d := RatchetAdvisory(raw)
+	if d.Action != Block {
+		t.Fatalf("fixture must be denied, got %v (%s)", d.Action, d.Reason)
+	}
+	LogEditDecision(raw, d)
+	text := gateLogText(t, cfg)
+	want := filepath.Join("docs", "notes.md")
+	if !strings.Contains(text, want) {
+		t.Fatalf("a denial on a .md file must carry its path (%q), got:\n%s", want, text)
+	}
+	if strings.Contains(text, "preedit - - ") {
+		t.Fatalf("a denial must not fall back to the placeholder root/path, got:\n%s", text)
+	}
+}
+
 // A rejected commit message is the other silent denial: the author sees it,
 // the record does not.
 func TestCommitMsg_RejectionIsLogged(t *testing.T) {
