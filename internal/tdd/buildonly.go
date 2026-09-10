@@ -45,12 +45,27 @@ func buildOnlyRunner(r Runner) bool {
 	return false
 }
 
+// untestedVerdict names what a non-failing run proved when it proved
+// nothing: BuildOnly for a compile check, NoTestsSelected for a scope that
+// came back empty, "" for a run that actually executed tests. One predicate,
+// so the edit hook, the deferred hook and the commit/merge stages cannot
+// drift on what "nothing was tested" means.
+func untestedVerdict(r Runner, res SuiteResult) string {
+	switch {
+	case buildOnlyRunner(r) && res.Passed:
+		return BuildOnly
+	case selectedZeroTests(r, res):
+		return NoTestsSelected
+	}
+	return ""
+}
+
 // buildOnlyTerminal logs and renders the line that ENDS the hook for a
 // compile check that came back clean, "" for anything else — a run that is
 // not build-only at all, or a build-only target that FAILED to compile,
 // which is a real failure about the code just edited and stays red.
 func buildOnlyTerminal(r Runner, root string, res SuiteResult) string {
-	if !buildOnlyRunner(r) || !res.Passed {
+	if untestedVerdict(r, res) != BuildOnly {
 		return ""
 	}
 	appendGateLog("postedit", root, cmdString(r), BuildOnly, res.Duration)
@@ -83,7 +98,7 @@ func buildOnlyTargetKind(r Runner) string {
 // without the retry: the direct path (resolveEmptySelection) widens first
 // and only lands here when the wider run stayed empty too.
 func zeroSelectionTerminal(r Runner, root string, res SuiteResult) string {
-	if !selectedZeroTests(r, res) {
+	if untestedVerdict(r, res) != NoTestsSelected {
 		return ""
 	}
 	appendGateLog("postedit", root, cmdString(r), NoTestsSelected, res.Duration)
