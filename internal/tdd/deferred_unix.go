@@ -17,22 +17,6 @@ func detachedAttrs() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{Setsid: true}
 }
 
-// killTreePlan describes the kill for a test and a reader: a NEGATIVE pid is
-// the process group, which is why detachedAttrs puts each phase in its own
-// session — killing the wrapper alone left its cargo children running.
-func killTreePlan(pid int) []string {
-	return []string{"kill", "-KILL", "-" + strconv.Itoa(pid)}
-}
-
-// killTree signals the phase's whole process group. Because this is a
-// negative-pid group signal, a cmd whose Cancel calls killTree must itself
-// have been started with a group-creating SysProcAttr (suiteAttrs,
-// detachedAttrs or belowNormalAttrs) — otherwise the signal misses every
-// descendant of a child that never became a group leader.
-func killTree(pid int) error {
-	return syscall.Kill(-pid, syscall.SIGKILL)
-}
-
 // processStartTime asks ps for the OS's own creation timestamp of a live
 // pid, so pidStillOurs can tell a live process from whatever the OS handed
 // the same pid to after ours exited. /proc/<pid>/stat carries the same fact
@@ -59,7 +43,7 @@ func processStartTime(pid int) (time.Time, bool) {
 }
 
 // suiteAttrs puts a SUITE child in its own process group, which is what makes
-// killTree's negative-pid signal reach the launcher's children rather than
-// only the launcher. It is deliberately NOT Setsid: the suite is a foreground
+// proc.KillTree's negative-pid signal reach the launcher's children rather
+// than only the launcher. It is deliberately NOT Setsid: the suite is a foreground
 // child whose output the gate reads, not a detached phase.
 func suiteAttrs() *syscall.SysProcAttr { return &syscall.SysProcAttr{Setpgid: true} }

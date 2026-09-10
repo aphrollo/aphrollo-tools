@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // postToolUseInput is the subset of the PostToolUse payload the RED/GREEN
@@ -502,14 +504,14 @@ func RunSuite(timeout time.Duration) SuiteRunner {
 		// and runs it as a grandchild, cargo spawns rustc. Killing the
 		// launcher left those alive for the rest of the session, holding
 		// build outputs and polling — measured as stranded `<pkg>.test.exe`
-		// processes from earlier timed-out runs. killTree is the same reach
-		// a deferred phase already uses.
+		// processes from earlier timed-out runs. proc.KillTree is the same
+		// reach a deferred phase already uses.
 		cmd.SysProcAttr = suiteAttrs()
 		cmd.Cancel = func() error {
 			if cmd.Process == nil {
 				return nil
 			}
-			return killTree(cmd.Process.Pid)
+			return proc.KillTree(cmd.Process.Pid)
 		}
 		// Without WaitDelay a killed test runner's surviving children hold the
 		// output pipes open and CombinedOutput blocks long past the deadline
