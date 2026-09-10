@@ -133,6 +133,19 @@ func editTarget(in preToolUseInput) (Kind, string) {
 	return kind, path
 }
 
+// editLogPath is the path an edit named, independent of ClassifyFile's
+// ranking. editTarget answers "does this edit need a test run" and correctly
+// reads a Markdown or plain-text file as Ignore for that question — but a
+// denial's log line needs the file it fired on regardless, or a law whose
+// whole domain is docs (doc_reference_exists) leaves most of its refusals
+// with no path a review can trace back to a file.
+func editLogPath(in preToolUseInput) string {
+	if in.ToolInput.FilePath != "" {
+		return in.ToolInput.FilePath
+	}
+	return in.ToolInput.NotebookPath
+}
+
 // newContent concatenates every piece of new text an edit introduces, so the
 // smell detectors see the whole proposed addition regardless of which tool
 // shape delivered it.
