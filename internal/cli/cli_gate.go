@@ -57,6 +57,14 @@ Subcommands:
                     by init
   stats             Tally gate.log by stage and outcome (--since 7d), and the open
                     escape count
+  output            Read-only: print the TEXT of the last settled suite run the
+                    gate made for this repo root — header (when, which stage,
+                    which command, which verdict, how long) then the run's own
+                    bytes, unfiltered. stats answers what the verdict WAS;
+                    this answers what the run PRINTED, so reading one assertion
+                    line never costs a re-run. Exits non-zero, saying which,
+                    when no run is recorded for this root or the record is
+                    older than the freshness window
   status            Read-only: deferred edit jobs on this box, every build slot's
                     holder, this checkout's own position in the cargo-shim queue
                     (queued, and behind what), and this checkout's own
@@ -264,6 +272,12 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if args[0] == "stats" {
 		// Read-only report over gate.log: pipeline health as a number.
 		return runGateStats(args[1:], stdout, stderr)
+	}
+	if args[0] == "output" {
+		// Read-only: the TEXT of the run the gate itself last made here —
+		// the half `gate stats` cannot answer, and the reason a session no
+		// longer has to re-run a suite to read one assertion line.
+		return runGateOutput(args[1:], stdout, stderr)
 	}
 	if args[0] == "status" {
 		// Read-only: what an inconclusive gate line points at instead of a

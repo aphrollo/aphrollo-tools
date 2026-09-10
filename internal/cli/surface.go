@@ -57,6 +57,7 @@ var gateVerbTable = []Verb{
 	{Name: "doctor"},
 	{Name: "statusline"},
 	{Name: "stats"},
+	{Name: "output"},
 	{Name: "gc"},
 	{Name: "issue", Alias: true, Of: "issue"},
 	{Name: "feedback"},

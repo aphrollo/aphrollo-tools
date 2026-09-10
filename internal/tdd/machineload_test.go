@@ -66,6 +66,60 @@ func foreignChainSample(leaf int, name string, pctOneCore, cpuHours float64) []p
 	return samples
 }
 
+// maxAssignableOSPID is the ceiling under which every pid a live process can
+// hold sits, on both platforms this gate runs on: Windows hands out
+// multiples of four far below it, and Linux's pid_max cannot exceed 2^22.
+// Nothing above it is ever a running process — which is the whole property a
+// synthetic fixture needs from its pid space.
+const maxAssignableOSPID = 1 << 22
+
+// timeoutLoadFixtureLeaf and checkStageLoadFixtureLeaf are the leaves of the
+// two chains that get classified against the REAL test process's own pid
+// (foreignLoadReport passes os.Getpid()), so they are the two that must live
+// above maxAssignableOSPID — see
+// TestForeignChainSample_CannotBeClaimedByTheProcessRunningIt.
+// Both sit a clear order of magnitude above that ceiling, so the chains they
+// build (leaf + maxAncestryDepth + 1 pids) stay out of reach of any live
+// process on any runner.
+const (
+	syntheticPIDBase          = 1 << 30
+	timeoutLoadFixtureLeaf    = syntheticPIDBase + 999
+	checkStageLoadFixtureLeaf = syntheticPIDBase + 42
+)
+
+// A chain built at a leaf inside the range an OS actually assigns is a
+// fixture that can BE the process running the test. That is not theory: the
+// windows CI runner executed the package at pid 1048, which sits inside the
+// chain based at 999, so classifyAncestry resolved find.exe's parent walk to
+// self, correctly dropped the whole leg as "self's own tree", and
+// TestPrecommit_MechanicalTimeoutNamesTheBoxLoad saw a report naming three
+// unattributed stranger.exe entries and no find.exe at all — red on that
+// runner and nowhere else. The classifier is right; the fixture's pid space
+// was wrong.
+func TestForeignChainSample_CannotBeClaimedByTheProcessRunningIt(t *testing.T) {
+	all := foreignChainSample(timeoutLoadFixtureLeaf, "find.exe", 90, 2)
+
+	// The mechanism itself, shown rather than remembered: a self pid
+	// anywhere in the chain costs the report its foreign leaf.
+	collided := all[len(all)/2].pid
+	foreign, _ := classifyAll(collided, all)
+	for _, p := range foreign {
+		if p.name == "find.exe" {
+			t.Fatalf("classifyAll(%d, ...) still named find.exe foreign; this test's premise (a self pid inside the chain drops it) no longer holds", collided)
+		}
+	}
+
+	// So no pid in either chain may be one an OS could hand a live process.
+	for _, leaf := range []int{timeoutLoadFixtureLeaf, checkStageLoadFixtureLeaf} {
+		for _, p := range foreignChainSample(leaf, "find.exe", 90, 2) {
+			if p.pid <= maxAssignableOSPID {
+				t.Fatalf("fixture pid %d (chain from leaf %d) is inside the range an OS assigns to live processes (<= %d): a runner handed that pid reads the chain as its own tree and the timeout report loses its foreign process",
+					p.pid, leaf, maxAssignableOSPID)
+			}
+		}
+	}
+}
+
 // TestForeignProcs_IncludesAFullyResolvedForeignChain is the other half of
 // the same proof: a filter that excludes everything looks identical, in a
 // green run, to one that correctly excludes only self's own tree.

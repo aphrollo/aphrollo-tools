@@ -105,7 +105,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 			gateName, cmdString(runner), res.Duration.Seconds(), load)}
 	case !res.Passed:
 		fmt.Fprintf(os.Stderr, "[%s] gate %s: %s in %s → blocked\n", stage, gateName, cmdString(runner), root)
-		appendGateLog(gateName, root, cmdString(runner), blockedVerdict(stage, res.Output), res.Duration)
+		logSuiteVerdict(gateName, root, cmdString(runner), blockedVerdict(stage, res.Output), res)
 		return GateResult{Blocked: true, Message: mechRejectMessage(runner, res)}
 	default:
 		mechCacheAdd(key)
@@ -114,7 +114,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		noteSuiteGreen()
 		line := mechGreenLine(gateName, stage, runner, root, res)
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog(gateName, root, cmdString(runner), "green", res.Duration)
+		logSuiteVerdict(gateName, root, cmdString(runner), "green", res)
 	}
 	return GateResult{}
 }

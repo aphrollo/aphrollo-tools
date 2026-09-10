@@ -265,7 +265,7 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 		})
 		_ = state.save(statePath)
 	}
-	appendGateLog("postedit", root, strings.Join(j.Runner, " "), string(outcome), res.Duration)
+	logSuiteVerdict("postedit", root, strings.Join(j.Runner, " "), string(outcome), res)
 	if outcome.IsRed() {
 		return redSummary(runner, root, outcome, res.Output)
 	}
@@ -549,7 +549,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 			mechCacheAdd(mechKey(root, h, snap.runner))
 		}
 	}
-	appendGateLog("postedit", root, cmdString(snap.runner), string(outcome), res.Duration)
+	logSuiteVerdict("postedit", root, cmdString(snap.runner), string(outcome), res)
 	if outcome.IsRed() {
 		return redSummary(snap.runner, root, outcome, res.Output), false
 	}

@@ -191,7 +191,7 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 		}
 	}
 
-	appendGateLog("postedit", root, cmdString(snap.runner), string(outcome), res.Duration)
+	logSuiteVerdict("postedit", root, cmdString(snap.runner), string(outcome), res)
 	if outcome.IsRed() {
 		return redSummary(snap.runner, root, outcome, res.Output), false
 	}
