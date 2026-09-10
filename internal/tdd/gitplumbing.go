@@ -75,13 +75,23 @@ func mergeInProgressRef(repoRoot string) string {
 const stagedDiffFilter = "ACMRT"
 
 // stagedFiles lists the changed paths in the index, as repo-root-relative
-// paths. `-M` turns rename detection on explicitly (never inherited from the
-// repo's diff.renames), and `--name-only` prints a rename's DESTINATION — the
-// path that exists after the commit and the only one worth testing.
+// paths, and reports an EMPTY set when git could not be asked at all. Only a
+// caller for which "unknown" and "nothing" genuinely mean the same thing may
+// use it; a gate deciding whether work was proven must use stagedFilesErr and
+// refuse on the error.
 func stagedFiles(repoRoot string) []string {
+	files, _ := stagedFilesErr(repoRoot)
+	return files
+}
+
+// stagedFilesErr is stagedFiles with the git failure kept. `-M` turns rename
+// detection on explicitly (never inherited from the repo's diff.renames), and
+// `--name-only` prints a rename's DESTINATION — the path that exists after the
+// commit and the only one worth testing.
+func stagedFilesErr(repoRoot string) ([]string, error) {
 	out, err := git(repoRoot, "diff", "--cached", "--name-only", "-M", "--diff-filter="+stagedDiffFilter)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("git diff --cached: %v: %s", err, strings.TrimSpace(out))
 	}
 	var files []string
 	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
@@ -89,7 +99,7 @@ func stagedFiles(repoRoot string) []string {
 			files = append(files, line)
 		}
 	}
-	return files
+	return files, nil
 }
 
 // gitStaged returns the staged diff restricted to the given pathspecs.

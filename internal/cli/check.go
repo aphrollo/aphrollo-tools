@@ -115,9 +115,19 @@ func checkDocs(root string, stdout, stderr io.Writer) bool {
 // checkSqlc is `check`'s sqlc guard: sqlc.Check over every discovered config,
 // [skip] when the repo has none — a repo with no sqlc config is not gated by
 // it at all, that is not a finding.
+//
+// A discovery ERROR is a different thing entirely and is reported as a miss
+// with its reason: an unreadable repo dir or a config the parser rejects
+// leaves the guard unable to say whether the generated code has drifted, and
+// "this repo is not sqlc-gated" is a claim it has no evidence for. `sqlc
+// check` exits 1 on the identical call; the two verbs must not disagree.
 func checkSqlc(root string, stdout, stderr io.Writer) bool {
 	cfgs, err := sqlc.DiscoverConfigs(root)
-	if err != nil || len(cfgs) == 0 {
+	if err != nil {
+		fmt.Fprintf(stdout, "check: sqlc → error: %v\n", err)
+		return false
+	}
+	if len(cfgs) == 0 {
 		fmt.Fprintln(stdout, "check: sqlc → [skip] no sqlc config")
 		return true
 	}
@@ -178,15 +188,19 @@ func checkAppTrio(root string, stdout, stderr io.Writer) bool {
 		fmt.Fprintln(stdout, "check: app trio → [skip] no app declared")
 		return true
 	}
+	// Past HasAppProfile the repo IS app-gated, so neither of the next two
+	// steps can fail into a skip: "no app declared" would contradict the fact
+	// just established, and it would drop the trio for the one kind of repo
+	// that owes it. A step that could not run is a miss naming its cause.
 	t, err := checkAppTrioResolve(root)
 	if err != nil {
-		fmt.Fprintln(stdout, "check: app trio → [skip] no app declared")
-		return true
+		fmt.Fprintf(stdout, "check: app trio → error: %v\n", err)
+		return false
 	}
 	v, err := checkAppTrioBuildVerify(t, root)
 	if err != nil {
-		fmt.Fprintln(stdout, "check: app trio → [skip] no app declared")
-		return true
+		fmt.Fprintf(stdout, "check: app trio → error: %v\n", err)
+		return false
 	}
 	// [run]/[skip] step lines and the subprocess output both go to stderr:
 	// stdout carries only this guard's one summary line.

@@ -64,8 +64,26 @@ func judgeMutants(cfg MutantsConfig, mutants []MutantOutcome) Verdict {
 	v.Unaccepted, v.Unmeasured = unaccepted, timedOut
 	v.Refused = len(unaccepted) > 0 || len(timedOut) > 0
 	v.Message = measureReport(v, notes)
+	if v.Tested == 0 && !v.Refused {
+		// Not a refusal: a diff the tool produces no mutants for is a real
+		// and legitimate outcome (a change with nothing mutatable in it).
+		// But it is not a MEASUREMENT either, and the one thing it must not
+		// be is indistinguishable from a run that caught everything — which
+		// is what "mutants-passed:tested=0" was, in the report and in the
+		// column `gate stats` puts it in.
+		v.Skipped = zeroTestedNote
+		v.Message = "mutants: " + zeroTestedNote + "\n" + v.Message
+	}
 	return v
 }
+
+// zeroTestedNote is how a run with an empty mutant pool names itself, and
+// zeroTestedToken is what `gate stats` counts it under — apart from the green
+// column, which is reserved for runs that actually proved something.
+const (
+	zeroTestedNote  = "no mutants were tested — the tool produced none for this diff, so nothing here was measured (not a pass)"
+	zeroTestedToken = "no-mutants"
+)
 
 // refusedAcceptList is the verdict for an accept-list that could not be read.
 // Every bad entry is quoted: a misspelled kind must never look like it landed
@@ -159,6 +177,12 @@ func measureLogRoot(root string) string {
 // `gate stats` can answer how many merges the stage refused and for what
 // without re-running anything.
 func measureLogVerdict(v Verdict) string {
+	if v.Tested == 0 && !v.Refused {
+		// A run with nothing in the pool is filed as the stand-down it is:
+		// the counted form would add a green to the table that says how often
+		// this lane's tests were actually held against a mutant.
+		return "mutants-skipped:" + zeroTestedToken
+	}
 	state := "passed"
 	if v.Refused {
 		state = "refused"
