@@ -65,6 +65,15 @@ func mergeStillMidMergeLine(abortOutput string) string {
 // act on.
 const staleMarkerAge = time.Hour
 
+// mergeAbortFn runs the recovery's own `git merge --abort`, behind a
+// variable so a test can observe WHEN it runs relative to the per-repo git
+// lock. That timing is the whole safety of the recovery: the abort rewrites
+// the index and the worktree, so an abort that runs unlocked can land on top
+// of another session's freshly started commit.
+var mergeAbortFn = func(realGit, workDir string) (string, error) {
+	return execGitCaptureStderr(realGit, workDir, "merge", "--abort")
+}
+
 // recoverRejectedMerge is the fix for a real defect: when the pre-merge-
 // commit gate rejects an automatic `git merge`, git still leaves MERGE_HEAD
 // and the merged index in place ("Not committing merge; use 'git commit' to
@@ -107,7 +116,7 @@ func recoverRejectedMerge(rest, args []string, cwd, realGit string, code int, st
 	if hasUnmergedPaths(realGit, workDir) {
 		return code
 	}
-	abortOutput, abortErr := execGitCaptureStderr(realGit, workDir, "merge", "--abort")
+	abortOutput, abortErr := mergeAbortFn(realGit, workDir)
 	if abortErr != nil {
 		fmt.Fprintln(stderr, mergeStillMidMergeLine(abortOutput))
 		return code

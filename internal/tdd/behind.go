@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // A binary that never rebuilds itself drifts from origin/main silently: the
@@ -64,8 +65,8 @@ var lsRemoteFn = func(ctx context.Context) (string, error) {
 // the stdout pipe cmd.Output() wires up. The default Cancel that
 // exec.CommandContext installs kills only the git pid, not that helper — so
 // on a timeout the helper can keep the pipe open and Wait() blocks past ctx's
-// deadline. cmd.Cancel reaches the whole tree (the same killTree a deferred
-// build phase already uses) and WaitDelay bounds how long Wait() waits for
+// deadline. cmd.Cancel reaches the whole tree (the same proc.KillTree a
+// deferred build phase already uses) and WaitDelay bounds how long Wait() waits for
 // I/O to drain after that, so the call returns within its budget even when
 // the helper never exits on its own.
 func runLsRemote(ctx context.Context, gitProgram string) (string, error) {
@@ -75,7 +76,7 @@ func runLsRemote(ctx context.Context, gitProgram string) (string, error) {
 		if cmd.Process == nil {
 			return nil
 		}
-		return killTree(cmd.Process.Pid)
+		return proc.KillTree(cmd.Process.Pid)
 	}
 	cmd.WaitDelay = 2 * time.Second
 	out, err := cmd.Output()

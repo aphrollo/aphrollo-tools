@@ -24,10 +24,9 @@ import (
 // gcStampFile / gcReportFile live in the state dir: when the last sweep ran,
 // and what it freed (pending a session to report it).
 const (
-	gcStampFile    = "gc-last-run"
-	gcReportFile   = "gc-last-report.json"
-	gcSweepEvery   = 24 * time.Hour
-	gcOwnerCommand = "aphrollo gate gc --apply"
+	gcStampFile  = "gc-last-run"
+	gcReportFile = "gc-last-report.json"
+	gcSweepEvery = 24 * time.Hour
 )
 
 // gcReport is one completed sweep, awaiting a session to surface it.

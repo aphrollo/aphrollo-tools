@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // The lane is measured HERE, in the foreground, on the tree that is about to
@@ -80,7 +82,7 @@ var mutantsExecFn = runMutantsTool
 // compiling would still be holding the box-wide mutation-run lock they
 // inherited, so the next measurement waits a year for a run nobody is
 // reading — which is exactly the hang the deadline existed to prevent.
-// cmd.Cancel is therefore killTree (the same one a deferred build phase
+// cmd.Cancel is therefore proc.KillTree (the same one a deferred build phase
 // uses) and WaitDelay bounds how long Wait stays for the output pipes to
 // drain after the kill.
 func runMutantsTool(ctx context.Context, dir string, env []string, argv []string, log io.Writer) (int, error) {
@@ -93,7 +95,7 @@ func runMutantsTool(ctx context.Context, dir string, env []string, argv []string
 		if cmd.Process == nil {
 			return nil
 		}
-		return killTree(cmd.Process.Pid)
+		return proc.KillTree(cmd.Process.Pid)
 	}
 	cmd.WaitDelay = mutantsKillDrainDelay
 	if err := cmd.Run(); err != nil {

@@ -199,16 +199,26 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 			if printedQueued {
 				fmt.Fprintln(stderr, gitAcquiredLine(time.Since(start)))
 			}
-			code := runGitWithLock(release, ownerPath, cfg.realGit, args, stdin, stdout, stderr)
+			// The merge recovery runs UNDER the lock: `git merge --abort`
+			// rewrites the index and the worktree, so it needs exactly the
+			// protection the merge itself had. Released first, it lands on
+			// top of whatever the next session started the instant the
+			// merge exited.
+			code := runGitWithLock(release, ownerPath, cfg.realGit, args, stdin, stdout, stderr,
+				func(code int) int {
+					return recoverRejectedMerge(rest, args, cwd, cfg.realGit, code, start, stderr)
+				})
 			// The gate note does not ride along with a branch push, and a
 			// note nobody pushed reaches no CI runner. Best effort: it
-			// never changes the push's own exit code.
+			// never changes the push's own exit code. OUTSIDE the lock, for
+			// the same reason the disk sweep is: a network round trip is
+			// not something every other session's git may queue behind.
 			// The repo the push acted on, not the one this process happens
 			// to stand in: `git -C <elsewhere> push` carries ITS note to ITS
 			// remote, and reaching this checkout's remote instead is both the
 			// wrong note and a network round trip nobody asked for.
 			pushGateNotes(rest, gitWorkingDir(args, cwd), cfg.realGit, code, stderr)
-			return recoverRejectedMerge(rest, args, cwd, cfg.realGit, code, start, stderr)
+			return code
 		}
 
 		if !printedQueued {
@@ -234,13 +244,23 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 // runGitWithLock writes the owner file, runs the real git, then removes the
 // owner file and releases the lock -- shortest possible hold, same
 // ordering as cargo's runWithLock.
-func runGitWithLock(release func(), ownerPath, realGit string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+//
+// underLock (nil for none) is follow-up work that must be as protected as
+// the child git itself was -- it runs after the child exits and BEFORE the
+// owner record is cleared and the lock released, and its verdict becomes
+// the invocation's exit code. Anything that does NOT touch this repo's
+// index belongs outside the lock instead: a network round trip or a
+// multi-gigabyte disk sweep held here is a queue every other session joins.
+func runGitWithLock(release func(), ownerPath, realGit string, args []string, stdin io.Reader, stdout, stderr io.Writer, underLock func(code int) int) int {
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = "(unknown cwd)"
 	}
 	tdd.WriteFileLockOwner(ownerPath, "git "+strings.Join(args, " "), cwd)
 	code := execGit(realGit, args, stdin, stdout, stderr)
+	if underLock != nil {
+		code = underLock(code)
+	}
 	tdd.RemoveFileLockOwner(ownerPath)
 	release()
 	// AFTER the release: the sweep can RemoveAll tens of gigabytes, and doing

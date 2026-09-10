@@ -383,13 +383,26 @@ func globalSlotOwnerPath(i int) string { return globalSlotPath(i) + ".owner" }
 // one operation because a caller asked to remember a second call eventually
 // forgets, and the cost of forgetting is a waiter that cannot name what it is
 // waiting for.
+// An INHERITED slot (Index inheritedSlotIndex) uses up none of the box's
+// capacity -- its parent already accounts for that -- so it has no global
+// record to write, exactly as TryAcquireGlobalSlot's inherited branch
+// decided. Writing one anyway put an owner file beside a slot lock
+// "…-slot.-1.lock" that nothing ever locks and no reader of the slot table
+// can account for. The target-dir record still applies: who is building
+// HERE is true whatever slot paid for it.
 func recordSlotOwner(s BuildSlot, cmd, cwd string) {
 	writeBuildLockOwnerAt(s.Owner, cmd, cwd)
+	if s.Index < 0 {
+		return
+	}
 	writeBuildLockOwnerAt(globalSlotOwnerPath(s.Index), cmd, cwd)
 }
 
 func clearSlotOwner(s BuildSlot) {
 	removeBuildLockOwnerAt(s.Owner)
+	if s.Index < 0 {
+		return
+	}
 	removeBuildLockOwnerAt(globalSlotOwnerPath(s.Index))
 }
 

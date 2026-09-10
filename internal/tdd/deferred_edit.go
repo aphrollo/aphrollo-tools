@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // The edit hook's cargo path, split into a BUILD phase (`--no-run`) and a
@@ -410,7 +412,7 @@ func killDeferred(j DeferredJob) {
 
 // killTreeFn is the process-tree kill seam, so a test can prove the whole
 // tree is targeted without spawning one.
-var killTreeFn = killTree
+var killTreeFn = proc.KillTree
 
 // pidIdentityTolerance is how far a live pid's OS-reported creation time may
 // drift from the one this job recorded and still count as the same process.
