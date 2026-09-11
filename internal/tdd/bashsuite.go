@@ -156,16 +156,26 @@ func decideNarrowedSuite(root, cmd string) Decision {
 // retry loop against a 28-minute timeout). `gate output` serves the bytes of
 // that very run, so the route out is the gate's own record rather than a
 // second suite.
+//
+// The mutation marker comes LAST and says what it is. While the guard still
+// resolved the checkout from the session cwd, MUTATION=1 was the only route
+// past a refusal a session could not otherwise answer, and three ordinary
+// suite runs went into gate.log labelled as mutation proofs (issue #645) — a
+// marker that doubles as the escape hatch stops meaning what it says, and
+// every count taken from it is then wrong. The refusal names the honest
+// routes first and declines to present the marker as a general way through.
 func denyNarrowedRerunReason(root string, e gateEntry) string {
 	ago := time.Since(e.at).Round(time.Second)
 	return fmt.Sprintf(
-		"the gate already holds a %s verdict for %s from the %s stage, logged %s ago — "+
-			"re-running one of its tests by hand answers nothing that run does not already hold. "+
-			"Two routes to it: `aphrollo gate stats` for the verdict, `aphrollo gate output` for the "+
-			"text that run actually printed (its assertion lines, unfiltered). A narrowed rerun is for "+
-			"an INCONCLUSIVE verdict (TIMEOUT, SKIPPED, QUEUED-SKIPPED, %s, %s, or none logged), where "+
-			"the code was never tested; if this is a mutation proof, name it (MUTATION=1 …) so it is "+
-			"allowed and counted.",
+		"the gate already holds a %s verdict for %s — the tree this command runs in — from the %s "+
+			"stage, logged %s ago: re-running one of its tests by hand answers nothing that run does "+
+			"not already hold. Two routes to it: `aphrollo gate output` for the text that run actually "+
+			"printed (its assertion lines, unfiltered), `aphrollo gate stats` for the verdict itself. "+
+			"A narrowed rerun is for an INCONCLUSIVE verdict (TIMEOUT, SKIPPED, QUEUED-SKIPPED, %s, "+
+			"%s, or none logged), where the code was never tested — that is the rerun this guard lets "+
+			"through, and a run in a DIFFERENT checkout is never refused here at all. MUTATION=1 is "+
+			"not a way past this refusal: it labels a run that IS a mutation proof, and every run "+
+			"carrying it is counted as one.",
 		e.verdict, root, e.stage, ago, DeferredAbandoned, InfraFailed)
 }
 
