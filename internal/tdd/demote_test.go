@@ -103,12 +103,85 @@ func TestRecordDemoteCandidatesOpensOneIssueAndThenStops(t *testing.T) {
 		t.Fatalf("the issue must be a labelled false-positive naming the check:\n%s", argv)
 	}
 
-	// Second run, with that issue now open: nothing new.
+	// Second run, with that issue now open and carrying the check's
+	// fingerprint: nothing new. Dedupe goes by fingerprint, not by matching
+	// words in a title — a title match is a guess, a fingerprint is the
+	// identity.
+	fp := demoteFingerprint(repo, "test-sleep")
 	stubGhScript(t, map[string]string{
-		"issue list":   `[{"title":"false-positive: test-sleep denies more every week"}]`,
+		"issue list":   `[{"number":5,"state":"OPEN","body":"` + issueFingerprintKey + ` ` + fp + `"}]`,
 		"issue create": "https://github.com/o/r/issues/6",
 	})
 	if n := RecordDemoteCandidates(repo, []string{"test-sleep"}, &strings.Builder{}); n != 0 {
 		t.Fatalf("opened %d more issues; an open one is already the record", n)
+	}
+}
+
+// The lookup that dedupes across syncs matches on the fingerprint IN THE
+// BODY, so the body must actually carry a non-blank one. An empty
+// `gate-fingerprint:` line can never match anything the lookup asks for, so
+// every sync re-opens.
+func TestRecordDemoteCandidates_IssueBodyCarriesAFingerprint(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGitHubRepo(t)
+	log := stubGhScript(t, map[string]string{
+		"issue list":   `[]`,
+		"issue create": "https://github.com/o/r/issues/5",
+	})
+
+	if n := RecordDemoteCandidates(repo, []string{"test-sleep"}, &strings.Builder{}); n != 1 {
+		t.Fatalf("opened %d issues, want 1", n)
+	}
+
+	argv := ghArgv(t, log)
+	i := strings.Index(argv, issueFingerprintKey)
+	if i < 0 {
+		t.Fatalf("issue body has no %s line at all:\n%s", issueFingerprintKey, argv)
+	}
+	after := strings.TrimLeft(argv[i+len(issueFingerprintKey):], " ")
+	if after == "" || after[0] == '\n' {
+		t.Fatalf("the fingerprint after %s is blank, so the lookup that dedupes across syncs can never match it:\n%s", issueFingerprintKey, argv)
+	}
+}
+
+// A human closing the demote-candidate issue is a judgement the next sync
+// must not undo. The two-week rise that flagged this run overlaps days
+// before the close, so the evidence is not genuinely new: staying silent
+// is correct.
+func TestRecordDemoteCandidates_StaysClosedOnStaleEvidence(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGitHubRepo(t)
+	fp := demoteFingerprint(repo, "test-sleep")
+	closedAt := time.Now().UTC().Add(-3 * 24 * time.Hour) // inside the 14-day rise window
+	log := stubGhScript(t, map[string]string{
+		"issue list":   `[{"number":7,"state":"CLOSED","closedAt":"` + closedAt.Format(time.RFC3339) + `","body":"` + issueFingerprintKey + ` ` + fp + `"}]`,
+		"issue create": "https://github.com/o/r/issues/8",
+	})
+
+	if n := RecordDemoteCandidates(repo, []string{"test-sleep"}, &strings.Builder{}); n != 0 {
+		t.Fatalf("opened %d for a check a human already closed on evidence inside the rise window, want 0", n)
+	}
+	if strings.Contains(ghArgv(t, log), "issue create") {
+		t.Errorf("no issue must be created while the evidence predates the close:\n%s", ghArgv(t, log))
+	}
+}
+
+// A regression that resumes entirely after the close IS new evidence, and
+// staying silent forever would be the opposite failure.
+func TestRecordDemoteCandidates_ReopensOnEvidenceEntirelyAfterTheClose(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeGitHubRepo(t)
+	fp := demoteFingerprint(repo, "test-sleep")
+	closedAt := time.Now().UTC().Add(-30 * 24 * time.Hour) // well before the 14-day rise window
+	log := stubGhScript(t, map[string]string{
+		"issue list":   `[{"number":7,"state":"CLOSED","closedAt":"` + closedAt.Format(time.RFC3339) + `","body":"` + issueFingerprintKey + ` ` + fp + `"}]`,
+		"issue create": "https://github.com/o/r/issues/9",
+	})
+
+	if n := RecordDemoteCandidates(repo, []string{"test-sleep"}, &strings.Builder{}); n != 1 {
+		t.Fatalf("opened %d for a regression that resumed entirely after the close, want 1", n)
+	}
+	if !strings.Contains(ghArgv(t, log), "issue create") {
+		t.Errorf("a new issue must be opened once the rise is newer than the close:\n%s", ghArgv(t, log))
 	}
 }

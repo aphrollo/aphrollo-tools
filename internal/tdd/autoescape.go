@@ -386,34 +386,67 @@ func RecordCIEscape(o CIEscapeOptions, w io.Writer) (EscapeRecord, bool) {
 	}, w)
 }
 
-// openIssueWithFingerprint finds an open escape issue whose body carries
-// fingerprint. A gh that cannot answer finds none, which at worst opens one
-// duplicate — never a lost signal.
+// openIssueWithFingerprint finds an OPEN escape issue whose body carries
+// fingerprint. A thin wrapper over findIssueByFingerprint for the one caller
+// that only ever cared about "open, this one label".
 func openIssueWithFingerprint(repo, fingerprint string) (int, bool) {
+	m, found := findIssueByFingerprint(repo, []string{EscapeKind}, "open", fingerprint)
+	if !found {
+		return 0, false
+	}
+	return m.Number, true
+}
+
+// fingerprintMatch is what findIssueByFingerprint reports about an issue it
+// found: which one, whether it is still open, and — when it is not — when
+// it closed. The closed timestamp is what lets a caller judge whether new
+// evidence postdates a human's decision instead of just re-litigating it.
+type fingerprintMatch struct {
+	Number   int
+	Open     bool
+	ClosedAt time.Time
+}
+
+// findIssueByFingerprint finds an issue whose body carries fingerprint,
+// among labels (queried one at a time — gh reads repeated --label flags as
+// an AND, so a query across several would silently ask for issues carrying
+// ALL of them) and states ("open", "closed" or "all", gh's own spelling). A
+// gh that cannot answer finds none, which at worst opens one duplicate —
+// never a lost signal.
+func findIssueByFingerprint(repo string, labels []string, state, fingerprint string) (fingerprintMatch, bool) {
 	if repo == "" || fingerprint == "" || !ghAvailable() || !hasGitHubRemote(repo) {
-		return 0, false
+		return fingerprintMatch{}, false
 	}
-	out, err := runGh(repo, "issue", "list", "--label", EscapeKind, "--state", "open", "--limit", "200", "--json", "number,body")
-	if err != nil {
-		return 0, false
-	}
-	start, end := strings.Index(out, "["), strings.LastIndex(out, "]")
-	if start < 0 || end < start {
-		return 0, false
-	}
-	var docs []struct {
-		Number int    `json:"number"`
-		Body   string `json:"body"`
-	}
-	if json.Unmarshal([]byte(out[start:end+1]), &docs) != nil {
-		return 0, false
-	}
-	for _, d := range docs {
-		if strings.Contains(d.Body, issueFingerprintKey+" "+fingerprint) {
-			return d.Number, true
+	for _, label := range labels {
+		out, err := runGh(repo, "issue", "list", "--label", label, "--state", state, "--limit", "200", "--json", "number,body,state,closedAt")
+		if err != nil {
+			continue
+		}
+		start, end := strings.Index(out, "["), strings.LastIndex(out, "]")
+		if start < 0 || end < start {
+			continue
+		}
+		var docs []struct {
+			Number   int    `json:"number"`
+			Body     string `json:"body"`
+			State    string `json:"state"`
+			ClosedAt string `json:"closedAt"`
+		}
+		if json.Unmarshal([]byte(out[start:end+1]), &docs) != nil {
+			continue
+		}
+		for _, d := range docs {
+			if !strings.Contains(d.Body, issueFingerprintKey+" "+fingerprint) {
+				continue
+			}
+			m := fingerprintMatch{Number: d.Number, Open: strings.EqualFold(d.State, "OPEN")}
+			if t, err := time.Parse(time.RFC3339, d.ClosedAt); err == nil {
+				m.ClosedAt = t
+			}
+			return m, true
 		}
 	}
-	return 0, false
+	return fingerprintMatch{}, false
 }
 
 // --- trigger (d): the overrides ---------------------------------------------
