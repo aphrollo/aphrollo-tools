@@ -127,7 +127,7 @@ func decideNarrowedSuite(root, cmd string) Decision {
 	if root == "" {
 		return Decision{Action: Allow}
 	}
-	if entry, fresh := lastFreshSuiteVerdict(root); fresh {
+	if entry, fresh := lastFreshSuiteVerdict(root, attemptedScope(cmd)); fresh {
 		if hasMutationProofMarker(cmd) {
 			return Decision{Action: Allow, Escapes: []string{"override-bash-mutation-proof"}}
 		}
@@ -203,7 +203,7 @@ func decideWholeSuite(root string) Decision {
 	if root == "" {
 		return Decision{Action: Allow}
 	}
-	entry, fresh := lastFreshSuiteVerdict(root)
+	entry, fresh := lastFreshSuiteVerdict(root, wholeRunScope())
 	if !fresh {
 		return Decision{Action: Allow}
 	}
@@ -372,15 +372,19 @@ func isEnvAssignment(tok string) bool {
 var suiteStages = map[string]bool{"postedit": true, "precommit": true, "premergecommit": true}
 
 // lastFreshSuiteVerdict is the most recent SETTLED verdict (see
-// isSettledVerdict) logged for root within bashSuiteVerdictFreshFor —
-// the answer a whole-suite rerun would be redundant against. Anything else
-// on record for root — a timeout, a queued-skipped, a build still deferred,
-// a verdict this reader does not recognise — answers nothing, so this
-// reports "no fresh verdict" rather than guess: misreading an inconclusive
-// run as settled is what would deny a legitimate rerun.
-func lastFreshSuiteVerdict(root string) (gateEntry, bool) {
+// isSettledVerdict) logged for root within bashSuiteVerdictFreshFor that is
+// AT LEAST AS WIDE as the run being attempted (want) — the answer that rerun
+// would be redundant against. Anything else on record for root — a timeout,
+// a queued-skipped, a build still deferred, a verdict this reader does not
+// recognise — answers nothing, so this reports "no fresh verdict" rather
+// than guess: misreading an inconclusive run as settled is what would deny a
+// legitimate rerun. So is misreading a NARROW verdict as an answer about the
+// whole tree (verdictCoversRun, runscope.go): a post-edit run scoped to one
+// module of one package can be green off a single inline test while the
+// crate's real tests, in another target entirely, have never run.
+func lastFreshSuiteVerdict(root string, want runScope) (gateEntry, bool) {
 	e, ok := lastSuiteLogEntry(root, bashSuiteVerdictFreshFor)
-	if !ok || !isSettledVerdict(e.verdict) {
+	if !ok || !isSettledVerdict(e.verdict) || !verdictCoversRun(e, want) {
 		return gateEntry{}, false
 	}
 	return e, true

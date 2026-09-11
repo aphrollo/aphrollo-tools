@@ -238,9 +238,14 @@ func logRootCrate(root string) string {
 
 // gateEntry is one parsed log line.
 type gateEntry struct {
-	at      time.Time
-	stage   string
-	root    string
+	at    time.Time
+	stage string
+	root  string
+	// cmd is the invocation that produced the verdict, "" for a stage that
+	// logged none. It is what the scope law reads (runscope.go): the WIDTH
+	// of a recorded run is derivable from the command already on disk, so
+	// judging whether a verdict may refuse a rerun needs no new log field.
+	cmd     string
 	verdict string
 	secs    float64
 }
@@ -274,12 +279,21 @@ func parseGateLine(line string) (gateEntry, bool) {
 		return gateEntry{}, false
 	}
 	verdict := f[len(f)-2]
-	if m := quotedVerdict.FindStringSubmatch(line); m != nil {
-		if uq, err := strconv.Unquote(`"` + m[1] + `"`); err == nil {
+	cmd := strings.Join(f[3:len(f)-2], " ")
+	if m := quotedVerdict.FindStringSubmatchIndex(line); m != nil {
+		if uq, err := strconv.Unquote(line[m[2]-1 : m[3]+1]); err == nil {
 			verdict = uq
 		}
+		// A quoted verdict occupies more than one field, so the command is
+		// no longer f[3:len(f)-2] — it is everything between the root and
+		// the opening quote.
+		if head := strings.Fields(strings.TrimSpace(line[:m[2]-1])); len(head) > 3 {
+			cmd = strings.Join(head[3:], " ")
+		} else {
+			cmd = ""
+		}
 	}
-	return gateEntry{at: at, stage: f[1], root: f[2], verdict: verdict, secs: secs}, true
+	return gateEntry{at: at, stage: f[1], root: f[2], cmd: cmd, verdict: verdict, secs: secs}, true
 }
 
 // stageMeasured reports whether stage has at least one entry counted under

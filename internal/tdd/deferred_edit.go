@@ -531,6 +531,17 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	if treatAsEmptyPass(res) {
 		res.Passed = true
 	}
+	// The same two runs that reached no test verdict on the direct path
+	// (posttooluse.go) reach none here either, and must not be dressed up as
+	// a green. This path does not widen an empty selection: its whole budget
+	// went on the one detached run, so it reports the honest inconclusive
+	// and the next edit's run widens.
+	if line := buildOnlyTerminal(snap.runner, root, res); line != "" {
+		return line, false
+	}
+	if line := zeroSelectionTerminal(snap.runner, root, res); line != "" {
+		return line, false
+	}
 	if line := foreignBuildAdvisory(root, target, cmdString(snap.runner), res); line != "" {
 		return line, false
 	}

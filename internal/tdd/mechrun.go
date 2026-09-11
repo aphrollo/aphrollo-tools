@@ -112,9 +112,9 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		// A suite RAN and passed. That, and not a cache hit, is what the
 		// gate note claims to CI — see noteSuiteGreen.
 		noteSuiteGreen()
-		line := mechGreenLine(gateName, stage, runner, root, res)
+		line := mechResultLine(gateName, stage, runner, root, res)
 		fmt.Fprintln(os.Stderr, line)
-		logSuiteVerdict(gateName, root, cmdString(runner), "green", res)
+		logSuiteVerdict(gateName, root, cmdString(runner), stageSuiteVerdict(runner, res), res)
 	}
 	return GateResult{}
 }
@@ -141,11 +141,33 @@ func blockedVerdict(stage, output string) string {
 // hyphens).
 var disallowedLintRe = regexp.MustCompile(`disallowed[_-](?:method|type)s?|use of a disallowed (?:method|type)`)
 
-// mechGreenLine composes the mechanical stage's green stderr line, sharing
-// PostEdit's greenLabel renderer (passed count, or nextest's empty-crate
-// exit-4 case) so the two call sites can't drift apart.
-func mechGreenLine(gateName, stage string, r Runner, root string, res SuiteResult) string {
-	return fmt.Sprintf("[%s] gate %s: %s in %s → %s", stage, gateName, cmdString(r), root, greenLabel(Green, res.Output, res.Duration))
+// mechResultLine composes the stderr line for a stage run that did not
+// block. A run that actually executed tests shares PostEdit's greenLabel
+// renderer, so the two call sites cannot drift apart; a run that executed
+// NONE says so instead. A merge is measured, not certified, and "green (0
+// tests — nothing to run)" at the commit and merge gates was the same false
+// green as at edit time, at the point where it carries the most weight.
+// LABEL ONLY: the stage still passes such a run, exactly as before — a crate
+// with no test target still lands, and the line says so rather than leaving
+// a reader to wonder whether it was refused.
+func mechResultLine(gateName, stage string, r Runner, root string, res SuiteResult) string {
+	label := greenLabel(Green, res.Output, res.Duration)
+	if v := untestedVerdict(r, res); v != "" {
+		label = fmt.Sprintf("%s (%.1fs) — nothing was tested here; not a refusal (a target with no reachable test still lands), and not a green",
+			strings.ToUpper(v), res.Duration.Seconds())
+	}
+	return fmt.Sprintf("[%s] gate %s: %s in %s → %s", stage, gateName, cmdString(r), root, label)
+}
+
+// stageSuiteVerdict is the gate.log word for that same run: "green" when
+// tests actually ran, and the inconclusive name when none did — which keeps
+// it out of isSettledVerdict's family, so a run that measured nothing cannot
+// arm the 30-minute block over the hand-run that would measure something.
+func stageSuiteVerdict(r Runner, res SuiteResult) string {
+	if v := untestedVerdict(r, res); v != "" {
+		return v
+	}
+	return "green"
 }
 
 // cargoOwnedFiles splits repo-root-relative files into those owned by SOME

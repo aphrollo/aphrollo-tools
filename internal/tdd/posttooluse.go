@@ -128,30 +128,26 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 		return postEditDeferred(snap, root, target, headSHA, session)
 	}
 
-	res, _, acquired := runCargoLocked(run, snap.runner, root, buildLockPostEditDeadline, DefaultPostEditTimeout)
-	if !acquired {
-		// Another cargo build already holds the machine-wide lock — the
-		// suite never even started, so this is a DIFFERENT fact from a
-		// timeout (which means "it ran and blew its budget") and must never
-		// touch the timeout streak: lock contention has nothing to do with
-		// whether THIS project's suite is slow.
-		appendGateLog("postedit", root, cmdString(snap.runner), "queued-skipped", 0)
-		return queuedSkippedAdvisory(root, runnerTargetDir(snap.runner, root)), false
+	res, terminal := runPostEditSuite(run, snap, root, headSHA)
+	if terminal != "" {
+		return terminal, false
 	}
-	if res.TimedOut {
-		// A killed run proves nothing about the code — the last REAL outcome
-		// stays authoritative for the next delta (state is untouched beyond the
-		// timeout streak), but the run itself must be reported: silence here
-		// reads as "green" when it actually means "inconclusive, not tested".
-		if snap.state != nil {
-			snap.state.stampTimeout(root, headSHA)
-			_ = snap.state.save(snap.statePath)
+	// A compile check ends here: an --example or --bench target ran no test,
+	// so there is no verdict to classify and nothing to widen into.
+	if line := buildOnlyTerminal(snap.runner, root, res); line != "" {
+		return line, false
+	}
+	widenNote := ""
+	// A NARROWED run that selected nothing has not judged the code: the
+	// crate's tests may simply live where the filter did not look. Widen
+	// once and let that run answer; only a selection that stays empty is
+	// reported, as an inconclusive rather than a green.
+	if selectedZeroTests(snap.runner, res) {
+		empty := resolveEmptySelection(run, snap, root, headSHA, res)
+		if empty.terminal != "" {
+			return empty.terminal, false
 		}
-		appendGateLog("postedit", root, cmdString(snap.runner), "timeout", res.Duration)
-		return timeoutAdvisory(snap.runner, root, res.Duration), false
-	}
-	if treatAsEmptyPass(res) {
-		res.Passed = true
+		snap.runner, res, widenNote = empty.runner, empty.res, empty.note
 	}
 	// Same posture as a timeout: a build that failed to link a crate this
 	// edit did not touch reached no verdict about the edit, so the last real
@@ -193,12 +189,12 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 
 	logSuiteVerdict("postedit", root, cmdString(snap.runner), string(outcome), res)
 	if outcome.IsRed() {
-		return redSummary(snap.runner, root, outcome, res.Output), false
+		return withNote(redSummary(snap.runner, root, outcome, res.Output), widenNote), false
 	}
 	if unconstrained {
-		return unconstrainedLine(snap.runner, root, passed, res.Duration), false
+		return withNote(unconstrainedLine(snap.runner, root, passed, res.Duration), widenNote), false
 	}
-	return passAdvisory(snap.runner, root, outcome, res.Output, res.Duration, snap.prevFailing), false
+	return withNote(passAdvisory(snap.runner, root, outcome, res.Output, res.Duration, snap.prevFailing), widenNote), false
 }
 
 // unconstrainedGreen reports the case fail-first structurally cannot see: a
