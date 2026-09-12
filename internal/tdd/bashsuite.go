@@ -86,10 +86,15 @@ func DecideBashSuite(raw []byte) (Decision, bool) {
 	if hasSoakMarker(cmd) {
 		return Decision{Action: Allow, Escapes: []string{"override-bash-soak"}}, true
 	}
+	// The root is the one the COMMAND enters, not the one the session's cwd
+	// names: those differ whenever a run is issued into a lane worktree with
+	// `cd <lane> && …`, and judging a lane's run against the primary's
+	// verdict refused runs that had never happened (issue #645).
+	root := effectiveRunRoot(in.Cwd, cmd)
 	if shape == narrowedSuiteInvocation {
-		return decideNarrowedSuite(in.Cwd, cmd), true
+		return decideNarrowedSuite(root, cmd), true
 	}
-	return decideWholeSuite(in.Cwd), true
+	return decideWholeSuite(root), true
 }
 
 // decideNarrowedSuite judges a narrowed rerun against what the gate already
@@ -113,8 +118,12 @@ func DecideBashSuite(raw []byte) (Decision, bool) {
 //
 // A mutation proof is the one narrowed rerun that legitimately stands beside
 // a fresh green, and it says so for itself — see hasMutationProofMarker.
-func decideNarrowedSuite(cwd, cmd string) Decision {
-	root := findRootFrom(cwd)
+//
+// The root is the tree the command actually runs in (effectiveRunRoot), so
+// the freshness question is only ever asked of verdicts about THAT tree: a
+// green logged for the checkout next door is not an answer this run would be
+// redundant against.
+func decideNarrowedSuite(root, cmd string) Decision {
 	if root == "" {
 		return Decision{Action: Allow}
 	}
@@ -147,16 +156,26 @@ func decideNarrowedSuite(cwd, cmd string) Decision {
 // retry loop against a 28-minute timeout). `gate output` serves the bytes of
 // that very run, so the route out is the gate's own record rather than a
 // second suite.
+//
+// The mutation marker comes LAST and says what it is. While the guard still
+// resolved the checkout from the session cwd, MUTATION=1 was the only route
+// past a refusal a session could not otherwise answer, and three ordinary
+// suite runs went into gate.log labelled as mutation proofs (issue #645) — a
+// marker that doubles as the escape hatch stops meaning what it says, and
+// every count taken from it is then wrong. The refusal names the honest
+// routes first and declines to present the marker as a general way through.
 func denyNarrowedRerunReason(root string, e gateEntry) string {
 	ago := time.Since(e.at).Round(time.Second)
 	return fmt.Sprintf(
-		"the gate already holds a %s verdict for %s from the %s stage, logged %s ago — "+
-			"re-running one of its tests by hand answers nothing that run does not already hold. "+
-			"Two routes to it: `aphrollo gate stats` for the verdict, `aphrollo gate output` for the "+
-			"text that run actually printed (its assertion lines, unfiltered). A narrowed rerun is for "+
-			"an INCONCLUSIVE verdict (TIMEOUT, SKIPPED, QUEUED-SKIPPED, %s, %s, or none logged), where "+
-			"the code was never tested; if this is a mutation proof, name it (MUTATION=1 …) so it is "+
-			"allowed and counted.",
+		"the gate already holds a %s verdict for %s — the tree this command runs in — from the %s "+
+			"stage, logged %s ago: re-running one of its tests by hand answers nothing that run does "+
+			"not already hold. Two routes to it: `aphrollo gate output` for the text that run actually "+
+			"printed (its assertion lines, unfiltered), `aphrollo gate stats` for the verdict itself. "+
+			"A narrowed rerun is for an INCONCLUSIVE verdict (TIMEOUT, SKIPPED, QUEUED-SKIPPED, %s, "+
+			"%s, or none logged), where the code was never tested — that is the rerun this guard lets "+
+			"through, and a run in a DIFFERENT checkout is never refused here at all. MUTATION=1 is "+
+			"not a way past this refusal: it labels a run that IS a mutation proof, and every run "+
+			"carrying it is counted as one.",
 		e.verdict, root, e.stage, ago, DeferredAbandoned, InfraFailed)
 }
 
@@ -178,9 +197,9 @@ func hasMutationProofMarker(cmd string) bool {
 // settled verdict this run cannot improve on; with no such verdict on record
 // (the common first-run case, or a root the hook cannot resolve) it allows
 // silently — an un-narrowed run is legitimate whenever there is nothing to be
-// redundant against.
-func decideWholeSuite(cwd string) Decision {
-	root := findRootFrom(cwd)
+// redundant against. The root is the tree the command enters, so a verdict
+// about a different checkout is not "such a verdict" at all.
+func decideWholeSuite(root string) Decision {
 	if root == "" {
 		return Decision{Action: Allow}
 	}
@@ -245,17 +264,27 @@ var wholeSuitePositionalMarkers = map[string]bool{"./...": true, "...": true, ".
 
 // goTestValueFlags consume a following bare token as their value (`-run X`,
 // not `-run=X`) so it is never mistaken for a positional package operand.
-var goTestValueFlags = map[string]bool{"-run": true, "-timeout": true, "-count": true, "-cpu": true}
+// `-C <dir>` is listed so its operand is consumed as the directory it is,
+// never read as a positional package operand (which would classify a whole
+// `go test -C <dir> ./...` as narrowed); runnerDir reads the same operand to
+// find where the run lands.
+var goTestValueFlags = map[string]bool{
+	"-run": true, "-timeout": true, "-count": true, "-cpu": true, "-C": true,
+}
 
 // goTestNarrowingFlags name go test's own narrowing switch; a single named
 // package is recognised separately, as a positional operand.
 var goTestNarrowingFlags = map[string]bool{"-run": true}
 
-var cargoTestValueFlags = map[string]bool{"-p": true, "--package": true}
+// `--manifest-path <file>` names the tree, not a narrowing, and its operand
+// is consumed for the same reason `-C`'s is: cargo reads any positional as a
+// filter substring, so an unconsumed path would read as one.
+var cargoTestValueFlags = map[string]bool{"-p": true, "--package": true, "--manifest-path": true}
 var cargoTestNarrowingFlags = map[string]bool{"-p": true, "--package": true}
 
 var cargoNextestValueFlags = map[string]bool{
 	"-p": true, "--package": true, "-E": true, "--filter-expr": true,
+	"--manifest-path": true,
 }
 var cargoNextestNarrowingFlags = map[string]bool{
 	"-p": true, "--package": true, "-E": true, "--filter-expr": true,
@@ -420,7 +449,10 @@ func LogBashSuiteDecision(raw []byte, d Decision) {
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return
 	}
-	root := findRootFrom(in.Cwd)
+	// Keyed on the tree the command runs in, the same one the decision was
+	// judged against — a line blaming the session's cwd would attribute a
+	// lane's denied run to the primary checkout.
+	root := effectiveRunRoot(in.Cwd, in.ToolInput.Command)
 	if root == "" {
 		root = in.Cwd
 	}

@@ -323,6 +323,34 @@ func TestDecideBashSuite_NarrowedDenyReasonNamesTheVerdictAndItsAge(t *testing.T
 	}
 }
 
+// A marker that is the only way past a refusal stops meaning what it says:
+// with the checkout bug open, three ordinary suite runs were labelled
+// MUTATION=1 to get through and were then counted as mutation proofs
+// (issue #645). The refusal has to name the honest routes first — the run's
+// own text, and the inconclusive verdict a real rerun answers — and present
+// the marker as what it is, a label that gets counted, not a bypass.
+func TestDecideBashSuite_NarrowedDenyReasonNamesTheHonestRoutesBeforeTheMutationMarker(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := bashSuiteRoot(t)
+	appendGateLog("postedit", root, "go test ./...", "green", 0)
+
+	d := decideBash(t, "s1", root, "go test -run TestWidget ./internal/tdd")
+	if d.Action != Block {
+		t.Fatalf("setup: want Block, got %v (reason %q)", d.Action, d.Reason)
+	}
+	output, marker := strings.Index(d.Reason, "gate output"), strings.Index(d.Reason, "MUTATION=1")
+	if output < 0 || marker < 0 {
+		t.Fatalf("deny reason must name both `gate output` and the marker:\n%s", d.Reason)
+	}
+	if output > marker {
+		t.Errorf("the route to the run's own text must come before the marker:\n%s", d.Reason)
+	}
+	if !strings.Contains(d.Reason, "not a way past this refusal") {
+		t.Errorf("deny reason must say the marker is not a bypass:\n%s", d.Reason)
+	}
+}
+
 // A mutation proof IS a narrowed rerun beside a fresh green by construction
 // (mutate the code, run the one test, expect it to fail), and this repo
 // sanctions it explicitly. Marked like a soak, allowed like a soak, and
