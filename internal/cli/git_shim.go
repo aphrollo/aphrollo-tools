@@ -133,10 +133,15 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 			return 1
 		}
 		// The discard wall (#343): same placement again — a `reset --hard`
-		// that already ran cannot be un-run by a refusal printed after it.
-		if line, refuse := discardWallRefusal(cfg, rest, workDir); refuse {
+		// that already ran cannot be un-run by a refusal printed after it,
+		// and the louder marker's notice (a line with refuse=false, naming
+		// the unstaged work it is about to destroy) is worth nothing after
+		// the destruction either, so both print here.
+		if line, refuse := discardWallRefusal(cfg, rest, workDir); line != "" || refuse {
 			fmt.Fprintln(stderr, line)
-			return 1
+			if refuse {
+				return 1
+			}
 		}
 		// The shared-stash wall (#384): refs/stash is one ref for the whole
 		// repo, not per-worktree — a pop that already took another lane's

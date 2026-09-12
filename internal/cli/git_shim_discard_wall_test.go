@@ -310,10 +310,16 @@ func TestGitShim_OneShotExpiresAfterFiveMinutes(t *testing.T) {
 	}
 }
 
+// TestGitShim_EnvOverridePassesAndIsLogged covers the case APHROLLO_DISCARD=1
+// is FOR: everything the discard would throw away is already in the object
+// store (staged here), so `git fsck`/`git stash` can still reach it and the
+// override costs nothing that cannot be recovered. The unstaged case is the
+// next test's, and is refused.
 func TestGitShim_EnvOverridePassesAndIsLogged(t *testing.T) {
 	cfgDir := gateConfigDir(t)
 	repo, cfg := discardWallFixture(t)
 	writeFixtureFile(t, repo, "seed.txt", []string{"seed", "dirty"})
+	runFixtureGit(t, cfg.realGit, repo, "add", "seed.txt")
 	t.Setenv("APHROLLO_DISCARD", "1")
 
 	var out, errb bytes.Buffer
@@ -323,5 +329,100 @@ func TestGitShim_EnvOverridePassesAndIsLogged(t *testing.T) {
 	}
 	if log := readGateLog(t, cfgDir); !strings.Contains(log, "override-discard-env") {
 		t.Fatalf("gate.log = %q, want the env override recorded", log)
+	}
+}
+
+// TestGitShim_EnvOverrideRefusesWhenItWouldDestroyUnstagedWork is issue #650's
+// first half, in the shape the field reported it: a file carrying work that
+// exists NOWHERE but the working tree, APHROLLO_DISCARD=1 in the environment
+// (the form the docs recommend for scripts), and the work silently gone. The
+// marker's job is to get past the wall deliberately; it was a blanket yes to
+// an unbounded loss the caller never saw a number for.
+func TestGitShim_EnvOverrideRefusesWhenItWouldDestroyUnstagedWork(t *testing.T) {
+	cfgDir := gateConfigDir(t)
+	repo, cfg := discardWallFixture(t)
+	writeFixtureFile(t, repo, "seed.txt", []string{"seed", "hand-written-work"})
+	t.Setenv("APHROLLO_DISCARD", "1")
+
+	var out, errb bytes.Buffer
+	code := runGitShim([]string{"reset", "--hard"}, strings.NewReader(""), &out, &errb, cfg)
+	// The destruction is asserted FIRST, before the exit code: it is the
+	// defect, and a RED that prints the file with the work already gone says
+	// so in one line.
+	body, err := os.ReadFile(filepath.Join(repo, "seed.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "hand-written-work") {
+		t.Fatalf("seed.txt = %q, want the unstaged work still there: APHROLLO_DISCARD=1 must not destroy it", string(body))
+	}
+	if code != 1 {
+		t.Fatalf("reset --hard under APHROLLO_DISCARD=1 with unstaged work: exit = %d, want 1\nstderr: %s", code, errb.String())
+	}
+	if !strings.Contains(errb.String(), "seed.txt") {
+		t.Fatalf("refusal = %q, want it to NAME the file whose unstaged work would be lost", errb.String())
+	}
+	if !strings.Contains(errb.String(), unstagedDiscardEnv+"=1") {
+		t.Fatalf("refusal = %q, want it to name the louder marker that does cover unstaged work", errb.String())
+	}
+	if log := readGateLog(t, cfgDir); !strings.Contains(log, "git-discard-refused:reset---hard-unstaged") {
+		t.Fatalf("gate.log = %q, want the unstaged refusal recorded", log)
+	}
+}
+
+// TestGitShim_UnstagedMarkerNamesWhatItDestroysThenRuns pins the louder
+// marker's whole contract: it is distinct from APHROLLO_DISCARD, it prints
+// the files it is about to destroy BEFORE git runs, and it is counted.
+func TestGitShim_UnstagedMarkerNamesWhatItDestroysThenRuns(t *testing.T) {
+	cfgDir := gateConfigDir(t)
+	repo, cfg := discardWallFixture(t)
+	writeFixtureFile(t, repo, "seed.txt", []string{"seed", "hand-written-work"})
+	t.Setenv(unstagedDiscardEnv, "1")
+
+	var out, errb bytes.Buffer
+	code := runGitShim([]string{"reset", "--hard"}, strings.NewReader(""), &out, &errb, cfg)
+	if code != 0 {
+		t.Fatalf("reset --hard under the unstaged marker: exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	if !strings.Contains(errb.String(), "seed.txt") {
+		t.Fatalf("stderr = %q, want the destroyed file named before the discard ran", errb.String())
+	}
+	body, err := os.ReadFile(filepath.Join(repo, "seed.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "hand-written-work") {
+		t.Fatal("reset --hard under the unstaged marker must actually have run")
+	}
+	if log := readGateLog(t, cfgDir); !strings.Contains(log, "override-discard-unstaged") {
+		t.Fatalf("gate.log = %q, want the unstaged override recorded", log)
+	}
+}
+
+// TestGitShim_EnvOverrideNamesOnlyTheUnstagedFilesInScope keeps the refusal's
+// claim exactly as wide as what the invocation would lose: a path-scoped
+// `checkout -- <paths>` names the file it names, not every dirty file in the
+// tree.
+func TestGitShim_EnvOverrideNamesOnlyTheUnstagedFilesInScope(t *testing.T) {
+	gateConfigDir(t)
+	repo, cfg := discardWallFixture(t)
+	writeFixtureFile(t, repo, "a.txt", []string{"a"})
+	writeFixtureFile(t, repo, "b.txt", []string{"b"})
+	runFixtureGit(t, cfg.realGit, repo, "add", ".")
+	runFixtureGit(t, cfg.realGit, repo, "commit", "-qm", "tracked base")
+	writeFixtureFile(t, repo, "a.txt", []string{"a", "unstaged"})
+	writeFixtureFile(t, repo, "b.txt", []string{"b", "unstaged"})
+	t.Setenv("APHROLLO_DISCARD", "1")
+
+	var out, errb bytes.Buffer
+	code := runGitShim([]string{"checkout", "--", "b.txt"}, strings.NewReader(""), &out, &errb, cfg)
+	if code != 1 {
+		t.Fatalf("checkout -- b.txt under APHROLLO_DISCARD=1: exit = %d, want 1\nstderr: %s", code, errb.String())
+	}
+	if !strings.Contains(errb.String(), "b.txt") {
+		t.Fatalf("refusal = %q, want it to name b.txt", errb.String())
+	}
+	if strings.Contains(errb.String(), "a.txt") {
+		t.Fatalf("refusal = %q, must not name a.txt: this invocation would not touch it", errb.String())
 	}
 }

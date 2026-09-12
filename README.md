@@ -1105,6 +1105,37 @@ invocation through for a script. Both are counted in `gate stats`:
 `git-discard-refused:<form>` under denies, `override-discard-used` and
 `override-discard-env` under denies / overrides.
 
+**`APHROLLO_DISCARD=1` does not cover unstaged work.** It covers what the
+object store can still reach — staged, committed and stashed changes, which
+`git fsck` and `git stash` bring back — and refuses, by name, the invocation
+that would destroy an edit living nowhere but the working tree:
+
+```
+gate: refused — reset --hard would destroy unstaged work in 2 file(s) (a.txt, b.txt) that no commit, index or stash holds, so nothing can bring it back; APHROLLO_DISCARD=1 does not cover that. Stage it (git add) and re-run, or APHROLLO_DISCARD_UNSTAGED=1 to destroy it deliberately
+```
+
+The scope is the invocation's own: a `checkout -- <paths>` names only the
+paths it names, `clean -f*` names the untracked files it would delete,
+`worktree remove --force` looks inside the target worktree, and `stash
+drop`/`clear` and `branch -D` name nothing (they unlink commits the reflog
+still reaches). `git add` is the answer that keeps the work: staged content
+is in the object store, so the same command then passes under
+`APHROLLO_DISCARD=1`.
+
+`APHROLLO_DISCARD_UNSTAGED=1` is the louder marker, and is **not** the one to
+put in a script: it destroys work nothing can recover, so it prints every
+file it is about to destroy before git runs, and counts as
+`override-discard-unstaged`.
+
+```
+gate: APHROLLO_DISCARD_UNSTAGED=1 — reset --hard is destroying unstaged work in 2 file(s): a.txt, b.txt
+```
+
+The one-shot arm is deliberately not bounded this way: it is armed by hand in
+answer to a refusal that already printed the cost, so the operator has seen
+the number. A variable exported once in a shell profile never shows anyone
+anything.
+
 `aphrollo workspace remove --force` and `workspace prune --force` run
 `git worktree remove --force` as their own subprocess, so a dirty target hits
 this same wall and needs the same arming — neither verb sets the override on
