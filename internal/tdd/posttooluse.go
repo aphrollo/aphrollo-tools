@@ -370,6 +370,14 @@ func redSummary(r Runner, root string, outcome Outcome, output string) string {
 	if g := guidance(outcome); g != "" {
 		fmt.Fprintf(&b, "\n%s", g)
 	}
+	// An ADDITIONAL line, never a softer verdict (issue #651): when the
+	// compiler denies a symbol the crate's own sources declare AND that
+	// crate's artifacts are shared with another checkout, say which
+	// fingerprint to remove by hand. Silent in every other case, which is
+	// nearly all of them.
+	if hint := staleArtifactHint(runnerDir(r, root), output); hint != "" {
+		fmt.Fprintf(&b, "\n%s", hint)
+	}
 	if path := postEditRedLogPath(); path != "" {
 		if writePostEditRedLog(path, output) {
 			fmt.Fprintf(&b, "\nfull output: %s", path)
