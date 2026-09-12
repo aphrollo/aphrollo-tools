@@ -1152,6 +1152,7 @@ undercover = true                    # reject commit messages that name the tool
 commit-message-deny = ["^WIP:"]      # this repo's own extra deny patterns
 sdd-dir = "docs/sdd"                 # where the `sdd` skill puts a feature's spec tree
 docs-check = true                    # judge staged *.md for dangling repo-relative citations
+fail-first-env = ["FORGE_GPU_TESTS=1"] # switches the fail-first proof run exports
 issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "quality", "product"]
 ```
 
@@ -1163,6 +1164,18 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   that declares no list is not checked at all. A repo that is not a cargo
   workspace declares the same key as `[aphrollo] issue-labels` in an
   `aphrollo.toml` beside its root.
+- **`fail-first-env`** (string array) — `NAME=VALUE` switches exported for the
+  [fail-first](#tdd--law-gates-aphrollo-gate) proof run, the sibling of
+  [`mutants-env`](docs/mutation-runner.md) and read the same way (the Cargo
+  spelling wins over `[aphrollo]` in `aphrollo.toml`). The proof builds HEAD in
+  a throwaway worktree and runs the staged tests there; a suite gated behind a
+  switch that lives only in the author's shell SELF-SKIPS in that worktree, and
+  a skip is not a pass. Declared once, every proof inherits it. Two keys rather
+  than one because the two runs are separate decisions — a measurement on the
+  CI runner can afford a switch that would make every commit pay for a GPU.
+  A proof whose tests all skip anyway is reported as `all-tests-skipped` and
+  refused: inconclusive, never `red-proven`, and never "your tests passed at
+  HEAD".
 - **`always-run`** — a workspace-wide guard package (its tests scan the whole
   tree) is owned by no staged file, so ownership scoping alone would run it
   only when someone edits the guard itself, which is exactly when its

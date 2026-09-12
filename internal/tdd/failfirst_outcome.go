@@ -17,6 +17,17 @@ type failFirstOutcome struct {
 	// package/target in vacuousPkgs.
 	vacuous     bool
 	vacuousPkgs []string
+	// skipped: the run exited 0 having executed its selected tests and every
+	// one of them SKIPPED itself (#656), named per package/target in
+	// skippedPkgs. Distinct from vacuous — there the filter selected nothing,
+	// here the tests were selected and declined at runtime — and distinct
+	// from a pass, which is the whole point: neither says anything about
+	// HEAD, and only one of them used to be admitted as a verdict.
+	skipped     bool
+	skippedPkgs []string
+	// runner is the proof's resolved Runner, kept so the violation message
+	// can say which skips this gate can and cannot read.
+	runner Runner
 	// dur is the suite's own measured Duration, 0 for every path that
 	// returned before a suite ran.
 	dur time.Duration

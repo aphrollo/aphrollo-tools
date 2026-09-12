@@ -43,13 +43,13 @@ var (
 	cargoDocTestsRe = regexp.MustCompile(`(?m)^\s*Doc-tests\s+(\S+)`)
 )
 
-// cargoVacuousTargets returns the sorted, de-duplicated set of target names
-// (attributed from the nearest preceding "Running"/"Doc-tests" header, or
-// "unknown target" when none precedes it — a header this gate has not seen a
-// toolchain omit, but text is text) whose libtest summary reports zero
-// passed and zero failed while filtered_out is nonzero: a real test target
-// that lost every one of its tests to a filter, not a target with none.
-func cargoVacuousTargets(output string) []string {
+// cargoTargetNamer builds the "which target was this result block printed
+// under" lookup: the name of the nearest Running/Doc-tests header BEFORE a
+// given offset, "unknown target" when none precedes it (a header this gate
+// has not seen a toolchain omit, but text is text). Shared with
+// cargoSkippedOnlyTargets, which attributes a different verdict off the same
+// blocks and must name them identically.
+func cargoTargetNamer(output string) func(pos int) string {
 	type header struct {
 		pos  int
 		name string
@@ -62,8 +62,7 @@ func cargoVacuousTargets(output string) []string {
 		headers = append(headers, header{pos: m[0], name: output[m[2]:m[3]]})
 	}
 	sort.Slice(headers, func(i, j int) bool { return headers[i].pos < headers[j].pos })
-
-	nameBefore := func(pos int) string {
+	return func(pos int) string {
 		name := "unknown target"
 		for _, h := range headers {
 			if h.pos >= pos {
@@ -73,7 +72,16 @@ func cargoVacuousTargets(output string) []string {
 		}
 		return name
 	}
+}
 
+// cargoVacuousTargets returns the sorted, de-duplicated set of target names
+// (attributed from the nearest preceding "Running"/"Doc-tests" header, or
+// "unknown target" when none precedes it — a header this gate has not seen a
+// toolchain omit, but text is text) whose libtest summary reports zero
+// passed and zero failed while filtered_out is nonzero: a real test target
+// that lost every one of its tests to a filter, not a target with none.
+func cargoVacuousTargets(output string) []string {
+	nameBefore := cargoTargetNamer(output)
 	var vacuous []string
 	seen := map[string]bool{}
 	for _, m := range cargoTestResultRe.FindAllStringSubmatchIndex(output, -1) {
