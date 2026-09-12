@@ -33,20 +33,15 @@ var defaultBaselineGlobs = []string{
 func baselineStage(gateName, repoRoot string) GateResult {
 	globs := baselineGlobs(repoRoot)
 	base := baselineCompareRef(repoRoot)
+	mergeRef := mergeInProgressRef(repoRoot)
 	var offences []string
 	for _, file := range baselineFilesInLane(repoRoot) {
 		rel := filepath.ToSlash(file)
 		if !matchesAnyGlob(globs, rel) {
 			continue
 		}
-		before, ok := gitBlob(repoRoot, base+":"+rel)
-		if !ok {
-			// Absent from the base, but the lane may have introduced it in an
-			// EARLIER commit — a law the lane owns, whose ceiling it may still
-			// not hand-raise. Fall back to HEAD so those raises stay visible.
-			before, ok = gitBlob(repoRoot, "HEAD:"+rel)
-		}
-		if !ok {
+		parents := baselineParents(repoRoot, base, mergeRef, rel)
+		if len(parents) == 0 {
 			// The file is new in this commit: a law being ADOPTED, reviewed as
 			// such. The rule is about raising a ceiling that already exists.
 			continue
@@ -55,7 +50,7 @@ func baselineStage(gateName, repoRoot string) GateResult {
 		if !ok {
 			continue
 		}
-		raised := raisedKeys(repoRoot, base, rel, before, after, wholeTreeCeilingBaseline(repoRoot, rel))
+		raised := raisedKeys(repoRoot, rel, parents, after, wholeTreeCeilingBaseline(repoRoot, rel))
 		if len(raised) == 0 {
 			continue
 		}
@@ -76,8 +71,54 @@ func baselineStage(gateName, repoRoot string) GateResult {
 	return GateResult{Blocked: true, Message: msg}
 }
 
-// raisedKeys names every key in one baseline file whose count rose or which is
-// new, as `<file> <key> <old> -> <new>`. For a count-keyed (file-identity)
+// baselineParent is one version of a baseline file the staged one is judged
+// against: the ref it was read from — the re-path content comparison needs
+// it — and its text at that ref.
+type baselineParent struct {
+	ref  string
+	text string
+}
+
+// baselineParents names every version of rel the staged baseline may
+// legitimately equal: the lane's own base (the point it branched from trunk,
+// falling back to HEAD where no base resolves — a raise an EARLIER commit of
+// this lane landed must stay visible), and, only while a merge is in
+// progress, the side being merged IN.
+//
+// The second parent is #657. The guard consulted HEAD alone, so a row TRUNK
+// itself wrote read as a hand-raised ceiling the moment a lane merged trunk
+// in: trunk moving `tests/kernel/truss.rs` to `tests/integration/...` writes
+// a key the lane's base has never carried, and against that base alone the
+// pure move reads as `0 -> 710`. Judging the staged baselines against the
+// merge actually being performed admits a re-path, and wholesale adoption of
+// the other parent's baselines with it, while a row above BOTH parents is
+// still a ceiling neither history accounts for and stays refused.
+//
+// mergeRef is whichever of MergeInProgressRefs resolves ("" when none does),
+// so a conflicted cherry-pick and revert — the same "two histories, one
+// index" shape — are read the same way. A ref that resolves but carries no
+// version of rel simply contributes no parent.
+func baselineParents(repoRoot, base, mergeRef, rel string) []baselineParent {
+	var parents []baselineParent
+	if text, ok := gitBlob(repoRoot, base+":"+rel); ok {
+		parents = append(parents, baselineParent{ref: base, text: text})
+	} else if text, ok := gitBlob(repoRoot, "HEAD:"+rel); ok {
+		parents = append(parents, baselineParent{ref: "HEAD", text: text})
+	}
+	if mergeRef != "" {
+		if text, ok := gitBlob(repoRoot, mergeRef+":"+rel); ok {
+			parents = append(parents, baselineParent{ref: mergeRef, text: text})
+		}
+	}
+	return parents
+}
+
+// raisedKeys names every key in one baseline file whose count rose above what
+// EVERY parent says, or which none of them carries, as
+// `<file> <key> <old> -> <new>`. With one parent that is the plain
+// "higher than before" comparison; with a merge's two it is "higher than
+// either history", because a ceiling one parent already carries was not
+// written by this commit. For a count-keyed (file-identity)
 // baseline, a key that vanished at one path and reappeared at another with
 // the SAME count and BYTE-IDENTICAL content is a re-path, not a raise — the
 // row moved with the file, the same case a line-keyed baseline already
@@ -90,11 +131,24 @@ func baselineStage(gateName, repoRoot string) GateResult {
 // case this guard exists to catch, so its first row is admitted at whatever
 // the scan measured (#480, #577). It never excuses an EXISTING key's count
 // going up.
-func raisedKeys(repoRoot, base, file, before, after string, admitNewRootKeys bool) []string {
-	old := baselineCounts(before)
+func raisedKeys(repoRoot, file string, parents []baselineParent, after string, admitNewRootKeys bool) []string {
 	now := baselineCounts(after)
-	if countedForm(before) && countedForm(after) {
-		repathCountedKeys(repoRoot, base, old, now)
+	// allowed is the highest ceiling any parent already carries for a key,
+	// and known records that some parent carried it at all — the two answers
+	// the scan below needs, collapsed over however many parents there are.
+	allowed := map[string]int{}
+	known := map[string]bool{}
+	for _, p := range parents {
+		old := baselineCounts(p.text)
+		if countedForm(p.text) && countedForm(after) {
+			repathCountedKeys(repoRoot, p.ref, old, now)
+		}
+		for k, v := range old {
+			known[k] = true
+			if v > allowed[k] {
+				allowed[k] = v
+			}
+		}
 	}
 	keys := make([]string, 0, len(now))
 	for k := range now {
@@ -103,13 +157,13 @@ func raisedKeys(repoRoot, base, file, before, after string, admitNewRootKeys boo
 	sort.Strings(keys)
 	var out []string
 	for _, k := range keys {
-		if now[k] <= old[k] {
+		if now[k] <= allowed[k] {
 			continue
 		}
-		if _, existed := old[k]; !existed && admitNewRootKeys {
+		if !known[k] && admitNewRootKeys {
 			continue
 		}
-		out = append(out, fmt.Sprintf("%s %s %d -> %d", file, offendingRow(after, k), old[k], now[k]))
+		out = append(out, fmt.Sprintf("%s %s %d -> %d", file, offendingRow(after, k), allowed[k], now[k]))
 	}
 	return out
 }

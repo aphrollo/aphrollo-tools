@@ -55,6 +55,14 @@ const (
 	// mutation failed some other named test: over evidence that names none,
 	// that verdict contradicts itself (#590).
 	ExitMutantsProveUnreadable = 6
+	// ExitMutantsProveNoTestsSelected: the mutation was verified applied and
+	// the run finished — but it SELECTED no tests, so nothing exercised the
+	// mutated line. A refusal, and a code of its own rather than the generic
+	// one, because the cause is specific and fixable: the filter named a
+	// module nothing is under (#637). Never ExitMutantsProveSurvived — a run
+	// that tested nothing is no evidence about what the tests constrain, and
+	// "survivor" is the reading most likely to be believed and acted on.
+	ExitMutantsProveNoTestsSelected = 7
 )
 
 // matchWantFail picks the failing test the prediction named, or "" when none
@@ -307,6 +315,33 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 		fmt.Fprintf(stdout, "gate: mutants prove TIMED OUT — %s in %s never reached a verdict; restored, "+
 			"not proven either way\n", cmdString(runner), root)
 		return ExitMutantsProveTimedOut
+	}
+
+	// An empty SELECTION is judged before the pass/fail question, because it
+	// answers neither: the run finished, but nothing it ran touched the
+	// mutated line. Left to the switch below, a green empty run reads as a
+	// SURVIVOR (#637's false survivor: the reading most likely to be believed,
+	// and the one that sends someone to write a test that already exists) and
+	// a runner that exits non-zero over an empty selection reads as an
+	// unreadable red. This branch is kept even though #637's known cause — a
+	// filter derived from a file's stem rather than from the `#[path]` that
+	// mounts it — is fixed: it is the half that holds for every FUTURE cause
+	// of an empty selection, and the filter it names is what makes the next
+	// one diagnosable.
+	//
+	// The predicate is the post-edit half's own (emptyselection.go, #642), so
+	// "nothing ran" means one thing across the gate rather than two that can
+	// drift; what differs is the VERDICT. Post-edit widens once and reports an
+	// inconclusive run, because the session can simply run again. A proof
+	// cannot: its whole claim is about tests that ran, so an empty selection
+	// ends it.
+	if selectedZeroTests(runner, res) {
+		fmt.Fprintf(stderr, "gate: mutants prove refused — %s: %s in %s selected zero tests, so nothing "+
+			"exercised the mutation; restored, nothing was proved — this is NOT a survivor. The filter matched "+
+			"no test at all: check it against the module path the tests are really under (a Rust "+
+			"`#[path = \"…\"] mod <name>;` mounts a file under <name>, not under its own file stem), or widen "+
+			"the scope and run the proof again.\n", strings.ToUpper(NoTestsSelected), cmdString(runner), root)
+		return ExitMutantsProveNoTestsSelected
 	}
 
 	failing := ExtractFailingTests(res.Output)

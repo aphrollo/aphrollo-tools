@@ -681,7 +681,7 @@ live where being wrong only costs a re-run):
 | `ratchet check` | git `pre-commit`/`pre-merge-commit`, and manual | Judges the tree against `.ratchet/laws/*.toml` (see [Ratchet laws](#ratchet-laws-aphrollo-ratchet)). |
 | `gate prepush` | git `pre-push` | **No-op** (mechanical-only mode). The gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
 | `gate premerge` | git `pre-merge-commit` | Runs ONLY the mechanical stage over the merge's staged files — no fail-first (a fresh test's RED/GREEN belongs to the authoring commit, already proven by `precommit` there) and no anti-cheat suppression scan (same reasoning) — so a git merge, which never fires `pre-commit`, still proves the COMBINED result compiles and passes before it lands. `gate premergecommit` is the pre-rename spelling, kept as a silent alias for one release; every line the routine prints starts `gate premerge:`. A repo declaring `mutants-at-merge = true` also gets its mutation measurement here: the configuration is read FIRST (a retired key is refused before a single suite runs) and the measurement itself runs LAST, after the suites, against `merge-base(HEAD, <incoming tip>)` — a merge whose suite is red never pays for a mutation run. The hook is not the only caller: [`workspace merge`](#close-the-loop--merge--prune) runs this same stage on a locally-built merge before a PR lands, because that path makes no local merge commit for git to fire a hook on. |
-| `gate mutants` | manual | `run` measures THIS checkout's lane in the foreground, under the box-wide mutation lock, and prints every unaccepted surviving mutant first, then the counts, then the remedy — exit 1 when one survived, one stayed unmeasured, or the run reached no verdict. `run --base <ref>` measures against that ref instead (what nightly CI on `main` passes its checkpoint to). There is no `--jobs`: a Cargo run is N cargo-mutants processes, one per shard of the mutant pool, each with `--jobs 1` and its own persistent target dir, and N comes from the box rather than from a caller. The box's memory term is what is FREE at the moment the budget is computed — available commit on Windows, `MemAvailable` on Linux — never total RAM, because a box shared with other sessions' builds has already charged most of it; the run logs `free 24GB/8=3 (measured)` when that reading bound the answer and `ram 63GB/8=7` when it could not be taken. A repo sharing its box with other work caps the count with `mutants-shards = N` in the same table as its other mutation keys — it lowers what the box derived and never raises it. `prove --file --old --new --want-fail` is the HAND mutation proof for existing code: it applies one specific error, verifies with `git diff --numstat` that the write actually landed, runs the file's related tests, and restores the file byte-identically. See [The mutation runner contract](docs/mutation-runner.md). |
+| `gate mutants` | manual | `run` measures THIS checkout's lane in the foreground, under the box-wide mutation lock, and prints every unaccepted surviving mutant first, then the counts, then the remedy — exit 1 when one survived, one stayed unmeasured, or the run reached no verdict. `run --base <ref>` measures against that ref instead (what nightly CI on `main` passes its checkpoint to). There is no `--jobs`: a Cargo run is N cargo-mutants processes, one per shard of the mutant pool, each with `--jobs 1` and its own persistent target dir, and N comes from the box rather than from a caller. The box's memory term is what is FREE at the moment the budget is computed — available commit on Windows, `MemAvailable` on Linux — never total RAM, because a box shared with other sessions' builds has already charged most of it; the run logs `free 24GB/8=3 (measured)` when that reading bound the answer and `ram 63GB/8=7` when it could not be taken. A repo sharing its box with other work caps the count with `mutants-shards = N` in the same table as its other mutation keys — it lowers what the box derived and never raises it. `prove --file --old --new --want-fail` is the HAND mutation proof for existing code: it applies one specific error, verifies with `git diff --numstat` that the write actually landed, runs the file's related tests, and restores the file byte-identically. A run whose scope selected **zero tests** is refused as `NO-TESTS-SELECTED` (exit 7), naming the command and filter it used — never reported as a survivor, because nothing exercised the mutation at all. `hold <file>...` is the same proof run by editor instead: it takes the file's pre-mutation WORKING state so that `MUTATION=1 git checkout -- <file>` afterwards restores THAT — uncommitted work and untracked files included — rather than what the index holds, which is what `git checkout --` was deleting (issue #650). See [The hand mutation proof loop](#the-hand-mutation-proof-loop). See [The mutation runner contract](docs/mutation-runner.md). |
 | `gate allow` / `gate revoke` | manual | `allow <wall>` waives a wall (`primary` or `discard`); bare `allow` (or `revoke`) lists the active waivers. See [Waivers](#waivers) below. |
 
 #### Waivers
@@ -1105,11 +1105,103 @@ invocation through for a script. Both are counted in `gate stats`:
 `git-discard-refused:<form>` under denies, `override-discard-used` and
 `override-discard-env` under denies / overrides.
 
+**`APHROLLO_DISCARD=1` does not cover unstaged work.** It covers what the
+object store can still reach — staged, committed and stashed changes, which
+`git fsck` and `git stash` bring back — and refuses, by name, the invocation
+that would destroy an edit living nowhere but the working tree:
+
+```
+gate: refused — reset --hard would destroy unstaged work in 2 file(s) (a.txt, b.txt) that no commit, index or stash holds, so nothing can bring it back; APHROLLO_DISCARD=1 does not cover that. Stage it (git add) and re-run, or APHROLLO_DISCARD_UNSTAGED=1 to destroy it deliberately
+```
+
+The scope is the invocation's own: a `checkout -- <paths>` names only the
+paths it names, `clean -f*` names the untracked files it would delete,
+`worktree remove --force` looks inside the target worktree, and `stash
+drop`/`clear` and `branch -D` name nothing (they unlink commits the reflog
+still reaches). `git add` is the answer that keeps the work: staged content
+is in the object store, so the same command then passes under
+`APHROLLO_DISCARD=1`.
+
+`APHROLLO_DISCARD_UNSTAGED=1` is the louder marker, and is **not** the one to
+put in a script: it destroys work nothing can recover, so it prints every
+file it is about to destroy before git runs, and counts as
+`override-discard-unstaged`.
+
+```
+gate: APHROLLO_DISCARD_UNSTAGED=1 — reset --hard is destroying unstaged work in 2 file(s): a.txt, b.txt
+```
+
+The one-shot arm is deliberately not bounded this way: it is armed by hand in
+answer to a refusal that already printed the cost, so the operator has seen
+the number. A variable exported once in a shell profile never shows anyone
+anything.
+
 `aphrollo workspace remove --force` and `workspace prune --force` run
 `git worktree remove --force` as their own subprocess, so a dirty target hits
 this same wall and needs the same arming — neither verb sets the override on
 its own subprocess, since a forced removal of a dirty tree is exactly the
 reflex the wall exists to stop.
+
+#### The hand mutation proof loop
+
+A hand mutation proof — break one line, watch the named test fail, put the
+line back byte-identically — is the sanctioned way to show that a test which
+already exists actually bites. Its third step is the one with no safe tool
+behind it, because `git checkout -- <file>` restores from the INDEX: mid-lane,
+where the mutated file also carries the lane's own uncommitted work, it puts
+back the committed text and takes that work with it, and for an untracked file
+it restores nothing at all.
+
+**The whole loop, one file:**
+
+```
+aphrollo gate mutants prove --file internal/tdd/verdict.go \
+  --old "res.Passed"  --new "!res.Passed"  --want-fail TestVerdictFor_Green
+```
+
+`prove` holds, mutates, verifies with `git diff --numstat` that the write
+landed, runs the file's related tests and restores the file byte-identically —
+nothing else has to be arranged, and there is no git in it to get past.
+
+**The loop by hand,** when the mutation is more than one `--old`/`--new` pair
+(an editor edit, a multi-line change) — three commands, in this order:
+
+```
+aphrollo gate mutants hold internal/tdd/verdict.go     # 1. hold the WORKING state
+# 2. edit the one line, then run the one test and watch it go red:
+MUTATION=1 go test ./internal/tdd -run TestVerdictFor_Green
+MUTATION=1 git checkout -- internal/tdd/verdict.go     # 3. restore
+```
+
+- **`hold` first, before the mutation.** It copies the file's working bytes
+  out of the tree. Without it the restore is refused, by design: there is
+  nothing to put back but the index, and restoring from the index is the
+  defect this loop exists to avoid.
+- **`MUTATION=1` is one marker for both gates.** The test gate reads the word
+  in the command line (so the narrowed rerun beside a fresh green is allowed),
+  the git shim reads the variable in the environment. Every use of it is
+  counted — `override-bash-mutation-proof` and `override-discard-mutation-proof`
+  in `gate stats` — exactly because it is a marker and not a bypass. It does
+  not widen to anything else: `MUTATION=1 git reset --hard` is refused like
+  any other discard.
+- **The restore puts back the held bytes**, not HEAD and not the index, so
+  uncommitted work in the mutated file survives the proof. It verifies the
+  result against the hold's own checksum, and covers an **untracked** file,
+  which plain `git checkout --` never did. What it does NOT cover: a file no
+  `hold` was taken for (refused, naming it), a hold older than 2h (refused as
+  stale — re-take it), and any path other than the files named on the command
+  line.
+- **Staging everything first is not the procedure.** It works — staged content
+  is in the object store, so nothing is unrecoverable — but it mixes the
+  proof's mutation into the index and is folklore rather than a loop anything
+  checks. `hold` is the step that makes the restore exact.
+
+An unmarked restore of a file this session holds says so rather than just
+refusing, so a proof mid-flight is never left guessing:
+
+```
+gate: refused — checkout -- <paths> discards 1 file(s), +1/-0 uncommitted; aphrollo gate allow discard arms one command, APHROLLO_DISCARD=1 for scripts; this session holds the pre-mutation working state of verdict.go — MUTATION=1 git checkout -- verdict.go restores THAT rather than the index
+```
 
 ### The queue shims are executables, not batch files
 
@@ -1152,6 +1244,7 @@ undercover = true                    # reject commit messages that name the tool
 commit-message-deny = ["^WIP:"]      # this repo's own extra deny patterns
 sdd-dir = "docs/sdd"                 # where the `sdd` skill puts a feature's spec tree
 docs-check = true                    # judge staged *.md for dangling repo-relative citations
+fail-first-env = ["FORGE_GPU_TESTS=1"] # switches the fail-first proof run exports
 issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "quality", "product"]
 ```
 
@@ -1163,6 +1256,18 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   that declares no list is not checked at all. A repo that is not a cargo
   workspace declares the same key as `[aphrollo] issue-labels` in an
   `aphrollo.toml` beside its root.
+- **`fail-first-env`** (string array) — `NAME=VALUE` switches exported for the
+  [fail-first](#tdd--law-gates-aphrollo-gate) proof run, the sibling of
+  [`mutants-env`](docs/mutation-runner.md) and read the same way (the Cargo
+  spelling wins over `[aphrollo]` in `aphrollo.toml`). The proof builds HEAD in
+  a throwaway worktree and runs the staged tests there; a suite gated behind a
+  switch that lives only in the author's shell SELF-SKIPS in that worktree, and
+  a skip is not a pass. Declared once, every proof inherits it. Two keys rather
+  than one because the two runs are separate decisions — a measurement on the
+  CI runner can afford a switch that would make every commit pay for a GPU.
+  A proof whose tests all skip anyway is reported as `all-tests-skipped` and
+  refused: inconclusive, never `red-proven`, and never "your tests passed at
+  HEAD".
 - **`always-run`** — a workspace-wide guard package (its tests scan the whole
   tree) is owned by no staged file, so ownership scoping alone would run it
   only when someone edits the guard itself, which is exactly when its

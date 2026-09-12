@@ -59,6 +59,8 @@ func runGateMutants(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "run":
 		return runGateMutantsRun(args[1:], stdout, stderr)
+	case "hold":
+		return runGateMutantsHold(args[1:], stdout, stderr)
 	case "prove":
 		fs := flag.NewFlagSet("mutants prove", flag.ContinueOnError)
 		fs.SetOutput(stderr)
@@ -143,6 +145,14 @@ const mutantsUsage = `usage: aphrollo gate mutants <verb>
                      There is no --jobs: a Cargo run is one cargo-mutants
                      process per shard of the mutant pool, each with
                      --jobs 1, and the shard count comes from the box.
+  hold <file>...     take the pre-mutation WORKING state of each file, for a
+                     hand proof run by editor rather than by "prove". The
+                     restore afterwards is "MUTATION=1 git checkout -- <file>":
+                     the git shim serves it from the held bytes, so it puts
+                     back what the proof started from — including any
+                     uncommitted work in the file, and including an untracked
+                     file — rather than what the index holds. The hold is
+                     scoped to this session and expires after 2h.
   prove --file <path> --old <text> --new <text> --want-fail <test>
                      the HAND mutation proof (existing code, no natural RED):
                      replace --old with --new in --file — must match exactly
@@ -169,4 +179,9 @@ Exit codes for prove:
   4  wrong failure — verified applied, the suite went red, but not on the
      named test
   5  timed out — the run never reached a verdict either way
+  6  unreadable — verified applied, the suite went red, but not one failing
+     test name could be read out of the run
+  7  no tests selected — verified applied, the run finished, but its filter
+     selected zero tests: nothing exercised the mutation, so this is a
+     refusal and never a survivor
 `
