@@ -30,6 +30,7 @@ edition = "2021"
 pub mod outer;
 pub mod plain;
 pub mod prediction;
+pub mod vehicle;
 
 #[path = "generated/tables_impl.rs"]
 pub mod tables;
@@ -127,6 +128,37 @@ mod tests {
     }
 }
 `
+
+	// Issue #653: vehicle/sim.rs is the mounting PARENT here, and it is
+	// itself nested under a subdirectory (vehicle/) rather than sitting at
+	// the crate root the way prediction.rs does above. Its mount also names
+	// sim_tests.rs under the SAME name as the file's own stem
+	// (`mod sim_tests;` mounting sim_tests.rs) — the opposite of the
+	// prediction_systems case, which is caught by any scanner that composes
+	// the path from the mount NAME, whatever the parent's own path is. This
+	// case is not redundant with that one: the reported failure composed the
+	// chain from the mounting file's own path and dropped the "sim" segment,
+	// giving "vehicle::sim_tests" instead of "vehicle::sim::sim_tests" — a
+	// missing PARENT segment, not a wrong name, so a fix that only handles
+	// renamed mounts can still get this one wrong.
+	pathModVehicleModRs = `pub mod sim;
+`
+
+	pathModVehicleSimRs = `pub fn sim_value() -> u32 {
+    4
+}
+
+// Exactly as reported: #[cfg(test)] precedes #[path] on the mount itself.
+#[cfg(test)]
+#[path = "sim_tests.rs"]
+mod sim_tests;
+`
+
+	pathModVehicleSimTestsRs = `#[test]
+fn a_sibling_mounted_by_a_nested_mounting_parent_still_composes_the_whole_chain() {
+    assert_eq!(super::sim_value(), 4);
+}
+`
 )
 
 // pathModCrate writes the fixture crate and returns its root.
@@ -145,6 +177,9 @@ func pathModCrate(t *testing.T) string {
 		{"src/plain.rs", pathModPlainRs},
 		{"src/nested/mod.rs", pathModNestedModRs},
 		{"src/nested/deep.rs", pathModNestedDeepRs},
+		{"src/vehicle/mod.rs", pathModVehicleModRs},
+		{"src/vehicle/sim.rs", pathModVehicleSimRs},
+		{"src/vehicle/sim_tests.rs", pathModVehicleSimTestsRs},
 	}
 	for _, f := range files {
 		write(t, root, filepath.FromSlash(f.rel), f.content)
@@ -187,6 +222,7 @@ var pathModCases = []struct {
 	{"a mounting parent keeps its own stem-derived path", "src/prediction.rs", "prediction", false},
 	{"an unmounted module keeps its stem-derived path", "src/plain.rs", "plain", true},
 	{"an unmounted nested module keeps its stem-derived path", "src/nested/deep.rs", "nested::deep", true},
+	{"issue #653: a nested mounting parent's own chain segment is not dropped", "src/vehicle/sim_tests.rs", "vehicle::sim::sim_tests", true},
 }
 
 // Issue #637: the per-edit filter is derived from the file's own stem, so a
