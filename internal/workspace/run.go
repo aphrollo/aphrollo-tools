@@ -121,6 +121,7 @@ func runStep(s Step, env []string, stdout, stderr io.Writer) error {
 // branch that has fallen behind gets a rebase nudge. Best-effort: silent on the
 // base detail if the worktree or refs can't be read.
 func reportBase(p *Plan, stdout io.Writer) {
+	// stderr-ok: best-effort base detail, the caller reports nothing on failure
 	out, err := exec.Command("git", "-C", p.Worktree, "rev-parse", "--short", "HEAD").Output()
 	if err != nil {
 		return

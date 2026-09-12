@@ -47,8 +47,15 @@ const (
 	// KindRegexPresent: every file in scope MUST contain a pattern (a seeded
 	// proptest's explicit seed).
 	KindRegexPresent MatcherKind = "regex-present"
-	// KindMarkerWithinLines: a `trigger` line requires a `marker` within N
-	// lines above it (`// bound:` over a growing collection).
+	// KindMarkerWithinLines: a `trigger` line requires a `marker` on its own
+	// line or in its OWN comment run above it (`// bound:` over a growing
+	// collection), capped at N lines. The upward walk stops at the previous
+	// trigger and at the first line that does not continue that comment run,
+	// so one marker vouches for exactly one declaration rather than for
+	// whatever happens to sit under it — see markerInOwnBlock, issue #652.
+	// `direction` adds (or substitutes) the N-line window BELOW, which is a
+	// window over code by construction: the marker there lives inside the
+	// block the trigger opened.
 	KindMarkerWithinLines MatcherKind = "marker-within-lines"
 	// KindRegexNear: a `trigger` line is a hit only when a `context` pattern
 	// co-occurs within N lines (a discarded error whose branch returns an

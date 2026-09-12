@@ -307,6 +307,9 @@ func foreignStagedLine(root string, changed []string) string {
 		return ""
 	}
 	appendGateLog("postedit", root, logToken(hits[0]), "foreign-staged-skipped", 0)
+	// standdown-logged: the appendGateLog call directly above records this
+	// stand-down; the marker no longer reaches up past the return it belongs to
+	// (issue #652).
 	return fmt.Sprintf("gate: → skipped in %s (%d changed path(s) are staged in this merge-only primary's index — "+
 		"another session's work, not this command's: %s; the code was NOT tested)",
 		root, len(hits), strings.Join(hits, ", "))
