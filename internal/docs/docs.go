@@ -131,6 +131,7 @@ func lsFiles(root string, paths ...string) ([]string, error) {
 	cmd := exec.Command("git", append([]string{"-C", root, "ls-files", "-z", "--"}, paths...)...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
+	// stderr-ok: cmd.Stderr above captures it, and the error below folds it in
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git ls-files under %s: %w: %s", root, err, strings.TrimSpace(stderr.String()))
