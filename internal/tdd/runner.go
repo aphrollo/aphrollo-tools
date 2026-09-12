@@ -222,7 +222,7 @@ func cargoTargetRunner(r Runner, rel, root string) Runner {
 		// correctness; the question an edit asks is whether it still compiles.
 		return cargoTargetArgs(r, root, "--bench", name, "--no-run")
 	}
-	if mod := cargoModulePath(rel); mod != "" {
+	if mod := cargoModuleFilterPath(root, rel); mod != "" {
 		// The filter dialect follows the RESULTING runner: cargoTargetArgs
 		// may upgrade `cargo test` to nextest when the workspace configures
 		// it, and only nextest understands -E.

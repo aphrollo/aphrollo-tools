@@ -28,7 +28,11 @@ type PrunedLane struct {
 //     advanced past an older commit the branch never moved beyond (issue
 //     #382: the same fresh lane, now merely a few commits behind, passed the
 //     #144 check — tip != trunk's CURRENT tip — while still holding no work
-//     of its own).
+//     of its own). Topology is only a PROXY for that, though, and it misses
+//     a lane created from a base trunk reaches as a merge's SECOND parent
+//     (issue #644), so the same question is also asked DIRECTLY, of the
+//     branch's reflog: see zeroCommitLaneKeepReason. The two are independent
+//     reasons to keep — a sweep this destructive keeps on either.
 //  2. A worktree with uncommitted work — staged, unstaged, or untracked — is
 //     never removed regardless of its branch's merge state: the ONE fact
 //     that only the live working tree can answer, checked immediately
@@ -76,6 +80,10 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 		if mainlineTips[tip] {
 			continue // no commits of its own (issue #144, generalized by #382)
 		}
+		if reason := zeroCommitLaneKeepReason(mainRepo, wt.branch); reason != "" {
+			fmt.Fprintf(stderr, "prune-lanes: kept %s (%s): %s\n", wt.path, wt.branch, reason)
+			continue // issue #644: never carried a commit, or cannot be proven to have
+		}
 		dirty, err := worktreeHasUncommittedWork(wt.path)
 		if err != nil {
 			fmt.Fprintf(stderr, "prune-lanes: could not check %s (%s): %v\n", wt.path, wt.branch, err)
@@ -93,6 +101,77 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 		pruned = append(pruned, PrunedLane{Worktree: wt.path, Branch: wt.branch})
 	}
 	return pruned
+}
+
+// reflogEntryMarker prefixes every reflog subject zeroCommitLaneKeepReason
+// asks git to print. The git helper returns COMBINED output, so a warning on
+// stderr would otherwise be indistinguishable from an entry and would read
+// as "this branch moved after creation" — the fail-OPEN direction. With the
+// marker, a line without it is output this code does not understand, and
+// that is a keep.
+const reflogEntryMarker = "reflogentry "
+
+// branchCreationReflogSubject is what git writes for `branch`, `checkout -b`
+// and `worktree add -b` alike: the one and only entry a branch that has
+// never carried a commit of its own has.
+const branchCreationReflogSubject = "branch: Created from "
+
+// zeroCommitLaneKeepReason answers the question the sweep actually has —
+// "does this branch hold any commit of its own?" — directly, and returns a
+// non-empty reason to KEEP the lane, or "" to let the sweep proceed.
+//
+// Issue #644: trunkFirstParentTips answers a different question, topology,
+// as a PROXY for this one, and the proxy fails whenever a lane's creation
+// base is not on trunk's first-parent chain — a base reachable from trunk
+// only as some merge's SECOND parent. Such a lane is listed by `--merged`
+// (its tip really is an ancestor of trunk) and is absent from the mainline
+// set, so a brand-new worktree with a clean tree and a builder about to type
+// in it scored exactly like a lane whose work had landed, and was deleted.
+// `git rev-list --count trunk..branch` cannot rescue it: that count is 0 for
+// EVERY branch the merged map holds, since "merged" already means the tip is
+// an ancestor — it cannot tell "never had commits" from "had commits that
+// landed".
+//
+// The reflog can. A branch that never carried a commit of its own has
+// exactly one reflog entry, its creation; one more entry means the ref moved
+// after creation, which is the sweep's rightful catch. This is an
+// INDEPENDENT reason to keep, checked after the mainline one and never
+// instead of it: a sweep that deletes a builder's directory mid-command
+// keeps on EITHER reason, never on both.
+//
+// Every other shape is doubt, and doubt keeps: an unreadable reflog, one
+// that is missing or has been expired away, a single entry that is not a
+// creation (a `branch -f` reset, say), or output this code cannot parse.
+// The cost of a wrong keep is one stale worktree named on stderr; the cost
+// of a wrong delete is a builder's working directory vanishing under them.
+func zeroCommitLaneKeepReason(mainRepo, branch string) string {
+	out, err := git(mainRepo, "reflog", "show", "--format="+reflogEntryMarker+"%gs", "refs/heads/"+branch)
+	if err != nil {
+		return fmt.Sprintf("reflog unreadable (%v)", err)
+	}
+	var entries []string
+	for line := range strings.SplitSeq(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, reflogEntryMarker) {
+			return fmt.Sprintf("reflog output not understood (%q)", line)
+		}
+		entries = append(entries, strings.TrimPrefix(line, reflogEntryMarker))
+	}
+	switch {
+	case len(entries) == 0:
+		// git exits 0 with no output for a branch whose reflog is missing
+		// or has been expired away: nothing here proves it carried work.
+		return "reflog holds no entries — cannot prove it ever carried a commit"
+	case len(entries) > 1:
+		return "" // the ref moved after creation: it carried commits of its own
+	case strings.HasPrefix(entries[0], branchCreationReflogSubject):
+		return "no commits of its own (its reflog holds only its creation)"
+	default:
+		return fmt.Sprintf("reflog shape not understood (%q)", entries[0])
+	}
 }
 
 // worktreeHasUncommittedWork reports whether path's tree has anything `git

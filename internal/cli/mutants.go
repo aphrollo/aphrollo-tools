@@ -179,4 +179,9 @@ Exit codes for prove:
   4  wrong failure — verified applied, the suite went red, but not on the
      named test
   5  timed out — the run never reached a verdict either way
+  6  unreadable — verified applied, the suite went red, but not one failing
+     test name could be read out of the run
+  7  no tests selected — verified applied, the run finished, but its filter
+     selected zero tests: nothing exercised the mutation, so this is a
+     refusal and never a survivor
 `
