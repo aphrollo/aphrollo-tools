@@ -272,80 +272,36 @@ jobs:
             done
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # #323: the local gate runs on Windows, `test` above runs on Linux, and
-  # nothing made that difference visible before a merge — #380 and #417 are
-  # both a Windows-only or Linux-only expectation that a same-OS gate can
-  # never see fail. This is the other side: a real windows-latest job rather
-  # than trusting a goos-seamed test to be enough on its own.
+  # No GitHub-hosted Windows job here, deliberately (this is where #323's
+  # `test-windows` used to be). Windows coverage for this repo comes from the
+  # pre-merge gate, which runs on the developer's own Windows box at every
+  # merge: `aphrollo workspace merge` -> `gate premerge` -> the mechanical
+  # stage's `go test -race -count=1 -shuffle=on` (the flags
+  # internal/tdd/precommit_go_ciparity.go adds, -race only at the merge).
+  # That is a real Windows run of this suite, on hardware this org already
+  # owns, that a merge cannot proceed without -- so paying a windows-latest
+  # runner at the 2x hosted-minutes multiplier to re-run the same packages on
+  # rented hardware was duplicated work, charged on every PR.
   #
-  # Scope, deliberately narrow rather than the whole suite: `internal/tdd`
-  # and `internal/workspace` are e2e-heavy (real git/go subprocesses per
-  # test) and do not finish inside a sane budget even off this box — plain
-  # `go test ./internal/tdd/...` here ran past 480s and `./internal/workspace/...`
-  # past 180s with no other load on the machine, matching the pre-existing
-  # #446/#424 slowness the mechanical stage already tracks for that package.
-  # Doubling that cost on a second, typically-slower-per-syscall OS pays for
-  # coverage this job cannot use: neither package's failure mode here would
-  # be a platform divergence, it would be a timeout. The other eleven
-  # packages measured clean and fast (internal/cli — the one #380's four
-  # tests live in — at 192s, everything else under a minute). Growing this
-  # list to include internal/tdd/internal/workspace is the "ratchet the
-  # allow-list down" #323 asks for, done deliberately once their own runtime
-  # is brought under budget, not folded in here to make the matrix look
-  # complete.
+  # Still true, and the reason the answer is "the local gate" rather than "a
+  # different runner label": nothing in this org registers a Windows
+  # self-hosted runner. The shared self-hosted box is Linux (see the
+  # linux-only binary downloads in `scan` below), so there is no self-hosted
+  # Windows label a job here could target even if one were wanted.
   #
-  # continue-on-error is NOT set anywhere in this job: every package in the
-  # list is a real gate, exactly as #323 specifies ("Windows first as
-  # continue-on-error: false only for packages that already pass there").
-  #
-  # windows-latest rather than a windows self-hosted runner: this org's own
-  # self-hosted box is Linux (see the linux-only binary downloads in `scan`
-  # below), and nothing in this repo names a registered Windows self-hosted
-  # label to target. A GitHub-hosted runner also means this job never
-  # contends with the shared self-hosted box's serial queue — the exact
-  # contention #334 moved the mutation run off of.
-  test-windows:
-    if: github.event.pull_request.draft != true
-    needs: changes
-    runs-on: windows-latest
-    timeout-minutes: 15
-    steps:
-      - if: needs.changes.outputs.code == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # cache defaults to true here (unlike the self-hosted `test` job, which
-      # sets it false): this runner is a fresh VM every run with no
-      # persistent module cache of its own to make setup-go's cache redundant.
-      - if: needs.changes.outputs.code == 'true'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-      # Mirrors the Linux job's conditional install: the refactor/sqlc e2e
-      # tests self-skip via exec.LookPath without these, so a Windows-only
-      # regression in the LSP client or diff-apply code is invisible here
-      # exactly like it would be on Linux without this step.
-      - name: Install gopls
-        if: needs.changes.outputs.refactor == 'true'
-        run: go install golang.org/x/tools/gopls@v0.23.0
-      - name: Install sqlc
-        if: needs.changes.outputs.refactor == 'true'
-        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
-      - name: Test (windows allow-list)
-        if: needs.changes.outputs.code == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          go test -count=1 -shuffle=on -timeout=170s \
-            ./cmd/... \
-            ./internal/buildinfo/... \
-            ./internal/cli/... \
-            ./internal/dev/... \
-            ./internal/diff/... \
-            ./internal/docs/... \
-            ./internal/guardrail/... \
-            ./internal/lsp/... \
-            ./internal/ratchet/... \
-            ./internal/refactor/... \
-            ./internal/sqlc/...
+  # What the removed job covered, and how the local gate differs -- recorded
+  # rather than papered over. #323's contract was a fixed eleven-package
+  # allow-list (cmd, buildinfo, cli, dev, diff, docs, guardrail, lsp,
+  # ratchet, refactor, sqlc) run on Windows with continue-on-error
+  # deliberately NOT set, on every PR that touched code, regardless of WHICH
+  # packages it touched. The local gate is stricter per package it runs
+  # (-race, which the hosted job could not afford) but it is SCOPED:
+  # narrowToStaged (internal/tdd/runner_scope.go) cuts the merge's run down
+  # to the packages the merge actually stages, at package granularity, so an
+  # untouched package -- or an untouched IMPORTER of a touched one -- is not
+  # re-run on Windows at that merge. That is the one dimension this removal
+  # makes thinner. Ratcheting it back is a change to the gate's merge scope,
+  # not a hosted runner.
 
   # Issue #542 / escape #541: every job above runs `go test` directly, and
   # nothing sets the environment `suiteEnv` (internal/tdd/posttooluse.go)
@@ -365,16 +321,21 @@ jobs:
   # reproduces the one piece of the gate's environment these escapes are
   # about, at the price of an ordinary test job, exactly as proposed in #542.
   #
-  # Both platforms, deliberately: #532/#528's split between the two came from
-  # t.TempDir() reading TMPDIR on Unix and TMP/TEMP on Windows, so a
-  # single-platform version of this job would have caught only half of it.
-  # windows-latest rather than the self-hosted box's own Windows runner, for
-  # the same reason test-windows (above) chose it: this org's self-hosted
-  # runner is Linux, and a GitHub-hosted runner never contends with its
-  # serial queue.
+  # Linux only, and the matrix is kept for that one leg so a second platform
+  # is one entry away. This job used to carry a windows-latest leg as well,
+  # because #532/#528's split came from t.TempDir() reading TMPDIR on Unix
+  # and TMP/TEMP on Windows. The Windows half is now answered where it is
+  # free: the pre-merge gate runs on the developer's own Windows box and
+  # BUILDS this environment itself -- suiteEnv/goTmpEnv is production code
+  # there, not a job re-creating it by hand -- so a regression in the
+  # redirect is red at the merge on the real thing. The gap that leaves, and
+  # the reason this note names it: the gate's mechanical run is SCOPED to the
+  # packages a merge stages, so a merge that touches nothing under
+  # internal/tdd does not re-run internal/tdd on Windows. See the note above
+  # (where `test-windows` was) for the same trade on the hosted side.
   #
   # Scoped to ./internal/tdd/..., the package suiteEnv/goTmpEnv live in --
-  # not folded into `test`/`test-windows` above, whose own budgets are sized
+  # not folded into `test` above, whose own budget is sized
   # for the rest of the tree. -timeout=1500s rather than go test's 600s
   # default: this package alone measured `733.951s` under load in the `test`
   # job's own history (see that job's "Test (race + shuffle)" step comment),
@@ -405,9 +366,6 @@ jobs:
           - name: linux
             runner: self-hosted
             cache: false
-          - name: windows
-            runner: windows-latest
-            cache: true
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
@@ -425,16 +383,15 @@ jobs:
           set -euo pipefail
           dir="$RUNNER_TEMP/gate-env"
           mkdir -p "$dir"
-          # Hand Go an OS-native path, the way goTmpEnv does. goTmpEnv builds its
-          # directory with filepath.Join, which on Windows yields backslashes
-          # throughout, so os.TempDir() there returns a path already in the form
-          # production normalizes to. Exporting "$RUNNER_TEMP/gate-env" verbatim
-          # instead gives Windows a mixed separator the real gate can never
-          # produce, and tests comparing a raw os.TempDir() against a
-          # filepath-normalized path then fail on the separator rather than
-          # on anything this job exists to catch. cygpath -w does the same
-          # normalization filepath.Join would, without literal escapes here.
-          if [ "${RUNNER_OS:-}" = "Windows" ]; then dir="$(cygpath -w "$dir")"; fi
+          # A Linux runner's path is already the form goTmpEnv produces there,
+          # so it is exported as-is. A Windows leg would NOT be: goTmpEnv
+          # builds its directory with filepath.Join, which on Windows yields
+          # backslashes throughout, and exporting a mixed-separator path
+          # instead makes tests comparing a raw os.TempDir() against a
+          # filepath-normalized one fail on the separator rather than on
+          # anything this job exists to catch. `dir="$(cygpath -w "$dir")"`
+          # is the normalization to restore if a Windows leg is ever added
+          # back to the matrix above.
           export GOTMPDIR="$dir" TMPDIR="$dir" TMP="$dir" TEMP="$dir"
           go test ./internal/tdd/... -count=1 -timeout=1500s
 
@@ -674,7 +631,7 @@ jobs:
   # skipped there and the miss is picked up by `gate escape sync` on the box
   # that owns the lane.
   escape-record:
-    needs: [test, test-windows, lint, scan]
+    needs: [test, lint, scan]
     if: ${{ always() && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && github.event.pull_request.head.repo.fork != true)) && contains(needs.*.result, 'failure') }}
     runs-on: self-hosted
     timeout-minutes: 5
@@ -845,7 +802,7 @@ jobs:
   # the deploy uses, so a broken build can't merge. Does NOT install (PR-only).
   build:
     if: github.event.pull_request.draft != true
-    needs: [changes, test, test-windows, lint, scan]
+    needs: [changes, test, lint, scan]
     runs-on: self-hosted
     timeout-minutes: 5
     steps:
@@ -873,7 +830,7 @@ jobs:
   # all green, but a red one means this never fires. A manual workflow_dispatch
   # stays gated behind the same guard.
   deploy:
-    needs: [test, test-windows, lint, scan]
+    needs: [test, lint, scan]
     if: ${{ always() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: self-hosted
     timeout-minutes: 10
