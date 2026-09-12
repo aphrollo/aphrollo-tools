@@ -56,6 +56,24 @@ Every switch named in `mutants-env` must also be registered in the repo's
 dev-instrument registry — an env switch that gates a suite is exactly the kind
 that law exists to catch.
 
+`mutants-env` has a sibling the same shape, read from the same two tables with
+the same precedence: **`fail-first-env`**, the switches exported for the
+[fail-first](../README.md#tdd--law-gates-aphrollo-gate) proof run. The
+mutation run is not the only one a gated suite is invisible to — the proof
+builds HEAD in a throwaway worktree, and a suite gated behind a switch that
+lives only in the author's shell self-skips there. The fail-first stage used
+to read that skip as "your tests pass at HEAD" and refuse a correct commit
+(issue #656); it now reports `all-tests-skipped` and refuses with the remedy
+instead. They stay two keys because the two runs are separate decisions: a
+measurement on the CI runner can afford a switch that would make every commit
+on the box pay for a GPU.
+
+```toml
+[workspace.metadata.aphrollo]
+mutants-env    = ["FORGE_GPU_TESTS=1"]
+fail-first-env = ["FORGE_GPU_TESTS=1"]
+```
+
 ## What is measured
 
 The measured side is always the **working tree** against a base:
@@ -365,7 +383,9 @@ each project's target dir and warns under 30 GB.
 
 Mutants in code only a gated suite reaches are missed by definition: 101 of
 167 mutants on one lane lived in render-world code reached only by GPU parity
-tests. Each `mutants-env` entry is exported for the run, and
+tests. Each `mutants-env` entry is exported for the run (and each
+`fail-first-env` entry for the fail-first proof, which has the same blind
+spot), and
 `NEXTEST_PROFILE=mutants` is set when the repo's `.config/nextest.toml`
 declares `[profile.mutants]` (asked at the repo root and at the cargo
 workspace root, since a workspace keeps it at the latter).

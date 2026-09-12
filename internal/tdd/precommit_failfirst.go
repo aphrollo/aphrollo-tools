@@ -170,6 +170,11 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 			}()
 		}
 	}
+	// The switches the repo declares its gated suites need (#656). Without
+	// them a suite behind an env switch self-skips in this worktree and the
+	// proof measures nothing — see failfirst_env.go. Exported around the run
+	// only, the same way CARGO_TARGET_DIR is just above.
+	defer exportFailFirstEnv(repoRoot)()
 	res, waited, acquired := runCargoLocked(run, runner, execRoot, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
 	logLockWait("precommit", root, runner, waited)
 	// Whatever the verdict, this run has just written artifacts built from
@@ -216,6 +221,17 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 		if len(names) > 0 {
 			return failFirstOutcome{vacuous: true, vacuousPkgs: names, dur: res.Duration, cmd: cmdString(runner)}
 		}
+		// #656: the tests WERE selected, they ran, and every one of them
+		// skipped itself — an env-gated device suite in a worktree that does
+		// not carry the switch. Exit 0 with nothing asserted is not a pass
+		// against HEAD, so it must never reach the violation below.
+		skipped, err := skippedOnlyNames(runner, res)
+		if err != nil {
+			return failFirstOutcome{vacuous: true, vacuousPkgs: []string{fmt.Sprintf("(unreadable test-result stream: %v)", err)}, dur: res.Duration, cmd: cmdString(runner), runner: runner}
+		}
+		if len(skipped) > 0 {
+			return failFirstOutcome{skipped: true, skippedPkgs: skipped, dur: res.Duration, cmd: cmdString(runner), runner: runner}
+		}
 	}
 	// Tests PASS without the new source ⇒ they never went RED ⇒ violation.
 	//
@@ -227,7 +243,7 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	// but it fails in the safe direction — non-violation never blocks — so the
 	// gate stays fail-open. Correcting the label needs a distinct couldn't-run
 	// signal on SuiteResult, which is left for a runner-contract change.
-	return failFirstOutcome{violated: res.Passed, conclusive: true, dur: res.Duration, cmd: cmdString(runner)}
+	return failFirstOutcome{violated: res.Passed, conclusive: true, dur: res.Duration, cmd: cmdString(runner), runner: runner}
 }
 
 // execRootIn maps root (a project root under repoRoot) to its equivalent
@@ -334,6 +350,11 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		switch {
 		case out.vacuous:
 			verdict = "vacuous-rejected"
+		case out.skipped:
+			// #656: its own token, never red-proven and never violated —
+			// `gate stats` must be able to count the proofs that ran and
+			// measured nothing separately from the ones that proved a red.
+			verdict = AllTestsSkipped
 		case out.conclusive && out.violated:
 			verdict = "violated"
 		case out.conclusive && !out.violated:
@@ -345,8 +366,11 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		if out.vacuous {
 			return GateResult{Blocked: true, Message: vacuousFailFirstMessage(out.vacuousPkgs)}
 		}
+		if out.skipped {
+			return GateResult{Blocked: true, Message: allTestsSkippedMessage(out.skippedPkgs, out.runner)}
+		}
 		if out.conclusive && out.violated {
-			return GateResult{Blocked: true, Message: failFirstMessage}
+			return GateResult{Blocked: true, Message: failFirstViolationMessage(out.runner)}
 		}
 	}
 	return GateResult{}
