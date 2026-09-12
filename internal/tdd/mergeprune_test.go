@@ -289,3 +289,103 @@ func TestPruneMergedLanes_StillPrunesACleanMergeCommitLandedLane(t *testing.T) {
 		t.Fatalf("stderr = %q, want a clean sweep", errb.String())
 	}
 }
+
+// pruneRepoOffMainlineBase builds the shape the first-parent guard cannot
+// see (issue #644). Trunk gets a real merge commit, so the merged branch's
+// own tip is a SECOND parent: an ancestor of trunk — `--merged` lists it —
+// that is not on trunk's first-parent chain. A brand-new lane is then
+// created AT that commit, the way a builder branches from whatever the
+// working checkout happened to be sitting on.
+//
+// The result is two lanes that trunkFirstParentTips scores identically
+// (neither tip is on the mainline) and that could not be more different:
+// lane/landed carried a commit of its own which has landed — the sweep's
+// whole purpose — while lane/off-mainline has never held a commit at all
+// and has a builder about to make its first edit in it.
+func pruneRepoOffMainlineBase(t *testing.T) (mainRepo, landedWT, freshWT string) {
+	t.Helper()
+	mainRepo = t.TempDir()
+	gitInit(t, mainRepo)
+	gitDo(t, mainRepo, "checkout", "-q", "-B", "main")
+	commitInitial(t, mainRepo)
+
+	gitDo(t, mainRepo, "branch", "lane/landed")
+	landedWT = filepath.Join(t.TempDir(), "landed")
+	gitDo(t, mainRepo, "worktree", "add", "-q", landedWT, "lane/landed")
+	write(t, landedWT, "landed.go", "package main\n\n// landed\n")
+	gitDo(t, landedWT, "add", "-A")
+	gitDo(t, landedWT, "commit", "-qm", "lane work")
+	gitDo(t, mainRepo, "merge", "-q", "--no-ff", "-m", "merge lane/landed", "lane/landed")
+
+	// The off-mainline base: lane/landed's tip, now reachable from trunk
+	// only as the second parent of the merge commit.
+	offBase := gitValue(t, mainRepo, "rev-parse", "refs/heads/lane/landed")
+	freshWT = filepath.Join(t.TempDir(), "off-mainline")
+	gitDo(t, mainRepo, "worktree", "add", "-q", "-b", "lane/off-mainline", freshWT, offBase)
+
+	return mainRepo, landedWT, freshWT
+}
+
+// Issue #644: a lane with NO commits of its own must survive the sweep
+// whatever its creation base's position in trunk's topology. The
+// first-parent guard (#144/#382) is only a topology PROXY for that
+// question, and the proxy fails the moment a lane is created from a commit
+// that trunk reaches as a second parent: the tip is "merged", it is not on
+// the mainline, and a clean worktree a builder is about to type in gets
+// deleted under them.
+//
+// The same sweep must still remove lane/landed — the two lanes sit on the
+// SAME commit, so nothing about the base can tell them apart; only "did
+// this branch ever carry a commit of its own" can.
+func TestPruneMergedLanes_KeepsAZeroCommitLaneWhoseBaseIsOffTheFirstParentChain(t *testing.T) {
+	mainRepo, landedWT, freshWT := pruneRepoOffMainlineBase(t)
+
+	var out, errb bytes.Buffer
+	pruned := PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)
+
+	if _, err := os.Stat(freshWT); err != nil {
+		t.Fatalf("zero-commit lane at %s must survive — its base being off trunk's first-parent chain says nothing about whether it holds work, got err=%v", freshWT, err)
+	}
+	gitValue(t, mainRepo, "rev-parse", "--verify", "refs/heads/lane/off-mainline")
+	if _, err := os.Stat(landedWT); !os.IsNotExist(err) {
+		t.Fatalf("lane/landed carried a commit that landed on main and must still be pruned, got err=%v", err)
+	}
+	if len(pruned) != 1 || pruned[0].Branch != "lane/landed" {
+		t.Fatalf("pruned = %+v, want exactly lane/landed", pruned)
+	}
+	if !strings.Contains(errb.String(), "kept") || !strings.Contains(errb.String(), "lane/off-mainline") {
+		t.Fatalf("stderr = %q, want a kept line naming lane/off-mainline", errb.String())
+	}
+	if !strings.Contains(errb.String(), "no commits of its own") {
+		t.Fatalf("stderr = %q, want the keep reason to be the branch holding no commits of its own", errb.String())
+	}
+}
+
+// Fail CLOSED on doubt. A branch whose reflog cannot be read cannot be
+// proven to have carried work of its own, so it is KEPT and the reason is
+// said out loud — even here, where the branch genuinely did land a commit
+// and would otherwise be the sweep's rightful catch. Deleting a worktree a
+// builder is standing in costs them their directory mid-command; keeping a
+// stale one costs this line.
+func TestPruneMergedLanes_KeepsALaneWhoseReflogCannotBeRead(t *testing.T) {
+	mainRepo, landedWT, _ := pruneRepoOffMainlineBase(t)
+	if err := os.Remove(filepath.Join(mainRepo, ".git", "logs", "refs", "heads", "lane", "landed")); err != nil {
+		t.Fatalf("removing the branch reflog the test is built on: %v", err)
+	}
+
+	var out, errb bytes.Buffer
+	pruned := PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)
+
+	if _, err := os.Stat(landedWT); err != nil {
+		t.Fatalf("a lane whose reflog cannot be read must be kept, got err=%v", err)
+	}
+	if len(pruned) != 0 {
+		t.Fatalf("pruned = %+v, want nothing — no branch here can be proven to hold work of its own", pruned)
+	}
+	if !strings.Contains(errb.String(), "kept") || !strings.Contains(errb.String(), "lane/landed") {
+		t.Fatalf("stderr = %q, want a kept line naming lane/landed", errb.String())
+	}
+	if !strings.Contains(errb.String(), "reflog") {
+		t.Fatalf("stderr = %q, want the keep reason to name the unreadable reflog", errb.String())
+	}
+}
