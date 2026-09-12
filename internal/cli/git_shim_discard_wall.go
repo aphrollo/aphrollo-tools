@@ -45,7 +45,12 @@ func discardWallRefusal(cfg gitShimConfig, rest []string, workDir string) (line 
 	if cost.Err != nil {
 		suffix = "-unmeasured"
 	}
-	return discardRefused(workDir, form, discardRefusalLine(form, cost), suffix)
+	// The hint is empty except for a path-scoped restore of a file this
+	// session holds a pre-mutation state for: mid-proof, the refusal that
+	// says nothing about the hold is the one that made the field builder
+	// assume the restore was simply impossible and mutate on (#650).
+	refusal := discardRefusalLine(form, cost) + mutationHoldHint(form, paths, workDir)
+	return discardRefused(workDir, form, refusal, suffix)
 }
 
 // markerDecision is what an environment marker buys. APHROLLO_DISCARD=1 was a

@@ -132,6 +132,15 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 			fmt.Fprintln(stderr, line)
 			return 1
 		}
+		// A declared hand mutation proof restoring a file it held before
+		// mutating it (#650). Before the discard wall, because the wall's
+		// question ("what would this destroy") has a different answer for
+		// this one command: the restore is the proof's PROTECTIVE step, and
+		// the shim serves it from the held bytes rather than letting git
+		// restore from the index over the lane's unstaged work.
+		if code, handled := mutationProofRestore(rest, workDir, stderr); handled {
+			return code
+		}
 		// The discard wall (#343): same placement again — a `reset --hard`
 		// that already ran cannot be un-run by a refusal printed after it,
 		// and the louder marker's notice (a line with refuse=false, naming
