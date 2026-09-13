@@ -49,6 +49,14 @@ func judgeMutants(cfg MutantsConfig, mutants []MutantOutcome) Verdict {
 			missed = append(missed, m)
 		case "timeout":
 			timedOut = append(timedOut, m)
+		case gremlinsScopeUnknown:
+			// A survivor gremlins could not have judged: some package
+			// outside the mutated one has tests that reach the mutated
+			// code, and gremlins ran only the mutated package's own
+			// (mutants_go_reach.go). Reported by name with its reason,
+			// counted apart, and never refused — an untested verdict is
+			// not a result.
+			v.Inconclusive = append(v.Inconclusive, m)
 		case gremlinsNotCovered:
 			// Counted apart from unviable: "no coverage block maps here" is
 			// a different claim from "this mutant does not compile", and it
@@ -114,6 +122,12 @@ func measureReport(v Verdict, notes []acceptNote) string {
 	for _, m := range v.Unmeasured {
 		b.WriteString(outcomeName(m) + " — timed out twice, unmeasured\n")
 	}
+	for _, m := range v.Inconclusive {
+		// Ahead of the counts like the other findings, and carrying its own
+		// reason: a mutant nobody could judge is something a reviewer has to
+		// be told about, not a number to subtract from another number.
+		b.WriteString(outcomeName(m) + " — " + m.Note + "\n")
+	}
 	for _, n := range notes {
 		if n.Refused {
 			fmt.Fprintf(&b, "mutation-accept entry refused (%s)\n", n.Text)
@@ -130,6 +144,12 @@ func measureReport(v Verdict, notes []acceptNote) string {
 		// and a trailing ", 0 not covered" on every one of its reports is a
 		// column about a tool it does not use.
 		fmt.Fprintf(&b, ", %d not covered", v.NotCovered)
+	}
+	if len(v.Inconclusive) > 0 {
+		// Same rule as not covered: a column about a category this run had
+		// none of tells a reader nothing, and the count must never be folded
+		// into caught or missed — it is neither.
+		fmt.Fprintf(&b, ", %d inconclusive", len(v.Inconclusive))
 	}
 	if v.Refused {
 		b.WriteString("\n" + measureRemedy)
@@ -187,8 +207,10 @@ func measureLogVerdict(v Verdict) string {
 	if v.Refused {
 		state = "refused"
 	}
-	return fmt.Sprintf("mutants-%s:tested=%d,caught=%d,unviable=%d,missed=%d,accepted=%d,unmeasured=%d,notcovered=%d",
-		state, v.Tested, v.Caught, v.Unviable, v.Missed, v.Accepted, len(v.Unmeasured), v.NotCovered)
+	return fmt.Sprintf(
+		"mutants-%s:tested=%d,caught=%d,unviable=%d,missed=%d,accepted=%d,unmeasured=%d,notcovered=%d,inconclusive=%d",
+		state, v.Tested, v.Caught, v.Unviable, v.Missed, v.Accepted, len(v.Unmeasured), v.NotCovered,
+		len(v.Inconclusive))
 }
 
 // mutantsAfterStatusEnv carries the measurement's own verdict to the repo's

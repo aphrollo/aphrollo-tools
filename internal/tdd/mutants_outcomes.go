@@ -35,8 +35,16 @@ type MutantOutcome struct {
 	// Package is the crate/package whose test set constrains this mutant.
 	Package string `json:"package,omitempty"`
 	// Status is the producer's own word for the result ("caught", "missed",
-	// "timeout", "unviable"); this package never invents one.
+	// "timeout", "unviable"). This package invents exactly one,
+	// gremlinsScopeUnknown, and only about the RUN rather than the mutant:
+	// a selection that could not have observed a killing test is a fact the
+	// producer does not report and cannot be read off its verdict.
 	Status string `json:"status,omitempty"`
+	// Note is why an outcome could not be judged, written where that is
+	// known — the reach classification (mutants_go_reach.go) — and printed
+	// verbatim by the report, because "inconclusive" with no cause leaves
+	// the reader nothing to act on.
+	Note string `json:"note,omitempty"`
 }
 
 // mutantLineRe reads a mutant named as one line. The real shape, from a
