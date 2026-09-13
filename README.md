@@ -1171,6 +1171,17 @@ printed — and it is what a verdict of `mutant UNREADABLE` points the reader
 at: a run whose failing test name could not be parsed is one whose output has
 to be readable by hand.
 
+A **green** run is answered twice before it is called a survivor. The related
+tests of a Rust `src/` file are narrowed to `--lib` plus that file's module
+filter, and no `--lib` run ever builds the crate's integration binaries, so a
+mutant killed only by a test under `tests/` would come back green out of a
+selection that could not have run it. On a green — the rare branch — `prove`
+drops the within-package narrowing, re-runs at package scope and judges on
+THAT run: the verdict, the failing names read from it and the output `gate
+output` serves are all the wider run's, and the verdict says which narrower
+selection came back green first. A kill settles on the cheap run and stops
+there.
+
 **The loop by hand,** when the mutation is more than one `--old`/`--new` pair
 (an editor edit, a multi-line change) — three commands, in this order:
 
