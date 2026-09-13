@@ -42,6 +42,21 @@ func TestRunFixturesWith_OnlyJudgesTheNamedLawsAndLeavesTheRestUnrun(t *testing.
 	}
 }
 
+// Only must stay narrow for the WHOLE run, not until the last law it names
+// has been met. A selection that drains as it matches silently widens back
+// to every law once it is empty, which no test whose named law sorts last can
+// see — so this one names the law that sorts FIRST and checks that the laws
+// after it were still left alone.
+func TestRunFixturesWith_OnlyStaysNarrowPastTheLastLawItNames(t *testing.T) {
+	results, err := RunFixturesWith(twoLawRepo(t), FixtureOptions{Only: []string{"broken-guard"}})
+	if err != nil {
+		t.Fatalf("RunFixturesWith: %v", err)
+	}
+	if len(results) != 1 || results[0].Law != "broken-guard" {
+		t.Fatalf("the laws sorting after the last named one are not selected; results = %+v", results)
+	}
+}
+
 // The other half of the same split: everything the other judge is NOT taking.
 // A law left out here must leave no result at all rather than an empty one —
 // an empty Failures slice is how "proved clean" is spelled, so a law nobody

@@ -7,10 +7,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // aphrollo update is self-install's sibling for the ordinary case: the box
@@ -141,20 +141,16 @@ func shortSHA(sha string) string {
 // comments before the module directive, so this skips those before looking
 // for the directive on the first line that is neither.
 func checkAphrolloModule(repo string) error {
-	const want = "module github.com/aphrollo/aphrollo-tools"
-	data, err := os.ReadFile(filepath.Join(repo, "go.mod"))
+	const want = "github.com/aphrollo/aphrollo-tools"
+	// One reader of the module directive, in the package the fixtures stage
+	// asks the same question from (`is this the checkout that compiles the
+	// matchers`) — two copies of this parse would drift one fix at a time.
+	path, err := tdd.ModulePath(repo)
 	if err != nil {
 		return fmt.Errorf("%s does not look like this module: %w", repo, err)
 	}
-	for _, line := range strings.Split(string(data), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "//") {
-			continue
-		}
-		if trimmed == want {
-			return nil
-		}
-		return fmt.Errorf("%s does not look like github.com/aphrollo/aphrollo-tools (go.mod says %q)", repo, trimmed)
+	if path != want {
+		return fmt.Errorf("%s does not look like %s (go.mod says %q)", repo, want, path)
 	}
-	return fmt.Errorf("%s does not look like github.com/aphrollo/aphrollo-tools (go.mod says %q)", repo, "")
+	return nil
 }

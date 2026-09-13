@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -250,7 +251,13 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 // fix suggestion" applies to the classification itself, not just the block.
 // Both this and ratchetFixtureStage classify a ratchet-tooling failure into
 // the same REJECTED shape; a new failure class recognized here needs the
-// same recognition there.
+// same recognition there. The one place they now legitimately differ is
+// WHICH BINARY was judging: the fixtures stage hands the laws a commit
+// changes to a build of the checkout under judgement, so a failure there can
+// also mean that build itself, while check has no such build and its whole
+// answer comes from the running binary. That is why only the fixtures stage
+// carries a lane-build outcome, and why both remedies name `aphrollo update`
+// rather than any path that rebuilds the box binary from an unmerged tree.
 // twin: internal/tdd/ratchetgate.go#ratchetFixtureStage
 func ratchetCheckErrorResult(gateName, repoRoot string, err error, started time.Time) GateResult {
 	var readErr *ratchet.ScanReadError
@@ -263,7 +270,7 @@ func ratchetCheckErrorResult(gateName, repoRoot string, err error, started time.
 		return GateResult{Blocked: true, Message: msg}
 	}
 	msg := fmt.Sprintf(
-		"gate %s: ratchet → REJECTED (the law tooling could not run: %v)\n  fix the law file named above, or reinstall aphrollo if it predates a schema a law declares",
+		"gate %s: ratchet → REJECTED (the law tooling could not run: %v)\n  fix the law file named above, or run `aphrollo update` if this binary predates a schema a law declares",
 		gateName, err)
 	fmt.Fprintln(os.Stderr, msg)
 	appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-rejected", time.Since(started))
@@ -392,7 +399,12 @@ func stagedTouchesLaws(repoRoot string) bool {
 
 func ratchetFixtureStage(gateName, repoRoot string) GateResult {
 	started := time.Now()
-	results, err := ratchet.RunFixtures(repoRoot)
+	// Laws this commit changes are judged by a build of the checkout under
+	// judgement, everything else by the installed binary — the exact split
+	// ratchetgate_lanebuild.go's header describes, and the reason a matcher
+	// correction can now carry the fixture rows that prove it (#659, #673).
+	lane := laneJudgedLaws(repoRoot)
+	results, err := ratchet.RunFixturesWith(repoRoot, ratchet.FixtureOptions{Except: lane})
 	if err != nil {
 		// The same shape #158 fixed for ratchet check: a law this binary's
 		// schema cannot even parse must not disarm the fixture proof for
@@ -401,9 +413,23 @@ func ratchetFixtureStage(gateName, repoRoot string) GateResult {
 			kind: outcomeCheckError,
 			err:  err,
 			message: fmt.Sprintf(
-				"gate %s: ratchet fixtures → REJECTED (the law tooling could not run: %v)\n  fix the law file named above, or reinstall aphrollo if it predates a schema a law declares",
+				"gate %s: ratchet fixtures → REJECTED (the law tooling could not run: %v)\n  fix the law file named above, or run `aphrollo update` if this binary predates a schema a law declares",
 				gateName, err),
 		})
+	}
+	if len(lane) > 0 {
+		laneResults, laneErr := laneJudgedFixtures(gateName, repoRoot, lane)
+		if laneErr != nil {
+			return verdictFor(gateName, "ratchet-fixtures", repoRoot, "ratchet test", stageOutcome{
+				kind: outcomeCheckError,
+				err:  laneErr,
+				message: fmt.Sprintf(
+					"gate %s: ratchet fixtures → REJECTED (this checkout's own build could not judge the law(s) it changes: %v)\n  %s",
+					gateName, laneErr, laneBuildFixHint),
+			})
+		}
+		results = append(results, laneResults...)
+		sort.Slice(results, func(i, j int) bool { return results[i].Law < results[j].Law })
 	}
 	var failures []string
 	tested := 0

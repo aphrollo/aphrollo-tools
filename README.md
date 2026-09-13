@@ -1771,8 +1771,28 @@ exactly the offences listed in `expected.txt` (`<file>:<line>` per line, or the
 hit's key for a whole-tree law, which has no line to point at), and
 requires `clean/` to produce none. Both directions are required: hit-only
 proves a rule fires, never that it discriminates. A law with no fixtures
-fails. The commit gate runs `ratchet test` whenever a commit stages anything
-under `.ratchet/`.
+fails. The commit gate runs `ratchet test` whenever a commit stages a law or a
+fixture — nothing else under `.ratchet/` can move a fixture's verdict.
+
+**Which binary judges them.** A law whose `.toml` or whose fixtures the commit
+stages is judged by a binary built from the checkout under judgement; every
+other law is judged in-process by the installed binary. Without that split a
+change to a MATCHER could not carry the fixture rows that prove it: those rows
+are by construction rows the installed binary must reject, and that rejection
+is what makes them a fix, so the lane could not commit or merge until the box
+binary already contained the lane's own change.
+
+A lane may therefore answer for its own laws, and the bound on that is exact
+and enforced twice. The lane is only ever asked about the laws the commit
+stages, and any verdict it returns for any other law is discarded — so it can
+neither excuse nor refuse a law it did not touch, because the installed binary
+judged that law anyway. A repo that does not compile the matchers has no such
+build to run and never pays for one: its laws are data, and the installed
+binary is the only judge there is.
+
+A lane build that fails refuses the commit, naming the build's own error: a
+lane that does not compile has proved nothing, and the rows it stages are
+exactly the ones nothing else can judge.
 
 A fixture tree is laid out the way the REPO is, because the fixture root
 stands in for the repo root and the law's own `include` globs decide what it
@@ -1879,6 +1899,8 @@ aphrollo ratchet check --proposed crates/a.rs=/tmp/new.rs   # judge content not 
 aphrollo ratchet check --adopt nan-guard     # write nan-guard's baseline from the tree (new or widened law only)
 aphrollo ratchet check --base HEAD~1         # judge a diff-scoped law (symbol-removed) against that ref
 aphrollo ratchet test                        # prove every law against its fixtures
+aphrollo ratchet test --only nan-guard       # prove exactly these laws (comma-separated)
+aphrollo ratchet test --format json          # each law's verdict as data, for the gate's split run
 aphrollo ratchet presets                     # list every embedded preset and its params
 aphrollo ratchet init --preset common,rust --param pattern=TODO\( --param prefixes=BORLD
 ```

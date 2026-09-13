@@ -63,13 +63,19 @@ func RunFixturesWith(root string, opt FixtureOptions) ([]FixtureResult, error) {
 		return nil, err
 	}
 	only, except := nameSet(opt.Only), nameSet(opt.Except)
+	// unasked tracks which Only names no law answered, and is drained as
+	// they are met. Whether the run is narrowed at all is decided ONCE, up
+	// front: reading the draining set instead would widen the selection back
+	// to every law the moment the last named one was met, which is invisible
+	// to any test whose named law sorts last.
+	selective, unasked := len(only) > 0, nameSet(opt.Only)
 	var out []FixtureResult
 	for _, law := range laws {
-		if len(only) > 0 {
+		if selective {
 			if !only[law.Name] {
 				continue
 			}
-			delete(only, law.Name)
+			delete(unasked, law.Name)
 		} else if except[law.Name] {
 			continue
 		}
@@ -79,9 +85,9 @@ func RunFixturesWith(root string, opt FixtureOptions) ([]FixtureResult, error) {
 		}
 		out = append(out, runLawFixtures(root, law))
 	}
-	if len(only) > 0 {
+	if len(unasked) > 0 {
 		return nil, fmt.Errorf("no law named %s under %s — nothing can judge it",
-			strings.Join(sortedNames(only), ", "), LawsDir)
+			strings.Join(sortedNames(unasked), ", "), LawsDir)
 	}
 	return out, nil
 }
