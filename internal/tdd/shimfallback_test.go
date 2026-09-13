@@ -47,7 +47,7 @@ func TestBinShim_RunsTheRealToolWhenTheBinaryIsGone(t *testing.T) {
 	if !strings.Contains(string(out), "REAL status --short") {
 		t.Errorf("output %q does not show the real tool running with the caller's arguments verbatim", out)
 	}
-	if !strings.Contains(string(out), "self-install") {
+	if !strings.Contains(string(out), "aphrollo install") {
 		t.Errorf("output %q names no way to fix the missing binary", out)
 	}
 }
@@ -73,7 +73,7 @@ func TestBinShim_WithNoFallbackRefusesRatherThanExecNothing(t *testing.T) {
 	if strings.Contains(script, `exec "" `) {
 		t.Errorf("an empty fallback became an exec of nothing:\n%s", script)
 	}
-	if !strings.Contains(script, "self-install") {
+	if !strings.Contains(script, "aphrollo install") {
 		t.Errorf("shim names no remedy:\n%s", script)
 	}
 }

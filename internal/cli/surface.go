@@ -50,7 +50,6 @@ var gateVerbTable = []Verb{
 	{Name: "primary-edits", Alias: true, Of: "allow/revoke"},
 	{Name: "allow"},
 	{Name: "revoke"},
-	{Name: "self-install"},
 	{Name: "commitmsg"},
 	{Name: "postcommit"},
 	{Name: "postmerge"},

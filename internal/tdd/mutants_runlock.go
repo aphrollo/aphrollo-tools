@@ -133,7 +133,7 @@ func selfExePath() string {
 
 // staleHolderNotice reports what to append to a holder's description when
 // its executable is not the one THIS waiting process was started from — the
-// deploy-mid-run scenario issue #311 describes: aphrollo's own self-install
+// deploy-mid-run scenario issue #311 describes: aphrollo's own installer
 // renames the running binary aside and lets it keep executing, so a job that
 // started before the deploy holds the box-wide lock for as long as its run
 // takes, producing results from code that was already replaced. Either side
@@ -152,7 +152,7 @@ func staleHolderNotice(pid int) string {
 }
 
 // ReplacedBinaryJobsLine names a mutation run that is still executing the
-// binary self-install just renamed aside to stalePath. Such a run holds this
+// binary the installer just renamed aside to stalePath. Such a run holds this
 // box-wide lock and produces results from code that is no longer installed,
 // and INSTALL time is the one moment that fact is free: the installer already
 // knows it just replaced the binary, and the lock's own owner record already

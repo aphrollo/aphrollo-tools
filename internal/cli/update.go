@@ -13,20 +13,23 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-// aphrollo update is self-install's sibling for the ordinary case: the box
-// running the binary is not necessarily sitting in a checkout of this repo
-// at the commit it wants, or a clean one. So it fetches the remote, builds
-// from a DETACHED worktree at <remote>/<branch> — never the working tree,
-// which may be behind or carrying an edit of its own — and shares
-// self-install's swapBinary for the part that replaces the running binary.
+// aphrollo update is the ONLY way the box binary moves. The box running it
+// is not necessarily sitting in a checkout of this repo at the commit it
+// wants, or a clean one, so it fetches the remote and builds from a DETACHED
+// worktree at <remote>/<branch> — never the working tree, which may be behind
+// or carrying an edit of its own. `gate self-install`, which built from an
+// arbitrary checkout and could therefore point the box at unmerged code, was
+// retired with the bootstrap that needed it (#659, #673).
 const updateUsage = `usage: aphrollo update [--repo DIR] [--bin PATH] [--remote NAME] [--branch NAME] [--no-init]
 
 Fetches <remote>/<branch>, builds ./cmd/aphrollo from a detached temporary
 worktree at that commit (never the working tree, which may be behind or
-dirty), swaps it in for --bin the same way gate self-install does, sweeps
-stale copies beside it, then runs gate init UNDER THE NEW BINARY (so the
-managed files come from its templates, not the outgoing build's) unless
---no-init.
+dirty), swaps it in for --bin, sweeps stale copies beside it, then runs gate
+init UNDER THE NEW BINARY (so the managed files come from its templates, not
+the outgoing build's) unless --no-init.
+
+This is the only command that replaces the installed binary: gate
+self-install, which built from an arbitrary checkout, is retired.
 `
 
 func runUpdate(args []string, stdout, stderr io.Writer) int {
@@ -126,7 +129,7 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 }
 
 // shortSHA reports the first 7 characters of a full commit sha, the width
-// `aphrollo version` and gate self-install already use to name a build.
+// `aphrollo version` already uses to name a build.
 func shortSHA(sha string) string {
 	if len(sha) > 7 {
 		return sha[:7]

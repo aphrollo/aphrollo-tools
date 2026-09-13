@@ -164,8 +164,7 @@ func laneJudgedLaws(repoRoot string) []string {
 // directory, returning the binary and the cleanup that removes it. A var so
 // the stage's decision can be tested without a toolchain run.
 //
-// -buildvcs=false for the reason `gate self-install` and `aphrollo update`
-// use it: this runs from a linked worktree with a dirty index, where
+// -buildvcs=false for the reason `aphrollo update` uses it: this runs from a linked worktree with a dirty index, where
 // stamping VCS info either fails or embeds the wrong revision.
 var laneFixtureBuild = func(root string) (string, func(), error) {
 	dir, err := os.MkdirTemp("", "aphrollo-lane-*")

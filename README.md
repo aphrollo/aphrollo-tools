@@ -2223,16 +2223,27 @@ not this binary. Mutation
 testing is intentionally **not** ported (false-positive/non-determinism prone);
 the fail-first + mechanical suite cover the same ground without the flakiness.
 
-### Upgrading in place — `aphrollo gate self-install`
+### Upgrading in place — `aphrollo update`
 
-`aphrollo gate self-install` rebuilds `./cmd/aphrollo` from the checkout it is
-run in, runs `gate selfcheck` against the freshly built binary, renames the
-currently-running binary aside as `aphrollo.stale-<unix>`, moves the freshly
-built one into its place, reclaims stale copies nothing still holds open,
-then runs `init` so hooks and skills pick up whatever the rebuild changed.
-`--bin` targets a binary other than the default install path, `--no-init`
-skips the trailing `init`, and flags after a bare `--` are forwarded to it.
-`aphrollo update` shares the same swap and gets the same check.
+`aphrollo update` is the only command that replaces the installed binary. It
+fetches `origin`, builds `./cmd/aphrollo` from a **detached temporary
+worktree** at `origin/main` — never the working tree, which may be behind or
+carrying an edit of its own — runs `gate selfcheck` against the freshly built
+binary, renames the currently-running binary aside as `aphrollo.stale-<unix>`,
+moves the freshly built one into its place, reclaims stale copies nothing
+still holds open, then runs `init` **under the new binary** so hooks, skills
+and managed files come from its templates rather than the outgoing build's.
+`--bin` targets a binary other than the default install path, `--repo`,
+`--remote` and `--branch` name what to build, `--no-init` skips the trailing
+`init`, and flags after a bare `--` are forwarded to it.
+
+`gate self-install` — which built from an ARBITRARY checkout and could
+therefore make unmerged code the box's judge — is retired. It existed for one
+bootstrap: the fixtures stage judged a lane's laws with the installed binary,
+so a matcher correction could not commit until the box already carried it. The
+stage now builds the lane for the laws the lane itself changed, so the
+bootstrap is gone, and with it the reason to point the installer at a tree
+nobody has reviewed.
 
 `gate selfcheck` is the install-time smoke test that closes issue #532: it
 builds a marker-less temp tree and requires `FindProjectRoot` to come back
