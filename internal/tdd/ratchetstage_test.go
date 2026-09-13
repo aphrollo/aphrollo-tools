@@ -91,6 +91,23 @@ func TestRatchetStageSkipsFixturesWhenNoLawFileIsStaged(t *testing.T) {
 	}
 }
 
+// The generated .ratchet/README.md cannot change any law's or fixture's
+// verdict, so staging it alone must not re-run the fixtures stage — this
+// law's own fixtures were never written, so if the stage fired here it
+// would reject with "catches nothing" exactly as
+// TestRatchetStageProvesFixturesWhenALawFileIsStaged does above.
+func TestRatchetStage_SkipsFixturesWhenOnlyAGeneratedDocIsStaged(t *testing.T) {
+	root := lawTree(t, "deny")
+	gitAddAll(t, root)
+	commitAll(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "README.md"), "# generated\n")
+	gitAddAll(t, root)
+
+	if res := ratchetStage("precommit", root); res.Blocked {
+		t.Fatalf("staging only the generated README must not re-run fixtures: %s", res.Message)
+	}
+}
+
 // A scoped file the engine could not read (locked, permission-denied, any
 // I/O error) leaves this commit's laws unproven, and the gate must never
 // treat "could not judge" as "judged clean" — that is issue #164's

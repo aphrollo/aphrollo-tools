@@ -373,11 +373,17 @@ func indexOverlay(repoRoot string) map[string]string {
 	return overlay
 }
 
-// stagedTouchesLaws reports whether this commit changes the laws themselves —
-// the one time their own fixtures have to be re-proved.
+// stagedTouchesLaws reports whether this commit changes something that can
+// actually change a fixture's verdict: a law itself, or a fixture. Anything
+// else under `.ratchet/` — the generated README, the dev-instrument
+// registry, notes — cannot move a fixture result, so it must not fire this
+// stage. `.ratchet/baselines/**` is deliberately excluded from this list: a
+// staged baseline is judged by baselineStage, which runs ahead of this one
+// in precommitDecide, so it needs no second pass here.
 func stagedTouchesLaws(repoRoot string) bool {
 	for _, f := range stagedFiles(repoRoot) {
-		if strings.HasPrefix(filepath.ToSlash(f), ".ratchet/") {
+		rel := filepath.ToSlash(f)
+		if strings.HasPrefix(rel, ".ratchet/laws/") || strings.HasPrefix(rel, ".ratchet/fixtures/") {
 			return true
 		}
 	}
