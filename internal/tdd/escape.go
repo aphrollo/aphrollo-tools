@@ -505,7 +505,6 @@ func runGhTimeout(dir string, timeout time.Duration, args ...string) (string, er
 	cmd.Env = cleanGitEnv()
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	// stderr-ok: cmd.Stderr above captures it, and the error below folds it in
 	out, err := cmd.Output()
 	if err != nil {
 		if said := strings.TrimSpace(stderr.String()); said != "" {
