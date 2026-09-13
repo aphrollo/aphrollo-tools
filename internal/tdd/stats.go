@@ -32,7 +32,9 @@ type Stats struct {
 	// Mutants counts why the mutation stage did not simply pass, keyed by the
 	// reason: "survivor" for a refusal that measured something and found a
 	// mutant nobody accepted, "disk"/"tree-changed"/"no-verdict" for one that
-	// never reached a measurement, and "skipped:<why>" for a stand-down. The
+	// never reached a measurement, "skipped:<why>" for a stand-down and
+	// "unmeasured:<why>" for a box that COULD NOT measure at all — the last
+	// two are opposite facts and are never summed together (#697). The
 	// stage this replaces refused 150 merges in three weeks and logged no
 	// reason for 141 of them — this row is that number, per cause. bound: one
 	// entry per reason token the stage can write.
@@ -217,6 +219,14 @@ func mutantsOutcome(verdict string) (outcome, reason string, ok bool) {
 			return "red", "survivor", true
 		}
 		return "", rest, true
+	}
+	if rest, found := strings.CutPrefix(verdict, "mutants-unmeasured:"); found {
+		// A GAP, kept in its own row: this stage could not measure the tree
+		// at all, which is the opposite fact from "there was nothing to
+		// measure" and must not be added to the same number. Seventeen
+		// merges landed from one box against `skipped:gremlins-windows`,
+		// filed beside `skipped:nothing-to-measure` (issue #697).
+		return "", "unmeasured:" + rest, true
 	}
 	if rest, found := strings.CutPrefix(verdict, "mutants-skipped:"); found {
 		return "", "skipped:" + rest, true

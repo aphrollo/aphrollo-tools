@@ -553,7 +553,9 @@ tree: Go's coverage profile comes back empty and every mutant is filed NOT
 COVERED. A dogfood lane measured 50 mutants / 0 caught / 50 survivors on
 Windows against 50 / 44 caught for the same tree on Linux. Reporting that
 would be wrong in the direction that blocks merges, so the stage logs
-`mutants-skipped:gremlins-windows` and passes, and Linux measures instead —
+`mutants-unmeasured:gremlins-windows` and passes — saying in as many words
+that the merge carries NO mutation evidence, which is a GAP rather than the
+routine skip `nothing-to-measure` is (issue #697) — and Linux measures instead —
 nightly CI runs `gate mutants run --base <checkpoint>` against `main` and
 records an escape on a non-zero exit. On a box whose gremlins reports non-zero
 mutator coverage the stage measures with no further configuration.
@@ -586,7 +588,7 @@ stage refused and for what without re-running anything.
 | `mutants-skipped:catch-up` | trunk merged INTO a lane; nothing lands, so nothing is measured |
 | `mutants-skipped:not-a-merge` | a conflicted cherry-pick or revert being concluded |
 | `mutants-skipped:nothing-to-measure` | the diff named no mutable source |
-| `mutants-skipped:gremlins-windows` | the Go runner cannot measure on this platform |
+| `mutants-unmeasured:gremlins-windows` | the Go runner cannot measure on this platform, so this merge carries no mutation evidence at all — counted under `unmeasured:` in `gate stats`, never beside a routine skip |
 
 A run that reached a verdict lands in the green/red columns of the `mutants`
 row. One that never measured anything is counted by its reason alone: a red

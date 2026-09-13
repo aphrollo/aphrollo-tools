@@ -60,13 +60,13 @@ func TestStats_MutantsStageRowCountsRefusalsByReason(t *testing.T) {
 func TestStats_MutantsSkipIsCountedApartFromARefusal(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
-	log := stamp(at, "mutants", "/repo", "mutants", "mutants-skipped:gremlins-windows", 0) +
+	log := stamp(at, "mutants", "/repo", "mutants", "mutants-unmeasured:gremlins-windows", 0) +
 		stamp(at, "mutants", "/repo", "mutants", "mutants-refused:tree-changed", 0)
 
 	s := GateStats(strings.NewReader(log), time.Time{})
 
-	if s.Mutants["skipped:gremlins-windows"] != 1 {
-		t.Errorf("mutation stage reasons = %v, want skipped:gremlins-windows=1", s.Mutants)
+	if s.Mutants["unmeasured:gremlins-windows"] != 1 {
+		t.Errorf("mutation stage reasons = %v, want unmeasured:gremlins-windows=1", s.Mutants)
 	}
 	if s.Mutants["tree-changed"] != 1 {
 		t.Errorf("mutation stage reasons = %v, want tree-changed=1", s.Mutants)

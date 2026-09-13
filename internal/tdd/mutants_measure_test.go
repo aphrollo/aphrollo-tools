@@ -499,8 +499,8 @@ func TestMeasure_GoRepoOnWindowsStandsDown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MeasureLane: %v", err)
 	}
-	if v.Skipped != "gremlins-windows" {
-		t.Errorf("Skipped = %q, want the stand-down reason", v.Skipped)
+	if v.NotMeasured == "" {
+		t.Errorf("NotMeasured = %q, want the reason the run could not happen", v.NotMeasured)
 	}
 	if v.Refused {
 		t.Errorf("standing down must pass, got %+v", v)
@@ -508,7 +508,7 @@ func TestMeasure_GoRepoOnWindowsStandsDown(t *testing.T) {
 	if len(*calls) != 0 {
 		t.Errorf("ran gremlins anyway: %+v", *calls)
 	}
-	if !strings.Contains(gateLogText(t, cfgDir), "mutants-skipped:gremlins-windows") {
+	if !strings.Contains(gateLogText(t, cfgDir), "mutants-unmeasured:gremlins-windows") {
 		t.Errorf("gate.log has no stand-down line:\n%s", gateLogText(t, cfgDir))
 	}
 }

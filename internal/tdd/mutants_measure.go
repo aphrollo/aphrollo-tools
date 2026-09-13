@@ -45,35 +45,6 @@ type MeasureOpts struct {
 	Log  io.Writer // the run's own narrative; never the verdict
 }
 
-// Verdict is one measurement's whole answer. A verdict is never an error: a
-// refused merge is a fact the caller prints, and an error is reserved for the
-// runner failing to start at all.
-type Verdict struct {
-	Refused  bool
-	Skipped  string // non-empty when nothing ran, with the reason
-	Tested   int
-	Caught   int
-	Unviable int
-	Missed   int
-	Accepted int
-	// NotCovered is gremlins' NOT COVERED, counted apart from Unviable. It
-	// is not "a test ran and did not notice" but "no coverage block maps
-	// here", which on Windows it reports for every mutant in a module —
-	// folded into unviable that fact disappears, and a report that is mostly
-	// uncovered reads like a report that is mostly fine.
-	NotCovered int
-	// Inconclusive is the survivors whose verdict the run could not have
-	// reached: gremlins judged them with the mutated package's own tests
-	// while a package outside it has tests that reach the mutated code
-	// (issue #695). They are named in the report with their reason and
-	// refuse nothing — a survivor claim the run could not have observed is
-	// not a survivor.
-	Inconclusive []MutantOutcome
-	Unaccepted   []MutantOutcome // missed and not in mutation-accept
-	Unmeasured   []MutantOutcome // timed out twice
-	Message      string          // criterion 12's report, verbatim
-}
-
 // mutantsExecFn runs one mutation tool and reports its exit code. A seam, the
 // same shape as mutantsProducerFn: a test proves what the runner decides
 // without a toolchain on the box.
@@ -263,8 +234,10 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base str
 		// gremlins reports 0.00% mutator coverage here — 4890 mutants NOT
 		// COVERED on this repo's own tree. A verdict saying every mutant
 		// survived is the wrong answer in the blocking direction, so the
-		// stage stands down and says which box would have to measure it.
-		return measureSkipped(root, "gremlins-windows", "gremlins-windows", log), nil
+		// run does not happen. What that leaves is a GAP, not a skip, and
+		// it says so: issue #697 measured seventeen merges landing from
+		// this box against a line that read like the other nine stages.
+		return measureUnmeasured(root, gremlinsWindowsGap, "gremlins-windows", log), nil
 	}
 	files, err := measureGoDiff(root, base)
 	if err != nil {
