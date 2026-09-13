@@ -310,21 +310,29 @@ func (l Law) markerAbove(raw, code []string, idx int) bool {
 		l.scanRun(raw, idx, l.Matcher.Lines, 1, match)
 }
 
-// markerInOwnBlock walks up from the trigger through the declaration's OWN
-// contiguous comment block and stops there: at the previous trigger line, or
-// at the first line that does not continue the comment run, whichever comes
-// first. `lines` is a CAP on that block, not a reach across whatever happens
-// to sit above — issue #652, where one marked field vouched for the three
-// unmarked fields under it and each freshly-covered field's baseline row
-// vanished on the next tightening, a baseline moving DOWN (the one direction
-// the ratchet trusts) while nothing was actually marked. A marker vouches for
-// exactly one declaration: its own.
+// markerInOwnBlock walks up from the trigger to the declaration the marker
+// belongs to and stops there: at the PREVIOUS TRIGGER line, or at the window
+// edge — `lines` for an ordinary law, the contiguous comment run for a
+// `contiguous` one, which declares that run AS its window and has no line cap
+// to bound it. The previous-trigger stop is the whole of issue #652, where one
+// marked field vouched for the three unmarked fields under it and each
+// freshly-covered field's baseline row vanished on the next tightening, a
+// baseline moving DOWN while nothing was marked: every declaration in that
+// cascade is itself a trigger, so the stop alone ends it. A marker vouches for
+// exactly one declaration: its own. It is tested BEFORE any comment-run
+// consideration, because a marker is very often a CODE token — `rng_seed:`
+// between two struct fields, a `cmd.Stderr = &buf` above the `.Output()` it
+// feeds — and #658's run test ran first, halting the walk on those lines
+// before ever matching them.
 func (l Law) markerInOwnBlock(raw, code []string, idx int, match func(string) bool) bool {
 	for i := idx - 1; i >= 0; i-- {
+		if l.Contiguous && !inCommentRun(raw[i], l.commentPrefix()) {
+			return false
+		}
 		if !l.Contiguous && i < idx-l.Matcher.Lines {
 			return false
 		}
-		if l.Matcher.Trigger.MatchString(code[i]) || !inCommentRun(raw[i], l.commentPrefix()) {
+		if l.Matcher.Trigger.MatchString(code[i]) {
 			return false
 		}
 		if match(raw[i]) {

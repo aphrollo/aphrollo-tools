@@ -48,11 +48,13 @@ const (
 	// proptest's explicit seed).
 	KindRegexPresent MatcherKind = "regex-present"
 	// KindMarkerWithinLines: a `trigger` line requires a `marker` on its own
-	// line or in its OWN comment run above it (`// bound:` over a growing
-	// collection), capped at N lines. The upward walk stops at the previous
-	// trigger and at the first line that does not continue that comment run,
-	// so one marker vouches for exactly one declaration rather than for
-	// whatever happens to sit under it — see markerInOwnBlock, issue #652.
+	// line or within the N lines above it (`// bound:` over a growing
+	// collection, `rng_seed:` over a proptest config). The upward walk stops
+	// at the previous trigger, so one marker vouches for exactly one
+	// declaration rather than for whatever happens to sit under it — see
+	// markerInOwnBlock, issue #652. Every line in that window is tested,
+	// code or comment; a `contiguous` law's window above is its comment run
+	// instead of `lines`.
 	// `direction` adds (or substitutes) the N-line window BELOW, which is a
 	// window over code by construction: the marker there lives inside the
 	// block the trigger opened.

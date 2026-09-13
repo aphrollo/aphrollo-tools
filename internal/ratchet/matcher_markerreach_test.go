@@ -117,9 +117,139 @@ func TestMarkerWithinLines_stillExcusedByItsOwnCommentBlock(t *testing.T) {
 				"    omega_rad_s: f32,\n",
 			[]string{"a.rs:6"},
 		},
-		"marker cut off by a blank line, which ends the block": {
+		// #658 also stopped the walk at a blank line, and this case pinned
+		// that. For a law with a `lines` cap the cap IS the window: a blank
+		// line inside it is not evidence the marker belongs to something
+		// else, and treating it as evidence is the same false-hit mechanism
+		// this file's code-token test exists to stop — subprocess_stderr_dropped
+		// reaches 20 lines up, where a blank line is certain. The run edge
+		// still bounds a `contiguous` law, which has no cap; see
+		// TestMarkerWithinLines_contiguousLawStopsAtItsRunEdge.
+		"marker a blank line above, still inside the lines cap": {
 			"    // det-ok: integrated, never sampled\n\n    omega_rad_s: f32,\n",
+			nil,
+		},
+	}
+	for name, c := range cases {
+		got := lineKeys(l.HitsIn("a.rs", c.src))
+		if !sameStrings(got, c.want) {
+			t.Errorf("%s: hits = %v, want %v", name, got, c.want)
+		}
+	}
+}
+
+// seededLaw is the shape the field report came in as: a `proptest_seeding`
+// law whose marker is a CODE token (`rng_seed`), not a comment, with a
+// two-line window. Marker and trigger both live inside the same struct
+// literal, so there is no comment run around either one.
+func seededLaw() Law {
+	return lawWith(Matcher{
+		Kind:    KindMarkerWithinLines,
+		Trigger: regexp.MustCompile(`\.\.\w*Config::default\(\)`),
+		Marker:  regexp.MustCompile(`rng_seed`),
+		Lines:   2,
+		Key:     KeyLineContent,
+	})
+}
+
+// TestMarkerWithinLines_findsACodeTokenMarkerAboveTheTrigger is the shipped
+// regression: #658's upward walk tested the comment run BEFORE the marker, so
+// a marker that is a code token on the line directly above the trigger halted
+// the walk before that line was ever tested and every law whose marker is code
+// reported a false hit on correctly-marked sites. Both sources are verbatim
+// from the report (a workspace where all 48 trigger sites carried `rng_seed`
+// within the window and the law reported 20 of them as unseeded).
+func TestMarkerWithinLines_findsACodeTokenMarkerAboveTheTrigger(t *testing.T) {
+	l := seededLaw()
+	cases := map[string]struct {
+		src  string
+		want []string
+	}{
+		"marker between two other struct fields, directly above the trigger": {
+			"    cases: 24 * 8,\n" +
+				"    rng_seed: proptest::test_runner::RngSeed::Fixed(1),\n" +
+				"    ..Config::default()\n",
+			nil,
+		},
+		"marker inside an inner attribute's struct literal": {
+			"        #![proptest_config(ProptestConfig {\n" +
+				"            rng_seed: proptest::test_runner::RngSeed::Fixed(1),\n" +
+				"            ..ProptestConfig::default()\n",
+			nil,
+		},
+		"marker two code lines above, at the window edge": {
+			"    rng_seed: RngSeed::Fixed(1),\n" +
+				"    cases: 24 * 8,\n" +
+				"    ..Config::default()\n",
+			nil,
+		},
+		"marker past the lines cap is still a hit": {
+			"    rng_seed: RngSeed::Fixed(1),\n" +
+				"    cases: 24 * 8,\n" +
+				"    max_shrink_iters: 4,\n" +
+				"    ..Config::default()\n",
+			[]string{"a.rs:4"},
+		},
+		"a genuinely unseeded config is still a hit": {
+			"    cases: 24 * 8,\n" +
+				"    ..Config::default()\n",
+			[]string{"a.rs:2"},
+		},
+		"the previous trigger still stops the walk": {
+			"    rng_seed: RngSeed::Fixed(1),\n" +
+				"    ..Config::default()\n" +
+				"    ..Config::default()\n",
 			[]string{"a.rs:3"},
+		},
+	}
+	for name, c := range cases {
+		got := lineKeys(l.HitsIn("a.rs", c.src))
+		if !sameStrings(got, c.want) {
+			t.Errorf("%s: hits = %v, want %v", name, got, c.want)
+		}
+	}
+}
+
+// TestMarkerWithinLines_contiguousLawStopsAtItsRunEdge is where the comment
+// run is still the boundary: a `contiguous` law (this repo's own
+// suppression_reason) declares the run AS its window and carries no `lines`
+// cap, so without that edge a `reason:` anywhere above in the file would
+// vouch for a suppression it has nothing to do with.
+func TestMarkerWithinLines_contiguousLawStopsAtItsRunEdge(t *testing.T) {
+	l := lawWith(Matcher{
+		Kind:       KindMarkerWithinLines,
+		Trigger:    regexp.MustCompile(`#\[allow\(`),
+		Marker:     regexp.MustCompile(`reason\s*:`),
+		Direction:  DirectionBoth,
+		Contiguous: true,
+		Key:        KeyLineContent,
+	})
+	// `contiguous = true` under [matcher] is copied to the law-level flag as
+	// the TOML is read (law.go), and the walk reads the law-level one; a
+	// hand-built Law never goes through that step.
+	l.Contiguous = true
+	cases := map[string]struct {
+		src  string
+		want []string
+	}{
+		"marker in the run directly above": {
+			"// reason: the bound is measured against the rig\n" +
+				"#[allow(clippy::too_many_lines)]\n" +
+				"fn f() {}\n",
+			nil,
+		},
+		"marker a blank line above, outside the run": {
+			"// reason: the bound is measured against the rig\n" +
+				"\n" +
+				"#[allow(clippy::too_many_lines)]\n" +
+				"fn f() {}\n",
+			[]string{"a.rs:3"},
+		},
+		"marker on a code line above, outside the run": {
+			"let reason: u8 = measure();\n" +
+				"#[allow(clippy::too_many_lines)]\n" +
+				"fn f() {}\n",
+			[]string{"a.rs:2"},
 		},
 	}
 	for name, c := range cases {
