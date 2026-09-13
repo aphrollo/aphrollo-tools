@@ -1,2 +1,2 @@
-internal/pkg/example.go:4
+internal/pkg/example.go:3
 internal/pkg/neighbour.go:10

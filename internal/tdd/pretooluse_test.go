@@ -68,7 +68,7 @@ func TestDecidePreEdit(t *testing.T) {
 		},
 		{
 			name:    "suppression in SOURCE file warns (not block)",
-			payload: `{"tool_name":"Edit","tool_input":{"file_path":"src/widget.go","new_string":"x := f() //nolint:errcheck"}}`, // reason: a source-file suppression, expect Warn
+			payload: `{"tool_name":"Edit","tool_input":{"file_path":"src/widget.go","new_string":"x := f() //nolint:errcheck"}}`,
 			want:    Warn,
 		},
 		{
@@ -83,14 +83,14 @@ func TestDecidePreEdit(t *testing.T) {
 		},
 		{
 			name:    "suppression quoted in a string does not trip",
-			payload: `{"tool_name":"Edit","tool_input":{"file_path":"src/widget.go","new_string":"msg := \"use //nolint to skip\""}}`, // reason: directive quoted in a string, expect Allow
+			payload: `{"tool_name":"Edit","tool_input":{"file_path":"src/widget.go","new_string":"msg := \"use //nolint to skip\""}}`,
 			want:    Allow,
 		},
 		{
 			// In JS/TS, `#` is a private field, NOT a comment — the masker must
 			// not skip the rest of the line, or the quoted directive leaks.
 			name:    "JS private field with directive-in-string does not trip",
-			payload: `{"tool_name":"Edit","tool_input":{"file_path":"src/widget.ts","new_string":"this.#count = \"use // nolint maybe\""}}`, // reason: JS private field, quoted directive, expect Allow
+			payload: `{"tool_name":"Edit","tool_input":{"file_path":"src/widget.ts","new_string":"this.#count = \"use // nolint maybe\""}}`,
 			want:    Allow,
 		},
 		{

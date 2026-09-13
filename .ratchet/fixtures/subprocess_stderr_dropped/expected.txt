@@ -1,2 +1,3 @@
 internal/fixture/stderrdrop.go:11
 internal/fixture/reach.go:28
+internal/fixture/trailingnote.go:15

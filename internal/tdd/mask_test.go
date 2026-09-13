@@ -85,9 +85,9 @@ func TestMaskTokens_HashComment(t *testing.T) {
 	t.Parallel()
 	// In a JS/TS file (#-is-code), the `#` must NOT make the lexer skip the rest
 	// of the line, so the string still gets blanked and its content cannot leak.
-	js := `this.#count = "use // nolint maybe"` // reason: fixture text, not a real suppression — the # is a JS private field here
-	got := maskTokens(js, true, false, false)   // directives view, # not a comment
-	if strings.Contains(got, "// nolint") {     // reason: asserting the quoted directive text stayed blanked
+	js := `this.#count = "use // nolint maybe"`
+	got := maskTokens(js, true, false, false) // directives view, # not a comment
+	if strings.Contains(got, "// nolint") {
 		t.Errorf("# treated as comment in JS: directive leaked:\n%s", got)
 	}
 	if !strings.Contains(got, "this.#count") {
