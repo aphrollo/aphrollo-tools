@@ -19,6 +19,11 @@ func denyLine(now time.Time, age time.Duration, verdict string) string {
 func TestDemoteCandidatesNamesAChecksRisingTwoWeeksRunning(t *testing.T) {
 	now := time.Now().UTC()
 	var log strings.Builder
+	// Every check here was already refusing things before the oldest window
+	// opened, so what the trend reads is the rise and not the check's age.
+	for _, check := range []string{"pretooluse-denied:test-sleep", "pretooluse-denied:tautology", "smell-escape:disabled-test"} {
+		log.WriteString(denyLine(now, 26*24*time.Hour, check))
+	}
 	// rising: 1 three weeks ago, 2 two weeks ago, 3 last week.
 	log.WriteString(denyLine(now, 18*24*time.Hour, "pretooluse-denied:test-sleep"))
 	for range 2 {
@@ -43,8 +48,9 @@ func TestDemoteCandidatesNamesAChecksRisingTwoWeeksRunning(t *testing.T) {
 	}
 
 	got := DemoteCandidates(strings.NewReader(log.String()), now)
-	if len(got) != 1 || got[0] != "test-sleep" {
-		t.Fatalf("candidates = %v, want [test-sleep]", got)
+	want := DemoteCandidate{Repo: "/r", Check: "test-sleep"}
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("candidates = %v, want [%v]", got, want)
 	}
 }
 
@@ -53,6 +59,7 @@ func TestDemoteCandidatesNamesAChecksRisingTwoWeeksRunning(t *testing.T) {
 func TestDemoteCandidatesCountsDenialsAndEscapesTogether(t *testing.T) {
 	now := time.Now().UTC()
 	var log strings.Builder
+	log.WriteString(denyLine(now, 26*24*time.Hour, "pretooluse-denied:test-sleep"))
 	log.WriteString(denyLine(now, 18*24*time.Hour, "pretooluse-denied:test-sleep"))
 	log.WriteString(denyLine(now, 11*24*time.Hour, "pretooluse-denied:test-sleep"))
 	log.WriteString(denyLine(now, 11*24*time.Hour, "smell-escape:test-sleep"))
@@ -61,8 +68,9 @@ func TestDemoteCandidatesCountsDenialsAndEscapesTogether(t *testing.T) {
 	}
 
 	got := DemoteCandidates(strings.NewReader(log.String()), now)
-	if len(got) != 1 || got[0] != "test-sleep" {
-		t.Fatalf("candidates = %v, want [test-sleep]", got)
+	want := DemoteCandidate{Repo: "/r", Check: "test-sleep"}
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("candidates = %v, want [%v]", got, want)
 	}
 }
 
@@ -94,7 +102,7 @@ func TestRecordDemoteCandidatesOpensOneIssueAndThenStops(t *testing.T) {
 		"issue create": "https://github.com/o/r/issues/5",
 	})
 
-	n := RecordDemoteCandidates(repo, []string{"test-sleep"}, &strings.Builder{})
+	n := RecordDemoteCandidates(repo, []DemoteCandidate{{Repo: repo, Check: "test-sleep"}}, &strings.Builder{})
 	if n != 1 {
 		t.Fatalf("opened %d issues, want 1", n)
 	}
@@ -112,7 +120,7 @@ func TestRecordDemoteCandidatesOpensOneIssueAndThenStops(t *testing.T) {
 		"issue list":   `[{"number":5,"state":"OPEN","body":"` + issueFingerprintKey + ` ` + fp + `"}]`,
 		"issue create": "https://github.com/o/r/issues/6",
 	})
-	if n := RecordDemoteCandidates(repo, []string{"test-sleep"}, &strings.Builder{}); n != 0 {
+	if n := RecordDemoteCandidates(repo, []DemoteCandidate{{Repo: repo, Check: "test-sleep"}}, &strings.Builder{}); n != 0 {
 		t.Fatalf("opened %d more issues; an open one is already the record", n)
 	}
 }
@@ -129,7 +137,7 @@ func TestRecordDemoteCandidates_IssueBodyCarriesAFingerprint(t *testing.T) {
 		"issue create": "https://github.com/o/r/issues/5",
 	})
 
-	if n := RecordDemoteCandidates(repo, []string{"test-sleep"}, &strings.Builder{}); n != 1 {
+	if n := RecordDemoteCandidates(repo, []DemoteCandidate{{Repo: repo, Check: "test-sleep"}}, &strings.Builder{}); n != 1 {
 		t.Fatalf("opened %d issues, want 1", n)
 	}
 
@@ -158,7 +166,7 @@ func TestRecordDemoteCandidates_StaysClosedOnStaleEvidence(t *testing.T) {
 		"issue create": "https://github.com/o/r/issues/8",
 	})
 
-	if n := RecordDemoteCandidates(repo, []string{"test-sleep"}, &strings.Builder{}); n != 0 {
+	if n := RecordDemoteCandidates(repo, []DemoteCandidate{{Repo: repo, Check: "test-sleep"}}, &strings.Builder{}); n != 0 {
 		t.Fatalf("opened %d for a check a human already closed on evidence inside the rise window, want 0", n)
 	}
 	if strings.Contains(ghArgv(t, log), "issue create") {
@@ -178,7 +186,7 @@ func TestRecordDemoteCandidates_ReopensOnEvidenceEntirelyAfterTheClose(t *testin
 		"issue create": "https://github.com/o/r/issues/9",
 	})
 
-	if n := RecordDemoteCandidates(repo, []string{"test-sleep"}, &strings.Builder{}); n != 1 {
+	if n := RecordDemoteCandidates(repo, []DemoteCandidate{{Repo: repo, Check: "test-sleep"}}, &strings.Builder{}); n != 1 {
 		t.Fatalf("opened %d for a regression that resumed entirely after the close, want 1", n)
 	}
 	if !strings.Contains(ghArgv(t, log), "issue create") {
