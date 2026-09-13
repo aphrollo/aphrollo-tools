@@ -357,38 +357,6 @@ func (l Law) contextNear(raw []string, idx int) bool {
 	})
 }
 
-func (l Law) docPathHits(file string, code []string) []Hit {
-	var hits []Hit
-	for i, line := range code {
-		if l.excluded(line) {
-			continue
-		}
-		for _, loc := range l.Matcher.Pattern.FindAllStringSubmatchIndex(line, -1) {
-			// The LAST capture group is the citation, by convention (a law's
-			// pattern may wrap it in non-capturing alternation groups first).
-			gStart, gEnd := loc[len(loc)-2], loc[len(loc)-1]
-			if gStart < 0 {
-				continue
-			}
-			if gEnd < len(line) && isPathContinuation(line[gEnd]) {
-				// A regex has no notion of "the whole backtick-quoted token" —
-				// it just finds the longest run this pattern can describe, which
-				// for `refs/notes/gate` is the PREFIX `refs/notes/` (a valid
-				// Form-B shape on its own). A citation is the whole token, so a
-				// match immediately followed by more identifier or glob
-				// characters is a false start, not a shorter citation.
-				continue
-			}
-			cited := line[gStart:gEnd]
-			if l.docResolves(file, cited) {
-				continue
-			}
-			hits = append(hits, l.hit(file, i+1, cited))
-		}
-	}
-	return hits
-}
-
 // isPathContinuation reports whether b could continue the SAME path token a
 // doc-path-resolves match just ended on — an identifier character, or a glob
 // character (`.ratchet/laws/*.toml` must never be read as citing the bare

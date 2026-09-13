@@ -20,16 +20,27 @@ import (
 // not against the working tree (see docpath_committed.go). The law files did
 // not change, so the fingerprint below cannot see it — the version is what
 // says the recorded verdicts were reached under the older rule.
-const cacheVersion = 3
+// 4: a doc-path-resolves entry records the CITATIONS it found, not whether
+// they resolved, because that verdict depends on the oracle and the index
+// rather than on the file's bytes (see cache_citations.go). An entry written
+// at 3 carries the verdict and no citations, so it would read as a file that
+// cites nothing at all.
+const cacheVersion = 4
 
 type cacheEntry struct {
 	Size  int64            `json:"size"`
 	Mtime int64            `json:"mtime"`
 	Hits  map[string][]Hit `json:"hits,omitempty"`
+	// Cited is every citation a doc-path-resolves law found in this file,
+	// keyed by law name, whether or not it resolved — the half of that law's
+	// verdict the file's own bytes decide. Hits never carries a doc-path
+	// law's entry; it is rebuilt from here on every lookup.
+	Cited map[string][]Hit `json:"cited,omitempty"`
 }
 
 type scanCache struct {
 	path    string
+	docLaws []Law
 	Version int                   `json:"version"`
 	Laws    string                `json:"laws"`
 	Files   map[string]cacheEntry `json:"files"`
@@ -45,6 +56,11 @@ func loadCache(dir, root string, laws []Law) *scanCache {
 		return c
 	}
 	c.Laws = lawsFingerprint(laws)
+	for _, l := range laws {
+		if l.Matcher.Kind == KindDocPathResolves {
+			c.docLaws = append(c.docLaws, l)
+		}
+	}
 	c.path = filepath.Join(dir, "ratchet-cache", cacheKey(root)+".json")
 	data, err := os.ReadFile(c.path)
 	if err != nil {
@@ -63,7 +79,9 @@ func loadCache(dir, root string, laws []Law) *scanCache {
 	return c
 }
 
-// lookup answers one file's hits when its size and mtime are unchanged.
+// lookup answers one file's hits when its size and mtime are unchanged. A
+// doc-path-resolves law's hits are re-resolved from the recorded citations
+// rather than replayed, so the answer belongs to THIS run's oracle.
 func (c *scanCache) lookup(root, rel string) (map[string][]Hit, bool) {
 	if c.path == "" {
 		return nil, false
@@ -77,11 +95,14 @@ func (c *scanCache) lookup(root, rel string) (map[string][]Hit, bool) {
 		return nil, false
 	}
 	c.next[rel] = e
-	return e.Hits, true
+	return c.resolveCited(rel, e), true
 }
 
-// store records one freshly-scanned file's hits.
-func (c *scanCache) store(root, rel string, hits map[string][]Hit) {
+// store records one freshly-scanned file's hits, plus the citations a
+// doc-path-resolves law found in it. Those laws' hits are deliberately NOT
+// recorded: they are this run's oracle's answer, and the next run may have a
+// different one.
+func (c *scanCache) store(root, rel string, hits, cited map[string][]Hit) {
 	if c.path == "" {
 		return
 	}
@@ -89,7 +110,12 @@ func (c *scanCache) store(root, rel string, hits map[string][]Hit) {
 	if err != nil {
 		return
 	}
-	c.next[rel] = cacheEntry{Size: fi.Size(), Mtime: fi.ModTime().UnixNano(), Hits: hits}
+	c.next[rel] = cacheEntry{
+		Size:  fi.Size(),
+		Mtime: fi.ModTime().UnixNano(),
+		Hits:  c.contentHits(hits),
+		Cited: cited,
+	}
 	c.dirty = true
 }
 

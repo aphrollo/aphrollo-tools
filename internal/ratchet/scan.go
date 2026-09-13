@@ -80,9 +80,24 @@ func scanTree(opts Options, laws []Law) (*treeScan, error) {
 		if !ok {
 			scan.matched++
 			hits = map[string][]Hit{}
+			// A doc-path-resolves law is judged in two halves so the cache can
+			// keep the half the file's bytes decide and redo the half the
+			// oracle decides (see cache_citations.go).
+			cited := map[string][]Hit{}
 			fl := newFileLines(content)
 			for _, law := range laws {
 				if !law.Scope.Matches(rel) {
+					continue
+				}
+				if law.Matcher.Kind == KindDocPathResolves {
+					c := law.docPathCitations(rel, fl.codeFor(law))
+					if len(c) == 0 {
+						continue
+					}
+					cited[law.Name] = c
+					if h := law.docPathUnresolved(rel, c); len(h) > 0 {
+						hits[law.Name] = h
+					}
 					continue
 				}
 				if h := law.hitsInLines(rel, fl); len(h) > 0 {
@@ -90,7 +105,7 @@ func scanTree(opts Options, laws []Law) (*treeScan, error) {
 				}
 			}
 			if !overlaid {
-				cache.store(opts.Root, rel, hits)
+				cache.store(opts.Root, rel, hits, cited)
 			}
 		}
 		for name, h := range hits {
