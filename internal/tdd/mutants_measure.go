@@ -62,9 +62,16 @@ type Verdict struct {
 	// folded into unviable that fact disappears, and a report that is mostly
 	// uncovered reads like a report that is mostly fine.
 	NotCovered int
-	Unaccepted []MutantOutcome // missed and not in mutation-accept
-	Unmeasured []MutantOutcome // timed out twice
-	Message    string          // criterion 12's report, verbatim
+	// Inconclusive is the survivors whose verdict the run could not have
+	// reached: gremlins judged them with the mutated package's own tests
+	// while a package outside it has tests that reach the mutated code
+	// (issue #695). They are named in the report with their reason and
+	// refuse nothing — a survivor claim the run could not have observed is
+	// not a survivor.
+	Inconclusive []MutantOutcome
+	Unaccepted   []MutantOutcome // missed and not in mutation-accept
+	Unmeasured   []MutantOutcome // timed out twice
+	Message      string          // criterion 12's report, verbatim
 }
 
 // mutantsExecFn runs one mutation tool and reports its exit code. A seam, the
@@ -303,7 +310,11 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base str
 	if v, refused := refuseIfTreeChanged(root, before, log); refused {
 		return v, nil
 	}
-	return finishMeasure(root, cfg, mutants, log), nil
+	// gremlins judged each mutant with its own package's tests; which of
+	// those verdicts that selection could actually have reached is a
+	// question about the MODULE, answered here in one `go list` for the
+	// whole run (issue #695).
+	return finishMeasure(root, cfg, classifyGoSurvivorReach(root, mutants), log), nil
 }
 
 // gremlinsReportPath is where the Go runner writes its machine-readable

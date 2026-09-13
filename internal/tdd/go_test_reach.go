@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -39,25 +40,46 @@ import (
 // run. Mirrors goWorkspaceDepsFn and cargoWorkspaceDepsFn.
 var goTestReachFn = goTestReachingPackages
 
+// goReachGraphFn is the same probe one level down: the whole module's reach
+// graph, read once. The measurement side (issue #695) asks about every
+// surviving mutant in one run rather than a `go list` per mutant, so the
+// graph itself is the seam there, and goTestReachingPackages is a query on
+// top of it — one probe, not two.
+var goReachGraphFn = loadGoReachGraph
+
 // goListReachFormat asks one `go list` run for everything the reach graph
 // needs: the package's import path, its directory, its transitive
-// non-test dependencies, and the DIRECT imports of its two test variants
-// (in-package _test.go and the external _test package). Tabs separate the
-// fields because an import path never contains one.
+// non-test dependencies, the DIRECT imports of its two test variants
+// (in-package _test.go and the external _test package), and how many files
+// each of those two variants has. Tabs separate the fields because an import
+// path never contains one.
 const goListReachFormat = "{{.ImportPath}}\t{{.Dir}}\t" +
-	"{{range .Deps}}{{.}} {{end}}\t{{range .TestImports}}{{.}} {{end}}\t{{range .XTestImports}}{{.}} {{end}}"
+	"{{range .Deps}}{{.}} {{end}}\t{{range .TestImports}}{{.}} {{end}}\t{{range .XTestImports}}{{.}} {{end}}\t" +
+	"{{len .TestGoFiles}}\t{{len .XTestGoFiles}}"
 
-// goTestReachingPackages reports the package directories (relative to root,
-// forward-slashed, "." for the root package) whose TEST BINARY can reach dir,
-// dir itself included, sorted. The error is non-nil when the graph could not
-// be read at all — no `go list`, a module that does not load — and it carries
-// the child's own words, because a verdict that says only "inconclusive"
-// leaves the reader with nothing to act on.
-//
-// Test imports are DIRECT edges while .Deps is already transitive; the
-// closure walk over the union covers the rest, since a package whose test
-// imports Q reaches everything Q's own .Deps reach.
-func goTestReachingPackages(root, dir string) ([]string, error) {
+// goReachGraph is one module's reach graph, as one `go list` run saw it:
+// which package directories exist, which of them carry a test file at all,
+// and the edges a test binary can travel.
+type goReachGraph struct {
+	// edges is dir -> the dirs its own code or its tests import, keyed the
+	// way goPackageDir names a package.
+	edges map[string][]string
+	// pkgs is every directory `go list` named. A directory absent from it is
+	// not "a package nothing reaches" but one this run never saw, and the
+	// two are opposite answers.
+	pkgs map[string]bool
+	// tested is the subset with at least one _test.go file. A package with
+	// none can reach a mutant and still never kill one, so a survivor claim
+	// is not weakened by an importer that has no tests.
+	tested map[string]bool
+}
+
+// loadGoReachGraph reads root's whole module graph in one `go list` run. The
+// error is non-nil when the graph could not be read at all — no `go list`, a
+// module that does not load — and it carries the child's own words, because a
+// verdict that says only "inconclusive" leaves the reader with nothing to act
+// on.
+func loadGoReachGraph(root string) (goReachGraph, error) {
 	cmd := exec.Command("go", "list", "-f", goListReachFormat, "./...")
 	// The answer is about root, not about wherever the gate was invoked —
 	// the bug goPackageDirs still carries (it builds the import-path map
@@ -67,13 +89,17 @@ func goTestReachingPackages(root, dir string) ([]string, error) {
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("go list in %s: %w: %s", root, err, strings.TrimSpace(stderr.String()))
+		return goReachGraph{}, fmt.Errorf("go list in %s: %w: %s", root, err, strings.TrimSpace(stderr.String()))
 	}
-	dirOf, imports := parseGoListReach(root, string(out))
+	dirOf, imports, tested := parseGoListReach(root, string(out))
 	if len(dirOf) == 0 {
-		return nil, fmt.Errorf("go list in %s named no package at all: %s", root, strings.TrimSpace(stderr.String()))
+		return goReachGraph{}, fmt.Errorf("go list in %s named no package at all: %s",
+			root, strings.TrimSpace(stderr.String()))
 	}
-	edges := map[string][]string{}
+	g := goReachGraph{edges: map[string][]string{}, pkgs: map[string]bool{}, tested: tested}
+	for _, dir := range dirOf {
+		g.pkgs[dir] = true
+	}
 	for pkg, imps := range imports {
 		var to []string
 		for _, imp := range imps {
@@ -82,24 +108,44 @@ func goTestReachingPackages(root, dir string) ([]string, error) {
 			}
 		}
 		if len(to) > 0 {
-			edges[pkg] = dedupeSorted(to)
+			g.edges[pkg] = dedupeSorted(to)
 		}
 	}
-	reaching := []string{dir}
-	reaching = append(reaching, dependentsOf(edges, []string{dir})...)
-	return dedupeSorted(reaching), nil
+	return g, nil
+}
+
+// reaching is the package directories whose TEST BINARY can reach dir, dir
+// itself included, sorted.
+//
+// Test imports are DIRECT edges while .Deps is already transitive; the
+// closure walk over the union covers the rest, since a package whose test
+// imports Q reaches everything Q's own .Deps reach.
+func (g goReachGraph) reaching(dir string) []string {
+	return dedupeSorted(append([]string{dir}, dependentsOf(g.edges, []string{dir})...))
+}
+
+// goTestReachingPackages is reaching for one directory, graph read and all —
+// the shape the proof path's widening asks for.
+func goTestReachingPackages(root, dir string) ([]string, error) {
+	g, err := goReachGraphFn(root)
+	if err != nil {
+		return nil, err
+	}
+	return g.reaching(dir), nil
 }
 
 // parseGoListReach splits the run's lines into the import-path -> directory
-// map and each directory's outgoing edges (its own transitive deps plus its
-// two test variants' direct imports), both keyed the way goPackageDir names a
-// package: relative to root, forward slashes, "." for the root itself.
-func parseGoListReach(root, out string) (dirOf map[string]string, imports map[string][]string) {
+// map, each directory's outgoing edges (its own transitive deps plus its two
+// test variants' direct imports), and which directories carry a test file.
+// All three are keyed the way goPackageDir names a package: relative to root,
+// forward slashes, "." for the root itself.
+func parseGoListReach(root, out string) (dirOf map[string]string, imports map[string][]string, tested map[string]bool) {
 	dirOf = map[string]string{}
 	imports = map[string][]string{}
+	tested = map[string]bool{}
 	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Split(strings.TrimRight(line, "\r"), "\t")
-		if len(fields) < 5 || strings.TrimSpace(fields[0]) == "" {
+		if len(fields) < 7 || strings.TrimSpace(fields[0]) == "" {
 			continue
 		}
 		dir := goReachDir(root, strings.TrimSpace(fields[1]))
@@ -109,8 +155,20 @@ func parseGoListReach(root, out string) (dirOf map[string]string, imports map[st
 			imps = append(imps, strings.Fields(f)...)
 		}
 		imports[dir] = append(imports[dir], imps...)
+		if goReachHasTests(fields[5]) || goReachHasTests(fields[6]) {
+			tested[dir] = true
+		}
 	}
-	return dirOf, imports
+	return dirOf, imports, tested
+}
+
+// goReachHasTests reads one of the two test-file counts. A field that does
+// not parse is read as no tests: the count is what promotes a package into
+// the set that can kill a mutant, and a number nobody could read is not
+// evidence that it can.
+func goReachHasTests(field string) bool {
+	n, err := strconv.Atoi(strings.TrimSpace(field))
+	return err == nil && n > 0
 }
 
 // goReachDir is relPackageDir in goPackageDir's dialect: the root package is
