@@ -681,7 +681,7 @@ live where being wrong only costs a re-run):
 | `ratchet check` | git `pre-commit`/`pre-merge-commit`, and manual | Judges the tree against `.ratchet/laws/*.toml` (see [Ratchet laws](#ratchet-laws-aphrollo-ratchet)). |
 | `gate prepush` | git `pre-push` | **No-op** (mechanical-only mode). The gate is solely mechanical now; adversarial review is owned by the separate reviewer agent, not this binary. Kept only so a `pre-push` shim lingering from before the change exits cleanly — it **never blocks**. |
 | `gate premerge` | git `pre-merge-commit` | Runs ONLY the mechanical stage over the merge's staged files — no fail-first (a fresh test's RED/GREEN belongs to the authoring commit, already proven by `precommit` there) and no anti-cheat suppression scan (same reasoning) — so a git merge, which never fires `pre-commit`, still proves the COMBINED result compiles and passes before it lands. `gate premergecommit` is the pre-rename spelling, kept as a silent alias for one release; every line the routine prints starts `gate premerge:`. A repo declaring `mutants-at-merge = true` also gets its mutation measurement here: the configuration is read FIRST (a retired key is refused before a single suite runs) and the measurement itself runs LAST, after the suites, against `merge-base(HEAD, <incoming tip>)` — a merge whose suite is red never pays for a mutation run. The hook is not the only caller: [`workspace merge`](#close-the-loop--merge--prune) runs this same stage on a locally-built merge before a PR lands, because that path makes no local merge commit for git to fire a hook on. |
-| `gate mutants` | manual | `run` measures THIS checkout's lane in the foreground, under the box-wide mutation lock, and prints every unaccepted surviving mutant first, then the counts, then the remedy — exit 1 when one survived, one stayed unmeasured, or the run reached no verdict. `run --base <ref>` measures against that ref instead (what nightly CI on `main` passes its checkpoint to). There is no `--jobs`: a Cargo run is N cargo-mutants processes, one per shard of the mutant pool, each with `--jobs 1` and its own persistent target dir, and N comes from the box rather than from a caller. The box's memory term is what is FREE at the moment the budget is computed — available commit on Windows, `MemAvailable` on Linux — never total RAM, because a box shared with other sessions' builds has already charged most of it; the run logs `free 24GB/8=3 (measured)` when that reading bound the answer and `ram 63GB/8=7` when it could not be taken. A repo sharing its box with other work caps the count with `mutants-shards = N` in the same table as its other mutation keys — it lowers what the box derived and never raises it. `prove --file --old --new --want-fail` is the HAND mutation proof for existing code: it applies one specific error, verifies with `git diff --numstat` that the write actually landed, runs the file's related tests, and restores the file byte-identically. A run whose scope selected **zero tests** is refused as `NO-TESTS-SELECTED` (exit 7), naming the command and filter it used — never reported as a survivor, because nothing exercised the mutation at all. `hold <file>...` is the same proof run by editor instead: it takes the file's pre-mutation WORKING state so that `MUTATION=1 git checkout -- <file>` afterwards restores THAT — uncommitted work and untracked files included — rather than what the index holds, which is what `git checkout --` was deleting (issue #650). See [The hand mutation proof loop](#the-hand-mutation-proof-loop). See [The mutation runner contract](docs/mutation-runner.md). |
+| `gate mutants` | manual | `run` measures THIS checkout's lane in the foreground, under the box-wide mutation lock, and prints every unaccepted surviving mutant first, then the counts, then the remedy — exit 1 when one survived, one stayed unmeasured, or the run reached no verdict. `run --base <ref>` measures against that ref instead (what nightly CI on `main` passes its checkpoint to). There is no `--jobs`: a Cargo run is N cargo-mutants processes, one per shard of the mutant pool, each with `--jobs 1` and its own persistent target dir, and N comes from the box rather than from a caller. The box's memory term is what is FREE at the moment the budget is computed — available commit on Windows, `MemAvailable` on Linux — never total RAM, because a box shared with other sessions' builds has already charged most of it; the run logs `free 24GB/8=3 (measured)` when that reading bound the answer and `ram 63GB/8=7` when it could not be taken. A repo sharing its box with other work caps the count with `mutants-shards = N` in the same table as its other mutation keys — it lowers what the box derived and never raises it. `prove --file --old --new --want-fail` is the HAND mutation proof for existing code: it applies one specific error, verifies with `git diff --numstat` that the write actually landed, runs the file's related tests, and restores the file byte-identically. A run whose scope selected **zero tests** is refused as `NO-TESTS-SELECTED` (exit 7), naming the command and filter it used — never reported as a survivor, because nothing exercised the mutation at all. A GREEN narrowed run is widened once before it may be called a survivor — to the crate's other test targets, or to every package whose tests can reach the mutated one — and the widened run is the one whose verdict is recorded; a reach that cannot be established is `SCOPE UNKNOWN` (exit 8), inconclusive rather than a survivor. `hold <file>...` is the same proof run by editor instead: it takes the file's pre-mutation WORKING state so that `MUTATION=1 git checkout -- <file>` afterwards restores THAT — uncommitted work and untracked files included — rather than what the index holds, which is what `git checkout --` was deleting (issue #650). See [The hand mutation proof loop](#the-hand-mutation-proof-loop). See [The mutation runner contract](docs/mutation-runner.md). |
 | `gate allow` / `gate revoke` | manual | `allow <wall>` waives a wall (`primary` or `discard`); bare `allow` (or `revoke`) lists the active waivers. See [Waivers](#waivers) below. |
 
 #### Waivers
@@ -1173,14 +1173,26 @@ to be readable by hand.
 
 A **green** run is answered twice before it is called a survivor. The related
 tests of a Rust `src/` file are narrowed to `--lib` plus that file's module
-filter, and no `--lib` run ever builds the crate's integration binaries, so a
-mutant killed only by a test under `tests/` would come back green out of a
-selection that could not have run it. On a green — the rare branch — `prove`
-drops the within-package narrowing, re-runs at package scope and judges on
-THAT run: the verdict, the failing names read from it and the output `gate
-output` serves are all the wider run's, and the verdict says which narrower
-selection came back green first. A kill settles on the cheap run and stops
-there.
+filter, and no `--lib` run ever builds the crate's integration binaries; the
+related tests of a Go source file are its own package (`go test ./<dir>`), and
+no such run reaches a test in a package that imports it. Either way a mutant
+killed only from outside the selection would come back green out of a run that
+could not have killed it. On a green — the rare branch — `prove` widens and
+judges on THAT run: Rust drops the within-package narrowing and re-runs at
+package scope, Go asks `go list` which packages' TEST binaries can reach the
+mutated one (its own test imports included, which the non-test import graph
+does not see) and re-runs over all of them. The verdict, the failing names
+read from it and the output `gate output` serves are all the wider run's, and
+the verdict says which narrower selection came back green first. A kill
+settles on the cheap run and stops there, and a selection that was already as
+wide as it goes — nothing left to drop, a package nothing imports — keeps its
+plain SURVIVOR.
+
+When the wider selection cannot be built at all, or its reach cannot be read —
+no `go list`, a module that does not load — the answer is `mutant SCOPE
+UNKNOWN` (exit 8), not a survivor: a survivor claim asserts that no test kills
+the line, and a proof that cannot establish which tests reach the line has no
+standing to make it.
 
 **The loop by hand,** when the mutation is more than one `--old`/`--new` pair
 (an editor edit, a multi-line change) — three commands, in this order:

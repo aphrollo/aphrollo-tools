@@ -38,6 +38,8 @@ func proveVerdictWord(code int) string {
 		return "mutant-timed-out"
 	case ExitMutantsProveNoTestsSelected:
 		return "mutant-no-tests-selected"
+	case ExitMutantsProveScopeUnknown:
+		return "mutant-scope-unknown"
 	default:
 		return "mutant-refused"
 	}
