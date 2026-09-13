@@ -36,7 +36,6 @@ internal/workspace/commit.go | out, err := exec.Command("git", "-C", wt, "status
 internal/workspace/prune.go | out, err := exec.Command("git", "-C", wt, "status", "--porcelain").Output()
 internal/workspace/prune_stale.go | out, err := exec.Command("git", "-C", wt, "status", "--porcelain").Output()
 internal/workspace/workspace.go | out, err := exec.Command("git", "config", "--file", runtimeGitConfig(), "--get-all", "safe.directory").Output()
-internal/docs/docs.go | out, err := exec.Command("git", args...).Output()
 internal/tdd/mutants_deps.go | out, err := exec.Command("go", "list", "-f", "{{.ImportPath}} {{.Dir}}", "./...").Output()
 internal/tdd/gc_mutantstemp.go | out, err := exec.Command("pgrep", "-x", "cargo-mutants").Output()
 internal/tdd/mutants_ram_unix.go | out, err := exec.Command("pgrep", "-x", name).Output()

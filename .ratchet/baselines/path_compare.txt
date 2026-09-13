@@ -2,5 +2,4 @@ internal/tdd/mergeprune.go | // PATH (cleanWorktreePath(wt.path) == cleanWorktre
 internal/tdd/precommit_wsmanifest.go | if abs == filepath.Clean(filepath.Join(ws, name)) {
 internal/ratchet/wholetree_godepgraph.go | if p.ImportPath == prefix || strings.HasPrefix(p.ImportPath, prefix+"/") {
 internal/cli/selfinstall.go | if path == keep {
-internal/tdd/ratchetgate.go | if strings.HasPrefix(filepath.ToSlash(f), ".ratchet/") {
 internal/workspace/workspace.go | if t := strings.TrimSpace(line); t == path || t == "*" {
