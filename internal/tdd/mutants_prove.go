@@ -309,6 +309,16 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	}
 	runner = NarrowToRelatedTests(runner, absFile, root)
 	res := run(runner, root)
+	// A green NARROWED run is not yet a survivor: `--lib` plus a module
+	// filter cannot reach a test in an integration binary, so the one
+	// selection that could have killed the mutant may never have been
+	// compiled (#691). Widen once, and judge on the wider run — the runner
+	// and result below are the widened pair whenever there was narrowing to
+	// drop, so the verdict, the failing names read out of it and the retained
+	// run all describe the same selection.
+	narrow := runner
+	var widened bool
+	runner, res, widened = widenSurvivorSelection(run, runner, root, res)
 	restore()
 
 	if res.TimedOut {
@@ -350,7 +360,8 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	switch {
 	case !res.Passed && matched != "":
 		fmt.Fprintf(stdout, "gate: mutant KILLED — %s failed as predicted (mutation: %q -> %q in %s; "+
-			"git diff --numstat: %s)\n", matched, opts.Old, opts.New, relPath, strings.TrimSpace(numstat))
+			"git diff --numstat: %s)%s\n", matched, opts.Old, opts.New, relPath, strings.TrimSpace(numstat),
+			widenedProveNote(narrow, widened))
 		return retainProveRun(root, runner, res, ExitMutantsProveKilled)
 	case !res.Passed && len(failing) == 0:
 		fmt.Fprintf(stdout, "gate: mutant UNREADABLE — unreadable red run: no failing test name could be read "+
@@ -367,8 +378,8 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 		return retainProveRun(root, runner, res, ExitMutantsProveWrongFailure)
 	default:
 		fmt.Fprintf(stdout, "gate: mutant SURVIVED — %s stayed green after a mutation VERIFIED applied "+
-			"(git diff --numstat: %s); this is a real survivor, not a no-op — restored\n",
-			cmdString(runner), strings.TrimSpace(numstat))
+			"(git diff --numstat: %s); this is a real survivor, not a no-op — restored.%s\n",
+			cmdString(runner), strings.TrimSpace(numstat), widenedProveNote(narrow, widened))
 		return retainProveRun(root, runner, res, ExitMutantsProveSurvived)
 	}
 }

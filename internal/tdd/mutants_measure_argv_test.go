@@ -52,3 +52,37 @@ func TestMutantsArgv_NeverRunsIgnoredTests(t *testing.T) {
 		}
 	}
 }
+
+// The half of #691 the issue left unmeasured: whether the diff-scoped
+// measurement shares the proof's false SURVIVOR, where a `--lib` selection
+// cannot reach a killing test in an integration binary.
+//
+// It does not, and the measurement says so itself. On a crate whose mutated
+// function in src/ is constrained ONLY by a test in tests/, `aphrollo gate
+// mutants run` reported 11 tested, 11 caught, 0 missed; with that one
+// integration file moved aside and nothing else changed, the same run
+// reported 11 tested, 0 caught, 11 missed. The kills came from the
+// integration binary, so the selection reaches it.
+//
+// The reason is this argv: cargo-mutants runs the package's whole nextest
+// suite, and nothing here narrows which TARGETS of it are built or run. The
+// test pins that, because the cheapest way to reintroduce the defect on this
+// side would be to "scope" the measurement the way the proof scoped itself.
+func TestMutantsArgv_NeverNarrowsTheTestTargets(t *testing.T) {
+	t.Parallel()
+	// Every cargo/nextest flag that selects a SUBSET of a package's test
+	// targets. `--test-tool=nextest` is not one of them, which is why the
+	// comparison is on the flag name rather than on a prefix.
+	narrowing := map[string]bool{
+		"--lib": true, "--bins": true, "--bin": true, "--doc": true,
+		"--test": true, "--tests": true, "--example": true, "--examples": true,
+		"--bench": true, "--benches": true,
+	}
+	argv := MutantsArgv("/w/changed.diff", 120, []string{"forge_driveline"}, "")
+	for _, arg := range argv {
+		if narrowing[flagName(arg)] {
+			t.Errorf("the measurement narrows its test targets with %q, so a mutant killed only by another "+
+				"target would read as a survivor (#691): %v", arg, argv)
+		}
+	}
+}
