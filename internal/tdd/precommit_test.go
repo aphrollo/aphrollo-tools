@@ -141,7 +141,7 @@ func TestPrecommit_BlocksNewlyAddedSuppression(t *testing.T) {
 	root := makeGoRepo(t)
 	// A compiling source file whose only sin is a freshly-added linter
 	// suppression: mechanical would pass, but the anti-cheat gate blocks first.
-	write(t, root, "gizmo.go", "package m\n\nfunc Gizmo() int { return 1 } //nolint:unused\n") // reason: a freshly-added suppression the anti-cheat gate must block
+	write(t, root, "gizmo.go", "package m\n\nfunc Gizmo() int { return 1 } //nolint:unused\n")
 	gitDo(t, root, "add", ".")
 
 	res := Precommit(root, RunSuite(precommitTestTimeout))
@@ -154,7 +154,7 @@ func TestPrecommit_IgnoresPreexistingSuppression(t *testing.T) {
 	withLinter(t, false)
 	root := makeGoRepo(t)
 	// Commit a file that already carries a suppression.
-	write(t, root, "old.go", "package m\n\nfunc Old() int { return 2 } //nolint:unused\n") // reason: a pre-existing suppression outside the diff must not block
+	write(t, root, "old.go", "package m\n\nfunc Old() int { return 2 } //nolint:unused\n")
 	gitDo(t, root, "add", ".")
 	gitDo(t, root, "commit", "-qm", "old")
 	// Now stage an unrelated, clean change. The pre-existing suppression in
@@ -190,7 +190,7 @@ func TestPrecommit_MaskingBypass_FullFilePostImage(t *testing.T) {
 	// //nolint; in the full file the " sits inside the comment and the //nolint
 	// is live code.
 	// (reason: this is the payload proving full-file masking still catches it.)
-	write(t, root, "gizmo.go", "package m\n\nfunc Gizmo() int {\n\t/* note\nstray \"\n\t*/\n\t_ = 0 //nolint:unused\n\treturn 1\n}\n") // reason: the payload proving full-file masking still catches it
+	write(t, root, "gizmo.go", "package m\n\nfunc Gizmo() int {\n\t/* note\nstray \"\n\t*/\n\t_ = 0 //nolint:unused\n\treturn 1\n}\n")
 	gitDo(t, root, "add", ".")
 
 	res := Precommit(root, RunSuite(precommitTestTimeout))
