@@ -283,6 +283,77 @@ func TestMarkerWithinLines_belowStillReachesThroughCode(t *testing.T) {
 	}
 }
 
+// stderrLaw is subprocess_stderr_dropped's exact shape: an END-ANCHORED
+// trigger, a marker that is a code token (`cmd.Stderr = &buf`), a twenty-line
+// both-direction window, and a trailing-comment escape.
+func stderrLaw() Law {
+	l := lawWith(Matcher{
+		Kind:      KindMarkerWithinLines,
+		Trigger:   regexp.MustCompile(`\.Output\(\)\s*$`),
+		Marker:    regexp.MustCompile(`\.Stderr\b`),
+		Direction: DirectionBoth,
+		Lines:     20,
+		Key:       KeyLineContent,
+	})
+	l.Escape = "// stderr-ok:"
+	return l
+}
+
+// TestMarkerWithinLines_triggerWithATrailingCommentStillStopsTheWalk is
+// issue #667's reach, measured at the unit level. The upward walk stops at
+// the PREVIOUS TRIGGER so that a marker vouches for exactly one call, but it
+// tested the line AS WRITTEN: an end-anchored trigger (`\.Output\(\)\s*$`)
+// cannot match a line that carries a trailing comment, so an escaped
+// `cmd.Output() // stderr-ok: ...` was not seen as a trigger at all, the walk
+// stepped past it, and the `cmd.Stderr` belonging to THAT call vouched for an
+// unrelated call in the next function twelve lines below. Escaping suppresses
+// a HIT; it never transfers ownership of the marker to a neighbour. The stop
+// is therefore tested against the line with its trailing comment stripped.
+func TestMarkerWithinLines_triggerWithATrailingCommentStillStopsTheWalk(t *testing.T) {
+	l := stderrLaw()
+	cases := map[string]struct {
+		src  string
+		want []string
+	}{
+		"an escaped capture does not vouch for the next function's call": {
+			"func gitShowReported(ref string) (string, error) {\n" +
+				"\tcmd := exec.Command(\"git\", \"show\", ref)\n" +
+				"\tvar stderr bytes.Buffer\n" +
+				"\tcmd.Stderr = &stderr\n" +
+				"\tout, err := cmd.Output() // stderr-ok: folded into the error below\n" +
+				"\tif err != nil {\n" +
+				"\t\treturn \"\", fmt.Errorf(\"git show: %w: %s\", err, stderr.String())\n" +
+				"\t}\n" +
+				"\treturn string(out), nil\n" +
+				"}\n" +
+				"\n" +
+				"func ghChecks(branch string) ([]byte, error) {\n" +
+				"\tcmd := exec.Command(\"gh\", \"pr\", \"checks\", \"--\", branch)\n" +
+				"\tout, err := cmd.Output()\n" +
+				"\treturn out, err\n" +
+				"}\n",
+			[]string{"a.go:14"},
+		},
+		"a trigger with an ordinary trailing comment also stops the walk": {
+			"\tcmd.Stderr = &stderr\n" +
+				"\tout, err := cmd.Output() // the checks list\n" +
+				"\tother, err := exec.Command(\"gh\").Output()\n",
+			[]string{"a.go:3"},
+		},
+		"the capture still vouches for the call it belongs to": {
+			"\tcmd.Stderr = &stderr\n" +
+				"\tout, err := cmd.Output()\n",
+			nil,
+		},
+	}
+	for name, c := range cases {
+		got := lineKeys(l.HitsIn("a.go", c.src))
+		if !sameStrings(got, c.want) {
+			t.Errorf("%s: hits = %v, want %v", name, got, c.want)
+		}
+	}
+}
+
 func lineKeys(hits []Hit) []string {
 	out := make([]string, 0, len(hits))
 	for _, h := range hits {
