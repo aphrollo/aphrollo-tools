@@ -176,8 +176,12 @@ func TestSmell_TestSleep(t *testing.T) {
 		"std::thread::sleep(d)",
 		// Go channel-based real-time waits — just as real-time as Sleep.
 		"<-time.After(5 * time.Second)",
-		"case <-time.After(time.Second):", // the idiomatic select-timeout fixture
-		"time.NewTimer(2 * time.Second)",  // constructor alone is the marker (no `<-` needed)
+		// A timer arm with no select around it to read: nothing here says it
+		// bounds another wait, and only proof of that earns the exemption
+		// (smell_deadline.go). The arm inside a real two-armed select is
+		// allowed — TestSmell_TestSleep_ADeadlineArmBoundingAnotherWaitIsNotASleep.
+		"case <-time.After(time.Second):",
+		"time.NewTimer(2 * time.Second)", // constructor alone is the marker (no `<-` needed)
 		"<-time.Tick(time.Second)",
 		"time.Tick(50 * time.Millisecond)",
 		// JS/TS promisified sleep — the setTimeout inside the Promise wrapper trips it.

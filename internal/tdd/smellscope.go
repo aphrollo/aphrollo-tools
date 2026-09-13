@@ -125,6 +125,7 @@ func restrict(full view, lines map[int]bool) view {
 	return view{
 		code:       keepLines(full.code, lines),
 		directives: keepLines(full.directives, lines),
+		whole:      full.whole,
 	}
 }
 
