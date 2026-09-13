@@ -126,7 +126,7 @@ func TestRunCargoLockedRecordsItsOwnerWhileItRuns(t *testing.T) {
 		}
 		return SuiteResult{}
 	}
-	runCargoLocked(run, Runner{Cmd: "cargo", Args: []string{"nextest", "run"}}, root, 0, time.Second)
+	runCargoLocked(run, Runner{Cmd: "cargo", Args: []string{"nextest", "run"}}, root, 0, time.Second, 0)
 	if !seen {
 		t.Error("the suite ran without a readable owner record")
 	}

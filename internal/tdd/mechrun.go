@@ -34,7 +34,14 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	// answers the OPERATOR's target, which is not the one the run contended
 	// for and not the one whose owner names the holder.
 	target := runnerTargetDir(runner, root)
-	res, waited, acquired := runCargoLocked(run, runner, root, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
+	// What this same stage running this same command is recorded to need.
+	// The build-slot wait carves out of the stage budget, which on a busy
+	// box handed one suite 96s of a 600s budget for work that takes ~350s —
+	// the load may shrink the budget down to this floor and no further
+	// (issue #660, budgetfloor.go). Zero when gate.log has no completed run
+	// to derive one from, which is today's arithmetic unchanged.
+	floor := recordedSuiteFloor(gateName, cmdString(runner))
+	res, waited, acquired := runCargoLocked(run, runner, root, buildLockPrecommitDeadline, DefaultPrecommitTimeout, floor.budget)
 	restore()
 	logLockWait(gateName, root, runner, waited)
 	if !acquired {
@@ -88,8 +95,15 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	case res.TimedOut:
 		// A commit whose suite never finished is a commit nobody tested, and
 		// unlike an edit-time timeout the consequence outlives the moment:
-		// the untested code stays in history. The gate target is warm by the
-		// time this fires, so the retry usually finishes.
+		// the untested code stays in history.
+		//
+		// What the refusal may NOT say is "retry, the target is warm now":
+		// under sustained load the next attempt queues longer and gets a
+		// smaller budget, so that advice sent four attempts at one suite
+		// into four full runs that proved nothing (#660). It names the
+		// floor the run actually had and the record that set it instead, so
+		// a reader can tell "this box is too busy" from "this suite outgrew
+		// its budget".
 		//
 		// A timeout is the one verdict where the code under test may be
 		// entirely innocent (#526): sampled once, here, never on a green
@@ -101,8 +115,8 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmdString(runner), "timeout-rejected", res.Duration)
 		return GateResult{Blocked: true, Message: fmt.Sprintf(
-			"gate %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused. The gate target is now warm; retry the commit.\n%s",
-			gateName, cmdString(runner), res.Duration.Seconds(), load)}
+			"gate %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused.\n%s\n%s",
+			gateName, cmdString(runner), res.Duration.Seconds(), floor.refusalNote(DefaultPrecommitTimeout), load)}
 	case !res.Passed:
 		fmt.Fprintf(os.Stderr, "[%s] gate %s: %s in %s → blocked\n", stage, gateName, cmdString(runner), root)
 		logSuiteVerdict(gateName, root, cmdString(runner), blockedVerdict(stage, res.Output), res)

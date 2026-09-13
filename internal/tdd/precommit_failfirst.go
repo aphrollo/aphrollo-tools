@@ -44,7 +44,9 @@ func invalidateFailFirstArtifacts(run SuiteRunner, failFirst Runner, repoRoot st
 		args = append(args, "-p", p)
 	}
 	cleaner := Runner{Cmd: "cargo", Args: args, Dir: ws}
-	runCargoLocked(run, cleaner, ws, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
+	// No budget floor (the trailing zero): `cargo clean` runs no suite, so
+	// there is no recorded suite duration that says anything about it.
+	runCargoLocked(run, cleaner, ws, buildLockPrecommitDeadline, DefaultPrecommitTimeout, 0)
 }
 
 // cargoPackagesInArgs is the -p values of a cargo argv, in order. The
@@ -175,7 +177,11 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	// proof measures nothing — see failfirst_env.go. Exported around the run
 	// only, the same way CARGO_TARGET_DIR is just above.
 	defer exportFailFirstEnv(repoRoot)()
-	res, waited, acquired := runCargoLocked(run, runner, execRoot, buildLockPrecommitDeadline, DefaultPrecommitTimeout)
+	// No budget floor (the trailing zero): this run is the staged test
+	// proved RED against HEAD's source, and it records its verdict under
+	// this stage's own name rather than as a suite duration for a command
+	// the floor could be derived from. It keeps today's arithmetic.
+	res, waited, acquired := runCargoLocked(run, runner, execRoot, buildLockPrecommitDeadline, DefaultPrecommitTimeout, 0)
 	logLockWait("precommit", root, runner, waited)
 	// Whatever the verdict, this run has just written artifacts built from
 	// HEAD's source into the target dir the MECHANICAL stage is about to use,

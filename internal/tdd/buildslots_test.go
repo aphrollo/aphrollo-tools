@@ -222,7 +222,7 @@ func TestRunCargoLocked_InjectsBuildJobsForTheChild(t *testing.T) {
 		seen = os.Getenv("CARGO_BUILD_JOBS")
 		return SuiteResult{Passed: true}
 	}
-	if _, _, acquired := runCargoLocked(stub, Runner{Cmd: "cargo"}, t.TempDir(), time.Second, time.Second); !acquired {
+	if _, _, acquired := runCargoLocked(stub, Runner{Cmd: "cargo"}, t.TempDir(), time.Second, time.Second, 0); !acquired {
 		t.Fatal("setup: the uncontended slot must be acquired")
 	}
 	n, err := strconv.Atoi(seen)
@@ -250,7 +250,7 @@ func TestRunCargoLocked_CapsACallerSetJobsValue(t *testing.T) {
 		seen = os.Getenv("CARGO_BUILD_JOBS")
 		return SuiteResult{Passed: true}
 	}
-	runCargoLocked(stub, Runner{Cmd: "cargo"}, t.TempDir(), time.Second, time.Second)
+	runCargoLocked(stub, Runner{Cmd: "cargo"}, t.TempDir(), time.Second, time.Second, 0)
 	if seen == "1000" {
 		t.Fatal("the slot's cap must win over a caller's larger CARGO_BUILD_JOBS")
 	}
@@ -275,10 +275,10 @@ func TestRunCargoLocked_KeysOnTheRunnersOwnTargetDir(t *testing.T) {
 	defer release()
 
 	stub := func(Runner, string) SuiteResult { return SuiteResult{Passed: true} }
-	if _, _, acquired := runCargoLocked(stub, Runner{Cmd: "cargo"}, rootB, 50*time.Millisecond, time.Second); !acquired {
+	if _, _, acquired := runCargoLocked(stub, Runner{Cmd: "cargo"}, rootB, 50*time.Millisecond, time.Second, 0); !acquired {
 		t.Fatal("a run whose target dir is a DIFFERENT directory must not wait on root A's slot")
 	}
-	if _, _, acquired := runCargoLocked(stub, Runner{Cmd: "cargo"}, rootA, 50*time.Millisecond, time.Second); acquired {
+	if _, _, acquired := runCargoLocked(stub, Runner{Cmd: "cargo"}, rootA, 50*time.Millisecond, time.Second, 0); acquired {
 		t.Fatal("a run into root A's OWN target dir must still contend with the holder")
 	}
 }

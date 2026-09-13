@@ -44,7 +44,7 @@ func TestRunCargoLocked_WipesATargetDirCarryingAFutureStampedArtifact(t *testing
 		return SuiteResult{Passed: true}
 	}
 	r := Runner{Cmd: "cargo", Args: []string{"test", "-p", "movement"}}
-	res, _, acquired := runCargoLocked(stub, r, root, time.Second, time.Second)
+	res, _, acquired := runCargoLocked(stub, r, root, time.Second, time.Second, 0)
 	if !acquired || !res.Passed {
 		t.Fatalf("expected the lock to be acquired and the stub to run, acquired=%v res=%+v", acquired, res)
 	}
@@ -146,7 +146,7 @@ func TestRunCargoLocked_LeavesAnOrdinaryTargetDirAlone(t *testing.T) {
 		return SuiteResult{Passed: true}
 	}
 	r := Runner{Cmd: "cargo", Args: []string{"test", "-p", "movement"}}
-	if _, _, acquired := runCargoLocked(stub, r, root, time.Second, time.Second); !acquired {
+	if _, _, acquired := runCargoLocked(stub, r, root, time.Second, time.Second, 0); !acquired {
 		t.Fatal("expected the lock to be acquired")
 	}
 	if !sawFresh {

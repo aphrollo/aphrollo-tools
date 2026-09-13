@@ -342,14 +342,7 @@ func appendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
 	}
 	stampGateLogSchema()
 	defer f.Close()
-	if stage == premergeDisplayName {
-		// The merge gate PRINTS "premerge" (its current git-hook name) but
-		// every already-written gate.log line indexes on the pre-rename
-		// "premergecommit" — remapped here, the one place a stage token
-		// becomes a log line, so `gate stats` and every other log reader
-		// keep seeing one stage under one name across the rename.
-		stage = premergeLogToken
-	}
+	stage = gateLogStageToken(stage)
 	// The root goes through logToken because the line is space-separated and
 	// the COMMAND in the middle already carries spaces: a root with one of
 	// its own (`C:/My Projects/borld`) split into two fields, and every

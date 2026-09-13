@@ -182,7 +182,7 @@ func TestRunCargoLocked_DeadlineCarvesLockWaitOutOfStageBudget(t *testing.T) {
 	}
 
 	const stageBudget = 500 * time.Millisecond
-	res, waited, acquired := runCargoLocked(stub, Runner{Cmd: "cargo"}, root, time.Second, stageBudget)
+	res, waited, acquired := runCargoLocked(stub, Runner{Cmd: "cargo"}, root, time.Second, stageBudget, 0)
 	if !acquired || !res.Passed {
 		t.Fatalf("expected the lock to be acquired once released, acquired=%v res=%+v", acquired, res)
 	}
@@ -234,7 +234,7 @@ func TestRunCargoLocked_GoRaceRunnerTakesTheSameGovernorAsCargo(t *testing.T) {
 	res, waited, acquired := runCargoLocked(
 		func(r Runner, root string) SuiteResult { return SuiteResult{Passed: true} },
 		Runner{Cmd: "go", Args: []string{"test", "-race", "-count=1", "-shuffle=on", "./..."}},
-		t.TempDir(), time.Second, 500*time.Millisecond,
+		t.TempDir(), time.Second, 500*time.Millisecond, 0,
 	)
 	if !acquired || !res.Passed {
 		t.Fatalf("expected the go-race runner to acquire the governor once released, acquired=%v res=%+v", acquired, res)
@@ -260,7 +260,7 @@ func TestRunCargoLocked_PlainGoRunnerStillPassesThroughUnlocked(t *testing.T) {
 	res, waited, acquired := runCargoLocked(
 		func(r Runner, root string) SuiteResult { return SuiteResult{Passed: true} },
 		Runner{Cmd: "go", Args: []string{"test", "-count=1", "./..."}},
-		t.TempDir(), time.Second, 500*time.Millisecond,
+		t.TempDir(), time.Second, 500*time.Millisecond, 0,
 	)
 	if !acquired || !res.Passed {
 		t.Fatalf("a plain go test runner must never be blocked by the (fully held) go-race governor, acquired=%v res=%+v", acquired, res)

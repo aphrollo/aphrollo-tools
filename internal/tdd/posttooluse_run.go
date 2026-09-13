@@ -9,7 +9,12 @@ package tdd
 // retry (resolveEmptySelection) inherits the identical lock, deadline and
 // timeout-streak handling instead of a second copy of it that could drift.
 func runPostEditSuite(run SuiteRunner, snap stateSnapshot, root, headSHA string) (SuiteResult, string) {
-	res, _, acquired := runCargoLocked(run, snap.runner, root, buildLockPostEditDeadline, DefaultPostEditTimeout)
+	// No budget floor here (the trailing zero): an edit hook's budget is not
+	// a promise to finish, it is the foreground slice before the work goes
+	// deferred and reports at the next hook, so a floor would only hold the
+	// session at the keyboard for a verdict it is already arranged to get
+	// later.
+	res, _, acquired := runCargoLocked(run, snap.runner, root, buildLockPostEditDeadline, DefaultPostEditTimeout, 0)
 	if !acquired {
 		// Another cargo build already holds the machine-wide lock — the
 		// suite never even started, so this is a DIFFERENT fact from a
