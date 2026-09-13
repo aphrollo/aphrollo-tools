@@ -7,10 +7,19 @@ import "strings"
 // plain co-occurrence. Split out of matcher.go, which sits at module_size's
 // ceiling.
 
+// markerHits judges each trigger site with carriesTrigger, the same
+// comment-blind test the upward walk uses, so that a site is in the law's
+// scope on the same terms it owns its marker. Against the line AS WRITTEN an
+// end-anchored trigger could not match a call carrying ANY trailing comment,
+// which removed the site from the law entirely — no hit, no finding, no
+// baseline row — and made an escape on such a line decorative, reading as a
+// reasoned exception where the law had never looked (issue #676). A comment
+// suppresses a hit only through the escape path, which carries a reason and
+// is recorded; a bare note never does.
 func (l Law) markerHits(file string, raw, code []string) []Hit {
 	var hits []Hit
 	for i, line := range code {
-		if l.excluded(line) || !l.Matcher.Trigger.MatchString(line) || l.escaped(file, raw, i) {
+		if l.excluded(line) || !l.carriesTrigger(line) || l.escaped(file, raw, i) {
 			continue
 		}
 		if l.markerAbove(raw, code, i) {
