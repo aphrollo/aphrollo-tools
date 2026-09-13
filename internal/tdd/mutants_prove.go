@@ -63,6 +63,15 @@ const (
 	// that tested nothing is no evidence about what the tests constrain, and
 	// "survivor" is the reading most likely to be believed and acted on.
 	ExitMutantsProveNoTestsSelected = 7
+	// ExitMutantsProveScopeUnknown: the mutation was verified applied, the
+	// narrowed run stayed green — and which OTHER tests could have killed the
+	// mutant could not be established, so there is no way to tell whether the
+	// selection that ran was the whole story. Inconclusive, in the family
+	// NoTestsSelected and the timeout belong to, and deliberately not
+	// ExitMutantsProveSurvived: a survivor claim asserts that nothing kills
+	// the line, which a proof that cannot see what reaches the line has no
+	// standing to make (#691).
+	ExitMutantsProveScopeUnknown = 8
 )
 
 // matchWantFail picks the failing test the prediction named, or "" when none
@@ -309,17 +318,25 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	}
 	runner = NarrowToRelatedTests(runner, absFile, root)
 	res := run(runner, root)
-	// A green NARROWED run is not yet a survivor: `--lib` plus a module
-	// filter cannot reach a test in an integration binary, so the one
-	// selection that could have killed the mutant may never have been
+	// A green NARROWED run is not yet a survivor, in either language: `--lib`
+	// plus a module filter cannot reach a test in an integration binary, and
+	// `go test ./<dir>` runs the mutated file's own package and no other, so
+	// the one selection that could have killed the mutant may never have been
 	// compiled (#691). Widen once, and judge on the wider run — the runner
-	// and result below are the widened pair whenever there was narrowing to
-	// drop, so the verdict, the failing names read out of it and the retained
-	// run all describe the same selection.
+	// and result below are the widened pair whenever there was anything to
+	// widen to, so the verdict, the failing names read out of it and the
+	// retained run all describe the same selection.
 	narrow := runner
-	var widened bool
-	runner, res, widened = widenSurvivorSelection(run, runner, root, res)
+	wider := widenSurvivorSelection(run, runner, root, res)
+	runner, res, widened := wider.runner, wider.res, wider.outcome
 	restore()
+
+	// The reach could not be established, so whether this selection was the
+	// whole story is unknown. Inconclusive, never a survivor.
+	if widened == widenUnknown {
+		fmt.Fprint(stdout, scopeUnknownAdvisory(narrow, relPath, wider.why))
+		return retainProveRun(root, narrow, res, ExitMutantsProveScopeUnknown)
+	}
 
 	if res.TimedOut {
 		fmt.Fprintf(stdout, "gate: mutants prove TIMED OUT — %s in %s never reached a verdict; restored, "+

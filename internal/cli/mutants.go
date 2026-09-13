@@ -191,4 +191,7 @@ Exit codes for prove:
   7  no tests selected — verified applied, the run finished, but its filter
      selected zero tests: nothing exercised the mutation, so this is a
      refusal and never a survivor
+  8  scope unknown — verified applied, the narrowed run stayed green, and
+     which OTHER packages' tests can reach the mutated one could not be
+     established: inconclusive, and never a survivor
 `

@@ -199,6 +199,60 @@ func TestRunMutantsProve_RecordsTheWidenedRunNotTheNarrowOneItStartedWith(t *tes
 	}
 }
 
+// The two arms have to agree on what a verdict MEANS, and this is the case
+// where they did not. The Go arm reports SCOPE UNKNOWN when it cannot widen
+// into a selection able to kill the mutant; the cargo arm had one such case
+// of its own and reported a SURVIVOR for it.
+//
+// An `examples/` (or `benches/`) file narrows to `--example <name> --no-run`:
+// a COMPILE check that runs no test at all (buildonly.go), and one
+// widenCargoRunner refuses to widen into the package's whole suite. Green
+// there means "it still builds", which is no evidence about what the tests
+// constrain — the same nothing the Go arm calls inconclusive, and the reading
+// "survivor" is the one most likely to be believed and acted on.
+func TestRunMutantsProve_ABuildOnlySelectionIsInconclusiveNotASurvivor(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "Cargo.toml", "[package]\nname = \"forge_driveline\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
+	write(t, root, filepath.FromSlash("src/lib.rs"), "pub fn base() -> i32 {\n    0\n}\n")
+	write(t, root, filepath.FromSlash("examples/nubis/capture.rs"),
+		"fn main() {\n    let half = 400.0 / 2.0;\n    println!(\"{half}\");\n}\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "base")
+
+	var ran []Runner
+	var out, errb bytes.Buffer
+	code := RunMutantsProve(MutantsProveOptions{
+		File: filepath.Join(root, "examples", "nubis", "capture.rs"),
+		Old:  "400.0 / 2.0",
+		New:  "400.0 / 4.0",
+		// The build-only run cannot fail this or any other test: it runs none.
+		WantFail: killingTestIsAnIntegrationTest,
+	}, func(r Runner, _ string) SuiteResult {
+		ran = append(ran, r)
+		// What a `--no-run` build prints: it compiled, and no test ran.
+		return SuiteResult{Passed: true, Output: "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s\n"}
+	}, &out, &errb)
+
+	report := out.String() + errb.String()
+	if code == ExitMutantsProveSurvived {
+		t.Fatalf("a build-only run — no test executed at all — was reported as a survivor:\n%s\nselections run: %s",
+			report, cmdStrings(ran))
+	}
+	if code != ExitMutantsProveScopeUnknown {
+		t.Fatalf("exit = %d, want ExitMutantsProveScopeUnknown (%d), the same verdict the Go arm gives a "+
+			"selection it cannot widen:\n%s\nselections run: %s",
+			code, ExitMutantsProveScopeUnknown, report, cmdStrings(ran))
+	}
+	if !strings.Contains(strings.ToLower(report), "inconclusive") {
+		t.Errorf("the verdict never says it is inconclusive:\n%s", report)
+	}
+	if len(ran) != 1 {
+		t.Errorf("a build-only selection must not be widened into the package's whole suite: %s", cmdStrings(ran))
+	}
+}
+
 // cmdStrings renders the selections a proof actually ran, for a failure
 // message that shows WHICH commands produced the verdict under judgement.
 func cmdStrings(ran []Runner) string {
