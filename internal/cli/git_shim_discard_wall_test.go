@@ -66,7 +66,8 @@ func TestGitShim_RefusesResetHardWithUncommittedWork(t *testing.T) {
 		t.Fatalf("exit = %d, want 1\nstderr: %s", code, errb.String())
 	}
 	const want = "gate: refused — reset --hard discards 3 file(s), +212/-40 uncommitted" +
-		"; aphrollo gate allow discard arms one command, APHROLLO_DISCARD=1 for scripts\n"
+		"; aphrollo gate allow discard arms one command, APHROLLO_DISCARD=1 for scripts" +
+		" (refuses unstaged loss — APHROLLO_DISCARD_UNSTAGED=1 for that)\n"
 	if errb.String() != want {
 		t.Fatalf("stderr = %q, want %q", errb.String(), want)
 	}

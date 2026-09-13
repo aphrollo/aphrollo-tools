@@ -528,8 +528,13 @@ func countLines(s string) int {
 }
 
 // discardRefusalTail is the one constant every refusal line ends with,
-// naming both overrides.
-const discardRefusalTail = "; aphrollo gate allow discard arms one command, APHROLLO_DISCARD=1 for scripts"
+// naming all three overrides. APHROLLO_DISCARD=1 is bounded by PR #661 to
+// work the object store can still reach (committed, staged, stashed) — it
+// refuses BY NAME, itself, a discard that would destroy unstaged work, so
+// this tail must never read as though it covers that case too;
+// APHROLLO_DISCARD_UNSTAGED=1 is the separate, deliberate override for it.
+const discardRefusalTail = "; aphrollo gate allow discard arms one command, APHROLLO_DISCARD=1 for scripts" +
+	" (refuses unstaged loss — " + unstagedDiscardEnv + "=1 for that)"
 
 // discardRefusalLine renders the refusal for a classified, non-zero-cost
 // discard. The shape depends on which counters that form actually measures:

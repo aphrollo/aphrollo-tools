@@ -412,8 +412,31 @@ func TestDiscardCost_ReportsAMeasurementFailureInsteadOfZero(t *testing.T) {
 	}
 }
 
+// TestDiscardRefusalLine_TailNamesBothOverridesWithTheRightMeaning pins that
+// the tail no longer offers APHROLLO_DISCARD=1 as a blanket scripted route:
+// PR #661 bounded it to work the object store can still reach (committed,
+// staged, stashed) and made it refuse, by name, a discard that would destroy
+// unstaged work — APHROLLO_DISCARD_UNSTAGED=1 is the separate, deliberate
+// override for that case (#650). A tail that still reads "APHROLLO_DISCARD=1
+// for scripts" with no caveat hands a script author the wrong variable at the
+// exact moment they are deciding whether to reach for it.
+func TestDiscardRefusalLine_TailNamesBothOverridesWithTheRightMeaning(t *testing.T) {
+	line := discardRefusalLine("reset --hard", discardCost{Files: 3, Insertions: 212, Deletions: 40})
+
+	if !strings.Contains(line, "APHROLLO_DISCARD=1") {
+		t.Fatalf("discardRefusalLine = %q, want it to name APHROLLO_DISCARD=1", line)
+	}
+	if !strings.Contains(line, unstagedDiscardEnv+"=1") {
+		t.Fatalf("discardRefusalLine = %q, want it to name %s=1", line, unstagedDiscardEnv)
+	}
+	if !strings.Contains(line, "unstaged") {
+		t.Fatalf("discardRefusalLine = %q, must not present APHROLLO_DISCARD=1 as covering unstaged work", line)
+	}
+}
+
 func TestDiscardRefusalLine_RendersEachShape(t *testing.T) {
-	const tail = "; aphrollo gate allow discard arms one command, APHROLLO_DISCARD=1 for scripts"
+	const tail = "; aphrollo gate allow discard arms one command, APHROLLO_DISCARD=1 for scripts" +
+		" (refuses unstaged loss — APHROLLO_DISCARD_UNSTAGED=1 for that)"
 	cases := []struct {
 		name string
 		form string
