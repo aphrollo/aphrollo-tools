@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -112,9 +113,19 @@ func widenToEveryTestThatCouldKill(narrow Runner, root string) (Runner, widenOut
 // post-edit half's own widenCargoRunner (#642), so "as wide as this crate
 // goes" means one thing across the gate.
 //
+// Two reasons it produces no wider run, and they are opposite answers.
 // Nothing left to drop means the run already covered the crate, so its
-// SURVIVOR stands.
+// SURVIVOR stands. A BUILD-ONLY runner (`--example`/`--bench` with
+// `--no-run`) executed no test at all and is one widenCargoRunner refuses to
+// widen into the package's whole suite — green there means "it still
+// builds", which is no evidence about what the tests constrain, so it is
+// inconclusive for the same reason and under the same verdict as a Go reach
+// that cannot be read.
 func widenCargoSelection(narrow Runner) (Runner, widenOutcome, error) {
+	if buildOnlyRunner(narrow) {
+		return Runner{}, widenUnknown, errors.New("it is a build-only run (`--no-run`), which executes no " +
+			"test at all, and an example or a bench is never widened into the package's whole suite")
+	}
 	wide, ok := widenCargoRunner(narrow)
 	if !ok {
 		return Runner{}, widenNotNeeded, nil

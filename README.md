@@ -1188,11 +1188,14 @@ settles on the cheap run and stops there, and a selection that was already as
 wide as it goes — nothing left to drop, a package nothing imports — keeps its
 plain SURVIVOR.
 
-When the wider selection cannot be built at all, or its reach cannot be read —
-no `go list`, a module that does not load — the answer is `mutant SCOPE
-UNKNOWN` (exit 8), not a survivor: a survivor claim asserts that no test kills
-the line, and a proof that cannot establish which tests reach the line has no
-standing to make it.
+When no wider selection can be made at all — a build-only `--example` /
+`--bench --no-run` run, which executes no test and is never widened into the
+package's suite — or its reach cannot be read (no `go list`, a module that
+does not load), the answer is `mutant SCOPE UNKNOWN` (exit 8), not a survivor:
+a survivor claim asserts that no test kills the line, and a proof that cannot
+establish which tests reach the line has no standing to make it. Both
+languages give that case the same verdict, so a SURVIVOR means one thing
+whichever produced it.
 
 **The loop by hand,** when the mutation is more than one `--old`/`--new` pair
 (an editor edit, a multi-line change) — three commands, in this order:
