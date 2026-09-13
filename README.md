@@ -1363,6 +1363,7 @@ escape       = "// nan-safe:"                  # optional: suppresses a hit
 escape_lines = 2                               # optional: how far above (default 2)
 baseline     = ".ratchet/baselines/nan-guard.txt"   # optional
 code_only    = true                            # optional: strip trailing comments first
+mask_strings = true                            # optional: blank string CONTENTS first, keep comments
 comment_prefix = "#"                           # optional: what opens one (default "//")
 contiguous   = true                            # optional: suppression must be in the comment run above
 trigger_exclude = "^\s*(pub )?use "            # optional: lines that can never be a trigger
@@ -1442,6 +1443,19 @@ commented-out entry stops satisfying a `regex-present` law. `trigger_exclude`
 disqualifies a line from ever BEING a trigger, which is what an import needs:
 putting `use` in the marker regex instead exempts everything in the window
 below the import.
+
+`code_only` and `mask_strings` say WHAT the matcher reads. `code_only` strips
+each line's trailing comment, so a law about code is not answered by prose.
+`mask_strings` is the other half and the more common need: it blanks the
+CONTENTS of every string literal (whole-file, so a raw string or a block
+comment spanning lines is handled) and KEEPS the comments — the view a law
+about directives, pragmas or comment markers wants. A token inside a string is
+data: a fixture, a hook payload, the detector's own regex. Without it a law is
+strictly broader than any edit-time detector judging the same tree for the
+same thing, and fires on exactly the lines that detector ignores — measured on
+this repo's own `suppression_reason`, every hit it had was quoted text and none
+was a real suppression. Set both to read code with neither strings nor
+comments in it.
 
 `direction` says WHERE the marker lives: `above` (default) is the
 comment-above-the-declaration shape, `below` is a block that carries its own

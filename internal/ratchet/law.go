@@ -268,6 +268,13 @@ type Law struct {
 	EscapeLines int
 	Baseline    string
 	CodeOnly    bool
+	// MaskStrings blanks the CONTENTS of string literals before the matcher
+	// reads a line, keeping comments. A token inside a string is data — a
+	// fixture, a hook payload, the detector's own regex — and a law about
+	// what the CODE does was never asking about it. Without it a law is
+	// strictly broader than the edit-time detector scanning the same tree for
+	// the same thing, and fires on exactly the lines that detector ignores.
+	MaskStrings bool
 	// CommentPrefix opens a comment in the language the law scans (`//` by
 	// default, `#` for TOML/shell), deciding what CodeOnly strips and what
 	// counts as a comment line in a contiguous run.
@@ -363,7 +370,7 @@ func LoadLaws(root string) ([]Law, error) {
 var rootKeys = map[string]bool{
 	"schema": true,
 	"name":   true, "description": true, "severity": true, "escape": true,
-	"escape_lines": true, "baseline": true, "code_only": true,
+	"escape_lines": true, "baseline": true, "code_only": true, "mask_strings": true,
 	"comment_prefix": true, "contiguous": true, "trigger_exclude": true,
 	"extends": true,
 }
@@ -387,7 +394,7 @@ func ParseLaw(text, wantName string) (Law, error) {
 		}
 		for _, k := range doc.keys("") {
 			if !rootKeys[k] {
-				return Law{}, fmt.Errorf("unknown key %q — a law's root keys are schema, name, description, severity, escape, escape_lines, baseline, code_only, extends", k)
+				return Law{}, fmt.Errorf("unknown key %q — a law's root keys are schema, name, description, severity, escape, escape_lines, baseline, code_only, mask_strings, comment_prefix, contiguous, trigger_exclude, extends", k)
 			}
 		}
 	}
@@ -437,6 +444,12 @@ func ParseLaw(text, wantName string) (Law, error) {
 			return Law{}, fmt.Errorf("code_only is a boolean, got %s", v.kind)
 		}
 		law.CodeOnly = v.b
+	}
+	if v, ok := doc.value("", "mask_strings"); ok {
+		if v.kind != tomlBool {
+			return Law{}, fmt.Errorf("mask_strings is a boolean, got %s", v.kind)
+		}
+		law.MaskStrings = v.b
 	}
 	if v, ok := doc.value("", "comment_prefix"); ok {
 		if v.kind != tomlString || v.s == "" {

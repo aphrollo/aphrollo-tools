@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/mask"
 )
 
 // Hit is one offence: where it is, what it is, and the identity the baseline
@@ -22,10 +24,10 @@ type Hit struct {
 
 // FileLines is one file's content already split into lines — computed ONCE
 // per file, then shared across every law that scans it, rather than once per
-// (law, file) pair. code is filled lazily: one stripped slice per DISTINCT
-// comment prefix a CodeOnly law asks for, cached so a second law sharing
-// that prefix (the overwhelmingly common case — one file has one language)
-// never re-runs splitTrailingComment over lines it already stripped.
+// (law, file) pair. code is filled lazily: one slice per DISTINCT VIEW a law
+// asks for (comment prefix, string-masked or not), cached so a second law
+// sharing that view — the overwhelmingly common case, since one file has one
+// language — never re-runs the strip or the masking lexer over it.
 type FileLines struct {
 	raw  []string
 	code map[string][]string
@@ -37,25 +39,59 @@ func newFileLines(content string) *FileLines {
 	return &FileLines{raw: splitLines(content)}
 }
 
-// codeFor returns l's comment-stripped view of the file, computed once per
-// distinct comment prefix and reused for every later law that shares it.
+// codeFor returns l's view of the file — comment-stripped for a CodeOnly law,
+// string-blanked for a MaskStrings one, both for a law asking for both —
+// computed once per distinct view and reused for every later law sharing it.
 func (fl *FileLines) codeFor(l Law) []string {
-	if !l.CodeOnly {
+	if !l.CodeOnly && !l.MaskStrings {
 		return fl.raw
 	}
 	prefix := l.commentPrefix()
-	if code, ok := fl.code[prefix]; ok {
+	view := prefix
+	if l.MaskStrings {
+		view += "\x00mask"
+	}
+	if !l.CodeOnly {
+		view += "\x00keep-comments"
+	}
+	if code, ok := fl.code[view]; ok {
 		return code
 	}
-	code := make([]string, len(fl.raw))
-	for i := range fl.raw {
-		code[i], _ = splitTrailingComment(fl.raw[i], prefix)
+	lines := fl.raw
+	if l.MaskStrings {
+		lines = maskStringLines(lines)
+	}
+	code := lines
+	if l.CodeOnly {
+		code = make([]string, len(lines))
+		for i := range lines {
+			code[i], _ = splitTrailingComment(lines[i], prefix)
+		}
 	}
 	if fl.code == nil {
 		fl.code = make(map[string][]string)
 	}
-	fl.code[prefix] = code
+	fl.code[view] = code
 	return code
+}
+
+// maskStringLines blanks the CONTENTS of every string literal, keeping the
+// comments — the view a law about DIRECTIVES needs, and the same one this
+// repo's edit-time detectors have always judged against.
+//
+// The lexer runs over the whole file, not line by line: a Go raw string or a
+// block comment spans lines, and a per-line pass would read the tail of one
+// as code. It preserves length and newlines, so the masked slice has the same
+// lines in the same order and a hit still reports the line the reader sees.
+func maskStringLines(raw []string) []string {
+	masked := splitLines(mask.Tokens(strings.Join(raw, "\n")+"\n", true, false, false))
+	if len(masked) != len(raw) {
+		// Cannot happen — the lexer only ever replaces bytes with spaces — but
+		// a view that has silently lost a line would misattribute every hit
+		// below it, so the raw lines are the safe answer.
+		return raw
+	}
+	return masked
 }
 
 // HitsIn applies a law's matcher to one in-scope file's content. It is pure:
