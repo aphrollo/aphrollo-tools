@@ -466,7 +466,19 @@ var failLineRes = []*regexp.Regexp{
 	// the duration (#590). The whitespace classes are HORIZONTAL only: Go's
 	// `\s` matches `\n`, so a `$`-anchored tail written with `\s` runs past
 	// the end of its own line and captures the last word of the summary.
-	regexp.MustCompile(`(?m)^[^\S\n]*FAIL[^\S\n]+\[[^\]]*\][^\S\n]+(?:\S+[^\S\n]+)*(\S+)[^\S\n]*$`),
+	//
+	// FAIL is not the only status a failing test is spelled with, and which
+	// one a repo sees is decided by its nextest PROFILE rather than by the
+	// test (#666): a `slow-timeout` with `terminate-after` reports TIMEOUT, a
+	// test process that dies instead of failing an assertion reports ABORT on
+	// Windows and its signal name (SIGSEGV, SIGABRT, …) elsewhere, and under
+	// `retries` a failing test is never spelled bare FAIL at all — every
+	// line, the run's own final summary included, reads `TRY <n> FAIL`.
+	// Reading only FAIL is what let a red run that named its failing test
+	// three times be reported as unreadable. Statuses that do NOT mean the
+	// test failed stay out by construction: PASS, SLOW, LEAK and the
+	// TERMINATING progress line all carry the same shape.
+	regexp.MustCompile(`(?m)^[^\S\n]*(?:TRY[^\S\n]+\d+[^\S\n]+)?(?:FAIL|TIMEOUT|ABORT|SIG[A-Z]+)[^\S\n]+\[[^\]]*\][^\S\n]+(?:\S+[^\S\n]+)*(\S+)[^\S\n]*$`),
 	regexp.MustCompile(`(?m)^\s*error: '([^']+)' failed:`), // zig build test
 }
 
