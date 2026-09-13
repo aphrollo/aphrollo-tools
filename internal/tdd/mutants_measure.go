@@ -43,6 +43,11 @@ type MeasureOpts struct {
 	Ctx  context.Context
 	Base string    // sha or ref the lane is measured against
 	Log  io.Writer // the run's own narrative; never the verdict
+	// ReportOut is where to publish what this run measured, for a box whose
+	// own runner cannot measure the same tree (mutants_runner.go). Empty
+	// publishes nothing, which is every local run: only the CI job that
+	// measures on behalf of another box passes it.
+	ReportOut string
 }
 
 // mutantsExecFn runs one mutation tool and reports its exit code. A seam, the
@@ -106,8 +111,8 @@ func SetMutantsExecForTest(fn func(ctx context.Context, dir string, env, argv []
 // Windows stand-down can be proved on any box.
 var mutantsGOOSFn = func() string { return runtime.GOOS }
 
-// setMutantsGOOSForTest forces the platform for the duration of a test.
-func setMutantsGOOSForTest(goos string) (restore func()) {
+// SetMutantsGOOSForTest forces the platform for the duration of a test.
+func SetMutantsGOOSForTest(goos string) (restore func()) {
 	prev := mutantsGOOSFn
 	mutantsGOOSFn = func() string { return goos }
 	return func() { mutantsGOOSFn = prev }
@@ -137,7 +142,7 @@ func MeasureLane(root string, cfg MutantsConfig, opts MeasureOpts) (Verdict, err
 		return Verdict{}, fmt.Errorf("no base to measure %s against", root)
 	}
 	if isGoModuleRepo(root) {
-		return measureGoLane(ctx, root, cfg, base, log)
+		return measureGoLane(ctx, root, cfg, base, opts.ReportOut, log)
 	}
 	return measureCargoLane(ctx, root, cfg, base, log)
 }
@@ -229,15 +234,16 @@ func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base 
 // measureGoLane is the Go half. gremlins is invoked exactly as the detached
 // job invoked it, scoped to the same merge base, and its report is read the
 // same way.
-func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base string, log io.Writer) (Verdict, error) {
+func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base, reportOut string, log io.Writer) (Verdict, error) {
 	if mutantsGOOSFn() == "windows" {
 		// gremlins reports 0.00% mutator coverage here — 4890 mutants NOT
-		// COVERED on this repo's own tree. A verdict saying every mutant
-		// survived is the wrong answer in the blocking direction, so the
-		// run does not happen. What that leaves is a GAP, not a skip, and
-		// it says so: issue #697 measured seventeen merges landing from
-		// this box against a line that read like the other nine stages.
-		return measureUnmeasured(root, gremlinsWindowsGap, "gremlins-windows", log), nil
+		// COVERED on this repo's own tree — so the run does not happen on
+		// this box. It happens on the self-hosted Linux runner instead, and
+		// what arrives here is that measurement, consumed only when it is a
+		// measurement of the exact tree this gate is judging
+		// (mutants_runner.go). When none is, the outcome is the gap issue
+		// #699 built: inconclusive, and blocking nothing.
+		return measureOnRunner(root, cfg, log), nil
 	}
 	files, err := measureGoDiff(root, base)
 	if err != nil {
@@ -287,7 +293,12 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base str
 	// those verdicts that selection could actually have reached is a
 	// question about the MODULE, answered here in one `go list` for the
 	// whole run (issue #695).
-	return finishMeasure(root, cfg, classifyGoSurvivorReach(root, mutants), log), nil
+	outcomes := classifyGoSurvivorReach(root, mutants)
+	// Published before the judging, not after: what another box needs is the
+	// OUTCOMES, judged there against the accept-list that lives in the tree
+	// this measurement is bound to.
+	writeRunnerReport(root, reportOut, base, outcomes, log)
+	return finishMeasure(root, cfg, outcomes, log), nil
 }
 
 // gremlinsReportPath is where the Go runner writes its machine-readable
