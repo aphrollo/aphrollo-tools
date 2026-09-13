@@ -290,18 +290,21 @@ func Check(opts Options) (Result, error) {
 		findingsBefore := len(res.Findings)
 		for _, r := range regressions(baseline, measured, law.Matcher.TolerancePct) {
 			h := representativeHit(r.Key, sites[r.Key], hitsByKey, baselineKeys, located)
-			res.Findings = append(res.Findings, Finding{
-				Law:      law.Name,
-				Severity: law.Severity.String(),
-				File:     h.File,
-				Line:     h.Line,
-				What:     h.What,
-				Key:      r.Key,
-				Baseline: r.Baseline,
-				Measured: r.Measured,
-				Escape:   law.Escape,
-				Remedy:   remedyFor(law),
-			})
+			res.Findings = append(res.Findings, lawFinding(law, h, r))
+		}
+		// The per-SITE half of the same comparison (#675). Deciding that a
+		// site is NEW rather than relocated needs every other site of that
+		// text, so this needs a scan of the whole tree -- but not a scan of
+		// the tree as it sits on disk: the commit gate overlays STAGED
+		// content on the files the commit touches and still reads every
+		// other file, and it is the gate that most needs to see a new site.
+		// Only opts.Files narrows what was looked at, and there (the pre-edit
+		// hook) the aggregate ceiling remains the whole guard, as it always
+		// was, with the new site caught by the whole-tree run at commit.
+		if len(opts.Files) == 0 {
+			for _, r := range baseline.NewSiteRegressions(sites) {
+				res.Findings = append(res.Findings, lawFinding(law, hitsByKey[r.Key], r))
+			}
 		}
 		// A law with at least one finding this run is a caller's candidate for
 		// the baseline-history note (#497): a run that reports ANY regression
@@ -350,6 +353,25 @@ func Check(opts Options) (Result, error) {
 		res.Tightened = tightened
 	}
 	return res, nil
+}
+
+// lawFinding is one law's regression, reported at the occurrence h: the two
+// comparisons (the identity's total, and the sites that total is made of)
+// produce the same kind of finding and must never drift apart in what they
+// tell the reader.
+func lawFinding(law Law, h Hit, r Regression) Finding {
+	return Finding{
+		Law:      law.Name,
+		Severity: law.Severity.String(),
+		File:     h.File,
+		Line:     h.Line,
+		What:     h.What,
+		Key:      r.Key,
+		Baseline: r.Baseline,
+		Measured: r.Measured,
+		Escape:   law.Escape,
+		Remedy:   remedyFor(law),
+	}
 }
 
 // representativeHit picks the occurrence a regression finding NAMES. keys is

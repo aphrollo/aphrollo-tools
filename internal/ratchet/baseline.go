@@ -216,6 +216,81 @@ func (b *Baseline) Regressions(measured map[string]int) []Regression {
 	return out
 }
 
+// NewSiteRegressions names every measured SITE that a path-agnostic multiset
+// has no row for. sites maps an identity to the full `<path> | <text>` keys
+// this run found for it (Check builds the same map for tightening).
+//
+// Regressions alone compares TOTALS, and a total is not the guarantee the
+// ratchet sells: with three rows recorded for one text, three of them paid
+// down and one brand-new site appearing at a path no row names, the total is
+// 1 against a ceiling of 3 and the law reports clean (#675). The rows needed
+// to catch that are already on disk — only the comparison threw them away.
+//
+// Relocation stays free, which is what e69a017 bought and this must not
+// spend: a site that moves leaves exactly as many rows behind as it takes
+// up, so `appeared == vanished` is a move and is never reported. Above that
+// the workspace total ROSE, which Regressions already reports against the
+// identity; this method is therefore the one case between them — new sites
+// appeared while the identity's total went DOWN.
+//
+// A consequence worth stating, because it decides whether an "only for
+// identities with more than one row" fast path would be a weaker variant:
+// it would not, and it is also unnecessary. One row bounds `vanished` at 1,
+// so `0 < appeared < vanished` is unsatisfiable and a single-row identity
+// can never reach this report — its aggregate ceiling is already per-site
+// (a second site anywhere makes the total 2 against 1).
+func (b *Baseline) NewSiteRegressions(sites map[string][]string) []Regression {
+	if b.form != MultisetByText {
+		return nil
+	}
+	recorded := map[string]map[string]int{}
+	for _, l := range b.lines {
+		if !l.data {
+			continue
+		}
+		id := rowText(l.key)
+		if recorded[id] == nil {
+			recorded[id] = map[string]int{}
+		}
+		recorded[id][l.key]++
+	}
+
+	var out []Regression
+	for _, id := range sortedKeys(sites) {
+		rows := recorded[id]
+		if len(rows) == 0 {
+			// A text the baseline has never seen has a ceiling of zero, so
+			// every one of its sites is already a Regressions finding.
+			continue
+		}
+		found := map[string]int{}
+		for _, k := range sites[id] {
+			found[k]++
+		}
+		appeared, vanished := 0, 0
+		for k, n := range found {
+			if excess := n - rows[k]; excess > 0 {
+				appeared += excess
+			}
+		}
+		for k, n := range rows {
+			if gone := n - found[k]; gone > 0 {
+				vanished += gone
+			}
+		}
+		if appeared == 0 || appeared >= vanished {
+			continue
+		}
+		for _, k := range sortedKeys(found) {
+			if found[k] > rows[k] {
+				out = append(out, Regression{Key: k, Baseline: rows[k], Measured: found[k]})
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out
+}
+
 // Tighten lowers every key whose measured count sits below its ceiling and
 // drops keys the scan no longer names. It never raises a count and never adds
 // a key: a key above its ceiling is a Regressions finding, and this clamps to
