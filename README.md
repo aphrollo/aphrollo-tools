@@ -1163,6 +1163,14 @@ aphrollo gate mutants prove --file internal/tdd/verdict.go \
 landed, runs the file's related tests and restores the file byte-identically —
 nothing else has to be arranged, and there is no git in it to get past.
 
+The run it made is kept, like every other gated run: `aphrollo gate output`
+prints it, header (`stage: mutants-prove`, `verdict: mutant-killed`, …) and
+all. That is the only way to read the text a proof judged on, because the tree
+it judged no longer exists — the mutation is restored before the verdict is
+printed — and it is what a verdict of `mutant UNREADABLE` points the reader
+at: a run whose failing test name could not be parsed is one whose output has
+to be readable by hand.
+
 **The loop by hand,** when the mutation is more than one `--old`/`--new` pair
 (an editor edit, a multi-line change) — three commands, in this order:
 
