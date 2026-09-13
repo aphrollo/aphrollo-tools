@@ -26,7 +26,7 @@ func TestRunCargoLocked_WritesAndRemovesOwnerFile(t *testing.T) {
 	}
 
 	r := Runner{Cmd: "cargo", Args: []string{"test", "-p", "widget"}}
-	res, _, acquired := runCargoLocked(stub, r, root, time.Second, time.Second)
+	res, _, acquired := runCargoLocked(stub, r, root, time.Second, time.Second, 0)
 	if !acquired || !res.Passed {
 		t.Fatalf("expected the lock to be acquired and the stub to run, acquired=%v res=%+v", acquired, res)
 	}
@@ -70,7 +70,7 @@ func TestRunCargoLocked_OwnerFileUsesRunnerDir(t *testing.T) {
 	}
 
 	r := Runner{Cmd: "cargo", Args: []string{"test", "-p", "a"}, Dir: wsRoot}
-	if _, _, acquired := runCargoLocked(stub, r, crateRoot, time.Second, time.Second); !acquired {
+	if _, _, acquired := runCargoLocked(stub, r, crateRoot, time.Second, time.Second, 0); !acquired {
 		t.Fatal("expected the lock to be acquired")
 	}
 	if sawCwd != wsRoot {
@@ -100,7 +100,7 @@ func TestRunCargoLocked_SetsAndRestoresBuildLockHeldEnv(t *testing.T) {
 		return SuiteResult{Passed: true}
 	}
 	r := Runner{Cmd: "cargo", Args: []string{"test"}}
-	if _, _, acquired := runCargoLocked(stub, r, t.TempDir(), time.Second, time.Second); !acquired {
+	if _, _, acquired := runCargoLocked(stub, r, t.TempDir(), time.Second, time.Second, 0); !acquired {
 		t.Fatal("expected the lock to be acquired")
 	}
 	if sawDuringRun != "1" {
@@ -121,7 +121,7 @@ func TestRunCargoLocked_RestoresPriorBuildLockHeldEnvValue(t *testing.T) {
 
 	stub := func(Runner, string) SuiteResult { return SuiteResult{Passed: true} }
 	r := Runner{Cmd: "cargo", Args: []string{"test"}}
-	if _, _, acquired := runCargoLocked(stub, r, t.TempDir(), time.Second, time.Second); !acquired {
+	if _, _, acquired := runCargoLocked(stub, r, t.TempDir(), time.Second, time.Second, 0); !acquired {
 		t.Fatal("expected the lock to be acquired")
 	}
 	if got := os.Getenv(BuildLockHeldEnv); got != "prior-value" {

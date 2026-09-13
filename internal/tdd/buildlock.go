@@ -180,7 +180,13 @@ func hasRaceFlag(r Runner) bool {
 // eaten into by however long the wait took, and bounds itself to whichever
 // is shorter: its own configured timeout, or the time remaining until
 // Deadline.
-func runCargoLocked(run SuiteRunner, r Runner, root string, lockDeadline, stageBudget time.Duration) (res SuiteResult, waited time.Duration, acquired bool) {
+//
+// floor is how much of that budget the wait may NOT eat: the time this suite
+// is recorded to need (budgetfloor.go), or zero for a caller with no record
+// to stand on, which leaves the arithmetic above exactly as it was. Clamped
+// to stageBudget before it is applied, so a floor can give back a budget the
+// queue shrank and can never lift the ceiling off a suite that hangs.
+func runCargoLocked(run SuiteRunner, r Runner, root string, lockDeadline, stageBudget, floor time.Duration) (res SuiteResult, waited time.Duration, acquired bool) {
 	racy := hasRaceFlag(r)
 	if r.Cmd != "cargo" && !racy {
 		return run(r, root), 0, true
@@ -201,6 +207,12 @@ func runCargoLocked(run SuiteRunner, r Runner, root string, lockDeadline, stageB
 		return SuiteResult{}, waited, false
 	}
 	defer release()
+	// The queue decided WHETHER this run could start; it does not get to
+	// decide how long the work takes (issue #660). Whatever the wait left,
+	// the run gets at least the floor its own record justifies.
+	if remaining := cappedFloor(floor, stageBudget); remaining > time.Until(r.Deadline) {
+		r.Deadline = time.Now().Add(remaining)
+	}
 	if !racy {
 		defer setBuildJobs(slot.Jobs)()
 		// The target lock above is exclusive per target dir, so nothing else
