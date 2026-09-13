@@ -1,11 +1,9 @@
 package tdd
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 	"time"
 )
@@ -31,38 +29,19 @@ const demoteWeek = 7 * 24 * time.Hour
 // anything, so it is deliberately not here.
 var demoteCheckPrefixes = []string{"pretooluse-denied:", "smell-escape:"}
 
-// DemoteCandidates names every check whose count rose in BOTH of the last two
-// weeks — two consecutive rises, so one busy week is not a signal. Sorted, so
-// the report is stable.
-func DemoteCandidates(r io.Reader, now time.Time) []string {
-	// weeks[0] is the last 7 days, [1] the 7 before it, [2] the 7 before that.
-	weeks := [3]map[string]int{{}, {}, {}}
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		e, ok := parseGateLine(sc.Text())
-		if !ok {
-			continue
-		}
-		check := demoteCheckName(e.verdict)
-		if check == "" {
-			continue
-		}
-		age := now.Sub(e.at)
-		if age < 0 || age >= 3*demoteWeek {
-			continue
-		}
-		weeks[int(age/demoteWeek)][check]++
-	}
+// DemoteCandidate is one check trending up in ONE repo: a law belongs to the
+// tree that declares it, so both halves are needed to say whose rule this is
+// and whose tracker the question belongs on.
+type DemoteCandidate struct {
+	Repo  string
+	Check string
+}
 
-	var out []string
-	for check, last := range weeks[0] {
-		if last > weeks[1][check] && weeks[1][check] > weeks[2][check] {
-			out = append(out, check)
-		}
-	}
-	sort.Strings(out)
-	return out
+// DemoteCandidates names every check whose refusals PER ACTIVE LANE rose in
+// BOTH of the last two weeks, within one repo — see demote_trend.go for why
+// each of those three words is load-bearing.
+func DemoteCandidates(r io.Reader, now time.Time) []DemoteCandidate {
+	return readDemoteTrend(r, now).candidates(now)
 }
 
 // demoteCheckName is the check a verdict belongs to, "" for a verdict that
@@ -95,13 +74,23 @@ func demoteFingerprint(repo, check string) string {
 // UNLESS the two-week rise that flagged this run happened entirely AFTER
 // the close, which is the only way the evidence is genuinely new rather
 // than a re-litigation.
-func RecordDemoteCandidates(repo string, candidates []string, w io.Writer) int {
+//
+// A candidate whose refusals came from ANOTHER checkout is not this repo's
+// question: the law that refused them lives in that tree, is very often a
+// rule this one does not carry at all, and an issue opened here asks an owner
+// to judge a rule they cannot read. It is dropped rather than filed anywhere,
+// because the repo that owns it is the only place it could honestly go.
+func RecordDemoteCandidates(repo string, candidates []DemoteCandidate, w io.Writer) int {
 	if len(candidates) == 0 || repo == "" || !ghAvailable() || !hasGitHubRemote(repo) {
 		return 0
 	}
 	riseWindowStart := time.Now().UTC().Add(-2 * demoteWeek)
 	opened := 0
-	for _, check := range candidates {
+	for _, candidate := range candidates {
+		if !demoteSameRepo(repo, candidate.Repo) {
+			continue
+		}
+		check := candidate.Check
 		fp := demoteFingerprint(repo, check)
 		if m, found := findIssueByFingerprint(repo, []string{FalsePositiveKind}, "all", fp); found {
 			// An open issue is already the record. A closed one stands too,
@@ -165,11 +154,14 @@ func titleMentions(titles []string, check string) bool {
 }
 
 // DemoteCandidateLines is what `gate stats` prints about the trend, one line
-// per candidate.
-func DemoteCandidateLines(candidates []string) string {
+// per candidate. It names the repo as well as the check: the same name is a
+// different law in each tree, and the reader has to know which one to go and
+// look at.
+func DemoteCandidateLines(candidates []DemoteCandidate) string {
 	var b strings.Builder
 	for _, c := range candidates {
-		fmt.Fprintf(&b, "demote-candidate: %s (refusals rose two weeks running — demote, narrow or fix it)\n", c)
+		fmt.Fprintf(&b, "demote-candidate: %s in %s (refusals per active lane rose two weeks running — demote, narrow or fix it)\n",
+			c.Check, c.Repo)
 	}
 	return b.String()
 }

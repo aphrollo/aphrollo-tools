@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // The stub is a compiled binary, not a shell script: Windows cannot exec a
@@ -84,7 +86,7 @@ func stubGhForCLI(t *testing.T, stdout string) string {
 // Both tests below depend on that being TRUE: without it the loop stops before
 // it reaches gh, and the assertion that gh was never called passes vacuously
 // on any box whose checkout has no GitHub remote.
-func gitHubRepoCwd(t *testing.T) {
+func gitHubRepoCwd(t *testing.T) string {
 	t.Helper()
 	dir := gitInit(t, map[string]string{"a.txt": "x\n"})
 	cmd := fixtureGit("-C", dir, "remote", "add", "origin", "https://github.com/o/r.git")
@@ -92,6 +94,7 @@ func gitHubRepoCwd(t *testing.T) {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}
 	t.Chdir(dir)
+	return dir
 }
 
 func ghCalls(t *testing.T, log string) string {
@@ -104,8 +107,12 @@ func ghCalls(t *testing.T, log string) string {
 }
 
 // risingDenials writes a gate.log whose refusals of one check rise in each of
-// the last three weeks — the shape DemoteCandidates looks for.
-func risingDenials(t *testing.T, cfg string) {
+// the last three weeks — the shape DemoteCandidates looks for. Every line is
+// rooted at repo, the checkout the command under test is run in: the trend is
+// per repo now, and refusals from somewhere else are somebody else's law. The
+// week-four line is the check's history, without which its empty oldest
+// window is its own age rather than a quiet week.
+func risingDenials(t *testing.T, cfg, repo string) {
 	t.Helper()
 	dir := filepath.Join(cfg, "gate-state")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -113,11 +120,11 @@ func risingDenials(t *testing.T, cfg string) {
 	}
 	now := time.Now().UTC()
 	var b strings.Builder
-	for week, n := range map[int]int{2: 1, 1: 4, 0: 9} {
+	for week, n := range map[int]int{3: 1, 2: 1, 1: 4, 0: 9} {
 		for range n {
 			at := now.Add(-time.Duration(week)*7*24*time.Hour - time.Hour)
-			fmt.Fprintf(&b, "%s precommit D:/repo cargo test -p server pretooluse-denied:test-sleep 5s\n",
-				at.Format(time.RFC3339))
+			fmt.Fprintf(&b, "%s precommit %s cargo test -p server pretooluse-denied:test-sleep 5s\n",
+				at.Format(time.RFC3339), tdd.LogToken(repo))
 		}
 	}
 	if err := os.WriteFile(filepath.Join(dir, "gate.log"), []byte(b.String()), 0o600); err != nil {
@@ -130,8 +137,7 @@ func risingDenials(t *testing.T, cfg string) {
 // reads the pipeline's numbers has silently written to the tracker.
 func TestGateStatsOpensNoIssues(t *testing.T) {
 	cfg := gateConfigDir(t)
-	risingDenials(t, cfg)
-	gitHubRepoCwd(t)
+	risingDenials(t, cfg, gitHubRepoCwd(t))
 	log := stubGhForCLI(t, "https://github.com/o/r/issues/42")
 
 	var out, errBuf bytes.Buffer
@@ -151,8 +157,7 @@ func TestGateStatsOpensNoIssues(t *testing.T) {
 // into the false-positive issue somebody can answer.
 func TestEscapeSyncOpensTheDemoteCandidateIssues(t *testing.T) {
 	cfg := gateConfigDir(t)
-	risingDenials(t, cfg)
-	gitHubRepoCwd(t)
+	risingDenials(t, cfg, gitHubRepoCwd(t))
 	log := stubGhForCLI(t, "https://github.com/o/r/issues/42")
 
 	var out, errBuf bytes.Buffer
