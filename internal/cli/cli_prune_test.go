@@ -104,16 +104,23 @@ func TestRun_Workspace_Prune_Ticket_DryDoesNotRemove(t *testing.T) {
 }
 
 // `workspace prune <repo> <branch> --force` must forward --force through to
-// the underlying remove, so a dirty ticket worktree still goes.
+// the underlying remove, so a dirty ticket worktree still goes — PROVIDED the
+// operator/script has armed the marker that actually covers it.
+//
+// dirty.txt here is untracked: no commit, index or stash holds it, so per
+// #661 (closing #650's first half) the quieter APHROLLO_DISCARD=1 does NOT
+// cover it — that marker is bounded to what git fsck/git stash can still
+// reach, precisely so a blanket env var never silently eats unstaged work.
+// "worktree remove --force" is one of the forms #661 names explicitly as
+// looking inside the target worktree for exactly this. The louder
+// APHROLLO_DISCARD_UNSTAGED=1 is the marker the refusal itself names as the
+// deliberate way through, so that is what a script wanting this outcome sets.
 func TestRun_Workspace_Prune_Ticket_ForceRemovesADirtyTree(t *testing.T) {
 	repo, wt, branch := prunableWorktree(t)
 	if err := os.WriteFile(filepath.Join(wt, "dirty.txt"), []byte("x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// A forced removal of a dirty tree is a discard the git shim's wall refuses;
-	// the test models the operator arming the override, so its verdict is the
-	// same whether PATH's git is the shim (this box) or real git (CI).
-	t.Setenv("APHROLLO_DISCARD", "1")
+	t.Setenv(unstagedDiscardEnv, "1")
 
 	var out, errb bytes.Buffer
 	if code := Run([]string{"workspace", "prune", repo, branch, "--force"}, strings.NewReader(""), &out, &errb); code != 0 {

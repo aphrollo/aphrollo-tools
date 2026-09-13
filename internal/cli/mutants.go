@@ -21,7 +21,14 @@ import (
 // worktree 27 times in 14 days, and produced a document a later merge judged
 // instead of a measurement. The measurement now happens in the foreground, on
 // the tree being merged.
+//
+// postCommitRoutineSeam is called once, every time this actually reaches
+// tdd.PostCommit — the same proof-of-non-execution premergeRoutineSeam gives
+// the merge gate, so a test can show a help flag never wrote the note.
+var postCommitRoutineSeam = func() {}
+
 func runPostCommit(stderr io.Writer) int {
+	postCommitRoutineSeam()
 	root := tdd.RepoRoot(".")
 	if root == "" {
 		return 0
