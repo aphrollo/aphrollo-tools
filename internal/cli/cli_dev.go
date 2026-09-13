@@ -56,6 +56,15 @@ func runDev(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "aphrollo: usage: dev restart <api|rlndx|infra>\n")
 			return 2
 		}
+		if isHelpArg(rest[0]) {
+			fmt.Fprint(stdout, devUsage)
+			return 0
+		}
+		// dev.Restart is this binary's one privileged atom (exact-match
+		// systemctl restart), so a help flag must never reach it — today
+		// unitFor's whitelist refuses "--help" anyway, but that is an
+		// accident of the whitelist, not a guarantee every future unit-name
+		// check keeps.
 		return devResult(dev.Restart(rest[0], stdout, stderr), stderr)
 	case "status":
 		if len(rest) != 0 {

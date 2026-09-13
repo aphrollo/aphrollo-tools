@@ -205,6 +205,23 @@ func envDurationSecs(key string, def time.Duration) time.Duration {
 	return time.Duration(n) * time.Second
 }
 
+// isHelpArg reports whether s asks for help. Every subcommand below that
+// parses its own flag.FlagSet already gets -h/--help handling for free from
+// the stdlib (it prints usage and returns flag.ErrHelp before anything
+// runs); the git-hook subcommands below take no flags at all and dispatch
+// straight to a function that mutates or gates the tree, so THEY have to
+// check by hand or a stray --help reaches the body (reported from the
+// field: `aphrollo gate precommit --help` ran the real gate against cwd).
+func isHelpArg(s string) bool {
+	return s == "-h" || s == "--help" || s == "help"
+}
+
+// gateHelpRequested reports whether rest (a subcommand's own args, i.e.
+// args[1:] of the dispatch below) is a bare help flag.
+func gateHelpRequested(rest []string) bool {
+	return len(rest) > 0 && isHelpArg(rest[0])
+}
+
 // runGate dispatches the TDD hook subcommands. Like the guardrail hook, every
 // path reads from the provided reader and a parse error fails OPEN (exit 0) so
 // a malformed payload can never wedge the session.
@@ -251,11 +268,21 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if args[0] == "postcommit" {
 		// The post-commit git hook, and there is only one: it writes the gate
 		// note on the commit just made. It cannot block — the commit is made.
+		if gateHelpRequested(args[1:]) {
+			fmt.Fprint(stdout, gateUsage)
+			return 0
+		}
 		return runPostCommit(stderr)
 	}
 	if args[0] == "postmerge" {
 		// The post-merge git hook: the opt-in lane sweep, in the repo the
-		// merge landed in. It cannot block either — the merge is made.
+		// merge landed in. It cannot block either — the merge is made. It
+		// DOES mutate (removes worktrees, deletes branches), so --help must
+		// never reach it.
+		if gateHelpRequested(args[1:]) {
+			fmt.Fprint(stdout, gateUsage)
+			return 0
+		}
 		return runPostMerge(stdout, stderr)
 	}
 	if args[0] == "doctor" {
@@ -328,6 +355,10 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// block. "premergecommit" is the pre-rename spelling, a silent alias for
 	// one release. See gatehooks.go for the routine itself.
 	if args[0] == "precommit" || args[0] == "premergecommit" || args[0] == "premerge" || args[0] == "prepush" {
+		if gateHelpRequested(args[1:]) {
+			fmt.Fprint(stdout, gateUsage)
+			return 0
+		}
 		return runGateMergeHook(args[0], stderr)
 	}
 
