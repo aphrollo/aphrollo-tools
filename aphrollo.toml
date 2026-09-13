@@ -25,7 +25,9 @@ mutants-at-merge = true
 # lane measured 50 mutants / 0 caught / 50 survivors on Windows against
 # 50 / 44 caught for the same tree on Linux. Reporting that would be wrong in
 # the direction that blocks merges, so on a Go repo on Windows the stage
-# stands down with `mutants-skipped:gremlins-windows` and passes, and the
+# stands down with `mutants-unmeasured:gremlins-windows` and passes, saying
+# that this merge carries no mutation evidence rather than printing a line
+# that reads like the routine skips beside it (issue #697), and the
 # measurement happens on Linux instead -- nightly CI runs
 # `aphrollo gate mutants run --base <checkpoint>` against main
 # (.github/workflows/nightly-mutants.yml) and records an escape on a non-zero

@@ -166,6 +166,36 @@ func measureSkipped(root, reason, token string, log io.Writer) Verdict {
 	return v
 }
 
+// measureUnmeasured is the verdict for a tree this box COULD NOT measure:
+// the run never started, and what that leaves behind is an absence of
+// evidence rather than an outcome. It is deliberately NOT measureSkipped —
+// "there was nothing to measure" is a real and honest result, and filing the
+// two under one token made a gap countable only as a routine skip (#697).
+// Nothing is refused: a box that cannot run the tool must still be able to
+// merge, and the honest report is the whole remedy here.
+func measureUnmeasured(root, why, token string, log io.Writer) Verdict {
+	v := Verdict{NotMeasured: why, Message: "mutants: " + unmeasuredNote(why)}
+	logf(log, "%s", v.Message)
+	appendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-unmeasured:"+token, 0)
+	return v
+}
+
+// unmeasuredNote is what such a merge is told. It reads like
+// scopeUnknownMutantNote, the same rule one mutant at a time, because it
+// means the same thing one stage at a time: nothing was proved either way.
+func unmeasuredNote(why string) string {
+	return "NOT MEASURED: " + why + ". This merge carries NO mutation evidence — INCONCLUSIVE, not a " +
+		"pass: no mutant was judged, so neither \"nothing survived\" nor \"something did\" is being claimed. " +
+		"Not refused — measure this lane on a box whose runner works before trusting the mutation half of " +
+		"this gate"
+}
+
+// gremlinsWindowsGap is why the Go half reaches no measurement on Windows.
+// The symptom is recorded, not diagnosed: 4890 mutants on this repo's own
+// tree, every one of them NOT COVERED (issue #697).
+const gremlinsWindowsGap = "gremlins reports 0.00% mutator coverage on Windows, so every mutant " +
+	"would be read as uncovered and no verdict here would be about the code"
+
 // measureNoVerdict is the refusal for a run that stopped without reaching
 // one: the exit status, whatever went wrong reading its outcomes, and the log
 // that explains it. Never "0 missed" from a file that was never written.
