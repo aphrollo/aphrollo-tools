@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -99,45 +98,16 @@ var runSmokeCheckFn = func(candidate string) error {
 	return nil
 }
 
-// runGateSelfInstall rebuilds this binary from source, puts it in place of the
-// installed one, reclaims what earlier upgrades left, and rewires the hooks.
-func runGateSelfInstall(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("self-install", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	var (
-		binPath = fs.String("bin", "", "binary to replace (default: this executable)")
-		repo    = fs.String("repo", ".", "module to build ./cmd/aphrollo from")
-		noInit  = fs.Bool("no-init", false, "replace the binary only; skip `gate init`")
-	)
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	bin := resolveBinPath(*binPath, "gate self-install", stdout)
-
-	staged := siblingPath(bin, ".new")
-	// A leftover from an upgrade that died mid-flight would otherwise be
-	// moved into place as if it were this run's build.
-	_ = os.Remove(staged)
-	desc, err := buildAphrollo(*repo, staged)
-	if err != nil {
-		fmt.Fprintf(stderr, "aphrollo gate self-install: build failed, nothing was replaced\n%v\n", err)
-		return 1
-	}
-	fmt.Fprintf(stdout, "gate self-install: build  %s -> %s\n", desc, staged)
-
-	if _, err := swapBinary("gate self-install", bin, staged, stdout); err != nil {
-		fmt.Fprintf(stderr, "aphrollo gate self-install: %v\n", err)
-		return 1
-	}
-
-	if *noInit {
-		return 0
-	}
-	// Everything after a bare `--` is forwarded verbatim to init, so
-	// `--config-dir`, `--git-hooks-dir` and friends reach it without
-	// self-install having to restate every one of them.
-	return initAfterSwap("gate self-install", bin, fs.Args(), stdout, stderr)
-}
+// `gate self-install` lived here. It built ./cmd/aphrollo from an ARBITRARY
+// checkout and made the result the box's binary — the one capability
+// `aphrollo update` does not have — and it existed to paper over one
+// bootstrap: the fixtures stage judged a lane's laws with the INSTALLED
+// binary, so a matcher correction could not commit until the box already
+// carried it, and the way out was to move a machine-wide binary to unmerged
+// code (#659, #673). The stage now builds the lane for the laws the lane
+// itself changed, so the bootstrap is gone and so is the reason. Everything
+// below is the swap and init machinery `aphrollo update` still uses; the one
+// thing removed is the path that could point it at an unmerged tree.
 
 // runInstalledInitFn indirects the spawn of the freshly installed binary for
 // the post-swap `gate init`, so a test can state that step's outcome without
@@ -202,9 +172,9 @@ var replacedBinaryJobsLineFn = tdd.ReplacedBinaryJobsLine
 // swapBinary renames bin aside (if one exists yet), moves staged into its
 // place, and sweeps whatever earlier upgrades left beside it — the sequence
 // any verb that replaces the running binary needs, shared so `gate
-// self-install` and `update` behave byte-identically instead of drifting.
+// installer and its callers behave byte-identically instead of drifting.
 // prefix names the caller in the three lines this prints to stdout (e.g.
-// "gate self-install" or "aphrollo update"), so an operator watching either
+// "aphrollo update" or "aphrollo install"), so an operator watching either
 // verb sees its own name. stale is the path the previous binary was renamed
 // to, or "" when there was nothing at bin yet. After the move, this verifies
 // bin actually resolves via exec.LookPath before declaring success (#366) —
@@ -298,7 +268,7 @@ var binGOOS = runtime.GOOS
 // resolveBinPath applies --bin (or the running binary's own path when it was
 // left blank) and normalizes its extension for the current OS, printing the
 // same one-line step style the rest of the swap already uses. Shared by
-// `gate self-install` and `update` so the second installer cannot
+// every installer path so a second installer cannot
 // reintroduce the extension bug the first one had (#366).
 func resolveBinPath(binFlag, prefix string, stdout io.Writer) string {
 	bin := binFlag

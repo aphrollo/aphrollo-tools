@@ -25,6 +25,7 @@ Subcommands:
   check    Judge the tree against .ratchet/laws/*.toml (--repo, --only, --proposed
            file=contentfile, --format text|json, --no-tighten, --no-cache, --base <ref>)
   test     Run every law against its .ratchet/fixtures/<law>/{hit,clean} files
+           (--repo, --only name[,name...], --format text|json)
   init     Copy embedded law presets into .ratchet/laws/ (--repo, --preset
            group[,group...], --param name=value, repeatable)
   presets  List every embedded preset and the params its template asks for
@@ -200,11 +201,23 @@ func ratchetSummary(res ratchet.Result) string {
 
 // runRatchetTest proves the laws themselves: every law must catch its `hit`
 // fixtures at exactly the listed lines and stay silent on its `clean` ones.
+// --only and --format json are what let the gate split ONE tree's fixtures
+// between two judges: a lane whose change is a matcher correction carries
+// rows the installed binary must by construction reject, so the gate hands
+// exactly the laws that lane touched to a build of the lane and keeps the
+// rest for itself (issues #659, #673). The lane's half is a subprocess, so
+// its verdicts have to come back as data rather than as prose to re-parse.
 func runRatchetTest(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	repo := fs.String("repo", ".", "repository whose laws to prove")
+	only := fs.String("only", "", "prove exactly these laws (comma-separated names); every law when empty")
+	format := fs.String("format", "text", "text or json")
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *format != "text" && *format != "json" {
+		fmt.Fprintf(stderr, "aphrollo ratchet: --format is text or json, got %q\n", *format)
 		return 2
 	}
 	root := *repo
@@ -212,13 +225,20 @@ func runRatchetTest(args []string, stdout, stderr io.Writer) int {
 		root = r
 	}
 	if !ratchet.HasLaws(root) {
+		if *format == "json" {
+			fmt.Fprintln(stdout, "[]")
+			return 0
+		}
 		fmt.Fprintf(stdout, "ratchet: no laws in %s (%s)\n", root, ratchet.LawsDir)
 		return 0
 	}
-	results, err := ratchet.RunFixtures(root)
+	results, err := ratchet.RunFixturesWith(root, ratchet.FixtureOptions{Only: splitNames(*only)})
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo ratchet: %v\n", err)
 		return 1
+	}
+	if *format == "json" {
+		return ratchetTestJSON(results, stdout, stderr)
 	}
 	failed := 0
 	for _, r := range results {
@@ -237,6 +257,41 @@ func runRatchetTest(args []string, stdout, stderr io.Writer) int {
 	}
 	if failed > 0 {
 		return 1
+	}
+	return 0
+}
+
+// splitNames reads a comma-separated law list, dropping the empty entries a
+// trailing comma or a `--only ""` produces so an empty flag selects every
+// law rather than a law whose name is the empty string.
+func splitNames(list string) []string {
+	var names []string
+	for part := range strings.SplitSeq(list, ",") {
+		if name := strings.TrimSpace(part); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// ratchetTestJSON writes every law's verdict as data and keeps the text
+// run's exit code: a machine reading this still has to be able to tell a
+// clean proof from a failed one without re-reading the list, and a caller
+// that wants the verdicts back on a failure reads stdout either way.
+func ratchetTestJSON(results []ratchet.FixtureResult, stdout, stderr io.Writer) int {
+	if results == nil {
+		results = []ratchet.FixtureResult{}
+	}
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(results); err != nil {
+		fmt.Fprintf(stderr, "aphrollo ratchet: writing json: %v\n", err)
+		return 1
+	}
+	for _, r := range results {
+		if len(r.Failures) > 0 {
+			return 1
+		}
 	}
 	return 0
 }

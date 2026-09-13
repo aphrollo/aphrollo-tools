@@ -1771,8 +1771,28 @@ exactly the offences listed in `expected.txt` (`<file>:<line>` per line, or the
 hit's key for a whole-tree law, which has no line to point at), and
 requires `clean/` to produce none. Both directions are required: hit-only
 proves a rule fires, never that it discriminates. A law with no fixtures
-fails. The commit gate runs `ratchet test` whenever a commit stages anything
-under `.ratchet/`.
+fails. The commit gate runs `ratchet test` whenever a commit stages a law or a
+fixture — nothing else under `.ratchet/` can move a fixture's verdict.
+
+**Which binary judges them.** A law whose `.toml` or whose fixtures the commit
+stages is judged by a binary built from the checkout under judgement; every
+other law is judged in-process by the installed binary. Without that split a
+change to a MATCHER could not carry the fixture rows that prove it: those rows
+are by construction rows the installed binary must reject, and that rejection
+is what makes them a fix, so the lane could not commit or merge until the box
+binary already contained the lane's own change.
+
+A lane may therefore answer for its own laws, and the bound on that is exact
+and enforced twice. The lane is only ever asked about the laws the commit
+stages, and any verdict it returns for any other law is discarded — so it can
+neither excuse nor refuse a law it did not touch, because the installed binary
+judged that law anyway. A repo that does not compile the matchers has no such
+build to run and never pays for one: its laws are data, and the installed
+binary is the only judge there is.
+
+A lane build that fails refuses the commit, naming the build's own error: a
+lane that does not compile has proved nothing, and the rows it stages are
+exactly the ones nothing else can judge.
 
 A fixture tree is laid out the way the REPO is, because the fixture root
 stands in for the repo root and the law's own `include` globs decide what it
@@ -1879,6 +1899,8 @@ aphrollo ratchet check --proposed crates/a.rs=/tmp/new.rs   # judge content not 
 aphrollo ratchet check --adopt nan-guard     # write nan-guard's baseline from the tree (new or widened law only)
 aphrollo ratchet check --base HEAD~1         # judge a diff-scoped law (symbol-removed) against that ref
 aphrollo ratchet test                        # prove every law against its fixtures
+aphrollo ratchet test --only nan-guard       # prove exactly these laws (comma-separated)
+aphrollo ratchet test --format json          # each law's verdict as data, for the gate's split run
 aphrollo ratchet presets                     # list every embedded preset and its params
 aphrollo ratchet init --preset common,rust --param pattern=TODO\( --param prefixes=BORLD
 ```
@@ -2201,16 +2223,27 @@ not this binary. Mutation
 testing is intentionally **not** ported (false-positive/non-determinism prone);
 the fail-first + mechanical suite cover the same ground without the flakiness.
 
-### Upgrading in place — `aphrollo gate self-install`
+### Upgrading in place — `aphrollo update`
 
-`aphrollo gate self-install` rebuilds `./cmd/aphrollo` from the checkout it is
-run in, runs `gate selfcheck` against the freshly built binary, renames the
-currently-running binary aside as `aphrollo.stale-<unix>`, moves the freshly
-built one into its place, reclaims stale copies nothing still holds open,
-then runs `init` so hooks and skills pick up whatever the rebuild changed.
-`--bin` targets a binary other than the default install path, `--no-init`
-skips the trailing `init`, and flags after a bare `--` are forwarded to it.
-`aphrollo update` shares the same swap and gets the same check.
+`aphrollo update` is the only command that replaces the installed binary. It
+fetches `origin`, builds `./cmd/aphrollo` from a **detached temporary
+worktree** at `origin/main` — never the working tree, which may be behind or
+carrying an edit of its own — runs `gate selfcheck` against the freshly built
+binary, renames the currently-running binary aside as `aphrollo.stale-<unix>`,
+moves the freshly built one into its place, reclaims stale copies nothing
+still holds open, then runs `init` **under the new binary** so hooks, skills
+and managed files come from its templates rather than the outgoing build's.
+`--bin` targets a binary other than the default install path, `--repo`,
+`--remote` and `--branch` name what to build, `--no-init` skips the trailing
+`init`, and flags after a bare `--` are forwarded to it.
+
+`gate self-install` — which built from an ARBITRARY checkout and could
+therefore make unmerged code the box's judge — is retired. It existed for one
+bootstrap: the fixtures stage judged a lane's laws with the installed binary,
+so a matcher correction could not commit until the box already carried it. The
+stage now builds the lane for the laws the lane itself changed, so the
+bootstrap is gone, and with it the reason to point the installer at a tree
+nobody has reviewed.
 
 `gate selfcheck` is the install-time smoke test that closes issue #532: it
 builds a marker-less temp tree and requires `FindProjectRoot` to come back

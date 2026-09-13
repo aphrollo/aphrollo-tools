@@ -2,7 +2,7 @@ package buildinfo
 
 import "testing"
 
-// A binary built with `go build -buildvcs=false` (the gate self-install path)
+// A binary built with `go build -buildvcs=false` (the installer's build path)
 // otherwise has no idea what it is. Stamp reports that honestly instead of
 // printing a plausible-looking empty string.
 func TestStamp_ReportsUnstampedWhenTheLinkerSetNothing(t *testing.T) {

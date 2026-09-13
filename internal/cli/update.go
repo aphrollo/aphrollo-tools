@@ -7,26 +7,29 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-// aphrollo update is self-install's sibling for the ordinary case: the box
-// running the binary is not necessarily sitting in a checkout of this repo
-// at the commit it wants, or a clean one. So it fetches the remote, builds
-// from a DETACHED worktree at <remote>/<branch> — never the working tree,
-// which may be behind or carrying an edit of its own — and shares
-// self-install's swapBinary for the part that replaces the running binary.
+// aphrollo update is the ONLY way the box binary moves. The box running it
+// is not necessarily sitting in a checkout of this repo at the commit it
+// wants, or a clean one, so it fetches the remote and builds from a DETACHED
+// worktree at <remote>/<branch> — never the working tree, which may be behind
+// or carrying an edit of its own. `gate self-install`, which built from an
+// arbitrary checkout and could therefore point the box at unmerged code, was
+// retired with the bootstrap that needed it (#659, #673).
 const updateUsage = `usage: aphrollo update [--repo DIR] [--bin PATH] [--remote NAME] [--branch NAME] [--no-init]
 
 Fetches <remote>/<branch>, builds ./cmd/aphrollo from a detached temporary
 worktree at that commit (never the working tree, which may be behind or
-dirty), swaps it in for --bin the same way gate self-install does, sweeps
-stale copies beside it, then runs gate init UNDER THE NEW BINARY (so the
-managed files come from its templates, not the outgoing build's) unless
---no-init.
+dirty), swaps it in for --bin, sweeps stale copies beside it, then runs gate
+init UNDER THE NEW BINARY (so the managed files come from its templates, not
+the outgoing build's) unless --no-init.
+
+This is the only command that replaces the installed binary: gate
+self-install, which built from an arbitrary checkout, is retired.
 `
 
 func runUpdate(args []string, stdout, stderr io.Writer) int {
@@ -126,7 +129,7 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 }
 
 // shortSHA reports the first 7 characters of a full commit sha, the width
-// `aphrollo version` and gate self-install already use to name a build.
+// `aphrollo version` already uses to name a build.
 func shortSHA(sha string) string {
 	if len(sha) > 7 {
 		return sha[:7]
@@ -141,20 +144,16 @@ func shortSHA(sha string) string {
 // comments before the module directive, so this skips those before looking
 // for the directive on the first line that is neither.
 func checkAphrolloModule(repo string) error {
-	const want = "module github.com/aphrollo/aphrollo-tools"
-	data, err := os.ReadFile(filepath.Join(repo, "go.mod"))
+	const want = "github.com/aphrollo/aphrollo-tools"
+	// One reader of the module directive, in the package the fixtures stage
+	// asks the same question from (`is this the checkout that compiles the
+	// matchers`) — two copies of this parse would drift one fix at a time.
+	path, err := tdd.ModulePath(repo)
 	if err != nil {
 		return fmt.Errorf("%s does not look like this module: %w", repo, err)
 	}
-	for _, line := range strings.Split(string(data), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "//") {
-			continue
-		}
-		if trimmed == want {
-			return nil
-		}
-		return fmt.Errorf("%s does not look like github.com/aphrollo/aphrollo-tools (go.mod says %q)", repo, trimmed)
+	if path != want {
+		return fmt.Errorf("%s does not look like %s (go.mod says %q)", repo, want, path)
 	}
-	return fmt.Errorf("%s does not look like github.com/aphrollo/aphrollo-tools (go.mod says %q)", repo, "")
+	return nil
 }

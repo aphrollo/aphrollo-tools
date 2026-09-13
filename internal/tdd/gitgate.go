@@ -69,7 +69,7 @@ var prunedHooks = []string{"pre-push"}
 // running the shim's own directory.
 func binShim(bin, sub, fallback string) string {
 	missing := "gate: " + shellPath(bin) + " is missing — running " + sub +
-		" UNGATED; fix with: aphrollo gate self-install"
+		" UNGATED; fix with: aphrollo install"
 	guard := "if [ ! -x \"" + shellPath(bin) + "\" ]; then\n" +
 		"  echo \"" + missing + "\" >&2\n"
 	if fallback == "" {

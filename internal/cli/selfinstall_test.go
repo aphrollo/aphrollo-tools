@@ -19,9 +19,25 @@ import (
 // only RENAMED aside. These pin the ordering that makes that work, and the
 // sweep that stops the renamed copies accumulating forever.
 
-// selfInstallFixture lays out a bin dir holding a current binary and stubs the
-// build so no toolchain runs. It returns the bin path and the dir.
-func selfInstallFixture(t *testing.T, built string) (bin string) {
+// `gate self-install` is retired (#659, #673), so the tests that drove it are
+// gone. None of the ground they covered is: every one of them exercised the
+// SHARED swap/init machinery `aphrollo update` still runs, and update's own
+// suite covers it through the installer that still exists.
+//
+// ratchet: test_removed TestSelfInstall_RenamesTheRunningBinaryAsideAndMovesTheNewOneIn: the swap ordering is TestUpdate_SwapsAndSweepsLikeSelfInstall
+// ratchet: test_removed TestSelfInstall_SweepsTheStaleCopiesTheLastUpgradeLeft: the sweep is TestUpdate_SwapsAndSweepsLikeSelfInstall
+// ratchet: test_removed TestSelfInstall_NormalizesAnExtensionlessBinFlagToExe: #366's normalization is TestUpdate_NormalizesAnExtensionlessBinFlagToExe
+// ratchet: test_removed TestSelfInstall_RenamesThePreExistingExeAsideWhenBinFlagOmitsTheExtension: TestUpdate_RenamesThePreExistingExeAsideWhenBinFlagOmitsTheExtension
+// ratchet: test_removed TestSelfInstall_KeepsAStaleCopyItCannotDelete: renamed TestUpdate_KeepsAStaleCopyItCannotDelete, same claim through update
+// ratchet: test_removed TestSelfInstall_RewiresTheHooksAtTheNewBinary: renamed TestUpdate_RewiresTheHooksAtTheNewBinary, same claim through update
+// ratchet: test_removed TestSelfInstall_LeavesTheBinaryAloneWhenTheBuildFails: renamed TestUpdate_RenamesNothingAsideWhenTheBuildFails, same claim through update
+// ratchet: test_removed TestSelfInstall_RunsInitUnderTheNewlyInstalledBinary: TestUpdate_RunsInitUnderTheNewlyInstalledBinary is the same claim, and was always the original
+// ratchet: test_removed TestSelfInstall_ReportsAHalfUpdatedBoxWhenTheNewBinaryCannotRunInit: TestUpdate_ReportsAHalfUpdatedBoxWhenTheNewBinaryCannotRunInit is the same claim
+
+// swapFixture lays out a bin dir holding a current binary and stubs the
+// build so no toolchain runs, for the tests that drive swapBinary directly
+// rather than through an installer.
+func swapFixture(t *testing.T, built string) (bin string) {
 	t.Helper()
 	dir := t.TempDir()
 	bin = filepath.Join(dir, "aphrollo.exe")
@@ -39,73 +55,6 @@ func selfInstallFixture(t *testing.T, built string) (bin string) {
 	return bin
 }
 
-func TestSelfInstall_RenamesTheRunningBinaryAsideAndMovesTheNewOneIn(t *testing.T) {
-	bin := selfInstallFixture(t, "NEW")
-	var out, errb bytes.Buffer
-
-	if code := runGateSelfInstall([]string{"--bin", bin, "--repo", t.TempDir(), "--no-init"}, &out, &errb); code != 0 {
-		t.Fatalf("self-install exit = %d\nstdout:%s\nstderr:%s", code, out.String(), errb.String())
-	}
-	got, err := os.ReadFile(bin)
-	if err != nil {
-		t.Fatalf("the binary is gone after a self-install: %v", err)
-	}
-	if string(got) != "NEW" {
-		t.Fatalf("binary content = %q, want the freshly built one", got)
-	}
-	stale := staleCopies(t, filepath.Dir(bin))
-	if len(stale) != 1 {
-		t.Fatalf("the replaced binary must be renamed aside, found %v", stale)
-	}
-	if body, err := os.ReadFile(stale[0]); err != nil || string(body) != "OLD" {
-		t.Fatalf("the stale copy must hold the binary that was replaced, got %q (%v)", body, err)
-	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(bin), "aphrollo.new.exe")); err == nil {
-		t.Fatal("the staging copy must be moved into place, not left behind")
-	}
-	// One line per step, so an operator can see which one failed.
-	for _, want := range []string{"build", "rename", "move", "sweep"} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("output does not report the %q step:\n%s", want, out.String())
-		}
-	}
-}
-
-func TestSelfInstall_SweepsTheStaleCopiesTheLastUpgradeLeft(t *testing.T) {
-	bin := selfInstallFixture(t, "NEW")
-	dir := filepath.Dir(bin)
-	old := filepath.Join(dir, "aphrollo.stale-1700000000.exe")
-	if err := os.WriteFile(old, []byte("OLDER"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	var out, errb bytes.Buffer
-	if code := runGateSelfInstall([]string{"--bin", bin, "--repo", t.TempDir(), "--no-init"}, &out, &errb); code != 0 {
-		t.Fatalf("self-install exit = %d\nstderr:%s", code, errb.String())
-	}
-	if _, err := os.Stat(old); err == nil {
-		t.Fatal("an unlocked stale copy from an earlier upgrade must be reclaimed")
-	}
-	if got := staleCopies(t, dir); len(got) != 1 {
-		t.Fatalf("only this run's stale copy should survive, found %v", got)
-	}
-}
-
-// selfInstallBuildStub swaps buildAphrollo for one that writes built to out
-// and restores it at test end — the mutation-proof twin of
-// selfInstallFixture for tests that lay out the bin dir themselves.
-func selfInstallBuildStub(t *testing.T, built string) {
-	t.Helper()
-	prev := buildAphrollo
-	buildAphrollo = func(repo, out string) (string, error) {
-		if err := os.WriteFile(out, []byte(built), 0o755); err != nil {
-			return "", err
-		}
-		return "go build -buildvcs=false -o " + out + " ./cmd/aphrollo", nil
-	}
-	t.Cleanup(func() { buildAphrollo = prev })
-}
-
 // pinBinGOOS forces resolveBinPath's OS check to goos for the duration of a
 // test, restoring it after. Windows-only (or non-Windows-only) outcomes need
 // to hold on every CI host, not only the one actually running the test.
@@ -116,71 +65,11 @@ func pinBinGOOS(t *testing.T, goos string) {
 	t.Cleanup(func() { binGOOS = prev })
 }
 
-// #366: an explicit --bin with no extension on Windows must still land the
-// build somewhere exec.LookPath (and everything Go spawns) can find it, not
-// only a human's shell.
-func TestSelfInstall_NormalizesAnExtensionlessBinFlagToExe(t *testing.T) {
-	pinBinGOOS(t, "windows")
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "aphrollo") // deliberately no extension
-	selfInstallBuildStub(t, "NEW")
-
-	var out, errb bytes.Buffer
-	if code := runGateSelfInstall([]string{"--bin", bin, "--repo", t.TempDir(), "--no-init"}, &out, &errb); code != 0 {
-		t.Fatalf("self-install exit = %d\nstdout:%s\nstderr:%s", code, out.String(), errb.String())
-	}
-	wantBin := bin + ".exe"
-	got, err := os.ReadFile(wantBin)
-	if err != nil {
-		t.Fatalf("%s does not exist after install: %v", wantBin, err)
-	}
-	if string(got) != "NEW" {
-		t.Fatalf("%s content = %q, want the freshly built one", wantBin, got)
-	}
-	if _, err := os.Stat(bin); err == nil {
-		t.Fatalf("an extensionless %s must not exist beside %s", bin, wantBin)
-	}
-}
-
-// #366: the outage traced to this exact step — with the extension dropped,
-// swapBinary stat'd the wrong name, found nothing, and swept the good
-// binary instead of renaming it aside. This pins that once bin is
-// normalized, the pre-existing .exe IS found and preserved.
-func TestSelfInstall_RenamesThePreExistingExeAsideWhenBinFlagOmitsTheExtension(t *testing.T) {
-	pinBinGOOS(t, "windows")
-	dir := t.TempDir()
-	exe := filepath.Join(dir, "aphrollo.exe")
-	if err := os.WriteFile(exe, []byte("OLD"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	bin := filepath.Join(dir, "aphrollo") // the flag as a caller who forgot the extension would pass it
-	selfInstallBuildStub(t, "NEW")
-
-	var out, errb bytes.Buffer
-	if code := runGateSelfInstall([]string{"--bin", bin, "--repo", t.TempDir(), "--no-init"}, &out, &errb); code != 0 {
-		t.Fatalf("self-install exit = %d\nstdout:%s\nstderr:%s", code, out.String(), errb.String())
-	}
-	if strings.Contains(out.String(), "rename skipped") {
-		t.Fatalf("the pre-existing binary was not found under its real name, output:\n%s", out.String())
-	}
-	stale := staleCopies(t, dir)
-	if len(stale) != 1 {
-		t.Fatalf("the replaced binary must be renamed aside, found %v", stale)
-	}
-	if body, err := os.ReadFile(stale[0]); err != nil || string(body) != "OLD" {
-		t.Fatalf("the stale copy must hold the previous binary, got %q (%v)", body, err)
-	}
-	got, err := os.ReadFile(exe)
-	if err != nil || string(got) != "NEW" {
-		t.Fatalf("%s = %q (%v), want the freshly built bytes", exe, got, err)
-	}
-}
-
 // The other side of #366: off Windows, --bin must land exactly where it was
 // pointed, with no .exe sibling ever created — the extension the two tests
 // above require is Windows-only behavior, not a platform-independent
 // default. This pins resolveBinPath directly rather than the full
-// self-install flow: swapBinary's post-move exec.LookPath check (#366) is a
+// installer flow: swapBinary's post-move exec.LookPath check (#366) is a
 // real, host-native check, not one binGOOS can simulate — an extensionless
 // file is genuinely unrunnable on an actual Windows box, seam or no seam. So
 // only the OS-independent part of the claim — the path resolution itself,
@@ -235,8 +124,12 @@ func TestBinExtForOS_AppendsExeOnlyOnWindowsWhenBinHasNoExtension(t *testing.T) 
 	}
 }
 
-func TestSelfInstall_KeepsAStaleCopyItCannotDelete(t *testing.T) {
-	bin := selfInstallFixture(t, "NEW")
+// The sweep's robustness, proved through the one installer there is now that
+// `gate self-install` is retired: a stale copy the OS will not let go of must
+// not fail an upgrade that has otherwise landed.
+func TestUpdate_KeepsAStaleCopyItCannotDelete(t *testing.T) {
+	_, clone, _ := updateFixture(t)
+	bin := swapFixture(t, "NEW")
 	dir := filepath.Dir(bin)
 	// A stale path that cannot be removed stands in for the copy Windows is
 	// still holding open: the sweep must report it, not fail the upgrade.
@@ -246,7 +139,7 @@ func TestSelfInstall_KeepsAStaleCopyItCannotDelete(t *testing.T) {
 	}
 
 	var out, errb bytes.Buffer
-	if code := runGateSelfInstall([]string{"--bin", bin, "--repo", t.TempDir(), "--no-init"}, &out, &errb); code != 0 {
+	if code := runUpdate([]string{"--bin", bin, "--repo", clone, "--no-init"}, &out, &errb); code != 0 {
 		t.Fatalf("a stale copy still in use must not fail the upgrade, exit = %d\nstderr:%s", code, errb.String())
 	}
 	if _, err := os.Stat(locked); err != nil {
@@ -287,7 +180,7 @@ func TestSwapBinary_ReportsBothErrorsWhenTheRollbackAlsoFails(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	_, err := swapBinary("gate self-install", bin, staged, &out)
+	_, err := swapBinary("aphrollo update", bin, staged, &out)
 	if err == nil {
 		t.Fatal("swapBinary: want an error when both the forward move and the rollback fail, got nil")
 	}
@@ -314,10 +207,10 @@ func TestSwapBinary_ReportsBothErrorsWhenTheRollbackAlsoFails(t *testing.T) {
 
 // #338: a job still executing the binary just replaced holds the box-wide
 // mutation-run lock and produces results from code no longer installed —
-// self-install must print that at the one moment it has the fact for free,
+// the installer must print that at the one moment it has the fact for free,
 // not leave it to whoever happens to queue behind the job later (#311).
 func TestSwapBinary_PrintsTheReplacedBinaryJobsLineWhenOneIsFound(t *testing.T) {
-	bin := selfInstallFixture(t, "NEW")
+	bin, staged := swapPair(t)
 
 	orig := replacedBinaryJobsLineFn
 	t.Cleanup(func() { replacedBinaryJobsLineFn = orig })
@@ -327,9 +220,9 @@ func TestSwapBinary_PrintsTheReplacedBinaryJobsLineWhenOneIsFound(t *testing.T) 
 		return "gate: 1 mutation run(s) are still executing the binary just replaced (lane/x pid 999) — their results predate this install"
 	}
 
-	var out, errb bytes.Buffer
-	if code := runGateSelfInstall([]string{"--bin", bin, "--repo", t.TempDir(), "--no-init"}, &out, &errb); code != 0 {
-		t.Fatalf("self-install exit = %d\nstdout:%s\nstderr:%s", code, out.String(), errb.String())
+	var out bytes.Buffer
+	if _, err := swapBinary("aphrollo update", bin, staged, &out); err != nil {
+		t.Fatalf("swapBinary: %v\nstdout:%s", err, out.String())
 	}
 	if !strings.Contains(out.String(), "gate: 1 mutation run(s) are still executing the binary just replaced (lane/x pid 999) — their results predate this install") {
 		t.Fatalf("stdout does not carry the replaced-binary-jobs line:\n%s", out.String())
@@ -340,17 +233,34 @@ func TestSwapBinary_PrintsTheReplacedBinaryJobsLineWhenOneIsFound(t *testing.T) 
 	}
 }
 
+// swapPair lays out the two files swapBinary moves between — the binary in
+// place and the freshly built candidate beside it — for the tests that drive
+// the swap directly rather than through the installer that calls it.
+func swapPair(t *testing.T) (bin, staged string) {
+	t.Helper()
+	dir := t.TempDir()
+	bin = filepath.Join(dir, "aphrollo.exe")
+	if err := os.WriteFile(bin, []byte("OLD"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	staged = filepath.Join(dir, "aphrollo.new.exe")
+	if err := os.WriteFile(staged, []byte("NEW"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bin, staged
+}
+
 // The common case: nothing is running the replaced binary, so nothing prints.
 func TestSwapBinary_PrintsNothingWhenNoJobIsRunningTheReplacedBinary(t *testing.T) {
-	bin := selfInstallFixture(t, "NEW")
+	bin, staged := swapPair(t)
 
 	orig := replacedBinaryJobsLineFn
 	t.Cleanup(func() { replacedBinaryJobsLineFn = orig })
 	replacedBinaryJobsLineFn = func(stalePath string) string { return "" }
 
-	var out, errb bytes.Buffer
-	if code := runGateSelfInstall([]string{"--bin", bin, "--repo", t.TempDir(), "--no-init"}, &out, &errb); code != 0 {
-		t.Fatalf("self-install exit = %d\nstdout:%s\nstderr:%s", code, out.String(), errb.String())
+	var out bytes.Buffer
+	if _, err := swapBinary("aphrollo update", bin, staged, &out); err != nil {
+		t.Fatalf("swapBinary: %v\nstdout:%s", err, out.String())
 	}
 	if strings.Contains(out.String(), "mutation run(s)") {
 		t.Fatalf("stdout must carry no replaced-binary-jobs line when there is none:\n%s", out.String())
@@ -359,12 +269,13 @@ func TestSwapBinary_PrintsNothingWhenNoJobIsRunningTheReplacedBinary(t *testing.
 
 // A binary replaced without rewiring leaves settings.json pointing at a build
 // that is no longer there, so the run has to finish the job.
-func TestSelfInstall_RewiresTheHooksAtTheNewBinary(t *testing.T) {
+func TestUpdate_RewiresTheHooksAtTheNewBinary(t *testing.T) {
 	isolateGit(t)
 	t.Setenv(tdd.HooksDirUnsafeEnv, "1") // --git-hooks-dir below sits under t.TempDir()
 	cfg := gateConfigDir(t)
+	_, clone, _ := updateFixture(t)
 	t.Chdir(t.TempDir()) // init patches the CWD repo's CLAUDE.md — never this repo's
-	bin := selfInstallFixture(t, "NEW")
+	bin := swapFixture(t, "NEW")
 
 	// init now runs UNDER the binary just installed (postswapinit_test.go
 	// pins that), and this fixture's "binary" is a few plain bytes no OS will
@@ -379,20 +290,25 @@ func TestSelfInstall_RewiresTheHooksAtTheNewBinary(t *testing.T) {
 	var out, errb bytes.Buffer
 	// --git-hooks-dir is forwarded to init: without it the run would rewrite
 	// this box's own managed hooks to point at a temp binary.
-	args := []string{"--bin", bin, "--repo", t.TempDir(), "--", "--git-hooks-dir", t.TempDir()}
-	if code := runGateSelfInstall(args, &out, &errb); code != 0 {
-		t.Fatalf("self-install exit = %d\nstdout:%s\nstderr:%s", code, out.String(), errb.String())
+	args := []string{"--bin", bin, "--repo", clone, "--", "--git-hooks-dir", t.TempDir()}
+	if code := runUpdate(args, &out, &errb); code != 0 {
+		t.Fatalf("update exit = %d\nstdout:%s\nstderr:%s", code, out.String(), errb.String())
 	}
 	settings, err := os.ReadFile(filepath.Join(cfg, "settings.json"))
 	if err != nil {
-		t.Fatalf("self-install did not run init: %v", err)
+		t.Fatalf("update did not run init: %v", err)
 	}
 	if !strings.Contains(string(settings), "gate pretooluse") {
 		t.Fatalf("the hooks must be rewired at the new binary, got:\n%s", settings)
 	}
 }
 
-func TestSelfInstall_LeavesTheBinaryAloneWhenTheBuildFails(t *testing.T) {
+// The ordering that makes the swap survivable at all: nothing is renamed
+// aside until the new binary exists on disk. A build that fails must leave
+// the box exactly as it found it, with no stale copy holding the only good
+// binary.
+func TestUpdate_RenamesNothingAsideWhenTheBuildFails(t *testing.T) {
+	_, clone, _ := updateFixture(t)
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "aphrollo.exe")
 	if err := os.WriteFile(bin, []byte("OLD"), 0o755); err != nil {
@@ -405,7 +321,7 @@ func TestSelfInstall_LeavesTheBinaryAloneWhenTheBuildFails(t *testing.T) {
 	t.Cleanup(func() { buildAphrollo = prev })
 
 	var out, errb bytes.Buffer
-	if code := runGateSelfInstall([]string{"--bin", bin, "--repo", dir, "--no-init"}, &out, &errb); code == 0 {
+	if code := runUpdate([]string{"--bin", bin, "--repo", clone, "--no-init"}, &out, &errb); code == 0 {
 		t.Fatal("a failed build must not report success")
 	}
 	if got, err := os.ReadFile(bin); err != nil || string(got) != "OLD" {
@@ -442,7 +358,7 @@ func TestSwapBinary_RefusesAndKeepsTheOldBinaryWhenTheCandidateFailsItsOwnSmokeC
 	}
 
 	var out bytes.Buffer
-	_, err := swapBinary("gate self-install", bin, staged, &out)
+	_, err := swapBinary("aphrollo update", bin, staged, &out)
 	if err == nil {
 		t.Fatal("swapBinary: want an error when the candidate fails its own smoke check")
 	}

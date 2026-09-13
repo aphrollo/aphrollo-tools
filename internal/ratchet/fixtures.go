@@ -29,21 +29,91 @@ type FixtureResult struct {
 	Skipped bool `json:"skipped,omitempty"`
 }
 
+// FixtureOptions narrows which laws a fixture run judges, by law name (the
+// `.toml` file's stem). It exists so one tree's fixtures can be proved by TWO
+// judges in the same gate run: a lane correcting a matcher carries rows the
+// installed binary must by construction reject — that rejection is what makes
+// them a fix (issues #659, #673) — so the gate hands those laws to a build of
+// the lane and keeps every other law for itself. Both halves name the laws
+// they take, and nothing is judged twice or left unjudged.
+//
+// Only wins when both are set: a caller that names a law in both lists asked
+// for a verdict on it, and the Except list is how the OTHER half of a split
+// is spelled, never a veto over an explicit request.
+type FixtureOptions struct {
+	// Only, when non-empty, is the complete set of laws to judge. A name in
+	// it that the tree has no law for is an error, never an empty pass.
+	Only []string
+	// Except names laws this run leaves to another judge. They produce no
+	// FixtureResult at all — an empty Failures slice is how "proved clean"
+	// is spelled, so a law nobody ran must not be able to spell it.
+	Except []string
+}
+
 // RunFixtures runs every law against its own fixtures.
 func RunFixtures(root string) ([]FixtureResult, error) {
+	return RunFixturesWith(root, FixtureOptions{})
+}
+
+// RunFixturesWith runs the laws opt selects against their own fixtures. The
+// empty FixtureOptions selects every law, which is what RunFixtures is.
+func RunFixturesWith(root string, opt FixtureOptions) ([]FixtureResult, error) {
 	laws, err := LoadLaws(root)
 	if err != nil {
 		return nil, err
 	}
+	only, except := nameSet(opt.Only), nameSet(opt.Except)
+	// unasked tracks which Only names no law answered, and is drained as
+	// they are met. Whether the run is narrowed at all is decided ONCE, up
+	// front: reading the draining set instead would widen the selection back
+	// to every law the moment the last named one was met, which is invisible
+	// to any test whose named law sorts last.
+	selective, unasked := len(only) > 0, nameSet(opt.Only)
 	var out []FixtureResult
 	for _, law := range laws {
+		if selective {
+			if !only[law.Name] {
+				continue
+			}
+			delete(unasked, law.Name)
+		} else if except[law.Name] {
+			continue
+		}
 		if law.UnknownKind != "" {
 			out = append(out, FixtureResult{Law: law.Name, Skipped: true})
 			continue
 		}
 		out = append(out, runLawFixtures(root, law))
 	}
+	if len(unasked) > 0 {
+		return nil, fmt.Errorf("no law named %s under %s — nothing can judge it",
+			strings.Join(sortedNames(unasked), ", "), LawsDir)
+	}
 	return out, nil
+}
+
+// nameSet turns a law-name list into a set, nil for an empty list so callers
+// can test "was anything selected" with len.
+func nameSet(names []string) map[string]bool {
+	if len(names) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		set[n] = true
+	}
+	return set
+}
+
+// sortedNames is the deterministic spelling of a name set in a message: same
+// inputs, same bytes out, whichever order the caller happened to pass.
+func sortedNames(set map[string]bool) []string {
+	names := make([]string, 0, len(set))
+	for n := range set {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func runLawFixtures(root string, law Law) FixtureResult {

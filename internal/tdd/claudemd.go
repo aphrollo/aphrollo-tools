@@ -165,7 +165,7 @@ func dropOrphanMarkers(text string) string {
 // primary checkout of a repo that has any linked worktree and sits on main:
 // that checkout is merge-only (the git shim refuses a commit there at all),
 // so writing the block there would leave it permanently dirty with no commit
-// able to clear it, blocking workspace sync and leaving self-install to build
+// able to clear it, blocking workspace sync and leaving the installer to build
 // off a stale tree. Land the block through a lane instead.
 var ErrManagedBlockInPrimary = errors.New("managed CLAUDE.md block not written: merge-only primary checkout")
 

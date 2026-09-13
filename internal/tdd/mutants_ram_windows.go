@@ -106,7 +106,7 @@ func buildToolPids() ([]int, bool) {
 // QUERY_LIMITED_INFORMATION right as GetProcessTimes above, and it resolves
 // through the process's own open handle to its image, not by re-walking a
 // name — so renaming the file out from under its own running process
-// (aphrollo's self-install does exactly this) changes what this call
+// (aphrollo's own installer does exactly this) changes what this call
 // reports, to the renamed name. That is the whole point: it is how a waiter
 // tells a holder still running a binary that has since been replaced.
 func processExePath(pid int) (string, bool) {
