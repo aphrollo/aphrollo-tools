@@ -23,15 +23,13 @@ func TestRun_TDDInit_GitGate(t *testing.T) {
 	t.Setenv(tdd.HooksDirUnsafeEnv, "1")
 	cfg := t.TempDir()
 	hooks := filepath.Join(t.TempDir(), "githooks")
-	// An explicit --cargo-shim-dir, same reasoning as --git-hooks-dir: the
-	// fake /usr/local/bin/aphrollo --bin below has no real directory on
-	// this box, and cargo-shim install (task A7) derives its output dir
-	// from --bin by default -- on Windows that drive-relative fake path
-	// resolved to a REAL stray directory (D:/usr/local/bin/cargo-queue/)
-	// before this override was added.
+	// An explicit --cargo-shim-dir, same reasoning as --git-hooks-dir:
+	// cargo-shim install (task A7) derives its output dir from --bin by
+	// default, and the stand-in binary below lives under a t.TempDir()
+	// whose queue dir this test has no reason to keep.
 	shimDir := filepath.Join(t.TempDir(), "cargo-queue")
 	var out, errb bytes.Buffer
-	code := Run([]string{"tdd", "init", "--config-dir", cfg, "--git-hooks-dir", hooks, "--cargo-shim-dir", shimDir, "--bin", "/usr/local/bin/aphrollo"},
+	code := Run([]string{"tdd", "init", "--config-dir", cfg, "--git-hooks-dir", hooks, "--cargo-shim-dir", shimDir, "--bin", fakeInstalledBin(t)},
 		strings.NewReader(""), &out, &errb)
 	if code != 0 {
 		t.Fatalf("init exit = %d, want 0\nstderr: %s", code, errb.String())

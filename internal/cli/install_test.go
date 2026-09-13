@@ -24,7 +24,7 @@ func TestInstall_PerformsInitThenInstallWrites(t *testing.T) {
 	shims := filepath.Join(t.TempDir(), "cargo-queue")
 	args := []string{"install",
 		"--repo", repo,
-		"--bin", "/usr/local/bin/aphrollo",
+		"--bin", fakeInstalledBin(t),
 		"--config-dir", cfg,
 		"--git-hooks-dir", hooksDir,
 		"--cargo-shim-dir", shims,
@@ -60,10 +60,15 @@ func TestInstall_WritesTheSameBinaryIntoSessionHooksAndRepoShims(t *testing.T) {
 	cfg := t.TempDir()
 	hooksDir := t.TempDir()
 	shims := filepath.Join(t.TempDir(), "cargo-queue")
+	customDir := filepath.Join(t.TempDir(), "custom")
+	if err := os.MkdirAll(customDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	// Forward-slashed so it round-trips byte-identical through shellPath's
 	// backslash normalization — the test wants a literal match, not a
-	// path-equivalence one.
-	custom := strings.ReplaceAll(filepath.Join(t.TempDir(), "custom", "aphrollo.exe"), "\\", "/")
+	// path-equivalence one. It is a real file because init now refuses a
+	// --bin it cannot run (issue #681).
+	custom := strings.ReplaceAll(writeFakeBin(t, filepath.Join(customDir, "aphrollo.exe")), "\\", "/")
 
 	args := []string{"install",
 		"--repo", repo,
@@ -112,7 +117,7 @@ func TestGateInitAndGateInstall_StillWork(t *testing.T) {
 
 	var out, errb bytes.Buffer
 	initArgs := []string{"gate", "init",
-		"--repo", repo, "--bin", "/usr/local/bin/aphrollo",
+		"--repo", repo, "--bin", fakeInstalledBin(t),
 		"--config-dir", cfg, "--git-hooks-dir", hooksDir, "--cargo-shim-dir", shims,
 	}
 	if code := Run(initArgs, strings.NewReader(""), &out, &errb); code != 0 {
