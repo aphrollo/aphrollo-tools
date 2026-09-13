@@ -54,3 +54,43 @@ func TestStagedTouchesLaws_SeesRenamedLawFile(t *testing.T) {
 		t.Fatalf("renaming a law file changes the laws; staged = %v", stagedFiles(root))
 	}
 }
+
+// A fixture edit can change a fixture's own verdict exactly as a law edit
+// can — the trigger must fire for either.
+func TestStagedTouchesLaws_FiresOnAFixtureEdit(t *testing.T) {
+	root := makeGoRepo(t)
+	write(t, root, ".ratchet/fixtures/x/hit/a.go", "package a\n")
+	gitDo(t, root, "add", ".")
+
+	if !stagedTouchesLaws(root) {
+		t.Fatalf("staging a fixture must re-prove it; staged = %v", stagedFiles(root))
+	}
+}
+
+// A generated doc under .ratchet/ — the README pinned by
+// TestOwnRatchetReadme_MatchesTheGeneratedOutput — cannot change any law's or
+// fixture's outcome, so staging it alone must not run the fixtures stage.
+func TestStagedTouchesLaws_IgnoresAGeneratedDocOutsideLawsAndFixtures(t *testing.T) {
+	root := makeGoRepo(t)
+	write(t, root, ".ratchet/README.md", "# generated\n")
+	gitDo(t, root, "add", ".")
+
+	if stagedTouchesLaws(root) {
+		t.Fatalf("staging only the generated README must not fire the fixtures stage; staged = %v", stagedFiles(root))
+	}
+}
+
+// The staged-baseline guard (baselineStage) already judges a raised baseline
+// ahead of this stage in precommitDecide — see baselineGlobs' default
+// ".ratchet/baselines/*.txt", which matches every file under
+// .ratchet/baselines in this repo. A baseline edit alone must not also pay
+// for a fixtures re-run it cannot affect.
+func TestStagedTouchesLaws_IgnoresABaselineEdit(t *testing.T) {
+	root := makeGoRepo(t)
+	write(t, root, ".ratchet/baselines/x.txt", "a.go | 1\n")
+	gitDo(t, root, "add", ".")
+
+	if stagedTouchesLaws(root) {
+		t.Fatalf("staging only a baseline must not fire the fixtures stage; staged = %v", stagedFiles(root))
+	}
+}
