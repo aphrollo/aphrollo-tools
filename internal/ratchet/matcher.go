@@ -280,60 +280,6 @@ func (l Law) regexPresentHits(file string, code []string) []Hit {
 	}}
 }
 
-func (l Law) markerHits(file string, raw, code []string) []Hit {
-	var hits []Hit
-	for i, line := range code {
-		if l.excluded(line) || !l.Matcher.Trigger.MatchString(line) || l.escaped(file, raw, i) {
-			continue
-		}
-		if l.markerAbove(raw, code, i) {
-			continue
-		}
-		hits = append(hits, l.hit(file, i+1, strings.TrimSpace(raw[i])))
-	}
-	return hits
-}
-
-// markerAbove looks for the required marker on the trigger's own line, in the
-// declaration's own comment block above it, and — for a `below`/`both` law —
-// in the `lines` window under it.
-func (l Law) markerAbove(raw, code []string, idx int) bool {
-	match := func(line string) bool { return l.Matcher.Marker.MatchString(line) }
-	if idx < len(raw) && match(raw[idx]) {
-		return true
-	}
-	dir := l.Matcher.Direction
-	if dir != DirectionBelow && l.markerInOwnBlock(raw, code, idx, match) {
-		return true
-	}
-	return (dir == DirectionBelow || dir == DirectionBoth) &&
-		l.scanRun(raw, idx, l.Matcher.Lines, 1, match)
-}
-
-// markerInOwnBlock walks up from the trigger through the declaration's OWN
-// contiguous comment block and stops there: at the previous trigger line, or
-// at the first line that does not continue the comment run, whichever comes
-// first. `lines` is a CAP on that block, not a reach across whatever happens
-// to sit above — issue #652, where one marked field vouched for the three
-// unmarked fields under it and each freshly-covered field's baseline row
-// vanished on the next tightening, a baseline moving DOWN (the one direction
-// the ratchet trusts) while nothing was actually marked. A marker vouches for
-// exactly one declaration: its own.
-func (l Law) markerInOwnBlock(raw, code []string, idx int, match func(string) bool) bool {
-	for i := idx - 1; i >= 0; i-- {
-		if !l.Contiguous && i < idx-l.Matcher.Lines {
-			return false
-		}
-		if l.Matcher.Trigger.MatchString(code[i]) || !inCommentRun(raw[i], l.commentPrefix()) {
-			return false
-		}
-		if match(raw[i]) {
-			return true
-		}
-	}
-	return false
-}
-
 // foundNear scans the trigger's own line and then outward, in the law's
 // direction. A contiguous law stops at the first line that is neither a
 // comment nor a single-line attribute. It serves KindRegexNear, whose

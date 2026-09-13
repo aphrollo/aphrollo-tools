@@ -27,6 +27,15 @@ func checkStageDeferred(gateName, root string) bool {
 	return false
 }
 
+// foreignStagedLogged is bashedit.go's shape and the one #658 read as an
+// offence: the appendGateLog call is a CODE token on the line DIRECTLY ABOVE
+// the message it records, so a marker walk that tests the comment run first
+// stops before ever matching it.
+func foreignStagedLogged(gateName, root string) string {
+	appendGateLog(gateName, root, "", "foreign-staged-skipped", 0)
+	return fmt.Sprintf("gate: → skipped in %s (the code was NOT tested)", root)
+}
+
 // notAStandDown mentions "skipped" only in a comment, never in a string
 // literal a stand-down would actually print — code_only strips it before the
 // trigger ever sees it.
