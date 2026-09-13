@@ -98,6 +98,14 @@ func remedyFor(law Law) string {
 	if law.Matcher.Kind == KindHunkRegex && law.Matcher.NameGroup {
 		return "add a `Removes-test: <name>: <why>` trailer to the commit message, or restore the declaration"
 	}
+	if law.Matcher.Kind == KindMarkerWithinLines {
+		// The marker is what vouches for the declaration, and it may sit on
+		// the trigger's OWN line at no line cost — a separate line above it
+		// grows the file instead, which in a file already at its ceiling
+		// raises a module_size baseline and turns a fixed hit into a new
+		// one (issue #652).
+		return fmt.Sprintf("add `%s <why>` — on the trigger's own line costs no lines; a line above it does and can raise a module_size baseline", law.Matcher.Marker.String())
+	}
 	if law.Escape == "" {
 		return "no escape: lower the code"
 	}

@@ -88,3 +88,38 @@ func TestRemedyFor_DepGraphCeilingWithNoEscapeSaysThereIsNone(t *testing.T) {
 		t.Fatalf("remedyFor = %q, want the no-escape remedy", got)
 	}
 }
+
+// A marker-within-lines refusal that only ever describes the marker as
+// something to add ABOVE the trigger sends the reader to grow the file by a
+// line — which, in a file already at its module_size ceiling, trades the
+// fixed hit here for a new one there (issue #652: a first pass following that
+// reading fixed 16 hits and raised 4 module_size baselines). The marker on
+// the trigger's OWN line costs no lines and both laws accept it, so the
+// remedy must name that option and say why it is the cheap one.
+func TestRemedyFor_MarkerWithinLinesNamesTheOwnLineOption(t *testing.T) {
+	law, err := ParseLaw(`name = "bound-marker"
+description = "a growing collection field states its bound"
+severity = "deny"
+
+[scope]
+include = ["**/*.rs"]
+
+[matcher]
+kind = "marker-within-lines"
+trigger = "channels: Vec<"
+marker = "// bound:"
+lines = 2
+`, "bound-marker")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := remedyFor(law)
+
+	if !strings.Contains(got, "own line") {
+		t.Fatalf("remedyFor = %q, want it to name the trigger's own line", got)
+	}
+	if !strings.Contains(got, "module_size") {
+		t.Fatalf("remedyFor = %q, want it to say why the own-line option matters", got)
+	}
+}

@@ -1088,7 +1088,7 @@ uncommitted or unmerged work — `reset --hard`/`--merge`, `checkout -f`/
 --force` — and refuses it when the cost is non-zero:
 
 ```
-gate: refused — reset --hard discards 3 file(s), +212/-40 uncommitted; aphrollo gate allow discard arms one command, APHROLLO_DISCARD=1 for scripts
+gate: refused — reset --hard discards 3 file(s), +212/-40 uncommitted; aphrollo gate allow discard arms one command, APHROLLO_DISCARD=1 for scripts (refuses unstaged loss — APHROLLO_DISCARD_UNSTAGED=1 for that)
 ```
 
 A measurement that could not even run (a broken git, an index.lock
@@ -1200,7 +1200,7 @@ An unmarked restore of a file this session holds says so rather than just
 refusing, so a proof mid-flight is never left guessing:
 
 ```
-gate: refused — checkout -- <paths> discards 1 file(s), +1/-0 uncommitted; aphrollo gate allow discard arms one command, APHROLLO_DISCARD=1 for scripts; this session holds the pre-mutation working state of verdict.go — MUTATION=1 git checkout -- verdict.go restores THAT rather than the index
+gate: refused — checkout -- <paths> discards 1 file(s), +1/-0 uncommitted; aphrollo gate allow discard arms one command, APHROLLO_DISCARD=1 for scripts (refuses unstaged loss — APHROLLO_DISCARD_UNSTAGED=1 for that); this session holds the pre-mutation working state of verdict.go — MUTATION=1 git checkout -- verdict.go restores THAT rather than the index
 ```
 
 ### The queue shims are executables, not batch files
