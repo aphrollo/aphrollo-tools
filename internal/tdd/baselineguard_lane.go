@@ -3,7 +3,6 @@ package tdd
 import (
 	"path/filepath"
 	"sort"
-	"strings"
 )
 
 // baselineCompareRef names the content a baseline is judged against: the point
@@ -15,19 +14,23 @@ import (
 // gate compares the lane against main and rejects it (escape #206). A baseline
 // only ever goes down relative to what the lane will merge INTO.
 //
+// The base is resolved by laneBaseSHA, which weighs EVERY trunk candidate and
+// keeps the newest. Taking the first that merely exists preferred
+// `origin/main`, and that is a PUBLICATION point, not a base: in a repo whose
+// local main was hundreds of commits ahead of its last push, a row main itself
+// had written days earlier sat outside the resolved base and read as this lane
+// raising a ceiling from nothing (`... 0 -> 2006` on a lane that touched no
+// baseline). What a lane merges into is the trunk it has locally, whatever the
+// remote has heard about.
+//
 // Where no base resolves — a repo with a single commit, a detached checkout
 // with no branch to compare to — it falls back to HEAD, which is the old
 // behaviour and still catches a raise staged in the commit at hand.
 func baselineCompareRef(repoRoot string) string {
-	base := laneBaseRef(repoRoot)
-	merge, err := git(repoRoot, "merge-base", base, "HEAD")
-	if err != nil {
-		return "HEAD"
+	if base := laneBaseSHA(repoRoot); base != "" {
+		return base
 	}
-	if merge = strings.TrimSpace(merge); merge == "" {
-		return "HEAD"
-	}
-	return merge
+	return "HEAD"
 }
 
 // baselineFilesInLane is the set the guard judges: the baselines this commit
