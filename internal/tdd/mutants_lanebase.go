@@ -7,12 +7,15 @@ import "strings"
 // already merged in is, by definition, not what the lane is proposing: it
 // passed its own gate and its own mutation run on trunk before it got there.
 //
-// laneBaseRef alone cannot answer that. It prefers `origin/main`, and nothing
-// in this package fetches, so that remote-tracking ref is whatever it last
-// happened to be. A lane that catches up by merging its LOCAL main then
-// resolves a base from before the merge, and the run charges it for every
-// change trunk made in between — one real run measured 40 files and two
-// crates the lane never opened (issue #261).
+// Taking the first candidate ref that merely EXISTS cannot answer that. It
+// prefers `origin/main`, and nothing in this package fetches, so that
+// remote-tracking ref is whatever it last happened to be. A lane that catches
+// up by merging its LOCAL main then resolves a base from before the merge, and
+// the run charges it for every change trunk made in between — one real run
+// measured 40 files and two crates the lane never opened (issue #261). The
+// same stale ref refused commits outright in a repo whose main was hundreds of
+// commits ahead of its last push: main's own unpushed work read as the lane's,
+// and a baseline row main itself had written read as `0 -> 2006`.
 //
 // The gate now DRIVES lanes into that state: the push guard refuses a stale
 // branch and prints a catch-up merge as the remedy, so a base that mishandles
@@ -27,6 +30,10 @@ var laneBaseCandidates = []string{"origin/main", "origin/master", "main", "maste
 // merge-base against each trunk candidate that exists, keeping whichever is a
 // DESCENDANT of the others. No fetch is needed — a commit the lane already
 // contains is already local, which is the whole reason this works offline.
+//
+// It is the ONE base resolution in this package: the mutation run, the
+// baseline guard's comparison ref and the lane's changed-path set all take it
+// from here, so no caller can quietly revert to "whichever ref resolved first".
 func laneBaseSHA(root string) string {
 	best := ""
 	for _, ref := range laneBaseCandidates {
@@ -43,7 +50,8 @@ func laneBaseSHA(root string) string {
 	}
 	if best == "" {
 		// No trunk to compare against at all: the previous commit is the only
-		// honest answer, and it is what laneBaseRef already falls back to.
+		// honest answer. A repo with a single commit has not even that, and ""
+		// sends the baseline guard to its documented HEAD fallback.
 		best = strings.TrimSpace(gitOut(root, "merge-base", "HEAD~1", "HEAD"))
 	}
 	return best

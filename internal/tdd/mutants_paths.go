@@ -56,17 +56,6 @@ func primaryCheckoutRoot(repoRoot string) string {
 // process without having to produce one.
 var pidRunningFn = pidRunning
 
-// laneBaseRef is the ref a lane's diff is taken against: the remote's default
-// branch when there is one, the local one otherwise.
-func laneBaseRef(root string) string {
-	for _, ref := range laneBaseCandidates {
-		if _, err := git(root, "rev-parse", "--verify", "--quiet", ref); err == nil {
-			return ref
-		}
-	}
-	return "HEAD~1"
-}
-
 // aphrolloTomlFlag reads one boolean from `[aphrollo]` in <root>/aphrollo.toml.
 func aphrolloTomlFlag(root, key string) bool {
 	return tomlBoolIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", key)
