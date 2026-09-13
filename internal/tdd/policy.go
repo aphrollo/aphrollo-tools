@@ -40,15 +40,24 @@ const (
 //     they must stay visible; strings are blanked so a quoted directive cannot
 //     trip.
 //     (reason: this block names the exact vocabulary the directives view exists to preserve.)
+//   - whole: the code view of the ENTIRE file, kept alongside a restricted
+//     one. A diff-scoped caller hands a policy only the lines an edit adds, so
+//     a policy whose verdict depends on the structure around a line — is this
+//     `case <-time.After(d)` the second arm of a select, or the only one? —
+//     has no way to see it. Judging stays scoped to the added lines; only the
+//     context is file-wide.
 type view struct {
 	code       string
 	directives string
+	whole      string
 }
 
 func newView(content string, l lang) view {
+	code := maskTokens(content, true, true, l.hashComment)
 	return view{
-		code:       maskTokens(content, true, true, l.hashComment),
+		code:       code,
 		directives: maskTokens(content, true, false, l.hashComment),
+		whole:      code,
 	}
 }
 

@@ -36,7 +36,11 @@ const (
 //     Sleep. Matched without requiring a leading `<-` so the bare constructor
 //     `time.NewTimer(d)` is caught too. AfterFunc/NewTicker are deliberately not
 //     matched: AfterFunc schedules a callback rather than blocking, and Tick (the
-//     wait func) is the smell, not Ticker construction.
+//     wait func) is the smell, not Ticker construction. One time.After shape is
+//     exempted after the fact — a `case <-time.After(d):` arm of a select that
+//     has another arm, which bounds a wait rather than being one. That is
+//     hasRealTimeWait's job, not this regex's; see smell_deadline.go for the
+//     measurement (#698) and for why the exemption is this narrow.
 //   - asyncio.sleep    — Python async sleep
 //   - Thread.sleep / thread::sleep — Java / Rust
 //   - setTimeout       — JS/TS. This also covers the promisified-sleep idiom
@@ -169,7 +173,7 @@ var goDiscardCallRe = regexp.MustCompile(`\b_\s*(?:,\s*[\w.]+\s*)*:?=\s*[A-Za-z_
 var (
 	sleepPolicy = policy{
 		name: "test-sleep", category: smellCat, reason: sleepReason,
-		hit:    func(v view) bool { return sleepRe.MatchString(v.code) },
+		hit:    hasRealTimeWait,
 		escape: escapeSleep,
 	}
 	tautologyPolicy = policy{
