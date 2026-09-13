@@ -59,12 +59,51 @@ func hooksPathOverridden(prefix []string) bool {
 	return false
 }
 
+// hookRunningVerbs are the git verbs that consult at least one of the six
+// hooks core.hooksPath reroutes away from wherever the gate installed them
+// (pre-commit, pre-merge-commit, pre-push, prepare-commit-msg, commit-msg,
+// post-merge) -- determined empirically against real git 2.53, not guessed:
+//
+//   - commit: pre-commit, prepare-commit-msg, commit-msg
+//   - merge: pre-merge-commit (non-fast-forward), prepare-commit-msg, commit-msg, post-merge
+//   - push: pre-push
+//   - rebase: prepare-commit-msg (per replayed commit, both the clean and the
+//     conflict-and-continue path) -- pre-commit and commit-msg are NOT
+//     invoked; the sequencer builds each replayed commit directly, skipping
+//     both
+//   - cherry-pick, revert: prepare-commit-msg, same sequencer path as
+//     rebase -- pre-commit and commit-msg likewise skipped
+//
+// `am` is deliberately absent: verified against real git, in both the clean
+// apply and the conflict-plus-`--continue` path, it runs only its own
+// applypatch-msg/pre-applypatch/post-applypatch hooks -- none of the six
+// above -- so `-c core.hooksPath` on `git am` bypasses nothing this gate (or
+// any repo's own foreign hook of the six kinds) could have run.
+//
+// Every read-only verb (status, rev-parse, log, diff, fetch, ...) and every
+// other mutating one this shim handles (checkout, switch, stash, reset,
+// worktree, add) was verified the same way to run none of the six either.
+var hookRunningVerbs = map[string]bool{
+	"commit":      true,
+	"merge":       true,
+	"push":        true,
+	"rebase":      true,
+	"cherry-pick": true,
+	"revert":      true,
+}
+
 // hooksBypassDoor reports whether this invocation skips the pre-commit or
 // pre-merge-commit hook by any of the three doors above. rest is the
 // CLASSIFICATION form (alias-resolved, per resolveAlias), matching how
-// primaryRefusedVerb and gitLockScopeFor are already fed.
+// primaryRefusedVerb and gitLockScopeFor are already fed. The -c
+// core.hooksPath door only counts on a verb that actually runs a hook --
+// `git status -c core.hooksPath=...` reroutes hook execution for a verb that
+// consults no hook at all, so there is nothing to bypass.
 func hooksBypassDoor(prefix, rest []string) bool {
-	return bypassesHooksVerb(rest) || hooksPathOverridden(prefix)
+	if bypassesHooksVerb(rest) {
+		return true
+	}
+	return len(rest) > 0 && hookRunningVerbs[rest[0]] && hooksPathOverridden(prefix)
 }
 
 // hooksBypassRefusalLine returns the primary-checkout refusal for a hooks-
