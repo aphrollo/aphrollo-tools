@@ -1570,9 +1570,9 @@ cannot see (it would read the new file as a brand-new key and the old file as
 unchanged). Line NUMBERS are not part of the identity either: inserting a
 line above an offence changes nothing. Swapping one offending site for a
 DIFFERENT line still regresses: the new text is a new identity at a ceiling
-of zero. Tightening rewrites each surviving row's path from a site the scan actually
-found, so a row never dangles at a file that has moved, and drops the rows
-whose text no longer appears that many times. A count-keyed (`file`) law
+of zero. Tightening rewrites each surviving row's path from a site the scan
+actually found, so a row never dangles at a file that has moved, and drops
+the rows whose text no longer appears that many times. A count-keyed (`file`) law
 measures a property OF a file — its length — so there the path IS the
 identity and a rename is a new key at a ceiling of zero.
 

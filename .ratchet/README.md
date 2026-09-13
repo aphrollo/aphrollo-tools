@@ -229,24 +229,37 @@ loudly instead of reporting green over files they never opened.
 (baseline one line per occurrence, written `<path> | <trimmed line>`).
 
 For a line-keyed law the identity is the **trimmed offending line, and only
-that**: the baseline is a MULTISET of offending text over the whole workspace,
-and the path is written down for the reader rather than compared. So a `git mv`
-or a crate rename is not a regression — the same lines are still there, in the
-same number — while adding one more occurrence of a line already at its
-ceiling IS one, wherever it lands, which a per-file count cannot see (it would
-read the new file as a brand-new key and the old file as unchanged). Line
-NUMBERS are not part of the identity either: inserting a line above an offence
-changes nothing. Swapping one offending site for a DIFFERENT line still
-regresses, because the new text is a new identity at a ceiling of zero.
-Tightening rewrites each surviving row's path from a site the scan actually
-found, so a row never dangles at a file that has moved, and drops the rows
-whose text no longer appears that many times. A count-keyed (`file`) law
+that**: the baseline is a MULTISET of offending text over the whole workspace.
+So a `git mv` or a crate rename is not a regression — the same lines are
+still there, in the same number — while adding one more occurrence of a line
+already at its ceiling IS one, wherever it lands, which a per-file count
+cannot see (it would read the new file as a brand-new key and the old file as
+unchanged). Line NUMBERS are not part of the identity either: inserting a
+line above an offence changes nothing. Swapping one offending site for a
+DIFFERENT line still regresses: the new text is a new identity at a ceiling
+of zero. Tightening rewrites each surviving row's path from a site the scan
+actually found, so a row never dangles at a file that has moved, and drops
+the rows whose text no longer appears that many times. A count-keyed (`file`) law
 measures a property OF a file — its length — so there the path IS the
 identity and a rename is a new key at a ceiling of zero.
 
-The pre-edit hook judges ONE file, so it cannot see a workspace total: an
-added line whose text is already at its ceiling somewhere else is caught by
-the whole-tree run at commit, not by the write.
+The PATHS in those rows are judged too, as the second half of the same
+comparison: a whole-tree run also asks which SITES the text is at. A measured
+`<path> | <text>` that no row names is a regression even while the text's
+total sits under its ceiling — otherwise a law carrying debt detects nothing
+new anywhere until that total is exceeded, and a site the law named minutes
+ago can be broken while it reports clean. Relocation stays free, which is the
+whole point of keying on the text: a site that moves leaves exactly as many
+rows behind as it takes up, so as many sites vanishing as appearing is a move
+and never a finding. The one case this adds is new sites appearing while the
+text's total went DOWN — paying debt down does not buy a fresh offence
+somewhere else. An identity with a single row can never reach it: one row can
+lose at most one site, so its aggregate ceiling was already per-site.
+
+The pre-edit hook judges ONE file, so it can see neither a workspace total nor
+which sites a text is at: an added line whose text is already at its ceiling
+somewhere else, and a brand-new site under a ceiling, are both caught by the
+whole-tree run at commit, not by the write.
 
 #### Landing a new matcher field
 
