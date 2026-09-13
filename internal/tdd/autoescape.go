@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -360,11 +359,16 @@ func RecordCIEscape(o CIEscapeOptions, w io.Writer) (EscapeRecord, bool) {
 	}
 	// The local dedupe store is this box's gate-state, and a CI runner is
 	// routinely ephemeral: with an empty log every re-run would open another
-	// issue for the same red. So GitHub is asked first — an OPEN issue
-	// already carrying this fingerprint IS the record.
+	// issue for the same red. So GitHub is asked first — an issue already
+	// carrying this fingerprint IS the record.
+	//
+	// The evidence is dated NOW, because a workflow that failed this minute
+	// is exactly that: a red after a close postdates the close, so a fix that
+	// did not hold still gets its issue, and only the re-run of a failure
+	// nobody has answered yet is folded into the one already open.
 	stage := "ci:" + o.Job
 	fp := escapeFingerprint(stage, EscapeOptions{Repo: o.Repo, Evidence: o.Evidence, Reason: reason})
-	if number, found := openIssueWithFingerprint(o.Repo, fp); found {
+	if number, found := issueAlreadyAnswers(o.Repo, []string{EscapeKind}, fp, time.Now().UTC()); found {
 		fmt.Fprintf(w, "gate escape: issue #%d already carries fingerprint %s — not opening a second\n", number, fp)
 		return EscapeRecord{}, false
 	}
@@ -380,69 +384,6 @@ func RecordCIEscape(o CIEscapeOptions, w io.Writer) (EscapeRecord, bool) {
 	}, w)
 }
 
-// openIssueWithFingerprint finds an OPEN escape issue whose body carries
-// fingerprint. A thin wrapper over findIssueByFingerprint for the one caller
-// that only ever cared about "open, this one label".
-func openIssueWithFingerprint(repo, fingerprint string) (int, bool) {
-	m, found := findIssueByFingerprint(repo, []string{EscapeKind}, "open", fingerprint)
-	if !found {
-		return 0, false
-	}
-	return m.Number, true
-}
-
-// fingerprintMatch is what findIssueByFingerprint reports about an issue it
-// found: which one, whether it is still open, and — when it is not — when
-// it closed. The closed timestamp is what lets a caller judge whether new
-// evidence postdates a human's decision instead of just re-litigating it.
-type fingerprintMatch struct {
-	Number   int
-	Open     bool
-	ClosedAt time.Time
-}
-
-// findIssueByFingerprint finds an issue whose body carries fingerprint,
-// among labels (queried one at a time — gh reads repeated --label flags as
-// an AND, so a query across several would silently ask for issues carrying
-// ALL of them) and states ("open", "closed" or "all", gh's own spelling). A
-// gh that cannot answer finds none, which at worst opens one duplicate —
-// never a lost signal.
-func findIssueByFingerprint(repo string, labels []string, state, fingerprint string) (fingerprintMatch, bool) {
-	if repo == "" || fingerprint == "" || !ghAvailable() || !hasGitHubRemote(repo) {
-		return fingerprintMatch{}, false
-	}
-	for _, label := range labels {
-		out, err := runGh(repo, "issue", "list", "--label", label, "--state", state, "--limit", "200", "--json", "number,body,state,closedAt")
-		if err != nil {
-			continue
-		}
-		start, end := strings.Index(out, "["), strings.LastIndex(out, "]")
-		if start < 0 || end < start {
-			continue
-		}
-		var docs []struct {
-			Number   int    `json:"number"`
-			Body     string `json:"body"`
-			State    string `json:"state"`
-			ClosedAt string `json:"closedAt"`
-		}
-		if json.Unmarshal([]byte(out[start:end+1]), &docs) != nil {
-			continue
-		}
-		for _, d := range docs {
-			if !strings.Contains(d.Body, issueFingerprintKey+" "+fingerprint) {
-				continue
-			}
-			m := fingerprintMatch{Number: d.Number, Open: strings.EqualFold(d.State, "OPEN")}
-			if t, err := time.Parse(time.RFC3339, d.ClosedAt); err == nil {
-				m.ClosedAt = t
-			}
-			return m, true
-		}
-	}
-	return fingerprintMatch{}, false
-}
-
 // --- trigger (d): the overrides ---------------------------------------------
 
 // OverrideCandidate is one false-positive candidate the log carries.
@@ -451,6 +392,12 @@ type OverrideCandidate struct {
 	Stage    string
 	Reason   string
 	Evidence string
+	// At is the NEWEST log line that makes this a candidate. It is what the
+	// close of an issue already carrying this fingerprint is weighed against,
+	// so it has to be the latest sighting and not the first: stamped with its
+	// oldest line, a candidate stays suppressed straight through a recurrence
+	// that happened yesterday.
+	At time.Time
 }
 
 // overrideVerdictPrefixes are the log verdicts that record a session going
@@ -479,12 +426,21 @@ func OverrideCandidates(r io.Reader, now time.Time) []OverrideCandidate {
 	// waiting to see whether the edit went in anyway.
 	denied := map[string]string{}
 	var out []OverrideCandidate
-	seen := map[string]bool{}
+	// at[stage] indexes the candidate already named for that stage. A later
+	// sighting does not open a second candidate — it MOVES the existing one's
+	// date forward, which is the date an issue's close gets weighed against.
+	// The evidence text stays the FIRST sighting's: it is what the
+	// fingerprint is computed from, and a fingerprint that drifts with every
+	// new line dedupes nothing.
+	at := map[string]int{}
 	add := func(c OverrideCandidate) {
-		if seen[c.Stage] {
+		if i, ok := at[c.Stage]; ok {
+			if c.At.After(out[i].At) {
+				out[i].At = c.At
+			}
 			return
 		}
-		seen[c.Stage] = true
+		at[c.Stage] = len(out)
 		out = append(out, c)
 	}
 
@@ -507,6 +463,7 @@ func OverrideCandidates(r io.Reader, now time.Time) []OverrideCandidate {
 			}
 			add(OverrideCandidate{
 				Stage:  "override:" + check,
+				At:     e.at,
 				Reason: fmt.Sprintf("%s refused an edit that then went in on a waiver — narrow it, fix it, or demote it", check),
 				Evidence: fmt.Sprintf("gate.log: pretooluse-denied:%s on %s, then %s on the same file inside %d days",
 					check, file, e.verdict, int(escapeDedupeWindow.Hours()/24)),
@@ -518,6 +475,7 @@ func OverrideCandidates(r io.Reader, now time.Time) []OverrideCandidate {
 				}
 				add(OverrideCandidate{
 					Stage:    "override:" + e.verdict,
+					At:       e.at,
 					Reason:   fmt.Sprintf("a session went around the gate (%s) — a check that gets switched off is a check to narrow or fix", e.verdict),
 					Evidence: "gate.log: " + line,
 				})
@@ -560,13 +518,17 @@ func RecordOverrideCandidates(repo string, candidates []OverrideCandidate, w io.
 		if titleMentions(open, c.Stage) {
 			continue
 		}
-		r, recorded := recordEscapeOnce(c.Stage, EscapeOptions{
-			Reason:   c.Stage + " " + c.Reason,
-			Kind:     FalsePositiveKind,
-			Evidence: c.Evidence,
-			Repo:     repo,
-			Check:    strings.TrimPrefix(c.Stage, "override:"),
-		}, w)
+		// The title guard above only ever sees OPEN issues, so on its own it
+		// stops suppressing the moment somebody fixes the check and closes
+		// the issue — and the seven-day log window still holds every pre-fix
+		// line, so the next sync files the same candidate again. The
+		// fingerprint lookup covers closed issues too, and lifts only for a
+		// sighting newer than the close.
+		if number, answered := issueAlreadyAnswers(repo, []string{FalsePositiveKind}, overrideFingerprint(repo, c), c.At); answered {
+			fmt.Fprintf(w, "override-candidate %s: issue #%d already answers this class — not opening a second\n", c.Stage, number)
+			continue
+		}
+		r, recorded := recordEscapeOnce(c.Stage, overrideEscapeOptions(repo, c), w)
 		if !recorded {
 			continue
 		}
