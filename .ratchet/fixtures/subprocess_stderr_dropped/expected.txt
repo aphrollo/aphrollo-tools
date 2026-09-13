@@ -1,1 +1,2 @@
 internal/fixture/stderrdrop.go:11
+internal/fixture/reach.go:28
