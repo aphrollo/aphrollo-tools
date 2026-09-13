@@ -50,7 +50,7 @@ func ClaudeMDBlock(shimDir string, undercover, mutantsAtMerge bool) string {
 	b.WriteString("- **Commit gate, cheapest first:** staged-baseline guard → ratchet laws → docs check →\n")
 	b.WriteString("  suppression check → per root: cargo sequential (fmt→guards→clippy→check→fail-first);\n")
 	b.WriteString("  a Go root also runs vet/lint first. It proves the staged test RED and STOPS — the\n")
-	b.WriteString("  mechanical suite runs at the MERGE, so no suites line at commit is CORRECT, not missing.\n")
+	b.WriteString("  mechanical suite runs at the MERGE; a commit prints a `NOT RUN` line naming each touched crate it did not test, so an untested crate is never a silent absence.\n")
 	b.WriteString("- **Laws are data:** `.ratchet/laws/*.toml` (scope + one matcher + severity), with baselines in\n")
 	b.WriteString("  the sibling `baselines` dir that only ever go DOWN. `aphrollo ratchet check` judges the tree\n")
 	b.WriteString("  and tightens; `aphrollo ratchet test` proves each law against its fixtures. A new hit is\n")

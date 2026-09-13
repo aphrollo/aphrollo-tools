@@ -19,6 +19,7 @@ import (
 // (e.g. a docs-only merge) says so explicitly rather than returning a bare
 // empty result indistinguishable from "the gate never ran".
 func Mechanical(repoRoot string, run SuiteRunner) GateResult {
+	resetSuiteProof()
 	var notes []string
 	// First, and ahead of the docs-only fast path as well: a repo whose
 	// mutation configuration names a retired key believes it is gated and is

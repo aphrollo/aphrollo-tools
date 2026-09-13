@@ -55,6 +55,10 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	if runner.Cmd == "go" {
 		runner = withGoCIParity(runner, gateName == premergeDisplayName)
 	}
+	// This root's suite is the ground the commit owes, whether the branch
+	// below runs it (the merge) or stands down in favour of the fail-first
+	// proof (the commit) — see suiteproof.go for what may be claimed after.
+	suiteProof.owe(runner)
 	// CI parity for a Go root: the same vet and lint the branch is judged by,
 	// both cheaper than the suite and therefore ahead of it.
 	if runner.Cmd == "go" {
