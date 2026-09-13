@@ -85,9 +85,14 @@ func gateRootCargo(gateName, repoRoot string, g rootGroup, rootFiles []string, r
 	}
 	// The touched crates' suite runs at the merge, not at every commit — see
 	// gateRoot for the measurement behind that. failFirst is true only for the
-	// commit gate, so this is the merge path.
-	if !failFirst && len(plan.touched) > 0 {
-		if res := suiteStage(gateName, repoRoot, g.root, plan.suiteRunner(), run); res.Blocked {
+	// commit gate, so that is the path which owes the scope without running
+	// it, and must both say so and refrain from vouching for the tree
+	// afterwards (suiteproof.go).
+	if len(plan.touched) > 0 {
+		suiteProof.owe(plan.suiteRunner())
+		if failFirst {
+			reportSuitesNotRun(gateName, g.root, plan)
+		} else if res := suiteStage(gateName, repoRoot, g.root, plan.suiteRunner(), run); res.Blocked {
 			return res
 		}
 	}

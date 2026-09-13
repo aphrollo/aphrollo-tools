@@ -185,26 +185,26 @@ var suiteRanGreen atomic.Bool
 // noteSuiteGreen is called by the suite stage on a real green.
 func noteSuiteGreen() { suiteRanGreen.Store(true) }
 
-// stampGreenSuite records the tree the passing suite ran against, so the
-// post-commit hook can write the note for exactly that tree.
+// stampGreenSuite records the tree a passing suite ran against.
 func stampGreenSuite(repoRoot string) {
-	path := greenSuiteStampFile(repoRoot)
-	tree := indexTree(repoRoot)
-	if path == "" || tree == "" {
-		return
-	}
-	_ = os.WriteFile(path, []byte(tree), 0o600)
+	stampTree(greenSuiteStampFile(repoRoot), repoRoot)
 }
 
 // StampGreenSuiteIfProven is the hook-side spelling: the commit gate calls it
 // after allowing a commit, and it stamps ONLY when a suite in this process
 // actually ran green. A gate that allowed a commit because there was nothing
 // to test has proven nothing and must not say it did.
+//
+// The tree is stamped PROVEN — the stronger fact the git note is written from
+// — only when what ran covers what this commit owed; see suiteproof.go.
 func StampGreenSuiteIfProven(repoRoot string) {
 	if !suiteRanGreen.Load() {
 		return
 	}
 	stampGreenSuite(repoRoot)
+	if suiteProof.covered() {
+		stampProvenSuite(repoRoot)
+	}
 }
 
 // indexTree is the tree the staged index would commit as.
@@ -235,25 +235,19 @@ func indexTree(repoRoot string) string {
 }
 
 // PostCommit is the post-commit hook: it writes the gate note on the commit
-// just made, when a suite went green for exactly that tree. The stamp is
-// CONSUMED, so it can vouch for one commit and no other — an amend makes a
-// new commit whose gate run only hit the cache, and gets no note, which is
-// the right answer for a commit no suite has run against.
+// just made, when every scope that commit owed was proved for exactly that
+// tree. Both stamps are CONSUMED, so they can vouch for one commit and no
+// other — an amend makes a new commit whose gate run only hit the cache, and
+// gets no note, which is the right answer for a commit no suite has run
+// against.
 //
 // Best-effort throughout: this is a channel, not a check, and the commit has
 // already been made by the time it runs.
 func PostCommit(repoRoot string) {
-	path := greenSuiteStampFile(repoRoot)
-	if path == "" {
-		return
-	}
-	stamped, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-	_ = os.Remove(path)
+	_ = os.Remove(greenSuiteStampFile(repoRoot))
+	proven := consumeProvenSuiteStamp(repoRoot)
 	tree, ok := revTree(repoRoot, "HEAD")
-	if !ok || tree == "" || strings.TrimSpace(string(stamped)) != tree {
+	if !ok || tree == "" || proven != tree {
 		return
 	}
 	_, _ = git(repoRoot, "notes", "--ref="+gateNotesRef, "add", "-f", "-m", gateGreenNote(tree), "HEAD")

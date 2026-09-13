@@ -124,8 +124,12 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	default:
 		mechCacheAdd(key)
 		// A suite RAN and passed. That, and not a cache hit, is what the
-		// gate note claims to CI — see noteSuiteGreen.
+		// gate note claims to CI — see noteSuiteGreen. What it proved is
+		// bounded by the ground this command covered: suiteProof.note takes
+		// the scope, and the note is written only if it covers what the
+		// commit owed (suiteproof.go).
 		noteSuiteGreen()
+		suiteProof.note(runner, res)
 		line := mechResultLine(gateName, stage, runner, root, res)
 		fmt.Fprintln(os.Stderr, line)
 		logSuiteVerdict(gateName, root, cmdString(runner), stageSuiteVerdict(runner, res), res)

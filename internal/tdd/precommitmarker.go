@@ -20,6 +20,7 @@ import (
 // there claiming "gate TDD pass" is a claim of verification that never
 // happened.
 func Precommit(repoRoot string, run SuiteRunner) GateResult {
+	resetSuiteProof()
 	res := precommitDecide(repoRoot, run)
 	appendGateLog("precommit", repoRoot, "gate", "ran", 0)
 	return res

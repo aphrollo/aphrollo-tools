@@ -44,7 +44,7 @@ func TestPostCommitWritesTheGateNoteForATreeWhoseSuiteWentGreen(t *testing.T) {
 	root := makeGoRepo(t)
 	write(t, root, "next.go", "package m\n")
 	gitDo(t, root, "add", ".")
-	stampGreenSuite(root)
+	stampProvenSuite(root)
 	gitDo(t, root, "commit", "-q", "-m", "Add the next thing")
 
 	PostCommit(root)
@@ -80,7 +80,7 @@ func TestAnAmendedCommitCarriesNoGateNote(t *testing.T) {
 	root := makeGoRepo(t)
 	write(t, root, "next.go", "package m\n")
 	gitDo(t, root, "add", ".")
-	stampGreenSuite(root)
+	stampProvenSuite(root)
 	gitDo(t, root, "commit", "-q", "-m", "Add the next thing")
 	PostCommit(root)
 
@@ -99,7 +99,7 @@ func TestPostCommitWritesNoNoteForADifferentTreeThanTheOneStamped(t *testing.T) 
 	root := makeGoRepo(t)
 	write(t, root, "a.go", "package m\n")
 	gitDo(t, root, "add", ".")
-	stampGreenSuite(root)
+	stampProvenSuite(root)
 	// Stage something else: the tree a suite proved is no longer the tree
 	// about to be committed.
 	write(t, root, "b.go", "package m\n")
@@ -151,7 +151,7 @@ func TestANoteTransplantedOntoAnotherCommitIsIgnored(t *testing.T) {
 	root := makeGoRepo(t)
 	write(t, root, "a.go", "package m\n")
 	gitDo(t, root, "add", ".")
-	stampGreenSuite(root)
+	stampProvenSuite(root)
 	gitDo(t, root, "commit", "-q", "-m", "Proven")
 	PostCommit(root)
 	proven := gitOutT(t, root, "rev-parse", "HEAD")
@@ -480,7 +480,7 @@ func commitWithGreenGateNote(t *testing.T, root, subject string) {
 	t.Helper()
 	write(t, root, "landed.go", "package m\n")
 	gitDo(t, root, "add", ".")
-	stampGreenSuite(root)
+	stampProvenSuite(root)
 	gitDo(t, root, "commit", "-q", "-m", subject)
 	PostCommit(root)
 }
