@@ -50,11 +50,14 @@ type DoctorInput struct {
 // dangling or unset core.hooksPath means git runs NONE of them, silently.
 // doctorForeignHooks follows it for the mirror-image reason: the same
 // directory may hold a hook this tool never wrote, which git DOES run
-// (issue #582).
+// (issue #582). doctorGitHookBinary is third for the third way the same
+// directory disarms everything below it: the shims are ours and git runs
+// them, and they exec a path that is not there (issue #681).
 func Doctor(in DoctorInput) []DoctorCheck {
 	checks := []DoctorCheck{
 		doctorGitHooksPath(in),
 		doctorForeignHooks(in),
+		doctorGitHookBinary(in),
 		doctorHookBinary(in),
 		doctorHookTimeouts(in),
 		doctorShimPath(in),

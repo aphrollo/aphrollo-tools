@@ -41,6 +41,20 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 	if binName == "" {
 		binName = defaultBinPath()
 	}
+	// Proven before the first write (issue #681, and see gateinit_bin.go):
+	// a bad --bin must cost a refusal, never a half-installed gate. The
+	// uninstall path is exempt on purpose — removing hooks that point at a
+	// binary which is already gone is exactly what a box in this state
+	// needs, and a guard standing in front of that would be the one thing
+	// worse than not having it.
+	if !*uninstall {
+		resolved, berr := resolveHookBin(binName, stdout)
+		if berr != nil {
+			fmt.Fprintf(stderr, "aphrollo gate init: %v\n", berr)
+			return 1
+		}
+		binName = resolved
+	}
 
 	changed, err := tdd.InitSettings(dir, binName, *uninstall)
 	if err != nil {

@@ -28,7 +28,7 @@ func TestGateInit_WritesTheBlockIntoTheNamedRepo(t *testing.T) {
 	cfg := t.TempDir()
 	var out, errb bytes.Buffer
 	code := Run([]string{"gate", "init", "--repo", target, "--config-dir", cfg,
-		"--bin", "/usr/local/bin/aphrollo", "--git-hooks-dir", filepath.Join(t.TempDir(), "githooks"),
+		"--bin", fakeInstalledBin(t), "--git-hooks-dir", filepath.Join(t.TempDir(), "githooks"),
 		"--cargo-shim-dir", filepath.Join(t.TempDir(), "bin", "cargo-queue")},
 		strings.NewReader(""), &out, &errb)
 	if code != 0 {

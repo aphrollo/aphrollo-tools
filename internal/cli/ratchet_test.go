@@ -437,7 +437,7 @@ func TestGateInitWritesTheManagedClaudeMDBlockIdempotently(t *testing.T) {
 	cfg := t.TempDir()
 	hooks := filepath.Join(t.TempDir(), "githooks")
 	shims := filepath.Join(t.TempDir(), "bin", "cargo-queue")
-	args := []string{"gate", "init", "--config-dir", cfg, "--bin", "/usr/local/bin/aphrollo",
+	args := []string{"gate", "init", "--config-dir", cfg, "--bin", fakeInstalledBin(t),
 		"--git-hooks-dir", hooks, "--cargo-shim-dir", shims}
 
 	cwd, err := os.Getwd()
@@ -506,7 +506,7 @@ func TestGateInitWritesTheLawSpecBesideTheLaws(t *testing.T) {
 	writeFile(t, filepath.Join(repo, ".ratchet", "laws", "placeholder.txt"), "")
 	t.Chdir(repo)
 
-	args := []string{"gate", "init", "--config-dir", t.TempDir(), "--bin", "/usr/local/bin/aphrollo",
+	args := []string{"gate", "init", "--config-dir", t.TempDir(), "--bin", fakeInstalledBin(t),
 		"--git-hooks-dir", filepath.Join(t.TempDir(), "githooks"),
 		"--cargo-shim-dir", filepath.Join(t.TempDir(), "cargo-queue")}
 

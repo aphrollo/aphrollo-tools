@@ -28,9 +28,9 @@ func isolateGit(t *testing.T) {
 // reversible with --uninstall.
 func TestRun_TDDInit(t *testing.T) {
 	t.Chdir(t.TempDir()) // init patches the CWD repo's CLAUDE.md — never this repo's
-	dir := t.TempDir()
+	dir, bin := t.TempDir(), fakeInstalledBin(t)
 	var out, errb bytes.Buffer
-	code := Run([]string{"tdd", "init", "--config-dir", dir, "--bin", "/usr/local/bin/aphrollo", "--no-git"},
+	code := Run([]string{"tdd", "init", "--config-dir", dir, "--bin", bin, "--no-git"},
 		strings.NewReader(""), &out, &errb)
 	if code != 0 {
 		t.Fatalf("init exit = %d, want 0\nstderr: %s", code, errb.String())
@@ -39,7 +39,7 @@ func TestRun_TDDInit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("settings.json not written: %v", err)
 	}
-	if !strings.Contains(string(data), `/usr/local/bin/aphrollo\" gate pretooluse`) {
+	if !strings.Contains(string(data), bin+`\" gate pretooluse`) {
 		t.Errorf("settings.json missing wired hook:\n%s", data)
 	}
 
@@ -784,7 +784,7 @@ func TestRun_TDDInit_UnwritableShimDir_WarnsButSucceeds(t *testing.T) {
 	t.Setenv(tdd.HooksDirUnsafeEnv, "1")
 	cfg := t.TempDir()
 	hooks := filepath.Join(t.TempDir(), "githooks")
-	bin := filepath.Join(t.TempDir(), "aphrollo.exe")
+	bin := writeFakeBin(t, filepath.Join(t.TempDir(), "aphrollo.exe"))
 
 	// A read-only parent, so creating the shim dir under it is denied.
 	parent := t.TempDir()

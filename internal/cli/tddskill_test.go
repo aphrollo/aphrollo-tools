@@ -35,7 +35,7 @@ func TestGateInitWritesTheTDDSkillAndRetiresTheCommandStub(t *testing.T) {
 
 	hooks := filepath.Join(t.TempDir(), "githooks")
 	shims := filepath.Join(t.TempDir(), "bin", "cargo-queue")
-	args := []string{"gate", "init", "--config-dir", cfg, "--bin", "/usr/local/bin/aphrollo",
+	args := []string{"gate", "init", "--config-dir", cfg, "--bin", fakeInstalledBin(t),
 		"--git-hooks-dir", hooks, "--cargo-shim-dir", shims}
 
 	var out, errb bytes.Buffer

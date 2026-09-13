@@ -26,7 +26,7 @@ func TestGateInit_PrintsOneNoticeAndExitsZeroInAMergeOnlyPrimary(t *testing.T) {
 
 	cfg := t.TempDir()
 	args := []string{"gate", "init", "--repo", primary, "--config-dir", cfg,
-		"--bin", "/usr/local/bin/aphrollo",
+		"--bin", fakeInstalledBin(t),
 		"--git-hooks-dir", filepath.Join(t.TempDir(), "githooks"),
 		"--cargo-shim-dir", filepath.Join(t.TempDir(), "bin", "cargo-queue")}
 
@@ -54,7 +54,7 @@ func TestGateInit_PrintsNoNoticeWhenThePrimaryBlockIsCurrent(t *testing.T) {
 
 	cfg := t.TempDir()
 	args := []string{"gate", "init", "--repo", primary, "--config-dir", cfg,
-		"--bin", "/usr/local/bin/aphrollo",
+		"--bin", fakeInstalledBin(t),
 		"--git-hooks-dir", filepath.Join(t.TempDir(), "githooks"),
 		"--cargo-shim-dir", shimDir}
 
