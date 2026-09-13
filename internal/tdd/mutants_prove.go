@@ -314,7 +314,7 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	if res.TimedOut {
 		fmt.Fprintf(stdout, "gate: mutants prove TIMED OUT — %s in %s never reached a verdict; restored, "+
 			"not proven either way\n", cmdString(runner), root)
-		return ExitMutantsProveTimedOut
+		return retainProveRun(root, runner, res, ExitMutantsProveTimedOut)
 	}
 
 	// An empty SELECTION is judged before the pass/fail question, because it
@@ -341,7 +341,7 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 			"no test at all: check it against the module path the tests are really under (a Rust "+
 			"`#[path = \"…\"] mod <name>;` mounts a file under <name>, not under its own file stem), or widen "+
 			"the scope and run the proof again.\n", strings.ToUpper(NoTestsSelected), cmdString(runner), root)
-		return ExitMutantsProveNoTestsSelected
+		return retainProveRun(root, runner, res, ExitMutantsProveNoTestsSelected)
 	}
 
 	failing := ExtractFailingTests(res.Output)
@@ -351,23 +351,24 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	case !res.Passed && matched != "":
 		fmt.Fprintf(stdout, "gate: mutant KILLED — %s failed as predicted (mutation: %q -> %q in %s; "+
 			"git diff --numstat: %s)\n", matched, opts.Old, opts.New, relPath, strings.TrimSpace(numstat))
-		return ExitMutantsProveKilled
+		return retainProveRun(root, runner, res, ExitMutantsProveKilled)
 	case !res.Passed && len(failing) == 0:
 		fmt.Fprintf(stdout, "gate: mutant UNREADABLE — unreadable red run: no failing test name could be read "+
 			"from the output, so nothing is proved either way about %q (mutation verified applied via "+
 			"git diff --numstat: %s; restored). Usually a build or link failure, or a runner shape the "+
-			"extractor does not know — the full run output says which.\n",
+			"extractor does not know — the run's own text says which, and `aphrollo gate output` serves "+
+			"it: this proof's run is the record kept for this root.\n",
 			opts.WantFail, strings.TrimSpace(numstat))
-		return ExitMutantsProveUnreadable
+		return retainProveRun(root, runner, res, ExitMutantsProveUnreadable)
 	case !res.Passed:
 		fmt.Fprintf(stdout, "gate: mutant WRONG FAILURE — the suite went red but not on %q; failing: %s "+
 			"(mutation verified applied via git diff --numstat: %s; restored)\n",
 			opts.WantFail, strings.Join(failing, ", "), strings.TrimSpace(numstat))
-		return ExitMutantsProveWrongFailure
+		return retainProveRun(root, runner, res, ExitMutantsProveWrongFailure)
 	default:
 		fmt.Fprintf(stdout, "gate: mutant SURVIVED — %s stayed green after a mutation VERIFIED applied "+
 			"(git diff --numstat: %s); this is a real survivor, not a no-op — restored\n",
 			cmdString(runner), strings.TrimSpace(numstat))
-		return ExitMutantsProveSurvived
+		return retainProveRun(root, runner, res, ExitMutantsProveSurvived)
 	}
 }
