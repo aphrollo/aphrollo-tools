@@ -165,6 +165,34 @@ func TestPrecommit_ClaimsNoGreenForAGoPackageItOnlyVetted(t *testing.T) {
 	}
 }
 
+// reportSuitesNotRun's own remedy (see TestPrecommit_NamesEachTouchedCrateWhoseSuiteItDidNotRun,
+// above) reached only gateRootCargo. gateRoot's non-cargo branch called
+// suiteProof.owe for the same reason and then said nothing: a Go commit's
+// standing-down suite left no line at all, so the absence this whole file
+// exists to make visible was invisible again, one branch over.
+func TestPrecommit_NamesTheGoPackageWhoseSuiteItDidNotRun(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	var ran []Runner
+	out := captureStderr(t, func() {
+		if res := Precommit(root, recordRunner(&ran, root)); res.Blocked {
+			t.Fatalf("unexpected block: %s", res.Message)
+		}
+	})
+	if !strings.Contains(out, "NOT RUN") {
+		t.Fatalf("the gate never said the go package's suite went unrun; output:\n%s", out)
+	}
+	if !strings.Contains(out, "internal/x") {
+		t.Fatalf("the NOT RUN line never named the touched package; output:\n%s", out)
+	}
+	if strings.Contains(out, "crate") {
+		t.Fatalf("a Go package is not a crate; output:\n%s", out)
+	}
+}
+
 // And its positive control: the merge gate runs the staged package's tests,
 // so the claim it leaves behind is one it can back.
 func TestMechanical_ClaimsTheGreenForAGoPackageItTested(t *testing.T) {
@@ -216,5 +244,32 @@ func TestMergeGate_RefusingALaneTheCommitGateNeverTestedRecordsNothing(t *testin
 
 	if n := len(readEscapes(t)); n != 0 {
 		t.Fatalf("recorded %d escapes, want 0 — the merge gate ran alpha's suite for the first time and found it red, which is the gate working", n)
+	}
+}
+
+// classifyUnownedCargoFiles drops a staged file no [package] owns from both
+// owned and touched, on a stderr line alone — it never reaches suiteProof at
+// all. So a commit that stages one owned crate (tested green here) alongside
+// one such file reads as fully covered: every scope suiteProof knows about
+// was proved, and the file nothing owns is invisible to it. This is #680's
+// own failure mode, surviving on the one path #680 did not reach.
+func TestMechanical_AnUnownedCargoFileLeavesTheTreeUnproven(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeMultiRootRepo(t)
+	write(t, root, "crates/a/src/lib.rs", "pub fn base() -> i32 { 1 }\n")
+	write(t, root, "misc.rs", "pub fn misc() -> i32 { 0 }\n")
+	gitDo(t, root, "add", ".")
+
+	var ran []string
+	green := func(r Runner, _ string) SuiteResult {
+		if isSuiteVerb(r) {
+			ran = append(ran, strings.Join(r.Args, " "))
+		}
+		return SuiteResult{Passed: true, Output: "test result: ok. 1 passed\n"}
+	}
+	note := noteAfterGate(t, root, func() GateResult { return Mechanical(root, green) })
+
+	if note != "" {
+		t.Fatalf("the gate vouched for this tree (%q) even though misc.rs has no owning cargo package and nothing tested it (suites run: %v)", note, ran)
 	}
 }
