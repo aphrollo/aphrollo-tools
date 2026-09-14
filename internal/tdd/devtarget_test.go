@@ -68,7 +68,7 @@ func TestFailFirstRun_ExportsTheResolvedTarget(t *testing.T) {
 	gitDo(t, repo, "add", ".")
 
 	var seen string
-	failFirstViolatedAt(repo, repo, []string{"tests/b.rs"}, func(r Runner, root string) SuiteResult {
+	failFirstViolatedAt(repo, repo, []string{"tests/b.rs"}, nil, func(r Runner, root string) SuiteResult {
 		seen = os.Getenv("CARGO_TARGET_DIR")
 		return SuiteResult{Passed: false}
 	})
