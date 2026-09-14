@@ -187,6 +187,21 @@ func TestGremlinsArgv_ScopesToTheLaneDiffAndCapsItself(t *testing.T) {
 	}
 }
 
+// #704: the self-hosted runner's coverage gather dies at Go's default
+// 10-minute test timeout before gremlins ever judges a mutant, and --silent
+// was the reason nobody could see that: it swallows the log.Infof that
+// carries the failing `go test`'s own output, leaving only gremlins' one-line
+// wrapper error. A silent run is the wrong default while the gather is
+// broken, so the flag must not be present until #704 is closed.
+func TestGremlinsArgv_DoesNotRunSilentWhileTheCoverageGatherIsBroken(t *testing.T) {
+	got := gremlinsArgv("abc123", "out.json", 1, nil)
+	for _, arg := range got {
+		if arg == "--silent" {
+			t.Fatalf("gremlinsArgv = %q, must not carry --silent while #704's coverage gather fails silently", got)
+		}
+	}
+}
+
 // gremlins takes a PATH, not a Go package pattern. Handed "./..." it walks
 // nothing, prints "No results to report" and exits 0 — a mutation gate that
 // always passes, which is the one failure mode this design cannot have.
