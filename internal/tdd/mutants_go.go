@@ -44,11 +44,24 @@ const gremlinsBin = "gremlins"
 // path (cobra.MaximumNArgs(1)) — "./..." makes it walk nothing, report no
 // results and exit 0 — so narrowing happens through exclusion, never through
 // a second positional argument.
+//
+// No --silent (issue #704): the self-hosted Linux runner has never completed
+// a measurement of this repo — gremlins' coverage gather builds a bare
+// `go test -cover ./...` with no -timeout, and that dies at Go's default 10
+// minutes (measured: 10m06s and 10m07s; raising it to 40m via GOFLAGS did not
+// help, the gather then failed identically at 40m10s). --silent is why
+// nobody could see further: it suppresses the log.Infof carrying that failing
+// `go test`'s own output, so only gremlins' one-line wrapper error reached the
+// log. runMutantsMeasured already tees this run's output into the caller's
+// log, so dropping the flag puts the real diagnosis where a reader finds it.
+// Cost: gremlins also logs each mutant as it judges it, but that volume is
+// bounded by the lane's own diff (--diff below). Restore --silent once #704
+// is closed and the gather completes.
 func gremlinsArgv(baseSHA, outPath string, workers int, excludeFiles []string) []string {
 	if workers < 1 {
 		workers = 1
 	}
-	argv := []string{"unleash", "--silent",
+	argv := []string{"unleash",
 		"--diff", baseSHA,
 		"--output", outPath,
 		"--workers", strconv.Itoa(workers),
