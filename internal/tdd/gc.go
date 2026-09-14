@@ -13,7 +13,7 @@ import (
 )
 
 // Disk hygiene for the build caches this binary's own gates create and use.
-// Four kinds of leftover qualify, and nothing else ever does:
+// Five kinds of leftover qualify, and nothing else ever does:
 //
 //	(a) idle incremental caches in the invoking workspace's target dir --
 //	    deleting one costs a single recompile of that crate;
@@ -22,7 +22,14 @@ import (
 //	(c) a directory beside a registered external worktree that holds nothing
 //	    but target/ -- git dropped the worktree, the build dir survived;
 //	(h) a cargo target dir that is not THE target dir -- a hand-made
-//	    `target-sky/` nobody builds into any more, idle for days.
+//	    `target-sky/` nobody builds into any more, idle for days;
+//	(l) a stale ENTRY (never the directory itself) directly under the gate's
+//	    own go-scratch directory, GoTmpRootDir -- every t.TempDir(), every
+//	    os.MkdirTemp, and every compiled test binary a `go` runner stages
+//	    lands there, one directory per suite run, and a run a timeout or a
+//	    panic killed never gets to run its own cleanup. .mutants/, the
+//	    mutation runner's own working area under the same root, is excluded
+//	    by name, the same way deps/, build/ and .fingerprint/ are below.
 //
 // Everything else is somebody's work. In particular deps/, build/ and
 // .fingerprint/ are NEVER reclaimable: they are what makes the next build
@@ -68,6 +75,7 @@ const (
 	GCKindDepsMember
 	GCKindDepsThirdParty
 	GCKindStrayTarget
+	GCKindGoTmp
 )
 
 // tempLitterAge is category (d)'s OWN age bar, deliberately shorter than the
@@ -128,6 +136,7 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 			out = append(out, gcStaleGateDirs(dir)...)
 		}
 		out = append(out, gcDeferredJobFiles(deferredDirPath(), deferredJobMaxAge, time.Now())...)
+		out = append(out, gcGoTmpLitter(repo, olderThan, time.Now())...)
 	}
 	if scope.Mutants {
 		// Every checkout's own area, not just this one's: a lane's mutation
