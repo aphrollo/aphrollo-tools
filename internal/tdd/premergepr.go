@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
 )
 
 // A lane can land two ways, and only one of them fires a git hook. A local
@@ -30,9 +32,17 @@ import (
 // merge` verb, which is the path this box takes.
 
 // GatePRMerge judges the tree a PR merge is about to create, in the gate's own
-// checkout, and returns the refusal a merge must not survive. A repo that
-// declares no mutants-at-merge is not gated here and pays nothing: the verb
-// behaves exactly as it did before this existed.
+// checkout, and returns the refusal a merge must not survive. It fires when
+// there is anything on the merged tree to judge: the repo declares ratchet
+// laws, or it declares mutants-at-merge, or both. Each stage inside keeps its
+// own opt-in — declaring laws alone pulls in the merged-tree ratchet
+// judgment (and, riding along in the same Mechanical call, its suites), never
+// the mutation measurement, which still answers only to mutants-at-merge. A
+// repo with neither pays nothing: no fetch, no checkout, the verb behaves
+// exactly as it did before this existed. (harryberg1n/borld#455, #456: the
+// mutation flag used to gate this whole judgment, so a repo with laws but no
+// mutants-at-merge got none of it — the gap two lanes, each green alone, used
+// to land a law regression only their merge crossed.)
 //
 // Every uncertainty refuses. A trunk that cannot be resolved, a merge that
 // cannot be built, a checkout that cannot be made: none of those measured
@@ -46,7 +56,7 @@ func GatePRMerge(laneWorktree string, run SuiteRunner, log io.Writer) error {
 	if err != nil {
 		return prGateRefusal(laneWorktree, "config", "%v", err)
 	}
-	if !cfg.AtMerge {
+	if !cfg.AtMerge && !ratchet.HasLaws(laneWorktree) {
 		return nil
 	}
 	tips, err := prGateTipsOf(laneWorktree, log)

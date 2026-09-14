@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -57,11 +58,17 @@ func declareMutantsAtMergeCommitted(t *testing.T, root string) {
 	gitDo(t, root, "commit", "-qm", "declare mutants-at-merge")
 }
 
-// A repo that declares no mutants-at-merge must merge exactly as it does
-// today: no throwaway checkout, no suite, no cost at all.
+// A repo that declares no mutants-at-merge and no ratchet laws must merge
+// exactly as it does today: no throwaway checkout, no suite, no fetch, no
+// cost at all — the promise this gate narrows, not the one it drops.
 func TestGatePRMerge_UndeclaredRepoRunsNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root, _ := prGateLane(t)
+
+	fetched := 0
+	orig := prGateFetch
+	prGateFetch = func(dir string) error { fetched++; return orig(dir) }
+	t.Cleanup(func() { prGateFetch = orig })
 
 	var seen []gateRun
 	if err := GatePRMerge(root, recordRuns(&seen, SuiteResult{Passed: true}), io.Discard); err != nil {
@@ -70,6 +77,104 @@ func TestGatePRMerge_UndeclaredRepoRunsNothing(t *testing.T) {
 	if len(seen) != 0 {
 		t.Fatalf("ran a suite for a repo that declares nothing: %+v", seen)
 	}
+	if fetched != 0 {
+		t.Fatalf("fetched trunk for a repo with nothing to judge on the merged tree: %d call(s)", fetched)
+	}
+}
+
+// writeCrateSizeLaw writes a size law scoped to the rust fixtures these tests
+// build: a file may not pass max lines, with an empty baseline so nothing is
+// grandfathered.
+func writeCrateSizeLaw(t *testing.T, root string, max int) {
+	t.Helper()
+	write(t, root, ".ratchet/laws/module-size.toml", `
+name = "module-size"
+description = "A file may not grow past the ceiling this law names"
+severity = "deny"
+baseline = ".ratchet/baselines/module-size.txt"
+
+[scope]
+include = ["crates/**/*.rs"]
+
+[matcher]
+kind = "line-count"
+max  = `+strconv.Itoa(max)+`
+`)
+	write(t, root, ".ratchet/baselines/module-size.txt", "")
+}
+
+// The escape this pins: harryberg1n/borld#455 and #456. `mutants-at-merge`
+// gated the WHOLE merged-tree judgment, not just the mutation stage, so a
+// repo that declares ratchet laws but no mutants-at-merge got no merged-tree
+// ratchet judgment at all — exactly the gap two lanes, each green alone,
+// used to land a law regression only their combination crossed.
+func TestGatePRMerge_RatchetLawOnlyTheMergedTreeBreaksRefusesWithoutMutantsAtMerge(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	gitInit(t, root)
+	writeMeasureBase(t, root)
+	writeCrateSizeLaw(t, root, 15)
+	// The base already carries the shape both sides grow from: a small,
+	// disjoint change to the head and the tail merges cleanly; replacing the
+	// whole file on each side (as writeMeasureBase's one-liner would) does not.
+	write(t, root, "crates/a/src/lib.rs", bigFileLines("a", 4, 4))
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "base and the law")
+	trunk := currentBranch(t, root)
+
+	gitDo(t, root, "checkout", "-q", "-b", "lane")
+	// The lane grows the head, still under the ceiling on its own.
+	write(t, root, "crates/a/src/lib.rs", bigFileLines("a", 7, 4))
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "lane grows the head")
+
+	// Trunk grows the tail by as much, also clean alone.
+	gitDo(t, root, "checkout", "-q", trunk)
+	write(t, root, "crates/a/src/lib.rs", bigFileLines("a", 4, 7))
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "trunk grows the tail")
+
+	gitDo(t, root, "checkout", "-q", "lane")
+
+	var seen []gateRun
+	err := GatePRMerge(root, recordRuns(&seen, SuiteResult{Passed: true}), io.Discard)
+
+	if err == nil {
+		t.Fatal("a law only the merged tree breaks must refuse the merge, mutants-at-merge or not")
+	}
+	if !strings.Contains(err.Error(), "module-size") {
+		t.Errorf("the refusal must name the law, got: %v", err)
+	}
+}
+
+// The mutation stage keeps its own opt-in even once ratchet laws pull the
+// merged-tree judgment on: a repo gated in for ratchet is not thereby gated
+// into a mutation measurement it never declared.
+func TestGatePRMerge_MutantsStageStaysOffWithoutItsOwnDeclaration(t *testing.T) {
+	cfgDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
+	root := t.TempDir()
+	gitInit(t, root)
+	writeMeasureBase(t, root)
+	writeCrateSizeLaw(t, root, 15)
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "base and the law")
+
+	gitDo(t, root, "checkout", "-q", "-b", "lane")
+	write(t, root, "crates/a/src/other.rs", "pub fn other() -> i32 { 7 }\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "lane adds a small file")
+
+	var seen []gateRun
+	err := GatePRMerge(root, recordRuns(&seen, SuiteResult{Passed: true}), io.Discard)
+
+	if err != nil {
+		t.Fatalf("a law-clean merged tree with no mutants-at-merge must land: %v", err)
+	}
+	if len(seen) == 0 {
+		t.Fatal("ratchet laws must still pull the merged-tree suites in")
+	}
+	requireNoMutantsMeasurement(t, cfgDir)
 }
 
 // The refusal that is the whole point: the merged tree is red, so the PR does
