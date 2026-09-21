@@ -30,6 +30,41 @@ func TestHandleSessionStart_NudgesSkills(t *testing.T) {
 	}
 }
 
+// TestHandleSessionStart_NudgeNamesTheInstalledSkillPath pins the fix for the
+// nudge that named the skill but never its location: an agent with no Skill
+// tool (Claude Code's `builder`/`researcher` types) cannot invoke a skill by
+// name and has nothing else to open. Once the skill is actually written to
+// this config dir, the nudge must state that exact resolved path so "read its
+// SKILL.md" is actionable without a filesystem search.
+func TestHandleSessionStart_NudgeNamesTheInstalledSkillPath(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	if _, err := WriteTDDSkill(dir); err != nil {
+		t.Fatal(err)
+	}
+	msg := HandleSessionStart([]byte(`{"session_id":"ss-skillpath"}`))
+	want := skillPath(dir)
+	if !strings.Contains(msg, want) {
+		t.Errorf("nudge does not state the installed skill's resolved path %q:\n%s", want, msg)
+	}
+}
+
+// TestHandleSessionStart_NudgeOmitsPathWhenSkillMissing pins the other half:
+// a nudge pointing at a file that does not exist is worse than one pointing
+// at nothing, so when the skill was never installed the nudge must not print
+// any path for it — it must instead name the command that installs it.
+func TestHandleSessionStart_NudgeOmitsPathWhenSkillMissing(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	msg := HandleSessionStart([]byte(`{"session_id":"ss-noskill"}`))
+	if strings.Contains(msg, skillPath(dir)) {
+		t.Errorf("nudge names a skill path that does not exist on disk:\n%s", msg)
+	}
+	if !strings.Contains(msg, "aphrollo install") {
+		t.Errorf("nudge must name the install command when the skill is missing:\n%s", msg)
+	}
+}
+
 func TestHandleSessionStart_SilentWhenOff(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const sess = "ss-off"

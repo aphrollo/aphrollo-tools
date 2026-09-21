@@ -81,16 +81,29 @@ type sessionState struct {
 	Bash map[string]*bashSnapshot `json:"bash,omitempty"`
 }
 
+// claudeConfigDir resolves the Claude config dir this package uses whenever
+// it must agree with `aphrollo install` about where things live:
+// CLAUDE_CONFIG_DIR if set, else ~/.claude. stateDir uses it for the
+// per-session state files, and resolvedTDDSkillPath uses it to name the exact
+// file `aphrollo install` wrote — one resolver, so the writer and its readers
+// can never name two different directories.
+func claudeConfigDir() string {
+	if base := os.Getenv("CLAUDE_CONFIG_DIR"); base != "" {
+		return base
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".claude")
+}
+
 // stateDir is where per-session state files live. It honours CLAUDE_CONFIG_DIR
 // (the same location the Node hooks used) and falls back to ~/.claude.
 func stateDir() string {
-	base := os.Getenv("CLAUDE_CONFIG_DIR")
+	base := claudeConfigDir()
 	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		base = filepath.Join(home, ".claude")
+		return ""
 	}
 	dir := filepath.Join(base, "gate-state")
 	migrateStateDir(filepath.Join(base, "tdd-state"), dir)

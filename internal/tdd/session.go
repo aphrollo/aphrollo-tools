@@ -282,19 +282,36 @@ type sessionStartInput struct {
 // (test sizing, the pyramid ratio, DAMP-over-DRY, thin vertical slices) live
 // only there. So the directive is to INVOKE it, not a paraphrase of its
 // contents: the skill body stays out of context until the model reads it on
-// demand. The skill named here is the one `gate init` writes into the config
-// dir, so the nudge cannot outlive its target. It also states the loud-gates
-// contract directly: the hooks run the tests, not the model, so re-running a
-// suite by hand after every edit "to check" is redundant work — read the
-// `gate:` line the PostToolUse hook already printed instead (the hooks print
-// `gate:`, never `tdd:` — issue #121).
-const skillNudge = "gate: before writing or changing any code this session, invoke the " +
-	"`tdd` skill (read its SKILL.md). The hooks run the tests, not you: " +
-	"after every Edit/Write, read the `gate:` line the PostToolUse hook prints (green with count / " +
-	"red-missing-impl / red / TIMEOUT / SKIPPED / QUEUED-SKIPPED) instead of running a suite by hand to " +
-	"check — the only manual runs are mutation proofs, soaks, or a targeted rerun after the hook said " +
-	"TIMEOUT or SKIPPED. Commit ONE mixed test+impl commit per task; the pre-commit gate re-proves RED " +
-	"and runs the touched crates' suites, and merges are gated by pre-merge-commit."
+// demand. The skill named here is the one `aphrollo install` writes into the
+// config dir, so the nudge cannot outlive its target — and it states that
+// exact resolved path, not just the skill's name: an agent whose toolset has
+// no Skill tool (Claude Code's `builder`/`researcher` types) cannot invoke a
+// skill by name at all, and with no path in the nudge it has nothing to open
+// but a filesystem-wide search. skillNudge, the managed CLAUDE.md block, and
+// WriteTDDSkill all resolve the path through the one resolvedTDDSkillPath, so
+// the writer and its readers can never name three different files. When the
+// file is not actually on disk, the nudge says so and names the command that
+// writes it instead — a path to a file that does not exist is worse than no
+// path. It also states the loud-gates contract directly: the hooks run the
+// tests, not the model, so re-running a suite by hand after every edit "to
+// check" is redundant work — read the `gate:` line the PostToolUse hook
+// already printed instead (the hooks print `gate:`, never `tdd:` — issue
+// #121).
+func skillNudge() string {
+	invite := "invoke the `tdd` skill"
+	if path, installed := resolvedTDDSkillPath(); installed {
+		invite += " (read " + path + ")"
+	} else if path != "" {
+		invite += " — not installed yet; run `aphrollo install` to write it"
+	}
+	return "gate: before writing or changing any code this session, " + invite + ". " +
+		"The hooks run the tests, not you: " +
+		"after every Edit/Write, read the `gate:` line the PostToolUse hook prints (green with count / " +
+		"red-missing-impl / red / TIMEOUT / SKIPPED / QUEUED-SKIPPED) instead of running a suite by hand to " +
+		"check — the only manual runs are mutation proofs, soaks, or a targeted rerun after the hook said " +
+		"TIMEOUT or SKIPPED. Commit ONE mixed test+impl commit per task; the pre-commit gate re-proves RED " +
+		"and runs the touched crates' suites, and merges are gated by pre-merge-commit."
+}
 
 // HandleSessionStart returns the context injected at session start. It is silent
 // when the session has TDD enforcement turned off (`/tdd off`), matching the
@@ -319,7 +336,7 @@ func HandleSessionStart(raw []byte) string {
 	// At most one extra line each, in a fixed order: a session start that
 	// scrolls is a session start nobody reads. The style block rides here so
 	// it is present from the very first turn, not just from the second one.
-	parts := []string{skillNudge}
+	parts := []string{skillNudge()}
 	if effectiveReplyStyle(s) == "terse" {
 		parts = append(parts, StyleBlock())
 	}

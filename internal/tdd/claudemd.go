@@ -30,13 +30,23 @@ func ClaudeMDBlock(shimDir string, undercover, mutantsAtMerge bool) string {
 	var b strings.Builder
 	b.WriteString(claudeMDBegin + "\n")
 	b.WriteString("## Working with the aphrollo gate\n\n")
-	fmt.Fprintf(&b, "- **`cargo` and `git` resolve to the queue shim** (`which cargo` prints a path under\n")
-	fmt.Fprintf(&b, "  `%s`); the user PATH and the shell profiles put it first, so a session never exports\n", dir)
+	fmt.Fprintf(&b, "- **`cargo` and `git` resolve to the queue shim** (`which cargo` prints a path under `%s`);\n", dir)
+	b.WriteString("  the user PATH and the shell profiles put it first, so a session never exports\n")
 	b.WriteString("  PATH by hand. A run through the shim QUEUES visibly behind another build instead of\n")
 	b.WriteString("  hanging on a silent lock; if `which` prints the raw toolchain, the profile is broken: say so.\n")
 	b.WriteString("- **The hooks run the tests, not you.** After every Edit/Write, PostToolUse prints\n")
 	b.WriteString("  exactly ONE `gate:` line. Read it; never re-run a suite it just ran. Iterate with\n")
 	b.WriteString("  `cargo check -p <crate> --tests`, which runs nothing.\n")
+	// A subagent (`builder`, `researcher`, `Explore`, ...) never gets the
+	// session-start nudge — SessionStart context is not forwarded to it — but
+	// project instructions ARE, so this is the one place a subagent with no
+	// Skill tool can learn where the `tdd` skill actually lives instead of
+	// searching the filesystem for it.
+	if path, installed := resolvedTDDSkillPath(); installed {
+		fmt.Fprintf(&b, "- **Before writing or changing code, read the `tdd` skill at `%s`.**\n", path)
+	} else {
+		b.WriteString("- **Before writing or changing code, read the `tdd` skill** — run `aphrollo install` to write it.\n")
+	}
 	b.WriteString("- **What the line means:** `green (N passed)` · `red-missing-impl` (a clean RED) · `red` ·\n")
 	b.WriteString("  `red-bogus` (broken test setup, not a real RED) · `TIMEOUT` / `SKIPPED` / `QUEUED-SKIPPED`\n")
 	b.WriteString("  (**inconclusive — the code was NOT tested**) · `BUILDING (deferred)` (the build outran the\n")
@@ -65,8 +75,7 @@ func ClaudeMDBlock(shimDir string, undercover, mutantsAtMerge bool) string {
 	b.WriteString("- **The primary checkout is merge-only.** Once a repo has any linked worktree, the checkout holding\n")
 	b.WriteString("  `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL, the\n")
 	b.WriteString("  git shim (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit) is the WALL.\n")
-	b.WriteString("  Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override\n")
-	b.WriteString("  with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).\n")
+	b.WriteString("  Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).\n")
 	// The merge line is about THIS repo, not about the tool: a conditional
 	// ("with `mutants-at-merge = true` ...") makes a reader go and find out
 	// which half applies to them, which is the errand the block exists to
