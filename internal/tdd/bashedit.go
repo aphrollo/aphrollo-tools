@@ -289,6 +289,15 @@ func PostBash(raw []byte, run SuiteRunner) string {
 // that is halfway through somebody else's edit (issue #593). "" whenever the
 // question does not arise: an ordinary checkout, or a primary whose changed
 // paths are all unstaged.
+//
+// A `git merge --no-ff` INTO that primary is the one command whose own
+// staged paths are not foreign at all — a conflicted (or auto-merged) merge
+// leaves exactly its own touched files staged, as MERGE_HEAD, and reading
+// those as "another session's work" mislabelled the merge's own tree on
+// every `git merge --no-ff` this box ran (issue #713, foreign-staged-skipped
+// counted 19 hits in one session, every one the merge's own files). When
+// MERGE_HEAD (or a cherry-pick/revert in progress) names this as the merge,
+// mergeInProgressLine reports that truthfully instead.
 func foreignStagedLine(root string, changed []string) string {
 	if _, ok := PrimaryMergeOnly(root); !ok {
 		return ""
@@ -306,10 +315,22 @@ func foreignStagedLine(root string, changed []string) string {
 	if len(hits) == 0 {
 		return ""
 	}
+	if ref := mergeInProgressRef(root); ref != "" {
+		appendGateLog("postedit", root, logToken(hits[0]), "merge-in-progress-standdown", 0)
+		return mergeInProgressLine(root, hits)
+	}
 	appendGateLog("postedit", root, logToken(hits[0]), "foreign-staged-skipped", 0)
 	return fmt.Sprintf("gate: → skipped in %s (%d changed path(s) are staged in this merge-only primary's index — "+
 		"another session's work, not this command's: %s; the code was NOT tested)",
 		root, len(hits), strings.Join(hits, ", "))
+}
+
+// mergeInProgressLine is what a merge's own staged paths get instead of the
+// foreign-session refusal: a true statement of what is actually happening —
+// this command IS the merge, and the premerge/commit gate is what judges it,
+// not this shell-edit harvest.
+func mergeInProgressLine(root string, hits []string) string {
+	return fmt.Sprintf("gate: merge in progress (%d path(s) staged in %s) — premerge runs at commit", len(hits), root)
 }
 
 // otherRootsAmong finds the distinct project roots among rest (the changed
