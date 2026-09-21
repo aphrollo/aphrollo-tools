@@ -15,9 +15,10 @@ type PrunedLane struct {
 
 // PruneMergedLanesAfterMerge sweeps mainRepo's LINKED worktrees, removing
 // every one whose checked-out branch is MERGED into the repo's resolved
-// trunk (never hardcoded "main" — `trunkBranch` is the same resolution every
-// law in this package uses) — `git for-each-ref --merged <trunk>` — with
-// two narrowings:
+// trunk (never hardcoded "main" — `localTrunkBranch` resolves it from
+// mainRepo's own checked-out branch, not `trunkBranch`'s remote-tracking
+// answer; see localTrunkBranch's own doc for why) — `git for-each-ref
+// --merged <trunk>` — with two narrowings:
 //
 //  1. A branch with no commits of its own never counts as merged, even
 //     though `--merged` alone would say so: its tip already sits somewhere
@@ -53,7 +54,7 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 	if mainRepo == "" {
 		return nil
 	}
-	trunk := trunkBranch(mainRepo)
+	trunk := localTrunkBranch(mainRepo)
 	if trunk == "" {
 		return nil
 	}
@@ -65,6 +66,7 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 	mainClean := cleanWorktreePath(mainRepo)
 	excludeClean := cleanWorktreePath(exclude)
 	var pruned []PrunedLane
+	examined := 0
 	for _, wt := range mergePruneWorktrees(mainRepo) {
 		wtClean := cleanWorktreePath(wt.path)
 		if wt.branch == "" || wtClean == mainClean {
@@ -73,6 +75,7 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 		if excludeClean != "" && wtClean == excludeClean {
 			continue
 		}
+		examined++
 		tip, ok := merged[wt.branch]
 		if !ok {
 			continue // not merged into trunk at all
@@ -100,7 +103,50 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 		fmt.Fprintf(stdout, "prune-lanes: pruned %s (%s, merged into %s)\n", wt.path, wt.branch, trunk)
 		pruned = append(pruned, PrunedLane{Worktree: wt.path, Branch: wt.branch})
 	}
+	if len(pruned) == 0 {
+		// A sweep that inspected lanes and removed none of them must say so:
+		// the silent exit here — issue #710 — is indistinguishable from
+		// outside the sweep working correctly with nothing to do, which is
+		// what let a repo's trunk resolution go wrong for its whole life
+		// unnoticed. One line, never one per lane.
+		fmt.Fprintf(stdout, "prune-lanes: examined %d lane(s) against %s; pruned none\n", examined, trunk)
+	}
 	return pruned
+}
+
+// localTrunkBranch answers what the guarded sweep actually needs to know:
+// the branch the merge THIS SWEEP is following just landed on. mainRepo is
+// always the primary, merge-only checkout (postmerge.go resolves it through
+// primaryCheckoutRoot before ever calling this), so that branch is simply
+// whatever mainRepo's HEAD is checked out to right now — never a question
+// this needs `trunkBranch`'s remote-tracking resolution to answer.
+//
+// `trunkBranch` prefers refs/remotes/origin/HEAD, which is exactly right for
+// its other callers — they are all asking what GitHub, or a `git fetch`,
+// would call trunk: the stale-branch push guard (a PR reads against GitHub's
+// current base), the pre-merge-PR gate (it builds the same merge GitHub is
+// about to make, and fetches origin first), the trunk-merge preview (its own
+// doc comment: "GitHub tests the lane against a synthetic merge with the
+// CURRENT base branch"), and the ratchet baseline guard's catch-up-merge
+// checks (the catch-up they detect is a lane merging the remote-tracked
+// trunk into itself). None of those run in a repo whose workflow merges
+// straight into a local trunk and pushes only sometimes — issue #710: with
+// 837 unpushed commits on local main, `trunkBranch` still answers
+// "origin/main", 837 commits behind, and every lane that just landed on
+// local main reads as "not merged into trunk at all".
+//
+// Falls back to trunkBranch when mainRepo's HEAD cannot be read at all
+// (detached, or no commit yet) — doubt here means "cannot tell", not "assume
+// local", and trunkBranch's own multi-candidate resolution is the better
+// guess in that case.
+func localTrunkBranch(mainRepo string) string {
+	branch, err := git(mainRepo, "rev-parse", "--abbrev-ref", "HEAD")
+	if err == nil {
+		if name := strings.TrimSpace(branch); name != "" && name != "HEAD" {
+			return name
+		}
+	}
+	return trunkBranch(mainRepo)
 }
 
 // reflogEntryMarker prefixes every reflog subject zeroCommitLaneKeepReason
