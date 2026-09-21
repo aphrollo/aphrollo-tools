@@ -27,13 +27,19 @@ import (
 // the merge gate, so a test can show a help flag never wrote the note.
 var postCommitRoutineSeam = func() {}
 
-func runPostCommit(stderr io.Writer) int {
+func runPostCommit(stdout, stderr io.Writer) int {
 	postCommitRoutineSeam()
 	root := tdd.RepoRoot(".")
 	if root == "" {
 		return 0
 	}
 	tdd.PostCommit(root)
+	// The guarded lane sweep's second path (issue #716): a lane landed by
+	// resolving a conflict and concluding with a plain `git commit` never
+	// fires git's own post-merge hook (runPostMerge) at all, so it is caught
+	// here instead — opt-in on the same key, and inert for the ordinary
+	// single-parent commit this hook fires on constantly.
+	tdd.PostCommitMergeSweep(".", stdout, stderr)
 	return 0
 }
 

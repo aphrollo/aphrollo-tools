@@ -28,7 +28,11 @@ Subcommands:
   primary-edits     on|off (alias of allow/revoke primary; retiring next release)
   postcommit        Git post-commit hook: write the refs/notes/gate note on the
                     commit just made — what lets CI tell a red on a gated tip
-                    from a red on an ungated one. Never blocks, never fails
+                    from a red on an ungated one — and, in a repo declaring
+                    prune-lanes-on-merge = true, sweep the lanes a conflict
+                    resolved by hand and concluded with "git commit" just
+                    landed (the shape post-merge never sees). Never blocks,
+                    never fails
   postmerge         Git post-merge hook: in a repo declaring
                     prune-lanes-on-merge = true, sweep the lanes this merge
                     landed (the same guarded sweep workspace merge runs,
@@ -255,13 +259,16 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runGateCommitMsg(args[1:], stderr)
 	}
 	if args[0] == "postcommit" {
-		// The post-commit git hook, and there is only one: it writes the gate
-		// note on the commit just made. It cannot block — the commit is made.
+		// The post-commit git hook: it writes the gate note on the commit
+		// just made, and — opt-in, same key as postmerge — sweeps a lane
+		// landed by a conflict resolved and concluded with `git commit`,
+		// the one shape post-merge never fires for. It cannot block — the
+		// commit is made.
 		if gateHelpRequested(args[1:]) {
 			fmt.Fprint(stdout, gateUsage)
 			return 0
 		}
-		return runPostCommit(stderr)
+		return runPostCommit(stdout, stderr)
 	}
 	if args[0] == "postmerge" {
 		// The post-merge git hook: the opt-in lane sweep, in the repo the
