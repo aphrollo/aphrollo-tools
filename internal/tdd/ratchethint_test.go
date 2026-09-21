@@ -80,7 +80,7 @@ func TestSessionStartCarriesTheHintExactlyOnce(t *testing.T) {
 	if strings.Count(msg, "no ratchet laws") != 1 {
 		t.Fatalf("session start message = %q", msg)
 	}
-	if !strings.Contains(msg, skillNudge) {
+	if !strings.Contains(msg, skillNudge()) {
 		t.Error("the hint must not displace what session start already says")
 	}
 }

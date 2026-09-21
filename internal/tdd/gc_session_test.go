@@ -109,7 +109,7 @@ func TestHandleSessionStart_StartsTheSweepAndCarriesTheLastReport(t *testing.T) 
 	if !strings.Contains(got, "1.0 GB") {
 		t.Errorf("session start must carry the last sweep's result, got: %s", got)
 	}
-	if !strings.Contains(got, skillNudge) {
+	if !strings.Contains(got, skillNudge()) {
 		t.Error("the gc line must be added to the nudge, not replace it")
 	}
 	if len(started) != 1 || started[0] != "D:/Projects/borld" {

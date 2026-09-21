@@ -31,7 +31,11 @@ Code written before its test goes back through RED.
 
 One `gate:` line after every Edit/Write. Read it; never re-run what it ran.
 `TIMEOUT` / `SKIPPED` / `QUEUED-SKIPPED` = untested, never a pass.
-`BUILDING (deferred)` = result at the next hook.
+`BUILDING (deferred)` = result at the next hook — and the next hook fires on
+your next Edit/Write, so ending the turn to wait for a notification deadlocks.
+Wait in the FOREGROUND instead: `aphrollo gate status --wait`. `aphrollo gate stats`
+= what the verdict WAS; `aphrollo gate output` = what that run actually PRINTED,
+assertion lines unfiltered. Neither re-runs a suite.
 
 Iterate with a compile-only command (`cargo check -p <crate> --tests`,
 `go vet ./...`). Manual runs only: a mutation proof, a deliberate soak, ONE

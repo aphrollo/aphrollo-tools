@@ -40,6 +40,22 @@ func tddSkillPath(configDir string) string {
 	return filepath.Join(configDir, "skills", "tdd", "SKILL.md")
 }
 
+// resolvedTDDSkillPath is the ONE place that answers "where is the tdd skill,
+// and is it actually there": the session-start nudge, the managed CLAUDE.md
+// block, and this file's own WriteTDDSkill all resolve through it, so a
+// writer and its readers can never name three different files. installed is
+// false both when the path cannot be resolved (no home dir) and when nothing
+// is written there yet — either way a caller must not print path as if it
+// exists.
+func resolvedTDDSkillPath() (path string, installed bool) {
+	path = tddSkillPath(claudeConfigDir())
+	if path == "" {
+		return "", false
+	}
+	info, err := os.Stat(path)
+	return path, err == nil && !info.IsDir()
+}
+
 // WriteTDDSkill writes the managed `tdd` skill into a Claude config dir and
 // retires the slash-command stub it replaces. It reports whether anything
 // changed: a second run over the same binary writes nothing.
