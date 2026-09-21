@@ -360,6 +360,9 @@ func splittable(r Runner) bool { return r.Cmd == "cargo" }
 func phaseArgv(r Runner, phase string) []string {
 	argv := append([]string{r.Cmd}, r.Args...)
 	if phase == "build" {
+		if hasNoRunFlag(argv) {
+			return argv
+		}
 		return append(argv, "--no-run")
 	}
 	// A `go test` phase names its own -timeout, above the deferral ceiling:

@@ -146,6 +146,28 @@ func TestPhaseArgv_LeavesACargoRunAlone(t *testing.T) {
 	}
 }
 
+// TestPhaseArgv_BenchEditNeverDoublesNoRun pins issue #711: cargoTargetRunner
+// already appends --no-run for a benches/ edit (a bench RUN costs minutes and
+// answers a question nobody asked — only "does it compile" is owed), so the
+// argv phaseArgv's build phase receives already carries --no-run.
+// Unconditionally appending a second one produced
+// "error: the argument '--no-run' cannot be used multiple times", which
+// nextest reports as outcome=red on every benches/ edit though nothing was
+// even compiled.
+func TestPhaseArgv_BenchEditNeverDoublesNoRun(t *testing.T) {
+	argv := phaseArgv(Runner{Cmd: "cargo", Args: []string{"nextest", "run", "-p", "sim", "--bench", "apply_movement", "--no-run"}}, "build")
+
+	count := 0
+	for _, a := range argv {
+		if a == "--no-run" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("argv = %v, want exactly one --no-run, got %d", argv, count)
+	}
+}
+
 // goTimeoutArg reads back the -timeout value from an argv, in both spellings
 // `go test` accepts, so a test asserts on the VALUE rather than on one exact
 // spelling of the flag.

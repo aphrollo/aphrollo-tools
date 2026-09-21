@@ -182,6 +182,38 @@ func resolveEmptySelection(run SuiteRunner, snap stateSnapshot, root, headSHA st
 	return out
 }
 
+// cargoFullSuiteAlreadyGreenLine is the stand-down for a narrowed cargo
+// runner whose WIDENED (package-scope) form already proved green at this
+// exact worktree state — the shape left behind when the precommit/premerge
+// stage just ran the crate's full suite and cached it (mechCacheAdd in
+// runSuiteStage). This repo's own module-size law puts a file's tests in a
+// SIBLING module the file's own module-path filter can never match, so every
+// narrowed post-edit run there widens to the identical package-scope command
+// the mechanical stage just cached — and reported "the code was NOT tested"
+// two lines after that crate's suite ran green (issue #715). It is false:
+// the crate WAS tested, by the wider command this exact state already
+// proved. "" when nothing is cached, which is the ordinary case, so the
+// narrowed run proceeds exactly as before.
+func cargoFullSuiteAlreadyGreenLine(r Runner, root string) string {
+	if r.Cmd != "cargo" {
+		return ""
+	}
+	full := r
+	if wide, widened := widenCargoRunner(r); widened {
+		full = wide
+	}
+	h := worktreeStateHash(root)
+	if h == "" {
+		return ""
+	}
+	if !mechCacheHit(mechKey(root, h, full)) {
+		return ""
+	}
+	appendGateLog("postedit", root, cmdString(full), "cache-hit", 0)
+	return fmt.Sprintf("gate: %s in %s → cache-hit (this crate's suite already verified green in this exact state; not re-run)",
+		cmdString(full), root)
+}
+
 // widenedNote is the second line under a widened run's ordinary advisory. The
 // verdict above it is real, but WHICH tests produced it is not what the
 // session asked for, so the line names the filter that selected nothing and
