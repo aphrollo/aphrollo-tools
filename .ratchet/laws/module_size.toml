@@ -1,5 +1,5 @@
 name        = "module_size"
-description = "A file already over 600 lines may never grow past its recorded ceiling, and no new file crosses 600 without a baseline entry. Textual line count, src and tests alike, over this repo's own Go tree."
+description = "No new file crosses 600 lines without a baseline entry, and a file that already has one may never grow past its recorded ceiling — nor clear its row by landing at 599: it clears the row only by measuring 540 or less (the re-entry bar, 90% of the ceiling by default). The gap is deliberate. A single threshold rewards shaving eight comment lines to pay for eight code lines, which nets zero and passes while the file stays exactly as unsplittable as it was; a bar 60 lines down is out of a shave's reach, so splitting the file is the way out. Textual line count, src and tests alike, over this repo's own Go tree."
 severity    = "deny"
 baseline    = ".ratchet/baselines/module_size.txt"
 

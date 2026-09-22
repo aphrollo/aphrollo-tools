@@ -184,6 +184,20 @@ func Check(opts Options) (Result, error) {
 		return res, nil
 	}
 
+	// A line-count law's bar is decided per KEY — the ceiling for a key the
+	// baseline has never seen, the re-entry bar for one it already carries —
+	// so the keys have to be in hand before the scan measures anything.
+	for i := range laws {
+		if laws[i].Matcher.Kind != KindLineCount || laws[i].Baseline == "" {
+			continue
+		}
+		b, _, err := loadLawBaseline(opts.Root, laws[i])
+		if err != nil {
+			return Result{}, err
+		}
+		laws[i].Baselined = baselinedKeys(b)
+	}
+
 	scan, err := scanTree(opts, laws)
 	if err != nil {
 		return Result{}, err
@@ -370,7 +384,7 @@ func lawFinding(law Law, h Hit, r Regression) Finding {
 		Baseline: r.Baseline,
 		Measured: r.Measured,
 		Escape:   law.Escape,
-		Remedy:   remedyFor(law),
+		Remedy:   remedyFor(law, r.Baseline > 0),
 	}
 }
 

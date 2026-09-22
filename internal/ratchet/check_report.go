@@ -85,8 +85,21 @@ func fitWhat(what string, n int) string {
 // law is not escaped, it is paid down, and the number it is paid down TO is
 // what the reader needs; a law with no escape has exactly one way through,
 // and saying nothing there reads as "there must be a marker somewhere".
-func remedyFor(law Law) string {
+// hasRow says the offending key is one the baseline already carries, which
+// for a line-count law changes the number being paid down TO: such a file
+// clears its row at the re-entry bar, not at the ceiling, and a remedy naming
+// only the ceiling sends the author to shave to one line under it — the move
+// the bar exists to stop rewarding.
+func remedyFor(law Law, hasRow bool) string {
 	if law.Matcher.Kind == KindLineCount {
+		if hasRow {
+			// "only" is the load-bearing word: it says the ceiling is not the
+			// way out of a row, so shaving to one line under it buys nothing.
+			// Kept to one short clause because the whole hit line is budgeted
+			// at maxFindingLine runes and a longer remedy eats the
+			// measurement beside it.
+			return fmt.Sprintf("split the file; the ceiling is %d and the row clears only at %d", law.Matcher.Max, law.Matcher.Reentry)
+		}
 		return fmt.Sprintf("split the file; the ceiling is %d", law.Matcher.Max)
 	}
 	if law.Matcher.Kind == KindSymbolRemoved {

@@ -131,7 +131,7 @@ accepts either. `contiguous` applies in whichever direction is chosen.
 
 | kind | keys | the rule | exemplar |
 |---|---|---|---|
-| `line-count` | `max`, `count`, `unit_split` | a file may not exceed `max` lines; key = file, count = lines (`count = "code"` drops blank and comment-only lines, by the file's own `//`/`/* */`/`#` syntax) | module-size debt |
+| `line-count` | `max`, `count`, `reentry`, `unit_split` | a file may not exceed `max` lines, and a file the baseline already carries clears its row only by coming down to `reentry` (90% of `max` by default); key = file, count = lines (`count = "code"` drops blank and comment-only lines, by the file's own `//`/`/* */`/`#` syntax) | module-size debt |
 | `regex-absent` | `pattern`, `key`, `count` | a pattern must NOT appear; `count = "matches"` counts every call on a line, not the line | the bare `.clamp(` guard |
 | `path-regex-absent` | `pattern` | the repo-relative PATH must not match; key = the path, no line | a filename carrying a plan-item stamp or a serial letter |
 | `regex-present` | `pattern` | every file in scope MUST contain it | a proptest that must carry an explicit seed |
@@ -187,6 +187,15 @@ loudly instead of reporting green over files they never opened.
   matching line opens the second unit — keyed `<path>` and `<path>#tests`, so
   a test module inline with its source does not inflate the module's own debt
   and vice versa; a file the regex never matches is one unit, unchanged.
+  `reentry` is the hysteresis bar a file the baseline ALREADY carries clears
+  its row at: at or below `reentry` (90% of `max` by default), never by
+  landing one line under `max`. A single threshold oscillates — the cheapest
+  way back under a 600-line ceiling is to shave eight comment lines to pay for
+  eight code lines, which nets zero, passes, and leaves the file exactly as
+  unsplittable as it was — and a bar 10% down is out of a shave's reach, so
+  splitting is the only move that clears the row. It governs the EXIT from a
+  baseline and nothing else: a file with no row is judged against `max`
+  exactly as before, and nothing here ever creates or raises a row.
 - **`doc-path-resolves`**'s resolution order is citing-file-relative first —
   a markdown link is written relative to the file that holds it — then the
   repo root, then the `crates/<x>`/`tools/<x>` locality convention — the first

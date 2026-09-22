@@ -144,13 +144,22 @@ func (c *scanCache) save() {
 }
 
 // lawsFingerprint hashes every law's source text, so any edit to any law
-// invalidates the whole cache.
+// invalidates the whole cache. It hashes the law's BASELINED KEYS too: a
+// line-count law judges a key the baseline carries by the re-entry bar rather
+// than the ceiling (see linecount_hysteresis.go), so a run whose baseline
+// gained or lost a row reaches a different verdict over the very same bytes
+// and must not be answered from the old one.
 func lawsFingerprint(laws []Law) string {
 	h := sha256.New()
 	for _, l := range laws {
 		h.Write([]byte(l.Name))
 		h.Write([]byte{0})
 		h.Write([]byte(l.Source))
+		h.Write([]byte{0})
+		for _, k := range sortedKeys(l.Baselined) {
+			h.Write([]byte(k))
+			h.Write([]byte{0})
+		}
 		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]

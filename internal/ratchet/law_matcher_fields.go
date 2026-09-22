@@ -18,7 +18,7 @@ type matcherKeySpec struct {
 // order. Strictness is the contract: an unknown key is a typo that would
 // otherwise silently disable half a rule.
 var matcherKeys = map[MatcherKind][]matcherKeySpec{
-	KindLineCount:          {{"kind", true}, {"max", true}, {"count", false}, {"unit_split", false}},
+	KindLineCount:          {{"kind", true}, {"max", true}, {"count", false}, {"reentry", false}, {"unit_split", false}},
 	KindRegexAbsent:        {{"kind", true}, {"pattern", true}, {"key", false}, {"count", false}},
 	KindRegexPresent:       {{"kind", true}, {"pattern", true}},
 	KindPathRegexAbsent:    {{"kind", true}, {"pattern", true}},
@@ -340,6 +340,13 @@ func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
 		}
 		m.Max, m.Key = v.i, KeyFile
 		m.LineMode = LineCountText
+		m.Reentry = defaultReentry(m.Max)
+		if v, ok := doc.value("matcher", "reentry"); ok {
+			if v.kind != tomlInt || v.i <= 0 || v.i > m.Max {
+				return Matcher{}, fmt.Errorf("matcher.reentry is a positive integer no greater than matcher.max (%d)", m.Max)
+			}
+			m.Reentry = v.i
+		}
 		if v, ok := doc.value("matcher", "count"); ok {
 			switch LineCountMode(v.s) {
 			case LineCountText, LineCountCode:
