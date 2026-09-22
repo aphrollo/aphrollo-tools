@@ -162,9 +162,13 @@ func splitUnitIndex(raw []string, re *regexp.Regexp) int {
 // reports it under key, which carries the `#tests` suffix for the second half.
 func (l Law) lineCountUnit(file, key string, raw []string) *Hit {
 	n := l.countUnit(file, raw)
-	if n <= l.Matcher.Max {
+	if n <= l.lineCountCeiling(key) {
 		return nil
 	}
+	// The MEASUREMENT only — never the re-entry bar as well. One hit line is
+	// budgeted at maxFindingLine runes and the remedy is the part that must
+	// survive truncation (see fitWhat), so saying the bar twice costs the
+	// reader the count the edit would leave them at.
 	return &Hit{
 		Law:    l.Name,
 		File:   file,

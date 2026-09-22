@@ -178,6 +178,13 @@ type Matcher struct {
 	// LineMode (KindLineCount only) is "text" (every line, the default) or
 	// "code" (blank and comment-only lines excluded, by the file's own syntax).
 	LineMode LineCountMode
+	// Reentry (KindLineCount only) is the count a file ALREADY carrying a
+	// baseline row must come down to before that row is cleared — the lower
+	// half of a hysteresis pair whose upper half is Max (see
+	// linecount_hysteresis.go). Always set after parsing: a law declaring no
+	// `reentry` gets defaultReentry(Max). It never applies to a file the
+	// baseline has never seen, and never raises anything.
+	Reentry int
 	// UnitSplit (KindLineCount only): a line matching this regex splits the
 	// file into two units judged separately against the same Max — the line
 	// itself opens the SECOND unit (`path#tests`), everything above it is the
@@ -299,6 +306,12 @@ type Law struct {
 	// that promise however solidly it sits on the author's disk. nil means
 	// this run was handed no tracked set and the working tree is the oracle.
 	Committed map[string]bool
+	// Baselined is the set of KEYS this law's baseline already carries, read
+	// before the scan so a matcher can judge a key the baseline has seen by a
+	// different bar than one it has not (see lineCountCeiling). nil means
+	// every key is new to the baseline, which is what a law with no baseline
+	// file is.
+	Baselined map[string]bool
 	// Source is the law file's text, hashed into the scan cache key: a rule
 	// that changed must never be answered from a cache filled under the old one.
 	Source string
