@@ -41,8 +41,34 @@ func docsOnly(repoRoot string) bool {
 // docsOnlyFastPath runs the tree guards and stops. It never takes the build
 // lock, because none of the three stages it runs compiles anything.
 func docsOnlyFastPath(gateName, repoRoot string) GateResult {
-	fmt.Fprintf(os.Stderr, "gate %s: no source or test staged → docs-only fast path (baseline, laws, doc citations; no suite, no build lock)\n", gateName)
-	appendGateLog(gateName, repoRoot, "docs-only", "docs-only-fastpath", 0)
+	return buildFreeFastPath(gateName, repoRoot, "docs-only",
+		"no source or test staged", false)
+}
+
+// commentOnlyFastPath is docsOnlyFastPath's sibling for a staged Rust source
+// diff that never left a comment (see commentonly.go): the same three tree
+// guards, plus the commit-time anti-cheat suppression scan the pure prose
+// case never needed. Prose carries no code file suppressionPolicies applies
+// to, but a Source-kind .rs file does, so a directive one of suppress.go's
+// linter/type-checker/coverage patterns recognizes, added inside an
+// otherwise comment-only edit, must still block here rather than riding
+// through on the fast path unmeasured (issue #723's correctness bar: a
+// directive a LAW or the suppression scan reads is not exempt just because
+// it sits in a comment). Scoped to precommit only -- Mechanical's merge-time
+// pass never runs the suppression scan at all, for any staged set, docs-only
+// or not (see Mechanical's own doc comment), so this must not add it there.
+func commentOnlyFastPath(gateName, repoRoot string) GateResult {
+	return buildFreeFastPath(gateName, repoRoot, "comment-only",
+		"staged Rust diff changes no token outside a comment", true)
+}
+
+// buildFreeFastPath is docsOnlyFastPath and commentOnlyFastPath's shared
+// body: run the tree guards (and, when runSuppression is set, the commit-time
+// suppression scan) and stop. It never takes the build lock, because none of
+// what it runs compiles anything.
+func buildFreeFastPath(gateName, repoRoot, kind, reason string, runSuppression bool) GateResult {
+	fmt.Fprintf(os.Stderr, "gate %s: %s → %s fast path (baseline, laws, doc citations; no suite, no build lock)\n", gateName, reason, kind)
+	appendGateLog(gateName, repoRoot, kind, kind+"-fastpath", 0)
 
 	var notes []string
 	for _, stage := range []func(string, string) GateResult{baselineStage, ratchetStage, docsCheckStage} {
@@ -52,6 +78,11 @@ func docsOnlyFastPath(gateName, repoRoot string) GateResult {
 		}
 		if res.Message != "" {
 			notes = append(notes, res.Message)
+		}
+	}
+	if runSuppression {
+		if msg := newSuppression(repoRoot); msg != "" {
+			return GateResult{Blocked: true, Message: msg}
 		}
 	}
 	// A verdict that says nothing is indistinguishable from a gate that never
