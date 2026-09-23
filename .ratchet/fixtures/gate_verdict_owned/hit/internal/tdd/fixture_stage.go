@@ -21,3 +21,15 @@ func ExampleStage(res SuiteResult) GateResult {
 	}
 	return GateResult{Message: "checked"}
 }
+
+// ExampleQualifiedStage is ExampleStage's shape after the split moves
+// GateResult into another package (`core`, stood in for by an import this
+// fixture never needs — the law scans TEXT): a caller hand-maps its own
+// outcome to a QUALIFIED GateResult literal, the same defect the bare-name
+// pattern above catches, under a different spelling.
+func ExampleQualifiedStage(res SuiteResult) GateResult {
+	if res.TimedOut {
+		return core.GateResult{}
+	}
+	return core.GateResult{Message: "checked"}
+}

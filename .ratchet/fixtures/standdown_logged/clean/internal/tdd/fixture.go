@@ -42,3 +42,14 @@ func foreignStagedLogged(gateName, root string) string {
 func notAStandDown() {
 	// a skipped test reports green while proving nothing
 }
+
+// checkStageLoggedQualified is checkStageLogged's shape after the split
+// moves appendGateLog into another package (`core`): the stand-down message
+// is paired with a QUALIFIED, capitalized `core.AppendGateLog` call within
+// the window, which must count exactly like the unqualified lowercase call
+// does.
+func checkStageLoggedQualified(gateName, root string) bool {
+	fmt.Fprintf(os.Stderr, "gate %s: check → skipped (no cargo package owns anything staged)\n", gateName)
+	core.AppendGateLog(gateName, root, "", "clippy-scope-empty-skipped", 0)
+	return false
+}

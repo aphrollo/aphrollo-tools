@@ -1,2 +1,4 @@
 internal/tdd/fixture_stage.go:20
 internal/tdd/fixture_stage.go:22
+internal/tdd/fixture_stage.go:32
+internal/tdd/fixture_stage.go:34

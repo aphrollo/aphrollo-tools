@@ -59,7 +59,13 @@ jobs:
               # race a `-newer` marker has against the log file this run is
               # itself still writing.
               before=$(find "$corpus_dir" -type f 2>/dev/null | sort)
-              if go test "./${pkg}/..." -run=NONE -fuzz="^${name}\$" -fuzztime=60s >"$log" 2>&1; then
+              if go test "./${pkg}" -run=NONE -fuzz="^${name}\$" -fuzztime=60s >"$log" 2>&1; then
+                if grep -q 'testing: warning: no fuzz tests to fuzz' "$log"; then
+                  overall=1
+                  echo "::error::$name matched no fuzz test in $pkg (\"no fuzz tests to fuzz\") — the target map is stale"
+                  cat "$log"
+                  continue
+                fi
                 echo "$name: no crash"
                 continue
               fi
@@ -80,7 +86,7 @@ jobs:
               overall=1
               echo "$name: CRASHED"
               cat "$log"
-              body="\`go test ./${pkg}/... -run=${name} -fuzz=^${name}\$\` crashed on the CI runner tonight.
+              body="\`go test ./${pkg} -run=${name} -fuzz=^${name}\$\` crashed on the CI runner tonight.
 
           Log (tail):
           \`\`\`

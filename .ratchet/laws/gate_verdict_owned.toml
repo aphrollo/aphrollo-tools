@@ -10,5 +10,5 @@ min_files = 110
 
 [matcher]
 kind  = "regex-absent"
-pattern = "return GateResult\\{\\}|GateResult\\{Message:"
+pattern = "return (\\w+\\.)?GateResult\\{\\}|(\\w+\\.)?GateResult\\{Message:"
 key   = "file:line-content-hash"
