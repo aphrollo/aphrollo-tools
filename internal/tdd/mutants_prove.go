@@ -304,6 +304,16 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 		return ExitMutantsProveRefused
 	case mutationDiffNoChange:
 		restore()
+		// Git keeps no baseline for a file it does not track, so a diff of
+		// one is empty whatever was written. That is the one cause in the
+		// list below the prover can confirm, and it has a one-command fix.
+		if tracked, err := git(repoRoot, "ls-files", "--", relPath); err == nil && strings.TrimSpace(tracked) == "" {
+			fmt.Fprintf(stderr, "gate: mutants prove refused — %s is untracked, so git has no baseline to diff "+
+				"the mutation against; restored, nothing was proved. Stage it (`git add %s`) and prove again. "+
+				"`git add -N` is not enough: an intent-to-add file diffs as wholly new whether or not the "+
+				"mutation landed, so the check would prove nothing.\n", relPath, relPath)
+			return ExitMutantsProveRefused
+		}
 		fmt.Fprintf(stderr, "gate: mutants prove refused — git diff --numstat reports no change for %s after the "+
 			"mutation; restored, nothing was proved. Common causes: the file is untracked, the edit landed in a "+
 			"different worktree, or the tree was already in the mutated state.%s\n", relPath, eolSuffix())
