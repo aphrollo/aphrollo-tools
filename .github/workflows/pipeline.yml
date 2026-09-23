@@ -421,7 +421,7 @@ jobs:
   # a 25-minute test budget.
   #
   # The four variable names below are hardcoded rather than derived from
-  # goTmpEnv (internal/tdd/gotmpdir.go) at YAML-eval time: goTmpEnv is
+  # goTmpEnv (internal/tdd/lock/gotmpdir.go) at YAML-eval time: goTmpEnv is
   # unexported, and nothing short of a build-time entry point added solely to
   # serve this one step would let a workflow step read it from outside the
   # package. Keep this list in sync with goTmpEnv's own return slice (and the
@@ -506,7 +506,7 @@ jobs:
         # golangci-lint is running", exit 3, and a permission error never
         # clears by waiting (PR #740, run 35813979089, hit this live).
         # `gate lint` is the one entry point both sides now use: it takes
-        # this repo's own cross-account lock (internal/tdd/lintlock.go,
+        # this repo's own cross-account lock (internal/tdd/lock/lintlock.go,
         # /var/tmp/aphrollo-locks — world-writable, re-chmodded on open even
         # when a different account created it) before ever touching
         # golangci-lint, so at most one golangci-lint process runs across
