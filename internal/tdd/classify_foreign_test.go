@@ -12,7 +12,7 @@ import (
 
 func postEditVerdicts(t *testing.T, cfg string) []string {
 	t.Helper()
-	return tddtest.PostEditVerdicts(t, cfg, func(line string) (string, string, bool) { e, ok := parseGateLine(line); return e.stage, e.verdict, ok })
+	return tddtest.PostEditVerdicts(t, cfg, func(line string) (string, string, bool) { e, ok := parseGateLine(line); return e.Stage, e.Verdict, ok })
 }
 
 // A link step that fails on a crate this edit never touched says nothing

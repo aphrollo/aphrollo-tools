@@ -9,7 +9,7 @@ import (
 // no state dir at all (then nothing about the sweep is remembered, which is
 // the same as it never having run).
 func gcStatePath(name string) string {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return ""
 	}

@@ -92,7 +92,7 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 	// starts the streak over on any SHA change).
 	if snap.state != nil {
 		if ps, exists := snap.state.ByProject[root]; exists && ps.TimeoutStreak >= 2 && ps.TimeoutSHA == headSHA {
-			appendGateLog("postedit", root, "", "skipped", 0)
+			AppendGateLog("postedit", root, "", "skipped", 0)
 			return streakSkipAdvisory(root), false
 		}
 	}
@@ -152,8 +152,8 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 		if hasCount && outcome == Green {
 			stamped.PassedCount = passed
 		}
-		snap.state.stamp(root, stamped)
-		_ = snap.state.save(snap.statePath)
+		snap.state.Stamp(root, stamped)
+		_ = snap.state.Save(snap.statePath)
 	}
 
 	// Seed the mechanical green cache: when this exact command is what the
@@ -210,7 +210,7 @@ func captureStateSnapshot(session, target, root string) (stateSnapshot, bool) {
 	fp := computeFingerprint(root)
 	var prevFailing []string
 	if state != nil {
-		prevFailing = state.prevFailing(root, fp)
+		prevFailing = state.PrevFailing(root, fp)
 	}
 	return stateSnapshot{
 		state:       state,
@@ -348,7 +348,7 @@ func redSummary(r Runner, root string, outcome Outcome, output string) string {
 // being debugged), mirroring mechRejectLogPath's contract for the
 // commit-time gate. "" when there is no state dir.
 func postEditRedLogPath() string {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return ""
 	}

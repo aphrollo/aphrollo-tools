@@ -78,11 +78,11 @@ func requireMutantsLogLine(t *testing.T, cfgDir, stage, verdict string) {
 	text := gateLogText(t, cfgDir)
 	for line := range strings.SplitSeq(text, "\n") {
 		e, ok := parseGateLine(line)
-		if !ok || e.verdict != verdict {
+		if !ok || e.Verdict != verdict {
 			continue
 		}
-		if e.stage != stage {
-			t.Errorf("verdict %q logged under stage %q, want %q: %s", verdict, e.stage, stage, line)
+		if e.Stage != stage {
+			t.Errorf("verdict %q logged under stage %q, want %q: %s", verdict, e.Stage, stage, line)
 		}
 		if !strings.Contains(line, " mutants ") {
 			t.Errorf("verdict %q names no command: %s", verdict, line)
@@ -94,7 +94,7 @@ func requireMutantsLogLine(t *testing.T, cfgDir, stage, verdict string) {
 
 func requireNoMutantsMeasurement(t *testing.T, cfgDir string) {
 	t.Helper()
-	tddtest.RequireNoMutantsMeasurement(t, cfgDir, func(line string) (string, string, bool) { e, ok := parseGateLine(line); return e.stage, e.verdict, ok })
+	tddtest.RequireNoMutantsMeasurement(t, cfgDir, func(line string) (string, string, bool) { e, ok := parseGateLine(line); return e.Stage, e.Verdict, ok })
 }
 
 // A repo that declared nothing is not measured, and says so durably: "the
@@ -222,7 +222,7 @@ func makeCatchUpMergeRepo(t *testing.T) string {
 	gitDo(t, root, "checkout", "-q", "lane")
 	gitDo(t, root, "merge", "--no-commit", "--no-ff", "-q", trunk)
 	requireMergeState(t, root, "MERGE_HEAD")
-	if branch := currentBranch(t, root); branchIsTrunk(branch, trunkBranch(root)) {
+	if branch := currentBranch(t, root); branchIsTrunk(branch, TrunkBranch(root)) {
 		t.Fatalf("fixture invariant broken: HEAD is %q, which the gate reads as trunk", branch)
 	}
 	return root

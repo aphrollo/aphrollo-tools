@@ -21,7 +21,7 @@ func requireLoggedVerdict(t *testing.T, cfg, verdict string) {
 // helpers read.
 func gateLineFields(line string) (stage, verdict string, ok bool) {
 	e, ok := parseGateLine(line)
-	return e.stage, e.verdict, ok
+	return e.Stage, e.Verdict, ok
 }
 
 // An edit the gate DENIES is the loudest thing that happens to a session, and
@@ -140,7 +140,7 @@ func TestCommitMsg_RejectionIsLogged(t *testing.T) {
 	if !strings.Contains(text, "commitmsg-rejected:") {
 		t.Fatalf("a rejected message must leave a trace, got:\n%s", text)
 	}
-	requireLoggedVerdict(t, cfg, "commitmsg-rejected:"+logToken(undercoverPatterns[0].String()))
+	requireLoggedVerdict(t, cfg, "commitmsg-rejected:"+LogToken(undercoverPatterns[0].String()))
 }
 
 // `/tdd off` disables the whole edit-time gate for a session. That is a

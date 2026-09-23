@@ -32,7 +32,7 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	runner, ok := DetectRunner(g.root)
 	if !ok {
 		fmt.Fprintf(os.Stderr, "gate %s: %s → skipped (no detected runner)\n", gateName, g.root)
-		appendGateLog(gateName, g.root, "", "no-runner-skipped", 0)
+		AppendGateLog(gateName, g.root, "", "no-runner-skipped", 0)
 		return GateResult{}
 	}
 	rootFiles := append(append([]string{}, g.tests...), g.srcs...)
@@ -190,7 +190,7 @@ func workspaceCheckStage(gateName, repoRoot, root string, plan cargoStagePlan, r
 	scope := plan.downstream
 	if len(scope) == 0 {
 		fmt.Fprintf(os.Stderr, "gate %s: check → skipped (no cargo package owns anything staged)\n", gateName)
-		appendGateLog(gateName, ws, "", "clippy-scope-empty-skipped", 0)
+		AppendGateLog(gateName, ws, "", "clippy-scope-empty-skipped", 0)
 		return GateResult{}
 	}
 	fmt.Fprintf(os.Stderr, "gate %s: check scope → %s (touched crates + everything downstream of them)\n",

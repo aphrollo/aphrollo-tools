@@ -146,7 +146,7 @@ func localTrunkBranch(mainRepo string) string {
 			return name
 		}
 	}
-	return trunkBranch(mainRepo)
+	return TrunkBranch(mainRepo)
 }
 
 // reflogEntryMarker prefixes every reflog subject zeroCommitLaneKeepReason

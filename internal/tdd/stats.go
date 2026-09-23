@@ -91,42 +91,42 @@ func GateStats(r io.Reader, since time.Time) Stats {
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		e, ok := parseGateLine(sc.Text())
-		if !ok || (!since.IsZero() && e.at.Before(since)) {
+		if !ok || (!since.IsZero() && e.At.Before(since)) {
 			continue
 		}
 		s.Lines++
-		if s.ByStage[e.stage] == nil {
-			s.ByStage[e.stage] = map[string]int{}
+		if s.ByStage[e.Stage] == nil {
+			s.ByStage[e.Stage] = map[string]int{}
 		}
-		s.ByStage[e.stage][e.verdict]++
-		crate := logRootCrate(e.root)
+		s.ByStage[e.Stage][e.Verdict]++
+		crate := logRootCrate(e.Root)
 		switch {
-		case strings.HasPrefix(e.verdict, "timeout"):
+		case strings.HasPrefix(e.Verdict, "timeout"):
 			s.Timeouts[crate]++
-		case strings.HasPrefix(e.verdict, "deferred"):
+		case strings.HasPrefix(e.Verdict, "deferred"):
 			s.Deferred[crate]++
 		}
-		if isDenyVerdict(e.verdict) {
-			s.Denies[e.verdict]++
+		if isDenyVerdict(e.Verdict) {
+			s.Denies[e.Verdict]++
 		}
-		if isStandDownVerdict(e.verdict) {
-			s.StandDowns[e.verdict]++
+		if isStandDownVerdict(e.Verdict) {
+			s.StandDowns[e.Verdict]++
 		}
-		if outcome, reason, ok := mutantsOutcome(e.verdict); ok {
+		if outcome, reason, ok := mutantsOutcome(e.Verdict); ok {
 			if outcome != "" {
-				s.ByStage[e.stage][outcome]++
+				s.ByStage[e.Stage][outcome]++
 			}
 			if reason != "" {
 				s.Mutants[reason]++
 			}
 		}
-		if e.verdict == lockWaitVerdict {
-			if e.secs > s.LockWaitMax {
-				s.LockWaitMax = e.secs
+		if e.Verdict == lockWaitVerdict {
+			if e.Secs > s.LockWaitMax {
+				s.LockWaitMax = e.Secs
 			}
 			continue
 		}
-		secs = append(secs, e.secs)
+		secs = append(secs, e.Secs)
 	}
 	sort.Float64s(secs)
 	if n := len(secs); n > 0 {

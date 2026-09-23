@@ -175,7 +175,7 @@ func TestRetainSuiteOutput_IsBestEffortWhenThereIsNoStateDir(t *testing.T) {
 func TestDenyNarrowedRerunReason_NamesBothRoutesAndWhichAnswersWhich(t *testing.T) {
 	root := mkProject(t, "go.mod")
 	reason := denyNarrowedRerunReason(root, gateEntry{
-		at: time.Now().Add(-90 * time.Second), stage: "postedit", root: root, verdict: "red",
+		At: time.Now().Add(-90 * time.Second), Stage: "postedit", Root: root, Verdict: "red",
 	})
 
 	for _, want := range []string{

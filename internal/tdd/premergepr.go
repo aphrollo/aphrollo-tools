@@ -105,7 +105,7 @@ var prGateFetch = func(dir string) error {
 // lane's own change, and refusing here would ground the verb on a flaky
 // network the merge itself already got through.
 func prGateTipsOf(laneWorktree string, log io.Writer) (prGateTips, error) {
-	trunk := trunkBranch(laneWorktree)
+	trunk := TrunkBranch(laneWorktree)
 	if trunk == "" {
 		return prGateTips{}, prGateRefusal(laneWorktree, "no-trunk",
 			"this repo's trunk branch could not be resolved, so the merge could not be built and judged")
@@ -187,6 +187,6 @@ func prGateCheckoutParent(laneWorktree string) string {
 // statistics about.
 func prGateRefusal(repoRoot, token, format string, args ...any) error {
 	msg := fmt.Sprintf("gate %s: %s", premergeDisplayName, fmt.Sprintf(format, args...))
-	appendGateLog(premergeDisplayName, repoRoot, "pr-merge", "premerge-refused:"+token, 0)
+	AppendGateLog(premergeDisplayName, repoRoot, "pr-merge", "premerge-refused:"+token, 0)
 	return errors.New(msg)
 }

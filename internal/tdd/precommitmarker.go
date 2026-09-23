@@ -22,7 +22,7 @@ import (
 func Precommit(repoRoot string, run SuiteRunner) GateResult {
 	resetSuiteProof()
 	res := precommitDecide(repoRoot, run)
-	appendGateLog("precommit", repoRoot, "gate", "ran", 0)
+	AppendGateLog("precommit", repoRoot, "gate", "ran", 0)
 	return res
 }
 
@@ -32,7 +32,7 @@ func Precommit(repoRoot string, run SuiteRunner) GateResult {
 // log stamps whole seconds, so a run that finished within the same second
 // still counts).
 func PrecommitRanSince(root string, at time.Time) bool {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return false
 	}
@@ -45,10 +45,10 @@ func PrecommitRanSince(root string, at time.Time) bool {
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		e, ok := parseGateLine(sc.Text())
-		if !ok || e.stage != "precommit" || e.verdict != "ran" || e.at.Before(at) {
+		if !ok || e.Stage != "precommit" || e.Verdict != "ran" || e.At.Before(at) {
 			continue
 		}
-		if sameProject(e.root, root) {
+		if sameProject(e.Root, root) {
 			return true
 		}
 	}

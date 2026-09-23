@@ -24,7 +24,7 @@ func TestAppendGateLog_WarnsWhenTheStateDirCannotBeCreated(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", base)
 
 	stderr := captureStderr(t, func() {
-		appendGateLog("precommit", "/some/repo", "gate", "green", 0)
+		AppendGateLog("precommit", "/some/repo", "gate", "green", 0)
 	})
 
 	if !strings.Contains(stderr, "gate.log is not being written") {
@@ -44,8 +44,8 @@ func TestAppendGateLog_WarnsOnlyOncePerProcess(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", base)
 
 	stderr := captureStderr(t, func() {
-		appendGateLog("precommit", "/some/repo", "gate", "green", 0)
-		appendGateLog("postedit", "/some/repo", "gate", "green", 0)
+		AppendGateLog("precommit", "/some/repo", "gate", "green", 0)
+		AppendGateLog("postedit", "/some/repo", "gate", "green", 0)
 	})
 
 	if n := strings.Count(stderr, "gate.log is not being written"); n != 1 {
@@ -62,7 +62,7 @@ func TestAppendGateLog_RoundTripsAVerdictContainingASpace(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 
-	appendGateLog("precommit", "/some/repo", "gate", "inconclusive (fail-open)", 0)
+	AppendGateLog("precommit", "/some/repo", "gate", "inconclusive (fail-open)", 0)
 
 	requireLoggedVerdict(t, cfg, "inconclusive (fail-open)")
 }
@@ -94,16 +94,16 @@ func TestPrevFailing(t *testing.T) {
 	}}
 
 	// Same git state → the recorded failing set is returned.
-	if got := s.prevFailing("/proj", fp); !reflect.DeepEqual(got, []string{"TestA"}) {
+	if got := s.PrevFailing("/proj", fp); !reflect.DeepEqual(got, []string{"TestA"}) {
 		t.Fatalf("matching fp prevFailing = %#v", got)
 	}
 	// Moved git state → stale set is discarded so it can't mask a new failure.
 	moved := &fingerprint{Branch: "main", HeadSHA: "def", IndexMtime: 2}
-	if got := s.prevFailing("/proj", moved); got != nil {
+	if got := s.PrevFailing("/proj", moved); got != nil {
 		t.Fatalf("moved fp must drop stale failing set, got %#v", got)
 	}
 	// Unknown project → nil.
-	if got := s.prevFailing("/other", fp); got != nil {
+	if got := s.PrevFailing("/other", fp); got != nil {
 		t.Fatalf("unknown root should be nil, got %#v", got)
 	}
 }
@@ -114,8 +114,8 @@ func TestSessionState_SaveLoadRoundtrip(t *testing.T) {
 	if s == nil {
 		t.Fatal("named session should load an empty state, not nil")
 	}
-	s.stamp("/proj", projectState{Outcome: "red", FailingTests: []string{"TestX"}})
-	if err := s.save(path); err != nil {
+	s.Stamp("/proj", projectState{Outcome: "red", FailingTests: []string{"TestX"}})
+	if err := s.Save(path); err != nil {
 		t.Fatal(err)
 	}
 
@@ -142,10 +142,10 @@ func TestLoadSession_EmptyIDIsNil(t *testing.T) {
 func TestLoadSession_MigratesALegacyPrimaryEditsWaiver(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const session = "sess-legacy-primary"
-	if err := os.MkdirAll(stateDir(), 0o700); err != nil {
+	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(stateDir(), session+".json")
+	path := filepath.Join(StateDir(), session+".json")
 	legacy := `{"schema":1,"by_project":{},"overrides":{"primary_edits":true}}`
 	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
@@ -180,7 +180,7 @@ func TestLoadSession_MigratesALegacyPrimaryEditsWaiver(t *testing.T) {
 // walked past them.
 func TestEverySessionID_SkipsNonSessionStateFiles(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	dir := stateDir()
+	dir := StateDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestEverySessionID_SkipsNonSessionStateFiles(t *testing.T) {
 	if s == nil || path == "" {
 		t.Fatal("real session must load")
 	}
-	if err := s.save(path); err != nil {
+	if err := s.Save(path); err != nil {
 		t.Fatal(err)
 	}
 

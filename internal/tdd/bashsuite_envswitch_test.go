@@ -19,7 +19,7 @@ func envSwitchRoot(t *testing.T) string {
 	write(t, root, "Cargo.toml", "[package]\nname = \"forge_lab\"\nversion = \"0.1.0\"\n\n"+
 		"[workspace]\n[workspace.metadata.aphrollo]\nfail-first-env = [\"FORGE_BEAMNG_VEHICLES=/content/vehicles\"]\n")
 	write(t, root, "src/lib.rs", "pub fn roll() {}\n")
-	appendGateLog("postedit", root, "cargo nextest run", "green", 0)
+	AppendGateLog("postedit", root, "cargo nextest run", "green", 0)
 	return root
 }
 

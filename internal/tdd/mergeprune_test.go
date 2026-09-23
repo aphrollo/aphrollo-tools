@@ -270,7 +270,7 @@ func TestPruneMergedLanes_KeepsADirtyMergeCommitLandedLane(t *testing.T) {
 // as it was before issue #382.
 func TestPruneMergedLanes_StillPrunesACleanMergeCommitLandedLane(t *testing.T) {
 	mainRepo, mergedWT, _ := pruneRepo(t)
-	trunk := trunkBranch(mainRepo)
+	trunk := TrunkBranch(mainRepo)
 
 	var out, errb bytes.Buffer
 	pruned := PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)
@@ -422,8 +422,8 @@ func TestPruneMergedLanesAfterMerge_ProposesALaneMergedIntoLocalMainEvenWhenOrig
 	gitDo(t, mergedWT, "commit", "-qm", "lane work")
 	gitDo(t, mainRepo, "merge", "-q", "--no-ff", "-m", "merge lane/merged", "lane/merged")
 
-	if trunkBranch(mainRepo) != "origin/main" {
-		t.Fatalf("fixture broken: trunkBranch(mainRepo) = %q, want origin/main (the resolution the sweep must NOT use)", trunkBranch(mainRepo))
+	if TrunkBranch(mainRepo) != "origin/main" {
+		t.Fatalf("fixture broken: trunkBranch(mainRepo) = %q, want origin/main (the resolution the sweep must NOT use)", TrunkBranch(mainRepo))
 	}
 
 	var out, errb bytes.Buffer

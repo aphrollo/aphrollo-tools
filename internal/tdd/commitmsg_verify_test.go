@@ -67,7 +67,7 @@ func TestVerificationClaim_CacheHitOnAGreenTreeIsAccepted(t *testing.T) {
 	// green under one exact command.
 	runner := Runner{Cmd: "go", Args: []string{"test", "./..."}}
 	mechCacheAdd(mechKey(root, worktreeStateHash(root), runner))
-	appendGateLog("precommit", root, cmdString(runner), "cache-hit", 0)
+	AppendGateLog("precommit", root, cmdString(runner), "cache-hit", 0)
 
 	got := CommitMsg(root, msgFile(t, claimBody))
 
@@ -91,8 +91,8 @@ func TestVerificationClaim_CacheHitOnATimeoutTreeIsStillRefused(t *testing.T) {
 	// A green recorded for some OTHER state, and a timeout for this one: the
 	// cache holds nothing about the tree being committed.
 	mechCacheAdd(mechKey(root, "a-state-this-tree-never-had", runner))
-	appendGateLog("precommit", root, cmdString(runner), "timeout", 0)
-	appendGateLog("precommit", root, cmdString(runner), "cache-hit", 0)
+	AppendGateLog("precommit", root, cmdString(runner), "timeout", 0)
+	AppendGateLog("precommit", root, cmdString(runner), "cache-hit", 0)
 
 	got := CommitMsg(root, msgFile(t, claimBody))
 
@@ -127,7 +127,7 @@ func TestVerificationClaim_CacheHitResolvesAtTheCrateRootNotTheRepoRoot(t *testi
 	// What the suite stage left behind: a green keyed at the CRATE root.
 	runner := Runner{Cmd: "cargo", Args: []string{"test", "-p", "x"}}
 	mechCacheAdd(mechKey(crate, worktreeStateHash(crate), runner))
-	appendGateLog("precommit", crate, cmdString(runner), "cache-hit", 0)
+	AppendGateLog("precommit", crate, cmdString(runner), "cache-hit", 0)
 
 	got := CommitMsg(root, msgFile(t, claimBody))
 

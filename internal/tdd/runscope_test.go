@@ -42,7 +42,7 @@ func TestDecideBashSuite_ANarrowedVerdictBlocksOnlyARunItIsAsWideAs(t *testing.T
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			root := bashSuiteRoot(t)
-			appendGateLog("postedit", root, narrowed, "green", 0)
+			AppendGateLog("postedit", root, narrowed, "green", 0)
 
 			d := decideBash(t, "s1", root, c.attempt)
 			if d.Action != c.want {
@@ -72,7 +72,7 @@ func TestDecideBashSuite_AWiderVerdictStillBlocksANarrowerHandRun(t *testing.T) 
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			root := bashSuiteRoot(t)
-			appendGateLog("postedit", root, c.logged, "green", 0)
+			AppendGateLog("postedit", root, c.logged, "green", 0)
 
 			d := decideBash(t, "s1", root, c.attempt)
 			if d.Action != Block {
@@ -89,7 +89,7 @@ func TestDecideBashSuite_AWiderVerdictStillBlocksANarrowerHandRun(t *testing.T) 
 func TestDecideBashSuite_ANarrowedVerdictDoesNotBlockTheWholeSuite(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "go test ./internal/tdd", "green", 0)
+	AppendGateLog("postedit", root, "go test ./internal/tdd", "green", 0)
 
 	d := decideBash(t, "s1", root, "go test ./...")
 	if d.Action != Allow {
@@ -156,8 +156,8 @@ func TestParseGateLine_KeepsTheCommandThatProducedTheVerdict(t *testing.T) {
 		if !ok {
 			t.Fatalf("parseGateLine rejected %q", c.line)
 		}
-		if e.cmd != c.cmd || e.verdict != c.verdict {
-			t.Errorf("parseGateLine(%q) = cmd %q verdict %q, want cmd %q verdict %q", c.line, e.cmd, e.verdict, c.cmd, c.verdict)
+		if e.Cmd != c.cmd || e.Verdict != c.verdict {
+			t.Errorf("parseGateLine(%q) = cmd %q verdict %q, want cmd %q verdict %q", c.line, e.Cmd, e.Verdict, c.cmd, c.verdict)
 		}
 	}
 }
@@ -170,7 +170,7 @@ func TestParseGateLine_KeepsTheCommandThatProducedTheVerdict(t *testing.T) {
 func TestDecideBashSuite_AVerdictWithNoReadableCommandNeverBlocks(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "make test-all", "green", 0)
+	AppendGateLog("postedit", root, "make test-all", "green", 0)
 
 	d := decideBash(t, "s1", root, "go test -run TestWidget ./internal/tdd")
 	if d.Action != Allow {

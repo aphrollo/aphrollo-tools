@@ -13,4 +13,4 @@ internal/tdd/lockshared.go | if runtime.GOOS == "windows" {
 internal/tdd/mechrun_suite.go | if runtime.GOOS == "windows" {
 internal/tdd/mergereject.go | if runtime.GOOS == "windows" {
 internal/tdd/shellwrite.go | if runtime.GOOS == "windows" {
-internal/tdd/statusline.go | if runtime.GOOS == "windows" {
+internal/tdd/statusline_core.go | if runtime.GOOS == "windows" {

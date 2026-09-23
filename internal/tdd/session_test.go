@@ -62,8 +62,8 @@ func stampOutcome(t *testing.T, sess, root, outcome string) {
 	if s == nil {
 		t.Fatal("loadSession returned nil")
 	}
-	s.stamp(root, projectState{Outcome: outcome})
-	if err := s.save(path); err != nil {
+	s.Stamp(root, projectState{Outcome: outcome})
+	if err := s.Save(path); err != nil {
 		t.Fatal(err)
 	}
 }

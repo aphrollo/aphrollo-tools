@@ -54,7 +54,7 @@ func trunkMergePreviewStage(gateName, repoRoot string, run SuiteRunner) GateResu
 	if _, err := os.Stat(filepath.Join(repoRoot, "go.mod")); err != nil {
 		return GateResult{}
 	}
-	trunk := trunkBranch(repoRoot)
+	trunk := TrunkBranch(repoRoot)
 	if trunk == "" {
 		return GateResult{}
 	}
@@ -116,7 +116,7 @@ func trunkMergePreviewStage(gateName, repoRoot string, run SuiteRunner) GateResu
 	started := time.Now()
 	if breaks := trunkPreviewLawBreaks(repoRoot, wt, trunkTip); len(breaks) > 0 {
 		fmt.Fprintf(os.Stderr, "gate %s: trunk-preview ratchet in %s → blocked\n", gateName, wt)
-		appendGateLog(gateName, repoRoot, "ratchet check (trunk merge preview)", "trunk-preview-law-blocked", time.Since(started))
+		AppendGateLog(gateName, repoRoot, "ratchet check (trunk merge preview)", "trunk-preview-law-blocked", time.Since(started))
 		return GateResult{Blocked: true, Message: fmt.Sprintf(
 			"gate %s: merging %s into this lane would break a law neither tree breaks alone — %s has moved past this lane's merge-base.\n"+
 				"  %s\n"+
@@ -130,7 +130,7 @@ func trunkMergePreviewStage(gateName, repoRoot string, run SuiteRunner) GateResu
 		return GateResult{}
 	}
 	fmt.Fprintf(os.Stderr, "gate %s: trunk-preview go vet ./... in %s → blocked\n", gateName, wt)
-	appendGateLog(gateName, repoRoot, cmdString(vet), "trunk-preview-blocked", res.Duration)
+	AppendGateLog(gateName, repoRoot, cmdString(vet), "trunk-preview-blocked", res.Duration)
 	return GateResult{Blocked: true, Message: fmt.Sprintf(
 		"gate %s: merging %s into this lane would not vet clean — %s has moved past this lane's merge-base.\n"+
 			"  run `git fetch && git merge %s` (or rebase) here before pushing; nothing in this lane's own tree is wrong.\n%s",

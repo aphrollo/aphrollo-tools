@@ -349,7 +349,7 @@ func foreignBuildAdvisory(root, target, runnerText string, res SuiteResult) stri
 	if len(crates) == 0 {
 		return ""
 	}
-	appendGateLog("postedit", root, runnerText, InfraFailed, res.Duration)
+	AppendGateLog("postedit", root, runnerText, InfraFailed, res.Duration)
 	return foreignBuildFailureLine(root, crates, res.Duration)
 }
 

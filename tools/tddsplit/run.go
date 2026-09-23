@@ -19,7 +19,7 @@ type Options struct {
 	Manifest string // manifest file path
 	Levels   string // e.g. "L0,L1"
 	Report   bool   // analyse and print only; touch nothing
-	Verify   bool   // run build, windows vet and lint after the move
+	Verify   bool   // run build, linux and windows vet and lint after the move
 	Out      io.Writer
 }
 
@@ -155,18 +155,33 @@ func rewritePackage(path, pkg string) (bool, error) {
 	return true, os.WriteFile(path, next, 0o644)
 }
 
-// verify runs the three checks the spec names and prints one pass/fail line
-// per check, followed by the full output of any that failed.
-func verify(repo, root string, out io.Writer) error {
-	checks := []struct {
-		label string
-		env   []string
-		argv  []string
-	}{
+// check is one verification command run from the repository root.
+type check struct {
+	label string
+	env   []string
+	argv  []string
+}
+
+// verifyChecks lists the checks the spec names for a carve-out of root. The
+// linux vet covers the whole module because it is the only one that compiles
+// every *_unix_test.go, the root's and every other package's alike.
+func verifyChecks(root string) []check {
+	return []check{
 		{"go build ./...", nil, []string{"go", "build", "./..."}},
+		{"go vet ./...", []string{"GOOS=linux"}, []string{"go", "vet", "./..."}},
 		{"GOOS=windows go vet ./" + root + "/...", []string{"GOOS=windows"}, []string{"go", "vet", "./" + root + "/..."}},
 		{"golangci-lint run ./" + root + "/...", nil, []string{"golangci-lint", "run", "./" + root + "/..."}},
 	}
+}
+
+// verify runs every check verifyChecks names for root.
+func verify(repo, root string, out io.Writer) error {
+	return runChecks(repo, verifyChecks(root), out)
+}
+
+// runChecks runs each check and prints one pass/fail line per check, followed
+// by the full output of any that failed.
+func runChecks(repo string, checks []check, out io.Writer) error {
 	failed := 0
 	for _, c := range checks {
 		cmd := exec.Command(c.argv[0], c.argv[1:]...)

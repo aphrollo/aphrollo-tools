@@ -22,7 +22,7 @@ func TestStateDirMovesThePreRenameDirectoryOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dir := stateDir()
+	dir := StateDir()
 	if filepath.Base(dir) != "gate-state" {
 		t.Fatalf("stateDir = %q, want the gate-state dir", dir)
 	}
@@ -52,7 +52,7 @@ func TestStateDirLeavesAnExistingGateStateDirAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(stateDir(), "gate.log"))
+	data, err := os.ReadFile(filepath.Join(StateDir(), "gate.log"))
 	if err != nil || string(data) != "current\n" {
 		t.Fatalf("an existing gate-state dir must win: %q (%v)", data, err)
 	}

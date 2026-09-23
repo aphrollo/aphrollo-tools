@@ -340,7 +340,7 @@ func execRootIn(wt, repoRoot, root string) (string, error) {
 // the workspace crates every time even with a warm CARGO_TARGET_DIR. "" when
 // there is no state dir (the caller then falls back to a temp dir).
 func failFirstWorktreeDir(repoRoot string) string {
-	base := stateDir()
+	base := StateDir()
 	if base == "" {
 		return ""
 	}
@@ -436,7 +436,7 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		}
 		line := fmt.Sprintf("[fail-first] gate precommit: %s in %s → %s (%.1fs)", ffCmd, root, verdict, out.dur.Seconds())
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog("precommit", root, ffCmd, verdict, out.dur)
+		AppendGateLog("precommit", root, ffCmd, verdict, out.dur)
 		if out.vacuous {
 			return GateResult{Blocked: true, Message: vacuousFailFirstMessage(out.vacuousPkgs)}
 		}

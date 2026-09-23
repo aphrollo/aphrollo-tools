@@ -53,7 +53,7 @@ func armDiscardWaiver(session string) (time.Time, error) {
 		Armed: true,
 		Until: until.UTC().Format(time.RFC3339),
 	}
-	if err := s.save(path); err != nil {
+	if err := s.Save(path); err != nil {
 		return time.Time{}, err
 	}
 	return until, nil
@@ -79,7 +79,7 @@ func ConsumeOneShot(wall string) bool {
 		return false
 	}
 	delete(s.Overrides.Waivers, wall)
-	_ = s.save(path)
+	_ = s.Save(path)
 	until, err := time.Parse(time.RFC3339, entry.Until)
 	if err != nil {
 		return false

@@ -482,7 +482,7 @@ func TestTrunkBranch_ReturnsOriginHEADTargetAsSoonAsItResolves(t *testing.T) {
 	gitFixture(t, root, "update-ref", "refs/remotes/origin/develop", "develop")
 	gitFixture(t, root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop")
 
-	got := trunkBranch(root)
+	got := TrunkBranch(root)
 	want := "origin/develop"
 	if got != want {
 		t.Fatalf("trunkBranch(root) = %q, want %q — the remote's own default must win immediately", got, want)
@@ -508,7 +508,7 @@ func TestTrunkBranch_UsesConfiguredDefaultBranchWhenItResolves(t *testing.T) {
 	gitFixture(t, root, "checkout", "-q", "-b", "trunk")
 	gitFixture(t, root, "config", "init.defaultBranch", "trunk")
 
-	got := trunkBranch(root)
+	got := TrunkBranch(root)
 	want := "trunk"
 	if got != want {
 		t.Fatalf("trunkBranch(root) = %q, want %q — a configured, resolvable default branch must win", got, want)

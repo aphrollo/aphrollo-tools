@@ -50,7 +50,7 @@ func clippyScope(gateName, repoRoot, ws string, touched []string) []string {
 		fmt.Fprintf(os.Stderr,
 			"gate %s: check scope → dependency graph unreadable (%v); scoping to the touched crates only, not everything downstream of them\n",
 			gateName, err)
-		appendGateLog(gateName, repoRoot, "clippy-scope", "clippy-scope-degraded:"+logToken(err.Error()), 0)
+		AppendGateLog(gateName, repoRoot, "clippy-scope", "clippy-scope-degraded:"+LogToken(err.Error()), 0)
 	}
 	for _, p := range dependentsOf(deps, touched) {
 		scope[p] = true

@@ -25,10 +25,10 @@ func LogEditDecision(raw []byte, d Decision) {
 	}
 	root, rel := logPlace(editLogPath(in))
 	if d.Action == Block {
-		appendGateLog("preedit", root, rel, "pretooluse-denied:"+logToken(policyName(d)), 0)
+		AppendGateLog("preedit", root, rel, "pretooluse-denied:"+LogToken(policyName(d)), 0)
 	}
 	for _, esc := range d.Escapes {
-		appendGateLog("preedit", root, rel, logToken(esc), 0)
+		AppendGateLog("preedit", root, rel, LogToken(esc), 0)
 	}
 }
 
@@ -52,7 +52,7 @@ func logOverride(verdict, session, cwd string) {
 			root = cwd
 		}
 	}
-	appendGateLog("session", logToken(root), logToken(session), verdict, 0)
+	AppendGateLog("session", LogToken(root), LogToken(session), verdict, 0)
 }
 
 // policyName is the verdict's key. A decision that named no policy still gets
@@ -81,13 +81,5 @@ func logPlace(path string) (root, rel string) {
 	if r, err := filepath.Rel(root, path); err == nil {
 		rel = r
 	}
-	return logToken(root), logToken(rel)
-}
-
-// LogToken is logToken for a caller outside this package that appends its
-// own field (a cwd, an argv, a reason) to a gate.log line via AppendGateLog
-// and must keep that field whitespace-safe the same way this package's own
-// callers do.
-func LogToken(s string) string {
-	return logToken(s)
+	return LogToken(root), LogToken(rel)
 }

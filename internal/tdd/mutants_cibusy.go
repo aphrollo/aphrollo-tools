@@ -163,7 +163,7 @@ func waitForCIRunnerJobs(ctx context.Context, root string, log io.Writer) {
 		if waited >= mutantsCIWaitMax {
 			logf(log, "mutants: %s still busy after %s — measuring anyway; a timeout in this run may be the box's load, not a hang",
 				ciRunnerJobsText(busy), waited.Round(time.Second))
-			appendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-ci-busy", waited)
+			AppendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-ci-busy", waited)
 			return
 		}
 		if waited >= nextNotice {

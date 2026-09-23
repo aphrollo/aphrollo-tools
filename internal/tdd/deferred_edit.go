@@ -173,11 +173,11 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 			}
 			clearDeferredJob(session, root)
 			if j.Phase == "run" && state != nil {
-				state.stampTimeout(root, headSHA)
-				_ = state.save(statePath)
+				state.StampTimeout(root, headSHA)
+				_ = state.Save(statePath)
 			}
 			elapsed := time.Since(j.Started)
-			appendGateLog("postedit", root, strings.Join(j.Runner, " "), DeferredAbandoned, elapsed)
+			AppendGateLog("postedit", root, strings.Join(j.Runner, " "), DeferredAbandoned, elapsed)
 			// The abandonment is the VERDICT for that work, and the only one
 			// it will ever get: an inconclusive one. It used to be written to
 			// the gate log and nowhere else, so the session saw only the
@@ -208,7 +208,7 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 		runPhase.Log, runPhase.Result = "", ""
 		startedRun, runOut, status := startAndWait(runPhase, time.Until(deadline))
 		if status == phaseFailedToStart {
-			appendGateLog("postedit", root, strings.Join(runPhase.Runner, " "), InfraFailed, 0)
+			AppendGateLog("postedit", root, strings.Join(runPhase.Runner, " "), InfraFailed, 0)
 			return spawnFailedLine(root, "run"), false
 		}
 		if status == phaseRunning {
@@ -240,7 +240,7 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 		// suspicion, so this must never reach ClassifyOutcome, and must never
 		// overwrite the last REAL outcome in state — same posture as a
 		// timeout (issues #350, #354).
-		appendGateLog("postedit", root, strings.Join(j.Runner, " "), InfraFailed, res.Duration)
+		AppendGateLog("postedit", root, strings.Join(j.Runner, " "), InfraFailed, res.Duration)
 		return infraFailureLine(root, j, res)
 	}
 	if treatAsEmptyPass(res) {
@@ -258,20 +258,20 @@ func judgeEditResult(runner Runner, file, editID string, res SuiteResult, root s
 	fp := computeFingerprint(root)
 	prev := []string(nil)
 	if state != nil {
-		prev = state.prevFailing(root, fp)
+		prev = state.PrevFailing(root, fp)
 	}
 	if line := foreignBuildAdvisory(root, file, cmdString(runner), res); line != "" {
 		return line
 	}
 	outcome := classifyRunOutcome(runner, root, res, prev)
 	if state != nil {
-		state.stamp(root, projectState{
+		state.Stamp(root, projectState{
 			Outcome:      string(outcome),
 			FailingTests: ExtractFailingTests(res.Output),
 			Runner:       argv,
 			Fingerprint:  fp,
 		})
-		_ = state.save(statePath)
+		_ = state.Save(statePath)
 	}
 	logSuiteVerdict("postedit", root, cmdString(runner), string(outcome), res)
 	recordEditVerdict(root, editID, cmdString(runner), outcome, res.Output)

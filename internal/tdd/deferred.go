@@ -96,7 +96,7 @@ const defaultDeferredMax = 600 * time.Second
 // deferredDir is where every job's record, log and result live — beside the
 // gate's other state, never in the repo.
 func deferredDir() string {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return ""
 	}

@@ -215,6 +215,6 @@ func stagedChangedLines(repoRoot string) int {
 // logs it the same way the undercover layer does, under its own rule name so
 // `gate stats` can tell the two families of rejection apart.
 func denyDefault(repoRoot, rule, message string) GateResult {
-	appendGateLog("commitmsg", logToken(repoRoot), "commit-msg", "commitmsg-rejected:"+rule, 0)
+	AppendGateLog("commitmsg", LogToken(repoRoot), "commit-msg", "commitmsg-rejected:"+rule, 0)
 	return GateResult{Blocked: true, Message: message + "\nRewrite the message, then commit again."}
 }

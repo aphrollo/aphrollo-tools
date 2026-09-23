@@ -28,7 +28,7 @@ func logLockWait(gateName, root string, r Runner, waited time.Duration) {
 	if waited < lockWaitLogThreshold {
 		return
 	}
-	appendGateLog(gateName, root, cmdString(r), "lock-wait", waited)
+	AppendGateLog(gateName, root, cmdString(r), "lock-wait", waited)
 }
 
 // runCargoLocked wraps a SuiteRunner invocation with the machine-wide build

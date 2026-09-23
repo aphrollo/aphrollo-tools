@@ -67,7 +67,7 @@ type suiteOutputRecord struct {
 // directly — post-edit (immediate and deferred), the commit gate's
 // mechanical stage, and every stage that blocks through verdictFor.
 func logSuiteVerdict(stage, root, cmd, verdict string, res SuiteResult) {
-	appendGateLog(stage, root, cmd, verdict, res.Duration)
+	AppendGateLog(stage, root, cmd, verdict, res.Duration)
 	retainSuiteOutput(stage, root, cmd, verdict, res)
 }
 
@@ -113,7 +113,7 @@ func warnSuiteOutputUnwritable(reason string) {
 // spaces, drive letters and separators — so it is hashed, and the record's
 // own header carries the root itself for a reader to match on.
 func suiteOutputPath(root string) string {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" || root == "" {
 		return ""
 	}
@@ -196,7 +196,7 @@ func RetainedSuiteOutput(cwd string) (string, error) {
 	if root == "" {
 		root = cwd
 	}
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return "", errNoSuiteOutputDir
 	}

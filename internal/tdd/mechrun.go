@@ -25,7 +25,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	if mechCacheHit(key) {
 		line := fmt.Sprintf("[%s] gate %s: %s in %s → cache-hit", stage, gateName, cmdString(runner), root)
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog(gateName, root, cmdString(runner), "cache-hit", 0)
+		AppendGateLog(gateName, root, cmdString(runner), "cache-hit", 0)
 		return GateResult{}
 	}
 	restore := pinMechCargoTarget(runner, repoRoot)
@@ -52,7 +52,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		line := fmt.Sprintf("[%s] gate %s: %s in %s → REJECTED (waited %.0fs, every build slot for %s is busy%s) — nothing was tested",
 			stage, gateName, cmdString(runner), root, waited.Seconds(), target, buildLockHolderNote(target))
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog(gateName, root, cmdString(runner), "queued-rejected", waited)
+		AppendGateLog(gateName, root, cmdString(runner), "queued-rejected", waited)
 		return GateResult{Blocked: true, Message: queuedRejectMessage(runner, target, waited)}
 	}
 	if treatAsEmptyPass(res) {
@@ -112,7 +112,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		load := foreignLoadReport(os.Getpid())
 		line := fmt.Sprintf("[%s] gate %s: %s in %s TIMEOUT after %.0fs REJECTED (nothing was tested)\n%s", stage, gateName, cmdString(runner), root, res.Duration.Seconds(), load)
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog(gateName, root, cmdString(runner), "timeout-rejected", res.Duration)
+		AppendGateLog(gateName, root, cmdString(runner), "timeout-rejected", res.Duration)
 		return GateResult{Blocked: true, Message: fmt.Sprintf(
 			"gate %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused.\n%s\n%s",
 			gateName, cmdString(runner), res.Duration.Seconds(), floor.refusalNote(DefaultPrecommitTimeout), load)}
@@ -279,7 +279,7 @@ func mechRejectMessage(r Runner, res SuiteResult) string {
 // (one file, overwritten per rejection — the latest block is the one being
 // debugged). "" when there is no state dir.
 func mechRejectLogPath() string {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return ""
 	}

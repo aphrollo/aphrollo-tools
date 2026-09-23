@@ -57,5 +57,5 @@ func setReplyStyle(session, style string) error {
 		return errNoSession
 	}
 	s.Overrides.Style = style
-	return s.save(path)
+	return s.Save(path)
 }

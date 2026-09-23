@@ -55,7 +55,7 @@ func baselineStage(gateName, repoRoot string) GateResult {
 			continue
 		}
 		if lawName, rows, adopted := adoptionCovers(repoRoot, rel, len(raised)); adopted {
-			appendGateLog(gateName, repoRoot, "baseline guard",
+			AppendGateLog(gateName, repoRoot, "baseline guard",
 				fmt.Sprintf("baseline-adopted:%s:%d", lawName, rows), 0)
 			continue
 		}
@@ -67,7 +67,7 @@ func baselineStage(gateName, repoRoot string) GateResult {
 	msg := fmt.Sprintf("gate %s: baseline-rejected: %s\n  %s", gateName,
 		strings.Join(offences, "\n  baseline-rejected: "),
 		"baselines are written by the ratchet itself; lower the code, or use the law's escape comment")
-	appendGateLog(gateName, repoRoot, "baseline guard", "baseline-rejected", 0)
+	AppendGateLog(gateName, repoRoot, "baseline guard", "baseline-rejected", 0)
 	return GateResult{Blocked: true, Message: msg}
 }
 
@@ -377,7 +377,7 @@ func adoptionCovers(repoRoot, baselineRel string, rows int) (lawName string, _ i
 // no trunk name, an unresolvable trunk tip, git chatter, a non-merge HEAD —
 // answers false, because false is the answer that keeps the one-way rule.
 func mergedTrunkAtHead(repoRoot string) bool {
-	trunk := trunkBranch(repoRoot)
+	trunk := TrunkBranch(repoRoot)
 	if trunk == "" {
 		return false
 	}
@@ -415,7 +415,7 @@ func mergedTrunkAtHead(repoRoot string) bool {
 // is the answer that keeps the one-way rule: the raise is refused unless the
 // lane demonstrably owns the law.
 func lawOnTrunk(repoRoot, lawRel string) bool {
-	trunk := trunkBranch(repoRoot)
+	trunk := TrunkBranch(repoRoot)
 	if trunk == "" {
 		return true
 	}
@@ -429,14 +429,6 @@ func lawOnTrunk(repoRoot, lawRel string) bool {
 	}
 	_, ok := gitBlob(repoRoot, sha+":"+lawRel)
 	return ok
-}
-
-// TrunkBranch is trunkBranch's exported form, for a consumer outside this
-// package (the git shim's stale-branch push check, internal/cli) that needs
-// the SAME trunk resolution every law in this file already uses rather than
-// re-deriving its own — one producer per derived datum.
-func TrunkBranch(repoRoot string) string {
-	return trunkBranch(repoRoot)
 }
 
 // lastSHALine is lastNonEmptyLine narrowed to a full object name: anything

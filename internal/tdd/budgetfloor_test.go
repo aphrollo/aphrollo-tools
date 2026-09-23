@@ -102,12 +102,12 @@ func TestRecordedSuiteFloor_CountsOnlyCompletedRunsOfThisStageAndCommand(t *test
 	const cmd = "cargo nextest run -p borld-core"
 
 	for _, secs := range []float64{352.3, 357.0, 429.1, 431.3, 261.5} {
-		appendGateLog(premergeDisplayName, root, cmd, "green", time.Duration(secs*float64(time.Second)))
+		AppendGateLog(premergeDisplayName, root, cmd, "green", time.Duration(secs*float64(time.Second)))
 	}
-	appendGateLog(premergeDisplayName, root, cmd, "timeout-rejected", 441*time.Second)
-	appendGateLog(premergeDisplayName, root, cmd, "cache-hit", 0)
-	appendGateLog("postedit", root, cmd, "green", 12*time.Second)
-	appendGateLog(premergeDisplayName, root, "cargo nextest run -p other-crate", "green", 900*time.Second)
+	AppendGateLog(premergeDisplayName, root, cmd, "timeout-rejected", 441*time.Second)
+	AppendGateLog(premergeDisplayName, root, cmd, "cache-hit", 0)
+	AppendGateLog("postedit", root, cmd, "green", 12*time.Second)
+	AppendGateLog(premergeDisplayName, root, "cargo nextest run -p other-crate", "green", 900*time.Second)
 
 	got := recordedSuiteFloor(premergeDisplayName, cmd)
 

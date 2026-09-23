@@ -39,7 +39,7 @@ max  = `+strconv.Itoa(max)+`
 // compiler error, so nothing looked.
 func TestTrunkMergePreview_BlocksALawOnlyTheMergedTreeBreaks(t *testing.T) {
 	root := makeGoRepo(t)
-	trunk := trunkBranch(root)
+	trunk := TrunkBranch(root)
 	if trunk == "" {
 		t.Fatal("setup: could not resolve a trunk branch for the fixture repo")
 	}
@@ -78,7 +78,7 @@ func TestTrunkMergePreview_BlocksALawOnlyTheMergedTreeBreaks(t *testing.T) {
 // in every lane until somebody else fixes main is a block no lane can clear.
 func TestTrunkMergePreview_AllowsALawTrunkAlreadyBreaks(t *testing.T) {
 	root := makeGoRepo(t)
-	trunk := trunkBranch(root)
+	trunk := TrunkBranch(root)
 	if trunk == "" {
 		t.Fatal("setup: could not resolve a trunk branch for the fixture repo")
 	}

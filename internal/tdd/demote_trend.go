@@ -62,7 +62,7 @@ func readDemoteTrend(r io.Reader, now time.Time) *demoteTrend {
 		if !ok {
 			continue
 		}
-		repo, lane := demotePlace(e.root)
+		repo, lane := demotePlace(e.Root)
 		if repo == "" {
 			continue
 		}
@@ -70,13 +70,13 @@ func readDemoteTrend(r io.Reader, now time.Time) *demoteTrend {
 		if _, seen := t.spelling[key]; !seen {
 			t.spelling[key] = repo
 		}
-		check := demoteCheckName(e.verdict)
+		check := demoteCheckName(e.Verdict)
 		if check != "" {
-			if at, seen := t.first[key+"\x00"+check]; !seen || e.at.Before(at) {
-				t.first[key+"\x00"+check] = e.at
+			if at, seen := t.first[key+"\x00"+check]; !seen || e.At.Before(at) {
+				t.first[key+"\x00"+check] = e.At
 			}
 		}
-		age := now.Sub(e.at)
+		age := now.Sub(e.At)
 		if age < 0 || age >= 3*demoteWeek {
 			continue
 		}

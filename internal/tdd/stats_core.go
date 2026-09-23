@@ -11,7 +11,7 @@ import (
 // GateLogPath is where the gate writes its log, "" when there is no state
 // dir. Exported so the stats command can read it.
 func GateLogPath() string {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return ""
 	}
@@ -20,16 +20,16 @@ func GateLogPath() string {
 
 // gateEntry is one parsed log line.
 type gateEntry struct {
-	at    time.Time
-	stage string
-	root  string
-	// cmd is the invocation that produced the verdict, "" for a stage that
+	At    time.Time
+	Stage string
+	Root  string
+	// Cmd is the invocation that produced the verdict, "" for a stage that
 	// logged none. It is what the scope law reads (runscope.go): the WIDTH
 	// of a recorded run is derivable from the command already on disk, so
 	// judging whether a verdict may refuse a rerun needs no new log field.
-	cmd     string
-	verdict string
-	secs    float64
+	Cmd     string
+	Verdict string
+	Secs    float64
 }
 
 // parseGateLine reads "<ts> <stage> <root> <cmd...> <verdict> <secs>s". The
@@ -68,7 +68,7 @@ func parseGateLine(line string) (gateEntry, bool) {
 			cmd = ""
 		}
 	}
-	return gateEntry{at: at, stage: f[1], root: f[2], cmd: cmd, verdict: verdict, secs: secs}, true
+	return gateEntry{At: at, Stage: f[1], Root: f[2], Cmd: cmd, Verdict: verdict, Secs: secs}, true
 }
 
 // quotedVerdict finds a verdict quoteVerdict wrote as a Go string literal:

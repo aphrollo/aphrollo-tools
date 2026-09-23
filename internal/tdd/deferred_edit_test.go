@@ -242,8 +242,8 @@ func TestEditResultAdvisory_DropsStalePrevFailingWhenTheIndexMovedWithoutHead(t 
 	}
 
 	state, statePath := loadSession("sess-advisory")
-	state.stamp(root, projectState{Outcome: string(RedMissingImpl), FailingTests: []string{"TestFoo"}, Fingerprint: fp0})
-	if err := state.save(statePath); err != nil {
+	state.Stamp(root, projectState{Outcome: string(RedMissingImpl), FailingTests: []string{"TestFoo"}, Fingerprint: fp0})
+	if err := state.Save(statePath); err != nil {
 		t.Fatal(err)
 	}
 

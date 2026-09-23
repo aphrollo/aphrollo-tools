@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -142,7 +141,7 @@ func isGreenVerdict(verdict string) bool {
 // lastVerdictFor is the last verdict any stage logged for this project, or ""
 // when the log has nothing to say about it.
 func lastVerdictFor(root string) string {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return ""
 	}
@@ -155,8 +154,8 @@ func lastVerdictFor(root string) string {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
-		if e, ok := parseGateLine(sc.Text()); ok && sameProject(e.root, root) {
-			last = e.verdict
+		if e, ok := parseGateLine(sc.Text()); ok && sameProject(e.Root, root) {
+			last = e.Verdict
 		}
 	}
 	return last
@@ -199,7 +198,7 @@ func redStands(session, root string, now time.Time) bool {
 // cleared a red within the same second still cleared it.
 // twin: internal/tdd/statusline.go#lastRunQueued
 func greenLoggedSince(root string, at time.Time) bool {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return false
 	}
@@ -212,30 +211,14 @@ func greenLoggedSince(root string, at time.Time) bool {
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		e, ok := parseGateLine(sc.Text())
-		if !ok || e.at.Before(at) || !sameProject(e.root, root) {
+		if !ok || e.At.Before(at) || !sameProject(e.Root, root) {
 			continue
 		}
-		if strings.HasPrefix(e.verdict, "green") {
+		if strings.HasPrefix(e.Verdict, "green") {
 			return true
 		}
 	}
 	return false
-}
-
-// sameProject matches a gate-log root against the root the badge is rendering
-// for. A stage logs the root it RAN in, which for a cargo workspace member is
-// a directory inside the project, so a nested root counts as this project.
-func sameProject(logged, root string) bool {
-	// Both sides go through logToken: that is the form the log carries, and a
-	// path with a space in it has to compare equal to its own logged spelling.
-	logged, root = filepath.Clean(logToken(logged)), filepath.Clean(logToken(root))
-	if runtime.GOOS == "windows" {
-		logged, root = strings.ToLower(logged), strings.ToLower(root)
-	}
-	if logged == root {
-		return true
-	}
-	return strings.HasPrefix(logged, root+string(filepath.Separator))
 }
 
 // mutantsRunning reports whether a mutation run is going for THIS working
@@ -271,7 +254,7 @@ func deferredBuildRunning(session, root string, now time.Time) bool {
 // QUEUED-SKIPPED: the suite never started, which is the outcome most easily
 // mistaken for a quiet green. A later run of any kind clears it.
 func lastRunQueued(root string) bool {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return false
 	}
@@ -284,8 +267,8 @@ func lastRunQueued(root string) bool {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
-		if e, ok := parseGateLine(sc.Text()); ok && sameProject(e.root, root) {
-			last = e.verdict
+		if e, ok := parseGateLine(sc.Text()); ok && sameProject(e.Root, root) {
+			last = e.Verdict
 		}
 	}
 	return last == "queued-skipped"
