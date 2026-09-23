@@ -389,7 +389,13 @@ func TestPrune_SkipsCurrentWorktree(t *testing.T) {
 	}
 }
 
-func TestPrune_TallyAndAdminCleanup(t *testing.T) {
+// ratchet: test_removed TestPrune_TallyAndAdminCleanup: it required the sweep to delete the admin entry of a worktree it did not remove, the defect this change fixes; its tally check lives on below and the inverse is TestPrune_SweepLeavesAHiddenWorktreeRegistered
+
+// TestPrune_TallyCountsTheRemovedWorktree: the receipt's tally counts the
+// merged worktree the sweep removed. A worktree whose directory is missing is
+// not the sweep's to clear; TestPrune_SweepLeavesAHiddenWorktreeRegistered
+// pins that its admin entry survives.
+func TestPrune_TallyCountsTheRemovedWorktree(t *testing.T) {
 	repo, wt, branch := preparedRepo(t)
 	stubPRState(t, func(_, b string) (string, error) {
 		if b == branch {
@@ -404,20 +410,6 @@ func TestPrune_TallyAndAdminCleanup(t *testing.T) {
 		}
 		return "", nil
 	})
-	// Also leave a stale admin record (a worktree whose dir is gone) to prove the
-	// admin-record prune is folded in.
-	plan, err := BuildPlan(Request{Repo: repo, Branch: "feat/stale", NoInstall: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var b1, b2 bytes.Buffer
-	if err := Apply(plan, &b1, &b2); err != nil {
-		t.Fatalf("prepare stale: %v\n%s", err, b2.String())
-	}
-	if err := os.RemoveAll(plan.Worktree); err != nil {
-		t.Fatal(err)
-	}
-
 	p, _ := PrunePlan(repo)
 	var out, errb bytes.Buffer
 	if err := p.Run(true, &out, &errb); err != nil {
@@ -425,11 +417,6 @@ func TestPrune_TallyAndAdminCleanup(t *testing.T) {
 	}
 	if _, err := os.Stat(wt); !os.IsNotExist(err) {
 		t.Errorf("merged worktree should be gone")
-	}
-	// Admin record for the stale worktree is gone too.
-	lst, _ := exec.Command("git", "-C", repo, "worktree", "list", "--porcelain").Output()
-	if strings.Contains(string(lst), "feat-stale") {
-		t.Errorf("stale admin record should have been pruned:\n%s", lst)
 	}
 	if !strings.Contains(out.String(), "pruned 1") {
 		t.Errorf("receipt should tally one pruned worktree:\n%s", out.String())

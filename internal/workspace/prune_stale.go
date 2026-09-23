@@ -73,7 +73,7 @@ func StaleSweepPlan(repoArg string, stale time.Duration) (*StaleSweep, error) {
 
 // Run sweeps the repo's worktrees and removes the stale-detached ones.
 // apply=false lists what WOULD be swept without mutating; apply=true removes
-// them and folds in a `git worktree prune` of stale admin records.
+// them, touching no admin entry of a worktree it did not remove.
 func (s *StaleSweep) Run(apply bool, stdout, stderr io.Writer) error {
 	entries, err := linkedWorktrees(s.Repo)
 	if err != nil {
@@ -101,7 +101,6 @@ func (s *StaleSweep) Run(apply bool, stdout, stderr io.Writer) error {
 	verb := "would prune"
 	if apply {
 		verb = "pruned"
-		_ = exec.Command("git", "-C", s.Repo, "worktree", "prune").Run()
 	}
 	fmt.Fprintf(stdout, "%s %d stale worktree(s)\n", verb, swept)
 	return nil

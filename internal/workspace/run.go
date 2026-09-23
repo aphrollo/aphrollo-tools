@@ -309,9 +309,6 @@ func (r *Removal) Run(stdout, stderr io.Writer) error {
 	if err := r.removeWorktree(stdout); err != nil {
 		return err
 	}
-	// Drop any stale admin record left behind (the dir is gone but git may still
-	// list the worktree) before deleting the branch it pointed at.
-	_ = exec.Command("git", "-C", r.top, "worktree", "prune").Run()
 	if r.KeepBranch {
 		fmt.Fprintf(stdout, "[kept] branch %s\n", r.branch)
 		return nil
@@ -324,6 +321,9 @@ func (r *Removal) Run(stdout, stderr io.Writer) error {
 // (dir gone) and also recovered from git's "is not a working tree" message.
 func (r *Removal) removeWorktree(stdout io.Writer) error {
 	if _, err := os.Stat(r.worktree); os.IsNotExist(err) {
+		// The dir is gone but git may still list the worktree; drop that one
+		// admin entry before deleting the branch it pointed at.
+		dropMissingWorktree(r.top, r.worktree)
 		fmt.Fprintf(stdout, "[skip] worktree %s — already gone\n", r.worktree)
 		return nil
 	}
