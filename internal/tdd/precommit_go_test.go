@@ -219,6 +219,40 @@ func TestPrecommitRejectsWhenTheLinterFails(t *testing.T) {
 	}
 }
 
+// golangci-lint's own machine-wide lock (still reachable when a lint runs
+// outside this gate's control — an operator's own shell, or a CI job that
+// somehow got past the box-wide lint lock) reports contention with the exact
+// text "parallel golangci-lint is running" and exit 3, carrying no file, no
+// line, no diagnostic naming anything about the code. Reporting that as
+// "TDD quality: lint failed... fix before committing" sends the author
+// hunting for a bug that was never linted; the same commit passes clean on
+// retry once the box is no longer contended — exactly the defect observed
+// 2026-09-23 across two lanes' commit gates. Contention must be its own
+// outcome: still refuses the commit (lint never actually judged the code),
+// but says so as a retry, never a lint verdict.
+func TestPrecommit_ClassifiesLintContentionAsNotALintFailure(t *testing.T) {
+	root := makeGoRepo(t)
+	withLinter(t, true)
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	res := Precommit(root, func(r Runner, dir string) SuiteResult {
+		if r.Cmd == "golangci-lint" {
+			return SuiteResult{Passed: false, Output: "Error: parallel golangci-lint is running\n"}
+		}
+		return SuiteResult{Passed: true}
+	})
+	if !res.Blocked {
+		t.Fatal("lint that never actually ran must still refuse the commit")
+	}
+	if strings.Contains(res.Message, "lint failed") || strings.Contains(res.Message, "fix before committing") {
+		t.Fatalf("box contention reported as a lint failure: %q", res.Message)
+	}
+	if !strings.Contains(res.Message, "retry") && !strings.Contains(res.Message, "Retry") {
+		t.Fatalf("message %q names no retry remedy", res.Message)
+	}
+}
+
 // A dangling citation in a doc misdrives every session that loads it, and a
 // docs-only commit stages no source at all — so the check has to run before
 // the has-code gate, not inside a per-root suite stage.
