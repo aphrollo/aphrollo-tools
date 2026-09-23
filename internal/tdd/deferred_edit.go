@@ -254,7 +254,7 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 	if line := foreignBuildAdvisory(root, j.File, strings.Join(j.Runner, " "), res); line != "" {
 		return line
 	}
-	outcome := ClassifyOutcome(res.Passed, classificationOutput(res.Output, res.GoTestJSON), prev)
+	outcome := classifyEditRun(runner, root, res, prev)
 	if state != nil {
 		state.stamp(root, projectState{
 			Outcome:      string(outcome),
@@ -535,7 +535,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	if line := foreignBuildAdvisory(root, target, cmdString(snap.runner), res); line != "" {
 		return line, false
 	}
-	outcome := ClassifyOutcome(res.Passed, classificationOutput(res.Output, res.GoTestJSON), snap.prevFailing)
+	outcome := classifyEditRun(snap.runner, root, res, snap.prevFailing)
 	if snap.state != nil {
 		snap.state.stamp(root, projectState{
 			Outcome:      string(outcome),

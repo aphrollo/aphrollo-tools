@@ -173,7 +173,7 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 	if line := foreignBuildAdvisory(root, target, cmdString(snap.runner), res); line != "" {
 		return line, false
 	}
-	outcome := ClassifyOutcome(res.Passed, classificationOutput(res.Output, res.GoTestJSON), snap.prevFailing)
+	outcome := classifyEditRun(snap.runner, root, res, snap.prevFailing)
 	failing := ExtractFailingTests(res.Output)
 	passed, hasCount := parsePassedCount(res.Output)
 	unconstrained := unconstrainedGreen(kind, outcome, snap, root, passed, hasCount)
