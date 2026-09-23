@@ -146,6 +146,12 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 	if line := buildOnlyTerminal(snap.runner, root, res); line != "" {
 		return line, false
 	}
+	// A nested tests/<dir>/ file no `mod` declaration reaches also ends here:
+	// the run that just passed never built it at all, so it is not evidence
+	// about this edit either, whatever else in the package it exercised.
+	if line := notCompiledTerminal(snap.runner, root, target, res); line != "" {
+		return line, false
+	}
 	widenNote := ""
 	// A NARROWED run that selected nothing has not judged the code: the
 	// crate's tests may simply live where the filter did not look. Widen
