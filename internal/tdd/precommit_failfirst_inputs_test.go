@@ -101,6 +101,27 @@ func TestProofInputs_WithholdsARonTableThisCommitChanged(t *testing.T) {
 	}
 }
 
+// A CI workflow a test pins is the implementation, never test data: the test
+// that asserts the deploy job's build line reads pipeline.yml, and carrying the
+// fixed workflow into the proof tree makes that test pass against HEAD, so a
+// correct commit is rejected as a fail-first violation. Changed, it stays
+// withheld, exactly like a .ron table.
+func TestProofInputs_WithholdsAWorkflowThisCommitChanged(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, ".github/workflows/pipeline.yml", "jobs:\n  deploy:\n    steps: []\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "pipeline")
+
+	write(t, root, ".github/workflows/pipeline.yml", "jobs:\n  deploy:\n    steps: [build]\n")
+	write(t, root, "deploy_test.go", "package m\n\n// reads .github/workflows/pipeline.yml\n")
+	gitDo(t, root, "add", ".")
+
+	if got := strings.Join(proofInputs(root, []string{"deploy_test.go"}), ","); strings.Contains(got, "pipeline.yml") {
+		t.Fatalf("proof inputs %q must withhold the workflow this commit changes", got)
+	}
+}
+
 // The other half: a table this commit only MOVED is unchanged data the test
 // reads, and withholding it fails the new test for a stale path rather than
 // for missing code.

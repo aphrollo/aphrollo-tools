@@ -389,3 +389,78 @@ func TestPruneMergedLanes_KeepsALaneWhoseReflogCannotBeRead(t *testing.T) {
 		t.Fatalf("stderr = %q, want the keep reason to name the unreadable reflog", errb.String())
 	}
 }
+
+// Issue #710: a repo whose workflow merges lanes into a LOCAL main and does
+// not push after every merge leaves refs/remotes/origin/HEAD trailing local
+// main by however much history was never pushed. The question the sweep
+// actually asks is "has this lane landed on the branch the merge just
+// landed on" — the LOCAL trunk mainRepo (the primary, merge-only checkout)
+// is already sitting on — never the remote-tracking ref, which a repo's own
+// push cadence controls, not this sweep's correctness.
+func TestPruneMergedLanesAfterMerge_ProposesALaneMergedIntoLocalMainEvenWhenOriginTrailsFarBehind(t *testing.T) {
+	mainRepo := t.TempDir()
+	gitInit(t, mainRepo)
+	gitDo(t, mainRepo, "checkout", "-q", "-B", "main")
+	commitInitial(t, mainRepo)
+
+	// A remote-tracking ref frozen at the point the repo was last pushed —
+	// origin/HEAD names it, exactly as a real `git clone` would set up.
+	gitDo(t, mainRepo, "update-ref", "refs/remotes/origin/main", "main")
+	gitDo(t, mainRepo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+
+	// Local main advances with unpushed history — the 837-commit gap the
+	// report measured — while origin/main never moves.
+	write(t, mainRepo, "unpushed.go", "package main\n\n// unpushed local work\n")
+	gitDo(t, mainRepo, "add", "-A")
+	gitDo(t, mainRepo, "commit", "-qm", "local trunk advances, never pushed")
+
+	gitDo(t, mainRepo, "branch", "lane/merged")
+	mergedWT := filepath.Join(t.TempDir(), "merged")
+	gitDo(t, mainRepo, "worktree", "add", "-q", mergedWT, "lane/merged")
+	write(t, mergedWT, "landed.go", "package main\n\n// landed\n")
+	gitDo(t, mergedWT, "add", "-A")
+	gitDo(t, mergedWT, "commit", "-qm", "lane work")
+	gitDo(t, mainRepo, "merge", "-q", "--no-ff", "-m", "merge lane/merged", "lane/merged")
+
+	if trunkBranch(mainRepo) != "origin/main" {
+		t.Fatalf("fixture broken: trunkBranch(mainRepo) = %q, want origin/main (the resolution the sweep must NOT use)", trunkBranch(mainRepo))
+	}
+
+	var out, errb bytes.Buffer
+	pruned := PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)
+
+	if _, err := os.Stat(mergedWT); !os.IsNotExist(err) {
+		t.Fatalf("lane/merged's worktree at %s must be pruned — it landed on LOCAL main, got err=%v", mergedWT, err)
+	}
+	if len(pruned) != 1 || pruned[0].Branch != "lane/merged" {
+		t.Fatalf("pruned = %+v, want exactly lane/merged", pruned)
+	}
+}
+
+// Issue #710: a sweep that examines lanes and prunes none of them must say
+// so — the silent exit is what made the bug invisible for the whole time it
+// existed. One line, naming the local trunk it judged against and the count
+// of lanes it examined; never a line per lane.
+func TestPruneMergedLanesAfterMerge_ReportsExaminedCountAndTrunkWhenNothingIsPruned(t *testing.T) {
+	mainRepo := t.TempDir()
+	gitInit(t, mainRepo)
+	gitDo(t, mainRepo, "checkout", "-q", "-B", "main")
+	commitInitial(t, mainRepo)
+
+	freshWT := filepath.Join(t.TempDir(), "fresh")
+	gitDo(t, mainRepo, "worktree", "add", "-q", "-b", "lane/fresh", freshWT)
+	write(t, freshWT, "wip.go", "package main\n\n// wip, not merged\n")
+	gitDo(t, freshWT, "add", "-A")
+	gitDo(t, freshWT, "commit", "-qm", "lane work not yet merged")
+
+	var out, errb bytes.Buffer
+	pruned := PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)
+
+	if len(pruned) != 0 {
+		t.Fatalf("pruned = %+v, want nothing — lane/fresh never merged", pruned)
+	}
+	want := "prune-lanes: examined 1 lane(s) against main; pruned none\n"
+	if out.String() != want {
+		t.Fatalf("stdout = %q, want exactly %q", out.String(), want)
+	}
+}

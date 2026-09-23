@@ -185,6 +185,30 @@ func TestRemoveTDDSkill_KeepsAForeignSkill(t *testing.T) {
 	}
 }
 
+// TestTDDSkill_TellsTheReaderHowToWaitOnADeferredVerdict pins the fix for a
+// skill that said a deferred build's result "arrives at the next hook" but
+// never how to wait for it: an agent that only reads that sentence ends its
+// turn to wait for a notification, and the next hook is delivered BY its own
+// next Edit/Write — idling on a deferred verdict deadlocks. Measured cost of
+// this gap on 2026-09-21: ~246k tokens and 233 tool calls in that loop, 0
+// commits landed until interrupted.
+func TestTDDSkill_TellsTheReaderHowToWaitOnADeferredVerdict(t *testing.T) {
+	t.Parallel()
+	body := TDDSkill()
+	for _, want := range []string{
+		"aphrollo gate status --wait",
+		"aphrollo gate stats",
+		"aphrollo gate output",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("skill body missing %q", want)
+		}
+	}
+	if !strings.Contains(strings.ToLower(body), "foreground") {
+		t.Error("skill body must say to wait in the FOREGROUND, not end the turn")
+	}
+}
+
 // TestManagedTemplates_CarryTheCurrentMarker proves tddSkillMarker (which
 // RemoveTDDSkill, RemoveSDDSkill and RemoveAgents all match uninstall against)
 // still appears verbatim in every template it is meant to identify. A

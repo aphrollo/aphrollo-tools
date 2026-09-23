@@ -92,14 +92,14 @@ func RecordDemoteCandidates(repo string, candidates []DemoteCandidate, w io.Writ
 		}
 		check := candidate.Check
 		fp := demoteFingerprint(repo, check)
-		if m, found := findIssueByFingerprint(repo, []string{FalsePositiveKind}, "all", fp); found {
-			// An open issue is already the record. A closed one stands too,
-			// unless it closed before the rise window even started — only
-			// then did every event that flagged this run happen after the
-			// human's close.
-			if m.Open || m.ClosedAt.IsZero() || m.ClosedAt.After(riseWindowStart) {
-				continue
-			}
+		// The same rule the escape and override halves use, through the same
+		// guard so the three cannot drift apart again. What this half can say
+		// about WHEN its evidence happened is the start of the two-week rise
+		// window: a close inside that window saw some of the events that
+		// flagged this run, so the judgement stands; a close before it saw
+		// none of them, and the trend is genuinely new.
+		if _, answered := issueAlreadyAnswers(repo, []string{FalsePositiveKind}, fp, riseWindowStart); answered {
+			continue
 		}
 		r, err := RecordEscape(EscapeOptions{
 			Reason: fmt.Sprintf("%s denies more every week — demote, narrow or fix it", check),

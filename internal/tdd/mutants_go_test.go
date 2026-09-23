@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -187,6 +188,21 @@ func TestGremlinsArgv_ScopesToTheLaneDiffAndCapsItself(t *testing.T) {
 	}
 }
 
+// #704: the self-hosted runner's coverage gather dies at Go's default
+// 10-minute test timeout before gremlins ever judges a mutant, and --silent
+// was the reason nobody could see that: it swallows the log.Infof that
+// carries the failing `go test`'s own output, leaving only gremlins' one-line
+// wrapper error. A silent run is the wrong default while the gather is
+// broken, so the flag must not be present until #704 is closed.
+func TestGremlinsArgv_DoesNotRunSilentWhileTheCoverageGatherIsBroken(t *testing.T) {
+	got := gremlinsArgv("abc123", "out.json", 1, nil)
+	for _, arg := range got {
+		if arg == "--silent" {
+			t.Fatalf("gremlinsArgv = %q, must not carry --silent while #704's coverage gather fails silently", got)
+		}
+	}
+}
+
 // gremlins takes a PATH, not a Go package pattern. Handed "./..." it walks
 // nothing, prints "No results to report" and exits 0 — a mutation gate that
 // always passes, which is the one failure mode this design cannot have.
@@ -217,3 +233,29 @@ func TestGremlinsArgv_ExcludesAlreadyMeasuredFilesByAnchoredRegexp(t *testing.T)
 }
 
 // ratchet: test_removed TestGoMutantsReceipt_IsTheSameReceiptTheRustRunnerWrites: there is no receipt; both runners now report into one Verdict, and MeasureLane's own tests judge a gremlins report through the same finishMeasure a Cargo run uses
+
+// A reason that quotes code writes its quotes escaped, `\"`, as TOML requires.
+// tomlStringsIn ended the string on the escaped quote itself, so this repo's
+// own accept-list entry quoting `if profileWs == \"\"` came back in pieces,
+// one piece was refused as malformed, and the refusal made the whole list
+// unreadable: every Go measurement ended "the accept-list could not be read"
+// with no survivor at all (#704).
+func TestTomlStringsIn_AnEscapedQuoteStaysInsideItsString(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "aphrollo.toml", strings.Join([]string{
+		"[aphrollo]",
+		`mutation-accept = [`,
+		`  "calc.go:1 CONDITIONALS_NEGATION # the \"cargo\" guard",`,
+		`  "calc.go:2 CONDITIONALS_NEGATION # the if x == \"\" fallback, a \\ too",`,
+		"]",
+	}, "\n"))
+
+	got := tomlStringsIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", "mutation-accept")
+	want := []string{
+		`calc.go:1 CONDITIONALS_NEGATION # the "cargo" guard`,
+		`calc.go:2 CONDITIONALS_NEGATION # the if x == "" fallback, a \ too`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("tomlStringsIn = %q, want %q", got, want)
+	}
+}

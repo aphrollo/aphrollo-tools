@@ -63,7 +63,7 @@ func TestRemedyFor_DepGraphCeilingNamesTheRootManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := remedyFor(law)
+	got := remedyFor(law, false)
 
 	for _, want := range []string{"crate-fanout-ok:", "Cargo.toml"} {
 		if !strings.Contains(got, want) {
@@ -84,7 +84,7 @@ func TestRemedyFor_DepGraphCeilingWithNoEscapeSaysThereIsNone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := remedyFor(law); got != "no escape: lower the code" {
+	if got := remedyFor(law, false); got != "no escape: lower the code" {
 		t.Fatalf("remedyFor = %q, want the no-escape remedy", got)
 	}
 }
@@ -114,7 +114,7 @@ lines = 2
 		t.Fatal(err)
 	}
 
-	got := remedyFor(law)
+	got := remedyFor(law, false)
 
 	if !strings.Contains(got, "own line") {
 		t.Fatalf("remedyFor = %q, want it to name the trigger's own line", got)

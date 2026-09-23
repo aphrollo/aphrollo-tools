@@ -351,6 +351,121 @@ func TestDecideBashSuite_NarrowedDenyReasonNamesTheHonestRoutesBeforeTheMutation
 	}
 }
 
+// An ignored-only nextest run (`--run-ignored ignored-only`) exercises tests
+// a default run never touches (default nextest skips #[ignore]d tests
+// entirely), so a fresh green logged from an ordinary run never answered for
+// it. Allowed, and counted like a soak: this is a measurement, not a
+// redundant rerun (issue #712).
+func TestDecideBashSuite_AllowsAndCountsNextestIgnoredOnlyRun(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := bashSuiteRoot(t)
+	appendGateLog("postedit", root, "cargo nextest run -p forge_lab", "green", 0)
+
+	raw := bashPayload(t, "s1", root,
+		"cargo nextest run -p forge_lab --release --run-ignored ignored-only "+
+			"-E 'test(the_references_own_driven_wheel_tire_is_read_off_the_launch_logs)' --nocapture")
+	d, judged := DecideBashSuite(raw)
+	if !judged {
+		t.Fatal("an ignored-only nextest run must still be judged")
+	}
+	if d.Action != Allow {
+		t.Fatalf("an ignored-only nextest run beside a fresh green must be allowed, got %v (reason %q)", d.Action, d.Reason)
+	}
+	LogBashSuiteDecision(raw, d)
+	requireLoggedVerdict(t, cfg, "override-bash-measurement")
+}
+
+// cargo test's own ignored-only shape is `-- --ignored`, not nextest's
+// `--run-ignored ignored-only` flag — same disjoint-test-set reasoning, same
+// exemption.
+func TestDecideBashSuite_AllowsAndCountsCargoTestIgnoredOnlyRun(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := bashSuiteRoot(t)
+	appendGateLog("postedit", root, "cargo test -p widgets", "green", 0)
+
+	raw := bashPayload(t, "s1", root, "cargo test -p widgets -- --ignored")
+	d, judged := DecideBashSuite(raw)
+	if !judged {
+		t.Fatal("a cargo test --ignored run must still be judged")
+	}
+	if d.Action != Allow {
+		t.Fatalf("a cargo test --ignored run beside a fresh green must be allowed, got %v (reason %q)", d.Action, d.Reason)
+	}
+	LogBashSuiteDecision(raw, d)
+	requireLoggedVerdict(t, cfg, "override-bash-measurement")
+}
+
+// `--run-ignored all` runs ignored tests AND every normal one — it OVERLAPS
+// the recorded verdict's test set, so the redundant-rerun objection genuinely
+// applies and this must stay blocked. Only a filter that selects
+// exclusively ignored tests is exempt.
+func TestDecideBashSuite_BlocksNextestRunIgnoredAll(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := bashSuiteRoot(t)
+	appendGateLog("postedit", root, "cargo nextest run -p forge_lab", "green", 0)
+
+	d := decideBash(t, "s1", root, "cargo nextest run -p forge_lab --run-ignored all")
+	if d.Action != Block {
+		t.Fatalf("--run-ignored all also selects non-ignored tests and must stay blocked, got %v (reason %q)", d.Action, d.Reason)
+	}
+}
+
+// `--include-ignored` is cargo test's own "ignored AND normal" shape — same
+// overlap, same block.
+func TestDecideBashSuite_BlocksCargoTestIncludeIgnored(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := bashSuiteRoot(t)
+	appendGateLog("postedit", root, "cargo test -p widgets", "green", 0)
+
+	d := decideBash(t, "s1", root, "cargo test -p widgets -- --include-ignored")
+	if d.Action != Block {
+		t.Fatalf("--include-ignored also selects non-ignored tests and must stay blocked, got %v (reason %q)", d.Action, d.Reason)
+	}
+}
+
+// The original #572 protection must stay exactly as strict for an ORDINARY
+// narrowed rerun that names no ignored-test flag at all — the new exemption
+// must not widen past what it names.
+func TestDecideBashSuite_StillBlocksAnOrdinaryNarrowedRerunBesideAFreshGreen(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := bashSuiteRoot(t)
+	appendGateLog("postedit", root, "cargo nextest run -p forge_lab", "green", 0)
+
+	d := decideBash(t, "s1", root, "cargo nextest run -p forge_lab -E 'test(some_other_test)'")
+	if d.Action != Block {
+		t.Fatalf("an ordinary narrowed rerun beside a fresh green must stay blocked, got %v (reason %q)", d.Action, d.Reason)
+	}
+}
+
+// The refusal text must not advertise the evasion route a real session took
+// (worktree add --detach, hand-copy the test files, run there uncounted): it
+// must name the verdict, its stage and age, but never say a different
+// checkout goes unrefused.
+func TestDecideBashSuite_NarrowedDenyReasonDoesNotNameADifferentCheckoutEscape(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := bashSuiteRoot(t)
+	appendGateLog("postedit", root, "go test ./...", "green", 0)
+
+	d := decideBash(t, "s1", root, "go test -run TestWidget ./internal/tdd")
+	if d.Action != Block {
+		t.Fatalf("setup: want Block, got %v (reason %q)", d.Action, d.Reason)
+	}
+	if strings.Contains(d.Reason, "different checkout") {
+		t.Fatalf("deny reason must not name the different-checkout escape:\n%s", d.Reason)
+	}
+	for _, want := range []string{"green", "postedit"} {
+		if !strings.Contains(d.Reason, want) {
+			t.Fatalf("deny reason %q must still name %q", d.Reason, want)
+		}
+	}
+}
+
 // A mutation proof IS a narrowed rerun beside a fresh green by construction
 // (mutate the code, run the one test, expect it to fail), and this repo
 // sanctions it explicitly. Marked like a soak, allowed like a soak, and
@@ -372,4 +487,28 @@ func TestDecideBashSuite_AllowsAndCountsAMarkedMutationProof(t *testing.T) {
 	}
 	LogBashSuiteDecision(raw, d)
 	requireLoggedVerdict(t, cfg, "override-bash-mutation-proof")
+}
+
+// The marker is a word the session writes, never a directory the run happens
+// to sit in: a lane named mutants-<x>, or the measurement's own .mutants temp
+// area, put the word in every path the command names, and each such rerun
+// walked past the refusal and was counted as a mutation proof it never was.
+// Inside a measurement that turned two refusal tests into allows, failed the
+// coverage gather, and left the Go mutation stage with no verdict (#704).
+func TestHasMutationProofMarker_IgnoresTheWordInsideAPath(t *testing.T) {
+	cases := []struct {
+		cmd  string
+		want bool
+	}{
+		{"cd /work/.worktrees/tools/mutants-runner && go test -run TestWidget ./...", false},
+		{`cd C:\work\.mutants\lane && go test -run TestWidget ./...`, false},
+		{"cargo test --manifest-path /work/mutants/Cargo.toml -p server", false},
+		{"MUTATION=1 go test -run TestWidget ./internal/tdd", true},
+		{"go test -run TestWidgetMutantDies ./internal/tdd", true},
+	}
+	for _, c := range cases {
+		if got := hasMutationProofMarker(c.cmd); got != c.want {
+			t.Errorf("hasMutationProofMarker(%q) = %v, want %v", c.cmd, got, c.want)
+		}
+	}
 }

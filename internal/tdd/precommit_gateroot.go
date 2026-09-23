@@ -79,6 +79,12 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 		//
 		// With no suite left here there is nothing for fail-first to run
 		// concurrently WITH, so the pairing that issue #535 added goes with it.
+		//
+		// This root owes the same suite scope the cargo branch does (line 61
+		// above), and must say so the same way: a Go (or pytest/JS/zig) root's
+		// commit gate ran no suite here either, and silence reads as nothing to
+		// report rather than as the merge-deferred suite it actually is.
+		reportSuitesNotRun(gateName, g.root, suiteNoun(runner.Cmd), runner, suiteTouchedNames(runner))
 		return failFirstStage(repoRoot, g.root, g.tests, g.srcs, run)
 	}
 	return suiteStage(gateName, repoRoot, g.root, runner, run)

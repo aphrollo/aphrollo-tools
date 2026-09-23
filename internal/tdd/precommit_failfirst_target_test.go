@@ -64,6 +64,69 @@ func TestPrecommit_FailFirst_InvalidatesTheArtifactsItBuiltFromHEAD(t *testing.T
 	}
 }
 
+// TestPrecommit_FailFirst_InvalidatesADependencyCrateStagedInASiblingRoot
+// pins issue #722, the sibling of the case just above: a commit spans TWO
+// cargo workspace members, alpha and beta, each carrying its OWN Cargo.toml
+// -- so stagedRootGroupsErr's per-project-root grouping (FindProjectRoot
+// stops at the FIRST directory holding a marker) splits this ONE commit
+// into TWO SEPARATE rootGroups, alpha's own directory and beta's own
+// directory, each processed by its own gateRoot call blind to the other's
+// staged files. alpha gets a genuinely new test plus its own staged source
+// edit (what fires fail-first for alpha's group); beta, alpha's path
+// dependency, gets a staged source edit of its own, staged in the SAME
+// commit but owned by beta's separate rootGroup, so alpha's own g.srcs never
+// contains it. alpha's fail-first worktree still builds beta transitively
+// (as alpha's dependency) from HEAD's stale content into the shared target
+// dir, and the invalidation that follows must drop beta too, not just
+// alpha -- the only package alpha's OWN rootGroup ever saw.
+func TestPrecommit_FailFirst_InvalidatesADependencyCrateStagedInASiblingRoot(t *testing.T) {
+	withLinter(t, false)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/alpha\", \"crates/beta\"]\n")
+	write(t, root, "crates/alpha/Cargo.toml", "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\n\n[dependencies]\nbeta = { path = \"../beta\" }\n")
+	write(t, root, "crates/alpha/src/lib.rs", "pub fn base() -> i32 { beta::base() }\n")
+	write(t, root, "crates/beta/Cargo.toml", "[package]\nname = \"beta\"\nversion = \"0.1.0\"\n")
+	write(t, root, "crates/beta/src/lib.rs", "pub fn base() -> i32 { 0 }\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "base")
+
+	// Staged: alpha's own source edit plus a genuinely new test (fires
+	// fail-first for alpha's rootGroup), and — in the SAME commit — a staged
+	// source edit to beta, alpha's dependency, staged under beta's OWN
+	// rootGroup.
+	write(t, root, "crates/alpha/src/lib.rs", "pub fn base() -> i32 { beta::base() + 1 }\n")
+	write(t, root, "crates/alpha/tests/floor.rs", "#[test]\nfn floor_is_one() {\n    assert_eq!(alpha::base(), 1);\n}\n")
+	write(t, root, "crates/beta/src/lib.rs", "pub fn base() -> i32 { 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	// Every stage passes: this test is about WHICH packages get invalidated,
+	// not about proving a genuine fail-first violation — the quality/fmt
+	// stages for alpha's rootGroup run with dir=crates/alpha (its own root,
+	// never the workspace root), and the fail-first worktree run's dir is a
+	// throwaway temp path, so a predicate keyed on the workspace root alone
+	// would block before fail-first ever fires.
+	var runs []loggedRun
+	Precommit(root, recordAllRuns(&runs, func(string) bool { return true }))
+
+	var cleanArgs []string
+	for _, r := range runs {
+		if r.runner.Cmd == "cargo" && len(r.runner.Args) > 0 && r.runner.Args[0] == "clean" {
+			cleanArgs = r.runner.Args
+			break
+		}
+	}
+	if cleanArgs == nil {
+		t.Fatalf("nothing invalidated fail-first's artifacts; runs were %+v", runs)
+	}
+	if !slices.Contains(cleanArgs, "beta") {
+		t.Errorf("invalidation args = %q, want beta included — alpha's fail-first worktree builds beta transitively "+
+			"from HEAD, and beta's own staged source lives in a SIBLING rootGroup alpha's own srcs never sees",
+			cleanArgs)
+	}
+}
+
 // A Go repo has no cargo target dir to poison, so it must not pay for an
 // invalidation: the guard against fixing this everywhere instead of where it
 // breaks.

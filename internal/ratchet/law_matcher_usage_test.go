@@ -129,6 +129,10 @@ var matcherUsageAllowlist = []matcherUsageAllowance{
 		Reason: "module_size.toml, the one line-count law here, accepts the LineCountText default; none opts into count = \"code\"",
 	},
 	{
+		Kind: KindLineCount, Field: "reentry", Category: matcherUsageUnusedHere,
+		Reason: "module_size.toml takes the derived default (90% of its own max, 540 of 600); declaring the field in a law here would also reject every commit until the globally installed binary is rebuilt past the field's landing commit",
+	},
+	{
 		Kind: KindLineCount, Field: "unit_split", Category: matcherUsageUnusedHere,
 		Reason: "module_size.toml never splits a file into a second counted unit",
 	},

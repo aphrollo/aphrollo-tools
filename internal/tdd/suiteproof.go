@@ -3,6 +3,7 @@ package tdd
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -48,6 +49,14 @@ type suiteProofLedger struct {
 	// can then never be SHOWN, so it is never claimed: an unsubstantiated
 	// claim is the defect, and silence costs only a note nobody gets.
 	unreadable bool
+	// unowned records that a staged file belongs to no [package] a cargo
+	// root's ownership scan could find (classifyUnownedCargoFiles). There is
+	// no runner to attach that file to as an owed scope — inventing one that
+	// never runs would let some later stage mark it PROVED by mistake, which
+	// is worse than the hole this flag closes — so it vetoes covered()
+	// directly, the same as an unreadable owed scope: nothing tested that
+	// file, so nothing may vouch for a tree that contains it.
+	unowned bool
 	// proved is the scope of each run that actually executed tests and passed.
 	proved []runScope
 }
@@ -59,7 +68,8 @@ var suiteProof suiteProofLedger
 func resetSuiteProof() {
 	suiteProof.mu.Lock()
 	defer suiteProof.mu.Unlock()
-	suiteProof.owed, suiteProof.proved, suiteProof.unreadable = nil, nil, false
+	suiteProof.owed, suiteProof.proved = nil, nil
+	suiteProof.unreadable, suiteProof.unowned = false, false
 }
 
 // runnerScope is one Runner's width, in runscope.go's terms.
@@ -78,6 +88,15 @@ func (l *suiteProofLedger) owe(r Runner) {
 		return
 	}
 	l.owed = append(l.owed, s)
+}
+
+// oweUnowned records that a staged file has no owning cargo package at all —
+// see the unowned field's own comment for why that vetoes covered() rather
+// than becoming an owed scope with a runner.
+func (l *suiteProofLedger) oweUnowned() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.unowned = true
 }
 
 // note records a green run. A run that executed NO test (a build-only target,
@@ -106,7 +125,7 @@ func (l *suiteProofLedger) note(r Runner, res SuiteResult) {
 func (l *suiteProofLedger) covered() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.unreadable || len(l.owed) == 0 {
+	if l.unreadable || l.unowned || len(l.owed) == 0 {
 		return false
 	}
 	for _, want := range l.owed {
@@ -138,17 +157,48 @@ func provenCovers(have []runScope, want runScope) bool {
 	return true
 }
 
-// reportSuitesNotRun names every touched crate whose suite this gate did NOT
+// reportSuitesNotRun names every touched scope whose suite this gate did NOT
 // run. Issue #394's own remedy, and the reason it is a line rather than a
 // refusal: the commit gate not running them is the design (see gateRoot), but
 // an absence is invisible — the miss was only findable by reading every line
-// of a long output and noticing which crate never appeared. A stage that
-// stands down says so, on stderr and in gate.log.
-func reportSuitesNotRun(gateName, root string, plan cargoStagePlan) {
-	cmd := cmdString(plan.suiteRunner())
-	fmt.Fprintf(os.Stderr, "[mechanical] gate %s: %s in %s → NOT RUN — %s not tested here; a touched crate's suite runs at the merge gate, so this pass is not a green for it\n",
-		gateName, cmd, root, strings.Join(plan.touched, ", "))
+// of a long output and noticing which scope never appeared. A stage that
+// stands down says so, on stderr and in gate.log. noun names what touched
+// holds in THIS root's language ("crate" for cargo, "package" for go and
+// everything narrowToStaged does not special-case) — a Go package is not a
+// crate, and the wording must say so.
+func reportSuitesNotRun(gateName, root, noun string, runner Runner, touched []string) {
+	cmd := cmdString(runner)
+	fmt.Fprintf(os.Stderr, "[mechanical] gate %s: %s in %s → NOT RUN — %s not tested here; a touched %s's suite runs at the merge gate, so this pass is not a green for it\n",
+		gateName, cmd, root, strings.Join(touched, ", "), noun)
 	appendGateLog(gateName, root, cmd, "suites-not-run", 0)
+}
+
+// suiteNoun names a root's own suite scope in its own language, for
+// reportSuitesNotRun's message.
+func suiteNoun(cmd string) string {
+	if cmd == "cargo" {
+		return "crate"
+	}
+	return "package"
+}
+
+// suiteTouchedNames reads a scoped runner back into the names
+// reportSuitesNotRun should print: the packages it names, sorted, or the
+// runner's own command when the scope covers everything (nothing staged
+// narrowed it) or is one scopeOfSuiteCommand cannot read at all (pytest,
+// npm, zig — narrowToStaged has no related-tests mode for those, so their
+// runner never carries a positional scope to read back).
+func suiteTouchedNames(r Runner) []string {
+	scope, ok := runnerScope(r)
+	if !ok || scope.whole || len(scope.pkgs) == 0 {
+		return []string{cmdString(r)}
+	}
+	names := make([]string, 0, len(scope.pkgs))
+	for p := range scope.pkgs {
+		names = append(names, p)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // --- the stamps ------------------------------------------------------------

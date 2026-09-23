@@ -107,6 +107,15 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 		return "", false
 	}
 
+	// A narrowed cargo run whose package-scope form already proved green at
+	// this exact worktree state has nothing left to ask — most often the
+	// precommit/premerge stage just ran and cached that crate's full suite
+	// (issue #715: a module-filtered edit-time run then found zero and
+	// claimed "the code was NOT tested", two lines after it just had been).
+	if line := cargoFullSuiteAlreadyGreenLine(snap.runner, root); line != "" {
+		return line, false
+	}
+
 	headSHA := ""
 	if snap.fingerprint != nil {
 		headSHA = snap.fingerprint.HeadSHA

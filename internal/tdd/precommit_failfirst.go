@@ -14,24 +14,55 @@ import (
 // the artifacts fail-first builds from HEAD's source must not be left where
 // the mechanical stage will read them as fresh.
 
-// invalidateFailFirstArtifacts drops the packages the fail-first run just
+// invalidateFailFirstArtifacts drops the packages the fail-first run may have
 // rebuilt from HEAD out of the SHARED target dir.
 //
 // The sharing is deliberate -- one target dir per repo, so a commit does not
 // cold-build what is already built next door -- so the fix is not a second
-// target dir but a narrow invalidation: exactly the packages this run named
-// with -p, cleaned in the repo root where the artifacts actually live. Every
-// other crate in the workspace keeps its warm cache.
+// target dir but a narrow invalidation. "Narrow" used to mean exactly the
+// packages this run named with -p, and "every other crate in the workspace
+// keeps its warm cache" -- harryberg1n/borld#496 showed that rule wrong. The
+// fail-first worktree applies ONLY the staged TEST diff onto HEAD
+// (failFirstViolatedAt below), so a dependency crate whose non-test SOURCE
+// the same commit also changed still builds there from HEAD's old source,
+// even though narrowFailFirstTests picks -p purely from the staged tests and
+// so never names it. That stale rlib lands in the shared target dir with a
+// fresh mtime, and cargo's mtime fingerprinting then reads it as current for
+// the mechanical stage right behind it: a green commit followed by a build
+// that fails on symbols that exist in the tree.
+//
+// The corrected rule: invalidate the UNION of the -p'd packages and every
+// package that owns a staged non-test source file ANYWHERE in this commit
+// (failFirstInvalidationPackages), cleaned in the repo root where the
+// artifacts actually live. A crate the commit did NOT touch at all still
+// keeps its warm cache; every crate it touched, test or source, does not.
+//
+// "Anywhere in this commit" -- not just under this root -- is issue #722,
+// the sibling of #496 above: a cargo workspace member carries its OWN
+// Cargo.toml, so stagedRootGroupsErr's per-project-root grouping
+// (FindProjectRoot stops at the FIRST directory holding a marker) splits one
+// commit spanning two sibling members into TWO SEPARATE rootGroups, each
+// processed by its own gateRoot call. The srcs a CALLER passes in is scoped
+// to just its own root's rootGroup, so a commit that stages source in both
+// alpha and its dependency beta never lets alpha's own invalidation see
+// beta's staged file — even though alpha's fail-first worktree, building
+// alpha, pulls beta in transitively and writes ITS stale rlib into the same
+// shared target dir. workspaceStagedSources widens the search to every
+// staged non-test source file in the WHOLE commit, not just this root's
+// slice of it; cargoPackagesOwning already discards anything that root
+// (walked via "..") does not actually own, so a file that belongs to some
+// unrelated toolchain elsewhere in a monorepo costs nothing but a missed
+// Cargo.toml stat.
 //
 // This costs nothing that correctness did not already require. Without
 // fail-first the mechanical stage would compile the staged source itself; the
 // clean only undoes an artifact built from DIFFERENT source that happened to
 // land in its place.
-func invalidateFailFirstArtifacts(run SuiteRunner, failFirst Runner, repoRoot string) {
+func invalidateFailFirstArtifacts(run SuiteRunner, failFirst Runner, repoRoot, root string, srcs []string) {
 	if failFirst.Cmd != "cargo" {
 		return
 	}
-	pkgs := cargoPackagesInArgs(failFirst.Args)
+	pkgs := failFirstInvalidationPackages(failFirst.Args, root, repoRoot, workspaceStagedSources(repoRoot, srcs))
 	if len(pkgs) == 0 {
 		return
 	}
@@ -47,6 +78,40 @@ func invalidateFailFirstArtifacts(run SuiteRunner, failFirst Runner, repoRoot st
 	// No budget floor (the trailing zero): `cargo clean` runs no suite, so
 	// there is no recorded suite duration that says anything about it.
 	runCargoLocked(run, cleaner, ws, buildLockPrecommitDeadline, DefaultPrecommitTimeout, 0)
+}
+
+// workspaceStagedSources widens srcs (one project root's own staged non-test
+// source, repoRoot-relative, as stagedRootGroupsErr scoped it) to the WHOLE
+// staged index's non-test source, repoRoot-relative -- every sibling
+// rootGroup's own files included. An unreadable index falls back to srcs
+// alone, the same fail-open stance the rest of this stage takes: a query
+// that cannot run must never look like "nothing else is staged".
+// dedupeSorted collapses the overlap (every file already in srcs reappears
+// in the whole-index read).
+func workspaceStagedSources(repoRoot string, srcs []string) []string {
+	staged, err := stagedFilesErr(repoRoot)
+	if err != nil {
+		return srcs
+	}
+	_, all := splitKinds(staged)
+	return dedupeSorted(append(append([]string{}, srcs...), all...))
+}
+
+// failFirstInvalidationPackages is the actual invalidation set
+// invalidateFailFirstArtifacts acts on: the union of every package the
+// fail-first run named with -p (exactly what it rebuilt) and every package
+// that OWNS a staged non-test source file (srcs, repoRoot-relative) --
+// a dependency crate the fail-first worktree built from HEAD's stale source
+// without ever naming it, per the design comment above. root anchors the
+// ownership walk (cargoPackageFor resolves ".." components fine, so a file
+// outside root still finds its OWNING package's own Cargo.toml as long as
+// the relative path reaches it) — it need not be the file's own rootGroup.
+// Deduped and sorted via dedupeSorted, so a package named both ways is
+// cleaned once.
+func failFirstInvalidationPackages(failFirstArgs []string, root, repoRoot string, srcs []string) []string {
+	pkgs := cargoPackagesInArgs(failFirstArgs)
+	owning := cargoPackagesOwning(root, toRootRelative(repoRoot, root, srcs))
+	return dedupeSorted(append(pkgs, owning...))
 }
 
 // cargoPackagesInArgs is the -p values of a cargo argv, in order. The
@@ -72,9 +137,12 @@ func cargoPackagesInArgs(args []string) []string {
 // having executed zero tests, neither a red proof nor a genuine violation),
 // the suite's measured duration, and the argv it ran. This is failFirstViolatedAt
 // with root == repoRoot, kept as its own name for the (still common)
-// single-root case and for direct callers/tests.
-func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) failFirstOutcome {
-	return failFirstViolatedAt(repoRoot, repoRoot, tests, run)
+// single-root case and for direct callers/tests. srcs is the commit's staged
+// non-test source under root (repoRoot-relative) — passed through only so the
+// post-run invalidation can see the packages it owns; it never enters the
+// worktree.
+func failFirstViolated(repoRoot string, tests, srcs []string, run SuiteRunner) failFirstOutcome {
+	return failFirstViolatedAt(repoRoot, repoRoot, tests, srcs, run)
 }
 
 // failFirstViolatedAt is failFirstViolated generalized to ONE project root
@@ -92,7 +160,7 @@ func failFirstViolated(repoRoot string, tests []string, run SuiteRunner) failFir
 // thread for the argv (#567): the narrowed command this function built and
 // ran, so the stage line names what was proven rather than the profile's
 // unnarrowed `go test ./...`.
-func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner) failFirstOutcome {
+func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteRunner) failFirstOutcome {
 	wt := failFirstWorktreeDir(repoRoot)
 	if wt == "" {
 		var err error
@@ -199,7 +267,7 @@ func failFirstViolatedAt(repoRoot, root string, tests []string, run SuiteRunner)
 	// Only now: a run that never acquired the lock built nothing, and
 	// cleaning for it would evict a warm cache to undo writes that never
 	// happened.
-	defer invalidateFailFirstArtifacts(run, runner, repoRoot)
+	defer invalidateFailFirstArtifacts(run, runner, repoRoot, root, srcs)
 	if res.TimedOut {
 		// A killed run reaches no verdict either way — and measured
 		// nothing, so the caller refuses rather than landing the commit on
@@ -321,7 +389,7 @@ func failFirstWouldRun(repoRoot string, tests, srcs []string) bool {
 
 func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner) GateResult {
 	if failFirstWouldRun(repoRoot, tests, srcs) {
-		out := failFirstViolatedAt(repoRoot, root, tests, run)
+		out := failFirstViolatedAt(repoRoot, root, tests, srcs, run)
 		// The argv the proof ACTUALLY ran, which is narrowed to the staged
 		// tests and is not the profile's own command. A run that never
 		// started names nothing, so the line falls back to the detected

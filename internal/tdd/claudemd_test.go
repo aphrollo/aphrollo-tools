@@ -40,6 +40,38 @@ func TestClaudeMDBlockCarriesTheOperatingInstructions(t *testing.T) {
 	}
 }
 
+// TestClaudeMDBlock_NamesTheInstalledSkillPath: a subagent (`builder`,
+// `researcher`, `Explore`, ...) never receives the session-start nudge, but
+// project instructions ARE forwarded to it, so the managed CLAUDE.md block is
+// the one place such an agent — the population with no Skill tool — can learn
+// where the `tdd` skill actually is instead of running a filesystem-wide
+// search for it.
+func TestClaudeMDBlock_NamesTheInstalledSkillPath(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	if _, err := WriteTDDSkill(dir); err != nil {
+		t.Fatal(err)
+	}
+	block := ClaudeMDBlock(shimDir, false, false)
+	if !strings.Contains(block, skillPath(dir)) {
+		t.Errorf("block does not state the installed skill's resolved path %q:\n%s", skillPath(dir), block)
+	}
+}
+
+// TestClaudeMDBlock_OmitsSkillPathWhenMissing: same rule as the session-start
+// nudge — a path to a file that is not there is worse than no path.
+func TestClaudeMDBlock_OmitsSkillPathWhenMissing(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	block := ClaudeMDBlock(shimDir, false, false)
+	if strings.Contains(block, skillPath(dir)) {
+		t.Errorf("block names a skill path that does not exist on disk:\n%s", block)
+	}
+	if !strings.Contains(block, "aphrollo install") {
+		t.Errorf("block must name the install command when the skill is missing:\n%s", block)
+	}
+}
+
 // TestClaudeMDBlock_VetLintClaimMatchesGoOnlyGuard is a cheap trip-wire for
 // #548's cold-review yellow: the block claims a Go root runs vet/lint,
 // which is true only because precommit_gateroot.go's goQualityStage is

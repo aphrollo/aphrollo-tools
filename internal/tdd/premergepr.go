@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
 )
 
 // A lane can land two ways, and only one of them fires a git hook. A local
@@ -30,9 +33,17 @@ import (
 // merge` verb, which is the path this box takes.
 
 // GatePRMerge judges the tree a PR merge is about to create, in the gate's own
-// checkout, and returns the refusal a merge must not survive. A repo that
-// declares no mutants-at-merge is not gated here and pays nothing: the verb
-// behaves exactly as it did before this existed.
+// checkout, and returns the refusal a merge must not survive. It fires when
+// there is anything on the merged tree to judge: the repo declares ratchet
+// laws, or it declares mutants-at-merge, or both. Each stage inside keeps its
+// own opt-in — declaring laws alone pulls in the merged-tree ratchet
+// judgment (and, riding along in the same Mechanical call, its suites), never
+// the mutation measurement, which still answers only to mutants-at-merge. A
+// repo with neither pays nothing: no fetch, no checkout, the verb behaves
+// exactly as it did before this existed. (harryberg1n/borld#455, #456: the
+// mutation flag used to gate this whole judgment, so a repo with laws but no
+// mutants-at-merge got none of it — the gap two lanes, each green alone, used
+// to land a law regression only their merge crossed.)
 //
 // Every uncertainty refuses. A trunk that cannot be resolved, a merge that
 // cannot be built, a checkout that cannot be made: none of those measured
@@ -46,7 +57,7 @@ func GatePRMerge(laneWorktree string, run SuiteRunner, log io.Writer) error {
 	if err != nil {
 		return prGateRefusal(laneWorktree, "config", "%v", err)
 	}
-	if !cfg.AtMerge {
+	if !cfg.AtMerge && !ratchet.HasLaws(laneWorktree) {
 		return nil
 	}
 	tips, err := prGateTipsOf(laneWorktree, log)
@@ -120,7 +131,7 @@ func prGateTipsOf(laneWorktree string, log io.Writer) (prGateTips, error) {
 // mutation base becomes the merge base with the incoming tip, exactly as it
 // does under the pre-merge-commit hook.
 func prGateMergedCheckout(laneWorktree string, tips prGateTips) (string, func(), error) {
-	wt, err := os.MkdirTemp("", "gate-prmerge-")
+	wt, err := os.MkdirTemp(prGateCheckoutParent(laneWorktree), "gate-prmerge-")
 	if err != nil {
 		return "", nil, prGateRefusal(laneWorktree, "no-checkout",
 			"a checkout to build the merge in could not be created (%v), so the merge was never judged", err)
@@ -144,6 +155,24 @@ func prGateMergedCheckout(laneWorktree string, tips prGateTips) (string, func(),
 			tips.trunkRef, tips.trunkRef, strings.TrimSpace(out))
 	}
 	return wt, cleanup, nil
+}
+
+// prGateCheckoutParent is where the throwaway merged checkout is built: beside
+// the repo's lanes, <parent of the primary>/.worktrees/<repo>, so it and the
+// measurement area measureTempDir puts next to it share the repo's own disk.
+// The OS temp dir is a RAM-backed tmpfs on many Linux boxes and C: on Windows
+// whatever drive the repo is on; a measurement there is refused for space, or
+// fills the wrong drive. "" (the OS temp dir) only when no primary resolves.
+func prGateCheckoutParent(laneWorktree string) string {
+	primary := primaryCheckoutRoot(laneWorktree)
+	if primary == "" {
+		return ""
+	}
+	dir := filepath.Join(filepath.Dir(primary), ".worktrees", filepath.Base(primary))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return ""
+	}
+	return dir
 }
 
 // prGateRefusal is every refusal this side makes: one message shape carrying

@@ -128,6 +128,9 @@ func decideNarrowedSuite(root, cmd string) Decision {
 		return Decision{Action: Allow}
 	}
 	if entry, fresh := lastFreshSuiteVerdict(root, attemptedScope(cmd)); fresh {
+		if hasIgnoredOnlyScope(cmd) {
+			return Decision{Action: Allow, Escapes: []string{"override-bash-measurement"}}
+		}
 		if hasMutationProofMarker(cmd) {
 			return Decision{Action: Allow, Escapes: []string{"override-bash-mutation-proof"}}
 		}
@@ -173,9 +176,11 @@ func denyNarrowedRerunReason(root string, e gateEntry) string {
 			"printed (its assertion lines, unfiltered), `aphrollo gate stats` for the verdict itself. "+
 			"A narrowed rerun is for an INCONCLUSIVE verdict (TIMEOUT, SKIPPED, QUEUED-SKIPPED, %s, "+
 			"%s, or none logged), where the code was never tested — that is the rerun this guard lets "+
-			"through, and a run in a DIFFERENT checkout is never refused here at all. MUTATION=1 is "+
-			"not a way past this refusal: it labels a run that IS a mutation proof, and every run "+
-			"carrying it is counted as one.",
+			"through. An ignored-only run (`--run-ignored ignored-only`, or cargo test's `-- --ignored`) "+
+			"is let through too, and counted: a default run never executes an ignored test, so this "+
+			"verdict never answered for one — `--run-ignored all` and `--include-ignored` also run the "+
+			"normal set and stay refused. MUTATION=1 is not a way past this refusal: it labels a run "+
+			"that IS a mutation proof, and every run carrying it is counted as one.",
 		e.verdict, root, e.stage, ago, DeferredAbandoned, InfraFailed)
 }
 
@@ -187,10 +192,68 @@ func denyNarrowedRerunReason(root string, e gateEntry) string {
 // is, and every use is counted. The match is deliberately loose (a test whose
 // own NAME carries the word passes too): fail-open is the direction this file
 // owes, since a false deny leaves a session with no way to prove a mutant
-// died.
+// died. Loose over the words the session writes, never over a path: a word
+// carrying a separator names a directory or file, and a lane or temp area
+// named for mutants is not a declaration that this run is a proof.
 func hasMutationProofMarker(cmd string) bool {
-	lower := strings.ToLower(cmd)
-	return strings.Contains(lower, "mutation") || strings.Contains(lower, "mutant")
+	for _, word := range strings.Fields(strings.ToLower(cmd)) {
+		if strings.ContainsAny(word, `/\`) {
+			continue
+		}
+		if strings.Contains(word, "mutation") || strings.Contains(word, "mutant") {
+			return true
+		}
+	}
+	return false
+}
+
+// hasIgnoredOnlyScope reports whether cmd's own filter selects ONLY
+// #[ignore]d tests: nextest's `--run-ignored ignored-only`, or cargo test's
+// plain `--ignored` (never `--include-ignored`) after `--`. Such a run's
+// test set is DISJOINT from a default run's — a default `cargo test` /
+// `cargo nextest run` never executes an ignored test at all — so a fresh
+// verdict logged from an ordinary run cannot already hold this run's answer,
+// the same reasoning hasMutationProofMarker earns its own exemption from.
+// `--run-ignored all` and `--include-ignored` run the ignored set AND the
+// normal one, so they overlap a recorded verdict and stay refused: only a
+// filter that selects exclusively ignored tests is exempt.
+func hasIgnoredOnlyScope(cmd string) bool {
+	for _, words := range shellSegments(stripHeredocBodies(cmd)) {
+		if segmentRunsIgnoredOnly(words) {
+			return true
+		}
+	}
+	return false
+}
+
+// segmentRunsIgnoredOnly reads one shellSegments() word list and applies the
+// same rule hasIgnoredOnlyScope names: `--run-ignored`'s own value decides
+// nextest's shape outright (its presence rules out the plain `--ignored`
+// cargo-test reading in the same segment), and otherwise a bare `--ignored`
+// or `--include-ignored` decides cargo test's.
+func segmentRunsIgnoredOnly(words []string) bool {
+	for i, w := range words {
+		name, val, inline := splitFlagValue(w)
+		if name != "--run-ignored" {
+			continue
+		}
+		if inline {
+			return val == "ignored-only"
+		}
+		if i+1 < len(words) {
+			return words[i+1] == "ignored-only"
+		}
+		return false
+	}
+	for _, w := range words {
+		switch w {
+		case "--ignored":
+			return true
+		case "--include-ignored":
+			return false
+		}
+	}
+	return false
 }
 
 // decideWholeSuite denies only when the tree already carries a fresh,

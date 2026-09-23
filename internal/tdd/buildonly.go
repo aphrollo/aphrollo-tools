@@ -92,6 +92,21 @@ func buildOnlyTargetKind(r Runner) string {
 	return "a build-only"
 }
 
+// hasNoRunFlag reports whether argv already carries --no-run. A benches/ or
+// examples/ edit's runner (cargoTargetRunner) already appends it, so the
+// deferred build phase's own --no-run must not be added a second time:
+// nextest rejects a doubled flag outright ("the argument '--no-run' cannot
+// be used multiple times"), which read as a real red on every benches/ edit
+// though nothing was even compiled (issue #711).
+func hasNoRunFlag(argv []string) bool {
+	for _, a := range argv {
+		if a == "--no-run" {
+			return true
+		}
+	}
+	return false
+}
+
 // zeroSelectionTerminal is the same shape for a run that selected no test at
 // all and whose caller cannot widen it — the deferred path, which has
 // already spent its whole budget on one detached run. The honest verdict
