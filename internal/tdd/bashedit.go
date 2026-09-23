@@ -279,6 +279,11 @@ func PostBash(raw []byte, run SuiteRunner) string {
 	if len(changed) == 0 {
 		return ""
 	}
+	changed, fromTrunk := trunkSyncOwnPaths(before.Root, changed)
+	if len(changed) == 0 {
+		appendGateLog("postedit", before.Root, "-", fmt.Sprintf("trunk-sync-standdown:%d", fromTrunk), 0)
+		return trunkSyncStandDownLine(before.Root, fromTrunk)
+	}
 	if line := foreignStagedLine(before.Root, changed); line != "" {
 		return line
 	}
