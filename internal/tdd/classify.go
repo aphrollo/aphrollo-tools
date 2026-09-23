@@ -424,6 +424,8 @@ func ClassifyOutcome(passed bool, output string, prevFailing []string) Outcome {
 	switch {
 	case setupErrRe.MatchString(output):
 		return RedBogus
+	case goUndefinedIsMissingImportOnly(output):
+		return RedBogus
 	case missingImplRe.MatchString(output):
 		return RedMissingImpl
 	}
