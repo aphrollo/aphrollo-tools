@@ -69,7 +69,14 @@ type bashSnapshot struct {
 	// the common case, so the stamps carry it.
 	// bound: one entry per dirty source path, not per tracked file.
 	Dirty map[string]string `json:"dirty"`
-	At    time.Time         `json:"at"`
+	// MergeHead is the commit MERGE_HEAD named when the snapshot was taken,
+	// "" when no merge was in progress. It is what lets the harvest tell a
+	// command that CONCLUDED a merge from one that edited the merged paths.
+	MergeHead string `json:"merge_head,omitempty"`
+	// Head is the commit HEAD named when the snapshot was taken: an
+	// unchanged HEAD with MERGE_HEAD gone is an aborted merge.
+	Head string    `json:"head,omitempty"`
+	At   time.Time `json:"at"`
 }
 
 // IsBashHook reports whether a hook payload describes a Bash call, so the
@@ -229,6 +236,8 @@ func takeBashSnapshot(cwd string) *bashSnapshot {
 		Root:       root,
 		StatusHash: hex.EncodeToString(sum[:]),
 		Dirty:      map[string]string{},
+		MergeHead:  mergeHeadCommit(root),
+		Head:       headCommit(root),
 		At:         time.Now().UTC(),
 	}
 	for _, rel := range porcelainPaths(status) {
@@ -275,9 +284,19 @@ func PostBash(raw []byte, run SuiteRunner) string {
 		_ = s.save(path)
 	}
 
-	changed := changedSince(before)
+	changed, now := changedSince(before)
+	changed, ended, how := withoutEndedMergePaths(before, now, changed)
 	if len(changed) == 0 {
+		if ended > 0 {
+			appendGateLog("postedit", before.Root, "-", fmt.Sprintf("merge-%s-standdown:%d", how, ended), 0)
+			return mergeEndedLine(before.Root, how, ended)
+		}
 		return ""
+	}
+	changed, fromTrunk := trunkSyncOwnPaths(before.Root, changed)
+	if len(changed) == 0 {
+		appendGateLog("postedit", before.Root, "-", fmt.Sprintf("trunk-sync-standdown:%d", fromTrunk), 0)
+		return trunkSyncStandDownLine(before.Root, fromTrunk)
 	}
 	if line := foreignStagedLine(before.Root, changed); line != "" {
 		return line
@@ -418,10 +437,10 @@ func skippedRootsPhrase(roots []string) string {
 // changedSince names every source path whose dirty stamp moved, entered the
 // dirty set, or left it. An identical status hash AND identical stamps is the
 // fast no-op: the command read something and wrote nothing.
-func changedSince(before *bashSnapshot) []string {
+func changedSince(before *bashSnapshot) ([]string, *bashSnapshot) {
 	now := takeBashSnapshot(before.Root)
 	if now == nil {
-		return nil
+		return nil, nil
 	}
 	changed := map[string]bool{}
 	for rel, stamp := range before.Dirty {
@@ -439,7 +458,7 @@ func changedSince(before *bashSnapshot) []string {
 		out = append(out, rel)
 	}
 	sort.Strings(out)
-	return out
+	return out, now
 }
 
 // porcelainPaths reads the paths out of `git status --porcelain -z` records.
