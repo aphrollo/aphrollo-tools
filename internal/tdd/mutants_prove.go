@@ -372,12 +372,19 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	// inconclusive run, because the session can simply run again. A proof
 	// cannot: its whole claim is about tests that ran, so an empty selection
 	// ends it.
-	if selectedZeroTests(runner, res) {
+	if proveSelectedZeroTests(runner, res) {
+		hint := "The filter matched no test at all: check it against the module path the tests are really " +
+			"under (a Rust `#[path = \"…\"] mod <name>;` mounts a file under <name>, not under its own file stem)."
+		if runner.Cmd == "go" {
+			hint = "No test in the mutated package or in any package whose tests import it ran."
+		}
+		if widened == widenDone {
+			hint = fmt.Sprintf("It was already widened from %s, which selected none either: no test in "+
+				"this package's reach exercises the file.", cmdString(narrow))
+		}
 		fmt.Fprintf(stderr, "gate: mutants prove refused — %s: %s in %s selected zero tests, so nothing "+
-			"exercised the mutation; restored, nothing was proved — this is NOT a survivor. The filter matched "+
-			"no test at all: check it against the module path the tests are really under (a Rust "+
-			"`#[path = \"…\"] mod <name>;` mounts a file under <name>, not under its own file stem), or widen "+
-			"the scope and run the proof again.\n", strings.ToUpper(NoTestsSelected), cmdString(runner), root)
+			"exercised the mutation; restored, nothing was proved — this is NOT a survivor. %s\n",
+			strings.ToUpper(NoTestsSelected), cmdString(runner), root, hint)
 		return retainProveRun(root, runner, res, ExitMutantsProveNoTestsSelected)
 	}
 
