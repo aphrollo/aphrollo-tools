@@ -73,7 +73,13 @@ the edit actually landed (`git diff --numstat` on the file, non-empty) — a
 pattern that silently matched nothing (stale CRLF bytes, a typo, the wrong
 worktree) leaves the file untouched and an unrelated green then reads as a
 survivor that never existed. `aphrollo gate mutants prove` does both checks
-mechanically. Unmutated tests over existing code certify nothing.
+mechanically, and restores for itself. By hand, the restore is from a HOLD,
+never the index: `aphrollo gate mutants hold <file>` BEFORE the mutation,
+then `MUTATION=1 git checkout -- <file>` puts back the held working state.
+A bare `git checkout --` is refused over unstaged work, and the refusal exits
+non-zero, so a `&&` chain stops there; the environment markers that force it
+restore the index and destroy that work. Unmutated tests over existing code
+certify nothing.
 
 ## Done means evidence
 
