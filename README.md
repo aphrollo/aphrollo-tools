@@ -772,7 +772,8 @@ the one first-edit false-RED it avoids, and there is no main-branch edit gate
 here to toggle.
 
 Three further test-quality smells **warn and never deny** — they are judgement
-calls, and a false deny wedges a session. Each prints one `file:line` note:
+calls, and a false deny wedges a session. Each prints one `file:line` note,
+naming the line in the file as the edit leaves it, for the lines the edit adds:
 
 - **weak physics bar** — `assert!(x > 0.0)` in a `crates/{forge*,movement,pose,shared}`
   test: a sign check passes for a value 100x wrong ("state the closed-form
@@ -781,7 +782,8 @@ calls, and a false deny wedges a session. Each prints one `file:line` note:
   that describes nothing cannot say which production change makes it red.
 - **unexplained tolerance** — `approx_eq` / `abs_diff_eq` /
   `assert_relative_eq` / `< EPS` / `< 1e-` with no `// tolerance: <why>` (or
-  `// why:`) within two lines above: a tolerance is a hole the size of the
+  `// why:`) within two lines above it, or above the multi-line `assert!(`
+  whose arguments it sits in: a tolerance is a hole the size of the
   tolerance until something names its consumer.
 
 Files matching `_platform_pin` are exempt: they record what a MACHINE does, so
