@@ -116,3 +116,60 @@ func TestRun_SharedTestHelpersFollowTheTestsThatCallThem(t *testing.T) {
 	goCmd(t, repo, nil, "vet", "./...")
 	goCmd(t, repo, nil, "test", "-count=1", "./...")
 }
+
+// A shared test constant forwarding to tddtest crosses the split the same
+// way a helper func does: the moved test keeps naming it, and the package it
+// moved into gets a copy of its declaration.
+func TestRun_SharedTestConstantsFollowTheTestsThatNameThem(t *testing.T) {
+	files := map[string]string{}
+	for k, v := range helperFixture {
+		files[k] = v
+	}
+	files["p/internal/tt/leaf.go"] = "package tt\n\n// Leaf is a shared fixture value.\nconst Leaf = 7\n"
+	files["p/b_test.go"] += "\nconst (\n\tfixtureLeaf = tt.Leaf\n\tunrelated   = 3\n)\n"
+	files["p/a_test.go"] += "\nfunc TestLow_NamesTheSharedConstant(t *testing.T) {\n\tif fixtureLeaf != 7 {\n\t\tt.Fatal(fixtureLeaf)\n\t}\n}\n"
+	repo := fixtureRepo(t, files)
+	out, err := runFixture(t, repo, "L0")
+	if err != nil {
+		t.Fatalf("run: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "test helper") {
+		t.Errorf("a constant the generator can carry was reported instead:\n%s", out)
+	}
+	data, err := os.ReadFile(filepath.Join(repo, "p/low/tddtest_wrappers_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "const fixtureLeaf = tt.Leaf") || strings.Contains(string(data), "unrelated") {
+		t.Errorf("want exactly fixtureLeaf carried, as `const fixtureLeaf = tt.Leaf`:\n%s", data)
+	}
+	goCmd(t, repo, nil, "vet", "./...")
+	goCmd(t, repo, nil, "test", "-count=1", "./...")
+}
+
+// A helper whose body reaches an unexported field of a type that lands in
+// another package would not compile once copied: the copy is reported, and
+// never emitted.
+func TestAnalyze_ReportsAndDropsAHelperCopyThatReadsAnUnexportedField(t *testing.T) {
+	files := map[string]string{
+		"go.mod":      "module example.com/fx\n\ngo 1.26\n",
+		"p/a.go":      "package p\n\ntype pair struct{ k string }\n\nfunc (p pair) key() string { return p.k }\n",
+		"p/a_test.go": "package p\n\nfunc mkPair() pair { return pair{k: \"x\"} }\n\nfunc pairKey() string { return mkPair().key() }\n",
+		"p/b.go":      "package p\n\n// Use keeps pair reachable from p.\nfunc Use() pair { return pair{} }\n",
+		"p/b_test.go": "package p\n\nimport \"testing\"\n\nfunc TestP_BuildsAPair(t *testing.T) {\n\t_ = mkPair()\n\t_ = pairKey()\n}\n",
+	}
+	manifest := "root p\n[packages]\nlow L0 p/low\np L1 p\n[files]\na.go low\na_test.go low\nb.go p\nb_test.go p\n"
+	a := analyzeFixture(t, files, manifest, "L0")
+	var hits []string
+	for _, r := range a.Reports {
+		if strings.Contains(r, "unexported") && (strings.Contains(r, "mkPair") || strings.Contains(r, "pairKey")) {
+			hits = append(hits, r)
+		}
+	}
+	if len(hits) != 2 || !strings.Contains(strings.Join(hits, "\n"), " k ") || !strings.Contains(strings.Join(hits, "\n"), " key ") {
+		t.Errorf("want mkPair reported for field k and pairKey for method key; reports:\n%s", strings.Join(a.Reports, "\n"))
+	}
+	if gen := string(a.Generated["p/tddtest_wrappers_test.go"]); strings.Contains(gen, "mkPair") || strings.Contains(gen, "pairKey") {
+		t.Errorf("a copy that cannot compile was emitted:\n%s", gen)
+	}
+}

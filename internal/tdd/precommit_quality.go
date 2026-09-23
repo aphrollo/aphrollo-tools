@@ -67,7 +67,7 @@ func cargoQualityStage(gateName, ws, root string, pkgs []string, run SuiteRunner
 		// No budget floor (the trailing zero): clippy runs no suite, and
 		// this check fails OPEN on a timeout anyway — a longer budget would
 		// buy a verdict nobody is blocked on.
-		res, waited, acquired := runCargoLocked(run, clippyRunner, root, buildLockPrecommitDeadline, DefaultPrecommitTimeout, 0)
+		res, waited, acquired := runCargoLocked(run, clippyRunner, root, precommitLockWait(), DefaultPrecommitTimeout, 0)
 		logLockWait(gateName, root, clippyRunner, waited)
 		if blocked := qualityVerdict(gateName, root, pkg, "clippy", clippyRunner, res, acquired); blocked != nil {
 			return *blocked

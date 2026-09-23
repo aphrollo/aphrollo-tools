@@ -37,7 +37,8 @@ func (f srcFile) isTest() bool { return strings.HasSuffix(f.Key, "_test.go") }
 
 // listSources walks the root dir and every non-prep package dir under it.
 // Each file's key is relative to the deepest package dir holding it.
-// Generated files are skipped; unmapped files come back with Target "".
+// Generated files and the manifest's locals are skipped; unmapped files come
+// back with Target "".
 func listSources(repo string, m *Manifest) ([]srcFile, error) {
 	var dirs []string
 	for _, p := range m.Packages {
@@ -68,7 +69,7 @@ func listSources(repo string, m *Manifest) ([]srcFile, error) {
 			}
 			return nil
 		}
-		if generated(p) {
+		if generated(p) || m.Locals[strings.TrimPrefix(rel, m.Root+"/")] {
 			return nil
 		}
 		for _, dir := range dirs {

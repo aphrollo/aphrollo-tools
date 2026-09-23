@@ -67,15 +67,15 @@ const (
 // command, and the evidence it came from, which the refusal quotes rather
 // than asserting a number nobody can check.
 type suiteFloor struct {
-	// budget is the floor itself, zero when there is no record to derive
+	// Budget is the floor itself, zero when there is no record to derive
 	// one from. Read through cappedFloor at the point of use — on its own
 	// it is what the evidence asks for, not what a run may have.
-	budget time.Duration
-	// statSecs is the statistic before the margin, in seconds, as gate.log
+	Budget time.Duration
+	// StatSecs is the statistic before the margin, in seconds, as gate.log
 	// recorded it.
-	statSecs float64
-	// runs is how many completed runs the statistic was taken over.
-	runs int
+	StatSecs float64
+	// Runs is how many completed runs the statistic was taken over.
+	Runs int
 }
 
 // cappedFloor is what a run may actually have: the floor, never more than
@@ -90,23 +90,23 @@ func cappedFloor(floor, stageBudget time.Duration) time.Duration {
 	return floor
 }
 
-// refusalNote is the budget paragraph a timeout refusal carries: which floor
+// RefusalNote is the budget paragraph a timeout refusal carries: which floor
 // the run got, what evidence set it, and what a retry can and cannot change.
 // The old refusal said "The gate target is now warm; retry the commit",
 // which under sustained load promises an improvement the next (smaller)
 // budget cannot deliver.
-func (f suiteFloor) refusalNote(stageBudget time.Duration) string {
-	if f.budget <= 0 {
+func (f suiteFloor) RefusalNote(stageBudget time.Duration) string {
+	if f.Budget <= 0 {
 		return fmt.Sprintf("floor: none — gate.log holds no completed run of this command at this stage, so the %.0fs stage budget stood as configured. The first run that finishes records one.",
 			stageBudget.Seconds())
 	}
 	capped := ""
-	if f.budget > stageBudget {
+	if f.Budget > stageBudget {
 		capped = fmt.Sprintf(", capped at the %.0fs stage budget", stageBudget.Seconds())
 	}
 	return fmt.Sprintf("floor: %.0fs — this suite's own record in gate.log (p90 %.1fs over %d completed run%s, ×%.2g margin)%s. "+
 		"The run above already had at least that long, so an immediate retry gets the same budget and not a bigger one: free the box, or make the suite smaller.",
-		cappedFloor(f.budget, stageBudget).Seconds(), f.statSecs, f.runs, plural(f.runs), suiteFloorMargin, capped)
+		cappedFloor(f.Budget, stageBudget).Seconds(), f.StatSecs, f.Runs, plural(f.Runs), suiteFloorMargin, capped)
 }
 
 // recordedSuiteFloor derives the floor for one stage and command from
@@ -183,9 +183,9 @@ func suiteFloorFrom(secs []float64) suiteFloor {
 	sort.Float64s(sorted)
 	stat := sorted[nearestRankIndex(len(sorted), 0.9)]
 	return suiteFloor{
-		budget:   time.Duration(math.Round(stat*suiteFloorMargin)) * time.Second,
-		statSecs: stat,
-		runs:     len(secs),
+		Budget:   time.Duration(math.Round(stat*suiteFloorMargin)) * time.Second,
+		StatSecs: stat,
+		Runs:     len(secs),
 	}
 }
 

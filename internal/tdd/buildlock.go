@@ -113,6 +113,33 @@ func SetPrecommitLockWait(d time.Duration) (restore func()) {
 	return func() { buildLockPrecommitDeadline = prev }
 }
 
+// SetPostEditLockWaitForTest overrides buildLockPostEditDeadline for a test
+// and returns the restore. A setter rather than an assignment, so a test in
+// a package above the one that owns the budget still reaches it.
+func SetPostEditLockWaitForTest(d time.Duration) (restore func()) {
+	prev := buildLockPostEditDeadline
+	buildLockPostEditDeadline = d
+	return func() { buildLockPostEditDeadline = prev }
+}
+
+// SetLockWaitLogThresholdForTest overrides lockWaitLogThreshold for a test
+// and returns the restore, for the same reason.
+func SetLockWaitLogThresholdForTest(d time.Duration) (restore func()) {
+	prev := lockWaitLogThreshold
+	lockWaitLogThreshold = d
+	return func() { lockWaitLogThreshold = prev }
+}
+
+// precommitLockWait, postEditLockWait and lockWaitLogAfter are how every
+// reader outside this file sees the three budgets: a call, so a package
+// above the one that owns them reads the value a setter installed rather
+// than a copy taken when the package was loaded.
+func precommitLockWait() time.Duration { return buildLockPrecommitDeadline }
+
+func postEditLockWait() time.Duration { return buildLockPostEditDeadline }
+
+func lockWaitLogAfter() time.Duration { return lockWaitLogThreshold }
+
 // goRaceLockKey is the synthetic "target dir" a `go test -race` run is
 // governed under, shared by every repo/worktree on the box: unlike a cargo
 // target dir this is not where anything is actually written — Go's own

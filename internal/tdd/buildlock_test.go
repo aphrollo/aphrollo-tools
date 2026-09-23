@@ -13,7 +13,7 @@ import (
 
 func withIsolatedBuildLock(t *testing.T) {
 	t.Helper()
-	tddtest.IsolateBuildLock(t, setBuildLockPathOverride, &buildLockPostEditDeadline, &buildLockPrecommitDeadline)
+	tddtest.IsolateBuildLock(t, setBuildLockPathOverride, SetPostEditLockWaitForTest, SetPrecommitLockWait)
 }
 
 // TestBuildLockPathOverride_ConcurrentSetAndReadIsRaceFree pins the override
@@ -281,5 +281,31 @@ func TestRunSuite_HonorsEarlierRunnerDeadline(t *testing.T) {
 	if elapsed > earlyDeadline+3*time.Second {
 		t.Fatalf("RunSuite took %s, want close to the %s Runner.Deadline — it ran to (or near) the full 5s "+
 			"configured timeout instead, meaning Runner.Deadline was never honored", elapsed, earlyDeadline)
+	}
+}
+
+// A test above the lock package reaches the three wait budgets only through
+// their setters and reads them only through their accessors, so each pair
+// must install the value and put the old one back.
+func TestLockWaitSetters_InstallAndRestore(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		set  func(time.Duration) func()
+		get  func() time.Duration
+	}{
+		{"precommit", SetPrecommitLockWait, precommitLockWait},
+		{"post-edit", SetPostEditLockWaitForTest, postEditLockWait},
+		{"log threshold", SetLockWaitLogThresholdForTest, lockWaitLogAfter},
+	} {
+		before := c.get()
+		restore := c.set(before + 7*time.Millisecond)
+		if got := c.get(); got != before+7*time.Millisecond {
+			restore()
+			t.Fatalf("%s: set %v, accessor reads %v", c.name, before+7*time.Millisecond, got)
+		}
+		restore()
+		if got := c.get(); got != before {
+			t.Errorf("%s: restore left %v, want %v", c.name, got, before)
+		}
 	}
 }

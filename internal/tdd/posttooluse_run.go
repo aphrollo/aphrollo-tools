@@ -18,7 +18,7 @@ func runPostEditSuite(run SuiteRunner, snap stateSnapshot, root, headSHA string,
 	// deferred and reports at the next hook, so a floor would only hold the
 	// session at the keyboard for a verdict it is already arranged to get
 	// later.
-	res, _, acquired := runCargoLocked(run, snap.runner, root, buildLockPostEditDeadline, budget, 0)
+	res, _, acquired := runCargoLocked(run, snap.runner, root, postEditLockWait(), budget, 0)
 	if !acquired {
 		// Another cargo build already holds the machine-wide lock — the
 		// suite never even started, so this is a DIFFERENT fact from a

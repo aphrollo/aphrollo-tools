@@ -25,7 +25,7 @@ func hasRaceFlag(r Runner) bool {
 // logLockWait records a build-slot wait long enough to explain a slow gate
 // run, IN ADDITION to whatever verdict the stage itself reaches.
 func logLockWait(gateName, root string, r Runner, waited time.Duration) {
-	if waited < lockWaitLogThreshold {
+	if waited < lockWaitLogAfter() {
 		return
 	}
 	AppendGateLog(gateName, root, cmdString(r), "lock-wait", waited)

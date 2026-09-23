@@ -39,9 +39,10 @@ type Seams struct {
 	GitQueuedEnv string
 	// SetLockDir points the package's build locks at dir and returns the undo.
 	SetLockDir func(dir string) (restore func())
-	// LockDirName is the package variable that resolves the machine-wide
-	// lock dir; GuardLiveLockDir replaces it for the run.
-	LockDirName *func() string
+	// SetLockDirName replaces the package's resolver of the machine-wide lock
+	// dir and returns the restore; GuardLiveLockDir installs a decoy through
+	// it for the run.
+	SetLockDirName func(fn func() string) (restore func())
 	// SetCIRunnerJobs installs the busy-runner probe and returns the undo.
 	SetCIRunnerJobs func(fn func() []int) (restore func())
 }
@@ -138,8 +139,8 @@ func Main(m *testing.M, s Seams) int {
 	// And the machine-wide lock dir itself is never this suite's: a test
 	// that resolves it fails the package run (see GuardLiveLockDir).
 	checkLiveLockDir := func() error { return nil }
-	if s.LockDirName != nil {
-		checkLiveLockDir = GuardLiveLockDir(s.LockDirName, filepath.Join(dir, "live-lock-dir-decoy"))
+	if s.SetLockDirName != nil {
+		checkLiveLockDir = GuardLiveLockDir(s.SetLockDirName, filepath.Join(dir, "live-lock-dir-decoy"))
 	}
 	// Same net for gh. Three issues were filed against the real repository by
 	// nobody — #155, #196 and #197, all carrying the tdd package's own override
@@ -230,18 +231,17 @@ func UseRealCargoHome(t *testing.T) {
 // the live dir is resolved instead (the variable resolver points at), so a
 // test that reaches it gets a decoy directory under the package's temp dir
 // and the run is reported red with the stack that got there.
-func GuardLiveLockDir(resolver *func() string, decoy string) (check func() error) {
+func GuardLiveLockDir(setResolver func(fn func() string) (restore func()), decoy string) (check func() error) {
 	var reached atomic.Int64
 	var once sync.Once
 	var firstStack string
-	prev := *resolver
-	*resolver = func() string {
+	restore := setResolver(func() string {
 		reached.Add(1)
 		once.Do(func() { firstStack = string(debug.Stack()) })
 		return decoy
-	}
+	})
 	return func() error {
-		*resolver = prev
+		restore()
 		if n := reached.Load(); n > 0 {
 			return fmt.Errorf("live lock dir guard: tests resolved the machine-wide lock dir %d time(s); every test must use a temp lock dir (SetLockDirForTest). First caller:\n%s", n, firstStack)
 		}

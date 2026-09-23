@@ -75,12 +75,12 @@ func machineLoadSample(stop <-chan struct{}) (cores int, loadPct float64, procs 
 			pctOneCore = 100 * ticksToSeconds(p.cpuTicks-prev) / windowSecs
 		}
 		procs = append(procs, procSample{
-			pid:        p.pid,
-			ppid:       p.ppid,
-			name:       p.name,
-			pctOneCore: pctOneCore,
-			cpuHours:   ticksToSeconds(p.cpuTicks) / 3600,
-			creation:   p.creation,
+			PID:        p.pid,
+			PPID:       p.ppid,
+			Name:       p.name,
+			PctOneCore: pctOneCore,
+			CPUHours:   ticksToSeconds(p.cpuTicks) / 3600,
+			Creation:   p.creation,
 		})
 	}
 	return cores, loadPct, procs, true

@@ -40,16 +40,15 @@ func Replace[T any](t *testing.T, p *T, v T) (restore func()) {
 // sleep over 200ms — waiting out a real 20s or 300s budget just to prove a
 // timeout path works would violate that outright (and was observed to,
 // costing 320s for two tests before this fix).
-func IsolateBuildLock(t *testing.T, setPath func(path string) (restore func()), postEdit, precommit *time.Duration) {
+func IsolateBuildLock(t *testing.T, setPath func(path string) (restore func()), setPostEdit, setPrecommit func(time.Duration) (restore func())) {
 	t.Helper()
 	restorePath := setPath(filepath.Join(t.TempDir(), "test-build.lock"))
-	origPostEdit, origPrecommit := *postEdit, *precommit
-	*postEdit = 120 * time.Millisecond
-	*precommit = 150 * time.Millisecond
+	restorePostEdit := setPostEdit(120 * time.Millisecond)
+	restorePrecommit := setPrecommit(150 * time.Millisecond)
 	t.Cleanup(func() {
 		restorePath()
-		*postEdit = origPostEdit
-		*precommit = origPrecommit
+		restorePostEdit()
+		restorePrecommit()
 	})
 }
 
