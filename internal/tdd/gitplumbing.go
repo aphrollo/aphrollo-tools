@@ -89,7 +89,11 @@ func stagedFiles(repoRoot string) []string {
 // `--name-only` prints a rename's DESTINATION — the path that exists after the
 // commit and the only one worth testing.
 func stagedFilesErr(repoRoot string) ([]string, error) {
-	out, err := git(repoRoot, "diff", "--cached", "--name-only", "-M", "--diff-filter="+stagedDiffFilter)
+	args := []string{"diff", "--cached", "--name-only", "-M", "--diff-filter=" + stagedDiffFilter}
+	if base := stagedDiffBase(repoRoot); base != "" {
+		args = append(args, base)
+	}
+	out, err := git(repoRoot, args...)
 	if err != nil {
 		return nil, fmt.Errorf("git diff --cached: %v: %s", err, strings.TrimSpace(out))
 	}
