@@ -2,62 +2,26 @@ package tdd
 
 import (
 	"context"
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// writeOutcomes puts a cargo-mutants outcomes file where a one-shard run in
-// root would have left one, from the mutants it names.
 func writeOutcomes(t *testing.T, root string, mutants ...MutantOutcome) {
 	t.Helper()
-	writeOutcomesIn(t, mutantsShardDir(root, 0), mutants...)
+	tddtest.WriteOutcomes(t, cargoMutantsOutcomesPath(mutantsShardDir(root, 0)), outcomeFields, mutants...)
 }
 
-// writeOutcomesIn is the same for one named shard's own output directory —
-// what that shard's argv carried as `--output`.
 func writeOutcomesIn(t *testing.T, outDir string, mutants ...MutantOutcome) {
 	t.Helper()
-	type span struct {
-		Start struct {
-			Line   int `json:"line"`
-			Column int `json:"column"`
-		} `json:"start"`
-	}
-	type mutant struct {
-		Name    string `json:"name"`
-		Package string `json:"package"`
-		File    string `json:"file"`
-		Span    span   `json:"span"`
-	}
-	type scenario struct {
-		Mutant mutant `json:"Mutant"`
-	}
-	type outcome struct {
-		Scenario scenario `json:"scenario"`
-		Summary  string   `json:"summary"`
-	}
-	summary := map[string]string{
-		"caught": "CaughtMutant", "missed": "MissedMutant",
-		"unviable": "Unviable", "timeout": "Timeout",
-	}
-	doc := struct {
-		Outcomes []outcome `json:"outcomes"`
-	}{}
-	for _, m := range mutants {
-		var o outcome
-		o.Summary = summary[m.Status]
-		o.Scenario.Mutant = mutant{Name: mutantLineOf(m.File, m.Line, m.Col, m.Mutation), Package: m.Package, File: m.File}
-		o.Scenario.Mutant.Span.Start.Line = m.Line
-		o.Scenario.Mutant.Span.Start.Column = m.Col
-		doc.Outcomes = append(doc.Outcomes, o)
-	}
-	data, err := json.Marshal(doc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mustWrite(t, cargoMutantsOutcomesPath(outDir), string(data))
+	tddtest.WriteOutcomes(t, cargoMutantsOutcomesPath(outDir), outcomeFields, mutants...)
+}
+
+// outcomeFields is what tddtest.WriteOutcomes records about one mutant.
+func outcomeFields(m MutantOutcome) tddtest.Outcome {
+	return tddtest.Outcome{Name: mutantLineOf(m.File, m.Line, m.Col, m.Mutation), Package: m.Package, File: m.File, Line: m.Line, Col: m.Col, Status: m.Status}
 }
 
 // makeStagedMergeRepo builds the state the pre-merge-commit hook actually

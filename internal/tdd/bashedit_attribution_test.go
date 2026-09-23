@@ -5,17 +5,13 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// goPrimaryWithLane builds the shape a shared box actually has: a merge-only
-// primary checkout on main, plus one linked lane worktree, both Go projects.
 func goPrimaryWithLane(t *testing.T) (primary, lane string) {
 	t.Helper()
-	primary = makeGoRepo(t)
-	gitDo(t, primary, "checkout", "-q", "-B", "main")
-	lane = filepath.Join(t.TempDir(), "lane")
-	gitDo(t, primary, "worktree", "add", "-q", "-b", "lane/x", lane)
-	return primary, lane
+	return tddtest.GoPrimaryWithLane(t)
 }
 
 // recordSuiteDirs reports every directory a gate ran a suite in, in order.

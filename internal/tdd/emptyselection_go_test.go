@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // The Go sibling of issue #730. A Go source edit narrows to its own package
@@ -21,15 +23,7 @@ const goImporterPassedOutput = "=== RUN   TestSpawnReapsTheChild\n" +
 	"PASS\n" +
 	"ok  \texample.com/m/internal/tdd\t0.012s\n"
 
-// mkGoModule writes a module with a test-less package, and returns its root.
-func mkGoModule(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	write(t, root, "go.mod", "module example.com/m\n\ngo 1.22\n")
-	write(t, root, "internal/proc/proc.go", "package proc\n\nfunc Spawn() int { return 1 }\n")
-	write(t, root, "internal/tdd/tdd.go", "package tdd\n\nimport \"example.com/m/internal/proc\"\n\nfunc Run() int { return proc.Spawn() }\n")
-	return root
-}
+func mkGoModule(t *testing.T) string { t.Helper(); return tddtest.MkGoModule(t) }
 
 // TestGoWideningSteps_ClimbToTheImportersWhoseTestsReachThePackage pins the
 // Go ladder: one rung, the reaching packages minus the ones that already

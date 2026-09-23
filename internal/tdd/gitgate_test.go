@@ -7,50 +7,11 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// isolateGitConfig points git's global + system config at temp/empty files so
-// the test never reads or writes the real ~/.gitconfig.
-func isolateGitConfig(t *testing.T) string {
-	t.Helper()
-	// Drop the repo-pointing GIT_* vars a git hook exports (GIT_DIR,
-	// GIT_INDEX_FILE, …). Under the aphrollo tdd pre-commit gate they point at
-	// the REAL repo; without this, fixture git ops would target (and can
-	// corrupt) the real .git. Restored on cleanup.
-	for _, k := range []string{
-		"GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE",
-		"GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR", "GIT_PREFIX",
-	} {
-		if v, ok := os.LookupEnv(k); ok {
-			os.Unsetenv(k)
-			t.Cleanup(func() { os.Setenv(k, v) })
-		}
-	}
-	gc := filepath.Join(t.TempDir(), "gitconfig")
-	if err := os.WriteFile(gc, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("GIT_CONFIG_GLOBAL", gc)
-	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
-	// CLAUDE_CONFIG_DIR is deliberately left alone here: TestMain already
-	// isolates the whole package from the operator's real ~/.claude, and a
-	// caller that also builds a git-hosting FIXTURE through this helper (
-	// makeCargoRepo/makeGoRepo) may have its OWN CLAUDE_CONFIG_DIR already
-	// set for a reason — to read gate.log back out of it later. Setting one
-	// here unconditionally used to clobber that (#394 review): a workspace-
-	// check test's own isolated state dir was silently swapped out from
-	// under it, so its gate.log assertion failed against a directory that
-	// was never written to. A test that specifically needs gate.log
-	// isolated to ITSELF sets its own t.Setenv("CLAUDE_CONFIG_DIR", ...),
-	// same as every test in behind_test.go already does.
-	// Every caller of this helper points core.hooksPath at a hooks dir under
-	// t.TempDir() while the global config it writes to is ALSO isolated here
-	// — exactly the sanctioned dogfooding shape installGitGate's temp/
-	// scratchpad refusal exists to let through. A test that wants to prove
-	// the refusal itself clears this back off after calling in.
-	t.Setenv(HooksDirUnsafeEnv, "1")
-	return gc
-}
+func isolateGitConfig(t *testing.T) string { t.Helper(); return tddtest.IsolateGitConfig(t) }
 
 func globalHooksPath(t *testing.T) string {
 	t.Helper()

@@ -1,33 +1,16 @@
 package tdd
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// msgFile writes a commit message to a file and returns its path.
-func msgFile(t *testing.T, body string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "COMMIT_EDITMSG")
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
+func msgFile(t *testing.T, body string) string { t.Helper(); return tddtest.MsgFile(t, body) }
 
-// undercoverRepo is a repo whose workspace manifest opts into the check.
-func undercoverRepo(t *testing.T, on bool) string {
-	t.Helper()
-	root := t.TempDir()
-	manifest := "[workspace]\n"
-	if on {
-		manifest += "[workspace.metadata.aphrollo]\nundercover = true\n"
-	}
-	write(t, root, "Cargo.toml", manifest)
-	return root
-}
+func undercoverRepo(t *testing.T, on bool) string { t.Helper(); return tddtest.UndercoverRepo(t, on) }
 
 // TestCommitMsg_RejectsATellAndNamesTheLine pins the whole point: the message
 // is the one artefact that leaves the machine, and a rejection that does not

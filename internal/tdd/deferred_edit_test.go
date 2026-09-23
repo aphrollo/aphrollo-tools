@@ -6,39 +6,28 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// fakePhases replaces the detached-phase spawner for a test: each spawn is
-// recorded, and finishes immediately with the queued outcome (or never, when
-// the queue says so). Returns the recorded spawns.
 func fakePhases(t *testing.T, outcomes ...*PhaseOutcome) *[]DeferredJob {
 	t.Helper()
-	var spawned []DeferredJob
-	i := 0
-	prev := spawnPhaseFn
-	spawnPhaseFn = func(j DeferredJob) (DeferredJob, bool) {
-		j.PID = 1000 + i
-		j.Started = time.Now()
+	return tddtest.FakePhases(t, deferredPhases, outcomes...)
+}
+
+// deferredPhases is what tddtest.FakePhases stands in for.
+var deferredPhases = tddtest.Phases[DeferredJob, PhaseOutcome]{
+	Spawn: &spawnPhaseFn,
+	Start: func(j DeferredJob, pid int, started time.Time) DeferredJob {
+		j.PID = pid
+		j.Started = started
 		saveDeferredJob(j)
 		j, _ = loadDeferredJob(j.Session, j.Project)
-		spawned = append(spawned, j)
-		var out *PhaseOutcome
-		if i < len(outcomes) {
-			out = outcomes[i]
-		}
-		i++
-		if out != nil {
-			if err := os.WriteFile(j.Log, []byte("test result: ok. 1 passed; 0 failed"), 0o600); err != nil {
-				t.Error(err)
-			}
-			writePhaseResult(j.Result, *out)
-		}
-		return j, true
-	}
-	t.Cleanup(func() { spawnPhaseFn = prev })
-	EnableDeferredPhases(true)
-	t.Cleanup(func() { EnableDeferredPhases(false) })
-	return &spawned
+		return j
+	},
+	Files:       func(j DeferredJob) (string, string) { return j.Log, j.Result },
+	WriteResult: writePhaseResult,
+	Enable:      EnableDeferredPhases,
 }
 
 // TestPostEdit_BuildAndRunAreSeparatePhases pins the split the whole feature

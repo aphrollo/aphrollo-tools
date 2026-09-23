@@ -1,18 +1,16 @@
 package tdd
 
 import (
-	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// precommitTestTimeout bounds the real `go test` runs in these integration
-// tests.
-const precommitTestTimeout = 120 * time.Second
+const precommitTestTimeout = tddtest.PrecommitTestTimeout
 
 func TestSplitKinds(t *testing.T) {
 	tests, srcs := splitKinds([]string{"a_test.go", "a.go", "README.md", "b.test.ts", "b.ts"})
@@ -46,51 +44,13 @@ func TestCleanGitEnv_StripsGitVars(t *testing.T) {
 
 // --- real-git integration: the fail-first worktree path ---------------------
 
-// gitInit gives dir the .git of an initialised repo with the fixture identity
-// configured — the four spawns it used to cost, copied from the golden repo
-// TestMain built once (see fixture_test.go).
-func gitInit(t *testing.T, dir string) {
-	t.Helper()
-	// Isolate git config so the operator box's global core.hooksPath (the
-	// aphrollo tdd gate) does not recurse into this fixture's setup commits.
-	isolateGitConfig(t)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	copyFixture(t, dir, initFixture)
-}
+func gitInit(t *testing.T, dir string) { t.Helper(); tddtest.GitInit(t, dir) }
 
-func write(t *testing.T, dir, rel, content string) {
-	t.Helper()
-	p := filepath.Join(dir, rel)
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
+func write(t *testing.T, dir, rel, content string) { t.Helper(); tddtest.Write(t, dir, rel, content) }
 
-func gitDo(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command(gitBinary(), args...)
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %s", args, out)
-	}
-}
+func gitDo(t *testing.T, dir string, args ...string) { t.Helper(); tddtest.GitDo(t, dir, args...) }
 
-// makeGoRepo hands the test its own copy of the committed Go module TestMain
-// built once: go.mod, doc.go, one commit, a clean worktree.
-func makeGoRepo(t *testing.T) string {
-	t.Helper()
-	if _, err := exec.LookPath(gitBinary()); err != nil {
-		t.Skip("git not available")
-	}
-	root := t.TempDir()
-	isolateGitConfig(t)
-	return copyFixture(t, root, goFixture)
-}
+func makeGoRepo(t *testing.T) string { t.Helper(); return tddtest.MakeGoRepo(t) }
 
 // makeJSRepo creates a committed repo whose only root marker is package.json,
 // with the given package.json contents (which select the detected runner). The
@@ -219,27 +179,18 @@ func TestPrecommit_Mechanical_BlocksFailingSuite(t *testing.T) {
 	}
 }
 
-// recordRunner is a SuiteRunner that records every Runner it executes and always
-// reports passing — so a test can assert the EXACT mechanical argv without a real
-// suite run. The fail-first worktree run (if any) is recorded too, but the
-// mechanical stage runs against repoRoot, so the test keys off root. Deadline
-// is stripped before recording: it's a computed wall-clock value
-// (runCargoLocked sets it to start+stageBudget for cargo runners) that no
-// test can predict exactly, and it carries no information the argv/Dir
-// assertions care about.
-// recordRunner / recordAllRuns record the SUITE runs a gate performs. The
-// post-suite quality stage (cargo fmt/clippy per touched crate) is filtered
-// out on purpose: every scoping test below asserts on the exact set of runs,
-// and the quality stage is a separate concern with its own tests in
-// precommit_quality_test.go.
 func recordRunner(seen *[]Runner, root string) SuiteRunner {
-	return func(r Runner, dir string) SuiteResult {
-		if dir == root && !isQualityRunner(r) {
-			r.Deadline = time.Time{}
-			*seen = append(*seen, r)
-		}
-		return SuiteResult{Passed: true}
+	return tddtest.RecordRunner(seen, root, recordableRun, SuiteResult{Passed: true})
+}
+
+// recordableRun keeps a suite run for recordRunner, Deadline stripped, and
+// drops a quality run.
+func recordableRun(r Runner) (Runner, bool) {
+	if isQualityRunner(r) {
+		return r, false
 	}
+	r.Deadline = time.Time{}
+	return r, true
 }
 
 func TestPrecommit_Mechanical_ScopedToStagedGoPackages(t *testing.T) {
@@ -382,15 +333,7 @@ func TestPrecommit_ChangesGate_SkipsYAMLOnlyCommit(t *testing.T) {
 
 // --- mechanical green cache ---------------------------------------------------
 
-// makeCargoRepo creates a committed Rust crate whose root marker is Cargo.toml.
-// Like makeJSRepo, the suite is always faked (cargo need not be installed) —
-// only DetectRunner's marker read and the git state matter.
-func makeCargoRepo(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	isolateGitConfig(t)
-	return copyFixture(t, root, cargoFixture)
-}
+func makeCargoRepo(t *testing.T) string { t.Helper(); return tddtest.MakeCargoRepo(t) }
 
 // A green mechanical run must be remembered: a second Precommit over the
 // IDENTICAL worktree state and runner must not re-run the suite (the retry

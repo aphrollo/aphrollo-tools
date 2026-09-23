@@ -1,41 +1,15 @@
 package tdd
 
 import (
-	"bytes"
-	"io"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// captureStderr redirects os.Stderr for the duration of fn and returns
-// whatever was written to it. Precommit's per-file "unowned cargo package"
-// note (and, from A2 on, its per-stage lines) is a genuine stderr side
-// effect — the gate is a git hook, so stdout is reserved for git's own
-// output — so this is the only way to pin that contract without inventing a
-// parallel in-memory channel nothing else uses.
-func captureStderr(t *testing.T, fn func()) string {
-	t.Helper()
-	orig := os.Stderr
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stderr = w
-	defer func() { os.Stderr = orig }()
-
-	fn()
-
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
-		t.Fatal(err)
-	}
-	return buf.String()
-}
+func captureStderr(t *testing.T, fn func()) string { t.Helper(); return tddtest.CaptureStderr(t, fn) }
 
 // makeMultiRootRepo builds a committed repo with THREE independent project
 // roots sharing one git history: a cargo workspace at the repo root (member

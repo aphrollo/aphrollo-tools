@@ -5,12 +5,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// fakeRun returns a SuiteRunner that ignores its inputs and yields a fixed
-// result, so PostEdit can be exercised without spawning a real test suite.
 func fakeRun(passed bool, output string) SuiteRunner {
-	return func(Runner, string) SuiteResult { return SuiteResult{Passed: passed, Output: output} }
+	return tddtest.FakeRun[Runner](SuiteResult{Passed: passed, Output: output})
 }
 
 // TestSuiteEnv_ScrubsGitVars guards the gate against corrupting the very repo
@@ -51,16 +51,7 @@ func TestSuiteEnv_ScrubsGitVars(t *testing.T) {
 	}
 }
 
-// postPayload builds a PostToolUse payload for a Go project at root.
-func postPayload(tool, file string) []byte {
-	in := map[string]any{
-		"session_id": "sess-post",
-		"tool_name":  tool,
-		"tool_input": map[string]any{"file_path": file},
-	}
-	b, _ := json.Marshal(in)
-	return b
-}
+func postPayload(tool, file string) []byte { return tddtest.PostPayload(tool, file) }
 
 // TestPostEdit pins the loud-on-every-run contract (task A2, 2026-08-15):
 // PostEdit used to be silent on green/writing-test/no-delta and only spoke up

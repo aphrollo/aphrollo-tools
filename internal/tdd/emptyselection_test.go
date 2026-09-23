@@ -3,6 +3,8 @@ package tdd
 import (
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // The false green this file exists for, verbatim from the field:
@@ -48,13 +50,7 @@ func withNextest(t *testing.T, root string) {
 	putFakeNextest(t)
 }
 
-// nextestSixPassedOutput is the widened run's own transcript: the package's
-// tests DO exist (six of them, in a second binary — the integration target),
-// they were simply not where the module filter looked.
-const nextestSixPassedOutput = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s\n" +
-	"    Starting 6 tests across 2 binaries\n" +
-	"        PASS [   0.004s] engine_audio::intake intake_accepts_a_stream\n" +
-	"     Summary [   0.012s] 6 tests run: 6 passed, 0 skipped\n"
+const nextestSixPassedOutput = tddtest.NextestSixPassedOutput
 
 // cargoTestZeroSelectedOutput is the plain-cargo-test dialect reaching the
 // SAME wrong conclusion by a different route: a substring filter that

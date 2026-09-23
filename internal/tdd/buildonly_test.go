@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // The second shape of the same false green, verbatim from the field:
@@ -15,11 +17,7 @@ import (
 // always, and there is nothing to widen to. They are COMPILE checks, and the
 // gate must say so in its own words rather than borrow green's.
 
-// exampleCompiledOutput is what a build-only target's own run prints: the
-// target was compiled, and no test summary appears anywhere because none
-// ran.
-const exampleCompiledOutput = "   Compiling engine_audio v0.1.0 (/w/engine_audio)\n" +
-	"    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.42s\n"
+const exampleCompiledOutput = tddtest.ExampleCompiledOutput
 
 // TestNarrow_ExampleIsBuiltNotRun pins the inconsistency the field report
 // exposed: --bench already carries --no-run for exactly the stated reason (a

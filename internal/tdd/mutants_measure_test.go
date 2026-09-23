@@ -5,28 +5,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// makeMeasureRepo builds a one-crate cargo workspace with a base commit and a
-// lane commit on top of it, and answers the root and the base sha. The shard
-// count is pinned to ONE so a test built on it is about the step it names
-// rather than about how many cores the box running the suite has; a test
-// about the sharding pins its own number after this call.
 func makeMeasureRepo(t *testing.T, lane map[string]string) (root, base string) {
 	t.Helper()
-	t.Cleanup(setMutantsJobsForTest(1, "pinned"))
-	root = t.TempDir()
-	gitInit(t, root)
-	writeMeasureBase(t, root)
-	gitDo(t, root, "add", ".")
-	gitDo(t, root, "commit", "-qm", "base")
-	base = strings.TrimSpace(gitOutT(t, root, "rev-parse", "HEAD"))
-	for rel, content := range lane {
-		write(t, root, rel, content)
-	}
-	gitDo(t, root, "add", ".")
-	gitDo(t, root, "commit", "-qm", "lane")
-	return root, base
+	return tddtest.MakeMeasureRepo(t, setMutantsJobsForTest, lane)
 }
 
 // measureFixture is the common setup: a lane to measure, a state dir of its
@@ -38,9 +23,7 @@ func measureFixture(t *testing.T, lane map[string]string) (root, base string) {
 	return makeMeasureRepo(t, lane)
 }
 
-// laneSource is the lane commit every judgement test makes: one changed crate
-// source, so there is something mutable to measure.
-var laneSource = map[string]string{"crates/a/src/lib.rs": "pub fn add(a: i32, b: i32) -> i32 { a - b }\n"}
+var laneSource = tddtest.LaneSource
 
 // The measured diff is the lane's own changed CRATE SOURCES against the merge
 // base — a test file is not mutated, and the crate set is what scopes both

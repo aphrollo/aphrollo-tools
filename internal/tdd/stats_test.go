@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // TestGateStats_TalliesTheLogByStageAndOutcome pins the point of the command:
@@ -120,10 +122,8 @@ func TestGateStats_CountsVacuousRejectedBesideTimeoutRejected(t *testing.T) {
 	}
 }
 
-// stamp writes one gate.log line in the format appendGateLog produces.
 func stamp(at time.Time, stage, root, cmd, verdict string, secs float64) string {
-	return at.UTC().Format(time.RFC3339) + " " + stage + " " + root + " " + cmd + " " + verdict + " " +
-		formatFloat(secs) + "s\n"
+	return tddtest.Stamp(at, stage, root, cmd, verdict, secs, formatFloat)
 }
 
 // A receipt that was hand-written or unsigned is a policy event: it reaches

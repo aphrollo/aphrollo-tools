@@ -1,52 +1,20 @@
 package tdd
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// lawTree is a git repo carrying one deny law whose baseline records the one
-// offending site that already exists.
-func lawTree(t *testing.T, severity string) string {
-	t.Helper()
-	root := t.TempDir()
-	gitInit(t, root)
-	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "nan-guard.toml"), `
-name = "nan-guard"
-description = "A float clamp is not a NaN guard"
-severity = "`+severity+`"
-escape = "// nan-safe:"
-baseline = ".ratchet/baselines/nan-guard.txt"
-
-[scope]
-include = ["crates/**/*.rs"]
-
-[matcher]
-kind = "regex-absent"
-pattern = "\\.clamp\\("
-`)
-	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt"),
-		"crates/a/src/lib.rs | let a = x.clamp(0.0, 1.0);\n")
-	mustWrite(t, filepath.Join(root, "crates", "a", "src", "lib.rs"), "let a = x.clamp(0.0, 1.0);\n")
-	return root
-}
+func lawTree(t *testing.T, severity string) string { t.Helper(); return tddtest.LawTree(t, severity) }
 
 func ratchetPayload(t *testing.T, tool, path string, fields map[string]any) []byte {
 	t.Helper()
-	input := map[string]any{"file_path": path}
-	for k, v := range fields {
-		input[k] = v
-	}
-	raw, err := json.Marshal(map[string]any{"tool_name": tool, "tool_input": input})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return raw
+	return tddtest.RatchetPayload(t, tool, path, fields)
 }
 
 func TestRatchetAdvisoryDeniesAWriteThatIntroducesANewHit(t *testing.T) {
@@ -173,15 +141,7 @@ func TestRatchetAdvisoryNeverRewritesABaseline(t *testing.T) {
 	}
 }
 
-func mustWrite(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
+func mustWrite(t *testing.T, path, content string) { t.Helper(); tddtest.MustWrite(t, path, content) }
 
 // A Write that CREATES a file routinely names a directory that does not exist
 // yet, and every git question asked from a missing directory fails — so the

@@ -1,35 +1,19 @@
 package tdd
 
 import (
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// preEditJSON builds a PreToolUse payload naming a single edited file.
 func preEditJSON(t *testing.T, tool, filePath, session string) []byte {
 	t.Helper()
-	payload := map[string]any{
-		"tool_name":  tool,
-		"session_id": session,
-		"tool_input": map[string]any{"file_path": filePath},
-	}
-	b, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
+	return tddtest.PreEditJSON(t, tool, filePath, session)
 }
 
-// commitInitial turns a fresh git dir into a repo with one commit, so a
-// worktree can be added against it.
-func commitInitial(t *testing.T, repo string) {
-	t.Helper()
-	write(t, repo, "main.go", "package main\n")
-	gitDo(t, repo, "add", "-A")
-	gitDo(t, repo, "commit", "-q", "-m", "init")
-}
+func commitInitial(t *testing.T, repo string) { t.Helper(); tddtest.CommitInitial(t, repo) }
 
 func TestSameGitDir(t *testing.T) {
 	// Main clone: git reports the same dir for --git-dir and --git-common-dir.

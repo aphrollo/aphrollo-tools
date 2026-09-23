@@ -8,43 +8,23 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 func bashPayload(t *testing.T, session, cwd, command string) []byte {
 	t.Helper()
-	return bashPayloadID(t, session, "toolu_single", cwd, command)
+	return tddtest.BashPayload(t, session, cwd, command)
 }
 
 func bashPayloadID(t *testing.T, session, toolUseID, cwd, command string) []byte {
 	t.Helper()
-	raw, err := json.Marshal(map[string]any{
-		"session_id":  session,
-		"tool_use_id": toolUseID,
-		"cwd":         cwd,
-		"tool_name":   "Bash",
-		"tool_input":  map[string]any{"command": command},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return raw
+	return tddtest.BashPayloadID(t, session, toolUseID, cwd, command)
 }
 
-// powerShellPayload is bashPayload's PowerShell twin, same tool_input shape
-// under a different tool_name: the PowerShell tool is classified exactly
-// like Bash (issue #118).
 func powerShellPayload(t *testing.T, session, cwd, command string) []byte {
 	t.Helper()
-	raw, err := json.Marshal(map[string]any{
-		"session_id": session,
-		"cwd":        cwd,
-		"tool_name":  "PowerShell",
-		"tool_input": map[string]any{"command": command},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return raw
+	return tddtest.PowerShellPayload(t, session, cwd, command)
 }
 
 // An edit made by `sed` or a heredoc is still an edit: the hooks that judge a
