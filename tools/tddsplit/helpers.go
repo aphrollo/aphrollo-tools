@@ -15,9 +15,10 @@ import (
 const helperBase = "tddtest_wrappers"
 
 // helperDecl is the source of one carriable test helper: a plain func, or
-// one name of a const spec with an explicit value.
+// one name of a const or var spec with an explicit value.
 type helperDecl struct {
 	fn    *ast.FuncDecl
+	tok   token.Token // token.CONST or token.VAR for a spec
 	spec  *ast.ValueSpec
 	index int
 }
@@ -46,7 +47,11 @@ func (s *splitter) carryHelper(c *checked, consumer string, obj types.Object, wh
 	}
 	h, ok := s.helperDecl(c, obj)
 	if !ok {
-		s.site(fmt.Sprintf("test helper %s used from package %s has no plain func or valued const declaration to carry", obj.Name(), consumer), where)
+		s.site(fmt.Sprintf("test helper %s used from package %s has no plain func or valued const or var declaration to carry", obj.Name(), consumer), where)
+		return
+	}
+	if _, isVar := obj.(*types.Var); isVar && (s.seams[obj] || holdsLock(obj.Type())) {
+		s.site(fmt.Sprintf("test var %s is written by a test or holds a lock, so it is state, not a shared value: a copy in package %s would drift from the original; move its users together or hand it through tddtest", obj.Name(), consumer), where)
 		return
 	}
 	if s.readsUnexportedAcross(c, consumer, obj, h) {
@@ -127,10 +132,12 @@ func (s *splitter) readsUnexportedAcross(c *checked, consumer string, obj types.
 	return found
 }
 
-// carriable reports whether a test-file object is a kind carryHelper copies.
+// carriable reports whether a test-file object is a kind carryHelper copies:
+// a func, a const, or a package-level var (a written one is refused inside
+// carryHelper, with the reason).
 func carriable(obj types.Object) bool {
 	switch obj.(type) {
-	case *types.Func, *types.Const:
+	case *types.Func, *types.Const, *types.Var:
 		return true
 	}
 	return false
@@ -147,14 +154,14 @@ func (s *splitter) helperDecl(c *checked, obj types.Object) (helperDecl, bool) {
 					return helperDecl{fn: d}, d.Recv == nil
 				}
 			case *ast.GenDecl:
-				if d.Tok != token.CONST {
+				if d.Tok != token.CONST && d.Tok != token.VAR {
 					continue
 				}
 				for _, sp := range d.Specs {
 					vs := sp.(*ast.ValueSpec)
 					for i, name := range vs.Names {
 						if c.Info.Defs[name] == obj {
-							return helperDecl{spec: vs, index: i}, i < len(vs.Values)
+							return helperDecl{tok: d.Tok, spec: vs, index: i}, i < len(vs.Values)
 						}
 					}
 				}
@@ -189,7 +196,10 @@ func (s *splitter) renderHelpers(c *checked, add func(outKey, entry)) {
 			} else {
 				node = h.spec
 				order = orderConst
-				b.WriteString("const " + obj.Name() + " ")
+				if h.tok == token.VAR {
+					order = orderVar
+				}
+				b.WriteString(h.tok.String() + " " + obj.Name() + " ")
 				if h.spec.Type != nil {
 					err = printer.Fprint(&b, c.Fset, h.spec.Type)
 					b.WriteString(" ")

@@ -173,3 +173,60 @@ func TestAnalyze_ReportsAndDropsAHelperCopyThatReadsAnUnexportedField(t *testing
 		t.Errorf("a copy that cannot compile was emitted:\n%s", gen)
 	}
 }
+
+// A shared test var forwarding to tddtest crosses like a const when nothing
+// writes it: the moved test keeps naming it, and its new package gets a copy
+// of the declaration. A test var some test assigns is state, not a shared
+// value; two copies would drift apart, so it is reported and never copied.
+func TestRun_SharedTestVarsFollowTheTestsThatNameThem(t *testing.T) {
+	files := map[string]string{}
+	for k, v := range helperFixture {
+		files[k] = v
+	}
+	files["p/internal/tt/keys.go"] = "package tt\n\n// Keys is a shared fixture list.\nvar Keys = []string{\"a\", \"b\"}\n"
+	files["p/b_test.go"] += "\nvar sharedKeys = tt.Keys\n\nvar counter = 0\n\nfunc TestP_Counts(t *testing.T) { counter++ }\n"
+	files["p/a_test.go"] += "\nfunc TestLow_NamesTheSharedVar(t *testing.T) {\n\tif len(sharedKeys) != 2 {\n\t\tt.Fatal(sharedKeys)\n\t}\n}\n"
+	repo := fixtureRepo(t, files)
+	out, err := runFixture(t, repo, "L0")
+	if err != nil {
+		t.Fatalf("run: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "sharedKeys") {
+		t.Errorf("a var the generator can carry was reported instead:\n%s", out)
+	}
+	data, err := os.ReadFile(filepath.Join(repo, "p/low/tddtest_wrappers_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "var sharedKeys = tt.Keys") {
+		t.Errorf("want `var sharedKeys = tt.Keys` carried:\n%s", data)
+	}
+	goCmd(t, repo, nil, "vet", "./...")
+	goCmd(t, repo, nil, "test", "-count=1", "./...")
+}
+
+func TestAnalyze_ReportsAWrittenTestVarInsteadOfCopyingIt(t *testing.T) {
+	files := map[string]string{
+		"go.mod":      "module example.com/fx\n\ngo 1.26\n",
+		"p/a.go":      "package p\n\nfunc base() int { return 1 }\n",
+		"p/a_test.go": "package p\n\nimport \"testing\"\n\nfunc TestLow_ReadsTheCounter(t *testing.T) { _ = counter + base(); seen.Store(\"k\", 1) }\n",
+		"p/b.go":      "package p\n\n// Use keeps base reachable.\nfunc Use() int { return base() }\n",
+		"p/b_test.go": "package p\n\nimport (\n\t\"sync\"\n\t\"testing\"\n)\n\nvar counter = 0\n\nvar seen = sync.Map{}\n\nfunc TestP_Counts(t *testing.T) { counter++ }\n",
+	}
+	manifest := "root p\n[packages]\nlow L0 p/low\np L1 p\n[files]\na.go low\na_test.go low\nb.go p\nb_test.go p\n"
+	a := analyzeFixture(t, files, manifest, "L0")
+	for _, name := range []string{"counter", "seen"} {
+		found := false
+		for _, r := range a.Reports {
+			if strings.Contains(r, "test var "+name+" ") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no report says test var %s cannot be carried; reports:\n%s", name, strings.Join(a.Reports, "\n"))
+		}
+		if gen := string(a.Generated["p/low/tddtest_wrappers_test.go"]); strings.Contains(gen, "var "+name) {
+			t.Errorf("test var %s, which holds state, was copied:\n%s", name, gen)
+		}
+	}
+}
