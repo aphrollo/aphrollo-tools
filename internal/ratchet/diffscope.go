@@ -28,12 +28,52 @@ type FileDiff struct {
 func changedInput(law Law, opts Options) (base BaseReader, files []string) {
 	switch law.Scope.Changed {
 	case ChangedStaged:
-		return resolveBaseTree(opts), opts.StagedFiles
+		base, files = resolveBaseTree(opts), opts.StagedFiles
 	case ChangedLane:
-		return resolveLaneBaseTree(opts), opts.LaneFiles
+		base, files = resolveLaneBaseTree(opts), opts.LaneFiles
 	default:
 		return nil, nil
 	}
+	if base != nil && len(opts.Renames) > 0 {
+		base = renamingReader{BaseReader: base, from: opts.Renames}
+	}
+	return base, files
+}
+
+// renamingReader answers a renamed file's pre-image from the path it was
+// renamed from, keyed by its new path, so every diff-relational law sees a
+// pure move as unchanged content.
+type renamingReader struct {
+	BaseReader
+	from map[string]string
+}
+
+func (r renamingReader) Read(path string) ([]byte, error) {
+	if old, ok := r.from[path]; ok {
+		return r.BaseReader.Read(old)
+	}
+	return r.BaseReader.Read(path)
+}
+
+func (r renamingReader) ReadAll(paths []string) (map[string][]byte, error) {
+	asked := make([]string, len(paths))
+	for i, p := range paths {
+		asked[i] = p
+		if old, ok := r.from[p]; ok {
+			asked[i] = old
+		}
+	}
+	got, err := r.BaseReader.ReadAll(asked)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string][]byte, len(got))
+	for i, p := range paths {
+		if data, ok := got[asked[i]]; ok {
+			out[p] = data
+		}
+	}
+	return out, nil
 }
 
 // changedFileDiffs resolves a diff-relational law's input set into one

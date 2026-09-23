@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
 // ratchetCheckFn is ratchet.Check, indirected so a test can substitute a
@@ -172,6 +173,10 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 		// shape #320 is about, not a rejection anyone would ever see.
 		Base:        "HEAD",
 		StagedFiles: stagedFiles(repoRoot),
+		// The renames among those files, from the same diff, so a moved
+		// file's pre-image is read where it came from and a pure move is
+		// no change to a diff-scoped law.
+		Renames: gitx.StagedRenames(repoRoot),
 	})
 	if err != nil {
 		return ratchetCheckErrorResult(gateName, repoRoot, err, started)
