@@ -46,6 +46,11 @@ func goTestFuncNames(root, rel string) []string {
 	}
 	var names []string
 	for _, m := range goTestFuncRe.FindAllStringSubmatch(string(data), -1) {
+		// TestMain is the binary's entry point, never selectable by -run
+		// (goTestMainRe); naming it would widen the filter to nothing.
+		if m[1] == "TestMain" {
+			continue
+		}
 		names = append(names, m[1])
 	}
 	return names

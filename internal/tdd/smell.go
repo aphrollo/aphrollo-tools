@@ -414,16 +414,12 @@ func hasPanicOnlyOracle(masked string) bool {
 	return false
 }
 
-// isGoTestDeclLine reports whether line is one of testDeclRes[".go"]'s
-// shapes (precommit_diffscan.go's fail-first declaration table) — reused
-// rather than redefined.
+// isGoTestDeclLine reports whether line declares a Go test the way
+// fail-first's declaration table judges it (testDeclLine), TestMain excluded,
+// reused rather than redefined.
 func isGoTestDeclLine(line string) bool {
-	for _, re := range testDeclRes[".go"] {
-		if re.MatchString(line) {
-			return true
-		}
-	}
-	return false
+	decl, _ := testDeclLine(".go", line)
+	return decl
 }
 
 // panicOnlyOracleBody judges one function's body (already sliced by
