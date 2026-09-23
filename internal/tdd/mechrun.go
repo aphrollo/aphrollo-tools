@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -246,18 +245,6 @@ func resolvedDevTarget(repoRoot string) string {
 		return ""
 	}
 	return ResolveCargoTargetDir(repoRoot)
-}
-
-// insideDir reports whether path lies lexically within base (inclusive).
-// Windows compares case-insensitively — the same checkout routinely appears
-// with both drive-letter casings.
-func insideDir(base, path string) bool {
-	base, path = filepath.Clean(base), filepath.Clean(path)
-	if runtime.GOOS == "windows" {
-		base, path = strings.ToLower(base), strings.ToLower(path)
-	}
-	rel, err := filepath.Rel(base, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // queuedRejectMessage composes the rejection for a commit the gate could

@@ -146,18 +146,6 @@ func proposedContent(in ratchetEditInput, path string) (string, bool) {
 	return content, true
 }
 
-// applyEdit is the Edit tool's own substitution: the first occurrence, or every
-// one under replace_all. An empty old string means the edit creates the file.
-func applyEdit(content, old, replacement string, all bool) string {
-	if old == "" {
-		return replacement
-	}
-	if all {
-		return strings.ReplaceAll(content, old, replacement)
-	}
-	return strings.Replace(content, old, replacement, 1)
-}
-
 // ratchetStage judges the whole tree against its declared laws before any
 // suite compiles: it is milliseconds warm, and a law is exactly the kind of
 // rule that must be answered before the expensive stages, not after them. It
