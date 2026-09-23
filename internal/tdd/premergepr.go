@@ -145,6 +145,12 @@ func prGateMergedCheckout(laneWorktree string, tips prGateTips) (string, func(),
 	cleanup := func() {
 		_, _ = git(laneWorktree, "worktree", "remove", "--force", wt)
 		_ = os.RemoveAll(wt)
+		// measureTempDir puts the run's measurement area BESIDE wt, not
+		// inside it, precisely so a tree copy never shares a lock with the
+		// checkout it is copied from — which means removing wt alone leaves
+		// that area behind. Every merge through this gate builds and
+		// abandons one; this is what stops it from leaking.
+		_ = os.RemoveAll(measureTempDir(wt))
 	}
 	if out, err := git(wt, "merge", "--no-commit", "--no-ff", tips.lane); err != nil {
 		_, _ = git(wt, "merge", "--abort")

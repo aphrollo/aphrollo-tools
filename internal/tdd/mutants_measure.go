@@ -258,6 +258,15 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base str
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 		return Verdict{}, err
 	}
+	// A mutant's own test process is killed outright on failfast or a
+	// timeout, never reaching the TestMain cleanup that made its temp
+	// directory — measureEnv points TMPDIR straight at this area, so that
+	// directory lands and stays here. Swept before this run starts, so
+	// whatever the box killed before its own turn finished does not survive
+	// into this one, and again (deferred) once this run is done, so its own
+	// dead children do not survive into the next.
+	sweepGoMeasureTemp(root)
+	defer sweepGoMeasureTemp(root)
 	// The same rule as the Cargo half: an earlier run's report is not this
 	// run's, and a run that wrote none reached no verdict.
 	_ = os.Remove(out)
@@ -294,6 +303,29 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base str
 // report: under the run's own temp area, never in the tree it is measuring.
 func gremlinsReportPath(root string) string {
 	return filepath.Join(measureTempDir(root), "gremlins.json")
+}
+
+// sweepGoMeasureTemp clears the Go runner's own measurement area of
+// everything except gremlins' own report. Unlike the sharded Cargo runner,
+// gremlins keeps no persistent build directory here to protect — the whole
+// area is TMPDIR for the run (measureEnv), and gremlins "copies nothing into
+// the tree it measures" (measureGoLane) — so there is no ownership or
+// liveness question to ask: anything found here besides the report is a
+// killed mutant's orphaned temp directory, always, and is reclaimed
+// unconditionally. A missing area is not swept; there is nothing in it.
+func sweepGoMeasureTemp(root string) {
+	area := measureTempDir(root)
+	entries, err := os.ReadDir(area)
+	if err != nil {
+		return
+	}
+	keep := filepath.Base(gremlinsReportPath(root))
+	for _, e := range entries {
+		if e.Name() == keep {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(area, e.Name()))
+	}
 }
 
 // runMutantsMeasured runs the tool under the box-wide mutation lock, teeing

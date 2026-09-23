@@ -147,6 +147,11 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 			out = append(out, gcMutantsRunDirs(area, olderThan, time.Now())...)
 			out = append(out, gcMutantsTrees(area, DefaultMutantsAge, time.Now())...)
 		}
+		// Whole areas, not only what is inside one: a checkout that is gone
+		// for good (a throwaway GatePRMerge built and abandoned, or a lane
+		// long since pruned) leaves an area neither category above ever
+		// looks at as a unit.
+		out = append(out, gcMutantsOrphanAreas(areas, time.Now())...)
 		// The areas too, not only the OS temp dirs: a killed sharded run
 		// leaks its tree copies INSIDE its own area, and a sweep handed only
 		// the temp dirs reported 806.4 KB reclaimable with 169 GB of dead
@@ -510,63 +515,6 @@ func ApplyGCFor(repo string, cands []GCCandidate) (freed int64, refused []string
 		refused = append(refused, gRefused...)
 	}
 	return freed, refused, skipped
-}
-
-// gcTargetInterlock names the target dir a candidate belongs to, or "" when
-// deleting it cannot race a build.
-func gcTargetInterlock(repo string, c GCCandidate) string {
-	switch c.Kind {
-	case GCKindIncremental:
-		return ResolveCargoTargetDir(repo)
-	case GCKindOrphanWorktree:
-		return filepath.Join(c.Path, "target")
-	case GCKindGateDir:
-		return c.Path
-	case GCKindMutants, GCKindDepsMember, GCKindDepsThirdParty:
-		// These live INSIDE the target dir: a build mid-way must not lose an
-		// rlib it is about to link.
-		return ResolveCargoTargetDir(repo)
-	case GCKindMutantsTarget:
-		// A shard's persistent build dir IS a cargo target dir, so the lock
-		// that protects it is its own. The repo's resolved target dir is a
-		// different directory with a different lock, and holding that one
-		// while deleting this one protects nothing at all.
-		return c.Path
-	case GCKindStrayTarget:
-		// The candidate IS a target dir by construction (isCargoTargetDir
-		// required both marker files) — interlocked on ITS OWN path, not
-		// repo's resolved target: a misresolution (issue #285) is what put
-		// a LIVE target dir in this category at all, and a config-set
-		// target-dir elsewhere on the box can be building into it right now
-		// regardless of what this repo resolves to.
-		return c.Path
-	default:
-		return ""
-	}
-}
-
-// gcProtected reports whether any component of path names a build-artifact
-// directory that must survive. Component-wise, not just the base name: a
-// candidate is a directory, and one holding deps/ as its LAST component is
-// the case that matters.
-// namesItsOwnArtifacts reports whether a category selects individual files
-// inside a build directory rather than the directory itself.
-func namesItsOwnArtifacts(k GCKind) bool {
-	switch k {
-	case GCKindDepsMember, GCKindDepsThirdParty, GCKindMutants:
-		return true
-	default:
-		return false
-	}
-}
-
-func gcProtected(path string) bool {
-	for _, part := range strings.Split(filepath.ToSlash(filepath.Clean(path)), "/") {
-		if gcProtectedNames[part] {
-			return true
-		}
-	}
-	return false
 }
 
 // dirNewestAndSize walks a directory once for both facts a candidate needs:

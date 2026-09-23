@@ -21,8 +21,8 @@ import (
 
 // MutantsJobsCap is how many mutants may be measured at once, and why. A
 // mutation run shares the box with the editors it exists to serve, so the cap
-// is deliberately mean: one job per six cores, one per six gigabytes, never
-// more than two whatever the machine is, never less than one.
+// is deliberately mean: one job per three cores, one per eight gigabytes,
+// never more than eight whatever the machine is, never less than one.
 //
 // The memory term is what is FREE, not what is installed, whenever a free
 // reading can be taken — mutants_freemem.go has the incident it comes from.
