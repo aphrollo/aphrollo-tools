@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // gitAddPath stages exactly one path, unlike gitAddAll — needed to leave a
@@ -18,17 +20,9 @@ func gitAddPath(t *testing.T, root, rel string) {
 	}
 }
 
-// baselineRepo commits one counted baseline, then leaves `after` staged.
 func baselineRepo(t *testing.T, path, before, after string) string {
 	t.Helper()
-	root := t.TempDir()
-	gitInit(t, root)
-	mustWrite(t, filepath.Join(root, path), before)
-	gitAddAll(t, root)
-	commitAll(t, root)
-	mustWrite(t, filepath.Join(root, path), after)
-	gitAddAll(t, root)
-	return root
+	return tddtest.BaselineRepo(t, path, before, after)
 }
 
 func TestBaselineGuardRejectsARaisedCeiling(t *testing.T) {

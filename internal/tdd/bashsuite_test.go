@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // seedGateLogEntry writes one gate.log line by hand, at a chosen age.
@@ -30,26 +32,11 @@ func seedGateLogEntry(t *testing.T, cfg, stage, root, verdict string, age time.D
 	}
 }
 
-// bashSuiteRoot makes a directory findRootFrom resolves as a project root,
-// with no git and no suite actually runnable — DecideBashSuite never runs
-// anything, so a bare go.mod marker is enough.
-func bashSuiteRoot(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	write(t, dir, "go.mod", "module fixture\n\ngo 1.22\n")
-	return dir
-}
+func bashSuiteRoot(t *testing.T) string { t.Helper(); return tddtest.BashSuiteRoot(t) }
 
-// decideBash runs DecideBashSuite over a Bash payload and fails the test if
-// the payload was not judged at all — every case in this file names a
-// command DecideBashSuite must recognise as a test-runner invocation.
 func decideBash(t *testing.T, session, cwd, command string) Decision {
 	t.Helper()
-	d, judged := DecideBashSuite(bashPayload(t, session, cwd, command))
-	if !judged {
-		t.Fatalf("DecideBashSuite did not judge %q as a suite invocation", command)
-	}
-	return d
+	return tddtest.DecideBash(t, session, cwd, command, DecideBashSuite)
 }
 
 // An un-narrowed `go test ./...` beside a verdict the gate already holds for

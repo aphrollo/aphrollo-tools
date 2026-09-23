@@ -5,36 +5,20 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// primaryRepo builds a repo on `main` with one linked worktree, and returns
-// the primary checkout and the linked worktree.
-func primaryRepo(t *testing.T) (primary, linked string) {
-	t.Helper()
-	return primaryRepoNamed(t, "repo")
-}
+func primaryRepo(t *testing.T) (primary, linked string) { t.Helper(); return tddtest.PrimaryRepo(t) }
 
-// primaryRepoNamed behaves like primaryRepo but nests the checkout under a
-// directory ending in name, instead of a t.TempDir() basename that is a bare
-// sequence number. A test that needs two DISTINGUISHABLE repos — to assert a
-// reason string names one and not the other — must call this with two
-// different names: a bare sequence number can collide with another test's
-// temp dir under -shuffle, making a `strings.Contains` on the raw basename
-// answer no stable question.
 func primaryRepoNamed(t *testing.T, name string) (primary, linked string) {
 	t.Helper()
-	primary = filepath.Join(t.TempDir(), name)
-	gitInit(t, primary)
-	gitDo(t, primary, "checkout", "-q", "-B", "main")
-	commitInitial(t, primary)
-	linked = filepath.Join(t.TempDir(), "lane")
-	gitDo(t, primary, "worktree", "add", "-q", "-b", "lane/x", linked)
-	return primary, linked
+	return tddtest.PrimaryRepoNamed(t, name)
 }
 
 func editPayload(t *testing.T, tool, path, session string) []byte {
 	t.Helper()
-	return preEditJSON(t, tool, path, session)
+	return tddtest.PreEditJSON(t, tool, path, session)
 }
 
 func TestPrimaryCheckout_DeniesEditWhenRepoHasALinkedWorktree(t *testing.T) {

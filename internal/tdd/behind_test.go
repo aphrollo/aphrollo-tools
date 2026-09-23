@@ -3,12 +3,12 @@ package tdd
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // stampedCommit and originHead are 40-hex shas the tests hold constant so the
@@ -168,20 +168,7 @@ func TestBinaryBehindLine_BacksOffTenMinutesAfterAFailedLookup(t *testing.T) {
 	}
 }
 
-// gateLogContent reads the whole gate.log the test's isolated CLAUDE_CONFIG_DIR
-// wrote, "" when nothing was ever logged (no state dir, or nothing appended).
-func gateLogContent(t *testing.T) string {
-	t.Helper()
-	path := GateLogPath()
-	if path == "" {
-		return ""
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	return string(data)
-}
+func gateLogContent(t *testing.T) string { t.Helper(); return tddtest.GateLogContent(t, GateLogPath()) }
 
 // A command failure (not a timeout) must never be silent in the ledger: it
 // is recorded once through appendGateLog, distinguishable from a timeout, and

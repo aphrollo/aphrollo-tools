@@ -24,7 +24,7 @@ internal/tdd/mechcache.go | return nil, false
 internal/workspace/prune_stale.go | return nil, false
 internal/tdd/mergetip.go | return "", false
 internal/tdd/mutants_ram_unix.go | return "", false
-internal/tdd/runner.go | return "", false
+internal/tdd/runner_core.go | return "", false
 internal/tdd/sessionline.go | return issuesCache{}, false
 internal/tdd/sessionline.go | return "", false
 internal/tdd/stats.go | return gateEntry{}, false

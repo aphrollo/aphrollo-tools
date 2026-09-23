@@ -7,19 +7,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// mkProject creates a temp project root holding the given marker files and
-// returns the root dir.
 func mkProject(t *testing.T, markers ...string) string {
 	t.Helper()
-	root := t.TempDir()
-	for _, m := range markers {
-		if err := os.WriteFile(filepath.Join(root, m), []byte("{}"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return root
+	return tddtest.MkProject(t, markers...)
 }
 
 func TestFindProjectRoot(t *testing.T) {

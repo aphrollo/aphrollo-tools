@@ -4,23 +4,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// bigFileLines builds a Go file of n lines: a package clause, then filler
-// comments, so a law counting LINES has something to count and `go vet` still
-// reads it as valid Go.
-func bigFileLines(pkg string, head, tail int) string {
-	var b strings.Builder
-	b.WriteString("package " + pkg + "\n")
-	for i := range head {
-		b.WriteString("// head " + string(rune('a'+i)) + "\n")
-	}
-	b.WriteString("\nfunc Middle() {}\n\n")
-	for i := range tail {
-		b.WriteString("// tail " + string(rune('a'+i)) + "\n")
-	}
-	return b.String()
-}
+func bigFileLines(pkg string, head, tail int) string { return tddtest.BigFileLines(pkg, head, tail) }
 
 // sizeLawTree writes a size law into an already-initialised repo: a file may
 // not pass `max` lines, with an empty baseline so nothing is grandfathered.

@@ -6,30 +6,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// nextestNoTestsOutput is VERBATIM cargo-nextest output, captured 2026-08-15
-// (review finding: the fixture had been hand-written; this replaces it with
-// a real capture) via:
-//
-//	cargo new --lib zz_empty && cd zz_empty
-//	# src/lib.rs stripped of its default #[test] so the crate has ZERO tests
-//	cargo nextest run
-//
-// which exits 4 (confirmed: `echo $?` => 4) with this transcript — the exact
-// shape a cargo-hakari workspace-hack crate (deliberately dependency-only)
-// produces on every commit that touches it, unlike plain `cargo test` (also
-// captured, same zero-test crate: exit 0, "running 0 tests" /
-// "test result: ok. 0 passed; 0 failed; ..." — already covered by
-// ClassifyOutcome's existing zeroTestsRe, so no fixture change needed there).
-const nextestNoTestsOutput = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s\n" +
-	"────────────\n" +
-	" Nextest run ID 2c75af04-dbe9-4f97-aa96-b51d23e40db1 with nextest profile: default\n" +
-	"    Starting 0 tests across 1 binary\n" +
-	"────────────\n" +
-	"     Summary [   0.000s] 0 tests run: 0 passed, 0 skipped\n" +
-	"error: no tests to run\n" +
-	"(hint: use `--no-tests` to customize)\n"
+const nextestNoTestsOutput = tddtest.NextestNoTestsOutput
 
 // TestEmptyPass_NextestZeroTests_NeverBlocksNeverReadsAsFailure pins the
 // fix for a real false-positive: `cargo nextest run -p workspace-hack` on a

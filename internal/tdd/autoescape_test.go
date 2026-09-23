@@ -8,32 +8,20 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // --- the channel: a git note on the commit the gate passed ------------------
 
-// gitOutT is a git value a test needs to compare against.
 func gitOutT(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command(gitBinary(), args...)
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("git %v: %v", args, err)
-	}
-	return strings.TrimSpace(string(out))
+	return tddtest.GitOutT(t, dir, args...)
 }
 
-// gitNote is the gate note on rev, "" when there is none.
 func gitNote(t *testing.T, dir, rev string) string {
 	t.Helper()
-	cmd := exec.Command(gitBinary(), "notes", "--ref="+gateNotesRef, "show", rev)
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
+	return tddtest.GitNote(t, gateNotesRef, dir, rev)
 }
 
 // CI runs on a box that has never seen this machine's gate state, so the only
@@ -462,27 +450,11 @@ func TestOverrideCandidatesIgnoreWhatIsOlderThanTheWindow(t *testing.T) {
 	}
 }
 
-// gateLines renders gate.log lines at ts, in the exact shape appendGateLog
-// writes: the parser reads by field position, so a hand-built line that
-// drifts from the writer would test the wrong thing.
-func gateLines(ts time.Time, entries ...string) string {
-	var b strings.Builder
-	for i, e := range entries {
-		b.WriteString(ts.Add(time.Duration(i) * time.Minute).Format(time.RFC3339))
-		b.WriteString(" " + e + " 0.0s\n")
-	}
-	return b.String()
-}
+func gateLines(ts time.Time, entries ...string) string { return tddtest.GateLines(ts, entries...) }
 
-// commitWithGreenGateNote commits a tree a suite proved green, carrying the
-// note the post-commit hook would have written.
 func commitWithGreenGateNote(t *testing.T, root, subject string) {
 	t.Helper()
-	write(t, root, "landed.go", "package m\n")
-	gitDo(t, root, "add", ".")
-	stampProvenSuite(root)
-	gitDo(t, root, "commit", "-q", "-m", subject)
-	PostCommit(root)
+	tddtest.CommitWithGreenGateNote(t, root, subject, stampProvenSuite, PostCommit)
 }
 
 // noteLaneTipGreen puts onto the lane tip the note it would carry after a

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // The argv this binary builds had only ever been exercised through the exec
@@ -176,32 +178,7 @@ mod tests {
 }
 `
 
-// realCargoHome is what CARGO_HOME held before TestMain pointed it at a temp
-// directory, and whether it was set at all. Only the smoke test reads them:
-// every other test in the package wants the isolated one.
-var (
-	realCargoHome    string
-	hadRealCargoHome bool
-)
-
-// useRealCargoHome puts the box's own CARGO_HOME back for one test. The whole
-// package runs under an isolated cargo home so no test reads the operator's
-// ~/.cargo/config.toml, but the cargo the queue shim resolves lives under
-// CARGO_HOME: with the isolated one in the environment every `cargo` this
-// test spawns fails with "resolve cargo: <tmp>\bin\cargo.exe not found", and
-// the test would skip on a box that has the whole toolchain installed.
-func useRealCargoHome(t *testing.T) {
-	t.Helper()
-	if hadRealCargoHome {
-		t.Setenv("CARGO_HOME", realCargoHome)
-		return
-	}
-	isolated := os.Getenv("CARGO_HOME")
-	if err := os.Unsetenv("CARGO_HOME"); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Setenv("CARGO_HOME", isolated) })
-}
+func useRealCargoHome(t *testing.T) { t.Helper(); tddtest.UseRealCargoHome(t) }
 
 // requireRealMutationToolchain skips unless this box can actually run the
 // measurement. On PATH is not the same as usable, so each tool is asked for
