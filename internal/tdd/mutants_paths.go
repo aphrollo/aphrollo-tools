@@ -56,6 +56,15 @@ func primaryCheckoutRoot(repoRoot string) string {
 // process without having to produce one.
 var pidRunningFn = pidRunning
 
+// SetPidRunningForTest replaces the liveness probe for the duration of a
+// test, and answers the restore. A setter rather than an assignment, so a
+// test in a package above the one that owns the seam still reaches it.
+func SetPidRunningForTest(fn func(pid int) bool) (restore func()) {
+	prev := pidRunningFn
+	pidRunningFn = fn
+	return func() { pidRunningFn = prev }
+}
+
 // aphrolloTomlFlag reads one boolean from `[aphrollo]` in <root>/aphrollo.toml.
 func aphrolloTomlFlag(root, key string) bool {
 	return tomlBoolIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", key)

@@ -201,3 +201,26 @@ func TestAnalyze_RelocationOfAPlatformPairChecksEachHalfOnItsOwnPlatform(t *test
 		t.Errorf("want both halves pending and no misplaced report; got pending=%q misplaced=%q", pending, wrong)
 	}
 }
+
+// A test left in p that assigns a seam var moving to low would assign the
+// generated call-through func instead, which does not compile. The report
+// must name the assignment so the carve-out adds a setter first.
+func TestAnalyze_ReportsATestAssigningASeamThatMovesBelowIt(t *testing.T) {
+	files := map[string]string{
+		"go.mod":      "module example.com/fx\n\ngo 1.26\n",
+		"p/a.go":      "package p\n\nvar probe = func(n int) bool { return n > 0 }\n",
+		"p/b.go":      "package p\n\n// Use reads the seam.\nfunc Use() bool { return probe(1) }\n",
+		"p/b_test.go": "package p\n\nimport \"testing\"\n\nfunc TestUse_Stubbed(t *testing.T) {\n\tprev := probe\n\tprobe = func(int) bool { return false }\n\tdefer func() { probe = prev }()\n\tif Use() {\n\t\tt.Fatal(\"stub not seen\")\n\t}\n}\n",
+	}
+	manifest := "root p\n[packages]\nlow L0 p/low\np L1 p\n[files]\na.go low\nb.go p\nb_test.go p\n"
+	a := analyzeFixture(t, files, manifest, "L0")
+	var hits []string
+	for _, r := range a.Reports {
+		if strings.Contains(r, "assigns seam var probe") {
+			hits = append(hits, r)
+		}
+	}
+	if len(hits) != 1 || !strings.Contains(hits[0], "p/b_test.go:7") || !strings.Contains(hits[0], "p/b_test.go:8") {
+		t.Errorf("want one finding naming both assignments at p/b_test.go:7 and :8; reports:\n%s", strings.Join(a.Reports, "\n"))
+	}
+}

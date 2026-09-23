@@ -81,6 +81,7 @@ func Analyze(repo string, m *Manifest, levels map[int]bool) (*Analysis, error) {
 		}
 		s.relocations(c)
 		s.needs = map[string]map[string]*need{}
+		s.helpers = map[string]map[*types.Func]bool{}
 		s.collect(c)
 		if err := s.externalDemand(repo, c); err != nil {
 			return nil, err
@@ -113,7 +114,8 @@ type splitter struct {
 	seams   map[types.Object]bool
 	reports []string
 	seen    map[string]bool
-	sites   map[string]map[string]bool // finding -> use sites
+	sites   map[string]map[string]bool      // finding -> use sites
+	helpers map[string]map[*types.Func]bool // consumer -> test helpers carried into it
 }
 
 // site records one use site of a finding; siteReports renders each finding
@@ -172,7 +174,9 @@ func (s *splitter) level(pkg string) int { return s.m.Packages[pkg].Level }
 // package-level objects it needs from another; everything the split cannot
 // alias is reported instead.
 func (s *splitter) collect(c *checked) {
-	s.seams = seamVars(c)
+	var writes []seamWrite
+	s.seams, writes = seamVars(c)
+	s.seamsWrittenFromAbove(c, writes)
 	scope := c.Pkg.Scope()
 	idents := make([]*ast.Ident, 0, len(c.Info.Uses))
 	for id := range c.Info.Uses {
@@ -204,6 +208,10 @@ func (s *splitter) collect(c *checked) {
 				}
 				s.site(fmt.Sprintf("export %s %s (declared %s:%d, package %s), read from package %s", kind, obj.Name(), decl.Path, dl, b, a), where)
 			}
+			continue
+		}
+		if helper, isFn := obj.(*types.Func); isFn && decl.isTest() && user.isTest() {
+			s.carryHelper(c, a, helper, where)
 			continue
 		}
 		if decl.isTest() {
@@ -276,10 +284,38 @@ func (s *splitter) methodsBesideTheirType(c *checked) {
 	}
 }
 
+// seamWrite is one place a file writes a package-level var.
+type seamWrite struct {
+	obj types.Object
+	at  token.Pos
+}
+
+// seamsWrittenFromAbove reports every write to a package-level var from a
+// file that lands in a higher package than the var: across the split the
+// var is reached through a generated call-through func or a copied value,
+// so the write no longer compiles or no longer reaches it. The owning
+// package needs a Set...ForTest setter the writer calls instead.
+func (s *splitter) seamsWrittenFromAbove(c *checked, writes []seamWrite) {
+	for _, w := range writes {
+		user, ok1 := c.srcOf(w.at)
+		decl, ok2 := c.srcOf(w.obj.Pos())
+		if !ok1 || !ok2 {
+			continue
+		}
+		a, b := s.eff(user), s.eff(decl)
+		if a == b || s.level(b) >= s.level(a) {
+			continue
+		}
+		s.site(fmt.Sprintf("package %s assigns seam var %s (declared in %s, package %s): the write cannot reach it across the split; give package %s a Set...ForTest setter", a, w.obj.Name(), decl.Path, b, b), fmt.Sprintf("%s:%d", user.Path, c.Fset.Position(w.at).Line))
+	}
+}
+
 // seamVars returns every package-level var any file reassigns, takes the
-// address of, or mutates in place when it holds a value type.
-func seamVars(c *checked) map[types.Object]bool {
+// address of, or mutates in place when it holds a value type, and each
+// place it does so.
+func seamVars(c *checked) (map[types.Object]bool, []seamWrite) {
 	out := map[types.Object]bool{}
+	var writes []seamWrite
 	scope := c.Pkg.Scope()
 	mark := func(e ast.Expr) {
 		for {
@@ -302,6 +338,7 @@ func seamVars(c *checked) map[types.Object]bool {
 			case *ast.Ident:
 				if v, ok := c.Info.Uses[x].(*types.Var); ok && scope.Lookup(v.Name()) == v {
 					out[v] = true
+					writes = append(writes, seamWrite{obj: v, at: x.Pos()})
 				}
 			}
 			return
@@ -335,7 +372,7 @@ func seamVars(c *checked) map[types.Object]bool {
 			return true
 		})
 	}
-	return out
+	return out, writes
 }
 
 // valueTyped reports whether writing through e changes the variable itself
