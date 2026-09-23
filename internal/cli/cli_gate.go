@@ -434,6 +434,21 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return code
 	}
 
+	// The operator's discard-wall directive is a blanket, no-override ban on
+	// a handful of git verbs in ANY Bash/PowerShell call — judged on the same
+	// footing as the primary-checkout wall above, before anything narrower
+	// runs. This replaces the ad hoc `grep -P` hook that used to scan the raw
+	// command TEXT and could not tell a real invocation from the same words
+	// sitting inside a quoted argument (issue #725's class of bug).
+	if decision := tdd.DiscardBashDecision(raw); decision.Action == tdd.Block {
+		tdd.LogEditDecision(raw, decision)
+		payload, code := tdd.RenderPreToolUse(decision)
+		if len(payload) > 0 {
+			stdout.Write(payload)
+		}
+		return code
+	}
+
 	// A redundant whole-suite invocation (`go test`, `cargo test`, `cargo
 	// nextest run`, no narrowing) is judged before the snapshot/diff pair
 	// runs at all: PreBash only ever records a snapshot, so nothing else
