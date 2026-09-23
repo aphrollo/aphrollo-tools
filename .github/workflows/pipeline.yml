@@ -657,6 +657,64 @@ jobs:
           path: mutants-verdict.json
           if-no-files-found: warn
 
+  # `aphrollo ratchet check` on the PR's own merged tree, BEFORE the merge.
+  # Without this job the law engine runs nowhere on a PR: the only place it
+  # otherwise runs is the local pre-commit/pre-merge gate, and this repo's
+  # own auto-merge-on-green path lets a PR land without ever going through
+  # that gate. `merged-tree-ratchet` (below) catches the same regression, but
+  # only AFTER the merge already produced it.
+  #
+  # Pull requests only, same reasoning as `mutants-verdict`: a push to main
+  # has no merge ahead of itself to check.
+  #
+  # Skipped only for a docs-only PR (`changes.outputs.code == 'false'`):
+  # `doc_reference_exists` covers markdown, and `docs-check` already runs
+  # that rule for a docs-only PR, so this job would only duplicate it there.
+  # Any other change -- code or a comment-only edit -- can regress a
+  # different law (module_size, test_removed, ...) docs-check never touches.
+  #
+  # Checks out `refs/pull/N/merge`, the pull_request event's default ref and
+  # the same tree `mutants-verdict` measures. `--base` is
+  # merge-base(base, head), exactly as `mutants-verdict` scopes its own
+  # `--base` -- the diff side the `symbol-removed` kind (the `test_removed`
+  # law) needs to see what the tree used to carry; without it that law
+  # reports "skipped, no base" and silently checks nothing.
+  #
+  # `--no-tighten --no-cache`, exactly as `merged-tree-ratchet` runs: this is
+  # a one-shot checkout nobody will commit a lowered baseline to, and no
+  # cache from the box's own gate should feed a PR's verdict or be left
+  # keyed to a tree this run alone produced. This job must never WRITE a
+  # baseline -- only a developer's own commit or `--adopt` may lower or
+  # create one.
+  pr-ratchet:
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
+    needs: changes
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # false: see the note in `test` -- the persistent disk is the cache.
+          cache: false
+      - name: Build the CLI from this PR
+        if: needs.changes.outputs.code == 'true'
+        run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
+      - name: aphrollo ratchet check (the PR's merged tree)
+        if: needs.changes.outputs.code == 'true'
+        run: |
+          set -euo pipefail
+          # HEAD is the merge; HEAD^1 is the base it merges into, HEAD^2 is
+          # this PR's own tip -- the same parents `mutants-verdict` reads.
+          base=$(git merge-base HEAD^1 HEAD^2)
+          echo "scoping the ratchet check to $base..HEAD"
+          ./bin/aphrollo ratchet check --base "$base" --no-tighten --no-cache
+
   # The escape loop's closing half. `verify-closure` refuses a PR that says it
   # closes a labelled escape issue without changing a CHECK -- a law, a gate
   # stage, the workspace's gate metadata, or a test the issue named. It is NOT
