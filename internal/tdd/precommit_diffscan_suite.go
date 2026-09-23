@@ -35,11 +35,11 @@ var testDeclRes = map[string][]*regexp.Regexp{
 // -run` never selects it, and a proof that names it runs nothing.
 var goTestMainRe = regexp.MustCompile(`^\s*func\s+TestMain\s*\(`)
 
-// testDeclLine reports whether an added line declares a test in a file of
+// declaresTest reports whether an added line declares a test in a file of
 // extension ext (lower-cased, with its dot), and whether the table knows the
 // language at all. It is the one judgment of "declares a test" every reader
 // of testDeclRes goes through, so none of them counts a Go TestMain.
-func testDeclLine(ext, line string) (decl, known bool) {
+func declaresTest(ext, line string) (decl, known bool) {
 	res, known := testDeclRes[ext]
 	if !known {
 		return false, false

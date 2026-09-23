@@ -130,7 +130,7 @@ func stagedTestsAddDeclIn(repoRoot string, testFiles []string) bool {
 			if no < 1 || no > len(lines) {
 				continue
 			}
-			if decl, _ := testDeclLine(ext, lines[no-1]); decl {
+			if decl, _ := declaresTest(ext, lines[no-1]); decl {
 				return true
 			}
 		}
