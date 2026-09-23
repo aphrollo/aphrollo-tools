@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -141,5 +142,19 @@ func TestMeasure_ReportsWhatEachShardsBuildDirHoldsAfterTheRun(t *testing.T) {
 			t.Errorf("run log =\n%s\nwant %q in it: the size of a build dir is the number the disk budget "+
 				"guesses at today", log.String(), want)
 		}
+	}
+}
+
+// Tests above mutation stub the target-dir owner probe only through this
+// setter, so it must install the stub and restore the real probe.
+func TestSetTargetDirOwnerForTest_StubIsSeenAndRestored(t *testing.T) {
+	restore := SetTargetDirOwnerForTest(func(string) (int, bool) { return 4242, true })
+	if pid, live := targetDirOwnerFn("/nowhere"); pid != 4242 || !live {
+		restore()
+		t.Fatalf("stub not installed: probe said (%d, %v)", pid, live)
+	}
+	restore()
+	if reflect.ValueOf(targetDirOwnerFn).Pointer() != reflect.ValueOf(targetDirOwner).Pointer() {
+		t.Error("restore left the stub in place")
 	}
 }
