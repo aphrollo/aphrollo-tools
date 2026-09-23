@@ -3,8 +3,10 @@
 package tdd
 
 import (
+	context "context"
 	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	testing "testing"
+	time "time"
 )
 
 const checkStageLoadFixtureLeaf = tddtest.CheckStageLoadFixtureLeaf
@@ -13,9 +15,44 @@ const syntheticPIDBase = tddtest.SyntheticPIDBase
 
 const timeoutLoadFixtureLeaf = tddtest.TimeoutLoadFixtureLeaf
 
+const watchdogSelectTest = `package m
+
+import (
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestNarrowToRelatedTests_TerminatesOnAMountCycle(t *testing.T) {
+	done := make(chan string, 1)
+	go func() {
+		done <- strings.Join(narrow(base, "a.rs", root), " ")
+	}()
+	select {
+	case args := <-done:
+		if !strings.Contains(args, "-E") {
+			t.Fatalf("args = %q, want some module filter rather than none", args)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("a mount cycle never terminated")
+	}
+}
+`
+
+type measuredCall = tddtest.MeasuredCall
+
+var laneSource = tddtest.LaneSource
+
 var tempEnvKeys = tddtest.TempEnvKeys
 
+func baselineRepo(t *testing.T, path, before, after string) string {
+	t.Helper()
+	return tddtest.BaselineRepo(t, path, before, after)
+}
+
 func cargoCrate(t *testing.T, pkg string) string { t.Helper(); return tddtest.CargoCrate(t, pkg) }
+
+func commitAll(t *testing.T, root string) { t.Helper(); tddtest.CommitAll(t, root) }
 
 func fakeGitShim(t *testing.T) (dir, marker string) { t.Helper(); return tddtest.FakeGitShim(t) }
 
@@ -23,9 +60,23 @@ func foreignChainSample(leaf int, name string, pctOneCore, cpuHours float64) []p
 	return tddtest.ForeignChainSample(leaf, name, pctOneCore, cpuHours, maxAncestryDepth, newProcSample)
 }
 
+func gitAddAll(t *testing.T, root string) { t.Helper(); tddtest.GitAddAll(t, root) }
+
 func gitValue(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	return tddtest.GitValue(t, dir, args...)
+}
+
+func lawTree(t *testing.T, severity string) string { t.Helper(); return tddtest.LawTree(t, severity) }
+
+func makeGoMeasureRepo(t *testing.T) (root, base string) {
+	t.Helper()
+	return tddtest.MakeGoMeasureRepo(t)
+}
+
+func makeMeasureRepo(t *testing.T, lane map[string]string) (root, base string) {
+	t.Helper()
+	return tddtest.MakeMeasureRepo(t, setMutantsJobsForTest, lane)
 }
 
 func mkProject(t *testing.T, markers ...string) string {
@@ -33,13 +84,62 @@ func mkProject(t *testing.T, markers ...string) string {
 	return tddtest.MkProject(t, markers...)
 }
 
+func mustWrite(t *testing.T, path, content string) { t.Helper(); tddtest.MustWrite(t, path, content) }
+
 func newProcSample(pid, ppid int, name string, pctOneCore, cpuHours float64, creation uint64) procSample {
 	return procSample{PID: pid, PPID: ppid, Name: name, PctOneCore: pctOneCore, CPUHours: cpuHours, Creation: creation}
 }
 
+func outcomeFields(m MutantOutcome) tddtest.Outcome {
+	return tddtest.Outcome{Name: mutantLineOf(m.File, m.Line, m.Col, m.Mutation), Package: m.Package, File: m.File, Line: m.Line, Col: m.Col, Status: m.Status}
+}
+
 func putFakeNextest(t *testing.T) { t.Helper(); tddtest.PutFakeNextest(t) }
+
+func ratchetPayload(t *testing.T, tool, path string, fields map[string]any) []byte {
+	t.Helper()
+	return tddtest.RatchetPayload(t, tool, path, fields)
+}
+
+func readFileString(t *testing.T, path string) string {
+	t.Helper()
+	return tddtest.ReadFileString(t, path)
+}
+
+func stamp(at time.Time, stage, root, cmd, verdict string, secs float64) string {
+	return tddtest.Stamp(at, stage, root, cmd, verdict, secs, formatFloat)
+}
+
+func stubGoTestReach(t *testing.T, fn func(root, dir string) ([]string, error)) func() {
+	t.Helper()
+	return SetGoTestReachForTest(fn)
+}
+
+func stubMutantsExec(t *testing.T, reply func(ctx context.Context, n int, c measuredCall) (int, error)) *[]measuredCall {
+	t.Helper()
+	return tddtest.StubMutantsExec(t, SetMutantsExecForTest, setMutantsListCountForTest, reply)
+}
+
+func useRealCargoHome(t *testing.T) { t.Helper(); tddtest.UseRealCargoHome(t) }
+
+func withFreeSpace(t *testing.T, gb int) {
+	t.Helper()
+	t.Cleanup(SetFreeSpaceForTest(gb, true))
+}
 
 func withIsolatedBuildLock(t *testing.T) {
 	t.Helper()
 	tddtest.IsolateBuildLock(t, setBuildLockPathOverride, SetPostEditLockWaitForTest, SetPrecommitLockWait)
+}
+
+func writeMeasureBase(t *testing.T, root string) { t.Helper(); tddtest.WriteMeasureBase(t, root) }
+
+func writeOutcomes(t *testing.T, root string, mutants ...MutantOutcome) {
+	t.Helper()
+	tddtest.WriteOutcomes(t, cargoMutantsOutcomesPath(mutantsShardDir(root, 0)), outcomeFields, mutants...)
+}
+
+func writeOutcomesIn(t *testing.T, outDir string, mutants ...MutantOutcome) {
+	t.Helper()
+	tddtest.WriteOutcomes(t, cargoMutantsOutcomesPath(outDir), outcomeFields, mutants...)
 }

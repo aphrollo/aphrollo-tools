@@ -7,3 +7,5 @@ import (
 )
 
 const realGitEnv = gitx.RealGitEnv
+
+const reflogActionEnv = gitx.ReflogActionEnv

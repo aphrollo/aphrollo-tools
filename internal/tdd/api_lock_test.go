@@ -37,8 +37,6 @@ func cappedFloor(p0 time.Duration, p1 time.Duration) time.Duration { return lock
 
 func litterDirsFor(p0 string, p1 bool, p2 string) []string { return lock.LitterDirsFor(p0, p1, p2) }
 
-func mutantsBudgetMemoryGB(p0 int, p1 int) (int, string) { return lock.MutantsBudgetMemoryGB(p0, p1) }
-
 func resolveTargetDir(p0 func(string) string, p1 string) string { return lock.ResolveTargetDir(p0, p1) }
 
 func setBuildLockPathOverride(p0 string) func() { return lock.SetBuildLockPathOverride(p0) }

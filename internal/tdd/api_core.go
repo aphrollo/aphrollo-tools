@@ -4,7 +4,6 @@ package tdd
 
 import (
 	core "github.com/aphrollo/aphrollo-tools/internal/tdd/core"
-	io "io"
 	exec "os/exec"
 	time "time"
 )
@@ -30,8 +29,6 @@ const WallPrimary = core.WallPrimary
 const Warn = core.Warn
 
 const premergeDisplayName = core.PremergeDisplayName
-
-type Action = core.Action
 
 type Decision = core.Decision
 
@@ -59,8 +56,6 @@ var errNoSession = core.ErrNoSession
 
 var ignoredDirs = core.IgnoredDirs
 
-var sourceExts = core.SourceExts
-
 func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration) {
 	core.AppendGateLog(p0, p1, p2, p3, p4)
 }
@@ -87,8 +82,6 @@ func acquirePathLock(p0 string) func() { return core.AcquirePathLock(p0) }
 
 func aphrolloTomlFlag(p0 string, p1 string) bool { return core.AphrolloTomlFlag(p0, p1) }
 
-func aphrolloTomlString(p0 string, p1 string) (string, bool) { return core.AphrolloTomlString(p0, p1) }
-
 func claudeConfigDir() string { return core.ClaudeConfigDir() }
 
 func commonGitDir(p0 string) string { return core.CommonGitDir(p0) }
@@ -97,15 +90,9 @@ func computeFingerprint(p0 string) *fingerprint { return core.ComputeFingerprint
 
 func dedupeSorted(p0 []string) []string { return core.DedupeSorted(p0) }
 
-func ensureSharedSubdir(p0 string) error { return core.EnsureSharedSubdir(p0) }
-
 func everySessionID() []string { return core.EverySessionID() }
 
-func fileExists(p0 string) bool { return core.FileExists(p0) }
-
 func firstLine(p0 string) string { return core.FirstLine(p0) }
-
-func fitRunes(p0 string, p1 int) string { return core.FitRunes(p0, p1) }
 
 func formatBytes(p0 int64) string { return core.FormatBytes(p0) }
 
@@ -113,11 +100,7 @@ func formatDays(p0 time.Duration) string { return core.FormatDays(p0) }
 
 func formatElapsedSecs(p0 time.Duration) string { return core.FormatElapsedSecs(p0) }
 
-func goEmbedsFile(p0 string) bool { return core.GoEmbedsFile(p0) }
-
 func loadSession(p0 string) (*sessionState, string) { return core.LoadSession(p0) }
-
-func logf(p0 io.Writer, p1 string, p2 ...any) { core.Logf(p0, p1, p2...) }
 
 func markWorktreeWarned(p0 string) bool { return core.MarkWorktreeWarned(p0) }
 
@@ -125,11 +108,7 @@ func mask(p0 string) string { return core.Mask(p0) }
 
 func maskTokens(p0 string, p1 bool, p2 bool, p3 bool) string { return core.MaskTokens(p0, p1, p2, p3) }
 
-func mutantsLogDir(p0 string) string { return core.MutantsLogDir(p0) }
-
 func normalizeProjectPath(p0 string) string { return core.NormalizeProjectPath(p0) }
-
-func normalizeRepoSpelling(p0 string) string { return core.NormalizeRepoSpelling(p0) }
 
 func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }
 
@@ -163,22 +142,10 @@ func sortStrings(p0 []string) { core.SortStrings(p0) }
 
 func stripQuoted(p0 string) string { return core.StripQuoted(p0) }
 
-func tomlArrayCommaError(p0 string, p1 string, p2 string) error {
-	return core.TomlArrayCommaError(p0, p1, p2)
-}
-
 func tomlBoolSetIn(p0 string, p1 string, p2 string) (bool, bool) {
 	return core.TomlBoolSetIn(p0, p1, p2)
 }
 
-func tomlStringIn(p0 string, p1 string, p2 string) (string, bool) {
-	return core.TomlStringIn(p0, p1, p2)
-}
-
-func tomlStringsIn(p0 string, p1 string, p2 string) []string { return core.TomlStringsIn(p0, p1, p2) }
-
 func waivedForSession(p0 string, p1 string) bool { return core.WaivedForSession(p0, p1) }
-
-func warnGateLogUnwritable(p0 string) { core.WarnGateLogUnwritable(p0) }
 
 func writeFileAtomic(p0 string, p1 []byte) error { return core.WriteFileAtomic(p0, p1) }

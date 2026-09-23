@@ -5,9 +5,9 @@ in the consuming repo, no environment-variable protocol between the two, and
 no document signed at the end of a run: the measurement and the judgement are
 one event, in the foreground, on the tree that is about to land.
 
-Two entry points, one code path (`internal/tdd/mutants_measure.go`):
+Two entry points, one code path (`internal/tdd/mutation/mutants_measure.go`):
 
-- the **pre-merge stage** (`internal/tdd/mutants_stage.go`), which runs when
+- the **pre-merge stage** (`internal/tdd/mutation/mutants_stage.go`), which runs when
   the repo declares `mutants-at-merge = true` and refuses the merge on an
   unaccepted survivor;
 - **`aphrollo gate mutants run`**, which measures THIS checkout against its
@@ -559,7 +559,7 @@ definition and so has already spoken for both.
 ## Go repos
 
 A repo whose worktree has a `go.mod` and no `Cargo.toml` is measured with
-**gremlins** (`internal/tdd/mutants_go.go`), scoped to the same base diff and
+**gremlins** (`internal/tdd/mutation/mutants_go.go`), scoped to the same base diff and
 judged by the same code. The choice was measured rather than argued:
 
 | tool | on this box |
