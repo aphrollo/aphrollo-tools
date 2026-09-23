@@ -590,6 +590,17 @@ jobs:
           # parents resolve: the diff is scoped to merge-base(base, head),
           # exactly as mergeMeasureBase scopes it locally.
           fetch-depth: 0
+      # The job measures only while the repo measures at merge: with
+      # mutants-at-merge off, a PR's measurement would hold the box-wide
+      # mutation lock for work no merge reads.
+      - name: Is the merge-time mutation stage on
+        id: cfg
+        if: needs.changes.outputs.code == 'true'
+        run: |
+          set -euo pipefail
+          on=$(python3 -c "import tomllib; print(str(tomllib.load(open('aphrollo.toml','rb')).get('aphrollo',{}).get('mutants-at-merge', False)).lower())")
+          echo "on=$on" >> "$GITHUB_OUTPUT"
+          [ "$on" = true ] || echo "mutants-at-merge is off in aphrollo.toml: no measurement"
       - name: Identify the merged tree
         # Read before anything else writes into the checkout, and read the
         # same way the consuming gate reads it (internal/tdd/mutants_runner.go:
@@ -599,27 +610,27 @@ jobs:
         # consuming gate checks THAT. If the two ever disagreed, the merge
         # would report NOT MEASURED rather than trust this run.
         id: tree
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code == 'true' && steps.cfg.outputs.on == 'true'
         run: |
           set -euo pipefail
           echo "id=$(git write-tree)" >> "$GITHUB_OUTPUT"
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' && steps.cfg.outputs.on == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           # false: see the note in `test` -- the persistent disk is the cache.
           cache: false
       - name: Install gremlins
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code == 'true' && steps.cfg.outputs.on == 'true'
         run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
       - name: Build the CLI from this PR
         # From THIS PR, not /usr/local/bin: a change to how the measurement is
         # scoped, judged or published is measured by the rule the PR proposes,
         # the same reasoning `escape-closure` states for itself.
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code == 'true' && steps.cfg.outputs.on == 'true'
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
       - name: aphrollo gate mutants run --report
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code == 'true' && steps.cfg.outputs.on == 'true'
         run: |
           set -euo pipefail
           # HEAD is the merge; HEAD^1 is the base it was merged into and HEAD^2
@@ -634,7 +645,7 @@ jobs:
         # is precisely the measurement the merging box most needs to see. A
         # run that produced no report at all uploads nothing and the merge
         # reports NOT MEASURED, which is the honest outcome either way.
-        if: ${{ always() && needs.changes.outputs.code == 'true' && steps.tree.outputs.id != '' }}
+        if: ${{ always() && needs.changes.outputs.code == 'true' && steps.tree.outputs.id != '' && steps.cfg.outputs.on == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # The tree id is in the name so the consuming gate finds the
