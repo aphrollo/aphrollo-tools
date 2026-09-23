@@ -91,21 +91,37 @@ func TryAcquireLintLock(cmd, cwd string) (release func(), ok bool) {
 	}, true
 }
 
+// acquireLintLockAttempt is TryAcquireLintLock by default; a var so a test
+// can force a deterministic sequence of failures before success (see
+// lintlock_test.go's TestAcquireLintLock_ReportsContendedWhenItsOwnFirst-
+// AttemptFails), rather than racing a real goroutine's release() against
+// this loop's own poll timing — measured flaky (roughly one run in three
+// picked up the release before this loop's very first attempt ran).
+var acquireLintLockAttempt = TryAcquireLintLock
+
 // AcquireLintLock polls for the box-wide lint lock until it is held or
 // deadline elapses, announcing the holder every lintLockNoticeEvery while it
 // waits. Exported so internal/cli's `gate lint` wrapper (the entry point
 // CI's workflow step calls instead of golangci-lint directly) waits on the
 // IDENTICAL lock the local commit gate does.
-func AcquireLintLock(cmd, cwd string, deadline time.Duration) (release func(), waited time.Duration, ok bool) {
+//
+// contended reports whether the FIRST attempt (before any sleep) failed —
+// the fact a caller needs to decide whether to say "this run waited", never
+// derived from waited itself: real wall-clock time always advances some
+// nonzero amount even on an uncontended first try, so comparing waited
+// against a guessed threshold answered the wrong question.
+func AcquireLintLock(cmd, cwd string, deadline time.Duration) (release func(), waited time.Duration, contended bool, ok bool) {
 	start := time.Now()
 	nextNotice := lintLockNoticeEvery
+	first := true
 	for {
-		if rel, acquired := TryAcquireLintLock(cmd, cwd); acquired {
-			return rel, time.Since(start), true
+		if rel, acquired := acquireLintLockAttempt(cmd, cwd); acquired {
+			return rel, time.Since(start), !first, true
 		}
+		first = false
 		waited = time.Since(start)
 		if waited >= deadline {
-			return func() {}, waited, false
+			return func() {}, waited, true, false
 		}
 		if waited >= nextNotice {
 			fmt.Fprintf(os.Stderr, "gate: queued behind %s for golangci-lint (waited %.0fs)\n",

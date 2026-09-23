@@ -8,9 +8,26 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
+
+// TestLintWaitDeadline_HonorsItsKnob pins the exact value lintWaitDeadline
+// resolves to, the same way TestPrecommitLockWait_HonorsItsKnob
+// (budget_env_test.go) pins its own knob: an unset APHROLLO_LINT_WAIT_SECS
+// keeps the shipped five-minute default, a set one overrides to the exact
+// number of seconds named.
+func TestLintWaitDeadline_HonorsItsKnob(t *testing.T) {
+	t.Setenv("APHROLLO_LINT_WAIT_SECS", "")
+	if got := lintWaitDeadline(); got != 300*time.Second {
+		t.Fatalf("default lint wait = %s, want 5m0s", got)
+	}
+	t.Setenv("APHROLLO_LINT_WAIT_SECS", "45")
+	if got := lintWaitDeadline(); got != 45*time.Second {
+		t.Fatalf("APHROLLO_LINT_WAIT_SECS=45 → %s, want 45s", got)
+	}
+}
 
 // withIsolatedLintLock points the lint lock (internal/tdd's lockDir) at a
 // per-test directory, the same way cargo_shim_test.go's withIsolatedCargoLock
@@ -45,7 +62,9 @@ func fakeLintArgsExit(code int) []string {
 }
 
 // TestRunGateLint_ExitCodePropagation pins that the wrapped golangci-lint's
-// exit code passes straight through, uncontended.
+// exit code passes straight through, uncontended, and that an uncontended
+// run — waited == 0 — prints no "lock acquired after" line: that line means
+// something waited, and a run that never had to wait must not claim it did.
 func TestRunGateLint_ExitCodePropagation(t *testing.T) {
 	withIsolatedLintLock(t)
 	fakeGolangciLint(t)
@@ -54,6 +73,25 @@ func TestRunGateLint_ExitCodePropagation(t *testing.T) {
 	code := runGateLint(fakeLintArgsExit(7), strings.NewReader(""), &stdout, &stderr)
 	if code != 7 {
 		t.Fatalf("exit = %d, want 7 (propagated from the stub)", code)
+	}
+	if strings.Contains(stderr.String(), "lock acquired after") {
+		t.Fatalf("stderr = %q, an uncontended run must not claim it waited", stderr.String())
+	}
+}
+
+// TestLintAcquiredLine_OnlyContendedGetsALine pins the print decision as a
+// pure function of (waited, contended), deterministically — racing a real
+// goroutine against AcquireLintLock's own internal timing to PROVE
+// contention actually happened is exactly the kind of test that looks solid
+// and is flaky in CI: whether the release() goroutine runs before or after
+// AcquireLintLock's very first attempt is a scheduler decision, not
+// something this test controls.
+func TestLintAcquiredLine_OnlyContendedGetsALine(t *testing.T) {
+	if got := lintAcquiredLine(3*time.Second, true); !strings.Contains(got, "lock acquired after 3s") {
+		t.Fatalf("contended line = %q, want it to name the wait", got)
+	}
+	if got := lintAcquiredLine(3*time.Second, false); got != "" {
+		t.Fatalf("uncontended line = %q, want \"\" (an uncontended run must not claim it waited)", got)
 	}
 }
 

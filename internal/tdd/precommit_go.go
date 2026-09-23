@@ -157,7 +157,7 @@ const lintContentionSignature = "parallel golangci-lint is running"
 // — lint never actually judged the code either way — but neither says "lint
 // failed".
 func lintCheckStage(gateName, root string, r Runner, run SuiteRunner) GateResult {
-	release, waited, ok := AcquireLintLock(cmdString(r), root, lintLockDeadline)
+	release, waited, _, ok := AcquireLintLock(cmdString(r), root, lintLockDeadline)
 	if !ok {
 		return verdictFor(gateName, "lint", root, cmdString(r), stageOutcome{
 			kind:   outcomeContention,
