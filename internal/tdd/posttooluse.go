@@ -102,10 +102,13 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 		return "", false
 	}
 
+	// Before the enforcement check: an edit with the gate off still changed the file.
+	editID := recordEdit(root, target)
 	snap, ok := captureStateSnapshot(session, target, root)
 	if !ok {
 		return "", false
 	}
+	snap.editID = editID
 
 	// A narrowed cargo run whose package-scope form already proved green at
 	// this exact worktree state has nothing left to ask — most often the
@@ -197,6 +200,7 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 	}
 
 	logSuiteVerdict("postedit", root, cmdString(snap.runner), string(outcome), res)
+	recordEditVerdict(root, snap.editID, cmdString(snap.runner), outcome, res.Output)
 	if outcome.IsRed() {
 		return withNote(redSummary(snap.runner, root, outcome, res.Output), widenNote), false
 	}
@@ -238,6 +242,8 @@ type stateSnapshot struct {
 	runner      Runner
 	fingerprint *fingerprint
 	prevFailing []string
+	// editID names this edit's edit-ledger record, where its verdict lands.
+	editID string
 }
 
 // captureStateSnapshot loads the session, resolves the narrowed runner for the
