@@ -88,7 +88,7 @@ func stagedSourceAddsInlineRustTest(repoRoot string, srcFiles []string) bool {
 			if no < 1 || no > len(lines) {
 				continue
 			}
-			if decl, _ := testDeclLine(".rs", lines[no-1]); decl {
+			if decl, _ := declaresTest(".rs", lines[no-1]); decl {
 				return true
 			}
 		}

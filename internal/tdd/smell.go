@@ -415,10 +415,10 @@ func hasPanicOnlyOracle(masked string) bool {
 }
 
 // isGoTestDeclLine reports whether line declares a Go test the way
-// fail-first's declaration table judges it (testDeclLine), TestMain excluded,
+// fail-first's declaration table judges it (declaresTest), TestMain excluded,
 // reused rather than redefined.
 func isGoTestDeclLine(line string) bool {
-	decl, _ := testDeclLine(".go", line)
+	decl, _ := declaresTest(".go", line)
 	return decl
 }
 
