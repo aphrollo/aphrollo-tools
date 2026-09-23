@@ -559,7 +559,11 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
     needs: changes
     runs-on: self-hosted
-    timeout-minutes: 30
+    # 60, not 30: a lane of ~70 mutants measured under the load of other
+    # lanes' suites on this shared box was still killing mutants (58 caught,
+    # 0 lived) when a 30-minute budget cancelled it at 30m18s, so the check
+    # read red for a measurement that had found nothing wrong.
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
