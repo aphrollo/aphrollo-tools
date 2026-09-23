@@ -79,15 +79,15 @@ func TestRunCargoLocked_BudgetUnderLoadNeverFallsBelowTheRecordedFloor(t *testin
 func TestSuiteFloorFrom_TakesTheSlowTailNotTheMedian(t *testing.T) {
 	got := suiteFloorFrom([]float64{352.3, 357.0, 429.1, 431.3, 261.5})
 
-	if got.runs != 5 {
-		t.Fatalf("runs = %d, want the 5 recorded completions", got.runs)
+	if got.Runs != 5 {
+		t.Fatalf("runs = %d, want the 5 recorded completions", got.Runs)
 	}
-	if got.statSecs != 431.3 {
-		t.Fatalf("statSecs = %v, want the p90 431.3 (the median 357.0 is what ignores the slow tail)", got.statSecs)
+	if got.StatSecs != 431.3 {
+		t.Fatalf("statSecs = %v, want the p90 431.3 (the median 357.0 is what ignores the slow tail)", got.StatSecs)
 	}
 	// 431.3s plus the margin, rounded to whole seconds.
-	if want := 647 * time.Second; got.budget != want {
-		t.Fatalf("budget = %s, want %s (p90 × the %.2g margin)", got.budget, want, suiteFloorMargin)
+	if want := 647 * time.Second; got.Budget != want {
+		t.Fatalf("budget = %s, want %s (p90 × the %.2g margin)", got.Budget, want, suiteFloorMargin)
 	}
 }
 
@@ -111,11 +111,11 @@ func TestRecordedSuiteFloor_CountsOnlyCompletedRunsOfThisStageAndCommand(t *test
 
 	got := recordedSuiteFloor(premergeDisplayName, cmd)
 
-	if got.runs != 5 {
-		t.Fatalf("runs = %d, want only the 5 completed runs of this stage and command", got.runs)
+	if got.Runs != 5 {
+		t.Fatalf("runs = %d, want only the 5 completed runs of this stage and command", got.Runs)
 	}
-	if got.statSecs != 431.3 {
-		t.Fatalf("statSecs = %v, want 431.3 — a timeout, a cache hit, another stage or another command must not reach the statistic", got.statSecs)
+	if got.StatSecs != 431.3 {
+		t.Fatalf("statSecs = %v, want 431.3 — a timeout, a cache hit, another stage or another command must not reach the statistic", got.StatSecs)
 	}
 }
 
@@ -128,10 +128,10 @@ func TestRecordedSuiteFloor_NoRecordedRunMeansNoFloorAtAll(t *testing.T) {
 
 	got := recordedSuiteFloor(premergeDisplayName, "cargo nextest run -p never-run")
 
-	if got.budget != 0 || got.runs != 0 {
+	if got.Budget != 0 || got.Runs != 0 {
 		t.Fatalf("floor = %+v, want a zero floor when gate.log has no completed run to derive one from", got)
 	}
-	if note := got.refusalNote(DefaultPrecommitTimeout); !strings.Contains(note, "no completed run") {
+	if note := got.RefusalNote(DefaultPrecommitTimeout); !strings.Contains(note, "no completed run") {
 		t.Fatalf("refusal note = %q, want it to say there is no recorded run to floor the budget at", note)
 	}
 }
@@ -143,13 +143,13 @@ func TestRecordedSuiteFloor_NoRecordedRunMeansNoFloorAtAll(t *testing.T) {
 func TestSuiteFloorFrom_NeverOutgrowsTheStageBudget(t *testing.T) {
 	got := suiteFloorFrom([]float64{590})
 
-	if got.budget <= DefaultPrecommitTimeout {
-		t.Fatalf("setup: budget = %s, this test needs a floor that asks for MORE than the %s stage budget", got.budget, DefaultPrecommitTimeout)
+	if got.Budget <= DefaultPrecommitTimeout {
+		t.Fatalf("setup: budget = %s, this test needs a floor that asks for MORE than the %s stage budget", got.Budget, DefaultPrecommitTimeout)
 	}
-	if capped := cappedFloor(got.budget, DefaultPrecommitTimeout); capped != DefaultPrecommitTimeout {
+	if capped := cappedFloor(got.Budget, DefaultPrecommitTimeout); capped != DefaultPrecommitTimeout {
 		t.Fatalf("capped floor = %s, want the %s stage budget — a suite that genuinely hangs must still be cut off", capped, DefaultPrecommitTimeout)
 	}
-	if note := got.refusalNote(DefaultPrecommitTimeout); !strings.Contains(note, "capped") {
+	if note := got.RefusalNote(DefaultPrecommitTimeout); !strings.Contains(note, "capped") {
 		t.Fatalf("refusal note = %q, want it to say the floor was capped at the stage budget", note)
 	}
 }

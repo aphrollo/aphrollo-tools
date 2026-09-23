@@ -40,7 +40,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	// (issue #660, budgetfloor.go). Zero when gate.log has no completed run
 	// to derive one from, which is today's arithmetic unchanged.
 	floor := recordedSuiteFloor(gateName, cmdString(runner))
-	res, waited, acquired := runCargoLocked(run, runner, root, precommitLockWait(), DefaultPrecommitTimeout, floor.budget)
+	res, waited, acquired := runCargoLocked(run, runner, root, precommitLockWait(), DefaultPrecommitTimeout, floor.Budget)
 	restore()
 	logLockWait(gateName, root, runner, waited)
 	if !acquired {
@@ -115,7 +115,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		AppendGateLog(gateName, root, cmdString(runner), "timeout-rejected", res.Duration)
 		return GateResult{Blocked: true, Message: fmt.Sprintf(
 			"gate %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused.\n%s\n%s",
-			gateName, cmdString(runner), res.Duration.Seconds(), floor.refusalNote(DefaultPrecommitTimeout), load)}
+			gateName, cmdString(runner), res.Duration.Seconds(), floor.RefusalNote(DefaultPrecommitTimeout), load)}
 	case !res.Passed:
 		fmt.Fprintf(os.Stderr, "[%s] gate %s: %s in %s → blocked\n", stage, gateName, cmdString(runner), root)
 		logSuiteVerdict(gateName, root, cmdString(runner), blockedVerdict(stage, res.Output), res)
