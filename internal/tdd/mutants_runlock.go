@@ -74,41 +74,64 @@ func acquireMutantsRunLock(cmd, cwd string) (release func()) {
 // wait without needing an actually-unbounded wait in the suite itself —
 // mirrors acquireBuildSlot's own deadline parameter for the identical
 // reason.
+//
+// Waiters are served in arrival order (mutants_runqueue.go): each takes a
+// ticket first, and only the earliest live ticket tries the lock. The ticket
+// is handed back as soon as the wait ends, acquired or not.
 func acquireMutantsRunLockWithDeadline(cmd, cwd string, deadline time.Duration) (release func(), ok bool) {
 	path := mutantsRunLockPath()
 	start := time.Now()
-	nextNotice := mutantsRunLockNoticeEvery
+	ticketPath := writeMutantsRunTicket(os.Getpid(), start, cmd, cwd)
+	ticket := filepath.Base(ticketPath)
+	defer func() { _ = os.Remove(ticketPath) }()
+	nextNotice, nextHeartbeat := time.Duration(0), mutantsRunTicketHeartbeat
 	for {
-		if rel, acquired := TryAcquireFileLock(path); acquired {
-			writeBuildLockOwnerAt(mutantsRunLockOwnerPath(), cmd, cwd)
-			return func() {
-				removeBuildLockOwnerAt(mutantsRunLockOwnerPath())
-				rel()
-			}, true
+		queue := liveMutantsRunQueue(time.Now())
+		pos := queuePosition(queue, ticket)
+		if pos == 0 {
+			// The ticket is gone (a sweep, a disk hiccup): put it back under
+			// its original arrival, so the waiter keeps its place.
+			writeMutantsRunTicket(os.Getpid(), start, cmd, cwd)
+		}
+		if pos == 1 {
+			if rel, acquired := TryAcquireFileLock(path); acquired {
+				writeBuildLockOwnerAt(mutantsRunLockOwnerPath(), cmd, cwd)
+				return func() {
+					removeBuildLockOwnerAt(mutantsRunLockOwnerPath())
+					rel()
+				}, true
+			}
 		}
 		waited := time.Since(start)
 		if waited >= deadline {
 			return func() {}, false
 		}
-		if waited >= nextNotice {
-			fmt.Fprintf(os.Stderr, "gate: queued behind %s for the box-wide mutation-run lock (waited %.0fs)\n",
-				mutantsRunLockHolderDescription(), waited.Seconds())
+		if waited >= nextHeartbeat {
+			now := time.Now()
+			_ = os.Chtimes(ticketPath, now, now)
+			nextHeartbeat += mutantsRunTicketHeartbeat
+		}
+		if waited >= nextNotice && pos > 0 {
+			fmt.Fprintf(os.Stderr, "gate: queued behind %s for the box-wide mutation-run lock, position %d of %d (waited %.0fs)\n",
+				mutantsRunLockHolderDescription(), pos, len(queue), waited.Seconds())
 			nextNotice += mutantsRunLockNoticeEvery
 		}
-		time.Sleep(buildLockPollInterval)
+		time.Sleep(mutantsRunQueuePollInterval)
 	}
 }
 
 // mutantsRunLockHolderDescription names the current holder of the box-wide
-// mutation-run lock for a waiting acquirer's line, or says the holder is
-// unknown — the owner file is best-effort, racy by construction, exactly
+// mutation-run lock for a waiting acquirer's line, or says its record cannot
+// be read — the owner file is best-effort, racy by construction, exactly
 // like buildSlotHolderDescription's own, and appends a stale-binary notice
-// when the holder's executable is not the one this process runs.
+// when the holder's executable is not the one this process runs. A waiter
+// behind another waiter can find the lock free for the instant between one
+// holder and the next, and says so rather than inventing a holder.
 func mutantsRunLockHolderDescription() string {
-	if o, ok := readBuildLockOwnerAt(mutantsRunLockOwnerPath()); ok {
-		return describeOwner(o) + staleHolderNotice(o.PID)
+	if s := snapshotMutantsRunHolder(); s.Held {
+		return describeMutantsRunHolder(s)
 	}
-	return "another mutation run (holder unknown)"
+	return "nobody (the lock is passing to the waiter ahead)"
 }
 
 // processExePathFn is the seam a test overrides instead of depending on the

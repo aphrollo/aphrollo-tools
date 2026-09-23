@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -73,6 +74,9 @@ func TestMain(m *testing.M) {
 	// case under test here.
 	os.Unsetenv(BuildLockHeldEnv)
 	restoreLocks := SetLockDirForTest(locks)
+	// And the machine-wide lock dir itself is never this suite's: a test
+	// that resolves it fails the package run (see guardLiveLockDir).
+	checkLiveLockDir := guardLiveLockDir(filepath.Join(dir, "live-lock-dir-decoy"))
 	// Same net for gh. Three issues were filed against the real repository by
 	// nobody — #155, #196 and #197, all carrying this package's own override
 	// fixture values (`override:override-off r`, evidence `e`, an unfilled
@@ -110,6 +114,12 @@ func TestMain(m *testing.M) {
 	// A test about that wait installs its own probe.
 	restoreRunners := SetCIRunnerJobsForTest(func() []int { return nil })
 	code := m.Run()
+	if err := checkLiveLockDir(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		if code == 0 {
+			code = 1
+		}
+	}
 	restoreRunners()
 	restoreLocks()
 	os.RemoveAll(dir)
