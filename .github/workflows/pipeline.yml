@@ -544,13 +544,107 @@ jobs:
             compare.txt
           if-no-files-found: warn
 
-  # The mutation proof used to run here, per push to main -- it now runs
+  # The mutation proof on MAIN used to run here, per push -- it now runs
   # nightly instead, batched across merges, to stop holding one of the two
   # shared self-hosted runners for the length of the run right after a
   # deploy that already shipped (issue #334). See
   # .github/workflows/nightly-mutants.yml for the job and why moving it was
-  # safe: the merge itself is still measured locally, before it lands, by the
-  # pre-merge gate.
+  # safe: the merge itself is measured before it lands, by the pre-merge gate.
+  #
+  # `mutants-verdict` below is a different job for a different reason. #334
+  # moved a re-measurement of trunk off the critical path; this one exists
+  # because on a Windows box the pre-merge measurement CANNOT be made at all:
+  # gremlins v0.6.0 maps a mutant's position onto its coverage profile through
+  # filepath.Rel, which returns `internal\tdd\x.go` there against a
+  # slash-separated lookup key, so every mutant in every package below the
+  # module root reads as NOT COVERED -- 4890 of 4890 on this tree. Seventeen
+  # merges landed from that box in one session with nine green stages and no
+  # mutation evidence whatsoever (issue #697). It is Windows-only by
+  # construction: filepath.Rel returns slashes here, which is why this runner
+  # measures the same tree correctly.
+  #
+  # So the measurement is made HERE and consumed THERE. What it costs is one
+  # runner for the length of a PR-sized mutation run, and it is gated on
+  # `changes.code` so a docs-only PR pays nothing.
+  mutants-verdict:
+    # Pull requests only. A push to main has no merge to measure ahead of
+    # itself -- the merge already happened -- and nightly-mutants.yml is the
+    # tripwire that covers trunk.
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
+    needs: changes
+    runs-on: self-hosted
+    # 60, not 30: a lane of ~70 mutants measured under the load of other
+    # lanes' suites on this shared box was still killing mutants (58 caught,
+    # 0 lived) when a 30-minute budget cancelled it at 30m18s, so the check
+    # read red for a measurement that had found nothing wrong.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The default ref for a pull_request event is refs/pull/N/merge --
+          # GitHub's own merge of this PR into its base, which is the same
+          # tree the local pre-merge gate builds. fetch-depth 0 so both of its
+          # parents resolve: the diff is scoped to merge-base(base, head),
+          # exactly as mergeMeasureBase scopes it locally.
+          fetch-depth: 0
+      - name: Identify the merged tree
+        # Read before anything else writes into the checkout, and read the
+        # same way the consuming gate reads it (internal/tdd/mutants_runner.go:
+        # `git write-tree`), because the tree id is the whole binding between
+        # this measurement and the merge that consumes it. A name is only an
+        # index: the report itself carries the id the CLI computed, and the
+        # consuming gate checks THAT. If the two ever disagreed, the merge
+        # would report NOT MEASURED rather than trust this run.
+        id: tree
+        if: needs.changes.outputs.code == 'true'
+        run: |
+          set -euo pipefail
+          echo "id=$(git write-tree)" >> "$GITHUB_OUTPUT"
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # false: see the note in `test` -- the persistent disk is the cache.
+          cache: false
+      - name: Install gremlins
+        if: needs.changes.outputs.code == 'true'
+        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+      - name: Build the CLI from this PR
+        # From THIS PR, not /usr/local/bin: a change to how the measurement is
+        # scoped, judged or published is measured by the rule the PR proposes,
+        # the same reasoning `escape-closure` states for itself.
+        if: needs.changes.outputs.code == 'true'
+        run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
+      - name: aphrollo gate mutants run --report
+        if: needs.changes.outputs.code == 'true'
+        run: |
+          set -euo pipefail
+          # HEAD is the merge; HEAD^1 is the base it was merged into and HEAD^2
+          # is this PR's tip. Their merge base is what the lane actually
+          # proposes to change, and it is the base the local gate measures
+          # against too, so both sides scope the same diff over the same tree.
+          base=$(git merge-base HEAD^1 HEAD^2)
+          echo "scoping the run to $base..HEAD (tree ${{ steps.tree.outputs.id }})"
+          ./bin/aphrollo gate mutants run --base "$base" --report mutants-verdict.json
+      - name: Publish the measurement for the box that cannot make it
+        # always(): a run that found an unaccepted survivor exits 1, and that
+        # is precisely the measurement the merging box most needs to see. A
+        # run that produced no report at all uploads nothing and the merge
+        # reports NOT MEASURED, which is the honest outcome either way.
+        if: ${{ always() && needs.changes.outputs.code == 'true' && steps.tree.outputs.id != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # The tree id is in the name so the consuming gate finds the
+          # measurement of ITS tree in one request. A base branch that moves
+          # after this ran produces a different merged tree, no artifact under
+          # that name, and a merge that says NOT MEASURED rather than one that
+          # trusts a measurement of the tree before the move.
+          name: mutants-verdict-${{ steps.tree.outputs.id }}
+          path: mutants-verdict.json
+          if-no-files-found: warn
 
   # The escape loop's closing half. `verify-closure` refuses a PR that says it
   # closes a labelled escape issue without changing a CHECK -- a law, a gate

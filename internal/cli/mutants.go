@@ -112,6 +112,10 @@ func runGateMutantsRun(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("mutants run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	base := fs.String("base", "", "base ref or sha to measure against (default: the merge base with the default branch)")
+	// Where a run measuring on behalf of another box publishes what it
+	// measured, bound to the tree it measured (internal/tdd/mutants_runner.go).
+	// Empty writes nothing, which is every run a developer types.
+	report := fs.String("report", "", "also write this run's per-mutant outcomes here, bound to the tree they were measured on")
 	// There is no --jobs: a Cargo measurement is N cargo-mutants processes,
 	// one per shard, each with --jobs 1, and N is derived from the box that
 	// has to hold their builds rather than typed by a caller (issue #592).
@@ -130,7 +134,7 @@ func runGateMutantsRun(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo gate mutants run: %v\n", err)
 		return 1
 	}
-	v, err := tdd.MeasureLane(root, cfg, tdd.MeasureOpts{Base: *base, Log: stderr})
+	v, err := tdd.MeasureLane(root, cfg, tdd.MeasureOpts{Base: *base, Log: stderr, ReportOut: *report})
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo gate mutants run: %v\n", err)
 		return 1
@@ -154,6 +158,13 @@ const mutantsUsage = `usage: aphrollo gate mutants <verb>
                      contains — the same diff the merge will measure.
   run --base <ref>   measure against that ref or sha instead. What nightly CI
                      on main passes its checkpoint to.
+  run --report <p>   also write this run's per-mutant outcomes to <p>, bound to
+                     the git tree id of the tree they were measured on. How the
+                     self-hosted Linux runner measures the Go half on behalf of
+                     a Windows box, where gremlins reads 0.00% mutator coverage
+                     and no local run can say anything: the pre-merge gate there
+                     consumes a report only when its tree id is the tree the
+                     gate is judging, and reports NOT MEASURED otherwise.
 
                      There is no --jobs: a Cargo run is one cargo-mutants
                      process per shard of the mutant pool, each with

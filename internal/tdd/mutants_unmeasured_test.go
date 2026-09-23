@@ -22,7 +22,7 @@ func TestMeasure_GoOnWindowsSaysTheMergeCarriesNoMutationEvidence(t *testing.T) 
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	t.Cleanup(SetFreeSpaceForTest(999, true))
 	root, base := makeGoMeasureRepo(t)
-	t.Cleanup(setMutantsGOOSForTest("windows"))
+	t.Cleanup(SetMutantsGOOSForTest("windows"))
 	var log strings.Builder
 
 	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base, Log: &log})
