@@ -120,13 +120,15 @@ func precommitDecide(repoRoot string, run SuiteRunner) GateResult {
 		return Mechanical(repoRoot, run)
 	}
 
-	// A change with no code answers to the tree guards and nothing else; see
-	// docsonly.go. It comes before the guards themselves only so the log says
-	// which route the commit took.
-	if docsOnly(repoRoot) {
+	// A change with no code, or whose code changed only in comments, answers
+	// to the tree guards and nothing else; see docsonly.go and
+	// commentonly.go. StagedFastPath is also what the agreement test holds
+	// CI's classify-diff to. It comes before the guards themselves only so
+	// the log says which route the commit took.
+	switch StagedFastPath(repoRoot) {
+	case DiffDocsOnly:
 		return docsOnlyFastPath("precommit", repoRoot)
-	}
-	if commentOnlyRust(repoRoot) {
+	case DiffCommentOnly:
 		return commentOnlyFastPath("precommit", repoRoot)
 	}
 

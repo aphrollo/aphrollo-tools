@@ -171,6 +171,14 @@ Cheapest first; the first rejection stops the run and is named in `gate.log`.
    mutation measurement when `mutants-at-merge = true` (this repo sets it
    `false`; `gate mutants run` still measures a lane).
 
+Two fast paths skip every stage that builds. A staged set with no source or
+test file (docs-only) runs stages 1-3 and stops. A staged set whose only
+source files are `.go` or `.rs` files with no token changed outside a comment
+(comment-only) runs stages 1-4 and stops. The comparison is token-level
+(`go/scanner` for Go, the shared lexer for Rust). A directive comment
+(`//go:build`, `//go:embed`, a lint suppression), a cgo preamble or a Rust
+doc comment with a fenced example counts as code.
+
 A gofmt rejection on a Windows checkout whose files predate `.gitattributes`
 is fixed once with `git add --renormalize .`. A green result is cached per
 content + argv, shared by every worktree of a repo. A nextest `[profile.gate]`
@@ -206,7 +214,20 @@ aphrollo status --wait [<dir>]   # block until the deferred job of this checkout
 aphrollo gate output             # the TEXT of the last settled suite run for this root
 aphrollo gate stats --since 7d   # gate.log by stage and outcome, open escapes, demote candidates
 aphrollo gate doctor             # one ok/FAIL line per install check, exit 1 on a FAIL
+aphrollo gate classify-diff <base> [<head>]   # docs-only | comment-only | workflow-only | code
 ```
+
+`gate classify-diff` prints one class for the change from `<base>` to
+`<head>` (default `HEAD`, which must be the checked-out commit); `--json`
+prints `{"class": …, "reason": …}`. It uses the commit gate's per-file rules:
+file kind (a `//go:embed`-ed markdown file is code) and the token-level
+comment-only comparison for Go and Rust. Docs-only is narrower than the
+commit gate's. Only markdown, `docs/`, `LICENSE` and `.gitignore` count;
+a `testdata/` fixture, a `.ratchet/` law or a config file is code.
+`.github/**` plus prose is workflow-only. A workflow change next to a
+comment-only one is code. A base the clone does not hold, a head that is not
+the checkout, or any git error prints `code`, gives the reason on stderr and
+exits 0. CI's `changes` job decides which jobs run from this class.
 
 `gate output` keeps the last 256 KB of one run per root, heads it with the
 directory the run executed in, and refuses a record older than 30 minutes. `gate stats` names a `demote-candidate:` check whose

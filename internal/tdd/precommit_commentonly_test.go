@@ -95,7 +95,7 @@ func TestCommentOnlyRust_MixedDiffDoesNotQualify(t *testing.T) {
 	write(t, root, "src/b.rs", "pub fn b() -> i32 { 2 }\n")
 	gitDo(t, root, "add", ".")
 
-	if commentOnlyRust(root) {
+	if commentOnlySource(root) {
 		t.Fatal("one real code change among staged files must take the whole commit off the fast path")
 	}
 }

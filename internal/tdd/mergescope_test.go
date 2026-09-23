@@ -95,7 +95,7 @@ func TestCommentOnlyRust_TrunkSyncReadsTheLanesCodeChange(t *testing.T) {
 	gitDo(t, root, "checkout", "-q", "lane/work")
 	gitDo(t, root, "merge", "--no-commit", "--no-ff", trunk)
 
-	if commentOnlyRust(root) {
+	if commentOnlySource(root) {
 		t.Fatal("a lane that changed `0` to `1` in src/lib.rs is not comment-only against trunk")
 	}
 }

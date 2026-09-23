@@ -48,7 +48,9 @@ and acts now.
 - `gate` — the TDD + law gates (`pretooluse`/`posttooluse`/`userpromptsubmit`/`sessionend`/
   `precommit`/`premerge`/`prepush`) + `allow <wall>`/`revoke <wall>` (waive or
   restore a wall, e.g. `allow primary`) + `gate init` (wires session hooks +
-  global git gate); `tdd` is a silent alias for one release.
+  global git gate) + `classify-diff` (read-only: the class CI's `changes` job
+  sizes a run by, from the same per-file rules as the commit gate's fast
+  paths); `tdd` is a silent alias for one release.
   Ported from the retired `claude-code-tdd` Node hooks (this binary IS the gate now).
 - `docs check` — doc-reference guard: every repo path a tracked `*.md` cites must
   resolve (relative to the citing file, then repo root); exit 1 on any miss. Bar

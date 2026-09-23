@@ -39,18 +39,35 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Decide whether the PR touches anything other than docs. The Go gates below
-  # gate their real steps on this so a docs-only PR passes them legitimately
-  # (nothing to test/lint/scan) while still reporting the required contexts. The
-  # workflow no longer uses `paths-ignore`: GitHub treats a required check that is
-  # path-filtered out as permanently pending, not skipped-success, so a docs-only
-  # PR could never satisfy branch protection.
+  # Decide how much checking the change owes. The class comes from
+  # `aphrollo gate classify-diff`, built from THIS PR: the same per-file rules
+  # the commit gate takes its fast paths from (ClassifyFile with its
+  # //go:embed awareness, and the token-level comment-only comparison for Go
+  # and Rust), held to that gate's choice by
+  # internal/cli/classifydiff_test.go. No path regex here second-guesses it.
+  #
+  #   docs-only      only prose (markdown, docs/, LICENSE, .gitignore):
+  #                  docs-check and scan's gitleaks, no Go job
+  #   comment-only   Go/Rust changes only inside comments, plus prose: lint
+  #                  as well, no suite, race run, benchmarks or mutants
+  #   workflow-only  only .github/**, plus prose: workflow-pins runs the
+  #                  tests that read this repo's workflow files
+  #   code           anything else, and every failure to classify: the full
+  #                  chain
+  #
+  # The Go gates below gate their real steps on these outputs so a skipped
+  # class still reports the required contexts. The workflow uses no
+  # `paths-ignore`: GitHub treats a required check that is path-filtered out
+  # as permanently pending, not skipped-success.
   changes:
     if: github.event.pull_request.draft != true
     runs-on: self-hosted
-    timeout-minutes: 2
+    timeout-minutes: 5
     outputs:
+      class: ${{ steps.filter.outputs.class }}
       code: ${{ steps.filter.outputs.code }}
+      lint: ${{ steps.filter.outputs.lint }}
+      workflow: ${{ steps.filter.outputs.workflow }}
       docs: ${{ steps.filter.outputs.docs }}
       bench: ${{ steps.filter.outputs.bench }}
       refactor: ${{ steps.filter.outputs.refactor }}
@@ -58,15 +75,47 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # false: see the note in `test` -- the persistent disk is the cache.
+          cache: false
+      - name: Build the classifier from this PR
+        # continue-on-error: a PR that does not compile must not fail THIS
+        # job, or every job needing it is skipped and a skipped required
+        # check reads as a pass. With no binary the filter answers code, and
+        # the full chain's own build fails loudly instead.
+        continue-on-error: true
+        run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
       - id: filter
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
-          # A push hands over `before` rather than a PR base, and that can still
-          # be unusable: the all-zero sha of a branch's first push, or a sha the
-          # clone no longer holds after a force-push. Fall back to the previous
-          # commit, and to "everything changed" when even that does not exist.
+          # Anything but one of the four known classes -- the classifier
+          # failing, printing nothing, or never having been built -- is code.
+          # classify-diff itself answers code for a base this clone does not
+          # hold (an all-zero `before`, a sha a force-push dropped).
+          class=$(./bin/aphrollo gate classify-diff "$BASE_SHA" HEAD) || class=code
+          case "$class" in
+            docs-only|comment-only|workflow-only|code) ;;
+            *) class=code ;;
+          esac
+          echo "class: $class"
+          code=false; lint=false; workflow=false
+          case "$class" in
+            code) code=true; lint=true ;;
+            comment-only) lint=true ;;
+            workflow-only) workflow=true ;;
+          esac
+          {
+            echo "class=$class"
+            echo "code=$code"
+            echo "lint=$lint"
+            echo "workflow=$workflow"
+          } >> "$GITHUB_OUTPUT"
+          # The path filters below only narrow the code class further; they
+          # never widen a lighter one.
           base="$BASE_SHA"
           if [ -z "$base" ] || ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
             base=$(git rev-parse --verify --quiet "HEAD~1^{commit}" || true)
@@ -77,17 +126,6 @@ jobs:
             changed=$(git ls-files)
           fi
           echo "changed files:"; printf '%s\n' "$changed"
-          if [ -z "$changed" ]; then
-            echo "code=false" >> "$GITHUB_OUTPUT"
-          # Only a TOP-LEVEL or docs/ markdown is documentation. This repo
-          # compiles markdown into the binary (//go:embed tddskill.md,
-          # agent_*.md, ratchet_laws.md, ...), so a .md sitting in a package
-          # directory is code and must not take the fast path.
-          elif printf '%s\n' "$changed" | grep -qvE '(^[^/]*\.md$|^docs/|^LICENSE|^\.gitignore$)'; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "code=false" >> "$GITHUB_OUTPUT"
-          fi
           # docs=true iff any markdown file changed, so the docs-check job runs
           # on doc edits (and skips a code-only PR while still reporting).
           if printf '%s\n' "$changed" | grep -qE '\.md$'; then
@@ -95,30 +133,63 @@ jobs:
           else
             echo "docs=false" >> "$GITHUB_OUTPUT"
           fi
-          # bench=true iff a changed file sits under one of the three benchmarked
-          # packages or the baseline it compares against, so `benchmarks` skips
-          # (while still reporting) a PR that cannot move any of the four numbers
-          # it gates.
-          if printf '%s\n' "$changed" | grep -qE '^(internal/ratchet/|internal/tdd/|internal/docs/|testdata/bench/)'; then
+          # bench=true iff the class is code and a changed file sits under one
+          # of the three benchmarked packages or the baseline it compares
+          # against, so `benchmarks` skips (while still reporting) a PR that
+          # cannot move any of the four numbers it gates.
+          if [ "$code" = true ] && printf '%s\n' "$changed" | grep -qE '^(internal/ratchet/|internal/tdd/|internal/docs/|testdata/bench/)'; then
             echo "bench=true" >> "$GITHUB_OUTPUT"
           else
             echo "bench=false" >> "$GITHUB_OUTPUT"
           fi
-          # refactor=true iff a changed file sits under a package the gated
-          # gopls/sqlc e2e tests actually exercise transitively, not just the
-          # two packages the tests themselves live in -- a change to the LSP
-          # client or the diff-apply code they both drive must install the
-          # real binaries too, or the tests self-skip on exactly the commit
-          # most likely to break them. Derived, not guessed: `go list -deps
-          # ./internal/refactor/... ./internal/sqlc/... | grep
-          # '^github.com/aphrollo/aphrollo-tools/internal/'` names
+          # refactor=true iff the class is code and a changed file sits under
+          # a package the gated gopls/sqlc e2e tests actually exercise
+          # transitively, not just the two packages the tests themselves live
+          # in -- a change to the LSP client or the diff-apply code they both
+          # drive must install the real binaries too, or the tests self-skip
+          # on exactly the commit most likely to break them. Derived, not
+          # guessed: `go list -deps ./internal/refactor/... ./internal/sqlc/...
+          # | grep '^github.com/aphrollo/aphrollo-tools/internal/'` names
           # internal/diff, internal/lsp, internal/refactor and internal/sqlc
           # -- keep this pattern in sync with that command's output when
           # either package's imports change.
-          if printf '%s\n' "$changed" | grep -qE '^(internal/refactor/|internal/sqlc/|internal/lsp/|internal/diff/)'; then
+          if [ "$code" = true ] && printf '%s\n' "$changed" | grep -qE '^(internal/refactor/|internal/sqlc/|internal/lsp/|internal/diff/)'; then
             echo "refactor=true" >> "$GITHUB_OUTPUT"
           else
             echo "refactor=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # A change confined to .github/** moves no Go package's behaviour. What it
+  # can break is the tests that read this repo's own workflow files, so this
+  # job runs exactly those, by name, instead of the full suite.
+  # TestPipeline_WorkflowPinsJobSelectsEveryWorkflowReadingTest fails when a
+  # test that reads .github is added outside the pattern or the package list
+  # below. actionlint runs when the runner already carries it; nothing is
+  # installed for it.
+  workflow-pins:
+    if: github.event.pull_request.draft != true
+    needs: changes
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - if: needs.changes.outputs.workflow == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: needs.changes.outputs.workflow == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # false: see the note in `test` -- the persistent disk is the cache.
+          cache: false
+      - name: Workflow pin tests
+        if: needs.changes.outputs.workflow == 'true'
+        run: go test -count=1 -run '^(TestPipeline_|TestGateEnvWorkflowStep_|TestLintWorkflowStep_|TestDeployJobBuild_)' ./internal/tdd ./internal/cli
+      - name: actionlint (only when the runner already has it)
+        if: needs.changes.outputs.workflow == 'true'
+        run: |
+          if command -v actionlint >/dev/null 2>&1; then
+            actionlint
+          else
+            echo "actionlint is not installed on this runner; skipped"
           fi
 
   # Doc-reference guard (`aphrollo docs check`): every repo path a CHANGED
@@ -400,10 +471,13 @@ jobs:
     needs: changes
     runs-on: self-hosted
     timeout-minutes: 5
+    # Keyed on `lint`, not `code`: a comment-only change can still fail it
+    # (a vet or staticcheck finding in a directive, a malformed doc comment),
+    # so it runs for comment-only as well as code.
     steps:
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.lint == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.lint == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -413,10 +487,10 @@ jobs:
           # wedging the run. The persistent disk is the cache.
           cache: false
       - name: build aphrollo
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.lint == 'true'
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
       - name: golangci-lint
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.lint == 'true'
         # per-run isolated cache — shared self-hosted golangci cache otherwise stale-locks / dead worktree paths → spurious lint failures
         env:
           GOLANGCI_LINT_CACHE: ${{ runner.temp }}/golangci-lint-${{ github.run_id }}-${{ github.run_attempt }}
@@ -750,7 +824,7 @@ jobs:
   # skipped there and the miss is picked up by `gate escape sync` on the box
   # that owns the lane.
   escape-record:
-    needs: [test, lint, scan]
+    needs: [test, lint, scan, workflow-pins]
     if: ${{ always() && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && github.event.pull_request.head.repo.fork != true)) && contains(needs.*.result, 'failure') }}
     runs-on: self-hosted
     timeout-minutes: 5
@@ -949,7 +1023,7 @@ jobs:
   # all green, but a red one means this never fires. A manual workflow_dispatch
   # stays gated behind the same guard.
   deploy:
-    needs: [test, lint, scan]
+    needs: [test, lint, scan, workflow-pins]
     if: ${{ always() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: self-hosted
     timeout-minutes: 10
