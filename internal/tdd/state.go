@@ -175,12 +175,12 @@ func migrateLegacyPrimaryEdits(s *sessionState, path string) {
 	s.Overrides.Waivers[WallPrimary] = waiverEntry{Since: since}
 }
 
-// save writes the session state, creating the directory if needed. It
+// Save writes the session state, creating the directory if needed. It
 // publishes by RENAME rather than truncating in place: readStateJSON
 // quarantines anything that does not parse, so a concurrent reader catching a
 // half-written file would rename live session state to `.corrupt-<ts>` and
 // the session would forget everything it knew.
-func (s *sessionState) save(path string) error {
+func (s *sessionState) Save(path string) error {
 	if path == "" {
 		return nil
 	}
@@ -195,11 +195,11 @@ func (s *sessionState) save(path string) error {
 	return writeFileAtomic(path, data)
 }
 
-// prevFailing returns the previously-recorded failing set for root, but ONLY
+// PrevFailing returns the previously-recorded failing set for root, but ONLY
 // when the recorded fingerprint matches the current git state. A non-matching
 // or unknown fingerprint yields nil, so a stale outcome never suppresses a real
 // new failure.
-func (s *sessionState) prevFailing(root string, cur *fingerprint) []string {
+func (s *sessionState) PrevFailing(root string, cur *fingerprint) []string {
 	ps, ok := s.ByProject[root]
 	if !ok || !fingerprintsMatch(ps.Fingerprint, cur) {
 		return nil
@@ -235,20 +235,20 @@ func computeFingerprint(root string) *fingerprint {
 	return &fingerprint{Branch: branch, HeadSHA: head, IndexMtime: mtime}
 }
 
-// stamp records the outcome of a run for root.
-func (s *sessionState) stamp(root string, ps projectState) {
+// Stamp records the outcome of a run for root.
+func (s *sessionState) Stamp(root string, ps projectState) {
 	ps.TS = time.Now().UTC().Format(time.RFC3339)
 	s.ByProject[root] = ps
 }
 
-// stampTimeout records a timed-out PostEdit run for root, WITHOUT touching
+// StampTimeout records a timed-out PostEdit run for root, WITHOUT touching
 // Outcome/FailingTests/Runner/Fingerprint — those still reflect the last run
 // that actually COMPLETED, and per PostEdit's contract that last real outcome
 // stays authoritative until a run finishes again. headSHA identical to the
 // last recorded TimeoutSHA bumps the streak; any other value (including "",
 // or a fresh SHA after a commit landed) starts a new streak at 1, so a moved
 // HEAD always gets a clean budget rather than inheriting a stale count.
-func (s *sessionState) stampTimeout(root, headSHA string) {
+func (s *sessionState) StampTimeout(root, headSHA string) {
 	ps := s.ByProject[root]
 	if ps.TimeoutSHA == headSHA {
 		ps.TimeoutStreak++
@@ -274,7 +274,7 @@ func markWorktreeWarned(session string) bool {
 		return false
 	}
 	s.Notices.WorktreeWarned = true
-	_ = s.save(path)
+	_ = s.Save(path)
 	return true
 }
 
@@ -367,7 +367,7 @@ func setOff(session string, off bool) error {
 		return errNoSession
 	}
 	s.Overrides.Off = off
-	return s.save(path)
+	return s.Save(path)
 }
 
 // waiverEntry is one active wall waiver's persisted shape: just when, since
@@ -406,7 +406,7 @@ func setWaiver(session, wall string, on bool) error {
 	} else {
 		delete(s.Overrides.Waivers, wall)
 	}
-	return s.save(path)
+	return s.Save(path)
 }
 
 // reservedStateBasenames and reservedStateFilePrefixes name every OTHER json

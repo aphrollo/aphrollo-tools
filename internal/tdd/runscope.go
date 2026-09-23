@@ -206,7 +206,7 @@ func scopeEqual(a, b runScope) bool {
 // a stage that logged none) cannot be SHOWN to be wide enough, so it never
 // refuses — the fail-open direction bashsuite.go owes.
 func verdictCoversRun(e gateEntry, want runScope) bool {
-	have, ok := scopeOfSuiteCommand(strings.Fields(e.cmd))
+	have, ok := scopeOfSuiteCommand(strings.Fields(e.Cmd))
 	if !ok {
 		return false
 	}

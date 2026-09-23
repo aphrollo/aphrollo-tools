@@ -34,8 +34,8 @@ func runPostEditSuite(run SuiteRunner, snap stateSnapshot, root, headSHA string,
 		// timeout streak), but the run itself must be reported: silence here
 		// reads as "green" when it actually means "inconclusive, not tested".
 		if snap.state != nil {
-			snap.state.stampTimeout(root, headSHA)
-			_ = snap.state.save(snap.statePath)
+			snap.state.StampTimeout(root, headSHA)
+			_ = snap.state.Save(snap.statePath)
 		}
 		appendGateLog("postedit", root, cmdString(snap.runner), "timeout", res.Duration)
 		return res, timeoutAdvisory(snap.runner, root, res.Duration)

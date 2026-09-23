@@ -45,10 +45,10 @@ func PrecommitRanSince(root string, at time.Time) bool {
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		e, ok := parseGateLine(sc.Text())
-		if !ok || e.stage != "precommit" || e.verdict != "ran" || e.at.Before(at) {
+		if !ok || e.Stage != "precommit" || e.Verdict != "ran" || e.At.Before(at) {
 			continue
 		}
-		if sameProject(e.root, root) {
+		if sameProject(e.Root, root) {
 			return true
 		}
 	}

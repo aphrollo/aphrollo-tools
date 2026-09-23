@@ -173,8 +173,8 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 			}
 			clearDeferredJob(session, root)
 			if j.Phase == "run" && state != nil {
-				state.stampTimeout(root, headSHA)
-				_ = state.save(statePath)
+				state.StampTimeout(root, headSHA)
+				_ = state.Save(statePath)
 			}
 			elapsed := time.Since(j.Started)
 			appendGateLog("postedit", root, strings.Join(j.Runner, " "), DeferredAbandoned, elapsed)
@@ -258,20 +258,20 @@ func judgeEditResult(runner Runner, file, editID string, res SuiteResult, root s
 	fp := computeFingerprint(root)
 	prev := []string(nil)
 	if state != nil {
-		prev = state.prevFailing(root, fp)
+		prev = state.PrevFailing(root, fp)
 	}
 	if line := foreignBuildAdvisory(root, file, cmdString(runner), res); line != "" {
 		return line
 	}
 	outcome := classifyRunOutcome(runner, root, res, prev)
 	if state != nil {
-		state.stamp(root, projectState{
+		state.Stamp(root, projectState{
 			Outcome:      string(outcome),
 			FailingTests: ExtractFailingTests(res.Output),
 			Runner:       argv,
 			Fingerprint:  fp,
 		})
-		_ = state.save(statePath)
+		_ = state.Save(statePath)
 	}
 	logSuiteVerdict("postedit", root, cmdString(runner), string(outcome), res)
 	recordEditVerdict(root, editID, cmdString(runner), outcome, res.Output)

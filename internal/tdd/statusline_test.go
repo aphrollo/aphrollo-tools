@@ -255,7 +255,7 @@ func stampOutcomeAt(t *testing.T, session, root, outcome string, at time.Time) {
 	t.Helper()
 	s, path := loadSession(session)
 	s.ByProject[root] = projectState{Outcome: outcome, TS: at.UTC().Format(time.RFC3339)}
-	if err := s.save(path); err != nil {
+	if err := s.Save(path); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -266,8 +266,8 @@ func stampOutcomeAt(t *testing.T, session, root, outcome string, at time.Time) {
 func TestStatusLine_IgnoresAnotherProjectsRed(t *testing.T) {
 	root := statusRoot(t)
 	s, path := loadSession("s1")
-	s.stamp(filepath.Join(t.TempDir(), "other"), projectState{Outcome: string(Red)})
-	if err := s.save(path); err != nil {
+	s.Stamp(filepath.Join(t.TempDir(), "other"), projectState{Outcome: string(Red)})
+	if err := s.Save(path); err != nil {
 		t.Fatal(err)
 	}
 	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo]" {

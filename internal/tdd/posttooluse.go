@@ -152,8 +152,8 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 		if hasCount && outcome == Green {
 			stamped.PassedCount = passed
 		}
-		snap.state.stamp(root, stamped)
-		_ = snap.state.save(snap.statePath)
+		snap.state.Stamp(root, stamped)
+		_ = snap.state.Save(snap.statePath)
 	}
 
 	// Seed the mechanical green cache: when this exact command is what the
@@ -210,7 +210,7 @@ func captureStateSnapshot(session, target, root string) (stateSnapshot, bool) {
 	fp := computeFingerprint(root)
 	var prevFailing []string
 	if state != nil {
-		prevFailing = state.prevFailing(root, fp)
+		prevFailing = state.PrevFailing(root, fp)
 	}
 	return stateSnapshot{
 		state:       state,

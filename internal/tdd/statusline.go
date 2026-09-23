@@ -154,8 +154,8 @@ func lastVerdictFor(root string) string {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
-		if e, ok := parseGateLine(sc.Text()); ok && sameProject(e.root, root) {
-			last = e.verdict
+		if e, ok := parseGateLine(sc.Text()); ok && sameProject(e.Root, root) {
+			last = e.Verdict
 		}
 	}
 	return last
@@ -211,10 +211,10 @@ func greenLoggedSince(root string, at time.Time) bool {
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		e, ok := parseGateLine(sc.Text())
-		if !ok || e.at.Before(at) || !sameProject(e.root, root) {
+		if !ok || e.At.Before(at) || !sameProject(e.Root, root) {
 			continue
 		}
-		if strings.HasPrefix(e.verdict, "green") {
+		if strings.HasPrefix(e.Verdict, "green") {
 			return true
 		}
 	}
@@ -267,8 +267,8 @@ func lastRunQueued(root string) bool {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
-		if e, ok := parseGateLine(sc.Text()); ok && sameProject(e.root, root) {
-			last = e.verdict
+		if e, ok := parseGateLine(sc.Text()); ok && sameProject(e.Root, root) {
+			last = e.Verdict
 		}
 	}
 	return last == "queued-skipped"

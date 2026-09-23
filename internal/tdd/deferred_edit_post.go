@@ -58,13 +58,13 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	}
 	outcome := classifyRunOutcome(snap.runner, root, res, snap.prevFailing)
 	if snap.state != nil {
-		snap.state.stamp(root, projectState{
+		snap.state.Stamp(root, projectState{
 			Outcome:      string(outcome),
 			FailingTests: ExtractFailingTests(res.Output),
 			Runner:       append([]string{snap.runner.Cmd}, snap.runner.Args...),
 			Fingerprint:  snap.fingerprint,
 		})
-		_ = snap.state.save(snap.statePath)
+		_ = snap.state.Save(snap.statePath)
 	}
 	if res.Passed {
 		if h := worktreeStateHash(root); h != "" {

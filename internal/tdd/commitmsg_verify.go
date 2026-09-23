@@ -177,10 +177,10 @@ func lastPrecommitVerdict(root string) string {
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		e, ok := parseGateLine(sc.Text())
-		if !ok || e.stage != "precommit" || e.verdict == "ran" || !sameProject(e.root, root) {
+		if !ok || e.Stage != "precommit" || e.Verdict == "ran" || !sameProject(e.Root, root) {
 			continue
 		}
-		last = e.verdict
+		last = e.Verdict
 	}
 	return last
 }

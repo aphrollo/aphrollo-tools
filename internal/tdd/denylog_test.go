@@ -21,7 +21,7 @@ func requireLoggedVerdict(t *testing.T, cfg, verdict string) {
 // helpers read.
 func gateLineFields(line string) (stage, verdict string, ok bool) {
 	e, ok := parseGateLine(line)
-	return e.stage, e.verdict, ok
+	return e.Stage, e.Verdict, ok
 }
 
 // An edit the gate DENIES is the loudest thing that happens to a session, and

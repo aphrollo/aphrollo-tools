@@ -95,7 +95,7 @@ func PreBash(raw []byte) {
 	}
 	s.Bash[bashKey(in)] = snap
 	pruneBashSnapshots(s.Bash)
-	_ = s.save(path)
+	_ = s.Save(path)
 }
 
 // pruneBashSnapshots drops the oldest entries past the bound.
@@ -269,7 +269,7 @@ func postBashChanges(in bashInput, run SuiteRunner) string {
 	// it was taken for.
 	delete(s.Bash, key)
 	if path != "" {
-		_ = s.save(path)
+		_ = s.Save(path)
 	}
 
 	changed, now := changedSince(before)

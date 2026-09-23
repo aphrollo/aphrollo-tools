@@ -147,7 +147,7 @@ func decideNarrowedSuite(root, cmd string) Decision {
 // every count taken from it is then wrong. The refusal names the honest
 // routes first and declines to present the marker as a general way through.
 func denyNarrowedRerunReason(root string, e gateEntry) string {
-	ago := time.Since(e.at).Round(time.Second)
+	ago := time.Since(e.At).Round(time.Second)
 	return fmt.Sprintf(
 		"the gate already holds a %s verdict for %s — the tree this command runs in — from the %s "+
 			"stage, logged %s ago: re-running one of its tests by hand answers nothing that run does "+
@@ -161,7 +161,7 @@ func denyNarrowedRerunReason(root string, e gateEntry) string {
 			"normal set and stay refused. A run that sets a switch the repo declares under fail-first-env is let through "+
 			"too, and counted: the gate's own runs never set one, so this verdict never answered for the tests it gates. MUTATION=1 is not a way past this refusal: it labels a run "+
 			"that IS a mutation proof, and every run carrying it is counted as one.",
-		e.verdict, root, e.stage, ago, DeferredAbandoned, InfraFailed)
+		e.Verdict, root, e.Stage, ago, DeferredAbandoned, InfraFailed)
 }
 
 // hasMutationProofMarker reports whether the raw command names a mutation
@@ -265,14 +265,14 @@ func decideWholeSuite(root, cmd string) Decision {
 // settled gate.log line for this root, and the status verb for the queue
 // state that line does not cover.
 func denyWholeSuiteReason(root string, e gateEntry) string {
-	ago := time.Since(e.at).Round(time.Second)
+	ago := time.Since(e.At).Round(time.Second)
 	return fmt.Sprintf(
 		"the gate already holds a %s verdict for %s from the %s stage, logged %s ago — "+
 			"re-running the whole suite by hand answers nothing that line does not. See "+
 			"`aphrollo gate stats` for the line, or `aphrollo gate status` for this box's "+
 			"deferred jobs and build slots. Narrow this to `-run <TestName>`, `-p <crate> <filter>`, or a "+
 			"single package if you need a fresh answer for one test.",
-		e.verdict, root, e.stage, ago)
+		e.Verdict, root, e.Stage, ago)
 }
 
 // hasSoakMarker reports whether the raw command names a soak deliberately —
@@ -301,7 +301,7 @@ var suiteStages = map[string]bool{"postedit": true, "precommit": true, "premerge
 // crate's real tests, in another target entirely, have never run.
 func lastFreshSuiteVerdict(root string, want runScope) (gateEntry, bool) {
 	e, ok := lastSuiteLogEntry(root, bashSuiteVerdictFreshFor)
-	if !ok || !isSettledVerdict(e.verdict) || !verdictCoversRun(e, want) {
+	if !ok || !isSettledVerdict(e.Verdict) || !verdictCoversRun(e, want) {
 		return gateEntry{}, false
 	}
 	return e, true
@@ -330,13 +330,13 @@ func lastSuiteLogEntry(root string, window time.Duration) (gateEntry, bool) {
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		e, ok := parseGateLine(sc.Text())
-		if !ok || !suiteStages[e.stage] || !sameProject(e.root, root) {
+		if !ok || !suiteStages[e.Stage] || !sameProject(e.Root, root) {
 			continue
 		}
-		if now.Sub(e.at) > window {
+		if now.Sub(e.At) > window {
 			continue
 		}
-		if !found || e.at.After(best.at) {
+		if !found || e.At.After(best.At) {
 			best, found = e, true
 		}
 	}

@@ -146,16 +146,16 @@ func recordedSuiteSecs(stage, cmd string, window time.Duration) []float64 {
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		e, ok := parseGateLine(sc.Text())
-		if !ok || e.stage != stage || e.cmd != cmd {
+		if !ok || e.Stage != stage || e.Cmd != cmd {
 			continue
 		}
 		// A run that never finished, or never ran, is not evidence about
 		// how long the work takes — see isSettledVerdict. A zero duration
 		// is a stage that recorded no stopwatch at all.
-		if !isSettledVerdict(e.verdict) || e.secs <= 0 || now.Sub(e.at) > window {
+		if !isSettledVerdict(e.Verdict) || e.Secs <= 0 || now.Sub(e.At) > window {
 			continue
 		}
-		secs = append(secs, e.secs)
+		secs = append(secs, e.Secs)
 	}
 	if len(secs) > suiteFloorSamples {
 		secs = secs[len(secs)-suiteFloorSamples:]

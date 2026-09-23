@@ -156,8 +156,8 @@ func TestParseGateLine_KeepsTheCommandThatProducedTheVerdict(t *testing.T) {
 		if !ok {
 			t.Fatalf("parseGateLine rejected %q", c.line)
 		}
-		if e.cmd != c.cmd || e.verdict != c.verdict {
-			t.Errorf("parseGateLine(%q) = cmd %q verdict %q, want cmd %q verdict %q", c.line, e.cmd, e.verdict, c.cmd, c.verdict)
+		if e.Cmd != c.cmd || e.Verdict != c.verdict {
+			t.Errorf("parseGateLine(%q) = cmd %q verdict %q, want cmd %q verdict %q", c.line, e.Cmd, e.Verdict, c.cmd, c.verdict)
 		}
 	}
 }

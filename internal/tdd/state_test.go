@@ -94,16 +94,16 @@ func TestPrevFailing(t *testing.T) {
 	}}
 
 	// Same git state → the recorded failing set is returned.
-	if got := s.prevFailing("/proj", fp); !reflect.DeepEqual(got, []string{"TestA"}) {
+	if got := s.PrevFailing("/proj", fp); !reflect.DeepEqual(got, []string{"TestA"}) {
 		t.Fatalf("matching fp prevFailing = %#v", got)
 	}
 	// Moved git state → stale set is discarded so it can't mask a new failure.
 	moved := &fingerprint{Branch: "main", HeadSHA: "def", IndexMtime: 2}
-	if got := s.prevFailing("/proj", moved); got != nil {
+	if got := s.PrevFailing("/proj", moved); got != nil {
 		t.Fatalf("moved fp must drop stale failing set, got %#v", got)
 	}
 	// Unknown project → nil.
-	if got := s.prevFailing("/other", fp); got != nil {
+	if got := s.PrevFailing("/other", fp); got != nil {
 		t.Fatalf("unknown root should be nil, got %#v", got)
 	}
 }
@@ -114,8 +114,8 @@ func TestSessionState_SaveLoadRoundtrip(t *testing.T) {
 	if s == nil {
 		t.Fatal("named session should load an empty state, not nil")
 	}
-	s.stamp("/proj", projectState{Outcome: "red", FailingTests: []string{"TestX"}})
-	if err := s.save(path); err != nil {
+	s.Stamp("/proj", projectState{Outcome: "red", FailingTests: []string{"TestX"}})
+	if err := s.Save(path); err != nil {
 		t.Fatal(err)
 	}
 
@@ -198,7 +198,7 @@ func TestEverySessionID_SkipsNonSessionStateFiles(t *testing.T) {
 	if s == nil || path == "" {
 		t.Fatal("real session must load")
 	}
-	if err := s.save(path); err != nil {
+	if err := s.Save(path); err != nil {
 		t.Fatal(err)
 	}
 

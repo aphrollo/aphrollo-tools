@@ -42,7 +42,7 @@ func TestGoFmtStage_SaysNothingWhenEveryStagedPathResolves(t *testing.T) {
 	// that requires the file to exist.
 	logged, _ := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
 	for line := range strings.SplitSeq(string(logged), "\n") {
-		if e, ok := parseGateLine(line); ok && e.verdict == "gofmt-index-unreadable" {
+		if e, ok := parseGateLine(line); ok && e.Verdict == "gofmt-index-unreadable" {
 			t.Fatalf("no path was unreadable, yet the stage reported one: %s", line)
 		}
 	}

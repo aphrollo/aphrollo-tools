@@ -412,34 +412,34 @@ func OverrideCandidates(r io.Reader, now time.Time) []OverrideCandidate {
 	for sc.Scan() {
 		line := sc.Text()
 		e, ok := parseGateLine(line)
-		if !ok || e.at.Before(cutoff) || e.at.After(now.Add(time.Hour)) {
+		if !ok || e.At.Before(cutoff) || e.At.After(now.Add(time.Hour)) {
 			continue
 		}
 		file := gateLineFile(line)
 		switch {
-		case strings.HasPrefix(e.verdict, "pretooluse-denied:"):
-			denied[e.root+"\x00"+file] = strings.TrimPrefix(e.verdict, "pretooluse-denied:")
-		case strings.HasPrefix(e.verdict, "smell-escape:"):
-			check, refused := denied[e.root+"\x00"+file]
+		case strings.HasPrefix(e.Verdict, "pretooluse-denied:"):
+			denied[e.Root+"\x00"+file] = strings.TrimPrefix(e.Verdict, "pretooluse-denied:")
+		case strings.HasPrefix(e.Verdict, "smell-escape:"):
+			check, refused := denied[e.Root+"\x00"+file]
 			if !refused {
 				continue
 			}
 			add(OverrideCandidate{
 				Stage:  "override:" + check,
-				At:     e.at,
+				At:     e.At,
 				Reason: fmt.Sprintf("%s refused an edit that then went in on a waiver — narrow it, fix it, or demote it", check),
 				Evidence: fmt.Sprintf("gate.log: pretooluse-denied:%s on %s, then %s on the same file inside %d days",
-					check, file, e.verdict, int(escapeDedupeWindow.Hours()/24)),
+					check, file, e.Verdict, int(escapeDedupeWindow.Hours()/24)),
 			})
 		default:
 			for _, p := range overrideVerdictPrefixes {
-				if !strings.HasPrefix(e.verdict, p) {
+				if !strings.HasPrefix(e.Verdict, p) {
 					continue
 				}
 				add(OverrideCandidate{
-					Stage:    "override:" + e.verdict,
-					At:       e.at,
-					Reason:   fmt.Sprintf("a session went around the gate (%s) — a check that gets switched off is a check to narrow or fix", e.verdict),
+					Stage:    "override:" + e.Verdict,
+					At:       e.At,
+					Reason:   fmt.Sprintf("a session went around the gate (%s) — a check that gets switched off is a check to narrow or fix", e.Verdict),
 					Evidence: "gate.log: " + line,
 				})
 			}

@@ -25,8 +25,8 @@ func loggedText(t *testing.T) string {
 func TestSessionStateCarriesItsSchema(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	s, path := loadSession("abc")
-	s.stamp("/repo", projectState{Outcome: "green"})
-	if err := s.save(path); err != nil {
+	s.Stamp("/repo", projectState{Outcome: "green"})
+	if err := s.Save(path); err != nil {
 		t.Fatal(err)
 	}
 
@@ -53,9 +53,9 @@ func TestSessionStateIsPublishedAtomically(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	s, path := loadSession("atomic")
 	for i := range 400 {
-		s.stamp(fmt.Sprintf("/repo/%d", i), projectState{Outcome: "green"})
+		s.Stamp(fmt.Sprintf("/repo/%d", i), projectState{Outcome: "green"})
 	}
-	if err := s.save(path); err != nil {
+	if err := s.Save(path); err != nil {
 		t.Fatal(err)
 	}
 
@@ -77,7 +77,7 @@ func TestSessionStateIsPublishedAtomically(t *testing.T) {
 		}
 	}()
 	for range 200 {
-		if err := s.save(path); err != nil {
+		if err := s.Save(path); err != nil {
 			t.Fatal(err)
 		}
 	}
