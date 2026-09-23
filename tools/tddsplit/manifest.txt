@@ -446,6 +446,7 @@ bashsuite.go                                       postedit
 bashsuite_envswitch.go                             postedit
 bashsuite_envswitch_test.go                        postedit
 bashsuite_test.go                                  postedit
+runscope_bashsuite_test.go                         postedit
 buildonly_test.go                                  postedit  # prefix says suite; its test body reaches postedit
 cargo_uncompiled_test.go                           postedit  # prefix says suite; its test body reaches postedit
 classify_attribution_test.go                       postedit  # prefix says suite; its test body reaches postedit
