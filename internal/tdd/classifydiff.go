@@ -28,6 +28,22 @@ const (
 	DiffCode DiffClass = "code"
 )
 
+// StagedFastPath is the fast path the commit and merge gates take for
+// repoRoot's staged set, and what Precommit and Mechanical dispatch on:
+// DiffDocsOnly when nothing staged is source or test (docsOnly),
+// DiffCommentOnly when every staged source is a comment-only Go or Rust
+// diff (commentOnlySource), DiffCode otherwise. It never answers
+// DiffWorkflowOnly: that path is CI's alone.
+func StagedFastPath(repoRoot string) DiffClass {
+	if docsOnly(repoRoot) {
+		return DiffDocsOnly
+	}
+	if commentOnlySource(repoRoot) {
+		return DiffCommentOnly
+	}
+	return DiffCode
+}
+
 // ClassifyDiff classifies the change from base to head in repoRoot. head
 // must be the checked-out commit and the process's working directory the
 // checkout's root: the embed rule reads //go:embed directives from the files

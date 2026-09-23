@@ -28,16 +28,13 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 	if _, res := mutantsConfigStage(premergeDisplayName, repoRoot); res.Blocked {
 		return res
 	}
-	if docsOnly(repoRoot) {
-		res := docsOnlyFastPath(premergeDisplayName, repoRoot)
-		if len(notes) > 0 {
-			notes = append(notes, res.Message)
-			res.Message = strings.Join(notes, "\n")
+	if fast := StagedFastPath(repoRoot); fast != DiffCode {
+		var res GateResult
+		if fast == DiffDocsOnly {
+			res = docsOnlyFastPath(premergeDisplayName, repoRoot)
+		} else {
+			res = commentOnlyFastPath(premergeDisplayName, repoRoot)
 		}
-		return res
-	}
-	if commentOnlySource(repoRoot) {
-		res := commentOnlyFastPath(premergeDisplayName, repoRoot)
 		if len(notes) > 0 {
 			notes = append(notes, res.Message)
 			res.Message = strings.Join(notes, "\n")

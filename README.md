@@ -214,7 +214,20 @@ aphrollo status --wait [<dir>]   # block until the deferred job of this checkout
 aphrollo gate output             # the TEXT of the last settled suite run for this root
 aphrollo gate stats --since 7d   # gate.log by stage and outcome, open escapes, demote candidates
 aphrollo gate doctor             # one ok/FAIL line per install check, exit 1 on a FAIL
+aphrollo gate classify-diff <base> [<head>]   # docs-only | comment-only | workflow-only | code
 ```
+
+`gate classify-diff` prints one class for the change from `<base>` to
+`<head>` (default `HEAD`, which must be the checked-out commit); `--json`
+prints `{"class": …, "reason": …}`. It uses the commit gate's per-file rules:
+file kind (a `//go:embed`-ed markdown file is code) and the token-level
+comment-only comparison for Go and Rust. Docs-only is narrower than the
+commit gate's. Only markdown, `docs/`, `LICENSE` and `.gitignore` count;
+a `testdata/` fixture, a `.ratchet/` law or a config file is code.
+`.github/**` plus prose is workflow-only. A workflow change next to a
+comment-only one is code. A base the clone does not hold, a head that is not
+the checkout, or any git error prints `code`, gives the reason on stderr and
+exits 0. CI's `changes` job decides which jobs run from this class.
 
 `gate output` keeps the last 256 KB of one run per root, heads it with the
 directory the run executed in, and refuses a record older than 30 minutes. `gate stats` names a `demote-candidate:` check whose

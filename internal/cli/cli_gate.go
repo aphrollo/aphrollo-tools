@@ -89,6 +89,10 @@ Subcommands:
                     that closes one without changing a law, a gate stage or a
                     named test; check-closes warns on a bare issue mention and
                     errors on a comma list after one closing keyword
+  classify-diff     Read-only: [--json] <base> [<head>] prints the change's class
+                    (docs-only, comment-only, workflow-only, code) from the
+                    commit gate's own per-file rules; any failure prints code.
+                    CI's changes job sizes the run by it
   gc                Reclaim stale build dirs: idle incremental caches, dead gate dirs,
                     orphan worktree builds (--repo, --older-than 3d, --apply)
   install           (alias of aphrollo install; retiring next release) Install
@@ -311,6 +315,10 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// Read-only: what an inconclusive gate line points at instead of a
 		// rerun — deferred edit jobs, build slots, this checkout's mutation run.
 		return runGateStatus(args[1:], stdout, stderr)
+	}
+	if args[0] == "classify-diff" {
+		// Read-only: the class CI's `changes` job sizes the run by.
+		return runGateClassifyDiff(args[1:], stdout, stderr)
 	}
 	if args[0] == "gc" {
 		// Disk hygiene: dry-run by default, --apply reclaims.
