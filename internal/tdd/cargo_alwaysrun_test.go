@@ -152,18 +152,18 @@ func TestNarrowToRelatedTests_CargoTestsDirUnderSrcIsAModuleNotATarget(t *testin
 		"forge": {}, // no integration-test targets at all
 	})
 
-	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	cargo := Runner{Cmd: "cargo", Args: []string{"test"}, Dir: "", Deadline: time.Time{}}
 	cases := []struct {
 		file string
 		want Runner
 	}{
 		{
 			file: filepath.Join(root, "src", "tire_rig", "tests", "vertical_ladder.rs"),
-			want: Runner{"cargo", []string{"test", "-p", "forge", "--lib", "tire_rig::tests::vertical_ladder::"}, root, time.Time{}},
+			want: Runner{Cmd: "cargo", Args: []string{"test", "-p", "forge", "--lib", "tire_rig::tests::vertical_ladder::"}, Dir: root, Deadline: time.Time{}},
 		},
 		{
 			file: filepath.Join(root, "src", "tire_rig", "tests", "mod.rs"),
-			want: Runner{"cargo", []string{"test", "-p", "forge", "--lib", "tire_rig::tests::"}, root, time.Time{}},
+			want: Runner{Cmd: "cargo", Args: []string{"test", "-p", "forge", "--lib", "tire_rig::tests::"}, Dir: root, Deadline: time.Time{}},
 		},
 	}
 	for _, c := range cases {

@@ -208,7 +208,7 @@ func TestPrecommit_Mechanical_ScopedToStagedGoPackages(t *testing.T) {
 	if len(seen) != 1 {
 		t.Fatalf("expected one mechanical run at root, got %d: %+v", len(seen), seen)
 	}
-	want := Runner{"go", []string{"test", "-race", "-count=1", "-shuffle=on", "./internal/x"}, "", time.Time{}}
+	want := Runner{Cmd: "go", Args: []string{"test", "-race", "-count=1", "-shuffle=on", "./internal/x"}, Dir: "", Deadline: time.Time{}}
 	if !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("mechanical runner = %+v, want %+v", seen[0], want)
 	}
@@ -249,7 +249,7 @@ func TestPrecommit_Mechanical_ScopedToStagedGoTestOnly(t *testing.T) {
 	if len(seen) != 1 {
 		t.Fatalf("expected one scoped mechanical run, got %d: %+v", len(seen), seen)
 	}
-	want := Runner{"go", []string{"test", "-race", "-count=1", "-shuffle=on", "./internal/x"}, "", time.Time{}}
+	want := Runner{Cmd: "go", Args: []string{"test", "-race", "-count=1", "-shuffle=on", "./internal/x"}, Dir: "", Deadline: time.Time{}}
 	if !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("test-only mechanical runner = %+v, want %+v", seen[0], want)
 	}
@@ -269,7 +269,7 @@ func TestPrecommit_Mechanical_ScopedToStagedVitest(t *testing.T) {
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
-	want := Runner{"npx", []string{"vitest", "related", "src/widget.ts", "--run"}, "", time.Time{}}
+	want := Runner{Cmd: "npx", Args: []string{"vitest", "related", "src/widget.ts", "--run"}, Dir: "", Deadline: time.Time{}}
 	if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("vitest mechanical runs = %+v, want one %+v", seen, want)
 	}
@@ -288,7 +288,7 @@ func TestPrecommit_Mechanical_ScopedToStagedJest(t *testing.T) {
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
-	want := Runner{"npx", []string{"jest", "--findRelatedTests", "src/widget.js"}, "", time.Time{}}
+	want := Runner{Cmd: "npx", Args: []string{"jest", "--findRelatedTests", "src/widget.js"}, Dir: "", Deadline: time.Time{}}
 	if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("jest mechanical runs = %+v, want one %+v", seen, want)
 	}
@@ -307,7 +307,7 @@ func TestPrecommit_Mechanical_UnknownRunnerFullSuiteFallback(t *testing.T) {
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
-	want := Runner{"npm", []string{"test", "--silent"}, "", time.Time{}}
+	want := Runner{Cmd: "npm", Args: []string{"test", "--silent"}, Dir: "", Deadline: time.Time{}}
 	if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("fallback mechanical runs = %+v, want one full-suite %+v", seen, want)
 	}

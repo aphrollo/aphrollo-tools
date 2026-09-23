@@ -84,7 +84,7 @@ func TestNarrowToRelatedTests_CargoMember_RunsFromWorkspaceRoot(t *testing.T) {
 	ws, member := makeNestedCargoWorkspace(t, false)
 	write(t, member, "tests/movement.rs", "#[test]\nfn moves() {}\n")
 
-	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	cargo := Runner{Cmd: "cargo", Args: []string{"test"}, Dir: "", Deadline: time.Time{}}
 	got := NarrowToRelatedTests(cargo, filepath.Join(member, "tests", "movement.rs"), member)
 	want := Runner{Cmd: "cargo", Args: []string{"test", "-p", "alpha", "--test", "movement"}, Dir: ws}
 	if !reflect.DeepEqual(got, want) {
@@ -107,7 +107,7 @@ func TestNarrowToRelatedTests_CargoMember_NextestWhenConfiguredAtWorkspaceRoot(t
 	ws, member := makeNestedCargoWorkspace(t, true)
 	write(t, member, "src/foo.rs", "pub fn foo() -> i32 { 1 }\n")
 
-	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	cargo := Runner{Cmd: "cargo", Args: []string{"test"}, Dir: "", Deadline: time.Time{}}
 	got := NarrowToRelatedTests(cargo, filepath.Join(member, "src", "foo.rs"), member)
 
 	wantVerb := []string{"test"}
@@ -131,7 +131,7 @@ func TestNarrowToRelatedTests_CargoMember_SourceEdit_RunsFromWorkspaceRoot(t *te
 	ws, member := makeNestedCargoWorkspace(t, false)
 	write(t, member, "src/foo.rs", "pub fn foo() -> i32 { 1 }\n")
 
-	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	cargo := Runner{Cmd: "cargo", Args: []string{"test"}, Dir: "", Deadline: time.Time{}}
 	got := NarrowToRelatedTests(cargo, filepath.Join(member, "src", "foo.rs"), member)
 	want := Runner{Cmd: "cargo", Args: []string{"test", "-p", "alpha", "--lib", "foo::"}, Dir: ws}
 	if !reflect.DeepEqual(got, want) {
@@ -149,7 +149,7 @@ func TestNarrowToRelatedTests_CargoNoResolvablePackage_FallsBackToOldBehavior(t 
 	root := t.TempDir()
 	write(t, root, "tests/movement.rs", "#[test]\nfn moves() {}\n") // no Cargo.toml anywhere
 
-	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	cargo := Runner{Cmd: "cargo", Args: []string{"test"}, Dir: "", Deadline: time.Time{}}
 	got := NarrowToRelatedTests(cargo, filepath.Join(root, "tests", "movement.rs"), root)
 	want := Runner{Cmd: "cargo", Args: []string{"test", "--test", "movement"}}
 	if !reflect.DeepEqual(got, want) {

@@ -53,7 +53,7 @@ func TestNarrowToRelatedTests_CargoTestFiles(t *testing.T) {
 	write(t, root, "src/thing_test.rs", "#[test]\nfn thing() {}\n")
 	write(t, root, "tests/movement.rs", "#[test]\nfn moves() {}\n")
 
-	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	cargo := Runner{Cmd: "cargo", Args: []string{"test"}, Dir: "", Deadline: time.Time{}}
 	cases := []struct {
 		name   string
 		target string
@@ -62,12 +62,12 @@ func TestNarrowToRelatedTests_CargoTestFiles(t *testing.T) {
 		{
 			name:   "top-level tests/ file → --test <stem>",
 			target: filepath.Join(root, "tests", "movement.rs"),
-			want:   Runner{"cargo", []string{"test", "--test", "movement"}, "", time.Time{}},
+			want:   Runner{Cmd: "cargo", Args: []string{"test", "--test", "movement"}, Dir: "", Deadline: time.Time{}},
 		},
 		{
 			name:   "rust test module under src/ → --lib, filtered to that module",
 			target: filepath.Join(root, "src", "thing_test.rs"),
-			want:   Runner{"cargo", []string{"test", "--lib", "thing_test::"}, "", time.Time{}},
+			want:   Runner{Cmd: "cargo", Args: []string{"test", "--lib", "thing_test::"}, Dir: "", Deadline: time.Time{}},
 		},
 	}
 	for _, c := range cases {
@@ -102,9 +102,9 @@ func TestNarrowToRelatedTests_CargoNestedDirConfirmedByMetadataRunsThatBinary(t 
 		"item": {"integration": true},
 	})
 
-	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	cargo := Runner{Cmd: "cargo", Args: []string{"test"}, Dir: "", Deadline: time.Time{}}
 	got := NarrowToRelatedTests(cargo, filepath.Join(root, "tests", "integration", "affixes.rs"), root)
-	want := Runner{"cargo", []string{"test", "-p", "item", "--test", "integration"}, root, time.Time{}}
+	want := Runner{Cmd: "cargo", Args: []string{"test", "-p", "item", "--test", "integration"}, Dir: root, Deadline: time.Time{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("NarrowToRelatedTests = %+v, want %+v", got, want)
 	}
@@ -124,9 +124,9 @@ func TestNarrowToRelatedTests_CargoNestedDirUnconfirmedFallsBackToPackageRun(t *
 		"item": {"integration": true}, // "common" is a helper dir, not a target
 	})
 
-	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	cargo := Runner{Cmd: "cargo", Args: []string{"test"}, Dir: "", Deadline: time.Time{}}
 	got := NarrowToRelatedTests(cargo, filepath.Join(root, "tests", "common", "fixtures.rs"), root)
-	want := Runner{"cargo", []string{"test", "-p", "item"}, root, time.Time{}}
+	want := Runner{Cmd: "cargo", Args: []string{"test", "-p", "item"}, Dir: root, Deadline: time.Time{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("NarrowToRelatedTests = %+v, want %+v (never a guessed --test common)", got, want)
 	}
@@ -140,9 +140,9 @@ func TestNarrowToRelatedTests_CargoNestedDirNoPackageNeverGuessesTarget(t *testi
 	root := t.TempDir()
 	write(t, root, "tests/integration/affixes.rs", "#[test]\nfn affixes() {}\n")
 
-	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	cargo := Runner{Cmd: "cargo", Args: []string{"test"}, Dir: "", Deadline: time.Time{}}
 	got := NarrowToRelatedTests(cargo, filepath.Join(root, "tests", "integration", "affixes.rs"), root)
-	want := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	want := Runner{Cmd: "cargo", Args: []string{"test"}, Dir: "", Deadline: time.Time{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("NarrowToRelatedTests = %+v, want %+v (no package to confirm a target against)", got, want)
 	}
@@ -154,14 +154,14 @@ func TestNarrowToRelatedTests_CargoNestedDirNoPackageNeverGuessesTarget(t *testi
 // the full `cargo test` unchanged, because `--lib` on a crate with no lib
 // target is an error, not a narrower run.
 func TestNarrowToRelatedTests_CargoSourceEdits(t *testing.T) {
-	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	cargo := Runner{Cmd: "cargo", Args: []string{"test"}, Dir: "", Deadline: time.Time{}}
 
 	t.Run("lib crate source edit → --lib", func(t *testing.T) {
 		root := t.TempDir()
 		write(t, root, "src/lib.rs", "pub fn base() -> i32 { 0 }\n")
 		write(t, root, "src/foo.rs", "pub fn foo() -> i32 { 1 }\n")
 		got := NarrowToRelatedTests(cargo, filepath.Join(root, "src", "foo.rs"), root)
-		want := Runner{"cargo", []string{"test", "--lib", "foo::"}, "", time.Time{}}
+		want := Runner{Cmd: "cargo", Args: []string{"test", "--lib", "foo::"}, Dir: "", Deadline: time.Time{}}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("lib-crate source narrow = %+v, want %+v", got, want)
 		}
@@ -209,9 +209,9 @@ func TestNarrowFailFirstTests_CargoSinglePackageMixed(t *testing.T) {
 	write(t, root, "tests/foo.rs", "#[test]\nfn foo() {}\n")
 	write(t, root, "src/thing_test.rs", "#[test]\nfn thing() {}\n")
 
-	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	cargo := Runner{Cmd: "cargo", Args: []string{"test"}, Dir: "", Deadline: time.Time{}}
 	got := narrowFailFirstTests(cargo, root, []string{"tests/foo.rs", "src/thing_test.rs"})
-	want := Runner{"cargo", []string{"test", "-p", "pkg1", "--test", "foo", "--lib"}, "", time.Time{}}
+	want := Runner{Cmd: "cargo", Args: []string{"test", "-p", "pkg1", "--test", "foo", "--lib"}, Dir: "", Deadline: time.Time{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("narrowFailFirstTests = %+v, want %+v", got, want)
 	}
@@ -225,9 +225,9 @@ func TestNarrowFailFirstTests_CargoNextestPreserved(t *testing.T) {
 	write(t, root, "Cargo.toml", "[package]\nname = \"pkg1\"\nversion = \"0.1.0\"\n")
 	write(t, root, "tests/foo.rs", "#[test]\nfn foo() {}\n")
 
-	nextest := Runner{"cargo", []string{"nextest", "run"}, "", time.Time{}}
+	nextest := Runner{Cmd: "cargo", Args: []string{"nextest", "run"}, Dir: "", Deadline: time.Time{}}
 	got := narrowFailFirstTests(nextest, root, []string{"tests/foo.rs"})
-	want := Runner{"cargo", []string{"nextest", "run", "-p", "pkg1", "--test", "foo"}, "", time.Time{}}
+	want := Runner{Cmd: "cargo", Args: []string{"nextest", "run", "-p", "pkg1", "--test", "foo"}, Dir: "", Deadline: time.Time{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("narrowFailFirstTests (nextest) = %+v, want %+v", got, want)
 	}
@@ -247,9 +247,9 @@ func TestNarrowFailFirstTests_CargoNestedDirUnconfirmedDropsTestScoping(t *testi
 		"pkg1": {"integration": true}, // "common" is a helper dir, not a target
 	})
 
-	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	cargo := Runner{Cmd: "cargo", Args: []string{"test"}, Dir: "", Deadline: time.Time{}}
 	got := narrowFailFirstTests(cargo, root, []string{"tests/common/fixtures.rs"})
-	want := Runner{"cargo", []string{"test", "-p", "pkg1"}, "", time.Time{}}
+	want := Runner{Cmd: "cargo", Args: []string{"test", "-p", "pkg1"}, Dir: "", Deadline: time.Time{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("narrowFailFirstTests = %+v, want %+v (never a guessed --test common)", got, want)
 	}
@@ -266,9 +266,9 @@ func TestNarrowFailFirstTests_CargoMultiPackageFallback(t *testing.T) {
 	write(t, root, "crates/alpha/tests/a.rs", "#[test]\nfn a() {}\n")
 	write(t, root, "crates/beta/tests/b.rs", "#[test]\nfn b() {}\n")
 
-	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	cargo := Runner{Cmd: "cargo", Args: []string{"test"}, Dir: "", Deadline: time.Time{}}
 	got := narrowFailFirstTests(cargo, root, []string{"crates/beta/tests/b.rs", "crates/alpha/tests/a.rs"})
-	want := Runner{"cargo", []string{"test", "-p", "alpha", "-p", "beta"}, "", time.Time{}}
+	want := Runner{Cmd: "cargo", Args: []string{"test", "-p", "alpha", "-p", "beta"}, Dir: "", Deadline: time.Time{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("narrowFailFirstTests (multi-package) = %+v, want %+v", got, want)
 	}
@@ -284,7 +284,7 @@ func TestNarrowFailFirstTests_CargoNoPackageFallback(t *testing.T) {
 	write(t, root, "crates/alpha/Cargo.toml", "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\n")
 	write(t, root, "tools/gen_test.rs", "#[test]\nfn gen() {}\n")
 
-	cargo := Runner{"cargo", []string{"test"}, "", time.Time{}}
+	cargo := Runner{Cmd: "cargo", Args: []string{"test"}, Dir: "", Deadline: time.Time{}}
 	got := narrowFailFirstTests(cargo, root, []string{"tools/gen_test.rs"})
 	if !reflect.DeepEqual(got, cargo) {
 		t.Fatalf("narrowFailFirstTests (no package) = %+v, want unchanged %+v", got, cargo)
@@ -299,9 +299,9 @@ func TestNarrowFailFirstTests_NonCargoDelegatesToNarrowToStaged(t *testing.T) {
 	write(t, root, "go.mod", "module m\n\ngo 1.21\n")
 	write(t, root, "internal/x/x_test.go", "package x\n")
 
-	goRunner := Runner{"go", []string{"test", "./..."}, "", time.Time{}}
+	goRunner := Runner{Cmd: "go", Args: []string{"test", "./..."}, Dir: "", Deadline: time.Time{}}
 	got := narrowFailFirstTests(goRunner, root, []string{"internal/x/x_test.go"})
-	want := Runner{"go", []string{"test", "./internal/x"}, "", time.Time{}}
+	want := Runner{Cmd: "go", Args: []string{"test", "./internal/x"}, Dir: "", Deadline: time.Time{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("narrowFailFirstTests (go) = %+v, want %+v", got, want)
 	}
@@ -314,7 +314,7 @@ func TestNarrowFailFirstTests_NonCargoUnnarrowedFallback(t *testing.T) {
 	write(t, root, "pyproject.toml", "[tool]\n")
 	write(t, root, "test_thing.py", "def test_thing(): pass\n")
 
-	pytest := Runner{"pytest", []string{"-q"}, "", time.Time{}}
+	pytest := Runner{Cmd: "pytest", Args: []string{"-q"}, Dir: "", Deadline: time.Time{}}
 	got := narrowFailFirstTests(pytest, root, []string{"test_thing.py"})
 	if !reflect.DeepEqual(got, pytest) {
 		t.Fatalf("narrowFailFirstTests (pytest) = %+v, want unchanged %+v", got, pytest)

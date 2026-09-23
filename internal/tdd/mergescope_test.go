@@ -70,7 +70,7 @@ func TestMechanical_TrunkSyncJudgesOnlyTheLanesOwnPackages(t *testing.T) {
 	if res := Mechanical(root, recordRunner(&seen, root)); res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
-	want := []Runner{{"go", []string{"test", "-race", "-count=1", "-shuffle=on", "./internal/a"}, "", time.Time{}}}
+	want := []Runner{{Cmd: "go", Args: []string{"test", "-race", "-count=1", "-shuffle=on", "./internal/a"}, Dir: "", Deadline: time.Time{}}}
 	if !reflect.DeepEqual(seen, want) {
 		t.Fatalf("a trunk sync must judge the lane's own package only:\n got %+v\nwant %+v", seen, want)
 	}
@@ -131,7 +131,7 @@ func mechanicalRuns(t *testing.T, root string) []Runner {
 }
 
 func goTestRun(pkgs ...string) Runner {
-	return Runner{"go", append([]string{"test", "-race", "-count=1", "-shuffle=on"}, pkgs...), "", time.Time{}}
+	return Runner{Cmd: "go", Args: append([]string{"test", "-race", "-count=1", "-shuffle=on"}, pkgs...), Dir: "", Deadline: time.Time{}}
 }
 
 // A lane landing on trunk is the merge that must judge everything it brings.
