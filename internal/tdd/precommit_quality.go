@@ -92,9 +92,9 @@ func qualityVerdict(gateName, root, pkg, stage string, r Runner, res SuiteResult
 			gateName, stage, pkg, root)}
 	case res.TimedOut:
 		got := verdictFor(gateName, stage, root, cmdString(r), stageOutcome{
-			kind:   outcomeTimeout,
-			result: res,
-			message: fmt.Sprintf(
+			Kind:   outcomeTimeout,
+			Result: res,
+			Message: fmt.Sprintf(
 				"gate %s: %s -p %s in %s did not finish, so nothing was checked and the commit is refused.",
 				gateName, stage, pkg, root),
 		})

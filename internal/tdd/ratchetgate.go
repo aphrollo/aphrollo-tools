@@ -398,9 +398,9 @@ func ratchetFixtureStage(gateName, repoRoot string) GateResult {
 		// schema cannot even parse must not disarm the fixture proof for
 		// every OTHER law alongside it.
 		return verdictFor(gateName, "ratchet-fixtures", repoRoot, "ratchet test", stageOutcome{
-			kind: outcomeCheckError,
-			err:  err,
-			message: fmt.Sprintf(
+			Kind: outcomeCheckError,
+			Err:  err,
+			Message: fmt.Sprintf(
 				"gate %s: ratchet fixtures → REJECTED (the law tooling could not run: %v)\n  fix the law file named above, or run `aphrollo update` if this binary predates a schema a law declares",
 				gateName, err),
 		})
@@ -409,9 +409,9 @@ func ratchetFixtureStage(gateName, repoRoot string) GateResult {
 		laneResults, laneErr := laneJudgedFixtures(gateName, repoRoot, lane)
 		if laneErr != nil {
 			return verdictFor(gateName, "ratchet-fixtures", repoRoot, "ratchet test", stageOutcome{
-				kind: outcomeCheckError,
-				err:  laneErr,
-				message: fmt.Sprintf(
+				Kind: outcomeCheckError,
+				Err:  laneErr,
+				Message: fmt.Sprintf(
 					"gate %s: ratchet fixtures → REJECTED (this checkout's own build could not judge the law(s) it changes: %v)\n  %s",
 					gateName, laneErr, laneBuildFixHint),
 			})

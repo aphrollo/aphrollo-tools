@@ -73,18 +73,18 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 			// other check-error, not a clean pass (#317: an unmeasured run
 			// must never read as one).
 			return verdictFor(gateName, stage, root, cmdString(runner), stageOutcome{
-				kind: outcomeCheckError,
-				err:  err,
-				message: fmt.Sprintf(
+				Kind: outcomeCheckError,
+				Err:  err,
+				Message: fmt.Sprintf(
 					"gate %s: %s → REJECTED (%v)\n  the commit cannot be judged against a test-result stream this gate could not read",
 					gateName, cmdString(runner), err),
 			})
 		}
 		if len(names) > 0 {
 			return verdictFor(gateName, stage, root, cmdString(runner), stageOutcome{
-				kind:   outcomeVacuous,
-				result: res,
-				message: fmt.Sprintf(
+				Kind:   outcomeVacuous,
+				Result: res,
+				Message: fmt.Sprintf(
 					"gate %s: %s executed zero tests in %s despite exiting 0, so nothing was tested there and the commit is refused.",
 					gateName, cmdString(runner), strings.Join(names, ", ")),
 			})
