@@ -17,8 +17,8 @@ func TestVerdictFor_BlocksOnTimeoutForEveryRegisteredStage(t *testing.T) {
 
 	for _, stage := range registeredStages {
 		got := verdictFor("precommit", stage, root, "some-cmd", stageOutcome{
-			kind:    outcomeTimeout,
-			message: "did not finish",
+			Kind:    outcomeTimeout,
+			Message: "did not finish",
 		})
 		if !got.Blocked {
 			t.Fatalf("stage %q: timeout must block, got unblocked GateResult %+v", stage, got)
@@ -37,9 +37,9 @@ func TestVerdictFor_BlocksOnCheckErrorForEveryRegisteredStage(t *testing.T) {
 
 	for _, stage := range registeredStages {
 		got := verdictFor("precommit", stage, root, "some-cmd", stageOutcome{
-			kind:    outcomeCheckError,
-			err:     errors.New("boom"),
-			message: "could not run",
+			Kind:    outcomeCheckError,
+			Err:     errors.New("boom"),
+			Message: "could not run",
 		})
 		if !got.Blocked {
 			t.Fatalf("stage %q: check-error must block, got unblocked GateResult %+v", stage, got)
@@ -54,7 +54,7 @@ func TestVerdictFor_PassNeverBlocks(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := t.TempDir()
 
-	got := verdictFor("precommit", "vet", root, "go vet ./...", stageOutcome{kind: outcomePass})
+	got := verdictFor("precommit", "vet", root, "go vet ./...", stageOutcome{Kind: outcomePass})
 	if got.Blocked {
 		t.Fatalf("a pass must never block, got %+v", got)
 	}
@@ -87,7 +87,7 @@ func TestVerdictFor_BlocksAndLogsAnUnrecognizedOutcomeKind(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := t.TempDir()
 
-	got := verdictFor("precommit", "vet", root, "some-cmd", stageOutcome{kind: stageOutcomeKind(999)})
+	got := verdictFor("precommit", "vet", root, "some-cmd", stageOutcome{Kind: stageOutcomeKind(999)})
 	if !got.Blocked {
 		t.Fatal("an outcome kind verdictFor cannot classify must block, not silently pass")
 	}
@@ -106,8 +106,8 @@ func TestVerdictFor_BlocksOnVacuousForEveryRegisteredStage(t *testing.T) {
 
 	for _, stage := range registeredStages {
 		got := verdictFor("precommit", stage, root, "some-cmd", stageOutcome{
-			kind:    outcomeVacuous,
-			message: "executed zero tests",
+			Kind:    outcomeVacuous,
+			Message: "executed zero tests",
 		})
 		if !got.Blocked {
 			t.Fatalf("stage %q: a vacuous run must block, got unblocked GateResult %+v", stage, got)
@@ -129,9 +129,9 @@ func TestVerdictFor_BlocksOnContentionForEveryRegisteredStage(t *testing.T) {
 
 	for _, stage := range registeredStages {
 		got := verdictFor("precommit", stage, root, "some-cmd", stageOutcome{
-			kind:    outcomeContention,
-			reason:  "another lint held the lock",
-			message: "retry once it finishes",
+			Kind:    outcomeContention,
+			Reason:  "another lint held the lock",
+			Message: "retry once it finishes",
 		})
 		if !got.Blocked {
 			t.Fatalf("stage %q: contention must block, got unblocked GateResult %+v", stage, got)

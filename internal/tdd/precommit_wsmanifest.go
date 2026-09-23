@@ -120,8 +120,8 @@ func workspaceManifestCheckStage(gateName, repoRoot string, plan cargoStagePlan,
 		// GateResult -- outcomeSkipped is the deliberate, logged stand-down
 		// that still lets the commit through.
 		return verdictFor(gateName, "workspace-manifest-check", plan.ws, "cargo check", stageOutcome{
-			kind:   outcomeSkipped,
-			reason: fmt.Sprintf("%v moved no package a workspace crate depends on", plan.wsManifestHit),
+			Kind:   outcomeSkipped,
+			Reason: fmt.Sprintf("%v moved no package a workspace crate depends on", plan.wsManifestHit),
 		})
 	}
 	var args []string

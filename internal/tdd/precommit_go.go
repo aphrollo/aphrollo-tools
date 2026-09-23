@@ -160,9 +160,9 @@ func lintCheckStage(gateName, root string, r Runner, run SuiteRunner) GateResult
 	release, waited, _, ok := AcquireLintLock(cmdString(r), root, lintLockDeadline)
 	if !ok {
 		return verdictFor(gateName, "lint", root, cmdString(r), stageOutcome{
-			kind:   outcomeContention,
-			reason: "another gate-triggered lint held this gate's own lint lock for the whole wait",
-			message: fmt.Sprintf(
+			Kind:   outcomeContention,
+			Reason: "another gate-triggered lint held this gate's own lint lock for the whole wait",
+			Message: fmt.Sprintf(
 				"gate %s: could not run %s in %s: another lint from this gate held the box-wide lint lock for the whole wait, so nothing was linted and the commit is refused. Retry once it finishes.",
 				gateName, cmdString(r), root),
 		})
@@ -174,18 +174,18 @@ func lintCheckStage(gateName, root string, r Runner, run SuiteRunner) GateResult
 	switch {
 	case res.TimedOut:
 		return verdictFor(gateName, "lint", root, cmdString(r), stageOutcome{
-			kind:   outcomeTimeout,
-			result: res,
-			message: fmt.Sprintf(
+			Kind:   outcomeTimeout,
+			Result: res,
+			Message: fmt.Sprintf(
 				"gate %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused; retry once it finishes.",
 				gateName, cmdString(r), res.Duration.Seconds()),
 		})
 	case !res.Passed && strings.Contains(res.Output, lintContentionSignature):
 		return verdictFor(gateName, "lint", root, cmdString(r), stageOutcome{
-			kind:   outcomeContention,
-			result: res,
-			reason: "another golangci-lint outside this gate holds its own machine-wide lock",
-			message: fmt.Sprintf(
+			Kind:   outcomeContention,
+			Result: res,
+			Reason: "another golangci-lint outside this gate holds its own machine-wide lock",
+			Message: fmt.Sprintf(
 				"gate %s: golangci-lint could not run in %s — another golangci-lint instance (started outside this gate) still holds its own machine-wide lock, so nothing was linted. This is box contention, not a finding about the code. Retry once that lint finishes.\ncommand: %s\n",
 				gateName, root, cmdString(r)),
 		})
@@ -200,12 +200,12 @@ func lintCheckStage(gateName, root string, r Runner, run SuiteRunner) GateResult
 		}
 		b.WriteString(tailSnippet(res.Output))
 		return verdictFor(gateName, "lint", root, cmdString(r), stageOutcome{
-			kind:    outcomeFail,
-			result:  res,
-			message: b.String(),
+			Kind:    outcomeFail,
+			Result:  res,
+			Message: b.String(),
 		})
 	default:
-		return verdictFor(gateName, "lint", root, cmdString(r), stageOutcome{kind: outcomePass})
+		return verdictFor(gateName, "lint", root, cmdString(r), stageOutcome{Kind: outcomePass})
 	}
 }
 
@@ -371,9 +371,9 @@ func goCheckStage(gateName, stage, root string, r Runner, run SuiteRunner) GateR
 	switch {
 	case res.TimedOut:
 		return verdictFor(gateName, stage, root, cmdString(r), stageOutcome{
-			kind:   outcomeTimeout,
-			result: res,
-			message: fmt.Sprintf(
+			Kind:   outcomeTimeout,
+			Result: res,
+			Message: fmt.Sprintf(
 				"gate %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused; retry once it finishes.",
 				gateName, cmdString(r), res.Duration.Seconds()),
 		})
@@ -449,9 +449,9 @@ func docsCheckStage(gateName, repoRoot string) GateResult {
 		// unproven, not satisfied: block, the way ratchetCheckErrorResult
 		// does for the same shape.
 		return verdictFor(gateName, "docs", repoRoot, "docs check", stageOutcome{
-			kind: outcomeCheckError,
-			err:  err,
-			message: fmt.Sprintf(
+			Kind: outcomeCheckError,
+			Err:  err,
+			Message: fmt.Sprintf(
 				"gate %s: docs → REJECTED (%v)\n  the commit cannot be judged against a file this check could not read",
 				gateName, err),
 		})

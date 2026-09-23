@@ -28,9 +28,9 @@ const failFirstStageName = "fail-first"
 // question a session then has is which of its tests is slow.
 func failFirstOverBudgetRefusal(root, cmd string, out failFirstOutcome) GateResult {
 	return verdictFor("precommit", failFirstStageName, root, cmd, stageOutcome{
-		kind:   outcomeTimeout,
-		result: SuiteResult{Duration: out.dur},
-		message: fmt.Sprintf(
+		Kind:   outcomeTimeout,
+		Result: SuiteResult{Duration: out.dur},
+		Message: fmt.Sprintf(
 			"BLOCKED: fail-first could not prove your staged tests RED — the proof run was killed after %.0fs having measured nothing.\n"+
 				"Refusing rather than landing a commit whose test nobody proved.\n"+
 				"Remedy: commit again once the box is quieter (`aphrollo gate status` names what is holding it), or run the proof's own command to see what is slow:\n"+
@@ -46,9 +46,9 @@ func failFirstOverBudgetRefusal(root, cmd string, out failFirstOutcome) GateResu
 // answer is to see what holds the box and commit again when it frees.
 func failFirstNoBuildSlotRefusal(root, cmd string, out failFirstOutcome) GateResult {
 	return verdictFor("precommit", failFirstStageName, root, cmd, stageOutcome{
-		kind: outcomeCheckError,
-		err:  fmt.Errorf("no build slot came free in %s, so the proof never ran", out.waited.Round(time.Second)),
-		message: fmt.Sprintf(
+		Kind: outcomeCheckError,
+		Err:  fmt.Errorf("no build slot came free in %s, so the proof never ran", out.waited.Round(time.Second)),
+		Message: fmt.Sprintf(
 			"BLOCKED: fail-first never got a build slot — it queued %s for the box's build lock and gave up, so your staged tests never ran at HEAD.\n"+
 				"Refusing rather than landing a commit whose test nobody proved.\n"+
 				"Remedy: `aphrollo gate status` names the run holding the slot; commit again once it finishes — a queued commit is not a rejected one.\n"+
