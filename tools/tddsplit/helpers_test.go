@@ -116,3 +116,33 @@ func TestRun_SharedTestHelpersFollowTheTestsThatCallThem(t *testing.T) {
 	goCmd(t, repo, nil, "vet", "./...")
 	goCmd(t, repo, nil, "test", "-count=1", "./...")
 }
+
+// A shared test constant forwarding to tddtest crosses the split the same
+// way a helper func does: the moved test keeps naming it, and the package it
+// moved into gets a copy of its declaration.
+func TestRun_SharedTestConstantsFollowTheTestsThatNameThem(t *testing.T) {
+	files := map[string]string{}
+	for k, v := range helperFixture {
+		files[k] = v
+	}
+	files["p/internal/tt/leaf.go"] = "package tt\n\n// Leaf is a shared fixture value.\nconst Leaf = 7\n"
+	files["p/b_test.go"] += "\nconst (\n\tfixtureLeaf = tt.Leaf\n\tunrelated   = 3\n)\n"
+	files["p/a_test.go"] += "\nfunc TestLow_NamesTheSharedConstant(t *testing.T) {\n\tif fixtureLeaf != 7 {\n\t\tt.Fatal(fixtureLeaf)\n\t}\n}\n"
+	repo := fixtureRepo(t, files)
+	out, err := runFixture(t, repo, "L0")
+	if err != nil {
+		t.Fatalf("run: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "test helper") {
+		t.Errorf("a constant the generator can carry was reported instead:\n%s", out)
+	}
+	data, err := os.ReadFile(filepath.Join(repo, "p/low/tddtest_wrappers_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "const fixtureLeaf = tt.Leaf") || strings.Contains(string(data), "unrelated") {
+		t.Errorf("want exactly fixtureLeaf carried, as `const fixtureLeaf = tt.Leaf`:\n%s", data)
+	}
+	goCmd(t, repo, nil, "vet", "./...")
+	goCmd(t, repo, nil, "test", "-count=1", "./...")
+}
