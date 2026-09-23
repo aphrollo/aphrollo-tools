@@ -94,19 +94,27 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 // commands run from, the packages this commit TOUCHED (never the always-run
 // additions — no staged file belongs to those), the guard packages the
 // workspace declares, and any staged files that ARE the workspace's own
-// manifest/lockfile/build config rather than a member's.
+// manifest/lockfile/build config rather than a member's. downstream is the
+// touched crates plus every workspace crate that depends on one of them
+// (clippyScope): the ground a change can break, and the one list the check
+// stage, the merge's suite and its doctests all select from.
 type cargoStagePlan struct {
 	ws            string
 	touched       []string
+	downstream    []string
 	alwaysRun     []string
 	wsManifestHit []string
 }
 
-// suiteRunner is the touched crates' own scoped test command — the guard
-// packages deliberately absent, since they run as their own cheap stage.
+// suiteRunner is the scoped test command over the touched crates and every
+// crate downstream of them — the guard packages deliberately absent, since
+// they run as their own cheap stage. A crate downstream of a change is where
+// that change's effect is pinned (borld's forge_lab pins forge's trajectory
+// bit for bit, #739), so the merge runs its suite as surely as the check
+// stage compiles it.
 func (p cargoStagePlan) suiteRunner() Runner {
 	args := cargoVerbArgs(p.ws)
-	for _, pkg := range p.touched {
+	for _, pkg := range p.downstream {
 		args = append(args, "-p", pkg)
 	}
 	return withGateProfile(Runner{Cmd: "cargo", Args: args, Dir: p.ws}, p.ws)
@@ -137,9 +145,11 @@ func planCargoStages(gateName, repoRoot, root string, rootFiles []string) (cargo
 	if len(owned) == 0 && len(wsManifestHit) == 0 {
 		return cargoStagePlan{}, false
 	}
+	touched := cargoPackagesOwning(root, toRootRelative(repoRoot, root, owned))
 	return cargoStagePlan{
 		ws:            ws,
-		touched:       cargoPackagesOwning(root, toRootRelative(repoRoot, root, owned)),
+		touched:       touched,
+		downstream:    clippyScope(gateName, repoRoot, ws, touched),
 		alwaysRun:     cargoAlwaysRunPackages(ws),
 		wsManifestHit: wsManifestHit,
 	}, true
@@ -177,7 +187,7 @@ func workspaceCheckStage(gateName, repoRoot, root string, plan cargoStagePlan, r
 	// Scoped, never --workspace: see clippyscope.go. The crates are named on
 	// stderr because a scoped stage that does not say what it covered cannot
 	// be told from one that silently stopped covering something.
-	scope := clippyScope(gateName, repoRoot, ws, plan.touched)
+	scope := plan.downstream
 	if len(scope) == 0 {
 		fmt.Fprintf(os.Stderr, "gate %s: check → skipped (no cargo package owns anything staged)\n", gateName)
 		appendGateLog(gateName, ws, "", "clippy-scope-empty-skipped", 0)
@@ -203,7 +213,7 @@ func doctestStage(gateName, repoRoot, root string, plan cargoStagePlan, run Suit
 	if ws == "" {
 		ws = root
 	}
-	for _, runner := range doctestRunners(ws, plan.touched) {
+	for _, runner := range doctestRunners(ws, plan.downstream) {
 		if res := runSuiteStage(gateName, "doctest", repoRoot, root, runner, run); res.Blocked {
 			return res
 		}

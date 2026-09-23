@@ -94,6 +94,16 @@ func ReadMutantsConfig(root string) (MutantsConfig, error) {
 	cfg.Env = firstDeclaredList(tables, mutantsEnvKey)
 	cfg.BaselineExclude = firstDeclaredList(tables, mutationBaselineExcludeKey)
 	cfg.Accept = firstDeclaredList(tables, mutantsAcceptKey)
+	// An accept-list nobody had to justify is a list of survivors somebody
+	// silenced (mutants_go.go), so the array itself must be well-formed
+	// TOML before a single entry in it is trusted — never read leniently
+	// just because the hand-written scanner above could extract entries
+	// from it anyway.
+	for _, t := range tables {
+		if err := tomlArrayCommaError(t.path, t.table, mutantsAcceptKey); err != nil {
+			return MutantsConfig{}, fmt.Errorf("the accept-list could not be read: %w", err)
+		}
+	}
 	for _, t := range tables {
 		if v, set := tomlStringIn(t.path, t.table, mutantsAfterKey); set && strings.TrimSpace(v) != "" {
 			cfg.After = strings.TrimSpace(v)

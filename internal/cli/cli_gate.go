@@ -107,6 +107,10 @@ Subcommands:
   git               git-queue shim: queue a DIRECT index-mutating git invocation behind a
                     per-repo lock so concurrent sessions sharing one checkout don't collide
                     on .git/index.lock (APHROLLO_GIT_WAIT_SECS, APHROLLO_REAL_GIT)
+  lint              lint wrapper: run golangci-lint behind the box-wide, cross-account
+                    lint lock (APHROLLO_LINT_WAIT_SECS) so a local commit gate and a
+                    CI runner sharing this box never collide on golangci-lint's own
+                    lock instead of finding it clean or dirty
 
 Autonomous TDD gates. pretooluse reads the hook JSON on stdin; on a smell in a
 test file (real-time sleep, tautological assertion, focused/disabled test) it
@@ -346,6 +350,14 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// The git-queue shim (task A11): same shape as cargo above -- real
 		// terminal stdio, not the hook JSON protocol.
 		return runGateGit(args[1:], stdin, stdout, stderr)
+	}
+	if args[0] == "lint" {
+		// The golangci-lint wrapper: real terminal stdio, same shape as
+		// cargo/git above. Local commit gates and CI's self-hosted `lint`
+		// job both invoke golangci-lint through this one entry point so a
+		// runner-user lint and a debian-user lint contend for the SAME
+		// cross-account lock instead of colliding on golangci-lint's own.
+		return runGateLint(args[1:], stdin, stdout, stderr)
 	}
 
 	// precommit/premerge/prepush are git hooks: no stdin, exit non-zero to

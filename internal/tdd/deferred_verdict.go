@@ -151,3 +151,37 @@ func withDeferredGoTimeout(argv []string) []string {
 	out = append(out, argv[0], argv[1], "-timeout="+deferredGoTimeout().String())
 	return append(out, argv[2:]...)
 }
+
+// staleVerdictLine reports a finished result whose tree has moved on since
+// it started: the real verdict, named by its tree and command, labelled as
+// measured on an earlier tree state. A stale green must never read as a
+// current green, and a stale red is still worth seeing — it is usually a
+// real break the session made. Nothing is stamped or logged as a verdict:
+// it describes code that is no longer on disk.
+func staleVerdictLine(j DeferredJob, out PhaseOutcome) string {
+	return fmt.Sprintf("gate: deferred %s in %s → %s — measured on an earlier tree state; not a verdict on the current code: the current code was NOT tested",
+		strings.Join(j.Runner, " "), j.Project, staleVerdictLabel(j, out))
+}
+
+// staleVerdictLabel is what a stale result actually said, classified the way
+// a current one would be.
+func staleVerdictLabel(j DeferredJob, out PhaseOutcome) string {
+	res := phaseSuiteResult(j, out)
+	if out.SetupFailed {
+		return InfraFailed
+	}
+	if treatAsEmptyPass(res) {
+		res.Passed = true
+	}
+	if j.Phase == "build" && res.Passed {
+		return "build ok, no test ran"
+	}
+	outcome := ClassifyOutcome(res.Passed, res.Output, nil)
+	if !outcome.IsRed() {
+		return greenLabel(outcome, res.Output, res.Duration)
+	}
+	if first := firstFailingName(res.Output); first != "" {
+		return fmt.Sprintf("%s (first failure: %s)", outcome, first)
+	}
+	return string(outcome)
+}

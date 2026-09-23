@@ -44,7 +44,7 @@ func main() {
 	key := ""
 	out := ""
 	if len(os.Args) > 2 {
-		key = "GH_STUB_" + strings.ToUpper(os.Args[1]) + "_" + strings.ToUpper(os.Args[2])
+		key = "GH_STUB_" + strings.ToUpper(os.Args[1]) + "_" + envName(os.Args[2])
 		out = os.Getenv(key)
 	}
 	// A response can be keyed by the LABEL SET a call asked for, which is how
@@ -131,6 +131,22 @@ var ghStubDir = sync.OnceValues(func() (string, error) {
 	return dir, nil
 })
 
+// ghStubKeyPart sanitizes one half of a `<verb> <noun>` call the same way the
+// compiled stub's own envName does, so a noun carrying characters an env var
+// name cannot hold (a query string's `?`, `&`, `=`) still produces a settable,
+// matching key on both sides.
+func ghStubKeyPart(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(s) {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteByte('_')
+	}
+	return b.String()
+}
+
 // stubGh puts the fake gh on PATH with one canned stdout for every call.
 func stubGh(t *testing.T, stdout string) (argvLog string) {
 	t.Helper()
@@ -154,7 +170,7 @@ func stubGhScript(t *testing.T, responses map[string]string) (argvLog string) {
 			continue
 		}
 		verb, noun, _ := strings.Cut(k, " ")
-		t.Setenv("GH_STUB_"+strings.ToUpper(verb)+"_"+strings.ToUpper(noun), v)
+		t.Setenv("GH_STUB_"+strings.ToUpper(verb)+"_"+ghStubKeyPart(noun), v)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return argvLog

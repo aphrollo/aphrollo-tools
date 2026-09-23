@@ -162,7 +162,7 @@ func TestJudge_NotCoveredIsCountedApartFromUnviable(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Cleanup(SetFreeSpaceForTest(999, true))
 	root, base := makeGoMeasureRepo(t)
-	t.Cleanup(setMutantsGOOSForTest("linux"))
+	t.Cleanup(SetMutantsGOOSForTest("linux"))
 	stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
 		mustWrite(t, gremlinsReportPath(root), `{"files":[{"file_name":"calc.go","mutations":[
 			{"type":"ARITHMETIC_BASE","status":"KILLED","line":3,"column":20},

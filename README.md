@@ -155,7 +155,8 @@ Cheapest first; the first rejection stops the run and is named in `gate.log`.
    `docs-check = true`, or a repo with a `.aphrollo/docs-check` file.
 4. Suppression check: a newly added suppression blocks.
 5. Per root. Go: in-process gofmt of the staged blob, `go vet`,
-   `golangci-lint` on touched packages. Cargo: `cargo fmt --check`, the
+   `golangci-lint` on touched packages behind the box-wide lint lock (a
+   collision reports as contention to retry, not a lint failure). Cargo: `cargo fmt --check`, the
    `always-run` guard crates, `clippy -D warnings` on `clippy-clean` crates,
    then `cargo clippy -p <crate>… --tests` over the touched crates plus
    every crate downstream of them (printed as `check scope →`), denying
@@ -164,8 +165,11 @@ Cheapest first; the first rejection stops the run and is named in `gate.log`.
    staged source; inline Rust tests are proven from the edit ledger. Touched
    suites are NOT run at commit; the gate prints a `NOT RUN` line per touched
    crate or package.
-7. Merge only: the touched suites, then `cargo test --doc` for crates with a
-   doc fence, then the mutation measurement.
+7. Merge only: the suites of the touched crates plus every crate downstream
+   of them (the touched crates alone when nothing depends on them), then
+   `cargo test --doc` over that set for crates with a doc fence, then the
+   mutation measurement when `mutants-at-merge = true` (this repo sets it
+   `false`; `gate mutants run` still measures a lane).
 
 A gofmt rejection on a Windows checkout whose files predate `.gitattributes`
 is fixed once with `git add --renormalize .`. A green result is cached per
@@ -176,8 +180,12 @@ is used by gate runs when declared.
 
 - One foreground budget covers build and run: `APHROLLO_POSTEDIT_BUDGET_SECS`
   (default 110). Whatever is still running continues detached and prints
-  `BUILDING (deferred)`; the next hook harvests it. A detached phase is
-  abandoned after `APHROLLO_DEFERRED_MAX_SECS` (default 600).
+  `BUILDING (deferred)`. Every later hook of the session reports each
+  finished job on its own `gate: deferred` line naming its tree; a result
+  from an earlier tree state is labelled stale, not a verdict. A detached
+  phase is abandoned after `APHROLLO_DEFERRED_MAX_SECS` (default 600).
+- A narrowed run that selects no test widens one rung at a time (drop the
+  module filter, then the target) within the same budget.
 - `QUEUED-SKIPPED`: every build slot was busy; the edit hook never waits.
 - `green-unconstrained`: green, but no test changed with a source edit — a
   mutation proof is owed.
@@ -192,8 +200,8 @@ is used by gate runs when declared.
 ### Reading state
 
 ```sh
-aphrollo status                  # same as gate status: deferred jobs, slot holders, mutation run
-aphrollo gate status --wait      # block until this checkout's deferred job has a verdict
+aphrollo status                  # same as gate status: deferred jobs, slot holders, queue position, mutation run
+aphrollo status --wait [<dir>]   # block until the deferred job of this checkout (or <dir>) has a verdict
 aphrollo gate output             # the TEXT of the last settled suite run for this root
 aphrollo gate stats --since 7d   # gate.log by stage and outcome, open escapes, demote candidates
 aphrollo gate doctor             # one ok/FAIL line per install check, exit 1 on a FAIL
@@ -216,6 +224,12 @@ copies of the binary named `cargo.exe`/`git.exe`). A waiter prints one
   up to `APHROLLO_LOCK_WAIT_SECS` (default 1200) and is rejected
   (`queued-rejected`) rather than landing untested; a suite timeout at commit
   is `timeout-rejected`. A bare `cargo mutants` is refused.
+- `cargo bench`, `cargo nextest run` and a `cargo test` naming its targets
+  hold the slot only for a `--no-run` compile, then run holding nothing. A
+  `cargo test` with doctests in scope keeps its slot.
+- `aphrollo gate lint <golangci-lint args>` runs golangci-lint behind a
+  box-wide, cross-account lock (`APHROLLO_LINT_WAIT_SECS`; exit 75 on giving
+  up); the commit gate and CI's lint job both use it.
 - Git: index-mutating verbs lock per worktree; ref and worktree-registry verbs
   lock per repo; read-only verbs pass through.
 - **Discard wall**: a git verb that throws away uncommitted work
@@ -256,7 +270,8 @@ MUTATION=1 git checkout -- internal/tdd/verdict.go   # restores the held working
   restores the file. `NO-TESTS-SELECTED` exits 7; a green narrowed run is
   widened once, and an unknowable reach is `SCOPE UNKNOWN` (exit 8).
 - A hold expires after 2 h. Survivors are accepted only through
-  `mutation-accept` entries that carry a reason.
+  `mutation-accept` entries that carry a reason; a missing comma between
+  two entries refuses the whole list.
 
 The runner contract is in [docs/mutation-runner.md](docs/mutation-runner.md).
 

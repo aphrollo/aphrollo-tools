@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -101,6 +102,67 @@ func TestMutantsConfig_MissingAfterHookIsARefusal(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "tools/nope.sh") {
 		t.Errorf("error = %q, want the missing path named", err.Error())
+	}
+}
+
+// A mutation-accept array whose entries are not comma-separated is invalid
+// TOML — aphrollo.toml's own shipped array had exactly this shape and no
+// tool downstream noticed, because tomlStringsIn's quotedWords extraction
+// does not care what sits between two quoted entries. It must never be read
+// leniently: a malformed accept-list is a list nobody can trust, reported
+// the same way every other unreadable accept-list is (criterion 3).
+func TestMutantsConfig_MutationAcceptMissingCommaIsARefusal(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "aphrollo.toml"), strings.Join([]string{
+		"[aphrollo]",
+		"mutation-accept = [",
+		`  "calc.go:1 CONDITIONALS_BOUNDARY # first entry, no comma after it"`,
+		`  "calc.go:2 ARITHMETIC_BASE # second entry"`,
+		"]",
+	}, "\n"))
+
+	_, err := ReadMutantsConfig(root)
+
+	if err == nil {
+		t.Fatal("ReadMutantsConfig accepted a mutation-accept array whose entries are not comma-separated")
+	}
+	if !strings.Contains(err.Error(), "the accept-list could not be read") {
+		t.Errorf("error = %q, want it to say the accept-list could not be read", err.Error())
+	}
+}
+
+// aphrollo.toml's own mutation-accept array shipped without the commas TOML
+// requires between elements, and neither this scanner nor any downstream
+// reader noticed until a real TOML parser choked on it. Pinning the check
+// against the repo's OWN shipped file, not a fixture, is the only thing that
+// actually stands between this array and a repeat of that regression.
+func TestAphrolloToml_MutationAcceptArrayStaysCommaSeparated(t *testing.T) {
+	t.Parallel()
+	root := tddRepoRoot(t)
+	if err := tomlArrayCommaError(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", mutantsAcceptKey); err != nil {
+		t.Fatalf("aphrollo.toml's own mutation-accept array: %v", err)
+	}
+}
+
+// tddRepoRoot walks up from the test's own working directory to the
+// directory holding go.mod, so a test reading this repo's OWN aphrollo.toml
+// finds it regardless of which package directory `go test` runs it from.
+func tddRepoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("go.mod not found walking up from the test's working directory")
+		}
+		dir = parent
 	}
 }
 

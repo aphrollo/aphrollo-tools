@@ -33,6 +33,14 @@ const (
 	// skipped m.Run(), a gremlin walk over an empty tree, a --diff base that
 	// excluded every mutant. Never a pass; always a block.
 	outcomeVacuous
+	// outcomeContention is a stage that could not even run because of BOX
+	// CONTENTION — this gate's own lock stayed held for the whole wait, or
+	// an external tool's own lock (golangci-lint's machine-wide flock)
+	// reports the same — never a verdict about the code. It blocks, since
+	// nothing was proven either way, but is logged and phrased as a retry,
+	// never as a failure: the defect this exists to prevent is a "fix
+	// before committing" message over a check that was never actually run.
+	outcomeContention
 )
 
 // stageOutcome is what a stage hands verdictFor: which of the shapes this
@@ -110,6 +118,11 @@ func verdictFor(gateName, stage, root, cmd string, o stageOutcome) GateResult {
 			stage, gateName, cmd, root)
 		fmt.Fprintln(os.Stderr, line)
 		appendGateLog(gateName, root, cmd, "vacuous-rejected", o.result.Duration)
+		return GateResult{Blocked: true, Message: o.message}
+	case outcomeContention:
+		line := fmt.Sprintf("[%s] gate %s: %s in %s → REJECTED (box contention: %s)", stage, gateName, cmd, root, o.reason)
+		fmt.Fprintln(os.Stderr, line)
+		appendGateLog(gateName, root, cmd, "contention-rejected", o.result.Duration)
 		return GateResult{Blocked: true, Message: o.message}
 	default:
 		// outcomeUnset (a stageOutcome literal that never set kind) and any

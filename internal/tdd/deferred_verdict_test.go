@@ -3,6 +3,7 @@ package tdd
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -181,4 +182,39 @@ func goTimeoutArg(argv []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// A stale result is labelled with what its run actually found, never with a
+// verdict it did not reach: a build that compiled ran no test, a setup that
+// failed tested nothing, and nextest's "no tests to run" is an empty pass
+// rather than a red — and, under the classification floor, never a green
+// either: it tested nothing.
+func TestStaleVerdictLabel_SaysWhatTheEarlierRunActuallyFound(t *testing.T) {
+	dir := t.TempDir()
+	job := func(phase, log string) DeferredJob {
+		path := filepath.Join(dir, phase+strconv.Itoa(len(log))+".log")
+		if err := os.WriteFile(path, []byte(log), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return DeferredJob{Phase: phase, Log: path, Runner: []string{"cargo", "test"}}
+	}
+	cases := []struct {
+		name    string
+		j       DeferredJob
+		out     PhaseOutcome
+		want    string
+		mustNot string
+	}{
+		{"setup failed", job("run", "no slot"), PhaseOutcome{ExitCode: 1, SetupFailed: true}, InfraFailed, "red"},
+		{"build compiled", job("build", "Finished"), PhaseOutcome{ExitCode: 0}, "build ok, no test ran", "green"},
+		{"build failed", job("build", "error: could not compile `a`"), PhaseOutcome{ExitCode: 101}, "red", "build ok"},
+		{"nothing to run", job("run", "error: no tests to run"), PhaseOutcome{ExitCode: 4}, "nothing was tested", "red"},
+		{"red, no name", job("run", "boom"), PhaseOutcome{ExitCode: 1}, "red", "first failure"},
+	}
+	for _, c := range cases {
+		got := staleVerdictLabel(c.j, c.out)
+		if !strings.Contains(got, c.want) || strings.Contains(got, c.mustNot) {
+			t.Errorf("%s: label = %q, want %q and never %q", c.name, got, c.want, c.mustNot)
+		}
+	}
 }

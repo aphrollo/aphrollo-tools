@@ -16,12 +16,12 @@ import (
 // the split: the ones whose long phase does not itself compile into the
 // shared target dir. `cargo mutants` copies the tree to its own directory
 // and then runs for HOURS — holding a slot for all of it starved every other
-// build on the box. `nextest run`/`test` are deliberately excluded: their
-// execution IS what the slots govern.
+// build on the box. `nextest run`/`test`/`bench` are deliberately excluded:
+// they compile with --no-run under the slot and then hold no slot at all
+// (cargoTestRunBuildArgs), which a long verb's lent global slot would defeat.
 func TestIsCargoLongVerb_OnlyTheNonCompilingLongRunners(t *testing.T) {
 	long := [][]string{
 		{"mutants", "--in-diff", "diff.txt"},
-		{"bench", "-p", "movement"},
 		{"install", "cargo-nextest"},
 		// A leading toolchain override must not hide the verb from the
 		// long-verb classifier -- `cargo +nightly mutants` held a full slot
@@ -36,6 +36,7 @@ func TestIsCargoLongVerb_OnlyTheNonCompilingLongRunners(t *testing.T) {
 	governed := [][]string{
 		{"nextest", "run", "-p", "server"},
 		{"test"},
+		{"bench", "-p", "movement"},
 		{"build"},
 		{"check"},
 		{"clippy"},
@@ -54,16 +55,13 @@ func TestIsCargoLongVerb_OnlyTheNonCompilingLongRunners(t *testing.T) {
 
 // TestCargoPrewarmArgs_WarmsWhatTheVerbWillCompile pins what the slot is
 // actually held FOR: mutants only needs the tree to typecheck before it forks
-// off its own copies, bench needs the BENCH targets (warming --tests warmed
-// the wrong thing and left the real compile unslotted), the rest need the
-// test binaries.
+// off its own copies, the rest need the test binaries.
 func TestCargoPrewarmArgs_WarmsWhatTheVerbWillCompile(t *testing.T) {
 	cases := []struct {
 		args []string
 		want []string
 	}{
 		{[]string{"mutants", "--in-diff", "d"}, []string{"check", "--tests"}},
-		{[]string{"bench"}, []string{"build", "--benches"}},
 		{[]string{"install", "cargo-nextest"}, []string{"build", "--tests"}},
 	}
 	for _, c := range cases {
@@ -87,7 +85,7 @@ func chdirCargoProject(t *testing.T) string {
 }
 
 // TestRunCargoShim_LongVerb_PrewarmsUnderSlotThenRunsFree is the behaviour
-// that matters: `cargo bench` records exactly two execCargo calls — the
+// that matters: `cargo install` records exactly two execCargo calls — the
 // prewarm while a slot is HELD, then the ORIGINAL args once the slot is
 // free again — so a multi-hour run never owns the box's build capacity.
 // `mutants` is the other long verb and is deliberately NOT the example here:
@@ -111,7 +109,7 @@ func TestRunCargoShim_LongVerb_PrewarmsUnderSlotThenRunsFree(t *testing.T) {
 		case "build":
 			_, _, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 			slotHeldDuringPrewarm = !ok
-		case "bench":
+		case "install":
 			_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")
 			slotFreeDuringLongRun = ok
 			if ok {
@@ -121,7 +119,7 @@ func TestRunCargoShim_LongVerb_PrewarmsUnderSlotThenRunsFree(t *testing.T) {
 	}
 	t.Cleanup(func() { execCargoHookForTest = nil })
 
-	inputArgs := []string{"bench", "-p", "movement"}
+	inputArgs := []string{"install", "--path", "."}
 	var stdout, stderr bytes.Buffer
 	if code := runCargoShim(inputArgs, strings.NewReader(""), &stdout, &stderr, cfg); code != 0 {
 		t.Fatalf("exit = %d, want 0, stderr=%s", code, stderr.String())
@@ -130,7 +128,7 @@ func TestRunCargoShim_LongVerb_PrewarmsUnderSlotThenRunsFree(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("expected a prewarm then the long run, got %d calls: %+v", len(calls), calls)
 	}
-	if want := []string{"build", "--benches"}; !reflect.DeepEqual(calls[0], want) {
+	if want := []string{"build", "--tests"}; !reflect.DeepEqual(calls[0], want) {
 		t.Fatalf("first call = %+v, want the prewarm %+v", calls[0], want)
 	}
 	if !reflect.DeepEqual(calls[1], inputArgs) {
@@ -164,11 +162,11 @@ func TestRunCargoShim_LongVerb_FailedPrewarmStillRuns(t *testing.T) {
 	t.Cleanup(func() { execCargoHookForTest = nil })
 
 	var stdout, stderr bytes.Buffer
-	if code := runCargoShim([]string{"bench", "-p", "movement"}, strings.NewReader(""), &stdout, &stderr, cfg); code != 0 {
+	if code := runCargoShim([]string{"install", "--path", "."}, strings.NewReader(""), &stdout, &stderr, cfg); code != 0 {
 		t.Fatalf("exit = %d, want the long verb's own 0 — a failed prewarm must not abort it", code)
 	}
-	if len(calls) != 2 || calls[1][0] != "bench" {
-		t.Fatalf("expected the bench to run after the failed prewarm, got: %+v", calls)
+	if len(calls) != 2 || calls[1][0] != "install" {
+		t.Fatalf("expected the install to run after the failed prewarm, got: %+v", calls)
 	}
 
 	_, release, ok := tdd.TryAcquireBuildSlot(shimTargetDir(), "cargo nextest run -p other-crate", "/some/other/repo")

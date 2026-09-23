@@ -204,6 +204,42 @@ func TestNarrowToRelatedTests_SourceEdits(t *testing.T) {
 	}
 }
 
+// TestNarrowToRelatedTests_ConfigFileWithNoOwningPackage: editing aphrollo.toml
+// alone used to narrow to `go test ./.`, and the repo root holds no .go files
+// at all — the run failed outright with "no Go files ... [setup failed]" and
+// that read as a plain RED for a file the edit never touched as code. A
+// non-Go Source file goDataFileScope names is scoped to ITS declared reader;
+// one it does not name, with no owning package either, falls back to the
+// broad suite rather than a target `go test` cannot load.
+func TestNarrowToRelatedTests_ConfigFileWithNoOwningPackage(t *testing.T) {
+	t.Parallel()
+	goR := Runner{"go", []string{"test", "./..."}, "", time.Time{}}
+
+	t.Run("declared reader", func(t *testing.T) {
+		root := t.TempDir()
+		write(t, root, "aphrollo.toml", "[aphrollo]\n")
+		write(t, root, "internal/tdd/x_test.go", "package tdd\n")
+
+		got := NarrowToRelatedTests(goR, filepath.Join(root, "aphrollo.toml"), root)
+
+		want := Runner{"go", []string{"test", "./internal/tdd"}, "", time.Time{}}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("NarrowToRelatedTests(aphrollo.toml) = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("no declared reader falls back to the broad suite", func(t *testing.T) {
+		root := t.TempDir()
+		write(t, root, "unmapped.toml", "[x]\n")
+
+		got := NarrowToRelatedTests(goR, filepath.Join(root, "unmapped.toml"), root)
+
+		if !reflect.DeepEqual(got, goR) {
+			t.Fatalf("NarrowToRelatedTests(unmapped.toml) = %+v, want the broad runner %+v unchanged", got, goR)
+		}
+	})
+}
+
 // TestNarrowToRelatedTests_VitestVsJest pins the npx-runner branching to the
 // detected runner name, not just "is it npx": vitest uses `related … --run`
 // while jest uses `--findRelatedTests …`.
