@@ -230,17 +230,17 @@ func runCargoRunSplitLock(slot tdd.BuildSlot, release func(), realCargo string, 
 // cargoLongVerbs run for a very long time WITHOUT compiling into the
 // caller's target dir for most of it: `mutants` copies the tree to its own
 // directory before mutating (it held the lock for entire multi-hour runs),
-// `bench` spends its time executing, `install` builds in its own temp dir.
+// `install` builds in its own temp dir.
 // So the slot covers a prewarm compile and nothing else. `watch` is NOT one
 // of them: it recompiles on every save for as long as it is open, so
 // "prewarm once, then unlocked forever" would hand the box to a process
 // that never stops building.
-// `nextest run`/`test` are absent on purpose -- a test run releases its slot
-// entirely once its binaries are built (cargoTestRunBuildArgs), rather than
-// keeping a global slot for the run.
+// `nextest run`/`test`/`bench` are absent on purpose -- they release their
+// slot entirely once their binaries are built (cargoTestRunBuildArgs): the
+// run spawns no cargo that could borrow a lent slot, so keeping the global
+// one would only block other builds for the length of the run.
 var cargoLongVerbs = map[string]bool{
 	"mutants": true,
-	"bench":   true,
 	"install": true,
 }
 
@@ -258,10 +258,6 @@ func cargoPrewarmArgs(args []string) []string {
 	switch cargoVerb(args) {
 	case "mutants":
 		return []string{"check", "--tests"}
-	case "bench":
-		// A bench run compiles BENCH targets; warming --tests warmed the
-		// wrong thing and left the real compile to run unslotted.
-		return []string{"build", "--benches"}
 	default:
 		return []string{"build", "--tests"}
 	}

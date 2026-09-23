@@ -16,9 +16,9 @@ var cargoTestTargetFlags = []string{
 	"--example", "--examples", "--bench", "--benches", "--all-targets",
 }
 
-// cargoTestRunBuildArgs returns the compile-only form of a test run, and
-// whether this invocation splits at all. A test binary's runtime writes
-// nothing into the target dir, so a slot held across it only blocks other
+// cargoTestRunBuildArgs returns the compile-only form of a test or bench
+// run, and whether this invocation splits at all. A test or bench binary's
+// runtime writes nothing into the target dir, so a slot held across it only blocks other
 // builds (issue #727: a ten-minute ignored measurement run queued a merge
 // gate in another lane for its whole length). The compile form is the
 // cargo-side argv -- everything before the first bare "--", the harness's
@@ -46,6 +46,9 @@ func cargoTestRunBuildArgs(args []string) ([]string, bool) {
 		if hasCargoFlag(cargoSide, "--doc") || !hasAnyCargoFlag(cargoSide, cargoTestTargetFlags) {
 			return nil, false
 		}
+	case "bench":
+		// `cargo bench` runs no doctests, so its bench binaries are all the
+		// run executes.
 	case "nextest":
 		// nextest never runs doctests. Only its `run` builds and then
 		// executes; `list` and `archive` are compiles through and through.

@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -47,7 +49,11 @@ func TestCargoTestRunBuildArgs_KeepsTheSlotWhenTheRunWouldCompile(t *testing.T) 
 // the same invocation with --no-run (everything from the first bare "--"
 // dropped, those are the test harness's own arguments) under the slot, then
 // the ORIGINAL argv with the slot free. Both runner shapes a soak uses are
-// covered, the libtest form the issue quotes and nextest's --run-ignored.
+// covered, the libtest form the issue quotes and nextest's --run-ignored,
+// and so is `cargo bench`, whose runtime is the same executing-not-compiling
+// shape. The box is given ONE global slot, so a run phase that kept the
+// global slot while handing back only the target lock is caught too, and
+// the run phase must carry no slot token to lend.
 func TestRunCargoShim_TestRun_BuildsUnderSlotThenRunsSlotFree(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -65,10 +71,18 @@ func TestRunCargoShim_TestRun_BuildsUnderSlotThenRunsSlotFree(t *testing.T) {
 			args:      []string{"nextest", "run", "-p", "forge", "--release", "--run-ignored", "only", "-E", "test(launch_step_probe)"},
 			wantBuild: []string{"nextest", "run", "-p", "forge", "--release", "--run-ignored", "only", "-E", "test(launch_step_probe)", "--no-run"},
 		},
+		{
+			name:      "cargo bench with criterion arguments",
+			args:      []string{"bench", "-p", "movement", "--bench", "step", "--", "--save-baseline", "main"},
+			wantBuild: []string{"bench", "-p", "movement", "--bench", "step", "--no-run"},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			withIsolatedCargoLock(t)
+			t.Setenv("APHROLLO_BUILD_SLOTS", "1")
+			envOut := filepath.Join(t.TempDir(), "child-env")
+			t.Setenv("APHROLLO_TEST_STUB_ENV_OUT", envOut)
 			cfg := cargoShimConfig{
 				waitBudget:   time.Second,
 				pollInterval: 20 * time.Millisecond,
@@ -105,6 +119,10 @@ func TestRunCargoShim_TestRun_BuildsUnderSlotThenRunsSlotFree(t *testing.T) {
 			}
 			if slotHeld[1] {
 				t.Fatal("the slot must be FREE while the built tests run")
+			}
+			// Both phases share a verb, so the record left is the RUN phase's.
+			if token, err := os.ReadFile(envOut + "." + c.args[0]); err != nil || len(token) != 0 {
+				t.Fatalf("run phase slot token = %q (err %v), want none: the run holds no slot to lend", token, err)
 			}
 		})
 	}
