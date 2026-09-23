@@ -16,7 +16,12 @@ undercover = true
 # retires (mutation-receipt / mutants-local / mutants-judge-local), which
 # encoded where a document was produced and where it was judged; there is no
 # document.
-mutants-at-merge = true
+#
+# Off while internal/tdd is split into smaller packages: every mutant re-runs
+# its whole package's suite, and internal/tdd's is about two minutes, so one
+# merge measured for 25-95 minutes behind a single box-wide lock. The split
+# turns it back on. `aphrollo gate mutants run` in a lane still measures.
+mutants-at-merge = false
 
 # The Windows stand-down, and why it is not a hole. gremlins cannot measure
 # this module on Windows: `gremlins unleash --dry-run` there reports
