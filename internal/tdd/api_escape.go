@@ -100,6 +100,4 @@ func greenSuiteStampFile(p0 string) string { return escape.GreenSuiteStampFile(p
 
 func maybeWeeklyDigest(p0 time.Time) string { return escape.MaybeWeeklyDigest(p0) }
 
-func noteSuiteGreen() { escape.NoteSuiteGreen() }
-
 func syncClosedEscapes(p0 string) int { return escape.SyncClosedEscapes(p0) }

@@ -9,3 +9,5 @@ import (
 const realGitEnv = gitx.RealGitEnv
 
 const reflogActionEnv = gitx.ReflogActionEnv
+
+func stagedFiles(p0 string) []string { return gitx.StagedFiles(p0) }

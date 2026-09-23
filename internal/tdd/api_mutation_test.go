@@ -22,8 +22,6 @@ func mutantLineOf(p0 string, p1 int, p2 int, p3 string) string {
 	return mutation.MutantLineOf(p0, p1, p2, p3)
 }
 
-func mutantsShardDir(p0 string, p1 int) string { return mutation.MutantsShardDir(p0, p1) }
-
 func setMutantsJobsForTest(p0 int, p1 string) func() { return mutation.SetMutantsJobsForTest(p0, p1) }
 
 func setMutantsListCountForTest(p0 int, p1 bool) func() {

@@ -7,42 +7,18 @@ import (
 	time "time"
 )
 
-const buildLockPollInterval = lock.BuildLockPollInterval
-
 const buildSlotsEnv = lock.BuildSlotsEnv
 
-const maxAncestryDepth = lock.MaxAncestryDepth
-
-const suiteFloorMargin = lock.SuiteFloorMargin
-
-type procSample = lock.ProcSample
-
 func ReadBuildSlotOwnerPath(p0 string) string { return lock.ReadBuildSlotOwnerPath(p0) }
-
-func SetLockWaitLogThresholdForTest(p0 time.Duration) func() {
-	return lock.SetLockWaitLogThresholdForTest(p0)
-}
-
-func SetMachineLoadSampleForTest(p0 func(stop <-chan struct{}) (int, float64, []procSample, bool)) func() {
-	return lock.SetMachineLoadSampleForTest(p0)
-}
 
 func SetPostEditLockWaitForTest(p0 time.Duration) func() { return lock.SetPostEditLockWaitForTest(p0) }
 
 func SetSharedLockDirForTest(p0 func() string) func() { return lock.SetSharedLockDirForTest(p0) }
 
-func buildSlotCount() int { return lock.BuildSlotCount() }
-
-func cappedFloor(p0 time.Duration, p1 time.Duration) time.Duration { return lock.CappedFloor(p0, p1) }
-
 func litterDirsFor(p0 string, p1 bool, p2 string) []string { return lock.LitterDirsFor(p0, p1, p2) }
-
-func resolveTargetDir(p0 func(string) string, p1 string) string { return lock.ResolveTargetDir(p0, p1) }
 
 func setBuildLockPathOverride(p0 string) func() { return lock.SetBuildLockPathOverride(p0) }
 
 func sharedLockCandidates() []string { return lock.SharedLockCandidates() }
 
 func sharedTargetLockPath(p0 string) string { return lock.SharedTargetLockPath(p0) }
-
-func suiteFloorFrom(p0 []float64) suiteFloor { return lock.SuiteFloorFrom(p0) }

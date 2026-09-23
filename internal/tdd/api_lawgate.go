@@ -3,7 +3,6 @@
 package tdd
 
 import (
-	ratchet "github.com/aphrollo/aphrollo-tools/internal/ratchet"
 	lawgate "github.com/aphrollo/aphrollo-tools/internal/tdd/lawgate"
 )
 
@@ -15,22 +14,4 @@ func ModulePath(p0 string) (string, error) { return lawgate.ModulePath(p0) }
 
 func RatchetAdvisory(p0 []byte) Decision { return lawgate.RatchetAdvisory(p0) }
 
-func baselineStage(p0 string, p1 string) GateResult { return lawgate.BaselineStage(p0, p1) }
-
-func existingAncestorDir(p0 string) string { return lawgate.ExistingAncestorDir(p0) }
-
-func gitBlob(p0 string, p1 string) (string, bool) { return lawgate.GitBlob(p0, p1) }
-
-func laneChangedPaths(p0 string) []string { return lawgate.LaneChangedPaths(p0) }
-
-func ratchetCheckFn(p0 ratchet.Options) (ratchet.Result, error) { return lawgate.RatchetCheckFn(p0) }
-
 func ratchetHintLine(p0 string) string { return lawgate.RatchetHintLine(p0) }
-
-func ratchetStage(p0 string, p1 string) GateResult { return lawgate.RatchetStage(p0, p1) }
-
-func repoRootNear(p0 string) string { return lawgate.RepoRootNear(p0) }
-
-func trackedFiles(p0 string) []string { return lawgate.TrackedFiles(p0) }
-
-func trackedIgnoredFiles(p0 string) []string { return lawgate.TrackedIgnoredFiles(p0) }

@@ -14,7 +14,7 @@ import (
 // The test gate already recognises a deliberate hand mutation proof: a bash
 // command carrying the word "mutation"/"mutant" is allowed to re-run one test
 // beside a fresh green, and every use is counted
-// (hasMutationProofMarker, internal/tdd/bashsuite.go). The shim reads argv,
+// (hasMutationProofMarker, internal/tdd/postedit/bashsuite.go). The shim reads argv,
 // not a command line, so the same marker reaches it as an ENVIRONMENT
 // variable — `MUTATION=1 git checkout -- <file>` is one command that declares
 // itself to both gates at once, since the word is in the command line the

@@ -107,28 +107,14 @@ func dirNewestAndSize(p0 string) (time.Time, int64) { return mutation.DirNewestA
 
 func doctorDiskSpace(p0 DoctorInput) DoctorCheck { return mutation.DoctorDiskSpace(p0) }
 
-func dropCargoNameFilter(p0 Runner) (Runner, bool) { return mutation.DropCargoNameFilter(p0) }
-
 func gcTempTargetDirs(p0 []string, p1 time.Time) []GCCandidate {
 	return mutation.GcTempTargetDirs(p0, p1)
 }
 
-func goRanNoTests(p0 Runner, p1 SuiteResult) bool { return mutation.GoRanNoTests(p0, p1) }
-
-func goSelectedDirs(p0 Runner) ([]string, bool) { return mutation.GoSelectedDirs(p0) }
-
 func measureTempDir(p0 string) string { return mutation.MeasureTempDir(p0) }
 
-func mutantsConfigStage(p0 string, p1 string) (MutantsConfig, GateResult) {
-	return mutation.MutantsConfigStage(p0, p1)
-}
-
 func mutantsRunLockOwnerPath() string { return mutation.MutantsRunLockOwnerPath() }
-
-func mutantsStage(p0 string, p1 string) GateResult { return mutation.MutantsStage(p0, p1) }
 
 func pathKey(p0 string) string { return mutation.PathKey(p0) }
 
 func targetDirOwnerFn(p0 string) (int, bool) { return mutation.TargetDirOwnerFn(p0) }
-
-func widenCargoRunner(p0 Runner) (Runner, bool) { return mutation.WidenCargoRunner(p0) }

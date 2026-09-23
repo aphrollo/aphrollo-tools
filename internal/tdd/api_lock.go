@@ -17,10 +17,6 @@ type BuildSlotStatus = lock.BuildSlotStatus
 
 type QueueWaiter = lock.QueueWaiter
 
-type suiteFloor = lock.SuiteFloor
-
-var lintLockDeadline = lock.LintLockDeadline
-
 func AcquireLintLock(p0 string, p1 string, p2 time.Duration) (func(), time.Duration, bool, bool) {
 	return lock.AcquireLintLock(p0, p1, p2)
 }
@@ -69,14 +65,6 @@ func WriteQueueWaiter(p0 string, p1 string, p2 string) func() {
 	return lock.WriteQueueWaiter(p0, p1, p2)
 }
 
-func acquireBuildSlot(p0 string, p1 time.Duration, p2 string, p3 string) (BuildSlot, func(), bool) {
-	return lock.AcquireBuildSlot(p0, p1, p2, p3)
-}
-
-func acquireGlobalSlot(p0 time.Duration, p1 string, p2 string) (BuildSlot, func(), bool) {
-	return lock.AcquireGlobalSlot(p0, p1, p2)
-}
-
 func buildSlotHolderDescription(p0 string) string { return lock.BuildSlotHolderDescription(p0) }
 
 func cargoWorkspaceRoot(p0 string) string { return lock.CargoWorkspaceRoot(p0) }
@@ -87,26 +75,10 @@ func describeOwner(p0 BuildLockOwner) string { return lock.DescribeOwner(p0) }
 
 func ensureSharedDir(p0 string) error { return lock.EnsureSharedDir(p0) }
 
-func foreignLoadReport(p0 int) string { return lock.ForeignLoadReport(p0) }
-
-func globalCapacityHolderDescription() string { return lock.GlobalCapacityHolderDescription() }
-
-func isSettledVerdict(p0 string) bool { return lock.IsSettledVerdict(p0) }
-
 func lockDir() string { return lock.LockDir() }
 
 func lockLitterDirs() []string { return lock.LockLitterDirs() }
 
-func postEditLockWait() time.Duration { return lock.PostEditLockWait() }
-
-func precommitLockWait() time.Duration { return lock.PrecommitLockWait() }
-
 func readBuildLockOwnerAt(p0 string) (BuildLockOwner, bool) { return lock.ReadBuildLockOwnerAt(p0) }
-
-func recordedSuiteFloor(p0 string, p1 string) suiteFloor { return lock.RecordedSuiteFloor(p0, p1) }
-
-func runnerTargetDir(p0 Runner, p1 string) string { return lock.RunnerTargetDir(p0, p1) }
-
-func setBuildJobs(p0 int) func() { return lock.SetBuildJobs(p0) }
 
 func targetLockPath(p0 string) string { return lock.TargetLockPath(p0) }
