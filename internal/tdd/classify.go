@@ -488,10 +488,18 @@ var failLineRes = []*regexp.Regexp{
 	regexp.MustCompile(`(?m)^\s*error: '([^']+)' failed:`), // zig build test
 }
 
+// ansiSGRRe matches one ANSI Select Graphic Rendition sequence (ESC [ … m),
+// the only escape a test runner's colour mode emits.
+var ansiSGRRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
 // ExtractFailingTests returns the sorted, de-duplicated set of failing test
 // names found in runner output. Sorting makes the set stable for delta
 // comparison across runs.
 func ExtractFailingTests(output string) []string {
+	// A runner told to colour its output (CARGO_TERM_COLOR=always) does so
+	// into a pipe too, splitting a status line into SGR-wrapped spans no
+	// line-anchored pattern matches (#744). The name is read from the text.
+	output = ansiSGRRe.ReplaceAllString(output, "")
 	seen := map[string]bool{}
 	for _, re := range failLineRes {
 		for _, m := range re.FindAllStringSubmatch(output, -1) {
