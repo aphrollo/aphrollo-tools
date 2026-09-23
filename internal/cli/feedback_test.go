@@ -37,3 +37,21 @@ func TestGateFeedback_HelpSaysItFilesAgainstTheToolNotTheLocalRepo(t *testing.T)
 		}
 	}
 }
+
+// A session reaching for this verb types `aphrollo feedback`, the way it types
+// `aphrollo issue`; that got `unknown command "feedback"` and a usage that
+// never mentioned the verb, so reports went in by hand with gh (#717). The
+// top level dispatches it and its usage names it.
+func TestFeedback_IsATopLevelCommand(t *testing.T) {
+	var out, errb bytes.Buffer
+
+	if code := Run([]string{"feedback"}, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Errorf("exit = %d, want 2 for a report with no title", code)
+	}
+	if !strings.Contains(errb.String(), "a report needs a title") {
+		t.Errorf("stderr = %q, want the feedback verb's own refusal, not an unknown command", errb.String())
+	}
+	if !strings.Contains(rootUsage, "\n  feedback ") {
+		t.Errorf("the top-level usage does not list feedback:\n%s", rootUsage)
+	}
+}

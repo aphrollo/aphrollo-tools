@@ -2221,6 +2221,15 @@ record`](#the-escape-loop-aphrollo-gate-escape) instead, which records it
 locally as well as opening the issue. `gate issue` remains as an alias for one
 release.
 
+A defect in the gate ITSELF goes to the tool's own tracker, not the repo's:
+
+```sh
+aphrollo feedback "post-edit hook reports green on an uncompiled file"
+```
+
+It files against aphrollo-tools with the consuming repo and its tip attached;
+`gate feedback` is the same command.
+
 ## `aphrollo install`
 
 One command wires the whole gate — the native replacement for
