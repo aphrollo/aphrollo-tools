@@ -56,6 +56,7 @@ type ledgerEdit struct {
 	Class   string            `json:"class"`
 	Prod    string            `json:"prod,omitempty"`
 	Region  string            `json:"region,omitempty"`
+	Support string            `json:"support,omitempty"`
 	Tests   map[string]string `json:"tests,omitempty"`
 	Verdict *ledgerVerdict    `json:"-"`
 }
@@ -158,7 +159,7 @@ func snapshotEdit(root, file, head string, prev *ledgerEdit) ledgerEdit {
 	if !ok {
 		return e
 	}
-	e.Prod, e.Region, e.Tests = now.prod, now.region, now.tests
+	e.Prod, e.Region, e.Support, e.Tests = now.prod, now.region, now.support, now.tests
 	before := prev
 	if before == nil {
 		base, ok := headSplit(root, file, head)

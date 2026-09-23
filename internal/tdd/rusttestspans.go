@@ -36,11 +36,14 @@ const ambiguousTest = "ambiguous"
 
 // rustSplit is one file's test/production split: the hash of the normalised
 // production text ("" when there is none), the hash of all test code together
-// ("" when there is none), and each #[test] fn's own normalised hash by name.
+// ("" when there is none), the hash of the test code outside every #[test] fn
+// (the helpers, imports and fixtures a test leans on), and each #[test] fn's
+// own normalised hash by name.
 type rustSplit struct {
-	prod   string
-	region string
-	tests  map[string]string
+	prod    string
+	region  string
+	support string
+	tests   map[string]string
 }
 
 // Byte classes the lexer assigns.
@@ -77,6 +80,7 @@ func splitRustTests(src string, wholeFileIsTest bool) (rustSplit, bool) {
 	out := rustSplit{tests: map[string]string{}}
 	out.prod = hashNonEmpty(rustNormalize(src, class, [][2]int{{0, len(src)}}, spans))
 	out.region = hashNonEmpty(rustNormalize(src, class, spans, nil))
+	var testSpans [][2]int
 	for _, m := range rustTestAttrRe.FindAllStringIndex(masked, -1) {
 		if !inSpans(spans, m[0]) {
 			continue
@@ -91,12 +95,14 @@ func splitRustTests(src string, wholeFileIsTest bool) (rustSplit, bool) {
 		if end < 0 {
 			return rustSplit{}, false
 		}
+		testSpans = append(testSpans, [2]int{start, end + 1})
 		h := hashNonEmpty(rustNormalize(src, class, [][2]int{{start, end + 1}}, nil))
 		if _, dup := out.tests[name[1]]; dup {
 			h = ambiguousTest
 		}
 		out.tests[name[1]] = h
 	}
+	out.support = hashNonEmpty(rustNormalize(src, class, spans, testSpans))
 	return out, true
 }
 

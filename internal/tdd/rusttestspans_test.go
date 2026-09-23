@@ -183,3 +183,20 @@ func TestSplitRustTests_DuplicateNameIsAmbiguous(t *testing.T) {
 		t.Fatalf("two tests named `same` must be ambiguous, got %q", s.tests["same"])
 	}
 }
+
+// support is the test code a test leans on without being a test: a helper
+// change moves it, adding another test does not.
+func TestSplitRustTests_SupportTracksHelpersNotTests(t *testing.T) {
+	base := mustSplitRust(t, "fn f() {}\n#[cfg(test)]\nmod tests {\n    fn want() -> i32 { 2 }\n    #[test]\n    fn a() { assert_eq!(want(), 2) }\n}\n")
+	added := mustSplitRust(t, "fn f() {}\n#[cfg(test)]\nmod tests {\n    fn want() -> i32 { 2 }\n    #[test]\n    fn a() { assert_eq!(want(), 2) }\n    #[test]\n    fn b() {}\n}\n")
+	helper := mustSplitRust(t, "fn f() {}\n#[cfg(test)]\nmod tests {\n    fn want() -> i32 { 3 }\n    #[test]\n    fn a() { assert_eq!(want(), 2) }\n}\n")
+	if base.support == "" || added.support != base.support {
+		t.Fatalf("adding a test moved the support hash: %q -> %q", base.support, added.support)
+	}
+	if helper.support == base.support {
+		t.Fatal("changing a helper left the support hash unchanged")
+	}
+	if helper.tests["a"] != base.tests["a"] {
+		t.Fatal("a helper change moved the test's own hash")
+	}
+}
