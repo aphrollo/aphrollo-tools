@@ -33,7 +33,7 @@ const pruneLanesOnMergeKey = "prune-lanes-on-merge"
 // installed itself.
 func PruneLanesOnMerge(root string) bool {
 	for _, t := range mutantsConfigTables(root) {
-		if v, set := tomlBoolSetIn(t.path, t.table, pruneLanesOnMergeKey); set {
+		if v, set := tomlBoolSetIn(t.Path, t.Table, pruneLanesOnMergeKey); set {
 			return v
 		}
 	}

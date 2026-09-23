@@ -67,7 +67,7 @@ func classifyGoSurvivorReach(root string, mutants []MutantOutcome) []MutantOutco
 			continue
 		}
 		dir := goMutantPackageDir(m.File)
-		if !g.pkgs[dir] {
+		if !g.Pkgs[dir] {
 			out[i] = scopeUnknownOutcome(m, fmt.Sprintf(
 				"`go list` named no package at %s, so which tests reach this code could not be established", dir))
 			continue
@@ -101,8 +101,8 @@ func anySurvivor(mutants []MutantOutcome) bool {
 // package into an inconclusive one.
 func testedPackagesReaching(g goReachGraph, dir string) []string {
 	var out []string
-	for _, p := range g.reaching(dir) {
-		if p != dir && g.tested[p] {
+	for _, p := range g.Reaching(dir) {
+		if p != dir && g.Tested[p] {
 			out = append(out, p)
 		}
 	}

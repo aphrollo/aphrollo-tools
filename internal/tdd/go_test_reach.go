@@ -64,14 +64,14 @@ type goReachGraph struct {
 	// edges is dir -> the dirs its own code or its tests import, keyed the
 	// way goPackageDir names a package.
 	edges map[string][]string
-	// pkgs is every directory `go list` named. A directory absent from it is
+	// Pkgs is every directory `go list` named. A directory absent from it is
 	// not "a package nothing reaches" but one this run never saw, and the
 	// two are opposite answers.
-	pkgs map[string]bool
-	// tested is the subset with at least one _test.go file. A package with
+	Pkgs map[string]bool
+	// Tested is the subset with at least one _test.go file. A package with
 	// none can reach a mutant and still never kill one, so a survivor claim
 	// is not weakened by an importer that has no tests.
-	tested map[string]bool
+	Tested map[string]bool
 }
 
 // loadGoReachGraph reads root's whole module graph in one `go list` run. The
@@ -96,9 +96,9 @@ func loadGoReachGraph(root string) (goReachGraph, error) {
 		return goReachGraph{}, fmt.Errorf("go list in %s named no package at all: %s",
 			root, strings.TrimSpace(stderr.String()))
 	}
-	g := goReachGraph{edges: map[string][]string{}, pkgs: map[string]bool{}, tested: tested}
+	g := goReachGraph{edges: map[string][]string{}, Pkgs: map[string]bool{}, Tested: tested}
 	for _, dir := range dirOf {
-		g.pkgs[dir] = true
+		g.Pkgs[dir] = true
 	}
 	for pkg, imps := range imports {
 		var to []string
@@ -114,13 +114,13 @@ func loadGoReachGraph(root string) (goReachGraph, error) {
 	return g, nil
 }
 
-// reaching is the package directories whose TEST BINARY can reach dir, dir
+// Reaching is the package directories whose TEST BINARY can reach dir, dir
 // itself included, sorted.
 //
 // Test imports are DIRECT edges while .Deps is already transitive; the
 // closure walk over the union covers the rest, since a package whose test
 // imports Q reaches everything Q's own .Deps reach.
-func (g goReachGraph) reaching(dir string) []string {
+func (g goReachGraph) Reaching(dir string) []string {
 	return dedupeSorted(append([]string{dir}, dependentsOf(g.edges, []string{dir})...))
 }
 
@@ -131,7 +131,7 @@ func goTestReachingPackages(root, dir string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return g.reaching(dir), nil
+	return g.Reaching(dir), nil
 }
 
 // parseGoListReach splits the run's lines into the import-path -> directory

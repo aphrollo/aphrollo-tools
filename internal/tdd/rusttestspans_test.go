@@ -50,16 +50,16 @@ mod tests {
     }
 }
 `)
-	if edited.prod != head.prod {
-		t.Fatalf("adding a test inside #[cfg(test)] changed the production projection:\nhead: %q\nedit: %q", head.prod, edited.prod)
+	if edited.Prod != head.Prod {
+		t.Fatalf("adding a test inside #[cfg(test)] changed the production projection:\nhead: %q\nedit: %q", head.Prod, edited.Prod)
 	}
-	if edited.region == head.region {
+	if edited.Region == head.Region {
 		t.Fatal("adding a test did not change the test region")
 	}
-	if _, ok := edited.tests["widget_keeps_an_empty_name_as_a_brace"]; !ok {
-		t.Fatalf("the added test is missing from the test map: %v", edited.tests)
+	if _, ok := edited.Tests["widget_keeps_an_empty_name_as_a_brace"]; !ok {
+		t.Fatalf("the added test is missing from the test map: %v", edited.Tests)
 	}
-	if edited.tests["widget_echoes_its_name"] != head.tests["widget_echoes_its_name"] {
+	if edited.Tests["widget_echoes_its_name"] != head.Tests["widget_echoes_its_name"] {
 		t.Fatal("an untouched test's body hash moved")
 	}
 }
@@ -80,10 +80,10 @@ mod tests {
     }
 }
 `)
-	if edited.prod == head.prod {
+	if edited.Prod == head.Prod {
 		t.Fatal("changing a string literal in production code left the production projection unchanged")
 	}
-	if edited.region != head.region {
+	if edited.Region != head.Region {
 		t.Fatal("a production-only edit moved the test region")
 	}
 }
@@ -107,10 +107,10 @@ mod tests {
     }
 }
 `)
-	if reformatted.prod != head.prod || reformatted.region != head.region {
+	if reformatted.Prod != head.Prod || reformatted.Region != head.Region {
 		t.Fatal("a whitespace/comment-only rewrite read as a change")
 	}
-	if reformatted.tests["widget_echoes_its_name"] != head.tests["widget_echoes_its_name"] {
+	if reformatted.Tests["widget_echoes_its_name"] != head.Tests["widget_echoes_its_name"] {
 		t.Fatal("reformatting a test moved its body hash")
 	}
 }
@@ -131,7 +131,7 @@ mod tests {
     }
 }
 `)
-	if edited.tests["widget_echoes_its_name"] == head.tests["widget_echoes_its_name"] {
+	if edited.Tests["widget_echoes_its_name"] == head.Tests["widget_echoes_its_name"] {
 		t.Fatal("rewriting an assertion left the test's body hash unchanged")
 	}
 }
@@ -140,7 +140,7 @@ mod tests {
 func TestSplitRustTests_LeadingAttributeBelongsToTheTest(t *testing.T) {
 	with := mustSplitRust(t, "fn f() {}\n#[cfg(test)]\nmod tests {\n    #[should_panic]\n    #[test]\n    fn boom() { panic!() }\n}\n")
 	without := mustSplitRust(t, "fn f() {}\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn boom() { panic!() }\n}\n")
-	if with.tests["boom"] == without.tests["boom"] {
+	if with.Tests["boom"] == without.Tests["boom"] {
 		t.Fatal("dropping #[should_panic] left the test's body hash unchanged")
 	}
 }
@@ -148,7 +148,7 @@ func TestSplitRustTests_LeadingAttributeBelongsToTheTest(t *testing.T) {
 func TestSplitRustTests_StringThatLooksLikeCfgTestIsProduction(t *testing.T) {
 	head := mustSplitRust(t, "pub fn s() -> &'static str { r#\"#[cfg(test)] mod x { }\"# }\n")
 	edited := mustSplitRust(t, "pub fn s() -> &'static str { r#\"#[cfg(test)] mod x { y }\"# }\n")
-	if edited.prod == head.prod {
+	if edited.Prod == head.Prod {
 		t.Fatal("a raw string mentioning #[cfg(test)] was read as a test module")
 	}
 }
@@ -169,18 +169,18 @@ func TestSplitRustTests_WholeFileTestHasNoProduction(t *testing.T) {
 	if !ok {
 		t.Fatal("whole-file test refused")
 	}
-	if s.prod != "" {
-		t.Fatalf("a whole-file test carried production text: %q", s.prod)
+	if s.Prod != "" {
+		t.Fatalf("a whole-file test carried production text: %q", s.Prod)
 	}
-	if _, ok := s.tests["widget_echoes_its_name"]; !ok {
-		t.Fatalf("the whole-file test's #[test] fn is missing: %v", s.tests)
+	if _, ok := s.Tests["widget_echoes_its_name"]; !ok {
+		t.Fatalf("the whole-file test's #[test] fn is missing: %v", s.Tests)
 	}
 }
 
 func TestSplitRustTests_DuplicateNameIsAmbiguous(t *testing.T) {
 	s := mustSplitRust(t, "#[cfg(test)]\nmod a {\n    #[test]\n    fn same() {}\n}\n#[cfg(test)]\nmod b {\n    #[test]\n    fn same() { assert!(true) }\n}\n")
-	if s.tests["same"] != ambiguousTest {
-		t.Fatalf("two tests named `same` must be ambiguous, got %q", s.tests["same"])
+	if s.Tests["same"] != ambiguousTest {
+		t.Fatalf("two tests named `same` must be ambiguous, got %q", s.Tests["same"])
 	}
 }
 
@@ -190,13 +190,13 @@ func TestSplitRustTests_SupportTracksHelpersNotTests(t *testing.T) {
 	base := mustSplitRust(t, "fn f() {}\n#[cfg(test)]\nmod tests {\n    fn want() -> i32 { 2 }\n    #[test]\n    fn a() { assert_eq!(want(), 2) }\n}\n")
 	added := mustSplitRust(t, "fn f() {}\n#[cfg(test)]\nmod tests {\n    fn want() -> i32 { 2 }\n    #[test]\n    fn a() { assert_eq!(want(), 2) }\n    #[test]\n    fn b() {}\n}\n")
 	helper := mustSplitRust(t, "fn f() {}\n#[cfg(test)]\nmod tests {\n    fn want() -> i32 { 3 }\n    #[test]\n    fn a() { assert_eq!(want(), 2) }\n}\n")
-	if base.support == "" || added.support != base.support {
-		t.Fatalf("adding a test moved the support hash: %q -> %q", base.support, added.support)
+	if base.Support == "" || added.Support != base.Support {
+		t.Fatalf("adding a test moved the support hash: %q -> %q", base.Support, added.Support)
 	}
-	if helper.support == base.support {
+	if helper.Support == base.Support {
 		t.Fatal("changing a helper left the support hash unchanged")
 	}
-	if helper.tests["a"] != base.tests["a"] {
+	if helper.Tests["a"] != base.Tests["a"] {
 		t.Fatal("a helper change moved the test's own hash")
 	}
 }

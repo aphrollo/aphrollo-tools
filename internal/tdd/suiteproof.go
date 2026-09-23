@@ -80,9 +80,9 @@ func runnerScope(r Runner) (runScope, bool) {
 	return scopeOfSuiteCommand(append([]string{r.Cmd}, r.Args...))
 }
 
-// owe records the ground this commit needs proven before anything may vouch
+// Owe records the ground this commit needs proven before anything may vouch
 // for its tree.
-func (l *suiteProofLedger) owe(r Runner) {
+func (l *suiteProofLedger) Owe(r Runner) {
 	s, ok := runnerScope(r)
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -93,23 +93,23 @@ func (l *suiteProofLedger) owe(r Runner) {
 	l.owed = append(l.owed, s)
 }
 
-// oweUnowned records that a staged file has no owning cargo package at all —
+// OweUnowned records that a staged file has no owning cargo package at all —
 // see the unowned field's own comment for why that vetoes covered() rather
 // than becoming an owed scope with a runner.
-func (l *suiteProofLedger) oweUnowned() {
+func (l *suiteProofLedger) OweUnowned() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.unowned = true
 }
 
-// note records a green run. A run that executed NO test (a build-only target,
+// Note records a green run. A run that executed NO test (a build-only target,
 // an empty selection) proves nothing and is not recorded, and neither is a
 // command that is not a test invocation at all — `cargo clippy` and `go vet`
 // share this stage's body, and a clean lint is not a passing suite. That last
 // one is not hypothetical: in a Go repo the commit gate runs vet and lint and
 // no suite whatsoever, so before this every commit here carried a `green`
 // note minted by `go vet`.
-func (l *suiteProofLedger) note(r Runner, res SuiteResult) {
+func (l *suiteProofLedger) Note(r Runner, res SuiteResult) {
 	if untestedVerdict(r, res) != "" {
 		return
 	}
@@ -122,10 +122,10 @@ func (l *suiteProofLedger) note(r Runner, res SuiteResult) {
 	l.proved = append(l.proved, s)
 }
 
-// covered reports whether every scope owed was proved. A run that owed
+// Covered reports whether every scope owed was proved. A run that owed
 // nothing covers nothing: with no stage declaring what this commit needed,
 // there is no ground to compare against and therefore nothing to claim.
-func (l *suiteProofLedger) covered() bool {
+func (l *suiteProofLedger) Covered() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.unreadable || l.unowned || len(l.owed) == 0 {
