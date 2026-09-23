@@ -133,7 +133,80 @@ func goQualityStage(gateName, repoRoot, root string, touched []string, run Suite
 	// about the code. CI passes it for the same reason; the gate, which runs
 	// while other sessions build, needs it more.
 	lint := Runner{Cmd: golangciLint, Args: append([]string{"run", "--allow-serial-runners"}, touchedGoLintPackages(root, touched)...), Dir: root}
-	return goCheckStage(gateName, "lint", root, lint, run)
+	return lintCheckStage(gateName, root, lint, run)
+}
+
+// lintContentionSignature is the exact text golangci-lint's own
+// acquireFileLock prints when it could not take its machine-wide lock
+// (golangci-lint v2.12.2, pkg/commands/run.go: `errors.New("parallel
+// golangci-lint is running")`). It carries no file, no line and no
+// diagnostic — reporting it as "lint failed, fix before committing" sends
+// the author hunting for a bug that was never linted, and the same commit
+// passes clean on retry once the box is no longer contended.
+const lintContentionSignature = "parallel golangci-lint is running"
+
+// lintCheckStage is goCheckStage's lint-only sibling. It takes this gate's
+// OWN box-wide lint lock (lintlock.go) before running golangci-lint at all,
+// so two of THIS gate's own lint invocations never reach golangci-lint's
+// internal lock at the same moment — that collision, not a real defect in
+// --allow-serial-runners, is what surfaced as a spurious "lint failed" block
+// on 2026-09-23 even though the flag was already passed (the commit passed
+// clean on retry). It also classifies a contention signature that reaches
+// golangci-lint anyway (a lint started outside this gate's control) as box
+// contention rather than a lint verdict. Both paths still refuse the commit
+// — lint never actually judged the code either way — but neither says "lint
+// failed".
+func lintCheckStage(gateName, root string, r Runner, run SuiteRunner) GateResult {
+	release, waited, _, ok := AcquireLintLock(cmdString(r), root, lintLockDeadline)
+	if !ok {
+		return verdictFor(gateName, "lint", root, cmdString(r), stageOutcome{
+			kind:   outcomeContention,
+			reason: "another gate-triggered lint held this gate's own lint lock for the whole wait",
+			message: fmt.Sprintf(
+				"gate %s: could not run %s in %s: another lint from this gate held the box-wide lint lock for the whole wait, so nothing was linted and the commit is refused. Retry once it finishes.",
+				gateName, cmdString(r), root),
+		})
+	}
+	defer release()
+	logLockWait(gateName, root, r, waited)
+
+	res := run(r, root)
+	switch {
+	case res.TimedOut:
+		return verdictFor(gateName, "lint", root, cmdString(r), stageOutcome{
+			kind:   outcomeTimeout,
+			result: res,
+			message: fmt.Sprintf(
+				"gate %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused; retry once it finishes.",
+				gateName, cmdString(r), res.Duration.Seconds()),
+		})
+	case !res.Passed && strings.Contains(res.Output, lintContentionSignature):
+		return verdictFor(gateName, "lint", root, cmdString(r), stageOutcome{
+			kind:   outcomeContention,
+			result: res,
+			reason: "another golangci-lint outside this gate holds its own machine-wide lock",
+			message: fmt.Sprintf(
+				"gate %s: golangci-lint could not run in %s — another golangci-lint instance (started outside this gate) still holds its own machine-wide lock, so nothing was linted. This is box contention, not a finding about the code. Retry once that lint finishes.\ncommand: %s\n",
+				gateName, root, cmdString(r)),
+		})
+	case !res.Passed:
+		var b strings.Builder
+		fmt.Fprintf(&b, "TDD quality: lint failed in %s — fix before committing.\n", root)
+		fmt.Fprintf(&b, "command: %s\n", cmdString(r))
+		if first := firstDiagnostic(res.Output); first != "" {
+			fmt.Fprintf(&b, "first diagnostic: %s\n", first)
+		} else if res.Err != "" {
+			fmt.Fprintf(&b, "runner error: %s\n", res.Err)
+		}
+		b.WriteString(tailSnippet(res.Output))
+		return verdictFor(gateName, "lint", root, cmdString(r), stageOutcome{
+			kind:    outcomeFail,
+			result:  res,
+			message: b.String(),
+		})
+	default:
+		return verdictFor(gateName, "lint", root, cmdString(r), stageOutcome{kind: outcomePass})
+	}
 }
 
 // goFmtStage judges the STAGED (index) content of every touched .go file —

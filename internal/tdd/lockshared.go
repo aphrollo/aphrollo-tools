@@ -63,11 +63,8 @@ func sharedLockCandidates() []string {
 // permissions are set again explicitly; the sticky bit keeps one account from
 // deleting another's lock file, the same contract /tmp itself carries.
 func ensureSharedDir(dir string) error {
-	if err := os.MkdirAll(dir, 0o777); err != nil {
+	if err := ensureSharedSubdir(dir); err != nil {
 		return err
-	}
-	if runtime.GOOS != "windows" {
-		_ = os.Chmod(dir, 0o777|os.ModeSticky)
 	}
 	probe := filepath.Join(dir, ".probe-"+strconv.Itoa(os.Getpid()))
 	f, err := os.OpenFile(probe, os.O_CREATE|os.O_RDWR, 0o666)
@@ -79,6 +76,45 @@ func ensureSharedDir(dir string) error {
 	return nil
 }
 
+// ensureSharedSubdir creates dir (and its parents) with the shared lock
+// directory's own mode: world-writable and sticky. MkdirAll's mode goes
+// through the umask, which leaves 0775 — a directory the next account can
+// neither lock nor record itself in. The chmod is best-effort because a
+// directory another account created is not ours to re-mode.
+func ensureSharedSubdir(dir string) error {
+	if err := os.MkdirAll(dir, 0o777); err != nil {
+		return err
+	}
+	if runtime.GOOS != "windows" {
+		if fi, err := os.Stat(dir); err == nil && fi.Mode()&(os.ModePerm|os.ModeSticky) != 0o777|os.ModeSticky {
+			_ = os.Chmod(dir, 0o777|os.ModeSticky)
+		}
+	}
+	return nil
+}
+
+// writeSharedRecord writes a holder or waiter record beside a shared lock
+// with the lock file's own mode. Every account that shares the lock has to be
+// able to READ the record, or it cannot name the holder; and it has to be able
+// to REPLACE it, because the sticky lock dir lets no account delete a record
+// another one left behind, so truncating in place is the only overwrite there
+// is. The mode is set again explicitly because the create goes through the
+// umask.
+func writeSharedRecord(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, sharedLockFileMode)
+	if err != nil {
+		return err
+	}
+	if fi, serr := f.Stat(); serr == nil && fi.Mode().Perm() != sharedLockFileMode {
+		_ = f.Chmod(sharedLockFileMode)
+	}
+	_, werr := f.Write(data)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	return werr
+}
+
 // lockLitterDirs are the directories the sweep looks in for stale owner
 // records and test stub dirs: where the locks live now, and the per-user temp
 // dir where they lived before the move — 871 files were measured there, and a
@@ -88,12 +124,18 @@ func ensureSharedDir(dir string) error {
 // the real temp dir from inside a test would report the box's litter as the
 // test's own.
 func lockLitterDirs() []string {
-	dirs := []string{lockDir()}
-	if lockDirOverridden() {
+	return litterDirsFor(lockDir(), lockDirOverridden(), os.TempDir())
+}
+
+// litterDirsFor is lockLitterDirs with its three inputs passed in, so a test
+// can check the production answer without resolving the live lock dir.
+func litterDirsFor(lockDir string, overridden bool, tempDir string) []string {
+	dirs := []string{lockDir}
+	if overridden {
 		return dirs
 	}
-	if tmp := os.TempDir(); tmp != dirs[0] {
-		dirs = append(dirs, tmp)
+	if tempDir != lockDir {
+		dirs = append(dirs, tempDir)
 	}
 	return dirs
 }

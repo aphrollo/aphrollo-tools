@@ -3,6 +3,7 @@ package tdd
 import (
 	"context"
 	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -299,6 +300,41 @@ func TestGatePRMerge_BuildsTheMergedCheckoutBesideTheLanes(t *testing.T) {
 	lanes := filepath.Join(filepath.Dir(root), ".worktrees", filepath.Base(root))
 	if got := (*calls)[0].Dir; !underDir(t, got, lanes) {
 		t.Fatalf("the merged checkout was built in %s, want it beside the lanes under %s", got, lanes)
+	}
+}
+
+// prGateMergedCheckout's cleanup tears the throwaway checkout down, but
+// measureTempDir puts the measurement's own area BESIDE it, not inside it —
+// so removing the checkout alone leaves that area behind. Every `workspace
+// merge` on a repo that declares mutants-at-merge built and abandoned one:
+// evidence on this box measured eight, 21-161 MB each, none of them still
+// carrying a checkout.
+func TestGatePRMerge_RemovesTheMeasurementAreaWithTheThrowawayCheckout(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Cleanup(SetFreeSpaceForTest(999, true))
+	t.Cleanup(setMutantsJobsForTest(1, "pinned"))
+	root, _ := prGateLane(t)
+	declareMutantsAtMergeCommitted(t, root)
+	var checkoutDir string
+	calls := stubMutantsExec(t, func(_ context.Context, _ int, c measuredCall) (int, error) {
+		checkoutDir = c.Dir
+		writeOutcomesIn(t, argvValueOf(t, c.Argv, "--output"), MutantOutcome{
+			File: "crates/a/src/lib.rs", Line: 1, Col: 36,
+			Mutation: "replace - with +", Package: "a", Status: "caught"})
+		return 0, nil
+	})
+
+	if err := GatePRMerge(root, recordRuns(new([]gateRun), SuiteResult{Passed: true}), io.Discard); err != nil {
+		t.Fatalf("a green merged tree must land: %v", err)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("ran the mutation tool %d time(s), want exactly one measurement", len(*calls))
+	}
+
+	area := measureTempDir(checkoutDir)
+	if _, err := os.Stat(area); !os.IsNotExist(err) {
+		t.Fatalf("the measurement area %s outlived the throwaway checkout %s it was built for (stat err: %v)",
+			area, checkoutDir, err)
 	}
 }
 

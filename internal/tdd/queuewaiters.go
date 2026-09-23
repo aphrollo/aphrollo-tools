@@ -54,8 +54,8 @@ func WriteQueueWaiter(target, cmd, cwd string) (remove func()) {
 	path := queueWaiterPath(target, os.Getpid())
 	w := QueueWaiter{PID: os.Getpid(), Cwd: cwd, Cmd: cmd, Target: target, Started: time.Now().UTC()}
 	if data, err := json.MarshalIndent(w, "", "  "); err == nil {
-		if err := os.MkdirAll(queueWaitersDir(), 0o777); err == nil {
-			_ = os.WriteFile(path, data, 0o600)
+		if err := ensureSharedSubdir(queueWaitersDir()); err == nil {
+			_ = writeSharedRecord(path, data)
 		}
 	}
 	return func() { _ = os.Remove(path) }

@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -73,6 +74,9 @@ func TestMain(m *testing.M) {
 	// case under test here.
 	os.Unsetenv(BuildLockHeldEnv)
 	restoreLocks := SetLockDirForTest(locks)
+	// And the machine-wide lock dir itself is never this suite's: a test
+	// that resolves it fails the package run (see guardLiveLockDir).
+	checkLiveLockDir := guardLiveLockDir(filepath.Join(dir, "live-lock-dir-decoy"))
 	// Same net for gh. Three issues were filed against the real repository by
 	// nobody — #155, #196 and #197, all carrying this package's own override
 	// fixture values (`override:override-off r`, evidence `e`, an unfilled
@@ -104,7 +108,19 @@ func TestMain(m *testing.M) {
 	// The golden git repos every fixture helper copies, built once here
 	// rather than spawned per test. See fixture_test.go.
 	buildFixtures(dir)
+	// Nor is the box's CI. Every measurement waits for busy runner jobs
+	// before it starts; this suite runs inside one on CI, beside sibling
+	// runners that may be busy, and on an operator box beside all of them.
+	// A test about that wait installs its own probe.
+	restoreRunners := SetCIRunnerJobsForTest(func() []int { return nil })
 	code := m.Run()
+	if err := checkLiveLockDir(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		if code == 0 {
+			code = 1
+		}
+	}
+	restoreRunners()
 	restoreLocks()
 	os.RemoveAll(dir)
 	os.Exit(code)
