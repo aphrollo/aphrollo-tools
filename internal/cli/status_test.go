@@ -21,7 +21,7 @@ func TestGateStatus_NothingGoingOn_StillPrintsEverySection(t *testing.T) {
 		t.Fatalf("exit = %d, want 0 (status is read-only and never fails the session)\nstdout: %s\nstderr: %s", code, out.String(), errb.String())
 	}
 	got := out.String()
-	for _, want := range []string{"deferred edit jobs:", "none running", "build slots (", "queue (this checkout):", "not queued"} {
+	for _, want := range []string{"deferred edit jobs:", "none running", "build slots (", "queue (this checkout):", "not queued", "mutation run:", "  idle"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("report missing %q, got:\n%s", want, got)
 		}

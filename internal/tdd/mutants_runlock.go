@@ -100,15 +100,16 @@ func acquireMutantsRunLockWithDeadline(cmd, cwd string, deadline time.Duration) 
 }
 
 // mutantsRunLockHolderDescription names the current holder of the box-wide
-// mutation-run lock for a waiting acquirer's line, or says the holder is
-// unknown — the owner file is best-effort, racy by construction, exactly
+// mutation-run lock for a waiting acquirer's line, or says its record cannot
+// be read — the owner file is best-effort, racy by construction, exactly
 // like buildSlotHolderDescription's own, and appends a stale-binary notice
-// when the holder's executable is not the one this process runs.
+// when the holder's executable is not the one this process runs. A waiter
+// only asks after failing to take the lock, so the lock is held either way.
 func mutantsRunLockHolderDescription() string {
 	if o, ok := readBuildLockOwnerAt(mutantsRunLockOwnerPath()); ok {
-		return describeOwner(o) + staleHolderNotice(o.PID)
+		return describeMutantsRunHolder(MutantsRunStatus{Held: true, OwnerKnown: true, Owner: o})
 	}
-	return "another mutation run (holder unknown)"
+	return describeMutantsRunHolder(MutantsRunStatus{Held: true})
 }
 
 // processExePathFn is the seam a test overrides instead of depending on the

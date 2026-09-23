@@ -293,7 +293,7 @@ func writeBuildLockOwnerAt(path, cmd, cwd string) {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(path, data, 0o600)
+	_ = writeSharedRecord(path, data)
 }
 
 // removeBuildLockOwnerAt clears path's owner file. Best-effort, same
@@ -367,7 +367,7 @@ func TryAcquireFileLock(path string) (release func(), ok bool) {
 		// dir, which the first builder of a fresh target creates. World
 		// permissions, because the next builder may be another account.
 		if os.IsNotExist(err) {
-			if mkErr := os.MkdirAll(filepath.Dir(path), 0o777); mkErr == nil {
+			if mkErr := ensureSharedSubdir(filepath.Dir(path)); mkErr == nil {
 				f, err = openLockFile(path)
 			}
 		}

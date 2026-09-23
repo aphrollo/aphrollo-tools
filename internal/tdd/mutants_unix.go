@@ -3,6 +3,7 @@
 package tdd
 
 import (
+	"errors"
 	"os"
 	"syscall"
 )
@@ -18,5 +19,10 @@ func pidRunning(pid int) bool {
 	if err != nil {
 		return false
 	}
-	return p.Signal(syscall.Signal(0)) == nil
+	// EPERM is the answer for another account's process: the kernel found
+	// it and refused the signal, which is proof it exists. The locks are
+	// shared with the CI runner's account, so reading that refusal as "dead"
+	// drops every holder and waiter that is not this user's own.
+	err = p.Signal(syscall.Signal(0))
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
