@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -232,3 +233,29 @@ func TestGremlinsArgv_ExcludesAlreadyMeasuredFilesByAnchoredRegexp(t *testing.T)
 }
 
 // ratchet: test_removed TestGoMutantsReceipt_IsTheSameReceiptTheRustRunnerWrites: there is no receipt; both runners now report into one Verdict, and MeasureLane's own tests judge a gremlins report through the same finishMeasure a Cargo run uses
+
+// A reason that quotes code writes its quotes escaped, `\"`, as TOML requires.
+// tomlStringsIn ended the string on the escaped quote itself, so this repo's
+// own accept-list entry quoting `if profileWs == \"\"` came back in pieces,
+// one piece was refused as malformed, and the refusal made the whole list
+// unreadable: every Go measurement ended "the accept-list could not be read"
+// with no survivor at all (#704).
+func TestTomlStringsIn_AnEscapedQuoteStaysInsideItsString(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "aphrollo.toml", strings.Join([]string{
+		"[aphrollo]",
+		`mutation-accept = [`,
+		`  "calc.go:1 CONDITIONALS_NEGATION # the \"cargo\" guard",`,
+		`  "calc.go:2 CONDITIONALS_NEGATION # the if x == \"\" fallback, a \\ too",`,
+		"]",
+	}, "\n"))
+
+	got := tomlStringsIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", "mutation-accept")
+	want := []string{
+		`calc.go:1 CONDITIONALS_NEGATION # the "cargo" guard`,
+		`calc.go:2 CONDITIONALS_NEGATION # the if x == "" fallback, a \ too`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("tomlStringsIn = %q, want %q", got, want)
+	}
+}
