@@ -886,3 +886,9 @@ sameProject                                   statusline.go                statu
 branchIsTrunk                                 trunkmergepreview.go         trunkmergepreview_gitx.go
 TestClaudeMDBlock_VetLintClaimMatchesGoOnlyGuard claudemd_test.go             claudemd_source_test.go
 TestClaudeMDBlock_DoesNotPromiseASuiteTheCommitGateNoLongerRuns claudemd_test.go             claudemd_source_test.go
+
+# Files a carved package owns on its own: never moved, never reassembled.
+[local]
+core/main_test.go
+gitx/main_test.go
+shell/main_test.go

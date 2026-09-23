@@ -31,19 +31,23 @@ type Relocation struct {
 
 // Manifest maps every file of the unsplit package to its target package.
 // File keys are relative to Root; a key ending in "/" maps every file under
-// that directory.
+// that directory. Locals are files a carved package owns on its own, such
+// as its TestMain: paths relative to Root, never moved and never part of the
+// reassembled package.
 type Manifest struct {
 	Root        string
 	Packages    map[string]Package
 	Files       map[string]string
 	Relocations []Relocation
+	Locals      map[string]bool
 }
 
 // ParseManifest reads the manifest text format: a `root <dir>` directive,
-// then `[packages]` (name level dir), `[files]` (key package) and
-// `[relocate]` (symbol from-file to-file) sections. `#` starts a comment.
+// then `[packages]` (name level dir), `[files]` (key package), `[relocate]`
+// (symbol from-file to-file) and `[local]` (path) sections. `#` starts a
+// comment.
 func ParseManifest(r io.Reader) (*Manifest, error) {
-	m := &Manifest{Packages: map[string]Package{}, Files: map[string]string{}}
+	m := &Manifest{Packages: map[string]Package{}, Files: map[string]string{}, Locals: map[string]bool{}}
 	section := ""
 	sc := bufio.NewScanner(r)
 	lineNo := 0
@@ -59,7 +63,7 @@ func ParseManifest(r io.Reader) (*Manifest, error) {
 		}
 		if len(fields) == 1 && strings.HasPrefix(fields[0], "[") && strings.HasSuffix(fields[0], "]") {
 			section = strings.Trim(fields[0], "[]")
-			if section != "packages" && section != "files" && section != "relocate" {
+			if section != "packages" && section != "files" && section != "relocate" && section != "local" {
 				return nil, fmt.Errorf("manifest:%d: unknown section [%s]", lineNo, section)
 			}
 			continue
@@ -102,6 +106,11 @@ func ParseManifest(r io.Reader) (*Manifest, error) {
 				return nil, bad("`<symbol> <from-file> <to-file>`")
 			}
 			m.Relocations = append(m.Relocations, Relocation{Symbol: fields[0], From: fields[1], To: fields[2]})
+		case "local":
+			if len(fields) != 1 {
+				return nil, bad("`<path relative to root>`")
+			}
+			m.Locals[fields[0]] = true
 		}
 	}
 	if err := sc.Err(); err != nil {
