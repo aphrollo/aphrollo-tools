@@ -193,7 +193,8 @@ is used by gate runs when declared.
   path, one suite run per project per command.
 - Cargo target by edited file: `tests/x.rs` → `--test x`; `src/a/b.rs` →
   `--lib` filtered to `a::b::`; `examples/x.rs` → `--example x`;
-  `benches/x.rs` → `--bench x --no-run`.
+  `benches/x.rs` → `--bench x --no-run`. An example or bench with
+  `required-features` is built with `--features` naming them.
 - Gates build in the developer's target dir (`CARGO_TARGET_DIR`, else
   `<repo>/target`).
 
@@ -266,9 +267,11 @@ MUTATION=1 git checkout -- internal/tdd/verdict.go   # restores the held working
 
 - `run` holds the box-wide mutation lock; waiters are served in arrival order.
   Shard count comes from the box, capped by `mutants-shards`.
-- `prove` applies one mutation, checks it landed, runs the related tests,
-  restores the file. `NO-TESTS-SELECTED` exits 7; a green narrowed run is
-  widened once, and an unknowable reach is `SCOPE UNKNOWN` (exit 8).
+- `prove` applies one mutation, checks the file's content changed from its
+  starting bytes (untracked files work), runs only the `--want-fail` test
+  with fail-fast off, and restores the file. An empty or green narrowed
+  selection widens before a verdict; still empty is `NO-TESTS-SELECTED`
+  (exit 7), an unknowable reach is `SCOPE UNKNOWN` (exit 8).
 - A hold expires after 2 h. Survivors are accepted only through
   `mutation-accept` entries that carry a reason; a missing comma between
   two entries refuses the whole list.
@@ -313,7 +316,7 @@ Declared in `[workspace.metadata.aphrollo]` in a cargo workspace's
 | `commit-message-deny` | extra deny regexes |
 | `issue-labels` | labels `aphrollo issue --label` accepts |
 | `docs-check` | run `docs check` on staged markdown in a cargo workspace |
-| `fail-first-env` | `NAME=VALUE` switches exported to the fail-first run |
+| `fail-first-env` | `NAME=VALUE` switches exported to the fail-first run; a hand-run `go test`/`cargo test`/`cargo nextest run` that sets one passes the rerun guard (`override-bash-env-switch`) |
 | `prune-lanes-on-merge` | enable the `post-merge`/`post-commit` lane sweep |
 | `mutants-at-merge`, `mutants-shards`, `mutants-env`, `mutation-accept` | mutation measurement at merge, its shard cap, env, accepted survivors (`<file>[:<line>[:<col>]] <MUTATOR> # why`) |
 | `baselines` | globs the staged-baseline guard watches |

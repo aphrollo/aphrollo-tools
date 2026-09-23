@@ -107,7 +107,7 @@ func cacheHitResolvesGreen(repoRoot string) bool {
 		if hash == "" {
 			continue
 		}
-		prefix := mechKeyRepo(root) + "\x00" + hash + "\x00"
+		prefix := mechKeyPrefix(root, hash)
 		for key := range green {
 			if strings.HasPrefix(key, prefix) {
 				return true

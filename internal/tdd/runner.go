@@ -208,19 +208,19 @@ func NarrowToRelatedTests(r Runner, target, root string) Runner {
 //	<crate>/tests/x.rs          -> --test x
 //	<crate>/tests/<dir>/*.rs    -> --test <dir>, confirmed by metadata
 //	<crate>/src/a/b_tests.rs    -> --lib, filtered to a::b_tests
-//	<crate>/examples/x/*.rs     -> --example x --no-run (see buildonly.go)
-//	<crate>/benches/x.rs        -> --bench x --no-run
+//	<crate>/examples/x/*.rs     -> --example x --no-run (+ required features)
+//	<crate>/benches/x.rs        -> --bench x --no-run (+ required features)
 func cargoTargetRunner(r Runner, rel, root string) Runner {
 	if name, nested := cargoTestTarget(rel); name != "" {
 		return cargoTestTargetRunner(r, root, name, nested)
 	}
 	if name := cargoNamedTarget(rel, "examples"); name != "" {
-		return cargoTargetArgs(r, root, "--example", name, "--no-run")
+		return withRequiredFeatures(cargoTargetArgs(r, root, "--example", name, "--no-run"), root, "example", name)
 	}
 	if name := cargoNamedTarget(rel, "benches"); name != "" {
 		// A bench RUN (an example's too) costs minutes and says nothing about
 		// correctness; the question an edit asks is whether it still compiles.
-		return cargoTargetArgs(r, root, "--bench", name, "--no-run")
+		return withRequiredFeatures(cargoTargetArgs(r, root, "--bench", name, "--no-run"), root, "bench", name)
 	}
 	if mod := cargoModuleFilterPath(root, rel); mod != "" {
 		// The filter dialect follows the RESULTING runner: cargoTargetArgs

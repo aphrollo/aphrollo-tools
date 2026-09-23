@@ -61,7 +61,7 @@ func DecidePreEdit(raw []byte) (Decision, error) {
 	} else {
 		d = evaluateSourceAdded(post, added, path, editPhase)
 	}
-	full := withQualityNotes(d, path, newContent(in))
+	full := withQualityNotes(d, path, post, added)
 	full.Escapes = d.Escapes
 	return full, nil
 }
@@ -69,11 +69,15 @@ func DecidePreEdit(raw []byte) (Decision, error) {
 // withQualityNotes attaches the advisory test-quality notes to a decision.
 // They never raise a Block (a judgement call must not wedge a session) and
 // never mask one: a real oracle smell keeps its own verdict and reason.
-func withQualityNotes(d Decision, path, content string) Decision {
+//
+// The notes are judged over post, the file as the edit leaves it, and kept
+// only for the lines the edit adds: a note names a line of the FILE, one the
+// reader can open, never a line of the edit's new_string (issue #760).
+func withQualityNotes(d Decision, path, post string, added map[int]bool) Decision {
 	if d.Action == Block {
 		return d
 	}
-	notes := TestQualityNotes(path, content)
+	notes := testQualityNotesOn(path, post, added)
 	if len(notes) == 0 {
 		return d
 	}

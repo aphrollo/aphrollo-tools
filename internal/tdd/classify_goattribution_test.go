@@ -85,7 +85,7 @@ func TestClassifyRunOutcome_GoRunInWhichNoPackageRanATest_IsWritingTest(t *testi
 		t.Fatal("setup: the fixture stream must decode")
 	}
 	res := SuiteResult{Passed: true, Output: human, GoTestJSON: raw}
-	if got := classifyRunOutcome(Runner{Cmd: "go", Args: []string{"test", "./internal/a/..."}}, res, nil); got != WritingTest {
+	if got := classifyRunOutcome(Runner{Cmd: "go", Args: []string{"test", "./internal/a/..."}}, "", res, nil); got != WritingTest {
 		t.Fatalf("classifyRunOutcome = %q, want %q for a run no package ran a test in", got, WritingTest)
 	}
 }

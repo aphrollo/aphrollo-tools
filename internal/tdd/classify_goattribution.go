@@ -18,10 +18,13 @@ import (
 // decides a passing Go run by that per-package attribution instead:
 // writing-test only when no package ran a test.
 
-// classifyRunOutcome maps one finished run to an Outcome. A passing Go run
-// whose packages can be read is judged per package; everything else goes to
-// ClassifyOutcome unchanged.
-func classifyRunOutcome(r Runner, res SuiteResult, prevFailing []string) Outcome {
+// classifyRunOutcome maps one finished run to an Outcome, and is the one
+// place every post-edit path (the foreground run, the same-hook deferred
+// phase, the harvest) does so. A passing Go run whose packages can be read
+// is judged per package; everything else goes to ClassifyOutcome, with its
+// clean-RED claim held to where the compiler says the missing name is used
+// (attributeMissingImpl).
+func classifyRunOutcome(r Runner, root string, res SuiteResult, prevFailing []string) Outcome {
 	output := classificationOutput(res.Output, res.GoTestJSON)
 	if res.Passed && r.Cmd == "go" {
 		if ran, known := goRunRanATest(res); known {
@@ -35,7 +38,7 @@ func classifyRunOutcome(r Runner, res SuiteResult, prevFailing []string) Outcome
 			}
 		}
 	}
-	return ClassifyOutcome(res.Passed, output, prevFailing)
+	return attributeMissingImpl(ClassifyOutcome(res.Passed, output, prevFailing), r, root, output)
 }
 
 // goNoTestsNoteRe is go test's own note for a package that ran no test. It
