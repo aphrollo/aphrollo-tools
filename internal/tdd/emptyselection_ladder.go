@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -15,7 +16,8 @@ import (
 // that stays empty at the top, or a budget that runs out first, is reported
 // inconclusive. A rung is only ever climbed because the one below it
 // selected nothing, so the verdict always comes from the narrowest run that
-// actually tested something.
+// actually tested something. A Go source edit climbs the same way, from its
+// own package to the packages whose tests reach it.
 
 // cargoNameFilterFlags are the name filters within a cargo target: nextest's
 // filter expression in both spellings. Plain cargo test's positional
@@ -82,11 +84,114 @@ func dropCargoNameFilter(r Runner) (Runner, bool) {
 
 // postEditWideningSteps is the ladder for any post-edit runner: the rungs to
 // climb, in order, when that runner selected no test.
-func postEditWideningSteps(r Runner) []Runner {
-	if r.Cmd == "cargo" {
+//
+// Only cargo and Go narrow in a way a wider run can answer. pytest narrows
+// only a TEST edit, to that file, where selecting nothing means the file has
+// no test yet (writing-test, correctly). vitest's `related` and jest's
+// `--findRelatedTests` select by the import graph: when no test file reaches
+// the edited one, the full suite holds the same test files and none of them
+// reaches it either, so a wider run cannot select a test for this code.
+func postEditWideningSteps(r Runner, root string) []Runner {
+	switch r.Cmd {
+	case "cargo":
 		return cargoWideningSteps(r)
+	case "go":
+		return goWideningSteps(r, root)
 	}
 	return nil
+}
+
+// goWideningSteps is the Go ladder: one rung, to the packages whose tests
+// reach the narrowed ones (goTestReachFn), minus the narrowed ones — they
+// already ran and selected nothing. A `/...` selection is a test file's own
+// tree, where selecting nothing is scaffolding rather than a missed filter,
+// so it has no rung; neither does a reach that cannot be read, nor one that
+// adds no package.
+func goWideningSteps(r Runner, root string) []Runner {
+	if goTestTreeSelection(r) {
+		return nil
+	}
+	selected, ok := goSelectedDirs(r)
+	if !ok {
+		return nil
+	}
+	isSelected := map[string]bool{}
+	for _, d := range selected {
+		isSelected[d] = true
+	}
+	var extra []string
+	for _, d := range selected {
+		reach, err := goTestReachFn(root, d)
+		if err != nil {
+			return nil
+		}
+		for _, dir := range reach {
+			if !isSelected[dir] {
+				extra = append(extra, dir)
+			}
+		}
+	}
+	if len(extra) == 0 {
+		return nil
+	}
+	args := []string{"test"}
+	for _, a := range r.Args[1:] {
+		if strings.HasPrefix(a, "-") {
+			args = append(args, a)
+		}
+	}
+	for _, dir := range dedupeSorted(extra) {
+		if dir == "." {
+			args = append(args, ".")
+			continue
+		}
+		args = append(args, "./"+dir)
+	}
+	return []Runner{{Cmd: "go", Args: args, Dir: r.Dir}}
+}
+
+// goTestTreeSelection reports whether a Go runner selects a `/...` tree, the
+// shape a TEST edit narrows to (NarrowToRelatedTests).
+func goTestTreeSelection(r Runner) bool {
+	for _, a := range r.Args {
+		if strings.HasSuffix(a, "/...") {
+			return true
+		}
+	}
+	return false
+}
+
+// goPackageResultRe matches `go test`'s one summary line per package:
+// "ok", "?" or "FAIL", the import path, then the rest.
+var goPackageResultRe = regexp.MustCompile(`(?m)^(?:ok|\?|FAIL)[ \t]+\S+[ \t].*$`)
+
+// goRanNoTests reports whether a passing Go run executed no test in any
+// package: every package line says "[no test files]" or "[no tests to run]".
+// A run with no package line at all is not read as empty.
+func goRanNoTests(r Runner, res SuiteResult) bool {
+	if r.Cmd != "go" || res.TimedOut || !res.Passed {
+		return false
+	}
+	lines := goPackageResultRe.FindAllString(res.Output, -1)
+	if len(lines) == 0 {
+		return false
+	}
+	for _, l := range lines {
+		if !strings.Contains(l, "[no test files]") && !strings.Contains(l, "[no tests to run]") {
+			return false
+		}
+	}
+	return true
+}
+
+// postEditSelectedZero is the post-edit hook's "this run tested nothing":
+// cargo's zero selection (selectedZeroTests, shared with the commit stages
+// and the mutation proof) or a source edit's Go run whose packages all ran
+// no test. A test edit's `/...` run that ran nothing stays writing-test: its
+// file has no test yet. Go is read here and not in selectedZeroTests because
+// the commit stages judge a Go run by its -json stream (vacuousGoPackages).
+func postEditSelectedZero(r Runner, res SuiteResult) bool {
+	return selectedZeroTests(r, res) || (!goTestTreeSelection(r) && goRanNoTests(r, res))
 }
 
 // widenBudgetSpentAdvisory is the line for a ladder the post-edit budget ran

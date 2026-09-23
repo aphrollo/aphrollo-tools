@@ -164,7 +164,7 @@ func resolveEmptySelection(run SuiteRunner, snap stateSnapshot, root, headSHA st
 	out := emptySelection{runner: snap.runner, res: res}
 	narrow := snap.runner
 	deadline := time.Now().Add(PostEditBudget() - res.Duration)
-	steps := postEditWideningSteps(narrow)
+	steps := postEditWideningSteps(narrow, root)
 	for _, step := range steps {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
@@ -180,7 +180,7 @@ func resolveEmptySelection(run SuiteRunner, snap stateSnapshot, root, headSHA st
 			return out
 		}
 		out.runner, out.res = step, wres
-		if !selectedZeroTests(step, wres) {
+		if !postEditSelectedZero(step, wres) {
 			out.note = widenedNote(narrow, step)
 			return out
 		}
@@ -242,6 +242,17 @@ func noTestsSelectedAdvisory(narrow, wide Runner, root string, widened bool, dur
 	if widened {
 		scope = fmt.Sprintf("; widened rung by rung from %s, and no rung selected a test", cmdString(narrow))
 	}
-	return fmt.Sprintf("gate: %s in %s → %s (0 tests selected in %.1fs%s) — inconclusive, the code was NOT tested; run this crate's integration tests under tests/ by hand, or confirm it has a test target at all",
-		cmdString(wide), root, strings.ToUpper(NoTestsSelected), dur.Seconds(), scope)
+	return fmt.Sprintf("gate: %s in %s → %s (0 tests selected in %.1fs%s) — inconclusive, the code was NOT tested; %s",
+		cmdString(wide), root, strings.ToUpper(NoTestsSelected), dur.Seconds(), scope, noTestsSelectedRemedy(wide))
+}
+
+// noTestsSelectedRemedy is what to do about a selection that stayed empty,
+// in the runner's own terms: a crate is asked for its integration tests or
+// its test target, a Go package for a test, since no package's tests reach
+// it.
+func noTestsSelectedRemedy(r Runner) string {
+	if r.Cmd == "go" {
+		return "no package's tests reach this code, so it needs a test of its own"
+	}
+	return "run this crate's integration tests under tests/ by hand, or confirm it has a test target at all"
 }

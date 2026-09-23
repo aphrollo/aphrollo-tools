@@ -46,7 +46,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	// what is left of this same budget; a rung still running when it runs
 	// out is left detached and reported by the next hook.
 	widenNote := ""
-	if selectedZeroTests(snap.runner, res) {
+	if postEditSelectedZero(snap.runner, res) {
 		w := widenDeferredSelection(snap.runner, root, target, headSHA, fileHash, session, deadline, res)
 		if w.terminal != "" {
 			return w.terminal, w.running

@@ -30,7 +30,7 @@ type deferredWidening struct {
 // next hook reports it.
 func widenDeferredSelection(narrow Runner, root, target, headSHA, fileHash, session string, deadline time.Time, res SuiteResult) deferredWidening {
 	last, lastRes := narrow, res
-	steps := postEditWideningSteps(narrow)
+	steps := postEditWideningSteps(narrow, root)
 	for _, step := range steps {
 		out := runEditPhases(step, root, target, headSHA, fileHash, session, time.Until(deadline))
 		switch {
@@ -49,7 +49,7 @@ func widenDeferredSelection(narrow Runner, root, target, headSHA, fileHash, sess
 			wres.Passed = true
 		}
 		last, lastRes = step, wres
-		if !selectedZeroTests(step, wres) {
+		if !postEditSelectedZero(step, wres) {
 			return deferredWidening{runner: step, res: wres, note: widenedNote(narrow, step)}
 		}
 	}
@@ -77,7 +77,7 @@ func harvestAdvisory(j DeferredJob, out PhaseOutcome, root string, state *sessio
 		res.Passed = true
 	}
 	runner := runnerFromArgv(j.Runner, j.Dir)
-	if out.SetupFailed || !selectedZeroTests(runner, res) {
+	if out.SetupFailed || !postEditSelectedZero(runner, res) {
 		return markDeferred(editResultAdvisory(j, out, root, state, statePath, j.HeadSHA))
 	}
 	w := widenDeferredSelection(runner, root, j.File, j.HeadSHA, j.FileHash, j.Session, time.Now().Add(budget), res)
