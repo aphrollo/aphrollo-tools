@@ -11,9 +11,7 @@ import (
 // test does not have to spend the real threshold to reach the path.
 func withShortLockWaitLog(t *testing.T) {
 	t.Helper()
-	prev := lockWaitLogThreshold
-	lockWaitLogThreshold = time.Nanosecond
-	t.Cleanup(func() { lockWaitLogThreshold = prev })
+	t.Cleanup(SetLockWaitLogThresholdForTest(time.Nanosecond))
 }
 
 // Time spent QUEUED is not time spent failing. A commit that waited out the

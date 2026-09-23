@@ -77,7 +77,7 @@ func invalidateFailFirstArtifacts(run SuiteRunner, failFirst Runner, repoRoot, r
 	cleaner := Runner{Cmd: "cargo", Args: args, Dir: ws}
 	// No budget floor (the trailing zero): `cargo clean` runs no suite, so
 	// there is no recorded suite duration that says anything about it.
-	runCargoLocked(run, cleaner, ws, buildLockPrecommitDeadline, DefaultPrecommitTimeout, 0)
+	runCargoLocked(run, cleaner, ws, precommitLockWait(), DefaultPrecommitTimeout, 0)
 }
 
 // workspaceStagedSources widens srcs (one project root's own staged non-test
@@ -249,7 +249,7 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 	// proved RED against HEAD's source, and it records its verdict under
 	// this stage's own name rather than as a suite duration for a command
 	// the floor could be derived from. It keeps today's arithmetic.
-	res, waited, acquired := runCargoLocked(run, runner, execRoot, buildLockPrecommitDeadline, DefaultPrecommitTimeout, 0)
+	res, waited, acquired := runCargoLocked(run, runner, execRoot, precommitLockWait(), DefaultPrecommitTimeout, 0)
 	logLockWait("precommit", root, runner, waited)
 	// Whatever the verdict, this run has just written artifacts built from
 	// HEAD's source into the target dir the MECHANICAL stage is about to use,

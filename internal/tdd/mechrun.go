@@ -40,7 +40,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	// (issue #660, budgetfloor.go). Zero when gate.log has no completed run
 	// to derive one from, which is today's arithmetic unchanged.
 	floor := recordedSuiteFloor(gateName, cmdString(runner))
-	res, waited, acquired := runCargoLocked(run, runner, root, buildLockPrecommitDeadline, DefaultPrecommitTimeout, floor.budget)
+	res, waited, acquired := runCargoLocked(run, runner, root, precommitLockWait(), DefaultPrecommitTimeout, floor.budget)
 	restore()
 	logLockWait(gateName, root, runner, waited)
 	if !acquired {
