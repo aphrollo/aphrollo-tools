@@ -133,10 +133,45 @@ func twinTouched(diffs map[string]FileDiff, target coChangeTarget) bool {
 	for i, line := range raw {
 		if re.MatchString(line) {
 			start, end := funcExtent(raw, i)
-			return hunkTouches(fd.Ops, start, end)
+			return declChanged(fd, raw, start, end)
 		}
 	}
 	return false
+}
+
+// declChanged reports whether the declaration spanning POST lines
+// [start,end] really changed. A changed op landing in the range is necessary
+// but not sufficient: a line diff is free to slide a deleted neighbour onto
+// the range's edge whenever the neighbour ends or begins with the same line
+// (a `}`, a blank), so the op position alone reads a pure deletion beside a
+// declaration as a change to it (#787). When the declaration line occurs
+// exactly once in the PRE image, the verdict is the declaration's own text:
+// its PRE extent against its POST extent, wherever the hunks landed. A
+// declaration line that is new or ambiguous in PRE, or absent from POST (a
+// marker left behind at the end of the file), keeps the op verdict.
+func declChanged(fd FileDiff, post []string, start, end int) bool {
+	if !hunkTouches(fd.Ops, start, end) {
+		return false
+	}
+	if start > len(post) {
+		return true
+	}
+	pre := splitLines(fd.Pre)
+	preDecl := -1
+	for i, line := range pre {
+		if line != post[start-1] {
+			continue
+		}
+		if preDecl >= 0 {
+			return true
+		}
+		preDecl = i
+	}
+	if preDecl < 0 {
+		return true
+	}
+	preStart, preEnd := funcExtent(pre, preDecl)
+	return strings.Join(pre[preStart-1:preEnd], "\n") != strings.Join(post[start-1:end], "\n")
 }
 
 // coChangeHits is #316's rule: for every `// twin:` marker in a changed
@@ -185,6 +220,9 @@ func coChangeHits(law Law, base BaseReader, changed []string, content map[string
 	for _, mk := range markers {
 		fd := diffs[mk.file]
 		selfChanged := hunkTouches(fd.Ops, mk.start, mk.end)
+		if mk.target.Func != "" {
+			selfChanged = declChanged(fd, mk.raw, mk.start, mk.end)
+		}
 		targetChanged := twinTouched(diffs, mk.target)
 		// The marker states `A twin B`, and the engine treats that as also
 		// `B twin A` — one annotation covers both directions, so a hit fires
