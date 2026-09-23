@@ -237,3 +237,22 @@ func TestManagedTemplates_CarryTheCurrentMarker(t *testing.T) {
 		}
 	}
 }
+
+// Issue #753: a field mutation proof restored its file with `git checkout --`,
+// the shim refused it (the file carried the lane's unstaged work too), and the
+// only route the session found was the environment marker that destroys that
+// work. "Restore byte-identically" named the outcome and not the tool, so the
+// step has to name the route that restores the held working state instead of
+// the index.
+func TestTDDSkill_NamesTheRouteThatRestoresAMutationProof(t *testing.T) {
+	t.Parallel()
+	body := TDDSkill()
+	for _, want := range []string{
+		"aphrollo gate mutants hold <file>",
+		"MUTATION=1 git checkout -- <file>",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("skill body missing %q", want)
+		}
+	}
+}
