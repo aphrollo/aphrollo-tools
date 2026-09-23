@@ -197,6 +197,9 @@ func runWithLock(slot tdd.BuildSlot, releaseTarget, releaseAll func(), realCargo
 	if isCargoRunVerb(args) {
 		return runCargoRunSplitLock(slot, releaseAll, realCargo, args, stdin, stdout, stderr)
 	}
+	if buildArgs, ok := cargoTestRunBuildArgs(args); ok {
+		return runBuildThenRunSlotFree(slot, releaseAll, realCargo, buildArgs, args, stdin, stdout, stderr)
+	}
 	if isCargoLongVerb(args) {
 		return runCargoLongVerbSplitLock(slot, releaseTarget, releaseAll, realCargo, args, stdin, stdout, stderr)
 	}
@@ -217,17 +220,11 @@ func runWithLock(slot tdd.BuildSlot, releaseTarget, releaseAll func(), realCargo
 // fresh, so cargo's own `run` immediately execs the already-built binary
 // rather than rebuilding -- and the ORIGINAL args run lock-free, inheriting
 // stdio for the launched process's full lifetime. `nextest run`/`test`
-// deliberately do NOT take this path (isCargoRunVerb only matches the bare
-// `run` verb, not nextest's own `run` sub-subcommand): their own execution
-// IS the thing this lock exists to serialize.
+// do NOT take this path (isCargoRunVerb only matches the bare `run` verb,
+// not nextest's own `run` sub-subcommand): they compile with --no-run
+// instead, see cargoTestRunBuildArgs.
 func runCargoRunSplitLock(slot tdd.BuildSlot, release func(), realCargo string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	buildArgs := cargoRunArgsToBuildArgs(args)
-	buildCode := execCargo(realCargo, buildArgs, stdin, stdout, stderr, slot.Jobs)
-	release()
-	if buildCode != 0 {
-		return buildCode
-	}
-	return execCargo(realCargo, args, stdin, stdout, stderr, 0)
+	return runBuildThenRunSlotFree(slot, release, realCargo, cargoRunArgsToBuildArgs(args), args, stdin, stdout, stderr)
 }
 
 // cargoLongVerbs run for a very long time WITHOUT compiling into the
@@ -238,8 +235,9 @@ func runCargoRunSplitLock(slot tdd.BuildSlot, release func(), realCargo string, 
 // of them: it recompiles on every save for as long as it is open, so
 // "prewarm once, then unlocked forever" would hand the box to a process
 // that never stops building.
-// `nextest run`/`test` are absent on purpose -- their execution IS what the
-// slots govern.
+// `nextest run`/`test` are absent on purpose -- a test run releases its slot
+// entirely once its binaries are built (cargoTestRunBuildArgs), rather than
+// keeping a global slot for the run.
 var cargoLongVerbs = map[string]bool{
 	"mutants": true,
 	"bench":   true,
@@ -332,8 +330,8 @@ func cargoVerb(args []string) string {
 // isCargoRunVerb reports whether args invoke `cargo run` (task A9's
 // split-lock path) as opposed to any other subcommand -- crucially
 // EXCLUDING `nextest run` (its verb is "nextest", not "run") and `test`:
-// their own execution IS what the lock exists to serialize, so they
-// deliberately keep the lock for the whole call.
+// they build with --no-run rather than through `cargo build`, see
+// cargoTestRunBuildArgs.
 func isCargoRunVerb(args []string) bool {
 	return cargoVerb(args) == "run"
 }
