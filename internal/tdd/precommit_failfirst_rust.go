@@ -75,7 +75,6 @@ func stagedSourceAddsInlineRustTest(repoRoot string, srcFiles []string) bool {
 	if len(want) == 0 {
 		return false
 	}
-	res := testDeclRes[".rs"]
 	for _, fa := range stagedAdds(repoRoot) {
 		if !want[fa.path] {
 			continue
@@ -89,10 +88,8 @@ func stagedSourceAddsInlineRustTest(repoRoot string, srcFiles []string) bool {
 			if no < 1 || no > len(lines) {
 				continue
 			}
-			for _, re := range res {
-				if re.MatchString(lines[no-1]) {
-					return true
-				}
+			if decl, _ := testDeclLine(".rs", lines[no-1]); decl {
+				return true
 			}
 		}
 	}
