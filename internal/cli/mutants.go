@@ -181,7 +181,9 @@ const mutantsUsage = `usage: aphrollo gate mutants <verb>
                      the HAND mutation proof (existing code, no natural RED):
                      replace --old with --new in --file — must match exactly
                      once — verify that the file's content (as git reads
-                     it) changed from the bytes the proof started with, run the file's related tests, and
+                     it) changed from the bytes the proof started with, run
+                     the file's related tests scoped to --want-fail with
+                     fail-fast off (widened when that selects none), and
                      restore the file byte-identically. Refuses rather than
                      running when the pattern matched zero or more than one
                      time, or when the content is unchanged after the write: a

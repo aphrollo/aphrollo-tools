@@ -122,8 +122,11 @@ func TestRunMutantsProve_WidensAnEmptyLibSelectionToTheCratesIntegrationTests(t 
 	if len(ran) != 2 {
 		t.Fatalf("selections run = %s, want the narrow one then the widened one", cmdStrings(ran))
 	}
-	if slices.Contains(ran[1].Args, "--lib") || slices.Contains(ran[1].Args, "-E") {
-		t.Errorf("the widened run still narrows within the crate: %s", cmdString(ran[1]))
+	// The widened run leaves the lib target and the file's module behind;
+	// it may keep the wanted test's own filter, which selects it in any
+	// target.
+	if slices.Contains(ran[1].Args, "--lib") || strings.Contains(cmdString(ran[1]), "car::trace") {
+		t.Errorf("the widened run still narrows to the lib or the mutated module: %s", cmdString(ran[1]))
 	}
 	if !slices.Contains(ran[1].Args, "forge_lab") {
 		t.Errorf("widening dropped the package scope: %s", cmdString(ran[1]))
@@ -192,12 +195,15 @@ func TestRunMutantsProve_AnEmptySelectionEvenAfterWideningNamesBothSelections(t 
 		t.Fatalf("exit = %d, want ExitMutantsProveNoTestsSelected (%d):\n%s\nselections run: %s",
 			code, ExitMutantsProveNoTestsSelected, report, cmdStrings(ran))
 	}
-	if len(ran) != 2 {
-		t.Fatalf("selections run = %s, want the narrow one then the widened one", cmdStrings(ran))
+	// The scoped lib run, the same filter over the whole package, then the
+	// whole package unfiltered.
+	if len(ran) != 3 {
+		t.Fatalf("selections run = %s, want the scoped one and two wider rungs", cmdStrings(ran))
 	}
-	if !strings.Contains(report, cmdString(ran[0])) || !strings.Contains(report, cmdString(ran[1])) {
-		t.Errorf("the refusal does not name both the narrow selection (%s) and the widened one (%s):\n%s",
-			cmdString(ran[0]), cmdString(ran[1]), report)
+	last := ran[len(ran)-1]
+	if !strings.Contains(report, cmdString(ran[0])) || !strings.Contains(report, cmdString(last)) {
+		t.Errorf("the refusal does not name both the narrow selection (%s) and the widest one (%s):\n%s",
+			cmdString(ran[0]), cmdString(last), report)
 	}
 }
 

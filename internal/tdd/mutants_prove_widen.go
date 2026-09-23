@@ -89,14 +89,33 @@ type widenedSelection struct {
 // tests has already observed something and is judged on its own name; a
 // timeout says nothing about selection.
 func widenSurvivorSelection(run SuiteRunner, narrow Runner, root string, res SuiteResult) widenedSelection {
-	if res.TimedOut || (!res.Passed && !proveSelectedZeroTests(narrow, res)) {
+	if settledWithoutWidening(narrow, res) {
 		return widenedSelection{runner: narrow, res: res, outcome: widenNotNeeded}
+	}
+	// A cargo selection first keeps its name filter and drops only the
+	// target: a proof scoped to its wanted test finds that test in whichever
+	// target holds it, without running the rest of the package.
+	if rung, ok := dropCargoTarget(narrow); ok {
+		rres := run(rung, root)
+		if settledWithoutWidening(rung, rres) {
+			return widenedSelection{runner: rung, res: rres, outcome: widenDone}
+		}
+		if wide, ok := widenCargoRunner(rung); ok {
+			return widenedSelection{runner: wide, res: run(wide, root), outcome: widenDone}
+		}
+		return widenedSelection{runner: rung, res: rres, outcome: widenDone}
 	}
 	wide, outcome, why := widenToEveryTestThatCouldKill(narrow, root)
 	if outcome != widenDone {
 		return widenedSelection{runner: narrow, res: res, outcome: outcome, why: why}
 	}
 	return widenedSelection{runner: wide, res: run(wide, root), outcome: widenDone}
+}
+
+// settledWithoutWidening reports whether a run already answers the proof: a
+// timeout, or a red run that ran tests. A green run or an empty one does not.
+func settledWithoutWidening(r Runner, res SuiteResult) bool {
+	return res.TimedOut || (!res.Passed && !proveSelectedZeroTests(r, res))
 }
 
 // widenToEveryTestThatCouldKill builds the selection that covers every test
@@ -160,7 +179,7 @@ func widenGoSelection(narrow Runner, root string) (Runner, widenOutcome, error) 
 		reaching = append(reaching, more...)
 	}
 	reaching = dedupeSorted(reaching)
-	if len(reaching) == len(selected) {
+	if len(reaching) == len(selected) && !goRunFiltered(narrow) {
 		// Same set: dedupeSorted over the reach always contains the selected
 		// dirs themselves, so equal lengths mean nothing was added and the
 		// narrow run already covered every test that could kill the mutant.

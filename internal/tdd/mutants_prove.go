@@ -319,7 +319,7 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 		fmt.Fprintf(stderr, "gate: mutants prove refused — no known test runner under %s; restored\n", root)
 		return ExitMutantsProveRefused
 	}
-	runner = NarrowToRelatedTests(runner, absFile, root)
+	runner = scopeToWantedTest(NarrowToRelatedTests(runner, absFile, root), opts.WantFail)
 	res := run(runner, root)
 	// A green NARROWED run is not yet a survivor, in either language: `--lib`
 	// plus a module filter cannot reach a test in an integration binary, and
