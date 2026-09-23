@@ -126,7 +126,7 @@ func precommitDecide(repoRoot string, run SuiteRunner) GateResult {
 	if docsOnly(repoRoot) {
 		return docsOnlyFastPath("precommit", repoRoot)
 	}
-	if commentOnlyRust(repoRoot) {
+	if commentOnlySource(repoRoot) {
 		return commentOnlyFastPath("precommit", repoRoot)
 	}
 

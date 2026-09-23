@@ -36,7 +36,7 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		}
 		return res
 	}
-	if commentOnlyRust(repoRoot) {
+	if commentOnlySource(repoRoot) {
 		res := commentOnlyFastPath(premergeDisplayName, repoRoot)
 		if len(notes) > 0 {
 			notes = append(notes, res.Message)

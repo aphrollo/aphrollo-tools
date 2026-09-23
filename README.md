@@ -171,6 +171,14 @@ Cheapest first; the first rejection stops the run and is named in `gate.log`.
    mutation measurement when `mutants-at-merge = true` (this repo sets it
    `false`; `gate mutants run` still measures a lane).
 
+Two fast paths skip every stage that builds. A staged set with no source or
+test file (docs-only) runs stages 1-3 and stops. A staged set whose only
+source files are `.go` or `.rs` files with no token changed outside a comment
+(comment-only) runs stages 1-4 and stops. The comparison is token-level
+(`go/scanner` for Go, the shared lexer for Rust). A directive comment
+(`//go:build`, `//go:embed`, a lint suppression), a cgo preamble or a Rust
+doc comment with a fenced example counts as code.
+
 A gofmt rejection on a Windows checkout whose files predate `.gitattributes`
 is fixed once with `git add --renormalize .`. A green result is cached per
 content + argv, shared by every worktree of a repo. A nextest `[profile.gate]`

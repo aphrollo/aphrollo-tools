@@ -45,11 +45,11 @@ func docsOnlyFastPath(gateName, repoRoot string) GateResult {
 		"no source or test staged", false)
 }
 
-// commentOnlyFastPath is docsOnlyFastPath's sibling for a staged Rust source
-// diff that never left a comment (see commentonly.go): the same three tree
+// commentOnlyFastPath is docsOnlyFastPath's sibling for a staged Go or Rust
+// source diff that never left a comment (see commentonly.go): the same three tree
 // guards, plus the commit-time anti-cheat suppression scan the pure prose
 // case never needed. Prose carries no code file suppressionPolicies applies
-// to, but a Source-kind .rs file does, so a directive one of suppress.go's
+// to, but a Source-kind .go or .rs file does, so a directive one of suppress.go's
 // linter/type-checker/coverage patterns recognizes, added inside an
 // otherwise comment-only edit, must still block here rather than riding
 // through on the fast path unmeasured (issue #723's correctness bar: a
@@ -59,7 +59,7 @@ func docsOnlyFastPath(gateName, repoRoot string) GateResult {
 // or not (see Mechanical's own doc comment), so this must not add it there.
 func commentOnlyFastPath(gateName, repoRoot string) GateResult {
 	return buildFreeFastPath(gateName, repoRoot, "comment-only",
-		"staged Rust diff changes no token outside a comment", true)
+		"staged Go/Rust diff changes no token outside a comment", true)
 }
 
 // buildFreeFastPath is docsOnlyFastPath and commentOnlyFastPath's shared
