@@ -58,9 +58,6 @@ func goPackageDir(root, dir string) string {
 	return "."
 }
 
-// dirHasGoFiles reports whether dir holds at least one .go file. An unreadable
-// directory reads as none, which walks the search one level up rather than
-// naming a package that may not exist.
 // goDataFileScope maps a NON-Go repo-relative file this repo's own Go tests
 // read by literal path (gateOwnInputs' membership already promoted it out of
 // Ignore) to the package directory whose tests actually read it. Ordinary
@@ -74,8 +71,42 @@ func goPackageDir(root, dir string) string {
 // directory that does not exist.
 var goDataFileScope = map[string]string{
 	".github/workflows/pipeline.yml": "internal/tdd",
+	// aphrollo.toml lives at the module root, which holds no .go files
+	// either — every reader (ReadMutantsConfig, tomlBoolIn, tomlStringsIn
+	// and friends) is exercised by internal/tdd's own test suite.
+	"aphrollo.toml": "internal/tdd",
 }
 
+// narrowGoSourceEdit builds the edit-time related-tests command for a Source
+// file under a Go runner: a real .go file always narrows to its own
+// directory (it is a .go file there itself, so that directory trivially
+// holds one), the same as always. A non-Go Source file (a config, manifest
+// or embedded asset ClassifyFile also calls Source) may sit in a directory
+// `go test` cannot load at all — aphrollo.toml at the repo root is the case
+// that bites, because the Go files live under cmd/ and internal/. Naming
+// that directory does not skip it, it fails the run outright with "no Go
+// files ... [setup failed]", which used to read as a plain RED for a file
+// the edit never touched as code (#278). This asks the same question
+// narrowToStaged's addDir already asks at commit time (#444):
+// goDataFileScope's declared reader first, else trust the literal directory
+// only once it actually holds .go files; nothing owns it → the broad
+// runner r covers the file instead, unnarrowed.
+func narrowGoSourceEdit(r Runner, rel, root string) Runner {
+	dir := path.Dir(rel)
+	if !strings.HasSuffix(rel, ".go") {
+		if scoped, ok := goDataFileScope[rel]; ok {
+			dir = scoped
+		}
+		if !dirHasGoFiles(filepath.Join(root, dir)) {
+			return r
+		}
+	}
+	return Runner{Cmd: "go", Args: []string{"test", "./" + dir}}
+}
+
+// dirHasGoFiles reports whether dir holds at least one .go file. An unreadable
+// directory reads as none, which walks the search one level up rather than
+// naming a package that may not exist.
 func dirHasGoFiles(dir string) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {

@@ -87,6 +87,11 @@ func TestClassifyOutcome(t *testing.T) {
 		{"missing impl is clean red", false, "./x_test.go:9: undefined: NewWidget", nil, RedMissingImpl},
 		{"python import is bogus", false, "ERROR collecting tests/x.py\nModuleNotFoundError: no module named 'q'", nil, RedBogus},
 		{"syntax error is bogus", false, "SyntaxError: invalid syntax", nil, RedBogus},
+		// A Go target naming a directory with no .go files (a config file
+		// narrowed to a package that does not exist) is a broken TEST TARGET,
+		// not a regression in the code the edit touched — `setup failed`
+		// from an empty target is red-bogus at worst, never a plain red.
+		{"go no files is bogus", false, "no Go files in /repo\nFAIL\t.\t[setup failed]\nFAIL", nil, RedBogus},
 		{"plain assertion failure", false, "--- FAIL: TestThing\n  want 1 got 2", nil, Red},
 		// Rust: the compiler's missing-symbol diagnostics are the clean-RED
 		// signal (E0425 cannot find function/value, E0599 no method named,

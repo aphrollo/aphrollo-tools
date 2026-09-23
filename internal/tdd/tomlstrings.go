@@ -1,7 +1,9 @@
 package tdd
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -44,6 +46,91 @@ func tomlStringsIn(path, table, key string) []string {
 		}
 	}
 	return dedupeSorted(pkgs)
+}
+
+// tomlArrayCommaError reports the array declaring key under table in path as
+// malformed when two of its quoted elements sit back to back with no ','
+// between them — real TOML requires one between every pair of array
+// elements, and tomlStringsIn's own quotedWords extraction does not notice
+// the difference: it reads a comma-less array exactly as if every comma were
+// there. aphrollo.toml's own mutation-accept array shipped that way and
+// nothing downstream noticed. nil for a key the file does not declare, a
+// manifest that cannot be read, or an array whose elements are all properly
+// separated (including the trivial zero- or one-element case) — this check
+// costs nothing beyond the feature it guards.
+func tomlArrayCommaError(path, table, key string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	inTable, inArray, found := false, false, false
+	var body strings.Builder
+	for line := range strings.Lines(string(data)) {
+		trimmed := strings.TrimSpace(line)
+		if !inArray && strings.HasPrefix(trimmed, "[") {
+			inTable = trimmed == table
+			continue
+		}
+		if !inTable {
+			continue
+		}
+		if !inArray {
+			k, val, ok := strings.Cut(trimmed, "=")
+			if !ok || strings.TrimSpace(k) != key {
+				continue
+			}
+			inArray, found = true, true
+			trimmed = val
+		}
+		body.WriteString(trimmed)
+		body.WriteByte('\n')
+		// Same "a quoted ']' never closes the array early" rule tomlStringsIn
+		// applies (issue #139).
+		if strings.Contains(stripQuoted(trimmed), "]") {
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+	before, after, malformed := firstUnseparatedArrayEntries(body.String())
+	if !malformed {
+		return nil
+	}
+	return fmt.Errorf("%s's %s array is missing a comma: %q is immediately followed by %q with nothing between them",
+		filepath.Base(path), key, before, after)
+}
+
+// firstUnseparatedArrayEntries walks body — the raw text of one array,
+// brackets and all — and returns the first pair of quoted entries that sit
+// back to back with no ',' between them. malformed is false when every
+// entry the array declares is separated from its neighbour by a comma,
+// which is vacuously true for zero or one entries.
+func firstUnseparatedArrayEntries(body string) (before, after string, malformed bool) {
+	sawValue := false
+	var prev string
+	for i := 0; i < len(body); {
+		switch body[i] {
+		case '"':
+			content, end, ok := basicStringBody(body[i+1:])
+			if !ok {
+				// An unterminated string swallows the rest of the array;
+				// nothing after it is reachable syntax either.
+				return "", "", false
+			}
+			if sawValue {
+				return prev, content, true
+			}
+			sawValue, prev = true, content
+			i += 1 + end + 1
+		case ',':
+			sawValue = false
+			i++
+		default:
+			i++
+		}
+	}
+	return "", "", false
 }
 
 // stripQuoted removes every double-quoted run from s, so a scan for TOML

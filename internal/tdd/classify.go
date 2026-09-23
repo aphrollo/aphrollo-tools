@@ -265,8 +265,12 @@ var warningRe = regexp.MustCompile(`(?i)\bwarning:|\bdeprecat|\bunused (?:variab
 // missing-symbol RED, which missingImplRe catches below. setupErrRe is checked
 // first, so it must NOT match Zig's undeclared-identifier / no-member output
 // (both end in the generic `error: N compilation errors`, deliberately not
-// keyed on here).
-var setupErrRe = regexp.MustCompile(`(?i)syntaxerror|indentationerror|importerror|modulenotfounderror|error collecting|cannot find module|transform failed|\berror ts\d+\b|error: expected |referenced by:`)
+// keyed on here). "no Go files" is `go test`'s own diagnostic for a TARGET
+// that names a directory with no .go files at all — a scoping bug handing it
+// a package that does not exist, never a regression in code the edit
+// touched, so it belongs beside the other broken-setup signals rather than
+// falling through to a plain Red.
+var setupErrRe = regexp.MustCompile(`(?i)syntaxerror|indentationerror|importerror|modulenotfounderror|error collecting|cannot find module|transform failed|\berror ts\d+\b|error: expected |referenced by:|no go files in`)
 
 // missingImplRe matches the canonical clean-RED signal: the symbol under test
 // does not exist yet. This is the expected first step of a TDD cycle.
