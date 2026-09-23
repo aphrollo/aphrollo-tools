@@ -714,13 +714,13 @@ costs milliseconds instead of a full test build:
 | 1 | `cargo fmt --check -p <touched>` | ms | compiles nothing, takes no build slot |
 | 1f | gofmt, in-process (Go roots) | ms (no process spawn) | judges the STAGED (index) blob of every touched `.go` file with `go/format`, never the bytes on disk — a Windows checkout whose tracked files predate this repo's `.gitattributes` may still hold CRLF there, and a CRLF file is never gofmt-clean. Rejects naming the file(s); the fix is `gofmt -w <file> && git add <file>` (the stage judges the index, not the working tree), or — for that old-checkout case specifically — a ONE-TIME `git add --renormalize .` so the index picks up the LF `.gitattributes` now demands. Nothing to renormalize is a silent no-op |
 | 1g | `go vet ./...` (Go roots) | seconds | CI parity: the gate must run the checks that decide whether the branch is green |
-| 2g | `golangci-lint run --allow-serial-runners <touched packages>` (Go roots) | a full analysis pass | scoped to the packages the commit actually touches (`.` for the root package, `./dir` per distinct package below it) rather than the whole-module wildcard — the same reasoning as clippy's `-p <touched>` above: a two-file commit re-analyzing the whole module pays for every package it did not touch. Skipped with ONE `lint-skipped` log line when the binary is not installed — never a rejection over a tool nobody has. `--allow-serial-runners` because golangci-lint takes a MACHINE-WIDE lock: a second one anywhere on the box otherwise makes this one exit 3 with "parallel golangci-lint is running", a rejection that says nothing about the code. A local version that differs from the one the workflow pins logs ONE `lint-version-drift` line and still runs — a mismatch is not a defect in the code, but a green commit followed by a red CI job is the failure this stage exists to prevent |
+| 2g | `golangci-lint run --allow-serial-runners <touched packages>` (Go roots) | a full analysis pass | scoped to the packages the commit actually touches (`.` for the root package, `./dir` per distinct package below it) rather than the whole-module wildcard — the same reasoning as clippy's `-p <touched>` above: a two-file commit re-analyzing the whole module pays for every package it did not touch. Skipped with ONE `lint-skipped` log line when the binary is not installed — never a rejection over a tool nobody has. Before it ever runs, this stage takes its OWN box-wide, cross-account lint lock (`/var/tmp/aphrollo-locks`, the same directory the build lock shares across every account on the box) so two of THIS gate's own lint invocations — or a local gate and CI's `aphrollo gate lint` step — never reach golangci-lint's OWN lock at the same moment: that lock file is opened 0600 by whichever account creates it first, so a DIFFERENT account's collision is a permission error, not ordinary contention, and `--allow-serial-runners` cannot wait one out. Contention that reaches golangci-lint anyway (a lint run outside this gate's control) is reported as box contention, not a lint failure — the commit still refuses, but the message says retry, never "fix before committing". A local version that differs from the one the workflow pins logs ONE `lint-version-drift` line and still runs — a mismatch is not a defect in the code, but a green commit followed by a red CI job is the failure this stage exists to prevent |
 | 2 | `always-run` packages, their OWN invocation | seconds | a pure guard crate; bundling it into `-p ratchet -p client` made it wait for client to link |
 | 3 | `cargo clippy -p <clippy-clean> --tests -- -D warnings` | front-end build | only crates declared clippy-clean |
 | 4 | `cargo clippy --workspace --tests -- -D clippy::disallowed_methods -D clippy::disallowed_types` | check-level, tens of seconds warm | no codegen, but it sees EVERY crate: a lane that broke a crate nobody staged used to land green (borld's `forge_jbeam` conformance test reached main not compiling). clippy SUBSUMES check, so a compile error fails here too, and denying exactly those two lints is what makes a `clippy.toml` law reach crates that are not on the `clippy-clean` list. Everything else stays at its default level. Rejects `check-rejected` (does not compile) or `lint-rejected` (banned API) |
 | 5 | fail-first RED proof | worktree build | precommit only, and only when the staged tests ADD a declaration |
-| 6 | touched crates' suites | full build + link + run | the heaviest, and therefore last |
-| 7 | `cargo test -p <touched> --doc` | one rustdoc run per crate that has a doc fence | **nextest does not run doctests at all**, so a `compile_fail` proof — the only way to assert something must NOT compile — would never execute. Scoped by a grep of the crate's `src/`: a crate with no doc fence buys no run |
+| 6 | suites of the touched crates + every crate downstream of them | full build + link + run | the heaviest, and therefore last. The merge runs it; the commit names it on a `NOT RUN` line. Downstream is the same list stage 4's check scope prints: a crate that depends on a touched one is where that change's effect is pinned, so a numerical change is judged where the pin lives. With no dependents it is the touched crates alone, never `--workspace` |
+| 7 | `cargo test -p <crate> --doc` over stage 6's crates | one rustdoc run per crate that has a doc fence | **nextest does not run doctests at all**, so a `compile_fail` proof — the only way to assert something must NOT compile — would never execute. Scoped by a grep of the crate's `src/`: a crate with no doc fence buys no run |
 
 When the workspace's nextest configuration declares a `[profile.gate]` table,
 every GATE nextest run (the touched crates' suite, the always-run guards, and
@@ -995,12 +995,12 @@ never leaves target dirs locked by builds that never started.
   shared target dir.
 - **`cargo watch` is NOT a long verb**: it recompiles on every save for as
   long as it is open, so it holds a slot like any other build.
-- **A long verb holds ONE slot for its whole run, and lends it.** `mutants`,
-  `bench` and `install` take a slot, run a prewarm compile under it
-  (`cargo check --tests` for mutants, `cargo build --benches` for bench,
-  `cargo build --tests` otherwise), then RELEASE THE TARGET LOCK and keep the
-  global slot until they exit. In practice `bench` and `install` are the two
-  that reach it: a bare `cargo mutants` is refused outright, and the gate's
+- **A long verb holds ONE slot for its whole run, and lends it.** `mutants`
+  and `install` take a slot, run a prewarm compile under it
+  (`cargo check --tests` for mutants, `cargo build --tests` for install),
+  then RELEASE THE TARGET LOCK and keep the global slot until they exit. In
+  practice `install` is the one that reaches it: a bare `cargo mutants` is
+  refused outright, and the gate's
   own marked run is let past the queue before the classifier is consulted.
   The long phase and every cargo it spawns inherit
   `APHROLLO_SLOT_TOKEN=<slot lock>`, which skips the global semaphore but NOT
@@ -1012,6 +1012,18 @@ never leaves target dirs locked by builds that never started.
   under a slot and launches the binary with neither the slot nor the token
   (the launched process outlives both). The prewarm is a warm-up, not a gate:
   its exit code is discarded and it is skipped outside a cargo project.
+- **A test or bench run holds its slot for the compile only.** `cargo bench`,
+  `cargo nextest run`, and a `cargo test` that names its targets (`--test`,
+  `--lib`, `--tests`, `--all-targets`, ...), first runs the same argv up to the first bare `--`
+  with `--no-run` under the slot, releases the slot, and then runs the
+  original argv holding nothing. Every unit is fresh by then, so the binaries
+  that run are the ones built under the slot, and a ten-minute `--ignored`
+  soak or bench run holds neither a target lock nor a global slot while it
+  executes. A failed compile returns
+  its own exit code and runs nothing. A `cargo test` with doctests in scope
+  (no target flag, or `--doc`) keeps its slot for the whole call, because
+  rustdoc compiles the doctests at run time. The gate's own suite runs are
+  not shim invocations and keep their slot for the run.
 - A waiter still prints exactly one `queued behind "<cmd>" in <cwd>` line
   naming a holder, one line on acquire, and exits 75 (`EX_TEMPFAIL`) when it
   gives up (`APHROLLO_CARGO_WAIT_SECS`, default 20 min).
@@ -1258,6 +1270,44 @@ refusing, so a proof mid-flight is never left guessing:
 ```
 gate: refused — checkout -- <paths> discards 1 file(s), +1/-0 uncommitted; aphrollo gate allow discard arms one command, APHROLLO_DISCARD=1 for scripts (refuses unstaged loss — APHROLLO_DISCARD_UNSTAGED=1 for that); this session holds the pre-mutation working state of verdict.go — MUTATION=1 git checkout -- verdict.go restores THAT rather than the index
 ```
+
+### Lint lock (`aphrollo gate lint`)
+
+golangci-lint takes its own machine-wide advisory lock
+(`$TMPDIR/golangci-lint.lock`) before it analyses anything, opened `0600` by
+whichever account creates it first — so a second account's `os.OpenFile` on
+that same path is a permission error, not ordinary contention, and
+`--allow-serial-runners` (which does make a same-account collision retry
+forever instead of giving up after 5s) cannot wait one out. This box runs a
+local commit gate as one account and a self-hosted CI runner as another,
+sharing one `/tmp`, so the two collided: golangci-lint reports both failure
+shapes identically, `Error: parallel golangci-lint is running`, exit 3.
+
+`aphrollo gate lint <golangci-lint args...>` is the one entry point both
+sides now use instead of invoking `golangci-lint` directly: it takes this
+repo's own box-wide, cross-account lock first —
+
+```
+/var/tmp/aphrollo-locks/aphrollo-golangci-lint.lock
+```
+
+— the same directory and permission model (`0666`, world-writable + sticky,
+re-chmodded on open even when a different account created it) the cargo
+build lock already shares across every account on the box. With that
+guaranteed, at most one golangci-lint process runs anywhere on the box at a
+time, so golangci-lint's own internal lock always finds itself free — the
+same lock file it always creates, torn down by whoever last held it,
+recreated fresh by whoever holds this lock next.
+
+The local commit gate's own lint stage takes the identical lock before
+running golangci-lint in-process; CI's `lint` job in `pipeline.yml` builds
+`./bin/aphrollo` and calls `./bin/aphrollo gate lint run --allow-serial-runners
+./...` rather than the bare binary. `APHROLLO_LINT_WAIT_SECS` overrides how
+long a wait lasts before giving up (exit 75, `EX_TEMPFAIL`); a lint that
+reaches golangci-lint's own lock anyway (one started outside this gate's
+control) is reported as box contention, never as a lint failure — the commit
+still refuses, since nothing was actually linted, but the message says
+retry, not "fix before committing".
 
 ### The queue shims are executables, not batch files
 

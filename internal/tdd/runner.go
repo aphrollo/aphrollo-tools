@@ -675,7 +675,7 @@ func narrowFailFirstTests(r Runner, wt string, tests []string) Runner {
 func narrowSourceEdit(r Runner, rel, root string) Runner {
 	switch r.Cmd {
 	case "go":
-		return Runner{Cmd: "go", Args: []string{"test", "./" + path.Dir(rel)}}
+		return narrowGoSourceEdit(r, rel, root)
 	case "cargo":
 		// Unit tests give the fast per-edit signal; the crate's integration
 		// binaries are the commit gate's job. `--lib` on a bin-only crate is

@@ -33,7 +33,10 @@ import (
 // The two arms agree on what a verdict MEANS, deliberately — someone reading
 // a SURVIVOR should not have to know which language produced it:
 //
-//   - both widen only on a green, never on a red or a timeout;
+//   - both widen only on a green or an empty selection (#758), never on a
+//     red that ran tests or a timeout;
+//   - a selection that ran no test, widened or not, is NO-TESTS-SELECTED in
+//     both, never a survivor;
 //   - the recorded verdict, the names read out of it and the retained run all
 //     come from the widened run;
 //   - a selection that was ALREADY as wide as it goes (no narrowing left to
@@ -79,12 +82,14 @@ type widenedSelection struct {
 // widenSurvivorSelection re-runs a proof's green run over everything that
 // could kill the mutant, and hands back the pair the caller must judge on.
 //
-// It fires only where a SURVIVOR would otherwise be claimed. A red run has
-// already observed something and is judged on its own name; a timeout says
-// nothing about selection; a run that selected zero tests has its own
-// refusal, which is already honest about having tested nothing.
+// It fires where a SURVIVOR would otherwise be claimed, and where the narrow
+// run selected nothing at all (#758): an empty `--lib` filter says the
+// covering tests are elsewhere in the crate, not that there are none, so the
+// wider run answers before any NO-TESTS-SELECTED refusal. A red run that ran
+// tests has already observed something and is judged on its own name; a
+// timeout says nothing about selection.
 func widenSurvivorSelection(run SuiteRunner, narrow Runner, root string, res SuiteResult) widenedSelection {
-	if res.TimedOut || !res.Passed || selectedZeroTests(narrow, res) {
+	if res.TimedOut || (!res.Passed && !proveSelectedZeroTests(narrow, res)) {
 		return widenedSelection{runner: narrow, res: res, outcome: widenNotNeeded}
 	}
 	wide, outcome, why := widenToEveryTestThatCouldKill(narrow, root)
@@ -194,6 +199,14 @@ func goSelectedDirs(r Runner) ([]string, bool) {
 	return dedupeSorted(dirs), true
 }
 
+// proveSelectedZeroTests is selectedZeroTests plus the Go dialect
+// (goRanNoTests, the post-edit ladder's own reader): a proof's whole claim is
+// about tests that ran, so a Go run that executed none must not reach a
+// SURVIVOR either.
+func proveSelectedZeroTests(r Runner, res SuiteResult) bool {
+	return selectedZeroTests(r, res) || goRanNoTests(r, res)
+}
+
 // widenedProveNote is what a verdict reached through both phases says about
 // the first one. A reader auditing a survivor has to be able to tell which
 // selection produced it, and a reader auditing a kill has to be able to tell
@@ -202,7 +215,7 @@ func widenedProveNote(narrow Runner, outcome widenOutcome) string {
 	if outcome != widenDone {
 		return ""
 	}
-	return fmt.Sprintf(" Widened first: %s stayed green, and a narrowed selection cannot run a killing test "+
+	return fmt.Sprintf(" Widened first: %s stayed green or selected no test, and a narrowed selection cannot run a killing test "+
 		"outside what it selected, so this verdict is the wider run's.", cmdString(narrow))
 }
 

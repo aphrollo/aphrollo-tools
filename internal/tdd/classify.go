@@ -265,8 +265,12 @@ var warningRe = regexp.MustCompile(`(?i)\bwarning:|\bdeprecat|\bunused (?:variab
 // missing-symbol RED, which missingImplRe catches below. setupErrRe is checked
 // first, so it must NOT match Zig's undeclared-identifier / no-member output
 // (both end in the generic `error: N compilation errors`, deliberately not
-// keyed on here).
-var setupErrRe = regexp.MustCompile(`(?i)syntaxerror|indentationerror|importerror|modulenotfounderror|error collecting|cannot find module|transform failed|\berror ts\d+\b|error: expected |referenced by:`)
+// keyed on here). "no Go files" is `go test`'s own diagnostic for a TARGET
+// that names a directory with no .go files at all — a scoping bug handing it
+// a package that does not exist, never a regression in code the edit
+// touched, so it belongs beside the other broken-setup signals rather than
+// falling through to a plain Red.
+var setupErrRe = regexp.MustCompile(`(?i)syntaxerror|indentationerror|importerror|modulenotfounderror|error collecting|cannot find module|transform failed|\berror ts\d+\b|error: expected |referenced by:|no go files in`)
 
 // missingImplRe matches the canonical clean-RED signal: the symbol under test
 // does not exist yet. This is the expected first step of a TDD cycle.
@@ -484,10 +488,18 @@ var failLineRes = []*regexp.Regexp{
 	regexp.MustCompile(`(?m)^\s*error: '([^']+)' failed:`), // zig build test
 }
 
+// ansiSGRRe matches one ANSI Select Graphic Rendition sequence (ESC [ … m),
+// the only escape a test runner's colour mode emits.
+var ansiSGRRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
 // ExtractFailingTests returns the sorted, de-duplicated set of failing test
 // names found in runner output. Sorting makes the set stable for delta
 // comparison across runs.
 func ExtractFailingTests(output string) []string {
+	// A runner told to colour its output (CARGO_TERM_COLOR=always) does so
+	// into a pipe too, splitting a status line into SGR-wrapped spans no
+	// line-anchored pattern matches (#744). The name is read from the text.
+	output = ansiSGRRe.ReplaceAllString(output, "")
 	seen := map[string]bool{}
 	for _, re := range failLineRes {
 		for _, m := range re.FindAllStringSubmatch(output, -1) {

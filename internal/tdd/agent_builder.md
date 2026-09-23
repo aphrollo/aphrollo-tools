@@ -15,8 +15,10 @@ mutation proof for code that already exists, evidence before a completion claim.
 
 ## The gate runs the tests, not you
 
-After every Edit/Write the hook prints exactly ONE `gate:` line. Read it. Never
-re-run a suite it just ran.
+After every Edit/Write the hook prints exactly ONE `gate:` line for the edit. After
+it comes one `gate: deferred` line per earlier deferred job of this session, in
+any tree, that finished since; each names its own tree and command. Read them.
+Never re-run a suite they ran.
 
 - `green (N passed)` — proven. Quote this line in your report.
 - `red-missing-impl` — the clean RED. Now write the implementation.

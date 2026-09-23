@@ -491,7 +491,7 @@ func TestMeasure_GoRepoOnWindowsStandsDown(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	t.Cleanup(SetFreeSpaceForTest(999, true))
 	root, base := makeGoMeasureRepo(t)
-	t.Cleanup(setMutantsGOOSForTest("windows"))
+	t.Cleanup(SetMutantsGOOSForTest("windows"))
 	calls := stubMutantsExec(t, nil)
 
 	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base})
@@ -519,7 +519,7 @@ func TestMeasure_GoRepoUsesGremlinsScopedToMergeBase(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Cleanup(SetFreeSpaceForTest(999, true))
 	root, base := makeGoMeasureRepo(t)
-	t.Cleanup(setMutantsGOOSForTest("linux"))
+	t.Cleanup(SetMutantsGOOSForTest("linux"))
 	// The worker count is the BOX's, and the argv below is asserted exactly:
 	// pinned here, this test is about what gremlins is asked to do rather
 	// than how many cores the machine running the suite has. A CI runner

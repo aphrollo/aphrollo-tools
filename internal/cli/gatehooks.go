@@ -68,14 +68,22 @@ func runGateMergeHook(name string, stderr io.Writer) int {
 		}
 	} else {
 		res = tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
-		if !res.Blocked {
-			// Stamp the tree a suite actually RAN GREEN on, so the
-			// post-commit hook can put the gate note on the commit and CI
-			// can tell a red on a proven tip from a red on an ungated one.
-			// A gate that allowed the commit because there was nothing to
-			// test has proven nothing and stamps nothing.
-			tdd.StampGreenSuiteIfProven(root)
-		}
+	}
+	if !res.Blocked {
+		// Stamp the tree a suite actually RAN GREEN on, so the post-commit
+		// hook can put the gate note on the commit and CI can tell a red on
+		// a proven tip from a red on an ungated one. A gate that allowed the
+		// commit because there was nothing to test has proven nothing and
+		// stamps nothing.
+		//
+		// The merge gate stamps too (#749): its suites are the ones that ran
+		// on the merged tree, and the stamp is keyed on that tree, so a
+		// commit-msg judging an amend that leaves the tree unchanged reads
+		// the merge's own verdict instead of whichever hook ran last. An
+		// automatic merge fires no post-commit, so the stamp outlives the
+		// merge until the next commit's post-commit consumes it; it vouches
+		// for its own tree and no other.
+		tdd.StampGreenSuiteIfProven(root)
 	}
 	// Surface the note (e.g. a fail-open skip) even when allowing — the gate
 	// is never silent about why it did or didn't run.

@@ -1,5 +1,7 @@
 package tdd
 
+import "time"
+
 // Split out of posttooluse.go (module_size, issue #430): executing ONE
 // post-edit runner, and the trailing note an advisory may carry.
 
@@ -8,13 +10,15 @@ package tdd
 // ends the hook — already logged. Lifted out of postEditFile so the widened
 // retry (resolveEmptySelection) inherits the identical lock, deadline and
 // timeout-streak handling instead of a second copy of it that could drift.
-func runPostEditSuite(run SuiteRunner, snap stateSnapshot, root, headSHA string) (SuiteResult, string) {
+// budget is what this run may spend: the whole post-edit timeout for the
+// narrowed run, and only what that run left over for each rung above it.
+func runPostEditSuite(run SuiteRunner, snap stateSnapshot, root, headSHA string, budget time.Duration) (SuiteResult, string) {
 	// No budget floor here (the trailing zero): an edit hook's budget is not
 	// a promise to finish, it is the foreground slice before the work goes
 	// deferred and reports at the next hook, so a floor would only hold the
 	// session at the keyboard for a verdict it is already arranged to get
 	// later.
-	res, _, acquired := runCargoLocked(run, snap.runner, root, buildLockPostEditDeadline, DefaultPostEditTimeout, 0)
+	res, _, acquired := runCargoLocked(run, snap.runner, root, buildLockPostEditDeadline, budget, 0)
 	if !acquired {
 		// Another cargo build already holds the machine-wide lock — the
 		// suite never even started, so this is a DIFFERENT fact from a

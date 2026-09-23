@@ -33,20 +33,17 @@ func containsEnvKV(env []string, kv string) bool {
 }
 
 // TestCargoLongVerbs_MatchWhatTheyActuallyCompile pins two mistakes in the
-// long-verb table: `bench` compiles BENCH targets, so a `build --tests`
-// prewarm warmed the wrong thing and the real compile then ran unslotted;
-// and `cargo watch` recompiles on every save for as long as it is open, so
-// treating it as "one prewarm then unlocked forever" hands the box to a
-// process that never stops building.
+// slotted compiles: `bench` compiles BENCH targets, so a `build --tests`
+// compile under the slot warmed the wrong thing and the real compile then
+// ran unslotted; and `cargo watch` recompiles on every save for as long as it
+// is open, so treating it as "one prewarm then unlocked forever" hands the
+// box to a process that never stops building.
 func TestCargoLongVerbs_MatchWhatTheyActuallyCompile(t *testing.T) {
 	if isCargoLongVerb([]string{"watch", "-x", "test"}) {
 		t.Fatal("cargo watch keeps compiling — it must hold a slot like any other build")
 	}
-	if !isCargoLongVerb([]string{"bench"}) {
-		t.Fatal("cargo bench still prewarms under a slot")
-	}
-	if got := strings.Join(cargoPrewarmArgs([]string{"bench"}), " "); !strings.Contains(got, "--benches") {
-		t.Fatalf("bench prewarm = %q, want it to build the bench targets", got)
+	if got, split := cargoTestRunBuildArgs([]string{"bench"}); !split || strings.Join(got, " ") != "bench --no-run" {
+		t.Fatalf("bench compile under the slot = %q (split %v), want the bench targets built by `bench --no-run`", got, split)
 	}
 	if got := strings.Join(cargoPrewarmArgs([]string{"mutants"}), " "); !strings.Contains(got, "check") {
 		t.Fatalf("mutants prewarm = %q, want a typecheck", got)

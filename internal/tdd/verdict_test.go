@@ -116,6 +116,33 @@ func TestVerdictFor_BlocksOnVacuousForEveryRegisteredStage(t *testing.T) {
 	requireLoggedVerdict(t, cfg, "vacuous-rejected")
 }
 
+// TestVerdictFor_BlocksOnContentionForEveryRegisteredStage pins a stage that
+// could not even run because of BOX CONTENTION — a lock (this gate's own, or
+// an external tool's) stayed held for the whole wait, never a verdict about
+// the code. It blocks (nothing was proven clean either way), logs its own
+// token distinct from "blocked" (a real failure), and carries the caller's
+// message verbatim so a retry remedy survives the shared mapping.
+func TestVerdictFor_BlocksOnContentionForEveryRegisteredStage(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	root := t.TempDir()
+
+	for _, stage := range registeredStages {
+		got := verdictFor("precommit", stage, root, "some-cmd", stageOutcome{
+			kind:    outcomeContention,
+			reason:  "another lint held the lock",
+			message: "retry once it finishes",
+		})
+		if !got.Blocked {
+			t.Fatalf("stage %q: contention must block, got unblocked GateResult %+v", stage, got)
+		}
+		if got.Message != "retry once it finishes" {
+			t.Fatalf("stage %q: contention message = %q, want the caller's message verbatim", stage, got.Message)
+		}
+	}
+	requireLoggedVerdict(t, cfg, "contention-rejected")
+}
+
 // TestGoCheckStage_BlocksOnTimeoutInsteadOfFailingOpen: goCheckStage backs
 // `go vet` and golangci-lint. Before this change a TimedOut SuiteResult
 // returned an empty, non-blocking GateResult and printed only to stderr — a

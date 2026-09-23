@@ -156,7 +156,10 @@ func WaitDeferredEditJob(root string) (advisory string, ok bool) {
 	project := j.Project
 	headSHA := headSHAFor(root)
 	for {
-		line, _ := harvestDeferred(project, headSHA, j.FileHash, j.Session, waitDeferredPollInterval, nil, "")
+		// Judged against the tree as it stands, never the identity the job
+		// recorded for itself: that always matched, so a result the tree had
+		// moved past printed as the current verdict.
+		line, _ := harvestDeferred(project, headSHA, sourceIdentity(project, j.File), j.Session, waitDeferredPollInterval, nil, "")
 		if strings.HasPrefix(line, "gate: → BUILDING") {
 			time.Sleep(waitDeferredPollInterval)
 			continue

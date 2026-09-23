@@ -33,15 +33,6 @@ var rustDiagLocRe = regexp.MustCompile(`^\s*--> (\S+?):(\d+):\d+`)
 // compiler diagnostic at all.
 var attributedToolchains = map[string]bool{"go": true, "cargo": true}
 
-// classifyEditRun is the ONE place a post-edit run becomes an Outcome, for
-// the foreground run, the same-hook deferred phase and the later harvest
-// alike: ClassifyOutcome over the failure-scoped text, then the clean-RED
-// claim held to where the compiler says the missing name is used.
-func classifyEditRun(r Runner, root string, res SuiteResult, prevFailing []string) Outcome {
-	text := classificationOutput(res.Output, res.GoTestJSON)
-	return attributeMissingImpl(ClassifyOutcome(res.Passed, text, prevFailing), r, root, text)
-}
-
 // attributeMissingImpl keeps a RedMissingImpl verdict only when one of the
 // run's missing-symbol diagnostics is located in test code, and answers Red
 // otherwise. Every other outcome, and every runner outside

@@ -304,6 +304,16 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 		return ExitMutantsProveRefused
 	case mutationDiffNoChange:
 		restore()
+		// Git keeps no baseline for a file it does not track, so a diff of
+		// one is empty whatever was written. That is the one cause in the
+		// list below the prover can confirm, and it has a one-command fix.
+		if tracked, err := git(repoRoot, "ls-files", "--", relPath); err == nil && strings.TrimSpace(tracked) == "" {
+			fmt.Fprintf(stderr, "gate: mutants prove refused — %s is untracked, so git has no baseline to diff "+
+				"the mutation against; restored, nothing was proved. Stage it (`git add %s`) and prove again. "+
+				"`git add -N` is not enough: an intent-to-add file diffs as wholly new whether or not the "+
+				"mutation landed, so the check would prove nothing.\n", relPath, relPath)
+			return ExitMutantsProveRefused
+		}
 		fmt.Fprintf(stderr, "gate: mutants prove refused — git diff --numstat reports no change for %s after the "+
 			"mutation; restored, nothing was proved. Common causes: the file is untracked, the edit landed in a "+
 			"different worktree, or the tree was already in the mutated state.%s\n", relPath, eolSuffix())
@@ -362,12 +372,19 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	// inconclusive run, because the session can simply run again. A proof
 	// cannot: its whole claim is about tests that ran, so an empty selection
 	// ends it.
-	if selectedZeroTests(runner, res) {
+	if proveSelectedZeroTests(runner, res) {
+		hint := "The filter matched no test at all: check it against the module path the tests are really " +
+			"under (a Rust `#[path = \"…\"] mod <name>;` mounts a file under <name>, not under its own file stem)."
+		if runner.Cmd == "go" {
+			hint = "No test in the mutated package or in any package whose tests import it ran."
+		}
+		if widened == widenDone {
+			hint = fmt.Sprintf("It was already widened from %s, which selected none either: no test in "+
+				"this package's reach exercises the file.", cmdString(narrow))
+		}
 		fmt.Fprintf(stderr, "gate: mutants prove refused — %s: %s in %s selected zero tests, so nothing "+
-			"exercised the mutation; restored, nothing was proved — this is NOT a survivor. The filter matched "+
-			"no test at all: check it against the module path the tests are really under (a Rust "+
-			"`#[path = \"…\"] mod <name>;` mounts a file under <name>, not under its own file stem), or widen "+
-			"the scope and run the proof again.\n", strings.ToUpper(NoTestsSelected), cmdString(runner), root)
+			"exercised the mutation; restored, nothing was proved — this is NOT a survivor. %s\n",
+			strings.ToUpper(NoTestsSelected), cmdString(runner), root, hint)
 		return retainProveRun(root, runner, res, ExitMutantsProveNoTestsSelected)
 	}
 

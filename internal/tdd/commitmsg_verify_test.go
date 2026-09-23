@@ -135,3 +135,63 @@ func TestVerificationClaim_CacheHitResolvesAtTheCrateRootNotTheRepoRoot(t *testi
 		t.Fatalf("the cache hit was computed at the crate root and must be resolved there too: %s", got.Message)
 	}
 }
+
+// #749's other door: the stamp vouches for one commit and the post-commit
+// hook consumes it, turning it into the gate note on that commit. Amending
+// the message of a commit whose note names its own tree — the index still
+// that tree — is the same tree the suite ran green on, and the claim stands
+// on the commit's own verdict rather than on whichever hook ran last.
+func TestVerificationClaim_AnAmendThatKeepsTheTreeKeepsTheCommitsGreenNote(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+	var ran []Runner
+	if note := noteAfterGate(t, root, func() GateResult { return Mechanical(root, recordRunner(&ran, root)) }); note == "" {
+		t.Fatalf("premise broken — the merge-gate run left no note on the commit; runs %+v", ran)
+	}
+
+	got := CommitMsg(root, msgFile(t, claimBody))
+
+	if got.Blocked {
+		t.Fatalf("an amend over the tree the commit's own note vouches for was refused: %s", got.Message)
+	}
+}
+
+// The note stays bound to its tree: once the amend stages anything, the
+// index is a tree no suite ran on, and the note on HEAD says nothing about it.
+func TestVerificationClaim_AnAmendThatChangesTheTreeDoesNotInheritTheNote(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+	var ran []Runner
+	if note := noteAfterGate(t, root, func() GateResult { return Mechanical(root, recordRunner(&ran, root)) }); note == "" {
+		t.Fatalf("premise broken — the merge-gate run left no note on the commit; runs %+v", ran)
+	}
+	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 2 }\n")
+	gitDo(t, root, "add", ".")
+
+	got := CommitMsg(root, msgFile(t, claimBody))
+
+	if !got.Blocked {
+		t.Fatal("a note on HEAD vouched for a staged tree no suite ran on")
+	}
+}
+
+// Keeping the tree is not enough on its own: the commit being amended must
+// carry the note: an amend of a commit no suite ever vouched for claims
+// nothing it can stand on.
+func TestVerificationClaim_AnAmendOfAnUnprovenCommitIsStillRefused(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "Add X")
+
+	got := CommitMsg(root, msgFile(t, claimBody))
+
+	if !got.Blocked {
+		t.Fatal("an amend of a commit carrying no gate note was allowed to claim verification")
+	}
+}

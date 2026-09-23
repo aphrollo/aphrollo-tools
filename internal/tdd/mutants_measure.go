@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +42,11 @@ type MeasureOpts struct {
 	Ctx  context.Context
 	Base string    // sha or ref the lane is measured against
 	Log  io.Writer // the run's own narrative; never the verdict
+	// ReportOut is where to publish what this run measured, for a box whose
+	// own runner cannot measure the same tree (mutants_runner.go). Empty
+	// publishes nothing, which is every local run: only the CI job that
+	// measures on behalf of another box passes it.
+	ReportOut string
 }
 
 // mutantsExecFn runs one mutation tool and reports its exit code. A seam, the
@@ -106,8 +110,8 @@ func SetMutantsExecForTest(fn func(ctx context.Context, dir string, env, argv []
 // Windows stand-down can be proved on any box.
 var mutantsGOOSFn = func() string { return runtime.GOOS }
 
-// setMutantsGOOSForTest forces the platform for the duration of a test.
-func setMutantsGOOSForTest(goos string) (restore func()) {
+// SetMutantsGOOSForTest forces the platform for the duration of a test.
+func SetMutantsGOOSForTest(goos string) (restore func()) {
 	prev := mutantsGOOSFn
 	mutantsGOOSFn = func() string { return goos }
 	return func() { mutantsGOOSFn = prev }
@@ -137,7 +141,7 @@ func MeasureLane(root string, cfg MutantsConfig, opts MeasureOpts) (Verdict, err
 		return Verdict{}, fmt.Errorf("no base to measure %s against", root)
 	}
 	if isGoModuleRepo(root) {
-		return measureGoLane(ctx, root, cfg, base, log)
+		return measureGoLane(ctx, root, cfg, base, opts.ReportOut, log)
 	}
 	return measureCargoLane(ctx, root, cfg, base, log)
 }
@@ -229,15 +233,16 @@ func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base 
 // measureGoLane is the Go half. gremlins is invoked exactly as the detached
 // job invoked it, scoped to the same merge base, and its report is read the
 // same way.
-func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base string, log io.Writer) (Verdict, error) {
+func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base, reportOut string, log io.Writer) (Verdict, error) {
 	if mutantsGOOSFn() == "windows" {
 		// gremlins reports 0.00% mutator coverage here — 4890 mutants NOT
-		// COVERED on this repo's own tree. A verdict saying every mutant
-		// survived is the wrong answer in the blocking direction, so the
-		// run does not happen. What that leaves is a GAP, not a skip, and
-		// it says so: issue #697 measured seventeen merges landing from
-		// this box against a line that read like the other nine stages.
-		return measureUnmeasured(root, gremlinsWindowsGap, "gremlins-windows", log), nil
+		// COVERED on this repo's own tree — so the run does not happen on
+		// this box. It happens on the self-hosted Linux runner instead, and
+		// what arrives here is that measurement, consumed only when it is a
+		// measurement of the exact tree this gate is judging
+		// (mutants_runner.go). When none is, the outcome is the gap issue
+		// #699 built: inconclusive, and blocking nothing.
+		return measureOnRunner(root, cfg, log), nil
 	}
 	files, err := measureGoDiff(root, base)
 	if err != nil {
@@ -297,7 +302,12 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base str
 	// those verdicts that selection could actually have reached is a
 	// question about the MODULE, answered here in one `go list` for the
 	// whole run (issue #695).
-	return finishMeasure(root, cfg, classifyGoSurvivorReach(root, mutants), log), nil
+	outcomes := classifyGoSurvivorReach(root, mutants)
+	// Published before the judging, not after: what another box needs is the
+	// OUTCOMES, judged there against the accept-list that lives in the tree
+	// this measurement is bound to.
+	writeRunnerReport(root, reportOut, base, outcomes, log)
+	return finishMeasure(root, cfg, outcomes, log), nil
 }
 
 // gremlinsReportPath is where the Go runner writes its machine-readable
@@ -339,61 +349,6 @@ func runMutantsMeasured(ctx context.Context, root string, env, argv []string, lo
 	code, err := mutantsExecFn(ctx, root, env, argv, io.MultiWriter(log, &tee))
 	release()
 	return code, tee.String(), err
-}
-
-// cargoMutantsArgv is the whole command line: cargo-mutants is a cargo
-// subcommand, so the program is cargo and the tool is its first argument.
-func cargoMutantsArgv(flags []string) []string {
-	return append([]string{"cargo", "mutants"}, flags...)
-}
-
-// MutantsArgv is cargo-mutants' own flags for a lane measurement, built in
-// one place so what the tool is asked to do is one literal a reviewer reads:
-// mutate a copy of the SOURCE tree, only inside the lane's diff, in the order
-// the diff names them, through nextest, with a timeout budget derived from
-// the last measured baseline.
-//
-// There is no `--in-place`: it mutates the one checkout and forbids `--jobs`
-// with it, which made the run one job by construction — 739 mutants in 16 h
-// on a box that could measure eight at once. An argv carrying both exits
-// before the first mutant with "error: the argument '--in-place' cannot be
-// used with '--jobs <JOBS>'" (issue #592). There is no `--jobs` here either:
-// concurrency is one PROCESS per shard, and mutantsShardArgv gives each of
-// them `--jobs 1`.
-//
-// packages narrows both the mutant pool and the unmutated BASELINE to the
-// crates the diff touches; empty falls back to the whole workspace rather
-// than measuring nothing. excludeFilter is the repo's own
-// mutation-baseline-exclude, already combined into one nextest filterset —
-// passed after `--`, which is where cargo-mutants forwards it to the SAME
-// test command it runs for both the baseline and every mutant.
-func MutantsArgv(diffPath string, minTestTimeout int, packages []string, excludeFilter string) []string {
-	if minTestTimeout < mutantsMinTestTimeoutFloor {
-		minTestTimeout = mutantsMinTestTimeoutFloor
-	}
-	argv := []string{
-		// --no-shuffle: two runs of the same tree must name their mutants in
-		// the same order, or a report is not comparable with the one before
-		// it.
-		// --copy-target=false: the copy carries the SOURCE TREE ONLY. With
-		// it true every copy also carried the workspace target dir — on the
-		// repo that produced this design, 294 GB of build products against
-		// 37 MB of sources, copied byte for byte because NTFS has no
-		// reflink: 375 GB in 1 h 47 min, then a full drive and no verdict.
-		// The warm build products live outside the copies instead, one
-		// PERSISTENT target dir per shard (mutants_shards.go), so a copy is
-		// megabytes and still builds incrementally.
-		"--copy-target=false", "--in-diff", diffPath, "--no-shuffle", "--test-tool=nextest",
-		"--minimum-test-timeout", strconv.Itoa(minTestTimeout),
-		"--timeout-multiplier", strconv.Itoa(mutantsTimeoutMultiplier),
-	}
-	for _, pkg := range packages {
-		argv = append(argv, "--package", pkg)
-	}
-	if excludeFilter != "" {
-		argv = append(argv, "--", "-E", excludeFilter)
-	}
-	return argv
 }
 
 // mutantsTimeoutMultiplier is how many times the measured baseline a single
