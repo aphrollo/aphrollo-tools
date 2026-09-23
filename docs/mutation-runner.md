@@ -299,6 +299,21 @@ needs every thread on the box, and four runs sharing it 4:1 measure nothing
 usefully for any of them (issue #253). A second run queues, announcing who it
 is waiting for about once a minute. There is no timeout on that wait.
 
+**Nor while the box's CI runs.** The self-hosted GitHub runners share the box,
+and their jobs take neither that lock nor a build slot. Each tool times its
+mutants from a step it runs first (gremlins' coverage gather, cargo-mutants'
+baseline), so a CI job that starts after that step turns healthy mutants into
+timeouts: one run that overlapped two PRs' jobs reported 21 timed out of 35,
+and the same tree on a quiet box caught 35 of 35. So once the lock is held and
+before the tool starts, a run looks for busy runner jobs: `Runner.Worker`
+processes, found by the basename of `argv[0]` in `/proc`, one per running job
+beside each runner's always-running `Runner.Listener`. A job this process runs
+inside is not counted, since the nightly workflow measures from within one.
+When one is busy the run prints which, waits, and says again every minute;
+after 15 minutes it measures anyway and says a timeout may be the box's load
+(logged as `mutants-ci-busy`). A box with no busy job, or no `/proc`, waits
+for nothing and prints nothing.
+
 ### Temp dirs, build dir, free space
 
 The shard count is what the BOX allows, lowered by what the drive fits and

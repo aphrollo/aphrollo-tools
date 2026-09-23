@@ -303,6 +303,7 @@ func gremlinsReportPath(root string) string {
 func runMutantsMeasured(ctx context.Context, root string, env, argv []string, log io.Writer) (int, string, error) {
 	var tee strings.Builder
 	release := acquireMutantsRunLock("mutants measure for "+root, root)
+	waitForCIRunnerJobs(ctx, root, log)
 	code, err := mutantsExecFn(ctx, root, env, argv, io.MultiWriter(log, &tee))
 	release()
 	return code, tee.String(), err

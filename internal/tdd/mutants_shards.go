@@ -170,6 +170,7 @@ func runMutantsShards(ctx context.Context, root string, cfg MutantsConfig, argv 
 	shared := &lockedWriter{to: log}
 	release := acquireMutantsRunLock("mutants measure for "+root, root)
 	defer release()
+	waitForCIRunnerJobs(ctx, root, log)
 	// Decided HERE, where the shards are about to start, rather than by the
 	// caller: the run's build width is a fact about the state of the
 	// persistent target dirs at the moment the processes are spawned, and the
