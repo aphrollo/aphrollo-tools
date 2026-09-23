@@ -56,7 +56,7 @@ func withQualityNotes(d Decision, path, post string, added map[int]bool) Decisio
 	if d.Action == Block {
 		return d
 	}
-	notes := testQualityNotesOn(path, post, added)
+	notes := qualityNotesOn(path, post, added)
 	if len(notes) == 0 {
 		return d
 	}

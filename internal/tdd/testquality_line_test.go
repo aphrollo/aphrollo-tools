@@ -50,11 +50,11 @@ func TestQualityNotes_MarkerAboveTheEnclosingAssertCoversItsInnerComparison(t *t
 	const path = `D:\borld\crates\forge_solver\src\ground_contact\patch\tests\substep_probe.rs`
 	body := "    assert!(\n        samples.iter().all(|s| {\n            let err = (s.got - s.want).abs();\n            err < 1e-6\n        }),\n        \"a substep drifted: {samples:?}\"\n    );\n"
 	explained := "#[test]\nfn substeps_agree() {\n    // tolerance: four substeps accumulate f64 rounding\n" + body + "}\n"
-	if notes := TestQualityNotes(path, explained); len(notes) != 0 {
+	if notes := QualityNotes(path, explained); len(notes) != 0 {
 		t.Fatalf("notes = %v, want the marker above the assert to cover its inner comparison", notes)
 	}
 	bare := "#[test]\nfn substeps_agree() {\n" + body + "}\n"
-	notes := TestQualityNotes(path, bare)
+	notes := QualityNotes(path, bare)
 	if len(notes) != 1 || !strings.Contains(notes[0], "substep_probe.rs:6:") {
 		t.Fatalf("notes = %v, want the unexplained comparison named at line 6", notes)
 	}
@@ -67,7 +67,7 @@ func TestQualityNotes_MarkerAboveAClosedAssertDoesNotCoverTheNextOne(t *testing.
 	t.Parallel()
 	const path = `D:\borld\crates\pose\src\a_tests.rs`
 	src := "#[test]\nfn t() {\n    // tolerance: the first one is explained\n    assert!(\n        a.is_finite()\n    );\n    assert!(\n        approx_eq(a, b)\n    );\n}\n"
-	notes := TestQualityNotes(path, src)
+	notes := QualityNotes(path, src)
 	if len(notes) != 1 || !strings.Contains(notes[0], "a_tests.rs:8:") {
 		t.Fatalf("notes = %v, want the second assert's tolerance named at line 8", notes)
 	}
@@ -80,7 +80,7 @@ func TestQualityNotes_MarkerAboveASingleLineAssertCoversNothingBelowIt(t *testin
 	t.Parallel()
 	const path = `D:\borld\crates\pose\src\a_tests.rs`
 	src := "#[test]\nfn t() {\n    // tolerance: the first one is explained\n    assert!(a.is_finite());\n    let b = a * 2.0;\n    let c = b + 1.0;\n    assert!((c - b).abs() < 1e-6);\n}\n"
-	notes := TestQualityNotes(path, src)
+	notes := QualityNotes(path, src)
 	if len(notes) != 1 || !strings.Contains(notes[0], "a_tests.rs:7:") {
 		t.Fatalf("notes = %v, want the unexplained comparison named at line 7", notes)
 	}

@@ -23,7 +23,7 @@ func preEditPayload(path, content string) []byte {
 func TestQualityNotes_WeakPhysicsBar(t *testing.T) {
 	t.Parallel()
 	src := "#[test]\nfn stiffness_is_right() {\n    assert!(k > 0.0);\n}\n"
-	notes := TestQualityNotes(`D:\borld\crates\forge_solver\src\truss_tests.rs`, src)
+	notes := QualityNotes(`D:\borld\crates\forge_solver\src\truss_tests.rs`, src)
 	if len(notes) == 0 || !strings.Contains(strings.Join(notes, "\n"), "closed-form") {
 		t.Fatalf("notes = %v, want a weak-bar note naming the closed-form value", notes)
 	}
@@ -33,7 +33,7 @@ func TestQualityNotes_WeakPhysicsBar(t *testing.T) {
 
 	// The same shape in a crate whose numbers are not physical is not this
 	// smell — a sign check on a counter is a fine assertion.
-	if notes := TestQualityNotes(`D:\borld\crates\ui\src\widget_tests.rs`, src); len(notes) != 0 {
+	if notes := QualityNotes(`D:\borld\crates\ui\src\widget_tests.rs`, src); len(notes) != 0 {
 		t.Fatalf("notes = %v, want silence outside the physics/Tier-1 crates", notes)
 	}
 }
@@ -45,13 +45,13 @@ func TestQualityNotes_GenericTestName(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"fn test_apply()", "fn apply_works()", "fn apply_basic()", "fn smoke_apply()"} {
 		src := "#[test]\n" + name + " {}\n"
-		notes := TestQualityNotes(`D:\borld\crates\ui\src\a_tests.rs`, src)
+		notes := QualityNotes(`D:\borld\crates\ui\src\a_tests.rs`, src)
 		if len(notes) == 0 || !strings.Contains(strings.Join(notes, "\n"), "red") {
 			t.Fatalf("%s: notes = %v, want a naming note", name, notes)
 		}
 	}
 	src := "#[test]\nfn rejects_a_zero_length_edge() {}\n"
-	if notes := TestQualityNotes(`D:\borld\crates\ui\src\a_tests.rs`, src); len(notes) != 0 {
+	if notes := QualityNotes(`D:\borld\crates\ui\src\a_tests.rs`, src); len(notes) != 0 {
 		t.Fatalf("notes = %v, want silence for a name that states the behaviour", notes)
 	}
 }
@@ -62,11 +62,11 @@ func TestQualityNotes_GenericTestName(t *testing.T) {
 func TestQualityNotes_UnexplainedTolerance(t *testing.T) {
 	t.Parallel()
 	bare := "#[test]\nfn t() {\n    assert!(approx_eq(a, b));\n}\n"
-	if notes := TestQualityNotes(`D:\borld\crates\pose\src\a_tests.rs`, bare); len(notes) == 0 {
+	if notes := QualityNotes(`D:\borld\crates\pose\src\a_tests.rs`, bare); len(notes) == 0 {
 		t.Fatal("an unexplained tolerance must be named")
 	}
 	explained := "#[test]\nfn t() {\n    // tolerance: the solver integrates over 4 substeps\n    assert!(approx_eq(a, b));\n}\n"
-	if notes := TestQualityNotes(`D:\borld\crates\pose\src\a_tests.rs`, explained); len(notes) != 0 {
+	if notes := QualityNotes(`D:\borld\crates\pose\src\a_tests.rs`, explained); len(notes) != 0 {
 		t.Fatalf("notes = %v, want silence when the tolerance names its consumer", notes)
 	}
 }
@@ -77,7 +77,7 @@ func TestQualityNotes_UnexplainedTolerance(t *testing.T) {
 func TestQualityNotes_SkipPlatformPins(t *testing.T) {
 	t.Parallel()
 	src := "#[test]\nfn test_x() {\n    assert!(k > 0.0);\n}\n"
-	if notes := TestQualityNotes(`D:\borld\crates\forge_math\src\libm_platform_pin.rs`, src); len(notes) != 0 {
+	if notes := QualityNotes(`D:\borld\crates\forge_math\src\libm_platform_pin.rs`, src); len(notes) != 0 {
 		t.Fatalf("notes = %v, want a platform pin left alone", notes)
 	}
 }

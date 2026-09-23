@@ -34,18 +34,18 @@ var toleranceReasonRe = regexp.MustCompile(`//\s*(?:tolerance|why)\s*:`)
 // often exactly the right assertion.
 var physicsCrateRe = regexp.MustCompile(`(?:^|[\\/])crates[\\/](forge\w*|movement|pose|shared)[\\/]`)
 
-// TestQualityNotes reports the advisory notes for one test file's content,
+// QualityNotes reports the advisory notes for one test file's content,
 // each as "<file>:<line>: <note>". Empty for a file that is not a Rust test,
 // and for platform pins, which record what a MACHINE does — a sign bar or a
 // tolerance there is the point of the file.
-func TestQualityNotes(path, content string) []string {
-	return testQualityNotesOn(path, content, nil)
+func QualityNotes(path, content string) []string {
+	return qualityNotesOn(path, content, nil)
 }
 
-// testQualityNotesOn is TestQualityNotes restricted to the 1-based lines in
+// qualityNotesOn is QualityNotes restricted to the 1-based lines in
 // only; nil judges every line. Line numbers are always content's own, so a
 // caller passing the whole file gets notes that name the file's lines.
-func testQualityNotesOn(path, content string, only map[int]bool) []string {
+func qualityNotesOn(path, content string, only map[int]bool) []string {
 	if strings.ToLower(filepath.Ext(path)) != ".rs" || strings.Contains(path, "_platform_pin") {
 		return nil
 	}
