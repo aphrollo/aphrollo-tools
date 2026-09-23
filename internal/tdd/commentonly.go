@@ -50,14 +50,16 @@ func commentOnlyRust(repoRoot string) bool {
 // commentOnlyRustFile reports whether one staged Source file is a `.rs` file
 // whose staged diff is comment-only, per commentOnlyDiff, AND carries no risk
 // of feeding a doctest a changed fenced example (see hasFencedDocComment). A
-// file this cannot compare — anything but `.rs`, a newly added file (no HEAD
+// file this cannot compare — anything but `.rs`, a newly added file (no base
 // blob to diff against), a deleted or otherwise unreadable index entry —
 // answers false: an unprovable comparison must never be read as a safe one.
 func commentOnlyRustFile(repoRoot, path string) bool {
 	if strings.ToLower(filepath.Ext(path)) != ".rs" {
 		return false
 	}
-	pre, err := git(repoRoot, "show", "HEAD:"+path)
+	// The same base the staged set was diffed against (mergescope.go): HEAD,
+	// or the incoming trunk tip during a trunk sync into a lane.
+	pre, err := git(repoRoot, "show", stagedBaseRev(repoRoot)+":"+path)
 	if err != nil {
 		return false
 	}
