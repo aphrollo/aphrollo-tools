@@ -33,6 +33,14 @@ func lintWaitDeadline() time.Duration {
 	return envDurationSecs("APHROLLO_LINT_WAIT_SECS", defaultLintWait)
 }
 
+// acquireLintLock is tdd.AcquireLintLock by default; a var so a test can
+// stub the lock-acquisition OUTCOME directly (contended=true, no real
+// waiting) instead of racing a real goroutine's release() against
+// AcquireLintLock's own internal timing to make runGateLint actually take
+// the contended branch — measured flaky (roughly one run in three picked up
+// the release before the loop's first attempt ran).
+var acquireLintLock = tdd.AcquireLintLock
+
 // runGateLint is `aphrollo gate lint <golangci-lint args...>`: the ONE entry
 // point both this box's local commit gate and CI's self-hosted `lint` job
 // (pipeline.yml) use to invoke golangci-lint, so a runner-user lint and a
@@ -62,7 +70,7 @@ func runGateLint(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	cwd, _ := os.Getwd()
 	cmdLine := binPath + " " + strings.Join(args, " ")
-	release, waited, contended, ok := tdd.AcquireLintLock(cmdLine, cwd, lintWaitDeadline())
+	release, waited, contended, ok := acquireLintLock(cmdLine, cwd, lintWaitDeadline())
 	if !ok {
 		fmt.Fprintf(stderr, "gate lint: gave up waiting %.0fs for the box-wide lint lock (held by %s) — nothing was linted\n",
 			waited.Seconds(), tdd.LintLockHolderDescription())

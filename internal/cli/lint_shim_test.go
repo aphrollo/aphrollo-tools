@@ -95,6 +95,29 @@ func TestLintAcquiredLine_OnlyContendedGetsALine(t *testing.T) {
 	}
 }
 
+// TestRunGateLint_PrintsLockAcquiredLineWhenTheAcquireReportsContended pins
+// the actual wiring runGateLint does with a contended acquire, end to end:
+// stub acquireLintLock's OUTCOME directly (contended=true, no real lock or
+// wait involved) rather than racing a real goroutine's release() against
+// AcquireLintLock's own internal timing to make this branch execute at all.
+func TestRunGateLint_PrintsLockAcquiredLineWhenTheAcquireReportsContended(t *testing.T) {
+	fakeGolangciLint(t)
+	real := acquireLintLock
+	t.Cleanup(func() { acquireLintLock = real })
+	acquireLintLock = func(cmd, cwd string, deadline time.Duration) (func(), time.Duration, bool, bool) {
+		return func() {}, 3 * time.Second, true, true
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := runGateLint(fakeLintArgsExit(0), strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if !strings.Contains(stderr.String(), "lock acquired after 3s") {
+		t.Fatalf("stderr = %q, want a \"lock acquired after 3s\" line when the acquire reports contended", stderr.String())
+	}
+}
+
 // TestRunGateLint_GivesUpWhenTheLockStaysHeld pins the reason this wrapper
 // exists: a lint already running (this gate's own, or CI's) must make a
 // second `gate lint` WAIT for the box-wide lint lock rather than let both
