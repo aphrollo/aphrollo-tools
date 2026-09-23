@@ -262,11 +262,22 @@ func fileStamp(path string) string {
 // PostBash puts every source file a Bash command changed through the same
 // post-edit path an Edit takes, and returns the advisory to surface. It is
 // silent when there is no snapshot, no repo, or nothing source-shaped moved.
+//
+// Whatever the command changed, it also carries every other deferred job
+// this session started that has finished since the last hook
+// (withSessionHarvest): a turn whose last tool call is a shell command must
+// not end without the verdict an earlier edit left running.
 func PostBash(raw []byte, run SuiteRunner) string {
 	var in bashInput
 	if err := json.Unmarshal(raw, &in); err != nil || in.ToolName != "Bash" {
 		return ""
 	}
+	return withSessionHarvest(postBashChanges(in, run), in.SessionID)
+}
+
+// postBashChanges is PostBash's own work: the post-edit path for each
+// source file the command changed.
+func postBashChanges(in bashInput, run SuiteRunner) string {
 	s, path := loadSession(in.SessionID)
 	if s == nil {
 		return ""

@@ -197,8 +197,9 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 	clearDeferredJob(session, root)
 	if !deferredMatchesSource(j, headSHA, fileHash) {
 		// The answer is about code that is no longer on disk (the edit moved
-		// on while it ran). Say nothing about it and rebuild.
-		return "", true
+		// on while it ran): rebuild, and report it labelled as measured on
+		// an earlier tree state — never dropped, never passed off as current.
+		return staleVerdictLine(j, out), true
 	}
 	if j.Phase == "build" && out.ExitCode == 0 {
 		// The expensive half is done and warm — run the tests now.

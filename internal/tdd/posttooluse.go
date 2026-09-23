@@ -78,14 +78,12 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return ""
 	}
-	if !gatedPostTools[in.ToolName] || in.ToolInput.FilePath == "" {
-		return ""
+	text := ""
+	failed := in.ToolResponse.Success != nil && !*in.ToolResponse.Success
+	if gatedPostTools[in.ToolName] && in.ToolInput.FilePath != "" && !failed {
+		text, _ = postEditFile(in.SessionID, in.ToolInput.FilePath, run)
 	}
-	if in.ToolResponse.Success != nil && !*in.ToolResponse.Success {
-		return ""
-	}
-	text, _ := postEditFile(in.SessionID, in.ToolInput.FilePath, run)
-	return text
+	return withSessionHarvest(text, in.SessionID)
 }
 
 // postEditFile is the whole post-edit path for ONE changed file — the body

@@ -128,6 +128,26 @@ func TestWaitDeferredEditJob_DeadPidReturnsNotOKWithoutBlocking(t *testing.T) {
 	}
 }
 
+// `gate status --wait` compared a result against the source identity the
+// job itself recorded, so it could never find the tree had moved on, and it
+// printed a result from an earlier tree state as the current verdict. It
+// compares against the tree as it stands and labels a moved-past result.
+func TestWaitDeferredEditJob_LabelsAResultTheTreeHasMovedPastAsStale(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	RecordFinishedDeferredJobForTest(root, "s1")
+	write(t, root, "moved.go", "package m\n")
+
+	advisory, ok := WaitDeferredEditJob(root)
+
+	if !ok {
+		t.Fatal("expected the finished result to be reported")
+	}
+	if !strings.Contains(advisory, "measured on an earlier tree state") || !strings.Contains(advisory, "not a verdict on the current code") {
+		t.Fatalf("advisory = %q, want a moved-past result labelled as not about the current code", advisory)
+	}
+}
+
 // TestWaitDeferredEditJob_ReturnsTheHarvestVerdictOnceDone is the acceptance
 // case from issue #430: once a job's result already exists on disk, `gate
 // status --wait` returns the SAME verdict line a hook harvesting it would —
