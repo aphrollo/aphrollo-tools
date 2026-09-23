@@ -450,3 +450,29 @@ exclude = ["target"]
 		t.Errorf("RuleSemantics(lawA) = RuleSemantics(lawB) = %q, want them to differ — lawA's alias value forges lawB's separate exclude field", a)
 	}
 }
+
+// A TestMain is a package's test-binary entry point, not a test: moving a
+// package's TestMain, or dropping one when a package loses its tests, retires
+// no test and needs no tombstone. go/test_removed's pattern captures every
+// Test-prefixed name except exactly TestMain. The repo's own law states the
+// same pattern; its fixture's clean case (a removed TestMain) pins that copy.
+func TestPresets_GoTestRemovedIgnoresTestMain(t *testing.T) {
+	raw, err := LoadPresetText("go", "test_removed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	law, err := ParseLaw(raw, "test_removed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	re := law.Matcher.Pattern
+	for _, name := range []string{"TestFoo", "TestM", "TestMa", "TestMai", "TestMainly", "TestMaim", "Test_x", "TestMainFlow"} {
+		m := re.FindStringSubmatch("func " + name + "(t *testing.T) {")
+		if len(m) < 2 || m[1] != name {
+			t.Errorf("pattern %q does not capture %s: %q", re, name, m)
+		}
+	}
+	if re.MatchString("func TestMain(m *testing.M) {") {
+		t.Errorf("pattern %q captures TestMain", re)
+	}
+}
