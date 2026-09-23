@@ -10,8 +10,8 @@ import (
 // fileAdd is the set of added line numbers (1-based, in the post-image) for one
 // file in a staged diff.
 type fileAdd struct {
-	path  string
-	added map[int]bool
+	Path  string
+	Added map[int]bool
 }
 
 // hunkNewStart returns the new-file starting line of a `@@ -a,b +c,d @@` header,
@@ -65,7 +65,7 @@ func stagedAdds(repoRoot string) []fileAdd {
 	)
 	flush := func() {
 		if cur != "" && len(lines) > 0 {
-			adds = append(adds, fileAdd{path: cur, added: lines})
+			adds = append(adds, fileAdd{Path: cur, Added: lines})
 		}
 		lines = nil
 	}
@@ -114,19 +114,19 @@ func stagedTestsAddDeclIn(repoRoot string, testFiles []string) bool {
 		want[f] = true
 	}
 	for _, fa := range stagedAdds(repoRoot) {
-		if !want[fa.path] || ClassifyFile(fa.path) != Test {
+		if !want[fa.Path] || ClassifyFile(fa.Path) != Test {
 			continue
 		}
-		ext := strings.ToLower(filepath.Ext(fa.path))
+		ext := strings.ToLower(filepath.Ext(fa.Path))
 		if _, known := testDeclRes[ext]; !known {
 			return true
 		}
-		post, err := git(repoRoot, "show", ":"+fa.path)
+		post, err := git(repoRoot, "show", ":"+fa.Path)
 		if err != nil {
 			return true // can't read the post-image → judge conservatively
 		}
 		lines := strings.Split(post, "\n")
-		for no := range fa.added {
+		for no := range fa.Added {
 			if no < 1 || no > len(lines) {
 				continue
 			}

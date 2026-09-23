@@ -123,7 +123,7 @@ func evaluateAdded(post string, lines map[int]bool, l lang, policies []policy, p
 // restrict is one policy's view of a line subset.
 func restrict(full view, lines map[int]bool) view {
 	return view{
-		code:       keepLines(full.code, lines),
+		Code:       keepLines(full.Code, lines),
 		directives: keepLines(full.directives, lines),
 		whole:      full.whole,
 	}

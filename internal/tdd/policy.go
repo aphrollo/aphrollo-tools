@@ -47,7 +47,7 @@ const (
 //     has no way to see it. Judging stays scoped to the added lines; only the
 //     context is file-wide.
 type view struct {
-	code       string
+	Code       string
 	directives string
 	whole      string
 }
@@ -55,7 +55,7 @@ type view struct {
 func newView(content string, l lang) view {
 	code := maskTokens(content, true, true, l.hashComment)
 	return view{
-		code:       code,
+		Code:       code,
 		directives: maskTokens(content, true, false, l.hashComment),
 		whole:      code,
 	}

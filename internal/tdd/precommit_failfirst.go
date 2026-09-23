@@ -317,7 +317,7 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 	// but it fails in the safe direction — non-violation never blocks — so the
 	// gate stays fail-open. Correcting the label needs a distinct couldn't-run
 	// signal on SuiteResult, which is left for a runner-contract change.
-	return failFirstOutcome{violated: res.Passed, conclusive: true, dur: res.Duration, cmd: cmdString(runner), runner: runner}
+	return failFirstOutcome{violated: res.Passed, Conclusive: true, dur: res.Duration, cmd: cmdString(runner), runner: runner}
 }
 
 // execRootIn maps root (a project root under repoRoot) to its equivalent
@@ -429,9 +429,9 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 			// `gate stats` must be able to count the proofs that ran and
 			// measured nothing separately from the ones that proved a red.
 			verdict = AllTestsSkipped
-		case out.conclusive && out.violated:
+		case out.Conclusive && out.violated:
 			verdict = "violated"
-		case out.conclusive && !out.violated:
+		case out.Conclusive && !out.violated:
 			verdict = "red-proven"
 		}
 		line := fmt.Sprintf("[fail-first] gate precommit: %s in %s → %s (%.1fs)", ffCmd, root, verdict, out.dur.Seconds())
@@ -443,7 +443,7 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		if out.skipped {
 			return GateResult{Blocked: true, Message: allTestsSkippedMessage(out.skippedPkgs, out.runner)}
 		}
-		if out.conclusive && out.violated {
+		if out.Conclusive && out.violated {
 			return GateResult{Blocked: true, Message: failFirstViolationMessage(out.runner)}
 		}
 	}

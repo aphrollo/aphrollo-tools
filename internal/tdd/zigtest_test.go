@@ -8,7 +8,7 @@ import (
 
 // maskZig masks source the way the .zig Source gate does: strings + comments
 // blanked, `#`-is-code (defaultLang). The extractor runs against this view.
-func maskZig(src string) string { return newView(src, defaultLang).code }
+func maskZig(src string) string { return newView(src, defaultLang).Code }
 
 // keptLines returns the sorted line numbers zigTestLines keeps for src.
 func keptLines(src string) []int {

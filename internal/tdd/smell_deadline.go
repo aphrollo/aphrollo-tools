@@ -49,7 +49,7 @@ var selectArmRe = regexp.MustCompile(`^\s*(?:case\b|default\b)`)
 // than proof that this timer bounds another wait leaves the line refused.
 func hasRealTimeWait(v view) bool {
 	var context []string
-	for _, line := range strings.Split(v.code, "\n") {
+	for _, line := range strings.Split(v.Code, "\n") {
 		if !sleepRe.MatchString(line) {
 			continue
 		}
@@ -76,7 +76,7 @@ func wholeOf(v view) string {
 	if v.whole != "" {
 		return v.whole
 	}
-	return v.code
+	return v.Code
 }
 
 // boundsAnotherWait reports whether EVERY place the given timer-arm line

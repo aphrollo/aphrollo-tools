@@ -178,15 +178,15 @@ var (
 	}
 	tautologyPolicy = policy{
 		name: "tautology", category: smellCat, reason: tautologyReason,
-		hit: func(v view) bool { return hasTautology(v.code) },
+		hit: func(v view) bool { return hasTautology(v.Code) },
 	}
 	focusedPolicy = policy{
 		name: "focused-test", category: smellCat, reason: focusedReason,
-		hit: func(v view) bool { return hasFocused(v.code) },
+		hit: func(v view) bool { return hasFocused(v.Code) },
 	}
 	disabledTestPolicy = policy{
 		name: "disabled-test", category: smellCat, reason: disabledTestReason,
-		hit:    func(v view) bool { return hasDisabledTest(v.code) },
+		hit:    func(v view) bool { return hasDisabledTest(v.Code) },
 		escape: escapeSkip,
 	}
 )
@@ -207,7 +207,7 @@ var oracleSmells = []policy{sleepPolicy, tautologyPolicy, focusedPolicy, disable
 // this change introduces does.
 var errorKindBlindPolicy = policy{
 	name: "error-kind-blind", category: suppressionCat, reason: errorKindBlindReason,
-	hit:    func(v view) bool { return hasErrorKindBlind(v.code) },
+	hit:    func(v view) bool { return hasErrorKindBlind(v.Code) },
 	escape: escapeAnyError,
 }
 
@@ -230,7 +230,7 @@ var errorKindBlindPolicy = policy{
 // commit, escaped with `// panic-only-ok: <why>`.
 var panicOnlyOraclePolicy = policy{
 	name: "panic-only-oracle", category: suppressionCat, reason: panicOnlyOracleReason,
-	hit:    func(v view) bool { return hasPanicOnlyOracle(v.code) },
+	hit:    func(v view) bool { return hasPanicOnlyOracle(v.Code) },
 	escape: escapePanicOnly,
 }
 

@@ -13,11 +13,11 @@ const suppressionCommitHeader = "TDD anti-cheat: this commit introduces a suppre
 // added directive behind an unbalanced opener. Returns "" when nothing blocks.
 func newSuppression(repoRoot string) string {
 	for _, fa := range stagedAdds(repoRoot) {
-		policies := commitSuppressionPolicies(ClassifyFile(fa.path))
+		policies := commitSuppressionPolicies(ClassifyFile(fa.Path))
 		if policies == nil {
 			continue
 		}
-		post, err := git(repoRoot, "show", ":"+fa.path)
+		post, err := git(repoRoot, "show", ":"+fa.Path)
 		if err != nil {
 			continue // file not in the index (e.g. deletion) → nothing to judge
 		}
@@ -28,8 +28,8 @@ func newSuppression(repoRoot string) string {
 		// carry no escape at all (see policy_registry_test.go's
 		// noEscapeAllowlist), so this is unchanged for them: every line stays
 		// judged either way.
-		if d := evaluateAdded(post, fa.added, langOf(fa.path), policies, commitPhase); d.Action == Block {
-			return suppressionCommitHeader + "\n  " + fa.path + ": " + d.Reason
+		if d := evaluateAdded(post, fa.Added, langOf(fa.Path), policies, commitPhase); d.Action == Block {
+			return suppressionCommitHeader + "\n  " + fa.Path + ": " + d.Reason
 		}
 	}
 	return ""

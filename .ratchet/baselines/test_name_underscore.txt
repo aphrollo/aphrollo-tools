@@ -362,7 +362,6 @@ internal/tdd/stateschema_test.go | func TestMechCacheTreatsANewerFileAsAbsent(t 
 internal/tdd/stateschema_test.go | func TestSessionStateCarriesItsSchema(t *testing.T) {
 internal/tdd/stateschema_test.go | func TestSessionStateIsPublishedAtomically(t *testing.T) {
 internal/tdd/tddskill_test.go | func TestRemoveTDDSkill(t *testing.T) {
-internal/tdd/testquality.go | func TestQualityNotes(path, content string) []string {
 internal/tdd/weekly_test.go | func TestRenderGateStatsCarriesTheOpenEscapeCount(t *testing.T) {
 internal/tdd/weekly_test.go | func TestSessionStartPrintsTheDigestOncePerWeek(t *testing.T) {
 internal/tdd/weekly_test.go | func TestWeeklyDigestReportsRatesDeniesAndOpenEscapes(t *testing.T) {
