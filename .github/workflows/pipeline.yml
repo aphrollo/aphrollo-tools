@@ -182,7 +182,7 @@ jobs:
           cache: false
       - name: Workflow pin tests
         if: needs.changes.outputs.workflow == 'true'
-        run: go test -count=1 -run '^(TestPipeline_|TestGateEnvWorkflowStep_|TestLintWorkflowStep_|TestDeployJobBuild_)' ./internal/tdd ./internal/cli
+        run: go test -count=1 -run '^(TestPipeline_|TestGateEnvWorkflowStep_|TestLintWorkflowStep_|TestDeployJobBuild_|TestNightlyFuzzWorkflow_)' ./internal/tdd ./internal/cli
       - name: actionlint (only when the runner already has it)
         if: needs.changes.outputs.workflow == 'true'
         run: |
@@ -766,21 +766,21 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 10
     steps:
-      - if: needs.changes.outputs.code == 'true'
+      - if: (needs.changes.outputs.code == 'true' || needs.changes.outputs.lint == 'true')
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - if: needs.changes.outputs.code == 'true'
+      - if: (needs.changes.outputs.code == 'true' || needs.changes.outputs.lint == 'true')
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           # false: see the note in `test` -- the persistent disk is the cache.
           cache: false
       - name: Build the CLI from this PR
-        if: needs.changes.outputs.code == 'true'
+        if: (needs.changes.outputs.code == 'true' || needs.changes.outputs.lint == 'true')
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
       - name: aphrollo ratchet check (the PR's merged tree)
-        if: needs.changes.outputs.code == 'true'
+        if: (needs.changes.outputs.code == 'true' || needs.changes.outputs.lint == 'true')
         run: |
           set -euo pipefail
           # HEAD is the merge; HEAD^1 is the base it merges into, HEAD^2 is
