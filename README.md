@@ -157,7 +157,9 @@ Cheapest first; the first rejection stops the run and is named in `gate.log`.
 5. Per root. Go: in-process gofmt of the staged blob, `go vet`,
    `golangci-lint` on touched packages. Cargo: `cargo fmt --check`, the
    `always-run` guard crates, `clippy -D warnings` on `clippy-clean` crates,
-   workspace clippy denying `disallowed_methods`/`disallowed_types`.
+   then `cargo clippy -p <crate>… --tests` over the touched crates plus
+   every crate downstream of them (printed as `check scope →`), denying
+   only `disallowed_methods`/`disallowed_types`.
 6. Commit only: fail-first. Staged tests must fail against HEAD without the
    staged source; inline Rust tests are proven from the edit ledger. Touched
    suites are NOT run at commit; the gate prints a `NOT RUN` line per touched
