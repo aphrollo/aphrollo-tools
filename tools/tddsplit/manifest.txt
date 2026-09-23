@@ -896,3 +896,4 @@ core/main_test.go
 gitx/main_test.go
 shell/main_test.go
 lock/main_test.go
+suite/main_test.go

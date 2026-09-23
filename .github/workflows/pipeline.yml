@@ -367,7 +367,7 @@ jobs:
   # deliberately NOT set, on every PR that touched code, regardless of WHICH
   # packages it touched. The local gate is stricter per package it runs
   # (-race, which the hosted job could not afford) but it is SCOPED:
-  # narrowToStaged (internal/tdd/runner_scope.go) cuts the merge's run down
+  # narrowToStaged (internal/tdd/suite/runner_scope.go) cuts the merge's run down
   # to the packages the merge actually stages, at package granularity, so an
   # untouched package -- or an untouched IMPORTER of a touched one -- is not
   # re-run on Windows at that merge. That is the one dimension this removal
@@ -425,7 +425,7 @@ jobs:
   # unexported, and nothing short of a build-time entry point added solely to
   # serve this one step would let a workflow step read it from outside the
   # package. Keep this list in sync with goTmpEnv's own return slice (and the
-  # tempEnvKeys var internal/tdd/gotmpdir_test.go asserts both suiteEnv halves
+  # tempEnvKeys var internal/tdd/suite/gotmpdir_test.go asserts both suiteEnv halves
   # against) if either changes.
   gate-env:
     if: github.event.pull_request.draft != true

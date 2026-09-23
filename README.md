@@ -280,10 +280,10 @@ aphrollo gate allow              # list active waivers
 ```sh
 aphrollo gate mutants run                      # measure this lane vs trunk, foreground; exit 1 on a survivor
 aphrollo gate mutants run --base origin/main
-aphrollo gate mutants prove --file internal/tdd/verdict.go \
+aphrollo gate mutants prove --file internal/tdd/suite/verdict.go \
   --old "res.Passed" --new "!res.Passed" --want-fail TestVerdictFor_Green
-aphrollo gate mutants hold internal/tdd/verdict.go   # then edit, test, and:
-MUTATION=1 git checkout -- internal/tdd/verdict.go   # restores the held working bytes
+aphrollo gate mutants hold internal/tdd/suite/verdict.go   # then edit, test, and:
+MUTATION=1 git checkout -- internal/tdd/suite/verdict.go   # restores the held working bytes
 ```
 
 - `run` holds the box-wide mutation lock; waiters are served in arrival order.
