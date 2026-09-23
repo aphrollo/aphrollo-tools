@@ -52,6 +52,9 @@ func verificationClaimCheck(repoRoot, body string) (GateResult, bool) {
 	if stamped, ok := readCurrentGreenSuiteStamp(repoRoot); ok && stamped == tree {
 		return none, false
 	}
+	if headNotedGreenFor(repoRoot, tree) {
+		return none, false
+	}
 	verdict := lastPrecommitVerdict(repoRoot)
 	if verdict == mechCacheHitVerdict && cacheHitResolvesGreen(repoRoot) {
 		return none, false
@@ -64,6 +67,17 @@ func verificationClaimCheck(repoRoot, body string) (GateResult, bool) {
 		"gate commit-msg: this message claims verification, but no green suite ran against the tree being "+
 			"committed — the last precommit verdict for this tree is %q.\nRewrite the claim to match what actually ran, then commit again.",
 		verdict)}, true
+}
+
+// headNotedGreenFor reports whether HEAD's gate note vouches for tree: the
+// amend of a commit that keeps its tree (#749). The stamp is consumed by the
+// post-commit hook that turned it into the note, so the note is where that
+// commit's verdict lives afterwards, and it names the tree it was written
+// for — a note on a different tree than the index says nothing here.
+func headNotedGreenFor(repoRoot, tree string) bool {
+	// tree is never empty here, so an unreadable HEAD ("") never matches it.
+	head, _ := revTree(repoRoot, "HEAD")
+	return head == tree && commitCarriesGreenGate(repoRoot, "HEAD")
 }
 
 // mechCacheHitVerdict is the verdict runSuiteStage logs when it skips a rerun
