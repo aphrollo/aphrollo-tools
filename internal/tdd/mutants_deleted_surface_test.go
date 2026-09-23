@@ -27,7 +27,8 @@ func TestDeletedSurface_NoSourceMentionsReceiptOrStore(t *testing.T) {
 	var offenders []string
 	// tree-read-ok: the claim IS about this repo's own source tree, so the
 	// tree is the input; there is nothing else to read it from.
-	for _, tree := range []string{filepath.Join("..", "..", "internal"), filepath.Join("..", "..", "cmd")} {
+	root := repoRootForTest(t)
+	for _, tree := range []string{filepath.Join(root, "internal"), filepath.Join(root, "cmd")} {
 		err := filepath.WalkDir(tree, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -95,7 +96,8 @@ func TestDeletedSurface_NoProductionCommentPromisesAReceipt(t *testing.T) {
 	var offenders []string
 	// tree-read-ok: the claim IS about this repo's own source tree, so the
 	// tree is the input; there is nothing else to read it from.
-	for _, tree := range []string{filepath.Join("..", "..", "internal", "tdd"), filepath.Join("..", "..", "cmd")} {
+	root := repoRootForTest(t)
+	for _, tree := range []string{filepath.Join(root, "internal", "tdd"), filepath.Join(root, "cmd")} {
 		err := filepath.WalkDir(tree, func(path string, d fs.DirEntry, err error) error {
 			switch {
 			case err != nil:

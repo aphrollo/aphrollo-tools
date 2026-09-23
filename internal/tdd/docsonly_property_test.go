@@ -59,7 +59,18 @@ func TestDocsOnlyClassifier_EmptyDiffIsNotDocsOnly(t *testing.T) {
 // different claim (TestDocsOnlyClassifier_EmptyDiffIsNotDocsOnly above), not
 // this property's "whatever their number".
 func TestDocsOnlyClassifier_AllIgnoreDiffIsDocsOnly(t *testing.T) {
-	t.Parallel()
+	// Not t.Parallel(): t.Chdir below is process-wide state, which the two
+	// APIs refuse to mix. ClassifyFile's embed check (goEmbedsFile) walks the
+	// CURRENT directory looking for a //go:embed pattern that names the path
+	// under test; left at the package directory, every one of this
+	// property's draws pays for opening and scanning every .go file in
+	// internal/tdd (measured: these two tests cost ~62s together, ~38s
+	// alone). Rooted in an empty temp dir instead, that scan reads zero
+	// files: no fixture .go file is needed because ignoreOnlyExts is chosen
+	// (see above) to never collide with a real //go:embed pattern in the
+	// first place, so an empty directory answers "not embedded" exactly as
+	// the real package would, just without reading it.
+	t.Chdir(t.TempDir())
 	rapid.Check(t, func(rt *rapid.T) {
 		paths := rapid.SliceOfN(rapid.Custom(func(t *rapid.T) string { return ignoreOnlyPath(t, "p") }), 1, 8).Draw(rt, "paths")
 		for _, p := range paths {
@@ -78,7 +89,9 @@ func TestDocsOnlyClassifier_AllIgnoreDiffIsDocsOnly(t *testing.T) {
 // the property that makes docsOnly's fast path safe to trust: it never skips
 // a diff that carries even one line of real code.
 func TestDocsOnlyClassifier_OneSourceFileFlipsIt(t *testing.T) {
-	t.Parallel()
+	// See TestDocsOnlyClassifier_AllIgnoreDiffIsDocsOnly: same reason for the
+	// empty-fixture chdir instead of t.Parallel().
+	t.Chdir(t.TempDir())
 	rapid.Check(t, func(rt *rapid.T) {
 		paths := rapid.SliceOfN(rapid.Custom(func(t *rapid.T) string { return ignoreOnlyPath(t, "p") }), 0, 8).Draw(rt, "paths")
 		insertAt := rapid.IntRange(0, len(paths)).Draw(rt, "insertAt")
