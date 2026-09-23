@@ -166,17 +166,6 @@ func goTestTreeSelection(r Runner) bool {
 	return false
 }
 
-// goRanNoTests reports whether a passing Go run executed no test in any
-// package (goRunRanATest). A run whose packages cannot be read is not read
-// as empty.
-func goRanNoTests(r Runner, res SuiteResult) bool {
-	if r.Cmd != "go" || res.TimedOut || !res.Passed {
-		return false
-	}
-	ran, known := goRunRanATest(res)
-	return known && !ran
-}
-
 // postEditSelectedZero is the post-edit hook's "this run tested nothing":
 // cargo's zero selection (selectedZeroTests, shared with the commit stages
 // and the mutation proof) or a source edit's Go run whose packages all ran

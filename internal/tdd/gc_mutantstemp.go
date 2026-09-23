@@ -37,12 +37,6 @@ func isMutantsCopyName(name string) bool {
 	return false
 }
 
-// mutantsCopyActiveWindow is how recently a copy must have been touched to be
-// attributed to a live run. A mutation run writes into its copy constantly
-// (every mutant is an edit and a build), so a copy nothing has touched in half
-// an hour is not one anybody is testing.
-const mutantsCopyActiveWindow = 30 * time.Minute
-
 // gcMutantsTempCopies proposes the tree copies in dirs whose run is over.
 // Ownership decides, not age: a copy a run is using is the tree it is
 // mutating RIGHT NOW, and one whose run is gone is garbage the moment the
