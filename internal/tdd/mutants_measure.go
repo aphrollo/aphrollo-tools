@@ -165,7 +165,7 @@ func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base 
 	// a box that could run eight copies; the number the box derives is how
 	// many shards the mutant pool is divided into, and refuseOnDisk fits that
 	// number to what the build drive measures.
-	shards, why := mutantsJobsForThisBoxFn()
+	shards, why := mutantsJobsForThisBoxFn(mutantsCargoShardGB)
 	// Before the drive has its say, because a repo that has lowered the count
 	// needs less of everything the budgets below measure.
 	shards, why = capShardsToConfig(cfg, shards, why)
@@ -247,8 +247,9 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base str
 		return measureSkipped(root, "nothing to measure (0 changed source files)", "nothing-to-measure", log), nil
 	}
 	// gremlins copies nothing into the tree it measures and takes a worker
-	// count happily, so the Go half keeps the box's own cap.
-	jobs, why := mutantsJobsForThisBoxFn()
+	// count happily, so the Go half keeps the box's own cap. Its workers are
+	// priced on the drive by mutants_gobudget.go, not as Cargo shards.
+	jobs, why := mutantsJobsForThisBoxFn(mutantsGoJobGB)
 	logf(log, "mutants: %d jobs (%s)", jobs, why)
 	v, jobs, refused := refuseOnDisk(root, jobs, "job", log)
 	if refused {
@@ -334,6 +335,7 @@ func sweepGoMeasureTemp(root string) {
 func runMutantsMeasured(ctx context.Context, root string, env, argv []string, log io.Writer) (int, string, error) {
 	var tee strings.Builder
 	release := acquireMutantsRunLock("mutants measure for "+root, root)
+	waitForCIRunnerJobs(ctx, root, log)
 	code, err := mutantsExecFn(ctx, root, env, argv, io.MultiWriter(log, &tee))
 	release()
 	return code, tee.String(), err
