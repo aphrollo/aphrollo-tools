@@ -84,7 +84,7 @@ func TestOwnRatchetReadme_MatchesTheGeneratedOutput(t *testing.T) {
 // ratchet-spec markers, so a schema change cannot land in one and not the other.
 func TestRatchetSpecIsTheSameTextAsTheReadmeSection(t *testing.T) {
 	t.Parallel()
-	data, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	data, err := os.ReadFile(filepath.Join(repoRootForTest(t), "README.md"))
 	if err != nil {
 		t.Fatalf("reading README.md: %v", err)
 	}
