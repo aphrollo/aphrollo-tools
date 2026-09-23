@@ -67,7 +67,7 @@ func TestPromptHarvest_RejectsAResultTheWorktreeHasMovedPast(t *testing.T) {
 	// A change nothing told the hook about.
 	write(t, root, "widget.go", "package x\n")
 
-	if got := promptHarvest("sess-prompt", root); got != "" {
+	if got := promptHarvest("sess-prompt"); got != "" {
 		t.Fatalf("reported %q for a result the worktree has moved past", got)
 	}
 }
