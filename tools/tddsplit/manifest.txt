@@ -457,6 +457,7 @@ deferred.go                                        postedit
 deferred_attribution_test.go                       postedit
 deferred_crosstree_test.go                         postedit
 deferred_edit.go                                   postedit
+deferred_seams_test.go                             postedit
 deferred_edit_post.go                              postedit
 deferred_output_test.go                            postedit
 deferred_prompt.go                                 postedit

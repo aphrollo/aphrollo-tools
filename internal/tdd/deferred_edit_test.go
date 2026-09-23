@@ -17,7 +17,7 @@ func fakePhases(t *testing.T, outcomes ...*PhaseOutcome) *[]DeferredJob {
 
 // deferredPhases is what tddtest.FakePhases stands in for.
 var deferredPhases = tddtest.Phases[DeferredJob, PhaseOutcome]{
-	Spawn: &spawnPhaseFn,
+	SetSpawn: SetSpawnPhaseForTest,
 	Start: func(j DeferredJob, pid int, started time.Time) DeferredJob {
 		j.PID = pid
 		j.Started = started
@@ -160,9 +160,7 @@ func TestPostEdit_HarvestWarmRunSpawnFailureIsLogged(t *testing.T) {
 	root := mkProject(t, "Cargo.toml")
 	target := root + "/src/widget.rs"
 
-	prev := spawnPhaseFn
-	spawnPhaseFn = func(j DeferredJob) (DeferredJob, bool) { return j, false }
-	t.Cleanup(func() { spawnPhaseFn = prev })
+	t.Cleanup(SetSpawnPhaseForTest(func(j DeferredJob) (DeferredJob, bool) { return j, false }))
 	EnableDeferredPhases(true)
 	t.Cleanup(func() { EnableDeferredPhases(false) })
 
@@ -323,9 +321,7 @@ func TestPostEdit_AbandonsAJobPastTheMaximum(t *testing.T) {
 	spawned := fakePhases(t)
 
 	var killed []int
-	prevKill := killDeferredFn
-	killDeferredFn = func(j DeferredJob) { killed = append(killed, j.PID) }
-	t.Cleanup(func() { killDeferredFn = prevKill })
+	t.Cleanup(SetKillDeferredForTest(func(j DeferredJob) { killed = append(killed, j.PID) }))
 
 	saveDeferredJob(DeferredJob{
 		Project: root, Session: "sess-post", Phase: "build", Dir: root, PID: 777,
@@ -353,21 +349,17 @@ func TestPostEdit_AbandonsAJobPastTheMaximumWithoutKillingARecycledPID(t *testin
 	root := mkProject(t, "Cargo.toml")
 	spawned := fakePhases(t)
 
-	prevStart := processStartTimeFn
 	// The OS reports pid 778 as belonging to a process that started
 	// seconds ago -- not the one this record names, which is an hour old.
-	processStartTimeFn = func(pid int) (time.Time, bool) {
+	t.Cleanup(SetProcessStartTimeForTest(func(pid int) (time.Time, bool) {
 		if pid == 778 {
 			return time.Now(), true
 		}
 		return time.Time{}, false
-	}
-	t.Cleanup(func() { processStartTimeFn = prevStart })
+	}))
 
 	var killed []int
-	prevKill := killDeferredFn
-	killDeferredFn = func(j DeferredJob) { killed = append(killed, j.PID) }
-	t.Cleanup(func() { killDeferredFn = prevKill })
+	t.Cleanup(SetKillDeferredForTest(func(j DeferredJob) { killed = append(killed, j.PID) }))
 
 	recordedCreatedAt := time.Now().Add(-time.Hour)
 	saveDeferredJob(DeferredJob{
@@ -419,9 +411,7 @@ func TestHandlePrompt_ReportsAFinishedDeferredJob(t *testing.T) {
 // and must still count as ours.
 func TestPidStillOurs_TreatsDriftAtToleranceAsSameProcess(t *testing.T) {
 	base := time.Now()
-	prev := processStartTimeFn
-	processStartTimeFn = func(pid int) (time.Time, bool) { return base.Add(5 * time.Second), true }
-	t.Cleanup(func() { processStartTimeFn = prev })
+	t.Cleanup(SetProcessStartTimeForTest(func(pid int) (time.Time, bool) { return base.Add(5 * time.Second), true }))
 
 	j := DeferredJob{PID: 1, PIDCreatedAt: base}
 	if !pidStillOurs(j) {
@@ -434,9 +424,7 @@ func TestPidStillOurs_TreatsDriftAtToleranceAsSameProcess(t *testing.T) {
 // recycled pid, not the same process.
 func TestPidStillOurs_TreatsDriftJustOverToleranceAsDifferentProcess(t *testing.T) {
 	base := time.Now()
-	prev := processStartTimeFn
-	processStartTimeFn = func(pid int) (time.Time, bool) { return base.Add(5*time.Second + time.Millisecond), true }
-	t.Cleanup(func() { processStartTimeFn = prev })
+	t.Cleanup(SetProcessStartTimeForTest(func(pid int) (time.Time, bool) { return base.Add(5*time.Second + time.Millisecond), true }))
 
 	j := DeferredJob{PID: 1, PIDCreatedAt: base}
 	if pidStillOurs(j) {
@@ -456,9 +444,7 @@ func TestReapSessionDeferredJobs_KillsOnlyJobsWithALivePID(t *testing.T) {
 	saveDeferredJob(DeferredJob{Project: rootB, Session: "sess-reap", Phase: "run", PID: 0, Started: time.Now()})
 
 	var killed []int
-	prev := killDeferredFn
-	killDeferredFn = func(j DeferredJob) { killed = append(killed, j.PID) }
-	t.Cleanup(func() { killDeferredFn = prev })
+	t.Cleanup(SetKillDeferredForTest(func(j DeferredJob) { killed = append(killed, j.PID) }))
 
 	got := reapSessionDeferredJobs("sess-reap")
 

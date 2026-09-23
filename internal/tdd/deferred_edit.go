@@ -38,6 +38,28 @@ var (
 	processStartTimeFn = processStartTime
 )
 
+// SetSpawnPhaseForTest, SetKillDeferredForTest and SetProcessStartTimeForTest
+// replace one process seam for a test and return the restore: setters rather
+// than assignments, so a test in a package above the one that owns the seams
+// still reaches them.
+func SetSpawnPhaseForTest(fn func(j DeferredJob) (DeferredJob, bool)) (restore func()) {
+	prev := spawnPhaseFn
+	spawnPhaseFn = fn
+	return func() { spawnPhaseFn = prev }
+}
+
+func SetKillDeferredForTest(fn func(j DeferredJob)) (restore func()) {
+	prev := killDeferredFn
+	killDeferredFn = fn
+	return func() { killDeferredFn = prev }
+}
+
+func SetProcessStartTimeForTest(fn func(pid int) (time.Time, bool)) (restore func()) {
+	prev := processStartTimeFn
+	processStartTimeFn = fn
+	return func() { processStartTimeFn = prev }
+}
+
 // deferredEditOutcome is what the deferral path reports back to PostEdit:
 // either a finished SuiteResult, or a notice that a phase is still running.
 type deferredEditOutcome struct {

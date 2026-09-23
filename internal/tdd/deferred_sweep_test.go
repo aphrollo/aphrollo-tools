@@ -90,9 +90,7 @@ func TestSweepDeferredJobs_KillsALivePIDBeforeDroppingADayOldRecord(t *testing.T
 	}
 
 	var killed []int
-	prev := killDeferredFn
-	killDeferredFn = func(j DeferredJob) { killed = append(killed, j.PID) }
-	t.Cleanup(func() { killDeferredFn = prev })
+	t.Cleanup(SetKillDeferredForTest(func(j DeferredJob) { killed = append(killed, j.PID) }))
 
 	sweepDeferredJobs(time.Now())
 
@@ -124,21 +122,17 @@ func TestSweep_DoesNotKillAPIDTheOSHasRecycled(t *testing.T) {
 		t.Fatalf("setup: %v", err)
 	}
 
-	prevStart := processStartTimeFn
 	// The OS reports pid 9010 as belonging to a process that started two
 	// hours ago -- not the one this record names, which is a day old.
-	processStartTimeFn = func(pid int) (time.Time, bool) {
+	t.Cleanup(SetProcessStartTimeForTest(func(pid int) (time.Time, bool) {
 		if pid == 9010 {
 			return time.Now().Add(-2 * time.Hour), true
 		}
 		return time.Time{}, false
-	}
-	t.Cleanup(func() { processStartTimeFn = prevStart })
+	}))
 
 	var killed []int
-	prevKill := killDeferredFn
-	killDeferredFn = func(j DeferredJob) { killed = append(killed, j.PID) }
-	t.Cleanup(func() { killDeferredFn = prevKill })
+	t.Cleanup(SetKillDeferredForTest(func(j DeferredJob) { killed = append(killed, j.PID) }))
 
 	sweepDeferredJobs(time.Now())
 
@@ -175,9 +169,7 @@ func TestKillLivePID_SkipsAZeroPID(t *testing.T) {
 	path := deferredJobPath("sess-zero", root)
 
 	var killed []int
-	prev := killDeferredFn
-	killDeferredFn = func(j DeferredJob) { killed = append(killed, j.PID) }
-	t.Cleanup(func() { killDeferredFn = prev })
+	t.Cleanup(SetKillDeferredForTest(func(j DeferredJob) { killed = append(killed, j.PID) }))
 
 	killLivePID(path)
 
