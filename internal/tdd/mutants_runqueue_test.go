@@ -39,9 +39,7 @@ func TestAcquireMutantsRunLock_LaterWaiterDoesNotOvertakeAnEarlierOne(t *testing
 func TestAcquireMutantsRunLock_DeadWaiterDoesNotBlockTheQueue(t *testing.T) {
 	withIsolatedMutantsRunLock(t)
 	const deadPID = 999_999_001
-	prev := pidRunningFn
-	pidRunningFn = func(pid int) bool { return pid != deadPID && prev(pid) }
-	t.Cleanup(func() { pidRunningFn = prev })
+	t.Cleanup(SetPidRunningForTest(func(pid int) bool { return pid != deadPID && pidRunning(pid) }))
 	writeMutantsRunTicket(deadPID, time.Now().Add(-time.Minute), "killed merge", "/repo/dead")
 
 	release, ok := acquireMutantsRunLockWithDeadline("merge", "/repo/live", 2*time.Second)
@@ -121,5 +119,21 @@ func TestMutantsRunStatus_ListsTheQueueInArrivalOrder(t *testing.T) {
 	first, second := strings.Index(out, "/repo/first"), strings.Index(out, "/repo/second")
 	if first < 0 || second < 0 || first > second {
 		t.Fatalf("the report must list both waiters, earliest first, got:\n%s", out)
+	}
+}
+
+// The setter is the only way a test above core reaches the liveness probe, so
+// it must both install the stub and put the real probe back: a restore that
+// left the stub in place would call every later process alive.
+func TestSetPidRunningForTest_StubIsSeenAndRestored(t *testing.T) {
+	const deadPID = 999_999_002
+	restore := SetPidRunningForTest(func(int) bool { return true })
+	if !pidRunningFn(deadPID) {
+		restore()
+		t.Fatal("the stub was not installed: pidRunningFn still asks the OS")
+	}
+	restore()
+	if pidRunningFn(deadPID) {
+		t.Fatal("restore left the stub in place: a dead pid reads as running")
 	}
 }
