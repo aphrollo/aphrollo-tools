@@ -18,32 +18,6 @@ import (
 // itself is given. Each check reports its OWN fix, because "something is wrong
 // with the install" is not actionable.
 
-// DoctorCheck is one check's verdict. Warn marks a finding the report shows
-// but does not fail on: a fact about the repo rather than a broken install.
-type DoctorCheck struct {
-	Name   string
-	OK     bool
-	Warn   bool
-	Detail string
-}
-
-// DoctorInput is everything the checks read that is not a file: the config dir
-// they judge, the binary they judge against, and the PATH they were resolved
-// from. Injected rather than looked up, so a test drives every branch without
-// touching the box's own registry or environment.
-type DoctorInput struct {
-	ConfigDir string
-	Bin       string
-	ShimDir   string
-	Repo      string
-	PathDirs  []string
-	// GitHooksPath is the box's current global core.hooksPath, resolved by
-	// the caller (empty when unset) — injected the same way PathDirs is, so
-	// a test drives every branch without reading or writing the box's own
-	// git config.
-	GitHooksPath string
-}
-
 // Doctor runs every check and returns the verdicts in a fixed order, so two
 // runs read the same way. doctorGitHooksPath runs FIRST: every other check
 // here describes a hook that depends on git actually running it, and a
@@ -545,23 +519,6 @@ func quotedBinary(cmd string) string {
 // even on Windows, which os.Stat accepts, so this only cleans the path.
 func fromShellPath(p string) string { return filepath.FromSlash(p) }
 
-// samePath compares two directory paths the way the OS resolves them:
-// case-insensitively on Windows, and with separators and trailing slashes
-// normalized everywhere.
-func samePath(a, b string) bool {
-	clean := func(p string) string {
-		p = filepath.Clean(filepath.FromSlash(strings.Trim(p, `"`)))
-		if abs, err := filepath.Abs(p); err == nil {
-			p = abs
-		}
-		if runtime.GOOS == "windows" {
-			p = strings.ToLower(p)
-		}
-		return p
-	}
-	return clean(a) == clean(b)
-}
-
 // readSettings parses a config dir's settings.json, naming the fix when it is
 // missing or unreadable rather than reporting a healthy install.
 func readSettings(configDir string) (map[string]any, error) {
@@ -575,13 +532,4 @@ func readSettings(configDir string) (map[string]any, error) {
 		return nil, fmt.Errorf("%s is not valid JSON (%v)", path, err)
 	}
 	return root, nil
-}
-
-// sortStrings sorts in place; the report has to read the same way twice.
-func sortStrings(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j] < s[j-1]; j-- {
-			s[j], s[j-1] = s[j-1], s[j]
-		}
-	}
 }
