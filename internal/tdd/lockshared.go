@@ -124,12 +124,18 @@ func writeSharedRecord(path string, data []byte) error {
 // the real temp dir from inside a test would report the box's litter as the
 // test's own.
 func lockLitterDirs() []string {
-	dirs := []string{lockDir()}
-	if lockDirOverridden() {
+	return litterDirsFor(lockDir(), lockDirOverridden(), os.TempDir())
+}
+
+// litterDirsFor is lockLitterDirs with its three inputs passed in, so a test
+// can check the production answer without resolving the live lock dir.
+func litterDirsFor(lockDir string, overridden bool, tempDir string) []string {
+	dirs := []string{lockDir}
+	if overridden {
 		return dirs
 	}
-	if tmp := os.TempDir(); tmp != dirs[0] {
-		dirs = append(dirs, tmp)
+	if tempDir != lockDir {
+		dirs = append(dirs, tempDir)
 	}
 	return dirs
 }
