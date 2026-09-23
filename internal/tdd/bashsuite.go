@@ -192,10 +192,19 @@ func denyNarrowedRerunReason(root string, e gateEntry) string {
 // is, and every use is counted. The match is deliberately loose (a test whose
 // own NAME carries the word passes too): fail-open is the direction this file
 // owes, since a false deny leaves a session with no way to prove a mutant
-// died.
+// died. Loose over the words the session writes, never over a path: a word
+// carrying a separator names a directory or file, and a lane or temp area
+// named for mutants is not a declaration that this run is a proof.
 func hasMutationProofMarker(cmd string) bool {
-	lower := strings.ToLower(cmd)
-	return strings.Contains(lower, "mutation") || strings.Contains(lower, "mutant")
+	for _, word := range strings.Fields(strings.ToLower(cmd)) {
+		if strings.ContainsAny(word, `/\`) {
+			continue
+		}
+		if strings.Contains(word, "mutation") || strings.Contains(word, "mutant") {
+			return true
+		}
+	}
+	return false
 }
 
 // hasIgnoredOnlyScope reports whether cmd's own filter selects ONLY

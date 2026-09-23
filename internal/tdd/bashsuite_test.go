@@ -488,3 +488,27 @@ func TestDecideBashSuite_AllowsAndCountsAMarkedMutationProof(t *testing.T) {
 	LogBashSuiteDecision(raw, d)
 	requireLoggedVerdict(t, cfg, "override-bash-mutation-proof")
 }
+
+// The marker is a word the session writes, never a directory the run happens
+// to sit in: a lane named mutants-<x>, or the measurement's own .mutants temp
+// area, put the word in every path the command names, and each such rerun
+// walked past the refusal and was counted as a mutation proof it never was.
+// Inside a measurement that turned two refusal tests into allows, failed the
+// coverage gather, and left the Go mutation stage with no verdict (#704).
+func TestHasMutationProofMarker_IgnoresTheWordInsideAPath(t *testing.T) {
+	cases := []struct {
+		cmd  string
+		want bool
+	}{
+		{"cd /work/.worktrees/tools/mutants-runner && go test -run TestWidget ./...", false},
+		{`cd C:\work\.mutants\lane && go test -run TestWidget ./...`, false},
+		{"cargo test --manifest-path /work/mutants/Cargo.toml -p server", false},
+		{"MUTATION=1 go test -run TestWidget ./internal/tdd", true},
+		{"go test -run TestWidgetMutantDies ./internal/tdd", true},
+	}
+	for _, c := range cases {
+		if got := hasMutationProofMarker(c.cmd); got != c.want {
+			t.Errorf("hasMutationProofMarker(%q) = %v, want %v", c.cmd, got, c.want)
+		}
+	}
+}
