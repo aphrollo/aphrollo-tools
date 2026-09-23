@@ -53,6 +53,11 @@ func TestMain(m *testing.M) {
 	// test case about the shim's queuing — inherited, it made every shim
 	// test take the nested-passthrough path.
 	os.Unsetenv(tdd.BuildLockHeldEnv)
+	// The mutation-gate marker is the same kind of fact: true of the
+	// measurement that runs this suite, false of any test case in it.
+	// Inherited, it sent every shim test down the marked path, and one of
+	// them waited forever for a queue line that path never prints (#704).
+	os.Unsetenv(tdd.MutationGateEnv)
 	// And the same net for gh: this package's verbs shell out to it, and only
 	// the tests that arranged a stub were isolated from the operator's real
 	// one. See ghstub_isolation_test.go.
