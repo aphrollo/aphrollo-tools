@@ -772,7 +772,8 @@ the one first-edit false-RED it avoids, and there is no main-branch edit gate
 here to toggle.
 
 Three further test-quality smells **warn and never deny** — they are judgement
-calls, and a false deny wedges a session. Each prints one `file:line` note:
+calls, and a false deny wedges a session. Each prints one `file:line` note,
+naming the line in the file as the edit leaves it, for the lines the edit adds:
 
 - **weak physics bar** — `assert!(x > 0.0)` in a `crates/{forge*,movement,pose,shared}`
   test: a sign check passes for a value 100x wrong ("state the closed-form
@@ -781,7 +782,8 @@ calls, and a false deny wedges a session. Each prints one `file:line` note:
   that describes nothing cannot say which production change makes it red.
 - **unexplained tolerance** — `approx_eq` / `abs_diff_eq` /
   `assert_relative_eq` / `< EPS` / `< 1e-` with no `// tolerance: <why>` (or
-  `// why:`) within two lines above: a tolerance is a hole the size of the
+  `// why:`) within two lines above it, or above the multi-line `assert!(`
+  whose arguments it sits in: a tolerance is a hole the size of the
   tolerance until something names its consumer.
 
 Files matching `_platform_pin` are exempt: they record what a MACHINE does, so
@@ -878,7 +880,9 @@ target that does not exist fails instantly and proves nothing:
 | `<crate>/benches/x.rs` | `--bench x --no-run` — a bench RUN costs minutes and says nothing about correctness |
 
 The filter dialect follows the runner: `-E 'test(/^a::b::/)'` for nextest, the
-`a::b::` substring for plain `cargo test`.
+`a::b::` substring for plain `cargo test`. An example or bench whose manifest
+entry declares `required-features` is built with `--features` naming them, read
+from `cargo metadata`: cargo refuses to build that target without them.
 
 #### The edit hook's budget, and deferred builds
 
@@ -1373,6 +1377,14 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   A proof whose tests all skip anyway is reported as `all-tests-skipped` and
   refused: inconclusive, never `red-proven`, and never "your tests passed at
   HEAD".
+  The same switches open the hand-run rerun guard: the gate's own post-edit
+  and suite runs never set them, so a verdict they logged says nothing about
+  the tests the switch gates. A test that returns early is counted as passed by
+  libtest and nextest alike, so that verdict cannot say it skipped anything
+  either. A `go test` / `cargo test` / `cargo nextest run` command that sets
+  a declared switch (`NAME=… cargo …`, `export NAME=…`, PowerShell's `$env:NAME = …`)
+  is let through beside a fresh verdict and counted as
+  `override-bash-env-switch`.
 - **`always-run`** — a workspace-wide guard package (its tests scan the whole
   tree) is owned by no staged file, so ownership scoping alone would run it
   only when someone edits the guard itself, which is exactly when its

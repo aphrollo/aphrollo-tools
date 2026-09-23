@@ -86,7 +86,7 @@ func TestPostEdit(t *testing.T) {
 		{"passing test edit reports green", postPayload("Write", test), true, "ok\nPASS", "→ green"},
 		{"green with a parsed passed count", postPayload("Edit", src), true, "test result: ok. 7 passed; 0 failed", "→ green (7 passed,"},
 		{"failing source reports red", postPayload("Edit", src), false, "--- FAIL: TestThing\n want 1", "outcome=red"},
-		{"missing impl is clean red", postPayload("Edit", src), false, "undefined: NewWidget", "red-missing-impl"},
+		{"missing impl is clean red", postPayload("Edit", src), false, "./widget_test.go:9:6: undefined: NewWidget", "red-missing-impl"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

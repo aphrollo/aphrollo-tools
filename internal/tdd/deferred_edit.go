@@ -264,7 +264,7 @@ func judgeEditResult(runner Runner, file, editID string, res SuiteResult, root s
 	if line := foreignBuildAdvisory(root, file, cmdString(runner), res); line != "" {
 		return line
 	}
-	outcome := classifyRunOutcome(runner, res, prev)
+	outcome := classifyRunOutcome(runner, root, res, prev)
 	if state != nil {
 		state.stamp(root, projectState{
 			Outcome:      string(outcome),

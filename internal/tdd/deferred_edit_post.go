@@ -56,7 +56,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	if line := foreignBuildAdvisory(root, target, cmdString(snap.runner), res); line != "" {
 		return line, false
 	}
-	outcome := classifyRunOutcome(snap.runner, res, snap.prevFailing)
+	outcome := classifyRunOutcome(snap.runner, root, res, snap.prevFailing)
 	if snap.state != nil {
 		snap.state.stamp(root, projectState{
 			Outcome:      string(outcome),

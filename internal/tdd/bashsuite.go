@@ -94,7 +94,7 @@ func DecideBashSuite(raw []byte) (Decision, bool) {
 	if shape == narrowedSuiteInvocation {
 		return decideNarrowedSuite(root, cmd), true
 	}
-	return decideWholeSuite(root), true
+	return decideWholeSuite(root, cmd), true
 }
 
 // decideNarrowedSuite judges a narrowed rerun against what the gate already
@@ -133,6 +133,9 @@ func decideNarrowedSuite(root, cmd string) Decision {
 		}
 		if hasMutationProofMarker(cmd) {
 			return Decision{Action: Allow, Escapes: []string{"override-bash-mutation-proof"}}
+		}
+		if setsDeclaredSwitch(root, cmd) {
+			return Decision{Action: Allow, Escapes: []string{escapeBashEnvSwitch}}
 		}
 		return Decision{
 			Action: Block,
@@ -179,7 +182,8 @@ func denyNarrowedRerunReason(root string, e gateEntry) string {
 			"through. An ignored-only run (`--run-ignored ignored-only`, or cargo test's `-- --ignored`) "+
 			"is let through too, and counted: a default run never executes an ignored test, so this "+
 			"verdict never answered for one — `--run-ignored all` and `--include-ignored` also run the "+
-			"normal set and stay refused. MUTATION=1 is not a way past this refusal: it labels a run "+
+			"normal set and stay refused. A run that sets a switch the repo declares under fail-first-env is let through "+
+			"too, and counted: the gate's own runs never set one, so this verdict never answered for the tests it gates. MUTATION=1 is not a way past this refusal: it labels a run "+
 			"that IS a mutation proof, and every run carrying it is counted as one.",
 		e.verdict, root, e.stage, ago, DeferredAbandoned, InfraFailed)
 }
@@ -262,13 +266,16 @@ func segmentRunsIgnoredOnly(words []string) bool {
 // silently — an un-narrowed run is legitimate whenever there is nothing to be
 // redundant against. The root is the tree the command enters, so a verdict
 // about a different checkout is not "such a verdict" at all.
-func decideWholeSuite(root string) Decision {
+func decideWholeSuite(root, cmd string) Decision {
 	if root == "" {
 		return Decision{Action: Allow}
 	}
 	entry, fresh := lastFreshSuiteVerdict(root, wholeRunScope())
 	if !fresh {
 		return Decision{Action: Allow}
+	}
+	if setsDeclaredSwitch(root, cmd) {
+		return Decision{Action: Allow, Escapes: []string{escapeBashEnvSwitch}}
 	}
 	return Decision{
 		Action: Block,
