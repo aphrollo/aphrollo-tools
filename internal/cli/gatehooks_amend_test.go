@@ -103,11 +103,13 @@ func TestCommitMsg_AnAmendOfAMergeKeepsThePremergeGreenForItsUnchangedTree(t *te
 		t.Fatalf("concluding the merge: %v\n%s", err, out)
 	}
 
-	// The amend: commit-msg over an index that is the merge commit's own
-	// tree. git runs pre-commit first, in a process of its own; it is not run
-	// here, because in this one test process the premerge's "a suite ran
-	// green" flag would still be set when it ran and it would stamp the tree
-	// itself — vouching for the amend by an accident no real hook shares.
+	// The amend: git runs pre-commit, then commit-msg, over an index that is
+	// the merge commit's own tree. Pre-commit runs no suite here and must not
+	// vouch for anything itself; the verdict commit-msg reads is the merge's.
+	errb.Reset()
+	if code := Run([]string{"gate", "precommit"}, strings.NewReader(""), &bytes.Buffer{}, &errb); code != 0 {
+		t.Fatalf("the amend's pre-commit refused an unchanged tree: exit %d\n%s", code, errb.String())
+	}
 	if code, out := commitMsgClaims(t); code != 0 {
 		t.Fatalf("commit-msg refused a claim about the very tree the merge gate ran green: exit %d\n%s", code, out)
 	}
