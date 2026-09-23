@@ -36,6 +36,14 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		}
 		return res
 	}
+	if commentOnlyRust(repoRoot) {
+		res := commentOnlyFastPath(premergeDisplayName, repoRoot)
+		if len(notes) > 0 {
+			notes = append(notes, res.Message)
+			res.Message = strings.Join(notes, "\n")
+		}
+		return res
+	}
 
 	// Same order as Precommit, and for the same reason: a merge carrying only
 	// a raised baseline or a law regression must answer for it before the
