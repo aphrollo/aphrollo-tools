@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -234,19 +233,6 @@ func computeFingerprint(root string) *fingerprint {
 		mtime = fi.ModTime().UnixNano()
 	}
 	return &fingerprint{Branch: branch, HeadSHA: head, IndexMtime: mtime}
-}
-
-// gitOut reads a git value from root. It runs outside the hook context (the
-// PostToolUse fingerprint, not a pre-commit worktree), so it intentionally skips
-// cleanGitEnv() — no inherited GIT_* vars to scrub here.
-func gitOut(root string, args ...string) string {
-	cmd := exec.Command(gitBinary(), args...)
-	cmd.Dir = root
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
 }
 
 // stamp records the outcome of a run for root.

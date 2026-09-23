@@ -3,7 +3,6 @@ package tdd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -291,18 +290,6 @@ func markDeferred(advisory string) string {
 	return "gate: deferred " + advisory
 }
 
-// InfraFailed is the verdict for a phase the tooling never actually got to
-// run: the OS could not spawn the detached runner, or RunPhase's own setup
-// (no build slot came free, no log file) failed before the phase's command
-// started. It reads distinctly from RedBogus (a real run whose TEST setup
-// broke — a syntax or import error) on purpose: RedBogus sends a session to
-// fix its test, which is the wrong move when nothing about the test was ever
-// exercised (issues #350, #354). It joins TIMEOUT/SKIPPED/QUEUED-SKIPPED in
-// the inconclusive family rather than the Outcome enum in classify.go,
-// because no test output was ever classified — there is nothing for
-// ClassifyOutcome to have seen.
-const InfraFailed = "infra-failed"
-
 // spawnFailedLine reports a phase that never started at all: the hook could
 // not even launch the detached runphase wrapper. InfraFailed, not RedBogus —
 // see its doc comment for why the two must never be confused.
@@ -411,13 +398,6 @@ func runnerFromArgv(argv []string, dir string) Runner {
 	return Runner{Cmd: argv[0], Args: argv[1:], Dir: dir}
 }
 
-func runnerDir(r Runner, root string) string {
-	if r.Dir != "" {
-		return r.Dir
-	}
-	return root
-}
-
 // killDeferred ends an abandoned phase. Best-effort: the process may already
 // be gone, and a failure here only leaves a process the OS will reap.
 func killDeferred(j DeferredJob) {
@@ -487,14 +467,4 @@ func reapSessionDeferredJobs(session string) int {
 		reaped++
 	}
 	return reaped
-}
-
-// headSHAFor is the current commit of root's repo, "" outside a repo — the
-// first half of "does this result describe the code on disk now".
-func headSHAFor(root string) string {
-	out, err := exec.Command(gitBinary(), "-C", root, "rev-parse", "HEAD").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
 }

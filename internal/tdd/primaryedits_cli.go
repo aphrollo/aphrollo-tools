@@ -6,12 +6,6 @@ import (
 	"time"
 )
 
-// WallPrimary is the primary-checkout merge-only rule — the one wall this
-// release's allow/revoke family covers. A later lane adds WallDiscard, and
-// every wall shares this same mechanism: its refusal and its doc read the
-// same regardless of which wall it names.
-const WallPrimary = "primary"
-
 // Waiver is one active wall waiver, as ListWaivers reports it: which wall,
 // since when, and which session holds it. Until is zero for a plain
 // session-scoped waiver, and the one-shot arm's deadline for one that isn't.

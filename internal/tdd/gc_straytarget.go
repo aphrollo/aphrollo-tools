@@ -14,7 +14,6 @@ import (
 // cargo writes at the top of every target dir identifies one, and being idle
 // for days is what says nobody is building into it.
 const (
-	cargoCacheTag  = "CACHEDIR.TAG"
 	cargoInfoFile  = ".rustc_info.json"
 	strayTargetTop = 1 // depth under a root: deeper is somebody's own layout
 )

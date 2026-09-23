@@ -54,23 +54,6 @@ var retiredMutantsKeys = []string{
 	"mutation-receipt", "mutants-local", "mutants-judge-local", "mutation-runner",
 }
 
-// mutantsConfigTable is one place a key may be written: a file and the table
-// inside it. The Cargo spelling is tried first and aphrollo.toml is the
-// fallback, the same precedence IssueLabels and mutation-baseline-exclude
-// already use for a repo that may or may not be a Cargo workspace.
-type mutantsConfigTable struct{ path, table string }
-
-func mutantsConfigTables(root string) []mutantsConfigTable {
-	ws := cargoWorkspaceRoot(root)
-	if ws == "" {
-		ws = root
-	}
-	return []mutantsConfigTable{
-		{filepath.Join(ws, "Cargo.toml"), "[workspace.metadata.aphrollo]"},
-		{filepath.Join(root, "aphrollo.toml"), "[aphrollo]"},
-	}
-}
-
 // ReadMutantsConfig refuses a retired key with a message naming its
 // replacement; a repo declaring nothing returns the zero value, nil.
 func ReadMutantsConfig(root string) (MutantsConfig, error) {
@@ -150,17 +133,6 @@ func firstDeclaredCount(tables []mutantsConfigTable, key, unit string) (int, err
 		return n, nil
 	}
 	return 0, nil
-}
-
-// firstDeclaredList reads one string-array key from the first table that
-// declares a non-empty one.
-func firstDeclaredList(tables []mutantsConfigTable, key string) []string {
-	for _, t := range tables {
-		if entries := tomlStringsIn(t.path, t.table, key); len(entries) > 0 {
-			return entries
-		}
-	}
-	return nil
 }
 
 // tomlKeySetIn reports whether a key is WRITTEN in one table of a TOML file,

@@ -2,7 +2,6 @@ package tdd
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,8 +16,6 @@ import (
 // full suite on every session start costs far more than the one first-edit
 // false "RED" it would avoid. The first edit establishes its own baseline, as
 // PostToolUse does for every edit after.
-
-var errNoSession = errors.New("no session id")
 
 // --- UserPromptSubmit: the /tdd control command + RED reinforcement ----------
 

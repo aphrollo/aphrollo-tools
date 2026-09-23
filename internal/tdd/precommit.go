@@ -6,33 +6,6 @@ import (
 	"strings"
 )
 
-// GateResult is the verdict of a git-time gate (precommit, prepush). A
-// blocked action always carries a Message explaining what failed and how to
-// proceed. verdictFor owns the actual outcome→verdict mapping: a TIMEOUT or
-// a check-error (the check's own machinery could not answer) BLOCKS like a
-// failure, since a commit the gate never tested must not land. Message can
-// also ride with Blocked false — a deliberate, logged stand-down.
-type GateResult struct {
-	Blocked bool
-	Message string
-}
-
-const failFirstMessage = "TDD fail-first: this commit adds tests AND implementation, but the new tests " +
-	"PASS against the pre-edit code (HEAD) — so they are not actually pinning the new behavior. " +
-	"A test that never went RED can't prove the implementation. Write the test first and watch it fail, " +
-	"or split the test into its own earlier commit."
-
-// vacuousFailFirstMessage names the package(s) the fail-first proof executed
-// zero tests in — "something in this run was vacuous" is not actionable, so
-// the message states exactly which package(s) to check.
-func vacuousFailFirstMessage(pkgs []string) string {
-	return fmt.Sprintf(
-		"TDD fail-first: the pre-edit proof executed zero tests in %s despite exiting 0, "+
-			"so nothing was actually proven either way there. Check that the staged test is reachable by the runner "+
-			"(a name/filter mismatch is the usual cause) and retry the commit.",
-		strings.Join(pkgs, ", "))
-}
-
 // rootGroup is one project root's staged Test/Source files (repo-root-
 // relative paths), the unit both Precommit and Mechanical iterate.
 type rootGroup struct {

@@ -142,20 +142,6 @@ func gcReportLine() string {
 		formatBytes(r.Freed), r.Dirs)
 }
 
-// gcStatePath resolves a state-dir file, creating the dir. "" when there is
-// no state dir at all (then nothing about the sweep is remembered, which is
-// the same as it never having run).
-func gcStatePath(name string) string {
-	dir := stateDir()
-	if dir == "" {
-		return ""
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return ""
-	}
-	return filepath.Join(dir, name)
-}
-
 // gcSpawnForTest replaces the detached sweep with an observer. Always nil in
 // production.
 var gcSpawnForTest func(cwd string)
@@ -205,25 +191,6 @@ func backgroundGCSpawnDescription() string {
 		return "attached to the hook"
 	}
 	return "detached from the hook's process group"
-}
-
-// writeGateOrigin records which repo a hash-named gate directory belongs to.
-// Written at creation and never read by the gate itself: it exists so the
-// sweep can tell a live directory from the remains of a deleted repo, which
-// the hash alone can never say. Best-effort — a missing origin only makes
-// the directory UNKNOWN, and unknown directories are left alone.
-func writeGateOrigin(dir, root string) {
-	if dir == "" || root == "" {
-		return
-	}
-	path := filepath.Join(dir, gcOriginFile)
-	if data, err := os.ReadFile(path); err == nil && string(data) == root {
-		return
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return
-	}
-	_ = os.WriteFile(path, []byte(root), 0o600)
 }
 
 // GCAfterWorktreeChange sweeps what a `git worktree remove`/`prune` left

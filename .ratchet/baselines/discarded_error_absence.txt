@@ -27,5 +27,5 @@ internal/tdd/mutants_ram_unix.go | return "", false
 internal/tdd/runner_core.go | return "", false
 internal/tdd/sessionline.go | return issuesCache{}, false
 internal/tdd/sessionline.go | return "", false
-internal/tdd/stats.go | return gateEntry{}, false
-internal/tdd/stats.go | return gateEntry{}, false
+internal/tdd/stats_core.go | return gateEntry{}, false
+internal/tdd/stats_core.go | return gateEntry{}, false

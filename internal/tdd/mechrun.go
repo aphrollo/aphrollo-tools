@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -237,29 +236,6 @@ func pinMechCargoTarget(r Runner, repoRoot string) func() {
 	}
 }
 
-// resolvedDevTarget is where a build in repoRoot lands by default: the
-// environment's CARGO_TARGET_DIR if set, else the workspace root's target/.
-// The fail-first run must EXPORT this rather than inherit it — its worktree
-// lives elsewhere, so cargo's default would silently create a second one.
-func resolvedDevTarget(repoRoot string) string {
-	if repoRoot == "" {
-		return ""
-	}
-	return ResolveCargoTargetDir(repoRoot)
-}
-
-// insideDir reports whether path lies lexically within base (inclusive).
-// Windows compares case-insensitively — the same checkout routinely appears
-// with both drive-letter casings.
-func insideDir(base, path string) bool {
-	base, path = filepath.Clean(base), filepath.Clean(path)
-	if runtime.GOOS == "windows" {
-		base, path = strings.ToLower(base), strings.ToLower(path)
-	}
-	rel, err := filepath.Rel(base, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
 // queuedRejectMessage composes the rejection for a commit the gate could
 // not test because no build slot came free: it names the holder, so the
 // operator knows what to wait for, and the two ways forward.
@@ -321,16 +297,4 @@ func writeMechRejectLog(path string, r Runner, res SuiteResult) bool {
 		return false
 	}
 	return os.WriteFile(path, []byte(b.String()), 0o600) == nil
-}
-
-// tailSnippet bounds runner output to its LAST maxSnippet chars — the mirror
-// of snippet(): a suite's failure detail (the FAILED lines, the panic, the
-// assertion diff) accumulates at the end of the run, so a bounded rejection
-// must keep the tail and drop the head.
-func tailSnippet(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= maxSnippet {
-		return s
-	}
-	return "…[truncated]\n" + s[len(s)-maxSnippet:]
 }
