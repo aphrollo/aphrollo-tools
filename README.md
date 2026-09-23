@@ -1324,6 +1324,14 @@ issue-labels = ["netcode", "gameplay", "physics", "animation", "client-ui", "qua
   A proof whose tests all skip anyway is reported as `all-tests-skipped` and
   refused: inconclusive, never `red-proven`, and never "your tests passed at
   HEAD".
+  The same switches open the hand-run rerun guard: the gate's own post-edit
+  and suite runs never set them, so a verdict they logged says nothing about
+  the tests the switch gates. A test that returns early is counted as passed by
+  libtest and nextest alike, so that verdict cannot say it skipped anything
+  either. A `go test` / `cargo test` / `cargo nextest run` command that sets
+  a declared switch (`NAME=… cargo …`, `export NAME=…`, PowerShell's `$env:NAME = …`)
+  is let through beside a fresh verdict and counted as
+  `override-bash-env-switch`.
 - **`always-run`** — a workspace-wide guard package (its tests scan the whole
   tree) is owned by no staged file, so ownership scoping alone would run it
   only when someone edits the guard itself, which is exactly when its
