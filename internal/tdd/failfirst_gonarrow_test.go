@@ -25,9 +25,9 @@ func TestNarrowFailFirstTests_GoRunFilterNamesTheStagedTests(t *testing.T) {
 	write(t, root, "internal/x/beta_test.go",
 		"package x\n\nimport \"testing\"\n\nfunc TestBeta_widgetIsStillOne(t *testing.T) {}\n")
 
-	goRunner := Runner{"go", []string{"test", "./..."}, "", time.Time{}}
+	goRunner := Runner{Cmd: "go", Args: []string{"test", "./..."}, Dir: "", Deadline: time.Time{}}
 	got := narrowFailFirstTests(goRunner, root, []string{"internal/x/beta_test.go", "internal/x/alpha_test.go"})
-	want := Runner{"go", []string{"test", "./internal/x", "-run", "^(TestAlpha_widgetIsOne|TestBeta_widgetIsStillOne)$"}, "", time.Time{}}
+	want := Runner{Cmd: "go", Args: []string{"test", "./internal/x", "-run", "^(TestAlpha_widgetIsOne|TestBeta_widgetIsStillOne)$"}, Dir: "", Deadline: time.Time{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("narrowFailFirstTests (go) = %+v, want %+v", got, want)
 	}
@@ -45,9 +45,9 @@ func TestNarrowFailFirstTests_GoWithoutATestFuncKeepsPackageScope(t *testing.T) 
 	write(t, root, "internal/x/fuzz_test.go",
 		"package x\n\nimport \"testing\"\n\nfunc FuzzWidget(f *testing.F) {}\n")
 
-	goRunner := Runner{"go", []string{"test", "./..."}, "", time.Time{}}
+	goRunner := Runner{Cmd: "go", Args: []string{"test", "./..."}, Dir: "", Deadline: time.Time{}}
 	got := narrowFailFirstTests(goRunner, root, []string{"internal/x/fuzz_test.go"})
-	want := Runner{"go", []string{"test", "./internal/x"}, "", time.Time{}}
+	want := Runner{Cmd: "go", Args: []string{"test", "./internal/x"}, Dir: "", Deadline: time.Time{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("narrowFailFirstTests (go, no Test func) = %+v, want %+v", got, want)
 	}
