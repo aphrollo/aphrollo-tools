@@ -106,16 +106,17 @@ type need struct {
 }
 
 type splitter struct {
-	m       *Manifest
-	root    string
-	levels  map[int]bool
-	module  string
-	needs   map[string]map[string]*need // consumer -> "from.name" -> need
-	seams   map[types.Object]bool
-	reports []string
-	seen    map[string]bool
-	sites   map[string]map[string]bool       // finding -> use sites
-	helpers map[string]map[types.Object]bool // consumer -> test helpers carried into it
+	m        *Manifest
+	root     string
+	levels   map[int]bool
+	module   string
+	needs    map[string]map[string]*need // consumer -> "from.name" -> need
+	seams    map[types.Object]bool
+	reports  []string
+	seen     map[string]bool
+	sites    map[string]map[string]bool       // finding -> use sites
+	helpers  map[string]map[types.Object]bool // consumer -> test helpers carried into it
+	carrying map[types.Object]bool            // helpers whose carry is in progress, against cycles
 }
 
 // site records one use site of a finding; siteReports renders each finding

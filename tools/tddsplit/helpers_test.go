@@ -230,3 +230,34 @@ func TestAnalyze_ReportsAWrittenTestVarInsteadOfCopyingIt(t *testing.T) {
 		}
 	}
 }
+
+// A helper whose signature or body names something of a HIGHER package than
+// the one it would be copied into cannot compile there: no alias reaches
+// upward. The copy is reported and never emitted, and neither is a helper
+// that relies on such a copy.
+func TestAnalyze_NeverCopiesAHelperThatReachesUpward(t *testing.T) {
+	files := map[string]string{
+		"go.mod":      "module example.com/fx\n\ngo 1.26\n",
+		"p/a.go":      "package p\n\nfunc base() int { return 1 }\n",
+		"p/a_test.go": "package p\n\nimport \"testing\"\n\nfunc TestLow_UsesHelpers(t *testing.T) {\n\t_ = decideIt()\n\t_ = viaDecide()\n\t_ = sigOnly(nil)\n\t_ = base()\n}\n",
+		"p/b.go":      "package p\n\n// Decision is a high-level verdict.\ntype Decision struct{ OK bool }\n\n// Decide decides.\nfunc Decide() Decision { return Decision{OK: base() == 1} }\n",
+		"p/b_test.go": "package p\n\nfunc decideIt() bool { return Decide().OK }\n\nfunc viaDecide() bool { return decideIt() }\n\nfunc sigOnly(d *Decision) bool { return d == nil }\n",
+	}
+	manifest := "root p\n[packages]\nlow L0 p/low\np L1 p\n[files]\na.go low\na_test.go low\nb.go p\nb_test.go p\n"
+	a := analyzeFixture(t, files, manifest, "L0")
+	gen := string(a.Generated["p/low/tddtest_wrappers_test.go"])
+	for _, name := range []string{"decideIt", "viaDecide", "sigOnly"} {
+		if strings.Contains(gen, "func "+name+"(") {
+			t.Errorf("helper %s, which reaches package p above low, was copied into low:\n%s", name, gen)
+		}
+		found := false
+		for _, r := range a.Reports {
+			if strings.Contains(r, "test helper "+name+" ") && strings.Contains(r, "not carried") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no report says helper %s is not carried; reports:\n%s", name, strings.Join(a.Reports, "\n"))
+		}
+	}
+}
