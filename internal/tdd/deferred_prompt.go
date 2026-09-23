@@ -37,9 +37,9 @@ func withSessionHarvest(line, session string) string {
 // Bash hook and the prompt: each finished job this session started, in any
 // tree, is reported through the same harvestDeferred the edit hook uses on
 // its own tree and cleared, so no hook reports it twice. A job still running
-// is left for a later hook. Each answers about its own tree's CURRENT source
-// only — a result from another HEAD or worktree state describes code that is
-// not there, and is dropped as the edit hook drops it.
+// is left for a later hook. Each is judged against its own tree's CURRENT
+// source: a result from another HEAD or worktree state describes code that
+// is not there, and is reported labelled as such (staleVerdictLine).
 func harvestSessionJobs(session string) []string {
 	var lines []string
 	for _, j := range sessionDeferredJobs(session) {
@@ -47,12 +47,8 @@ func harvestSessionJobs(session string) []string {
 			continue
 		}
 		root := j.Project
-		if !deferredMatchesSource(j, headSHAFor(root), sourceIdentity(root, j.File)) {
-			clearDeferredJob(session, root)
-			continue
-		}
 		state, statePath := loadSession(session)
-		line, _ := harvestDeferred(root, j.HeadSHA, j.FileHash, session, 0, state, statePath)
+		line, _ := harvestDeferred(root, headSHAFor(root), sourceIdentity(root, j.File), session, 0, state, statePath)
 		lines = append(lines, withCommand(line, j))
 	}
 	return lines

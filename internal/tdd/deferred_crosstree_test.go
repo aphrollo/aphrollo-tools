@@ -144,19 +144,36 @@ func TestWithCommand_NamesTheCommandOnTheHeadlineOfAMultiLineVerdict(t *testing.
 	}
 }
 
-// A result that no longer describes its tree is dropped, never reported as
-// a verdict — and its record goes with it, so the sweep does not re-read it
-// at every hook and the status line stops counting it as work in flight.
-func TestPromptHarvest_ClearsTheRecordOfAResultItDroppedAsStale(t *testing.T) {
+// ratchet: test_removed TestPromptHarvest_ClearsTheRecordOfAResultItDroppedAsStale: a stale result is no longer dropped; the test below pins that it is reported, labelled, and its record cleared.
+
+// A result that no longer describes its tree is not a verdict on the
+// current code, but a red there usually is a real break the session caused:
+// it is reported once, labelled as measured on an earlier tree state, and
+// its record goes with it.
+func TestPostEdit_ReportsAnotherTreesStaleRedLabelledAsAnEarlierTreeState(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	crateA := mkProject(t, "Cargo.toml")
+	crateB := mkProject(t, "Cargo.toml")
 	finishedRedJob(t, "sess-post", crateA, "tests::a_breaks")
 	write(t, crateA, "src/lib.rs", "pub fn a() { moved_on() }\n")
+	done := &PhaseOutcome{ExitCode: 0, Seconds: 1}
+	fakePhases(t, done, done)
 
-	if got := promptHarvest("sess-post"); got != "" {
-		t.Fatalf("reported %q for a result its tree has moved past", got)
+	got := PostEdit(postPayload("Edit", crateB+"/src/widget.rs"), fakeRun(true, "ok"))
+
+	var lineA string
+	for _, l := range strings.Split(got, "\n") {
+		if strings.Contains(l, crateA) {
+			lineA = l
+		}
+	}
+	for _, want := range []string{"gate: deferred", "cargo test -p crate_a", "red", "tests::a_breaks",
+		"measured on an earlier tree state", "the current code was NOT tested"} {
+		if !strings.Contains(lineA, want) {
+			t.Fatalf("A's line = %q (advisory %q), want it to carry %q", lineA, got, want)
+		}
 	}
 	if _, ok := loadDeferredJob("sess-post", crateA); ok {
-		t.Fatal("a stale job's record must be cleared once the sweep has judged it")
+		t.Fatal("a reported job must be cleared so no later hook reports it again")
 	}
 }

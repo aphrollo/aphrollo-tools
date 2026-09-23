@@ -47,7 +47,10 @@ func TestPostEdit_SpawnFailureIsReportedNotDeferred(t *testing.T) {
 // answer was reported as current; and the identity it would have checked was
 // HEAD plus the ONE edited file, which cannot see a change made outside the
 // hook (another session's edit, a script, a rebase). The identity is the
-// whole worktree state.
+// whole worktree state. A result the worktree has moved past is rejected as
+// a verdict on the current code, but never dropped: it is reported, labelled
+// as measured on an earlier tree state, so a green there cannot read as a
+// current green and a red there is still seen.
 func TestPromptHarvest_RejectsAResultTheWorktreeHasMovedPast(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := t.TempDir()
@@ -67,8 +70,15 @@ func TestPromptHarvest_RejectsAResultTheWorktreeHasMovedPast(t *testing.T) {
 	// A change nothing told the hook about.
 	write(t, root, "widget.go", "package x\n")
 
-	if got := promptHarvest("s1"); got != "" {
-		t.Fatalf("reported %q for a result the worktree has moved past", got)
+	got := promptHarvest("s1")
+	if !strings.Contains(got, root) || !strings.Contains(got, "go test ./...") {
+		t.Fatalf("reported %q, want the result named by its tree %s and its command", got, root)
+	}
+	if !strings.Contains(got, "measured on an earlier tree state") || !strings.Contains(got, "not a verdict on the current code") {
+		t.Fatalf("reported %q as if it were current: a result the worktree has moved past must say so", got)
+	}
+	if _, ok := loadDeferredJob("s1", root); ok {
+		t.Fatal("a reported job must be cleared so no later hook reports it again")
 	}
 }
 
