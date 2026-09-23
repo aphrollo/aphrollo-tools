@@ -86,12 +86,12 @@ const (
 // runEditPhases executes the edit's tests as build-then-run inside budget,
 // deferring whatever does not finish. It reports deferred=true when a phase
 // was left running, in which case res is meaningless.
-func runEditPhases(runner Runner, root, target, headSHA, fileHash, session string, budget time.Duration) deferredEditOutcome {
+func runEditPhases(runner Runner, root, target, headSHA, fileHash, session, editID string, budget time.Duration) deferredEditOutcome {
 	deadline := time.Now().Add(budget)
 	build := DeferredJob{
 		Project: root, Phase: "build", Dir: runnerDir(runner, root),
 		Runner: phaseArgv(runner, "build"), HeadSHA: headSHA, FileHash: fileHash,
-		File: target, Session: session,
+		File: target, Session: session, EditID: editID,
 	}
 	if !splittable(runner) {
 		// Only cargo can build tests without running them; `go test --no-run`
@@ -265,6 +265,7 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 		_ = state.save(statePath)
 	}
 	logSuiteVerdict("postedit", root, strings.Join(j.Runner, " "), string(outcome), res)
+	recordEditVerdict(root, j.EditID, strings.Join(j.Runner, " "), outcome, res.Output)
 	if outcome.IsRed() {
 		return redSummary(runner, root, outcome, res.Output)
 	}
@@ -503,7 +504,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	// asked for and has to hear about even though a fresh run is starting
 	// (issue #571). One defer beats repeating the fold at eight returns.
 	defer func() { advisory = joinDeferredAdvisory(carried, advisory) }()
-	out := runEditPhases(snap.runner, root, target, headSHA, fileHash, session, budget)
+	out := runEditPhases(snap.runner, root, target, headSHA, fileHash, session, snap.editID, budget)
 	if out.spawnFailed {
 		appendGateLog("postedit", root, cmdString(snap.runner), InfraFailed, 0)
 		return spawnFailedLine(root, "build"), false
@@ -550,6 +551,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 		}
 	}
 	logSuiteVerdict("postedit", root, cmdString(snap.runner), string(outcome), res)
+	recordEditVerdict(root, snap.editID, cmdString(snap.runner), outcome, res.Output)
 	if outcome.IsRed() {
 		return redSummary(snap.runner, root, outcome, res.Output), false
 	}

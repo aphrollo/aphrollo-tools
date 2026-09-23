@@ -747,6 +747,24 @@ was staged to fail), which is why it is said out loud:
 proof owed)`. It never blocks, never touches the timeout streak, and is
 recorded as green for `/gate status`.
 
+**Inline Rust tests** — a `#[test]` inside a `#[cfg(test)]` module in the same
+file as the code it tests, or in a sibling file mounted by a `#[cfg(test)]
+#[path = "..."] mod` declaration — cannot be applied onto HEAD without the
+implementation beside them, so fail-first proves them from the **edit ledger**
+instead. The edit hook records every edit per checkout (`<stateDir>/edit-ledger/`):
+the file, the HEAD it was made on, whether it changed only test code (the
+`#[cfg(test)]` items, compared with the file's previous recorded state or
+HEAD's copy, ignoring layout and comments), each test's body, and the verdict
+its run reached with the failing and passing test names. A new staged test is
+`red-proven` when the ledger holds, on the current HEAD, an edit that changed
+only test code, held the staged test and helpers exactly, and went red naming
+the test (or failed to compile), followed by production-only edits that left
+the test and helpers alone, the last of which passed naming it. The line names
+both edits:
+`[fail-first] gate precommit: postedit ledger in <root> → red-proven (src/widget.rs
+widget_doubles: red at edit <id>, green at edit <id>)`. Any new test without such a
+pair leaves the stage `inconclusive (rust-inline-test)`.
+
 `/gate off` is the escape hatch for spikes and non-TDD work; `/gate on` re-enables.
 The SessionStart baseline and `/gate allow-main` from the Node original are
 deliberately **not** ported — a full suite on every session start costs more than

@@ -102,10 +102,13 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 		return "", false
 	}
 
+	// Before the enforcement check: an edit with the gate off still changed the file.
+	editID := recordEdit(root, target)
 	snap, ok := captureStateSnapshot(session, target, root)
 	if !ok {
 		return "", false
 	}
+	snap.editID = editID
 
 	// A narrowed cargo run whose package-scope form already proved green at
 	// this exact worktree state has nothing left to ask — most often the
@@ -203,6 +206,7 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 	}
 
 	logSuiteVerdict("postedit", root, cmdString(snap.runner), string(outcome), res)
+	recordEditVerdict(root, snap.editID, cmdString(snap.runner), outcome, res.Output)
 	if outcome.IsRed() {
 		return withNote(redSummary(snap.runner, root, outcome, res.Output), widenNote), false
 	}
@@ -210,28 +214,6 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 		return withNote(unconstrainedLine(snap.runner, root, passed, res.Duration), widenNote), false
 	}
 	return withNote(passAdvisory(snap.runner, root, outcome, res.Output, res.Duration, snap.prevFailing), widenNote), false
-}
-
-// unconstrainedGreen reports the case fail-first structurally cannot see: a
-// SOURCE edit whose related tests all pass, with the same pass count as the
-// last green for this project. No test came with the change, so nothing new
-// constrains it — the gate has no evidence either way, which is exactly what
-// a mutation proof is for. Advisory only.
-func unconstrainedGreen(kind Kind, outcome Outcome, snap stateSnapshot, root string, passed int, hasCount bool) bool {
-	if kind != Source || outcome != Green || !hasCount || snap.state == nil {
-		return false
-	}
-	prev, ok := snap.state.ByProject[root]
-	if !ok || prev.PassedCount == 0 {
-		return false
-	}
-	return prev.PassedCount == passed
-}
-
-// unconstrainedLine is the one line that case prints.
-func unconstrainedLine(r Runner, root string, passed int, dur time.Duration) string {
-	return fmt.Sprintf("gate: %s in %s %s (%d passed; no test changed with this edit — mutation proof owed)",
-		cmdString(r), root, GreenUnconstrained, passed)
 }
 
 // stateSnapshot is the per-edit state plumbing PostEdit needs to run the suite
@@ -244,6 +226,8 @@ type stateSnapshot struct {
 	runner      Runner
 	fingerprint *fingerprint
 	prevFailing []string
+	// editID names this edit's edit-ledger record, where its verdict lands.
+	editID string
 }
 
 // captureStateSnapshot loads the session, resolves the narrowed runner for the
