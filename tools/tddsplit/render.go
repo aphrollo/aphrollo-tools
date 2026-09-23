@@ -125,6 +125,7 @@ func (s *splitter) render(c *checked) map[outKey]map[string]entry {
 			}
 		}
 	}
+	s.renderHelpers(c, add)
 	return out
 }
 

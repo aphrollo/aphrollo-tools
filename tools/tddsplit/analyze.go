@@ -81,6 +81,7 @@ func Analyze(repo string, m *Manifest, levels map[int]bool) (*Analysis, error) {
 		}
 		s.relocations(c)
 		s.needs = map[string]map[string]*need{}
+		s.helpers = map[string]map[*types.Func]bool{}
 		s.collect(c)
 		if err := s.externalDemand(repo, c); err != nil {
 			return nil, err
@@ -113,7 +114,8 @@ type splitter struct {
 	seams   map[types.Object]bool
 	reports []string
 	seen    map[string]bool
-	sites   map[string]map[string]bool // finding -> use sites
+	sites   map[string]map[string]bool      // finding -> use sites
+	helpers map[string]map[*types.Func]bool // consumer -> test helpers carried into it
 }
 
 // site records one use site of a finding; siteReports renders each finding
@@ -204,6 +206,10 @@ func (s *splitter) collect(c *checked) {
 				}
 				s.site(fmt.Sprintf("export %s %s (declared %s:%d, package %s), read from package %s", kind, obj.Name(), decl.Path, dl, b, a), where)
 			}
+			continue
+		}
+		if helper, isFn := obj.(*types.Func); isFn && decl.isTest() && user.isTest() {
+			s.carryHelper(c, a, helper, where)
 			continue
 		}
 		if decl.isTest() {
