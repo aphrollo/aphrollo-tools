@@ -246,12 +246,15 @@ the repo's `mutants-shards`, which lowers the count and never raises it. The
 free-space budget below is per shard.
 
 A **Go** run (gremlins) copies nothing into the tree it measures and takes a
-worker count happily, so it keeps the per-box cap
-`min(cores / 6, ram_gb / 6, 2)`, floored at 1, and PRINTS it with the limit
-that bound it — "2 jobs" without "cap 2" says nothing:
+worker count happily, so it keeps the per-box cap with a gremlins worker's
+own memory price: `min(cores/3, memGB/2, 8)`, floored at 1, against a Cargo
+shard's 8 GB. A worker is one `go test` of one package built through the
+shared GOCACHE; a two-worker run over this repo's largest package peaked at
+645 MB of process tree. The run PRINTS the count with the limit that bound
+it — "2 jobs" without "cores" says nothing:
 
 ```
-mutants: 2 jobs (min(cores 24/6=4, ram 64GB/6=10, cap 2) — cap 2)
+mutants: 2 jobs (min(cores 8/3=2, free 21GB/2=10 (measured), cap 8) — cores)
 ```
 
 Memory that cannot be READ is not memory that is absent: an unreadable reading
@@ -368,6 +371,13 @@ from 40 GB free to 12 GB. So:
    naming the numbers, and logs `mutants-refused:disk`. A drive whose free
    space cannot be read never refuses and never reduces — this side's own
    blind spot must not stop a run that would have been fine.
+
+   A Go run has no build dir to stat. Each gremlins worker is priced at the
+   same tracked-tree copy plus 512 MB for the test binaries `go test` links
+   and the tests' own scratch, reported as `estimated from a measured
+   gremlins run`: a two-worker run over this repo's largest test package put
+   a 6.1 MB copy and a 41-51 MB `go-build*` dir per worker on the drive, and
+   its whole `.mutants/<lane>` area peaked at 174 MB.
 
    The guess this replaced multiplied the shard count by a flat 15 GB and had
    never stat'd anything: it asked for 105 GB against ~380 GB free and passed
