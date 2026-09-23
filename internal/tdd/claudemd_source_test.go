@@ -49,7 +49,7 @@ func TestClaudeMDBlock_DoesNotPromiseASuiteTheCommitGateNoLongerRuns(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(src), "return failFirstStage(repoRoot, g.root, g.tests, g.srcs, run)") {
+	if !strings.Contains(string(src), "return failFirstStage(repoRoot, g.Root, g.tests, g.srcs, run)") {
 		t.Fatal("precommit_gateroot.go no longer ends its fail-first branch at failFirstStage — if the " +
 			"commit gate runs a suite again, restore the claim in ClaudeMDBlock's stage-list bullet")
 	}

@@ -29,10 +29,10 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	if len(g.tests) == 0 && len(g.srcs) == 0 {
 		return GateResult{}
 	}
-	runner, ok := DetectRunner(g.root)
+	runner, ok := DetectRunner(g.Root)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "gate %s: %s → skipped (no detected runner)\n", gateName, g.root)
-		AppendGateLog(gateName, g.root, "", "no-runner-skipped", 0)
+		fmt.Fprintf(os.Stderr, "gate %s: %s → skipped (no detected runner)\n", gateName, g.Root)
+		AppendGateLog(gateName, g.Root, "", "no-runner-skipped", 0)
 		return GateResult{}
 	}
 	rootFiles := append(append([]string{}, g.tests...), g.srcs...)
@@ -48,8 +48,8 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	// full suite at submit as the authoritative gate. A runner with no
 	// related mode (or an unknown command) falls back to the full suite
 	// unchanged.
-	rootRelFiles := toRootRelative(repoRoot, g.root, rootFiles)
-	if scoped, narrowed := narrowToStaged(runner, g.root, rootRelFiles); narrowed {
+	rootRelFiles := toRootRelative(repoRoot, g.Root, rootFiles)
+	if scoped, narrowed := narrowToStaged(runner, g.Root, rootRelFiles); narrowed {
 		runner = scoped
 	}
 	if runner.Cmd == "go" {
@@ -62,7 +62,7 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	// CI parity for a Go root: the same vet and lint the branch is judged by,
 	// both cheaper than the suite and therefore ahead of it.
 	if runner.Cmd == "go" {
-		if res := goQualityStage(gateName, repoRoot, g.root, rootRelFiles, run); res.Blocked {
+		if res := goQualityStage(gateName, repoRoot, g.Root, rootRelFiles, run); res.Blocked {
 			return res
 		}
 	}
@@ -84,10 +84,10 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 		// above), and must say so the same way: a Go (or pytest/JS/zig) root's
 		// commit gate ran no suite here either, and silence reads as nothing to
 		// report rather than as the merge-deferred suite it actually is.
-		reportSuitesNotRun(gateName, g.root, suiteNoun(runner.Cmd), runner, suiteTouchedNames(runner))
-		return failFirstStage(repoRoot, g.root, g.tests, g.srcs, run)
+		reportSuitesNotRun(gateName, g.Root, suiteNoun(runner.Cmd), runner, suiteTouchedNames(runner))
+		return failFirstStage(repoRoot, g.Root, g.tests, g.srcs, run)
 	}
-	return suiteStage(gateName, repoRoot, g.root, runner, run)
+	return suiteStage(gateName, repoRoot, g.Root, runner, run)
 }
 
 // cargoStagePlan is what the cargo stages of one root need: the workspace

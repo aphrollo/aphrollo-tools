@@ -11,12 +11,12 @@ import (
 
 func withLinter(t *testing.T, present bool) {
 	t.Helper()
-	tddtest.Swap(t, &lookLinter, func() bool { return present })
+	t.Cleanup(SetLookLinterForTest(func() bool { return present }))
 }
 
 func withLinterVersion(t *testing.T, version string) {
 	t.Helper()
-	tddtest.Swap(t, &linterVersion, func(string) string { return version })
+	t.Cleanup(SetLinterVersionForTest(func(string) string { return version }))
 }
 
 func runsAt(seen *[]Runner, root string) SuiteRunner {
@@ -363,5 +363,32 @@ func TestPinnedLinterVersion_IsEmptyWhenTheActionPinsNothing(t *testing.T) {
 		if got := pinnedLinterVersion(root); got != "" {
 			t.Errorf("with %q below it, pinnedLinterVersion = %q, want none — the action states no version", next, got)
 		}
+	}
+}
+
+// Tests above precommit (the doctor's linter checks) stub the linter probes
+// only through these setters, so each must install its stub and put the
+// real probe back.
+func TestLinterSetters_InstallAndRestore(t *testing.T) {
+	realPresent, realVersion := lookLinter(), linterVersion(t.TempDir())
+
+	restore := SetLookLinterForTest(func() bool { return !realPresent })
+	if lookLinter() == realPresent {
+		restore()
+		t.Fatal("presence stub not installed")
+	}
+	restore()
+	if lookLinter() != realPresent {
+		t.Error("restore left the presence stub in place")
+	}
+
+	restore = SetLinterVersionForTest(func(string) string { return "9.9.9-stub" })
+	if got := linterVersion(t.TempDir()); got != "9.9.9-stub" {
+		restore()
+		t.Fatalf("version stub not installed: %q", got)
+	}
+	restore()
+	if got := linterVersion(t.TempDir()); got != realVersion {
+		t.Errorf("restore left the version stub in place: %q, want %q", got, realVersion)
 	}
 }

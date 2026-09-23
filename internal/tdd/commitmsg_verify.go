@@ -131,7 +131,7 @@ func cacheHitResolvesGreen(repoRoot string) bool {
 func cacheHitRoots(repoRoot string) []string {
 	var roots []string
 	for _, g := range stagedRootGroups(repoRoot) {
-		roots = append(roots, g.root)
+		roots = append(roots, g.Root)
 	}
 	if len(roots) == 0 {
 		return []string{repoRoot}
