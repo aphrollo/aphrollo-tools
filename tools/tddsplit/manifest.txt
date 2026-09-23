@@ -370,7 +370,6 @@ mutants_verdict.go                                 mutation
 mutationhold.go                                    mutation
 mutationhold_test.go                               mutation
 testdata/cargo_mutants_outcomes.json               mutation
-testdata/fuzz/FuzzReceipt/                         mutation
 testdata/gremlins_report.json                      mutation
 doctor_mutation.go                                 mutation  # created by P2
 emptyselection_ladder_mutation.go                  mutation  # created by P2

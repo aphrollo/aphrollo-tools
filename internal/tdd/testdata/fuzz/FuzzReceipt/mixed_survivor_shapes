@@ -1,4 +1,0 @@
-go test fuzz v1
-[]byte("{\"survivors\":[{\"file\":\"a.rs\",\"line\":1,\"mutation\":\"foo\"},\"bare\"]}")
-string("repo")
-string("tree")
