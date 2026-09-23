@@ -35,6 +35,7 @@ Commands:
   install     Wire the whole gate (session hooks, global git gate) and a repo's
               git-hook shims in one run — merges gate init + gate install --apply
   issue       Open one labelled issue against the repo's GitHub remote and print its URL
+  feedback    Report a defect in the gate itself to the tool's own tracker; alias for gate feedback
   ratchet     Judge a repo against its declared code laws (.ratchet/laws/*.toml)
   sqlc        Guard sqlc-generated code against drift (check / scoped regen)
   docs        Guard doc-cited repo paths against dangling references (check)
@@ -105,6 +106,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runInstall(args[1:], stdout, stderr)
 	case "issue":
 		return runGateIssue(args[1:], stdout, stderr)
+	case "feedback":
+		return runGateFeedback(args[1:], stdout, stderr)
 	case "ratchet":
 		return runRatchet(args[1:], stdout, stderr)
 	case "sqlc":
