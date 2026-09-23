@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -41,11 +40,6 @@ import (
 // crate whose rebuild anyone is waiting on.
 const DefaultGCAge = 3 * 24 * time.Hour
 
-// gcOriginFile records, beside a hash-named gate directory, which repo root
-// it belongs to -- the only way to tell a live gate dir from the remains of
-// a repo that was deleted months ago.
-const gcOriginFile = "origin.txt"
-
 // gcProtectedNames are the build-artifact directories no category may
 // propose WHOLESALE: proposing one is proposing to cold-rebuild the world.
 // The deps tiers are exempt because they name individual artifacts by
@@ -57,42 +51,11 @@ var gcProtectedNames = map[string]bool{
 	".fingerprint": true,
 }
 
-// GCKind is which category proposed a candidate. It decides how the sweep
-// may delete it, not whether: an incremental cache belongs to the target dir
-// a build could be using RIGHT NOW, so it is swept only under a build slot.
-// The zero value means "no special handling".
-type GCKind int
-
-const (
-	GCKindOther GCKind = iota
-	GCKindIncremental
-	GCKindGateDir
-	GCKindOrphanWorktree
-	GCKindTempLitter
-	GCKindMutants
-	GCKindMutantsTarget
-	GCKindMutantsTemp
-	GCKindDepsMember
-	GCKindDepsThirdParty
-	GCKindStrayTarget
-	GCKindGoTmp
-)
-
 // tempLitterAge is category (d)'s OWN age bar, deliberately shorter than the
 // build-dir default: a lock file older than a day whose lock nobody holds
 // cannot belong to a running build, and these accumulate by the hundred
 // (871 measured in one operator's %TEMP%).
 const tempLitterAge = 24 * time.Hour
-
-// GCCandidate is one reclaimable directory: what it is, how big, why it
-// qualifies, and which category proposed it. Reason is written for a human
-// reading the table, not parsed.
-type GCCandidate struct {
-	Path   string
-	Size   int64
-	Reason string
-	Kind   GCKind
-}
 
 // GCScope selects which categories a scan considers, so the git-shim hook
 // (worktree-tied deletions only) and the manual command (everything) share
@@ -384,17 +347,6 @@ func gcOrphanWorktreeDirs(repoRoot string) []GCCandidate {
 // answer -- and an empty set means NOTHING is proposed for deletion, which
 // is the safe direction: with no registry there is no way to tell an orphan
 // from a live worktree.
-// pathKey normalises a path for comparison: case-folded on Windows, where
-// one directory routinely appears as D:\... and d:\..., and a case-SENSITIVE
-// compare made a registered worktree read as an orphan build dir.
-func pathKey(p string) string {
-	clean := filepath.Clean(p)
-	if runtime.GOOS == "windows" {
-		return strings.ToLower(clean)
-	}
-	return clean
-}
-
 func gitWorktreePaths(repoRoot string) map[string]string {
 	out, err := git(repoRoot, "worktree", "list", "--porcelain")
 	if err != nil {
@@ -515,34 +467,6 @@ func ApplyGCFor(repo string, cands []GCCandidate) (freed int64, refused []string
 		refused = append(refused, gRefused...)
 	}
 	return freed, refused, skipped
-}
-
-// dirNewestAndSize walks a directory once for both facts a candidate needs:
-// the most recent FILE modification inside it (is it idle?) and its total
-// size (is it worth reclaiming?). Files only: a directory's own mtime moves
-// when an entry is added or removed, including by a cleanup that left the
-// cache itself untouched, so it says nothing about whether the cache is in
-// use. An unreadable entry is skipped -- a permission error somewhere deep
-// must not make a whole sweep fail.
-func dirNewestAndSize(dir string) (newest time.Time, size int64) {
-	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if info.ModTime().After(newest) {
-			newest = info.ModTime()
-		}
-		size += info.Size()
-		return nil
-	})
-	return newest, size
 }
 
 // formatBytes renders a size the way an operator reads one.
