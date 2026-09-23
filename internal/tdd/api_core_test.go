@@ -4,7 +4,6 @@ package tdd
 
 import (
 	core "github.com/aphrollo/aphrollo-tools/internal/tdd/core"
-	os "os"
 )
 
 const premergeLogToken = core.PremergeLogToken
@@ -13,12 +12,4 @@ const sessionCodeEnv = core.SessionCodeEnv
 
 const sessionEnv = core.SessionEnv
 
-func SetPidRunningForTest(p0 func(pid int) bool) func() { return core.SetPidRunningForTest(p0) }
-
-func openLockFile(p0 string) (*os.File, error) { return core.OpenLockFile(p0) }
-
-func pidRunning(p0 int) bool { return core.PidRunning(p0) }
-
-func short(p0 string) string { return core.Short(p0) }
-
-func tryLockExclusive(p0 *os.File) bool { return core.TryLockExclusive(p0) }
+type Action = core.Action

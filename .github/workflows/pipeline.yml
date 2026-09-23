@@ -677,7 +677,7 @@ jobs:
           [ "$on" = true ] || echo "mutants-at-merge is off in aphrollo.toml: no measurement"
       - name: Identify the merged tree
         # Read before anything else writes into the checkout, and read the
-        # same way the consuming gate reads it (internal/tdd/mutants_runner.go:
+        # same way the consuming gate reads it (internal/tdd/mutation/mutants_runner.go:
         # `git write-tree`), because the tree id is the whole binding between
         # this measurement and the merge that consumes it. A name is only an
         # index: the report itself carries the id the CLI computed, and the

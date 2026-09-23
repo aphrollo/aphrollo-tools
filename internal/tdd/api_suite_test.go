@@ -10,6 +10,8 @@ const BuildOnly = suite.BuildOnly
 
 const NotCompiled = suite.NotCompiled
 
+const Red = suite.Red
+
 const suiteOutputCap = suite.SuiteOutputCap
 
 type stageOutcomeKind = suite.StageOutcomeKind
@@ -26,10 +28,6 @@ func SetCargoWorkspaceDepsForTest(p0 func(root string) (map[string][]string, err
 	return suite.SetCargoWorkspaceDepsForTest(p0)
 }
 
-func SetGoReachGraphForTest(p0 func(root string) (goReachGraph, error)) func() {
-	return suite.SetGoReachGraphForTest(p0)
-}
-
 func SetGoTestReachForTest(p0 func(root string, dir string) ([]string, error)) func() {
 	return suite.SetGoTestReachForTest(p0)
 }
@@ -44,11 +42,11 @@ func cargoVacuousTargets(p0 string) []string { return suite.CargoVacuousTargets(
 
 func classificationOutput(p0 string, p1 string) string { return suite.ClassificationOutput(p0, p1) }
 
-func goRunFilter(p0 []string) string { return suite.GoRunFilter(p0) }
-
 func hasGateProfile(p0 string) bool { return suite.HasGateProfile(p0) }
 
-func loadGoReachGraph(p0 string) (goReachGraph, error) { return suite.LoadGoReachGraph(p0) }
+func narrowFailFirstTests(p0 Runner, p1 string, p2 []string) Runner {
+	return suite.NarrowFailFirstTests(p0, p1, p2)
+}
 
 func nextestInstalled() bool { return suite.NextestInstalled() }
 
@@ -61,6 +59,8 @@ func renderGoTestJSON(p0 string) (string, string, bool) { return suite.RenderGoT
 func retainSuiteOutput(p0 string, p1 string, p2 string, p3 string, p4 SuiteResult) {
 	suite.RetainSuiteOutput(p0, p1, p2, p3, p4)
 }
+
+func stampProvenSuite(p0 string) { suite.StampProvenSuite(p0) }
 
 func vacuousGoPackages(p0 string) ([]string, error) { return suite.VacuousGoPackages(p0) }
 

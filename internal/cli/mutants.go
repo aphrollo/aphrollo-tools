@@ -113,7 +113,7 @@ func runGateMutantsRun(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	base := fs.String("base", "", "base ref or sha to measure against (default: the merge base with the default branch)")
 	// Where a run measuring on behalf of another box publishes what it
-	// measured, bound to the tree it measured (internal/tdd/mutants_runner.go).
+	// measured, bound to the tree it measured (internal/tdd/mutation/mutants_runner.go).
 	// Empty writes nothing, which is every run a developer types.
 	report := fs.String("report", "", "also write this run's per-mutant outcomes here, bound to the tree they were measured on")
 	// There is no --jobs: a Cargo measurement is N cargo-mutants processes,

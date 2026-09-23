@@ -79,8 +79,6 @@ func acquireGlobalSlot(p0 time.Duration, p1 string, p2 string) (BuildSlot, func(
 
 func buildSlotHolderDescription(p0 string) string { return lock.BuildSlotHolderDescription(p0) }
 
-func buildToolPids() ([]int, bool) { return lock.BuildToolPids() }
-
 func cargoWorkspaceRoot(p0 string) string { return lock.CargoWorkspaceRoot(p0) }
 
 func csvPids(p0 string) []int { return lock.CsvPids(p0) }
@@ -91,8 +89,6 @@ func ensureSharedDir(p0 string) error { return lock.EnsureSharedDir(p0) }
 
 func foreignLoadReport(p0 int) string { return lock.ForeignLoadReport(p0) }
 
-func freeSpaceGB(p0 string) (int, bool) { return lock.FreeSpaceGB(p0) }
-
 func globalCapacityHolderDescription() string { return lock.GlobalCapacityHolderDescription() }
 
 func isSettledVerdict(p0 string) bool { return lock.IsSettledVerdict(p0) }
@@ -101,32 +97,16 @@ func lockDir() string { return lock.LockDir() }
 
 func lockLitterDirs() []string { return lock.LockLitterDirs() }
 
-func machineAvailGB() int { return lock.MachineAvailGB() }
-
-func machineRAMGB() int { return lock.MachineRAMGB() }
-
-func mutantsMemoryTerm(p0 int, p1 int, p2 int, p3 string) (int, string, string, bool) {
-	return lock.MutantsMemoryTerm(p0, p1, p2, p3)
-}
-
 func postEditLockWait() time.Duration { return lock.PostEditLockWait() }
 
 func precommitLockWait() time.Duration { return lock.PrecommitLockWait() }
 
-func processExePath(p0 int) (string, bool) { return lock.ProcessExePath(p0) }
-
 func readBuildLockOwnerAt(p0 string) (BuildLockOwner, bool) { return lock.ReadBuildLockOwnerAt(p0) }
 
 func recordedSuiteFloor(p0 string, p1 string) suiteFloor { return lock.RecordedSuiteFloor(p0, p1) }
-
-func removeBuildLockOwnerAt(p0 string) { lock.RemoveBuildLockOwnerAt(p0) }
 
 func runnerTargetDir(p0 Runner, p1 string) string { return lock.RunnerTargetDir(p0, p1) }
 
 func setBuildJobs(p0 int) func() { return lock.SetBuildJobs(p0) }
 
 func targetLockPath(p0 string) string { return lock.TargetLockPath(p0) }
-
-func writeBuildLockOwnerAt(p0 string, p1 string, p2 string) { lock.WriteBuildLockOwnerAt(p0, p1, p2) }
-
-func writeSharedRecord(p0 string, p1 []byte) error { return lock.WriteSharedRecord(p0, p1) }

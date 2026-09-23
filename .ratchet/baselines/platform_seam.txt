@@ -7,10 +7,10 @@ internal/tdd/core/mergereject.go | if runtime.GOOS == "windows" {
 internal/tdd/core/statusline_core.go | if runtime.GOOS == "windows" {
 internal/tdd/gc_deps.go | if runtime.GOOS == "windows" {
 internal/tdd/gc_mutantstemp.go | if runtime.GOOS == "windows" {
-internal/tdd/gc_mutation.go | if runtime.GOOS == "windows" {
 internal/tdd/gitgate.go | if runtime.GOOS == "windows" {
 internal/tdd/gitx/gitbin.go | if runtime.GOOS == "windows" {
 internal/tdd/lock/buildslots.go | if runtime.GOOS == "windows" {
 internal/tdd/lock/lockshared.go | if runtime.GOOS == "windows" {
+internal/tdd/mutation/gc_mutation.go | if runtime.GOOS == "windows" {
 internal/tdd/shell/shellwrite.go | if runtime.GOOS == "windows" {
 internal/tdd/suite/mechrun_suite.go | if runtime.GOOS == "windows" {

@@ -72,9 +72,10 @@ func goPackageDir(root, dir string) string {
 var goDataFileScope = map[string]string{
 	".github/workflows/pipeline.yml": "internal/tdd",
 	// aphrollo.toml lives at the module root, which holds no .go files
-	// either — every reader (ReadMutantsConfig, tomlBoolIn, tomlStringsIn
-	// and friends) is exercised by internal/tdd's own test suite.
-	"aphrollo.toml": "internal/tdd",
+	// either. The test that pins the repo's own file
+	// (TestAphrolloToml_MutationAcceptArrayStaysCommaSeparated) and the
+	// mutants config readers' tests live in internal/tdd/mutation.
+	"aphrollo.toml": "internal/tdd/mutation",
 }
 
 // narrowGoSourceEdit builds the edit-time related-tests command for a Source

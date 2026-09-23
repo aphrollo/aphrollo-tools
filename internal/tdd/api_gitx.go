@@ -4,16 +4,9 @@ package tdd
 
 import (
 	gitx "github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
-	io "io"
 )
 
 const GitQueuedEnv = gitx.GitQueuedEnv
-
-const reflogActionEnv = gitx.ReflogActionEnv
-
-const stagedDiffFilter = gitx.StagedDiffFilter
-
-type mergeTip = gitx.MergeTip
 
 var MergeInProgressRefs = gitx.MergeInProgressRefs
 
@@ -29,23 +22,11 @@ func cleanGitEnv() []string { return gitx.CleanGitEnv() }
 
 func git(p0 string, p1 ...string) (string, error) { return gitx.Git(p0, p1...) }
 
-func gitApply(p0 string, p1 string) error { return gitx.GitApply(p0, p1) }
-
 func gitBinary() string { return gitx.GitBinary() }
 
 func gitOut(p0 string, p1 ...string) string { return gitx.GitOut(p0, p1...) }
 
-func gitStaged(p0 string, p1 []string) (string, error) { return gitx.GitStaged(p0, p1) }
-
-func gitStdin(p0 string, p1 io.Reader, p2 ...string) (string, error) {
-	return gitx.GitStdin(p0, p1, p2...)
-}
-
-func lastNonEmptyLine(p0 string) string { return gitx.LastNonEmptyLine(p0) }
-
 func mergeInProgressRef(p0 string) string { return gitx.MergeInProgressRef(p0) }
-
-func mergeTipOf(p0 string) (mergeTip, bool) { return gitx.MergeTipOf(p0) }
 
 func revTree(p0 string, p1 string) (string, bool) { return gitx.RevTree(p0, p1) }
 

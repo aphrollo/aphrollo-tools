@@ -68,7 +68,7 @@ func DeletedBaselineRows(headText, nowText string, form Form) (int, error) {
 // process that must not let a git subprocess inherit the hook's own
 // GIT_DIR/GIT_INDEX_FILE) builds headContent with its own scrubbed
 // exec.Command, exactly the discipline RepathCountedKeys already asks of its
-// callers — see internal/tdd/baselineguard_repath.go.
+// callers — see internal/tdd/lawgate/baselineguard_repath.go.
 func BaselineHeadRegressionNotes(root string, regs []RegressedBaseline, headContent func(rels []string) map[string]string) []string {
 	if len(regs) == 0 {
 		return nil

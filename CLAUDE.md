@@ -85,6 +85,11 @@ internal/tdd/gitx/   git plumbing, trunk and merge-tip resolution (L0)
 internal/tdd/core/   gate log, session state, runner and verdict types, file classes (L1)
 internal/tdd/lock/   build locks and slots, lock dirs, machine load, budget floor (L2)
 internal/tdd/suite/  suite runners, output classification, verdicts, vacuous-run and scope judges (L3)
+internal/tdd/smell/  edit smells, policies and test-quality notes (L4)
+internal/tdd/lawgate/ ratchet edit and commit gates, baseline guard (L4)
+internal/tdd/mutation/ mutants measurement, verdicts and holds (L4)
+internal/tdd/failfirst/ fail-first proofs and the edit ledger (L4)
+internal/tdd/escape/ escapes, auto-escape, issues, feedback, demotion, stats (L4)
 internal/docs/       doc-reference guard: extract path citations, resolve, report misses
 internal/workspace/  worktree lifecycle + git verbs
 internal/dev/        dev-tier control plane (systemd)

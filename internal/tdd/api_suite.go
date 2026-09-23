@@ -12,23 +12,17 @@ const Green = suite.Green
 
 const GreenUnconstrained = suite.GreenUnconstrained
 
-const GreenWithWarnings = suite.GreenWithWarnings
-
 const InfraFailed = suite.InfraFailed
 
 const NoDelta = suite.NoDelta
 
 const NoTestsSelected = suite.NoTestsSelected
 
-const Red = suite.Red
-
 const RedBogus = suite.RedBogus
 
 const RedMissingImpl = suite.RedMissingImpl
 
 const WritingTest = suite.WritingTest
-
-const ambiguousTest = suite.AmbiguousTest
 
 const bashSuiteVerdictFreshFor = suite.BashSuiteVerdictFreshFor
 
@@ -56,17 +50,11 @@ type SuiteResult = suite.SuiteResult
 
 type SuiteRunner = suite.SuiteRunner
 
-type goReachGraph = suite.GoReachGraph
-
-type goTestEvent = suite.GoTestEvent
-
 type mechCacheFile = suite.MechCacheFile
 
 type mutantsConfigTable = suite.MutantsConfigTable
 
 type runScope = suite.RunScope
-
-type rustSplit = suite.RustSplit
 
 type stageOutcome = suite.StageOutcome
 
@@ -74,23 +62,9 @@ type suiteProofLedger = suite.SuiteProofLedger
 
 type suiteShape = suite.SuiteShape
 
-var cargoNarrowingBareFlags = suite.CargoNarrowingBareFlags
-
-var cargoNarrowingValueFlags = suite.CargoNarrowingValueFlags
-
-var cargoScopeValueFlags = suite.CargoScopeValueFlags
-
-var cargoTestResultRe = suite.CargoTestResultRe
-
 var ghAvailable = suite.GhAvailable
 
 var noTestsToRunRe = suite.NoTestsToRunRe
-
-var pytestSummaryCategoryRe = suite.PytestSummaryCategoryRe
-
-var suiteRanGreen = suite.SuiteRanGreen
-
-var testDeclRes = suite.TestDeclRes
 
 func ClassifyOutcome(p0 bool, p1 string, p2 []string) Outcome {
 	return suite.ClassifyOutcome(p0, p1, p2)
@@ -110,13 +84,7 @@ func RetainedSuiteOutput(p0 string) (string, error) { return suite.RetainedSuite
 
 func RunSuite(p0 time.Duration) SuiteRunner { return suite.RunSuite(p0) }
 
-func applyEdit(p0 string, p1 string, p2 string, p3 bool) string {
-	return suite.ApplyEdit(p0, p1, p2, p3)
-}
-
 func attemptedScope(p0 string) runScope { return suite.AttemptedScope(p0) }
-
-func buildOnlyRunner(p0 Runner) bool { return suite.BuildOnlyRunner(p0) }
 
 func buildOnlyTerminal(p0 Runner, p1 string, p2 SuiteResult) string {
 	return suite.BuildOnlyTerminal(p0, p1, p2)
@@ -128,21 +96,11 @@ func cargoAphrolloFlag(p0 string, p1 string) bool { return suite.CargoAphrolloFl
 
 func cargoAphrolloPackages(p0 string, p1 string) []string { return suite.CargoAphrolloPackages(p0, p1) }
 
-func cargoAphrolloString(p0 string, p1 string) (string, bool) {
-	return suite.CargoAphrolloString(p0, p1)
-}
-
 func cargoClippyCleanPackages(p0 string) []string { return suite.CargoClippyCleanPackages(p0) }
-
-func cargoModuleFilterPath(p0 string, p1 string) string { return suite.CargoModuleFilterPath(p0, p1) }
 
 func cargoPackageFor(p0 string, p1 string) string { return suite.CargoPackageFor(p0, p1) }
 
 func cargoPackagesOwning(p0 string, p1 []string) []string { return suite.CargoPackagesOwning(p0, p1) }
-
-func cargoRunArgs(p0 Runner) []string { return suite.CargoRunArgs(p0) }
-
-func cargoTargetNamer(p0 string) func(pos int) string { return suite.CargoTargetNamer(p0) }
 
 func cargoVerbArgs(p0 string) []string { return suite.CargoVerbArgs(p0) }
 
@@ -162,13 +120,7 @@ func clippyScope(p0 string, p1 string, p2 string, p3 []string) []string {
 
 func cmdString(p0 Runner) string { return suite.CmdString(p0) }
 
-func consumeProvenSuiteStamp(p0 string) string { return suite.ConsumeProvenSuiteStamp(p0) }
-
-func declaresTest(p0 string, p1 string) (bool, bool) { return suite.DeclaresTest(p0, p1) }
-
 func dependentsOf(p0 map[string][]string, p1 []string) []string { return suite.DependentsOf(p0, p1) }
-
-func diffHeaderPath(p0 string) (string, bool) { return suite.DiffHeaderPath(p0) }
 
 func dirHasGoFiles(p0 string) bool { return suite.DirHasGoFiles(p0) }
 
@@ -184,14 +136,6 @@ func filesUnderRoot(p0 string, p1 string, p2 []string) []string {
 
 func findRootFrom(p0 string) string { return suite.FindRootFrom(p0) }
 
-func firstDeclaredList(p0 []mutantsConfigTable, p1 string) []string {
-	return suite.FirstDeclaredList(p0, p1)
-}
-
-func fixtureLawFromPath(p0 string) (string, bool) { return suite.FixtureLawFromPath(p0) }
-
-func flagName(p0 string) string { return suite.FlagName(p0) }
-
 func foreignBuildAdvisory(p0 string, p1 string, p2 string, p3 SuiteResult) string {
 	return suite.ForeignBuildAdvisory(p0, p1, p2, p3)
 }
@@ -206,19 +150,11 @@ func goPackageDir(p0 string, p1 string) string { return suite.GoPackageDir(p0, p
 
 func goPassedCount(p0 string) (int, bool) { return suite.GoPassedCount(p0) }
 
-func goReachGraphFn(p0 string) (goReachGraph, error) { return suite.GoReachGraphFn(p0) }
-
-func goRunRanATest(p0 SuiteResult) (bool, bool) { return suite.GoRunRanATest(p0) }
-
 func goTestReachFn(p0 string, p1 string) ([]string, error) { return suite.GoTestReachFn(p0, p1) }
 
 func hasGitHubRemote(p0 string) bool { return suite.HasGitHubRemote(p0) }
 
-func hasNextestProfile(p0 string, p1 string) bool { return suite.HasNextestProfile(p0, p1) }
-
 func hasNoRunFlag(p0 []string) bool { return suite.HasNoRunFlag(p0) }
-
-func hashNonEmpty(p0 string) string { return suite.HashNonEmpty(p0) }
 
 func indexTree(p0 string) string { return suite.IndexTree(p0) }
 
@@ -227,8 +163,6 @@ func insideDir(p0 string, p1 string) bool { return suite.InsideDir(p0, p1) }
 func isEnvAssignment(p0 string) bool { return suite.IsEnvAssignment(p0) }
 
 func isGoTestInvocation(p0 string, p1 []string) bool { return suite.IsGoTestInvocation(p0, p1) }
-
-func laneBaseSHA(p0 string) string { return suite.LaneBaseSHA(p0) }
 
 func loadMechCache(p0 string) *mechCacheFile { return suite.LoadMechCache(p0) }
 
@@ -252,10 +186,6 @@ func mechKeyPrefix(p0 string, p1 string) string { return suite.MechKeyPrefix(p0,
 
 func mutantsConfigTables(p0 string) []mutantsConfigTable { return suite.MutantsConfigTables(p0) }
 
-func narrowFailFirstTests(p0 Runner, p1 string, p2 []string) Runner {
-	return suite.NarrowFailFirstTests(p0, p1, p2)
-}
-
 func narrowToStaged(p0 Runner, p1 string, p2 []string) (Runner, bool) {
 	return suite.NarrowToStaged(p0, p1, p2)
 }
@@ -274,31 +204,19 @@ func runCargoLocked(p0 SuiteRunner, p1 Runner, p2 string, p3 time.Duration, p4 t
 	return suite.RunCargoLocked(p0, p1, p2, p3, p4, p5)
 }
 
-func runGh(p0 string, p1 ...string) (string, error) { return suite.RunGh(p0, p1...) }
-
 func runGhTimeout(p0 string, p1 time.Duration, p2 ...string) (string, error) {
 	return suite.RunGhTimeout(p0, p1, p2...)
 }
 
 func runnerDir(p0 Runner, p1 string) string { return suite.RunnerDir(p0, p1) }
 
-func rustFileIsTestModule(p0 string, p1 string, p2 string) bool {
-	return suite.RustFileIsTestModule(p0, p1, p2)
-}
-
 func selectedZeroTests(p0 Runner, p1 SuiteResult) bool { return suite.SelectedZeroTests(p0, p1) }
 
 func splitFlagValue(p0 string) (string, string, bool) { return suite.SplitFlagValue(p0) }
 
-func splitRustTests(p0 string, p1 bool) (rustSplit, bool) { return suite.SplitRustTests(p0, p1) }
-
 func stagedProjectRoots(p0 string, p1 []string) []string { return suite.StagedProjectRoots(p0, p1) }
 
 func staleArtifactHint(p0 string, p1 string) string { return suite.StaleArtifactHint(p0, p1) }
-
-func stampProvenSuite(p0 string) { suite.StampProvenSuite(p0) }
-
-func stampTree(p0 string, p1 string) { suite.StampTree(p0, p1) }
 
 func suiteAttrs() *syscall.SysProcAttr { return suite.SuiteAttrs() }
 
