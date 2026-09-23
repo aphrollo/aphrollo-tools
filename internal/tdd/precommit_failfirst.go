@@ -449,3 +449,19 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 	}
 	return GateResult{}
 }
+
+const failFirstMessage = "TDD fail-first: this commit adds tests AND implementation, but the new tests " +
+	"PASS against the pre-edit code (HEAD) — so they are not actually pinning the new behavior. " +
+	"A test that never went RED can't prove the implementation. Write the test first and watch it fail, " +
+	"or split the test into its own earlier commit."
+
+// vacuousFailFirstMessage names the package(s) the fail-first proof executed
+// zero tests in — "something in this run was vacuous" is not actionable, so
+// the message states exactly which package(s) to check.
+func vacuousFailFirstMessage(pkgs []string) string {
+	return fmt.Sprintf(
+		"TDD fail-first: the pre-edit proof executed zero tests in %s despite exiting 0, "+
+			"so nothing was actually proven either way there. Check that the staged test is reachable by the runner "+
+			"(a name/filter mismatch is the usual cause) and retry the commit.",
+		strings.Join(pkgs, ", "))
+}
