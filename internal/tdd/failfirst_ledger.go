@@ -99,8 +99,8 @@ func stagedInlineTests(repoRoot, root, head string, srcs []string) ([]inlineTest
 			// absence-ok: a file outside root has no module path; the stage stays inconclusive.
 			return nil, false
 		}
-		for name, body := range now.tests {
-			if _, had := before.tests[name]; had {
+		for name, body := range now.Tests {
+			if _, had := before.Tests[name]; had {
 				continue
 			}
 			if body == ambiguousTest {
@@ -108,7 +108,7 @@ func stagedInlineTests(repoRoot, root, head string, srcs []string) ([]inlineTest
 			}
 			out = append(out, inlineTest{
 				file: abs, rel: filepath.ToSlash(src), name: name, body: body,
-				support: now.support, module: cargoModuleFilterPath(root, filepath.ToSlash(rel)),
+				support: now.Support, module: cargoModuleFilterPath(root, filepath.ToSlash(rel)),
 			})
 		}
 	}

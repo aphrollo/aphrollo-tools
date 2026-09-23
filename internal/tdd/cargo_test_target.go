@@ -21,6 +21,15 @@ import (
 // a test can state a workspace's targets without a cargo run.
 var cargoTestTargetsFn = loadCargoTestTargets
 
+// SetCargoTestTargetsForTest replaces cargoTestTargetsFn for a test and returns the restore. A setter
+// rather than an assignment, so a test in a package above suite still
+// reaches the probe.
+func SetCargoTestTargetsForTest(fn func(root string) map[string]map[string]bool) (restore func()) {
+	prev := cargoTestTargetsFn
+	cargoTestTargetsFn = fn
+	return func() { cargoTestTargetsFn = prev }
+}
+
 // cargoTestTargetCache memoizes cargoTestTargetsFn per workspace root for
 // this process's lifetime: postedit is one process per edit, so this only
 // dedupes the in-process case -- narrowFailFirstTests classifying several

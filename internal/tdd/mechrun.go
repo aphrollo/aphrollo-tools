@@ -128,7 +128,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		// the scope, and the note is written only if it covers what the
 		// commit owed (suiteproof.go).
 		noteSuiteGreen()
-		suiteProof.note(runner, res)
+		gateSuiteProof().Note(runner, res)
 		line := mechResultLine(gateName, stage, runner, root, res)
 		fmt.Fprintln(os.Stderr, line)
 		logSuiteVerdict(gateName, root, cmdString(runner), stageSuiteVerdict(runner, res), res)

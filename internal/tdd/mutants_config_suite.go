@@ -8,7 +8,7 @@ import (
 // declares a non-empty one.
 func firstDeclaredList(tables []mutantsConfigTable, key string) []string {
 	for _, t := range tables {
-		if entries := tomlStringsIn(t.path, t.table, key); len(entries) > 0 {
+		if entries := tomlStringsIn(t.Path, t.Table, key); len(entries) > 0 {
 			return entries
 		}
 	}
@@ -19,7 +19,7 @@ func firstDeclaredList(tables []mutantsConfigTable, key string) []string {
 // inside it. The Cargo spelling is tried first and aphrollo.toml is the
 // fallback, the same precedence IssueLabels and mutation-baseline-exclude
 // already use for a repo that may or may not be a Cargo workspace.
-type mutantsConfigTable struct{ path, table string }
+type mutantsConfigTable struct{ Path, Table string }
 
 func mutantsConfigTables(root string) []mutantsConfigTable {
 	ws := cargoWorkspaceRoot(root)

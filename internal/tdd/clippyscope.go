@@ -29,6 +29,15 @@ import (
 // clippyScope must not pass through in silence.
 var cargoWorkspaceDepsFn = cargoPackageDeps
 
+// SetCargoWorkspaceDepsForTest replaces cargoWorkspaceDepsFn for a test and returns the restore. A setter
+// rather than an assignment, so a test in a package above suite still
+// reaches the probe.
+func SetCargoWorkspaceDepsForTest(fn func(root string) (map[string][]string, error)) (restore func()) {
+	prev := cargoWorkspaceDepsFn
+	cargoWorkspaceDepsFn = fn
+	return func() { cargoWorkspaceDepsFn = prev }
+}
+
 // clippyScope is the crate list the check stage selects with -p: the touched
 // crates, plus every crate that transitively depends on one of them. Sorted,
 // so two runs read the same way.

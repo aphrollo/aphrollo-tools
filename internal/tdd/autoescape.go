@@ -191,7 +191,7 @@ func StampGreenSuiteIfProven(repoRoot string) {
 		return
 	}
 	stampGreenSuite(repoRoot)
-	if suiteProof.covered() {
+	if gateSuiteProof().Covered() {
 		stampProvenSuite(repoRoot)
 	}
 }

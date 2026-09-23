@@ -62,14 +62,14 @@ func ReadMutantsConfig(root string) (MutantsConfig, error) {
 	// mechanism that is gone must be told so, not partially obeyed.
 	for _, key := range retiredMutantsKeys {
 		for _, t := range tables {
-			if tomlKeySetIn(t.path, t.table, key) {
+			if tomlKeySetIn(t.Path, t.Table, key) {
 				return MutantsConfig{}, fmt.Errorf("%s is retired: declare %s = true instead", key, mutantsAtMergeKey)
 			}
 		}
 	}
 	var cfg MutantsConfig
 	for _, t := range tables {
-		if v, set := tomlBoolSetIn(t.path, t.table, mutantsAtMergeKey); set {
+		if v, set := tomlBoolSetIn(t.Path, t.Table, mutantsAtMergeKey); set {
 			cfg.AtMerge = v
 			break
 		}
@@ -83,12 +83,12 @@ func ReadMutantsConfig(root string) (MutantsConfig, error) {
 	// just because the hand-written scanner above could extract entries
 	// from it anyway.
 	for _, t := range tables {
-		if err := tomlArrayCommaError(t.path, t.table, mutantsAcceptKey); err != nil {
+		if err := tomlArrayCommaError(t.Path, t.Table, mutantsAcceptKey); err != nil {
 			return MutantsConfig{}, fmt.Errorf("the accept-list could not be read: %w", err)
 		}
 	}
 	for _, t := range tables {
-		if v, set := tomlStringIn(t.path, t.table, mutantsAfterKey); set && strings.TrimSpace(v) != "" {
+		if v, set := tomlStringIn(t.Path, t.Table, mutantsAfterKey); set && strings.TrimSpace(v) != "" {
 			cfg.After = strings.TrimSpace(v)
 			break
 		}
@@ -122,7 +122,7 @@ func ReadMutantsConfig(root string) (MutantsConfig, error) {
 // measurement that runs nothing is not a narrower measurement.
 func firstDeclaredCount(tables []mutantsConfigTable, key, unit string) (int, error) {
 	for _, t := range tables {
-		v, set := tomlStringIn(t.path, t.table, key)
+		v, set := tomlStringIn(t.Path, t.Table, key)
 		if !set {
 			continue
 		}

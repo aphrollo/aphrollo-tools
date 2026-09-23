@@ -237,7 +237,5 @@ func TestMeasure_GoReachGraphIsReadOncePerRunAndOnlyWhenSomethingSurvived(t *tes
 // for the duration of a test.
 func setGoReachGraphForTest(t *testing.T, fn func(root string) (goReachGraph, error)) {
 	t.Helper()
-	prev := goReachGraphFn
-	goReachGraphFn = fn
-	t.Cleanup(func() { goReachGraphFn = prev })
+	t.Cleanup(SetGoReachGraphForTest(fn))
 }

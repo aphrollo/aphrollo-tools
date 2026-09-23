@@ -19,7 +19,7 @@ func classifyUnownedCargoFiles(gateName, repoRoot, ws string, unowned []string) 
 			continue
 		}
 		fmt.Fprintf(os.Stderr, "gate %s: %s has no owning cargo package — not tested\n", gateName, f)
-		suiteProof.oweUnowned()
+		gateSuiteProof().OweUnowned()
 	}
 	return hit
 }
@@ -90,7 +90,7 @@ func gateRootCargo(gateName, repoRoot string, g rootGroup, rootFiles []string, r
 	// it, and must both say so and refrain from vouching for the tree
 	// afterwards (suiteproof.go).
 	if len(plan.touched) > 0 {
-		suiteProof.owe(plan.suiteRunner())
+		gateSuiteProof().Owe(plan.suiteRunner())
 		if failFirst {
 			reportSuitesNotRun(gateName, g.root, "crate", plan.suiteRunner(), plan.downstream)
 		} else if res := suiteStage(gateName, repoRoot, g.root, plan.suiteRunner(), run); res.Blocked {

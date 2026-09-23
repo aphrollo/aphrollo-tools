@@ -159,14 +159,14 @@ func snapshotEdit(root, file, head string, prev *ledgerEdit) ledgerEdit {
 	if !ok {
 		return e
 	}
-	e.Prod, e.Region, e.Support, e.Tests = now.prod, now.region, now.support, now.tests
+	e.Prod, e.Region, e.Support, e.Tests = now.Prod, now.Region, now.Support, now.Tests
 	before := prev
 	if before == nil {
 		base, ok := headSplit(root, file, head)
 		if !ok {
 			return e
 		}
-		before = &ledgerEdit{Prod: base.prod}
+		before = &ledgerEdit{Prod: base.Prod}
 	}
 	e.Class = editProduction
 	if before.Prod == e.Prod {
@@ -201,11 +201,11 @@ func fileSplit(root, file, src string) (rustSplit, bool) {
 		if strings.EqualFold(filepath.Ext(file), ".rs") {
 			return splitRustTests(src, true)
 		}
-		return rustSplit{region: hashNonEmpty(src)}, true
+		return rustSplit{Region: hashNonEmpty(src)}, true
 	case strings.EqualFold(filepath.Ext(file), ".rs"):
 		return splitRustTests(src, rustFileIsTestModule(root, rel, file))
 	default:
-		return rustSplit{prod: hashNonEmpty(src)}, true
+		return rustSplit{Prod: hashNonEmpty(src)}, true
 	}
 }
 
