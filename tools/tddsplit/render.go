@@ -82,6 +82,10 @@ func (s *splitter) render(c *checked) map[outKey]map[string]entry {
 			consQual := qualifier(c.Pkg, scope, consImports)
 			expQual := qualifier(c.Pkg, scope, expImports)
 			target := alias + "." + exp
+			if _, isFn := callable(n.obj); isFn && (strings.HasPrefix(name, "Test") || strings.HasPrefix(exp, "Test")) {
+				s.report("func %s (package %s) would be aliased as a Test-prefixed func, which reads as a Go test (vet refuses it in a _test.go file, test_name_underscore everywhere): rename the source symbol", name, n.from)
+				continue
+			}
 			var consE, expE entry
 			switch o := n.obj.(type) {
 			case *types.Const:
