@@ -50,6 +50,22 @@ var linterVersion = func(dir string) string {
 	return semverRe.FindString(string(out))
 }
 
+// SetLookLinterForTest and SetLinterVersionForTest replace the linter
+// probes for a test and return the restore: setters rather than
+// assignments, so a test in a package above precommit (the doctor's) still
+// reaches them.
+func SetLookLinterForTest(fn func() bool) (restore func()) {
+	prev := lookLinter
+	lookLinter = fn
+	return func() { lookLinter = prev }
+}
+
+func SetLinterVersionForTest(fn func(dir string) string) (restore func()) {
+	prev := linterVersion
+	linterVersion = fn
+	return func() { linterVersion = prev }
+}
+
 var semverRe = regexp.MustCompile(`\d+\.\d+\.\d+`)
 
 // workflowInstallPinRe reads the `go install …/golangci-lint@vX.Y.Z` shape,
