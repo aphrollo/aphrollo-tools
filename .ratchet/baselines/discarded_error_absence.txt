@@ -22,10 +22,10 @@ internal/tdd/deferred_run.go | return DeferredJob{}, false
 internal/tdd/gc_mutantstemp.go | return nil, false
 internal/tdd/mechcache.go | return nil, false
 internal/workspace/prune_stale.go | return nil, false
-internal/tdd/mergetip.go | return "", false
+internal/tdd/core/runner_core.go | return "", false
+internal/tdd/gitx/mergetip.go | return "", false
 internal/tdd/mutants_ram_unix.go | return "", false
-internal/tdd/runner_core.go | return "", false
 internal/tdd/sessionline.go | return issuesCache{}, false
 internal/tdd/sessionline.go | return "", false
-internal/tdd/stats_core.go | return gateEntry{}, false
-internal/tdd/stats_core.go | return gateEntry{}, false
+internal/tdd/core/stats_core.go | return gateEntry{}, false
+internal/tdd/core/stats_core.go | return gateEntry{}, false

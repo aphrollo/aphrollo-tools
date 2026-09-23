@@ -248,7 +248,11 @@ func IsolateGitConfig(t *testing.T) string {
 	// t.TempDir() while the global config it writes to is ALSO isolated here
 	// — exactly the sanctioned dogfooding shape installGitGate's temp/
 	// scratchpad refusal exists to let through. A test that wants to prove
-	// the refusal itself clears this back off after calling in.
-	t.Setenv(active.HooksDirUnsafeEnv, "1")
+	// the refusal itself clears this back off after calling in. A package
+	// with no hooks install hands over no variable, and nothing in it reads
+	// one.
+	if active.HooksDirUnsafeEnv != "" {
+		t.Setenv(active.HooksDirUnsafeEnv, "1")
+	}
 	return gc
 }

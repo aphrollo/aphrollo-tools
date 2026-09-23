@@ -14,7 +14,10 @@ import (
 	"testing"
 )
 
-// Seams is what Main needs from the package whose tests it runs.
+// Seams is what Main needs from the package whose tests it runs. A package
+// that owns no build lock, lock dir, CI probe or git leaves those fields
+// zero, and Main skips the net that would have needed them: a package that
+// cannot reach a thing needs no guard against reaching it.
 type Seams struct {
 	// Run runs the suite. TestMain passes a closure over m.Run so the call
 	// stays in its own text, where the test_main_exit law looks for it; nil
@@ -125,11 +128,19 @@ func Main(m *testing.M, s Seams) int {
 	// Same reason as internal/cli's TestMain: a deferred phase tells its
 	// child the lock is held, which is a fact about the phase, not about any
 	// case under test here.
-	os.Unsetenv(s.BuildLockHeldEnv)
-	restoreLocks := s.SetLockDir(locks)
+	if s.BuildLockHeldEnv != "" {
+		os.Unsetenv(s.BuildLockHeldEnv)
+	}
+	restoreLocks := func() {}
+	if s.SetLockDir != nil {
+		restoreLocks = s.SetLockDir(locks)
+	}
 	// And the machine-wide lock dir itself is never this suite's: a test
 	// that resolves it fails the package run (see GuardLiveLockDir).
-	checkLiveLockDir := GuardLiveLockDir(s.LockDirName, filepath.Join(dir, "live-lock-dir-decoy"))
+	checkLiveLockDir := func() error { return nil }
+	if s.LockDirName != nil {
+		checkLiveLockDir = GuardLiveLockDir(s.LockDirName, filepath.Join(dir, "live-lock-dir-decoy"))
+	}
 	// Same net for gh. Three issues were filed against the real repository by
 	// nobody — #155, #196 and #197, all carrying the tdd package's own override
 	// fixture values (`override:override-off r`, evidence `e`, an unfilled
@@ -155,17 +166,25 @@ func Main(m *testing.M, s Seams) int {
 	// own bare exec.Command("git", ...) calls. Nothing here tests the shim's
 	// queuing — those tests live in internal/cli, which leaves this variable
 	// unset for exactly that reason.
-	if err := os.Setenv(s.GitQueuedEnv, "1"); err != nil {
-		panic(err)
+	if s.GitQueuedEnv != "" {
+		if err := os.Setenv(s.GitQueuedEnv, "1"); err != nil {
+			panic(err)
+		}
 	}
 	// The golden git repos every fixture helper copies, built once here
-	// rather than spawned per test. See fixture.go.
-	buildFixtures(dir)
+	// rather than spawned per test. See fixture.go. A package with no git
+	// seam has no fixture helper to hand them to.
+	if s.GitBinary != nil {
+		buildFixtures(dir)
+	}
 	// Nor is the box's CI. Every measurement waits for busy runner jobs
 	// before it starts; this suite runs inside one on CI, beside sibling
 	// runners that may be busy, and on an operator box beside all of them.
 	// A test about that wait installs its own probe.
-	restoreRunners := s.SetCIRunnerJobs(func() []int { return nil })
+	restoreRunners := func() {}
+	if s.SetCIRunnerJobs != nil {
+		restoreRunners = s.SetCIRunnerJobs(func() []int { return nil })
+	}
 	code := run()
 	if err := checkLiveLockDir(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
