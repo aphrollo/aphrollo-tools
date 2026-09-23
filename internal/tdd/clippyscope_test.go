@@ -17,9 +17,7 @@ import (
 // without a cargo run: pkg -> the packages it depends on.
 func stubWorkspaceGraph(t *testing.T, graph map[string][]string) {
 	t.Helper()
-	prev := cargoWorkspaceDepsFn
-	cargoWorkspaceDepsFn = func(string) (map[string][]string, error) { return graph, nil }
-	t.Cleanup(func() { cargoWorkspaceDepsFn = prev })
+	t.Cleanup(SetCargoWorkspaceDepsForTest(func(string) (map[string][]string, error) { return graph, nil }))
 }
 
 // stubWorkspaceGraphError states that the graph read itself failed — cargo
@@ -27,9 +25,7 @@ func stubWorkspaceGraph(t *testing.T, graph map[string][]string) {
 // that legitimately has no edges.
 func stubWorkspaceGraphError(t *testing.T, err error) {
 	t.Helper()
-	prev := cargoWorkspaceDepsFn
-	cargoWorkspaceDepsFn = func(string) (map[string][]string, error) { return nil, err }
-	t.Cleanup(func() { cargoWorkspaceDepsFn = prev })
+	t.Cleanup(SetCargoWorkspaceDepsForTest(func(string) (map[string][]string, error) { return nil, err }))
 }
 
 // clippyCleanWorkspace writes a workspace manifest declaring the given

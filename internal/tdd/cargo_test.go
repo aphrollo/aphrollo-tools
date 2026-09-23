@@ -83,9 +83,7 @@ func TestNarrowToRelatedTests_CargoTestFiles(t *testing.T) {
 // (package name -> its target names) without a cargo metadata run.
 func stubCargoTestTargets(t *testing.T, targets map[string]map[string]bool) {
 	t.Helper()
-	prev := cargoTestTargetsFn
-	cargoTestTargetsFn = func(string) map[string]map[string]bool { return targets }
-	t.Cleanup(func() { cargoTestTargetsFn = prev })
+	t.Cleanup(SetCargoTestTargetsForTest(func(string) map[string]map[string]bool { return targets }))
 }
 
 // TestNarrowToRelatedTests_CargoNestedDirConfirmedByMetadataRunsThatBinary

@@ -209,6 +209,7 @@ slotowner_test.go                                  suite
 staleartifact.go                                   suite
 suiteoutput.go                                     suite
 suiteproof.go                                      suite
+suiteseams_test.go                                 suite
 vacuous_cargo.go                                   suite
 vacuous_dispatch.go                                suite
 vacuous_pytest.go                                  suite

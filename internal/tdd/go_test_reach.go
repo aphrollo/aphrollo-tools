@@ -40,12 +40,30 @@ import (
 // run. Mirrors goWorkspaceDepsFn and cargoWorkspaceDepsFn.
 var goTestReachFn = goTestReachingPackages
 
+// SetGoTestReachForTest replaces goTestReachFn for a test and returns the restore. A setter
+// rather than an assignment, so a test in a package above suite still
+// reaches the probe.
+func SetGoTestReachForTest(fn func(root, dir string) ([]string, error)) (restore func()) {
+	prev := goTestReachFn
+	goTestReachFn = fn
+	return func() { goTestReachFn = prev }
+}
+
 // goReachGraphFn is the same probe one level down: the whole module's reach
 // graph, read once. The measurement side (issue #695) asks about every
 // surviving mutant in one run rather than a `go list` per mutant, so the
 // graph itself is the seam there, and goTestReachingPackages is a query on
 // top of it — one probe, not two.
 var goReachGraphFn = loadGoReachGraph
+
+// SetGoReachGraphForTest replaces goReachGraphFn for a test and returns the restore. A setter
+// rather than an assignment, so a test in a package above suite still
+// reaches the probe.
+func SetGoReachGraphForTest(fn func(root string) (goReachGraph, error)) (restore func()) {
+	prev := goReachGraphFn
+	goReachGraphFn = fn
+	return func() { goReachGraphFn = prev }
+}
 
 // goListReachFormat asks one `go list` run for everything the reach graph
 // needs: the package's import path, its directory, its transitive
