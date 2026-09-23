@@ -156,6 +156,53 @@ func TestScanGC_ReclaimsATreeCopyAKilledRunLeftInItsMutantsArea(t *testing.T) {
 	}
 }
 
+// gcMutantsRunDirs and gcMutantsTrees only ever look INSIDE an area; neither
+// proposes the area itself. GatePRMerge's throwaway checkout
+// (prGateMergedCheckout, premergepr.go) is built and torn down beside the
+// lane, but its cleanup used to remove only the checkout, never the
+// measurement area measureTempDir puts beside it — and a run that crashed
+// before reaching cleanup leaves the same shape. Either way the checkout is
+// gone and the area is not, and nothing above ever asks that question:
+// evidence on this box measured eight such areas, 21-161 MB each.
+func TestScanGC_ReclaimsAWholeAreaWhoseCheckoutIsGone(t *testing.T) {
+	noMutationRunLive(t)
+	repo := makeCargoRepo(t)
+	gone := filepath.Join(filepath.Dir(repo), "gate-prmerge-1")
+	gitDo(t, repo, "worktree", "add", "-q", "--detach", gone, "HEAD")
+	area := measureTempDir(gone)
+	mkFile(t, filepath.Join(area, "shard-0", "mutants.out", "outcomes.json"), "[]", 2*time.Hour)
+	gitDo(t, repo, "worktree", "remove", "--force", gone)
+
+	got := ScanGC(repo, 3*24*time.Hour, GCScope{Mutants: true})
+
+	c, found := candidateAt(got, area)
+	if !found {
+		t.Fatalf("scan missed the orphaned area %s whose checkout %s is gone:\n%+v", area, gone, got)
+	}
+	if c.Kind != GCKindMutants {
+		t.Errorf("kind = %v, want the mutants kind", c.Kind)
+	}
+}
+
+// The checkout being merely LIVE, not gone, must still veto the whole area —
+// the same rule TestGCMutantsRunDirs_LeavesEveryDirectoryALiveRunHolds pins
+// for what is inside it: an area is never proposed whole while the checkout
+// it measures is still standing.
+func TestScanGC_LeavesAWholeAreaAloneWhileItsCheckoutStillExists(t *testing.T) {
+	noMutationRunLive(t)
+	repo := makeCargoRepo(t)
+	lane := filepath.Join(filepath.Dir(repo), "lane-x")
+	gitDo(t, repo, "worktree", "add", "-q", "-b", "lane/x", lane)
+	area := measureTempDir(lane)
+	mkFile(t, filepath.Join(area, "shard-0", "mutants.out", "outcomes.json"), "[]", 2*time.Hour)
+
+	got := ScanGC(repo, 3*24*time.Hour, GCScope{Mutants: true})
+
+	if _, found := candidateAt(got, area); found {
+		t.Fatalf("proposed the whole area %s while its checkout %s still exists", area, lane)
+	}
+}
+
 // A lane's leftovers sit beside the LANE. A sweep run from the primary
 // checkout that looked only at its own area reported 18 GB of stale artifacts
 // while 350 GB of a lane's mutation run sat in a sibling directory nobody

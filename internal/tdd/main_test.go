@@ -108,6 +108,11 @@ func TestMain(m *testing.M) {
 	// The golden git repos every fixture helper copies, built once here
 	// rather than spawned per test. See fixture_test.go.
 	buildFixtures(dir)
+	// Nor is the box's CI. Every measurement waits for busy runner jobs
+	// before it starts; this suite runs inside one on CI, beside sibling
+	// runners that may be busy, and on an operator box beside all of them.
+	// A test about that wait installs its own probe.
+	restoreRunners := SetCIRunnerJobsForTest(func() []int { return nil })
 	code := m.Run()
 	if err := checkLiveLockDir(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -115,6 +120,7 @@ func TestMain(m *testing.M) {
 			code = 1
 		}
 	}
+	restoreRunners()
 	restoreLocks()
 	os.RemoveAll(dir)
 	os.Exit(code)

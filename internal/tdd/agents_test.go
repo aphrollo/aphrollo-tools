@@ -163,3 +163,19 @@ func TestAgents_CarryNoWindowsLineEndings(t *testing.T) {
 		}
 	}
 }
+
+// A builder that reads only "result arrives at the next hook" ends its turn
+// waiting, and the next hook is delivered by its own next edit. The wait it
+// is taught names the tree the BUILDING line names, because a bare --wait
+// resolves the checkout from the shell cwd, which the harness resets away
+// from the lane that was edited (issue #732).
+func TestBuilderAgent_TeachesWaitingOnTheTreeTheBuildingLineNames(t *testing.T) {
+	t.Parallel()
+	body, ok := ManagedAgent("builder")
+	if !ok {
+		t.Fatal("the builder agent is not shipped")
+	}
+	if !strings.Contains(body, "aphrollo gate status --wait <tree>") {
+		t.Error("the builder agent does not teach `aphrollo gate status --wait <tree>`")
+	}
+}

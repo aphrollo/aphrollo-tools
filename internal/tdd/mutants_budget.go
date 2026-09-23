@@ -55,11 +55,13 @@ const (
 // source tree, and what its persistent target dir will hold. measured says
 // the target figure came from a directory that exists — without it the figure
 // is mutantsColdTargetBytes, an estimate, and every report that prints it
-// says so.
+// says so. goJob says the unit is a gremlins worker, whose second figure is
+// mutantsGoJobBytes rather than a build dir it never has.
 type shardNeed struct {
 	copyBytes   int64
 	targetBytes int64
 	measured    bool
+	goJob       bool
 }
 
 func (n shardNeed) total() int64 { return n.copyBytes + n.targetBytes }
@@ -178,7 +180,7 @@ func refuseOnDisk(root string, want int, unit string, log io.Writer) (Verdict, i
 			dir, want, unit, plural(want))
 		return Verdict{}, want, false
 	}
-	needs := mutantsShardNeeds(root, want)
+	needs := mutantsUnitNeeds(root, want)
 	fit := mutantsShardsThatFit(free, needs)
 	if fit >= want {
 		// The path that works says what it measured, in the same vocabulary
@@ -218,6 +220,10 @@ func shardNeedsTotal(needs []shardNeed) int64 {
 // measured and which is an estimate: a number presented as measured when it
 // was assumed is how the guess this replaced survived so long.
 func shardNeedText(n shardNeed) string {
+	if n.goJob {
+		return formatBytes(n.copyBytes) + " source-tree copy + " + formatBytes(n.targetBytes) +
+			" test binaries and scratch (estimated from a measured gremlins run)"
+	}
 	build := formatBytes(n.targetBytes) + " build dir"
 	if n.measured {
 		build += " (measured)"
@@ -240,7 +246,7 @@ func measureDiskNote(root string) string {
 	if !ok {
 		return ""
 	}
-	needs := mutantsShardNeeds(root, 1)
+	needs := mutantsUnitNeeds(root, 1)
 	if mutantsShardsThatFit(free, needs) > 0 {
 		return ""
 	}

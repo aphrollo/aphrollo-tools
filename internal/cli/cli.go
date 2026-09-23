@@ -31,7 +31,8 @@ Commands:
   status      One call for "what is running right now, in this checkout" — deferred
               edit jobs, every build slot's holder, and the mutation run; alias for
               gate status so a caller who knows nothing need not know which
-              subsystem to ask (--wait blocks on this checkout's own work)
+              subsystem to ask (--wait [<dir>] blocks on this checkout's own
+              work, or on <dir>'s)
   install     Wire the whole gate (session hooks, global git gate) and a repo's
               git-hook shims in one run — merges gate init + gate install --apply
   issue       Open one labelled issue against the repo's GitHub remote and print its URL

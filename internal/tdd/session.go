@@ -62,7 +62,7 @@ func HandlePrompt(raw []byte) PromptResult {
 			arg = strings.ToLower(f[2])
 		}
 		r = PromptResult{Block: true, Message: tddCommand(sub, arg, in.SessionID, in.Cwd)}
-	} else if harvested := promptHarvest(in.SessionID, in.Cwd); harvested != "" {
+	} else if harvested := promptHarvest(in.SessionID); harvested != "" {
 		r = PromptResult{Message: harvested}
 	} else {
 		r = PromptResult{Message: reinforce(in.SessionID, in.Cwd)}

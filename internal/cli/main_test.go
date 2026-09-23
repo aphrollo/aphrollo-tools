@@ -73,7 +73,12 @@ func TestMain(m *testing.M) {
 	// plain-byte "binary". Default it permissive here; the one test that
 	// pins the refusal overrides it locally.
 	runSmokeCheckFn = func(string) error { return nil }
+	// A measurement waits for this box's busy CI runner jobs before it
+	// starts; the mutants verbs measure through that wait, and neither the
+	// CI job this suite may run inside nor its siblings are a fixture.
+	restoreRunners := tdd.SetCIRunnerJobsForTest(func() []int { return nil })
 	code := m.Run()
+	restoreRunners()
 	restoreLocks()
 	os.RemoveAll(dir)
 	stubDirsMu.Lock()
