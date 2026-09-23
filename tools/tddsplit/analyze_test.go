@@ -224,3 +224,33 @@ func TestAnalyze_ReportsATestAssigningASeamThatMovesBelowIt(t *testing.T) {
 		t.Errorf("want one finding naming both assignments at p/b_test.go:7 and :8; reports:\n%s", strings.Join(a.Reports, "\n"))
 	}
 }
+
+// go vet's composites check refuses an unkeyed literal of a struct type from
+// another package. A type whose declaration moves turns every unkeyed literal
+// of it left behind into such a literal, so each site is reported, elided
+// element types included; a keyed literal and one in the type's own package
+// are not.
+func TestAnalyze_ReportsEachUnkeyedLiteralOfAStructThatMovesAway(t *testing.T) {
+	files := map[string]string{
+		"go.mod": "module example.com/fx\n\ngo 1.26\n",
+		"p/a.go": "package p\n\ntype pair struct{ K, V string }\n\nvar own = pair{\"a\", \"b\"}\n",
+		"p/b.go": "package p\n\n// Use builds pairs.\nfunc Use() []pair {\n\tx := pair{\"k\", \"v\"}\n\ty := pair{K: \"k\"}\n\treturn []pair{x, y, {\"e\", \"f\"}, own}\n}\n",
+	}
+	manifest := "root p\n[packages]\nlow L0 p/low\np L1 p\n[files]\na.go low\nb.go p\n"
+	a := analyzeFixture(t, files, manifest, "L0")
+	var hits []string
+	for _, r := range a.Reports {
+		if strings.Contains(r, "unkeyed") {
+			hits = append(hits, r)
+		}
+	}
+	want := []string{"p/b.go:5:7", "p/b.go:7:22"}
+	if len(hits) != len(want) {
+		t.Fatalf("want %d unkeyed findings, got %d:\n%s", len(want), len(hits), strings.Join(a.Reports, "\n"))
+	}
+	for i, w := range want {
+		if !strings.Contains(hits[i], w) || !strings.Contains(hits[i], "pair") {
+			t.Errorf("finding %d = %q, want it to name pair at %s", i, hits[i], w)
+		}
+	}
+}

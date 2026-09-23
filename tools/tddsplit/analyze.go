@@ -177,6 +177,7 @@ func (s *splitter) collect(c *checked) {
 	var writes []seamWrite
 	s.seams, writes = seamVars(c)
 	s.seamsWrittenFromAbove(c, writes)
+	s.unkeyedLiterals(c)
 	scope := c.Pkg.Scope()
 	idents := make([]*ast.Ident, 0, len(c.Info.Uses))
 	for id := range c.Info.Uses {
