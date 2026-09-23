@@ -179,6 +179,15 @@ const foreignLoadBudget = 2 * time.Second
 // will read. Swapped in tests.
 var machineLoadSampleFn = machineLoadSample
 
+// SetMachineLoadSampleForTest replaces the load probe and returns the
+// restore. A setter rather than an assignment, so a test in a package above
+// lock still reaches the probe.
+func SetMachineLoadSampleForTest(fn func(stop <-chan struct{}) (int, float64, []procSample, bool)) (restore func()) {
+	prev := machineLoadSampleFn
+	machineLoadSampleFn = fn
+	return func() { machineLoadSampleFn = prev }
+}
+
 // machineLoadMu is the single-flight guard: at most one sample is ever in
 // progress. A second timeout rejection landing while one sample is still
 // unwinding — most likely because the box is ALREADY overloaded, the same

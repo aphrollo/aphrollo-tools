@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -287,13 +288,11 @@ func TestTopByLoad_SortsDescendingAndCaps(t *testing.T) {
 // #526 requires: a probe that cannot answer must render "load unavailable"
 // rather than a zeroed-out, misleadingly confident report.
 func TestForeignLoadReport_UnavailableWhenProbeFails(t *testing.T) {
-	prev := machineLoadSampleFn
 	sampled := make(chan struct{})
-	machineLoadSampleFn = func(<-chan struct{}) (int, float64, []procSample, bool) {
+	t.Cleanup(SetMachineLoadSampleForTest(func(<-chan struct{}) (int, float64, []procSample, bool) {
 		close(sampled)
 		return 0, 0, nil, false
-	}
-	t.Cleanup(func() { machineLoadSampleFn = prev })
+	}))
 
 	got := foreignLoadReport(1234)
 	if !strings.Contains(got, "load unavailable") {
@@ -327,14 +326,12 @@ func TestForeignLoadReport_UnavailableWhenProbeFails(t *testing.T) {
 // expires and closes stop — never leaked past this test, and never holding
 // machineLoadMu for a later test to trip over.
 func TestForeignLoadReport_BoundedAgainstAHungProbe(t *testing.T) {
-	prev := machineLoadSampleFn
 	unblocked := make(chan struct{})
-	machineLoadSampleFn = func(stop <-chan struct{}) (int, float64, []procSample, bool) {
+	t.Cleanup(SetMachineLoadSampleForTest(func(stop <-chan struct{}) (int, float64, []procSample, bool) {
 		<-stop
 		close(unblocked)
 		return 0, 0, nil, false
-	}
-	t.Cleanup(func() { machineLoadSampleFn = prev })
+	}))
 
 	got := foreignLoadReport(1234)
 	if !strings.Contains(got, "load unavailable") {
@@ -356,15 +353,13 @@ func TestForeignLoadReport_BoundedAgainstAHungProbe(t *testing.T) {
 // full double-enumeration on an already-overloaded box — it declines
 // immediately instead of waiting or starting its own probe.
 func TestForeignLoadReport_SecondSampleWhileFirstInFlightDeclines(t *testing.T) {
-	prev := machineLoadSampleFn
 	started := make(chan struct{})
 	release := make(chan struct{})
-	machineLoadSampleFn = func(<-chan struct{}) (int, float64, []procSample, bool) {
+	t.Cleanup(SetMachineLoadSampleForTest(func(<-chan struct{}) (int, float64, []procSample, bool) {
 		close(started)
 		<-release
 		return 1, 0, nil, true
-	}
-	t.Cleanup(func() { machineLoadSampleFn = prev })
+	}))
 
 	done := make(chan string, 1)
 	go func() { done <- foreignLoadReport(1) }()
@@ -377,4 +372,32 @@ func TestForeignLoadReport_SecondSampleWhileFirstInFlightDeclines(t *testing.T) 
 
 	close(release)
 	<-done // let the first call finish so nothing leaks past this test
+}
+
+// Tests in the packages above lock stub the load probe and the shared lock
+// dir only through these setters, so each must install its stub and put the
+// real one back.
+func TestLockSeamSetters_InstallAndRestore(t *testing.T) {
+	restore := SetMachineLoadSampleForTest(func(<-chan struct{}) (int, float64, []procSample, bool) {
+		return 42, 0, nil, true
+	})
+	if n, _, _, _ := machineLoadSampleFn(nil); n != 42 {
+		restore()
+		t.Fatalf("load probe stub not installed: sampled %d processes", n)
+	}
+	restore()
+	if reflect.ValueOf(machineLoadSampleFn).Pointer() != reflect.ValueOf(machineLoadSample).Pointer() {
+		t.Error("restore left the load probe stub in place")
+	}
+
+	realDir := sharedLockDirName
+	restoreDir := SetSharedLockDirForTest(func() string { return "/decoy" })
+	if got := sharedLockDir(); got != "/decoy" {
+		restoreDir()
+		t.Fatalf("shared lock dir stub not installed: %q", got)
+	}
+	restoreDir()
+	if reflect.ValueOf(sharedLockDirName).Pointer() != reflect.ValueOf(realDir).Pointer() {
+		t.Error("restore left the shared lock dir stub in place")
+	}
 }

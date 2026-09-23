@@ -30,6 +30,15 @@ var sharedLockDirName = sync.OnceValue(resolveSharedLockDir)
 // cannot serialise builds across accounts, and that is worth saying out loud).
 func sharedLockDir() string { return sharedLockDirName() }
 
+// SetSharedLockDirForTest replaces the shared lock dir's resolver and returns
+// the restore. A setter rather than an assignment, so a TestMain in a package
+// above lock can guard the live directory (tddtest.GuardLiveLockDir).
+func SetSharedLockDirForTest(fn func() string) (restore func()) {
+	prev := sharedLockDirName
+	sharedLockDirName = fn
+	return func() { sharedLockDirName = prev }
+}
+
 func resolveSharedLockDir() string {
 	for _, dir := range sharedLockCandidates() {
 		if err := ensureSharedDir(dir); err == nil {

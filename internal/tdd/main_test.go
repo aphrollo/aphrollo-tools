@@ -26,7 +26,7 @@ func TestMain(m *testing.M) {
 		BuildLockHeldEnv:  BuildLockHeldEnv,
 		GitQueuedEnv:      GitQueuedEnv,
 		SetLockDir:        SetLockDirForTest,
-		LockDirName:       &sharedLockDirName,
+		SetLockDirName:    SetSharedLockDirForTest,
 		SetCIRunnerJobs:   SetCIRunnerJobsForTest,
 	}))
 }

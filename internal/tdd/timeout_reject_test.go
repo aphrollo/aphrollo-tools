@@ -47,11 +47,9 @@ func TestPrecommit_MechanicalTimeoutNamesTheBoxLoad(t *testing.T) {
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
 
-	prev := machineLoadSampleFn
-	machineLoadSampleFn = func(<-chan struct{}) (int, float64, []procSample, bool) {
+	t.Cleanup(SetMachineLoadSampleForTest(func(<-chan struct{}) (int, float64, []procSample, bool) {
 		return 4, 55, foreignChainSample(timeoutLoadFixtureLeaf, "find.exe", 90, 2), true
-	}
-	t.Cleanup(func() { machineLoadSampleFn = prev })
+	}))
 
 	run := func(r Runner, _ string) SuiteResult {
 		if isQualityRunner(r) {
@@ -79,11 +77,9 @@ func TestGoCheckStage_TimeoutNamesTheBoxLoad(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := t.TempDir()
 
-	prev := machineLoadSampleFn
-	machineLoadSampleFn = func(<-chan struct{}) (int, float64, []procSample, bool) {
+	t.Cleanup(SetMachineLoadSampleForTest(func(<-chan struct{}) (int, float64, []procSample, bool) {
 		return 8, 12, foreignChainSample(checkStageLoadFixtureLeaf, "rustc.exe", 75, 1.25), true
-	}
-	t.Cleanup(func() { machineLoadSampleFn = prev })
+	}))
 
 	run := func(Runner, string) SuiteResult { return SuiteResult{TimedOut: true} }
 	got := goCheckStage("precommit", "vet", root, Runner{Cmd: "go", Args: []string{"vet", "./..."}}, run)

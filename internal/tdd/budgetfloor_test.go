@@ -166,11 +166,9 @@ func TestMechanical_TimeoutRefusalNamesTheFloorItUsedAndWhereItCameFrom(t *testi
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
 
-	prev := machineLoadSampleFn
-	machineLoadSampleFn = func(<-chan struct{}) (int, float64, []procSample, bool) {
+	t.Cleanup(SetMachineLoadSampleForTest(func(<-chan struct{}) (int, float64, []procSample, bool) {
 		return 4, 97, foreignChainSample(budgetFloorFixtureLeaf, "rustc.exe", 95, 3), true
-	}
-	t.Cleanup(func() { machineLoadSampleFn = prev })
+	}))
 
 	// Run one records what this suite takes: a run that FAILED still ran to
 	// completion, so its duration is evidence about the work.
