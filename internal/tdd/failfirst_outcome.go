@@ -12,7 +12,7 @@ type failFirstOutcome struct {
 	// never went RED. conclusive: the proof reached a verdict at all —
 	// false means the caller must not read violated either way.
 	violated   bool
-	conclusive bool
+	Conclusive bool
 	// vacuous: the run exited 0 having executed zero tests (#317), named per
 	// package/target in vacuousPkgs.
 	vacuous     bool

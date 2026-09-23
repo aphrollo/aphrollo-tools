@@ -76,15 +76,15 @@ func stagedSourceAddsInlineRustTest(repoRoot string, srcFiles []string) bool {
 		return false
 	}
 	for _, fa := range stagedAdds(repoRoot) {
-		if !want[fa.path] {
+		if !want[fa.Path] {
 			continue
 		}
-		post, err := git(repoRoot, "show", ":"+fa.path)
+		post, err := git(repoRoot, "show", ":"+fa.Path)
 		if err != nil {
 			continue
 		}
 		lines := strings.Split(post, "\n")
-		for no := range fa.added {
+		for no := range fa.Added {
 			if no < 1 || no > len(lines) {
 				continue
 			}

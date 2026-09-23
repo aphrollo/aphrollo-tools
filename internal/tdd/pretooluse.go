@@ -56,7 +56,7 @@ func withQualityNotes(d Decision, path, post string, added map[int]bool) Decisio
 	if d.Action == Block {
 		return d
 	}
-	notes := testQualityNotesOn(path, post, added)
+	notes := qualityNotesOn(path, post, added)
 	if len(notes) == 0 {
 		return d
 	}
@@ -82,7 +82,7 @@ func evaluateSourceAdded(post string, added map[int]bool, path string, p phase) 
 	if best.Action == Block {
 		return best // a suppression already blocks; nothing outranks Block
 	}
-	inTests := intersectLines(added, zigTestLines(newView(post, l).code))
+	inTests := intersectLines(added, zigTestLines(newView(post, l).Code))
 	if len(inTests) == 0 {
 		return best // no inline test in this edit — production code only
 	}

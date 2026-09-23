@@ -66,7 +66,7 @@ func TestEvaluate_ViewSelection(t *testing.T) {
 	t.Parallel()
 	codeReader := policy{
 		name: "code", category: smellCat, reason: "code",
-		hit: func(v view) bool { return strings.Contains(v.code, "MARK") },
+		hit: func(v view) bool { return strings.Contains(v.Code, "MARK") },
 	}
 	dirReader := policy{
 		name: "dir", category: suppressionCat, reason: "dir",

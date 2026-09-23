@@ -499,6 +499,7 @@ posttooluse_test.go                                postedit
 posttooluse_unconstrained.go                       postedit
 pretooluse.go                                      postedit
 pretooluse_test.go                                 postedit
+smell_deadline_preedit_test.go                     postedit
 primary.go                                         postedit
 primary_bash_property_test.go                      postedit
 primary_blockpath_test.go                          postedit

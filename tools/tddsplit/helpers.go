@@ -14,10 +14,11 @@ import (
 // into each package whose tests call them across the split.
 const helperBase = "tddtest_wrappers"
 
-// helperDecl is the source of one carriable test helper: a plain func, or
-// one name of a const or var spec with an explicit value.
+// helperDecl is the source of one carriable test helper: a plain func, one
+// name of a const or var spec with an explicit value, or a type spec.
 type helperDecl struct {
 	fn    *ast.FuncDecl
+	ts    *ast.TypeSpec
 	tok   token.Token // token.CONST or token.VAR for a spec
 	spec  *ast.ValueSpec
 	index int
@@ -28,6 +29,9 @@ type helperDecl struct {
 func (h helperDecl) nodes() []ast.Node {
 	if h.fn != nil {
 		return []ast.Node{h.fn.Type, h.fn.Body}
+	}
+	if h.ts != nil {
+		return []ast.Node{h.ts.Type}
 	}
 	out := []ast.Node{h.spec.Values[h.index]}
 	if h.spec.Type != nil {
@@ -58,6 +62,10 @@ func (s *splitter) carryHelper(c *checked, consumer string, obj types.Object, wh
 		s.site(fmt.Sprintf("test helper %s used from package %s has no plain func or valued const or var declaration to carry", obj.Name(), consumer), where)
 		return false
 	}
+	if h.ts != nil && !h.ts.Assign.IsValid() {
+		s.site(fmt.Sprintf("test type %s is a defined type, not an alias: a copy in package %s would be a second, distinct type; alias it to a tddtest type or move its users together", obj.Name(), consumer), where)
+		return false
+	}
 	if _, isVar := obj.(*types.Var); isVar && (s.seams[obj] || holdsLock(obj.Type())) {
 		s.site(fmt.Sprintf("test var %s is written by a test or holds a lock, so it is state, not a shared value: a copy in package %s would drift from the original; move its users together or hand it through tddtest", obj.Name(), consumer), where)
 		return false
@@ -75,6 +83,7 @@ func (s *splitter) carryHelper(c *checked, consumer string, obj types.Object, wh
 	refused := false
 	scope := c.Pkg.Scope()
 	for _, n := range h.nodes() {
+		written := writtenIdents(c, n)
 		ast.Inspect(n, func(n ast.Node) bool {
 			id, ok := n.(*ast.Ident)
 			if !ok {
@@ -96,11 +105,16 @@ func (s *splitter) carryHelper(c *checked, consumer string, obj types.Object, wh
 			if hs, ok := c.srcOf(id.Pos()); ok {
 				at = fmt.Sprintf("%s:%d", hs.Path, c.Fset.Position(id.Pos()).Line)
 			}
+			if _, isVar := used.(*types.Var); isVar && written[id] {
+				s.site(fmt.Sprintf("test helper %s is not carried into package %s: it writes %s (declared in %s, package %s), and across the split the write would reach only an alias; give package %s a Set...ForTest setter and call it", obj.Name(), consumer, used.Name(), decl.Path, from, from), at)
+				refused = true
+				return true
+			}
 			switch {
 			case decl.isTest() && carriable(used):
 				uses = append(uses, use{obj: used, from: from, at: at, test: true})
 			case decl.isTest():
-				s.site(fmt.Sprintf("test helper %s is not carried into package %s: it reaches %s (declared in %s, package %s), which is neither a func, a const nor a var", obj.Name(), consumer, used.Name(), decl.Path, from), at)
+				s.site(fmt.Sprintf("test helper %s is not carried into package %s: it reaches %s (declared in %s, package %s), which is not a func, const, var or type", obj.Name(), consumer, used.Name(), decl.Path, from), at)
 				refused = true
 			case s.level(from) >= s.level(consumer):
 				s.site(fmt.Sprintf("test helper %s is not carried into package %s (L%d): it names %s, declared in %s (package %s, L%d), and no alias reaches upward", obj.Name(), consumer, s.level(consumer), used.Name(), decl.Path, from, s.level(from)), at)
@@ -176,7 +190,7 @@ func (s *splitter) readsUnexportedAcross(c *checked, consumer string, obj types.
 // carryHelper, with the reason).
 func carriable(obj types.Object) bool {
 	switch obj.(type) {
-	case *types.Func, *types.Const, *types.Var:
+	case *types.Func, *types.Const, *types.Var, *types.TypeName:
 		return true
 	}
 	return false
@@ -193,6 +207,14 @@ func (s *splitter) helperDecl(c *checked, obj types.Object) (helperDecl, bool) {
 					return helperDecl{fn: d}, d.Recv == nil
 				}
 			case *ast.GenDecl:
+				if d.Tok == token.TYPE {
+					for _, sp := range d.Specs {
+						if ts := sp.(*ast.TypeSpec); c.Info.Defs[ts.Name] == obj {
+							return helperDecl{ts: ts}, ts.TypeParams == nil
+						}
+					}
+					continue
+				}
 				if d.Tok != token.CONST && d.Tok != token.VAR {
 					continue
 				}
@@ -227,7 +249,12 @@ func (s *splitter) renderHelpers(c *checked, add func(outKey, entry)) {
 			var err error
 			var node ast.Node
 			order := orderFunc
-			if h.fn != nil {
+			if h.ts != nil {
+				node = h.ts
+				order = orderType
+				b.WriteString("type " + obj.Name() + " = ")
+				err = printer.Fprint(&b, c.Fset, h.ts.Type)
+			} else if h.fn != nil {
 				bare := *h.fn
 				bare.Doc = nil
 				node = &bare
@@ -264,4 +291,63 @@ func (s *splitter) renderHelpers(c *checked, add func(outKey, entry)) {
 			add(key, entry{Order: order, Name: obj.Name(), Text: b.String(), Imports: imports})
 		}
 	}
+}
+
+// writtenIdents returns the identifiers in n that name a variable being
+// written: assigned, incremented, ranged into, or having its address taken,
+// following writes through fields and elements of values held by value, the
+// way seamVars judges a package var.
+func writtenIdents(c *checked, n ast.Node) map[*ast.Ident]bool {
+	out := map[*ast.Ident]bool{}
+	mark := func(e ast.Expr) {
+		for {
+			switch x := e.(type) {
+			case *ast.ParenExpr:
+				e = x.X
+				continue
+			case *ast.SelectorExpr:
+				if !valueTyped(c, x.X) {
+					return
+				}
+				e = x.X
+				continue
+			case *ast.IndexExpr:
+				if !valueTyped(c, x.X) {
+					return
+				}
+				e = x.X
+				continue
+			case *ast.Ident:
+				out[x] = true
+			}
+			return
+		}
+	}
+	ast.Inspect(n, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.AssignStmt:
+			if x.Tok != token.DEFINE {
+				for _, l := range x.Lhs {
+					mark(l)
+				}
+			}
+		case *ast.IncDecStmt:
+			mark(x.X)
+		case *ast.UnaryExpr:
+			if x.Op == token.AND {
+				mark(x.X)
+			}
+		case *ast.RangeStmt:
+			if x.Tok == token.ASSIGN {
+				if x.Key != nil {
+					mark(x.Key)
+				}
+				if x.Value != nil {
+					mark(x.Value)
+				}
+			}
+		}
+		return true
+	})
+	return out
 }

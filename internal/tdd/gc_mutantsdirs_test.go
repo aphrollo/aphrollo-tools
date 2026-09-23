@@ -12,12 +12,13 @@ import (
 // running it happens to be compiling.
 func noMutationRunLive(t *testing.T) {
 	t.Helper()
-	running, copies, targets := mutantsRunningFn, mutantsCopyOwnerFn, targetDirOwnerFn
+	running, copies := mutantsRunningFn, mutantsCopyOwnerFn
 	mutantsRunningFn = func() bool { return false }
 	mutantsCopyOwnerFn = func(string) (int, bool) { return 0, false }
-	targetDirOwnerFn = func(string) (int, bool) { return 0, false }
+	restoreTargets := SetTargetDirOwnerForTest(func(string) (int, bool) { return 0, false })
 	t.Cleanup(func() {
-		mutantsRunningFn, mutantsCopyOwnerFn, targetDirOwnerFn = running, copies, targets
+		mutantsRunningFn, mutantsCopyOwnerFn = running, copies
+		restoreTargets()
 	})
 }
 
@@ -85,14 +86,14 @@ func TestGCMutantsRunDirs_LeavesEveryDirectoryALiveRunHolds(t *testing.T) {
 	mkFile(t, filepath.Join(area, "shard-0", "mutants.out", "outcomes.json"), "[]", 2*time.Hour)
 	mkFile(t, filepath.Join(area, "target-0", cargoInfoFile), "{}", 9*24*time.Hour)
 
-	targetDirOwnerFn = func(string) (int, bool) { return 4242, true }
+	SetTargetDirOwnerForTest(func(string) (int, bool) { return 4242, true })
 	for _, c := range gcMutantsRunDirs(area, 3*24*time.Hour, time.Now()) {
 		if c.Kind == GCKindMutantsTarget {
 			t.Errorf("proposed %s while a build owns it — deleting it walks a directory rustc is writing to", c.Path)
 		}
 	}
 
-	targetDirOwnerFn = func(string) (int, bool) { return 0, false }
+	SetTargetDirOwnerForTest(func(string) (int, bool) { return 0, false })
 	mutantsCopyOwnerFn = func(string) (int, bool) { return 99, true }
 	for _, c := range gcMutantsRunDirs(area, 3*24*time.Hour, time.Now()) {
 		if c.Kind == GCKindMutants {

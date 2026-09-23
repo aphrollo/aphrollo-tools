@@ -188,6 +188,15 @@ func isTempTargetDir(path string) bool {
 // the sweep's rules can be tested without one.
 var targetDirOwnerFn = targetDirOwner
 
+// SetTargetDirOwnerForTest replaces the target-dir owner probe for a test
+// and returns the restore. A setter rather than an assignment, so a test in
+// a package above mutation (the gc sweep's) still reaches the probe.
+func SetTargetDirOwnerForTest(fn func(path string) (int, bool)) (restore func()) {
+	prev := targetDirOwnerFn
+	targetDirOwnerFn = fn
+	return func() { targetDirOwnerFn = prev }
+}
+
 // targetDirOwner reports whether a live cargo, rustc, nextest or cargo-mutants
 // process is building into dir. Ownership is inferred the same way the tree
 // copies' is, and fails the same way: a probe that cannot answer says LIVE, so
