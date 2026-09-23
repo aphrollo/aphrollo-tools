@@ -91,28 +91,35 @@ func scriptedRunner(t *testing.T, seen *[]string, script map[string]SuiteResult)
 }
 
 // TestPostEdit_NarrowedRunSelectsZero_WidensOnceAndReportsTheWiderVerdict
-// pins part one of the fix: a narrowed run that selects nothing is re-run
-// WITHOUT the narrowing (module filter and --lib dropped, the package scope
-// kept), and that run decides the verdict. The crate's tests exist; they are
-// just not where the filter looked.
+// pins part one of the fix: a narrowed run that selects nothing climbs the
+// widening ladder — the module filter dropped first (the crate's lib tests),
+// then the target too (the whole package) — until a run selects a test, and
+// that run decides the verdict. The crate's tests exist; they are just not
+// where the filter looked. Each rung runs once.
 func TestPostEdit_NarrowedRunSelectsZero_WidensOnceAndReportsTheWiderVerdict(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkCargoCrate(t, "engine_audio")
 	withNextest(t, root)
 
+	empty := SuiteResult{Passed: false, Err: "exit status 4", Output: nextestNoTestsOutput}
 	var seen []string
 	script := map[string]SuiteResult{
-		"cargo nextest run -p engine_audio --lib -E test(/^defs::/)": {Passed: false, Err: "exit status 4", Output: nextestNoTestsOutput},
+		"cargo nextest run -p engine_audio --lib -E test(/^defs::/)": empty,
+		"cargo nextest run -p engine_audio --lib":                    empty,
 		"cargo nextest run -p engine_audio":                          {Passed: true, Output: nextestSixPassedOutput},
 	}
 	got := PostEdit(postPayload("Edit", root+"/src/defs.rs"), scriptedRunner(t, &seen, script))
 
 	want := []string{
 		"cargo nextest run -p engine_audio --lib -E test(/^defs::/)",
+		"cargo nextest run -p engine_audio --lib",
 		"cargo nextest run -p engine_audio",
 	}
-	if len(seen) != len(want) || seen[0] != want[0] || seen[1] != want[1] {
-		t.Fatalf("want the narrowed run then ONE widened retry %v, got %v", want, seen)
+	if strings.Join(seen, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("want the narrowed run, then the lib rung, then the package rung, each once:\n%v\ngot:\n%v", want, seen)
+	}
+	if !strings.Contains(got, "gate: cargo nextest run -p engine_audio in ") {
+		t.Fatalf("the gate line must name the command that finally ran, got: %s", got)
 	}
 	if !strings.Contains(got, "green (6 passed") {
 		t.Fatalf("the widened run's verdict must be the one reported, got: %s", got)
@@ -136,12 +143,13 @@ func TestPostEdit_PlainCargoTestFilterMatchesNothing_WidensToo(t *testing.T) {
 	var seen []string
 	script := map[string]SuiteResult{
 		"cargo test -p engine_audio --lib defs::": {Passed: true, Output: cargoTestZeroSelectedOutput},
+		"cargo test -p engine_audio --lib":        {Passed: true, Output: cargoTestZeroSelectedOutput},
 		"cargo test -p engine_audio":              {Passed: true, Output: cargoTestThreePassedOutput},
 	}
 	got := PostEdit(postPayload("Edit", root+"/src/defs.rs"), scriptedRunner(t, &seen, script))
 
-	if len(seen) != 2 || seen[1] != "cargo test -p engine_audio" {
-		t.Fatalf("want one widened retry after a substring filter matched nothing, got %v", seen)
+	if len(seen) != 3 || seen[1] != "cargo test -p engine_audio --lib" || seen[2] != "cargo test -p engine_audio" {
+		t.Fatalf("want the lib rung then the package rung after a substring filter matched nothing, got %v", seen)
 	}
 	if !strings.Contains(got, "green (3 passed") {
 		t.Fatalf("the widened run's verdict must be the one reported, got: %s", got)
@@ -162,6 +170,7 @@ func TestPostEdit_ZeroSelectionEvenWidened_IsInconclusiveNeverGreen(t *testing.T
 	var seen []string
 	script := map[string]SuiteResult{
 		"cargo nextest run -p engine_audio --lib -E test(/^defs::/)": empty,
+		"cargo nextest run -p engine_audio --lib":                    empty,
 		"cargo nextest run -p engine_audio":                          empty,
 	}
 	got := PostEdit(postPayload("Edit", root+"/src/defs.rs"), scriptedRunner(t, &seen, script))
@@ -232,6 +241,7 @@ func TestPostEdit_ZeroSelection_LeavesANarrowedHandRunAllowed(t *testing.T) {
 	var seen []string
 	PostEdit(postPayload("Edit", root+"/src/defs.rs"), scriptedRunner(t, &seen, map[string]SuiteResult{
 		"cargo nextest run -p engine_audio --lib -E test(/^defs::/)": empty,
+		"cargo nextest run -p engine_audio --lib":                    empty,
 		"cargo nextest run -p engine_audio":                          empty,
 	}))
 

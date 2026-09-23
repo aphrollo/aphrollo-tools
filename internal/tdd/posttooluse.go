@@ -140,7 +140,7 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 		return postEditDeferred(snap, root, target, headSHA, session)
 	}
 
-	res, terminal := runPostEditSuite(run, snap, root, headSHA)
+	res, terminal := runPostEditSuite(run, snap, root, headSHA, DefaultPostEditTimeout)
 	if terminal != "" {
 		return terminal, false
 	}
@@ -160,7 +160,7 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 	// crate's tests may simply live where the filter did not look. Widen
 	// once and let that run answer; only a selection that stays empty is
 	// reported, as an inconclusive rather than a green.
-	if selectedZeroTests(snap.runner, res) {
+	if postEditSelectedZero(snap.runner, res) {
 		empty := resolveEmptySelection(run, snap, root, headSHA, res)
 		if empty.terminal != "" {
 			return empty.terminal, false
@@ -173,7 +173,7 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 	if line := foreignBuildAdvisory(root, target, cmdString(snap.runner), res); line != "" {
 		return line, false
 	}
-	outcome := ClassifyOutcome(res.Passed, classificationOutput(res.Output, res.GoTestJSON), snap.prevFailing)
+	outcome := classifyRunOutcome(snap.runner, res, snap.prevFailing)
 	failing := ExtractFailingTests(res.Output)
 	passed, hasCount := parsePassedCount(res.Output)
 	unconstrained := unconstrainedGreen(kind, outcome, snap, root, passed, hasCount)
@@ -285,7 +285,7 @@ func parsePassedCount(output string) (int, bool) {
 			}
 		}
 	}
-	return 0, false
+	return goPassedCount(output)
 }
 
 // noTestsToRunRe recognises cargo-nextest's hard failure (exit code 4) when a
@@ -310,12 +310,13 @@ func treatAsEmptyPass(res SuiteResult) bool {
 }
 
 // greenLabel renders the "<outcome-ish> (...)" suffix shared by PostEdit's
-// advisory and Precommit's mechanical stderr line for a run that is a PASS
-// (a real pass, or nextest's empty-crate exit-4 case) — extracted so the two
-// call sites render identically and can't drift apart.
+// advisory and Precommit's mechanical stderr line for a run that is a PASS —
+// extracted so the two call sites render identically and can't drift apart.
+// The word is the outcome's own: a run classified writing-test tested
+// nothing and says so, and never borrows green.
 func greenLabel(outcome Outcome, output string, dur time.Duration) string {
-	if noTestsToRunRe.MatchString(output) {
-		return fmt.Sprintf("green (0 tests — nothing to run, %.1fs)", dur.Seconds())
+	if outcome == WritingTest {
+		return fmt.Sprintf("%s (0 tests ran, %.1fs — nothing was tested)", outcome, dur.Seconds())
 	}
 	if n, ok := parsePassedCount(output); ok {
 		return fmt.Sprintf("%s (%d passed, %.1fs)", outcome, n, dur.Seconds())

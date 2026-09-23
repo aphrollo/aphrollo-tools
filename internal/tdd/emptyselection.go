@@ -151,34 +151,42 @@ type emptySelection struct {
 	terminal string
 }
 
-// resolveEmptySelection widens a narrowed run that selected nothing, ONCE.
-// The widened run inherits the same lock/timeout handling as the first
-// (runPostEditSuite), and its verdict is the one that stands: the crate's
-// tests exist, they are just not where the filter looked. When nothing is
-// selected even at package scope — or there was no narrowing left to drop —
-// the run reaches the inconclusive verdict rather than a green, and that is
-// what reaches gate.log.
+// resolveEmptySelection climbs the widening ladder (postEditWideningSteps)
+// above a narrowed run that selected nothing, one rung at a time, inside the
+// post-edit budget the narrowed run already drew on. Each rung inherits the
+// same lock/timeout handling as the first (runPostEditSuite), and the first
+// rung that selects a test is the verdict that stands: the crate's tests
+// exist, they are just not where the filter looked. A rung the budget cannot
+// start is named as not run; a selection still empty at the top of the
+// ladder — or a run with no ladder at all — reaches the inconclusive verdict
+// rather than a green, and that is what reaches gate.log.
 func resolveEmptySelection(run SuiteRunner, snap stateSnapshot, root, headSHA string, res SuiteResult) emptySelection {
 	out := emptySelection{runner: snap.runner, res: res}
 	narrow := snap.runner
-	widened := false
-	if wide, ok := widenCargoRunner(narrow); ok {
-		widened = true
+	deadline := time.Now().Add(PostEditBudget() - res.Duration)
+	steps := postEditWideningSteps(narrow, root)
+	for _, step := range steps {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			appendGateLog("postedit", root, cmdString(out.runner), NoTestsSelected, out.res.Duration)
+			out.terminal = widenBudgetSpentAdvisory(out.runner, step, root, out.res.Duration)
+			return out
+		}
 		wsnap := snap
-		wsnap.runner = wide
-		wres, terminal := runPostEditSuite(run, wsnap, root, headSHA)
+		wsnap.runner = step
+		wres, terminal := runPostEditSuite(run, wsnap, root, headSHA, remaining)
 		if terminal != "" {
 			out.terminal = terminal
 			return out
 		}
-		out.runner, out.res = wide, wres
-		if !selectedZeroTests(wide, wres) {
-			out.note = widenedNote(narrow)
+		out.runner, out.res = step, wres
+		if !postEditSelectedZero(step, wres) {
+			out.note = widenedNote(narrow, step)
 			return out
 		}
 	}
 	appendGateLog("postedit", root, cmdString(out.runner), NoTestsSelected, out.res.Duration)
-	out.terminal = noTestsSelectedAdvisory(narrow, out.runner, root, widened, out.res.Duration)
+	out.terminal = noTestsSelectedAdvisory(narrow, out.runner, root, len(steps) > 0, out.res.Duration)
 	return out
 }
 
@@ -217,10 +225,10 @@ func cargoFullSuiteAlreadyGreenLine(r Runner, root string) string {
 // widenedNote is the second line under a widened run's ordinary advisory. The
 // verdict above it is real, but WHICH tests produced it is not what the
 // session asked for, so the line names the filter that selected nothing and
-// where those tests most likely live.
-func widenedNote(narrow Runner) string {
-	return fmt.Sprintf("widened: %s selected 0 tests, so the run was re-scoped to the whole package for this verdict — the tests this edit's module owns are likely integration tests under tests/",
-		cmdString(narrow))
+// the rung whose run the verdict is.
+func widenedNote(narrow, wide Runner) string {
+	return fmt.Sprintf("widened: %s selected 0 tests, so the run climbed to %s for this verdict — the tests this edit's module owns live outside the narrowed selection",
+		cmdString(narrow), cmdString(wide))
 }
 
 // noTestsSelectedAdvisory is the line for a run that selected nothing and
@@ -232,8 +240,19 @@ func widenedNote(narrow Runner) string {
 func noTestsSelectedAdvisory(narrow, wide Runner, root string, widened bool, dur time.Duration) string {
 	scope := ""
 	if widened {
-		scope = fmt.Sprintf("; %s selected none either, so this run was widened to the whole package", cmdString(narrow))
+		scope = fmt.Sprintf("; widened rung by rung from %s, and no rung selected a test", cmdString(narrow))
 	}
-	return fmt.Sprintf("gate: %s in %s → %s (0 tests selected in %.1fs%s) — inconclusive, the code was NOT tested; run this crate's integration tests under tests/ by hand, or confirm it has a test target at all",
-		cmdString(wide), root, strings.ToUpper(NoTestsSelected), dur.Seconds(), scope)
+	return fmt.Sprintf("gate: %s in %s → %s (0 tests selected in %.1fs%s) — inconclusive, the code was NOT tested; %s",
+		cmdString(wide), root, strings.ToUpper(NoTestsSelected), dur.Seconds(), scope, noTestsSelectedRemedy(wide))
+}
+
+// noTestsSelectedRemedy is what to do about a selection that stayed empty,
+// in the runner's own terms: a crate is asked for its integration tests or
+// its test target, a Go package for a test, since no package's tests reach
+// it.
+func noTestsSelectedRemedy(r Runner) string {
+	if r.Cmd == "go" {
+		return "no package's tests reach this code, so it needs a test of its own"
+	}
+	return "run this crate's integration tests under tests/ by hand, or confirm it has a test target at all"
 }

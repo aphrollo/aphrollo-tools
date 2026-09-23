@@ -106,16 +106,3 @@ func hasNoRunFlag(argv []string) bool {
 	}
 	return false
 }
-
-// zeroSelectionTerminal is the same shape for a run that selected no test at
-// all and whose caller cannot widen it — the deferred path, which has
-// already spent its whole budget on one detached run. The honest verdict
-// without the retry: the direct path (resolveEmptySelection) widens first
-// and only lands here when the wider run stayed empty too.
-func zeroSelectionTerminal(r Runner, root string, res SuiteResult) string {
-	if untestedVerdict(r, res) != NoTestsSelected {
-		return ""
-	}
-	appendGateLog("postedit", root, cmdString(r), NoTestsSelected, res.Duration)
-	return noTestsSelectedAdvisory(r, r, root, false, res.Duration)
-}

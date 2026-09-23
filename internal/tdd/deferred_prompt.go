@@ -28,7 +28,7 @@ func promptHarvest(session string) string {
 			continue
 		}
 		state, statePath := loadSession(session)
-		lines = append(lines, markDeferred(editResultAdvisory(j, out, root, state, statePath, j.HeadSHA)))
+		lines = append(lines, harvestAdvisory(j, out, root, state, statePath, 0))
 	}
 	return strings.Join(lines, "\n")
 }
