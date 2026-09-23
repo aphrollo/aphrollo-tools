@@ -57,6 +57,12 @@ type SuiteResult struct {
 	// reconstructed human text for existing consumers; vacuousGoPackages
 	// reads this field to attribute a pass to its actual package.
 	GoTestJSON string
+	// Dir is the directory the run executed in, set by whatever started it
+	// (RunSuite, phaseSuiteResult). It is not the root a verdict is keyed
+	// on: a cargo run executes in its workspace directory, above the member
+	// crate that names it, and the retained record states both so a reader
+	// can tell which tree was tested (issue #769).
+	Dir string
 }
 
 // SuiteRunner executes a runner in a project root. It is injected so the
@@ -533,7 +539,7 @@ func RunSuite(timeout time.Duration) SuiteRunner {
 			errText = err.Error()
 		}
 		outputText, testJSON := goRenderedOutput(r.Cmd, r.Args, string(out))
-		return SuiteResult{Passed: passed, Output: outputText, TimedOut: timedOut, Err: errText, Duration: dur, GoTestJSON: testJSON}
+		return SuiteResult{Passed: passed, Output: outputText, TimedOut: timedOut, Err: errText, Duration: dur, GoTestJSON: testJSON, Dir: dir}
 	}
 }
 

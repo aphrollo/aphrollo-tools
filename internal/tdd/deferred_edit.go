@@ -363,6 +363,7 @@ func phaseSuiteResult(j DeferredJob, out PhaseOutcome) SuiteResult {
 		Passed:   out.ExitCode == 0,
 		Output:   deferredLog(j),
 		Duration: time.Duration(out.Seconds * float64(time.Second)),
+		Dir:      runnerDir(Runner{Dir: j.Dir}, j.Project),
 	}
 	if !res.Passed {
 		res.Err = fmt.Sprintf("exit status %d", out.ExitCode)

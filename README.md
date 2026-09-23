@@ -208,8 +208,8 @@ aphrollo gate stats --since 7d   # gate.log by stage and outcome, open escapes, 
 aphrollo gate doctor             # one ok/FAIL line per install check, exit 1 on a FAIL
 ```
 
-`gate output` keeps the last 256 KB of one run per root and refuses a record
-older than 30 minutes. `gate stats` names a `demote-candidate:` check whose
+`gate output` keeps the last 256 KB of one run per root, heads it with the
+directory the run executed in, and refuses a record older than 30 minutes. `gate stats` names a `demote-candidate:` check whose
 refusals rose two weeks running.
 
 ### Build and git queues
