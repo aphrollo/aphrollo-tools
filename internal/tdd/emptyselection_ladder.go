@@ -2,7 +2,6 @@ package tdd
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -161,27 +160,15 @@ func goTestTreeSelection(r Runner) bool {
 	return false
 }
 
-// goPackageResultRe matches `go test`'s one summary line per package:
-// "ok", "?" or "FAIL", the import path, then the rest.
-var goPackageResultRe = regexp.MustCompile(`(?m)^(?:ok|\?|FAIL)[ \t]+\S+[ \t].*$`)
-
 // goRanNoTests reports whether a passing Go run executed no test in any
-// package: every package line says "[no test files]" or "[no tests to run]".
-// A run with no package line at all is not read as empty.
+// package (goRunRanATest). A run whose packages cannot be read is not read
+// as empty.
 func goRanNoTests(r Runner, res SuiteResult) bool {
 	if r.Cmd != "go" || res.TimedOut || !res.Passed {
 		return false
 	}
-	lines := goPackageResultRe.FindAllString(res.Output, -1)
-	if len(lines) == 0 {
-		return false
-	}
-	for _, l := range lines {
-		if !strings.Contains(l, "[no test files]") && !strings.Contains(l, "[no tests to run]") {
-			return false
-		}
-	}
-	return true
+	ran, known := goRunRanATest(res)
+	return known && !ran
 }
 
 // postEditSelectedZero is the post-edit hook's "this run tested nothing":

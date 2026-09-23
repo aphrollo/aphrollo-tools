@@ -170,7 +170,7 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 	if line := foreignBuildAdvisory(root, target, cmdString(snap.runner), res); line != "" {
 		return line, false
 	}
-	outcome := ClassifyOutcome(res.Passed, classificationOutput(res.Output, res.GoTestJSON), snap.prevFailing)
+	outcome := classifyRunOutcome(snap.runner, res, snap.prevFailing)
 	failing := ExtractFailingTests(res.Output)
 	passed, hasCount := parsePassedCount(res.Output)
 	unconstrained := unconstrainedGreen(kind, outcome, snap, root, passed, hasCount)
@@ -301,7 +301,7 @@ func parsePassedCount(output string) (int, bool) {
 			}
 		}
 	}
-	return 0, false
+	return goPassedCount(output)
 }
 
 // noTestsToRunRe recognises cargo-nextest's hard failure (exit code 4) when a
