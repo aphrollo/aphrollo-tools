@@ -1,6 +1,7 @@
 package tdd
 
 import (
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -68,6 +69,40 @@ func gcMutantsRunDirs(area string, olderThan time.Duration, now time.Time) []GCC
 			out = append(out, GCCandidate{Path: path, Size: size, Kind: GCKindMutants,
 				Reason: "mutation-run shard dir whose run is over (tree copies and logs), idle " + formatDays(idle)})
 		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
+// gcMutantsOrphanAreas proposes an entire measurement area — not merely the
+// stale entries inside it, which is all gcMutantsRunDirs and gcMutantsTrees
+// ever look at — once the checkout beside it is gone. prGateMergedCheckout's
+// cleanup (premergepr.go) now removes its own area along with its throwaway
+// checkout, but a run that never reached cleanup, or one measured before
+// that fix landed, leaves exactly this shape behind: the checkout gone, the
+// area still full. Nothing else here ever asks that question, which is how
+// eight of these — 21-161 MB each — went unseen on one box.
+//
+// The same liveness rule as its siblings: a live cargo-mutants vetoes the
+// whole category, because the checkout it is building the merge in can
+// disappear and reappear as `git worktree add`/`remove` run around it, and
+// "gone this instant" is not the same claim as "gone for good".
+func gcMutantsOrphanAreas(areas []string, now time.Time) []GCCandidate {
+	if mutantsRunningFn() {
+		return nil
+	}
+	var out []GCCandidate
+	for _, area := range areas {
+		checkout := filepath.Join(filepath.Dir(filepath.Dir(area)), filepath.Base(area))
+		if _, err := os.Stat(checkout); err == nil {
+			continue // its checkout is still here; not this category's to decide
+		}
+		newest, size := dirNewestAndSize(area)
+		if newest.IsZero() {
+			continue
+		}
+		out = append(out, GCCandidate{Path: area, Size: size, Kind: GCKindMutants,
+			Reason: "measurement area whose checkout is gone, idle " + formatDays(now.Sub(newest))})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
