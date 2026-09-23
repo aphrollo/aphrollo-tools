@@ -191,10 +191,3 @@ func RenderIssueSummary(total int, byLabel map[string]int, declared []string, es
 	fmt.Fprintf(&b, ", %d open escape%s - aphrollo issue / gate escape record", escapes, plural(escapes))
 	return b.String()
 }
-
-func plural(n int) string {
-	if n == 1 {
-		return ""
-	}
-	return "s"
-}
