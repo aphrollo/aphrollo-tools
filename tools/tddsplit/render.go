@@ -110,6 +110,13 @@ func (s *splitter) render(c *checked) map[outKey]map[string]entry {
 				case s.seams[o]:
 					s.report("seam var %s (package %s) is reassigned and not a func: it needs a hand-written accessor", name, n.from)
 					continue
+				case holdsLock(o.Type()):
+					s.report("var %s (package %s) holds a lock, so it is aliased by pointer: a copy would be a second, separate %s", name, n.from, types.TypeString(o.Type(), nil))
+					consE = entry{Order: orderVar, Text: fmt.Sprintf("var %s = %s", name, target)}
+					expE = entry{Order: orderVar, Text: fmt.Sprintf("var %s = &%s", exp, name)}
+					if exp == name {
+						consE.Text = fmt.Sprintf("var %s = &%s", name, target)
+					}
 				default:
 					consE = entry{Order: orderVar, Text: fmt.Sprintf("var %s = %s", name, target)}
 					expE = entry{Order: orderVar, Text: fmt.Sprintf("var %s = %s", exp, name)}

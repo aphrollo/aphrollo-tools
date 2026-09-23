@@ -254,3 +254,33 @@ func TestAnalyze_ReportsEachUnkeyedLiteralOfAStructThatMovesAway(t *testing.T) {
 		}
 	}
 }
+
+// A var holding a lock (a sync.Map here) aliased by value is a copy: vet's
+// copylocks refuses it, and the consumer would read a second, empty map. It
+// is aliased by pointer instead, and reported so a reader knows why.
+func TestAnalyze_AliasesALockBearingVarByPointer(t *testing.T) {
+	files := map[string]string{
+		"go.mod": "module example.com/fx\n\ngo 1.26\n",
+		"p/a.go": "package p\n\nimport \"sync\"\n\nvar seen sync.Map\n\n// Guard is already exported.\nvar Guard sync.Mutex\n\nfunc mark(k string) { seen.Store(k, true) }\n",
+		"p/b.go": "package p\n\n// Use marks a key through low and reads it back from p.\nfunc Use() bool {\n\tGuard.Lock()\n\tdefer Guard.Unlock()\n\tmark(\"k\")\n\t_, ok := seen.Load(\"k\")\n\treturn ok\n}\n",
+	}
+	manifest := "root p\n[packages]\nlow L0 p/low\np L1 p\n[files]\na.go low\nb.go p\n"
+	a := analyzeFixture(t, files, manifest, "L0")
+	if exp, want := string(a.Generated["p/low/export.go"]), "var Seen = &seen"; !strings.Contains(exp, want) {
+		t.Errorf("p/low/export.go lacks %q:\n%s", want, exp)
+	}
+	for _, want := range []string{"var seen = low.Seen", "var Guard = &low.Guard"} {
+		if api := string(a.Generated["p/api_low.go"]); !strings.Contains(api, want) {
+			t.Errorf("p/api_low.go lacks %q:\n%s", want, api)
+		}
+	}
+	found := false
+	for _, r := range a.Reports {
+		if strings.Contains(r, "seen") && strings.Contains(r, "pointer") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no report says seen is aliased by pointer; reports:\n%s", strings.Join(a.Reports, "\n"))
+	}
+}
