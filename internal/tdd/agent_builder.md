@@ -23,7 +23,9 @@ re-run a suite it just ran.
 - `red` — read the message: is that the failure you intended?
 - `red-bogus` — broken setup, not a RED. Fix it and get a real one.
 - `TIMEOUT` / `SKIPPED` / `QUEUED-SKIPPED` — the code was NOT tested. Not a pass.
-- `BUILDING (deferred)` — result arrives at the next hook.
+- `BUILDING (deferred)` — result arrives at the next hook. To wait for it, run
+  `aphrollo gate status --wait <tree>` in the foreground, with the tree the
+  line names; never end the turn waiting for it.
 
 While shaping code iterate with something that compiles and runs nothing:
 `cargo check -p <crate> --tests`, `go vet ./...`. Manual test runs only for a

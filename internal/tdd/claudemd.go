@@ -56,7 +56,7 @@ func ClaudeMDBlock(shimDir string, undercover, mutantsAtMerge bool) string {
 	// stated right here. Wanting the output was the commonest reason to
 	// re-run a suite the gate had just run, and `gate stats` cannot answer
 	// it, so a session told only about stats meets the refusal with no route.
-	b.WriteString("  budget and continues; its result arrives at the next hook). The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE targeted `-p <crate> <filter>` after a TIMEOUT. Wanting the run's TEXT is not one of them: `aphrollo gate stats` answers what the verdict WAS, `aphrollo gate output` prints what that run actually PRINTED — assertion lines and all, unfiltered.\n")
+	b.WriteString("  budget and continues; its result arrives at the next hook, or wait in the foreground with `aphrollo gate status --wait <tree>`, the tree the line names). The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE targeted `-p <crate> <filter>` after a TIMEOUT. Wanting the run's TEXT is not one of them: `aphrollo gate stats` answers what the verdict WAS, `aphrollo gate output` prints what that run actually PRINTED — assertion lines and all, unfiltered.\n")
 	b.WriteString("- **Commit gate, cheapest first:** staged-baseline guard → ratchet laws → docs check →\n")
 	b.WriteString("  suppression check → per root: cargo sequential (fmt→guards→clippy→check→fail-first);\n")
 	b.WriteString("  a Go root also runs vet/lint first. It proves the staged test RED and STOPS — the\n")
