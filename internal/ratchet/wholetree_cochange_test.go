@@ -2,6 +2,7 @@ package ratchet
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -175,5 +176,161 @@ func TestCoChange_NoChangedSetIsANoteNotAHit(t *testing.T) {
 	}
 	if len(res.Notes) == 0 {
 		t.Fatal("Notes is empty, want a skip note when no changed-set was given")
+	}
+}
+
+// neighbourBase mirrors #787's statusline.go shape: P is marked as Q's twin,
+// and S — a function that ends in the same `}` line P does — sits directly
+// after P. Deleting S is a pure move out of the file; neither twin changes.
+const neighbourBase = "package a\n\n" +
+	"// twin: a.go#Q\n" +
+	"func P(root string) bool {\n\tif root == \"\" {\n\t\treturn false\n\t}\n\treturn S(root, root)\n}\n\n" +
+	"// S matches two roots.\n" +
+	"func S(logged, root string) bool {\n\tif logged == root {\n\t\treturn true\n\t}\n\treturn false\n}\n\n" +
+	"func Q(root string) bool {\n\treturn root != \"\"\n}\n"
+
+const neighbourDeleted = "package a\n\n" +
+	"// twin: a.go#Q\n" +
+	"func P(root string) bool {\n\tif root == \"\" {\n\t\treturn false\n\t}\n\treturn S(root, root)\n}\n\n" +
+	"func Q(root string) bool {\n\treturn root != \"\"\n}\n"
+
+// TestCoChange_DeletingTheFunctionAfterATwinIsNotAChangeToTheTwin is #787:
+// removing S, whose closing brace matches P's, lets the line diff slide the
+// deleted block onto P's closing brace. P's own text is byte-identical
+// before and after, so P did not change and its untouched twin Q is no hit.
+func TestCoChange_DeletingTheFunctionAfterATwinIsNotAChangeToTheTwin(t *testing.T) {
+	root := coChangeRepo(t)
+	write(t, filepath.Join(root, "a.go"), neighbourBase)
+	gitRun(t, root, "add", ".")
+	gitRun(t, root, "commit", "-qm", "base")
+
+	write(t, filepath.Join(root, "a.go"), neighbourDeleted)
+	gitRun(t, root, "add", "a.go")
+
+	res, err := Check(Options{Root: root, Base: "HEAD", StagedFiles: []string{"a.go"}})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 0 {
+		t.Fatalf("findings = %+v, want none — S was deleted, P and Q are unchanged", res.Findings)
+	}
+}
+
+// TestCoChange_DeletingTheFunctionBeforeAMarkedTwinIsNotAChangeToIt is the
+// same deletion seen from the marker's side: the marker sits on Q, the
+// declaration directly after the deleted S, so the deletion lands on the
+// marked declaration's own edge. Q's text is unchanged, so no hit.
+func TestCoChange_DeletingTheFunctionBeforeAMarkedTwinIsNotAChangeToIt(t *testing.T) {
+	root := coChangeRepo(t)
+	unmark := func(s string) string {
+		s = strings.Replace(s, "// twin: a.go#Q\n", "", 1)
+		return strings.Replace(s, "func Q(", "// twin: a.go#P\nfunc Q(", 1)
+	}
+	write(t, filepath.Join(root, "a.go"), unmark(neighbourBase))
+	gitRun(t, root, "add", ".")
+	gitRun(t, root, "commit", "-qm", "base")
+
+	write(t, filepath.Join(root, "a.go"), unmark(neighbourDeleted))
+	gitRun(t, root, "add", "a.go")
+
+	res, err := Check(Options{Root: root, Base: "HEAD", StagedFiles: []string{"a.go"}})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 0 {
+		t.Fatalf("findings = %+v, want none — S was deleted, P and Q are unchanged", res.Findings)
+	}
+}
+
+// TestCoChange_EditingTheTwinBesideADeletionIsStillAHit keeps the fix honest:
+// the same deletion of S, plus a real edit inside P, still reports P moving
+// without its twin Q.
+func TestCoChange_EditingTheTwinBesideADeletionIsStillAHit(t *testing.T) {
+	root := coChangeRepo(t)
+	write(t, filepath.Join(root, "a.go"), neighbourBase)
+	gitRun(t, root, "add", ".")
+	gitRun(t, root, "commit", "-qm", "base")
+
+	write(t, filepath.Join(root, "a.go"), strings.Replace(neighbourDeleted, "return false\n\t}", "return true\n\t}", 1))
+	gitRun(t, root, "add", "a.go")
+
+	res, err := Check(Options{Root: root, Base: "HEAD", StagedFiles: []string{"a.go"}})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 1 || res.Findings[0].Line != 3 {
+		t.Fatalf("findings = %+v, want exactly one at a.go:3 — P changed, Q did not", res.Findings)
+	}
+}
+
+// TestCoChange_ANewMarkedFunctionIsAChangeToIt: a marked declaration with no
+// counterpart in the base has no old text to compare, so it counts as
+// changed, and its untouched twin is a hit.
+func TestCoChange_ANewMarkedFunctionIsAChangeToIt(t *testing.T) {
+	root := coChangeRepo(t)
+	write(t, filepath.Join(root, "a.go"), "package a\n")
+	write(t, filepath.Join(root, "b.go"), bGoBase)
+	gitRun(t, root, "add", ".")
+	gitRun(t, root, "commit", "-qm", "base")
+
+	write(t, filepath.Join(root, "a.go"), aGoBase)
+	gitRun(t, root, "add", "a.go")
+
+	res, err := Check(Options{Root: root, Base: "HEAD", StagedFiles: []string{"a.go"}})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 1 || res.Findings[0].Line != 3 {
+		t.Fatalf("findings = %+v, want exactly one at a.go:3 — F is new, its twin G did not change", res.Findings)
+	}
+}
+
+// TestCoChange_AnAmbiguousBaseDeclarationKeepsTheDiffVerdict: when the
+// marked declaration's line occurs twice in the base (the same method name on
+// two receivers of one textual shape, say), neither base copy is provably the
+// marked one. Comparing against the wrong copy could call a real edit
+// unchanged, so the diff verdict stands and the edit is a hit.
+func TestCoChange_AnAmbiguousBaseDeclarationKeepsTheDiffVerdict(t *testing.T) {
+	root := coChangeRepo(t)
+	write(t, filepath.Join(root, "a.go"), "package a\n\n"+
+		"// twin: b.go#G\nfunc (T) P() int {\n\treturn 1\n}\n\n"+
+		"func (T) P() int {\n\treturn 2\n}\n")
+	write(t, filepath.Join(root, "b.go"), bGoBase)
+	gitRun(t, root, "add", ".")
+	gitRun(t, root, "commit", "-qm", "base")
+
+	// The marked P now returns 2 — exactly the second base copy's body.
+	write(t, filepath.Join(root, "a.go"), "package a\n\n"+
+		"// twin: b.go#G\nfunc (T) P() int {\n\treturn 2\n}\n")
+	gitRun(t, root, "add", "a.go")
+
+	res, err := Check(Options{Root: root, Base: "HEAD", StagedFiles: []string{"a.go"}})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 1 || res.Findings[0].Line != 3 {
+		t.Fatalf("findings = %+v, want exactly one at a.go:3 — the marked P changed, G did not", res.Findings)
+	}
+}
+
+// TestCoChange_AMarkerLeftBehindByItsDeletedFunctionIsAChange: deleting the
+// declaration under a marker at the end of the file leaves the marker with
+// nothing below it. The marked side changed; its untouched twin is a hit.
+func TestCoChange_AMarkerLeftBehindByItsDeletedFunctionIsAChange(t *testing.T) {
+	root := coChangeRepo(t)
+	write(t, filepath.Join(root, "a.go"), aGoBase)
+	write(t, filepath.Join(root, "b.go"), bGoBase)
+	gitRun(t, root, "add", ".")
+	gitRun(t, root, "commit", "-qm", "base")
+
+	write(t, filepath.Join(root, "a.go"), "package a\n\n// twin: b.go#G\n")
+	gitRun(t, root, "add", "a.go")
+
+	res, err := Check(Options{Root: root, Base: "HEAD", StagedFiles: []string{"a.go"}})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 1 || res.Findings[0].Line != 3 {
+		t.Fatalf("findings = %+v, want exactly one at a.go:3 — F was deleted, G did not change", res.Findings)
 	}
 }
