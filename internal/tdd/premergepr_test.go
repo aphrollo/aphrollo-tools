@@ -271,6 +271,37 @@ func TestGatePRMerge_GreenMergedTreeLandsAfterOneMeasurement(t *testing.T) {
 	}
 }
 
+// The throwaway checkout, and the measurement area beside it, belong on the
+// repo's own disk, next to its lanes. The OS temp dir is the wrong place on
+// both boxes this gate runs on: a Linux /tmp is often a RAM-backed tmpfs a
+// fraction of the disk's size, and every merge there was refused with "12 GB
+// free, one job needs 15.0 GB" beside 348 GB free on the repo's own drive; a
+// Windows %TEMP% sits on C: whatever drive the repo lives on.
+func TestGatePRMerge_BuildsTheMergedCheckoutBesideTheLanes(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Cleanup(SetFreeSpaceForTest(999, true))
+	t.Cleanup(setMutantsJobsForTest(1, "pinned"))
+	root, _ := prGateLane(t)
+	declareMutantsAtMergeCommitted(t, root)
+	calls := stubMutantsExec(t, func(_ context.Context, _ int, c measuredCall) (int, error) {
+		writeOutcomesIn(t, argvValueOf(t, c.Argv, "--output"), MutantOutcome{
+			File: "crates/a/src/lib.rs", Line: 1, Col: 36,
+			Mutation: "replace - with +", Package: "a", Status: "caught"})
+		return 0, nil
+	})
+
+	if err := GatePRMerge(root, recordRuns(new([]gateRun), SuiteResult{Passed: true}), io.Discard); err != nil {
+		t.Fatalf("a green merged tree must land: %v", err)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("ran the mutation tool %d time(s), want exactly one measurement", len(*calls))
+	}
+	lanes := filepath.Join(filepath.Dir(root), ".worktrees", filepath.Base(root))
+	if got := (*calls)[0].Dir; !underDir(t, got, lanes) {
+		t.Fatalf("the merged checkout was built in %s, want it beside the lanes under %s", got, lanes)
+	}
+}
+
 // underDir reports whether path is dir or lives inside it, as the filesystem
 // sees them: a temp dir reaches this side through a symlink on macOS and an
 // 8.3 short name on Windows, so string equality would answer the wrong

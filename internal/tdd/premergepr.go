@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
@@ -130,7 +131,7 @@ func prGateTipsOf(laneWorktree string, log io.Writer) (prGateTips, error) {
 // mutation base becomes the merge base with the incoming tip, exactly as it
 // does under the pre-merge-commit hook.
 func prGateMergedCheckout(laneWorktree string, tips prGateTips) (string, func(), error) {
-	wt, err := os.MkdirTemp("", "gate-prmerge-")
+	wt, err := os.MkdirTemp(prGateCheckoutParent(laneWorktree), "gate-prmerge-")
 	if err != nil {
 		return "", nil, prGateRefusal(laneWorktree, "no-checkout",
 			"a checkout to build the merge in could not be created (%v), so the merge was never judged", err)
@@ -154,6 +155,24 @@ func prGateMergedCheckout(laneWorktree string, tips prGateTips) (string, func(),
 			tips.trunkRef, tips.trunkRef, strings.TrimSpace(out))
 	}
 	return wt, cleanup, nil
+}
+
+// prGateCheckoutParent is where the throwaway merged checkout is built: beside
+// the repo's lanes, <parent of the primary>/.worktrees/<repo>, so it and the
+// measurement area measureTempDir puts next to it share the repo's own disk.
+// The OS temp dir is a RAM-backed tmpfs on many Linux boxes and C: on Windows
+// whatever drive the repo is on; a measurement there is refused for space, or
+// fills the wrong drive. "" (the OS temp dir) only when no primary resolves.
+func prGateCheckoutParent(laneWorktree string) string {
+	primary := primaryCheckoutRoot(laneWorktree)
+	if primary == "" {
+		return ""
+	}
+	dir := filepath.Join(filepath.Dir(primary), ".worktrees", filepath.Base(primary))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return ""
+	}
+	return dir
 }
 
 // prGateRefusal is every refusal this side makes: one message shape carrying
