@@ -669,7 +669,7 @@ live where being wrong only costs a re-run):
 | `gate userpromptsubmit` | Claude UserPromptSubmit hook (stdin) | Intercepts `/gate [status\|off\|on\|reset]` — the per-session enforcement escape hatch. On any other prompt, re-injects the last RED outcome for the cwd's project so the gate survives context compaction. **Silent unless RED.** |
 | `gate stats` | manual | Tallies `gate.log` by stage and outcome, with per-crate timeout/deferred counts and median/max gate seconds (`--since 7d`), the open escape count and its oldest, and any `demote-candidate:` check. Read-only: it names the candidates, and `gate escape sync` is what opens their issues. |
 | `gate output` | manual | Read-only: prints the TEXT of the last settled suite run the gate itself made for this repo root — a header (when, which stage, which command, which verdict, how long, and whether the stored bytes were truncated) followed by the run's own output, byte for byte. `gate stats` answers what the verdict WAS; this answers what the run PRINTED, so reading one assertion line costs no re-run — which is what the narrowed-rerun refusal now points at. One record per root, overwritten by the next settled run and capped at 256 KB (the TAIL is kept, since a failure prints at the end). Exits non-zero, saying which, when no run is recorded for this root or the record is older than the 30-minute freshness window. |
-| `gate status` (also `aphrollo status` at the top level) | manual | Read-only: prints what an inconclusive gate line tells a session to go look at instead of rerunning into the same queue — this box's deferred edit jobs and every global build slot's holder. `--wait` blocks until this checkout's own deferred edit job reaches a verdict and prints that verdict line verbatim. |
+| `gate status` (also `aphrollo status` at the top level) | manual | Read-only: prints what an inconclusive gate line tells a session to go look at instead of rerunning into the same queue — this box's deferred edit jobs, every global build slot's holder, and the box-wide mutation run: its holder (or `held by an unreadable owner` when the lock is held and its record cannot be read) and every run queued for it, in the order they will be served. `--wait` blocks until this checkout's own deferred edit job reaches a verdict and prints that verdict line verbatim. |
 | `gate escape` | manual + the `escape-closure` CI job | `record` a red that arrived after a local green, `sync` the ones recorded offline (and open the false-positive issue for a demotion candidate), `list` the open ones, `verify-closure <pr>` to refuse a PR that closes one without changing a check. See [The escape loop](#the-escape-loop-aphrollo-gate-escape). |
 | `gate runphase` | spawned by `gate posttooluse` | The detached build/run phase's wrapper: holds the build slot, logs to the state dir, writes the result file the next hook harvests. Never typed by a human; never blocks. |
 | `gate sessionstart` | Claude SessionStart hook (stdin) | Injects the TDD-skill nudge, the previous session's disk-sweep result when it freed something, and — for a repo with a workspace manifest and no laws dir under `.ratchet` (an empty dir counts as none) — ONE line saying the gate is running suites only and pointing at [Ratchet laws](#ratchet-laws-aphrollo-ratchet). Never more than one extra line each, never blocks. |
@@ -2557,7 +2557,12 @@ internal/docs/       doc-reference guard: extract path citations from tracked *.
 
 A mutation run goes around the build queue: `aphrollo gate mutants run` holds
 the box-wide mutation lock for its whole call, so there is at most one of it
-on the box at a time, and making it wait behind an editor's build only widens
+on the box at a time. Runs waiting for that lock are served in arrival order:
+each takes a ticket in `mutants-run-queue/` beside the lock, only the earliest
+live ticket tries the lock, and a waiter prints its position and the holder
+while it waits. A ticket whose process is gone, or that its waiter has not
+refreshed for five minutes, is skipped, so a killed waiter never blocks the
+queue. Making a mutation run wait behind an editor's build only widens
 the window in which nobody else can start one. It marks its children with
 `APHROLLO_MUTATION_GATE=1`, and that one marker answers both questions the
 cargo shim asks about a mutation run: `cargo mutants` may be invoked at all
