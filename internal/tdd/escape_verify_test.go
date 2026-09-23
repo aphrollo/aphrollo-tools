@@ -25,7 +25,7 @@ func verifyStub(t *testing.T, prView, patch, issue string) {
 func stubGhFail(t *testing.T, call, message string) {
 	t.Helper()
 	verb, noun, _ := strings.Cut(call, " ")
-	t.Setenv("GH_STUB_"+strings.ToUpper(verb)+"_"+strings.ToUpper(noun)+"_FAIL", message)
+	t.Setenv("GH_STUB_"+strings.ToUpper(verb)+"_"+ghStubKeyPart(noun)+"_FAIL", message)
 }
 
 // escapeLabelled is an issue the loop owns, whose closes-by names no file.

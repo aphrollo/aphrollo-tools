@@ -2,6 +2,8 @@ package tdd
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -282,4 +284,114 @@ func mustTreeID(t *testing.T, root string) string {
 		t.Fatalf("mutantsTreeID(%s): %s", root, why)
 	}
 	return id
+}
+
+// The artifact name is the lookup key a runner's measurement is published
+// and found under; it has to be a deterministic join of the fixed prefix and
+// the tree id, since that is the one request the fetch makes instead of a
+// scan of every artifact ever published.
+func TestRunnerArtifactName_JoinsThePrefixAndTheTree(t *testing.T) {
+	got := runnerArtifactName("abc123")
+	const want = "mutants-verdict-abc123"
+	if got != want {
+		t.Errorf("runnerArtifactName(%q) = %q, want %q", "abc123", got, want)
+	}
+}
+
+// git write-tree can succeed and still name nothing — an empty index in an
+// otherwise fine repo prints no id and exits 0. That is as unidentifiable as
+// a git failure, and must refuse the same way: an empty id is never treated
+// as a match for anything.
+func TestMutantsTreeID_EmptyWriteTreeOutputIsNoIdentity(t *testing.T) {
+	root := makeGoRepo(t)
+	t.Cleanup(setGitDiffOutForTest(func(string, ...string) (string, string, error) {
+		return "  \n", "", nil
+	}))
+
+	id, why := mutantsTreeID(root)
+
+	if id != "" {
+		t.Errorf("id = %q, want no identity from a write-tree that named nothing", id)
+	}
+	want := "git write-tree named no tree for " + root
+	if why != want {
+		t.Errorf("why = %q, want %q", why, want)
+	}
+}
+
+// A report cannot be bound to a tree nobody can identify, so writeRunnerReport
+// must refuse before it ever marshals anything — and leave no file behind for
+// the next box to mistake for a real measurement.
+func TestWriteRunnerReport_RefusesWhenTheTreeCannotBeIdentified(t *testing.T) {
+	root := makeGoRepo(t)
+	t.Cleanup(setGitDiffOutForTest(func(string, ...string) (string, string, error) {
+		return "", "error: Entry 'calc.go' not uptodate. Cannot merge.", errors.New("exit status 128")
+	}))
+	out := filepath.Join(t.TempDir(), "report.json")
+	var log strings.Builder
+
+	writeRunnerReport(root, out, "main", []MutantOutcome{{File: "calc.go", Line: 1, Status: "caught"}}, &log)
+
+	if _, err := os.Stat(out); err == nil {
+		t.Errorf("wrote %s for a tree it could not identify", out)
+	}
+	if !strings.Contains(log.String(), "no report written") || !strings.Contains(log.String(), "not uptodate") {
+		t.Errorf("log = %q, want it to say no report was written and why", log.String())
+	}
+}
+
+// A report whose directory cannot be created is a report that cannot be
+// published: the write is refused and logged rather than panicking or
+// silently losing the measurement.
+func TestWriteRunnerReport_RefusesWhenTheDirectoryCannotBeMade(t *testing.T) {
+	root := makeGoRepo(t)
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(blocker, "nested", "report.json")
+	var log strings.Builder
+
+	writeRunnerReport(root, out, "main", []MutantOutcome{{File: "calc.go", Line: 1, Status: "caught"}}, &log)
+
+	if _, err := os.Stat(out); err == nil {
+		t.Errorf("wrote %s under a path component that is a plain file", out)
+	}
+	if !strings.Contains(log.String(), "no report written") {
+		t.Errorf("log = %q, want it to say no report was written", log.String())
+	}
+}
+
+// The line a human reads at merge time names the runner by whatever CI set
+// RUNNER_NAME to, when it set anything — that is GitHub's own name for the
+// box, and more useful than a bare hostname on a fleet of identical runners.
+func TestRunnerIdentity_PrefersRUNNER_NAMEWhenSet(t *testing.T) {
+	t.Setenv("RUNNER_NAME", "self-hosted-linux-3")
+	t.Cleanup(SetMutantsGOOSForTest("linux"))
+
+	got := runnerIdentity()
+
+	const want = "self-hosted-linux-3 (linux)"
+	if got != want {
+		t.Errorf("runnerIdentity() = %q, want %q", got, want)
+	}
+}
+
+// Without RUNNER_NAME — a local run, or a runner that never set it — the
+// identity falls back to the box's own hostname, so the line still says
+// something a reader can place.
+func TestRunnerIdentity_FallsBackToHostnameWithoutRUNNER_NAME(t *testing.T) {
+	t.Setenv("RUNNER_NAME", "")
+	t.Cleanup(SetMutantsGOOSForTest("linux"))
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		t.Fatalf("os.Hostname(): %q, %v — this box cannot state the identity this test expects", host, err)
+	}
+
+	got := runnerIdentity()
+
+	want := host + " (linux)"
+	if got != want {
+		t.Errorf("runnerIdentity() = %q, want %q", got, want)
+	}
 }
