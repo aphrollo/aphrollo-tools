@@ -157,6 +157,7 @@ func startAndWait(j DeferredJob, budget time.Duration) (DeferredJob, PhaseOutcom
 // startFresh=true when the caller should go on to run this edit's own
 // phases (nothing was pending, or what was pending is stale/abandoned).
 func harvestDeferred(root, headSHA, fileHash, session string, budget time.Duration, state *sessionState, statePath string) (advisory string, startFresh bool) {
+	deadline := time.Now().Add(budget)
 	j, ok := loadDeferredJob(session, root)
 	if !ok {
 		return "", true
@@ -206,7 +207,7 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 		runPhase.Phase = "run"
 		runPhase.Runner = phaseArgvFromBuild(j.Runner)
 		runPhase.Log, runPhase.Result = "", ""
-		startedRun, runOut, status := startAndWait(runPhase, budget)
+		startedRun, runOut, status := startAndWait(runPhase, time.Until(deadline))
 		if status == phaseFailedToStart {
 			appendGateLog("postedit", root, strings.Join(runPhase.Runner, " "), InfraFailed, 0)
 			return spawnFailedLine(root, "run"), false
@@ -214,9 +215,9 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 		if status == phaseRunning {
 			return buildingLine(root, "run", 0), false
 		}
-		return markDeferred(editResultAdvisory(startedRun, runOut, root, state, statePath, headSHA)), false
+		return harvestAdvisory(startedRun, runOut, root, state, statePath, time.Until(deadline)), false
 	}
-	return markDeferred(editResultAdvisory(j, out, root, state, statePath, headSHA)), false
+	return harvestAdvisory(j, out, root, state, statePath, time.Until(deadline)), false
 }
 
 // editResultAdvisory turns a finished phase into the same advisory a
@@ -243,16 +244,24 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 		appendGateLog("postedit", root, strings.Join(j.Runner, " "), InfraFailed, res.Duration)
 		return infraFailureLine(root, j, res)
 	}
-	runner := runnerFromArgv(j.Runner, j.Dir)
+	if treatAsEmptyPass(res) {
+		res.Passed = true
+	}
+	return judgeEditResult(runnerFromArgv(j.Runner, j.Dir), j.File, res, root, state, statePath)
+}
+
+// judgeEditResult is editResultAdvisory's verdict half, for a finished run
+// that is not an infra failure: classify, stamp, log and render, exactly as
+// a foreground run would. Split out so a widened rung a harvest ran itself
+// (harvestAdvisory) is judged by the same code as a harvested job.
+func judgeEditResult(runner Runner, file string, res SuiteResult, root string, state *sessionState, statePath string) string {
+	argv := append([]string{runner.Cmd}, runner.Args...)
 	fp := computeFingerprint(root)
 	prev := []string(nil)
 	if state != nil {
 		prev = state.prevFailing(root, fp)
 	}
-	if treatAsEmptyPass(res) {
-		res.Passed = true
-	}
-	if line := foreignBuildAdvisory(root, j.File, strings.Join(j.Runner, " "), res); line != "" {
+	if line := foreignBuildAdvisory(root, file, cmdString(runner), res); line != "" {
 		return line
 	}
 	outcome := ClassifyOutcome(res.Passed, classificationOutput(res.Output, res.GoTestJSON), prev)
@@ -260,12 +269,12 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 		state.stamp(root, projectState{
 			Outcome:      string(outcome),
 			FailingTests: ExtractFailingTests(res.Output),
-			Runner:       j.Runner,
+			Runner:       argv,
 			Fingerprint:  fp,
 		})
 		_ = state.save(statePath)
 	}
-	logSuiteVerdict("postedit", root, strings.Join(j.Runner, " "), string(outcome), res)
+	logSuiteVerdict("postedit", root, cmdString(runner), string(outcome), res)
 	if outcome.IsRed() {
 		return redSummary(runner, root, outcome, res.Output)
 	}
@@ -499,100 +508,4 @@ func headSHAFor(root string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
-}
-
-// postEditDeferred is the edit hook's deferred path: harvest whatever the
-// previous hook left running, then run this edit's own build and run phases
-// inside the one foreground budget. It reports exactly one line, like every
-// other PostEdit path.
-func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string) (advisory string, stillRunning bool) {
-	budget := PostEditBudget()
-	fileHash := sourceIdentity(root, target)
-	carried, fresh := harvestDeferred(root, headSHA, fileHash, session, budget, snap.state, snap.statePath)
-	if !fresh {
-		return carried, false
-	}
-	// Every line below has to carry whatever the harvest already concluded —
-	// today only an abandonment, which is a verdict about work this session
-	// asked for and has to hear about even though a fresh run is starting
-	// (issue #571). One defer beats repeating the fold at eight returns.
-	defer func() { advisory = joinDeferredAdvisory(carried, advisory) }()
-	out := runEditPhases(snap.runner, root, target, headSHA, fileHash, session, budget)
-	if out.spawnFailed {
-		appendGateLog("postedit", root, cmdString(snap.runner), InfraFailed, 0)
-		return spawnFailedLine(root, "build"), false
-	}
-	if out.deferred {
-		appendGateLog("postedit", root, cmdString(snap.runner), "deferred", 0)
-		return out.notice, true
-	}
-	if out.infra {
-		appendGateLog("postedit", root, cmdString(snap.runner), InfraFailed, out.res.Duration)
-		return infraFailureLine(root, out.job, out.res), false
-	}
-	res := out.res
-	if treatAsEmptyPass(res) {
-		res.Passed = true
-	}
-	// The same two runs that reached no test verdict on the direct path
-	// (posttooluse.go) reach none here either, and must not be dressed up as
-	// a green. This path does not widen an empty selection: its whole budget
-	// went on the one detached run, so it reports the honest inconclusive
-	// and the next edit's run widens.
-	if line := buildOnlyTerminal(snap.runner, root, res); line != "" {
-		return line, false
-	}
-	if line := zeroSelectionTerminal(snap.runner, root, res); line != "" {
-		return line, false
-	}
-	if line := foreignBuildAdvisory(root, target, cmdString(snap.runner), res); line != "" {
-		return line, false
-	}
-	outcome := ClassifyOutcome(res.Passed, classificationOutput(res.Output, res.GoTestJSON), snap.prevFailing)
-	if snap.state != nil {
-		snap.state.stamp(root, projectState{
-			Outcome:      string(outcome),
-			FailingTests: ExtractFailingTests(res.Output),
-			Runner:       append([]string{snap.runner.Cmd}, snap.runner.Args...),
-			Fingerprint:  snap.fingerprint,
-		})
-		_ = snap.state.save(snap.statePath)
-	}
-	if res.Passed {
-		if h := worktreeStateHash(root); h != "" {
-			mechCacheAdd(mechKey(root, h, snap.runner))
-		}
-	}
-	logSuiteVerdict("postedit", root, cmdString(snap.runner), string(outcome), res)
-	if outcome.IsRed() {
-		return redSummary(snap.runner, root, outcome, res.Output), false
-	}
-	return passAdvisory(snap.runner, root, outcome, res.Output, res.Duration, snap.prevFailing), false
-}
-
-// promptHarvest reports a deferred job that finished since the last hook, for
-// a session that stopped editing and just talks. It answers about the CURRENT
-// commit only — a result from another HEAD describes code that is not there.
-func promptHarvest(session, cwd string) string {
-	if cwd == "" {
-		return ""
-	}
-	root := findRootFrom(cwd)
-	if root == "" {
-		return ""
-	}
-	j, ok := loadDeferredJob(session, root)
-	if !ok {
-		return ""
-	}
-	out, done := deferredResult(j)
-	if !done {
-		return ""
-	}
-	clearDeferredJob(session, root)
-	if !deferredMatchesSource(j, headSHAFor(root), sourceIdentity(root, "")) {
-		return ""
-	}
-	state, statePath := loadSession(session)
-	return markDeferred(editResultAdvisory(j, out, root, state, statePath, j.HeadSHA))
 }
