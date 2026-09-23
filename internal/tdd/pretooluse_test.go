@@ -3,15 +3,13 @@ package tdd
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 func decide(t *testing.T, payload string) Decision {
 	t.Helper()
-	d, err := DecidePreEdit([]byte(payload))
-	if err != nil {
-		t.Fatalf("DecidePreEdit(%s): %v", payload, err)
-	}
-	return d
+	return tddtest.Decide(t, payload, DecidePreEdit)
 }
 
 func TestDecidePreEdit(t *testing.T) {

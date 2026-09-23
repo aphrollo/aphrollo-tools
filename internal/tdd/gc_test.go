@@ -6,26 +6,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// mkFile writes a file with all parent dirs, and back-dates the whole
-// subtree when age > 0 — build caches are judged by how long ago anything
-// in them was touched, so a test that cannot age a directory cannot test
-// the rule.
 func mkFile(t *testing.T, path, content string, age time.Duration) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if age > 0 {
-		old := time.Now().Add(-age)
-		if err := os.Chtimes(path, old, old); err != nil {
-			t.Fatal(err)
-		}
-	}
+	tddtest.MkFile(t, path, content, age)
 }
 
 // TestGCIncremental_OnlyIdleCachesAndNeverTheArtifacts pins category (a):

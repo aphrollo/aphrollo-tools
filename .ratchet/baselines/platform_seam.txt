@@ -3,10 +3,10 @@ internal/cli/git_shim.go | if runtime.GOOS == "windows" {
 internal/lsp/workspaceedit.go | if runtime.GOOS == "windows" {
 internal/tdd/buildslots.go | if runtime.GOOS == "windows" {
 internal/tdd/deferred.go | if runtime.GOOS == "windows" {
-internal/tdd/doctor.go | if runtime.GOOS == "windows" {
-internal/tdd/gc.go | if runtime.GOOS == "windows" {
+internal/tdd/doctor_core.go | if runtime.GOOS == "windows" {
 internal/tdd/gc_deps.go | if runtime.GOOS == "windows" {
 internal/tdd/gc_mutantstemp.go | if runtime.GOOS == "windows" {
+internal/tdd/gc_mutation.go | if runtime.GOOS == "windows" {
 internal/tdd/gitbin.go | if runtime.GOOS == "windows" {
 internal/tdd/gitgate.go | if runtime.GOOS == "windows" {
 internal/tdd/lockshared.go | if runtime.GOOS == "windows" {

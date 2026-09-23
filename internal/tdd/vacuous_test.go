@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // ratchet: test_removed TestRunSuite_GoTestOutputCanBeJudgedByGoRunIsVacuous: goRunIsVacuous
@@ -98,12 +100,7 @@ func TestRunSuite_MultiPackageRunAttributesVacuousToTheRightPackage(t *testing.T
 	}
 }
 
-// vacuousPkgJSONLine is the GoTestJSON shape a stub SuiteRunner hands the
-// gate for the #194 bug: the package built and the binary exited 0, but
-// nothing behind it ran.
-const vacuousPkgJSONLine = `{"Action":"output","Package":"example.com/m","Output":"ok  \texample.com/m\t0.004s\n"}
-{"Action":"pass","Package":"example.com/m","Elapsed":0.004}
-`
+const vacuousPkgJSONLine = tddtest.VacuousPkgJSONLine
 
 // TestPrecommit_RejectsAGoSuiteThatExecutedZeroTests is #317's suite-stage
 // half: a mechanical run that exits 0 having executed zero Go tests must

@@ -2,22 +2,15 @@ package tdd
 
 import (
 	"errors"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-func gitAddAll(t *testing.T, root string) {
-	t.Helper()
-	cmd := exec.Command(gitBinary(), "add", "-A")
-	cmd.Dir = root
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git add: %v\n%s", err, out)
-	}
-}
+func gitAddAll(t *testing.T, root string) { t.Helper(); tddtest.GitAddAll(t, root) }
 
 func TestRatchetStageAllowsATreeAtItsBaseline(t *testing.T) {
 	root := lawTree(t, "deny")
@@ -247,11 +240,4 @@ func addFixtures(t *testing.T, root string) {
 	mustWrite(t, filepath.Join(base, "clean", "crates", "a", "src", "ok.rs"), "let a = numeric::clamp_or(x, 0.0, 1.0, 0.0);\n")
 }
 
-func commitAll(t *testing.T, root string) {
-	t.Helper()
-	cmd := exec.Command(gitBinary(), "-c", "core.hooksPath=", "commit", "-q", "-m", "fixture", "--no-verify")
-	cmd.Dir = root
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git commit: %v\n%s", err, out)
-	}
-}
+func commitAll(t *testing.T, root string) { t.Helper(); tddtest.CommitAll(t, root) }

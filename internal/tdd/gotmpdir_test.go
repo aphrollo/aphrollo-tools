@@ -4,15 +4,11 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// tempEnvKeys are the temp-dir variables goTmpEnv redirects for a `go`
-// runner: GOTMPDIR is what the go tool itself reads when it stages a compiled
-// test binary, and TMPDIR/TMP/TEMP are what an os.TempDir() call reads on the
-// two platform families. Named once so both halves of this file assert over
-// the same set — the pass-through half used to check only two of the four,
-// which left a redirect of TMP or TEMP alone unguarded.
-var tempEnvKeys = []string{"GOTMPDIR", "TMPDIR", "TMP", "TEMP"}
+var tempEnvKeys = tddtest.TempEnvKeys
 
 // lastEnvValue returns the LAST binding for key in env, mirroring how
 // os/exec actually resolves a duplicate-key Env slice ("only the last value

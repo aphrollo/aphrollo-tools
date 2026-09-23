@@ -6,30 +6,22 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// gateLogText returns everything gate.log holds under a per-test state dir.
-func gateLogText(t *testing.T, cfg string) string {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
-	if err != nil {
-		t.Fatalf("gate.log not written: %v", err)
-	}
-	return string(data)
-}
+func gateLogText(t *testing.T, cfg string) string { t.Helper(); return tddtest.GateLogText(t, cfg) }
 
-// requireLoggedVerdict fails unless gate.log carries a PARSEABLE line with
-// this verdict — a line stats cannot read is a line nobody counts.
 func requireLoggedVerdict(t *testing.T, cfg, verdict string) {
 	t.Helper()
-	text := gateLogText(t, cfg)
-	for line := range strings.SplitSeq(text, "\n") {
-		e, ok := parseGateLine(line)
-		if ok && e.verdict == verdict {
-			return
-		}
-	}
-	t.Fatalf("no parseable gate.log line with verdict %q, got:\n%s", verdict, text)
+	tddtest.RequireLoggedVerdict(t, cfg, verdict, gateLineFields)
+}
+
+// gateLineFields is parseGateLine reduced to what the tddtest verdict
+// helpers read.
+func gateLineFields(line string) (stage, verdict string, ok bool) {
+	e, ok := parseGateLine(line)
+	return e.stage, e.verdict, ok
 }
 
 // An edit the gate DENIES is the loudest thing that happens to a session, and

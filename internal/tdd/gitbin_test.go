@@ -7,25 +7,11 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// fakeGitShim writes a git that is NOT git: it records that it ran and fails.
-// It carries the same tell the real queue shim does — it re-enters aphrollo —
-// which is what marks a PATH entry as a shim dir rather than a git install.
-func fakeGitShim(t *testing.T) (dir, marker string) {
-	t.Helper()
-	dir = t.TempDir()
-	marker = filepath.Join(dir, "shim-ran.txt")
-	cmd := "@echo off\r\nrem aphrollo git queue shim\r\necho %* > \"" + marker + "\"\r\nexit /b 128\r\n"
-	if err := os.WriteFile(filepath.Join(dir, "git.cmd"), []byte(cmd), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	sh := "#!/bin/sh\n# aphrollo git queue shim\necho \"$@\" > \"" + marker + "\"\nexit 128\n"
-	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(sh), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return dir, marker
-}
+func fakeGitShim(t *testing.T) (dir, marker string) { t.Helper(); return tddtest.FakeGitShim(t) }
 
 // The gate's own git subprocesses must reach the REAL git. With the queue
 // shim dir first on PATH a bare `git` resolves to git.cmd, whose cmd.exe
@@ -112,14 +98,7 @@ func TestMergeTipTree_NamesTheMergedTipsTree(t *testing.T) {
 	}
 }
 
-// gitValue reads one git value in a test, without going through the helper
-// under test.
 func gitValue(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command(gitBinary(), append([]string{"-C", dir}, args...)...)
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("git %v: %v", args, err)
-	}
-	return strings.TrimSpace(string(out))
+	return tddtest.GitValue(t, dir, args...)
 }

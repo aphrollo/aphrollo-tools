@@ -5,11 +5,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-func skillPath(dir string) string {
-	return filepath.Join(dir, "skills", "tdd", "SKILL.md")
-}
+func skillPath(dir string) string { return tddtest.SkillPath(dir) }
 
 // The skill is a managed file like the CLAUDE.md block: written on init,
 // byte-identical on a second run, so a re-init never churns the config dir.

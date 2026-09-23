@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // An exit status cargo-mutants does not use for a verdict means the run
@@ -284,36 +286,14 @@ func TestMeasure_GoRepoUsesGremlinsScopedToMergeBase(t *testing.T) {
 	}
 }
 
-// makeGoMeasureRepo builds a Go module with a base commit and a lane commit
-// that changes a source file.
 func makeGoMeasureRepo(t *testing.T) (root, base string) {
 	t.Helper()
-	root = makeGoRepo(t)
-	base = strings.TrimSpace(gitOutT(t, root, "rev-parse", "HEAD"))
-	write(t, root, "calc.go", "package m\n\nfunc Add(a, b int) int { return a + b }\n")
-	gitDo(t, root, "add", ".")
-	gitDo(t, root, "commit", "-qm", "lane")
-	return root, base
+	return tddtest.MakeGoMeasureRepo(t)
 }
 
-// writeMeasureBase lays down the one-crate workspace both fixtures start
-// from: a workspace manifest, a crate with a mutable source and a test, and
-// a file that is neither.
-func writeMeasureBase(t *testing.T, root string) {
-	t.Helper()
-	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/a\"]\n")
-	write(t, root, "crates/a/Cargo.toml", "[package]\nname = \"a\"\nversion = \"0.1.0\"\n")
-	write(t, root, "crates/a/src/lib.rs", "pub fn add(a: i32, b: i32) -> i32 { a + b }\n")
-	write(t, root, "crates/a/tests/t.rs", "#[test]\nfn t() {}\n")
-	write(t, root, "README.md", "base\n")
-}
+func writeMeasureBase(t *testing.T, root string) { t.Helper(); tddtest.WriteMeasureBase(t, root) }
 
-// readFileString reads a file the run may have rewritten.
 func readFileString(t *testing.T, path string) string {
 	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(data)
+	return tddtest.ReadFileString(t, path)
 }

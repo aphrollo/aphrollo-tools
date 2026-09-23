@@ -8,14 +8,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// withFreeSpace answers every free-space question with one number.
 func withFreeSpace(t *testing.T, gb int) {
 	t.Helper()
-	prev := freeSpaceGBFn
-	freeSpaceGBFn = func(string) (int, bool) { return gb, true }
-	t.Cleanup(func() { freeSpaceGBFn = prev })
+	tddtest.Swap(t, &freeSpaceGBFn, func(string) (int, bool) { return gb, true })
 }
 
 // ratchet: test_removed TestMutantsChildEnv_PutsEveryTempNameUnderTheRunsOwnBuildDir: mutantsChildEnv is deleted with the detached producer; TestMeasureEnv_SetsAllThreeTempNamesAndProfile makes the same claim about measureEnv

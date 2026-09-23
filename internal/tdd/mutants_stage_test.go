@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // The pre-merge stage is where a mutation measurement finally judges the tree
@@ -34,23 +36,9 @@ func makeMergeInProgressRepo(t *testing.T) string {
 	return root
 }
 
-// makeForkedRepo commits a base, puts one crate-source change on a `lane`
-// branch and returns to trunk. Every fixture below starts here and differs
-// only in what it does with the lane afterwards.
 func makeForkedRepo(t *testing.T) (root, trunk string) {
 	t.Helper()
-	root = t.TempDir()
-	gitInit(t, root)
-	writeMeasureBase(t, root)
-	gitDo(t, root, "add", ".")
-	gitDo(t, root, "commit", "-qm", "base")
-	trunk = currentBranch(t, root)
-	gitDo(t, root, "checkout", "-q", "-b", "lane")
-	write(t, root, "crates/a/src/lib.rs", "pub fn add(a: i32, b: i32) -> i32 { a - b }\n")
-	gitDo(t, root, "add", ".")
-	gitDo(t, root, "commit", "-qm", "lane")
-	gitDo(t, root, "checkout", "-q", trunk)
-	return root, trunk
+	return tddtest.MakeForkedRepo(t, git)
 }
 
 // requireMergeState pins what a fixture claims to have set up. Every stand-down
@@ -76,10 +64,9 @@ func mergeStageFixture(t *testing.T) (cfgDir, root string) {
 	return cfgDir, makeMergeInProgressRepo(t)
 }
 
-// declareMutantsAtMerge is the one key that turns the stage on.
 func declareMutantsAtMerge(t *testing.T, root string) {
 	t.Helper()
-	write(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-merge = true\n")
+	tddtest.DeclareMutantsAtMerge(t, root)
 }
 
 // requireMutantsLogLine fails unless gate.log carries a PARSEABLE line with
@@ -105,16 +92,9 @@ func requireMutantsLogLine(t *testing.T, cfgDir, stage, verdict string) {
 	t.Fatalf("no parseable gate.log line with verdict %q, got:\n%s", verdict, text)
 }
 
-// requireNoMutantsMeasurement fails when gate.log carries any verdict from a
-// run that reached the tool: "it was never measured" and "it measured clean"
-// are different claims.
 func requireNoMutantsMeasurement(t *testing.T, cfgDir string) {
 	t.Helper()
-	for line := range strings.SplitSeq(gateLogText(t, cfgDir), "\n") {
-		if e, ok := parseGateLine(line); ok && strings.HasPrefix(e.verdict, "mutants-passed:") {
-			t.Errorf("a measurement was recorded where none should have run: %s", line)
-		}
-	}
+	tddtest.RequireNoMutantsMeasurement(t, cfgDir, func(line string) (string, string, bool) { e, ok := parseGateLine(line); return e.stage, e.verdict, ok })
 }
 
 // A repo that declared nothing is not measured, and says so durably: "the
@@ -162,16 +142,9 @@ func TestMutantsStage_MeasuresTheMergedTreeAgainstTheMergeBase(t *testing.T) {
 	}
 }
 
-// argvValueOf is the value of one flag in a rendered command line.
 func argvValueOf(t *testing.T, argv []string, flag string) string {
 	t.Helper()
-	for i, a := range argv {
-		if a == flag && i+1 < len(argv) {
-			return argv[i+1]
-		}
-	}
-	t.Fatalf("argv carries no %s: %v", flag, argv)
-	return ""
+	return tddtest.ArgvValueOf(t, argv, flag)
 }
 
 // A conflicted cherry-pick or revert is concluded with `git commit`, which

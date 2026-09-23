@@ -5,37 +5,22 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// withLinter states whether golangci-lint is installed, without rewriting
-// PATH — on Windows that would also hide go and git from the very stages
-// under test.
 func withLinter(t *testing.T, present bool) {
 	t.Helper()
-	prev := lookLinter
-	lookLinter = func() bool { return present }
-	t.Cleanup(func() { lookLinter = prev })
+	tddtest.Swap(t, &lookLinter, func() bool { return present })
 }
 
-// withLinterVersion states what the local binary reports, without installing
-// one.
 func withLinterVersion(t *testing.T, version string) {
 	t.Helper()
-	prev := linterVersion
-	linterVersion = func(string) string { return version }
-	t.Cleanup(func() { linterVersion = prev })
+	tddtest.Swap(t, &linterVersion, func(string) string { return version })
 }
 
-// runsAt records every runner a gate executed at root, quality stages
-// included — the point of these tests is exactly which CI-parity checks ran
-// and in what order.
 func runsAt(seen *[]Runner, root string) SuiteRunner {
-	return func(r Runner, dir string) SuiteResult {
-		if dir == root {
-			*seen = append(*seen, r)
-		}
-		return SuiteResult{Passed: true}
-	}
+	return tddtest.RecordRunner(seen, root, nil, SuiteResult{Passed: true})
 }
 
 func cmdLine(r Runner) string { return strings.TrimSpace(r.Cmd + " " + strings.Join(r.Args, " ")) }
