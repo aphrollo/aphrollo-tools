@@ -1,2 +1,0 @@
-stale | binary
-unregistered | version
