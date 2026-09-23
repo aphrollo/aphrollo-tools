@@ -173,3 +173,33 @@ func TestRun_RefusesAnUnmappedFile(t *testing.T) {
 		t.Errorf("a refused run still moved a.go: %v", statErr)
 	}
 }
+
+// A unix-only test outside the carved root is compiled by nothing but a linux
+// vet of the whole module: go build skips tests, the windows vet skips
+// *_unix_test.go and never leaves the root, and lint never leaves the root
+// either. A test of another package that stops compiling after a move must
+// still fail verify.
+func TestVerify_FailsOnAUnixTestOutsideTheRootThatNoLongerCompiles(t *testing.T) {
+	repo := fixtureRepo(t, map[string]string{
+		"go.mod":               "module example.com/fx\n\ngo 1.26\n",
+		"p/a.go":               "package p\n\n// Max is read by cmd/x.\nconst Max = 5\n",
+		"cmd/x/main.go":        "package main\n\nimport \"example.com/fx/p\"\n\nfunc main() { _ = p.Max }\n",
+		"cmd/x/x_unix_test.go": "package main\n\nimport \"testing\"\n\nfunc TestX_UsesAMovedHelper(t *testing.T) { movedAway() }\n",
+	})
+	// golangci-lint is left out: it only ever reads the root, which is clean
+	// here, and it takes a machine-wide lock that a unit test must not hold.
+	var checks []check
+	for _, c := range verifyChecks("p") {
+		if c.argv[0] != "golangci-lint" {
+			checks = append(checks, c)
+		}
+	}
+	var out bytes.Buffer
+	err := runChecks(repo, checks, &out)
+	if err == nil {
+		t.Fatalf("verify passed a module whose cmd/x unix test does not compile:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "verify: FAIL go vet ./...") {
+		t.Errorf("the failure is not the linux vet of the whole module:\n%s", out.String())
+	}
+}

@@ -18,7 +18,7 @@ func main() {
 	manifest := flag.String("manifest", "tools/tddsplit/manifest.txt", "file-to-package manifest, relative to the repo root")
 	levels := flag.String("levels", "", "comma-separated levels to carve out, e.g. L0,L1")
 	report := flag.Bool("report", false, "analyse and print the plan and every report; touch nothing")
-	noVerify := flag.Bool("no-verify", false, "skip go build, windows vet and golangci-lint after the move")
+	noVerify := flag.Bool("no-verify", false, "skip go build, linux and windows vet and golangci-lint after the move")
 	flag.Parse()
 	if *levels == "" {
 		fmt.Fprintln(os.Stderr, "tddsplit: -levels is required")
