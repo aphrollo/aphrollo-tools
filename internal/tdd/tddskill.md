@@ -29,7 +29,10 @@ Code written before its test goes back through RED.
 
 ## Hooks run the tests
 
-One `gate:` line after every Edit/Write. Read it; never re-run what it ran.
+One `gate:` line for the edit after every Edit/Write. After it, one `gate: deferred`
+line per earlier deferred job of this session, in any tree, that finished since:
+each names its own tree and command, and judges that tree, not this edit.
+Read them; never re-run what they ran.
 `TIMEOUT` / `SKIPPED` / `QUEUED-SKIPPED` = untested, never a pass.
 `BUILDING (deferred)` = result at the next hook — and the next hook fires on
 your next Edit/Write, so ending the turn to wait for a notification deadlocks.

@@ -35,8 +35,8 @@ func ClaudeMDBlock(shimDir string, undercover, mutantsAtMerge bool) string {
 	b.WriteString("  PATH by hand. A run through the shim QUEUES visibly behind another build instead of\n")
 	b.WriteString("  hanging on a silent lock; if `which` prints the raw toolchain, the profile is broken: say so.\n")
 	b.WriteString("- **The hooks run the tests, not you.** After every Edit/Write, PostToolUse prints\n")
-	b.WriteString("  exactly ONE `gate:` line. Read it; never re-run a suite it just ran. Iterate with\n")
-	b.WriteString("  `cargo check -p <crate> --tests`, which runs nothing.\n")
+	b.WriteString("  exactly ONE `gate:` line for the edit, then one `gate: deferred` line per earlier job of the session, in any tree,\n")
+	b.WriteString("  that finished since, naming its own tree and command. Read them; never re-run a suite they ran. Iterate with `cargo check -p <crate> --tests`, which runs nothing.\n")
 	// A subagent (`builder`, `researcher`, `Explore`, ...) never gets the
 	// session-start nudge — SessionStart context is not forwarded to it — but
 	// project instructions ARE, so this is the one place a subagent with no
