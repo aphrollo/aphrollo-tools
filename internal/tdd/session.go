@@ -93,14 +93,14 @@ func tddCommand(sub, arg, session, cwd string) string {
 		if err := setOff(session, true); err != nil {
 			return "gate: could not persist the override (" + err.Error() + ")"
 		}
-		logOverride("override-off", session, cwd)
+		LogOverride("override-off", session, cwd)
 		return "TDD enforcement OFF for this session — edits are no longer gated. Run `/gate on` to re-enable."
 	case "on", "reset":
 		// reset clears any override, which is identical to turning enforcement on.
 		if err := setOff(session, false); err != nil {
 			return "gate: could not persist the override (" + err.Error() + ")"
 		}
-		logOverride("override-on", session, cwd)
+		LogOverride("override-on", session, cwd)
 		return "TDD enforcement ON for this session."
 	case "primary-edits":
 		// Pre-rename spelling, retiring next release: same wall, same
@@ -110,7 +110,7 @@ func tddCommand(sub, arg, session, cwd string) string {
 			if err := setPrimaryEdits(session, arg == "on"); err != nil {
 				return "gate: could not persist the override (" + err.Error() + ")"
 			}
-			logOverride("override-primary-edits-"+arg, session, cwd)
+			LogOverride("override-primary-edits-"+arg, session, cwd)
 			if arg == "on" {
 				return "Primary-checkout edits ALLOWED for this session — the merge-only rule is waived. Run `/gate primary-edits off` to restore it."
 			}
@@ -124,7 +124,7 @@ func tddCommand(sub, arg, session, cwd string) string {
 			if err := setWaiver(session, arg, true); err != nil {
 				return "gate: could not persist the override (" + err.Error() + ")"
 			}
-			logOverride("override-"+arg+"-allow", session, cwd)
+			LogOverride("override-"+arg+"-allow", session, cwd)
 			return waiverAllowedMessage(arg)
 		default:
 			return "gate: /tdd allow needs a wall (primary), got " + arg
@@ -135,7 +135,7 @@ func tddCommand(sub, arg, session, cwd string) string {
 			if err := setWaiver(session, arg, false); err != nil {
 				return "gate: could not persist the override (" + err.Error() + ")"
 			}
-			logOverride("override-"+arg+"-revoke", session, cwd)
+			LogOverride("override-"+arg+"-revoke", session, cwd)
 			return waiverRevokedMessage(arg)
 		default:
 			return "gate: /tdd revoke needs a wall (primary), got " + arg
@@ -146,7 +146,7 @@ func tddCommand(sub, arg, session, cwd string) string {
 			if err := setReplyStyle(session, arg); err != nil {
 				return "gate: could not persist the style (" + err.Error() + ")"
 			}
-			logOverride("override-style-"+arg, session, cwd)
+			LogOverride("override-style-"+arg, session, cwd)
 			return "Reply style set to " + arg + " for this session."
 		default:
 			return "gate: /tdd style needs terse or plain, got " + arg

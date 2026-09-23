@@ -42,13 +42,13 @@ func AllowWall(wall string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		logOverride("override-"+wall+"-allow", session, "")
+		LogOverride("override-"+wall+"-allow", session, "")
 		return discardArmedMessage(until), nil
 	}
 	if err := setWaiver(session, wall, true); err != nil {
 		return "", err
 	}
-	logOverride("override-"+wall+"-allow", session, "")
+	LogOverride("override-"+wall+"-allow", session, "")
 	return waiverAllowedMessage(wall), nil
 }
 
@@ -62,7 +62,7 @@ func Revoke(wall string) (string, error) {
 	if err := setWaiver(session, wall, false); err != nil {
 		return "", err
 	}
-	logOverride("override-"+wall+"-revoke", session, "")
+	LogOverride("override-"+wall+"-revoke", session, "")
 	return waiverRevokedMessage(wall), nil
 }
 

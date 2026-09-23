@@ -32,18 +32,14 @@ func LogEditDecision(raw []byte, d Decision) {
 	}
 }
 
-// LogOverride is logOverride for a caller outside this package (the git
-// shim) that made an override decision of its own — the discard wall's
-// APHROLLO_DISCARD=1 and one-shot-arm passes, neither of which runs inside a
-// hook that already has a Decision to log.
-func LogOverride(verdict, session, cwd string) {
-	logOverride(verdict, session, cwd)
-}
-
-// logOverride records a session flipping enforcement, in the project it was
+// LogOverride records a session flipping enforcement, in the project it was
 // flipped in. The session id is the command, so a reader can tell one
-// session's third `/gate off` from three sessions' first.
-func logOverride(verdict, session, cwd string) {
+// session's third `/gate off` from three sessions' first. Exported for a
+// caller outside this package (the git shim) that made an override decision
+// of its own — the discard wall's APHROLLO_DISCARD=1 and one-shot-arm
+// passes, neither of which runs inside a hook that already has a Decision to
+// log.
+func LogOverride(verdict, session, cwd string) {
 	root := "-"
 	if cwd != "" {
 		if r := findRootFrom(cwd); r != "" {
