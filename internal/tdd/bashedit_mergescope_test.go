@@ -68,3 +68,79 @@ func TestPostBash_ConflictedTrunkSyncStillRunsTheLanesOwnConflictedSource(t *tes
 		t.Fatalf("the lane's own conflicted source must still be judged, got no run (%q)", text)
 	}
 }
+
+// Concluding a merge moves every path the merge staged out of the dirty set.
+// Those paths were not edited by the concluding command; the pre-commit gate
+// just ran the pre-merge routine over them. Reading them as edits re-ran
+// their suites after every conflicted merge, on the primary and in lanes.
+
+func TestPostBash_ConcludingAConflictedMergeOnThePrimaryRunsNoSuite(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary, lane := goPrimaryWithLane(t)
+	write(t, lane, "doc.go", "package m\n\nfunc Lane() int { return 1 }\n")
+	write(t, lane, "internal/a/a.go", "package a\n\nfunc A() int { return 1 }\n")
+	gitDo(t, lane, "add", "-A")
+	gitDo(t, lane, "commit", "-qm", "lane change")
+	write(t, primary, "doc.go", "package m\n\nfunc Primary() int { return 2 }\n")
+	gitDo(t, primary, "add", "-A")
+	gitDo(t, primary, "commit", "-qm", "primary change")
+	if _, err := git(primary, "merge", "--no-ff", "lane/x"); err == nil {
+		t.Fatal("setup: expected the merge to conflict, but it succeeded cleanly")
+	}
+	write(t, primary, "doc.go", "package m\n\nfunc Merged() int { return 3 }\n")
+	gitDo(t, primary, "add", "-A")
+
+	cmd := "git commit --no-edit"
+	PreBash(bashPayload(t, "s726c", primary, cmd))
+	gitDo(t, primary, "commit", "--no-edit")
+
+	var dirs []string
+	text := PostBash(bashPayload(t, "s726c", primary, cmd), recordSuiteDirs(&dirs))
+	if len(dirs) != 0 {
+		t.Fatalf("concluding a merge must not re-run the merged paths' suites, ran in %v (%q)", dirs, text)
+	}
+}
+
+func TestPostBash_ConcludingAConflictedTrunkSyncInALaneRunsNoSuite(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	_, lane := laneWithTrunkAhead(t)
+	if _, err := git(lane, "merge", "main"); err == nil {
+		t.Fatal("setup: expected the sync to conflict, but it succeeded cleanly")
+	}
+	write(t, lane, "docs/decisions.md", "# both decisions\n")
+	gitDo(t, lane, "add", "-A")
+
+	cmd := "git commit --no-edit"
+	PreBash(bashPayload(t, "s726l", lane, cmd))
+	gitDo(t, lane, "commit", "--no-edit")
+
+	var dirs []string
+	text := PostBash(bashPayload(t, "s726l", lane, cmd), recordSuiteDirs(&dirs))
+	if len(dirs) != 0 {
+		t.Fatalf("concluding a trunk sync must not re-run trunk's paths, ran in %v (%q)", dirs, text)
+	}
+}
+
+// A command that concludes a merge AND edits a file it leaves uncommitted
+// still made that edit, and the harvest still judges that path.
+func TestPostBash_ConcludingAMergeStillRunsAPathTheCommandEdited(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	_, lane := laneWithTrunkAhead(t)
+	if _, err := git(lane, "merge", "main"); err == nil {
+		t.Fatal("setup: expected the sync to conflict, but it succeeded cleanly")
+	}
+	write(t, lane, "docs/decisions.md", "# both decisions\n")
+	gitDo(t, lane, "add", "-A")
+	write(t, lane, "doc.go", "package m\n\nfunc Draft() int { return 1 }\n")
+
+	cmd := "sed -i s/Draft/Final/ doc.go && git commit --no-edit"
+	PreBash(bashPayload(t, "s726e", lane, cmd))
+	write(t, lane, "doc.go", "package m\n\nfunc Final() int { return 12 }\n")
+	gitDo(t, lane, "commit", "--no-edit")
+
+	var dirs []string
+	text := PostBash(bashPayload(t, "s726e", lane, cmd), recordSuiteDirs(&dirs))
+	if len(dirs) == 0 {
+		t.Fatalf("an edit the concluding command made and left dirty must still be judged, got no run (%q)", text)
+	}
+}
