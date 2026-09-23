@@ -102,14 +102,13 @@ func TestPipeline_DoesNotAskForAPullRequestNumberOnAPush(t *testing.T) {
 }
 
 // The docs-only fast path skips test, lint, vulncheck, sast, build and the
-// mutation tripwire, and it decided on the `.md` suffix alone. This repo
-// compiles markdown INTO the binary -- `//go:embed tddskill.md`,
+// mutation measurement, and it once decided on the `.md` suffix alone. This
+// repo compiles markdown INTO the binary -- `//go:embed tddskill.md`,
 // `agent_*.md`, `ratchet_laws.md`, `sddskill.md`, `style.md` -- so a commit
 // changing only what the CLI ships classified as docs and ran no Go check at
-// all. ClassifyFile already reads the embed directives for the local gate;
-// the workflow cannot, so it draws the conservative line instead: a markdown
-// file sitting in a package directory is code, and only a top-level or
-// docs/ markdown is docs.
+// all. The workflow now asks `gate classify-diff`, whose ClassifyFile reads
+// the embed directives the way the commit gate does, instead of drawing the
+// line with a suffix regex of its own.
 func TestPipeline_DoesNotTreatAPackageLocalMarkdownAsDocsOnly(t *testing.T) {
 	t.Parallel()
 	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
@@ -117,7 +116,7 @@ func TestPipeline_DoesNotTreatAPackageLocalMarkdownAsDocsOnly(t *testing.T) {
 	if strings.Contains(wf, `grep -qvE '(\.md$|^docs/`) {
 		t.Error("the docs-only filter matches every .md by suffix, so a change to an embedded skill or law document skips every Go check")
 	}
-	if !strings.Contains(wf, `^[^/]*\.md$`) {
-		t.Error("the docs-only filter must exempt only TOP-LEVEL markdown; a .md inside a package directory can be a //go:embed target")
+	if !strings.Contains(wf, "gate classify-diff") {
+		t.Error("the docs-only decision must come from `gate classify-diff`, which knows a .md inside a package directory can be a //go:embed target")
 	}
 }
