@@ -46,24 +46,30 @@ func cargoWideningSteps(r Runner) []Runner {
 // dropCargoNameFilter removes a cargo run's name filter and keeps its target
 // selection and package scope, reporting false when the run carried no name
 // filter at all.
+//
+// A range over the arguments rather than an index the body advances: a
+// value flag's argument is consumed by marking it, so no edit to the
+// bookkeeping can send the walk backwards into an endless loop. A filter
+// flag's own value needs no mark — it is a bare word after a flag, which is
+// the positional filter and dropped anyway.
 func dropCargoNameFilter(r Runner) (Runner, bool) {
 	out := make([]string, 0, len(r.Args))
-	dropped, seenFlag := false, false
-	for i := 0; i < len(r.Args); i++ {
-		a := r.Args[i]
+	dropped, seenFlag, valueOfPrev := false, false, false
+	for i, a := range r.Args {
+		if valueOfPrev {
+			valueOfPrev = false
+			continue
+		}
 		name := flagName(a)
 		inline := strings.Contains(a, "=")
 		switch {
 		case cargoNameFilterFlags[name]:
-			if !inline {
-				i++
-			}
 			dropped, seenFlag = true, true
 		case cargoScopeValueFlags[name], cargoTargetValueFlags[name]:
 			out = append(out, a)
 			if !inline && i+1 < len(r.Args) {
 				out = append(out, r.Args[i+1])
-				i++
+				valueOfPrev = true
 			}
 			seenFlag = true
 		case strings.HasPrefix(a, "-"):
