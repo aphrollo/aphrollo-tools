@@ -42,6 +42,12 @@ type Options struct {
 	// use; it is handed in here rather than re-derived, so there is exactly
 	// one place that decides what "staged" means.
 	StagedFiles []string
+	// Renames maps a changed file's path to the path it was renamed FROM, for
+	// the renames in StagedFiles or LaneFiles. A diff-scoped law reads a
+	// renamed file's pre-image at its old path, so a pure move reads as no
+	// change rather than a whole new file. The caller computes it from the
+	// same rename-detecting diff that listed the changed set.
+	Renames map[string]string
 	// LaneFiles is the input set a `[scope] changed = "lane"` law judges: the
 	// paths the current lane has changed since its merge-base. Also computed
 	// once by the caller (precommit_fmtscope.go's laneChangedPaths).

@@ -115,8 +115,8 @@ func WriteOutcomes[M any](t *testing.T, path string, fields func(M) Outcome, mut
 
 // Phases is what FakePhases needs from the package's detached-phase code.
 type Phases[J, O any] struct {
-	// Spawn is the detached-phase spawner variable.
-	Spawn *func(J) (J, bool)
+	// SetSpawn replaces the detached-phase spawner and returns the restore.
+	SetSpawn func(fn func(J) (J, bool)) (restore func())
 	// Start stamps pid and started on j, saves the job and returns it as
 	// read back from disk.
 	Start func(j J, pid int, started time.Time) J
@@ -135,8 +135,7 @@ func FakePhases[J, O any](t *testing.T, p Phases[J, O], outcomes ...*O) *[]J {
 	t.Helper()
 	var spawned []J
 	i := 0
-	prev := *p.Spawn
-	*p.Spawn = func(j J) (J, bool) {
+	t.Cleanup(p.SetSpawn(func(j J) (J, bool) {
 		j = p.Start(j, 1000+i, time.Now())
 		spawned = append(spawned, j)
 		var out *O
@@ -152,8 +151,7 @@ func FakePhases[J, O any](t *testing.T, p Phases[J, O], outcomes ...*O) *[]J {
 			p.WriteResult(result, *out)
 		}
 		return j, true
-	}
-	t.Cleanup(func() { *p.Spawn = prev })
+	}))
 	p.Enable(true)
 	t.Cleanup(func() { p.Enable(false) })
 	return &spawned

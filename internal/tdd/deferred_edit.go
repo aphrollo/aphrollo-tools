@@ -38,6 +38,28 @@ var (
 	processStartTimeFn = processStartTime
 )
 
+// SetSpawnPhaseForTest, SetKillDeferredForTest and SetProcessStartTimeForTest
+// replace one process seam for a test and return the restore: setters rather
+// than assignments, so a test in a package above the one that owns the seams
+// still reaches them.
+func SetSpawnPhaseForTest(fn func(j DeferredJob) (DeferredJob, bool)) (restore func()) {
+	prev := spawnPhaseFn
+	spawnPhaseFn = fn
+	return func() { spawnPhaseFn = prev }
+}
+
+func SetKillDeferredForTest(fn func(j DeferredJob)) (restore func()) {
+	prev := killDeferredFn
+	killDeferredFn = fn
+	return func() { killDeferredFn = prev }
+}
+
+func SetProcessStartTimeForTest(fn func(pid int) (time.Time, bool)) (restore func()) {
+	prev := processStartTimeFn
+	processStartTimeFn = fn
+	return func() { processStartTimeFn = prev }
+}
+
 // deferredEditOutcome is what the deferral path reports back to PostEdit:
 // either a finished SuiteResult, or a notice that a phase is still running.
 type deferredEditOutcome struct {
@@ -48,13 +70,13 @@ type deferredEditOutcome struct {
 	// lie, and the job record it would leave expires into a bogus timeout
 	// streak for a run that never started.
 	spawnFailed bool
-	// infra says the phase DID spawn and finish, but RunPhase's own setup
+	// Infra says the phase DID spawn and finish, but RunPhase's own setup
 	// failed before the phase's command ever ran (no build slot came free,
 	// or it could not even open its log file) — out.SetupFailed was true.
 	// Like spawnFailed, this is never a real test result: ClassifyOutcome
 	// must not see it, or a capacity refusal reads as a genuine assertion
 	// failure (issues #350, #354).
-	infra bool
+	Infra bool
 	// job is the record the phase ran under, carried back so the verdict
 	// line can name the run it judges rather than only the build that
 	// blocked it (issue #583): the caller has the edit's Runner, but not
@@ -67,7 +89,7 @@ type deferredEditOutcome struct {
 // instead of letting it masquerade as a real (if ugly) test result.
 func finishedEditOutcome(j DeferredJob, out PhaseOutcome) deferredEditOutcome {
 	if out.SetupFailed {
-		return deferredEditOutcome{res: phaseSuiteResult(j, out), infra: true, job: j}
+		return deferredEditOutcome{res: phaseSuiteResult(j, out), Infra: true, job: j}
 	}
 	return deferredEditOutcome{res: phaseSuiteResult(j, out)}
 }

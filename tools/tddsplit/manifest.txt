@@ -275,6 +275,7 @@ ratchetindex_test.go                               lawgate
 ratchetschema_test.go                              lawgate
 ratchetstage_baselinehint_test.go                  lawgate
 ratchetstage_test.go                               lawgate
+ratchetstage_rename_test.go                        lawgate
 ratchettracked_test.go                             lawgate
 precommit_fmtscope_lawgate.go                      lawgate  # created by P2
 primary_lawgate.go                                 lawgate  # created by P2
@@ -457,6 +458,7 @@ deferred.go                                        postedit
 deferred_attribution_test.go                       postedit
 deferred_crosstree_test.go                         postedit
 deferred_edit.go                                   postedit
+deferred_seams_test.go                             postedit
 deferred_edit_post.go                              postedit
 deferred_output_test.go                            postedit
 deferred_prompt.go                                 postedit

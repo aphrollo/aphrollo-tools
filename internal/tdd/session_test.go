@@ -154,9 +154,7 @@ func TestEndSession_KillsADeferredJobStillRunningForThatSession(t *testing.T) {
 	})
 
 	var killed []int
-	prev := killDeferredFn
-	killDeferredFn = func(j DeferredJob) { killed = append(killed, j.PID) }
-	t.Cleanup(func() { killDeferredFn = prev })
+	t.Cleanup(SetKillDeferredForTest(func(j DeferredJob) { killed = append(killed, j.PID) }))
 
 	EndSession(mustJSON(t, sessionEndInput{SessionID: sess}))
 
@@ -180,9 +178,7 @@ func TestEndSession_LeavesAnotherSessionsDeferredJobRunning(t *testing.T) {
 	})
 
 	var killed []int
-	prev := killDeferredFn
-	killDeferredFn = func(j DeferredJob) { killed = append(killed, j.PID) }
-	t.Cleanup(func() { killDeferredFn = prev })
+	t.Cleanup(SetKillDeferredForTest(func(j DeferredJob) { killed = append(killed, j.PID) }))
 
 	EndSession(mustJSON(t, sessionEndInput{SessionID: "sess-ending"}))
 
