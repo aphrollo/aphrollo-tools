@@ -326,12 +326,13 @@ func treatAsEmptyPass(res SuiteResult) bool {
 }
 
 // greenLabel renders the "<outcome-ish> (...)" suffix shared by PostEdit's
-// advisory and Precommit's mechanical stderr line for a run that is a PASS
-// (a real pass, or nextest's empty-crate exit-4 case) — extracted so the two
-// call sites render identically and can't drift apart.
+// advisory and Precommit's mechanical stderr line for a run that is a PASS —
+// extracted so the two call sites render identically and can't drift apart.
+// The word is the outcome's own: a run classified writing-test tested
+// nothing and says so, and never borrows green.
 func greenLabel(outcome Outcome, output string, dur time.Duration) string {
-	if noTestsToRunRe.MatchString(output) {
-		return fmt.Sprintf("green (0 tests — nothing to run, %.1fs)", dur.Seconds())
+	if outcome == WritingTest {
+		return fmt.Sprintf("%s (0 tests ran, %.1fs — nothing was tested)", outcome, dur.Seconds())
 	}
 	if n, ok := parsePassedCount(output); ok {
 		return fmt.Sprintf("%s (%d passed, %.1fs)", outcome, n, dur.Seconds())
