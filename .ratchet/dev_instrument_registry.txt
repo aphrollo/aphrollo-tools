@@ -7,14 +7,14 @@
 # Grouped by what the switch is FOR.
 
 # --- build/git queue and lock control (internal/tdd, internal/cli) ---
-APHROLLO_BUILD_LOCK_HELD | internal/tdd/buildlock.go | Set to "1" around a cargo run that already holds the machine-wide build lock, so a nested cargo invocation (a build script, the tdd cargo shim) passes straight through instead of deadlocking on the lock its own parent holds.
-APHROLLO_BUILD_SLOTS | internal/tdd/buildslots.go | The box's build-slot count, read once at process start to cap concurrent cargo runs.
+APHROLLO_BUILD_LOCK_HELD | internal/tdd/lock/buildlock.go | Set to "1" around a cargo run that already holds the machine-wide build lock, so a nested cargo invocation (a build script, the tdd cargo shim) passes straight through instead of deadlocking on the lock its own parent holds.
+APHROLLO_BUILD_SLOTS | internal/tdd/lock/buildslots.go | The box's build-slot count, read once at process start to cap concurrent cargo runs.
 APHROLLO_CARGO_WAIT_SECS | internal/cli/cargo_shim.go | Overrides the cargo shim's queue wait budget before it gives up and reports queued rather than running.
-APHROLLO_GIT_QUEUED | internal/tdd/buildlock.go | Set to "1" around a git invocation that already holds the per-repo git lock, so a git call the pre-commit hook spawns (worktree add/remove, apply, diff --cached) never waits on the lock its own parent process holds.
+APHROLLO_GIT_QUEUED | internal/tdd/gitx/buildlock_gitx.go | Set to "1" around a git invocation that already holds the per-repo git lock, so a git call the pre-commit hook spawns (worktree add/remove, apply, diff --cached) never waits on the lock its own parent process holds.
 APHROLLO_GIT_WAIT_SECS | internal/cli/git_shim.go | Overrides the git shim's queue wait budget before it gives up and reports queued rather than running.
 APHROLLO_LINT_WAIT_SECS | internal/cli/lint_shim.go | Overrides `gate lint`'s wait budget for the box-wide lint lock before it gives up and reports nothing was linted.
 APHROLLO_LOCK_WAIT_SECS | internal/cli/cli.go | The commit gate's build-slot wait budget (default 1200s).
-APHROLLO_SLOT_TOKEN | internal/tdd/buildslots.go | Carries the build slot a long verb's spawned cargo children inherit rather than acquiring their own; stripped from a process (e.g. `cargo run`) that must not inherit it.
+APHROLLO_SLOT_TOKEN | internal/tdd/lock/buildslots.go | Carries the build slot a long verb's spawned cargo children inherit rather than acquiring their own; stripped from a process (e.g. `cargo run`) that must not inherit it.
 
 # --- the anti-cheat / edit-time gate (internal/tdd) ---
 APHROLLO_DEFERRED_MAX_SECS | internal/tdd/deferred.go | Bounds how long a detached build/run phase may run before the next hook gives up on it (default 600s).

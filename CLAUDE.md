@@ -83,6 +83,7 @@ internal/tdd/        TDD + law gates: policy engine, edit smells, anti-cheat, fa
 internal/tdd/shell/  bash write-target parsing (L0 of the tdd split)
 internal/tdd/gitx/   git plumbing, trunk and merge-tip resolution (L0)
 internal/tdd/core/   gate log, session state, runner and verdict types, file classes (L1)
+internal/tdd/lock/   build locks and slots, lock dirs, machine load, budget floor (L2)
 internal/docs/       doc-reference guard: extract path citations, resolve, report misses
 internal/workspace/  worktree lifecycle + git verbs
 internal/dev/        dev-tier control plane (systemd)

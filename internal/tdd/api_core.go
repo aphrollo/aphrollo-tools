@@ -31,8 +31,6 @@ const Warn = core.Warn
 
 const premergeDisplayName = core.PremergeDisplayName
 
-const sharedLockFileMode = core.SharedLockFileMode
-
 type Action = core.Action
 
 type Decision = core.Decision
@@ -116,8 +114,6 @@ func formatBytes(p0 int64) string { return core.FormatBytes(p0) }
 func formatDays(p0 time.Duration) string { return core.FormatDays(p0) }
 
 func formatElapsedSecs(p0 time.Duration) string { return core.FormatElapsedSecs(p0) }
-
-func gateLogStageToken(p0 string) string { return core.GateLogStageToken(p0) }
 
 func goEmbedsFile(p0 string) bool { return core.GoEmbedsFile(p0) }
 

@@ -383,6 +383,7 @@ editledger.go                                      failfirst
 failfirst_env.go                                   failfirst
 failfirst_env_test.go                              failfirst
 failfirst_gonarrow_test.go                         failfirst
+failfirst_testmain_test.go                         failfirst
 failfirst_ledger.go                                failfirst
 failfirst_ledger_test.go                           failfirst
 failfirst_outcome.go                               failfirst
@@ -892,3 +893,4 @@ TestClaudeMDBlock_DoesNotPromiseASuiteTheCommitGateNoLongerRuns claudemd_test.go
 core/main_test.go
 gitx/main_test.go
 shell/main_test.go
+lock/main_test.go
