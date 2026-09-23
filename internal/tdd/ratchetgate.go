@@ -246,7 +246,6 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 // answer comes from the running binary. That is why only the fixtures stage
 // carries a lane-build outcome, and why both remedies name `aphrollo update`
 // rather than any path that rebuilds the box binary from an unmerged tree.
-// twin-diverges-ok: stageOutcome field rename; the twin uses none of these fields
 // twin: internal/tdd/ratchetgate.go#ratchetFixtureStage
 func ratchetCheckErrorResult(gateName, repoRoot string, err error, started time.Time) GateResult {
 	var readErr *ratchet.ScanReadError
