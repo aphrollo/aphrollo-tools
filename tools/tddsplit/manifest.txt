@@ -1,0 +1,837 @@
+# File-to-package manifest for the internal/tdd split. Read by tools/tddsplit.
+#
+# `root` is the unsplit package's directory. [packages] lists every target:
+# name, level (a package may import only lower levels; `prep` = created by a
+# prep PR, never moved by the generator) and directory (whose base name must
+# equal the package name). [files] maps every file of internal/tdd, keyed
+# relative to the package directory it lives in; a key ending in `/` maps a
+# whole directory (testdata, fuzz corpora). The generator refuses a file with
+# no entry. An entry marked `created by P2` names a file the relocations
+# below create.
+#
+# [relocate] lists the symbols the P2 prep PRs move between files of the
+# unsplit package so that each file maps to exactly one target: symbol,
+# from-file, to-file. A `T.m` row is a method moving with its type; methods
+# declared in the from-file beside their type move with it. The rows are the
+# fixpoint of the level rule over the reference graph (a symbol used by a
+# lower or same-level sibling package moves to the lowest package using it,
+# or to the general package one level below when two siblings tie), with the
+# destinations the spec names pinned: Runner, Outcome, GateResult, the
+# gate-log parse and the small utilities to core; the trunk helpers to gitx;
+# the SuiteResult/SuiteRunner/RunSuite group and runCargoLocked to suite.
+# A symbol declared in a parenthesized const or var block moves out of that
+# block alone, except the GCKind enum, whose iota block moves whole.
+#
+# Test files map to the lowest package that can compile them: the package
+# their production references reach highest, or the root when two packages
+# tie at that level. A comment marks each one whose file-name prefix would
+# have put it lower.
+
+root internal/tdd
+
+[packages]
+shell     L0   internal/tdd/shell
+gitx      L0   internal/tdd/gitx
+core      L1   internal/tdd/core
+lock      L2   internal/tdd/lock
+suite     L3   internal/tdd/suite
+smell     L4   internal/tdd/smell
+lawgate   L4   internal/tdd/lawgate
+mutation  L4   internal/tdd/mutation
+failfirst L4   internal/tdd/failfirst
+escape    L4   internal/tdd/escape
+postedit  L5   internal/tdd/postedit
+precommit L6   internal/tdd/precommit
+merge     L7   internal/tdd/merge
+install   L7   internal/tdd/install
+gc        L7   internal/tdd/gc
+tdd       L8   internal/tdd
+tddtest   prep internal/tdd/internal/tddtest
+
+[files]
+
+# shell: 7 file(s)
+shellwrite.go                                      shell
+shellwrite_fuzz_test.go                            shell
+shellwrite_nul_test.go                             shell
+shellwrite_quoted_test.go                          shell
+shellwrite_test.go                                 shell
+shellwrite_unexpanded_test.go                      shell
+testdata/fuzz/FuzzBashWriteTargets/                shell
+
+# gitx: 7 file(s), plus 5 created by P2
+gitbin.go                                          gitx
+gitbin_test.go                                     gitx
+gitplumbing.go                                     gitx
+gitqueue_test.go                                   gitx
+mergescope.go                                      gitx
+mergetip.go                                        gitx
+mergetip_test.go                                   gitx
+baselineguard_gitx.go                              gitx  # created by P2
+buildlock_gitx.go                                  gitx  # created by P2
+escape_gitx.go                                     gitx  # created by P2
+state_gitx.go                                      gitx  # created by P2
+trunkmergepreview_gitx.go                          gitx  # created by P2
+
+# core: 21 file(s), plus 23 created by P2
+embed.go                                           core
+embed_test.go                                      core
+file.go                                            core
+file_fuzz_test.go                                  core
+file_test.go                                       core
+gate.go                                            core
+mask.go                                            core
+mask_test.go                                       core
+mergereject.go                                     core
+mutants_paths.go                                   core
+pathlock.go                                        core
+premerge.go                                        core
+sessionid.go                                       core
+sessionid_test.go                                  core
+silentspawn.go                                     core
+state.go                                           core
+state_test.go                                      core
+stateschema.go                                     core
+tdd.go                                             core
+tomlstrings.go                                     core
+testdata/fuzz/FuzzDocsOnlyClassifier/              core
+bashedit_core.go                                   core  # created by P2
+budgetfloor_core.go                                core  # created by P2
+buildlock_core.go                                  core  # created by P2
+buildlock_unix_core.go                             core  # created by P2
+buildlock_windows_core.go                          core  # created by P2
+classify_core.go                                   core  # created by P2
+deferred_core.go                                   core  # created by P2
+denylog_core.go                                    core  # created by P2
+doctor_core.go                                     core  # created by P2
+escape_core.go                                     core  # created by P2
+gatestatus_core.go                                 core  # created by P2
+gc_render_core.go                                  core  # created by P2
+gitgate_core.go                                    core  # created by P2
+lockshared_core.go                                 core  # created by P2
+mutants_unix_core.go                               core  # created by P2
+mutants_windows_core.go                            core  # created by P2
+precommit_core.go                                  core  # created by P2
+primaryedits_cli_core.go                           core  # created by P2
+runner_core.go                                     core  # created by P2
+session_core.go                                    core  # created by P2
+sessionline_core.go                                core  # created by P2
+stats_core.go                                      core  # created by P2
+statusline_core.go                                 core  # created by P2
+
+# lock: 32 file(s), plus 3 created by P2
+budgetfloor.go                                     lock
+buildlock.go                                       lock
+buildlock_futuremtime.go                           lock
+buildlock_unix.go                                  lock
+buildlock_windows.go                               lock
+buildslots.go                                      lock
+buildslots_inherited_owner_test.go                 lock
+buildslots_shape_test.go                           lock
+buildslots_status_test.go                          lock
+buildslots_targetdir.go                            lock
+buildslots_targetdir_test.go                       lock
+gotmpdir.go                                        lock
+lintlock.go                                        lock
+lintlock_test.go                                   lock
+livelockdir_guard_test.go                          lock
+lockdir_test.go                                    lock
+lockgovernor_test.go                               lock
+lockshared.go                                      lock
+lockshared_unix_test.go                            lock
+machineload.go                                     lock
+machineload_other.go                               lock
+machineload_test.go                                lock
+machineload_windows.go                             lock
+machineload_windows_test.go                        lock
+mutants_freemem.go                                 lock
+mutants_ram_unix.go                                lock
+mutants_ram_windows.go                             lock
+mutants_unix.go                                    lock
+mutants_windows.go                                 lock
+queuewaiters.go                                    lock
+queuewaiters_test.go                               lock
+slottoken_test.go                                  lock
+bashsuite_lock.go                                  lock  # created by P2
+gc_mutantstemp_lock.go                             lock  # created by P2
+runner_lock.go                                     lock  # created by P2
+
+# suite: 56 file(s), plus 17 created by P2
+buildlock_futuremtime_test.go                      suite  # prefix says lock; its test body reaches suite
+buildlock_owner_test.go                            suite  # prefix says lock; its test body reaches suite
+buildlock_test.go                                  suite  # prefix says lock; its test body reaches suite
+buildonly.go                                       suite
+buildslots_test.go                                 suite  # prefix says lock; its test body reaches suite
+cargo_pathmod.go                                   suite
+cargo_pathmod_test.go                              suite
+cargo_target_test.go                               suite
+cargo_test_target.go                               suite
+cargo_uncompiled.go                                suite
+classify.go                                        suite
+classify_color_test.go                             suite
+classify_goattribution.go                          suite
+classify_scope.go                                  suite
+classify_test.go                                   suite
+clippyscope.go                                     suite
+doctest.go                                         suite
+e2e_zig_test.go                                    suite
+gateprofile.go                                     suite
+go_reverse_scope.go                                suite
+go_reverse_scope_test.go                           suite
+go_test_reach.go                                   suite
+gotmpdir_outside_test.go                           suite  # prefix says lock; its test body reaches suite
+gotmpdir_test.go                                   suite  # prefix says lock; its test body reaches suite
+mechcache.go                                       suite
+mechcache_ignored_test.go                          suite
+mechcache_key_test.go                              suite
+mechcache_nested_root_test.go                      suite
+mechcache_quoted_path_test.go                      suite
+mechcache_split_nul_paths_test.go                  suite
+mutants_deps.go                                    suite
+runcheckout.go                                     suite
+runner.go                                          suite
+runner_nextest_test.go                             suite
+runner_scope.go                                    suite
+runner_scope_gorun.go                              suite
+runner_test.go                                     suite
+runner_testscope_test.go                           suite
+runscope.go                                        suite
+runscope_test.go                                   suite
+runsuite_killtree_test.go                          suite
+runsuite_waitdelay_test.go                         suite
+rusttestspans.go                                   suite
+rusttestspans_test.go                              suite
+slotowner_test.go                                  suite
+staleartifact.go                                   suite
+suiteoutput.go                                     suite
+suiteproof.go                                      suite
+vacuous_cargo.go                                   suite
+vacuous_dispatch.go                                suite
+vacuous_pytest.go                                  suite
+vacuous_pytest_test.go                             suite
+vacuous_vitest.go                                  suite
+vacuous_vitest_test.go                             suite
+verdict.go                                         suite
+zigtest.go                                         suite
+autoescape_suite.go                                suite  # created by P2
+bashsuite_suite.go                                 suite  # created by P2
+buildlock_suite.go                                 suite  # created by P2
+deferred_edit_suite.go                             suite  # created by P2
+deferred_unix_suite.go                             suite  # created by P2
+deferred_windows_suite.go                          suite  # created by P2
+emptyselection_suite.go                            suite  # created by P2
+escape_suite.go                                    suite  # created by P2
+escape_verify_suite.go                             suite  # created by P2
+gc_session_suite.go                                suite  # created by P2
+mechrun_suite.go                                   suite  # created by P2
+mutants_config_suite.go                            suite  # created by P2
+mutants_lanebase_suite.go                          suite  # created by P2
+posttooluse_suite.go                               suite  # created by P2
+precommit_diffscan_suite.go                        suite  # created by P2
+ratchetgate_suite.go                               suite  # created by P2
+statusline_suite.go                                suite  # created by P2
+
+# smell: 13 file(s), plus 1 created by P2
+policy.go                                          smell
+policy_registry_test.go                            smell
+policy_test.go                                     smell
+smell.go                                           smell
+smell_deadline.go                                  smell
+smell_deadline_test.go                             smell
+smell_test.go                                      smell
+smellscope.go                                      smell
+suppress.go                                        smell
+suppress_test.go                                   smell
+testquality.go                                     smell
+zigtest_test.go                                    smell  # prefix says suite; its test body reaches smell
+testdata/policies/                                 smell
+pretooluse_smell.go                                smell  # created by P2
+
+# lawgate: 22 file(s), plus 2 created by P2
+baselineguard.go                                   lawgate
+baselineguard_lane.go                              lawgate
+baselineguard_lane_test.go                         lawgate
+baselineguard_merge_test.go                        lawgate
+baselineguard_repath.go                            lawgate
+baselineguard_repath_test.go                       lawgate
+baselineguard_staleorigin_test.go                  lawgate
+baselineguard_test.go                              lawgate
+baselineguard_wholetreeceiling_test.go             lawgate
+ratchetedit.go                                     lawgate
+ratchetedit_test.go                                lawgate
+ratchetgate.go                                     lawgate
+ratchetgate_lanebuild.go                           lawgate
+ratchetgate_lanebuild_e2e_test.go                  lawgate
+ratchetgate_lanebuild_test.go                      lawgate
+ratchetgate_test.go                                lawgate
+ratchethint.go                                     lawgate
+ratchetindex_test.go                               lawgate
+ratchetschema_test.go                              lawgate
+ratchetstage_baselinehint_test.go                  lawgate
+ratchetstage_test.go                               lawgate
+ratchettracked_test.go                             lawgate
+precommit_fmtscope_lawgate.go                      lawgate  # created by P2
+primary_lawgate.go                                 lawgate  # created by P2
+
+# mutation: 87 file(s), plus 6 created by P2
+classify_nextest_status_test.go                    mutation  # prefix says suite; its test body reaches mutation
+lockowner_shared_unix_test.go                      mutation
+mutants_accept_column_test.go                      mutation
+mutants_accept_kind.go                             mutation
+mutants_accept_kind_test.go                        mutation
+mutants_accept_linefree_test.go                    mutation
+mutants_baseline_exclude.go                        mutation
+mutants_baseline_exclude_test.go                   mutation
+mutants_budget.go                                  mutation
+mutants_budget_test.go                             mutation
+mutants_buildjobs.go                               mutation
+mutants_buildjobs_test.go                          mutation
+mutants_cancel_test.go                             mutation
+mutants_cargoargv.go                               mutation
+mutants_cibusy.go                                  mutation
+mutants_cibusy_test.go                             mutation
+mutants_config.go                                  mutation
+mutants_config_test.go                             mutation
+mutants_disk.go                                    mutation
+mutants_disk_test.go                               mutation
+mutants_drain.go                                   mutation
+mutants_drain_test.go                              mutation
+mutants_env.go                                     mutation
+mutants_envfail.go                                 mutation
+mutants_envfail_test.go                            mutation
+mutants_freemem_test.go                            mutation  # prefix says lock; its test body reaches mutation
+mutants_gitstreams_test.go                         mutation
+mutants_go.go                                      mutation
+mutants_go_reach.go                                mutation
+mutants_go_reach_test.go                           mutation
+mutants_go_test.go                                 mutation
+mutants_go_tmpleak_test.go                         mutation
+mutants_gobudget.go                                mutation
+mutants_gobudget_test.go                           mutation
+mutants_inplace_test.go                            mutation
+mutants_lanebase.go                                mutation
+mutants_lanebase_test.go                           mutation
+mutants_measure.go                                 mutation
+mutants_measure_argv_test.go                       mutation
+mutants_measure_env_test.go                        mutation
+mutants_measure_judge.go                           mutation
+mutants_measure_test.go                            mutation
+mutants_measure_tree.go                            mutation
+mutants_measure_tree_test.go                       mutation
+mutants_notcovered_test.go                         mutation
+mutants_noverdict_test.go                          mutation
+mutants_outcomes.go                                mutation
+mutants_outcomes_test.go                           mutation
+mutants_prove.go                                   mutation
+mutants_prove_emptyselection_test.go               mutation
+mutants_prove_eol.go                               mutation
+mutants_prove_eol_test.go                          mutation
+mutants_prove_retain.go                            mutation
+mutants_prove_retain_test.go                       mutation
+mutants_prove_test.go                              mutation
+mutants_prove_untracked_test.go                    mutation
+mutants_prove_widen.go                             mutation
+mutants_prove_widen_empty_test.go                  mutation
+mutants_prove_widen_go_test.go                     mutation
+mutants_prove_widen_test.go                        mutation
+mutants_quality.go                                 mutation
+mutants_quality_test.go                            mutation
+mutants_runlock.go                                 mutation
+mutants_runlock_test.go                            mutation
+mutants_runner.go                                  mutation
+mutants_runner_fetch.go                            mutation
+mutants_runner_fetch_test.go                       mutation
+mutants_runner_test.go                             mutation
+mutants_runqueue.go                                mutation
+mutants_runqueue_test.go                           mutation
+mutants_runstatus.go                               mutation
+mutants_shardcap.go                                mutation
+mutants_shardcap_test.go                           mutation
+mutants_shardcfg_test.go                           mutation
+mutants_shards.go                                  mutation
+mutants_shards_test.go                             mutation
+mutants_smoke_test.go                              mutation
+mutants_stage.go                                   mutation
+mutants_stale.go                                   mutation
+mutants_stale_test.go                              mutation
+mutants_stub_test.go                               mutation
+mutants_verdict.go                                 mutation
+mutationhold.go                                    mutation
+mutationhold_test.go                               mutation
+testdata/cargo_mutants_outcomes.json               mutation
+testdata/fuzz/FuzzReceipt/                         mutation
+testdata/gremlins_report.json                      mutation
+doctor_mutation.go                                 mutation  # created by P2
+emptyselection_ladder_mutation.go                  mutation  # created by P2
+emptyselection_mutation.go                         mutation  # created by P2
+gc_mutantstemp_mutation.go                         mutation  # created by P2
+gc_mutation.go                                     mutation  # created by P2
+gc_straytarget_mutation.go                         mutation  # created by P2
+
+# failfirst: 17 file(s), plus 6 created by P2
+editledger.go                                      failfirst
+failfirst_env.go                                   failfirst
+failfirst_env_test.go                              failfirst
+failfirst_gonarrow_test.go                         failfirst
+failfirst_ledger.go                                failfirst
+failfirst_ledger_test.go                           failfirst
+failfirst_outcome.go                               failfirst
+failfirst_refuse.go                                failfirst
+failfirst_refuse_test.go                           failfirst
+failfirst_skipped.go                               failfirst
+failfirst_skipped_test.go                          failfirst
+failfirstinputs.go                                 failfirst
+file_gateconfig_test.go                            failfirst  # prefix says core; its test body reaches failfirst
+file_gateowninput_test.go                          failfirst  # prefix says core; its test body reaches failfirst
+precommit_failfirst.go                             failfirst
+precommit_failfirst_args_test.go                   failfirst
+precommit_failfirst_rust.go                        failfirst
+deferred_edit_failfirst.go                         failfirst  # created by P2
+gc_failfirst.go                                    failfirst  # created by P2
+gc_session_failfirst.go                            failfirst  # created by P2
+mechrun_failfirst.go                               failfirst  # created by P2
+posttooluse_failfirst.go                           failfirst  # created by P2
+precommit_diffscan_failfirst.go                    failfirst  # created by P2
+
+# escape: 25 file(s)
+autoescape.go                                      escape
+demote.go                                          escape
+demote_rate_test.go                                escape
+demote_test.go                                     escape
+demote_trend.go                                    escape
+escape.go                                          escape
+escape_dedupe.go                                   escape
+escape_dedupe_test.go                              escape
+escape_syncclosed_test.go                          escape
+escape_verify.go                                   escape
+escape_verify_fixture_test.go                      escape
+escape_verify_test.go                              escape
+feedback.go                                        escape
+feedback_test.go                                   escape
+issue.go                                           escape
+pr_closes.go                                       escape
+pr_closes_test.go                                  escape
+stats.go                                           escape
+stats_contention_test.go                           escape
+stats_fuzz_test.go                                 escape
+stats_mutants_test.go                              escape
+stats_test.go                                      escape
+weekly.go                                          escape
+weekly_test.go                                     escape
+testdata/fuzz/FuzzGateLogLine/                     escape
+
+# postedit: 70 file(s), plus 1 created by P2
+bashedit.go                                        postedit
+bashedit_attribution_test.go                       postedit
+bashedit_mergeinprogress_test.go                   postedit
+bashedit_mergescope.go                             postedit
+bashedit_mergescope_test.go                        postedit
+bashedit_skiproots_test.go                         postedit
+bashsuite.go                                       postedit
+bashsuite_test.go                                  postedit
+buildonly_test.go                                  postedit  # prefix says suite; its test body reaches postedit
+cargo_uncompiled_test.go                           postedit  # prefix says suite; its test body reaches postedit
+classify_foreign_test.go                           postedit  # prefix says suite; its test body reaches postedit
+classify_goattribution_test.go                     postedit  # prefix says suite; its test body reaches postedit
+classify_scope_test.go                             postedit  # prefix says suite; its test body reaches postedit
+deferred.go                                        postedit
+deferred_attribution_test.go                       postedit
+deferred_edit.go                                   postedit
+deferred_edit_post.go                              postedit
+deferred_output_test.go                            postedit
+deferred_prompt.go                                 postedit
+deferred_robust_test.go                            postedit
+deferred_run.go                                    postedit
+deferred_run_test.go                               postedit
+deferred_status.go                                 postedit
+deferred_status_test.go                            postedit
+deferred_sweep.go                                  postedit
+deferred_test.go                                   postedit
+deferred_unix.go                                   postedit
+deferred_unix_test.go                              postedit
+deferred_verdict.go                                postedit
+deferred_verdict_test.go                           postedit
+deferred_widen.go                                  postedit
+deferred_widen_test.go                             postedit
+deferred_windows.go                                postedit
+deferred_windows_test.go                           postedit
+denylog.go                                         postedit
+discardwall.go                                     postedit
+discardwall_test.go                                postedit
+editledger_test.go                                 postedit  # prefix says failfirst; its test body reaches postedit
+emptyselection.go                                  postedit
+emptyselection_alreadygreen_test.go                postedit
+emptyselection_go_test.go                          postedit
+emptyselection_ladder.go                           postedit
+emptyselection_ladder_test.go                      postedit
+emptyselection_test.go                             postedit
+file_ron_test.go                                   postedit  # prefix says core; its test body reaches postedit
+killtree_test.go                                   postedit
+nowindow_windows_test.go                           postedit
+pidrunning_windows_test.go                         postedit
+posttooluse.go                                     postedit
+posttooluse_advisory.go                            postedit
+posttooluse_advisory_test.go                       postedit
+posttooluse_run.go                                 postedit
+posttooluse_test.go                                postedit
+posttooluse_unconstrained.go                       postedit
+pretooluse.go                                      postedit
+pretooluse_test.go                                 postedit
+primary.go                                         postedit
+primary_bash_property_test.go                      postedit
+primary_blockpath_test.go                          postedit
+primaryedits_cli.go                                postedit
+primaryedits_cli_test.go                           postedit
+redsnippet_test.go                                 postedit
+runcheckout_test.go                                postedit  # prefix says suite; its test body reaches postedit
+smellscope_test.go                                 postedit  # prefix says smell; its test body reaches postedit
+staleartifact_test.go                              postedit  # prefix says suite; its test body reaches postedit
+stateschema_test.go                                postedit  # prefix says core; its test body reaches postedit
+testquality_test.go                                postedit  # prefix says smell; its test body reaches postedit
+unconstrained_test.go                              postedit
+worktree.go                                        postedit
+worktree_test.go                                   postedit
+mechrun_postedit.go                                postedit  # created by P2
+
+# precommit: 67 file(s)
+budgetfloor_test.go                                precommit  # prefix says lock; its test body reaches precommit
+buildlock_integration_test.go                      precommit  # prefix says lock; its test body reaches precommit
+cargo_test.go                                      precommit
+cargo_workspace_root_test.go                       precommit
+clippyscope_test.go                                precommit  # prefix says suite; its test body reaches precommit
+commentonly.go                                     precommit
+devtarget_test.go                                  precommit
+docsonly.go                                        precommit
+docsonly_property_test.go                          precommit
+doctest_test.go                                    precommit  # prefix says suite; its test body reaches precommit
+gate_order_test.go                                 precommit  # prefix says core; its test body reaches precommit
+gateprofile_test.go                                precommit  # prefix says suite; its test body reaches precommit
+greenlabel_outcome_test.go                         precommit
+lockwait_test.go                                   precommit
+loudgates_test.go                                  precommit
+mechanical.go                                      precommit
+mechanical_test.go                                 precommit
+mechrun.go                                         precommit
+mechrun_untested_test.go                           precommit
+mergeaware_test.go                                 precommit
+mergescope_test.go                                 precommit  # prefix says gitx; its test body reaches precommit
+mergesuitescope_test.go                            precommit
+mutants_stage_test.go                              precommit  # prefix says mutation; its test body reaches precommit
+postedit_fastfail_test.go                          precommit
+precommit.go                                       precommit
+precommit_cargotarget_test.go                      precommit
+precommit_commentonly_test.go                      precommit
+precommit_diffscan.go                              precommit
+precommit_diffscan_testoraclewarnings_test.go      precommit
+precommit_docsonly_fastpath_test.go                precommit
+precommit_docsonly_test.go                         precommit
+precommit_failfirst_inputs_test.go                 precommit  # prefix says failfirst; its test body reaches precommit
+precommit_failfirst_scope_test.go                  precommit  # prefix says failfirst; its test body reaches precommit
+precommit_failfirst_target_test.go                 precommit  # prefix says failfirst; its test body reaches precommit
+precommit_fmtscope.go                              precommit
+precommit_fmtscope_test.go                         precommit
+precommit_gateroot.go                              precommit
+precommit_go.go                                    precommit
+precommit_go_ciparity.go                           precommit
+precommit_go_ciparity_test.go                      precommit
+precommit_go_test.go                               precommit
+precommit_gofmt_test.go                            precommit
+precommit_indexunreadable_test.go                  precommit
+precommit_lintscope_test.go                        precommit
+precommit_lockscope.go                             precommit
+precommit_lockscope_test.go                        precommit
+precommit_nosuite_test.go                          precommit
+precommit_quality.go                               precommit
+precommit_quality_test.go                          precommit
+precommit_reject_test.go                           precommit
+precommit_test.go                                  precommit
+precommit_wsmanifest.go                            precommit
+precommit_wsmanifest_test.go                       precommit
+precommitmarker.go                                 precommit
+precommitmarker_test.go                            precommit
+projectroots_test.go                               precommit
+review_yellows_test.go                             precommit
+suiteproof_test.go                                 precommit  # prefix says suite; its test body reaches precommit
+suitetimeout_test.go                               precommit
+timeout_reject_test.go                             precommit
+trunkmergepreview.go                               precommit
+trunkmergepreview_laws_test.go                     precommit
+trunkmergepreview_test.go                          precommit
+vacuous_cargo_test.go                              precommit  # prefix says suite; its test body reaches precommit
+vacuous_test.go                                    precommit
+verdict_test.go                                    precommit  # prefix says suite; its test body reaches precommit
+workspacecheck_test.go                             precommit
+
+# merge: 11 file(s)
+commitmsg.go                                       merge
+commitmsg_defaults.go                              merge
+commitmsg_defaults_test.go                         merge
+commitmsg_test.go                                  merge
+commitmsg_verify.go                                merge
+commitmsg_verify_test.go                           merge
+mergeprune.go                                      merge
+mergeprune_test.go                                 merge
+postmerge.go                                       merge
+premergepr.go                                      merge
+premergepr_test.go                                 merge
+
+# install: 48 file(s)
+agent_builder.md                                   install
+agent_researcher.md                                install
+agent_reviewer.md                                  install
+agents.go                                          install
+agents_test.go                                     install
+bashedit_test.go                                   install  # prefix says postedit; its test body reaches install
+cargoshim_install.go                               install
+cargoshim_install_test.go                          install
+claudemd.go                                        install
+claudemd_primary_test.go                           install
+claudemd_test.go                                   install
+doctor.go                                          install
+doctor_claudemd.go                                 install
+doctor_claudemd_test.go                            install
+doctor_foreignhooks.go                             install
+doctor_foreignhooks_test.go                        install
+doctor_hooktarget.go                               install
+doctor_hooktarget_test.go                          install
+doctor_lawcount_test.go                            install
+doctor_linter_test.go                              install
+doctor_primary_test.go                             install
+doctor_test.go                                     install
+escape_test.go                                     install  # prefix says escape; its test body reaches install
+gitgate.go                                         install
+gitgate_test.go                                    install
+init.go                                            install
+init_test.go                                       install
+initio_test.go                                     install
+install.go                                         install
+install_test.go                                    install
+issue_test.go                                      install  # prefix says escape; its test body reaches install
+sddskill.go                                        install
+sddskill.md                                        install
+sddskill_test.go                                   install
+shimexe.go                                         install
+shimexe_test.go                                    install
+shimfallback.go                                    install
+shimfallback_test.go                               install
+statusinit.go                                      install
+statusinit_test.go                                 install
+style.go                                           install
+style.md                                           install
+style_test.go                                      install
+suiteoutput_test.go                                install  # prefix says suite; its test body reaches install
+tddskill.go                                        install
+tddskill.md                                        install
+tddskill_test.go                                   install
+winpath_test.go                                    install
+
+# gc: 23 file(s)
+deferred_sweep_test.go                             gc  # prefix says postedit; its test body reaches gc
+gc.go                                              gc
+gc_deps.go                                         gc
+gc_deps_test.go                                    gc
+gc_gotmp.go                                        gc
+gc_gotmp_test.go                                   gc
+gc_interlock.go                                    gc
+gc_mutantsdirs.go                                  gc
+gc_mutantsdirs_test.go                             gc
+gc_mutantstemp.go                                  gc
+gc_mutantstemp_test.go                             gc
+gc_refused_order_test.go                           gc
+gc_render.go                                       gc
+gc_render_test.go                                  gc
+gc_safety_test.go                                  gc
+gc_session.go                                      gc
+gc_slotless_test.go                                gc
+gc_stalelock.go                                    gc
+gc_straytarget.go                                  gc
+gc_straytarget_test.go                             gc
+gc_templitter_test.go                              gc
+gc_test.go                                         gc
+lockshared_test.go                                 gc  # prefix says lock; its test body reaches gc
+
+# tdd: 37 file(s), plus 1 created by P2
+autoescape_test.go                                 tdd  # prefix says escape; its test body reaches tdd
+behind.go                                          tdd
+behind_test.go                                     tdd
+deferred_checkout_test.go                          tdd  # prefix says postedit; its test body reaches tdd
+deferred_edit_test.go                              tdd  # prefix says postedit; its test body reaches tdd
+deferred_session_test.go                           tdd  # prefix says postedit; its test body reaches tdd
+denylog_test.go                                    tdd  # prefix says postedit; its test body reaches tdd
+gate_rename_test.go                                tdd  # prefix says core; its test body reaches tdd
+gatestatus.go                                      tdd
+gatestatus_test.go                                 tdd
+gc_session_test.go                                 tdd  # prefix says gc; its test body reaches tdd
+ghstub_isolation_test.go                           tdd
+gotmpdir_workflow_pin_test.go                      tdd
+lintworkflow_pin_test.go                           tdd
+lsremote_hang_test.go                              tdd
+main_test.go                                       tdd
+mutants_deleted_surface_test.go                    tdd
+mutants_tombstones_test.go                         tdd
+mutants_unmeasured_test.go                         tdd
+mutants_zerotested_test.go                         tdd
+pipeline_push_test.go                              tdd
+postmerge_test.go                                  tdd  # prefix says merge; its test body reaches tdd
+primary_test.go                                    tdd  # prefix says postedit; its test body reaches tdd
+ratchet_laws.md                                    tdd
+ratchetgate_bench_test.go                          tdd
+ratchethint_test.go                                tdd  # prefix says lawgate; its test body reaches tdd
+ratchetreadme.go                                   tdd
+ratchetreadme_test.go                              tdd
+session.go                                         tdd
+session_test.go                                    tdd
+sessionline.go                                     tdd
+sessionline_test.go                                tdd
+sessionstart_test.go                               tdd
+stagedfiles_test.go                                tdd
+statusline.go                                      tdd
+statusline_test.go                                 tdd
+statusline_unproven_test.go                        tdd
+claudemd_source_test.go                            tdd  # created by P2
+
+# tddtest: 1 file(s)
+fixture_test.go                                    tddtest
+
+[relocate]
+indexTree                                     autoescape.go                autoescape_suite.go
+trunkBranch                                   baselineguard.go             baselineguard_gitx.go
+bashSnapshot                                  bashedit.go                  bashedit_core.go
+bashSuiteVerdictFreshFor                      bashsuite.go                 bashsuite_suite.go
+cargoNextestNarrowingFlags                    bashsuite.go                 bashsuite_suite.go
+cargoNextestValueFlags                        bashsuite.go                 bashsuite_suite.go
+cargoTestNarrowingFlags                       bashsuite.go                 bashsuite_suite.go
+cargoTestValueFlags                           bashsuite.go                 bashsuite_suite.go
+classifyRunnerArgs                            bashsuite.go                 bashsuite_suite.go
+classifySuiteSegment                          bashsuite.go                 bashsuite_suite.go
+dropLeadingEnvAssignments                     bashsuite.go                 bashsuite_suite.go
+flagName                                      bashsuite.go                 bashsuite_suite.go
+goTestNarrowingFlags                          bashsuite.go                 bashsuite_suite.go
+goTestValueFlags                              bashsuite.go                 bashsuite_suite.go
+isEnvAssignment                               bashsuite.go                 bashsuite_suite.go
+isSettledVerdict                              bashsuite.go                 bashsuite_lock.go
+narrowedSuiteInvocation                       bashsuite.go                 bashsuite_suite.go
+notSuiteInvocation                            bashsuite.go                 bashsuite_suite.go
+suiteShape                                    bashsuite.go                 bashsuite_suite.go
+wholeSuiteInvocation                          bashsuite.go                 bashsuite_suite.go
+wholeSuitePositionalMarkers                   bashsuite.go                 bashsuite_suite.go
+gateLogStageToken                             budgetfloor.go               budgetfloor_core.go
+GitQueuedEnv                                  buildlock.go                 buildlock_gitx.go
+TryAcquireFileLock                            buildlock.go                 buildlock_core.go
+hasRaceFlag                                   buildlock.go                 buildlock_suite.go
+lockOpenFailures                              buildlock.go                 buildlock_core.go
+logLockWait                                   buildlock.go                 buildlock_suite.go
+reportLockOpenFailure                         buildlock.go                 buildlock_core.go
+runCargoLocked                                buildlock.go                 buildlock_suite.go
+openLockFile                                  buildlock_unix.go            buildlock_unix_core.go
+tryLockExclusive                              buildlock_unix.go            buildlock_unix_core.go
+unlockFile                                    buildlock_unix.go            buildlock_unix_core.go
+openLockFile                                  buildlock_windows.go         buildlock_windows_core.go
+tryLockExclusive                              buildlock_windows.go         buildlock_windows_core.go
+unlockFile                                    buildlock_windows.go         buildlock_windows_core.go
+Outcome                                       classify.go                  classify_core.go
+Outcome.IsRed                                 classify.go                  classify_core.go
+normalizeProjectPath                          deferred.go                  deferred_core.go
+projectKey                                    deferred.go                  deferred_core.go
+renameAttempts                                deferred.go                  deferred_core.go
+renameRetryEvery                              deferred.go                  deferred_core.go
+writeFileAtomic                               deferred.go                  deferred_core.go
+InfraFailed                                   deferred_edit.go             deferred_edit_suite.go
+headSHAFor                                    deferred_edit.go             deferred_edit_failfirst.go
+suiteAttrs                                    deferred_unix.go             deferred_unix_suite.go
+suiteAttrs                                    deferred_windows.go          deferred_windows_suite.go
+logToken                                      denylog.go                   denylog_core.go
+DoctorCheck                                   doctor.go                    doctor_mutation.go
+DoctorInput                                   doctor.go                    doctor_mutation.go
+samePath                                      doctor.go                    doctor_core.go
+sortStrings                                   doctor.go                    doctor_core.go
+NoTestsSelected                               emptyselection.go            emptyselection_suite.go
+cargoNarrowingBareFlags                       emptyselection.go            emptyselection_suite.go
+cargoNarrowingValueFlags                      emptyselection.go            emptyselection_suite.go
+cargoScopeValueFlags                          emptyselection.go            emptyselection_suite.go
+libtestRanNoTests                             emptyselection.go            emptyselection_suite.go
+nextestSummaryRe                              emptyselection.go            emptyselection_suite.go
+selectedZeroTests                             emptyselection.go            emptyselection_suite.go
+widenCargoRunner                              emptyselection.go            emptyselection_mutation.go
+goRanNoTests                                  emptyselection_ladder.go     emptyselection_ladder_mutation.go
+fitRunes                                      escape.go                    escape_core.go
+ghAvailable                                   escape.go                    escape_suite.go
+hasGitHubRemote                               escape.go                    escape_suite.go
+lastNonEmptyLine                              escape.go                    escape_gitx.go
+runGhTimeout                                  escape.go                    escape_suite.go
+diffHeaderPath                                escape_verify.go             escape_verify_suite.go
+fixtureLawFromPath                            escape_verify.go             escape_verify_suite.go
+formatElapsedSecs                             gatestatus.go                gatestatus_core.go
+GCCandidate                                   gc.go                        gc_mutation.go
+GCKind                                        gc.go                        gc_mutation.go
+GCKindMutantsTemp                             gc.go                        gc_mutation.go
+GCKindTempLitter                              gc.go                        gc_mutation.go
+dirNewestAndSize                              gc.go                        gc_mutation.go
+gcOriginFile                                  gc.go                        gc_failfirst.go
+pathKey                                       gc.go                        gc_mutation.go
+csvPids                                       gc_mutantstemp.go            gc_mutantstemp_lock.go
+mutantsCopyActiveWindow                       gc_mutantstemp.go            gc_mutantstemp_mutation.go
+formatBytes                                   gc_render.go                 gc_render_core.go
+formatDays                                    gc_render.go                 gc_render_core.go
+gcStatePath                                   gc_session.go                gc_session_suite.go
+writeGateOrigin                               gc_session.go                gc_session_failfirst.go
+cargoCacheTag                                 gc_straytarget.go            gc_straytarget_mutation.go
+shellPath                                     gitgate.go                   gitgate_core.go
+ensureSharedSubdir                            lockshared.go                lockshared_core.go
+sharedLockFileMode                            lockshared.go                lockshared_core.go
+insideDir                                     mechrun.go                   mechrun_suite.go
+resolvedDevTarget                             mechrun.go                   mechrun_failfirst.go
+tailSnippet                                   mechrun.go                   mechrun_postedit.go
+firstDeclaredList                             mutants_config.go            mutants_config_suite.go
+mutantsConfigTable                            mutants_config.go            mutants_config_suite.go
+mutantsConfigTables                           mutants_config.go            mutants_config_suite.go
+isAncestorCommit                              mutants_lanebase.go          mutants_lanebase_suite.go
+laneBaseCandidates                            mutants_lanebase.go          mutants_lanebase_suite.go
+laneBaseSHA                                   mutants_lanebase.go          mutants_lanebase_suite.go
+pidRunning                                    mutants_unix.go              mutants_unix_core.go
+pidRunning                                    mutants_windows.go           mutants_windows_core.go
+DefaultPrecommitTimeout                       posttooluse.go               posttooluse_failfirst.go
+RunSuite                                      posttooluse.go               posttooluse_suite.go
+SuiteResult                                   posttooluse.go               posttooluse_suite.go
+SuiteRunner                                   posttooluse.go               posttooluse_suite.go
+cmdString                                     posttooluse.go               posttooluse_suite.go
+noTestsToRunRe                                posttooluse.go               posttooluse_suite.go
+suiteEnv                                      posttooluse.go               posttooluse_suite.go
+GateResult                                    precommit.go                 precommit_core.go
+failFirstMessage                              precommit.go                 precommit_failfirst.go
+vacuousFailFirstMessage                       precommit.go                 precommit_failfirst.go
+fileAdd                                       precommit_diffscan.go        precommit_diffscan_failfirst.go
+hunkNewStart                                  precommit_diffscan.go        precommit_diffscan_failfirst.go
+hunkNewStartRe                                precommit_diffscan.go        precommit_diffscan_failfirst.go
+jsTestDeclRes                                 precommit_diffscan.go        precommit_diffscan_suite.go
+splitKinds                                    precommit_diffscan.go        precommit_diffscan_failfirst.go
+stagedAdds                                    precommit_diffscan.go        precommit_diffscan_failfirst.go
+stagedTestsAddDeclIn                          precommit_diffscan.go        precommit_diffscan_failfirst.go
+testDeclRes                                   precommit_diffscan.go        precommit_diffscan_suite.go
+laneChangedPaths                              precommit_fmtscope.go        precommit_fmtscope_lawgate.go
+newContent                                    pretooluse.go                pretooluse_smell.go
+preToolUseInput                               pretooluse.go                pretooluse_smell.go
+existingAncestorDir                           primary.go                   primary_lawgate.go
+repoRootNear                                  primary.go                   primary_lawgate.go
+WallPrimary                                   primaryedits_cli.go          primaryedits_cli_core.go
+applyEdit                                     ratchetgate.go               ratchetgate_suite.go
+Runner                                        runner.go                    runner_core.go
+cargoPackageName                              runner.go                    runner_core.go
+cargoTomlHasWorkspaceTable                    runner.go                    runner_lock.go
+cargoWorkspaceRoot                            runner.go                    runner_lock.go
+dedupeSorted                                  runner.go                    runner_core.go
+tomlBoolIn                                    runner.go                    runner_core.go
+tomlBoolSetIn                                 runner.go                    runner_core.go
+tomlStringIn                                  runner.go                    runner_core.go
+errNoSession                                  session.go                   session_core.go
+plural                                        sessionline.go               sessionline_core.go
+gitOut                                        state.go                     state_gitx.go
+GateLogPath                                   stats.go                     stats_core.go
+gateEntry                                     stats.go                     stats_core.go
+parseGateLine                                 stats.go                     stats_core.go
+quotedVerdict                                 stats.go                     stats_core.go
+redGoesStaleAfter                             statusline.go                statusline_suite.go
+sameProject                                   statusline.go                statusline_core.go
+branchIsTrunk                                 trunkmergepreview.go         trunkmergepreview_gitx.go
+TestClaudeMDBlock_VetLintClaimMatchesGoOnlyGuard claudemd_test.go             claudemd_source_test.go
+TestClaudeMDBlock_DoesNotPromiseASuiteTheCommitGateNoLongerRuns claudemd_test.go             claudemd_source_test.go
