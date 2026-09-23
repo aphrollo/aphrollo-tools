@@ -464,3 +464,32 @@ func TestPruneMergedLanesAfterMerge_ReportsExaminedCountAndTrunkWhenNothingIsPru
 		t.Fatalf("stdout = %q, want exactly %q", out.String(), want)
 	}
 }
+
+// The sweep after a merge must touch only the admin entry of the lane it
+// removed. A process under systemd PrivateTmp sees a live worktree in the
+// host's /tmp as missing; moving lane/fresh's directory away from the path git
+// recorded stands in for that view, and its registration must survive the
+// removal of lane/merged.
+func TestPruneMergedLanesAfterMerge_LeavesAHiddenWorktreeRegistered(t *testing.T) {
+	mainRepo, mergedWT, freshWT := pruneRepo(t)
+	if err := os.Rename(freshWT, freshWT+"-elsewhere"); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	pruned := PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)
+
+	if len(pruned) != 1 || pruned[0].Worktree != mergedWT {
+		t.Fatalf("pruned = %+v, want exactly lane/merged at %s", pruned, mergedWT)
+	}
+	registered := false
+	for _, wt := range mergePruneWorktrees(mainRepo) {
+		if cleanWorktreePath(wt.path) == cleanWorktreePath(freshWT) {
+			registered = true
+		}
+	}
+	if !registered {
+		t.Fatalf("admin entry of the hidden lane/fresh worktree %s was deleted; git lists:\n%s",
+			freshWT, gitOut(mainRepo, "worktree", "list", "--porcelain"))
+	}
+}

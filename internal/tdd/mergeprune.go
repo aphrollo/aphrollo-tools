@@ -346,7 +346,11 @@ func mergePruneWorktrees(mainRepo string) []mergePruneWorktree {
 }
 
 // removeMergedLaneWorktree removes a merged lane's worktree and its local
-// branch, folding in `git worktree prune` so no stale admin record lingers.
+// branch. The successful `worktree remove` has already deleted that lane's
+// admin entry; it never follows up with `git worktree prune`, which would also
+// delete the entry of every OTHER worktree whose directory this process cannot
+// see — a live worktree in the host's /tmp looks missing under systemd
+// PrivateTmp.
 // It never passes --force to `worktree remove`: the caller already proved
 // the tree clean via worktreeHasUncommittedWork immediately before calling
 // this, in the same single-threaded sweep, so a plain removal succeeds on
@@ -358,7 +362,6 @@ func removeMergedLaneWorktree(mainRepo, path, branch string) error {
 	if _, err := git(mainRepo, "worktree", "remove", path); err != nil {
 		return err
 	}
-	_, _ = git(mainRepo, "worktree", "prune")
 	_, err := git(mainRepo, "branch", "-D", "--", branch)
 	return err
 }

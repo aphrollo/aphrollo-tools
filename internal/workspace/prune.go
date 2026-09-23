@@ -15,7 +15,7 @@ import (
 // post-merge cleanup path can re-run on redelivery without wedging. Unlike the
 // `remove` verb it leaves the local branch alone (matching the sweep, which only
 // touches worktrees); deleting the branch stays `remove`'s explicit job. Like the
-// sweep it folds in `git worktree prune` so no stale admin record lingers.
+// sweep it touches the admin entry of that one worktree and no other.
 type PruneTicket struct {
 	top      string // main clone toplevel the worktree belongs to
 	worktree string // the linked worktree dir to remove
@@ -50,9 +50,9 @@ func PruneTicketPlan(repo, branch, into string) (*PruneTicket, error) {
 
 // Run removes the ticket's worktree idempotently. apply=false previews. A
 // worktree that no longer exists is reported "already gone" with no error — the
-// idempotency guarantee — and still folds in `git worktree prune` so a stale
-// admin record left by an out-of-band removal is swept on that path too. git's
-// own "is not a working tree" message is treated the same way.
+// idempotency guarantee — and still drops that worktree's own admin entry, so a
+// record left by an out-of-band removal is cleared on that path too. git's own
+// "is not a working tree" message is treated the same way.
 func (p *PruneTicket) Run(apply bool, stdout, stderr io.Writer) error {
 	_, statErr := os.Stat(p.worktree)
 	gone := os.IsNotExist(statErr)
@@ -67,9 +67,9 @@ func (p *PruneTicket) Run(apply bool, stdout, stderr io.Writer) error {
 	}
 
 	if gone {
-		// Idempotent: nothing to remove. Sweep any stale admin record git may still
-		// list for the now-absent dir.
-		_ = exec.Command("git", "-C", p.top, "worktree", "prune").Run()
+		// Idempotent: nothing to remove. Drop the admin entry git may still keep
+		// for this one now-absent dir.
+		dropMissingWorktree(p.top, p.worktree)
 		fmt.Fprintf(stdout, "already gone: %s\n", p.worktree)
 		return nil
 	}
@@ -89,8 +89,10 @@ func (p *PruneTicket) Run(apply bool, stdout, stderr io.Writer) error {
 // a worktree is removed ONLY when ALL hold: its PR is MERGED, the tree is CLEAN
 // (no uncommitted changes), and it is not the worktree the caller is standing
 // in. Anything else is SKIPPED with a reason (open PR / no PR / dirty / current)
-// so the sweep never yanks live work. After removing the merged trees it folds
-// in `git worktree prune` to drop any stale admin records left behind.
+// so the sweep never yanks live work. It touches no admin entry of a worktree
+// it did not remove: a directory that looks missing may only be invisible to
+// this process (a systemd PrivateTmp view of the host's /tmp), and its
+// registration belongs to whoever is still working there.
 type Prune struct {
 	Repo  string // repo toplevel whose worktrees are swept
 	Force bool   // remove a MERGED worktree even when it has uncommitted changes
@@ -183,8 +185,8 @@ type pruneDecision struct {
 
 // Run sweeps the repo's worktrees and removes the merged-and-clean ones.
 // apply=false lists what WOULD be pruned and skipped without mutating; apply=true
-// removes them and folds in a `git worktree prune` of stale admin records. Either
-// way it prints a parseable per-worktree receipt plus a tally.
+// removes them. Either way it prints a parseable per-worktree receipt plus a
+// tally.
 func (p *Prune) Run(apply bool, stdout, stderr io.Writer) error {
 	entries, err := linkedWorktrees(p.Repo)
 	if err != nil {
@@ -217,9 +219,6 @@ func (p *Prune) Run(apply bool, stdout, stderr io.Writer) error {
 	verb := "would prune"
 	if apply {
 		verb = "pruned"
-		// Fold in the admin-record prune so any stale entries (worktrees whose
-		// dirs are already gone) are swept in the same call.
-		_ = exec.Command("git", "-C", p.Repo, "worktree", "prune").Run()
 	}
 	// Surface removal failures in the tally so a permission-failed removal is not
 	// hidden behind a clean-looking count.
@@ -361,8 +360,10 @@ func worktreeClean(wt string) bool {
 	return len(strings.TrimSpace(string(out))) == 0
 }
 
-// removeWorktree runs `git worktree remove` (with --force when requested),
-// followed by `git worktree prune` so the admin record never lingers.
+// removeWorktree runs `git worktree remove` (with --force when requested). A
+// successful remove has already deleted that worktree's admin entry; it never
+// follows up with `git worktree prune`, which would also delete the entry of
+// every OTHER worktree whose directory this process cannot see.
 func removeWorktree(repo, wt string, force bool) error {
 	args := []string{"-C", repo, "worktree", "remove"}
 	if force {
@@ -372,6 +373,13 @@ func removeWorktree(repo, wt string, force bool) error {
 	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
 		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
 	}
-	_ = exec.Command("git", "-C", repo, "worktree", "prune").Run()
 	return nil
+}
+
+// dropMissingWorktree deletes the admin entry of the one linked worktree at wt,
+// whose directory is already gone. `git worktree remove` of a missing directory
+// drops exactly that entry; an entry git does not know, or a locked one, is left
+// as it is.
+func dropMissingWorktree(repo, wt string) {
+	_ = exec.Command("git", "-C", repo, "worktree", "remove", wt).Run()
 }
