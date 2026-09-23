@@ -319,60 +319,18 @@ func seamVars(c *checked) (map[types.Object]bool, []seamWrite) {
 	out := map[types.Object]bool{}
 	var writes []seamWrite
 	scope := c.Pkg.Scope()
-	mark := func(e ast.Expr) {
-		for {
-			switch x := e.(type) {
-			case *ast.ParenExpr:
-				e = x.X
-				continue
-			case *ast.SelectorExpr:
-				if !valueTyped(c, x.X) {
-					return
-				}
-				e = x.X
-				continue
-			case *ast.IndexExpr:
-				if !valueTyped(c, x.X) {
-					return
-				}
-				e = x.X
-				continue
-			case *ast.Ident:
-				if v, ok := c.Info.Uses[x].(*types.Var); ok && scope.Lookup(v.Name()) == v {
-					out[v] = true
-					writes = append(writes, seamWrite{obj: v, at: x.Pos()})
-				}
-			}
-			return
-		}
-	}
 	for _, f := range c.Files {
-		ast.Inspect(f, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.AssignStmt:
-				if x.Tok != token.DEFINE {
-					for _, l := range x.Lhs {
-						mark(l)
-					}
-				}
-			case *ast.IncDecStmt:
-				mark(x.X)
-			case *ast.UnaryExpr:
-				if x.Op == token.AND {
-					mark(x.X)
-				}
-			case *ast.RangeStmt:
-				if x.Tok == token.ASSIGN {
-					if x.Key != nil {
-						mark(x.Key)
-					}
-					if x.Value != nil {
-						mark(x.Value)
-					}
-				}
+		ids := make([]*ast.Ident, 0)
+		for id := range writtenIdents(c, f) {
+			ids = append(ids, id)
+		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i].Pos() < ids[j].Pos() })
+		for _, id := range ids {
+			if v, ok := c.Info.Uses[id].(*types.Var); ok && scope.Lookup(v.Name()) == v {
+				out[v] = true
+				writes = append(writes, seamWrite{obj: v, at: id.Pos()})
 			}
-			return true
-		})
+		}
 	}
 	return out, writes
 }

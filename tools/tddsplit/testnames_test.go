@@ -71,3 +71,34 @@ func TestRun_SharedTestTypeAliasesFollowTheTestsThatNameThem(t *testing.T) {
 		t.Errorf("the defined type box was copied:\n%s", data)
 	}
 }
+
+// A helper copy that assigns, or takes the address of, a var landing in
+// another package would write the consumer's alias, not the var: a func
+// seam's alias is a call-through func that cannot be assigned at all. The
+// copy is reported and never emitted.
+func TestAnalyze_NeverCopiesAHelperThatWritesAVarAcrossTheSplit(t *testing.T) {
+	files := map[string]string{
+		"go.mod":      "module example.com/fx\n\ngo 1.26\n",
+		"p/a.go":      "package p\n\nvar probe = func() bool { return true }\n\nfunc viaProbe() bool { return probe() }\n",
+		"p/a_test.go": "package p\n\nfunc stubByAddress(fn func() bool) func() { prev := probe; set(&probe, fn); return func() { probe = prev } }\n\nfunc set(p *func() bool, fn func() bool) { *p = fn }\n\nfunc stubDirect(fn func() bool) { probe = fn }\n",
+		"p/b.go":      "package p\n\n// Use reaches across the split.\nfunc Use() bool { return viaProbe() }\n",
+		"p/b_test.go": "package p\n\nimport \"testing\"\n\nfunc TestP_Stubs(t *testing.T) {\n\tdefer stubByAddress(func() bool { return false })()\n\tstubDirect(func() bool { return true })\n}\n",
+	}
+	manifest := "root p\n[packages]\nlow L0 p/low\np L1 p\n[files]\na.go low\na_test.go low\nb.go p\nb_test.go p\n"
+	a := analyzeFixture(t, files, manifest, "L0")
+	gen := string(a.Generated["p/tddtest_wrappers_test.go"])
+	for _, name := range []string{"stubByAddress", "stubDirect"} {
+		if strings.Contains(gen, "func "+name+"(") {
+			t.Errorf("helper %s, which writes low's probe, was copied into p:\n%s", name, gen)
+		}
+		found := false
+		for _, r := range a.Reports {
+			if strings.Contains(r, "test helper "+name+" ") && strings.Contains(r, "writes") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no report says %s writes a var across the split; reports:\n%s", name, strings.Join(a.Reports, "\n"))
+		}
+	}
+}

@@ -83,6 +83,7 @@ func (s *splitter) carryHelper(c *checked, consumer string, obj types.Object, wh
 	refused := false
 	scope := c.Pkg.Scope()
 	for _, n := range h.nodes() {
+		written := writtenIdents(c, n)
 		ast.Inspect(n, func(n ast.Node) bool {
 			id, ok := n.(*ast.Ident)
 			if !ok {
@@ -103,6 +104,11 @@ func (s *splitter) carryHelper(c *checked, consumer string, obj types.Object, wh
 			at := where
 			if hs, ok := c.srcOf(id.Pos()); ok {
 				at = fmt.Sprintf("%s:%d", hs.Path, c.Fset.Position(id.Pos()).Line)
+			}
+			if _, isVar := used.(*types.Var); isVar && written[id] {
+				s.site(fmt.Sprintf("test helper %s is not carried into package %s: it writes %s (declared in %s, package %s), and across the split the write would reach only an alias; give package %s a Set...ForTest setter and call it", obj.Name(), consumer, used.Name(), decl.Path, from, from), at)
+				refused = true
+				return true
 			}
 			switch {
 			case decl.isTest() && carriable(used):
@@ -285,4 +291,63 @@ func (s *splitter) renderHelpers(c *checked, add func(outKey, entry)) {
 			add(key, entry{Order: order, Name: obj.Name(), Text: b.String(), Imports: imports})
 		}
 	}
+}
+
+// writtenIdents returns the identifiers in n that name a variable being
+// written: assigned, incremented, ranged into, or having its address taken,
+// following writes through fields and elements of values held by value, the
+// way seamVars judges a package var.
+func writtenIdents(c *checked, n ast.Node) map[*ast.Ident]bool {
+	out := map[*ast.Ident]bool{}
+	mark := func(e ast.Expr) {
+		for {
+			switch x := e.(type) {
+			case *ast.ParenExpr:
+				e = x.X
+				continue
+			case *ast.SelectorExpr:
+				if !valueTyped(c, x.X) {
+					return
+				}
+				e = x.X
+				continue
+			case *ast.IndexExpr:
+				if !valueTyped(c, x.X) {
+					return
+				}
+				e = x.X
+				continue
+			case *ast.Ident:
+				out[x] = true
+			}
+			return
+		}
+	}
+	ast.Inspect(n, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.AssignStmt:
+			if x.Tok != token.DEFINE {
+				for _, l := range x.Lhs {
+					mark(l)
+				}
+			}
+		case *ast.IncDecStmt:
+			mark(x.X)
+		case *ast.UnaryExpr:
+			if x.Op == token.AND {
+				mark(x.X)
+			}
+		case *ast.RangeStmt:
+			if x.Tok == token.ASSIGN {
+				if x.Key != nil {
+					mark(x.Key)
+				}
+				if x.Value != nil {
+					mark(x.Value)
+				}
+			}
+		}
+		return true
+	})
+	return out
 }
