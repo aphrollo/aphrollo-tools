@@ -273,3 +273,31 @@ func TestMechanical_AnUnownedCargoFileLeavesTheTreeUnproven(t *testing.T) {
 		t.Fatalf("the gate vouched for this tree (%q) even though misc.rs has no owning cargo package and nothing tested it (suites run: %v)", note, ran)
 	}
 }
+
+// suiteRanGreen is process-wide and was never reset: a second gate in the
+// same process inherited the first one's "a suite ran green", and stamped
+// its own tree green without running anything. Each gate entry point starts
+// the flag afresh, as it starts the proof ledger.
+func TestStampGreenSuite_ASecondGateInOneProcessDoesNotInheritTheFirstsGreen(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+	var ran []Runner
+	if note := noteAfterGate(t, root, func() GateResult { return Mechanical(root, recordRunner(&ran, root)) }); note == "" {
+		t.Fatalf("premise broken — the first gate ran no green suite; runs %+v", ran)
+	}
+
+	// The second gate: a commit gate over a Go source change, which runs no
+	// suite at all.
+	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 2 }\n")
+	gitDo(t, root, "add", ".")
+	if res := Precommit(root, recordRunner(&ran, root)); res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	StampGreenSuiteIfProven(root)
+
+	if stamped, ok := readCurrentGreenSuiteStamp(root); ok {
+		t.Fatalf("the commit gate ran no suite, yet stamped tree %s green on the first gate's flag", stamped)
+	}
+}

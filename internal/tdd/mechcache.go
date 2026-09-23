@@ -49,8 +49,32 @@ func mechCachePath() string {
 // different runner argv (a differently-scoped run) never satisfies a lookup
 // for the full suite. A root outside any git repo keys on itself, so
 // unrelated non-repo projects never collapse into one key.
+//
+// The project root's place in the repo is part of the key too. The state
+// hash is taken over the repo-wide diff and a command names paths relative
+// to the root it runs in, so two roots of one repo running one command (two
+// Go modules each running `go test ./pkg`) otherwise share a key, and one
+// root's green answered the other's lookup: a red suite read as cache-hit.
 func mechKey(root, stateHash string, r Runner) string {
-	return mechKeyRepo(root) + "\x00" + stateHash + "\x00" + r.Cmd + " " + strings.Join(r.Args, " ")
+	return mechKeyPrefix(root, stateHash) + r.Cmd + " " + strings.Join(r.Args, " ")
+}
+
+// mechKeyPrefix is every mechKey for root at stateHash, up to the command:
+// the part a lookup that accepts any command matches on.
+func mechKeyPrefix(root, stateHash string) string {
+	return mechKeyRepo(root) + "\x00" + mechKeyRoot(root) + "\x00" + stateHash + "\x00"
+}
+
+// mechKeyRoot is root's path inside its worktree (`a/` for module a, "" at
+// the top), which is the same in every linked worktree of the repo, so the
+// cache stays shared across them. Outside a repo it is "": mechKeyRepo
+// already keys on root itself there.
+func mechKeyRoot(root string) string {
+	out, err := gitRead(root, "rev-parse", "--show-prefix")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
 }
 
 // mechKeyRepo resolves root to the identity the cache keys on: the repo's

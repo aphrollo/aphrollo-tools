@@ -53,9 +53,13 @@ func proofInputs(repoRoot string, tests []string) []string {
 // correct commit as a fail-first violation. A table the commit only MOVED is
 // the other case -- unchanged data the test reads, whose absence would fail
 // the test for a stale path rather than for missing code.
+//
+// A //go:embed file is judged the same way: compiled into the binary, a
+// template the commit wrote is the implementation its test proves, and one it
+// only moved is unchanged data.
 func isProofWithheldCode(repoRoot, p string) bool {
 	ext := strings.ToLower(path.Ext(filepath.ToSlash(p)))
-	if isCIWorkflow(p) {
+	if isCIWorkflow(p) || embeddedByGo(repoRoot, p) {
 		return stagedContentChanged(repoRoot, p)
 	}
 	if !sourceExts[ext] {

@@ -63,9 +63,12 @@ type suiteProofLedger struct {
 
 var suiteProof suiteProofLedger
 
-// resetSuiteProof starts a fresh ledger. Called at the entry of every gate
-// that can end in a claim.
+// resetSuiteProof starts a fresh ledger, and clears suiteRanGreen with it:
+// both describe what THIS gate ran, and a second gate in the same process
+// must not stamp its tree on the first one's green. Called at the entry of
+// every gate that can end in a claim.
 func resetSuiteProof() {
+	suiteRanGreen.Store(false)
 	suiteProof.mu.Lock()
 	defer suiteProof.mu.Unlock()
 	suiteProof.owed, suiteProof.proved = nil, nil
