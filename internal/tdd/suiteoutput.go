@@ -53,6 +53,7 @@ type suiteOutputRecord struct {
 	At       time.Time
 	Stage    string
 	Root     string
+	Dir      string
 	Cmd      string
 	Verdict  string
 	Duration time.Duration
@@ -84,7 +85,7 @@ func retainSuiteOutput(stage, root, cmd, verdict string, res SuiteResult) {
 		return
 	}
 	err := writeSuiteOutputRecord(suiteOutputRecord{
-		At: time.Now().UTC(), Stage: stage, Root: root, Cmd: cmd,
+		At: time.Now().UTC(), Stage: stage, Root: root, Dir: res.Dir, Cmd: cmd,
 		Verdict: verdict, Duration: res.Duration, Output: res.Output,
 	})
 	if err != nil {
@@ -151,6 +152,9 @@ func renderSuiteOutputRecord(rec suiteOutputRecord) string {
 	fmt.Fprintf(&b, "at: %s\n", rec.At.UTC().Format(time.RFC3339))
 	fmt.Fprintf(&b, "stage: %s\n", rec.Stage)
 	fmt.Fprintf(&b, "root: %s\n", rec.Root)
+	if rec.Dir != "" {
+		fmt.Fprintf(&b, "dir: %s\n", rec.Dir)
+	}
 	fmt.Fprintf(&b, "command: %s\n", rec.Cmd)
 	fmt.Fprintf(&b, "verdict: %s\n", rec.Verdict)
 	fmt.Fprintf(&b, "duration: %.1fs\n", rec.Duration.Seconds())
