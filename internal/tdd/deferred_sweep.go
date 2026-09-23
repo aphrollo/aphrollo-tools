@@ -104,7 +104,7 @@ func killLivePID(path string) {
 // where the files are, and a scan that creates state directories is a scan
 // that lies about what is there.
 func deferredDirPath() string {
-	base := stateDir()
+	base := StateDir()
 	if base == "" {
 		return ""
 	}

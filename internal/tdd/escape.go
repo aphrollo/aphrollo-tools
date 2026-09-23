@@ -93,7 +93,7 @@ type EscapeOptions struct {
 
 // EscapeLogPath is where the records live, "" when there is no state dir.
 func EscapeLogPath() string {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return ""
 	}

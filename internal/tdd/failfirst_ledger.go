@@ -201,5 +201,5 @@ func reportLedgerProofs(root string, proofs []ledgerProof) {
 		parts = append(parts, fmt.Sprintf("%s %s: red at edit %s, green at edit %s", p.file, p.test, p.red, p.green))
 	}
 	fmt.Fprintf(os.Stderr, "[fail-first] gate precommit: postedit ledger in %s → red-proven (%s)\n", root, strings.Join(parts, "; "))
-	appendGateLog("precommit", root, "postedit-ledger", "red-proven", 0)
+	AppendGateLog("precommit", root, "postedit-ledger", "red-proven", 0)
 }

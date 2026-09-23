@@ -77,7 +77,7 @@ type ledgerLine struct {
 }
 
 func editLedgerPath(root string) string {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" || root == "" {
 		return ""
 	}

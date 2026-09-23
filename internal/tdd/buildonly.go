@@ -68,7 +68,7 @@ func buildOnlyTerminal(r Runner, root string, res SuiteResult) string {
 	if untestedVerdict(r, res) != BuildOnly {
 		return ""
 	}
-	appendGateLog("postedit", root, cmdString(r), BuildOnly, res.Duration)
+	AppendGateLog("postedit", root, cmdString(r), BuildOnly, res.Duration)
 	return buildOnlyAdvisory(r, root, res.Duration)
 }
 

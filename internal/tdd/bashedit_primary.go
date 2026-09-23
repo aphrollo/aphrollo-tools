@@ -25,7 +25,7 @@ func unattributedPrimaryLine(session, root string, changed []string) string {
 	if PrimaryEditsAllowed(session) || mergeInProgressRef(root) != "" {
 		return ""
 	}
-	appendGateLog("postedit", root, logToken(changed[0]), "primary-unattributed-skipped", 0)
+	AppendGateLog("postedit", root, LogToken(changed[0]), "primary-unattributed-skipped", 0)
 	return fmt.Sprintf("gate: → skipped in %s (%d changed path(s) in this merge-only primary checkout, which takes merges, not edits; "+
 		"this command was not seen writing them, so they are no lane's edit: %s — if it did write them, it wrote the primary instead of its lane; the code was NOT tested)",
 		root, len(changed), strings.Join(changed, ", "))

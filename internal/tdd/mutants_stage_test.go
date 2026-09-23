@@ -222,7 +222,7 @@ func makeCatchUpMergeRepo(t *testing.T) string {
 	gitDo(t, root, "checkout", "-q", "lane")
 	gitDo(t, root, "merge", "--no-commit", "--no-ff", "-q", trunk)
 	requireMergeState(t, root, "MERGE_HEAD")
-	if branch := currentBranch(t, root); branchIsTrunk(branch, trunkBranch(root)) {
+	if branch := currentBranch(t, root); branchIsTrunk(branch, TrunkBranch(root)) {
 		t.Fatalf("fixture invariant broken: HEAD is %q, which the gate reads as trunk", branch)
 	}
 	return root

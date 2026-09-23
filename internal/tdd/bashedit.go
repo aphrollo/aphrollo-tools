@@ -276,14 +276,14 @@ func postBashChanges(in bashInput, run SuiteRunner) string {
 	changed, ended, how := withoutEndedMergePaths(before, now, changed)
 	if len(changed) == 0 {
 		if ended > 0 {
-			appendGateLog("postedit", before.Root, "-", fmt.Sprintf("merge-%s-standdown:%d", how, ended), 0)
+			AppendGateLog("postedit", before.Root, "-", fmt.Sprintf("merge-%s-standdown:%d", how, ended), 0)
 			return mergeEndedLine(before.Root, how, ended)
 		}
 		return ""
 	}
 	changed, fromTrunk := trunkSyncOwnPaths(before.Root, changed)
 	if len(changed) == 0 {
-		appendGateLog("postedit", before.Root, "-", fmt.Sprintf("trunk-sync-standdown:%d", fromTrunk), 0)
+		AppendGateLog("postedit", before.Root, "-", fmt.Sprintf("trunk-sync-standdown:%d", fromTrunk), 0)
 		return trunkSyncStandDownLine(before.Root, fromTrunk)
 	}
 	if line := foreignStagedLine(before.Root, changed); line != "" {
@@ -296,7 +296,7 @@ func postBashChanges(in bashInput, run SuiteRunner) string {
 	var notes []string
 	seenRoot := map[string]bool{}
 	for i, rel := range changed {
-		appendGateLog("postedit", before.Root, rel, "bash-edit:"+logToken(rel), 0)
+		AppendGateLog("postedit", before.Root, rel, "bash-edit:"+LogToken(rel), 0)
 		target := filepath.Join(before.Root, filepath.FromSlash(rel))
 		root := FindProjectRoot(target)
 		if root == "" || seenRoot[root] {
@@ -320,7 +320,7 @@ func postBashChanges(in bashInput, run SuiteRunner) string {
 			if skipped := otherRootsAmong(changed[i+1:], before.Root, seenRoot); len(skipped) > 0 {
 				line := fmt.Sprintf("gate: deferred %s skipped, %d other root(s) changed by this command: %s",
 					root, len(skipped), skippedRootsPhrase(skipped))
-				appendGateLog("postedit", before.Root, rel, fmt.Sprintf("bash-roots-skipped:%d", len(skipped)), 0)
+				AppendGateLog("postedit", before.Root, rel, fmt.Sprintf("bash-roots-skipped:%d", len(skipped)), 0)
 				notes = append(notes, line)
 			}
 			break
@@ -364,10 +364,10 @@ func foreignStagedLine(root string, changed []string) string {
 		return ""
 	}
 	if ref := mergeInProgressRef(root); ref != "" {
-		appendGateLog("postedit", root, logToken(hits[0]), "merge-in-progress-standdown", 0)
+		AppendGateLog("postedit", root, LogToken(hits[0]), "merge-in-progress-standdown", 0)
 		return mergeInProgressLine(root, hits)
 	}
-	appendGateLog("postedit", root, logToken(hits[0]), "foreign-staged-skipped", 0)
+	AppendGateLog("postedit", root, LogToken(hits[0]), "foreign-staged-skipped", 0)
 	return fmt.Sprintf("gate: → skipped in %s (%d changed path(s) are staged in this merge-only primary's index — "+
 		"another session's work, not this command's: %s; the code was NOT tested)",
 		root, len(hits), strings.Join(hits, ", "))

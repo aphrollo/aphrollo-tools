@@ -44,7 +44,7 @@ func mutantsConfigStage(displayName, repoRoot string) (MutantsConfig, GateResult
 	}
 	msg := fmt.Sprintf("gate %s: mutants → REJECTED\n  %v", displayName, err)
 	fmt.Fprintln(os.Stderr, msg)
-	appendGateLog(displayName, repoRoot, "mutants", "mutants-refused:config", 0)
+	AppendGateLog(displayName, repoRoot, "mutants", "mutants-refused:config", 0)
 	return MutantsConfig{}, mutantsResult(true, msg)
 }
 
@@ -59,19 +59,19 @@ func mutantsStage(displayName, repoRoot string) GateResult {
 	}
 	if !cfg.AtMerge {
 		fmt.Fprintf(os.Stderr, "gate %s: mutants → skipped (this repo declares no mutants-at-merge)\n", displayName)
-		appendGateLog(displayName, repoRoot, "mutants", "mutants-skipped:not-declared", 0)
+		AppendGateLog(displayName, repoRoot, "mutants", "mutants-skipped:not-declared", 0)
 		return mutantsResult(false, "")
 	}
 	if reason, token := mutantsStandDown(repoRoot); token != "" {
 		fmt.Fprintf(os.Stderr, "gate %s: mutants → skipped (%s)\n", displayName, reason)
-		appendGateLog(displayName, repoRoot, "mutants", "mutants-skipped:"+token, 0)
+		AppendGateLog(displayName, repoRoot, "mutants", "mutants-skipped:"+token, 0)
 		return mutantsResult(false, "")
 	}
 	base, why := mergeMeasureBase(repoRoot)
 	if why != "" {
 		msg := fmt.Sprintf("gate %s: mutants → REJECTED\n  %s", displayName, why)
 		fmt.Fprintln(os.Stderr, msg)
-		appendGateLog(displayName, repoRoot, "mutants", "mutants-refused:no-lane-tip", 0)
+		AppendGateLog(displayName, repoRoot, "mutants", "mutants-refused:no-lane-tip", 0)
 		return mutantsResult(true, msg)
 	}
 	fmt.Fprintf(os.Stderr, "gate %s: mutants → measuring the merged tree against %s\n", displayName, base)
@@ -82,7 +82,7 @@ func mutantsStage(displayName, repoRoot string) GateResult {
 		// on one.
 		msg := fmt.Sprintf("gate %s: mutants → REJECTED\n  the mutation run could not start: %v", displayName, err)
 		fmt.Fprintln(os.Stderr, msg)
-		appendGateLog(displayName, repoRoot, "mutants", "mutants-refused:runner-failed", 0)
+		AppendGateLog(displayName, repoRoot, "mutants", "mutants-refused:runner-failed", 0)
 		return mutantsResult(true, msg)
 	}
 	return mutantsResult(v.Refused, v.Message)
@@ -110,7 +110,7 @@ func mutantsStandDown(repoRoot string) (reason, token string) {
 	if ref := mergeInProgressRef(repoRoot); ref != "" && ref != mergeHeadRef {
 		return ref + " in progress, which is not a merge", "not-a-merge"
 	}
-	trunk := trunkBranch(repoRoot)
+	trunk := TrunkBranch(repoRoot)
 	branch := gitOut(repoRoot, "rev-parse", "--abbrev-ref", "HEAD")
 	if trunk == "" || branch == "" || branch == "HEAD" || branchIsTrunk(branch, trunk) {
 		// No trunk to compare against, a detached HEAD, or HEAD IS trunk:

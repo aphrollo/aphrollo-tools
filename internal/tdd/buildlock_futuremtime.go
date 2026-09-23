@@ -78,7 +78,7 @@ type futureMtimeMarker struct {
 // resolved, in which case every run is treated as a first offense — the
 // same fallback gate.log itself takes when unconfigured.
 func futureMtimeMarkerPath(target string) string {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return ""
 	}
@@ -175,7 +175,7 @@ func invalidateFutureStampedArtifacts(target string) {
 		fmt.Fprintf(os.Stderr,
 			"gate: %s is future-stamped again (%s, mtime %s, %s ahead of now) after a repair already ran at %s — the clock looks persistently wrong, not a one-off; not wiping again (fix the system clock)\n",
 			target, futurePath, futureMTime.Format(time.RFC3339), ahead, prior.WipedAt.Format(time.RFC3339))
-		appendGateLog("buildlock", target, "future-mtime", "repeat-no-wipe", 0)
+		AppendGateLog("buildlock", target, "future-mtime", "repeat-no-wipe", 0)
 		return
 	}
 	suspect := ""
@@ -185,7 +185,7 @@ func invalidateFutureStampedArtifacts(target string) {
 	fmt.Fprintf(os.Stderr,
 		"gate: %s carries a future-stamped artifact (%s, mtime %s, %s ahead of now)%s — the whole target dir is untrustworthy, wiping it before the build\n",
 		target, futurePath, futureMTime.Format(time.RFC3339), ahead, suspect)
-	appendGateLog("buildlock", target, "future-mtime", "target-wiped", 0)
+	AppendGateLog("buildlock", target, "future-mtime", "target-wiped", 0)
 	os.RemoveAll(target)
 	storeFutureMtimeMarker(target, now)
 }

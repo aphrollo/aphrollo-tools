@@ -45,7 +45,7 @@ func TestDecideBashSuite_DeniesUnnarrowedWholeSuiteWithAFreshVerdict(t *testing.
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "go test ./...", "green", 0)
+	AppendGateLog("postedit", root, "go test ./...", "green", 0)
 
 	d := decideBash(t, "s1", root, "go test ./...")
 	if d.Action != Block {
@@ -78,7 +78,7 @@ func TestDecideBashSuite_AllowsANarrowedRerunAfterAFreshVerdict(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "go test ./...", "timeout", 0)
+	AppendGateLog("postedit", root, "go test ./...", "timeout", 0)
 
 	d := decideBash(t, "s1", root, "go test -run TestWidget ./...")
 	if d.Action != Allow {
@@ -96,7 +96,7 @@ func TestDecideBashSuite_AllowsACargoPackageNarrowedRerun(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "cargo test", "timeout", 0)
+	AppendGateLog("postedit", root, "cargo test", "timeout", 0)
 
 	d := decideBash(t, "s1", root, "cargo test -p widgets widget_roundtrip")
 	if d.Action != Allow {
@@ -110,7 +110,7 @@ func TestDecideBashSuite_AllowsACargoNextestPackageNarrowedRerun(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "cargo nextest run", "queued-skipped", 0)
+	AppendGateLog("postedit", root, "cargo nextest run", "queued-skipped", 0)
 
 	d := decideBash(t, "s1", root, "cargo nextest run -p widgets")
 	if d.Action != Allow {
@@ -124,7 +124,7 @@ func TestDecideBashSuite_DeniesUnnarrowedCargoNextestWithAFreshVerdict(t *testin
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("precommit", root, "cargo nextest run", "red", 0)
+	AppendGateLog("precommit", root, "cargo nextest run", "red", 0)
 
 	d := decideBash(t, "s1", root, "cargo nextest run")
 	if d.Action != Block {
@@ -142,7 +142,7 @@ func TestDecideBashSuite_DenyReasonNamesTheExistingVerdict(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "go test ./...", "green", 0)
+	AppendGateLog("postedit", root, "go test ./...", "green", 0)
 
 	d := decideBash(t, "s1", root, "go test ./...")
 	if strings.Contains(d.Reason, "gate mutants status") {
@@ -181,7 +181,7 @@ func TestDecideBashSuite_CountsANarrowedRerunBesideAFreshVerdict(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "go test ./...", "timeout", 0)
+	AppendGateLog("postedit", root, "go test ./...", "timeout", 0)
 
 	raw := bashPayload(t, "s1", root, "go test -run TestWidget ./...")
 	d, judged := DecideBashSuite(raw)
@@ -217,7 +217,7 @@ func TestDecideBashSuite_JudgesPowerShellLikeBash(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "go test ./...", "green", 0)
+	AppendGateLog("postedit", root, "go test ./...", "green", 0)
 
 	d, judged := DecideBashSuite(powerShellPayload(t, "s1", root, "go test ./..."))
 	if !judged {
@@ -246,7 +246,7 @@ func TestDecideBashSuite_DeniesANarrowedRerunBesideAFreshGreen(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "go test ./internal/tdd", "green", 0)
+	AppendGateLog("postedit", root, "go test ./internal/tdd", "green", 0)
 
 	d := decideBash(t, "s1", root, "go test -run TestWidget ./internal/tdd")
 	if d.Action != Block {
@@ -261,7 +261,7 @@ func TestDecideBashSuite_DeniesANarrowedRerunBesideAFreshRed(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "go test ./internal/tdd", "red", 0)
+	AppendGateLog("postedit", root, "go test ./internal/tdd", "red", 0)
 
 	d := decideBash(t, "s1", root, "go test -run TestWidget ./internal/tdd")
 	if d.Action != Block {
@@ -277,7 +277,7 @@ func TestDecideBashSuite_AllowsANarrowedRerunAfterAnAbandonedDeferredJob(t *test
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "go test ./internal/tdd", DeferredAbandoned, 0)
+	AppendGateLog("postedit", root, "go test ./internal/tdd", DeferredAbandoned, 0)
 
 	d := decideBash(t, "s1", root, "go test -run TestWidget ./internal/tdd")
 	if d.Action != Allow {
@@ -320,7 +320,7 @@ func TestDecideBashSuite_NarrowedDenyReasonNamesTheHonestRoutesBeforeTheMutation
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "go test ./...", "green", 0)
+	AppendGateLog("postedit", root, "go test ./...", "green", 0)
 
 	d := decideBash(t, "s1", root, "go test -run TestWidget ./internal/tdd")
 	if d.Action != Block {
@@ -347,7 +347,7 @@ func TestDecideBashSuite_AllowsAndCountsNextestIgnoredOnlyRun(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "cargo nextest run -p forge_lab", "green", 0)
+	AppendGateLog("postedit", root, "cargo nextest run -p forge_lab", "green", 0)
 
 	raw := bashPayload(t, "s1", root,
 		"cargo nextest run -p forge_lab --release --run-ignored ignored-only "+
@@ -370,7 +370,7 @@ func TestDecideBashSuite_AllowsAndCountsCargoTestIgnoredOnlyRun(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "cargo test -p widgets", "green", 0)
+	AppendGateLog("postedit", root, "cargo test -p widgets", "green", 0)
 
 	raw := bashPayload(t, "s1", root, "cargo test -p widgets -- --ignored")
 	d, judged := DecideBashSuite(raw)
@@ -392,7 +392,7 @@ func TestDecideBashSuite_BlocksNextestRunIgnoredAll(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "cargo nextest run -p forge_lab", "green", 0)
+	AppendGateLog("postedit", root, "cargo nextest run -p forge_lab", "green", 0)
 
 	d := decideBash(t, "s1", root, "cargo nextest run -p forge_lab --run-ignored all")
 	if d.Action != Block {
@@ -406,7 +406,7 @@ func TestDecideBashSuite_BlocksCargoTestIncludeIgnored(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "cargo test -p widgets", "green", 0)
+	AppendGateLog("postedit", root, "cargo test -p widgets", "green", 0)
 
 	d := decideBash(t, "s1", root, "cargo test -p widgets -- --include-ignored")
 	if d.Action != Block {
@@ -421,7 +421,7 @@ func TestDecideBashSuite_StillBlocksAnOrdinaryNarrowedRerunBesideAFreshGreen(t *
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "cargo nextest run -p forge_lab", "green", 0)
+	AppendGateLog("postedit", root, "cargo nextest run -p forge_lab", "green", 0)
 
 	d := decideBash(t, "s1", root, "cargo nextest run -p forge_lab -E 'test(some_other_test)'")
 	if d.Action != Block {
@@ -437,7 +437,7 @@ func TestDecideBashSuite_NarrowedDenyReasonDoesNotNameADifferentCheckoutEscape(t
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "go test ./...", "green", 0)
+	AppendGateLog("postedit", root, "go test ./...", "green", 0)
 
 	d := decideBash(t, "s1", root, "go test -run TestWidget ./internal/tdd")
 	if d.Action != Block {
@@ -462,7 +462,7 @@ func TestDecideBashSuite_AllowsAndCountsAMarkedMutationProof(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "go test ./internal/tdd", "green", 0)
+	AppendGateLog("postedit", root, "go test ./internal/tdd", "green", 0)
 
 	raw := bashPayload(t, "s1", root, "MUTATION=1 go test -run TestWidget ./internal/tdd")
 	d, judged := DecideBashSuite(raw)

@@ -25,7 +25,7 @@ import (
 func finishMeasure(root string, cfg MutantsConfig, mutants []MutantOutcome, log io.Writer) Verdict {
 	v := judgeMutants(cfg, mutants)
 	logf(log, "%s", v.Message)
-	appendGateLog("mutants", measureLogRoot(root), "mutants", measureLogVerdict(v), 0)
+	AppendGateLog("mutants", measureLogRoot(root), "mutants", measureLogVerdict(v), 0)
 	runMutantsAfter(root, cfg, v, log)
 	return v
 }
@@ -162,7 +162,7 @@ func measureReport(v Verdict, notes []acceptNote) string {
 func measureSkipped(root, reason, token string, log io.Writer) Verdict {
 	v := Verdict{Skipped: reason, Message: "mutants: " + reason}
 	logf(log, "%s", v.Message)
-	appendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-skipped:"+token, 0)
+	AppendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-skipped:"+token, 0)
 	return v
 }
 
@@ -176,7 +176,7 @@ func measureSkipped(root, reason, token string, log io.Writer) Verdict {
 func measureUnmeasured(root, why, token string, log io.Writer) Verdict {
 	v := Verdict{NotMeasured: why, Message: "mutants: " + unmeasuredNote(why)}
 	logf(log, "%s", v.Message)
-	appendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-unmeasured:"+token, 0)
+	AppendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-unmeasured:"+token, 0)
 	return v
 }
 
@@ -211,16 +211,16 @@ func measureNoVerdict(root, logDir string, code int, cause error, log io.Writer)
 	// directory and nothing about the reason (issue #600).
 	msg += measureDiskNote(root)
 	logf(log, "%s", msg)
-	appendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-refused:no-verdict", 0)
+	AppendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-refused:no-verdict", 0)
 	return Verdict{Refused: true, Message: msg}
 }
 
 // measureLogRoot is how the gate log names the tree that was measured.
 func measureLogRoot(root string) string {
 	if r := RepoRoot(root); r != "" {
-		return logToken(r)
+		return LogToken(r)
 	}
-	return logToken(root)
+	return LogToken(root)
 }
 
 // measureLogVerdict carries criterion 12's counts into the gate log, so

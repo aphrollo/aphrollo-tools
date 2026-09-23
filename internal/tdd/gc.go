@@ -95,7 +95,7 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 		out = append(out, gcIncremental(ResolveCargoTargetDir(repo), olderThan, time.Now())...)
 	}
 	if scope.GateDirs {
-		if dir := stateDir(); dir != "" {
+		if dir := StateDir(); dir != "" {
 			out = append(out, gcStaleGateDirs(dir)...)
 		}
 		out = append(out, gcDeferredJobFiles(deferredDirPath(), deferredJobMaxAge, time.Now())...)

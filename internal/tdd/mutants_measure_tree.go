@@ -122,7 +122,7 @@ func refuseIfTreeChanged(root string, before worktreeSnapshot, log io.Writer) (V
 	}
 	msg := b.String()
 	logf(log, "%s", msg)
-	appendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-refused:tree-changed", 0)
+	AppendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-refused:tree-changed", 0)
 	return Verdict{Refused: true, Message: msg}, true
 }
 
@@ -143,7 +143,7 @@ func refuseIfGitFailed(root string, before, after worktreeSnapshot, log io.Write
 	msg := "mutants: refused — git could not read the working tree, so the tree the run measured cannot be " +
 		"compared with the one it started from: " + said
 	logf(log, "%s", msg)
-	appendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-refused:git-failed", 0)
+	AppendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-refused:git-failed", 0)
 	return Verdict{Refused: true, Message: msg}, true
 }
 

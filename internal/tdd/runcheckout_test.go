@@ -18,7 +18,7 @@ func TestDecideBashSuite_AllowsALaneRerunBesideThePrimarysVerdict(t *testing.T) 
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	primary := bashSuiteRoot(t)
 	lane := bashSuiteRoot(t)
-	appendGateLog("premergecommit", primary, "cargo nextest run", "green", 0)
+	AppendGateLog("premergecommit", primary, "cargo nextest run", "green", 0)
 
 	cmd := "cd " + filepath.ToSlash(lane) + " && cargo nextest run -p server -p client"
 	d := decideBash(t, "s1", primary, cmd)
@@ -36,7 +36,7 @@ func TestDecideBashSuite_AllowsALaneWholeSuiteBesideThePrimarysVerdict(t *testin
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	primary := bashSuiteRoot(t)
 	lane := bashSuiteRoot(t)
-	appendGateLog("premergecommit", primary, "go test ./...", "green", 0)
+	AppendGateLog("premergecommit", primary, "go test ./...", "green", 0)
 
 	cmd := "cd " + filepath.ToSlash(lane) + " && go test ./..."
 	d := decideBash(t, "s1", primary, cmd)
@@ -55,7 +55,7 @@ func TestDecideBashSuite_StillDeniesANarrowedRerunReachedByCdIntoTheSameRoot(t *
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
 	elsewhere := t.TempDir()
-	appendGateLog("postedit", root, "go test ./...", "green", 0)
+	AppendGateLog("postedit", root, "go test ./...", "green", 0)
 
 	cmd := "cd " + filepath.ToSlash(root) + " && go test -run TestWidget ./..."
 	d := decideBash(t, "s1", elsewhere, cmd)
@@ -72,7 +72,7 @@ func TestDecideBashSuite_StillDeniesAWholeSuiteRunFromASubdirectoryOfTheVerdicts
 	root := bashSuiteRoot(t)
 	write(t, root, filepath.Join("internal", "widget", "widget.go"), "package widget\n")
 	sub := filepath.Join(root, "internal", "widget")
-	appendGateLog("postedit", root, "go test ./...", "green", 0)
+	AppendGateLog("postedit", root, "go test ./...", "green", 0)
 
 	cmd := "cd " + filepath.ToSlash(sub) + " && go test ./..."
 	d := decideBash(t, "s1", root, cmd)
@@ -88,7 +88,7 @@ func TestDecideBashSuite_ReadsTheRunDirFromCargosManifestPath(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	primary := bashSuiteRoot(t)
 	lane := bashSuiteRoot(t)
-	appendGateLog("premergecommit", primary, "cargo test", "green", 0)
+	AppendGateLog("premergecommit", primary, "cargo test", "green", 0)
 
 	cmd := "cargo test --manifest-path " + filepath.ToSlash(filepath.Join(lane, "Cargo.toml")) + " -p server"
 	d := decideBash(t, "s1", primary, cmd)
@@ -104,7 +104,7 @@ func TestDecideBashSuite_ReadsTheRunDirFromGoTestsChangeDirFlag(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	primary := bashSuiteRoot(t)
 	lane := bashSuiteRoot(t)
-	appendGateLog("postedit", primary, "go test ./...", "green", 0)
+	AppendGateLog("postedit", primary, "go test ./...", "green", 0)
 
 	cmd := "go test -C " + filepath.ToSlash(lane) + " ./..."
 	d := decideBash(t, "s1", primary, cmd)
@@ -122,7 +122,7 @@ func TestDecideBashSuite_DoesNotReadGitDashCAsACdForTheRunner(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
 	elsewhere := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "go test ./...", "green", 0)
+	AppendGateLog("postedit", root, "go test ./...", "green", 0)
 
 	cmd := "git -C " + filepath.ToSlash(elsewhere) + " status && go test -run TestWidget ./..."
 	d := decideBash(t, "s1", root, cmd)
@@ -140,7 +140,7 @@ func TestDecideBashSuite_LogsADeniedLaneRunAgainstTheLanesRoot(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	primary := bashSuiteRoot(t)
 	lane := bashSuiteRoot(t)
-	appendGateLog("postedit", lane, "go test ./...", "green", 0)
+	AppendGateLog("postedit", lane, "go test ./...", "green", 0)
 
 	raw := bashPayload(t, "s1", primary, "cd "+filepath.ToSlash(lane)+" && go test ./...")
 	d, judged := DecideBashSuite(raw)
@@ -149,7 +149,7 @@ func TestDecideBashSuite_LogsADeniedLaneRunAgainstTheLanesRoot(t *testing.T) {
 	}
 	LogBashSuiteDecision(raw, d)
 	text := gateLogText(t, cfg)
-	if !strings.Contains(text, logToken(lane)) {
+	if !strings.Contains(text, LogToken(lane)) {
 		t.Fatalf("gate.log must name %s as the denied run's root:\n%s", lane, text)
 	}
 }
@@ -161,7 +161,7 @@ func TestDecideBashSuite_FallsBackToTheSessionCwdWhenTheCdIsUnresolvable(t *test
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
-	appendGateLog("postedit", root, "go test ./...", "green", 0)
+	AppendGateLog("postedit", root, "go test ./...", "green", 0)
 
 	d := decideBash(t, "s1", root, "cd $LANE && go test -run TestWidget ./...")
 	if d.Action != Block {

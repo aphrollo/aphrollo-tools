@@ -56,7 +56,7 @@ func resolveEmptySelection(run SuiteRunner, snap stateSnapshot, root, headSHA st
 	for _, step := range steps {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
-			appendGateLog("postedit", root, cmdString(out.runner), NoTestsSelected, out.res.Duration)
+			AppendGateLog("postedit", root, cmdString(out.runner), NoTestsSelected, out.res.Duration)
 			out.terminal = widenBudgetSpentAdvisory(out.runner, step, root, out.res.Duration)
 			return out
 		}
@@ -73,7 +73,7 @@ func resolveEmptySelection(run SuiteRunner, snap stateSnapshot, root, headSHA st
 			return out
 		}
 	}
-	appendGateLog("postedit", root, cmdString(out.runner), NoTestsSelected, out.res.Duration)
+	AppendGateLog("postedit", root, cmdString(out.runner), NoTestsSelected, out.res.Duration)
 	out.terminal = noTestsSelectedAdvisory(narrow, out.runner, root, len(steps) > 0, out.res.Duration)
 	return out
 }
@@ -105,7 +105,7 @@ func cargoFullSuiteAlreadyGreenLine(r Runner, root string) string {
 	if !mechCacheHit(mechKey(root, h, full)) {
 		return ""
 	}
-	appendGateLog("postedit", root, cmdString(full), "cache-hit", 0)
+	AppendGateLog("postedit", root, cmdString(full), "cache-hit", 0)
 	return fmt.Sprintf("gate: %s in %s → cache-hit (this crate's suite already verified green in this exact state; not re-run)",
 		cmdString(full), root)
 }

@@ -123,7 +123,7 @@ func goQualityStage(gateName, repoRoot, root string, touched []string, run Suite
 	}
 	if !lookLinter() {
 		fmt.Fprintf(os.Stderr, "gate %s: %s is not installed — lint skipped in %s\n", gateName, golangciLint, root)
-		appendGateLog(gateName, root, golangciLint+" run ./...", "lint-skipped", 0)
+		AppendGateLog(gateName, root, golangciLint+" run ./...", "lint-skipped", 0)
 		return GateResult{}
 	}
 	noteLintVersionDrift(gateName, repoRoot, root)
@@ -262,13 +262,13 @@ func goFmtStage(gateName, repoRoot, root string, touched []string) GateResult {
 	}
 	if unreadable > 0 {
 		fmt.Fprintf(os.Stderr, "gate %s: gofmt could not read %d staged file(s) at their index path in %s\n", gateName, unreadable, root)
-		appendGateLog(gateName, root, "gofmt", "gofmt-index-unreadable", 0)
+		AppendGateLog(gateName, root, "gofmt", "gofmt-index-unreadable", 0)
 	}
 	if len(dirty) == 0 {
 		return GateResult{}
 	}
 	sort.Strings(dirty)
-	appendGateLog(gateName, root, "gofmt", "gofmt-blocked", 0)
+	AppendGateLog(gateName, root, "gofmt", "gofmt-blocked", 0)
 	return GateResult{Blocked: true, Message: fmt.Sprintf(
 		"gate %s: gofmt → REJECTED\n  %s\n  run `gofmt -w <file> && git add <file>`; a checkout older than "+
 			"this repo's .gitattributes needs a one-time `git add --renormalize .` instead (see README)",
@@ -331,7 +331,7 @@ func noteLintVersionDrift(gateName, repoRoot, root string) {
 	}
 	fmt.Fprintf(os.Stderr, "gate %s: %s is %s locally, CI pins %s — running anyway; the two can disagree\n",
 		gateName, golangciLint, local, pinned)
-	appendGateLog(gateName, root, golangciLint+" "+local+" vs "+pinned, "lint-version-drift", 0)
+	AppendGateLog(gateName, root, golangciLint+" "+local+" vs "+pinned, "lint-version-drift", 0)
 }
 
 // pinnedLinterVersion reads the version the workflow installs. "" when there
@@ -379,7 +379,7 @@ func goCheckStage(gateName, stage, root string, r Runner, run SuiteRunner) GateR
 		})
 	case !res.Passed:
 		fmt.Fprintf(os.Stderr, "gate %s: %s in %s → blocked\n", gateName, stage, root)
-		appendGateLog(gateName, root, cmdString(r), stage+"-blocked", res.Duration)
+		AppendGateLog(gateName, root, cmdString(r), stage+"-blocked", res.Duration)
 		var b strings.Builder
 		fmt.Fprintf(&b, "TDD quality: %s failed in %s — fix before committing.\n", stage, root)
 		fmt.Fprintf(&b, "command: %s\n", cmdString(r))
@@ -458,14 +458,14 @@ func docsCheckStage(gateName, repoRoot string) GateResult {
 	}
 	if len(findings) == 0 {
 		fmt.Fprintf(os.Stderr, "gate %s: docs → clean (%d file(s))\n", gateName, len(md))
-		appendGateLog(gateName, repoRoot, "docs check", "docs-clean", 0)
+		AppendGateLog(gateName, repoRoot, "docs check", "docs-clean", 0)
 		return GateResult{}
 	}
 	lines := make([]string, 0, len(findings))
 	for _, f := range findings {
 		lines = append(lines, f.String())
 	}
-	appendGateLog(gateName, repoRoot, "docs check", "docs-rejected", 0)
+	AppendGateLog(gateName, repoRoot, "docs check", "docs-rejected", 0)
 	return GateResult{Blocked: true, Message: fmt.Sprintf(
 		"gate %s: docs → REJECTED\n  %s\n  a cited path must resolve; fix the link or add the file",
 		gateName, strings.Join(lines, "\n  "))}

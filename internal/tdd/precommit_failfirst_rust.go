@@ -55,7 +55,7 @@ func failFirstStageWithRustNotice(repoRoot, root string, tests, srcs []string, r
 	line := fmt.Sprintf("gate precommit: fail-first in %s → inconclusive (rust inline #[cfg(test)] unit test — "+
 		"fail-first cannot isolate it from its file's source changes in the same diff)", root)
 	fmt.Fprintln(os.Stderr, line)
-	appendGateLog("precommit", root, "", "inconclusive (rust-inline-test)", 0)
+	AppendGateLog("precommit", root, "", "inconclusive (rust-inline-test)", 0)
 	return res
 }
 

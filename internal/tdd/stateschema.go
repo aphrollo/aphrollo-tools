@@ -39,7 +39,7 @@ func noteStateOnce(verdict, path string) {
 	if _, seen := stateNoticed.LoadOrStore(key, true); seen {
 		return
 	}
-	appendGateLog("state", filepath.Dir(path), "state file", verdict+":"+filepath.Base(path), 0)
+	AppendGateLog("state", filepath.Dir(path), "state file", verdict+":"+filepath.Base(path), 0)
 }
 
 // readStateJSON decodes a schema-stamped state file into v. It reports false

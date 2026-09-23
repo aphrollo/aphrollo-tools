@@ -141,7 +141,7 @@ func TestStatusLine_CarriesNoRedWord(t *testing.T) {
 func TestStatusLine_APrecommitGreenAfterAPostEditRedRendersGreen(t *testing.T) {
 	root := statusRoot(t)
 	stampOutcomeAt(t, "s1", root, string(Red), time.Now().Add(-time.Minute))
-	appendGateLog("precommit", root, "cargo nextest run", "green", 12*time.Second)
+	AppendGateLog("precommit", root, "cargo nextest run", "green", 12*time.Second)
 
 	got := StatusLine(statusPayload(t, "s1", root))
 	if !strings.HasPrefix(got, ansiGreen) {
@@ -155,7 +155,7 @@ func TestStatusLine_APrecommitGreenAfterAPostEditRedRendersGreen(t *testing.T) {
 func TestStatusLine_AGreenInAnotherProjectLeavesTheRedStanding(t *testing.T) {
 	root := statusRoot(t)
 	stampOutcomeAt(t, "s1", root, string(Red), time.Now().Add(-time.Minute))
-	appendGateLog("precommit", filepath.Join(t.TempDir(), "other"), "cargo nextest run", "green", time.Second)
+	AppendGateLog("precommit", filepath.Join(t.TempDir(), "other"), "cargo nextest run", "green", time.Second)
 
 	if got := StatusLine(statusPayload(t, "s1", root)); !strings.HasPrefix(got, ansiRed) {
 		t.Fatalf("StatusLine = %q, want the red to stand", got)
@@ -200,7 +200,7 @@ func TestStatusLine_ClearsAredForAProjectWhosePathHasASpace(t *testing.T) {
 		t.Fatal(err)
 	}
 	stampOutcomeAt(t, "s1", root, string(Red), time.Now().Add(-time.Minute))
-	appendGateLog("precommit", root, "cargo nextest run", "green", 12*time.Second)
+	AppendGateLog("precommit", root, "cargo nextest run", "green", 12*time.Second)
 
 	if got := StatusLine(statusPayload(t, "s1", root)); !strings.HasPrefix(got, ansiGreen) {
 		t.Fatalf("a later green must clear the red whatever the path looks like, got %q", got)
@@ -218,7 +218,7 @@ func TestStatusLine_SeesAQueuedRunForAProjectWhosePathHasASpace(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/m\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	appendGateLog("postedit", root, "cargo nextest run", "queued-skipped", 0)
+	AppendGateLog("postedit", root, "cargo nextest run", "queued-skipped", 0)
 
 	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:queued]" {
 		t.Fatalf("StatusLine = %q, want the queued tag", got)
@@ -234,7 +234,7 @@ func TestStatusLine_SeesAQueuedRunForAProjectWhosePathHasASpace(t *testing.T) {
 func TestStatusLine_LastRunQueuedMatchesARootLoggedWithDifferentCasing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := filepath.Join(t.TempDir(), "myrepo")
-	appendGateLog("postedit", root, "cargo nextest run", "queued-skipped", 0)
+	AppendGateLog("postedit", root, "cargo nextest run", "queued-skipped", 0)
 
 	differentCase := strings.ToUpper(root)
 	got := lastRunQueued(differentCase)
@@ -308,7 +308,7 @@ func TestStatusLine_DropsDeferredOnceTheResultLanded(t *testing.T) {
 // mistaken for green: QUEUED-SKIPPED means the suite never ran at all.
 func TestStatusLine_ReportsThatTheLastRunOnlyQueued(t *testing.T) {
 	root := statusRoot(t)
-	appendGateLog("postedit", root, "cargo nextest run", "queued-skipped", 0)
+	AppendGateLog("postedit", root, "cargo nextest run", "queued-skipped", 0)
 	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo:queued]" {
 		t.Fatalf("StatusLine = %q, want %q", got, "[aphrollo:queued]")
 	}
@@ -318,8 +318,8 @@ func TestStatusLine_ReportsThatTheLastRunOnlyQueued(t *testing.T) {
 // reads the LAST run for this project, not any queued run ever.
 func TestStatusLine_ForgetsAQueuedRunOnceOneActuallyRan(t *testing.T) {
 	root := statusRoot(t)
-	appendGateLog("postedit", root, "cargo nextest run", "queued-skipped", 0)
-	appendGateLog("postedit", root, "cargo nextest run", "green", time.Second)
+	AppendGateLog("postedit", root, "cargo nextest run", "queued-skipped", 0)
+	AppendGateLog("postedit", root, "cargo nextest run", "green", time.Second)
 	if got := plain(StatusLine(statusPayload(t, "s1", root))); got != "[aphrollo]" {
 		t.Fatalf("StatusLine = %q, want a bare badge", got)
 	}

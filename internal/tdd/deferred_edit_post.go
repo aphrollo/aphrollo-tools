@@ -21,15 +21,15 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	defer func() { advisory = joinDeferredAdvisory(carried, advisory) }()
 	out := runEditPhases(snap.runner, root, target, headSHA, fileHash, session, snap.editID, budget)
 	if out.spawnFailed {
-		appendGateLog("postedit", root, cmdString(snap.runner), InfraFailed, 0)
+		AppendGateLog("postedit", root, cmdString(snap.runner), InfraFailed, 0)
 		return spawnFailedLine(root, "build"), false
 	}
 	if out.deferred {
-		appendGateLog("postedit", root, cmdString(snap.runner), "deferred", 0)
+		AppendGateLog("postedit", root, cmdString(snap.runner), "deferred", 0)
 		return out.notice, true
 	}
 	if out.infra {
-		appendGateLog("postedit", root, cmdString(snap.runner), InfraFailed, out.res.Duration)
+		AppendGateLog("postedit", root, cmdString(snap.runner), InfraFailed, out.res.Duration)
 		return infraFailureLine(root, out.job, out.res), false
 	}
 	res := out.res

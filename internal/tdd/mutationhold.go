@@ -201,7 +201,7 @@ func mutationHoldDir() (string, error) {
 	if session == "" {
 		return "", errNoMutationSession
 	}
-	base := stateDir()
+	base := StateDir()
 	if base == "" {
 		return "", errors.New("no gate state directory (CLAUDE_CONFIG_DIR or a home directory) to hold a working state in")
 	}

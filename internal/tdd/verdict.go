@@ -84,12 +84,12 @@ func verdictFor(gateName, stage, root, cmd string, o stageOutcome) GateResult {
 	case outcomeSkipped:
 		line := fmt.Sprintf("[%s] gate %s: in %s → skipped (%s)", stage, gateName, root, o.reason)
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog(gateName, root, cmd, "skipped", o.result.Duration)
+		AppendGateLog(gateName, root, cmd, "skipped", o.result.Duration)
 		return GateResult{Message: line}
 	case outcomeRunnerMissing:
 		line := fmt.Sprintf("[%s] gate %s: in %s → skipped (%s)", stage, gateName, root, o.reason)
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog(gateName, root, cmd, "runner-missing", 0)
+		AppendGateLog(gateName, root, cmd, "runner-missing", 0)
 		return GateResult{Message: line}
 	case outcomeTimeout:
 		// A timeout is the one verdict where the code under test may be
@@ -102,12 +102,12 @@ func verdictFor(gateName, stage, root, cmd string, o stageOutcome) GateResult {
 		line := fmt.Sprintf("[%s] gate %s: %s in %s TIMEOUT after %.0fs REJECTED (nothing was tested)\n%s",
 			stage, gateName, cmd, root, o.result.Duration.Seconds(), load)
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog(gateName, root, cmd, "timeout-rejected", o.result.Duration)
+		AppendGateLog(gateName, root, cmd, "timeout-rejected", o.result.Duration)
 		return GateResult{Blocked: true, Message: o.message + "\n" + load}
 	case outcomeCheckError:
 		line := fmt.Sprintf("[%s] gate %s: in %s → REJECTED (%v)", stage, gateName, root, o.err)
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog(gateName, root, cmd, "check-error-rejected", 0)
+		AppendGateLog(gateName, root, cmd, "check-error-rejected", 0)
 		return GateResult{Blocked: true, Message: o.message}
 	case outcomeFail:
 		fmt.Fprintf(os.Stderr, "[%s] gate %s: %s in %s → blocked\n", stage, gateName, cmd, root)
@@ -117,12 +117,12 @@ func verdictFor(gateName, stage, root, cmd string, o stageOutcome) GateResult {
 		line := fmt.Sprintf("[%s] gate %s: %s in %s → REJECTED (0 tests executed; nothing was tested)",
 			stage, gateName, cmd, root)
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog(gateName, root, cmd, "vacuous-rejected", o.result.Duration)
+		AppendGateLog(gateName, root, cmd, "vacuous-rejected", o.result.Duration)
 		return GateResult{Blocked: true, Message: o.message}
 	case outcomeContention:
 		line := fmt.Sprintf("[%s] gate %s: %s in %s → REJECTED (box contention: %s)", stage, gateName, cmd, root, o.reason)
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog(gateName, root, cmd, "contention-rejected", o.result.Duration)
+		AppendGateLog(gateName, root, cmd, "contention-rejected", o.result.Duration)
 		return GateResult{Blocked: true, Message: o.message}
 	default:
 		// outcomeUnset (a stageOutcome literal that never set kind) and any
@@ -134,7 +134,7 @@ func verdictFor(gateName, stage, root, cmd string, o stageOutcome) GateResult {
 		line := fmt.Sprintf("[%s] gate %s: %s in %s → REJECTED (unclassified stage outcome kind %d)",
 			stage, gateName, cmd, root, o.kind)
 		fmt.Fprintln(os.Stderr, line)
-		appendGateLog(gateName, root, cmd, "unclassified-outcome-rejected", 0)
+		AppendGateLog(gateName, root, cmd, "unclassified-outcome-rejected", 0)
 		return GateResult{Blocked: true, Message: line}
 	}
 }

@@ -16,7 +16,7 @@ import (
 // mutantsStateDir holds the run's logs and the last measured baseline, beside
 // the gate's other state and never in the repo.
 func mutantsStateDir() string {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return ""
 	}

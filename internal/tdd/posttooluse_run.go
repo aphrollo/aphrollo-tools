@@ -25,7 +25,7 @@ func runPostEditSuite(run SuiteRunner, snap stateSnapshot, root, headSHA string,
 		// timeout (which means "it ran and blew its budget") and must never
 		// touch the timeout streak: lock contention has nothing to do with
 		// whether THIS project's suite is slow.
-		appendGateLog("postedit", root, cmdString(snap.runner), "queued-skipped", 0)
+		AppendGateLog("postedit", root, cmdString(snap.runner), "queued-skipped", 0)
 		return res, queuedSkippedAdvisory(root, runnerTargetDir(snap.runner, root))
 	}
 	if res.TimedOut {
@@ -37,7 +37,7 @@ func runPostEditSuite(run SuiteRunner, snap stateSnapshot, root, headSHA string,
 			snap.state.StampTimeout(root, headSHA)
 			_ = snap.state.Save(snap.statePath)
 		}
-		appendGateLog("postedit", root, cmdString(snap.runner), "timeout", res.Duration)
+		AppendGateLog("postedit", root, cmdString(snap.runner), "timeout", res.Duration)
 		return res, timeoutAdvisory(snap.runner, root, res.Duration)
 	}
 	if treatAsEmptyPass(res) {

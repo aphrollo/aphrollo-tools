@@ -97,9 +97,12 @@ func claudeConfigDir() string {
 	return filepath.Join(home, ".claude")
 }
 
-// stateDir is where per-session state files live. It honours CLAUDE_CONFIG_DIR
-// (the same location the Node hooks used) and falls back to ~/.claude.
-func stateDir() string {
+// StateDir is where the gate keeps its per-session state, gate.log and its
+// caches. It honours CLAUDE_CONFIG_DIR (the same location the Node hooks used)
+// and falls back to ~/.claude. Exported so a sibling package (the ratchet
+// engine's scan cache) can share the one directory without re-deriving the
+// CLAUDE_CONFIG_DIR rule.
+func StateDir() string {
 	base := claudeConfigDir()
 	if base == "" {
 		return ""
@@ -135,7 +138,7 @@ func loadSession(session string) (*sessionState, string) {
 	if session == "" {
 		return nil, ""
 	}
-	path := filepath.Join(stateDir(), session+".json")
+	path := filepath.Join(StateDir(), session+".json")
 	s := &sessionState{ByProject: map[string]projectState{}}
 	// A file written at a NEWER schema is read as absent AND kept: returning
 	// an empty save path makes every write through this session a no-op, so
@@ -278,12 +281,6 @@ func markWorktreeWarned(session string) bool {
 	return true
 }
 
-// AppendGateLog is appendGateLog for the shims, which live in another package
-// and still have to record a decision they made.
-func AppendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
-	appendGateLog(stage, root, cmd, verdict, dur)
-}
-
 // appendGateLogWarnOnce keeps a failed gate.log write to one line per
 // process: appendGateLog fires on every stage transition, and a screenful of
 // identical complaints would bury the one fact that matters — the trail has
@@ -318,14 +315,15 @@ func quoteVerdict(verdict string) string {
 	return verdict
 }
 
-// appendGateLog appends one line to <stateDir>/gate.log:
+// AppendGateLog appends one line to <stateDir>/gate.log:
 // "<RFC3339> <precommit|postedit> <root> <cmd> <verdict> <secs>s" — so a
 // session (or a human) can reconstruct what every gate stage actually did,
 // not just what the LAST advisory said. Best-effort: a logging failure never
 // affects the gate's actual decision, only its trail — but that failure is
-// no longer silent, see warnGateLogUnwritable.
-func appendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
-	dir := stateDir()
+// no longer silent, see warnGateLogUnwritable. Exported for the shims, which
+// live in another package and still have to record a decision they made.
+func AppendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
+	dir := StateDir()
 	if dir == "" {
 		warnGateLogUnwritable("no state directory (CLAUDE_CONFIG_DIR unset and no resolvable home)")
 		return
@@ -355,7 +353,7 @@ func appendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
 	// wraps it in a Go string literal instead, which parseGateLine's
 	// quotedVerdict unwraps byte-for-byte (issue #467).
 	fmt.Fprintf(f, "%s %s %s %s %s %.1fs\n",
-		time.Now().UTC().Format(time.RFC3339), stage, logToken(root), cmd, quoteVerdict(verdict), dur.Seconds())
+		time.Now().UTC().Format(time.RFC3339), stage, LogToken(root), cmd, quoteVerdict(verdict), dur.Seconds())
 }
 
 // setOff persists the per-session enforcement override (the `/tdd off|on`
@@ -469,7 +467,7 @@ func hasSchemaKey(path string) bool {
 // legitimate cache aside, from a listing that was never supposed to touch
 // anything.
 func everySessionID() []string {
-	dir := stateDir()
+	dir := StateDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -490,8 +488,3 @@ func everySessionID() []string {
 	}
 	return ids
 }
-
-// StateDir is where the gate keeps its per-session state, gate.log and its
-// caches. Exported so a sibling package (the ratchet engine's scan cache) can
-// share the one directory without re-deriving the CLAUDE_CONFIG_DIR rule.
-func StateDir() string { return stateDir() }

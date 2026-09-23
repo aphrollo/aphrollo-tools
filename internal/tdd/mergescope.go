@@ -54,7 +54,7 @@ func trunkSyncTip(repoRoot string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	trunk := trunkBranch(repoRoot)
+	trunk := TrunkBranch(repoRoot)
 	branch := gitOut(repoRoot, "rev-parse", "--abbrev-ref", "HEAD")
 	if trunk == "" || branch == "" || branch == "HEAD" || branchIsTrunk(branch, trunk) {
 		return "", false

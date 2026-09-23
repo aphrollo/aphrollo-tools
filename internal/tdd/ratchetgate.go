@@ -162,7 +162,7 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 		Proposed:       indexOverlay(repoRoot),
 		Tracked:        trackedFiles(repoRoot),
 		TrackedIgnored: trackedIgnoredFiles(repoRoot),
-		CacheDir:       stateDir(),
+		CacheDir:       StateDir(),
 		// A diff-scoped law (symbol-removed, co-change, hunk-regex) needs the
 		// commit it is about to land on top of — HEAD, both for a plain
 		// commit and a merge commit — plus, for a `[scope] changed =
@@ -196,11 +196,11 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 	if res.Blocked() {
 		msg := fmt.Sprintf("gate %s: ratchet → REJECTED\n  %s",
 			gateName, strings.Join(res.Lines(), "\n  "))
-		appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-rejected", time.Since(started))
+		AppendGateLog(gateName, repoRoot, "ratchet check", "ratchet-rejected", time.Since(started))
 		return GateResult{Blocked: true, Message: msg}
 	}
 	fmt.Fprintf(os.Stderr, "gate %s: ratchet → clean (%d law(s), %d file(s))\n", gateName, res.Laws, res.FilesScanned)
-	appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-clean", time.Since(started))
+	AppendGateLog(gateName, repoRoot, "ratchet check", "ratchet-clean", time.Since(started))
 
 	if !stagedTouchesLaws(repoRoot) {
 		return GateResult{}
@@ -254,14 +254,14 @@ func ratchetCheckErrorResult(gateName, repoRoot string, err error, started time.
 			"gate %s: ratchet → REJECTED (a scoped file could not be read: %v)\n  the commit cannot be judged against %s — retry once the lock or permission clears",
 			gateName, err, readErr.Path)
 		fmt.Fprintln(os.Stderr, msg)
-		appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-rejected", time.Since(started))
+		AppendGateLog(gateName, repoRoot, "ratchet check", "ratchet-rejected", time.Since(started))
 		return GateResult{Blocked: true, Message: msg}
 	}
 	msg := fmt.Sprintf(
 		"gate %s: ratchet → REJECTED (the law tooling could not run: %v)\n  fix the law file named above, or run `aphrollo update` if this binary predates a schema a law declares",
 		gateName, err)
 	fmt.Fprintln(os.Stderr, msg)
-	appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-rejected", time.Since(started))
+	AppendGateLog(gateName, repoRoot, "ratchet check", "ratchet-rejected", time.Since(started))
 	return GateResult{Blocked: true, Message: msg}
 }
 
@@ -274,7 +274,7 @@ func noteNewerLaws(gateName, repoRoot string, laws []ratchet.NewerLaw) {
 	for _, l := range laws {
 		fmt.Fprintf(os.Stderr, "gate %s: ratchet law %q declares schema %d; this binary supports %d — unknown keys skipped\n",
 			gateName, l.Name, l.Schema, ratchet.SchemaVersion)
-		appendGateLog(gateName, repoRoot, "ratchet check", "ratchet-law-newer:"+logToken(l.Name), 0)
+		AppendGateLog(gateName, repoRoot, "ratchet check", "ratchet-law-newer:"+LogToken(l.Name), 0)
 	}
 }
 
@@ -291,7 +291,7 @@ func noteSkippedLaws(gateName, repoRoot string, laws []ratchet.SkippedLaw) {
 	for _, l := range laws {
 		fmt.Fprintf(os.Stderr, "gate %s: ratchet law %q declares matcher kind %q, unknown to this binary — SKIPPED, not judged; rebuild aphrollo\n",
 			gateName, l.Name, l.Kind)
-		appendGateLog(gateName, repoRoot, "ratchet check", "standdown-unknown-matcher-kind:"+logToken(l.Name), 0)
+		AppendGateLog(gateName, repoRoot, "ratchet check", "standdown-unknown-matcher-kind:"+LogToken(l.Name), 0)
 	}
 }
 
@@ -434,11 +434,11 @@ func ratchetFixtureStage(gateName, repoRoot string) GateResult {
 		}
 	}
 	if len(failures) > 0 {
-		appendGateLog(gateName, repoRoot, "ratchet test", "ratchet-rejected", time.Since(started))
+		AppendGateLog(gateName, repoRoot, "ratchet test", "ratchet-rejected", time.Since(started))
 		return GateResult{Blocked: true, Message: fmt.Sprintf(
 			"gate %s: ratchet fixtures → REJECTED\n  %s", gateName, strings.Join(failures, "\n  "))}
 	}
 	fmt.Fprintf(os.Stderr, "gate %s: ratchet fixtures → green (%d law(s))\n", gateName, tested)
-	appendGateLog(gateName, repoRoot, "ratchet test", "green", time.Since(started))
+	AppendGateLog(gateName, repoRoot, "ratchet test", "green", time.Since(started))
 	return GateResult{}
 }

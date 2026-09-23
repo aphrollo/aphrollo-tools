@@ -35,7 +35,7 @@ type mechCacheFile struct {
 }
 
 func mechCachePath() string {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return ""
 	}

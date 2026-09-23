@@ -94,7 +94,7 @@ func TestSessionStateIsPublishedAtomically(t *testing.T) {
 func TestLoadSessionTreatsANewerSchemaFileAsAbsentAndLogsOnce(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	path := filepath.Join(stateDir(), "newer.json")
+	path := filepath.Join(StateDir(), "newer.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestLoadSessionTreatsANewerSchemaFileAsAbsentAndLogsOnce(t *testing.T) {
 func TestLoadSessionRenamesCorruptStateInsteadOfDiscardingIt(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	path := filepath.Join(stateDir(), "torn.json")
+	path := filepath.Join(StateDir(), "torn.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestLoadSessionRenamesCorruptStateInsteadOfDiscardingIt(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Error("the corrupt file must be moved aside, not left in place")
 	}
-	entries, err := os.ReadDir(stateDir())
+	entries, err := os.ReadDir(StateDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestMechCacheTreatsANewerFileAsAbsent(t *testing.T) {
 // shape it cannot vouch for.
 func TestGateLogStampsItsSchemaBesideTheLog(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	appendGateLog("postedit", "/repo", "go test ./...", "green", 0)
+	AppendGateLog("postedit", "/repo", "go test ./...", "green", 0)
 
 	data, err := os.ReadFile(GateLogPath() + ".meta")
 	if err != nil {

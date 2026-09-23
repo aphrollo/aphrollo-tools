@@ -173,7 +173,7 @@ func reportSuitesNotRun(gateName, root, noun string, runner Runner, touched []st
 	cmd := cmdString(runner)
 	fmt.Fprintf(os.Stderr, "[mechanical] gate %s: %s in %s → NOT RUN — %s not tested here; a touched %s's suite runs at the merge gate, so this pass is not a green for it\n",
 		gateName, cmd, root, strings.Join(touched, ", "), noun)
-	appendGateLog(gateName, root, cmd, "suites-not-run", 0)
+	AppendGateLog(gateName, root, cmd, "suites-not-run", 0)
 }
 
 // suiteNoun names a root's own suite scope in its own language, for

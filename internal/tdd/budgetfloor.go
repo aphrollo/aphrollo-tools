@@ -131,7 +131,7 @@ func recordedSuiteFloor(stage, cmd string) suiteFloor {
 // GateStats treats one: the log is append-only text written by several
 // processes.
 func recordedSuiteSecs(stage, cmd string, window time.Duration) []float64 {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return nil
 	}

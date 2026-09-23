@@ -742,7 +742,7 @@ seams.go                                           tddtest
 [relocate]
 indexTree                                     autoescape.go                autoescape_suite.go
 suiteRanGreen                                 autoescape.go                autoescape_suite.go
-trunkBranch                                   baselineguard.go             baselineguard_gitx.go
+TrunkBranch                                   baselineguard.go             baselineguard_gitx.go
 bashSnapshot                                  bashedit.go                  bashedit_core.go
 bashSuiteVerdictFreshFor                      bashsuite.go                 bashsuite_suite.go
 cargoNextestNarrowingFlags                    bashsuite.go                 bashsuite_suite.go
@@ -788,7 +788,7 @@ headSHAFor                                    deferred_edit.go             defer
 runnerDir                                     deferred_edit.go             deferred_edit_suite.go
 suiteAttrs                                    deferred_unix.go             deferred_unix_suite.go
 suiteAttrs                                    deferred_windows.go          deferred_windows_suite.go
-logToken                                      denylog.go                   denylog_core.go
+LogToken                                      denylog.go                   denylog_core.go
 DoctorCheck                                   doctor.go                    doctor_mutation.go
 DoctorInput                                   doctor.go                    doctor_mutation.go
 samePath                                      doctor.go                    doctor_core.go

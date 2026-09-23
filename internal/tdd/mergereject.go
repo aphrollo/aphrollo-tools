@@ -42,7 +42,7 @@ func repoStateKey(repoRoot string) string {
 // marker to recognise that IT caused the rejection and clean up
 // automatically. "" when there is no state dir or no repoRoot to key on.
 func MergeRejectedMarkerPath(repoRoot string) string {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" || repoRoot == "" {
 		return ""
 	}

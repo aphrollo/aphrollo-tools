@@ -11,7 +11,7 @@ import (
 // GateLogPath is where the gate writes its log, "" when there is no state
 // dir. Exported so the stats command can read it.
 func GateLogPath() string {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return ""
 	}

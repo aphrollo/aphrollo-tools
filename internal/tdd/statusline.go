@@ -141,7 +141,7 @@ func isGreenVerdict(verdict string) bool {
 // lastVerdictFor is the last verdict any stage logged for this project, or ""
 // when the log has nothing to say about it.
 func lastVerdictFor(root string) string {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return ""
 	}
@@ -198,7 +198,7 @@ func redStands(session, root string, now time.Time) bool {
 // cleared a red within the same second still cleared it.
 // twin: internal/tdd/statusline.go#lastRunQueued
 func greenLoggedSince(root string, at time.Time) bool {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return false
 	}
@@ -254,7 +254,7 @@ func deferredBuildRunning(session, root string, now time.Time) bool {
 // QUEUED-SKIPPED: the suite never started, which is the outcome most easily
 // mistaken for a quiet green. A later run of any kind clears it.
 func lastRunQueued(root string) bool {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return false
 	}

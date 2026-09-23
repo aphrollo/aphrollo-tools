@@ -74,7 +74,7 @@ func notCompiledTerminal(r Runner, root, target string, res SuiteResult) string 
 	if cargoNestedTestFileReachable(root, rel) {
 		return ""
 	}
-	appendGateLog("postedit", root, cmdString(r), NotCompiled, res.Duration)
+	AppendGateLog("postedit", root, cmdString(r), NotCompiled, res.Duration)
 	return notCompiledAdvisory(r, root, rel, res.Duration)
 }
 

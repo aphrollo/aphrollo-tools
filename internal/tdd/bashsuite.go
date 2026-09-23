@@ -314,7 +314,7 @@ func lastFreshSuiteVerdict(root string, want runScope) (gateEntry, bool) {
 // (a timeout is exactly the case the narrowed escape exists for, and is not
 // itself a "fresh verdict" a whole-suite run could be denied over).
 func lastSuiteLogEntry(root string, window time.Duration) (gateEntry, bool) {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return gateEntry{}, false
 	}
@@ -362,11 +362,11 @@ func LogBashSuiteDecision(raw []byte, d Decision) {
 	if root == "" {
 		root = in.Cwd
 	}
-	cmd := logToken(in.ToolInput.Command)
+	cmd := LogToken(in.ToolInput.Command)
 	if d.Action == Block {
-		appendGateLog("preedit", logToken(root), cmd, "pretooluse-denied:"+logToken(policyName(d)), 0)
+		AppendGateLog("preedit", LogToken(root), cmd, "pretooluse-denied:"+LogToken(policyName(d)), 0)
 	}
 	for _, esc := range d.Escapes {
-		appendGateLog("preedit", logToken(root), cmd, logToken(esc), 0)
+		AppendGateLog("preedit", LogToken(root), cmd, LogToken(esc), 0)
 	}
 }

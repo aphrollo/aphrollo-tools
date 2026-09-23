@@ -202,7 +202,7 @@ func refuseOnDisk(root string, want int, unit string, log io.Writer) (Verdict, i
 		"a run that fills the drive dies mid-way and takes every verdict with it",
 		free, unit, formatBytes(needs[0].total()), shardNeedText(needs[0]), formatBytes(mutantsDiskReserveBytes))
 	logf(log, "%s", msg)
-	appendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-refused:disk", 0)
+	AppendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-refused:disk", 0)
 	return Verdict{Refused: true, Message: msg}, 0, true
 }
 

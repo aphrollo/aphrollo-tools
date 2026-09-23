@@ -35,13 +35,13 @@ func widenDeferredSelection(narrow Runner, root, target, headSHA, fileHash, sess
 		out := runEditPhases(step, root, target, headSHA, fileHash, session, editID, time.Until(deadline))
 		switch {
 		case out.spawnFailed:
-			appendGateLog("postedit", root, cmdString(step), InfraFailed, 0)
+			AppendGateLog("postedit", root, cmdString(step), InfraFailed, 0)
 			return deferredWidening{terminal: spawnFailedLine(root, "build")}
 		case out.deferred:
-			appendGateLog("postedit", root, cmdString(step), "deferred", 0)
+			AppendGateLog("postedit", root, cmdString(step), "deferred", 0)
 			return deferredWidening{terminal: wideningBuildingLine(last, step, root), running: true}
 		case out.infra:
-			appendGateLog("postedit", root, cmdString(step), InfraFailed, out.res.Duration)
+			AppendGateLog("postedit", root, cmdString(step), InfraFailed, out.res.Duration)
 			return deferredWidening{terminal: infraFailureLine(root, out.job, out.res)}
 		}
 		wres := out.res
@@ -53,7 +53,7 @@ func widenDeferredSelection(narrow Runner, root, target, headSHA, fileHash, sess
 			return deferredWidening{runner: step, res: wres, note: widenedNote(narrow, step)}
 		}
 	}
-	appendGateLog("postedit", root, cmdString(last), NoTestsSelected, lastRes.Duration)
+	AppendGateLog("postedit", root, cmdString(last), NoTestsSelected, lastRes.Duration)
 	return deferredWidening{terminal: noTestsSelectedAdvisory(narrow, last, root, len(steps) > 0, lastRes.Duration)}
 }
 

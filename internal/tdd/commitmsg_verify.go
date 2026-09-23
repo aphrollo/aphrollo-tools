@@ -62,7 +62,7 @@ func verificationClaimCheck(repoRoot, body string) (GateResult, bool) {
 	if verdict == "" {
 		verdict = "no precommit run recorded"
 	}
-	appendGateLog("commitmsg", logToken(repoRoot), "commit-msg", "commitmsg-rejected:claim", 0)
+	AppendGateLog("commitmsg", LogToken(repoRoot), "commit-msg", "commitmsg-rejected:claim", 0)
 	return GateResult{Blocked: true, Message: fmt.Sprintf(
 		"gate commit-msg: this message claims verification, but no green suite ran against the tree being "+
 			"committed — the last precommit verdict for this tree is %q.\nRewrite the claim to match what actually ran, then commit again.",
@@ -163,7 +163,7 @@ func readCurrentGreenSuiteStamp(repoRoot string) (string, bool) {
 // at all, not to say what it found, so surfacing it here would quote "ran"
 // back at every rejection regardless of what actually happened.
 func lastPrecommitVerdict(root string) string {
-	dir := stateDir()
+	dir := StateDir()
 	if dir == "" {
 		return ""
 	}

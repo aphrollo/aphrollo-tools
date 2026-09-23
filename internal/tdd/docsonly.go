@@ -68,7 +68,7 @@ func commentOnlyFastPath(gateName, repoRoot string) GateResult {
 // what it runs compiles anything.
 func buildFreeFastPath(gateName, repoRoot, kind, reason string, runSuppression bool) GateResult {
 	fmt.Fprintf(os.Stderr, "gate %s: %s → %s fast path (baseline, laws, doc citations; no suite, no build lock)\n", gateName, reason, kind)
-	appendGateLog(gateName, repoRoot, kind, kind+"-fastpath", 0)
+	AppendGateLog(gateName, repoRoot, kind, kind+"-fastpath", 0)
 
 	var notes []string
 	for _, stage := range []func(string, string) GateResult{baselineStage, ratchetStage, docsCheckStage} {

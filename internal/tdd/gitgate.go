@@ -243,7 +243,7 @@ func installGitGate(hooksDir, bin string) (bool, error) {
 				// Recorded through the same ledger `gate stats` reads, naming
 				// the previous value as the root so it can be restored by
 				// hand if the reclaim turns out to have been wrong.
-				appendGateLog(gitGateStage, cur, "core.hooksPath -> "+hooksDir, "hookspath-dangling-repaired", 0)
+				AppendGateLog(gitGateStage, cur, "core.hooksPath -> "+hooksDir, "hookspath-dangling-repaired", 0)
 			} else {
 				return false, fmt.Errorf(
 					"refusing to overwrite existing global core.hooksPath %q.\n"+

@@ -154,7 +154,7 @@ func BinaryBehindLine(now time.Time) string {
 			// The transition OUT of failure is as much a state change as the
 			// one into it — logged once, here, never on a plain success that
 			// never failed.
-			appendGateLog(binaryBehindStage, "", binaryBehindCmd, binaryBehindRecovered, 0)
+			AppendGateLog(binaryBehindStage, "", binaryBehindCmd, binaryBehindRecovered, 0)
 		}
 		head = h
 		if path != "" {
@@ -232,7 +232,7 @@ func recentlyFailedBinaryBehindLookup(c binaryBehindCache, now time.Time) bool {
 // problem the doctor's own "lock dirs writable" check exists to catch.
 func recordBinaryBehindFailure(path string, prev binaryBehindCache, now time.Time, kind string) {
 	if prev.FailKind != kind {
-		appendGateLog(binaryBehindStage, "", binaryBehindCmd, kind, 0)
+		AppendGateLog(binaryBehindStage, "", binaryBehindCmd, kind, 0)
 	}
 	prev.FailedAt = now
 	prev.FailKind = kind

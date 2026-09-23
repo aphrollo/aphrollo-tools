@@ -17,7 +17,7 @@ func TestPrecommit_TrunkMergePreview_BlocksWhenTrunkRenameBreaksLaneMerge(t *tes
 	withLinter(t, false)
 	root := makeGoRepo(t)
 
-	trunk := trunkBranch(root)
+	trunk := TrunkBranch(root)
 	if trunk == "" {
 		t.Fatal("setup: could not resolve a trunk branch for the fixture repo")
 	}

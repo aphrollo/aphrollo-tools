@@ -39,7 +39,7 @@ func TestGateDirs_RecordTheirOriginAtCreation(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := map[string]bool{}
-	for _, c := range gcStaleGateDirs(stateDir()) {
+	for _, c := range gcStaleGateDirs(StateDir()) {
 		found[c.Path] = true
 	}
 	if !found[wt] {
