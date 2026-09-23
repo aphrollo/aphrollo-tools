@@ -33,8 +33,8 @@ func bashWriteTargets(cmd, cwd string) []string {
 	}
 	var out []string
 	cur := cwd
-	for _, seg := range shellSegments(stripHeredocBodies(cmd)) {
-		if dir, ok := cdTarget(seg); ok {
+	for _, seg := range shellSegmentsTokens(stripHeredocBodies(cmd)) {
+		if dir, ok := cdTarget(wordTexts(seg)); ok {
 			cur = resolveAgainst(cur, dir)
 			continue
 		}
@@ -134,9 +134,49 @@ func terminatorLine(lines []string, from int, delim string) int {
 // a newline. Each segment is returned as its words.
 func shellSegments(cmd string) [][]string {
 	var segs [][]string
-	var cur []string
-	for _, w := range shellWords(cmd) {
-		switch w {
+	for _, seg := range shellSegmentsTokens(cmd) {
+		segs = append(segs, wordTexts(seg))
+	}
+	return segs
+}
+
+// shellWord is one token from shellWordTokens, paired with a same-length
+// "raw" rendering: text is the literal argument content (quotes stripped,
+// escapes resolved) — what the filesystem sees. raw mirrors it rune-for-rune
+// except every rune produced by a quote or a backslash escape is replaced by
+// escapedRune, which can never be a digit or `>` — so an argument like
+// `">file"` or `"5>out"`, which only LOOKS like a redirect once its quotes
+// are stripped, is never mistaken for shell syntax (issue #725: a merge
+// marker inside a quoted grep pattern read as a write). An operator word
+// (`;`, `&&`, ...) is never quoted or escaped: its raw equals its text.
+type shellWord struct {
+	text string
+	raw  string
+}
+
+// escapedRune is raw's sentinel for a quoted or backslash-escaped source
+// rune. It is neither a digit nor `>`, so it can never complete a redirect's
+// fd-prefix or operator when splitRedirect scans raw for one.
+const escapedRune = '\x00'
+
+// wordTexts drops the raw half of each shellWord, for the many callers that
+// only ever match on literal text (command names, flags) and do not need to
+// tell shell syntax from quoted content.
+func wordTexts(words []shellWord) []string {
+	out := make([]string, len(words))
+	for i, w := range words {
+		out[i] = w.text
+	}
+	return out
+}
+
+// shellSegmentsTokens is shellSegments over shellWord, keeping each word's
+// raw half so a redirect scan downstream can tell syntax from content.
+func shellSegmentsTokens(cmd string) [][]shellWord {
+	var segs [][]shellWord
+	var cur []shellWord
+	for _, w := range shellWordTokens(cmd) {
+		switch w.text {
 		case ";", "&&", "||", "|", "&", "\n", "|&":
 			if len(cur) > 0 {
 				segs = append(segs, cur)
@@ -152,22 +192,26 @@ func shellSegments(cmd string) [][]string {
 	return segs
 }
 
-// shellWords splits on whitespace, honouring single and double quotes and
-// backslash escapes, and emitting the control operators as words of their
-// own so shellSegments can cut on them. A quoted word keeps its content and
-// loses its quotes, which is what the filesystem sees.
-func shellWords(cmd string) []string {
+// shellWordTokens is the one character-level shell scanner in this package:
+// every other split (shellWords, shellSegments, shellSegmentsTokens) reuses
+// it rather than re-parsing the command line its own way.
+func shellWordTokens(cmd string) []shellWord {
 	var (
-		words []string
-		cur   strings.Builder
-		has   bool
+		words  []shellWord
+		cur    strings.Builder
+		curRaw strings.Builder
+		has    bool
 	)
 	flush := func() {
 		if has {
-			words = append(words, cur.String())
+			words = append(words, shellWord{text: cur.String(), raw: curRaw.String()})
 			cur.Reset()
+			curRaw.Reset()
 			has = false
 		}
+	}
+	op := func(s string) {
+		words = append(words, shellWord{text: s, raw: s})
 	}
 	runes := []rune(cmd)
 	for i := 0; i < len(runes); i++ {
@@ -176,6 +220,7 @@ func shellWords(cmd string) []string {
 		case c == '\\' && i+1 < len(runes):
 			i++
 			cur.WriteRune(runes[i])
+			curRaw.WriteRune(escapedRune)
 			has = true
 		case c == '\'' || c == '"':
 			quote := c
@@ -185,25 +230,27 @@ func shellWords(cmd string) []string {
 					i++
 				}
 				cur.WriteRune(runes[i])
+				curRaw.WriteRune(escapedRune)
 			}
 		case c == '\n':
 			flush()
-			words = append(words, "\n")
+			op("\n")
 		case c == ' ' || c == '\t' || c == '\r':
 			flush()
 		case c == ';':
 			flush()
-			words = append(words, ";")
+			op(";")
 		case c == '&' || c == '|':
 			flush()
-			op := string(c)
+			s := string(c)
 			if i+1 < len(runes) && (runes[i+1] == c || (c == '|' && runes[i+1] == '&')) {
 				i++
-				op += string(runes[i])
+				s += string(runes[i])
 			}
-			words = append(words, op)
+			op(s)
 		default:
 			cur.WriteRune(c)
+			curRaw.WriteRune(c)
 			has = true
 		}
 	}
@@ -214,7 +261,7 @@ func shellWords(cmd string) []string {
 // writeTargets names every path one simple command would write. Redirections
 // are read wherever they appear; the four write verbs contribute their own
 // operands.
-func writeTargets(words []string) []string {
+func writeTargets(words []shellWord) []string {
 	var out []string
 	var rest []string
 	for i := 0; i < len(words); i++ {
@@ -222,12 +269,12 @@ func writeTargets(words []string) []string {
 		target, sep, ok := splitRedirect(w)
 		switch {
 		case !ok:
-			rest = append(rest, w)
+			rest = append(rest, w.text)
 		case target != "":
 			out = append(out, target)
 		case sep && i+1 < len(words):
 			i++
-			out = append(out, words[i])
+			out = append(out, words[i].text)
 		}
 	}
 	return append(out, verbTargets(rest)...)
@@ -237,24 +284,54 @@ func writeTargets(words []string) []string {
 // optionally prefixed by a file descriptor, with the target either attached
 // (`>out.txt`) or in the next word (`> out.txt`). `2>&1` duplicates a
 // descriptor and writes no file, so it is not a redirection to a path.
-func splitRedirect(w string) (target string, wantsNext, ok bool) {
-	i := strings.IndexByte(w, '>')
+//
+// The fd-prefix and the operator itself are read off raw, never text: a
+// quoted or backslash-escaped `>` reads as escapedRune there, so it can never
+// start or extend a redirect — only a genuinely unquoted `>` in the command
+// line does (issue #725). raw and text are the same length rune-for-rune (see
+// shellWordTokens), so an index into one lands on the same source position in
+// the other; the TARGET text is read from text once the operator is found in
+// raw, since a real redirect's operand may itself be quoted (`2>"out.txt"`).
+func splitRedirect(w shellWord) (target string, wantsNext, ok bool) {
+	raw := []rune(w.raw)
+	i := indexRune(raw, '>')
 	if i < 0 {
 		return "", false, false
 	}
-	// Anything before the `>` must be a bare file descriptor for this to be a
-	// redirection rather than, say, a `-->` flag or a `x>y` argument.
-	if !allDigits(w[:i]) {
+	// Anything before the `>` must be a bare, unquoted file descriptor for
+	// this to be a redirection rather than, say, a `-->` flag or a `x>y`
+	// argument.
+	if !allDigits(string(raw[:i])) {
 		return "", false, false
 	}
-	rest := strings.TrimPrefix(strings.TrimPrefix(w[i+1:], ">"), "|")
-	if strings.HasPrefix(rest, "&") {
+	j := i + 1
+	if j < len(raw) && raw[j] == '>' {
+		j++
+	}
+	if j < len(raw) && raw[j] == '|' {
+		j++
+	}
+	if j < len(raw) && raw[j] == '&' {
 		return "", false, true // fd duplication: writes no path
 	}
-	if rest == "" {
+	text := []rune(w.text)
+	if j >= len(text) {
 		return "", true, true
 	}
-	return rest, false, true
+	return string(text[j:]), false, true
+}
+
+// indexRune returns the rune-index of the first occurrence of r in rs, or -1.
+// A plain rune-slice scan, not a byte offset: raw carries escapedRune (and any
+// genuinely unquoted non-ASCII rune) alongside text, and only an index that
+// counts runes stays aligned between the two.
+func indexRune(rs []rune, r rune) int {
+	for i, c := range rs {
+		if c == r {
+			return i
+		}
+	}
+	return -1
 }
 
 func allDigits(s string) bool {

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // TestGateStatus_NothingGoingOn_StillPrintsEverySection is the plain,
@@ -21,7 +23,7 @@ func TestGateStatus_NothingGoingOn_StillPrintsEverySection(t *testing.T) {
 		t.Fatalf("exit = %d, want 0 (status is read-only and never fails the session)\nstdout: %s\nstderr: %s", code, out.String(), errb.String())
 	}
 	got := out.String()
-	for _, want := range []string{"deferred edit jobs:", "none running", "build slots (", "queue (this checkout):", "not queued"} {
+	for _, want := range []string{"deferred edit jobs:", "none running", "build slots (", "queue (this checkout):", "not queued", "mutation run:", "  idle"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("report missing %q, got:\n%s", want, got)
 		}
@@ -41,6 +43,30 @@ func TestGateStatus_WaitWithNothingRecordedExitsNonZero(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "no deferred edit job") {
 		t.Errorf("stdout = %q, want it to say why there is nothing to wait for", out.String())
+	}
+}
+
+// TestGateStatus_WaitFindsTheJobOfTheTreeItIsNamedFromAnotherCwd pins issue
+// #732: the harness resets the shell cwd to the primary checkout between
+// calls, so a `gate status --wait` resolved from the cwd looked a lane's
+// job up under the primary and answered "no deferred edit job recorded"
+// while the lane's build was running. The BUILDING line names the tree its
+// job belongs to, and --wait given that tree must find the job wherever the
+// shell stands.
+func TestGateStatus_WaitFindsTheJobOfTheTreeItIsNamedFromAnotherCwd(t *testing.T) {
+	gateConfigDir(t)
+	lane := t.TempDir()
+	tdd.RecordFinishedDeferredJobForTest(lane, "s732")
+	inDir(t, t.TempDir())
+
+	var out, errb bytes.Buffer
+	code := Run([]string{"gate", "status", "--wait", lane}, strings.NewReader(""), &out, &errb)
+
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0: the job recorded for %s must be found from another cwd\nstdout: %s\nstderr: %s", code, lane, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), "gate: deferred") {
+		t.Errorf("stdout = %q, want the harvested verdict line", out.String())
 	}
 }
 

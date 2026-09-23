@@ -196,7 +196,10 @@ func TestTDDSkill_TellsTheReaderHowToWaitOnADeferredVerdict(t *testing.T) {
 	t.Parallel()
 	body := TDDSkill()
 	for _, want := range []string{
-		"aphrollo gate status --wait",
+		// The tree the BUILDING line names: a bare --wait resolves the
+		// checkout from the shell cwd, which the harness resets away from
+		// the lane that was edited (issue #732).
+		"aphrollo gate status --wait <tree>",
 		"aphrollo gate stats",
 		"aphrollo gate output",
 	} {

@@ -33,7 +33,9 @@ func lockfileScope(gateName, repoRoot, ws string, wsManifestHit []string) []stri
 		return nil
 	}
 	rel := filepath.ToSlash(wsManifestHit[0])
-	before, ok := gitBlob(repoRoot, "HEAD:"+rel)
+	// The staged set's own base (mergescope.go): HEAD, or the incoming trunk
+	// tip during a trunk sync into a lane.
+	before, ok := gitBlob(repoRoot, stagedBaseRev(repoRoot)+":"+rel)
 	if !ok {
 		fmt.Fprintf(os.Stderr, "gate %s: %s has no HEAD revision to diff against → workspace-wide check\n", gateName, rel)
 		return nil

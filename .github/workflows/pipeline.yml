@@ -941,8 +941,12 @@ jobs:
           # and its post-job save tars+uploads ~5GB that stalls the upload (~98.7%),
           # wedging the run. The persistent disk is the cache.
           cache: false
+      # The -X stamps are the ones `aphrollo update` sets (selfinstall.go's
+      # buildArgs): without them `aphrollo version` prints unstamped and the
+      # hourly behind-origin/main check has nothing to compare, so this box
+      # would never notice a stale binary.
       - name: Build
-        run: go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/aphrollo ./cmd/aphrollo
+        run: go build -trimpath -buildvcs=false -ldflags="-s -w -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.commit=${{ github.sha }} -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.builtAt=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o bin/aphrollo ./cmd/aphrollo
       - name: Deploy
         env:
           GITHUB_SHA: ${{ github.sha }}

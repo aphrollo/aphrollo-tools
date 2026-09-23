@@ -74,8 +74,9 @@ Subcommands:
                     (queued, and behind what), and this checkout's own
                     mutation-run state — what an inconclusive
                     BUILDING/TIMEOUT/QUEUED-SKIPPED gate line points at instead
-                    of a rerun. --wait blocks until THIS checkout's own
-                    deferred edit job has a verdict and prints it verbatim
+                    of a rerun. --wait [<dir>] blocks until the deferred edit
+                    job of this checkout, or of <dir> (the path a BUILDING
+                    line names), has a verdict and prints it verbatim
   issue             (alias of aphrollo issue; retiring next release) Open one
                     labelled issue against the repo's GitHub remote and print
                     its URL (--label, --body, --repo, --new-label). An open

@@ -17,6 +17,9 @@ func TestClaudeMDBlockCarriesTheOperatingInstructions(t *testing.T) {
 		"gate:", "QUEUED-SKIPPED", "cargo check -p", ".ratchet/laws",
 		"aphrollo ratchet", "aphrollo gate gc", "aphrollo gate stats",
 		"aphrollo install",
+		// A deferred verdict is waited on with the tree the BUILDING line
+		// names, never the shell cwd the harness resets (issue #732).
+		"aphrollo gate status --wait <tree>",
 	} {
 		if !strings.Contains(block, want) {
 			t.Errorf("the block does not mention %q", want)

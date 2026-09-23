@@ -128,25 +128,63 @@ func pruneBashSnapshots(snaps map[string]*bashSnapshot) {
 }
 
 // bashSnapshotDir names the directory whose repo this command is answerable
-// for, which is not always the one it was typed in. A primary checkout is
-// shared: several sessions stand in it at once, and a snapshot taken there is
-// diffed against whatever ANY of them did in between, so a command whose only
-// writes land in a lane worktree was reported as having changed the primary
-// and ran a suite in a tree it never touched (issue #593). When the cwd is a
-// merge-only primary and every write this command can be seen to make lands
-// in one OTHER repo, that repo is the one to snapshot. Every other case —
-// an ordinary checkout, a write into the primary itself, writes spread over
-// two repos, a command whose writes this scanner cannot see — keeps the cwd,
-// which is the pre-existing behaviour rather than a guess.
+// for, which is not always the one it was typed in. The harness resets a
+// session's shell cwd between calls — to the primary checkout on one box, to
+// HOME on another — so a lane session's command arrives as `cd <lane> && …`
+// with a cwd it never meant: the directory the command runs in is where the
+// command cds to, not the cwd it was handed (issue #733).
+//
+// A primary checkout is shared: several sessions stand in it at once, and a
+// snapshot taken there is diffed against whatever ANY of them did in
+// between, so a command whose only writes land in a lane worktree was
+// reported as having changed the primary and ran a suite in a tree it never
+// touched (issue #593). When the command runs in a merge-only primary, or in
+// no repo at all, and every write it can be seen to make lands in one OTHER
+// repo, that repo is the one to snapshot. Every other case — an ordinary
+// checkout, a write into the primary itself, writes spread over two repos, a
+// command whose writes this scanner cannot see — keeps the directory the
+// command runs in.
 func bashSnapshotDir(cwd, cmd string) string {
-	primary, ok := PrimaryMergeOnly(cwd)
-	if !ok {
-		return cwd
+	dir := commandRunDir(cwd, cmd)
+	primary, ok := PrimaryMergeOnly(dir)
+	if !ok && RepoRoot(dir) != "" {
+		return dir
 	}
 	if wt := soleRepoWrittenTo(primary, bashWriteTargets(cmd, cwd)); wt != "" {
 		return wt
 	}
-	return cwd
+	return dir
+}
+
+// commandRunDir is the directory a command line's commands run in, following
+// its `cd` segments from cwd. Every non-cd segment has to land in the same
+// repo for that repo to be the answer; a command line spread over two trees,
+// or one that cds somewhere this scanner cannot resolve, falls back to cwd.
+func commandRunDir(cwd, cmd string) string {
+	cur := cwd
+	answer, answerRoot := "", ""
+	for _, seg := range shellSegments(stripHeredocBodies(cmd)) {
+		words := dropLeadingEnvAssignments(seg)
+		if target, isCd := cdTarget(words); isCd {
+			cur = resolveAgainst(cur, target)
+			continue
+		}
+		if cur == "" {
+			return cwd
+		}
+		root := RepoRoot(existingAncestorDir(cur))
+		if answer == "" {
+			answer, answerRoot = cur, root
+			continue
+		}
+		if !samePath(root, answerRoot) {
+			return cwd
+		}
+	}
+	if answer == "" {
+		return cwd
+	}
+	return answer
 }
 
 // soleRepoWrittenTo returns the one repo root, other than primary, that every

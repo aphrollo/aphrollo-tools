@@ -3,6 +3,7 @@ package tdd
 import (
 	"fmt"
 	"runtime"
+	"strconv"
 )
 
 // What a mutation run reports is only worth as much as the conditions it ran
@@ -21,13 +22,25 @@ import (
 
 // MutantsJobsCap is how many mutants may be measured at once, and why. A
 // mutation run shares the box with the editors it exists to serve, so the cap
-// is deliberately mean: one job per six cores, one per six gigabytes, never
-// more than two whatever the machine is, never less than one.
+// is deliberately mean: one job per three cores, one per eight gigabytes,
+// never more than eight whatever the machine is, never less than one.
 //
 // The memory term is what is FREE, not what is installed, whenever a free
 // reading can be taken — mutants_freemem.go has the incident it comes from.
 // availGB of 0 is an unreadable box and falls back to total RAM.
 func MutantsJobsCap(cores, ramGB, availGB int) (int, string) {
+	return mutantsJobsCapPer(cores, ramGB, availGB, mutantsCargoShardGB)
+}
+
+// mutantsCargoShardGB is what one cargo-mutants shard is priced at in memory:
+// a cold rustc build of the workspace plus its nextest run.
+const mutantsCargoShardGB = 8
+
+// mutantsJobsCapPer is MutantsJobsCap with the memory price of one unit of
+// work named by the caller, because the two runners spend very different
+// amounts: a Cargo shard is priced at mutantsCargoShardGB, a gremlins worker
+// at mutantsGoJobGB (mutants_gobudget.go).
+func mutantsJobsCapPer(cores, ramGB, availGB, perJobGB int) (int, string) {
 	byCores := cores / 3
 	jobs, why := 8, "cap 8"
 	if byCores < jobs {
@@ -37,7 +50,7 @@ func MutantsJobsCap(cores, ramGB, availGB int) (int, string) {
 	// zero into the minimum pinned every non-Linux unix to one job — a wrong
 	// number derived from a missing one — so an unknown reading simply does
 	// not constrain, and the cores decide alone.
-	byMem, memTerm, mem, known := mutantsMemoryTerm(ramGB, availGB, 8, "8")
+	byMem, memTerm, mem, known := mutantsMemoryTerm(ramGB, availGB, perJobGB, strconv.Itoa(perJobGB))
 	if known && byMem < jobs {
 		jobs, why = byMem, memTerm
 	}
@@ -73,8 +86,11 @@ func setMutantsBoxForTest(cores, ramGB, availGB int) (restore func()) {
 // read where it can be; where it cannot, the core count decides alone — a
 // wrong-way guess about RAM would raise the cap, and this cap only ever
 // lowers.
-func mutantsJobsForThisBox() (int, string) {
-	return MutantsJobsCap(mutantsBoxShapeFn())
+//
+// perJobGB is the memory one unit of the caller's runner is priced at.
+func mutantsJobsForThisBox(perJobGB int) (int, string) {
+	cores, ramGB, availGB := mutantsBoxShapeFn()
+	return mutantsJobsCapPer(cores, ramGB, availGB, perJobGB)
 }
 
 // mutantsJobsForThisBoxFn is that derivation as a seam. The Go runner's argv
@@ -88,6 +104,6 @@ var mutantsJobsForThisBoxFn = mutantsJobsForThisBox
 // setMutantsJobsForTest pins the derived cap for one test.
 func setMutantsJobsForTest(jobs int, why string) (restore func()) {
 	prev := mutantsJobsForThisBoxFn
-	mutantsJobsForThisBoxFn = func() (int, string) { return jobs, why }
+	mutantsJobsForThisBoxFn = func(int) (int, string) { return jobs, why }
 	return func() { mutantsJobsForThisBoxFn = prev }
 }
