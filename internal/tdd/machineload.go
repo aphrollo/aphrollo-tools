@@ -19,12 +19,12 @@ import (
 // exists solely to defeat pid reuse when walking an ancestry chain
 // (classifyAncestry), and plays no part in what gets PRINTED.
 type procSample struct {
-	pid        int
-	ppid       int
-	name       string
-	pctOneCore float64
-	cpuHours   float64
-	creation   uint64
+	PID        int
+	PPID       int
+	Name       string
+	PctOneCore float64
+	CPUHours   float64
+	Creation   uint64
 }
 
 // creationUnknown is the sentinel a procSample's creation field carries when
@@ -77,21 +77,21 @@ func classifyAncestry(self, pid int, byPID map[int]procSample) ancestry {
 		return ancestrySelfOrDescendant
 	}
 	current, ok := byPID[pid]
-	if !ok || current.creation == creationUnknown {
+	if !ok || current.Creation == creationUnknown {
 		return ancestryUnknown
 	}
 	for depth := 0; depth < maxAncestryDepth; depth++ {
-		if current.ppid == self {
+		if current.PPID == self {
 			return ancestrySelfOrDescendant
 		}
-		parent, ok := byPID[current.ppid]
+		parent, ok := byPID[current.PPID]
 		if !ok {
 			return ancestryUnknown // the declared parent already exited (or was reaped) between snapshots
 		}
-		if parent.creation == creationUnknown {
+		if parent.Creation == creationUnknown {
 			return ancestryUnknown
 		}
-		if parent.creation > current.creation {
+		if parent.Creation > current.Creation {
 			return ancestryUnknown // this pid was recycled since it last parented anything upstream
 		}
 		current = parent
@@ -117,10 +117,10 @@ func classifyAncestry(self, pid int, byPID map[int]procSample) ancestry {
 func classifyAll(self int, all []procSample) (foreign, unattributed []procSample) {
 	byPID := make(map[int]procSample, len(all))
 	for _, p := range all {
-		byPID[p.pid] = p
+		byPID[p.PID] = p
 	}
 	for _, p := range all {
-		switch classifyAncestry(self, p.pid, byPID) {
+		switch classifyAncestry(self, p.PID, byPID) {
 		case ancestryForeign:
 			foreign = append(foreign, p)
 		case ancestryUnknown:
@@ -134,7 +134,7 @@ func classifyAll(self int, all []procSample) (foreign, unattributed []procSample
 // leaving in untouched. n or fewer entries come back when in is shorter.
 func topByLoad(in []procSample, n int) []procSample {
 	sorted := append([]procSample(nil), in...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].pctOneCore > sorted[j].pctOneCore })
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].PctOneCore > sorted[j].PctOneCore })
 	if len(sorted) > n {
 		sorted = sorted[:n]
 	}
@@ -153,10 +153,10 @@ func formatMachineLoad(cores int, loadPct float64, foreign, unattributed []procS
 	var b strings.Builder
 	fmt.Fprintf(&b, "box: %d cores, load %.0f%%", cores, loadPct)
 	for _, p := range foreign {
-		fmt.Fprintf(&b, "\nforeign load: %s (pid %d) %.0f%% of one core, %.1fh CPU", p.name, p.pid, p.pctOneCore, p.cpuHours)
+		fmt.Fprintf(&b, "\nforeign load: %s (pid %d) %.0f%% of one core, %.1fh CPU", p.Name, p.PID, p.PctOneCore, p.CPUHours)
 	}
 	for _, p := range unattributed {
-		fmt.Fprintf(&b, "\nunattributed load: %s (pid %d) %.0f%% of one core, %.1fh CPU", p.name, p.pid, p.pctOneCore, p.cpuHours)
+		fmt.Fprintf(&b, "\nunattributed load: %s (pid %d) %.0f%% of one core, %.1fh CPU", p.Name, p.PID, p.PctOneCore, p.CPUHours)
 	}
 	return b.String()
 }

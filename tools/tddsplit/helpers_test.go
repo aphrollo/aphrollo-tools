@@ -146,3 +146,30 @@ func TestRun_SharedTestConstantsFollowTheTestsThatNameThem(t *testing.T) {
 	goCmd(t, repo, nil, "vet", "./...")
 	goCmd(t, repo, nil, "test", "-count=1", "./...")
 }
+
+// A helper whose body reaches an unexported field of a type that lands in
+// another package would not compile once copied: the copy is reported, and
+// never emitted.
+func TestAnalyze_ReportsAndDropsAHelperCopyThatReadsAnUnexportedField(t *testing.T) {
+	files := map[string]string{
+		"go.mod":      "module example.com/fx\n\ngo 1.26\n",
+		"p/a.go":      "package p\n\ntype pair struct{ k string }\n\nfunc (p pair) key() string { return p.k }\n",
+		"p/a_test.go": "package p\n\nfunc mkPair() pair { return pair{k: \"x\"} }\n\nfunc pairKey() string { return mkPair().key() }\n",
+		"p/b.go":      "package p\n\n// Use keeps pair reachable from p.\nfunc Use() pair { return pair{} }\n",
+		"p/b_test.go": "package p\n\nimport \"testing\"\n\nfunc TestP_BuildsAPair(t *testing.T) {\n\t_ = mkPair()\n\t_ = pairKey()\n}\n",
+	}
+	manifest := "root p\n[packages]\nlow L0 p/low\np L1 p\n[files]\na.go low\na_test.go low\nb.go p\nb_test.go p\n"
+	a := analyzeFixture(t, files, manifest, "L0")
+	var hits []string
+	for _, r := range a.Reports {
+		if strings.Contains(r, "unexported") && (strings.Contains(r, "mkPair") || strings.Contains(r, "pairKey")) {
+			hits = append(hits, r)
+		}
+	}
+	if len(hits) != 2 || !strings.Contains(strings.Join(hits, "\n"), " k ") || !strings.Contains(strings.Join(hits, "\n"), " key ") {
+		t.Errorf("want mkPair reported for field k and pairKey for method key; reports:\n%s", strings.Join(a.Reports, "\n"))
+	}
+	if gen := string(a.Generated["p/tddtest_wrappers_test.go"]); strings.Contains(gen, "mkPair") || strings.Contains(gen, "pairKey") {
+		t.Errorf("a copy that cannot compile was emitted:\n%s", gen)
+	}
+}

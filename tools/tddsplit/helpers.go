@@ -49,6 +49,9 @@ func (s *splitter) carryHelper(c *checked, consumer string, obj types.Object, wh
 		s.site(fmt.Sprintf("test helper %s used from package %s has no plain func or valued const declaration to carry", obj.Name(), consumer), where)
 		return
 	}
+	if s.readsUnexportedAcross(c, consumer, obj, h) {
+		return
+	}
 	s.helpers[consumer][obj] = true
 	scope := c.Pkg.Scope()
 	ast.Inspect(h.body(), func(n ast.Node) bool {
@@ -87,6 +90,41 @@ func (s *splitter) carryHelper(c *checked, consumer string, obj types.Object, wh
 		s.addNeed(c, consumer, from, used, false)
 		return true
 	})
+}
+
+// readsUnexportedAcross reports, one finding per site, every unexported
+// field or method the helper's body reads on a type that lands in another
+// package than consumer. A copy of such a helper would not compile there,
+// so a helper with any is never carried.
+func (s *splitter) readsUnexportedAcross(c *checked, consumer string, obj types.Object, h helperDecl) bool {
+	found := false
+	scope := c.Pkg.Scope()
+	ast.Inspect(h.body(), func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		used := c.Info.Uses[id]
+		if used == nil || used.Pkg() != c.Pkg || used.Exported() || scope.Lookup(used.Name()) == used {
+			return true
+		}
+		if _, local := used.(*types.PkgName); local {
+			return true
+		}
+		decl, ok := c.srcOf(used.Pos())
+		if !ok || decl.isTest() || s.eff(decl) == consumer || used.Parent() != nil {
+			return true
+		}
+		kind := "field"
+		if _, isFn := used.(*types.Func); isFn {
+			kind = "method"
+		}
+		at := fmt.Sprintf("%s:%d", c.ByName[c.Fset.Position(id.Pos()).Filename].Path, c.Fset.Position(id.Pos()).Line)
+		s.site(fmt.Sprintf("test helper %s is not carried into package %s: it reads unexported %s %s (declared in %s, package %s); export it", obj.Name(), consumer, kind, used.Name(), decl.Path, s.eff(decl)), at)
+		found = true
+		return true
+	})
+	return found
 }
 
 // carriable reports whether a test-file object is a kind carryHelper copies.

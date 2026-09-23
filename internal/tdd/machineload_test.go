@@ -31,15 +31,15 @@ import (
 func TestForeignProcs_ExcludesADescendantOfSelf(t *testing.T) {
 	const self = 100
 	all := []procSample{
-		{pid: self, ppid: 1, name: "aphrollo.exe", creation: 10},
-		{pid: 200, ppid: self, name: "go.exe", creation: 20},     // direct child
-		{pid: 300, ppid: 200, name: "go_test.exe", creation: 30}, // grandchild
-		{pid: 999, ppid: 1, name: "find.exe", creation: 5},       // unrelated, no valid chain given
+		{PID: self, PPID: 1, Name: "aphrollo.exe", Creation: 10},
+		{PID: 200, PPID: self, Name: "go.exe", Creation: 20},     // direct child
+		{PID: 300, PPID: 200, Name: "go_test.exe", Creation: 30}, // grandchild
+		{PID: 999, PPID: 1, Name: "find.exe", Creation: 5},       // unrelated, no valid chain given
 	}
 	foreign, unattributed := classifyAll(self, all)
 	for _, p := range append(append([]procSample{}, foreign...), unattributed...) {
-		if p.pid == self || p.pid == 200 || p.pid == 300 {
-			t.Errorf("classifyAll(%d, ...) placed pid %d (%s), a descendant of self, in foreign=%+v or unattributed=%+v", self, p.pid, p.name, foreign, unattributed)
+		if p.PID == self || p.PID == 200 || p.PID == 300 {
+			t.Errorf("classifyAll(%d, ...) placed pid %d (%s), a descendant of self, in foreign=%+v or unattributed=%+v", self, p.PID, p.Name, foreign, unattributed)
 		}
 	}
 }
@@ -50,7 +50,7 @@ func foreignChainSample(leaf int, name string, pctOneCore, cpuHours float64) []p
 
 // newProcSample is one procSample, for tddtest.ForeignChainSample.
 func newProcSample(pid, ppid int, name string, pctOneCore, cpuHours float64, creation uint64) procSample {
-	return procSample{pid: pid, ppid: ppid, name: name, pctOneCore: pctOneCore, cpuHours: cpuHours, creation: creation}
+	return procSample{PID: pid, PPID: ppid, Name: name, PctOneCore: pctOneCore, CPUHours: cpuHours, Creation: creation}
 }
 
 // maxAssignableOSPID is the ceiling under which every pid a live process can
@@ -80,10 +80,10 @@ func TestForeignChainSample_CannotBeClaimedByTheProcessRunningIt(t *testing.T) {
 
 	// The mechanism itself, shown rather than remembered: a self pid
 	// anywhere in the chain costs the report its foreign leaf.
-	collided := all[len(all)/2].pid
+	collided := all[len(all)/2].PID
 	foreign, _ := classifyAll(collided, all)
 	for _, p := range foreign {
-		if p.name == "find.exe" {
+		if p.Name == "find.exe" {
 			t.Fatalf("classifyAll(%d, ...) still named find.exe foreign; this test's premise (a self pid inside the chain drops it) no longer holds", collided)
 		}
 	}
@@ -91,9 +91,9 @@ func TestForeignChainSample_CannotBeClaimedByTheProcessRunningIt(t *testing.T) {
 	// So no pid in either chain may be one an OS could hand a live process.
 	for _, leaf := range []int{timeoutLoadFixtureLeaf, checkStageLoadFixtureLeaf} {
 		for _, p := range foreignChainSample(leaf, "find.exe", 90, 2) {
-			if p.pid <= maxAssignableOSPID {
+			if p.PID <= maxAssignableOSPID {
 				t.Fatalf("fixture pid %d (chain from leaf %d) is inside the range an OS assigns to live processes (<= %d): a runner handed that pid reads the chain as its own tree and the timeout report loses its foreign process",
-					p.pid, leaf, maxAssignableOSPID)
+					p.PID, leaf, maxAssignableOSPID)
 			}
 		}
 	}
@@ -104,13 +104,13 @@ func TestForeignChainSample_CannotBeClaimedByTheProcessRunningIt(t *testing.T) {
 // green run, to one that correctly excludes only self's own tree.
 func TestForeignProcs_IncludesAFullyResolvedForeignChain(t *testing.T) {
 	const self = 100
-	all := append([]procSample{{pid: self, ppid: 1, name: "aphrollo.exe", creation: 1}},
+	all := append([]procSample{{PID: self, PPID: 1, Name: "aphrollo.exe", Creation: 1}},
 		foreignChainSample(9000, "stranger-leaf.exe", 42, 1)...)
 
 	foreign, _ := classifyAll(self, all)
 	found := false
 	for _, p := range foreign {
-		if p.pid == 9000 {
+		if p.PID == 9000 {
 			found = true
 		}
 	}
@@ -132,20 +132,20 @@ func TestForeignProcs_IncludesAFullyResolvedForeignChain(t *testing.T) {
 func TestForeignProcs_ExcludesAGateDescendantWhoseImmediateParentExited(t *testing.T) {
 	const self = 100
 	all := []procSample{
-		{pid: self, ppid: 1, name: "aphrollo.exe", creation: 10},
+		{PID: self, PPID: 1, Name: "aphrollo.exe", Creation: 10},
 		// pid 200 (self's direct child) already exited and is absent —
 		// only its orphaned grandchild survives into this snapshot.
-		{pid: 300, ppid: 200, name: "leftover-test.exe", creation: 20},
+		{PID: 300, PPID: 200, Name: "leftover-test.exe", Creation: 20},
 	}
 	foreign, unattributed := classifyAll(self, all)
 	for _, p := range foreign {
-		if p.pid == 300 {
+		if p.PID == 300 {
 			t.Fatalf("classifyAll(%d, ...) wrongly named pid 300 (leftover-test.exe) foreign — its parent simply exited and it cannot be attributed either way, foreign=%+v", self, foreign)
 		}
 	}
 	found := false
 	for _, p := range unattributed {
-		if p.pid == 300 {
+		if p.PID == 300 {
 			found = true
 		}
 	}
@@ -169,26 +169,26 @@ func TestForeignProcs_ExcludesAGateDescendantWhoseImmediateParentExited(t *testi
 func TestForeignProcs_ExcludesAGateDescendantBehindARecycledPid(t *testing.T) {
 	const self = 100
 	all := []procSample{
-		{pid: self, ppid: 1, name: "aphrollo.exe", creation: 10},
+		{PID: self, PPID: 1, Name: "aphrollo.exe", Creation: 10},
 		// pid 300 is self's real grandchild, created while the ORIGINAL
 		// pid-200 child was still alive.
-		{pid: 300, ppid: 200, name: "leftover-test.exe", creation: 20},
+		{PID: 300, PPID: 200, Name: "leftover-test.exe", Creation: 20},
 		// pid 200 now belongs to an unrelated process, created AFTER 300 —
 		// proof it cannot be the same process that parented 300.
-		{pid: 200, ppid: 201, name: "unrelated.exe", creation: 30},
+		{PID: 200, PPID: 201, Name: "unrelated.exe", Creation: 30},
 	}
 	// pid 200's own ancestor chain: fully valid, never touching self.
 	all = append(all, foreignChainSample(201, "stranger-ancestor.exe", 0, 0)...)
 
 	foreign, unattributed := classifyAll(self, all)
 	for _, p := range foreign {
-		if p.pid == 300 {
+		if p.PID == 300 {
 			t.Fatalf("classifyAll(%d, ...) followed a recycled pid into a stranger's ancestry and wrongly named pid 300 foreign, foreign=%+v", self, foreign)
 		}
 	}
 	found := false
 	for _, p := range unattributed {
-		if p.pid == 300 {
+		if p.PID == 300 {
 			found = true
 		}
 	}
@@ -209,8 +209,8 @@ func TestClassifyAncestry_BoundedAgainstCyclicParents(t *testing.T) {
 	// creation times so the creation-time check alone cannot break the
 	// cycle — only the depth bound can.
 	byPID := map[int]procSample{
-		1: {pid: 1, ppid: 2, creation: 10},
-		2: {pid: 2, ppid: 1, creation: 10},
+		1: {PID: 1, PPID: 2, Creation: 10},
+		2: {PID: 2, PPID: 1, Creation: 10},
 	}
 	if got := classifyAncestry(999, 1, byPID); got == ancestrySelfOrDescendant {
 		t.Errorf("classifyAncestry(999, 1, cyclic byPID) = %v, want anything but ancestrySelfOrDescendant — 999 never appears in the cycle", got)
@@ -223,8 +223,8 @@ func TestClassifyAncestry_BoundedAgainstCyclicParents(t *testing.T) {
 // and cumulative CPU time.
 func TestFormatMachineLoad_RendersBoxLoadAndTopForeignProcesses(t *testing.T) {
 	foreign := []procSample{
-		{pid: 21768, name: "find.exe", pctOneCore: 99, cpuHours: 4.5},
-		{pid: 33356, name: "find.exe", pctOneCore: 99, cpuHours: 4.0},
+		{PID: 21768, Name: "find.exe", PctOneCore: 99, CPUHours: 4.5},
+		{PID: 33356, Name: "find.exe", PctOneCore: 99, CPUHours: 4.0},
 	}
 	got := formatMachineLoad(24, 61, foreign, nil)
 	want := "box: 24 cores, load 61%\n" +
@@ -242,8 +242,8 @@ func TestFormatMachineLoad_RendersBoxLoadAndTopForeignProcesses(t *testing.T) {
 // round 2 — reporting nothing here is not safer than the misattribution it
 // replaced, only quieter about failing).
 func TestFormatMachineLoad_RendersUnattributedSeparatelyFromForeign(t *testing.T) {
-	foreign := []procSample{{pid: 9000, name: "stranger.exe", pctOneCore: 50, cpuHours: 1}}
-	unattributed := []procSample{{pid: 300, name: "leftover-test.exe", pctOneCore: 90, cpuHours: 2.5}}
+	foreign := []procSample{{PID: 9000, Name: "stranger.exe", PctOneCore: 50, CPUHours: 1}}
+	unattributed := []procSample{{PID: 300, Name: "leftover-test.exe", PctOneCore: 90, CPUHours: 2.5}}
 	got := formatMachineLoad(4, 55, foreign, unattributed)
 	want := "box: 4 cores, load 55%\n" +
 		"foreign load: stranger.exe (pid 9000) 50% of one core, 1.0h CPU\n" +
@@ -270,16 +270,16 @@ func TestFormatMachineLoad_NoForeignProcessesStillRendersBox(t *testing.T) {
 // more foreign processes were sampled.
 func TestTopByLoad_SortsDescendingAndCaps(t *testing.T) {
 	in := []procSample{
-		{pid: 1, pctOneCore: 10},
-		{pid: 2, pctOneCore: 90},
-		{pid: 3, pctOneCore: 50},
-		{pid: 4, pctOneCore: 99},
+		{PID: 1, PctOneCore: 10},
+		{PID: 2, PctOneCore: 90},
+		{PID: 3, PctOneCore: 50},
+		{PID: 4, PctOneCore: 99},
 	}
 	got := topByLoad(in, 2)
 	if len(got) != 2 {
 		t.Fatalf("topByLoad(in, 2) returned %d entries, want 2", len(got))
 	}
-	if got[0].pid != 4 || got[1].pid != 2 {
+	if got[0].PID != 4 || got[1].PID != 2 {
 		t.Errorf("topByLoad(in, 2) = %+v, want pid 4 then pid 2 (descending by pctOneCore)", got)
 	}
 }
