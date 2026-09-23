@@ -1,11 +1,11 @@
 name        = "gate_verdict_owned"
-description = "verdictFor (internal/tdd/verdict.go) is the one place a stage's outcome becomes a GateResult for the six shapes it owns (pass, fail, timeout, skipped, runner-missing, check-error) — see #312. A bare `return GateResult{}` or `GateResult{Message:` anywhere else in this package is a stage hand-mapping one of those outcomes itself, the exact defect #288/#287/#313 each found in a different stage: the mapping drifts because there is no single owner. Every occurrence in this tree today is grandfathered in the baseline below, which only ever goes down: a new stage routes its outcome through verdictFor, or it does not land."
+description = "verdictFor (internal/tdd/suite/verdict.go) is the one place a stage's outcome becomes a GateResult for the six shapes it owns (pass, fail, timeout, skipped, runner-missing, check-error) — see #312. A bare `return GateResult{}` or `GateResult{Message:` anywhere else in this package is a stage hand-mapping one of those outcomes itself, the exact defect #288/#287/#313 each found in a different stage: the mapping drifts because there is no single owner. Every occurrence in this tree today is grandfathered in the baseline below, which only ever goes down: a new stage routes its outcome through verdictFor, or it does not land."
 severity    = "deny"
 baseline    = ".ratchet/baselines/gate_verdict_owned.txt"
 
 [scope]
 include = ["internal/tdd/**/*.go"]
-exclude = ["internal/tdd/verdict.go", "**/*_test.go"]
+exclude = ["internal/tdd/suite/verdict.go", "**/*_test.go"]
 min_files = 110
 
 [matcher]

@@ -13,6 +13,10 @@ const syntheticPIDBase = tddtest.SyntheticPIDBase
 
 const timeoutLoadFixtureLeaf = tddtest.TimeoutLoadFixtureLeaf
 
+var tempEnvKeys = tddtest.TempEnvKeys
+
+func cargoCrate(t *testing.T, pkg string) string { t.Helper(); return tddtest.CargoCrate(t, pkg) }
+
 func fakeGitShim(t *testing.T) (dir, marker string) { t.Helper(); return tddtest.FakeGitShim(t) }
 
 func foreignChainSample(leaf int, name string, pctOneCore, cpuHours float64) []procSample {
@@ -24,6 +28,18 @@ func gitValue(t *testing.T, dir string, args ...string) string {
 	return tddtest.GitValue(t, dir, args...)
 }
 
+func mkProject(t *testing.T, markers ...string) string {
+	t.Helper()
+	return tddtest.MkProject(t, markers...)
+}
+
 func newProcSample(pid, ppid int, name string, pctOneCore, cpuHours float64, creation uint64) procSample {
 	return procSample{PID: pid, PPID: ppid, Name: name, PctOneCore: pctOneCore, CPUHours: cpuHours, Creation: creation}
+}
+
+func putFakeNextest(t *testing.T) { t.Helper(); tddtest.PutFakeNextest(t) }
+
+func withIsolatedBuildLock(t *testing.T) {
+	t.Helper()
+	tddtest.IsolateBuildLock(t, setBuildLockPathOverride, SetPostEditLockWaitForTest, SetPrecommitLockWait)
 }

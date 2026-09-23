@@ -17,8 +17,6 @@ const suiteFloorMargin = lock.SuiteFloorMargin
 
 type procSample = lock.ProcSample
 
-var futureMtimeChecked = lock.FutureMtimeChecked
-
 func ReadBuildSlotOwnerPath(p0 string) string { return lock.ReadBuildSlotOwnerPath(p0) }
 
 func SetLockWaitLogThresholdForTest(p0 time.Duration) func() {
@@ -35,11 +33,7 @@ func SetSharedLockDirForTest(p0 func() string) func() { return lock.SetSharedLoc
 
 func buildSlotCount() int { return lock.BuildSlotCount() }
 
-func cargoConfigJobs(p0 string) (int, bool) { return lock.CargoConfigJobs(p0) }
-
-func effectiveBuildLockPath() string { return lock.EffectiveBuildLockPath() }
-
-func goTmpDir(p0 string) string { return lock.GoTmpDir(p0) }
+func cappedFloor(p0 time.Duration, p1 time.Duration) time.Duration { return lock.CappedFloor(p0, p1) }
 
 func litterDirsFor(p0 string, p1 bool, p2 string) []string { return lock.LitterDirsFor(p0, p1, p2) }
 
@@ -53,10 +47,4 @@ func sharedLockCandidates() []string { return lock.SharedLockCandidates() }
 
 func sharedTargetLockPath(p0 string) string { return lock.SharedTargetLockPath(p0) }
 
-func slotJobs(p0 int, p1 int) int { return lock.SlotJobs(p0, p1) }
-
-func storeFutureMtimeMarker(p0 string, p1 time.Time) { lock.StoreFutureMtimeMarker(p0, p1) }
-
 func suiteFloorFrom(p0 []float64) suiteFloor { return lock.SuiteFloorFrom(p0) }
-
-func totalCargoJobs() int { return lock.TotalCargoJobs() }

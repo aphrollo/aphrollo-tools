@@ -89,8 +89,6 @@ func aphrolloTomlFlag(p0 string, p1 string) bool { return core.AphrolloTomlFlag(
 
 func aphrolloTomlString(p0 string, p1 string) (string, bool) { return core.AphrolloTomlString(p0, p1) }
 
-func cargoPackageName(p0 string) string { return core.CargoPackageName(p0) }
-
 func claudeConfigDir() string { return core.ClaudeConfigDir() }
 
 func commonGitDir(p0 string) string { return core.CommonGitDir(p0) }
@@ -168,8 +166,6 @@ func stripQuoted(p0 string) string { return core.StripQuoted(p0) }
 func tomlArrayCommaError(p0 string, p1 string, p2 string) error {
 	return core.TomlArrayCommaError(p0, p1, p2)
 }
-
-func tomlBoolIn(p0 string, p1 string, p2 string) bool { return core.TomlBoolIn(p0, p1, p2) }
 
 func tomlBoolSetIn(p0 string, p1 string, p2 string) (bool, bool) {
 	return core.TomlBoolSetIn(p0, p1, p2)

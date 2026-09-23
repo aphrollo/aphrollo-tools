@@ -81,8 +81,6 @@ func buildSlotHolderDescription(p0 string) string { return lock.BuildSlotHolderD
 
 func buildToolPids() ([]int, bool) { return lock.BuildToolPids() }
 
-func cappedFloor(p0 time.Duration, p1 time.Duration) time.Duration { return lock.CappedFloor(p0, p1) }
-
 func cargoWorkspaceRoot(p0 string) string { return lock.CargoWorkspaceRoot(p0) }
 
 func csvPids(p0 string) []int { return lock.CsvPids(p0) }
@@ -97,19 +95,11 @@ func freeSpaceGB(p0 string) (int, bool) { return lock.FreeSpaceGB(p0) }
 
 func globalCapacityHolderDescription() string { return lock.GlobalCapacityHolderDescription() }
 
-func goRaceLockKey() string { return lock.GoRaceLockKey() }
-
-func goTmpEnv(p0 string) []string { return lock.GoTmpEnv(p0) }
-
-func invalidateFutureStampedArtifacts(p0 string) { lock.InvalidateFutureStampedArtifacts(p0) }
-
 func isSettledVerdict(p0 string) bool { return lock.IsSettledVerdict(p0) }
 
 func lockDir() string { return lock.LockDir() }
 
 func lockLitterDirs() []string { return lock.LockLitterDirs() }
-
-func lockWaitLogAfter() time.Duration { return lock.LockWaitLogAfter() }
 
 func machineAvailGB() int { return lock.MachineAvailGB() }
 
