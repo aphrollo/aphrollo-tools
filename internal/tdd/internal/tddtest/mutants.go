@@ -24,8 +24,9 @@ type MeasuredCall struct {
 // MutantsExec is the shape of the runner's exec seam.
 type MutantsExec = func(ctx context.Context, dir string, env, argv []string, log io.Writer) (int, error)
 
-// StubMutantsExec replaces the runner's exec seam (the variable at exec) for
-// one test and records every call. reply is asked what that call should do —
+// StubMutantsExec replaces the runner's exec seam for one test, through
+// setExec (the package's own setter, which returns the restore), and
+// records every call. reply is asked what that call should do —
 // its exit code, and whatever outcomes file it wants to leave behind. It is
 // handed the run's own context as well, so a test can stand in for a child
 // that ends when, and only when, its caller gives up.
@@ -40,13 +41,12 @@ type MutantsExec = func(ctx context.Context, dir string, env, argv []string, log
 // a test that reads the calls back is reading whatever survived it. reply
 // itself runs unlocked, because a shard's stand-in has to be able to block
 // until its context ends while the others run.
-func StubMutantsExec(t *testing.T, exec *MutantsExec, pinListCount func(n int, ok bool) (restore func()), reply func(ctx context.Context, n int, c MeasuredCall) (int, error)) *[]MeasuredCall {
+func StubMutantsExec(t *testing.T, setExec func(fn MutantsExec) (restore func()), pinListCount func(n int, ok bool) (restore func()), reply func(ctx context.Context, n int, c MeasuredCall) (int, error)) *[]MeasuredCall {
 	t.Helper()
 	t.Cleanup(pinListCount(0, false))
-	prev := *exec
 	calls := &[]MeasuredCall{}
 	var mu sync.Mutex
-	*exec = func(ctx context.Context, dir string, env, argv []string, log io.Writer) (int, error) {
+	t.Cleanup(setExec(func(ctx context.Context, dir string, env, argv []string, log io.Writer) (int, error) {
 		mu.Lock()
 		*calls = append(*calls, MeasuredCall{Dir: dir, Env: env, Argv: argv, Log: log})
 		n, call := len(*calls), (*calls)[len(*calls)-1]
@@ -55,8 +55,7 @@ func StubMutantsExec(t *testing.T, exec *MutantsExec, pinListCount func(n int, o
 			return 0, nil
 		}
 		return reply(ctx, n, call)
-	}
-	t.Cleanup(func() { *exec = prev })
+	}))
 	return calls
 }
 
