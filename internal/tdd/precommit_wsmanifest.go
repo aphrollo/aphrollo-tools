@@ -48,14 +48,14 @@ func isWorkspaceOwnManifestFile(repoRoot, ws, fRepoRel string) bool {
 // manifest-only commit), the ownership-scoped suite is skipped rather than
 // falling back to an unscoped, full-workspace `cargo test`.
 func gateRootCargo(gateName, repoRoot string, g rootGroup, rootFiles []string, run SuiteRunner, failFirst bool) GateResult {
-	plan, ok := planCargoStages(gateName, repoRoot, g.root, rootFiles)
+	plan, ok := planCargoStages(gateName, repoRoot, g.Root, rootFiles)
 	if !ok {
 		return GateResult{}
 	}
-	if res := cargoQualityStage(gateName, plan.ws, g.root, plan.touched, run, repoRoot, qualityFmt); res.Blocked {
+	if res := cargoQualityStage(gateName, plan.ws, g.Root, plan.touched, run, repoRoot, qualityFmt); res.Blocked {
 		return res
 	}
-	if res := alwaysRunStage(gateName, repoRoot, g.root, plan, run); res.Blocked {
+	if res := alwaysRunStage(gateName, repoRoot, g.Root, plan, run); res.Blocked {
 		return res
 	}
 	if len(plan.wsManifestHit) > 0 {
@@ -63,10 +63,10 @@ func gateRootCargo(gateName, repoRoot string, g rootGroup, rootFiles []string, r
 			return res
 		}
 	}
-	if res := cargoQualityStage(gateName, plan.ws, g.root, plan.touched, run, repoRoot, qualityClippy); res.Blocked {
+	if res := cargoQualityStage(gateName, plan.ws, g.Root, plan.touched, run, repoRoot, qualityClippy); res.Blocked {
 		return res
 	}
-	if res := workspaceCheckStage(gateName, repoRoot, g.root, plan, run); res.Blocked {
+	if res := workspaceCheckStage(gateName, repoRoot, g.Root, plan, run); res.Blocked {
 		return res
 	}
 	// Deliberately sequential, unlike gateRoot's non-cargo branch (issue
@@ -80,7 +80,7 @@ func gateRootCargo(gateName, repoRoot string, g rootGroup, rootFiles []string, r
 	// out of scope for the concurrency change — see
 	// the commit gate no longer runs a suite here at all.
 	if failFirst {
-		if res := failFirstStageWithRustNotice(repoRoot, g.root, g.tests, g.srcs, run); res.Blocked {
+		if res := failFirstStageWithRustNotice(repoRoot, g.Root, g.tests, g.srcs, run); res.Blocked {
 			return res
 		}
 	}
@@ -92,12 +92,12 @@ func gateRootCargo(gateName, repoRoot string, g rootGroup, rootFiles []string, r
 	if len(plan.touched) > 0 {
 		gateSuiteProof().Owe(plan.suiteRunner())
 		if failFirst {
-			reportSuitesNotRun(gateName, g.root, "crate", plan.suiteRunner(), plan.downstream)
-		} else if res := suiteStage(gateName, repoRoot, g.root, plan.suiteRunner(), run); res.Blocked {
+			reportSuitesNotRun(gateName, g.Root, "crate", plan.suiteRunner(), plan.downstream)
+		} else if res := suiteStage(gateName, repoRoot, g.Root, plan.suiteRunner(), run); res.Blocked {
 			return res
 		}
 	}
-	return doctestStage(gateName, repoRoot, g.root, plan, run)
+	return doctestStage(gateName, repoRoot, g.Root, plan, run)
 }
 
 // workspaceManifestCheckStage answers issue #365's harder half: a workspace-

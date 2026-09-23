@@ -9,7 +9,7 @@ import (
 // rootGroup is one project root's staged Test/Source files (repo-root-
 // relative paths), the unit both Precommit and Mechanical iterate.
 type rootGroup struct {
-	root        string
+	Root        string
 	tests, srcs []string
 }
 
@@ -44,7 +44,7 @@ func stagedRootGroupsErr(repoRoot string) ([]rootGroup, error) {
 	var groups []rootGroup
 	for _, root := range stagedProjectRoots(repoRoot, all) {
 		groups = append(groups, rootGroup{
-			root:  root,
+			Root:  root,
 			tests: filesUnderRoot(repoRoot, root, tests),
 			srcs:  filesUnderRoot(repoRoot, root, srcs),
 		})
