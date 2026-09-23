@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -36,5 +38,36 @@ func TestAnalyze_NeverEmitsATestPrefixedFunc(t *testing.T) {
 		if !found {
 			t.Errorf("no report names %s as a Test-prefixed alias to rename; reports:\n%s", name, strings.Join(a.Reports, "\n"))
 		}
+	}
+}
+
+// A test helper that is a type alias forwarding to tddtest crosses like a
+// func: the copy names the same type, so values flow between packages
+// unchanged. A defined type declared in a test file would become a second,
+// distinct type; it is reported and never copied.
+func TestRun_SharedTestTypeAliasesFollowTheTestsThatNameThem(t *testing.T) {
+	files := map[string]string{}
+	for k, v := range helperFixture {
+		files[k] = v
+	}
+	files["p/internal/tt/rec.go"] = "package tt\n\n// Rec is a shared record.\ntype Rec struct{ N int }\n"
+	files["p/b_test.go"] += "\ntype rec = tt.Rec\n\nfunc mkRec(n int) rec { return rec{N: n} }\n\ntype box struct{ n int }\n"
+	files["p/a_test.go"] += "\nfunc TestLow_NamesTheSharedType(t *testing.T) {\n\tvar r rec = mkRec(2)\n\tif r.N != 2 {\n\t\tt.Fatal(r)\n\t}\n\t_ = box{}\n}\n"
+	repo := fixtureRepo(t, files)
+	out, _ := runFixture(t, repo, "L0")
+	if !strings.Contains(out, "box") || !strings.Contains(out, "distinct type") {
+		t.Errorf("the defined test type box was not reported as uncarriable:\n%s", out)
+	}
+	data, err := os.ReadFile(filepath.Join(repo, "p/low/tddtest_wrappers_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"type rec = tt.Rec", "func mkRec(n int) rec"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("want %q carried:\n%s", want, data)
+		}
+	}
+	if strings.Contains(string(data), "type box") {
+		t.Errorf("the defined type box was copied:\n%s", data)
 	}
 }

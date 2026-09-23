@@ -14,10 +14,11 @@ import (
 // into each package whose tests call them across the split.
 const helperBase = "tddtest_wrappers"
 
-// helperDecl is the source of one carriable test helper: a plain func, or
-// one name of a const or var spec with an explicit value.
+// helperDecl is the source of one carriable test helper: a plain func, one
+// name of a const or var spec with an explicit value, or a type spec.
 type helperDecl struct {
 	fn    *ast.FuncDecl
+	ts    *ast.TypeSpec
 	tok   token.Token // token.CONST or token.VAR for a spec
 	spec  *ast.ValueSpec
 	index int
@@ -28,6 +29,9 @@ type helperDecl struct {
 func (h helperDecl) nodes() []ast.Node {
 	if h.fn != nil {
 		return []ast.Node{h.fn.Type, h.fn.Body}
+	}
+	if h.ts != nil {
+		return []ast.Node{h.ts.Type}
 	}
 	out := []ast.Node{h.spec.Values[h.index]}
 	if h.spec.Type != nil {
@@ -56,6 +60,10 @@ func (s *splitter) carryHelper(c *checked, consumer string, obj types.Object, wh
 	h, ok := s.helperDecl(c, obj)
 	if !ok {
 		s.site(fmt.Sprintf("test helper %s used from package %s has no plain func or valued const or var declaration to carry", obj.Name(), consumer), where)
+		return false
+	}
+	if h.ts != nil && !h.ts.Assign.IsValid() {
+		s.site(fmt.Sprintf("test type %s is a defined type, not an alias: a copy in package %s would be a second, distinct type; alias it to a tddtest type or move its users together", obj.Name(), consumer), where)
 		return false
 	}
 	if _, isVar := obj.(*types.Var); isVar && (s.seams[obj] || holdsLock(obj.Type())) {
@@ -100,7 +108,7 @@ func (s *splitter) carryHelper(c *checked, consumer string, obj types.Object, wh
 			case decl.isTest() && carriable(used):
 				uses = append(uses, use{obj: used, from: from, at: at, test: true})
 			case decl.isTest():
-				s.site(fmt.Sprintf("test helper %s is not carried into package %s: it reaches %s (declared in %s, package %s), which is neither a func, a const nor a var", obj.Name(), consumer, used.Name(), decl.Path, from), at)
+				s.site(fmt.Sprintf("test helper %s is not carried into package %s: it reaches %s (declared in %s, package %s), which is not a func, const, var or type", obj.Name(), consumer, used.Name(), decl.Path, from), at)
 				refused = true
 			case s.level(from) >= s.level(consumer):
 				s.site(fmt.Sprintf("test helper %s is not carried into package %s (L%d): it names %s, declared in %s (package %s, L%d), and no alias reaches upward", obj.Name(), consumer, s.level(consumer), used.Name(), decl.Path, from, s.level(from)), at)
@@ -176,7 +184,7 @@ func (s *splitter) readsUnexportedAcross(c *checked, consumer string, obj types.
 // carryHelper, with the reason).
 func carriable(obj types.Object) bool {
 	switch obj.(type) {
-	case *types.Func, *types.Const, *types.Var:
+	case *types.Func, *types.Const, *types.Var, *types.TypeName:
 		return true
 	}
 	return false
@@ -193,6 +201,14 @@ func (s *splitter) helperDecl(c *checked, obj types.Object) (helperDecl, bool) {
 					return helperDecl{fn: d}, d.Recv == nil
 				}
 			case *ast.GenDecl:
+				if d.Tok == token.TYPE {
+					for _, sp := range d.Specs {
+						if ts := sp.(*ast.TypeSpec); c.Info.Defs[ts.Name] == obj {
+							return helperDecl{ts: ts}, ts.TypeParams == nil
+						}
+					}
+					continue
+				}
 				if d.Tok != token.CONST && d.Tok != token.VAR {
 					continue
 				}
@@ -227,7 +243,12 @@ func (s *splitter) renderHelpers(c *checked, add func(outKey, entry)) {
 			var err error
 			var node ast.Node
 			order := orderFunc
-			if h.fn != nil {
+			if h.ts != nil {
+				node = h.ts
+				order = orderType
+				b.WriteString("type " + obj.Name() + " = ")
+				err = printer.Fprint(&b, c.Fset, h.ts.Type)
+			} else if h.fn != nil {
 				bare := *h.fn
 				bare.Doc = nil
 				node = &bare
