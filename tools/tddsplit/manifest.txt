@@ -898,3 +898,8 @@ gitx/main_test.go
 shell/main_test.go
 lock/main_test.go
 suite/main_test.go
+smell/main_test.go
+lawgate/main_test.go
+mutation/main_test.go
+failfirst/main_test.go
+escape/main_test.go

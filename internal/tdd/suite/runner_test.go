@@ -212,11 +212,11 @@ func TestNarrowToRelatedTests_ConfigFileWithNoOwningPackage(t *testing.T) {
 	t.Run("declared reader", func(t *testing.T) {
 		root := t.TempDir()
 		write(t, root, "aphrollo.toml", "[aphrollo]\n")
-		write(t, root, "internal/tdd/x_test.go", "package tdd\n")
+		write(t, root, "internal/tdd/mutation/x_test.go", "package mutation\n")
 
 		got := NarrowToRelatedTests(goR, filepath.Join(root, "aphrollo.toml"), root)
 
-		want := Runner{Cmd: "go", Args: []string{"test", "./internal/tdd"}, Dir: "", Deadline: time.Time{}}
+		want := Runner{Cmd: "go", Args: []string{"test", "./internal/tdd/mutation"}, Dir: "", Deadline: time.Time{}}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("NarrowToRelatedTests(aphrollo.toml) = %+v, want %+v", got, want)
 		}

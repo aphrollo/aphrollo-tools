@@ -44,7 +44,7 @@ jobs:
           set -uo pipefail
           declare -A targets=(
             ["internal/ratchet"]="FuzzParseLaw FuzzBaseline"
-            ["internal/tdd"]="FuzzGateLogLine"
+            ["internal/tdd/escape"]="FuzzGateLogLine"
             ["internal/tdd/core"]="FuzzDocsOnlyClassifier"
             ["internal/tdd/shell"]="FuzzBashWriteTargets"
             ["internal/cli"]="FuzzGitShimArgv FuzzCargoShimArgv"
