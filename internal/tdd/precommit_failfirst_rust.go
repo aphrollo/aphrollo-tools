@@ -22,15 +22,14 @@ import (
 // real tests/ integration files, so the inline shape here is not a language
 // necessity being worked around — it is just unhandled.
 //
-// Closing this properly needs the same block-extraction zigTestLines does:
-// isolate the new #[test] fn's added lines from the source changes beside it
-// in the same file's diff, so fail-first can apply "just the new test" onto
-// HEAD without dragging the new production code along (which would make the
-// test pass at HEAD and prove nothing). That is a real feature, not a
-// one-line fix, and is left undone here. What this closes is the SILENCE:
-// failFirstStageWithRustNotice names the gap on stderr and in gate.log,
-// matching every other inconclusive path in this file, instead of a commit
-// shaped this way leaving no trace that fail-first even looked at it.
+// Applying "just the new test" onto HEAD would need the new #[test] fn's
+// lines isolated from the source changes beside it in the same diff, without
+// dragging the new production code along (which would make the test pass at
+// HEAD and prove nothing). Instead, the edit hook's own record of the test
+// going red on a test-only edit and green on a later production edit is the
+// proof (failfirst_ledger.go). Without such a record the stage names the gap
+// on stderr and in gate.log, matching every other inconclusive path in this
+// file, instead of leaving no trace that fail-first even looked.
 
 // failFirstStageWithRustNotice runs failFirstStage, then — only when that
 // call structurally could not fire — checks whether the reason is an inline
@@ -45,6 +44,12 @@ func failFirstStageWithRustNotice(repoRoot, root string, tests, srcs []string, r
 		return res // failFirstStage already ran and already logged
 	}
 	if !stagedSourceAddsInlineRustTest(repoRoot, srcs) {
+		return res
+	}
+	// The edit hook may already have seen each new test go red on a
+	// test-only edit and green on a later production one (failfirst_ledger.go).
+	if proofs, ok := ledgerRedProofs(repoRoot, root, srcs); ok {
+		reportLedgerProofs(root, proofs)
 		return res
 	}
 	line := fmt.Sprintf("gate precommit: fail-first in %s → inconclusive (rust inline #[cfg(test)] unit test — "+

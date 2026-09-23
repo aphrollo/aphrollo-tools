@@ -79,3 +79,49 @@ func TestPostBash_RunsNothingWhenThePrimarysChangedPathsAreAnotherSessionsStaged
 		t.Fatalf("the advisory must name the path it refused to answer for, got %q", text)
 	}
 }
+
+// The harness resets a session's shell cwd to the primary checkout between
+// Bash calls, so a lane session's command arrives as `cd <lane> && <tool>`
+// with the PRIMARY as its cwd. A tool whose writes the scanner cannot see
+// (a generator, a formatter) left the snapshot on the primary, and any dirt
+// that tree picked up meanwhile ran a suite in a checkout the lane never
+// touched (issue #733). The tree a command answers for is the one it cds
+// into, never the directory the harness happened to leave the shell in.
+func TestPostBash_RunsTheSuiteInTheLaneTheCommandCdsIntoNotThePrimaryCwd(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary, lane := goPrimaryWithLane(t)
+	cmd := "cd " + filepath.ToSlash(lane) + " && python3 tools/gen.py"
+
+	PreBash(bashPayload(t, "s733", primary, cmd))
+	write(t, lane, "widget.go", "package m\n\nfunc Widget() int { return 2 }\n")
+	write(t, primary, "other.go", "package m\n\nfunc Other() int { return 7 }\n")
+
+	var dirs []string
+	PostBash(bashPayload(t, "s733", primary, cmd), recordSuiteDirs(&dirs))
+
+	want := []string{lane}
+	if !slices.Equal(dirs, want) {
+		t.Fatalf("the suite ran in %v, want %v", dirs, want)
+	}
+}
+
+// The same reset on a Linux box leaves the shell in HOME, outside every repo:
+// a snapshot keyed on that cwd found no repo at all, and a lane's shell edit
+// was never tested (issue #733).
+func TestPostBash_RunsTheSuiteInTheLaneWhenTheCwdIsOutsideAnyRepo(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	_, lane := goPrimaryWithLane(t)
+	home := t.TempDir()
+	cmd := "cd " + filepath.ToSlash(lane) + " && python3 tools/gen.py"
+
+	PreBash(bashPayload(t, "s733b", home, cmd))
+	write(t, lane, "widget.go", "package m\n\nfunc Widget() int { return 2 }\n")
+
+	var dirs []string
+	PostBash(bashPayload(t, "s733b", home, cmd), recordSuiteDirs(&dirs))
+
+	want := []string{lane}
+	if !slices.Equal(dirs, want) {
+		t.Fatalf("the suite ran in %v, want %v", dirs, want)
+	}
+}

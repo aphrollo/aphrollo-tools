@@ -172,3 +172,18 @@ func WaitDeferredEditJob(root string) (advisory string, ok bool) {
 		return line + deferredOwnerNote(j.Session), true
 	}
 }
+
+// RecordFinishedDeferredJobForTest records a green run-phase job for project
+// under session, finished and matching the tree as it stands, so a test in
+// another package can drive `gate status --wait` against a real record
+// instead of re-deriving the record's on-disk layout.
+func RecordFinishedDeferredJobForTest(project, session string) {
+	saveDeferredJob(DeferredJob{
+		Project: project, Session: session, Phase: "run", Dir: project,
+		Started: time.Now(), HeadSHA: headSHAFor(project),
+		FileHash: sourceIdentity(project, ""), Runner: []string{"go", "test", "./..."},
+	})
+	if j, ok := loadDeferredJob(session, project); ok {
+		writePhaseResult(j.Result, PhaseOutcome{ExitCode: 0, Seconds: 1})
+	}
+}

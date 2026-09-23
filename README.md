@@ -669,7 +669,7 @@ live where being wrong only costs a re-run):
 | `gate userpromptsubmit` | Claude UserPromptSubmit hook (stdin) | Intercepts `/gate [status\|off\|on\|reset]` — the per-session enforcement escape hatch. On any other prompt, re-injects the last RED outcome for the cwd's project so the gate survives context compaction. **Silent unless RED.** |
 | `gate stats` | manual | Tallies `gate.log` by stage and outcome, with per-crate timeout/deferred counts and median/max gate seconds (`--since 7d`), the open escape count and its oldest, and any `demote-candidate:` check. Read-only: it names the candidates, and `gate escape sync` is what opens their issues. |
 | `gate output` | manual | Read-only: prints the TEXT of the last settled suite run the gate itself made for this repo root — a header (when, which stage, which command, which verdict, how long, and whether the stored bytes were truncated) followed by the run's own output, byte for byte. `gate stats` answers what the verdict WAS; this answers what the run PRINTED, so reading one assertion line costs no re-run — which is what the narrowed-rerun refusal now points at. One record per root, overwritten by the next settled run and capped at 256 KB (the TAIL is kept, since a failure prints at the end). Exits non-zero, saying which, when no run is recorded for this root or the record is older than the 30-minute freshness window. |
-| `gate status` (also `aphrollo status` at the top level) | manual | Read-only: prints what an inconclusive gate line tells a session to go look at instead of rerunning into the same queue — this box's deferred edit jobs and every global build slot's holder. `--wait` blocks until this checkout's own deferred edit job reaches a verdict and prints that verdict line verbatim. |
+| `gate status` (also `aphrollo status` at the top level) | manual | Read-only: prints what an inconclusive gate line tells a session to go look at instead of rerunning into the same queue — this box's deferred edit jobs and every global build slot's holder. `--wait [<dir>]` blocks until the deferred edit job of this checkout — or of `<dir>`, the path a BUILDING line names, which matters when the shell cwd is not the tree that was edited — reaches a verdict and prints that verdict line verbatim. |
 | `gate escape` | manual + the `escape-closure` CI job | `record` a red that arrived after a local green, `sync` the ones recorded offline (and open the false-positive issue for a demotion candidate), `list` the open ones, `verify-closure <pr>` to refuse a PR that closes one without changing a check. See [The escape loop](#the-escape-loop-aphrollo-gate-escape). |
 | `gate runphase` | spawned by `gate posttooluse` | The detached build/run phase's wrapper: holds the build slot, logs to the state dir, writes the result file the next hook harvests. Never typed by a human; never blocks. |
 | `gate sessionstart` | Claude SessionStart hook (stdin) | Injects the TDD-skill nudge, the previous session's disk-sweep result when it freed something, and — for a repo with a workspace manifest and no laws dir under `.ratchet` (an empty dir counts as none) — ONE line saying the gate is running suites only and pointing at [Ratchet laws](#ratchet-laws-aphrollo-ratchet). Never more than one extra line each, never blocks. |
@@ -746,6 +746,24 @@ was staged to fail), which is why it is said out loud:
 `→ green-unconstrained (7 passed; no test changed with this edit — mutation
 proof owed)`. It never blocks, never touches the timeout streak, and is
 recorded as green for `/gate status`.
+
+**Inline Rust tests** — a `#[test]` inside a `#[cfg(test)]` module in the same
+file as the code it tests, or in a sibling file mounted by a `#[cfg(test)]
+#[path = "..."] mod` declaration — cannot be applied onto HEAD without the
+implementation beside them, so fail-first proves them from the **edit ledger**
+instead. The edit hook records every edit per checkout (`<stateDir>/edit-ledger/`):
+the file, the HEAD it was made on, whether it changed only test code (the
+`#[cfg(test)]` items, compared with the file's previous recorded state or
+HEAD's copy, ignoring layout and comments), each test's body, and the verdict
+its run reached with the failing and passing test names. A new staged test is
+`red-proven` when the ledger holds, on the current HEAD, an edit that changed
+only test code, held the staged test and helpers exactly, and went red naming
+the test (or failed to compile), followed by production-only edits that left
+the test and helpers alone, the last of which passed naming it. The line names
+both edits:
+`[fail-first] gate precommit: postedit ledger in <root> → red-proven (src/widget.rs
+widget_doubles: red at edit <id>, green at edit <id>)`. Any new test without such a
+pair leaves the stage `inconclusive (rust-inline-test)`.
 
 `/gate off` is the escape hatch for spikes and non-TDD work; `/gate on` re-enables.
 The SessionStart baseline and `/gate allow-main` from the Node original are

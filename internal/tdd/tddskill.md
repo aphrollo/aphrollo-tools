@@ -33,7 +33,8 @@ One `gate:` line after every Edit/Write. Read it; never re-run what it ran.
 `TIMEOUT` / `SKIPPED` / `QUEUED-SKIPPED` = untested, never a pass.
 `BUILDING (deferred)` = result at the next hook — and the next hook fires on
 your next Edit/Write, so ending the turn to wait for a notification deadlocks.
-Wait in the FOREGROUND instead: `aphrollo gate status --wait`. `aphrollo gate stats`
+Wait in the FOREGROUND instead: `aphrollo gate status --wait <tree>`, with the
+tree the BUILDING line names (the shell cwd may be a different checkout). `aphrollo gate stats`
 = what the verdict WAS; `aphrollo gate output` = what that run actually PRINTED,
 assertion lines unfiltered. Neither re-runs a suite.
 

@@ -19,7 +19,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	// asked for and has to hear about even though a fresh run is starting
 	// (issue #571). One defer beats repeating the fold at eight returns.
 	defer func() { advisory = joinDeferredAdvisory(carried, advisory) }()
-	out := runEditPhases(snap.runner, root, target, headSHA, fileHash, session, budget)
+	out := runEditPhases(snap.runner, root, target, headSHA, fileHash, session, snap.editID, budget)
 	if out.spawnFailed {
 		appendGateLog("postedit", root, cmdString(snap.runner), InfraFailed, 0)
 		return spawnFailedLine(root, "build"), false
@@ -47,7 +47,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	// out is left detached and reported by the next hook.
 	widenNote := ""
 	if postEditSelectedZero(snap.runner, res) {
-		w := widenDeferredSelection(snap.runner, root, target, headSHA, fileHash, session, deadline, res)
+		w := widenDeferredSelection(snap.runner, root, target, headSHA, fileHash, session, snap.editID, deadline, res)
 		if w.terminal != "" {
 			return w.terminal, w.running
 		}
@@ -72,37 +72,9 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 		}
 	}
 	logSuiteVerdict("postedit", root, cmdString(snap.runner), string(outcome), res)
+	recordEditVerdict(root, snap.editID, cmdString(snap.runner), outcome, res.Output)
 	if outcome.IsRed() {
 		return withNote(redSummary(snap.runner, root, outcome, res.Output), widenNote), false
 	}
 	return withNote(passAdvisory(snap.runner, root, outcome, res.Output, res.Duration, snap.prevFailing), widenNote), false
-}
-
-// promptHarvest reports a deferred job that finished since the last hook, for
-// a session that stopped editing and just talks. It answers about the CURRENT
-// commit only — a result from another HEAD describes code that is not there.
-// A harvested run that selected nothing starts its next rung detached rather
-// than waiting on it: a prompt hook has no edit budget to spend.
-func promptHarvest(session, cwd string) string {
-	if cwd == "" {
-		return ""
-	}
-	root := findRootFrom(cwd)
-	if root == "" {
-		return ""
-	}
-	j, ok := loadDeferredJob(session, root)
-	if !ok {
-		return ""
-	}
-	out, done := deferredResult(j)
-	if !done {
-		return ""
-	}
-	clearDeferredJob(session, root)
-	if !deferredMatchesSource(j, headSHAFor(root), sourceIdentity(root, "")) {
-		return ""
-	}
-	state, statePath := loadSession(session)
-	return harvestAdvisory(j, out, root, state, statePath, 0)
 }

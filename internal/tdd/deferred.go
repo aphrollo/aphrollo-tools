@@ -58,7 +58,10 @@ type DeferredJob struct {
 	// edit even touch it?") instead of read as a plain red. Empty in a
 	// record written before this field existed, which every reader must
 	// treat as "cannot say" rather than as "no crate".
-	File    string `json:"file"`
+	File string `json:"file"`
+	// EditID names the edit-ledger record this run judges, so a verdict
+	// harvested at a later hook still lands on the edit it was started for.
+	EditID  string `json:"edit_id,omitempty"`
 	Dirty   bool   `json:"dirty"`
 	Session string `json:"session"`
 	Log     string `json:"log"`
