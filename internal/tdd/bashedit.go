@@ -312,6 +312,9 @@ func postBashChanges(in bashInput, run SuiteRunner) string {
 	if line := foreignStagedLine(before.Root, changed); line != "" {
 		return line
 	}
+	if line := unattributedPrimaryLine(in.SessionID, before.Root, changed); line != "" {
+		return line
+	}
 
 	var notes []string
 	seenRoot := map[string]bool{}
