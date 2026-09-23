@@ -40,7 +40,7 @@ func widenDeferredSelection(narrow Runner, root, target, headSHA, fileHash, sess
 		case out.deferred:
 			AppendGateLog("postedit", root, cmdString(step), "deferred", 0)
 			return deferredWidening{terminal: wideningBuildingLine(last, step, root), running: true}
-		case out.infra:
+		case out.Infra:
 			AppendGateLog("postedit", root, cmdString(step), InfraFailed, out.res.Duration)
 			return deferredWidening{terminal: infraFailureLine(root, out.job, out.res)}
 		}

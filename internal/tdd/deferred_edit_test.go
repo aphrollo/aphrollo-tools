@@ -277,7 +277,7 @@ func TestEditResultAdvisory_DropsStalePrevFailingWhenTheIndexMovedWithoutHead(t 
 // PhaseOutcome.SetupFailed may route a result to infra.
 func TestFinishedEditOutcome_ExitCode125WithoutSetupFailedIsARealResult(t *testing.T) {
 	got := finishedEditOutcome(DeferredJob{}, PhaseOutcome{ExitCode: 125})
-	if got.infra {
+	if got.Infra {
 		t.Fatal("ExitCode 125 alone must not be read as an infra failure — a real runner can legitimately exit 125")
 	}
 }
