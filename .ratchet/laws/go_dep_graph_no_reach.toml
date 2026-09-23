@@ -8,5 +8,5 @@ include = ["**/*.go"]
 [matcher]
 kind          = "go-dep-graph-forbids"
 roots         = ["github.com/aphrollo/aphrollo-tools/internal/ratchet"]
-forbidden     = ["github.com/aphrollo/aphrollo-tools/internal/tdd"]
+forbidden     = ["github.com/aphrollo/aphrollo-tools/internal/tdd", "github.com/aphrollo/aphrollo-tools/internal/tdd/*"]
 min_reachable = 1

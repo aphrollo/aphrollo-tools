@@ -14,6 +14,6 @@ min_files = 170
 [matcher]
 kind      = "marker-within-lines"
 trigger   = "\"[^\"]*(→ skipped|fail-open|stand(s)? down|unverifiable|not checked)[^\"]*\""
-marker    = "appendGateLog"
+marker    = "[Aa]ppendGateLog"
 lines     = 3
 direction = "both"
