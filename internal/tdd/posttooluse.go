@@ -137,7 +137,7 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 		return postEditDeferred(snap, root, target, headSHA, session)
 	}
 
-	res, terminal := runPostEditSuite(run, snap, root, headSHA)
+	res, terminal := runPostEditSuite(run, snap, root, headSHA, DefaultPostEditTimeout)
 	if terminal != "" {
 		return terminal, false
 	}
