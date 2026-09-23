@@ -398,13 +398,6 @@ func runnerFromArgv(argv []string, dir string) Runner {
 	return Runner{Cmd: argv[0], Args: argv[1:], Dir: dir}
 }
 
-func runnerDir(r Runner, root string) string {
-	if r.Dir != "" {
-		return r.Dir
-	}
-	return root
-}
-
 // killDeferred ends an abandoned phase. Best-effort: the process may already
 // be gone, and a failure here only leaves a process the OS will reap.
 func killDeferred(j DeferredJob) {

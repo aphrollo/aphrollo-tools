@@ -11,3 +11,10 @@ package tdd
 // because no test output was ever classified — there is nothing for
 // ClassifyOutcome to have seen.
 const InfraFailed = "infra-failed"
+
+func runnerDir(r Runner, root string) string {
+	if r.Dir != "" {
+		return r.Dir
+	}
+	return root
+}

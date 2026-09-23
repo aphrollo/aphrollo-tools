@@ -10,7 +10,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"sync/atomic"
 	"time"
 )
 
@@ -171,14 +170,6 @@ func greenSuiteStampFile(repoRoot string) string {
 	}
 	return gcStatePath("green-suite." + repoStateKey(repoRoot) + ".txt")
 }
-
-// suiteRanGreen records that a root group's suite actually RAN and passed
-// during this gate process. A cache hit is deliberately not that: it says the
-// identical tree was proven earlier, which is a fine reason to skip a rerun
-// and a poor basis for a claim CI will weigh its own red against. It is also
-// what makes an amend note-free — an amend re-runs the gate, hits the cache,
-// and proves nothing new.
-var suiteRanGreen atomic.Bool
 
 // noteSuiteGreen is called by the suite stage on a real green.
 func noteSuiteGreen() { suiteRanGreen.Store(true) }
