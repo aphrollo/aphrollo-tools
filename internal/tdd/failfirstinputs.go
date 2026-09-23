@@ -55,6 +55,9 @@ func proofInputs(repoRoot string, tests []string) []string {
 // the test for a stale path rather than for missing code.
 func isProofWithheldCode(repoRoot, p string) bool {
 	ext := strings.ToLower(path.Ext(filepath.ToSlash(p)))
+	if isCIWorkflow(p) {
+		return stagedContentChanged(repoRoot, p)
+	}
 	if !sourceExts[ext] {
 		return false
 	}
@@ -62,6 +65,15 @@ func isProofWithheldCode(repoRoot, p string) bool {
 		return stagedContentChanged(repoRoot, p)
 	}
 	return true
+}
+
+// isCIWorkflow reports whether p is a GitHub Actions workflow. A workflow is
+// never test data: a test that reads one pins the CI configuration it states,
+// so the workflow is the implementation that test proves, judged like a .ron
+// table -- withheld when this commit wrote it, carried when it only moved.
+func isCIWorkflow(p string) bool {
+	seg := strings.SplitN(filepath.ToSlash(p), "/", 3)
+	return len(seg) == 3 && seg[0] == ".github" && seg[1] == "workflows"
 }
 
 // stagedContentChanged reports whether the staged version of p differs in
