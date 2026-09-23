@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // The defect this file exists for: the gate ran the suite, kept the VERDICT
@@ -208,12 +210,7 @@ func TestClaudeMDBlock_NamesTheRouteToTheRunsOwnText(t *testing.T) {
 	}
 }
 
-func firstBytes(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
-}
+func firstBytes(s string, n int) string { return tddtest.FirstBytes(s, n) }
 
 func lastBytes(s string, n int) string {
 	if len(s) <= n {

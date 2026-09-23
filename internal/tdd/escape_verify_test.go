@@ -3,6 +3,8 @@ package tdd
 import (
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // verifyStub wires the three questions verify-closure asks gh. The diff is a
@@ -17,13 +19,7 @@ func verifyStub(t *testing.T, prView, patch, issue string) {
 	})
 }
 
-// stubGhFail makes the stub write to stderr and exit non-zero for one
-// `<verb> <noun>` pair, which is how gh reports a missing label.
-func stubGhFail(t *testing.T, call, message string) {
-	t.Helper()
-	verb, noun, _ := strings.Cut(call, " ")
-	t.Setenv("GH_STUB_"+strings.ToUpper(verb)+"_"+ghStubKeyPart(noun)+"_FAIL", message)
-}
+func stubGhFail(t *testing.T, call, message string) { t.Helper(); tddtest.StubGhFail(t, call, message) }
 
 // escapeLabelled is an issue the loop owns, whose closes-by names no file.
 const escapeLabelled = `{"labels":[{"name":"escape"}],"body":"closes-by: law | stage\n"}`

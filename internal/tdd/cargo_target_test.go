@@ -4,16 +4,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// cargoCrate builds a crate root whose manifest names pkg.
-func cargoCrate(t *testing.T, pkg string) string {
-	t.Helper()
-	root := t.TempDir()
-	write(t, root, "Cargo.toml", "[package]\nname = \""+pkg+"\"\nversion = \"0.1.0\"\n")
-	write(t, root, "src/lib.rs", "pub fn x() {}\n")
-	return root
-}
+func cargoCrate(t *testing.T, pkg string) string { t.Helper(); return tddtest.CargoCrate(t, pkg) }
 
 // TestNarrow_TestModuleUnderSrcRunsTheLib pins a real misfire (2026-09-02): a
 // `#[cfg(test)] mod` file under src/ — borld's crates/clouds/src/

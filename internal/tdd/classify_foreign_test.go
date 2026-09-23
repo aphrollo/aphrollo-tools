@@ -6,20 +6,13 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// postEditVerdicts is every verdict gate.log holds for the postedit stage, in
-// order — what the gate decided a run MEANT, read from its own durable record
-// rather than from the wording of an advisory.
 func postEditVerdicts(t *testing.T, cfg string) []string {
 	t.Helper()
-	var out []string
-	for line := range strings.SplitSeq(gateLogText(t, cfg), "\n") {
-		if e, ok := parseGateLine(line); ok && e.stage == "postedit" {
-			out = append(out, e.verdict)
-		}
-	}
-	return out
+	return tddtest.PostEditVerdicts(t, cfg, func(line string) (string, string, bool) { e, ok := parseGateLine(line); return e.stage, e.verdict, ok })
 }
 
 // A link step that fails on a crate this edit never touched says nothing

@@ -5,19 +5,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// currentBranch returns repoRoot's current branch name, whatever git init
-// picked as the default (varies by git version/config) -- tests that need
-// to check out BACK to the starting branch read this instead of hardcoding
-// "main" or "master".
 func currentBranch(t *testing.T, repoRoot string) string {
 	t.Helper()
-	out, err := git(repoRoot, "rev-parse", "--abbrev-ref", "HEAD")
-	if err != nil {
-		t.Fatalf("rev-parse --abbrev-ref HEAD: %v: %s", err, out)
-	}
-	return strings.TrimSpace(out)
+	return tddtest.CurrentBranch(t, repoRoot, git)
 }
 
 // makeConflictedMergeRepo builds a real conflicted-merge state: two branches

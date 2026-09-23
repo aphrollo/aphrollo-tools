@@ -7,34 +7,13 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// withIsolatedBuildLock points acquireBuildLock at a per-test lock file for
-// the test's duration, instead of the real machine-wide one. Without this, a
-// test exercising the lock races the box's OWN aphrollo PostToolUse hook
-// (which runs `go test` against this working tree after every Edit/Write,
-// and once installed exercises this exact production lock file too) —
-// spurious contention unrelated to the behavior under test. See
-// buildLockPathOverride's doc comment.
-//
-// It also shrinks the PostEdit/Precommit lock-wait deadlines from their
-// production values (20s / 300s) to a couple hundred milliseconds: a
-// contention test needs the DEADLINE to actually elapse to exercise the
-// "gave up waiting" path, and the project's test-quality bar forbids a real
-// sleep over 200ms — waiting out a real 20s or 300s budget just to prove a
-// timeout path works would violate that outright (and was observed to,
-// costing 320s for two tests before this fix).
 func withIsolatedBuildLock(t *testing.T) {
 	t.Helper()
-	restorePath := setBuildLockPathOverride(filepath.Join(t.TempDir(), "test-build.lock"))
-	origPostEdit, origPrecommit := buildLockPostEditDeadline, buildLockPrecommitDeadline
-	buildLockPostEditDeadline = 120 * time.Millisecond
-	buildLockPrecommitDeadline = 150 * time.Millisecond
-	t.Cleanup(func() {
-		restorePath()
-		buildLockPostEditDeadline = origPostEdit
-		buildLockPrecommitDeadline = origPrecommit
-	})
+	tddtest.IsolateBuildLock(t, setBuildLockPathOverride, &buildLockPostEditDeadline, &buildLockPrecommitDeadline)
 }
 
 // TestBuildLockPathOverride_ConcurrentSetAndReadIsRaceFree pins the override

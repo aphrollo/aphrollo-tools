@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // The Go half of #691's class. A src-file mutation is narrowed to `go test
@@ -178,10 +180,7 @@ func TestRunMutantsProve_AReachItCannotEstablishIsInconclusiveNotASurvivor(t *te
 	}
 }
 
-// stubGoTestReach swaps the reach probe for the duration of one test.
 func stubGoTestReach(t *testing.T, fn func(root, dir string) ([]string, error)) func() {
 	t.Helper()
-	prev := goTestReachFn
-	goTestReachFn = fn
-	return func() { goTestReachFn = prev }
+	return tddtest.Replace(t, &goTestReachFn, fn)
 }

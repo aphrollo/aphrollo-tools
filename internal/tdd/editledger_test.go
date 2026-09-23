@@ -3,30 +3,17 @@ package tdd
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-const ledgerWidgetImpl = "pub fn widget() -> i32 { 1 }\n"
+const ledgerWidgetImpl = tddtest.LedgerWidgetImpl
 
-const ledgerWidgetWithTest = "pub fn widget() -> i32 { 1 }\n\n" +
-	"#[cfg(test)]\nmod tests {\n    use super::*;\n\n" +
-	"    #[test]\n    fn widget_doubles() {\n        assert_eq!(widget(), 2);\n    }\n}\n"
+const ledgerWidgetWithTest = tddtest.LedgerWidgetWithTest
 
-const ledgerWidgetFixed = "pub fn widget() -> i32 { 2 }\n\n" +
-	"#[cfg(test)]\nmod tests {\n    use super::*;\n\n" +
-	"    #[test]\n    fn widget_doubles() {\n        assert_eq!(widget(), 2);\n    }\n}\n"
+const ledgerWidgetFixed = tddtest.LedgerWidgetFixed
 
-// ledgerRepo is a cargo repo whose HEAD already carries src/widget.rs with
-// production code only.
-func ledgerRepo(t *testing.T) string {
-	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	root := makeCargoRepo(t)
-	write(t, root, "src/lib.rs", "pub mod widget;\n")
-	write(t, root, "src/widget.rs", ledgerWidgetImpl)
-	gitDo(t, root, "add", ".")
-	gitDo(t, root, "commit", "-qm", "widget")
-	return root
-}
+func ledgerRepo(t *testing.T) string { t.Helper(); return tddtest.LedgerRepo(t) }
 
 func ledgerEditByID(t *testing.T, root, id string) ledgerEdit {
 	t.Helper()

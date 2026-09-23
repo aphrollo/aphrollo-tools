@@ -4,6 +4,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // borld#394: the commit gate passed a lane whose crates' test suites it never
@@ -65,19 +67,10 @@ func redInAlpha(ran *[]string) SuiteRunner {
 	}
 }
 
-// noteAfterGate runs one gate over root, lets the commit path stamp whatever
-// it proved, makes the commit and returns the gate note the post-commit hook
-// wrote for it — "" when it wrote none. That note is the gate's claim as a
-// machine reads it.
 func noteAfterGate(t *testing.T, root string, gate func() GateResult) string {
 	t.Helper()
-	if res := gate(); res.Blocked {
-		t.Fatalf("unexpected block: %s", res.Message)
-	}
-	StampGreenSuiteIfProven(root)
-	gitDo(t, root, "commit", "-qm", "Widen alpha")
-	PostCommit(root)
-	return gitNote(t, root, "HEAD")
+	blocked := func() (bool, string) { res := gate(); return res.Blocked, res.Message }
+	return tddtest.NoteAfterGate(t, root, gateNotesRef, blocked, StampGreenSuiteIfProven, PostCommit)
 }
 
 func TestPrecommit_ClaimsNoGreenForATouchedCrateItNeverTested(t *testing.T) {

@@ -679,7 +679,7 @@ gc_templitter_test.go                              gc
 gc_test.go                                         gc
 lockshared_test.go                                 gc  # prefix says lock; its test body reaches gc
 
-# tdd: 42 file(s), plus 1 created by P2
+# tdd: 43 file(s), plus 1 created by P2
 autoescape_override_test.go                        tdd  # prefix says escape; its test body reaches tdd
 autoescape_test.go                                 tdd  # prefix says escape; its test body reaches tdd
 behind.go                                          tdd
@@ -722,10 +722,22 @@ stagedfiles_test.go                                tdd
 statusline.go                                      tdd
 statusline_test.go                                 tdd
 statusline_unproven_test.go                        tdd
+testmain_tddtest_test.go                           tdd
 claudemd_source_test.go                            tdd  # created by P2
 
-# tddtest: 1 file(s)
+# tddtest: 12 file(s)
+data.go                                            tddtest
+files.go                                           tddtest
+fixture.go                                         tddtest
 fixture_test.go                                    tddtest
+gh.go                                              tddtest
+git.go                                             tddtest
+goos_seam.go                                       tddtest
+main.go                                            tddtest
+mutants.go                                         tddtest
+payload.go                                         tddtest
+repos.go                                           tddtest
+seams.go                                           tddtest
 
 [relocate]
 indexTree                                     autoescape.go                autoescape_suite.go

@@ -3,6 +3,8 @@ package tdd
 import (
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // ratchet: test_removed TestForeignProcs_IncludesANonDescendant: superseded
@@ -41,29 +43,13 @@ func TestForeignProcs_ExcludesADescendantOfSelf(t *testing.T) {
 	}
 }
 
-// foreignChainSample builds a fully-resolved, definitely-foreign process at
-// pid leaf: a synthetic ancestor chain long enough to satisfy
-// classifyAncestry's own bound (maxAncestryDepth) with every hop valid and
-// strictly earlier-created going up, never touching any pid this package's
-// tests use as self. Shared with the integration tests in
-// timeout_reject_test.go, which run against the REAL test process's own pid
-// and so cannot risk a chain that merely looks foreign without being
-// provably so under the stricter, creation-time-aware classifier (#548 cold
-// review, RED 1).
 func foreignChainSample(leaf int, name string, pctOneCore, cpuHours float64) []procSample {
-	samples := []procSample{{
-		pid: leaf, ppid: leaf + 1, name: name,
-		pctOneCore: pctOneCore, cpuHours: cpuHours, creation: 1_000_000,
-	}}
-	for i := 1; i <= maxAncestryDepth+1; i++ {
-		samples = append(samples, procSample{
-			pid:      leaf + i,
-			ppid:     leaf + i + 1,
-			name:     "stranger.exe",
-			creation: uint64(1_000_000 - i),
-		})
-	}
-	return samples
+	return tddtest.ForeignChainSample(leaf, name, pctOneCore, cpuHours, maxAncestryDepth, newProcSample)
+}
+
+// newProcSample is one procSample, for tddtest.ForeignChainSample.
+func newProcSample(pid, ppid int, name string, pctOneCore, cpuHours float64, creation uint64) procSample {
+	return procSample{pid: pid, ppid: ppid, name: name, pctOneCore: pctOneCore, cpuHours: cpuHours, creation: creation}
 }
 
 // maxAssignableOSPID is the ceiling under which every pid a live process can
@@ -73,18 +59,10 @@ func foreignChainSample(leaf int, name string, pctOneCore, cpuHours float64) []p
 // synthetic fixture needs from its pid space.
 const maxAssignableOSPID = 1 << 22
 
-// timeoutLoadFixtureLeaf and checkStageLoadFixtureLeaf are the leaves of the
-// two chains that get classified against the REAL test process's own pid
-// (foreignLoadReport passes os.Getpid()), so they are the two that must live
-// above maxAssignableOSPID — see
-// TestForeignChainSample_CannotBeClaimedByTheProcessRunningIt.
-// Both sit a clear order of magnitude above that ceiling, so the chains they
-// build (leaf + maxAncestryDepth + 1 pids) stay out of reach of any live
-// process on any runner.
 const (
-	syntheticPIDBase          = 1 << 30
-	timeoutLoadFixtureLeaf    = syntheticPIDBase + 999
-	checkStageLoadFixtureLeaf = syntheticPIDBase + 42
+	syntheticPIDBase          = tddtest.SyntheticPIDBase
+	timeoutLoadFixtureLeaf    = tddtest.TimeoutLoadFixtureLeaf
+	checkStageLoadFixtureLeaf = tddtest.CheckStageLoadFixtureLeaf
 )
 
 // A chain built at a leaf inside the range an OS actually assigns is a
