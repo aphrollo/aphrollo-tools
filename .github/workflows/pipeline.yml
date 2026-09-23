@@ -559,21 +559,9 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
     needs: changes
     runs-on: self-hosted
-    timeout-minutes: 45
+    timeout-minutes: 30
     permissions:
       contents: read
-    env:
-      # gremlins gathers module-wide coverage before it mutates anything, and
-      # it builds that command itself: `go test -cover -coverprofile <f> ./...`
-      # with NO -timeout (gremlins@v0.6.0 internal/coverage/coverage.go:143).
-      # So Go's 10-minute default applies to a module whose own `gate-env` job
-      # already asks for -timeout=1500s because ./internal/tdd does not fit in
-      # it. Measured: this job and nightly-mutants.yml both died at 10m07s with
-      # `failed to gather coverage: impossible to executeCoverage coverage:
-      # exit status 1` -- twice, to the second. GOFLAGS is the only lever on a
-      # command this side does not build, and -timeout is a flag `go test`
-      # knows, so it applies where a flag of ours cannot reach.
-      GOFLAGS: -timeout=40m
     steps:
       - if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
