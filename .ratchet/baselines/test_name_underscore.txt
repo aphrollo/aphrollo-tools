@@ -258,7 +258,7 @@ internal/tdd/escape_verify_test.go | func TestVerifyClosureRejectsAGateDocWithNo
 internal/tdd/escape_verify_test.go | func TestVerifyClosureRejectsAPRThatChangesNoCheck(t *testing.T) {
 internal/tdd/escape_verify_test.go | func TestVerifyClosureRejectsARootManifestChangedOutsideTheGateBlock(t *testing.T) {
 internal/tdd/escape_verify_test.go | func TestVerifyClosureRejectsATestFileNobodyNamed(t *testing.T) {
-internal/tdd/file_test.go | func TestClassifyFile(t *testing.T) {
+internal/tdd/core/file_test.go | func TestClassifyFile(t *testing.T) {
 internal/tdd/gate_rename_test.go | func TestGateControlCommandAnswersBothSpellings(t *testing.T) {
 internal/tdd/gate_rename_test.go | func TestGitShimsInvokeTheGateSubcommand(t *testing.T) {
 internal/tdd/gate_rename_test.go | func TestPatchSettingsReplacesAPreRenameHookInsteadOfStackingOne(t *testing.T) {
@@ -352,8 +352,8 @@ internal/tdd/slotowner_test.go | func TestHolderDescriptionNamesAGlobalSlotHolde
 internal/tdd/slotowner_test.go | func TestHolderDescriptionStillNamesTheTargetHolderDirectly(t *testing.T) {
 internal/tdd/slotowner_test.go | func TestLongVerbSlotOwnerSurvivesTheTargetRelease(t *testing.T) {
 internal/tdd/slotowner_test.go | func TestRunCargoLockedRecordsItsOwnerWhileItRuns(t *testing.T) {
-internal/tdd/state_test.go | func TestFingerprintsMatch(t *testing.T) {
-internal/tdd/state_test.go | func TestPrevFailing(t *testing.T) {
+internal/tdd/core/state_test.go | func TestFingerprintsMatch(t *testing.T) {
+internal/tdd/core/state_test.go | func TestPrevFailing(t *testing.T) {
 internal/tdd/stateschema_test.go | func TestGateLogStampsItsSchemaBesideTheLog(t *testing.T) {
 internal/tdd/stateschema_test.go | func TestLoadDeferredJobTreatsANewerRecordAsAbsent(t *testing.T) {
 internal/tdd/stateschema_test.go | func TestLoadSessionRenamesCorruptStateInsteadOfDiscardingIt(t *testing.T) {

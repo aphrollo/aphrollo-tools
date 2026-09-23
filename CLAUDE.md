@@ -80,6 +80,9 @@ internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy
 internal/ratchet/    Law engine: .ratchet/laws/*.toml schema, matchers, baselines, fixtures
 internal/tdd/        TDD + law gates: policy engine, edit smells, anti-cheat, fail-first, install
+internal/tdd/shell/  bash write-target parsing (L0 of the tdd split)
+internal/tdd/gitx/   git plumbing, trunk and merge-tip resolution (L0)
+internal/tdd/core/   gate log, session state, runner and verdict types, file classes (L1)
 internal/docs/       doc-reference guard: extract path citations, resolve, report misses
 internal/workspace/  worktree lifecycle + git verbs
 internal/dev/        dev-tier control plane (systemd)
