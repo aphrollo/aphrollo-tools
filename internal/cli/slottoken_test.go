@@ -52,16 +52,16 @@ func TestLongVerb_HoldsOneSlotAndLendsIt(t *testing.T) {
 	envOut := filepath.Join(t.TempDir(), "child-env")
 	t.Setenv("APHROLLO_TEST_STUB_ENV_OUT", envOut)
 
-	// `bench`, not `mutants`: the only `cargo mutants` that reaches the shim
+	// `install`, not `mutants`: the only `cargo mutants` that reaches the shim
 	// is the gate's own marked run, and that one is let past the queue before
 	// the slots are consulted at all.
-	code := runCargoShim([]string{"bench", "-p", "movement"}, strings.NewReader(""), io.Discard, io.Discard,
+	code := runCargoShim([]string{"install", "--path", "."}, strings.NewReader(""), io.Discard, io.Discard,
 		cargoShimConfig{realCargo: stub})
 	if code != 0 {
 		t.Fatalf("exit = %d", code)
 	}
 
-	token, err := os.ReadFile(envOut + ".bench")
+	token, err := os.ReadFile(envOut + ".install")
 	if err != nil {
 		t.Fatalf("the long phase left no record of its environment: %v", err)
 	}

@@ -991,12 +991,12 @@ never leaves target dirs locked by builds that never started.
   shared target dir.
 - **`cargo watch` is NOT a long verb**: it recompiles on every save for as
   long as it is open, so it holds a slot like any other build.
-- **A long verb holds ONE slot for its whole run, and lends it.** `mutants`,
-  `bench` and `install` take a slot, run a prewarm compile under it
-  (`cargo check --tests` for mutants, `cargo build --benches` for bench,
-  `cargo build --tests` otherwise), then RELEASE THE TARGET LOCK and keep the
-  global slot until they exit. In practice `bench` and `install` are the two
-  that reach it: a bare `cargo mutants` is refused outright, and the gate's
+- **A long verb holds ONE slot for its whole run, and lends it.** `mutants`
+  and `install` take a slot, run a prewarm compile under it
+  (`cargo check --tests` for mutants, `cargo build --tests` for install),
+  then RELEASE THE TARGET LOCK and keep the global slot until they exit. In
+  practice `install` is the one that reaches it: a bare `cargo mutants` is
+  refused outright, and the gate's
   own marked run is let past the queue before the classifier is consulted.
   The long phase and every cargo it spawns inherit
   `APHROLLO_SLOT_TOKEN=<slot lock>`, which skips the global semaphore but NOT
@@ -1008,6 +1008,18 @@ never leaves target dirs locked by builds that never started.
   under a slot and launches the binary with neither the slot nor the token
   (the launched process outlives both). The prewarm is a warm-up, not a gate:
   its exit code is discarded and it is skipped outside a cargo project.
+- **A test or bench run holds its slot for the compile only.** `cargo bench`,
+  `cargo nextest run`, and a `cargo test` that names its targets (`--test`,
+  `--lib`, `--tests`, `--all-targets`, ...), first runs the same argv up to the first bare `--`
+  with `--no-run` under the slot, releases the slot, and then runs the
+  original argv holding nothing. Every unit is fresh by then, so the binaries
+  that run are the ones built under the slot, and a ten-minute `--ignored`
+  soak or bench run holds neither a target lock nor a global slot while it
+  executes. A failed compile returns
+  its own exit code and runs nothing. A `cargo test` with doctests in scope
+  (no target flag, or `--doc`) keeps its slot for the whole call, because
+  rustdoc compiles the doctests at run time. The gate's own suite runs are
+  not shim invocations and keep their slot for the run.
 - A waiter still prints exactly one `queued behind "<cmd>" in <cwd>` line
   naming a holder, one line on acquire, and exits 75 (`EX_TEMPFAIL`) when it
   gives up (`APHROLLO_CARGO_WAIT_SECS`, default 20 min).
