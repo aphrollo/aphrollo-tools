@@ -29,3 +29,28 @@ var testDeclRes = map[string][]*regexp.Regexp{
 	".js": jsTestDeclRes, ".jsx": jsTestDeclRes, ".mjs": jsTestDeclRes,
 	".ts": jsTestDeclRes, ".tsx": jsTestDeclRes,
 }
+
+// goTestMainRe matches a Go package's TestMain declaration. It has a test's
+// name and no test's meaning: it is the test binary's entry point, `go test
+// -run` never selects it, and a proof that names it runs nothing.
+var goTestMainRe = regexp.MustCompile(`^\s*func\s+TestMain\s*\(`)
+
+// testDeclLine reports whether an added line declares a test in a file of
+// extension ext (lower-cased, with its dot), and whether the table knows the
+// language at all. It is the one judgment of "declares a test" every reader
+// of testDeclRes goes through, so none of them counts a Go TestMain.
+func testDeclLine(ext, line string) (decl, known bool) {
+	res, known := testDeclRes[ext]
+	if !known {
+		return false, false
+	}
+	if ext == ".go" && goTestMainRe.MatchString(line) {
+		return false, true
+	}
+	for _, re := range res {
+		if re.MatchString(line) {
+			return true, true
+		}
+	}
+	return false, true
+}

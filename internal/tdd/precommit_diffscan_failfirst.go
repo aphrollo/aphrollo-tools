@@ -117,8 +117,8 @@ func stagedTestsAddDeclIn(repoRoot string, testFiles []string) bool {
 		if !want[fa.path] || ClassifyFile(fa.path) != Test {
 			continue
 		}
-		res, known := testDeclRes[strings.ToLower(filepath.Ext(fa.path))]
-		if !known {
+		ext := strings.ToLower(filepath.Ext(fa.path))
+		if _, known := testDeclRes[ext]; !known {
 			return true
 		}
 		post, err := git(repoRoot, "show", ":"+fa.path)
@@ -130,10 +130,8 @@ func stagedTestsAddDeclIn(repoRoot string, testFiles []string) bool {
 			if no < 1 || no > len(lines) {
 				continue
 			}
-			for _, re := range res {
-				if re.MatchString(lines[no-1]) {
-					return true
-				}
+			if decl, _ := testDeclLine(ext, lines[no-1]); decl {
+				return true
 			}
 		}
 	}
