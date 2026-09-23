@@ -49,6 +49,16 @@ func loadCargoTestTargets(ws string) map[string]map[string]bool {
 	if ws == "" {
 		return nil
 	}
+	out, ok := cargoMetadataNoDeps(ws)
+	if !ok {
+		return nil
+	}
+	return parseCargoTestTargets(out)
+}
+
+// cargoMetadataNoDeps is `cargo metadata --no-deps` for the workspace at ws,
+// false when there is no cargo or the command fails.
+func cargoMetadataNoDeps(ws string) ([]byte, bool) {
 	cargo := os.Getenv("CARGO")
 	if cargo == "" {
 		cargo = "cargo"
@@ -57,9 +67,9 @@ func loadCargoTestTargets(ws string) map[string]map[string]bool {
 		"--manifest-path", filepath.Join(ws, "Cargo.toml"))
 	out, err := cmd.Output()
 	if err != nil {
-		return nil
+		return nil, false // absence-ok: no cargo or no workspace; callers fall back to the unscoped run
 	}
-	return parseCargoTestTargets(out)
+	return out, true
 }
 
 // parseCargoTestTargets reads a `cargo metadata --no-deps` document into

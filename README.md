@@ -880,7 +880,9 @@ target that does not exist fails instantly and proves nothing:
 | `<crate>/benches/x.rs` | `--bench x --no-run` — a bench RUN costs minutes and says nothing about correctness |
 
 The filter dialect follows the runner: `-E 'test(/^a::b::/)'` for nextest, the
-`a::b::` substring for plain `cargo test`.
+`a::b::` substring for plain `cargo test`. An example or bench whose manifest
+entry declares `required-features` is built with `--features` naming them, read
+from `cargo metadata`: cargo refuses to build that target without them.
 
 #### The edit hook's budget, and deferred builds
 
