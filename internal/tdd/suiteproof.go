@@ -63,6 +63,12 @@ type suiteProofLedger struct {
 
 var suiteProof suiteProofLedger
 
+// gateSuiteProof is how code outside this file reaches the running gate's
+// ledger: a pointer to the one value, never a copy (it holds its own mutex,
+// and a copy would record into a second, separate ledger). A package above
+// the one that owns the ledger gets the same one through it.
+func gateSuiteProof() *suiteProofLedger { return &suiteProof }
+
 // resetSuiteProof starts a fresh ledger, and clears suiteRanGreen with it:
 // both describe what THIS gate ran, and a second gate in the same process
 // must not stamp its tree on the first one's green. Called at the entry of
