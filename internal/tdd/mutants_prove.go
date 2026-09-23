@@ -33,7 +33,7 @@ const (
 	ExitMutantsProveKilled = 0
 	// ExitMutantsProveRefused: the mutation never registered — the pattern
 	// matched zero or more than one time, --old equalled --new, or
-	// `git diff --numstat` came back empty after the write. Nothing ran, or
+	// the file's content was the same object after the write. Nothing ran, or
 	// what ran proves nothing, because the file was never actually mutated.
 	ExitMutantsProveRefused = 1
 	// ExitMutantsProveUsage: bad flags.
@@ -129,7 +129,7 @@ func repoRelSlashPath(repoRoot, absFile string) (relPath string, ok bool) {
 	return filepath.ToSlash(rel), true
 }
 
-// mutationDiffVerdict is what the numstat check below found: a real diff
+// mutationDiffVerdict is what the landing check below found: a real change
 // (the mutation registered), a relPath that never named a location inside
 // repoRoot at all, a git invocation failure, or git running cleanly and
 // reporting nothing to diff.
@@ -151,13 +151,13 @@ const (
 // A caller cannot tell these apart from one message, and the collapsed
 // message asserts the third even when it was the first (issue #360's
 // class: absence returned from an error branch).
-func classifyMutationDiff(relPathEscapesRepo bool, gitErr error, numstat string) mutationDiffVerdict {
+func classifyMutationDiff(relPathEscapesRepo bool, gitErr error, evidence string) mutationDiffVerdict {
 	switch {
 	case relPathEscapesRepo:
 		return mutationDiffEscapesRepo
 	case gitErr != nil:
 		return mutationDiffGitFailed
-	case strings.TrimSpace(numstat) == "":
+	case strings.TrimSpace(evidence) == "":
 		return mutationDiffNoChange
 	default:
 		return mutationDiffChanged
@@ -173,10 +173,12 @@ func classifyMutationDiff(relPathEscapesRepo bool, gitErr error, numstat string)
 // untouched, and the suite staying green then read as a survivor rather than
 // as evidence about nothing at all.
 //
-// The check is `git diff --numstat` on the file, taken between the write and
-// the test run: EOL-independent, and it catches every one of those causes at
-// once, because it asks git whether the tree actually changed rather than
-// asking why it might not have. It runs AFTER a cheaper, more specific check
+// The check (mutationLandedEvidence) hashes the content git reads for the
+// file from the proof's starting bytes and again after the write, between the
+// write and the test run: EOL-independent, blind to unstaged work already in
+// the file, and it catches every one of those causes at once, because it asks
+// whether the content actually changed rather than asking why it might not
+// have. It runs AFTER a cheaper, more specific check
 // (the replace itself must match --old exactly once) that names the same
 // class of failure without a subprocess.
 //
@@ -287,8 +289,8 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 		return ExitMutantsProveRefused
 	}
 
-	numstat, gitErr := git(repoRoot, "diff", "--numstat", "--", relPath)
-	switch classifyMutationDiff(relPathEscapesRepo, gitErr, numstat) {
+	landed, gitErr := mutationLandedEvidence(repoRoot, relPath, origBytes)
+	switch classifyMutationDiff(relPathEscapesRepo, gitErr, landed) {
 	case mutationDiffEscapesRepo:
 		// Unreachable here — the earlier relPathEscapesRepo check already
 		// returned — but classifyMutationDiff stays the single place this
@@ -300,23 +302,14 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 		return ExitMutantsProveRefused
 	case mutationDiffGitFailed:
 		restore()
-		fmt.Fprintf(stderr, "gate: mutants prove refused — git diff --numstat failed for %s: %v\n", relPath, gitErr)
+		fmt.Fprintf(stderr, "gate: mutants prove refused — cannot tell whether the mutation changed %s: %v\n", relPath, gitErr)
 		return ExitMutantsProveRefused
 	case mutationDiffNoChange:
 		restore()
-		// Git keeps no baseline for a file it does not track, so a diff of
-		// one is empty whatever was written. That is the one cause in the
-		// list below the prover can confirm, and it has a one-command fix.
-		if tracked, err := git(repoRoot, "ls-files", "--", relPath); err == nil && strings.TrimSpace(tracked) == "" {
-			fmt.Fprintf(stderr, "gate: mutants prove refused — %s is untracked, so git has no baseline to diff "+
-				"the mutation against; restored, nothing was proved. Stage it (`git add %s`) and prove again. "+
-				"`git add -N` is not enough: an intent-to-add file diffs as wholly new whether or not the "+
-				"mutation landed, so the check would prove nothing.\n", relPath, relPath)
-			return ExitMutantsProveRefused
-		}
-		fmt.Fprintf(stderr, "gate: mutants prove refused — git diff --numstat reports no change for %s after the "+
-			"mutation; restored, nothing was proved. Common causes: the file is untracked, the edit landed in a "+
-			"different worktree, or the tree was already in the mutated state.%s\n", relPath, eolSuffix())
+		fmt.Fprintf(stderr, "gate: mutants prove refused — the mutation left the content git reads for %s unchanged "+
+			"(the same object before and after the write), so nothing was mutated; restored, nothing was proved. "+
+			"An edit the repository's line-ending attributes or clean filters normalise away is not a mutation.%s\n",
+			relPath, eolSuffix())
 		return ExitMutantsProveRefused
 	}
 
@@ -326,7 +319,7 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 		fmt.Fprintf(stderr, "gate: mutants prove refused — no known test runner under %s; restored\n", root)
 		return ExitMutantsProveRefused
 	}
-	runner = NarrowToRelatedTests(runner, absFile, root)
+	runner = scopeToWantedTest(NarrowToRelatedTests(runner, absFile, root), opts.WantFail)
 	res := run(runner, root)
 	// A green NARROWED run is not yet a survivor, in either language: `--lib`
 	// plus a module filter cannot reach a test in an integration binary, and
@@ -394,26 +387,26 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	switch {
 	case !res.Passed && matched != "":
 		fmt.Fprintf(stdout, "gate: mutant KILLED — %s failed as predicted (mutation: %q -> %q in %s; "+
-			"git diff --numstat: %s)%s\n", matched, opts.Old, opts.New, relPath, strings.TrimSpace(numstat),
+			"mutation landed: %s)%s\n", matched, opts.Old, opts.New, relPath, landed,
 			widenedProveNote(narrow, widened))
 		return retainProveRun(root, runner, res, ExitMutantsProveKilled)
 	case !res.Passed && len(failing) == 0:
 		fmt.Fprintf(stdout, "gate: mutant UNREADABLE — unreadable red run: no failing test name could be read "+
 			"from the output, so nothing is proved either way about %q (mutation verified applied via "+
-			"git diff --numstat: %s; restored). Usually a build or link failure, or a runner shape the "+
+			"%s; restored). Usually a build or link failure, or a runner shape the "+
 			"extractor does not know — the run's own text says which, and `aphrollo gate output` serves "+
 			"it: this proof's run is the record kept for this root.\n",
-			opts.WantFail, strings.TrimSpace(numstat))
+			opts.WantFail, landed)
 		return retainProveRun(root, runner, res, ExitMutantsProveUnreadable)
 	case !res.Passed:
 		fmt.Fprintf(stdout, "gate: mutant WRONG FAILURE — the suite went red but not on %q; failing: %s "+
-			"(mutation verified applied via git diff --numstat: %s; restored)\n",
-			opts.WantFail, strings.Join(failing, ", "), strings.TrimSpace(numstat))
+			"(mutation verified applied: %s; restored)\n",
+			opts.WantFail, strings.Join(failing, ", "), landed)
 		return retainProveRun(root, runner, res, ExitMutantsProveWrongFailure)
 	default:
 		fmt.Fprintf(stdout, "gate: mutant SURVIVED — %s stayed green after a mutation VERIFIED applied "+
-			"(git diff --numstat: %s); this is a real survivor, not a no-op — restored.%s\n",
-			cmdString(runner), strings.TrimSpace(numstat), widenedProveNote(narrow, widened))
+			"(%s); this is a real survivor, not a no-op — restored.%s\n",
+			cmdString(runner), landed, widenedProveNote(narrow, widened))
 		return retainProveRun(root, runner, res, ExitMutantsProveSurvived)
 	}
 }
