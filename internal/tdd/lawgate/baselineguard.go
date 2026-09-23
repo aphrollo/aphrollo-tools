@@ -296,7 +296,6 @@ var baselineDeclare = regexp.MustCompile(`(?m)^\s*baseline\s*=\s*"([^"]*)"`)
 // laundering this guard exists to close. Either version failing to parse
 // answers true: a box that cannot tell says "changed" rather than silently
 // waving a raise through.
-// twin-diverges-ok: pure move into lawgate; the merge gate diffs the moved file whole
 // twin: internal/cli/ratchet.go#lawChangedSinceHEAD
 func lawSemanticsChanged(staged, head string) bool {
 	s, err := ratchet.RuleSemantics(staged)
