@@ -72,8 +72,11 @@ type bashSnapshot struct {
 	// MergeHead is the commit MERGE_HEAD named when the snapshot was taken,
 	// "" when no merge was in progress. It is what lets the harvest tell a
 	// command that CONCLUDED a merge from one that edited the merged paths.
-	MergeHead string    `json:"merge_head,omitempty"`
-	At        time.Time `json:"at"`
+	MergeHead string `json:"merge_head,omitempty"`
+	// Head is the commit HEAD named when the snapshot was taken: an
+	// unchanged HEAD with MERGE_HEAD gone is an aborted merge.
+	Head string    `json:"head,omitempty"`
+	At   time.Time `json:"at"`
 }
 
 // IsBashHook reports whether a hook payload describes a Bash call, so the
@@ -234,6 +237,7 @@ func takeBashSnapshot(cwd string) *bashSnapshot {
 		StatusHash: hex.EncodeToString(sum[:]),
 		Dirty:      map[string]string{},
 		MergeHead:  mergeHeadCommit(root),
+		Head:       headCommit(root),
 		At:         time.Now().UTC(),
 	}
 	for _, rel := range porcelainPaths(status) {
@@ -281,11 +285,11 @@ func PostBash(raw []byte, run SuiteRunner) string {
 	}
 
 	changed, now := changedSince(before)
-	changed, concluded := withoutConcludedMergePaths(before, now, changed)
+	changed, ended, how := withoutEndedMergePaths(before, now, changed)
 	if len(changed) == 0 {
-		if concluded > 0 {
-			appendGateLog("postedit", before.Root, "-", fmt.Sprintf("merge-concluded-standdown:%d", concluded), 0)
-			return mergeConcludedLine(before.Root, concluded)
+		if ended > 0 {
+			appendGateLog("postedit", before.Root, "-", fmt.Sprintf("merge-%s-standdown:%d", how, ended), 0)
+			return mergeEndedLine(before.Root, how, ended)
 		}
 		return ""
 	}

@@ -67,10 +67,12 @@ func trunkSyncStandDownLine(root string, dropped int) string {
 }
 
 // A `git commit` (or `git merge --continue`) that concludes a merge moves
-// every path the merge staged out of the dirty set. None of them was edited by
-// that command: git ran the pre-merge routine over them as it committed. The
-// harvest read "left the dirty set" as an edit and ran their suites again, on
-// the primary and in lanes alike.
+// every path the merge staged out of the dirty set, and so does a `git merge
+// --abort` that puts them back to HEAD. None of them was edited by that
+// command: a conclusion had git run the pre-merge routine over them as it
+// committed, and an abort restores what HEAD already held. The harvest read
+// "left the dirty set" as an edit and ran their suites again, on the primary
+// and in lanes alike.
 
 // mergeHeadCommit is the commit MERGE_HEAD names, "" when no merge is in
 // progress.
@@ -82,15 +84,33 @@ func mergeHeadCommit(root string) string {
 	return strings.TrimSpace(out)
 }
 
-// withoutConcludedMergePaths drops, from changed, the paths the command's
-// conclusion of a merge committed: dirty before, clean now, when a merge was
-// in progress before, is not now, and HEAD became a merge of the commit
-// MERGE_HEAD named. A path the command also edited stays dirty with a new
-// stamp and is kept; so is one that entered the dirty set. dropped counts
+// headCommit is the commit HEAD names, "" before the first commit.
+func headCommit(root string) string {
+	out, err := gitRead(root, "rev-parse", "-q", "--verify", "HEAD")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+// withoutEndedMergePaths drops, from changed, the paths a command that ended
+// a merge moved out of the dirty set: dirty before, clean now, when a merge
+// was in progress before and is not now, and HEAD either became a merge of
+// the commit MERGE_HEAD named (concluded) or did not move (aborted). A path
+// the command also edited stays dirty with a new stamp and is kept; so is one
+// that entered the dirty set. how names which ending it was; dropped counts
 // what was removed.
-func withoutConcludedMergePaths(before, now *bashSnapshot, changed []string) (kept []string, dropped int) {
-	if now == nil || before.MergeHead == "" || now.MergeHead != "" || !headMerged(before.Root, before.MergeHead) {
-		return changed, 0
+func withoutEndedMergePaths(before, now *bashSnapshot, changed []string) (kept []string, dropped int, how string) {
+	if now == nil || before.MergeHead == "" || now.MergeHead != "" {
+		return changed, 0, ""
+	}
+	switch {
+	case headMerged(before.Root, before.MergeHead):
+		how = "concluded"
+	case before.Head != "" && now.Head == before.Head:
+		how = "aborted"
+	default:
+		return changed, 0, ""
 	}
 	for _, rel := range changed {
 		_, wasDirty := before.Dirty[rel]
@@ -101,7 +121,7 @@ func withoutConcludedMergePaths(before, now *bashSnapshot, changed []string) (ke
 		}
 		kept = append(kept, rel)
 	}
-	return kept, dropped
+	return kept, dropped, how
 }
 
 // headMerged reports whether HEAD is a merge commit with incoming among its
@@ -123,8 +143,8 @@ func headMerged(root, incoming string) bool {
 	return false
 }
 
-// mergeConcludedLine is what a harvest says when every changed path was
-// committed by concluding a merge.
-func mergeConcludedLine(root string, dropped int) string {
-	return fmt.Sprintf("gate: merge concluded (%d merged path(s) committed in %s, judged by premerge at commit) — nothing edited", dropped, root)
+// mergeEndedLine is what a harvest says when every changed path was moved by
+// ending a merge rather than by an edit.
+func mergeEndedLine(root, how string, dropped int) string {
+	return fmt.Sprintf("gate: merge %s (%d merged path(s) left the dirty set in %s) — nothing edited, no suite run", how, dropped, root)
 }
