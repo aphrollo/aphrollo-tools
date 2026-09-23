@@ -7,9 +7,23 @@ import (
 	testing "testing"
 )
 
+const checkStageLoadFixtureLeaf = tddtest.CheckStageLoadFixtureLeaf
+
+const syntheticPIDBase = tddtest.SyntheticPIDBase
+
+const timeoutLoadFixtureLeaf = tddtest.TimeoutLoadFixtureLeaf
+
 func fakeGitShim(t *testing.T) (dir, marker string) { t.Helper(); return tddtest.FakeGitShim(t) }
+
+func foreignChainSample(leaf int, name string, pctOneCore, cpuHours float64) []procSample {
+	return tddtest.ForeignChainSample(leaf, name, pctOneCore, cpuHours, maxAncestryDepth, newProcSample)
+}
 
 func gitValue(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	return tddtest.GitValue(t, dir, args...)
+}
+
+func newProcSample(pid, ppid int, name string, pctOneCore, cpuHours float64, creation uint64) procSample {
+	return procSample{PID: pid, PPID: ppid, Name: name, PctOneCore: pctOneCore, CPUHours: cpuHours, Creation: creation}
 }
