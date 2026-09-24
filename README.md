@@ -1064,6 +1064,10 @@ repo and tip attached. A gate miss is `gate escape record` instead.
 checkout's queue position and mutation run. `--wait [<dir>]` blocks on a
 deferred job's verdict.
 
+### `aphrollo ci why`
+
+`aphrollo ci why [<pr>|<run-id>|--main] [--workflow NAME] [--raw]` explains a red pipeline run, read-only: one line per failed job, then its failing Go tests with their assertion lines, its mutation survivors, timeouts and unmeasured mutants, or its infrastructure cause; `--raw` prints the failed-step log untouched.
+
 ## Known limitations
 
 - Columns (`--col`, reference output) are UTF-16 code units, the LSP

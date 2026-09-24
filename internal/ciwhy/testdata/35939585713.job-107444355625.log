@@ -1,0 +1,37 @@
+test	Test (race + shuffle)	﻿2026-09-24T00:43:43.7592375Z ##[group]Run set -o pipefail
+test	Test (race + shuffle)	2026-09-24T00:43:43.7592900Z ^[[36;1mset -o pipefail^[[0m
+test	Test (race + shuffle)	2026-09-24T00:43:43.7593547Z ^[[36;1mgo test -race -count=1 -shuffle=on -timeout=600s -v ./... | tee test-output.log^[[0m
+test	Test (race + shuffle)	2026-09-24T00:43:43.7607176Z shell: /usr/bin/bash -e {0}
+test	Test (race + shuffle)	2026-09-24T00:43:43.7607568Z env:
+test	Test (race + shuffle)	2026-09-24T00:43:43.7607853Z   GOTOOLCHAIN: local
+test	Test (race + shuffle)	2026-09-24T00:43:43.7608185Z ##[endgroup]
+test	Test (race + shuffle)	2026-09-24T00:43:44.4044703Z ?   	github.com/aphrollo/aphrollo-tools/cmd/aphrollo	[no test files]
+test	Test (race + shuffle)	2026-09-24T00:43:45.8964150Z -test.shuffle 1790210624891669506
+test	Test (race + shuffle)	2026-09-24T00:43:45.8965982Z === RUN   TestStamp_ReportsUnstampedWhenTheLinkerSetNothing
+test	Test (race + shuffle)	2026-09-24T00:43:45.8967764Z --- PASS: TestStamp_ReportsUnstampedWhenTheLinkerSetNothing (0.00s)
+test	Test (race + shuffle)	2026-09-24T00:43:45.8969073Z PASS
+test	Test (race + shuffle)	2026-09-24T00:43:45.8970123Z ok  	github.com/aphrollo/aphrollo-tools/internal/buildinfo	1.014s
+test	Test (race + shuffle)	2026-09-24T00:44:27.8292449Z -test.shuffle 1790210626151159222
+test	Test (race + shuffle)	2026-09-24T00:44:27.9136679Z === RUN   TestCommitMsg_AnAmendOfAMergeKeepsThePremergeGreenForItsUnchangedTree
+test	Test (race + shuffle)	2026-09-24T00:44:27.9138333Z gate premerge: vet in /tmp/TestCommitMsg_AnAmendOfAMergeKeepsThePremergeGreenForItsUnchange76002285/003/x → clean
+test	Test (race + shuffle)	2026-09-24T00:44:27.9140869Z [lint] gate premerge: golangci-lint run --allow-serial-runners ./pkgx in /tmp/TestCommitMsg_AnAmendOfAMergeKeepsThePremergeGreenForItsUnchange76002285/003/x → REJECTED (box contention: another golangci-lint outside this gate holds its own machine-wide lock)
+test	Test (race + shuffle)	2026-09-24T00:44:27.9143438Z     gatehooks_amend_test.go:100: premise broken — the merge gate refused the merge: exit 1
+test	Test (race + shuffle)	2026-09-24T00:44:27.9147050Z         gate premerge: golangci-lint could not run in /tmp/TestCommitMsg_AnAmendOfAMergeKeepsThePremergeGreenForItsUnchange76002285/003/x — another golangci-lint instance (started outside this gate) still holds its own machine-wide lock, so nothing was linted. This is box contention, not a finding about the code. Retry once that lint finishes.
+test	Test (race + shuffle)	2026-09-24T00:44:27.9149508Z         command: golangci-lint run --allow-serial-runners ./pkgx
+test	Test (race + shuffle)	2026-09-24T00:44:27.9150262Z         
+test	Test (race + shuffle)	2026-09-24T00:44:27.9150912Z --- FAIL: TestCommitMsg_AnAmendOfAMergeKeepsThePremergeGreenForItsUnchangedTree (2.15s)
+test	Test (race + shuffle)	2026-09-24T00:44:27.9994685Z     --- PASS: FuzzGitShimArgv/dangling_global_flag (0.00s)
+test	Test (race + shuffle)	2026-09-24T00:44:27.9995008Z     --- PASS: FuzzGitShimArgv/worktree_no_subverb (0.00s)
+test	Test (race + shuffle)	2026-09-24T00:44:27.9995122Z FAIL
+test	Test (race + shuffle)	2026-09-24T00:44:27.9995454Z FAIL	github.com/aphrollo/aphrollo-tools/internal/cli	42.111s
+test	Test (race + shuffle)	2026-09-24T00:44:28.0161997Z --- PASS: TestCheck_LeavesANarrowedScanToTheAggregateCeiling (0.00s)
+test	Test (race + shuffle)	2026-09-24T00:44:28.0162360Z === RUN   TestBaselineMultiset_TightenNeverRaisesACeiling
+test	Test (race + shuffle)	2026-09-24T00:44:28.0162952Z     baseline_multiset_property_test.go:126: [rapid] OK, passed 100 tests (5.432884ms)
+test	Test (race + shuffle)	2026-09-24T00:44:28.0163259Z --- PASS: TestBaselineMultiset_TightenNeverRaisesACeiling (0.01s)
+test	Test (race + shuffle)	2026-09-24T00:44:28.0665483Z --- PASS: TestShow_Gopls (2.90s)
+test	Test (race + shuffle)	2026-09-24T00:44:28.0665791Z === RUN   TestRename_RustAnalyzer
+test	Test (race + shuffle)	2026-09-24T00:44:28.0666662Z     e2e_rust_test.go:16: rust-analyzer not on PATH; skipping e2e
+test	Test (race + shuffle)	2026-09-24T00:44:28.0667022Z --- SKIP: TestRename_RustAnalyzer (0.00s)
+test	Test (race + shuffle)	2026-09-24T00:44:46.5121211Z ok  	github.com/aphrollo/aphrollo-tools/tools/tddsplit	20.055s
+test	Test (race + shuffle)	2026-09-24T00:44:46.5121309Z FAIL
+test	Test (race + shuffle)	2026-09-24T00:44:46.5132613Z ##[error]Process completed with exit code 1.

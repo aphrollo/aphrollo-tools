@@ -1,0 +1,110 @@
+[
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/09b6f0a73fc7137384aecb8116d2d6a7c21c3375/.github",
+  "end_column": null,
+  "end_line": 8539,
+  "message": "Process completed with exit code 1.",
+  "path": ".github",
+  "raw_details": "",
+  "start_column": null,
+  "start_line": 8539,
+  "title": ""
+ },
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/09b6f0a73fc7137384aecb8116d2d6a7c21c3375/internal/tdd/suite/cargo_notrun.go",
+  "end_column": 82,
+  "end_line": 54,
+  "message": "CONDITIONALS_BOUNDARY \u2014 mutant SCOPE UNKNOWN: gremlins judged it with internal/tdd/suite's own tests, and internal/cli, internal/tdd, internal/tdd/escape, internal/tdd/failfirst, internal/tdd/gc, internal/tdd/install, internal/tdd/lawgate, internal/tdd/merge, internal/tdd/mutation, internal/tdd/postedit, internal/tdd/precommit, internal/tdd/smell, internal/workspace outside it have tests that reach this code. INCONCLUSIVE \u2014 nothing is proved either way, because a survivor claim asserts that no test kills the line and this run could not have observed one outside the mutated package. Not counted as a survivor and not refused \u2014 run the tests that reach this code by hand, or move one that kills it into the mutated package",
+  "path": "internal/tdd/suite/cargo_notrun.go",
+  "raw_details": "",
+  "start_column": 82,
+  "start_line": 54,
+  "title": ""
+ },
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/09b6f0a73fc7137384aecb8116d2d6a7c21c3375/internal/tdd/suite/cargo_notrun.go",
+  "end_column": 79,
+  "end_line": 54,
+  "message": "ARITHMETIC_BASE \u2014 mutant SCOPE UNKNOWN: gremlins judged it with internal/tdd/suite's own tests, and internal/cli, internal/tdd, internal/tdd/escape, internal/tdd/failfirst, internal/tdd/gc, internal/tdd/install, internal/tdd/lawgate, internal/tdd/merge, internal/tdd/mutation, internal/tdd/postedit, internal/tdd/precommit, internal/tdd/smell, internal/workspace outside it have tests that reach this code. INCONCLUSIVE \u2014 nothing is proved either way, because a survivor claim asserts that no test kills the line and this run could not have observed one outside the mutated package. Not counted as a survivor and not refused \u2014 run the tests that reach this code by hand, or move one that kills it into the mutated package",
+  "path": "internal/tdd/suite/cargo_notrun.go",
+  "raw_details": "",
+  "start_column": 79,
+  "start_line": 54,
+  "title": ""
+ },
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/09b6f0a73fc7137384aecb8116d2d6a7c21c3375/internal/tdd/postedit/posttooluse.go",
+  "end_column": 16,
+  "end_line": 296,
+  "message": "CONDITIONALS_NEGATION \u2014 mutant SCOPE UNKNOWN: gremlins judged it with internal/tdd/postedit's own tests, and internal/cli, internal/tdd, internal/tdd/gc, internal/tdd/install, internal/tdd/merge, internal/tdd/precommit, internal/workspace outside it have tests that reach this code. INCONCLUSIVE \u2014 nothing is proved either way, because a survivor claim asserts that no test kills the line and this run could not have observed one outside the mutated package. Not counted as a survivor and not refused \u2014 run the tests that reach this code by hand, or move one that kills it into the mutated package",
+  "path": "internal/tdd/postedit/posttooluse.go",
+  "raw_details": "",
+  "start_column": 16,
+  "start_line": 296,
+  "title": ""
+ },
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/09b6f0a73fc7137384aecb8116d2d6a7c21c3375/internal/tdd/suite/cargo_notrun.go",
+  "end_column": 5,
+  "end_line": 55,
+  "message": "INCREMENT_DECREMENT \u2014 timed out twice, unmeasured",
+  "path": "internal/tdd/suite/cargo_notrun.go",
+  "raw_details": "",
+  "start_column": 5,
+  "start_line": 55,
+  "title": ""
+ },
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/09b6f0a73fc7137384aecb8116d2d6a7c21c3375/internal/tdd/suite/cargo_notrun.go",
+  "end_column": 82,
+  "end_line": 54,
+  "message": "CONDITIONALS_BOUNDARY \u2014 mutant SCOPE UNKNOWN: gremlins judged it with internal/tdd/suite's own tests, and internal/cli, internal/tdd, internal/tdd/escape, internal/tdd/failfirst, internal/tdd/gc, internal/tdd/install, internal/tdd/lawgate, internal/tdd/merge, internal/tdd/mutation, internal/tdd/postedit, internal/tdd/precommit, internal/tdd/smell, internal/workspace outside it have tests that reach this code. INCONCLUSIVE \u2014 nothing is proved either way, because a survivor claim asserts that no test kills the line and this run could not have observed one outside the mutated package. Not counted as a survivor and not refused \u2014 run the tests that reach this code by hand, or move one that kills it into the mutated package",
+  "path": "internal/tdd/suite/cargo_notrun.go",
+  "raw_details": "",
+  "start_column": 82,
+  "start_line": 54,
+  "title": ""
+ },
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/09b6f0a73fc7137384aecb8116d2d6a7c21c3375/internal/tdd/suite/cargo_notrun.go",
+  "end_column": 79,
+  "end_line": 54,
+  "message": "ARITHMETIC_BASE \u2014 mutant SCOPE UNKNOWN: gremlins judged it with internal/tdd/suite's own tests, and internal/cli, internal/tdd, internal/tdd/escape, internal/tdd/failfirst, internal/tdd/gc, internal/tdd/install, internal/tdd/lawgate, internal/tdd/merge, internal/tdd/mutation, internal/tdd/postedit, internal/tdd/precommit, internal/tdd/smell, internal/workspace outside it have tests that reach this code. INCONCLUSIVE \u2014 nothing is proved either way, because a survivor claim asserts that no test kills the line and this run could not have observed one outside the mutated package. Not counted as a survivor and not refused \u2014 run the tests that reach this code by hand, or move one that kills it into the mutated package",
+  "path": "internal/tdd/suite/cargo_notrun.go",
+  "raw_details": "",
+  "start_column": 79,
+  "start_line": 54,
+  "title": ""
+ },
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/09b6f0a73fc7137384aecb8116d2d6a7c21c3375/internal/tdd/postedit/posttooluse.go",
+  "end_column": 16,
+  "end_line": 296,
+  "message": "CONDITIONALS_NEGATION \u2014 mutant SCOPE UNKNOWN: gremlins judged it with internal/tdd/postedit's own tests, and internal/cli, internal/tdd, internal/tdd/gc, internal/tdd/install, internal/tdd/merge, internal/tdd/precommit, internal/workspace outside it have tests that reach this code. INCONCLUSIVE \u2014 nothing is proved either way, because a survivor claim asserts that no test kills the line and this run could not have observed one outside the mutated package. Not counted as a survivor and not refused \u2014 run the tests that reach this code by hand, or move one that kills it into the mutated package",
+  "path": "internal/tdd/postedit/posttooluse.go",
+  "raw_details": "",
+  "start_column": 16,
+  "start_line": 296,
+  "title": ""
+ },
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/09b6f0a73fc7137384aecb8116d2d6a7c21c3375/internal/tdd/suite/cargo_notrun.go",
+  "end_column": 5,
+  "end_line": 55,
+  "message": "INCREMENT_DECREMENT \u2014 timed out twice, unmeasured",
+  "path": "internal/tdd/suite/cargo_notrun.go",
+  "raw_details": "",
+  "start_column": 5,
+  "start_line": 55,
+  "title": ""
+ }
+]

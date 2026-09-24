@@ -1,0 +1,48 @@
+mutants-verdict	aphrollo gate mutants run --report	﻿2026-09-24T11:56:22.5516298Z ##[group]Run set -euo pipefail
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:56:22.5517826Z ^[[36;1mset -euo pipefail^[[0m
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:56:22.5519630Z ^[[36;1m# HEAD is the merge; HEAD^1 is the base it was merged into and HEAD^2^[[0m
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:56:22.5522017Z ^[[36;1m# is this PR's tip. Their merge base is what the lane actually^[[0m
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:56:22.5524337Z ^[[36;1m# proposes to change, and it is the base the local gate measures^[[0m
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:56:22.5526765Z ^[[36;1m# against too, so both sides scope the same diff over the same tree.^[[0m
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:56:22.5528844Z ^[[36;1mbase=$(git merge-base HEAD^1 HEAD^2)^[[0m
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:56:22.5531119Z ^[[36;1mecho "scoping the run to $base..HEAD (tree 20f051fb4f198eb1c786d4ad2078aded163c9bff)"^[[0m
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:56:22.5534035Z ^[[36;1m./bin/aphrollo gate mutants run --base "$base" --report mutants-verdict.json^[[0m
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:56:22.5555192Z shell: /usr/bin/bash -e {0}
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:56:22.5556492Z env:
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:56:22.5557543Z   GOTOOLCHAIN: local
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:56:22.5559102Z ##[endgroup]
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:56:22.5737156Z scoping the run to 5e98282c46a3b411f1ed5baaa9a8a5a5a580f777..HEAD (tree 20f051fb4f198eb1c786d4ad2078aded163c9bff)
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:56:22.6017077Z mutants: 2 jobs (min(cores 8/3=2, free 18GB/2=9 (measured), cap 8) — cores)
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:56:22.6242336Z mutants: 215 GB free fits all 2 jobs — 1.0 GB needed, one job is 7.1 MB source-tree copy + 512.0 MB test binaries and scratch (estimated from a measured gremlins run), 10.0 GB kept free
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:56:22.6421366Z mutants: 1 CI runner job (Runner.Worker pid 2815778) busy on this box — waiting up to 15m0s for it before measuring, because load that starts after the run times its baseline turns healthy mutants into timeouts
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:57:22.7555967Z mutants: still waiting for 1 CI runner job (Runner.Worker pid 2817424) (waited 1m0s)
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:58:22.8624536Z mutants: still waiting for 1 CI runner job (Runner.Worker pid 2861888) (waited 2m0s)
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T11:59:22.9618241Z mutants: still waiting for 1 CI runner job (Runner.Worker pid 2891357) (waited 3m0s)
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:00:23.0740874Z mutants: still waiting for 1 CI runner job (Runner.Worker pid 2899259) (waited 4m0s)
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:01:13.1572233Z mutants: CI runner jobs finished after 4m50s — measuring
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:15.9271998Z      SKIPPED CONDITIONALS_NEGATION at tools/tddsplit/unkeyed.go:51:9
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:20.8528560Z       KILLED CONDITIONALS_NEGATION at internal/tdd/postedit/discardbash.go:130:35
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:21.5124183Z 
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:21.5125534Z Mutation testing completed in 8 minutes 6 seconds
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:21.5127026Z Killed: 65, Lived: 6, Not covered: 9
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:21.5128218Z Timed out: 0, Not viable: 0, Skipped: 8496
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:21.5129418Z Test efficacy: 91.55%
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:21.5130316Z Mutator coverage: 88.75%
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:21.9925116Z mutants: wrote the measurement of tree 20f051fb4f198eb1c786d4ad2078aded163c9bff to mutants-verdict.json
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:21.9971115Z ##[error]internal/cli/probe_discard.go:195:55: CONDITIONALS_NEGATION
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:21.9983488Z ##[error]internal/cli/probe_discard.go:257:77: CONDITIONALS_NEGATION
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:21.9985729Z ##[error]internal/cli/probe_discard_backup.go:63:18: CONDITIONALS_BOUNDARY
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:21.9987859Z ##[error]internal/cli/probe_discard_backup.go:88:53: CONDITIONALS_NEGATION
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:21.9989891Z ##[error]internal/cli/probe_discard_backup.go:92:29: CONDITIONALS_NEGATION
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:22.0001590Z ##[error]internal/tdd/postedit/discardbash.go:113:19: CONDITIONALS_BOUNDARY — mutant SCOPE UNKNOWN: gremlins judged it with internal/tdd/postedit's own tests, and internal/cli, internal/tdd, internal/tdd/gc, internal/tdd/install, internal/tdd/merge, internal/tdd/precommit, internal/workspace outside it have tests that reach this code. INCONCLUSIVE — nothing is proved either way, because a survivor claim asserts that no test kills the line and this run could not have observed one outside the mutated package. Not counted as a survivor and not refused — run the tests that reach this code by hand, or move one that kills it into the mutated package
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:22.0008351Z mutants: 80 tested, 65 caught, 0 unviable, 5 missed (0 accepted), 0 unmeasured, 9 not covered, 1 inconclusive
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:22.0010427Z mutants: write the test that fails, or add the line to mutation-accept with a reason ("<file>:<line>:<col> <mutation> # kind=<equivalent|unobservable-runner|unobservable-capability>: why")
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:22.0915008Z ##[error]internal/cli/probe_discard.go:195:55: CONDITIONALS_NEGATION
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:22.0918269Z ##[error]internal/cli/probe_discard.go:257:77: CONDITIONALS_NEGATION
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:22.0921106Z ##[error]internal/cli/probe_discard_backup.go:63:18: CONDITIONALS_BOUNDARY
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:22.0923889Z ##[error]internal/cli/probe_discard_backup.go:88:53: CONDITIONALS_NEGATION
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:22.0926625Z ##[error]internal/cli/probe_discard_backup.go:92:29: CONDITIONALS_NEGATION
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:22.0941152Z ##[error]internal/tdd/postedit/discardbash.go:113:19: CONDITIONALS_BOUNDARY — mutant SCOPE UNKNOWN: gremlins judged it with internal/tdd/postedit's own tests, and internal/cli, internal/tdd, internal/tdd/gc, internal/tdd/install, internal/tdd/merge, internal/tdd/precommit, internal/workspace outside it have tests that reach this code. INCONCLUSIVE — nothing is proved either way, because a survivor claim asserts that no test kills the line and this run could not have observed one outside the mutated package. Not counted as a survivor and not refused — run the tests that reach this code by hand, or move one that kills it into the mutated package
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:22.0948024Z mutants: 80 tested, 65 caught, 0 unviable, 5 missed (0 accepted), 0 unmeasured, 9 not covered, 1 inconclusive
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:22.0950325Z mutants: write the test that fails, or add the line to mutation-accept with a reason ("<file>:<line>:<col> <mutation> # kind=<equivalent|unobservable-runner|unobservable-capability>: why")
+mutants-verdict	aphrollo gate mutants run --report	2026-09-24T12:10:22.0956893Z ##[error]Process completed with exit code 1.
