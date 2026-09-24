@@ -47,3 +47,34 @@ func TestSkippedRootsPhrase_NamesThemAllWhenThereAreFew(t *testing.T) {
 		t.Errorf("phrase = %q, want no truncation tail when nothing was truncated", phrase)
 	}
 }
+
+// otherRootsAmong shares the main loop's own "pick the file that selects a
+// run" shape: when a root's phase defers and stops the loop, the roots it
+// names as skipped are picked the same first-changed-path-per-root way. A
+// root whose only remaining change is a script no Go package owns was never
+// going to get a run either way, so naming it "skipped" reports a coverage
+// gap that isn't one.
+func TestPostBash_DeferredSkipNamesOnlyARootWithAFileThatWouldHaveRun(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("APHROLLO_POSTEDIT_BUDGET_SECS", "0")
+	gitRoot := t.TempDir()
+	write(t, gitRoot, "svcA/go.mod", "module example.com/svcA\n\ngo 1.26\n")
+	write(t, gitRoot, "svcA/main.go", "package main\n\nfunc main() {}\n")
+	write(t, gitRoot, "svcB/go.mod", "module example.com/svcB\n\ngo 1.26\n")
+	gitInit(t, gitRoot)
+	gitDo(t, gitRoot, "add", "-A")
+	gitDo(t, gitRoot, "commit", "-qm", "base")
+	cmd := "echo touch"
+
+	PreBash(bashPayload(t, "s835sibling", gitRoot, cmd))
+	write(t, gitRoot, "svcA/main.go", "package main\n\nfunc main() { println(1) }\n")
+	write(t, gitRoot, "svcB/scratch.py", "print('probe')\n") // svcB has no Go package anywhere
+
+	fakePhases(t) // svcA's build never finishes within the budget: it defers
+
+	text := PostBash(bashPayload(t, "s835sibling", gitRoot, cmd), fakeRun(true, "ok"))
+
+	if strings.Contains(text, "svcB") {
+		t.Fatalf("svcB's only changed path runs nothing, must not be named as a skipped root: %q", text)
+	}
+}

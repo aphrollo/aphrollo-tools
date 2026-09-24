@@ -236,6 +236,18 @@ func fileStamp(path string) string {
 	return fmt.Sprintf("%d:%d", fi.Size(), fi.ModTime().UnixNano())
 }
 
+// selectsARun reports whether target is the kind of path a root's one Bash
+// turn should be spent on: a source or test file (ClassifyFile), owned by a
+// unit its runner can build (unownedEditAt). A doc, a stray config, or any
+// other Ignore-classified path beside real source must never spend the
+// turn, same as a code file no crate or package owns (issue #835) — the
+// Bash hook's per-root selection judges every candidate by both bars
+// itself, rather than trusting that whatever sorts first already cleared
+// them.
+func selectsARun(target, root string) bool {
+	return ClassifyFile(target) != Ignore && unownedEditAt(target, root) == ""
+}
+
 // PostBash puts every source file a Bash command changed through the same
 // post-edit path an Edit takes, and returns the advisory to surface. It is
 // silent when there is no snapshot, no repo, or nothing source-shaped moved.
@@ -299,7 +311,7 @@ func postBashChanges(in bashInput, run SuiteRunner) string {
 		AppendGateLog("postedit", before.Root, rel, "bash-edit:"+LogToken(rel), 0)
 		target := filepath.Join(before.Root, filepath.FromSlash(rel))
 		root := FindProjectRoot(target)
-		if root == "" || seenRoot[root] || unownedEditAt(target, root) != "" {
+		if root == "" || seenRoot[root] || !selectsARun(target, root) {
 			continue
 		}
 		seenRoot[root] = true
@@ -386,6 +398,11 @@ func mergeInProgressLine(root string, hits []string) string {
 // first appear. It is what lets PostBash name every root a Bash command
 // touched but never ran a gate for, once the first root's phase deferred and
 // stopped the loop.
+//
+// A root is only named when rest actually holds a path that selectsARun for
+// it: a root whose only remaining changes are a doc or an unowned script was
+// never going to get a run either way, and naming it "skipped" reads as a
+// real gap in coverage that isn't one.
 func otherRootsAmong(rest []string, base string, seen map[string]bool) []string {
 	local := make(map[string]bool, len(seen))
 	for k := range seen {
@@ -395,7 +412,7 @@ func otherRootsAmong(rest []string, base string, seen map[string]bool) []string 
 	for _, rel := range rest {
 		target := filepath.Join(base, filepath.FromSlash(rel))
 		root := FindProjectRoot(target)
-		if root == "" || local[root] {
+		if root == "" || local[root] || !selectsARun(target, root) {
 			continue
 		}
 		local[root] = true
