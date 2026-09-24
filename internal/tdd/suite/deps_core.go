@@ -39,6 +39,8 @@ func dedupeSorted(p0 []string) []string { return core.DedupeSorted(p0) }
 
 func fitRunes(p0 string, p1 int) string { return core.FitRunes(p0, p1) }
 
+func isCodeFile(p0 string) bool { return core.IsCodeFile(p0) }
+
 func pidRunningFn(p0 int) bool { return core.PidRunningFn(p0) }
 
 func readStateJSON(p0 string, p1 any) (bool, bool) { return core.ReadStateJSON(p0, p1) }

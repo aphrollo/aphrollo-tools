@@ -86,6 +86,14 @@ var sourceExts = map[string]bool{
 	".ron": true,
 }
 
+// isCodeFile reports whether p carries one of the code extensions in
+// sourceExts. A Source file without one (a manifest, a cargo config, the
+// gate's own inputs, an embedded asset) is Source because a build or the
+// gate reads it by name, which makes it a build input.
+func isCodeFile(p string) bool {
+	return sourceExts[strings.ToLower(path.Ext(p))]
+}
+
 // manifestFiles are dependency manifests and lockfiles across the languages
 // the gates support. A version bump, a member-list edit or a feature-flag
 // change here can break or reshape every crate downstream, exactly the class

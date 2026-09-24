@@ -299,7 +299,7 @@ func postBashChanges(in bashInput, run SuiteRunner) string {
 		AppendGateLog("postedit", before.Root, rel, "bash-edit:"+LogToken(rel), 0)
 		target := filepath.Join(before.Root, filepath.FromSlash(rel))
 		root := FindProjectRoot(target)
-		if root == "" || seenRoot[root] {
+		if root == "" || seenRoot[root] || unownedEditAt(target, root) != "" {
 			continue
 		}
 		seenRoot[root] = true

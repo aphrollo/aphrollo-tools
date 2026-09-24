@@ -23,6 +23,8 @@ func acquireBuildSlot(p0 string, p1 time.Duration, p2 string, p3 string) (BuildS
 
 func cappedFloor(p0 time.Duration, p1 time.Duration) time.Duration { return lock.CappedFloor(p0, p1) }
 
+func cargoTomlHasWorkspaceTable(p0 string) bool { return lock.CargoTomlHasWorkspaceTable(p0) }
+
 func cargoWorkspaceRoot(p0 string) string { return lock.CargoWorkspaceRoot(p0) }
 
 func foreignLoadReport(p0 int) string { return lock.ForeignLoadReport(p0) }

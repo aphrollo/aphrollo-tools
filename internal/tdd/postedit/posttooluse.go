@@ -71,6 +71,14 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 	}
 	snap.editID = editID
 
+	// A code file in no crate or package has nothing to build: the broad
+	// runner narrowing falls back to would compile the whole tree without
+	// ever reading this file (issue #830). Ahead of the deferral branch, so
+	// neither path starts that build.
+	if home := unownedEdit(snap.runner, target, root); home != "" {
+		return unownedEditSkip(root, target, home), false
+	}
+
 	// A narrowed cargo run whose package-scope form already proved green at
 	// this exact worktree state has nothing left to ask — most often the
 	// precommit/premerge stage just ran and cached that crate's full suite
@@ -176,6 +184,23 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 		return withNote(unconstrainedLine(snap.runner, root, passed, res.Duration), widenNote), false
 	}
 	return withNote(passAdvisory(snap.runner, root, outcome, res.Output, res.Duration, snap.prevFailing), widenNote), false
+}
+
+// unownedEditAt is unownedEdit under root's detected runner, for a caller
+// that has not resolved one: the Bash hook, which judges one path per root
+// and must not spend a root's turn on a file no build reads.
+func unownedEditAt(target, root string) string {
+	r, _ := DetectRunner(root) // no runner is a zero Runner, which unownedEdit never judges
+	return unownedEdit(r, target, root)
+}
+
+// unownedEditSkip logs and renders the edit hook's line for a code file no
+// crate or package owns: nothing was built and nothing ran, and it says why.
+func unownedEditSkip(root, target, home string) string {
+	rel, _ := filepath.Rel(root, target) // root is target's own project root
+	rel = filepath.ToSlash(rel)
+	AppendGateLog("postedit", root, LogToken(rel), "skipped-unowned", 0)
+	return fmt.Sprintf("gate: → skipped in %s (%s sits in no %s and is not a build input — no build, no suite run)", root, rel, home)
 }
 
 // stateSnapshot is the per-edit state plumbing PostEdit needs to run the suite
