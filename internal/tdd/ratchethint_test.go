@@ -73,8 +73,7 @@ func TestSessionStartCarriesTheHintExactlyOnce(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	// Session start also kicks off the detached disk sweep; observing it
 	// instead of spawning keeps a real `gate gc` out of this test's temp dir.
-	gcSpawnForTest = func(string) {}
-	t.Cleanup(func() { gcSpawnForTest = nil })
+	t.Cleanup(SetGCSpawnForTest(func(string) {}))
 
 	msg := HandleSessionStart([]byte(`{"session_id":"s1","cwd":` + quoteJSON(root) + `}`))
 	if strings.Count(msg, "no ratchet laws") != 1 {

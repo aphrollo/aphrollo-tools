@@ -676,6 +676,7 @@ gc_render.go                                       gc
 gc_render_test.go                                  gc
 gc_safety_test.go                                  gc
 gc_session.go                                      gc
+gc_spawn_seam_test.go                              gc
 gc_slotless_test.go                                gc
 gc_stalelock.go                                    gc
 gc_straytarget.go                                  gc

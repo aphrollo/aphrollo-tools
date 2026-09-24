@@ -146,6 +146,15 @@ func gcReportLine() string {
 // production.
 var gcSpawnForTest func(cwd string)
 
+// SetGCSpawnForTest installs an observer in place of the detached sweep and
+// returns the restore. A setter rather than an assignment, so a test in a
+// package above gc (the session start's) still reaches the seam.
+func SetGCSpawnForTest(fn func(cwd string)) (restore func()) {
+	prev := gcSpawnForTest
+	gcSpawnForTest = fn
+	return func() { gcSpawnForTest = prev }
+}
+
 // maybeStartBackgroundGC starts a detached `aphrollo gate gc --apply` for cwd
 // when one is due, and stamps immediately so concurrent session starts do
 // not each launch one. It never waits: the child outlives this process, and
