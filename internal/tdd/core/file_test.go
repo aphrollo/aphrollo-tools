@@ -1,6 +1,10 @@
 package core
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestClassifyFile(t *testing.T) {
 	t.Parallel()
@@ -60,10 +64,58 @@ func TestClassifyFile(t *testing.T) {
 		{"go.mod", Source},
 		// Windows separators normalise
 		{`src\widget_test.go`, Test},
+		// aphrollo.toml itself carries the gate's own policy (issue #212).
+		{"aphrollo.toml", Source},
+		// A .cargo/config.toml (or legacy `config`) carries build behaviour
+		// (issue #365).
+		{".cargo/config.toml", Source},
+		{".cargo/config", Source},
+		{"other/config.toml", Ignore}, // not under .cargo: not a manifest
+		// gateOwnInputs: literal paths this tool's own source reads or runs.
+		{"tools/mutation_gate.sh", Source},
+		{".github/workflows/pipeline.yml", Source},
+		// Rust: tests/ is directory-based regardless of basename; a plain
+		// src/*.rs is Source.
+		{"src/widget.rs", Source},
+		{"src/widget_test.rs", Test},
+		{"src/test_widget.rs", Test},
+		{"tests/integration.rs", Test},
 	}
 	for _, c := range cases {
 		if got := ClassifyFile(c.path); got != c.want {
 			t.Errorf("ClassifyFile(%q) = %v, want %v", c.path, got, c.want)
 		}
+	}
+}
+
+// TestClassifyFile_RonWithAnOwningCrateIsSource proves the .ron branch really
+// walks up to a real ancestor Cargo.toml (ronHasOwningCrate), not merely to a
+// path that looks plausible: a .ron under a directory whose [package]
+// manifest actually exists on disk is Source, and one with no such ancestor
+// stays Ignore, even though both look identical to ClassifyFile's other
+// rules. cargoPackageName reads real files relative to the working
+// directory, so this test controls its own tempdir cwd rather than sharing
+// the table above's virtual paths.
+func TestClassifyFile_RonWithAnOwningCrateIsSource(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	if err := os.MkdirAll(filepath.Join(dir, "mycrate", "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := "[package]\nname = \"mycrate\"\nversion = \"0.1.0\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "mycrate", "Cargo.toml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := ClassifyFile("mycrate/assets/x.ron"); got != Source {
+		t.Fatalf("ClassifyFile(owned .ron) = %v, want Source", got)
+	}
+
+	if err := os.MkdirAll(filepath.Join(dir, "orphan", "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := ClassifyFile("orphan/assets/x.ron"); got != Ignore {
+		t.Fatalf("ClassifyFile(orphan .ron) = %v, want Ignore", got)
 	}
 }
