@@ -47,12 +47,13 @@ func doctorInput(configDir, shimDir, repo string) tdd.DoctorInput {
 		shim = defaultCargoShimDir(bin)
 	}
 	return tdd.DoctorInput{
-		ConfigDir:    dir,
-		Bin:          bin,
-		ShimDir:      shim,
-		Repo:         repo,
-		PathDirs:     userPathDirsFn(),
-		GitHooksPath: gitHooksPathFn(),
+		ConfigDir:      dir,
+		Bin:            bin,
+		ShimDir:        shim,
+		Repo:           repo,
+		PathDirs:       userPathDirsFn(),
+		GitHooksPath:   gitHooksPathFn(),
+		ShimBypassLine: shimBypassLineFn(bin),
 	}
 }
 
@@ -65,6 +66,11 @@ var userPathDirsFn = userPathDirs
 // configured core.hooksPath doctor judges without reading the box's own
 // global git config.
 var gitHooksPathFn = tdd.GlobalHooksPath
+
+// shimBypassLineFn indirects tdd.ShimBypassLine so a test can fake the
+// exec.LookPath-based finding doctor judges without depending on this
+// process's own real PATH.
+var shimBypassLineFn = tdd.ShimBypassLine
 
 // runDoctorCheck runs the doctor checks against repo with default resolution
 // (no CLI overrides), writes tdd.RenderDoctor's report to w, and returns the

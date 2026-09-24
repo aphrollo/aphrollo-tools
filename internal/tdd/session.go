@@ -351,6 +351,10 @@ func HandleSessionStart(raw []byte) string {
 	if behind := BinaryBehindLine(time.Now()); behind != "" {
 		parts = append(parts, behind)
 	}
+	exe, _ := os.Executable()
+	if bypass := shimBypassLineFn(exe); bypass != "" {
+		parts = append(parts, bypass)
+	}
 	if line != "" {
 		parts = append(parts, line)
 	}

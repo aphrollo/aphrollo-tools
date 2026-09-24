@@ -114,6 +114,15 @@ func cleanCheckRepo(t *testing.T) string {
 	gitHooksPathFn = func() string { return hooksDir }
 	t.Cleanup(func() { gitHooksPathFn = origHooksPath })
 
+	// ShimBypassLine's real implementation calls exec.LookPath against THIS
+	// test process's own PATH, which has nothing to do with the shim dir
+	// this fixture just built — injected empty here for the same reason
+	// userPathDirsFn and gitHooksPathFn are overridden above instead of
+	// reading the box's own state.
+	origShimBypass := shimBypassLineFn
+	shimBypassLineFn = func(string) string { return "" }
+	t.Cleanup(func() { shimBypassLineFn = origShimBypass })
+
 	isolateGit(t)
 	root := t.TempDir()
 	gitInitRepo(t, root)

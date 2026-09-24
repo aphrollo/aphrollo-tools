@@ -35,6 +35,7 @@ func Doctor(in DoctorInput) []DoctorCheck {
 		doctorHookBinary(in),
 		doctorHookTimeouts(in),
 		doctorShimPath(in),
+		doctorShimResolution(in),
 		doctorShimExes(in),
 		doctorBatchShims(in),
 		doctorLockDirs(),
@@ -226,6 +227,25 @@ func doctorShimPath(in DoctorInput) DoctorCheck {
 		return c
 	}
 	c.OK = true
+	return c
+}
+
+// doctorShimResolution surfaces the caller's own exec.LookPath finding of
+// whether `git`/`cargo` on THIS PROCESS's PATH resolve outside ShimDir — the
+// state a session inherits when it started before a PATH change took effect
+// (a shell that never sourced the profile line that prepends the shim dir):
+// `which cargo` finds the raw toolchain, and a direct invocation never
+// queues behind the build lock or the primary-checkout wall the git shim
+// carries. It is a fact about THIS process's own PATH, not the box's
+// registry, so it is injected (ShimBypassLine) rather than resolved here —
+// the same reason PathDirs is injected instead of read from the OS directly.
+func doctorShimResolution(in DoctorInput) DoctorCheck {
+	c := DoctorCheck{Name: "shim resolution"}
+	if in.ShimBypassLine == "" {
+		c.OK = true
+		return c
+	}
+	c.Detail = in.ShimBypassLine
 	return c
 }
 
