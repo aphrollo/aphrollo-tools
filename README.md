@@ -1012,7 +1012,11 @@ aphrollo update [--repo DIR] [--bin PATH] [--remote NAME] [--branch NAME] [--no-
 Builds `./cmd/aphrollo` from a detached temporary worktree at
 `<remote>/<branch>`, runs `gate selfcheck` on it, swaps it in for `--bin`,
 sweeps stale copies, then runs init under the new binary. The only command
-that replaces the installed binary.
+that replaces the installed binary. Refuses before fetching or building at
+all when `--bin`'s directory is not writable by the caller — the case on a
+box that deploys `/usr/local/bin/aphrollo` via CI on merge (see
+`deploy/deploy-prod.sh`), where the install belongs to the pipeline's own
+account, not the operator running `update`.
 
 ### `aphrollo issue` and `aphrollo feedback`
 

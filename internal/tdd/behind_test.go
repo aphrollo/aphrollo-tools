@@ -168,6 +168,23 @@ func TestBinaryBehindLine_BacksOffTenMinutesAfterAFailedLookup(t *testing.T) {
 	}
 }
 
+// A box that deploys via CI (deploy/deploy-prod.sh) never owns its own
+// install directory, so telling that operator to "run aphrollo update" is
+// advice that cannot work: the merge's own deploy is what ships the fix.
+func TestBinaryBehindLine_WhenInstallIsNotWritable_NamesTheDeployPipelineInstead(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setStamp(t, stampedCommit)
+	stubLsRemote(t, func(ctx context.Context) (string, error) {
+		return originHead, nil
+	})
+	t.Cleanup(SetBinaryInstallWritableForTest(func() bool { return false }))
+
+	want := "aphrollo binary is behind origin/main (built at ca47dba, origin at 15ac791); the repo's deploy pipeline ships it on merge, not aphrollo update here"
+	if got := BinaryBehindLine(time.Now()); got != want {
+		t.Fatalf("BinaryBehindLine() = %q, want %q", got, want)
+	}
+}
+
 func gateLogContent(t *testing.T) string { t.Helper(); return tddtest.GateLogContent(t, GateLogPath()) }
 
 // A command failure (not a timeout) must never be silent in the ledger: it

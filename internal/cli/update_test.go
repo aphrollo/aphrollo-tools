@@ -392,6 +392,53 @@ func TestUpdate_AcceptsAGoModWithALeadingComment(t *testing.T) {
 	}
 }
 
+// The box that deploys via CI (deploy/deploy-prod.sh) installs
+// /opt/aphrollo-cli/releases/<ts>-<sha>/aphrollo as github-runner and points
+// /usr/local/bin/aphrollo at it through two symlinks; os.Executable resolves
+// straight through both, so the operator account's own `aphrollo update`
+// lands on a directory it cannot write. That must fail BEFORE the fetch and
+// build run at all, not with a raw "permission denied" out of `go build`.
+func TestUpdate_RefusesToBuildWhenTheInstallIsNotWritable(t *testing.T) {
+	_, clone, _ := updateFixture(t)
+
+	called := false
+	prev := buildAphrollo
+	buildAphrollo = func(repo, out string) (string, error) {
+		called = true
+		return "go build", nil
+	}
+	t.Cleanup(func() { buildAphrollo = prev })
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "aphrollo.exe")
+	if err := os.WriteFile(bin, []byte("OLD"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	var out, errb bytes.Buffer
+	code := runUpdate([]string{"--repo", clone, "--bin", bin, "--no-init"}, &out, &errb)
+	if code == 0 {
+		t.Fatal("update must refuse when it cannot write the install directory")
+	}
+	if called {
+		t.Fatal("update must not build at all when the install is not writable")
+	}
+	if !strings.Contains(errb.String(), "not writable") {
+		t.Fatalf("stderr does not say the install is not writable: %q", errb.String())
+	}
+	if !strings.Contains(errb.String(), "deployed by the repo pipeline on merge") {
+		t.Fatalf("stderr does not point the operator at the deploy pipeline: %q", errb.String())
+	}
+	got, err := os.ReadFile(bin)
+	if err != nil || string(got) != "OLD" {
+		t.Fatalf("the binary changed despite the refusal, got %q (%v)", got, err)
+	}
+}
+
 func TestUpdate_RefusesARepoThatIsNotAphrolloTools(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/other\n\ngo 1.26.6\n"), 0o644); err != nil {

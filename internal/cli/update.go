@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
@@ -56,6 +57,22 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 	}
 
 	bin := resolveBinPath(*binPath, "aphrollo update", stdout)
+
+	// Checked before the fetch and build run at all: os.Executable (what
+	// resolveBinPath falls back to) resolves every symlink, so on the box
+	// that deploys via CI (deploy/deploy-prod.sh) this lands on
+	// /opt/aphrollo-cli/releases/<ts>-<sha>/aphrollo, a directory only the
+	// deploy pipeline's own account owns. Finding that out here means
+	// "permission denied" never comes out of `go build` after a wasted
+	// fetch and worktree checkout.
+	if !tdd.InstallWritable(filepath.Dir(bin)) {
+		if owner := tdd.InstallOwner(filepath.Dir(bin)); owner != "" {
+			fmt.Fprintf(stderr, "aphrollo update: %s is not writable by this account — it is owned by %s and is deployed by the repo pipeline on merge, not by aphrollo update here\n", bin, owner)
+		} else {
+			fmt.Fprintf(stderr, "aphrollo update: %s is not writable by this account — it is deployed by the repo pipeline on merge, not by aphrollo update here\n", bin)
+		}
+		return 1
+	}
 
 	git, err := resolveRealGit()
 	if err != nil {
