@@ -4,12 +4,12 @@ package precommit
 
 const GolangciLint = golangciLint
 
-type RootGroup = rootGroup
+type OwedSuite = owedSuite
+
+func CommitOwedSuites(p0 string) []owedSuite { return commitOwedSuites(p0) }
 
 func LinterVersion(p0 string) string { return linterVersion(p0) }
 
 func LookLinter() bool { return lookLinter() }
 
 func PinnedLinterVersion(p0 string) string { return pinnedLinterVersion(p0) }
-
-func StagedRootGroups(p0 string) []rootGroup { return stagedRootGroups(p0) }

@@ -157,7 +157,7 @@ bashsuite_lock.go                                  lock  # created by P2
 gc_mutantstemp_lock.go                             lock  # created by P2
 runner_lock.go                                     lock  # created by P2
 
-# suite: 63 file(s), plus 18 created by P2
+# suite: 64 file(s), plus 18 created by P2
 buildform.go                                       suite
 buildform_test.go                                  suite
 buildlock_futuremtime_test.go                      suite  # prefix says lock; its test body reaches suite
@@ -188,6 +188,7 @@ go_test_reach.go                                   suite
 gotmpdir_outside_test.go                           suite  # prefix says lock; its test body reaches suite
 gotmpdir_test.go                                   suite  # prefix says lock; its test body reaches suite
 mechcache.go                                       suite
+mechcache_covers_test.go                           suite
 mechcache_ignored_test.go                          suite
 mechcache_key_test.go                              suite
 mechcache_nested_root_test.go                      suite
@@ -527,7 +528,7 @@ worktree.go                                        postedit
 worktree_test.go                                   postedit
 mechrun_postedit.go                                postedit  # created by P2
 
-# precommit: 79 file(s)
+# precommit: 80 file(s)
 budgetfloor_test.go                                precommit  # prefix says lock; its test body reaches precommit
 buildlock_integration_test.go                      precommit  # prefix says lock; its test body reaches precommit
 cargo_alwaysrun_test.go                            precommit
@@ -539,6 +540,7 @@ clippyscope_test.go                                precommit  # prefix says suit
 commentonly.go                                     precommit
 commentonly_go.go                                  precommit
 commentonly_go_test.go                             precommit
+commitowed_test.go                                 precommit
 devtarget_test.go                                  precommit
 dirtytree.go                                       precommit
 dirtytree_test.go                                  precommit

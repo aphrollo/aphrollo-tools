@@ -101,6 +101,56 @@ func TestVerificationClaim_CacheHitOnATimeoutTreeIsStillRefused(t *testing.T) {
 	}
 }
 
+// A cache hit resolves only to a green that covers the suite the commit owes.
+// The gate logs cache-hit for the package's full suite, the tree then moves,
+// and the edit hook records a FILTERED green at the new state. That green is a
+// fact about one test, not about the package: the full suite never ran on
+// the tree being committed, so the claim has nothing to stand on.
+func TestVerificationClaim_CacheHitDoesNotResolveToAFilteredGreenOnAMovedTree(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, "next.go", "package m\n")
+	gitDo(t, root, "add", ".")
+	full := Runner{Cmd: "go", Args: []string{"test", "./..."}}
+	mechCacheAdd(mechKey(root, worktreeStateHash(root), full))
+	AppendGateLog("precommit", root, cmdString(full), "cache-hit", 0)
+
+	// The tree moves, and the edit hook proves one test green at the new state.
+	write(t, root, "next.go", "package m\n\nconst Next = 2\n")
+	gitDo(t, root, "add", ".")
+	scoped := Runner{Cmd: "go", Args: []string{"test", "-run", "^TestNext$", "./..."}}
+	mechCacheAdd(mechKey(root, worktreeStateHash(root), scoped))
+
+	got := CommitMsg(root, msgFile(t, claimBody))
+
+	if !got.Blocked {
+		t.Fatal("a filtered green on the moved tree backed a claim the package's suite never ran for")
+	}
+}
+
+// A commit whose roots owe no suite (no runner the gate knows) has nothing a
+// green could cover, so a cache-hit there backs no claim, whatever the cache
+// holds for the tree.
+func TestVerificationClaim_CacheHitWithNoOwedSuiteIsRefused(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "README.md", "tool\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "base")
+	write(t, root, "tool.go", "package tool\n")
+	gitDo(t, root, "add", ".")
+	full := Runner{Cmd: "go", Args: []string{"test", "./..."}}
+	mechCacheAdd(mechKey(root, worktreeStateHash(root), full))
+	AppendGateLog("precommit", root, cmdString(full), "cache-hit", 0)
+
+	got := CommitMsg(root, msgFile(t, claimBody))
+
+	if !got.Blocked {
+		t.Fatal("a cache-hit on a commit that owes no suite backed a verification claim")
+	}
+}
+
 // The resolution has to key at the same root the SUITE STAGE keyed at, which
 // is the PROJECT root stagedRootGroups derived (FindProjectRoot), not the repo
 // root. The key carries the root's place in the repo (mechKeyRoot), so a
@@ -109,7 +159,11 @@ func TestVerificationClaim_CacheHitOnATimeoutTreeIsStillRefused(t *testing.T) {
 func TestVerificationClaim_CacheHitResolvesAtTheCrateRootNotTheRepoRoot(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
+	// Committed on its own: a staged workspace manifest opens a second root
+	// group at the repo root, which owes a suite of its own.
 	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/x\"]\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "declare the workspace")
 	write(t, root, filepath.Join("crates", "x", "Cargo.toml"), "[package]\nname = \"x\"\n")
 	write(t, root, filepath.Join("crates", "x", "src", "lib.rs"), "pub fn f() -> u32 { 1 }\n")
 	gitDo(t, root, "add", ".")
