@@ -18,7 +18,7 @@ import (
 // unless someone ran the workspace suite by hand — it runs Mechanical only
 // (no fail-first/anti-cheat, both already settled on the commits being
 // merged).
-var gitGateHooks = []struct{ name, sub string }{
+var gitGateHooks = []struct{ Name, Sub string }{
 	{"pre-commit", "precommit"},
 	{"pre-merge-commit", "premerge"},
 	// post-commit writes the gate note on the commit just made — what lets CI
@@ -202,14 +202,14 @@ func installGitGate(hooksDir, bin string) (bool, error) {
 	}
 	changed := false
 	for _, h := range gitGateHooks {
-		path := filepath.Join(hooksDir, h.name)
+		path := filepath.Join(hooksDir, h.Name)
 		if foreignHookExists(path) {
 			continue // never clobber a hand-written hook
 		}
 		// A git HOOK has no "real tool" to fall through to: it IS the gate. With
 		// the binary gone it says so and stops, which git reports as a failed
 		// hook rather than a silently ungated commit.
-		want := binShim(bin, h.sub, "")
+		want := binShim(bin, h.Sub, "")
 		if cur, err := os.ReadFile(path); err == nil && string(cur) == want {
 			continue
 		}
@@ -298,7 +298,7 @@ func managedHooksDir(dir string) bool {
 func uninstallGitGate(hooksDir string) (bool, error) {
 	changed := false
 	for _, h := range gitGateHooks {
-		path := filepath.Join(hooksDir, h.name)
+		path := filepath.Join(hooksDir, h.Name)
 		if foreignHookExists(path) {
 			continue
 		}

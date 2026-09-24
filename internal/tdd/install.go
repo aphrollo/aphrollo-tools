@@ -36,7 +36,7 @@ type InstallPlan struct {
 // `aphrollo tdd` subcommand each shim invokes. pre-merge-commit was added
 // 2026-08-15 (build-infra-fix task A6) alongside the global gate's — see
 // gitGateHooks' doc comment for why.
-var perRepoHooks = []struct{ name, sub string }{
+var perRepoHooks = []struct{ Name, Sub string }{
 	{"pre-commit", "precommit"},
 	{"pre-merge-commit", "premerge"},
 	// One post-commit shim for both halves — the gate note, then the lane's
@@ -78,10 +78,10 @@ func BuildInstallPlan(repoRoot, bin string) (InstallPlan, error) {
 
 	plan := InstallPlan{RepoRoot: repoRoot}
 	for _, h := range perRepoHooks {
-		path := filepath.Join(hooksDir, h.name)
+		path := filepath.Join(hooksDir, h.Name)
 		plan.Hooks = append(plan.Hooks, HookFile{
 			Path:     path,
-			Content:  shim(bin, h.sub),
+			Content:  shim(bin, h.Sub),
 			Conflict: foreignHookExists(path),
 		})
 	}

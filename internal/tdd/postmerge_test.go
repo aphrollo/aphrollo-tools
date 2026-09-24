@@ -270,10 +270,10 @@ func TestPostCommitMergeSweep_LeavesACleanAutomaticMergeToPostMerge(t *testing.T
 func TestPostMergeSweep_BothInstallersWriteThePostMergeShim(t *testing.T) {
 	found := false
 	for _, h := range gitGateHooks {
-		if h.name == "post-merge" {
+		if h.Name == "post-merge" {
 			found = true
-			if h.sub != "postmerge" {
-				t.Fatalf("the global gate's post-merge shim calls %q, want postmerge", h.sub)
+			if h.Sub != "postmerge" {
+				t.Fatalf("the global gate's post-merge shim calls %q, want postmerge", h.Sub)
 			}
 		}
 	}
@@ -282,10 +282,10 @@ func TestPostMergeSweep_BothInstallersWriteThePostMergeShim(t *testing.T) {
 	}
 	perRepo := false
 	for _, h := range perRepoHooks {
-		if h.name == "post-merge" {
+		if h.Name == "post-merge" {
 			perRepo = true
-			if h.sub != "postmerge" {
-				t.Fatalf("the per-repo post-merge shim calls %q, want postmerge", h.sub)
+			if h.Sub != "postmerge" {
+				t.Fatalf("the per-repo post-merge shim calls %q, want postmerge", h.Sub)
 			}
 		}
 	}

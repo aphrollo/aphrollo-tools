@@ -58,7 +58,7 @@ func hookTargets(dir string) []hookTarget {
 	var out []hookTarget
 	index := map[string]int{}
 	for _, h := range gitGateHooks {
-		data, err := os.ReadFile(filepath.Join(dir, h.name))
+		data, err := os.ReadFile(filepath.Join(dir, h.Name))
 		if err != nil {
 			continue
 		}
@@ -67,11 +67,11 @@ func hookTargets(dir string) []hookTarget {
 			continue
 		}
 		if i, seen := index[bin]; seen {
-			out[i].hooks = append(out[i].hooks, h.name)
+			out[i].hooks = append(out[i].hooks, h.Name)
 			continue
 		}
 		index[bin] = len(out)
-		out = append(out, hookTarget{path: bin, hooks: []string{h.name}})
+		out = append(out, hookTarget{path: bin, hooks: []string{h.Name}})
 	}
 	return out
 }
