@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -85,15 +86,11 @@ func probeWriteBackup(realGit, root, path string, doomed []probeFile) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.WriteString(file, b.String()); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return err
-	}
-	return file.Close()
+	// Write, sync and close each run whatever came before, and any failure
+	// among them fails the backup: the file is closed on every path.
+	_, writeErr := io.WriteString(file, b.String())
+	syncErr := file.Sync()
+	return errors.Join(writeErr, syncErr, file.Close())
 }
 
 // untrackedPatch renders an untracked file as a new-file patch against
