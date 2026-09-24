@@ -9,8 +9,6 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-var ghStubDir = tddtest.GhStubDir
-
 func stubGh(t *testing.T, stdout string) (argvLog string) {
 	t.Helper()
 	return tddtest.StubGh(t, stdout)

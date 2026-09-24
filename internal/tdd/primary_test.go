@@ -350,3 +350,8 @@ func TestExistingAncestorDir_WalksUpPastDirectoriesTheWriteWouldCreate(t *testin
 		t.Fatalf("existingAncestorDir must stop at the deepest existing ancestor, got %q", got)
 	}
 }
+
+func powerShellPayload(t *testing.T, session, cwd, command string) []byte {
+	t.Helper()
+	return tddtest.PowerShellPayload(t, session, cwd, command)
+}

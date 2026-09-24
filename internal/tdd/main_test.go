@@ -7,11 +7,6 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// fakeGitCommonDir is what this binary prints on STDOUT when it is standing in
-// as `git` (see tddtest.Main). A fixed sentinel, so the test asserting on the
-// hooks path built from it needs nothing from the real git.
-const fakeGitCommonDir = tddtest.FakeGitCommonDir
-
 // TestMain isolates the WHOLE package's test run from the operator's real
 // world through tddtest.Main, which every internal/tdd package's TestMain
 // calls: see its doc for each net it puts up.

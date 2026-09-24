@@ -22,11 +22,6 @@ func bashPayloadID(t *testing.T, session, toolUseID, cwd, command string) []byte
 	return tddtest.BashPayloadID(t, session, toolUseID, cwd, command)
 }
 
-func powerShellPayload(t *testing.T, session, cwd, command string) []byte {
-	t.Helper()
-	return tddtest.PowerShellPayload(t, session, cwd, command)
-}
-
 // An edit made by `sed` or a heredoc is still an edit: the hooks that judge a
 // Write must judge it too, or the whole gate is one shell command away from
 // being off. PreToolUse records what the tree looked like; PostToolUse diffs
