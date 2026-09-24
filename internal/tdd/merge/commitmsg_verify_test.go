@@ -101,13 +101,11 @@ func TestVerificationClaim_CacheHitOnATimeoutTreeIsStillRefused(t *testing.T) {
 	}
 }
 
-// The resolution has to hash at the same root the SUITE STAGE hashed at, which
+// The resolution has to key at the same root the SUITE STAGE keyed at, which
 // is the PROJECT root stagedRootGroups derived (FindProjectRoot), not the repo
-// root. worktreeStateHash is cwd-scoped — `git ls-files --others` lists only
-// what sits under the directory it runs in — so an untracked scratch file at
-// the repo root moves the repo-root hash and leaves the crate's alone. Hashing
-// at the repo root then produces a prefix the cache can never hold, and #591
-// refuses again in exactly the monorepo shape it came from.
+// root. The key carries the root's place in the repo (mechKeyRoot), so a
+// prefix built at the repo root is one the cache can never hold for the
+// crate, and #591 refuses again in exactly the monorepo shape it came from.
 func TestVerificationClaim_CacheHitResolvesAtTheCrateRootNotTheRepoRoot(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
@@ -120,9 +118,8 @@ func TestVerificationClaim_CacheHitResolvesAtTheCrateRootNotTheRepoRoot(t *testi
 	write(t, root, "scratch.log", "noise\n")
 
 	crate := filepath.Join(root, "crates", "x")
-	if worktreeStateHash(crate) == worktreeStateHash(root) {
-		t.Fatal("setup: the crate-root and repo-root hashes must differ for this test to mean anything — " +
-			"the untracked file at the repo root is what separates them")
+	if mechKeyPrefix(crate, worktreeStateHash(crate)) == mechKeyPrefix(root, worktreeStateHash(root)) {
+		t.Fatal("setup: the crate-root and repo-root key prefixes must differ for this test to mean anything")
 	}
 	// What the suite stage left behind: a green keyed at the CRATE root.
 	runner := Runner{Cmd: "cargo", Args: []string{"test", "-p", "x"}}

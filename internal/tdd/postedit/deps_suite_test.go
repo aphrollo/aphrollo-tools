@@ -27,6 +27,8 @@ func cargoNestedTestFileReachable(p0 string, p1 string) bool {
 
 func classificationOutput(p0 string, p1 string) string { return suite.ClassificationOutput(p0, p1) }
 
+func mechCacheAdd(p0 string) { suite.MechCacheAdd(p0) }
+
 func mechCachePath() string { return suite.MechCachePath() }
 
 func renderGoTestJSON(p0 string) (string, string, bool) { return suite.RenderGoTestJSON(p0) }

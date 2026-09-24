@@ -91,9 +91,53 @@ func commitMsgClaims(t *testing.T) (int, string) {
 	return code, errb.String()
 }
 
+// fakeCleanGolangciLint puts an always-succeeding stand-in for golangci-lint
+// ahead of PATH, and returns a marker path the stub touches when it runs.
+// goQualityStage hardcodes its own argv ("run --allow-serial-runners …"),
+// unlike gate lint's caller-controlled args, so this stub — unlike
+// fakeGolangciLint in lint_shim_test.go, which hands `sh` an -c script the
+// caller supplies — ignores every argument it is given and always exits 0.
+func fakeCleanGolangciLint(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ran")
+	script := filepath.Join(dir, "golangci-lint")
+	body := "#!/bin/sh\ntouch " + marker + "\nexit 0\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return marker
+}
+
+// TestCommitMsg_PremergeNeverReachesTheRealGolangciLint proves the fixture
+// this file's other tests share no longer depends on this box's REAL
+// golangci-lint winning a machine-wide lock shared with every other job on
+// the self-hosted runner: CI run 35939585713 rejected
+// TestCommitMsg_AnAmendOfAMergeKeepsThePremergeGreenForItsUnchangedTree with
+// "another golangci-lint outside this gate holds its own machine-wide lock"
+// — box contention, not a finding about the fixture's tree. Asserting the
+// stub's OWN marker exists is what proves the real binary was never
+// reached; asserting only that premerge exited 0 would pass just the same
+// whether the real linter ran clean or was never consulted at all.
+func TestCommitMsg_PremergeNeverReachesTheRealGolangciLint(t *testing.T) {
+	gateConfigDir(t)
+	trunkSyncInProgress(t, goModule("x", 1, 1), goModule("x", 2, 2))
+	marker := fakeCleanGolangciLint(t)
+
+	var errb bytes.Buffer
+	if code := Run([]string{"gate", "premerge"}, strings.NewReader(""), &bytes.Buffer{}, &errb); code != 0 {
+		t.Fatalf("premerge exit = %d\n%s", code, errb.String())
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("the fake golangci-lint never ran (marker %s absent): %v — premerge must have reached the box's real linter instead", marker, err)
+	}
+}
+
 func TestCommitMsg_AnAmendOfAMergeKeepsThePremergeGreenForItsUnchangedTree(t *testing.T) {
 	gateConfigDir(t)
 	repo := trunkSyncInProgress(t, goModule("x", 1, 1), goModule("x", 2, 2))
+	fakeCleanGolangciLint(t)
 
 	var errb bytes.Buffer
 	if code := Run([]string{"gate", "premerge"}, strings.NewReader(""), &bytes.Buffer{}, &errb); code != 0 {
@@ -129,6 +173,7 @@ func TestCommitMsg_ARefusedMergeLeavesNoGreenForItsTree(t *testing.T) {
 		lane[k] = v
 	}
 	trunkSyncInProgress(t, base, lane)
+	fakeCleanGolangciLint(t)
 
 	var errb bytes.Buffer
 	if code := Run([]string{"gate", "premerge"}, strings.NewReader(""), &bytes.Buffer{}, &errb); code == 0 {

@@ -121,13 +121,11 @@ func cacheHitResolvesGreen(repoRoot string) bool {
 // PROJECT roots stagedRootGroups derived for this commit (FindProjectRoot),
 // which is exactly where runSuiteStage hashes and keys.
 //
-// The repo root is not interchangeable with them. worktreeStateHash is
-// cwd-scoped — `git ls-files --others` lists only what sits under the
-// directory it runs in — so in a monorepo an untracked scratch file at the
-// repo root moves the repo-root hash and leaves the crate's alone, and a
-// prefix built at the repo root is one the cache can never hold. repoRoot
-// stands in only for a commit that grouped no roots at all, which is a commit
-// whose suite stage never ran.
+// The repo root is not interchangeable with them. The key carries the root's
+// place in the repo (mechKeyRoot), so a prefix built at the repo root is one
+// the cache can never hold for a crate below it. repoRoot stands in only for
+// a commit that grouped no roots at all, which is a commit whose suite stage
+// never ran.
 func cacheHitRoots(repoRoot string) []string {
 	var roots []string
 	for _, g := range stagedRootGroups(repoRoot) {

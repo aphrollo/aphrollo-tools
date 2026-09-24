@@ -153,6 +153,23 @@ func mechCacheAdd(key string) {
 	_ = writeFileAtomic(path, data)
 }
 
+// mechCacheAddUnmoved records a green run of r at root under before, the
+// state hash taken BEFORE the run started, and only when the worktree still
+// hashes to it afterwards. A green is a fact about the tree the run compiled.
+// A tree that moved while the run was going (a `git merge` landing from
+// another shell, a mutation written and restored mid-run) was not the one it
+// compiled, whichever end of the run is hashed: hashing after names content
+// the run never saw (#813: a merge's four new test files read cache-hit at
+// that merge's own gate), and hashing before alone names content the run did
+// not finish on. Unmoved, both ends agree and the green is recorded; moved,
+// nothing is, and the next lookup runs the suite.
+func mechCacheAddUnmoved(root, before string, r Runner) {
+	if before == "" || worktreeStateHash(root) != before {
+		return
+	}
+	mechCacheAdd(mechKey(root, before, r))
+}
+
 // worktreeStateHash fingerprints the content the mechanical suite actually
 // sees: HEAD plus the blob content of every tracked file that differs from
 // HEAD and every untracked (non-ignored) file. It hashes path+blob pairs, not
@@ -190,14 +207,26 @@ func worktreeStateHash(root string) string {
 	if err != nil {
 		return ""
 	}
-	untracked, err := gitRead(root, "ls-files", "--others", "--exclude-standard", "--full-name", "-z")
+	// Every path here is repo-root-relative, so the join and the
+	// hash-object call below anchor there too, not at root.
+	base := RepoRoot(root)
+	if base == "" {
+		base = root
+	}
+	// Untracked and ignored-config files are listed across the WHOLE repo,
+	// like the diff above, and not from root: `ls-files` lists only what
+	// sits under the directory it runs in, and the command this hash keys
+	// reaches past root — a cargo run from the workspace names every crate
+	// downstream of the touched one and compiles their tests/*.rs whether
+	// git tracks them or not (#813).
+	untracked, err := gitRead(base, "ls-files", "--others", "--exclude-standard", "--full-name", "-z")
 	if err != nil {
 		return ""
 	}
 
 	seen := map[string]bool{}
 	var paths []string
-	for _, out := range []string{changed, untracked, ignoredConfig(root)} {
+	for _, out := range []string{changed, untracked, ignoredConfig(base)} {
 		for _, p := range splitNulPaths(out) {
 			if !seen[p] {
 				seen[p] = true
@@ -206,13 +235,6 @@ func worktreeStateHash(root string) string {
 		}
 	}
 	sort.Strings(paths)
-
-	// Every path above is repo-root-relative, so the join and the
-	// hash-object call below must anchor there too, not at root.
-	base := RepoRoot(root)
-	if base == "" {
-		base = root
-	}
 
 	// Batch-hash the paths that are regular files; anything else (deleted,
 	// replaced by a directory) is stamped "gone" so its absence still shapes

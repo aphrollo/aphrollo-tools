@@ -19,6 +19,9 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	// asked for and has to hear about even though a fresh run is starting
 	// (issue #571). One defer beats repeating the fold at eight returns.
 	defer func() { advisory = joinDeferredAdvisory(carried, advisory) }()
+	// The state the phases are about to compile: their green is recorded
+	// under this, and only if the tree is still here when they finish (#813).
+	before := worktreeStateHash(root)
 	out := runEditPhases(snap.runner, root, target, headSHA, fileHash, session, snap.editID, budget)
 	if out.spawnFailed {
 		AppendGateLog("postedit", root, cmdString(snap.runner), InfraFailed, 0)
@@ -67,9 +70,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 		_ = snap.state.Save(snap.statePath)
 	}
 	if res.Passed {
-		if h := worktreeStateHash(root); h != "" {
-			mechCacheAdd(mechKey(root, h, snap.runner))
-		}
+		mechCacheAddUnmoved(root, before, snap.runner)
 	}
 	logSuiteVerdict("postedit", root, cmdString(snap.runner), string(outcome), res)
 	recordEditVerdict(root, snap.editID, cmdString(snap.runner), outcome, res.Output)

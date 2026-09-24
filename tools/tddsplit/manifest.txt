@@ -157,7 +157,7 @@ bashsuite_lock.go                                  lock  # created by P2
 gc_mutantstemp_lock.go                             lock  # created by P2
 runner_lock.go                                     lock  # created by P2
 
-# suite: 61 file(s), plus 18 created by P2
+# suite: 63 file(s), plus 18 created by P2
 buildform.go                                       suite
 buildform_test.go                                  suite
 buildlock_futuremtime_test.go                      suite  # prefix says lock; its test body reaches suite
@@ -191,8 +191,10 @@ mechcache.go                                       suite
 mechcache_ignored_test.go                          suite
 mechcache_key_test.go                              suite
 mechcache_nested_root_test.go                      suite
+mechcache_outside_root_test.go                     suite
 mechcache_quoted_path_test.go                      suite
 mechcache_split_nul_paths_test.go                  suite
+mechcache_unmoved_test.go                          suite
 mutants_deps.go                                    suite
 runcheckout.go                                     suite
 runner.go                                          suite
@@ -436,7 +438,7 @@ weekly.go                                          escape
 weekly_test.go                                     escape
 testdata/fuzz/FuzzGateLogLine/                     escape
 
-# postedit: 82 file(s), plus 1 created by P2
+# postedit: 83 file(s), plus 1 created by P2
 bashedit.go                                        postedit
 bashedit_attribution_test.go                       postedit
 bashedit_mergeinprogress_test.go                   postedit
@@ -451,6 +453,7 @@ bashsuite_envswitch_test.go                        postedit
 bashsuite_test.go                                  postedit
 deferred_buildform_test.go                         postedit
 deferred_status_restart_test.go                    postedit
+mechcache_midrun_merge_test.go                     postedit
 runscope_bashsuite_test.go                         postedit
 buildonly_test.go                                  postedit  # prefix says suite; its test body reaches postedit
 cargo_uncompiled_test.go                           postedit  # prefix says suite; its test body reaches postedit
@@ -524,7 +527,7 @@ worktree.go                                        postedit
 worktree_test.go                                   postedit
 mechrun_postedit.go                                postedit  # created by P2
 
-# precommit: 78 file(s)
+# precommit: 79 file(s)
 budgetfloor_test.go                                precommit  # prefix says lock; its test body reaches precommit
 buildlock_integration_test.go                      precommit  # prefix says lock; its test body reaches precommit
 cargo_alwaysrun_test.go                            precommit
@@ -551,6 +554,7 @@ lockwait_test.go                                   precommit
 loudgates_test.go                                  precommit
 mechanical.go                                      precommit
 mechanical_test.go                                 precommit
+mechcache_movedrun_test.go                         precommit
 mechcache_projectroot_test.go                      precommit  # prefix says suite; its test body reaches precommit
 mechrun.go                                         precommit
 mechrun_untested_test.go                           precommit
@@ -694,7 +698,7 @@ gc_templitter_test.go                              gc
 gc_test.go                                         gc
 lockshared_test.go                                 gc  # prefix says lock; its test body reaches gc
 
-# tdd: 44 file(s), plus 1 created by P2
+# tdd: 47 file(s), plus 1 created by P2
 autoescape_override_test.go                        tdd  # prefix says escape; its test body reaches tdd
 autoescape_test.go                                 tdd  # prefix says escape; its test body reaches tdd
 behind.go                                          tdd
@@ -711,6 +715,9 @@ gatestatus_test.go                                 tdd
 gc_session_test.go                                 tdd  # prefix says gc; its test body reaches tdd
 ghstub_isolation_test.go                           tdd
 gotmpdir_workflow_pin_test.go                      tdd
+installowner_unix.go                               tdd
+installowner_windows.go                            tdd
+installwritable.go                                 tdd
 lintworkflow_pin_test.go                           tdd
 lsremote_hang_test.go                              tdd
 main_test.go                                       tdd
