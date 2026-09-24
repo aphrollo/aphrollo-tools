@@ -84,6 +84,7 @@ func TestMechanical_DocsOnlyMerge_NoOpWithNothingToTestLine(t *testing.T) {
 // repo's test source for an introduced suppression when committing it — the
 // scanned target is the FIXTURE repo's staged content, never this file's.
 func TestMechanical_NeverBlocksOnSuppressionOrFailFirst(t *testing.T) {
+	withLinter(t, false)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
 	marker := strings.Join([]string{"no", "lint", ":unused"}, "")

@@ -139,7 +139,7 @@ Mechanical gates across edit, commit and merge. `tdd` is an alias of `gate`. Hoo
 | `precommit` | `pre-commit` | anti-cheat, fail-first, quality stages (below) |
 | `commitmsg` | `commit-msg` | rejects a message matching a deny pattern, quoting the line (only with `undercover = true`) |
 | `postcommit` | `post-commit` | writes `refs/notes/gate` (`green <tree>`) when a suite ran green for that tree; in a `prune-lanes-on-merge` repo sweeps lanes a hand-resolved merge landed. Never blocks |
-| `premerge` | `pre-merge-commit` | quality stages and the touched suites over the merge; mutation measurement in a `mutants-at-merge` repo. Alias `premergecommit` |
+| `premerge` | `pre-merge-commit` | refuses up front, by path, an uncommitted source or test file inside a package or crate the merge builds; then quality stages and the touched suites over the merge; mutation measurement in a `mutants-at-merge` repo. Alias `premergecommit` |
 | `postmerge` | `post-merge` | in a `prune-lanes-on-merge` repo, removes lanes whose branch landed and whose tree is clean; otherwise inert |
 | `prepush` | `pre-push` | no-op, never blocks |
 | `statusline` | `statusLine` | one badge: white (nothing measured), green (suite passed), red (standing failure), `:off`, `:deferred`, `:mutants`, `:queued` |
@@ -1015,7 +1015,11 @@ aphrollo update [--repo DIR] [--bin PATH] [--remote NAME] [--branch NAME] [--no-
 Builds `./cmd/aphrollo` from a detached temporary worktree at
 `<remote>/<branch>`, runs `gate selfcheck` on it, swaps it in for `--bin`,
 sweeps stale copies, then runs init under the new binary. The only command
-that replaces the installed binary.
+that replaces the installed binary. Refuses before fetching or building at
+all when `--bin`'s directory is not writable by the caller — the case on a
+box that deploys `/usr/local/bin/aphrollo` via CI on merge (see
+`deploy/deploy-prod.sh`), where the install belongs to the pipeline's own
+account, not the operator running `update`.
 
 ### `aphrollo issue` and `aphrollo feedback`
 
