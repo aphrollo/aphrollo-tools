@@ -264,8 +264,16 @@ func shellWordTokens(cmd string) []shellWord {
 func writeTargets(words []shellWord) []string {
 	var out []string
 	var rest []string
-	for i := 0; i < len(words); i++ {
-		w := words[i]
+	// A separated redirect's target is consumed by setting skip rather than
+	// by stepping the index inside the loop: an in-loop step is a mutation
+	// site whose decrement never terminates, which a mutation run can only
+	// report as a timeout and never as a caught mutant.
+	skip := false
+	for i, w := range words {
+		if skip {
+			skip = false
+			continue
+		}
 		target, sep, ok := splitRedirect(w)
 		switch {
 		case !ok:
@@ -273,8 +281,8 @@ func writeTargets(words []shellWord) []string {
 		case target != "":
 			out = append(out, target)
 		case sep && i+1 < len(words):
-			i++
-			out = append(out, words[i].text)
+			out = append(out, words[i+1].text)
+			skip = true
 		}
 	}
 	return append(out, verbTargets(rest)...)
@@ -445,14 +453,22 @@ func hasScriptFlag(args []string) bool {
 // flag named in takesValue.
 func operandsOf(args []string, takesValue map[string]bool) []string {
 	var out []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
+	// A flag's separate value is consumed by setting skip rather than by
+	// stepping the index inside the loop: an in-loop step is a mutation site
+	// whose decrement never terminates, which a mutation run can only report
+	// as a timeout and never as a caught mutant.
+	skip := false
+	for i, a := range args {
+		if skip {
+			skip = false
+			continue
+		}
 		if !strings.HasPrefix(a, "-") || a == "-" {
 			out = append(out, a)
 			continue
 		}
 		if takesValue[a] && i+1 < len(args) {
-			i++
+			skip = true
 		}
 	}
 	return out

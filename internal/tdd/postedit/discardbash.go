@@ -101,13 +101,24 @@ func gitVerb(words []string) (verb string, rest []string, ok bool) {
 	if len(words) == 0 || baseCommand(words[0]) != "git" {
 		return "", nil, false
 	}
-	for i := 1; i < len(words); i++ {
-		w := words[i]
+	// A global option's separate value is consumed by setting skip rather
+	// than by stepping the index inside the loop: an in-loop step is a
+	// mutation site whose decrement never terminates, which a mutation run
+	// can only report as a timeout and never as a caught mutant.
+	skip := false
+	for i, w := range words {
+		if i == 0 {
+			continue
+		}
+		if skip {
+			skip = false
+			continue
+		}
 		if !strings.HasPrefix(w, "-") {
 			return w, words[i+1:], true
 		}
 		if gitGlobalOptWithValue[w] {
-			i++
+			skip = true
 		}
 	}
 	return "", nil, false

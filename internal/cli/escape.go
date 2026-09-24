@@ -267,8 +267,16 @@ func runEscapeCheckCloses(args []string, stdout, stderr io.Writer) int {
 // in its own words -- silently treating it as reason text is exactly the bug
 // this replaces.
 func splitFlags(fs *flag.FlagSet, args []string) (flags, positional []string) {
-	for i := 0; i < len(args); i++ {
-		a := args[i]
+	// A flag's separate value is consumed by setting skip rather than by
+	// stepping the index inside the loop: an in-loop step is a mutation site
+	// whose decrement never terminates, which a mutation run can only report
+	// as a timeout and never as a caught mutant.
+	skip := false
+	for i, a := range args {
+		if skip {
+			skip = false
+			continue
+		}
 		if a == "--" {
 			positional = append(positional, args[i+1:]...)
 			return flags, positional
@@ -286,8 +294,8 @@ func splitFlags(fs *flag.FlagSet, args []string) (flags, positional []string) {
 			continue
 		}
 		if i+1 < len(args) {
-			i++
-			flags = append(flags, args[i])
+			flags = append(flags, args[i+1])
+			skip = true
 		}
 	}
 	return flags, positional

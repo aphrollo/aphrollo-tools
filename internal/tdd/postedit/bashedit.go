@@ -460,8 +460,16 @@ func changedSince(before *bashSnapshot) ([]string, *bashSnapshot) {
 func porcelainPaths(status string) []string {
 	var out []string
 	fields := strings.Split(status, "\x00")
-	for i := 0; i < len(fields); i++ {
-		rec := fields[i]
+	// A rename/copy record's origin field is consumed by setting skip rather
+	// than by stepping the index inside the loop: an in-loop step is a
+	// mutation site whose decrement never terminates, which a mutation run
+	// can only report as a timeout and never as a caught mutant.
+	skip := false
+	for i, rec := range fields {
+		if skip {
+			skip = false
+			continue
+		}
 		if len(rec) < 4 {
 			continue
 		}
@@ -470,10 +478,10 @@ func porcelainPaths(status string) []string {
 		// A rename/copy record is followed by a NUL-terminated field holding
 		// the ORIGIN path, which is not a status record of its own.
 		if strings.ContainsAny(xy, "RC") && i+1 < len(fields) {
-			i++
-			if origin := fields[i]; origin != "" {
+			if origin := fields[i+1]; origin != "" {
 				out = append(out, origin)
 			}
+			skip = true
 		}
 	}
 	return out

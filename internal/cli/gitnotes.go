@@ -106,8 +106,16 @@ func gateNotesPushCmd(realGit, dir, remote string) *exec.Cmd {
 func pushRemote(args []string) string {
 	remote, positionals := "", 0
 	sawSeparator := false
-	for i := 0; i < len(args); i++ {
-		a := args[i]
+	// A flag's separate value is consumed by setting skip rather than by
+	// stepping the index inside the loop: an in-loop step is a mutation site
+	// whose decrement never terminates, which a mutation run can only report
+	// as a timeout and never as a caught mutant.
+	skip := false
+	for _, a := range args {
+		if skip {
+			skip = false
+			continue
+		}
 		if !sawSeparator && a == "--" {
 			// git's own separator: every token after it is positional, even
 			// one that starts with "-", so flag matching stops here.
@@ -127,7 +135,7 @@ func pushRemote(args []string) string {
 		case pushValueFlags[a]:
 			// Its value is the NEXT argv token, not a positional -- e.g.
 			// `-o ci.skip origin main` must not read "ci.skip" as the remote.
-			i++
+			skip = true
 			continue
 		case strings.HasPrefix(a, "--repo="):
 			// Self-contained like `--push-option=X`, but unlike those flags
