@@ -17,6 +17,17 @@ const discardBashPolicy = "discard-bash"
 // has to re-learn the line (user directive 2026-08-27).
 const discardBashRefusal = "git checkout/restore/clean/reset --hard/stash drop|clear are forbidden: they discard uncommitted work (user directive 2026-08-27)"
 
+// probeDiscardRoute is the sanctioned way back to HEAD for a refused probe
+// arm, appended to the refusals an agent meets on the way to stripping one.
+const probeDiscardRoute = "; to strip a refused probe arm back to HEAD, run `aphrollo gate probe discard <files>` " +
+	"(dry run; --apply backs the diff up, then restores exactly those files)"
+
+// reverseApplyRefusal refuses a reverse apply: `git diff > p && git apply -R
+// p` restores the working tree exactly as `git checkout --` does, with no
+// record of what it threw away (#836).
+const reverseApplyRefusal = "git apply -R / patch -R discard uncommitted work the gate cannot audit (user directive 2026-08-27)" +
+	probeDiscardRoute
+
 // DiscardBashDecision judges a Bash/PowerShell PreToolUse payload against the
 // discard-verb directive. It reads real command WORDS only, via the same
 // quote-aware split bashWriteTargets already uses (shellSegments /
@@ -35,55 +46,109 @@ func DiscardBashDecision(raw []byte) Decision {
 		return Decision{}
 	}
 	cmd := strings.TrimSpace(in.ToolInput.Command)
-	if cmd == "" || !cmdDiscards(cmd) {
+	if cmd == "" {
 		return Decision{}
 	}
-	return Decision{Action: Block, Reason: discardBashRefusal, Policy: discardBashPolicy}
+	reason, ok := cmdDiscards(cmd)
+	if !ok {
+		return Decision{}
+	}
+	return Decision{Action: Block, Reason: reason, Policy: discardBashPolicy}
 }
 
-// cmdDiscards reports whether cmd, or a script it really runs via command
-// substitution or a `<shell> -c`, invokes one of the forbidden git verbs.
-func cmdDiscards(cmd string) bool {
+// cmdDiscards returns the refusal for the first forbidden invocation cmd, or
+// a script it really runs via command substitution or a `<shell> -c`,
+// contains; ok=false when it contains none.
+func cmdDiscards(cmd string) (reason string, ok bool) {
 	stripped := stripHeredocBodies(cmd)
 	for _, words := range shellSegments(stripped) {
-		if segmentDiscards(words) {
-			return true
+		if reason, ok := segmentDiscards(words); ok {
+			return reason, true
 		}
-		if script, ok := bashDashCScript(words); ok && cmdDiscards(script) {
-			return true
+		if script, isScript := bashDashCScript(words); isScript {
+			if reason, ok := cmdDiscards(script); ok {
+				return reason, true
+			}
 		}
 	}
 	for _, body := range commandSubstitutionBodies(stripped) {
-		if cmdDiscards(body) {
+		if reason, ok := cmdDiscards(body); ok {
+			return reason, true
+		}
+	}
+	return "", false
+}
+
+// discardBashRule is one row of the wall: the program a segment runs, the
+// git subcommand when that program is git (empty for any other program),
+// the argument shape that makes the invocation a discard, and the refusal
+// it earns. A new forbidden spelling is a new row, not a new branch.
+type discardBashRule struct {
+	program string
+	verb    string
+	match   func(rest []string) bool
+	reason  string
+}
+
+// discardBashRules mirrors the shape of the raw regex the wall replaced
+// (`git\s+(checkout|clean|reset\s+--(hard|merge)|stash\s+(drop|clear)|
+// restore(?!\s+--staged))`).
+var discardBashRules = []discardBashRule{
+	{program: "git", verb: "checkout", match: anyArgs, reason: discardBashRefusal + probeDiscardRoute},
+	{program: "git", verb: "clean", match: anyArgs, reason: discardBashRefusal},
+	{program: "git", verb: "reset", match: resetDiscards, reason: discardBashRefusal},
+	{program: "git", verb: "stash", match: stashDiscards, reason: discardBashRefusal},
+	{program: "git", verb: "restore", match: restoreDiscards, reason: discardBashRefusal + probeDiscardRoute},
+	{program: "git", verb: "apply", match: reverses, reason: reverseApplyRefusal},
+	{program: "patch", match: reverses, reason: reverseApplyRefusal},
+}
+
+func anyArgs([]string) bool { return true }
+
+func resetDiscards(rest []string) bool {
+	return containsToken(rest, "--hard") || containsToken(rest, "--merge")
+}
+
+func stashDiscards(rest []string) bool {
+	return len(rest) > 0 && (rest[0] == "drop" || rest[0] == "clear")
+}
+
+// reverses reports whether args ask git apply or patch(1) to apply in
+// reverse: `--reverse`, `-R`, or a short-option cluster led by R (`-Rp1`,
+// `-Rv`). A cluster with R further in is left alone: patch's `-d DIR` and
+// `-D NAME` take their value in the same token, and `-dREPO` is no reverse.
+func reverses(args []string) bool {
+	for _, a := range args {
+		if a == "--reverse" || strings.HasPrefix(a, "-R") {
 			return true
 		}
 	}
 	return false
 }
 
+func restoreDiscards(rest []string) bool {
+	return len(rest) == 0 || rest[0] != "--staged"
+}
+
 // segmentDiscards judges one already-split command (a shellSegments entry)
-// against the forbidden verbs, mirroring the shape of the raw regex this
-// replaces (`git\s+(checkout|clean|reset\s+--(hard|merge)|stash\s+(drop|
-// clear)|restore(?!\s+--staged))`) but reading git's own global options
-// (-C, -c, --git-dir, ...) out of the way first, so `git -C dir clean -fd`
-// is judged by its VERB, "clean", not by whatever token happens to sit
-// right after "git".
-func segmentDiscards(words []string) bool {
-	verb, rest, ok := gitVerb(words)
-	if !ok {
-		return false
+// against discardBashRules. A git invocation is judged by its VERB, with
+// git's own global options (-C, -c, --git-dir, ...) read out of the way
+// first, so `git -C dir clean -fd` is judged by "clean", not by whatever
+// token happens to sit right after "git".
+func segmentDiscards(words []string) (reason string, ok bool) {
+	if len(words) == 0 {
+		return "", false
 	}
-	switch verb {
-	case "checkout", "clean":
-		return true
-	case "reset":
-		return containsToken(rest, "--hard") || containsToken(rest, "--merge")
-	case "stash":
-		return len(rest) > 0 && (rest[0] == "drop" || rest[0] == "clear")
-	case "restore":
-		return len(rest) == 0 || rest[0] != "--staged"
+	program, verb, rest := baseCommand(words[0]), "", words[1:]
+	if v, r, isGit := gitVerb(words); isGit {
+		verb, rest = v, r
 	}
-	return false
+	for _, rule := range discardBashRules {
+		if rule.program == program && rule.verb == verb && rule.match(rest) {
+			return rule.reason, true
+		}
+	}
+	return "", false
 }
 
 // gitGlobalOptWithValue are git's own global options that consume a separate

@@ -427,3 +427,22 @@ func TestGitShim_EnvOverrideNamesOnlyTheUnstagedFilesInScope(t *testing.T) {
 		t.Fatalf("refusal = %q, must not name a.txt: this invocation would not touch it", errb.String())
 	}
 }
+
+// The shim's half of the wall names the sanctioned route too: a lane
+// stripping a refused probe arm meets this refusal on `git checkout --` and
+// `git restore`, and a refusal with no way forward is what sent #836's lane
+// to an unaudited `git apply -R`.
+func TestGitShim_PathRestoreRefusalNamesProbeDiscard(t *testing.T) {
+	gateConfigDir(t)
+	repo, cfg := discardWallFixture(t)
+	for _, args := range [][]string{{"checkout", "--", "seed.txt"}, {"restore", "seed.txt"}} {
+		writeFixtureFile(t, repo, "seed.txt", distinctLines("arm", 3))
+		var out, errb bytes.Buffer
+		if code := runGitShim(args, strings.NewReader(""), &out, &errb, cfg); code != 1 {
+			t.Fatalf("%v: exit = %d, want 1\nstderr: %s", args, code, errb.String())
+		}
+		if !strings.Contains(errb.String(), "aphrollo gate probe discard") {
+			t.Errorf("%v: stderr = %q, want it to name `aphrollo gate probe discard`", args, errb.String())
+		}
+	}
+}
