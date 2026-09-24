@@ -49,10 +49,7 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	// related mode (or an unknown command) falls back to the full suite
 	// unchanged.
 	rootRelFiles := toRootRelative(repoRoot, g.Root, rootFiles)
-	runner = narrowedRunner(runner, repoRoot, g.Root, rootFiles)
-	if runner.Cmd == "go" {
-		runner = withGoCIParity(runner, gateName == premergeDisplayName)
-	}
+	runner = rootSuiteRunner(gateName, repoRoot, g.Root, runner, rootFiles)
 	// This root's suite is the ground the commit owes, whether the branch
 	// below runs it (the merge) or stands down in favour of the fail-first
 	// proof (the commit) — see suiteproof.go for what may be claimed after.
@@ -86,6 +83,48 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 		return failFirstStage(repoRoot, g.Root, g.tests, g.srcs, run)
 	}
 	return suiteStage(gateName, repoRoot, g.Root, runner, run)
+}
+
+// rootSuiteRunner is the suite a non-cargo root owes: runner scoped to the
+// staged files' packages, with CI's flags on a Go run.
+func rootSuiteRunner(gateName, repoRoot, root string, runner Runner, files []string) Runner {
+	runner = narrowedRunner(runner, repoRoot, root, files)
+	if runner.Cmd == "go" {
+		runner = withGoCIParity(runner, gateName == premergeDisplayName)
+	}
+	return runner
+}
+
+// owedSuite is one root's suite as the commit gate owes it: the root its
+// green is cached under, and the runner the suite stage would run there.
+type owedSuite struct {
+	Root   string
+	Runner Runner
+}
+
+// commitOwedSuites is the ground the commit gate owes for the staged change,
+// one suite per root, resolved as gateRoot resolves it. A root with no runner
+// is absent: the gate runs nothing there. A cargo root owes its plan's suite
+// runner even when no crate is touched, which then names no package and so
+// reads as the whole workspace: a manifest-only change is answered only by a
+// green over everything.
+func commitOwedSuites(repoRoot string) []owedSuite {
+	var owed []owedSuite
+	for _, g := range stagedRootGroups(repoRoot) {
+		runner, ok := DetectRunner(g.Root)
+		if !ok {
+			continue
+		}
+		files := append(append([]string{}, g.tests...), g.srcs...)
+		if runner.Cmd == "cargo" {
+			plan, _ := planCargoStages("precommit", repoRoot, g.Root, files)
+			runner = plan.suiteRunner()
+		} else {
+			runner = rootSuiteRunner("precommit", repoRoot, g.Root, runner, files)
+		}
+		owed = append(owed, owedSuite{Root: g.Root, Runner: runner})
+	}
+	return owed
 }
 
 // cargoStagePlan is what the cargo stages of one root need: the workspace

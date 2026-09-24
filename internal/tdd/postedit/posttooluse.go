@@ -277,13 +277,26 @@ func greenLabel(outcome Outcome, output string, dur time.Duration) string {
 // means "still red, but nothing NEW", and a bare "no-delta" line leaves the
 // session guessing which pre-existing failure it is.
 func passAdvisory(r Runner, root string, outcome Outcome, output string, dur time.Duration, prevFailing []string) string {
-	line := fmt.Sprintf("gate: %s in %s → %s", cmdString(r), root, greenLabel(outcome, output, dur))
+	line := withTargetsNotRun(fmt.Sprintf("gate: %s in %s → %s", cmdString(r), root, greenLabel(outcome, output, dur)), r, root)
 	if outcome == NoDelta {
 		if hint := noDeltaStillFailingLine(output, prevFailing); hint != "" {
 			line += "\n" + hint
 		}
 	}
 	return line
+}
+
+// withTargetsNotRun appends the NOT RUN clause naming the crate's
+// integration test targets a scoped `--lib` run left out (issue #820), and
+// returns line unchanged when there are none. The clause is the commit
+// gate's own wording: those binaries run at the merge gate, and this pass is
+// not a green for them.
+func withTargetsNotRun(line string, r Runner, root string) string {
+	names := cargoIntegrationTargetsNotRun(r, root)
+	if len(names) == 0 {
+		return line
+	}
+	return line + " — " + notRunClause(names, "crate")
 }
 
 // noDeltaStillFailingLine names the still-failing test for a no-delta run:

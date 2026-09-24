@@ -8,8 +8,6 @@ import (
 
 type SuiteRunner = suite.SuiteRunner
 
-type mechCacheFile = suite.MechCacheFile
-
 type mutantsConfigTable = suite.MutantsConfigTable
 
 func cargoAphrolloFlag(p0 string, p1 string) bool { return suite.CargoAphrolloFlag(p0, p1) }
@@ -18,11 +16,7 @@ func cargoAphrolloPackages(p0 string, p1 string) []string { return suite.CargoAp
 
 func indexTree(p0 string) string { return suite.IndexTree(p0) }
 
-func loadMechCache(p0 string) *mechCacheFile { return suite.LoadMechCache(p0) }
-
-func mechCachePath() string { return suite.MechCachePath() }
-
-func mechKeyPrefix(p0 string, p1 string) string { return suite.MechKeyPrefix(p0, p1) }
+func mechCacheCovers(p0 string, p1 string, p2 Runner) bool { return suite.MechCacheCovers(p0, p1, p2) }
 
 func mutantsConfigTables(p0 string) []mutantsConfigTable { return suite.MutantsConfigTables(p0) }
 

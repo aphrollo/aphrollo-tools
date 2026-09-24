@@ -37,8 +37,6 @@ type GoReachGraph = goReachGraph
 
 type GoTestEvent = goTestEvent
 
-type MechCacheFile = mechCacheFile
-
 type MutantsConfigTable = mutantsConfigTable
 
 type RunScope = runScope
@@ -94,6 +92,10 @@ func CargoAphrolloPackages(p0 string, p1 string) []string { return cargoAphrollo
 func CargoAphrolloString(p0 string, p1 string) (string, bool) { return cargoAphrolloString(p0, p1) }
 
 func CargoClippyCleanPackages(p0 string) []string { return cargoClippyCleanPackages(p0) }
+
+func CargoIntegrationTargetsNotRun(p0 Runner, p1 string) []string {
+	return cargoIntegrationTargetsNotRun(p0, p1)
+}
 
 func CargoModuleFilterPath(p0 string, p1 string) string { return cargoModuleFilterPath(p0, p1) }
 
@@ -201,8 +203,6 @@ func LaneBaseSHA(p0 string) string { return laneBaseSHA(p0) }
 
 func LoadGoReachGraph(p0 string) (goReachGraph, error) { return loadGoReachGraph(p0) }
 
-func LoadMechCache(p0 string) *mechCacheFile { return loadMechCache(p0) }
-
 func LogLockWait(p0 string, p1 string, p2 Runner, p3 time.Duration) { logLockWait(p0, p1, p2, p3) }
 
 func LogSuiteVerdict(p0 string, p1 string, p2 string, p3 string, p4 SuiteResult) {
@@ -212,6 +212,8 @@ func LogSuiteVerdict(p0 string, p1 string, p2 string, p3 string, p4 SuiteResult)
 func MechCacheAdd(p0 string) { mechCacheAdd(p0) }
 
 func MechCacheAddUnmoved(p0 string, p1 string, p2 Runner) { mechCacheAddUnmoved(p0, p1, p2) }
+
+func MechCacheCovers(p0 string, p1 string, p2 Runner) bool { return mechCacheCovers(p0, p1, p2) }
 
 func MechCacheHit(p0 string) bool { return mechCacheHit(p0) }
 
@@ -236,6 +238,8 @@ func NextestInstalled() bool { return nextestInstalled() }
 func NotCompiledTerminal(p0 Runner, p1 string, p2 string, p3 SuiteResult) string {
 	return notCompiledTerminal(p0, p1, p2, p3)
 }
+
+func NotRunClause(p0 []string, p1 string) string { return notRunClause(p0, p1) }
 
 func PackageHasDoctests(p0 string) bool { return packageHasDoctests(p0) }
 

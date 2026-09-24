@@ -157,7 +157,7 @@ bashsuite_lock.go                                  lock  # created by P2
 gc_mutantstemp_lock.go                             lock  # created by P2
 runner_lock.go                                     lock  # created by P2
 
-# suite: 63 file(s), plus 18 created by P2
+# suite: 66 file(s), plus 18 created by P2
 buildform.go                                       suite
 buildform_test.go                                  suite
 buildlock_futuremtime_test.go                      suite  # prefix says lock; its test body reaches suite
@@ -170,6 +170,8 @@ cargo_pathmod_test.go                              suite
 cargo_required_features.go                         suite
 cargo_required_features_test.go                    suite
 cargo_target_test.go                               suite
+cargo_notrun.go                                    suite
+cargo_notrun_test.go                               suite
 cargo_test_target.go                               suite
 cargo_uncompiled.go                                suite
 classify.go                                        suite
@@ -188,6 +190,7 @@ go_test_reach.go                                   suite
 gotmpdir_outside_test.go                           suite  # prefix says lock; its test body reaches suite
 gotmpdir_test.go                                   suite  # prefix says lock; its test body reaches suite
 mechcache.go                                       suite
+mechcache_covers_test.go                           suite
 mechcache_ignored_test.go                          suite
 mechcache_key_test.go                              suite
 mechcache_nested_root_test.go                      suite
@@ -438,7 +441,7 @@ weekly.go                                          escape
 weekly_test.go                                     escape
 testdata/fuzz/FuzzGateLogLine/                     escape
 
-# postedit: 83 file(s), plus 1 created by P2
+# postedit: 84 file(s), plus 1 created by P2
 bashedit.go                                        postedit
 bashedit_attribution_test.go                       postedit
 bashedit_mergeinprogress_test.go                   postedit
@@ -454,6 +457,7 @@ bashsuite_test.go                                  postedit
 deferred_buildform_test.go                         postedit
 deferred_status_restart_test.go                    postedit
 mechcache_midrun_merge_test.go                     postedit
+posttooluse_notrun_test.go                         postedit
 runscope_bashsuite_test.go                         postedit
 buildonly_test.go                                  postedit  # prefix says suite; its test body reaches postedit
 cargo_uncompiled_test.go                           postedit  # prefix says suite; its test body reaches postedit
@@ -527,7 +531,7 @@ worktree.go                                        postedit
 worktree_test.go                                   postedit
 mechrun_postedit.go                                postedit  # created by P2
 
-# precommit: 79 file(s)
+# precommit: 80 file(s)
 budgetfloor_test.go                                precommit  # prefix says lock; its test body reaches precommit
 buildlock_integration_test.go                      precommit  # prefix says lock; its test body reaches precommit
 cargo_alwaysrun_test.go                            precommit
@@ -539,6 +543,7 @@ clippyscope_test.go                                precommit  # prefix says suit
 commentonly.go                                     precommit
 commentonly_go.go                                  precommit
 commentonly_go_test.go                             precommit
+commitowed_test.go                                 precommit
 devtarget_test.go                                  precommit
 dirtytree.go                                       precommit
 dirtytree_test.go                                  precommit

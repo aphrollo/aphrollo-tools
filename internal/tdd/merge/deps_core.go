@@ -11,6 +11,8 @@ const premergeDisplayName = core.PremergeDisplayName
 
 type GateResult = core.GateResult
 
+type Runner = core.Runner
+
 type gateEntry = core.GateEntry
 
 func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration) {

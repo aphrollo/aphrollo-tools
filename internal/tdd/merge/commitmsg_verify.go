@@ -84,57 +84,35 @@ func headNotedGreenFor(repoRoot, tree string) bool {
 // because the identical worktree state is already recorded green (mechrun.go).
 const mechCacheHitVerdict = "cache-hit"
 
-// cacheHitResolvesGreen follows a "cache-hit" precommit verdict back to the run
-// it hit. The mechanical green cache is keyed on (repo, worktree state hash,
-// exact command) and records ONLY greens — a red must always re-run, see
-// mechcache.go — so an entry under this tree's CURRENT state hash is the
-// earlier green run itself, on a tree identical by construction. Any command
-// satisfies it: the hit this resolves was logged by the stage that owns the
-// suite, and which argv that stage chose is its business, not this guard's.
+// cacheHitResolvesGreen follows a "cache-hit" precommit verdict back to the
+// greens behind it. The mechanical green cache is keyed on (repo, worktree
+// state hash, exact command) and records ONLY greens — a red must always
+// re-run, see mechcache.go. The claim is about the change's tests, so the
+// hit resolves only when, at this tree's CURRENT state, the cache proves the
+// suite the commit gate owes for every staged root (commitOwedSuites): that
+// suite's own key, or greens whose scopes cover it (mechCacheCovers). A
+// cache-hit logged by a check, a guard crate or a doctest stage, or a
+// filtered edit-time green, says nothing about the touched packages' suites.
 //
-// Nothing recorded for this state resolves to nothing and keeps the refusal:
-// a timeout or a deferred run is never cached, and a tree that moved between
-// the pre-commit stage and this hook hashes differently, so its cache-hit was
-// about some other content.
+// The owed suites are keyed at the PROJECT roots stagedRootGroups derived
+// (FindProjectRoot), which is exactly where runSuiteStage hashes and keys:
+// the key carries the root's place in the repo (mechKeyRoot), so a key built
+// at the repo root is one the cache can never hold for a crate below it.
+//
+// Nothing owed, or nothing covering it, keeps the refusal: a timeout or a
+// deferred run is never cached, and a tree that moved after the pre-commit
+// stage hashes differently, so its cache-hit was about some other content.
 func cacheHitResolvesGreen(repoRoot string) bool {
-	path := mechCachePath()
-	if path == "" {
+	owed := commitOwedSuites(repoRoot)
+	if len(owed) == 0 {
 		return false
 	}
-	green := loadMechCache(path).Green
-	for _, root := range cacheHitRoots(repoRoot) {
-		hash := worktreeStateHash(root)
-		if hash == "" {
-			continue
-		}
-		prefix := mechKeyPrefix(root, hash)
-		for key := range green {
-			if strings.HasPrefix(key, prefix) {
-				return true
-			}
+	for _, s := range owed {
+		if !mechCacheCovers(s.Root, worktreeStateHash(s.Root), s.Runner) {
+			return false
 		}
 	}
-	return false
-}
-
-// cacheHitRoots are the roots a cache hit could have been computed at: the
-// PROJECT roots stagedRootGroups derived for this commit (FindProjectRoot),
-// which is exactly where runSuiteStage hashes and keys.
-//
-// The repo root is not interchangeable with them. The key carries the root's
-// place in the repo (mechKeyRoot), so a prefix built at the repo root is one
-// the cache can never hold for a crate below it. repoRoot stands in only for
-// a commit that grouped no roots at all, which is a commit whose suite stage
-// never ran.
-func cacheHitRoots(repoRoot string) []string {
-	var roots []string
-	for _, g := range stagedRootGroups(repoRoot) {
-		roots = append(roots, g.Root)
-	}
-	if len(roots) == 0 {
-		return []string{repoRoot}
-	}
-	return roots
+	return true
 }
 
 // readCurrentGreenSuiteStamp reads the tree stampGreenSuite last recorded for
