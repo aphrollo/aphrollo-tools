@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -208,6 +209,117 @@ func TestPrune_SkipsNoPR(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "skip: "+wt) || !strings.Contains(out.String(), "no PR") {
 		t.Errorf("receipt should skip the no-PR worktree:\n%s", out.String())
+	}
+}
+
+// addDetachedWorktree registers a detached worktree of repo at path — the
+// shape GatePRMerge's own throwaway checkouts take (internal/tdd/merge,
+// prGateMergedCheckout: `git worktree add --detach`).
+func addDetachedWorktree(t *testing.T, repo, path string) {
+	t.Helper()
+	if out, err := exec.Command("git", "-C", repo, "worktree", "add", "--detach", path, "HEAD").CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add --detach: %v\n%s", err, out)
+	}
+}
+
+// writeGatePRMergeHolder writes wt's holder record with the given pid,
+// matching the format prGateWriteHolder (internal/tdd/merge/premergepr.go)
+// writes.
+func writeGatePRMergeHolder(t *testing.T, wt string, pid int) {
+	t.Helper()
+	data := "pid=" + strconv.Itoa(pid) + "\nstarted=2020-01-01T00:00:00Z\n"
+	if err := os.WriteFile(filepath.Join(wt, gatePRMergeHolderFile), []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// deadPidForTest returns a pid guaranteed to name no running process: a
+// child this test starts and waits for to exit.
+func deadPidForTest(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("running a throwaway child: %v", err)
+	}
+	return cmd.Process.Pid
+}
+
+// A gate-prmerge checkout is never a lane: it carries no branch and no PR, so
+// the merged-PR rule's "no PR" reading is simply wrong for it — GatePRMerge
+// (internal/tdd/merge) itself checks the tree, not GitHub. Its holder record
+// is the only evidence this decides on: a dead one is safe to remove.
+func TestPrune_GatePRMergeCheckout_DeadHolderIsRemoved(t *testing.T) {
+	repo := initRepo(t)
+	wt := filepath.Join(t.TempDir(), "gate-prmerge-1234")
+	addDetachedWorktree(t, repo, wt)
+	writeGatePRMergeHolder(t, wt, deadPidForTest(t))
+
+	p, err := PrunePlan(repo)
+	if err != nil {
+		t.Fatalf("PrunePlan: %v", err)
+	}
+	var out, errb bytes.Buffer
+	if err := p.Run(true, &out, &errb); err != nil {
+		t.Fatalf("Run: %v\n%s", err, errb.String())
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Errorf("a dead-holder merge-gate checkout should be removed, stat err = %v", err)
+	}
+	if !strings.Contains(out.String(), "pruned: "+wt) {
+		t.Errorf("receipt should report the pruned checkout:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "no PR") {
+		t.Errorf("a merge-gate checkout must never be classified by PR state:\n%s", out.String())
+	}
+}
+
+// A live holder means the gate that built this checkout is still working —
+// removing it out from under a running merge judgment is worse than the
+// leak this whole sweep exists to fix.
+func TestPrune_GatePRMergeCheckout_LiveHolderIsKept(t *testing.T) {
+	repo := initRepo(t)
+	wt := filepath.Join(t.TempDir(), "gate-prmerge-5678")
+	addDetachedWorktree(t, repo, wt)
+	writeGatePRMergeHolder(t, wt, os.Getpid())
+
+	p, err := PrunePlan(repo)
+	if err != nil {
+		t.Fatalf("PrunePlan: %v", err)
+	}
+	var out, errb bytes.Buffer
+	if err := p.Run(true, &out, &errb); err != nil {
+		t.Fatalf("Run: %v\n%s", err, errb.String())
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Errorf("a live merge-gate checkout must be kept: %v", err)
+	}
+	if !strings.Contains(out.String(), "skip: "+wt) || strings.Contains(out.String(), "no PR") {
+		t.Errorf("receipt should skip the live checkout with an accurate reason, not \"no PR\":\n%s", out.String())
+	}
+}
+
+// No holder record at all means "unknown", never "dead" — a checkout built by
+// an older binary before this record existed is left alone rather than
+// guessed at, the same rule gcStaleGateDirs applies to a gate dir with no
+// origin.txt.
+func TestPrune_GatePRMergeCheckout_NoRecordIsKept(t *testing.T) {
+	repo := initRepo(t)
+	wt := filepath.Join(t.TempDir(), "gate-prmerge-9012")
+	addDetachedWorktree(t, repo, wt)
+
+	p, err := PrunePlan(repo)
+	if err != nil {
+		t.Fatalf("PrunePlan: %v", err)
+	}
+	var out, errb bytes.Buffer
+	if err := p.Run(true, &out, &errb); err != nil {
+		t.Fatalf("Run: %v\n%s", err, errb.String())
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Errorf("a merge-gate checkout with no holder record must be left alone: %v", err)
+	}
+	if strings.Contains(out.String(), "no PR") {
+		t.Errorf("must never read a merge-gate checkout as \"no PR\":\n%s", out.String())
 	}
 }
 

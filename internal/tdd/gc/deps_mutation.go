@@ -13,6 +13,8 @@ const GCKindDepsThirdParty = mutation.GCKindDepsThirdParty
 
 const GCKindGateDir = mutation.GCKindGateDir
 
+const GCKindGatePRMerge = mutation.GCKindGatePRMerge
+
 const GCKindGoTmp = mutation.GCKindGoTmp
 
 const GCKindIncremental = mutation.GCKindIncremental
