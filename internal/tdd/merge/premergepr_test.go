@@ -322,16 +322,25 @@ func TestGatePRMerge_KilledMidRunStillRemovesTheThrowawayCheckout(t *testing.T) 
 	}
 	t.Cleanup(func() { prGateSignalExit = origExit })
 
+	// Deliver the signal on a channel this test owns, never a real,
+	// process-wide SIGTERM: Mechanical calls the SuiteRunner more than once
+	// for one GatePRMerge run (cargo fmt, then the workspace check, then the
+	// crate's own suite — see the "second delivery" note on prGateSignalChan
+	// above), and a real self-signal on every one of those calls has nothing
+	// left to prove after the first and every chance of landing while this
+	// binary's own signal disposition is mid-disarm. injected is read by
+	// exactly the same production code path (watchPRGateSignals) a real OS
+	// channel would feed.
+	injected := make(chan os.Signal, 1)
+	origSource := prGateSignalChan
+	prGateSignalChan = func() (chan os.Signal, func()) { return injected, func() {} }
+	t.Cleanup(func() { prGateSignalChan = origSource })
+
 	var wt string
+	var signalOnce sync.Once
 	run := func(r Runner, dir string) SuiteResult {
 		wt = dir
-		proc, err := os.FindProcess(os.Getpid())
-		if err != nil {
-			t.Fatalf("FindProcess(self): %v", err)
-		}
-		if err := proc.Signal(syscall.SIGTERM); err != nil {
-			t.Fatalf("signalling self: %v", err)
-		}
+		signalOnce.Do(func() { injected <- syscall.SIGTERM })
 		select {
 		case <-cleaned:
 		case <-time.After(5 * time.Second):
