@@ -354,10 +354,10 @@ func TestInitGitGate_Uninstall(t *testing.T) {
 func TestGitGate_InstallsTheCommitMsgHook(t *testing.T) {
 	found := false
 	for _, h := range gitGateHooks {
-		if h.name == "commit-msg" {
+		if h.Name == "commit-msg" {
 			found = true
-			if h.sub != "commitmsg" {
-				t.Fatalf("commit-msg shim calls %q, want commitmsg", h.sub)
+			if h.Sub != "commitmsg" {
+				t.Fatalf("commit-msg shim calls %q, want commitmsg", h.Sub)
 			}
 		}
 	}
@@ -370,7 +370,7 @@ func TestGitGate_InstallsTheCommitMsgHook(t *testing.T) {
 
 	perRepo := false
 	for _, h := range perRepoHooks {
-		if h.name == "commit-msg" {
+		if h.Name == "commit-msg" {
 			perRepo = true
 		}
 	}

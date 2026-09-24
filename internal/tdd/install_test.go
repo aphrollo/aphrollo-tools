@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // testBin stands in for the resolved aphrollo binary path the hooks should exec.
@@ -266,3 +268,8 @@ func TestBuildInstallPlan_IgnoresGitWarningsOnStderr(t *testing.T) {
 		}
 	}
 }
+
+// fakeGitCommonDir is what this binary prints on STDOUT when it is standing in
+// as `git` (see tddtest.Main). A fixed sentinel, so the test asserting on the
+// hooks path built from it needs nothing from the real git.
+const fakeGitCommonDir = tddtest.FakeGitCommonDir

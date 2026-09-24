@@ -99,8 +99,7 @@ func TestGCReportLine_ReportsOnceAndOnlyWhenSomethingWasFreed(t *testing.T) {
 func TestHandleSessionStart_StartsTheSweepAndCarriesTheLastReport(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var started []string
-	gcSpawnForTest = func(cwd string) { started = append(started, cwd) }
-	t.Cleanup(func() { gcSpawnForTest = nil })
+	t.Cleanup(SetGCSpawnForTest(func(cwd string) { started = append(started, cwd) }))
 
 	writeGCReport(1_073_741_824, 2)
 	raw := []byte(`{"session_id":"s1","cwd":"D:/Projects/borld"}`)

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // Three issues were filed against the real repository by nobody — #155, #196
@@ -41,3 +43,5 @@ func TestGh_ResolvesToTheStubForEveryTestInThePackage(t *testing.T) {
 		t.Errorf("gh resolves to %q, outside the package stub at %q — a mutated guard reaches the real GitHub and files a real issue", found, stub)
 	}
 }
+
+var ghStubDir = tddtest.GhStubDir

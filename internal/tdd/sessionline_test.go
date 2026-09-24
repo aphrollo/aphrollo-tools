@@ -148,8 +148,7 @@ func TestSessionStartCarriesTheIssueSummaryLine(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	// The detached sweep would still hold the fixture's directory when the
 	// test tries to remove it.
-	gcSpawnForTest = func(string) {}
-	t.Cleanup(func() { gcSpawnForTest = nil })
+	t.Cleanup(SetGCSpawnForTest(func(string) {}))
 	repo := makeGitHubRepo(t)
 	stubGhScript(t, map[string]string{"issue list": `[{"labels":[{"name":"physics"}]}]`})
 
