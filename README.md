@@ -56,6 +56,7 @@ aphrollo workspace commit -m "Add kanban drag-and-drop"
 aphrollo workspace push
 aphrollo workspace submit -m "Kanban drag-and-drop. Closes #200."
 aphrollo workspace merge                             # after review
+aphrollo workspace merge --wait 841 842              # wait for each PR's head checks, merge in order, stop at the first refusal
 aphrollo workspace prune
 ```
 
@@ -69,7 +70,7 @@ aphrollo workspace prune
 | `sync [repo]` | fetch and fast-forward the clone's local default branch; a diverged or blocked branch is left alone, exit 0 | |
 | `diff` | `git diff origin/<default>...HEAD` | `--stat` |
 | `status` | one line: PR state, mergeability, check tally | |
-| `merge` | `gh pr merge` honouring CI and mergeability (never `--admin`); in a `mutants-at-merge` repo runs `gate premerge` on a locally built merge first | `--squash` (default), `--merge`, `--rebase`, `--keep-branch` |
+| `merge` | `gh pr merge` honouring CI and mergeability (never `--admin`); in a `mutants-at-merge` repo runs `gate premerge` on a locally built merge first; `--wait` first waits for every check on the PR's current head, and `--wait <pr>...` merges those PRs from their lanes as one serial queue | `--squash` (default), `--merge`, `--rebase`, `--keep-branch`, `--wait`, `--timeout` (default 90m) |
 | `prune [repo]` | remove worktrees whose PR is merged, tree is clean and which are not the cwd; others are listed with a reason | `--force`, `--stale <dur>` |
 | `prune <repo> <branch>` | remove that one worktree, keep the branch (same as `remove --keep-branch`) | `--force` |
 | `remove <repo> <branch>` | remove the worktree and delete its branch | `--keep-branch`, `--force` |
