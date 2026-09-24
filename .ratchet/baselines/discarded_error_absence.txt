@@ -14,11 +14,11 @@ internal/ratchet/wholetree.go | return nil, false
 internal/tdd/agents.go | return "", false
 internal/tdd/escape/autoescape.go | return EscapeRecord{}, false
 internal/tdd/core/runner_core.go | return "", false
-internal/tdd/bashsuite.go | return gateEntry{}, false
+internal/tdd/core/stats_core.go | return gateEntry{}, false
 internal/tdd/behind.go | return binaryBehindCache{}, false
 internal/tdd/lock/buildlock.go | return BuildLockOwner{}, false
 internal/tdd/lock/buildlock_futuremtime.go | return futureMtimeMarker{}, false
-internal/tdd/deferred_run.go | return DeferredJob{}, false
+internal/tdd/postedit/deferred_run.go | return DeferredJob{}, false
 internal/tdd/gc_mutantstemp.go | return nil, false
 internal/tdd/suite/mechcache.go | return nil, false
 internal/workspace/prune_stale.go | return nil, false
@@ -28,4 +28,4 @@ internal/tdd/lock/mutants_ram_unix.go | return "", false
 internal/tdd/sessionline.go | return issuesCache{}, false
 internal/tdd/sessionline.go | return "", false
 internal/tdd/core/stats_core.go | return gateEntry{}, false
-internal/tdd/core/stats_core.go | return gateEntry{}, false
+internal/tdd/postedit/bashsuite.go | return gateEntry{}, false

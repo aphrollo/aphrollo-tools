@@ -6,6 +6,6 @@ import (
 	lawgate "github.com/aphrollo/aphrollo-tools/internal/tdd/lawgate"
 )
 
-func ratchetFixtureStage(p0 string, p1 string) GateResult { return lawgate.RatchetFixtureStage(p0, p1) }
+func existingAncestorDir(p0 string) string { return lawgate.ExistingAncestorDir(p0) }
 
 func stagedTouchesLaws(p0 string) bool { return lawgate.StagedTouchesLaws(p0) }

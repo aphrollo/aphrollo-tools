@@ -10,40 +10,6 @@ import (
 
 const Green = suite.Green
 
-const GreenUnconstrained = suite.GreenUnconstrained
-
-const InfraFailed = suite.InfraFailed
-
-const NoDelta = suite.NoDelta
-
-const NoTestsSelected = suite.NoTestsSelected
-
-const RedBogus = suite.RedBogus
-
-const RedMissingImpl = suite.RedMissingImpl
-
-const WritingTest = suite.WritingTest
-
-const bashSuiteVerdictFreshFor = suite.BashSuiteVerdictFreshFor
-
-const narrowedSuiteInvocation = suite.NarrowedSuiteInvocation
-
-const notSuiteInvocation = suite.NotSuiteInvocation
-
-const outcomeCheckError = suite.OutcomeCheckError
-
-const outcomeContention = suite.OutcomeContention
-
-const outcomeFail = suite.OutcomeFail
-
-const outcomePass = suite.OutcomePass
-
-const outcomeSkipped = suite.OutcomeSkipped
-
-const outcomeTimeout = suite.OutcomeTimeout
-
-const outcomeVacuous = suite.OutcomeVacuous
-
 const redGoesStaleAfter = suite.RedGoesStaleAfter
 
 type SuiteResult = suite.SuiteResult
@@ -54,43 +20,15 @@ type mechCacheFile = suite.MechCacheFile
 
 type mutantsConfigTable = suite.MutantsConfigTable
 
-type runScope = suite.RunScope
-
-type stageOutcome = suite.StageOutcome
-
-type suiteProofLedger = suite.SuiteProofLedger
-
-type suiteShape = suite.SuiteShape
-
 var ghAvailable = suite.GhAvailable
-
-var noTestsToRunRe = suite.NoTestsToRunRe
-
-func ClassifyOutcome(p0 bool, p1 string, p2 []string) Outcome {
-	return suite.ClassifyOutcome(p0, p1, p2)
-}
 
 func DetectRunner(p0 string) (Runner, bool) { return suite.DetectRunner(p0) }
 
-func ExtractFailingTests(p0 string) []string { return suite.ExtractFailingTests(p0) }
-
 func FindProjectRoot(p0 string) string { return suite.FindProjectRoot(p0) }
-
-func NarrowToRelatedTests(p0 Runner, p1 string, p2 string) Runner {
-	return suite.NarrowToRelatedTests(p0, p1, p2)
-}
 
 func RetainedSuiteOutput(p0 string) (string, error) { return suite.RetainedSuiteOutput(p0) }
 
 func RunSuite(p0 time.Duration) SuiteRunner { return suite.RunSuite(p0) }
-
-func attemptedScope(p0 string) runScope { return suite.AttemptedScope(p0) }
-
-func buildOnlyTerminal(p0 Runner, p1 string, p2 SuiteResult) string {
-	return suite.BuildOnlyTerminal(p0, p1, p2)
-}
-
-func cargoAlwaysRunPackages(p0 string) []string { return suite.CargoAlwaysRunPackages(p0) }
 
 func cargoAphrolloFlag(p0 string, p1 string) bool { return suite.CargoAphrolloFlag(p0, p1) }
 
@@ -98,152 +36,30 @@ func cargoAphrolloPackages(p0 string, p1 string) []string { return suite.CargoAp
 
 func cargoClippyCleanPackages(p0 string) []string { return suite.CargoClippyCleanPackages(p0) }
 
-func cargoPackageFor(p0 string, p1 string) string { return suite.CargoPackageFor(p0, p1) }
-
-func cargoPackagesOwning(p0 string, p1 []string) []string { return suite.CargoPackagesOwning(p0, p1) }
-
-func cargoVerbArgs(p0 string) []string { return suite.CargoVerbArgs(p0) }
-
-func cargoWorkspaceDepsFn(p0 string) (map[string][]string, error) {
-	return suite.CargoWorkspaceDepsFn(p0)
-}
-
-func classifyRunOutcome(p0 Runner, p1 string, p2 SuiteResult, p3 []string) Outcome {
-	return suite.ClassifyRunOutcome(p0, p1, p2, p3)
-}
-
-func classifySuiteSegment(p0 []string) suiteShape { return suite.ClassifySuiteSegment(p0) }
-
-func clippyScope(p0 string, p1 string, p2 string, p3 []string) []string {
-	return suite.ClippyScope(p0, p1, p2, p3)
-}
-
-func cmdString(p0 Runner) string { return suite.CmdString(p0) }
-
-func dependentsOf(p0 map[string][]string, p1 []string) []string { return suite.DependentsOf(p0, p1) }
-
-func dirHasGoFiles(p0 string) bool { return suite.DirHasGoFiles(p0) }
-
-func doctestRunners(p0 string, p1 []string) []Runner { return suite.DoctestRunners(p0, p1) }
-
-func dropLeadingEnvAssignments(p0 []string) []string { return suite.DropLeadingEnvAssignments(p0) }
-
-func effectiveRunRoot(p0 string, p1 string) string { return suite.EffectiveRunRoot(p0, p1) }
-
-func filesUnderRoot(p0 string, p1 string, p2 []string) []string {
-	return suite.FilesUnderRoot(p0, p1, p2)
-}
-
 func findRootFrom(p0 string) string { return suite.FindRootFrom(p0) }
-
-func foreignBuildAdvisory(p0 string, p1 string, p2 string, p3 SuiteResult) string {
-	return suite.ForeignBuildAdvisory(p0, p1, p2, p3)
-}
-
-func gateSuiteProof() *suiteProofLedger { return suite.GateSuiteProof() }
 
 func gcStatePath(p0 string) string { return suite.GcStatePath(p0) }
 
 func gitRead(p0 string, p1 ...string) (string, error) { return suite.GitRead(p0, p1...) }
 
-func goPackageDir(p0 string, p1 string) string { return suite.GoPackageDir(p0, p1) }
-
-func goPassedCount(p0 string) (int, bool) { return suite.GoPassedCount(p0) }
-
-func goTestReachFn(p0 string, p1 string) ([]string, error) { return suite.GoTestReachFn(p0, p1) }
-
 func hasGitHubRemote(p0 string) bool { return suite.HasGitHubRemote(p0) }
-
-func hasNoRunFlag(p0 []string) bool { return suite.HasNoRunFlag(p0) }
 
 func indexTree(p0 string) string { return suite.IndexTree(p0) }
 
 func insideDir(p0 string, p1 string) bool { return suite.InsideDir(p0, p1) }
 
-func isEnvAssignment(p0 string) bool { return suite.IsEnvAssignment(p0) }
-
-func isGoTestInvocation(p0 string, p1 []string) bool { return suite.IsGoTestInvocation(p0, p1) }
-
 func loadMechCache(p0 string) *mechCacheFile { return suite.LoadMechCache(p0) }
 
-func logLockWait(p0 string, p1 string, p2 Runner, p3 time.Duration) {
-	suite.LogLockWait(p0, p1, p2, p3)
-}
-
-func logSuiteVerdict(p0 string, p1 string, p2 string, p3 string, p4 SuiteResult) {
-	suite.LogSuiteVerdict(p0, p1, p2, p3, p4)
-}
-
-func mechCacheAdd(p0 string) { suite.MechCacheAdd(p0) }
-
-func mechCacheHit(p0 string) bool { return suite.MechCacheHit(p0) }
-
 func mechCachePath() string { return suite.MechCachePath() }
-
-func mechKey(p0 string, p1 string, p2 Runner) string { return suite.MechKey(p0, p1, p2) }
 
 func mechKeyPrefix(p0 string, p1 string) string { return suite.MechKeyPrefix(p0, p1) }
 
 func mutantsConfigTables(p0 string) []mutantsConfigTable { return suite.MutantsConfigTables(p0) }
 
-func narrowToStaged(p0 Runner, p1 string, p2 []string) (Runner, bool) {
-	return suite.NarrowToStaged(p0, p1, p2)
-}
-
-func notCompiledTerminal(p0 Runner, p1 string, p2 string, p3 SuiteResult) string {
-	return suite.NotCompiledTerminal(p0, p1, p2, p3)
-}
-
-func reportSuitesNotRun(p0 string, p1 string, p2 string, p3 Runner, p4 []string) {
-	suite.ReportSuitesNotRun(p0, p1, p2, p3, p4)
-}
-
-func resetSuiteProof() { suite.ResetSuiteProof() }
-
-func runCargoLocked(p0 SuiteRunner, p1 Runner, p2 string, p3 time.Duration, p4 time.Duration, p5 time.Duration) (SuiteResult, time.Duration, bool) {
-	return suite.RunCargoLocked(p0, p1, p2, p3, p4, p5)
-}
-
 func runGhTimeout(p0 string, p1 time.Duration, p2 ...string) (string, error) {
 	return suite.RunGhTimeout(p0, p1, p2...)
 }
 
-func runnerDir(p0 Runner, p1 string) string { return suite.RunnerDir(p0, p1) }
-
-func selectedZeroTests(p0 Runner, p1 SuiteResult) bool { return suite.SelectedZeroTests(p0, p1) }
-
-func splitFlagValue(p0 string) (string, string, bool) { return suite.SplitFlagValue(p0) }
-
-func stagedProjectRoots(p0 string, p1 []string) []string { return suite.StagedProjectRoots(p0, p1) }
-
-func staleArtifactHint(p0 string, p1 string) string { return suite.StaleArtifactHint(p0, p1) }
-
 func suiteAttrs() *syscall.SysProcAttr { return suite.SuiteAttrs() }
 
-func suiteEnv(p0 Runner, p1 string) []string { return suite.SuiteEnv(p0, p1) }
-
-func suiteNoun(p0 string) string { return suite.SuiteNoun(p0) }
-
-func suiteTouchedNames(p0 Runner) []string { return suite.SuiteTouchedNames(p0) }
-
-func toRootRelative(p0 string, p1 string, p2 []string) []string {
-	return suite.ToRootRelative(p0, p1, p2)
-}
-
-func untestedVerdict(p0 Runner, p1 SuiteResult) string { return suite.UntestedVerdict(p0, p1) }
-
-func vacuousNames(p0 Runner, p1 SuiteResult) ([]string, error) { return suite.VacuousNames(p0, p1) }
-
-func verdictCoversRun(p0 gateEntry, p1 runScope) bool { return suite.VerdictCoversRun(p0, p1) }
-
-func verdictFor(p0 string, p1 string, p2 string, p3 string, p4 stageOutcome) GateResult {
-	return suite.VerdictFor(p0, p1, p2, p3, p4)
-}
-
-func wholeRunScope() runScope { return suite.WholeRunScope() }
-
-func withGateProfile(p0 Runner, p1 string) Runner { return suite.WithGateProfile(p0, p1) }
-
 func worktreeStateHash(p0 string) string { return suite.WorktreeStateHash(p0) }
-
-func zigTestLines(p0 string) map[int]bool { return suite.ZigTestLines(p0) }

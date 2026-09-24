@@ -6,30 +6,8 @@ import (
 	failfirst "github.com/aphrollo/aphrollo-tools/internal/tdd/failfirst"
 )
 
-const editProduction = failfirst.EditProduction
-
-const editTestOnly = failfirst.EditTestOnly
-
-const editUnknown = failfirst.EditUnknown
-
-type failFirstOutcome = failfirst.FailFirstOutcome
-
-type ledgerEdit = failfirst.LedgerEdit
-
-func ExtractPassingTests(p0 string) []string { return failfirst.ExtractPassingTests(p0) }
-
-func failFirstViolated(p0 string, p1 []string, p2 []string, p3 SuiteRunner) failFirstOutcome {
-	return failfirst.FailFirstViolated(p0, p1, p2, p3)
-}
-
-func failFirstViolatedAt(p0 string, p1 string, p2 []string, p3 []string, p4 SuiteRunner) failFirstOutcome {
-	return failfirst.FailFirstViolatedAt(p0, p1, p2, p3, p4)
-}
-
 func failFirstWorktreeDir(p0 string) string { return failfirst.FailFirstWorktreeDir(p0) }
 
-func loadEditLedger(p0 string) []ledgerEdit { return failfirst.LoadEditLedger(p0) }
+func headSHAFor(p0 string) string { return failfirst.HeadSHAFor(p0) }
 
-func namesPath(p0 string, p1 string) bool { return failfirst.NamesPath(p0, p1) }
-
-func proofInputs(p0 string, p1 []string) []string { return failfirst.ProofInputs(p0, p1) }
+func resolvedDevTarget(p0 string) string { return failfirst.ResolvedDevTarget(p0) }

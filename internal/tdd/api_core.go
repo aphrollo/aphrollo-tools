@@ -14,15 +14,9 @@ const Block = core.Block
 
 const CmdName = core.CmdName
 
-const Ignore = core.Ignore
-
 const LegacyCmdName = core.LegacyCmdName
 
-const Source = core.Source
-
 const StateSchema = core.StateSchema
-
-const Test = core.Test
 
 const WallPrimary = core.WallPrimary
 
@@ -34,33 +28,19 @@ type Decision = core.Decision
 
 type GateResult = core.GateResult
 
-type Kind = core.Kind
-
 type Outcome = core.Outcome
 
 type Runner = core.Runner
 
-type bashSnapshot = core.BashSnapshot
-
-type fingerprint = core.Fingerprint
-
 type gateEntry = core.GateEntry
-
-type projectState = core.ProjectState
 
 type sessionState = core.SessionState
 
-type waiverEntry = core.WaiverEntry
-
 var errNoSession = core.ErrNoSession
-
-var ignoredDirs = core.IgnoredDirs
 
 func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration) {
 	core.AppendGateLog(p0, p1, p2, p3, p4)
 }
-
-func ClassifyFile(p0 string) Kind { return core.ClassifyFile(p0) }
 
 func GateLogNewerSchema() (int, bool) { return core.GateLogNewerSchema() }
 
@@ -78,21 +58,9 @@ func TryAcquireFileLock(p0 string) (func(), bool) { return core.TryAcquireFileLo
 
 func WriteMergeRejectedMarker(p0 string, p1 string) { core.WriteMergeRejectedMarker(p0, p1) }
 
-func acquirePathLock(p0 string) func() { return core.AcquirePathLock(p0) }
-
 func aphrolloTomlFlag(p0 string, p1 string) bool { return core.AphrolloTomlFlag(p0, p1) }
 
 func claudeConfigDir() string { return core.ClaudeConfigDir() }
-
-func commonGitDir(p0 string) string { return core.CommonGitDir(p0) }
-
-func computeFingerprint(p0 string) *fingerprint { return core.ComputeFingerprint(p0) }
-
-func dedupeSorted(p0 []string) []string { return core.DedupeSorted(p0) }
-
-func everySessionID() []string { return core.EverySessionID() }
-
-func firstLine(p0 string) string { return core.FirstLine(p0) }
 
 func formatBytes(p0 int64) string { return core.FormatBytes(p0) }
 
@@ -102,14 +70,6 @@ func formatElapsedSecs(p0 time.Duration) string { return core.FormatElapsedSecs(
 
 func loadSession(p0 string) (*sessionState, string) { return core.LoadSession(p0) }
 
-func markWorktreeWarned(p0 string) bool { return core.MarkWorktreeWarned(p0) }
-
-func mask(p0 string) string { return core.Mask(p0) }
-
-func maskTokens(p0 string, p1 bool, p2 bool, p3 bool) string { return core.MaskTokens(p0, p1, p2, p3) }
-
-func normalizeProjectPath(p0 string) string { return core.NormalizeProjectPath(p0) }
-
 func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }
 
 func pidRunningFn(p0 int) bool { return core.PidRunningFn(p0) }
@@ -117,12 +77,6 @@ func pidRunningFn(p0 int) bool { return core.PidRunningFn(p0) }
 func plural(p0 int) string { return core.Plural(p0) }
 
 func primaryCheckoutRoot(p0 string) string { return core.PrimaryCheckoutRoot(p0) }
-
-func projectKey(p0 string) string { return core.ProjectKey(p0) }
-
-func quotedWords(p0 string) []string { return core.QuotedWords(p0) }
-
-func readStateJSON(p0 string, p1 any) (bool, bool) { return core.ReadStateJSON(p0, p1) }
 
 func repoStateKey(p0 string) string { return core.RepoStateKey(p0) }
 
@@ -140,12 +94,8 @@ func silentStdio(p0 *exec.Cmd) func() { return core.SilentStdio(p0) }
 
 func sortStrings(p0 []string) { core.SortStrings(p0) }
 
-func stripQuoted(p0 string) string { return core.StripQuoted(p0) }
-
 func tomlBoolSetIn(p0 string, p1 string, p2 string) (bool, bool) {
 	return core.TomlBoolSetIn(p0, p1, p2)
 }
-
-func waivedForSession(p0 string, p1 string) bool { return core.WaivedForSession(p0, p1) }
 
 func writeFileAtomic(p0 string, p1 []byte) error { return core.WriteFileAtomic(p0, p1) }

@@ -9,74 +9,112 @@ import (
 	time "time"
 )
 
-const checkStageLoadFixtureLeaf = tddtest.CheckStageLoadFixtureLeaf
-
-const syntheticPIDBase = tddtest.SyntheticPIDBase
-
-const timeoutLoadFixtureLeaf = tddtest.TimeoutLoadFixtureLeaf
-
-const watchdogSelectTest = `package m
-
-import (
-	"strings"
-	"testing"
-	"time"
-)
-
-func TestNarrowToRelatedTests_TerminatesOnAMountCycle(t *testing.T) {
-	done := make(chan string, 1)
-	go func() {
-		done <- strings.Join(narrow(base, "a.rs", root), " ")
-	}()
-	select {
-	case args := <-done:
-		if !strings.Contains(args, "-E") {
-			t.Fatalf("args = %q, want some module filter rather than none", args)
-		}
-	case <-time.After(30 * time.Second):
-		t.Fatal("a mount cycle never terminated")
-	}
-}
-`
-
 type measuredCall = tddtest.MeasuredCall
-
-var laneSource = tddtest.LaneSource
 
 var tempEnvKeys = tddtest.TempEnvKeys
 
-func baselineRepo(t *testing.T, path, before, after string) string {
+func argvValueOf(t *testing.T, argv []string, flag string) string {
 	t.Helper()
-	return tddtest.BaselineRepo(t, path, before, after)
+	return tddtest.ArgvValueOf(t, argv, flag)
 }
 
-func cargoCrate(t *testing.T, pkg string) string { t.Helper(); return tddtest.CargoCrate(t, pkg) }
+func bigFileLines(pkg string, head, tail int) string { return tddtest.BigFileLines(pkg, head, tail) }
 
-func commitAll(t *testing.T, root string) { t.Helper(); tddtest.CommitAll(t, root) }
+func captureStderr(t *testing.T, fn func()) string { t.Helper(); return tddtest.CaptureStderr(t, fn) }
+
+func commitInitial(t *testing.T, repo string) { t.Helper(); tddtest.CommitInitial(t, repo) }
+
+func currentBranch(t *testing.T, repoRoot string) string {
+	t.Helper()
+	return tddtest.CurrentBranch(t, repoRoot, git)
+}
+
+func decide(t *testing.T, payload string) Decision {
+	t.Helper()
+	return tddtest.Decide(t, payload, DecidePreEdit)
+}
+
+func declareMutantsAtMerge(t *testing.T, root string) {
+	t.Helper()
+	tddtest.DeclareMutantsAtMerge(t, root)
+}
 
 func fakeGitShim(t *testing.T) (dir, marker string) { t.Helper(); return tddtest.FakeGitShim(t) }
 
-func foreignChainSample(leaf int, name string, pctOneCore, cpuHours float64) []procSample {
-	return tddtest.ForeignChainSample(leaf, name, pctOneCore, cpuHours, maxAncestryDepth, newProcSample)
+func fakeRun(passed bool, output string) SuiteRunner {
+	return tddtest.FakeRun[Runner](SuiteResult{Passed: passed, Output: output})
 }
 
-func gitAddAll(t *testing.T, root string) { t.Helper(); tddtest.GitAddAll(t, root) }
+func gitDo(t *testing.T, dir string, args ...string) { t.Helper(); tddtest.GitDo(t, dir, args...) }
+
+func gitInit(t *testing.T, dir string) { t.Helper(); tddtest.GitInit(t, dir) }
 
 func gitValue(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	return tddtest.GitValue(t, dir, args...)
 }
 
+func goPrimaryWithLane(t *testing.T) (primary, lane string) {
+	t.Helper()
+	return tddtest.GoPrimaryWithLane(t)
+}
+
+func isQualityRunner(r Runner) bool {
+	if r.Cmd == golangciLint {
+		return true
+	}
+	if len(r.Args) == 0 {
+		return false
+	}
+	if r.Cmd == "go" {
+		return r.Args[0] == "vet"
+	}
+	if r.Cmd != "cargo" {
+		return false
+	}
+	return r.Args[0] == "fmt" || r.Args[0] == "clippy" || r.Args[0] == "check"
+}
+
 func lawTree(t *testing.T, severity string) string { t.Helper(); return tddtest.LawTree(t, severity) }
+
+func makeCargoRepo(t *testing.T) string { t.Helper(); return tddtest.MakeCargoRepo(t) }
+
+func makeCargoWorkspaceRepo(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/alpha\", \"crates/beta\"]\n")
+	write(t, root, "crates/alpha/Cargo.toml", "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
+	write(t, root, "crates/beta/Cargo.toml", "[package]\nname = \"beta\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "base")
+	return root
+}
+
+func makeForkedRepo(t *testing.T) (root, trunk string) {
+	t.Helper()
+	return tddtest.MakeForkedRepo(t, git)
+}
 
 func makeGoMeasureRepo(t *testing.T) (root, base string) {
 	t.Helper()
 	return tddtest.MakeGoMeasureRepo(t)
 }
 
-func makeMeasureRepo(t *testing.T, lane map[string]string) (root, base string) {
+func makeGoRepo(t *testing.T) string { t.Helper(); return tddtest.MakeGoRepo(t) }
+
+func makeMultiRootRepo(t *testing.T) string {
 	t.Helper()
-	return tddtest.MakeMeasureRepo(t, setMutantsJobsForTest, lane)
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/a\"]\n")
+	write(t, root, "crates/a/Cargo.toml", "[package]\nname = \"a\"\nversion = \"0.1.0\"\n")
+	write(t, root, "crates/a/src/lib.rs", "pub fn base() -> i32 { 0 }\n")
+	write(t, root, "tools/py/pyproject.toml", "[tool]\n")
+	write(t, root, "tools/py/x.py", "def base():\n    return 1\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "base")
+	return root
 }
 
 func mkProject(t *testing.T, markers ...string) string {
@@ -86,15 +124,11 @@ func mkProject(t *testing.T, markers ...string) string {
 
 func mustWrite(t *testing.T, path, content string) { t.Helper(); tddtest.MustWrite(t, path, content) }
 
-func newProcSample(pid, ppid int, name string, pctOneCore, cpuHours float64, creation uint64) procSample {
-	return procSample{PID: pid, PPID: ppid, Name: name, PctOneCore: pctOneCore, CPUHours: cpuHours, Creation: creation}
-}
-
 func outcomeFields(m MutantOutcome) tddtest.Outcome {
 	return tddtest.Outcome{Name: mutantLineOf(m.File, m.Line, m.Col, m.Mutation), Package: m.Package, File: m.File, Line: m.Line, Col: m.Col, Status: m.Status}
 }
 
-func putFakeNextest(t *testing.T) { t.Helper(); tddtest.PutFakeNextest(t) }
+func postPayload(tool, file string) []byte { return tddtest.PostPayload(tool, file) }
 
 func ratchetPayload(t *testing.T, tool, path string, fields map[string]any) []byte {
 	t.Helper()
@@ -106,21 +140,35 @@ func readFileString(t *testing.T, path string) string {
 	return tddtest.ReadFileString(t, path)
 }
 
-func stamp(at time.Time, stage, root, cmd, verdict string, secs float64) string {
-	return tddtest.Stamp(at, stage, root, cmd, verdict, secs, formatFloat)
+func recordRunner(seen *[]Runner, root string) SuiteRunner {
+	return tddtest.RecordRunner(seen, root, recordableRun, SuiteResult{Passed: true})
 }
 
-func stubGoTestReach(t *testing.T, fn func(root, dir string) ([]string, error)) func() {
+func recordableRun(r Runner) (Runner, bool) {
+	if isQualityRunner(r) {
+		return r, false
+	}
+	r.Deadline = time.Time{}
+	return r, true
+}
+
+func requireNoMutantsMeasurement(t *testing.T, cfgDir string) {
 	t.Helper()
-	return SetGoTestReachForTest(fn)
+	tddtest.RequireNoMutantsMeasurement(t, cfgDir, func(line string) (string, string, bool) { e, ok := parseGateLine(line); return e.Stage, e.Verdict, ok })
+}
+
+func runsAt(seen *[]Runner, root string) SuiteRunner {
+	return tddtest.RecordRunner(seen, root, nil, SuiteResult{Passed: true})
+}
+
+func stamp(at time.Time, stage, root, cmd, verdict string, secs float64) string {
+	return tddtest.Stamp(at, stage, root, cmd, verdict, secs, formatFloat)
 }
 
 func stubMutantsExec(t *testing.T, reply func(ctx context.Context, n int, c measuredCall) (int, error)) *[]measuredCall {
 	t.Helper()
 	return tddtest.StubMutantsExec(t, SetMutantsExecForTest, setMutantsListCountForTest, reply)
 }
-
-func useRealCargoHome(t *testing.T) { t.Helper(); tddtest.UseRealCargoHome(t) }
 
 func withFreeSpace(t *testing.T, gb int) {
 	t.Helper()
@@ -132,12 +180,19 @@ func withIsolatedBuildLock(t *testing.T) {
 	tddtest.IsolateBuildLock(t, setBuildLockPathOverride, SetPostEditLockWaitForTest, SetPrecommitLockWait)
 }
 
-func writeMeasureBase(t *testing.T, root string) { t.Helper(); tddtest.WriteMeasureBase(t, root) }
-
-func writeOutcomes(t *testing.T, root string, mutants ...MutantOutcome) {
+func withLinter(t *testing.T, present bool) {
 	t.Helper()
-	tddtest.WriteOutcomes(t, cargoMutantsOutcomesPath(mutantsShardDir(root, 0)), outcomeFields, mutants...)
+	t.Cleanup(SetLookLinterForTest(func() bool { return present }))
 }
+
+func withLinterVersion(t *testing.T, version string) {
+	t.Helper()
+	t.Cleanup(SetLinterVersionForTest(func(string) string { return version }))
+}
+
+func write(t *testing.T, dir, rel, content string) { t.Helper(); tddtest.Write(t, dir, rel, content) }
+
+func writeMeasureBase(t *testing.T, root string) { t.Helper(); tddtest.WriteMeasureBase(t, root) }
 
 func writeOutcomesIn(t *testing.T, outDir string, mutants ...MutantOutcome) {
 	t.Helper()

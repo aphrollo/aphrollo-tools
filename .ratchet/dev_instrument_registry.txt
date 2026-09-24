@@ -17,11 +17,11 @@ APHROLLO_LOCK_WAIT_SECS | internal/cli/cli.go | The commit gate's build-slot wai
 APHROLLO_SLOT_TOKEN | internal/tdd/lock/buildslots.go | Carries the build slot a long verb's spawned cargo children inherit rather than acquiring their own; stripped from a process (e.g. `cargo run`) that must not inherit it.
 
 # --- the anti-cheat / edit-time gate (internal/tdd) ---
-APHROLLO_DEFERRED_MAX_SECS | internal/tdd/deferred.go | Bounds how long a detached build/run phase may run before the next hook gives up on it (default 600s).
+APHROLLO_DEFERRED_MAX_SECS | internal/tdd/postedit/deferred.go | Bounds how long a detached build/run phase may run before the next hook gives up on it (default 600s).
 APHROLLO_DISCARD | internal/cli/git_shim_discard_wall.go | Set to "1" to pass a discarding git verb (reset --hard, clean -fd, branch -D, ...) through the discard wall for one invocation, for work the object store still holds (staged, committed, stashed); every use is logged as override-discard-env. It REFUSES an invocation that would destroy unstaged work and names the files — APHROLLO_DISCARD_UNSTAGED is the marker for that. The one-shot alternative is `aphrollo gate allow discard`.
 APHROLLO_DISCARD_UNSTAGED | internal/cli/git_shim_discard_wall.go | The louder marker: set to "1" to let one discarding git verb destroy work that exists nowhere but the working tree. It names every file it is about to destroy on stderr before git runs, and every use is logged as override-discard-unstaged. Not the marker for ordinary scripted use — APHROLLO_DISCARD is.
-APHROLLO_POSTEDIT_BUDGET_SECS | internal/tdd/deferred.go | The edit hook's one foreground budget, covering the build and run phases together (default 100s).
-APHROLLO_PRIMARY_EDITS | internal/tdd/primary.go | Turns off, for one process, the refusal to edit source in a primary checkout that has linked worktrees and holds main. The per-session escape is `/tdd primary-edits on`.
+APHROLLO_POSTEDIT_BUDGET_SECS | internal/tdd/postedit/deferred.go | The edit hook's one foreground budget, covering the build and run phases together (default 100s).
+APHROLLO_PRIMARY_EDITS | internal/tdd/postedit/primary.go | Turns off, for one process, the refusal to edit source in a primary checkout that has linked worktrees and holds main. The per-session escape is `/tdd primary-edits on`.
 APHROLLO_REPLY_STYLE | internal/tdd/style.go | Sets the machine-wide default reply style ("plain" turns the terse-reply block off everywhere unless a session overrides it back).
 
 # --- the global git gate install (internal/tdd/gitgate.go) ---

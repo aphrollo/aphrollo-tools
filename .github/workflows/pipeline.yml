@@ -351,7 +351,7 @@ jobs:
   # pre-merge gate, which runs on the developer's own Windows box at every
   # merge: `aphrollo workspace merge` -> `gate premerge` -> the mechanical
   # stage's `go test -race -count=1 -shuffle=on` (the flags
-  # internal/tdd/precommit_go_ciparity.go adds, -race only at the merge).
+  # internal/tdd/precommit/precommit_go_ciparity.go adds, -race only at the merge).
   # That is a real Windows run of this suite, on hardware this org already
   # owns, that a merge cannot proceed without -- so paying a windows-latest
   # runner at the 2x hosted-minutes multiplier to re-run the same packages on
@@ -378,7 +378,7 @@ jobs:
   # not a hosted runner.
 
   # Issue #542 / escape #541: every job above runs `go test` directly, and
-  # nothing sets the environment `suiteEnv` (internal/tdd/posttooluse.go)
+  # nothing sets the environment `suiteEnv` (internal/tdd/postedit/posttooluse.go)
   # actually builds around a suite it runs as a `go` runner -- goTmpEnv's four
   # temp-dir variables, redirected to a repo-local scratch dir. So a
   # regression in that redirect is green in every job above and red on the
@@ -1116,7 +1116,7 @@ jobs:
   # against ITS OWN base, so a lane that tightens a baseline and a lane that
   # grows the same file can each be green on their own diff and combine into
   # a tree neither ever saw. This is what actually happened -- PR #441 grew
-  # internal/tdd/precommit.go to 1054 lines, PR #449 landed afterwards
+  # internal/tdd/precommit/precommit.go to 1054 lines, PR #449 landed afterwards
   # carrying a module_size baseline of 1051 recorded against its OWN
   # (pre-#441) base, and the squash-merged result on main violated its own
   # law from the moment it landed, with nothing before this job ever

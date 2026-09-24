@@ -6,10 +6,8 @@ import (
 	core "github.com/aphrollo/aphrollo-tools/internal/tdd/core"
 )
 
-const premergeLogToken = core.PremergeLogToken
+type fingerprint = core.Fingerprint
 
-const sessionCodeEnv = core.SessionCodeEnv
+type projectState = core.ProjectState
 
-const sessionEnv = core.SessionEnv
-
-type Action = core.Action
+func computeFingerprint(p0 string) *fingerprint { return core.ComputeFingerprint(p0) }

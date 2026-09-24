@@ -6,62 +6,34 @@ import (
 	suite "github.com/aphrollo/aphrollo-tools/internal/tdd/suite"
 )
 
-const BuildOnly = suite.BuildOnly
+const InfraFailed = suite.InfraFailed
 
-const NotCompiled = suite.NotCompiled
+const NoDelta = suite.NoDelta
 
 const Red = suite.Red
 
-const suiteOutputCap = suite.SuiteOutputCap
+const RedMissingImpl = suite.RedMissingImpl
 
-type stageOutcomeKind = suite.StageOutcomeKind
+const bashSuiteVerdictFreshFor = suite.BashSuiteVerdictFreshFor
+
+const suiteOutputCap = suite.SuiteOutputCap
 
 type suiteOutputRecord = suite.SuiteOutputRecord
 
-var registeredStages = suite.RegisteredStages
+func cmdString(p0 Runner) string { return suite.CmdString(p0) }
 
-func SetCargoTestTargetsForTest(p0 func(root string) map[string]map[string]bool) func() {
-	return suite.SetCargoTestTargetsForTest(p0)
+func mechCacheAdd(p0 string) { suite.MechCacheAdd(p0) }
+
+func mechKey(p0 string, p1 string, p2 Runner) string { return suite.MechKey(p0, p1, p2) }
+
+func narrowToStaged(p0 Runner, p1 string, p2 []string) (Runner, bool) {
+	return suite.NarrowToStaged(p0, p1, p2)
 }
-
-func SetCargoWorkspaceDepsForTest(p0 func(root string) (map[string][]string, error)) func() {
-	return suite.SetCargoWorkspaceDepsForTest(p0)
-}
-
-func SetGoTestReachForTest(p0 func(root string, dir string) ([]string, error)) func() {
-	return suite.SetGoTestReachForTest(p0)
-}
-
-func cargoNestedTestFileReachable(p0 string, p1 string) bool {
-	return suite.CargoNestedTestFileReachable(p0, p1)
-}
-
-func cargoRunnerAt(p0 string, p1 ...string) (Runner, bool) { return suite.CargoRunnerAt(p0, p1...) }
-
-func cargoVacuousTargets(p0 string) []string { return suite.CargoVacuousTargets(p0) }
-
-func classificationOutput(p0 string, p1 string) string { return suite.ClassificationOutput(p0, p1) }
-
-func hasGateProfile(p0 string) bool { return suite.HasGateProfile(p0) }
-
-func narrowFailFirstTests(p0 Runner, p1 string, p2 []string) Runner {
-	return suite.NarrowFailFirstTests(p0, p1, p2)
-}
-
-func nextestInstalled() bool { return suite.NextestInstalled() }
-
-func packageHasDoctests(p0 string) bool { return suite.PackageHasDoctests(p0) }
-
-func parseWorkspaceDeps(p0 []byte) (map[string][]string, error) { return suite.ParseWorkspaceDeps(p0) }
-
-func renderGoTestJSON(p0 string) (string, string, bool) { return suite.RenderGoTestJSON(p0) }
 
 func retainSuiteOutput(p0 string, p1 string, p2 string, p3 string, p4 SuiteResult) {
 	suite.RetainSuiteOutput(p0, p1, p2, p3, p4)
 }
 
 func stampProvenSuite(p0 string) { suite.StampProvenSuite(p0) }
-
-func vacuousGoPackages(p0 string) ([]string, error) { return suite.VacuousGoPackages(p0) }
 
 func writeSuiteOutputRecord(p0 suiteOutputRecord) error { return suite.WriteSuiteOutputRecord(p0) }

@@ -16,8 +16,6 @@ func RepoRoot(p0 string) string { return gitx.RepoRoot(p0) }
 
 func TrunkBranch(p0 string) string { return gitx.TrunkBranch(p0) }
 
-func branchIsTrunk(p0 string, p1 string) bool { return gitx.BranchIsTrunk(p0, p1) }
-
 func cleanGitEnv() []string { return gitx.CleanGitEnv() }
 
 func git(p0 string, p1 ...string) (string, error) { return gitx.Git(p0, p1...) }
@@ -26,14 +24,4 @@ func gitBinary() string { return gitx.GitBinary() }
 
 func gitOut(p0 string, p1 ...string) string { return gitx.GitOut(p0, p1...) }
 
-func mergeInProgressRef(p0 string) string { return gitx.MergeInProgressRef(p0) }
-
 func revTree(p0 string, p1 string) (string, bool) { return gitx.RevTree(p0, p1) }
-
-func stagedBaseRev(p0 string) string { return gitx.StagedBaseRev(p0) }
-
-func stagedFiles(p0 string) []string { return gitx.StagedFiles(p0) }
-
-func stagedFilesErr(p0 string) ([]string, error) { return gitx.StagedFilesErr(p0) }
-
-func trunkSyncTip(p0 string) (string, bool) { return gitx.TrunkSyncTip(p0) }
