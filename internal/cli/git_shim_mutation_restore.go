@@ -67,6 +67,12 @@ func mutationProofRestore(rest []string, workDir string, stderr io.Writer) (code
 	if !ok || !isPathRestoreForm(form) || len(paths) == 0 {
 		return 0, false
 	}
+	// A revision named on the command asks git for THAT revision's bytes,
+	// which the hold does not have: it passes through to git (and the walls
+	// after this one) exactly as it would without the marker (#814).
+	if restoreNamesRevision(rest) {
+		return 0, false
+	}
 	var held []tdd.MutationHold
 	var unheld, stale []string
 	for _, p := range paths {
@@ -93,8 +99,40 @@ func mutationProofRestore(rest []string, workDir string, stderr io.Writer) (code
 		}
 	}
 	tdd.LogOverride("override-discard-mutation-proof", tdd.SessionID(), workDir)
-	fmt.Fprintln(stderr, mutationRestoredLine(held))
+	fmt.Fprintln(stderr, mutationRestoredLine(held, paths))
 	return 0, true
+}
+
+// restoreNamesRevision reports whether a path-scoped checkout or restore may
+// take its bytes from a named revision rather than from the index. For
+// checkout, any operand ahead of `--` may be a tree-ish (git itself decides
+// between a tree-ish and a pathspec there), so only `checkout -- <paths>`
+// with nothing before the `--` is known to name none; restore names one with
+// --source/-s, bundled or attached alike. The held-state restore answers
+// only the forms that name no revision.
+func restoreNamesRevision(rest []string) bool {
+	if len(rest) == 0 {
+		return false
+	}
+	opts, _ := splitDashDash(rest[1:])
+	switch rest[0] {
+	case "checkout":
+		for _, a := range opts {
+			if !strings.HasPrefix(a, "-") {
+				return true
+			}
+		}
+	case "restore":
+		for _, a := range opts {
+			switch {
+			case a == "--source" || strings.HasPrefix(a, "--source="):
+				return true
+			case len(a) > 1 && a[0] == '-' && a[1] != '-' && strings.ContainsRune(a[1:], 's'):
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // isPathRestoreForm reports whether form is one of the two path-scoped
@@ -133,18 +171,18 @@ func mutationRestoreRefusalLine(unheld, stale []string) string {
 
 // mutationRestoredLine says what was put back, from what, and how old the
 // held state is — the three things a reader needs to believe the tree is now
-// what the proof started with.
-func mutationRestoredLine(held []tdd.MutationHold) string {
-	names := make([]string, 0, len(held))
+// what the proof started with. Each file is named as the command named it:
+// two force.rs in two directories are two files, and a base name alone
+// cannot say which were restored.
+func mutationRestoredLine(held []tdd.MutationHold, named []string) string {
 	oldest := time.Duration(0)
 	for _, h := range held {
-		names = append(names, filepath.Base(h.Path))
 		if age := h.Age(); age > oldest {
 			oldest = age
 		}
 	}
-	return fmt.Sprintf("gate: mutation proof — restored %d file(s) from the working state held %s ago, not from the index: %s",
-		len(held), oldest.Round(time.Second), strings.Join(names, ", "))
+	return fmt.Sprintf("gate: mutation proof — restored %d file(s) to the pre-mutation working state this session held %s ago, not from HEAD, the index or any revision: %s",
+		len(held), oldest.Round(time.Second), strings.Join(named, ", "))
 }
 
 // mutationHoldHint is what the ordinary discard refusal adds when the session
