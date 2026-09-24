@@ -165,13 +165,17 @@ func ratchetStage(gateName, repoRoot string) GateResult {
 		TrackedIgnored: trackedIgnoredFiles(repoRoot),
 		CacheDir:       StateDir(),
 		// A diff-scoped law (symbol-removed, co-change, hunk-regex) needs the
-		// commit it is about to land on top of — HEAD, both for a plain
-		// commit and a merge commit — plus, for a `[scope] changed =
-		// "staged"` law, the files THIS commit actually stages: without it
-		// co-change/hunk-regex answer nothing on every real commit (see
-		// changedInput), which is the "law that silently does nothing"
-		// shape #320 is about, not a rejection anyone would ever see.
-		Base:        "HEAD",
+		// base the staged set is measured from — HEAD for a plain commit and
+		// a merge that lands work, the incoming trunk tip for a trunk sync
+		// into a lane (gitx.StagedBaseRev, the same base stagedFiles diffs
+		// against) — plus, for a `[scope] changed = "staged"` law, the files
+		// THIS commit actually stages: without it co-change/hunk-regex
+		// answer nothing on every real commit (see changedInput), which is
+		// the "law that silently does nothing" shape #320 is about, not a
+		// rejection anyone would ever see. Pre-images read at HEAD during a
+		// trunk sync charged the lane with trunk's own changes to any file
+		// the lane also touched.
+		Base:        gitx.StagedBaseRev(repoRoot),
 		StagedFiles: stagedFiles(repoRoot),
 		// The renames among those files, from the same diff, so a moved
 		// file's pre-image is read where it came from and a pure move is

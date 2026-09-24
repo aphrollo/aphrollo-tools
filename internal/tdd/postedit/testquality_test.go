@@ -38,6 +38,34 @@ func TestQualityNotes_WeakPhysicsBar(t *testing.T) {
 	}
 }
 
+// TestQualityNotes_WeakBarSparesAMarkedPremise is issue #783: the weak-bar
+// note fired on `assert!(f < 0.0)` guards that say "this fixture is genuinely
+// compressed" a few lines above the exact closed-form assertion — a sign
+// check on a fixture's premise, not the test's bar. A sign check its author
+// marks as a premise, precondition or fixture (in its own message, or a
+// comment on the two lines above) is spared; an unmarked one still gets the
+// note, even right above a marked one.
+func TestQualityNotes_WeakBarSparesAMarkedPremise(t *testing.T) {
+	t.Parallel()
+	src := strings.Join([]string{
+		"#[test]",
+		"fn compressed_member_carries_the_closed_form_force() {",
+		"    let f = solve(&truss);",
+		"    assert!(slip > 0.0);",
+		`    assert!(f.axial < 0.0, "fixture: this member is genuinely compressed");`,
+		"    assert!(roll < 0.0,",
+		`        "premise: the wheel is rolling backwards");`,
+		"    // precondition: the contact is genuinely loaded",
+		"    assert!(normal < 0.0);",
+		"}",
+		"",
+	}, "\n")
+	notes := QualityNotes(`D:\borld\crates\forge_solver\src\truss\tests\force.rs`, src)
+	if len(notes) != 1 || !strings.Contains(notes[0], ":4:") || !strings.Contains(notes[0], "weak bar") {
+		t.Fatalf("notes = %q, want one weak-bar note, for the unmarked sign check on line 4", notes)
+	}
+}
+
 // TestQualityNotes_GenericTestName pins smell (b): a name like `test_thing` or
 // `_works` describes nothing, so it cannot say which production change makes
 // it red — which is the question every test must answer.

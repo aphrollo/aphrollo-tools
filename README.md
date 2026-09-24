@@ -171,10 +171,13 @@ Cheapest first; the first rejection stops the run and is named in `gate.log`.
    mutation measurement when `mutants-at-merge = true` (this repo sets it;
    `gate mutants run` measures a lane the same way before the merge).
 
-Two fast paths skip every stage that builds. A staged set with no source or
-test file (docs-only) runs stages 1-3 and stops. A staged set whose only
-source files are `.go` or `.rs` files with no token changed outside a comment
-(comment-only) runs stages 1-4 and stops. The comparison is token-level
+Two fast paths skip every stage that builds. A staged set of prose
+(markdown, `docs/`, `LICENSE`, `.gitignore`) and `.github/` files only
+(docs-only) runs stages 1-3 and stops. A staged set whose only source files
+are `.go` or `.rs` files with no token changed outside a comment, next to
+prose at most (comment-only), runs stages 1-4 and stops. A `testdata/`
+fixture, a `.ratchet/` law, `.golangci.yml` or a deploy script takes neither
+path: each changes what a check does. The comparison is token-level
 (`go/scanner` for Go, the shared lexer for Rust). A directive comment
 (`//go:build`, `//go:embed`, a lint suppression), a cgo preamble or a Rust
 doc comment with a fenced example counts as code.
@@ -221,9 +224,9 @@ aphrollo gate classify-diff <base> [<head>]   # docs-only | comment-only | workf
 `<head>` (default `HEAD`, which must be the checked-out commit); `--json`
 prints `{"class": …, "reason": …}`. It uses the commit gate's per-file rules:
 file kind (a `//go:embed`-ed markdown file is code) and the token-level
-comment-only comparison for Go and Rust. Docs-only is narrower than the
-commit gate's. Only markdown, `docs/`, `LICENSE` and `.gitignore` count;
-a `testdata/` fixture, a `.ratchet/` law or a config file is code.
+comment-only comparison for Go and Rust. Docs-only is the commit gate's
+set less `.github/`: only markdown, `docs/`, `LICENSE` and `.gitignore`
+count; a `testdata/` fixture, a `.ratchet/` law or a config file is code.
 `.github/**` plus prose is workflow-only. A workflow change next to a
 comment-only one is code. A base the clone does not hold, a head that is not
 the checkout, or any git error prints `code`, gives the reason on stderr and

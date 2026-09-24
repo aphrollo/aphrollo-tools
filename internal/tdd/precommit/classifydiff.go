@@ -54,10 +54,11 @@ func StagedFastPath(repoRoot string) DiffClass {
 // diff -- so a caller that only reads the class can never fall onto a fast
 // path it did not earn.
 //
-// The docs-only set here is NARROWER than the commit gate's docsOnly, which
-// waves through every file ClassifyFile calls Ignore: a test fixture under
-// testdata/, a .ratchet/ law, .golangci.yml, a deploy script. Each of those
-// changes what a check does, so CI keeps them on the full path.
+// The docs-only set here is the commit gate's docsOnly less the workflow
+// files, which take CI's own workflow-only path: prose only. A test fixture
+// under testdata/, a .ratchet/ law, .golangci.yml or a deploy script is not
+// prose, since each changes what a check does, and takes the full path on
+// both sides.
 func ClassifyDiff(repoRoot, base, head string) (DiffClass, error) {
 	baseID, err := git(repoRoot, "rev-parse", "--verify", "--quiet", base+"^{commit}")
 	if err != nil {

@@ -18,6 +18,38 @@ import (
 // asserted `> 1.0` and certified nothing.
 var weakBarRe = regexp.MustCompile(`assert(?:_eq)?!\s*\([^)]*[<>]=?\s*-?0\.0`)
 
+// premiseRe marks a sign check as a fixture's premise rather than the test's
+// bar (issue #783): `assert!(f < 0.0, "fixture: genuinely compressed")`
+// guards the setup a few lines above the closed-form assertion, and a sign
+// is exactly what it should check.
+var premiseRe = regexp.MustCompile(`(?i)\b(?:premise|precondition|fixture)\b`)
+
+// premiseMaxLines bounds how far an assert statement is read for its
+// message: a sign check's own argument list, not the rest of the test.
+const premiseMaxLines = 6
+
+// premiseMarked reports whether the sign check on line i is marked as a
+// premise: in a comment on the two lines above it, or anywhere in its own
+// statement (the message may sit on the argument lines below).
+func premiseMarked(lines []string, i int) bool {
+	for _, line := range lines[max(0, i-2):i] {
+		if _, comment, ok := strings.Cut(line, "//"); ok && premiseRe.MatchString(comment) {
+			return true
+		}
+	}
+	balance := 0
+	for _, line := range lines[i:min(len(lines), i+premiseMaxLines)] {
+		if premiseRe.MatchString(line) {
+			return true
+		}
+		balance += strings.Count(line, "(") - strings.Count(line, ")")
+		if balance <= 0 {
+			return false
+		}
+	}
+	return false
+}
+
 // genericNameRe matches names that describe no behaviour, so they cannot say
 // which production change makes them red.
 var genericNameRe = regexp.MustCompile(`fn\s+(?:test_\w+|\w*_works|\w*_basic|\w*smoke\w*)\s*\(`)
@@ -58,8 +90,8 @@ func qualityNotesOn(path, content string, only map[int]bool) []string {
 		}
 		note := ""
 		switch {
-		case physics && weakBarRe.MatchString(line):
-			note = "weak bar: state the closed-form value and tolerance, not the sign"
+		case physics && weakBarRe.MatchString(line) && !premiseMarked(lines, i):
+			note = "weak bar: state the closed-form value and tolerance, not the sign (a fixture's premise says so in its message)"
 		case genericNameRe.MatchString(line):
 			note = "generic test name: name the production change that makes it red"
 		case toleranceRe.MatchString(line) && !toleranceExplained(lines, i):
