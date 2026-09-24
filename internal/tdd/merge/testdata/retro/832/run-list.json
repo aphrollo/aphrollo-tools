@@ -1,0 +1,1 @@
+[{"attempt":1,"conclusion":"success","createdAt":"2026-09-24T09:21:31Z","databaseId":35980737032,"headSha":"324ff19b8b5badf3f94bf0fd092aae4521a47cbf","workflowName":"Pipeline"},{"attempt":1,"conclusion":"failure","createdAt":"2026-09-24T09:13:57Z","databaseId":35979969969,"headSha":"976f34e715ca0e614888feb3d3ed5fd282ae48f9","workflowName":"Pipeline"}]

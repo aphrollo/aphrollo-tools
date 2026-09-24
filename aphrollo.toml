@@ -25,6 +25,37 @@ go-test-reads = [
   "aphrollo.toml -> internal/tdd/suite",
 ]
 
+# The post-merge retro `aphrollo workspace merge` runs once the PR has landed.
+# It reads the PR's journey (one bounded gh batch), the lane's gate.log
+# entries and the lane branch's reflog, and records a retro for the session
+# that ran the merge only when one of these classes fired. A clean merge
+# prints and records nothing. retro-slow-merge-minutes adds the slow-merge
+# class (0 turns it off). Each retro-sinks row is
+# "<class> -> <question> -> <sink>": the one question the class asks and the
+# one place its answer is recorded.
+retro-on = [
+  "ci-red-after-local-green",
+  "ci-red",
+  "mutant-survivor",
+  "mutant-timeout",
+  "flaky-rerun",
+  "extra-push",
+  "merge-conflict",
+  "gate-refusal",
+]
+retro-slow-merge-minutes = 120
+retro-sinks = [
+  "ci-red-after-local-green -> which local stage or law would have caught this? -> aphrollo gate escape record \"<reason>\"",
+  "ci-red -> why did this reach CI with no local green before it? -> aphrollo gate escape record \"<reason>\"",
+  "mutant-survivor -> which test kills each survivor, and why did the local measurement not refuse it first? -> aphrollo gate escape record \"<reason>\"",
+  "mutant-timeout -> which test or budget let mutants time out unmeasured? -> aphrollo issue \"<title>\" --label <theme>",
+  "flaky-rerun -> which test flaked, and what makes it deterministic? -> aphrollo issue \"<title>\" --label <theme>",
+  "extra-push -> what rule avoids the extra push? -> a memory/feedback note or an issue",
+  "merge-conflict -> which overlap with another lane caused it, and what lane boundary avoids it? -> a memory/feedback note or an issue",
+  "gate-refusal -> which refusal could the change have avoided, and what rule says how? -> a memory/feedback note or an issue",
+  "slow-merge -> what held the PR open? -> aphrollo issue \"<title>\" --label <theme>",
+]
+
 # The key the pre-merge gate reads: with it true, the merge gate measures the
 # merged tree in the foreground, after the suites have proved it green, and
 # refuses an unaccepted survivor by name. `aphrollo gate mutants run`, typed
