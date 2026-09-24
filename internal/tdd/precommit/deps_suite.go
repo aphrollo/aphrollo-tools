@@ -83,6 +83,8 @@ func logSuiteVerdict(p0 string, p1 string, p2 string, p3 string, p4 SuiteResult)
 
 func mechCacheAdd(p0 string) { suite.MechCacheAdd(p0) }
 
+func mechCacheAddUnmoved(p0 string, p1 string, p2 Runner) { suite.MechCacheAddUnmoved(p0, p1, p2) }
+
 func mechCacheHit(p0 string) bool { return suite.MechCacheHit(p0) }
 
 func mechKey(p0 string, p1 string, p2 Runner) string { return suite.MechKey(p0, p1, p2) }

@@ -101,6 +101,9 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 		return postEditDeferred(snap, root, target, headSHA, session)
 	}
 
+	// The state the run is about to compile: its green is recorded under
+	// this, and only if the tree is still here when it finishes (#813).
+	before := worktreeStateHash(root)
 	res, terminal := runPostEditSuite(run, snap, root, headSHA, DefaultPostEditTimeout)
 	if terminal != "" {
 		return terminal, false
@@ -161,9 +164,7 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 	// like cargo/pytest/zig, or a matching scoped run), the gate skips the
 	// re-run entirely.
 	if res.Passed {
-		if h := worktreeStateHash(root); h != "" {
-			mechCacheAdd(mechKey(root, h, snap.runner))
-		}
+		mechCacheAddUnmoved(root, before, snap.runner)
 	}
 
 	logSuiteVerdict("postedit", root, cmdString(snap.runner), string(outcome), res)
