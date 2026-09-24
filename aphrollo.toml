@@ -71,6 +71,15 @@ retro-sinks = [
 # pipeline's mutants-verdict job reads this key and measures the same way.
 mutants-at-merge = true
 
+# The same measurement, run before a PR opens: `workspace pr`, `ship` and
+# `submit` measure the lane's own diff against its merge base with
+# origin/<default> and refuse to open a PR over an unaccepted survivor or a
+# timeout, naming each one. A box that cannot measure right now (the run
+# lock held, a CI runner job busy, the drive budget, the Windows stand-down)
+# opens the PR and leaves the measurement to CI. `--skip-mutants "<reason>"` opens it
+# unmeasured and logs the reason.
+mutants-before-pr = true
+
 # The Windows stand-down, and why it is not a hole. gremlins cannot measure
 # this module on Windows: `gremlins unleash --dry-run` there reports
 # `Runnable: 0, Not covered: 4890, Mutator coverage: 0.00%` -- Go's coverage

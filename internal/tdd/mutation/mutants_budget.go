@@ -203,7 +203,7 @@ func refuseOnDisk(root string, want int, unit string, log io.Writer) (Verdict, i
 		free, unit, formatBytes(needs[0].total()), shardNeedText(needs[0]), formatBytes(mutantsDiskReserveBytes))
 	logf(log, "%s", msg)
 	AppendGateLog("mutants", measureLogRoot(root), "mutants", "mutants-refused:disk", 0)
-	return Verdict{Refused: true, Message: msg}, 0, true
+	return Verdict{Refused: true, Unavailable: msg, Message: msg}, 0, true
 }
 
 // shardNeedsTotal is what the whole run puts on the drive — the number the
