@@ -37,12 +37,14 @@ func TestPackageIsolation_NothingResolvesIntoTheOperatorsHome(t *testing.T) {
 	}
 	claude := filepath.Join(realHomeAtStart, ".claude")
 	config := filepath.Join(realHomeAtStart, ".config")
+	localShare := filepath.Join(realHomeAtStart, ".local", "share")
 
 	check := func(when string) {
 		for name, pair := range map[string][2]string{
 			"gate state dir":    {tdd.StateDir(), claude},
 			"claude config dir": {defaultClaudeDir(), claude},
 			"git hooks dir":     {defaultGitHooksDir(), config},
+			"cargo shim dir":    {defaultCargoShimDir(filepath.Join(realHomeAtStart, "bin", "aphrollo")), localShare},
 		} {
 			if pathIsUnder(pair[0], pair[1]) {
 				t.Errorf("%s (%s) resolves into the operator's %s — %s", name, pair[0], pair[1], when)

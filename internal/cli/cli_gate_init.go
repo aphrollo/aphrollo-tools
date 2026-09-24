@@ -21,7 +21,7 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 	var (
 		configDir    = fs.String("config-dir", "", "Claude config dir (default: $CLAUDE_CONFIG_DIR or ~/.claude)")
 		binPath      = fs.String("bin", "", "aphrollo binary the hooks invoke (default: this executable)")
-		cargoShimDir = fs.String("cargo-shim-dir", "", "dir for the cargo-queue shim (default: alongside --bin, e.g. <bindir>/cargo-queue)")
+		cargoShimDir = fs.String("cargo-shim-dir", "", "dir for the cargo-queue shim (default: ~/.local/share/aphrollo/cargo-queue on Linux/macOS, alongside --bin on Windows)")
 		gitHooksDir  = fs.String("git-hooks-dir", "", "git hooks dir for the global gate (default: $XDG_CONFIG_HOME/git/hooks or ~/.config/git/hooks)")
 		noGit        = fs.Bool("no-git", false, "skip the git pre-commit gate; wire session hooks only")
 		repo         = fs.String("repo", ".", "repo whose CLAUDE.md and .ratchet/README.md init may write (default: the working directory's)")
@@ -176,7 +176,7 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 	// worse than having no shim at all.
 	shimDir := *cargoShimDir
 	if shimDir == "" {
-		shimDir = filepath.Join(filepath.Dir(binName), "cargo-queue")
+		shimDir = defaultCargoShimDir(binName)
 	}
 	if removed, rerr := tdd.RemoveCmdShims(shimDir); rerr != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", rerr)
@@ -292,6 +292,31 @@ func defaultClaudeDir() string {
 		return ".claude"
 	}
 	return filepath.Join(home, ".claude")
+}
+
+// defaultCargoShimDir resolves the queue-shim directory `aphrollo install`
+// writes into when --cargo-shim-dir is not given. It used to be derived from
+// --bin's own directory unconditionally, which on this box is
+// /opt/aphrollo-cli/releases/<ts>-<sha>/ — owned by the github-runner account
+// that deploys it, not by the operator running install — and the default
+// aborted with `mkdir .../cargo-queue: permission denied`. The dir every
+// session's PATH is actually configured to prepend
+// (~/.local/share/aphrollo/cargo-queue, which aphrollo-infra pins by hand for
+// this exact reason) is always writable by the account running install, so
+// that is the default on Linux/macOS regardless of where the binary lives.
+//
+// Windows keeps the old convention: self-install already places the binary
+// under the user's own bin dir (e.g. C:/Users/<user>/bin/aphrollo.exe), so
+// the sibling cargo-queue dir is already writable and per-user there — the
+// managed CLAUDE.md block's own example.
+func defaultCargoShimDir(bin string) string {
+	if binGOOS == "windows" {
+		return filepath.Join(filepath.Dir(bin), "cargo-queue")
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".local", "share", "aphrollo", "cargo-queue")
+	}
+	return filepath.Join(filepath.Dir(bin), "cargo-queue")
 }
 
 // defaultBinPath is the absolute path of the running aphrollo binary, so the

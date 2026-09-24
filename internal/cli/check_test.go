@@ -88,7 +88,7 @@ func cleanCheckRepo(t *testing.T) string {
 	if _, err := tdd.WriteAgents(cfg); err != nil {
 		t.Fatal(err)
 	}
-	shim := filepath.Join(filepath.Dir(bin), "cargo-queue")
+	shim := defaultCargoShimDir(bin)
 	if _, err := tdd.InstallCargoShim(shim, bin); err != nil {
 		t.Fatal(err)
 	}
