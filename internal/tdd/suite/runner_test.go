@@ -375,3 +375,109 @@ func TestNarrowToStaged(t *testing.T) {
 		})
 	}
 }
+
+// narrowFailFirstTests scopes a cargo fail-first proof to exactly the staged
+// tests: one owning package gets `-p` plus a sorted, deduped `--test` per
+// integration file and `--lib` for an inline test module; an unconfirmed
+// nested guess drops --test scoping for the package; several packages fall
+// back to package granularity; a file no package owns never widens the run.
+func TestNarrowFailFirstTests_CargoScopesToTheStagedTargets(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/alpha\", \"crates/beta\"]\n")
+	write(t, root, "crates/alpha/Cargo.toml", "[package]\nname = \"alpha\"\n")
+	write(t, root, "crates/beta/Cargo.toml", "[package]\nname = \"beta\"\n")
+	restore := SetCargoTestTargetsForTest(func(string) map[string]map[string]bool {
+		return map[string]map[string]bool{"alpha": {"soak": true}}
+	})
+	defer restore()
+
+	cases := []struct {
+		name   string
+		runner []string
+		tests  []string
+		want   []string // nil = the runner comes back unchanged
+	}{
+		{"one integration file", []string{"test"}, []string{"crates/alpha/tests/wear.rs"},
+			[]string{"test", "-p", "alpha", "--test", "wear"}},
+		{"targets sorted and deduped, inline adds --lib", []string{"test"},
+			[]string{"crates/alpha/tests/wear.rs", "crates/alpha/src/grip.rs", "crates/alpha/tests/axle.rs", "crates/alpha/tests/wear.rs"},
+			[]string{"test", "-p", "alpha", "--test", "axle", "--test", "wear", "--lib"}},
+		{"nextest verb kept", []string{"nextest", "run", "--no-fail-fast"}, []string{"crates/alpha/tests/wear.rs"},
+			[]string{"nextest", "run", "-p", "alpha", "--test", "wear"}},
+		{"confirmed nested target", []string{"test"}, []string{"crates/alpha/tests/soak/load.rs"},
+			[]string{"test", "-p", "alpha", "--test", "soak"}},
+		{"unconfirmed nested guess drops --test scoping", []string{"test"},
+			[]string{"crates/alpha/tests/common/fixtures.rs", "crates/alpha/tests/wear.rs"},
+			[]string{"test", "-p", "alpha"}},
+		{"two packages fall back to package granularity", []string{"test"},
+			[]string{"crates/beta/tests/b.rs", "crates/alpha/tests/a.rs"},
+			[]string{"test", "-p", "alpha", "-p", "beta"}},
+		{"unowned file is dropped from an owned run", []string{"test"},
+			[]string{"tools/gen_test.rs", "crates/beta/tests/b.rs"},
+			[]string{"test", "-p", "beta", "--test", "b"}},
+		{"nothing owned leaves the runner alone", []string{"test"}, []string{"tools/gen_test.rs"}, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := Runner{Cmd: "cargo", Args: tc.runner}
+			want := in
+			if tc.want != nil {
+				want = Runner{Cmd: "cargo", Args: tc.want}
+			}
+
+			got := narrowFailFirstTests(in, root, tc.tests)
+
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("narrowFailFirstTests(%v) = %+v, want %+v", tc.tests, got, want)
+			}
+		})
+	}
+}
+
+// A Go fail-first proof runs the staged test NAMES in their packages, under
+// an anchored -run filter; TestMain is never named. Any staged file that
+// declares no test, or sits outside any package, falls back rather than
+// risking a filter that matches nothing.
+func TestNarrowGoFailFirst_RunsTheStagedTestNamesInTheirPackages(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "go.mod", "module m\n\ngo 1.21\n")
+	write(t, root, "root_test.go", "package m\n\nfunc TestRoot(t *testing.T) {}\n")
+	write(t, root, "internal/x/x.go", "package x\n")
+	write(t, root, "internal/x/x_test.go", "package x\n\nfunc TestMain(m *testing.M) {}\nfunc TestWear(t *testing.T) {}\nfunc  TestGrip (t *testing.T) {}\nfunc BenchmarkWear(b *testing.B) {}\n")
+	write(t, root, "internal/x/more_test.go", "package x\n\nfunc TestWear2(t *testing.T) {}\nfunc TestGrip(t *testing.T) {}\n")
+	write(t, root, "internal/x/fuzz_test.go", "package x\n\nfunc FuzzWear(f *testing.F) {}\n")
+	write(t, root, "assets/a_test.go.txt", "func TestAsset(t *testing.T) {}\n")
+
+	cases := []struct {
+		name   string
+		tests  []string
+		want   []string
+		wantOK bool
+	}{
+		{"one file", []string{"internal/x/x_test.go"},
+			[]string{"test", "./internal/x", "-run", "^(TestGrip|TestWear)$"}, true},
+		{"two packages, names deduped and sorted", []string{"internal/x/more_test.go", "root_test.go", "internal/x/x_test.go"},
+			[]string{"test", ".", "./internal/x", "-run", "^(TestGrip|TestRoot|TestWear|TestWear2)$"}, true},
+		{"a file declaring no test", []string{"internal/x/x_test.go", "internal/x/fuzz_test.go"}, nil, false},
+		{"an unreadable file", []string{"internal/x/gone_test.go"}, nil, false},
+		{"nothing staged", nil, nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := Runner{Cmd: "go", Args: []string{"test", "./..."}}
+
+			got, ok := narrowGoFailFirst(in, root, tc.tests)
+
+			want := in
+			if tc.wantOK {
+				want = Runner{Cmd: "go", Args: tc.want}
+			}
+			if ok != tc.wantOK || !reflect.DeepEqual(got, want) {
+				t.Fatalf("narrowGoFailFirst(%v) = (%+v, %v), want (%+v, %v)", tc.tests, got, ok, want, tc.wantOK)
+			}
+		})
+	}
+	if _, ok := narrowGoFailFirst(Runner{Cmd: "cargo", Args: []string{"test"}}, root, []string{"internal/x/x_test.go"}); ok {
+		t.Error("a cargo runner was narrowed as a go one")
+	}
+}

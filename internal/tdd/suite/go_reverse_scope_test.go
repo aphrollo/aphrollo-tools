@@ -2,6 +2,8 @@ package suite
 
 import (
 	"errors"
+	"os/exec"
+	"reflect"
 	"slices"
 	"testing"
 )
@@ -111,5 +113,82 @@ func TestNarrowToStaged_Go_WidensToReverseDependents(t *testing.T) {
 	want := []string{"test", "./internal/cli", "./internal/ratchet"}
 	if !slices.Equal(got.Args, want) {
 		t.Errorf("args = %q, want %q — a ratchet change must also run its importer cli's suite", got.Args, want)
+	}
+}
+
+// The reach graph comes from a real `go list` over the module: every package
+// is known, a package's test-only imports are edges too (an external test
+// reaching b makes c a package that can kill b's mutants), and only packages
+// with a test file count as tested.
+func TestLoadGoReachGraph_ReadsPackagesTestImportsAndTestedness(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		// skip-ok: an environment probe, not a disabled assertion.
+		t.Skip("go not on PATH")
+	}
+	root := t.TempDir()
+	write(t, root, "go.mod", "module m\n\ngo 1.21\n")
+	write(t, root, "root.go", "package m\n\nimport _ \"m/a\"\n")
+	write(t, root, "a/a.go", "package a\n\nimport _ \"m/b\"\n")
+	write(t, root, "a/a_test.go", "package a\n")
+	write(t, root, "b/b.go", "package b\n")
+	write(t, root, "c/c.go", "package c\n")
+	write(t, root, "c/c_test.go", "package c_test\n\nimport _ \"m/b\"\n")
+
+	g, err := loadGoReachGraph(root)
+	if err != nil {
+		t.Fatalf("loadGoReachGraph: %v", err)
+	}
+
+	if want := map[string]bool{".": true, "a": true, "b": true, "c": true}; !reflect.DeepEqual(g.Pkgs, want) {
+		t.Errorf("Pkgs = %v, want %v", g.Pkgs, want)
+	}
+	if want := map[string]bool{"a": true, "c": true}; !reflect.DeepEqual(g.Tested, want) {
+		t.Errorf("Tested = %v, want %v", g.Tested, want)
+	}
+	if got, want := g.Reaching("b"), []string{".", "a", "b", "c"}; !slices.Equal(got, want) {
+		t.Errorf("Reaching(b) = %v, want %v", got, want)
+	}
+	if got, want := g.Reaching("c"), []string{"c"}; !slices.Equal(got, want) {
+		t.Errorf("Reaching(c) = %v, want %v", got, want)
+	}
+}
+
+// A module with no package, and a directory go cannot list at all, are
+// errors — never an empty graph that would read as "nothing reaches it".
+func TestLoadGoReachGraph_ErrorsWhenGoListNamesNoPackage(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		// skip-ok: an environment probe, not a disabled assertion.
+		t.Skip("go not on PATH")
+	}
+	empty := t.TempDir()
+	write(t, empty, "go.mod", "module m\n\ngo 1.21\n")
+	if _, err := loadGoReachGraph(empty); err == nil {
+		t.Error("a module with no package produced a graph")
+	}
+	if _, err := loadGoReachGraph(t.TempDir()); err == nil {
+		t.Error("a directory with no module produced a graph")
+	}
+}
+
+// Lines short of all seven fields, even by one, and unreadable test counts
+// are skipped rather than guessed at; a CRLF line still parses.
+func TestParseGoListReach_SkipsWhatItCannotRead(t *testing.T) {
+	root := "/w"
+	out := "m\t/w\tfmt \t\t\t0\t0\r\n" +
+		"m/a\t/w/a\tm \tm/b \t\tx\t1\n" +
+		"short\t/w/s\n" +
+		"m/six\t/w/six\t\t\t\t1\n" +
+		"\t/w/blank\t\t\t\t1\t1\n"
+
+	dirOf, imports, tested := parseGoListReach(root, out)
+
+	if want := map[string]string{"m": ".", "m/a": "a"}; !reflect.DeepEqual(dirOf, want) {
+		t.Errorf("dirOf = %v, want %v", dirOf, want)
+	}
+	if got := imports["a"]; !slices.Equal(got, []string{"m", "m/b"}) {
+		t.Errorf("imports[a] = %v, want [m m/b]", got)
+	}
+	if want := map[string]bool{"a": true}; !reflect.DeepEqual(tested, want) {
+		t.Errorf("tested = %v, want %v", tested, want)
 	}
 }
