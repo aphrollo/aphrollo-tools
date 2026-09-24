@@ -11,6 +11,9 @@ import (
 type rootGroup struct {
 	Root        string
 	tests, srcs []string
+	// plan is the root's build scope when the merge gate resolved it up
+	// front (planRoots); nil means gateRoot resolves it itself.
+	plan *rootPlan
 }
 
 // stagedRootGroups groups repoRoot's staged Source/Test files by

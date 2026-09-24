@@ -524,7 +524,7 @@ worktree.go                                        postedit
 worktree_test.go                                   postedit
 mechrun_postedit.go                                postedit  # created by P2
 
-# precommit: 76 file(s)
+# precommit: 78 file(s)
 budgetfloor_test.go                                precommit  # prefix says lock; its test body reaches precommit
 buildlock_integration_test.go                      precommit  # prefix says lock; its test body reaches precommit
 cargo_alwaysrun_test.go                            precommit
@@ -537,6 +537,8 @@ commentonly.go                                     precommit
 commentonly_go.go                                  precommit
 commentonly_go_test.go                             precommit
 devtarget_test.go                                  precommit
+dirtytree.go                                       precommit
+dirtytree_test.go                                  precommit
 docsonly.go                                        precommit
 docsonly_property_test.go                          precommit
 doctest_test.go                                    precommit  # prefix says suite; its test body reaches precommit

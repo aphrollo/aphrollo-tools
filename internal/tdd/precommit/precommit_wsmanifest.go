@@ -48,7 +48,13 @@ func isWorkspaceOwnManifestFile(repoRoot, ws, fRepoRel string) bool {
 // manifest-only commit), the ownership-scoped suite is skipped rather than
 // falling back to an unscoped, full-workspace `cargo test`.
 func gateRootCargo(gateName, repoRoot string, g rootGroup, rootFiles []string, run SuiteRunner, failFirst bool) GateResult {
-	plan, ok := planCargoStages(gateName, repoRoot, g.Root, rootFiles)
+	var plan cargoStagePlan
+	var ok bool
+	if g.plan != nil && g.plan.cargo != nil {
+		plan, ok = *g.plan.cargo, g.plan.cargoOK
+	} else {
+		plan, ok = planCargoStages(gateName, repoRoot, g.Root, rootFiles)
+	}
 	if !ok {
 		return GateResult{}
 	}
