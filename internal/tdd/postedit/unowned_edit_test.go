@@ -1,6 +1,7 @@
 package postedit
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -183,5 +184,47 @@ func TestPostEdit_GoModInModuleWithNoRootPackage_StillRuns(t *testing.T) {
 
 	if len(ran) != 1 {
 		t.Fatalf("go.mod must keep its run, ran %v (%q)", ran, got)
+	}
+}
+
+// #835 stopped an unowned code file from using up its root's one Bash turn,
+// but left the Bash hook's own per-root pick trusting that anything else
+// reaching it already selects a run. takeBashSnapshot happens to keep every
+// Ignore-classified path out of Dirty today, so a doc never reaches this
+// loop through a live git status — but that is takeBashSnapshot's own cost
+// optimisation ("stamp the dirty SOURCE paths only"), not a contract the
+// loop can lean on: nothing here re-checks ClassifyFile before spending the
+// turn. This seeds a session's persisted Bash snapshot with a doc path the
+// way it would read if that upstream filter ever changed, to pin the loop's
+// own invariant directly: A.md sorts before main.go, and must still not cost
+// main.go its root's run.
+func TestPostBash_IgnoredFileDoesNotUseUpItsRootsRun(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	write(t, root, "go.mod", "module example.com/m\n\ngo 1.26\n")
+	write(t, root, "main.go", "package main\n\nfunc main() {}\n")
+	gitInit(t, root)
+	gitDo(t, root, "add", "-A")
+	gitDo(t, root, "commit", "-qm", "base")
+	cmd := "echo touch"
+
+	raw := bashPayload(t, "s835doc", root, cmd)
+	PreBash(raw)
+	var in bashInput
+	if err := json.Unmarshal(raw, &in); err != nil {
+		t.Fatal(err)
+	}
+	s, path := loadSession("s835doc")
+	s.Bash[bashKey(in)].Dirty["A.md"] = "1:1"
+	if err := s.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	write(t, root, "main.go", "package main\n\nfunc main() { println(1) }\n")
+
+	var ran []string
+	got := PostBash(bashPayload(t, "s835doc", root, cmd), recordEditRuns(&ran))
+
+	if len(ran) != 1 {
+		t.Fatalf("main.go must still get its root's run beside a doc-only path, ran %v (%q)", ran, got)
 	}
 }
