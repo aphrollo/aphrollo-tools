@@ -13,3 +13,5 @@ func cmdString(p0 Runner) string { return suite.CmdString(p0) }
 func mechCacheAdd(p0 string) { suite.MechCacheAdd(p0) }
 
 func mechKey(p0 string, p1 string, p2 Runner) string { return suite.MechKey(p0, p1, p2) }
+
+func mechKeyPrefix(p0 string, p1 string) string { return suite.MechKeyPrefix(p0, p1) }

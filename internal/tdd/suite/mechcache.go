@@ -116,6 +116,38 @@ func mechCacheHit(key string) bool {
 	return ok
 }
 
+// mechCacheCovers reports whether the cache proves want green at root in
+// stateHash: want's own mechKey, or greens recorded at that state whose
+// scopes together cover want's (provenCovers, the claim ledger's rule). A
+// filtered run covers only its own filter, so a scoped edit-time green never
+// answers for a package's suite. A command the scope classifier cannot read
+// is answered by its exact key alone.
+func mechCacheCovers(root, stateHash string, want Runner) bool {
+	if stateHash == "" {
+		return false
+	}
+	if mechCacheHit(mechKey(root, stateHash, want)) {
+		return true
+	}
+	wantScope, ok := runnerScope(want)
+	path := mechCachePath()
+	if !ok || path == "" {
+		return false
+	}
+	prefix := mechKeyPrefix(root, stateHash)
+	var have []runScope
+	for key := range loadMechCache(path).Green {
+		cmd, found := strings.CutPrefix(key, prefix)
+		if !found {
+			continue
+		}
+		if s, readable := scopeOfSuiteCommand(strings.Fields(cmd)); readable {
+			have = append(have, s)
+		}
+	}
+	return provenCovers(have, wantScope)
+}
+
 // mechCacheAdd records a green run under key, pruning the oldest entries
 // beyond mechCacheMax. Best-effort: any I/O failure just loses the cache win.
 func mechCacheAdd(key string) {

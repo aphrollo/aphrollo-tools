@@ -6,8 +6,8 @@ import (
 	precommit "github.com/aphrollo/aphrollo-tools/internal/tdd/precommit"
 )
 
-type rootGroup = precommit.RootGroup
+type owedSuite = precommit.OwedSuite
 
 func Mechanical(p0 string, p1 SuiteRunner) GateResult { return precommit.Mechanical(p0, p1) }
 
-func stagedRootGroups(p0 string) []rootGroup { return precommit.StagedRootGroups(p0) }
+func commitOwedSuites(p0 string) []owedSuite { return precommit.CommitOwedSuites(p0) }
