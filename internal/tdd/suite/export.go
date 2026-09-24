@@ -297,6 +297,8 @@ func SuiteTouchedNames(p0 Runner) []string { return suiteTouchedNames(p0) }
 
 func ToRootRelative(p0 string, p1 string, p2 []string) []string { return toRootRelative(p0, p1, p2) }
 
+func UnownedEdit(p0 Runner, p1 string, p2 string) string { return unownedEdit(p0, p1, p2) }
+
 func UntestedVerdict(p0 Runner, p1 SuiteResult) string { return untestedVerdict(p0, p1) }
 
 func VacuousGoPackages(p0 string) ([]string, error) { return vacuousGoPackages(p0) }

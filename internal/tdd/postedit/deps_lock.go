@@ -9,18 +9,24 @@ import (
 
 const BuildLockHeldEnv = lock.BuildLockHeldEnv
 
+const SlotHeld = lock.SlotHeld
+
+const SlotSuperseded = lock.SlotSuperseded
+
 type BuildLockOwner = lock.BuildLockOwner
 
 type BuildSlot = lock.BuildSlot
 
-func ReadBuildSlotOwner(p0 string) (BuildLockOwner, bool) { return lock.ReadBuildSlotOwner(p0) }
+type SlotWait = lock.SlotWait
 
-func acquireBuildSlot(p0 string, p1 time.Duration, p2 string, p3 string) (BuildSlot, func(), bool) {
-	return lock.AcquireBuildSlot(p0, p1, p2, p3)
-}
+func ReadBuildSlotOwner(p0 string) (BuildLockOwner, bool) { return lock.ReadBuildSlotOwner(p0) }
 
 func acquireGlobalSlot(p0 time.Duration, p1 string, p2 string) (BuildSlot, func(), bool) {
 	return lock.AcquireGlobalSlot(p0, p1, p2)
+}
+
+func acquireQueuedBuildSlot(p0 string, p1 time.Duration, p2 string, p3 string) (BuildSlot, func(), SlotWait) {
+	return lock.AcquireQueuedBuildSlot(p0, p1, p2, p3)
 }
 
 func buildSlotHolderDescription(p0 string) string { return lock.BuildSlotHolderDescription(p0) }

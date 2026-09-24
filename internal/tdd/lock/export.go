@@ -30,6 +30,10 @@ func AcquireGlobalSlot(p0 time.Duration, p1 string, p2 string) (BuildSlot, func(
 	return acquireGlobalSlot(p0, p1, p2)
 }
 
+func AcquireQueuedBuildSlot(p0 string, p1 time.Duration, p2 string, p3 string) (BuildSlot, func(), SlotWait) {
+	return acquireQueuedBuildSlot(p0, p1, p2, p3)
+}
+
 func BuildSlotCount() int { return buildSlotCount() }
 
 func BuildSlotHolderDescription(p0 string) string { return buildSlotHolderDescription(p0) }
@@ -39,6 +43,8 @@ func BuildToolPids() ([]int, bool) { return buildToolPids() }
 func CappedFloor(p0 time.Duration, p1 time.Duration) time.Duration { return cappedFloor(p0, p1) }
 
 func CargoConfigJobs(p0 string) (int, bool) { return cargoConfigJobs(p0) }
+
+func CargoTomlHasWorkspaceTable(p0 string) bool { return cargoTomlHasWorkspaceTable(p0) }
 
 func CargoWorkspaceRoot(p0 string) string { return cargoWorkspaceRoot(p0) }
 

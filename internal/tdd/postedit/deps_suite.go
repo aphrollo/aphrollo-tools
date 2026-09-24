@@ -123,6 +123,8 @@ func staleArtifactHint(p0 string, p1 string) string { return suite.StaleArtifact
 
 func suiteEnv(p0 Runner, p1 string) []string { return suite.SuiteEnv(p0, p1) }
 
+func unownedEdit(p0 Runner, p1 string, p2 string) string { return suite.UnownedEdit(p0, p1, p2) }
+
 func verdictCoversRun(p0 gateEntry, p1 runScope) bool { return suite.VerdictCoversRun(p0, p1) }
 
 func wholeRunScope() runScope { return suite.WholeRunScope() }

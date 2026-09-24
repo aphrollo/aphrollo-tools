@@ -173,6 +173,10 @@ mutants_ram_windows.go                             lock
 mutants_unix.go                                    lock
 mutants_windows.go                                 lock
 queuewaiters.go                                    lock
+slotqueue.go                                       lock
+slotqueue_test.go                                  lock
+slotpriority.go                                    lock
+slotpriority_test.go                               lock
 queuewaiters_test.go                               lock
 runner_lock_own_test.go                            lock
 slottoken_test.go                                  lock
@@ -228,6 +232,7 @@ runner.go                                          suite
 runner_nextest_test.go                             suite
 runner_scope.go                                    suite
 runner_scope_gorun.go                              suite
+edit_ownership.go                                  suite
 runner_test.go                                     suite
 runner_testscope_test.go                           suite
 runscope.go                                        suite
@@ -538,6 +543,7 @@ posttooluse_advisory_test.go                       postedit
 posttooluse_run.go                                 postedit
 posttooluse_test.go                                postedit
 posttooluse_unconstrained.go                       postedit
+unowned_edit_test.go                               postedit
 pretooluse.go                                      postedit
 pretooluse_test.go                                 postedit
 smell_deadline_preedit_test.go                     postedit
