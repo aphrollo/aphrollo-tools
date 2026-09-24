@@ -343,6 +343,7 @@ Declared in `[workspace.metadata.aphrollo]` in a cargo workspace's
 | `fail-first-env` | `NAME=VALUE` switches exported to the fail-first run; a hand-run `go test`/`cargo test`/`cargo nextest run` that sets one passes the rerun guard (`override-bash-env-switch`) |
 | `prune-lanes-on-merge` | enable the `post-merge`/`post-commit` lane sweep |
 | `mutants-at-merge`, `mutants-shards`, `mutants-env`, `mutation-accept` | mutation measurement at merge, its shard cap, env, accepted survivors (`<file>[:<line>[:<col>]] <MUTATOR> # why`) |
+| `go-test-reads` | `"<path prefix> -> <package dir>"` entries, read from `aphrollo.toml` at the Go module root: a staged path under the prefix also selects that package's suite, for tests that read other packages' files from disk. A staged non-Go, non-prose file already selects the package whose directory holds it |
 | `baselines` | globs the staged-baseline guard watches |
 | `sdd-dir` | spec tree root for the `sdd` skill (default `docs/sdd`) |
 | `upstream` | tracker `aphrollo feedback` files into |

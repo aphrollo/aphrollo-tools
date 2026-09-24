@@ -4,6 +4,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -121,46 +122,81 @@ func dirHasGoFiles(dir string) bool {
 	return false
 }
 
+// goTestReadsKey is the aphrollo.toml key declaring which Go package's tests
+// read files by path under a prefix: `[aphrollo] go-test-reads =
+// ["internal/tdd/ -> tools/tddsplit"]`. Neither the directory walk nor the
+// import graph can see that edge — tools/tddsplit's drift test re-runs the
+// split generator over every file under internal/tdd, and nothing imports
+// package main — so the repo states it, and a staged path under the prefix
+// owes the reading package's suite as well as its own.
+const goTestReadsKey = "go-test-reads"
+
+// goTestReaders is root's declared go-test-reads, as prefix -> package dir
+// pairs. An entry without its " -> " separator declares nothing.
+func goTestReaders(root string) [][2]string {
+	var out [][2]string
+	for _, entry := range tomlStringsIn(filepath.Join(root, "aphrollo.toml"), "[aphrollo]", goTestReadsKey) {
+		prefix, dir, ok := strings.Cut(entry, "->")
+		if !ok {
+			continue
+		}
+		out = append(out, [2]string{strings.TrimSpace(prefix), strings.TrimSpace(dir)})
+	}
+	return out
+}
+
+// goStagedDirs is the package set the staged files owe, root-relative, in
+// first-seen order: each file's own package (goPackageDir walks a fixture or
+// testdata file up to the package whose tests read it), the package
+// goDataFileScope names for a file read from outside its own tree, and every
+// package go-test-reads declares for a prefix the file sits under. A
+// directory with no .go files is left out.
+func goStagedDirs(root string, files []string) []string {
+	readers := goTestReaders(root)
+	var dirs []string
+	for _, f := range files {
+		f = filepath.ToSlash(f)
+		dir, ok := goDataFileScope[f]
+		if !ok {
+			dir = goPackageDir(root, path.Dir(f))
+		}
+		dirs = appendGoPackageDirs(root, dirs, []string{dir})
+		for _, rd := range readers {
+			if strings.HasPrefix(f, rd[0]) {
+				dirs = appendGoPackageDirs(root, dirs, []string{rd[1]})
+			}
+		}
+	}
+	return dirs
+}
+
+// appendGoPackageDirs appends each of add not already in dirs. A directory
+// with no .go files is not a package `go test` can load: naming it does not
+// skip it, it fails the run outright with "[setup failed]". The repo root is
+// the case that bites, because a change to aphrollo.toml is Source -- it
+// configures the gate -- while the Go files live under cmd/ and internal/.
+func appendGoPackageDirs(root string, dirs, add []string) []string {
+	for _, dir := range add {
+		if dirHasGoFiles(filepath.Join(root, dir)) && !slices.Contains(dirs, dir) {
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs
+}
+
 func narrowToStaged(r Runner, root string, files []string) (Runner, bool) {
 	if len(files) == 0 {
 		return r, false
 	}
 	switch r.Cmd {
 	case "go":
-		// Dedupe the package dir of each staged file (plus, below, the
-		// dirs its reverse dependents add — #399); a root-level file maps to
-		// the "." package. Sorted for a deterministic command.
-		seen := map[string]bool{}
-		var dirs []string
-		addDir := func(dir string) {
-			// A directory with no .go files is not a package `go test` can
-			// load: naming it does not skip it, it fails the run outright
-			// with "[setup failed]". The repo root is the case that bites,
-			// because a change to aphrollo.toml is Source -- it configures
-			// the gate -- while the Go files live under cmd/ and internal/.
-			if !dirHasGoFiles(filepath.Join(root, dir)) {
-				return
-			}
-			if !seen[dir] {
-				seen[dir] = true
-				dirs = append(dirs, dir)
-			}
-		}
-		for _, f := range files {
-			dir, ok := goDataFileScope[filepath.ToSlash(f)]
-			if !ok {
-				dir = goPackageDir(root, filepath.Dir(f))
-			}
-			addDir(dir)
-		}
+		dirs := goStagedDirs(root, files)
 		if len(dirs) == 0 {
 			// Nothing staged belongs to a Go package, so there is nothing to
 			// narrow TO — and nothing to widen from either.
 			return r, false
 		}
-		for _, dep := range goReverseDependents(root, dirs) {
-			addDir(dep)
-		}
+		dirs = appendGoPackageDirs(root, dirs, goReverseDependents(root, dirs))
 		pkgs := make([]string, 0, len(dirs))
 		for _, dir := range dirs {
 			pkg := "./" + dir

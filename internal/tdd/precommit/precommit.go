@@ -3,6 +3,8 @@ package precommit
 import (
 	"fmt"
 	"os"
+	"path"
+	"slices"
 	"strings"
 )
 
@@ -11,6 +13,11 @@ import (
 type rootGroup struct {
 	Root        string
 	tests, srcs []string
+	// data is the staged files on a Go root that are neither Source, Test
+	// nor prose: a fixture beside a package's code, anything under its
+	// testdata/, a generator's manifest. No compiler reads one, but the
+	// package's tests do, so each owes the suite of the package it sits in.
+	data []string
 	// plan is the root's build scope when the merge gate resolved it up
 	// front (planRoots); nil means gateRoot resolves it itself.
 	plan *rootPlan
@@ -43,16 +50,52 @@ func stagedRootGroupsErr(repoRoot string) ([]rootGroup, error) {
 		return nil, nil
 	}
 	tests, srcs := splitKinds(staged)
-	all := append(append([]string{}, tests...), srcs...)
+	data := testDataFiles(staged, append(append([]string{}, tests...), srcs...))
+	all := append(append(append([]string{}, tests...), srcs...), data...)
 	var groups []rootGroup
 	for _, root := range stagedProjectRoots(repoRoot, all) {
-		groups = append(groups, rootGroup{
+		g := rootGroup{
 			Root:  root,
 			tests: filesUnderRoot(repoRoot, root, tests),
 			srcs:  filesUnderRoot(repoRoot, root, srcs),
-		})
+			data:  filesUnderRoot(repoRoot, root, data),
+		}
+		// Only a Go root's suite is scoped by data files; a cargo or JS
+		// root has no rule mapping one to what reads it.
+		if runner, _ := DetectRunner(root); runner.Cmd != "go" {
+			g.data = nil
+		}
+		if len(g.tests) == 0 && len(g.srcs) == 0 && len(g.data) == 0 {
+			continue
+		}
+		groups = append(groups, g)
 	}
 	return groups, nil
+}
+
+// testDataFiles is the staged files a test may read and no compiler does:
+// not code (Source or Test, already split out), not prose, not a workflow
+// file (CI's own path), and not in a tree the project does not author.
+func testDataFiles(staged, code []string) []string {
+	var out []string
+	for _, p := range staged {
+		if slices.Contains(code, p) || proseFile(p) || strings.HasPrefix(p, ".github/") || foreignTree(p) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// foreignTree reports whether p lies under a directory of code the project
+// vendors rather than writes.
+func foreignTree(p string) bool {
+	for seg := range strings.SplitSeq(path.Dir(p), "/") {
+		if seg == "vendor" || seg == "node_modules" || seg == ".git" {
+			return true
+		}
+	}
+	return false
 }
 
 // unreadableIndexMessage is what a gate says when git could not tell it what

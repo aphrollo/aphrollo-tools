@@ -9,6 +9,22 @@
 # [workspace.metadata.aphrollo] and this repo has no Cargo.toml to put it in.
 undercover = true
 
+# Which Go package's tests read files by path under a prefix, as
+# "<path prefix> -> <package dir>". The merge gate's go test list follows each
+# staged file to its own package and to the packages that import it; neither
+# reaches a package whose tests read another package's files from disk. A
+# staged path under a prefix below also selects the named package's suite.
+#
+# tools/tddsplit's drift test re-runs the split generator over every file
+# under internal/tdd and compares the generated export.go and deps_*.go with
+# the committed ones, so adding, removing or editing a file there can fail it
+# (a merge that combined two lanes' manifest.txt rows did). The suite
+# package's tests pin this key in this file.
+go-test-reads = [
+  "internal/tdd/ -> tools/tddsplit",
+  "aphrollo.toml -> internal/tdd/suite",
+]
+
 # The key the pre-merge gate reads: with it true, the merge gate measures the
 # merged tree in the foreground, after the suites have proved it green, and
 # refuses an unaccepted survivor by name. `aphrollo gate mutants run`, typed
