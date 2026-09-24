@@ -130,6 +130,34 @@ func TestGCOrphanWorktreeDirs_OnlyBuildOnlyDirsBesideRegisteredOnes(t *testing.T
 	}
 }
 
+// TestScanGC_OrphanWorktreesIncludesADeadGatePRMergeCheckout pins that the
+// manual sweep's OrphanWorktrees scope, not merely the category function in
+// isolation, actually surfaces a dead-holder gate-prmerge checkout — the
+// shape `aphrollo gate gc` must report before an operator ever runs
+// --apply on it.
+func TestScanGC_OrphanWorktreesIncludesADeadGatePRMergeCheckout(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := makeCargoRepo(t)
+	wtParent := filepath.Join(filepath.Dir(repo), ".worktrees", filepath.Base(repo))
+	dead := filepath.Join(wtParent, "gate-prmerge-4242")
+	gitDo(t, repo, "worktree", "add", "--detach", dead, "HEAD")
+	writeHolder(t, dead, deadPidForTest(t))
+
+	got := ScanGC(repo, 3*24*time.Hour, GCScope{OrphanWorktrees: true})
+	found := false
+	for _, c := range got {
+		if c.Path == dead {
+			found = true
+			if c.Kind != GCKindGatePRMerge {
+				t.Errorf("kind = %v, want GCKindGatePRMerge", c.Kind)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("ScanGC's OrphanWorktrees scope did not report the dead-holder checkout %s, got: %+v", dead, got)
+	}
+}
+
 // TestApplyGC_DeletesAndRefusesProtectedPaths pins what --apply is allowed
 // to do: remove exactly the candidates it was handed, reporting the bytes
 // freed — and refuse a path naming an artifact directory even if one is

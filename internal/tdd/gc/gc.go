@@ -134,6 +134,7 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 	if scope.OrphanWorktrees {
 		if root := RepoRoot(repo); root != "" {
 			out = append(out, gcOrphanWorktreeDirs(root)...)
+			out = append(out, gcOrphanGatePRMergeWorktrees(root)...)
 		}
 	}
 	if scope.StrayTargets {
@@ -391,6 +392,19 @@ func ApplyGC(cands []GCCandidate) (freed int64, refused []string) {
 	for _, c := range cands {
 		if gcProtected(c.Path) && !namesItsOwnArtifacts(c.Kind) {
 			refused = append(refused, c.Path)
+			continue
+		}
+		// A GCKindGatePRMerge candidate is a git-registered worktree, not a
+		// bare directory: os.RemoveAll would delete the checkout but leave
+		// git's own admin entry behind, reporting it "prunable" forever
+		// instead of gone. removeGatePRMergeWorktree deregisters it the same
+		// way `git worktree remove` always has.
+		if c.Kind == GCKindGatePRMerge {
+			if err := removeGatePRMergeWorktree(c.Path); err != nil {
+				refused = append(refused, fmt.Sprintf("%s (%v)", c.Path, err))
+				continue
+			}
+			freed += c.Size
 			continue
 		}
 		if err := os.RemoveAll(c.Path); err != nil {

@@ -6,8 +6,66 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
+
+// gatePRMergeHolderFile matches PRGateHolderFile
+// (internal/tdd/merge/premergepr.go): the record GatePRMerge writes into its
+// own throwaway checkout the instant it builds it, naming the pid that owns
+// it. It is the ONLY liveness evidence this sweep trusts — a checkout with no
+// record predates the record (an older binary's leak, or something else
+// entirely) and is left alone rather than guessed at.
+const gatePRMergeHolderFile = ".aphrollo-prmerge-holder"
+
+// gatePRMergePrefix names every throwaway checkout GatePRMerge builds
+// (internal/tdd/merge, prGateMergedCheckout's os.MkdirTemp pattern).
+const gatePRMergePrefix = "gate-prmerge-"
+
+// isGatePRMergeWorktree reports whether path is one of GatePRMerge's own
+// throwaway checkouts rather than an operator's lane.
+func isGatePRMergeWorktree(path string) bool {
+	base := filepath.Base(path)
+	return strings.HasPrefix(base, gatePRMergePrefix)
+}
+
+// decideGatePRMergeWorktree judges a throwaway GatePRMerge checkout on its
+// own terms: it is never a lane and carries no PR, so the merged-PR rule's
+// "no PR" reading is simply wrong for it — GatePRMerge (internal/tdd/merge)
+// already judged the tree itself, and the checkout exists only for as long
+// as that judgment takes. Its holder record is the only evidence this
+// decides on: no record, or a still-running pid, means "leave it"; a dead
+// one means the gate that built it never got to remove it and it is safe to.
+func decideGatePRMergeWorktree(e worktreeEntry) pruneDecision {
+	pid, ok := gatePRMergeHolderPID(e.Path)
+	if !ok {
+		return pruneDecision{wt: e, reason: "merge-gate checkout, no holder record"}
+	}
+	if gatePRMergeHolderAlive(pid) {
+		return pruneDecision{wt: e, reason: fmt.Sprintf("merge-gate checkout in use (pid %d)", pid)}
+	}
+	return pruneDecision{wt: e, remove: true, reason: fmt.Sprintf("merge-gate checkout, holder pid %d is gone", pid)}
+}
+
+// gatePRMergeHolderPID reads the pid line of wt's holder record. ok=false
+// covers "no record", "unreadable" and "malformed" alike — every one of
+// those means "unknown", never "dead".
+func gatePRMergeHolderPID(wt string) (int, bool) {
+	data, err := os.ReadFile(filepath.Join(wt, gatePRMergeHolderFile))
+	if err != nil {
+		return 0, false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		v, ok := strings.CutPrefix(strings.TrimSpace(line), "pid=")
+		if !ok {
+			continue
+		}
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+			return n, true
+		}
+	}
+	return 0, false
+}
 
 // PruneTicket is the per-ticket, per-repo counterpart to the Prune sweep: given a
 // repo + branch it removes exactly that ONE ticket's worktree and is safe to
@@ -207,7 +265,11 @@ func (p *Prune) Run(apply bool, stdout, stderr io.Writer) error {
 			pruned++
 			continue
 		}
-		if err := removeWorktree(p.Repo, e.Path, p.Force); err != nil {
+		// A gate-prmerge checkout is a merged --no-commit tree by construction
+		// — dirty by design, never something a plain `git worktree remove`
+		// would accept — so removing one always forces, regardless of --force.
+		force := p.Force || isGatePRMergeWorktree(e.Path)
+		if err := removeWorktree(p.Repo, e.Path, force); err != nil {
 			fmt.Fprintf(stderr, "could not remove %s: %v\n", e.Path, err)
 			failed++
 			continue
@@ -235,6 +297,9 @@ func (p *Prune) Run(apply bool, stdout, stderr io.Writer) error {
 func (p *Prune) decide(e worktreeEntry, cwd string) pruneDecision {
 	if cwd != "" && pathWithin(cwd, e.Path) {
 		return pruneDecision{wt: e, reason: "current"}
+	}
+	if isGatePRMergeWorktree(e.Path) {
+		return decideGatePRMergeWorktree(e)
 	}
 	state, err := ghPRState(e.Path, e.Branch)
 	if err != nil {

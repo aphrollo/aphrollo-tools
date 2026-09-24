@@ -27,6 +27,7 @@ const (
 	GCKindDepsThirdParty
 	GCKindStrayTarget
 	GCKindGoTmp
+	GCKindGatePRMerge
 )
 
 // GCCandidate is one reclaimable directory: what it is, how big, why it
