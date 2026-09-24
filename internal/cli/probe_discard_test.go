@@ -286,3 +286,64 @@ func TestGateGC_ListsDiscardBackupsAndNeverSweepsThem(t *testing.T) {
 		}
 	}
 }
+
+// A checkout reached through a symlink (a junction on Windows, a symlinked
+// home on a mac) is still the repo: git reports the resolved root, and the
+// named file must be judged against it on the same resolved footing, not
+// refused as outside the repo.
+func TestProbeDiscard_ResolvesACwdReachedThroughASymlink(t *testing.T) {
+	repo, realGit, _ := probeFixture(t)
+	writeFixtureFile(t, repo, "a.txt", distinctLines("arm", 3))
+	link := filepath.Join(t.TempDir(), "via-link")
+	if err := os.Symlink(repo, link); err != nil {
+		t.Skipf("cannot create a symlink on this host: %v", err) // skip-ok: the host forbids symlinks, so there is no symlinked cwd to judge
+	}
+
+	var out, errb bytes.Buffer
+	if code := probeDiscard(realGit, link, []string{"--apply", "a.txt"}, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	if got := readFixture(t, repo, "a.txt"); got != "a-orig-0\n" {
+		t.Fatalf("a.txt = %q, want HEAD's content", got)
+	}
+}
+
+func TestProbeDiscard_RemovesEveryNamedUntrackedFile(t *testing.T) {
+	repo, realGit, _ := probeFixture(t)
+	writeFixtureFile(t, repo, "one.txt", []string{"one"})
+	writeFixtureFile(t, repo, "two.txt", []string{"two"})
+
+	var out, errb bytes.Buffer
+	if code := probeDiscard(realGit, repo, []string{"--apply", "one.txt", "two.txt"}, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	for _, name := range []string{"one.txt", "two.txt"} {
+		if _, err := os.Stat(filepath.Join(repo, name)); !os.IsNotExist(err) {
+			t.Errorf("%s still present (err=%v), want it removed", name, err)
+		}
+	}
+}
+
+// The backup carries the named files and nothing else: a tracked file the
+// caller did not name is not part of this discard, even when every named
+// file is untracked and no tracked diff is taken at all.
+func TestProbeDiscard_BackupCarriesOnlyTheNamedFiles(t *testing.T) {
+	repo, realGit, _ := probeFixture(t)
+	writeFixtureFile(t, repo, "a.txt", distinctLines("unnamed", 2))
+	writeFixtureFile(t, repo, "new.txt", []string{"hello"})
+
+	var out, errb bytes.Buffer
+	if code := probeDiscard(realGit, repo, []string{"--apply", "new.txt"}, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	body, err := os.ReadFile(backupPathFrom(t, out.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "a.txt") {
+		t.Fatalf("backup carries the unnamed a.txt:\n%s", body)
+	}
+	if got := readFixture(t, repo, "a.txt"); got != "unnamed-0\nunnamed-1\n" {
+		t.Fatalf("a.txt = %q, want the unnamed edit untouched", got)
+	}
+}
