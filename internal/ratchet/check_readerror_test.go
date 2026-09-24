@@ -114,7 +114,7 @@ func TestJSONCeilingHits_RefusesAVerdictWhenAScopedFileCannotBeRead(t *testing.T
 
 	withFakeReadFile(t, func(string) ([]byte, error) { return nil, errSimulatedLock })
 
-	hits, err := jsonCeilingHits(root, law, true, "")
+	hits, err := jsonCeilingHits(diskView(root), law, true, "")
 	if err == nil {
 		t.Fatalf("jsonCeilingHits reported %d hit(s) over a file it could not read — a real ceiling breach is now invisible", len(hits))
 	}

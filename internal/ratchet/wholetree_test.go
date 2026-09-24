@@ -153,7 +153,7 @@ func TestContainmentNamesTheFilterTheStandInIsMissing(t *testing.T) {
 	root := containmentTree(t,
 		"fn attach_stub(q: Query<&PlayerPosition, (Without<SimBody>, Without<PropShape>)>) {}\n")
 
-	hits, err := containmentHits(root, containmentLaw(t, root, "// substitute-ok:"))
+	hits, err := containmentHits(diskView(root), containmentLaw(t, root, "// substitute-ok:"))
 	if err != nil {
 		t.Fatalf("containmentHits: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestContainmentAllowsAStandInThatRefusesMore(t *testing.T) {
 	root := containmentTree(t,
 		"fn attach_stub(q: Query<&PlayerPosition, (Without<SimBody>, Without<PropShape>, Without<DropView>, Without<Ghost>)>) {}\n")
 
-	hits, err := containmentHits(root, containmentLaw(t, root, "// substitute-ok:"))
+	hits, err := containmentHits(diskView(root), containmentLaw(t, root, "// substitute-ok:"))
 	if err != nil {
 		t.Fatalf("containmentHits: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestContainmentAllowsAStandInThatRefusesMore(t *testing.T) {
 func TestContainmentWaiverIsHonouredAndGoesStale(t *testing.T) {
 	waived := containmentTree(t,
 		"// substitute-ok: the rig has no drops\nfn attach_stub(q: Query<&PlayerPosition, (Without<SimBody>)>) {}\n")
-	hits, err := containmentHits(waived, containmentLaw(t, waived, "// substitute-ok:"))
+	hits, err := containmentHits(diskView(waived), containmentLaw(t, waived, "// substitute-ok:"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestContainmentWaiverIsHonouredAndGoesStale(t *testing.T) {
 
 	stale := containmentTree(t,
 		"// substitute-ok: stale\nfn attach_stub(q: Query<&PlayerPosition, (Without<SimBody>, Without<PropShape>, Without<DropView>)>) {}\n")
-	hits, err = containmentHits(stale, containmentLaw(t, stale, "// substitute-ok:"))
+	hits, err = containmentHits(diskView(stale), containmentLaw(t, stale, "// substitute-ok:"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestContainmentWaiverIsHonouredAndGoesStale(t *testing.T) {
 func TestContainmentRefusesAVacuousComparison(t *testing.T) {
 	root := containmentTree(t, "fn attach_stub() {}\n")
 	write(t, filepath.Join(root, "crates", "client", "src", "render", "attach.rs"), "fn attach() {}\n")
-	if _, err := containmentHits(root, containmentLaw(t, root, "")); err == nil {
+	if _, err := containmentHits(diskView(root), containmentLaw(t, root, "")); err == nil {
 		t.Fatal("empty contains empty — that must be an error, not a pass")
 	}
 }
@@ -241,7 +241,7 @@ func TestContainment_SplitCapturesCompareTwoDifferentNotations(t *testing.T) {
 		"[workspace]\nmembers = [\"crates/zone\", \"crates/item\"]\n")
 	write(t, filepath.Join(root, "CRATES.md"), "| `zone` | allegiance |\n")
 
-	hits, err := containmentHits(root, splitCaptureLaw(t, root))
+	hits, err := containmentHits(diskView(root), splitCaptureLaw(t, root))
 	if err != nil {
 		t.Fatalf("containmentHits: %v", err)
 	}
@@ -256,7 +256,7 @@ func TestContainment_SplitCapturesAgreeWhenBothSidesDocumentTheSameNames(t *test
 		"[workspace]\nmembers = [\"crates/zone\"]\n")
 	write(t, filepath.Join(root, "CRATES.md"), "| `zone` | allegiance |\n")
 
-	hits, err := containmentHits(root, splitCaptureLaw(t, root))
+	hits, err := containmentHits(diskView(root), splitCaptureLaw(t, root))
 	if err != nil {
 		t.Fatalf("containmentHits: %v", err)
 	}
@@ -300,7 +300,7 @@ func criterionTree(t *testing.T, ns string) string {
 
 func TestJSONCeilingReadsTheNumberAndKeysItByBenchID(t *testing.T) {
 	root := criterionTree(t, "46.3")
-	hits, err := jsonCeilingHits(root, jsonCeilingLaw(t, root), true, "")
+	hits, err := jsonCeilingHits(diskView(root), jsonCeilingLaw(t, root), true, "")
 	if err != nil {
 		t.Fatalf("jsonCeilingHits: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestJSONCeilingReadsTheNumberAndKeysItByBenchID(t *testing.T) {
 }
 
 func TestJSONCeilingErrorsWhenArmedOverNothing(t *testing.T) {
-	if _, err := jsonCeilingHits(t.TempDir(), jsonCeilingLaw(t, t.TempDir()), true, ""); err == nil {
+	if _, err := jsonCeilingHits(diskView(t.TempDir()), jsonCeilingLaw(t, t.TempDir()), true, ""); err == nil {
 		t.Fatal("armed with no data must be an error, never a pass")
 	}
 }
@@ -324,7 +324,7 @@ func TestJSONCeilingErrorsWhenArmedOverNothing(t *testing.T) {
 func TestJSONCeilingErrorsOnAMissingPath(t *testing.T) {
 	root := t.TempDir()
 	write(t, filepath.Join(root, "criterion", "b", "c", "new", "estimates.json"), `{"median": {"point_estimate": 1}}`)
-	if _, err := jsonCeilingHits(root, jsonCeilingLaw(t, root), true, ""); err == nil {
+	if _, err := jsonCeilingHits(diskView(root), jsonCeilingLaw(t, root), true, ""); err == nil {
 		t.Fatal("a path that names nothing must fail loudly")
 	}
 }
@@ -454,7 +454,7 @@ func TestJSONCeilingFollowsCargoTargetDirWithoutMovingTheBaselineKey(t *testing.
 	write(t, filepath.Join(inTree, "target", "criterion", "apply_movement", "new", "estimates.json"),
 		`{"mean": {"point_estimate": 46.3}}`)
 
-	hits, err := jsonCeilingHits(inTree, targetGlobLaw(t, inTree), true, "")
+	hits, err := jsonCeilingHits(diskView(inTree), targetGlobLaw(t, inTree), true, "")
 	if err != nil {
 		t.Fatalf("jsonCeilingHits: %v", err)
 	}
@@ -467,7 +467,7 @@ func TestJSONCeilingFollowsCargoTargetDirWithoutMovingTheBaselineKey(t *testing.
 	elsewhere := t.TempDir()
 	write(t, filepath.Join(elsewhere, "criterion", "apply_movement", "new", "estimates.json"),
 		`{"mean": {"point_estimate": 46.3}}`)
-	moved, err := jsonCeilingHits(t.TempDir(), targetGlobLaw(t, inTree), true, elsewhere)
+	moved, err := jsonCeilingHits(diskView(t.TempDir()), targetGlobLaw(t, inTree), true, elsewhere)
 	if err != nil {
 		t.Fatalf("jsonCeilingHits: %v", err)
 	}
@@ -481,7 +481,7 @@ func TestJSONCeilingFollowsCargoTargetDirWithoutMovingTheBaselineKey(t *testing.
 
 func TestJSONCeilingIgnoresTheTargetDirForAGlobOutsideTarget(t *testing.T) {
 	root := criterionTree(t, "46.3")
-	hits, err := jsonCeilingHits(root, jsonCeilingLaw(t, root), true, t.TempDir())
+	hits, err := jsonCeilingHits(diskView(root), jsonCeilingLaw(t, root), true, t.TempDir())
 	if err != nil {
 		t.Fatalf("jsonCeilingHits: %v", err)
 	}

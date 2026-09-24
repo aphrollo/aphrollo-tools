@@ -34,7 +34,7 @@ func TestGoBenchCeiling_ReadsBPerOpAndAllocsPerOpByName(t *testing.T) {
 	write(t, filepath.Join(root, "bench", "baseline.txt"),
 		"BenchmarkFoo-8   \t5\t123 ns/op\t456 B/op\t7 allocs/op\n")
 
-	hits, err := goBenchCeilingHits(root, goBenchCeilingLaw(t), true)
+	hits, err := goBenchCeilingHits(diskView(root), goBenchCeilingLaw(t), true)
 	if err != nil {
 		t.Fatalf("goBenchCeilingHits: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestGoBenchCeiling_TakesTheWorstOfRepeatedLines(t *testing.T) {
 			"BenchmarkFoo-8   \t5\t100 ns/op\t900 B/op\t5 allocs/op\n"+
 			"BenchmarkFoo-8   \t5\t100 ns/op\t500 B/op\t9 allocs/op\n")
 
-	hits, err := goBenchCeilingHits(root, goBenchCeilingLaw(t), true)
+	hits, err := goBenchCeilingHits(diskView(root), goBenchCeilingLaw(t), true)
 	if err != nil {
 		t.Fatalf("goBenchCeilingHits: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestGoBenchCeiling_IgnoresNonBenchLines(t *testing.T) {
 			"BenchmarkFoo-8   \t5\t100 ns/op\t400 B/op\t5 allocs/op\n"+
 			"PASS\nok  \texample.com/x\t1.234s\n")
 
-	hits, err := goBenchCeilingHits(root, goBenchCeilingLaw(t), true)
+	hits, err := goBenchCeilingHits(diskView(root), goBenchCeilingLaw(t), true)
 	if err != nil {
 		t.Fatalf("goBenchCeilingHits: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestGoBenchCeiling_IgnoresNonBenchLines(t *testing.T) {
 // own refusal: a law with nothing to read must fail loudly, never pass clean
 // over data that does not exist.
 func TestGoBenchCeiling_ErrorsWhenArmedOverNothing(t *testing.T) {
-	if _, err := goBenchCeilingHits(t.TempDir(), goBenchCeilingLaw(t), true); err == nil {
+	if _, err := goBenchCeilingHits(diskView(t.TempDir()), goBenchCeilingLaw(t), true); err == nil {
 		t.Fatal("armed with no data must be an error, never a pass")
 	}
 }

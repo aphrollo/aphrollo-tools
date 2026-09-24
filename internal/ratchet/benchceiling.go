@@ -2,7 +2,6 @@ package ratchet
 
 import (
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -13,11 +12,11 @@ import (
 // numeric-ceiling kinds share one baseline mechanism (a Hit's Weight is the
 // measured value, only ever allowed to fall) but read different file
 // shapes — generated JSON versus `go test -bench -benchmem` text.
-func ceilingHits(root string, law Law, requireData bool, targetDir string) ([]Hit, error) {
+func ceilingHits(view treeView, law Law, requireData bool, targetDir string) ([]Hit, error) {
 	if law.Matcher.Kind == KindGoBenchCeiling {
-		return goBenchCeilingHits(root, law, requireData)
+		return goBenchCeilingHits(view, law, requireData)
 	}
-	return jsonCeilingHits(root, law, requireData, targetDir)
+	return jsonCeilingHits(view, law, requireData, targetDir)
 }
 
 // goBenchLineRE matches one `go test -bench -benchmem` result line: a name
@@ -40,8 +39,8 @@ var goBenchEnforcedUnits = map[string]bool{"B/op": true, "allocs/op": true}
 // (largest) value seen for that triple, since a `-count` re-record carries
 // several repeated lines for the same name and a ceiling must not let the
 // best of several runs hide a regression the others show.
-func goBenchCeilingHits(root string, law Law, requireData bool) ([]Hit, error) {
-	files, err := globFiles(root, law.Matcher.Files)
+func goBenchCeilingHits(view treeView, law Law, requireData bool) ([]Hit, error) {
+	files, err := viewGlobFiles(view, law.Matcher.Files)
 	if err != nil {
 		return nil, fmt.Errorf("law %q: %w", law.Name, err)
 	}
@@ -53,7 +52,7 @@ func goBenchCeilingHits(root string, law Law, requireData bool) ([]Hit, error) {
 	worst := map[string]int{}
 	var order []string
 	for _, rel := range files {
-		data, err := readFile(filepath.Join(root, filepath.FromSlash(rel)))
+		data, err := view.read(rel)
 		if err != nil {
 			if vanished(err) {
 				continue // a file that vanished mid-walk is not a finding
