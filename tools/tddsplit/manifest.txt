@@ -256,7 +256,7 @@ precommit_diffscan_suite.go                        suite  # created by P2
 ratchetgate_suite.go                               suite  # created by P2
 statusline_suite.go                                suite  # created by P2
 
-# smell: 13 file(s), plus 1 created by P2
+# smell: 14 file(s), plus 1 created by P2
 policy.go                                          smell
 policy_registry_test.go                            smell
 policy_test.go                                     smell
@@ -268,6 +268,7 @@ smellscope.go                                      smell
 suppress.go                                        smell
 suppress_test.go                                   smell
 testquality.go                                     smell
+testquality_own_test.go                            smell
 zigtest_test.go                                    smell  # prefix says suite; its test body reaches smell
 testdata/policies/                                 smell
 pretooluse_smell.go                                smell  # created by P2
