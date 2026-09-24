@@ -37,7 +37,17 @@ func TestLockDir_OneOverrideCoversEveryLockFile(t *testing.T) {
 // TestLockDir_LeavesNoFilesInTheRealTempDir is the end-to-end statement of
 // the same rule: a full acquire/release cycle under the override adds
 // nothing to os.TempDir(). This is what the 871 stale files violated.
+//
+// os.TempDir() is process-wide and machine-shared, so scanning the box's
+// actual temp dir made this flaky: any concurrent process — another test
+// binary in the same `go test ./...`, another CI job, a gate hook — can add
+// a file with the same prefix between the "before" and "after" counts,
+// failing a test that never touched the code under test. isolateRealTempDir
+// gives this run its own private stand-in for "the real temp dir" so the
+// only writer that can grow it is the code this test calls.
 func TestLockDir_LeavesNoFilesInTheRealTempDir(t *testing.T) {
+	isolateRealTempDir(t)
+
 	before := countTempLocks(t)
 	dir := t.TempDir()
 	restore := SetLockDirForTest(dir)
@@ -50,6 +60,19 @@ func TestLockDir_LeavesNoFilesInTheRealTempDir(t *testing.T) {
 
 	if after := countTempLocks(t); after != before {
 		t.Fatalf("real temp lock files: %d → %d, want no growth", before, after)
+	}
+}
+
+// isolateRealTempDir points every variable os.TempDir() consults (TMPDIR on
+// Unix, TMP/TEMP on Windows) at a directory this test alone owns, so
+// countTempLocks below measures only what THIS test's own calls create —
+// never a box-wide temp dir shared with every other process running at the
+// same time.
+func isolateRealTempDir(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(key, dir)
 	}
 }
 
