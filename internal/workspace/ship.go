@@ -27,11 +27,17 @@ type ShipRequest struct {
 	Title    string // PR title ("" => filled from commits)
 	Body     string // PR body
 	Draft    bool   // open the PR as a draft
+	// SkipMutants opens the PR without the measurement before it; it needs
+	// a reason.
+	SkipMutants SkipMutants
 }
 
 // ShipPlan resolves all three stages up front so the dry-run can show the whole
 // sequence and an addressing/usage error surfaces before anything runs.
 func ShipPlan(t *Target, req ShipRequest) (*Ship, error) {
+	if err := req.SkipMutants.validate(); err != nil {
+		return nil, err
+	}
 	c, err := CommitPlan(t, req.Message, req.StageAll, req.NoVerify, req.Reason)
 	if err != nil {
 		return nil, err
@@ -44,6 +50,7 @@ func ShipPlan(t *Target, req ShipRequest) (*Ship, error) {
 	if err != nil {
 		return nil, err
 	}
+	pr.Skip = req.SkipMutants
 	return &Ship{commit: c, push: p, pr: pr}, nil
 }
 

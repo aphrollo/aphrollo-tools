@@ -46,6 +46,12 @@ type MeasureOpts struct {
 	// publishes nothing, which is every local run: only the CI job that
 	// measures on behalf of another box passes it.
 	ReportOut string
+	// DeferOnCIBusy answers an Unavailable verdict, without measuring, when
+	// a CI runner job is busy on this box, instead of waiting for it. The
+	// check before a PR opens sets it: CI measures the same diff on its own
+	// box, and nothing is gained by holding the PR open for up to
+	// mutantsCIWaitMax. The merge gate leaves it false and waits.
+	DeferOnCIBusy bool
 }
 
 // mutantsExecFn runs one mutation tool and reports its exit code. A seam, the
@@ -138,6 +144,15 @@ func MeasureLane(root string, cfg MutantsConfig, opts MeasureOpts) (Verdict, err
 	}
 	if base == "" {
 		return Verdict{}, fmt.Errorf("no base to measure %s against", root)
+	}
+	if opts.DeferOnCIBusy {
+		// Probed only when asked: the merge gate's own wait probes once
+		// already, and an idle box is not polled twice.
+		if busy := ciRunnerJobsFn(); len(busy) > 0 {
+			why := ciRunnerJobsText(busy) + " busy on this box"
+			logf(log, "mutants: %s — not measuring here", why)
+			return Verdict{Unavailable: why, Message: "mutants: " + why}, nil
+		}
 	}
 	if isGoModuleRepo(root) {
 		return measureGoLane(ctx, root, cfg, base, opts.ReportOut, log)

@@ -58,7 +58,10 @@ var ghEditPRBody = func(wt, branch, body string) error {
 type Submit struct {
 	Target  *Target
 	Summary string
-	push    *Push
+	// Skip is the --skip-mutants override of the measurement the PR opens
+	// behind (premutants.go).
+	Skip SkipMutants
+	push *Push
 }
 
 // SubmitPlan resolves the push stage and snapshots the request. It refuses a
@@ -122,7 +125,11 @@ func (s *Submit) Apply(stdout, stderr io.Writer) error {
 	// false conflict/unknown, so no extra re-read is needed.
 	opened := false
 	if info == nil {
-		info, err = ghCreatePR(wt, PRCreate{Base: resolveDefaultBranch(wt), Branch: branch, Draft: false})
+		base := resolveDefaultBranch(wt)
+		if err := mutantsBeforePR(wt, base, s.Skip, stdout, stderr); err != nil {
+			return err
+		}
+		info, err = ghCreatePR(wt, PRCreate{Base: base, Branch: branch, Draft: false})
 		if err != nil {
 			return err
 		}

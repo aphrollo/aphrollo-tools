@@ -86,6 +86,7 @@ func runWorkspacePR(args []string, stdout, stderr io.Writer) int {
 		ready = fs.Bool("ready", false, "open the PR ready for review instead of as a draft")
 		into  = fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
 	)
+	skip := skipMutantsFlag(fs)
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
 		return 2
@@ -99,6 +100,7 @@ func runWorkspacePR(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
+	pr.Skip = *skip
 	apply := !*dry
 	fmt.Fprint(stdout, pr.Render(apply))
 	if !apply {
@@ -126,6 +128,7 @@ func runWorkspaceShip(args []string, stdout, stderr io.Writer) int {
 		ready      = fs.Bool("ready", false, "open the PR ready for review instead of as a draft")
 		into       = fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
 	)
+	skip := skipMutantsFlag(fs)
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
 		return 2
@@ -135,14 +138,15 @@ func runWorkspaceShip(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	s, err := workspace.ShipPlan(t, workspace.ShipRequest{
-		Message:  *msg,
-		StageAll: !*stagedOnly,
-		NoVerify: *noVerify,
-		Reason:   *reason,
-		Base:     *base,
-		Title:    *title,
-		Body:     *body,
-		Draft:    !*ready,
+		Message:     *msg,
+		StageAll:    !*stagedOnly,
+		NoVerify:    *noVerify,
+		Reason:      *reason,
+		Base:        *base,
+		Title:       *title,
+		Body:        *body,
+		Draft:       !*ready,
+		SkipMutants: *skip,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
@@ -167,6 +171,7 @@ func runWorkspaceSubmit(args []string, stdout, stderr io.Writer) int {
 		msg = fs.String("m", "", "PR summary to set as the body on the in-review handoff")
 		dry = fs.Bool("dry", false, "print the plan and stop (default: execute)")
 	)
+	skip := skipMutantsFlag(fs)
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
 		return 2
@@ -180,6 +185,7 @@ func runWorkspaceSubmit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
+	s.Skip = *skip
 	apply := !*dry
 	fmt.Fprint(stdout, s.Render(apply))
 	if !apply {
@@ -192,6 +198,17 @@ func runWorkspaceSubmit(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// skipMutantsFlag registers --skip-mutants on fs: its value is the reason,
+// which the PR verbs require and write to the gate log.
+func skipMutantsFlag(fs *flag.FlagSet) *workspace.SkipMutants {
+	skip := &workspace.SkipMutants{}
+	fs.Func("skip-mutants", "open the PR without measuring the lane's mutants first; the value is the required reason, written to the gate log", func(v string) error {
+		*skip = workspace.SkipMutants{Set: true, Reason: v}
+		return nil
+	})
+	return skip
 }
 
 func runWorkspaceUnclaim(args []string, stdout, stderr io.Writer) int {

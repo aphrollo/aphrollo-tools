@@ -19,6 +19,12 @@ type Verdict struct {
 	// same reason untestedVerdict keeps a build-only run apart from a pass
 	// (issue #697).
 	NotMeasured string
+	// Unavailable is why this box could not run the measurement right now
+	// (the drive budget refused it), empty whenever it could. The verdict is
+	// still Refused: the merge gate does not land a tree nobody measured.
+	// The check before a PR opens reads it instead and defers the
+	// measurement to CI, which measures on its own box.
+	Unavailable string
 	Tested      int
 	Caught      int
 	Unviable    int

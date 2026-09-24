@@ -185,6 +185,9 @@ type PRCreate struct {
 type PR struct {
 	Target *Target
 	Create PRCreate
+	// Skip is the --skip-mutants override of the measurement a PR opens
+	// behind (premutants.go).
+	Skip SkipMutants
 }
 
 // PRPlan resolves the PR open without touching gh. An empty base resolves the
@@ -236,6 +239,9 @@ func (p *PR) Apply(stdout, stderr io.Writer) error {
 		fmt.Fprintf(stdout, "PR #%d already open: %s\n", existing.Number, existing.URL)
 		reportPRState(stdout, existing)
 		return nil
+	}
+	if err := mutantsBeforePR(p.Target.Worktree, p.Create.Base, p.Skip, stdout, stderr); err != nil {
+		return err
 	}
 	info, err := ghCreatePR(p.Target.Worktree, p.Create)
 	if err != nil {

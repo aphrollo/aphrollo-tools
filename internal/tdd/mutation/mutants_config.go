@@ -33,16 +33,21 @@ type MutantsConfig struct {
 	// sessions. It only ever LOWERS the count the box derives — see
 	// capShardsToConfig. Zero means derive it from the box.
 	Shards int
+	// BeforePR is mutants-before-pr: `workspace pr`, `ship` and `submit`
+	// measure the lane's own diff before they open a PR, and refuse to open
+	// one the merge gate would refuse.
+	BeforePR bool
 }
 
 // The keys a repo declares. mutants-at-merge is the only switch: the trio it
 // replaces encoded where a document was produced and where it was judged,
 // and the document is gone.
 const (
-	mutantsAtMergeKey = "mutants-at-merge"
-	mutantsEnvKey     = "mutants-env"
-	mutantsAcceptKey  = "mutation-accept"
-	mutantsAfterKey   = "mutants-after"
+	mutantsAtMergeKey  = "mutants-at-merge"
+	mutantsBeforePRKey = "mutants-before-pr"
+	mutantsEnvKey      = "mutants-env"
+	mutantsAcceptKey   = "mutation-accept"
+	mutantsAfterKey    = "mutants-after"
 )
 
 // retiredMutantsKeys are the keys that no longer do anything. A repo that
@@ -71,6 +76,12 @@ func ReadMutantsConfig(root string) (MutantsConfig, error) {
 	for _, t := range tables {
 		if v, set := tomlBoolSetIn(t.Path, t.Table, mutantsAtMergeKey); set {
 			cfg.AtMerge = v
+			break
+		}
+	}
+	for _, t := range tables {
+		if v, set := tomlBoolSetIn(t.Path, t.Table, mutantsBeforePRKey); set {
+			cfg.BeforePR = v
 			break
 		}
 	}
