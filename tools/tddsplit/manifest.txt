@@ -138,7 +138,7 @@ budgetfloor_own_test.go                            lock
 buildlock.go                                       lock
 buildlock_futuremtime.go                           lock
 buildlock_futuremtime_own_test.go                  lock
-buildlock_own_test.go                              lock
+buildlock_lock_own_test.go                         lock
 buildlock_unix.go                                  lock
 buildlock_windows.go                               lock
 buildslots.go                                      lock
