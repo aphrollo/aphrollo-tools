@@ -1,0 +1,4 @@
+{"ImportPath":"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx","Imports":["github.com/aphrollo/aphrollo-tools/internal/diff"],"Standard":false}
+{"ImportPath":"github.com/aphrollo/aphrollo-tools/internal/diff","Imports":[],"Standard":false}
+{"ImportPath":"github.com/aphrollo/aphrollo-tools/internal/tdd/shell","Imports":["strings"],"Standard":false}
+{"ImportPath":"strings","Imports":[],"Standard":true}
