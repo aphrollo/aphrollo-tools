@@ -11,7 +11,7 @@ import (
 // depends on content HitsIn never sees — a sibling file's whole text — so
 // it is answered here, the way registry-both-ways answers its own
 // whole-scope question, rather than in the per-file, pure HitsIn path.
-func packageMarkerHits(root string, law Law, files []string, content map[string]string) ([]Hit, error) {
+func packageMarkerHits(view treeView, law Law, files []string, content map[string]string) ([]Hit, error) {
 	siblingsByDir := map[string][]string{}
 	var hits []Hit
 	for _, rel := range files {
@@ -42,7 +42,7 @@ func packageMarkerHits(root string, law Law, files []string, content map[string]
 		siblings, ok := siblingsByDir[dir]
 		if !ok {
 			var err error
-			if siblings, err = packageSiblings(root, law, dir); err != nil {
+			if siblings, err = packageSiblings(view, law, dir); err != nil {
 				return nil, err
 			}
 			siblingsByDir[dir] = siblings
@@ -52,7 +52,7 @@ func packageMarkerHits(root string, law Law, files []string, content map[string]
 			if sib == rel {
 				continue
 			}
-			sibText, err := siblingText(root, sib, content)
+			sibText, err := siblingText(view, sib, content)
 			if err != nil {
 				return nil, err
 			}
@@ -86,8 +86,10 @@ func packageDirOf(rel string) string {
 // disk rather than the walk's own file list: a narrowed pre-edit run visits
 // only the one file being written and never its siblings otherwise, and the
 // TestMain declaring a package's isolation is exactly one of those siblings.
-func packageSiblings(root string, law Law, dir string) ([]string, error) {
-	entries, err := readDir(filepath.Join(root, filepath.FromSlash(dir)))
+// A file on disk the view does not carry (untracked, at commit time) is no
+// sibling: it lands with no commit, so it excuses nothing in one.
+func packageSiblings(view treeView, law Law, dir string) ([]string, error) {
+	entries, err := readDir(filepath.Join(view.root, filepath.FromSlash(dir)))
 	if err != nil {
 		if vanished(err) {
 			return nil, nil // absence-ok: a dir that vanished mid-walk has no siblings to offer, not an error
@@ -100,7 +102,7 @@ func packageSiblings(root string, law Law, dir string) ([]string, error) {
 			continue
 		}
 		rel := path(dir, e.Name())
-		if law.Scope.Matches(rel) {
+		if law.Scope.Matches(rel) && view.has(rel) {
 			out = append(out, rel)
 		}
 	}
@@ -111,11 +113,11 @@ func packageSiblings(root string, law Law, dir string) ([]string, error) {
 // (honoring a `--proposed` overlay when the sibling is itself being edited),
 // or a direct disk read otherwise. A sibling that vanished mid-walk excuses
 // nothing rather than failing the whole law.
-func siblingText(root, rel string, content map[string]string) (string, error) {
+func siblingText(view treeView, rel string, content map[string]string) (string, error) {
 	if text, ok := content[rel]; ok {
 		return text, nil
 	}
-	data, err := readFile(filepath.Join(root, filepath.FromSlash(rel)))
+	data, err := view.read(rel)
 	if err != nil {
 		if vanished(err) {
 			return "", nil // absence-ok: a sibling that vanished mid-walk offers no excuse, not an error

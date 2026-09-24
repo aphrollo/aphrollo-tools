@@ -333,12 +333,12 @@ func matchesAny(patterns []string, name string) bool {
 // containmentHits reports every capture present in the subset file and absent
 // from the superset file. Containment, not equality: a stand-in may refuse
 // MORE than the real system, never less.
-func containmentHits(root string, law Law) ([]Hit, error) {
-	superset, err := captureSet(root, law.Matcher.SupersetFile, law.Matcher.SupersetCapture)
+func containmentHits(view treeView, law Law) ([]Hit, error) {
+	superset, err := captureSet(view, law.Matcher.SupersetFile, law.Matcher.SupersetCapture)
 	if err != nil {
 		return nil, fmt.Errorf("law %q: %w", law.Name, err)
 	}
-	subset, err := captureSet(root, law.Matcher.SubsetFile, law.Matcher.SubsetCapture)
+	subset, err := captureSet(view, law.Matcher.SubsetFile, law.Matcher.SubsetCapture)
 	if err != nil {
 		return nil, fmt.Errorf("law %q: %w", law.Name, err)
 	}
@@ -356,7 +356,7 @@ func containmentHits(root string, law Law) ([]Hit, error) {
 		}
 	}
 	if law.Escape != "" {
-		text, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(law.Matcher.SupersetFile)))
+		text, err := view.read(law.Matcher.SupersetFile)
 		if err == nil && strings.Contains(string(text), law.Escape) {
 			if len(missing) > 0 {
 				return nil, nil // waived, deliberately
@@ -380,8 +380,8 @@ func containmentHits(root string, law Law) ([]Hit, error) {
 	return hits, nil
 }
 
-func captureSet(root, file string, pattern *regexp.Regexp) (map[string]bool, error) {
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file)))
+func captureSet(view treeView, file string, pattern *regexp.Regexp) (map[string]bool, error) {
+	data, err := view.read(file)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", file, err)
 	}
@@ -398,9 +398,20 @@ func captureSet(root, file string, pattern *regexp.Regexp) (map[string]bool, err
 // hit's weight is the measured value (rounded UP — a ceiling), so the baseline
 // tightens on an improvement; the TOLERANCE is applied when comparing, not
 // here, because a value inside tolerance still has to lower its ceiling.
-func jsonCeilingHits(root string, law Law, requireData bool, targetDir string) ([]Hit, error) {
-	base, glob, keyPrefix := jsonCeilingBase(root, law.Matcher.Files, targetDir)
-	files, err := globFiles(base, glob)
+func jsonCeilingHits(view treeView, law Law, requireData bool, targetDir string) ([]Hit, error) {
+	base, glob, keyPrefix := jsonCeilingBase(view.root, law.Matcher.Files, targetDir)
+	// A glob over the repo itself reads the same tree every other law does;
+	// build output under target/ is in no commit and no view, so it is read
+	// where cargo wrote it.
+	read := view.read
+	var files []string
+	var err error
+	if keyPrefix == "" {
+		files, err = viewGlobFiles(view, glob)
+	} else {
+		read = func(rel string) ([]byte, error) { return readFile(filepath.Join(base, filepath.FromSlash(rel))) }
+		files, err = globFiles(base, glob)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("law %q: %w", law.Name, err)
 	}
@@ -414,7 +425,7 @@ func jsonCeilingHits(root string, law Law, requireData bool, targetDir string) (
 	}
 	var hits []Hit
 	for _, rel := range files {
-		data, err := readFile(filepath.Join(base, filepath.FromSlash(rel)))
+		data, err := read(rel)
 		if err != nil {
 			if vanished(err) {
 				continue // a file that vanished mid-walk is not a finding

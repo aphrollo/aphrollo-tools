@@ -82,7 +82,7 @@ func TestRegistry_EntryColumnScopesToTheCrateCellNotTheProseCell(t *testing.T) {
 	content := map[string]string{rel: "package a\n\nfunc f() {\n\tcrate.zone.Do()\n\tcrate.item.Do()\n}\n"}
 
 	law := entryColumnLaw(t, root)
-	hits, err := registryHits(root, law, []string{rel}, content, false, true)
+	hits, err := registryHits(diskView(root), law, []string{rel}, content, false, true)
 	if err != nil {
 		t.Fatalf("registryHits: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestRegistry_EntryColumnSkipsARowWithTooFewCells(t *testing.T) {
 	content := map[string]string{rel: "package a\n\nfunc f() { crate.zone.Do() }\n"}
 
 	law := entryColumnLaw(t, root)
-	hits, err := registryHits(root, law, []string{rel}, content, false, true)
+	hits, err := registryHits(diskView(root), law, []string{rel}, content, false, true)
 	if err != nil {
 		t.Fatalf("registryHits: %v", err)
 	}

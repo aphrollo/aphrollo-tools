@@ -64,6 +64,9 @@ func HandlePrompt(raw []byte) PromptResult {
 	} else {
 		r = PromptResult{Message: reinforce(in.SessionID, in.Cwd)}
 	}
+	if !r.Block {
+		r.Message = joinRetro(r.Message, TakeSessionRetros(in.SessionID))
+	}
 	if replyStyleFor(in.SessionID) == "terse" {
 		r.Style = StyleBlock()
 	}
@@ -357,6 +360,10 @@ func HandleSessionStart(raw []byte) string {
 	}
 	if line != "" {
 		parts = append(parts, line)
+	}
+	// A retro a merge left while no session was running, for this repo.
+	if retro := TakeRepoRetros(in.Cwd); retro != "" {
+		parts = append(parts, retro)
 	}
 	return strings.Join(parts, "\n\n")
 }

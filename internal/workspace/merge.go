@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // mergeMethods are gh's merge strategies. The repo squash-merges (PR subjects
@@ -65,6 +67,11 @@ var ghDeleteRemoteBranch = func(wt, branch string) (bool, error) {
 // canonical clone's local default branch after a successful merge. A package var
 // so merge tests drive it without git or the network, mirroring the gh seams.
 var syncMainClone = Sync
+
+// postMergeRetro is the seam over the post-merge retro merge runs once the PR
+// has landed (tdd.PostMergeRetro): it reads the PR's journey and records any
+// friction for the session that ran the merge. It never fails the merge.
+var postMergeRetro = tdd.PostMergeRetro
 
 // Merge is a resolved merge of the worktree branch's PR. It honors GitHub's own
 // gates: gh refuses a PR that is not mergeable or whose required checks are
@@ -180,6 +187,8 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	if err := syncMainClone(m.Target.MainRepo, false, stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "post-merge sync of %s failed (best-effort, merge already landed): %v\n", m.Target.MainRepo, err)
 	}
+
+	postMergeRetro(m.Target.MainRepo, m.Target.Worktree, m.Target.Branch, pr.Number, stderr)
 
 	fmt.Fprintf(stdout, "  next: aphrollo workspace prune  (sweep the merged local worktree)\n")
 	return nil

@@ -1,0 +1,14 @@
+[
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/58de4e5e1225139b85e0e38674b5082122a45250/.github",
+  "end_column": null,
+  "end_line": 8788,
+  "message": "Process completed with exit code 1.",
+  "path": ".github",
+  "raw_details": "",
+  "start_column": null,
+  "start_line": 8788,
+  "title": ""
+ }
+]

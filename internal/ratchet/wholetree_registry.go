@@ -2,8 +2,6 @@ package ratchet
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -41,9 +39,8 @@ func tableCell(line string, col int) (string, bool) {
 	return strings.TrimSpace(cells[col]), true
 }
 
-func registryHits(root string, law Law, files []string, content map[string]string, applyScope, wholeTree bool) ([]Hit, error) {
-	registryPath := filepath.Join(root, filepath.FromSlash(law.Matcher.RegistryFile))
-	data, err := os.ReadFile(registryPath)
+func registryHits(view treeView, law Law, files []string, content map[string]string, applyScope, wholeTree bool) ([]Hit, error) {
+	data, err := view.read(law.Matcher.RegistryFile)
 	if err != nil {
 		return nil, fmt.Errorf("law %q: reading registry %s: %w", law.Name, law.Matcher.RegistryFile, err)
 	}

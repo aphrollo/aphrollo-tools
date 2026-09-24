@@ -1,0 +1,14 @@
+[
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/d2eff3cb7739f89c5512b897c1732f2160914fd7/.github",
+  "end_column": null,
+  "end_line": 1,
+  "message": "The self-hosted runner lost communication with the server. Verify the machine is running and has a healthy network connection. Anything in your workflow that terminates the runner process, starves it for CPU/Memory, or blocks its network access can cause this error.",
+  "path": ".github",
+  "raw_details": "",
+  "start_column": null,
+  "start_line": 1,
+  "title": ""
+ }
+]
