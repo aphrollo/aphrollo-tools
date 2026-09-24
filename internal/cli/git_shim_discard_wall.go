@@ -49,8 +49,19 @@ func discardWallRefusal(cfg gitShimConfig, rest []string, workDir string) (line 
 	// session holds a pre-mutation state for: mid-proof, the refusal that
 	// says nothing about the hold is the one that made the field builder
 	// assume the restore was simply impossible and mutate on (#650).
-	refusal := discardRefusalLine(form, cost) + mutationHoldHint(form, paths, workDir)
+	refusal := discardRefusalLine(form, cost) + mutationHoldHint(form, paths, workDir) + probeDiscardHint(form)
 	return discardRefused(workDir, form, refusal, suffix)
+}
+
+// probeDiscardHint names the sanctioned route back to HEAD on the two
+// refusals a lane meets when it strips a refused probe arm: without it the
+// refusal offers only overrides, and #836's lane reached for an unaudited
+// `git apply -R` instead.
+func probeDiscardHint(form string) string {
+	if !isPathRestoreForm(form) {
+		return ""
+	}
+	return "; to strip a refused probe arm back to HEAD, aphrollo gate probe discard <files> backs the diff up first"
 }
 
 // markerDecision is what an environment marker buys. APHROLLO_DISCARD=1 was a
