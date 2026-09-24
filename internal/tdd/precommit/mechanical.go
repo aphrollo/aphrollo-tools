@@ -69,6 +69,10 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		notes = append(notes, line)
 		return GateResult{Message: strings.Join(notes, "\n")}
 	}
+	planRoots(premergeDisplayName, repoRoot, groups)
+	if res := dirtyTreeStage(premergeDisplayName, repoRoot, groups); res.Blocked {
+		return res
+	}
 	for _, g := range groups {
 		res := gateRoot(premergeDisplayName, repoRoot, g, run, false)
 		if res.Blocked {

@@ -18,6 +18,8 @@ type SuiteRunner = suite.SuiteRunner
 
 var ghAvailable = suite.GhAvailable
 
+func CargoBuildOnlyArgv(p0 []string) []string { return suite.CargoBuildOnlyArgv(p0) }
+
 func DetectRunner(p0 string) (Runner, bool) { return suite.DetectRunner(p0) }
 
 func FindProjectRoot(p0 string) string { return suite.FindProjectRoot(p0) }

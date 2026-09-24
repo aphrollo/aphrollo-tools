@@ -49,9 +49,7 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	// related mode (or an unknown command) falls back to the full suite
 	// unchanged.
 	rootRelFiles := toRootRelative(repoRoot, g.Root, rootFiles)
-	if scoped, narrowed := narrowToStaged(runner, g.Root, rootRelFiles); narrowed {
-		runner = scoped
-	}
+	runner = narrowedRunner(runner, repoRoot, g.Root, rootFiles)
 	if runner.Cmd == "go" {
 		runner = withGoCIParity(runner, gateName == premergeDisplayName)
 	}
