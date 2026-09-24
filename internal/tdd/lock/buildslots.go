@@ -270,7 +270,8 @@ var buildLockQueueNoticeEvery = 60 * time.Second
 // contract: an edit-time run reports QUEUED-SKIPPED instantly rather than
 // spending its budget waiting.
 func acquireBuildSlot(targetDir string, deadline time.Duration, cmd, cwd string) (BuildSlot, func(), bool) {
-	slot, release, wait := waitForBuildSlot(targetDir, deadline, cmd, cwd, func() bool { return false })
+	never := func() bool { return false }
+	slot, release, wait := waitForBuildSlot(targetDir, deadline, cmd, cwd, never, never)
 	return slot, release, wait == SlotHeld
 }
 
@@ -278,16 +279,18 @@ func acquireBuildSlot(targetDir string, deadline time.Duration, cmd, cwd string)
 // acquireQueuedBuildSlot: it tries for both locks until they are held, the
 // deadline elapses, or superseded reports that a newer request took this
 // one's place (checked before every try, so a replaced request never
-// starts).
-func waitForBuildSlot(targetDir string, deadline time.Duration, cmd, cwd string, superseded func() bool) (BuildSlot, func(), SlotWait) {
+// starts). While yield reports true it skips the try and keeps waiting.
+func waitForBuildSlot(targetDir string, deadline time.Duration, cmd, cwd string, superseded, yield func() bool) (BuildSlot, func(), SlotWait) {
 	start := time.Now()
 	nextNotice := buildLockQueueNoticeEvery
 	for {
 		if superseded() {
 			return BuildSlot{}, func() {}, SlotSuperseded
 		}
-		if slot, release, ok := TryAcquireBuildSlot(targetDir, cmd, cwd); ok {
-			return slot, release, SlotHeld
+		if !yield() {
+			if slot, release, ok := TryAcquireBuildSlot(targetDir, cmd, cwd); ok {
+				return slot, release, SlotHeld
+			}
 		}
 		waited := time.Since(start)
 		if waited >= deadline {

@@ -175,6 +175,8 @@ mutants_windows.go                                 lock
 queuewaiters.go                                    lock
 slotqueue.go                                       lock
 slotqueue_test.go                                  lock
+slotpriority.go                                    lock
+slotpriority_test.go                               lock
 queuewaiters_test.go                               lock
 runner_lock_own_test.go                            lock
 slottoken_test.go                                  lock

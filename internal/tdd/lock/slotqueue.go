@@ -43,6 +43,9 @@ const (
 type slotRequest struct {
 	PID   int    `json:"pid"`
 	Token string `json:"token"`
+	// Scoped marks a package-scoped (per-crate) build, which a queued
+	// full-tree request lets go first (slotpriority.go).
+	Scoped bool `json:"scoped,omitempty"`
 }
 
 // slotRequestSeq makes tokens unique within one process.
@@ -61,11 +64,14 @@ func SetSlotRequestQueuedHookForTest(fn func(path string)) (restore func()) {
 	return func() { slotRequestQueuedHook = prev }
 }
 
-// slotRequestPath names the one record identical requests share.
+// slotQueueDir holds the records of every request waiting for a slot.
+func slotQueueDir() string { return filepath.Join(lockDir(), "slot-queue") }
+
+// slotRequestPath names the one record identical requests share. The target
+// dir's key leads the name, so the requests for one target dir list together.
 func slotRequestPath(target, cmd, cwd string) string {
 	sum := sha256.Sum256([]byte(cwd + "\x00" + cmd))
-	name := targetDirKey(target) + "." + hex.EncodeToString(sum[:8]) + ".json"
-	return filepath.Join(lockDir(), "slot-queue", name)
+	return filepath.Join(slotQueueDir(), targetDirKey(target)+"."+hex.EncodeToString(sum[:8])+".json")
 }
 
 // readSlotRequest reads a request record. false for a missing or torn one,
@@ -89,7 +95,7 @@ func readSlotRequest(path string) (slotRequest, bool) {
 func enqueueSlotRequest(target, cmd, cwd string) (path, token string) {
 	path = slotRequestPath(target, cmd, cwd)
 	token = fmt.Sprintf("%d-%d-%d", os.Getpid(), time.Now().UnixNano(), slotRequestSeq.Add(1))
-	data, err := json.Marshal(slotRequest{PID: os.Getpid(), Token: token})
+	data, err := json.Marshal(slotRequest{PID: os.Getpid(), Token: token, Scoped: cargoPackageScoped(cmd)})
 	if err == nil && ensureSharedSubdir(filepath.Dir(path)) == nil && writeSharedRecord(path, data) == nil {
 		slotRequestQueuedHook(path)
 	}
@@ -112,9 +118,13 @@ func leaveSlotQueue(path string) {
 
 // acquireQueuedBuildSlot is acquireBuildSlot for a request that may be
 // replaced while it waits: it polls for both locks until they are held, the
-// deadline passes, or a newer identical request supersedes it.
+// deadline passes, or a newer identical request supersedes it. A full-tree
+// request lets a queued package-scoped one go first.
 func acquireQueuedBuildSlot(targetDir string, deadline time.Duration, cmd, cwd string) (BuildSlot, func(), SlotWait) {
 	path, token := enqueueSlotRequest(targetDir, cmd, cwd)
 	defer leaveSlotQueue(path)
-	return waitForBuildSlot(targetDir, deadline, cmd, cwd, func() bool { return slotRequestSuperseded(path, token) })
+	fullTree := !cargoPackageScoped(cmd)
+	return waitForBuildSlot(targetDir, deadline, cmd, cwd,
+		func() bool { return slotRequestSuperseded(path, token) },
+		func() bool { return fullTree && packageRequestQueued(targetDir) })
 }
