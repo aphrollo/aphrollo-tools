@@ -156,6 +156,18 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   fence is the whole security story.
 - Don't duplicate README usage here — this file is dev context only.
 
+## Working in this repo
+
+- A new file under `internal/tdd/` needs a line in `tools/tddsplit/manifest.txt`
+  (see the `[files]` section); the bare file name must be unique across the
+  whole manifest.
+- Never hand-edit a generated `export.go`, `deps_*.go` or `api_*.go` — they are
+  `tools/tddsplit` output. Regenerate on a scratch clone.
+- Run `go test ./tools/tddsplit -run TestCommittedTree_GeneratedFilesMatchTheGenerator`
+  before pushing.
+- `mutants-at-merge` is on (`aphrollo.toml`): CI's `mutants-verdict` job refuses
+  an unaccepted survivor and every timeout.
+
 <!-- aphrollo:begin -->
 ## Working with the aphrollo gate
 
