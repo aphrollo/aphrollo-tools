@@ -4,4 +4,4 @@
 # already at its ceiling is). See .ratchet/laws/comment_slop.toml. The one
 # row below is a quoted classifier label ("not sure"), not real hedging by
 # the author; carried as debt rather than tuned out of the pattern.
-internal/tdd/bashsuite.go | // answer "not sure" as "not narrowed" only where narrowing is genuinely
+internal/tdd/postedit/bashsuite.go | // answer "not sure" as "not narrowed" only where narrowing is genuinely

@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -16,7 +17,7 @@ import (
 // underneath it, which is the same block-versus-binary drift #518 exists to
 // close, caught here instead of by a human re-reading both by hand.
 func TestClaudeMDBlock_VetLintClaimMatchesGoOnlyGuard(t *testing.T) {
-	src, err := os.ReadFile("precommit_gateroot.go")
+	src, err := os.ReadFile(filepath.Join("precommit", "precommit_gateroot.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +46,7 @@ func TestClaudeMDBlock_VetLintClaimMatchesGoOnlyGuard(t *testing.T) {
 // to ask for. The block is the instruction sessions act on, so a claim it
 // makes about a stage that no longer exists costs a suite every commit.
 func TestClaudeMDBlock_DoesNotPromiseASuiteTheCommitGateNoLongerRuns(t *testing.T) {
-	src, err := os.ReadFile("precommit_gateroot.go")
+	src, err := os.ReadFile(filepath.Join("precommit", "precommit_gateroot.go"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -905,3 +905,5 @@ lawgate/main_test.go
 mutation/main_test.go
 failfirst/main_test.go
 escape/main_test.go
+postedit/main_test.go
+precommit/main_test.go

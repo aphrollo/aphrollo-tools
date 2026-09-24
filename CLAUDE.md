@@ -90,6 +90,8 @@ internal/tdd/lawgate/ ratchet edit and commit gates, baseline guard (L4)
 internal/tdd/mutation/ mutants measurement, verdicts and holds (L4)
 internal/tdd/failfirst/ fail-first proofs and the edit ledger (L4)
 internal/tdd/escape/ escapes, auto-escape, issues, feedback, demotion, stats (L4)
+internal/tdd/postedit/ the edit hooks: post-edit, deferred phases, bash hooks, walls (L5)
+internal/tdd/precommit/ the commit gate's stages and fast paths (L6)
 internal/docs/       doc-reference guard: extract path citations, resolve, report misses
 internal/workspace/  worktree lifecycle + git verbs
 internal/dev/        dev-tier control plane (systemd)
