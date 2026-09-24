@@ -120,10 +120,19 @@ func failFirstInvalidationPackages(failFirstArgs []string, root, repoRoot string
 // derivation from the staged paths.
 func cargoPackagesInArgs(args []string) []string {
 	var pkgs []string
-	for i := 0; i+1 < len(args); i++ {
-		if args[i] == "-p" || args[i] == "--package" {
+	// A flag's separate value is consumed by setting skip rather than by
+	// stepping the index inside the loop: an in-loop step is a mutation site
+	// whose decrement never terminates, which a mutation run can only report
+	// as a timeout and never as a caught mutant.
+	skip := false
+	for i, a := range args {
+		if skip {
+			skip = false
+			continue
+		}
+		if (a == "-p" || a == "--package") && i+1 < len(args) {
 			pkgs = append(pkgs, args[i+1])
-			i++
+			skip = true
 		}
 	}
 	return pkgs
