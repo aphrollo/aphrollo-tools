@@ -12,16 +12,17 @@ undercover = true
 # The key the pre-merge gate reads: with it true, the merge gate measures the
 # merged tree in the foreground, after the suites have proved it green, and
 # refuses an unaccepted survivor by name. `aphrollo gate mutants run`, typed
-# in a lane, measures the same way before the merge. It replaces the trio it
-# retires (mutation-receipt / mutants-local / mutants-judge-local), which
-# encoded where a document was produced and where it was judged; there is no
-# document.
+# in a lane, measures the same way before the merge. The measurement is not
+# a document handed between machines: the gate that refuses is the gate that
+# measured.
 #
-# Off while internal/tdd is split into smaller packages: every mutant re-runs
-# its whole package's suite, and internal/tdd's is about two minutes, so one
-# merge measured for 25-95 minutes behind a single box-wide lock. The split
-# turns it back on. `aphrollo gate mutants run` in a lane still measures.
-mutants-at-merge = false
+# gremlins re-runs only the mutated package's suite per mutant, and
+# internal/tdd is layered into packages, so a mutant there re-runs one
+# package's suite rather than the whole of internal/tdd's. Coverage is
+# gathered across the whole module (--coverpkg ./...), so code a higher
+# package's tests reach is judged rather than filed NOT COVERED. The PR
+# pipeline's mutants-verdict job reads this key and measures the same way.
+mutants-at-merge = true
 
 # The Windows stand-down, and why it is not a hole. gremlins cannot measure
 # this module on Windows: `gremlins unleash --dry-run` there reports
