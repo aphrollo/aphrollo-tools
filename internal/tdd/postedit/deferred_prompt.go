@@ -48,8 +48,17 @@ func harvestSessionJobs(session string) []string {
 		}
 		root := j.Project
 		state, statePath := loadSession(session)
-		line, _ := harvestDeferred(root, headSHAFor(root), sourceIdentity(root, j.File), session, 0, state, statePath)
+		headSHA, identity := headSHAFor(root), sourceIdentity(root, j.File)
+		line, _ := harvestDeferred(root, headSHA, identity, session, 0, state, statePath)
 		lines = append(lines, withCommand(line, j))
+		// A dirty job is one an edit hook found still running and answered
+		// with its BUILDING line on behalf of the newer source: dropping it
+		// stale starts nothing for that source, and the line is left with no
+		// job behind it (issue #797). Only dirty ones — a job the tree merely
+		// moved past (a commit, a checkout) was never promised to anyone.
+		if j.Dirty {
+			restartDeferredEditJob(j, headSHA, identity)
+		}
 	}
 	return lines
 }

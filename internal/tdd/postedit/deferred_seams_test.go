@@ -7,17 +7,19 @@ import (
 )
 
 // Tests above postedit stub the three deferred-phase process seams only
-// through these setters, so each must install its stub and restore the real
-// seam.
+// through these setters, so each must install its stub and restore the seam
+// it replaced. The spawn seam this package's tests start from is TestMain's
+// refusal, never the real spawner, which would exec the test binary itself.
 func TestDeferredSeamSetters_InstallAndRestore(t *testing.T) {
 	same := func(a, b any) bool { return reflect.ValueOf(a).Pointer() == reflect.ValueOf(b).Pointer() }
 
+	before := spawnPhaseFn
 	restore := SetSpawnPhaseForTest(func(j DeferredJob) (DeferredJob, bool) { j.PID = 77; return j, true })
 	if j, ok := spawnPhaseFn(DeferredJob{}); !ok || j.PID != 77 {
 		t.Error("spawn stub not installed")
 	}
 	restore()
-	if !same(spawnPhaseFn, spawnPhase) {
+	if !same(spawnPhaseFn, before) {
 		t.Error("restore left the spawn stub in place")
 	}
 

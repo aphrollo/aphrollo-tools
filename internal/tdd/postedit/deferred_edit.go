@@ -110,18 +110,9 @@ const (
 // was left running, in which case res is meaningless.
 func runEditPhases(runner Runner, root, target, headSHA, fileHash, session, editID string, budget time.Duration) deferredEditOutcome {
 	deadline := time.Now().Add(budget)
-	build := DeferredJob{
-		Project: root, Phase: "build", Dir: runnerDir(runner, root),
-		Runner: phaseArgv(runner, "build"), RunRunner: phaseArgv(runner, "run"),
-		HeadSHA: headSHA, FileHash: fileHash, File: target, Session: session, EditID: editID,
-	}
-	if !splittable(runner) {
-		// Only cargo can build tests without running them; `go test --no-run`
-		// is not a flag. One phase, still deferrable.
-		single := build
-		single.Phase = "run"
-		single.Runner = phaseArgv(runner, "run")
-		started, out, status := startAndWait(single, time.Until(deadline))
+	build := firstEditPhase(runner, root, target, headSHA, fileHash, session, editID)
+	if build.Phase == "run" {
+		started, out, status := startAndWait(build, time.Until(deadline))
 		if status == phaseFailedToStart {
 			return deferredEditOutcome{spawnFailed: true}
 		}
@@ -155,6 +146,22 @@ func runEditPhases(runner Runner, root, target, headSHA, fileHash, session, edit
 		return deferredEditOutcome{deferred: true, notice: buildingLine(root, "run", 0)}
 	}
 	return finishedEditOutcome(startedRun, out)
+}
+
+// firstEditPhase is the job an edit's tests start with: the build phase,
+// carrying the run phase's argv for whoever goes on to start it, or — for a
+// runner that cannot build without running (only cargo can; `go test
+// --no-run` is not a flag) — the one run phase, still deferrable.
+func firstEditPhase(runner Runner, root, target, headSHA, fileHash, session, editID string) DeferredJob {
+	j := DeferredJob{
+		Project: root, Phase: "build", Dir: runnerDir(runner, root),
+		Runner: phaseArgv(runner, "build"), RunRunner: phaseArgv(runner, "run"),
+		HeadSHA: headSHA, FileHash: fileHash, File: target, Session: session, EditID: editID,
+	}
+	if !splittable(runner) {
+		j.Phase, j.Runner, j.RunRunner = "run", j.RunRunner, nil
+	}
+	return j
 }
 
 // startAndWait spawns a phase and waits up to budget for it to finish. A
