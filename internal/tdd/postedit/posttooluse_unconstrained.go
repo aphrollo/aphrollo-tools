@@ -23,6 +23,6 @@ func unconstrainedGreen(kind Kind, outcome Outcome, snap stateSnapshot, root str
 
 // unconstrainedLine is the one line that case prints.
 func unconstrainedLine(r Runner, root string, passed int, dur time.Duration) string {
-	return fmt.Sprintf("gate: %s in %s %s (%d passed; no test changed with this edit — mutation proof owed)",
-		cmdString(r), root, GreenUnconstrained, passed)
+	return withTargetsNotRun(fmt.Sprintf("gate: %s in %s %s (%d passed; no test changed with this edit — mutation proof owed)",
+		cmdString(r), root, GreenUnconstrained, passed), r, root)
 }
