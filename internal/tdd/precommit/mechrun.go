@@ -19,8 +19,9 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	// re-run. Red results are never cached, so a block always re-runs and
 	// carries fresh output.
 	key := ""
-	if h := worktreeStateHash(root); h != "" {
-		key = mechKey(root, h, runner)
+	before := worktreeStateHash(root)
+	if before != "" {
+		key = mechKey(root, before, runner)
 	}
 	if mechCacheHit(key) {
 		line := fmt.Sprintf("[%s] gate %s: %s in %s → cache-hit", stage, gateName, cmdString(runner), root)
@@ -121,7 +122,9 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		logSuiteVerdict(gateName, root, cmdString(runner), blockedVerdict(stage, res.Output), res)
 		return GateResult{Blocked: true, Message: mechRejectMessage(runner, res)}
 	default:
-		mechCacheAdd(key)
+		// Under the state hashed before the run, and only if the tree held
+		// still until it finished (mechCacheAddUnmoved, #813).
+		mechCacheAddUnmoved(root, before, runner)
 		// A suite RAN and passed. That, and not a cache hit, is what the
 		// gate note claims to CI — see noteSuiteGreen. What it proved is
 		// bounded by the ground this command covered: suiteProof.note takes

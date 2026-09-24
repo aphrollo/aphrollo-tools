@@ -211,6 +211,8 @@ func LogSuiteVerdict(p0 string, p1 string, p2 string, p3 string, p4 SuiteResult)
 
 func MechCacheAdd(p0 string) { mechCacheAdd(p0) }
 
+func MechCacheAddUnmoved(p0 string, p1 string, p2 Runner) { mechCacheAddUnmoved(p0, p1, p2) }
+
 func MechCacheHit(p0 string) bool { return mechCacheHit(p0) }
 
 func MechCachePath() string { return mechCachePath() }
