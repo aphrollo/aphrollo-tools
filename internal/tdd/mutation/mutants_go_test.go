@@ -188,6 +188,19 @@ func TestGremlinsArgv_ScopesToTheLaneDiffAndCapsItself(t *testing.T) {
 	}
 }
 
+// gremlins gathers coverage per package unless told otherwise, so code in a
+// low internal/tdd package that is exercised only from a higher package's
+// tests (or from internal/cli) reads NOT COVERED and is never judged. The
+// whole module is the coverage scope: the narrower ./internal/tdd/... form
+// measured 112 covered / 22 NOT COVERED on the split's sample diff where
+// ./... measured 126 / 8.
+func TestGremlinsArgv_GathersCoverageAcrossTheWholeModule(t *testing.T) {
+	got := strings.Join(gremlinsArgv("abc123", "out.json", 1, nil), " ")
+	if !strings.Contains(got, "--coverpkg ./...") {
+		t.Fatalf("gremlinsArgv = %q, want it to carry %q", got, "--coverpkg ./...")
+	}
+}
+
 // #704: the self-hosted runner's coverage gather dies at Go's default
 // 10-minute test timeout before gremlins ever judges a mutant, and --silent
 // was the reason nobody could see that: it swallows the log.Infof that

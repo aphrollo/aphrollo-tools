@@ -76,15 +76,16 @@ func setCIRunnerWaitForTest(poll, maxWait time.Duration) (restore func()) {
 // basename of argv[0] so a shell whose command line merely mentions the name
 // does not count. A Worker that is an ancestor of self is left out: the
 // nightly mutants job measures from inside a runner job, and waiting for
-// itself to finish would wait out the whole bound for nothing. Unreadable
-// entries are skipped; an unreadable procRoot is no runners.
+// itself to finish would wait out the whole bound for nothing. So is a Worker
+// with a mutation measurement anywhere below it (isMutationMeasurement).
+// Unreadable entries are skipped; an unreadable procRoot is no runners.
 func busyCIRunnerJobs(procRoot string, self int) []int {
 	entries, err := os.ReadDir(procRoot)
 	if err != nil {
 		return nil
 	}
 	ancestors := procAncestors(procRoot, self)
-	var busy []int
+	var workers, measurements []int
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil || ancestors[pid] {
@@ -94,13 +95,50 @@ func busyCIRunnerJobs(procRoot string, self int) []int {
 		if err != nil {
 			continue
 		}
-		argv0, _, _ := strings.Cut(string(cmdline), "\x00")
-		if filepath.Base(argv0) == ciRunnerWorkerName {
+		argv := strings.Split(strings.TrimRight(string(cmdline), "\x00"), "\x00")
+		// An if chain, not a tagless switch: Go's coverage profile carries no
+		// block for a case expression, so gremlins files a mutant there NOT
+		// COVERED however many tests reach it.
+		if filepath.Base(argv[0]) == ciRunnerWorkerName {
+			workers = append(workers, pid)
+		} else if isMutationMeasurement(argv) {
+			measurements = append(measurements, pid)
+		}
+	}
+	measuring := map[int]bool{}
+	for _, pid := range measurements {
+		for above := range procAncestors(procRoot, pid) {
+			measuring[above] = true
+		}
+	}
+	var busy []int
+	for _, pid := range workers {
+		if !measuring[pid] {
 			busy = append(busy, pid)
 		}
 	}
 	sort.Ints(busy)
 	return busy
+}
+
+// isMutationMeasurement reports whether argv is a mutation run — the gate's
+// own `aphrollo gate mutants run` (holding the box-wide mutation-run lock or
+// queued on it), gremlins, or cargo mutants. A runner job with one of these
+// under its Worker is not load a measurement should wait out: it is another
+// measurement, which the lock already keeps apart from this one, and two
+// PRs' mutants-verdict jobs each waiting for the other would each spend the
+// whole bound for nothing. Matched on argv words, never on a substring, so a
+// shell line that merely names a tool is still an ordinary busy job.
+func isMutationMeasurement(argv []string) bool {
+	switch filepath.Base(argv[0]) {
+	case "gremlins", "cargo-mutants":
+		return true
+	case "cargo":
+		return len(argv) > 1 && argv[1] == "mutants"
+	case "aphrollo":
+		return len(argv) > 3 && (argv[1] == "gate" || argv[1] == "tdd") && argv[2] == "mutants" && argv[3] == "run"
+	}
+	return false
 }
 
 // procAncestors is pid and every process above it, read from each one's

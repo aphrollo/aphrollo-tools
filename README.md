@@ -168,8 +168,8 @@ Cheapest first; the first rejection stops the run and is named in `gate.log`.
 7. Merge only: the suites of the touched crates plus every crate downstream
    of them (the touched crates alone when nothing depends on them), then
    `cargo test --doc` over that set for crates with a doc fence, then the
-   mutation measurement when `mutants-at-merge = true` (this repo sets it
-   `false`; `gate mutants run` still measures a lane).
+   mutation measurement when `mutants-at-merge = true` (this repo sets it;
+   `gate mutants run` measures a lane the same way before the merge).
 
 Two fast paths skip every stage that builds. A staged set with no source or
 test file (docs-only) runs stages 1-3 and stops. A staged set whose only

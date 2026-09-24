@@ -45,6 +45,10 @@ const gremlinsBin = "gremlins"
 // results and exit 0 — so narrowing happens through exclusion, never through
 // a second positional argument.
 //
+// --coverpkg ./... makes the coverage gather count every package's tests
+// against every package, so code in a low internal/tdd package that only a
+// higher package's tests reach is judged rather than filed NOT COVERED.
+//
 // No --silent (issue #704): the self-hosted Linux runner has never completed
 // a measurement of this repo — gremlins' coverage gather builds a bare
 // `go test -cover ./...` with no -timeout, and that dies at Go's default 10
@@ -65,6 +69,7 @@ func gremlinsArgv(baseSHA, outPath string, workers int, excludeFiles []string) [
 		"--diff", baseSHA,
 		"--output", outPath,
 		"--workers", strconv.Itoa(workers),
+		"--coverpkg", "./...",
 	}
 	for _, f := range excludeFiles {
 		argv = append(argv, "--exclude-files", "^"+regexp.QuoteMeta(filepath.ToSlash(f))+"$")
