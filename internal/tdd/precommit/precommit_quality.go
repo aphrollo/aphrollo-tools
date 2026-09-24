@@ -125,10 +125,15 @@ func qualityRejectMessage(pkg, stage string, r Runner, res SuiteResult) string {
 	return b.String()
 }
 
-// firstDiagnostic picks the first line that reads like a tool diagnostic
-// (rustfmt's "Diff in <file>", clippy's "error:"/"warning:"), falling back
-// to the first non-empty line so a message is never empty.
+// firstDiagnostic picks the first compile error anywhere in the output
+// (firstError: an error outranks a warning printed ahead of it, issue #791),
+// else the first line that reads like a tool diagnostic (rustfmt's "Diff in
+// <file>", clippy's "warning:"), falling back to the first non-empty line so
+// a message is never empty.
 func firstDiagnostic(output string) string {
+	if first := firstError(output); first != "" {
+		return first
+	}
 	fallback := ""
 	for line := range strings.Lines(output) {
 		trimmed := strings.TrimSpace(line)

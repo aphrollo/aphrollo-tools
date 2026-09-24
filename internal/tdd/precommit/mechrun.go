@@ -263,8 +263,16 @@ func mechRejectMessage(r Runner, res SuiteResult) string {
 	fmt.Fprintf(&b, "command: %s %s\n", r.Cmd, strings.Join(r.Args, " "))
 	if names := ExtractFailingTests(res.Output); len(names) > 0 {
 		fmt.Fprintf(&b, "failing: %s\n", strings.Join(names, ", "))
-	} else if res.Err != "" {
-		fmt.Fprintf(&b, "no failing test parsed from output; runner error: %s\n", res.Err)
+	} else {
+		if res.Err != "" {
+			fmt.Fprintf(&b, "no failing test parsed from output; runner error: %s\n", res.Err)
+		}
+		// A run that failed without a failing test usually failed to
+		// build: the error names the file, where the tail below may be
+		// another crate's warnings (issue #791).
+		if first := firstError(res.Output); first != "" {
+			fmt.Fprintf(&b, "first error: %s\n", first)
+		}
 	}
 	if path := mechRejectLogPath(); path != "" {
 		if writeMechRejectLog(path, r, res) {
