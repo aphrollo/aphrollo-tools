@@ -8,12 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	mutation "github.com/aphrollo/aphrollo-tools/internal/tdd/mutation"
 )
-
-// GCKindGatePRMerge names a category-(m) candidate in ApplyGC's table.
-const GCKindGatePRMerge = mutation.GCKindGatePRMerge
 
 // gatePRMergeHolderFile matches PRGateHolderFile
 // (internal/tdd/merge/premergepr.go): the record GatePRMerge writes into its

@@ -608,7 +608,7 @@ vacuous_test.go                                    precommit
 verdict_test.go                                    precommit  # prefix says suite; its test body reaches precommit
 workspacecheck_test.go                             precommit
 
-# merge: 12 file(s)
+# merge: 13 file(s)
 commitmsg.go                                       merge
 commitmsg_defaults.go                              merge
 commitmsg_defaults_test.go                         merge
@@ -619,6 +619,7 @@ mergeprune.go                                      merge
 mergeprune_test.go                                 merge
 postmerge.go                                       merge
 premergepr.go                                      merge
+premergepr_signal.go                               merge
 premergepr_test.go                                 merge
 suiteproof_test.go                                 merge  # prefix says suite; its test body reaches merge
 
@@ -672,7 +673,7 @@ tddskill.md                                        install
 tddskill_test.go                                   install
 winpath_test.go                                    install
 
-# gc: 23 file(s)
+# gc: 25 file(s)
 deferred_sweep_test.go                             gc  # prefix says postedit; its test body reaches gc
 gc.go                                              gc
 gc_deps.go                                         gc
@@ -684,6 +685,8 @@ gc_mutantsdirs.go                                  gc
 gc_mutantsdirs_test.go                             gc
 gc_mutantstemp.go                                  gc
 gc_mutantstemp_test.go                             gc
+gc_prmergewt.go                                    gc
+gc_prmergewt_test.go                               gc
 gc_refused_order_test.go                           gc
 gc_render.go                                       gc
 gc_render_test.go                                  gc
