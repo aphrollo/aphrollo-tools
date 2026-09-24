@@ -157,7 +157,9 @@ bashsuite_lock.go                                  lock  # created by P2
 gc_mutantstemp_lock.go                             lock  # created by P2
 runner_lock.go                                     lock  # created by P2
 
-# suite: 59 file(s), plus 18 created by P2
+# suite: 61 file(s), plus 18 created by P2
+buildform.go                                       suite
+buildform_test.go                                  suite
 buildlock_futuremtime_test.go                      suite  # prefix says lock; its test body reaches suite
 buildlock_owner_test.go                            suite  # prefix says lock; its test body reaches suite
 buildlock_test.go                                  suite  # prefix says lock; its test body reaches suite
@@ -434,7 +436,7 @@ weekly.go                                          escape
 weekly_test.go                                     escape
 testdata/fuzz/FuzzGateLogLine/                     escape
 
-# postedit: 80 file(s), plus 1 created by P2
+# postedit: 82 file(s), plus 1 created by P2
 bashedit.go                                        postedit
 bashedit_attribution_test.go                       postedit
 bashedit_mergeinprogress_test.go                   postedit
@@ -447,6 +449,8 @@ bashsuite.go                                       postedit
 bashsuite_envswitch.go                             postedit
 bashsuite_envswitch_test.go                        postedit
 bashsuite_test.go                                  postedit
+deferred_buildform_test.go                         postedit
+deferred_status_restart_test.go                    postedit
 runscope_bashsuite_test.go                         postedit
 buildonly_test.go                                  postedit  # prefix says suite; its test body reaches postedit
 cargo_uncompiled_test.go                           postedit  # prefix says suite; its test body reaches postedit
@@ -520,7 +524,7 @@ worktree.go                                        postedit
 worktree_test.go                                   postedit
 mechrun_postedit.go                                postedit  # created by P2
 
-# precommit: 73 file(s)
+# precommit: 76 file(s)
 budgetfloor_test.go                                precommit  # prefix says lock; its test body reaches precommit
 buildlock_integration_test.go                      precommit  # prefix says lock; its test body reaches precommit
 cargo_alwaysrun_test.go                            precommit
@@ -536,6 +540,8 @@ devtarget_test.go                                  precommit
 docsonly.go                                        precommit
 docsonly_property_test.go                          precommit
 doctest_test.go                                    precommit  # prefix says suite; its test body reaches precommit
+firsterror.go                                      precommit
+firsterror_test.go                                 precommit
 gate_order_test.go                                 precommit  # prefix says core; its test body reaches precommit
 gateprofile_test.go                                precommit  # prefix says suite; its test body reaches precommit
 greenlabel_outcome_test.go                         precommit
@@ -584,6 +590,7 @@ precommit_zig_test.go                              precommit
 precommitmarker.go                                 precommit
 precommitmarker_test.go                            precommit
 projectroots_test.go                               precommit
+ratchetbase_test.go                                precommit
 review_yellows_test.go                             precommit
 suitetimeout_test.go                               precommit
 timeout_reject_test.go                             precommit
@@ -685,7 +692,7 @@ gc_templitter_test.go                              gc
 gc_test.go                                         gc
 lockshared_test.go                                 gc  # prefix says lock; its test body reaches gc
 
-# tdd: 43 file(s), plus 1 created by P2
+# tdd: 44 file(s), plus 1 created by P2
 autoescape_override_test.go                        tdd  # prefix says escape; its test body reaches tdd
 autoescape_test.go                                 tdd  # prefix says escape; its test body reaches tdd
 behind.go                                          tdd
@@ -710,6 +717,7 @@ mutants_tombstones_test.go                         tdd
 mutants_unmeasured_test.go                         tdd
 mutants_zerotested_test.go                         tdd
 nightlyfuzz_workflow_pin_test.go                   tdd
+nightlymutants_base_pin_test.go                    tdd
 pipeline_push_test.go                              tdd
 postmerge_test.go                                  tdd  # prefix says merge; its test body reaches tdd
 primary_test.go                                    tdd  # prefix says postedit; its test body reaches tdd
