@@ -131,20 +131,27 @@ sessionline_core.go                                core  # created by P2
 stats_core.go                                      core  # created by P2
 statusline_core.go                                 core  # created by P2
 
-# lock: 33 file(s), plus 3 created by P2
+# lock: 44 file(s), plus 3 created by P2
+bashsuite_lock_own_test.go                         lock
 budgetfloor.go                                     lock
+budgetfloor_own_test.go                            lock
 buildlock.go                                       lock
 buildlock_futuremtime.go                           lock
+buildlock_futuremtime_own_test.go                  lock
+buildlock_lock_own_test.go                         lock
 buildlock_unix.go                                  lock
 buildlock_windows.go                               lock
 buildslots.go                                      lock
 buildslots_inherited_owner_test.go                 lock
 buildslots_jobs.go                                 lock
+buildslots_jobs_own_test.go                        lock
+buildslots_own_test.go                             lock
 buildslots_shape_test.go                           lock
 buildslots_status_test.go                          lock
 buildslots_targetdir.go                            lock
 buildslots_targetdir_test.go                       lock
 gotmpdir.go                                        lock
+gotmpdir_own_test.go                               lock
 lintlock.go                                        lock
 lintlock_test.go                                   lock
 livelockdir_guard_test.go                          lock
@@ -154,16 +161,20 @@ lockshared.go                                      lock
 lockshared_unix_test.go                            lock
 machineload.go                                     lock
 machineload_other.go                               lock
+machineload_other_own_test.go                      lock
 machineload_test.go                                lock
 machineload_windows.go                             lock
 machineload_windows_test.go                        lock
 mutants_freemem.go                                 lock
+mutants_freemem_own_test.go                        lock
 mutants_ram_unix.go                                lock
+mutants_ram_unix_own_test.go                       lock
 mutants_ram_windows.go                             lock
 mutants_unix.go                                    lock
 mutants_windows.go                                 lock
 queuewaiters.go                                    lock
 queuewaiters_test.go                               lock
+runner_lock_own_test.go                            lock
 slottoken_test.go                                  lock
 bashsuite_lock.go                                  lock  # created by P2
 gc_mutantstemp_lock.go                             lock  # created by P2
