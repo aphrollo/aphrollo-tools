@@ -25,6 +25,11 @@ on:
   schedule:
     - cron: "43 9 * * *" # nightly, off the hour and off nightly-fuzz's :17 so the two do not queue back to back
   workflow_dispatch:
+    inputs:
+      base:
+        description: "Measure from this commit instead of the last successful run's head (e.g. after a large pure-move refactor)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -62,8 +67,15 @@ jobs:
         id: checkpoint
         env:
           GH_TOKEN: ${{ github.token }}
+          BASE_INPUT: ${{ inputs.base }}
         run: |
           set -euo pipefail
+          if [ -n "${BASE_INPUT:-}" ]; then
+            git rev-parse --verify --quiet "$BASE_INPUT^{commit}" >/dev/null || { echo "base input $BASE_INPUT is not a commit"; exit 1; }
+            echo "base=$BASE_INPUT" >> "$GITHUB_OUTPUT"
+            echo "measuring from the dispatched base $BASE_INPUT"
+            exit 0
+          fi
           base=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow nightly-mutants.yml \
             --status success --branch main -L 1 --json headSha --jq '.[0].headSha // empty' || true)
           if [ -z "$base" ] || ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
