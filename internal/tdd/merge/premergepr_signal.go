@@ -21,6 +21,23 @@ var prGateSignals = []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP}
 // delivered signal proves cleanup ran without killing the test binary.
 var prGateSignalExit = os.Exit
 
+// prGateSignalChan is where watchPRGateSignals gets the channel it reads its
+// one signal from. Production arms a real OS channel; a test swaps this for
+// a channel it owns and a no-op stop, so proving the handler's own cleanup
+// runs never requires sending this test binary a real, process-wide signal.
+// That matters because Mechanical calls the SuiteRunner more than once for a
+// single GatePRMerge run (cargo fmt, then the workspace check, then the
+// crate's own suite) — a test signalling itself on every one of those calls
+// sends this binary two or three real SIGTERMs per run, and only the first
+// is guaranteed to land while the handler goroutine below is still the one
+// listening; the rest are extra, unproving noise racing whatever this
+// process's own signal disposition is doing at that instant.
+var prGateSignalChan = func() (ch chan os.Signal, stop func()) {
+	ch = make(chan os.Signal, 1)
+	signal.Notify(ch, prGateSignals...)
+	return ch, func() { signal.Stop(ch) }
+}
+
 // watchPRGateSignals arms a handler for the checkout's lifetime: the first
 // of prGateSignals delivered while it is armed runs cleanup exactly once,
 // then exits with the conventional 128+signal code so a caller reading this
@@ -30,8 +47,7 @@ var prGateSignalExit = os.Exit
 // disarmed first and can never race the deferred cleanup running right
 // after it.
 func watchPRGateSignals(cleanup func(), log io.Writer) (stop func()) {
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, prGateSignals...)
+	ch, stopSource := prGateSignalChan()
 	done := make(chan struct{})
 	go func() {
 		select {
@@ -46,7 +62,7 @@ func watchPRGateSignals(cleanup func(), log io.Writer) (stop func()) {
 		// Stop first so no NEW signal can be queued, drain one that already
 		// landed before this call so it cannot fire the handler after done is
 		// closed, then close done so the goroutine exits either way.
-		signal.Stop(ch)
+		stopSource()
 		select {
 		case <-ch:
 		default:
