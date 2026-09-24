@@ -87,6 +87,10 @@ Operator / outside-use verbs (pass [repo] [branch] to target a worktree):
                             (read-only).
   merge                     Merge the branch's PR via gh, honoring CI/mergeable
                             (--dry; --squash|--merge|--rebase, --keep-branch).
+                            --wait first waits for every check on the PR's
+                            current head (--timeout, default 90m); --wait <pr>...
+                            merges those PRs in order from their lanes, one at
+                            a time, stopping at the first refusal.
 
 The worktree lands at <repo-parent>/.worktrees/<repo-name>/<branch-slug> — the
 same layout aphrollo-dev uses, so a created worktree can later be claimed. The
@@ -267,6 +271,8 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 		rebase = fs.Bool("rebase", false, "rebase-merge")
 		keep   = fs.Bool("keep-branch", false, "keep the PR branch (default: delete it)")
 		into   = fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
+		wait   = fs.Bool("wait", false, "wait for every check on the PR's current head, then merge; with PR numbers, merge them as a serial queue")
+		tmo    = fs.Duration("timeout", workspace.DefaultWaitOpts().Timeout, "with --wait: how long to wait for checks before giving up")
 	)
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
@@ -281,6 +287,11 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 	case boolCount(*squash, *mergeC, *rebase) > 1:
 		fmt.Fprintln(stderr, "aphrollo: choose one of --squash | --merge | --rebase")
 		return 2
+	}
+	if *wait {
+		opts := workspace.DefaultWaitOpts()
+		opts.Timeout = *tmo
+		return runWorkspaceMergeWait(pos, *into, method, !*keep, *dry, opts, stdout, stderr)
 	}
 	t, ok := resolveVerbTarget(pos, *into, stderr)
 	if !ok {
