@@ -19,7 +19,11 @@ func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration)
 	core.AppendGateLog(p0, p1, p2, p3, p4)
 }
 
+func GateLogPath() string { return core.GateLogPath() }
+
 func LogToken(p0 string) string { return core.LogToken(p0) }
+
+func SessionID() string { return core.SessionID() }
 
 func StateDir() string { return core.StateDir() }
 
@@ -34,3 +38,11 @@ func sameProject(p0 string, p1 string) bool { return core.SameProject(p0, p1) }
 func tomlBoolSetIn(p0 string, p1 string, p2 string) (bool, bool) {
 	return core.TomlBoolSetIn(p0, p1, p2)
 }
+
+func tomlStringIn(p0 string, p1 string, p2 string) (string, bool) {
+	return core.TomlStringIn(p0, p1, p2)
+}
+
+func tomlStringsIn(p0 string, p1 string, p2 string) []string { return core.TomlStringsIn(p0, p1, p2) }
+
+func writeFileAtomic(p0 string, p1 []byte) error { return core.WriteFileAtomic(p0, p1) }

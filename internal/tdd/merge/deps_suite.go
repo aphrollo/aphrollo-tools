@@ -4,6 +4,7 @@ package merge
 
 import (
 	suite "github.com/aphrollo/aphrollo-tools/internal/tdd/suite"
+	time "time"
 )
 
 type SuiteRunner = suite.SuiteRunner
@@ -19,5 +20,9 @@ func indexTree(p0 string) string { return suite.IndexTree(p0) }
 func mechCacheCovers(p0 string, p1 string, p2 Runner) bool { return suite.MechCacheCovers(p0, p1, p2) }
 
 func mutantsConfigTables(p0 string) []mutantsConfigTable { return suite.MutantsConfigTables(p0) }
+
+func runGhTimeout(p0 string, p1 time.Duration, p2 ...string) (string, error) {
+	return suite.RunGhTimeout(p0, p1, p2...)
+}
 
 func worktreeStateHash(p0 string) string { return suite.WorktreeStateHash(p0) }

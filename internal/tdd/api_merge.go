@@ -17,6 +17,10 @@ func PostCommitMergeSweep(p0 string, p1 io.Writer, p2 io.Writer) []PrunedLane {
 	return merge.PostCommitMergeSweep(p0, p1, p2)
 }
 
+func PostMergeRetro(p0 string, p1 string, p2 string, p3 int, p4 io.Writer) {
+	merge.PostMergeRetro(p0, p1, p2, p3, p4)
+}
+
 func PostMergeSweep(p0 string, p1 io.Writer, p2 io.Writer) []PrunedLane {
 	return merge.PostMergeSweep(p0, p1, p2)
 }
@@ -24,3 +28,7 @@ func PostMergeSweep(p0 string, p1 io.Writer, p2 io.Writer) []PrunedLane {
 func PruneMergedLanesAfterMerge(p0 string, p1 string, p2 io.Writer, p3 io.Writer) []PrunedLane {
 	return merge.PruneMergedLanesAfterMerge(p0, p1, p2, p3)
 }
+
+func TakeRepoRetros(p0 string) string { return merge.TakeRepoRetros(p0) }
+
+func TakeSessionRetros(p0 string) string { return merge.TakeSessionRetros(p0) }

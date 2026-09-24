@@ -334,6 +334,43 @@ aphrollo gate escape list
 aphrollo gate escape verify-closure 321    # CI: the PR must change a law, a gate stage or a named file
 ```
 
+### Post-merge retro
+
+Once `aphrollo workspace merge` has landed a PR, it reads the PR's journey in
+one gh batch bounded to 45 s: CI runs that failed and whether a local green
+preceded them, survivors, timeouts and unmeasured counts in a failed
+mutation job, runs that passed on a re-run, pushes after the PR opened, and
+the time from open to merge. The lane's gate.log entries add the commit and
+merge gates' refusals, and the lane branch's reflog adds conflicts resolved
+by hand. A clean merge prints and records nothing. On a gh failure the merge
+prints one `retro skipped: <why>` line and is otherwise untouched.
+
+Friction becomes a retro: one line per fact with its numbers, one question
+per fact class naming the place its answer is recorded, and the closing line
+"a retro answered only in prose is not answered". The session that ran the
+merge reads it once, in its next PostToolUse or UserPromptSubmit hook; a
+merge run outside any session leaves it for the next SessionStart in that
+repo.
+
+```
+retro #839 lane/probe-discard (43m open→merge):
+#839: CI mutants-verdict red (5 survivors) after local green
+#839: 1 push after open
+? which local stage or law would have caught this? → aphrollo gate escape record "<reason>"
+? which test kills each survivor, and why did the local measurement not refuse it first? → aphrollo gate escape record "<reason>"
+? what rule avoids the extra push? → a memory/feedback note or an issue
+a retro answered only in prose is not answered
+```
+
+The rules are data in `[aphrollo]` of `aphrollo.toml` (or
+`[workspace.metadata.aphrollo]` of a Cargo workspace): `retro-on` lists the
+classes that fire (`ci-red-after-local-green`, `ci-red`, `mutant-survivor`,
+`mutant-timeout`, `flaky-rerun`, `extra-push`, `merge-conflict`,
+`gate-refusal`; absent means all of them, `[]` means none),
+`retro-slow-merge-minutes` adds `slow-merge` (default 120, 0 turns it off),
+and `retro-sinks` rows `"<class> -> <question> -> <sink>"` replace a class's
+question and sink.
+
 ### Disk hygiene (`gate gc`)
 
 ```sh
