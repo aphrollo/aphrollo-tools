@@ -748,7 +748,7 @@ gc_templitter_test.go                              gc
 gc_test.go                                         gc
 lockshared_test.go                                 gc  # prefix says lock; its test body reaches gc
 
-# tdd: 49 file(s), plus 1 created by P2
+# tdd: 51 file(s), plus 1 created by P2
 autoescape_override_test.go                        tdd  # prefix says escape; its test body reaches tdd
 autoescape_test.go                                 tdd  # prefix says escape; its test body reaches tdd
 behind.go                                          tdd
@@ -794,6 +794,8 @@ sessionline_test.go                                tdd
 sessionstart_test.go                               tdd
 retro_hooks.go                                     tdd
 retro_hooks_test.go                                tdd
+shimresolve.go                                     tdd
+shimresolve_test.go                                tdd
 stagedfiles_test.go                                tdd
 statusline.go                                      tdd
 statusline_test.go                                 tdd

@@ -24,4 +24,11 @@ type DoctorInput struct {
 	// a test drives every branch without reading or writing the box's own
 	// git config.
 	GitHooksPath string
+	// ShimBypassLine is the caller's own exec.LookPath-based finding of
+	// whether `git`/`cargo` on THIS PROCESS's PATH resolve outside ShimDir —
+	// "" when they don't, or when the shims were never installed there at
+	// all. Injected rather than looked up here for the same reason as
+	// PathDirs: exec.LookPath reads this box's real PATH, and a check that
+	// called it directly could never be driven from a test.
+	ShimBypassLine string
 }

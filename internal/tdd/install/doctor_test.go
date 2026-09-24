@@ -94,6 +94,34 @@ func TestDoctor_HealthyInstallPassesEveryCheck(t *testing.T) {
 	}
 }
 
+// TestDoctor_ShimResolutionOKWhenTheCallerFoundNoBypass proves the healthy
+// case: an empty ShimBypassLine (the caller's own exec.LookPath finding)
+// passes, matching every other injected-fact check in this file.
+func TestDoctor_ShimResolutionOKWhenTheCallerFoundNoBypass(t *testing.T) {
+	in := healthyInstall(t)
+	c := check(t, Doctor(in), "shim resolution")
+	if !c.OK {
+		t.Fatalf("empty ShimBypassLine must pass, got: %s", c.Detail)
+	}
+}
+
+// TestDoctor_ShimResolutionFailsWhenTheCallerFoundABypass proves the check
+// surfaces the caller's finding: a session whose `git`/`cargo` resolve
+// outside the installed queue shim dir (a shell that started before a PATH
+// change) must fail, naming what the caller found.
+func TestDoctor_ShimResolutionFailsWhenTheCallerFoundABypass(t *testing.T) {
+	in := healthyInstall(t)
+	in.ShimBypassLine = "cargo -> /usr/bin/cargo do not resolve into the installed queue shim dir " + in.ShimDir
+
+	c := check(t, Doctor(in), "shim resolution")
+	if c.OK {
+		t.Fatal("a non-empty ShimBypassLine must fail the check")
+	}
+	if c.Detail != in.ShimBypassLine {
+		t.Fatalf("detail = %q, want %q", c.Detail, in.ShimBypassLine)
+	}
+}
+
 // TestDoctor_SeesAnUnsetGitHooksPath is the failure that disarmed this box on
 // 2026-09-05: nothing else can tell that git runs no hooks at all when
 // core.hooksPath is unset, and every other check still reads "ok".

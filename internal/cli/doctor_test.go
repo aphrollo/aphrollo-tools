@@ -56,6 +56,23 @@ func TestExpandWindowsVars_LeavesAnUnpairedPercentAlone(t *testing.T) {
 	}
 }
 
+// TestDoctorInput_PopulatesShimBypassLineFromTheSeam proves doctorInput wires
+// the shim-resolution finding through: exec.LookPath reads THIS process's
+// real PATH, so the finding is computed once, through a seam (matching
+// userPathDirsFn and gitHooksPathFn just above it), and injected into
+// DoctorInput rather than looked up inside the check itself.
+func TestDoctorInput_PopulatesShimBypassLineFromTheSeam(t *testing.T) {
+	orig := shimBypassLineFn
+	t.Cleanup(func() { shimBypassLineFn = orig })
+	shimBypassLineFn = func(bin string) string { return "cargo -> /usr/bin/cargo, bin=" + bin }
+
+	in := doctorInput("", "", ".")
+	want := "cargo -> /usr/bin/cargo, bin=" + in.Bin
+	if in.ShimBypassLine != want {
+		t.Fatalf("ShimBypassLine = %q, want %q", in.ShimBypassLine, want)
+	}
+}
+
 // TestRun_GateDoctor_ExitsOneAndNamesTheFixOnABrokenInstall is the end-to-end
 // contract a script depends on: a config dir the gate was never installed into
 // must fail, and every line must say what to run.

@@ -21,7 +21,7 @@ func runGateDoctor(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	var (
 		configDir = fs.String("config-dir", "", "Claude config dir (default: $CLAUDE_CONFIG_DIR or ~/.claude)")
-		shimDir   = fs.String("shim-dir", "", "queue shim dir (default: <bindir>/cargo-queue)")
+		shimDir   = fs.String("shim-dir", "", "queue shim dir (default: ~/.local/share/aphrollo/cargo-queue on Linux/macOS, <bindir>/cargo-queue on Windows)")
 		repo      = fs.String("repo", ".", "repo whose CI configuration to judge (default: the working directory)")
 	)
 	if err := fs.Parse(args); err != nil {
@@ -44,15 +44,16 @@ func doctorInput(configDir, shimDir, repo string) tdd.DoctorInput {
 	}
 	shim := shimDir
 	if shim == "" {
-		shim = filepath.Join(filepath.Dir(bin), "cargo-queue")
+		shim = defaultCargoShimDir(bin)
 	}
 	return tdd.DoctorInput{
-		ConfigDir:    dir,
-		Bin:          bin,
-		ShimDir:      shim,
-		Repo:         repo,
-		PathDirs:     userPathDirsFn(),
-		GitHooksPath: gitHooksPathFn(),
+		ConfigDir:      dir,
+		Bin:            bin,
+		ShimDir:        shim,
+		Repo:           repo,
+		PathDirs:       userPathDirsFn(),
+		GitHooksPath:   gitHooksPathFn(),
+		ShimBypassLine: shimBypassLineFn(bin),
 	}
 }
 
@@ -65,6 +66,11 @@ var userPathDirsFn = userPathDirs
 // configured core.hooksPath doctor judges without reading the box's own
 // global git config.
 var gitHooksPathFn = tdd.GlobalHooksPath
+
+// shimBypassLineFn indirects tdd.ShimBypassLine so a test can fake the
+// exec.LookPath-based finding doctor judges without depending on this
+// process's own real PATH.
+var shimBypassLineFn = tdd.ShimBypassLine
 
 // runDoctorCheck runs the doctor checks against repo with default resolution
 // (no CLI overrides), writes tdd.RenderDoctor's report to w, and returns the
