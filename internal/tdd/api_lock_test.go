@@ -7,18 +7,8 @@ import (
 	time "time"
 )
 
-const buildSlotsEnv = lock.BuildSlotsEnv
-
-func ReadBuildSlotOwnerPath(p0 string) string { return lock.ReadBuildSlotOwnerPath(p0) }
-
 func SetPostEditLockWaitForTest(p0 time.Duration) func() { return lock.SetPostEditLockWaitForTest(p0) }
 
 func SetSharedLockDirForTest(p0 func() string) func() { return lock.SetSharedLockDirForTest(p0) }
 
-func litterDirsFor(p0 string, p1 bool, p2 string) []string { return lock.LitterDirsFor(p0, p1, p2) }
-
 func setBuildLockPathOverride(p0 string) func() { return lock.SetBuildLockPathOverride(p0) }
-
-func sharedLockCandidates() []string { return lock.SharedLockCandidates() }
-
-func sharedTargetLockPath(p0 string) string { return lock.SharedTargetLockPath(p0) }

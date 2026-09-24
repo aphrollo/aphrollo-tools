@@ -11,3 +11,5 @@ type fingerprint = core.Fingerprint
 type projectState = core.ProjectState
 
 func computeFingerprint(p0 string) *fingerprint { return core.ComputeFingerprint(p0) }
+
+func shellPath(p0 string) string { return core.ShellPath(p0) }

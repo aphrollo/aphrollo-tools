@@ -6,24 +6,12 @@ import (
 	mutation "github.com/aphrollo/aphrollo-tools/internal/tdd/mutation"
 )
 
+const GCKindIncremental = mutation.GCKindIncremental
+
+const GCKindOrphanWorktree = mutation.GCKindOrphanWorktree
+
 type MutantOutcome = mutation.MutantOutcome
-
-func SetTargetDirOwnerForTest(p0 func(path string) (int, bool)) func() {
-	return mutation.SetTargetDirOwnerForTest(p0)
-}
-
-func cargoMutantsOutcomesPath(p0 string) string { return mutation.CargoMutantsOutcomesPath(p0) }
 
 func judgeMutants(p0 MutantsConfig, p1 []MutantOutcome) Verdict { return mutation.JudgeMutants(p0, p1) }
 
 func measureLogVerdict(p0 Verdict) string { return mutation.MeasureLogVerdict(p0) }
-
-func mutantLineOf(p0 string, p1 int, p2 int, p3 string) string {
-	return mutation.MutantLineOf(p0, p1, p2, p3)
-}
-
-func setMutantsJobsForTest(p0 int, p1 string) func() { return mutation.SetMutantsJobsForTest(p0, p1) }
-
-func setMutantsListCountForTest(p0 int, p1 bool) func() {
-	return mutation.SetMutantsListCountForTest(p0, p1)
-}

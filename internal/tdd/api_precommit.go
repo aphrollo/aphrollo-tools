@@ -15,11 +15,7 @@ const DiffDocsOnly = precommit.DiffDocsOnly
 
 const DiffWorkflowOnly = precommit.DiffWorkflowOnly
 
-const golangciLint = precommit.GolangciLint
-
 type DiffClass = precommit.DiffClass
-
-type rootGroup = precommit.RootGroup
 
 func ClassifyDiff(p0 string, p1 string, p2 string) (DiffClass, error) {
 	return precommit.ClassifyDiff(p0, p1, p2)
@@ -32,11 +28,3 @@ func Precommit(p0 string, p1 SuiteRunner) GateResult { return precommit.Precommi
 func PrecommitRanSince(p0 string, p1 time.Time) bool { return precommit.PrecommitRanSince(p0, p1) }
 
 func StagedFastPath(p0 string) DiffClass { return precommit.StagedFastPath(p0) }
-
-func linterVersion(p0 string) string { return precommit.LinterVersion(p0) }
-
-func lookLinter() bool { return precommit.LookLinter() }
-
-func pinnedLinterVersion(p0 string) string { return precommit.PinnedLinterVersion(p0) }
-
-func stagedRootGroups(p0 string) []rootGroup { return precommit.StagedRootGroups(p0) }

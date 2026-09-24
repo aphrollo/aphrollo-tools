@@ -11,43 +11,17 @@ import (
 
 const ExitMutantsProveUsage = mutation.ExitMutantsProveUsage
 
-const GCKindDepsMember = mutation.GCKindDepsMember
-
-const GCKindDepsThirdParty = mutation.GCKindDepsThirdParty
-
-const GCKindGateDir = mutation.GCKindGateDir
-
-const GCKindGoTmp = mutation.GCKindGoTmp
-
-const GCKindIncremental = mutation.GCKindIncremental
-
-const GCKindMutants = mutation.GCKindMutants
-
-const GCKindMutantsTarget = mutation.GCKindMutantsTarget
-
-const GCKindMutantsTemp = mutation.GCKindMutantsTemp
-
-const GCKindOrphanWorktree = mutation.GCKindOrphanWorktree
-
-const GCKindStrayTarget = mutation.GCKindStrayTarget
-
-const GCKindTempLitter = mutation.GCKindTempLitter
-
 const MutationGateEnv = mutation.MutationGateEnv
 
 const MutationGateMarked = mutation.MutationGateMarked
 
 const MutationHoldTTL = mutation.MutationHoldTTL
 
-const mutantsCopyActiveWindow = mutation.MutantsCopyActiveWindow
-
 type DoctorCheck = mutation.DoctorCheck
 
 type DoctorInput = mutation.DoctorInput
 
 type GCCandidate = mutation.GCCandidate
-
-type GCKind = mutation.GCKind
 
 type MeasureOpts = mutation.MeasureOpts
 
@@ -103,18 +77,4 @@ func SnapshotMutantsRun() MutantsRunStatus { return mutation.SnapshotMutantsRun(
 
 func TempTargetsInUse(p0 []string) []string { return mutation.TempTargetsInUse(p0) }
 
-func dirNewestAndSize(p0 string) (time.Time, int64) { return mutation.DirNewestAndSize(p0) }
-
-func doctorDiskSpace(p0 DoctorInput) DoctorCheck { return mutation.DoctorDiskSpace(p0) }
-
-func gcTempTargetDirs(p0 []string, p1 time.Time) []GCCandidate {
-	return mutation.GcTempTargetDirs(p0, p1)
-}
-
-func measureTempDir(p0 string) string { return mutation.MeasureTempDir(p0) }
-
 func mutantsRunLockOwnerPath() string { return mutation.MutantsRunLockOwnerPath() }
-
-func pathKey(p0 string) string { return mutation.PathKey(p0) }
-
-func targetDirOwnerFn(p0 string) (int, bool) { return mutation.TargetDirOwnerFn(p0) }

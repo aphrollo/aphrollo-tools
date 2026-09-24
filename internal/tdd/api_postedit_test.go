@@ -7,13 +7,9 @@ import (
 	time "time"
 )
 
-const DeferredAbandoned = postedit.DeferredAbandoned
-
 const PrimaryEditsEnv = postedit.PrimaryEditsEnv
 
 const deferredMaxEnv = postedit.DeferredMaxEnv
-
-const maxBashSnapshots = postedit.MaxBashSnapshots
 
 type deferredEditOutcome = postedit.DeferredEditOutcome
 
@@ -35,12 +31,6 @@ func buildingLine(p0 string, p1 string, p2 time.Duration) string {
 
 func clearDeferredJob(p0 string, p1 string) { postedit.ClearDeferredJob(p0, p1) }
 
-func deferredJobPath(p0 string, p1 string) string { return postedit.DeferredJobPath(p0, p1) }
-
-func denyNarrowedRerunReason(p0 string, p1 gateEntry) string {
-	return postedit.DenyNarrowedRerunReason(p0, p1)
-}
-
 func editResultAdvisory(p0 DeferredJob, p1 PhaseOutcome, p2 string, p3 *sessionState, p4 string, p5 string) string {
 	return postedit.EditResultAdvisory(p0, p1, p2, p3, p4, p5)
 }
@@ -51,16 +41,10 @@ func finishedEditOutcome(p0 DeferredJob, p1 PhaseOutcome) deferredEditOutcome {
 	return postedit.FinishedEditOutcome(p0, p1)
 }
 
-func killLivePID(p0 string) { postedit.KillLivePID(p0) }
-
 func pidStillOurs(p0 DeferredJob) bool { return postedit.PidStillOurs(p0) }
-
-func resetDeferredSweepForTest() { postedit.ResetDeferredSweepForTest() }
 
 func saveDeferredJob(p0 DeferredJob) { postedit.SaveDeferredJob(p0) }
 
 func sourceIdentity(p0 string, p1 string) string { return postedit.SourceIdentity(p0, p1) }
-
-func sweepDeferredJobs(p0 time.Time) int { return postedit.SweepDeferredJobs(p0) }
 
 func writePhaseResult(p0 string, p1 PhaseOutcome) { postedit.WritePhaseResult(p0, p1) }

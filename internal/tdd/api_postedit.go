@@ -4,17 +4,12 @@ package tdd
 
 import (
 	postedit "github.com/aphrollo/aphrollo-tools/internal/tdd/postedit"
-	syscall "syscall"
 	time "time"
 )
 
 const DefaultPostEditTimeout = postedit.DefaultPostEditTimeout
 
 const WallDiscard = postedit.WallDiscard
-
-const deferredJobMaxAge = postedit.DeferredJobMaxAge
-
-const primaryBranch = postedit.PrimaryBranch
 
 type DeferredJob = postedit.DeferredJob
 
@@ -58,8 +53,6 @@ func PreBash(p0 []byte) { postedit.PreBash(p0) }
 
 func PrimaryCheckoutDecision(p0 []byte) Decision { return postedit.PrimaryCheckoutDecision(p0) }
 
-func PrimaryCheckoutState(p0 string) (string, string, bool) { return postedit.PrimaryCheckoutState(p0) }
-
 func PrimaryEditsAllowed(p0 string) bool { return postedit.PrimaryEditsAllowed(p0) }
 
 func PrimaryMergeOnly(p0 string) (string, bool) { return postedit.PrimaryMergeOnly(p0) }
@@ -86,17 +79,9 @@ func Waived(p0 string) bool { return postedit.Waived(p0) }
 
 func WorktreeAdvisory(p0 []byte) Decision { return postedit.WorktreeAdvisory(p0) }
 
-func deferredDirPath() string { return postedit.DeferredDirPath() }
-
 func deferredExpired(p0 DeferredJob, p1 time.Time) bool { return postedit.DeferredExpired(p0, p1) }
 
 func deferredResult(p0 DeferredJob) (PhaseOutcome, bool) { return postedit.DeferredResult(p0) }
-
-func detachedAttrs() *syscall.SysProcAttr { return postedit.DetachedAttrs() }
-
-func gcDeferredJobFiles(p0 string, p1 time.Duration, p2 time.Time) []GCCandidate {
-	return postedit.GcDeferredJobFiles(p0, p1, p2)
-}
 
 func loadDeferredJob(p0 string, p1 string) (DeferredJob, bool) {
 	return postedit.LoadDeferredJob(p0, p1)
