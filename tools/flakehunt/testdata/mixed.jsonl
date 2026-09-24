@@ -1,0 +1,97 @@
+{"Time":"2026-09-24T13:19:15.00218278Z","Action":"start","Package":"fixturemod/pkga"}
+{"Time":"2026-09-24T13:19:15.005246046Z","Action":"output","Package":"fixturemod/pkga","Output":"-test.shuffle 1790255955005173420\n"}
+{"Time":"2026-09-24T13:19:15.005483286Z","Action":"run","Package":"fixturemod/pkga","Test":"TestATwo"}
+{"Time":"2026-09-24T13:19:15.005495896Z","Action":"output","Package":"fixturemod/pkga","Test":"TestATwo","Output":"=== RUN   TestATwo\n"}
+{"Time":"2026-09-24T13:19:15.005576686Z","Action":"output","Package":"fixturemod/pkga","Test":"TestATwo","Output":"    a_test.go:6: ok\n"}
+{"Time":"2026-09-24T13:19:15.005633127Z","Action":"output","Package":"fixturemod/pkga","Test":"TestATwo","Output":"--- PASS: TestATwo (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.005731461Z","Action":"pass","Package":"fixturemod/pkga","Test":"TestATwo","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.005912973Z","Action":"run","Package":"fixturemod/pkga","Test":"TestAOne"}
+{"Time":"2026-09-24T13:19:15.005920162Z","Action":"output","Package":"fixturemod/pkga","Test":"TestAOne","Output":"=== RUN   TestAOne\n"}
+{"Time":"2026-09-24T13:19:15.005926475Z","Action":"output","Package":"fixturemod/pkga","Test":"TestAOne","Output":"    a_test.go:5: ok\n"}
+{"Time":"2026-09-24T13:19:15.005933812Z","Action":"output","Package":"fixturemod/pkga","Test":"TestAOne","Output":"--- PASS: TestAOne (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.005941698Z","Action":"pass","Package":"fixturemod/pkga","Test":"TestAOne","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.005951846Z","Action":"run","Package":"fixturemod/pkga","Test":"TestATwo"}
+{"Time":"2026-09-24T13:19:15.005956757Z","Action":"output","Package":"fixturemod/pkga","Test":"TestATwo","Output":"=== RUN   TestATwo\n"}
+{"Time":"2026-09-24T13:19:15.005963411Z","Action":"output","Package":"fixturemod/pkga","Test":"TestATwo","Output":"    a_test.go:6: ok\n"}
+{"Time":"2026-09-24T13:19:15.005970758Z","Action":"output","Package":"fixturemod/pkga","Test":"TestATwo","Output":"--- PASS: TestATwo (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.005976535Z","Action":"pass","Package":"fixturemod/pkga","Test":"TestATwo","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.005983073Z","Action":"run","Package":"fixturemod/pkga","Test":"TestAOne"}
+{"Time":"2026-09-24T13:19:15.005989036Z","Action":"output","Package":"fixturemod/pkga","Test":"TestAOne","Output":"=== RUN   TestAOne\n"}
+{"Time":"2026-09-24T13:19:15.006101352Z","Action":"output","Package":"fixturemod/pkga","Test":"TestAOne","Output":"    a_test.go:5: ok\n"}
+{"Time":"2026-09-24T13:19:15.006111742Z","Action":"output","Package":"fixturemod/pkga","Test":"TestAOne","Output":"--- PASS: TestAOne (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.006118009Z","Action":"pass","Package":"fixturemod/pkga","Test":"TestAOne","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.00612385Z","Action":"run","Package":"fixturemod/pkga","Test":"TestATwo"}
+{"Time":"2026-09-24T13:19:15.006128806Z","Action":"output","Package":"fixturemod/pkga","Test":"TestATwo","Output":"=== RUN   TestATwo\n"}
+{"Time":"2026-09-24T13:19:15.006134255Z","Action":"output","Package":"fixturemod/pkga","Test":"TestATwo","Output":"    a_test.go:6: ok\n"}
+{"Time":"2026-09-24T13:19:15.006140428Z","Action":"output","Package":"fixturemod/pkga","Test":"TestATwo","Output":"--- PASS: TestATwo (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.006259983Z","Action":"pass","Package":"fixturemod/pkga","Test":"TestATwo","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.006268926Z","Action":"run","Package":"fixturemod/pkga","Test":"TestAOne"}
+{"Time":"2026-09-24T13:19:15.006274233Z","Action":"output","Package":"fixturemod/pkga","Test":"TestAOne","Output":"=== RUN   TestAOne\n"}
+{"Time":"2026-09-24T13:19:15.006279917Z","Action":"output","Package":"fixturemod/pkga","Test":"TestAOne","Output":"    a_test.go:5: ok\n"}
+{"Time":"2026-09-24T13:19:15.006286752Z","Action":"output","Package":"fixturemod/pkga","Test":"TestAOne","Output":"--- PASS: TestAOne (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.006293061Z","Action":"pass","Package":"fixturemod/pkga","Test":"TestAOne","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.00629848Z","Action":"output","Package":"fixturemod/pkga","Output":"PASS\n"}
+{"Time":"2026-09-24T13:19:15.007352217Z","Action":"output","Package":"fixturemod/pkga","Output":"ok  \tfixturemod/pkga\t0.005s\n"}
+{"Time":"2026-09-24T13:19:15.007379431Z","Action":"pass","Package":"fixturemod/pkga","Elapsed":0.005}
+{"Time":"2026-09-24T13:19:15.021689502Z","Action":"start","Package":"fixturemod/pkgb"}
+{"Time":"2026-09-24T13:19:15.024739506Z","Action":"output","Package":"fixturemod/pkgb","Output":"-test.shuffle 1790255955024453711\n"}
+{"Time":"2026-09-24T13:19:15.024812732Z","Action":"run","Package":"fixturemod/pkgb","Test":"TestFlaky"}
+{"Time":"2026-09-24T13:19:15.024819785Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestFlaky","Output":"=== RUN   TestFlaky\n"}
+{"Time":"2026-09-24T13:19:15.024826809Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestFlaky","Output":"    b_test.go:15: ok run 1\n"}
+{"Time":"2026-09-24T13:19:15.024836474Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestFlaky","Output":"--- PASS: TestFlaky (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.02488269Z","Action":"pass","Package":"fixturemod/pkgb","Test":"TestFlaky","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.02492769Z","Action":"run","Package":"fixturemod/pkgb","Test":"TestGroup"}
+{"Time":"2026-09-24T13:19:15.024935634Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup","Output":"=== RUN   TestGroup\n"}
+{"Time":"2026-09-24T13:19:15.024995323Z","Action":"run","Package":"fixturemod/pkgb","Test":"TestGroup/case1"}
+{"Time":"2026-09-24T13:19:15.025003321Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case1","Output":"=== RUN   TestGroup/case1\n"}
+{"Time":"2026-09-24T13:19:15.025065486Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case1","Output":"    b_test.go:19: ok\n"}
+{"Time":"2026-09-24T13:19:15.025113304Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case1","Output":"--- PASS: TestGroup/case1 (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.025581194Z","Action":"pass","Package":"fixturemod/pkgb","Test":"TestGroup/case1","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.025598451Z","Action":"run","Package":"fixturemod/pkgb","Test":"TestGroup/case2"}
+{"Time":"2026-09-24T13:19:15.025606465Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case2","Output":"=== RUN   TestGroup/case2\n"}
+{"Time":"2026-09-24T13:19:15.02561401Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case2","Output":"    b_test.go:22: boom: subtest fails every time\n"}
+{"Time":"2026-09-24T13:19:15.02562323Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case2","Output":"--- FAIL: TestGroup/case2 (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.025630184Z","Action":"fail","Package":"fixturemod/pkgb","Test":"TestGroup/case2","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.02563801Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup","Output":"--- FAIL: TestGroup (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.025644944Z","Action":"fail","Package":"fixturemod/pkgb","Test":"TestGroup","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.02565118Z","Action":"run","Package":"fixturemod/pkgb","Test":"TestFlaky"}
+{"Time":"2026-09-24T13:19:15.025658151Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestFlaky","Output":"=== RUN   TestFlaky\n"}
+{"Time":"2026-09-24T13:19:15.025664833Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestFlaky","Output":"    b_test.go:13: boom: shared temp dir collision\n"}
+{"Time":"2026-09-24T13:19:15.025673504Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestFlaky","Output":"--- FAIL: TestFlaky (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.025680284Z","Action":"fail","Package":"fixturemod/pkgb","Test":"TestFlaky","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.025687523Z","Action":"run","Package":"fixturemod/pkgb","Test":"TestGroup"}
+{"Time":"2026-09-24T13:19:15.025693714Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup","Output":"=== RUN   TestGroup\n"}
+{"Time":"2026-09-24T13:19:15.025701816Z","Action":"run","Package":"fixturemod/pkgb","Test":"TestGroup/case1"}
+{"Time":"2026-09-24T13:19:15.025713564Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case1","Output":"=== RUN   TestGroup/case1\n"}
+{"Time":"2026-09-24T13:19:15.025720888Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case1","Output":"    b_test.go:19: ok\n"}
+{"Time":"2026-09-24T13:19:15.025727812Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case1","Output":"--- PASS: TestGroup/case1 (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.025749949Z","Action":"pass","Package":"fixturemod/pkgb","Test":"TestGroup/case1","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.025756298Z","Action":"run","Package":"fixturemod/pkgb","Test":"TestGroup/case2"}
+{"Time":"2026-09-24T13:19:15.025762577Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case2","Output":"=== RUN   TestGroup/case2\n"}
+{"Time":"2026-09-24T13:19:15.025768017Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case2","Output":"    b_test.go:22: boom: subtest fails every time\n"}
+{"Time":"2026-09-24T13:19:15.02577587Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case2","Output":"--- FAIL: TestGroup/case2 (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.025782043Z","Action":"fail","Package":"fixturemod/pkgb","Test":"TestGroup/case2","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.025787862Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup","Output":"--- FAIL: TestGroup (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.025793091Z","Action":"fail","Package":"fixturemod/pkgb","Test":"TestGroup","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.025798359Z","Action":"run","Package":"fixturemod/pkgb","Test":"TestFlaky"}
+{"Time":"2026-09-24T13:19:15.025804896Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestFlaky","Output":"=== RUN   TestFlaky\n"}
+{"Time":"2026-09-24T13:19:15.025811543Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestFlaky","Output":"    b_test.go:15: ok run 3\n"}
+{"Time":"2026-09-24T13:19:15.025820556Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestFlaky","Output":"--- PASS: TestFlaky (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.0258276Z","Action":"pass","Package":"fixturemod/pkgb","Test":"TestFlaky","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.025834652Z","Action":"run","Package":"fixturemod/pkgb","Test":"TestGroup"}
+{"Time":"2026-09-24T13:19:15.025841372Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup","Output":"=== RUN   TestGroup\n"}
+{"Time":"2026-09-24T13:19:15.02585932Z","Action":"run","Package":"fixturemod/pkgb","Test":"TestGroup/case1"}
+{"Time":"2026-09-24T13:19:15.025866878Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case1","Output":"=== RUN   TestGroup/case1\n"}
+{"Time":"2026-09-24T13:19:15.025874611Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case1","Output":"    b_test.go:19: ok\n"}
+{"Time":"2026-09-24T13:19:15.025883466Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case1","Output":"--- PASS: TestGroup/case1 (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.025889529Z","Action":"pass","Package":"fixturemod/pkgb","Test":"TestGroup/case1","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.025896411Z","Action":"run","Package":"fixturemod/pkgb","Test":"TestGroup/case2"}
+{"Time":"2026-09-24T13:19:15.025900824Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case2","Output":"=== RUN   TestGroup/case2\n"}
+{"Time":"2026-09-24T13:19:15.025905823Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case2","Output":"    b_test.go:22: boom: subtest fails every time\n"}
+{"Time":"2026-09-24T13:19:15.025914185Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup/case2","Output":"--- FAIL: TestGroup/case2 (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.025921043Z","Action":"fail","Package":"fixturemod/pkgb","Test":"TestGroup/case2","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.025928997Z","Action":"output","Package":"fixturemod/pkgb","Test":"TestGroup","Output":"--- FAIL: TestGroup (0.00s)\n"}
+{"Time":"2026-09-24T13:19:15.025935786Z","Action":"fail","Package":"fixturemod/pkgb","Test":"TestGroup","Elapsed":0}
+{"Time":"2026-09-24T13:19:15.025947146Z","Action":"output","Package":"fixturemod/pkgb","Output":"FAIL\n"}
+{"Time":"2026-09-24T13:19:15.026499453Z","Action":"output","Package":"fixturemod/pkgb","Output":"FAIL\tfixturemod/pkgb\t0.005s\n"}
+{"Time":"2026-09-24T13:19:15.026522384Z","Action":"fail","Package":"fixturemod/pkgb","Elapsed":0.005}

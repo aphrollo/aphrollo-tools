@@ -1,0 +1,86 @@
+name: Nightly flake hunt
+
+# Five flaky tests were found in front of a merge in one week: a WaitDelay
+# deadline, a real SIGTERM, a shared temp dir, a leaked sampling goroutine and
+# a lock-probe race. Every one of those is a shape `-race -shuffle=on` catches
+# reliably given enough repeats, and none of them is worth the per-push
+# budget's time -- the same batching trade-off `nightly-fuzz.yml` and
+# `nightly-mutants.yml` already make. This workflow runs the whole suite
+# harder once a night instead: `-race` for a data race, `-shuffle=on` so a
+# shared-state or ordering assumption cannot hide behind the one order Go's
+# default happens to pick, `-count=5` so a flake with any real reproduction
+# rate has several tries to show up.
+#
+# The job itself only fails on an INFRASTRUCTURE problem: the build broke, the
+# run timed out, or `gh` itself failed. A flaky test is not this job's own
+# failure -- filing (or updating) one issue per failing test IS the job's
+# output, via the `flakehunt` helper under tools/flakehunt.
+
+on:
+  schedule:
+    - cron: "15 11 * * *" # nightly, well clear of nightly-fuzz's :17 and nightly-mutants' :43 (both off by 09:xx) so a slow night on either never queues this one behind it on the shared self-hosted runner
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-flake-hunt
+  cancel-in-progress: false
+
+jobs:
+  flake-hunt:
+    # A fork's scheduled or dispatched run has no business filing issues
+    # against this repo (and `gh issue create` would fail there anyway
+    # without a token) -- the same guard nightly-fuzz.yml and
+    # nightly-mutants.yml state for the same reason.
+    if: github.repository == 'aphrollo/aphrollo-tools'
+    runs-on: self-hosted
+    # Measured on the box this was written on: `go test ./... -race -count=1`
+    # took 233s (3m53s) for all 31 packages. -shuffle=on adds no measurable
+    # cost (it only orders the same test set differently); -count=5 repeats
+    # the test bodies, not the -race build, so five nights of headroom sit
+    # comfortably inside the hour even generously padded for a busier runner.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      issues: write # flakehunt files or updates an issue per failing test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build the flakehunt helper
+        run: go build -trimpath -buildvcs=false -o bin/flakehunt ./tools/flakehunt
+      - name: Run the suite -race -shuffle=on -count=5
+        id: run_tests
+        run: |
+          set +e
+          go test ./... -race -shuffle=on -count=5 -json > test.json
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+      - name: File or update an issue per failing test
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -e
+          ./bin/flakehunt -input test.json -run-url "$RUN_URL"
+          # A `go test` that exited nonzero with an EMPTY json stream died
+          # before writing a single event (an OOM kill, a hard process kill)
+          # -- flakehunt then legitimately sees zero failures and zero build
+          # failures and exits 0, which would otherwise read as a clean
+          # night. That is an infrastructure failure this step must still
+          # catch, since nothing else will.
+          if [ "${{ steps.run_tests.outputs.exit }}" != "0" ] && ! grep -q . test.json; then
+            echo "::error::go test exited ${{ steps.run_tests.outputs.exit }} with an empty JSON stream -- an infra failure, not a flake"
+            exit 1
+          fi
+      - name: Upload the raw JSON transcript
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: flake-hunt-transcript
+          path: test.json
+          if-no-files-found: ignore

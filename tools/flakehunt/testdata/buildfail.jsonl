@@ -1,0 +1,6 @@
+{"ImportPath":"fixturemod/pkgbuildfail.test","Action":"build-output","Output":"# fixturemod/pkgbuildfail\n"}
+{"ImportPath":"fixturemod/pkgbuildfail.test","Action":"build-output","Output":"pkgbuildfail/c_test.go:5:28: missing ',' in parameter list\n"}
+{"ImportPath":"fixturemod/pkgbuildfail.test","Action":"build-fail"}
+{"Time":"2026-09-24T13:19:44.718700407Z","Action":"start","Package":"fixturemod/pkgbuildfail"}
+{"Time":"2026-09-24T13:19:44.718793493Z","Action":"output","Package":"fixturemod/pkgbuildfail","Output":"FAIL\tfixturemod/pkgbuildfail [setup failed]\n"}
+{"Time":"2026-09-24T13:19:44.718802356Z","Action":"fail","Package":"fixturemod/pkgbuildfail","Elapsed":0,"FailedBuild":"fixturemod/pkgbuildfail.test"}

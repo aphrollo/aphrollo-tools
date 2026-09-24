@@ -768,6 +768,7 @@ mutants_deleted_surface_test.go                    tdd
 mutants_tombstones_test.go                         tdd
 mutants_unmeasured_test.go                         tdd
 mutants_zerotested_test.go                         tdd
+nightlyflakehunt_workflow_pin_test.go              tdd
 nightlyfuzz_workflow_pin_test.go                   tdd
 nightlymutants_base_pin_test.go                    tdd
 pipeline_push_test.go                              tdd
