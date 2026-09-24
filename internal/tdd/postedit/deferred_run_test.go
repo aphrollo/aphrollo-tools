@@ -335,15 +335,27 @@ func TestRunPhase_ReplacedWhileQueuedSaysSoAndNeverBuilds(t *testing.T) {
 		Log: filepath.Join(dir, "p.log"), Result: filepath.Join(dir, "p.result.json")}
 	older := make(chan struct{})
 	go func() { RunPhase(writeJob(t, j)); close(older) }()
-	<-queued
+	select {
+	case <-queued:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the request never queued")
+	}
 	newer := make(chan SlotWait, 1)
 	go func() {
 		_, rel, wait := acquireQueuedBuildSlot(target, 100*time.Millisecond, cmdString(runnerFromArgv(j.Runner, j.Dir)), j.Dir)
 		rel()
 		newer <- wait
 	}()
-	<-older
-	<-newer
+	select {
+	case <-older:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the replaced phase never returned")
+	}
+	select {
+	case <-newer:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the newer request never ended")
+	}
 
 	out, done := deferredResult(j)
 	if !done || !out.SetupFailed {

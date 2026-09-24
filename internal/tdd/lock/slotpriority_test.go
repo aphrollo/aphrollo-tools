@@ -105,9 +105,9 @@ func TestAcquireQueuedBuildSlot_PackageRequestMarksItsRecordScoped(t *testing.T)
 	}
 
 	waiting := startQueued(target, "cargo nextest run -p forge_solver --lib --no-run", "/ws", 5*time.Second)
-	r, read := readSlotRequest(<-queued)
+	r, read := readSlotRequest(awaitQueued(t, queued))
 	holderRelease()
-	if got := <-waiting; got.wait == SlotHeld {
+	if got := awaitResult(t, waiting); got.wait == SlotHeld {
 		got.release()
 	}
 

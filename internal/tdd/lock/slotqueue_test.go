@@ -43,6 +43,41 @@ func startQueued(target, cmd, cwd string, deadline time.Duration) <-chan queuedR
 	return done
 }
 
+// queueSignalWait bounds how long a test waits for a request to queue. A
+// request that never queues is a failure to report, never a hang: a
+// mutation that stops the queued hook from firing has to fail the test.
+const queueSignalWait = 2 * time.Second
+
+// resultWait bounds how long a test waits for a request to end. Every
+// request a test starts has a deadline of at most 5s.
+const resultWait = 10 * time.Second
+
+// awaitQueued receives the next queued record path, failing the test if no
+// request queues within queueSignalWait.
+func awaitQueued(t *testing.T, queued <-chan string) string {
+	t.Helper()
+	select {
+	case path := <-queued:
+		return path
+	case <-time.After(queueSignalWait):
+		t.Fatal("the request never queued")
+		return ""
+	}
+}
+
+// awaitResult receives one request's result, failing the test if the
+// request does not end within resultWait.
+func awaitResult(t *testing.T, done <-chan queuedResult) queuedResult {
+	t.Helper()
+	select {
+	case got := <-done:
+		return got
+	case <-time.After(resultWait):
+		t.Fatal("the request never ended")
+		return queuedResult{}
+	}
+}
+
 func TestAcquireQueuedBuildSlot_NewerIdenticalRequestReplacesAQueuedOne(t *testing.T) {
 	withIsolatedBuildLock(t)
 	queued := observeQueued(t)
@@ -53,10 +88,10 @@ func TestAcquireQueuedBuildSlot_NewerIdenticalRequestReplacesAQueuedOne(t *testi
 	}
 
 	older := startQueued(target, "cargo nextest run --no-run", "/ws", 5*time.Second)
-	<-queued
+	awaitQueued(t, queued)
 	newer := startQueued(target, "cargo nextest run --no-run", "/ws", 5*time.Second)
 
-	got := <-older
+	got := awaitResult(t, older)
 	if got.wait != SlotSuperseded {
 		t.Fatalf("the older identical request came back %v, want %v", got.wait, SlotSuperseded)
 	}
@@ -65,7 +100,7 @@ func TestAcquireQueuedBuildSlot_NewerIdenticalRequestReplacesAQueuedOne(t *testi
 	}
 
 	holderRelease()
-	won := <-newer
+	won := awaitResult(t, newer)
 	if won.wait != SlotHeld {
 		t.Fatalf("the newer request came back %v, want %v once the holder released", won.wait, SlotHeld)
 	}
@@ -85,13 +120,13 @@ func TestAcquireQueuedBuildSlot_DifferentRequestDoesNotReplaceAQueuedOne(t *test
 	defer holderRelease()
 
 	first := startQueued(target, "cargo nextest run -p forge_solver --no-run", "/ws", 300*time.Millisecond)
-	<-queued
+	awaitQueued(t, queued)
 	second := startQueued(target, "cargo nextest run -p forge_render --no-run", "/ws", 300*time.Millisecond)
 
-	if got := <-first; got.wait != SlotTimedOut {
+	if got := awaitResult(t, first); got.wait != SlotTimedOut {
 		t.Fatalf("a queued request came back %v after a different one queued, want %v", got.wait, SlotTimedOut)
 	}
-	<-second
+	awaitResult(t, second)
 }
 
 // A record left by a request whose process is gone replaces nothing: that
@@ -108,7 +143,7 @@ func TestAcquireQueuedBuildSlot_DeadNewerRequestDoesNotReplaceAQueuedOne(t *test
 	defer holderRelease()
 
 	waiting := startQueued(target, "cargo nextest run --no-run", "/ws", 300*time.Millisecond)
-	path := <-queued
+	path := awaitQueued(t, queued)
 	dead, err := json.Marshal(slotRequest{PID: os.Getpid() + 1, Token: "dead-request"})
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +152,7 @@ func TestAcquireQueuedBuildSlot_DeadNewerRequestDoesNotReplaceAQueuedOne(t *test
 		t.Fatal(err)
 	}
 
-	if got := <-waiting; got.wait != SlotTimedOut {
+	if got := awaitResult(t, waiting); got.wait != SlotTimedOut {
 		t.Fatalf("a queued request came back %v after a dead process's record replaced its own, want %v", got.wait, SlotTimedOut)
 	}
 }
@@ -131,8 +166,8 @@ func TestAcquireQueuedBuildSlot_LeavesNoRecordOnceItEnds(t *testing.T) {
 	target := t.TempDir()
 
 	held := startQueued(target, "cargo nextest run --no-run", "/ws", time.Second)
-	path := <-queued
-	got := <-held
+	path := awaitQueued(t, queued)
+	got := awaitResult(t, held)
 	if got.wait != SlotHeld {
 		t.Fatalf("an uncontended request came back %v, want %v", got.wait, SlotHeld)
 	}
