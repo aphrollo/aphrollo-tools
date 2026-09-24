@@ -131,3 +131,55 @@ func TestBusyCIRunnerJobs_CountsOtherWorkersOnly(t *testing.T) {
 		t.Errorf("busy runner jobs = %v, want [11] — not the listeners, not the grep, not the job pid 23 runs inside", got)
 	}
 }
+
+// A runner job that is itself a mutation measurement is not load to wait out:
+// it holds or waits on the same box-wide mutation-run lock, so two PRs'
+// mutants-verdict jobs waiting on each other as "busy CI" would each burn the
+// whole bound for nothing. The job is recognised by what runs under its
+// Worker — `aphrollo gate mutants run`, gremlins, or cargo mutants — at any
+// depth. A job whose only mention of the tools is inside a shell string is
+// still a busy job, and so is an ordinary test run.
+func TestBusyCIRunnerJobs_LeavesOutJobsThatAreThemselvesMutationMeasurements(t *testing.T) {
+	proc := t.TempDir()
+	fakeProc := func(pid, ppid int, argv ...string) {
+		dir := filepath.Join(proc, strconv.Itoa(pid))
+		mustWrite(t, filepath.Join(dir, "cmdline"), strings.Join(argv, "\x00")+"\x00")
+		mustWrite(t, filepath.Join(dir, "stat"), fmt.Sprintf("%d (x) S %d 0 0\n", pid, ppid))
+	}
+	fakeProc(10, 1, "/opt/actions-runner-a/bin.2.337.0/Runner.Worker", "spawnclient", "1", "2")
+	fakeProc(11, 10, "/bin/bash", "-e", "/home/runner/_work/_temp/step.sh")
+	fakeProc(12, 11, "./bin/aphrollo", "gate", "mutants", "run", "--base", "abc", "--report", "v.json")
+
+	fakeProc(20, 1, "/opt/actions-runner-b/bin.2.337.0/Runner.Worker", "spawnclient", "3", "4")
+	fakeProc(21, 20, "/bin/bash", "-e", "/home/runner/_work/_temp/step.sh")
+	fakeProc(22, 21, "./bin/aphrollo", "gate", "mutants", "run", "--base", "def")
+	fakeProc(23, 22, "/home/runner/go/bin/gremlins", "unleash", "--diff", "def", ".")
+
+	fakeProc(30, 1, "/opt/actions-runner-c/bin.2.337.0/Runner.Worker", "spawnclient", "5", "6")
+	fakeProc(31, 30, "/home/runner/.cargo/bin/cargo", "mutants", "--in-diff", "d.diff")
+
+	fakeProc(40, 1, "/opt/actions-runner-d/bin.2.337.0/Runner.Worker", "spawnclient", "7", "8")
+	fakeProc(41, 40, "/usr/local/go/bin/go", "test", "./...")
+
+	fakeProc(50, 1, "/opt/actions-runner-e/bin.2.337.0/Runner.Worker", "spawnclient", "9", "10")
+	fakeProc(51, 50, "/bin/bash", "-c", "grep gremlins log.txt; echo aphrollo gate mutants run")
+
+	fakeProc(60, 1, "/opt/actions-runner-f/bin.2.337.0/Runner.Worker", "spawnclient", "11", "12")
+	fakeProc(61, 60, "/home/runner/.cargo/bin/cargo")
+
+	fakeProc(70, 1, "/opt/actions-runner-g/bin.2.337.0/Runner.Worker", "spawnclient", "13", "14")
+	fakeProc(71, 70, "./bin/aphrollo", "gate", "mutants")
+
+	fakeProc(80, 1, "/opt/actions-runner-h/bin.2.337.0/Runner.Worker", "spawnclient", "15", "16")
+	fakeProc(81, 80, "./bin/aphrollo", "tdd", "mutants", "run")
+
+	fakeProc(99, 1, "/usr/local/bin/aphrollo", "gate", "premerge")
+
+	got := busyCIRunnerJobs(proc, 99)
+
+	if !reflect.DeepEqual(got, []int{40, 50, 60, 70}) {
+		t.Errorf("busy runner jobs = %v, want [40 50 60 70] — the go test job, the shell that only names the tools, "+
+			"a bare cargo and an aphrollo that stops short of `mutants run`; never the jobs measuring mutants "+
+			"(10 aphrollo gate, 20 gremlins, 30 cargo mutants, 80 aphrollo tdd)", got)
+	}
+}
