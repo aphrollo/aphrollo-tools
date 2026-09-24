@@ -284,6 +284,27 @@ func TestTopByLoad_SortsDescendingAndCaps(t *testing.T) {
 	}
 }
 
+// waitForLoadSampleDone blocks until any sampling goroutine this test's own
+// foreignLoadReport call started has actually released machineLoadMu. The
+// completion signal a stub sends below (closing a channel, or the string
+// flowing back out of foreignLoadReport itself) fires strictly BEFORE that
+// goroutine's deferred Unlock — waiting on it alone still lets the goroutine
+// outlive the test that started it, and whichever test -shuffle=on draws
+// next then finds the guard already held and declines immediately without
+// ever starting a sample of its own (the exact shape #549, #552 and this
+// package's CI failure share). Confirmed by direct reproduction: under
+// `-race -count=20 -shuffle=on`, TestForeignLoadReport_BoundedAgainstAHungProbe
+// drawn right after TestForeignLoadReport_UnavailableWhenProbeFails declined
+// on a straggler and then hung forever on its own <-unblocked, since nothing
+// was left to close it. Locking and releasing the real mutex here blocks
+// until any such straggler is actually gone, not merely signalled.
+func waitForLoadSampleDone(t *testing.T) {
+	t.Helper()
+	machineLoadMu.Lock()
+	t.Log("machineLoadMu confirmed free: no sampling goroutine from this test is still holding it")
+	machineLoadMu.Unlock()
+}
+
 // TestForeignLoadReport_UnavailableWhenProbeFails proves the degrade path
 // #526 requires: a probe that cannot answer must render "load unavailable"
 // rather than a zeroed-out, misleadingly confident report.
@@ -316,6 +337,7 @@ func TestForeignLoadReport_UnavailableWhenProbeFails(t *testing.T) {
 		t.Fatalf("foreignLoadReport(...) = %q — no sample of this test's own was started, so the failing-probe path went unexercised", got)
 	}
 	<-sampled
+	waitForLoadSampleDone(t)
 }
 
 // TestForeignLoadReport_BoundedAgainstAHungProbe is the sampling-hangs case
@@ -345,6 +367,7 @@ func TestForeignLoadReport_BoundedAgainstAHungProbe(t *testing.T) {
 	// run budget (not a local timer; see the cyclic-parents test above for
 	// why none lives here) is what would catch it.
 	<-unblocked
+	waitForLoadSampleDone(t)
 }
 
 // TestForeignLoadReport_SecondSampleWhileFirstInFlightDeclines proves the
@@ -372,6 +395,7 @@ func TestForeignLoadReport_SecondSampleWhileFirstInFlightDeclines(t *testing.T) 
 
 	close(release)
 	<-done // let the first call finish so nothing leaks past this test
+	waitForLoadSampleDone(t)
 }
 
 // Tests in the packages above lock stub the load probe and the shared lock
