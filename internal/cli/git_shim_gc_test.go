@@ -109,6 +109,19 @@ func TestWorktreeSweep_ResolvesAgainstTheCDir(t *testing.T) {
 	}
 }
 
+// TestGitWorkingDir_ATrailingCWithoutADirKeepsTheCwd pins the bound on the
+// -C value read: `git -C` with nothing after it (git itself refuses it) has
+// no directory to apply, so the working dir stays the shim's cwd rather than
+// the read running past the end of the global options.
+func TestGitWorkingDir_ATrailingCWithoutADirKeepsTheCwd(t *testing.T) {
+	cwd := filepath.Join(t.TempDir(), "session")
+	for _, args := range [][]string{{"-C"}, {"-c", "k=v", "-C"}} {
+		if got := gitWorkingDir(args, cwd); got != cwd {
+			t.Fatalf("gitWorkingDir(%q) = %s, want the cwd %s", args, got, cwd)
+		}
+	}
+}
+
 // TestWorktreeSweep_RunsAfterTheLockIsReleased pins an avoidable stall: the
 // sweep can RemoveAll tens of gigabytes, and doing it inside runGitWithLock's
 // deferred release held the repo-scoped git lock for the whole walk — every

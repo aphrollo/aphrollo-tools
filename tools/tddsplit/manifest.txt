@@ -168,7 +168,7 @@ bashsuite_lock.go                                  lock  # created by P2
 gc_mutantstemp_lock.go                             lock  # created by P2
 runner_lock.go                                     lock  # created by P2
 
-# suite: 66 file(s), plus 18 created by P2
+# suite: 71 file(s), plus 18 created by P2
 buildform.go                                       suite
 buildform_test.go                                  suite
 buildlock_futuremtime_test.go                      suite  # prefix says lock; its test body reaches suite
@@ -192,6 +192,7 @@ classify_goattribution.go                          suite
 classify_scope.go                                  suite
 classify_test.go                                   suite
 clippyscope.go                                     suite
+clippyscope_graph_test.go                          suite
 doctest.go                                         suite
 e2e_zig_test.go                                    suite
 gateprofile.go                                     suite
@@ -225,7 +226,9 @@ rusttestspans.go                                   suite
 rusttestspans_test.go                              suite
 slotowner_test.go                                  suite
 staleartifact.go                                   suite
+staleartifact_hint_test.go                         suite
 suiteoutput.go                                     suite
+suiteoutput_record_test.go                         suite
 suiteproof.go                                      suite
 suiteseams_test.go                                 suite
 vacuous_cargo.go                                   suite
@@ -235,6 +238,7 @@ vacuous_pytest_test.go                             suite
 vacuous_vitest.go                                  suite
 vacuous_vitest_test.go                             suite
 verdict.go                                         suite
+verdict_kinds_test.go                              suite
 zigtest.go                                         suite
 autoescape_suite.go                                suite  # created by P2
 bashsuite_suite.go                                 suite  # created by P2

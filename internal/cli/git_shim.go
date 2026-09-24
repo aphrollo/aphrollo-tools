@@ -327,14 +327,25 @@ func worktreeSweepTargetFor(args []string, cwd string) (removed string, ok bool)
 func gitWorkingDir(args []string, cwd string) string {
 	dir := cwd
 	prefix, _ := gitGlobalArgs(args)
-	for i := 0; i < len(prefix)-1; i++ {
-		if prefix[i] == "-C" {
-			if filepath.IsAbs(prefix[i+1]) {
-				dir = filepath.Clean(prefix[i+1])
-			} else {
-				dir = filepath.Join(dir, prefix[i+1])
-			}
-			i++
+	// A flag's separate value is consumed by setting skip rather than by
+	// stepping the index inside the loop: an in-loop step is a mutation site
+	// whose decrement never terminates, which a mutation run can only report
+	// as a timeout and never as a caught mutant.
+	skip := false
+	for i, p := range prefix {
+		if skip {
+			skip = false
+			continue
+		}
+		if p != "-C" || i+1 >= len(prefix) {
+			continue
+		}
+		val := prefix[i+1]
+		skip = true
+		if filepath.IsAbs(val) {
+			dir = filepath.Clean(val)
+		} else {
+			dir = filepath.Join(dir, val)
 		}
 	}
 	return dir

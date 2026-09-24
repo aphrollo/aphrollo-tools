@@ -47,6 +47,11 @@ func TestCargoBuildOnlyArgv_DropsTheRunFlagsNextestRefusesBesideNoRun(t *testing
 			want: []string{"nextest", "run", "-p", "a", "--no-run"},
 		},
 		{
+			name: "an empty argv still builds only",
+			in:   nil,
+			want: []string{"--no-run"},
+		},
+		{
 			name: "harness arguments past the separator never reach the build",
 			in:   []string{"test", "-p", "forge", "--test", "integration", "--", "probe", "--ignored"},
 			want: []string{"test", "-p", "forge", "--test", "integration", "--no-run"},

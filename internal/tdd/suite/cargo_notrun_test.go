@@ -24,6 +24,9 @@ func TestCargoIntegrationTargetsNotRun_NamesOnlyTheTargetsTheRunLeftOut(t *testi
 		{"every test target", "nextest run -p forge_solver --lib --tests", ""},
 		{"two packages", "nextest run -p forge_solver -p forge_lab --lib", ""},
 		{"no package", "nextest run --lib", ""},
+		// A trailing --test has no value to consume: it names no target, and
+		// reading past the end of argv for one would crash the edit hook.
+		{"trailing --test with no value", "test -p forge_solver --lib --test", "--test integration, --test soak"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
