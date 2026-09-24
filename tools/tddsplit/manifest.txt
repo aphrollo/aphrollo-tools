@@ -608,7 +608,7 @@ vacuous_test.go                                    precommit
 verdict_test.go                                    precommit  # prefix says suite; its test body reaches precommit
 workspacecheck_test.go                             precommit
 
-# merge: 13 file(s)
+# merge: 14 file(s)
 commitmsg.go                                       merge
 commitmsg_defaults.go                              merge
 commitmsg_defaults_test.go                         merge
@@ -619,6 +619,7 @@ mergeprune.go                                      merge
 mergeprune_test.go                                 merge
 postmerge.go                                       merge
 premergepr.go                                      merge
+premergepr_realsignal_test.go                      merge
 premergepr_signal.go                               merge
 premergepr_test.go                                 merge
 suiteproof_test.go                                 merge  # prefix says suite; its test body reaches merge

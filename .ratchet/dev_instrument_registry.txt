@@ -57,6 +57,7 @@ APHROLLO_DEV_BIN | internal/workspace/claim_test.go | Set by claim's own test su
 APHROLLO_TEST_BUDGET_SECS | internal/cli/budget_env_test.go | Drives envDurationSecs's own table test through its parse/default branches.
 APHROLLO_TEST_GIT_COMMON_DIR | internal/cli/git_shim_scope_test.go | Read by a synthetic fake-git binary the git shim's scope test builds, to report back which repo it ran against.
 APHROLLO_TEST_GIT_DIR | internal/cli/git_shim_scope_test.go | Read by the same synthetic fake-git binary, alongside APHROLLO_TEST_GIT_COMMON_DIR.
+APHROLLO_TEST_PRGATE_REAL_SIGNAL_CHILD | internal/tdd/merge/premergepr_realsignal_test.go | Set on a re-exec'd copy of this test binary so the SAME test function runs as the real-SIGTERM proof's child instead of its parent orchestrator.
 APHROLLO_TEST_STUB_ENV_OUT | internal/cli/slottoken_test.go | Tells a synthetic fake-cargo binary to dump its received environment to this path, so the test can assert on what the shim passed through.
 APHROLLO_TEST_STUB_FAIL_ON | internal/cli/cargo_shim_run_test.go | Names the verb a synthetic fake-cargo binary should fail on, for exercising the shim's non-zero-exit path.
 APHROLLO_MUTATION_GATE | internal/tdd/mutation/mutants_env.go | =1 marks a child of `aphrollo gate mutants run`. The cargo shim reads it for both answers it owes a mutation run: `cargo mutants` may be invoked at all, and the build need not queue, because the call is already inside the box-wide mutation lock.
