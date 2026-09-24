@@ -182,7 +182,7 @@ jobs:
           cache: false
       - name: Workflow pin tests
         if: needs.changes.outputs.workflow == 'true'
-        run: go test -count=1 -run '^(TestPipeline_|TestGateEnvWorkflowStep_|TestLintWorkflowStep_|TestDeployJobBuild_|TestNightlyFuzzWorkflow_|TestNightlyMutantsWorkflow_)' ./internal/tdd ./internal/cli
+        run: go test -count=1 -run '^(TestPipeline_|TestGateEnvWorkflowStep_|TestLintWorkflowStep_|TestDeployJobBuild_|TestNightlyFuzzWorkflow_|TestNightlyMutantsWorkflow_|TestNightlyFlakeHuntWorkflow_)' ./internal/tdd ./internal/cli
       - name: actionlint (only when the runner already has it)
         if: needs.changes.outputs.workflow == 'true'
         run: |

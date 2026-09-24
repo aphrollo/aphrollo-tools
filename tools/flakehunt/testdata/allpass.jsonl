@@ -1,0 +1,25 @@
+{"Time":"2026-09-24T13:20:00.661606673Z","Action":"start","Package":"fixturemod/pkga"}
+{"Time":"2026-09-24T13:20:00.668445069Z","Action":"output","Package":"fixturemod/pkga","Output":"-test.shuffle 1790256000668343564\n"}
+{"Time":"2026-09-24T13:20:00.668743189Z","Action":"run","Package":"fixturemod/pkga","Test":"TestAOne"}
+{"Time":"2026-09-24T13:20:00.668756872Z","Action":"output","Package":"fixturemod/pkga","Test":"TestAOne","Output":"=== RUN   TestAOne\n"}
+{"Time":"2026-09-24T13:20:00.668843478Z","Action":"output","Package":"fixturemod/pkga","Test":"TestAOne","Output":"    a_test.go:5: ok\n"}
+{"Time":"2026-09-24T13:20:00.668958231Z","Action":"output","Package":"fixturemod/pkga","Test":"TestAOne","Output":"--- PASS: TestAOne (0.00s)\n"}
+{"Time":"2026-09-24T13:20:00.668968631Z","Action":"pass","Package":"fixturemod/pkga","Test":"TestAOne","Elapsed":0}
+{"Time":"2026-09-24T13:20:00.668976721Z","Action":"run","Package":"fixturemod/pkga","Test":"TestATwo"}
+{"Time":"2026-09-24T13:20:00.668982074Z","Action":"output","Package":"fixturemod/pkga","Test":"TestATwo","Output":"=== RUN   TestATwo\n"}
+{"Time":"2026-09-24T13:20:00.668987499Z","Action":"output","Package":"fixturemod/pkga","Test":"TestATwo","Output":"    a_test.go:6: ok\n"}
+{"Time":"2026-09-24T13:20:00.668993939Z","Action":"output","Package":"fixturemod/pkga","Test":"TestATwo","Output":"--- PASS: TestATwo (0.00s)\n"}
+{"Time":"2026-09-24T13:20:00.668999739Z","Action":"pass","Package":"fixturemod/pkga","Test":"TestATwo","Elapsed":0}
+{"Time":"2026-09-24T13:20:00.669005294Z","Action":"run","Package":"fixturemod/pkga","Test":"TestAOne"}
+{"Time":"2026-09-24T13:20:00.669010122Z","Action":"output","Package":"fixturemod/pkga","Test":"TestAOne","Output":"=== RUN   TestAOne\n"}
+{"Time":"2026-09-24T13:20:00.669152501Z","Action":"output","Package":"fixturemod/pkga","Test":"TestAOne","Output":"    a_test.go:5: ok\n"}
+{"Time":"2026-09-24T13:20:00.669161373Z","Action":"output","Package":"fixturemod/pkga","Test":"TestAOne","Output":"--- PASS: TestAOne (0.00s)\n"}
+{"Time":"2026-09-24T13:20:00.66916724Z","Action":"pass","Package":"fixturemod/pkga","Test":"TestAOne","Elapsed":0}
+{"Time":"2026-09-24T13:20:00.669172671Z","Action":"run","Package":"fixturemod/pkga","Test":"TestATwo"}
+{"Time":"2026-09-24T13:20:00.669177445Z","Action":"output","Package":"fixturemod/pkga","Test":"TestATwo","Output":"=== RUN   TestATwo\n"}
+{"Time":"2026-09-24T13:20:00.669182302Z","Action":"output","Package":"fixturemod/pkga","Test":"TestATwo","Output":"    a_test.go:6: ok\n"}
+{"Time":"2026-09-24T13:20:00.669188963Z","Action":"output","Package":"fixturemod/pkga","Test":"TestATwo","Output":"--- PASS: TestATwo (0.00s)\n"}
+{"Time":"2026-09-24T13:20:00.669194499Z","Action":"pass","Package":"fixturemod/pkga","Test":"TestATwo","Elapsed":0}
+{"Time":"2026-09-24T13:20:00.669199823Z","Action":"output","Package":"fixturemod/pkga","Output":"PASS\n"}
+{"Time":"2026-09-24T13:20:00.681846434Z","Action":"output","Package":"fixturemod/pkga","Output":"ok  \tfixturemod/pkga\t0.018s\n"}
+{"Time":"2026-09-24T13:20:00.681889656Z","Action":"pass","Package":"fixturemod/pkga","Elapsed":0.02}
