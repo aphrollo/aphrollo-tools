@@ -1,6 +1,8 @@
 package suite
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 )
@@ -82,5 +84,67 @@ func TestNarrowToStaged_MapsThePipelineWorkflowToInternalTDD(t *testing.T) {
 	}
 	if want := []string{"test", "./internal/tdd"}; !slices.Equal(got.Args, want) {
 		t.Errorf("args = %q, want %q — a pipeline.yml-only change must scope to the package that reads it, not the module root", got.Args, want)
+	}
+}
+
+// A package whose tests read OTHER packages' files by path is invisible to
+// both the directory walk and the import graph: tools/tddsplit's drift test
+// re-runs the split generator over every file under internal/tdd, so adding,
+// removing or editing a .go file there can fail ./tools/tddsplit while
+// nothing imports it (#832's merge). The repo declares that edge in
+// aphrollo.toml, and a staged file under the declared prefix selects the
+// reading package too.
+func TestNarrowToStaged_SelectsThePackageDeclaredToReadAStagedPrefix(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	write(t, root, "aphrollo.toml", "[aphrollo]\ngo-test-reads = [\"internal/tdd/ -> tools/tddsplit\"]\n")
+	write(t, root, "internal/tdd/core/core.go", "package core\n")
+	write(t, root, "internal/tdd/core/new_own_test.go", "package core\n")
+	write(t, root, "tools/tddsplit/main.go", "package main\n")
+	write(t, root, "other/other.go", "package other\n")
+
+	got, _ := narrowToStaged(Runner{Cmd: "go"}, root, []string{"internal/tdd/core/new_own_test.go"})
+	if want := []string{"test", "./internal/tdd/core", "./tools/tddsplit"}; !slices.Equal(got.Args, want) {
+		t.Errorf("under the prefix: args = %q, want %q", got.Args, want)
+	}
+
+	got, _ = narrowToStaged(Runner{Cmd: "go"}, root, []string{"other/other.go"})
+	if want := []string{"test", "./other"}; !slices.Equal(got.Args, want) {
+		t.Errorf("outside the prefix: args = %q, want %q — a declared reader is owed only for its own prefix", got.Args, want)
+	}
+}
+
+// This repo's own declaration, against #832's real shape: its merge staged
+// new internal/tdd/core tests beside a manifest.txt edit, and CI's
+// TestCommittedTree_GeneratedFilesMatchTheGenerator failed in a package the
+// gate never ran.
+func TestNarrowToStaged_ThisRepoOwesToolsTddsplitForAnInternalTddChange(t *testing.T) {
+	t.Parallel()
+	root := moduleRootOf(t)
+
+	for _, staged := range []string{"internal/tdd/core/buildlock_own_test.go", "tools/tddsplit/manifest.txt"} {
+		dirs := goStagedDirs(root, []string{staged})
+		if !slices.Contains(dirs, "tools/tddsplit") {
+			t.Errorf("staging %s selects %q, want tools/tddsplit among them", staged, dirs)
+		}
+	}
+}
+
+// moduleRootOf walks up from the test's working directory to go.mod.
+func moduleRootOf(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("no go.mod above the test's directory")
+		}
+		dir = parent
 	}
 }

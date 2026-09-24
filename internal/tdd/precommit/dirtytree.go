@@ -33,8 +33,9 @@ func planRoots(gateName, repoRoot string, groups []rootGroup) {
 			plan, ok := planCargoStages(gateName, repoRoot, g.Root, files)
 			g.plan.cargo, g.plan.cargoOK = &plan, ok
 		case "go":
-			narrowed := narrowedRunner(runner, repoRoot, g.Root, files)
-			g.plan.goRunner = &narrowed
+			if narrowed, ok := groupSuiteRunner(gateName, repoRoot, *g, runner); ok {
+				g.plan.goRunner = &narrowed
+			}
 		}
 	}
 }

@@ -122,3 +122,140 @@ func TestPrecommit_NamesADownstreamCrateAmongTheSuitesItDidNotRun(t *testing.T) 
 		t.Fatalf("NOT RUN line = %q, want it to name both the touched crate and lab downstream of it; output:\n%s", notRun, out)
 	}
 }
+
+// Escape from #832's merge: main brought in an edit to
+// tools/tddsplit/manifest.txt, a file no compiler reads but the package's
+// drift test does, and the merge gate's go test list never named
+// ./tools/tddsplit because a .txt is neither Source nor Test. CI then failed
+// that package's test. A non-Go file inside a Go package's directory (a
+// fixture beside the code, or anything under its testdata/) is input to that
+// package's tests, so changing it owes that package's suite.
+func nonGoFileRepo(t *testing.T, data string) string {
+	t.Helper()
+	root := makeGoRepo(t)
+	write(t, root, "p/p.go", "package p\n")
+	write(t, root, "q/q.go", "package q\n")
+	write(t, root, data, "v1\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "packages")
+	write(t, root, data, "v2\n")
+	gitDo(t, root, "add", ".")
+	return root
+}
+
+func TestMechanical_RunsTheSuiteOfAPackageWhoseOnlyChangeIsANonGoFile(t *testing.T) {
+	for _, data := range []string{"p/manifest.txt", "p/testdata/golden.json"} {
+		t.Run(data, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			root := nonGoFileRepo(t, data)
+
+			var seen []Runner
+			if res := Mechanical(root, recordRunner(&seen, root)); res.Blocked {
+				t.Fatalf("unexpected block: %s", res.Message)
+			}
+			var ran []string
+			for _, r := range seen {
+				ran = append(ran, r.Cmd+" "+strings.Join(r.Args, " "))
+			}
+			if want := "go test -race -count=1 -shuffle=on ./p"; strings.Join(ran, " | ") != want {
+				t.Fatalf("merge gate ran %q, want exactly %q: %s sits in p's directory and p's tests read it", ran, want, data)
+			}
+		})
+	}
+}
+
+func TestPrecommit_NamesThePackageOfAStagedNonGoFileAsNotRun(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	withLinter(t, false)
+	root := nonGoFileRepo(t, "p/testdata/golden.json")
+
+	var seen []Runner
+	out := captureStderr(t, func() {
+		if res := Precommit(root, recordRunner(&seen, root)); res.Blocked {
+			t.Fatalf("unexpected block: %s", res.Message)
+		}
+	})
+	var notRun string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "NOT RUN") {
+			notRun = line
+		}
+	}
+	if !strings.Contains(notRun, "NOT RUN — ./p not tested here") {
+		t.Fatalf("NOT RUN line = %q, want it to name ./p, whose testdata the commit changed; output:\n%s", notRun, out)
+	}
+}
+
+// A data file no package's directory holds selects nothing, and must not
+// fall back to the whole module's suite: here the module root holds no .go
+// files, so config/settings.yml walks up to no package at all.
+func TestMechanical_RunsNothingForADataFileNoGoPackageHolds(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	gitDo(t, root, "rm", "-q", "doc.go")
+	write(t, root, "p/p.go", "package p\n")
+	write(t, root, "config/settings.yml", "v: 1\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "packages")
+	write(t, root, "config/settings.yml", "v: 2\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	if res := Mechanical(root, recordRunner(&seen, root)); res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	if len(seen) != 0 {
+		t.Fatalf("merge gate ran %+v; no Go package holds config/settings.yml, so it owes no suite", seen)
+	}
+}
+
+// A vendored package's files belong to the code it was copied from: a
+// licence text changing under vendor/ owes no suite of this module's.
+func TestMechanical_RunsNothingForADataFileUnderVendor(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := nonGoFileRepo(t, "vendor/ex.com/lib/LICENSE.txt")
+	write(t, root, "vendor/ex.com/lib/lib.go", "package lib\n")
+
+	var seen []Runner
+	if res := Mechanical(root, recordRunner(&seen, root)); res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	if len(seen) != 0 {
+		t.Fatalf("merge gate ran %+v for a vendored licence text", seen)
+	}
+}
+
+// Prose is not test input: a README beside p's code, merged together with a
+// change to q, owes q's suite and not p's.
+func TestMechanical_DoesNotRunTheSuiteOfAPackageWhoseOnlyChangeIsProse(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := nonGoFileRepo(t, "p/README.md")
+	write(t, root, "q/q.go", "package q\n\nfunc Q() int { return 1 }\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	if res := Mechanical(root, recordRunner(&seen, root)); res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	var ran []string
+	for _, r := range seen {
+		ran = append(ran, r.Cmd+" "+strings.Join(r.Args, " "))
+	}
+	if want := "go test -race -count=1 -shuffle=on ./q"; strings.Join(ran, " | ") != want {
+		t.Fatalf("merge gate ran %q, want exactly %q", ran, want)
+	}
+}
+
+// The suite a data file selects is a real verdict: red there refuses the
+// merge exactly as red for a changed .go file would.
+func TestMechanical_RefusesTheMergeWhenTheSuiteADataFileSelectsFails(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := nonGoFileRepo(t, "p/manifest.txt")
+
+	res := Mechanical(root, func(r Runner, _ string) SuiteResult {
+		return SuiteResult{Passed: false, Output: "--- FAIL: TestDrift (0.00s)\nFAIL\n"}
+	})
+	if !res.Blocked {
+		t.Fatalf("merge gate let a red ./p suite through for a manifest.txt change: %s", res.Message)
+	}
+}

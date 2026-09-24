@@ -24,9 +24,12 @@ import (
 // and gate.log entry; failFirst is false for the merge gate, whose commits
 // were each already judged when authored.
 func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst bool) GateResult {
-	// Changes-gate: a docs/yaml-only commit (no staged source AND no staged
-	// test) under this root has nothing to check.
+	// Changes-gate: a root with no staged source AND no staged test has no
+	// code to check; only the data files of a Go root can still owe a suite.
 	if len(g.tests) == 0 && len(g.srcs) == 0 {
+		if res, ran := goDataOnlyRoot(gateName, repoRoot, g, run, failFirst); ran {
+			return res
+		}
 		return GateResult{}
 	}
 	runner, ok := DetectRunner(g.Root)
@@ -49,7 +52,7 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	// related mode (or an unknown command) falls back to the full suite
 	// unchanged.
 	rootRelFiles := toRootRelative(repoRoot, g.Root, rootFiles)
-	runner = rootSuiteRunner(gateName, repoRoot, g.Root, runner, rootFiles)
+	runner, _ = groupSuiteRunner(gateName, repoRoot, g, runner)
 	// This root's suite is the ground the commit owes, whether the branch
 	// below runs it (the merge) or stands down in favour of the fail-first
 	// proof (the commit) — see suiteproof.go for what may be claimed after.
@@ -95,6 +98,44 @@ func rootSuiteRunner(gateName, repoRoot, root string, runner Runner, files []str
 	return runner
 }
 
+// groupSuiteRunner is the suite g owes on a non-cargo root, and whether it
+// owes one at all. Its staged tests and sources scope it, and so do its data
+// files, each selecting the package whose directory holds it. A root whose
+// staged set is only data owes a suite only when one of those files sits
+// inside a Go package: narrowing that declines would hand back the whole
+// module's suite for, say, a lone config file beside go.mod.
+func groupSuiteRunner(gateName, repoRoot string, g rootGroup, runner Runner) (Runner, bool) {
+	files := append(append([]string{}, g.tests...), g.srcs...)
+	if len(files) == 0 {
+		if _, ok := narrowToStaged(runner, g.Root, toRootRelative(repoRoot, g.Root, g.data)); !ok {
+			return runner, false
+		}
+	}
+	return rootSuiteRunner(gateName, repoRoot, g.Root, runner, append(files, g.data...)), true
+}
+
+// goDataOnlyRoot answers a root whose staged set holds no source and no
+// test, only data files (which exist on a Go root alone): the packages they
+// select owe their suite, which the merge runs and the commit names as NOT
+// RUN. It skips vet, lint and fail-first, which judge Go source and have
+// none new to judge. ran is true only when the suite stage ran and res
+// carries its verdict; otherwise the caller has nothing to report.
+func goDataOnlyRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst bool) (res GateResult, ran bool) {
+	runner, ok := DetectRunner(g.Root)
+	if ok {
+		runner, ok = groupSuiteRunner(gateName, repoRoot, g, runner)
+	}
+	if !ok {
+		return res, false
+	}
+	gateSuiteProof().Owe(runner)
+	if failFirst {
+		reportSuitesNotRun(gateName, g.Root, suiteNoun(runner.Cmd), runner, suiteTouchedNames(runner))
+		return res, false
+	}
+	return suiteStage(gateName, repoRoot, g.Root, runner, run), true
+}
+
 // owedSuite is one root's suite as the commit gate owes it: the root its
 // green is cached under, and the runner the suite stage would run there.
 type owedSuite struct {
@@ -119,8 +160,8 @@ func commitOwedSuites(repoRoot string) []owedSuite {
 		if runner.Cmd == "cargo" {
 			plan, _ := planCargoStages("precommit", repoRoot, g.Root, files)
 			runner = plan.suiteRunner()
-		} else {
-			runner = rootSuiteRunner("precommit", repoRoot, g.Root, runner, files)
+		} else if runner, ok = groupSuiteRunner("precommit", repoRoot, g, runner); !ok {
+			continue
 		}
 		owed = append(owed, owedSuite{Root: g.Root, Runner: runner})
 	}
