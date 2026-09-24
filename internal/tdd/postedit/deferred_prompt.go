@@ -94,7 +94,7 @@ func sessionDeferredJobs(session string) []DeferredJob {
 // only where. A finished build goes on into its run phase, so the command a
 // build job's line names is the run's — the one still to report.
 func withCommand(line string, j DeferredJob) string {
-	cmd := strings.Join(phaseArgvFromBuild(j.Runner), " ")
+	cmd := strings.Join(runArgvAfterBuild(j), " ")
 	if strings.Contains(line, cmd) {
 		return line
 	}

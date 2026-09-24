@@ -72,6 +72,13 @@ func TestRunCargoShim_TestRun_BuildsUnderSlotThenRunsSlotFree(t *testing.T) {
 			wantBuild: []string{"nextest", "run", "-p", "forge", "--release", "--run-ignored", "only", "-E", "test(launch_step_probe)", "--no-run"},
 		},
 		{
+			// Issue #798: nextest refuses --no-run beside --no-fail-fast, so
+			// a hand mutation proof died on an argument error.
+			name:      "nextest run with --no-fail-fast",
+			args:      []string{"nextest", "run", "-p", "forge_solver", "--lib", "--no-fail-fast", "-E", "test(/friction/)"},
+			wantBuild: []string{"nextest", "run", "-p", "forge_solver", "--lib", "-E", "test(/friction/)", "--no-run"},
+		},
+		{
 			name:      "cargo bench with criterion arguments",
 			args:      []string{"bench", "-p", "movement", "--bench", "step", "--", "--save-baseline", "main"},
 			wantBuild: []string{"bench", "-p", "movement", "--bench", "step", "--no-run"},

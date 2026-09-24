@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/suite"
 )
 
 // The edit hook's cargo path, split into a BUILD phase (`--no-run`) and a
@@ -111,8 +112,8 @@ func runEditPhases(runner Runner, root, target, headSHA, fileHash, session, edit
 	deadline := time.Now().Add(budget)
 	build := DeferredJob{
 		Project: root, Phase: "build", Dir: runnerDir(runner, root),
-		Runner: phaseArgv(runner, "build"), HeadSHA: headSHA, FileHash: fileHash,
-		File: target, Session: session, EditID: editID,
+		Runner: phaseArgv(runner, "build"), RunRunner: phaseArgv(runner, "run"),
+		HeadSHA: headSHA, FileHash: fileHash, File: target, Session: session, EditID: editID,
 	}
 	if !splittable(runner) {
 		// Only cargo can build tests without running them; `go test --no-run`
@@ -145,7 +146,7 @@ func runEditPhases(runner Runner, root, target, headSHA, fileHash, session, edit
 	}
 	runPhase := build
 	runPhase.Phase = "run"
-	runPhase.Runner = phaseArgv(runner, "run")
+	runPhase.Runner, runPhase.RunRunner = build.RunRunner, nil
 	startedRun, out, status := startAndWait(runPhase, time.Until(deadline))
 	if status == phaseFailedToStart {
 		return deferredEditOutcome{spawnFailed: true}
@@ -226,7 +227,7 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 		// The expensive half is done and warm — run the tests now.
 		runPhase := j
 		runPhase.Phase = "run"
-		runPhase.Runner = phaseArgvFromBuild(j.Runner)
+		runPhase.Runner, runPhase.RunRunner = runArgvAfterBuild(j), nil
 		runPhase.Log, runPhase.Result = "", ""
 		startedRun, runOut, status := startAndWait(runPhase, time.Until(deadline))
 		if status == phaseFailedToStart {
@@ -385,20 +386,32 @@ func phaseSuiteResult(j DeferredJob, out PhaseOutcome) SuiteResult {
 func splittable(r Runner) bool { return r.Cmd == "cargo" }
 
 // phaseArgv builds one phase's argv from the edit's runner: the build phase
-// is the same command with --no-run, the run phase is the command itself.
+// is the queue shim's own build form (suite.CargoBuildOnlyArgv: --no-run,
+// without the run-only flags nextest refuses beside it), the run phase is
+// the command itself.
 func phaseArgv(r Runner, phase string) []string {
 	argv := append([]string{r.Cmd}, r.Args...)
 	if phase == "build" {
 		if hasNoRunFlag(argv) {
 			return argv
 		}
-		return append(argv, "--no-run")
+		return suite.CargoBuildOnlyArgv(argv)
 	}
 	// A `go test` phase names its own -timeout, above the deferral ceiling:
 	// go's default 10m otherwise collides with that ceiling and both answers
 	// are lost (deferred_verdict.go, issue #571). Only cargo is splittable,
 	// so a go run never reaches the build branch above.
 	return withDeferredGoTimeout(argv)
+}
+
+// runArgvAfterBuild is the run phase a finished build record goes on to:
+// the argv the record carries for it, or, on a record from before that field
+// existed, the build argv minus --no-run.
+func runArgvAfterBuild(j DeferredJob) []string {
+	if len(j.RunRunner) > 0 {
+		return j.RunRunner
+	}
+	return phaseArgvFromBuild(j.Runner)
 }
 
 // phaseArgvFromBuild recovers the run-phase argv from a recorded build one.
