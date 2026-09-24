@@ -124,7 +124,7 @@ func isCargoConfigToml(p string) bool {
 //
 // The discriminator is narrower than "mentioned in a string literal" --
 // measured against this repo's own source: tools/clippy_clean_list.sh
-// appears as a literal too (internal/tdd/doctor.go's clippyCleanListScript),
+// appears as a literal too (internal/tdd/install/doctor.go's clippyCleanListScript),
 // but only inside a diagnostic string a "doctor" check prints; nothing ever
 // opens, executes or reads that path, so it does NOT belong here. Every
 // entry below is checked at a real fileExists/exec/ReadFile call site (or,

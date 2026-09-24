@@ -94,10 +94,6 @@ func VerifyClosure(p0 string, p1 string, p2 io.Writer) (bool, error) {
 	return escape.VerifyClosure(p0, p1, p2)
 }
 
-func commitCarriesGreenGate(p0 string, p1 string) bool { return escape.CommitCarriesGreenGate(p0, p1) }
-
-func greenSuiteStampFile(p0 string) string { return escape.GreenSuiteStampFile(p0) }
-
 func maybeWeeklyDigest(p0 time.Time) string { return escape.MaybeWeeklyDigest(p0) }
 
 func syncClosedEscapes(p0 string) int { return escape.SyncClosedEscapes(p0) }

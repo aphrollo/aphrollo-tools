@@ -27,7 +27,7 @@ func TestDoctor_NeverTeachesARetiringAlias(t *testing.T) {
 
 // allBrokenDoctorReports renders doctor's report across a battery of broken
 // installs, each breaking one field away from a healthy baseline (mirroring
-// internal/tdd/doctor_test.go's own fixtures, built here through exported
+// internal/tdd/install/doctor_test.go's own fixtures, built here through exported
 // seams since internal/cli cannot reach that package's unexported test
 // helpers) — concatenated so every FAIL message that names a command is
 // exercised at least once.

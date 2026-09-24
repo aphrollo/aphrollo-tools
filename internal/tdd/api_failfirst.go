@@ -7,5 +7,3 @@ import (
 )
 
 const DefaultPrecommitTimeout = failfirst.DefaultPrecommitTimeout
-
-const gcOriginFile = failfirst.GcOriginFile

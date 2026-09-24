@@ -4,7 +4,6 @@ package tdd
 
 import (
 	core "github.com/aphrollo/aphrollo-tools/internal/tdd/core"
-	exec "os/exec"
 	time "time"
 )
 
@@ -22,8 +21,6 @@ const WallPrimary = core.WallPrimary
 
 const Warn = core.Warn
 
-const premergeDisplayName = core.PremergeDisplayName
-
 type Decision = core.Decision
 
 type GateResult = core.GateResult
@@ -35,8 +32,6 @@ type Runner = core.Runner
 type gateEntry = core.GateEntry
 
 type sessionState = core.SessionState
-
-var errNoSession = core.ErrNoSession
 
 func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration) {
 	core.AppendGateLog(p0, p1, p2, p3, p4)
@@ -58,44 +53,20 @@ func TryAcquireFileLock(p0 string) (func(), bool) { return core.TryAcquireFileLo
 
 func WriteMergeRejectedMarker(p0 string, p1 string) { core.WriteMergeRejectedMarker(p0, p1) }
 
-func aphrolloTomlFlag(p0 string, p1 string) bool { return core.AphrolloTomlFlag(p0, p1) }
-
-func claudeConfigDir() string { return core.ClaudeConfigDir() }
-
-func formatBytes(p0 int64) string { return core.FormatBytes(p0) }
-
-func formatDays(p0 time.Duration) string { return core.FormatDays(p0) }
-
 func formatElapsedSecs(p0 time.Duration) string { return core.FormatElapsedSecs(p0) }
 
 func loadSession(p0 string) (*sessionState, string) { return core.LoadSession(p0) }
 
 func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }
 
-func pidRunningFn(p0 int) bool { return core.PidRunningFn(p0) }
-
 func plural(p0 int) string { return core.Plural(p0) }
 
-func primaryCheckoutRoot(p0 string) string { return core.PrimaryCheckoutRoot(p0) }
-
 func repoStateKey(p0 string) string { return core.RepoStateKey(p0) }
-
-func samePath(p0 string, p1 string) bool { return core.SamePath(p0, p1) }
 
 func sameProject(p0 string, p1 string) bool { return core.SameProject(p0, p1) }
 
 func setOff(p0 string, p1 bool) error { return core.SetOff(p0, p1) }
 
 func setWaiver(p0 string, p1 string, p2 bool) error { return core.SetWaiver(p0, p1, p2) }
-
-func shellPath(p0 string) string { return core.ShellPath(p0) }
-
-func silentStdio(p0 *exec.Cmd) func() { return core.SilentStdio(p0) }
-
-func sortStrings(p0 []string) { core.SortStrings(p0) }
-
-func tomlBoolSetIn(p0 string, p1 string, p2 string) (bool, bool) {
-	return core.TomlBoolSetIn(p0, p1, p2)
-}
 
 func writeFileAtomic(p0 string, p1 []byte) error { return core.WriteFileAtomic(p0, p1) }

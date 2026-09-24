@@ -14,26 +14,4 @@ const Red = suite.Red
 
 const RedMissingImpl = suite.RedMissingImpl
 
-const bashSuiteVerdictFreshFor = suite.BashSuiteVerdictFreshFor
-
-const suiteOutputCap = suite.SuiteOutputCap
-
-type suiteOutputRecord = suite.SuiteOutputRecord
-
-func cmdString(p0 Runner) string { return suite.CmdString(p0) }
-
-func mechCacheAdd(p0 string) { suite.MechCacheAdd(p0) }
-
-func mechKey(p0 string, p1 string, p2 Runner) string { return suite.MechKey(p0, p1, p2) }
-
-func narrowToStaged(p0 Runner, p1 string, p2 []string) (Runner, bool) {
-	return suite.NarrowToStaged(p0, p1, p2)
-}
-
-func retainSuiteOutput(p0 string, p1 string, p2 string, p3 string, p4 SuiteResult) {
-	suite.RetainSuiteOutput(p0, p1, p2, p3, p4)
-}
-
 func stampProvenSuite(p0 string) { suite.StampProvenSuite(p0) }
-
-func writeSuiteOutputRecord(p0 suiteOutputRecord) error { return suite.WriteSuiteOutputRecord(p0) }

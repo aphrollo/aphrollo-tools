@@ -1,0 +1,2 @@
+github.com/aphrollo/aphrollo-tools/internal/tdd/lock->github.com/aphrollo/aphrollo-tools/internal/tdd
+github.com/aphrollo/aphrollo-tools/internal/tdd/lock->github.com/aphrollo/aphrollo-tools/internal/diff->github.com/aphrollo/aphrollo-tools/internal/tdd/suite

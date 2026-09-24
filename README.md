@@ -997,10 +997,10 @@ Flags: `--repo`, `--bin`, `--config-dir`, `--git-hooks-dir`,
 3. Writes the same shims into `--repo`'s own `.git/hooks`.
 4. Writes managed files, each byte-identical on a re-run and overwritten on a
    hand edit: the `aphrollo:begin`/`aphrollo:end` block in the repo's
-   `CLAUDE.md` (source `internal/tdd/claudemd.go`), the law spec in the repo's
+   `CLAUDE.md` (source `internal/tdd/install/claudemd.go`), the law spec in the repo's
    `.ratchet` dir (the [Ratchet laws](#ratchet-laws-aphrollo-ratchet) section,
    source `internal/tdd/ratchet_laws.md`), the `tdd` and `sdd` skills
-   (`internal/tdd/tddskill.md`, `internal/tdd/sddskill.md`), and the builder,
+   (`internal/tdd/install/tddskill.md`, `internal/tdd/install/sddskill.md`), and the builder,
    reviewer and researcher agents.
 
 ### `aphrollo update`

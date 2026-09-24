@@ -92,6 +92,9 @@ internal/tdd/failfirst/ fail-first proofs and the edit ledger (L4)
 internal/tdd/escape/ escapes, auto-escape, issues, feedback, demotion, stats (L4)
 internal/tdd/postedit/ the edit hooks: post-edit, deferred phases, bash hooks, walls (L5)
 internal/tdd/precommit/ the commit gate's stages and fast paths (L6)
+internal/tdd/merge/  commit-message gate, pre-merge PR gate, post-merge and prune (L7)
+internal/tdd/install/ install, init, agents, skills, CLAUDE.md block, doctor, shims, git gate (L7)
+internal/tdd/gc/     gc sweeps (L7)
 internal/docs/       doc-reference guard: extract path citations, resolve, report misses
 internal/workspace/  worktree lifecycle + git verbs
 internal/dev/        dev-tier control plane (systemd)

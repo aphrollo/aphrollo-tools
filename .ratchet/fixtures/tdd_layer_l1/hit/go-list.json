@@ -1,0 +1,4 @@
+{"ImportPath":"github.com/aphrollo/aphrollo-tools/internal/tdd/core","Imports":["github.com/aphrollo/aphrollo-tools/internal/tdd","github.com/aphrollo/aphrollo-tools/internal/diff"],"Standard":false}
+{"ImportPath":"github.com/aphrollo/aphrollo-tools/internal/tdd","Imports":[],"Standard":false}
+{"ImportPath":"github.com/aphrollo/aphrollo-tools/internal/diff","Imports":["github.com/aphrollo/aphrollo-tools/internal/tdd/lock"],"Standard":false}
+{"ImportPath":"github.com/aphrollo/aphrollo-tools/internal/tdd/lock","Imports":[],"Standard":false}

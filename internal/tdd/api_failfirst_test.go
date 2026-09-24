@@ -6,6 +6,8 @@ import (
 	failfirst "github.com/aphrollo/aphrollo-tools/internal/tdd/failfirst"
 )
 
+const gcOriginFile = failfirst.GcOriginFile
+
 func failFirstWorktreeDir(p0 string) string { return failfirst.FailFirstWorktreeDir(p0) }
 
 func headSHAFor(p0 string) string { return failfirst.HeadSHAFor(p0) }

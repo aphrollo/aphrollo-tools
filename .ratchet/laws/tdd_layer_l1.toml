@@ -1,0 +1,12 @@
+name        = "tdd_layer_l1"
+description = "The internal/tdd split is layered: a package may import only packages of a LOWER level, so a mutant in one package is caught by its own suite and the ones above it, and no cycle runs back down. This law holds the line for L1 (core): it reaches neither the root package internal/tdd nor any package above it (lock, suite, smell, lawgate, mutation, failfirst, escape, postedit, precommit, merge, install, gc). Walked over `go list -deps -json ./...`, like go_dep_graph_no_reach."
+severity    = "deny"
+
+[scope]
+include = ["**/*.go"]
+
+[matcher]
+kind          = "go-dep-graph-forbids"
+roots         = ["github.com/aphrollo/aphrollo-tools/internal/tdd/core"]
+forbidden     = ["github.com/aphrollo/aphrollo-tools/internal/tdd", "github.com/aphrollo/aphrollo-tools/internal/tdd/lock", "github.com/aphrollo/aphrollo-tools/internal/tdd/suite", "github.com/aphrollo/aphrollo-tools/internal/tdd/smell", "github.com/aphrollo/aphrollo-tools/internal/tdd/lawgate", "github.com/aphrollo/aphrollo-tools/internal/tdd/mutation", "github.com/aphrollo/aphrollo-tools/internal/tdd/failfirst", "github.com/aphrollo/aphrollo-tools/internal/tdd/escape", "github.com/aphrollo/aphrollo-tools/internal/tdd/postedit", "github.com/aphrollo/aphrollo-tools/internal/tdd/precommit", "github.com/aphrollo/aphrollo-tools/internal/tdd/merge", "github.com/aphrollo/aphrollo-tools/internal/tdd/install", "github.com/aphrollo/aphrollo-tools/internal/tdd/gc"]
+min_reachable = 1

@@ -16,10 +16,6 @@ type SuiteResult = suite.SuiteResult
 
 type SuiteRunner = suite.SuiteRunner
 
-type mechCacheFile = suite.MechCacheFile
-
-type mutantsConfigTable = suite.MutantsConfigTable
-
 var ghAvailable = suite.GhAvailable
 
 func DetectRunner(p0 string) (Runner, bool) { return suite.DetectRunner(p0) }
@@ -30,36 +26,14 @@ func RetainedSuiteOutput(p0 string) (string, error) { return suite.RetainedSuite
 
 func RunSuite(p0 time.Duration) SuiteRunner { return suite.RunSuite(p0) }
 
-func cargoAphrolloFlag(p0 string, p1 string) bool { return suite.CargoAphrolloFlag(p0, p1) }
-
-func cargoAphrolloPackages(p0 string, p1 string) []string { return suite.CargoAphrolloPackages(p0, p1) }
-
-func cargoClippyCleanPackages(p0 string) []string { return suite.CargoClippyCleanPackages(p0) }
-
 func findRootFrom(p0 string) string { return suite.FindRootFrom(p0) }
 
 func gcStatePath(p0 string) string { return suite.GcStatePath(p0) }
 
-func gitRead(p0 string, p1 ...string) (string, error) { return suite.GitRead(p0, p1...) }
-
 func hasGitHubRemote(p0 string) bool { return suite.HasGitHubRemote(p0) }
-
-func indexTree(p0 string) string { return suite.IndexTree(p0) }
-
-func insideDir(p0 string, p1 string) bool { return suite.InsideDir(p0, p1) }
-
-func loadMechCache(p0 string) *mechCacheFile { return suite.LoadMechCache(p0) }
-
-func mechCachePath() string { return suite.MechCachePath() }
-
-func mechKeyPrefix(p0 string, p1 string) string { return suite.MechKeyPrefix(p0, p1) }
-
-func mutantsConfigTables(p0 string) []mutantsConfigTable { return suite.MutantsConfigTables(p0) }
 
 func runGhTimeout(p0 string, p1 time.Duration, p2 ...string) (string, error) {
 	return suite.RunGhTimeout(p0, p1, p2...)
 }
 
 func suiteAttrs() *syscall.SysProcAttr { return suite.SuiteAttrs() }
-
-func worktreeStateHash(p0 string) string { return suite.WorktreeStateHash(p0) }

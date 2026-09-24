@@ -908,3 +908,6 @@ failfirst/main_test.go
 escape/main_test.go
 postedit/main_test.go
 precommit/main_test.go
+merge/main_test.go
+install/main_test.go
+gc/main_test.go

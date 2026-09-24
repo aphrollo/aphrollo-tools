@@ -3,40 +3,25 @@
 package tdd
 
 import (
-	context "context"
 	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	testing "testing"
 	time "time"
 )
 
-type measuredCall = tddtest.MeasuredCall
+const shimDir = "C:/Users/olive/bin/cargo-queue"
 
 var tempEnvKeys = tddtest.TempEnvKeys
 
-func argvValueOf(t *testing.T, argv []string, flag string) string {
+func bashPayload(t *testing.T, session, cwd, command string) []byte {
 	t.Helper()
-	return tddtest.ArgvValueOf(t, argv, flag)
+	return tddtest.BashPayload(t, session, cwd, command)
 }
-
-func bigFileLines(pkg string, head, tail int) string { return tddtest.BigFileLines(pkg, head, tail) }
-
-func captureStderr(t *testing.T, fn func()) string { t.Helper(); return tddtest.CaptureStderr(t, fn) }
 
 func commitInitial(t *testing.T, repo string) { t.Helper(); tddtest.CommitInitial(t, repo) }
-
-func currentBranch(t *testing.T, repoRoot string) string {
-	t.Helper()
-	return tddtest.CurrentBranch(t, repoRoot, git)
-}
 
 func decide(t *testing.T, payload string) Decision {
 	t.Helper()
 	return tddtest.Decide(t, payload, DecidePreEdit)
-}
-
-func declareMutantsAtMerge(t *testing.T, root string) {
-	t.Helper()
-	tddtest.DeclareMutantsAtMerge(t, root)
 }
 
 func fakeGitShim(t *testing.T) (dir, marker string) { t.Helper(); return tddtest.FakeGitShim(t) }
@@ -44,6 +29,8 @@ func fakeGitShim(t *testing.T) (dir, marker string) { t.Helper(); return tddtest
 func fakeRun(passed bool, output string) SuiteRunner {
 	return tddtest.FakeRun[Runner](SuiteResult{Passed: passed, Output: output})
 }
+
+func ghArgv(t *testing.T, log string) string { t.Helper(); return tddtest.GhArgv(t, log) }
 
 func gitDo(t *testing.T, dir string, args ...string) { t.Helper(); tddtest.GitDo(t, dir, args...) }
 
@@ -59,42 +46,11 @@ func goPrimaryWithLane(t *testing.T) (primary, lane string) {
 	return tddtest.GoPrimaryWithLane(t)
 }
 
-func isQualityRunner(r Runner) bool {
-	if r.Cmd == golangciLint {
-		return true
-	}
-	if len(r.Args) == 0 {
-		return false
-	}
-	if r.Cmd == "go" {
-		return r.Args[0] == "vet"
-	}
-	if r.Cmd != "cargo" {
-		return false
-	}
-	return r.Args[0] == "fmt" || r.Args[0] == "clippy" || r.Args[0] == "check"
-}
-
 func lawTree(t *testing.T, severity string) string { t.Helper(); return tddtest.LawTree(t, severity) }
 
 func makeCargoRepo(t *testing.T) string { t.Helper(); return tddtest.MakeCargoRepo(t) }
 
-func makeCargoWorkspaceRepo(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	gitInit(t, root)
-	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/alpha\", \"crates/beta\"]\n")
-	write(t, root, "crates/alpha/Cargo.toml", "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
-	write(t, root, "crates/beta/Cargo.toml", "[package]\nname = \"beta\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
-	gitDo(t, root, "add", ".")
-	gitDo(t, root, "commit", "-qm", "base")
-	return root
-}
-
-func makeForkedRepo(t *testing.T) (root, trunk string) {
-	t.Helper()
-	return tddtest.MakeForkedRepo(t, git)
-}
+func makeGitHubRepo(t *testing.T) string { t.Helper(); return tddtest.MakeGitHubRepo(t) }
 
 func makeGoMeasureRepo(t *testing.T) (root, base string) {
 	t.Helper()
@@ -103,18 +59,9 @@ func makeGoMeasureRepo(t *testing.T) (root, base string) {
 
 func makeGoRepo(t *testing.T) string { t.Helper(); return tddtest.MakeGoRepo(t) }
 
-func makeMultiRootRepo(t *testing.T) string {
+func mkFile(t *testing.T, path, content string, age time.Duration) {
 	t.Helper()
-	root := t.TempDir()
-	gitInit(t, root)
-	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/a\"]\n")
-	write(t, root, "crates/a/Cargo.toml", "[package]\nname = \"a\"\nversion = \"0.1.0\"\n")
-	write(t, root, "crates/a/src/lib.rs", "pub fn base() -> i32 { 0 }\n")
-	write(t, root, "tools/py/pyproject.toml", "[tool]\n")
-	write(t, root, "tools/py/x.py", "def base():\n    return 1\n")
-	gitDo(t, root, "add", ".")
-	gitDo(t, root, "commit", "-qm", "base")
-	return root
+	tddtest.MkFile(t, path, content, age)
 }
 
 func mkProject(t *testing.T, markers ...string) string {
@@ -122,11 +69,9 @@ func mkProject(t *testing.T, markers ...string) string {
 	return tddtest.MkProject(t, markers...)
 }
 
-func mustWrite(t *testing.T, path, content string) { t.Helper(); tddtest.MustWrite(t, path, content) }
+func msgFile(t *testing.T, body string) string { t.Helper(); return tddtest.MsgFile(t, body) }
 
-func outcomeFields(m MutantOutcome) tddtest.Outcome {
-	return tddtest.Outcome{Name: mutantLineOf(m.File, m.Line, m.Col, m.Mutation), Package: m.Package, File: m.File, Line: m.Line, Col: m.Col, Status: m.Status}
-}
+func mustWrite(t *testing.T, path, content string) { t.Helper(); tddtest.MustWrite(t, path, content) }
 
 func postPayload(tool, file string) []byte { return tddtest.PostPayload(tool, file) }
 
@@ -135,66 +80,32 @@ func ratchetPayload(t *testing.T, tool, path string, fields map[string]any) []by
 	return tddtest.RatchetPayload(t, tool, path, fields)
 }
 
-func readFileString(t *testing.T, path string) string {
+func readEscapes(t *testing.T) []EscapeRecord {
 	t.Helper()
-	return tddtest.ReadFileString(t, path)
+	return tddtest.ReadEscapes[EscapeRecord](t, EscapeLogPath())
 }
 
-func recordRunner(seen *[]Runner, root string) SuiteRunner {
-	return tddtest.RecordRunner(seen, root, recordableRun, SuiteResult{Passed: true})
-}
-
-func recordableRun(r Runner) (Runner, bool) {
-	if isQualityRunner(r) {
-		return r, false
-	}
-	r.Deadline = time.Time{}
-	return r, true
-}
-
-func requireNoMutantsMeasurement(t *testing.T, cfgDir string) {
-	t.Helper()
-	tddtest.RequireNoMutantsMeasurement(t, cfgDir, func(line string) (string, string, bool) { e, ok := parseGateLine(line); return e.Stage, e.Verdict, ok })
-}
-
-func runsAt(seen *[]Runner, root string) SuiteRunner {
-	return tddtest.RecordRunner(seen, root, nil, SuiteResult{Passed: true})
-}
+func skillPath(dir string) string { return tddtest.SkillPath(dir) }
 
 func stamp(at time.Time, stage, root, cmd, verdict string, secs float64) string {
 	return tddtest.Stamp(at, stage, root, cmd, verdict, secs, formatFloat)
 }
 
-func stubMutantsExec(t *testing.T, reply func(ctx context.Context, n int, c measuredCall) (int, error)) *[]measuredCall {
+func stubGh(t *testing.T, stdout string) (argvLog string) {
 	t.Helper()
-	return tddtest.StubMutantsExec(t, SetMutantsExecForTest, setMutantsListCountForTest, reply)
+	return tddtest.StubGh(t, stdout)
 }
 
-func withFreeSpace(t *testing.T, gb int) {
+func stubGhScript(t *testing.T, responses map[string]string) (argvLog string) {
 	t.Helper()
-	t.Cleanup(SetFreeSpaceForTest(gb, true))
+	return tddtest.StubGhScript(t, responses)
 }
+
+func undercoverRepo(t *testing.T, on bool) string { t.Helper(); return tddtest.UndercoverRepo(t, on) }
 
 func withIsolatedBuildLock(t *testing.T) {
 	t.Helper()
 	tddtest.IsolateBuildLock(t, setBuildLockPathOverride, SetPostEditLockWaitForTest, SetPrecommitLockWait)
 }
 
-func withLinter(t *testing.T, present bool) {
-	t.Helper()
-	t.Cleanup(SetLookLinterForTest(func() bool { return present }))
-}
-
-func withLinterVersion(t *testing.T, version string) {
-	t.Helper()
-	t.Cleanup(SetLinterVersionForTest(func(string) string { return version }))
-}
-
 func write(t *testing.T, dir, rel, content string) { t.Helper(); tddtest.Write(t, dir, rel, content) }
-
-func writeMeasureBase(t *testing.T, root string) { t.Helper(); tddtest.WriteMeasureBase(t, root) }
-
-func writeOutcomesIn(t *testing.T, outDir string, mutants ...MutantOutcome) {
-	t.Helper()
-	tddtest.WriteOutcomes(t, cargoMutantsOutcomesPath(outDir), outcomeFields, mutants...)
-}

@@ -15,15 +15,17 @@ const issueFingerprintKey = escape.IssueFingerprintKey
 
 func appendEscape(p0 EscapeRecord) error { return escape.AppendEscape(p0) }
 
+func commitCarriesGreenGate(p0 string, p1 string) bool { return escape.CommitCarriesGreenGate(p0, p1) }
+
 func contains(p0 []string, p1 string) bool { return escape.Contains(p0, p1) }
 
 func escapeFingerprint(p0 string, p1 EscapeOptions) string { return escape.EscapeFingerprint(p0, p1) }
 
-func escapeIssueBody(p0 EscapeRecord) string { return escape.EscapeIssueBody(p0) }
-
 func formatFloat(p0 float64) string { return escape.FormatFloat(p0) }
 
 func gateGreenNote(p0 string) string { return escape.GateGreenNote(p0) }
+
+func greenSuiteStampFile(p0 string) string { return escape.GreenSuiteStampFile(p0) }
 
 func isUnacceptedSurvivorRejection(p0 string) bool { return escape.IsUnacceptedSurvivorRejection(p0) }
 
@@ -32,7 +34,5 @@ func mutantsOutcome(p0 string) (string, string, bool) { return escape.MutantsOut
 func recordEscapeOnce(p0 string, p1 EscapeOptions, p2 io.Writer) (EscapeRecord, bool) {
 	return escape.RecordEscapeOnce(p0, p1, p2)
 }
-
-func resetLabelCache() { escape.ResetLabelCache() }
 
 func stampGreenSuite(p0 string) { escape.StampGreenSuite(p0) }

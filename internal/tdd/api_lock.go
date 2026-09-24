@@ -23,8 +23,6 @@ func AcquireLintLock(p0 string, p1 string, p2 time.Duration) (func(), time.Durat
 
 func EnvWithBuildJobs(p0 []string, p1 int) []string { return lock.EnvWithBuildJobs(p0, p1) }
 
-func GoTmpRootDir(p0 string) string { return lock.GoTmpRootDir(p0) }
-
 func LintLockHolderDescription() string { return lock.LintLockHolderDescription() }
 
 func QueueWaitersForRoot(p0 string) []QueueWaiter { return lock.QueueWaitersForRoot(p0) }
@@ -67,18 +65,6 @@ func WriteQueueWaiter(p0 string, p1 string, p2 string) func() {
 
 func buildSlotHolderDescription(p0 string) string { return lock.BuildSlotHolderDescription(p0) }
 
-func cargoWorkspaceRoot(p0 string) string { return lock.CargoWorkspaceRoot(p0) }
-
-func csvPids(p0 string) []int { return lock.CsvPids(p0) }
-
 func describeOwner(p0 BuildLockOwner) string { return lock.DescribeOwner(p0) }
 
-func ensureSharedDir(p0 string) error { return lock.EnsureSharedDir(p0) }
-
-func lockDir() string { return lock.LockDir() }
-
-func lockLitterDirs() []string { return lock.LockLitterDirs() }
-
 func readBuildLockOwnerAt(p0 string) (BuildLockOwner, bool) { return lock.ReadBuildLockOwnerAt(p0) }
-
-func targetLockPath(p0 string) string { return lock.TargetLockPath(p0) }
