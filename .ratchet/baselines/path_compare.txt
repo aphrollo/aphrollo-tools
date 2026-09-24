@@ -1,4 +1,4 @@
-internal/tdd/mergeprune.go | // PATH (cleanWorktreePath(wt.path) == cleanWorktreePath(mainRepo)), never by
+internal/tdd/merge/mergeprune.go | // PATH (cleanWorktreePath(wt.path) == cleanWorktreePath(mainRepo)), never by
 internal/tdd/precommit/precommit_wsmanifest.go | if abs == filepath.Clean(filepath.Join(ws, name)) {
 internal/ratchet/wholetree_godepgraph.go | if p.ImportPath == prefix || strings.HasPrefix(p.ImportPath, prefix+"/") {
 internal/cli/selfinstall.go | if path == keep {

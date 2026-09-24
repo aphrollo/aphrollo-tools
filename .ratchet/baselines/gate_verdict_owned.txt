@@ -3,14 +3,14 @@ internal/tdd/precommit/mechanical.go | return GateResult{Message: strings.Join(n
 internal/tdd/precommit/mechanical.go | return GateResult{Message: strings.Join(notes, "\n")}
 internal/tdd/precommit/precommit.go | return GateResult{Message: strings.Join(notes, "\n")}
 internal/tdd/precommit/precommit.go | return GateResult{Message: strings.Join(notes, "\n")}
-internal/tdd/commitmsg.go | return GateResult{}
-internal/tdd/commitmsg.go | return GateResult{}
-internal/tdd/commitmsg.go | return GateResult{}
 internal/tdd/failfirst/precommit_failfirst.go | return GateResult{}
 internal/tdd/lawgate/baselineguard.go | return GateResult{}
 internal/tdd/lawgate/ratchetgate.go | return GateResult{}
 internal/tdd/lawgate/ratchetgate.go | return GateResult{}
 internal/tdd/lawgate/ratchetgate.go | return GateResult{}
+internal/tdd/merge/commitmsg.go | return GateResult{}
+internal/tdd/merge/commitmsg.go | return GateResult{}
+internal/tdd/merge/commitmsg.go | return GateResult{}
 internal/tdd/precommit/mechrun.go | return GateResult{}
 internal/tdd/precommit/mechrun.go | return GateResult{}
 internal/tdd/precommit/precommit_gateroot.go | return GateResult{}

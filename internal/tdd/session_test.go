@@ -190,7 +190,7 @@ func TestEndSession_LeavesAnotherSessionsDeferredJobRunning(t *testing.T) {
 	}
 }
 
-// The reply-style block (internal/tdd/style.md) rides in the payload's
+// The reply-style block (internal/tdd/install/style.md) rides in the payload's
 // additionalContext on every ordinary prompt by default — the gate's
 // replacement for the third-party plugin that used to inject it.
 func TestHandlePrompt_StyleAppendedByDefault(t *testing.T) {

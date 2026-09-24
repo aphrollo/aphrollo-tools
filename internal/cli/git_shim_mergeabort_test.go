@@ -154,7 +154,7 @@ func makeConflictingMergeRepo(t *testing.T) (repo, branch string) {
 
 // shellSlash renders a path for embedding in a `#!/bin/sh` hook script:
 // backslashes become forward slashes, matching binShim's own shellPath
-// (internal/tdd/gitgate.go) for the identical reason -- an unquoted
+// (internal/tdd/install/gitgate.go) for the identical reason -- an unquoted
 // backslash is a shell escape character.
 func shellSlash(p string) string { return strings.ReplaceAll(p, `\`, "/") }
 
