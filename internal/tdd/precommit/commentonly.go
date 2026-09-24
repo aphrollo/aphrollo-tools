@@ -39,6 +39,13 @@ func commentOnlySource(repoRoot string) bool {
 	if len(tests) > 0 || len(srcs) == 0 {
 		return false
 	}
+	// Beside the comment-only sources, only prose: a fixture, a law or a
+	// config file staged alongside changes what a check does (docsOnly).
+	for _, p := range staged {
+		if ClassifyFile(p) != Source && !proseFile(p) {
+			return false
+		}
+	}
 	for _, s := range srcs {
 		if !commentOnlySourceFile(repoRoot, s) {
 			return false

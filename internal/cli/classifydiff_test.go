@@ -67,6 +67,18 @@ func TestClassifyDiff_AgreesWithTheCommitGate(t *testing.T) {
 			map[string]string{"p/p.go": strings.Replace(agreeGo, "returns one", "returns 1", 1), "p/q.go": "package p\n\nvar Q = 2\n"}, tdd.DiffCode},
 		{"test file comment", map[string]string{"p/p_test.go": "package p\n\n// old\n"},
 			map[string]string{"p/p_test.go": "package p\n\n// new\n"}, tdd.DiffCode},
+		// A fixture, a law, the lint config and a deploy script each change
+		// what a check does, so neither side lets them skip the checks.
+		{"testdata fixture", map[string]string{"p/testdata/golden.txt": "a\n"},
+			map[string]string{"p/testdata/golden.txt": "b\n"}, tdd.DiffCode},
+		{"ratchet law", map[string]string{".ratchet/laws/x.toml": "name = \"x\"\n"},
+			map[string]string{".ratchet/laws/x.toml": "name = \"y\"\n"}, tdd.DiffCode},
+		{"lint config", map[string]string{".golangci.yml": "a: 1\n"},
+			map[string]string{".golangci.yml": "a: 2\n"}, tdd.DiffCode},
+		{"deploy script", map[string]string{"deploy/deploy-prod.sh": "echo a\n"},
+			map[string]string{"deploy/deploy-prod.sh": "echo b\n"}, tdd.DiffCode},
+		{"go comment-only with a fixture", map[string]string{"p/p.go": agreeGo, "p/testdata/golden.txt": "a\n"},
+			map[string]string{"p/p.go": strings.Replace(agreeGo, "returns one", "returns 1", 1), "p/testdata/golden.txt": "b\n"}, tdd.DiffCode},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -79,9 +91,8 @@ func TestClassifyDiff_AgreesWithTheCommitGate(t *testing.T) {
 }
 
 // Where the two sides deliberately differ, each difference is a row here
-// rather than an accident: CI narrows docs-only to prose (a fixture or a
-// config file changes what a check does), and CI alone has a workflow-only
-// path, whose pin tests are what a .github change can break.
+// rather than an accident: CI alone has a workflow-only path, whose pin
+// tests are what a .github change can break.
 func TestClassifyDiff_DiffersFromTheCommitGateOnlyWhereDeclared(t *testing.T) {
 	cases := []struct {
 		name         string
@@ -89,10 +100,6 @@ func TestClassifyDiff_DiffersFromTheCommitGateOnlyWhereDeclared(t *testing.T) {
 		local        tdd.DiffClass
 		ci           tdd.DiffClass
 	}{
-		{"testdata fixture", map[string]string{"p/testdata/golden.txt": "a\n"},
-			map[string]string{"p/testdata/golden.txt": "b\n"}, tdd.DiffDocsOnly, tdd.DiffCode},
-		{"lint config", map[string]string{".golangci.yml": "a: 1\n"},
-			map[string]string{".golangci.yml": "a: 2\n"}, tdd.DiffDocsOnly, tdd.DiffCode},
 		{"other workflow", map[string]string{".github/workflows/nightly.yml": "a: 1\n"},
 			map[string]string{".github/workflows/nightly.yml": "a: 2\n"}, tdd.DiffDocsOnly, tdd.DiffWorkflowOnly},
 		{"pipeline workflow", map[string]string{".github/workflows/pipeline.yml": "a: 1\n"},

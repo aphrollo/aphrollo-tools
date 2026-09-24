@@ -26,16 +26,31 @@ import (
 // metadata` call went through the build queue; that verb is read-only and
 // passes through unlocked now.)
 
-// docsOnly reports whether repoRoot's staged set carries no code at all. An
-// EMPTY staged set is not docs-only: there is nothing to say about it, and
-// the ordinary path already handles it.
+// docsOnly reports whether repoRoot's staged set carries no code at all:
+// no Source or Test file, and nothing else but prose (proseFile, the rule
+// CI's `gate classify-diff` reads) or a workflow file. A test fixture under
+// testdata/, a .ratchet/ law, .golangci.yml or a deploy script is neither
+// Source nor Test, yet each changes what a check does, so it takes the full
+// path here exactly as it does in CI. An EMPTY staged set is not docs-only:
+// there is nothing to say about it, and the ordinary path already handles
+// it.
 func docsOnly(repoRoot string) bool {
 	staged := stagedFiles(repoRoot)
 	if len(staged) == 0 {
 		return false
 	}
 	tests, srcs := splitKinds(staged)
-	return len(tests) == 0 && len(srcs) == 0
+	if len(tests) > 0 || len(srcs) > 0 {
+		return false
+	}
+	for _, p := range staged {
+		// A workflow file is CI's own workflow-only path, whose pin tests
+		// run there; the commit gate has no such path and carries it here.
+		if !proseFile(p) && !strings.HasPrefix(p, ".github/") {
+			return false
+		}
+	}
+	return true
 }
 
 // docsOnlyFastPath runs the tree guards and stops. It never takes the build
