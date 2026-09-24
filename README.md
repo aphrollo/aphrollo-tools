@@ -10,7 +10,7 @@ Every verb is **lossless** (never truncates or filters output),
 work reports `[skip]`). Mutation models by family:
 
 - `workspace` verbs execute by default; `--dry` previews.
-- `refactor`, `sqlc regen` and `gate gc` are dry-run by default; `--apply` writes.
+- `refactor`, `sqlc regen`, `gate gc` and `gate probe discard` are dry-run by default; `--apply` writes.
 - `dev` acts immediately, like `systemctl`, and has no dry-run.
 
 ## Install
@@ -262,7 +262,28 @@ copies of the binary named `cargo.exe`/`git.exe`). A waiter prints one
   `stash drop`, `branch -D`, `worktree remove --force`) is refused with its
   cost. `aphrollo gate allow discard` arms one command; `APHROLLO_DISCARD=1`
   passes one invocation for a script but still refuses unstaged work, which
-  needs `APHROLLO_DISCARD_UNSTAGED=1`.
+  needs `APHROLLO_DISCARD_UNSTAGED=1`. In a Bash or PowerShell call the
+  PreToolUse hook refuses `checkout`, `restore`, `clean`, `reset --hard`,
+  `stash drop|clear`, `git apply -R|--reverse` and `patch -R|--reverse`
+  outright; the `checkout`/`restore` and reverse-apply refusals name
+  `aphrollo gate probe discard`.
+- **Probe discard**: the sanctioned way to strip a refused probe arm back to
+  HEAD.
+
+  ```sh
+  aphrollo gate probe discard src/a.rs src/new.rs            # dry run: per-file loss, backup path
+  aphrollo gate probe discard --apply src/a.rs src/new.rs    # back up, then restore
+  ```
+
+  It takes exact files only (no directory, no glob, nothing outside the
+  repo) and refuses a file with staged content. Every run prints, per file,
+  the lines added and removed vs HEAD, or an untracked file's size; a file
+  with no change is reported and skipped. `--apply` first writes the full
+  diff (untracked files as new-file patches) to
+  `<gate state dir>/probe-discard/<UTC timestamp>-<repo>.patch`, outside
+  every checkout, then restores tracked files with the real git and removes
+  untracked ones, and logs the paths, the summary and the backup path to
+  `gate.log`. `git -C <repo> apply <backup>` undoes it.
 - **Primary checkout**: once a repo has a linked worktree, the checkout holding
   `main` takes merges only. Work in a lane:
   `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`.
@@ -326,6 +347,8 @@ Reclaims idle incremental caches, dead fail-first worktrees, unheld lock
 records, superseded cargo artifacts (workspace crates at 3 d, third-party at
 14 d), finished mutation shard dirs, orphan worktree builds and idle stray
 target dirs. Registered worktrees and held build locks are never touched.
+Probe discard backups are never swept: the report lists each one (path, age,
+size, the files it covers) for the operator to remove by hand.
 
 ### Workspace metadata
 

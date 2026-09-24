@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -46,6 +47,7 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 		if !*quiet {
 			fmt.Fprint(stdout, tdd.RenderGC(cands, false, 0))
 			writeMutantsInUse(stdout)
+			writeProbeBackups(stdout)
 		}
 		return 0
 	}
@@ -57,6 +59,7 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprint(stdout, tdd.RenderGC(cands, true, freed))
 	writeMutantsInUse(stdout)
+	writeProbeBackups(stdout)
 	if skipped > 0 {
 		fmt.Fprintf(stdout, "%d candidate(s) inside the target dir left for next time — a build holds every slot for this target dir\n", skipped)
 	}
@@ -89,4 +92,13 @@ func gcScopeFromFlags(lockAge string) (tdd.GCScope, error) {
 	scope := tdd.AllGCScopes()
 	scope.LockAge = age
 	return scope, nil
+}
+
+// writeProbeBackups lists the probe discard backups. They are never a
+// candidate: a backup is what makes a discard undoable, so only the operator
+// removes one.
+func writeProbeBackups(stdout io.Writer) {
+	for _, line := range probeBackupListing(time.Now()) {
+		fmt.Fprintln(stdout, line)
+	}
 }
