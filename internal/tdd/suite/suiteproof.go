@@ -177,9 +177,17 @@ func provenCovers(have []runScope, want runScope) bool {
 // crate, and the wording must say so.
 func reportSuitesNotRun(gateName, root, noun string, runner Runner, touched []string) {
 	cmd := cmdString(runner)
-	fmt.Fprintf(os.Stderr, "[mechanical] gate %s: %s in %s → NOT RUN — %s not tested here; a touched %s's suite runs at the merge gate, so this pass is not a green for it\n",
-		gateName, cmd, root, strings.Join(touched, ", "), noun)
+	fmt.Fprintf(os.Stderr, "[mechanical] gate %s: %s in %s → %s\n", gateName, cmd, root, notRunClause(touched, noun))
 	AppendGateLog(gateName, root, cmd, "suites-not-run", 0)
+}
+
+// notRunClause is the one wording for "this pass did not test these": the
+// commit gate's line for a touched scope it stood down on, and the edit
+// hook's clause for the integration targets a scoped run left out, so a
+// reader learns one phrase for one fact wherever it appears.
+func notRunClause(names []string, noun string) string {
+	return fmt.Sprintf("NOT RUN — %s not tested here; a touched %s's suite runs at the merge gate, so this pass is not a green for it",
+		strings.Join(names, ", "), noun)
 }
 
 // suiteNoun names a root's own suite scope in its own language, for

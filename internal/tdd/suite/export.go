@@ -93,6 +93,10 @@ func CargoAphrolloString(p0 string, p1 string) (string, bool) { return cargoAphr
 
 func CargoClippyCleanPackages(p0 string) []string { return cargoClippyCleanPackages(p0) }
 
+func CargoIntegrationTargetsNotRun(p0 Runner, p1 string) []string {
+	return cargoIntegrationTargetsNotRun(p0, p1)
+}
+
 func CargoModuleFilterPath(p0 string, p1 string) string { return cargoModuleFilterPath(p0, p1) }
 
 func CargoNestedTestFileReachable(p0 string, p1 string) bool {
@@ -234,6 +238,8 @@ func NextestInstalled() bool { return nextestInstalled() }
 func NotCompiledTerminal(p0 Runner, p1 string, p2 string, p3 SuiteResult) string {
 	return notCompiledTerminal(p0, p1, p2, p3)
 }
+
+func NotRunClause(p0 []string, p1 string) string { return notRunClause(p0, p1) }
 
 func PackageHasDoctests(p0 string) bool { return packageHasDoctests(p0) }
 

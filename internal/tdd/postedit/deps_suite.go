@@ -59,6 +59,10 @@ func buildOnlyTerminal(p0 Runner, p1 string, p2 SuiteResult) string {
 	return suite.BuildOnlyTerminal(p0, p1, p2)
 }
 
+func cargoIntegrationTargetsNotRun(p0 Runner, p1 string) []string {
+	return suite.CargoIntegrationTargetsNotRun(p0, p1)
+}
+
 func classifyRunOutcome(p0 Runner, p1 string, p2 SuiteResult, p3 []string) Outcome {
 	return suite.ClassifyRunOutcome(p0, p1, p2, p3)
 }
@@ -102,6 +106,8 @@ func mechKey(p0 string, p1 string, p2 Runner) string { return suite.MechKey(p0, 
 func notCompiledTerminal(p0 Runner, p1 string, p2 string, p3 SuiteResult) string {
 	return suite.NotCompiledTerminal(p0, p1, p2, p3)
 }
+
+func notRunClause(p0 []string, p1 string) string { return suite.NotRunClause(p0, p1) }
 
 func runCargoLocked(p0 SuiteRunner, p1 Runner, p2 string, p3 time.Duration, p4 time.Duration, p5 time.Duration) (SuiteResult, time.Duration, bool) {
 	return suite.RunCargoLocked(p0, p1, p2, p3, p4, p5)
