@@ -13,6 +13,10 @@ func SetPostEditLockWaitForTest(p0 time.Duration) func() { return lock.SetPostEd
 
 func SetPrecommitLockWait(p0 time.Duration) func() { return lock.SetPrecommitLockWait(p0) }
 
+func SetSlotRequestQueuedHookForTest(p0 func(path string)) func() {
+	return lock.SetSlotRequestQueuedHookForTest(p0)
+}
+
 func TryAcquireBuildSlot(p0 string, p1 string, p2 string) (BuildSlot, func(), bool) {
 	return lock.TryAcquireBuildSlot(p0, p1, p2)
 }

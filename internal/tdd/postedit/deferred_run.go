@@ -131,8 +131,16 @@ func RunPhase(jobPath string) int {
 	// everyone.
 	if r.Cmd == "cargo" {
 		targetDir := runnerTargetDir(r, j.Project)
-		slot, release, held := acquireBuildSlot(targetDir, deferredSlotWait(), cmdString(r), j.Dir)
-		if !held {
+		// Queued rather than plain: a newer identical request replaces this
+		// one while it waits, so repeated edits never stack identical builds
+		// behind one target dir (#830).
+		slot, release, wait := acquireQueuedBuildSlot(targetDir, deferredSlotWait(), cmdString(r), j.Dir)
+		if wait == SlotSuperseded {
+			fmt.Fprintf(log, "aphrollo: superseded while queued for %s by a newer identical request (%q in %s), which builds the newer tree state\n", targetDir, cmdString(r), j.Dir)
+			writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure, Seconds: time.Since(start).Seconds(), SetupFailed: true})
+			return 0
+		}
+		if wait != SlotHeld {
 			// Building without a slot would compile into a target dir another
 			// build owns, and the shimmed cargo inside would queue on the very
 			// slot this phase could not get. Naming the target dir and its

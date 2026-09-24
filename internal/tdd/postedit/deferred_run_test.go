@@ -310,3 +310,49 @@ func TestDeferredSlotWait_IsAFractionOfTheMaximum(t *testing.T) {
 		t.Fatalf("slot wait %s vs max %s — a phase must not be able to spend its whole life queuing", wait, max)
 	}
 }
+
+// TestRunPhase_ReplacedWhileQueuedSaysSoAndNeverBuilds pins the coalescing
+// half of issue #830 at the phase wrapper: a deferred build still queued for
+// its slot when a newer identical request arrives gives up without building,
+// and its log names the replacement rather than a full box, so the harvest's
+// infra-failed line says what actually happened.
+func TestRunPhase_ReplacedWhileQueuedSaysSoAndNeverBuilds(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(deferredMaxEnv, "60")
+	withIsolatedBuildLock(t)
+	queued := make(chan string, 4)
+	defer SetSlotRequestQueuedHookForTest(func(path string) { queued <- path })()
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ran.txt")
+	target := ResolveCargoTargetDir(dir)
+	_, release, ok := TryAcquireBuildSlot(target, "cargo build", "/repo")
+	if !ok {
+		t.Fatal("could not occupy the slot")
+	}
+	defer release()
+
+	j := DeferredJob{Project: dir, Phase: "build", Dir: dir, Runner: append([]string{"cargo"}, writeMarkerCmd(marker)[1:]...),
+		Log: filepath.Join(dir, "p.log"), Result: filepath.Join(dir, "p.result.json")}
+	older := make(chan struct{})
+	go func() { RunPhase(writeJob(t, j)); close(older) }()
+	<-queued
+	newer := make(chan SlotWait, 1)
+	go func() {
+		_, rel, wait := acquireQueuedBuildSlot(target, 100*time.Millisecond, cmdString(runnerFromArgv(j.Runner, j.Dir)), j.Dir)
+		rel()
+		newer <- wait
+	}()
+	<-older
+	<-newer
+
+	out, done := deferredResult(j)
+	if !done || !out.SetupFailed {
+		t.Fatalf("result = %+v (done %v), want a setup failure: the replaced phase never built", out, done)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the replaced phase built anyway")
+	}
+	if logged := deferredLog(j); !strings.Contains(logged, "superseded") {
+		t.Fatalf("log = %q, want it to name the newer request that replaced this one", logged)
+	}
+}
