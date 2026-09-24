@@ -48,12 +48,19 @@ func cargoIntegrationTargetsNotRun(r Runner, root string) []string {
 func cargoLibRunSelection(args []string) (pkg string, lib bool, ran map[string]bool, ok bool) {
 	ran = map[string]bool{}
 	var pkgs []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
+	// A flag's separate value is consumed by setting skip rather than by
+	// stepping the index inside the loop: an in-loop step is a mutation site
+	// whose decrement never terminates, which a mutation run can only report
+	// as a timeout and never as a caught mutant.
+	skip := false
+	for i, a := range args {
+		if skip {
+			skip = false
+			continue
+		}
 		name, value, inline := strings.Cut(a, "=")
 		if !inline && (name == "-p" || name == "--package" || name == "--test") && i+1 < len(args) {
-			i++
-			value = args[i]
+			value, skip = args[i+1], true
 		}
 		switch name {
 		case "-p", "--package":
