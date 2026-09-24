@@ -212,7 +212,7 @@ func Check(opts Options) (Result, error) {
 		hits := scan.byLaw[law.Name]
 		switch law.Matcher.Kind {
 		case KindMarkerInPackage:
-			if hits, err = packageMarkerHits(opts.Root, law, scan.files, scan.content); err != nil {
+			if hits, err = packageMarkerHits(viewOf(opts), law, scan.files, scan.content); err != nil {
 				return Result{}, err
 			}
 		case KindRegistryBothWays:
@@ -220,7 +220,7 @@ func Check(opts Options) (Result, error) {
 			// registered but never that a registry line is stale — that needs
 			// the whole tree, and claiming it here would call every OTHER
 			// file's switches dead.
-			if hits, err = registryHits(opts.Root, law, scan.files, scan.content, true, len(opts.Files) == 0); err != nil {
+			if hits, err = registryHits(viewOf(opts), law, scan.files, scan.content, true, len(opts.Files) == 0); err != nil {
 				return Result{}, err
 			}
 		case KindDepGraphForbids:
@@ -238,13 +238,13 @@ func Check(opts Options) (Result, error) {
 				return Result{}, err
 			}
 		case KindFileSetContainment:
-			if hits, err = containmentHits(opts.Root, law); err != nil {
+			if hits, err = containmentHits(viewOf(opts), law); err != nil {
 				return Result{}, err
 			}
 		case KindIdentResolves:
 			hits = identResolvesHits(law, scan.files, scan.content)
 		case KindJSONNumberCeiling, KindGoBenchCeiling:
-			if hits, err = ceilingHits(opts.Root, law, true, cargoTargetDir()); err != nil {
+			if hits, err = ceilingHits(viewOf(opts), law, true, cargoTargetDir()); err != nil {
 				return Result{}, err
 			}
 		case KindSymbolRemoved:

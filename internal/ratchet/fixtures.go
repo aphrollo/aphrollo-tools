@@ -301,9 +301,9 @@ func readExpected(path string) (map[string]bool, error) {
 func fixtureWholeTreeHits(base string, law Law, files []string, content map[string]string, baseTree BaseReader) ([]Hit, error) {
 	switch law.Matcher.Kind {
 	case KindMarkerInPackage:
-		return packageMarkerHits(base, law, files, content)
+		return packageMarkerHits(diskView(base), law, files, content)
 	case KindRegistryBothWays:
-		return registryHits(base, law, files, content, false, true)
+		return registryHits(diskView(base), law, files, content, false, true)
 	case KindDepGraphForbids:
 		return depGraphHits(base, law)
 	case KindDepGraphCeiling:
@@ -311,11 +311,11 @@ func fixtureWholeTreeHits(base string, law Law, files []string, content map[stri
 	case KindGoDepGraphForbids:
 		return goDepGraphHits(base, law)
 	case KindFileSetContainment:
-		return containmentHits(base, law)
+		return containmentHits(diskView(base), law)
 	case KindIdentResolves:
 		return identResolvesHits(law, files, content), nil
 	case KindJSONNumberCeiling, KindGoBenchCeiling:
-		return ceilingHits(base, law, false, "")
+		return ceilingHits(diskView(base), law, false, "")
 	case KindSymbolRemoved:
 		if baseTree == nil {
 			return nil, nil

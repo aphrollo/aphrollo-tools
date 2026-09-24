@@ -102,15 +102,15 @@ func adoptHits(root string, law Law) ([]Hit, error) {
 	hits := scan.byLaw[law.Name]
 	switch law.Matcher.Kind {
 	case KindRegistryBothWays:
-		return registryHits(root, law, scan.files, scan.content, true, true)
+		return registryHits(diskView(root), law, scan.files, scan.content, true, true)
 	case KindDepGraphForbids:
 		return depGraphHits(root, law)
 	case KindDepGraphCeiling:
 		return depGraphCeilingHits(root, law)
 	case KindFileSetContainment:
-		return containmentHits(root, law)
+		return containmentHits(diskView(root), law)
 	case KindJSONNumberCeiling, KindGoBenchCeiling:
-		return ceilingHits(root, law, true, cargoTargetDir())
+		return ceilingHits(diskView(root), law, true, cargoTargetDir())
 	}
 	return hits, nil
 }
