@@ -7,6 +7,21 @@ import (
 	"time"
 )
 
+// waitDelayFixtureTimeout bounds this fixture's own real run, not the
+// behaviour it pins. The worst-case work here is tiny (the 5s orphan sleep,
+// capped by the 2s WaitDelay — ~2s in practice, confirmed locally), and this
+// Runner is plain `sh`/`cmd`: neither `cargo` nor `go test -race`, so
+// runCargoLocked's build-slot lock (buildlock_suite.go) never runs for it —
+// this call goes straight to the bare SuiteRunner with no queue wait folded
+// into its budget. A short deadline nonetheless flaked on the shared
+// self-hosted CI runner (gate-env, run 35951517301): with concurrent CI jobs
+// pushing load average to ~20, plain OS scheduling of this trivial fork/exec
+// stretched to 83.85s, past a 20s deadline, and RunSuite reported a spurious
+// TimedOut for a process that never even ran long. Widen the margin so
+// contention alone cannot manufacture that false TimedOut; the assertions
+// below (TimedOut false, Passed true) are unchanged.
+const waitDelayFixtureTimeout = 180 * time.Second
+
 // TestRunSuite_OrphanHeldPipeAfterCleanExit pins the WaitDelay contract: a
 // suite whose process EXITS 0 but leaves an orphaned child holding the output
 // pipe past WaitDelay must be reported Passed. Go's exec returns ErrWaitDelay
@@ -26,7 +41,7 @@ func TestRunSuite_OrphanHeldPipeAfterCleanExit(t *testing.T) {
 	}
 	// os.TempDir, not t.TempDir: the orphan outlives the test body and must
 	// not hold a cleanup-checked directory open on Windows.
-	res := RunSuite(20*time.Second)(r, os.TempDir())
+	res := RunSuite(waitDelayFixtureTimeout)(r, os.TempDir())
 	if res.TimedOut {
 		t.Fatal("a clean exit within the deadline must not be TimedOut")
 	}
