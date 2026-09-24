@@ -2,6 +2,7 @@ package suite
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -372,6 +373,93 @@ func TestOutcome_IsRed(t *testing.T) {
 	for _, o := range []Outcome{Green, GreenWithWarnings, WritingTest, NoDelta} {
 		if o.IsRed() {
 			t.Errorf("%q should not be red", o)
+		}
+	}
+}
+
+// goFailureScopedOutput keeps what a failing go test run printed about its
+// failure: unattributed package and build output, and the output of every
+// test that failed — never a passing sibling's, which may print the very
+// phrases the red classifier looks for.
+func TestGoFailureScopedOutput_KeepsOnlyUnattributedAndFailingTestOutput(t *testing.T) {
+	stream := strings.Join([]string{
+		`{"Action":"run","Package":"m/x","Test":"TestFixture"}`,
+		`{"Action":"output","Package":"m/x","Test":"TestFixture","Output":"undefined: Wear\n"}`,
+		`{"Action":"pass","Package":"m/x","Test":"TestFixture"}`,
+		`{"Action":"output","Package":"m/x","Test":"TestGrip","Output":"grip_test.go:9: got 1, want 2\n"}`,
+		`{"Action":"output","Package":"m/x","Test":"TestGrip/wet","Output":"wet failed\n"}`,
+		`{"Action":"fail","Package":"m/x","Test":"TestGrip/wet"}`,
+		`{"Action":"fail","Package":"m/x","Test":"TestGrip"}`,
+		`{"Action":"output","Package":"m/y","Test":"TestGrip","Output":"other package passed\n"}`,
+		`{"Action":"pass","Package":"m/y","Test":"TestGrip"}`,
+		`{"Action":"build-output","Package":"m/z","Output":"z.go:3: syntax error\n"}`,
+		`{"Action":"output","Package":"m/x","Output":"FAIL\tm/x\n"}`,
+		`{"Action":"fail","Package":"m/x"}`,
+	}, "\n")
+
+	got, ok := goFailureScopedOutput(stream)
+
+	want := "grip_test.go:9: got 1, want 2\nwet failed\nz.go:3: syntax error\nFAIL\tm/x\n"
+	if !ok || got != want {
+		t.Fatalf("goFailureScopedOutput = (%q, %v), want (%q, true)", got, ok, want)
+	}
+}
+
+// Anything that is not a complete, non-empty event stream is not scoped:
+// the caller falls back to the untouched output rather than trust a partial
+// read.
+func TestGoFailureScopedOutput_FallsBackOnAnythingButACompleteStream(t *testing.T) {
+	for name, raw := range map[string]string{
+		"empty":     "",
+		"no events": "   \n",
+		"torn":      `{"Action":"output","Package":"m/x","Output":"FAIL\n"}` + "\n" + `{"Action":"fa`,
+		"not json":  "--- FAIL: TestX\n",
+	} {
+		if got, ok := goFailureScopedOutput(raw); ok {
+			t.Errorf("%s: scoped to %q, want the fallback", name, got)
+		}
+	}
+	if got := classificationOutput("plain text", ""); got != "plain text" {
+		t.Errorf("classificationOutput without a stream = %q, want the plain output", got)
+	}
+}
+
+// A shell segment is a whole-suite run only when it names a runner and no
+// narrowing: a narrowing flag, or a positional operand that is not one of
+// go's "everything" markers. A value flag's operand is consumed, so a
+// directory or a count is never mistaken for a package; anything that is not
+// go test, cargo test or cargo nextest run is outside the classifier.
+func TestClassifySuiteSegment_TellsWholeFromNarrowedRuns(t *testing.T) {
+	cases := []struct {
+		cmd  string
+		want suiteShape
+	}{
+		{"go test ./...", wholeSuiteInvocation},
+		{"go test", wholeSuiteInvocation},
+		{"SOAK=1 CGO_ENABLED=0 go test -count 1 -timeout 5m ./...", wholeSuiteInvocation},
+		{"go test -C sub ./...", wholeSuiteInvocation},
+		{"go test -count=1 -v ./...", wholeSuiteInvocation},
+		{"go test ./internal/x", narrowedSuiteInvocation},
+		{"go test -run TestWear ./...", narrowedSuiteInvocation},
+		{"go test -run=TestWear ./...", narrowedSuiteInvocation},
+		{"cargo test", wholeSuiteInvocation},
+		{"cargo test --manifest-path crates/a/Cargo.toml --release", wholeSuiteInvocation},
+		{"cargo test -p forge", narrowedSuiteInvocation},
+		{"cargo test --package=forge", narrowedSuiteInvocation},
+		{"cargo test wear", narrowedSuiteInvocation},
+		{"cargo nextest run --no-fail-fast", wholeSuiteInvocation},
+		{"cargo nextest run -E test(/wear/)", narrowedSuiteInvocation},
+		{"cargo nextest run --filter-expr=test(/wear/)", narrowedSuiteInvocation},
+		{"cargo nextest list", notSuiteInvocation},
+		{"cargo build", notSuiteInvocation},
+		{"go vet ./...", notSuiteInvocation},
+		{"make test", notSuiteInvocation},
+		{"=x go test ./...", notSuiteInvocation},
+		{"go", notSuiteInvocation},
+	}
+	for _, tc := range cases {
+		if got := classifySuiteSegment(strings.Fields(tc.cmd)); got != tc.want {
+			t.Errorf("classifySuiteSegment(%q) = %v, want %v", tc.cmd, got, tc.want)
 		}
 	}
 }
