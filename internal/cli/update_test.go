@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -389,6 +390,108 @@ func TestUpdate_AcceptsAGoModWithALeadingComment(t *testing.T) {
 	code := runUpdate([]string{"--repo", clone, "--bin", bin, "--no-init"}, &out, &errb)
 	if code == 2 {
 		t.Fatalf("update rejected a go.mod with a leading comment: stderr = %q", errb.String())
+	}
+}
+
+// The box that deploys via CI (deploy/deploy-prod.sh) installs
+// /opt/aphrollo-cli/releases/<ts>-<sha>/aphrollo as github-runner and points
+// /usr/local/bin/aphrollo at it through two symlinks; os.Executable resolves
+// straight through both, so the operator account's own `aphrollo update`
+// lands on a directory it cannot write. That must fail BEFORE the fetch and
+// build run at all, not with a raw "permission denied" out of `go build`.
+func TestUpdate_RefusesToBuildWhenTheInstallIsNotWritable(t *testing.T) {
+	_, clone, _ := updateFixture(t)
+
+	called := false
+	prev := buildAphrollo
+	buildAphrollo = func(repo, out string) (string, error) {
+		called = true
+		return "go build", nil
+	}
+	t.Cleanup(func() { buildAphrollo = prev })
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "aphrollo.exe")
+	if err := os.WriteFile(bin, []byte("OLD"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	var out, errb bytes.Buffer
+	code := runUpdate([]string{"--repo", clone, "--bin", bin, "--no-init"}, &out, &errb)
+	if code == 0 {
+		t.Fatal("update must refuse when it cannot write the install directory")
+	}
+	if called {
+		t.Fatal("update must not build at all when the install is not writable")
+	}
+	if !strings.Contains(errb.String(), "not writable") {
+		t.Fatalf("stderr does not say the install is not writable: %q", errb.String())
+	}
+	if !strings.Contains(errb.String(), "deployed by the repo pipeline on merge") {
+		t.Fatalf("stderr does not point the operator at the deploy pipeline: %q", errb.String())
+	}
+	got, err := os.ReadFile(bin)
+	if err != nil || string(got) != "OLD" {
+		t.Fatalf("the binary changed despite the refusal, got %q (%v)", got, err)
+	}
+}
+
+// TestUpdate_RefusalNamesTheOwnerWhenOneIsKnown pins the branch that
+// distinguishes the two refusal wordings: a directory this account still
+// OWNS (chmod locked itself out of writing it, which is still enough to
+// refuse) resolves a real username, and the message must name it.
+func TestUpdate_RefusalNamesTheOwnerWhenOneIsKnown(t *testing.T) {
+	_, clone, _ := updateFixture(t)
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "aphrollo.exe")
+	if err := os.WriteFile(bin, []byte("OLD"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	me, err := user.Current()
+	if err != nil {
+		t.Fatalf("cannot resolve the current account to compare against: %v", err)
+	}
+
+	var out, errb bytes.Buffer
+	code := runUpdate([]string{"--repo", clone, "--bin", bin, "--no-init"}, &out, &errb)
+	if code == 0 {
+		t.Fatal("update must refuse when it cannot write the install directory")
+	}
+	if want := "owned by " + me.Username; !strings.Contains(errb.String(), want) {
+		t.Fatalf("stderr = %q, want it to name the owner (%q)", errb.String(), want)
+	}
+}
+
+// TestUpdate_RefusalOmitsOwnedByWhenTheOwnerIsUnknown pins the other side:
+// when the owner cannot be resolved (here, a --bin directory that does not
+// exist at all, so both the writability probe AND the owner stat fail), the
+// refusal still fires but carries no dangling "owned by" clause naming
+// nobody.
+func TestUpdate_RefusalOmitsOwnedByWhenTheOwnerIsUnknown(t *testing.T) {
+	_, clone, _ := updateFixture(t)
+
+	bin := filepath.Join(t.TempDir(), "does-not-exist", "aphrollo.exe")
+
+	var out, errb bytes.Buffer
+	code := runUpdate([]string{"--repo", clone, "--bin", bin, "--no-init"}, &out, &errb)
+	if code == 0 {
+		t.Fatal("update must refuse when the install directory does not even exist")
+	}
+	if !strings.Contains(errb.String(), "not writable") {
+		t.Fatalf("stderr does not say the install is not writable: %q", errb.String())
+	}
+	if strings.Contains(errb.String(), "owned by") {
+		t.Fatalf("stderr names an owner it could not have resolved: %q", errb.String())
 	}
 }
 

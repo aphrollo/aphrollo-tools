@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -166,8 +167,40 @@ func BinaryBehindLine(now time.Time) string {
 	if head == commit {
 		return ""
 	}
+	if !binaryInstallWritable() {
+		return fmt.Sprintf("aphrollo binary is behind origin/main (built at %s, origin at %s); the repo's deploy pipeline ships it on merge, not aphrollo update here",
+			shortSHA(commit), shortSHA(head))
+	}
 	return fmt.Sprintf("aphrollo binary is behind origin/main (built at %s, origin at %s): run aphrollo update",
 		shortSHA(commit), shortSHA(head))
+}
+
+// binaryInstallWritable reports whether the CURRENTLY RUNNING binary's own
+// directory would accept a write from this process — the same probe
+// `aphrollo update` runs on its target before building. Whether main's own
+// deploy is pending is out of scope here (this never calls out to GitHub);
+// the only question is whether THIS account could replace the binary at
+// all, so the advice this feeds never sends an operator to run a command
+// that is doomed before it starts. A var so a test can state "not writable"
+// without needing a real unwritable directory — the account running `go
+// test` always owns its own temp dirs. os.Executable failing is treated as
+// writable: silence about a permission problem this cannot even name is
+// better than telling every operator on a healthy box its deploy owns the
+// binary.
+var binaryInstallWritable = func() bool {
+	exe, err := os.Executable()
+	if err != nil {
+		return true
+	}
+	return InstallWritable(filepath.Dir(exe))
+}
+
+// SetBinaryInstallWritableForTest replaces binaryInstallWritable's probe for
+// a test and returns the restore.
+func SetBinaryInstallWritableForTest(fn func() bool) (restore func()) {
+	prev := binaryInstallWritable
+	binaryInstallWritable = fn
+	return func() { binaryInstallWritable = prev }
 }
 
 // readBinaryBehindCache reads and parses the cache file, reporting whether
