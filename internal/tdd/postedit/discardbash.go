@@ -114,20 +114,12 @@ func stashDiscards(rest []string) bool {
 }
 
 // reverses reports whether args ask git apply or patch(1) to apply in
-// reverse: `--reverse`, `-R`, or `R` inside a bundled short-option cluster
-// (`-Rp1`, `-vR`) ahead of any option value the cluster carries.
+// reverse: `--reverse`, `-R`, or a short-option cluster led by R (`-Rp1`,
+// `-Rv`). A cluster with R further in is left alone: patch's `-d DIR` and
+// `-D NAME` take their value in the same token, and `-dREPO` is no reverse.
 func reverses(args []string) bool {
 	for _, a := range args {
-		if a == "--reverse" {
-			return true
-		}
-		if !strings.HasPrefix(a, "-") || strings.HasPrefix(a, "--") {
-			continue
-		}
-		if cut := strings.IndexAny(a, "0123456789="); cut >= 0 {
-			a = a[:cut]
-		}
-		if strings.Contains(a, "R") {
+		if a == "--reverse" || strings.HasPrefix(a, "-R") {
 			return true
 		}
 	}

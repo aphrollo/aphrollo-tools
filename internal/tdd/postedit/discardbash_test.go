@@ -162,7 +162,7 @@ func TestDiscardBashDecision_BlocksReverseApplyAndPointsAtProbeDiscard(t *testin
 }
 
 func TestDiscardBashDecision_AllowsAForwardApply(t *testing.T) {
-	for _, cmd := range []string{"git apply p", "git apply --check -v p", "patch -p1 < p", "git apply --recount p"} {
+	for _, cmd := range []string{"git apply p", "git apply --check -v p", "patch -p1 < p", "git apply --recount p", "patch -dREPO -p1 < p"} {
 		if got := DiscardBashDecision(bashPayload(t, "s16", "/repo", cmd)); got.Action != Allow {
 			t.Errorf("%s: Action = %v, want Allow — a forward apply discards nothing", cmd, got.Action)
 		}
