@@ -64,6 +64,9 @@ and acts now.
   query the working tree changed, backing out the rest as pre-existing drift.
   Gating (clean vs reported-only per config) comes from a committed
   `.aphrollo-sqlc.yaml` sidecar.
+- `ci why` — read-only answer to "why is this run red?": resolves a PR's,
+  a run id's or main's latest pipeline run through `gh` and prints each failed
+  job with its failing tests, mutation survivors or infrastructure cause.
 - `install` / `check` / `issue` / `update` / `version` — box setup (session
   hooks + git-hook shims in one run), read-only tree judgment (ratchet + docs +
   sqlc + doctor + the app trio), open an issue against the repo's remote,
@@ -98,6 +101,7 @@ internal/tdd/gc/     gc sweeps (L7)
 internal/docs/       doc-reference guard: extract path citations, resolve, report misses
 internal/workspace/  worktree lifecycle + git verbs
 internal/dev/        dev-tier control plane (systemd)
+internal/ciwhy/      ci why: resolve a pipeline run through gh, summarise its failed jobs
 internal/sqlc/       sqlc drift guard: config discovery, regen-into-temp, check, scoped-by-symbol regen
 ```
 

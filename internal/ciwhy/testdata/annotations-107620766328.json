@@ -1,0 +1,122 @@
+[
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/67560813c70a8d0d94ee7555e12e12144ffe22d1/internal/cli/probe_discard_backup.go",
+  "end_column": 53,
+  "end_line": 88,
+  "message": "CONDITIONALS_NEGATION",
+  "path": "internal/cli/probe_discard_backup.go",
+  "raw_details": "",
+  "start_column": 53,
+  "start_line": 88,
+  "title": ""
+ },
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/67560813c70a8d0d94ee7555e12e12144ffe22d1/internal/cli/probe_discard_backup.go",
+  "end_column": 18,
+  "end_line": 63,
+  "message": "CONDITIONALS_BOUNDARY",
+  "path": "internal/cli/probe_discard_backup.go",
+  "raw_details": "",
+  "start_column": 18,
+  "start_line": 63,
+  "title": ""
+ },
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/67560813c70a8d0d94ee7555e12e12144ffe22d1/internal/cli/probe_discard.go",
+  "end_column": 77,
+  "end_line": 257,
+  "message": "CONDITIONALS_NEGATION",
+  "path": "internal/cli/probe_discard.go",
+  "raw_details": "",
+  "start_column": 77,
+  "start_line": 257,
+  "title": ""
+ },
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/67560813c70a8d0d94ee7555e12e12144ffe22d1/internal/cli/probe_discard.go",
+  "end_column": 55,
+  "end_line": 195,
+  "message": "CONDITIONALS_NEGATION",
+  "path": "internal/cli/probe_discard.go",
+  "raw_details": "",
+  "start_column": 55,
+  "start_line": 195,
+  "title": ""
+ },
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/67560813c70a8d0d94ee7555e12e12144ffe22d1/internal/tdd/postedit/discardbash.go",
+  "end_column": 19,
+  "end_line": 113,
+  "message": "CONDITIONALS_BOUNDARY \u2014 mutant SCOPE UNKNOWN: gremlins judged it with internal/tdd/postedit's own tests, and internal/cli, internal/tdd, internal/tdd/gc, internal/tdd/install, internal/tdd/merge, internal/tdd/precommit, internal/workspace outside it have tests that reach this code. INCONCLUSIVE \u2014 nothing is proved either way, because a survivor claim asserts that no test kills the line and this run could not have observed one outside the mutated package. Not counted as a survivor and not refused \u2014 run the tests that reach this code by hand, or move one that kills it into the mutated package",
+  "path": "internal/tdd/postedit/discardbash.go",
+  "raw_details": "",
+  "start_column": 19,
+  "start_line": 113,
+  "title": ""
+ },
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/67560813c70a8d0d94ee7555e12e12144ffe22d1/internal/cli/probe_discard_backup.go",
+  "end_column": 29,
+  "end_line": 92,
+  "message": "CONDITIONALS_NEGATION",
+  "path": "internal/cli/probe_discard_backup.go",
+  "raw_details": "",
+  "start_column": 29,
+  "start_line": 92,
+  "title": ""
+ },
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/67560813c70a8d0d94ee7555e12e12144ffe22d1/internal/cli/probe_discard_backup.go",
+  "end_column": 53,
+  "end_line": 88,
+  "message": "CONDITIONALS_NEGATION",
+  "path": "internal/cli/probe_discard_backup.go",
+  "raw_details": "",
+  "start_column": 53,
+  "start_line": 88,
+  "title": ""
+ },
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/67560813c70a8d0d94ee7555e12e12144ffe22d1/internal/cli/probe_discard_backup.go",
+  "end_column": 18,
+  "end_line": 63,
+  "message": "CONDITIONALS_BOUNDARY",
+  "path": "internal/cli/probe_discard_backup.go",
+  "raw_details": "",
+  "start_column": 18,
+  "start_line": 63,
+  "title": ""
+ },
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/67560813c70a8d0d94ee7555e12e12144ffe22d1/internal/cli/probe_discard.go",
+  "end_column": 77,
+  "end_line": 257,
+  "message": "CONDITIONALS_NEGATION",
+  "path": "internal/cli/probe_discard.go",
+  "raw_details": "",
+  "start_column": 77,
+  "start_line": 257,
+  "title": ""
+ },
+ {
+  "annotation_level": "failure",
+  "blob_href": "https://github.com/aphrollo/aphrollo-tools/blob/67560813c70a8d0d94ee7555e12e12144ffe22d1/internal/cli/probe_discard.go",
+  "end_column": 55,
+  "end_line": 195,
+  "message": "CONDITIONALS_NEGATION",
+  "path": "internal/cli/probe_discard.go",
+  "raw_details": "",
+  "start_column": 55,
+  "start_line": 195,
+  "title": ""
+ }
+]

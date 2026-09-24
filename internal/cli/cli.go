@@ -40,6 +40,8 @@ Commands:
   ratchet     Judge a repo against its declared code laws (.ratchet/laws/*.toml)
   sqlc        Guard sqlc-generated code against drift (check / scoped regen)
   docs        Guard doc-cited repo paths against dangling references (check)
+  ci          Explain why a pipeline run is red: failed jobs, failing tests,
+              mutation survivors, or the infrastructure cause (ci why [<pr>|<run-id>|--main])
   check       Judge the tree: ratchet laws, docs, sqlc drift, the install doctor,
               and (if declared) the app trio — one line per guard
   version     Print the commit and build time this binary was stamped with
@@ -115,6 +117,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runSqlc(args[1:], stdout, stderr)
 	case "docs":
 		return runDocs(args[1:], stdout, stderr)
+	case "ci":
+		return runCI(args[1:], stdout, stderr)
 	case "check":
 		return runCheck(args[1:], stdout, stderr)
 	case "version":
