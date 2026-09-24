@@ -164,6 +164,39 @@ func TestAgents_CarryNoWindowsLineEndings(t *testing.T) {
 	}
 }
 
+// TestBuilderAgent_TeachesTheGenericCoordinatorRules pins the rules a builder
+// brief used to repeat itself: the builder now carries them, so a brief only
+// carries the task. Every entry here must hold in any consuming repo,
+// including a Rust one, so the wording stays generic.
+func TestBuilderAgent_TeachesTheGenericCoordinatorRules(t *testing.T) {
+	t.Parallel()
+	body, ok := ManagedAgent("builder")
+	if !ok {
+		t.Fatal("the builder agent is not shipped")
+	}
+	for _, want := range []string{
+		"never edit a repo's primary checkout",
+		"git clone <lane> <scratch>",
+		"git -C <scratch> rev-parse --git-common-dir",
+		"TEST-ONLY commit",
+		"gate mutants prove",
+		"--want-fail",
+		"UNREADABLE",
+		"pgrep -x",
+		"never `pkill -f`",
+		"lower the code, never the baseline",
+		"STOP and report it verbatim",
+		"git fetch && git merge origin/<default>",
+		"GOOS=windows go build",
+		"prove:",
+		"pr:",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("builder agent does not teach %q", want)
+		}
+	}
+}
+
 // A builder that reads only "result arrives at the next hook" ends its turn
 // waiting, and the next hook is delivered by its own next edit. The wait it
 // is taught names the tree the BUILDING line names, because a bare --wait

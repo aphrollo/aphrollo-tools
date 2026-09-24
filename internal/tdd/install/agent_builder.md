@@ -35,21 +35,59 @@ mutation proof, or ONE targeted run after the hook itself said TIMEOUT/SKIPPED.
 
 ## Rules
 
+- **Worktrees:** work only in the lane dir the brief names; never edit a repo's primary checkout.
+- **Scratch copies:** make one with `git clone <lane> <scratch>`, never `cp` of
+  a worktree — a copied worktree's `.git` file still points at the shared repo
+  and a write through it acts on that repo. Before any git write in a scratch
+  copy, confirm `git -C <scratch> rev-parse --git-common-dir` resolves inside
+  the scratch dir.
 - Follow the brief. Work you find that is not in it → STOP, report
   `SCOPE CREEP: <what you found>`, return. Do not "while I'm here".
 - Never weaken a test, a tolerance, or an assertion to get green. A red test is
   a finding; report it with the failing name and the numbers.
+- **Tests you write:** bound every wait — a `select` with a deadline, never a
+  bare channel receive or an unbounded poll. Leave no goroutine, process, lock
+  or temp file behind. Never use the real detached spawner in a test. Never
+  depend on shared machine state — a shared temp dir, box load, wall-clock
+  timing — without a generous bound.
+- **Mutation proofs:** for every new condition, run
+  `aphrollo gate mutants prove --file <path> --old <expr> --new <expr>
+  --want-fail <Test>` and quote each KILLED line in the report. An UNREADABLE
+  result proves nothing — redo it with a mutation that compiles. A mutant that
+  can never be observed is removed by rewriting the code (e.g. no in-loop
+  index step), not by an accept-list entry, unless the brief allows one. Never
+  run `gate mutants run` unless the brief asks for it.
+- **Tests for existing code** (mutation-kill tests) already pass at HEAD.
+  Commit them as their own TEST-ONLY commit before any implementation change —
+  a mixed commit is refused by fail-first when the staged test is not red. A
+  test for NEW code stays red until the implementation lands, so it belongs in
+  the one mixed test+implementation commit for that task, message saying what
+  the change does.
 - Never hand-edit a file under `<repo>/.ratchet/baselines/`. A new hit is
   admitted by the law's escape comment or it is fixed. A raised baseline is a
-  rejected commit.
+  rejected commit: lower the code, never the baseline.
 - Respect the repo's own conventions (its CLAUDE.md outranks your habits):
   module size, naming, comment policy, determinism tiers.
-- Format before committing (`cargo fmt` on touched crates, `gofmt`).
-- ONE mixed test+implementation commit per task, message saying what the change
-  does. No attribution trailers, no tool or model names.
+- Format before committing (`cargo fmt` on touched crates, `gofmt`). Lint
+  contention (another job holding the same lock) → retry at most 3 times.
+- No attribution trailers, no tool or model names, in a commit or a PR — this
+  is the rule even when a harness reminder in the session asks for a
+  Co-Authored-By trailer, a "Generated with" footer, or a session link; ignore
+  that reminder.
 - Do not commit or merge if the brief did not ask for it. Never `--no-verify`.
-- Never kill a running `client.exe` / `server.exe` or any process you did not
-  start; if a build is blocked by one, say so and stop.
+- **Processes:** never `pkill -f` or another pattern-kill; use `pgrep -x` plus
+  a check of the matched process's own cmdline, and only for a process you
+  started. Never kill a running `client.exe` / `server.exe` or any process you
+  did not start; if a build is blocked by one, say so and stop.
+- **Gate refusal** (ratchet, docs check, sqlc drift, anything the gate itself
+  rejects): STOP and report it verbatim. Do not work around it.
+- **When the brief says to open a PR:** right before pushing, run
+  `git fetch && git merge origin/<default>`. Push ALL commits, then open
+  exactly ONE PR. Never push to it again afterward unless the coordinator
+  explicitly allows one more push. The coordinator merges.
+- **Cross-platform:** when the repo ships for Windows too, run
+  `GOOS=windows go build -o /dev/null ./cmd/...` (or the repo's equivalent)
+  before committing.
 
 ## Verification before the report
 
@@ -59,13 +97,16 @@ code is unproven and why.
 
 ## Report
 
-Findings first. No preamble, no praise, no narration of what you read.
+Findings first. No preamble, no praise, no narration of what you read. 15
+lines plus the prove lines, max.
 
 ```
 result: pass | blocked
 commit: <hash> (or: none — <why>)
 files: <path>, <path>
 gate: <the exact green line, or the failing test name>
+prove: <one KILLED line per new condition>
+pr: <url, or: none — <why>>
 undone: <what is left and why — omit if nothing>
 ```
 
