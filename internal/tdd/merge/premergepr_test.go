@@ -7,7 +7,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // A lane that lands through the PR verb never fires the pre-merge-commit
@@ -205,6 +208,23 @@ func TestGatePRMerge_RefusesRedMergedTreeBeforeItLands(t *testing.T) {
 	}
 }
 
+// The refusal above proves the merged tree read as red; this proves the
+// checkout that judged it does not survive the refusal — a refused merge is
+// the exit path a builder retries most often, so a leak here compounds
+// fastest of all of them.
+func TestGatePRMerge_RefusedMergedTreeLeavesNoThrowawayCheckoutBehind(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root, _ := prGateLane(t)
+	declareMutantsAtMergeCommitted(t, root)
+
+	lanes := filepath.Join(filepath.Dir(root), ".worktrees", filepath.Base(root))
+	err := GatePRMerge(root, recordRuns(new([]gateRun), SuiteResult{Passed: false, Output: "merged tree is red"}), io.Discard)
+	if err == nil {
+		t.Fatal("a red merged tree must refuse the merge")
+	}
+	requireNoGatePRMergeCheckout(t, lanes)
+}
+
 // A merge that cannot be built locally is not a pass. Nothing was measured,
 // nothing was proven, so the lane is refused with the reason rather than
 // waved through on the strength of a check that never ran.
@@ -227,6 +247,124 @@ func TestGatePRMerge_RefusesWhenTheMergeCannotBeBuilt(t *testing.T) {
 	}
 	if len(seen) != 0 {
 		t.Errorf("nothing can be judged when the merge does not exist, but a suite ran: %+v", seen)
+	}
+}
+
+// GatePRMerge builds its throwaway checkout before it can tell the merge
+// conflicts. Refusing that merge must still remove the checkout it already
+// built, never leave it registered for someone else to find later.
+func TestGatePRMerge_MergeConflictLeavesNoThrowawayCheckoutBehind(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root, trunk := makeForkedRepo(t)
+	write(t, root, "crates/a/src/lib.rs", "pub fn add(a: i32, b: i32) -> i32 { a * b }\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "trunk touches the same line")
+	gitDo(t, root, "checkout", "-q", "lane")
+	declareMutantsAtMergeCommitted(t, root)
+
+	lanes := filepath.Join(filepath.Dir(root), ".worktrees", filepath.Base(root))
+	err := GatePRMerge(root, recordRuns(new([]gateRun), SuiteResult{Passed: true}), io.Discard)
+	if err == nil {
+		t.Fatalf("a merge that could not be built must be refused, not allowed (trunk %s)", trunk)
+	}
+	requireNoGatePRMergeCheckout(t, lanes)
+}
+
+// requireNoGatePRMergeCheckout fails the test if lanes (the
+// `.worktrees/<repo>` directory beside the primary checkout) still holds a
+// `gate-prmerge-*` entry — the shape every throwaway checkout this gate
+// builds is named. A lanes dir that was never created at all (nothing ever
+// built a checkout) passes trivially: absence of the directory is absence of
+// the leak.
+func requireNoGatePRMergeCheckout(t *testing.T, lanes string) {
+	t.Helper()
+	entries, err := os.ReadDir(lanes)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
+		t.Fatalf("reading %s: %v", lanes, err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "gate-prmerge-") {
+			t.Fatalf("a throwaway checkout was left behind: %s", filepath.Join(lanes, e.Name()))
+		}
+	}
+}
+
+// A killed background shell sends its children SIGTERM (or SIGHUP), and Go's
+// default disposition for either is immediate termination with no deferred
+// cleanup run at all — exactly how eight throwaway checkouts were still
+// registered on this box the day after they were built. GatePRMerge must
+// catch the signal itself and clean up before it lets the process die.
+func TestGatePRMerge_KilledMidRunStillRemovesTheThrowawayCheckout(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	gitInit(t, root)
+	writeMeasureBase(t, root)
+	writeCrateSizeLaw(t, root, 15)
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "base and the law")
+	gitDo(t, root, "checkout", "-q", "-b", "lane")
+	write(t, root, "crates/a/src/other.rs", "pub fn other() -> i32 { 7 }\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "lane adds a small file")
+
+	var mu sync.Mutex
+	var exitCodes []int
+	cleaned := make(chan struct{})
+	origExit := prGateSignalExit
+	prGateSignalExit = func(code int) {
+		mu.Lock()
+		exitCodes = append(exitCodes, code)
+		mu.Unlock()
+		close(cleaned)
+	}
+	t.Cleanup(func() { prGateSignalExit = origExit })
+
+	var wt string
+	run := func(r Runner, dir string) SuiteResult {
+		wt = dir
+		proc, err := os.FindProcess(os.Getpid())
+		if err != nil {
+			t.Fatalf("FindProcess(self): %v", err)
+		}
+		if err := proc.Signal(syscall.SIGTERM); err != nil {
+			t.Fatalf("signalling self: %v", err)
+		}
+		select {
+		case <-cleaned:
+		case <-time.After(5 * time.Second):
+			t.Fatal("a SIGTERM delivered mid-run never reached the signal handler")
+		}
+		// The checkout must already be gone HERE, inside the SuiteRunner call
+		// the signal interrupted — proving the signal handler's OWN cleanup
+		// call is what removed it, not GatePRMerge's normal deferred cleanup
+		// running moments later once this closure returns and Mechanical
+		// unwinds normally (which would still remove it even if the signal
+		// path never called cleanup at all, since the test's exit seam never
+		// actually terminates the process).
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Fatalf("the checkout was still present right after the signal handler finished: %s (stat err: %v)", dir, err)
+		}
+		return SuiteResult{Passed: true}
+	}
+
+	if err := GatePRMerge(root, run, io.Discard); err != nil {
+		t.Fatalf("the run completed after the handled signal; want no error: %v", err)
+	}
+	if wt == "" {
+		t.Fatal("the suite runner never saw a checkout directory")
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Fatalf("a SIGTERM mid-run left the checkout behind: %s (stat err: %v)", wt, err)
+	}
+	mu.Lock()
+	got := append([]int(nil), exitCodes...)
+	mu.Unlock()
+	want := 128 + int(syscall.SIGTERM)
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("signal-exit calls = %v, want exactly one call with code %d", got, want)
 	}
 }
 

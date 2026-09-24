@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
 )
@@ -71,7 +73,24 @@ func GatePRMerge(laneWorktree string, run SuiteRunner, log io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer cleanup()
+	// cleanupOnce guards the ONE real removal against running twice: the
+	// normal return path and a signal caught mid-Mechanical both call
+	// safeCleanup, and this stops a `git worktree remove` from racing its
+	// own second call.
+	var cleanupOnce sync.Once
+	safeCleanup := func() { cleanupOnce.Do(cleanup) }
+	defer safeCleanup()
+	// Armed for exactly the window the checkout exists: Ctrl-C, a plain
+	// `kill`, or the SIGHUP a killed background shell sends its children all
+	// terminate a Go process immediately by default, running no deferred
+	// cleanup at all — which is how a merge run in a background shell that
+	// was later killed left its throwaway checkout registered with nobody
+	// left to remove it. stopPRGateSignals is deferred FIRST (so it runs
+	// LAST-declared-first-out, i.e. before safeCleanup above), disarming the
+	// handler before the deferred cleanup above runs so the two can never
+	// race each other on the way out.
+	stopSignals := watchPRGateSignals(safeCleanup, log)
+	defer stopSignals()
 	fmt.Fprintf(log, "gate %s: judging %s merged into %s (in %s)\n", premergeDisplayName, tips.lane, tips.trunkRef, wt)
 	if res := Mechanical(wt, run); res.Blocked {
 		return errors.New(res.Message)
@@ -142,6 +161,7 @@ func prGateMergedCheckout(laneWorktree string, tips prGateTips) (string, func(),
 			"a checkout of %s to build the merge in could not be made (%v), so the merge was never judged\n%s",
 			tips.trunkRef, err, strings.TrimSpace(out))
 	}
+	prGateWriteHolder(wt)
 	cleanup := func() {
 		_, _ = git(laneWorktree, "worktree", "remove", "--force", wt)
 		_ = os.RemoveAll(wt)
@@ -161,6 +181,23 @@ func prGateMergedCheckout(laneWorktree string, tips prGateTips) (string, func(),
 			tips.trunkRef, tips.trunkRef, strings.TrimSpace(out))
 	}
 	return wt, cleanup, nil
+}
+
+// PRGateHolderFile is the record prGateWriteHolder leaves in its own
+// checkout: this process's pid and when it started, so a sweep run after a
+// crash (aphrollo gate gc, workspace prune) can tell a dead gate's throwaway
+// checkout from one still being built, without guessing. Exported so the gc
+// and workspace prune sweeps read the exact name this side writes.
+const PRGateHolderFile = ".aphrollo-prmerge-holder"
+
+// prGateWriteHolder records this process as wt's holder. Best-effort: a
+// write failure never blocks the merge judgment itself, it only costs a
+// later sweep its ability to tell this checkout apart from a live one — the
+// same trade-off writeBuildLockOwnerAt (internal/tdd/lock) already makes for
+// the box-wide build lock.
+func prGateWriteHolder(wt string) {
+	data := fmt.Sprintf("pid=%d\nstarted=%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339Nano))
+	_ = os.WriteFile(filepath.Join(wt, PRGateHolderFile), []byte(data), 0o644)
 }
 
 // prGateCheckoutParent is where the throwaway merged checkout is built: beside
