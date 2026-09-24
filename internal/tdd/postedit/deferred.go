@@ -60,11 +60,18 @@ type DeferredJob struct {
 	File string `json:"file"`
 	// EditID names the edit-ledger record this run judges, so a verdict
 	// harvested at a later hook still lands on the edit it was started for.
-	EditID  string `json:"edit_id,omitempty"`
-	Dirty   bool   `json:"dirty"`
-	Session string `json:"session"`
-	Log     string `json:"log"`
-	Result  string `json:"result"`
+	EditID string `json:"edit_id,omitempty"`
+	// RunRunner is, on a build record, the argv of the run phase that
+	// follows it. The build form drops the run-only flags nextest refuses
+	// beside --no-run (issue #798), so the build's own argv no longer says
+	// how the run was typed. Empty on a run record and on a record written
+	// before this field existed, where runArgvAfterBuild falls back to the
+	// build argv minus --no-run.
+	RunRunner []string `json:"run_runner,omitempty"`
+	Dirty     bool     `json:"dirty"`
+	Session   string   `json:"session"`
+	Log       string   `json:"log"`
+	Result    string   `json:"result"`
 }
 
 // PhaseOutcome is what the runphase wrapper records when its cargo exits.

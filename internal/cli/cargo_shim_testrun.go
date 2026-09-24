@@ -22,7 +22,8 @@ var cargoTestTargetFlags = []string{
 // builds (issue #727: a ten-minute ignored measurement run queued a merge
 // gate in another lane for its whole length). The compile form is the
 // cargo-side argv -- everything before the first bare "--", the harness's
-// own arguments being meaningless to a build -- plus --no-run: the same
+// own arguments being meaningless to a build -- without the run-only flags
+// nextest refuses beside --no-run (issue #798), plus --no-run: the same
 // packages, profile, features and targets, so the run that follows finds
 // every unit fresh and executes exactly the binaries built under the slot.
 //
@@ -58,9 +59,7 @@ func cargoTestRunBuildArgs(args []string) ([]string, bool) {
 	default:
 		return nil, false
 	}
-	out := make([]string, 0, len(cargoSide)+1)
-	out = append(out, cargoSide...)
-	return append(out, "--no-run"), true
+	return tdd.CargoBuildOnlyArgv(cargoSide), true
 }
 
 // nextestSubcommand is the first non-option token after the "nextest" verb.

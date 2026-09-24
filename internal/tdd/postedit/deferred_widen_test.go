@@ -19,6 +19,9 @@ import (
 type scriptedPhase struct {
 	out *PhaseOutcome
 	log string
+	// onSpawn, when set, runs as the phase is spawned: the tree changing
+	// under a phase that has just started.
+	onSpawn func()
 }
 
 // phaseKey names a spawned phase by its argv, minus the -timeout= a Go run

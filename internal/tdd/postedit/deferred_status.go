@@ -155,25 +155,63 @@ func WaitDeferredEditJob(root string) (advisory string, ok bool) {
 	// way — a crate inside it shares the commit.
 	project := j.Project
 	headSHA := headSHAFor(root)
+	carried, restarted := "", false
 	for {
 		// Judged against the tree as it stands, never the identity the job
 		// recorded for itself: that always matched, so a result the tree had
 		// moved past printed as the current verdict.
-		line, _ := harvestDeferred(project, headSHA, sourceIdentity(project, j.File), j.Session, waitDeferredPollInterval, nil, "")
+		identity := sourceIdentity(project, j.File)
+		cur, _ := loadDeferredJob(j.Session, project)
+		_, done := deferredResult(cur)
+		stale := done && !deferredMatchesSource(cur, headSHA, identity)
+		line, _ := harvestDeferred(project, headSHA, identity, j.Session, waitDeferredPollInterval, nil, "")
 		if strings.HasPrefix(line, "gate: → BUILDING") {
 			time.Sleep(waitDeferredPollInterval)
 			continue
 		}
 		if line == "" {
+			if carried != "" {
+				return carried + deferredOwnerNote(j.Session), true
+			}
 			return "", false
+		}
+		// A stale result is about code no longer on disk, and a hook that
+		// found its job still running only marked it dirty: nothing was
+		// started for the source as it stands, so without a restart here the
+		// wait ends on a verdict about nothing current, and the next BUILDING
+		// line has no job behind it (issue #797). Once only: a tree that keeps
+		// moving under the wait is for the next hook to chase.
+		if stale && !restarted && restartDeferredEditJob(cur, headSHA, identity) {
+			carried, restarted = joinDeferredAdvisory(carried, line), true
+			continue
 		}
 		// This is the ONE harvest that reads across sessions — it found the
 		// job by project, having no session id of its own — so the verdict it
 		// prints may well belong to another window's edit. It says whose
 		// (issue #583); a hook's own harvest, keyed session+project, needs no
 		// such note.
-		return line + deferredOwnerNote(j.Session), true
+		return joinDeferredAdvisory(carried, line) + deferredOwnerNote(j.Session), true
 	}
+}
+
+// restartDeferredEditJob starts the edit's tests again, from their first
+// phase, for the source identity given, under the same session and project
+// as the stale job — so the owning session's next hook finds the new job
+// just as `gate status --wait` does. false when nothing could be started.
+func restartDeferredEditJob(stale DeferredJob, headSHA, identity string) bool {
+	runArgv := stale.Runner
+	if stale.Phase == "build" {
+		runArgv = runArgvAfterBuild(stale)
+	}
+	if len(runArgv) == 0 {
+		return false
+	}
+	first := firstEditPhase(runnerFromArgv(runArgv, stale.Dir), stale.Project, stale.File, headSHA, identity, stale.Session, stale.EditID)
+	if _, ok := spawnPhaseFn(first); !ok {
+		clearDeferredJob(first.Session, first.Project)
+		return false
+	}
+	return true
 }
 
 // RecordFinishedDeferredJobForTest records a green run-phase job for project
