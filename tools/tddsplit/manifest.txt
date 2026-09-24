@@ -73,7 +73,7 @@ escape_gitx.go                                     gitx  # created by P2
 state_gitx.go                                      gitx  # created by P2
 trunkmergepreview_gitx.go                          gitx  # created by P2
 
-# core: 21 file(s), plus 23 created by P2
+# core: 33 file(s), plus 23 created by P2
 embed.go                                           core
 embed_test.go                                      core
 file.go                                            core
@@ -95,6 +95,18 @@ stateschema.go                                     core
 tdd.go                                             core
 tomlstrings.go                                     core
 testdata/fuzz/FuzzDocsOnlyClassifier/              core
+buildlock_own_test.go                              core
+buildlock_unix_own_test.go                         core
+deferred_own_test.go                               core
+doctor_own_test.go                                 core
+gcrender_own_test.go                               core
+mergereject_own_test.go                            core
+misc_own_test.go                                   core
+mutants_paths_own_test.go                          core
+mutants_unix_own_test.go                           core
+runner_core_own_test.go                            core
+stateschema_own_test.go                            core
+tomlstrings_own_test.go                            core
 bashedit_core.go                                   core  # created by P2
 budgetfloor_core.go                                core  # created by P2
 buildlock_core.go                                  core  # created by P2

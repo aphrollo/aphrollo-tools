@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // A state dir that cannot be created (a FILE sits where "gate-state" needs to
@@ -210,5 +212,154 @@ func TestEverySessionID_SkipsNonSessionStateFiles(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Fatalf("%s must be left untouched: %v", name, err)
 		}
+	}
+}
+
+func TestClaudeConfigDir_HonoursTheEnvOverrideElseHome(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "/custom/config/dir")
+	if got := claudeConfigDir(); got != "/custom/config/dir" {
+		t.Fatalf("claudeConfigDir() = %q, want the env override", got)
+	}
+
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	want := filepath.Join(home, ".claude")
+	if got := claudeConfigDir(); got != want {
+		t.Fatalf("claudeConfigDir() = %q, want %q", got, want)
+	}
+}
+
+func TestComputeFingerprint_ReflectsRealGitState(t *testing.T) {
+	root := tddtest.MakeGoRepo(t)
+
+	fp := computeFingerprint(root)
+	if fp == nil {
+		t.Fatal("a real committed repo must yield a fingerprint")
+	}
+	if fp.HeadSHA == "" || fp.Branch == "" {
+		t.Fatalf("fingerprint missing branch/head: %+v", fp)
+	}
+
+	// A second call against the SAME state matches.
+	fp2 := computeFingerprint(root)
+	if !fingerprintsMatch(fp, fp2) {
+		t.Fatalf("two fingerprints of the same unmoved HEAD must match: %+v vs %+v", fp, fp2)
+	}
+
+	// Writing a new commit moves HEAD, so the fingerprint must change.
+	if err := os.WriteFile(filepath.Join(root, "extra.go"), []byte("package m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tddtest.GitDo(t, root, "add", ".")
+	tddtest.GitDo(t, root, "commit", "-qm", "second")
+	fp3 := computeFingerprint(root)
+	if fingerprintsMatch(fp, fp3) {
+		t.Fatal("a moved HEAD must produce a different fingerprint")
+	}
+}
+
+func TestComputeFingerprint_NilOutsideAGitRepo(t *testing.T) {
+	if fp := computeFingerprint(t.TempDir()); fp != nil {
+		t.Fatalf("computeFingerprint outside a repo = %+v, want nil", fp)
+	}
+}
+
+func TestMarkWorktreeWarned_FiresOnlyOncePerSession(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+
+	if !markWorktreeWarned("sess-warn") {
+		t.Fatal("the first call for a session must report true (fires the warning)")
+	}
+	if markWorktreeWarned("sess-warn") {
+		t.Fatal("a second call for the same session must report false")
+	}
+}
+
+func TestMarkWorktreeWarned_EmptySessionAlwaysReportsTrue(t *testing.T) {
+	// No session id means nowhere to persist the flag, so every call must
+	// still report true — the warning fires, it just is never deduped.
+	if !markWorktreeWarned("") {
+		t.Fatal("an empty session id must report true on the first call")
+	}
+	if !markWorktreeWarned("") {
+		t.Fatal("an empty session id must report true again on a second call (never deduped)")
+	}
+}
+
+func TestStampTimeout_StreaksOnTheSameHeadAndResetsOnAMovedOne(t *testing.T) {
+	s := &sessionState{ByProject: map[string]projectState{}}
+
+	s.StampTimeout("/proj", "sha-1")
+	if got := s.ByProject["/proj"].TimeoutStreak; got != 1 {
+		t.Fatalf("first timeout at a fresh SHA: streak = %d, want 1", got)
+	}
+
+	s.StampTimeout("/proj", "sha-1")
+	if got := s.ByProject["/proj"].TimeoutStreak; got != 2 {
+		t.Fatalf("second timeout at the SAME SHA: streak = %d, want 2", got)
+	}
+
+	s.StampTimeout("/proj", "sha-2")
+	ps := s.ByProject["/proj"]
+	if ps.TimeoutStreak != 1 || ps.TimeoutSHA != "sha-2" {
+		t.Fatalf("a moved HEAD must reset the streak to 1, got %+v", ps)
+	}
+}
+
+func TestStampTimeout_DoesNotTouchTheLastCompletedOutcome(t *testing.T) {
+	s := &sessionState{ByProject: map[string]projectState{
+		"/proj": {Outcome: "green", FailingTests: []string{"TestX"}},
+	}}
+	s.StampTimeout("/proj", "sha-1")
+	ps := s.ByProject["/proj"]
+	if ps.Outcome != "green" || len(ps.FailingTests) != 1 {
+		t.Fatalf("StampTimeout must leave the last completed outcome alone, got %+v", ps)
+	}
+}
+
+func TestSetOff_PersistsTheOverrideAndErrorsWithNoSession(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+
+	if err := setOff("sess-off", true); err != nil {
+		t.Fatalf("setOff: %v", err)
+	}
+	s, _ := loadSession("sess-off")
+	if !s.Overrides.Off {
+		t.Fatal("setOff(true) must persist Overrides.Off")
+	}
+
+	if err := setOff("sess-off", false); err != nil {
+		t.Fatalf("setOff: %v", err)
+	}
+	s, _ = loadSession("sess-off")
+	if s.Overrides.Off {
+		t.Fatal("setOff(false) must clear Overrides.Off")
+	}
+
+	if err := setOff("", true); err != errNoSession {
+		t.Fatalf("setOff with no session id: err = %v, want errNoSession", err)
+	}
+}
+
+func TestSetWaiver_AddsAndRemovesAWallWaiver(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+
+	if err := setWaiver("sess-w", "primary", true); err != nil {
+		t.Fatalf("setWaiver on: %v", err)
+	}
+	if !waivedForSession("sess-w", "primary") {
+		t.Fatal("wall should now be waived")
+	}
+
+	if err := setWaiver("sess-w", "primary", false); err != nil {
+		t.Fatalf("setWaiver off: %v", err)
+	}
+	if waivedForSession("sess-w", "primary") {
+		t.Fatal("wall should no longer be waived")
+	}
+
+	if err := setWaiver("", "primary", true); err != errNoSession {
+		t.Fatalf("setWaiver with no session id: err = %v, want errNoSession", err)
 	}
 }
