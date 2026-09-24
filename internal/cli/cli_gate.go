@@ -93,6 +93,12 @@ Subcommands:
                     (docs-only, comment-only, workflow-only, code) from the
                     commit gate's own per-file rules; any failure prints code.
                     CI's changes job sizes the run by it
+  probe             discard [--apply] <file>...: restore exactly the named files
+                    to HEAD, the route for stripping a refused probe arm. Dry
+                    run by default (prints each file's loss and the backup
+                    path); --apply writes the full diff to a backup under the
+                    gate state dir first. Refuses staged content, paths outside
+                    the repo, directories and globs
   gc                Reclaim stale build dirs: idle incremental caches, dead gate dirs,
                     orphan worktree builds (--repo, --older-than 3d, --apply)
   install           (alias of aphrollo install; retiring next release) Install
@@ -319,6 +325,11 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if args[0] == "classify-diff" {
 		// Read-only: the class CI's `changes` job sizes the run by.
 		return runGateClassifyDiff(args[1:], stdout, stderr)
+	}
+	if args[0] == "probe" {
+		// The sanctioned route back to HEAD for a refused probe arm:
+		// dry-run by default, --apply backs the diff up and discards.
+		return runGateProbe(args[1:], stdout, stderr)
 	}
 	if args[0] == "gc" {
 		// Disk hygiene: dry-run by default, --apply reclaims.

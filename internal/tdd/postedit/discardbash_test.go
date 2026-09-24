@@ -1,6 +1,9 @@
 package postedit
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The operator's discard-wall directive (2026-08-27) used to be a raw
 // `grep -P` over the Bash command's RAW TEXT, wired straight into
@@ -27,8 +30,8 @@ func TestDiscardBashDecision_BlocksARealCheckoutDashDash(t *testing.T) {
 	if got.Policy != discardBashPolicy {
 		t.Errorf("Policy = %q, want %q", got.Policy, discardBashPolicy)
 	}
-	if got.Reason != discardBashRefusal {
-		t.Errorf("Reason = %q, want the fixed refusal line %q", got.Reason, discardBashRefusal)
+	if !strings.Contains(got.Reason, discardBashRefusal) {
+		t.Errorf("Reason = %q, want it to carry the fixed refusal line %q", got.Reason, discardBashRefusal)
 	}
 }
 
@@ -114,5 +117,54 @@ func TestDiscardBashDecision_ClassifiesPowerShellLikeBash(t *testing.T) {
 	got := DiscardBashDecision(powerShellPayload(t, "s13", "/repo", "git checkout -- f"))
 	if got.Action != Block {
 		t.Fatalf("Action = %v, want Block for a PowerShell-carried `git checkout -- f`", got.Action)
+	}
+}
+
+// A refused probe arm has one sanctioned way back to HEAD. The refusal for
+// the verbs an agent reaches for first has to name it, or the next move is
+// the unaudited workaround the reverse-apply rows below exist to catch (#836).
+func TestDiscardBashDecision_CheckoutAndRestoreRefusalsNameProbeDiscard(t *testing.T) {
+	for _, cmd := range []string{"git checkout -- f", "git restore f"} {
+		got := DiscardBashDecision(bashPayload(t, "s14", "/repo", cmd))
+		if got.Action != Block {
+			t.Fatalf("%s: Action = %v, want Block", cmd, got.Action)
+		}
+		if !strings.Contains(got.Reason, "aphrollo gate probe discard") {
+			t.Errorf("%s: Reason = %q, want it to name `aphrollo gate probe discard`", cmd, got.Reason)
+		}
+	}
+}
+
+// `git diff > p && git apply -R p` restores the working tree to HEAD exactly
+// as `git checkout --` does, and was the workaround #836 reported. Every
+// obvious reverse spelling, of git apply and of patch(1), is refused and
+// pointed at the sanctioned command.
+func TestDiscardBashDecision_BlocksReverseApplyAndPointsAtProbeDiscard(t *testing.T) {
+	for _, cmd := range []string{
+		"git diff > p && git apply -R p",
+		"git apply --reverse p",
+		"git -C lane apply -R --index p",
+		"git diff | git apply -R",
+		"git apply -Rv p",
+		"patch -R -p1 < p",
+		"patch -p1 --reverse < p",
+		"patch -Rp1 < p",
+	} {
+		got := DiscardBashDecision(bashPayload(t, "s15", "/repo", cmd))
+		if got.Action != Block {
+			t.Errorf("%s: Action = %v, want Block", cmd, got.Action)
+			continue
+		}
+		if !strings.Contains(got.Reason, "aphrollo gate probe discard") {
+			t.Errorf("%s: Reason = %q, want it to name `aphrollo gate probe discard`", cmd, got.Reason)
+		}
+	}
+}
+
+func TestDiscardBashDecision_AllowsAForwardApply(t *testing.T) {
+	for _, cmd := range []string{"git apply p", "git apply --check -v p", "patch -p1 < p", "git apply --recount p", "patch -dREPO -p1 < p"} {
+		if got := DiscardBashDecision(bashPayload(t, "s16", "/repo", cmd)); got.Action != Allow {
+			t.Errorf("%s: Action = %v, want Allow — a forward apply discards nothing", cmd, got.Action)
+		}
 	}
 }
