@@ -80,24 +80,21 @@ func TestOwnRatchetReadme_MatchesTheGeneratedOutput(t *testing.T) {
 	}
 }
 
-// The spec has ONE source: aphrollo's README carries the same text between its
-// ratchet-spec markers, so a schema change cannot land in one and not the other.
-func TestRatchetSpecIsTheSameTextAsTheReadmeSection(t *testing.T) {
+// ratchet: test_removed TestRatchetSpecIsTheSameTextAsTheReadmeSection: the README no longer carries a copy of the spec to compare; TestReadme_LinksTheRatchetSpecInsteadOfCopyingIt guards the single source instead
+// The spec has ONE copy a reader can drift from: the generated .ratchet/README.md.
+// aphrollo's README links it instead of carrying a second copy, so a schema
+// change cannot land in one and not the other.
+func TestReadme_LinksTheRatchetSpecInsteadOfCopyingIt(t *testing.T) {
 	t.Parallel()
 	data, err := os.ReadFile(filepath.Join(repoRootForTest(t), "README.md"))
 	if err != nil {
 		t.Fatalf("reading README.md: %v", err)
 	}
-	readme := strings.ReplaceAll(string(data), "\r\n", "\n")
-	const begin, end = "<!-- ratchet-spec:begin -->\n", "<!-- ratchet-spec:end -->"
-	i := strings.Index(readme, begin)
-	j := strings.Index(readme, end)
-	if i < 0 || j < 0 {
-		t.Fatal("README.md lost its ratchet-spec markers — the managed file has no source")
+	readme := string(data)
+	if !strings.Contains(readme, "(.ratchet/README.md)") {
+		t.Error("README.md must link the generated law spec at .ratchet/README.md")
 	}
-	section := strings.TrimSpace(readme[i+len(begin) : j])
-	spec := strings.TrimSpace(strings.ReplaceAll(ratchetLawsSpec, "\r\n", "\n"))
-	if section != spec {
-		t.Error("internal/tdd/ratchet_laws.md and the README's ratchet-spec section have drifted")
+	if strings.Contains(readme, "ratchet-spec:begin") || strings.Contains(readme, "#### The schema") {
+		t.Error("README.md carries a copy of the law spec; link .ratchet/README.md instead")
 	}
 }
