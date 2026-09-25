@@ -565,6 +565,8 @@ precommit.go                                       precommit
 precommit_cargotarget_test.go                      precommit
 precommit_commentonly_test.go                      precommit
 precommit_core.go                                  core      # created by P2
+precommit_declared.go                              precommit
+precommit_declared_test.go                         precommit
 precommit_diffscan.go                              precommit
 precommit_diffscan_failfirst.go                    failfirst # created by P2
 precommit_diffscan_suite.go                        suite     # created by P2
@@ -591,6 +593,11 @@ precommit_lintscope_test.go                        precommit
 precommit_lockscope.go                             precommit
 precommit_lockscope_test.go                        precommit
 precommit_nosuite_test.go                          precommit
+precommit_npm.go                                   precommit
+precommit_npm_e2e_test.go                          precommit
+precommit_npm_test.go                              precommit
+precommit_npmbaseline.go                           precommit
+precommit_npmbaseline_test.go                      precommit
 precommit_quality.go                               precommit
 precommit_quality_test.go                          precommit
 precommit_reject_test.go                           precommit
