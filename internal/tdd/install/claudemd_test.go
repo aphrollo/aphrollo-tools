@@ -312,6 +312,41 @@ func TestManagedBlockFor_MergeLineStatesWhatThisRepoActuallyRequires(t *testing.
 	}
 }
 
+// The builder agent is one file per user, so the rules that exist only
+// because a merge or a PR measures mutants cannot live there without reaching
+// every repo (issue #875). The repo's own block carries them, and only when
+// the repo declares either switch.
+func TestClaudeMDBlock_StatesTheMutationRulesOnlyWhereTheRepoMeasures(t *testing.T) {
+	t.Parallel()
+	rules := []string{"aphrollo gate mutants prove", "--want-fail", "UNREADABLE", "loop index"}
+	for _, rule := range rules {
+		if block := ClaudeMDBlock(BlockFlags{}); strings.Contains(block, rule) {
+			t.Errorf("a repo that measures no mutants is told %q", rule)
+		}
+	}
+	for name, f := range map[string]BlockFlags{
+		"mutants-at-merge":  {MutantsAtMerge: true},
+		"mutants-before-pr": {MutantsBeforePR: true},
+	} {
+		block := ClaudeMDBlock(f)
+		for _, rule := range rules {
+			if !strings.Contains(block, rule) {
+				t.Errorf("a repo declaring %s is not told %q", name, rule)
+			}
+		}
+	}
+}
+
+func TestManagedBlockFor_ReadsMutantsBeforePR(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "aphrollo.toml"), "[aphrollo]\nmutants-before-pr = true\n")
+
+	if block := managedBlockFor(repo); !strings.Contains(block, "aphrollo gate mutants prove") {
+		t.Errorf("mutants-before-pr = true must bring the mutation rules into the block:\n%s", block)
+	}
+}
+
 // mergeLineOf is the one line under test, for a failure message that shows it
 // rather than the whole block.
 func mergeLineOf(block string) string {

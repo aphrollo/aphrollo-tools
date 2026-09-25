@@ -32,6 +32,9 @@ type BlockFlags struct {
 	// MutantsAtMerge states what THIS repo's merge actually requires rather
 	// than what the tool can be told to do.
 	MutantsAtMerge bool
+	// MutantsBeforePR is mutants-before-pr: `workspace pr`/`ship`/`submit`
+	// measure the lane first. Either switch brings in the mutation rules.
+	MutantsBeforePR bool
 }
 
 // ClaudeMDBlock renders the managed block for a repo declaring f.
@@ -91,6 +94,15 @@ func ClaudeMDBlock(f BlockFlags) string {
 	} else {
 		b.WriteString("- **A merge is checked, not measured:** this repo declares no `mutants-at-merge`, so the merge gate runs the mechanical suite and NO mutation measurement; `aphrollo gate mutants run` measures THIS checkout by hand.\n")
 	}
+	// The rules that exist only because this repo measures mutants. The
+	// builder agent is one file per user and reaches every repo, so they live
+	// here, where they reach only a repo that declared the measurement.
+	if f.MutantsAtMerge || f.MutantsBeforePR {
+		b.WriteString("- **Mutation rules** (this repo measures mutants): quote one `aphrollo gate mutants prove --file <f> --old <expr> --new <expr> --want-fail <Test>`\n")
+		b.WriteString("  KILLED line per new condition; UNREADABLE proves nothing. A mutant nobody can observe is removed by rewriting the code, not by an accept-list entry.\n")
+		b.WriteString("  A timed-out mutant is refused like a survivor, so never compute a scan or loop index as an expression: no `i++` in a loop that already\n")
+		b.WriteString("  steps `i`; consume a flag's value with a `skip` bool over a range loop; advance a scan with `i += n`, never `i - n`.\n")
+	}
 	b.WriteString("- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).\n")
 	if f.Undercover {
 		b.WriteString("- **Commit messages** say what the change does and nothing about how it was\n")
@@ -122,8 +134,9 @@ func blockFlagsFor(repoRoot string) BlockFlags {
 	}
 	cfg, _ := ReadMutantsConfig(repoRoot)
 	return BlockFlags{
-		Undercover:     cargoAphrolloFlag(ws, "undercover") || aphrolloTomlFlag(repoRoot, "undercover"),
-		MutantsAtMerge: cfg.AtMerge,
+		Undercover:      cargoAphrolloFlag(ws, "undercover") || aphrolloTomlFlag(repoRoot, "undercover"),
+		MutantsAtMerge:  cfg.AtMerge,
+		MutantsBeforePR: cfg.BeforePR,
 	}
 }
 
