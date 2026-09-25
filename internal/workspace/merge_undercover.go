@@ -39,27 +39,28 @@ var ghMergePRBody = func(wt, branch, method, body string) error {
 	return nil
 }
 
-// undercoverMerge judges the PR before it merges. on is false when the repo
-// never asked, and the merge then runs exactly as before. body is the
-// explicit commit body, "" for a rebase, which writes none.
-func undercoverMerge(t *Target, method string) (body string, on bool, err error) {
+// undercoverMerge judges the PR before it merges. useBody reports that the
+// merge must pass body explicitly: the repo set `undercover = true` and the
+// method writes a commit body (a rebase writes none). A repo that never
+// asked merges exactly as before.
+func undercoverMerge(t *Target, method string) (body string, useBody bool, err error) {
 	tells, on := undercover.Load(t.Worktree)
 	if !on {
 		return "", false, nil
 	}
 	if err := undercoverPRCommits(t, tells); err != nil {
-		return "", true, err
+		return "", false, err
 	}
 	if method == "rebase" {
-		return "", true, nil
+		return "", false, nil
 	}
 	title, raw, err := ghPRText(t.Worktree, t.Branch)
 	if err != nil {
-		return "", true, err
+		return "", false, err
 	}
 	kept, _ := undercover.StripFooter(raw, tells)
 	if h, hit := tells.Text(kept); hit {
-		return "", true, errors.New(undercover.TextRefusal("PR body", h))
+		return "", false, errors.New(undercover.TextRefusal("PR body", h))
 	}
 	if strings.TrimSpace(kept) == "" {
 		kept = title

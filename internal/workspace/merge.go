@@ -135,7 +135,7 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	if pr == nil {
 		return fmt.Errorf("no open PR for %s — run: aphrollo workspace pr", m.Target.Branch)
 	}
-	body, undercoverOn, err := undercoverMerge(m.Target, m.Method)
+	body, useBody, err := undercoverMerge(m.Target, m.Method)
 	if err != nil {
 		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
@@ -162,7 +162,7 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
 	merge := func() error { return ghMergePR(m.Target.Worktree, m.Target.Branch, m.Method) }
-	if undercoverOn && m.Method != "rebase" {
+	if useBody {
 		merge = func() error { return ghMergePRBody(m.Target.Worktree, m.Target.Branch, m.Method, body) }
 	}
 	if err := merge(); err != nil {
