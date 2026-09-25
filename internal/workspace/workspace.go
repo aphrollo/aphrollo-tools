@@ -162,6 +162,9 @@ func BuildPlan(req Request) (*Plan, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := undercoverCheck(top, req.Branch); err != nil {
+		return nil, err
+	}
 
 	base := req.Into
 	if base == "" {

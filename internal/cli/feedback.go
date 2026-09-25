@@ -72,6 +72,10 @@ func runGateFeedback(args []string, stdout, stderr io.Writer) int {
 		target = tdd.UpstreamRepo(root)
 	}
 
+	if line := undercoverTextRefusal(root, [2]string{"report title", title}, [2]string{"report body", *body}); line != "" {
+		fmt.Fprintf(stderr, "aphrollo gate feedback: %s\n", line)
+		return 1
+	}
 	url, _, err := tdd.OpenIssue(tdd.IssueOptions{
 		Repo:       root,
 		TargetRepo: target,

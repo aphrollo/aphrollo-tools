@@ -70,6 +70,9 @@ func SubmitPlan(t *Target, summary string) (*Submit, error) {
 	if t.Branch == "HEAD" {
 		return nil, fmt.Errorf("detached HEAD in %s — check out a branch before submitting", t.Worktree)
 	}
+	if err := undercoverCheck(t.Worktree, t.Branch, undercoverText{"PR body", summary}); err != nil {
+		return nil, err
+	}
 	p, err := PushPlan(t, false)
 	if err != nil {
 		return nil, err

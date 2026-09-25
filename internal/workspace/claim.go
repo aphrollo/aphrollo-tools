@@ -100,6 +100,9 @@ func ClaimPlan(repo, branch, svc, into string, noMigrate bool) (*Claim, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := undercoverCheck(top, branch); err != nil {
+		return nil, err
+	}
 
 	if svc == "" {
 		svc = deriveService(filepath.Base(top))
