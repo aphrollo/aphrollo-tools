@@ -3,6 +3,7 @@ package postedit
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // The operator's discard-wall directive (2026-08-27) used to be a raw
@@ -166,5 +167,90 @@ func TestDiscardBashDecision_AllowsAForwardApply(t *testing.T) {
 		if got := DiscardBashDecision(bashPayload(t, "s16", "/repo", cmd)); got.Action != Allow {
 			t.Errorf("%s: Action = %v, want Allow — a forward apply discards nothing", cmd, got.Action)
 		}
+	}
+}
+
+// `aphrollo gate allow discard` arms a one-shot waiver the git shim's own
+// wall already honors (git_shim_discard_wall.go). This Bash-tool wall used
+// to ignore that arm entirely — it always blocked, so the ONE command the
+// operator armed for was refused right alongside every other one. It must
+// spend the arm exactly like the shim does: pass once, then refuse again.
+func TestDiscardBashDecision_ArmedAllowsExactlyOneDiscardThenRefusesAgain(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CLAUDE_SESSION_ID", "s-arm-bash")
+
+	if _, err := AllowWall(WallDiscard); err != nil {
+		t.Fatal(err)
+	}
+
+	got := DiscardBashDecision(bashPayload(t, "s-arm-bash", "/repo", "git stash drop"))
+	if got.Action != Allow {
+		t.Fatalf("first armed discard: Action = %v, want Allow — the arm should let exactly one through", got.Action)
+	}
+
+	again := DiscardBashDecision(bashPayload(t, "s-arm-bash", "/repo", "git stash drop"))
+	if again.Action != Block {
+		t.Fatalf("second discard after the arm was spent: Action = %v, want Block", again.Action)
+	}
+}
+
+// The arm's use is a decision worth a trail: without a logged line, nobody
+// can tell an armed pass from a bug that let a discard through unnoticed.
+func TestDiscardBashDecision_ArmedUseIsLoggedWithTheCommand(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("CLAUDE_SESSION_ID", "s-arm-log")
+
+	if _, err := AllowWall(WallDiscard); err != nil {
+		t.Fatal(err)
+	}
+	const cmd = "git stash drop stash@{0}"
+	if got := DiscardBashDecision(bashPayload(t, "s-arm-log", "/repo", cmd)); got.Action != Allow {
+		t.Fatalf("Action = %v, want Allow", got.Action)
+	}
+
+	requireLoggedVerdict(t, cfg, discardBashArmUsedVerdict)
+	text := gateLogText(t, cfg)
+	if !strings.Contains(text, cmd) {
+		t.Fatalf("gate.log = %q, want it to name the command %q that spent the arm", text, cmd)
+	}
+}
+
+// An arm that expired before this command ran must not pass it — the same
+// 5-minute bound ConsumeOneShot already enforces for the git shim.
+func TestDiscardBashDecision_ExpiredArmStillRefuses(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CLAUDE_SESSION_ID", "s-arm-expired")
+
+	t0 := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	now := t0
+	restore := SetDiscardClockForTest(func() time.Time { return now })
+	defer restore()
+
+	if _, err := AllowWall(WallDiscard); err != nil {
+		t.Fatal(err)
+	}
+	now = t0.Add(5*time.Minute + time.Second)
+
+	got := DiscardBashDecision(bashPayload(t, "s-arm-expired", "/repo", "git stash drop"))
+	if got.Action != Block {
+		t.Fatalf("Action = %v, want Block — the arm expired before this command ran", got.Action)
+	}
+}
+
+// An arm belongs to the session that ran `gate allow discard`, not to every
+// session on the box: a different session's discard command must still be
+// refused.
+func TestDiscardBashDecision_ArmedInOneSessionDoesNotCoverAnother(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CLAUDE_SESSION_ID", "s-arm-owner")
+	if _, err := AllowWall(WallDiscard); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("CLAUDE_SESSION_ID", "s-other-session")
+	got := DiscardBashDecision(bashPayload(t, "s-other-session", "/repo", "git stash drop"))
+	if got.Action != Block {
+		t.Fatalf("Action = %v, want Block — the arm belongs to a different session", got.Action)
 	}
 }

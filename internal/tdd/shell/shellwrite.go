@@ -263,7 +263,7 @@ func shellWordTokens(cmd string) []shellWord {
 // operands.
 func writeTargets(words []shellWord) []string {
 	var out []string
-	var rest []string
+	var rest []shellWord
 	// A separated redirect's target is consumed by setting skip rather than
 	// by stepping the index inside the loop: an in-loop step is a mutation
 	// site whose decrement never terminates, which a mutation run can only
@@ -274,14 +274,19 @@ func writeTargets(words []shellWord) []string {
 			skip = false
 			continue
 		}
-		target, sep, ok := splitRedirect(w)
+		target, targetRaw, sep, ok := splitRedirect(w)
 		switch {
 		case !ok:
-			rest = append(rest, w.text)
+			rest = append(rest, w)
 		case target != "":
-			out = append(out, target)
+			if resolved, keep := expandTildeTarget(targetRaw, target); keep {
+				out = append(out, resolved)
+			}
 		case sep && i+1 < len(words):
-			out = append(out, words[i+1].text)
+			nxt := words[i+1]
+			if resolved, keep := expandTildeTarget(nxt.raw, nxt.text); keep {
+				out = append(out, resolved)
+			}
 			skip = true
 		}
 	}
@@ -300,17 +305,21 @@ func writeTargets(words []shellWord) []string {
 // shellWordTokens), so an index into one lands on the same source position in
 // the other; the TARGET text is read from text once the operator is found in
 // raw, since a real redirect's operand may itself be quoted (`2>"out.txt"`).
-func splitRedirect(w shellWord) (target string, wantsNext, ok bool) {
+// targetRaw is raw's own suffix starting at the same offset as target, so a
+// caller can tell whether the target's leading character came from a quoted
+// or backslash-escaped source (tildeQuoted) — used to decide whether a
+// leading `~` tilde-expands (issue #849).
+func splitRedirect(w shellWord) (target, targetRaw string, wantsNext, ok bool) {
 	raw := []rune(w.raw)
 	i := indexRune(raw, '>')
 	if i < 0 {
-		return "", false, false
+		return "", "", false, false
 	}
 	// Anything before the `>` must be a bare, unquoted file descriptor for
 	// this to be a redirection rather than, say, a `-->` flag or a `x>y`
 	// argument.
 	if !allDigits(string(raw[:i])) {
-		return "", false, false
+		return "", "", false, false
 	}
 	j := i + 1
 	if j < len(raw) && raw[j] == '>' {
@@ -320,13 +329,13 @@ func splitRedirect(w shellWord) (target string, wantsNext, ok bool) {
 		j++
 	}
 	if j < len(raw) && raw[j] == '&' {
-		return "", false, true // fd duplication: writes no path
+		return "", "", false, true // fd duplication: writes no path
 	}
 	text := []rune(w.text)
 	if j >= len(text) {
-		return "", true, true
+		return "", "", true, true
 	}
-	return string(text[j:]), false, true
+	return string(text[j:]), string(raw[j:]), false, true
 }
 
 // indexRune returns the rune-index of the first occurrence of r in rs, or -1.
@@ -353,39 +362,42 @@ func allDigits(s string) bool {
 
 // verbTargets names the operands a write verb would write: every file operand
 // of `sed -i` and `tee`, and the LAST operand of `cp`/`mv` (the destination —
-// the sources are read, not written).
-func verbTargets(words []string) []string {
+// the sources are read, not written). words carries each operand's raw half
+// too, so an unquoted `~` in a destination (`cp f ~/dst`) gets the same
+// tilde-expansion a redirect target does, and a quoted one stays literal.
+func verbTargets(words []shellWord) []string {
 	if len(words) == 0 {
 		return nil
 	}
-	switch verb := baseCommand(words[0]); verb {
+	switch verb := baseCommand(words[0].text); verb {
 	case "sed":
-		if !hasInPlaceFlag(words[1:]) {
+		texts := wordTexts(words[1:])
+		if !hasInPlaceFlag(texts) {
 			return nil
 		}
 		// The first non-flag operand is the script, the rest are the files it
 		// rewrites; `-e`/`-f` move the script into a flag of its own.
 		operands := operandsOf(words[1:], map[string]bool{"-e": true, "-f": true, "--expression": true, "--file": true})
-		if !hasScriptFlag(words[1:]) && len(operands) > 0 {
+		if !hasScriptFlag(texts) && len(operands) > 0 {
 			operands = operands[1:]
 		}
-		return operands
+		return expandTildeTargets(operands)
 	case "tee":
-		return operandsOf(words[1:], nil)
+		return expandTildeTargets(operandsOf(words[1:], nil))
 	case "cp", "mv", "install":
 		operands := operandsOf(words[1:], map[string]bool{"-t": true, "--target-directory": true})
 		if len(operands) < 2 {
 			return nil
 		}
-		return operands[len(operands)-1:]
+		return expandTildeTargets(operands[len(operands)-1:])
 	}
 	// PowerShell cmdlets, matched case-insensitively: the shell itself is
 	// case-insensitive, and a session types either casing.
-	switch verb := baseCommand(words[0]); {
+	switch verb := baseCommand(words[0].text); {
 	case strings.EqualFold(verb, "Set-Content"), strings.EqualFold(verb, "Add-Content"):
-		return psFileTarget(words[1:], "-Path", "-LiteralPath")
+		return expandTildeTargets(psFileTarget(words[1:], "-Path", "-LiteralPath"))
 	case strings.EqualFold(verb, "Out-File"):
-		return psFileTarget(words[1:], "-FilePath", "-Path", "-LiteralPath")
+		return expandTildeTargets(psFileTarget(words[1:], "-FilePath", "-Path", "-LiteralPath"))
 	}
 	return nil
 }
@@ -394,17 +406,17 @@ func verbTargets(words []string) []string {
 // whichever named parameter the caller wrote (matched case-insensitively,
 // same reason as the verb), or — Set-Content, Add-Content and Out-File all
 // bind it — the first positional operand when the caller named none.
-func psFileTarget(args []string, pathFlags ...string) []string {
+func psFileTarget(args []shellWord, pathFlags ...string) []shellWord {
 	for i, a := range args {
 		for _, f := range pathFlags {
-			if strings.EqualFold(a, f) && i+1 < len(args) {
-				return []string{args[i+1]}
+			if strings.EqualFold(a.text, f) && i+1 < len(args) {
+				return []shellWord{args[i+1]}
 			}
 		}
 	}
 	for _, a := range args {
-		if !strings.HasPrefix(a, "-") {
-			return []string{a}
+		if !strings.HasPrefix(a.text, "-") {
+			return []shellWord{a}
 		}
 	}
 	return nil
@@ -451,8 +463,8 @@ func hasScriptFlag(args []string) bool {
 
 // operandsOf drops flags from an argument list, consuming the value of any
 // flag named in takesValue.
-func operandsOf(args []string, takesValue map[string]bool) []string {
-	var out []string
+func operandsOf(args []shellWord, takesValue map[string]bool) []shellWord {
+	var out []shellWord
 	// A flag's separate value is consumed by setting skip rather than by
 	// stepping the index inside the loop: an in-loop step is a mutation site
 	// whose decrement never terminates, which a mutation run can only report
@@ -463,11 +475,11 @@ func operandsOf(args []string, takesValue map[string]bool) []string {
 			skip = false
 			continue
 		}
-		if !strings.HasPrefix(a, "-") || a == "-" {
+		if !strings.HasPrefix(a.text, "-") || a.text == "-" {
 			out = append(out, a)
 			continue
 		}
-		if takesValue[a] && i+1 < len(args) {
+		if takesValue[a.text] && i+1 < len(args) {
 			skip = true
 		}
 	}
