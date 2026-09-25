@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // Issue #759: deleting an unused-looking const from a source file that
@@ -33,15 +35,25 @@ func probeCrate(t *testing.T, probe, project string) string {
 }
 
 // rustcOutput builds root's lib tests with the real toolchain and returns what
-// cargo printed, which must be a compile failure. It skips when cargo is not
-// installed; the compiler is never faked, because the location lines this
-// judgement reads are rustc's own format.
+// cargo printed, which must be a compile failure. It skips when no real cargo
+// answers (tddtest.RequireRealCargo); the compiler is never faked, because the
+// location lines this judgement reads are rustc's own format.
+//
+// The package as a whole isolates CARGO_HOME to a fixture-only directory with
+// no real cargo under it (main_test.go), so every OTHER `cargo` this package
+// might spawn stays a pure fixture operation. This helper wants the real
+// toolchain instead, so it opts back in through RequireRealCargo — a bare
+// exec.LookPath("cargo") check is not enough: `cargo` still resolves on PATH
+// (it is the box's queue shim, never absent), but under the isolated
+// CARGO_HOME the shim itself fails to resolve a real cargo and prints ITS OWN
+// "resolve cargo: ... not found" error. That text is not a compile failure at
+// all: LookPath succeeds so a LookPath-only skip never fires,
+// ExtractFailingTests/missingImplRe find nothing in it, and the run falls
+// through to a plain Red regardless of what the fixture's source actually
+// named — silently never exercising rustc.
 func rustcOutput(t *testing.T, root string) string {
 	t.Helper()
-	if _, err := exec.LookPath("cargo"); err != nil {
-		// skip-ok: an environment probe, not a disabled assertion — the test asserts for real wherever cargo is installed.
-		t.Skip("cargo not on PATH; skipping the real-compiler case")
-	}
+	tddtest.RequireRealCargo(t)
 	cmd := exec.Command("cargo", "test", "--lib", "--no-run", "--offline")
 	cmd.Dir = root
 	cmd.Env = append(cleanGitEnv(), "CARGO_TARGET_DIR="+t.TempDir(), "CARGO_TERM_COLOR=never")

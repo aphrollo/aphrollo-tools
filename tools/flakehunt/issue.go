@@ -27,6 +27,10 @@ type Filer struct {
 	// declared-label check.
 	Label    string
 	NewLabel bool
+	// ModulePath is Repo's own go.mod `module` line, stripped from a
+	// Failure's full import path so the reproduce command in the filed issue
+	// is the module-relative one `go test` itself accepts pasted verbatim.
+	ModulePath string
 }
 
 // TitleFor is the issue title a failing test files under. Fixed and
@@ -38,18 +42,40 @@ func TitleFor(f Failure) string {
 
 // ReproCmd is the command a reader runs to reproduce f on their own box: the
 // same package, race detector and shuffle seed the nightly run itself used.
-func ReproCmd(f Failure) string {
+// `go test -json` always names f.Package by its FULL import path, never the
+// module-relative directory `go test ./<path>` accepts on a command line, so
+// modulePath (the checkout's own go.mod `module` line) is stripped off
+// first; pasting the emitted command must work verbatim.
+func ReproCmd(f Failure, modulePath string) string {
 	return fmt.Sprintf("go test ./%s -race -run '^%s$' -count=%d -shuffle=%s",
-		f.Package, f.Test, defaultReproCount, f.Seed)
+		relativePackage(f.Package, modulePath), f.Test, defaultReproCount, f.Seed)
+}
+
+// relativePackage strips modulePath's own import-path prefix from pkg. A pkg
+// that does not carry the prefix — already relative, or modulePath unknown —
+// is returned unchanged.
+func relativePackage(pkg, modulePath string) string {
+	if modulePath == "" {
+		return pkg
+	}
+	rel, ok := strings.CutPrefix(pkg, modulePath)
+	if !ok {
+		return pkg
+	}
+	rel = strings.TrimPrefix(rel, "/")
+	if rel == "" {
+		return "."
+	}
+	return rel
 }
 
 // BodyFor is the issue body (or update comment) for one failure: the seed
 // that produced it, the command that reproduces it, the failure excerpt
 // itself, and the run it was found in.
-func BodyFor(f Failure, runURL string) string {
+func BodyFor(f Failure, runURL, modulePath string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Seed: `%s`\n\n", f.Seed)
-	fmt.Fprintf(&b, "Reproduce: `%s`\n\n", ReproCmd(f))
+	fmt.Fprintf(&b, "Reproduce: `%s`\n\n", ReproCmd(f, modulePath))
 	fmt.Fprintf(&b, "Failure excerpt:\n```\n%s```\n\n", f.Excerpt)
 	fmt.Fprintf(&b, "Run: %s\n", runURL)
 	return b.String()
@@ -116,7 +142,7 @@ func (fl Filer) File(f Failure) (url string, updated bool, err error) {
 		return "", false, err
 	}
 	if found {
-		if _, err := suite.RunGh(fl.Repo, commentArgv(number, BodyFor(f, fl.RunURL))...); err != nil {
+		if _, err := suite.RunGh(fl.Repo, commentArgv(number, BodyFor(f, fl.RunURL, fl.ModulePath))...); err != nil {
 			return "", false, fmt.Errorf("commenting on #%d: %w", number, err)
 		}
 		return "", true, nil
@@ -124,7 +150,7 @@ func (fl Filer) File(f Failure) (url string, updated bool, err error) {
 	url, _, err = tdd.OpenIssue(tdd.IssueOptions{
 		Repo:          fl.Repo,
 		Title:         title,
-		Body:          BodyFor(f, fl.RunURL),
+		Body:          BodyFor(f, fl.RunURL, fl.ModulePath),
 		Labels:        []string{fl.Label},
 		AllowNewLabel: fl.NewLabel,
 	})
