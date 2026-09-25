@@ -20,12 +20,13 @@ import (
 // was red: the refusal held back precisely the run that was needed, and
 // repeated for every narrowing the session tried.
 //
-// The parsing reuses the package's one command parser — shellSegments,
-// dropLeadingEnvAssignments, cdTarget, resolveAgainst, splitFlagValue,
-// classifySuiteSegment — rather than growing a second. Anything it cannot
-// resolve reads as "unknown" and falls back to the session cwd, which is the
-// behaviour that predates this file: a guess would either waive the guard
-// where it is right or re-refuse a run in a tree nobody has a verdict for.
+// The parsing reuses the package's one command parser — shellSegmentsTokens,
+// dropLeadingEnvAssignmentWords, cdTargetTilde, resolveAgainst,
+// splitFlagValue, classifySuiteSegment — rather than growing a second.
+// Anything it cannot resolve reads as "unknown" and falls back to the
+// session cwd, which is the behaviour that predates this file: a guess would
+// either waive the guard where it is right or re-refuse a run in a tree
+// nobody has a verdict for.
 
 // runnerDirFlags name a test runner's own way of moving the run out of the
 // shell's working directory: `go test -C <dir>`, and cargo's `--manifest-path
