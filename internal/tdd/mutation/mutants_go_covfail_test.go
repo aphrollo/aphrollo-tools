@@ -73,6 +73,29 @@ func TestGoCoverageNoVerdict_NamesTheFailingTestsAsNotMeasured(t *testing.T) {
 	}
 }
 
+// Tree damage outranks a coverage diagnosis, even when the run's own output
+// also names a failing test: a mutation still sitting in the source after a
+// killed run is a fact about the REPOSITORY, and merging it merges a mutant
+// regardless of what else the log says about why the run died.
+func TestGoCoverageNoVerdict_TreeChangedWinsOverACoverageDiagnosis(t *testing.T) {
+	root, _ := measureFixture(t, laneSource)
+	before := snapshotWorktree(root)
+	write(t, root, "crates/a/src/lib.rs", "pub fn add(a: i32, b: i32) -> i32 { a + b + 1 }\n")
+	output := "--- FAIL: TestWidget (0.00s)\nFAIL\n"
+
+	v := goCoverageNoVerdict(root, "logdir", 1, errors.New("exit status 1"), before, output, io.Discard)
+
+	if !v.Refused {
+		t.Fatalf("verdict = %+v, want Refused — the run left the tree changed", v)
+	}
+	if v.NotMeasured != "" {
+		t.Fatalf("verdict = %+v, want no coverage diagnosis attached — tree damage takes priority", v)
+	}
+	if !strings.Contains(v.Message, "the run left the working tree changed") {
+		t.Fatalf("Message = %q, want the tree-changed refusal, not the coverage diagnosis", v.Message)
+	}
+}
+
 // Output that names no failing test still falls back to the generic
 // no-verdict refusal: an unexplained gremlins failure is not silently waved
 // through as an honest gap just because this file could not name a cause.
