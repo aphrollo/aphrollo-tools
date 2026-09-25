@@ -1,13 +1,30 @@
 package precommit
 
 import (
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
+
+// driftVersionCounter makes each call to newDriftVersionPair pick a version
+// pair no earlier call in this PROCESS has used. driftNoted (precommit_go.go)
+// dedupes its log line by (pinned, local) for the process's whole life, by
+// design — so a test that reused one fixed pair would log once ever, and
+// every later -count=N rerun in the same process would find the pair already
+// noted and silently skip the write.
+var driftVersionCounter int32
+
+// newDriftVersionPair returns a pinned/local version pair that always
+// differs from each other and from every earlier call in this process.
+func newDriftVersionPair() (pinned, local string) {
+	n := atomic.AddInt32(&driftVersionCounter, 1)
+	return fmt.Sprintf("2.12.%d", n), fmt.Sprintf("2.9.%d", n)
+}
 
 func withLinter(t *testing.T, present bool) {
 	t.Helper()
@@ -118,10 +135,11 @@ func TestPrecommitLogsLintVersionDriftAndStillRuns(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	withLinter(t, true)
-	withLinterVersion(t, "2.9.0")
+	pinned, local := newDriftVersionPair()
+	withLinterVersion(t, local)
 	root := makeGoRepo(t)
 	write(t, root, ".github/workflows/pipeline.yml",
-		"jobs:\n  lint:\n    steps:\n      - run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2\n")
+		fmt.Sprintf("jobs:\n  lint:\n    steps:\n      - run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v%s\n", pinned))
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
 
