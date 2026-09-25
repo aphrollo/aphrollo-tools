@@ -267,13 +267,15 @@ var binGOOS = runtime.GOOS
 
 // resolveBinPath applies --bin (or the running binary's own path when it was
 // left blank) and normalizes its extension for the current OS, printing the
-// same one-line step style the rest of the swap already uses. Shared by
-// every installer path so a second installer cannot
-// reintroduce the extension bug the first one had (#366).
+// same one-line step style the rest of the swap already uses. This is
+// `aphrollo update`'s own resolver — its only caller — and it deliberately
+// falls back to rawExecutablePath, NOT defaultBinPath: see rawExecutablePath's
+// own doc for why update must never inherit the stable-symlink preference
+// `gate init`/`install` use.
 func resolveBinPath(binFlag, prefix string, stdout io.Writer) string {
 	bin := binFlag
 	if bin == "" {
-		bin = defaultBinPath()
+		bin = rawExecutablePath()
 	}
 	if normalized, appended := binExtForOS(bin, binGOOS); appended {
 		fmt.Fprintf(stdout, "%s: bin    %s -> %s (Windows needs the extension to run it)\n", prefix, bin, normalized)

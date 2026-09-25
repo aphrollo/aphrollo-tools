@@ -65,6 +65,11 @@ type sessionState struct {
 		// written before Waivers existed never silently loses its waiver.
 		// Never set true by anything this binary writes now.
 		PrimaryEdits bool `json:"primary_edits,omitempty"`
+		// DiscardBashSpent holds one entry per discard-forbidden git
+		// invocation the Bash/PowerShell wall (postedit's
+		// DiscardBashDecision) has already let through on WallDiscard's
+		// one-shot arm -- see DiscardBashSpentEntry's own doc.
+		DiscardBashSpent []DiscardBashSpentEntry `json:"discard_bash_spent,omitempty"`
 	} `json:"overrides"`
 	// Notices records one-shot advisories that must fire at most once per
 	// session, so re-firing them on every edit never becomes noise.
@@ -366,6 +371,24 @@ func setOff(session string, off bool) error {
 	}
 	s.Overrides.Off = off
 	return s.Save(path)
+}
+
+// DiscardBashSpentEntry is one command the Bash/PowerShell discard wall
+// (postedit's DiscardBashDecision) already approved against WallDiscard's
+// one-shot arm, recorded so the git queue shim -- which meets the SAME git
+// invocation as a SEPARATE subprocess a moment later and would otherwise
+// find the arm already consumed, since ConsumeOneShot spends it on the
+// FIRST check regardless of which side made it -- can still let it
+// through, exactly once, for exactly that command. One arm must cover one
+// command end to end (#857 follow-up), not just whichever side of the
+// Bash-tool/shim split happens to check WallDiscard first.
+type DiscardBashSpentEntry struct {
+	// Argv is the git invocation's own words, verb first, with "git" itself
+	// and any leading global options already stripped -- the exact shape
+	// the shim's own gitGlobalArgs split produces, so the two sides compare
+	// byte for byte with no re-parsing.
+	Argv  []string `json:"argv"`
+	Until string   `json:"until"` // RFC3339
 }
 
 // waiverEntry is one active wall waiver's persisted shape: just when, since

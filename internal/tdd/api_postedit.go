@@ -21,6 +21,8 @@ func ActiveDeferredJobs() []DeferredJob { return postedit.ActiveDeferredJobs() }
 
 func AllowWall(p0 string) (string, error) { return postedit.AllowWall(p0) }
 
+func ConsumeDiscardBashSpent(p0 []string) bool { return postedit.ConsumeDiscardBashSpent(p0) }
+
 func ConsumeOneShot(p0 string) bool { return postedit.ConsumeOneShot(p0) }
 
 func DecideBashSuite(p0 []byte) (Decision, bool) { return postedit.DecideBashSuite(p0) }

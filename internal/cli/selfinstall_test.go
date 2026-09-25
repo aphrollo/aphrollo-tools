@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -387,6 +388,30 @@ func TestBuildArgs_StampsCommitAndBuildTimeThroughLdflags(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("buildArgs = %#v, want %#v", got, want)
+	}
+}
+
+// `aphrollo update` must NOT inherit defaultBinPath's stable-symlink
+// preference (gateinit_stablebin.go): its own writability check right after
+// resolveBinPath (#816) deliberately needs the FULLY symlink-resolved
+// install location — typically a CI deploy's releases/<ts>-<sha>/ directory,
+// owned by the deploy pipeline's own account — so it can refuse before
+// wasting a fetch and a build. Defaulting update to the stable symlink
+// instead would check THAT path's writability, and on a box where the
+// symlink itself sits in an operator-writable directory, update would
+// proceed and could overwrite a deploy-managed symlink with a real binary.
+func TestResolveBinPath_DefaultsToTheFullyResolvedPathNeverTheStableAlias(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no symlink chain to build on Windows — see symlinkChain's own skip") // skip-ok: same reasoning as gateinit_stablebin_test.go's symlinkChain: Windows self-install never uses a symlink chain, and creating one needs an elevated token
+	}
+	_, stable, releaseX := symlinkChain(t)
+	resolvedExe := filepath.Join(releaseX, "aphrollo")
+	fakeRunningAs(t, resolvedExe, stable)
+
+	var out bytes.Buffer
+	got := resolveBinPath("", "test", &out)
+	if got != resolvedExe {
+		t.Fatalf("resolveBinPath(\"\") = %q, want the fully resolved release path %q (never the stable alias %q update must not swap in place of)", got, resolvedExe, stable)
 	}
 }
 

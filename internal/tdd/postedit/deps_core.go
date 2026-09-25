@@ -28,6 +28,8 @@ const Warn = core.Warn
 
 type Decision = core.Decision
 
+type DiscardBashSpentEntry = core.DiscardBashSpentEntry
+
 type Kind = core.Kind
 
 type Outcome = core.Outcome
