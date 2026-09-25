@@ -154,3 +154,59 @@ func TestDirectPROpenDecision_RefusesOnAnUnreadableMutantsConfig(t *testing.T) {
 		t.Errorf("gh pr view: Action = %v, want Allow — a broken config refuses only a command that opens a PR", got.Action)
 	}
 }
+
+// Issue #884: the GraphQL API opens a PR too, through a createPullRequest
+// mutation, sent inline or read from a file by gh's `-F query=@file`.
+const createPRMutation = `mutation { createPullRequest(input: {repositoryId: "R", baseRefName: "main", headRefName: "x", title: "t"}) { pullRequest { url } } }`
+
+func TestDirectPROpenDecision_RefusesACreatePullRequestMutation(t *testing.T) {
+	dir := prRepo(t, "mutants-before-pr = true\n")
+	if err := os.WriteFile(filepath.Join(dir, "q.graphql"), []byte("# opens the PR\n"+createPRMutation+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, cmd := range []string{
+		"gh api graphql -f query='" + createPRMutation + "'",
+		"gh api graphql -F query='" + createPRMutation + "'",
+		"gh api graphql --field query='" + createPRMutation + "'",
+		"gh api graphql --raw-field=query='" + createPRMutation + "'",
+		"gh api graphql -fquery='" + createPRMutation + "'",
+		"gh api -f query='" + createPRMutation + "' graphql",
+		"gh api graphql -f query='mutation($i: CreatePullRequestInput!) { pr: createPullRequest (input: $i) { clientMutationId } }' -f i=x",
+		"gh api graphql -F query=@q.graphql",
+		"gh api graphql --field=query=@q.graphql",
+		"gh api graphql -F query=@" + filepath.Join(dir, "q.graphql"),
+	} {
+		got := DirectPROpenDecision(bashPayload(t, "s", dir, cmd))
+		if got.Action != Block {
+			t.Errorf("%q: Action = %v, want Block", cmd, got.Action)
+			continue
+		}
+		if !strings.Contains(got.Reason, "aphrollo workspace pr") {
+			t.Errorf("%q: Reason = %q, want it to name `aphrollo workspace pr`", cmd, got.Reason)
+		}
+	}
+}
+
+func TestDirectPROpenDecision_AllowsGraphQLThatOpensNoPR(t *testing.T) {
+	dir := prRepo(t, "mutants-before-pr = true\n")
+	if err := os.WriteFile(filepath.Join(dir, "q.graphql"), []byte(createPRMutation), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, cmd := range []string{
+		"gh api graphql -f query='query { viewer { login } }'",
+		`gh api graphql -f query='query { repository(owner: "o", name: "r") { pullRequests(first: 1) { nodes { id } } } }'`,
+		`gh api graphql -f query='mutation { addComment(input: {subjectId: "x", body: "createPullRequest(y)"}) { clientMutationId } }'`,
+		`gh api graphql -f query='mutation { addComment(input: {subjectId: "x", body: """a createPullRequest(y) "note" here"""}) { clientMutationId } }'`,
+		"gh api graphql -f query='mutation { addComment(input: {subjectId: \"x\", body: \"b\"}) { clientMutationId } # not createPullRequest(\n}'",
+		"gh api graphql -f query=@q.graphql",
+		"gh api graphql -F query=@missing.graphql",
+		"gh api graphql -F query=@-",
+		"gh api graphql -H 'query=" + createPRMutation + "' -f query='query { viewer { login } }'",
+		"gh api graphql -f note='" + createPRMutation + "' -f query='query { viewer { login } }'",
+		"gh api -X GET repos/o/r/issues -f query='" + createPRMutation + "'",
+	} {
+		if got := DirectPROpenDecision(bashPayload(t, "s", dir, cmd)); got.Action != Allow {
+			t.Errorf("%q: Action = %v, want Allow; Reason=%q", cmd, got.Action, got.Reason)
+		}
+	}
+}

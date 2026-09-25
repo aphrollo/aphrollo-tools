@@ -3,6 +3,8 @@ package postedit
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -15,7 +17,8 @@ const directPROpenPolicy = "direct-pr-open"
 // subprocess, never through this hook, so they are unaffected by it.
 const directPROpenRefusal = "this repo declares mutants-before-pr = true: open the PR with `aphrollo workspace pr` " +
 	"(or `workspace ship`/`submit`), which measures the lane's mutants first; " +
-	"a direct `gh pr create` or `gh api` POST to repos/<owner>/<repo>/pulls skips that measurement (#871)"
+	"a direct `gh pr create`, a `gh api` POST to repos/<owner>/<repo>/pulls or a `gh api graphql` createPullRequest mutation " +
+	"skips that measurement (#871)"
 
 // DirectPROpenDecision refuses a Bash/PowerShell command that opens a pull
 // request directly when the repo declares mutants-before-pr: such a PR never
@@ -29,7 +32,8 @@ func DirectPROpenDecision(raw []byte) Decision {
 	if err := json.Unmarshal(raw, &in); err != nil || !bashLikeTools[in.ToolName] {
 		return Decision{}
 	}
-	if !scanCommand(in.ToolInput.Command, segmentOpensPR) {
+	opensPR := func(words []string) bool { return segmentOpensPR(words, in.Cwd) }
+	if !scanCommand(in.ToolInput.Command, opensPR) {
 		return Decision{}
 	}
 	declared, err := mutantsBeforePRDeclared(in.Cwd)
@@ -64,9 +68,10 @@ func mutantsBeforePRDeclared(cwd string) (bool, error) {
 var prCreateVerbs = map[string]bool{"create": true, "new": true}
 
 // segmentOpensPR reports whether one simple command opens a pull request:
-// `gh pr create` with its options anywhere, or a `gh api` POST to a
-// repository's pulls endpoint.
-func segmentOpensPR(words []string) bool {
+// `gh pr create` with its options anywhere, a `gh api` POST to a
+// repository's pulls endpoint, or a `gh api graphql` createPullRequest
+// mutation. cwd is where a query file the command names is read from.
+func segmentOpensPR(words []string, cwd string) bool {
 	if len(words) == 0 || baseCommand(words[0]) != "gh" {
 		return false
 	}
@@ -75,7 +80,7 @@ func segmentOpensPR(words []string) bool {
 	case "pr":
 		return prCreateVerbs[wordAt(cmd, 1)]
 	case "api":
-		return ghAPIOpensPR(words)
+		return ghAPIOpensPR(words) || ghGraphQLOpensPR(words, cwd)
 	}
 	return false
 }
@@ -123,10 +128,7 @@ var (
 func ghAPIOpensPR(args []string) bool {
 	method, body, pulls := "", false, false
 	for i, a := range args {
-		name, value, attached := splitOption(a)
-		if !attached && i+1 < len(args) {
-			value = args[i+1]
-		}
+		name, value := optionAt(args, i)
 		switch {
 		case ghAPIMethodFlags[name]:
 			method = value
@@ -137,6 +139,79 @@ func ghAPIOpensPR(args []string) bool {
 		}
 	}
 	return pulls && (strings.EqualFold(method, "POST") || method == "" && body)
+}
+
+// optionAt reads args[i] as an option: its name and its value, attached in
+// the same word or else the next word.
+func optionAt(args []string, i int) (name, value string) {
+	name, value, attached := splitOption(args[i])
+	if !attached && i+1 < len(args) {
+		value = args[i+1]
+	}
+	return name, value
+}
+
+// ghGraphQLQueryFlags are the `gh api` options that can carry the GraphQL
+// query; the typed ones (-F/--field) read a value of `@file` from the file.
+var (
+	ghGraphQLQueryFlags = map[string]bool{"-f": true, "-F": true, "--field": true, "--raw-field": true}
+	ghTypedFieldFlags   = map[string]bool{"-F": true, "--field": true}
+)
+
+// ghGraphQLOpensPR reports whether a `gh api graphql` invocation sends a
+// query that is a createPullRequest mutation.
+func ghGraphQLOpensPR(args []string, cwd string) bool {
+	if !containsToken(args, "graphql") {
+		return false
+	}
+	for i := range args {
+		name, value := optionAt(args, i)
+		query, isQuery := strings.CutPrefix(value, "query=")
+		if !isQuery || !ghGraphQLQueryFlags[name] {
+			continue
+		}
+		if ghTypedFieldFlags[name] {
+			query = queryFromFile(query, cwd)
+		}
+		if graphQLCreatesPR(query) {
+			return true
+		}
+	}
+	return false
+}
+
+// queryFromFile resolves gh's `@file` field value to the file's text, a
+// relative path read against cwd. A file that cannot be read judges as an
+// empty query: the wall fails open, as it does on a payload it cannot parse.
+func queryFromFile(value, cwd string) string {
+	path, isFile := strings.CutPrefix(value, "@")
+	if !isFile {
+		return value
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(cwd, path)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// graphQLNoise matches the parts of a GraphQL document that are data, never
+// an operation: block strings, strings and comments.
+var graphQLNoise = regexp.MustCompile(`(?s)"""(?:\\"""|.)*?"""|"(?:\\.|[^"\\\n])*"|#[^\n]*`)
+
+var (
+	graphQLMutation = regexp.MustCompile(`\bmutation\b`)
+	graphQLCreatePR = regexp.MustCompile(`\bcreatePullRequest\s*\(`)
+)
+
+// graphQLCreatesPR reports whether a GraphQL document is a mutation calling
+// createPullRequest, judged with its strings and comments blanked out.
+func graphQLCreatesPR(query string) bool {
+	code := graphQLNoise.ReplaceAllString(query, " ")
+	return graphQLMutation.MatchString(code) && graphQLCreatePR.MatchString(code)
 }
 
 // splitOption splits one word into an option name and the value attached to
