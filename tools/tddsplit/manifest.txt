@@ -461,6 +461,8 @@ mutants_freemem_own_test.go                        lock
 mutants_freemem_test.go                            mutation  # prefix says lock; its test body reaches mutation
 mutants_gitstreams_test.go                         mutation
 mutants_go.go                                      mutation
+mutants_go_covfail.go                              mutation
+mutants_go_covfail_test.go                         mutation
 mutants_go_reach.go                                mutation
 mutants_go_reach_test.go                           mutation
 mutants_go_test.go                                 mutation
