@@ -26,11 +26,11 @@ func putManagedBlock(t *testing.T, repo, body string) {
 }
 
 // currentBlock is what install would write into repo on this box.
-func currentBlock(repo, shimDir string) string { return managedBlockFor(repo, shimDir) }
+func currentBlock(repo string) string { return managedBlockFor(repo) }
 
 func TestDoctor_ReportsAManagedBlockWrittenByAnOlderTemplate(t *testing.T) {
 	in := healthyInstall(t)
-	stale := strings.Replace(currentBlock(in.Repo, in.ShimDir),
+	stale := strings.Replace(currentBlock(in.Repo),
 		"- **Housekeeping:**", "- **Housekeeping:** `aphrollo gate mutants watch` (background run) ·", 1)
 	putManagedBlock(t, in.Repo, stale)
 
@@ -54,7 +54,7 @@ func TestDoctor_ReportsAManagedBlockWrittenByAnOlderTemplate(t *testing.T) {
 func TestDoctor_NamesAnEntryTheTemplateNoLongerCarries(t *testing.T) {
 	in := healthyInstall(t)
 	retired := "- **A merge needs a fresh receipt:** `aphrollo gate mutants watch` writes it.\n"
-	block := strings.Replace(currentBlock(in.Repo, in.ShimDir), "\n_This block is written", retired+"\n_This block is written", 1)
+	block := strings.Replace(currentBlock(in.Repo), "\n_This block is written", retired+"\n_This block is written", 1)
 	putManagedBlock(t, in.Repo, block)
 
 	c := check(t, Doctor(in), "CLAUDE.md block")
@@ -68,7 +68,7 @@ func TestDoctor_NamesAnEntryTheTemplateNoLongerCarries(t *testing.T) {
 
 func TestDoctor_ABlockMatchingThisBuildIsNotAFinding(t *testing.T) {
 	in := healthyInstall(t)
-	putManagedBlock(t, in.Repo, currentBlock(in.Repo, in.ShimDir))
+	putManagedBlock(t, in.Repo, currentBlock(in.Repo))
 
 	c := check(t, Doctor(in), "CLAUDE.md block")
 	if !c.OK || c.Warn {
@@ -81,7 +81,7 @@ func TestDoctor_ABlockMatchingThisBuildIsNotAFinding(t *testing.T) {
 // what the block SAYS.
 func TestDoctor_ARewrappedBlockWithTheSameContentIsNotAFinding(t *testing.T) {
 	in := healthyInstall(t)
-	block := currentBlock(in.Repo, in.ShimDir)
+	block := currentBlock(in.Repo)
 	rewrapped := strings.ReplaceAll(block, "\n  ", " ")
 	rewrapped = strings.ReplaceAll(rewrapped, "\n", "   \r\n")
 	if rewrapped == block {
@@ -95,24 +95,7 @@ func TestDoctor_ARewrappedBlockWithTheSameContentIsNotAFinding(t *testing.T) {
 	}
 }
 
-// The queue dir is a fact about the BOX, not about the template's currency:
-// a repo whose block was written on another machine (or judged on a CI
-// runner) says a different path and is not stale for it.
-func TestDoctor_AQueueDirFromAnotherBoxIsNotAFinding(t *testing.T) {
-	in := healthyInstall(t)
-	block := strings.Replace(currentBlock(in.Repo, in.ShimDir),
-		"`"+shellPath(in.ShimDir)+"`", "`/usr/local/bin/cargo-queue`", 1)
-	if block == currentBlock(in.Repo, in.ShimDir) {
-		t.Fatal("the test replaced no queue dir")
-	}
-	putManagedBlock(t, in.Repo, block)
-
-	c := check(t, Doctor(in), "CLAUDE.md block")
-	if !c.OK {
-		t.Fatalf("another box's queue dir must not read as stale: %s", c.Detail)
-	}
-}
-
+// ratchet: test_removed TestDoctor_AQueueDirFromAnotherBoxIsNotAFinding: the block names no box path any more (#874), so there is no per-box text left to mask; TestClaudeMDBlock_IsTheSameTextOnEveryBox pins that
 // A repo that never opted in has nothing to be behind: no CLAUDE.md at all,
 // or one with no managed block, reports no line rather than a passing one —
 // silence is what "does not apply" looks like on this report.
@@ -144,7 +127,7 @@ func TestDoctor_AStaleBlockInAMergeOnlyPrimaryPointsAtALane(t *testing.T) {
 	gitDo(t, root, "branch", "-M", "main")
 	addWorktree(t, root, "lane-a")
 	in.Repo = root
-	putManagedBlock(t, root, strings.Replace(currentBlock(root, in.ShimDir),
+	putManagedBlock(t, root, strings.Replace(currentBlock(root),
 		"- **Housekeeping:**", "- **Housekeeping:** stale text ·", 1))
 
 	c := check(t, Doctor(in), "CLAUDE.md block")

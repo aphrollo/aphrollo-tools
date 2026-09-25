@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -25,10 +24,10 @@ import (
 //
 // What it judges is CONTENT, entry by entry, with whitespace collapsed: a
 // block somebody re-wrapped, or an editor gave CRLF and trailing spaces, says
-// exactly what the template says and is not a finding. The queue-dir path is
-// masked for the same reason — it is a fact about the box that wrote the
-// block, not about the template's currency, and a repo judged on a CI runner
-// would otherwise read as stale on every run. The finding NAMES the first
+// exactly what the template says and is not a finding. The block carries no
+// fact about the box that wrote it (#874), so nothing else needs masking: a
+// repo judged on a CI runner reads the same text as on the box that wrote it.
+// The finding NAMES the first
 // entry that differs rather than printing a diff of the whole block: the
 // operator's next move is `aphrollo install`, and thirteen bullets of context
 // does not change it.
@@ -37,12 +36,6 @@ import (
 // named by. Long enough to recognise the bullet, short enough that the
 // finding stays one line.
 const claudeMDLabelLimit = 56
-
-// claudeMDQueueDir matches the one place the template interpolates a path
-// from the box it runs on. Anchored on the sentence around it, so a template
-// that stops saying this stops masking it — and a block still carrying the
-// old sentence is then correctly stale.
-var claudeMDQueueDir = regexp.MustCompile("prints a path under `[^`]*`")
 
 // doctorClaudeMD compares the managed block in the repo's CLAUDE.md with the
 // block this build would write there. ok=false means the check does not
@@ -71,7 +64,7 @@ func doctorClaudeMD(in DoctorInput) (DoctorCheck, bool) {
 	if !ok {
 		return c, false
 	}
-	want, _ := claudeMDBlockBody(managedBlockFor(in.Repo, in.ShimDir))
+	want, _ := claudeMDBlockBody(managedBlockFor(in.Repo))
 
 	wantEntries, haveEntries := claudeMDEntries(want), claudeMDEntries(have)
 	diffs, first := claudeMDDrift(wantEntries, haveEntries)
@@ -166,11 +159,10 @@ func claudeMDDrift(want, have []string) (int, string) {
 }
 
 // claudeMDNormalize is the form two entries are compared in: every run of
-// whitespace collapsed to one space (so wrapping, indentation, CRLF and
-// trailing spaces cannot make a block look stale) and the box's queue dir
-// masked.
+// whitespace collapsed to one space, so wrapping, indentation, CRLF and
+// trailing spaces cannot make a block look stale.
 func claudeMDNormalize(entry string) string {
-	return claudeMDQueueDir.ReplaceAllString(strings.Join(strings.Fields(entry), " "), "prints a path under `<queue dir>`")
+	return strings.Join(strings.Fields(entry), " ")
 }
 
 // claudeMDLabel names an entry the way the block itself does: by its bold

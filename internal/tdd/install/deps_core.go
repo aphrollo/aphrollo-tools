@@ -19,6 +19,8 @@ func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration)
 	core.AppendGateLog(p0, p1, p2, p3, p4)
 }
 
+func aphrolloTomlFlag(p0 string, p1 string) bool { return core.AphrolloTomlFlag(p0, p1) }
+
 func claudeConfigDir() string { return core.ClaudeConfigDir() }
 
 func loadSession(p0 string) (*sessionState, string) { return core.LoadSession(p0) }

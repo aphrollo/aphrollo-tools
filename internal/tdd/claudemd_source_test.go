@@ -24,7 +24,7 @@ func TestClaudeMDBlock_VetLintClaimMatchesGoOnlyGuard(t *testing.T) {
 	if !strings.Contains(string(src), `if runner.Cmd == "go" {`) {
 		t.Fatal(`precommit_gateroot.go no longer guards goQualityStage with runner.Cmd == "go" — update the "a Go root also runs vet/lint" claim in ClaudeMDBlock's stage-list bullet to match`)
 	}
-	block := ClaudeMDBlock(shimDir, false, false)
+	block := ClaudeMDBlock(BlockFlags{})
 	if !strings.Contains(block, "a Go root also runs vet/lint") {
 		t.Fatal(`ClaudeMDBlock no longer scopes its vet/lint claim to "a Go root" — check it still matches precommit_gateroot.go's runner.Cmd == "go" guard before broadening it`)
 	}
@@ -54,7 +54,7 @@ func TestClaudeMDBlock_DoesNotPromiseASuiteTheCommitGateNoLongerRuns(t *testing.
 		t.Fatal("precommit_gateroot.go no longer ends its fail-first branch at failFirstStage — if the " +
 			"commit gate runs a suite again, restore the claim in ClaudeMDBlock's stage-list bullet")
 	}
-	block := ClaudeMDBlock(shimDir, false, false)
+	block := ClaudeMDBlock(BlockFlags{})
 	if strings.Contains(block, "fail-first→\n  suites") || strings.Contains(block, "fail-first→suites") {
 		t.Error("the block still says the commit gate ends in suites, but the fail-first branch returns " +
 			"at failFirstStage — a session that believes it re-runs the package the gate deliberately skipped")

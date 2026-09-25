@@ -14,4 +14,6 @@ func PatchSettings(p0 []byte, p1 string) ([]byte, bool, error) { return install.
 
 func binShim(p0 string, p1 string, p2 string) string { return install.BinShim(p0, p1, p2) }
 
+func managedBlockFor(p0 string) string { return install.ManagedBlockFor(p0) }
+
 func shim(p0 string, p1 string) string { return install.Shim(p0, p1) }
