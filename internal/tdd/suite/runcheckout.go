@@ -82,18 +82,32 @@ func effectiveRunRoot(cwd, cmd string) string {
 func suiteRunDirs(cwd, cmd string) []string {
 	cur := cwd
 	var dirs []string
-	for _, seg := range shellSegments(stripHeredocBodies(cmd)) {
-		words := dropLeadingEnvAssignments(seg)
-		if target, isCd := cdTarget(words); isCd {
+	for _, seg := range shellSegmentsTokens(stripHeredocBodies(cmd)) {
+		trimmed := dropLeadingEnvAssignmentWords(seg)
+		if target, isCd := cdTargetTilde(trimmed); isCd {
 			cur = resolveAgainst(cur, target)
 			continue
 		}
+		words := wordTexts(trimmed)
 		if classifySuiteSegment(words) == notSuiteInvocation {
 			continue
 		}
 		dirs = append(dirs, invocationDir(cur, words))
 	}
 	return dirs
+}
+
+// dropLeadingEnvAssignmentWords is dropLeadingEnvAssignments over a
+// quote-aware shellWord segment: cdTargetTilde needs each word's raw half to
+// tell a quoted `'~/x'` from an unquoted `~/x` (issue #867), so a `FOO=bar cd
+// ~/lane` still finds `cd` at a fixed offset without losing that quoting.
+func dropLeadingEnvAssignmentWords(words []shellWord) []shellWord {
+	texts := wordTexts(words)
+	i := 0
+	for i < len(texts) && isEnvAssignment(texts[i]) {
+		i++
+	}
+	return words[i:]
 }
 
 // invocationDir reports where one runner invocation starts: the directory the

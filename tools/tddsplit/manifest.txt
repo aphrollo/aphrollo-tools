@@ -651,6 +651,7 @@ retro_store.go                                     merge
 retro_test.go                                      merge
 review_yellows_test.go                             precommit
 runcheckout.go                                     suite
+runcheckout_cdtilde_test.go                        suite
 runcheckout_test.go                                postedit  # prefix says suite; its test body reaches postedit
 runner.go                                          suite
 runner_core.go                                     core      # created by P2

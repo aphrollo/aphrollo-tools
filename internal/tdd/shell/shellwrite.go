@@ -34,7 +34,7 @@ func bashWriteTargets(cmd, cwd string) []string {
 	var out []string
 	cur := cwd
 	for _, seg := range shellSegmentsTokens(stripHeredocBodies(cmd)) {
-		if dir, ok := cdTarget(wordTexts(seg)); ok {
+		if dir, ok := cdTargetTilde(seg); ok {
 			cur = resolveAgainst(cur, dir)
 			continue
 		}
@@ -66,6 +66,31 @@ func cdTarget(words []string) (string, bool) {
 	}
 	if len(words) > 1 && !strings.HasPrefix(words[1], "-") {
 		return words[1], true
+	}
+	return "", true
+}
+
+// cdTargetTilde is cdTarget for a caller that still has each word's raw half
+// (shellWord, not plain text) and so can tell a quoted operand from an
+// unquoted one: the operand's own leading `~` is expanded the same way a
+// write target's is (expandTildeTarget, issue #849) rather than resolved as
+// an ordinary relative path — an unquoted `~` or `~/...` resolves to HOME, a
+// quoted `'~/x'` stays the literal relative path it names, and `~user/...`
+// — a different user's home — is dropped exactly like a bare `cd`, blanking
+// the tracked directory rather than guessing at it (issue #867: `cd ~/lane`
+// used to be joined onto cwd like any other relative operand, the same
+// double-join #849 already fixed for write targets — this scanner's own
+// bashWriteTargets, and the suite package's separate cd-tracking copy, both
+// call this rather than cdTarget so a `cd`'s tilde gets the same treatment).
+func cdTargetTilde(words []shellWord) (string, bool) {
+	if len(words) == 0 || baseCommand(words[0].text) != "cd" {
+		return "", false
+	}
+	if len(words) > 1 && !strings.HasPrefix(words[1].text, "-") {
+		if resolved, keep := expandTildeTarget(words[1].raw, words[1].text); keep {
+			return resolved, true
+		}
+		return "", true
 	}
 	return "", true
 }
