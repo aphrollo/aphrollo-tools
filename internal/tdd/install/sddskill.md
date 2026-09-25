@@ -31,8 +31,7 @@ Write `spec.md`:
 - **Acceptance criteria** — testable statements. "Rejects a NaN velocity and
   keeps the previous value", not "handles bad input".
 
-Then read it once with fresh eyes: no TBDs, no section contradicting another,
-no requirement readable two ways. Fix inline, then run `aphrollo ratchet check --no-tighten` and fix every hit.
+Re-read it fresh: no TBDs, no contradictions, no requirement readable two ways. Fix inline, then run `aphrollo ratchet check --no-tighten` and fix every hit.
 
 ## 2. Plan → `plan.md`
 
@@ -55,17 +54,18 @@ the names and types used in a later lane match what an earlier one defines. Then
 
 ## 3. Execute
 
-One lane per builder, handed the lane's plan text VERBATIM; it builds to the
-`tdd` skill, and the gate's own line is its evidence. Only builders edit:
-the coordinator never edits. A brief or resume carries only what the agent lacks.
+One lane per builder, handed the lane's plan text VERBATIM. Build to the
+`tdd` skill: RED first for new code, a mutation proof for code that already exists,
+and the gate's own line is the evidence. Only builders edit: the coordinator never edits.
+A brief or resume carries only what the agent lacks.
 
 Review each lane cold, by a reviewer that did not write it. Follow-ups (fix
 round, base merge, re-measure, red CI) resume that lane's builder with
-only the delta, and its reviewer re-reviews its own findings. A related
-issue in files a builder already holds may go to it; a fresh builder is for a new issue.
-At most two fix rounds, then park with a ruling. Merge only with the gate
-green and every finding fixed or accepted in the merge body. Commit or delete
-the spec tree at lane end: an untracked hand-edit is overwritten by the next `aphrollo install`.
+only the delta, and its reviewer re-reviews its own findings. A fresh builder is for a new issue
+(or a related one in files a builder already holds). At most two fix rounds, then
+park with a ruling. Merge only with the gate green and every finding fixed or
+accepted in the merge body. Commit or delete the spec tree at lane end: an
+untracked hand-edit is overwritten by the next `aphrollo install`.
 
 ## 4. Close
 

@@ -59,6 +59,9 @@ func TestSDDSkill_StatesItsContract(t *testing.T) {
 		"acceptance criteria",
 		"lane",
 		"`tdd` skill",
+		// The substitute RED holds in every repo, measured or not.
+		"RED first for new code",
+		"a mutation proof for code that already exists",
 		"sdd-dir",
 		"docs/sdd",
 		"decisions.md",
