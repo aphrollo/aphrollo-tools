@@ -86,3 +86,35 @@ func TestLawMaskStrings_LeavesALawThatDidNotAskForItUnchanged(t *testing.T) {
 		t.Errorf("hits = %v, want [a.go:3] — without mask_strings the quoted directive is read as written", got)
 	}
 }
+
+// A Rust lifetime's apostrophe is not a quote. Read as one, it blanks every
+// line up to the next apostrophe in the file, and a law over those lines
+// reports no regression for code it never read (#847). The same law over the
+// same bytes must hit whether or not a lifetime sits above the offence.
+func TestLawMaskStrings_RustLifetimeDoesNotHideTheLinesBelowIt(t *testing.T) {
+	l, err := ParseLaw(`name = "inertia-seam"
+description = "a mass over the squared substep goes through the seam"
+severity = "deny"
+mask_strings = true
+
+[scope]
+include = ["**/*.rs"]
+
+[matcher]
+kind = "regex-absent"
+pattern = "mass / \\(sub_dt \\* sub_dt\\)"
+`, "inertia-seam")
+	if err != nil {
+		t.Fatalf("ParseLaw: %v", err)
+	}
+	body := "fn b(mass: f32, sub_dt: f32) -> f32 {\n    mass / (sub_dt * sub_dt)\n}\nconst C: char = 'z';\n"
+	cases := map[string]struct{ file, src, want string }{
+		"lifetime.rs":   {"lifetime.rs", "fn a(elements: &Elements<'_>) {}\n" + body, "lifetime.rs:3"},
+		"nolifetime.rs": {"nolifetime.rs", "fn a(elements: &Elements) {}\n" + body, "nolifetime.rs:3"},
+	}
+	for name, c := range cases {
+		if got := lineKeys(l.HitsIn(c.file, c.src)); !sameStrings(got, []string{c.want}) {
+			t.Errorf("%s: hits = %v, want [%s]", name, got, c.want)
+		}
+	}
+}

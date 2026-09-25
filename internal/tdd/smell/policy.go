@@ -3,6 +3,8 @@ package smell
 import (
 	"path/filepath"
 	"strings"
+
+	masklex "github.com/aphrollo/aphrollo-tools/internal/mask"
 )
 
 // A gate is a list of policies evaluated against the new content of one edit.
@@ -53,12 +55,21 @@ type view struct {
 }
 
 func newView(content string, l lang) view {
-	code := maskTokens(content, true, true, l.hashComment)
+	code := l.mask(content, true)
 	return view{
 		Code:       code,
-		directives: maskTokens(content, true, false, l.hashComment),
+		directives: l.mask(content, false),
 		whole:      code,
 	}
+}
+
+// mask blanks content's strings, and its comments when blankComments is set,
+// lexing it as the file's language.
+func (l lang) mask(content string, blankComments bool) string {
+	if l.rust {
+		return masklex.RustTokens(content, true, blankComments)
+	}
+	return maskTokens(content, true, blankComments, l.hashComment)
 }
 
 // keepLines returns masked restricted to the 1-based line numbers in keep,
@@ -74,14 +85,18 @@ func keepLines(masked string, keep map[int]bool) string {
 	return b.String()
 }
 
-// lang captures the lexical quirks the masker must know about the edited file.
-// Today that is exactly one: whether `#` begins a line comment. Getting it
-// wrong matters for the suppression detectors, which read the comment-preserving
-// view — a `#` wrongly treated as a comment stops the lexer skipping/scanning
-// the rest of the line, so a directive-looking string after a JS private field
-// could leak and trip a false suppression.
+// lang captures the lexical quirks the masker must know about the edited file:
+// whether `#` begins a line comment, and whether the file is Rust, where `'`
+// is a char literal only in a char literal's shape and otherwise the sigil of
+// a lifetime or a label — read as a quote, it blanks every line up to the next
+// apostrophe and hides them from every detector. Getting `#` wrong matters
+// for the suppression detectors, which read the comment-preserving view — a
+// `#` wrongly treated as a comment stops the lexer skipping/scanning the rest
+// of the line, so a directive-looking string after a JS private field could
+// leak and trip a false suppression.
 type lang struct {
 	hashComment bool
+	rust        bool
 }
 
 // langOf derives the lexical quirks from a file path. `#` is a comment in
@@ -91,6 +106,8 @@ func langOf(path string) lang {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".py", ".rb":
 		return lang{hashComment: true}
+	case ".rs":
+		return lang{rust: true}
 	default:
 		return lang{hashComment: false}
 	}
