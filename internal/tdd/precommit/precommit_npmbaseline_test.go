@@ -189,6 +189,11 @@ func TestParseEslintDiagnostics_KeysErrorsByRelativeFileRuleAndMessage(t *testin
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("diagnostics = %q, want %q", got, want)
 	}
+	// What eslint prints on a quiet run: the JSON and nothing ahead of it.
+	bare := strings.TrimPrefix(out, "(node) a warning on stderr\n")
+	if got := parseEslintDiagnostics(bare, dir); len(got) != len(want) {
+		t.Fatalf("output opening on its JSON read as %q, want %q", got, want)
+	}
 }
 
 func eslintJSONPath(s string) string {
