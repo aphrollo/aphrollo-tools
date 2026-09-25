@@ -6,6 +6,8 @@ import (
 	install "github.com/aphrollo/aphrollo-tools/internal/tdd/install"
 )
 
+var features = install.Features
+
 var gitGateHooks = install.GitGateHooks
 
 var perRepoHooks = install.PerRepoHooks
@@ -13,6 +15,8 @@ var perRepoHooks = install.PerRepoHooks
 func PatchSettings(p0 []byte, p1 string) ([]byte, bool, error) { return install.PatchSettings(p0, p1) }
 
 func binShim(p0 string, p1 string, p2 string) string { return install.BinShim(p0, p1, p2) }
+
+func featureReadmeRows() []string { return install.FeatureReadmeRows() }
 
 func managedBlockFor(p0 string) string { return install.ManagedBlockFor(p0) }
 

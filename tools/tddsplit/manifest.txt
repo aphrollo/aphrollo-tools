@@ -286,6 +286,9 @@ failfirst_skipped.go                               failfirst
 failfirst_skipped_test.go                          failfirst
 failfirst_testmain_test.go                         failfirst
 failfirstinputs.go                                 failfirst
+features.go                                        install
+features_readme_test.go                            tdd
+features_test.go                                   install
 feedback.go                                        escape
 feedback_test.go                                   escape
 file.go                                            core

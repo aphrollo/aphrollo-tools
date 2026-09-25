@@ -67,10 +67,13 @@ and acts now.
 - `ci why` — read-only answer to "why is this run red?": resolves a PR's,
   a run id's or main's latest pipeline run through `gh` and prints each failed
   job with its failing tests, mutation survivors or infrastructure cause.
-- `install` / `check` / `issue` / `update` / `version` — box setup (session
-  hooks + git-hook shims in one run), read-only tree judgment (ratchet + docs +
-  sqlc + doctor + the app trio), open an issue against the repo's remote,
-  rebuild from `origin/main` and swap it in, and print the build stamp.
+- `install` / `config` / `check` / `issue` / `update` / `version` — box setup
+  (session hooks + git-hook shims in one run, and the opt-in feature table once
+  per repo), that table on demand with the repo's values, read-only tree
+  judgment (ratchet + docs + sqlc + doctor + the app trio), open an issue
+  against the repo's remote, rebuild from `origin/main` and swap it in, and
+  print the build stamp. The table's rows (`internal/tdd/install/features.go`)
+  are also the README's opt-in configuration rows, kept verbatim by a test.
 
 ## Layout
 
