@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // Issue #730 is a DEFERRED-path defect: the real edit hook always runs its
@@ -99,8 +101,8 @@ func inProcessPhases(t *testing.T) *[]string {
 // requireRealNextest skips unless this box can run cargo-nextest for real.
 func requireRealNextest(t *testing.T) {
 	t.Helper()
-	useRealCargoHome(t)
-	for _, bin := range []string{"cargo", "cargo-nextest", "rustc"} {
+	tddtest.RequireRealCargo(t)
+	for _, bin := range []string{"cargo-nextest", "rustc"} {
 		if _, err := exec.LookPath(bin); err != nil {
 			// skip-ok: an environment probe, not a disabled assertion — the test asserts for real wherever the toolchain is installed.
 			t.Skipf("%s not on PATH; skipping the real-crate widening test", bin)

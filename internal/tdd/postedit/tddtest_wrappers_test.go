@@ -118,8 +118,6 @@ func stubGoTestReach(t *testing.T, fn func(root, dir string) ([]string, error)) 
 	return SetGoTestReachForTest(fn)
 }
 
-func useRealCargoHome(t *testing.T) { t.Helper(); tddtest.UseRealCargoHome(t) }
-
 func withIsolatedBuildLock(t *testing.T) {
 	t.Helper()
 	tddtest.IsolateBuildLock(t, setBuildLockPathOverride, SetPostEditLockWaitForTest, SetPrecommitLockWait)

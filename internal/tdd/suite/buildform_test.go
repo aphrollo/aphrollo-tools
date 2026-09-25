@@ -71,8 +71,8 @@ func TestCargoBuildOnlyArgv_DropsTheRunFlagsNextestRefusesBesideNoRun(t *testing
 // authority on which flags it refuses beside --no-run, and the table above
 // only restates what this box's nextest answered.
 func TestCargoBuildOnlyArgv_RealNextestCompilesTheNoFailFastProof(t *testing.T) {
-	tddtest.UseRealCargoHome(t)
-	for _, bin := range []string{"cargo", "cargo-nextest", "rustc"} {
+	tddtest.RequireRealCargo(t)
+	for _, bin := range []string{"cargo-nextest", "rustc"} {
 		if _, err := exec.LookPath(bin); err != nil {
 			// skip-ok: an environment probe, not a disabled assertion — the test asserts for real wherever the toolchain is installed.
 			t.Skipf("%s not on PATH; skipping the real-nextest build-form test", bin)

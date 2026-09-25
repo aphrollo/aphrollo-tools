@@ -61,12 +61,19 @@ func TestTDDPackages_EachRunsTestMainThroughTddtestMain(t *testing.T) {
 }
 
 // testMainCallsTddtestMain reports whether the Go file at path declares
-// TestMain and calls tddtest.Main inside it.
+// TestMain and calls tddtest.Main inside it. Every OTHER package spells that
+// call `tddtest.Main(...)`, qualified; tddtest's own tests are the one
+// exception — a file whose package clause is itself `tddtest` calls its
+// sibling function unqualified, `Main(...)`, because a package cannot import
+// itself. Both spellings are accepted; the unqualified one only counts inside
+// package tddtest, so an unrelated package's own unqualified `Main(...)`
+// (were one ever declared) still fails this check.
 func testMainCallsTddtestMain(path string) (bool, error) {
 	f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
 	if err != nil {
 		return false, err
 	}
+	selfPackage := f.Name != nil && f.Name.Name == "tddtest"
 	for _, decl := range f.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Recv != nil || fn.Name.Name != "TestMain" || fn.Body == nil {
@@ -78,12 +85,11 @@ func testMainCallsTddtestMain(path string) (bool, error) {
 			if !ok {
 				return true
 			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-			pkg, ok := sel.X.(*ast.Ident)
-			if ok && pkg.Name == "tddtest" && sel.Sel.Name == "Main" {
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+				if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "tddtest" && sel.Sel.Name == "Main" {
+					found = true
+				}
+			} else if ident, ok := call.Fun.(*ast.Ident); ok && selfPackage && ident.Name == "Main" {
 				found = true
 			}
 			return !found
