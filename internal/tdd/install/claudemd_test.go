@@ -249,6 +249,27 @@ func TestWriteClaudeMDIsANoOpWithoutTheFileUnlessForced(t *testing.T) {
 	}
 }
 
+// A repo that measures mutants keeps its builders' mutation rules only in the
+// block, so install writes the block there even with no CLAUDE.md to put it
+// in; a repo that measures nothing still gets no file invented.
+func TestWriteClaudeMD_CreatesTheFileInARepoThatMeasuresMutants(t *testing.T) {
+	t.Parallel()
+	for _, key := range []string{"mutants-at-merge", "mutants-before-pr"} {
+		repo := t.TempDir()
+		mustWrite(t, filepath.Join(repo, "aphrollo.toml"), "[aphrollo]\n"+key+" = true\n")
+
+		changed, err := WriteClaudeMD(repo, false)
+
+		if err != nil || !changed {
+			t.Fatalf("%s: changed=%v err=%v, want the block written", key, changed, err)
+		}
+		data, err := os.ReadFile(filepath.Join(repo, "CLAUDE.md"))
+		if err != nil || !strings.Contains(string(data), "aphrollo gate mutants prove") {
+			t.Errorf("%s: CLAUDE.md = %q (%v), want the block with the mutation rules", key, data, err)
+		}
+	}
+}
+
 // Run twice, byte-identical: the file is a source file in the consuming repo,
 // and a block that churned would show up as a diff on every session start.
 func TestWriteClaudeMDIsByteIdenticalOnASecondRun(t *testing.T) {

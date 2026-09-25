@@ -41,7 +41,8 @@ const claudeMDLabelLimit = 56
 // block this build would write there. ok=false means the check does not
 // apply: no repo, no CLAUDE.md, or a CLAUDE.md with no managed block — a repo
 // that never opted in is not behind on anything, and a passing line about a
-// block it does not have would be a lie in the friendly direction.
+// block it does not have would be a lie in the friendly direction. A repo
+// that measures mutants is the exception (claudeMDMissing).
 func doctorClaudeMD(in DoctorInput) (DoctorCheck, bool) {
 	c := DoctorCheck{Name: "CLAUDE.md block"}
 	if in.Repo == "" {
@@ -58,11 +59,11 @@ func doctorClaudeMD(in DoctorInput) (DoctorCheck, bool) {
 			c.Detail = fmt.Sprintf("could not read %s (%v)", path, err)
 			return c, true
 		}
-		return c, false
+		return claudeMDMissing(c, in.Repo, path)
 	}
 	have, ok := claudeMDBlockBody(string(data))
 	if !ok {
-		return c, false
+		return claudeMDMissing(c, in.Repo, path)
 	}
 	want, _ := claudeMDBlockBody(managedBlockFor(in.Repo))
 
@@ -75,6 +76,18 @@ func doctorClaudeMD(in DoctorInput) (DoctorCheck, bool) {
 	}
 	c.Detail = fmt.Sprintf("%s is stale: %d of %d entries differ from the block this build writes — %s; %s",
 		path, diffs, len(wantEntries), first, claudeMDRemedy(in.Repo))
+	return c, true
+}
+
+// claudeMDMissing judges a repo with no managed block. For most repos the
+// check does not apply; a repo that measures mutants keeps its builders'
+// mutation rules only in the block, so there the absence is a finding.
+func claudeMDMissing(c DoctorCheck, repo, path string) (DoctorCheck, bool) {
+	if !blockFlagsFor(repo).measures() {
+		return c, false
+	}
+	c.Detail = fmt.Sprintf("%s has no managed block, and this repo measures mutants, so its builders never read the mutation rules; %s",
+		path, claudeMDRemedy(repo))
 	return c, true
 }
 

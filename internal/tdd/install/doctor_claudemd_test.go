@@ -138,3 +138,25 @@ func TestDoctor_AStaleBlockInAMergeOnlyPrimaryPointsAtALane(t *testing.T) {
 		t.Errorf("detail = %q, want the remedy to be a lane, not an install the primary refuses", c.Detail)
 	}
 }
+
+// A repo that measures mutants keeps its builders' mutation rules ONLY in the
+// managed block (issue #875), so for it a missing block is not "does not
+// apply": it is a repo whose builders were never told the rules its merge
+// enforces. Both shapes fail: no CLAUDE.md, and one with no block.
+func TestDoctor_AMeasuringRepoWithNoManagedBlockIsAFinding(t *testing.T) {
+	in := healthyInstall(t)
+	mustWrite(t, filepath.Join(in.Repo, "aphrollo.toml"), "[aphrollo]\nmutants-before-pr = true\n")
+
+	c := check(t, Doctor(in), "CLAUDE.md block")
+	if c.OK {
+		t.Fatalf("a measuring repo with no CLAUDE.md must be a finding, got ok: %s", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "aphrollo install") {
+		t.Errorf("detail = %q, want the remedy named", c.Detail)
+	}
+
+	mustWrite(t, filepath.Join(in.Repo, "CLAUDE.md"), "# repo\n\nhouse rules, no aphrollo block\n")
+	if c := check(t, Doctor(in), "CLAUDE.md block"); c.OK {
+		t.Fatalf("a measuring repo whose CLAUDE.md has no block must be a finding, got ok: %s", c.Detail)
+	}
+}

@@ -37,6 +37,10 @@ type BlockFlags struct {
 	MutantsBeforePR bool
 }
 
+// measures reports whether the repo measures mutants at all, which is what
+// brings the mutation rules into the block.
+func (f BlockFlags) measures() bool { return f.MutantsAtMerge || f.MutantsBeforePR }
+
 // ClaudeMDBlock renders the managed block for a repo declaring f.
 func ClaudeMDBlock(f BlockFlags) string {
 	var b strings.Builder
@@ -97,7 +101,7 @@ func ClaudeMDBlock(f BlockFlags) string {
 	// The rules that exist only because this repo measures mutants. The
 	// builder agent is one file per user and reaches every repo, so they live
 	// here, where they reach only a repo that declared the measurement.
-	if f.MutantsAtMerge || f.MutantsBeforePR {
+	if f.measures() {
 		b.WriteString("- **Mutation rules** (this repo measures mutants): quote one `aphrollo gate mutants prove --file <f> --old <expr> --new <expr> --want-fail <Test>`\n")
 		b.WriteString("  KILLED line per new condition; UNREADABLE proves nothing. A mutant nobody can observe is removed by rewriting the code, not by an accept-list entry.\n")
 		b.WriteString("  A timed-out mutant is refused like a survivor, so never compute a scan or loop index as an expression: no `i++` in a loop that already\n")
@@ -208,12 +212,14 @@ var ErrManagedBlockInPrimary = errors.New("managed CLAUDE.md block not written: 
 
 // WriteClaudeMD writes the managed block into repoRoot's CLAUDE.md. force
 // creates the file when there is none; without it an absent CLAUDE.md is a
-// no-op, so a plain `gate init` never invents a file in a repo that keeps none.
-// It reports whether the file changed.
+// no-op, so a plain `gate init` never invents a file in a repo that keeps none
+// — unless the repo measures mutants, whose builders learn the mutation rules
+// from this block and nowhere else. It reports whether the file changed.
 func WriteClaudeMD(repoRoot string, force bool) (bool, error) {
 	if repoRoot == "" {
 		return false, nil
 	}
+	force = force || blockFlagsFor(repoRoot).measures()
 	path := filepath.Join(repoRoot, "CLAUDE.md")
 	existing, err := os.ReadFile(path)
 	switch {
