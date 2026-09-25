@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -104,9 +105,15 @@ func ghJSONLines(dir string, args ...string) ([]CheckRun, error) {
 // laneHeadSHA is the commit the lane worktree has checked out — what the
 // operator pushed and means to merge.
 var laneHeadSHA = func(wt string) (string, error) {
-	out, err := exec.Command("git", "-C", wt, "rev-parse", "HEAD").CombinedOutput()
+	cmd := exec.Command("git", "-C", wt, "rev-parse", "HEAD")
+	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git rev-parse HEAD in %s: %v: %s", wt, err, strings.TrimSpace(string(out)))
+		msg := err.Error()
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			msg = string(ee.Stderr)
+		}
+		return "", fmt.Errorf("git rev-parse HEAD in %s: %v: %s", wt, err, strings.TrimSpace(msg))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
