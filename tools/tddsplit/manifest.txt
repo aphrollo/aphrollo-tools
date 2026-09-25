@@ -50,14 +50,16 @@ tddtest   prep internal/tdd/internal/tddtest
 
 [files]
 
-# shell: 7 file(s)
+# shell: 9 file(s)
 shellwrite.go                                      shell
 shellwrite_fuzz_test.go                            shell
 shellwrite_nul_test.go                             shell
 shellwrite_quoted_test.go                          shell
 shellwrite_test.go                                 shell
+shellwrite_tilde_test.go                           shell
 shellwrite_unexpanded_test.go                      shell
 testdata/fuzz/FuzzBashWriteTargets/                shell
+tilde.go                                           shell
 
 # gitx: 7 file(s), plus 5 created by P2
 gitbin.go                                          gitx
