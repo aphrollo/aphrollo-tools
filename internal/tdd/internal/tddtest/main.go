@@ -54,6 +54,47 @@ type Seams struct {
 // active is the Seams the running Main was handed.
 var active Seams
 
+// tempDirs holds every directory RegisterTempDir was handed, for sweepTempDirs
+// to remove once the whole package's run is over.
+var (
+	tempDirsMu sync.Mutex
+	tempDirs   []string
+)
+
+// RegisterTempDir records a directory a package-lifetime fixture created
+// outside t.TempDir() — a `sync.OnceValues`-built stub binary or golden
+// process tree shared by every test in the package, whose only correct
+// removal point is the END of the whole run, not any one test's own
+// t.Cleanup (a cleanup on the first test to build it would pull the fixture
+// out from under every later one). Main sweeps every registered directory
+// after run() and fails the package if one is still there afterward, so the
+// only way this leaks silently going forward is a NEW fixture that forgets
+// to register itself — GhStubDir already does (see Main), and every
+// `sync.OnceValues`-built fixture elsewhere in this tree must do the same.
+func RegisterTempDir(dir string) {
+	tempDirsMu.Lock()
+	tempDirs = append(tempDirs, dir)
+	tempDirsMu.Unlock()
+}
+
+// sweepTempDirs removes every directory RegisterTempDir recorded and reports
+// the ones still present afterward — os.RemoveAll is unconditional here, so a
+// survivor means removal itself failed (a locked file on Windows), not that
+// nobody asked.
+func sweepTempDirs() []string {
+	tempDirsMu.Lock()
+	dirs := append([]string(nil), tempDirs...)
+	tempDirsMu.Unlock()
+	var left []string
+	for _, d := range dirs {
+		os.RemoveAll(d)
+		if _, err := os.Stat(d); err == nil {
+			left = append(left, d)
+		}
+	}
+	return left
+}
+
 // FakeGitCommonDir is what this binary prints on STDOUT when it is standing in
 // as `git` (see Main). A fixed sentinel, so the test asserting on the hooks
 // path built from it needs nothing from the real git.
@@ -156,6 +197,7 @@ func Main(m *testing.M, s Seams) int {
 	// PATH lookup away. Putting the stub in front of it for the whole package
 	// makes that unreachable rather than merely unlikely.
 	if stub, err := GhStubDir(); err == nil {
+		RegisterTempDir(stub)
 		if err := os.Setenv("PATH", stub+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
 			panic(err)
 		}
@@ -193,6 +235,12 @@ func Main(m *testing.M, s Seams) int {
 	code := run()
 	if err := checkLiveLockDir(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		if code == 0 {
+			code = 1
+		}
+	}
+	if leaked := sweepTempDirs(); len(leaked) > 0 {
+		fmt.Fprintf(os.Stderr, "tddtest: %d registered temp dir(s) survived cleanup: %v\n", len(leaked), leaked)
 		if code == 0 {
 			code = 1
 		}

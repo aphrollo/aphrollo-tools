@@ -5,6 +5,7 @@ package lock
 import (
 	"os"
 	"strconv"
+	"syscall"
 	"testing"
 )
 
@@ -69,17 +70,31 @@ func TestMachineRAMGBAndMachineAvailGB_AgreeWithMeminfoGB(t *testing.T) {
 }
 
 // TestFreeSpaceGB_ReportsPositiveSpaceOnARealTempDir pins the happy path:
-// t.TempDir() sits on a real, writable filesystem, so ok must be true and
-// the reported free space strictly positive — a 0 or a false here would mean
-// the statfs call or the byte->GB conversion is broken, not that the disk is
-// actually full.
+// t.TempDir() sits on a real, writable filesystem, so ok must be true and the
+// reported figure must match the function's own contract — Bavail*Bsize
+// converted to whole GiB — not some fixed floor. A box under real disk
+// pressure legitimately has under 1 GiB free (measured: this box's shared
+// tmpfs hit 96% full and freeSpaceGB genuinely read 0), so the earlier
+// "strictly positive" assertion failed on that state without a bug in the
+// function; asserting the CONTRACT instead — an independent syscall.Statfs
+// read on the same path, put through the identical conversion — passes
+// whatever the box's real free space is, while still catching a mutant that
+// breaks the computation (wrong field, wrong shift, wrong operand order).
 func TestFreeSpaceGB_ReportsPositiveSpaceOnARealTempDir(t *testing.T) {
-	gb, ok := freeSpaceGB(t.TempDir())
+	dir := t.TempDir()
+
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(dir, &st); err != nil {
+		t.Fatalf("setup: syscall.Statfs(%q): %v", dir, err)
+	}
+	want := int(st.Bavail * uint64(st.Bsize) / (1 << 30))
+
+	gb, ok := freeSpaceGB(dir)
 	if !ok {
 		t.Fatal("ok = false on a real temp dir, want true")
 	}
-	if gb <= 0 {
-		t.Fatalf("freeSpaceGB = %d, want a strictly positive figure for a real filesystem", gb)
+	if gb != want {
+		t.Fatalf("freeSpaceGB(%q) = %d, want %d (Bavail=%d * Bsize=%d / GiB, independently read)", dir, gb, want, st.Bavail, st.Bsize)
 	}
 }
 

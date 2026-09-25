@@ -1,12 +1,30 @@
 package workspace
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
+
+// stubDirs holds every temp dir a package-lifetime fixture built (a compiled
+// stub binary shared by every test through a `sync.OnceValues`), so TestMain
+// can remove them all once the whole package's run is over — that lifetime is
+// the fixture's, not any one test's, so a per-test t.Cleanup would pull the
+// stub out from under the rest. See internal/cli's own copy of this pattern.
+var (
+	stubDirsMu sync.Mutex
+	stubDirs   []string
+)
+
+func registerStubDir(dir string) {
+	stubDirsMu.Lock()
+	defer stubDirsMu.Unlock()
+	stubDirs = append(stubDirs, dir)
+}
 
 // TestMain isolates the package's run from the operator's machine.
 //
@@ -33,6 +51,18 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	if ghRefusalPath != "" {
 		os.RemoveAll(ghRefusalPath)
+	}
+	stubDirsMu.Lock()
+	dirs := append([]string(nil), stubDirs...)
+	stubDirsMu.Unlock()
+	for _, d := range dirs {
+		os.RemoveAll(d)
+		if _, err := os.Stat(d); err == nil {
+			fmt.Fprintf(os.Stderr, "workspace: registered stub dir %s survived cleanup\n", d)
+			if code == 0 {
+				code = 1
+			}
+		}
 	}
 	os.RemoveAll(dir)
 	os.Exit(code)

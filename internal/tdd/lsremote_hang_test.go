@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // `git ls-remote https://...` spawns a git-remote-https helper that inherits
@@ -51,6 +53,7 @@ var lsRemoteHangFixtureBinary = sync.OnceValues(func() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	tddtest.RegisterTempDir(dir)
 	src := filepath.Join(dir, "src")
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		return "", err
