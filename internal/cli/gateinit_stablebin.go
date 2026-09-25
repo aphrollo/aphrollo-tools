@@ -144,15 +144,25 @@ func lookPathAlias(exe string) string {
 // "releases" component so it works regardless of how deep <version> or
 // <name> nest, and only returns a candidate that genuinely resolves (by
 // symlink target) to exe — never a guessed path that happens not to exist.
+// The component AFTER "releases" is the version directory this box's own
+// deploy convention prunes; whatever follows THAT is the binary's own name
+// (one or more components, e.g. a nested cmd/aphrollo layout), so "releases"
+// needs at least two components after it (afterReleases, below) or there is
+// no <version>/<name> shape to replace with "current" at all.
 func currentSiblingAlias(exe string) string {
 	clean := filepath.ToSlash(filepath.Clean(exe))
 	parts := strings.Split(clean, "/")
 	for i, part := range parts {
-		if part != releaseDirComponent || i+2 > len(parts) {
+		if part != releaseDirComponent {
 			continue
 		}
+		afterReleases := parts[i+1:]
+		if len(afterReleases) < 2 {
+			continue
+		}
+		name := afterReleases[1:]
 		rebuilt := append(append([]string{}, parts[:i]...), "current")
-		rebuilt = append(rebuilt, parts[i+2:]...)
+		rebuilt = append(rebuilt, name...)
 		cand := filepath.FromSlash(strings.Join(rebuilt, "/"))
 		if aliasResolvesTo(cand, exe) {
 			return cand

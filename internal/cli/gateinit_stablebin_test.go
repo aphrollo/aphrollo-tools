@@ -200,3 +200,35 @@ func TestRawExecutablePath_AbsolutizesARelativePath(t *testing.T) {
 		t.Fatalf("rawExecutablePath() = %q, want the absolute path %q for a relative os.Executable() answer", got, want)
 	}
 }
+
+// currentSiblingAlias's "releases" component needs a <version> AND a <name>
+// after it — two components, not one — or there is no current/<name> shape
+// to build at all. "releases/aphrollo" (the binary sitting directly under
+// releases/, no version directory) has only one, so this must find no alias
+// even though a stray `current` happens to sit right beside `releases` and
+// resolve to the very same binary: with no <name> left to preserve, dropping
+// straight to "current" is not a valid deploy-convention alias, and
+// defaultBinPath must fall back to the unresolved path rather than accept
+// the coincidence.
+func TestDefaultBinPath_NoCurrentSiblingWithNoVersionDirectory(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "releases")
+	if err := os.MkdirAll(releaseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(releaseDir, "aphrollo")
+	if err := os.WriteFile(bin, []byte("APHROLLO"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A `current` that happens to resolve to the exact same binary, so the
+	// only thing standing between a wrong match and the correct "no alias"
+	// answer is the two-components-after-releases check itself.
+	if err := os.Symlink(bin, filepath.Join(dir, "current")); err != nil {
+		t.Fatal(err)
+	}
+	fakeRunningAs(t, bin, bin)
+
+	if got := defaultBinPath(); got != bin {
+		t.Fatalf("defaultBinPath() = %q, want the unresolved path %q back (no version directory to build a `current` sibling from)", got, bin)
+	}
+}
