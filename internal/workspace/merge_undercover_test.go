@@ -186,3 +186,21 @@ func TestMerge_UndercoverIsInertWhenTheRepoNeverAsked(t *testing.T) {
 		t.Errorf("plain=%v body=%q, want GitHub's own merge untouched", *plain, *withBody)
 	}
 }
+
+// A PR whose commits cannot be listed is not a PR whose commits are clean.
+func TestMerge_RefusesWhenThePRCommitsCannotBeListed(t *testing.T) {
+	dir := t.TempDir()
+	undercoverOn(t, dir)
+	plain, withBody := stubMergeUndercover(t, "Fix the timer", "Fixes it.")
+	m, err := MergePlan(targetFor(dir, "lane/x"), "squash", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if err := m.Apply(&out, &errb); err == nil || !strings.Contains(err.Error(), "listing the PR's commits") {
+		t.Fatalf("want a refusal naming the listing, got %v", err)
+	}
+	if *plain || *withBody != "\x00unset" {
+		t.Error("the merge ran anyway")
+	}
+}

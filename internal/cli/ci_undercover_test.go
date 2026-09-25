@@ -120,11 +120,22 @@ func TestCIUndercoverText_RefusesToRunWithoutAnEventOrAToken(t *testing.T) {
 	stubCIGitHub(t, &ciFakeGitHub{})
 	t.Setenv("GITHUB_EVENT_PATH", "")
 	var out, errb bytes.Buffer
-	if code := Run([]string{"ci", "undercover-text", "--repo", repo}, strings.NewReader(""), &out, &errb); code != 2 {
-		t.Errorf("no event: exit %d, want 2", code)
+	if code := Run([]string{"ci", "undercover-text", "--repo", repo}, strings.NewReader(""), &out, &errb); code != 2 || !strings.Contains(errb.String(), "GITHUB_EVENT_PATH") {
+		t.Errorf("no event: exit %d, stderr %q; want 2 naming GITHUB_EVENT_PATH", code, errb.String())
 	}
 	t.Setenv("GITHUB_TOKEN", "")
 	if code := Run([]string{"ci", "undercover-text", "--event", ev, "--repo", repo}, strings.NewReader(""), &out, &errb); code != 2 {
 		t.Errorf("no token: exit %d, want 2", code)
+	}
+}
+
+func TestCIUndercoverClient_TalksToGitHubsAPIUnlessTheRunnerNamesAnother(t *testing.T) {
+	t.Setenv("GITHUB_API_URL", "")
+	if c, ok := ciUndercoverClient("tok").(undercover.RESTClient); !ok || c.BaseURL != "https://api.github.com" || c.Token != "tok" {
+		t.Errorf("default client = %+v", c)
+	}
+	t.Setenv("GITHUB_API_URL", "https://ghe.example/api/v3")
+	if c, ok := ciUndercoverClient("tok").(undercover.RESTClient); !ok || c.BaseURL != "https://ghe.example/api/v3" {
+		t.Errorf("GHES client = %+v", c)
 	}
 }
