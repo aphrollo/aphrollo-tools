@@ -138,3 +138,19 @@ func TestDirectPROpenDecision_IgnoresNonShellTools(t *testing.T) {
 		t.Fatalf("Action = %v, want Allow for an unparseable payload", got.Action)
 	}
 }
+
+// A config the gate cannot read must not turn the wall inert: every other
+// reader of the mutants config refuses on it, and so does this one.
+func TestDirectPROpenDecision_RefusesOnAnUnreadableMutantsConfig(t *testing.T) {
+	dir := prRepo(t, "mutants-before-pr = true\nmutants-local = true\n")
+	got := DirectPROpenDecision(bashPayload(t, "s", dir, "gh pr create --fill"))
+	if got.Action != Block {
+		t.Fatalf("Action = %v, want Block when the mutants config is broken", got.Action)
+	}
+	if !strings.Contains(got.Reason, "mutants-local") {
+		t.Errorf("Reason = %q, want it to name the config problem (the retired key)", got.Reason)
+	}
+	if got := DirectPROpenDecision(bashPayload(t, "s", dir, "gh pr view 1")); got.Action != Allow {
+		t.Errorf("gh pr view: Action = %v, want Allow — a broken config refuses only a command that opens a PR", got.Action)
+	}
+}

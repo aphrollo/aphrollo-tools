@@ -2,6 +2,7 @@ package postedit
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -28,21 +29,35 @@ func DirectPROpenDecision(raw []byte) Decision {
 	if err := json.Unmarshal(raw, &in); err != nil || !bashLikeTools[in.ToolName] {
 		return Decision{}
 	}
-	if !scanCommand(in.ToolInput.Command, segmentOpensPR) || !mutantsBeforePRDeclared(in.Cwd) {
+	if !scanCommand(in.ToolInput.Command, segmentOpensPR) {
+		return Decision{}
+	}
+	declared, err := mutantsBeforePRDeclared(in.Cwd)
+	if err != nil {
+		return Decision{Action: Block, Reason: fmt.Sprintf(directPROpenConfigRefusal, err), Policy: directPROpenPolicy}
+	}
+	if !declared {
 		return Decision{}
 	}
 	return Decision{Action: Block, Reason: directPROpenRefusal, Policy: directPROpenPolicy}
 }
 
+// directPROpenConfigRefusal is the refusal when the mutants config cannot be
+// read: whether the repo measures before a PR is unknown, and every other
+// reader of that config refuses on it rather than reading it as "off".
+const directPROpenConfigRefusal = "cannot tell whether this repo measures mutants before a PR, its mutants config is broken: %v; " +
+	"fix the key in aphrollo.toml (or [workspace.metadata.aphrollo] in Cargo.toml), then open the PR with `aphrollo workspace pr`"
+
 // mutantsBeforePRDeclared reports whether the git repo holding cwd declares
-// mutants-before-pr = true. A config that cannot be read declares nothing.
-func mutantsBeforePRDeclared(cwd string) bool {
+// mutants-before-pr = true. Outside a git repo nothing is declared; a config
+// that cannot be read is an error, never a silent "off".
+func mutantsBeforePRDeclared(cwd string) (bool, error) {
 	root := RepoRoot(cwd)
 	if root == "" {
-		return false
+		return false, nil
 	}
 	cfg, err := ReadMutantsConfig(root)
-	return err == nil && cfg.BeforePR
+	return cfg.BeforePR, err
 }
 
 // prCreateVerbs are the spellings of `gh pr create`: `new` is its alias.
