@@ -54,9 +54,14 @@ mutation proof, or ONE targeted run after the hook itself said TIMEOUT/SKIPPED.
   `aphrollo gate mutants prove --file <path> --old <expr> --new <expr>
   --want-fail <Test>` and quote each KILLED line in the report. An UNREADABLE
   result proves nothing — redo it with a mutation that compiles. A mutant that
-  can never be observed is removed by rewriting the code (e.g. no in-loop
-  index step), not by an accept-list entry, unless the brief allows one. Never
-  run `gate mutants run` unless the brief asks for it.
+  can never be observed is removed by rewriting the code, not by an
+  accept-list entry, unless the brief allows one. A mutant that can only time
+  out is refused like a survivor, so never compute a scan or loop index as an
+  expression: no `i++` inside a loop body that already steps `i`, no
+  `i = end` from a helper that returns `i + n`. Consume a flag's value with a
+  `skip` bool over a range loop, and advance a scan by a length with `i += n`
+  — `i - n` walks backwards forever, and a mutation run can only report that
+  as a timeout. Never run `gate mutants run` unless the brief asks for it.
 - **Tests for existing code** (mutation-kill tests) already pass at HEAD.
   Commit them as their own TEST-ONLY commit before any implementation change —
   a mixed commit is refused by fail-first when the staged test is not red. A
