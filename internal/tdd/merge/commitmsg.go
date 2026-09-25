@@ -5,6 +5,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/undercover"
 )
 
 // The commit message is the one artefact of a session that leaves the machine
@@ -13,31 +15,11 @@ import (
 // tripped on — an author who has to guess which of thirty lines offended will
 // delete the message and retype it from memory.
 
-// undercoverPatterns are the built-in tells, all case-insensitive. Each one is
-// a phrase that only appears when a message describes HOW it was written
-// rather than WHAT changed.
-var undercoverPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)^Co-Authored-By:`),
-	regexp.MustCompile(`(?i)\bClaude\b`),
-	regexp.MustCompile(`(?i)\bAnthropic\b`),
-	regexp.MustCompile(`(?i)\bGenerated with`),
-	regexp.MustCompile(`(?i)\bopus-\d`),
-	regexp.MustCompile(`(?i)\bsonnet-\d`),
-	regexp.MustCompile(`(?i)\bhaiku-\d`),
-	regexp.MustCompile(`(?i)\bfable\b`),
-	regexp.MustCompile(`(?i)claude-code`),
-	regexp.MustCompile(`(?i)\bgo/[a-z]`),
-	regexp.MustCompile(`(?i)#claude-`),
-	regexp.MustCompile(`(?i)anthropics/`),
-	// "AI" alone is a word in ordinary prose (AIR, Cairo, a product name), so
-	// it only counts when it is claiming authorship.
-	regexp.MustCompile(`(?i)\bAI\b\s+(?:assistant|generated|written)`),
-	regexp.MustCompile(`(?i)\b(?:Capybara|Tengu)\b`),
-}
-
 // CommitMsg is the `commit-msg` gate. Two layers, independently gated: the
-// UNDERCOVER layer (below) rejects a message carrying one of the deny
-// patterns and is inactive unless the workspace manifest says
+// UNDERCOVER layer (below) rejects a message carrying a tell from the one
+// list in internal/undercover or a repo's own deny pattern, and a commit
+// whose author or committer identity carries a tell; it is inactive unless
+// the workspace manifest says
 // `undercover = true`, so installing the hook everywhere cannot start
 // rejecting a repo that never asked; the DEFAULT layer
 // (commitmsg_defaults.go) is house style, not an information boundary, and
@@ -75,10 +57,11 @@ func CommitMsg(repoRoot, msgPath string) GateResult {
 	// aphrollo.toml too — the same fallback the mutation job uses. Without
 	// it the gate is not merely off in such a repo but UNSETTABLE, and an
 	// installed hook returns clean on every message forever.
-	if !cargoAphrolloFlag(ws, "undercover") && !aphrolloTomlFlag(ws, "undercover") {
+	tells, on := undercover.Load(ws)
+	if !on {
 		return GateResult{}
 	}
-	patterns := append(append([]*regexp.Regexp{}, undercoverPatterns...), repoDenyPatterns(ws)...)
+	patterns := repoDenyPatterns(ws)
 
 	for i, line := range strings.Split(body, "\n") {
 		// git's own comment lines are stripped before the message is stored,
@@ -87,27 +70,25 @@ func CommitMsg(repoRoot, msgPath string) GateResult {
 		if strings.HasPrefix(strings.TrimSpace(line), "#") {
 			continue
 		}
-		subject := refOrPath.ReplaceAllString(guidanceFileName.ReplaceAllString(line, "the guidance file"), "a repo name")
+		rule, hit := tells.Line(line)
 		for _, re := range patterns {
-			if !re.MatchString(subject) {
-				continue
+			if !hit && re.MatchString(line) {
+				rule, hit = re.String(), true
 			}
-			AppendGateLog("commitmsg", LogToken(repoRoot), "commit-msg", "commitmsg-rejected:"+LogToken(re.String()), 0)
-			return GateResult{Blocked: true, Message: fmt.Sprintf(
-				"gate commit-msg: this repo keeps its history undercover, and line %d matches %s:\n    %s\nRewrite the line to say what changed, then commit again.",
-				i+1, re.String(), strings.TrimSpace(line))}
 		}
+		if !hit {
+			continue
+		}
+		AppendGateLog("commitmsg", LogToken(repoRoot), "commit-msg", "commitmsg-rejected:"+LogToken(rule), 0)
+		return GateResult{Blocked: true, Message: fmt.Sprintf(
+			"gate commit-msg: this repo keeps its history undercover, and line %d matches %s:\n    %s\nRewrite the line to say what changed, then commit again.",
+			i+1, rule, strings.TrimSpace(line))}
+	}
+	if msg := identityRefusal(repoRoot, tells); msg != "" {
+		return GateResult{Blocked: true, Message: msg}
 	}
 	return GateResult{}
 }
-
-// guidanceFileName is the one place the word is a FILE, not a tell: a repo
-// whose operating instructions live in CLAUDE.md has to be able to say so.
-var guidanceFileName = regexp.MustCompile(`(?i)\bclaude\.md\b`)
-
-// refOrPath is a slash-joined token carrying the word: a branch (`lane/claude-md`)
-// or a directory (`.claude/skills`) is a name in the repo, not a tell.
-var refOrPath = regexp.MustCompile(`(?i)(\S+/claude[\w.-]*|\.claude/\S*)`)
 
 // repoDenyPatterns are the workspace's own additions
 // (`commit-message-deny = ["…", …]`). An unparseable pattern is skipped: a

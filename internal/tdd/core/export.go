@@ -39,8 +39,6 @@ var SourceExts = sourceExts
 
 func AcquirePathLock(p0 string) func() { return acquirePathLock(p0) }
 
-func AphrolloTomlFlag(p0 string, p1 string) bool { return aphrolloTomlFlag(p0, p1) }
-
 func AphrolloTomlString(p0 string, p1 string) (string, bool) { return aphrolloTomlString(p0, p1) }
 
 func CargoPackageName(p0 string) string { return cargoPackageName(p0) }

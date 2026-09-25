@@ -54,6 +54,9 @@ func Doctor(in DoctorInput) []DoctorCheck {
 	if c, ok := doctorClaudeMD(in); ok {
 		checks = append(checks, c)
 	}
+	if c, ok := doctorIdentity(in); ok {
+		checks = append(checks, c)
+	}
 	if c, ok := doctorLinterVersion(in); ok {
 		checks = append(checks, c)
 	}

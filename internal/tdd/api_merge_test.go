@@ -6,8 +6,6 @@ import (
 	merge "github.com/aphrollo/aphrollo-tools/internal/tdd/merge"
 )
 
-var undercoverPatterns = merge.UndercoverPatterns
-
 func recordRetro(p0 string, p1 string, p2 int, p3 string) error {
 	return merge.RecordRetro(p0, p1, p2, p3)
 }

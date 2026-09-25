@@ -11,8 +11,6 @@ type SuiteRunner = suite.SuiteRunner
 
 type mutantsConfigTable = suite.MutantsConfigTable
 
-func cargoAphrolloFlag(p0 string, p1 string) bool { return suite.CargoAphrolloFlag(p0, p1) }
-
 func cargoAphrolloPackages(p0 string, p1 string) []string { return suite.CargoAphrolloPackages(p0, p1) }
 
 func indexTree(p0 string) string { return suite.IndexTree(p0) }

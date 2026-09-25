@@ -170,6 +170,7 @@ commentonly_go_test.go                             precommit
 commitmsg.go                                       merge
 commitmsg_defaults.go                              merge
 commitmsg_defaults_test.go                         merge
+commitmsg_identity.go                              merge
 commitmsg_test.go                                  merge
 commitmsg_verify.go                                merge
 commitmsg_verify_test.go                           merge
@@ -238,6 +239,8 @@ doctor_hooktarget.go                               install
 doctor_hooktarget_stable.go                        install
 doctor_hooktarget_stable_test.go                   install
 doctor_hooktarget_test.go                          install
+doctor_identity.go                                 install
+doctor_identity_test.go                            install
 doctor_lawcount_test.go                            install
 doctor_linter_test.go                              install
 doctor_mutation.go                                 mutation  # created by P2
@@ -676,6 +679,8 @@ sddskill_test.go                                   install
 seams.go                                           tddtest
 session.go                                         tdd
 session_core.go                                    core      # created by P2
+session_identity.go                                tdd
+session_identity_test.go                           tdd
 session_test.go                                    tdd
 sessionid.go                                       core
 sessionid_test.go                                  core

@@ -27,8 +27,6 @@ func SessionID() string { return core.SessionID() }
 
 func StateDir() string { return core.StateDir() }
 
-func aphrolloTomlFlag(p0 string, p1 string) bool { return core.AphrolloTomlFlag(p0, p1) }
-
 func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }
 
 func primaryCheckoutRoot(p0 string) string { return core.PrimaryCheckoutRoot(p0) }

@@ -18,7 +18,7 @@ func TestCommitMsgHook_BlocksWithANonZeroExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	msg := filepath.Join(repo, "COMMIT_EDITMSG")
-	if err := os.WriteFile(msg, []byte("Fix the flaky retry timer\n\nCo-Authored-By: Someone <s@example.com>\n"), 0o600); err != nil {
+	if err := os.WriteFile(msg, []byte("Fix the flaky retry timer\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

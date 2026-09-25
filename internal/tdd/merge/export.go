@@ -2,6 +2,4 @@
 
 package merge
 
-var UndercoverPatterns = undercoverPatterns
-
 func RecordRetro(p0 string, p1 string, p2 int, p3 string) error { return recordRetro(p0, p1, p2, p3) }

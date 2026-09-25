@@ -337,6 +337,11 @@ func HandleSessionStart(raw []byte) string {
 	// scrolls is a session start nobody reads. The style block rides here so
 	// it is present from the very first turn, not just from the second one.
 	parts := []string{skillNudge()}
+	// An identity the commit gate will refuse outranks everything else here:
+	// it goes first, where it cannot scroll away.
+	if alarm := identityAlarmLine(in.Cwd); alarm != "" {
+		parts = append([]string{alarm}, parts...)
+	}
 	if effectiveReplyStyle(s) == "terse" {
 		parts = append(parts, StyleBlock())
 	}
