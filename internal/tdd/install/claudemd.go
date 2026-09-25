@@ -128,10 +128,9 @@ func managedBlockFor(repoRoot string) string {
 // `[workspace.metadata.aphrollo]` in its Cargo workspace, or `[aphrollo]` in
 // aphrollo.toml — the same two places the gates that enforce them read.
 func blockFlagsFor(repoRoot string) BlockFlags {
+	// cargoWorkspaceRoot answers repoRoot itself when no workspace encloses
+	// it, so ws is never empty.
 	ws := cargoWorkspaceRoot(repoRoot)
-	if ws == "" {
-		ws = repoRoot
-	}
 	cfg, _ := ReadMutantsConfig(repoRoot)
 	return BlockFlags{
 		Undercover:      cargoAphrolloFlag(ws, "undercover") || aphrolloTomlFlag(repoRoot, "undercover"),
