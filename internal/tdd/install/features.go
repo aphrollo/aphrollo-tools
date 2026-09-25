@@ -1,6 +1,7 @@
 package install
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -126,6 +127,9 @@ func FeaturesNotYetShown(repoRoot string) (string, error) {
 
 // featuresNotYetShown records what it returns in the repo's COMMON git dir,
 // so every checkout of one repo shares the record and none of it is tracked.
+// The record is append-only: each install appends just its fresh keys in one
+// O_APPEND write, so two lanes installing at once can at worst both show and
+// both record a key, never overwrite a key the other just recorded.
 func featuresNotYetShown(repoRoot string, table []Feature) (string, error) {
 	// git answers on stdout only when it resolved the dir, so an empty
 	// answer is the one refusal to check.
@@ -137,23 +141,33 @@ func featuresNotYetShown(repoRoot string, table []Feature) (string, error) {
 	path := filepath.Join(filepath.FromSlash(common), "aphrollo", "features-shown")
 	shown := readShownFeatures(path)
 	var fresh []Feature
+	var record strings.Builder
 	for _, f := range table {
 		if !slices.Contains(shown, f.Key) {
 			fresh = append(fresh, f)
-			shown = append(shown, f.Key)
+			record.WriteString(f.Key + "\n")
 		}
 	}
 	if len(fresh) == 0 {
 		return "", nil
 	}
-	slices.Sort(shown)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", fmt.Errorf("recording the shown features: %w", err)
-	}
-	if err := os.WriteFile(path, []byte(strings.Join(shown, "\n")+"\n"), 0o644); err != nil {
+	if err := appendShownFeatures(path, record.String()); err != nil {
 		return "", fmt.Errorf("recording the shown features: %w", err)
 	}
 	return renderFeatures(fresh, featureValues(repoRoot)), nil
+}
+
+// appendShownFeatures appends lines to the record in a single write.
+func appendShownFeatures(path, lines string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	_, werr := f.WriteString(lines)
+	return errors.Join(werr, f.Close())
 }
 
 // readShownFeatures is the keys already shown; none when nothing was recorded.

@@ -1,9 +1,13 @@
 package install
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // featureLine is the rendered line that opens key's row, "" when the
@@ -155,5 +159,45 @@ func TestFeaturesNotYetShown_OutsideAGitRepoIsAnError(t *testing.T) {
 	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(dir))
 	if _, err := FeaturesNotYetShown(dir); err == nil {
 		t.Error("a directory with no git dir returned no error")
+	}
+}
+
+// Two lanes installing at once must not lose a key: a read-modify-write of
+// the whole record lets the later writer overwrite a key the earlier one had
+// just recorded, and that key is then shown again on every install.
+func TestFeaturesNotYetShown_ConcurrentInstallsLoseNoKey(t *testing.T) {
+	root := makeGoRepo(t)
+	const n = 32
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			if _, err := featuresNotYetShown(root, []Feature{{Key: fmt.Sprintf("k%02d", i)}}); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	close(start)
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(60 * time.Second):
+		t.Fatal("the concurrent installs did not finish within 60s")
+	}
+
+	data, err := os.ReadFile(filepath.Join(root, ".git", "aphrollo", "features-shown"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded := strings.Fields(string(data))
+	for i := range n {
+		key := fmt.Sprintf("k%02d", i)
+		if !strings.Contains(" "+strings.Join(recorded, " ")+" ", " "+key+" ") {
+			t.Errorf("%s was shown and never recorded; the record holds %v", key, recorded)
+		}
 	}
 }
