@@ -12,22 +12,34 @@ import (
 	"testing"
 )
 
-// fakeGh puts a fake `gh` on PATH that prints stdout and exits with exitCode,
-// so the REAL ghPRHeadOid closure (not the stubPRHeadOid seam) can be exercised
-// without the network or a real gh install. POSIX: a shebang shell script.
-// Windows can't run one directly (no shebang dispatch through CreateProcess,
-// and Go's os/exec refuses a file with no PATHEXT-recognized extension even
-// given a full path) — a .bat with the equivalent lines serves as the fake.
-func fakeGh(t *testing.T, stdout string, exitCode int) {
+// fakeGh puts a fake `gh` on PATH that prints message and exits with
+// exitCode, so the REAL ghPRHeadOid closure (not the stubPRHeadOid seam) can
+// be exercised without the network or a real gh install. Like the real gh,
+// it writes message to STDOUT on success (exitCode 0 — the data path) and to
+// STDERR on failure (exitCode != 0 — gh's own error text, never mixed into
+// the data ghCombinedOutput returns on the happy path; see #883). POSIX: a
+// shebang shell script. Windows can't run one directly (no shebang dispatch
+// through CreateProcess, and Go's os/exec refuses a file with no
+// PATHEXT-recognized extension even given a full path) — a .bat with the
+// equivalent lines serves as the fake.
+func fakeGh(t *testing.T, message string, exitCode int) {
 	t.Helper()
 	dir := t.TempDir()
 	if runtime.GOOS == "windows" {
-		body := fmt.Sprintf("@echo off\r\necho %s\r\nexit /b %d\r\n", stdout, exitCode)
+		redirect := ""
+		if exitCode != 0 {
+			redirect = " 1>&2"
+		}
+		body := fmt.Sprintf("@echo off\r\necho %s%s\r\nexit /b %d\r\n", message, redirect, exitCode)
 		if err := os.WriteFile(filepath.Join(dir, "gh.bat"), []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	} else {
-		body := fmt.Sprintf("#!/bin/sh\necho \"%s\"\nexit %d\n", stdout, exitCode)
+		redirect := ""
+		if exitCode != 0 {
+			redirect = " 1>&2"
+		}
+		body := fmt.Sprintf("#!/bin/sh\necho \"%s\"%s\nexit %d\n", message, redirect, exitCode)
 		if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}

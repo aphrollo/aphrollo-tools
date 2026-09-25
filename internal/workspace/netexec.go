@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -88,12 +89,26 @@ func ghOutput(dir string, args ...string) ([]byte, error) {
 }
 
 // ghCombinedOutput runs a gh subcommand under ghTimeout, in dir, returning
-// combined stdout+stderr (mirroring exec.Cmd.CombinedOutput) — used where the
-// caller folds gh's own error text into its returned error.
+// STDOUT ONLY — every caller parses this as DATA (JSON `gh pr view`/`gh api`
+// output), and CombinedOutput used to fold a stderr-only line (an update
+// notice, a deprecation warning, a proxy or auth note) straight into that
+// data while gh still exited 0, breaking the JSON parse (#883). On failure
+// the returned bytes come from *exec.ExitError's own captured Stderr instead
+// — every caller's error/absence handling (isNoPRError et al.) already reads
+// that byte slice, so behaviour there is unchanged, just no longer polluted
+// by stdout noise on the success path.
 func ghCombinedOutput(dir string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), ghTimeout)
 	defer cancel()
 	cmd := networkCmd(ctx, dir, "gh", args...)
-	out, err := cmd.CombinedOutput()
+	out, err := cmd.Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			out = ee.Stderr
+		} else {
+			out = nil
+		}
+	}
 	return out, networkTimeoutErr(ctx.Err() == context.DeadlineExceeded, ghTimeout, "gh", args, err)
 }
