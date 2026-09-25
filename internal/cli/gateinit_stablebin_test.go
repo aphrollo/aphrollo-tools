@@ -143,3 +143,60 @@ func TestDefaultBinPath_LeavesAnOrdinaryPathUnchanged(t *testing.T) {
 		t.Fatalf("defaultBinPath() = %q, want %q unchanged", got, bin)
 	}
 }
+
+// defaultBinPath must absolutize a RELATIVE os.Executable() answer before
+// comparing it against the candidates lookPathAlias/currentSiblingAlias
+// build (which are always absolute themselves): skip that step and the
+// equality check the whole stable-alias search rests on never matches, even
+// for a genuinely correct alias, so the function silently falls back to
+// returning the bare relative path it was given.
+func TestDefaultBinPath_AbsolutizesARelativeExecutablePath(t *testing.T) {
+	dir, stable, releaseX := symlinkChain(t)
+	t.Chdir(dir)
+	relExe, err := filepath.Rel(dir, filepath.Join(releaseX, "aphrollo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// os.Args[0] needs a path separator for exec.LookPath to check it
+	// directly rather than searching $PATH for a bare command name.
+	fakeRunningAs(t, relExe, "./stable")
+
+	if got := defaultBinPath(); got != stable {
+		t.Fatalf("defaultBinPath() = %q, want the absolute stable path %q for a relative os.Executable() answer %q", got, stable, relExe)
+	}
+}
+
+// defaultBinPath must resolve exe's OWN symlinks before judging whether it
+// sits under a versioned-release directory: os.Executable() always returns a
+// fully resolved path in practice, but the check exists precisely so a path
+// that still names a symlink (here, the `current` hop) is followed through
+// to the release leaf it actually names before that judgment is made —
+// skipping it makes a path through `current` read as "not under releases"
+// and returned untouched, rather than resolved on to the stable alias.
+func TestDefaultBinPath_ResolvesSymlinksInTheExecutablePathBeforeJudgingIt(t *testing.T) {
+	dir, stable, _ := symlinkChain(t)
+	unresolved := filepath.Join(dir, "current", "aphrollo")
+	fakeRunningAs(t, unresolved, stable)
+
+	if got := defaultBinPath(); got != stable {
+		t.Fatalf("defaultBinPath() = %q, want %q for an os.Executable() answer that still names the `current` symlink", got, stable)
+	}
+}
+
+// rawExecutablePath must absolutize a RELATIVE os.Executable() answer too:
+// `aphrollo update`'s writability check (#816) joins this path's own Dir()
+// straight into InstallWritable, and a relative Dir() resolves against
+// whatever the CURRENT process happens to be running from rather than the
+// install directory the operator actually means.
+func TestRawExecutablePath_AbsolutizesARelativePath(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	origExec := execPathFn
+	execPathFn = func() (string, error) { return "aphrollo", nil }
+	t.Cleanup(func() { execPathFn = origExec })
+
+	want := filepath.Join(dir, "aphrollo")
+	if got := rawExecutablePath(); got != want {
+		t.Fatalf("rawExecutablePath() = %q, want the absolute path %q for a relative os.Executable() answer", got, want)
+	}
+}
