@@ -68,9 +68,12 @@ Law schema, matcher kinds and baselines: [.ratchet/README.md](.ratchet/README.md
 `[aphrollo]` in `aphrollo.toml`, or `[workspace.metadata.aphrollo]` in a cargo
 workspace's `Cargo.toml`.
 
+With `undercover = true` a tool identity is refused at commit, pre-push and `workspace merge` and flagged at session start and by `gate doctor`; the git shim, pre-push and `workspace create`/`claim`/`pr`/`ship`/`submit` refuse a tell ref name; `pr`/`ship`/`submit`, `issue` and `feedback` check text before `gh`; CI's `undercover-text` job (`aphrollo ci undercover-text`) strips a tool footer that landed on a PR or comment and fails on a tell in the PR's commits.
+
 | key | effect |
 |---|---|
 | `undercover`, `commit-message-deny` | commit-msg deny patterns |
+| `undercover-extra` | extra tokens for the undercover checks, e.g. `["codename"]` |
 | `always-run`, `clippy-clean` | suites run on every merge; crates gated on clippy `-D warnings` |
 | `fail-first-env` | env switches for the fail-first run |
 | `go-test-reads` | `"<path prefix> -> <package dir>"`: a staged path also selects that suite |
