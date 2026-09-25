@@ -117,3 +117,35 @@ func TestRemoveSDDSkill_LeavesASkillThisToolNeverWrote(t *testing.T) {
 		t.Fatalf("the user's own skill was deleted: %v", err)
 	}
 }
+
+// A coordinating session spawned a fresh builder for every review fix round,
+// base merge and re-measure, and each one re-read the whole lane its original
+// builder already held (issue #892). Every text that shapes the orchestration
+// states the reuse rule: the sdd skill in full, the managed block in one
+// bullet, and the two agents the half that concerns them.
+func TestOrchestrationText_ResumesTheLanesOwnAgentsWithOnlyTheDelta(t *testing.T) {
+	t.Parallel()
+	builder, _ := ManagedAgent("builder")
+	reviewer, _ := ManagedAgent("reviewer")
+	for label, c := range map[string]struct {
+		body string
+		want []string
+	}{
+		"sdd skill": {SDDSkill(), []string{
+			"only the delta", "a fresh builder is for a new issue", "re-reviews its own findings",
+			"the coordinator never edits", "only what the agent lacks",
+		}},
+		"managed block": {ClaudeMDBlock(BlockFlags{}), []string{
+			"only the delta", "a fresh builder is for a new issue", "re-reviews its own findings",
+			"the coordinator never edits", "only what the agent lacks",
+		}},
+		"builder agent":  {builder, []string{"resumed with a delta"}},
+		"reviewer agent": {reviewer, []string{"re-review"}},
+	} {
+		for _, want := range c.want {
+			if !strings.Contains(strings.ToLower(c.body), want) {
+				t.Errorf("%s does not say %q", label, want)
+			}
+		}
+	}
+}

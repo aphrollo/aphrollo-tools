@@ -41,6 +41,8 @@ mutation proof, or ONE targeted run after the hook itself said TIMEOUT/SKIPPED.
   and a write through it acts on that repo. Before any git write in a scratch
   copy, confirm `git -C <scratch> rev-parse --git-common-dir` resolves inside
   the scratch dir.
+- **Resumed with a delta** (a finding, a failing check, a base to merge): act
+  on it with the context you already hold; do not re-read the lane.
 - Follow the brief. Work you find that is not in it → STOP, report
   `SCOPE CREEP: <what you found>`, return. Do not "while I'm here".
 - Never weaken a test, a tolerance, or an assertion to get green. A red test is

@@ -212,11 +212,11 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   KILLED line per new condition; UNREADABLE proves nothing. A mutant nobody can observe is removed by rewriting the code, not by an accept-list entry.
   A timed-out mutant is refused like a survivor, so never compute a scan or loop index as an expression: no `i++` in a loop that already
   steps `i`; consume a flag's value with a `skip` bool over a range loop; advance a scan with `i += n`, never `i - n`.
+- **Orchestrating:** follow-ups on a lane (fix round, base merge, re-measure, red CI) resume its builder with only the delta; a fresh builder is for a new issue. A reviewer did not build the lane and re-reviews its own findings; the coordinator never edits; a brief carries only what the agent lacks.
 - **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).
 - **Commit messages** say what the change does and nothing about how it was
   written: no attribution trailers, tool names, or model names. The `commit-msg`
   hook rejects one and quotes the offending line.
 
-_This block is written by `aphrollo install`. Edit the template in aphrollo, not
-the block — the next init overwrites whatever is between the markers._
+_This block is written by `aphrollo install`: edit the template in aphrollo, never the block, which the next install overwrites._
 <!-- aphrollo:end -->

@@ -103,14 +103,14 @@ func ClaudeMDBlock(f BlockFlags) string {
 		b.WriteString("  A timed-out mutant is refused like a survivor, so never compute a scan or loop index as an expression: no `i++` in a loop that already\n")
 		b.WriteString("  steps `i`; consume a flag's value with a `skip` bool over a range loop; advance a scan with `i += n`, never `i - n`.\n")
 	}
+	b.WriteString("- **Orchestrating:** follow-ups on a lane (fix round, base merge, re-measure, red CI) resume its builder with only the delta; a fresh builder is for a new issue. A reviewer did not build the lane and re-reviews its own findings; the coordinator never edits; a brief carries only what the agent lacks.\n")
 	b.WriteString("- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).\n")
 	if f.Undercover {
 		b.WriteString("- **Commit messages** say what the change does and nothing about how it was\n")
 		b.WriteString("  written: no attribution trailers, tool names, or model names. The `commit-msg`\n")
 		b.WriteString("  hook rejects one and quotes the offending line.\n")
 	}
-	b.WriteString("\n_This block is written by `aphrollo install`. Edit the template in aphrollo, not\n")
-	b.WriteString("the block — the next init overwrites whatever is between the markers._\n")
+	b.WriteString("\n_This block is written by `aphrollo install`: edit the template in aphrollo, never the block, which the next install overwrites._\n")
 	b.WriteString(claudeMDEnd + "\n")
 	return b.String()
 }
