@@ -33,6 +33,12 @@ This is the only command that replaces the installed binary: gate
 self-install, which built from an arbitrary checkout, is retired.
 `
 
+// installWritable is a seam over tdd.InstallWritable so a test can force
+// the "not writable" branch without relying on real permission bits — on an
+// account that bypasses them (root), a chmod-based fixture can never produce
+// the refusal it means to pin.
+var installWritable = tdd.InstallWritable
+
 func runUpdate(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
 		fmt.Fprint(stdout, updateUsage)
@@ -65,7 +71,7 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 	// deploy pipeline's own account owns. Finding that out here means
 	// "permission denied" never comes out of `go build` after a wasted
 	// fetch and worktree checkout.
-	if !tdd.InstallWritable(filepath.Dir(bin)) {
+	if !installWritable(filepath.Dir(bin)) {
 		if owner := tdd.InstallOwner(filepath.Dir(bin)); owner != "" {
 			fmt.Fprintf(stderr, "aphrollo update: %s is not writable by this account — it is owned by %s and is deployed by the repo pipeline on merge, not by aphrollo update here\n", bin, owner)
 		} else {

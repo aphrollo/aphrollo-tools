@@ -415,10 +415,12 @@ func TestUpdate_RefusesToBuildWhenTheInstallIsNotWritable(t *testing.T) {
 	if err := os.WriteFile(bin, []byte("OLD"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(dir, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	// Injected rather than chmod'd: real permission bits never block root,
+	// which this box runs as, so a chmod-based fixture would silently pass
+	// through instead of exercising the refusal.
+	prevWritable := installWritable
+	installWritable = func(string) bool { return false }
+	t.Cleanup(func() { installWritable = prevWritable })
 
 	var out, errb bytes.Buffer
 	code := runUpdate([]string{"--repo", clone, "--bin", bin, "--no-init"}, &out, &errb)
@@ -452,10 +454,12 @@ func TestUpdate_RefusalNamesTheOwnerWhenOneIsKnown(t *testing.T) {
 	if err := os.WriteFile(bin, []byte("OLD"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(dir, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	// Injected rather than chmod'd: real permission bits never block root,
+	// which this box runs as. dir is otherwise untouched so InstallOwner
+	// still resolves this account's own real ownership of it.
+	prevWritable := installWritable
+	installWritable = func(string) bool { return false }
+	t.Cleanup(func() { installWritable = prevWritable })
 
 	me, err := user.Current()
 	if err != nil {
