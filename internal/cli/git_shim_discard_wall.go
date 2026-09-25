@@ -41,6 +41,20 @@ func discardWallRefusal(cfg gitShimConfig, rest []string, workDir string) (line 
 		tdd.LogOverride("override-discard-used", session, workDir)
 		return "", false
 	}
+	// The Bash/PowerShell PreToolUse hook (postedit.DiscardBashDecision)
+	// meets this SAME command first — a shell runs `git` directly, never
+	// through this shim — and if an armed `gate allow discard` waiver let it
+	// through there, ConsumeOneShot above already spent it: the arm is
+	// spent by the FIRST check regardless of which side made it, so this
+	// invocation, arriving a moment later as its own subprocess, would
+	// otherwise find nothing left to consume and refuse a command its own
+	// session already approved. markDiscardBashSpent left a one-shot record
+	// scoped to this EXACT argv for exactly that case (#857 follow-up: one
+	// arm covers one command end to end).
+	if tdd.ConsumeDiscardBashSpent(rest) {
+		tdd.LogOverride("override-discard-bash-spent", session, workDir)
+		return "", false
+	}
 	suffix := ""
 	if cost.Err != nil {
 		suffix = "-unmeasured"

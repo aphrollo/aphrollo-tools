@@ -49,34 +49,84 @@ func DiscardBashDecision(raw []byte) Decision {
 	if cmd == "" {
 		return Decision{}
 	}
-	reason, ok := cmdDiscards(cmd)
+	reason, argv, ok := cmdDiscards(cmd)
 	if !ok {
+		return Decision{}
+	}
+	// `aphrollo gate allow discard` arms a one-shot waiver
+	// (armDiscardWaiver/ConsumeOneShot, discardwall.go) that the git shim's
+	// own discard wall already honors (git_shim_discard_wall.go). This
+	// Bash-tool wall used to be a separate, unconditional forbid that never
+	// checked it: the shim would have let the armed command through, but a
+	// Bash/PowerShell tool call never reaches the shim at all — the shell
+	// runs `git` directly — so the arm the operator just set had nothing to
+	// spend it on and the very next call was refused again. Checking it here
+	// too makes the arm mean what `gate allow discard` says it means,
+	// regardless of which wall the command happens to meet first.
+	if ConsumeOneShot(WallDiscard) {
+		logDiscardBashArmUsed(cmd, in.Cwd)
+		// The Bash tool call this decision allows still has to reach git as
+		// a SEPARATE subprocess a moment later, where the shim's own copy of
+		// this same wall checks WallDiscard again — and finds it already
+		// spent, above. markDiscardBashSpent hands that second check its own
+		// one-shot arm, scoped to this EXACT git invocation, so one operator
+		// arm covers the command end to end instead of dying on whichever
+		// side reaches WallDiscard first (#857 follow-up).
+		markDiscardBashSpent(argv)
 		return Decision{}
 	}
 	return Decision{Action: Block, Reason: reason, Policy: discardBashPolicy}
 }
 
+// discardBashArmUsedVerdict is the gate.log verdict a spent one-shot arm
+// records here, distinct from the shim's own "override-discard-used" so a
+// reader can tell which wall the armed command actually met.
+const discardBashArmUsedVerdict = "discard-bash-arm-used"
+
+// logDiscardBashArmUsed records the one Bash/PowerShell command an armed
+// discard waiver let through, and the tree it ran in. Modeled on
+// LogOverride's own root resolution, but with the actual command as the
+// log's cmd field rather than the session id — the arm is spent by a
+// COMMAND, and the trail should name it without a second lookup.
+func logDiscardBashArmUsed(cmd, cwd string) {
+	root := "-"
+	if cwd != "" {
+		if r := findRootFrom(cwd); r != "" {
+			root = r
+		} else {
+			root = cwd
+		}
+	}
+	AppendGateLog("bash", LogToken(root), cmd, discardBashArmUsedVerdict, 0)
+}
+
 // cmdDiscards returns the refusal for the first forbidden invocation cmd, or
 // a script it really runs via command substitution or a `<shell> -c`,
-// contains; ok=false when it contains none.
-func cmdDiscards(cmd string) (reason string, ok bool) {
+// contains, plus the exact git argv (verb first, "git" and any global
+// options already stripped) it matched on — the same shape the git queue
+// shim's own gitGlobalArgs split produces for `rest`, so markDiscardBashSpent
+// and the shim's ConsumeDiscardBashSpent compare byte for byte with no
+// re-parsing. argv is nil when the match was not a git invocation at all
+// (e.g. `patch -R`), for which the shim runs no matching check of its own.
+// ok=false when cmd contains no forbidden invocation.
+func cmdDiscards(cmd string) (reason string, argv []string, ok bool) {
 	stripped := stripHeredocBodies(cmd)
 	for _, words := range shellSegments(stripped) {
-		if reason, ok := segmentDiscards(words); ok {
-			return reason, true
+		if reason, argv, ok := segmentDiscards(words); ok {
+			return reason, argv, true
 		}
 		if script, isScript := bashDashCScript(words); isScript {
-			if reason, ok := cmdDiscards(script); ok {
-				return reason, true
+			if reason, argv, ok := cmdDiscards(script); ok {
+				return reason, argv, true
 			}
 		}
 	}
 	for _, body := range commandSubstitutionBodies(stripped) {
-		if reason, ok := cmdDiscards(body); ok {
-			return reason, true
+		if reason, argv, ok := cmdDiscards(body); ok {
+			return reason, argv, true
 		}
 	}
-	return "", false
+	return "", nil, false
 }
 
 // discardBashRule is one row of the wall: the program a segment runs, the
@@ -134,21 +184,29 @@ func restoreDiscards(rest []string) bool {
 // against discardBashRules. A git invocation is judged by its VERB, with
 // git's own global options (-C, -c, --git-dir, ...) read out of the way
 // first, so `git -C dir clean -fd` is judged by "clean", not by whatever
-// token happens to sit right after "git".
-func segmentDiscards(words []string) (reason string, ok bool) {
+// token happens to sit right after "git". argv, returned alongside a git
+// match, is verb+rest — "git" and any global options already stripped, the
+// same shape the git queue shim's own gitGlobalArgs split leaves in `rest`
+// — so the Bash-hook side and the shim side of the same command compare
+// byte for byte with no re-parsing (#857 follow-up). nil for a non-git
+// match (e.g. `patch -R`), which the shim runs no matching check for.
+func segmentDiscards(words []string) (reason string, argv []string, ok bool) {
 	if len(words) == 0 {
-		return "", false
+		return "", nil, false
 	}
-	program, verb, rest := baseCommand(words[0]), "", words[1:]
-	if v, r, isGit := gitVerb(words); isGit {
-		verb, rest = v, r
+	program, verb, rest, isGit := baseCommand(words[0]), "", words[1:], false
+	if v, r, git := gitVerb(words); git {
+		verb, rest, isGit = v, r, true
 	}
 	for _, rule := range discardBashRules {
 		if rule.program == program && rule.verb == verb && rule.match(rest) {
-			return rule.reason, true
+			if isGit {
+				argv = append([]string{verb}, rest...)
+			}
+			return rule.reason, argv, true
 		}
 	}
-	return "", false
+	return "", nil, false
 }
 
 // gitGlobalOptWithValue are git's own global options that consume a separate

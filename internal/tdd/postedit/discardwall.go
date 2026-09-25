@@ -86,3 +86,98 @@ func ConsumeOneShot(wall string) bool {
 	}
 	return !discardNow().After(until)
 }
+
+// discardBashSpentTTL bounds how long a Bash-hook-approved discard command
+// waits for its OWN subprocess to reach the git queue shim: comfortably
+// longer than any real gap between a PreToolUse decision and the shell
+// actually running the command it just approved, short enough that a spent
+// record left over by a command that never actually ran cannot outlive it by
+// more than a beat.
+const discardBashSpentTTL = 30 * time.Second
+
+// markDiscardBashSpent records that THIS session's Bash/PowerShell discard
+// wall (DiscardBashDecision) already spent WallDiscard's one-shot arm
+// approving argv, so ConsumeDiscardBashSpent below -- the git queue shim's
+// side of the same command -- can still let this EXACT invocation through a
+// moment later, instead of finding the session-wide arm already consumed
+// (ConsumeOneShot spends it on the FIRST check, regardless of which side
+// made it) and refusing a command its own session already approved
+// (#857 follow-up: one arm must cover one command end to end). Silent on
+// failure: the Bash tool call this covers has already been approved either
+// way, so there is nothing here for a caller to act on.
+func markDiscardBashSpent(argv []string) {
+	session := SessionID()
+	if session == "" || len(argv) == 0 {
+		return
+	}
+	s, path := loadSession(session)
+	if s == nil {
+		return
+	}
+	now := discardNow()
+	entry := DiscardBashSpentEntry{
+		Argv:  append([]string{}, argv...),
+		Until: now.Add(discardBashSpentTTL).UTC().Format(time.RFC3339),
+	}
+	s.Overrides.DiscardBashSpent = append(pruneDiscardBashSpent(s.Overrides.DiscardBashSpent, now), entry)
+	_ = s.Save(path)
+}
+
+// ConsumeDiscardBashSpent reports whether THIS session's Bash/PowerShell
+// discard wall has an unexpired spent record for EXACTLY argv -- the git
+// queue shim's own half of the split #857 follow-up describes. Removes the
+// matching record (and every expired one) either way, so a second, DIFFERENT
+// discard command the same session runs next never rides the same window.
+func ConsumeDiscardBashSpent(argv []string) bool {
+	session := SessionID()
+	if session == "" || len(argv) == 0 {
+		return false
+	}
+	s, path := loadSession(session)
+	if s == nil {
+		return false
+	}
+	pruned := pruneDiscardBashSpent(s.Overrides.DiscardBashSpent, discardNow())
+	found := false
+	kept := pruned[:0]
+	for _, e := range pruned {
+		if !found && argvEqual(e.Argv, argv) {
+			found = true
+			continue
+		}
+		kept = append(kept, e)
+	}
+	s.Overrides.DiscardBashSpent = kept
+	_ = s.Save(path)
+	return found
+}
+
+// pruneDiscardBashSpent drops every entry whose TTL has already passed, so a
+// command that never actually reached the shim cannot accumulate forever.
+func pruneDiscardBashSpent(entries []DiscardBashSpentEntry, now time.Time) []DiscardBashSpentEntry {
+	kept := entries[:0]
+	for _, e := range entries {
+		until, err := time.Parse(time.RFC3339, e.Until)
+		if err == nil && now.After(until) {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	return kept
+}
+
+// argvEqual compares two argv slices element by element — the exact match
+// #857's follow-up needs: a spent record for `stash drop stash@{0}` must
+// never authorize a DIFFERENT discard command the same session happens to
+// run inside the same short window.
+func argvEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

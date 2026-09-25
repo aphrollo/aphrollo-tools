@@ -168,3 +168,51 @@ func TestDiscardBashDecision_AllowsAForwardApply(t *testing.T) {
 		}
 	}
 }
+
+// #857 follow-up: `aphrollo gate allow discard` arms ONE shot, and
+// ConsumeOneShot spends it on the FIRST check regardless of which side made
+// it — the Bash/PowerShell hook here, or the git queue shim a moment later
+// as its own subprocess. Before markDiscardBashSpent, the hook's own check
+// left nothing for the shim's later check to find, so an armed command was
+// allowed here and refused there. DiscardBashDecision must leave a spent
+// record the shim's ConsumeDiscardBashSpent can still consume, scoped to
+// EXACTLY this command's argv.
+func TestDiscardBashDecision_ArmedAllowLeavesASpentRecordTheShimCanConsume(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CLAUDE_SESSION_ID", "s-bash-spent")
+	if _, err := AllowWall(WallDiscard); err != nil {
+		t.Fatal(err)
+	}
+
+	got := DiscardBashDecision(bashPayload(t, "s-bash-spent", "/repo", "git stash drop 'stash@{0}'"))
+	if got.Action != Allow {
+		t.Fatalf("Action = %v, want Allow — the arm covers this exact command", got.Action)
+	}
+
+	argv := []string{"stash", "drop", "stash@{0}"}
+	if !ConsumeDiscardBashSpent(argv) {
+		t.Fatal("ConsumeDiscardBashSpent(argv) = false, want true — the hook's allow must leave a matching spent record for the shim")
+	}
+	if ConsumeDiscardBashSpent(argv) {
+		t.Fatal("a second consumption of the same argv must find nothing spent — one arm covers one command")
+	}
+}
+
+// A spent record is scoped to the EXACT argv the hook approved — a different
+// discard command run in the same window must not ride it.
+func TestDiscardBashDecision_ArmedAllowDoesNotSpendADifferentCommand(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CLAUDE_SESSION_ID", "s-bash-spent-2")
+	if _, err := AllowWall(WallDiscard); err != nil {
+		t.Fatal(err)
+	}
+
+	got := DiscardBashDecision(bashPayload(t, "s-bash-spent-2", "/repo", "git stash drop 'stash@{0}'"))
+	if got.Action != Allow {
+		t.Fatalf("Action = %v, want Allow", got.Action)
+	}
+
+	if ConsumeDiscardBashSpent([]string{"reset", "--hard"}) {
+		t.Fatal("a spent record for `stash drop` must not authorize an unrelated `reset --hard`")
+	}
+}

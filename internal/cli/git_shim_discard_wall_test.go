@@ -446,3 +446,59 @@ func TestGitShim_PathRestoreRefusalNamesProbeDiscard(t *testing.T) {
 		}
 	}
 }
+
+// #857 follow-up: one `aphrollo gate allow discard` arm must cover ONE
+// command end to end, not just whichever of the Bash-tool PreToolUse hook or
+// this shim happens to check WallDiscard first. A shell's `git stash drop`
+// meets the hook first (Claude's own PreToolUse gate) and the shim second, as
+// a SEPARATE subprocess — ConsumeOneShot spends the session-wide arm on
+// whichever of the two checks it first, and before markDiscardBashSpent /
+// ConsumeDiscardBashSpent the second side always found nothing left.
+func TestGitShim_OneShotAllowCoversTheBashHookAndTheShimForOneCommand(t *testing.T) {
+	cfgDir := gateConfigDir(t)
+	repo, cfg := discardWallFixture(t)
+	const session = "s-discard-bash-then-shim"
+	t.Setenv("CLAUDE_SESSION_ID", session)
+	writeFixtureFile(t, repo, "seed.txt", []string{"seed", "dirty"})
+	runFixtureGit(t, cfg.realGit, repo, "stash", "push", "-qm", "wip")
+
+	if _, err := tdd.AllowWall(tdd.WallDiscard); err != nil {
+		t.Fatal(err)
+	}
+
+	// The Bash/PowerShell PreToolUse hook meets the command FIRST, exactly as
+	// it would inside a real Bash tool call, and spends the session-wide arm.
+	decision := tdd.DiscardBashDecision([]byte(discardBashPayload(t, "git stash drop 'stash@{0}'")))
+	if decision.Action == tdd.Block {
+		t.Fatalf("the Bash hook denied an armed discard command: %s", decision.Reason)
+	}
+	if ws := tdd.ListWaivers(); len(ws) != 0 {
+		t.Fatalf("ListWaivers() after the Bash hook's own check = %v, want the session-wide arm already spent", ws)
+	}
+
+	// The shell then actually runs `git stash drop 'stash@{0}'`, which the
+	// shim meets as a brand-new subprocess. Before the fix this refused:
+	// "stash drop discards 1 stash entry(ies)".
+	var out, errb bytes.Buffer
+	code := runGitShim([]string{"stash", "drop", "stash@{0}"}, strings.NewReader(""), &out, &errb, cfg)
+	if code != 0 {
+		t.Fatalf("stash drop after the Bash hook already approved it: exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	if log := readGateLog(t, cfgDir); !strings.Contains(log, "override-discard-bash-spent") {
+		t.Fatalf("gate.log = %q, want the Bash-hook-spent override recorded", log)
+	}
+
+	// A SECOND, different discard command must not ride the same window —
+	// one arm covers exactly the one command it was minted for.
+	writeFixtureFile(t, repo, "seed.txt", []string{"seed", "dirty-again"})
+	runFixtureGit(t, cfg.realGit, repo, "stash", "push", "-qm", "wip2")
+	decision2 := tdd.DiscardBashDecision([]byte(discardBashPayload(t, "git stash drop 'stash@{0}'")))
+	if decision2.Action != tdd.Block {
+		t.Fatalf("a second, unrelated discard command must be refused by the Bash hook, got Action = %v", decision2.Action)
+	}
+	var out2, errb2 bytes.Buffer
+	code2 := runGitShim([]string{"stash", "drop", "stash@{0}"}, strings.NewReader(""), &out2, &errb2, cfg)
+	if code2 != 1 {
+		t.Fatalf("a second, unrelated stash drop must be refused by the shim too: exit = %d, want 1\nstderr: %s", code2, errb2.String())
+	}
+}
