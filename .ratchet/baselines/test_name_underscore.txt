@@ -318,7 +318,6 @@ internal/tdd/ratchethint_test.go | func TestRatchetHintIsSilentOnceARepoHasALaw(
 internal/tdd/ratchethint_test.go | func TestRatchetHintIsSilentWithoutAManifestOrARepo(t *testing.T) {
 internal/tdd/ratchethint_test.go | func TestRatchetHintTreatsAnEmptyLawsDirAsNone(t *testing.T) {
 internal/tdd/ratchethint_test.go | func TestSessionStartCarriesTheHintExactlyOnce(t *testing.T) {
-internal/tdd/ratchetreadme_test.go | func TestRatchetSpecIsTheSameTextAsTheReadmeSection(t *testing.T) {
 internal/tdd/ratchetreadme_test.go | func TestWriteRatchetReadmeIsByteIdenticalOnASecondRun(t *testing.T) {
 internal/tdd/ratchetreadme_test.go | func TestWriteRatchetReadmeSkipsARepoWithNoRatchetDir(t *testing.T) {
 internal/tdd/lawgate/ratchetschema_test.go | func TestRatchetStageLogsALawFromANewerSchema(t *testing.T) {
