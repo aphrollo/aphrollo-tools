@@ -5,9 +5,9 @@ First-party dev-env tooling for the agent platform: one Go binary,
 pinned modules — `golang.org/x/sys` for the Windows process and job-object
 syscalls, and `pgregory.net/rapid` for the property tests. Moves deterministic
 developer work *out of the agent token stream into code* — the agent spends
-tokens on judgment, not mechanical read→grep→multi-edit→verify loops. `README.md`
-is the full user-facing command reference; this file is the **developer**
-context (conventions, contract, deploy).
+tokens on judgment, not mechanical read→grep→multi-edit→verify loops. The
+user-facing reference is `aphrollo <verb> --help`; `README.md` maps the verbs.
+This file is the **developer** context (conventions, contract, deploy).
 
 Module `github.com/aphrollo/aphrollo-tools`, go 1.26.6. Single binary —
 `go build -o aphrollo ./cmd/aphrollo`.
@@ -30,7 +30,7 @@ like `systemctl` (no dry-run, no `--dry`). The split: `refactor`/`gate` defer an
 preview; `workspace` mutates source but acts now; `dev` controls running units
 and acts now.
 
-## Command surface (see README for usage)
+## Command surface (see `aphrollo <verb> --help` for usage)
 
 - `refactor rename-symbol` / `find`, `outline <file>`, `show <file> <symbol>`
   — LSP-backed (one client, one registry entry per language; columns are UTF-16).
