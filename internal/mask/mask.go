@@ -68,11 +68,14 @@ func tokens(src string, blankStrings, blankComments, hashComment, rustChars bool
 	}
 	for i := 0; i < n; i++ {
 		if rustChars && b[i] == '\'' {
-			if end, ok := charLiteralEnd(b, i); ok {
-				for k := i + 1; k < end; k++ {
-					blank(blankStrings, k)
+			// Advance by the literal's length with `+=`: an index computed as
+			// `i + n` is an arithmetic mutation site whose `i - n` walks the
+			// scan backwards forever, a mutant only a timeout can report.
+			if n, ok := charLiteralLen(b, i); ok {
+				for k := 1; k < n; k++ {
+					blank(blankStrings, i+k)
 				}
-				i = end
+				i += n
 			}
 			continue
 		}
@@ -136,12 +139,12 @@ func tokens(src string, blankStrings, blankComments, hashComment, rustChars bool
 	return string(b)
 }
 
-// charLiteralEnd returns the index of the quote closing the Rust char literal
+// charLiteralLen returns the offset from b[i] of the quote closing the Rust char literal
 // that opens at b[i], and false when b[i] opens none. The body is one char,
 // or a backslash and the escape it starts (`\n`, `\'`, `\x7f`, `\u{1F600}`),
 // whose tail runs to the next quote. The search stops at the line's end: a
 // char literal never spans a line.
-func charLiteralEnd(b []byte, i int) (int, bool) {
+func charLiteralLen(b []byte, i int) (int, bool) {
 	line, _, _ := bytes.Cut(b[i:], []byte{'\n'})
 	j := 1
 	if j < len(line) && line[j] == '\\' {
@@ -154,7 +157,7 @@ func charLiteralEnd(b []byte, i int) (int, bool) {
 		j += size
 	}
 	if j < len(line) && line[j] == '\'' {
-		return i + j, true
+		return j, true
 	}
 	return 0, false
 }
