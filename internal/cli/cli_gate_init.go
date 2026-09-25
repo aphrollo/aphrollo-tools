@@ -319,19 +319,6 @@ func defaultCargoShimDir(bin string) string {
 	return filepath.Join(filepath.Dir(bin), "cargo-queue")
 }
 
-// defaultBinPath is the absolute path of the running aphrollo binary, so the
-// installed hooks invoke the same binary that wrote them.
-func defaultBinPath() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return "/usr/local/bin/aphrollo"
-	}
-	if abs, err := filepath.Abs(exe); err == nil {
-		return abs
-	}
-	return exe
-}
-
 // warnShimSkipped reports a queue-shim directory init could not write, WITHOUT
 // failing init. The shims are opt-in (a session prepends the dir to its own
 // PATH); the session hooks and the git gate are what init is actually for, and

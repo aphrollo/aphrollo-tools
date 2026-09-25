@@ -26,13 +26,18 @@ import (
 // directory may hold a hook this tool never wrote, which git DOES run
 // (issue #582). doctorGitHookBinary is third for the third way the same
 // directory disarms everything below it: the shims are ours and git runs
-// them, and they exec a path that is not there (issue #681).
+// them, and they exec a path that is not there (issue #681). doctorHookTargetStable
+// follows the pair of runnability/identity checks for the fourth way the same
+// path disarms things LATER rather than now: it is runnable and identical to
+// this build today, and still sits under a directory the next deploy prunes
+// (2026-09-25 incident).
 func Doctor(in DoctorInput) []DoctorCheck {
 	checks := []DoctorCheck{
 		doctorGitHooksPath(in),
 		doctorForeignHooks(in),
 		doctorGitHookBinary(in),
 		doctorHookBinary(in),
+		doctorHookTargetStable(in),
 		doctorHookTimeouts(in),
 		doctorShimPath(in),
 		doctorShimResolution(in),

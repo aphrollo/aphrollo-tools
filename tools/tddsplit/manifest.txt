@@ -672,7 +672,7 @@ retro_test.go                                      merge
 testdata/retro/                                    merge
 suiteproof_test.go                                 merge  # prefix says suite; its test body reaches merge
 
-# install: 48 file(s)
+# install: 50 file(s)
 agent_builder.md                                   install
 agent_researcher.md                                install
 agent_reviewer.md                                  install
@@ -690,6 +690,8 @@ doctor_claudemd_test.go                            install
 doctor_foreignhooks.go                             install
 doctor_foreignhooks_test.go                        install
 doctor_hooktarget.go                               install
+doctor_hooktarget_stable.go                        install
+doctor_hooktarget_stable_test.go                   install
 doctor_hooktarget_test.go                          install
 doctor_lawcount_test.go                            install
 doctor_linter_test.go                              install
