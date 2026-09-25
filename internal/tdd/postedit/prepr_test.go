@@ -1,0 +1,140 @@
+package postedit
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// Issue #871: a PR opened with a raw `gh pr create` never passes through
+// `aphrollo workspace pr`, so the pre-PR mutation measurement that verb runs
+// never ran and five survivors reached CI. With mutants-before-pr declared,
+// the Bash/PowerShell hook refuses a command that opens a PR directly.
+
+// prRepo is a git repo whose aphrollo.toml carries the given [aphrollo] body.
+func prRepo(t *testing.T, config string) string {
+	t.Helper()
+	dir := t.TempDir()
+	gitInit(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, "aphrollo.toml"), []byte("[aphrollo]\n"+config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestDirectPROpenDecision_RefusesEachFormThatOpensAPR(t *testing.T) {
+	dir := prRepo(t, "mutants-before-pr = true\n")
+	for _, cmd := range []string{
+		"gh pr create --fill",
+		"gh pr create",
+		"gh pr new --title t --body b",
+		"/usr/bin/gh pr create --draft",
+		`gh pr create --title "a title" --body "x"`,
+		"git push -u origin lane/x && gh pr create --fill",
+		"cd sub; gh pr create --fill",
+		"true | gh pr create --fill",
+		"gh -R owner/repo pr create --fill",
+		"gh --repo owner/repo pr create --fill",
+		"gh --repo=owner/repo pr create --fill",
+		"gh pr -R owner/repo create --fill",
+		`bash -c "gh pr create --fill"`,
+		"echo $(gh pr create --fill)",
+		"gh api -X POST repos/o/r/pulls -f title=t -f head=h -f base=main",
+		"gh api repos/o/r/pulls -X POST",
+		"gh api --method POST /repos/o/r/pulls --input body.json",
+		"gh api --method=post repos/o/r/pulls",
+		"gh api -XPOST repos/{owner}/{repo}/pulls",
+		"gh api repos/o/r/pulls -f title=t -f head=h -f base=main",
+		"gh api repos/o/r/pulls -ftitle=t",
+		"gh api repos/o/r/pulls --field title=t",
+		"gh api repos/o/r/pulls --raw-field=title=t",
+		"gh api repos/o/r/pulls -F draft=true",
+		`gh api "repos/o/r/pulls/" --input -`,
+	} {
+		got := DirectPROpenDecision(bashPayload(t, "s", dir, cmd))
+		if got.Action != Block {
+			t.Errorf("%q: Action = %v, want Block", cmd, got.Action)
+			continue
+		}
+		if got.Policy != directPROpenPolicy {
+			t.Errorf("%q: Policy = %q, want %q", cmd, got.Policy, directPROpenPolicy)
+		}
+		if !strings.Contains(got.Reason, "aphrollo workspace pr") {
+			t.Errorf("%q: Reason = %q, want it to name `aphrollo workspace pr`", cmd, got.Reason)
+		}
+	}
+}
+
+func TestDirectPROpenDecision_RefusesThePowerShellTool(t *testing.T) {
+	dir := prRepo(t, "mutants-before-pr = true\n")
+	raw := []byte(strings.Replace(string(bashPayload(t, "s", dir, "gh pr create --fill")), `"Bash"`, `"PowerShell"`, 1))
+	if got := DirectPROpenDecision(raw); got.Action != Block {
+		t.Fatalf("Action = %v, want Block for the PowerShell tool", got.Action)
+	}
+}
+
+func TestDirectPROpenDecision_AllowsWhatOpensNoPR(t *testing.T) {
+	dir := prRepo(t, "mutants-before-pr = true\n")
+	for _, cmd := range []string{
+		"gh pr view 12",
+		"gh pr list --state open",
+		"gh pr",
+		"gh",
+		"gh -R owner/repo pr view create",
+		"gh pr view --json title create",
+		"gh issue create --title t",
+		"tea pr create --title t",
+		`bash -c "gh pr view 1"`,
+		"echo $(gh pr view 1 --json url)",
+		"aphrollo workspace pr --title t --body b",
+		`echo "gh pr create --fill"`,
+		`git commit -m "gh pr create was not used"`,
+		"# gh pr create --fill",
+		"gh pr view 3 # then gh pr create",
+		"gh api repos/o/r/pulls",
+		"gh api -X GET repos/o/r/pulls -f state=open",
+		"gh api repos/o/r/pulls/12/reviews -f event=APPROVE",
+		"gh api -X POST repos/o/r/issues -f title=t",
+		"gh api -X POST repos/o/r/pulls/12/comments",
+		"gh api --method POST",
+		"-X POST repos/o/r/pulls",
+	} {
+		if got := DirectPROpenDecision(bashPayload(t, "s", dir, cmd)); got.Action != Allow {
+			t.Errorf("%q: Action = %v, want Allow; Reason=%q", cmd, got.Action, got.Reason)
+		}
+	}
+}
+
+func TestDirectPROpenDecision_InertWithoutTheKey(t *testing.T) {
+	for name, config := range map[string]string{
+		"off":    "mutants-before-pr = false\n",
+		"absent": "undercover = true\n",
+	} {
+		dir := prRepo(t, config)
+		if got := DirectPROpenDecision(bashPayload(t, "s", dir, "gh pr create --fill")); got.Action != Allow {
+			t.Errorf("%s: Action = %v, want Allow when mutants-before-pr is not declared", name, got.Action)
+		}
+	}
+}
+
+func TestDirectPROpenDecision_InertOutsideAGitRepo(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "aphrollo.toml"), []byte("[aphrollo]\nmutants-before-pr = true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := DirectPROpenDecision(bashPayload(t, "s", dir, "gh pr create --fill")); got.Action != Allow {
+		t.Fatalf("Action = %v, want Allow outside a git repo", got.Action)
+	}
+}
+
+func TestDirectPROpenDecision_IgnoresNonShellTools(t *testing.T) {
+	dir := prRepo(t, "mutants-before-pr = true\n")
+	raw := []byte(strings.Replace(string(bashPayload(t, "s", dir, "gh pr create --fill")), `"Bash"`, `"Edit"`, 1))
+	if got := DirectPROpenDecision(raw); got.Action != Allow {
+		t.Fatalf("Action = %v, want Allow for a non-shell tool", got.Action)
+	}
+	if got := DirectPROpenDecision([]byte("{bad")); got.Action != Allow {
+		t.Fatalf("Action = %v, want Allow for an unparseable payload", got.Action)
+	}
+}

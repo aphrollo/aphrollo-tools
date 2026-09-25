@@ -110,23 +110,34 @@ func logDiscardBashArmUsed(cmd, cwd string) {
 // (e.g. `patch -R`), for which the shim runs no matching check of its own.
 // ok=false when cmd contains no forbidden invocation.
 func cmdDiscards(cmd string) (reason string, argv []string, ok bool) {
+	ok = scanCommand(cmd, func(words []string) bool {
+		var hit bool
+		reason, argv, hit = segmentDiscards(words)
+		return hit
+	})
+	return reason, argv, ok
+}
+
+// scanCommand reports whether judge holds for any simple command cmd really
+// runs: each of its top-level segments, and, recursively, the script of a
+// `<shell> -c` segment and the body of each `$(...)` substitution. Heredoc
+// bodies are data and are never judged. It stops at the first hit.
+func scanCommand(cmd string, judge func(words []string) bool) bool {
 	stripped := stripHeredocBodies(cmd)
 	for _, words := range shellSegments(stripped) {
-		if reason, argv, ok := segmentDiscards(words); ok {
-			return reason, argv, true
+		if judge(words) {
+			return true
 		}
-		if script, isScript := bashDashCScript(words); isScript {
-			if reason, argv, ok := cmdDiscards(script); ok {
-				return reason, argv, true
-			}
+		if script, isScript := bashDashCScript(words); isScript && scanCommand(script, judge) {
+			return true
 		}
 	}
 	for _, body := range commandSubstitutionBodies(stripped) {
-		if reason, argv, ok := cmdDiscards(body); ok {
-			return reason, argv, true
+		if scanCommand(body, judge) {
+			return true
 		}
 	}
-	return "", nil, false
+	return false
 }
 
 // discardBashRule is one row of the wall: the program a segment runs, the
