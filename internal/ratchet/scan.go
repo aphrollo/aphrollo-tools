@@ -84,7 +84,7 @@ func scanTree(opts Options, laws []Law) (*treeScan, error) {
 			// keep the half the file's bytes decide and redo the half the
 			// oracle decides (see cache_citations.go).
 			cited := map[string][]Hit{}
-			fl := newFileLines(content)
+			fl := newFileLines(rel, content)
 			for _, law := range laws {
 				if !law.Scope.Matches(rel) {
 					continue

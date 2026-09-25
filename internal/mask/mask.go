@@ -12,6 +12,11 @@ package mask
 // escaped quotes, raw strings, `#` as a sigil rather than a comment — and
 // they would drift.
 
+import (
+	"bytes"
+	"unicode/utf8"
+)
+
 // StringsAndComments blanks BOTH strings and comments, treating `#` as a line
 // comment.
 //
@@ -38,6 +43,22 @@ func StringsAndComments(src string) string { return Tokens(src, true, true, true
 // directive past the string-blanking. Recognition is mandatory; blanking is
 // selective.
 func Tokens(src string, blankStrings, blankComments, hashComment bool) string {
+	return tokens(src, blankStrings, blankComments, hashComment, false)
+}
+
+// RustTokens is Tokens for Rust source, where `'` is never a string quote. It
+// opens a char literal only when the literal closes on the same line in a
+// char literal's shape: one char (`'x'`, `'é'`) or one escape (`'\n'`,
+// `'\x7f'`, `'\u{1F600}'`, an escaped quote). Any other `'` is the sigil of
+// a lifetime or a loop label (`<'_>`, `&'a T`, `'static`, `break 'outer`) and
+// stays code; read as a quote, it would blank everything up to the next
+// apostrophe in the file and hide those lines from every check. `#` opens an
+// attribute, never a comment.
+func RustTokens(src string, blankStrings, blankComments bool) string {
+	return tokens(src, blankStrings, blankComments, false, true)
+}
+
+func tokens(src string, blankStrings, blankComments, hashComment, rustChars bool) string {
 	b := []byte(src)
 	n := len(b)
 	blank := func(cond bool, i int) {
@@ -46,6 +67,15 @@ func Tokens(src string, blankStrings, blankComments, hashComment bool) string {
 		}
 	}
 	for i := 0; i < n; i++ {
+		if rustChars && b[i] == '\'' {
+			if end, ok := charLiteralEnd(b, i); ok {
+				for k := i + 1; k < end; k++ {
+					blank(blankStrings, k)
+				}
+				i = end
+			}
+			continue
+		}
 		switch b[i] {
 		case '\'', '"', '`':
 			quote := b[i]
@@ -104,6 +134,29 @@ func Tokens(src string, blankStrings, blankComments, hashComment bool) string {
 		}
 	}
 	return string(b)
+}
+
+// charLiteralEnd returns the index of the quote closing the Rust char literal
+// that opens at b[i], and false when b[i] opens none. The body is one char,
+// or a backslash and the escape it starts (`\n`, `\'`, `\x7f`, `\u{1F600}`),
+// whose tail runs to the next quote. The search stops at the line's end: a
+// char literal never spans a line.
+func charLiteralEnd(b []byte, i int) (int, bool) {
+	line, _, _ := bytes.Cut(b[i:], []byte{'\n'})
+	j := 1
+	if j < len(line) && line[j] == '\\' {
+		j += 2 // the backslash and the byte it escapes, which may be a quote
+		for j < len(line) && line[j] != '\'' {
+			j++
+		}
+	} else {
+		_, size := utf8.DecodeRune(line[j:])
+		j += size
+	}
+	if j < len(line) && line[j] == '\'' {
+		return i + j, true
+	}
+	return 0, false
 }
 
 // lineLeadingWhitespace reports whether every byte from the start of the current

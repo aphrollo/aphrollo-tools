@@ -276,10 +276,11 @@ precommit_diffscan_suite.go                        suite  # created by P2
 ratchetgate_suite.go                               suite  # created by P2
 statusline_suite.go                                suite  # created by P2
 
-# smell: 14 file(s), plus 1 created by P2
+# smell: 15 file(s), plus 1 created by P2
 policy.go                                          smell
 policy_registry_test.go                            smell
 policy_test.go                                     smell
+rustmask_test.go                                   smell
 smell.go                                           smell
 smell_deadline.go                                  smell
 smell_deadline_test.go                             smell

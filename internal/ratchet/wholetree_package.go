@@ -22,7 +22,7 @@ func packageMarkerHits(view treeView, law Law, files []string, content map[strin
 		if !ok {
 			continue
 		}
-		fl := newFileLines(text)
+		fl := newFileLines(rel, text)
 		raw := fl.raw
 		code := fl.codeFor(law)
 		var candidates []int
@@ -56,7 +56,7 @@ func packageMarkerHits(view treeView, law Law, files []string, content map[strin
 			if err != nil {
 				return nil, err
 			}
-			sibCode := newFileLines(sibText).codeFor(law)
+			sibCode := newFileLines(sib, sibText).codeFor(law)
 			if law.Matcher.Marker.MatchString(strings.Join(sibCode, "\n")) {
 				excused = true
 				break
