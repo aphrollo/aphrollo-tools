@@ -37,6 +37,12 @@ self-install, which built from an arbitrary checkout, is retired.
 // the "not writable" branch without relying on real permission bits — on an
 // account that bypasses them (root), a chmod-based fixture can never produce
 // the refusal it means to pin.
+//
+// Not tdd.binaryInstallWritable: that seam takes no directory — it always
+// probes os.Executable()'s own dir, the running binary's. This check is of
+// filepath.Dir(bin), which --bin can point anywhere else entirely; reusing
+// the no-arg seam here would silently ignore --bin and probe the wrong
+// directory.
 var installWritable = tdd.InstallWritable
 
 func runUpdate(args []string, stdout, stderr io.Writer) int {
