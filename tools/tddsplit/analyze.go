@@ -42,11 +42,7 @@ func Analyze(repo string, m *Manifest, levels map[int]bool) (*Analysis, error) {
 	if err != nil {
 		return nil, err
 	}
-	var keys []string
-	for _, s := range srcs {
-		keys = append(keys, s.Key)
-	}
-	if u := m.Unmapped(keys); len(u) > 0 {
+	if u := m.Unmapped(srcs); len(u) > 0 {
 		return nil, fmt.Errorf("refusing: %d file(s) the manifest does not map:\n  %s", len(u), strings.Join(u, "\n  "))
 	}
 	module, err := modulePath(repo)

@@ -162,9 +162,10 @@ retired the root build task). aphrollo-infra no longer force-installs it.
 
 ## Working in this repo
 
-- A new file under `internal/tdd/` needs a line in `tools/tddsplit/manifest.txt`
-  (see the `[files]` section); the bare file name must be unique across the
-  whole manifest.
+- A new file under `internal/tdd/` needs a `<file> <package>` row in the
+  `[files]` section of `tools/tddsplit/manifest.txt`, inserted at its sorted
+  place (by file, then package). The same file name may have a row in two
+  packages; the section carries no counts to update.
 - Never hand-edit a generated `export.go`, `deps_*.go` or `api_*.go` — they are
   `tools/tddsplit` output. Regenerate on a scratch clone.
 - Run `go test ./tools/tddsplit -run TestCommittedTree_GeneratedFilesMatchTheGenerator`

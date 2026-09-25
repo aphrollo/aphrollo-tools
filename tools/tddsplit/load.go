@@ -41,9 +41,11 @@ func (f srcFile) isTest() bool { return strings.HasSuffix(f.Key, "_test.go") }
 // back with Target "".
 func listSources(repo string, m *Manifest) ([]srcFile, error) {
 	var dirs []string
+	holder := map[string]string{}
 	for _, p := range m.Packages {
 		if p.Level != LevelPrep {
 			dirs = append(dirs, p.Dir)
+			holder[p.Dir] = p.Name
 		}
 	}
 	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
@@ -75,7 +77,7 @@ func listSources(repo string, m *Manifest) ([]srcFile, error) {
 		for _, dir := range dirs {
 			if strings.HasPrefix(rel, dir+"/") {
 				key := strings.TrimPrefix(rel, dir+"/")
-				target, _ := m.PackageOf(key)
+				target, _ := m.PackageOf(key, holder[dir])
 				out = append(out, srcFile{Key: key, Path: rel, Dir: dir, Target: target})
 				return nil
 			}

@@ -30,14 +30,16 @@ type Relocation struct {
 }
 
 // Manifest maps every file of the unsplit package to its target package.
-// File keys are relative to Root; a key ending in "/" maps every file under
-// that directory. Locals are files a carved package owns on its own, such
+// A row is keyed by (file key, package): the key is relative to the package
+// dir the file lives in, and a key ending in "/" maps every file under that
+// directory. Files holds, per key, the set of packages it has a row for, so
+// the same bare name may live in two packages. Locals are files a carved package owns on its own, such
 // as its TestMain: paths relative to Root, never moved and never part of the
 // reassembled package.
 type Manifest struct {
 	Root        string
 	Packages    map[string]Package
-	Files       map[string]string
+	Files       map[string]map[string]bool
 	Relocations []Relocation
 	Locals      map[string]bool
 }
@@ -47,7 +49,7 @@ type Manifest struct {
 // (symbol from-file to-file) and `[local]` (path) sections. `#` starts a
 // comment.
 func ParseManifest(r io.Reader) (*Manifest, error) {
-	m := &Manifest{Packages: map[string]Package{}, Files: map[string]string{}, Locals: map[string]bool{}}
+	m := &Manifest{Packages: map[string]Package{}, Files: map[string]map[string]bool{}, Locals: map[string]bool{}}
 	section := ""
 	sc := bufio.NewScanner(r)
 	lineNo := 0
@@ -97,10 +99,14 @@ func ParseManifest(r io.Reader) (*Manifest, error) {
 			if len(fields) != 2 {
 				return nil, bad("`<file> <package>`")
 			}
-			if _, dup := m.Files[fields[0]]; dup {
-				return nil, fmt.Errorf("manifest:%d: %s mapped twice", lineNo, fields[0])
+			key, pkg := fields[0], fields[1]
+			if m.Files[key][pkg] {
+				return nil, fmt.Errorf("manifest:%d: %s mapped twice to %s", lineNo, key, pkg)
 			}
-			m.Files[fields[0]] = fields[1]
+			if m.Files[key] == nil {
+				m.Files[key] = map[string]bool{}
+			}
+			m.Files[key][pkg] = true
 		case "relocate":
 			if len(fields) != 3 {
 				return nil, bad("`<symbol> <from-file> <to-file>`")
@@ -119,35 +125,51 @@ func ParseManifest(r io.Reader) (*Manifest, error) {
 	if m.Root == "" {
 		return nil, fmt.Errorf("manifest: no `root <dir>` directive")
 	}
-	for key, pkg := range m.Files {
-		if _, ok := m.Packages[pkg]; !ok {
-			return nil, fmt.Errorf("manifest: %s maps to undeclared package %s", key, pkg)
+	for key, pkgs := range m.Files {
+		for pkg := range pkgs {
+			if _, ok := m.Packages[pkg]; !ok {
+				return nil, fmt.Errorf("manifest: %s maps to undeclared package %s", key, pkg)
+			}
 		}
 	}
 	return m, nil
 }
 
-// PackageOf returns the package a file key maps to: its exact entry, else the
-// longest directory entry holding it.
-func (m *Manifest) PackageOf(key string) (string, bool) {
-	if pkg, ok := m.Files[key]; ok {
-		return pkg, true
-	}
-	best, bestPkg := "", ""
-	for k, pkg := range m.Files {
-		if strings.HasSuffix(k, "/") && strings.HasPrefix(key, k) && len(k) > len(best) {
-			best, bestPkg = k, pkg
+// PackageOf returns the package a file key maps to, given holder, the
+// package whose dir holds the file today: its exact entry, else the longest
+// directory entry holding it. An entry with a row for holder resolves to
+// holder; an entry with a single row resolves to that row's package, a file
+// still waiting to move; an entry with several rows, none of them holder's,
+// resolves to nothing.
+func (m *Manifest) PackageOf(key, holder string) (string, bool) {
+	pkgs, ok := m.Files[key]
+	if !ok {
+		best := ""
+		for k, dirPkgs := range m.Files {
+			if strings.HasSuffix(k, "/") && strings.HasPrefix(key, k) && len(k) > len(best) {
+				best, pkgs = k, dirPkgs
+			}
 		}
 	}
-	return bestPkg, best != ""
+	if pkgs[holder] {
+		return holder, true
+	}
+	if len(pkgs) != 1 {
+		return "", false
+	}
+	for pkg := range pkgs {
+		return pkg, true
+	}
+	return "", false
 }
 
-// Unmapped returns, sorted, every key the manifest does not map.
-func (m *Manifest) Unmapped(keys []string) []string {
+// Unmapped returns, sorted, the path of every source the manifest does not
+// map.
+func (m *Manifest) Unmapped(srcs []srcFile) []string {
 	var out []string
-	for _, k := range keys {
-		if _, ok := m.PackageOf(k); !ok {
-			out = append(out, k)
+	for _, s := range srcs {
+		if s.Target == "" {
+			out = append(out, s.Path)
 		}
 	}
 	sort.Strings(out)
