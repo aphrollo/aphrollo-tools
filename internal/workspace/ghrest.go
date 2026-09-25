@@ -12,21 +12,27 @@ import (
 
 // `gh pr view`/`create`/`merge` resolve rich fields (mergeable,
 // mergeStateStatus, statusCheckRollup, --fill's derived title) through
-// GitHub's GraphQL API, which some environments refuse outright — a Claude
-// Code cloud container answers `gh pr view` with "HTTP 403: GitHub GraphQL
-// is not available from Claude Code sessions; use the REST API" even though
-// gh itself is installed and authenticated (#880). The REST equivalents
-// below (`gh api repos/{owner}/{repo}/pulls…`) work everywhere GraphQL does
-// AND everywhere it is blocked, so every gh-pr-view/create/merge call in
-// this package goes through them unconditionally now — simpler than
-// detecting the transport and carrying two code paths, and the issue itself
-// allows it ("always if that's simpler and equivalent"). `gh api` still
-// resolves `{owner}/{repo}` from the origin remote itself (a local git-config
-// read, not a network call), so no separate repo lookup is needed.
+// GitHub's GraphQL API, which some sandboxed agent environments refuse
+// outright — one answers `gh pr view` with "HTTP 403: GitHub GraphQL is not
+// available from Claude Code sessions; use the REST API" even though gh
+// itself is installed and authenticated (#880). The REST equivalents below
+// (`gh api repos/{owner}/{repo}/pulls…`) work everywhere GraphQL does AND
+// everywhere it is blocked, so every gh-pr-view/create/merge call in this
+// package goes through them unconditionally now — simpler than detecting the
+// transport and carrying two code paths, and the issue itself allows it
+// ("always if that's simpler and equivalent"). `gh api` still resolves
+// `{owner}/{repo}` from the origin remote itself (a local git-config read,
+// not a network call), so no separate repo lookup is needed.
 //
 // `gh pr checks`'s REST equivalent (commits/{sha}/check-runs and .../status)
-// was already in place before this issue (ghChecksAt) — only view/create/merge
-// needed converting.
+// was already in place before this issue (ghChecksAt). The remaining two gh
+// calls this package makes, ready-for-review and PR-body edit (submit.go),
+// followed the same issue's cold-review round: ghEditPRBody moved straight
+// to REST's portable PATCH pulls/{n}; ghReadyPR has no portable REST
+// equivalent on ordinary GitHub (marking a PR ready is GraphQL-only) so it
+// still tries gh's native `pr ready` first and only falls back to that one
+// sandboxed environment's own REST route when GraphQL is specifically
+// blocked.
 
 // requireGH refuses up front, before a verb pushes or spends a mutation
 // measurement, when gh cannot even answer a REST call — the "fail loud at
@@ -38,7 +44,7 @@ import (
 var requireGH = requireGHReal
 
 func requireGHReal() error {
-	p := ghtransport.Run()
+	p := ghtransport.RunRESTOnly()
 	if p.Ready() {
 		return nil
 	}

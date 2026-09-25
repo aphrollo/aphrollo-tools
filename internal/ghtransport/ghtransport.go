@@ -55,10 +55,21 @@ func (p Probe) TransportLine() string {
 	}
 }
 
-// Run probes gh's presence and both transports, each under probeTimeout. It
-// looks gh up on PATH itself (never a caller-supplied path) so it reflects
-// exactly what an ordinary gh-dependent verb would resolve.
-func Run() Probe {
+// Run probes gh's presence and both transports, each under probeTimeout —
+// the full picture a `gate doctor` report wants. It looks gh up on PATH
+// itself (never a caller-supplied path) so it reflects exactly what an
+// ordinary gh-dependent verb would resolve.
+func Run() Probe { return run(true) }
+
+// RunRESTOnly probes presence and REST auth only, skipping the GraphQL
+// round trip — what a verb's own preflight (requireGH) actually needs: every
+// gh call the workspace verbs make now goes over REST (#880's cold-review
+// round), so a verb has no reason to spend a probe, or wait out a timeout,
+// on a transport it never uses. Doctor still probes both, since reporting
+// GraphQL's own reachability is useful independent of what today's verbs use.
+func RunRESTOnly() Probe { return run(false) }
+
+func run(checkGraphQL bool) Probe {
 	var p Probe
 	path, err := exec.LookPath("gh")
 	if err != nil {
@@ -71,6 +82,9 @@ func Run() Probe {
 		return p
 	}
 	p.RESTOK = true
+	if !checkGraphQL {
+		return p
+	}
 	if _, err := runGH(path, "api", "graphql", "-f", "query=query{viewer{login}}"); err == nil {
 		p.GraphQLOK = true
 	}

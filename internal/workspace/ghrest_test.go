@@ -289,6 +289,41 @@ func TestSubmitApply_RefusesUpFrontBeforePushing(t *testing.T) {
 	}
 }
 
+// TestPushApply_RefusesUpFrontBeforePushing is the cold-review finding:
+// Push.Apply used to push, THEN call gh (reuseOpenPR/ghCIStatus) with no
+// preflight — a gh failure surfaced only after the branch was already on
+// origin. requireGH now runs first; this proves nothing reaches the remote
+// when it refuses.
+func TestPushApply_RefusesUpFrontBeforePushing(t *testing.T) {
+	repo := repoWithRemote(t)
+	if out, err := exec.Command("git", "-C", repo, "checkout", "-q", "-b", "feat/z").CombinedOutput(); err != nil {
+		t.Fatalf("checkout: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "g.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("add", "g.txt")
+	run("commit", "-qm", "work")
+	stubRequireGH(t, func() error { return fmt.Errorf("gh is not ready: fake refusal") })
+
+	p, err := PushPlan(targetFor(repo, "feat/z"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if err := p.Apply(&out, &errb); err == nil || !strings.Contains(err.Error(), "fake refusal") {
+		t.Fatalf("Apply() = %v, want the preflight refusal", err)
+	}
+	if remoteBranchExists(repo, "feat/z") {
+		t.Fatal("Push.Apply must not push before the gh preflight runs")
+	}
+}
+
 func TestFillTitleBody_MultipleCommitsListsEachSubject(t *testing.T) {
 	repo := initRepo(t)
 	if out, err := exec.Command("git", "-C", repo, "checkout", "-q", "-b", "lane/y").CombinedOutput(); err != nil {
