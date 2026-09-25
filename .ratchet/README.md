@@ -122,7 +122,9 @@ strictly broader than any edit-time detector judging the same tree for the
 same thing, and fires on exactly the lines that detector ignores — measured on
 this repo's own `suppression_reason`, every hit it had was quoted text and none
 was a real suppression. Set both to read code with neither strings nor
-comments in it.
+comments in it. A `.rs` file is lexed as Rust: `'` opens a char literal only
+in a char literal's shape on one line (`'x'`, `'\n'`, `'\u{1F600}'`), and a
+lifetime or label (`<'_>`, `&'a T`, `'static`, `break 'outer`) stays code.
 
 `direction` says WHERE the marker lives: `above` (default) is the
 comment-above-the-declaration shape, `below` is a block that carries its own

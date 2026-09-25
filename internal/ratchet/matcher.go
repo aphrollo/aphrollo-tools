@@ -31,12 +31,16 @@ type Hit struct {
 type FileLines struct {
 	raw  []string
 	code map[string][]string
+	// rust masks strings the way Rust spells them: `'` opens a char literal
+	// only in a char literal's shape, and is otherwise a lifetime or a label.
+	rust bool
 }
 
 // newFileLines splits content once. Cheap enough to call for a single
-// HitsIn as well as a scanner's per-file loop.
-func newFileLines(content string) *FileLines {
-	return &FileLines{raw: splitLines(content)}
+// HitsIn as well as a scanner's per-file loop. The path decides the
+// language the string masker reads the content as.
+func newFileLines(file, content string) *FileLines {
+	return &FileLines{raw: splitLines(content), rust: strings.EqualFold(filepath.Ext(file), ".rs")}
 }
 
 // codeFor returns l's view of the file — comment-stripped for a CodeOnly law,
@@ -59,7 +63,7 @@ func (fl *FileLines) codeFor(l Law) []string {
 	}
 	lines := fl.raw
 	if l.MaskStrings {
-		lines = maskStringLines(lines)
+		lines = maskStringLines(lines, fl.rust)
 	}
 	code := lines
 	if l.CodeOnly {
@@ -83,8 +87,16 @@ func (fl *FileLines) codeFor(l Law) []string {
 // block comment spans lines, and a per-line pass would read the tail of one
 // as code. It preserves length and newlines, so the masked slice has the same
 // lines in the same order and a hit still reports the line the reader sees.
-func maskStringLines(raw []string) []string {
-	masked := splitLines(mask.Tokens(strings.Join(raw, "\n")+"\n", true, false, false))
+// A Rust file is lexed as Rust, where a lifetime's `'` is code: read as a
+// quote it blanks every line up to the next apostrophe, and a law then
+// reports nothing over code it never read.
+func maskStringLines(raw []string, rust bool) []string {
+	src := strings.Join(raw, "\n") + "\n"
+	lex := func(src string) string { return mask.Tokens(src, true, false, false) }
+	if rust {
+		lex = func(src string) string { return mask.RustTokens(src, true, false) }
+	}
+	masked := splitLines(lex(src))
 	if len(masked) != len(raw) {
 		// Cannot happen — the lexer only ever replaces bytes with spaces — but
 		// a view that has silently lost a line would misattribute every hit
@@ -100,7 +112,7 @@ func maskStringLines(raw []string) []string {
 // the same code. Registry laws are the exception — they judge the WHOLE scope
 // at once and are answered by the checker, not here.
 func (l Law) HitsIn(file, content string) []Hit {
-	return l.hitsInLines(file, newFileLines(content))
+	return l.hitsInLines(file, newFileLines(file, content))
 }
 
 // hitsInLines is HitsIn's lower-level entry point: fl is already split (and,

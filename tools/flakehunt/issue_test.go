@@ -5,6 +5,8 @@ import (
 	"testing"
 )
 
+const exampleModulePath = "github.com/aphrollo/aphrollo-tools"
+
 func exampleFailure() Failure {
 	return Failure{
 		Test:    "TestFlaky",
@@ -23,15 +25,32 @@ func TestTitleFor_NamesTheTestAndItsPackage(t *testing.T) {
 }
 
 func TestReproCmd_CarriesRaceShuffleSeedAndCount(t *testing.T) {
-	got := ReproCmd(exampleFailure())
+	got := ReproCmd(exampleFailure(), exampleModulePath)
 	want := "go test ./internal/tdd/lock -race -run '^TestFlaky$' -count=50 -shuffle=1790255955024453711"
 	if got != want {
 		t.Fatalf("ReproCmd = %q, want %q", got, want)
 	}
 }
 
+// `go test -json` always names Package by its FULL import path, never the
+// module-relative directory a human types after `./`. Pasting that path
+// verbatim (`go test ./github.com/aphrollo/aphrollo-tools/internal/tdd/core`)
+// fails outright — ReproCmd must strip the module's own prefix first.
+func TestReproCmd_StripsTheModulePrefixFromTheFullImportPath(t *testing.T) {
+	f := Failure{
+		Test:    "TestFlaky",
+		Package: "github.com/aphrollo/aphrollo-tools/internal/tdd/core",
+		Seed:    "1790255955024453711",
+	}
+	got := ReproCmd(f, exampleModulePath)
+	want := "go test ./internal/tdd/core -race -run '^TestFlaky$' -count=50 -shuffle=1790255955024453711"
+	if got != want {
+		t.Fatalf("ReproCmd = %q, want %q", got, want)
+	}
+}
+
 func TestBodyFor_CarriesSeedReproExcerptAndRunURL(t *testing.T) {
-	body := BodyFor(exampleFailure(), "https://github.com/aphrollo/aphrollo-tools/actions/runs/1")
+	body := BodyFor(exampleFailure(), "https://github.com/aphrollo/aphrollo-tools/actions/runs/1", exampleModulePath)
 	for _, want := range []string{
 		"1790255955024453711",
 		"go test ./internal/tdd/lock -race -run '^TestFlaky$'",

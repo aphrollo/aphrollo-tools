@@ -5,13 +5,17 @@
 package tddtest
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // Seams is what Main needs from the package whose tests it runs. A package
@@ -216,6 +220,53 @@ func UseRealCargoHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Setenv("CARGO_HOME", isolated) })
+}
+
+// realCargoProbeTimeout bounds how long a real-toolchain probe may take. A
+// `cargo --version` answers in milliseconds; this is slack for a loaded box
+// and a cold queue shim, not a budget the probe expects to use.
+const realCargoProbeTimeout = 30 * time.Second
+
+// realCargoAvailable reports whether `cargo` on PATH, run under env, answers
+// `--version` for real — not merely whether a file by that name resolves.
+// `cargo` on an operator box is the aphrollo build-queue shim, which is on
+// PATH whether or not the underlying toolchain it wants to run is there: an
+// exec.LookPath("cargo") check alone never fails on such a box, isolated
+// CARGO_HOME or not. Under an isolated CARGO_HOME the shim itself then fails
+// to resolve the real cargo it wraps and prints its OWN "resolve cargo: ...
+// not found" error on exit — text that answers to nothing a caller reading
+// cargo's own output is looking for, so a test that skips on LookPath alone
+// runs that error through as if it were cargo's, or the real compiler's,
+// verdict (issue found via #853's rustcOutput, before it called
+// UseRealCargoHome). Running the command for real, the same way the caller
+// is about to, is the only check that catches both a missing toolchain and a
+// shim that cannot reach it.
+func realCargoAvailable(env []string) (ok bool, detail string) {
+	ctx, cancel := context.WithTimeout(context.Background(), realCargoProbeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "cargo", "--version")
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, fmt.Sprintf("cargo --version failed (%v): %s", err, strings.TrimSpace(string(out)))
+	}
+	return true, ""
+}
+
+// RequireRealCargo puts the box's own CARGO_HOME back (see UseRealCargoHome)
+// and skips t unless a real, running cargo answers under it. Every
+// real-toolchain test that spawns cargo or rustc calls this instead of a bare
+// exec.LookPath("cargo") check, so it skips honestly on a box with no Rust
+// toolchain at all AND on a box where cargo resolves only to a queue shim
+// that cannot reach one — never letting the shim's own failure stand in for
+// the compiler's.
+func RequireRealCargo(t *testing.T) {
+	t.Helper()
+	UseRealCargoHome(t)
+	if ok, detail := realCargoAvailable(os.Environ()); !ok {
+		// skip-ok: an environment probe, not a disabled assertion — the test asserts for real wherever cargo is installed.
+		t.Skipf("no working cargo: %s; skipping the real-toolchain test", detail)
+	}
 }
 
 // GuardLiveLockDir makes reaching the machine-wide lock dir a failure of the

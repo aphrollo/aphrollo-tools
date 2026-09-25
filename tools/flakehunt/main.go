@@ -73,7 +73,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if root == "" {
 		root = *repo
 	}
-	filer := Filer{Repo: root, RunURL: *runURL, Label: *label, NewLabel: *newLabel}
+	// Best-effort: a root with no readable go.mod (not a Go module) leaves
+	// modulePath "", and relativePackage then passes every package path
+	// through unchanged rather than mis-stripping it.
+	modulePath, _ := tdd.ModulePath(root)
+	filer := Filer{Repo: root, RunURL: *runURL, Label: *label, NewLabel: *newLabel, ModulePath: modulePath}
 
 	failed := false
 	for _, f := range res.Failures {

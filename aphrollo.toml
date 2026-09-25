@@ -23,6 +23,7 @@ undercover = true
 go-test-reads = [
   "internal/tdd/ -> tools/tddsplit",
   "aphrollo.toml -> internal/tdd/suite",
+  "README.md -> internal/tdd",
 ]
 
 # The post-merge retro `aphrollo workspace merge` runs once the PR has landed.

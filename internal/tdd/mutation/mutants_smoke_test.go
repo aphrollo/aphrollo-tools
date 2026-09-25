@@ -27,7 +27,7 @@ func TestMeasureLane_RealCargoMutantsOnAMinimalCrate(t *testing.T) {
 		// skip-ok: -short is the caller asking for the fast suite, and this test is minutes of real compiling by definition.
 		t.Skip("-short: this test compiles and mutates a real crate")
 	}
-	useRealCargoHome(t)
+	tddtest.RequireRealCargo(t)
 	requireRealMutationToolchain(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	// What is under test is the command line, not the drive it runs on: a
@@ -177,8 +177,6 @@ mod tests {
     }
 }
 `
-
-func useRealCargoHome(t *testing.T) { t.Helper(); tddtest.UseRealCargoHome(t) }
 
 // requireRealMutationToolchain skips unless this box can actually run the
 // measurement. On PATH is not the same as usable, so each tool is asked for

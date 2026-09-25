@@ -25,7 +25,10 @@ import (
 // rather than on the file's bytes (see cache_citations.go). An entry written
 // at 3 carries the verdict and no citations, so it would read as a file that
 // cites nothing at all.
-const cacheVersion = 4
+// 5: a Rust file's `mask_strings` view reads a lifetime's `'` as code, not as
+// a quote that blanked every line up to the next apostrophe. An entry written
+// at 4 can record no hits for lines the law never saw.
+const cacheVersion = 5
 
 type cacheEntry struct {
 	Size  int64            `json:"size"`

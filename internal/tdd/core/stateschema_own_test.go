@@ -120,8 +120,15 @@ func TestNoteStateOnce_LogsTheVerdictAndFileOnlyOncePerPair(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 
-	noteStateOnce("state-corrupt", "/some/state.json")
-	noteStateOnce("state-corrupt", "/some/state.json")
+	// stateNoticed dedupes by (verdict, path) for the life of the PROCESS, not
+	// the life of the test — a literal path shared across every -count=N
+	// rerun of this test would be seen once ever and every later rerun would
+	// find noteStateOnce a permanent no-op, so gate.log would never even be
+	// created. Scoping the path under this run's own cfg dir keeps the key
+	// unique per invocation.
+	path := filepath.Join(cfg, "some", "state.json")
+	noteStateOnce("state-corrupt", path)
+	noteStateOnce("state-corrupt", path)
 
 	data, err := os.ReadFile(GateLogPath())
 	if err != nil {

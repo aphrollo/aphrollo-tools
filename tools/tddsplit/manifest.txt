@@ -207,6 +207,7 @@ classify.go                                        suite
 classify_attribution.go                            suite
 classify_color_test.go                             suite
 classify_goattribution.go                          suite
+classify_rustattribution_test.go                   suite
 classify_scope.go                                  suite
 classify_test.go                                   suite
 clippyscope.go                                     suite
@@ -278,10 +279,11 @@ precommit_diffscan_suite.go                        suite  # created by P2
 ratchetgate_suite.go                               suite  # created by P2
 statusline_suite.go                                suite  # created by P2
 
-# smell: 14 file(s), plus 1 created by P2
+# smell: 15 file(s), plus 1 created by P2
 policy.go                                          smell
 policy_registry_test.go                            smell
 policy_test.go                                     smell
+rustmask_test.go                                   smell
 smell.go                                           smell
 smell_deadline.go                                  smell
 smell_deadline_test.go                             smell
