@@ -131,6 +131,7 @@ func putSlowStubOnPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	registerStubDir(dir)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 

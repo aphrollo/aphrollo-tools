@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // exec.CommandContext kills the direct child and nothing else. `go test` is a
@@ -145,6 +147,7 @@ var treeFixtureBinary = sync.OnceValues(func() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	tddtest.RegisterTempDir(dir)
 	src := filepath.Join(dir, "src")
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		return "", err

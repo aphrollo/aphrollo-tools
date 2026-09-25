@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -62,6 +63,7 @@ func TestMain(m *testing.M) {
 	// the tests that arranged a stub were isolated from the operator's real
 	// one. See ghstub_isolation_test.go.
 	if stub, err := ghStubDir(); err == nil {
+		registerStubDir(stub)
 		if err := os.Setenv("PATH", stub+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
 			panic(err)
 		}
@@ -82,10 +84,17 @@ func TestMain(m *testing.M) {
 	restoreLocks()
 	os.RemoveAll(dir)
 	stubDirsMu.Lock()
-	for _, d := range stubDirs {
-		os.RemoveAll(d)
-	}
+	dirs := append([]string(nil), stubDirs...)
 	stubDirsMu.Unlock()
+	for _, d := range dirs {
+		os.RemoveAll(d)
+		if _, err := os.Stat(d); err == nil {
+			fmt.Fprintf(os.Stderr, "cli: registered stub dir %s survived cleanup\n", d)
+			if code == 0 {
+				code = 1
+			}
+		}
+	}
 	os.Exit(code)
 }
 

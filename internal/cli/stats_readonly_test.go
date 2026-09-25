@@ -74,6 +74,7 @@ func stubGhForCLI(t *testing.T, stdout string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	registerStubDir(dir)
 	log := filepath.Join(t.TempDir(), "argv.log")
 	t.Setenv("GH_STUB_LOG", log)
 	t.Setenv("GH_STUB_OUT", stdout)
