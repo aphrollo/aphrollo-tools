@@ -290,15 +290,48 @@ const realCargoProbeTimeout = 30 * time.Second
 // is about to, is the only check that catches both a missing toolchain and a
 // shim that cannot reach it.
 func realCargoAvailable(env []string) (ok bool, detail string) {
+	cargo, err := lookPathIn("cargo", env)
+	if err != nil {
+		return false, fmt.Sprintf("cargo: %v", err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), realCargoProbeTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "cargo", "--version")
+	cmd := exec.CommandContext(ctx, cargo, "--version")
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return false, fmt.Sprintf("cargo --version failed (%v): %s", err, strings.TrimSpace(string(out)))
 	}
 	return true, ""
+}
+
+// lookPathIn resolves name against the PATH carried in env, not the calling
+// process's own PATH. exec.Command resolves a bare name via exec.LookPath at
+// construction time against os.Getenv("PATH") — cmd.Env, set afterward, never
+// feeds that lookup — so a caller isolating PATH only through cmd.Env (as a
+// test forcing an unresolvable fake cargo shim does) is silently answered by
+// whatever `cargo` the box's own PATH resolves to instead: on an operator box
+// that is the aphrollo build-queue shim, which answers to the name whether or
+// not it can reach a real toolchain. Joining each PATH entry to name and
+// handing the joined, separator-bearing candidate to exec.LookPath reuses its
+// own executable-bit and (on Windows) PATHEXT-extension logic per directory,
+// rather than reimplementing it.
+func lookPathIn(name string, env []string) (string, error) {
+	pathVal := ""
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+			pathVal = v
+		}
+	}
+	for _, dir := range filepath.SplitList(pathVal) {
+		if dir == "" {
+			dir = "."
+		}
+		if resolved, err := exec.LookPath(filepath.Join(dir, name)); err == nil {
+			return resolved, nil
+		}
+	}
+	return "", fmt.Errorf("not found in PATH")
 }
 
 // RequireRealCargo puts the box's own CARGO_HOME back (see UseRealCargoHome)
