@@ -21,8 +21,8 @@ func makeFrontendRepo(t *testing.T, aphrolloToml string) (repo, frontend string)
 		"frontend/eslint.config.js": "export default []\n",
 	})
 	frontend = filepath.Join(repo, "frontend")
-	installFakeTool(t, frontend, "tsc", "", 0)
-	installFakeTool(t, frontend, "eslint", "", 0)
+	installFakePackage(t, frontend, "typescript", "tsc", "")
+	installFakePackage(t, frontend, "eslint", "eslint", "")
 	write(t, repo, "frontend/src/widget.ts", "export const widget = 1\n")
 	gitDo(t, repo, "add", "frontend/src/widget.ts")
 	return repo, frontend

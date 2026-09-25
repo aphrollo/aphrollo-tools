@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 )
@@ -18,27 +18,43 @@ import (
 // "not a number"` is not a test failure (issue #890).
 //
 // Each check runs only where the root configured the tool (a tsconfig.json,
-// an eslint config), prefers the root's own script for it when package.json
-// declares one, and otherwise runs the root's OWN installed binary from
-// node_modules/.bin — never `npx`, which would fetch whatever the registry
-// serves when the tool is not installed. A root with neither says NOT RUN and
-// names `npm ci`: nothing was checked, and silence would read as a pass.
+// an eslint config), and runs the root's OWN installed copy as
+// `node <package entry>`: never `npx`, which fetches whatever the registry
+// serves when the tool is not installed, and never the node_modules/.bin
+// .cmd shim, which on Windows goes through cmd.exe and mangles `^`, `&`, `%`
+// and quotes in a staged path (the reason this repo's own shims are real
+// executables, internal/cli/argv0.go). A root without the tool says NOT RUN
+// and names `npm ci`: nothing was checked, and silence would read as a pass.
+// A repo whose root needs its own command declares it in aphrollo.toml
+// (precommit_declared.go).
+//
+// tsc checks the whole project, so a diagnostic that already stood at HEAD
+// would refuse every commit to the root until somebody fixed it. A run that
+// fails is compared with the same run at HEAD (precommit_npmbaseline.go), and
+// only what the commit adds is held against it.
 
 // npmCheck is one tool in an npm root's check sequence.
 type npmCheck struct {
-	stage  string // the gate.log and stderr name
-	tool   string // the executable npm installs under node_modules/.bin
-	script string // the package.json script preferred when declared
+	stage string // the gate.log and stderr name
+	pkg   string // the npm package that installs the tool
+	bin   string // the tool's name in that package's "bin"
 	// configured reports whether the root set this tool up at all.
 	configured func(root string) bool
-	// argvs is the local tool's argument lists, one run each; none means
-	// there is nothing for it to check.
+	// argvs is the tool's argument lists, one run each; none means there is
+	// nothing for it to check.
 	argvs func(root string, touched []string) [][]string
+	// headArgs is one of those lists as the same run at HEAD takes it, nil
+	// when HEAD holds nothing for it to check.
+	headArgs func(headRoot string, args []string) []string
+	// parse reads the diagnostics out of a run in dir.
+	parse func(output, dir string) []diagnostic
 }
 
 var npmChecks = []npmCheck{
-	{stage: "typecheck", tool: "tsc", script: "typecheck", configured: hasTsconfig, argvs: tscArgvs},
-	{stage: "eslint", tool: "eslint", script: "lint", configured: hasEslintConfig, argvs: eslintArgvs},
+	{stage: "typecheck", pkg: "typescript", bin: "tsc", configured: hasTsconfig,
+		argvs: tscArgvs, headArgs: sameArgs, parse: parseTscDiagnostics},
+	{stage: "eslint", pkg: "eslint", bin: "eslint", configured: hasEslintConfig,
+		argvs: eslintArgvs, headArgs: eslintHeadArgs, parse: parseEslintDiagnostics},
 }
 
 // isNpmRoot reports whether root is an npm package.
@@ -48,19 +64,19 @@ func isNpmRoot(root string, _ Runner) bool {
 
 // npmQualityStage runs root's configured npm checks in order, stopping at
 // the first rejection. touched is the staged files under root, root-relative.
-func npmQualityStage(gateName, _, root string, touched []string, run SuiteRunner) GateResult {
-	scripts := npmScripts(root)
+func npmQualityStage(gateName, repoRoot, root string, touched []string, run SuiteRunner) GateResult {
 	for _, c := range npmChecks {
 		if !c.configured(root) {
 			continue
 		}
-		runners, installed := c.runners(root, scripts, touched)
-		if !installed {
-			reportNpmCheckNotRun(gateName, root, c)
+		tool, missing := c.tool(root)
+		if missing != "" {
+			reportNpmCheckNotRun(gateName, root, c, missing)
 			continue
 		}
-		for _, r := range runners {
-			if res := goCheckStage(gateName, c.stage, root, r, run); res.Blocked {
+		for _, args := range c.argvs(root, touched) {
+			r := Runner{Cmd: tool.Cmd, Args: append(slices.Clone(tool.Args), args...)}
+			if res := npmCheckStage(gateName, repoRoot, root, c, r, run); res.Blocked {
 				return res
 			}
 		}
@@ -68,57 +84,56 @@ func npmQualityStage(gateName, _, root string, touched []string, run SuiteRunner
 	return verdictFor(gateName, "npm", root, "", stageOutcome{Kind: outcomePass})
 }
 
-// runners is what c runs in root: the declared script, or the local binary
-// over its argument lists. installed is false when neither can run, because
-// node_modules holds no copy of the tool.
-func (c npmCheck) runners(root string, scripts map[string]string, touched []string) (runners []Runner, installed bool) {
-	_, declared := scripts[c.script]
-	if declared && pathExists(filepath.Join(root, "node_modules")) {
-		return []Runner{{Cmd: "npm", Args: []string{"run", c.script}}}, true
+// lookNode finds the node binary. A variable, so a test can name one
+// without depending on the box's PATH.
+var lookNode = func() (string, error) { return exec.LookPath("node") }
+
+// tool is `node <entry>` for c's installed copy in root, or why it cannot
+// run.
+func (c npmCheck) tool(root string) (r Runner, missing string) {
+	entry := npmBinEntry(filepath.Join(root, "node_modules", c.pkg), c.bin)
+	if entry == "" {
+		return r, fmt.Sprintf("node_modules/%s is not installed; run `npm ci` in %s", c.pkg, root)
 	}
-	bin := npmLocalBin(root, c.tool)
-	if !pathExists(bin) {
-		return nil, false
+	node, err := lookNode()
+	if err != nil {
+		return r, "node is not on PATH; install Node.js so the gate can run " + c.bin
 	}
-	for _, args := range c.argvs(root, touched) {
-		runners = append(runners, Runner{Cmd: bin, Args: args})
-	}
-	return runners, true
+	return Runner{Cmd: node, Args: []string{entry}}, ""
 }
 
-// reportNpmCheckNotRun is the loud line for a configured check whose tool is
-// not installed. It does not refuse the commit — a box that has not run
-// `npm ci` is not a defect in the code — but it is never a silent pass.
-func reportNpmCheckNotRun(gateName, root string, c npmCheck) {
-	fmt.Fprintf(os.Stderr,
-		"[%s] gate %s: %s in %s → NOT RUN — node_modules/.bin/%s is not installed, so nothing was checked and this pass is not a green for it; run `npm ci` in %s\n",
-		c.stage, gateName, c.tool, root, c.tool, root)
-	AppendGateLog(gateName, root, c.tool, c.stage+"-not-run", 0)
-}
-
-// npmBinGOOS is the host npmLocalBin names a binary for: a variable, so a
-// test on either host can pin the other one's name.
-var npmBinGOOS = runtime.GOOS
-
-// npmLocalBin is where npm installs tool for root: the .cmd shim on
-// Windows.
-func npmLocalBin(root, tool string) string {
-	if npmBinGOOS == "windows" {
-		tool += ".cmd"
-	}
-	return filepath.Join(root, "node_modules", ".bin", tool)
-}
-
-// npmScripts is package.json's scripts table, empty when it cannot be read.
-func npmScripts(root string) map[string]string {
+// npmBinEntry is the script package pkgDir declares as its bin named name,
+// "" when the package is absent or declares no such script. "bin" is a map
+// of names, or one string for a package with a single command.
+func npmBinEntry(pkgDir, name string) string {
 	var pkg struct {
-		Scripts map[string]string `json:"scripts"`
+		Bin json.RawMessage `json:"bin"`
 	}
-	// An unreadable or absent manifest declares no script: Unmarshal
-	// refuses the empty input and leaves the table nil.
-	data, _ := os.ReadFile(filepath.Join(root, "package.json"))
+	// An absent or unreadable manifest decodes as nothing.
+	data, _ := os.ReadFile(filepath.Join(pkgDir, "package.json"))
 	_ = json.Unmarshal(data, &pkg)
-	return pkg.Scripts
+	var bins map[string]string
+	if json.Unmarshal(pkg.Bin, &bins) != nil {
+		var only string
+		_ = json.Unmarshal(pkg.Bin, &only)
+		bins = map[string]string{name: only}
+	}
+	rel := bins[name]
+	entry := filepath.Join(pkgDir, filepath.FromSlash(rel))
+	if rel == "" || !pathExists(entry) {
+		return ""
+	}
+	return entry
+}
+
+// reportNpmCheckNotRun is the loud line for a configured check that cannot
+// run here. It does not refuse the commit — a box that has not run `npm ci`
+// is not a defect in the code — but it is never a silent pass.
+func reportNpmCheckNotRun(gateName, root string, c npmCheck, why string) {
+	fmt.Fprintf(os.Stderr,
+		"[%s] gate %s: %s in %s → NOT RUN — %s; nothing was checked and this pass is not a green for it\n",
+		c.stage, gateName, c.bin, root, why)
+	AppendGateLog(gateName, root, c.bin, c.stage+"-not-run", 0)
 }
 
 func pathExists(p string) bool {
@@ -147,20 +162,43 @@ func hasEslintConfig(root string) bool {
 // eslintExts is the source ESLint lints by default.
 var eslintExts = []string{".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts"}
 
+// eslintFormat is the flags every eslint run starts with: JSON is the one
+// output every ESLint major still ships, and the only one this gate can
+// compare between two trees.
+var eslintFormat = []string{"--format", "json"}
+
 // eslintArgvs lints the staged files that still exist: a deleted file
 // handed to eslint fails the run on a path, not on the code.
 func eslintArgvs(root string, touched []string) [][]string {
-	var files []string
-	for _, f := range touched {
-		if slices.Contains(eslintExts, filepath.Ext(f)) && pathExists(filepath.Join(root, f)) {
-			files = append(files, f)
-		}
-	}
+	files := existingLintable(root, touched)
 	if len(files) == 0 {
 		return nil
 	}
-	return [][]string{files}
+	return [][]string{append(slices.Clone(eslintFormat), files...)}
 }
+
+// eslintHeadArgs keeps the files HEAD already had: a file the commit adds
+// had no diagnostics before it.
+func eslintHeadArgs(headRoot string, args []string) []string {
+	files := existingLintable(headRoot, args[len(eslintFormat):])
+	if len(files) == 0 {
+		return nil
+	}
+	return append(slices.Clone(eslintFormat), files...)
+}
+
+func existingLintable(root string, files []string) []string {
+	var out []string
+	for _, f := range files {
+		if slices.Contains(eslintExts, filepath.Ext(f)) && pathExists(filepath.Join(root, f)) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// sameArgs is a check whose run at HEAD takes the arguments unchanged.
+func sameArgs(_ string, args []string) []string { return args }
 
 // tscArgvs typechecks the root's tsconfig.json, or each project it
 // references when it is a solution file. `tsc -p tsconfig.json --noEmit` on

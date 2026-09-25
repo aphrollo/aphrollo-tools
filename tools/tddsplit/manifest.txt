@@ -594,6 +594,8 @@ precommit_nosuite_test.go                          precommit
 precommit_npm.go                                   precommit
 precommit_npm_e2e_test.go                          precommit
 precommit_npm_test.go                              precommit
+precommit_npmbaseline.go                           precommit
+precommit_npmbaseline_test.go                      precommit
 precommit_quality.go                               precommit
 precommit_quality_test.go                          precommit
 precommit_reject_test.go                           precommit
