@@ -287,3 +287,28 @@ func TestCheckEvent_PassesPeoplesPRCommits(t *testing.T) {
 		t.Errorf("people's commits failed: %q", res.Failures)
 	}
 }
+
+// failingGitHub answers every GET from get and fails the one path in fail.
+type failingGitHub struct {
+	fakeGitHub
+	fail string
+}
+
+func (f *failingGitHub) Get(ctx context.Context, path string) ([]byte, error) {
+	if path == f.fail {
+		return nil, fmt.Errorf("GET %s: 502 Bad Gateway", path)
+	}
+	return f.fakeGitHub.Get(ctx, path)
+}
+
+// A read that fails is not a thread that is clean: every one of the four
+// reads surfaces its error rather than passing what it never saw.
+func TestCheckEvent_AFailedReadIsAnErrorNotAPass(t *testing.T) {
+	t.Parallel()
+	for _, path := range []string{prPath, prCommitsPath, issueComPath, reviewPath} {
+		gh := &failingGitHub{fakeGitHub: fakeGitHub{get: map[string]string{prPath: prJSON("t", "b")}}, fail: path}
+		if _, err := CheckEvent(context.Background(), []byte(triggers["pull_request"]), New(nil), gh); err == nil || !strings.Contains(err.Error(), "502") {
+			t.Errorf("GET %s failing: err = %v, want it surfaced", path, err)
+		}
+	}
+}

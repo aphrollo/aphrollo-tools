@@ -265,3 +265,14 @@ func TestCommitMsg_IgnoresTheIdentityWhenUndercoverIsOff(t *testing.T) {
 		t.Fatalf("a repo that never opted in was refused on its identity: %s", got.Message)
 	}
 }
+
+// The refusal names the line by its number too, counted from 1, so an author
+// with a long message goes straight to it.
+func TestCommitMsg_RejectionNumbersTheOffendingLine(t *testing.T) {
+	t.Parallel()
+	root := undercoverRepo(t, true)
+	got := CommitMsg(root, msgFile(t, "Fix the flaky retry timer\n\nran under opus-5\n"))
+	if !got.Blocked || !strings.Contains(got.Message, "line 3 ") {
+		t.Fatalf("rejection = %q, want it to name line 3", got.Message)
+	}
+}
