@@ -8,8 +8,6 @@ func BaseCommand(p0 string) string { return baseCommand(p0) }
 
 func BashWriteTargets(p0 string, p1 string) []string { return bashWriteTargets(p0, p1) }
 
-func CdTarget(p0 []string) (string, bool) { return cdTarget(p0) }
-
 func CdTargetTilde(p0 []shellWord) (string, bool) { return cdTargetTilde(p0) }
 
 func ResolveAgainst(p0 string, p1 string) string { return resolveAgainst(p0, p1) }

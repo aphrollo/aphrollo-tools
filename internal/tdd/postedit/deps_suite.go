@@ -71,7 +71,9 @@ func classifySuiteSegment(p0 []string) suiteShape { return suite.ClassifySuiteSe
 
 func cmdString(p0 Runner) string { return suite.CmdString(p0) }
 
-func dropLeadingEnvAssignments(p0 []string) []string { return suite.DropLeadingEnvAssignments(p0) }
+func dropLeadingEnvAssignmentWords(p0 []shellWord) []shellWord {
+	return suite.DropLeadingEnvAssignmentWords(p0)
+}
 
 func effectiveRunRoot(p0 string, p1 string) string { return suite.EffectiveRunRoot(p0, p1) }
 

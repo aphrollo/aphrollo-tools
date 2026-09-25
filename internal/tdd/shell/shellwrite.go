@@ -47,12 +47,13 @@ func bashWriteTargets(cmd, cwd string) []string {
 	return out
 }
 
-// cdTarget reports the directory a `cd` segment would move into, and whether
-// the segment was a `cd` at all. The directory is EMPTY for a cd this scanner
-// cannot resolve — a bare `cd` (moves to $HOME) and `cd -` (the previous
-// directory), neither of which it can answer without reading the environment
-// or remembering history it does not keep — which blanks the tracked
-// directory and so drops every later relative write in the command line.
+// cdTargetTilde reports the directory a `cd` segment would move into, and
+// whether the segment was a `cd` at all. The directory is EMPTY for a cd
+// this scanner cannot resolve — a bare `cd` (moves to $HOME) and `cd -` (the
+// previous directory), neither of which it can answer without reading the
+// environment or remembering history it does not keep — which blanks the
+// tracked directory and so drops every later relative write in the command
+// line.
 //
 // Dropping them is the fail-open direction, and keeping the PREVIOUS
 // directory is not: an unresolvable cd is far more likely to leave the repo
@@ -60,28 +61,18 @@ func bashWriteTargets(cmd, cwd string) []string {
 // the shell started in claims a write into a repo the command never touches,
 // and the guardrail refuses it. That false block is the expensive failure —
 // it wedges a session — while a miss costs one commit-gate rejection.
-func cdTarget(words []string) (string, bool) {
-	if len(words) == 0 || baseCommand(words[0]) != "cd" {
-		return "", false
-	}
-	if len(words) > 1 && !strings.HasPrefix(words[1], "-") {
-		return words[1], true
-	}
-	return "", true
-}
-
-// cdTargetTilde is cdTarget for a caller that still has each word's raw half
-// (shellWord, not plain text) and so can tell a quoted operand from an
-// unquoted one: the operand's own leading `~` is expanded the same way a
-// write target's is (expandTildeTarget, issue #849) rather than resolved as
-// an ordinary relative path — an unquoted `~` or `~/...` resolves to HOME, a
-// quoted `'~/x'` stays the literal relative path it names, and `~user/...`
-// — a different user's home — is dropped exactly like a bare `cd`, blanking
-// the tracked directory rather than guessing at it (issue #867: `cd ~/lane`
-// used to be joined onto cwd like any other relative operand, the same
+//
+// The operand's own leading `~` is expanded the same way a write target's is
+// (expandTildeTarget, issue #849) rather than resolved as an ordinary
+// relative path: an unquoted `~` or `~/...` resolves to HOME, a quoted
+// `'~/x'` stays the literal relative path it names, and `~user/...` — a
+// different user's home — is dropped exactly like a bare `cd`, blanking the
+// tracked directory rather than guessing at it (issue #867: `cd ~/lane` used
+// to be joined onto cwd like any other relative operand, the same
 // double-join #849 already fixed for write targets — this scanner's own
-// bashWriteTargets, and the suite package's separate cd-tracking copy, both
-// call this rather than cdTarget so a `cd`'s tilde gets the same treatment).
+// bashWriteTargets, and the suite and postedit packages' separate
+// cd-tracking copies, all call this one function so a `cd`'s tilde gets the
+// same treatment everywhere).
 func cdTargetTilde(words []shellWord) (string, bool) {
 	if len(words) == 0 || baseCommand(words[0].text) != "cd" {
 		return "", false

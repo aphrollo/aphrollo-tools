@@ -73,6 +73,7 @@ baselineguard_test.go                              lawgate
 baselineguard_wholetreeceiling_test.go             lawgate
 bashedit.go                                        postedit
 bashedit_attribution_test.go                       postedit
+bashedit_cdtilde_test.go                           postedit
 bashedit_core.go                                   core      # created by P2
 bashedit_mergeinprogress_test.go                   postedit
 bashedit_mergescope.go                             postedit
