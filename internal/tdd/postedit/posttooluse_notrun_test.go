@@ -2,11 +2,12 @@ package postedit
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // Issue #820, from borld's forge_solver: an edit to src/spin/mod.rs ran
@@ -32,11 +33,7 @@ const notRunIntegrationTargets = "NOT RUN — --test integration, --test soak no
 // reading of the manifest and not from a directory listing.
 func integrationCrate(t *testing.T) string {
 	t.Helper()
-	if _, err := exec.LookPath("cargo"); err != nil {
-		// skip-ok: an environment probe, not a disabled assertion — the test asserts for real wherever cargo is installed.
-		t.Skip("cargo not on PATH; the crate's targets are read through cargo metadata")
-	}
-	useRealCargoHome(t)
+	tddtest.RequireRealCargo(t)
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "Cargo.toml", "[package]\nname = \"forge_solver\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n"+

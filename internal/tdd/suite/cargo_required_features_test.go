@@ -1,11 +1,12 @@
 package suite
 
 import (
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // Issue #755: an example that declares `required-features` in its manifest
@@ -31,10 +32,7 @@ func requiredFeaturesCrate(t *testing.T) string {
 // The compile check the edit hook builds for that example must build it: run
 // with the real toolchain, it compiles clean.
 func TestNarrowToRelatedTests_AnExampleIsBuiltWithItsRequiredFeatures(t *testing.T) {
-	if _, err := exec.LookPath("cargo"); err != nil {
-		// skip-ok: an environment probe, not a disabled assertion — the test asserts for real wherever cargo is installed.
-		t.Skip("cargo not on PATH; skipping the real-toolchain case")
-	}
+	tddtest.RequireRealCargo(t)
 	root := requiredFeaturesCrate(t)
 	t.Setenv("CARGO_TARGET_DIR", t.TempDir())
 
@@ -59,12 +57,16 @@ func TestNarrowToRelatedTests_AnExampleWithoutRequiredFeaturesGetsNone(t *testin
 }
 
 // A bench is the same compile check with the same refusal, and gets the same
-// answer.
+// answer. This test never spawns cargo itself — NarrowToRelatedTests reads
+// the bench's required features through `cargo metadata` — but that read is
+// still a real cargo call, and an isolated CARGO_HOME left it silently
+// answering with no features at all rather than failing loud: cargo metadata
+// swallows its own error (cargoMetadataNoDeps's absence-ok fallback exists
+// for the box with no cargo), so the test misread that as "this bench needs
+// no features" instead of skipping outright. Found on this box: this test
+// carried no toolchain skip at all before RequireRealCargo was added here.
 func TestNarrowToRelatedTests_ABenchIsBuiltWithItsRequiredFeatures(t *testing.T) {
-	if _, err := exec.LookPath("cargo"); err != nil {
-		// skip-ok: an environment probe, not a disabled assertion — the test asserts for real wherever cargo is installed.
-		t.Skip("cargo not on PATH; skipping the real-toolchain case")
-	}
+	tddtest.RequireRealCargo(t)
 	root := requiredFeaturesCrate(t)
 	write(t, root, "Cargo.toml", "[package]\nname = \"forge\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n"+
 		"[features]\ndebug-render = []\n\n"+
