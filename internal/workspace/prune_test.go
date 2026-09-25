@@ -48,13 +48,21 @@ func fakeGh(t *testing.T, message string, exitCode int) {
 }
 
 // TestGhPRHeadOid_ReturnsSHAOnGhSuccess proves the real ghPRHeadOid closure
-// (prune.go:144) returns gh's trimmed stdout as the SHA with a nil error when
-// gh exits 0 — the CONDITIONALS_NEGATION mutant at its `if err != nil` (line
-// 148) flips this to the error branch (formatting the nil err into a bogus
-// message) instead of returning the SHA.
+// returns the REST-resolved PR's head SHA with a nil error when gh answers
+// both the list and the single-pull REST calls — the CONDITIONALS_NEGATION
+// mutant on its "p == nil" check flips this to the error branch instead of
+// returning the SHA.
 func TestGhPRHeadOid_ReturnsSHAOnGhSuccess(t *testing.T) {
-	fakeGh(t, "abc123", 0)
-	sha, err := ghPRHeadOid(t.TempDir(), "feat/x")
+	repo := initRepo(t)
+	withOrigin(t, repo, "acme", "widgets")
+	fakeGhAPIScript(t, map[string]struct {
+		stdout string
+		exit   int
+	}{
+		"repos/acme/widgets/pulls":   {stdout: "5", exit: 0},
+		"repos/acme/widgets/pulls/5": {stdout: `{"number":5,"head":{"ref":"feat/x","sha":"abc123"}}`, exit: 0},
+	})
+	sha, err := ghPRHeadOid(repo, "feat/x")
 	if err != nil {
 		t.Fatalf("ghPRHeadOid: %v", err)
 	}
@@ -65,12 +73,12 @@ func TestGhPRHeadOid_ReturnsSHAOnGhSuccess(t *testing.T) {
 
 // TestGhPRHeadOid_ReturnsErrorOnGhFailure proves the real ghPRHeadOid closure
 // propagates a genuine gh failure as a non-nil error rather than treating its
-// stdout as a SHA — the CONDITIONALS_NEGATION mutant at line 148 flips this to
-// skip the error branch and return gh's failure output as if it were a valid
-// SHA.
+// stdout as a SHA.
 func TestGhPRHeadOid_ReturnsErrorOnGhFailure(t *testing.T) {
+	repo := initRepo(t)
+	withOrigin(t, repo, "acme", "widgets")
 	fakeGh(t, "gh: authentication required", 1)
-	sha, err := ghPRHeadOid(t.TempDir(), "feat/x")
+	sha, err := ghPRHeadOid(repo, "feat/x")
 	if err == nil {
 		t.Fatalf("expected an error, got sha %q", sha)
 	}

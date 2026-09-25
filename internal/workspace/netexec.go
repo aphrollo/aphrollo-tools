@@ -94,9 +94,9 @@ func ghOutput(dir string, args ...string) ([]byte, error) {
 // notice, a deprecation warning, a proxy or auth note) straight into that
 // data while gh still exited 0, breaking the JSON parse (#883). On failure
 // the returned bytes come from *exec.ExitError's own captured Stderr instead
-// — every caller's error/absence handling (isNoPRError et al.) already reads
-// that byte slice, so behaviour there is unchanged, just no longer polluted
-// by stdout noise on the success path.
+// — every caller's error-diagnostic path already reads that byte slice, so
+// behaviour there is unchanged, just no longer polluted by stdout noise on
+// the success path.
 func ghCombinedOutput(dir string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), ghTimeout)
 	defer cancel()

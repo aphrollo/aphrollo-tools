@@ -48,6 +48,13 @@ func TestMain(m *testing.M) {
 	redirectHome(dir)
 	leaveTheBoxQueue()
 	ghRefusalPath = installRefusingGh()
+	// The vast majority of this package's tests stub the individual gh seams
+	// (ghViewPR, ghCreatePR, …) directly and never arrange a working `gh` on
+	// PATH — the REFUSING gh above sees to that. requireGH's own real
+	// implementation would refuse every one of them before Apply even
+	// reaches its stubbed seam, so it defaults to a no-op here; the tests
+	// that exercise requireGH itself rebind it explicitly.
+	requireGH = func() error { return nil }
 	code := m.Run()
 	if ghRefusalPath != "" {
 		os.RemoveAll(ghRefusalPath)

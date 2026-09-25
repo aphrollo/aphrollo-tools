@@ -95,6 +95,9 @@ func (s *Submit) Render(apply bool) string {
 // Apply pushes, gates on CI, and on green flips the PR ready + sets its body.
 // The receipt is stateful so no follow-up gh call is needed.
 func (s *Submit) Apply(stdout, stderr io.Writer) error {
+	if err := requireGH(); err != nil {
+		return err
+	}
 	wt, branch := s.Target.Worktree, s.Target.Branch
 	// How many commits this push delivers, captured BEFORE the push (after it the
 	// remote ref equals HEAD). push.ahead is set when an upstream/remote branch

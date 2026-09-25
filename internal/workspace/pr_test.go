@@ -281,14 +281,16 @@ func TestGhCIStatusArgs_GuardsBranchBehindTerminator(t *testing.T) {
 // making it return an error at all means the absence-vs-failure distinction
 // downstream now has to be explicit.
 func TestGhViewPRReal_ATimeoutIsPropagatedNotReadAsNoPR(t *testing.T) {
-	putSlowStubOnPath(t)
+	repo := initRepo(t)
+	withOrigin(t, repo, "acme", "widgets")
+	putSlowGHStubOnPath(t)
 	t.Setenv("SLOWSTUB_SLEEP_MS", "3000")
 	defer func(d time.Duration) { ghTimeout = d }(ghTimeout)
 	ghTimeout = 200 * time.Millisecond
 
-	info, err := ghViewPRReal(t.TempDir(), "feat/x")
+	info, err := ghViewPRReal(repo, "feat/x")
 	if err == nil {
-		t.Fatal("a timed-out gh pr view must return an error, not be read as no-PR")
+		t.Fatal("a timed-out gh api pulls must return an error, not be read as no-PR")
 	}
 	if !strings.Contains(err.Error(), "timed out") {
 		t.Errorf("error should name the timeout, got: %v", err)
@@ -298,28 +300,25 @@ func TestGhViewPRReal_ATimeoutIsPropagatedNotReadAsNoPR(t *testing.T) {
 	}
 }
 
-// The legitimate case must still work: gh's own "no PR for this branch"
-// message is absence, not a failure, and must still yield (nil, nil) so
-// Apply creates one.
-func TestGhViewPRReal_StillReadsGhsOwnNoPRMessageAsAbsence(t *testing.T) {
-	putSlowStubOnPath(t)
-	t.Setenv("SLOWSTUB_EXIT", "1")
-	t.Setenv("SLOWSTUB_STDERR", "no pull requests found for branch \"feat/x\"\n")
+// ratchet: test_removed TestGhViewPRReal_StillReadsGhsOwnNoPRMessageAsAbsence: replaced by TestGhViewPRReal_StillReadsAnEmptyListAsAbsence — ghViewPRReal moved to REST (#880), where absence is an empty list, not a message on gh's own stderr to sniff
+//
+// The legitimate case must still work: REST's list-pulls endpoint answering
+// an empty array is absence, not a failure, and must still yield (nil, nil)
+// so Apply creates one.
+func TestGhViewPRReal_StillReadsAnEmptyListAsAbsence(t *testing.T) {
+	repo := initRepo(t)
+	withOrigin(t, repo, "acme", "widgets")
+	putSlowGHStubOnPath(t)
+	// No SLOWSTUB_STDOUT set: the stub prints nothing and exits 0, the same
+	// shape `--jq ".[0].number // empty"` produces for a real empty pulls list.
 
-	info, err := ghViewPRReal(t.TempDir(), "feat/x")
+	info, err := ghViewPRReal(repo, "feat/x")
 	if err != nil {
-		t.Fatalf("gh's own no-PR message must be read as absence, not an error: %v", err)
+		t.Fatalf("an empty pulls list must be read as absence, not an error: %v", err)
 	}
 	if info != nil {
 		t.Errorf("expected nil info for a branch with no PR, got %+v", info)
 	}
 }
 
-func TestPRNumberFromURL(t *testing.T) {
-	if n := prNumberFromURL("https://github.com/o/r/pull/123"); n != 123 {
-		t.Errorf("prNumberFromURL = %d, want 123", n)
-	}
-	if n := prNumberFromURL("not-a-url"); n != 0 {
-		t.Errorf("prNumberFromURL(non-numeric) = %d, want 0", n)
-	}
-}
+// ratchet: test_removed TestPRNumberFromURL: prNumberFromURL was ghCreatePR's old gh-CLI-output parser; #880 moved PR creation to REST (gh api pulls), which returns the number as JSON, so the function and its test are gone, not replaced

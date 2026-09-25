@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -38,57 +37,67 @@ var ghViewPRStatus = ghViewPRStatusReal
 // test can call it directly regardless of what another test's stub last
 // pointed the ghViewPRStatus var at.
 //
-// gh exits non-zero both for "no PR exists for this branch" (absence) and
-// for a genuine failure — a network timeout, a missing gh, no auth. Before
-// this, ANY non-nil error read as "no PR", so a stalled gh (or any other
-// failure) silently reported the branch as unmerged and un-PR'd instead of
-// propagating the error — the same shape ghViewPR had until #348. isNoPRError
-// is the same check ghViewPR and ghPRState already make, and combined output
-// is needed because gh writes its "no PR" message to stderr, which ghOutput
-// discards.
+// Routed over REST (ghAPIViewByBranch, #880), the same as ghViewPR: absence
+// is REST's list-pulls endpoint answering an empty array, not a message to
+// sniff off a non-zero exit, so a genuine failure — a network timeout, a
+// missing gh, no auth — always propagates as an error rather than silently
+// reporting the branch as unmerged and un-PR'd (the shape ghViewPR had until
+// #348).
 func ghViewPRStatusReal(wt, branch string) (*PRStatus, error) {
-	out, err := ghCombinedOutput(wt, "pr", "view",
-		"--json", "number,state,isDraft,mergedAt,mergeable,mergeStateStatus,statusCheckRollup", "--", branch)
+	p, err := ghAPIViewByBranch(wt, branch)
 	if err != nil {
-		if isNoPRError(string(out)) {
-			return nil, nil // absence-ok: gh's own no-PR message, checked above, not a blind swallow
-		}
-		return nil, fmt.Errorf("gh pr view %s: %v: %s", branch, err, strings.TrimSpace(string(out)))
+		return nil, err
 	}
-	var raw struct {
-		Number           int          `json:"number"`
-		State            string       `json:"state"`
-		IsDraft          bool         `json:"isDraft"`
-		MergedAt         string       `json:"mergedAt"`
-		Mergeable        string       `json:"mergeable"`
-		MergeStateStatus string       `json:"mergeStateStatus"`
-		Rollup           []checkEntry `json:"statusCheckRollup"`
-	}
-	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, fmt.Errorf("parsing gh pr view: %w", err)
-	}
-	if raw.Number == 0 {
-		return nil, nil
+	if p == nil {
+		return nil, nil // absence-ok: REST's list-pulls returned no entry for branch
 	}
 	s := &PRStatus{
-		Number:           raw.Number,
-		State:            raw.State,
-		IsDraft:          raw.IsDraft,
-		MergedAt:         raw.MergedAt,
-		Mergeable:        raw.Mergeable,
-		MergeStateStatus: raw.MergeStateStatus,
+		Number:           p.Number,
+		State:            p.state(),
+		IsDraft:          p.Draft,
+		MergedAt:         p.MergedAt,
+		Mergeable:        p.mergeableWord(),
+		MergeStateStatus: p.mergeStateStatus(),
 	}
-	for _, c := range raw.Rollup {
-		switch classifyCheck(c) {
-		case "pass":
-			s.Pass++
-		case "fail":
-			s.Fail++
-		default:
-			s.Pending++
+	// REST's single-pull response carries no statusCheckRollup (a GraphQL-only
+	// aggregate) — reuse ghChecksAt, the same commits/{sha}/check-runs +
+	// .../status REST reader `merge --wait` already relies on, to rebuild the
+	// pass/fail/pending tally from the PR's actual head commit.
+	if p.state() == "OPEN" {
+		runs, err := ghChecksAt(wt, p.Head.SHA)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range runs {
+			switch classifyCheckRun(r) {
+			case "pass":
+				s.Pass++
+			case "fail":
+				s.Fail++
+			default:
+				s.Pending++
+			}
 		}
 	}
 	return s, nil
+}
+
+// classifyCheckRun buckets one CheckRun (mergewait.go's REST check-run/status
+// shape) into pass / fail / pending, mirroring classifyCheck's vocabulary for
+// the GraphQL-era checkEntry shape above. Anything not yet "completed" is
+// pending regardless of its conclusion field.
+func classifyCheckRun(c CheckRun) string {
+	if strings.ToLower(c.Status) != "completed" {
+		return "pending"
+	}
+	switch strings.ToUpper(c.Conclusion) {
+	case "SUCCESS", "NEUTRAL", "SKIPPED":
+		return "pass"
+	case "":
+		return "pending"
+	default:
+		return "fail"
+	}
 }
 
 // classifyCheck buckets one rollup node into pass / fail / pending. It prefers

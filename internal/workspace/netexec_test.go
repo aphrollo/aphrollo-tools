@@ -135,6 +135,33 @@ func putSlowStubOnPath(t *testing.T) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
+// putSlowGHStubOnPath is putSlowStubOnPath's gh-only half: the shared stub
+// dir carries both a "git" and a "gh" stub, and a REST-path test still needs
+// its OWN `git remote get-url origin` (githubOwnerRepo) to reach the real
+// git, not the stub — so only the "gh" stub is copied into a fresh dir and
+// put on PATH ahead of the real one, leaving git untouched.
+func putSlowGHStubOnPath(t *testing.T) {
+	t.Helper()
+	src, err := slowStubDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "gh"
+	if runtime.GOOS == "windows" {
+		name = "gh.exe"
+	}
+	data, err := os.ReadFile(filepath.Join(src, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, name), data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	registerStubDir(dir)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 // gitNetworkOutput must give up on a stalled git subprocess at
 // gitNetworkTimeout rather than waiting it out, and say so in the error.
 func TestGitNetworkOutput_GivesUpOnAStalledFetchAtTheDeadline(t *testing.T) {
