@@ -210,3 +210,23 @@ func TestDirectPROpenDecision_AllowsGraphQLThatOpensNoPR(t *testing.T) {
 		}
 	}
 }
+
+// gh reads `@file` only for a typed field (-F/--field); a raw field sends
+// "@x" as the literal query. The wall must judge that literal, never the
+// file, or it refuses a command gh would send as an inert string.
+func TestDirectPROpenDecision_RawFieldAtFileStaysLiteral(t *testing.T) {
+	dir := prRepo(t, "mutants-before-pr = true\n")
+	if err := os.WriteFile(filepath.Join(dir, "x"), []byte(createPRMutation), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, cmd := range []string{
+		"gh api graphql -f query=@x",
+		"gh api graphql -fquery=@x",
+		"gh api graphql --raw-field query=@x",
+		"gh api graphql --raw-field=query=@x",
+	} {
+		if got := DirectPROpenDecision(bashPayload(t, "s", dir, cmd)); got.Action != Allow {
+			t.Errorf("%q: Action = %v, want Allow — a raw field's @x is literal text; Reason=%q", cmd, got.Action, got.Reason)
+		}
+	}
+}
