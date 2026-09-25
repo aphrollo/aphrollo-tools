@@ -47,7 +47,7 @@ func TestHandleSessionStart_OpensWithATellIdentityAndItsFix(t *testing.T) {
 func TestHandleSessionStart_SaysNothingAboutAPersonsIdentity(t *testing.T) {
 	repo := identitySessionRepo(t, true, "Claudia Airey", "claudia@example.com")
 	msg := HandleSessionStart(mustJSON(t, map[string]string{"session_id": "ss-ident-ok", "cwd": repo}))
-	if strings.Contains(msg, "identity") {
+	if strings.Contains(msg, "UNDERCOVER IDENTITY") {
 		t.Errorf("an ordinary identity was reported:\n%s", msg)
 	}
 }

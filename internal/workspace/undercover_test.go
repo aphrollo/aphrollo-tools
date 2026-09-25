@@ -25,7 +25,9 @@ func requireUndercoverRefusal(t *testing.T, err error, quoted ...string) {
 
 func requireNoUndercoverRefusal(t *testing.T, err error) {
 	t.Helper()
-	if err != nil && strings.Contains(err.Error(), "undercover") {
+	// The prefix every undercover refusal opens with; a bare "undercover"
+	// would match a temp path under a checkout named for the feature.
+	if err != nil && strings.HasPrefix(err.Error(), "undercover:") {
 		t.Fatalf("refused an ordinary name or text: %v", err)
 	}
 }
