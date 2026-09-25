@@ -53,7 +53,43 @@ func DiscardBashDecision(raw []byte) Decision {
 	if !ok {
 		return Decision{}
 	}
+	// `aphrollo gate allow discard` arms a one-shot waiver
+	// (armDiscardWaiver/ConsumeOneShot, discardwall.go) that the git shim's
+	// own discard wall already honors (git_shim_discard_wall.go). This
+	// Bash-tool wall used to be a separate, unconditional forbid that never
+	// checked it: the shim would have let the armed command through, but a
+	// Bash/PowerShell tool call never reaches the shim at all — the shell
+	// runs `git` directly — so the arm the operator just set had nothing to
+	// spend it on and the very next call was refused again. Checking it here
+	// too makes the arm mean what `gate allow discard` says it means,
+	// regardless of which wall the command happens to meet first.
+	if ConsumeOneShot(WallDiscard) {
+		logDiscardBashArmUsed(cmd, in.Cwd)
+		return Decision{}
+	}
 	return Decision{Action: Block, Reason: reason, Policy: discardBashPolicy}
+}
+
+// discardBashArmUsedVerdict is the gate.log verdict a spent one-shot arm
+// records here, distinct from the shim's own "override-discard-used" so a
+// reader can tell which wall the armed command actually met.
+const discardBashArmUsedVerdict = "discard-bash-arm-used"
+
+// logDiscardBashArmUsed records the one Bash/PowerShell command an armed
+// discard waiver let through, and the tree it ran in. Modeled on
+// LogOverride's own root resolution, but with the actual command as the
+// log's cmd field rather than the session id — the arm is spent by a
+// COMMAND, and the trail should name it without a second lookup.
+func logDiscardBashArmUsed(cmd, cwd string) {
+	root := "-"
+	if cwd != "" {
+		if r := findRootFrom(cwd); r != "" {
+			root = r
+		} else {
+			root = cwd
+		}
+	}
+	AppendGateLog("bash", LogToken(root), cmd, discardBashArmUsedVerdict, 0)
 }
 
 // cmdDiscards returns the refusal for the first forbidden invocation cmd, or
