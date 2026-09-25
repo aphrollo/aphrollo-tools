@@ -33,7 +33,7 @@ var ciUndercoverClient = func(token string) undercover.Client {
 	if base == "" {
 		base = "https://api.github.com"
 	}
-	return undercover.RESTClient{BaseURL: base, Token: token, HTTP: &http.Client{Timeout: 60 * time.Second}}
+	return undercover.RESTClient{BaseURL: base, Token: token, HTTP: &http.Client{Timeout: time.Minute}}
 }
 
 func runCIUndercoverText(args []string, stdout, stderr io.Writer) int {

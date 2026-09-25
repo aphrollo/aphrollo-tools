@@ -158,8 +158,8 @@ func checkComments(ctx context.Context, c Client, tells List, listPath, editPref
 // answers how many items it held; a short page is the last one, and
 // maxPages bounds the rest.
 func pages(ctx context.Context, c Client, listPath string, read func(path string, raw []byte) (int, error)) error {
-	for page := 1; page <= maxPages; page++ {
-		path := fmt.Sprintf("%s?per_page=%d&page=%d", listPath, pageSize, page)
+	for i := range maxPages {
+		path := fmt.Sprintf("%s?per_page=%d&page=%d", listPath, pageSize, i+1)
 		raw, err := c.Get(ctx, path)
 		if err != nil {
 			return err
