@@ -72,3 +72,17 @@ func TestInstall_ShowsTheFeatureTableOnlyOnTheFirstRun(t *testing.T) {
 		t.Errorf("the second install shows the table again:\n%s", second.String())
 	}
 }
+
+// Each help spelling prints the usage and succeeds; a spelling that fell
+// through to the flag parser would exit 2 and print nothing on stdout.
+func TestConfig_EveryHelpSpellingPrintsTheUsage(t *testing.T) {
+	for _, arg := range []string{"-h", "--help", "help"} {
+		var out, errb bytes.Buffer
+		if code := Run([]string{"config", arg}, strings.NewReader(""), &out, &errb); code != 0 {
+			t.Errorf("config %s exit = %d, want 0\nstderr: %s", arg, code, errb.String())
+		}
+		if !strings.HasPrefix(out.String(), "usage: aphrollo config") {
+			t.Errorf("config %s printed %q, want the usage", arg, out.String())
+		}
+	}
+}
