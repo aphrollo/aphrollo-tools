@@ -57,12 +57,11 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	// below runs it (the merge) or stands down in favour of the fail-first
 	// proof (the commit) — see suiteproof.go for what may be claimed after.
 	gateSuiteProof().Owe(runner)
-	// CI parity for a Go root: the same vet and lint the branch is judged by,
-	// both cheaper than the suite and therefore ahead of it.
-	if runner.Cmd == "go" {
-		if res := goQualityStage(gateName, repoRoot, g.Root, rootRelFiles, run); res.Blocked {
-			return res
-		}
+	// The toolchain's own checks, all cheaper than the suite and therefore
+	// ahead of it: go vet and lint, tsc and eslint, or what the repo declared
+	// for this root instead.
+	if res := rootChecksStage(gateName, repoRoot, g.Root, runner, rootRelFiles, run); res.Blocked {
+		return res
 	}
 	if failFirst {
 		// The commit gate proves the staged test goes RED and stops there.
@@ -86,6 +85,37 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 		return failFirstStage(repoRoot, g.Root, g.tests, g.srcs, run)
 	}
 	return suiteStage(gateName, repoRoot, g.Root, runner, run)
+}
+
+// rootCheck is one toolchain's pre-suite checks for a non-cargo root: CI
+// parity for a Go root (the same vet and lint the branch is judged by), the
+// typecheck and lint for an npm one. A new toolchain is a new entry here.
+type rootCheck struct {
+	applies func(root string, runner Runner) bool
+	run     func(gateName, repoRoot, root string, touched []string, run SuiteRunner) GateResult
+}
+
+var rootChecks = []rootCheck{
+	{applies: func(_ string, r Runner) bool { return r.Cmd == "go" }, run: goQualityStage},
+	{applies: isNpmRoot, run: npmQualityStage},
+}
+
+// rootChecksStage runs every rootCheck that applies to root, stopping at the
+// first rejection — or, when aphrollo.toml declares root's checks, those
+// instead of any of them.
+func rootChecksStage(gateName, repoRoot, root string, runner Runner, touched []string, run SuiteRunner) GateResult {
+	if cmds, declared, err := declaredPrecommit(repoRoot, root); declared {
+		return declaredChecksStage(gateName, root, cmds, err, run)
+	}
+	for _, c := range rootChecks {
+		if !c.applies(root, runner) {
+			continue
+		}
+		if res := c.run(gateName, repoRoot, root, touched, run); res.Blocked {
+			return res
+		}
+	}
+	return verdictFor(gateName, "checks", root, "", stageOutcome{Kind: outcomePass})
 }
 
 // rootSuiteRunner is the suite a non-cargo root owes: runner scoped to the
