@@ -106,7 +106,7 @@ var rootChecks = []rootCheck{
 // instead of any of them.
 func rootChecksStage(gateName, repoRoot, root string, runner Runner, touched []string, run SuiteRunner) GateResult {
 	if cmds, declared, err := declaredPrecommit(repoRoot, root); declared {
-		return declaredChecksStage(gateName, root, cmds, err, run)
+		return declaredChecksStage(gateName, repoRoot, root, cmds, err, run)
 	}
 	for _, c := range rootChecks {
 		if !c.applies(root, runner) {

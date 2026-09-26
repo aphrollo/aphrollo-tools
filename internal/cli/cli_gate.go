@@ -130,6 +130,12 @@ a failure summary (silent unless RED). userpromptsubmit intercepts
 /gate [status|off|on|reset] and otherwise re-injects the last RED outcome.
 sessionend cleans up the per-session state file. precommit verifies fail-first,
 blocks a newly-added suppression, and runs the suite, exiting non-zero to block.
+Commands a root declares under [aphrollo.precommit] in aphrollo.toml have no
+HEAD baseline: any failure blocks, including one HEAD already had, unless the
+command is written { argv = [...], baseline = "lines" }. Then a failure is run
+again on HEAD's tree and blocks only over output lines HEAD's run did not print
+(each checkout's path and trailing whitespace aside), or when HEAD's run cannot
+be made.
 premerge (alias: premergecommit) runs ONLY the mechanical stage over the
 merge's staged files — no fail-first (a fresh test's RED/GREEN belongs to the
 authoring commit, already proven by precommit there) and no anti-cheat

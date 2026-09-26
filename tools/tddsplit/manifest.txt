@@ -583,6 +583,8 @@ precommit_cargotarget_test.go                      precommit
 precommit_commentonly_test.go                      precommit
 precommit_core.go                                  core      # created by P2
 precommit_declared.go                              precommit
+precommit_declared_baseline.go                     precommit
+precommit_declared_baseline_test.go                precommit
 precommit_declared_test.go                         precommit
 precommit_diffscan.go                              precommit
 precommit_diffscan_failfirst.go                    failfirst # created by P2

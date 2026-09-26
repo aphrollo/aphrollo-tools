@@ -127,7 +127,11 @@ func TestDeclaredPrecommit_ReadsEachRootsArgvFromItsOwnTable(t *testing.T) {
 		repo := t.TempDir()
 		write(t, repo, "aphrollo.toml", tc.toml)
 		cmds, declared, err := declaredPrecommit(repo, filepath.Join(repo, tc.root))
-		if err != nil || declared != tc.declared || fmt.Sprint(cmds) != fmt.Sprint(tc.want) {
+		var argvs [][]string
+		for _, c := range cmds {
+			argvs = append(argvs, c.Argv)
+		}
+		if err != nil || declared != tc.declared || fmt.Sprint(argvs) != fmt.Sprint(tc.want) {
 			t.Errorf("%s: got %v declared=%v err=%v, want %v declared=%v", tc.name, cmds, declared, err, tc.want, tc.declared)
 		}
 	}
