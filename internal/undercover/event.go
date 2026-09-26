@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"strings"
 )
 
 // Client is the GitHub REST seam CheckEvent reads and edits through: a path
@@ -188,6 +190,13 @@ func judgeText(ctx context.Context, c Client, tells List, editPath, kind, body s
 		return nil
 	}
 	if err := c.Patch(ctx, editPath, map[string]string{"body": kept}); err != nil {
+		var he *HTTPError
+		if errors.As(err, &he) && he.Status == http.StatusForbidden {
+			res.Failures = append(res.Failures, fmt.Sprintf(
+				"undercover: the %s ends in a tool footer, and GitHub refused to rewrite it (403): the workflow token is read-only, as it is on a fork PR. Remove it by hand:\n    %s",
+				kind, strings.Join(stripped, "\n    ")))
+			return nil
+		}
 		return fmt.Errorf("rewriting the %s: %w", kind, err)
 	}
 	res.Stripped = append(res.Stripped, fmt.Sprintf("%s: stripped %q", kind, stripped))

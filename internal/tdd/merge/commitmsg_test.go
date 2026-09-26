@@ -243,6 +243,7 @@ func TestCommitMsg_RefusesAToolIdentityAndNamesTheFix(t *testing.T) {
 func TestCommitMsg_RefusesAToolCommitterUnderAPersonsAuthorship(t *testing.T) {
 	root := identityRepo(t, true, "Jane Doe", "jane@example.com")
 	t.Setenv("GIT_COMMITTER_NAME", "Claude")
+	t.Setenv("GIT_COMMITTER_EMAIL", "noreply@anthropic.com")
 
 	got := CommitMsg(root, msgFile(t, "Fix the flaky retry timer\n"))
 	if !got.Blocked || !strings.Contains(got.Message, "committer") {
@@ -292,5 +293,15 @@ func TestCommitMsg_TheGuidanceFileAndConfigPathsPassInEveryPosition(t *testing.T
 		if res := CommitMsg(root, msgFile(t, body)); res.Blocked {
 			t.Errorf("an ordinary message was refused: %q\n%s", body, res.Message)
 		}
+	}
+}
+
+// A person named like the product commits like anyone else: an identity is a
+// tell by its vendor address, never by a name alone.
+func TestCommitMsg_AcceptsAPersonNamedClaude(t *testing.T) {
+	t.Parallel()
+	root := identityRepo(t, true, "Claude Monet", "claude.monet@example.com")
+	if got := CommitMsg(root, msgFile(t, "Fix the flaky retry timer\n\nCo-authored-by: Claude Shannon <cs@bell-labs.com>\n")); got.Blocked {
+		t.Fatalf("a person named Claude was refused: %s", got.Message)
 	}
 }

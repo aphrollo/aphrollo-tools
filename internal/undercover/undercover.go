@@ -58,8 +58,9 @@ func Load(root string) (l List, on bool) {
 // Line reports the first tell one line of prose carries.
 func (l List) Line(s string) (tell string, hit bool) {
 	scrubbed := scrub(s)
+	trailer := coAuthorTrailer.MatchString(s)
 	for _, t := range Tells {
-		if t.Line == nil {
+		if t.Line == nil || t.Trailer != trailer {
 			continue
 		}
 		subject := s
@@ -96,9 +97,20 @@ func (l List) Text(body string) (Hit, bool) {
 }
 
 // Ident reports the tell a git identity (`git var GIT_AUTHOR_IDENT`: name,
-// address, timestamp) carries.
+// address, timestamp) carries: a vendor address, or a workspace's extra
+// token. A name alone is never one, so a person named Claude commits freely.
 func (l List) Ident(ident string) (tell string, hit bool) {
-	return l.Line(ident)
+	for _, t := range Tells {
+		if t.Ident != nil && t.Ident.MatchString(ident) {
+			return t.Name, true
+		}
+	}
+	for _, e := range l.extra {
+		if e.line.MatchString(ident) {
+			return e.name, true
+		}
+	}
+	return "", false
 }
 
 // RefName reports the tell a ref name carries. The name is split on `/`, `-`,

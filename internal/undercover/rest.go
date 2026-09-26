@@ -54,7 +54,19 @@ func (r RESTClient) do(ctx context.Context, method, path string, body []byte) ([
 		return nil, err
 	}
 	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("%s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(data)))
+		return nil, &HTTPError{Method: method, Path: path, Status: resp.StatusCode, Body: strings.TrimSpace(string(data))}
 	}
 	return data, nil
+}
+
+// HTTPError is a non-2xx answer, kept typed so a caller can tell a refused
+// write (403: a read-only token) from every other failure.
+type HTTPError struct {
+	Method, Path string
+	Status       int
+	Body         string
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("%s %s: %d %s: %s", e.Method, e.Path, e.Status, http.StatusText(e.Status), e.Body)
 }

@@ -17,8 +17,21 @@ func TestTells_EveryEntryHitsItsFixturesAndPassesItsOrdinaryText(t *testing.T) {
 	t.Parallel()
 	l := New(nil)
 	for _, tell := range Tells {
-		if tell.Line == nil && len(tell.Tokens) == 0 {
-			t.Errorf("%s: matches neither prose nor names", tell.Name)
+		if tell.Line == nil && len(tell.Tokens) == 0 && tell.Ident == nil {
+			t.Errorf("%s: matches neither prose, names nor identities", tell.Name)
+		}
+		if tell.Ident != nil && (len(tell.IdentHit) == 0 || len(tell.IdentPass) == 0) {
+			t.Errorf("%s: an identity tell needs identity hit AND pass fixtures, has %d/%d", tell.Name, len(tell.IdentHit), len(tell.IdentPass))
+		}
+		for _, s := range tell.IdentHit {
+			if got, ok := l.Ident(s); !ok || got != tell.Name {
+				t.Errorf("%s: identity %q must hit %s, got %q (hit=%v)", tell.Name, s, tell.Name, got, ok)
+			}
+		}
+		for _, s := range tell.IdentPass {
+			if got, ok := l.Ident(s); ok {
+				t.Errorf("%s: ordinary identity %q was refused as %q", tell.Name, s, got)
+			}
 		}
 		if tell.Line != nil && (len(tell.Hit) == 0 || len(tell.Pass) == 0) {
 			t.Errorf("%s: a prose tell needs hit AND pass fixtures, has %d/%d", tell.Name, len(tell.Hit), len(tell.Pass))
@@ -138,6 +151,8 @@ func TestIdent_RefusesAToolIdentityAndPassesAPerson(t *testing.T) {
 	for _, ident := range []string{
 		"Jane Doe <jane@example.com> 1790373617 +0000",
 		"Cairo Air <cairo@air.example> 1 +0000",
+		"Claude Monet <claude.monet@example.com> 1 +0000",
+		"Claude Shannon <cs@bell-labs.com>",
 	} {
 		if hit, ok := l.Ident(ident); ok {
 			t.Errorf("identity %q was refused on %q", ident, hit)

@@ -330,3 +330,48 @@ func TestCheckEvent_PassesTheGuidanceFileAndConfigPaths(t *testing.T) {
 		t.Errorf("ordinary names were judged: failures %q, patches %q", res.Failures, gh.patches)
 	}
 }
+
+// A human line shaped like a trailer is never edited, even with a tell in it:
+// it fails the check and stays exactly as written.
+func TestCheckEvent_ALabelledHumanLineFailsWithoutAnEdit(t *testing.T) {
+	t.Parallel()
+	gh := &fakeGitHub{get: map[string]string{
+		prPath: prJSON("Fix the timer", "Fixes the timer.\n\nNote: this also fixes the Claude Code compatibility shim"),
+	}}
+	res, err := CheckEvent(context.Background(), []byte(triggers["pull_request"]), New(nil), gh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gh.patches) != 0 {
+		t.Errorf("a human line was edited: %q", gh.patches)
+	}
+	if len(res.Failures) != 1 || !strings.Contains(res.Failures[0], "Note: this also fixes the Claude Code compatibility shim") {
+		t.Errorf("failures = %q, want the Note: line quoted", res.Failures)
+	}
+}
+
+// readOnlyGitHub refuses every PATCH the way GitHub answers a fork PR's
+// read-only token.
+type readOnlyGitHub struct{ fakeGitHub }
+
+func (r *readOnlyGitHub) Patch(_ context.Context, path string, _ map[string]string) error {
+	return &HTTPError{Method: "PATCH", Path: path, Status: 403, Body: "Resource not accessible by integration"}
+}
+
+func TestCheckEvent_AReadOnlyTokenFailsNamingTheCauseAndTheLine(t *testing.T) {
+	t.Parallel()
+	gh := &readOnlyGitHub{fakeGitHub{get: map[string]string{prPath: prJSON("Fix the timer", "Fixes it."+footer)}}}
+	res, err := CheckEvent(context.Background(), []byte(triggers["pull_request"]), New(nil), gh)
+	if err != nil {
+		t.Fatalf("a read-only token is a finding, not a crash: %v", err)
+	}
+	joined := strings.Join(res.Failures, "\n")
+	for _, want := range []string{"read-only", "fork", "PR body", "Generated with [Claude Code]"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("failures %q lack %q", joined, want)
+		}
+	}
+	if len(res.Stripped) != 0 {
+		t.Errorf("an edit GitHub refused was reported as stripped: %q", res.Stripped)
+	}
+}

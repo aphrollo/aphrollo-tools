@@ -3,6 +3,7 @@ package undercover
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -50,7 +51,9 @@ func TestRESTClient_SendsTheTokenAndReadsAndPatches(t *testing.T) {
 	if _, err := c.Get(ctx, "/repos/o/r/missing"); err == nil || !strings.Contains(err.Error(), "404") {
 		t.Errorf("a 404 must be an error naming the status, got %v", err)
 	}
-	if err := c.Patch(ctx, "/repos/o/r/missing", nil); err == nil {
-		t.Error("a failed PATCH must be an error")
+	err = c.Patch(ctx, "/repos/o/r/missing", nil)
+	var he *HTTPError
+	if !errors.As(err, &he) || he.Status != http.StatusNotFound {
+		t.Errorf("a failed PATCH must be an *HTTPError carrying the status, got %v", err)
 	}
 }

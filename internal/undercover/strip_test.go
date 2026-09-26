@@ -40,6 +40,8 @@ func TestStripFooter_LeavesProseAndOrdinaryTrailersAlone(t *testing.T) {
 		"Fix it.\n\nClaude wrote most of this.",
 		"Fix it.\n\nsee https://example.com/docs",
 		"Generated with protoc.\n",
+		"Fix it.\n\nNote: this also fixes the Claude Code compatibility shim",
+		"Fix it.\n\nSee: https://example.com/claude",
 		"",
 	} {
 		if kept, stripped := StripFooter(body, New(nil)); kept != body || len(stripped) != 0 {
