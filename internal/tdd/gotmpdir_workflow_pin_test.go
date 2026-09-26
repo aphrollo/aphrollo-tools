@@ -56,9 +56,9 @@ func TestGateEnvWorkflowStep_ExportsExactlyTempEnvKeys(t *testing.T) {
 
 // gateEnvJobBlock isolates one top-level job's own YAML text: from its
 // "  <name>:" key to the next top-level job key (two-space indent) or EOF,
-// mirroring pipeline_push_test.go's own escape-closure isolation but without
-// hardcoding the NEXT job's name, so reordering the file cannot silently
-// widen this test's scope to a neighboring job's export lines.
+// finding that boundary generically rather than hardcoding the NEXT job's
+// name, so reordering the file cannot silently widen this test's scope to a
+// neighboring job's export lines.
 func gateEnvJobBlock(t *testing.T, workflow string) string {
 	t.Helper()
 	lines := strings.Split(workflow, "\n")

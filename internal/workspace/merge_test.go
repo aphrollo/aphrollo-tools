@@ -6,6 +6,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // stubMerge swaps the gh merge seam, the remote-branch-delete seam, and the
@@ -15,8 +17,17 @@ import (
 func stubMerge(t *testing.T, view func(wt, branch string) (*PRInfo, error), merge func(wt, branch, method string) error, del func(wt, branch string) (bool, error)) {
 	t.Helper()
 	ov, om, od := ghViewPR, ghMergePR, ghDeleteRemoteBranch
+	oc := escapeClosureBeforeMerge
 	ghViewPR, ghMergePR, ghDeleteRemoteBranch = view, merge, del
-	t.Cleanup(func() { ghViewPR, ghMergePR, ghDeleteRemoteBranch = ov, om, od })
+	// Every existing merge test drives ghMergePR through this helper without
+	// itself caring about the escape-closure judgment, so it defaults to a
+	// pass here — a test proving the refusal (or the recording beside it)
+	// overrides escapeClosureBeforeMerge itself, after calling stubMerge.
+	escapeClosureBeforeMerge = func(wt string, prNumber int, w io.Writer) error { return nil }
+	t.Cleanup(func() {
+		ghViewPR, ghMergePR, ghDeleteRemoteBranch = ov, om, od
+		escapeClosureBeforeMerge = oc
+	})
 }
 
 // stubSync swaps the post-merge sync seam so a test can observe the catch-up of
@@ -326,5 +337,124 @@ func TestMerge_KeepBranch(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "deleted branch") {
 		t.Errorf("keep-branch output should not claim a deletion:\n%s", out.String())
+	}
+}
+
+// A PR opened outside this tool (`gh pr create`, the web UI) never runs
+// closureChecksBeforePR, so `workspace merge` runs the same judgment itself,
+// once, right before landing it.
+func TestMerge_RefusesWhenEscapeClosureFails(t *testing.T) {
+	stubMerge(t,
+		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 700, URL: "u"}, nil },
+		func(wt, branch, method string) error {
+			t.Fatal("merge must not run when the escape-closure check refuses")
+			return nil
+		},
+		func(wt, branch string) (bool, error) { t.Fatal("delete must not run"); return false, nil },
+	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
+	prevClosure := escapeClosureBeforeMerge
+	escapeClosureBeforeMerge = func(wt string, prNumber int, w io.Writer) error {
+		return fmt.Errorf("an escape issue this PR claims to close needs a law, gate stage, or named check changed")
+	}
+	t.Cleanup(func() { escapeClosureBeforeMerge = prevClosure })
+
+	m, _ := MergePlan(targetFor("/x", "feat/z"), "squash", true)
+	var out, errb bytes.Buffer
+	err := m.Apply(&out, &errb)
+	if err == nil {
+		t.Fatal("expected the merge to be refused by the escape-closure check")
+	}
+	if !strings.Contains(err.Error(), "escape") {
+		t.Errorf("expected the refusal to name the escape-closure check, got: %v", err)
+	}
+}
+
+// A green CI run passes the escape-closure judgment through unchanged — the
+// green-path tests above already prove this via stubMerge's own default, but
+// this pins the call happens with the PR's real number.
+func TestMerge_EscapeClosureCalledWithThePRNumber(t *testing.T) {
+	stubMerge(t,
+		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 701, URL: "u"}, nil },
+		func(wt, branch, method string) error { return nil },
+		func(wt, branch string) (bool, error) { return false, nil },
+	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
+	prevClosure := escapeClosureBeforeMerge
+	var gotNumber int
+	escapeClosureBeforeMerge = func(wt string, prNumber int, w io.Writer) error {
+		gotNumber = prNumber
+		return nil
+	}
+	t.Cleanup(func() { escapeClosureBeforeMerge = prevClosure })
+	stubSync(t, func(repoArg string, dry bool, stdout, stderr io.Writer) error { return nil })
+
+	m, _ := MergePlan(targetFor("/x", "feat/z"), "squash", true)
+	var out, errb bytes.Buffer
+	if err := m.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
+	}
+	if gotNumber != 701 {
+		t.Errorf("escapeClosureBeforeMerge called with PR #%d, want #701", gotNumber)
+	}
+}
+
+// A red CI on a tip the local gate already proved green is recorded as an
+// escape — the merge verb's own replacement for CI's escape-record job.
+func TestMerge_RecordsAnEscapeWhenCIIsRedOnATipTheGateProvedGreen(t *testing.T) {
+	stubMerge(t,
+		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 702, URL: "u"}, nil },
+		func(wt, branch, method string) error {
+			t.Fatal("merge must not run while CI is red")
+			return nil
+		},
+		func(wt, branch string) (bool, error) { t.Fatal("delete must not run"); return false, nil },
+	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "red", Failing: 2}, nil })
+	prev := recordMergeCIEscape
+	var gotRepo, gotJob string
+	recordMergeCIEscape = func(o tdd.CIEscapeOptions, w io.Writer) (tdd.EscapeRecord, bool) {
+		gotRepo, gotJob = o.Repo, o.Job
+		return tdd.EscapeRecord{}, false
+	}
+	t.Cleanup(func() { recordMergeCIEscape = prev })
+
+	m, _ := MergePlan(targetFor("/x", "feat/z"), "squash", true)
+	var out, errb bytes.Buffer
+	if err := m.Apply(&out, &errb); err == nil {
+		t.Fatal("expected the merge to be refused while CI is red")
+	}
+	if gotRepo != "/x" || gotJob == "" {
+		t.Errorf("recordMergeCIEscape called with repo=%q job=%q, want the worktree and a named job", gotRepo, gotJob)
+	}
+}
+
+// A pending or unresolvable CI state is not evidence the gate missed
+// anything -- only an actual red is worth recording.
+func TestMerge_PendingCIDoesNotRecordAnEscape(t *testing.T) {
+	stubMerge(t,
+		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 703, URL: "u"}, nil },
+		func(wt, branch, method string) error {
+			t.Fatal("merge must not run while CI is pending")
+			return nil
+		},
+		func(wt, branch string) (bool, error) { t.Fatal("delete must not run"); return false, nil },
+	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "pending"}, nil })
+	prev := recordMergeCIEscape
+	called := false
+	recordMergeCIEscape = func(o tdd.CIEscapeOptions, w io.Writer) (tdd.EscapeRecord, bool) {
+		called = true
+		return tdd.EscapeRecord{}, false
+	}
+	t.Cleanup(func() { recordMergeCIEscape = prev })
+
+	m, _ := MergePlan(targetFor("/x", "feat/z"), "squash", true)
+	var out, errb bytes.Buffer
+	if err := m.Apply(&out, &errb); err == nil {
+		t.Fatal("expected the merge to be refused while CI is pending")
+	}
+	if called {
+		t.Error("a pending CI state must not record an escape")
 	}
 }

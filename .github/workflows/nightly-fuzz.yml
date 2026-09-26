@@ -19,9 +19,8 @@ jobs:
   fuzz:
     # A fork's scheduled/dispatched run has no business filing issues against
     # this repo (and `gh issue create` would just fail there anyway without
-    # a token) — the same guard `escape-record` in pipeline.yml applies via
-    # `head.repo.fork`, stated directly here since a schedule event carries
-    # no PR to read that from.
+    # a token) — stated directly here since a schedule event carries no PR
+    # whose `head.repo.fork` a `pull_request`-triggered job could read.
     if: github.repository == 'aphrollo/aphrollo-tools'
     runs-on: self-hosted
     timeout-minutes: 20

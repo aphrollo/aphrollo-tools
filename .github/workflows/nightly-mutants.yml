@@ -100,11 +100,11 @@ jobs:
           echo "scoping the run to $base..HEAD"
           ./bin/aphrollo gate mutants run --base "$base"
       - name: Record an escape
-        # A red here is the same shape pipeline.yml's escape-record job
-        # covers for the per-push checks: a tripwire failing on main, after
-        # the local gate already passed it. Recorded once per failing run
-        # via the same fingerprinting `gate escape record` always applies --
-        # it will not duplicate an issue two nights running for the same cause.
+        # A tripwire failing on main after the local gate already passed it
+        # is exactly what the escape loop's opening half exists to catch.
+        # Recorded once per failing run via the same fingerprinting `gate
+        # escape record` always applies -- it will not duplicate an issue two
+        # nights running for the same cause.
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}

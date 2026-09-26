@@ -156,11 +156,32 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 		return fmt.Errorf("checking CI status for %s: %w", m.Target.Branch, ciErr)
 	}
 	if ci.State != "green" {
+		// A red on a tip the local gate already proved green is the exact
+		// disagreement CI's own escape-record job used to catch — recorded
+		// here instead, since this is the one local point that reads BOTH
+		// halves: the gate note this tip carries, and the CI state just read
+		// above. RecordCIEscape no-ops silently when the tip carries no green
+		// note, so a genuinely red lane records nothing extra.
+		if ci.State == "red" {
+			recordMergeCIEscape(tdd.CIEscapeOptions{
+				Repo:     m.Target.Worktree,
+				Job:      "pipeline",
+				Reason:   fmt.Sprintf("CI is red (%d failing) on a tip the local gate passed green", ci.Failing),
+				Evidence: fmt.Sprintf("gh pr checks reported %d failing check(s) for %s", ci.Failing, m.Target.Branch),
+			}, stderr)
+		}
 		detail := ci.State
 		if ci.State == "red" && ci.Failing > 0 {
 			detail = fmt.Sprintf("red (%d failing)", ci.Failing)
 		}
 		return fmt.Errorf("refusing to merge %s: required checks are not green (%s)", m.Target.Branch, detail)
+	}
+	// The escape-closure and pr-closes-check judgment `workspace pr`/`submit`/
+	// `ship` already ran before opening this PR — run again here for a PR
+	// this tool did not itself open (a direct `gh pr create`, a PR from the
+	// web UI), which never went through that local check at all.
+	if err := escapeClosureBeforeMerge(m.Target.Worktree, pr.Number, stderr); err != nil {
+		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
 	// The local pre-merge gate, on the tree this merge is about to create —
 	// before GitHub creates it. Landing through a PR makes no local merge

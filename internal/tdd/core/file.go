@@ -146,7 +146,7 @@ var gateOwnInputs = map[string]bool{
 	"tools/mutation_gate.sh": true,
 	// pipeline_push_test.go reads this repo's own checked-in
 	// .github/workflows/pipeline.yml at its literal path and asserts on its
-	// contents (a BASE_SHA site, an escape-closure job); precommit_go_test.go
+	// contents (a BASE_SHA site, a job's `if` gate); precommit_go_test.go
 	// and mutants_ci_test.go/mutants_ci_pipeline_test.go do the same against
 	// synthesized copies of it. A change here is untested exactly when the
 	// commit is otherwise docs-only (#444).
