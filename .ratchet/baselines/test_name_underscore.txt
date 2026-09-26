@@ -388,5 +388,5 @@ internal/workspace/verify_test.go | func TestResolveAppsCwdFallback(t *testing.T
 internal/workspace/verify_test.go | func TestResolveAppsNoMatch(t *testing.T) {
 internal/workspace/verify_test.go | func TestVerifyDetectTestReusesTdd(t *testing.T) {
 internal/workspace/workspace_test.go | func TestDefaultWorktreeBase(t *testing.T) {
-internal/workspace/workspace_test.go | func TestDetectInstall(t *testing.T) {
+internal/depinstall/depinstall_test.go | func TestDetectInstall(t *testing.T) {
 internal/workspace/workspace_test.go | func TestSlugify(t *testing.T) {

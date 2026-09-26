@@ -16,11 +16,43 @@ func TestNormalizeGitHubURL(t *testing.T) {
 		"ssh://git@github.com/aphrollo/aphrollo-tools.git": "https://github.com/aphrollo/aphrollo-tools",
 		"git@gitlab.com:x/y.git":                           "",
 		"/some/local/path":                                 "",
+		// #916: an https origin carrying credentials (common on a
+		// SYSTEM-run job with no credential helper) must still resolve.
+		"https://user:ghp_TOKEN@github.com/aphrollo/aphrollo-tools.git":       "https://github.com/aphrollo/aphrollo-tools",
+		"https://x-access-token:ghp_TOKEN@github.com/aphrollo/aphrollo-tools": "https://github.com/aphrollo/aphrollo-tools",
+		// plain http, no credentials
+		"http://github.com/aphrollo/aphrollo-tools.git": "https://github.com/aphrollo/aphrollo-tools",
+		// trailing slash
+		"https://github.com/aphrollo/aphrollo-tools/": "https://github.com/aphrollo/aphrollo-tools",
+		// explicit ssh port
+		"ssh://git@github.com:22/aphrollo/aphrollo-tools.git": "https://github.com/aphrollo/aphrollo-tools",
+		// credentials on a non-github host still rejected
+		"https://user:pass@gitlab.com/x/y.git": "",
 	}
 	for in, want := range cases {
 		if got := normalizeGitHubURL(in); got != want {
 			t.Errorf("normalizeGitHubURL(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestNormalizeGitHubURL_NeverLeaksCredentials guards the actual security
+// property #916 calls out: whatever normalizeGitHubURL returns (or any
+// caller derives from it), the token that rode along in the origin URL's
+// userinfo must never appear in it.
+func TestNormalizeGitHubURL_NeverLeaksCredentials(t *testing.T) {
+	const token = "ghp_super_secret_token"
+	remote := "https://x-access-token:" + token + "@github.com/aphrollo/aphrollo-tools.git"
+	got := normalizeGitHubURL(remote)
+	if strings.Contains(got, token) {
+		t.Fatalf("normalizeGitHubURL(%q) = %q leaks the credential", remote, got)
+	}
+	if strings.Contains(got, "x-access-token") {
+		t.Fatalf("normalizeGitHubURL(%q) = %q leaks the userinfo", remote, got)
+	}
+	want := "https://github.com/aphrollo/aphrollo-tools"
+	if got != want {
+		t.Fatalf("normalizeGitHubURL(%q) = %q, want %q", remote, got, want)
 	}
 }
 
