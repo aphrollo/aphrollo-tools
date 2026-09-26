@@ -7,13 +7,11 @@ import (
 	"testing"
 )
 
-const shimDir = "C:/Users/olive/bin/cargo-queue"
-
 func TestClaudeMDBlockCarriesTheOperatingInstructions(t *testing.T) {
 	t.Parallel()
-	block := ClaudeMDBlock(shimDir, false, false)
+	block := ClaudeMDBlock(BlockFlags{})
 	for _, want := range []string{
-		claudeMDBegin, claudeMDEnd, shimDir,
+		claudeMDBegin, claudeMDEnd, "cargo-queue",
 		"gate:", "QUEUED-SKIPPED", "cargo check -p", ".ratchet/laws",
 		"aphrollo ratchet", "aphrollo gate gc", "aphrollo gate stats",
 		"aphrollo install",
@@ -38,46 +36,62 @@ func TestClaudeMDBlockCarriesTheOperatingInstructions(t *testing.T) {
 	if strings.Contains(block, "commit-msg") {
 		t.Error("a workspace that did not ask for the undercover rule must not be told it")
 	}
-	if !strings.Contains(ClaudeMDBlock(shimDir, true, false), "commit-msg") {
+	if !strings.Contains(ClaudeMDBlock(BlockFlags{Undercover: true}), "commit-msg") {
 		t.Error("a workspace with undercover = true must get the commit-message rule")
 	}
 }
 
-// TestClaudeMDBlock_NamesTheInstalledSkillPath: a subagent (`builder`,
-// `researcher`, `Explore`, ...) never receives the session-start nudge, but
-// project instructions ARE forwarded to it, so the managed CLAUDE.md block is
-// the one place such an agent — the population with no Skill tool — can learn
-// where the `tdd` skill actually is instead of running a filesystem-wide
-// search for it.
-func TestClaudeMDBlock_NamesTheInstalledSkillPath(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	if _, err := WriteTDDSkill(dir); err != nil {
+// ratchet: test_removed TestClaudeMDBlock_NamesTheInstalledSkillPath: the block no longer names a per-box path; TestClaudeMDBlock_IsTheSameTextOnEveryBox pins the box-independent skill path instead
+// ratchet: test_removed TestClaudeMDBlock_OmitsSkillPathWhenMissing: whether this box has the skill written no longer changes the block; TestClaudeMDBlock_IsTheSameTextOnEveryBox renders both cases and demands one text
+// The block is committed into a repo's CLAUDE.md, and every box that runs
+// install renders it again (issue #874). Text that varies with the box — the
+// queue-shim dir, the resolved skill path, whether the skill is written yet —
+// re-dirties that tracked file on the next install anywhere else, so the tree
+// never settles. Rendered under two config dirs, one holding the skill and one
+// empty, the block must be byte-identical and name neither dir; a subagent,
+// which reads project instructions but no session-start context, still learns
+// where the skill lives from the box-independent path.
+func TestClaudeMDBlock_IsTheSameTextOnEveryBox(t *testing.T) {
+	withSkill := t.TempDir()
+	if _, err := WriteTDDSkill(withSkill); err != nil {
 		t.Fatal(err)
 	}
-	block := ClaudeMDBlock(shimDir, false, false)
-	if !strings.Contains(block, skillPath(dir)) {
-		t.Errorf("block does not state the installed skill's resolved path %q:\n%s", skillPath(dir), block)
+	t.Setenv("CLAUDE_CONFIG_DIR", withSkill)
+	here := ClaudeMDBlock(BlockFlags{})
+	empty := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", empty)
+	there := ClaudeMDBlock(BlockFlags{})
+
+	if here != there {
+		t.Errorf("the block depends on the box it was rendered on:\n--- with the skill\n%s\n--- without\n%s", here, there)
+	}
+	for _, dir := range []string{withSkill, shellPath(withSkill), empty, shellPath(empty)} {
+		if strings.Contains(here, dir) {
+			t.Errorf("the block names the box path %q", dir)
+		}
+	}
+	if !strings.Contains(here, "`~/.claude/skills/tdd/SKILL.md`") {
+		t.Errorf("the block must name the tdd skill by its box-independent path:\n%s", here)
 	}
 }
 
-// TestClaudeMDBlock_OmitsSkillPathWhenMissing: same rule as the session-start
-// nudge — a path to a file that is not there is worse than no path.
-func TestClaudeMDBlock_OmitsSkillPathWhenMissing(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	block := ClaudeMDBlock(shimDir, false, false)
-	if strings.Contains(block, skillPath(dir)) {
-		t.Errorf("block names a skill path that does not exist on disk:\n%s", block)
-	}
-	if !strings.Contains(block, "aphrollo install") {
-		t.Errorf("block must name the install command when the skill is missing:\n%s", block)
+// A repo with no Cargo.toml declares its keys in aphrollo.toml, and the
+// commit-msg gate reads undercover from there. The block read only the Cargo
+// metadata, so such a repo was refused an attribution trailer by a rule its
+// own CLAUDE.md never stated — this repo's committed block among them.
+func TestManagedBlockFor_ReadsUndercoverFromAphrolloToml(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "aphrollo.toml"), "[aphrollo]\nundercover = true\n")
+
+	if block := managedBlockFor(repo); !strings.Contains(block, "commit-msg") {
+		t.Errorf("undercover = true in aphrollo.toml must reach the block:\n%s", block)
 	}
 }
 
 func TestClaudeMDBlock_NamesTheHandTypedMutationRunNotOnlyTheSpawnedOne(t *testing.T) {
 	t.Parallel()
-	block := ClaudeMDBlock(shimDir, false, false)
+	block := ClaudeMDBlock(BlockFlags{})
 	if !strings.Contains(block, "aphrollo gate mutants run") {
 		t.Error("the block never names the command that measures the current lane by hand")
 	}
@@ -91,7 +105,7 @@ func TestClaudeMDBlock_NamesTheHandTypedMutationRunNotOnlyTheSpawnedOne(t *testi
 // every repo gets.
 func TestClaudeMDBlockStatesThePrimaryCheckoutRule(t *testing.T) {
 	t.Parallel()
-	block := ClaudeMDBlock(shimDir, false, false)
+	block := ClaudeMDBlock(BlockFlags{})
 	for _, want := range []string{
 		"primary checkout",
 		"merge-only",
@@ -113,7 +127,7 @@ func TestClaudeMDBlockStatesThePrimaryCheckoutRule(t *testing.T) {
 
 func TestPatchClaudeMDAppendsOnceAndIsIdempotent(t *testing.T) {
 	t.Parallel()
-	block := ClaudeMDBlock(shimDir, false, false)
+	block := ClaudeMDBlock(BlockFlags{})
 	first, changed := PatchClaudeMD([]byte("# Project\n\nSome guidance.\n"), block)
 	if !changed {
 		t.Fatal("a file with no block must gain one")
@@ -140,7 +154,7 @@ func TestPatchClaudeMDAppendsOnceAndIsIdempotent(t *testing.T) {
 func TestPatchClaudeMDReplacesAnExistingBlockInPlace(t *testing.T) {
 	t.Parallel()
 	stale := "# Project\n\n" + claudeMDBegin + "\nold text nobody updated\n" + claudeMDEnd + "\n\n## Conventions\n\nkeep me\n"
-	block := ClaudeMDBlock(shimDir, false, false)
+	block := ClaudeMDBlock(BlockFlags{})
 
 	out, changed := PatchClaudeMD([]byte(stale), block)
 	got := string(out)
@@ -165,7 +179,7 @@ func TestPatchClaudeMDReplacesAnExistingBlockInPlace(t *testing.T) {
 // inside a half-open one would make every later init unparseable.
 func TestPatchClaudeMDRecoversFromAnOrphanMarker(t *testing.T) {
 	t.Parallel()
-	block := ClaudeMDBlock(shimDir, false, false)
+	block := ClaudeMDBlock(BlockFlags{})
 	out, _ := PatchClaudeMD([]byte("# Project\n\n"+claudeMDBegin+"\nhalf a block\n"), block)
 	got := string(out)
 	if strings.Count(got, claudeMDBegin) != 1 || strings.Count(got, claudeMDEnd) != 1 {
@@ -183,7 +197,7 @@ func TestPatchClaudeMDRecoversFromAnOrphanMarker(t *testing.T) {
 func TestPatchClaudeMD_ReplacesInPlaceWhenFileEndsExactlyAtTheEndMarkerWithNoTrailingNewline(t *testing.T) {
 	t.Parallel()
 	stale := "# Project\n\n" + claudeMDBegin + "\nold text\n" + claudeMDEnd
-	block := ClaudeMDBlock(shimDir, false, false)
+	block := ClaudeMDBlock(BlockFlags{})
 
 	out, changed := PatchClaudeMD([]byte(stale), block)
 	got := string(out)
@@ -203,7 +217,7 @@ func TestPatchClaudeMD_ReplacesInPlaceWhenFileEndsExactlyAtTheEndMarkerWithNoTra
 
 func TestPatchClaudeMDPreservesCRLF(t *testing.T) {
 	t.Parallel()
-	block := ClaudeMDBlock(shimDir, false, false)
+	block := ClaudeMDBlock(BlockFlags{})
 	out, _ := PatchClaudeMD([]byte("# Project\r\n\r\nGuidance.\r\n"), block)
 	if strings.Contains(strings.ReplaceAll(string(out), "\r\n", ""), "\n") {
 		t.Error("a CRLF file must stay CRLF throughout")
@@ -217,7 +231,7 @@ func TestPatchClaudeMDPreservesCRLF(t *testing.T) {
 func TestWriteClaudeMDIsANoOpWithoutTheFileUnlessForced(t *testing.T) {
 	t.Parallel()
 	repo := t.TempDir()
-	changed, err := WriteClaudeMD(repo, shimDir, false)
+	changed, err := WriteClaudeMD(repo, false)
 	if err != nil || changed {
 		t.Fatalf("a repo with no CLAUDE.md must be left alone (changed=%v err=%v)", changed, err)
 	}
@@ -225,13 +239,34 @@ func TestWriteClaudeMDIsANoOpWithoutTheFileUnlessForced(t *testing.T) {
 		t.Fatal("no file must be invented")
 	}
 
-	changed, err = WriteClaudeMD(repo, shimDir, true)
+	changed, err = WriteClaudeMD(repo, true)
 	if err != nil || !changed {
 		t.Fatalf("--claude-md must create the file (changed=%v err=%v)", changed, err)
 	}
 	data, err := os.ReadFile(filepath.Join(repo, "CLAUDE.md"))
 	if err != nil || !strings.HasPrefix(string(data), claudeMDBegin) {
 		t.Fatalf("created file = %q (%v)", data, err)
+	}
+}
+
+// A repo that measures mutants keeps its builders' mutation rules only in the
+// block, so install writes the block there even with no CLAUDE.md to put it
+// in; a repo that measures nothing still gets no file invented.
+func TestWriteClaudeMD_CreatesTheFileInARepoThatMeasuresMutants(t *testing.T) {
+	t.Parallel()
+	for _, key := range []string{"mutants-at-merge", "mutants-before-pr"} {
+		repo := t.TempDir()
+		mustWrite(t, filepath.Join(repo, "aphrollo.toml"), "[aphrollo]\n"+key+" = true\n")
+
+		changed, err := WriteClaudeMD(repo, false)
+
+		if err != nil || !changed {
+			t.Fatalf("%s: changed=%v err=%v, want the block written", key, changed, err)
+		}
+		data, err := os.ReadFile(filepath.Join(repo, "CLAUDE.md"))
+		if err != nil || !strings.Contains(string(data), "aphrollo gate mutants prove") {
+			t.Errorf("%s: CLAUDE.md = %q (%v), want the block with the mutation rules", key, data, err)
+		}
 	}
 }
 
@@ -245,7 +280,7 @@ func TestWriteClaudeMDIsByteIdenticalOnASecondRun(t *testing.T) {
 	mustWrite(t, filepath.Join(repo, "Cargo.toml"),
 		"[workspace]\n[workspace.metadata.aphrollo]\nundercover = true\n")
 
-	if changed, err := WriteClaudeMD(repo, shimDir, false); err != nil || !changed {
+	if changed, err := WriteClaudeMD(repo, false); err != nil || !changed {
 		t.Fatalf("first run: changed=%v err=%v", changed, err)
 	}
 	first, err := os.ReadFile(path)
@@ -256,7 +291,7 @@ func TestWriteClaudeMDIsByteIdenticalOnASecondRun(t *testing.T) {
 		t.Error("the workspace's undercover flag must reach the block")
 	}
 
-	if changed, err := WriteClaudeMD(repo, shimDir, false); err != nil || changed {
+	if changed, err := WriteClaudeMD(repo, false); err != nil || changed {
 		t.Fatalf("second run: changed=%v err=%v — nothing moved, so nothing should be written", changed, err)
 	}
 	second, err := os.ReadFile(path)
@@ -284,8 +319,8 @@ func TestManagedBlockFor_MergeLineStatesWhatThisRepoActuallyRequires(t *testing.
 	plain := t.TempDir()
 	mustWrite(t, filepath.Join(plain, "aphrollo.toml"), "[aphrollo]\n")
 
-	withKey := managedBlockFor(measured, `C:\shim`)
-	withoutKey := managedBlockFor(plain, `C:\shim`)
+	withKey := managedBlockFor(measured)
+	withoutKey := managedBlockFor(plain)
 
 	if !strings.Contains(withKey, "runs this lane's mutation measurement") {
 		t.Errorf("a repo declaring mutants-at-merge must be told its merge IS measured, got:\n%s", mergeLineOf(withKey))
@@ -295,6 +330,41 @@ func TestManagedBlockFor_MergeLineStatesWhatThisRepoActuallyRequires(t *testing.
 	}
 	if strings.Contains(withoutKey, "runs this lane's mutation measurement") {
 		t.Errorf("the block must not claim a measurement this repo never runs, got:\n%s", mergeLineOf(withoutKey))
+	}
+}
+
+// The builder agent is one file per user, so the rules that exist only
+// because a merge or a PR measures mutants cannot live there without reaching
+// every repo (issue #875). The repo's own block carries them, and only when
+// the repo declares either switch.
+func TestClaudeMDBlock_StatesTheMutationRulesOnlyWhereTheRepoMeasures(t *testing.T) {
+	t.Parallel()
+	rules := []string{"aphrollo gate mutants prove", "--want-fail", "UNREADABLE", "loop index"}
+	for _, rule := range rules {
+		if block := ClaudeMDBlock(BlockFlags{}); strings.Contains(block, rule) {
+			t.Errorf("a repo that measures no mutants is told %q", rule)
+		}
+	}
+	for name, f := range map[string]BlockFlags{
+		"mutants-at-merge":  {MutantsAtMerge: true},
+		"mutants-before-pr": {MutantsBeforePR: true},
+	} {
+		block := ClaudeMDBlock(f)
+		for _, rule := range rules {
+			if !strings.Contains(block, rule) {
+				t.Errorf("a repo declaring %s is not told %q", name, rule)
+			}
+		}
+	}
+}
+
+func TestManagedBlockFor_ReadsMutantsBeforePR(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "aphrollo.toml"), "[aphrollo]\nmutants-before-pr = true\n")
+
+	if block := managedBlockFor(repo); !strings.Contains(block, "aphrollo gate mutants prove") {
+		t.Errorf("mutants-before-pr = true must bring the mutation rules into the block:\n%s", block)
 	}
 }
 

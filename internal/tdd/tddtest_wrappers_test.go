@@ -8,8 +8,6 @@ import (
 	time "time"
 )
 
-const shimDir = "C:/Users/olive/bin/cargo-queue"
-
 var tempEnvKeys = tddtest.TempEnvKeys
 
 func bashPayload(t *testing.T, session, cwd, command string) []byte {

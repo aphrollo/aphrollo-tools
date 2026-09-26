@@ -33,6 +33,7 @@ var topLevelVerbTable = []Verb{
 	{Name: "gate"},
 	{Name: "tdd", Alias: true, Of: "gate"},
 	{Name: "install"},
+	{Name: "config"},
 	{Name: "issue"},
 	{Name: "ratchet"},
 	{Name: "sqlc"},

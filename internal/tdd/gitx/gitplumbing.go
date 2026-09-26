@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -32,16 +33,28 @@ func git(dir string, args ...string) (string, error) {
 	return gitStdin(dir, nil, args...)
 }
 
-// gitStdin runs git in dir with a scrubbed environment, optionally feeding stdin
-// (nil for none), and returns the combined output. It is the single place the
-// exec/clean-env/CombinedOutput pattern lives.
+// gitStdin runs git in dir with a scrubbed environment, optionally feeding
+// stdin (nil for none), and returns STDOUT ONLY. It is the single place the
+// exec/clean-env pattern lives, and every caller treats the result as DATA
+// (a rev, a diff, a hash) — CombinedOutput here used to fold a stderr hint or
+// warning line (e.g. the git-queue shim's "gate: <bin> is missing — running
+// git UNGATED") straight into that data, corrupting it while git still
+// exited 0 (#869). On failure the diagnostic comes from *exec.ExitError's own
+// captured Stderr rather than the (now stdout-only) out.
 func gitStdin(dir string, stdin io.Reader, args ...string) (string, error) {
 	cmd := exec.Command(gitBinary(), args...)
 	cmd.Dir = dir
 	cmd.Env = cleanGitEnv()
 	cmd.Stdin = stdin
-	out, err := cmd.CombinedOutput()
-	return string(out), err
+	out, err := cmd.Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return string(ee.Stderr), err
+		}
+		return "", err
+	}
+	return string(out), nil
 }
 
 // MergeInProgressRefs is checked in order: the first of these refs that

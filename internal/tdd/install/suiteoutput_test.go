@@ -204,7 +204,7 @@ func TestDenyNarrowedRerunReason_NamesBothRoutesAndWhichAnswersWhich(t *testing.
 // and nothing else. A session that wants the run's TEXT has to be told the
 // route exists there too, or it meets the refusal never having heard of it.
 func TestClaudeMDBlock_NamesTheRouteToTheRunsOwnText(t *testing.T) {
-	block := ClaudeMDBlock(shimDir, false, false)
+	block := ClaudeMDBlock(BlockFlags{})
 	if !strings.Contains(block, "aphrollo gate output") {
 		t.Errorf("the block must name the route to the run's own text:\n%s", block)
 	}

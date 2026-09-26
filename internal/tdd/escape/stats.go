@@ -167,11 +167,13 @@ func isDenyVerdict(verdict string) bool {
 // standDownVerdictSuffixes is issue #320's own vocabulary: every verdict
 // ending in one of these names a stage that decided not to block and is
 // therefore counted, not just printed or logged uncounted. "-skipped" is a
-// suffix ("lint-skipped", "docs-skipped", "no-runner-skipped"); the other
-// three are Contains rather than HasSuffix because the logged verdict can
-// carry trailing detail (failFirstStage's default verdict is literally
-// "inconclusive (fail-open)", parenthesis and all).
-var standDownVerdictSuffixes = []string{"unverifiable", "unpinned", "fail-open"} // standdown-logged: vocabulary constant, not a call site that itself stands down
+// suffix ("lint-skipped", "docs-skipped", "no-runner-skipped"); the others
+// are Contains rather than HasSuffix because the logged verdict can carry
+// trailing detail (failFirstStage's default verdict is literally
+// "inconclusive (fail-open)", parenthesis and all, and a proof whose run at
+// HEAD never reached the staged tests is "inconclusive (test-not-reached)",
+// #898).
+var standDownVerdictSuffixes = []string{"unverifiable", "unpinned", "fail-open", "test-not-reached"} // standdown-logged: vocabulary constant, not a call site that itself stands down
 
 // isStandDownVerdict reports whether verdict is a stand-down: "skipped" and
 // "runner-missing" are bare exact matches (verdictFor's own two deliberate,

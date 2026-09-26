@@ -6,14 +6,18 @@ import (
 	shell "github.com/aphrollo/aphrollo-tools/internal/tdd/shell"
 )
 
+type shellWord = shell.ShellWord
+
 func baseCommand(p0 string) string { return shell.BaseCommand(p0) }
 
 func bashWriteTargets(p0 string, p1 string) []string { return shell.BashWriteTargets(p0, p1) }
 
-func cdTarget(p0 []string) (string, bool) { return shell.CdTarget(p0) }
+func cdTargetTilde(p0 []shellWord) (string, bool) { return shell.CdTargetTilde(p0) }
 
 func resolveAgainst(p0 string, p1 string) string { return shell.ResolveAgainst(p0, p1) }
 
 func shellSegments(p0 string) [][]string { return shell.ShellSegments(p0) }
+
+func shellSegmentsTokens(p0 string) [][]shellWord { return shell.ShellSegmentsTokens(p0) }
 
 func stripHeredocBodies(p0 string) string { return shell.StripHeredocBodies(p0) }

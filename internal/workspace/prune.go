@@ -177,18 +177,14 @@ func PrunePlan(repoArg string) (*Prune, error) {
 // "no PR". The real implementation shells gh in the worktree, where gh resolves
 // the repo from origin.
 var ghPRState = func(wt, branch string) (string, error) {
-	out, err := ghCombinedOutput(wt, "pr", "view", "--json", "state", "-q", ".state", "--", branch)
+	p, err := ghAPIViewByBranch(wt, branch)
 	if err != nil {
-		// gh exits non-zero both for "no PR for this branch" and for genuine
-		// failures. Only the former is an absence; distinguish on gh's message
-		// and propagate everything else so the sweep skips (never prunes) on a
-		// transient gh error.
-		if isNoPRError(string(out)) {
-			return "", nil
-		}
-		return "", fmt.Errorf("gh pr view %s: %v: %s", branch, err, strings.TrimSpace(string(out)))
+		return "", err
 	}
-	return strings.TrimSpace(string(out)), nil
+	if p == nil {
+		return "", nil // absence-ok: REST's list-pulls returned no entry for branch
+	}
+	return p.state(), nil
 }
 
 // ghPRHeadOid is the seam over `gh pr view <branch> --json headRefOid` — a
@@ -200,11 +196,14 @@ var ghPRState = func(wt, branch string) (string, error) {
 // after the merge — see #163: `git status --porcelain` alone cannot make that
 // distinction, since new commits leave the tree clean again.
 var ghPRHeadOid = func(wt, branch string) (string, error) {
-	out, err := ghCombinedOutput(wt, "pr", "view", "--json", "headRefOid", "-q", ".headRefOid", "--", branch)
+	p, err := ghAPIViewByBranch(wt, branch)
 	if err != nil {
-		return "", fmt.Errorf("gh pr view %s: %v: %s", branch, err, strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh api pulls (head=%s): %w", branch, err)
 	}
-	return strings.TrimSpace(string(out)), nil
+	if p == nil {
+		return "", fmt.Errorf("gh api pulls: no PR found for %s", branch)
+	}
+	return p.Head.SHA, nil
 }
 
 // localHeadSHA returns the worktree's current HEAD commit.
@@ -214,16 +213,6 @@ func localHeadSHA(wt string) (string, error) {
 		return "", fmt.Errorf("git rev-parse HEAD: %w", err)
 	}
 	return strings.TrimSpace(string(out)), nil
-}
-
-// isNoPRError reports whether gh's output is the benign "this branch has no open
-// PR" message (an absence) rather than a real failure (auth/network/gh-missing).
-func isNoPRError(out string) bool {
-	o := strings.ToLower(out)
-	return strings.Contains(o, "no pull requests found") ||
-		strings.Contains(o, "no open pull requests found") ||
-		strings.Contains(o, "no pull request found") ||
-		strings.Contains(o, "no pr")
 }
 
 // worktreeEntry is one linked worktree the sweep considers: its path and the

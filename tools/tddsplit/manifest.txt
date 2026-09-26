@@ -73,6 +73,7 @@ baselineguard_test.go                              lawgate
 baselineguard_wholetreeceiling_test.go             lawgate
 bashedit.go                                        postedit
 bashedit_attribution_test.go                       postedit
+bashedit_cdtilde_test.go                           postedit
 bashedit_core.go                                   core      # created by P2
 bashedit_mergeinprogress_test.go                   postedit
 bashedit_mergescope.go                             postedit
@@ -158,6 +159,7 @@ classifydiff_test.go                               precommit
 classifydiff_workflow_filter_unix_test.go          tdd
 classifydiff_workflow_pin_test.go                  tdd
 claudemd.go                                        install
+claudemd_committed_test.go                         tdd
 claudemd_primary_test.go                           install
 claudemd_source_test.go                            tdd       # created by P2
 claudemd_test.go                                   install
@@ -235,6 +237,8 @@ doctor_claudemd_test.go                            install
 doctor_core.go                                     core      # created by P2
 doctor_foreignhooks.go                             install
 doctor_foreignhooks_test.go                        install
+doctor_ghtransport.go                              install
+doctor_ghtransport_test.go                         install
 doctor_hooktarget.go                               install
 doctor_hooktarget_stable.go                        install
 doctor_hooktarget_stable_test.go                   install
@@ -282,12 +286,17 @@ failfirst_gonarrow_test.go                         failfirst
 failfirst_ledger.go                                failfirst
 failfirst_ledger_test.go                           failfirst
 failfirst_outcome.go                               failfirst
+failfirst_reach.go                                 failfirst
+failfirst_reach_test.go                            failfirst
 failfirst_refuse.go                                failfirst
 failfirst_refuse_test.go                           failfirst
 failfirst_skipped.go                               failfirst
 failfirst_skipped_test.go                          failfirst
 failfirst_testmain_test.go                         failfirst
 failfirstinputs.go                                 failfirst
+features.go                                        install
+features_readme_test.go                            tdd
+features_test.go                                   install
 feedback.go                                        escape
 feedback_test.go                                   escape
 file.go                                            core
@@ -352,6 +361,7 @@ gitgate.go                                         install
 gitgate_core.go                                    core      # created by P2
 gitgate_test.go                                    install
 gitplumbing.go                                     gitx
+gitplumbing_stdout_test.go                         gitx
 gitqueue_test.go                                   gitx
 go_reverse_scope.go                                suite
 go_reverse_scope_test.go                           suite
@@ -579,6 +589,7 @@ precommit_docsonly_test.go                         precommit
 precommit_failfirst.go                             failfirst
 precommit_failfirst_args_test.go                   failfirst
 precommit_failfirst_inputs_test.go                 precommit # prefix says failfirst; its test body reaches precommit
+precommit_failfirst_reach_test.go                  precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_rust.go                        failfirst
 precommit_failfirst_scope_test.go                  precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_target_test.go                 precommit # prefix says failfirst; its test body reaches precommit
@@ -615,6 +626,8 @@ premergepr.go                                      merge
 premergepr_realsignal_test.go                      merge
 premergepr_signal.go                               merge
 premergepr_test.go                                 merge
+prepr.go                                           postedit
+prepr_test.go                                      postedit
 pretooluse.go                                      postedit
 pretooluse_smell.go                                smell     # created by P2
 pretooluse_test.go                                 postedit
@@ -663,6 +676,7 @@ retro_store.go                                     merge
 retro_test.go                                      merge
 review_yellows_test.go                             precommit
 runcheckout.go                                     suite
+runcheckout_cdtilde_test.go                        suite
 runcheckout_test.go                                postedit  # prefix says suite; its test body reaches postedit
 runner.go                                          suite
 runner_core.go                                     core      # created by P2

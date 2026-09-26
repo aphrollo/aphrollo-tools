@@ -12,22 +12,34 @@ import (
 	"testing"
 )
 
-// fakeGh puts a fake `gh` on PATH that prints stdout and exits with exitCode,
-// so the REAL ghPRHeadOid closure (not the stubPRHeadOid seam) can be exercised
-// without the network or a real gh install. POSIX: a shebang shell script.
-// Windows can't run one directly (no shebang dispatch through CreateProcess,
-// and Go's os/exec refuses a file with no PATHEXT-recognized extension even
-// given a full path) — a .bat with the equivalent lines serves as the fake.
-func fakeGh(t *testing.T, stdout string, exitCode int) {
+// fakeGh puts a fake `gh` on PATH that prints message and exits with
+// exitCode, so the REAL ghPRHeadOid closure (not the stubPRHeadOid seam) can
+// be exercised without the network or a real gh install. Like the real gh,
+// it writes message to STDOUT on success (exitCode 0 — the data path) and to
+// STDERR on failure (exitCode != 0 — gh's own error text, never mixed into
+// the data ghCombinedOutput returns on the happy path; see #883). POSIX: a
+// shebang shell script. Windows can't run one directly (no shebang dispatch
+// through CreateProcess, and Go's os/exec refuses a file with no
+// PATHEXT-recognized extension even given a full path) — a .bat with the
+// equivalent lines serves as the fake.
+func fakeGh(t *testing.T, message string, exitCode int) {
 	t.Helper()
 	dir := t.TempDir()
 	if runtime.GOOS == "windows" {
-		body := fmt.Sprintf("@echo off\r\necho %s\r\nexit /b %d\r\n", stdout, exitCode)
+		redirect := ""
+		if exitCode != 0 {
+			redirect = " 1>&2"
+		}
+		body := fmt.Sprintf("@echo off\r\necho %s%s\r\nexit /b %d\r\n", message, redirect, exitCode)
 		if err := os.WriteFile(filepath.Join(dir, "gh.bat"), []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	} else {
-		body := fmt.Sprintf("#!/bin/sh\necho \"%s\"\nexit %d\n", stdout, exitCode)
+		redirect := ""
+		if exitCode != 0 {
+			redirect = " 1>&2"
+		}
+		body := fmt.Sprintf("#!/bin/sh\necho \"%s\"%s\nexit %d\n", message, redirect, exitCode)
 		if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -36,13 +48,21 @@ func fakeGh(t *testing.T, stdout string, exitCode int) {
 }
 
 // TestGhPRHeadOid_ReturnsSHAOnGhSuccess proves the real ghPRHeadOid closure
-// (prune.go:144) returns gh's trimmed stdout as the SHA with a nil error when
-// gh exits 0 — the CONDITIONALS_NEGATION mutant at its `if err != nil` (line
-// 148) flips this to the error branch (formatting the nil err into a bogus
-// message) instead of returning the SHA.
+// returns the REST-resolved PR's head SHA with a nil error when gh answers
+// both the list and the single-pull REST calls — the CONDITIONALS_NEGATION
+// mutant on its "p == nil" check flips this to the error branch instead of
+// returning the SHA.
 func TestGhPRHeadOid_ReturnsSHAOnGhSuccess(t *testing.T) {
-	fakeGh(t, "abc123", 0)
-	sha, err := ghPRHeadOid(t.TempDir(), "feat/x")
+	repo := initRepo(t)
+	withOrigin(t, repo, "acme", "widgets")
+	fakeGhAPIScript(t, map[string]struct {
+		stdout string
+		exit   int
+	}{
+		"repos/acme/widgets/pulls":   {stdout: "5", exit: 0},
+		"repos/acme/widgets/pulls/5": {stdout: `{"number":5,"head":{"ref":"feat/x","sha":"abc123"}}`, exit: 0},
+	})
+	sha, err := ghPRHeadOid(repo, "feat/x")
 	if err != nil {
 		t.Fatalf("ghPRHeadOid: %v", err)
 	}
@@ -53,12 +73,12 @@ func TestGhPRHeadOid_ReturnsSHAOnGhSuccess(t *testing.T) {
 
 // TestGhPRHeadOid_ReturnsErrorOnGhFailure proves the real ghPRHeadOid closure
 // propagates a genuine gh failure as a non-nil error rather than treating its
-// stdout as a SHA — the CONDITIONALS_NEGATION mutant at line 148 flips this to
-// skip the error branch and return gh's failure output as if it were a valid
-// SHA.
+// stdout as a SHA.
 func TestGhPRHeadOid_ReturnsErrorOnGhFailure(t *testing.T) {
+	repo := initRepo(t)
+	withOrigin(t, repo, "acme", "widgets")
 	fakeGh(t, "gh: authentication required", 1)
-	sha, err := ghPRHeadOid(t.TempDir(), "feat/x")
+	sha, err := ghPRHeadOid(repo, "feat/x")
 	if err == nil {
 		t.Fatalf("expected an error, got sha %q", sha)
 	}

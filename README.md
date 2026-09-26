@@ -66,18 +66,24 @@ Law schema, matcher kinds and baselines: [.ratchet/README.md](.ratchet/README.md
 ## Configuration
 
 `[aphrollo]` in `aphrollo.toml`, or `[workspace.metadata.aphrollo]` in a cargo
-workspace's `Cargo.toml`.
+workspace's `Cargo.toml`. `aphrollo config` prints the opt-in keys (the first
+rows) with this repo's values; a repo's first `aphrollo install` prints them once.
 
 With `undercover = true` a tool identity is refused at commit, pre-push and `workspace merge` and flagged at session start and by `gate doctor`; the git shim, pre-push and `workspace create`/`claim`/`pr`/`ship`/`submit` refuse a tell ref name; `pr`/`ship`/`submit`, `issue` and `feedback` check text before `gh`; CI's `undercover-text` job (`aphrollo ci undercover-text`) strips a tool footer that landed on a PR or comment and fails on a tell in the PR's commits.
 
 | key | effect |
 |---|---|
-| `undercover`, `commit-message-deny` | commit-msg deny patterns |
+| `mutants-at-merge` | off by default: mutation measurement of the merged tree before every merge; cost: high CPU and wall-clock: a lane runs tens of mutants, each re-running its package's suite |
+| `mutants-before-pr` | off by default: the same measurement before `workspace pr`/`ship`/`submit` open a PR; cost: the mutants-at-merge cost, paid before the PR opens |
+| `mutants-shards` | derived by default: the most shards one measurement splits into; only ever lowers the box's own count; cost: fewer shards: less CPU at once, longer wall-clock |
+| `mutants-slots` (box) | 1 by default: measurements this box runs at once, the rest queue (fixed at 1 for now); cost: each slot runs a full shard set, so size it to cores and RAM |
+| `undercover` | off by default: the commit-msg gate refuses AI attribution trailers; cost: none |
+| `commit-message-deny` | commit-msg deny patterns |
 | `undercover-extra` | extra tokens for the undercover checks, e.g. `["codename"]` |
 | `always-run`, `clippy-clean` | suites run on every merge; crates gated on clippy `-D warnings` |
 | `fail-first-env` | env switches for the fail-first run |
 | `go-test-reads` | `"<path prefix> -> <package dir>"`: a staged path also selects that suite |
-| `mutants-at-merge`, `mutants-before-pr`, `mutants-shards`, `mutants-env`, `mutation-accept` | mutation measurement and its accept-list |
+| `mutants-env`, `mutation-accept` | the mutation run's env and its accept-list |
 | `retro-on`, `retro-slow-merge-minutes`, `retro-sinks` | post-merge retro triggers and questions |
 | `issue-labels`, `upstream` | labels `aphrollo issue` accepts; tracker for `aphrollo feedback` |
 | `docs-check`, `baselines`, `prune-lanes-on-merge`, `sdd-dir` | docs on commit, guarded baselines, lane sweep, spec root |

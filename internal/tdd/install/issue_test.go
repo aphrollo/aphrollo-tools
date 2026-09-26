@@ -120,7 +120,7 @@ func TestIssueLabelsReadsAphrolloTomlForANonCargoRepo(t *testing.T) {
 // exists. If it does not name both verbs, every open point goes back to
 // being a markdown follow-up.
 func TestClaudeMDBlockNamesTheIssueAndEscapeVerbs(t *testing.T) {
-	block := ClaudeMDBlock("/tmp/shims", false, false)
+	block := ClaudeMDBlock(BlockFlags{})
 	for _, want := range []string{
 		"aphrollo issue",
 		"aphrollo gate escape record",

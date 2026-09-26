@@ -19,11 +19,14 @@ undercover = true
 # under internal/tdd and compares the generated export.go and deps_*.go with
 # the committed ones, so adding, removing or editing a file there can fail it
 # (a merge that combined two lanes' manifest.txt rows did). The suite
-# package's tests pin this key in this file.
+# package's tests pin this key in this file. internal/tdd's own tests read
+# README.md and compare CLAUDE.md's managed block with the block this build
+# renders.
 go-test-reads = [
   "internal/tdd/ -> tools/tddsplit",
   "aphrollo.toml -> internal/tdd/suite",
   "README.md -> internal/tdd",
+  "CLAUDE.md -> internal/tdd",
 ]
 
 # The post-merge retro `aphrollo workspace merge` runs once the PR has landed.

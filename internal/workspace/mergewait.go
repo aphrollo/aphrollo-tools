@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -49,15 +50,14 @@ type CheckRun struct {
 // ghPRHead reads a PR's number, state and head commit. ref is a branch or a PR
 // number. A package var so the wait is driven by a scripted gh in tests.
 var ghPRHead = func(dir, ref string) (*PRHead, error) {
-	out, err := ghCombinedOutput(dir, "pr", "view", "--json", "number,url,state,headRefName,headRefOid", "--", ref)
+	p, err := ghAPIViewByRef(dir, ref)
 	if err != nil {
-		return nil, fmt.Errorf("gh pr view %s: %v: %s", ref, err, strings.TrimSpace(string(out)))
+		return nil, fmt.Errorf("gh api pr view %s: %w", ref, err)
 	}
-	var h PRHead
-	if err := json.Unmarshal(out, &h); err != nil {
-		return nil, fmt.Errorf("parsing gh pr view %s: %w", ref, err)
+	if p == nil {
+		return nil, fmt.Errorf("gh api pr view %s: no such pull request", ref)
 	}
-	return &h, nil
+	return &PRHead{Number: p.Number, URL: p.HTMLURL, State: p.state(), HeadRef: p.Head.Ref, HeadSHA: p.Head.SHA}, nil
 }
 
 // ghChecksAt reads every check run and commit status on ONE commit, by SHA, so
@@ -104,9 +104,15 @@ func ghJSONLines(dir string, args ...string) ([]CheckRun, error) {
 // laneHeadSHA is the commit the lane worktree has checked out — what the
 // operator pushed and means to merge.
 var laneHeadSHA = func(wt string) (string, error) {
-	out, err := exec.Command("git", "-C", wt, "rev-parse", "HEAD").CombinedOutput()
+	cmd := exec.Command("git", "-C", wt, "rev-parse", "HEAD")
+	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git rev-parse HEAD in %s: %v: %s", wt, err, strings.TrimSpace(string(out)))
+		msg := err.Error()
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			msg = string(ee.Stderr)
+		}
+		return "", fmt.Errorf("git rev-parse HEAD in %s: %v: %s", wt, err, strings.TrimSpace(msg))
 	}
 	return strings.TrimSpace(string(out)), nil
 }

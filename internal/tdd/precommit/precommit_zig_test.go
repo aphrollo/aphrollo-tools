@@ -66,8 +66,8 @@ func TestPrecommit_FailFirst_StableWorktreeUnderStateDir(t *testing.T) {
 	run := func(r Runner, dir string) SuiteResult {
 		dirs = append(dirs, dir)
 		// The applied test cannot compile without the impl → RED, the normal
-		// conclusive fail-first outcome.
-		return SuiteResult{Passed: false, Output: "undefined: Widget"}
+		// conclusive fail-first outcome, located in the test as go prints it.
+		return SuiteResult{Passed: false, Output: "./widget_test.go:6:5: undefined: Widget"}
 	}
 	for i := 0; i < 2; i++ {
 		if !failFirstViolated(root, []string{"widget_test.go"}, nil, run).Conclusive {

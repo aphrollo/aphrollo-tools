@@ -23,12 +23,21 @@ var mergeMethods = map[string]bool{"squash": true, "merge": true, "rebase": true
 // but the verb returns non-zero on gh's local checkout. Branch deletion is split
 // out to ghDeleteRemoteBranch, which never checks anything out.
 var ghMergePR = func(wt, branch, method string) error {
-	// Flags first, then "--" so the branch is always a positional and never
-	// parsed as an option (defense in depth behind Slugify).
-	args := []string{"pr", "merge", "--" + method, "--", branch}
-	out, err := ghCombinedOutput(wt, args...)
+	owner, repo, ok := githubOwnerRepo(wt)
+	if !ok {
+		return fmt.Errorf("origin is not a github remote in %s", wt)
+	}
+	n, found, err := ghAPIFindPR(wt, branch)
 	if err != nil {
-		return fmt.Errorf("gh pr merge: %v\n%s", err, strings.TrimSpace(string(out)))
+		return err
+	}
+	if !found {
+		return fmt.Errorf("gh api pulls: no PR found for %s", branch)
+	}
+	out, err := ghCombinedOutput(wt, "api", fmt.Sprintf("repos/%s/%s/pulls/%d/merge", owner, repo, n),
+		"-X", "PUT", "-f", "merge_method="+method)
+	if err != nil {
+		return fmt.Errorf("gh api pulls merge: %v\n%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -128,6 +137,9 @@ func (m *Merge) Render(apply bool) string {
 // never be treated as clear (the corroborating incident on #385 was exactly a
 // broken read silently parsed as "nothing pending").
 func (m *Merge) Apply(stdout, stderr io.Writer) error {
+	if err := requireGH(); err != nil {
+		return err
+	}
 	pr, err := ghViewPR(m.Target.Worktree, m.Target.Branch)
 	if err != nil {
 		return err

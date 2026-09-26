@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"go/parser"
 	"go/token"
@@ -202,11 +203,21 @@ func runChecks(repo string, checks []check, out io.Writer) error {
 	return nil
 }
 
+// gitOut runs git and returns STDOUT only — never mixing in a stderr hint or
+// warning line (e.g. a queue shim's "gate: <bin> is missing — running git
+// UNGATED"), which would otherwise land inside data callers compare byte for
+// byte, like `git status --porcelain`'s dirty-tree check. On failure the
+// diagnostic comes from *exec.ExitError's captured Stderr instead.
 func gitOut(repo string, args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
-	out, err := cmd.CombinedOutput()
+	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		msg := err.Error()
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			msg = string(ee.Stderr)
+		}
+		return "", fmt.Errorf("git %s: %v\n%s", strings.Join(args, " "), err, msg)
 	}
 	return string(out), nil
 }

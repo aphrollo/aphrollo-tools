@@ -44,6 +44,7 @@ func Doctor(in DoctorInput) []DoctorCheck {
 		doctorShimExes(in),
 		doctorBatchShims(in),
 		doctorLockDirs(),
+		doctorGHTransport(),
 		doctorRetiredCommand(in),
 		doctorManagedFiles(in),
 		doctorDiskSpace(in),

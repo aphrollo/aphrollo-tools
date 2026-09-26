@@ -145,7 +145,9 @@ func DirHasGoFiles(p0 string) bool { return dirHasGoFiles(p0) }
 
 func DoctestRunners(p0 string, p1 []string) []Runner { return doctestRunners(p0, p1) }
 
-func DropLeadingEnvAssignments(p0 []string) []string { return dropLeadingEnvAssignments(p0) }
+func DropLeadingEnvAssignmentWords(p0 []shellWord) []shellWord {
+	return dropLeadingEnvAssignmentWords(p0)
+}
 
 func EffectiveRunRoot(p0 string, p1 string) string { return effectiveRunRoot(p0, p1) }
 

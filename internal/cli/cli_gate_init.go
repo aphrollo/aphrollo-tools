@@ -241,7 +241,7 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		// editing a source file as a side effect of where the shell happens to
 		// stand is a surprise, and an unnamed one.
 		if root := tdd.RepoRoot(*repo); root != "" {
-			changed, err := tdd.WriteClaudeMD(root, cdir, *claudeMD)
+			changed, err := tdd.WriteClaudeMD(root, *claudeMD)
 			switch {
 			case errors.Is(err, tdd.ErrManagedBlockInPrimary):
 				fmt.Fprintf(stdout, "gate init: CLAUDE.md managed block is behind the template in the merge-only primary; land it through a lane (aphrollo install --repo <lane>)\n")

@@ -27,7 +27,7 @@ func TestWriteClaudeMD_LeavesAMergeOnlyPrimaryByteIdentical(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	changed, err := WriteClaudeMD(root, t.TempDir(), false)
+	changed, err := WriteClaudeMD(root, false)
 	if changed {
 		t.Fatalf("changed = true, want false — a merge-only primary must not be written")
 	}
@@ -54,8 +54,7 @@ func TestWriteClaudeMD_StillWritesTheBlockInALaneOfThatRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	shimDir := t.TempDir()
-	changed, err := WriteClaudeMD(lane, shimDir, false)
+	changed, err := WriteClaudeMD(lane, false)
 	if err != nil {
 		t.Fatalf("err = %v, want nil", err)
 	}
@@ -66,7 +65,7 @@ func TestWriteClaudeMD_StillWritesTheBlockInALaneOfThatRepo(t *testing.T) {
 	if rerr != nil {
 		t.Fatal(rerr)
 	}
-	want := ClaudeMDBlock(shimDir, false, false)
+	want := ClaudeMDBlock(BlockFlags{})
 	if !strings.Contains(string(after), want) {
 		t.Fatalf("lane CLAUDE.md does not contain the current template verbatim:\n%s", after)
 	}
@@ -82,14 +81,13 @@ func TestWriteClaudeMD_SaysNothingWhenThePrimaryBlockIsCurrent(t *testing.T) {
 	gitDo(t, root, "branch", "-M", "main")
 	addWorktree(t, root, "lane-a")
 
-	shimDir := t.TempDir()
 	path := filepath.Join(root, "CLAUDE.md")
-	before := "# repo\n\n" + ClaudeMDBlock(shimDir, false, false)
+	before := "# repo\n\n" + ClaudeMDBlock(BlockFlags{})
 	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	changed, err := WriteClaudeMD(root, shimDir, false)
+	changed, err := WriteClaudeMD(root, false)
 	if err != nil {
 		t.Fatalf("err = %v, want nil — the block is already current", err)
 	}
@@ -114,7 +112,7 @@ func TestWriteClaudeMD_SaysNothingWhenThePrimaryHasNoClaudeMD(t *testing.T) {
 	addWorktree(t, root, "lane-a")
 
 	path := filepath.Join(root, "CLAUDE.md")
-	changed, err := WriteClaudeMD(root, t.TempDir(), false)
+	changed, err := WriteClaudeMD(root, false)
 	if err != nil {
 		t.Fatalf("err = %v, want nil — no CLAUDE.md, force=false is a no-op", err)
 	}
@@ -136,7 +134,7 @@ func TestWriteClaudeMD_StillWritesInASingleCheckoutClone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	changed, err := WriteClaudeMD(root, t.TempDir(), false)
+	changed, err := WriteClaudeMD(root, false)
 	if err != nil {
 		t.Fatalf("err = %v, want nil", err)
 	}

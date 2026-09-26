@@ -21,6 +21,8 @@ func NarrowToRelatedTests(p0 Runner, p1 string, p2 string) Runner {
 	return suite.NarrowToRelatedTests(p0, p1, p2)
 }
 
+func RetainedSuiteOutput(p0 string) (string, error) { return suite.RetainedSuiteOutput(p0) }
+
 func RunSuite(p0 time.Duration) SuiteRunner { return suite.RunSuite(p0) }
 
 func SetCargoTestTargetsForTest(p0 func(root string) map[string]map[string]bool) func() {

@@ -37,6 +37,11 @@ a review of ten guesses is worse than three proven.
 Skip style and formatting unless it changes meaning. Do not propose refactors.
 Do not review what is not in front of you.
 
+## Re-review
+
+Resumed after a fix round: judge the fix against your own findings, each one
+fixed or still open with the reason, plus anything the fix broke.
+
 ## Tools
 
 `Bash` for `git diff` / `git log -p` / `git show` and read-only greps. No

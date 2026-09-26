@@ -47,6 +47,32 @@ func TestMutantsConfig_NotDeclaredMeansStageOff(t *testing.T) {
 	}
 }
 
+// Mutation measurement costs a consuming repo CPU and wall-clock it never
+// agreed to pay, so it stays off until the repo declares it (issue #875).
+// Both switches are pinned, for the repo shapes that never mention aphrollo
+// at all: no manifest, and a Cargo workspace with no aphrollo metadata. The
+// pre-merge gate reads AtMerge, `workspace pr`/`ship`/`submit` read BeforePR.
+func TestMutantsConfig_ARepoThatNeverOptedInMeasuresNothingBeforeAPROrAMerge(t *testing.T) {
+	t.Parallel()
+	bare := t.TempDir()
+	cargo := t.TempDir()
+	mustWrite(t, filepath.Join(cargo, "Cargo.toml"), "[workspace]\nmembers = [\"a\"]\n")
+
+	for name, root := range map[string]string{"no manifest": bare, "cargo workspace": cargo} {
+		cfg, err := ReadMutantsConfig(root)
+
+		if err != nil {
+			t.Fatalf("%s: ReadMutantsConfig: %v", name, err)
+		}
+		if cfg.AtMerge {
+			t.Errorf("%s: AtMerge = true, want the merge unmeasured", name)
+		}
+		if cfg.BeforePR {
+			t.Errorf("%s: BeforePR = true, want the PR opened unmeasured", name)
+		}
+	}
+}
+
 // One configuration surface, two spellings of it: a Cargo workspace declares
 // the keys under [workspace.metadata.aphrollo], everything else under
 // [aphrollo] in aphrollo.toml, and both must produce the same struct
