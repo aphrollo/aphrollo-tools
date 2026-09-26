@@ -236,6 +236,8 @@ doctor_claudemd_test.go                            install
 doctor_core.go                                     core      # created by P2
 doctor_foreignhooks.go                             install
 doctor_foreignhooks_test.go                        install
+doctor_ghtransport.go                              install
+doctor_ghtransport_test.go                         install
 doctor_hooktarget.go                               install
 doctor_hooktarget_stable.go                        install
 doctor_hooktarget_stable_test.go                   install

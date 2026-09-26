@@ -54,54 +54,53 @@ var ghViewPR = ghViewPRReal
 // directly regardless of what another test's stubGH last pointed the ghViewPR
 // var at.
 //
-// gh exits non-zero both for "no PR exists for this branch" (absence) and for
-// a genuine failure — a network timeout (see #290's networkTimeoutErr), a
-// missing gh, no auth. Only the FIRST is absence: isNoPRError distinguishes
-// on gh's own message text (the same check ghPRState in prune.go already
-// makes for the identical reason), and everything else propagates as an
-// error. A stalled gh pr view used to hang forever and never reach this
-// function at all; now that it returns promptly, silently reading ITS error
-// as "no PR" would open a duplicate PR on a branch that already has one.
+// Routed over REST (ghAPIViewByBranch, #880) rather than `gh pr view`, which
+// goes through GraphQL: a genuine failure (a network timeout, see #290's
+// networkTimeoutErr; a missing gh; no auth) still propagates as an error, but
+// absence is no longer read off gh's own message text — REST's list-pulls
+// endpoint just answers an empty array, so there is no ambiguous non-zero
+// exit to disambiguate at all. A stalled gh call used to hang forever and
+// never reach this branch; now that it returns promptly, silently reading
+// ITS error as "no PR" would open a duplicate PR on a branch that already has
+// one.
 func ghViewPRReal(wt, branch string) (*PRInfo, error) {
-	out, err := ghCombinedOutput(wt, "pr", "view", "--json", "number,url,state,isDraft,mergeable,mergeStateStatus", "--", branch)
+	p, err := ghAPIViewByBranch(wt, branch)
 	if err != nil {
-		if isNoPRError(string(out)) {
-			return nil, nil // absence-ok: gh's own no-PR message, checked above, not a blind swallow
-		}
-		return nil, fmt.Errorf("gh pr view %s: %v: %s", branch, err, strings.TrimSpace(string(out)))
+		return nil, err
 	}
-	var info PRInfo
-	if err := json.Unmarshal(out, &info); err != nil {
-		return nil, fmt.Errorf("parsing gh pr view: %w", err)
+	if p == nil {
+		return nil, nil // absence-ok: REST's list-pulls returned no entry for branch
 	}
-	if info.Number == 0 {
-		return nil, nil
-	}
-	return &info, nil
+	return p.info(), nil
 }
 
 var (
 	ghCreatePR = func(wt string, req PRCreate) (*PRInfo, error) {
-		// "--base=" / "--head=" attach the value to the flag so a branch name
-		// can't be misparsed as a separate option (defense in depth behind
-		// Slugify). --title/--body stay separate: their values are free text, not
-		// branch names, and gh accepts a leading-dash value after a space.
-		args := []string{"pr", "create", "--base=" + req.Base, "--head=" + req.Branch}
-		switch {
-		case req.Title != "":
-			args = append(args, "--title", req.Title, "--body", req.Body)
-		default:
-			args = append(args, "--fill")
+		owner, repo, ok := githubOwnerRepo(wt)
+		if !ok {
+			return nil, fmt.Errorf("origin is not a github remote in %s", wt)
 		}
+		title, body := req.Title, req.Body
+		if title == "" {
+			// REST has no --fill; approximate gh's own derivation from the
+			// branch's commits (fillTitleBody).
+			title, body = fillTitleBody(wt, req.Base, req.Branch)
+		}
+		args := []string{"api", "repos/" + owner + "/" + repo + "/pulls", "-X", "POST",
+			"-f", "base=" + req.Base, "-f", "head=" + req.Branch,
+			"-f", "title=" + title, "-f", "body=" + body}
 		if req.Draft {
-			args = append(args, "--draft")
+			args = append(args, "-F", "draft=true")
 		}
 		out, err := ghCombinedOutput(wt, args...)
 		if err != nil {
-			return nil, fmt.Errorf("gh pr create: %v\n%s", err, strings.TrimSpace(string(out)))
+			return nil, fmt.Errorf("gh api pulls (create): %v\n%s", err, strings.TrimSpace(string(out)))
 		}
-		url := firstURL(string(out))
-		return &PRInfo{URL: url, Number: prNumberFromURL(url), State: "OPEN", IsDraft: req.Draft}, nil
+		var p ghAPIPull
+		if err := json.Unmarshal(out, &p); err != nil {
+			return nil, fmt.Errorf("parsing gh api pulls (create): %w", err)
+		}
+		return p.info(), nil
 	}
 )
 
@@ -233,6 +232,9 @@ func (p *PR) Render(apply bool) string {
 // MERGED or CLOSED PR is dead and must be treated as none — reused only when
 // still OPEN.
 func (p *PR) Apply(stdout, stderr io.Writer) error {
+	if err := requireGH(); err != nil {
+		return err
+	}
 	if existing, err := reuseOpenPR(p.Target.Worktree, p.Create.Branch); err != nil {
 		return err
 	} else if existing != nil {
@@ -284,28 +286,4 @@ func reuseOpenPR(wt, branch string) (*PRInfo, error) {
 // PR through draft → open → merged without a webhook.
 func reportPRState(stdout io.Writer, info *PRInfo) {
 	fmt.Fprintf(stdout, "pr-url: %s\npr-state: %s\n", info.URL, prStateWord(info))
-}
-
-// firstURL returns the first whitespace-delimited token that looks like a URL —
-// gh pr create prints the PR URL on its own line.
-func firstURL(s string) string {
-	for _, f := range strings.Fields(s) {
-		if strings.HasPrefix(f, "https://") || strings.HasPrefix(f, "http://") {
-			return f
-		}
-	}
-	return strings.TrimSpace(s)
-}
-
-// prNumberFromURL extracts the trailing number from a .../pull/<n> URL.
-func prNumberFromURL(url string) int {
-	i := strings.LastIndex(url, "/")
-	if i < 0 || i+1 >= len(url) {
-		return 0
-	}
-	var n int
-	if _, err := fmt.Sscanf(url[i+1:], "%d", &n); err != nil {
-		return 0
-	}
-	return n
 }

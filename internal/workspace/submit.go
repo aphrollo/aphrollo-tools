@@ -6,34 +6,83 @@ import (
 	"strings"
 )
 
-// ghReadyPR is the seam over `gh pr ready`, a package var so tests drive submit's
-// flip logic without gh or the network. The real implementation marks the
-// branch's draft PR as ready-for-review in the worktree's repo.
+// graphqlBlockedMarker is the text a sandboxed agent environment's proxy adds
+// to gh's own error when a call it routed through GraphQL was refused
+// outright (#880's "HTTP 403: GitHub GraphQL is not available from Claude
+// Code sessions; use the REST API"). It is the ONE signal that justifies
+// trying this package's sandbox-only REST fallback below — any other gh
+// failure (auth, network, no such PR) must propagate as-is, never masked by
+// a fallback attempt.
+const graphqlBlockedMarker = "graphql is not available"
+
+func graphqlBlocked(out string) bool {
+	return strings.Contains(strings.ToLower(out), graphqlBlockedMarker)
+}
+
+// ghReadyPR is the seam over marking a branch's draft PR ready for review, a
+// package var so tests drive submit's flip logic without gh or the network.
+//
+// Marking a PR ready has no portable REST endpoint on ordinary GitHub — it
+// is GraphQL-only (markPullRequestReadyForReview), which is exactly what
+// gh's own `pr ready` already drives, so it is tried FIRST and is the whole
+// answer on a normal GitHub. Only when that call fails with GraphQL
+// specifically blocked (#880) does this fall back to
+// `pulls/{n}/ccr/ready_for_review`, a REST route that exists ONLY in that one
+// sandboxed environment's proxy — trying it first, or on any other GitHub,
+// would just be a 404.
 var ghReadyPR = func(wt, branch string) error {
-	if out, err := ghCombinedOutput(wt, "pr", "ready", "--", branch); err != nil {
+	out, err := ghCombinedOutput(wt, "pr", "ready", "--", branch)
+	if err == nil {
+		return nil
+	}
+	if !graphqlBlocked(string(out)) {
 		return fmt.Errorf("gh pr ready: %v\n%s", err, strings.TrimSpace(string(out)))
+	}
+	return ghReadyPRSandboxFallback(wt, branch)
+}
+
+// ghReadyPRSandboxFallback is the non-portable half of ghReadyPR — see its
+// doc comment for why it is only ever tried second.
+func ghReadyPRSandboxFallback(wt, branch string) error {
+	owner, repo, ok := githubOwnerRepo(wt)
+	if !ok {
+		return fmt.Errorf("origin is not a github remote in %s", wt)
+	}
+	n, found, err := ghAPIFindPR(wt, branch)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("gh api pulls: no PR found for %s", branch)
+	}
+	out, err := ghCombinedOutput(wt, "api", fmt.Sprintf("repos/%s/%s/pulls/%d/ccr/ready_for_review", owner, repo, n), "-X", "POST")
+	if err != nil {
+		return fmt.Errorf("gh api pulls ready_for_review (sandbox fallback): %v\n%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
 
-// ghEditPRBodyArgs builds the `gh pr edit --body` argv. branch is guarded
-// behind "--", matching every sibling gh call site in this package
-// (ghReadyPR above; ghViewPR and ghCreatePR's --head= in pr.go): gh's flag
-// parser treats a branch starting with "-" as a flag reference regardless of
-// position, and git ref names ARE allowed to start with "-" (see #160).
-// "--body" and its value must come BEFORE "--": pflag stops recognizing
-// flags the instant it sees "--", so anything after it is read as a
-// positional. "--" therefore sits immediately before the trailing branch
-// positional, never earlier.
-func ghEditPRBodyArgs(branch, body string) []string {
-	return []string{"pr", "edit", "--body", body, "--", branch}
-}
-
-// ghEditPRBody is the seam over `gh pr edit --body`, set so the submit summary
+// ghEditPRBody is the seam over setting a PR's body, so the submit summary
 // lands on the PR. A package var so tests observe the body without gh.
+//
+// Unlike ready-for-review, updating a PR's body IS a real, portable REST
+// endpoint on ordinary GitHub (`PATCH /repos/{owner}/{repo}/pulls/{number}`
+// with a body field) — no fallback needed, so this goes straight to REST.
 var ghEditPRBody = func(wt, branch, body string) error {
-	if out, err := ghCombinedOutput(wt, ghEditPRBodyArgs(branch, body)...); err != nil {
-		return fmt.Errorf("gh pr edit --body: %v\n%s", err, strings.TrimSpace(string(out)))
+	owner, repo, ok := githubOwnerRepo(wt)
+	if !ok {
+		return fmt.Errorf("origin is not a github remote in %s", wt)
+	}
+	n, found, err := ghAPIFindPR(wt, branch)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("gh api pulls: no PR found for %s", branch)
+	}
+	out, err := ghCombinedOutput(wt, "api", fmt.Sprintf("repos/%s/%s/pulls/%d", owner, repo, n), "-X", "PATCH", "-f", "body="+body)
+	if err != nil {
+		return fmt.Errorf("gh api pulls edit (body): %v\n%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -95,6 +144,9 @@ func (s *Submit) Render(apply bool) string {
 // Apply pushes, gates on CI, and on green flips the PR ready + sets its body.
 // The receipt is stateful so no follow-up gh call is needed.
 func (s *Submit) Apply(stdout, stderr io.Writer) error {
+	if err := requireGH(); err != nil {
+		return err
+	}
 	wt, branch := s.Target.Worktree, s.Target.Branch
 	// How many commits this push delivers, captured BEFORE the push (after it the
 	// remote ref equals HEAD). push.ahead is set when an upstream/remote branch

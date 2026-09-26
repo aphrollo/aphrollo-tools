@@ -92,6 +92,9 @@ func pushArgs(branch string, forceWithLease bool) []string {
 // the handoff, instead of once on a draft's `opened` event and again on
 // `ready_for_review`.
 func (p *Push) Apply(stdout, stderr io.Writer) error {
+	if err := requireGH(); err != nil {
+		return err
+	}
 	wt, branch := p.Target.Worktree, p.Target.Branch
 	// Refresh immediately before pushing — see resolveAhead's doc comment for
 	// why the Plan-time snapshot can be stale by the time Apply runs.

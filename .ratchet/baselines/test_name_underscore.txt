@@ -372,7 +372,6 @@ internal/workspace/cleanup_test.go | func TestPathWithin(t *testing.T) {
 internal/workspace/conflict_test.go | func TestIsConflicting(t *testing.T) {
 internal/workspace/conflict_test.go | func TestMergeUnknown(t *testing.T) {
 internal/workspace/devmigrate_test.go | func TestBuildFirstNote(t *testing.T) {
-internal/workspace/pr_test.go | func TestPRNumberFromURL(t *testing.T) {
 internal/workspace/pr_test.go | func TestPRStateWord(t *testing.T) {
 internal/workspace/push_test.go | func TestNormalizeGitHubURL(t *testing.T) {
 internal/workspace/status_test.go | func TestClassifyCheck(t *testing.T) {
