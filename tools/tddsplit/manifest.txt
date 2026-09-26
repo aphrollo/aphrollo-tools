@@ -643,6 +643,7 @@ primary_bash_property_test.go                      postedit
 primary_blockpath_test.go                          postedit
 primary_lawgate.go                                 lawgate   # created by P2
 primary_test.go                                    tdd       # prefix says postedit; its test body reaches tdd
+primarybash_test.go                                postedit
 primaryedits_cli.go                                postedit
 primaryedits_cli_core.go                           core      # created by P2
 primaryedits_cli_test.go                           postedit

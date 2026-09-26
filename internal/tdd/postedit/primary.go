@@ -196,6 +196,17 @@ func PrimaryCheckoutDecision(raw []byte) Decision {
 		return Decision{}
 	}
 	if PrimaryEditsAllowed(in.SessionID) {
+		// This session's `gate allow primary` waiver already covers the
+		// whole call, but a Bash/PowerShell command still has to reach git
+		// as a SEPARATE subprocess a moment later, where the git queue
+		// shim's own copy of the merge-only rule cannot always read this
+		// session's identity back out of its own environment. Recording
+		// every git invocation the command runs as spent lets the shim
+		// honor the waiver its own refusal names (#894, same shape as
+		// #857's discard-bash-spent split).
+		if bashLikeTools[in.ToolName] {
+			markPrimaryBashSpentForCommand(in.ToolInput.Command)
+		}
 		return Decision{}
 	}
 	switch {
@@ -230,6 +241,29 @@ func bashPrimaryDecision(cwd, cmd string) Decision {
 		}
 	}
 	return Decision{}
+}
+
+// markPrimaryBashSpentForCommand records every git invocation cmd runs --
+// each top-level segment, and recursively the script of a `<shell> -c`
+// segment and the body of each `$(...)` substitution, exactly the traversal
+// scanCommand performs for the discard wall (discardbash.go) -- as one this
+// session's already-active `gate allow primary` waiver approved. It does not
+// itself judge whether any of them is the checkout, switch, commit, reset,
+// merge, pull, cherry-pick or rebase the shim's own primaryRefusedVerb would
+// actually refuse: over-recording a read-only verb costs nothing, since the
+// shim only ever consults a spent record on a command it would otherwise
+// refuse anyway.
+func markPrimaryBashSpentForCommand(cmd string) {
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return
+	}
+	scanCommand(cmd, func(words []string) bool {
+		if verb, rest, ok := gitVerb(words); ok {
+			markPrimaryBashSpent(append([]string{verb}, rest...))
+		}
+		return false
+	})
 }
 
 func primaryBlock(root string) Decision {
