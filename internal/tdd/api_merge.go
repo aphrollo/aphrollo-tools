@@ -7,11 +7,27 @@ import (
 	io "io"
 )
 
+const MergeQueueMerged = merge.MergeQueueMerged
+
+const MergeQueuePending = merge.MergeQueuePending
+
+const MergeQueueRefused = merge.MergeQueueRefused
+
+type MergeQueuePR = merge.MergeQueuePR
+
+type MergeQueueRecord = merge.MergeQueueRecord
+
 type PrunedLane = merge.PrunedLane
 
 func CommitMsg(p0 string, p1 string) GateResult { return merge.CommitMsg(p0, p1) }
 
 func GatePRMerge(p0 string, p1 SuiteRunner, p2 io.Writer) error { return merge.GatePRMerge(p0, p1, p2) }
+
+func LoadMergeQueueRecord(p0 string) (*MergeQueueRecord, error) {
+	return merge.LoadMergeQueueRecord(p0)
+}
+
+func MergeQueueStoppedLine(p0 string) string { return merge.MergeQueueStoppedLine(p0) }
 
 func PostCommitMergeSweep(p0 string, p1 io.Writer, p2 io.Writer) []PrunedLane {
 	return merge.PostCommitMergeSweep(p0, p1, p2)
@@ -28,6 +44,10 @@ func PostMergeSweep(p0 string, p1 io.Writer, p2 io.Writer) []PrunedLane {
 func PruneMergedLanesAfterMerge(p0 string, p1 string, p2 io.Writer, p3 io.Writer) []PrunedLane {
 	return merge.PruneMergedLanesAfterMerge(p0, p1, p2, p3)
 }
+
+func RemoveMergeQueueRecord(p0 string) { merge.RemoveMergeQueueRecord(p0) }
+
+func SaveMergeQueueRecord(p0 *MergeQueueRecord) error { return merge.SaveMergeQueueRecord(p0) }
 
 func TakeRepoRetros(p0 string) string { return merge.TakeRepoRetros(p0) }
 

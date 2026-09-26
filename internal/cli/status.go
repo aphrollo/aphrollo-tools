@@ -53,5 +53,8 @@ func runGateStatus(args []string, stdout, stderr io.Writer) int {
 	now := time.Now()
 	fmt.Fprint(stdout, tdd.FormatGateStatus(jobs, slots, waiters, now))
 	fmt.Fprint(stdout, tdd.FormatMutantsRunStatus(tdd.SnapshotMutantsRun(), now))
+	if queue := tdd.MergeQueueStoppedLine(root); queue != "" {
+		fmt.Fprintln(stdout, queue)
+	}
 	return 0
 }

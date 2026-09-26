@@ -49,7 +49,8 @@ type fakeCI struct {
 	lanes    []worktreeEntry
 	laneHead map[string]string // worktree -> the lane's own HEAD
 	merged   []string
-	refuse   map[string]error // branch -> ghMergePR's refusal
+	refuse   map[string]error    // branch -> ghMergePR's refusal
+	onMerge  func(branch string) // runs as each merge is made, before it counts
 }
 
 func (f *fakeCI) byBranch(b string) *fakePR {
@@ -63,6 +64,10 @@ func (f *fakeCI) byBranch(b string) *fakePR {
 
 func install(t *testing.T, f *fakeCI) {
 	t.Helper()
+	// Each test's queue record goes to its own state dir: a record a stopped
+	// queue leaves names this process, which is live, and would refuse the
+	// next test's queue.
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	if f.now.IsZero() {
 		f.now = time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
 	}
@@ -106,6 +111,9 @@ func install(t *testing.T, f *fakeCI) {
 		func(wt, branch, method string) error {
 			if err := f.refuse[branch]; err != nil {
 				return err
+			}
+			if f.onMerge != nil {
+				f.onMerge(branch)
 			}
 			f.merged = append(f.merged, branch)
 			return nil

@@ -29,6 +29,8 @@ func StateDir() string { return core.StateDir() }
 
 func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }
 
+func pidRunningFn(p0 int) bool { return core.PidRunningFn(p0) }
+
 func primaryCheckoutRoot(p0 string) string { return core.PrimaryCheckoutRoot(p0) }
 
 func sameProject(p0 string, p1 string) bool { return core.SameProject(p0, p1) }
