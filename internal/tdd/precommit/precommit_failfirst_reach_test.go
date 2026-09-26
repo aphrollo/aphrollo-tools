@@ -11,11 +11,12 @@ import (
 // fakeNpx stands in for npm's npx the way it behaves in a hook: it runs the
 // tool from ./node_modules/.bin when the directory it runs in has one, and
 // otherwise refuses to fetch it (CI=1, no --yes) and exits 1 without ever
-// starting the tool.
+// starting the tool — echoing, as npm does, the command it did not run.
 const fakeNpx = `#!/bin/sh
 tool=$1; shift
 if [ -x "node_modules/.bin/$tool" ]; then exec "node_modules/.bin/$tool" "$@"; fi
 echo "npm error npx canceled due to missing packages and no YES option: [\"$tool@3.2.7\"]" >&2
+echo "npm error command sh -c $tool $*" >&2
 exit 1
 `
 

@@ -18,14 +18,24 @@ const failFirstTestNotReached = "inconclusive (test-not-reached)"
 // red a test-first commit is expected to show at HEAD. A failure that does
 // neither is the runner failing on its own account: npx refusing to fetch a
 // tool the worktree has no node_modules for, a config that would not load.
-// tests are root-relative.
-func failureReachedTests(output string, tests []string) bool {
+// A line echoing the proof's own arguments is skipped before the file scan:
+// npm prints the command it could not spawn (`npm error command sh -c vitest
+// related <test> --run`), and that mention of the test is the invocation,
+// not the test running. tests are root-relative; args is the runner's argv
+// after the program.
+func failureReachedTests(output string, tests, args []string) bool {
 	if len(ExtractFailingTests(output)) > 0 {
 		return true
 	}
-	for _, t := range tests {
-		if strings.Contains(output, path.Base(filepath.ToSlash(t))) {
-			return true
+	invocation := strings.Join(args, " ")
+	for line := range strings.Lines(output) {
+		if invocation != "" && strings.Contains(line, invocation) {
+			continue
+		}
+		for _, t := range tests {
+			if strings.Contains(line, path.Base(filepath.ToSlash(t))) {
+				return true
+			}
 		}
 	}
 	return false

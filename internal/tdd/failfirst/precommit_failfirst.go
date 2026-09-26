@@ -322,7 +322,7 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 	// that exit used to certify a characterization test as red-proven. A
 	// failure that names no failing test and never mentions a staged test
 	// file said nothing about the test; see failfirst_reach.go.
-	if !res.Passed && !failureReachedTests(res.Output, relTests) {
+	if !res.Passed && !failureReachedTests(res.Output, relTests, runner.Args) {
 		return failFirstOutcome{notReached: true, dur: res.Duration, cmd: cmdString(runner), runner: runner, res: res}
 	}
 	// Tests PASS without the new source ⇒ they never went RED ⇒ violation.
