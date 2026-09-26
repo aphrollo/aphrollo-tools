@@ -59,6 +59,18 @@ func TestSuiteRunDirs_EnvPrefixedUnquotedTildeCdTargetExpandsToHome(t *testing.T
 	}
 }
 
+// A segment that is ENTIRELY env assignments (no `cd`, no runner, nothing
+// after the last `=`) exercises dropLeadingEnvAssignmentWords' own loop
+// bound at its edge: i walks off the end of texts, so an off-by-one there
+// reads one past the slice instead of stopping.
+func TestSuiteRunDirs_AllEnvAssignmentSegmentNamesNoInvocation(t *testing.T) {
+	cwd := filepath.FromSlash("/repo")
+	cmd := `FOO=bar`
+	if got := suiteRunDirs(cwd, cmd); len(got) != 0 {
+		t.Fatalf("suiteRunDirs(%q) = %v, want none — a bare env assignment names no suite invocation", cmd, got)
+	}
+}
+
 // `cd ~other/...` names a different user's home directory, which this
 // scanner cannot resolve, so it is dropped exactly like a bare `cd` — the
 // later suite invocation's directory is unknown rather than guessed at.
