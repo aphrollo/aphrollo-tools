@@ -41,6 +41,8 @@ func TestStripFooter_LeavesProseAndOrdinaryTrailersAlone(t *testing.T) {
 		"Fix it.\n\nsee https://example.com/docs",
 		"Generated with protoc.\n",
 		"Fix it.\n\nNote: this also fixes the Claude Code compatibility shim",
+		"Fix it.\n\nCo-authored-by: Claude Monet <cm@example.com>",
+		"Fix it.\n\nhttps://claude.ai/code/session_01 has the log I used",
 		"Fix it.\n\nSee: https://example.com/claude",
 		"",
 	} {

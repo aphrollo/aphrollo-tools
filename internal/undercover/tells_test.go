@@ -243,3 +243,16 @@ func TestRefName_AnEmptyExtraEntryRefusesNothing(t *testing.T) {
 		t.Errorf("an empty extra entry refused ordinary prose on %q", hit)
 	}
 }
+
+// A workspace's own token is one the workspace chose to keep out of every
+// identity too.
+func TestIdent_HonoursTheWorkspaceExtraTokens(t *testing.T) {
+	t.Parallel()
+	l := New([]string{"skunk"})
+	if hit, ok := l.Ident("Skunk Bot <bot@example.com>"); !ok || hit != "skunk" {
+		t.Errorf("got (%q, %v), want (skunk, true)", hit, ok)
+	}
+	if hit, ok := l.Ident("Jane Doe <jane@skunkworks.example>"); ok {
+		t.Errorf("a word containing the token was refused on %q", hit)
+	}
+}
