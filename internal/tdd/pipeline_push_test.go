@@ -76,30 +76,11 @@ func TestPipeline_VerifiesTheDiffBaseIsACommitBeforeDiffingAgainstIt(t *testing.
 	}
 }
 
-// escape-closure asks `gate escape verify-closure` about a PR number. On a
-// push that number renders empty and the CLI reports
-//
-//	no pull requests found for branch "main"
-//
-// exit 1 — a red job on every merge to main, recording nothing and gating
-// nothing. The job is about a pull request, so it must say so in its `if`
-// rather than run and fail.
-func TestPipeline_DoesNotAskForAPullRequestNumberOnAPush(t *testing.T) {
-	t.Parallel()
-	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
-
-	start := strings.Index(wf, "\n  escape-closure:")
-	if start < 0 {
-		t.Fatal("no escape-closure job in pipeline.yml, so this test proves nothing")
-	}
-	job := wf[start:]
-	if end := strings.Index(job[1:], "\n  escape-record:"); end >= 0 {
-		job = job[:end]
-	}
-	if !strings.Contains(job, "github.event_name == 'pull_request'") {
-		t.Error("escape-closure does not gate on the pull_request event, so a push runs it with an empty PR number and it fails on every merge to main")
-	}
-}
+// ratchet: test_removed TestPipeline_DoesNotAskForAPullRequestNumberOnAPush: pinned
+// the escape-closure CI job's own `if` gate, which is gone along with the job
+// — the check it verified moved to `workspace pr`/`submit`/`ship` (before the
+// PR exists) and `workspace merge` (for one opened elsewhere), neither of
+// which reads a PR number off a push event at all.
 
 // The docs-only fast path skips test, lint, vulncheck, sast, build and the
 // mutation measurement, and it once decided on the `.md` suffix alone. This

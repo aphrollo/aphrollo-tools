@@ -181,7 +181,11 @@ func (s *Submit) Apply(stdout, stderr io.Writer) error {
 		if err := mutantsBeforePR(wt, base, s.Skip, stdout, stderr); err != nil {
 			return err
 		}
-		info, err = ghCreatePR(wt, PRCreate{Base: base, Branch: branch, Draft: false})
+		title, body, cerr := closureChecksBeforePR(wt, base, branch, "", "", stdout)
+		if cerr != nil {
+			return cerr
+		}
+		info, err = ghCreatePR(wt, PRCreate{Base: base, Branch: branch, Title: title, Body: body, Draft: false})
 		if err != nil {
 			return err
 		}

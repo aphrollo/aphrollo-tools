@@ -274,6 +274,7 @@ escape_syncclosed_test.go                          escape
 escape_test.go                                     install   # prefix says escape; its test body reaches install
 escape_verify.go                                   escape
 escape_verify_fixture_test.go                      escape
+escape_verify_local_test.go                        escape
 escape_verify_localdiff_test.go                    escape
 escape_verify_suite.go                             suite     # created by P2
 escape_verify_test.go                              escape

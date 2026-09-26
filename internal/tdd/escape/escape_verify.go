@@ -77,7 +77,44 @@ func VerifyClosure(repo, pr string, w io.Writer) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	return verifyClosureMeta(repo, "PR #"+pr, meta, func() (map[string]string, error) {
+		return readPRPatch(repo, pr, meta.base, meta.head)
+	}, w)
+}
 
+// VerifyClosureLocal is VerifyClosure's pre-PR half: it judges a branch that
+// is ABOUT to become a PR, before GitHub has ever heard of it, so `workspace
+// pr`/`submit`/`ship` can refuse to open one that would fail this same
+// judgment at merge time. There is no PR number to ask gh about yet, so the
+// caller hands over what a PR object would otherwise supply: texts is the
+// resolved PR body plus every commit message the branch carries over base
+// (GitHub honours a closing keyword in either), and base/head are the two
+// local revisions to diff directly in repo — no gh pr diff, no size limit.
+//
+// gh is still needed for the one thing only GitHub knows: whether a closed
+// issue number is actually labelled escape or false-positive.
+func VerifyClosureLocal(repo string, texts []string, base, head string, w io.Writer) (bool, error) {
+	if !ghAvailable() {
+		return false, fmt.Errorf("verify-closure needs the GitHub CLI (gh) on PATH")
+	}
+	meta := prMeta{closes: closedIssues(texts), texts: texts, base: base, head: head}
+	return verifyClosureMeta(repo, "the branch", meta, func() (map[string]string, error) {
+		diff, err := gitRead(repo, "diff", base+"..."+head)
+		if err != nil {
+			return nil, fmt.Errorf("git diff %s...%s: %w", base, head, err)
+		}
+		return parsePatch(diff), nil
+	}, w)
+}
+
+// verifyClosureMeta is VerifyClosure and VerifyClosureLocal's shared judge,
+// once each has resolved what a PR object would supply (closes/texts) and how
+// to fetch the diff (a PR patch over the network, or a local git diff for a
+// branch with no PR yet). fetchPatch is called only once the loop below knows
+// a patch is actually needed — see VerifyClosure's own comment on why. subject
+// names what is being judged ("PR #31", "the branch") for the "nothing to
+// verify" line.
+func verifyClosureMeta(repo, subject string, meta prMeta, fetchPatch func() (map[string]string, error), w io.Writer) (bool, error) {
 	var relevant []closingIssue
 	for _, number := range meta.closes {
 		labels, issueBody, err := issueLabelsAndBody(repo, number)
@@ -90,11 +127,11 @@ func VerifyClosure(repo, pr string, w io.Writer) (bool, error) {
 		relevant = append(relevant, closingIssue{number: number, body: issueBody, falsePositive: labels[FalsePositiveKind]})
 	}
 	if len(relevant) == 0 {
-		fmt.Fprintf(w, "PR #%s closes no escape or false-positive issue — nothing to verify\n", pr)
+		fmt.Fprintf(w, "%s closes no escape or false-positive issue — nothing to verify\n", subject)
 		return true, nil
 	}
 
-	patch, err := readPRPatch(repo, pr, meta.base, meta.head)
+	patch, err := fetchPatch()
 	if err != nil {
 		return false, err
 	}

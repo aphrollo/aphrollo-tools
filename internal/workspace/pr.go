@@ -245,6 +245,11 @@ func (p *PR) Apply(stdout, stderr io.Writer) error {
 	if err := mutantsBeforePR(p.Target.Worktree, p.Create.Base, p.Skip, stdout, stderr); err != nil {
 		return err
 	}
+	title, body, err := closureChecksBeforePR(p.Target.Worktree, p.Create.Base, p.Create.Branch, p.Create.Title, p.Create.Body, stdout)
+	if err != nil {
+		return err
+	}
+	p.Create.Title, p.Create.Body = title, body
 	info, err := ghCreatePR(p.Target.Worktree, p.Create)
 	if err != nil {
 		return err

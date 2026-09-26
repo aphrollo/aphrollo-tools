@@ -96,6 +96,22 @@ func CheckPRCloses(repo, pr string, w io.Writer) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	return checkBodyCloses(body, "PR #"+pr, w), nil
+}
+
+// CheckBodyCloses is CheckPRCloses's pre-PR half: it judges TEXT the caller
+// already holds — a PR body before gh has ever heard of the PR — needing no
+// gh call and no PR number. Same rule, same output shape, one line per
+// warning or error; "no closing-keyword issues" is printed on its own when
+// there is nothing to report.
+func CheckBodyCloses(body string, w io.Writer) bool {
+	return checkBodyCloses(body, "", w)
+}
+
+// checkBodyCloses is CheckPRCloses and CheckBodyCloses's shared judge.
+// subject, when non-empty, names what is being judged ("PR #31") on the
+// clean line; the warning/error lines never carried one.
+func checkBodyCloses(body, subject string, w io.Writer) bool {
 	warnings, errs := closingKeywordFindings(body)
 	for _, wnt := range warnings {
 		fmt.Fprintf(w, "warning: %s mentioned with no closing keyword (fine if it is a reference, not a fix)\n", wnt)
@@ -104,9 +120,13 @@ func CheckPRCloses(repo, pr string, w io.Writer) (bool, error) {
 		fmt.Fprintf(w, "error: %s\n", e)
 	}
 	if len(warnings) == 0 && len(errs) == 0 {
-		fmt.Fprintf(w, "PR #%s: no closing-keyword issues\n", pr)
+		if subject != "" {
+			fmt.Fprintf(w, "%s: no closing-keyword issues\n", subject)
+		} else {
+			fmt.Fprintf(w, "no closing-keyword issues\n")
+		}
 	}
-	return len(errs) == 0, nil
+	return len(errs) == 0
 }
 
 // prBody reads one PR's body through gh.

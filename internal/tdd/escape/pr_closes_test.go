@@ -81,3 +81,36 @@ func TestCheckPRCloses_BareMentionPassesTheCheck(t *testing.T) {
 		t.Fatalf("CheckPRCloses returned ok=false for a bare mention:\n%s", out.String())
 	}
 }
+
+// CheckBodyCloses is CheckPRCloses's pre-PR half: same rule, no gh, no PR
+// number — workspace pr/submit/ship call it on a body they already hold,
+// before a PR exists to fetch one from.
+func TestCheckBodyCloses_CommaListFailsTheCheck(t *testing.T) {
+	var out strings.Builder
+	if CheckBodyCloses("Closes #1, #2", &out) {
+		t.Fatalf("CheckBodyCloses returned true for a comma-list body:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "error:") {
+		t.Errorf("expected an error line:\n%s", out.String())
+	}
+}
+
+func TestCheckBodyCloses_BareMentionPassesTheCheck(t *testing.T) {
+	var out strings.Builder
+	if !CheckBodyCloses("related to #1", &out) {
+		t.Fatalf("CheckBodyCloses returned false for a bare mention:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "warning:") {
+		t.Errorf("expected a warning line:\n%s", out.String())
+	}
+}
+
+func TestCheckBodyCloses_CleanBodyNamesNothing(t *testing.T) {
+	var out strings.Builder
+	if !CheckBodyCloses("Closes #1", &out) {
+		t.Fatalf("CheckBodyCloses returned false for a clean single close:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "no closing-keyword issues") {
+		t.Errorf("expected the clean line:\n%s", out.String())
+	}
+}
