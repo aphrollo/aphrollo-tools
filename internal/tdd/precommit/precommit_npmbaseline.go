@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
 
 // A commit answers for the diagnostics it adds, not for the ones HEAD
@@ -20,11 +22,14 @@ import (
 // block. A diagnostic is keyed by file, code (or rule) and message, never by
 // line or column, so code moved down by an edit above it is not new.
 //
-// HEAD's run happens in a detached worktree placed under the root's own
-// node_modules: Node's module resolution and TypeScript's @types lookup walk
-// up from there to the root's installed packages, so neither a symlink nor a
-// Windows junction is needed. Its result is cached under HEAD's tree and the
-// command, so the next commit on the same HEAD does not pay for it again.
+// HEAD's run happens in a detached worktree in the gate state dir, never
+// inside the root's node_modules, which may be shared with another checkout.
+// The root's place in that tree gets a node_modules link to the root's own
+// (a symlink on Unix, a junction on Windows), so Node's module resolution and
+// TypeScript's @types lookup find the root's installed packages; the link is
+// removed as a link before the tree is. Its result is cached under HEAD's
+// tree and the command, so the next commit on the same HEAD does not pay for
+// it again.
 // When the HEAD run cannot be produced the gate says so and holds every
 // diagnostic against the commit, as it did before there was a baseline.
 
@@ -113,7 +118,7 @@ func headDiagnostics(repoRoot, root string, c npmCheck, r Runner, run SuiteRunne
 		return diags, nil
 	}
 	var diags []diagnostic
-	err = atHead(repoRoot, filepath.Join(root, "node_modules"), func(base string) error {
+	err = atHead(repoRoot, rel, func(base string) error {
 		headRoot := filepath.Join(base, rel)
 		args := c.headArgs(headRoot, r.Args[1:])
 		if args == nil {
@@ -133,10 +138,16 @@ func headDiagnostics(repoRoot, root string, c npmCheck, r Runner, run SuiteRunne
 	return diags, nil
 }
 
-// atHead checks HEAD out, detached, in a fresh directory under parent (the
-// system temp dir when parent is "") and hands fn its path. The tree is
-// unregistered and removed once fn returns.
-func atHead(repoRoot, parent string, fn func(base string) error) error {
+// atHead checks HEAD out, detached, in a fresh directory under the gate
+// state dir (the system temp dir when there is none) and hands fn its path.
+// When the root at rel has a node_modules, the root's place in the tree
+// links to it. The link is removed as a link, then the tree is unregistered
+// and removed, once fn returns.
+func atHead(repoRoot, rel string, fn func(base string) error) error {
+	parent := ""
+	if dir := StateDir(); dir != "" && os.MkdirAll(filepath.Join(dir, "head-wt"), 0o700) == nil {
+		parent = filepath.Join(dir, "head-wt")
+	}
 	base, err := os.MkdirTemp(parent, ".aphrollo-head-")
 	if err != nil {
 		return err
@@ -146,6 +157,14 @@ func atHead(repoRoot, parent string, fn func(base string) error) error {
 		return fmt.Errorf("worktree at HEAD: %v", err)
 	}
 	defer func() { _, _ = git(repoRoot, "worktree", "remove", "--force", base) }()
+	var links depinstall.Links
+	defer links.Remove()
+	installed := filepath.Join(repoRoot, rel, depinstall.NodeModules)
+	if _, err := os.Stat(installed); err == nil {
+		if err := links.Make(installed, filepath.Join(base, rel, depinstall.NodeModules)); err != nil {
+			return fmt.Errorf("linking %s into the tree at HEAD: %v", installed, err)
+		}
+	}
 	return fn(base)
 }
 

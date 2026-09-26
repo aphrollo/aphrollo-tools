@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
 
 // The fail-first stage shares the repo's CARGO_TARGET_DIR with the mechanical
@@ -172,9 +174,7 @@ func failFirstViolated(repoRoot string, tests, srcs []string, run SuiteRunner) f
 // unnarrowed `go test ./...`.
 func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteRunner) failFirstOutcome {
 	wt := failFirstWorktreeDir(repoRoot)
-	if npmWt := npmProofWorktree(root); npmWt != "" {
-		wt = npmWt
-	} else if wt == "" {
+	if wt == "" {
 		var err error
 		if wt, err = os.MkdirTemp("", "gate-failfirst-"); err != nil {
 			return failFirstOutcome{}
@@ -190,6 +190,11 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 		return failFirstOutcome{}
 	}
 	defer func() { _, _ = git(repoRoot, "worktree", "remove", "--force", wt) }() // best-effort cleanup
+	// Deferred after the worktree's removal, so it runs first: the
+	// node_modules link an npm root gets goes as a link before anything
+	// deletes the tree it stands in.
+	var links depinstall.Links
+	defer links.Remove()
 
 	// The staged test diff applied onto HEAD: tests present, new source
 	// absent — plus the staged DATA those tests read (see proofInputs), so a
@@ -233,7 +238,11 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 	execRunner := runner
 	if npmTestTool(runner) != "" {
 		var why string
-		if execRunner, why = nodeTestRunner(root, runner, exec.LookPath); why != "" {
+		execRunner, why = nodeTestRunner(root, runner, exec.LookPath)
+		if why == "" {
+			why = linkRootNodeModules(&links, root, execRoot)
+		}
+		if why != "" {
 			return failFirstOutcome{notRunnable: why, cmd: cmdString(Runner{Cmd: npmTestTool(runner), Args: runner.Args[1:]}), runner: runner, res: SuiteResult{Output: why + "\n"}}
 		}
 	}
@@ -382,8 +391,8 @@ func failFirstWorktreeDir(repoRoot string) string {
 // failFirstStage runs the fail-first check for ONE project root's staged
 // files, in a throwaway worktree at HEAD. Worktrees don't share gitignored
 // deps and the gate does NOT `npm install` per commit (too slow), so a
-// vitest/jest root's worktree sits under the root's own node_modules and
-// runs the installed tool under node (failfirst_node.go). A root without
+// vitest/jest root's worktree links the root's own node_modules and runs
+// the installed tool under node (failfirst_node.go). A root without
 // its tool installed fails OPEN (an unrunnable suite is inconclusive, never
 // a block).
 //
