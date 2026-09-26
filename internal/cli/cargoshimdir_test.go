@@ -53,6 +53,27 @@ func TestDefaultCargoShimDir_Windows_StaysAlongsideBin(t *testing.T) {
 	}
 }
 
+// pathListSep must match the separator settings.json's env.PATH is actually
+// joined with on each platform: ";" on Windows (a native Windows env block),
+// ":" everywhere else — the same split userPathDirs itself already uses.
+func TestPathListSep_Windows(t *testing.T) {
+	prev := binGOOS
+	binGOOS = "windows"
+	t.Cleanup(func() { binGOOS = prev })
+	if got := pathListSep(); got != ";" {
+		t.Errorf("pathListSep() on windows = %q, want %q", got, ";")
+	}
+}
+
+func TestPathListSep_NonWindows(t *testing.T) {
+	prev := binGOOS
+	binGOOS = "linux"
+	t.Cleanup(func() { binGOOS = prev })
+	if got := pathListSep(); got != ":" {
+		t.Errorf("pathListSep() on linux = %q, want %q", got, ":")
+	}
+}
+
 // TestRun_Install_DefaultShimDir_SucceedsWhenBinDirIsUnwritable is the actual
 // repro: a --bin under a directory this account cannot write to (mirroring
 // this box's CI-owned /opt/aphrollo-cli/releases/<ts>-<sha>/) must no longer

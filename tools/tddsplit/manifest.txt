@@ -236,6 +236,8 @@ doctor.go                                          install
 doctor_claudemd.go                                 install
 doctor_claudemd_test.go                            install
 doctor_core.go                                     core      # created by P2
+doctor_envpath.go                                  install
+doctor_envpath_test.go                             install
 doctor_foreignhooks.go                             install
 doctor_foreignhooks_test.go                        install
 doctor_ghtransport.go                              install
@@ -268,6 +270,8 @@ emptyselection_ladder_test.go                      postedit
 emptyselection_mutation.go                         mutation  # created by P2
 emptyselection_suite.go                            suite     # created by P2
 emptyselection_test.go                             postedit
+envpath.go                                          install
+envpath_test.go                                     install
 escape.go                                          escape
 escape_core.go                                     core      # created by P2
 escape_dedupe.go                                   escape
