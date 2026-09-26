@@ -33,7 +33,9 @@ func fakeGhAPIScript(t *testing.T, byPath map[string]struct {
 	t.Helper()
 	dir := t.TempDir()
 	var b strings.Builder
-	b.WriteString("#!/bin/sh\ncase \"$2\" in\n")
+	// Match on the endpoint argument wherever it sits, so a --method flag
+	// before it does not hide it.
+	b.WriteString("#!/bin/sh\npath=\nfor a in \"$@\"; do case \"$a\" in repos/*) path=\"$a\"; break ;; esac; done\ncase \"$path\" in\n")
 	for path, r := range byPath {
 		fmt.Fprintf(&b, "  \"%s\") printf '%%s' '%s'; exit %d ;;\n", path, r.stdout, r.exit)
 	}
@@ -90,6 +92,38 @@ func TestGhAPIFindPR_Found(t *testing.T) {
 	n, ok, err := ghAPIFindPR(repo, "lane/x")
 	if err != nil || !ok || n != 42 {
 		t.Fatalf("ghAPIFindPR = (%d, %v, %v), want (42, true, nil)", n, ok, err)
+	}
+}
+
+// gh api turns any -f/-F field into a POST unless the method is set, and a
+// POST to the pulls list is a create call that fails with HTTP 422 ("base"
+// wasn't supplied). This fake answers the way real gh does, so a lookup
+// that sends its query as fields without --method GET is refused.
+func TestGhAPIFindPR_LooksUpWithGETNotACreatePOST(t *testing.T) {
+	repo := initRepo(t)
+	withOrigin(t, repo, "acme", "widgets")
+	dir := t.TempDir()
+	script := `#!/bin/sh
+method=
+fields=
+prev=
+for a in "$@"; do
+  case "$prev" in --method|-X) method="$a" ;; esac
+  case "$a" in -f|-F|--field|--raw-field) fields=1 ;; esac
+  prev="$a"
+done
+if [ -n "$fields" ] && [ "$method" != "GET" ]; then
+  echo 'gh: Invalid request. "base" wasn'"'"'t supplied. (HTTP 422)'; exit 1
+fi
+printf '%s' 7
+`
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	n, ok, err := ghAPIFindPR(repo, "lane/x")
+	if err != nil || !ok || n != 7 {
+		t.Fatalf("ghAPIFindPR = (%d, %v, %v), want (7, true, nil): the lookup must be a GET", n, ok, err)
 	}
 }
 

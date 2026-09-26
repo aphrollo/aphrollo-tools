@@ -149,7 +149,9 @@ func ghAPIFindPR(wt, branch string) (int, bool, error) {
 	if !ok {
 		return 0, false, fmt.Errorf("origin is not a github remote in %s", wt)
 	}
-	out, err := ghCombinedOutput(wt, "api", "repos/"+owner+"/"+repo+"/pulls",
+	// --method GET: gh api sends -f fields as a POST body otherwise, and a
+	// POST to the pulls list is a create call that fails with HTTP 422.
+	out, err := ghCombinedOutput(wt, "api", "--method", "GET", "repos/"+owner+"/"+repo+"/pulls",
 		"-f", "head="+owner+":"+branch, "-f", "state=all", "-f", "sort=created", "-f", "direction=desc",
 		"--jq", ".[0].number // empty")
 	if err != nil {
