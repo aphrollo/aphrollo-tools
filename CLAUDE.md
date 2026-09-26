@@ -172,6 +172,10 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   before pushing.
 - `mutants-at-merge` is on (`aphrollo.toml`): CI's `mutants-verdict` job refuses
   an unaccepted survivor and every timeout.
+- Prefer giving concurrent lanes disjoint files. Git merges overlapping edits,
+  but two lanes rewriting the same function cost a conflict round.
+- A green open PR takes no further pushes; it merges as is and a follow-up goes
+  in a new lane. A red PR gets its fix pushed to the same branch.
 
 <!-- aphrollo:begin -->
 ## Working with the aphrollo gate
