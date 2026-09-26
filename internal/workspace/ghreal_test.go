@@ -3,6 +3,7 @@ package workspace
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -56,6 +57,54 @@ func TestGhCreatePR_RealClosureCreatesViaREST(t *testing.T) {
 	}
 	if info.Number != 9 || info.State != "OPEN" {
 		t.Fatalf("ghCreatePR = %+v, want number 9, state OPEN", info)
+	}
+}
+
+// TestGhCreatePR_RealClosureFillsTitleFromCommitsWhenBlank proves the
+// title=="" branch (no --title given) actually runs: the real closure must
+// derive the title from fillTitleBody and send THAT to REST, not an empty
+// title — checking the response alone can't tell the two apart (the fake
+// answers the same JSON regardless of what was sent), so the fake here logs
+// the exact argv it received and the test asserts the derived title is
+// in it.
+func TestGhCreatePR_RealClosureFillsTitleFromCommitsWhenBlank(t *testing.T) {
+	repo := initRepo(t)
+	withOrigin(t, repo, "acme", "widgets")
+	run := func(args ...string) {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("checkout", "-q", "-b", "feat/x")
+	if err := os.WriteFile(filepath.Join(repo, "f.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "f.txt")
+	run("commit", "-q", "-m", "the derived title")
+
+	dir := t.TempDir()
+	argvLog := filepath.Join(dir, "argv.log")
+	script := "#!/bin/sh\n" +
+		"echo \"$@\" >> '" + argvLog + "'\n" +
+		"printf '%s' '{\"number\":9,\"html_url\":\"https://github.com/acme/widgets/pull/9\",\"state\":\"open\",\"head\":{\"ref\":\"feat/x\",\"sha\":\"abc\"}}'\n"
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	info, err := ghCreatePR(repo, PRCreate{Base: "main", Branch: "feat/x"})
+	if err != nil {
+		t.Fatalf("ghCreatePR: %v", err)
+	}
+	if info.Number != 9 {
+		t.Fatalf("ghCreatePR = %+v, want number 9", info)
+	}
+	logged, err := os.ReadFile(argvLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logged), "title=the derived title") {
+		t.Fatalf("gh was never sent the derived title; argv log:\n%s", logged)
 	}
 }
 
@@ -168,9 +217,11 @@ func TestGhPRHead_RealClosureNoSuchPullRequest(t *testing.T) {
 func TestGhViewPRStatusReal_OpenPRTalliesChecks(t *testing.T) {
 	repo := initRepo(t)
 	withOrigin(t, repo, "acme", "widgets")
+	checkRuns := `{"name":"build","head_sha":"cafe","status":"completed","conclusion":"success"}` + "\n" +
+		`{"name":"lint","head_sha":"cafe","status":"in_progress","conclusion":""}`
 	fakeGhAPIByPath(t, []ghAPIRule{
-		{"repos/{owner}/{repo}/commits/cafe/check-runs", `{"name":"build","head_sha":"cafe","status":"completed","conclusion":"success"}`, 0},
-		{"repos/{owner}/{repo}/commits/cafe/status", `{"name":"ci","head_sha":"cafe","status":"in_progress","conclusion":"pending"}`, 0},
+		{"repos/{owner}/{repo}/commits/cafe/check-runs", checkRuns, 0},
+		{"repos/{owner}/{repo}/commits/cafe/status", `{"name":"ci","head_sha":"cafe","status":"completed","conclusion":"failure"}`, 0},
 		{"repos/acme/widgets/pulls/5", `{"number":5,"state":"open","draft":false,"mergeable":true,"mergeable_state":"clean","head":{"ref":"feat/z","sha":"cafe"}}`, 0},
 		{"repos/acme/widgets/pulls", "5", 0},
 	})
@@ -181,8 +232,8 @@ func TestGhViewPRStatusReal_OpenPRTalliesChecks(t *testing.T) {
 	if s.Number != 5 || s.State != "OPEN" || s.Mergeable != "MERGEABLE" || s.MergeStateStatus != "CLEAN" {
 		t.Fatalf("ghViewPRStatusReal = %+v, want number 5 OPEN MERGEABLE CLEAN", s)
 	}
-	if s.Pass != 1 || s.Pending != 1 || s.Fail != 0 {
-		t.Fatalf("ghViewPRStatusReal tally = pass=%d fail=%d pending=%d, want 1/0/1", s.Pass, s.Fail, s.Pending)
+	if s.Pass != 1 || s.Fail != 1 || s.Pending != 1 {
+		t.Fatalf("ghViewPRStatusReal tally = pass=%d fail=%d pending=%d, want 1/1/1", s.Pass, s.Fail, s.Pending)
 	}
 }
 

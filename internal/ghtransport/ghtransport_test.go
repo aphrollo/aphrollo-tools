@@ -201,3 +201,14 @@ func TestRun_BoundsAHungGH(t *testing.T) {
 		t.Fatal("RESTOK = true for a gh that never answered")
 	}
 }
+
+// TestProbeTimeout_DefaultIsTenSeconds pins the package's default deadline —
+// generous enough for a real REST/GraphQL round trip under load, without
+// hanging a verb's preflight or a doctor check for long on a truly stalled
+// gh. TestRun_BoundsAHungGH above proves the deadline is actually enforced;
+// this proves what its un-shrunk value actually is.
+func TestProbeTimeout_DefaultIsTenSeconds(t *testing.T) {
+	if probeTimeout != 10*time.Second {
+		t.Fatalf("probeTimeout = %s, want 10s", probeTimeout)
+	}
+}
