@@ -41,6 +41,24 @@ func TestSuiteRunDirs_QuotedTildeCdTargetStaysLiteral(t *testing.T) {
 	}
 }
 
+// A leading `FOO=bar` env assignment must not stop the operand after `cd`
+// from being found, or its own tilde from being expanded — the same rule as
+// TestSuiteRunDirs_UnquotedTildeCdTargetExpandsToHome, just with
+// dropLeadingEnvAssignmentWords in front of cdTargetTilde.
+func TestSuiteRunDirs_EnvPrefixedUnquotedTildeCdTargetExpandsToHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	cmd := `FOO=bar cd ~/lane && go test ./...`
+	got := suiteRunDirs(filepath.FromSlash("/somewhere/else"), cmd)
+	want := filepath.Join(home, "lane")
+
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("suiteRunDirs(%q) = %v, want [%q]", cmd, got, want)
+	}
+}
+
 // `cd ~other/...` names a different user's home directory, which this
 // scanner cannot resolve, so it is dropped exactly like a bare `cd` — the
 // later suite invocation's directory is unknown rather than guessed at.
