@@ -623,6 +623,8 @@ precommitmarker.go                                 precommit
 precommitmarker_test.go                            precommit
 premerge.go                                        core
 premergepr.go                                      merge
+premergepr_npm.go                                  merge
+premergepr_npm_test.go                             merge
 premergepr_realsignal_test.go                      merge
 premergepr_signal.go                               merge
 premergepr_test.go                                 merge

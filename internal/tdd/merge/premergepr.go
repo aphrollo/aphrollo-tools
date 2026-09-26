@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
 )
 
@@ -77,8 +78,17 @@ func GatePRMerge(laneWorktree string, run SuiteRunner, log io.Writer) error {
 	// normal return path and a signal caught mid-Mechanical both call
 	// safeCleanup, and this stops a `git worktree remove` from racing its
 	// own second call.
+	// links are the node_modules links provisioning makes into wt; they are
+	// removed as links BEFORE the checkout is deleted, so no removal can
+	// reach through one into the lane's own node_modules.
+	var links depinstall.Links
 	var cleanupOnce sync.Once
-	safeCleanup := func() { cleanupOnce.Do(cleanup) }
+	safeCleanup := func() {
+		cleanupOnce.Do(func() {
+			links.Remove()
+			cleanup()
+		})
+	}
 	defer safeCleanup()
 	// Armed for exactly the window the checkout exists: Ctrl-C, a plain
 	// `kill`, or the SIGHUP a killed background shell sends its children all
@@ -91,6 +101,9 @@ func GatePRMerge(laneWorktree string, run SuiteRunner, log io.Writer) error {
 	// race each other on the way out.
 	stopSignals := watchPRGateSignals(safeCleanup, log)
 	defer stopSignals()
+	if err := prGateProvisionNode(laneWorktree, wt, run, &links, log); err != nil {
+		return err
+	}
 	fmt.Fprintf(log, "gate %s: judging %s merged into %s (in %s)\n", premergeDisplayName, tips.lane, tips.trunkRef, wt)
 	if res := Mechanical(wt, run); res.Blocked {
 		return errors.New(res.Message)
@@ -162,16 +175,7 @@ func prGateMergedCheckout(laneWorktree string, tips prGateTips) (string, func(),
 			tips.trunkRef, err, strings.TrimSpace(out))
 	}
 	prGateWriteHolder(wt)
-	cleanup := func() {
-		_, _ = git(laneWorktree, "worktree", "remove", "--force", wt)
-		_ = os.RemoveAll(wt)
-		// measureTempDir puts the run's measurement area BESIDE wt, not
-		// inside it, precisely so a tree copy never shares a lock with the
-		// checkout it is copied from — which means removing wt alone leaves
-		// that area behind. Every merge through this gate builds and
-		// abandons one; this is what stops it from leaking.
-		_ = os.RemoveAll(measureTempDir(wt))
-	}
+	cleanup := func() { prGateRemoveCheckout(laneWorktree, wt) }
 	if out, err := git(wt, "merge", "--no-commit", "--no-ff", tips.lane); err != nil {
 		_, _ = git(wt, "merge", "--abort")
 		cleanup()
@@ -181,6 +185,20 @@ func prGateMergedCheckout(laneWorktree string, tips prGateTips) (string, func(),
 			tips.trunkRef, tips.trunkRef, strings.TrimSpace(out))
 	}
 	return wt, cleanup, nil
+}
+
+// prGateRemoveCheckout deletes the throwaway checkout wt and the measurement
+// area beside it. A seam, so a test can stand in a remover that follows links
+// and prove the node_modules links are gone before this ever runs.
+var prGateRemoveCheckout = func(laneWorktree, wt string) {
+	_, _ = git(laneWorktree, "worktree", "remove", "--force", wt)
+	_ = os.RemoveAll(wt)
+	// measureTempDir puts the run's measurement area BESIDE wt, not
+	// inside it, precisely so a tree copy never shares a lock with the
+	// checkout it is copied from — which means removing wt alone leaves
+	// that area behind. Every merge through this gate builds and
+	// abandons one; this is what stops it from leaking.
+	_ = os.RemoveAll(measureTempDir(wt))
 }
 
 // PRGateHolderFile is the record prGateWriteHolder leaves in its own

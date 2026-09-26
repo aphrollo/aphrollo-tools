@@ -103,6 +103,7 @@ internal/tdd/install/ install, init, agents, skills, CLAUDE.md block, doctor, sh
 internal/tdd/gc/     gc sweeps (L7)
 internal/docs/       doc-reference guard: extract path citations, resolve, report misses
 internal/workspace/  worktree lifecycle + git verbs
+internal/depinstall/ dependency-install rule shared by workspace create and the PR merge gate; node_modules links
 internal/dev/        dev-tier control plane (systemd)
 internal/ciwhy/      ci why: resolve a pipeline run through gh, summarise its failed jobs
 internal/sqlc/       sqlc drift guard: config discovery, regen-into-temp, check, scoped-by-symbol regen

@@ -11,3 +11,5 @@ type owedSuite = precommit.OwedSuite
 func Mechanical(p0 string, p1 SuiteRunner) GateResult { return precommit.Mechanical(p0, p1) }
 
 func commitOwedSuites(p0 string) []owedSuite { return precommit.CommitOwedSuites(p0) }
+
+func mechanicalRoots(p0 string) []string { return precommit.MechanicalRoots(p0) }

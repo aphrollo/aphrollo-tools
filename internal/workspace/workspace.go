@@ -29,6 +29,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
 
 // Request is the parsed input to BuildPlan.
@@ -106,35 +108,6 @@ func Slugify(branch string) (string, error) {
 		return "", fmt.Errorf("bad branch name (leading dash): %s", branch)
 	}
 	return s, nil
-}
-
-// installRule maps a marker file in the worktree root to the install command and
-// the directory whose presence means "already installed". Order matters: the
-// first matching marker wins, so a pnpm-lock beats a bare package.json.
-type installRule struct {
-	marker  string   // file whose presence selects this rule
-	argv    []string // install command, run with --dir/worktree-relative cwd
-	present string   // dir under the worktree that means deps are already there ("" => never skip)
-}
-
-var installRules = []installRule{
-	{marker: "pnpm-lock.yaml", argv: []string{"pnpm", "install"}, present: "node_modules"},
-	{marker: "yarn.lock", argv: []string{"yarn", "install"}, present: "node_modules"},
-	{marker: "package-lock.json", argv: []string{"npm", "ci"}, present: "node_modules"},
-	{marker: "package.json", argv: []string{"npm", "install"}, present: "node_modules"},
-	{marker: "go.mod", argv: []string{"go", "mod", "download"}, present: ""},
-}
-
-// detectInstall picks the install rule for a worktree root by probing for marker
-// files in priority order. Returns ok=false when nothing matches (no install
-// step is added).
-func detectInstall(root string) (installRule, bool) {
-	for _, r := range installRules {
-		if fileExists(filepath.Join(root, r.marker)) {
-			return r, true
-		}
-	}
-	return installRule{}, false
 }
 
 // DefaultWorktreeBase returns the worktrees base dir for a repo:
@@ -266,14 +239,14 @@ func BuildPlan(req Request) (*Plan, error) {
 	//    the main tree's gitignored node_modules). Skipped when the marker dir
 	//    already exists, unless --reinstall.
 	if !req.NoInstall {
-		if rule, ok := detectInstall(top); ok {
+		if rule, ok := depinstall.Detect(top); ok {
 			step := Step{
 				Title: "install dependencies",
-				Cmd:   rule.argv,
+				Cmd:   rule.Argv,
 				Dir:   wt,
 			}
-			if rule.present != "" && !req.Reinstall && dirExists(filepath.Join(wt, rule.present)) {
-				step.Skip = rule.present + " already present (pass --reinstall to force)"
+			if rule.Present != "" && !req.Reinstall && dirExists(filepath.Join(wt, rule.Present)) {
+				step.Skip = rule.Present + " already present (pass --reinstall to force)"
 			}
 			p.Steps = append(p.Steps, step)
 		}

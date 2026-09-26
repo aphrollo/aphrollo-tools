@@ -12,4 +12,6 @@ func LinterVersion(p0 string) string { return linterVersion(p0) }
 
 func LookLinter() bool { return lookLinter() }
 
+func MechanicalRoots(p0 string) []string { return mechanicalRoots(p0) }
+
 func PinnedLinterVersion(p0 string) string { return pinnedLinterVersion(p0) }
