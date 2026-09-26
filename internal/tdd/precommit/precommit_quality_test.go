@@ -96,7 +96,7 @@ func TestPrecommit_Quality_ClippyOnlyForDeclaredCrates(t *testing.T) {
 		seen = append(seen, cargoArgsOf(r))
 		return SuiteResult{Passed: true}
 	})
-	if !containsArgs(seen, "clippy -p m --tests -- -D warnings") {
+	if !containsArgs(seen, "clippy -p m --no-deps --tests -- -D warnings") {
 		t.Fatalf("a declared crate must be lint-gated with warnings denied, ran: %v", seen)
 	}
 }

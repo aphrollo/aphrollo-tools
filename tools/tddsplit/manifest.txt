@@ -163,6 +163,7 @@ claudemd_committed_test.go                         tdd
 claudemd_primary_test.go                           install
 claudemd_source_test.go                            tdd       # created by P2
 claudemd_test.go                                   install
+clippyclean_scope_test.go                          precommit
 clippyscope.go                                     suite
 clippyscope_graph_test.go                          suite
 clippyscope_test.go                                precommit # prefix says suite; its test body reaches precommit
