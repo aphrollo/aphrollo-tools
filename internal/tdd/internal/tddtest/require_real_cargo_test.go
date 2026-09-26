@@ -44,6 +44,29 @@ func TestRealCargoAvailable_AFakeShimThatCannotResolveIsUnavailable(t *testing.T
 	}
 }
 
+// TestRealCargoAvailable_NoCargoOnThePATHIsUnavailable is lookPathIn's other
+// branch: a PATH whose directories hold no `cargo` at all, rather than one
+// that resolves to something unrunnable. An empty directory and a directory
+// that does not exist are both real shapes a caller's env can carry — the
+// loop must walk past the missing one rather than stopping on it — and
+// neither must ever be answered by whatever `cargo` this process's own PATH
+// happens to resolve (the box's build-queue shim, on an operator box), which
+// is exactly the bug a bare exec.Command("cargo") with cmd.Env set had.
+func TestRealCargoAvailable_NoCargoOnThePATHIsUnavailable(t *testing.T) {
+	empty := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+	env := []string{"PATH=" + empty + string(os.PathListSeparator) + missing}
+
+	ok, detail := realCargoAvailable(env)
+
+	if ok {
+		t.Fatalf("realCargoAvailable said true with no cargo anywhere on PATH; detail=%q", detail)
+	}
+	if want := "cargo: not found in PATH"; detail != want {
+		t.Fatalf("detail = %q, want %q", detail, want)
+	}
+}
+
 // TestRequireRealCargo_AFakeShimThatCannotResolveSkips proves the exported
 // helper itself: given nothing but the fake shim on PATH, it must SKIP the
 // caller's test rather than let it proceed as if a real cargo answered.
