@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -25,10 +24,10 @@ import (
 //
 // What it judges is CONTENT, entry by entry, with whitespace collapsed: a
 // block somebody re-wrapped, or an editor gave CRLF and trailing spaces, says
-// exactly what the template says and is not a finding. The queue-dir path is
-// masked for the same reason — it is a fact about the box that wrote the
-// block, not about the template's currency, and a repo judged on a CI runner
-// would otherwise read as stale on every run. The finding NAMES the first
+// exactly what the template says and is not a finding. The block carries no
+// fact about the box that wrote it (#874), so nothing else needs masking: a
+// repo judged on a CI runner reads the same text as on the box that wrote it.
+// The finding NAMES the first
 // entry that differs rather than printing a diff of the whole block: the
 // operator's next move is `aphrollo install`, and thirteen bullets of context
 // does not change it.
@@ -38,17 +37,12 @@ import (
 // finding stays one line.
 const claudeMDLabelLimit = 56
 
-// claudeMDQueueDir matches the one place the template interpolates a path
-// from the box it runs on. Anchored on the sentence around it, so a template
-// that stops saying this stops masking it — and a block still carrying the
-// old sentence is then correctly stale.
-var claudeMDQueueDir = regexp.MustCompile("prints a path under `[^`]*`")
-
 // doctorClaudeMD compares the managed block in the repo's CLAUDE.md with the
 // block this build would write there. ok=false means the check does not
 // apply: no repo, no CLAUDE.md, or a CLAUDE.md with no managed block — a repo
 // that never opted in is not behind on anything, and a passing line about a
-// block it does not have would be a lie in the friendly direction.
+// block it does not have would be a lie in the friendly direction. A repo
+// that measures mutants is the exception (claudeMDMissing).
 func doctorClaudeMD(in DoctorInput) (DoctorCheck, bool) {
 	c := DoctorCheck{Name: "CLAUDE.md block"}
 	if in.Repo == "" {
@@ -65,13 +59,13 @@ func doctorClaudeMD(in DoctorInput) (DoctorCheck, bool) {
 			c.Detail = fmt.Sprintf("could not read %s (%v)", path, err)
 			return c, true
 		}
-		return c, false
+		return claudeMDMissing(c, in.Repo, path)
 	}
 	have, ok := claudeMDBlockBody(string(data))
 	if !ok {
-		return c, false
+		return claudeMDMissing(c, in.Repo, path)
 	}
-	want, _ := claudeMDBlockBody(managedBlockFor(in.Repo, in.ShimDir))
+	want, _ := claudeMDBlockBody(managedBlockFor(in.Repo))
 
 	wantEntries, haveEntries := claudeMDEntries(want), claudeMDEntries(have)
 	diffs, first := claudeMDDrift(wantEntries, haveEntries)
@@ -82,6 +76,18 @@ func doctorClaudeMD(in DoctorInput) (DoctorCheck, bool) {
 	}
 	c.Detail = fmt.Sprintf("%s is stale: %d of %d entries differ from the block this build writes — %s; %s",
 		path, diffs, len(wantEntries), first, claudeMDRemedy(in.Repo))
+	return c, true
+}
+
+// claudeMDMissing judges a repo with no managed block. For most repos the
+// check does not apply; a repo that measures mutants keeps its builders'
+// mutation rules only in the block, so there the absence is a finding.
+func claudeMDMissing(c DoctorCheck, repo, path string) (DoctorCheck, bool) {
+	if !blockFlagsFor(repo).measures() {
+		return c, false
+	}
+	c.Detail = fmt.Sprintf("%s has no managed block, and this repo measures mutants, so its builders never read the mutation rules; %s",
+		path, claudeMDRemedy(repo))
 	return c, true
 }
 
@@ -166,11 +172,10 @@ func claudeMDDrift(want, have []string) (int, string) {
 }
 
 // claudeMDNormalize is the form two entries are compared in: every run of
-// whitespace collapsed to one space (so wrapping, indentation, CRLF and
-// trailing spaces cannot make a block look stale) and the box's queue dir
-// masked.
+// whitespace collapsed to one space, so wrapping, indentation, CRLF and
+// trailing spaces cannot make a block look stale.
 func claudeMDNormalize(entry string) string {
-	return claudeMDQueueDir.ReplaceAllString(strings.Join(strings.Fields(entry), " "), "prints a path under `<queue dir>`")
+	return strings.Join(strings.Fields(entry), " ")
 }
 
 // claudeMDLabel names an entry the way the block itself does: by its bold

@@ -21,17 +21,33 @@ const (
 	claudeMDEnd   = "<!-- aphrollo:end -->"
 )
 
-// ClaudeMDBlock renders the managed block. shimDir is the queue-shim
-// directory a session prepends to PATH; undercover adds the commit-message
-// rule for a workspace that asked for it; mutantsAtMerge states what THIS
-// repo's merge actually requires rather than what the tool can be told to do.
-func ClaudeMDBlock(shimDir string, undercover, mutantsAtMerge bool) string {
-	dir := shellPath(shimDir)
+// BlockFlags are the repo's own declarations the managed block states, and
+// the ONLY inputs it takes: the block is committed into the repo's CLAUDE.md
+// and re-rendered by every box that runs install, so anything read from the
+// box (a shim dir, a resolved home path, whether a file is written there yet)
+// would dirty that tracked file on the next install anywhere else (#874).
+type BlockFlags struct {
+	// Undercover adds the commit-message rule for a repo that asked for it.
+	Undercover bool
+	// MutantsAtMerge states what THIS repo's merge actually requires rather
+	// than what the tool can be told to do.
+	MutantsAtMerge bool
+	// MutantsBeforePR is mutants-before-pr: `workspace pr`/`ship`/`submit`
+	// measure the lane first. Either switch brings in the mutation rules.
+	MutantsBeforePR bool
+}
+
+// measures reports whether the repo measures mutants at all, which is what
+// brings the mutation rules into the block.
+func (f BlockFlags) measures() bool { return f.MutantsAtMerge || f.MutantsBeforePR }
+
+// ClaudeMDBlock renders the managed block for a repo declaring f.
+func ClaudeMDBlock(f BlockFlags) string {
 	var b strings.Builder
 	b.WriteString(claudeMDBegin + "\n")
 	b.WriteString("## Working with the aphrollo gate\n\n")
-	fmt.Fprintf(&b, "- **`cargo` and `git` resolve to the queue shim** (`which cargo` prints a path under `%s`);\n", dir)
-	b.WriteString("  the user PATH and the shell profiles put it first, so a session never exports\n")
+	b.WriteString("- **`cargo` and `git` resolve to the queue shim** (`which cargo` prints a path under the\n")
+	b.WriteString("  `cargo-queue` dir `aphrollo install` wrote); the user PATH and the shell profiles put it first, so a session never exports\n")
 	b.WriteString("  PATH by hand. A run through the shim QUEUES visibly behind another build instead of\n")
 	b.WriteString("  hanging on a silent lock; if `which` prints the raw toolchain, the profile is broken: say so.\n")
 	b.WriteString("- **The hooks run the tests, not you.** After every Edit/Write, PostToolUse prints\n")
@@ -40,13 +56,10 @@ func ClaudeMDBlock(shimDir string, undercover, mutantsAtMerge bool) string {
 	// A subagent (`builder`, `researcher`, `Explore`, ...) never gets the
 	// session-start nudge — SessionStart context is not forwarded to it — but
 	// project instructions ARE, so this is the one place a subagent with no
-	// Skill tool can learn where the `tdd` skill actually lives instead of
-	// searching the filesystem for it.
-	if path, installed := resolvedTDDSkillPath(); installed {
-		fmt.Fprintf(&b, "- **Before writing or changing code, read the `tdd` skill at `%s`.**\n", path)
-	} else {
-		b.WriteString("- **Before writing or changing code, read the `tdd` skill** — run `aphrollo install` to write it.\n")
-	}
+	// Skill tool can learn where the `tdd` skill lives instead of searching
+	// the filesystem for it. The path is the default one, spelled from the
+	// home dir, so every box renders the same line.
+	b.WriteString("- **Before writing or changing code, read the `tdd` skill** at `~/.claude/skills/tdd/SKILL.md` (under `$CLAUDE_CONFIG_DIR` when set; `aphrollo install` writes it).\n")
 	b.WriteString("- **What the line means:** `green (N passed)` · `red-missing-impl` (a clean RED) · `red` ·\n")
 	b.WriteString("  `red-bogus` (broken test setup, not a real RED) · `TIMEOUT` / `SKIPPED` / `QUEUED-SKIPPED`\n")
 	b.WriteString("  (**inconclusive — the code was NOT tested**) · `BUILDING (deferred)` (the build outran the\n")
@@ -80,19 +93,28 @@ func ClaudeMDBlock(shimDir string, undercover, mutantsAtMerge bool) string {
 	// ("with `mutants-at-merge = true` ...") makes a reader go and find out
 	// which half applies to them, which is the errand the block exists to
 	// save them.
-	if mutantsAtMerge {
+	if f.MutantsAtMerge {
 		b.WriteString("- **A merge is measured, not certified:** the pre-merge gate runs this lane's mutation measurement in the foreground and refuses an unaccepted survivor by name; `aphrollo gate mutants run` measures THIS checkout the same way before you merge.\n")
 	} else {
 		b.WriteString("- **A merge is checked, not measured:** this repo declares no `mutants-at-merge`, so the merge gate runs the mechanical suite and NO mutation measurement; `aphrollo gate mutants run` measures THIS checkout by hand.\n")
 	}
+	// The rules that exist only because this repo measures mutants. The
+	// builder agent is one file per user and reaches every repo, so they live
+	// here, where they reach only a repo that declared the measurement.
+	if f.measures() {
+		b.WriteString("- **Mutation rules** (this repo measures mutants): quote one `aphrollo gate mutants prove --file <f> --old <expr> --new <expr> --want-fail <Test>`\n")
+		b.WriteString("  KILLED line per new condition; UNREADABLE proves nothing. A mutant nobody can observe is removed by rewriting the code, not by an accept-list entry.\n")
+		b.WriteString("  A timed-out mutant is refused like a survivor, so never compute a scan or loop index as an expression: no `i++` in a loop that already\n")
+		b.WriteString("  steps `i`; consume a flag's value with a `skip` bool over a range loop; advance a scan with `i += n`, never `i - n`.\n")
+	}
+	b.WriteString("- **Orchestrating:** follow-ups on a lane (fix round, base merge, re-measure, red CI) resume its builder with only the delta; a fresh builder is for a new issue. A reviewer did not build the lane and re-reviews its own findings; the coordinator never edits; a brief carries only what the agent lacks.\n")
 	b.WriteString("- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).\n")
-	if undercover {
+	if f.Undercover {
 		b.WriteString("- **Commit messages** say what the change does and nothing about how it was\n")
 		b.WriteString("  written: no attribution trailers, tool names, or model names. The `commit-msg`\n")
 		b.WriteString("  hook rejects one and quotes the offending line.\n")
 	}
-	b.WriteString("\n_This block is written by `aphrollo install`. Edit the template in aphrollo, not\n")
-	b.WriteString("the block — the next init overwrites whatever is between the markers._\n")
+	b.WriteString("\n_This block is written by `aphrollo install`: edit the template in aphrollo, never the block, which the next install overwrites._\n")
 	b.WriteString(claudeMDEnd + "\n")
 	return b.String()
 }
@@ -102,13 +124,23 @@ func ClaudeMDBlock(shimDir string, undercover, mutantsAtMerge bool) string {
 // to know what the block SHOULD say goes through here — the writer and the
 // check that judges an on-disk block against it — so the two can never
 // disagree about what "current" means.
-func managedBlockFor(repoRoot, shimDir string) string {
+func managedBlockFor(repoRoot string) string {
+	return ClaudeMDBlock(blockFlagsFor(repoRoot))
+}
+
+// blockFlagsFor reads the flags from wherever this repo declares them:
+// `[workspace.metadata.aphrollo]` in its Cargo workspace, or `[aphrollo]` in
+// aphrollo.toml — the same two places the gates that enforce them read.
+func blockFlagsFor(repoRoot string) BlockFlags {
+	// cargoWorkspaceRoot answers repoRoot itself when no workspace encloses
+	// it, so ws is never empty.
 	ws := cargoWorkspaceRoot(repoRoot)
-	if ws == "" {
-		ws = repoRoot
-	}
 	cfg, _ := ReadMutantsConfig(repoRoot)
-	return ClaudeMDBlock(shimDir, cargoAphrolloFlag(ws, "undercover"), cfg.AtMerge)
+	return BlockFlags{
+		Undercover:      cargoAphrolloFlag(ws, "undercover") || aphrolloTomlFlag(repoRoot, "undercover"),
+		MutantsAtMerge:  cfg.AtMerge,
+		MutantsBeforePR: cfg.BeforePR,
+	}
 }
 
 // PatchClaudeMD returns existing with the managed block replaced in place, or
@@ -180,12 +212,14 @@ var ErrManagedBlockInPrimary = errors.New("managed CLAUDE.md block not written: 
 
 // WriteClaudeMD writes the managed block into repoRoot's CLAUDE.md. force
 // creates the file when there is none; without it an absent CLAUDE.md is a
-// no-op, so a plain `gate init` never invents a file in a repo that keeps none.
-// It reports whether the file changed.
-func WriteClaudeMD(repoRoot, shimDir string, force bool) (bool, error) {
+// no-op, so a plain `gate init` never invents a file in a repo that keeps none
+// — unless the repo measures mutants, whose builders learn the mutation rules
+// from this block and nowhere else. It reports whether the file changed.
+func WriteClaudeMD(repoRoot string, force bool) (bool, error) {
 	if repoRoot == "" {
 		return false, nil
 	}
+	force = force || blockFlagsFor(repoRoot).measures()
 	path := filepath.Join(repoRoot, "CLAUDE.md")
 	existing, err := os.ReadFile(path)
 	switch {
@@ -197,7 +231,7 @@ func WriteClaudeMD(repoRoot, shimDir string, force bool) (bool, error) {
 		return false, fmt.Errorf("reading %s: %w", path, err)
 	}
 
-	out, changed := PatchClaudeMD(existing, managedBlockFor(repoRoot, shimDir))
+	out, changed := PatchClaudeMD(existing, managedBlockFor(repoRoot))
 	if !changed {
 		return false, nil
 	}

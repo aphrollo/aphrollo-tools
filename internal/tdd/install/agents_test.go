@@ -180,8 +180,6 @@ func TestBuilderAgent_TeachesTheGenericCoordinatorRules(t *testing.T) {
 		"git -C <scratch> rev-parse --git-common-dir",
 		"TEST-ONLY commit",
 		"gate mutants prove",
-		"--want-fail",
-		"UNREADABLE",
 		"pgrep -x",
 		"never `pkill -f`",
 		"lower the code, never the baseline",
@@ -194,6 +192,28 @@ func TestBuilderAgent_TeachesTheGenericCoordinatorRules(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("builder agent does not teach %q", want)
 		}
+	}
+}
+
+// The agents are installed per user, so whatever the builder says holds in
+// every repo it works in — including one that never opted into mutation
+// measurement (issue #875). The rules that exist only because a merge measures
+// mutants (a prove line per condition, UNREADABLE proves nothing, no computed
+// scan index) live in the repo's own managed block instead, which states them
+// only where the repo declares the measurement.
+func TestBuilderAgent_LeavesTheMeasurementRulesToTheRepoBlock(t *testing.T) {
+	t.Parallel()
+	body, ok := ManagedAgent("builder")
+	if !ok {
+		t.Fatal("the builder agent is not shipped")
+	}
+	for _, rule := range []string{"--want-fail", "UNREADABLE", "loop index"} {
+		if strings.Contains(body, rule) {
+			t.Errorf("the builder agent carries the measurement rule %q in every repo", rule)
+		}
+	}
+	if !strings.Contains(body, "CLAUDE.md block") {
+		t.Error("the builder agent must point at the repo's CLAUDE.md block for the mutation rules")
 	}
 }
 

@@ -8,6 +8,8 @@ import (
 
 const HooksDirUnsafeEnv = install.HooksDirUnsafeEnv
 
+type BlockFlags = install.BlockFlags
+
 type InstallPlan = install.InstallPlan
 
 type ShimExeResult = install.ShimExeResult
@@ -20,9 +22,11 @@ func BuildInstallPlan(p0 string, p1 string) (InstallPlan, error) {
 	return install.BuildInstallPlan(p0, p1)
 }
 
-func ClaudeMDBlock(p0 string, p1 bool, p2 bool) string { return install.ClaudeMDBlock(p0, p1, p2) }
+func ClaudeMDBlock(p0 BlockFlags) string { return install.ClaudeMDBlock(p0) }
 
 func Doctor(p0 DoctorInput) []DoctorCheck { return install.Doctor(p0) }
+
+func FeaturesNotYetShown(p0 string) (string, error) { return install.FeaturesNotYetShown(p0) }
 
 func GlobalHooksPath() string { return install.GlobalHooksPath() }
 
@@ -54,6 +58,8 @@ func RemoveTDDSkill(p0 string) (bool, error) { return install.RemoveTDDSkill(p0)
 
 func RenderDoctor(p0 []DoctorCheck) (string, int) { return install.RenderDoctor(p0) }
 
+func RenderFeatures(p0 string) string { return install.RenderFeatures(p0) }
+
 func SDDSkill() string { return install.SDDSkill() }
 
 func StyleBlock() string { return install.StyleBlock() }
@@ -62,9 +68,7 @@ func TDDSkill() string { return install.TDDSkill() }
 
 func WriteAgents(p0 string) ([]string, error) { return install.WriteAgents(p0) }
 
-func WriteClaudeMD(p0 string, p1 string, p2 bool) (bool, error) {
-	return install.WriteClaudeMD(p0, p1, p2)
-}
+func WriteClaudeMD(p0 string, p1 bool) (bool, error) { return install.WriteClaudeMD(p0, p1) }
 
 func WriteManagedHookForTest(p0 string, p1 string, p2 string, p3 string) error {
 	return install.WriteManagedHookForTest(p0, p1, p2, p3)

@@ -2,6 +2,8 @@
 
 package install
 
+var Features = features
+
 var GitGateHooks = gitGateHooks
 
 var PerRepoHooks = perRepoHooks
@@ -9,6 +11,10 @@ var PerRepoHooks = perRepoHooks
 func BinShim(p0 string, p1 string, p2 string) string { return binShim(p0, p1, p2) }
 
 func EffectiveReplyStyle(p0 *sessionState) string { return effectiveReplyStyle(p0) }
+
+func FeatureReadmeRows() []string { return featureReadmeRows() }
+
+func ManagedBlockFor(p0 string) string { return managedBlockFor(p0) }
 
 func ReplyStyleFor(p0 string) string { return replyStyleFor(p0) }
 

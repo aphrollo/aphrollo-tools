@@ -67,10 +67,13 @@ and acts now.
 - `ci why` — read-only answer to "why is this run red?": resolves a PR's,
   a run id's or main's latest pipeline run through `gh` and prints each failed
   job with its failing tests, mutation survivors or infrastructure cause.
-- `install` / `check` / `issue` / `update` / `version` — box setup (session
-  hooks + git-hook shims in one run), read-only tree judgment (ratchet + docs +
-  sqlc + doctor + the app trio), open an issue against the repo's remote,
-  rebuild from `origin/main` and swap it in, and print the build stamp.
+- `install` / `config` / `check` / `issue` / `update` / `version` — box setup
+  (session hooks + git-hook shims in one run, and the opt-in feature table once
+  per repo), that table on demand with the repo's values, read-only tree
+  judgment (ratchet + docs + sqlc + doctor + the app trio), open an issue
+  against the repo's remote, rebuild from `origin/main` and swap it in, and
+  print the build stamp. The table's rows (`internal/tdd/install/features.go`)
+  are also the README's opt-in configuration rows, kept verbatim by a test.
 
 ## Layout
 
@@ -180,17 +183,18 @@ retired the root build task). aphrollo-infra no longer force-installs it.
 <!-- aphrollo:begin -->
 ## Working with the aphrollo gate
 
-- **`cargo` and `git` resolve to the queue shim** (`which cargo` prints a path under
-  `C:/Users/olive/bin/cargo-queue`); the user PATH and the shell profiles put it first, so a session never exports
+- **`cargo` and `git` resolve to the queue shim** (`which cargo` prints a path under the
+  `cargo-queue` dir `aphrollo install` wrote); the user PATH and the shell profiles put it first, so a session never exports
   PATH by hand. A run through the shim QUEUES visibly behind another build instead of
   hanging on a silent lock; if `which` prints the raw toolchain, the profile is broken: say so.
 - **The hooks run the tests, not you.** After every Edit/Write, PostToolUse prints
-  exactly ONE `gate:` line. Read it; never re-run a suite it just ran. Iterate with
-  `cargo check -p <crate> --tests`, which runs nothing.
+  exactly ONE `gate:` line for the edit, then one `gate: deferred` line per earlier job of the session, in any tree,
+  that finished since, naming its own tree and command. Read them; never re-run a suite they ran. Iterate with `cargo check -p <crate> --tests`, which runs nothing.
+- **Before writing or changing code, read the `tdd` skill** at `~/.claude/skills/tdd/SKILL.md` (under `$CLAUDE_CONFIG_DIR` when set; `aphrollo install` writes it).
 - **What the line means:** `green (N passed)` · `red-missing-impl` (a clean RED) · `red` ·
   `red-bogus` (broken test setup, not a real RED) · `TIMEOUT` / `SKIPPED` / `QUEUED-SKIPPED`
   (**inconclusive — the code was NOT tested**) · `BUILDING (deferred)` (the build outran the
-  budget and continues; its result arrives at the next hook). The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE targeted `-p <crate> <filter>` after a TIMEOUT. Wanting the run's TEXT is not one of them: `aphrollo gate stats` answers what the verdict WAS, `aphrollo gate output` prints what that run actually PRINTED — assertion lines and all, unfiltered.
+  budget and continues; its result arrives at the next hook, or wait in the foreground with `aphrollo gate status --wait <tree>`, the tree the line names). The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE targeted `-p <crate> <filter>` after a TIMEOUT. Wanting the run's TEXT is not one of them: `aphrollo gate stats` answers what the verdict WAS, `aphrollo gate output` prints what that run actually PRINTED — assertion lines and all, unfiltered.
 - **Commit gate, cheapest first:** staged-baseline guard → ratchet laws → docs check →
   suppression check → per root: cargo sequential (fmt→guards→clippy→check→fail-first);
   a Go root also runs vet/lint first. It proves the staged test RED and STOPS — the
@@ -209,11 +213,17 @@ retired the root build task). aphrollo-infra no longer force-installs it.
 - **The primary checkout is merge-only.** Once a repo has any linked worktree, the checkout holding
   `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL, the
   git shim (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit) is the WALL.
-  Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override
-  with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).
+  Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).
 - **A merge is measured, not certified:** the pre-merge gate runs this lane's mutation measurement in the foreground and refuses an unaccepted survivor by name; `aphrollo gate mutants run` measures THIS checkout the same way before you merge.
+- **Mutation rules** (this repo measures mutants): quote one `aphrollo gate mutants prove --file <f> --old <expr> --new <expr> --want-fail <Test>`
+  KILLED line per new condition; UNREADABLE proves nothing. A mutant nobody can observe is removed by rewriting the code, not by an accept-list entry.
+  A timed-out mutant is refused like a survivor, so never compute a scan or loop index as an expression: no `i++` in a loop that already
+  steps `i`; consume a flag's value with a `skip` bool over a range loop; advance a scan with `i += n`, never `i - n`.
+- **Orchestrating:** follow-ups on a lane (fix round, base merge, re-measure, red CI) resume its builder with only the delta; a fresh builder is for a new issue. A reviewer did not build the lane and re-reviews its own findings; the coordinator never edits; a brief carries only what the agent lacks.
 - **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).
+- **Commit messages** say what the change does and nothing about how it was
+  written: no attribution trailers, tool names, or model names. The `commit-msg`
+  hook rejects one and quotes the offending line.
 
-_This block is written by `aphrollo install`. Edit the template in aphrollo, not
-the block — the next init overwrites whatever is between the markers._
+_This block is written by `aphrollo install`: edit the template in aphrollo, never the block, which the next install overwrites._
 <!-- aphrollo:end -->

@@ -23,7 +23,7 @@ import (
 // mentions it, with no edit to this test required.
 func TestClaudeMDBlock_NeverTeachesARetiringAlias(t *testing.T) {
 	for _, undercover := range []bool{false, true} {
-		block := tdd.ClaudeMDBlock(`C:\shim`, undercover, false)
+		block := tdd.ClaudeMDBlock(tdd.BlockFlags{Undercover: undercover})
 		checkTable(t, block, topLevelVerbTable, "aphrollo ")
 		checkTable(t, block, gateVerbTable, "gate ")
 	}

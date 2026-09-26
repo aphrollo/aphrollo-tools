@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 const installUsage = `usage: aphrollo install [--repo <dir>] [--bin <path>] [--config-dir <dir>]
@@ -81,5 +83,19 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	if *binPath != "" {
 		installArgs = append(installArgs, "--bin", *binPath)
 	}
-	return runGateInstall(installArgs, stdout, stderr)
+	if code := runGateInstall(installArgs, stdout, stderr); code != 0 {
+		return code
+	}
+	// The opt-in table, once per repo: install stays non-interactive and
+	// names the key to set rather than setting it. Failing to record what was
+	// shown costs a warning, never the install that already succeeded.
+	if root := tdd.RepoRoot(*repo); root != "" {
+		text, err := tdd.FeaturesNotYetShown(root)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo install: %v\n", err)
+			return 0
+		}
+		fmt.Fprint(stdout, text)
+	}
+	return 0
 }

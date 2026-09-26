@@ -16,13 +16,11 @@ it is deleted in the merge that lands the work.
 
 ## 1. Brainstorm → `spec.md`
 
-Ask questions ONE AT A TIME until the design is settled. Prefer multiple
-choice. Never start building because the answer seems obvious — an unexamined
-assumption is what the questions are for.
+Ask questions ONE AT A TIME until the design is settled, multiple choice where
+possible. An answer that seems obvious is an unexamined assumption: ask it.
 
 Read the repo first: the existing flow, the recent commits, the design docs.
-A request covering several independent subsystems is decomposed into one spec
-each before any of them is written.
+Several independent subsystems get one spec each, before any is written.
 
 Write `spec.md`:
 
@@ -33,14 +31,12 @@ Write `spec.md`:
 - **Acceptance criteria** — testable statements. "Rejects a NaN velocity and
   keeps the previous value", not "handles bad input".
 
-Then read it once with fresh eyes: no TBDs, no section contradicting another,
-no requirement readable two ways. Fix inline, then run `aphrollo ratchet check --no-tighten` and fix every hit.
+Re-read it fresh: no TBDs, no contradictions, no requirement readable two ways. Fix inline, then run `aphrollo ratchet check --no-tighten` and fix every hit.
 
 ## 2. Plan → `plan.md`
 
-Split the spec into LANES. A lane is the smallest unit that carries its own
-test cycle and is worth a fresh reviewer's judgement — small enough for one
-builder to finish and be reviewed on its own.
+Split the spec into LANES: the smallest unit with its own test cycle, small
+enough for one builder to finish and a fresh reviewer to judge on its own.
 
 Each lane states, with no placeholders:
 
@@ -59,20 +55,24 @@ the names and types used in a later lane match what an earlier one defines. Then
 ## 3. Execute
 
 One lane per builder, handed the lane's plan text VERBATIM. Build to the
-`tdd` skill: RED first for new code, a mutation proof for code that already
-exists, and the gate's own line is the evidence — never a claim without it.
+`tdd` skill: RED first for new code, a mutation proof for code that already exists,
+and the gate's own line is the evidence. Only builders edit: the coordinator never edits.
+A brief or resume carries only what the agent lacks.
 
-Review each lane cold, by someone who did not write it. At most two fix rounds,
-then park with a ruling. Merge a lane only with the gate green and every
-finding fixed or accepted in the merge body. At lane end the spec tree is committed or deleted, never left untracked, or a hand-edit left uncommitted is invisible to the next `aphrollo install` and gets overwritten.
+Review each lane cold, by a reviewer that did not write it. Follow-ups (fix
+round, base merge, re-measure, red CI) resume that lane's builder with
+only the delta, and its reviewer re-reviews its own findings. A fresh builder is for a new issue
+(or a related one in files a builder already holds). At most two fix rounds, then
+park with a ruling. Merge only with the gate green and every finding fixed or
+accepted in the merge body. Commit or delete the spec tree at lane end: an
+untracked hand-edit is overwritten by the next `aphrollo install`.
 
 ## 4. Close
 
 Before the final merge, move what outlives the spec into its durable home:
 
 - design → the repo's design docs
-- decisions the code cannot state itself → `crates/<x>/docs/decisions.md` or
-  that language's equivalent
+- decisions the code cannot state itself → `crates/<x>/docs/decisions.md` or its equivalent
 - open points → the followups index
 
 Then DELETE `<sdd-dir>/<YYYY-MM-DD>-<slug>/` in the merge. Nothing durable
