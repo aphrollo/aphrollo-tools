@@ -13,6 +13,7 @@ import (
 // otherwise refuses to fetch it (CI=1, no --yes) and exits 1 without ever
 // starting the tool — echoing, as npm does, the command it did not run.
 const fakeNpx = `#!/bin/sh
+echo "$*" >> "$FAKE_NPX_LOG"
 tool=$1; shift
 if [ -x "node_modules/.bin/$tool" ]; then exec "node_modules/.bin/$tool" "$@"; fi
 echo "npm error npx canceled due to missing packages and no YES option: [\"$tool@3.2.7\"]" >&2
@@ -41,6 +42,7 @@ func makeVitestRepoWithFakeNpx(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_NPX_LOG", filepath.Join(bin, "npx.log"))
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, ".gitignore", "node_modules/\n")
@@ -62,10 +64,11 @@ func makeVitestRepoWithFakeNpx(t *testing.T) string {
 	return root
 }
 
-// Issue #898. The proof worktree at HEAD carries no node_modules (they are
-// gitignored), so npx there never starts vitest and exits 1 — and a failed
-// run was read as the new test going RED. A test that never ran proved
-// nothing: the run must not be certified red-proven.
+// Issue #898, and #904 after it. The root's node_modules holds only the
+// .bin shim npx would run, not the vitest package, so there is nothing for
+// the proof to run as node <bin entry>. It must not be certified red-proven,
+// must say what is missing, and must not reach for npx, which may fetch the
+// tool from the registry.
 func TestFailFirst_AParentRunThatNeverStartedTheToolIsNotRedProven(t *testing.T) {
 	root := makeVitestRepoWithFakeNpx(t)
 
@@ -74,32 +77,36 @@ func TestFailFirst_AParentRunThatNeverStartedTheToolIsNotRedProven(t *testing.T)
 	if res.Blocked {
 		t.Fatalf("an unrunnable proof refused the commit:\n%s", res.Message)
 	}
-	var line string
-	for l := range strings.Lines(stderr) {
-		if strings.HasPrefix(l, "[fail-first]") {
-			line = l
-		}
+	line := failFirstLine(stderr)
+	if line == "" || strings.Contains(line, "red-proven") || !strings.Contains(line, "inconclusive") {
+		t.Fatalf("want the fail-first line inconclusive, got %q in:\n%s", line, stderr)
 	}
-	if line == "" || strings.Contains(line, "red-proven") || !strings.Contains(line, "test-not-reached") {
-		t.Fatalf("want the fail-first line to say the test was never reached, got %q in:\n%s", line, stderr)
+	if !strings.Contains(stderr, "vitest is not installed in "+filepath.Join(root, "node_modules")) {
+		t.Fatalf("the verdict does not say what is missing:\n%s", stderr)
 	}
-	if !strings.Contains(stderr, "failed before it reached the staged tests") || !strings.Contains(stderr, "npx canceled") {
-		t.Fatalf("the verdict does not say why, with the run's own first line:\n%s", stderr)
+	if calls, err := os.ReadFile(os.Getenv("FAKE_NPX_LOG")); err == nil {
+		t.Fatalf("the gate ran npx: %s", calls)
 	}
 }
 
 // makeCharacterizedVitestRepo is the #898 commit on a vitest root, for the
 // tests that answer the proof run through a fake runner instead of a real
 // process: a new test for code HEAD already has, beside a config edit.
+// Its vitest is installed, so the proof reaches the runner; node is on PATH
+// for the lookup, and the fake runner answers in its place.
 func makeCharacterizedVitestRepo(t *testing.T) string {
 	t.Helper()
+	withNodeOnPath(t)
 	root := t.TempDir()
 	gitInit(t, root)
+	write(t, root, ".gitignore", "node_modules/\n")
 	write(t, root, "package.json", `{"name": "app", "devDependencies": {"vitest": "3.2.7"}}`)
 	write(t, root, "vitest.config.ts", "export default {}\n")
 	write(t, root, "src/lib/caps.ts", "export const caps = () => 3\n")
 	gitDo(t, root, "add", ".")
 	gitDo(t, root, "commit", "-qm", "base")
+	write(t, root, "node_modules/vitest/package.json", `{"name": "vitest", "bin": {"vitest": "./vitest.mjs"}}`)
+	write(t, root, "node_modules/vitest/vitest.mjs", "")
 	write(t, root, "vitest.config.ts", "export default { test: { globals: true } }\n")
 	write(t, root, "src/lib/caps.test.ts", "import { caps } from './caps'\nit('has three', () => { expect(caps()).toBe(3) })\n")
 	gitDo(t, root, "add", "vitest.config.ts", "src/lib/caps.test.ts")

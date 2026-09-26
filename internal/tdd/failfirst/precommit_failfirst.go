@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -171,7 +172,9 @@ func failFirstViolated(repoRoot string, tests, srcs []string, run SuiteRunner) f
 // unnarrowed `go test ./...`.
 func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteRunner) failFirstOutcome {
 	wt := failFirstWorktreeDir(repoRoot)
-	if wt == "" {
+	if npmWt := npmProofWorktree(root); npmWt != "" {
+		wt = npmWt
+	} else if wt == "" {
 		var err error
 		if wt, err = os.MkdirTemp("", "gate-failfirst-"); err != nil {
 			return failFirstOutcome{}
@@ -224,6 +227,16 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 	// suite (esp. cargo nextest over a large workspace) is 10-20 minutes,
 	// blows this stage's own timeout, and fails open having proven nothing.
 	runner = narrowFailFirstTests(runner, execRoot, relTests)
+	// execRunner is what runs: an npm root's own installed tool under node
+	// (#904). runner stays the tool it stands for, which the vacuous and
+	// skip readers and the violation message key off.
+	execRunner := runner
+	if npmTestTool(runner) != "" {
+		var why string
+		if execRunner, why = nodeTestRunner(root, runner, exec.LookPath); why != "" {
+			return failFirstOutcome{notRunnable: why, cmd: cmdString(Runner{Cmd: npmTestTool(runner), Args: runner.Args[1:]}), runner: runner, res: SuiteResult{Output: why + "\n"}}
+		}
+	}
 	// The fail-first run is a GATE run: it compiles and runs the same tests
 	// under the same contention, so it takes the same profile.
 	if runner.Cmd == "cargo" {
@@ -258,8 +271,8 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 	// proved RED against HEAD's source, and it records its verdict under
 	// this stage's own name rather than as a suite duration for a command
 	// the floor could be derived from. It keeps today's arithmetic.
-	res, waited, acquired := runCargoLocked(run, runner, execRoot, precommitLockWait(), DefaultPrecommitTimeout, 0)
-	logLockWait("precommit", root, runner, waited)
+	res, waited, acquired := runCargoLocked(run, execRunner, execRoot, precommitLockWait(), DefaultPrecommitTimeout, 0)
+	logLockWait("precommit", root, execRunner, waited)
 	// Whatever the verdict, this run has just written artifacts built from
 	// HEAD's source into the target dir the MECHANICAL stage is about to use,
 	// with an mtime newer than the staged source. Drop them before returning:
@@ -271,7 +284,7 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 		// proof never ran. Named as its own stand-down: the caller refuses
 		// the commit with the remedy for a queued box, not the one for a
 		// slow suite (#561).
-		return failFirstOutcome{cmd: cmdString(runner), standDown: failFirstNoBuildSlot, waited: waited}
+		return failFirstOutcome{cmd: cmdString(execRunner), standDown: failFirstNoBuildSlot, waited: waited}
 	}
 	// Only now: a run that never acquired the lock built nothing, and
 	// cleaning for it would evict a warm cache to undo writes that never
@@ -281,7 +294,7 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 		// A killed run reaches no verdict either way — and measured
 		// nothing, so the caller refuses rather than landing the commit on
 		// an unproven test (#561).
-		return failFirstOutcome{dur: res.Duration, cmd: cmdString(runner), standDown: failFirstOverBudget}
+		return failFirstOutcome{dur: res.Duration, cmd: cmdString(execRunner), standDown: failFirstOverBudget}
 	}
 	// #317: the proof worktree exited 0 having executed zero tests — a
 	// narrowed -run/-k/name filter matching nothing, say. That is not a red
@@ -299,10 +312,10 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 			// #317's point is exactly that an unmeasured run must never look
 			// like a pass, and "unreadable" is the same category as
 			// "measured nothing".
-			return failFirstOutcome{vacuous: true, vacuousPkgs: []string{fmt.Sprintf("(unreadable test-result stream: %v)", err)}, dur: res.Duration, cmd: cmdString(runner)}
+			return failFirstOutcome{vacuous: true, vacuousPkgs: []string{fmt.Sprintf("(unreadable test-result stream: %v)", err)}, dur: res.Duration, cmd: cmdString(execRunner)}
 		}
 		if len(names) > 0 {
-			return failFirstOutcome{vacuous: true, vacuousPkgs: names, dur: res.Duration, cmd: cmdString(runner)}
+			return failFirstOutcome{vacuous: true, vacuousPkgs: names, dur: res.Duration, cmd: cmdString(execRunner)}
 		}
 		// #656: the tests WERE selected, they ran, and every one of them
 		// skipped itself — an env-gated device suite in a worktree that does
@@ -310,26 +323,25 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 		// against HEAD, so it must never reach the violation below.
 		skipped, err := skippedOnlyNames(runner, res)
 		if err != nil {
-			return failFirstOutcome{vacuous: true, vacuousPkgs: []string{fmt.Sprintf("(unreadable test-result stream: %v)", err)}, dur: res.Duration, cmd: cmdString(runner), runner: runner}
+			return failFirstOutcome{vacuous: true, vacuousPkgs: []string{fmt.Sprintf("(unreadable test-result stream: %v)", err)}, dur: res.Duration, cmd: cmdString(execRunner), runner: runner}
 		}
 		if len(skipped) > 0 {
-			return failFirstOutcome{skipped: true, skippedPkgs: skipped, dur: res.Duration, cmd: cmdString(runner), runner: runner}
+			return failFirstOutcome{skipped: true, skippedPkgs: skipped, dur: res.Duration, cmd: cmdString(execRunner), runner: runner}
 		}
 	}
 	// #898: a failed run is a RED proof only when it reached the staged
-	// tests. The worktree carries no gitignored node_modules, so on an npm
-	// root `npx vitest` there exits 1 without ever starting the tool — and
-	// that exit used to certify a characterization test as red-proven. A
-	// failure that names no failing test and never mentions a staged test
-	// file said nothing about the test; see failfirst_reach.go.
-	if !res.Passed && !failureReachedTests(res.Output, relTests, runner.Args) {
-		return failFirstOutcome{notReached: true, dur: res.Duration, cmd: cmdString(runner), runner: runner, res: res}
+	// tests. A tool that exits 1 without starting, or a config that does
+	// not load, would otherwise certify a characterization test as
+	// red-proven. A failure that names no failing test and never mentions a
+	// staged test file says nothing about the test; see failfirst_reach.go.
+	if !res.Passed && !failureReachedTests(res.Output, relTests, execRunner.Args) {
+		return failFirstOutcome{notReached: true, dur: res.Duration, cmd: cmdString(execRunner), runner: runner, res: res}
 	}
 	// Tests PASS without the new source ⇒ they never went RED ⇒ violation.
-	out := failFirstOutcome{violated: res.Passed, Conclusive: true, dur: res.Duration, cmd: cmdString(runner), runner: runner, res: res}
+	out := failFirstOutcome{violated: res.Passed, Conclusive: true, dur: res.Duration, cmd: cmdString(execRunner), runner: runner, res: res}
 	if !res.Passed {
 		// RED proven: the same tests must now pass with the change (#922).
-		out.green = proveGreenWithChange(repoRoot, wt, execRoot, runner, run)
+		out.green = proveGreenWithChange(repoRoot, wt, execRoot, execRunner, run)
 	}
 	return out
 }
@@ -368,11 +380,12 @@ func failFirstWorktreeDir(repoRoot string) string {
 }
 
 // failFirstStage runs the fail-first check for ONE project root's staged
-// files, in a throwaway worktree at HEAD. That worktree has no node_modules
-// — worktrees don't share gitignored deps and we do NOT `pnpm install` per
-// commit (too slow) — so for vitest/jest repos the suite can't run there and
-// fail-first is effectively Go-only. It still fails OPEN (an unrunnable
-// suite is inconclusive, never a block).
+// files, in a throwaway worktree at HEAD. Worktrees don't share gitignored
+// deps and the gate does NOT `npm install` per commit (too slow), so a
+// vitest/jest root's worktree sits under the root's own node_modules and
+// runs the installed tool under node (failfirst_node.go). A root without
+// its tool installed fails OPEN (an unrunnable suite is inconclusive, never
+// a block).
 //
 // Zig fails OPEN here by construction, and deliberately so. Its tests are
 // `test "..." {}` blocks INLINE in src/*.zig, so an inline-test commit stages
@@ -443,6 +456,10 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 			// `gate stats` must be able to count the proofs that ran and
 			// measured nothing separately from the ones that proved a red.
 			verdict = AllTestsSkipped
+		case out.notRunnable != "":
+			// #904: the root's own test tool, or node, is not there to run,
+			// and the proof never falls back to npx.
+			verdict = "inconclusive (tool-not-installed, fail-open)" // standdown-logged: logSuiteVerdict(verdict) after the switch
 		case out.notReached:
 			// #898: the run at HEAD failed before it reached the staged
 			// tests, so it proved neither a red nor a pass.
@@ -459,6 +476,9 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		logSuiteVerdict("precommit", root, ffCmd, verdict, out.res)
 		if out.notReached {
 			fmt.Fprintln(os.Stderr, notReachedNote(out.res.Output))
+		}
+		if out.notRunnable != "" {
+			fmt.Fprintln(os.Stderr, "  "+out.notRunnable)
 		}
 		if out.vacuous {
 			return GateResult{Blocked: true, Message: vacuousFailFirstMessage(out.vacuousPkgs)}
