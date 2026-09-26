@@ -276,3 +276,21 @@ func TestCommitMsg_RejectionNumbersTheOffendingLine(t *testing.T) {
 		t.Fatalf("rejection = %q, want it to name line 3", got.Message)
 	}
 }
+
+// The guidance file and the config directory are names in the repo, in a
+// subject or a body alike, and never attribution; so is a branch named after
+// the file as one token.
+func TestCommitMsg_TheGuidanceFileAndConfigPathsPassInEveryPosition(t *testing.T) {
+	t.Parallel()
+	root := undercoverRepo(t, true)
+	for _, body := range []string{
+		"Note lane file overlap and the green-PR freeze in CLAUDE.md (#891)\n",
+		"Fix the flaky retry timer\n\nThe rule moved to .claude/skills/x/SKILL.md.\n",
+		"Fix the flaky retry timer\n\nSee ~/.claude/agents/builder.md for the brief.\n",
+		"Merge lane/claudemd-lanes: lane rules in the guide\n",
+	} {
+		if res := CommitMsg(root, msgFile(t, body)); res.Blocked {
+			t.Errorf("an ordinary message was refused: %q\n%s", body, res.Message)
+		}
+	}
+}

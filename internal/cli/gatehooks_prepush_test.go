@@ -163,3 +163,14 @@ func TestRunGatePrepush_IgnoresCommitIdentitiesWhenTheRepoNeverAsked(t *testing.
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
 }
+
+// A commit editing the guidance file, on a branch named after it, is ordinary.
+func TestRunGatePrepush_PassesTheGuidanceFileInNamesAndMessages(t *testing.T) {
+	repo, commit := prepushCommitRepo(t, true)
+	sha := commit(nil, "-m", "Note lane file overlap in CLAUDE.md (#891)", "-m", "See .claude/skills/x/SKILL.md and ~/.claude/agents/builder.md.")
+	line := "refs/heads/lane/claudemd-lanes " + sha + " refs/heads/lane/claudemd-lanes " + zeroOid + "\n"
+	var errb bytes.Buffer
+	if code := runGatePrepush(strings.NewReader(line), &errb, repo); code != 0 {
+		t.Fatalf("exit %d: %s", code, errb.String())
+	}
+}

@@ -312,3 +312,21 @@ func TestCheckEvent_AFailedReadIsAnErrorNotAPass(t *testing.T) {
 		}
 	}
 }
+
+// The CI check reads the guidance file and config paths as the names they are.
+func TestCheckEvent_PassesTheGuidanceFileAndConfigPaths(t *testing.T) {
+	t.Parallel()
+	body := "Note lane file overlap in CLAUDE.md.\n\nThe skill is .claude/skills/x/SKILL.md; the brief is ~/.claude/agents/builder.md."
+	gh := &fakeGitHub{get: map[string]string{
+		prPath:        prJSON("Note lane file overlap and the green-PR freeze in CLAUDE.md (#891)", body),
+		prCommitsPath: commitsJSON([4]string{"eeeeeeeeeeeeeeee", "Jane Doe|jane@example.com", "GitHub|noreply@github.com", "Edit CLAUDE.md\n\nSee .claude/skills/x/SKILL.md"}),
+		issueComPath:  commentsJSON(map[int]string{11: "Updated ~/.claude/agents/builder.md to match CLAUDE.md"}),
+	}}
+	res, err := CheckEvent(context.Background(), []byte(triggers["pull_request"]), New(nil), gh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Failures) != 0 || len(gh.patches) != 0 {
+		t.Errorf("ordinary names were judged: failures %q, patches %q", res.Failures, gh.patches)
+	}
+}
