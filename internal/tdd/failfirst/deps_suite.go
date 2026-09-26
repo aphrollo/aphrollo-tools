@@ -73,6 +73,8 @@ func narrowFailFirstTests(p0 Runner, p1 string, p2 []string) Runner {
 	return suite.NarrowFailFirstTests(p0, p1, p2)
 }
 
+func npmBinEntry(p0 string, p1 string) string { return suite.NpmBinEntry(p0, p1) }
+
 func runCargoLocked(p0 SuiteRunner, p1 Runner, p2 string, p3 time.Duration, p4 time.Duration, p5 time.Duration) (SuiteResult, time.Duration, bool) {
 	return suite.RunCargoLocked(p0, p1, p2, p3, p4, p5)
 }

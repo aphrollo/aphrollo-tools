@@ -243,6 +243,8 @@ func NotCompiledTerminal(p0 Runner, p1 string, p2 string, p3 SuiteResult) string
 
 func NotRunClause(p0 []string, p1 string) string { return notRunClause(p0, p1) }
 
+func NpmBinEntry(p0 string, p1 string) string { return npmBinEntry(p0, p1) }
+
 func PackageHasDoctests(p0 string) bool { return packageHasDoctests(p0) }
 
 func ParseWorkspaceDeps(p0 []byte) (map[string][]string, error) { return parseWorkspaceDeps(p0) }
