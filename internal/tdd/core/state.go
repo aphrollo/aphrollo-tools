@@ -70,6 +70,15 @@ type sessionState struct {
 		// DiscardBashDecision) has already let through on WallDiscard's
 		// one-shot arm -- see DiscardBashSpentEntry's own doc.
 		DiscardBashSpent []DiscardBashSpentEntry `json:"discard_bash_spent,omitempty"`
+		// PrimaryBashSpent mirrors DiscardBashSpent's shape and reason for
+		// WallPrimary (#894): the Bash/PowerShell wall (postedit's
+		// PrimaryCheckoutDecision) records here every git invocation a
+		// session-wide `gate allow primary` waiver already covers, so the
+		// git queue shim -- meeting the SAME command a moment later as its
+		// own subprocess -- can still let it through even when that
+		// subprocess's own environment carries no session identity for
+		// PrimaryEditsAllowed to read.
+		PrimaryBashSpent []DiscardBashSpentEntry `json:"primary_bash_spent,omitempty"`
 	} `json:"overrides"`
 	// Notices records one-shot advisories that must fire at most once per
 	// session, so re-firing them on every edit never becomes noise.
