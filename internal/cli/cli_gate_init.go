@@ -234,6 +234,28 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "aphrollo gate: %s is in use and was left at its old version (%s)\n", name, cdir)
 		}
 
+		// The agent's own Bash tool reads neither ~/.bashrc nor ~/.profile,
+		// so the shell-profile PATH lines above never reach a session it
+		// starts (issue #911): `which cargo`/`which git` there resolve
+		// outside cdir forever, no matter how many times a human shell gets
+		// re-sourced. Claude Code's settings.json env block is a LITERAL
+		// value, never a shell expansion of "$PATH" (confirmed against the
+		// settings reference: "A value here overwrites the same variable
+		// exported in your shell"), so the fix is to write the whole PATH
+		// this process itself sees, with cdir prepended, straight into
+		// env.PATH — the only PATH a session it starts is ever going to
+		// have. A later change to the box's own PATH needs a re-install to
+		// reach that snapshot; doctorEnvPath warns when it has gone stale.
+		pchanged, perr := tdd.InitSettingsEnvPath(dir, cdir, userPathDirsFn(), pathListSep(), false)
+		switch {
+		case perr != nil:
+			fmt.Fprintf(stderr, "aphrollo: %v\n", perr)
+		case pchanged:
+			fmt.Fprintf(stdout, "aphrollo gate: added the queue shim to the agent's env.PATH in %s\n", path)
+		default:
+			fmt.Fprintf(stdout, "aphrollo gate: agent env.PATH already up to date (%s)\n", path)
+		}
+
 		// The operating instructions belong in the one file a session always
 		// reads. A repo that keeps a CLAUDE.md gets the block automatically;
 		// one that does not is left alone unless asked with --claude-md. The
@@ -264,6 +286,18 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stdout, "aphrollo gate: wrote the law spec in %s\n", filepath.Join(root, ".ratchet", "README.md"))
 			}
 		}
+	} else {
+		// The shim FILES stay (a session may still have cdir on PATH), but
+		// env.PATH is a literal value a live session actually resolves
+		// through every time — leaving the shim dir in it after uninstall
+		// would keep queuing `git`/`cargo` behind a gate that is gone.
+		pchanged, perr := tdd.InitSettingsEnvPath(dir, shimDir, nil, pathListSep(), true)
+		switch {
+		case perr != nil:
+			fmt.Fprintf(stderr, "aphrollo: %v\n", perr)
+		case pchanged:
+			fmt.Fprintf(stdout, "aphrollo gate: removed the queue shim from the agent's env.PATH in %s\n", path)
+		}
 	}
 	return 0
 }
@@ -292,6 +326,18 @@ func defaultClaudeDir() string {
 		return ".claude"
 	}
 	return filepath.Join(home, ".claude")
+}
+
+// pathListSep is the separator settings.json's env.PATH is joined with,
+// matching how userPathDirs itself split what it read: ";" on Windows (both
+// registry hives, see parseRegPath), ":" everywhere else (filepath.SplitList
+// natively). Keyed off binGOOS, the same seam resolveBinPath already reads,
+// so this branch runs on either host under test too.
+func pathListSep() string {
+	if binGOOS == "windows" {
+		return ";"
+	}
+	return ":"
 }
 
 // defaultCargoShimDir resolves the queue-shim directory `aphrollo install`
