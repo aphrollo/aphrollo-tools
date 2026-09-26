@@ -69,7 +69,7 @@ func gateRootCargo(gateName, repoRoot string, g rootGroup, rootFiles []string, r
 			return res
 		}
 	}
-	if res := cargoQualityStage(gateName, plan.ws, g.Root, plan.touched, run, repoRoot, qualityClippy); res.Blocked {
+	if res := cargoQualityStage(gateName, plan.ws, g.Root, clippyCleanScope(plan, failFirst), run, repoRoot, qualityClippy); res.Blocked {
 		return res
 	}
 	if res := workspaceCheckStage(gateName, repoRoot, g.Root, plan, run); res.Blocked {
@@ -104,6 +104,19 @@ func gateRootCargo(gateName, repoRoot string, g rootGroup, rootFiles []string, r
 		}
 	}
 	return doctestStage(gateName, repoRoot, g.Root, plan, run)
+}
+
+// clippyCleanScope is the crates the clippy-clean stage considers: the
+// touched ones at the commit (failFirst), and at the merge everything
+// downstream of them as well. The merge is where a warning must be refused: a
+// change upstream of a listed crate can make it warn without touching it, and
+// a merge that never lints it lets that warning land for the next commit to
+// that crate to pay for (issue #921).
+func clippyCleanScope(plan cargoStagePlan, failFirst bool) []string {
+	if failFirst {
+		return plan.touched
+	}
+	return plan.downstream
 }
 
 // workspaceManifestCheckStage answers issue #365's harder half: a workspace-

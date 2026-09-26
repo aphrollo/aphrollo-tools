@@ -17,7 +17,14 @@ import (
 //   - `cargo clippy -D warnings` runs only for crates the workspace declared
 //     `clippy-clean`. In a large tree most crates carry warnings, so gating
 //     all of them is a gate nobody can use; a crate that reached zero is
-//     held there.
+//     held there. It judges the listed crate's OWN code (`--no-deps`): a
+//     dependency that is not on the list is not this crate's to fix, and
+//     borld's server commits were refused for three warnings in
+//     forge_solver that no commit of theirs had touched (issue #921). A
+//     repo that wants a dependency held clean too lists that dependency.
+//     The commit runs it for the crates it touched; the merge for every
+//     listed crate downstream of what it touched, since a change upstream
+//     can make a listed crate warn without touching it.
 //
 // Both are per-crate so a rejection can name one, and both fail OPEN on a
 // timeout or a busy build slot — the same policy as the suite stages, since
@@ -63,7 +70,7 @@ func cargoQualityStage(gateName, ws, root string, pkgs []string, run SuiteRunner
 		if !clippyClean[pkg] {
 			continue
 		}
-		clippyRunner := Runner{Cmd: "cargo", Args: []string{"clippy", "-p", pkg, "--tests", "--", "-D", "warnings"}, Dir: ws}
+		clippyRunner := Runner{Cmd: "cargo", Args: []string{"clippy", "-p", pkg, "--no-deps", "--tests", "--", "-D", "warnings"}, Dir: ws}
 		// No budget floor (the trailing zero): clippy runs no suite, and
 		// this check fails OPEN on a timeout anyway — a longer budget would
 		// buy a verdict nobody is blocked on.
