@@ -355,6 +355,7 @@ gitgate.go                                         install
 gitgate_core.go                                    core      # created by P2
 gitgate_test.go                                    install
 gitplumbing.go                                     gitx
+gitplumbing_stdout_test.go                         gitx
 gitqueue_test.go                                   gitx
 go_reverse_scope.go                                suite
 go_reverse_scope_test.go                           suite
