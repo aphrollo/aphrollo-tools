@@ -107,12 +107,20 @@ var Tells = []Tell{
 		},
 		Pass: []string{
 			"Add the operating block to CLAUDE.md",
+			"Note lane file overlap and the green-PR freeze in CLAUDE.md (#891)",
 			"Move the code-quality skill under .claude/skills",
+			"The rule lives in .claude/skills/x/SKILL.md",
+			"See ~/.claude/agents/builder.md for the brief",
 			"Merge lane/claude-md: project guide as tagged laws",
+			"Merge lane/claudemd-lanes: lane rules in the guide",
 			"Rename claudication_test to intermittent_test",
 		},
-		RefHit:  []string{"claude/x", "lane/claude-fix", "Claude_x", "lane/fix.claude"},
-		RefPass: []string{"lane/cairo", "lane/claudication", "lane/air-fix"},
+		// A ref is judged token by token: claudemd is one file-derived token,
+		// not the vendor word, and passes; claude-md splits into the bare
+		// word, which the remote ref, the PR head and the merge subject would
+		// then carry.
+		RefHit:  []string{"claude/x", "lane/claude-fix", "Claude_x", "lane/fix.claude", "lane/claude-md"},
+		RefPass: []string{"lane/cairo", "lane/claudication", "lane/air-fix", "lane/claudemd-lanes"},
 	},
 	{
 		Name:   "anthropic",
