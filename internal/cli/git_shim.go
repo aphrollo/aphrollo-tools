@@ -132,6 +132,10 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 			fmt.Fprintln(stderr, line)
 			return 1
 		}
+		if line := undercoverRefusalLine(cfg.realGit, classifyRest, workDir); line != "" {
+			fmt.Fprintln(stderr, line)
+			return 1
+		}
 		// A declared hand mutation proof restoring a file it held before
 		// mutating it (#650). Before the discard wall, because the wall's
 		// question ("what would this destroy") has a different answer for

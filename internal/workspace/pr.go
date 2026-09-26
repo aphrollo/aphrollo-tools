@@ -197,6 +197,9 @@ func PRPlan(t *Target, base, title, body string, draft bool) (*PR, error) {
 	if t.Branch == "HEAD" {
 		return nil, fmt.Errorf("detached HEAD in %s — check out a branch before opening a PR", t.Worktree)
 	}
+	if err := undercoverCheck(t.Worktree, t.Branch, undercoverText{"PR title", title}, undercoverText{"PR body", body}); err != nil {
+		return nil, err
+	}
 	if base == "" {
 		base = resolveDefaultBranch(t.Worktree)
 	}

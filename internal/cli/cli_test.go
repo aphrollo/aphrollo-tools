@@ -56,9 +56,9 @@ func TestRun_TDDInit(t *testing.T) {
 	}
 }
 
-// `tdd prepush` is a mechanical-only no-op: it exits 0 and never blocks, so a
-// pre-push shim present on a box can never wedge a push. It must NOT depend on
-// being inside a git repo or on any external reviewer — it returns immediately.
+// `tdd prepush` runs no suite: outside a repo, and in one without undercover,
+// it exits 0 and never blocks, so a pre-push shim can never wedge a push. It
+// must NOT depend on any external reviewer — it returns immediately.
 func TestRun_TDDPrepush_IsNoOp(t *testing.T) {
 	// Run from a non-repo temp dir to prove prepush does no git/repo work.
 	dir := t.TempDir()

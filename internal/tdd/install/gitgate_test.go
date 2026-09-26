@@ -32,7 +32,7 @@ func TestInitGitGate_Installs(t *testing.T) {
 	if !changed {
 		t.Fatal("expected changed=true installing the git gate")
 	}
-	for name, sub := range map[string]string{"pre-commit": "precommit", "pre-merge-commit": "premerge"} {
+	for name, sub := range map[string]string{"pre-commit": "precommit", "pre-merge-commit": "premerge", "pre-push": "prepush"} {
 		data, err := os.ReadFile(filepath.Join(hooksDir, name))
 		if err != nil {
 			t.Fatalf("%s not written: %v", name, err)
@@ -45,11 +45,6 @@ func TestInitGitGate_Installs(t *testing.T) {
 		if fi, _ := os.Stat(filepath.Join(hooksDir, name)); runtime.GOOS != "windows" && fi != nil && fi.Mode()&0o111 == 0 {
 			t.Errorf("%s is not executable", name)
 		}
-	}
-	// The gate is mechanical-only now: pre-push is no longer a managed hook, so
-	// install must NOT write a pre-push shim.
-	if _, err := os.Stat(filepath.Join(hooksDir, "pre-push")); !os.IsNotExist(err) {
-		t.Errorf("pre-push shim should not be installed (gate is mechanical-only), stat err=%v", err)
 	}
 	if got := globalHooksPath(t); got != hooksDir {
 		t.Errorf("core.hooksPath = %q, want %q", got, hooksDir)
@@ -79,17 +74,17 @@ func TestInitGitGate_WiresPreMergeCommitToGatePremerge(t *testing.T) {
 	}
 }
 
-// A box installed before the mechanical-only change has a MANAGED pre-push shim
-// in the hooks dir. The next install must prune that stranded managed shim so
-// the lingering pre-push hook stops firing — while never touching a foreign
-// (hand-written) pre-push hook.
-func TestInitGitGate_PrunesStrandedManagedPrePush(t *testing.T) {
+// ratchet: test_removed TestInitGitGate_PrunesStrandedManagedPrePush: pre-push is a managed hook again (the undercover ref wall, #879), so an older managed shim is rewritten rather than pruned; TestInitGitGate_RewritesAnOlderManagedPrePushShim pins that.
+
+// A box installed while pre-push was pruned may still carry an older managed
+// shim; the next install rewrites it to the current one, which runs the
+// undercover ref wall, rather than leaving the old one or removing it.
+func TestInitGitGate_RewritesAnOlderManagedPrePushShim(t *testing.T) {
 	isolateGitConfig(t)
 	hooksDir := filepath.Join(t.TempDir(), "hooks")
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Simulate a previously-installed managed pre-push shim.
 	managed := "#!/bin/sh\n" + installMarker + "\nexec /usr/local/bin/aphrollo tdd prepush \"$@\"\n"
 	prePush := filepath.Join(hooksDir, "pre-push")
 	if err := os.WriteFile(prePush, []byte(managed), 0o755); err != nil {
@@ -101,10 +96,14 @@ func TestInitGitGate_PrunesStrandedManagedPrePush(t *testing.T) {
 		t.Fatalf("InitGitGate: %v", err)
 	}
 	if !changed {
-		t.Error("expected changed=true (pruned the stranded pre-push shim)")
+		t.Error("expected changed=true (rewrote the older pre-push shim)")
 	}
-	if _, err := os.Stat(prePush); !os.IsNotExist(err) {
-		t.Errorf("stranded managed pre-push shim was not pruned, stat err=%v", err)
+	data, err := os.ReadFile(prePush)
+	if err != nil {
+		t.Fatalf("the managed pre-push shim is gone: %v", err)
+	}
+	if !strings.Contains(string(data), CmdName+" prepush") || string(data) == managed {
+		t.Errorf("pre-push was not rewritten to the current shim:\n%s", data)
 	}
 }
 

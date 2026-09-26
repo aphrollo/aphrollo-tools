@@ -69,6 +69,8 @@ Law schema, matcher kinds and baselines: [.ratchet/README.md](.ratchet/README.md
 workspace's `Cargo.toml`. `aphrollo config` prints the opt-in keys (the first
 rows) with this repo's values; a repo's first `aphrollo install` prints them once.
 
+With `undercover = true` a tool identity is refused at commit, pre-push and `workspace merge` and flagged at session start and by `gate doctor`; the Bash/PowerShell hook, the git shim, pre-push and `workspace create`/`claim`/`pr`/`ship`/`submit` refuse a tell ref name; `pr`/`ship`/`submit`, `issue`, `feedback` and the Bash/PowerShell hook (for a `gh pr`, `gh issue` or `gh api` call) check text before `gh`. The Bash/PowerShell hook judges `gh pr`/`gh issue` create, edit, comment, review and merge text, and a `gh api` request's title, body and head fields, `--input` JSON file and GraphQL mutation. Every check runs on this box before the text reaches GitHub; nothing in CI repeats it.
+
 | key | effect |
 |---|---|
 | `mutants-at-merge` | off by default: mutation measurement of the merged tree before every merge; cost: high CPU and wall-clock: a lane runs tens of mutants, each re-running its package's suite |
@@ -77,6 +79,7 @@ rows) with this repo's values; a repo's first `aphrollo install` prints them onc
 | `mutants-slots` (box) | 1 by default: measurements this box runs at once, the rest queue (fixed at 1 for now); cost: each slot runs a full shard set, so size it to cores and RAM |
 | `undercover` | off by default: the commit-msg gate refuses AI attribution trailers; cost: none |
 | `commit-message-deny` | commit-msg deny patterns |
+| `undercover-extra` | extra tokens for the undercover checks, e.g. `["codename"]` |
 | `always-run`, `clippy-clean` | suites run on every merge; crates gated on clippy `-D warnings` |
 | `fail-first-env` | env switches for the fail-first run |
 | `go-test-reads` | `"<path prefix> -> <package dir>"`: a staged path also selects that suite |

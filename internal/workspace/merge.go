@@ -147,6 +147,10 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	if pr == nil {
 		return fmt.Errorf("no open PR for %s — run: aphrollo workspace pr", m.Target.Branch)
 	}
+	body, useBody, err := undercoverMerge(m.Target, m.Method)
+	if err != nil {
+		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
+	}
 	ci, ciErr := ghCIStatus(m.Target.Worktree, m.Target.Branch)
 	if ciErr != nil {
 		return fmt.Errorf("checking CI status for %s: %w", m.Target.Branch, ciErr)
@@ -169,7 +173,11 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	if err := premergeGate(m.Target, stderr); err != nil {
 		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
-	if err := ghMergePR(m.Target.Worktree, m.Target.Branch, m.Method); err != nil {
+	merge := func() error { return ghMergePR(m.Target.Worktree, m.Target.Branch, m.Method) }
+	if useBody {
+		merge = func() error { return ghMergePRBody(m.Target.Worktree, m.Target.Branch, m.Method, body) }
+	}
+	if err := merge(); err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "merged PR #%d (%s): %s\n", pr.Number, m.Method, pr.URL)

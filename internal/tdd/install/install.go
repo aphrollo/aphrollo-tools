@@ -27,7 +27,7 @@ type InstallPlan struct {
 	RepoRoot string
 	Hooks    []HookFile
 	// Prune holds paths of managed shims this install removes — the per-repo
-	// mirror of the global gate's pruned hooks. A stranded managed pre-push shim
+	// mirror of the global gate's pruned hooks. A stranded managed shim for one
 	// is removed so a repo runs only the hooks Apply writes.
 	Prune []string
 }
@@ -47,12 +47,14 @@ var perRepoHooks = []struct{ Name, Sub string }{
 	// the sweep `aphrollo workspace merge` has always ended with, now
 	// reachable from a plain `git merge`. See gitGateHooks.
 	{"post-merge", "postmerge"},
+	// pre-push is the undercover ref wall. See gitGateHooks.
+	{"pre-push", "prepush"},
 }
 
 // perRepoPrunedHooks are hook names per-repo install removes but never writes. A
 // managed shim by one of these names (marker-based) is pruned so a stranded
 // shim stops firing; a foreign hook by that name is left untouched.
-var perRepoPrunedHooks = []string{"pre-push"}
+var perRepoPrunedHooks []string
 
 // shim is the hook script body; bin is the absolute aphrollo binary path and sub
 // the matching `aphrollo tdd` subcommand. Using the resolved path (not a bare

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
+	"github.com/aphrollo/aphrollo-tools/internal/undercover"
 )
 
 func gateLogText(t *testing.T, cfg string) string { t.Helper(); return tddtest.GateLogText(t, cfg) }
@@ -132,7 +133,7 @@ func TestCommitMsg_RejectionIsLogged(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := undercoverRepo(t, true)
 
-	res := CommitMsg(root, msgFile(t, "Fix the flaky retry timer\n\nCo-Authored-By: Someone <s@example.com>\n"))
+	res := CommitMsg(root, msgFile(t, "Fix the flaky retry timer\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n"))
 	if !res.Blocked {
 		t.Fatal("fixture must be rejected")
 	}
@@ -140,7 +141,7 @@ func TestCommitMsg_RejectionIsLogged(t *testing.T) {
 	if !strings.Contains(text, "commitmsg-rejected:") {
 		t.Fatalf("a rejected message must leave a trace, got:\n%s", text)
 	}
-	requireLoggedVerdict(t, cfg, "commitmsg-rejected:"+LogToken(undercoverPatterns[0].String()))
+	requireLoggedVerdict(t, cfg, "commitmsg-rejected:"+LogToken(undercover.Tells[0].Name))
 }
 
 // `/tdd off` disables the whole edit-time gate for a session. That is a

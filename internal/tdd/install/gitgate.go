@@ -11,9 +11,9 @@ import (
 )
 
 // gitGateHooks are the git hooks the gate manages, paired with the `aphrollo
-// tdd` subcommand each shim invokes. install also PRUNES any managed pre-push
-// shim it finds (see prunedHooks + uninstallGitGate), so a box only runs the
-// hooks listed here. pre-merge-commit was added 2026-08-15 (build-infra-fix
+// tdd` subcommand each shim invokes. install also PRUNES any managed shim for
+// a hook in prunedHooks (see uninstallGitGate), so a box only runs the hooks
+// listed here. pre-merge-commit was added 2026-08-15 (build-infra-fix
 // task A6): `git merge` never fires pre-commit, so a merge landed untested
 // unless someone ran the workspace suite by hand — it runs Mechanical only
 // (no fail-first/anti-cheat, both already settled on the commits being
@@ -38,13 +38,18 @@ var gitGateHooks = []struct{ Name, Sub string }{
 	// `prune-lanes-on-merge = true` (see postmerge.go). It cannot block —
 	// the merge has already happened.
 	{"post-merge", "postmerge"},
+	// pre-push is the undercover ref wall for a push that bypasses the git
+	// shim: it refuses a pushed ref whose local or remote name carries a
+	// tell, and is inert unless a workspace opts in with `undercover = true`.
+	{"pre-push", "prepush"},
 }
 
 // prunedHooks are hook names this tool prunes but never installs. A re-install
 // removes any of these whose on-disk shim is still ours (marker-based) so a
 // stranded managed shim stops firing; a foreign hook by that name is left
-// untouched. Add a name here to have install prune a managed hook.
-var prunedHooks = []string{"pre-push"}
+// untouched. Add a name here to have install prune a managed hook. pre-push
+// was one until it became the undercover ref wall.
+var prunedHooks []string
 
 // binShim is a git-hook script that execs the aphrollo binary's tdd subcommand.
 // It carries installMarker so a re-install or uninstall recognises its own shim
@@ -219,8 +224,8 @@ func installGitGate(hooksDir, bin string) (bool, error) {
 		changed = true
 	}
 
-	// Prune any managed shim for a hook this tool does not install (e.g.
-	// pre-push), so a box only runs the managed hooks above.
+	// Prune any managed shim for a hook this tool does not install, so a box
+	// only runs the managed hooks above.
 	pruned, err := prunePrunedHooks(hooksDir)
 	if err != nil {
 		return false, err
@@ -309,7 +314,7 @@ func uninstallGitGate(hooksDir string) (bool, error) {
 			changed = true
 		}
 	}
-	// Also remove any stranded managed shim for a pruned hook (e.g. pre-push).
+	// Also remove any stranded managed shim for a pruned hook.
 	pruned, err := prunePrunedHooks(hooksDir)
 	if err != nil {
 		return false, err

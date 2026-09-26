@@ -86,7 +86,7 @@ func TestInstallPlan_ApplyWritesExecutableShims(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for name, sub := range map[string]string{"pre-commit": "precommit", "pre-merge-commit": "premerge"} {
+	for name, sub := range map[string]string{"pre-commit": "precommit", "pre-merge-commit": "premerge", "pre-push": "prepush"} {
 		p := filepath.Join(root, ".git", "hooks", name)
 		fi, err := os.Stat(p)
 		if err != nil {
@@ -102,16 +102,12 @@ func TestInstallPlan_ApplyWritesExecutableShims(t *testing.T) {
 			t.Fatalf("%s does not invoke the subcommand:\n%s", name, data)
 		}
 	}
-
-	// pre-push is mechanical-only; install never writes it.
-	if _, err := os.Stat(filepath.Join(root, ".git", "hooks", "pre-push")); !os.IsNotExist(err) {
-		t.Fatalf("pre-push should not be installed: err=%v", err)
-	}
 }
 
-// A stranded managed pre-push shim (from an earlier install) is pruned, while a
-// foreign pre-push hook is left untouched.
-func TestInstallPlan_PrunesStrandedManagedPrePush(t *testing.T) {
+// ratchet: test_removed TestInstallPlan_PrunesStrandedManagedPrePush: pre-push is a managed hook again (the undercover ref wall, #879), so an older managed shim is rewritten rather than pruned; TestInstallPlan_RewritesAnOlderManagedPrePushShim pins that.
+
+// An older managed pre-push shim is rewritten to the current one.
+func TestInstallPlan_RewritesAnOlderManagedPrePushShim(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	hooks := filepath.Join(root, ".git", "hooks")
@@ -119,7 +115,8 @@ func TestInstallPlan_PrunesStrandedManagedPrePush(t *testing.T) {
 		t.Fatal(err)
 	}
 	prePush := filepath.Join(hooks, "pre-push")
-	if err := os.WriteFile(prePush, []byte(shim(testBin, "prepush")), 0o755); err != nil {
+	older := "#!/bin/sh\n" + installMarker + "\nexec /old/aphrollo tdd prepush \"$@\"\n"
+	if err := os.WriteFile(prePush, []byte(older), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -130,11 +127,12 @@ func TestInstallPlan_PrunesStrandedManagedPrePush(t *testing.T) {
 	if err := plan.Apply(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(prePush); !os.IsNotExist(err) {
-		t.Fatalf("stranded managed pre-push should be pruned: err=%v", err)
+	got, err := os.ReadFile(prePush)
+	if err != nil {
+		t.Fatalf("the managed pre-push shim is gone: %v", err)
 	}
-	if !strings.Contains(plan.Render(false), "prune") {
-		t.Fatalf("render should report the pruned shim:\n%s", plan.Render(false))
+	if string(got) != shim(testBin, "prepush") {
+		t.Fatalf("pre-push = %q, want the current shim", got)
 	}
 }
 

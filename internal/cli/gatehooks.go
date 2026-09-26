@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -14,16 +15,15 @@ import (
 var premergeRoutineSeam = func(routine string) {}
 
 // runGateMergeHook dispatches precommit, premerge (and its "premergecommit"
-// alias, retiring next release) and prepush — the git hook subcommands: no
-// stdin from the hook process, exit non-zero to block.
+// alias, retiring next release) and prepush — the git hook subcommands, exit
+// non-zero to block. Only prepush reads the hook's stdin: git's ref lines.
 func runGateMergeHook(name string, stderr io.Writer) int {
-	// prepush is a mechanical no-op: the tdd gate is mechanical-only and
-	// adversarial review lives in the separate reviewer agent, not this
-	// binary. It NEVER blocks. We keep the subcommand so a pre-push shim
-	// present on a box exits cleanly.
+	// prepush runs no suite: the tdd gate is mechanical-only and adversarial
+	// review lives in the separate reviewer agent, not this binary. Its one
+	// check is the undercover ref wall, which reads git's ref lines from the
+	// hook's own stdin and is inert unless the repo set `undercover = true`.
 	if name == "prepush" {
-		fmt.Fprintln(stderr, "gate prepush: mechanical-only, no-op")
-		return 0
+		return runGatePrepush(os.Stdin, stderr, tdd.RepoRoot("."))
 	}
 	isMerge := name == "premergecommit" || name == "premerge"
 	root := tdd.RepoRoot(".")

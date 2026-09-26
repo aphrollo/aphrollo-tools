@@ -71,6 +71,10 @@ func runGateIssue(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	if line := undercoverTextRefusal(tdd.RepoRoot(*repo), [2]string{"issue title", title}, [2]string{"issue body", *body}); line != "" {
+		fmt.Fprintf(stderr, "aphrollo issue: %s\n", line)
+		return 1
+	}
 	url, _, err := tdd.OpenIssue(tdd.IssueOptions{
 		Repo:          tdd.RepoRoot(*repo),
 		Title:         strings.TrimSpace(title),
