@@ -799,6 +799,8 @@ trunkmergepreview_gitx.go                          gitx      # created by P2
 trunkmergepreview_laws_test.go                     precommit
 trunkmergepreview_test.go                          precommit
 unconstrained_test.go                              postedit
+undercoverbash.go                                  postedit
+undercoverbash_test.go                             postedit
 unowned_edit_test.go                               postedit
 vacuous_cargo.go                                   suite
 vacuous_cargo_test.go                              precommit # prefix says suite; its test body reaches precommit

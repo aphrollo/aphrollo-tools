@@ -69,7 +69,7 @@ Law schema, matcher kinds and baselines: [.ratchet/README.md](.ratchet/README.md
 workspace's `Cargo.toml`. `aphrollo config` prints the opt-in keys (the first
 rows) with this repo's values; a repo's first `aphrollo install` prints them once.
 
-With `undercover = true` a tool identity is refused at commit, pre-push and `workspace merge` and flagged at session start and by `gate doctor`; the git shim, pre-push and `workspace create`/`claim`/`pr`/`ship`/`submit` refuse a tell ref name; `pr`/`ship`/`submit`, `issue` and `feedback` check text before `gh`; CI's `undercover-text` job (`aphrollo ci undercover-text`) strips a tool footer that landed on a PR or comment and fails on a tell in the PR's commits.
+With `undercover = true` a tool identity is refused at commit, pre-push and `workspace merge` and flagged at session start and by `gate doctor`; the Bash/PowerShell hook, the git shim, pre-push and `workspace create`/`claim`/`pr`/`ship`/`submit` refuse a tell ref name; `pr`/`ship`/`submit`, `issue`, `feedback` and the Bash/PowerShell hook (for a `gh pr`, `gh issue` or `gh api` call) check text before `gh`; CI's `undercover-text` job (`aphrollo ci undercover-text`) strips a tool footer that landed on a PR or comment and fails on a tell in the PR's commits.
 
 | key | effect |
 |---|---|
