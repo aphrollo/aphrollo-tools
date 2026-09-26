@@ -198,7 +198,7 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   budget and continues; its result arrives at the next hook, or wait in the foreground with `aphrollo gate status --wait <tree>`, the tree the line names). The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE targeted `-p <crate> <filter>` after a TIMEOUT. Wanting the run's TEXT is not one of them: `aphrollo gate stats` answers what the verdict WAS, `aphrollo gate output` prints what that run actually PRINTED — assertion lines and all, unfiltered.
 - **Commit gate, cheapest first:** staged-baseline guard → ratchet laws → docs check →
   suppression check → per root: cargo sequential (fmt→guards→clippy→check→fail-first);
-  a Go root also runs vet/lint first. It proves the staged test RED and STOPS — the
+  a Go root also runs vet/lint first. It proves the staged test RED at HEAD, then GREEN with the change, and STOPS — the
   mechanical suite runs at the MERGE; a commit prints a `NOT RUN` line naming each touched crate it did not test, so an untested crate is never a silent absence.
 - **Laws are data:** `.ratchet/laws/*.toml` (scope + one matcher + severity), with baselines in
   the sibling `baselines` dir that only ever go DOWN. `aphrollo ratchet check` judges the tree

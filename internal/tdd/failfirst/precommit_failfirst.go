@@ -326,7 +326,12 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 		return failFirstOutcome{notReached: true, dur: res.Duration, cmd: cmdString(runner), runner: runner, res: res}
 	}
 	// Tests PASS without the new source ⇒ they never went RED ⇒ violation.
-	return failFirstOutcome{violated: res.Passed, Conclusive: true, dur: res.Duration, cmd: cmdString(runner), runner: runner, res: res}
+	out := failFirstOutcome{violated: res.Passed, Conclusive: true, dur: res.Duration, cmd: cmdString(runner), runner: runner, res: res}
+	if !res.Passed {
+		// RED proven: the same tests must now pass with the change (#922).
+		out.green = proveGreenWithChange(repoRoot, wt, execRoot, runner, run)
+	}
+	return out
 }
 
 // execRootIn maps root (a project root under repoRoot) to its equivalent
@@ -463,6 +468,11 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		}
 		if out.Conclusive && out.violated {
 			return GateResult{Blocked: true, Message: failFirstViolationMessage(out.runner)}
+		}
+		if out.Conclusive {
+			if o, refused := greenRefusal(root, ffCmd, out.green); refused {
+				return verdictFor("precommit", failFirstStageName, root, ffCmd, o)
+			}
 		}
 	}
 	return GateResult{}

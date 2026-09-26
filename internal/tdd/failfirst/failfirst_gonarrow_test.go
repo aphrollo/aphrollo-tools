@@ -79,9 +79,16 @@ func TestFailFirstStage_LogsTheArgvItActuallyRan(t *testing.T) {
 		"package m\n\nimport \"testing\"\n\nfunc TestWidget_returnsOne(t *testing.T) {\n\tif Widget() != 1 {\n\t\tt.Fatal(\"no\")\n\t}\n}\n")
 	gitDo(t, root, "add", ".")
 
+	// Red at HEAD, where widget.go does not exist yet; green once the proof
+	// applies the staged change and runs the same tests again (#922).
 	var ran Runner
+	calls := 0
 	run := func(r Runner, _ string) SuiteResult {
 		ran = r
+		calls++
+		if calls > 1 {
+			return SuiteResult{Passed: true, Output: "ok  \texample.com/m\t0.01s\n"}
+		}
 		return SuiteResult{Passed: false, Output: "./widget_test.go:6:5: undefined: Widget"}
 	}
 

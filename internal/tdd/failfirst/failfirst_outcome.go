@@ -43,6 +43,9 @@ type failFirstOutcome struct {
 	// standDown names WHY an inconclusive proof was inconclusive, for the
 	// two causes the stage refuses on rather than letting the commit land.
 	standDown failFirstStandDown
+	// green is the proven tests' run with the staged change applied (#922),
+	// meaningful only for a conclusive RED.
+	green greenProof
 	// waited is how long the proof queued for a build slot before giving
 	// up, meaningful only for failFirstNoBuildSlot.
 	waited time.Duration

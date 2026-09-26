@@ -307,6 +307,7 @@ func postBashChanges(in bashInput, run SuiteRunner) string {
 
 	var notes []string
 	seenRoot := map[string]bool{}
+	byRoot := changedByRoot(before.Root, changed)
 	for i, rel := range changed {
 		AppendGateLog("postedit", before.Root, rel, "bash-edit:"+LogToken(rel), 0)
 		target := filepath.Join(before.Root, filepath.FromSlash(rel))
@@ -315,7 +316,9 @@ func postBashChanges(in bashInput, run SuiteRunner) string {
 			continue
 		}
 		seenRoot[root] = true
-		text, deferred := postEditFile(in.SessionID, target, run)
+		// The one run this root gets also selects the test target of every
+		// other file the command changed here (#922).
+		text, deferred := postEditFile(in.SessionID, target, run, byRoot[root]...)
 		if text != "" {
 			notes = append(notes, text)
 		}
@@ -339,6 +342,19 @@ func postBashChanges(in bashInput, run SuiteRunner) string {
 		}
 	}
 	return strings.Join(notes, "\n")
+}
+
+// changedByRoot groups the command's changed paths (relative to base) by
+// the project root that owns each, as absolute paths.
+func changedByRoot(base string, changed []string) map[string][]string {
+	out := map[string][]string{}
+	for _, rel := range changed {
+		target := filepath.Join(base, filepath.FromSlash(rel))
+		if root := FindProjectRoot(target); root != "" {
+			out[root] = append(out[root], target)
+		}
+	}
+	return out
 }
 
 // foreignStagedLine is the refusal for a harvest that found another session's

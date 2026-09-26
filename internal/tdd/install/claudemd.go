@@ -72,7 +72,7 @@ func ClaudeMDBlock(f BlockFlags) string {
 	b.WriteString("  budget and continues; its result arrives at the next hook, or wait in the foreground with `aphrollo gate status --wait <tree>`, the tree the line names). The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE targeted `-p <crate> <filter>` after a TIMEOUT. Wanting the run's TEXT is not one of them: `aphrollo gate stats` answers what the verdict WAS, `aphrollo gate output` prints what that run actually PRINTED — assertion lines and all, unfiltered.\n")
 	b.WriteString("- **Commit gate, cheapest first:** staged-baseline guard → ratchet laws → docs check →\n")
 	b.WriteString("  suppression check → per root: cargo sequential (fmt→guards→clippy→check→fail-first);\n")
-	b.WriteString("  a Go root also runs vet/lint first. It proves the staged test RED and STOPS — the\n")
+	b.WriteString("  a Go root also runs vet/lint first. It proves the staged test RED at HEAD, then GREEN with the change, and STOPS — the\n")
 	b.WriteString("  mechanical suite runs at the MERGE; a commit prints a `NOT RUN` line naming each touched crate it did not test, so an untested crate is never a silent absence.\n")
 	b.WriteString("- **Laws are data:** `.ratchet/laws/*.toml` (scope + one matcher + severity), with baselines in\n")
 	b.WriteString("  the sibling `baselines` dir that only ever go DOWN. `aphrollo ratchet check` judges the tree\n")

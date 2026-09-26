@@ -283,6 +283,8 @@ escape_verify_suite.go                             suite     # created by P2
 escape_verify_test.go                              escape
 failfirst_env.go                                   failfirst
 failfirst_env_test.go                              failfirst
+failfirst_green.go                                 failfirst
+failfirst_green_test.go                            failfirst
 failfirst_gonarrow_test.go                         failfirst
 failfirst_ledger.go                                failfirst
 failfirst_ledger_test.go                           failfirst
@@ -572,6 +574,7 @@ posttooluse_notrun_test.go                         postedit
 posttooluse_run.go                                 postedit
 posttooluse_suite.go                               suite     # created by P2
 posttooluse_test.go                                postedit
+posttooluse_touched.go                             postedit
 posttooluse_unconstrained.go                       postedit
 pr_closes.go                                       escape
 pr_closes_test.go                                  escape
@@ -589,6 +592,7 @@ precommit_docsonly_fastpath_test.go                precommit
 precommit_docsonly_test.go                         precommit
 precommit_failfirst.go                             failfirst
 precommit_failfirst_args_test.go                   failfirst
+precommit_failfirst_green_test.go                  precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_inputs_test.go                 precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_reach_test.go                  precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_rust.go                        failfirst
