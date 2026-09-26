@@ -91,6 +91,8 @@ func narrowToStaged(p0 Runner, p1 string, p2 []string) (Runner, bool) {
 	return suite.NarrowToStaged(p0, p1, p2)
 }
 
+func npmBinEntry(p0 string, p1 string) string { return suite.NpmBinEntry(p0, p1) }
+
 func reportSuitesNotRun(p0 string, p1 string, p2 string, p3 Runner, p4 []string) {
 	suite.ReportSuitesNotRun(p0, p1, p2, p3, p4)
 }
