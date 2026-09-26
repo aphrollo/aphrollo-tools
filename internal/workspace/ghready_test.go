@@ -16,10 +16,13 @@ func fakeGhReadyScript(t *testing.T, readyExit int, readyOut string, prNumber st
 	t.Helper()
 	dir := t.TempDir()
 	script := "#!/bin/sh\n" +
+		ghEndpointArg +
 		"case \"$1 $2\" in\n" +
 		"  \"pr ready\") printf '%s' '" + readyOut + "' 1>&2; exit " + itoa(readyExit) + " ;;\n" +
+		"esac\n" +
+		"case \"$1 $path\" in\n" +
 		"  \"api repos/acme/widgets/pulls\") printf '%s' '" + prNumber + "'; exit 0 ;;\n" +
-		"  *) case \"$2\" in\n" +
+		"  *) case \"$path\" in\n" +
 		"       *ready_for_review*) exit " + itoa(sandboxExit) + " ;;\n" +
 		"       *) exit 1 ;;\n" +
 		"     esac ;;\n" +
@@ -29,6 +32,10 @@ func fakeGhReadyScript(t *testing.T, readyExit int, readyOut string, prNumber st
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
+
+// ghEndpointArg sets $path to the first repos/... argument wherever it sits,
+// so a --method flag before the endpoint does not hide it from a fake.
+const ghEndpointArg = "path=\nfor a in \"$@\"; do case \"$a\" in repos/*) path=\"$a\"; break ;; esac; done\n"
 
 func itoa(n int) string {
 	if n == 0 {
@@ -81,7 +88,8 @@ func fakeGhEditScript(t *testing.T, prNumber string, patchExit int) {
 	t.Helper()
 	dir := t.TempDir()
 	script := "#!/bin/sh\n" +
-		"case \"$2\" in\n" +
+		ghEndpointArg +
+		"case \"$path\" in\n" +
 		"  \"repos/acme/widgets/pulls\") printf '%s' '" + prNumber + "'; exit 0 ;;\n" +
 		"  repos/acme/widgets/pulls/*) exit " + itoa(patchExit) + " ;;\n" +
 		"  *) exit 1 ;;\n" +
