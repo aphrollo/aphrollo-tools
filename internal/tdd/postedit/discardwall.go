@@ -181,3 +181,65 @@ func argvEqual(a, b []string) bool {
 	}
 	return true
 }
+
+// primaryBashSpentTTL mirrors discardBashSpentTTL's reasoning, for
+// WallPrimary: comfortably longer than any real gap between the Bash/
+// PowerShell hook's own PreToolUse decision and the git invocation it
+// approved actually reaching the queue shim.
+const primaryBashSpentTTL = 30 * time.Second
+
+// markPrimaryBashSpent records that THIS session's Bash/PowerShell primary
+// wall (PrimaryCheckoutDecision) already approved argv against WallPrimary's
+// session-long waiver (PrimaryEditsAllowed), so ConsumePrimaryBashSpent below
+// -- the git queue shim's side of the same command -- can still let this
+// EXACT invocation through a moment later, even when the shim's own
+// subprocess environment carries no session identity of its own to check
+// PrimaryEditsAllowed against (#894, same shape as #857's
+// markDiscardBashSpent). Silent on failure: the Bash tool call this covers
+// has already been approved either way.
+func markPrimaryBashSpent(argv []string) {
+	session := SessionID()
+	if session == "" || len(argv) == 0 {
+		return
+	}
+	s, path := loadSession(session)
+	if s == nil {
+		return
+	}
+	now := discardNow()
+	entry := DiscardBashSpentEntry{
+		Argv:  append([]string{}, argv...),
+		Until: now.Add(primaryBashSpentTTL).UTC().Format(time.RFC3339),
+	}
+	s.Overrides.PrimaryBashSpent = append(pruneDiscardBashSpent(s.Overrides.PrimaryBashSpent, now), entry)
+	_ = s.Save(path)
+}
+
+// ConsumePrimaryBashSpent reports whether THIS session's Bash/PowerShell
+// primary wall has an unexpired spent record for EXACTLY argv -- the git
+// queue shim's own half of #894's split. Removes the matching record (and
+// every expired one) either way, so a second, DIFFERENT command the same
+// session runs next never rides the same window.
+func ConsumePrimaryBashSpent(argv []string) bool {
+	session := SessionID()
+	if session == "" || len(argv) == 0 {
+		return false
+	}
+	s, path := loadSession(session)
+	if s == nil {
+		return false
+	}
+	pruned := pruneDiscardBashSpent(s.Overrides.PrimaryBashSpent, discardNow())
+	found := false
+	kept := pruned[:0]
+	for _, e := range pruned {
+		if !found && argvEqual(e.Argv, argv) {
+			found = true
+			continue
+		}
+		kept = append(kept, e)
+	}
+	s.Overrides.PrimaryBashSpent = kept
+	_ = s.Save(path)
+	return found
+}

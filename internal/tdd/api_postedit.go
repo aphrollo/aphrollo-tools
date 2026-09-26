@@ -25,6 +25,8 @@ func ConsumeDiscardBashSpent(p0 []string) bool { return postedit.ConsumeDiscardB
 
 func ConsumeOneShot(p0 string) bool { return postedit.ConsumeOneShot(p0) }
 
+func ConsumePrimaryBashSpent(p0 []string) bool { return postedit.ConsumePrimaryBashSpent(p0) }
+
 func DecideBashSuite(p0 []byte) (Decision, bool) { return postedit.DecideBashSuite(p0) }
 
 func DecidePreEdit(p0 []byte) (Decision, error) { return postedit.DecidePreEdit(p0) }

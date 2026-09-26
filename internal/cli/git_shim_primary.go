@@ -52,6 +52,17 @@ func primaryRefusalLine(realGit string, rest []string, workDir string, shellAlia
 	if !ok {
 		return ""
 	}
+	// The Bash/PowerShell PreToolUse hook (postedit.PrimaryCheckoutDecision)
+	// meets this SAME command first, and if this session already ran `gate
+	// allow primary`, it recorded this EXACT argv as spent
+	// (markPrimaryBashSpentForCommand). This shim reaches git a moment later
+	// as its own subprocess, whose environment does not always carry this
+	// session's identity for PrimaryEditsAllowed above to find -- #894, same
+	// shape as #857's discard-bash-spent split.
+	if tdd.ConsumePrimaryBashSpent(rest) {
+		tdd.LogOverride("override-primary-bash-spent", tdd.SessionID(), workDir)
+		return ""
+	}
 	if shellAlias {
 		return "gate: " + tdd.PrimaryMergeOnlyReason(root) + " -- " + rest[0] + " is a shell alias; its expansion cannot be classified, so it is refused outright"
 	}
