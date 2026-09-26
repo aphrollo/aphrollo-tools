@@ -148,11 +148,19 @@ func ghFlagCandidates(words []string, cwd string) []undercoverCandidate {
 }
 
 // ghFieldCandidates reads the title, body and head fields of a `gh api`
-// request; a typed field's `@file` value is the file's text.
+// request, given as fields or as the top-level keys of an --input JSON file;
+// a typed field's `@file` value is the file's text. A GraphQL mutation sends
+// its text in the query or in any variable, so there every field is judged
+// as text; a query that only reads posts nothing.
 func ghFieldCandidates(words []string, cwd string) []undercoverCandidate {
 	var out []undercoverCandidate
+	fields := map[string]string{}
+	var order []string
 	for i := range words {
 		name, value := optionAt(words, i)
+		if name == "--input" && value != "-" {
+			out = append(out, jsonFieldCandidates(queryFromFile("@"+value, cwd))...)
+		}
 		if !ghGraphQLQueryFlags[name] {
 			continue
 		}
@@ -160,13 +168,41 @@ func ghFieldCandidates(words []string, cwd string) []undercoverCandidate {
 		if ghTypedFieldFlags[name] {
 			text = queryFromFile(text, cwd)
 		}
-		switch key {
-		case "title":
-			out = append(out, undercoverCandidate{kind: undercoverTitle, text: text})
-		case "body":
-			out = append(out, undercoverCandidate{kind: undercoverBody, text: text})
-		case "head":
-			out = append(out, undercoverCandidate{kind: "PR head", text: text, ref: true})
+		fields[key] = text
+		order = append(order, key)
+	}
+	mutation := graphQLMutation.MatchString(graphQLNoise.ReplaceAllString(fields["query"], " "))
+	for _, key := range order {
+		out = append(out, fieldCandidate(key, fields[key], mutation)...)
+	}
+	return out
+}
+
+// fieldCandidate is what one request field posts: a title, a body or a head
+// by its key, and any field at all of a GraphQL mutation as text.
+func fieldCandidate(key, text string, mutation bool) []undercoverCandidate {
+	switch {
+	case key == "title":
+		return []undercoverCandidate{{kind: undercoverTitle, text: text}}
+	case key == "head":
+		return []undercoverCandidate{{kind: "PR head", text: text, ref: true}}
+	case key == "body" || mutation:
+		return []undercoverCandidate{{kind: undercoverBody, text: text}}
+	}
+	return nil
+}
+
+// jsonFieldCandidates reads the title, body and head of a JSON request body.
+// Text that is not a JSON object posts no field this wall can name.
+func jsonFieldCandidates(raw string) []undercoverCandidate {
+	var obj map[string]any
+	if json.Unmarshal([]byte(raw), &obj) != nil {
+		return nil
+	}
+	var out []undercoverCandidate
+	for _, key := range []string{"title", "body", "head"} {
+		if text, ok := obj[key].(string); ok {
+			out = append(out, fieldCandidate(key, text, false)...)
 		}
 	}
 	return out

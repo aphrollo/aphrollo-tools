@@ -14,7 +14,6 @@ import (
 )
 
 const ciUsage = `usage: aphrollo ci why [<pr>|<run-id>|--main] [--workflow NAME] [--raw]
-       aphrollo ci undercover-text [--event <path>] [--repo <dir>]
 
 Explains why a pipeline run is red, read-only: one line per failed job, then
 its failing Go tests with their assertion lines, its mutation survivors,
@@ -28,9 +27,6 @@ shows the last 15 lines of the failed step.
   --main       the latest --workflow run on main
   --workflow   the pipeline's workflow name (default Pipeline)
   --raw        print the run's failed-step log exactly as gh returns it
-
-undercover-text is the CI job that strips a tool footer from a PR's text and
-fails on any other tell; see aphrollo ci undercover-text --help.
 `
 
 // runIDFloor splits a bare number into a PR or a run id: GitHub run ids are
@@ -61,9 +57,6 @@ func runCI(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
 		fmt.Fprint(stdout, ciUsage)
 		return 0
-	}
-	if len(args) > 0 && args[0] == "undercover-text" {
-		return runCIUndercoverText(args[1:], stdout, stderr)
 	}
 	if len(args) == 0 || args[0] != "why" {
 		fmt.Fprint(stderr, ciUsage)

@@ -5,10 +5,9 @@ import (
 	"strings"
 )
 
-// Some environments append an attribution footer to a PR body or comment
-// AFTER the text leaves the client, where no pre-post check can see it. The
-// CI job reads what landed and strips that footer; a tell anywhere else is
-// refused, never edited.
+// workspace merge hands GitHub an explicit squash body: the PR's text with a
+// trailing tool footer stripped. A tell anywhere else is refused, never
+// edited.
 
 // footerShapes are the only lines StripFooter removes, each a tell by its
 // shape alone: a Co-authored-by trailer naming a vendor address, a

@@ -1,7 +1,7 @@
 // Package undercover holds the one list of tells every undercover check reads:
 // the commit-msg gate, the identity check, the ref-name walls (git shim,
-// pre-push hook, workspace verbs), the pre-post check on PR and issue text,
-// and the CI job that reads what actually landed on GitHub.
+// pre-push hook, workspace verbs, the Bash/PowerShell hook), the pre-post
+// check on PR, issue and comment text, and the squash body of workspace merge.
 //
 // A repo opts in with `undercover = true`. Every check has zero false
 // positives: a refusal of ordinary text or an ordinary name is a bug in the

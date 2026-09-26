@@ -1,5 +1,11 @@
 package undercover
 
+// The undercover-text CI job and the code only it ran are retired: every
+// undercover check runs in aphrollo's own hooks, before text reaches GitHub.
+// ratchet: test_removed internal/undercover/event_test.go: the CI event reader it tested is removed with the undercover-text job
+// ratchet: test_removed internal/undercover/rest_test.go: the REST client it tested served only the removed undercover-text job
+// ratchet: test_removed internal/cli/ci_undercover_test.go: the ci undercover-text subcommand it tested is removed with its CI job
+
 import (
 	"reflect"
 	"testing"

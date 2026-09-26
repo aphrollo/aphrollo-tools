@@ -94,6 +94,48 @@ func TestUndercoverBashDecision_RefusesTellTextForAPROrIssue(t *testing.T) {
 	}
 }
 
+// A comment or review reaches GitHub by more routes than a flag: a JSON
+// request file, and a GraphQL mutation whose text or variables carry it.
+func TestUndercoverBashDecision_RefusesTellCommentsByEveryRoute(t *testing.T) {
+	dir := undercoverBashRepo(t, true)
+	mustWrite(t, filepath.Join(dir, "comment.json"), `{"body": "Summary\n`+bashTellFooter+`"}`)
+	mustWrite(t, filepath.Join(dir, "pr.json"), `{"title": "t", "head": "claude/x", "base": "main"}`)
+	mustWrite(t, filepath.Join(dir, "body.md"), bashTellFooter+"\n")
+	for _, cmd := range []string{
+		"gh pr review 7 --comment -F body.md",
+		"gh pr comment 7 --body-file body.md",
+		"gh issue comment 5 --body-file=body.md",
+		"gh api repos/o/r/issues/5/comments --input comment.json",
+		"gh api -X POST repos/o/r/pulls/7/reviews --input=comment.json",
+		"gh api repos/o/r/pulls --input pr.json",
+		`gh api graphql -f query='mutation { addComment(input: {subjectId: "X", body: "ran under opus-5"}) { clientMutationId } }'`,
+		`gh api graphql -f query='mutation($b: String!) { addComment(input: {subjectId: "X", body: $b}) { clientMutationId } }' -f b="` + bashTellFooter + `"`,
+	} {
+		if got := UndercoverBashDecision(bashPayload(t, "s", dir, cmd)); got.Action != Block {
+			t.Errorf("%q: Action = %v, want Block", cmd, got.Action)
+		}
+	}
+}
+
+// A GraphQL query that only reads, and a JSON file without a tell, pass: a
+// search for the word is not a post of it.
+func TestUndercoverBashDecision_AllowsReadsAndOrdinaryRequestFiles(t *testing.T) {
+	dir := undercoverBashRepo(t, true)
+	mustWrite(t, filepath.Join(dir, "ok.json"), `{"body": "Adds the agents doc to CLAUDE.md", "head": "lane/x"}`)
+	for _, cmd := range []string{
+		`gh api graphql -f query='query { search(query: "claude", type: ISSUE, first: 5) { issueCount } }'`,
+		`gh api graphql -f q=claude -f query='query($q: String!) { search(query: $q, type: ISSUE, first: 5) { issueCount } }'`,
+		"gh api repos/o/r/issues/5/comments --input ok.json",
+		"gh api repos/o/r/issues/5/comments --input missing.json",
+		"gh api repos/o/r/issues/5/comments --input body.txt",
+	} {
+		mustWrite(t, filepath.Join(dir, "body.txt"), "not json: claude")
+		if got := UndercoverBashDecision(bashPayload(t, "s", dir, cmd)); got.Action == Block {
+			t.Errorf("%q: blocked an ordinary command: %s", cmd, got.Reason)
+		}
+	}
+}
+
 // The refusal names what carried the tell and quotes the line.
 func TestUndercoverBashDecision_RefusalQuotesTheFieldAndLine(t *testing.T) {
 	dir := undercoverBashRepo(t, true)
