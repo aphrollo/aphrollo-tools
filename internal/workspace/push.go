@@ -3,6 +3,7 @@ package workspace
 import (
 	"fmt"
 	"io"
+	"net/url"
 	"os/exec"
 	"strings"
 )
@@ -201,18 +202,33 @@ func branchURL(wt, branch string) string {
 }
 
 // normalizeGitHubURL reduces a git remote URL to its https web base
-// (https://github.com/owner/repo), stripping the .git suffix and the
-// git@/ssh:// forms. Returns "" when the remote isn't a github URL.
+// (https://github.com/owner/repo), stripping the .git suffix, any userinfo
+// (a token embedded as https://user:TOKEN@github.com/..., common on a
+// SYSTEM-run job with no credential helper — #916), scheme (http/https/ssh),
+// and an explicit port. Returns "" when the remote isn't a github URL. The
+// credential itself never appears in the return value: only Path is read off
+// the parsed URL, never User.
 func normalizeGitHubURL(remote string) string {
+	remote = strings.TrimSpace(remote)
 	remote = strings.TrimSuffix(remote, ".git")
-	switch {
-	case strings.HasPrefix(remote, "git@github.com:"):
+	// scp-like scheme (git@github.com:owner/repo) has no "://" and carries
+	// no userinfo beyond the fixed "git@" — net/url does not parse this
+	// form as a URL at all, so it keeps its own prefix check.
+	if strings.HasPrefix(remote, "git@github.com:") {
 		return "https://github.com/" + strings.TrimPrefix(remote, "git@github.com:")
-	case strings.HasPrefix(remote, "ssh://git@github.com/"):
-		return "https://github.com/" + strings.TrimPrefix(remote, "ssh://git@github.com/")
-	case strings.HasPrefix(remote, "https://github.com/"):
-		return remote
+	}
+	u, err := url.Parse(remote)
+	if err != nil || u.Hostname() != "github.com" {
+		return ""
+	}
+	switch u.Scheme {
+	case "http", "https", "ssh":
 	default:
 		return ""
 	}
+	path := strings.Trim(u.Path, "/")
+	if path == "" {
+		return "https://github.com"
+	}
+	return "https://github.com/" + path
 }
