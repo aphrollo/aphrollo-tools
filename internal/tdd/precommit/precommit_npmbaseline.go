@@ -112,26 +112,41 @@ func headDiagnostics(repoRoot, root string, c npmCheck, r Runner, run SuiteRunne
 	if diags, ok := readHeadCache(cache); ok {
 		return diags, nil
 	}
-	base, err := os.MkdirTemp(filepath.Join(root, "node_modules"), ".aphrollo-head-")
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(base)
-	if _, err := git(repoRoot, "worktree", "add", "--detach", base, "HEAD"); err != nil {
-		return nil, fmt.Errorf("worktree at HEAD: %v", err)
-	}
-	defer func() { _, _ = git(repoRoot, "worktree", "remove", "--force", base) }()
-	headRoot := filepath.Join(base, rel)
 	var diags []diagnostic
-	if args := c.headArgs(headRoot, r.Args[1:]); args != nil {
+	err = atHead(repoRoot, filepath.Join(root, "node_modules"), func(base string) error {
+		headRoot := filepath.Join(base, rel)
+		args := c.headArgs(headRoot, r.Args[1:])
+		if args == nil {
+			return nil
+		}
 		res := run(Runner{Cmd: r.Cmd, Args: append([]string{r.Args[0]}, args...)}, headRoot)
 		diags = c.parse(res.Output, headRoot)
 		if res.TimedOut || (!res.Passed && len(diags) == 0) {
-			return nil, fmt.Errorf("the run at HEAD reached no reading: %s", firstDiagnostic(res.Output))
+			return fmt.Errorf("the run at HEAD reached no reading: %s", firstDiagnostic(res.Output))
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	writeHeadCache(cache, diags)
 	return diags, nil
+}
+
+// atHead checks HEAD out, detached, in a fresh directory under parent (the
+// system temp dir when parent is "") and hands fn its path. The tree is
+// unregistered and removed once fn returns.
+func atHead(repoRoot, parent string, fn func(base string) error) error {
+	base, err := os.MkdirTemp(parent, ".aphrollo-head-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(base)
+	if _, err := git(repoRoot, "worktree", "add", "--detach", base, "HEAD"); err != nil {
+		return fmt.Errorf("worktree at HEAD: %v", err)
+	}
+	defer func() { _, _ = git(repoRoot, "worktree", "remove", "--force", base) }()
+	return fn(base)
 }
 
 // headCachePath is where HEAD's diagnostics for this command on this tree

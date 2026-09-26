@@ -1,6 +1,7 @@
 package precommit
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 // A repo can declare a root's pre-commit checks itself, in aphrollo.toml:
@@ -21,13 +23,21 @@ import (
 // same thing on Windows — and the first to fail refuses the commit. A root
 // that declares commands gets those and none of the built-in checks: the
 // declaration is the repo saying how that root is checked.
+//
+// A command written as an inline table can ask to be judged against HEAD:
+//
+//	"frontend" = [{ argv = ["npx", "tsc", "--noEmit"], baseline = "lines" }]
+//
+// baseline is "none" by default: any failure refuses. With "lines" a failure
+// is run again on HEAD's tree, and refuses only over the output lines HEAD's
+// run did not print (precommit_declared_baseline.go).
 
 const declaredPrecommitTable = "[aphrollo.precommit]"
 
 // declaredPrecommit is the commands aphrollo.toml declares for root.
 // declared is false when it declares none; err is set when it declares some
 // in a shape the gate cannot read.
-func declaredPrecommit(repoRoot, root string) (cmds [][]string, declared bool, err error) {
+func declaredPrecommit(repoRoot, root string) (cmds []declaredCommand, declared bool, err error) {
 	// root is always repoRoot or below it, both from the same walk, so Rel
 	// cannot fail; an absent aphrollo.toml reads as empty and declares
 	// nothing.
@@ -38,7 +48,7 @@ func declaredPrecommit(repoRoot, root string) (cmds [][]string, declared bool, e
 		if path.Clean(e.key) != want {
 			continue
 		}
-		cmds, err := parseArgvArrays(e.value)
+		cmds, err := parseDeclaredCommands(e.value)
 		return cmds, true, err
 	}
 	return nil, false, nil
@@ -47,39 +57,110 @@ func declaredPrecommit(repoRoot, root string) (cmds [][]string, declared bool, e
 // declaredChecksStage runs a root's declared commands, or refuses the commit
 // over a declaration it cannot read: falling back to the built-in checks
 // would quietly judge the root by the rules its repo asked to replace.
-func declaredChecksStage(gateName, root string, cmds [][]string, err error, run SuiteRunner) GateResult {
+func declaredChecksStage(gateName, repoRoot, root string, cmds []declaredCommand, err error, run SuiteRunner) GateResult {
 	if err != nil {
 		return verdictFor(gateName, "declared", root, "aphrollo.toml", stageOutcome{
 			Kind: outcomeCheckError,
 			Err:  err,
 			Message: fmt.Sprintf(
 				"gate %s: aphrollo.toml %s declares this root's checks in a shape the gate cannot read (%v), so nothing in %s was judged and the commit is refused.\n"+
-					"  write each command as an argv array: \"frontend\" = [[\"npx\", \"tsc\", \"--noEmit\"], [\"npx\", \"eslint\", \"src\"]]",
+					"  write each command as an argv array, or an inline table carrying a baseline: \"frontend\" = [{ argv = [\"npx\", \"tsc\", \"--noEmit\"], baseline = \"lines\" }, [\"npx\", \"eslint\", \"src\"]]",
 				gateName, declaredPrecommitTable, err, root),
 		})
 	}
-	for _, argv := range cmds {
-		if res := goCheckStage(gateName, "declared", root, Runner{Cmd: argv[0], Args: argv[1:]}, run); res.Blocked {
+	for _, c := range cmds {
+		r := Runner{Cmd: c.Argv[0], Args: c.Argv[1:]}
+		var res GateResult
+		if c.Baseline == baselineLines {
+			res = declaredLinesStage(gateName, repoRoot, root, r, run)
+		} else {
+			res = goCheckStage(gateName, "declared", root, r, run)
+		}
+		if res.Blocked {
 			return res
 		}
 	}
 	return verdictFor(gateName, "declared", root, "", stageOutcome{Kind: outcomePass})
 }
 
-// parseArgvArrays reads a TOML array of string arrays. With comments already
-// stripped, one whose strings are basic (double-quoted) strings is JSON bar
-// its trailing commas.
-func parseArgvArrays(value string) ([][]string, error) {
-	var cmds [][]string
-	if err := json.Unmarshal([]byte(trailingCommaRe.ReplaceAllString(value, "$1")), &cmds); err != nil {
+// declaredCommand is one declared command: its argv, and how a failure of
+// it is judged.
+type declaredCommand struct {
+	Argv     []string `json:"argv"`
+	Baseline string   `json:"baseline"`
+}
+
+// The baselines a declared command can name; "" reads as "none".
+const (
+	baselineNone  = "none"
+	baselineLines = "lines"
+)
+
+// parseDeclaredCommands reads a TOML array whose elements are string arrays
+// or inline tables of argv and baseline. With comments already stripped and
+// its bare keys quoted, one whose strings are basic (double-quoted) strings
+// is JSON bar its trailing commas.
+func parseDeclaredCommands(value string) ([]declaredCommand, error) {
+	var elems []json.RawMessage
+	if err := json.Unmarshal([]byte(trailingCommaRe.ReplaceAllString(tomlInlineTablesAsJSON(value), "$1")), &elems); err != nil {
 		return nil, err
 	}
-	for _, argv := range cmds {
-		if len(argv) == 0 || argv[0] == "" {
-			return nil, errors.New("a command with no program")
+	cmds := make([]declaredCommand, len(elems))
+	for i, e := range elems {
+		if err := decodeDeclaredCommand(e, &cmds[i]); err != nil {
+			return nil, err
 		}
 	}
 	return cmds, nil
+}
+
+// decodeDeclaredCommand reads one element: an argv array, or an inline table
+// holding one and nothing but a baseline this gate knows.
+func decodeDeclaredCommand(e json.RawMessage, c *declaredCommand) error {
+	var err error
+	if bytes.HasPrefix(e, []byte("{")) {
+		d := json.NewDecoder(bytes.NewReader(e))
+		d.DisallowUnknownFields()
+		err = d.Decode(c)
+	} else {
+		err = json.Unmarshal(e, &c.Argv)
+	}
+	switch {
+	case err != nil:
+		return err
+	case len(c.Argv) == 0 || c.Argv[0] == "":
+		return errors.New("a command with no program")
+	case c.Baseline != "" && c.Baseline != baselineNone && c.Baseline != baselineLines:
+		return fmt.Errorf("baseline %q, want %q or %q", c.Baseline, baselineNone, baselineLines)
+	}
+	return nil
+}
+
+// tomlInlineTablesAsJSON is value with each bare key outside a string quoted
+// and each '=' outside a string made a ':', so an inline table reads as a
+// JSON object. The only bare keys a declaration has are lowercase words.
+func tomlInlineTablesAsJSON(value string) string {
+	var b strings.Builder
+	inString, escaped, inKey := false, false, false
+	for _, c := range value {
+		if bare := !inString && unicode.IsLower(c); bare != inKey {
+			b.WriteByte('"')
+			inKey = bare
+		}
+		switch {
+		case escaped:
+			escaped = false
+		case inString:
+			escaped = c == '\\'
+			inString = c != '"'
+		case c == '"':
+			inString = true
+		case c == '=':
+			c = ':'
+		}
+		b.WriteRune(c)
+	}
+	return b.String()
 }
 
 // tomlEntry is one key of a TOML table and its raw value, comments removed.
