@@ -79,11 +79,13 @@ func TestWorkspaceMerge_WaitResumeWithNoRecordSaysThereIsNothingToResume(t *test
 	}
 }
 
+// A queue stamped by this very process is live, so a resume is refused.
 func TestWorkspaceMerge_WaitResumeRefusesWhileTheQueueRuns(t *testing.T) {
 	gateConfigDir(t)
 	repo := gitInit(t, map[string]string{"a.txt": "a\n"})
 	inDir(t, repo)
-	rec := &tdd.MergeQueueRecord{Repo: repo, PID: os.Getpid(), PRs: []tdd.MergeQueuePR{{PR: 6, Status: tdd.MergeQueuePending}}}
+	rec := &tdd.MergeQueueRecord{Repo: repo, PRs: []tdd.MergeQueuePR{{PR: 6, Status: tdd.MergeQueuePending}}}
+	rec.StampThisProcess()
 	if err := tdd.SaveMergeQueueRecord(rec); err != nil {
 		t.Fatal(err)
 	}

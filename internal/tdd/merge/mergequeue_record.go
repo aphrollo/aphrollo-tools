@@ -31,11 +31,14 @@ type MergeQueuePR struct {
 }
 
 // MergeQueueRecord is a merge queue as it stands on disk.
+// Identity names the process behind PID (its boot and start time), so a pid
+// that another process took over after a reboot is not read as the queue.
 type MergeQueueRecord struct {
-	Repo    string         `json:"repo"`
-	PID     int            `json:"pid"`
-	Started time.Time      `json:"started"`
-	PRs     []MergeQueuePR `json:"prs"`
+	Repo     string         `json:"repo"`
+	PID      int            `json:"pid"`
+	Identity string         `json:"identity,omitempty"`
+	Started  time.Time      `json:"started"`
+	PRs      []MergeQueuePR `json:"prs"`
 }
 
 // mergeQueueRecordPath names repo's record. A lane and its primary checkout
@@ -87,9 +90,19 @@ func RemoveMergeQueueRecord(repo string) {
 	_ = os.Remove(mergeQueueRecordPath(repo))
 }
 
-// Live reports whether the queue's process still runs.
+// StampThisProcess names the running process as the queue's holder.
+func (r *MergeQueueRecord) StampThisProcess() {
+	r.PID = os.Getpid()
+	r.Identity, _ = processIdentityFn(r.PID)
+}
+
+// Live reports whether the queue's own process still runs: its pid is
+// running and still names the process the record was stamped with. A record
+// with no identity, or a pid whose identity cannot be read, is not live — a
+// stop is reported rather than a live queue assumed.
 func (r *MergeQueueRecord) Live() bool {
-	return pidRunningFn(r.PID)
+	id, ok := processIdentityFn(r.PID)
+	return ok && id == r.Identity && pidRunningFn(r.PID)
 }
 
 // Pending lists the PRs not yet merged or refused, in queue order.

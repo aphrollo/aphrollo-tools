@@ -660,6 +660,10 @@ primarybash_test.go                                postedit
 primaryedits_cli.go                                postedit
 primaryedits_cli_core.go                           core      # created by P2
 primaryedits_cli_test.go                           postedit
+procidentity_unix_core.go                          core
+procidentity_unix_own_test.go                      core
+procidentity_windows_core.go                       core
+procidentity_windows_own_test.go                   core
 projectroots_test.go                               precommit
 queuewaiters.go                                    lock
 queuewaiters_test.go                               lock

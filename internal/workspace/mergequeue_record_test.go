@@ -83,6 +83,9 @@ func TestMergeQueue_RecordNamesThisProcessTheRepoAndTheStart(t *testing.T) {
 	if rec.PID != os.Getpid() || rec.Repo != "/r" || !rec.Started.Equal(start) {
 		t.Errorf("record = pid %d repo %q started %v, want pid %d repo /r started %v", rec.PID, rec.Repo, rec.Started, os.Getpid(), start)
 	}
+	if !rec.Live() {
+		t.Errorf("the running queue's own record (identity %q) does not read as live", rec.Identity)
+	}
 }
 
 // A stop leaves the PRs it never reached pending, so the record outlives the
@@ -105,7 +108,8 @@ func TestMergeQueue_StopKeepsTheRecordWithTheRestPending(t *testing.T) {
 func TestMergeQueue_LiveQueueRecordRefusesASecondQueue(t *testing.T) {
 	f := queueFake()
 	install(t, f)
-	held := &tdd.MergeQueueRecord{Repo: "/r", PID: os.Getpid(), PRs: []tdd.MergeQueuePR{{PR: 9, Status: tdd.MergeQueuePending}}}
+	held := &tdd.MergeQueueRecord{Repo: "/r", PRs: []tdd.MergeQueuePR{{PR: 9, Status: tdd.MergeQueuePending}}}
+	held.StampThisProcess()
 	if err := tdd.SaveMergeQueueRecord(held); err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +190,8 @@ func TestResumeMergeQueue_MergesOnlyThePRsTheStoppedQueueLeft(t *testing.T) {
 func TestPlanResume_RefusesWhileTheQueueIsStillLive(t *testing.T) {
 	f := queueFake()
 	install(t, f)
-	live := &tdd.MergeQueueRecord{Repo: "/r", PID: os.Getpid(), PRs: []tdd.MergeQueuePR{{PR: 22, Status: tdd.MergeQueuePending}}}
+	live := &tdd.MergeQueueRecord{Repo: "/r", PRs: []tdd.MergeQueuePR{{PR: 22, Status: tdd.MergeQueuePending}}}
+	live.StampThisProcess()
 	if err := tdd.SaveMergeQueueRecord(live); err != nil {
 		t.Fatal(err)
 	}
@@ -223,5 +228,33 @@ func TestMergeQueue_UnwritableRecordWarnsAndStillMerges(t *testing.T) {
 	}
 	if !strings.Contains(errb.String(), "merge queue record not written") {
 		t.Errorf("stderr does not say the record was not written:\n%s", errb.String())
+	}
+}
+
+// After a reboot the queue's old pid can belong to another process: that
+// process is not the queue, so it does not block a resume.
+func TestMergeQueue_PidReusedByAnotherProcessDoesNotBlockAResume(t *testing.T) {
+	f := queueFake()
+	install(t, f)
+	reused := &tdd.MergeQueueRecord{Repo: "/r", PRs: []tdd.MergeQueuePR{
+		{PR: 21, Status: tdd.MergeQueueMerged},
+		{PR: 22, Status: tdd.MergeQueuePending},
+	}}
+	reused.StampThisProcess()
+	reused.Identity = "another-boot:1"
+	if err := tdd.SaveMergeQueueRecord(reused); err != nil {
+		t.Fatal(err)
+	}
+
+	prior, items, err := PlanResume("/r")
+	if err != nil {
+		t.Fatalf("PlanResume over a reused pid: %v", err)
+	}
+	var out, errb bytes.Buffer
+	if err := ResumeMergeQueue("/r", prior, items, "squash", true, testWait, &out, &errb); err != nil {
+		t.Fatalf("ResumeMergeQueue: %v\n%s", err, out.String())
+	}
+	if got := strings.Join(f.merged, ","); got != "lane/two" {
+		t.Errorf("merged %q, want lane/two", got)
 	}
 }

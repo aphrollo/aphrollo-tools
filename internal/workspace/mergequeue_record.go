@@ -3,7 +3,6 @@ package workspace
 import (
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -40,7 +39,8 @@ func claimQueueRecord(mainRepo string, prior *tdd.MergeQueueRecord, items []Queu
 	if err := refuseLiveQueue(mainRepo); err != nil {
 		return nil, err
 	}
-	rec := &tdd.MergeQueueRecord{Repo: mainRepo, PID: os.Getpid(), Started: waitNow()}
+	rec := &tdd.MergeQueueRecord{Repo: mainRepo, Started: waitNow()}
+	rec.StampThisProcess()
 	if prior != nil {
 		for _, p := range prior.PRs {
 			if p.Status != tdd.MergeQueuePending {
