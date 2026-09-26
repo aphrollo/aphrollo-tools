@@ -63,6 +63,10 @@ func logLockWait(p0 string, p1 string, p2 Runner, p3 time.Duration) {
 	suite.LogLockWait(p0, p1, p2, p3)
 }
 
+func logSuiteVerdict(p0 string, p1 string, p2 string, p3 string, p4 SuiteResult) {
+	suite.LogSuiteVerdict(p0, p1, p2, p3, p4)
+}
+
 func mutantsConfigTables(p0 string) []mutantsConfigTable { return suite.MutantsConfigTables(p0) }
 
 func narrowFailFirstTests(p0 Runner, p1 string, p2 []string) Runner {

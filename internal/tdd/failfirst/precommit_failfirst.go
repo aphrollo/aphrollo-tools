@@ -316,17 +316,17 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 			return failFirstOutcome{skipped: true, skippedPkgs: skipped, dur: res.Duration, cmd: cmdString(runner), runner: runner}
 		}
 	}
+	// #898: a failed run is a RED proof only when it reached the staged
+	// tests. The worktree carries no gitignored node_modules, so on an npm
+	// root `npx vitest` there exits 1 without ever starting the tool — and
+	// that exit used to certify a characterization test as red-proven. A
+	// failure that names no failing test and never mentions a staged test
+	// file said nothing about the test; see failfirst_reach.go.
+	if !res.Passed && !failureReachedTests(res.Output, relTests) {
+		return failFirstOutcome{notReached: true, dur: res.Duration, cmd: cmdString(runner), runner: runner, res: res}
+	}
 	// Tests PASS without the new source ⇒ they never went RED ⇒ violation.
-	//
-	// SuiteResult carries only Passed/Output, with no couldn't-run signal, so a
-	// suite that failed to RUN (e.g. a vitest/jest worktree with no node_modules)
-	// is indistinguishable from one that ran and failed: both surface as
-	// Passed=false ⇒ (violated=false, conclusive=true). That mislabels a
-	// non-running suite as a conclusive non-violation rather than inconclusive,
-	// but it fails in the safe direction — non-violation never blocks — so the
-	// gate stays fail-open. Correcting the label needs a distinct couldn't-run
-	// signal on SuiteResult, which is left for a runner-contract change.
-	return failFirstOutcome{violated: res.Passed, Conclusive: true, dur: res.Duration, cmd: cmdString(runner), runner: runner}
+	return failFirstOutcome{violated: res.Passed, Conclusive: true, dur: res.Duration, cmd: cmdString(runner), runner: runner, res: res}
 }
 
 // execRootIn maps root (a project root under repoRoot) to its equivalent
@@ -438,6 +438,10 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 			// `gate stats` must be able to count the proofs that ran and
 			// measured nothing separately from the ones that proved a red.
 			verdict = AllTestsSkipped
+		case out.notReached:
+			// #898: the run at HEAD failed before it reached the staged
+			// tests, so it proved neither a red nor a pass.
+			verdict = failFirstTestNotReached
 		case out.Conclusive && out.violated:
 			verdict = "violated"
 		case out.Conclusive && !out.violated:
@@ -445,7 +449,12 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		}
 		line := fmt.Sprintf("[fail-first] gate precommit: %s in %s → %s (%.1fs)", ffCmd, root, verdict, out.dur.Seconds())
 		fmt.Fprintln(os.Stderr, line)
-		AppendGateLog("precommit", root, ffCmd, verdict, out.dur)
+		// The gate.log line and the run's own bytes together, so
+		// `aphrollo gate output` can show what the proof actually printed.
+		logSuiteVerdict("precommit", root, ffCmd, verdict, out.res)
+		if out.notReached {
+			fmt.Fprintln(os.Stderr, notReachedNote(out.res.Output))
+		}
 		if out.vacuous {
 			return GateResult{Blocked: true, Message: vacuousFailFirstMessage(out.vacuousPkgs)}
 		}
