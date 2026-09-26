@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 	"github.com/aphrollo/aphrollo-tools/internal/dev"
 )
 
@@ -127,19 +128,19 @@ func ClaimPlan(repo, branch, svc, into string, noMigrate bool) (*Claim, error) {
 
 	// 1. Install deps if the worktree was never prepared (node-style only; Go
 	//    worktrees share the module cache, nothing to do). Skipped when present.
-	if rule, ok := detectInstall(wt); ok && rule.present != "" {
+	if rule, ok := depinstall.Detect(wt); ok && rule.Present != "" {
 		step := claimStep{
-			label: shellJoin(rule.argv) + "  (cwd " + wt + ")",
+			label: shellJoin(rule.Argv) + "  (cwd " + wt + ")",
 			run: func(stdout, stderr io.Writer) error {
-				cmd := exec.Command(rule.argv[0], rule.argv[1:]...)
+				cmd := exec.Command(rule.Argv[0], rule.Argv[1:]...)
 				cmd.Dir = wt
 				cmd.Env = append(os.Environ(), "CI=1")
 				cmd.Stdout, cmd.Stderr = stdout, stderr
 				return cmd.Run()
 			},
 		}
-		if dirExists(filepath.Join(wt, rule.present)) {
-			step.skip = rule.present + " already present"
+		if dirExists(filepath.Join(wt, rule.Present)) {
+			step.skip = rule.Present + " already present"
 		}
 		c.steps = append(c.steps, step)
 	}

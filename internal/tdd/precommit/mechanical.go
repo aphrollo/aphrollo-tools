@@ -93,3 +93,15 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 	}
 	return GateResult{Message: strings.Join(notes, "\n")}
 }
+
+// mechanicalRoots is every project root Mechanical groups repoRoot's staged
+// set into, from the same grouping Mechanical itself reads. The PR merge gate
+// provisions exactly these roots before Mechanical runs. An index that cannot
+// be read yields none; Mechanical refuses on that error itself.
+func mechanicalRoots(repoRoot string) []string {
+	var roots []string
+	for _, g := range stagedRootGroups(repoRoot) {
+		roots = append(roots, g.Root)
+	}
+	return roots
+}
