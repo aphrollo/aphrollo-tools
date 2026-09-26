@@ -20,12 +20,13 @@ import (
 // was red: the refusal held back precisely the run that was needed, and
 // repeated for every narrowing the session tried.
 //
-// The parsing reuses the package's one command parser — shellSegments,
-// dropLeadingEnvAssignments, cdTarget, resolveAgainst, splitFlagValue,
-// classifySuiteSegment — rather than growing a second. Anything it cannot
-// resolve reads as "unknown" and falls back to the session cwd, which is the
-// behaviour that predates this file: a guess would either waive the guard
-// where it is right or re-refuse a run in a tree nobody has a verdict for.
+// The parsing reuses the package's one command parser — shellSegmentsTokens,
+// dropLeadingEnvAssignmentWords, cdTargetTilde, resolveAgainst,
+// splitFlagValue, classifySuiteSegment — rather than growing a second.
+// Anything it cannot resolve reads as "unknown" and falls back to the
+// session cwd, which is the behaviour that predates this file: a guess would
+// either waive the guard where it is right or re-refuse a run in a tree
+// nobody has a verdict for.
 
 // runnerDirFlags name a test runner's own way of moving the run out of the
 // shell's working directory: `go test -C <dir>`, and cargo's `--manifest-path
@@ -82,18 +83,32 @@ func effectiveRunRoot(cwd, cmd string) string {
 func suiteRunDirs(cwd, cmd string) []string {
 	cur := cwd
 	var dirs []string
-	for _, seg := range shellSegments(stripHeredocBodies(cmd)) {
-		words := dropLeadingEnvAssignments(seg)
-		if target, isCd := cdTarget(words); isCd {
+	for _, seg := range shellSegmentsTokens(stripHeredocBodies(cmd)) {
+		trimmed := dropLeadingEnvAssignmentWords(seg)
+		if target, isCd := cdTargetTilde(trimmed); isCd {
 			cur = resolveAgainst(cur, target)
 			continue
 		}
+		words := wordTexts(trimmed)
 		if classifySuiteSegment(words) == notSuiteInvocation {
 			continue
 		}
 		dirs = append(dirs, invocationDir(cur, words))
 	}
 	return dirs
+}
+
+// dropLeadingEnvAssignmentWords is dropLeadingEnvAssignments over a
+// quote-aware shellWord segment: cdTargetTilde needs each word's raw half to
+// tell a quoted `'~/x'` from an unquoted `~/x` (issue #867), so a `FOO=bar cd
+// ~/lane` still finds `cd` at a fixed offset without losing that quoting.
+func dropLeadingEnvAssignmentWords(words []shellWord) []shellWord {
+	texts := wordTexts(words)
+	i := 0
+	for i < len(texts) && isEnvAssignment(texts[i]) {
+		i++
+	}
+	return words[i:]
 }
 
 // invocationDir reports where one runner invocation starts: the directory the

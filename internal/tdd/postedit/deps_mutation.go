@@ -10,6 +10,10 @@ const GCKindTempLitter = mutation.GCKindTempLitter
 
 type GCCandidate = mutation.GCCandidate
 
+type MutantsConfig = mutation.MutantsConfig
+
+func ReadMutantsConfig(p0 string) (MutantsConfig, error) { return mutation.ReadMutantsConfig(p0) }
+
 func dropCargoNameFilter(p0 Runner) (Runner, bool) { return mutation.DropCargoNameFilter(p0) }
 
 func goRanNoTests(p0 Runner, p1 SuiteResult) bool { return mutation.GoRanNoTests(p0, p1) }

@@ -147,9 +147,9 @@ func bashSnapshotDir(cwd, cmd string) string {
 func commandRunDir(cwd, cmd string) string {
 	cur := cwd
 	answer, answerRoot := "", ""
-	for _, seg := range shellSegments(stripHeredocBodies(cmd)) {
-		words := dropLeadingEnvAssignments(seg)
-		if target, isCd := cdTarget(words); isCd {
+	for _, seg := range shellSegmentsTokens(stripHeredocBodies(cmd)) {
+		trimmed := dropLeadingEnvAssignmentWords(seg)
+		if target, isCd := cdTargetTilde(trimmed); isCd {
 			cur = resolveAgainst(cur, target)
 			continue
 		}
