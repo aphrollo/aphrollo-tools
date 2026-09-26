@@ -617,6 +617,8 @@ premergepr.go                                      merge
 premergepr_realsignal_test.go                      merge
 premergepr_signal.go                               merge
 premergepr_test.go                                 merge
+prepr.go                                           postedit
+prepr_test.go                                      postedit
 pretooluse.go                                      postedit
 pretooluse_smell.go                                smell     # created by P2
 pretooluse_test.go                                 postedit

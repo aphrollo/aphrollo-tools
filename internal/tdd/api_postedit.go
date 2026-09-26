@@ -31,6 +31,8 @@ func DecidePreEdit(p0 []byte) (Decision, error) { return postedit.DecidePreEdit(
 
 func DeferredPhasesEnabled() bool { return postedit.DeferredPhasesEnabled() }
 
+func DirectPROpenDecision(p0 []byte) Decision { return postedit.DirectPROpenDecision(p0) }
+
 func DiscardBashDecision(p0 []byte) Decision { return postedit.DiscardBashDecision(p0) }
 
 func EnableDeferredPhases(p0 bool) { postedit.EnableDeferredPhases(p0) }
