@@ -138,9 +138,7 @@ func TestFailFirst_ATestGreenAtTheParentIsNotRedProven(t *testing.T) {
 // exists to find, and is certified as one.
 func TestFailFirst_ATestThatRanAndFailedAtTheParentIsRedProven(t *testing.T) {
 	root := makeCharacterizedVitestRepo(t)
-	red := func(Runner, string) SuiteResult {
-		return SuiteResult{Passed: false, Output: " ❯ src/lib/caps.test.ts (1 test | 1 failed) 5ms\n   × has three 3ms\n AssertionError: expected 2 to be 3\n"}
-	}
+	red := redAtHeadThenGreen(SuiteResult{Passed: false, Output: " ❯ src/lib/caps.test.ts (1 test | 1 failed) 5ms\n   × has three 3ms\n AssertionError: expected 2 to be 3\n"}, nil)
 	var res GateResult
 	stderr := captureStderr(t, func() { res = Precommit(root, red) })
 	if res.Blocked {

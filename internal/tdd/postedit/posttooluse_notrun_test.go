@@ -205,3 +205,58 @@ func TestPostEdit_ScopedLibGreenIsNotCachedAsTheCratesGreen(t *testing.T) {
 		}
 	}
 }
+
+// Issue #922, from borld's forge_jbeam: one shell edit changed the loader in
+// src/latches.rs and added a test to tests/latches.rs, the crate's `--test
+// latches` target. The hook ran the source file's scoped `--lib` run, printed
+// its green, and named `--test latches` NOT RUN — the one target the edit
+// itself created a test in. The new test was red, and the commit landed. A
+// test target the edit touched is part of what the edit's run must select.
+func latchesCrate(t *testing.T) string {
+	t.Helper()
+	tddtest.RequireRealCargo(t)
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "Cargo.toml", "[package]\nname = \"forge_jbeam\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
+	write(t, root, "src/lib.rs", "pub mod latches;\n")
+	write(t, root, "src/latches.rs", "pub fn substep() -> u32 { 1 }\n"+
+		"#[cfg(test)]\nmod tests {\n    #[test]\n    fn one() { assert_eq!(super::substep(), 1); }\n}\n")
+	write(t, root, "tests/latches.rs", "#[test]\nfn loads() { assert!(forge_jbeam::latches::substep() > 0); }\n")
+	write(t, root, "tests/soak.rs", "#[test]\nfn soaks() { assert!(forge_jbeam::latches::substep() < 9); }\n")
+	withNextest(t, root)
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "base")
+	return root
+}
+
+func TestPostBash_SrcAndTestTargetEditedTogether_RunsTheTestTarget(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := latchesCrate(t)
+	cmd := "apply the latch change"
+	PreBash(bashPayload(t, "s922", root, cmd))
+	write(t, root, "src/latches.rs", "pub fn substep() -> u32 { 2 }\n"+
+		"#[cfg(test)]\nmod tests {\n    #[test]\n    fn one() { assert_eq!(super::substep(), 2); }\n}\n")
+	write(t, root, "tests/latches.rs", "#[test]\nfn loads() { assert!(forge_jbeam::latches::substep() > 0); }\n"+
+		"#[test]\nfn a_loaded_latch_runs_the_carried_law() { assert_eq!(forge_jbeam::latches::substep(), 3); }\n")
+	var seen []string
+	run := func(r Runner, _ string) SuiteResult {
+		seen = append(seen, cmdString(r))
+		return SuiteResult{Passed: true, Output: nextestFourPassedOutput, Duration: time.Second}
+	}
+
+	got := PostBash(bashPayload(t, "s922", root, cmd), run)
+
+	// The lib's module filter goes: cargo applies a name filter to every
+	// selected binary, and the integration test's names carry no module path.
+	const want = "cargo nextest run -p forge_jbeam --lib --test latches"
+	if len(seen) != 1 || seen[0] != want {
+		t.Fatalf("the edit added a test to tests/latches.rs, so its run must be %q; ran %q, said: %s", want, seen, got)
+	}
+	if strings.Contains(got, "--test latches not tested") {
+		t.Fatalf("the target the edit touched must not be named NOT RUN, got: %s", got)
+	}
+	// #820's clause stays for a target the edit did not touch.
+	if !strings.Contains(got, "NOT RUN — --test soak not tested here") {
+		t.Fatalf("the untouched --test soak target must still be named NOT RUN, got: %s", got)
+	}
+}

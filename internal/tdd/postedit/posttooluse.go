@@ -52,8 +52,10 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 // postEditFile is the whole post-edit path for ONE changed file — the body
 // PostEdit used to be, lifted out so the Bash hook can put a file a shell
 // command rewrote through the identical path. It reports whether it left a
-// build running, which is what bounds a Bash call to one deferral.
-func postEditFile(session, target string, run SuiteRunner) (string, bool) {
+// build running, which is what bounds a Bash call to one deferral. touched
+// is every other file the same edit changed under target's root: a test
+// target one of them belongs to joins the run (withTouchedTestTargets).
+func postEditFile(session, target string, run SuiteRunner, touched ...string) (string, bool) {
 	kind := ClassifyFile(target)
 	if kind == Ignore {
 		return "", false
@@ -65,7 +67,7 @@ func postEditFile(session, target string, run SuiteRunner) (string, bool) {
 
 	// Before the enforcement check: an edit with the gate off still changed the file.
 	editID := recordEdit(root, target)
-	snap, ok := captureStateSnapshot(session, target, root)
+	snap, ok := captureStateSnapshot(session, target, root, touched)
 	if !ok {
 		return "", false
 	}
@@ -222,16 +224,16 @@ type stateSnapshot struct {
 // reports false when the edit cannot be tested — enforcement is off for this
 // session, or the project uses a toolchain the gates don't know — so PostEdit
 // stays silent.
-func captureStateSnapshot(session, target, root string) (stateSnapshot, bool) {
+func captureStateSnapshot(session, target, root string, touched []string) (stateSnapshot, bool) {
 	state, statePath := loadSession(session)
 	if state != nil && state.Overrides.Off {
 		return stateSnapshot{}, false
 	}
-	runner, ok := DetectRunner(root)
+	base, ok := DetectRunner(root)
 	if !ok {
 		return stateSnapshot{}, false
 	}
-	runner = NarrowToRelatedTests(runner, target, root)
+	runner := withTouchedTestTargets(NarrowToRelatedTests(base, target, root), base, root, touched)
 
 	fp := computeFingerprint(root)
 	var prevFailing []string

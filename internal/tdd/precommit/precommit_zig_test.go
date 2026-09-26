@@ -63,25 +63,25 @@ func TestPrecommit_FailFirst_StableWorktreeUnderStateDir(t *testing.T) {
 	gitDo(t, root, "add", ".")
 
 	var dirs []string
-	run := func(r Runner, dir string) SuiteResult {
-		dirs = append(dirs, dir)
-		// The applied test cannot compile without the impl → RED, the normal
-		// conclusive fail-first outcome, located in the test as go prints it.
-		return SuiteResult{Passed: false, Output: "./widget_test.go:6:5: undefined: Widget"}
-	}
+	// The applied test cannot compile without the impl → RED, the normal
+	// conclusive fail-first outcome, located in the test as go prints it;
+	// each proof then runs the same test again with the change applied.
+	run := redAtHeadThenGreen(SuiteResult{Passed: false, Output: "./widget_test.go:6:5: undefined: Widget"},
+		func(_ Runner, dir string) { dirs = append(dirs, dir) })
 	for i := 0; i < 2; i++ {
 		if !failFirstViolated(root, []string{"widget_test.go"}, nil, run).Conclusive {
 			t.Fatalf("fail-first run %d must be conclusive", i)
 		}
 	}
-	if len(dirs) != 2 {
-		t.Fatalf("expected two worktree runs, got %d: %v", len(dirs), dirs)
+	// Two proofs, each a RED run at HEAD and a GREEN run with the change.
+	if len(dirs) != 4 {
+		t.Fatalf("expected four worktree runs, got %d: %v", len(dirs), dirs)
 	}
 	if !strings.HasPrefix(dirs[0], cfg) {
 		t.Fatalf("fail-first worktree must live under the state dir %s, got %s", cfg, dirs[0])
 	}
-	if dirs[0] != dirs[1] {
-		t.Fatalf("fail-first worktree must be a stable per-repo path across invocations: %s vs %s", dirs[0], dirs[1])
+	if dirs[0] != dirs[2] {
+		t.Fatalf("fail-first worktree must be a stable per-repo path across invocations: %s vs %s", dirs[0], dirs[2])
 	}
 }
 

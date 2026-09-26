@@ -64,7 +64,8 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 		return res
 	}
 	if failFirst {
-		// The commit gate proves the staged test goes RED and stops there.
+		// The commit gate proves the staged test goes RED at HEAD, then GREEN
+		// with the staged change (#922), and stops there.
 		// The mechanical suite it used to run afterwards now runs only at the
 		// merge: measured over 90 days of this tool's own consumer, the
 		// commit-time suite ran 2353 times, reported a plain assertion failure
