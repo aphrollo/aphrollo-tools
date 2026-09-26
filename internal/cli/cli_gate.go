@@ -464,11 +464,11 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	for _, wall := range preToolUseWalls {
 		if decision := wall(raw); decision.Action == tdd.Block {
+			// A Block always renders a deny envelope, so the payload is
+			// never empty here and is written as is.
 			tdd.LogEditDecision(raw, decision)
 			payload, code := tdd.RenderPreToolUse(decision)
-			if len(payload) > 0 {
-				stdout.Write(payload)
-			}
+			stdout.Write(payload)
 			return code
 		}
 	}
