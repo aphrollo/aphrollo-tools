@@ -82,7 +82,7 @@ func TestFailFirstStage_LogsTheArgvItActuallyRan(t *testing.T) {
 	var ran Runner
 	run := func(r Runner, _ string) SuiteResult {
 		ran = r
-		return SuiteResult{Passed: false, Output: "undefined: Widget"}
+		return SuiteResult{Passed: false, Output: "./widget_test.go:6:5: undefined: Widget"}
 	}
 
 	var res GateResult

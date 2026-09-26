@@ -135,7 +135,7 @@ func TestFailFirstStage_ThreadsRealDurationIntoLogAndLine(t *testing.T) {
 		// The applied test cannot compile without the staged impl -> a
 		// conclusive, non-violating (red-proven) fail-first verdict,
 		// regardless of which directory this stub is invoked in.
-		return SuiteResult{Passed: false, Output: "undefined: Widget", Duration: stubDuration}
+		return SuiteResult{Passed: false, Output: "./widget_test.go:6:5: undefined: Widget", Duration: stubDuration}
 	}
 
 	var res GateResult

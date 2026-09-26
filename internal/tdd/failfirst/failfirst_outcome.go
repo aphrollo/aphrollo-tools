@@ -25,6 +25,13 @@ type failFirstOutcome struct {
 	// HEAD, and only one of them used to be admitted as a verdict.
 	skipped     bool
 	skippedPkgs []string
+	// notReached: the run failed without reaching the staged tests — the
+	// tool never started, or its config did not load (#898). Neither a red
+	// proof nor a violation.
+	notReached bool
+	// res is the proof run's own result, kept so its output is retained
+	// for `aphrollo gate output`; zero when nothing ran.
+	res SuiteResult
 	// runner is the proof's resolved Runner, kept so the violation message
 	// can say which skips this gate can and cannot read.
 	runner Runner

@@ -1,6 +1,7 @@
 package escape
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -381,4 +382,16 @@ func indexOfString(xs []string, x string) int {
 		}
 	}
 	return -1
+}
+
+// A fail-first proof whose run at HEAD never reached the staged tests
+// (#898) decided not to block on no evidence: a stand-down, counted as one,
+// in the quoted form gate.log writes a verdict with a space in it.
+func TestGateStats_CountsAFailFirstRunThatNeverReachedTheTestAsAStandDown(t *testing.T) {
+	t.Parallel()
+	const verdict = "inconclusive (test-not-reached)"
+	log := stamp(time.Now().UTC(), "precommit", "/repo", "npx vitest related src/a.test.ts --run", strconv.Quote(verdict), 0)
+	if s := GateStats(strings.NewReader(log), time.Time{}); s.StandDowns[verdict] != 1 {
+		t.Fatalf("StandDowns[%q] = %d, want 1 (StandDowns = %v)", verdict, s.StandDowns[verdict], s.StandDowns)
+	}
 }

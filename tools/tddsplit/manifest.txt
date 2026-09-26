@@ -283,6 +283,8 @@ failfirst_gonarrow_test.go                         failfirst
 failfirst_ledger.go                                failfirst
 failfirst_ledger_test.go                           failfirst
 failfirst_outcome.go                               failfirst
+failfirst_reach.go                                 failfirst
+failfirst_reach_test.go                            failfirst
 failfirst_refuse.go                                failfirst
 failfirst_refuse_test.go                           failfirst
 failfirst_skipped.go                               failfirst
@@ -584,6 +586,7 @@ precommit_docsonly_test.go                         precommit
 precommit_failfirst.go                             failfirst
 precommit_failfirst_args_test.go                   failfirst
 precommit_failfirst_inputs_test.go                 precommit # prefix says failfirst; its test body reaches precommit
+precommit_failfirst_reach_test.go                  precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_rust.go                        failfirst
 precommit_failfirst_scope_test.go                  precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_target_test.go                 precommit # prefix says failfirst; its test body reaches precommit
