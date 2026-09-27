@@ -76,7 +76,8 @@ func TestSuppress_ADescribedLintDisableIsAdmitted(t *testing.T) {
 // TestSuppress_AnUndescribedLintDisableStillBlocks: only a real description
 // admits a disable. A separator with nothing after it, one not set off by
 // whitespace, a second bare disable on the same line, another linter's
-// suppression riding along, or a separator on the NEXT line all still block.
+// suppression riding along, or a separator on the NEXT line or past the
+// comment's closer, even one right after the token, all still block.
 func TestSuppress_AnUndescribedLintDisableStillBlocks(t *testing.T) {
 	t.Parallel()
 	bare := []string{
@@ -87,6 +88,8 @@ func TestSuppress_AnUndescribedLintDisableStillBlocks(t *testing.T) {
 		"/* eslint-disable a -- why */ /* eslint-disable b */",
 		"x := f() // eslint-disable-line a -- why //nolint",
 		"// eslint-disable-next-line no-plusplus\nwhile (i -- > 0) {}",
+		"// eslint-disable\nwhile (i -- > 0) {}",
+		"x = a /* eslint-disable*/ -- b",
 	}
 	for _, src := range bare {
 		if got := suppressAt(src, commitPhase); got != Block {
