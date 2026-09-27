@@ -138,3 +138,29 @@ func TestInstall_UninstallWritesNoBlock(t *testing.T) {
 		}
 	}
 }
+
+// Issue #887: a project-scoped install (--config-dir <repo>/.claude) puts the
+// skills and agents where Claude Code loads a project's own, and doctor
+// looked only in the user-level config dir, so it failed an install that was
+// complete. Doctor, run with its defaults from the repo, accepts the managed
+// files wherever an install mode puts them.
+func TestDoctor_FindsTheManagedFilesEveryInstallModeWrote(t *testing.T) {
+	for _, mode := range installModes {
+		t.Run(mode.name, func(t *testing.T) {
+			f := runInstallMode(t, mode)
+			var found bool
+			for _, c := range tdd.Doctor(doctorInput("", "", f.repo)) {
+				if c.Name != "managed skills and agents" {
+					continue
+				}
+				found = true
+				if !c.OK {
+					t.Errorf("after install %s, doctor fails the managed files: %s", mode.name, c.Detail)
+				}
+			}
+			if !found {
+				t.Fatal("doctor ran no managed skills and agents check")
+			}
+		})
+	}
+}
