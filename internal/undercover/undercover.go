@@ -9,9 +9,11 @@ import (
 	core "github.com/aphrollo/aphrollo-tools/internal/tdd/core"
 )
 
-// List is the built-in tells plus a workspace's own extra tokens.
+// List is the built-in tells plus a workspace's own extra tokens and its
+// `undercover-allow` exceptions.
 type List struct {
 	extra []extraToken
+	allow []allowEntry
 }
 
 // extraToken is one `undercover-extra` entry: its tokens for a ref name, a
@@ -41,9 +43,9 @@ func New(extra []string) List {
 	return l
 }
 
-// Load reads the workspace's switch and extra tokens from root: the
-// `[workspace.metadata.aphrollo]` table of Cargo.toml, else the `[aphrollo]`
-// table of aphrollo.toml. on is false unless one of them says
+// Load reads the workspace's switch, extra tokens and allow-list from root:
+// the `[workspace.metadata.aphrollo]` table of Cargo.toml, else the
+// `[aphrollo]` table of aphrollo.toml. on is false unless one of them says
 // `undercover = true`, and every check is inert then.
 func Load(root string) (l List, on bool) {
 	cargo := filepath.Join(root, "Cargo.toml")
@@ -52,10 +54,16 @@ func Load(root string) (l List, on bool) {
 		core.TomlBoolIn(toml, "[aphrollo]", "undercover")
 	extra := append(core.TomlStringsIn(cargo, "[workspace.metadata.aphrollo]", "undercover-extra"),
 		core.TomlStringsIn(toml, "[aphrollo]", "undercover-extra")...)
-	return New(extra), on
+	allow := append(core.TomlStringsIn(cargo, "[workspace.metadata.aphrollo]", "undercover-allow"),
+		core.TomlStringsIn(toml, "[aphrollo]", "undercover-allow")...)
+	l = New(extra)
+	l.allow = parseAllow(allow)
+	return l, on
 }
 
-// Line reports the first tell one line of prose carries.
+// Line reports the first tell one line of prose carries. A line the
+// workspace's `undercover-allow` names exactly passes — unless the tell
+// itself is Attribution, which no allow-list entry may ever suppress.
 func (l List) Line(s string) (tell string, hit bool) {
 	scrubbed := scrub(s)
 	trailer := coAuthorTrailer.MatchString(s)
@@ -68,11 +76,17 @@ func (l List) Line(s string) (tell string, hit bool) {
 			subject = scrubbed
 		}
 		if t.Line.MatchString(subject) {
+			if !t.Attribution && l.allowed(s) {
+				continue
+			}
 			return t.Name, true
 		}
 	}
 	for _, e := range l.extra {
 		if e.line.MatchString(s) {
+			if l.allowed(s) {
+				continue
+			}
 			return e.name, true
 		}
 	}
