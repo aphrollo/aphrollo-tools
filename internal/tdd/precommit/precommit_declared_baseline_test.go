@@ -2,6 +2,7 @@ package precommit
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -42,21 +43,38 @@ func headAndStaged(frontend string, headDirs *[]string, staged, head func(checko
 }
 
 // A failure HEAD already had is not the commit's to answer for when the
-// command asks for a lines baseline. HEAD's run happens in a tree under the
-// root's node_modules, so a declared npx finds the root's packages, and the
-// tree leaves nothing behind. The path each checkout prints and the trailing
-// whitespace differ between the two runs, and neither makes the line new.
+// command asks for a lines baseline. HEAD's run happens in a tree outside the
+// root's node_modules whose root links the root's node_modules, so a
+// declared npx finds the root's packages, and the tree leaves nothing
+// behind. The path each checkout prints and the trailing whitespace differ
+// between the two runs, and neither makes the line new.
 func TestDeclaredBaseline_AFailureAlreadyAtHeadPassesWithLines(t *testing.T) {
 	repo, frontend := makeFrontendRepo(t, declaredTscLines)
+	nodeModules := filepath.Join(frontend, "node_modules")
+	before := listTree(t, nodeModules)
 
 	var headDirs []string
+	reached := map[string]bool{}
 	staged := func(c string) string { return "Checking...\n" + oldError(c) + "  \t\n" }
-	head := func(c string) string { return "Checking...\n" + oldError(c) + "\n" }
+	head := func(c string) string {
+		_, err := os.Stat(filepath.Join(c, "frontend", "node_modules", "typescript", "package.json"))
+		reached[c] = err == nil
+		return "Checking...\n" + oldError(c) + "\n"
+	}
 	if res := Precommit(repo, headAndStaged(frontend, &headDirs, staged, head, SuiteResult{})); res.Blocked {
 		t.Fatalf("a failure already at HEAD refused the commit:\n%s", res.Message)
 	}
-	if len(headDirs) != 1 || !strings.HasPrefix(headDirs[0], filepath.Join(frontend, "node_modules", ".aphrollo-head-")) {
-		t.Fatalf("HEAD runs at %v, want one under %s", headDirs, filepath.Join(frontend, "node_modules"))
+	if len(headDirs) != 1 || strings.HasPrefix(headDirs[0], nodeModules) || strings.HasPrefix(headDirs[0], evalSymlinks(t, nodeModules)) {
+		t.Fatalf("HEAD runs at %v, want one outside %s", headDirs, nodeModules)
+	}
+	if state := StateDir(); state == "" || !strings.HasPrefix(headDirs[0], state+string(filepath.Separator)) {
+		t.Fatalf("HEAD's run at %s is not in the gate state dir %q", headDirs[0], state)
+	}
+	if !reached[filepath.Dir(headDirs[0])] {
+		t.Fatalf("HEAD's run at %s did not reach the root's installed packages", headDirs[0])
+	}
+	if after := listTree(t, nodeModules); strings.Join(after, "\n") != strings.Join(before, "\n") {
+		t.Fatalf("the root's node_modules changed:\nbefore %q\nafter  %q", before, after)
 	}
 	if got := gitOut(repo, "worktree", "list"); len(strings.Split(strings.TrimSpace(got), "\n")) != 1 {
 		t.Fatalf("the HEAD worktree was left registered:\n%s", got)
@@ -244,5 +262,28 @@ func TestDeclaredPrecommit_ReadsABaselineFromAnInlineTable(t *testing.T) {
 		if _, err := parseDeclaredCommands(bad); err == nil {
 			t.Errorf("%s: read without an error", bad)
 		}
+	}
+}
+
+// A root without a node_modules has nothing to link: HEAD's tree gets no
+// node_modules of its own.
+func TestDeclaredBaseline_ARootWithoutNodeModulesGetsNoLinkAtHead(t *testing.T) {
+	repo, frontend := makeFrontendRepo(t, declaredTscLines)
+	if err := os.RemoveAll(filepath.Join(frontend, "node_modules")); err != nil {
+		t.Fatal(err)
+	}
+	var headDirs []string
+	linked := map[string]bool{}
+	staged := func(c string) string { return oldError(c) + "\n" }
+	head := func(c string) string {
+		_, err := os.Lstat(filepath.Join(c, "frontend", "node_modules"))
+		linked[c] = err == nil
+		return oldError(c) + "\n"
+	}
+	if res := Precommit(repo, headAndStaged(frontend, &headDirs, staged, head, SuiteResult{})); res.Blocked {
+		t.Fatalf("a failure already at HEAD refused the commit:\n%s", res.Message)
+	}
+	if len(headDirs) != 1 || linked[filepath.Dir(headDirs[0])] {
+		t.Fatalf("HEAD runs at %v; want one, with no node_modules in its root (linked: %v)", headDirs, linked)
 	}
 }
