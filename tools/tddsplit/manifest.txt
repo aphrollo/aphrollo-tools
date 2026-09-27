@@ -274,6 +274,7 @@ envpath.go                                          install
 envpath_test.go                                     install
 escape.go                                          escape
 escape_core.go                                     core      # created by P2
+escape_crossrepo.go                                escape
 escape_dedupe.go                                   escape
 escape_dedupe_test.go                              escape
 escape_gitx.go                                     gitx      # created by P2

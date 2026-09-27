@@ -413,3 +413,57 @@ func TestPlanLane_NamesTheLanePRAndItsHead(t *testing.T) {
 		t.Errorf("PlanLane = %+v, want PR #22 in /w/two at %s", items, short(newSHA))
 	}
 }
+
+// A branch whose PR never opened (the `pr` step itself failed) has nothing to
+// plan: PlanLane must fail rather than hand back a queue item with no problem
+// (issue #931) — a caller that skips this error and merges anyway is the
+// silent-success this guards against.
+func TestPlanLane_APRThatNeverOpenedIsAnError(t *testing.T) {
+	f := queueFake()
+	install(t, f)
+
+	if _, err := PlanLane(&Target{Worktree: "/w/ghost", Branch: "lane/ghost", MainRepo: "/r", RepoName: "r"}); err == nil {
+		t.Fatal("a branch with no PR must fail to plan, not report a queue item with no problem")
+	}
+}
+
+// `merge --wait` on a branch with no PR at all must fail, never merge, and
+// never exit clean (issue #931): the PR create step failed, so there is
+// nothing to wait on and nothing to land.
+func TestMergeWait_NoPRNeverMergesAndFails(t *testing.T) {
+	f := queueFake()
+	install(t, f)
+
+	var out, errb bytes.Buffer
+	err := MergeWait(&Target{Worktree: "/w/ghost", Branch: "lane/ghost", MainRepo: "/r", RepoName: "r"}, "squash", true, testWait, &out, &errb)
+	if err == nil {
+		t.Fatal("merge --wait with no PR must fail, not exit clean")
+	}
+	if len(f.merged) != 0 {
+		t.Errorf("merged %v with no PR to merge", f.merged)
+	}
+}
+
+// The queue form of the same case: a PR number that was never opened must
+// stop the queue non-zero, by name, and never merge silently past it (issue
+// #931).
+func TestMergeQueue_APRThatNeverOpenedRefusesTheQueueNonZero(t *testing.T) {
+	f := queueFake()
+	install(t, f)
+
+	items, err := PlanMergeQueue("/r", []int{21, 999})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	err = RunMergeQueue("/r", items, "squash", true, testWait, &out, &errb)
+	if err == nil {
+		t.Fatal("a PR number with no open PR must fail the queue, not exit clean")
+	}
+	if got := strings.Join(f.merged, ","); got != "lane/one" {
+		t.Errorf("merged %q, want lane/one only", got)
+	}
+	if !strings.Contains(err.Error(), "#999") {
+		t.Errorf("the refusal does not name PR #999:\n%s", err)
+	}
+}
