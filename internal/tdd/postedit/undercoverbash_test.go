@@ -233,3 +233,17 @@ func TestUndercoverBashDecision_ReadsARelativeBodyFileFromCwd(t *testing.T) {
 		t.Errorf("blocked a body file that is not under cwd: %s", got.Reason)
 	}
 }
+
+// Issue #902: the repo's own `undercover-allow` list reaches this wall the
+// same way it reaches the commit-msg gate, since both read undercover.Load.
+// An allowed line passes; the same tell in an unrelated line still blocks.
+func TestUndercoverBashDecision_HonoursTheConfiguredAllowList(t *testing.T) {
+	dir := prRepo(t, "undercover = true\nundercover-allow = [\n"+
+		`  "default model is now Sonnet 4.5 # docs commit naming the current default",`+"\n]\n")
+	if got := UndercoverBashDecision(bashPayload(t, "s", dir, `gh pr create --title t --body "default model is now Sonnet 4.5"`)); got.Action == Block {
+		t.Errorf("blocked an allowed line: %s", got.Reason)
+	}
+	if got := UndercoverBashDecision(bashPayload(t, "s", dir, `gh pr create --title t --body "ran under opus-5"`)); got.Action != Block {
+		t.Error("an unrelated model-name line must still block")
+	}
+}

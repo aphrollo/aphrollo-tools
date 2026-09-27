@@ -135,3 +135,17 @@ func TestSubmitPlan_PassesAnOrdinaryHeadRefAndSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Issue #902: the repo's own `undercover-allow` list reaches PRPlan the same
+// way it reaches every other check, since all of them read undercover.Load.
+func TestPRPlan_HonoursTheConfiguredAllowList(t *testing.T) {
+	repo := initRepo(t)
+	writeFile(t, repo, "aphrollo.toml", "[aphrollo]\nundercover = true\nundercover-allow = [\n"+
+		`  "Sonnet 4.5 drafted the fixture # quoting the model-name rule's own fixture text",`+"\n]\n")
+	body := "Fixes the retry timer.\n\nSonnet 4.5 drafted the fixture\n"
+	if _, err := PRPlan(targetFor(repo, "lane/cairo"), "main", "Fix the timer", body, false); err != nil {
+		t.Fatal(err)
+	}
+	_, err := PRPlan(targetFor(repo, "lane/cairo"), "main", "Fix the timer with sonnet-4", "", false)
+	requireUndercoverRefusal(t, err, "PR title", "Fix the timer with sonnet-4")
+}

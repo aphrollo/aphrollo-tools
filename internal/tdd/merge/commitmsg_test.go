@@ -114,6 +114,24 @@ func TestCommitMsg_HonoursThePerRepoDenyList(t *testing.T) {
 	}
 }
 
+// Issue #902: an exact line the workspace's own `undercover-allow` names
+// passes, while the same tell in an unrelated line still rejects. The
+// allow-list is read from Cargo.toml's own table the same way the deny list
+// above is, since both are workspace metadata.
+func TestCommitMsg_HonoursTheConfiguredAllowList(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	write(t, root, "Cargo.toml", "[workspace]\n[workspace.metadata.aphrollo]\nundercover = true\nundercover-allow = [\n"+
+		"  \"Sonnet 4.5 drafted the fixture # quoting the model-name rule's own fixture text\",\n]\n")
+
+	if got := CommitMsg(root, msgFile(t, "Fix the flaky retry timer\n\nSonnet 4.5 drafted the fixture\n")); got.Blocked {
+		t.Fatalf("an allowed line was rejected: %s", got.Message)
+	}
+	if got := CommitMsg(root, msgFile(t, "Fix the flaky retry timer\n\nran under opus-5\n")); !got.Blocked {
+		t.Fatal("an unrelated model-name line must still reject")
+	}
+}
+
 // TestCommitMsg_UnreadableMessageFilePassesThrough pins the failure
 // direction: this gate protects a convention, not correctness, so a missing
 // or unreadable file must never wedge a commit.
