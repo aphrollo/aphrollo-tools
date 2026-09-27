@@ -170,6 +170,18 @@ func goStagedDirs(root string, files []string) []string {
 	return dirs
 }
 
+// goNonTestFiles is files without its _test.go entries: the staged files an
+// importing package can compile.
+func goNonTestFiles(files []string) []string {
+	var out []string
+	for _, f := range files {
+		if !strings.HasSuffix(f, "_test.go") {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // appendGoPackageDirs appends each of add not already in dirs. A directory
 // with no .go files is not a package `go test` can load: naming it does not
 // skip it, it fails the run outright with "[setup failed]". The repo root is
@@ -196,7 +208,11 @@ func narrowToStaged(r Runner, root string, files []string) (Runner, bool) {
 			// narrow TO — and nothing to widen from either.
 			return r, false
 		}
-		dirs = appendGoPackageDirs(root, dirs, goReverseDependents(root, dirs))
+		// An importer compiles a package's non-test files only, so a
+		// package whose staged files are all _test.go owes its own suite
+		// and nothing upstream of it (#870).
+		seeds := goStagedDirs(root, goNonTestFiles(files))
+		dirs = appendGoPackageDirs(root, dirs, goReverseDependents(root, seeds))
 		pkgs := make([]string, 0, len(dirs))
 		for _, dir := range dirs {
 			pkg := "./" + dir

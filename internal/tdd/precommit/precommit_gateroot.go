@@ -204,9 +204,10 @@ func commitOwedSuites(repoRoot string) []owedSuite {
 // additions — no staged file belongs to those), the guard packages the
 // workspace declares, and any staged files that ARE the workspace's own
 // manifest/lockfile/build config rather than a member's. downstream is the
-// touched crates plus every workspace crate that depends on one of them
-// (clippyScope): the ground a change can break, and the one list the check
-// stage, the merge's suite and its doctests all select from.
+// touched crates plus every workspace crate that depends on one whose staged
+// files a dependent compiles (cargoDownstreamScope): the ground a change can
+// break, and the one list the check stage, the merge's suite and its doctests
+// all select from.
 type cargoStagePlan struct {
 	ws            string
 	touched       []string
@@ -254,11 +255,11 @@ func planCargoStages(gateName, repoRoot, root string, rootFiles []string) (cargo
 	if len(owned) == 0 && len(wsManifestHit) == 0 {
 		return cargoStagePlan{}, false
 	}
-	touched := cargoPackagesOwning(root, toRootRelative(repoRoot, root, owned))
+	rel := toRootRelative(repoRoot, root, owned)
 	return cargoStagePlan{
 		ws:            ws,
-		touched:       touched,
-		downstream:    clippyScope(gateName, repoRoot, ws, touched),
+		touched:       cargoPackagesOwning(root, rel),
+		downstream:    cargoDownstreamScope(gateName, repoRoot, ws, root, rel),
 		alwaysRun:     cargoAlwaysRunPackages(ws),
 		wsManifestHit: wsManifestHit,
 	}, true
@@ -302,7 +303,7 @@ func workspaceCheckStage(gateName, repoRoot, root string, plan cargoStagePlan, r
 		AppendGateLog(gateName, ws, "", "clippy-scope-empty-skipped", 0)
 		return GateResult{}
 	}
-	fmt.Fprintf(os.Stderr, "gate %s: check scope → %s (touched crates + everything downstream of them)\n",
+	fmt.Fprintf(os.Stderr, "gate %s: check scope → %s (touched crates + everything downstream of a change a dependent compiles)\n",
 		gateName, strings.Join(scope, " "))
 	args := []string{"clippy"}
 	for _, pkg := range scope {

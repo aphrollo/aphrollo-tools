@@ -39,6 +39,10 @@ func cargoRunnerAt(p0 string, p1 ...string) (Runner, bool) { return suite.CargoR
 
 func cargoVacuousTargets(p0 string) []string { return suite.CargoVacuousTargets(p0) }
 
+func clippyScope(p0 string, p1 string, p2 string, p3 []string) []string {
+	return suite.ClippyScope(p0, p1, p2, p3)
+}
+
 func hasGateProfile(p0 string) bool { return suite.HasGateProfile(p0) }
 
 func narrowFailFirstTests(p0 Runner, p1 string, p2 []string) Runner {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 )
@@ -70,6 +71,42 @@ func clippyScope(gateName, repoRoot, ws string, touched []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// cargoOwnTargetDirs are the crate-root directories whose files build only
+// the crate's own integration-test, bench and example targets. A dependent
+// crate compiles the library alone, so nothing under them reaches it.
+var cargoOwnTargetDirs = map[string]bool{"tests": true, "benches": true, "examples": true}
+
+// cargoReachesDependents reports whether a root-relative file can change what
+// a crate depending on its owner compiles: false only for a file inside one
+// of its crate's own target directories (cargoOwnTargetDirs), true for
+// src/, the manifest, a build script and anything else.
+func cargoReachesDependents(root, rel string) bool {
+	for dir := path.Dir(filepath.ToSlash(rel)); dir != "."; dir = path.Dir(dir) {
+		if !cargoOwnTargetDirs[path.Base(dir)] {
+			continue
+		}
+		if cargoPackageName(filepath.Join(root, path.Dir(dir), "Cargo.toml")) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// cargoDownstreamScope is the touched crates plus every crate downstream of
+// one whose staged files can reach a dependent (cargoReachesDependents).
+// rel is root-relative. A commit confined to a crate's own test targets
+// takes that crate alone, and asks no dependency graph at all (#870).
+func cargoDownstreamScope(gateName, repoRoot, ws, root string, rel []string) []string {
+	var reaching []string
+	for _, f := range rel {
+		if cargoReachesDependents(root, f) {
+			reaching = append(reaching, f)
+		}
+	}
+	seeds := cargoPackagesOwning(root, reaching)
+	return dedupeSorted(append(clippyScope(gateName, repoRoot, ws, seeds), cargoPackagesOwning(root, rel)...))
 }
 
 // dependentsOf walks the graph backwards from seeds: every package that

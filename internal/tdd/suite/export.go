@@ -93,6 +93,10 @@ func CargoAphrolloString(p0 string, p1 string) (string, bool) { return cargoAphr
 
 func CargoClippyCleanPackages(p0 string) []string { return cargoClippyCleanPackages(p0) }
 
+func CargoDownstreamScope(p0 string, p1 string, p2 string, p3 string, p4 []string) []string {
+	return cargoDownstreamScope(p0, p1, p2, p3, p4)
+}
+
 func CargoIntegrationTargetsNotRun(p0 Runner, p1 string) []string {
 	return cargoIntegrationTargetsNotRun(p0, p1)
 }
