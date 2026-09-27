@@ -28,21 +28,32 @@ import (
 // own body instead of the parent's orchestration.
 const prGateRealSignalChildEnv = "APHROLLO_TEST_PRGATE_REAL_SIGNAL_CHILD"
 
-// prGateRealSignalReadyPrefix opens the one line the child prints once it is
-// inside GatePRMerge's signal-armed window, followed by its checkout dir — a
-// child about to block forever (and then be killed by a real signal) cannot
-// report either fact back to its parent any other way.
-const prGateRealSignalReadyPrefix = "PRGATE-REAL-SIGNAL-READY:"
+// prGateRealSignalReadyFD is the descriptor the child reports readiness on:
+// the parent passes a pipe's write end as the child's first extra file, and
+// the child writes its checkout dir there once it is inside GatePRMerge's
+// signal-armed window. A child about to block forever (and then be killed by
+// a real signal) cannot report either fact back any other way, and a pipe of
+// its own keeps the report apart from the test framework's stdout.
+const prGateRealSignalReadyFD = 3
+
+// prGateRealSignalReadyBound and prGateRealSignalExitBound are outer bounds
+// only. The parent waits on the child's own report, and on the pipe closing
+// when the child dies first, so a loaded runner delays the test rather than
+// failing it; the bounds exist so a wedged child cannot hang the package.
+const (
+	prGateRealSignalReadyBound = 4 * time.Minute
+	prGateRealSignalExitBound  = 2 * time.Minute
+)
 
 // TestGatePRMerge_RealSIGTERMKillsOnlyTheSubprocess is the one proof in this
 // package that a REAL OS signal reaches watchPRGateSignals' production path
 // end to end (no injected channel, no overridden exit seam): it re-execs this
-// test binary with a guard env var, waits for the child to report it is
-// inside GatePRMerge's signal-armed window, sends the child a real SIGTERM,
-// and checks the child's own exit code and that its throwaway checkout is
-// gone. Run as a subprocess so a regression here — the handler never firing,
-// or firing but never cleaning up — can kill only that child, never this
-// package's own test binary the way
+// test binary with a guard env var, waits for the child to report on a pipe
+// that it is inside GatePRMerge's signal-armed window, sends the child a real
+// SIGTERM, and checks the child's own exit code and that its throwaway
+// checkout is gone. Run as a subprocess so a regression here — the handler
+// never firing, or firing but never cleaning up — can kill only that child,
+// never this package's own test binary the way
 // TestGatePRMerge_KilledMidRunStillRemovesTheThrowawayCheckout's real
 // self-signal used to (see the "second delivery" note on prGateSignalChan in
 // premergepr_signal.go).
@@ -52,45 +63,60 @@ func TestGatePRMerge_RealSIGTERMKillsOnlyTheSubprocess(t *testing.T) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), prGateRealSignalReadyBound+prGateRealSignalExitBound+time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0],
 		"-test.run=^TestGatePRMerge_RealSIGTERMKillsOnlyTheSubprocess$", "-test.count=1", "-test.v")
 	cmd.Env = append(os.Environ(), prGateRealSignalChildEnv+"=1")
-	stdout, err := cmd.StdoutPipe()
+	readyR, readyW, err := os.Pipe()
 	if err != nil {
-		t.Fatalf("wiring the child's stdout: %v", err)
+		t.Fatalf("making the readiness pipe: %v", err)
 	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	defer readyR.Close()
+	cmd.ExtraFiles = []*os.File{readyW} // the child's descriptor prGateRealSignalReadyFD
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Start(); err != nil {
+		_ = readyW.Close()
 		t.Fatalf("starting the child: %v", err)
+	}
+	// Only the child holds the write end now, so the read below ends at its
+	// report or at its exit, whichever comes first.
+	_ = readyW.Close()
+
+	waitErr := make(chan error, 1)
+	go func() { waitErr <- cmd.Wait() }()
+	// stopChild kills the child and waits for it, so its output buffers are
+	// complete and no longer written when a failure message reads them.
+	stopChild := func() string {
+		_ = cmd.Process.Kill()
+		<-waitErr
+		return "stdout:\n" + stdout.String() + "\nstderr:\n" + stderr.String()
 	}
 
 	ready := make(chan string, 1)
 	go func() {
-		sc := bufio.NewScanner(stdout)
-		for sc.Scan() {
-			if line, ok := strings.CutPrefix(sc.Text(), prGateRealSignalReadyPrefix); ok {
-				ready <- line
-				return
-			}
+		defer close(ready)
+		line, err := bufio.NewReader(readyR).ReadString('\n')
+		if err == nil {
+			ready <- strings.TrimSuffix(line, "\n")
 		}
 	}()
 
 	var checkoutDir string
 	select {
-	case checkoutDir = <-ready:
-	case <-time.After(15 * time.Second):
-		_ = cmd.Process.Kill()
-		t.Fatalf("the child never reached the signal-armed window\nstderr:\n%s", stderr.String())
+	case dir, ok := <-ready:
+		if !ok {
+			t.Fatalf("the child exited before reaching the signal-armed window\n%s", stopChild())
+		}
+		checkoutDir = dir
+	case <-time.After(prGateRealSignalReadyBound):
+		t.Fatalf("the child never reached the signal-armed window within %s\n%s", prGateRealSignalReadyBound, stopChild())
 	}
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		t.Fatalf("signalling the child: %v", err)
+		t.Fatalf("signalling the child: %v\n%s", err, stopChild())
 	}
 
-	waitErr := make(chan error, 1)
-	go func() { waitErr <- cmd.Wait() }()
 	select {
 	case err := <-waitErr:
 		var exitErr *exec.ExitError
@@ -101,9 +127,8 @@ func TestGatePRMerge_RealSIGTERMKillsOnlyTheSubprocess(t *testing.T) {
 			t.Fatalf("child exit code = %d, want %d (128+SIGTERM — a bare kill-by-signal reports -1, meaning the handler never caught it)\nstderr:\n%s",
 				got, want, stderr.String())
 		}
-	case <-time.After(20 * time.Second):
-		_ = cmd.Process.Kill()
-		t.Fatal("the child did not exit after a delivered SIGTERM within 20s — signal handling regressed")
+	case <-time.After(prGateRealSignalExitBound):
+		t.Fatalf("the child did not exit within %s of a delivered SIGTERM — signal handling regressed\n%s", prGateRealSignalExitBound, stopChild())
 	}
 
 	if _, err := os.Stat(checkoutDir); !os.IsNotExist(err) {
@@ -128,8 +153,17 @@ func runPRGateRealSignalChild(t *testing.T) {
 	gitDo(t, root, "add", ".")
 	gitDo(t, root, "commit", "-qm", "lane adds a small file")
 
+	// The readiness pipe is this process's alone: git and every other
+	// subprocess the run starts must not hold it open past this process.
+	syscall.CloseOnExec(prGateRealSignalReadyFD)
+	readyW := os.NewFile(prGateRealSignalReadyFD, "prgate-ready")
 	run := func(r Runner, dir string) SuiteResult {
-		fmt.Println(prGateRealSignalReadyPrefix + dir)
+		if _, err := fmt.Fprintln(readyW, dir); err != nil {
+			// The runner may not be on the test's goroutine, where t.Fatal
+			// belongs; a crash closes the pipe, which the parent reads as the
+			// child dying before the window.
+			panic(fmt.Sprintf("reporting readiness to the parent: %v", err))
+		}
 		// The parent's delivered SIGTERM ends this process from inside
 		// watchPRGateSignals' own handler goroutine (prGateSignalExit ==
 		// os.Exit here, untouched) — this call is never meant to return.
