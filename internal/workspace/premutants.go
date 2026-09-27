@@ -92,13 +92,14 @@ func mutantsBeforePR(wt, base string, skip SkipMutants, stdout, stderr io.Writer
 }
 
 // refusedBeforePR renders a refusal: each mutant as `file:line:col MUTATOR
-// (survived|timed out)`, the form a mutation-accept entry takes, then the
-// remedy. A refusal that names no mutant (an unreadable accept-list, a run
-// that reached no verdict) is the verdict's own report, verbatim.
+// (survived|timed out|not covered|inconclusive)`, the form a mutation-accept
+// entry takes, then the remedy. A refusal that names no mutant (an unreadable
+// accept-list, a run that reached no verdict) is the verdict's own report,
+// verbatim.
 func refusedBeforePR(v tdd.Verdict) string {
 	var b strings.Builder
 	b.WriteString("mutants: the PR was not opened — the merge gate refuses this lane:\n")
-	if len(v.Unaccepted) == 0 && len(v.Unmeasured) == 0 {
+	if len(v.Unaccepted) == 0 && len(v.Unmeasured) == 0 && len(v.Gaps) == 0 {
 		b.WriteString(v.Message + "\n")
 		return b.String()
 	}
@@ -107,6 +108,9 @@ func refusedBeforePR(v tdd.Verdict) string {
 	}
 	for _, m := range v.Unmeasured {
 		fmt.Fprintf(&b, "%s:%d:%d %s (timed out)\n", m.File, m.Line, m.Col, m.Mutation)
+	}
+	for _, m := range v.Gaps {
+		b.WriteString(m.GapLine() + "\n")
 	}
 	b.WriteString("mutants: write the test that kills it, or add the line to mutation-accept with a reason " +
 		"(\"<file>:<line>:<col> <mutation> # kind=<equivalent|unobservable-runner|unobservable-capability>: why\"); " +

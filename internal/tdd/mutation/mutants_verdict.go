@@ -43,7 +43,17 @@ type Verdict struct {
 	// refuse nothing — a survivor claim the run could not have observed is
 	// not a survivor.
 	Inconclusive []MutantOutcome
-	Unaccepted   []MutantOutcome // missed and not in mutation-accept
-	Unmeasured   []MutantOutcome // timed out twice
-	Message      string          // criterion 12's report, verbatim
+	// Gaps are the not-covered and inconclusive mutants on lines the diff
+	// adds or changes, unaccepted and not exempt, when mutants-at-merge is
+	// on. They refuse like a survivor (issue #910): a gap in code the lane
+	// itself wrote otherwise merges untested.
+	Gaps []MutantOutcome
+	// Resolved are the mutants a run could not judge that were settled by
+	// running each one against every test package reaching it
+	// (mutants_resolve.go) and came out caught or unviable. Reported, so a
+	// reader sees the verdict was earned rather than assumed.
+	Resolved   []MutantOutcome
+	Unaccepted []MutantOutcome // missed and not in mutation-accept
+	Unmeasured []MutantOutcome // timed out twice
+	Message    string          // criterion 12's report, verbatim
 }

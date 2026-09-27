@@ -472,6 +472,8 @@ mutants_cibusy_test.go                             mutation
 mutants_config.go                                  mutation
 mutants_config_suite.go                            suite     # created by P2
 mutants_config_test.go                             mutation
+mutants_covershape.go                              mutation
+mutants_covershape_test.go                         mutation
 mutants_deleted_surface_test.go                    tdd
 mutants_deps.go                                    suite
 mutants_disk.go                                    mutation
@@ -507,6 +509,8 @@ mutants_measure_test.go                            mutation
 mutants_measure_tree.go                            mutation
 mutants_measure_tree_test.go                       mutation
 mutants_measure_verdict_test.go                    mutation
+mutants_newlines.go                                mutation
+mutants_newlines_test.go                           mutation
 mutants_notcovered_test.go                         mutation
 mutants_noverdict_test.go                          mutation
 mutants_outcomes.go                                mutation
@@ -534,6 +538,8 @@ mutants_quality_test.go                            mutation
 mutants_ram_unix.go                                lock
 mutants_ram_unix_own_test.go                       lock
 mutants_ram_windows.go                             lock
+mutants_resolve.go                                 mutation
+mutants_resolve_test.go                            mutation
 mutants_runlock.go                                 mutation
 mutants_runlock_test.go                            mutation
 mutants_runner.go                                  mutation
@@ -812,6 +818,7 @@ tddskill.go                                        install
 tddskill.md                                        install
 tddskill_test.go                                   install
 testdata/cargo_mutants_outcomes.json               mutation
+testdata/covershape/                               mutation
 testdata/fuzz/FuzzBashWriteTargets/                shell
 testdata/fuzz/FuzzDocsOnlyClassifier/              core
 testdata/fuzz/FuzzGateLogLine/                     escape

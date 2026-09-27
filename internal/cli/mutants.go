@@ -192,8 +192,9 @@ const mutantsUsage = `usage: aphrollo gate mutants <verb>
 
 Exit codes for run:
   0  every mutant the lane's diff generated was caught, accepted or skipped
-  1  a mutant survived unaccepted, one stayed unmeasured, the run reached no
-     verdict, or the repo's own configuration was refused
+  1  a mutant survived unaccepted, one stayed unmeasured, one not covered or
+     inconclusive sits on a line the lane adds (with mutants-at-merge on), the
+     run reached no verdict, or the repo's own configuration was refused
   2  bad flags
 
 Exit codes for prove:

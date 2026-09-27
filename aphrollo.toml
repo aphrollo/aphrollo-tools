@@ -73,6 +73,12 @@ retro-sinks = [
 # gathered across the whole module (--coverpkg ./...), so code a higher
 # package's tests reach is judged rather than filed NOT COVERED. The PR
 # pipeline's mutants-verdict job reads this key and measures the same way.
+#
+# With the key on, a NOT COVERED or inconclusive mutant on a line the diff
+# adds or changes refuses as well, named "<file>:<line>:<col> <MUTATOR> (not
+# covered|inconclusive)"; on an untouched line it is reported only. A
+# position Go coverage can never count is exempt, or settled by running that
+# one mutant against the tests that reach it (docs/mutation-runner.md).
 mutants-at-merge = true
 
 # The same measurement, run before a PR opens: `workspace pr`, `ship` and

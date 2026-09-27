@@ -179,7 +179,8 @@ retired the root build task). aphrollo-infra no longer force-installs it.
 - Run `go test ./tools/tddsplit -run TestCommittedTree_GeneratedFilesMatchTheGenerator`
   before pushing.
 - `mutants-at-merge` is on (`aphrollo.toml`): CI's `mutants-verdict` job refuses
-  an unaccepted survivor and every timeout.
+  an unaccepted survivor, every timeout, and a not-covered or inconclusive
+  mutant on a line the PR adds.
 - Prefer giving concurrent lanes disjoint files. Git merges overlapping edits,
   but two lanes rewriting the same function cost a conflict round.
 - A green open PR takes no further pushes; it merges as is and a follow-up goes

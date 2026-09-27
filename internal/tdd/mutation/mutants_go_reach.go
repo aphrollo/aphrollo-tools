@@ -5,6 +5,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // Issue #695. gremlins judges a mutant with the MUTATED PACKAGE's own tests,
@@ -48,11 +49,11 @@ const gremlinsScopeUnknown = "scopeunknown"
 // The graph is read ONCE for the whole run, and only when there is a survivor
 // to classify: a run that caught everything pays nothing, and a run with
 // forty survivors pays the same single `go list` as a run with one.
-func classifyGoSurvivorReach(root string, mutants []MutantOutcome) []MutantOutcome {
+func classifyGoSurvivorReach(reach func() (goReachGraph, error), mutants []MutantOutcome) []MutantOutcome {
 	if !anySurvivor(mutants) {
 		return mutants
 	}
-	g, err := goReachGraphFn(root)
+	g, err := reach()
 	out := make([]MutantOutcome, len(mutants))
 	copy(out, mutants)
 	for i, m := range out {
@@ -79,6 +80,14 @@ func classifyGoSurvivorReach(root string, mutants []MutantOutcome) []MutantOutco
 		}
 	}
 	return out
+}
+
+// goReachOnce reads root's reach graph on first use and answers the same
+// graph, or the same failure, every time after: the classification above and
+// the settling of new-line gaps (mutants_resolve.go) share one `go list` per
+// measurement.
+func goReachOnce(root string) func() (goReachGraph, error) {
+	return sync.OnceValues(func() (goReachGraph, error) { return goReachGraphFn(root) })
 }
 
 // anySurvivor reports whether the run has anything for the graph to be read

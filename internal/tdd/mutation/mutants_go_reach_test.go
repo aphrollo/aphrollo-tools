@@ -68,8 +68,10 @@ const livedInTorque = `{"files":[{"file_name":"torque/torque.go","mutations":[
 
 // The defect: a mutant the module's tests DO kill, refused at the merge as a
 // survivor because gremlins judged it with the mutated package's own tests.
+// Here torque.go predates the lane; on a line the lane adds, the mutant is
+// settled by running it instead (mutants_newlines_test.go, issue #910).
 func TestMeasure_GoMutantAnImporterKillsIsInconclusiveRatherThanASurvivor(t *testing.T) {
-	root, base := measurableTorqueLane(t)
+	root, base := laneOverTorque(t, "driveline/gauge.go", gaugeSource)
 	stubGremlinsReport(t, root, livedInTorque)
 
 	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base})
@@ -172,8 +174,11 @@ func testlessImporterLane(t *testing.T) (root, base string) {
 // package" and "I could not find out" are opposite claims, and only the first
 // could ever ground a survivor — so a graph that fails to load leaves the
 // survivor inconclusive, carrying the failure's own words.
+//
+// On a line the lane did not touch, as here, that is the whole answer; on a
+// line it adds, the unread reach leaves the mutant UNRESOLVED and refused.
 func TestMeasure_GoSurvivorWhoseReachCannotBeReadIsInconclusiveAndSaysWhy(t *testing.T) {
-	root, base := measurableTorqueLane(t)
+	root, base := laneOverTorque(t, "driveline/gauge.go", gaugeSource)
 	stubGremlinsReport(t, root, livedInTorque)
 	setGoReachGraphForTest(t, func(string) (goReachGraph, error) {
 		return goReachGraph{}, errors.New("go list in /repo: exit status 1: go.mod names no module")
