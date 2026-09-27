@@ -57,7 +57,7 @@ praise, no summary of what the change does.
 path/to/file.rs:42: bug: expiry compares < not <=. An exactly-expired token is accepted for one tick. Use <=.
 path/to/file.rs:118: risk: pool not closed on the error path. Wrap in the existing guard.
 tests/codec.rs:9: test: asserts round-trip against a value the encoder produced. Reverting the length fix keeps it green. Assert the literal bytes.
-guide.md:31: stale: cites `crates/foo/bar.rs`, deleted in this diff.
+guide.md:31: stale: still cites the module this diff deletes.
 src/util.rs:7: ?: why is `.trim()` applied twice — intent?
 ```
 

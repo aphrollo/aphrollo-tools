@@ -290,21 +290,21 @@ whole-tree run at commit, not by the write.
 
 This repo's own commit gate runs the GLOBALLY INSTALLED `aphrollo` binary,
 which predates any matcher kind or field this checkout's engine code just
-added. A law under `.ratchet/laws/` naming that kind or field would reject
+added. A law in `.ratchet/laws/*.toml` naming that kind or field would reject
 every commit here until the binary is rebuilt post-merge — so a new
 capability lands in three separate steps, never one:
 
 1. Land the engine change (`internal/ratchet`), proved by `RunFixtures()`
    against synthetic trees under `t.TempDir()`, never against this repo's
-   own tracked `.ratchet/fixtures/`. Name the kind (or the kind and field)
-   in `matcherUsageAllowlist` (`internal/ratchet/law_matcher_usage_test.go`)
+   own tracked `.ratchet/fixtures/<law>/`. Name the kind (or the kind and field)
+   in `matcherUsageAllowlist` (in the engine's own matcher-usage test)
    as `matcherUsageBootstrap`, with the `Ref` of the issue or PR that owes
    the real law, so nothing silently forgets the capability has no real
    user yet.
 2. Merge, and let the box's installed `aphrollo` binary get rebuilt against
    the new commit.
-3. Land the real law under `.ratchet/laws/` and its tracked fixtures under
-   `.ratchet/fixtures/`, and remove the `matcherUsageAllowlist` entry in the
+3. Land the real law in `.ratchet/laws/*.toml` and its tracked fixtures under
+   `.ratchet/fixtures/<law>/`, and remove the `matcherUsageAllowlist` entry in the
    same commit.
 
 `TestMatcherUsage_EveryKindAndOptionalFieldHasARealLawOrAnAllowlistEntry`
