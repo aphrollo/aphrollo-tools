@@ -366,6 +366,11 @@ func HandleSessionStart(raw []byte) string {
 	if line != "" {
 		parts = append(parts, line)
 	}
+	// A merge queue that died with the session that started it: its PRs
+	// wait unmerged until someone resumes them.
+	if queue := MergeQueueStoppedLine(in.Cwd); queue != "" {
+		parts = append(parts, queue)
+	}
 	// A retro a merge left while no session was running, for this repo.
 	if retro := TakeRepoRetros(in.Cwd); retro != "" {
 		parts = append(parts, retro)

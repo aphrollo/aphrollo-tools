@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // WaitOpts bounds `merge --wait`: how often it reads GitHub and how long it
@@ -340,17 +342,29 @@ func RenderMergeQueue(items []QueueItem) string {
 // refused at planning (no lane) is reported by name and skipped; a PR whose
 // wait fails or whose merge is refused stops the queue, and the error names it
 // and lists every PR left unattempted — the queue never runs ahead past one.
+// It refuses to start while another live queue holds the repository, and
+// keeps its record (mergequeue_record.go) while it runs.
 func RunMergeQueue(mainRepo string, items []QueueItem, method string, deleteBranch bool, o WaitOpts, stdout, stderr io.Writer) error {
+	return runQueue(mainRepo, nil, items, method, deleteBranch, o, stdout, stderr)
+}
+
+func runQueue(mainRepo string, prior *tdd.MergeQueueRecord, items []QueueItem, method string, deleteBranch bool, o WaitOpts, stdout, stderr io.Writer) error {
+	rec, err := claimQueueRecord(mainRepo, prior, items, stderr)
+	if err != nil {
+		return err
+	}
 	var refused []string
 	for i, it := range items {
 		if it.Problem != "" {
 			fmt.Fprintf(stdout, "[refuse] PR #%d (%s): %s\n", it.PR, it.Branch, it.Problem)
 			refused = append(refused, fmt.Sprintf("#%d", it.PR))
+			settleQueuePR(rec, it.PR, tdd.MergeQueueRefused, stderr)
 			continue
 		}
 		fmt.Fprintf(stdout, "PR #%d (%s) in %s\n", it.PR, it.Branch, it.Lane)
 		t := &Target{Worktree: it.Lane, Branch: it.Branch, MainRepo: mainRepo, RepoName: filepath.Base(mainRepo)}
 		if err := MergeWait(t, method, deleteBranch, o, stdout, stderr); err != nil {
+			settleQueuePR(rec, it.PR, tdd.MergeQueueRefused, stderr)
 			var rest []string
 			for _, r := range items[i+1:] {
 				rest = append(rest, fmt.Sprintf("#%d", r.PR))
@@ -361,6 +375,7 @@ func RunMergeQueue(mainRepo string, items []QueueItem, method string, deleteBran
 			}
 			return fmt.Errorf("%s", msg)
 		}
+		settleQueuePR(rec, it.PR, tdd.MergeQueueMerged, stderr)
 	}
 	if len(refused) > 0 {
 		return fmt.Errorf("refused: %s", strings.Join(refused, " "))

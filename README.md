@@ -32,7 +32,7 @@ aphrollo update                       # rebuild from origin/main and swap it in
 | `aphrollo find` | references to a symbol |
 | `aphrollo outline` | a file's symbols |
 | `aphrollo show` | one symbol's source |
-| `aphrollo workspace` | lanes (worktrees) and their git verbs: `create`, `commit`, `push`, `pr`, `submit`, `ship`, `merge [--wait <pr>...]`, `prune`, `diff`, `status` |
+| `aphrollo workspace` | lanes (worktrees) and their git verbs: `create`, `commit`, `push`, `pr`, `submit`, `ship`, `merge [--wait <pr>... | --wait --resume]`, `prune`, `diff`, `status` |
 | `aphrollo dev` | dev-tier units: `up`, `down`, `restart`, `status`, `logs` |
 | `aphrollo guardrail` | PreToolUse policy for long foreground waits and noisy commands |
 | `aphrollo gate` | the TDD + law gates: hook entry points, `status`, `stats`, `output`, `allow`/`revoke`, `mutants`, `escape`, `probe discard`, `gc`, `classify-diff` |

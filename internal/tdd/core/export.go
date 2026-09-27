@@ -35,6 +35,8 @@ var ErrNoSession = errNoSession
 
 var IgnoredDirs = ignoredDirs
 
+var ProcessIdentityFn = processIdentityFn
+
 var SourceExts = sourceExts
 
 func AcquirePathLock(p0 string) func() { return acquirePathLock(p0) }

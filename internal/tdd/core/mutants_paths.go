@@ -56,6 +56,10 @@ func primaryCheckoutRoot(repoRoot string) string {
 // process without having to produce one.
 var pidRunningFn = pidRunning
 
+// processIdentityFn names the process holding a pid (processIdentity), so a
+// record can tell its own process from a later one that reuses the pid.
+var processIdentityFn = processIdentity
+
 // SetPidRunningForTest replaces the liveness probe for the duration of a
 // test, and answers the restore. A setter rather than an assignment, so a
 // test in a package above the one that owns the seam still reaches it.

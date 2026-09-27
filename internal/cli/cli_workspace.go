@@ -90,7 +90,10 @@ Operator / outside-use verbs (pass [repo] [branch] to target a worktree):
                             --wait first waits for every check on the PR's
                             current head (--timeout, default 90m); --wait <pr>...
                             merges those PRs in order from their lanes, one at
-                            a time, stopping at the first refusal.
+                            a time, stopping at the first refusal. The queue
+                            keeps a record while it runs; a session start or
+                            status in the repo reports one whose process is
+                            gone, and --wait --resume merges the PRs it left.
 
 The worktree lands at <repo-parent>/.worktrees/<repo-name>/<branch-slug> — the
 same layout aphrollo-dev uses, so a created worktree can later be claimed. The
@@ -273,6 +276,7 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 		into   = fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
 		wait   = fs.Bool("wait", false, "wait for every check on the PR's current head, then merge; with PR numbers, merge them as a serial queue")
 		tmo    = fs.Duration("timeout", workspace.DefaultWaitOpts().Timeout, "with --wait: how long to wait for checks before giving up")
+		resume = fs.Bool("resume", false, "with --wait: merge the PRs a stopped merge queue in this repo left pending")
 	)
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
@@ -288,10 +292,18 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "aphrollo: choose one of --squash | --merge | --rebase")
 		return 2
 	}
+	if *resume && !*wait {
+		fmt.Fprintln(stderr, "aphrollo: --resume needs --wait: workspace merge --wait --resume")
+		return 2
+	}
 	if *wait {
 		opts := workspace.DefaultWaitOpts()
 		opts.Timeout = *tmo
-		return runWorkspaceMergeWait(pos, *into, method, !*keep, *dry, opts, stdout, stderr)
+		if *resume && len(pos) > 0 {
+			fmt.Fprintln(stderr, "aphrollo: --resume takes no PR numbers: it resumes the queue this repo's record names")
+			return 2
+		}
+		return runWorkspaceMergeWait(pos, *into, method, !*keep, *dry, *resume, opts, stdout, stderr)
 	}
 	t, ok := resolveVerbTarget(pos, *into, stderr)
 	if !ok {
