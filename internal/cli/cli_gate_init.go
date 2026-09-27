@@ -23,7 +23,7 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		binPath      = fs.String("bin", "", "aphrollo binary the hooks invoke (default: this executable)")
 		cargoShimDir = fs.String("cargo-shim-dir", "", "dir for the cargo-queue shim (default: ~/.local/share/aphrollo/cargo-queue on Linux/macOS, alongside --bin on Windows)")
 		gitHooksDir  = fs.String("git-hooks-dir", "", "git hooks dir for the global gate (default: $XDG_CONFIG_HOME/git/hooks or ~/.config/git/hooks)")
-		noGit        = fs.Bool("no-git", false, "skip the git pre-commit gate; wire session hooks only")
+		noGit        = fs.Bool("no-git", false, "skip the global git gate and the queue shims; still wire session hooks, skills, agents and the repo's CLAUDE.md block")
 		repo         = fs.String("repo", ".", "repo whose CLAUDE.md and .ratchet/README.md init may write (default: the working directory's)")
 		claudeMD     = fs.Bool("claude-md", false, "write the managed CLAUDE.md block even when the repo has no CLAUDE.md yet")
 		ratchetDoc   = fs.Bool("ratchet-readme", false, "write .ratchet/README.md even when the repo has no laws yet")
@@ -149,14 +149,31 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	if *noGit {
+	// --no-git skips the machine-wide half: the global git gate every repo
+	// on the box would run, and the queue shims that intercept git and cargo
+	// for every project. The repo's own CLAUDE.md block and law spec are not
+	// part of that, and returning before them left a repo that keeps a
+	// CLAUDE.md without its block and said nothing (issue #886).
+	if !*noGit {
+		if code := installMachineGate(*gitHooksDir, *cargoShimDir, dir, binName, *uninstall, stdout, stderr); code != 0 {
+			return code
+		}
+	}
+	if *uninstall {
 		return 0
 	}
-	gdir := *gitHooksDir
+	return writeRepoDocs(*repo, *claudeMD, *ratchetDoc, stdout, stderr)
+}
+
+// installMachineGate installs (or removes) the global git gate, the queue
+// shims and the agent's env.PATH entry for them: everything --no-git skips.
+func installMachineGate(gitHooksDir, cargoShimDir, dir, binName string, uninstall bool, stdout, stderr io.Writer) int {
+	path := filepath.Join(dir, "settings.json")
+	gdir := gitHooksDir
 	if gdir == "" {
 		gdir = defaultGitHooksDir()
 	}
-	gchanged, err := tdd.InitGitGate(gdir, binName, *uninstall)
+	gchanged, err := tdd.InitGitGate(gdir, binName, uninstall)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
@@ -164,7 +181,7 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 	switch {
 	case !gchanged:
 		fmt.Fprintf(stdout, "aphrollo gate: git gate already up to date (%s)\n", gdir)
-	case *uninstall:
+	case uninstall:
 		fmt.Fprintf(stdout, "aphrollo gate: removed git gate from %s\n", gdir)
 	default:
 		fmt.Fprintf(stdout, "aphrollo gate: installed git gate in %s (core.hooksPath)\n", gdir)
@@ -174,7 +191,7 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 	// an argument (which is how `git rev-parse MERGE_HEAD^{tree}` became
 	// `HEAD{tree}`) and re-splits quoted ones, so leaving one in place is
 	// worse than having no shim at all.
-	shimDir := *cargoShimDir
+	shimDir := cargoShimDir
 	if shimDir == "" {
 		shimDir = defaultCargoShimDir(binName)
 	}
@@ -193,7 +210,7 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 	// deliberately does NOT remove it -- a session may still have it
 	// prepended to PATH, and leaving a shim in place is harmless (unlike a
 	// git hook, nothing fires it automatically).
-	if !*uninstall {
+	if !uninstall {
 		cdir := shimDir
 		cchanged, cerr := tdd.InstallCargoShim(cdir, binName)
 		switch {
@@ -256,36 +273,6 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "aphrollo gate: agent env.PATH already up to date (%s)\n", path)
 		}
 
-		// The operating instructions belong in the one file a session always
-		// reads. A repo that keeps a CLAUDE.md gets the block automatically;
-		// one that does not is left alone unless asked with --claude-md. The
-		// repo is NAMED (--repo, default the working directory's), because
-		// editing a source file as a side effect of where the shell happens to
-		// stand is a surprise, and an unnamed one.
-		if root := tdd.RepoRoot(*repo); root != "" {
-			changed, err := tdd.WriteClaudeMD(root, *claudeMD)
-			switch {
-			case errors.Is(err, tdd.ErrManagedBlockInPrimary):
-				fmt.Fprintf(stdout, "gate init: CLAUDE.md managed block is behind the template in the merge-only primary; land it through a lane (aphrollo install --repo <lane>)\n")
-			case err != nil:
-				fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-				return 1
-			case changed:
-				fmt.Fprintf(stdout, "aphrollo gate: wrote the managed block in %s\n", filepath.Join(root, "CLAUDE.md"))
-			default:
-				fmt.Fprintf(stdout, "aphrollo gate: managed block already up to date in %s\n", filepath.Join(root, "CLAUDE.md"))
-			}
-			// The law schema belongs beside the laws, so a repo's own docs can
-			// cite it instead of a path on the machine that installed this.
-			wrote, err := tdd.WriteRatchetReadme(root, *ratchetDoc)
-			switch {
-			case err != nil:
-				fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-				return 1
-			case wrote:
-				fmt.Fprintf(stdout, "aphrollo gate: wrote the law spec in %s\n", filepath.Join(root, ".ratchet", "README.md"))
-			}
-		}
 	} else {
 		// The shim FILES stay (a session may still have cdir on PATH), but
 		// env.PATH is a literal value a live session actually resolves
@@ -297,6 +284,42 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "aphrollo: %v\n", perr)
 		case pchanged:
 			fmt.Fprintf(stdout, "aphrollo gate: removed the queue shim from the agent's env.PATH in %s\n", path)
+		}
+	}
+	return 0
+}
+
+// writeRepoDocs writes the repo's own managed files: the CLAUDE.md block and
+// the law spec beside the laws.
+func writeRepoDocs(repo string, claudeMD, ratchetDoc bool, stdout, stderr io.Writer) int {
+	// The operating instructions belong in the one file a session always
+	// reads. A repo that keeps a CLAUDE.md gets the block automatically;
+	// one that does not is left alone unless asked with --claude-md. The
+	// repo is NAMED (--repo, default the working directory's), because
+	// editing a source file as a side effect of where the shell happens to
+	// stand is a surprise, and an unnamed one.
+	if root := tdd.RepoRoot(repo); root != "" {
+		changed, err := tdd.WriteClaudeMD(root, claudeMD)
+		switch {
+		case errors.Is(err, tdd.ErrManagedBlockInPrimary):
+			fmt.Fprintf(stdout, "gate init: CLAUDE.md managed block is behind the template in the merge-only primary; land it through a lane (aphrollo install --repo <lane>)\n")
+		case err != nil:
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		case changed:
+			fmt.Fprintf(stdout, "aphrollo gate: wrote the managed block in %s\n", filepath.Join(root, "CLAUDE.md"))
+		default:
+			fmt.Fprintf(stdout, "aphrollo gate: managed block already up to date in %s\n", filepath.Join(root, "CLAUDE.md"))
+		}
+		// The law schema belongs beside the laws, so a repo's own docs can
+		// cite it instead of a path on the machine that installed this.
+		wrote, err := tdd.WriteRatchetReadme(root, ratchetDoc)
+		switch {
+		case err != nil:
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		case wrote:
+			fmt.Fprintf(stdout, "aphrollo gate: wrote the law spec in %s\n", filepath.Join(root, ".ratchet", "README.md"))
 		}
 	}
 	return 0
