@@ -171,7 +171,11 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   place (by file, then package). The same file name may have a row in two
   packages; the section carries no counts to update.
 - Never hand-edit a generated `export.go`, `deps_*.go` or `api_*.go` — they are
-  `tools/tddsplit` output. Regenerate on a scratch clone.
+  `tools/tddsplit` output. Regenerate in place with
+  `go run ./tools/tddsplit -regen`: no clean-tree requirement, no commit —
+  it reads the working tree as it sits (tracked, staged or edited), writes
+  only the generated files, and refuses a generated file whose content a
+  regenerate from the committed tree cannot explain (a hand edit).
 - Run `go test ./tools/tddsplit -run TestCommittedTree_GeneratedFilesMatchTheGenerator`
   before pushing.
 - `mutants-at-merge` is on (`aphrollo.toml`): CI's `mutants-verdict` job refuses
