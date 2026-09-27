@@ -26,6 +26,10 @@ var TestOracleWarnings = testOracleWarnings
 
 var TestPolicies = testPolicies
 
+func AbsorbMoved(p0 string, p1 lang, p2 map[int]bool, p3 map[string]int) map[int]bool {
+	return absorbMoved(p0, p1, p2, p3)
+}
+
 func AddedLines(p0 string, p1 string) map[int]bool { return addedLines(p0, p1) }
 
 func ConcatPolicies(p0 ...[]policy) []policy { return concatPolicies(p0...) }
@@ -38,6 +42,8 @@ func EvaluateAdded(p0 string, p1 map[int]bool, p2 lang, p3 []policy, p4 phase) D
 
 func IntersectLines(p0 map[int]bool, p1 map[int]bool) map[int]bool { return intersectLines(p0, p1) }
 
+func IntroducedLines(p0 string, p1 string, p2 lang) map[int]bool { return introducedLines(p0, p1, p2) }
+
 func LangOf(p0 string) lang { return langOf(p0) }
 
 func NewView(p0 string, p1 lang) view { return newView(p0, p1) }
@@ -45,3 +51,5 @@ func NewView(p0 string, p1 lang) view { return newView(p0, p1) }
 func QualityNotesOn(p0 string, p1 string, p2 map[int]bool) []string {
 	return qualityNotesOn(p0, p1, p2)
 }
+
+func RemovedTexts(p0 string, p1 string, p2 lang) map[string]int { return removedTexts(p0, p1, p2) }

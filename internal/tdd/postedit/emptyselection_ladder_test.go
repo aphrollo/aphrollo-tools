@@ -1,6 +1,7 @@
 package postedit
 
 import (
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"strings"
 	"testing"
 )
@@ -62,6 +63,7 @@ func TestCargoWideningSteps_ClimbFromModuleFilterToLibToWholeCrate(t *testing.T)
 // must never turn the narrowed run's empty selection into a green, and it
 // must never quietly start a run the hook has no time left to wait for.
 func TestPostEdit_DirectWideningPastTheBudget_NamesTheRungItCouldNotRun(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("APHROLLO_POSTEDIT_BUDGET_SECS", "0")
 	root := mkCargoCrate(t, "engine_audio")
@@ -75,7 +77,7 @@ func TestPostEdit_DirectWideningPastTheBudget_NamesTheRungItCouldNotRun(t *testi
 	if len(seen) != 1 {
 		t.Fatalf("a spent budget must not start the next rung, ran %v", seen)
 	}
-	if strings.Contains(got, "green") {
+	if strings.Contains(tddtest.Pathless(t, got), "green") {
 		t.Fatalf("an empty selection must never read as green, got: %s", got)
 	}
 	for _, want := range []string{"cargo nextest run -p engine_audio --lib", "NOT tested", "budget"} {

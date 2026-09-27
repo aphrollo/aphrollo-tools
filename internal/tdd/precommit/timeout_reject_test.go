@@ -1,6 +1,7 @@
 package precommit
 
 import (
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"strings"
 	"testing"
 	"time"
@@ -101,7 +102,7 @@ func TestPostEdit_TimeoutStaysAdvisory(t *testing.T) {
 	got := PostEdit(postPayload("Edit", root+"/widget.go"), func(Runner, string) SuiteResult {
 		return SuiteResult{Passed: false, TimedOut: true, Duration: time.Second}
 	})
-	if !strings.Contains(got, "TIMEOUT") {
+	if !strings.Contains(tddtest.Pathless(t, got), "TIMEOUT") {
 		t.Fatalf("the edit hook must still report a timeout, got %q", got)
 	}
 }

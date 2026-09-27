@@ -12,8 +12,6 @@ const GcOriginFile = gcOriginFile
 
 type FailFirstOutcome = failFirstOutcome
 
-type FileAdd = fileAdd
-
 type LedgerEdit = ledgerEdit
 
 func FailFirstStage(p0 string, p1 string, p2 []string, p3 []string, p4 SuiteRunner) GateResult {
@@ -53,5 +51,3 @@ func RecordEditVerdict(p0 string, p1 string, p2 string, p3 Outcome, p4 string) {
 func ResolvedDevTarget(p0 string) string { return resolvedDevTarget(p0) }
 
 func SplitKinds(p0 []string) ([]string, []string) { return splitKinds(p0) }
-
-func StagedAdds(p0 string) []fileAdd { return stagedAdds(p0) }

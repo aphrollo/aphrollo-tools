@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"encoding/json"
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -123,12 +124,14 @@ func TestStatusLine_ReportsTheLastRedOutcomeForThisProject(t *testing.T) {
 
 // TestStatusLine_CarriesNoRedWord is the rule the colour exists to serve: the
 // state is a colour, not a word a session has to read and re-read. A `red`
-// suffix is what the badge used to print.
+// suffix is what the badge used to print. The tree sits under a path carrying
+// that word, neutralised before the check.
 func TestStatusLine_CarriesNoRedWord(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	root := statusRoot(t)
 	stampOutcomeAt(t, "s1", root, string(Red), time.Now())
 
-	if got := plain(StatusLine(statusPayload(t, "s1", root))); strings.Contains(got, "red") {
+	if got := plain(StatusLine(statusPayload(t, "s1", root))); strings.Contains(tddtest.Pathless(t, got), "red") {
 		t.Fatalf("StatusLine = %q, want no `red` word — the colour says it", got)
 	}
 }

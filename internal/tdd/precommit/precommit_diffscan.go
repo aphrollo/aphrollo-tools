@@ -1,38 +1,71 @@
 package precommit
 
+import "strings"
+
 // suppressionCommitHeader prefixes a commit-time anti-cheat block; the policy's
 // own reason (naming the directive and the fix) follows.
 const suppressionCommitHeader = "TDD anti-cheat: this commit introduces a suppression that silences a quality gate."
 
-// newSuppression scans the lines this commit ADDS for a suppression and, on the
-// first hit in a source/test file, returns the block message. Only added lines
-// are judged, so a directive that already lived in the file does not block an
-// unrelated commit. The check masks each file's full staged post-image and then
-// restricts to the added line numbers, so the masking sees balanced
-// string/comment context and a crafted multi-line edit cannot hide a later
-// added directive behind an unbalanced opener. Returns "" when nothing blocks.
+// newSuppression scans the lines this commit INTRODUCES for a suppression and,
+// on the first hit in a source/test file, returns the block message. Only
+// introduced lines are judged, so a directive that already lived in the file
+// does not block an unrelated commit, nor one that moves it. The check masks
+// each file's full staged post-image and then restricts to the introduced
+// lines, so the masking sees balanced string/comment context and a crafted
+// multi-line edit cannot hide a later added directive behind an unbalanced
+// opener. Returns "" when nothing blocks.
+//
+// A line is introduced when its content is new to its file and no code file
+// in the commit gave up the same text: every code file's removed
+// directives-view texts form one pool, and each removal absorbs at most one
+// addition, so a suppression moved between files, or a file renamed, is not
+// introduced while a second copy of a moved one still is.
 func newSuppression(repoRoot string) string {
-	for _, fa := range stagedAdds(repoRoot) {
-		policies := commitSuppressionPolicies(ClassifyFile(fa.Path))
+	type image struct {
+		path, pre, post string
+		l               lang
+		policies        []policy
+	}
+	var images []image
+	pool := map[string]int{}
+	for _, path := range stagedPaths(repoRoot) {
+		policies := commitSuppressionPolicies(ClassifyFile(path))
 		if policies == nil {
 			continue
 		}
-		post, err := git(repoRoot, "show", ":"+fa.Path)
-		if err != nil {
-			continue // file not in the index (e.g. deletion) → nothing to judge
+		// Either side is empty where the file is absent: git prints
+		// nothing on stdout for a path HEAD or the index does not hold.
+		pre, _ := git(repoRoot, "show", "HEAD:"+path)
+		post, _ := git(repoRoot, "show", ":"+path)
+		l := langOf(path)
+		for text, n := range removedTexts(pre, post, l) {
+			pool[text] += n
 		}
-		// evaluateAdded (not the plain evaluateView(addedView(...)) this used
-		// to call) so a policy that DOES carry a per-line escape — currently
-		// only error-kind-blind's `// any-error-ok:` — is honoured here too,
-		// not just at edit time. The legacy lint/type/coverage suppressions
-		// carry no escape at all (see policy_registry_test.go's
-		// noEscapeAllowlist), so this is unchanged for them: every line stays
-		// judged either way.
-		if d := evaluateAdded(post, fa.Added, langOf(fa.Path), policies, commitPhase); d.Action == Block {
-			return suppressionCommitHeader + "\n  " + fa.Path + ": " + d.Reason
+		images = append(images, image{path, pre, post, l, policies})
+	}
+	for _, im := range images {
+		lines := absorbMoved(im.post, im.l, introducedLines(im.pre, im.post, im.l), pool)
+		// evaluateAdded honours a policy's per-line escape — currently only
+		// error-kind-blind's `// any-error-ok:` — here as at edit time. The
+		// lint/type/coverage suppressions carry no escape (see
+		// policy_registry_test.go's noEscapeAllowlist), so every one of
+		// their lines stays judged.
+		if d := evaluateAdded(im.post, lines, im.l, im.policies, commitPhase); d.Action == Block {
+			return suppressionCommitHeader + "\n  " + im.path + ": " + d.Reason
 		}
 	}
 	return ""
+}
+
+// stagedPaths lists every path the staged commit changes, in git's sorted
+// order, with renames split into the deleted old path and the added new one
+// so a renamed file's lines count as removed from one and added to the other.
+func stagedPaths(repoRoot string) []string {
+	out, err := git(repoRoot, "diff", "--cached", "--name-only", "--no-renames", "-z")
+	if err != nil {
+		return nil
+	}
+	return strings.FieldsFunc(out, func(r rune) bool { return r == 0 })
 }
 
 // commitSuppressionPolicies is the commit-time gate's policy set for one

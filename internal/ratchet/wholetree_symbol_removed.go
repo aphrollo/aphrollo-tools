@@ -12,11 +12,16 @@ import (
 // symbolRemovedTombstoneRe is the tombstone marker this kind accepts, fixed
 // by the engine as `// ratchet: <law name> <symbol>: <reason>` (or `#`) —
 // requiring a non-empty reason after the colon tells a genuine admission
-// apart from a stub nobody filled in. What the marker names is either one
-// SYMBOL or one repo-relative PATH (see symbolRemovedClaimsAPath), so the
-// captured group carries `/`, `.` and `-` as well.
+// apart from a stub nobody filled in. What a bare marker names is either one
+// SYMBOL or one repo-relative PATH (see symbolRemovedClaimsAPath), so its
+// group carries `/`, `.` and `-` as well. A name in double or single quotes,
+// `// ratchet: <law name> "<name>": <reason>`, is always one symbol and may
+// hold any text but its own quote and a newline: a test runner that names a
+// test by a free-form string captures names with spaces, which the bare form
+// cannot carry. Groups 1 and 2 hold a quoted name, group 3 a bare one.
 func symbolRemovedTombstoneRe(lawName string) *regexp.Regexp {
-	return regexp.MustCompile(`(?m)^[ \t]*(?://|#)[ \t]*ratchet:[ \t]*` + regexp.QuoteMeta(lawName) + `[ \t]+([A-Za-z0-9_][A-Za-z0-9_./-]*):[ \t]*\S`)
+	return regexp.MustCompile(`(?m)^[ \t]*(?://|#)[ \t]*ratchet:[ \t]*` + regexp.QuoteMeta(lawName) +
+		`[ \t]+(?:"([^"\n]+)"|'([^'\n]+)'|([A-Za-z0-9_][A-Za-z0-9_./-]*)):[ \t]*\S`)
 }
 
 // symbolRemovedClaimsAPath tells the two things a tombstone can name apart: a
@@ -105,11 +110,14 @@ func symbolRemovedHits(law Law, base BaseReader, files []string, content map[str
 			tipNames[text[idx[2]:idx[3]]] = true
 		}
 		for _, m := range tombstoneRe.FindAllStringSubmatch(text, -1) {
-			if symbolRemovedClaimsAPath(m[1]) {
-				fileTombstoned[m[1]] = true
-				continue
+			switch quoted := m[1] + m[2]; {
+			case quoted != "":
+				tombstoned[quoted] = true
+			case symbolRemovedClaimsAPath(m[3]):
+				fileTombstoned[m[3]] = true
+			default:
+				tombstoned[m[3]] = true
 			}
-			tombstoned[m[1]] = true
 		}
 	}
 

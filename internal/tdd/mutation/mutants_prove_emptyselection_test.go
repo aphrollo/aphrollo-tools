@@ -2,6 +2,7 @@ package mutation
 
 import (
 	"bytes"
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,8 +113,10 @@ func TestRunMutantsProve_RefusesWhenTheRunSelectedZeroTests(t *testing.T) {
 // The discrimination that keeps the refusal honest: a run that genuinely
 // executed tests and stayed green is still a REAL survivor, reported exactly
 // as before. A refusal that swallowed this case would hide every survivor
-// there is.
+// there is. The report is judged with the test's temp path neutralised, so
+// the path's text can never decide it.
 func TestRunMutantsProve_AGreenRunThatActuallyRanTestsIsStillASurvivor(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	code, report, _ := proveOverASelection(t, SuiteResult{
 		Passed: true,
 		Output: "running 3 tests\ntest tests::add_sums_its_arguments ... ok\n\n" +
@@ -122,7 +125,7 @@ func TestRunMutantsProve_AGreenRunThatActuallyRanTestsIsStillASurvivor(t *testin
 	if code != ExitMutantsProveSurvived {
 		t.Fatalf("exit = %d, want ExitMutantsProveSurvived (%d):\n%s", code, ExitMutantsProveSurvived, report)
 	}
-	if strings.Contains(strings.ToLower(report), NoTestsSelected) {
+	if strings.Contains(strings.ToLower(tddtest.Pathless(t, report)), NoTestsSelected) {
 		t.Fatalf("a run of three passing tests was reported as an empty selection:\n%s", report)
 	}
 }

@@ -66,7 +66,7 @@ func TestPostEdit_UnfinishedPhaseIsDeferredNotKilled(t *testing.T) {
 
 	got := PostEdit(postPayload("Edit", root+"/src/widget.rs"), fakeRun(true, "ok"))
 
-	if !strings.Contains(got, "BUILDING") {
+	if !strings.Contains(tddtest.Pathless(t, got), "BUILDING") {
 		t.Fatalf("advisory = %q, want the one-line BUILDING notice", got)
 	}
 	job, ok := loadDeferredJob("sess-post", root)
@@ -105,7 +105,7 @@ func TestPostEdit_StillBuildingNoticeNamesTheEscapeWhenNoEditFollows(t *testing.
 
 	got := PostEdit(postPayload("Edit", target), fakeRun(true, "ok"))
 
-	if !strings.Contains(got, "BUILDING") {
+	if !strings.Contains(tddtest.Pathless(t, got), "BUILDING") {
 		t.Fatalf("advisory = %q, want the BUILDING notice", got)
 	}
 	if !strings.Contains(got, "commit") {
@@ -138,7 +138,7 @@ func TestPostEdit_HarvestsAFinishedDeferredBuild(t *testing.T) {
 
 	got := PostEdit(postPayload("Edit", target), fakeRun(true, "ok"))
 
-	if !strings.Contains(got, "deferred") {
+	if !strings.Contains(tddtest.Pathless(t, got), "deferred") {
 		t.Fatalf("advisory = %q, want it marked as a deferred result", got)
 	}
 	if len(*spawned) != 1 || (*spawned)[0].Phase != "run" {
@@ -201,7 +201,7 @@ func TestPostEdit_EditDuringADeferredBuildMarksItDirty(t *testing.T) {
 
 	got := PostEdit(postPayload("Edit", target), fakeRun(true, "ok"))
 
-	if !strings.Contains(got, "BUILDING") {
+	if !strings.Contains(tddtest.Pathless(t, got), "BUILDING") {
 		t.Fatalf("advisory = %q, want the BUILDING notice while the build continues", got)
 	}
 	if len(*spawned) != 0 {
@@ -397,7 +397,7 @@ func TestHandlePrompt_ReportsAFinishedDeferredJob(t *testing.T) {
 	writePhaseResult(job.Result, PhaseOutcome{ExitCode: 101, Seconds: 30})
 
 	res := HandlePrompt([]byte(`{"prompt":"what now?","session_id":"s1","cwd":"` + filepath.ToSlash(root) + `"}`))
-	if !strings.Contains(res.Message, "deferred") {
+	if !strings.Contains(tddtest.Pathless(t, res.Message), "deferred") {
 		t.Fatalf("prompt context = %q, want the finished deferred job reported", res.Message)
 	}
 	if _, ok := loadDeferredJob("s1", root); ok {

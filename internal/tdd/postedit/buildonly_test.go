@@ -55,6 +55,7 @@ func TestPostEdit_ExampleEdit_ReportsBuildOnlyNeverGreen(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			tddtest.VerdictWordTmp(t)
 			cfg := t.TempDir()
 			t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 			root := mkCargoCrate(t, "engine_audio")
@@ -63,7 +64,7 @@ func TestPostEdit_ExampleEdit_ReportsBuildOnlyNeverGreen(t *testing.T) {
 
 			got := PostEdit(postPayload("Edit", root+"/"+c.target), fakeRunResult(c.res))
 
-			if strings.Contains(got, "green") {
+			if strings.Contains(tddtest.Pathless(t, got), "green") {
 				t.Fatalf("a build-only run must never read as green, got: %s", got)
 			}
 			for _, want := range []string{strings.ToUpper(BuildOnly), "NOT tested"} {
@@ -104,6 +105,7 @@ func TestPostEdit_BuildOnlyRun_LeavesAHandRunAllowed(t *testing.T) {
 // build-only state must NOT launder: a compile check that FAILS is a real
 // failure about the code just edited, and stays red.
 func TestPostEdit_ExampleThatFailsToCompile_IsStillRed(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkCargoCrate(t, "engine_audio")
 	withNextest(t, root)
@@ -112,7 +114,7 @@ func TestPostEdit_ExampleThatFailsToCompile_IsStillRed(t *testing.T) {
 		Output: "error[E0425]: cannot find function `sweep` in this scope\n --> examples/sweep.rs:2:5\n"}
 	got := PostEdit(postPayload("Edit", root+"/examples/sweep.rs"), fakeRunResult(broken))
 
-	if strings.Contains(got, strings.ToUpper(BuildOnly)) {
+	if strings.Contains(tddtest.Pathless(t, got), strings.ToUpper(BuildOnly)) {
 		t.Fatalf("a failed compile must not be reported as a clean build-only run, got: %s", got)
 	}
 	if !strings.Contains(got, "outcome=red") {

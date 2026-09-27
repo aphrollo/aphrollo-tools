@@ -53,3 +53,47 @@ func TestSuppress_Allowed(t *testing.T) {
 		}
 	}
 }
+
+// TestSuppress_ADescribedLintDisableIsAdmitted: the lint-disable directive's
+// own ` -- <description>` form is how a disable is justified in code, and the
+// linter's own rules can require it. A disable carrying a non-empty
+// description is admitted in every comment shape.
+func TestSuppress_ADescribedLintDisableIsAdmitted(t *testing.T) {
+	t.Parallel()
+	described := []string{
+		"// eslint-disable-next-line no-console -- the log line is the product here",
+		"/* eslint-disable local/no-color-literal -- user-selectable avatar colors: data, not styling */",
+		"foo() // eslint-disable-line no-undef --- provided by the page at runtime",
+		"/* eslint-disable -- generated file, regenerated on every build */",
+	}
+	for _, src := range described {
+		if got := suppressAt(src, commitPhase); got != Allow {
+			t.Errorf("a described disable must be admitted: got %v for %q", got, src)
+		}
+	}
+}
+
+// TestSuppress_AnUndescribedLintDisableStillBlocks: only a real description
+// admits a disable. A separator with nothing after it, one not set off by
+// whitespace, a second bare disable on the same line, another linter's
+// suppression riding along, or a separator on the NEXT line or past the
+// comment's closer, even one right after the token, all still block.
+func TestSuppress_AnUndescribedLintDisableStillBlocks(t *testing.T) {
+	t.Parallel()
+	bare := []string{
+		"/* eslint-disable local/no-color-literal -- */",
+		"// eslint-disable-next-line no-console --",
+		"// eslint-disable-next-line no-console --because",
+		"// eslint-disable-next-line no-console-- because",
+		"/* eslint-disable a -- why */ /* eslint-disable b */",
+		"x := f() // eslint-disable-line a -- why //nolint",
+		"// eslint-disable-next-line no-plusplus\nwhile (i -- > 0) {}",
+		"// eslint-disable\nwhile (i -- > 0) {}",
+		"x = a /* eslint-disable*/ -- b",
+	}
+	for _, src := range bare {
+		if got := suppressAt(src, commitPhase); got != Block {
+			t.Errorf("an undescribed disable must block: got %v for %q", got, src)
+		}
+	}
+}

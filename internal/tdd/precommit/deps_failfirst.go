@@ -8,8 +8,6 @@ import (
 
 const DefaultPrecommitTimeout = failfirst.DefaultPrecommitTimeout
 
-type fileAdd = failfirst.FileAdd
-
 func failFirstStage(p0 string, p1 string, p2 []string, p3 []string, p4 SuiteRunner) GateResult {
 	return failfirst.FailFirstStage(p0, p1, p2, p3, p4)
 }
@@ -21,5 +19,3 @@ func failFirstStageWithRustNotice(p0 string, p1 string, p2 []string, p3 []string
 func resolvedDevTarget(p0 string) string { return failfirst.ResolvedDevTarget(p0) }
 
 func splitKinds(p0 []string) ([]string, []string) { return failfirst.SplitKinds(p0) }
-
-func stagedAdds(p0 string) []fileAdd { return failfirst.StagedAdds(p0) }

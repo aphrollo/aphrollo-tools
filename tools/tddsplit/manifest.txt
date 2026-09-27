@@ -570,6 +570,8 @@ nightlyfuzz_workflow_pin_test.go                   tdd
 nightlymutants_base_pin_test.go                    tdd
 nowindow_windows_test.go                           postedit
 npmbin.go                                          suite
+pathless.go                                        tddtest
+pathless_test.go                                   tddtest
 pathlock.go                                        core
 payload.go                                         tddtest
 pidrunning_windows_test.go                         postedit
@@ -602,6 +604,7 @@ precommit_declared_baseline_test.go                precommit
 precommit_declared_test.go                         precommit
 precommit_diffscan.go                              precommit
 precommit_diffscan_failfirst.go                    failfirst # created by P2
+precommit_diffscan_moved_test.go                   precommit
 precommit_diffscan_suite.go                        suite     # created by P2
 precommit_diffscan_testoraclewarnings_test.go      precommit
 precommit_docsonly_fastpath_test.go                precommit

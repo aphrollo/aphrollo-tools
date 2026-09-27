@@ -18,10 +18,22 @@ var suppressionPolicies = smell.SuppressionPolicies
 
 var testOracleWarnings = smell.TestOracleWarnings
 
+func absorbMoved(p0 string, p1 lang, p2 map[int]bool, p3 map[string]int) map[int]bool {
+	return smell.AbsorbMoved(p0, p1, p2, p3)
+}
+
 func concatPolicies(p0 ...[]policy) []policy { return smell.ConcatPolicies(p0...) }
 
 func evaluateAdded(p0 string, p1 map[int]bool, p2 lang, p3 []policy, p4 phase) Decision {
 	return smell.EvaluateAdded(p0, p1, p2, p3, p4)
 }
 
+func introducedLines(p0 string, p1 string, p2 lang) map[int]bool {
+	return smell.IntroducedLines(p0, p1, p2)
+}
+
 func langOf(p0 string) lang { return smell.LangOf(p0) }
+
+func removedTexts(p0 string, p1 string, p2 lang) map[string]int {
+	return smell.RemovedTexts(p0, p1, p2)
+}

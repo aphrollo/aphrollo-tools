@@ -1,6 +1,7 @@
 package postedit
 
 import (
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -76,7 +77,7 @@ func TestPostEdit_AbandonedDeferredJobIsReportedNotSwallowed(t *testing.T) {
 	if !strings.Contains(got, DeferredAbandoned) {
 		t.Fatalf("advisory = %q, want it to name the %s verdict for the job that died without testing anything", got, DeferredAbandoned)
 	}
-	if !strings.Contains(got, "BUILDING") {
+	if !strings.Contains(tddtest.Pathless(t, got), "BUILDING") {
 		t.Errorf("advisory = %q, want the fresh run's own notice too: the abandonment must not hide what is running now", got)
 	}
 	if strings.Contains(got, "\n") {

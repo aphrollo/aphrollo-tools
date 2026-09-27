@@ -68,6 +68,7 @@ func TestGoWideningSteps_ClimbToTheImportersWhoseTestsReachThePackage(t *testing
 // the path the real hook takes: the narrowed package selects nothing, the
 // importers' tests run inside the same budget, and their verdict is the line.
 func TestPostEdit_DeferredGoEditInATestlessPackage_RunsTheImportersTests(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkGoModule(t)
 	defer stubGoTestReach(t, func(_, dir string) ([]string, error) {
@@ -83,10 +84,10 @@ func TestPostEdit_DeferredGoEditInATestlessPackage_RunsTheImportersTests(t *test
 	if strings.Join(*spawned, "|") != "go test ./internal/proc|go test ./internal/tdd" {
 		t.Fatalf("want the narrowed package then the importer rung, spawned %v", *spawned)
 	}
-	if strings.Contains(got, string(WritingTest)) {
+	if strings.Contains(tddtest.Pathless(t, got), string(WritingTest)) {
 		t.Fatalf("a source edit whose importers' tests ran is not scaffolding, got: %s", got)
 	}
-	if !strings.Contains(got, "go test ./internal/tdd in ") || !strings.Contains(got, "green") {
+	if !strings.Contains(got, "go test ./internal/tdd in ") || !strings.Contains(tddtest.Pathless(t, got), "green") {
 		t.Fatalf("want the importer rung's green naming its command, got: %s", got)
 	}
 }
@@ -96,6 +97,7 @@ func TestPostEdit_DeferredGoEditInATestlessPackage_RunsTheImportersTests(t *test
 // declares no test yet selecting nothing is scaffolding, not a missed
 // filter. It must neither climb to the importers nor be called untested.
 func TestPostEdit_GoTestFileWithNoTestYet_StaysWritingTest(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkGoModule(t)
 	write(t, root, "internal/proc/proc_test.go", "package proc\n")
@@ -110,7 +112,7 @@ func TestPostEdit_GoTestFileWithNoTestYet_StaysWritingTest(t *testing.T) {
 	if len(seen) != 1 {
 		t.Fatalf("a test file with no test yet must not climb to the importers, ran %v", seen)
 	}
-	if strings.Contains(got, strings.ToUpper(NoTestsSelected)) {
+	if strings.Contains(tddtest.Pathless(t, got), strings.ToUpper(NoTestsSelected)) {
 		t.Fatalf("a test file with no test yet is scaffolding, not an empty selection to report, got: %s", got)
 	}
 }
@@ -119,6 +121,7 @@ func TestPostEdit_GoTestFileWithNoTestYet_StaysWritingTest(t *testing.T) {
 // of the Go ladder: when no other package's tests reach the edited one, the
 // run tested nothing and says so in the inconclusive family's words.
 func TestPostEdit_GoEditNothingReaches_IsInconclusiveNotScaffolding(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkGoModule(t)
 	defer stubGoTestReach(t, func(_, dir string) ([]string, error) { return []string{dir}, nil })()
@@ -127,7 +130,7 @@ func TestPostEdit_GoEditNothingReaches_IsInconclusiveNotScaffolding(t *testing.T
 		"go test ./internal/proc": {Passed: true, Output: goNoTestFilesOutput},
 	}))
 
-	if strings.Contains(got, "green") || strings.Contains(got, string(WritingTest)) {
+	if pathless := tddtest.Pathless(t, got); strings.Contains(pathless, "green") || strings.Contains(pathless, string(WritingTest)) {
 		t.Fatalf("a package no test reaches was not tested, got: %s", got)
 	}
 	if !strings.Contains(got, strings.ToUpper(NoTestsSelected)) || !strings.Contains(got, "NOT tested") {

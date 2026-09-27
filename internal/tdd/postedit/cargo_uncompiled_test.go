@@ -1,6 +1,7 @@
 package postedit
 
 import (
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"strings"
 	"testing"
 )
@@ -54,6 +55,7 @@ func TestCargoNestedTestFileReachable_RequiresModDeclaration(t *testing.T) {
 // still passes (the rest of the crate, untouched) must never be reported as
 // green. The verdict must say the file was not built or run.
 func TestPostEdit_UnreachableNestedTestFile_ReportsNotCompiledNeverGreen(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := cargoCrate(t, "forge_lab")
@@ -64,7 +66,7 @@ func TestPostEdit_UnreachableNestedTestFile_ReportsNotCompiledNeverGreen(t *test
 	got := PostEdit(postPayload("Write", root+"/tests/car/launch_grip_probe.rs"),
 		fakeRunResult(SuiteResult{Passed: true, Output: packageStillGreen}))
 
-	if strings.Contains(got, "green") {
+	if strings.Contains(tddtest.Pathless(t, got), "green") {
 		t.Fatalf("an uncompiled test file must never read as green, got: %s", got)
 	}
 	for _, want := range []string{strings.ToUpper(NotCompiled), "NOT tested", "tests/car/launch_grip_probe.rs"} {
@@ -81,6 +83,7 @@ func TestPostEdit_UnreachableNestedTestFile_ReportsNotCompiledNeverGreen(t *test
 // direction the fix must not overreach: once tests/car/mod.rs actually
 // declares the file, it IS reachable, and the run's own verdict stands.
 func TestPostEdit_DeclaredNestedTestFile_NotFlaggedNotCompiled(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := cargoCrate(t, "forge_lab")
 	write(t, root, "tests/car/mod.rs", "mod launch_control;\npub mod launch_grip_probe;\n")
@@ -89,7 +92,7 @@ func TestPostEdit_DeclaredNestedTestFile_NotFlaggedNotCompiled(t *testing.T) {
 	got := PostEdit(postPayload("Write", root+"/tests/car/launch_grip_probe.rs"),
 		fakeRunResult(SuiteResult{Passed: true, Output: "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"}))
 
-	if strings.Contains(got, strings.ToUpper(NotCompiled)) {
+	if strings.Contains(tddtest.Pathless(t, got), strings.ToUpper(NotCompiled)) {
 		t.Fatalf("a declared nested test file must not be reported not-compiled, got: %s", got)
 	}
 }
