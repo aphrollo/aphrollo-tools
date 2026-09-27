@@ -39,12 +39,21 @@ func judgeMutants(cfg MutantsConfig, mutants []MutantOutcome) Verdict {
 		return refusedAcceptList(bad)
 	}
 	var v Verdict
-	var missed, timedOut []MutantOutcome
+	var missed, timedOut, gaps []MutantOutcome
 	for _, m := range mutants {
 		v.Tested++
+		if refusesAsGap(cfg, m) {
+			// A mutant on a line this diff adds that no test ran, or that
+			// no run could judge (issue #910). Checked ahead of the counts
+			// below, which it still takes part in.
+			gaps = append(gaps, m)
+		}
 		switch m.Status {
 		case "caught":
 			v.Caught++
+			if m.Note != "" {
+				v.Resolved = append(v.Resolved, m)
+			}
 		case "missed":
 			missed = append(missed, m)
 		case "timeout":
@@ -65,12 +74,21 @@ func judgeMutants(cfg MutantsConfig, mutants []MutantOutcome) Verdict {
 			v.NotCovered++
 		default:
 			v.Unviable++
+			if m.Note != "" {
+				v.Resolved = append(v.Resolved, m)
+			}
 		}
 	}
 	accepted, unaccepted, _, notes := splitAcceptedSurvivors(list, missed)
 	v.Missed, v.Accepted = len(missed), len(accepted)
 	v.Unaccepted, v.Unmeasured = unaccepted, timedOut
-	v.Refused = len(unaccepted) > 0 || len(timedOut) > 0
+	admitted, refusedGaps, _, gapNotes := splitAcceptedSurvivors(list, gaps)
+	v.Gaps = refusedGaps
+	notes = append(notes, gapNotes...)
+	for _, m := range admitted {
+		notes = append(notes, acceptNote{Text: "admitted " + m.GapLine()})
+	}
+	v.Refused = len(unaccepted) > 0 || len(timedOut) > 0 || len(refusedGaps) > 0
 	v.Message = measureReport(v, notes)
 	if v.Tested == 0 && !v.Refused {
 		// Not a refusal: a diff the tool produces no mutants for is a real
@@ -84,6 +102,21 @@ func judgeMutants(cfg MutantsConfig, mutants []MutantOutcome) Verdict {
 	}
 	return v
 }
+
+// refusesAsGap says whether m is a mutant the judge refuses for sitting,
+// unjudged, on a line the diff adds: not covered or inconclusive, on a new
+// line, not exempt, and only where the repo declared mutants-at-merge.
+func refusesAsGap(cfg MutantsConfig, m MutantOutcome) bool {
+	if !cfg.AtMerge || !m.NewLine || m.Exempt != "" {
+		return false
+	}
+	return m.Status == gremlinsNotCovered || m.Status == gremlinsScopeUnknown
+}
+
+// gapRemedy is what to do about a refused gap: the same two answers a
+// survivor has, for a line nothing has judged yet.
+const gapRemedy = "mutants: a line this diff adds carries a mutant no test ran or no run could judge — write the " +
+	"test that runs and kills it, or add it to mutation-accept with a reason"
 
 // zeroTestedNote is how a run with an empty mutant pool names itself, and
 // zeroTestedToken is what `gate stats` counts it under — apart from the green
@@ -122,7 +155,18 @@ func measureReport(v Verdict, notes []acceptNote) string {
 	for _, m := range v.Unmeasured {
 		b.WriteString(outcomeName(m) + " — timed out twice, unmeasured\n")
 	}
+	refusedGap := map[string]bool{}
+	for _, m := range v.Gaps {
+		b.WriteString(m.GapLine() + "\n")
+		refusedGap[m.GapLine()] = true
+	}
+	for _, m := range v.Resolved {
+		b.WriteString(outcomeName(m) + " — " + m.Note + "\n")
+	}
 	for _, m := range v.Inconclusive {
+		if refusedGap[m.GapLine()] {
+			continue
+		}
 		// Ahead of the counts like the other findings, and carrying its own
 		// reason: a mutant nobody could judge is something a reviewer has to
 		// be told about, not a number to subtract from another number.
@@ -150,6 +194,9 @@ func measureReport(v Verdict, notes []acceptNote) string {
 		// none of tells a reader nothing, and the count must never be folded
 		// into caught or missed — it is neither.
 		fmt.Fprintf(&b, ", %d inconclusive", len(v.Inconclusive))
+	}
+	if len(v.Gaps) > 0 {
+		b.WriteString("\n" + gapRemedy)
 	}
 	if v.Refused {
 		b.WriteString("\n" + measureRemedy)

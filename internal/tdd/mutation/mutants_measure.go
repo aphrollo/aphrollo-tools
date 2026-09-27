@@ -316,7 +316,11 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base, re
 	// those verdicts that selection could actually have reached is a
 	// question about the MODULE, answered here in one `go list` for the
 	// whole run (issue #695).
-	outcomes := classifyGoSurvivorReach(root, mutants)
+	reach := goReachOnce(root)
+	outcomes := classifyGoSurvivorReach(reach, mutants)
+	// What the run left unjudged on a line this lane adds is settled here,
+	// before anything is published or judged (issue #910).
+	outcomes = settleNewLineGaps(ctx, root, cfg, base, reach, outcomes, log)
 	// Published before the judging, not after: what another box needs is the
 	// OUTCOMES, judged there against the accept-list that lives in the tree
 	// this measurement is bound to.

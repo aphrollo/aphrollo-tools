@@ -45,6 +45,30 @@ type MutantOutcome struct {
 	// verbatim by the report, because "inconclusive" with no cause leaves
 	// the reader nothing to act on.
 	Note string `json:"note,omitempty"`
+	// NewLine marks a mutant on a line the measured diff adds or changes
+	// (mutants_newlines.go). Such a mutant left not covered or inconclusive
+	// is refused under mutants-at-merge; on any other line it is reported
+	// only (issue #910).
+	NewLine bool `json:"new_line,omitempty"`
+	// Exempt is why a not-covered mutant on such a line is not refused all
+	// the same: Go coverage can never count the position it sits at, and
+	// no test could change that.
+	Exempt string `json:"exempt,omitempty"`
+}
+
+// GapLine names a not-covered or inconclusive mutant in the accept-list's
+// own form, `file:line:col MUTATOR (not covered|inconclusive)`, followed by
+// its note when it carries one.
+func (m MutantOutcome) GapLine() string {
+	kind := "not covered"
+	if m.Status == gremlinsScopeUnknown {
+		kind = "inconclusive"
+	}
+	line := fmt.Sprintf("%s:%d:%d %s (%s)", m.File, m.Line, m.Col, m.Mutation, kind)
+	if m.Note != "" {
+		line += " — " + m.Note
+	}
+	return line
 }
 
 // mutantLineRe reads a mutant named as one line. The real shape, from a

@@ -54,7 +54,8 @@ aphrollo update                       # rebuild from origin/main and swap it in
   `NOT RUN` here and run at the merge.
 - **PR:** `workspace pr`/`submit`/`ship` measure the lane's mutants first.
 - **Merge:** `workspace merge` runs the suites and the mutation measurement on
-  the merged tree, refuses an unaccepted survivor or timeout, then prints a
+  the merged tree, refuses an unaccepted survivor or timeout, and a
+  not-covered or inconclusive mutant on a line the lane adds, then prints a
   retro when the PR's journey had friction.
 - **Walls:** the primary checkout is merge-only; discarding commands are
   refused (`gate allow <wall>` arms one command).

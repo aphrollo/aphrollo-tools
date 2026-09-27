@@ -486,6 +486,47 @@ mutants: write the test that fails, or add the line to mutation-accept with a re
 `, K not covered` is appended to the counts only when a gremlins run reported
 not-covered mutants; they are counted on their own and never as unviable.
 
+### Mutants nothing judged, on lines the diff adds
+
+With `mutants-at-merge` on, a not-covered or inconclusive mutant on a line the
+measured diff adds or changes (`git diff -U0 <base>`) refuses like a survivor,
+named in the accept-list's own form (`internal/tdd/mutation/mutants_newlines.go`):
+
+```
+internal/cli/ci.go:50:27 CONDITIONALS_NEGATION (not covered)
+torque/torque.go:5:16 ARITHMETIC_BASE (inconclusive) — UNRESOLVED: the tests of driveline did not finish within 2m0s
+```
+
+The same mutant on a line the diff did not touch is counted and reported, and
+refuses nothing. A mutation-accept entry admits a refused one exactly as it
+admits a survivor. Before the judge sees them, three kinds are taken out of
+the refusal because no test could ever change them:
+
+- a file this platform's build leaves out (its build constraints), which no
+  run here compiles;
+- a position outside every instrumented function body — a package-level
+  `var` or `const` initializer, the body of a function named `_` — which Go
+  coverage never attributes to a test;
+- `ARITHMETIC_BASE` on a string concatenation, whose mutant cannot compile.
+
+Two kinds are settled by running the one mutant, the way `gate mutants prove`
+settles one (`internal/tdd/mutation/mutants_resolve.go`): a NOT COVERED at a
+position Go coverage cannot count however often it runs — a case clause's
+expressions, the rest of a statement after its first function literal
+(`internal/tdd/mutation/mutants_covershape.go`, held to gremlins' own report
+over a fully exercised module in `internal/tdd/mutation/testdata/covershape/`) — and every
+inconclusive survivor. The mutant is swapped in through `go test -overlay`,
+never written into the checkout, and run in one `go test` over every package
+with tests that reaches its line, under the box-wide mutation lock; an
+inconclusive survivor leaves out its own package, whose tests gremlins already
+ran. A test failure is a kill and a build failure makes it unviable; both are
+reported with their reason and refuse nothing. Green everywhere makes it a
+survivor, judged against the accept-list like any other. A run past the
+per-mutant budget (the same `max(3 × baseline, 120 s)` a Cargo mutant gets),
+or a reach graph that cannot be read, leaves it UNRESOLVED: refused, saying
+so, and never called a survivor. The cure for one is a test in the mutated
+package itself that kills it, which gremlins then judges directly.
+
 An accept entry comes in one of three key shapes, each carrying a reason.
 `"<file>:<line> <mutation> # why"` matches that mutation on that line, at
 whatever column it is at. `"<file>:<line>:<col> <mutation> # why"` names one
