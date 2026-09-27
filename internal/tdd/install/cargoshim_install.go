@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // InstallCargoShim writes the POSIX half of the cargo-queue shim directory dir
@@ -53,7 +55,7 @@ func writeShimIfDifferent(path, content string, mode os.FileMode) (bool, error) 
 	if cur, err := os.ReadFile(path); err == nil && string(cur) == content {
 		return false, nil
 	}
-	if err := os.WriteFile(path, []byte(content), mode); err != nil {
+	if err := proc.WriteExecutable(path, []byte(content), mode); err != nil {
 		return false, fmt.Errorf("write %s: %w", path, err)
 	}
 	return true, nil

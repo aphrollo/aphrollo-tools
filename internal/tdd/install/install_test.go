@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
+
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
@@ -116,7 +118,7 @@ func TestInstallPlan_RewritesAnOlderManagedPrePushShim(t *testing.T) {
 	}
 	prePush := filepath.Join(hooks, "pre-push")
 	older := "#!/bin/sh\n" + installMarker + "\nexec /old/aphrollo tdd prepush \"$@\"\n"
-	if err := os.WriteFile(prePush, []byte(older), 0o755); err != nil {
+	if err := proc.WriteExecutable(prePush, []byte(older), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -146,7 +148,7 @@ func TestInstallPlan_LeavesForeignPrePush(t *testing.T) {
 	}
 	foreign := "#!/bin/sh\necho my own pre-push\n"
 	prePush := filepath.Join(hooks, "pre-push")
-	if err := os.WriteFile(prePush, []byte(foreign), 0o755); err != nil {
+	if err := proc.WriteExecutable(prePush, []byte(foreign), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -171,7 +173,7 @@ func TestInstallPlan_DoesNotClobberForeignHook(t *testing.T) {
 	}
 	foreign := "#!/bin/sh\necho my own hook\n"
 	preCommit := filepath.Join(hooks, "pre-commit")
-	if err := os.WriteFile(preCommit, []byte(foreign), 0o755); err != nil {
+	if err := proc.WriteExecutable(preCommit, []byte(foreign), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -200,7 +202,7 @@ func TestInstallPlan_ReinstallOverOwnHook(t *testing.T) {
 	if err := os.MkdirAll(hooks, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(hooks, "pre-commit"), []byte(shim(testBin, "precommit")), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(hooks, "pre-commit"), []byte(shim(testBin, "precommit")), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	plan, _ := BuildInstallPlan(root, testBin)

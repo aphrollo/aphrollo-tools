@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // fakeGhAPIByPath writes a `gh` script in t.TempDir() that answers `api
@@ -36,7 +38,7 @@ func fakeGhAPIByPath(t *testing.T, rules []ghAPIRule) {
 		}
 	}
 	b.WriteString("exit 1\n")
-	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(b.String()), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(dir, "gh"), []byte(b.String()), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -87,7 +89,7 @@ func TestGhCreatePR_RealClosureFillsTitleFromCommitsWhenBlank(t *testing.T) {
 	script := "#!/bin/sh\n" +
 		"echo \"$@\" >> '" + argvLog + "'\n" +
 		"printf '%s' '{\"number\":9,\"html_url\":\"https://github.com/acme/widgets/pull/9\",\"state\":\"open\",\"head\":{\"ref\":\"feat/x\",\"sha\":\"abc\"}}'\n"
-	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))

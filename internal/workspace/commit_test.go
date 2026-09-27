@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
+
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -318,7 +320,7 @@ func installFailingPreCommitHook(t *testing.T, repo string) {
 		t.Fatal(err)
 	}
 	script := "#!/bin/sh\necho 'REJECTED by fake pre-commit hook' >&2\nexit 1\n"
-	if err := os.WriteFile(filepath.Join(hooksDir, "pre-commit"), []byte(script), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(hooksDir, "pre-commit"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }

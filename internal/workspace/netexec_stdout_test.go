@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // fakeGHPrinting builds a `gh` script in t.TempDir() that prints stdout on
@@ -21,7 +23,7 @@ func fakeGHPrinting(t *testing.T, stdout, stderr string) {
 		name = "gh.bat"
 		script = "@echo off\r\necho " + stdout + "\r\necho " + stderr + " 1>&2\r\n"
 	}
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))

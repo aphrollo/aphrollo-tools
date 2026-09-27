@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // fakeSystemctl writes a fake systemctl to dir that records its invocation
@@ -22,13 +24,13 @@ func fakeSystemctl(t *testing.T, dir, marker string) string {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		p := filepath.Join(dir, "systemctl.bat")
-		if err := os.WriteFile(p, []byte("@echo off\r\necho %* > "+marker+"\r\n"), 0o755); err != nil {
+		if err := proc.WriteExecutable(p, []byte("@echo off\r\necho %* > "+marker+"\r\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		return p
 	}
 	p := filepath.Join(dir, "systemctl")
-	if err := os.WriteFile(p, []byte("#!/bin/sh\necho \"$@\" > "+marker+"\n"), 0o755); err != nil {
+	if err := proc.WriteExecutable(p, []byte("#!/bin/sh\necho \"$@\" > "+marker+"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return p

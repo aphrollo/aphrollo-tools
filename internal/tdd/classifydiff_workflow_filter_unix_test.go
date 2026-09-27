@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // The filter step is a bash script run on the Linux runner, so this file
@@ -68,8 +70,10 @@ func runFilter(t *testing.T, script, classifier string) map[string]string {
 	gitDo(t, root, "add", "-A")
 	gitDo(t, root, "commit", "-qm", "change")
 	if classifier != "" {
-		write(t, root, "bin/aphrollo", "#!/bin/sh\n"+classifier+"\n")
-		if err := os.Chmod(filepath.Join(root, "bin", "aphrollo"), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := proc.WriteExecutable(filepath.Join(root, "bin", "aphrollo"), []byte("#!/bin/sh\n"+classifier+"\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}

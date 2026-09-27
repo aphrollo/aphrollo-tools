@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // fakeNpx stands in for npm's npx the way it behaves in a hook: it runs the
@@ -38,7 +40,7 @@ func makeVitestRepoWithFakeNpx(t *testing.T) string {
 		t.Skip("the fake npx and vitest are shell scripts") // skip-ok: the same proof on Windows needs a native fake binary; the verdict logic under test is host-independent
 	}
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "npx"), []byte(fakeNpx), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(bin, "npx"), []byte(fakeNpx), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -55,7 +57,7 @@ func makeVitestRepoWithFakeNpx(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Dir(vitest), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(vitest, []byte(fakeVitestGreen), 0o755); err != nil {
+	if err := proc.WriteExecutable(vitest, []byte(fakeVitestGreen), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	write(t, root, "vitest.config.ts", "export default { test: { globals: true } }\n")

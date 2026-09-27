@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
+
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
@@ -48,7 +50,7 @@ func TestGitInDir_SkipsAQueueDirWhoseGitIsAnExe(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "git.exe"), []byte{0x4d, 0x5a, 0x90, 0x00}, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "git"), []byte("#!/bin/sh\nexec \"/bin/aphrollo\" gate git \"$@\"\n"), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(dir, "git"), []byte("#!/bin/sh\nexec \"/bin/aphrollo\" gate git \"$@\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if got := gitInDir(dir); got != "" {

@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
+
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -544,7 +546,7 @@ func TestResolveRealGit_FindsGitOnPATH(t *testing.T) {
 		name = "git.exe"
 	}
 	stub := filepath.Join(dir, name)
-	if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+	if err := proc.WriteExecutable(stub, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)

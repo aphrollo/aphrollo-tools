@@ -2,12 +2,13 @@ package install
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // The queue dir shadows `cargo` and `git`. On Windows that shadow used to be a
@@ -154,18 +155,9 @@ func sweepAside(dst string) {
 
 // copyFile writes src's bytes to dst, executable.
 func copyFile(src, dst string) error {
-	in, err := os.Open(src)
+	data, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
-	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return err
-	}
-	return out.Close()
+	return proc.WriteExecutable(dst, data, 0o755)
 }

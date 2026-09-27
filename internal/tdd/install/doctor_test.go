@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // healthyInstall lays out a config dir and shim dir that every check passes,
@@ -52,7 +54,7 @@ func healthyInstall(t *testing.T) DoctorInput {
 	// never through InitGitGate, which would touch the box's own real global
 	// git config.
 	hooksDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(hooksDir, "pre-commit"), []byte(binShim(bin, "precommit", "")), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(hooksDir, "pre-commit"), []byte(binShim(bin, "precommit", "")), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return DoctorInput{
@@ -289,7 +291,7 @@ func realCommandExeName(t *testing.T) string {
 // wrong answer, not a slow one.
 func TestDoctor_SeesALeftoverBatchShim(t *testing.T) {
 	in := healthyInstall(t)
-	if err := os.WriteFile(filepath.Join(in.ShimDir, "git.cmd"), []byte("@echo off\r\n"), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(in.ShimDir, "git.cmd"), []byte("@echo off\r\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 

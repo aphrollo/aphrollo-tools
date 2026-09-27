@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // This package shells out to gh for the operations with the largest blast
@@ -48,11 +50,11 @@ func installRefusingGh() string {
 	}
 	const msg = "gh is not available to this package's tests: stub it in the test that needs it"
 	if runtime.GOOS == "windows" {
-		if err := os.WriteFile(filepath.Join(dir, "gh.bat"), []byte("@echo "+msg+" 1>&2\r\n@exit /b 1\r\n"), 0o755); err != nil {
+		if err := proc.WriteExecutable(filepath.Join(dir, "gh.bat"), []byte("@echo "+msg+" 1>&2\r\n@exit /b 1\r\n"), 0o755); err != nil {
 			return ""
 		}
 	}
-	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte("#!/bin/sh\necho '"+msg+"' >&2\nexit 1\n"), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(dir, "gh"), []byte("#!/bin/sh\necho '"+msg+"' >&2\nexit 1\n"), 0o755); err != nil {
 		return ""
 	}
 	if err := os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {

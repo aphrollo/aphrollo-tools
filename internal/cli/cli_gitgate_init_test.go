@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
+
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -80,7 +82,7 @@ func TestRun_TDDInit_CargoShim(t *testing.T) {
 		t.Fatal(err)
 	}
 	stale := filepath.Join(shimDir, "cargo.cmd")
-	if err := os.WriteFile(stale, []byte("@echo off\r\n"), 0o755); err != nil {
+	if err := proc.WriteExecutable(stale, []byte("@echo off\r\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 

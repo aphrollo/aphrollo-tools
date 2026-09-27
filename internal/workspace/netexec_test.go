@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // networkTimeoutErr must leave a real subprocess error untouched when the
@@ -155,7 +157,7 @@ func putSlowGHStubOnPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, name), data, 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(dir, name), data, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	registerStubDir(dir)

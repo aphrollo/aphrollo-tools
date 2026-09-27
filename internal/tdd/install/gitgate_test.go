@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
+
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
@@ -87,7 +89,7 @@ func TestInitGitGate_RewritesAnOlderManagedPrePushShim(t *testing.T) {
 	}
 	managed := "#!/bin/sh\n" + installMarker + "\nexec /usr/local/bin/aphrollo tdd prepush \"$@\"\n"
 	prePush := filepath.Join(hooksDir, "pre-push")
-	if err := os.WriteFile(prePush, []byte(managed), 0o755); err != nil {
+	if err := proc.WriteExecutable(prePush, []byte(managed), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -117,7 +119,7 @@ func TestInitGitGate_PreservesForeignPrePushOnPrune(t *testing.T) {
 	}
 	foreign := "#!/bin/sh\necho my own pre-push\n"
 	prePush := filepath.Join(hooksDir, "pre-push")
-	if err := os.WriteFile(prePush, []byte(foreign), 0o755); err != nil {
+	if err := proc.WriteExecutable(prePush, []byte(foreign), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -155,7 +157,7 @@ func TestInitGitGate_PreservesForeignHook(t *testing.T) {
 	}
 	foreign := "#!/bin/sh\necho mine\n"
 	pc := filepath.Join(hooksDir, "pre-commit")
-	if err := os.WriteFile(pc, []byte(foreign), 0o755); err != nil {
+	if err := proc.WriteExecutable(pc, []byte(foreign), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := InitGitGate(hooksDir, "/usr/local/bin/aphrollo", false); err != nil {

@@ -1,11 +1,12 @@
 package install
 
 import (
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // The POSIX shims exec the aphrollo binary by ABSOLUTE path. When that path
@@ -29,14 +30,12 @@ func TestBinShim_RunsTheRealToolWhenTheBinaryIsGone(t *testing.T) {
 
 	// A "real git" that proves it ran, standing in for the tool on PATH.
 	real := filepath.Join(dir, "realgit")
-	mustWrite(t, real, "#!/bin/sh\necho REAL \"$@\"\n")
-	if err := os.Chmod(real, 0o755); err != nil {
+	if err := proc.WriteExecutable(real, []byte("#!/bin/sh\necho REAL \"$@\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	shim := filepath.Join(dir, "git")
-	mustWrite(t, shim, binShim(filepath.Join(dir, "no-such-aphrollo"), "git", real))
-	if err := os.Chmod(shim, 0o755); err != nil {
+	if err := proc.WriteExecutable(shim, []byte(binShim(filepath.Join(dir, "no-such-aphrollo"), "git", real)), 0o755); err != nil {
 		t.Fatal(err)
 	}
 

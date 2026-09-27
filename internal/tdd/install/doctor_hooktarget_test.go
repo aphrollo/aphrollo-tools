@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // repointHooks rewrites the managed shims in the fixture's hooks dir at a
@@ -12,7 +14,7 @@ import (
 // behind, built here rather than by breaking the box that runs the suite.
 func repointHooks(t *testing.T, hooksDir, bin string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(hooksDir, "pre-commit"), []byte(binShim(bin, "precommit", "")), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(hooksDir, "pre-commit"), []byte(binShim(bin, "precommit", "")), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }

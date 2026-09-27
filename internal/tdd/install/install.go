@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // installMarker identifies a hook this tool wrote, so a re-install can safely
@@ -185,7 +187,7 @@ func (p InstallPlan) Apply() error {
 		if err := os.MkdirAll(filepath.Dir(h.Path), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(h.Path, []byte(h.Content), 0o755); err != nil {
+		if err := proc.WriteExecutable(h.Path, []byte(h.Content), 0o755); err != nil {
 			return err
 		}
 	}

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // fakeGitPrinting builds a `git` script in t.TempDir() that prints stdout on
@@ -14,7 +16,7 @@ func fakeGitPrinting(t *testing.T, stdout, stderr string) {
 	t.Helper()
 	dir := t.TempDir()
 	script := "#!/bin/sh\nprintf '%s\\n' \"" + stdout + "\"\nprintf '%s\\n' \"" + stderr + "\" 1>&2\n"
-	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
