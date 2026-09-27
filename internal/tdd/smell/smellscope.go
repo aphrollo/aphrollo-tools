@@ -1,7 +1,9 @@
 package smell
 
 import (
+	"maps"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -88,6 +90,37 @@ func addedLines(pre, post string) map[int]bool {
 // counted as new.
 func introducedLines(pre, post string, l lang) map[int]bool {
 	return addedLines(l.mask(pre, false), l.mask(post, false))
+}
+
+// removedTexts are the trimmed directives-view texts of the lines of pre
+// that post does not carry, counted by multiplicity: what a change took out of
+// a file, the mirror of introducedLines. A directive that sat blank inside a
+// string is blank here too, so its removal carries no directive text.
+func removedTexts(pre, post string, l lang) map[string]int {
+	preLines := strings.Split(l.mask(pre, false), "\n")
+	out := map[string]int{}
+	for n := range addedLines(l.mask(post, false), l.mask(pre, false)) {
+		out[strings.TrimSpace(preLines[n-1])]++
+	}
+	return out
+}
+
+// absorbMoved returns the introduced lines of post whose directives-view text
+// the pool of removed texts does not hold. Each line absorbed takes one count
+// from the pool, lowest line first, so one removal pays for at most one
+// addition anywhere in the commit: a suppression moved between files is not
+// introduced, and a second copy of it still is.
+func absorbMoved(post string, l lang, introduced map[int]bool, pool map[string]int) map[int]bool {
+	lines := strings.Split(l.mask(post, false), "\n")
+	out := map[int]bool{}
+	for _, n := range slices.Sorted(maps.Keys(introduced)) {
+		if key := strings.TrimSpace(lines[n-1]); pool[key] > 0 {
+			pool[key]--
+			continue
+		}
+		out[n] = true
+	}
+	return out
 }
 
 // escapedLines are the lines a marker admits: the line carrying it, and the

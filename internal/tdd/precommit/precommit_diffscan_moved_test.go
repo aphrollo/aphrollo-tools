@@ -7,7 +7,8 @@ import (
 
 // The anti-cheat judges what a commit INTRODUCES. A suppression that only
 // moved within its file carries the same text before and after, so it is not
-// introduced, however the diff happens to align the lines.
+// introduced, however the diff happens to align the lines; one that moved to
+// another file in the same commit is not introduced either.
 
 // TestNewSuppression_IgnoresASuppressionMovedWithinItsFile moves a suppressed
 // one-line function below a three-line one. The minimal diff keeps the longer
@@ -65,5 +66,99 @@ func TestNewSuppression_BlocksDirectiveTextThatLeavesAString(t *testing.T) {
 
 	if msg := newSuppression(root); !strings.Contains(msg, suppressionCommitHeader) {
 		t.Fatalf("directive text leaving a string literal is introduced and must block, got %q", msg)
+	}
+}
+
+// TestNewSuppression_IgnoresASuppressionMovedToAnotherFile splits a file: the
+// suppressed function leaves a.go and lands verbatim in the new b.go in the
+// same commit. Its directive text is removed exactly where it is added, so
+// the commit introduces no suppression.
+func TestNewSuppression_IgnoresASuppressionMovedToAnotherFile(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "a.go", "package m\n\nfunc A() int { return 1 } //nolint:unused\n\nfunc Keep() int { return 2 }\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "a")
+
+	write(t, root, "a.go", "package m\n\nfunc Keep() int { return 2 }\n")
+	write(t, root, "b.go", "package m\n\nfunc A() int { return 1 } //nolint:unused\n")
+	gitDo(t, root, "add", ".")
+
+	if msg := newSuppression(root); msg != "" {
+		t.Fatalf("a suppression moved verbatim to another file must not block, got %q", msg)
+	}
+}
+
+// TestNewSuppression_IgnoresASuppressionWhoseFileWasRenamed: a rename is a
+// move of every line, the old path deleted and the new one added.
+func TestNewSuppression_IgnoresASuppressionWhoseFileWasRenamed(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "a.go", "package m\n\nfunc A() int { return 1 } //nolint:unused\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "a")
+
+	gitDo(t, root, "mv", "a.go", "b.go")
+
+	if msg := newSuppression(root); msg != "" {
+		t.Fatalf("a renamed file's suppression must not block, got %q", msg)
+	}
+}
+
+// TestNewSuppression_BlocksASecondCopyWhenOnlyOneMoved: one removal absorbs
+// one addition. Removing the suppression from a.go and adding it to both b.go
+// and c.go is one move and one new suppression.
+func TestNewSuppression_BlocksASecondCopyWhenOnlyOneMoved(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "a.go", "package m\n\nfunc A() int { return 1 } //nolint:unused\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "a")
+
+	write(t, root, "a.go", "package m\n")
+	write(t, root, "b.go", "package m\n\nfunc A() int { return 1 } //nolint:unused\n")
+	write(t, root, "c.go", "package n\n\nfunc A() int { return 1 } //nolint:unused\n")
+	gitDo(t, root, "add", ".")
+
+	if msg := newSuppression(root); !strings.Contains(msg, suppressionCommitHeader) {
+		t.Fatalf("two copies added for one removed is one new suppression and must block, got %q", msg)
+	}
+}
+
+// TestNewSuppression_BlocksASuppressionWhoseRemovalWasOnlyInAString: the
+// removed text sat inside a string literal, where no directive lives, so its
+// removal cannot pay for a live directive added elsewhere.
+func TestNewSuppression_BlocksASuppressionWhoseRemovalWasOnlyInAString(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "a.go", "package m\n\nvar s = `\n_ = 0 //nolint:unused\n`\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "a")
+
+	write(t, root, "a.go", "package m\n")
+	write(t, root, "b.go", "package m\n\nfunc F() {\n_ = 0 //nolint:unused\n}\n")
+	gitDo(t, root, "add", ".")
+
+	if msg := newSuppression(root); !strings.Contains(msg, suppressionCommitHeader) {
+		t.Fatalf("a removal from inside a string must not absorb a live directive, got %q", msg)
+	}
+}
+
+// TestNewSuppression_BlocksASuppressionPaidForByANonCodeFile: only a code
+// file's removals form the pool. Text deleted from a document holds no live
+// directive, so it cannot pay for one added to code.
+func TestNewSuppression_BlocksASuppressionPaidForByANonCodeFile(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "notes.md", "func A() int { return 1 } //nolint:unused\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "notes")
+
+	write(t, root, "notes.md", "nothing here\n")
+	write(t, root, "b.go", "package m\n\nfunc A() int { return 1 } //nolint:unused\n")
+	gitDo(t, root, "add", ".")
+
+	if msg := newSuppression(root); !strings.Contains(msg, suppressionCommitHeader) {
+		t.Fatalf("a document's removed text must not absorb a code suppression, got %q", msg)
 	}
 }
