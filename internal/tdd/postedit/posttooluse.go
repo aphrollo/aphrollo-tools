@@ -80,6 +80,9 @@ func postEditFile(session, target string, run SuiteRunner, touched ...string) (s
 	if home := unownedEdit(snap.runner, target, root); home != "" {
 		return unownedEditSkip(root, target, home), false
 	}
+	if snap.toolMissing != "" {
+		return toolMissingSkip(snap.runner, root, snap.toolMissing), false
+	}
 
 	// A narrowed cargo run whose package-scope form already proved green at
 	// this exact worktree state has nothing left to ask — most often the
@@ -205,6 +208,14 @@ func unownedEditSkip(root, target, home string) string {
 	return fmt.Sprintf("gate: → skipped in %s (%s sits in no %s and is not a build input — no build, no suite run)", root, rel, home)
 }
 
+// toolMissingSkip logs and renders the edit hook's line for an npm root
+// whose test tool cannot run under node: nothing ran, it says why, and it
+// never falls back to npx.
+func toolMissingSkip(r Runner, root, why string) string {
+	AppendGateLog("postedit", root, cmdString(r), "skipped-tool-missing", 0)
+	return fmt.Sprintf("gate: %s in %s → SKIPPED (%s) — inconclusive, the code was NOT tested", cmdString(r), root, why)
+}
+
 // stateSnapshot is the per-edit state plumbing PostEdit needs to run the suite
 // and stamp the outcome: the loaded session (nil when there is no session id),
 // where it persists, the narrowed runner, the git fingerprint at this edit, and
@@ -217,6 +228,9 @@ type stateSnapshot struct {
 	prevFailing []string
 	// editID names this edit's edit-ledger record, where its verdict lands.
 	editID string
+	// toolMissing says why runner's npm test tool cannot run under node
+	// (nodeToolRunner); "" when it can, or when runner is not one.
+	toolMissing string
 }
 
 // captureStateSnapshot loads the session, resolves the narrowed runner for the
@@ -234,6 +248,7 @@ func captureStateSnapshot(session, target, root string, touched []string) (state
 		return stateSnapshot{}, false
 	}
 	runner := withTouchedTestTargets(NarrowToRelatedTests(base, target, root), base, root, touched)
+	runner, toolMissing := nodeToolRunner(root, runner)
 
 	fp := computeFingerprint(root)
 	var prevFailing []string
@@ -246,6 +261,7 @@ func captureStateSnapshot(session, target, root string, touched []string) (state
 		runner:      runner,
 		fingerprint: fp,
 		prevFailing: prevFailing,
+		toolMissing: toolMissing,
 	}, true
 }
 

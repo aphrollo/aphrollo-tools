@@ -1,6 +1,7 @@
 package precommit
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -85,6 +86,14 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 		reportSuitesNotRun(gateName, g.Root, suiteNoun(runner.Cmd), runner, suiteTouchedNames(runner))
 		return failFirstStage(repoRoot, g.Root, g.tests, g.srcs, run)
 	}
+	// rootSuiteRunner already put an npm test tool under node; one it could
+	// not is a suite the merge cannot run, and so cannot pass (#929).
+	if _, missing := nodeToolRunner(g.Root, runner); missing != "" {
+		return verdictFor(gateName, "mechanical", g.Root, cmdString(runner), stageOutcome{
+			Kind: outcomeCheckError, Err: errors.New(missing),
+			Message: fmt.Sprintf("the suite of %s cannot run: %s", g.Root, missing),
+		})
+	}
 	return suiteStage(gateName, repoRoot, g.Root, runner, run)
 }
 
@@ -120,11 +129,15 @@ func rootChecksStage(gateName, repoRoot, root string, runner Runner, touched []s
 }
 
 // rootSuiteRunner is the suite a non-cargo root owes: runner scoped to the
-// staged files' packages, with CI's flags on a Go run.
+// staged files' packages, with CI's flags on a Go run, and an npm test tool
+// run as `node <its installed bin entry>` wherever that resolves.
 func rootSuiteRunner(gateName, repoRoot, root string, runner Runner, files []string) Runner {
 	runner = narrowedRunner(runner, repoRoot, root, files)
 	if runner.Cmd == "go" {
 		runner = withGoCIParity(runner, gateName == premergeDisplayName)
+	}
+	if node, missing := nodeToolRunner(root, runner); missing == "" {
+		runner = node
 	}
 	return runner
 }

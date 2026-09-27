@@ -255,12 +255,26 @@ func TestPrecommit_Mechanical_ScopedToStagedGoTestOnly(t *testing.T) {
 	}
 }
 
+// installJSTool puts a fake pkg in root's gitignored node_modules, its bin
+// named pkg pointing at script, and names node /opt/node/bin/node. It
+// returns the bin entry.
+func installJSTool(t *testing.T, root, pkg, script string) string {
+	t.Helper()
+	write(t, root, "node_modules/"+pkg+"/package.json", `{"name":"`+pkg+`","bin":{"`+pkg+`":"./`+script+`"}}`)
+	write(t, root, "node_modules/"+pkg+"/"+script, "")
+	t.Cleanup(SetLookNodeForTest(func() (string, error) { return "/opt/node/bin/node", nil }))
+	return filepath.Join(root, "node_modules", pkg, script)
+}
+
 // TestPrecommit_Mechanical_ScopedToStagedVitest guards the vitest scoping path:
 // a staged source file in a vitest repo runs `vitest related <files> --run`, not
-// the full `vitest run`. The runner is selected by DetectRunner from the repo's
+// the full `vitest run`, as `node <the installed bin entry>` rather than
+// through npx (#929). The runner is selected by DetectRunner from the repo's
 // package.json, exactly as it is in production.
 func TestPrecommit_Mechanical_ScopedToStagedVitest(t *testing.T) {
 	root := makeJSRepo(t, `{"devDependencies":{"vitest":"^1.0.0"}}`)
+	write(t, root, ".gitignore", "node_modules/\n")
+	entry := installJSTool(t, root, "vitest", "vitest.mjs")
 	write(t, root, "src/widget.ts", "export const widget = () => 1\n")
 	gitDo(t, root, "add", ".")
 
@@ -269,7 +283,7 @@ func TestPrecommit_Mechanical_ScopedToStagedVitest(t *testing.T) {
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
-	want := Runner{Cmd: "npx", Args: []string{"vitest", "related", "src/widget.ts", "--run"}, Dir: "", Deadline: time.Time{}}
+	want := Runner{Cmd: "/opt/node/bin/node", Args: []string{entry, "related", "src/widget.ts", "--run"}, Dir: "", Deadline: time.Time{}}
 	if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("vitest mechanical runs = %+v, want one %+v", seen, want)
 	}
@@ -280,6 +294,8 @@ func TestPrecommit_Mechanical_ScopedToStagedVitest(t *testing.T) {
 // the full `jest`.
 func TestPrecommit_Mechanical_ScopedToStagedJest(t *testing.T) {
 	root := makeJSRepo(t, `{"devDependencies":{"jest":"^29.0.0"}}`)
+	write(t, root, ".gitignore", "node_modules/\n")
+	entry := installJSTool(t, root, "jest", "jest.js")
 	write(t, root, "src/widget.js", "module.exports = () => 1\n")
 	gitDo(t, root, "add", ".")
 
@@ -288,7 +304,7 @@ func TestPrecommit_Mechanical_ScopedToStagedJest(t *testing.T) {
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
-	want := Runner{Cmd: "npx", Args: []string{"jest", "--findRelatedTests", "src/widget.js"}, Dir: "", Deadline: time.Time{}}
+	want := Runner{Cmd: "/opt/node/bin/node", Args: []string{entry, "--findRelatedTests", "src/widget.js"}, Dir: "", Deadline: time.Time{}}
 	if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("jest mechanical runs = %+v, want one %+v", seen, want)
 	}
@@ -310,6 +326,27 @@ func TestPrecommit_Mechanical_UnknownRunnerFullSuiteFallback(t *testing.T) {
 	want := Runner{Cmd: "npm", Args: []string{"test", "--silent"}, Dir: "", Deadline: time.Time{}}
 	if len(seen) != 1 || !reflect.DeepEqual(seen[0], want) {
 		t.Fatalf("fallback mechanical runs = %+v, want one full-suite %+v", seen, want)
+	}
+}
+
+// A vitest root with no vitest installed cannot be tested at the merge: the
+// gate refuses it and names what is missing, and never reaches for npx.
+func TestPrecommit_Mechanical_RefusesAVitestRootWithoutTheToolInstalled(t *testing.T) {
+	root := makeJSRepo(t, `{"devDependencies":{"vitest":"^1.0.0"}}`)
+	write(t, root, "src/widget.ts", "export const widget = () => 1\n")
+	gitDo(t, root, "add", ".")
+
+	var seen []Runner
+	var res GateResult
+	stderr := captureStderr(t, func() { res = Mechanical(root, recordRunner(&seen, root)) })
+	if !res.Blocked {
+		t.Fatal("the merge gate passed a vitest root whose suite it could not run")
+	}
+	if len(seen) != 0 {
+		t.Fatalf("the merge gate ran %+v with no vitest installed, want nothing run", seen)
+	}
+	if !strings.Contains(stderr, "vitest is not installed") {
+		t.Fatalf("stderr = %q, want the refusal to name the missing tool", stderr)
 	}
 }
 

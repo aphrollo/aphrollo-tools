@@ -3,6 +3,7 @@ package postedit
 import (
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -270,5 +271,70 @@ func TestRenderPostToolUse(t *testing.T) {
 	}
 	if out.HookSpecificOutput.AdditionalContext != "hello" {
 		t.Fatalf("unexpected envelope: %+v", out)
+	}
+}
+
+// npmEditRoot is an npm root whose package.json is pkgJSON, with
+// src/widget.ts in it and node named /opt/node/bin/node.
+func npmEditRoot(t *testing.T, pkgJSON string) string {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	write(t, root, "package.json", pkgJSON)
+	write(t, root, "src/widget.ts", "export const widget = () => 1\n")
+	t.Cleanup(SetLookNodeForTest(func() (string, error) { return "/opt/node/bin/node", nil }))
+	return root
+}
+
+// recordNpmEditRuns records every command the edit hook ran, green throughout.
+func recordNpmEditRuns(ran *[]Runner) SuiteRunner {
+	return func(r Runner, _ string) SuiteResult {
+		*ran = append(*ran, r)
+		return SuiteResult{Passed: true, Output: " Test Files  1 passed (1)\n      Tests  1 passed (1)\n"}
+	}
+}
+
+// Issue #929: the edit hook runs a vitest root's installed tool as
+// `node <its bin entry>`, never `npx vitest`.
+func TestPostEdit_RunsAVitestRootsInstalledToolUnderNode(t *testing.T) {
+	root := npmEditRoot(t, `{"devDependencies":{"vitest":"^3.0.0"}}`)
+	write(t, root, "node_modules/vitest/package.json", `{"name":"vitest","bin":{"vitest":"./vitest.mjs"}}`)
+	write(t, root, "node_modules/vitest/vitest.mjs", "")
+
+	var ran []Runner
+	PostEdit(postPayload("Edit", filepath.Join(root, "src", "widget.ts")), recordNpmEditRuns(&ran))
+
+	want := []string{filepath.Join(root, "node_modules", "vitest", "vitest.mjs"), "related", "src/widget.ts", "--run"}
+	if len(ran) != 1 || ran[0].Cmd != "/opt/node/bin/node" || !slices.Equal(ran[0].Args, want) {
+		t.Fatalf("edit hook ran %+v, want one /opt/node/bin/node %v", ran, want)
+	}
+}
+
+// A root whose runner is the generic `npm test --silent` script keeps that
+// invocation: it has no installed tool of its own to resolve.
+func TestPostEdit_KeepsTheNpmTestScriptInvocation(t *testing.T) {
+	root := npmEditRoot(t, `{"scripts":{"test":"echo ok"}}`)
+
+	var ran []Runner
+	PostEdit(postPayload("Edit", filepath.Join(root, "src", "widget.ts")), recordNpmEditRuns(&ran))
+
+	if len(ran) != 1 || ran[0].Cmd != "npm" || !slices.Equal(ran[0].Args, []string{"test", "--silent"}) {
+		t.Fatalf("edit hook ran %+v, want one npm test --silent", ran)
+	}
+}
+
+// A vitest root with no vitest installed runs nothing, and the line says so
+// and why instead of reaching for npx.
+func TestPostEdit_SkipsAVitestRootWithoutTheToolInstalledAndSaysWhy(t *testing.T) {
+	root := npmEditRoot(t, `{"devDependencies":{"vitest":"^3.0.0"}}`)
+
+	var ran []Runner
+	got := PostEdit(postPayload("Edit", filepath.Join(root, "src", "widget.ts")), recordNpmEditRuns(&ran))
+
+	if len(ran) != 0 {
+		t.Fatalf("edit hook ran %+v with no vitest installed, want nothing run", ran)
+	}
+	if !strings.Contains(got, "SKIPPED") || !strings.Contains(got, "vitest is not installed") {
+		t.Fatalf("edit hook line = %q, want a SKIPPED line naming the missing tool", got)
 	}
 }

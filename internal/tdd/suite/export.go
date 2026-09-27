@@ -241,6 +241,8 @@ func NarrowToStaged(p0 Runner, p1 string, p2 []string) (Runner, bool) {
 
 func NextestInstalled() bool { return nextestInstalled() }
 
+func NodeToolRunner(p0 string, p1 Runner) (Runner, string) { return nodeToolRunner(p0, p1) }
+
 func NotCompiledTerminal(p0 Runner, p1 string, p2 string, p3 SuiteResult) string {
 	return notCompiledTerminal(p0, p1, p2, p3)
 }
