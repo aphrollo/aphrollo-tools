@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,11 +30,56 @@ func main() {
 			f.Close()
 		}
 	}
+	if routes := os.Getenv("GH_STUB_ROUTES"); routes != "" {
+		data, _ := os.ReadFile(routes)
+		argv := strings.Join(os.Args[1:], " ")
+		for _, line := range strings.Split(string(data), "\n") {
+			parts := strings.SplitN(line, "\t", 3)
+			if len(parts) != 3 || !strings.Contains(argv, parts[0]) {
+				continue
+			}
+			if parts[2] != "" {
+				fmt.Println(parts[2])
+			}
+			code := 0
+			fmt.Sscan(parts[1], &code)
+			os.Exit(code)
+		}
+	}
 	if out := os.Getenv("GH_STUB_OUT"); out != "" {
 		fmt.Println(out)
 	}
 }
 `
+
+// ghRoute is one answer the gh stub gives when GH_STUB_ROUTES names a routes
+// file: the first route whose Match occurs in gh's joined argv prints Out and
+// exits with Exit. An argv no route matches falls through to GH_STUB_OUT.
+type ghRoute struct {
+	Match string
+	Exit  int
+	Out   string
+}
+
+// routeGhStub puts the compiled stub first on PATH and points it at routes.
+func routeGhStub(t *testing.T, routes ...ghRoute) {
+	t.Helper()
+	dir, err := ghStubDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	for _, r := range routes {
+		fmt.Fprintf(&b, "%s\t%d\t%s\n", r.Match, r.Exit, r.Out)
+	}
+	file := filepath.Join(t.TempDir(), "routes.tsv")
+	if err := os.WriteFile(file, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GH_STUB_ROUTES", file)
+	t.Setenv("GH_STUB_OUT", "")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
 
 var ghStubDir = sync.OnceValues(func() (string, error) {
 	dir, err := os.MkdirTemp("", "aphrollo-cli-gh-stub")

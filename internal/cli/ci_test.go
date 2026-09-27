@@ -75,3 +75,19 @@ func TestRunCIWhy_RefusesAmbiguousOrMalformedTargets(t *testing.T) {
 		}
 	}
 }
+
+// execGh is the verb's one real call onto gh. A gh that fails must come back
+// as an error carrying what gh printed — never as an empty success the
+// explainer would then read as "nothing to report".
+func TestExecGh_AFailingGhIsAnErrorCarryingItsOwnOutput(t *testing.T) {
+	routeGhStub(t, ghRoute{Match: "run view 42", Exit: 1, Out: "HTTP 404: Not Found"})
+
+	out, err := execGh(context.Background(), "run", "view", "42")
+
+	if err == nil {
+		t.Fatalf("a gh that exited 1 came back as success, output %q", out)
+	}
+	if !strings.Contains(string(out), "HTTP 404: Not Found") {
+		t.Errorf("output = %q, want gh's own words for why it failed", out)
+	}
+}
