@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // Issue #904: on an npm root every fail-first proof ended inconclusive,
@@ -45,7 +47,7 @@ func withNodeOnPath(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		name = "node.exe"
 	}
-	if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(bin, name), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))

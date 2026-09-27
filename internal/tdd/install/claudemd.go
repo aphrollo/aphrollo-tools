@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -35,6 +36,11 @@ type BlockFlags struct {
 	// MutantsBeforePR is mutants-before-pr: `workspace pr`/`ship`/`submit`
 	// measure the lane first. Either switch brings in the mutation rules.
 	MutantsBeforePR bool
+	// Cargo, Go and Npm are the toolchains whose manifests the repo carries;
+	// the block names only their commands and commit stages (#889). Whether
+	// the queue shims are on the agent's PATH is a fact about the box, so the
+	// block states the shims as a condition and never as a flag.
+	Cargo, Go, Npm bool
 }
 
 // measures reports whether the repo measures mutants at all, which is what
@@ -46,13 +52,11 @@ func ClaudeMDBlock(f BlockFlags) string {
 	var b strings.Builder
 	b.WriteString(claudeMDBegin + "\n")
 	b.WriteString("## Working with the aphrollo gate\n\n")
-	b.WriteString("- **`cargo` and `git` resolve to the queue shim** (`which cargo` prints a path under the\n")
-	b.WriteString("  `cargo-queue` dir `aphrollo install` wrote); the user PATH and the shell profiles put it first, so a session never exports\n")
-	b.WriteString("  PATH by hand. A run through the shim QUEUES visibly behind another build instead of\n")
-	b.WriteString("  hanging on a silent lock; if `which` prints the raw toolchain, the profile is broken: say so.\n")
+	b.WriteString("- **Where `aphrollo install` put the queue shims on the agent's PATH, " + shimToolsPhrase(f) + " to them** (`aphrollo gate doctor` says whether it did):\n")
+	b.WriteString("  a run through a shim QUEUES visibly behind another build instead of hanging on a silent lock, and a session never exports PATH by hand.\n")
 	b.WriteString("- **The hooks run the tests, not you.** After every Edit/Write, PostToolUse prints\n")
 	b.WriteString("  exactly ONE `gate:` line for the edit, then one `gate: deferred` line per earlier job of the session, in any tree,\n")
-	b.WriteString("  that finished since, naming its own tree and command. Read them; never re-run a suite they ran. Iterate with `cargo check -p <crate> --tests`, which runs nothing.\n")
+	b.WriteString("  that finished since, naming its own tree and command. Read them; never re-run a suite they ran. Iterate with " + iterateCommands(f) + ", which runs nothing.\n")
 	// A subagent (`builder`, `researcher`, `Explore`, ...) never gets the
 	// session-start nudge — SessionStart context is not forwarded to it — but
 	// project instructions ARE, so this is the one place a subagent with no
@@ -69,11 +73,10 @@ func ClaudeMDBlock(f BlockFlags) string {
 	// stated right here. Wanting the output was the commonest reason to
 	// re-run a suite the gate had just run, and `gate stats` cannot answer
 	// it, so a session told only about stats meets the refusal with no route.
-	b.WriteString("  budget and continues; its result arrives at the next hook, or wait in the foreground with `aphrollo gate status --wait <tree>`, the tree the line names). The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE targeted `-p <crate> <filter>` after a TIMEOUT. Wanting the run's TEXT is not one of them: `aphrollo gate stats` answers what the verdict WAS, `aphrollo gate output` prints what that run actually PRINTED — assertion lines and all, unfiltered.\n")
+	b.WriteString("  budget and continues; its result arrives at the next hook, or wait in the foreground with `aphrollo gate status --wait <tree>`, the tree the line names). The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE targeted run of the failing test after a TIMEOUT. Wanting the run's TEXT is not one of them: `aphrollo gate stats` answers what the verdict WAS, `aphrollo gate output` prints what that run actually PRINTED — assertion lines and all, unfiltered.\n")
 	b.WriteString("- **Commit gate, cheapest first:** staged-baseline guard → ratchet laws → docs check →\n")
-	b.WriteString("  suppression check → per root: cargo sequential (fmt→guards→clippy→check→fail-first);\n")
-	b.WriteString("  a Go root also runs vet/lint first. It proves the staged test RED at HEAD, then GREEN with the change, and STOPS — the\n")
-	b.WriteString("  mechanical suite runs at the MERGE; a commit prints a `NOT RUN` line naming each touched crate it did not test, so an untested crate is never a silent absence.\n")
+	b.WriteString("  suppression check → per root, " + rootStages(f) + ". It proves the staged test RED at HEAD, then GREEN with the change, and STOPS — the\n")
+	b.WriteString("  mechanical suite runs at the MERGE; a commit prints a `NOT RUN` line naming each touched package it did not test, so an untested package is never a silent absence.\n")
 	b.WriteString("- **Laws are data:** `.ratchet/laws/*.toml` (scope + one matcher + severity), with baselines in\n")
 	b.WriteString("  the sibling `baselines` dir that only ever go DOWN. `aphrollo ratchet check` judges the tree\n")
 	b.WriteString("  and tightens; `aphrollo ratchet test` proves each law against its fixtures. A new hit is\n")
@@ -86,8 +89,8 @@ func ClaudeMDBlock(f BlockFlags) string {
 	b.WriteString("  <reason>`, and closed only by a stage or law named in the fix, never by a sentence in this\n")
 	b.WriteString("  file. The count only goes down; `gate stats` prints it weekly at session start.\n")
 	b.WriteString("- **The primary checkout is merge-only.** Once a repo has any linked worktree, the checkout holding\n")
-	b.WriteString("  `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL, the\n")
-	b.WriteString("  git shim (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit) is the WALL.\n")
+	b.WriteString("  `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL; the git queue shim,\n")
+	b.WriteString("  where it is on the agent's PATH, is the WALL (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit).\n")
 	b.WriteString("  Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).\n")
 	// The merge line is about THIS repo, not about the tool: a conditional
 	// ("with `mutants-at-merge = true` ...") makes a reader go and find out
@@ -119,6 +122,53 @@ func ClaudeMDBlock(f BlockFlags) string {
 	return b.String()
 }
 
+// shimToolsPhrase names the commands the queue shims intercept in this repo:
+// `cargo` is a fact only where the repo builds with it.
+func shimToolsPhrase(f BlockFlags) string {
+	if f.Cargo {
+		return "`git` and `cargo` resolve"
+	}
+	return "`git` resolves"
+}
+
+// iterateCommands is the compile-only command of each toolchain the repo
+// carries, or the generic advice when it carries none the gate knows.
+func iterateCommands(f BlockFlags) string {
+	var cmds []string
+	if f.Cargo {
+		cmds = append(cmds, "`cargo check -p <crate> --tests`")
+	}
+	if f.Go {
+		cmds = append(cmds, "`go vet ./...`")
+	}
+	if f.Npm {
+		cmds = append(cmds, "`npx tsc --noEmit`")
+	}
+	if len(cmds) == 0 {
+		return "a compile-only command"
+	}
+	return strings.Join(cmds, " or ")
+}
+
+// rootStages is the commit gate's per-root stage list for each toolchain the
+// repo carries, in the order precommit_gateroot.go runs them.
+func rootStages(f BlockFlags) string {
+	var stages []string
+	if f.Cargo {
+		stages = append(stages, "a cargo root runs fmt→guards→clippy→check→fail-first")
+	}
+	if f.Go {
+		stages = append(stages, "a Go root runs vet→lint→fail-first")
+	}
+	if f.Npm {
+		stages = append(stages, "an npm root runs tsc→eslint→fail-first")
+	}
+	if len(stages) == 0 {
+		return "the toolchain's own checks, then fail-first"
+	}
+	return strings.Join(stages, "; ")
+}
+
 // managedBlockFor renders the block install would write into repoRoot: the
 // template above, with the flags this repo declares. Every caller that needs
 // to know what the block SHOULD say goes through here — the writer and the
@@ -136,11 +186,35 @@ func blockFlagsFor(repoRoot string) BlockFlags {
 	// it, so ws is never empty.
 	ws := cargoWorkspaceRoot(repoRoot)
 	cfg, _ := ReadMutantsConfig(repoRoot)
-	return BlockFlags{
+	f := BlockFlags{
 		Undercover:      cargoAphrolloFlag(ws, "undercover") || aphrolloTomlFlag(repoRoot, "undercover"),
 		MutantsAtMerge:  cfg.AtMerge,
 		MutantsBeforePR: cfg.BeforePR,
 	}
+	f.Cargo, f.Go, f.Npm = repoToolchains(repoRoot)
+	return f
+}
+
+// repoToolchains reports which toolchain manifests the repo carries at any
+// depth, tracked or not yet committed (a fresh repo is installed into before
+// its first commit). A dir git cannot list carries none.
+func repoToolchains(repoRoot string) (cargo, goMod, npm bool) {
+	out, err := gitRead(repoRoot, "ls-files", "--cached", "--others", "--exclude-standard", "--",
+		":(glob)**/Cargo.toml", ":(glob)**/go.mod", ":(glob)**/package.json")
+	if err != nil {
+		return false, false, false
+	}
+	for _, f := range strings.Fields(out) {
+		switch path.Base(f) {
+		case "Cargo.toml":
+			cargo = true
+		case "go.mod":
+			goMod = true
+		case "package.json":
+			npm = true
+		}
+	}
+	return cargo, goMod, npm
 }
 
 // PatchClaudeMD returns existing with the managed block replaced in place, or

@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // apiClaimRepo builds an aphrollo-api-named repo (so svc derives to "api") with
@@ -65,13 +67,13 @@ func recorderBin(t *testing.T, dir, name, log string) string {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		p := filepath.Join(dir, name+".bat")
-		if err := os.WriteFile(p, []byte("@echo off\r\necho "+name+" %* >> "+log+"\r\n"), 0o755); err != nil {
+		if err := proc.WriteExecutable(p, []byte("@echo off\r\necho "+name+" %* >> "+log+"\r\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		return p
 	}
 	p := filepath.Join(dir, name)
-	if err := os.WriteFile(p, []byte("#!/bin/sh\necho \""+name+" $@\" >> "+log+"\n"), 0o755); err != nil {
+	if err := proc.WriteExecutable(p, []byte("#!/bin/sh\necho \""+name+" $@\" >> "+log+"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return p

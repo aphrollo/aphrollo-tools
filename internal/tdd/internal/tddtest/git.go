@@ -2,11 +2,12 @@ package tddtest
 
 import (
 	"errors"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // GitDo runs one git command in dir and fails the test when it fails.
@@ -107,11 +108,11 @@ func FakeGitShim(t *testing.T) (dir, marker string) {
 	dir = t.TempDir()
 	marker = filepath.Join(dir, "shim-ran.txt")
 	cmd := "@echo off\r\nrem aphrollo git queue shim\r\necho %* > \"" + marker + "\"\r\nexit /b 128\r\n"
-	if err := os.WriteFile(filepath.Join(dir, "git.cmd"), []byte(cmd), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(dir, "git.cmd"), []byte(cmd), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	sh := "#!/bin/sh\n# aphrollo git queue shim\necho \"$@\" > \"" + marker + "\"\nexit 128\n"
-	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(sh), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(dir, "git"), []byte(sh), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return dir, marker

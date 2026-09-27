@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // A fake `cargo` on PATH that answers to the name but cannot run — standing
@@ -19,7 +21,7 @@ func writeUnresolvableCargoShim(t *testing.T, dir string) {
 		name = "cargo.bat"
 		body = "@echo off\r\necho aphrollo tdd cargo: resolve cargo: not found 1>&2\r\nexit /b 1\r\n"
 	}
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }

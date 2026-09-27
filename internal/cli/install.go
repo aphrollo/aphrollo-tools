@@ -37,7 +37,7 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		configDir    = fs.String("config-dir", "", "Claude config dir (default: $CLAUDE_CONFIG_DIR or ~/.claude)")
 		gitHooksDir  = fs.String("git-hooks-dir", "", "git hooks dir for the global gate (default: $XDG_CONFIG_HOME/git/hooks or ~/.config/git/hooks)")
 		cargoShimDir = fs.String("cargo-shim-dir", "", "dir for the cargo-queue shim (default: ~/.local/share/aphrollo/cargo-queue on Linux/macOS, alongside --bin on Windows)")
-		noGit        = fs.Bool("no-git", false, "skip the git pre-commit gate; wire session hooks only")
+		noGit        = fs.Bool("no-git", false, "skip the global git gate and the queue shims; still wire session hooks, skills, agents and the repo's CLAUDE.md block")
 		uninstall    = fs.Bool("uninstall", false, "remove the session hooks and git gate instead of installing them")
 		claudeMD     = fs.Bool("claude-md", false, "write the managed CLAUDE.md block even when the repo has no CLAUDE.md yet")
 		ratchetDoc   = fs.Bool("ratchet-readme", false, "write .ratchet/README.md even when the repo has no laws yet")

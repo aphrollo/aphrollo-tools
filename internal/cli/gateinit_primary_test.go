@@ -50,7 +50,8 @@ func TestGateInit_PrintsNoNoticeWhenThePrimaryBlockIsCurrent(t *testing.T) {
 	primary, _ := primaryWorktreeRepo(t)
 	shimDir := filepath.Join(t.TempDir(), "bin", "cargo-queue")
 	claudePath := filepath.Join(primary, "CLAUDE.md")
-	writeFile(t, claudePath, "# repo\n\n"+tdd.ClaudeMDBlock(tdd.BlockFlags{}))
+	current := "# repo\n\n" + tdd.ClaudeMDBlock(tdd.BlockFlags{})
+	writeFile(t, claudePath, current)
 
 	cfg := t.TempDir()
 	args := []string{"gate", "init", "--repo", primary, "--config-dir", cfg,
@@ -72,7 +73,7 @@ func TestGateInit_PrintsNoNoticeWhenThePrimaryBlockIsCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(after) != "# repo\n\n"+tdd.ClaudeMDBlock(tdd.BlockFlags{}) {
+	if string(after) != current {
 		t.Fatalf("CLAUDE.md was rewritten despite being current:\n%s", after)
 	}
 }

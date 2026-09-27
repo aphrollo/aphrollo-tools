@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // fakeGh puts a fake `gh` on PATH that prints message and exits with
@@ -31,7 +33,7 @@ func fakeGh(t *testing.T, message string, exitCode int) {
 			redirect = " 1>&2"
 		}
 		body := fmt.Sprintf("@echo off\r\necho %s%s\r\nexit /b %d\r\n", message, redirect, exitCode)
-		if err := os.WriteFile(filepath.Join(dir, "gh.bat"), []byte(body), 0o755); err != nil {
+		if err := proc.WriteExecutable(filepath.Join(dir, "gh.bat"), []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	} else {
@@ -40,7 +42,7 @@ func fakeGh(t *testing.T, message string, exitCode int) {
 			redirect = " 1>&2"
 		}
 		body := fmt.Sprintf("#!/bin/sh\necho \"%s\"%s\nexit %d\n", message, redirect, exitCode)
-		if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(body), 0o755); err != nil {
+		if err := proc.WriteExecutable(filepath.Join(dir, "gh"), []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}

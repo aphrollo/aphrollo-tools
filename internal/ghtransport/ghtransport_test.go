@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // fakeGH builds a `gh` script in t.TempDir() that answers `api user` and
@@ -30,7 +32,7 @@ func fakeGH(t *testing.T, restExit, graphqlExit int) {
 			"if \"%1 %2\"==\"api graphql\" exit /b " + itoa(graphqlExit) + "\r\n" +
 			"exit /b 1\r\n"
 	}
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -115,7 +117,7 @@ func TestRunRESTOnly_NeverProbesGraphQL(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		name = "gh.bat"
 	}
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))

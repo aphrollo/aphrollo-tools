@@ -184,22 +184,19 @@ retired the root build task). aphrollo-infra no longer force-installs it.
 <!-- aphrollo:begin -->
 ## Working with the aphrollo gate
 
-- **`cargo` and `git` resolve to the queue shim** (`which cargo` prints a path under the
-  `cargo-queue` dir `aphrollo install` wrote); the user PATH and the shell profiles put it first, so a session never exports
-  PATH by hand. A run through the shim QUEUES visibly behind another build instead of
-  hanging on a silent lock; if `which` prints the raw toolchain, the profile is broken: say so.
+- **Where `aphrollo install` put the queue shims on the agent's PATH, `git` resolves to them** (`aphrollo gate doctor` says whether it did):
+  a run through a shim QUEUES visibly behind another build instead of hanging on a silent lock, and a session never exports PATH by hand.
 - **The hooks run the tests, not you.** After every Edit/Write, PostToolUse prints
   exactly ONE `gate:` line for the edit, then one `gate: deferred` line per earlier job of the session, in any tree,
-  that finished since, naming its own tree and command. Read them; never re-run a suite they ran. Iterate with `cargo check -p <crate> --tests`, which runs nothing.
+  that finished since, naming its own tree and command. Read them; never re-run a suite they ran. Iterate with `go vet ./...`, which runs nothing.
 - **Before writing or changing code, read the `tdd` skill** at `~/.claude/skills/tdd/SKILL.md` (under `$CLAUDE_CONFIG_DIR` when set; `aphrollo install` writes it).
 - **What the line means:** `green (N passed)` · `red-missing-impl` (a clean RED) · `red` ·
   `red-bogus` (broken test setup, not a real RED) · `TIMEOUT` / `SKIPPED` / `QUEUED-SKIPPED`
   (**inconclusive — the code was NOT tested**) · `BUILDING (deferred)` (the build outran the
-  budget and continues; its result arrives at the next hook, or wait in the foreground with `aphrollo gate status --wait <tree>`, the tree the line names). The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE targeted `-p <crate> <filter>` after a TIMEOUT. Wanting the run's TEXT is not one of them: `aphrollo gate stats` answers what the verdict WAS, `aphrollo gate output` prints what that run actually PRINTED — assertion lines and all, unfiltered.
+  budget and continues; its result arrives at the next hook, or wait in the foreground with `aphrollo gate status --wait <tree>`, the tree the line names). The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE targeted run of the failing test after a TIMEOUT. Wanting the run's TEXT is not one of them: `aphrollo gate stats` answers what the verdict WAS, `aphrollo gate output` prints what that run actually PRINTED — assertion lines and all, unfiltered.
 - **Commit gate, cheapest first:** staged-baseline guard → ratchet laws → docs check →
-  suppression check → per root: cargo sequential (fmt→guards→clippy→check→fail-first);
-  a Go root also runs vet/lint first. It proves the staged test RED at HEAD, then GREEN with the change, and STOPS — the
-  mechanical suite runs at the MERGE; a commit prints a `NOT RUN` line naming each touched crate it did not test, so an untested crate is never a silent absence.
+  suppression check → per root, a Go root runs vet→lint→fail-first. It proves the staged test RED at HEAD, then GREEN with the change, and STOPS — the
+  mechanical suite runs at the MERGE; a commit prints a `NOT RUN` line naming each touched package it did not test, so an untested package is never a silent absence.
 - **Laws are data:** `.ratchet/laws/*.toml` (scope + one matcher + severity), with baselines in
   the sibling `baselines` dir that only ever go DOWN. `aphrollo ratchet check` judges the tree
   and tightens; `aphrollo ratchet test` proves each law against its fixtures. A new hit is
@@ -212,8 +209,8 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   <reason>`, and closed only by a stage or law named in the fix, never by a sentence in this
   file. The count only goes down; `gate stats` prints it weekly at session start.
 - **The primary checkout is merge-only.** Once a repo has any linked worktree, the checkout holding
-  `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL, the
-  git shim (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit) is the WALL.
+  `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL; the git queue shim,
+  where it is on the agent's PATH, is the WALL (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit).
   Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).
 - **A merge is measured, not certified:** the pre-merge gate runs this lane's mutation measurement in the foreground and refuses an unaccepted survivor by name; `aphrollo gate mutants run` measures THIS checkout the same way before you merge.
 - **Mutation rules** (this repo measures mutants): quote one `aphrollo gate mutants prove --file <f> --old <expr> --new <expr> --want-fail <Test>`

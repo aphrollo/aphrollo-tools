@@ -160,6 +160,7 @@ classifydiff_workflow_filter_unix_test.go          tdd
 classifydiff_workflow_pin_test.go                  tdd
 claudemd.go                                        install
 claudemd_committed_test.go                         tdd
+claudemd_facts_test.go                             install
 claudemd_primary_test.go                           install
 claudemd_source_test.go                            tdd       # created by P2
 claudemd_test.go                                   install
@@ -250,6 +251,8 @@ doctor_identity.go                                 install
 doctor_identity_test.go                            install
 doctor_lawcount_test.go                            install
 doctor_linter_test.go                              install
+doctor_managedfiles.go                             install
+doctor_managedfiles_test.go                        install
 doctor_mutation.go                                 mutation  # created by P2
 doctor_own_test.go                                 core
 doctor_primary_test.go                             install

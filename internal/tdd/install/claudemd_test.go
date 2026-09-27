@@ -9,9 +9,9 @@ import (
 
 func TestClaudeMDBlockCarriesTheOperatingInstructions(t *testing.T) {
 	t.Parallel()
-	block := ClaudeMDBlock(BlockFlags{})
+	block := ClaudeMDBlock(BlockFlags{Cargo: true})
 	for _, want := range []string{
-		claudeMDBegin, claudeMDEnd, "cargo-queue",
+		claudeMDBegin, claudeMDEnd, "queue shim",
 		"gate:", "QUEUED-SKIPPED", "cargo check -p", ".ratchet/laws",
 		"aphrollo ratchet", "aphrollo gate gc", "aphrollo gate stats",
 		"aphrollo install",

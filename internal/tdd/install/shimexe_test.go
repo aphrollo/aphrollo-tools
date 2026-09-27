@@ -5,13 +5,15 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // fakeBinary writes a stand-in for the aphrollo binary and returns its path.
 func fakeBinary(t *testing.T, dir, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, "aphrollo.exe")
-	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+	if err := proc.WriteExecutable(path, []byte(content), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -81,7 +83,7 @@ func TestInstallShimExes_RefreshesAStaleCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile(src, []byte("APHROLLO-V2-LONGER"), 0o755); err != nil {
+	if err := proc.WriteExecutable(src, []byte("APHROLLO-V2-LONGER"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	res, err := installShimExes(dir, src, []string{"cargo.exe"})
@@ -119,7 +121,7 @@ func TestRemoveCmdShims_DeletesTheBatchShims(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	for _, name := range []string{"cargo.cmd", "git.cmd", "rustup.cmd"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte("@echo off\r\n"), 0o755); err != nil {
+		if err := proc.WriteExecutable(filepath.Join(dir, name), []byte("@echo off\r\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}

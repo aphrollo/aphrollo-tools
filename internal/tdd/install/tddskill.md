@@ -5,7 +5,7 @@ argument-hint: "[status|off|on|allow-main|reset|style terse|plain]"
 ---
 
 <!-- Written by `aphrollo install`. Hand edits are overwritten by the next init;
-edit the template in aphrollo (`internal/tdd/install/tddskill.md`) instead. -->
+edit the tdd skill template in the aphrollo source instead. -->
 
 # TDD
 

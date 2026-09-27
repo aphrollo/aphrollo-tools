@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // gitGateHooks are the git hooks the gate manages, paired with the `aphrollo
@@ -218,7 +220,7 @@ func installGitGate(hooksDir, bin string) (bool, error) {
 		if cur, err := os.ReadFile(path); err == nil && string(cur) == want {
 			continue
 		}
-		if err := os.WriteFile(path, []byte(want), 0o755); err != nil {
+		if err := proc.WriteExecutable(path, []byte(want), 0o755); err != nil {
 			return false, err
 		}
 		changed = true
@@ -337,7 +339,7 @@ func WriteManagedHookForTest(hooksDir, name, bin, sub string) error {
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(hooksDir, name), []byte(binShim(bin, sub, "")), 0o755)
+	return proc.WriteExecutable(filepath.Join(hooksDir, name), []byte(binShim(bin, sub, "")), 0o755)
 }
 
 // GlobalHooksPath reads the box's current global core.hooksPath, empty when

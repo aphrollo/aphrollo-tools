@@ -10,7 +10,7 @@ import (
 // block that differs from the render dirties the tracked file on the next
 // install, and nothing noticed when it drifted: the committed copy had lost
 // two bullets the template had grown and still carried one box's shim path.
-// The block now names nothing about the box, so the comparison is exact:
+// The block names nothing about the box, so one repo has one exact block:
 // only line endings are normalized, for a Windows checkout.
 func TestOwnClaudeMD_CarriesTheBlockThisBuildRenders(t *testing.T) {
 	t.Parallel()

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
+
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -174,7 +176,7 @@ func installMarkerWritingHook(t *testing.T, repo, markerPath string) {
 		"mkdir -p \"" + shellSlash(filepath.Dir(markerPath)) + "\"\n" +
 		"printf '%s\\n%s\\n' \"$(date +%s)\" 'REJECTED by fake hook' > \"" + shellSlash(markerPath) + "\"\n" +
 		"exit 1\n"
-	if err := os.WriteFile(filepath.Join(hooksDir, "pre-merge-commit"), []byte(script), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(hooksDir, "pre-merge-commit"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -235,7 +237,7 @@ func installMarkerWritingHookThatCorruptsFile(t *testing.T, repo, markerPath, ta
 		"mkdir -p \"" + shellSlash(filepath.Dir(markerPath)) + "\"\n" +
 		"printf '%s\\n%s\\n' \"$(date +%s)\" 'REJECTED by fake hook' > \"" + shellSlash(markerPath) + "\"\n" +
 		"exit 1\n"
-	if err := os.WriteFile(filepath.Join(hooksDir, "pre-merge-commit"), []byte(script), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(hooksDir, "pre-merge-commit"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }

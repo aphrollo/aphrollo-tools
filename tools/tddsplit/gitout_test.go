@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // fakeGitOnPath builds a `git` executable in a fresh t.TempDir() that prints
@@ -22,7 +24,7 @@ func fakeGitOnPath(t *testing.T, stdout, stderr string) {
 		script = "@echo off\r\n<nul set /p=%STDOUT_LINE%\r\n<nul set /p=%STDERR_LINE% 1>&2\r\n"
 	}
 	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+	if err := proc.WriteExecutable(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("STDOUT_LINE", stdout)

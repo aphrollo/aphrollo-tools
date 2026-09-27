@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
+
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -79,7 +81,7 @@ func shimInstalls() []shimInstall {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, tool+exeSuffix()), data, 0o755); err != nil {
+		if err := proc.WriteExecutable(filepath.Join(dir, tool+exeSuffix()), data, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}}}

@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 func TestUnitFor(t *testing.T) {
@@ -43,7 +45,7 @@ func withFakes(t *testing.T) string {
 		ext, body = ".cmd", func(name string) string { return "@>> \"" + rec + "\" echo " + name + " %*\r\n" }
 	}
 	for _, name := range []string{"systemctl", "journalctl"} {
-		if err := os.WriteFile(filepath.Join(bin, name+ext), []byte(body(name)), 0o755); err != nil {
+		if err := proc.WriteExecutable(filepath.Join(bin, name+ext), []byte(body(name)), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}

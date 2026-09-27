@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 func TestNameOf(t *testing.T) {
@@ -252,7 +254,7 @@ func gitShowFailsStubDir(t *testing.T) string {
 		")\r\n" +
 		"echo deadbeefdeadbeefdeadbeefdeadbeefdeadbeef\r\n" +
 		"exit /b 0\r\n"
-	if err := os.WriteFile(filepath.Join(dir, "git.cmd"), []byte(cmd), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(dir, "git.cmd"), []byte(cmd), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	sh := "#!/bin/sh\n" +
@@ -260,7 +262,7 @@ func gitShowFailsStubDir(t *testing.T) string {
 		"  *show*) echo \"fatal: stub show failure\" 1>&2; exit 128 ;;\n" +
 		"  *) echo deadbeefdeadbeefdeadbeefdeadbeefdeadbeef; exit 0 ;;\n" +
 		"esac\n"
-	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(sh), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(dir, "git"), []byte(sh), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return dir

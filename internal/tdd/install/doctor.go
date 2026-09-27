@@ -352,41 +352,6 @@ func doctorRetiredCommand(in DoctorInput) DoctorCheck {
 	return c
 }
 
-// doctorManagedFiles checks every skill and agent this binary ships is present
-// and byte-identical to the template it carries. A drifted copy means a
-// session follows rules the gate does not enforce.
-func doctorManagedFiles(in DoctorInput) DoctorCheck {
-	c := DoctorCheck{Name: "managed skills and agents"}
-	want := map[string]string{
-		tddSkillPath(in.ConfigDir): TDDSkill(),
-		sddSkillPath(in.ConfigDir): SDDSkill(),
-	}
-	for _, name := range managedAgentNames {
-		body, ok := ManagedAgent(name)
-		if !ok {
-			continue
-		}
-		want[agentPath(in.ConfigDir, name)] = body
-	}
-	var stale []string
-	for path, body := range want {
-		have, err := os.ReadFile(path)
-		switch {
-		case err != nil:
-			stale = append(stale, filepath.Base(filepath.Dir(path))+"/"+filepath.Base(path)+" (missing)")
-		case string(have) != body:
-			stale = append(stale, filepath.Base(filepath.Dir(path))+"/"+filepath.Base(path)+" (edited)")
-		}
-	}
-	if len(stale) > 0 {
-		sortStrings(stale)
-		c.Detail = strings.Join(stale, ", ") + " — run `aphrollo install`"
-		return c
-	}
-	c.OK = true
-	return c
-}
-
 // doctorLinterVersion compares the locally installed golangci-lint against
 // the version this repo's CI pins, which is read from the workflow file
 // itself — the only place the pin actually lives, so the report cannot go

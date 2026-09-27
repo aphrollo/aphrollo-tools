@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
+
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -98,7 +100,7 @@ func allBrokenDoctorReports(t *testing.T) string {
 	// leftover batch shim.
 	batchShim := base
 	batchShim.ShimDir = t.TempDir()
-	if err := os.WriteFile(filepath.Join(batchShim.ShimDir, "git.cmd"), []byte("@echo off\r\n"), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(batchShim.ShimDir, "git.cmd"), []byte("@echo off\r\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	render(batchShim)

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // TestDefaultCargoShimDir_NonWindows_IsPerUserDataDir proves the fix for the
@@ -73,7 +75,7 @@ func TestShimBypassLine_WarnsWhenLookPathEscapesTheShimDir(t *testing.T) {
 	if err := os.MkdirAll(shimDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(shimDir, "cargo"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(shimDir, "cargo"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	restore := SetShimBypassLookPathForTest(func(name string) (string, error) {
@@ -107,7 +109,7 @@ func TestShimBypassLine_SilentWhenBothResolveInsideTheShimDir(t *testing.T) {
 	if err := os.MkdirAll(shimDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(shimDir, "cargo"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(shimDir, "cargo"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	restore := SetShimBypassLookPathForTest(func(name string) (string, error) {
