@@ -58,18 +58,13 @@ func declaredLinesStage(gateName, repoRoot, root string, r Runner, run SuiteRunn
 }
 
 // newLinesSinceHead runs r in root's place in HEAD's tree and is the lines
-// of out it did not print. The tree sits under root's node_modules when root
-// has one, so a declared npx finds root's packages, and in the system temp
-// dir otherwise.
+// of out it did not print. That place links root's node_modules when root
+// has one, so a declared npx finds root's packages.
 func newLinesSinceHead(repoRoot, root string, r Runner, out string, run SuiteRunner) ([]string, error) {
 	// root is repoRoot or below it, both from the same walk.
 	rel, _ := filepath.Rel(repoRoot, root)
-	parent := filepath.Join(root, "node_modules")
-	if _, err := os.Stat(parent); err != nil {
-		parent = ""
-	}
 	var fresh []string
-	err := atHead(repoRoot, parent, func(base string) error {
+	err := atHead(repoRoot, rel, func(base string) error {
 		res := run(r, filepath.Join(base, rel))
 		if res.TimedOut {
 			return fmt.Errorf("the run at HEAD did not finish in %.0fs", res.Duration.Seconds())

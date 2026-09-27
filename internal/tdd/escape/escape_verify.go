@@ -18,8 +18,11 @@ import (
 // a paragraph is an escape that will happen again.
 
 // closesRe reads the issue numbers a PR says it closes, in every spelling
-// GitHub accepts.
-var closesRe = regexp.MustCompile(`(?i)\b(?:close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#(\d+)`)
+// GitHub accepts — a bare "#N", or a qualified "owner/name#N" naming which
+// repo N belongs to (GitHub itself accepts both after a closing keyword).
+// Group 1 is the optional qualifier (empty for a bare reference), group 2 the
+// number.
+var closesRe = regexp.MustCompile(`(?i)\b(?:close[sd]?|fixe?[sd]?|resolve[sd]?)\s+([\w.-]+/[\w.-]+)?#(\d+)`)
 
 // lawPathPrefixes are data paths whose every file IS a check: a law is its
 // TOML, and its fixtures are how the law is proved.
@@ -73,7 +76,7 @@ func VerifyClosure(repo, pr string, w io.Writer) (bool, error) {
 	if !ghAvailable() {
 		return false, fmt.Errorf("verify-closure needs the GitHub CLI (gh) on PATH")
 	}
-	meta, err := readPRMeta(repo, pr)
+	meta, err := readPRMeta(repo, pr, w)
 	if err != nil {
 		return false, err
 	}
@@ -97,7 +100,7 @@ func VerifyClosureLocal(repo string, texts []string, base, head string, w io.Wri
 	if !ghAvailable() {
 		return false, fmt.Errorf("verify-closure needs the GitHub CLI (gh) on PATH")
 	}
-	meta := prMeta{closes: closedIssues(texts), texts: texts, base: base, head: head}
+	meta := prMeta{closes: closedIssues(repo, texts, w), texts: texts, base: base, head: head}
 	return verifyClosureMeta(repo, "the branch", meta, func() (map[string]string, error) {
 		diff, err := gitRead(repo, "diff", base+"..."+head)
 		if err != nil {
@@ -119,6 +122,10 @@ func verifyClosureMeta(repo, subject string, meta prMeta, fetchPatch func() (map
 	for _, number := range meta.closes {
 		labels, issueBody, err := issueLabelsAndBody(repo, number)
 		if err != nil {
+			if unresolvedIssueErr(err) {
+				fmt.Fprintf(w, "warning: #%s does not resolve to a local issue — skipped (a number that is not a local issue cannot be an unclosed escape)\n", number)
+				continue
+			}
 			return false, err
 		}
 		if !labels[EscapeKind] && !labels[FalsePositiveKind] {
@@ -179,7 +186,7 @@ func verifyClosureMeta(repo, subject string, meta prMeta, fetchPatch func() (map
 // fetching the diff itself. The body is not the only place that closes an
 // issue: GitHub honours the same keyword in a COMMIT message inside the PR,
 // so a check reading only the body lets a PR close an escape behind its back.
-func readPRMeta(repo, pr string) (prMeta, error) {
+func readPRMeta(repo, pr string, w io.Writer) (prMeta, error) {
 	out, err := runGh(repo, "pr", "view", pr, "--json", "body,commits,baseRefOid,headRefOid")
 	if err != nil {
 		return prMeta{}, err
@@ -200,7 +207,7 @@ func readPRMeta(repo, pr string) (prMeta, error) {
 	for _, c := range doc.Commits {
 		texts = append(texts, c.MessageHeadline, c.MessageBody)
 	}
-	return prMeta{closes: closedIssues(texts), texts: texts, base: doc.BaseRefOid, head: doc.HeadRefOid}, nil
+	return prMeta{closes: closedIssues(repo, texts, w), texts: texts, base: doc.BaseRefOid, head: doc.HeadRefOid}, nil
 }
 
 // readPRPatch fetches the PR's full patch (not --name-only: a manifest is
@@ -267,16 +274,29 @@ func diffTooLargeForGitHub(err error) bool {
 	return strings.Contains(s, "too_large") || strings.Contains(s, "HTTP 406")
 }
 
-// closedIssues is every issue number the given texts close, deduped and in
-// first-seen order so the verdicts read in a stable order.
-func closedIssues(texts []string) []string {
+// closedIssues is every LOCAL issue number the given texts close, deduped and
+// in first-seen order so the verdicts read in a stable order. A reference
+// qualified with an owner/name that names a DIFFERENT repo than repo's own
+// remote closes an issue in that other tracker — GitHub resolves it there,
+// never here, so it is skipped rather than misread as a number in repo's own
+// issue list (issue #931). w, when non-nil, prints one note per skipped
+// cross-repo reference.
+func closedIssues(repo string, texts []string, w io.Writer) []string {
+	local, hasLocal := localOwnerRepo(repo)
 	var out []string
 	seen := map[string]bool{}
 	for _, text := range texts {
 		for _, m := range closesRe.FindAllStringSubmatch(text, -1) {
-			if !seen[m[1]] {
-				seen[m[1]] = true
-				out = append(out, m[1])
+			qualifier, number := m[1], m[2]
+			if qualifier != "" && (!hasLocal || !strings.EqualFold(qualifier, local)) {
+				if w != nil {
+					fmt.Fprintf(w, "note: %s#%s names a different repo — not judged here\n", qualifier, number)
+				}
+				continue
+			}
+			if !seen[number] {
+				seen[number] = true
+				out = append(out, number)
 			}
 		}
 	}
