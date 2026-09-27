@@ -195,3 +195,42 @@ func TestWorkspaceStage_RunsScopedClippyAndNamesTheCrates(t *testing.T) {
 		t.Fatalf("check stage = %q, want the touched crate selected with -p", clippyArgs)
 	}
 }
+
+// #870, borld 3650cb56: a commit that changed only files under
+// crates/forge_solver/tests/ took forge_solver plus eleven crates downstream
+// of it into the check scope, and the doctest stage then built `client` for
+// nothing. A dependent compiles a crate's library only; its tests/, benches/
+// and examples/ targets are that crate's own business. src/, the manifest, a
+// build script, and a `tests` directory that is not the crate's own target
+// directory still reach every dependent.
+func TestPlanCargoStages_ScopesDownstreamByWhatTheStagedFilesCanReach(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/core\", \"crates/lab\"]\n")
+	write(t, root, "crates/core/Cargo.toml", "[package]\nname = \"core_sim\"\nversion = \"0.1.0\"\n")
+	write(t, root, "crates/lab/Cargo.toml", "[package]\nname = \"lab\"\nversion = \"0.1.0\"\n")
+	stubWorkspaceGraph(t, map[string][]string{"core_sim": nil, "lab": {"core_sim"}})
+
+	cases := []struct {
+		staged []string
+		want   string
+	}{
+		{[]string{"crates/core/tests/integration/rung/rolling_patch.rs"}, "core_sim"},
+		{[]string{"crates/core/benches/step.rs", "crates/core/examples/demo.rs"}, "core_sim"},
+		{[]string{"crates/core/tests/it.rs", "crates/core/src/lib.rs"}, "core_sim,lab"},
+		{[]string{"crates/core/src/tests/helpers.rs"}, "core_sim,lab"},
+		{[]string{"crates/core/Cargo.toml"}, "core_sim,lab"},
+		{[]string{"crates/core/build.rs"}, "core_sim,lab"},
+	}
+	for _, tc := range cases {
+		plan, ok := planCargoStages("g", root, root, tc.staged)
+		if !ok {
+			t.Fatalf("planCargoStages(%v) found nothing owned", tc.staged)
+		}
+		if got := strings.Join(plan.downstream, ","); got != tc.want {
+			t.Errorf("downstream for %v = %s, want %s", tc.staged, got, tc.want)
+		}
+		if got := strings.Join(plan.touched, ","); got != "core_sim" {
+			t.Errorf("touched for %v = %s, want core_sim", tc.staged, got)
+		}
+	}
+}

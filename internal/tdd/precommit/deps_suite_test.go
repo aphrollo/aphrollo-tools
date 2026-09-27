@@ -33,11 +33,17 @@ func SetCargoWorkspaceDepsForTest(p0 func(root string) (map[string][]string, err
 	return suite.SetCargoWorkspaceDepsForTest(p0)
 }
 
+func SetLookNodeForTest(p0 func() (string, error)) func() { return suite.SetLookNodeForTest(p0) }
+
 func cargoAphrolloPackages(p0 string, p1 string) []string { return suite.CargoAphrolloPackages(p0, p1) }
 
 func cargoRunnerAt(p0 string, p1 ...string) (Runner, bool) { return suite.CargoRunnerAt(p0, p1...) }
 
 func cargoVacuousTargets(p0 string) []string { return suite.CargoVacuousTargets(p0) }
+
+func clippyScope(p0 string, p1 string, p2 string, p3 []string) []string {
+	return suite.ClippyScope(p0, p1, p2, p3)
+}
 
 func hasGateProfile(p0 string) bool { return suite.HasGateProfile(p0) }
 

@@ -41,6 +41,10 @@ func cargoAphrolloFlag(p0 string, p1 string) bool { return suite.CargoAphrolloFl
 
 func cargoClippyCleanPackages(p0 string) []string { return suite.CargoClippyCleanPackages(p0) }
 
+func cargoDownstreamScope(p0 string, p1 string, p2 string, p3 string, p4 []string) []string {
+	return suite.CargoDownstreamScope(p0, p1, p2, p3, p4)
+}
+
 func cargoPackageFor(p0 string, p1 string) string { return suite.CargoPackageFor(p0, p1) }
 
 func cargoPackagesOwning(p0 string, p1 []string) []string { return suite.CargoPackagesOwning(p0, p1) }
@@ -49,10 +53,6 @@ func cargoVerbArgs(p0 string) []string { return suite.CargoVerbArgs(p0) }
 
 func cargoWorkspaceDepsFn(p0 string) (map[string][]string, error) {
 	return suite.CargoWorkspaceDepsFn(p0)
-}
-
-func clippyScope(p0 string, p1 string, p2 string, p3 []string) []string {
-	return suite.ClippyScope(p0, p1, p2, p3)
 }
 
 func cmdString(p0 Runner) string { return suite.CmdString(p0) }
@@ -90,6 +90,8 @@ func mechKey(p0 string, p1 string, p2 Runner) string { return suite.MechKey(p0, 
 func narrowToStaged(p0 Runner, p1 string, p2 []string) (Runner, bool) {
 	return suite.NarrowToStaged(p0, p1, p2)
 }
+
+func nodeToolRunner(p0 string, p1 Runner) (Runner, string) { return suite.NodeToolRunner(p0, p1) }
 
 func npmBinEntry(p0 string, p1 string) string { return suite.NpmBinEntry(p0, p1) }
 

@@ -19,7 +19,7 @@ func vacuousNames(runner Runner, res SuiteResult) ([]string, error) {
 			return []string{"pytest"}, nil
 		}
 		return nil, nil
-	case runner.Cmd == "npx" && len(runner.Args) > 0 && runner.Args[0] == "vitest":
+	case npmTestToolOf(runner) == "vitest":
 		if vitestVacuous(res.Output) {
 			return []string{"vitest"}, nil
 		}

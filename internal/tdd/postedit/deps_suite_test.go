@@ -21,6 +21,8 @@ func SetGoTestReachForTest(p0 func(root string, dir string) ([]string, error)) f
 	return suite.SetGoTestReachForTest(p0)
 }
 
+func SetLookNodeForTest(p0 func() (string, error)) func() { return suite.SetLookNodeForTest(p0) }
+
 func cargoNestedTestFileReachable(p0 string, p1 string) bool {
 	return suite.CargoNestedTestFileReachable(p0, p1)
 }

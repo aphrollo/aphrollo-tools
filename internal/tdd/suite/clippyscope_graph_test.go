@@ -79,3 +79,42 @@ func TestParseWorkspaceDeps_GraphIsSortedDedupedAndMemberOnly(t *testing.T) {
 		t.Error("unparsable metadata read as an empty graph, want an error")
 	}
 }
+
+// #870: a dependent compiles a crate's library, never its integration tests,
+// benches or examples, so a change confined to those takes the touched crate
+// alone and never reads the graph. src/ (a `tests` directory inside it
+// included), the manifest and a build script still reach every dependent.
+func TestCargoDownstreamScope_WidensOnlyForWhatADependentCompiles(t *testing.T) {
+	ws := t.TempDir()
+	write(t, ws, "Cargo.toml", "[workspace]\nmembers = [\"crates/core\", \"crates/lab\"]\n")
+	write(t, ws, "crates/core/Cargo.toml", "[package]\nname = \"core_sim\"\nversion = \"0.1.0\"\n")
+	write(t, ws, "crates/lab/Cargo.toml", "[package]\nname = \"lab\"\nversion = \"0.1.0\"\n")
+	graphReads := 0
+	t.Cleanup(SetCargoWorkspaceDepsForTest(func(string) (map[string][]string, error) {
+		graphReads++
+		return map[string][]string{"core_sim": nil, "lab": {"core_sim"}}, nil
+	}))
+
+	cases := []struct {
+		staged []string
+		want   string
+		reads  int
+	}{
+		{[]string{"crates/core/tests/integration/rung/rolling_patch.rs"}, "core_sim", 0},
+		{[]string{"crates/core/benches/step.rs", "crates/core/examples/demo.rs"}, "core_sim", 0},
+		{[]string{"crates/core/tests/it.rs", "crates/core/src/lib.rs"}, "core_sim,lab", 1},
+		{[]string{"crates/core/src/tests/helpers.rs"}, "core_sim,lab", 1},
+		{[]string{"crates/core/Cargo.toml"}, "core_sim,lab", 1},
+		{[]string{"crates/core/build.rs"}, "core_sim,lab", 1},
+	}
+	for _, tc := range cases {
+		graphReads = 0
+		got := cargoDownstreamScope("g", ws, ws, ws, tc.staged)
+		if strings.Join(got, ",") != tc.want {
+			t.Errorf("cargoDownstreamScope(%v) = %v, want %s", tc.staged, got, tc.want)
+		}
+		if graphReads != tc.reads {
+			t.Errorf("cargoDownstreamScope(%v) read the graph %d times, want %d", tc.staged, graphReads, tc.reads)
+		}
+	}
+}

@@ -192,3 +192,31 @@ func TestParseGoListReach_SkipsWhatItCannotRead(t *testing.T) {
 		t.Errorf("tested = %v, want %v", tested, want)
 	}
 }
+
+// #870: importers compile a package's non-test files only, so a change
+// confined to its _test.go files cannot break them. Such a package owes its
+// own suite and nothing upstream of it; a package in the same commit whose
+// library source moved still widens to its importers.
+func TestNarrowToStaged_Go_ATestOnlyPackageDoesNotWidenToItsImporters(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "internal/ratchet/preset.go", "package ratchet\n")
+	write(t, root, "internal/ratchet/preset_test.go", "package ratchet\n")
+	write(t, root, "internal/docs/docs.go", "package docs\n")
+	write(t, root, "internal/cli/cli.go", "package cli\n")
+	write(t, root, "internal/tdd/tdd.go", "package tdd\n")
+	stubGoWorkspaceGraph(t, map[string][]string{
+		"internal/cli": {"internal/ratchet"},
+		"internal/tdd": {"internal/docs"},
+	})
+
+	got, ok := narrowToStaged(Runner{Cmd: "go"}, root,
+		[]string{"internal/ratchet/preset_test.go", "internal/docs/docs.go"})
+
+	if !ok {
+		t.Fatal("narrowToStaged declined to narrow; both staged files name a real package")
+	}
+	want := []string{"test", "./internal/docs", "./internal/ratchet", "./internal/tdd"}
+	if !slices.Equal(got.Args, want) {
+		t.Errorf("args = %q, want %q — ratchet's test-only change owes ratchet alone, docs' source change owes its importer tdd", got.Args, want)
+	}
+}

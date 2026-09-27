@@ -1,6 +1,7 @@
 package precommit
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -85,6 +86,14 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 		reportSuitesNotRun(gateName, g.Root, suiteNoun(runner.Cmd), runner, suiteTouchedNames(runner))
 		return failFirstStage(repoRoot, g.Root, g.tests, g.srcs, run)
 	}
+	// rootSuiteRunner already put an npm test tool under node; one it could
+	// not is a suite the merge cannot run, and so cannot pass (#929).
+	if _, missing := nodeToolRunner(g.Root, runner); missing != "" {
+		return verdictFor(gateName, "mechanical", g.Root, cmdString(runner), stageOutcome{
+			Kind: outcomeCheckError, Err: errors.New(missing),
+			Message: fmt.Sprintf("the suite of %s cannot run: %s", g.Root, missing),
+		})
+	}
 	return suiteStage(gateName, repoRoot, g.Root, runner, run)
 }
 
@@ -120,11 +129,15 @@ func rootChecksStage(gateName, repoRoot, root string, runner Runner, touched []s
 }
 
 // rootSuiteRunner is the suite a non-cargo root owes: runner scoped to the
-// staged files' packages, with CI's flags on a Go run.
+// staged files' packages, with CI's flags on a Go run, and an npm test tool
+// run as `node <its installed bin entry>` wherever that resolves.
 func rootSuiteRunner(gateName, repoRoot, root string, runner Runner, files []string) Runner {
 	runner = narrowedRunner(runner, repoRoot, root, files)
 	if runner.Cmd == "go" {
 		runner = withGoCIParity(runner, gateName == premergeDisplayName)
+	}
+	if node, missing := nodeToolRunner(root, runner); missing == "" {
+		runner = node
 	}
 	return runner
 }
@@ -204,9 +217,10 @@ func commitOwedSuites(repoRoot string) []owedSuite {
 // additions — no staged file belongs to those), the guard packages the
 // workspace declares, and any staged files that ARE the workspace's own
 // manifest/lockfile/build config rather than a member's. downstream is the
-// touched crates plus every workspace crate that depends on one of them
-// (clippyScope): the ground a change can break, and the one list the check
-// stage, the merge's suite and its doctests all select from.
+// touched crates plus every workspace crate that depends on one whose staged
+// files a dependent compiles (cargoDownstreamScope): the ground a change can
+// break, and the one list the check stage, the merge's suite and its doctests
+// all select from.
 type cargoStagePlan struct {
 	ws            string
 	touched       []string
@@ -254,11 +268,11 @@ func planCargoStages(gateName, repoRoot, root string, rootFiles []string) (cargo
 	if len(owned) == 0 && len(wsManifestHit) == 0 {
 		return cargoStagePlan{}, false
 	}
-	touched := cargoPackagesOwning(root, toRootRelative(repoRoot, root, owned))
+	rel := toRootRelative(repoRoot, root, owned)
 	return cargoStagePlan{
 		ws:            ws,
-		touched:       touched,
-		downstream:    clippyScope(gateName, repoRoot, ws, touched),
+		touched:       cargoPackagesOwning(root, rel),
+		downstream:    cargoDownstreamScope(gateName, repoRoot, ws, root, rel),
 		alwaysRun:     cargoAlwaysRunPackages(ws),
 		wsManifestHit: wsManifestHit,
 	}, true
@@ -302,7 +316,7 @@ func workspaceCheckStage(gateName, repoRoot, root string, plan cargoStagePlan, r
 		AppendGateLog(gateName, ws, "", "clippy-scope-empty-skipped", 0)
 		return GateResult{}
 	}
-	fmt.Fprintf(os.Stderr, "gate %s: check scope → %s (touched crates + everything downstream of them)\n",
+	fmt.Fprintf(os.Stderr, "gate %s: check scope → %s (touched crates + everything downstream of a change a dependent compiles)\n",
 		gateName, strings.Join(scope, " "))
 	args := []string{"clippy"}
 	for _, pkg := range scope {
