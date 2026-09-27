@@ -38,6 +38,8 @@ func EvaluateAdded(p0 string, p1 map[int]bool, p2 lang, p3 []policy, p4 phase) D
 
 func IntersectLines(p0 map[int]bool, p1 map[int]bool) map[int]bool { return intersectLines(p0, p1) }
 
+func IntroducedLines(p0 string, p1 string, p2 lang) map[int]bool { return introducedLines(p0, p1, p2) }
+
 func LangOf(p0 string) lang { return langOf(p0) }
 
 func NewView(p0 string, p1 lang) view { return newView(p0, p1) }

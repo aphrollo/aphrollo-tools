@@ -24,4 +24,8 @@ func evaluateAdded(p0 string, p1 map[int]bool, p2 lang, p3 []policy, p4 phase) D
 	return smell.EvaluateAdded(p0, p1, p2, p3, p4)
 }
 
+func introducedLines(p0 string, p1 string, p2 lang) map[int]bool {
+	return smell.IntroducedLines(p0, p1, p2)
+}
+
 func langOf(p0 string) lang { return smell.LangOf(p0) }

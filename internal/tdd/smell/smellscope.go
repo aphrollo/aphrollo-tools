@@ -79,6 +79,17 @@ func addedLines(pre, post string) map[int]bool {
 	return added
 }
 
+// introducedLines are the 1-based lines of post that pre did not already
+// carry, compared by content in the directives view, never by diff position.
+// A suppression that only moved within the file, or that a diff aligned
+// against the wrong line, reads the same before and after and is not
+// introduced. Comparing the directives view rather than the raw text keeps a
+// directive that sat blank inside a string before and is a live comment after
+// counted as new.
+func introducedLines(pre, post string, l lang) map[int]bool {
+	return addedLines(l.mask(pre, false), l.mask(post, false))
+}
+
 // escapedLines are the lines a marker admits: the line carrying it, and the
 // line below it (a reason too long for the code's own line goes above it).
 func escapedLines(directives, marker string) map[int]bool {

@@ -602,6 +602,7 @@ precommit_declared_baseline_test.go                precommit
 precommit_declared_test.go                         precommit
 precommit_diffscan.go                              precommit
 precommit_diffscan_failfirst.go                    failfirst # created by P2
+precommit_diffscan_moved_test.go                   precommit
 precommit_diffscan_suite.go                        suite     # created by P2
 precommit_diffscan_testoraclewarnings_test.go      precommit
 precommit_docsonly_fastpath_test.go                precommit
