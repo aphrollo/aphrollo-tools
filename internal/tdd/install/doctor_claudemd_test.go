@@ -26,9 +26,7 @@ func putManagedBlock(t *testing.T, repo, body string) {
 }
 
 // currentBlock is what install would write into repo on this box.
-func currentBlock(in DoctorInput) string {
-	return managedBlockFor(in.Repo, QueueShimsOnAgentPath(in.Repo, in.ConfigDir))
-}
+func currentBlock(in DoctorInput) string { return managedBlockFor(in.Repo) }
 
 func TestDoctor_ReportsAManagedBlockWrittenByAnOlderTemplate(t *testing.T) {
 	in := healthyInstall(t)

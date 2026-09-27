@@ -50,9 +50,7 @@ func TestGateInit_PrintsNoNoticeWhenThePrimaryBlockIsCurrent(t *testing.T) {
 	primary, _ := primaryWorktreeRepo(t)
 	shimDir := filepath.Join(t.TempDir(), "bin", "cargo-queue")
 	claudePath := filepath.Join(primary, "CLAUDE.md")
-	// Current for a full init, which puts the queue shims on the agent's
-	// env.PATH, in a repo with no toolchain manifest.
-	current := "# repo\n\n" + tdd.ClaudeMDBlock(tdd.BlockFlags{QueueShims: true})
+	current := "# repo\n\n" + tdd.ClaudeMDBlock(tdd.BlockFlags{})
 	writeFile(t, claudePath, current)
 
 	cfg := t.TempDir()

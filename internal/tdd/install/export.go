@@ -14,7 +14,7 @@ func EffectiveReplyStyle(p0 *sessionState) string { return effectiveReplyStyle(p
 
 func FeatureReadmeRows() []string { return featureReadmeRows() }
 
-func ManagedBlockFor(p0 string, p1 bool) string { return managedBlockFor(p0, p1) }
+func ManagedBlockFor(p0 string) string { return managedBlockFor(p0) }
 
 func ReplyStyleFor(p0 string) string { return replyStyleFor(p0) }
 

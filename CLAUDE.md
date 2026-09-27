@@ -184,9 +184,8 @@ retired the root build task). aphrollo-infra no longer force-installs it.
 <!-- aphrollo:begin -->
 ## Working with the aphrollo gate
 
-- **`git` resolves to the queue shim** (`which git` prints a path in the queue shim dir):
-  `aphrollo install` put that dir first in the agent's env.PATH, so a session never exports PATH by hand. A run
-  through the shim QUEUES visibly behind another build instead of hanging on a silent lock; if `which` prints the raw tool, say so.
+- **Where `aphrollo install` put the queue shims on the agent's PATH, `git` resolves to them** (`aphrollo gate doctor` says whether it did):
+  a run through a shim QUEUES visibly behind another build instead of hanging on a silent lock, and a session never exports PATH by hand.
 - **The hooks run the tests, not you.** After every Edit/Write, PostToolUse prints
   exactly ONE `gate:` line for the edit, then one `gate: deferred` line per earlier job of the session, in any tree,
   that finished since, naming its own tree and command. Read them; never re-run a suite they ran. Iterate with `go vet ./...`, which runs nothing.
@@ -210,8 +209,8 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   <reason>`, and closed only by a stage or law named in the fix, never by a sentence in this
   file. The count only goes down; `gate stats` prints it weekly at session start.
 - **The primary checkout is merge-only.** Once a repo has any linked worktree, the checkout holding
-  `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL, the
-  git shim (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit) is the WALL.
+  `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL; the git queue shim,
+  where it is on the agent's PATH, is the WALL (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit).
   Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).
 - **A merge is measured, not certified:** the pre-merge gate runs this lane's mutation measurement in the foreground and refuses an unaccepted survivor by name; `aphrollo gate mutants run` measures THIS checkout the same way before you merge.
 - **Mutation rules** (this repo measures mutants): quote one `aphrollo gate mutants prove --file <f> --old <expr> --new <expr> --want-fail <Test>`

@@ -165,22 +165,38 @@ func TestDoctor_FindsTheManagedFilesEveryInstallModeWrote(t *testing.T) {
 	}
 }
 
-// Issue #889: the block states the queue shims only where install put them
-// on the agent's env.PATH, which --no-git never does, and doctor judges the
-// block against that same fact, so a fresh install of any mode is current.
-func TestInstall_TheBlockStatesTheShimsOnlyWhereInstallPutThem(t *testing.T) {
-	for _, mode := range installModes {
-		t.Run(mode.name, func(t *testing.T) {
-			f := runInstallMode(t, mode)
-			states := strings.Contains(readFile(t, filepath.Join(f.repo, "CLAUDE.md")), "resolves to the queue shim")
-			if states == mode.noGit {
-				t.Errorf("install %s: block states the queue shims = %v, want %v", mode.name, states, !mode.noGit)
-			}
-			for _, c := range tdd.Doctor(doctorInput("", "", f.repo)) {
-				if c.Name == "CLAUDE.md block" && !c.OK {
-					t.Errorf("after install %s, doctor calls the block it wrote stale: %s", mode.name, c.Detail)
-				}
-			}
-		})
+// ratchet: test_removed TestInstall_TheBlockStatesTheShimsOnlyWhereInstallPutThem: the block no longer depends on whether install put the shims on PATH; TestInstall_TheBlockIsTheSameWithAndWithoutTheShims pins that instead
+// Issue #889 and #874: the committed block depends only on the repo, so the
+// same repo installed with the queue shims on the agent's PATH and without
+// them renders byte-identical blocks, and neither install rewrites the other's.
+func TestInstall_TheBlockIsTheSameWithAndWithoutTheShims(t *testing.T) {
+	isolateGit(t)
+	t.Setenv(tdd.HooksDirUnsafeEnv, "1")
+	repo := resolvedTempDir(t)
+	gitInitRepo(t, repo)
+	writeFile(t, filepath.Join(repo, "CLAUDE.md"), "# Project\n")
+	bin := fakeInstalledBin(t)
+	install := func(noGit bool) string {
+		t.Helper()
+		args := []string{"install", "--repo", repo, "--bin", bin, "--config-dir", gateConfigDir(t),
+			"--git-hooks-dir", filepath.Join(t.TempDir(), "githooks"),
+			"--cargo-shim-dir", filepath.Join(t.TempDir(), "cargo-queue")}
+		if noGit {
+			args = append(args, "--no-git")
+		}
+		var out, errb bytes.Buffer
+		if code := Run(args, strings.NewReader(""), &out, &errb); code != 0 {
+			t.Fatalf("install (no-git=%v) exit = %d\n%s%s", noGit, code, out.String(), errb.String())
+		}
+		return readFile(t, filepath.Join(repo, "CLAUDE.md"))
+	}
+
+	withShims := install(false)
+	withoutShims := install(true)
+	if withShims != withoutShims {
+		t.Errorf("installing without the shims rewrote the block:\n--- with shims\n%s\n--- without\n%s", withShims, withoutShims)
+	}
+	if again := install(false); again != withoutShims {
+		t.Errorf("installing with the shims again rewrote the block:\n%s", again)
 	}
 }

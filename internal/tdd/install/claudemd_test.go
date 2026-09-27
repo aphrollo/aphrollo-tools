@@ -9,7 +9,7 @@ import (
 
 func TestClaudeMDBlockCarriesTheOperatingInstructions(t *testing.T) {
 	t.Parallel()
-	block := ClaudeMDBlock(BlockFlags{QueueShims: true, Cargo: true})
+	block := ClaudeMDBlock(BlockFlags{Cargo: true})
 	for _, want := range []string{
 		claudeMDBegin, claudeMDEnd, "queue shim",
 		"gate:", "QUEUED-SKIPPED", "cargo check -p", ".ratchet/laws",
@@ -84,7 +84,7 @@ func TestManagedBlockFor_ReadsUndercoverFromAphrolloToml(t *testing.T) {
 	repo := t.TempDir()
 	mustWrite(t, filepath.Join(repo, "aphrollo.toml"), "[aphrollo]\nundercover = true\n")
 
-	if block := managedBlockFor(repo, false); !strings.Contains(block, "commit-msg") {
+	if block := managedBlockFor(repo); !strings.Contains(block, "commit-msg") {
 		t.Errorf("undercover = true in aphrollo.toml must reach the block:\n%s", block)
 	}
 }
@@ -105,7 +105,7 @@ func TestClaudeMDBlock_NamesTheHandTypedMutationRunNotOnlyTheSpawnedOne(t *testi
 // every repo gets.
 func TestClaudeMDBlockStatesThePrimaryCheckoutRule(t *testing.T) {
 	t.Parallel()
-	block := ClaudeMDBlock(BlockFlags{QueueShims: true})
+	block := ClaudeMDBlock(BlockFlags{})
 	for _, want := range []string{
 		"primary checkout",
 		"merge-only",
@@ -231,7 +231,7 @@ func TestPatchClaudeMDPreservesCRLF(t *testing.T) {
 func TestWriteClaudeMDIsANoOpWithoutTheFileUnlessForced(t *testing.T) {
 	t.Parallel()
 	repo := t.TempDir()
-	changed, err := WriteClaudeMD(repo, false, false)
+	changed, err := WriteClaudeMD(repo, false)
 	if err != nil || changed {
 		t.Fatalf("a repo with no CLAUDE.md must be left alone (changed=%v err=%v)", changed, err)
 	}
@@ -239,7 +239,7 @@ func TestWriteClaudeMDIsANoOpWithoutTheFileUnlessForced(t *testing.T) {
 		t.Fatal("no file must be invented")
 	}
 
-	changed, err = WriteClaudeMD(repo, true, false)
+	changed, err = WriteClaudeMD(repo, true)
 	if err != nil || !changed {
 		t.Fatalf("--claude-md must create the file (changed=%v err=%v)", changed, err)
 	}
@@ -258,7 +258,7 @@ func TestWriteClaudeMD_CreatesTheFileInARepoThatMeasuresMutants(t *testing.T) {
 		repo := t.TempDir()
 		mustWrite(t, filepath.Join(repo, "aphrollo.toml"), "[aphrollo]\n"+key+" = true\n")
 
-		changed, err := WriteClaudeMD(repo, false, false)
+		changed, err := WriteClaudeMD(repo, false)
 
 		if err != nil || !changed {
 			t.Fatalf("%s: changed=%v err=%v, want the block written", key, changed, err)
@@ -280,7 +280,7 @@ func TestWriteClaudeMDIsByteIdenticalOnASecondRun(t *testing.T) {
 	mustWrite(t, filepath.Join(repo, "Cargo.toml"),
 		"[workspace]\n[workspace.metadata.aphrollo]\nundercover = true\n")
 
-	if changed, err := WriteClaudeMD(repo, false, false); err != nil || !changed {
+	if changed, err := WriteClaudeMD(repo, false); err != nil || !changed {
 		t.Fatalf("first run: changed=%v err=%v", changed, err)
 	}
 	first, err := os.ReadFile(path)
@@ -291,7 +291,7 @@ func TestWriteClaudeMDIsByteIdenticalOnASecondRun(t *testing.T) {
 		t.Error("the workspace's undercover flag must reach the block")
 	}
 
-	if changed, err := WriteClaudeMD(repo, false, false); err != nil || changed {
+	if changed, err := WriteClaudeMD(repo, false); err != nil || changed {
 		t.Fatalf("second run: changed=%v err=%v — nothing moved, so nothing should be written", changed, err)
 	}
 	second, err := os.ReadFile(path)
@@ -319,8 +319,8 @@ func TestManagedBlockFor_MergeLineStatesWhatThisRepoActuallyRequires(t *testing.
 	plain := t.TempDir()
 	mustWrite(t, filepath.Join(plain, "aphrollo.toml"), "[aphrollo]\n")
 
-	withKey := managedBlockFor(measured, false)
-	withoutKey := managedBlockFor(plain, false)
+	withKey := managedBlockFor(measured)
+	withoutKey := managedBlockFor(plain)
 
 	if !strings.Contains(withKey, "runs this lane's mutation measurement") {
 		t.Errorf("a repo declaring mutants-at-merge must be told its merge IS measured, got:\n%s", mergeLineOf(withKey))
@@ -363,7 +363,7 @@ func TestManagedBlockFor_ReadsMutantsBeforePR(t *testing.T) {
 	repo := t.TempDir()
 	mustWrite(t, filepath.Join(repo, "aphrollo.toml"), "[aphrollo]\nmutants-before-pr = true\n")
 
-	if block := managedBlockFor(repo, false); !strings.Contains(block, "aphrollo gate mutants prove") {
+	if block := managedBlockFor(repo); !strings.Contains(block, "aphrollo gate mutants prove") {
 		t.Errorf("mutants-before-pr = true must bring the mutation rules into the block:\n%s", block)
 	}
 }

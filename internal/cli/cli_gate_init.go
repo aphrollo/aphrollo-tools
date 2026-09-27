@@ -162,7 +162,7 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 	if *uninstall {
 		return 0
 	}
-	return writeRepoDocs(*repo, dir, *claudeMD, *ratchetDoc, stdout, stderr)
+	return writeRepoDocs(*repo, *claudeMD, *ratchetDoc, stdout, stderr)
 }
 
 // installMachineGate installs (or removes) the global git gate, the queue
@@ -290,10 +290,9 @@ func installMachineGate(gitHooksDir, cargoShimDir, dir, binName string, uninstal
 }
 
 // writeRepoDocs writes the repo's own managed files: the CLAUDE.md block and
-// the law spec beside the laws. The block states the queue shims only when
-// the agent's env.PATH, as configDir and the repo's own settings leave it,
-// starts at them — which --no-git never arranges.
-func writeRepoDocs(repo, configDir string, claudeMD, ratchetDoc bool, stdout, stderr io.Writer) int {
+// the law spec beside the laws. Both depend only on the repo, so every
+// install mode writes the same bytes.
+func writeRepoDocs(repo string, claudeMD, ratchetDoc bool, stdout, stderr io.Writer) int {
 	// The operating instructions belong in the one file a session always
 	// reads. A repo that keeps a CLAUDE.md gets the block automatically;
 	// one that does not is left alone unless asked with --claude-md. The
@@ -301,7 +300,7 @@ func writeRepoDocs(repo, configDir string, claudeMD, ratchetDoc bool, stdout, st
 	// editing a source file as a side effect of where the shell happens to
 	// stand is a surprise, and an unnamed one.
 	if root := tdd.RepoRoot(repo); root != "" {
-		changed, err := tdd.WriteClaudeMD(root, claudeMD, tdd.QueueShimsOnAgentPath(root, configDir))
+		changed, err := tdd.WriteClaudeMD(root, claudeMD)
 		switch {
 		case errors.Is(err, tdd.ErrManagedBlockInPrimary):
 			fmt.Fprintf(stdout, "gate init: CLAUDE.md managed block is behind the template in the merge-only primary; land it through a lane (aphrollo install --repo <lane>)\n")

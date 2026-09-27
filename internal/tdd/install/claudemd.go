@@ -36,15 +36,10 @@ type BlockFlags struct {
 	// MutantsBeforePR is mutants-before-pr: `workspace pr`/`ship`/`submit`
 	// measure the lane first. Either switch brings in the mutation rules.
 	MutantsBeforePR bool
-	// QueueShims is the one fact the block states about the install rather
-	// than the repo: the agent's env.PATH starts at the queue shim dir, so
-	// `git` (and `cargo`) resolve to the shims and the git shim is the
-	// primary checkout's wall. Install passes what it wired, doctor what it
-	// reads (QueueShimsOnAgentPath); a box that installs --no-git renders
-	// the block without those lines (#889).
-	QueueShims bool
 	// Cargo, Go and Npm are the toolchains whose manifests the repo carries;
-	// the block names only their commands and commit stages.
+	// the block names only their commands and commit stages (#889). Whether
+	// the queue shims are on the agent's PATH is a fact about the box, so the
+	// block states the shims as a condition and never as a flag.
 	Cargo, Go, Npm bool
 }
 
@@ -57,11 +52,8 @@ func ClaudeMDBlock(f BlockFlags) string {
 	var b strings.Builder
 	b.WriteString(claudeMDBegin + "\n")
 	b.WriteString("## Working with the aphrollo gate\n\n")
-	if f.QueueShims {
-		b.WriteString("- **" + shimToolsPhrase(f) + " to the queue shim** (`which git` prints a path in the queue shim dir):\n")
-		b.WriteString("  `aphrollo install` put that dir first in the agent's env.PATH, so a session never exports PATH by hand. A run\n")
-		b.WriteString("  through the shim QUEUES visibly behind another build instead of hanging on a silent lock; if `which` prints the raw tool, say so.\n")
-	}
+	b.WriteString("- **Where `aphrollo install` put the queue shims on the agent's PATH, " + shimToolsPhrase(f) + " to them** (`aphrollo gate doctor` says whether it did):\n")
+	b.WriteString("  a run through a shim QUEUES visibly behind another build instead of hanging on a silent lock, and a session never exports PATH by hand.\n")
 	b.WriteString("- **The hooks run the tests, not you.** After every Edit/Write, PostToolUse prints\n")
 	b.WriteString("  exactly ONE `gate:` line for the edit, then one `gate: deferred` line per earlier job of the session, in any tree,\n")
 	b.WriteString("  that finished since, naming its own tree and command. Read them; never re-run a suite they ran. Iterate with " + iterateCommands(f) + ", which runs nothing.\n")
@@ -97,13 +89,8 @@ func ClaudeMDBlock(f BlockFlags) string {
 	b.WriteString("  <reason>`, and closed only by a stage or law named in the fix, never by a sentence in this\n")
 	b.WriteString("  file. The count only goes down; `gate stats` prints it weekly at session start.\n")
 	b.WriteString("- **The primary checkout is merge-only.** Once a repo has any linked worktree, the checkout holding\n")
-	if f.QueueShims {
-		b.WriteString("  `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL, the\n")
-		b.WriteString("  git shim (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit) is the WALL.\n")
-	} else {
-		b.WriteString("  `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL, and the only\n")
-		b.WriteString("  one, since no git shim is on the agent's PATH to refuse a command they miss.\n")
-	}
+	b.WriteString("  `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL; the git queue shim,\n")
+	b.WriteString("  where it is on the agent's PATH, is the WALL (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit).\n")
 	b.WriteString("  Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).\n")
 	// The merge line is about THIS repo, not about the tool: a conditional
 	// ("with `mutants-at-merge = true` ...") makes a reader go and find out
@@ -183,15 +170,12 @@ func rootStages(f BlockFlags) string {
 }
 
 // managedBlockFor renders the block install would write into repoRoot: the
-// template above, with the flags this repo declares and whether the queue
-// shims are on the agent's PATH. Every caller that needs to know what the
-// block SHOULD say goes through here — the writer and the check that judges
-// an on-disk block against it — so the two can never disagree about what
-// "current" means.
-func managedBlockFor(repoRoot string, queueShims bool) string {
-	f := blockFlagsFor(repoRoot)
-	f.QueueShims = queueShims
-	return ClaudeMDBlock(f)
+// template above, with the flags this repo declares. Every caller that needs
+// to know what the block SHOULD say goes through here — the writer and the
+// check that judges an on-disk block against it — so the two can never
+// disagree about what "current" means.
+func managedBlockFor(repoRoot string) string {
+	return ClaudeMDBlock(blockFlagsFor(repoRoot))
 }
 
 // blockFlagsFor reads the flags from wherever this repo declares them:
@@ -300,13 +284,12 @@ func dropOrphanMarkers(text string) string {
 // off a stale tree. Land the block through a lane instead.
 var ErrManagedBlockInPrimary = errors.New("managed CLAUDE.md block not written: merge-only primary checkout")
 
-// WriteClaudeMD writes the managed block into repoRoot's CLAUDE.md, stating
-// the queue shims when queueShims (see QueueShimsOnAgentPath). force
+// WriteClaudeMD writes the managed block into repoRoot's CLAUDE.md. force
 // creates the file when there is none; without it an absent CLAUDE.md is a
 // no-op, so a plain `gate init` never invents a file in a repo that keeps none
 // — unless the repo measures mutants, whose builders learn the mutation rules
 // from this block and nowhere else. It reports whether the file changed.
-func WriteClaudeMD(repoRoot string, force, queueShims bool) (bool, error) {
+func WriteClaudeMD(repoRoot string, force bool) (bool, error) {
 	if repoRoot == "" {
 		return false, nil
 	}
@@ -322,7 +305,7 @@ func WriteClaudeMD(repoRoot string, force, queueShims bool) (bool, error) {
 		return false, fmt.Errorf("reading %s: %w", path, err)
 	}
 
-	out, changed := PatchClaudeMD(existing, managedBlockFor(repoRoot, queueShims))
+	out, changed := PatchClaudeMD(existing, managedBlockFor(repoRoot))
 	if !changed {
 		return false, nil
 	}

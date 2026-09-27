@@ -25,9 +25,8 @@ import (
 // What it judges is CONTENT, entry by entry, with whitespace collapsed: a
 // block somebody re-wrapped, or an editor gave CRLF and trailing spaces, says
 // exactly what the template says and is not a finding. The block carries no
-// fact about the box that wrote it (#874) but one: whether the queue shims
-// are on the agent's PATH (#889), which this check reads from the same
-// settings install wrote, so it renders the block that install wrote here.
+// fact about the box that wrote it (#874), so nothing else needs masking: a
+// repo judged on a CI runner reads the same text as on the box that wrote it.
 // The finding NAMES the first
 // entry that differs rather than printing a diff of the whole block: the
 // operator's next move is `aphrollo install`, and thirteen bullets of context
@@ -66,7 +65,7 @@ func doctorClaudeMD(in DoctorInput) (DoctorCheck, bool) {
 	if !ok {
 		return claudeMDMissing(c, in.Repo, path)
 	}
-	want, _ := claudeMDBlockBody(managedBlockFor(in.Repo, QueueShimsOnAgentPath(in.Repo, in.ConfigDir)))
+	want, _ := claudeMDBlockBody(managedBlockFor(in.Repo))
 
 	wantEntries, haveEntries := claudeMDEntries(want), claudeMDEntries(have)
 	diffs, first := claudeMDDrift(wantEntries, haveEntries)

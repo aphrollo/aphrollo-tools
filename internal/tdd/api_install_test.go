@@ -18,6 +18,6 @@ func binShim(p0 string, p1 string, p2 string) string { return install.BinShim(p0
 
 func featureReadmeRows() []string { return install.FeatureReadmeRows() }
 
-func managedBlockFor(p0 string, p1 bool) string { return install.ManagedBlockFor(p0, p1) }
+func managedBlockFor(p0 string) string { return install.ManagedBlockFor(p0) }
 
 func shim(p0 string, p1 string) string { return install.Shim(p0, p1) }
