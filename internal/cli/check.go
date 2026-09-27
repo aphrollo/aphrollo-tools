@@ -17,9 +17,10 @@ const checkUsage = `usage: aphrollo check [--repo <dir>]
 
 Judges the tree against every guard the commit gate and CI otherwise run
 separately, in one pass: ratchet laws, the doc-reference guard, sqlc drift,
-the install doctor, and — for a workspace whose repo declares one — the
-affected app's test/typecheck/lint trio. One line per guard: clean, [skip]
-with a reason, or the miss count. Every guard runs even after an earlier one
+the install doctor, the repo's retro config, and — for a workspace whose repo
+declares one — the affected app's test/typecheck/lint trio. One line per
+guard: clean, [skip] with a reason, the miss count, or the warning count —
+each warning named on its own line above, never failing the run. Every guard runs even after an earlier one
 misses, and the command exits 1 if any did. Read-only.
 `
 
@@ -49,6 +50,7 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		checkDocs,
 		checkSqlc,
 		checkDoctor,
+		checkRetroConfig,
 		checkAppTrio,
 	} {
 		if !guard(root, stdout, stderr) {
@@ -162,6 +164,22 @@ func checkDoctor(root string, stdout, stderr io.Writer) bool {
 	}
 	fmt.Fprintf(stdout, "check: doctor → %d miss(es)\n", misses)
 	return false
+}
+
+// checkRetroConfig is `check`'s retro-config guard: every retro-sinks row the
+// post-merge retro would skip, named one per line. A skipped row leaves its
+// class on the default question, which is a warning, not a miss.
+func checkRetroConfig(root string, stdout, stderr io.Writer) bool {
+	warnings := tdd.RetroConfigWarnings(root)
+	for _, w := range warnings {
+		fmt.Fprintln(stdout, "warning: "+w)
+	}
+	if len(warnings) == 0 {
+		fmt.Fprintln(stdout, "check: retro config → clean")
+		return true
+	}
+	fmt.Fprintf(stdout, "check: retro config → %d warning(s)\n", len(warnings))
+	return true
 }
 
 // checkAppTrio is `check`'s app guard: the same plan `workspace verify` runs,

@@ -1,6 +1,7 @@
 package merge
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -16,7 +17,9 @@ import (
 // off. slow-merge is not listed there: it is on whenever the minutes are
 // above zero, and `retro-slow-merge-minutes = 0` turns it off. retro-sinks
 // overrides the built-in question and sink per class and leaves every class
-// it does not name on its default.
+// it does not name on its default. A row that does not split into three
+// non-empty fields is skipped and named in a warning (Warnings), printed when
+// the retro loads its config and by `aphrollo check`.
 const (
 	retroOnKey    = "retro-on"
 	retroSlowKey  = "retro-slow-merge-minutes"
@@ -78,6 +81,7 @@ type retroConfig struct {
 	On          map[string]bool
 	SlowMinutes int
 	Sinks       map[string]retroSink
+	Warnings    []string
 }
 
 // active reports whether any class can fire, so a repo that turned them all
@@ -93,6 +97,7 @@ func loadRetroConfig(root string) retroConfig {
 	on, onSet := retroDefaultOn, false
 	slowSet := false
 	var sinks []string
+	sinksPath := ""
 	for _, t := range mutantsConfigTables(root) {
 		if _, set := tomlStringIn(t.Path, t.Table, retroOnKey); set && !onSet {
 			on, onSet = tomlStringsIn(t.Path, t.Table, retroOnKey), true
@@ -103,7 +108,7 @@ func loadRetroConfig(root string) retroConfig {
 			}
 		}
 		if sinks == nil {
-			sinks = tomlStringsIn(t.Path, t.Table, retroSinksKey)
+			sinks, sinksPath = tomlStringsIn(t.Path, t.Table, retroSinksKey), t.Path
 		}
 	}
 	for _, class := range on {
@@ -116,11 +121,36 @@ func loadRetroConfig(root string) retroConfig {
 		c.Sinks[class] = s
 	}
 	for _, entry := range sinks {
-		parts := strings.Split(entry, " -> ")
-		if len(parts) != 3 {
+		class, sink, ok := parseRetroSink(entry)
+		if !ok {
+			c.Warnings = append(c.Warnings, fmt.Sprintf(
+				"%s: %s row %q is not \"<class> -> <question> -> <sink>\"; skipped, the class keeps its default",
+				sinksPath, retroSinksKey, entry))
 			continue
 		}
-		c.Sinks[strings.TrimSpace(parts[0])] = retroSink{Question: strings.TrimSpace(parts[1]), Sink: strings.TrimSpace(parts[2])}
+		c.Sinks[class] = sink
 	}
 	return c
+}
+
+// parseRetroSink splits one retro-sinks row into its class and sink; ok is
+// false unless the row has exactly three fields and none of them is blank.
+func parseRetroSink(entry string) (string, retroSink, bool) {
+	parts := strings.Split(entry, " -> ")
+	if len(parts) != 3 {
+		return "", retroSink{}, false
+	}
+	for i, p := range parts {
+		parts[i] = strings.TrimSpace(p)
+		if parts[i] == "" {
+			return "", retroSink{}, false
+		}
+	}
+	return parts[0], retroSink{Question: parts[1], Sink: parts[2]}, true
+}
+
+// RetroConfigWarnings is one line per retro-sinks row in root's config that
+// the retro skips, each naming the file and the row.
+func RetroConfigWarnings(root string) []string {
+	return loadRetroConfig(root).Warnings
 }

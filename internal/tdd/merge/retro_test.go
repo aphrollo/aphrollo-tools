@@ -401,3 +401,66 @@ func TestTakeRepoRetros_SessionlessMergeWaitsForThatRepo(t *testing.T) {
 		t.Errorf("the retro was delivered twice:\n%s", got)
 	}
 }
+
+func TestPostMergeRetro_MalformedSinkRowIsWarnedByName(t *testing.T) {
+	isolateRetro(t, "sess-badsink")
+	replayGh(t, "839", nil)
+	lane := t.TempDir()
+	write(t, lane, "aphrollo.toml", "[aphrollo]\nretro-sinks = [\n"+
+		"  \"extra-push -> why two pushes?\",\n"+
+		"  \"ci-red ->  -> an issue\",\n"+
+		"  \"merge-conflict -> which overlap? -> a note\",\n]\n")
+
+	stderr := runRetro(t, lane, "lane/probe-discard", 839)
+	want := []string{
+		`warning: ` + filepath.Join(lane, "aphrollo.toml") + `: retro-sinks row "extra-push -> why two pushes?" is not "<class> -> <question> -> <sink>"; skipped, the class keeps its default` + "\n",
+		`warning: ` + filepath.Join(lane, "aphrollo.toml") + `: retro-sinks row "ci-red ->  -> an issue" is not "<class> -> <question> -> <sink>"; skipped, the class keeps its default` + "\n",
+	}
+	for _, w := range want {
+		if !strings.Contains(stderr, w) {
+			t.Errorf("stderr lacks the warning %q:\n%s", w, stderr)
+		}
+	}
+	if strings.Contains(stderr, "merge-conflict") {
+		t.Errorf("a well-formed row was warned about:\n%s", stderr)
+	}
+	got := TakeSessionRetros("sess-badsink")
+	if !strings.Contains(got, "what rule avoids the extra push?") {
+		t.Errorf("a malformed row replaced the class's default sink:\n%s", got)
+	}
+}
+
+func TestPostMergeRetro_MalformedSinkRowIsWarnedEvenWithEveryClassOff(t *testing.T) {
+	isolateRetro(t, "sess-badsink-off")
+	replayGh(t, "839", nil)
+	lane := t.TempDir()
+	write(t, lane, "aphrollo.toml", "[aphrollo]\nretro-on = []\nretro-slow-merge-minutes = 0\n"+
+		"retro-sinks = [\"extra-push\"]\n")
+
+	stderr := runRetro(t, lane, "lane/probe-discard", 839)
+	if !strings.Contains(stderr, `retro-sinks row "extra-push" is not`) {
+		t.Errorf("stderr lacks the malformed-row warning:\n%s", stderr)
+	}
+}
+
+func TestRetroConfigWarnings_NamesEachMalformedRowAndNothingElse(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "aphrollo.toml", "[aphrollo]\nretro-sinks = [\n"+
+		"  \"a -> b -> c -> d\",\n"+
+		"  \" -> b -> c\",\n"+
+		"  \"a -> b -> \",\n"+
+		"  \"a -> b -> c\",\n]\n")
+	got := RetroConfigWarnings(root)
+	if len(got) != 3 {
+		t.Fatalf("RetroConfigWarnings = %d warning(s), want 3: %q", len(got), got)
+	}
+	all := strings.Join(got, "\n")
+	for _, row := range []string{"a -> b -> c -> d", " -> b -> c", "a -> b -> "} {
+		if !strings.Contains(all, `row "`+row+`"`) {
+			t.Errorf("no warning names row %q: %q", row, got)
+		}
+	}
+	if w := RetroConfigWarnings(t.TempDir()); len(w) != 0 {
+		t.Errorf("a repo with no retro-sinks has warnings: %q", w)
+	}
+}
