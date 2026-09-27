@@ -164,3 +164,23 @@ func TestDoctor_FindsTheManagedFilesEveryInstallModeWrote(t *testing.T) {
 		})
 	}
 }
+
+// Issue #889: the block states the queue shims only where install put them
+// on the agent's env.PATH, which --no-git never does, and doctor judges the
+// block against that same fact, so a fresh install of any mode is current.
+func TestInstall_TheBlockStatesTheShimsOnlyWhereInstallPutThem(t *testing.T) {
+	for _, mode := range installModes {
+		t.Run(mode.name, func(t *testing.T) {
+			f := runInstallMode(t, mode)
+			states := strings.Contains(readFile(t, filepath.Join(f.repo, "CLAUDE.md")), "resolves to the queue shim")
+			if states == mode.noGit {
+				t.Errorf("install %s: block states the queue shims = %v, want %v", mode.name, states, !mode.noGit)
+			}
+			for _, c := range tdd.Doctor(doctorInput("", "", f.repo)) {
+				if c.Name == "CLAUDE.md block" && !c.OK {
+					t.Errorf("after install %s, doctor calls the block it wrote stale: %s", mode.name, c.Detail)
+				}
+			}
+		})
+	}
+}

@@ -179,3 +179,43 @@ func InitSettingsEnvPath(configDir, shimDir string, pathDirs []string, sep strin
 	}
 	return true, nil
 }
+
+// QueueShimsOnAgentPath reports whether a session in repo resolves `git` to
+// the queue shims: the env.PATH its settings give it starts at a dir holding
+// the git and cargo shims install writes. The repo's own settings.json sets
+// that env.PATH over the user-level one in configDir, so the first of the two
+// that sets one decides. The managed block states the shims only when this
+// holds (#889).
+func QueueShimsOnAgentPath(repo, configDir string) bool {
+	for _, dir := range []string{projectClaudeDir(repo), configDir} {
+		if value, ok := agentEnvPath(dir); ok {
+			first, _, _ := strings.Cut(value, envPathSep(hookGOOSFn()))
+			return holdsQueueShims(first)
+		}
+	}
+	return false
+}
+
+// agentEnvPath is the env.PATH dir's settings.json sets; ok=false when there
+// is no dir, or its settings set none.
+func agentEnvPath(dir string) (string, bool) {
+	if dir == "" {
+		return "", false
+	}
+	root, _ := readSettings(dir) // settings that cannot be read set no PATH
+	env, _ := root["env"].(map[string]any)
+	value, ok := env["PATH"].(string)
+	return value, ok
+}
+
+// holdsQueueShims reports whether dir holds both POSIX queue shims this tool
+// wrote, told apart from a real git or cargo by the install marker.
+func holdsQueueShims(dir string) bool {
+	for _, name := range []string{"git", "cargo"} {
+		data, _ := os.ReadFile(filepath.Join(dir, name)) // a missing shim reads as no marker
+		if !strings.Contains(string(data), installMarker) {
+			return false
+		}
+	}
+	return true
+}

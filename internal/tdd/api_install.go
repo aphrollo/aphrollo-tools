@@ -52,6 +52,8 @@ func ManagedAgent(p0 string) (string, bool) { return install.ManagedAgent(p0) }
 
 func PruneRetiredHooks(p0 string) ([]string, error) { return install.PruneRetiredHooks(p0) }
 
+func QueueShimsOnAgentPath(p0 string, p1 string) bool { return install.QueueShimsOnAgentPath(p0, p1) }
+
 func RemoveAgents(p0 string) ([]string, error) { return install.RemoveAgents(p0) }
 
 func RemoveCmdShims(p0 string) ([]string, error) { return install.RemoveCmdShims(p0) }
@@ -72,7 +74,9 @@ func TDDSkill() string { return install.TDDSkill() }
 
 func WriteAgents(p0 string) ([]string, error) { return install.WriteAgents(p0) }
 
-func WriteClaudeMD(p0 string, p1 bool) (bool, error) { return install.WriteClaudeMD(p0, p1) }
+func WriteClaudeMD(p0 string, p1 bool, p2 bool) (bool, error) {
+	return install.WriteClaudeMD(p0, p1, p2)
+}
 
 func WriteManagedHookForTest(p0 string, p1 string, p2 string, p3 string) error {
 	return install.WriteManagedHookForTest(p0, p1, p2, p3)

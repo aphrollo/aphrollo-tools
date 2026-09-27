@@ -26,11 +26,13 @@ func putManagedBlock(t *testing.T, repo, body string) {
 }
 
 // currentBlock is what install would write into repo on this box.
-func currentBlock(repo string) string { return managedBlockFor(repo) }
+func currentBlock(in DoctorInput) string {
+	return managedBlockFor(in.Repo, QueueShimsOnAgentPath(in.Repo, in.ConfigDir))
+}
 
 func TestDoctor_ReportsAManagedBlockWrittenByAnOlderTemplate(t *testing.T) {
 	in := healthyInstall(t)
-	stale := strings.Replace(currentBlock(in.Repo),
+	stale := strings.Replace(currentBlock(in),
 		"- **Housekeeping:**", "- **Housekeeping:** `aphrollo gate mutants watch` (background run) ·", 1)
 	putManagedBlock(t, in.Repo, stale)
 
@@ -54,7 +56,7 @@ func TestDoctor_ReportsAManagedBlockWrittenByAnOlderTemplate(t *testing.T) {
 func TestDoctor_NamesAnEntryTheTemplateNoLongerCarries(t *testing.T) {
 	in := healthyInstall(t)
 	retired := "- **A merge needs a fresh receipt:** `aphrollo gate mutants watch` writes it.\n"
-	block := strings.Replace(currentBlock(in.Repo), "\n_This block is written", retired+"\n_This block is written", 1)
+	block := strings.Replace(currentBlock(in), "\n_This block is written", retired+"\n_This block is written", 1)
 	putManagedBlock(t, in.Repo, block)
 
 	c := check(t, Doctor(in), "CLAUDE.md block")
@@ -68,7 +70,7 @@ func TestDoctor_NamesAnEntryTheTemplateNoLongerCarries(t *testing.T) {
 
 func TestDoctor_ABlockMatchingThisBuildIsNotAFinding(t *testing.T) {
 	in := healthyInstall(t)
-	putManagedBlock(t, in.Repo, currentBlock(in.Repo))
+	putManagedBlock(t, in.Repo, currentBlock(in))
 
 	c := check(t, Doctor(in), "CLAUDE.md block")
 	if !c.OK || c.Warn {
@@ -81,7 +83,7 @@ func TestDoctor_ABlockMatchingThisBuildIsNotAFinding(t *testing.T) {
 // what the block SAYS.
 func TestDoctor_ARewrappedBlockWithTheSameContentIsNotAFinding(t *testing.T) {
 	in := healthyInstall(t)
-	block := currentBlock(in.Repo)
+	block := currentBlock(in)
 	rewrapped := strings.ReplaceAll(block, "\n  ", " ")
 	rewrapped = strings.ReplaceAll(rewrapped, "\n", "   \r\n")
 	if rewrapped == block {
@@ -127,7 +129,7 @@ func TestDoctor_AStaleBlockInAMergeOnlyPrimaryPointsAtALane(t *testing.T) {
 	gitDo(t, root, "branch", "-M", "main")
 	addWorktree(t, root, "lane-a")
 	in.Repo = root
-	putManagedBlock(t, root, strings.Replace(currentBlock(root),
+	putManagedBlock(t, root, strings.Replace(currentBlock(in),
 		"- **Housekeeping:**", "- **Housekeeping:** stale text ·", 1))
 
 	c := check(t, Doctor(in), "CLAUDE.md block")
