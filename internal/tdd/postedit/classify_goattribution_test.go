@@ -1,6 +1,7 @@
 package postedit
 
 import (
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"os/exec"
 	"strings"
 	"testing"
@@ -32,6 +33,7 @@ func mkGoTreeWithTestlessSubpackage(t *testing.T) string {
 // `go test -json` on the foreground path: one package ran a test, one has no
 // test file. The run is green, with the one test it ran.
 func TestPostEdit_GoRunWithATestlessPackage_IsGreenWithItsRealCount(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	if _, err := exec.LookPath("go"); err != nil {
 		// skip-ok: an environment probe, not a disabled assertion — the test asserts for real wherever go is installed.
 		t.Skip("go not on PATH")
@@ -44,7 +46,7 @@ func TestPostEdit_GoRunWithATestlessPackage_IsGreenWithItsRealCount(t *testing.T
 	if !strings.Contains(got, "go test ./internal/a/...") {
 		t.Fatalf("setup: want the test edit's package tree run, got: %s", got)
 	}
-	if strings.Contains(got, string(WritingTest)) {
+	if strings.Contains(tddtest.Pathless(t, got), string(WritingTest)) {
 		t.Fatalf("a run in which a package ran a real test is not writing-test, got: %s", got)
 	}
 	if !strings.Contains(got, "green (1 passed") {
@@ -65,7 +67,7 @@ func TestPostEdit_DeferredGoRunWithATestlessPackage_IsGreen(t *testing.T) {
 
 	got := PostEdit(postPayload("Edit", root+"/internal/a/a_test.go"), fakeRun(true, "the foreground runner must not be used"))
 
-	if strings.Contains(got, string(WritingTest)) || !strings.Contains(got, "green") {
+	if strings.Contains(got, string(WritingTest)) || !strings.Contains(tddtest.Pathless(t, got), "green") {
 		t.Fatalf("a run in which a package ran its tests is green, got: %s", got)
 	}
 }

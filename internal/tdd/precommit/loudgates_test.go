@@ -19,7 +19,8 @@ const nextestNoTestsOutput = tddtest.NextestNoTestsOutput
 // and made PostEdit report a RED advisory — over a crate that is NEVER
 // supposed to have tests. Both consumers must treat this SuiteResult
 // (Passed=false, Err="exit status 4", output naming "no tests to run") as an
-// empty PASS.
+// empty PASS. The PostEdit half runs under a path carrying the verdict words
+// and judges its line with that path neutralised.
 func TestEmptyPass_NextestZeroTests_NeverBlocksNeverReadsAsFailure(t *testing.T) {
 	// Only the SUITE run produces nextest's output; the quality stage runs
 	// rustfmt, which has nothing to say about tests.
@@ -50,6 +51,7 @@ func TestEmptyPass_NextestZeroTests_NeverBlocksNeverReadsAsFailure(t *testing.T)
 	// selection was simply empty. Not RED either — nothing failed; the
 	// inconclusive family is where it belongs (emptyselection.go).
 	t.Run("PostEdit reports the zero-selection line, never red, never green", func(t *testing.T) {
+		tddtest.VerdictWordTmp(t)
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		root := mkProject(t, "Cargo.toml")
 		got := PostEdit(postPayload("Edit", root+"/src/widget.rs"), nextestZeroTests)
@@ -57,10 +59,10 @@ func TestEmptyPass_NextestZeroTests_NeverBlocksNeverReadsAsFailure(t *testing.T)
 		if !strings.Contains(got, wantSub) {
 			t.Fatalf("expected the zero-selection line containing %q, got: %s", wantSub, got)
 		}
-		if strings.Contains(got, "green") {
+		if strings.Contains(tddtest.Pathless(t, got), "green") {
 			t.Fatalf("a run that executed no test must never read as green, got: %s", got)
 		}
-		if strings.Contains(got, "outcome=red") || strings.Contains(got, "red-") {
+		if pathless := tddtest.Pathless(t, got); strings.Contains(pathless, "outcome=red") || strings.Contains(pathless, "red-") {
 			t.Fatalf("a zero-tests nextest exit must never read as RED, got: %s", got)
 		}
 	})

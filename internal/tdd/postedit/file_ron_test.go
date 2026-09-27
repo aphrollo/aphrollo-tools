@@ -1,6 +1,7 @@
 package postedit
 
 import (
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -61,7 +62,7 @@ func TestPostEdit_RonEditRunsTheOwningCratesTests(t *testing.T) {
 	if args := strings.Join(seen[0].Args, " "); !strings.Contains(args, "-p item") {
 		t.Fatalf("run = %q, want it scoped to the owning package (-p item)", args)
 	}
-	if !strings.Contains(got, "green") {
+	if !strings.Contains(tddtest.Pathless(t, got), "green") {
 		t.Fatalf("the hook must report the outcome, got: %s", got)
 	}
 }

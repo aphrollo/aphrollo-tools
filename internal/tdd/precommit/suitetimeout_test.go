@@ -1,6 +1,7 @@
 package precommit
 
 import (
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -46,13 +47,14 @@ func TestSuiteTimeout_IsNotARed(t *testing.T) {
 	// It must still never look like RED (no "outcome=red"/"red-missing-impl"
 	// text): a timeout proves nothing about the code either way.
 	t.Run("PostEdit reports TIMEOUT, never RED, on a timed-out run", func(t *testing.T) {
+		tddtest.VerdictWordTmp(t)
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		root := mkProject(t, "go.mod")
 		got := PostEdit(postPayload("Edit", filepath.Join(root, "widget.go")), timedOut)
-		if !strings.Contains(got, "TIMEOUT") {
+		if !strings.Contains(tddtest.Pathless(t, got), "TIMEOUT") {
 			t.Fatalf("a timed-out suite must report TIMEOUT, got: %s", got)
 		}
-		if strings.Contains(got, "outcome=red") {
+		if strings.Contains(tddtest.Pathless(t, got), "outcome=red") {
 			t.Fatalf("a timed-out suite must never be reported as RED, got: %s", got)
 		}
 	})

@@ -1,6 +1,7 @@
 package postedit
 
 import (
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,6 +19,7 @@ import (
 // mechanical green cache already answered, and it must never claim the code
 // was NOT tested when the crate's suite ran moments before.
 func TestPostEdit_NarrowedFilterStandsDown_WhenThisCratesFullSuiteAlreadyProvedGreen(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := t.TempDir()
@@ -66,7 +68,7 @@ func TestPostEdit_NarrowedFilterStandsDown_WhenThisCratesFullSuiteAlreadyProvedG
 	}
 	got := PostEdit(postPayload("Edit", target), refuse)
 
-	if strings.Contains(got, strings.ToUpper(NoTestsSelected)) || strings.Contains(got, "NOT tested") {
+	if pathless := tddtest.Pathless(t, got); strings.Contains(pathless, strings.ToUpper(NoTestsSelected)) || strings.Contains(pathless, "NOT tested") {
 		t.Fatalf("must never claim the code was not tested right after its suite ran green, got %q", got)
 	}
 	if !strings.Contains(got, "cache-hit") {

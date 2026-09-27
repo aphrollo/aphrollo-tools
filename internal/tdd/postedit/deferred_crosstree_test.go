@@ -2,6 +2,7 @@ package postedit
 
 import (
 	"encoding/json"
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"os"
 	"strings"
 	"testing"
@@ -89,8 +90,11 @@ func TestPostBash_ReportsAnEarlierEditsFinishedJobWhenTheCommandChangedNothing(t
 // A finished BUILD is not a verdict: its log holds a compile, not a test
 // run. Reported as one, a warm build read as green for tests that never ran.
 // The sweep continues it into its run phase, as the edit hook does for its
-// own tree, and the line that says so names the command now running.
+// own tree, and the line that says so names the command now running. The
+// trees sit under a path carrying the verdict words, so the "never green"
+// check reads the line with that path neutralised.
 func TestPostEdit_AnotherTreesFinishedBuildStartsItsRunNamingTheCommand(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("APHROLLO_POSTEDIT_BUDGET_SECS", "0")
 	crateA := mkProject(t, "Cargo.toml")
@@ -122,7 +126,7 @@ func TestPostEdit_AnotherTreesFinishedBuildStartsItsRunNamingTheCommand(t *testi
 	if len(lines) != 2 {
 		t.Fatalf("advisory = %q, want B's own line then one line for A", got)
 	}
-	if strings.Contains(lines[1], "green") || !strings.Contains(lines[1], crateA) ||
+	if strings.Contains(tddtest.Pathless(t, lines[1]), "green") || !strings.Contains(lines[1], crateA) ||
 		!strings.HasSuffix(lines[1], " [cargo test -p crate_a]") {
 		t.Fatalf("A's line = %q, want A's run reported as running, naming %s and ending in its command", lines[1], crateA)
 	}

@@ -158,6 +158,7 @@ func TestPostEdit_PlainCargoTestFilterMatchesNothing_WidensToo(t *testing.T) {
 // deferred-abandoned / infra-failed) — the code was NOT tested — instead of
 // being folded into a settled green.
 func TestPostEdit_ZeroSelectionEvenWidened_IsInconclusiveNeverGreen(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkCargoCrate(t, "engine_audio")
 	withNextest(t, root)
@@ -171,7 +172,7 @@ func TestPostEdit_ZeroSelectionEvenWidened_IsInconclusiveNeverGreen(t *testing.T
 	}
 	got := PostEdit(postPayload("Edit", root+"/src/defs.rs"), scriptedRunner(t, &seen, script))
 
-	if strings.Contains(got, "green") {
+	if strings.Contains(tddtest.Pathless(t, got), "green") {
 		t.Fatalf("a run that selected no test at all must never read as green, got: %s", got)
 	}
 	for _, want := range []string{strings.ToUpper(NoTestsSelected), "NOT tested", "tests/"} {

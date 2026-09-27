@@ -570,6 +570,8 @@ nightlyfuzz_workflow_pin_test.go                   tdd
 nightlymutants_base_pin_test.go                    tdd
 nowindow_windows_test.go                           postedit
 npmbin.go                                          suite
+pathless.go                                        tddtest
+pathless_test.go                                   tddtest
 pathlock.go                                        core
 payload.go                                         tddtest
 pidrunning_windows_test.go                         postedit

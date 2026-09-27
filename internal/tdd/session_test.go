@@ -2,6 +2,7 @@ package tdd
 
 import (
 	"encoding/json"
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,7 +80,7 @@ func TestHandlePrompt_ReinforceRedOnly(t *testing.T) {
 
 	// A RED outcome is re-injected on an ordinary prompt.
 	stampOutcome(t, sess, root, string(RedMissingImpl))
-	if r := HandlePrompt(promptJSON("keep working", sess, root)); r.Block || !strings.Contains(r.Message, "RED") {
+	if r := HandlePrompt(promptJSON("keep working", sess, root)); r.Block || !strings.Contains(tddtest.Pathless(t, r.Message), "RED") {
 		t.Fatalf("RED reinforcement: got %+v", r)
 	}
 

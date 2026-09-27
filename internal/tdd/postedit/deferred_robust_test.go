@@ -3,6 +3,7 @@ package postedit
 import (
 	"bytes"
 	"encoding/json"
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,7 @@ import (
 // pattern-matching on "red-bogus" would otherwise go looking for a broken
 // test that does not exist.
 func TestPostEdit_SpawnFailureIsReportedNotDeferred(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "Cargo.toml")
 	prev := spawnPhaseFn
@@ -28,10 +30,10 @@ func TestPostEdit_SpawnFailureIsReportedNotDeferred(t *testing.T) {
 
 	got := PostEdit(postPayload("Edit", root+"/src/widget.rs"), fakeRun(true, "ok"))
 
-	if strings.Contains(got, "BUILDING") {
+	if strings.Contains(tddtest.Pathless(t, got), "BUILDING") {
 		t.Fatalf("advisory = %q, want a failure — nothing was started", got)
 	}
-	if strings.Contains(got, "red-bogus") {
+	if strings.Contains(tddtest.Pathless(t, got), "red-bogus") {
 		t.Fatalf("advisory = %q, must not read as a broken TEST setup — nothing was ever tested", got)
 	}
 	if !strings.Contains(got, InfraFailed) {

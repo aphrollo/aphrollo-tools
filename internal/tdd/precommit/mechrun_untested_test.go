@@ -1,6 +1,7 @@
 package precommit
 
 import (
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"strings"
 	"testing"
 	"time"
@@ -99,6 +100,7 @@ func TestStageSuiteVerdict_KeepsAZeroSelectionOutOfTheSettledVerdicts(t *testing
 // commit gate proves the staged test RED and stops. Only the words and the
 // logged verdict change; the merge is not refused.
 func TestMechanical_ZeroTestCrate_IsRelabelledButStillLands(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := makeCargoRepo(t)
@@ -123,7 +125,7 @@ func TestMechanical_ZeroTestCrate_IsRelabelledButStillLands(t *testing.T) {
 	// the claim is per line: the SUITE run — the nextest one — must not be
 	// one of them.
 	for _, line := range strings.Split(logged, "\n") {
-		if strings.Contains(line, "nextest") && strings.Contains(line, " green ") {
+		if strings.Contains(line, "nextest") && strings.Contains(tddtest.Pathless(t, line), " green ") {
 			t.Fatalf("the suite stage must not log a green over a run that executed no test: %s", line)
 		}
 	}

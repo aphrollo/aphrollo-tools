@@ -149,6 +149,7 @@ func countingTimeoutRun(invoked *int) SuiteRunner {
 // "sess-post" session id, so state persists across these PostEdit calls
 // within the test.)
 func TestPostEdit_TimeoutBackoff_SkipsAfterTwoConsecutiveTimeouts(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
 	src := filepath.Join(root, "widget.go")
@@ -157,14 +158,14 @@ func TestPostEdit_TimeoutBackoff_SkipsAfterTwoConsecutiveTimeouts(t *testing.T) 
 	var invoked int
 	run := countingTimeoutRun(&invoked)
 
-	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(got, "TIMEOUT") {
+	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(tddtest.Pathless(t, got), "TIMEOUT") {
 		t.Fatalf("a timed-out run must report TIMEOUT, got %q", got)
 	}
 	if invoked != 1 {
 		t.Fatalf("first edit must invoke the suite, invoked=%d", invoked)
 	}
 
-	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(got, "TIMEOUT") {
+	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(tddtest.Pathless(t, got), "TIMEOUT") {
 		t.Fatalf("a timed-out run must report TIMEOUT, got %q", got)
 	}
 	if invoked != 2 {
@@ -172,10 +173,10 @@ func TestPostEdit_TimeoutBackoff_SkipsAfterTwoConsecutiveTimeouts(t *testing.T) 
 	}
 
 	got := PostEdit(postPayload("Edit", src), run)
-	if !strings.Contains(got, "SKIPPED") {
+	if !strings.Contains(tddtest.Pathless(t, got), "SKIPPED") {
 		t.Fatalf("a backed-off run must report SKIPPED, got %q", got)
 	}
-	if strings.Contains(got, "TIMEOUT") {
+	if strings.Contains(tddtest.Pathless(t, got), "TIMEOUT") {
 		t.Fatalf("a SKIPPED run never even invoked the suite — it must not also claim TIMEOUT, got %q", got)
 	}
 	if invoked != 2 {
@@ -214,13 +215,13 @@ func TestPostEdit_TimeoutBackoff_CompletedRunResetsStreak(t *testing.T) {
 	// The budget must be genuinely fresh: two MORE consecutive timeouts are
 	// needed again before a third one skips — not just one.
 	invoked = 0
-	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(got, "TIMEOUT") || invoked != 1 {
+	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(tddtest.Pathless(t, got), "TIMEOUT") || invoked != 1 {
 		t.Fatalf("post-reset first timeout must invoke the suite and report TIMEOUT, invoked=%d got=%q", invoked, got)
 	}
-	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(got, "TIMEOUT") || invoked != 2 {
+	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(tddtest.Pathless(t, got), "TIMEOUT") || invoked != 2 {
 		t.Fatalf("post-reset second timeout must invoke the suite and report TIMEOUT, invoked=%d got=%q", invoked, got)
 	}
-	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(got, "SKIPPED") || invoked != 2 {
+	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(tddtest.Pathless(t, got), "SKIPPED") || invoked != 2 {
 		t.Fatalf("post-reset third timeout must skip the suite entirely and report SKIPPED, invoked=%d got=%q", invoked, got)
 	}
 }
@@ -239,7 +240,7 @@ func TestPostEdit_TimeoutBackoff_NewHeadSHARetries(t *testing.T) {
 
 	PostEdit(postPayload("Edit", src), run) // streak 1 @ SHA A
 	PostEdit(postPayload("Edit", src), run) // streak 2 @ SHA A
-	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(got, "SKIPPED") || invoked != 2 {
+	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(tddtest.Pathless(t, got), "SKIPPED") || invoked != 2 {
 		t.Fatalf("expected a skip before the commit, invoked=%d got=%q", invoked, got)
 	}
 
@@ -247,7 +248,7 @@ func TestPostEdit_TimeoutBackoff_NewHeadSHARetries(t *testing.T) {
 	gitDo(t, root, "add", ".")
 	gitDo(t, root, "commit", "-qm", "widget")
 
-	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(got, "TIMEOUT") {
+	if got := PostEdit(postPayload("Edit", src), run); !strings.Contains(tddtest.Pathless(t, got), "TIMEOUT") {
 		t.Fatalf("a timed-out run must report TIMEOUT, got %q", got)
 	}
 	if invoked != 3 {

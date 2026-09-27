@@ -1,6 +1,7 @@
 package postedit
 
 import (
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -70,7 +71,7 @@ func TestWaitDeferredEditJob_RestartsTheRunWhenTheWaitedJobIsStale(t *testing.T)
 		t.Fatalf("setup: want the first build left running, got %+v", out)
 	}
 	write(t, root, "src/lib.rs", "pub fn friction() -> f64 { 0.4 }\n")
-	if line, fresh := harvestDeferred(root, "", sourceIdentity(root, file), "s-797", 0, nil, ""); fresh || !strings.Contains(line, "BUILDING") {
+	if line, fresh := harvestDeferred(root, "", sourceIdentity(root, file), "s-797", 0, nil, ""); fresh || !strings.Contains(tddtest.Pathless(t, line), "BUILDING") {
 		t.Fatalf("setup: the second edit's hook must find the build still running, got %q (fresh=%v)", line, fresh)
 	}
 	first, _ := loadDeferredJob("s-797", root)

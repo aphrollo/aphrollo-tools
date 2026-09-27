@@ -1,6 +1,7 @@
 package failfirst
 
 import (
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"strings"
 	"testing"
 )
@@ -24,6 +25,7 @@ const allSkippedPkgJSONLine = `{"Action":"run","Package":"example.com/m","Test":
 // nor passed. The stage used to report it as "the new tests PASS against the
 // pre-edit code (HEAD)" and block a correct commit with a false accusation.
 func TestFailFirstStage_RefusesAProofWhoseTestsAllSelfSkipped(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := makeGoRepo(t)
@@ -53,7 +55,7 @@ func TestFailFirstStage_RefusesAProofWhoseTestsAllSelfSkipped(t *testing.T) {
 	if !strings.Contains(stderr, AllTestsSkipped) {
 		t.Fatalf("the stage line must carry the %s verdict, got: %s", AllTestsSkipped, stderr)
 	}
-	if strings.Contains(stderr, "red-proven") {
+	if strings.Contains(tddtest.Pathless(t, stderr), "red-proven") {
 		t.Fatalf("an inconclusive proof must never be logged as red-proven, got: %s", stderr)
 	}
 	requireLoggedVerdict(t, cfg, AllTestsSkipped)

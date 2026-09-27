@@ -1,6 +1,7 @@
 package precommit
 
 import (
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"strings"
 	"testing"
 	"time"
@@ -17,13 +18,14 @@ import (
 // first: the line must say what the run was classified as, and a run that
 // tested nothing must never say green.
 func TestPostEdit_GoTestFileWithNoTestYet_PrintsWritingTestNeverGreen(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkGoModule(t)
 	write(t, root, "internal/proc/proc_test.go", "package proc\n")
 	got := PostEdit(postPayload("Edit", root+"/internal/proc/proc_test.go"),
 		fakeRun(true, "testing: warning: no tests to run\nok  \texample.com/m/internal/proc\t0.002s [no tests to run]\n"))
 
-	if strings.Contains(got, "green") {
+	if strings.Contains(tddtest.Pathless(t, got), "green") {
 		t.Fatalf("a run that tested nothing must never print green, got: %s", got)
 	}
 	if !strings.Contains(got, "→ "+string(WritingTest)+" (0 tests ran") {

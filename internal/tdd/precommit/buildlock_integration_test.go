@@ -1,6 +1,7 @@
 package precommit
 
 import (
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 	"os"
 	"strings"
 	"testing"
@@ -58,6 +59,7 @@ func TestPostEdit_QueuedSkipped_WhenBuildLockHeld(t *testing.T) {
 // build lock — a go-only session must never queue behind an unrelated cargo
 // build.
 func TestPostEdit_NonCargoRunner_NeverTakesTheBuildLock(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	withIsolatedBuildLock(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
@@ -69,7 +71,7 @@ func TestPostEdit_NonCargoRunner_NeverTakesTheBuildLock(t *testing.T) {
 	defer release()
 
 	got := PostEdit(postPayload("Edit", root+"/widget.go"), fakeRun(true, "ok\nPASS"))
-	if strings.Contains(got, "QUEUED-SKIPPED") {
+	if strings.Contains(tddtest.Pathless(t, got), "QUEUED-SKIPPED") {
 		t.Fatalf("a go project must never queue behind the cargo build lock, got: %s", got)
 	}
 	if !strings.Contains(got, "→ green") {

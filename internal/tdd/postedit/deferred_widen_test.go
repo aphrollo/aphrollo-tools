@@ -150,6 +150,7 @@ func TestPostEdit_DeferredZeroSelection_ClimbsModuleLibCrateOnARealCrate(t *test
 // THAT command — never a green for the narrower run, never a verdict the hook
 // does not have.
 func TestPostEdit_DeferredWideningOutrunsTheBudget_ReportsTheRungBuildingNeverAGreen(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("APHROLLO_POSTEDIT_BUDGET_SECS", "0")
 	root := mkCargoCrate(t, "engine_audio")
@@ -167,10 +168,10 @@ func TestPostEdit_DeferredWideningOutrunsTheBudget_ReportsTheRungBuildingNeverAG
 	if n := len(*spawned); n != 3 {
 		t.Fatalf("want the narrowed build+run then the lib rung's build, spawned %v", *spawned)
 	}
-	if strings.Contains(got, "green") {
+	if strings.Contains(tddtest.Pathless(t, got), "green") {
 		t.Fatalf("a rung still running must never read as green, got: %s", got)
 	}
-	if !strings.Contains(got, "BUILDING") || !strings.Contains(got, lib) {
+	if !strings.Contains(tddtest.Pathless(t, got), "BUILDING") || !strings.Contains(got, lib) {
 		t.Fatalf("want a BUILDING line naming the rung still running (%s), got: %s", lib, got)
 	}
 	job, ok := loadDeferredJob("sess-post", root)
