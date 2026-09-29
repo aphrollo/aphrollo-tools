@@ -31,6 +31,8 @@ const OutcomeVacuous = outcomeVacuous
 
 const RedGoesStaleAfter = redGoesStaleAfter
 
+const StagedArgvBudget = stagedArgvBudget
+
 const SuiteOutputCap = suiteOutputCap
 
 type GoReachGraph = goReachGraph
@@ -74,6 +76,8 @@ var SuiteRanGreen = &suiteRanGreen
 var TestDeclRes = testDeclRes
 
 func ApplyEdit(p0 string, p1 string, p2 string, p3 bool) string { return applyEdit(p0, p1, p2, p3) }
+
+func ArgvBatches(p0 []string, p1 []string, p2 int) [][]string { return argvBatches(p0, p1, p2) }
 
 func AttemptedScope(p0 string) runScope { return attemptedScope(p0) }
 
@@ -278,6 +282,8 @@ func RunGhTimeout(p0 string, p1 time.Duration, p2 ...string) (string, error) {
 }
 
 func RunnerDir(p0 Runner, p1 string) string { return runnerDir(p0, p1) }
+
+func RunnerTimeoutsOnly(p0 string) bool { return runnerTimeoutsOnly(p0) }
 
 func RustFileIsTestModule(p0 string, p1 string, p2 string) bool {
 	return rustFileIsTestModule(p0, p1, p2)

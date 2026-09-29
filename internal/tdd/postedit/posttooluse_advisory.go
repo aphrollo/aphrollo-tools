@@ -21,6 +21,14 @@ func timeoutAdvisory(r Runner, root string, dur time.Duration) string {
 		cmdString(r), root, int(dur.Seconds()+0.5))
 }
 
+// runnerTimeoutAdvisory is timeoutAdvisory for a run that finished, but
+// whose every failing test was ended by the runner's own per-test timeout:
+// the box was not what ran out, so the line does not send the reader to it.
+func runnerTimeoutAdvisory(r Runner, root string, dur time.Duration) string {
+	return fmt.Sprintf("gate: %s in %s → TIMEOUT after %ds — the runner's own per-test timeout ended every failing test and no test failed; inconclusive, code NOT tested — one targeted rerun of a timed-out test is the sanctioned next step",
+		cmdString(r), root, int(dur.Seconds()+0.5))
+}
+
 // streakSkipAdvisory composes the one-line advisory for the timeout-streak
 // backoff: the suite was not even invoked this edit, which is a DIFFERENT
 // fact from "invoked and inconclusive" (timeoutAdvisory) and must read as

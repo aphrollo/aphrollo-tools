@@ -23,6 +23,8 @@ const outcomeTimeout = suite.OutcomeTimeout
 
 const outcomeVacuous = suite.OutcomeVacuous
 
+const stagedArgvBudget = suite.StagedArgvBudget
+
 type SuiteResult = suite.SuiteResult
 
 type SuiteRunner = suite.SuiteRunner
@@ -34,6 +36,8 @@ type suiteProofLedger = suite.SuiteProofLedger
 func DetectRunner(p0 string) (Runner, bool) { return suite.DetectRunner(p0) }
 
 func ExtractFailingTests(p0 string) []string { return suite.ExtractFailingTests(p0) }
+
+func argvBatches(p0 []string, p1 []string, p2 int) [][]string { return suite.ArgvBatches(p0, p1, p2) }
 
 func cargoAlwaysRunPackages(p0 string) []string { return suite.CargoAlwaysRunPackages(p0) }
 

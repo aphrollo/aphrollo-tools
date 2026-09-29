@@ -57,6 +57,7 @@ agent_researcher.md                                install
 agent_reviewer.md                                  install
 agents.go                                          install
 agents_test.go                                     install
+argvbatches_test.go                                suite
 autoescape.go                                      escape
 autoescape_override_test.go                        tdd       # prefix says escape; its test body reaches tdd
 autoescape_suite.go                                suite     # created by P2
@@ -154,6 +155,8 @@ classify_rustattribution_test.go                   suite
 classify_scope.go                                  suite
 classify_scope_test.go                             postedit  # prefix says suite; its test body reaches postedit
 classify_test.go                                   suite
+classify_timeouts.go                               suite
+classify_timeouts_test.go                          suite
 classifydiff.go                                    precommit
 classifydiff_test.go                               precommit
 classifydiff_workflow_filter_unix_test.go          tdd
@@ -539,6 +542,7 @@ mutants_ram_unix.go                                lock
 mutants_ram_unix_own_test.go                       lock
 mutants_ram_windows.go                             lock
 mutants_resolve.go                                 mutation
+mutants_resolve_confirm_test.go                    mutation
 mutants_resolve_test.go                            mutation
 mutants_runlock.go                                 mutation
 mutants_runlock_test.go                            mutation
@@ -598,6 +602,7 @@ posttooluse_gofmt_test.go                          postedit
 posttooluse_gofmt_unix_test.go                     postedit
 posttooluse_notrun_test.go                         postedit
 posttooluse_run.go                                 postedit
+posttooluse_runnertimeout_test.go                  postedit
 posttooluse_suite.go                               suite     # created by P2
 posttooluse_test.go                                postedit
 posttooluse_touched.go                             postedit
@@ -643,6 +648,7 @@ precommit_lockscope.go                             precommit
 precommit_lockscope_test.go                        precommit
 precommit_nosuite_test.go                          precommit
 precommit_npm.go                                   precommit
+precommit_npm_argvbudget_test.go                   precommit
 precommit_npm_e2e_test.go                          precommit
 precommit_npm_test.go                              precommit
 precommit_npmbaseline.go                           precommit
@@ -727,6 +733,8 @@ runner_lock.go                                     lock      # created by P2
 runner_lock_own_test.go                            lock
 runner_nextest_test.go                             suite
 runner_scope.go                                    suite
+runner_scope_argvbudget.go                         suite
+runner_scope_argvbudget_test.go                    suite
 runner_scope_gorun.go                              suite
 runner_test.go                                     suite
 runner_testscope_test.go                           suite
