@@ -57,6 +57,7 @@ agent_researcher.md                                install
 agent_reviewer.md                                  install
 agents.go                                          install
 agents_test.go                                     install
+argvbatches_test.go                                suite
 autoescape.go                                      escape
 autoescape_override_test.go                        tdd       # prefix says escape; its test body reaches tdd
 autoescape_suite.go                                suite     # created by P2
@@ -643,6 +644,7 @@ precommit_lockscope.go                             precommit
 precommit_lockscope_test.go                        precommit
 precommit_nosuite_test.go                          precommit
 precommit_npm.go                                   precommit
+precommit_npm_argvbudget_test.go                   precommit
 precommit_npm_e2e_test.go                          precommit
 precommit_npm_test.go                              precommit
 precommit_npmbaseline.go                           precommit
@@ -727,6 +729,8 @@ runner_lock.go                                     lock      # created by P2
 runner_lock_own_test.go                            lock
 runner_nextest_test.go                             suite
 runner_scope.go                                    suite
+runner_scope_argvbudget.go                         suite
+runner_scope_argvbudget_test.go                    suite
 runner_scope_gorun.go                              suite
 runner_test.go                                     suite
 runner_testscope_test.go                           suite

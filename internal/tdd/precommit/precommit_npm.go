@@ -144,13 +144,12 @@ var eslintExts = []string{".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", 
 var eslintFormat = []string{"--format", "json"}
 
 // eslintArgvs lints the staged files that still exist: a deleted file
-// handed to eslint fails the run on a path, not on the code.
+// handed to eslint fails the run on a path, not on the code. A large set
+// splits across runs whose arguments each stay within stagedArgvBudget
+// (issue #951), which leaves the budget's headroom for the `node <entry>`
+// the tool line starts with.
 func eslintArgvs(root string, touched []string) [][]string {
-	files := existingLintable(root, touched)
-	if len(files) == 0 {
-		return nil
-	}
-	return [][]string{append(slices.Clone(eslintFormat), files...)}
+	return argvBatches(eslintFormat, existingLintable(root, touched), stagedArgvBudget)
 }
 
 // eslintHeadArgs keeps the files HEAD already had: a file the commit adds
