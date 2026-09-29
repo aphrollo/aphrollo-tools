@@ -11,6 +11,7 @@ import (
 // observed failure mode was the opposite — a ~2000-char HEAD snippet of a long
 // suite showed only green `ok` lines while the actual failure sat at the tail,
 // so the operator could not tell a real red from a phantom one.
+// Serial: reads back mech-reject.log, one file per state dir that every blocked gate overwrites, so it needs a CLAUDE_CONFIG_DIR of its own.
 func TestPrecommit_MechanicalRejectionNamesTheFailure(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
@@ -62,7 +63,7 @@ func TestPrecommit_MechanicalRejectionNamesTheFailure(t *testing.T) {
 // runner-level failure) must surface the runner error instead of a bare
 // "failing" with no subject.
 func TestPrecommit_MechanicalRejectionSurfacesRunnerError(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")

@@ -12,6 +12,7 @@ import (
 // gate fell back to the whole workspace — the heaviest possible run, from
 // editing an asset.
 func TestClassifyFile_RonWithNoOwningCrateIsIgnored(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[workspace]"+"\n"+`members = ["crates/*"]`+"\n")
 	write(t, root, "assets/items/sword.ron", "( )\n")
@@ -30,6 +31,7 @@ func TestClassifyFile_RonWithNoOwningCrateIsIgnored(t *testing.T) {
 // found: the mechanical suite REJECTS a commit it could not run, while
 // clippy waved the same commit through. A check that did not run has proven
 // nothing, and the two stages must agree about what that means.
+// Serial: points the process-wide build lock at its own file.
 func TestQualityStage_RejectsWhenNoSlotComesFree(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	withIsolatedBuildLock(t)

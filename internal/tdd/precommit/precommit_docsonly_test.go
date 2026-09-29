@@ -20,6 +20,7 @@ func refuseToRun(t *testing.T) SuiteRunner {
 // the baseline guard exists for, and it was the one shape that skipped it: no
 // staged source or test meant the gate returned before the guard ran.
 func TestPrecommit_RejectsARaisedBaselineInACommitWithNoCode(t *testing.T) {
+	t.Parallel()
 	root := baselineRepo(t, ".ratchet/baselines/module_size.txt",
 		"# header\ncrates/a.rs | 1048\n",
 		"# header\ncrates/a.rs | 1049\n")
@@ -33,6 +34,7 @@ func TestPrecommit_RejectsARaisedBaselineInACommitWithNoCode(t *testing.T) {
 // Same hole one stage over: the laws judge the tree, and a docs-only commit
 // walked past them entirely.
 func TestPrecommit_RunsTheLawsInACommitWithNoCode(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "no-todo.toml"), `
@@ -65,6 +67,7 @@ pattern = "TODO"
 
 // The merge gate carries the same two stages and had the same early return.
 func TestMechanical_RejectsARaisedBaselineInAMergeWithNoCode(t *testing.T) {
+	t.Parallel()
 	root := baselineRepo(t, ".ratchet/baselines/module_size.txt",
 		"# header\ncrates/a.rs | 1048\n",
 		"# header\ncrates/a.rs | 1049\n")

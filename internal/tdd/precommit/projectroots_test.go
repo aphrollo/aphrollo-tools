@@ -41,7 +41,7 @@ func makeMultiRootRepo(t *testing.T) string {
 // fail-first stage never engages — this test is about ROOT SELECTION, not
 // fail-first.
 func TestPrecommit_MultiRoot_PytestSubdirNeverTouchesCargo(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeMultiRootRepo(t)
 	write(t, root, "tools/py/test_x.py", "# no test function declared here\n")
 	write(t, root, "tools/py/x.py", "def base():\n    return 2\n")
@@ -78,7 +78,7 @@ func TestPrecommit_MultiRoot_PytestSubdirNeverTouchesCargo(t *testing.T) {
 // not the member's own directory, even though the run is grouped by the
 // crate's own root (the `dir` param the fake SuiteRunner was called with).
 func TestPrecommit_MultiRoot_CargoMemberScopedToOwnPackage(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeMultiRootRepo(t)
 	write(t, root, "crates/a/src/lib.rs", "pub fn base() -> i32 { 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -101,6 +101,7 @@ func TestPrecommit_MultiRoot_CargoMemberScopedToOwnPackage(t *testing.T) {
 // "no owning package → unnarrowed full-workspace fallback" bug: previously
 // ANY unowned staged cargo file widened the mechanical run to the entire
 // workspace.
+// Serial: captures the process-wide os.Stderr.
 func TestPrecommit_UnownedCargoFile_SkippedWithNote(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeMultiRootRepo(t)
@@ -129,7 +130,7 @@ func TestPrecommit_UnownedCargoFile_SkippedWithNote(t *testing.T) {
 // subdirectory): each root must run its OWN scoped command, and neither
 // root's runner leaks into the other's directory.
 func TestPrecommit_MultiRoot_MixedCommit_BothRootsRun(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeMultiRootRepo(t)
 	write(t, root, "crates/a/src/lib.rs", "pub fn base() -> i32 { 2 }\n")
 	write(t, root, "tools/py/x.py", "def base():\n    return 3\n")
@@ -148,7 +149,7 @@ func TestPrecommit_MultiRoot_MixedCommit_BothRootsRun(t *testing.T) {
 		switch r.runner.Cmd {
 		case "cargo":
 			sawCargo = true
-			if !reflect.DeepEqual(r.runner, Runner{Cmd: "cargo", Args: []string{"test", "-p", "a"}, Dir: root}) {
+			if !reflect.DeepEqual(withoutGateEnv(r.runner), Runner{Cmd: "cargo", Args: []string{"test", "-p", "a"}, Dir: root}) {
 				t.Fatalf("cargo run = %+v, want -p a from the workspace root %s", r.runner, root)
 			}
 		case "pytest":

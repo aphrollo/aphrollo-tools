@@ -31,6 +31,8 @@ func TestUnwrapGroups_SubshellOpenAndCloseRideOnTheEdgeWords(t *testing.T) {
 		{"brace group is dropped, not counted", "{ cd dir; go test; }", [][]string{{"cd", "dir"}, {"go", "test"}}, 0, 0},
 		{"command substitution operand", "go test -C $(pwd) ./...", [][]string{{"go", "test", "-C", "$(pwd)", "./..."}}, 0, 0},
 		{"stray close without an open group", "go test x)", [][]string{{"go", "test", "x)"}}, 0, 0},
+		{"lone open paren", "(", nil, 1, 0},
+		{"unclosed command substitution operand", "(go test $(pwd)", [][]string{{"go", "test", "$(pwd)"}}, 1, 0},
 		{"nested", "((cd a); go test)", [][]string{{"cd", "a"}, {"go", "test"}}, 2, 2},
 	} {
 		texts, opened, closed := groupTexts(tc.cmd, 0)

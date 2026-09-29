@@ -19,6 +19,7 @@ import (
 // never joins the run and the gate keeps reporting green over rules it never
 // evaluated.
 func TestCargoAlwaysRunPackages_ReadsWorkspaceMetadata(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/alpha\"]\n\n"+
 		"[workspace.metadata.aphrollo]\nalways-run = [\"ratchet\", \"guards\"]\n")
@@ -33,6 +34,7 @@ func TestCargoAlwaysRunPackages_ReadsWorkspaceMetadata(t *testing.T) {
 // Break this catches: a project that never opted in gains phantom packages,
 // turning every commit in every other repo slower and possibly red.
 func TestCargoAlwaysRunPackages_AbsentMetadataIsEmpty(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/alpha\"]\n")
 
@@ -44,6 +46,7 @@ func TestCargoAlwaysRunPackages_AbsentMetadataIsEmpty(t *testing.T) {
 // Break this catches: a key under a DIFFERENT metadata table is read as ours,
 // so an unrelated tool's config silently changes what the gate runs.
 func TestCargoAlwaysRunPackages_OtherToolsMetadataIgnored(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/alpha\"]\n\n"+
 		"[workspace.metadata.othertool]\nalways-run = [\"nope\"]\n")
@@ -58,7 +61,7 @@ func TestCargoAlwaysRunPackages_OtherToolsMetadataIgnored(t *testing.T) {
 // it waits for that crate to build before a pure crate's cheap suite can say
 // anything.
 func TestMechanical_CargoAlwaysRunPackage_RunsFirstAsItsOwnCommand(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeCargoWorkspaceRepo(t)
 	// The always-run declaration is the workspace's own standing policy, not
 	// part of the commit under test: committed on its own first (Cargo.toml
@@ -93,7 +96,7 @@ func TestMechanical_CargoAlwaysRunPackage_RunsFirstAsItsOwnCommand(t *testing.T)
 // Break this catches: a package both staged and always-run is passed twice,
 // which changes the argv and so the mech-cache key for an identical tree.
 func TestMechanical_CargoAlwaysRunPackage_NotDuplicatedWhenAlsoStaged(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeCargoWorkspaceRepo(t)
 	// Same reason as the sibling test above: the always-run declaration is
 	// committed on its own, so only the touched crate is staged.
@@ -121,6 +124,7 @@ func TestMechanical_CargoAlwaysRunPackage_NotDuplicatedWhenAlsoStaged(t *testing
 //
 // Break this catches: always-run bleeding into fail-first narrowing.
 func TestNarrowFailFirstTests_CargoIgnoresAlwaysRun(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[package]\nname = \"pkg1\"\nversion = \"0.1.0\"\n\n"+
 		"[workspace.metadata.aphrollo]\nalways-run = [\"guards\"]\n")
@@ -143,6 +147,7 @@ func TestNarrowFailFirstTests_CargoIgnoresAlwaysRun(t *testing.T) {
 // `error: no test target named 'vertical_ladder'` -- a red on green code.
 // The file must run on the lib target filtered by its module path, and a
 // mod.rs there filters to the directory's own module.
+// Serial: installs a process-wide test override (SetCargoTestTargetsForTest).
 func TestNarrowToRelatedTests_CargoTestsDirUnderSrcIsAModuleNotATarget(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[package]\nname = \"forge\"\nversion = \"0.1.0\"\n")

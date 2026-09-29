@@ -75,7 +75,7 @@ func invalidateFailFirstArtifacts(run SuiteRunner, failFirst Runner, repoRoot, r
 	for _, p := range pkgs {
 		args = append(args, "-p", p)
 	}
-	cleaner := Runner{Cmd: "cargo", Args: args, Dir: ws}
+	cleaner := Runner{Cmd: "cargo", Args: args, Dir: ws, Env: failFirst.Env}
 	// No budget floor (the trailing zero): `cargo clean` runs no suite, so
 	// there is no recorded suite duration that says anything about it.
 	runCargoLocked(run, cleaner, ws, precommitLockWait(), DefaultPrecommitTimeout, 0)
@@ -254,15 +254,8 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 	// Name the repo's own resolved target explicitly.
 	if runner.Cmd == "cargo" {
 		if dir := resolvedDevTarget(repoRoot); dir != "" {
-			prev, had := os.LookupEnv("CARGO_TARGET_DIR")
-			os.Setenv("CARGO_TARGET_DIR", dir)
-			defer func() {
-				if had {
-					os.Setenv("CARGO_TARGET_DIR", prev)
-				} else {
-					os.Unsetenv("CARGO_TARGET_DIR")
-				}
-			}()
+			runner.Env = append(append([]string(nil), runner.Env...), "CARGO_TARGET_DIR="+dir)
+			execRunner.Env = append(append([]string(nil), execRunner.Env...), "CARGO_TARGET_DIR="+dir)
 		}
 	}
 	// The switches the repo declares its gated suites need (#656). Without

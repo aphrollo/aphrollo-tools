@@ -54,31 +54,21 @@ func tddsplitCheckNeeded(repoRoot string) bool {
 	return stagedFileSetChangesUnder(repoRoot, tddsplitTree)
 }
 
-// stagedFileSetChangesUnder reports whether the staged diff adds, deletes or
-// renames a path under dir (a rename counts on either side).
+// stagedFileSetChangesUnder reports whether the staged diff adds or deletes a
+// path under dir. Renames are not detected, so one shows as a delete of the
+// old path and an add of the new one, and either side counts.
 func stagedFileSetChangesUnder(repoRoot, dir string) bool {
-	out, err := git(repoRoot, "diff", "--cached", "--name-status", "-z", "-M", "--diff-filter=ADR")
+	out, err := git(repoRoot, "diff", "--cached", "--name-only", "-z", "--no-renames", "--diff-filter=AD")
 	if err != nil {
 		// An index this stage cannot read is not evidence the file set did
 		// not change: run the check.
 		return true
 	}
-	fields := strings.Split(out, "\x00")
-	for i := 0; i < len(fields); i++ {
-		status := fields[i]
-		if status == "" {
-			continue
+	base := filepath.Join(repoRoot, filepath.FromSlash(dir))
+	for path := range strings.SplitSeq(out, "\x00") {
+		if _, inside := relBeneath(repoRoot, base, path); inside && path != "" {
+			return true
 		}
-		n := 1
-		if strings.HasPrefix(status, "R") {
-			n = 2
-		}
-		for j := 1; j <= n && i+j < len(fields); j++ {
-			if _, inside := relBeneath(repoRoot, filepath.Join(repoRoot, filepath.FromSlash(dir)), fields[i+j]); inside {
-				return true
-			}
-		}
-		i += n
 	}
 	return false
 }

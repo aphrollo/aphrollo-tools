@@ -1,6 +1,8 @@
 package suite
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
@@ -17,75 +19,61 @@ func diffHeaderPath(line string) (string, bool) {
 		return "", false
 	}
 	rest := strings.TrimSpace(strings.TrimPrefix(line, prefix))
-	if start := lastQuotedStart(rest); start >= 0 {
-		name, ok := unquoteGitPath(rest[start:])
+	if loc := lastQuotedToken.FindStringIndex(rest); loc != nil {
+		name, ok := unquoteGitPath(rest[loc[0]:])
 		if !ok || !strings.HasPrefix(name, "b/") {
 			return "", false
 		}
-		return name[len("b/"):], true
+		return strings.TrimPrefix(name, "b/"), true
 	}
-	i := strings.LastIndex(rest, " b/")
-	if i < 0 {
+	_, post, found := cutLast(rest, " b/")
+	if !found {
 		return "", false
 	}
-	return strings.TrimSpace(rest[i+3:]), true
+	return strings.TrimSpace(post), true
 }
 
-// lastQuotedStart returns the index of the opening quote of s's final token
-// when that token is a complete C-quoted string ending at the end of s, else
-// -1.
-func lastQuotedStart(s string) int {
-	start, inQuote := -1, false
-	for i := 0; i < len(s); i++ {
-		switch {
-		case inQuote && s[i] == '\\':
-			i++
-		case s[i] == '"':
-			inQuote = !inQuote
-			if inQuote {
-				start = i
-			}
-		}
+// cutLast splits s around the last occurrence of sep.
+func cutLast(s, sep string) (before, after string, found bool) {
+	i := strings.LastIndex(s, sep)
+	if i < 0 {
+		return s, "", false
 	}
-	if inQuote || start < 0 || !strings.HasSuffix(s, `"`) {
-		return -1
-	}
-	return start
+	return s[:i], s[i+len(sep):], true
 }
+
+// lastQuotedToken matches a complete C-quoted string ending at the end of the
+// line.
+var lastQuotedToken = regexp.MustCompile(`"(?:[^"\\]|\\.)*"$`)
+
+// gitQuotedBody is what git's C-quoting may hold: any byte but a backslash, or
+// one of the single-character escapes, or a three-digit octal byte.
+var gitQuotedBody = regexp.MustCompile(`^(?:[^\\]|\\(?:[abfnrtv\\"]|[0-3][0-7]{2}))*$`)
+
+var gitEscape = regexp.MustCompile(`\\(?:[abfnrtv\\"]|[0-3][0-7]{2})`)
+
+var gitSingleEscapes = map[byte]string{'a': "\a", 'b': "\b", 'f': "\f", 'n': "\n", 'r': "\r", 't': "\t", 'v': "\v", '\\': "\\", '"': `"`}
 
 // unquoteGitPath decodes one C-quoted git path (the surrounding quotes
 // included): the single-character escapes and three-digit octal bytes git
 // emits. ok is false for any other escape.
 func unquoteGitPath(q string) (string, bool) {
-	if len(q) < 2 || q[0] != '"' || q[len(q)-1] != '"' {
+	body, ok := strings.CutPrefix(q, `"`)
+	if !ok {
 		return "", false
 	}
-	body := q[1 : len(q)-1]
-	single := map[byte]byte{'a': '\a', 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t', 'v': '\v', '\\': '\\', '"': '"'}
-	var out []byte
-	for i := 0; i < len(body); i++ {
-		if body[i] != '\\' {
-			out = append(out, body[i])
-			continue
-		}
-		i++
-		if i >= len(body) {
-			return "", false
-		}
-		if c, ok := single[body[i]]; ok {
-			out = append(out, c)
-			continue
-		}
-		if i+2 >= len(body) || !isOctal(body[i]) || !isOctal(body[i+1]) || !isOctal(body[i+2]) {
-			return "", false
-		}
-		out = append(out, (body[i]-'0')<<6|(body[i+1]-'0')<<3|(body[i+2]-'0'))
-		i += 2
+	body, ok = strings.CutSuffix(body, `"`)
+	if !ok || !gitQuotedBody.MatchString(body) {
+		return "", false
 	}
-	return string(out), true
+	return gitEscape.ReplaceAllStringFunc(body, func(esc string) string {
+		if c, single := gitSingleEscapes[esc[1]]; single {
+			return c
+		}
+		n, _ := strconv.ParseUint(esc[1:], 8, 8)
+		return string([]byte{byte(n)})
+	}), true
 }
-
-func isOctal(b byte) bool { return b >= '0' && b <= '7' }
 
 // fixtureLawFromPath extracts the law name from a path under
 // .ratchet/fixtures/<law>/..., ok=false when rel names no fixture at all.

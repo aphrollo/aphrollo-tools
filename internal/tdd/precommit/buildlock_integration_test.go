@@ -16,6 +16,7 @@ import (
 // blew its budget", and conflating the two would poison the timeout-streak
 // backoff over lock contention that has nothing to do with this project's
 // suite being slow.
+// Serial: points the process-wide build lock at its own file.
 func TestPostEdit_QueuedSkipped_WhenBuildLockHeld(t *testing.T) {
 	withIsolatedBuildLock(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -58,6 +59,7 @@ func TestPostEdit_QueuedSkipped_WhenBuildLockHeld(t *testing.T) {
 // a cargo build does, so they must run REGARDLESS of who holds the cargo
 // build lock — a go-only session must never queue behind an unrelated cargo
 // build.
+// Serial: sets the process-wide env var GOTMPDIR.
 func TestPostEdit_NonCargoRunner_NeverTakesTheBuildLock(t *testing.T) {
 	tddtest.VerdictWordTmp(t)
 	withIsolatedBuildLock(t)
@@ -87,6 +89,7 @@ func TestPostEdit_NonCargoRunner_NeverTakesTheBuildLock(t *testing.T) {
 // gate never claims a commit is fine when it never tested it. (A suite
 // TIMEOUT still fails open: that is a stopwatch verdict on a run that
 // actually happened, not a run that never started.)
+// Serial: points the process-wide build lock at its own file.
 func TestPrecommit_Mechanical_RejectsWhenNoSlotComesFree(t *testing.T) {
 	withIsolatedBuildLock(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

@@ -15,7 +15,7 @@ import (
 // fail-first: check-level, no codegen, and it covers every crate the change
 // could have broken -- the touched ones and everything downstream of them.
 func TestGate_CompilesWhatTheChangeCanBreakBeforeTheSuites(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeCargoRepo(t)
 	write(t, root, "src/lib.rs", "pub fn one() -> i32 { 2 }\n")
 	gitDo(t, root, "add", ".")
@@ -53,7 +53,7 @@ func TestGate_CompilesWhatTheChangeCanBreakBeforeTheSuites(t *testing.T) {
 // the first diagnostic or the author has to reproduce the build to find out
 // what broke.
 func TestGate_WorkspaceCheckRejectsAndNamesTheDiagnostic(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeCargoRepo(t)
 	write(t, root, "src/lib.rs", "pub fn one() -> i32 { 2 }\n")
 	gitDo(t, root, "add", ".")
@@ -77,7 +77,7 @@ func TestGate_WorkspaceCheckRejectsAndNamesTheDiagnostic(t *testing.T) {
 // never fires pre-commit, and combining two lanes is exactly how a crate
 // neither lane touched stops compiling.
 func TestMechanical_AlsoRunsTheCompileCoverageCheck(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeCargoRepo(t)
 	write(t, root, "src/lib.rs", "pub fn one() -> i32 { 2 }\n")
 	gitDo(t, root, "add", ".")
@@ -119,7 +119,7 @@ func gateLogOf(t *testing.T, cfg string) string {
 // lint stays at its default level here — the per-crate clippy-clean stage is
 // where -D warnings applies.
 func TestWorkspaceStage_IsClippyWithTheTwoDeniedLints(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeCargoRepo(t)
 	write(t, root, "src/lib.rs", "pub fn one() -> i32 { 2 }\n")
 	gitDo(t, root, "add", ".")
@@ -150,6 +150,7 @@ func TestWorkspaceStage_IsClippyWithTheTwoDeniedLints(t *testing.T) {
 // reader scanning gate.log must be able to tell "the tree does not compile"
 // from "someone used a banned API", because they are different problems with
 // different fixes.
+// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestWorkspaceStage_NamesWhichKindOfFailure(t *testing.T) {
 	cases := []struct {
 		name, output, want string

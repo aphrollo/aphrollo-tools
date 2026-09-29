@@ -47,3 +47,44 @@ func TestRunnerTargetDir_FallsBackToRootWhenRunnerDirEmpty(t *testing.T) {
 		t.Fatalf("runnerTargetDir with no Runner.Dir = %q, want %q", got, want)
 	}
 }
+
+// TestRunnerTargetDir_TheRunnersOwnTargetBindingWins pins that a Runner naming
+// its own CARGO_TARGET_DIR is locked under THAT directory, not the process
+// environment's: the binding is what the child build will see (Runner.Env
+// comes last in its environment), so a lock keyed on any other directory would
+// let two builds into one target through.
+func TestRunnerTargetDir_TheRunnersOwnTargetBindingWins(t *testing.T) {
+	t.Setenv("CARGO_TARGET_DIR", filepath.Join(t.TempDir(), "process-target"))
+	root := t.TempDir()
+	bound := filepath.Join(t.TempDir(), "bound-target")
+
+	r := Runner{Env: []string{"FOO=1", "CARGO_TARGET_DIR=" + bound}}
+	if got := runnerTargetDir(r, root); got != bound {
+		t.Fatalf("runnerTargetDir = %q, want the runner's own binding %q", got, bound)
+	}
+}
+
+// TestRunnerTargetDir_TheLastBindingOfTheRunnerWins pins the order the child
+// sees: with two CARGO_TARGET_DIR bindings on one runner the later one is the
+// directory it builds into, so it is the one the lock keys on.
+func TestRunnerTargetDir_TheLastBindingOfTheRunnerWins(t *testing.T) {
+	t.Setenv("CARGO_TARGET_DIR", "")
+	first := filepath.Join(t.TempDir(), "first")
+	last := filepath.Join(t.TempDir(), "last")
+	r := Runner{Env: []string{"CARGO_TARGET_DIR=" + first, "CARGO_TARGET_DIR=" + last}}
+	if got := runnerTargetDir(r, t.TempDir()); got != last {
+		t.Fatalf("runnerTargetDir = %q, want the later binding %q", got, last)
+	}
+}
+
+// TestRunnerTargetDir_ARunnerWithOtherBindingsFallsBackToTheProcessValue pins
+// the fallback: a runner that binds other variables but not CARGO_TARGET_DIR
+// is keyed on the process environment's, as before.
+func TestRunnerTargetDir_ARunnerWithOtherBindingsFallsBackToTheProcessValue(t *testing.T) {
+	process := filepath.Join(t.TempDir(), "process-target")
+	t.Setenv("CARGO_TARGET_DIR", process)
+	r := Runner{Env: []string{"RUSTFLAGS=-Dwarnings", "CARGO_TARGET_DIRECTORY=/not/it"}}
+	if got := runnerTargetDir(r, t.TempDir()); got != process {
+		t.Fatalf("runnerTargetDir = %q, want the process value %q", got, process)
+	}
+}

@@ -61,6 +61,7 @@ const goBuildFailedTranscript = "# example.com/m/pkgb [example.com/m/pkgb.test]\
 	""
 
 func TestMechRejectMessage_NamesTheFirstCompileErrorNotAnEarlierWarning(t *testing.T) {
+	t.Parallel()
 	r := Runner{Cmd: "cargo", Args: []string{"clippy", "-p", "testrig", "-p", "forge", "--tests"}}
 	msg := mechRejectMessage(r, SuiteResult{Passed: false, Err: "exit status 101", Output: clippyWarningThenErrorTranscript})
 
@@ -71,6 +72,7 @@ func TestMechRejectMessage_NamesTheFirstCompileErrorNotAnEarlierWarning(t *testi
 }
 
 func TestMechRejectMessage_NamesTheFirstGoCompileError(t *testing.T) {
+	t.Parallel()
 	r := Runner{Cmd: "go", Args: []string{"test", "-count=1", "./..."}}
 	msg := mechRejectMessage(r, SuiteResult{Passed: false, Err: "exit status 1", Output: goBuildFailedTranscript})
 
@@ -83,6 +85,7 @@ func TestMechRejectMessage_NamesTheFirstGoCompileError(t *testing.T) {
 // The quality stages share firstDiagnostic: an error anywhere in the output
 // outranks a warning ahead of it.
 func TestFirstDiagnostic_PrefersAnErrorOverAnEarlierWarning(t *testing.T) {
+	t.Parallel()
 	got := firstDiagnostic(clippyWarningThenErrorTranscript)
 	if !strings.Contains(got, "E0425") || !strings.Contains(got, "crates/forge/tests/wip.rs:3:30") {
 		t.Fatalf("firstDiagnostic = %q, want forge's E0425 with its location", got)

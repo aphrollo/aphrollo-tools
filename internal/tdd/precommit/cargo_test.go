@@ -16,6 +16,7 @@ import (
 // test binary). The existing filename rules (`foo_test.rs`, `test_foo.rs`)
 // keep working, and ordinary src files stay Source.
 func TestClassifyFile_RustTestsDir(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		path string
 		want Kind
@@ -48,6 +49,7 @@ func TestClassifyFile_RustTestsDir(t *testing.T) {
 // separately below, since it needs a real [package] Cargo.toml to resolve
 // against.
 func TestNarrowToRelatedTests_CargoTestFiles(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "src/lib.rs", "pub fn base() -> i32 { 0 }\n")
 	write(t, root, "src/thing_test.rs", "#[test]\nfn thing() {}\n")
@@ -92,6 +94,7 @@ func stubCargoTestTargets(t *testing.T, targets map[string]map[string]bool) {
 // `--test affixes` naming a target that does not exist) must resolve the
 // candidate directory name against cargo metadata and, once confirmed, scope
 // the run to that real target rather than the file's own stem.
+// Serial: installs a process-wide test override (SetCargoTestTargetsForTest).
 func TestNarrowToRelatedTests_CargoNestedDirConfirmedByMetadataRunsThatBinary(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[package]\nname = \"item\"\nversion = \"0.1.0\"\n")
@@ -114,6 +117,7 @@ func TestNarrowToRelatedTests_CargoNestedDirConfirmedByMetadataRunsThatBinary(t 
 // OTHER binary, not one of its own) must never guess `--test <dir>` -- that
 // names a target that does not exist, a red on green code. It falls back to
 // the whole package run instead, which stays correct, only broader.
+// Serial: installs a process-wide test override (SetCargoTestTargetsForTest).
 func TestNarrowToRelatedTests_CargoNestedDirUnconfirmedFallsBackToPackageRun(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[package]\nname = \"item\"\nversion = \"0.1.0\"\n")
@@ -135,6 +139,7 @@ func TestNarrowToRelatedTests_CargoNestedDirUnconfirmedFallsBackToPackageRun(t *
 // candidate cannot be confirmed either way, and the safe direction is the
 // unnarrowed runner, never a guessed --test name.
 func TestNarrowToRelatedTests_CargoNestedDirNoPackageNeverGuessesTarget(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "tests/integration/affixes.rs", "#[test]\nfn affixes() {}\n")
 
@@ -152,6 +157,7 @@ func TestNarrowToRelatedTests_CargoNestedDirNoPackageNeverGuessesTarget(t *testi
 // the full `cargo test` unchanged, because `--lib` on a crate with no lib
 // target is an error, not a narrower run.
 func TestNarrowToRelatedTests_CargoSourceEdits(t *testing.T) {
+	t.Parallel()
 	cargo := Runner{Cmd: "cargo", Args: []string{"test"}, Dir: "", Deadline: time.Time{}}
 
 	t.Run("lib crate source edit → --lib", func(t *testing.T) {
@@ -202,6 +208,7 @@ func makeCargoWorkspaceRepo(t *testing.T) string {
 // files (src/thing_test.rs) is an inline #[cfg(test)] module rather than a
 // tests/*.rs integration binary.
 func TestNarrowFailFirstTests_CargoSinglePackageMixed(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[package]\nname = \"pkg1\"\nversion = \"0.1.0\"\n")
 	write(t, root, "tests/foo.rs", "#[test]\nfn foo() {}\n")
@@ -219,6 +226,7 @@ func TestNarrowFailFirstTests_CargoSinglePackageMixed(t *testing.T) {
 // the `nextest run` verb (not plain `test`) when the detected runner is
 // nextest — the same cargoRunArgs contract narrowToStaged already honours.
 func TestNarrowFailFirstTests_CargoNextestPreserved(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[package]\nname = \"pkg1\"\nversion = \"0.1.0\"\n")
 	write(t, root, "tests/foo.rs", "#[test]\nfn foo() {}\n")
@@ -237,6 +245,7 @@ func TestNarrowFailFirstTests_CargoNextestPreserved(t *testing.T) {
 // widen into a guessed `--test <dir>` -- the whole run drops --test scoping
 // for the package rather than silently excluding the file it could not
 // verify.
+// Serial: installs a process-wide test override (SetCargoTestTargetsForTest).
 func TestNarrowFailFirstTests_CargoNestedDirUnconfirmedDropsTestScoping(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[package]\nname = \"pkg1\"\nversion = \"0.1.0\"\n")
@@ -257,6 +266,7 @@ func TestNarrowFailFirstTests_CargoNestedDirUnconfirmedDropsTestScoping(t *testi
 // case: staged test files owned by DIFFERENT packages fall back to package
 // granularity (`-p a -p b`, no --test scoping) via narrowToStaged.
 func TestNarrowFailFirstTests_CargoMultiPackageFallback(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/alpha\", \"crates/beta\"]\n")
 	write(t, root, "crates/alpha/Cargo.toml", "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\n")
@@ -277,6 +287,7 @@ func TestNarrowFailFirstTests_CargoMultiPackageFallback(t *testing.T) {
 // workspace-only virtual manifest above it) must keep the runner unnarrowed —
 // today's full-suite fail-open behavior, never a wrong scope.
 func TestNarrowFailFirstTests_CargoNoPackageFallback(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/alpha\"]\n")
 	write(t, root, "crates/alpha/Cargo.toml", "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\n")
@@ -293,6 +304,7 @@ func TestNarrowFailFirstTests_CargoNoPackageFallback(t *testing.T) {
 // non-cargo path: a runner with a related mode (go's package granularity)
 // gets exactly what narrowToStaged already produces for the staged test file.
 func TestNarrowFailFirstTests_NonCargoDelegatesToNarrowToStaged(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "go.mod", "module m\n\ngo 1.21\n")
 	write(t, root, "internal/x/x_test.go", "package x\n")
@@ -308,6 +320,7 @@ func TestNarrowFailFirstTests_NonCargoDelegatesToNarrowToStaged(t *testing.T) {
 // TestNarrowFailFirstTests_NonCargoUnnarrowedFallback guards a runner with NO
 // related mode (zig): the command must stay the full unnarrowed runner.
 func TestNarrowFailFirstTests_NonCargoUnnarrowedFallback(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "build.zig", "// build\n")
 	write(t, root, "tests/thing.zig", "// test\n")
@@ -351,6 +364,7 @@ func TestNarrowFailFirstTests_PytestRunsTheStagedTestFiles(t *testing.T) {
 // whole-workspace suite — that fallback was the exact "python commit builds
 // all of Bevy" bug task A1 fixes. Only SOURCE files are staged in both
 // subtests, so fail-first never triggers.
+// Serial: captures the process-wide os.Stderr.
 func TestPrecommit_Mechanical_CargoWorkspaceScopedToStagedPackages(t *testing.T) {
 	t.Run("staged sources in different member crates → one -p run per crate root, from the workspace root", func(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -372,7 +386,7 @@ func TestPrecommit_Mechanical_CargoWorkspaceScopedToStagedPackages(t *testing.T)
 		betaDir := filepath.Join(root, "crates", "beta")
 		byDir := map[string]Runner{}
 		for _, r := range seen {
-			byDir[r.dir] = r.runner
+			byDir[r.dir] = withoutGateEnv(r.runner)
 		}
 		if want := (Runner{Cmd: "cargo", Args: []string{"test", "-p", "alpha"}, Dir: root}); !reflect.DeepEqual(byDir[alphaDir], want) {
 			t.Fatalf("alpha run = %+v, want %+v (all runs: %+v)", byDir[alphaDir], want, seen)

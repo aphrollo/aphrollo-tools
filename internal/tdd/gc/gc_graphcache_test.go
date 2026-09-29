@@ -27,14 +27,15 @@ func TestGCGraphCaches_ProposesOnlyTheCachesOfWorktreesThatAreGone(t *testing.T)
 	live := t.TempDir()
 	gone := filepath.Join(t.TempDir(), "pruned-lane")
 	goneCache := writeGraphCache(t, state, "golist-pruned-lane-000000000001.json", "fp "+gone)
+	goneFirst := writeGraphCache(t, state, "golist-a-lane-000000000009.json", "fp "+gone)
 	writeGraphCache(t, state, "golist-live-000000000002.json", "fp "+live)
 	writeGraphCache(t, state, "golist-old-000000000003.json", "fp-only")
 	writeGraphCache(t, state, "depgraph-x-000000000004.json", "fp "+gone)
 	writeGraphCache(t, state, "lane-000000000005.json", "fp "+gone)
 
 	got := gcGraphCaches(state)
-	if len(got) != 1 || got[0].Path != goneCache || got[0].Size == 0 {
-		t.Fatalf("candidates = %+v, want only %s with its size", got, goneCache)
+	if len(got) != 2 || got[0].Path != goneFirst || got[1].Path != goneCache || got[0].Size == 0 || got[1].Size == 0 {
+		t.Fatalf("candidates = %+v, want %s then %s, each with its size", got, goneFirst, goneCache)
 	}
 	if gcGraphCaches("") != nil {
 		t.Error("an empty state dir proposed something")

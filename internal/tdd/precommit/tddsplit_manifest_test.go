@@ -48,6 +48,12 @@ func TestTddsplitManifestStage_RunsTheDriftTestWhenTheFileSetChanges(t *testing.
 		{"renamed out of the tree", func(t *testing.T, root string) {
 			gitDo(t, root, "mv", "internal/tdd/old.go", "elsewhere.go")
 		}},
+		{"renamed into the tree", func(t *testing.T, root string) {
+			write(t, root, "elsewhere.go", "package x\n")
+			gitDo(t, root, "add", "elsewhere.go")
+			gitDo(t, root, "commit", "-q", "-m", "outside file")
+			gitDo(t, root, "mv", "elsewhere.go", "internal/tdd/arrived.go")
+		}},
 		{"a path with a space", func(t *testing.T, root string) {
 			write(t, root, "internal/tdd/with space.go", "package tdd\n")
 		}},

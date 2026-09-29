@@ -217,11 +217,7 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL; the git queue shim,
   where it is on the agent's PATH, is the WALL (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit).
   Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).
-- **A merge is measured, not certified:** the pre-merge gate runs this lane's mutation measurement in the foreground and refuses an unaccepted survivor by name; `aphrollo gate mutants run` measures THIS checkout the same way before you merge.
-- **Mutation rules** (this repo measures mutants): quote one `aphrollo gate mutants prove --file <f> --old <expr> --new <expr> --want-fail <Test>`
-  KILLED line per new condition; UNREADABLE proves nothing. A mutant nobody can observe is removed by rewriting the code, not by an accept-list entry.
-  A timed-out mutant is refused like a survivor, so never compute a scan or loop index as an expression: no `i++` in a loop that already
-  steps `i`; consume a flag's value with a `skip` bool over a range loop; advance a scan with `i += n`, never `i - n`.
+- **A merge is checked, not measured:** this repo declares no `mutants-at-merge`, so the merge gate runs the mechanical suite and NO mutation measurement; `aphrollo gate mutants run` measures THIS checkout by hand.
 - **Orchestrating:** follow-ups on a lane (fix round, base merge, re-measure, red CI) resume its builder with only the delta; a fresh builder is for a new issue. A reviewer did not build the lane and re-reviews its own findings; the coordinator never edits; a brief carries only what the agent lacks.
 - **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).
 - **Commit messages** say what the change does and nothing about how it was
