@@ -593,6 +593,9 @@ posttooluse.go                                     postedit
 posttooluse_advisory.go                            postedit
 posttooluse_advisory_test.go                       postedit
 posttooluse_failfirst.go                           failfirst # created by P2
+posttooluse_gofmt.go                               postedit
+posttooluse_gofmt_test.go                          postedit
+posttooluse_gofmt_unix_test.go                     postedit
 posttooluse_notrun_test.go                         postedit
 posttooluse_run.go                                 postedit
 posttooluse_suite.go                               suite     # created by P2

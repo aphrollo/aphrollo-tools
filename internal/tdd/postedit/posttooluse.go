@@ -44,7 +44,11 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 	text := ""
 	failed := in.ToolResponse.Success != nil && !*in.ToolResponse.Success
 	if gatedPostTools[in.ToolName] && in.ToolInput.FilePath != "" && !failed {
+		// Formatted before the suite runs, so the run judges the bytes the
+		// commit will carry.
+		note := gofmtEdited(in.ToolInput.FilePath)
 		text, _ = postEditFile(in.SessionID, in.ToolInput.FilePath, run)
+		text = withGofmtNote(text, note)
 	}
 	return withSessionHarvest(text, in.SessionID)
 }
