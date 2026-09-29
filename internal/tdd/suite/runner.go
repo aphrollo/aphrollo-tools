@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -500,13 +501,19 @@ func narrowFailFirstTests(r Runner, wt string, tests []string) Runner {
 		return Runner{Cmd: "cargo", Args: args}
 	}
 	sort.Strings(targets)
+	scoped := slices.Clone(args)
 	for _, tgt := range targets {
-		args = append(args, "--test", tgt)
+		scoped = append(scoped, "--test", tgt)
 	}
 	if inline {
-		args = append(args, "--lib")
+		scoped = append(scoped, "--lib")
 	}
-	return Runner{Cmd: "cargo", Args: args}
+	// A target list past the command-line budget runs the package whole, as
+	// an unconfirmed target does: the line is bounded, the proof only wider.
+	if len(cmdString(Runner{Cmd: "cargo", Args: scoped})) > stagedArgvBudget {
+		return Runner{Cmd: "cargo", Args: args}
+	}
+	return Runner{Cmd: "cargo", Args: scoped}
 }
 
 // narrowSourceEdit builds the related-tests command for a source-file edit,

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
@@ -188,27 +189,35 @@ func RunPhase(jobPath string) int {
 	// otherwise queue behind THIS phase's own slot record and never run.
 	prevHeld, hadHeld := os.LookupEnv(BuildLockHeldEnv)
 	os.Setenv(BuildLockHeldEnv, "1")
-	cmd := exec.Command(j.Runner[0], j.Runner[1:]...)
-	cmd.Dir = j.Dir
-	cmd.Env = suiteEnv(r, j.Project)
+	env := suiteEnv(r, j.Project)
 	if hadHeld {
 		os.Setenv(BuildLockHeldEnv, prevHeld)
 	} else {
 		os.Unsetenv(BuildLockHeldEnv)
 	}
-	cmd.Stdout, cmd.Stderr = log, log
-	err = cmd.Run()
 	code := 0
-	if err != nil {
+	for _, args := range argvbatch.SplitCommand(j.Runner[0], j.Runner[1:], phaseArgvBudgetFn(j.Runner[0])) {
+		cmd := exec.Command(j.Runner[0], args...)
+		cmd.Dir = j.Dir
+		cmd.Env = env
+		cmd.Stdout, cmd.Stderr = log, log
+		if err = cmd.Run(); err == nil {
+			continue
+		}
 		code = 1
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
 			code = ee.ExitCode()
 		}
+		break
 	}
 	writePhaseResult(j.Result, PhaseOutcome{ExitCode: code, Seconds: time.Since(start).Seconds()})
 	return 0
 }
+
+// phaseArgvBudgetFn is the longest command line the phase starts for a
+// command, a seam so a test can hold it to Windows's figure on any platform.
+var phaseArgvBudgetFn = argvbatch.BudgetFor
 
 // phaseSetupFailure is the ExitCode the wrapper reports alongside
 // SetupFailed: true when the phase never ran at all (no command, no log, no
