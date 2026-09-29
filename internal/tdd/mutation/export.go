@@ -34,6 +34,8 @@ func MutantsConfigStage(p0 string, p1 string) (MutantsConfig, GateResult) {
 	return mutantsConfigStage(p0, p1)
 }
 
+func MutantsRunHeld() bool { return mutantsRunHeld() }
+
 func MutantsRunLockOwnerPath() string { return mutantsRunLockOwnerPath() }
 
 func MutantsShardDir(p0 string, p1 int) string { return mutantsShardDir(p0, p1) }

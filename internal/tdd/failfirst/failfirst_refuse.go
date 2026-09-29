@@ -29,15 +29,24 @@ const failFirstStageName = "fail-first"
 func failFirstOverBudgetRefusal(root, cmd string, out failFirstOutcome) GateResult {
 	return verdictFor("precommit", failFirstStageName, root, cmd, stageOutcome{
 		Kind:   outcomeTimeout,
-		Result: SuiteResult{Duration: out.dur},
+		Result: SuiteResult{Duration: out.dur, Inconclusive: out.inconclusive},
 		Message: fmt.Sprintf(
-			"BLOCKED: fail-first could not prove your staged tests RED — the proof run was killed after %.0fs having measured nothing.\n"+
+			"BLOCKED: fail-first could not prove your staged tests RED — the proof run %s having measured nothing.\n"+
 				"Refusing rather than landing a commit whose test nobody proved.\n"+
 				"Remedy: commit again once the box is quieter (`aphrollo gate status` names what is holding it), or run the proof's own command to see what is slow:\n"+
 				"    cd %s\n"+
 				"    %s",
-			out.dur.Seconds(), root, cmd),
+			overBudgetPhrase(out), root, cmd),
 	})
+}
+
+// overBudgetPhrase says how the proof run ended: killed at its budget, or
+// (inconclusive) ended by the memory cap or never started for want of memory.
+func overBudgetPhrase(out failFirstOutcome) string {
+	if out.inconclusive != "" {
+		return "ended as " + out.inconclusive
+	}
+	return fmt.Sprintf("was killed after %.0fs", out.dur.Seconds())
 }
 
 // failFirstNoBuildSlotRefusal refuses a commit whose proof never started: it

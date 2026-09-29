@@ -9,6 +9,10 @@ import (
 
 const buildSlotsEnv = lock.BuildSlotsEnv
 
+type MemBox = lock.MemBox
+
+type MemCap = lock.MemCap
+
 var futureMtimeChecked = lock.FutureMtimeChecked
 
 func EnvWithBuildJobs(p0 []string, p1 int) []string { return lock.EnvWithBuildJobs(p0, p1) }
@@ -20,6 +24,10 @@ func SetBuildLockPathForTest(p0 string) func() { return lock.SetBuildLockPathFor
 func SetLockWaitLogThresholdForTest(p0 time.Duration) func() {
 	return lock.SetLockWaitLogThresholdForTest(p0)
 }
+
+func SetMemBoxForTest(p0 MemBox) func() { return lock.SetMemBoxForTest(p0) }
+
+func SetMemCapForTest(p0 MemCap) func() { return lock.SetMemCapForTest(p0) }
 
 func SetPostEditLockWaitForTest(p0 time.Duration) func() { return lock.SetPostEditLockWaitForTest(p0) }
 

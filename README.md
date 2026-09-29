@@ -60,6 +60,22 @@ aphrollo update                       # rebuild from origin/main and swap it in
   retro when the PR's journey had friction.
 - **Walls:** the primary checkout is merge-only; discarding commands are
   refused (`gate allow <wall>` arms one command).
+- **Memory:** every test, suite, lint and mutation process the gate starts runs
+  under a hard memory cap, so a runaway kills only itself. On Linux with a user
+  systemd manager the child runs in a transient scope (`MemoryMax`, no swap) and
+  the kernel enforces it; without one, a watchdog sums the process group's
+  resident memory and ends it at the cap; on Windows a job object's job memory
+  limit refuses the allocation. The default cap is 75% of RAM, or the memory
+  available now if smaller, split across the build slots (a mutation run gets
+  the whole pool, and only its runaway worker is ended); `memory-cap` overrides
+  it. A run the cap ends is reported `OOM-KILLED at <cap>` and is inconclusive,
+  never red and never a timeout. A suite or measurement waits for headroom
+  (an eighth of RAM, 2-8 GB, double while swap is 90% full) and is refused with
+  the numbers when it never comes. Gate scratch (`GOTMPDIR`, cargo's temp) is on
+  disk beside the worktrees, not in `/tmp`; the session-start sweep (every repo
+  the gate worked in lately) and a pass after each merge and mutation run
+  reclaim the scratch, mutation areas and stub dirs of runs that are over, and
+  leave everything a live run holds.
 
 Mutation runner contract: [docs/mutation-runner.md](docs/mutation-runner.md).
 Law schema, matcher kinds and baselines: [.ratchet/README.md](.ratchet/README.md)
@@ -79,6 +95,8 @@ With `undercover = true` a tool identity is refused at commit, pre-push and `wor
 | `mutants-before-pr` | off by default: the same measurement before `workspace pr`/`ship`/`submit` open a PR; cost: the mutants-at-merge cost, paid before the PR opens |
 | `mutants-shards` | derived by default: the most shards one measurement splits into; only ever lowers the box's own count; cost: fewer shards: less CPU at once, longer wall-clock |
 | `mutants-slots` (box) | 1 by default: measurements this box runs at once, the rest queue (fixed at 1 for now); cost: each slot runs a full shard set, so size it to cores and RAM |
+| `memory-cap` | derived by default: the most memory, in GB, one test, suite or mutation run the gate starts may hold before it is killed and reported OOM-KILLED (inconclusive, never red); derived from RAM, free memory and the slot count; off disables it; cost: a cap below what a build honestly needs kills honest work |
+| `memory-headroom` | derived by default: the available memory, in GB, a suite or measurement needs before it starts; below it the start waits, then is refused with the numbers; doubled while swap is 90% full; cost: a higher figure defers work on a busy box |
 | `undercover` | off by default: the commit-msg gate refuses AI attribution trailers; cost: none |
 | `commit-message-deny` | commit-msg deny patterns |
 | `undercover-extra` | extra tokens for the undercover checks, e.g. `["codename"]` |

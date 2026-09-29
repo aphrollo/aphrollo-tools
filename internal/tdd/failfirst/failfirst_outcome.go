@@ -33,6 +33,9 @@ type failFirstOutcome struct {
 	// npm root's test tool is not installed or node is not on PATH (#904), or
 	// a pytest root has no interpreter that imports pytest.
 	notRunnable string
+	// inconclusive is why an over-budget stand-down was not a timeout: the
+	// memory cap ended the run, or the box had none to start it.
+	inconclusive string
 	// res is the proof run's own result, kept so its output is retained
 	// for `aphrollo gate output`; zero when nothing ran.
 	res SuiteResult

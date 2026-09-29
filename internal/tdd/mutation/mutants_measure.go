@@ -85,7 +85,9 @@ func runMutantsTool(ctx context.Context, dir string, env []string, argv []string
 		return proc.KillTree(cmd.Process.Pid)
 	}
 	cmd.WaitDelay = mutantsKillDrainDelay
-	if err := cmd.Run(); err != nil {
+	capped, err := RunMutationChild(cmd, dir, capShare(ctx))
+	reportCapKills(log, capped)
+	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
 			return ee.ExitCode(), nil
@@ -94,6 +96,45 @@ func runMutantsTool(ctx context.Context, dir string, env []string, argv []string
 	}
 	return 0, nil
 }
+
+// capShareKey carries, in a context, how many mutation trees run side by side
+// under one measurement, so each is held to its share of the pool.
+type capShareKey struct{}
+
+// withCapShare marks ctx as one of n trees sharing the memory pool.
+func withCapShare(ctx context.Context, n int) context.Context {
+	return context.WithValue(ctx, capShareKey{}, n)
+}
+
+// capShare is how many trees share the pool, 1 for a lone run.
+func capShare(ctx context.Context) int {
+	if n, ok := ctx.Value(capShareKey{}).(int); ok && n > 0 {
+		return n
+	}
+	return 1
+}
+
+// reportCapKills says in the run's log what the memory cap did to it.
+//
+// A whole run ended at the cap reached no verdict, which the caller reads as
+// the runner having produced none (inconclusive). A worker the cap ended is
+// the ordinary case of a mutant that turned a bounded loop into an unbounded
+// allocation: its test process died, so the runner counts the mutant caught,
+// and the reason is named here so a reader can tell that kill from a test
+// that failed.
+func reportCapKills(log io.Writer, capped CapResult) {
+	switch {
+	case capped.Killed:
+		logf(log, "mutants: %s — the run reached no verdict (%s)", capped.Line(), capped.Cap.Why)
+	case capped.Kills > 0:
+		logf(log, "mutants: the memory cap (%s, %s) ended %d process(es); a mutant whose test process was one is killed-by-crash — it allocated past the cap",
+			capped.Cap.Text(), capped.Mode, capped.Kills)
+	}
+}
+
+// mutantsHeadroomWait is how long a measurement waits for the box to have
+// the memory to start, before it is refused. A variable so a test can ask once.
+var mutantsHeadroomWait = 5 * time.Minute
 
 // mutantsKillDrainDelay is how long Wait stays after the kill for the
 // output pipes to drain. A mutation run's children write megabytes; a
@@ -153,6 +194,15 @@ func MeasureLane(root string, cfg MutantsConfig, opts MeasureOpts) (Verdict, err
 			logf(log, "mutants: %s — not measuring here", why)
 			return Verdict{Unavailable: why, Message: "mutants: " + why}, nil
 		}
+	}
+	// Before a single build is started: a measurement is the heaviest thing
+	// the gate runs, and one begun on a box with no memory left is how a
+	// runaway takes sessions with it. Refused with the reason, the same
+	// unavailable verdict a busy CI runner gets.
+	if why := WaitForHeadroom(root, mutantsHeadroomWait); why != "" {
+		why = "SKIPPED — " + why
+		logf(log, "mutants: %s — not measuring here", why)
+		return Verdict{Unavailable: why, Message: "mutants: " + why}, nil
 	}
 	if isGoModuleRepo(root) {
 		return measureGoLane(ctx, root, cfg, base, opts.ReportOut, log)

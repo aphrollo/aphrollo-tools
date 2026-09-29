@@ -58,6 +58,7 @@ func runWorkspaceMergeWait(pos []string, into, method string, deleteBranch, dry,
 	// stopped part-way, since the PRs before the stop did land.
 	if err == nil || queue {
 		tdd.PruneMergedLanesAfterMerge(t.MainRepo, t.Worktree, stdout, stderr)
+		sweepAfterRun(t.MainRepo)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)

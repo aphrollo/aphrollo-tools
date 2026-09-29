@@ -102,7 +102,13 @@ func execGolangciLint(binPath string, args []string, stdin io.Reader, stdout, st
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	if err := cmd.Run(); err != nil {
+	capped, err := tdd.RunSlotChild(cmd, ".")
+	if capped.Killed {
+		// Ended by the memory cap, not by lint: no verdict on the code.
+		fmt.Fprintf(stderr, "gate lint: %s — inconclusive, nothing was linted\n", capped.Line())
+		return exitOOMKilled
+	}
+	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return exitErr.ExitCode()
 		}
@@ -111,3 +117,8 @@ func execGolangciLint(binPath string, args []string, stdin io.Reader, stdout, st
 	}
 	return 0
 }
+
+// exitOOMKilled is the shim's exit code for a child the memory cap ended: the
+// shell's own 128+SIGKILL, so a caller reading the code sees a kill and not a
+// failing check.
+const exitOOMKilled = 137

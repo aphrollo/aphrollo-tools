@@ -99,6 +99,16 @@ func verdictFor(gateName, stage, root, cmd string, o stageOutcome) GateResult {
 		// and "something unrelated ate the cores" no longer have to be
 		// argued from the log alone.
 		load := foreignLoadReport(os.Getpid())
+		if o.Result.Inconclusive != "" {
+			// Not a slow suite: the memory cap ended it, or the box had no
+			// memory to start it. Said in the run's own words, never as a
+			// timeout, and logged under its own verdict.
+			line := fmt.Sprintf("[%s] gate %s: %s in %s %s REJECTED (nothing was tested)\n%s",
+				stage, gateName, cmd, root, o.Result.Inconclusive, load)
+			fmt.Fprintln(os.Stderr, line)
+			AppendGateLog(gateName, root, cmd, "inconclusive-rejected", o.Result.Duration)
+			return GateResult{Blocked: true, Message: o.Message + "\n" + load}
+		}
 		line := fmt.Sprintf("[%s] gate %s: %s in %s TIMEOUT after %.0fs REJECTED (nothing was tested)\n%s",
 			stage, gateName, cmd, root, o.Result.Duration.Seconds(), load)
 		fmt.Fprintln(os.Stderr, line)

@@ -53,11 +53,12 @@ func TestSuiteEnv_GoRunnerGetsRepoLocalGotmpdir(t *testing.T) {
 	}
 }
 
-// TestSuiteEnv_NonGoRunnerLeavesTempVarsAlone guards the other half: a cargo
-// (or pytest, or vitest) runner must keep passing straight through exactly as
-// before the GOTMPDIR fix — cargo's own target dir already lands inside the
-// project, so redirecting TMPDIR for it would be an unrequested behavior
-// change with no bug behind it.
+// TestSuiteEnv_NonGoRunnerLeavesTempVarsAlone guards the other half: a pytest
+// (or vitest) runner must keep passing straight through exactly as before the
+// GOTMPDIR fix — nothing measured says its scratch is a problem, so
+// redirecting TMPDIR for it would be an unrequested behavior change with no
+// bug behind it. (cargo and golangci-lint are redirected: see the two tests
+// below.)
 //
 // The assertion is a DELTA against the ambient environment, never the
 // absolute presence of a variable. suiteEnv builds on cleanGitEnv(), which
@@ -83,7 +84,7 @@ func TestSuiteEnv_NonGoRunnerLeavesTempVarsAlone(t *testing.T) {
 		inherited[key] = lastEnvValue(os.Environ(), key)
 	}
 
-	env := suiteEnv(Runner{Cmd: "cargo", Args: []string{"test"}}, dir)
+	env := suiteEnv(Runner{Cmd: "pytest", Args: []string{"-q"}}, dir)
 
 	for _, key := range tempEnvKeys {
 		if got := lastEnvValue(env, key); got != inherited[key] {
@@ -102,5 +103,40 @@ func TestSuiteEnv_ARunnersOwnEnvOverridesTheInheritedValue(t *testing.T) {
 
 	if got := lastEnvValue(env, "CARGO_TARGET_DIR"); got != "/runner/target" {
 		t.Fatalf("CARGO_TARGET_DIR = %q, want the runner's own /runner/target", got)
+	}
+}
+
+// TestSuiteEnv_CargoRunnerScratchLandsOnDiskWithoutGoTmpdir pins issue #1005's
+// second half for cargo: rustc's scratch follows TMPDIR/TMP/TEMP onto the
+// repo-local directory (on disk, not a RAM-backed /tmp), and GOTMPDIR, the go
+// tool's own variable, is not touched.
+func TestSuiteEnv_CargoRunnerScratchLandsOnDiskWithoutGoTmpdir(t *testing.T) {
+	dir := makeGoRepo(t)
+	want := GoTmpRootDir(dir)
+	if want == "" {
+		t.Fatalf("setup: GoTmpRootDir(%q) = \"\"", dir)
+	}
+	inheritedGo := lastEnvValue(os.Environ(), "GOTMPDIR")
+	env := suiteEnv(Runner{Cmd: "cargo", Args: []string{"test"}}, dir)
+	for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
+		if got := lastEnvValue(env, key); got != want {
+			t.Errorf("suiteEnv %s = %q for cargo, want %q", key, got, want)
+		}
+	}
+	if got := lastEnvValue(env, "GOTMPDIR"); got != inheritedGo {
+		t.Errorf("suiteEnv GOTMPDIR = %q for cargo, want the inherited %q", got, inheritedGo)
+	}
+}
+
+// TestSuiteEnv_GolangciLintGetsTheGoScratchDir: golangci-lint loads packages
+// through the go tool, whose go-build directories are what survived in /tmp.
+func TestSuiteEnv_GolangciLintGetsTheGoScratchDir(t *testing.T) {
+	dir := makeGoRepo(t)
+	want := GoTmpRootDir(dir)
+	env := suiteEnv(Runner{Cmd: "golangci-lint", Args: []string{"run"}}, dir)
+	for _, key := range tempEnvKeys {
+		if got := lastEnvValue(env, key); got != want {
+			t.Errorf("suiteEnv %s = %q for golangci-lint, want %q", key, got, want)
+		}
 	}
 }

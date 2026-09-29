@@ -1,6 +1,7 @@
 package suite
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os/exec"
@@ -21,6 +22,13 @@ type SuiteResult struct {
 	// reaches no verdict. Without the signal a slow suite reads as RED and
 	// the gates nag or block over a stopwatch, not a failure.
 	TimedOut bool
+	// Inconclusive is why a run that never reached a verdict was not judged
+	// on the code: the memory cap ended it (`OOM-KILLED at 11.6 GB`) or the box
+	// had no memory to start it (`SKIPPED — memory headroom: …`). It is set
+	// together with TimedOut, so every consumer that already refuses to read a
+	// timeout as red reads this the same way, and the reporters print this
+	// text instead of the word TIMEOUT. "" for every run that reached a verdict.
+	Inconclusive string
 	// Err is the runner-level error text ("" when the run completed cleanly):
 	// an exit status, a spawn failure, or Go's wait-delay note. It is what the
 	// mechanical gate surfaces when the output itself names no failing test —
@@ -95,6 +103,13 @@ func RunSuite(timeout time.Duration) SuiteRunner {
 		if r.Dir != "" {
 			dir = r.Dir
 		}
+		// A start waits for the box to have memory to give it, inside its own
+		// budget, and is refused with the reason when it never does: a suite
+		// started into an exhausted box is how a runaway takes sessions with it.
+		if why := WaitForHeadroom(dir, headroomWait(effectiveTimeout)); why != "" {
+			why = "SKIPPED — " + why
+			return SuiteResult{TimedOut: true, Inconclusive: why, Err: why, Dir: dir}
+		}
 		cmd := exec.CommandContext(ctx, r.Cmd, goExecArgs(r.Cmd, r.Args)...)
 		cmd.Dir = dir
 		cmd.Env = suiteEnv(r, dir)
@@ -116,8 +131,11 @@ func RunSuite(timeout time.Duration) SuiteRunner {
 		// output pipes open and CombinedOutput blocks long past the deadline
 		// (cmd.exe's children on Windows, orphaned workers elsewhere).
 		cmd.WaitDelay = 2 * time.Second
+		var buf bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &buf, &buf
 		start := time.Now()
-		out, err := cmd.CombinedOutput()
+		capped, err := RunSlotChild(cmd, dir)
+		out := buf.Bytes()
 		dur := time.Since(start)
 		timedOut := ctx.Err() == context.DeadlineExceeded
 		// ErrWaitDelay means the process EXITED SUCCESSFULLY but an orphaned
@@ -130,8 +148,25 @@ func RunSuite(timeout time.Duration) SuiteRunner {
 			errText = err.Error()
 		}
 		outputText, testJSON := goRenderedOutput(r.Cmd, r.Args, string(out))
-		return SuiteResult{Passed: passed, Output: outputText, TimedOut: timedOut, Err: errText, Duration: dur, GoTestJSON: testJSON, Dir: dir}
+		res := SuiteResult{Passed: passed, Output: outputText, TimedOut: timedOut, Err: errText, Duration: dur, GoTestJSON: testJSON, Dir: dir}
+		if capped.Killed {
+			// The cap ended it: what the run printed and exited with is the
+			// kill's doing, so it is inconclusive, never red and never a
+			// timeout.
+			res.Passed, res.TimedOut, res.Inconclusive = false, true, capped.Line()
+		}
+		return res
 	}
+}
+
+// headroomWaitCeiling bounds how long a start waits for memory: a fraction of
+// the run's own budget, never more than this.
+const headroomWaitCeiling = 2 * time.Minute
+
+// headroomWait is how long a run with this budget may wait for memory before
+// it is refused: a quarter of the budget, so most of it is left to run in.
+func headroomWait(budget time.Duration) time.Duration {
+	return min(budget/4, headroomWaitCeiling)
 }
 
 // suiteEnv is the environment for the suite subprocess: a quiet, deterministic
@@ -142,19 +177,24 @@ func RunSuite(timeout time.Duration) SuiteRunner {
 // clobber its HEAD. cleanGitEnv (in precommit.go, same package) drops them so the
 // suite runs as if invoked from a plain shell.
 //
-// A `go` runner also gets goTmpEnv(dir): otherwise `go test` stages its
+// A `go` runner (and golangci-lint, which runs the go tool) also gets
+// goTmpEnv(dir), and a cargo runner cargoTmpEnv(dir): otherwise `go test` stages its
 // compiled test binary under the OS temp dir, which is how tdd.test.exe ended
 // up Defender-quarantined and 133 go-build* dirs survived killed runs (issue
-// #520). Every other runner (cargo, pytest, vitest, ...) is left exactly as
-// it was — cargo's own target dir already lands inside the project, so it has
-// no analogous problem to fix.
+// #520) and a workspace build's rustc scratch filled a RAM-backed /tmp (issue
+// #1005). Every other runner (pytest, vitest, ...) is left exactly as it was.
 //
 // The runner's own Env comes last, so a binding there wins over an inherited
 // one.
 func suiteEnv(r Runner, dir string) []string {
 	env := append(cleanGitEnv(), "CI=1", "NO_COLOR=1")
-	if r.Cmd == "go" {
+	switch r.Cmd {
+	case "go", "golangci-lint":
+		// golangci-lint drives the go tool for its package loading, so its
+		// go-build scratch follows the same variable.
 		env = append(env, goTmpEnv(dir)...)
+	case "cargo":
+		env = append(env, cargoTmpEnv(dir)...)
 	}
 	return append(env, r.Env...)
 }

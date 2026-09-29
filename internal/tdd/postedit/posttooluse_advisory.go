@@ -2,6 +2,7 @@ package postedit
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -19,6 +20,22 @@ import (
 func timeoutAdvisory(r Runner, root string, dur time.Duration) string {
 	return fmt.Sprintf("gate: %s in %s → TIMEOUT after %ds — inconclusive, code NOT tested; a rerun queues behind whatever is holding the box — see: aphrollo gate status",
 		cmdString(r), root, int(dur.Seconds()+0.5))
+}
+
+// inconclusiveAdvisory is timeoutAdvisory for a run the memory cap ended or
+// the box's memory refused to start: the line says which, in the run's own
+// words, and never the word TIMEOUT.
+func inconclusiveAdvisory(r Runner, root string, res SuiteResult) string {
+	return fmt.Sprintf("gate: %s in %s → %s — inconclusive, code NOT tested; raise `memory-cap` in aphrollo.toml if the run honestly needs more, or see: aphrollo gate status",
+		cmdString(r), root, res.Inconclusive)
+}
+
+// inconclusiveVerdict is the gate.log token for such a run.
+func inconclusiveVerdict(res SuiteResult) string {
+	if strings.HasPrefix(res.Inconclusive, "OOM-KILLED") {
+		return "oom-killed"
+	}
+	return "memory-skipped"
 }
 
 // runnerTimeoutAdvisory is timeoutAdvisory for a run that finished, but

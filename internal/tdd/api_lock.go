@@ -4,6 +4,7 @@ package tdd
 
 import (
 	lock "github.com/aphrollo/aphrollo-tools/internal/tdd/lock"
+	exec "os/exec"
 	time "time"
 )
 
@@ -14,6 +15,8 @@ type BuildLockOwner = lock.BuildLockOwner
 type BuildSlot = lock.BuildSlot
 
 type BuildSlotStatus = lock.BuildSlotStatus
+
+type CapResult = lock.CapResult
 
 type QueueWaiter = lock.QueueWaiter
 
@@ -34,6 +37,8 @@ func ReadFileLockOwner(p0 string) (BuildLockOwner, bool) { return lock.ReadFileL
 func RemoveFileLockOwner(p0 string) { lock.RemoveFileLockOwner(p0) }
 
 func ResolveCargoTargetDir(p0 string) string { return lock.ResolveCargoTargetDir(p0) }
+
+func RunSlotChild(p0 *exec.Cmd, p1 string) (CapResult, error) { return lock.RunSlotChild(p0, p1) }
 
 func SetBuildLockPathForTest(p0 string) func() { return lock.SetBuildLockPathForTest(p0) }
 

@@ -44,6 +44,8 @@ func CappedFloor(p0 time.Duration, p1 time.Duration) time.Duration { return capp
 
 func CargoConfigJobs(p0 string) (int, bool) { return cargoConfigJobs(p0) }
 
+func CargoTmpEnv(p0 string) []string { return cargoTmpEnv(p0) }
+
 func CargoTomlHasWorkspaceTable(p0 string) bool { return cargoTomlHasWorkspaceTable(p0) }
 
 func CargoWorkspaceRoot(p0 string) string { return cargoWorkspaceRoot(p0) }

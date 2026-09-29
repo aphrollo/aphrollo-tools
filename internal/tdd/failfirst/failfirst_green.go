@@ -41,6 +41,9 @@ func proveGreenWithChange(repoRoot, wt, execRoot string, runner Runner, run Suit
 		return greenProof{why: fmt.Sprintf("no build slot came free in %s", waited.Round(time.Second))}
 	}
 	if res.TimedOut {
+		if res.Inconclusive != "" {
+			return greenProof{why: "the run ended as " + res.Inconclusive}
+		}
 		return greenProof{why: fmt.Sprintf("the run was killed after %.0fs", res.Duration.Seconds())}
 	}
 	return greenProof{ran: true, res: res}

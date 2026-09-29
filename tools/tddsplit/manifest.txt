@@ -300,6 +300,7 @@ failfirst_env_test.go                              failfirst
 failfirst_green.go                                 failfirst
 failfirst_green_test.go                            failfirst
 failfirst_gonarrow_test.go                         failfirst
+failfirst_inconclusive_test.go                     failfirst
 failfirst_ledger.go                                failfirst
 failfirst_ledger_test.go                           failfirst
 failfirst_node.go                                  failfirst
@@ -347,6 +348,8 @@ gc_deps_test.go                                    gc
 gc_gotmp.go                                        gc
 gc_gotmp_test.go                                   gc
 gc_interlock.go                                    gc
+gc_known.go                                        gc
+gc_known_test.go                                   gc
 gc_mutantsdirs.go                                  gc
 gc_mutantsdirs_test.go                             gc
 gc_mutantstemp.go                                  gc
@@ -361,6 +364,10 @@ gc_render.go                                       gc
 gc_render_core.go                                  core      # created by P2
 gc_render_test.go                                  gc
 gc_safety_test.go                                  gc
+gc_scratch.go                                      gc
+gc_scratch_test.go                                 gc
+gc_scratch_unix.go                                 gc
+gc_scratch_windows.go                              gc
 gc_selfspawn_test.go                                gc
 gc_session.go                                      gc
 gc_session_suite.go                                suite     # created by P2
@@ -373,6 +380,8 @@ gc_straytarget_mutation.go                         mutation  # created by P2
 gc_straytarget_test.go                             gc
 gc_templitter_test.go                              gc
 gc_test.go                                         gc
+gcafterrun.go                                      tdd
+gcafterrun_test.go                                 tdd
 gcrender_own_test.go                               core
 gh.go                                              tddtest
 ghstub_isolation_test.go                           tdd
@@ -400,6 +409,7 @@ greenlabel_outcome_test.go                         precommit
 home.go                                             tddtest
 home_test.go                                        tddtest
 hostedrunners_workflow_pin_test.go                   tdd
+inconclusive_reject_test.go                        precommit
 init.go                                            install
 init_test.go                                       install
 initio_test.go                                     install
@@ -454,6 +464,16 @@ mechrun_failfirst.go                               failfirst # created by P2
 mechrun_postedit.go                                postedit  # created by P2
 mechrun_suite.go                                   suite     # created by P2
 mechrun_untested_test.go                           precommit
+memcap.go                                          lock
+memcap_box.go                                      lock
+memcap_box_unix.go                                 lock
+memcap_box_windows.go                              lock
+memcap_own_test.go                                 lock
+memcap_run.go                                      lock
+memcap_run_own_test.go                             lock
+memcap_run_unix.go                                 lock
+memcap_run_unix_own_test.go                        lock
+memcap_run_windows.go                              lock
 mergeaware_test.go                                 precommit
 mergeprune.go                                      merge
 mergeprune_test.go                                 merge
@@ -525,6 +545,7 @@ mutants_measure_tree.go                            mutation
 mutants_measure_tree_batch_unix_test.go            mutation
 mutants_measure_tree_test.go                       mutation
 mutants_measure_verdict_test.go                    mutation
+mutants_memcap_test.go                             mutation
 mutants_newlines.go                                mutation
 mutants_newlines_test.go                           mutation
 mutants_notcovered_test.go                         mutation
@@ -618,6 +639,7 @@ posttooluse_failfirst.go                           failfirst # created by P2
 posttooluse_gofmt.go                               postedit
 posttooluse_gofmt_test.go                          postedit
 posttooluse_gofmt_unix_test.go                     postedit
+posttooluse_inconclusive_test.go                   postedit
 posttooluse_notrun_test.go                         postedit
 posttooluse_ratchet.go                             postedit
 posttooluse_ratchet_test.go                        postedit
@@ -775,6 +797,7 @@ runner_testscope_test.go                           suite
 runscope.go                                        suite
 runscope_bashsuite_test.go                         postedit
 runscope_test.go                                   suite
+runsuite_cap_test.go                               suite
 runsuite_killtree_test.go                          suite
 runsuite_waitdelay_test.go                         suite
 rustmask_test.go                                   smell

@@ -15,6 +15,8 @@ func ApplyGCFor(p0 string, p1 []GCCandidate) (int64, []string, int) { return gc.
 
 func GCAfterWorktreeChange(p0 string, p1 string) int64 { return gc.GCAfterWorktreeChange(p0, p1) }
 
+func KnownGCRepos() []string { return gc.KnownGCRepos() }
+
 func MutantsCopiesInUse(p0 []string) []string { return gc.MutantsCopiesInUse(p0) }
 
 func MutantsTempDirs() []string { return gc.MutantsTempDirs() }

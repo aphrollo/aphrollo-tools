@@ -67,9 +67,12 @@ type GCScope struct {
 	GateDirs        bool
 	OrphanWorktrees bool
 	TempLitter      bool
-	Mutants         bool
-	DepsArtifacts   bool
-	StrayTargets    bool
+	// TempScratch selects category (n), gc_scratch.go: what a killed run left
+	// in the OS temp dirs and the repo's go-scratch dir.
+	TempScratch   bool
+	Mutants       bool
+	DepsArtifacts bool
+	StrayTargets  bool
 	// LockAge overrides how old a lock file must be to count as litter.
 	// Zero means tempLitterAge. An operator who knows the box is idle can
 	// lower it; the unheld-lock probe is what makes that safe.
@@ -79,7 +82,7 @@ type GCScope struct {
 // AllGCScopes is the manual command's scope: everything.
 func AllGCScopes() GCScope {
 	return GCScope{Incremental: true, GateDirs: true, OrphanWorktrees: true, TempLitter: true,
-		Mutants: true, DepsArtifacts: true, StrayTargets: true}
+		TempScratch: true, Mutants: true, DepsArtifacts: true, StrayTargets: true}
 }
 
 // ScanGC collects the reclaimable directories for the workspace containing
@@ -103,7 +106,15 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 		out = append(out, gcDeferredJobFiles(deferredDirPath(), deferredJobMaxAge, time.Now())...)
 		out = append(out, gcGoTmpLitter(repo, olderThan, time.Now())...)
 	}
-	if scope.Mutants {
+	if scope.TempScratch {
+		for _, dir := range lockLitterDirs() {
+			out = append(out, gcTempScratch(dir, time.Now())...)
+		}
+		if root := GoTmpRootDir(repo); root != "" {
+			out = append(out, gcTempScratch(root, time.Now())...)
+		}
+	}
+	if scope.Mutants && !mutationRunHeldFn() {
 		// Every checkout's own area, not just this one's: a lane's mutation
 		// run leaves its shard and build directories beside the LANE, and the
 		// merge that would sweep them is run from the primary.

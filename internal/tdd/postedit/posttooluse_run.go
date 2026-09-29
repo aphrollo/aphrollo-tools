@@ -45,6 +45,13 @@ func runPostEditSuite(run SuiteRunner, snap stateSnapshot, root, headSHA string,
 // timeout: silence reads as "green", and a red would refuse the one targeted
 // rerun a TIMEOUT sanctions.
 func postEditTimedOut(r Runner, root, headSHA string, res SuiteResult, state *sessionState, statePath string) string {
+	if res.Inconclusive != "" {
+		// The memory cap ended the run, or the box had none to start it: not
+		// a slow suite, so it neither counts toward the timeout streak nor
+		// reads as one.
+		AppendGateLog("postedit", root, cmdString(r), inconclusiveVerdict(res), res.Duration)
+		return inconclusiveAdvisory(r, root, res)
+	}
 	if state != nil {
 		state.StampTimeout(root, headSHA)
 		_ = state.Save(statePath)

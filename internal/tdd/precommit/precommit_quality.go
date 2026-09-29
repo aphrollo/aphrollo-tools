@@ -99,11 +99,9 @@ func qualityVerdict(gateName, root, pkg, stage string, r Runner, res SuiteResult
 			gateName, stage, pkg, root)}
 	case res.TimedOut:
 		got := verdictFor(gateName, stage, root, cmdString(r), stageOutcome{
-			Kind:   outcomeTimeout,
-			Result: res,
-			Message: fmt.Sprintf(
-				"gate %s: %s -p %s in %s did not finish, so nothing was checked and the commit is refused.",
-				gateName, stage, pkg, root),
+			Kind:    outcomeTimeout,
+			Result:  res,
+			Message: quietUnfinished(gateName, fmt.Sprintf("%s -p %s in %s", stage, pkg, root), res),
 		})
 		return &got
 	case !res.Passed:
@@ -157,4 +155,13 @@ func firstDiagnostic(output string) string {
 		}
 	}
 	return fallback
+}
+
+// quietUnfinished is the refusal for a per-package check that reached no
+// verdict: it did not finish, or the memory cap ended it (Inconclusive).
+func quietUnfinished(gateName, what string, res SuiteResult) string {
+	if res.Inconclusive != "" {
+		return fmt.Sprintf("gate %s: %s ended as %s, so nothing was checked and the commit is refused.", gateName, what, res.Inconclusive)
+	}
+	return fmt.Sprintf("gate %s: %s did not finish, so nothing was checked and the commit is refused.", gateName, what)
 }

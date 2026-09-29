@@ -293,7 +293,7 @@ func judgeEditResult(runner Runner, file, editID string, res SuiteResult, root s
 	if line := foreignBuildAdvisory(root, file, cmdString(runner), res); line != "" {
 		return line
 	}
-	if runnerTimeoutsOnly(res.Output) {
+	if res.Inconclusive != "" || runnerTimeoutsOnly(res.Output) {
 		return postEditTimedOut(runner, root, headSHA, res, state, statePath)
 	}
 	outcome := classifyRunOutcome(runner, root, res, prev)
@@ -387,6 +387,9 @@ func phaseSuiteResult(j DeferredJob, out PhaseOutcome) SuiteResult {
 	}
 	if !res.Passed {
 		res.Err = fmt.Sprintf("exit status %d", out.ExitCode)
+	}
+	if out.Inconclusive != "" {
+		res.Passed, res.TimedOut, res.Inconclusive = false, true, out.Inconclusive
 	}
 	return res
 }

@@ -168,6 +168,8 @@ type shardRun struct {
 // it is about to report on.
 func runMutantsShards(ctx context.Context, root string, cfg MutantsConfig, argv []string, shards int, log io.Writer) ([]shardRun, error) {
 	shared := &lockedWriter{to: log}
+	// Every shard is held to its share of the memory pool, not to the pool.
+	ctx = withCapShare(ctx, shards)
 	release := acquireMutantsRunLock("mutants measure for "+root, root)
 	defer release()
 	waitForCIRunnerJobs(ctx, root, log)

@@ -55,6 +55,18 @@ var features = []Feature{
 		Enable: "not configurable yet; a box setting, not a repo key",
 	},
 	{
+		Key: "memory-cap", Default: "derived",
+		Effect: "the most memory, in GB, one test, suite or mutation run the gate starts may hold before it is killed and reported OOM-KILLED (inconclusive, never red); derived from RAM, free memory and the slot count; off disables it",
+		Cost:   "a cap below what a build honestly needs kills honest work",
+		Enable: "memory-cap = \"<GB>\"",
+	},
+	{
+		Key: "memory-headroom", Default: "derived",
+		Effect: "the available memory, in GB, a suite or measurement needs before it starts; below it the start waits, then is refused with the numbers; doubled while swap is 90% full",
+		Cost:   "a higher figure defers work on a busy box",
+		Enable: "memory-headroom = <GB>",
+	},
+	{
 		Key: "undercover", Default: "off",
 		Effect: "the commit-msg gate refuses AI attribution trailers",
 		Cost:   "none",

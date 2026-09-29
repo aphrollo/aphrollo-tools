@@ -34,6 +34,22 @@ func mutantsRunLockPath() string {
 	return filepath.Join(lockDir(), "aphrollo-mutants-run.lock")
 }
 
+// mutantsRunHeld reports whether a mutation run holds the box-wide run lock
+// right now, which is the one record a live run leaves that is not a process
+// name: the lock is held for the run's whole duration, from before its first
+// build to after its last mutant is judged, and a run that dies releases it.
+// The sweep reads it to leave every mutation area alone while a run is
+// live. A lock that cannot be probed reads as held (TryAcquireFileLock fails
+// closed), so an unreadable lock deletes nothing.
+func mutantsRunHeld() bool {
+	release, free := TryAcquireFileLock(mutantsRunLockPath())
+	if free {
+		release()
+		return false
+	}
+	return true
+}
+
 // mutantsRunLockOwnerPath is the owner record beside the lock, read the same
 // way buildSlotHolderDescription reads a build slot's: best-effort, so a
 // waiter can NAME the holder rather than reporting a bare "someone else has
