@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 	"github.com/aphrollo/aphrollo-tools/internal/undercover"
 )
 
@@ -65,7 +66,40 @@ func undercoverMerge(t *Target, method string) (body string, useBody bool, err e
 	if strings.TrimSpace(kept) == "" {
 		kept = title
 	}
-	return kept, true, nil
+	base := "origin/" + resolveDefaultBranch(t.Worktree)
+	return withClosingTrailers(kept, commitMessagesSince(t.Worktree, base, "HEAD")), true, nil
+}
+
+// missingCloses is every issue a lane commit closes that body does not, in
+// first-seen order.
+func missingCloses(body string, commits []string) []string {
+	have := map[string]bool{}
+	for _, ref := range tdd.ClosingRefs(body) {
+		have[ref] = true
+	}
+	var missing []string
+	for _, ref := range tdd.ClosingRefs(commits...) {
+		if !have[ref] {
+			missing = append(missing, ref)
+		}
+	}
+	return missing
+}
+
+// withClosingTrailers appends a `Closes <ref>` trailer for every issue a lane
+// commit closes and body does not. A squash merge writes only this body to
+// main, and GitHub closes an issue only from a keyword in it, so a trailer
+// left behind in a lane commit would leave its issue open (#952).
+func withClosingTrailers(body string, commits []string) string {
+	missing := missingCloses(body, commits)
+	if len(missing) == 0 {
+		return body
+	}
+	trailers := make([]string, len(missing))
+	for i, ref := range missing {
+		trailers[i] = "Closes " + ref
+	}
+	return strings.TrimRight(body, "\n") + "\n\n" + strings.Join(trailers, "\n")
 }
 
 // undercoverPRCommits refuses when a commit the PR brings — everything on the

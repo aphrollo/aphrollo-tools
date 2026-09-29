@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
 
 // The throwaway checkout GatePRMerge builds is a fresh `git worktree add`:
@@ -376,4 +378,37 @@ func TestGatePRMerge_CheckoutRemovalNeverReachesThroughTheLink(t *testing.T) {
 		t.Fatalf("no suite ran with the lane's node_modules linked in: %+v", seen)
 	}
 	requireLaneNodeModulesIntact(t, lane)
+}
+
+// #947: the merge checkout's own removal, and the measurement area's beside
+// it, unlink every link before deleting anything, not only the links
+// provisioning recorded. The junction seam runs the Windows branch: a real
+// directory stands in for a junction that cannot be unlinked, and a removal
+// that deletes it anyway is caught by its file going missing.
+func TestPRGateRemoveCheckout_NeverDeletesThroughAJunction(t *testing.T) {
+	const pkg = "node_modules/fakepkg/index.js"
+	checkout := func(t *testing.T) (lane, wt string) {
+		lane = npmPRGateLane(t, false)
+		wt = filepath.Join(t.TempDir(), "gate-prmerge-x")
+		gitDo(t, lane, "worktree", "add", "-q", "--detach", wt, "HEAD")
+		t.Cleanup(depinstall.TreatAsJunction("node_modules"))
+		return lane, wt
+	}
+	t.Run("checkout", func(t *testing.T) {
+		lane, wt := checkout(t)
+		write(t, wt, pkg, "module.exports = 1\n")
+		prGateRemoveCheckout(lane, wt)
+		if _, err := os.Stat(filepath.Join(wt, pkg)); err != nil {
+			t.Errorf("the junction's target must keep its contents: %v", err)
+		}
+	})
+	t.Run("measurement area", func(t *testing.T) {
+		lane, wt := checkout(t)
+		area := measureTempDir(wt)
+		write(t, area, pkg, "module.exports = 1\n")
+		prGateRemoveCheckout(lane, wt)
+		if _, err := os.Stat(filepath.Join(area, pkg)); err != nil {
+			t.Errorf("the junction's target must keep its contents: %v", err)
+		}
+	})
 }

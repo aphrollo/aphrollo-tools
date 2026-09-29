@@ -3,6 +3,7 @@ package workspace
 import (
 	"bytes"
 	"io"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -140,5 +141,40 @@ func TestPR_ContentCheckSkipsSilentlyWithNoMergeBase(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "not checked locally") {
 		t.Errorf("expected a line saying the content check was skipped:\n%s", out.String())
+	}
+}
+
+// #952: a commit that closes an issue the PR body does not is named before
+// the PR opens; one the body closes too is not.
+func TestPR_WarnsWhenACommitClosesAnIssueTheBodyDoesNot(t *testing.T) {
+	repo := repoWithRemote(t)
+	for _, msg := range []string{"Closes #7", "Fixes #8"} {
+		if out, err := exec.Command("git", "-C", repo, "commit", "-q", "--allow-empty", "-m", "work", "-m", msg).CombinedOutput(); err != nil {
+			t.Fatalf("git commit: %v\n%s", err, out)
+		}
+	}
+	prev := verifyClosureLocal
+	verifyClosureLocal = func(string, []string, string, string, io.Writer) (bool, error) { return true, nil }
+	t.Cleanup(func() { verifyClosureLocal = prev })
+	stubGH(t,
+		func(wt, branch string) (*PRInfo, error) { return nil, nil },
+		func(wt string, req PRCreate) (*PRInfo, error) {
+			return &PRInfo{Number: 1, URL: "u", State: "OPEN"}, nil
+		},
+	)
+
+	pr, err := PRPlan(targetFor(repo, "main"), "", "title", "Fixes #8", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if err := pr.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
+	}
+	if !strings.Contains(out.String(), "closes #7 but the PR body does not") {
+		t.Errorf("output lacks the #7 warning:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "#8 but the PR body") {
+		t.Errorf("warned about #8, which the body closes:\n%s", out.String())
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
 
 // deadPidForTest returns a pid guaranteed to name no running process: a
@@ -109,5 +111,60 @@ func TestApplyGC_RemovesAGatePRMergeCandidateAsARegisteredWorktree(t *testing.T)
 		if p == dead {
 			t.Fatalf("git still lists %s as a registered worktree after ApplyGC removed it", dead)
 		}
+	}
+}
+
+// #947: a gc sweep unlinks every link in a candidate before deleting it, so it
+// never deletes through a linked node_modules into its target. The symlink
+// case is the Unix shape; the junction case runs the Windows branch through
+// the depinstall seam, a real directory standing in for a junction that
+// cannot be unlinked, so a sweep that deletes it anyway loses its file.
+func TestApplyGC_NeverDeletesThroughALinkedNodeModules(t *testing.T) {
+	const pkg = "node_modules/fakepkg/index.js"
+	gatePRMerge := func(t *testing.T) GCCandidate {
+		repo := makeCargoRepo(t)
+		dead := filepath.Join(filepath.Dir(repo), ".worktrees", filepath.Base(repo), "gate-prmerge-9999")
+		gitDo(t, repo, "worktree", "add", "--detach", dead, "HEAD")
+		writeHolder(t, dead, deadPidForTest(t))
+		return GCCandidate{Path: dead, Kind: GCKindGatePRMerge}
+	}
+	orphan := func(t *testing.T) GCCandidate {
+		return GCCandidate{Path: filepath.Join(t.TempDir(), "orphan"), Kind: GCKindOrphanWorktree}
+	}
+	for _, c := range []struct {
+		name string
+		cand func(*testing.T) GCCandidate
+	}{{"gate-prmerge checkout", gatePRMerge}, {"bare directory", orphan}} {
+		t.Run(c.name+"/symlink", func(t *testing.T) {
+			cand := c.cand(t)
+			target := t.TempDir()
+			mkFile(t, filepath.Join(target, pkg), "module.exports = 1\n", 0)
+			if err := os.MkdirAll(cand.Path, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(target, "node_modules"), filepath.Join(cand.Path, "node_modules")); err != nil {
+				t.Fatal(err)
+			}
+			if _, refused := ApplyGC([]GCCandidate{cand}); len(refused) != 0 {
+				t.Fatalf("refused = %v, want the candidate removed", refused)
+			}
+			if _, err := os.Lstat(cand.Path); !os.IsNotExist(err) {
+				t.Errorf("the candidate must be gone, lstat err = %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(target, pkg)); err != nil {
+				t.Errorf("the link's target must keep its contents: %v", err)
+			}
+		})
+		t.Run(c.name+"/junction", func(t *testing.T) {
+			cand := c.cand(t)
+			mkFile(t, filepath.Join(cand.Path, pkg), "module.exports = 1\n", 0)
+			t.Cleanup(depinstall.TreatAsJunction("node_modules"))
+			if _, refused := ApplyGC([]GCCandidate{cand}); len(refused) != 1 {
+				t.Errorf("refused = %v, want the candidate refused", refused)
+			}
+			if _, err := os.Stat(filepath.Join(cand.Path, pkg)); err != nil {
+				t.Errorf("the junction's target must keep its contents: %v", err)
+			}
+		})
 	}
 }
