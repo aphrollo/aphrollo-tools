@@ -32,13 +32,9 @@ type greenProof struct {
 // staged tree, which carries the staged tests plus the staged source and
 // data, and runs runner again in execRoot.
 func proveGreenWithChange(repoRoot, wt, execRoot string, runner Runner, run SuiteRunner) greenProof {
-	// A write-tree failure leaves no tree id, and read-tree below refuses
-	// what it printed instead.
-	tree, _ := git(repoRoot, "write-tree")
-	// --reset takes the staged content over the test diff already applied,
-	// adds the staged new files and drops the staged deletions.
-	if out, err := git(wt, "read-tree", "-u", "--reset", strings.TrimSpace(tree)); err != nil {
-		return greenProof{why: "the staged tree could not be written into the proof worktree: " + strings.TrimSpace(out)}
+	// The staged content goes over the test diff already applied.
+	if out, err := readStagedTree(repoRoot, wt); err != nil {
+		return greenProof{why: "the staged tree could not be written into the proof worktree: " + out}
 	}
 	res, waited, acquired := runCargoLocked(run, runner, execRoot, precommitLockWait(), DefaultPrecommitTimeout, 0)
 	if !acquired {

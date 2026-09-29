@@ -218,6 +218,7 @@ func Check(opts Options) (Result, error) {
 	res.FilesScanned, res.FilesRead, res.FilesMatched = scan.scanned, scan.read, scan.matched
 
 	var pending []pendingTighten
+	graph := graphTreeOf(opts)
 	for _, law := range laws {
 		if disarmed(law) {
 			continue
@@ -236,18 +237,12 @@ func Check(opts Options) (Result, error) {
 			if hits, err = registryHits(viewOf(opts), law, scan.files, scan.content, true, len(opts.Files) == 0); err != nil {
 				return Result{}, err
 			}
-		case KindDepGraphForbids:
-			law.CacheDir = opts.CacheDir
-			if hits, err = depGraphHits(opts.Root, law); err != nil {
-				return Result{}, err
+		case KindDepGraphForbids, KindDepGraphCeiling, KindGoDepGraphForbids:
+			g, gerr := graph()
+			if gerr != nil {
+				return Result{}, fmt.Errorf("law %q: %w", law.Name, gerr)
 			}
-		case KindDepGraphCeiling:
-			law.CacheDir = opts.CacheDir
-			if hits, err = depGraphCeilingHits(opts.Root, law); err != nil {
-				return Result{}, err
-			}
-		case KindGoDepGraphForbids:
-			if hits, err = goDepGraphHits(opts.Root, law); err != nil {
+			if hits, err = graphLawHits(g, law, opts.CacheDir); err != nil {
 				return Result{}, err
 			}
 		case KindFileSetContainment:
@@ -280,7 +275,7 @@ func Check(opts Options) (Result, error) {
 			}
 		}
 		if len(opts.Files) == 0 {
-			hits = append(hits, scopeHits(opts.Root, law, scan.files, scan.ignored)...)
+			hits = append(hits, scopeHits(viewOf(opts), law, scan.files, scan.ignored)...)
 		}
 		baseline, path, err := loadLawBaseline(opts.Root, law)
 		if err != nil {
@@ -505,10 +500,12 @@ func plural(n int, word string) string {
 // globs quietly stopped matching reports green over files it never opened, and
 // an include naming one file that is gone is a broken citation, not an empty
 // set. Both are findings the baseline has never seen, so both surface at once.
-func scopeHits(root string, law Law, files []string, ignored map[string]bool) []Hit {
+// Whether a named file is there is asked of the view the run judges: at
+// commit time a file the commit deletes is gone, whatever the disk still holds.
+func scopeHits(view treeView, law Law, files []string, ignored map[string]bool) []Hit {
 	var hits []Hit
 	for _, p := range law.Scope.ExplicitPaths() {
-		if isFile(filepath.Join(root, filepath.FromSlash(p))) {
+		if view.hasFile(p) {
 			continue
 		}
 		hits = append(hits, Hit{

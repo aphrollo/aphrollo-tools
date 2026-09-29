@@ -29,9 +29,15 @@ func ClassifyFile(p0 string) Kind { return core.ClassifyFile(p0) }
 
 func StateDir() string { return core.StateDir() }
 
+func addGateWorktree(p0 string) (string, error) { return core.AddGateWorktree(p0) }
+
 func dedupeSorted(p0 []string) []string { return core.DedupeSorted(p0) }
 
 func goEmbedsFile(p0 string) bool { return core.GoEmbedsFile(p0) }
+
+func readStagedTree(p0 string, p1 string) (string, error) { return core.ReadStagedTree(p0, p1) }
+
+func removeGateWorktree(p0 string, p1 string) { core.RemoveGateWorktree(p0, p1) }
 
 func repoStateKey(p0 string) string { return core.RepoStateKey(p0) }
 

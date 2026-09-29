@@ -9,6 +9,8 @@ import (
 
 func baselineStage(p0 string, p1 string) GateResult { return lawgate.BaselineStage(p0, p1) }
 
+func commitRatchetStage(p0 string) GateResult { return lawgate.CommitRatchetStage(p0) }
+
 func gitBlob(p0 string, p1 string) (string, bool) { return lawgate.GitBlob(p0, p1) }
 
 func laneChangedPaths(p0 string) []string { return lawgate.LaneChangedPaths(p0) }

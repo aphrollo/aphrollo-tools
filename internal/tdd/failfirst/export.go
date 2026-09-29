@@ -8,8 +8,6 @@ const EditTestOnly = editTestOnly
 
 const EditUnknown = editUnknown
 
-const GcOriginFile = gcOriginFile
-
 type FailFirstOutcome = failFirstOutcome
 
 type LedgerEdit = ledgerEdit
@@ -29,8 +27,6 @@ func FailFirstViolated(p0 string, p1 []string, p2 []string, p3 SuiteRunner) fail
 func FailFirstViolatedAt(p0 string, p1 string, p2 []string, p3 []string, p4 SuiteRunner) failFirstOutcome {
 	return failFirstViolatedAt(p0, p1, p2, p3, p4)
 }
-
-func FailFirstWorktreeDir(p0 string) string { return failFirstWorktreeDir(p0) }
 
 func HeadSHAFor(p0 string) string { return headSHAFor(p0) }
 

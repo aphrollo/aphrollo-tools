@@ -63,6 +63,12 @@ type Options struct {
 	// LaneBaseTree overrides LaneBase's git read; nil derives it, a fixture
 	// supplies one.
 	LaneBaseTree BaseReader
+	// GraphTree, when set, supplies the tree the dep-graph laws run their
+	// graph query in; nil runs it over Root. The commit gate hands in a
+	// checkout of the index, so an unstaged manifest edit never decides a
+	// commit. Called at most once per run, and only when a dep-graph law is
+	// judged.
+	GraphTree func() (GraphTree, error)
 	// CacheDir holds the per-file scan cache; empty disables caching.
 	CacheDir string
 	// CommitMessage is the commit message text this run is judging, when

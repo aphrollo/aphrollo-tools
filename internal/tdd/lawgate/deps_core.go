@@ -22,3 +22,9 @@ func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration)
 func LogToken(p0 string) string { return core.LogToken(p0) }
 
 func StateDir() string { return core.StateDir() }
+
+func addGateWorktree(p0 string) (string, error) { return core.AddGateWorktree(p0) }
+
+func readStagedTree(p0 string, p1 string) (string, error) { return core.ReadStagedTree(p0, p1) }
+
+func removeGateWorktree(p0 string, p1 string) { core.RemoveGateWorktree(p0, p1) }

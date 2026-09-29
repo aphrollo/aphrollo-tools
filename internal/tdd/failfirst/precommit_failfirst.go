@@ -1,8 +1,6 @@
 package failfirst
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -173,23 +171,11 @@ func failFirstViolated(repoRoot string, tests, srcs []string, run SuiteRunner) f
 // ran, so the stage line names what was proven rather than the profile's
 // unnarrowed `go test ./...`.
 func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteRunner) failFirstOutcome {
-	wt := failFirstWorktreeDir(repoRoot)
-	if wt == "" {
-		var err error
-		if wt, err = os.MkdirTemp("", "gate-failfirst-"); err != nil {
-			return failFirstOutcome{}
-		}
-	} else {
-		// Stable per-repo path: a leftover registration from a crashed run
-		// must go before `worktree add` will accept the path again.
-		_, _ = git(repoRoot, "worktree", "remove", "--force", wt)
-		_ = os.RemoveAll(wt)
-	}
-	defer os.RemoveAll(wt)
-	if _, err := git(repoRoot, "worktree", "add", "--detach", wt, "HEAD"); err != nil {
+	wt, err := addGateWorktree(repoRoot)
+	if err != nil {
 		return failFirstOutcome{}
 	}
-	defer func() { _, _ = git(repoRoot, "worktree", "remove", "--force", wt) }() // best-effort cleanup
+	defer removeGateWorktree(repoRoot, wt)
 	// Deferred after the worktree's removal, so it runs first: the
 	// node_modules link an npm root gets goes as a link before anything
 	// deletes the tree it stands in.
@@ -367,25 +353,6 @@ func execRootIn(wt, repoRoot, root string) (string, error) {
 		return wt, nil
 	}
 	return filepath.Join(wt, rel), nil
-}
-
-// failFirstWorktreeDir returns the stable per-repo path for the fail-first
-// worktree, under the state dir. Stability is the point: cargo fingerprints
-// bake in absolute source paths, so a fresh MkdirTemp per commit cold-rebuilds
-// the workspace crates every time even with a warm CARGO_TARGET_DIR. "" when
-// there is no state dir (the caller then falls back to a temp dir).
-func failFirstWorktreeDir(repoRoot string) string {
-	base := StateDir()
-	if base == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(repoRoot))
-	dir := filepath.Join(base, "failfirst-wt", hex.EncodeToString(sum[:8]))
-	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
-		return ""
-	}
-	writeGateOrigin(dir, repoRoot)
-	return dir
 }
 
 // failFirstStage runs the fail-first check for ONE project root's staged

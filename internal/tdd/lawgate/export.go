@@ -8,6 +8,8 @@ import (
 
 func BaselineStage(p0 string, p1 string) GateResult { return baselineStage(p0, p1) }
 
+func CommitRatchetStage(p0 string) GateResult { return commitRatchetStage(p0) }
+
 func EditLawRefusals(p0 string, p1 []string) []string { return editLawRefusals(p0, p1) }
 
 func ExistingAncestorDir(p0 string) string { return existingAncestorDir(p0) }

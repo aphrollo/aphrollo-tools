@@ -6,6 +6,8 @@ import (
 	core "github.com/aphrollo/aphrollo-tools/internal/tdd/core"
 )
 
+const gcOriginFile = core.GcOriginFile
+
 type fingerprint = core.Fingerprint
 
 type projectState = core.ProjectState
@@ -13,5 +15,7 @@ type projectState = core.ProjectState
 func SetPidRunningForTest(p0 func(pid int) bool) func() { return core.SetPidRunningForTest(p0) }
 
 func computeFingerprint(p0 string) *fingerprint { return core.ComputeFingerprint(p0) }
+
+func gateWorktreeDir(p0 string) string { return core.GateWorktreeDir(p0) }
 
 func shellPath(p0 string) string { return core.ShellPath(p0) }

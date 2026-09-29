@@ -67,7 +67,7 @@ func depGraphCeilingHits(root string, law Law) ([]Hit, error) {
 	if hits, ok := readDepGraphCache(law, root, fingerprint); ok {
 		return hits, nil
 	}
-	meta, err := loadCargoMetadata(root)
+	meta, err := loadCargoMetadata(root, law)
 	if err != nil {
 		return nil, fmt.Errorf("law %q: %w", law.Name, err)
 	}

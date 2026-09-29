@@ -18,14 +18,14 @@ func TestGateDirs_RecordTheirOriginAtCreation(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := t.TempDir()
 
-	wt := failFirstWorktreeDir(repo)
+	wt := gateWorktreeDir(repo)
 	if wt == "" {
 		t.Fatal("setup: expected a fail-first worktree dir")
 	}
 	if err := os.MkdirAll(wt, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	failFirstWorktreeDir(repo)
+	gateWorktreeDir(repo)
 
 	got, err := os.ReadFile(filepath.Join(wt, gcOriginFile))
 	if err != nil {
@@ -184,7 +184,7 @@ func TestGCAfterWorktreeChange_SweepsWhatTheRemovalLeftBehind(t *testing.T) {
 	// The lane had its own gate worktree and its own build dir; both are
 	// keyed on the LANE, so both die with it. The repo's own target must
 	// never be touched.
-	gateWorktree := failFirstWorktreeDir(lane)
+	gateWorktree := gateWorktreeDir(lane)
 	mkFile(t, filepath.Join(gateWorktree, "src", "lib.rs"), "x", 0)
 	repoTarget := resolvedDevTarget(repo)
 	mkFile(t, filepath.Join(repoTarget, "debug", "big.rlib"), "0123456789", 0)
