@@ -119,6 +119,8 @@ func runCargoLocked(p0 SuiteRunner, p1 Runner, p2 string, p3 time.Duration, p4 t
 
 func runnerDir(p0 Runner, p1 string) string { return suite.RunnerDir(p0, p1) }
 
+func runnerTimeoutsOnly(p0 string) bool { return suite.RunnerTimeoutsOnly(p0) }
+
 func selectedZeroTests(p0 Runner, p1 SuiteResult) bool { return suite.SelectedZeroTests(p0, p1) }
 
 func splitFlagValue(p0 string) (string, string, bool) { return suite.SplitFlagValue(p0) }

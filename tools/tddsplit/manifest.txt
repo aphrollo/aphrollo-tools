@@ -154,6 +154,8 @@ classify_rustattribution_test.go                   suite
 classify_scope.go                                  suite
 classify_scope_test.go                             postedit  # prefix says suite; its test body reaches postedit
 classify_test.go                                   suite
+classify_timeouts.go                               suite
+classify_timeouts_test.go                          suite
 classifydiff.go                                    precommit
 classifydiff_test.go                               precommit
 classifydiff_workflow_filter_unix_test.go          tdd
@@ -595,6 +597,7 @@ posttooluse_advisory_test.go                       postedit
 posttooluse_failfirst.go                           failfirst # created by P2
 posttooluse_notrun_test.go                         postedit
 posttooluse_run.go                                 postedit
+posttooluse_runnertimeout_test.go                  postedit
 posttooluse_suite.go                               suite     # created by P2
 posttooluse_test.go                                postedit
 posttooluse_touched.go                             postedit

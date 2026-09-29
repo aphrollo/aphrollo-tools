@@ -84,5 +84,5 @@ func harvestAdvisory(j DeferredJob, out PhaseOutcome, root string, state *sessio
 	if w.terminal != "" {
 		return w.terminal
 	}
-	return markDeferred(withNote(judgeEditResult(w.runner, j.File, j.EditID, w.res, root, state, statePath), w.note))
+	return markDeferred(withNote(judgeEditResult(w.runner, j.File, j.EditID, w.res, root, state, statePath, j.HeadSHA), w.note))
 }

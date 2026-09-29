@@ -279,6 +279,8 @@ func RunGhTimeout(p0 string, p1 time.Duration, p2 ...string) (string, error) {
 
 func RunnerDir(p0 Runner, p1 string) string { return runnerDir(p0, p1) }
 
+func RunnerTimeoutsOnly(p0 string) bool { return runnerTimeoutsOnly(p0) }
+
 func RustFileIsTestModule(p0 string, p1 string, p2 string) bool {
 	return rustFileIsTestModule(p0, p1, p2)
 }
