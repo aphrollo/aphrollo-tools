@@ -61,6 +61,7 @@ var spreadCallSites = map[string]string{
 	"internal/docs/docs.go:lsFiles":                                  "batched: Run splits the cited-path list (#960)",
 	"internal/ghtransport/ghtransport.go:runGH":                      "bounded: fixed gh api arguments",
 	"internal/proc/killtree_windows.go:KillTree":                     "bounded: one pid",
+	"internal/ratchet/golist_graph.go:goListStream":                  "bounded: fixed go list flags, ./... and one overlay file path; the overlay's contents travel in a JSON file",
 	"internal/ratchet/wholetree.go:loadCargoMetadata":                "bounded: fixed cargo metadata flags and one manifest path",
 	"internal/refactor/spawn.go:Spawn":                               "bounded: the language server's fixed arguments",
 	"internal/tdd/escape/issue.go:OpenIssue":                         "bounded: one title, one body and the declared label set",

@@ -27,6 +27,9 @@ func FindProjectRoot(file string) string {
 	if isComponentFile(file) {
 		return findMarkerFrom(filepath.Dir(file), "package.json")
 	}
+	if strings.EqualFold(filepath.Ext(file), ".py") {
+		return pythonRootFrom(filepath.Dir(file))
+	}
 	return findRootFrom(filepath.Dir(file))
 }
 
@@ -84,6 +87,11 @@ func DetectRunner(root string) (Runner, bool) {
 		// related-tests mode, so narrowing leaves it unchanged (see
 		// narrowSourceEdit / narrowToStaged — same fallback as cargo/pytest).
 		return Runner{Cmd: "zig", Args: []string{"build", "test"}}, true
+	case pytestSignalled(root):
+		// A Python directory with no build file of the kinds above, that
+		// declares pytest in its requirements or setup.cfg or holds a
+		// conftest.py (see runner_pytest.go).
+		return Runner{Cmd: "pytest", Args: []string{"-q"}}, true
 	}
 	return Runner{}, false
 }

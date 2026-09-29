@@ -306,6 +306,8 @@ failfirst_ledger_test.go                           failfirst
 failfirst_node.go                                  failfirst
 failfirst_node_test.go                             failfirst
 failfirst_outcome.go                               failfirst
+failfirst_pytest.go                                failfirst
+failfirst_pytest_test.go                           failfirst
 failfirst_reach.go                                 failfirst
 failfirst_reach_test.go                            failfirst
 failfirst_refuse.go                                failfirst
@@ -640,6 +642,7 @@ precommit_declared_test.go                         precommit
 precommit_diffscan.go                              precommit
 precommit_diffscan_failfirst.go                    failfirst # created by P2
 precommit_diffscan_moved_test.go                   precommit
+precommit_diffscan_reason_test.go                  precommit
 precommit_diffscan_suite.go                        suite     # created by P2
 precommit_diffscan_testoraclewarnings_test.go      precommit
 precommit_docsonly_fastpath_test.go                precommit
@@ -649,6 +652,7 @@ precommit_failfirst_args_test.go                   failfirst
 precommit_failfirst_green_test.go                  precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_inputs_test.go                 precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_npm_test.go                    precommit # prefix says failfirst; its test body reaches precommit
+precommit_failfirst_pytest_test.go                 precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_reach_test.go                  precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_rust.go                        failfirst
 precommit_failfirst_scope_test.go                  precommit # prefix says failfirst; its test body reaches precommit
@@ -695,6 +699,7 @@ premergepr_test.go                                 merge
 prepr.go                                           postedit
 prepr_test.go                                      postedit
 pretooluse.go                                      postedit
+pretooluse_covered_test.go                         postedit
 pretooluse_smell.go                                smell     # created by P2
 pretooluse_test.go                                 postedit
 primary.go                                         postedit
@@ -725,6 +730,8 @@ ratchetgate_lanebuild_test.go                      lawgate
 ratchetgate_stagedgraph.go                         lawgate
 ratchetgate_suite.go                               suite     # created by P2
 ratchetgate_test.go                                lawgate
+ratchetgraphedit.go                                 lawgate
+ratchetgraphedit_test.go                            lawgate
 ratchethint.go                                     lawgate
 ratchethint_test.go                                tdd       # prefix says lawgate; its test body reaches tdd
 ratchetindex_test.go                               lawgate
@@ -759,6 +766,8 @@ runner_core_own_test.go                            core
 runner_lock.go                                     lock      # created by P2
 runner_lock_own_test.go                            lock
 runner_nextest_test.go                             suite
+runner_pytest.go                                   suite
+runner_pytest_test.go                              suite
 runner_scope.go                                    suite
 runner_scope_argvbudget.go                         suite
 runner_scope_argvbudget_test.go                    suite
@@ -854,6 +863,8 @@ suiteproof_test.go                                 merge     # prefix says suite
 suiteseams_test.go                                 suite
 suitetimeout_test.go                               precommit
 suppress.go                                        smell
+suppress_covered.go                                smell
+suppress_covered_test.go                           smell
 suppress_test.go                                   smell
 tdd.go                                             core
 tddskill.go                                        install

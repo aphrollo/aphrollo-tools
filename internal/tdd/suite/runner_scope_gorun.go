@@ -114,10 +114,14 @@ func narrowGoFailFirst(r Runner, root string, tests []string) (Runner, bool) {
 }
 
 // narrowNonCargoFailFirst is narrowFailFirstTests' non-cargo half: the Go
-// test-name scoping above when it applies, else whatever related mode
+// test-name scoping above when it applies, the staged test files of a pytest
+// root, else whatever related mode
 // narrowToStaged offers, else the runner unchanged.
 func narrowNonCargoFailFirst(r Runner, root string, tests []string) Runner {
 	if scoped, ok := narrowGoFailFirst(r, root, tests); ok {
+		return scoped
+	}
+	if scoped, ok := narrowPytestFailFirst(r, tests); ok {
 		return scoped
 	}
 	if scoped, narrowed := narrowToStaged(r, root, tests); narrowed {

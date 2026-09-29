@@ -26,10 +26,18 @@ var testPolicies = smell.TestPolicies
 
 func addedLines(p0 string, p1 string) map[int]bool { return smell.AddedLines(p0, p1) }
 
+func editCovered(p0 string, p1 string, p2 lang, p3 map[int]bool) map[int]bool {
+	return smell.EditCovered(p0, p1, p2, p3)
+}
+
 func editImages(p0 preToolUseInput, p1 string) (string, string) { return smell.EditImages(p0, p1) }
 
 func evaluateAdded(p0 string, p1 map[int]bool, p2 lang, p3 []policy, p4 phase) Decision {
 	return smell.EvaluateAdded(p0, p1, p2, p3, p4)
+}
+
+func evaluateCovered(p0 string, p1 map[int]bool, p2 map[int]bool, p3 lang, p4 []policy, p5 phase) Decision {
+	return smell.EvaluateCovered(p0, p1, p2, p3, p4, p5)
 }
 
 func intersectLines(p0 map[int]bool, p1 map[int]bool) map[int]bool {

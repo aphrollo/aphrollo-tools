@@ -306,16 +306,31 @@ func TestNarrowFailFirstTests_NonCargoDelegatesToNarrowToStaged(t *testing.T) {
 }
 
 // TestNarrowFailFirstTests_NonCargoUnnarrowedFallback guards a runner with NO
-// related mode (pytest): the command must stay the full unnarrowed runner.
+// related mode (zig): the command must stay the full unnarrowed runner.
 func TestNarrowFailFirstTests_NonCargoUnnarrowedFallback(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "build.zig", "// build\n")
+	write(t, root, "tests/thing.zig", "// test\n")
+
+	zig := Runner{Cmd: "zig", Args: []string{"build", "test"}, Dir: "", Deadline: time.Time{}}
+	got := narrowFailFirstTests(zig, root, []string{"tests/thing.zig"})
+	if !reflect.DeepEqual(got, zig) {
+		t.Fatalf("narrowFailFirstTests (zig) = %+v, want unchanged %+v", got, zig)
+	}
+}
+
+// TestNarrowFailFirstTests_PytestRunsTheStagedTestFiles: a pytest proof names
+// the staged test files, never the whole suite of the root.
+func TestNarrowFailFirstTests_PytestRunsTheStagedTestFiles(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "pyproject.toml", "[tool]\n")
 	write(t, root, "test_thing.py", "def test_thing(): pass\n")
 
 	pytest := Runner{Cmd: "pytest", Args: []string{"-q"}, Dir: "", Deadline: time.Time{}}
 	got := narrowFailFirstTests(pytest, root, []string{"test_thing.py"})
-	if !reflect.DeepEqual(got, pytest) {
-		t.Fatalf("narrowFailFirstTests (pytest) = %+v, want unchanged %+v", got, pytest)
+	want := Runner{Cmd: "pytest", Args: []string{"-q", "test_thing.py"}, Dir: "", Deadline: time.Time{}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("narrowFailFirstTests (pytest) = %+v, want %+v", got, want)
 	}
 }
 

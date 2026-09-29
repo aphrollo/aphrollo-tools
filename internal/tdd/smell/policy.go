@@ -129,6 +129,10 @@ type policy struct {
 	// (or the line below), for the kinds with legitimate uses. Empty means the
 	// policy admits none — a tautology has no good reason.
 	escape string
+	// directive marks a policy that judges suppression directives: a line
+	// whose directives an edit only carried over from an old line is not
+	// judged by it (see coveredDirectives).
+	directive bool
 }
 
 // The composed gate sets, by what a phase is looking at. oracleSmells lives in

@@ -20,6 +20,12 @@ const suppressionCommitHeader = "TDD anti-cheat: this commit introduces a suppre
 // directives-view texts form one pool, and each removal absorbs at most one
 // addition, so a suppression moved between files, or a file renamed, is not
 // introduced while a second copy of a moved one still is.
+//
+// A changed line is not introducing a suppression its old line already
+// carried: every code file's removed suppression tokens (directive and named
+// code) form a second pool, and a line whose every token that pool holds is
+// judged by no suppression policy, so appending a reason to an existing
+// lint directive passes while a new code on it, or a new directive, blocks.
 func newSuppression(repoRoot string) string {
 	type image struct {
 		path, pre, post string
@@ -28,6 +34,7 @@ func newSuppression(repoRoot string) string {
 	}
 	var images []image
 	pool := map[string]int{}
+	directives := map[string]int{}
 	for _, path := range stagedPaths(repoRoot) {
 		policies := commitSuppressionPolicies(ClassifyFile(path))
 		if policies == nil {
@@ -41,16 +48,21 @@ func newSuppression(repoRoot string) string {
 		for text, n := range removedTexts(pre, post, l) {
 			pool[text] += n
 		}
+		for token, n := range removedDirectives(pre, post, l) {
+			directives[token] += n
+		}
 		images = append(images, image{path, pre, post, l, policies})
 	}
 	for _, im := range images {
-		lines := absorbMoved(im.post, im.l, introducedLines(im.pre, im.post, im.l), pool)
+		introduced := introducedLines(im.pre, im.post, im.l)
+		lines := absorbMoved(im.post, im.l, introduced, pool)
 		// evaluateAdded honours a policy's per-line escape — currently only
 		// error-kind-blind's `// any-error-ok:` — here as at edit time. The
 		// lint/type/coverage suppressions carry no escape (see
 		// policy_registry_test.go's noEscapeAllowlist), so every one of
 		// their lines stays judged.
-		if d := evaluateAdded(im.post, lines, im.l, im.policies, commitPhase); d.Action == Block {
+		covered := coveredDirectives(im.post, im.l, introduced, lines, directives)
+		if d := evaluateCovered(im.post, lines, covered, im.l, im.policies, commitPhase); d.Action == Block {
 			return suppressionCommitHeader + "\n  " + im.path + ": " + d.Reason
 		}
 	}
