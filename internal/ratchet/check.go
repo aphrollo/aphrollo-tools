@@ -238,11 +238,14 @@ func Check(opts Options) (Result, error) {
 				return Result{}, err
 			}
 		case KindDepGraphForbids, KindDepGraphCeiling, KindGoDepGraphForbids:
+			if opts.SkipGraphLaws {
+				continue
+			}
 			g, gerr := graph()
 			if gerr != nil {
 				return Result{}, fmt.Errorf("law %q: %w", law.Name, gerr)
 			}
-			if hits, err = graphLawHits(g, law, opts.CacheDir); err != nil {
+			if hits, err = graphLawHits(g, law, graphCacheDirOf(opts)); err != nil {
 				return Result{}, err
 			}
 		case KindFileSetContainment:

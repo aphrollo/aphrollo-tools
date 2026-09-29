@@ -728,6 +728,8 @@ ratchetgate_lanebuild_test.go                      lawgate
 ratchetgate_stagedgraph.go                         lawgate
 ratchetgate_suite.go                               suite     # created by P2
 ratchetgate_test.go                                lawgate
+ratchetgraphedit.go                                 lawgate
+ratchetgraphedit_test.go                            lawgate
 ratchethint.go                                     lawgate
 ratchethint_test.go                                tdd       # prefix says lawgate; its test body reaches tdd
 ratchetindex_test.go                               lawgate
