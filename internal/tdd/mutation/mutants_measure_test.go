@@ -106,7 +106,7 @@ func TestMutantsArgv_ExactForACargoLane(t *testing.T) {
 	got := MutantsArgv("/w/changed.diff", 120, []string{"a"}, "not(test(slow))")
 
 	want := []string{
-		"--copy-target=false", "--in-diff", "/w/changed.diff", "--no-shuffle", "--test-tool=nextest",
+		"--copy-target=false", "--copy-vcs=false", "--in-diff", "/w/changed.diff", "--no-shuffle", "--test-tool=nextest",
 		"--minimum-test-timeout", "120", "--timeout-multiplier", "3",
 		"--package", "a", "--", "-E", "not(test(slow))",
 	}

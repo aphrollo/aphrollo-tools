@@ -72,7 +72,7 @@ func resolveGapMutants(ctx context.Context, root string, cfg MutantsConfig, reac
 			out[i] = m
 			continue
 		}
-		out[i] = resolveOne(ctx, root, env, m, stages, reaching, budget, filepath.Join(measureTempDir(root), "resolve", strconv.Itoa(n)))
+		out[i] = resolveInCopy(ctx, root, env, m, stages, reaching, budget, filepath.Join(measureTempDir(root), "resolve", strconv.Itoa(n)))
 		logf(log, "mutants: %s: %s", outcomeName(out[i]), out[i].Note)
 	}
 	logf(log, "mutants: settled %d mutant(s) in %s", len(idx), time.Since(start).Round(time.Second))
@@ -95,6 +95,30 @@ func resolveStages(g goReachGraph, dir, status string) (stages [][]string, reach
 		return [][]string{others}, reaching
 	}
 	return [][]string{{dir}, others}, reaching
+}
+
+// resolveInCopy settles m in a disposable copy of the checkout at root, one
+// copy per mutant. The mutated tests run wherever `go test` stands, and a
+// mutant that skips a guard can write, delete or reset there (#972), so
+// they never run in the checkout itself, and a mutant that wrecks its copy
+// wrecks nothing the next one runs in. The copy is removed on every exit.
+func resolveInCopy(ctx context.Context, root string, env []string, m MutantOutcome, stages [][]string, reaching []string,
+	budget time.Duration, work string) MutantOutcome {
+	lane := RepoRoot(root)
+	if lane == "" {
+		return unresolved(m, root+" is not inside a git repository to copy")
+	}
+	box, err := newProveSandbox(lane, root)
+	if err != nil {
+		return unresolved(m, fmt.Sprintf("a disposable copy of %s to run in could not be made (%v)", lane, err))
+	}
+	defer box.remove()
+	defer watchProveSignals(box.remove, io.Discard)()
+	boxRoot, err := box.path(lane, root)
+	if err != nil {
+		return unresolved(m, err.Error())
+	}
+	return resolveOne(ctx, boxRoot, env, m, stages, reaching, budget, work)
 }
 
 // resolveOne applies m in an overlay under work and runs each stage's tests

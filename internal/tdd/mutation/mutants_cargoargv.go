@@ -44,7 +44,7 @@ func MutantsArgv(diffPath string, minTestTimeout int, packages []string, exclude
 		// The warm build products live outside the copies instead, one
 		// PERSISTENT target dir per shard (mutants_shards.go), so a copy is
 		// megabytes and still builds incrementally.
-		"--copy-target=false", "--in-diff", diffPath, "--no-shuffle", "--test-tool=nextest",
+		"--copy-target=false", "--copy-vcs=false", "--in-diff", diffPath, "--no-shuffle", "--test-tool=nextest",
 		"--minimum-test-timeout", strconv.Itoa(minTestTimeout),
 		"--timeout-multiplier", strconv.Itoa(mutantsTimeoutMultiplier),
 	}

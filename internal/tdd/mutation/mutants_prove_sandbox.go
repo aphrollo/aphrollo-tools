@@ -75,9 +75,14 @@ func newProveSandbox(lane, projectRoot string) (*proveSandbox, error) {
 // measured at 1.8 s of a 2.5 s proof, against 0.3 s for the copy itself.
 const proveSandboxSlot = "tree"
 
+// proveSandboxRunPrefix starts the name of a proof's directory when the slot
+// is held by another.
+const proveSandboxRunPrefix = "run-"
+
 // proveSandboxHolder is the record a proof leaves in the directory it holds:
-// its pid, so the next proof can tell a killed proof's leftover from a copy
-// another proof is running in now.
+// its pid and its process identity (boot id and start time), so the next
+// proof, and gc, can tell a killed proof's leftover from a copy a proof is
+// running in now, even when the pid has since been reused.
 const proveSandboxHolder = ".aphrollo-prove-holder"
 
 // claimSandboxDir takes the reusable slot in area when it is free, or when
@@ -92,7 +97,7 @@ func claimSandboxDir(area string) (string, error) {
 	if !sandboxHeld(slot) && depinstall.RemoveTree(slot) == nil && os.Mkdir(slot, 0o755) == nil {
 		return holdSandboxDir(slot)
 	}
-	dir, err := os.MkdirTemp(area, "run-")
+	dir, err := os.MkdirTemp(area, proveSandboxRunPrefix)
 	if err != nil {
 		return "", err
 	}
@@ -103,7 +108,8 @@ func claimSandboxDir(area string) (string, error) {
 // directory whose record cannot be written is removed rather than left
 // looking like a leftover.
 func holdSandboxDir(dir string) (string, error) {
-	record := fmt.Sprintf("pid=%d\n", os.Getpid())
+	identity, _ := processIdentityFn(os.Getpid())
+	record := fmt.Sprintf("pid=%d\nidentity=%s\n", os.Getpid(), identity)
 	if err := os.WriteFile(filepath.Join(dir, proveSandboxHolder), []byte(record), 0o644); err != nil {
 		_ = os.RemoveAll(dir)
 		return "", err
@@ -111,14 +117,57 @@ func holdSandboxDir(dir string) (string, error) {
 	return dir, nil
 }
 
-// sandboxHeld reports whether a live process holds dir.
+// sandboxHeld reports whether a live process holds dir. A record that
+// cannot be read or parsed counts as held; one that names an identity is held
+// only while the process running under that pid still has it, since a pid is
+// reused after a reboot. A record with no identity is judged by its pid.
 func sandboxHeld(dir string) bool {
 	data, err := os.ReadFile(filepath.Join(dir, proveSandboxHolder))
 	if err != nil {
 		return true
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(string(data), "pid=")))
-	return err != nil || pidRunningFn(pid)
+	var pid int
+	var identity string
+	for _, line := range strings.Split(string(data), "\n") {
+		key, value, _ := strings.Cut(strings.TrimSpace(line), "=")
+		switch key {
+		case "pid":
+			pid, err = strconv.Atoi(value)
+			if err != nil {
+				return true
+			}
+		case "identity":
+			identity = value
+		}
+	}
+	if pid == 0 {
+		return true
+	}
+	if !pidRunningFn(pid) {
+		return false
+	}
+	if identity == "" {
+		return true
+	}
+	now, ok := processIdentityFn(pid)
+	return !ok || now == identity
+}
+
+// proveAreaHeld reports whether a live proof holds any of the directories a
+// proof makes in area, the `.mutants/prove-<lane>` gc must not delete under
+// it. Any other directory in area is not a proof's and holds nothing.
+func proveAreaHeld(area string) bool {
+	entries, err := os.ReadDir(area)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		proofs := e.Name() == proveSandboxSlot || strings.HasPrefix(e.Name(), proveSandboxRunPrefix)
+		if e.IsDir() && proofs && sandboxHeld(filepath.Join(area, e.Name())) {
+			return true
+		}
+	}
+	return false
 }
 
 // path maps p, a path inside lane, to the same place in the copy. Both

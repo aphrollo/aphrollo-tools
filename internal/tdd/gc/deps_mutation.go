@@ -47,4 +47,6 @@ func measureTempDir(p0 string) string { return mutation.MeasureTempDir(p0) }
 
 func pathKey(p0 string) string { return mutation.PathKey(p0) }
 
+func proveAreaHeld(p0 string) bool { return mutation.ProveAreaHeld(p0) }
+
 func targetDirOwnerFn(p0 string) (int, bool) { return mutation.TargetDirOwnerFn(p0) }
