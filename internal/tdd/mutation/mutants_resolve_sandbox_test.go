@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // wipeSrc is production code whose only guard stands between a test's working
@@ -93,4 +94,22 @@ func TestResolveGapMutants_AMutatedTestThatWipesItsCheckoutLeavesTheLaneIntact(t
 		t.Errorf("the lane's index lost its staged edit: git diff --cached names %q", staged)
 	}
 	assertNoSandboxLeft(t, lane)
+}
+
+// A checkout that is in no repository has no git dir to copy, and a settle
+// run that cannot be isolated is left unresolved, never run in place.
+func TestResolveInCopy_ATreeInNoRepositoryIsLeftUnresolvedAndNamed(t *testing.T) {
+	dir := t.TempDir()
+	// git must not find the repository this test binary's own temp dir sits in.
+	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(dir))
+	m := wipeMutant()
+
+	got := resolveInCopy(context.Background(), dir, nil, m, nil, nil, time.Second, t.TempDir())
+
+	if got.Status != gremlinsNotCovered {
+		t.Errorf("status = %q, want it left %q", got.Status, gremlinsNotCovered)
+	}
+	if !strings.HasPrefix(got.Note, "UNRESOLVED:") || !strings.Contains(got.Note, dir+" is not inside a git repository") {
+		t.Errorf("note = %q, want UNRESOLVED naming %s as outside a repository", got.Note, dir)
+	}
 }
