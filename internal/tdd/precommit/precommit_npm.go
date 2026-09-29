@@ -35,52 +35,40 @@ import (
 // fails is compared with the same run at HEAD (precommit_npmbaseline.go), and
 // only what the commit adds is held against it.
 
-// npmCheck is one tool in an npm root's check sequence.
+// npmCheck judges one tool of an npm root's typecheck or lint.
 type npmCheck struct {
 	stage string // the gate.log and stderr name
-	pkg   string // the npm package that installs the tool
-	bin   string // the tool's name in that package's "bin"
-	// configured reports whether the root set this tool up at all.
-	configured func(root string) bool
-	// argvs is the tool's argument lists, one run each; none means there is
-	// nothing for it to check.
-	argvs func(root string, touched []string) [][]string
-	// headArgs is one of those lists as the same run at HEAD takes it, nil
-	// when HEAD holds nothing for it to check.
+	// pkg is the npm package that installs the tool; "" finds the
+	// installed package that declares bin (npmToolEntry).
+	pkg string
+	bin string // the tool's name in that package's "bin"
+	// headArgs is the run's argument list as the same run at HEAD takes
+	// it, nil when HEAD holds nothing for it to check.
 	headArgs func(headRoot string, args []string) []string
-	// parse reads the diagnostics out of a run in dir.
+	// parse reads the diagnostics out of a run in dir; nil for a tool whose
+	// output the gate cannot read, which is judged by its output lines.
 	parse func(output, dir string) []diagnostic
+	// prelude is the earlier runs of the same check a run at HEAD repeats
+	// first: the setup, like svelte-kit sync, that the judged tool reads.
+	prelude []Runner
 }
 
-var npmChecks = []npmCheck{
-	{stage: "typecheck", pkg: "typescript", bin: "tsc", configured: hasTsconfig,
-		argvs: tscArgvs, headArgs: sameArgs, parse: parseTscDiagnostics},
-	{stage: "eslint", pkg: "eslint", bin: "eslint", configured: hasEslintConfig,
-		argvs: eslintArgvs, headArgs: eslintHeadArgs, parse: parseEslintDiagnostics},
-}
+var (
+	tscCheck    = npmCheck{stage: "typecheck", pkg: "typescript", bin: "tsc", headArgs: sameArgs, parse: parseTscDiagnostics}
+	eslintCheck = npmCheck{stage: "eslint", pkg: "eslint", bin: "eslint", headArgs: eslintHeadArgs, parse: parseEslintDiagnostics}
+)
 
 // isNpmRoot reports whether root is an npm package.
 func isNpmRoot(root string, _ Runner) bool {
 	return pathExists(filepath.Join(root, "package.json"))
 }
 
-// npmQualityStage runs root's configured npm checks in order, stopping at
-// the first rejection. touched is the staged files under root, root-relative.
+// npmQualityStage runs root's typecheck and then its lint, stopping at the
+// first rejection. touched is the staged files under root, root-relative.
 func npmQualityStage(gateName, repoRoot, root string, touched []string, run SuiteRunner) GateResult {
-	for _, c := range npmChecks {
-		if !c.configured(root) {
-			continue
-		}
-		tool, missing := c.tool(root)
-		if missing != "" {
-			reportNpmCheckNotRun(gateName, root, c, missing)
-			continue
-		}
-		for _, args := range c.argvs(root, touched) {
-			r := Runner{Cmd: tool.Cmd, Args: append(slices.Clone(tool.Args), args...)}
-			if res := npmCheckStage(gateName, repoRoot, root, c, r, run); res.Blocked {
-				return res
-			}
+	for _, plan := range []npmPlan{npmTypecheckPlan(repoRoot, root), npmLintPlan(repoRoot, root, func() [][]string { return eslintArgvs(root, touched) })} {
+		if res := runNpmPlan(gateName, repoRoot, root, plan, run); res.Blocked {
+			return res
 		}
 	}
 	return verdictFor(gateName, "npm", root, "", stageOutcome{Kind: outcomePass})
@@ -93,9 +81,17 @@ var lookNode = func() (string, error) { return exec.LookPath("node") }
 // tool is `node <entry>` for c's installed copy in root, or why it cannot
 // run.
 func (c npmCheck) tool(root string) (r Runner, missing string) {
-	entry := npmBinEntry(filepath.Join(root, "node_modules", c.pkg), c.bin)
+	nodeModules := filepath.Join(root, "node_modules")
+	var entry string
+	if c.pkg != "" {
+		entry = npmBinEntry(filepath.Join(nodeModules, c.pkg), c.bin)
+		missing = fmt.Sprintf("node_modules/%s is not installed; run `npm ci` in %s", c.pkg, root)
+	} else {
+		entry = npmToolEntry(nodeModules, c.bin)
+		missing = fmt.Sprintf("no package in node_modules declares the bin %s; run `npm ci` in %s", c.bin, root)
+	}
 	if entry == "" {
-		return r, fmt.Sprintf("node_modules/%s is not installed; run `npm ci` in %s", c.pkg, root)
+		return r, missing
 	}
 	node, err := lookNode()
 	if err != nil {
@@ -107,11 +103,11 @@ func (c npmCheck) tool(root string) (r Runner, missing string) {
 // reportNpmCheckNotRun is the loud line for a configured check that cannot
 // run here. It does not refuse the commit — a box that has not run `npm ci`
 // is not a defect in the code — but it is never a silent pass.
-func reportNpmCheckNotRun(gateName, root string, c npmCheck, why string) {
+func reportNpmCheckNotRun(gateName, root, stage, bin, why string) {
 	fmt.Fprintf(os.Stderr,
 		"[%s] gate %s: %s in %s → NOT RUN — %s; nothing was checked and this pass is not a green for it\n",
-		c.stage, gateName, c.bin, root, why)
-	AppendGateLog(gateName, root, c.bin, c.stage+"-not-run", 0)
+		stage, gateName, bin, root, why)
+	AppendGateLog(gateName, root, bin, stage+"-not-run", 0)
 }
 
 func pathExists(p string) bool {

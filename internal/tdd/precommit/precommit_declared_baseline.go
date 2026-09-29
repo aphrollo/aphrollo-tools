@@ -25,25 +25,31 @@ const maxQuotedLines = 20
 // declaredLinesStage runs r in root and judges a failure against HEAD's
 // output.
 func declaredLinesStage(gateName, repoRoot, root string, r Runner, run SuiteRunner) GateResult {
+	return linesStage(gateName, "declared", repoRoot, root, nil, r, run)
+}
+
+// linesStage runs r in root and judges a failure against the lines the same
+// run printed on HEAD's tree, after prelude ran there. stage names it.
+func linesStage(gateName, stage, repoRoot, root string, prelude []Runner, r Runner, run SuiteRunner) GateResult {
 	res := run(r, root)
 	ran := func(Runner, string) SuiteResult { return res }
 	if res.Passed || res.TimedOut {
-		return goCheckStage(gateName, "declared", root, r, ran)
+		return goCheckStage(gateName, stage, root, r, ran)
 	}
-	fresh, err := newLinesSinceHead(repoRoot, root, r, res.Output, run)
+	fresh, err := newLinesSinceHead(repoRoot, root, prelude, r, res.Output, run)
 	if err != nil {
-		blocked := goCheckStage(gateName, "declared", root, r, ran)
+		blocked := goCheckStage(gateName, stage, root, r, ran)
 		blocked.Message += fmt.Sprintf("no baseline at HEAD (%v), so the whole failure is held against this commit.\n", err)
 		return blocked
 	}
 	if len(fresh) == 0 {
-		fmt.Fprintf(os.Stderr, "[declared] gate %s: %s in %s → failed, but printed no line HEAD's run did not; not held against this commit\n",
-			gateName, cmdString(r), root)
-		AppendGateLog(gateName, root, cmdString(r), "declared-head-only", res.Duration)
-		return verdictFor(gateName, "declared", root, cmdString(r), stageOutcome{Kind: outcomePass})
+		fmt.Fprintf(os.Stderr, "[%s] gate %s: %s in %s → failed, but printed no line HEAD's run did not; not held against this commit\n",
+			stage, gateName, cmdString(r), root)
+		AppendGateLog(gateName, root, cmdString(r), stage+"-head-only", res.Duration)
+		return verdictFor(gateName, stage, root, cmdString(r), stageOutcome{Kind: outcomePass})
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "TDD quality: declared command printed %d line(s) its run on HEAD did not, in %s — fix before committing.\n", len(fresh), root)
+	fmt.Fprintf(&b, "TDD quality: %s command printed %d line(s) its run on HEAD did not, in %s — fix before committing.\n", stage, len(fresh), root)
 	fmt.Fprintf(&b, "command: %s\n", cmdString(r))
 	for i, l := range fresh {
 		if i == maxQuotedLines {
@@ -54,18 +60,20 @@ func declaredLinesStage(gateName, repoRoot, root string, r Runner, run SuiteRunn
 	if len(fresh) > maxQuotedLines {
 		fmt.Fprintf(&b, "... and %d more\n", len(fresh)-maxQuotedLines)
 	}
-	return verdictFor(gateName, "declared", root, cmdString(r), stageOutcome{Kind: outcomeFail, Result: res, Message: b.String()})
+	return verdictFor(gateName, stage, root, cmdString(r), stageOutcome{Kind: outcomeFail, Result: res, Message: b.String()})
 }
 
-// newLinesSinceHead runs r in root's place in HEAD's tree and is the lines
-// of out it did not print. That place links root's node_modules when root
-// has one, so a declared npx finds root's packages.
-func newLinesSinceHead(repoRoot, root string, r Runner, out string, run SuiteRunner) ([]string, error) {
+// newLinesSinceHead runs prelude and then r in root's place in HEAD's tree,
+// and is the lines of out r did not print there. That place links root's
+// node_modules when root has one, so a declared npx finds root's packages.
+func newLinesSinceHead(repoRoot, root string, prelude []Runner, r Runner, out string, run SuiteRunner) ([]string, error) {
 	// root is repoRoot or below it, both from the same walk.
 	rel, _ := filepath.Rel(repoRoot, root)
 	var fresh []string
 	err := atHead(repoRoot, rel, func(base string) error {
-		res := run(r, filepath.Join(base, rel))
+		headRoot := filepath.Join(base, rel)
+		runPrelude(prelude, headRoot, run)
+		res := run(r, headRoot)
 		if res.TimedOut {
 			return fmt.Errorf("the run at HEAD did not finish in %.0fs", res.Duration.Seconds())
 		}

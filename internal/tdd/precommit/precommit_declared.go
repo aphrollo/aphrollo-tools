@@ -38,20 +38,29 @@ const declaredPrecommitTable = "[aphrollo.precommit]"
 // declared is false when it declares none; err is set when it declares some
 // in a shape the gate cannot read.
 func declaredPrecommit(repoRoot, root string) (cmds []declaredCommand, declared bool, err error) {
+	value, declared := declaredEntry(repoRoot, root, declaredPrecommitTable)
+	if !declared {
+		return nil, false, nil
+	}
+	cmds, err = parseDeclaredCommands(value)
+	return cmds, true, err
+}
+
+// declaredEntry is the raw value aphrollo.toml's table holds for root, keyed
+// by root's path from the repo root ("." for the root itself).
+func declaredEntry(repoRoot, root, table string) (value string, declared bool) {
 	// root is always repoRoot or below it, both from the same walk, so Rel
 	// cannot fail; an absent aphrollo.toml reads as empty and declares
 	// nothing.
 	rel, _ := filepath.Rel(repoRoot, root)
 	data, _ := os.ReadFile(filepath.Join(repoRoot, "aphrollo.toml"))
 	want := filepath.ToSlash(rel)
-	for _, e := range tomlTableEntries(string(data), declaredPrecommitTable) {
-		if path.Clean(e.key) != want {
-			continue
+	for _, e := range tomlTableEntries(string(data), table) {
+		if path.Clean(e.key) == want {
+			return e.value, true
 		}
-		cmds, err := parseDeclaredCommands(e.value)
-		return cmds, true, err
 	}
-	return nil, false, nil
+	return "", false
 }
 
 // declaredChecksStage runs a root's declared commands, or refuses the commit
