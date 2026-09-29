@@ -21,7 +21,9 @@ jobs:
     # this repo (and `gh issue create` would just fail there anyway without
     # a token) — stated directly here since a schedule event carries no PR
     # whose `head.repo.fork` a `pull_request`-triggered job could read.
-    if: github.repository == 'aphrollo/aphrollo-tools'
+    # Only the schedule or a manual dispatch by a writer can put this job on
+    # the host; a pull_request event never satisfies the guard.
+    if: github.repository == 'aphrollo/aphrollo-tools' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: self-hosted
     timeout-minutes: 20
     permissions:
