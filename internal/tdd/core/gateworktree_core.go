@@ -29,14 +29,10 @@ func writeGateOrigin(dir, root string) {
 	if dir == "" || root == "" {
 		return
 	}
-	path := filepath.Join(dir, gcOriginFile)
-	if data, err := os.ReadFile(path); err == nil && string(data) == root {
-		return
-	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return
 	}
-	_ = os.WriteFile(path, []byte(root), 0o600)
+	_ = os.WriteFile(filepath.Join(dir, gcOriginFile), []byte(root), 0o600)
 }
 
 // gateWorktreeDir returns the stable per-repo path for the gate worktree,

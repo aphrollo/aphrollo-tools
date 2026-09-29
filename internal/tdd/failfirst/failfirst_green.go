@@ -34,7 +34,7 @@ type greenProof struct {
 func proveGreenWithChange(repoRoot, wt, execRoot string, runner Runner, run SuiteRunner) greenProof {
 	// The staged content goes over the test diff already applied.
 	if out, err := readStagedTree(repoRoot, wt); err != nil {
-		return greenProof{why: "the staged tree could not be written into the proof worktree: " + out}
+		return greenProof{why: "the staged tree could not be written into the proof worktree: " + strings.TrimSpace(out)}
 	}
 	res, waited, acquired := runCargoLocked(run, runner, execRoot, precommitLockWait(), DefaultPrecommitTimeout, 0)
 	if !acquired {
