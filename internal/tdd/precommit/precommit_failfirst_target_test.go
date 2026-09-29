@@ -21,6 +21,7 @@ import (
 // compilation, until the source was touched. The direction that matters is
 // the opposite one: a test that SHOULD fail against the new code passes
 // against the stale binary and the gate reports green.
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_FailFirst_InvalidatesTheArtifactsItBuiltFromHEAD(t *testing.T) {
 	withLinter(t, false)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -79,6 +80,7 @@ func TestPrecommit_FailFirst_InvalidatesTheArtifactsItBuiltFromHEAD(t *testing.T
 // (as alpha's dependency) from HEAD's stale content into the shared target
 // dir, and the invalidation that follows must drop beta too, not just
 // alpha -- the only package alpha's OWN rootGroup ever saw.
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_FailFirst_InvalidatesADependencyCrateStagedInASiblingRoot(t *testing.T) {
 	withLinter(t, false)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -130,6 +132,7 @@ func TestPrecommit_FailFirst_InvalidatesADependencyCrateStagedInASiblingRoot(t *
 // A Go repo has no cargo target dir to poison, so it must not pay for an
 // invalidation: the guard against fixing this everywhere instead of where it
 // breaks.
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_FailFirst_DoesNotInvalidateForANonCargoRepo(t *testing.T) {
 	withLinter(t, false)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

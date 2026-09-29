@@ -12,6 +12,7 @@ import (
 // <stateDir>/cargo-target/<hash>, which meant every gate run cold-compiled
 // what the developer had already built next door — a second copy of a
 // hundred-gigabyte tree to prove the same thing twice.
+// Serial: edits the process-wide environment.
 func TestPinMechCargoTarget_UsesTheReposOwnDevTarget(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	os.Unsetenv("CARGO_TARGET_DIR")
@@ -69,6 +70,7 @@ func envBinding(r Runner, key string) string {
 // TestPinMechCargoTarget_HonoursAnOperatorsTargetDir pins the other half:
 // when the environment already says where builds go, the gate builds THERE —
 // that is what "the repo's own target" means for a session that shares one.
+// Serial: sets the process-wide env var CARGO_TARGET_DIR.
 func TestPinMechCargoTarget_HonoursAnOperatorsTargetDir(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	shared := t.TempDir()
@@ -90,6 +92,7 @@ func TestPinMechCargoTarget_HonoursAnOperatorsTargetDir(t *testing.T) {
 // fail-first worktree lives OUTSIDE the repo, so cargo's default would put a
 // brand-new target/ inside it and cold-build the world on every commit. The
 // run must name the same resolved target explicitly.
+// Serial: edits the process-wide environment.
 func TestFailFirstRun_ExportsTheResolvedTarget(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	os.Unsetenv("CARGO_TARGET_DIR")

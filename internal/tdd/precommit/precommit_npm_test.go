@@ -39,17 +39,14 @@ func withFakeNode(t *testing.T) {
 	t.Cleanup(func() { lookNode = prev })
 }
 
-// requireNode points the gate at the real node, for the tests whose tool
-// actually runs.
+// requireNode skips a test whose fake tool is a node script when the box has
+// no node. The gate's own node lookup is the real one unless a test swaps it
+// (withFakeNode), so a test that calls only this one runs the real node.
 func requireNode(t *testing.T) {
 	t.Helper()
-	node, err := exec.LookPath("node")
-	if err != nil {
+	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not on PATH; the fake tool is a node script") // skip-ok: the tool under test runs on node, which this box lacks
 	}
-	prev := lookNode
-	lookNode = func() (string, error) { return node, nil }
-	t.Cleanup(func() { lookNode = prev })
 }
 
 // installFakePackage installs pkg into root's node_modules the way npm lays
@@ -81,6 +78,7 @@ const plainTsconfig = `{"compilerOptions": {"strict": true, "noEmit": true}, "in
 // lint the staged file with the root's own eslint, each run by node, in that
 // order and nothing else in their place: a missing entry is the TS2322 that
 // committed cleanly.
+// Serial: swaps the package-level node lookup.
 func TestNpmChecks_CleanRootRunsLocalTscThenEslintOverTheStagedFiles(t *testing.T) {
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
@@ -109,6 +107,7 @@ func TestNpmChecks_CleanRootRunsLocalTscThenEslintOverTheStagedFiles(t *testing.
 // A staged path carrying every character cmd.exe rewrites reaches eslint as
 // one untouched argument: the reason the tool runs under node and not
 // through its .cmd shim.
+// Serial: swaps the package-level node lookup.
 func TestNpmChecks_AStagedPathWithShellMetacharactersReachesEslintVerbatim(t *testing.T) {
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
@@ -133,6 +132,7 @@ func TestNpmChecks_AStagedPathWithShellMetacharactersReachesEslintVerbatim(t *te
 // A type error must refuse the commit and show what tsc printed: the error
 // line is the whole point of the refusal.
 func TestNpmChecks_TypeErrorBlocksTheCommitAndShowsTscsError(t *testing.T) {
+	t.Parallel()
 	requireNode(t)
 	root := makeTSRepo(t, map[string]string{
 		"package.json":  `{"name": "app"}`,
@@ -158,6 +158,7 @@ func TestNpmChecks_TypeErrorBlocksTheCommitAndShowsTscsError(t *testing.T) {
 // Vite's root tsconfig.json lists no files and only references the real
 // projects, so `tsc -p tsconfig.json --noEmit` checks nothing and exits 0.
 // Each referenced project has to be checked in its own right.
+// Serial: swaps the package-level node lookup.
 func TestNpmChecks_SolutionStyleTsconfigChecksEachReferencedProject(t *testing.T) {
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
@@ -190,6 +191,7 @@ func TestNpmChecks_SolutionStyleTsconfigChecksEachReferencedProject(t *testing.T
 // tsconfig is JSONC: comments and trailing commas are legal there, and a
 // reader that gives up on them falls back to the root config, which in the
 // solution-style shape checks nothing.
+// Serial: swaps the package-level node lookup.
 func TestNpmChecks_TsconfigCommentsAndTrailingCommasStillYieldItsReferences(t *testing.T) {
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
@@ -220,6 +222,7 @@ func TestNpmChecks_TsconfigCommentsAndTrailingCommasStillYieldItsReferences(t *t
 
 // A root whose tools are not installed cannot be checked, and must say so
 // loudly with the fix: silence would read as a pass it never earned.
+// Serial: captures the process-wide os.Stderr.
 func TestNpmChecks_NoNodeModulesPrintsNotRunNamingNpmCi(t *testing.T) {
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
@@ -254,6 +257,7 @@ func TestNpmChecks_NoNodeModulesPrintsNotRunNamingNpmCi(t *testing.T) {
 
 // Installed tools with no node to run them are just as unchecked, and the
 // line has to say what is missing.
+// Serial: captures the process-wide os.Stderr.
 func TestNpmChecks_NoNodeOnPathPrintsNotRun(t *testing.T) {
 	prev := lookNode
 	lookNode = func() (string, error) { return "", errors.New("not found") }
@@ -279,6 +283,7 @@ func TestNpmChecks_NoNodeOnPathPrintsNotRun(t *testing.T) {
 
 // Two branches that each typecheck can merge into a tree that does not, so
 // the merge gate typechecks too, and before the suite, which costs more.
+// Serial: swaps the package-level node lookup.
 func TestNpmChecks_MergeGateTypechecksBeforeTheSuite(t *testing.T) {
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
@@ -303,6 +308,7 @@ func TestNpmChecks_MergeGateTypechecksBeforeTheSuite(t *testing.T) {
 
 // A JavaScript root with an eslint config and no tsconfig has nothing to
 // typecheck: running tsc there would fail on a missing config.
+// Serial: swaps the package-level node lookup.
 func TestNpmChecks_NoTsconfigLintsOnly(t *testing.T) {
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
@@ -327,6 +333,7 @@ func TestNpmChecks_NoTsconfigLintsOnly(t *testing.T) {
 // eslint is handed the staged files it lints and that still exist: a
 // deleted file fails the whole run on its path, and a Python helper is not
 // eslint's to judge.
+// Serial: swaps the package-level node lookup.
 func TestNpmChecks_EslintGetsOnlyStagedLintableFilesThatExist(t *testing.T) {
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
@@ -352,6 +359,7 @@ func TestNpmChecks_EslintGetsOnlyStagedLintableFilesThatExist(t *testing.T) {
 
 // The npm checks belong to an npm root: a Go module that happens to carry a
 // tsconfig.json is judged by vet and lint, not by a tsc it never declared.
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestNpmChecks_ARootWithoutPackageJSONIsNotTypechecked(t *testing.T) {
 	withLinter(t, false)
 	withFakeNode(t)
@@ -375,6 +383,7 @@ func TestNpmChecks_ARootWithoutPackageJSONIsNotTypechecked(t *testing.T) {
 // with a single command; a name it does not declare, or a script that is not
 // there, is no tool at all.
 func TestNpmBinEntry_ReadsThePackagesBinInBothShapes(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "map/package.json", `{"bin": {"tsserver": "./bin/tsserver", "tsc": "./bin/tsc"}}`)
 	write(t, root, "map/bin/tsc", "")
@@ -398,6 +407,7 @@ func TestNpmBinEntry_ReadsThePackagesBinInBothShapes(t *testing.T) {
 // Only a config that checks nothing of its own is a solution file; any
 // other shape is typechecked as itself, or its own files go unchecked.
 func TestTscArgvs_OnlyAConfigThatChecksNothingItselfIsSplitIntoItsReferences(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	refs := `"references": [{"path": "./tsconfig.app.json"}]`
 	self := [][]string{{"-p", "tsconfig.json", "--noEmit"}}

@@ -16,6 +16,7 @@ import (
 // the gate out of the developer's way, and cost a second full copy of the
 // workspace's artifacts (a measured 155 GB) plus a cold compile on every
 // commit of anything the developer had already built next door.
+// Serial: sets the process-wide env var CARGO_TARGET_DIR.
 func TestPrecommit_MechanicalCargoRun_BuildsInTheReposOwnTarget(t *testing.T) {
 	record := func(seen *string) SuiteRunner {
 		return func(r Runner, dir string) SuiteResult {
@@ -66,6 +67,7 @@ func TestPrecommit_MechanicalCargoRun_BuildsInTheReposOwnTarget(t *testing.T) {
 // for a linked worktree: its OWN target/, exactly like the developer's builds
 // there. A shared warm target is still available — by exporting
 // CARGO_TARGET_DIR, which the gate then honours.
+// Serial: sets the process-wide env var CARGO_TARGET_DIR.
 func TestResolvedDevTarget_IsPerCheckout(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	os.Unsetenv("CARGO_TARGET_DIR")

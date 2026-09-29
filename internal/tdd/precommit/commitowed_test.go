@@ -30,6 +30,7 @@ func TestCommitOwedSuites_AGoRootOwesItsStagedPackageSuite(t *testing.T) {
 // A cargo root owes the touched crate's suite run from the workspace, keyed
 // at the crate's own root, which is where the gate hashes and keys.
 func TestCommitOwedSuites_ACargoCrateOwesItsSuiteAtTheCrateRoot(t *testing.T) {
+	t.Parallel()
 	root := makeCargoWorkspaceRepo(t)
 	write(t, root, "crates/alpha/src/lib.rs", "pub fn widget() -> i32 { 1 }\n")
 	gitDo(t, root, "add", ".")

@@ -11,6 +11,7 @@ import (
 // away, or simply never staged) must not block the commit and must not
 // silently vanish either: it is logged and counted once, the same shape as
 // an absent linter.
+// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestGoFmtStage_LogsAndCountsAStagedPathGitCannotResolve(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -26,6 +27,7 @@ func TestGoFmtStage_LogsAndCountsAStagedPathGitCannotResolve(t *testing.T) {
 // The unreadable count is a REPORT of a systematic miss, so it must stay
 // silent when nothing was missed: a run where every staged path resolves
 // writes no "could not read" line and no gofmt-index-unreadable verdict.
+// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestGoFmtStage_SaysNothingWhenEveryStagedPathResolves(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -50,6 +52,7 @@ func TestGoFmtStage_SaysNothingWhenEveryStagedPathResolves(t *testing.T) {
 
 // Ungofmt'd staged Go is rejected before vet ever runs — cheaper than a
 // build, and it saves the round trip through CI for a space.
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommitGofmt_RejectsUnformattedStagedGo(t *testing.T) {
 	root := makeGoRepo(t)
 	withLinter(t, false)
@@ -70,6 +73,7 @@ func TestPrecommitGofmt_RejectsUnformattedStagedGo(t *testing.T) {
 // .gitattributes and still holds CRLF in its staged blob must be caught,
 // not waved through because the file "looks fine" in an editor that hides
 // line endings.
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommitGofmt_RejectsUnformattedCRLFStagedGo(t *testing.T) {
 	root := makeGoRepo(t)
 	withLinter(t, false)
@@ -86,6 +90,7 @@ func TestPrecommitGofmt_RejectsUnformattedCRLFStagedGo(t *testing.T) {
 // whatever the working tree happens to hold when precommit runs: a clean
 // STAGED blob must not block even though the file on disk was rewritten
 // unformatted/CRLF afterward without being re-added.
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommitGofmt_IgnoresAnUnformattedWorkingTreeWhenTheIndexIsClean(t *testing.T) {
 	root := makeGoRepo(t)
 	withLinter(t, false)
@@ -105,6 +110,7 @@ func TestPrecommitGofmt_IgnoresAnUnformattedWorkingTreeWhenTheIndexIsClean(t *te
 // block even when the working tree was cleaned up afterward without being
 // re-added — otherwise the stage would be judging the wrong copy of the
 // file.
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommitGofmt_RejectsAnUnformattedIndexEvenWhenTheWorkingTreeWasCleanedUp(t *testing.T) {
 	root := makeGoRepo(t)
 	withLinter(t, false)
@@ -121,6 +127,7 @@ func TestPrecommitGofmt_RejectsAnUnformattedIndexEvenWhenTheWorkingTreeWasCleane
 }
 
 // A clean, already-gofmt'd file must never block.
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommitGofmt_AllowsAlreadyFormattedGo(t *testing.T) {
 	root := makeGoRepo(t)
 	withLinter(t, false)
@@ -138,6 +145,7 @@ func TestPrecommitGofmt_AllowsAlreadyFormattedGo(t *testing.T) {
 // Go-root-relative path looks up the wrong location, errors, and (the bug)
 // that error was swallowed as "nothing staged to judge" — gofmt then reports
 // clean over a file it never read.
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommitGofmt_JudgesTheIndexBlobForANestedGoRoot(t *testing.T) {
 	root := makeGoRepo(t)
 	withLinter(t, false)

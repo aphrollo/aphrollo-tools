@@ -39,6 +39,7 @@ func installRealTypescript(t *testing.T, root string) {
 // tsc's TS2322; and a signature change in b.ts that breaks its caller in
 // a.ts is refused too, though a.ts was never staged.
 func TestNpmChecksE2E_RealTscJudgesOnlyWhatTheCommitAdds(t *testing.T) {
+	t.Parallel()
 	requireNode(t)
 	root := makeTSRepo(t, map[string]string{
 		"package.json": `{"name": "fancrm-probe", "private": true, "type": "module"}`,

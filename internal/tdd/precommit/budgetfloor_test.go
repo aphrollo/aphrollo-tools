@@ -23,6 +23,7 @@ const budgetFloorFixtureLeaf = syntheticPIDBase + 7
 // work and the wrong one for deciding how long the work TAKES: whatever the
 // wait left, the run must still get at least the time this suite is recorded
 // to need.
+// Serial: points the process-wide build lock at its own file.
 func TestRunCargoLocked_BudgetUnderLoadNeverFallsBelowTheRecordedFloor(t *testing.T) {
 	withIsolatedBuildLock(t)
 
@@ -97,6 +98,7 @@ func TestSuiteFloorFrom_TakesTheSlowTailNotTheMedian(t *testing.T) {
 // duration, and only a run that FINISHED measured the work. A timeout's
 // duration is the budget it was cut off at, a cache hit measured nothing,
 // and another stage's (or another command's) run is not this suite.
+// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestRecordedSuiteFloor_CountsOnlyCompletedRunsOfThisStageAndCommand(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := t.TempDir()
@@ -124,9 +126,9 @@ func TestRecordedSuiteFloor_CountsOnlyCompletedRunsOfThisStageAndCommand(t *test
 // no-record-no-regression rule: a repo or a suite with nothing in gate.log
 // yet keeps working exactly as it does today. A floor derived from evidence
 // that does not exist would make a first run impossible to have.
+// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestRecordedSuiteFloor_NoRecordedRunMeansNoFloorAtAll(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-
 	got := recordedSuiteFloor(premergeDisplayName, "cargo nextest run -p never-run")
 
 	if got.Budget != 0 || got.Runs != 0 {
@@ -161,6 +163,7 @@ func TestSuiteFloorFrom_NeverOutgrowsTheStageBudget(t *testing.T) {
 // retry the commit", which under sustained load promises an improvement the
 // next (smaller) budget cannot deliver. The refusal now says which floor the
 // run got and what evidence set it.
+// Serial: installs a process-wide test override (SetMachineLoadSampleForTest).
 func TestMechanical_TimeoutRefusalNamesTheFloorItUsedAndWhereItCameFrom(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	withIsolatedBuildLock(t)

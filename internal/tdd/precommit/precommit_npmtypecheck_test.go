@@ -29,6 +29,7 @@ func installSvelteKitTools(t *testing.T, root, kit, check string) {
 // A SvelteKit root depending on svelte-check is typechecked by it, after
 // svelte-kit sync writes the types it reads, and not by tsc, which checks
 // no component.
+// Serial: swaps the package-level node lookup.
 func TestNpmTypecheck_ASvelteKitRootRunsSyncThenSvelteCheckInsteadOfTsc(t *testing.T) {
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
@@ -55,6 +56,7 @@ func TestNpmTypecheck_ASvelteKitRootRunsSyncThenSvelteCheckInsteadOfTsc(t *testi
 // A root whose package.json says how it is typechecked is typechecked that
 // way, each `&&` step under node; "typecheck" wins over "check", which many
 // repos spend on formatting.
+// Serial: swaps the package-level node lookup.
 func TestNpmTypecheck_TheRootsOwnScriptIsRunUnderNode(t *testing.T) {
 	cases := []struct {
 		name, scripts string
@@ -103,6 +105,7 @@ func TestNpmTypecheck_TheRootsOwnScriptIsRunUnderNode(t *testing.T) {
 // A script the gate cannot run without a shell is not guessed at: nothing
 // runs, the commit is not refused over it, and the line names the script
 // and the key that declares the command instead.
+// Serial: captures the process-wide os.Stderr.
 func TestNpmTypecheck_AScriptNeedingAShellSaysNotRun(t *testing.T) {
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
@@ -127,6 +130,7 @@ func TestNpmTypecheck_AScriptNeedingAShellSaysNotRun(t *testing.T) {
 // aphrollo.toml declares a root's typecheck and lint as argv, and the gate
 // runs exactly those, each bin found in whichever installed package
 // declares it, and eslint asked for the output it reads.
+// Serial: swaps the package-level node lookup.
 func TestNpmTypecheck_AphrolloTomlDeclaresTheRootsTypecheckAndLint(t *testing.T) {
 	withFakeNode(t)
 	repo := makeTSRepo(t, map[string]string{
@@ -156,6 +160,7 @@ func TestNpmTypecheck_AphrolloTomlDeclaresTheRootsTypecheckAndLint(t *testing.T)
 
 // A declaration the gate cannot read refuses the commit: falling back to
 // what it would have detected judges the root by rules its repo replaced.
+// Serial: swaps the package-level node lookup.
 func TestNpmTypecheck_AnUnreadableDeclarationRefuses(t *testing.T) {
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
@@ -213,9 +218,10 @@ process.exit(n > 0 ? 1 : 0);
 // svelte-check checks the whole project, so an error standing at HEAD is
 // measured there too, after the same svelte-kit sync, and only an error
 // the commit adds refuses it.
+// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestNpmTypecheck_SvelteCheckHoldsOnlyWhatTheCommitAddsAfterSyncAtHead(t *testing.T) {
-	requireNode(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	requireNode(t)
 	root := makeTSRepo(t, map[string]string{
 		".gitignore":          "node_modules/\n.svelte-kit/\n",
 		"package.json":        svelteKitManifest,
@@ -246,6 +252,7 @@ func TestNpmTypecheck_SvelteCheckHoldsOnlyWhatTheCommitAddsAfterSyncAtHead(t *te
 // the same thing without one is read; a quoted word loses its quotes as it
 // would in sh.
 func TestScriptArgvs_ReadsOnlyWhatRunsTheSameWithoutAShell(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		script  string
 		want    string
@@ -277,6 +284,7 @@ func TestScriptArgvs_ReadsOnlyWhatRunsTheSameWithoutAShell(t *testing.T) {
 // A declaration is one argv array naming a program; anything else is a
 // shape the gate refuses rather than guesses at.
 func TestDeclaredArgv_RefusesAnArgvWithNoProgram(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	for _, value := range []string{`[]`, `[""]`, `"tsc"`, `[["tsc"]]`} {
 		write(t, root, "aphrollo.toml", "[aphrollo.lint]\n\".\" = "+value+"\n")
@@ -294,6 +302,7 @@ func TestDeclaredArgv_RefusesAnArgvWithNoProgram(t *testing.T) {
 // for it, or any other whose "bin" map names it. A package whose single
 // "bin" string is its own command does not answer for another name.
 func TestNpmToolEntry_FindsThePackageThatDeclaresTheBin(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	nm := filepath.Join(root, "node_modules")
 	write(t, nm, "aaa/package.json", `{"name": "aaa", "bin": "cli.js"}`)
@@ -317,6 +326,7 @@ func TestNpmToolEntry_FindsThePackageThatDeclaresTheBin(t *testing.T) {
 
 // A command that chose its own output keeps it; the gate appends the output
 // it reads only where the command left the choice open.
+// Serial: swaps the package-level node lookup.
 func TestNpmTypecheck_AnOutputTheCommandChoseIsKept(t *testing.T) {
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
@@ -340,6 +350,7 @@ func TestNpmTypecheck_AnOutputTheCommandChoseIsKept(t *testing.T) {
 // A step whose tool is not installed ends the typecheck with a NOT RUN
 // line: the steps after it read what it would have written. svelte-check
 // is a runtime dependency here, which counts the same as a dev one.
+// Serial: captures the process-wide os.Stderr.
 func TestNpmTypecheck_AMissingSetupToolStopsTheStepsAfterIt(t *testing.T) {
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
@@ -362,6 +373,7 @@ func TestNpmTypecheck_AMissingSetupToolStopsTheStepsAfterIt(t *testing.T) {
 }
 
 // A svelte-check dependency without a tsconfig.json is nothing to check.
+// Serial: swaps the package-level node lookup.
 func TestNpmTypecheck_SvelteCheckWithoutATsconfigChecksNothing(t *testing.T) {
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{"package.json": svelteKitManifest})
@@ -386,9 +398,10 @@ process.exit(bad.length > 0 ? 1 : 0);
 // A declared tool the gate cannot read is judged by its output lines over
 // HEAD's run of the same command: a line HEAD already printed passes, a new
 // one refuses.
+// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestNpmTypecheck_AnUnreadableToolIsJudgedByTheLinesItAdds(t *testing.T) {
-	requireNode(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	requireNode(t)
 	root := makeTSRepo(t, map[string]string{
 		"aphrollo.toml": "[aphrollo.typecheck]\n\".\" = [\"checker\"]\n",
 		"package.json":  `{"name": "web"}`,
@@ -413,6 +426,7 @@ func TestNpmTypecheck_AnUnreadableToolIsJudgedByTheLinesItAdds(t *testing.T) {
 // `aphrollo check` runs the same typecheck and lint over the whole root,
 // without the output flag the gate adds for itself, and says why a step
 // cannot run instead of running something else.
+// Serial: swaps the package-level node lookup.
 func TestNpmVerifySteps_TheCommitGatesDataOverTheWholeRoot(t *testing.T) {
 	withFakeNode(t)
 	root := t.TempDir()

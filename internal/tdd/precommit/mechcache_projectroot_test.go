@@ -37,6 +37,7 @@ func twoModuleMerge(t *testing.T) string {
 	return root
 }
 
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestMechanical_AGreenInOneProjectRootIsNoCacheHitForAnother(t *testing.T) {
 	withLinter(t, false)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -51,8 +52,9 @@ func TestMechanical_AGreenInOneProjectRootIsNoCacheHitForAnother(t *testing.T) {
 
 // The key-level statement of the same fact, and its other half: two
 // worktrees of one repo still share a key for the same project root.
+// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestMechKey_DistinctPerProjectRootSharedAcrossWorktrees(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := twoModuleMerge(t)
 	lane := filepath.Join(t.TempDir(), "lane")
 	gitDo(t, root, "worktree", "add", "-q", "-b", "lane/x", lane)

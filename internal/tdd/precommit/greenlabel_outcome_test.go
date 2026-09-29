@@ -17,6 +17,7 @@ import (
 // TestPostEdit_GoTestFileWithNoTestYet_PrintsWritingTestNeverGreen is the
 // first: the line must say what the run was classified as, and a run that
 // tested nothing must never say green.
+// Serial: sets the process-wide env var GOTMPDIR.
 func TestPostEdit_GoTestFileWithNoTestYet_PrintsWritingTestNeverGreen(t *testing.T) {
 	tddtest.VerdictWordTmp(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

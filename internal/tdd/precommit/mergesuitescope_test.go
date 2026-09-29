@@ -50,6 +50,7 @@ func suiteRuns(ran *[]string) SuiteRunner {
 	}
 }
 
+// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestMechanical_RunsTheSuiteOfACrateDownstreamOfATouchedOne(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := downstreamWorkspace(t)
@@ -75,6 +76,7 @@ func TestMechanical_RunsTheSuiteOfACrateDownstreamOfATouchedOne(t *testing.T) {
 // Nextest never runs a doctest, so a crate's doctests are a suite of their
 // own at the merge — and a downstream crate's doctest calls the moved code
 // exactly as its tests do.
+// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestMechanical_RunsTheDoctestsOfACrateDownstreamOfATouchedOne(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := downstreamWorkspace(t)
@@ -101,6 +103,7 @@ func TestMechanical_RunsTheDoctestsOfACrateDownstreamOfATouchedOne(t *testing.T)
 // The commit gate runs no suite, and names what the merge will run instead.
 // That list is the merge's own scope, downstream crates included, or the
 // commit's output understates what is still owed.
+// Serial: captures the process-wide os.Stderr.
 func TestPrecommit_NamesADownstreamCrateAmongTheSuitesItDidNotRun(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := downstreamWorkspace(t)
@@ -164,6 +167,7 @@ func TestMechanical_RunsTheSuiteOfAPackageWhoseOnlyChangeIsANonGoFile(t *testing
 	}
 }
 
+// Serial: captures the process-wide os.Stderr.
 func TestPrecommit_NamesThePackageOfAStagedNonGoFileAsNotRun(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	withLinter(t, false)

@@ -45,6 +45,7 @@ func clippyCleanWorkspace(t *testing.T, ws string, clean ...string) {
 	mustWrite(t, filepath.Join(ws, "Cargo.toml"), b.String())
 }
 
+// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestClippyScope_TakesTheTouchedCrateAndEveryCrateDownstreamOfIt(t *testing.T) {
 	ws := t.TempDir()
 	// leaf <- mid <- top, and `aside` depends on nothing that moved.
@@ -65,6 +66,7 @@ func TestClippyScope_TakesTheTouchedCrateAndEveryCrateDownstreamOfIt(t *testing.
 // The two lints this stage carries are laws every crate owes, and the crate
 // most likely to break under them is the one nobody has made warning-free. A
 // clippy-clean filter here would drop exactly that crate.
+// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestClippyScope_KeepsADependentThatIsNotClippyClean(t *testing.T) {
 	ws := t.TempDir()
 	stubWorkspaceGraph(t, map[string][]string{"leaf": nil, "mid": {"leaf"}})
@@ -76,6 +78,7 @@ func TestClippyScope_KeepsADependentThatIsNotClippyClean(t *testing.T) {
 	}
 }
 
+// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestClippyScope_ReadsTheGraphTransitively(t *testing.T) {
 	ws := t.TempDir()
 	stubWorkspaceGraph(t, map[string][]string{"leaf": nil, "mid": {"leaf"}, "top": {"mid"}})
@@ -87,6 +90,7 @@ func TestClippyScope_ReadsTheGraphTransitively(t *testing.T) {
 	}
 }
 
+// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestClippyScope_FallsBackToTheTouchedCratesWhenTheGraphIsUnreadable(t *testing.T) {
 	ws := t.TempDir()
 	stubWorkspaceGraphError(t, errors.New("exec: \"cargo\": executable file not found in $PATH"))
@@ -101,6 +105,7 @@ func TestClippyScope_FallsBackToTheTouchedCratesWhenTheGraphIsUnreadable(t *test
 // A graph read failure must not pass through in silence: the crates
 // downstream of the change are exactly the ones this stage exists to
 // compile, and a commit that skips them has to be able to tell.
+// Serial: captures the process-wide os.Stderr.
 func TestClippyScope_LogsAndPrintsWhenTheGraphReadFails(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -120,6 +125,7 @@ func TestClippyScope_LogsAndPrintsWhenTheGraphReadFails(t *testing.T) {
 // The two quiet cases — no workspace to ask, and a workspace that genuinely
 // has no intra-workspace edges — must stay silent: neither is a defect, and
 // logging them would bury the one case that is.
+// Serial: captures the process-wide os.Stderr.
 func TestClippyScope_StaysSilentWhenTheGraphHasNoEdges(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -172,6 +178,7 @@ func TestParseWorkspaceDeps_ErrorsOnUnparsableJSON(t *testing.T) {
 
 // The stage line has to name the crates, or a reader cannot tell a scoped run
 // from a whole-workspace one that silently stopped covering something.
+// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestWorkspaceStage_RunsScopedClippyAndNamesTheCrates(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeCargoRepo(t)
@@ -205,6 +212,7 @@ func TestWorkspaceStage_RunsScopedClippyAndNamesTheCrates(t *testing.T) {
 // and examples/ targets are that crate's own business. src/, the manifest, a
 // build script, and a `tests` directory that is not the crate's own target
 // directory still reach every dependent.
+// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestPlanCargoStages_ScopesDownstreamByWhatTheStagedFilesCanReach(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/core\", \"crates/lab\"]\n")

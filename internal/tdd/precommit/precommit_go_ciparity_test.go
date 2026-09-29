@@ -74,6 +74,7 @@ func TestWithGoCIParity_NeverDoublesAFlagAlreadyPresent(t *testing.T) {
 // linter must never see these flags — go vet and golangci-lint do not
 // understand them, and cargo has its own command shape entirely.
 func TestWithGoCIParity_LeavesNonGoTestRunnersUntouched(t *testing.T) {
+	t.Parallel()
 	for _, r := range []Runner{
 		{Cmd: "cargo", Args: []string{"test", "-p", "alpha"}},
 		{Cmd: "go", Args: []string{"vet", "./..."}},

@@ -24,6 +24,7 @@ func TestSplitKinds(t *testing.T) {
 	}
 }
 
+// Serial: sets the process-wide env var GIT_DIR.
 func TestCleanGitEnv_StripsGitVars(t *testing.T) {
 	t.Setenv("GIT_DIR", "/outer/.git")
 	t.Setenv("GIT_INDEX_FILE", "/outer/.git/index")
@@ -69,6 +70,7 @@ func makeJSRepo(t *testing.T, pkgJSON string) string {
 	return root
 }
 
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_FailFirst_BlocksTestThatPassesWithoutImpl(t *testing.T) {
 	withLinter(t, false)
 	root := makeGoRepo(t)
@@ -83,6 +85,7 @@ func TestPrecommit_FailFirst_BlocksTestThatPassesWithoutImpl(t *testing.T) {
 	}
 }
 
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_FailFirst_AllowsTestThatNeedsImpl(t *testing.T) {
 	withLinter(t, false)
 	root := makeGoRepo(t)
@@ -98,6 +101,7 @@ func TestPrecommit_FailFirst_AllowsTestThatNeedsImpl(t *testing.T) {
 	}
 }
 
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_BlocksNewlyAddedSuppression(t *testing.T) {
 	withLinter(t, false)
 	root := makeGoRepo(t)
@@ -112,6 +116,7 @@ func TestPrecommit_BlocksNewlyAddedSuppression(t *testing.T) {
 	}
 }
 
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_IgnoresPreexistingSuppression(t *testing.T) {
 	withLinter(t, false)
 	root := makeGoRepo(t)
@@ -138,6 +143,7 @@ func TestPrecommit_IgnoresPreexistingSuppression(t *testing.T) {
 // and blocks. The inert quote lives inside a pre-existing block comment, so the
 // file still compiles and mechanical alone would let it through.
 // (reason: this is the exact case the bypass test below exists to catch.)
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_MaskingBypass_FullFilePostImage(t *testing.T) {
 	withLinter(t, false)
 	root := makeGoRepo(t)
@@ -161,6 +167,7 @@ func TestPrecommit_MaskingBypass_FullFilePostImage(t *testing.T) {
 	}
 }
 
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_Mechanical_BlocksFailingSuite(t *testing.T) {
 	withLinter(t, false)
 	root := makeGoRepo(t)
@@ -292,6 +299,7 @@ func installJSTool(t *testing.T, root, pkg, script string) string {
 // the full `vitest run`, as `node <the installed bin entry>` rather than
 // through npx (#929). The runner is selected by DetectRunner from the repo's
 // package.json, exactly as it is in production.
+// Serial: installs a process-wide test override (SetLookNodeForTest).
 func TestPrecommit_Mechanical_ScopedToStagedVitest(t *testing.T) {
 	root := makeJSRepo(t, `{"devDependencies":{"vitest":"^1.0.0"}}`)
 	write(t, root, ".gitignore", "node_modules/\n")
@@ -313,6 +321,7 @@ func TestPrecommit_Mechanical_ScopedToStagedVitest(t *testing.T) {
 // TestPrecommit_Mechanical_ScopedToStagedJest guards the jest scoping path: a
 // staged source file in a jest repo runs `jest --findRelatedTests <files>`, not
 // the full `jest`.
+// Serial: installs a process-wide test override (SetLookNodeForTest).
 func TestPrecommit_Mechanical_ScopedToStagedJest(t *testing.T) {
 	root := makeJSRepo(t, `{"devDependencies":{"jest":"^29.0.0"}}`)
 	write(t, root, ".gitignore", "node_modules/\n")
@@ -335,6 +344,7 @@ func TestPrecommit_Mechanical_ScopedToStagedJest(t *testing.T) {
 // repo whose package.json selects the generic `npm test` script (no vitest/jest)
 // has no related mode, so the mechanical stage runs the FULL command unchanged.
 func TestPrecommit_Mechanical_UnknownRunnerFullSuiteFallback(t *testing.T) {
+	t.Parallel()
 	root := makeJSRepo(t, `{"scripts":{"test":"echo ok"}}`)
 	write(t, root, "src/widget.ts", "export const widget = () => 1\n")
 	gitDo(t, root, "add", ".")
@@ -352,6 +362,7 @@ func TestPrecommit_Mechanical_UnknownRunnerFullSuiteFallback(t *testing.T) {
 
 // A vitest root with no vitest installed cannot be tested at the merge: the
 // gate refuses it and names what is missing, and never reaches for npx.
+// Serial: captures the process-wide os.Stderr.
 func TestPrecommit_Mechanical_RefusesAVitestRootWithoutTheToolInstalled(t *testing.T) {
 	root := makeJSRepo(t, `{"devDependencies":{"vitest":"^1.0.0"}}`)
 	write(t, root, "src/widget.ts", "export const widget = () => 1\n")
@@ -397,8 +408,9 @@ func makeCargoRepo(t *testing.T) string { t.Helper(); return tddtest.MakeCargoRe
 // A green mechanical run must be remembered: a second Precommit over the
 // IDENTICAL worktree state and runner must not re-run the suite (the retry
 // after a hook timeout, or an amend that changes nothing tested).
+// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestPrecommit_Mechanical_GreenResultCached(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -417,8 +429,9 @@ func TestPrecommit_Mechanical_GreenResultCached(t *testing.T) {
 
 // Any content change invalidates the cached green — the hash covers the
 // worktree, so an edit between commits forces a fresh run.
+// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestPrecommit_Mechanical_CacheMissAfterEdit(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -435,8 +448,9 @@ func TestPrecommit_Mechanical_CacheMissAfterEdit(t *testing.T) {
 
 // A red run is never cached: the same failing state re-runs (and re-blocks
 // with fresh output) every time.
+// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestPrecommit_Mechanical_RedNeverCached(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -467,8 +481,9 @@ func TestPrecommit_Mechanical_RedNeverCached(t *testing.T) {
 // qualifies: PostEdit narrows an edit to `--lib`/`--test <name>` while the
 // commit gate runs `-p <crate>`, and a narrower green must never satisfy the
 // broader check.
+// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestPostEdit_GreenRunSeedsMechanicalCache(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeZigRepo(t)
 	write(t, root, "src/root.zig", "pub fn add(a: i32, b: i32) i32 {\n\treturn a + b + 0;\n}\n")
 

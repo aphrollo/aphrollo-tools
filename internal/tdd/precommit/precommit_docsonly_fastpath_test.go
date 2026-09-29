@@ -24,6 +24,7 @@ func docsRepo(t *testing.T, staged map[string]string) string {
 	return root
 }
 
+// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestPrecommit_DocsOnlyCommitRunsNoStageThatCouldQueue(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -44,6 +45,7 @@ func TestPrecommit_DocsOnlyCommitRunsNoStageThatCouldQueue(t *testing.T) {
 	}
 }
 
+// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestMechanical_DocsOnlyMergeTakesTheFastPath(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -63,6 +65,7 @@ func TestMechanical_DocsOnlyMergeTakesTheFastPath(t *testing.T) {
 
 // The fast path is keyed on the file KINDS, so one staged source file takes
 // the commit back onto the full wall however much prose rides with it.
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_OneStagedSourceFileLeavesTheFastPath(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	withLinter(t, false)

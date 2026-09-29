@@ -39,6 +39,7 @@ func syncRepo(t *testing.T, laneFiles, trunkFiles map[string]string) (root, trun
 	return root, trunk
 }
 
+// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestMechanical_TrunkSyncIntoDocsOnlyLaneTakesTheDocsFastPath(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -81,7 +82,7 @@ func TestMechanical_TrunkSyncJudgesOnlyTheLanesOwnPackages(t *testing.T) {
 // invisible during a trunk sync (HEAD already carries it), so a real token
 // change read as comment-only and its crate skipped the suite.
 func TestCommentOnlyRust_TrunkSyncReadsTheLanesCodeChange(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeCargoRepo(t)
 	trunk := currentBranch(t, root)
 	gitDo(t, root, "checkout", "-qb", "lane/work")
@@ -196,6 +197,7 @@ func TestMechanical_SyncFromLocalTrunkAheadOfOriginIsScopedToTheLane(t *testing.
 
 // A clean automerge fires pre-merge-commit before MERGE_HEAD exists; only
 // GIT_REFLOG_ACTION names the incoming branch.
+// Serial: sets a process-wide env var.
 func TestMechanical_AutomergeTrunkSyncNamedByReflogIsScopedToTheLane(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root, trunk := syncRepo(t,
@@ -215,6 +217,7 @@ func TestMechanical_AutomergeTrunkSyncNamedByReflogIsScopedToTheLane(t *testing.
 // The lockfile scope reads the lane's bump against the same base as the
 // staged set. Against HEAD the lane's own bump is invisible during a trunk
 // sync, so no package read as moved and the check narrowed to nothing.
+// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestLockfileScope_TrunkSyncReadsTheLanesBump(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := t.TempDir()

@@ -131,6 +131,7 @@ func TestCommentOnlyChange_GoUnscannableSourceDoesNotQualify(t *testing.T) {
 
 // The Rust path keeps its own rules through the same entry point.
 func TestCommentOnlyChange_RustRoutesThroughTheRustComparison(t *testing.T) {
+	t.Parallel()
 	if !commentOnlyChange("src/lib.rs", "// old\npub fn f() {}\n", "// new\npub fn f() {}\n") {
 		t.Fatal("a Rust comment-only edit must still qualify")
 	}
@@ -150,6 +151,7 @@ func TestCommentOnlyChange_OtherLanguagesNeverQualify(t *testing.T) {
 
 // End to end: a comment-only Go commit takes the same build-free fast path a
 // comment-only Rust commit does, so no suite is ever reached.
+// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestPrecommit_CommentOnlyGoCommitTakesTheFastPath(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -170,6 +172,7 @@ func TestPrecommit_CommentOnlyGoCommitTakesTheFastPath(t *testing.T) {
 }
 
 // Same wiring at the merge gate.
+// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestMechanical_CommentOnlyGoMergeTakesTheFastPath(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

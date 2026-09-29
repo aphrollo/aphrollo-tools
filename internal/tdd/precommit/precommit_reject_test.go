@@ -12,7 +12,7 @@ import (
 // suite showed only green `ok` lines while the actual failure sat at the tail,
 // so the operator could not tell a real red from a phantom one.
 func TestPrecommit_MechanicalRejectionNamesTheFailure(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -62,7 +62,7 @@ func TestPrecommit_MechanicalRejectionNamesTheFailure(t *testing.T) {
 // runner-level failure) must surface the runner error instead of a bare
 // "failing" with no subject.
 func TestPrecommit_MechanicalRejectionSurfacesRunnerError(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")

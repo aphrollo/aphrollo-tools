@@ -21,6 +21,7 @@ import (
 // TestPrecommit_FailFirst_WithholdsAStagedEmbeddedTemplateTheCommitChanged is
 // the named case: the change IS the template, so the proof runs the new test
 // against the OLD template, the test goes red, and the commit is proven.
+// Serial: changes the process working directory.
 func TestPrecommit_FailFirst_WithholdsAStagedEmbeddedTemplateTheCommitChanged(t *testing.T) {
 	withLinter(t, false)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -48,6 +49,7 @@ func TestPrecommit_FailFirst_WithholdsAStagedEmbeddedTemplateTheCommitChanged(t 
 // A staged data file no test names may BE the change under test, so it stays
 // withheld: carrying it would turn a correct commit into a fail-first
 // violation.
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_FailFirst_WithholdsAStagedDataFileNoTestNames(t *testing.T) {
 	withLinter(t, false)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

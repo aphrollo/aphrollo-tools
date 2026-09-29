@@ -46,6 +46,7 @@ func solverWithWarnings(attr string) string {
 		"pub fn reborrow(v: &i32) -> i32 {\n    *&*v\n}\n"
 }
 
+// Serial: sets the process-wide env var CARGO_HOME.
 func TestPrecommit_ClippyClean_AdmitsACommitWhoseOnlyWarningsLiveInAnUnlistedDependency(t *testing.T) {
 	root := clippyCleanServerWorkspace(t)
 	write(t, root, "server/src/lib.rs", "pub fn serve() -> i32 {\n    solver::clampish(4)\n}\n")
@@ -58,6 +59,7 @@ func TestPrecommit_ClippyClean_AdmitsACommitWhoseOnlyWarningsLiveInAnUnlistedDep
 	}
 }
 
+// Serial: sets the process-wide env var CARGO_HOME.
 func TestPrecommit_ClippyClean_RefusesAWarningInTheListedCrateItself(t *testing.T) {
 	root := clippyCleanServerWorkspace(t)
 	write(t, root, "server/src/lib.rs", "pub fn serve() -> i32 {\n    solver::clampish(4)\n}\n\n"+
@@ -77,6 +79,7 @@ func TestPrecommit_ClippyClean_RefusesAWarningInTheListedCrateItself(t *testing.
 // The merge touches only solver, yet its change makes server warn: a
 // deprecated clampish turns server's call into a warning. server is
 // clippy-clean and downstream of solver, so the merge must refuse it.
+// Serial: sets the process-wide env var CARGO_HOME.
 func TestMechanical_ClippyClean_RefusesAWarningInAListedCrateDownstreamOfTheMerge(t *testing.T) {
 	root := clippyCleanServerWorkspace(t)
 	write(t, root, "solver/src/lib.rs", solverWithWarnings("#[deprecated(note = \"use clamp\")]\n"))

@@ -100,6 +100,7 @@ func requireNoMutantsMeasurement(t *testing.T, cfgDir string) {
 // A repo that declared nothing is not measured, and says so durably: "the
 // stage did not run" and "the stage ran and found nothing" are different
 // facts, and `gate stats` can only tell them apart if the skip is logged.
+// Serial: installs a process-wide test override (SetFreeSpaceForTest).
 func TestMutantsStage_NotDeclaredLogsSkipAndPasses(t *testing.T) {
 	cfgDir, root := mergeStageFixture(t)
 	calls := stubMutantsExec(t, nil)
@@ -119,6 +120,7 @@ func TestMutantsStage_NotDeclaredLogsSkipAndPasses(t *testing.T) {
 // merge base with the INCOMING tip and the whole merged tree is what gets
 // measured. A base taken at HEAD would hand the runner a diff missing every
 // change trunk itself made since the lane forked.
+// Serial: installs a process-wide test override (SetFreeSpaceForTest).
 func TestMutantsStage_MeasuresTheMergedTreeAgainstTheMergeBase(t *testing.T) {
 	_, root := mergeStageFixture(t)
 	declareMutantsAtMerge(t, root)
@@ -153,6 +155,7 @@ func argvValueOf(t *testing.T, argv []string, flag string) string {
 // every conflicted cherry-pick in a repo that declares the key uncommittable,
 // which is the gate breaking work it has no business judging: nothing is being
 // merged, so there is nothing to measure.
+// Serial: installs a process-wide test override (SetFreeSpaceForTest).
 func TestMutantsStage_CherryPickInProgressIsNotMeasured(t *testing.T) {
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
@@ -192,6 +195,7 @@ func makeCherryPickInProgressRepo(t *testing.T) string {
 // lands nothing: the lane is not being merged anywhere. Measuring it charges
 // the lane for every change trunk made since the fork — and a survivor trunk
 // already accepted would refuse the lane's catch-up.
+// Serial: installs a process-wide test override (SetFreeSpaceForTest).
 func TestMutantsStage_CatchUpMergeInsideALaneIsNotMeasured(t *testing.T) {
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
@@ -231,6 +235,7 @@ func makeCatchUpMergeRepo(t *testing.T) string {
 // The gate failing on its own inputs says which input. A clean automerge has
 // no MERGE_HEAD yet and only GIT_REFLOG_ACTION names the branch coming in, so
 // a stage that can resolve neither cannot know what it would be measuring.
+// Serial: installs a process-wide test override (SetFreeSpaceForTest).
 func TestMutantsStage_NoLaneTipRefusesNamingBothSignals(t *testing.T) {
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
@@ -263,6 +268,7 @@ func TestMutantsStage_NoLaneTipRefusesNamingBothSignals(t *testing.T) {
 // mutant first, then the counts, then the remedy. A stage that summarised it
 // into a line of its own would bury the finding the whole run exists to
 // produce (criterion 12).
+// Serial: installs a process-wide test override (SetFreeSpaceForTest).
 func TestMutantsStage_RefusesWithVerdictMessageVerbatim(t *testing.T) {
 	_, root := mergeStageFixture(t)
 	declareMutantsAtMerge(t, root)
@@ -291,6 +297,7 @@ func TestMutantsStage_RefusesWithVerdictMessageVerbatim(t *testing.T) {
 // A runner that never started measured nothing, which is not "nothing
 // survived". The refusal carries what went wrong and is counted under its own
 // reason, so a box missing the tool is not filed as a lane with a survivor.
+// Serial: installs a process-wide test override (SetFreeSpaceForTest).
 func TestMutantsStage_RunnerThatNeverStartedIsARefusal(t *testing.T) {
 	cfgDir, root := mergeStageFixture(t)
 	declareMutantsAtMerge(t, root)
@@ -313,6 +320,7 @@ func TestMutantsStage_RunnerThatNeverStartedIsARefusal(t *testing.T) {
 // A merge that measured clean carries the counts into the gate's own notes:
 // a stage that passed silently is one nobody can tell from a stage that never
 // ran.
+// Serial: installs a process-wide test override (SetFreeSpaceForTest).
 func TestMechanical_PassingMeasurementAppendsItsCountsToTheNotes(t *testing.T) {
 	_, root := mergeStageFixture(t)
 	declareMutantsAtMerge(t, root)
@@ -343,6 +351,7 @@ func passingSuiteRunner() SuiteRunner {
 // Criterion 2: a repo still declaring `mutation-receipt = true` believes it is
 // gated and is not. It is told so before the merge spends a single suite on it,
 // which is the difference between a one-line correction and a twenty-minute one.
+// Serial: installs a process-wide test override (SetFreeSpaceForTest).
 func TestMechanical_RetiredKeyRefusesBeforeTheSuites(t *testing.T) {
 	cfgDir, root := mergeStageFixture(t)
 	write(t, root, "aphrollo.toml", "[aphrollo]\nmutation-receipt = true\n")
@@ -371,6 +380,7 @@ func TestMechanical_RetiredKeyRefusesBeforeTheSuites(t *testing.T) {
 // The configuration is read ahead of the docs-only fast path as well: a repo
 // whose mutation configuration is addressed to a mechanism that is gone must
 // hear so on any merge it makes, not only on one that happens to carry code.
+// Serial: installs a process-wide test override (SetFreeSpaceForTest).
 func TestMechanical_RetiredKeyRefusesEvenADocsOnlyMerge(t *testing.T) {
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
@@ -392,6 +402,7 @@ func TestMechanical_RetiredKeyRefusesEvenADocsOnlyMerge(t *testing.T) {
 // A mutation run costs twenty minutes and a merge whose suite is red is going
 // nowhere, so the measurement is the LAST thing the merge gate spends: a red
 // suite must never pay for one.
+// Serial: installs a process-wide test override (SetFreeSpaceForTest).
 func TestMechanical_RunsTheMeasurementAfterTheSuitesNotBefore(t *testing.T) {
 	_, root := mergeStageFixture(t)
 	declareMutantsAtMerge(t, root)
@@ -416,6 +427,7 @@ func TestMechanical_RunsTheMeasurementAfterTheSuitesNotBefore(t *testing.T) {
 // run is the most expensive thing the gate owns, and a merge whose lane
 // carried only prose has nothing mutable in it to measure. This is a real
 // MERGE, not a docs-only commit: the fast path is what has to hold here.
+// Serial: installs a process-wide test override (SetFreeSpaceForTest).
 func TestMechanical_DocsOnlyMergeNeverMeasures(t *testing.T) {
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
@@ -462,6 +474,7 @@ func makeDocsOnlyMergeRepo(t *testing.T) string {
 // The stage reads the same keys `gate mutants run` does, from the same table:
 // a mutants-after naming a file that is not there is a refusal, because a hook
 // that never ran leaves behind exactly what it exists to reclaim.
+// Serial: installs a process-wide test override (SetFreeSpaceForTest).
 func TestMutantsStage_MissingAfterHookIsARefusal(t *testing.T) {
 	cfgDir, root := mergeStageFixture(t)
 	write(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-merge = true\nmutants-after = \"tools/after.sh\"\n")

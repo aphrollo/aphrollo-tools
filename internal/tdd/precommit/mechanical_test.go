@@ -20,6 +20,7 @@ import (
 // call list contains exactly the ONE scoped mechanical run (no run at a
 // worktree-shaped temp dir), and the fail-first worktree directory under the
 // state dir is never created at all.
+// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestMechanical_CargoMember_RunsScopedNeverSpawnsFailFirst(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -83,6 +84,7 @@ func TestMechanical_DocsOnlyMerge_NoOpWithNothingToTestLine(t *testing.T) {
 // included) so aphrollo-tools' own anti-cheat gate never mistakes this
 // repo's test source for an introduced suppression when committing it — the
 // scanned target is the FIXTURE repo's staged content, never this file's.
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestMechanical_NeverBlocksOnSuppressionOrFailFirst(t *testing.T) {
 	withLinter(t, false)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -100,6 +102,7 @@ func TestMechanical_NeverBlocksOnSuppressionOrFailFirst(t *testing.T) {
 // TestMechanical_BlocksARealCompileFailure guards that Mechanical is not a
 // no-op rubber stamp: a genuinely broken combined tree still blocks the
 // merge, via the SAME mechanical judgment Precommit uses.
+// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestMechanical_BlocksARealCompileFailure(t *testing.T) {
 	withLinter(t, false)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

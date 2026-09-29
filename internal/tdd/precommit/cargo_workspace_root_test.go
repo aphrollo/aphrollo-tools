@@ -32,6 +32,7 @@ func makeNestedCargoWorkspace(t *testing.T, withNextestConfig bool) (wsRoot, mem
 // Cargo.toml declares a [workspace] table; a crate with no encompassing
 // workspace falls back to being its own "workspace root".
 func TestCargoWorkspaceRoot(t *testing.T) {
+	t.Parallel()
 	t.Run("member crate resolves to the workspace root above it", func(t *testing.T) {
 		ws, member := makeNestedCargoWorkspace(t, false)
 		if got := cargoWorkspaceRoot(member); got != ws {
@@ -81,6 +82,7 @@ func TestCargoWorkspaceRoot(t *testing.T) {
 // plain `test` regardless of whether cargo-nextest happens to be installed on
 // the box running this test.
 func TestNarrowToRelatedTests_CargoMember_RunsFromWorkspaceRoot(t *testing.T) {
+	t.Parallel()
 	ws, member := makeNestedCargoWorkspace(t, false)
 	write(t, member, "tests/movement.rs", "#[test]\nfn moves() {}\n")
 
@@ -104,6 +106,7 @@ func TestNarrowToRelatedTests_CargoMember_RunsFromWorkspaceRoot(t *testing.T) {
 // under test — so this passes deterministically whether or not this box has
 // cargo-nextest installed.
 func TestNarrowToRelatedTests_CargoMember_NextestWhenConfiguredAtWorkspaceRoot(t *testing.T) {
+	t.Parallel()
 	ws, member := makeNestedCargoWorkspace(t, true)
 	write(t, member, "src/foo.rs", "pub fn foo() -> i32 { 1 }\n")
 
@@ -128,6 +131,7 @@ func TestNarrowToRelatedTests_CargoMember_NextestWhenConfiguredAtWorkspaceRoot(t
 // cargo branch): `--lib`, scoped by `-p <pkg>`, executed from the workspace
 // root.
 func TestNarrowToRelatedTests_CargoMember_SourceEdit_RunsFromWorkspaceRoot(t *testing.T) {
+	t.Parallel()
 	ws, member := makeNestedCargoWorkspace(t, false)
 	write(t, member, "src/foo.rs", "pub fn foo() -> i32 { 1 }\n")
 
@@ -146,6 +150,7 @@ func TestNarrowToRelatedTests_CargoMember_SourceEdit_RunsFromWorkspaceRoot(t *te
 // the pre-A4 behavior (no -p, no Dir, cwd implicitly the given root) rather
 // than losing --test/--lib scoping altogether.
 func TestNarrowToRelatedTests_CargoNoResolvablePackage_FallsBackToOldBehavior(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "tests/movement.rs", "#[test]\nfn moves() {}\n") // no Cargo.toml anywhere
 
@@ -165,7 +170,7 @@ func TestNarrowToRelatedTests_CargoNoResolvablePackage_FallsBackToOldBehavior(t 
 // test pins the OBSERVABLE half, that the actual command executes with
 // Dir set to the workspace root.
 func TestPrecommit_Mechanical_CargoMember_RunsFromWorkspaceRoot(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeCargoWorkspaceRepo(t)
 	write(t, root, "crates/alpha/src/lib.rs", "pub fn alpha() -> i32 { 1 }\n")
 	gitDo(t, root, "add", ".")

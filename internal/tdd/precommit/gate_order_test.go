@@ -49,7 +49,7 @@ func stageOf(r Runner) string {
 // full test build+link+run. Before this the heaviest stage ran first, so a
 // commit with a formatting slip paid twenty minutes to be told about a space.
 func TestPrecommit_StagesRunCheapestFirst(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := orderedGateRepo(t)
 
 	var order []string
@@ -72,7 +72,7 @@ func TestPrecommit_StagesRunCheapestFirst(t *testing.T) {
 // builds client before ratchet's cheap pure-crate suite can say anything, so
 // the guard stops being the fast check it is.
 func TestPrecommit_AlwaysRunIsItsOwnInvocation(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := orderedGateRepo(t)
 
 	var suiteArgs []string
@@ -96,7 +96,7 @@ func TestPrecommit_AlwaysRunIsItsOwnInvocation(t *testing.T) {
 // TestPrecommit_StopsAtTheFirstFailingStage pins the point of ordering: a
 // rejection from a cheap stage means no expensive stage runs at all.
 func TestPrecommit_StopsAtTheFirstFailingStage(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := orderedGateRepo(t)
 
 	var ran []string
@@ -119,6 +119,7 @@ func TestPrecommit_StopsAtTheFirstFailingStage(t *testing.T) {
 // TestPrecommit_GateLogNamesTheRejectingStage pins the trail: the log line
 // says WHICH stage rejected, so a session reading gate.log after a block
 // knows whether it was formatting, a guard crate, a lint or the suite.
+// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestPrecommit_GateLogNamesTheRejectingStage(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -143,6 +144,7 @@ func TestPrecommit_GateLogNamesTheRejectingStage(t *testing.T) {
 // TestPrecommit_AlwaysRunResultIsCached pins that the guard crate's green is
 // remembered under the same content key as everything else: an identical
 // tree at merge must not re-run it.
+// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestPrecommit_AlwaysRunResultIsCached(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := orderedGateRepo(t)
@@ -169,7 +171,7 @@ func TestPrecommit_AlwaysRunResultIsCached(t *testing.T) {
 // same pipeline minus fail-first: a merge that breaks formatting or the
 // guard crate is told so before it pays for the suites.
 func TestMechanical_MergeGateSharesTheSameOrder(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := orderedGateRepo(t)
 
 	var order []string

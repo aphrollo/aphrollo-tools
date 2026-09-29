@@ -15,6 +15,7 @@ import (
 // gate exists to stop, so the proof also runs the same tests with the
 // staged change and refuses the commit while they are red.
 
+// Serial: sets the process-wide env var CARGO_HOME.
 func TestPrecommit_FailFirst_RefusesARustTestStillRedWithTheChange(t *testing.T) {
 	tddtest.RequireRealCargo(t)
 	withLinter(t, false)
@@ -44,6 +45,7 @@ func TestPrecommit_FailFirst_RefusesARustTestStillRedWithTheChange(t *testing.T)
 	}
 }
 
+// Serial: sets the process-wide env var CARGO_HOME.
 func TestPrecommit_FailFirst_AdmitsARustTestTheChangeTurnsGreen(t *testing.T) {
 	tddtest.RequireRealCargo(t)
 	withLinter(t, false)
@@ -69,6 +71,7 @@ func TestPrecommit_FailFirst_AdmitsARustTestTheChangeTurnsGreen(t *testing.T) {
 }
 
 // The Go proof runs the same function, so it shared the gap.
+// Serial: captures the process-wide os.Stderr.
 func TestPrecommit_FailFirst_RefusesAGoTestStillRedWithTheChange(t *testing.T) {
 	withLinter(t, false)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

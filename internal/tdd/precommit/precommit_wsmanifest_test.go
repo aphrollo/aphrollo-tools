@@ -12,7 +12,7 @@ import (
 // the issue names, since the manifest owns no single crate to scope a
 // per-package suite to.
 func TestPrecommit_WorkspaceManifestOnlyChange_RunsCargoCheckWorkspace(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeCargoWorkspaceRepo(t)
 	write(t, root, "Cargo.toml",
 		"[workspace]\nmembers = [\"crates/alpha\", \"crates/beta\"]\n\n[profile.release]\nopt-level = 3\n")
@@ -47,7 +47,7 @@ func TestPrecommit_WorkspaceManifestOnlyChange_RunsCargoCheckWorkspace(t *testin
 // get BOTH: the workspace-wide check for the manifest, and the ordinary
 // ownership-scoped suite for the crate actually touched.
 func TestPrecommit_WorkspaceManifestChangeAlongsideTouchedCrate_RunsBoth(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeCargoWorkspaceRepo(t)
 	write(t, root, "Cargo.toml",
 		"[workspace]\nmembers = [\"crates/alpha\", \"crates/beta\"]\n\n[profile.release]\nopt-level = 3\n")
@@ -91,6 +91,7 @@ func TestPrecommit_WorkspaceManifestChangeAlongsideTouchedCrate_RunsBoth(t *test
 // moved package's workspace dependent instead of falling back to
 // --workspace — issue #423's whole point, proved end to end through
 // Precommit rather than lockfileScope alone.
+// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestPrecommit_LockfileOnlyChange_NarrowsCargoCheckToMovedPackageDependent(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeCargoWorkspaceRepo(t)
@@ -135,6 +136,7 @@ func TestPrecommit_LockfileOnlyChange_NarrowsCargoCheckToMovedPackageDependent(t
 // A Cargo.lock change whose moved package has no workspace dependent skips
 // the workspace-manifest check outright — a real narrowing to zero, not a
 // silent fallback to a wide or empty-selector run.
+// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestPrecommit_LockfileOnlyChange_SkipsCheckWhenNoWorkspaceCrateDepends(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeCargoWorkspaceRepo(t)
@@ -169,7 +171,7 @@ func TestPrecommit_LockfileOnlyChange_SkipsCheckWhenNoWorkspaceCrateDepends(t *t
 // other suite stage — the whole point of running it is to catch a manifest
 // edit that breaks the build.
 func TestPrecommit_WorkspaceManifestCheckFailure_Blocks(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeCargoWorkspaceRepo(t)
 	write(t, root, "Cargo.toml",
 		"[workspace]\nmembers = [\"crates/alpha\", \"crates/beta\"]\n\nresolver = \"3\"\n")

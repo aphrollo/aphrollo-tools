@@ -85,6 +85,7 @@ func TestMechanical_AllowsAnIgnoredFileInsideABuiltGoPackage(t *testing.T) {
 
 // downstreamWorkspace stages a change to core_sim; lab depends on it and is
 // built with it, aside is not.
+// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestMechanical_RefusesAnUntrackedTestFileInsideABuiltCrate(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := downstreamWorkspace(t)
@@ -100,6 +101,7 @@ func TestMechanical_RefusesAnUntrackedTestFileInsideABuiltCrate(t *testing.T) {
 	}
 }
 
+// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestMechanical_AllowsAModifiedFileInACrateTheMergeDoesNotBuild(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := downstreamWorkspace(t)
@@ -115,6 +117,7 @@ func TestMechanical_AllowsAModifiedFileInACrateTheMergeDoesNotBuild(t *testing.T
 	}
 }
 
+// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestMechanical_AllowsAnIgnoredFileInsideABuiltCrate(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := downstreamWorkspace(t)
@@ -133,6 +136,7 @@ func TestMechanical_AllowsAnIgnoredFileInsideABuiltCrate(t *testing.T) {
 
 // A workspace manifest in the merge checks the workspace beyond the touched
 // crates, so a crate nothing else would build is built this time.
+// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestMechanical_RefusesADirtyFileInAnyCrateWhenTheWorkspaceManifestMoved(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := downstreamWorkspace(t)
@@ -194,6 +198,7 @@ func TestRootPlanBuilds_NothingOutsideItsGoRoot(t *testing.T) {
 // workspace's point of view, to the workspace's own [package] manifest, and
 // would read as owned by it.
 func TestRootPlanBuilds_NothingOutsideItsCargoWorkspace(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	write(t, repo, "rust/Cargo.toml", "[package]\nname = \"solo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
 	write(t, repo, "rust/src/lib.rs", "pub fn f() {}\n")
@@ -212,6 +217,7 @@ func TestRootPlanBuilds_NothingOutsideItsCargoWorkspace(t *testing.T) {
 // The dirty-tree check resolves each cargo root's plan before anything is
 // built, and the stages reuse it: resolving it again would report every
 // unowned staged file twice.
+// Serial: captures the process-wide os.Stderr.
 func TestMechanical_ReportsAnUnownedCargoFileOnceWhenThePlanIsResolvedUpFront(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := downstreamWorkspace(t)
