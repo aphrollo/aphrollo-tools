@@ -3,6 +3,7 @@ package argvbatch
 import (
 	"os/exec"
 	"runtime"
+	"slices"
 	"strings"
 )
 
@@ -60,7 +61,7 @@ func BudgetOn(goos, cmd string, look func(string) (string, error)) int {
 // item at once holds its line to the budget some other way.
 func SplitCommand(cmd string, args []string, budget int) [][]string {
 	whole := [][]string{args}
-	if len(cmd)+1+len(strings.Join(args, " ")) <= budget {
+	if wordsLen(cmd, args) <= budget {
 		return whole
 	}
 	items, first := listItems(commandName(cmd), args)
@@ -73,26 +74,19 @@ func SplitCommand(cmd string, args []string, budget int) [][]string {
 			inItem[i] = true
 		}
 	}
-	var head, tail []string
-	for i, a := range args {
-		switch {
-		case inItem[i]:
-		case i < first:
-			head = append(head, a)
-		default:
-			tail = append(tail, a)
+	head := args[:first]
+	var tail []string
+	for i := first; i < len(args); i++ {
+		if !inItem[i] {
+			tail = append(tail, args[i])
 		}
 	}
-	fixed := append(append([]string{}, head...), tail...)
-	base := len(cmd) + len(strings.Join(fixed, " "))
-	if len(fixed) > 0 {
-		base++
-	}
+	base := wordsLen(cmd, slices.Concat(head, tail))
 	var out [][]string
 	var cur []listItem
 	size := base
 	for _, it := range items {
-		w := len(strings.Join(it.words, " ")) + 1
+		w := wordsLen("", it.words)
 		if len(cur) > 0 && size+w > budget {
 			out = append(out, runOf(head, cur, tail))
 			cur, size = nil, base
@@ -101,6 +95,16 @@ func SplitCommand(cmd string, args []string, budget int) [][]string {
 		size += w
 	}
 	return append(out, runOf(head, cur, tail))
+}
+
+// wordsLen is the characters cmd and words take on one line, each word
+// after cmd preceded by a space.
+func wordsLen(cmd string, words []string) int {
+	n := len(cmd)
+	for _, w := range words {
+		n += 1 + len(w)
+	}
+	return n
 }
 
 type listItem struct {
@@ -144,7 +148,7 @@ func listItems(name string, args []string) (items []listItem, first int) {
 			skip = true
 		case name == "cargo" && strings.HasPrefix(a, "--package="):
 			it = listItem{words: []string{a}, at: []int{i}}
-		case isPackageCommand(name, args) && i > 0 && (a == "." || strings.HasPrefix(a, "./")):
+		case isPackageCommand(name, args) && (a == "." || strings.HasPrefix(a, "./")):
 			it = listItem{words: []string{a}, at: []int{i}}
 		default:
 			continue
