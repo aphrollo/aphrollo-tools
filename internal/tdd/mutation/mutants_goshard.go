@@ -1,7 +1,9 @@
 package mutation
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,11 +49,8 @@ func assignFilesToShards(files []string, weight map[string]int, shards int) [][]
 	out := make([][]string, max(shards, 1))
 	order := append([]string(nil), files...)
 	cost := func(f string) int { return max(weight[f], 1) }
-	sort.Slice(order, func(a, b int) bool {
-		if ca, cb := cost(order[a]), cost(order[b]); ca != cb {
-			return ca > cb
-		}
-		return order[a] < order[b]
+	slices.SortFunc(order, func(a, b string) int {
+		return cmp.Or(cmp.Compare(cost(b), cost(a)), strings.Compare(a, b))
 	})
 	load := make([]int, len(out))
 	for _, f := range order {

@@ -183,7 +183,7 @@ func (g goReachGraph) Layers(dir string) [][]string {
 	seen := map[string]bool{dir: true}
 	frontier := []string{dir}
 	var layers [][]string
-	for len(frontier) > 0 {
+	for len(frontier) != 0 {
 		var next []string
 		for _, cur := range frontier {
 			for _, up := range reverse[cur] {
