@@ -48,7 +48,8 @@ aphrollo update                       # rebuild from origin/main and swap it in
 ## The gate in one screen
 
 - **Edit:** after every Edit/Write the hook runs the related tests and prints
-  one `gate:` line (`green`, `red-missing-impl`, `red`, `TIMEOUT`, …).
+  one `gate:` line (`green`, `red-missing-impl`, `red`, `TIMEOUT`, …), which
+  also names every ratchet refusal the commit would raise, with its escape.
 - **Commit:** staged-baseline guard → ratchet laws → docs → vet/lint →
   fail-first (the staged test must be RED without the change). Suites are
   `NOT RUN` here and run at the merge.

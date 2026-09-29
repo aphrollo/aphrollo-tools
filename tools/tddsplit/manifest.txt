@@ -604,6 +604,8 @@ posttooluse_gofmt.go                               postedit
 posttooluse_gofmt_test.go                          postedit
 posttooluse_gofmt_unix_test.go                     postedit
 posttooluse_notrun_test.go                         postedit
+posttooluse_ratchet.go                             postedit
+posttooluse_ratchet_test.go                        postedit
 posttooluse_run.go                                 postedit
 posttooluse_runnertimeout_test.go                  postedit
 posttooluse_suite.go                               suite     # created by P2
@@ -711,6 +713,8 @@ ratchethint.go                                     lawgate
 ratchethint_test.go                                tdd       # prefix says lawgate; its test body reaches tdd
 ratchetindex_test.go                               lawgate
 ratchetonpr_workflow_pin_test.go                   tdd
+ratchetpostedit.go                                 lawgate
+ratchetpostedit_test.go                            lawgate
 ratchetreadme.go                                   tdd
 ratchetreadme_test.go                              tdd
 ratchetschema_test.go                              lawgate

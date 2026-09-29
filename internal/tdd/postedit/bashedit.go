@@ -306,6 +306,15 @@ func postBashChanges(in bashInput, run SuiteRunner) string {
 	}
 
 	var notes []string
+	// The laws judge every file the command changed, in one pass: a shell
+	// write fires no pre-edit hook, so this is the first judge that sees it.
+	var written []string
+	for _, rel := range changed {
+		written = append(written, filepath.Join(before.Root, filepath.FromSlash(rel)))
+	}
+	if note := lawRefusalNote(written); note != "" {
+		notes = append(notes, "gate: "+note)
+	}
 	seenRoot := map[string]bool{}
 	byRoot := changedByRoot(before.Root, changed)
 	for i, rel := range changed {

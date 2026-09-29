@@ -194,7 +194,10 @@ Exit codes for run:
   0  every mutant the lane's diff generated was caught, accepted or skipped
   1  a mutant survived unaccepted, one stayed unmeasured, one not covered or
      inconclusive sits on a line the lane adds (with mutants-at-merge on), the
-     run reached no verdict, or the repo's own configuration was refused
+     run reached no verdict, the coverage run failed on the lane's own tree (a
+     build error or a failing test, named by package), or the repo's own
+     configuration was refused. A coverage run the box broke (a killed
+     process, a full drive, no memory) is NOT MEASURED and exits 0
   2  bad flags
 
 Exit codes for prove:

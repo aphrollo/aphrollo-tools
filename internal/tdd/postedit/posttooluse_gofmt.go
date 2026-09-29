@@ -37,10 +37,11 @@ func gofmtEdited(target string) string {
 	return "gofmt formatted " + target
 }
 
-// withGofmtNote puts note on the edit's gate line, the first line of text,
-// ahead of any red summary body. With no gate line (nothing was tested) the
-// note is the line.
-func withGofmtNote(text, note string) string {
+// withGateNote puts note on the edit's gate line, the first line of text,
+// ahead of any red summary body and after any note already there. With no
+// gate line (nothing was tested) the note is the line. The gofmt note and the
+// law note (lawRefusalNote) both ride on it.
+func withGateNote(text, note string) string {
 	if note == "" {
 		return text
 	}
