@@ -1,6 +1,7 @@
 package ratchet
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
@@ -101,9 +102,12 @@ func goListCached(root string, overlay map[string]string, cacheDir string) ([]by
 	if !ok {
 		return goListStream(root, overlay)
 	}
-	path := filepath.Join(cacheDir, "ratchet-cache", "golist-"+cacheKey(root)+".json")
+	path := filepath.Join(cacheDir, "ratchet-cache", GraphCachePrefix+cacheKey(root)+".json")
+	// The header names the root too, so a sweep can tell whose entry it is
+	// (GraphCacheRoot): the file name carries only a hash of the path.
+	header := fingerprint + " " + abs
 	if data, err := os.ReadFile(path); err == nil {
-		if head, body, found := bytes.Cut(data, []byte("\n")); found && string(head) == fingerprint {
+		if head, body, found := bytes.Cut(data, []byte("\n")); found && string(head) == header {
 			return body, nil
 		}
 	}
@@ -111,8 +115,30 @@ func goListCached(root string, overlay map[string]string, cacheDir string) ([]by
 	if err != nil {
 		return nil, err
 	}
-	_ = writeAtomic(path, append([]byte(fingerprint+"\n"), out...))
+	_ = writeAtomic(path, append([]byte(header+"\n"), out...))
 	return out, nil
+}
+
+// GraphCachePrefix starts the name of every cached dependency graph.
+const GraphCachePrefix = "golist-"
+
+// GraphCacheRoot reads the checkout a cached dependency graph was made for,
+// from the first line of the file at path. ok is false for a file that is
+// unreadable or carries no root (a header from before roots were recorded).
+func GraphCacheRoot(path string) (root string, ok bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		// absence-ok: an unreadable or headerless cache names no root
+		return "", false
+	}
+	defer f.Close()
+	line, err := bufio.NewReader(f).ReadString('\n')
+	if err != nil {
+		// absence-ok: an unreadable or headerless cache names no root
+		return "", false
+	}
+	_, root, found := strings.Cut(strings.TrimSuffix(line, "\n"), " ")
+	return root, found && root != ""
 }
 
 // writeAtomic replaces path with data through a uniquely named temp file, so

@@ -82,15 +82,15 @@ func TestEffectiveRunRoot_ARunDirectoryThatIsAFileIsUnknown(t *testing.T) {
 }
 
 // TestEffectiveRunRoot_AnUnfollowedDirectoryChangeMakesTheRunUnknown pins the
-// pushd/popd/subshell arms: after a directory change the scanner does not
-// follow, the later run's directory is unknown.
+// pushd/popd arm: after a directory change the scanner does not follow, the
+// later run's directory is unknown. A cd inside a subshell or brace group is
+// followed instead (runcheckout_groups_test.go).
 func TestEffectiveRunRoot_AnUnfollowedDirectoryChangeMakesTheRunUnknown(t *testing.T) {
 	t.Parallel()
 	repo := runRoots(t)
 	for _, cmd := range []string{
 		"pushd a && go test ./...",
-		"(cd a; go test ./...)",
-		"{ cd a; } && go test ./...",
+		"popd && go test ./...",
 	} {
 		if got := effectiveRunRoot(repo, cmd); got != "" {
 			t.Errorf("%q: effectiveRunRoot = %q, want none", cmd, got)

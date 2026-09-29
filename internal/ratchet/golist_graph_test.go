@@ -422,3 +422,35 @@ func TestGoDepGraph_NeverCachesUnderAGoWorkFile(t *testing.T) {
 		}
 	})
 }
+
+func TestGraphCacheRoot_NamesTheCheckoutTheEntryWasMadeFor(t *testing.T) {
+	root := liveGraphRepo(t)
+	dir := t.TempDir()
+	if _, err := Check(Options{Root: root, GraphCacheDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "ratchet-cache", GraphCachePrefix+"*"))
+	if len(files) != 1 {
+		t.Fatalf("cache files = %v, want one", files)
+	}
+	want, _ := filepath.Abs(root)
+	if got, ok := GraphCacheRoot(files[0]); !ok || got != want {
+		t.Fatalf("GraphCacheRoot = %q, %v; want %q", got, ok, want)
+	}
+	// A header from before roots were recorded, or none at all, names none.
+	for name, body := range map[string]string{
+		"bare fingerprint": "abc123\nbody",
+		"no newline":       "abc123 /x",
+		"empty root":       "abc123 \nbody",
+		"empty":            "",
+	} {
+		path := filepath.Join(dir, name+".json")
+		write(t, path, body)
+		if got, ok := GraphCacheRoot(path); ok {
+			t.Errorf("%s: GraphCacheRoot = %q, want none", name, got)
+		}
+	}
+	if _, ok := GraphCacheRoot(filepath.Join(dir, "absent.json")); ok {
+		t.Error("a missing file named a root")
+	}
+}

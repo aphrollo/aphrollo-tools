@@ -307,6 +307,7 @@ escape_verify_fixture_test.go                      escape
 escape_verify_local_test.go                        escape
 escape_verify_localdiff_test.go                    escape
 escape_verify_suite.go                             suite     # created by P2
+escape_verify_suite_test.go                        suite
 escape_verify_test.go                              escape
 failfirst_env.go                                   failfirst
 failfirst_env_test.go                              failfirst
@@ -358,6 +359,8 @@ gateworktree_own_test.go                           core
 gc.go                                              gc
 gc_deps.go                                         gc
 gc_deps_test.go                                    gc
+gc_graphcache.go                                   gc
+gc_graphcache_test.go                              gc
 gc_gotmp.go                                        gc
 gc_gotmp_test.go                                   gc
 gc_interlock.go                                    gc
@@ -505,6 +508,7 @@ mutants_covershape.go                              mutation
 mutants_covershape_test.go                         mutation
 mutants_deleted_surface_test.go                    tdd
 mutants_deps.go                                    suite
+mutants_deps_test.go                               suite
 mutants_deps_own_test.go                           suite
 mutants_disk.go                                    mutation
 mutants_disk_test.go                               mutation
@@ -668,6 +672,7 @@ precommit_failfirst_args_test.go                   failfirst
 precommit_failfirst_green_test.go                  precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_inputs_test.go                 precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_npm_test.go                    precommit # prefix says failfirst; its test body reaches precommit
+precommit_failfirst_profile_test.go                 failfirst
 precommit_failfirst_pytest_test.go                 precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_reach_test.go                  precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_rust.go                        failfirst
@@ -775,6 +780,7 @@ retro_test.go                                      merge
 review_yellows_test.go                             precommit
 runcheckout.go                                     suite
 runcheckout_cdtilde_test.go                        suite
+runcheckout_groups_test.go                       suite
 runcheckout_own_test.go                            suite
 runcheckout_test.go                                postedit  # prefix says suite; its test body reaches postedit
 runner.go                                          suite
@@ -819,6 +825,8 @@ sessionline.go                                     tdd
 sessionline_core.go                                core      # created by P2
 sessionline_test.go                                tdd
 sessionstart_test.go                               tdd
+shellgroups.go                                     shell
+shellgroups_test.go                                shell
 shellwrite.go                                      shell
 shellwrite_fuzz_test.go                            shell
 shellwrite_nul_test.go                             shell
@@ -893,6 +901,8 @@ tdd.go                                             core
 tddskill.go                                        install
 tddskill.md                                        install
 tddskill_test.go                                   install
+tddsplit_manifest.go                                precommit
+tddsplit_manifest_test.go                           precommit
 testbinary_refusal_test.go                          install
 testdata/cargo_mutants_outcomes.json               mutation
 testdata/covershape/                               mutation
