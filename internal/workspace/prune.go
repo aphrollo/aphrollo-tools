@@ -261,7 +261,11 @@ func (p *Prune) Run(apply bool, stdout, stderr io.Writer) error {
 		// would accept — so removing one always forces, regardless of --force.
 		force := p.Force || isGatePRMergeWorktree(e.Path)
 		if err := removeWorktree(p.Repo, e.Path, force); err != nil {
-			fmt.Fprintf(stderr, "could not remove %s: %v\n", e.Path, err)
+			if reason, expected := expectedRemoveSkip(err); expected {
+				fmt.Fprintf(stdout, "skip: %s (%s)\n", e.Path, reason)
+				continue
+			}
+			fmt.Fprintf(stdout, "failed: %s (%v)\n", e.Path, err)
 			failed++
 			continue
 		}
@@ -281,6 +285,21 @@ func (p *Prune) Run(apply bool, stdout, stderr io.Writer) error {
 		fmt.Fprintf(stdout, "%s %d worktree(s)\n", verb, pruned)
 	}
 	return nil
+}
+
+// expectedRemoveSkip reports whether a failed `git worktree remove` is git
+// declining to touch a tree somebody still holds — locked, or carrying changes
+// that appeared after the sweep read it clean — rather than a fault. Those are
+// the sweep leaving live work alone, reported as a skip with git's reason.
+func expectedRemoveSkip(err error) (reason string, expected bool) {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "locked working tree"):
+		return "locked", true
+	case strings.Contains(msg, "contains modified or untracked files"):
+		return "dirty", true
+	}
+	return "", false
 }
 
 // decide resolves the verdict for one worktree: remove it only when its PR is

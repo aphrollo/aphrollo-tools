@@ -1,0 +1,15 @@
+name        = "no_any"
+description = "The `any` type switches the compiler off for everything that touches it: use `unknown` and narrow, or name the type. Only the type counts — `: any`, `as any`, `<any>`, `any[]`, a generic argument, a union or intersection member — never the word in a comment or a string, which the law reads through the shared comment and string masking."
+severity    = "deny"
+escape      = "// any-ok:"
+code_only    = true
+mask_strings = true
+
+[scope]
+include = ["**/*.ts", "**/*.tsx"]
+exclude = ["**/node_modules/**", ".ratchet/fixtures/**"]
+
+[matcher]
+kind    = "regex-absent"
+pattern = "(?:[:<,|&=?\\[]|=>|\\b(?:as|extends|is|keyof|readonly))\\s*any\\b|\\bany\\s*\\[\\s*\\]"
+key     = "file:line-content-hash"
