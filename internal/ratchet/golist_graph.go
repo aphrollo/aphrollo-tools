@@ -76,11 +76,12 @@ func goListStream(root string, overlay map[string]string) ([]byte, error) {
 	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {
+		said := ""
 		var exit *exec.ExitError
-		if errors.As(err, &exit) && len(exit.Stderr) > 0 {
-			return nil, fmt.Errorf("go list -deps -json ./... in %s: %w: %s", root, err, strings.TrimSpace(string(exit.Stderr)))
+		if errors.As(err, &exit) {
+			said = ": " + strings.TrimSpace(string(exit.Stderr))
 		}
-		return nil, fmt.Errorf("go list -deps -json ./... in %s: %w", root, err)
+		return nil, fmt.Errorf("go list -deps -json ./... in %s: %w%s", root, err, said)
 	}
 	return out, nil
 }
@@ -92,7 +93,11 @@ func goListCached(root string, overlay map[string]string, cacheDir string) ([]by
 	if cacheDir == "" {
 		return goListStream(root, overlay)
 	}
-	fingerprint, ok := goGraphFingerprint(root, overlay)
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return goListStream(root, overlay)
+	}
+	fingerprint, ok := goGraphFingerprint(abs, overlay)
 	if !ok {
 		return goListStream(root, overlay)
 	}
@@ -106,30 +111,39 @@ func goListCached(root string, overlay map[string]string, cacheDir string) ([]by
 	if err != nil {
 		return nil, err
 	}
-	if os.MkdirAll(filepath.Dir(path), 0o700) == nil {
-		if tmp, err := os.CreateTemp(filepath.Dir(path), "golist-*.tmp"); err == nil {
-			_, werr := tmp.Write(append([]byte(fingerprint+"\n"), out...))
-			cerr := tmp.Close()
-			if werr != nil || cerr != nil || os.Rename(tmp.Name(), path) != nil {
-				os.Remove(tmp.Name())
-			}
-		}
-	}
+	_ = writeAtomic(path, append([]byte(fingerprint+"\n"), out...))
 	return out, nil
+}
+
+// writeAtomic replaces path with data through a uniquely named temp file, so
+// two runs writing at once never leave a torn entry for a third to read.
+func writeAtomic(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), "golist-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 var localReplace = regexp.MustCompile(`=>\s*["]?(\.|/)`)
 
 // goGraphFingerprint hashes every input `go list` reads for the module at
-// root: each .go source, go.mod, go.sum, go.work, vendor/modules.txt (by
+// root: each .go source, go.mod, go.sum, vendor/modules.txt (by
 // content, never by mtime), the overlay, the go binary and the environment
 // that steers resolution. ok is false when an input lies outside root — a
 // go.work in root or above it, or a local replace directive.
-func goGraphFingerprint(root string, overlay map[string]string) (string, bool) {
-	abs, err := filepath.Abs(root)
-	if err != nil {
-		abs = root
-	}
+func goGraphFingerprint(abs string, overlay map[string]string) (string, bool) {
 	if w := os.Getenv("GOWORK"); w != "" && w != "off" {
 		return "", false
 	}
@@ -167,7 +181,7 @@ func goGraphFingerprint(root string, overlay map[string]string) (string, bool) {
 		rel, _ := filepath.Rel(abs, p)
 		rel = filepath.ToSlash(rel)
 		if !strings.HasSuffix(name, ".go") && name != "go.mod" && name != "go.sum" &&
-			name != "go.work.sum" && rel != "vendor/modules.txt" {
+			rel != "vendor/modules.txt" {
 			return nil
 		}
 		f, err := os.Open(p)

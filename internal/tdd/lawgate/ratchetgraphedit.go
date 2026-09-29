@@ -54,7 +54,7 @@ func goHeader(src string) (string, error) {
 	}
 	end := f.Name.End()
 	for _, d := range f.Decls {
-		if g, ok := d.(*ast.GenDecl); ok && g.Tok == token.IMPORT && g.End() > end {
+		if g, ok := d.(*ast.GenDecl); ok && g.Tok == token.IMPORT {
 			end = g.End()
 		}
 	}
