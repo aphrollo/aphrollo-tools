@@ -4,9 +4,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // noInterpreter is a PATH lookup that finds nothing.
@@ -78,5 +81,123 @@ func TestPytestProofRunner_SaysWhichPieceIsMissing(t *testing.T) {
 	_, why = pytestProofRunner(root, Runner{Cmd: "pytest"}, onPath, func(string) error { return errors.New("no pytest") })
 	if !strings.Contains(why, "pytest is not importable by /usr/bin/python3") || !strings.Contains(why, root) {
 		t.Errorf("no pytest: reason %q does not name the interpreter and the root", why)
+	}
+}
+
+// TestPytestProofRunner_LeavesAnyOtherRunnerAlone: only a pytest runner is
+// rewritten; a go or node runner comes back as it went in, with no lookup.
+func TestPytestProofRunner_LeavesAnyOtherRunnerAlone(t *testing.T) {
+	r := Runner{Cmd: "go", Args: []string{"test", "./..."}}
+	got, why := pytestProofRunner(t.TempDir(), r, noInterpreter, func(string) error { return errors.New("never asked") })
+	if why != "" || got.Cmd != "go" || !slices.Equal(got.Args, r.Args) {
+		t.Fatalf("got %+v, %q; want the go runner untouched", got, why)
+	}
+}
+
+// writeScript makes an executable sh script, for the fake interpreter.
+func writeScript(t *testing.T, path, body string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake interpreter is a sh script") // skip-ok: a POSIX shell script stands in for the interpreter
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPytestImportable_ReflectsTheInterpretersExit: the probe runs the
+// interpreter with `-c "import pytest"` and answers by its exit status.
+func TestPytestImportable_ReflectsTheInterpretersExit(t *testing.T) {
+	dir := t.TempDir()
+	ok := filepath.Join(dir, "has-pytest")
+	bad := filepath.Join(dir, "no-pytest")
+	writeScript(t, ok, "#!/bin/sh\n[ \"$1\" = -c ] && [ \"$2\" = \"import pytest\" ]\n")
+	writeScript(t, bad, "#!/bin/sh\nexit 1\n")
+	if err := pytestImportable(ok); err != nil {
+		t.Errorf("an interpreter that imports pytest was refused: %v", err)
+	}
+	if err := pytestImportable(bad); err == nil {
+		t.Error("an interpreter without pytest was accepted")
+	}
+}
+
+// pytestBackendRepo commits backend/requirements.txt naming pytest and a
+// calc.py, gives backend/.venv/bin/python the script body, and stages a
+// changed calc.py with a new test for it.
+func pytestBackendRepo(t *testing.T, python string) (root, venv string) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root = t.TempDir()
+	tddtest.GitInit(t, root)
+	write(t, root, ".gitignore", ".venv/\n")
+	write(t, root, "backend/requirements.txt", "pytest\n")
+	write(t, root, "backend/app/calc.py", "def add(a, b):\n    return 0\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "base")
+	venv = filepath.Join(root, "backend", ".venv", "bin", "python")
+	writeScript(t, venv, python)
+	write(t, root, "backend/app/calc.py", "def add(a, b):\n    return a + b\n")
+	write(t, root, "backend/tests/test_calc.py", "from app.calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n")
+	gitDo(t, root, "add", "backend/app/calc.py", "backend/tests/test_calc.py")
+	return root, venv
+}
+
+// TestFailFirstStage_ProvesAPytestRootUnderItsInterpreter: the proof runs the
+// staged test as `<venv python> -m pytest -q tests/test_calc.py` in the
+// backend root's worktree, red at HEAD.
+func TestFailFirstStage_ProvesAPytestRootUnderItsInterpreter(t *testing.T) {
+	root, venv := pytestBackendRepo(t, "#!/bin/sh\nexit 0\n")
+	backend := filepath.Join(root, "backend")
+	var ran []Runner
+	run := func(r Runner, _ string) SuiteResult {
+		ran = append(ran, r)
+		if len(ran) > 1 { // the green half, with the staged change
+			return SuiteResult{Passed: true, Output: "1 passed in 0.01s\n"}
+		}
+		return SuiteResult{Passed: false, Output: "FAILED tests/test_calc.py::test_add - assert 0 == 3\n"}
+	}
+	var res GateResult
+	stderr := captureStderr(t, func() {
+		res = failFirstStage(root, backend, []string{"backend/tests/test_calc.py"}, []string{"backend/app/calc.py"}, run)
+	})
+	if res.Blocked {
+		t.Fatalf("a red proof was refused:\n%s\n%s", res.Message, stderr)
+	}
+	if len(ran) == 0 {
+		t.Fatalf("the proof ran nothing:\n%s", stderr)
+	}
+	if got := ran[0]; got.Cmd != venv || !slices.Equal(got.Args, []string{"-m", "pytest", "-q", "tests/test_calc.py"}) {
+		t.Errorf("ran %s %v, want %s -m pytest -q tests/test_calc.py", got.Cmd, got.Args, venv)
+	}
+	if !strings.Contains(stderr, "→ red-proven") || !strings.Contains(stderr, "→ green-proven") {
+		t.Errorf("want red-proven then green-proven:\n%s", stderr)
+	}
+}
+
+// TestFailFirstStage_SaysNotRunWhenNoInterpreterImportsPytest: an interpreter
+// that cannot import pytest, with none else on PATH, runs nothing and prints
+// a NOT RUN line naming the root and the reason.
+func TestFailFirstStage_SaysNotRunWhenNoInterpreterImportsPytest(t *testing.T) {
+	root, _ := pytestBackendRepo(t, "#!/bin/sh\nexit 1\n")
+	backend := filepath.Join(root, "backend")
+	bin := t.TempDir()
+	for _, name := range []string{"python3", "python"} {
+		writeScript(t, filepath.Join(bin, name), "#!/bin/sh\nexit 1\n")
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ran := 0
+	run := func(Runner, string) SuiteResult { ran++; return SuiteResult{} }
+	var res GateResult
+	stderr := captureStderr(t, func() {
+		res = failFirstStage(root, backend, []string{"backend/tests/test_calc.py"}, []string{"backend/app/calc.py"}, run)
+	})
+	if res.Blocked || ran != 0 {
+		t.Fatalf("blocked=%v ran=%d; a proof that cannot run must neither refuse nor run", res.Blocked, ran)
+	}
+	if want := "fail-first in " + backend + " → NOT RUN — pytest is not importable by "; !strings.Contains(stderr, want) {
+		t.Fatalf("want %q in:\n%s", want, stderr)
 	}
 }

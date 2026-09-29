@@ -3,6 +3,7 @@ package suite
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -107,5 +108,24 @@ func TestFindProjectRoot_AConftestAtTheRepoTopIsTheRoot(t *testing.T) {
 	}
 	if runner, ok := DetectRunner(repo); !ok || runner.Cmd != "pytest" {
 		t.Fatalf("DetectRunner = %+v, %v; want pytest", runner, ok)
+	}
+}
+
+// TestNarrowPytestFailFirst_RunsOnlyTheStagedTestFiles: the proof names the
+// staged files pytest collects, in order, and never a conftest.py or a helper;
+// no such file, or another runner, leaves the runner alone.
+func TestNarrowPytestFailFirst_RunsOnlyTheStagedTestFiles(t *testing.T) {
+	t.Parallel()
+	r := Runner{Cmd: "pytest", Args: []string{"-q"}, Dir: "d"}
+	got, ok := narrowPytestFailFirst(r, []string{"tests/conftest.py", "tests/test_a.py", "app/calc.py", "tests/b_test.py", "tests/test_data.json"})
+	if want := []string{"-q", "tests/test_a.py", "tests/b_test.py"}; !ok || got.Cmd != "pytest" || !slices.Equal(got.Args, want) || got.Dir != "d" {
+		t.Errorf("got %+v, %v; want pytest %v in d", got, ok, want)
+	}
+	if got, ok := narrowPytestFailFirst(r, []string{"tests/conftest.py", "app/calc.py"}); ok || !slices.Equal(got.Args, r.Args) {
+		t.Errorf("no test file staged: got %+v, %v; want the runner unchanged", got, ok)
+	}
+	goRunner := Runner{Cmd: "go", Args: []string{"test", "./..."}}
+	if got, ok := narrowPytestFailFirst(goRunner, []string{"tests/test_a.py"}); ok || got.Cmd != "go" {
+		t.Errorf("a go runner was narrowed: %+v, %v", got, ok)
 	}
 }

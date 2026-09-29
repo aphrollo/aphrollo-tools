@@ -2,6 +2,7 @@ package suite
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -98,4 +99,32 @@ func isRepoTop(dir string) bool {
 		}
 	}
 	return true
+}
+
+// pytestTestFile reports whether a root-relative path is a file pytest
+// collects tests from by its default naming, which excludes a conftest.py.
+func pytestTestFile(rel string) bool {
+	base := path.Base(rel)
+	return strings.HasSuffix(base, ".py") && (strings.HasPrefix(base, "test_") || strings.HasSuffix(base, "_test.py"))
+}
+
+// narrowPytestFailFirst scopes a pytest fail-first proof to the staged test
+// files, the way a Go proof runs its staged tests by name: at HEAD every other
+// test of the root passes or fails on its own account, which proves nothing
+// about the staged ones. ok is false for any other runner, or when no staged
+// file is a test pytest collects.
+func narrowPytestFailFirst(r Runner, tests []string) (Runner, bool) {
+	if r.Cmd != "pytest" {
+		return r, false
+	}
+	args := []string{"-q"}
+	for _, f := range tests {
+		if pytestTestFile(f) {
+			args = append(args, f)
+		}
+	}
+	if len(args) == 1 {
+		return r, false
+	}
+	return Runner{Cmd: "pytest", Args: args, Dir: r.Dir}, true
 }

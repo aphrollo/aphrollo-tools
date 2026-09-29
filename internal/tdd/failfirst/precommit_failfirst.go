@@ -234,13 +234,11 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 	}
 	// A pytest root runs its tests under an interpreter that imports pytest,
 	// or the proof says which of the two is missing.
-	if runner.Cmd == "pytest" {
-		py, why := pytestProofRunner(root, runner, exec.LookPath, pytestImportable)
-		if why != "" {
-			return failFirstOutcome{notRunnable: why, cmd: cmdString(runner), runner: runner, res: SuiteResult{Output: why + "\n"}}
-		}
-		execRunner = py
+	py, why := pytestExecRunner(root, execRunner)
+	if why != "" {
+		return failFirstOutcome{notRunnable: why, cmd: cmdString(runner), runner: runner, res: SuiteResult{Output: why + "\n"}}
 	}
+	execRunner = py
 	// The fail-first run is a GATE run: it compiles and runs the same tests
 	// under the same contention, so it takes the same profile.
 	if runner.Cmd == "cargo" {
