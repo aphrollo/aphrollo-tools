@@ -5,12 +5,23 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-// stubDetect/stubChanged swap the package seams for a test and restore them.
+// ratchet: test_removed TestAppsForRepo: the app table it read is gone; the trio's roots and commands are repo data, pinned by TestBuildVerify_TheTrioComesFromTheAppsOwnData
+// ratchet: test_removed TestBuildVerifyRlndxTrio: restated over rlndx's own package.json and eslint config as TestBuildVerify_TheTrioComesFromTheAppsOwnData
+// ratchet: test_removed TestBuildVerifyUnknownRepo: no repo is unknown now; a tree with no npm root to verify is TestBuildVerify_NoRootResolvesIsAnError
+// ratchet: test_removed TestResolveAppsCwdFallback: restated over npm roots as TestBuildVerify_CwdFallback
+// ratchet: test_removed TestResolveAppsNoMatch: restated over npm roots as TestBuildVerify_NoRootResolvesIsAnError
+// ratchet: test_removed TestResolveAppsChangedPathsWin: restated over npm roots as TestBuildVerify_ChangedPathsSelectTheirNpmRoots
+
+// stubDetect/stubChanged/stubRun/stubNpmSteps swap the package seams for a
+// test and restore them.
 func stubDetect(t *testing.T, fn func(dir string) ([]string, bool)) {
 	t.Helper()
 	prev := verifyDetectTest
@@ -32,120 +43,208 @@ func stubRun(t *testing.T, fn func(cmd []string, dir string, stdout, stderr io.W
 	t.Cleanup(func() { verifyRun = prev })
 }
 
-func TestAppsForRepo(t *testing.T) {
-	if got := appsForRepo("aphrollo-web"); len(got) != 1 || got[0].name != "rlndx" {
-		t.Fatalf("aphrollo-web => %+v, want one rlndx entry", got)
+// stubNpmSteps answers every npm root with the rlndx shape: svelte-check
+// after svelte-kit sync, then eslint.
+func stubNpmSteps(t *testing.T) {
+	t.Helper()
+	prev := verifyNpmSteps
+	verifyNpmSteps = func(string, string) ([]tdd.NpmVerifyStep, error) {
+		return []tdd.NpmVerifyStep{
+			{Name: "typecheck", Argv: []string{"node", "svelte-kit", "sync"}},
+			{Name: "typecheck", Argv: []string{"node", "svelte-check", "--tsconfig", "./tsconfig.json"}},
+			{Name: "lint", Argv: []string{"node", "eslint", "."}},
+		}, nil
 	}
-	if got := appsForRepo("nope"); len(got) != 0 {
-		t.Fatalf("unknown repo => %+v, want none", got)
+	t.Cleanup(func() { verifyNpmSteps = prev })
+}
+
+func writeTree(t *testing.T, root, rel, content string) {
+	t.Helper()
+	p := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
-// TestBuildVerifyRlndxTrio is the core acceptance: rlndx resolves to
-// vitest run + svelte-check + eslint, in that order.
-func TestBuildVerifyRlndxTrio(t *testing.T) {
-	stubDetect(t, func(string) ([]string, bool) { return []string{"npx", "vitest", "run"}, true })
-	stubChanged(t, func(string, string) []string { return []string{"apps/rlndx/src/x.ts"} })
-
-	v := mustBuildVerify(t)
-	if len(v.Apps) != 1 {
-		t.Fatalf("apps = %d, want 1", len(v.Apps))
-	}
-	app := v.Apps[0]
-	if app.name != "rlndx" {
-		t.Fatalf("app = %q, want rlndx", app.name)
-	}
-	wantNames := []string{"test", "typecheck", "lint"}
-	if len(app.steps) != 3 {
-		t.Fatalf("steps = %d, want 3", len(app.steps))
-	}
-	for i, w := range wantNames {
-		if app.steps[i].name != w {
-			t.Fatalf("step %d = %q, want %q", i, app.steps[i].name, w)
-		}
-	}
-	if got := strings.Join(app.steps[0].cmd, " "); got != "npx vitest run" {
-		t.Fatalf("test cmd = %q", got)
-	}
-	if got := strings.Join(app.steps[1].cmd, " "); !strings.Contains(got, "svelte-check") {
-		t.Fatalf("typecheck cmd = %q, want svelte-check", got)
-	}
-	if got := strings.Join(app.steps[2].cmd, " "); !strings.Contains(got, "eslint") {
-		t.Fatalf("lint cmd = %q, want eslint", got)
-	}
-}
-
-// mustBuildVerify builds a Verify for aphrollo-web with a throwaway worktree.
-// Shadowing t with the *Verify keeps the asserts above terse; the helper owns
-// the real *testing.T.
-func mustBuildVerify(t *testing.T) *Verify {
+// webWorktree is a monorepo worktree whose npm roots are apps/rlndx and
+// packages/ui.
+func webWorktree(t *testing.T) *Target {
 	t.Helper()
 	wt := t.TempDir()
-	tgt := &Target{Worktree: wt, Branch: "ticket/x", MainRepo: wt, RepoName: "aphrollo-web"}
-	v, err := BuildVerify(tgt, wt)
+	writeTree(t, wt, "apps/rlndx/package.json", `{"name": "rlndx"}`)
+	writeTree(t, wt, "packages/ui/package.json", `{"name": "ui"}`)
+	return &Target{Worktree: wt, Branch: "ticket/x", MainRepo: wt, RepoName: "aphrollo-web"}
+}
+
+// mustBuildVerify builds the plan for tgt, from the worktree root.
+func mustBuildVerify(t *testing.T, tgt *Target) *Verify {
+	t.Helper()
+	v, err := BuildVerify(tgt, tgt.Worktree)
 	if err != nil {
 		t.Fatalf("BuildVerify: %v", err)
 	}
 	return v
 }
 
-func TestBuildVerifyUnknownRepo(t *testing.T) {
-	tgt := &Target{Worktree: t.TempDir(), Branch: "b", RepoName: "aphrollo-api"}
-	if _, err := BuildVerify(tgt, tgt.Worktree); err == nil {
-		t.Fatal("want error for repo with no profile")
+// The trio is repo data: an app's typecheck and lint are what its own
+// package.json and config say, the same the commit gate reads, each tool run
+// as node <its installed bin entry>. rlndx's check script is svelte-kit sync
+// then svelte-check, and its eslint config makes the lint eslint.
+func TestBuildVerify_TheTrioComesFromTheAppsOwnData(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not on PATH; the typecheck and lint steps run under node") // skip-ok: the steps resolve node, which this box lacks
+	}
+	stubDetect(t, func(string) ([]string, bool) { return []string{"npx", "vitest", "run"}, true })
+	tgt := webWorktree(t)
+	app := filepath.Join(tgt.Worktree, "apps", "rlndx")
+	writeTree(t, app, "package.json", `{"name": "rlndx", "scripts": {"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"}}`)
+	writeTree(t, app, "eslint.config.js", "export default []\n")
+	for pkg, bin := range map[string]string{"@sveltejs/kit": "svelte-kit", "svelte-check": "svelte-check", "eslint": "eslint"} {
+		writeTree(t, app, "node_modules/"+pkg+"/package.json", `{"bin": {"`+bin+`": "./bin.js"}}`)
+		writeTree(t, app, "node_modules/"+pkg+"/bin.js", "")
+	}
+	stubChanged(t, func(string, string) []string { return []string{"apps/rlndx/src/x.ts"} })
+
+	v := mustBuildVerify(t, tgt)
+	if len(v.Apps) != 1 || v.Apps[0].name != "apps/rlndx" {
+		t.Fatalf("apps = %+v, want apps/rlndx alone", v.Apps)
+	}
+	var got []string
+	for _, s := range v.Apps[0].steps {
+		got = append(got, s.name+": "+strings.Join(s.cmd, " ")+s.skip)
+	}
+	bin := func(pkg string) string { return filepath.Join(app, "node_modules", pkg, "bin.js") }
+	want := []string{
+		"test: npx vitest run",
+		"typecheck: " + node + " " + bin("@sveltejs/kit") + " sync",
+		"typecheck: " + node + " " + bin("svelte-check") + " --tsconfig ./tsconfig.json",
+		"lint: " + node + " " + bin("eslint") + " .",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("steps:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
 
-// TestResolveAppsCwdFallback: no changed paths, but cwd sits inside apps/rlndx,
-// so resolution falls back to that app.
-func TestResolveAppsCwdFallback(t *testing.T) {
-	specs := appsForRepo("aphrollo-web")
-	wt := "/wt"
-	got := resolveAppsWith(specs, wt, "/wt/apps/rlndx/src", nil)
-	if len(got) != 1 || got[0].name != "rlndx" {
-		t.Fatalf("cwd fallback => %+v, want rlndx", got)
+// An app that declares no typecheck or lint, or whose tool is not
+// installed, says so as a skip rather than guessing a command.
+func TestBuildVerify_AnAppWithNothingToCheckSkipsWithTheReason(t *testing.T) {
+	stubDetect(t, func(string) ([]string, bool) { return nil, false })
+	tgt := webWorktree(t)
+	stubChanged(t, func(string, string) []string { return []string{"packages/ui/src/x.ts"} })
+
+	v := mustBuildVerify(t, tgt)
+	if len(v.Apps) != 1 || v.Apps[0].name != "packages/ui" {
+		t.Fatalf("apps = %+v, want packages/ui alone", v.Apps)
+	}
+	steps := v.Apps[0].steps
+	if len(steps) != 3 {
+		t.Fatalf("steps = %+v, want test, typecheck and lint", steps)
+	}
+	for _, s := range steps {
+		if s.skip == "" || s.cmd != nil {
+			t.Fatalf("step %+v, want a skip with a reason and no command", s)
+		}
 	}
 }
 
-// TestResolveAppsNoMatch: clean tree, cwd outside every app => nothing resolves.
-func TestResolveAppsNoMatch(t *testing.T) {
-	specs := appsForRepo("aphrollo-web")
-	if got := resolveAppsWith(specs, "/wt", "/wt", nil); len(got) != 0 {
-		t.Fatalf("no match => %+v, want none", got)
+// Every npm root a changed path sits in is verified, each once, in path
+// order; a change outside every root selects none.
+func TestBuildVerify_ChangedPathsSelectTheirNpmRoots(t *testing.T) {
+	stubDetect(t, func(string) ([]string, bool) { return []string{"npx", "vitest", "run"}, true })
+	stubNpmSteps(t)
+	tgt := webWorktree(t)
+	stubChanged(t, func(string, string) []string {
+		return []string{"packages/ui/a.ts", "README.md", "apps/rlndx/src/b.svelte", "apps/rlndx/src/gone/c.ts"}
+	})
+
+	v := mustBuildVerify(t, tgt)
+	var names []string
+	for _, a := range v.Apps {
+		names = append(names, a.name)
+	}
+	if strings.Join(names, " ") != "apps/rlndx packages/ui" {
+		t.Fatalf("apps = %v, want [apps/rlndx packages/ui]", names)
 	}
 }
 
-// TestResolveAppsChangedPathsWin: changed paths determine the app even when cwd
-// is at the repo root.
-func TestResolveAppsChangedPathsWin(t *testing.T) {
-	specs := appsForRepo("aphrollo-web")
-	got := resolveAppsWith(specs, "/wt", "/wt", []string{"apps/rlndx/src/a.ts"})
-	if len(got) != 1 || got[0].name != "rlndx" {
-		t.Fatalf("changed-path scope => %+v, want rlndx", got)
+// With nothing changed, the root the cwd sits in is verified.
+func TestBuildVerify_CwdFallback(t *testing.T) {
+	stubDetect(t, func(string) ([]string, bool) { return []string{"npx", "vitest", "run"}, true })
+	stubNpmSteps(t)
+	tgt := webWorktree(t)
+	stubChanged(t, func(string, string) []string { return nil })
+
+	v, err := BuildVerify(tgt, filepath.Join(tgt.Worktree, "apps", "rlndx", "src"))
+	if err != nil {
+		t.Fatalf("BuildVerify: %v", err)
+	}
+	if len(v.Apps) != 1 || v.Apps[0].name != "apps/rlndx" {
+		t.Fatalf("apps = %+v, want apps/rlndx", v.Apps)
 	}
 }
 
-// resolveAppsWith drives resolveApps with injected changed paths so the
-// changed-vs-cwd precedence is unit-testable without git.
-func resolveAppsWith(specs []appSpec, wt, cwd string, changed []string) []appSpec {
-	prev := verifyChangedPaths
-	verifyChangedPaths = func(string, string) []string { return changed }
-	defer func() { verifyChangedPaths = prev }()
-	return resolveApps(specs, wt, cwd)
+// Nothing changed and a cwd outside every npm root: nothing to verify, and
+// the error says where to stand.
+func TestBuildVerify_NoRootResolvesIsAnError(t *testing.T) {
+	stubNpmSteps(t)
+	tgt := webWorktree(t)
+	stubChanged(t, func(string, string) []string { return nil })
+	if _, err := BuildVerify(tgt, tgt.Worktree); err == nil || !strings.Contains(err.Error(), "cd into") {
+		t.Fatalf("err = %v, want one naming where to stand", err)
+	}
+}
+
+// A declaration the commit gate refuses fails the plan too.
+func TestBuildVerify_AnUnreadableDeclarationIsAnError(t *testing.T) {
+	stubDetect(t, func(string) ([]string, bool) { return nil, false })
+	tgt := webWorktree(t)
+	writeTree(t, tgt.Worktree, "aphrollo.toml", "[aphrollo.typecheck]\n\"apps/rlndx\" = \"svelte-check\"\n")
+	stubChanged(t, func(string, string) []string { return []string{"apps/rlndx/x.ts"} })
+	if _, err := BuildVerify(tgt, tgt.Worktree); err == nil || !strings.Contains(err.Error(), "[aphrollo.typecheck]") {
+		t.Fatalf("err = %v, want the declaration named", err)
+	}
+}
+
+// A repo with a tracked package.json declares an app; one without does not.
+func TestHasAppProfile_ARepoTrackingAPackageJSONHasOne(t *testing.T) {
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q")
+	writeTree(t, repo, "main.go", "package main\n")
+	git("add", ".")
+	if HasAppProfile(repo) {
+		t.Fatal("a repo tracking no package.json has an app profile")
+	}
+	writeTree(t, repo, "apps/web/package.json", "{}")
+	git("add", ".")
+	if !HasAppProfile(repo) {
+		t.Fatal("a repo tracking apps/web/package.json has no app profile")
+	}
 }
 
 // TestRenderDryRunListsCommands: bare verify lists the exact ordered commands.
 func TestRenderDryRunListsCommands(t *testing.T) {
 	stubDetect(t, func(string) ([]string, bool) { return []string{"npx", "vitest", "run"}, true })
+	stubNpmSteps(t)
 	stubChanged(t, func(string, string) []string { return []string{"apps/rlndx/src/x.ts"} })
-	v := mustBuildVerify(t)
+	v := mustBuildVerify(t, webWorktree(t))
 
 	out := v.Render(false)
 	for _, want := range []string{
-		"app rlndx (apps/rlndx)",
+		"app apps/rlndx\n",
 		"1. test", "npx vitest run",
-		"2. typecheck", "svelte-check",
-		"3. lint", "eslint",
+		"2. typecheck", "node svelte-kit sync",
+		"3. typecheck", "svelte-check",
+		"4. lint", "eslint",
 		"--dry",
 	} {
 		if !strings.Contains(out, want) {
@@ -158,8 +257,9 @@ func TestRenderDryRunListsCommands(t *testing.T) {
 // streams them).
 func TestRenderApplyHeaderTerse(t *testing.T) {
 	stubDetect(t, func(string) ([]string, bool) { return []string{"npx", "vitest", "run"}, true })
+	stubNpmSteps(t)
 	stubChanged(t, func(string, string) []string { return []string{"apps/rlndx/src/x.ts"} })
-	v := mustBuildVerify(t)
+	v := mustBuildVerify(t, webWorktree(t))
 
 	out := v.Render(true)
 	if strings.Contains(out, "vitest") {
@@ -171,12 +271,13 @@ func TestRenderApplyHeaderTerse(t *testing.T) {
 // the failing tool.
 func TestApplyStopsAtFirstFailure(t *testing.T) {
 	stubDetect(t, func(string) ([]string, bool) { return []string{"npx", "vitest", "run"}, true })
+	stubNpmSteps(t)
 	stubChanged(t, func(string, string) []string { return []string{"apps/rlndx/src/x.ts"} })
-	v := mustBuildVerify(t)
+	v := mustBuildVerify(t, webWorktree(t))
 
 	var ran []string
 	stubRun(t, func(cmd []string, _ string, _, _ io.Writer) error {
-		ran = append(ran, cmd[1]) // vitest | svelte-check | eslint
+		ran = append(ran, cmd[1]) // vitest | svelte-kit | svelte-check | eslint
 		if cmd[1] == "svelte-check" {
 			return errors.New("type error")
 		}
@@ -191,7 +292,7 @@ func TestApplyStopsAtFirstFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "typecheck") {
 		t.Fatalf("error = %v, want it to name typecheck", err)
 	}
-	if want := []string{"vitest", "svelte-check"}; !equalStr(ran, want) {
+	if want := []string{"vitest", "svelte-kit", "svelte-check"}; !equalStr(ran, want) {
 		t.Fatalf("ran = %v, want %v (lint must not run)", ran, want)
 	}
 }
@@ -199,8 +300,9 @@ func TestApplyStopsAtFirstFailure(t *testing.T) {
 // TestApplyAllPass: every step runs in order and Apply reports success.
 func TestApplyAllPass(t *testing.T) {
 	stubDetect(t, func(string) ([]string, bool) { return []string{"npx", "vitest", "run"}, true })
+	stubNpmSteps(t)
 	stubChanged(t, func(string, string) []string { return []string{"apps/rlndx/src/x.ts"} })
-	v := mustBuildVerify(t)
+	v := mustBuildVerify(t, webWorktree(t))
 
 	var ran []string
 	stubRun(t, func(cmd []string, _ string, _, _ io.Writer) error {
@@ -212,7 +314,7 @@ func TestApplyAllPass(t *testing.T) {
 	if err := v.Apply(&out, &out); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	if want := []string{"vitest", "svelte-check", "eslint"}; !equalStr(ran, want) {
+	if want := []string{"vitest", "svelte-kit", "svelte-check", "eslint"}; !equalStr(ran, want) {
 		t.Fatalf("ran = %v, want %v", ran, want)
 	}
 	if !strings.Contains(out.String(), "all checks passed") {
@@ -220,12 +322,13 @@ func TestApplyAllPass(t *testing.T) {
 	}
 }
 
-// TestApplyRunsFromAppDir: commands execute in the app subdir, not the worktree
-// root — so npx/tsconfig paths resolve.
+// TestApplyRunsFromAppDir: commands execute in the app's own directory, not
+// the worktree root, so its tsconfig and eslint config paths resolve.
 func TestApplyRunsFromAppDir(t *testing.T) {
 	stubDetect(t, func(string) ([]string, bool) { return []string{"npx", "vitest", "run"}, true })
+	stubNpmSteps(t)
 	stubChanged(t, func(string, string) []string { return []string{"apps/rlndx/src/x.ts"} })
-	v := mustBuildVerify(t)
+	v := mustBuildVerify(t, webWorktree(t))
 	wantDir := filepath.Join(v.Target.Worktree, "apps/rlndx")
 
 	stubRun(t, func(_ []string, dir string, _, _ io.Writer) error {

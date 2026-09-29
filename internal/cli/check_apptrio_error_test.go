@@ -11,14 +11,19 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/workspace"
 )
 
-// appProfileRepo is a checkout whose basename is the one entry in the app
-// table, so HasAppProfile says yes and the trio guard is past its skip.
+// appProfileRepo is a checkout tracking a package.json, so HasAppProfile
+// says yes and the trio guard is past its skip.
 func appProfileRepo(t *testing.T) string {
 	t.Helper()
-	parent := resolvedTempDir(t)
-	root := filepath.Join(parent, "aphrollo-web")
-	if err := os.Mkdir(root, 0o755); err != nil {
+	root := resolvedTempDir(t)
+	gitInitRepo(t, root)
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	add := fixtureGit("add", "package.json")
+	add.Dir = root
+	if out, err := add.CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
 	}
 	return root
 }

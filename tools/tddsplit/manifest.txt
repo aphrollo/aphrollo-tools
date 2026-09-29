@@ -656,9 +656,12 @@ precommit_npm_e2e_test.go                          precommit
 precommit_npm_test.go                              precommit
 precommit_npmbaseline.go                           precommit
 precommit_npmbaseline_test.go                      precommit
+precommit_npmplan.go                               precommit
+precommit_npmtypecheck_test.go                     precommit
 precommit_quality.go                               precommit
 precommit_quality_test.go                          precommit
 precommit_reject_test.go                           precommit
+precommit_svelte_test.go                           precommit
 precommit_test.go                                  precommit
 precommit_wsmanifest.go                            precommit
 precommit_wsmanifest_test.go                       precommit
@@ -822,6 +825,7 @@ suiteoutput_dir_test.go                            postedit  # prefix says suite
 suiteoutput_record_test.go                         suite
 suiteoutput_test.go                                install   # prefix says suite; its test body reaches install
 suiteproof.go                                      suite
+suiteproof_npm_test.go                             merge
 suiteproof_test.go                                 merge     # prefix says suite; its test body reaches merge
 suiteseams_test.go                                 suite
 suitetimeout_test.go                               precommit

@@ -6,31 +6,33 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-// Verify runs a resolved app's {test, typecheck, lint} trio against a worktree.
-// It closes the gap the commit-time TDD gate leaves open: the gate runs the
-// mechanical suite + anti-cheat, but NOT typecheck or lint, so a type regression
-// (e.g. svelte-check) or a lint failure slips past `ship` and only surfaces in
-// CI. `verify` is read-only — it does not commit, push, or mutate source, and
-// adds no privilege surface. Execute by default (runs the trio in order and
-// stops at the first failure); --dry lists the exact commands and stops.
+// Verify runs each affected npm root's {test, typecheck, lint} trio against a
+// worktree, for `aphrollo check`. The trio is repo data: test is the runner
+// internal/tdd detects for the root, and typecheck and lint are what the commit
+// gate reads for it (aphrollo.toml's [aphrollo.typecheck] and [aphrollo.lint],
+// the root's package.json "typecheck" or "check" script, svelte-check or tsc,
+// and eslint), run over the whole root. It is read-only — it does not commit,
+// push, or mutate source, and adds no privilege surface. Execute by default
+// (runs the steps in order and stops at the first failure); --dry lists the
+// exact commands and stops.
 type Verify struct {
 	Target *Target
 	Apps   []appVerify
 }
 
-// appVerify is one app's resolved verification: the directory its commands run
-// in and the ordered steps to execute.
+// appVerify is one npm root's resolved verification: the directory its
+// commands run in and the ordered steps to execute.
 type appVerify struct {
-	name   string       // display name (table key)
-	subdir string       // path within the worktree ("" => repo root)
-	dir    string       // absolute cwd for the commands
-	steps  []verifyStep // ordered: test → typecheck → lint
+	name  string       // the root's path in the worktree, "." for the worktree itself
+	dir   string       // absolute cwd for the commands
+	steps []verifyStep // ordered: test → typecheck → lint
 }
 
 // verifyStep is one command in the trio. A non-empty skip means the step has no
@@ -41,65 +43,19 @@ type verifyStep struct {
 	skip string   // non-empty => not runnable, reported with this reason
 }
 
-// appSpec is a per-app verification profile. The table is the whole resolution
-// surface: a new app slots in as a data entry, not new control flow. test is NOT
-// stored here — it is reused from internal/tdd's runner detection (which already
-// knows the test command per project) so the two never drift; only the
-// typecheck and lint commands are app-specific data.
-type appSpec struct {
-	repo      string   // RepoName this app belongs to
-	name      string   // display + match name
-	subdir    string   // path within the worktree ("" => repo root)
-	typecheck []string // argv, run from the app dir
-	lint      []string // argv, run from the app dir
+// HasAppProfile reports whether the repo at root tracks a package.json
+// anywhere, which makes it a repo `aphrollo check`'s trio is in scope for.
+// A repo with none is never charged for a check that does not apply to it.
+func HasAppProfile(root string) bool {
+	// stderr-ok: a git that cannot list the index tracks no package.json here; the exit alone decides.
+	out, err := exec.Command("git", "-C", root, "ls-files", "--", "package.json", "*/package.json").Output()
+	return err == nil && strings.TrimSpace(string(out)) != ""
 }
 
-// appSpecs is the verification table. Start with rlndx (aphrollo-web's SvelteKit
-// app): test resolves to `vitest run` via tdd.DetectRunner, typecheck to
-// svelte-check, lint to eslint — mirroring the app's own package.json scripts.
-// Adding another app is one entry here, not a new branch.
-var appSpecs = []appSpec{
-	{
-		repo:      "aphrollo-web",
-		name:      "rlndx",
-		subdir:    "apps/rlndx",
-		typecheck: []string{"npx", "svelte-check", "--tsconfig", "./tsconfig.json"},
-		lint:      []string{"npx", "eslint", "--no-error-on-unmatched-pattern", "src"},
-	},
-}
-
-// appsForRepo returns the verification profiles for a repo, in table order.
-func appsForRepo(repo string) []appSpec {
-	var out []appSpec
-	for _, s := range appSpecs {
-		if s.repo == repo {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-// HasAppProfile reports whether repoName has a declared verification profile
-// in the table above. `aphrollo check`'s app-trio guard uses this to decide
-// [skip] "no app declared" without needing a resolved Target first — a repo
-// the table does not cover is never in scope for the trio.
-func HasAppProfile(repoName string) bool {
-	return len(appsForRepo(repoName)) > 0
-}
-
-// knownRepos lists the repos the table covers, for an actionable error.
-func knownRepos() string {
-	seen := map[string]bool{}
-	var names []string
-	for _, s := range appSpecs {
-		if !seen[s.repo] {
-			seen[s.repo] = true
-			names = append(names, s.repo)
-		}
-	}
-	sort.Strings(names)
-	return strings.Join(names, ", ")
-}
+// verifyNpmSteps resolves an npm root's typecheck and lint the way the
+// commit gate does. A package var so a test can name steps without
+// installing the tools.
+var verifyNpmSteps = tdd.NpmVerifySteps
 
 // verifyDetectTest resolves the test command for an app directory by reusing
 // internal/tdd's runner detection rather than duplicating it. A package var so
@@ -145,111 +101,70 @@ var verifyRun = func(cmd []string, dir string, stdout, stderr io.Writer) error {
 	return c.Run()
 }
 
-// BuildVerify resolves the affected app(s) and computes the verification plan
-// without running anything. cwd is the caller's working directory, used to scope
-// a monorepo to the app it sits in when the changed paths don't determine one.
+// BuildVerify resolves the affected npm root(s) and computes the verification
+// plan without running anything. cwd is the caller's working directory, used
+// when the changed paths do not select a root.
 func BuildVerify(t *Target, cwd string) (*Verify, error) {
-	specs := appsForRepo(t.RepoName)
-	if len(specs) == 0 {
-		return nil, fmt.Errorf("verify: no profile for repo %q (known: %s)", t.RepoName, knownRepos())
-	}
-	chosen := resolveApps(specs, t.Worktree, cwd)
-	if len(chosen) == 0 {
-		return nil, fmt.Errorf("verify: could not resolve an app in %s — cd into one of: %s",
-			t.RepoName, subdirList(specs))
+	roots := resolveNpmRoots(t.Worktree, cwd)
+	if len(roots) == 0 {
+		return nil, fmt.Errorf("verify: no npm root holds a path this branch changes, nor %s — cd into the app to verify", cwd)
 	}
 	v := &Verify{Target: t}
-	for _, s := range chosen {
-		dir := filepath.Join(t.Worktree, s.subdir)
-		av := appVerify{name: s.name, subdir: s.subdir, dir: dir}
+	for _, dir := range roots {
+		// Every root comes from a walk that stays inside the worktree.
+		rel, _ := filepath.Rel(t.Worktree, dir)
+		rel = filepath.ToSlash(rel)
+		av := appVerify{name: rel, dir: dir}
 		if cmd, ok := verifyDetectTest(dir); ok {
 			av.steps = append(av.steps, verifyStep{name: "test", cmd: cmd})
 		} else {
 			av.steps = append(av.steps, verifyStep{name: "test", skip: "no test runner detected"})
 		}
-		av.steps = append(av.steps,
-			verifyStep{name: "typecheck", cmd: s.typecheck},
-			verifyStep{name: "lint", cmd: s.lint},
-		)
+		steps, err := verifyNpmSteps(t.Worktree, dir)
+		if err != nil {
+			return nil, fmt.Errorf("verify %s: %w", rel, err)
+		}
+		for _, s := range steps {
+			av.steps = append(av.steps, verifyStep{name: s.Name, cmd: s.Argv, skip: s.Skip})
+		}
 		v.Apps = append(v.Apps, av)
 	}
 	return v, nil
 }
 
-// resolveApps picks which app(s) to verify. The affected app(s) are scoped from
-// the changed paths first (a monorepo edit under apps/rlndx verifies rlndx);
-// when nothing changed resolves an app, it falls back to the app the cwd sits
-// in. It never expands to the whole monorepo's every-app matrix unasked.
-func resolveApps(specs []appSpec, wt, cwd string) []appSpec {
+// resolveNpmRoots picks which npm root(s) to verify: those holding a path this
+// branch changes, in path order, else the one holding cwd. It never expands to
+// every root of a monorepo unasked.
+func resolveNpmRoots(wt, cwd string) []string {
 	base := "origin/" + resolveDefaultBranch(wt)
-	changed := verifyChangedPaths(wt, base)
-	var hit []appSpec
-	for _, s := range specs {
-		if appTouched(s, changed) {
-			hit = append(hit, s)
+	var roots []string
+	for _, p := range verifyChangedPaths(wt, base) {
+		if root := npmRootOf(wt, filepath.Dir(filepath.Join(wt, filepath.FromSlash(p)))); root != "" {
+			roots = append(roots, root)
 		}
 	}
-	if len(hit) > 0 {
-		return hit
+	if len(roots) > 0 {
+		sort.Strings(roots)
+		return slices.Compact(roots)
 	}
-	if s, ok := appContainingCwd(specs, wt, cwd); ok {
-		return []appSpec{s}
+	if root := npmRootOf(wt, cwd); root != "" {
+		return []string{root}
 	}
 	return nil
 }
 
-// appTouched reports whether any changed path lies under the app's subdir. A
-// root-level app (subdir "") owns every path. Returns false on no changes, so a
-// clean tree falls through to cwd scoping.
-func appTouched(s appSpec, changed []string) bool {
-	if len(changed) == 0 {
-		return false
-	}
-	if s.subdir == "" {
-		return true
-	}
-	prefix := s.subdir + "/"
-	for _, p := range changed {
-		if p == s.subdir || strings.HasPrefix(p, prefix) {
-			return true
+// npmRootOf is the nearest directory from dir up to wt, inclusive, that holds a
+// package.json; "" when none does or dir is outside wt.
+func npmRootOf(wt, dir string) string {
+	for {
+		if rel, err := filepath.Rel(wt, dir); err != nil || strings.HasPrefix(rel, "..") {
+			return ""
 		}
-	}
-	return false
-}
-
-// appContainingCwd finds the app whose subdir contains cwd, most-specific
-// (longest subdir) first so a nested app wins over a root-level one. ok=false
-// when cwd is outside every app.
-func appContainingCwd(specs []appSpec, wt, cwd string) (appSpec, bool) {
-	rel, err := filepath.Rel(wt, cwd)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return appSpec{}, false
-	}
-	rel = filepath.ToSlash(rel)
-	best := -1
-	var found appSpec
-	for _, s := range specs {
-		if s.subdir == "" || rel == s.subdir || strings.HasPrefix(rel, s.subdir+"/") {
-			if len(s.subdir) > best {
-				best = len(s.subdir)
-				found = s
-			}
+		if _, err := os.Stat(filepath.Join(dir, "package.json")); err == nil {
+			return dir
 		}
+		dir = filepath.Dir(dir)
 	}
-	return found, best >= 0
-}
-
-// subdirList renders the apps' subdirs for an error message.
-func subdirList(specs []appSpec) string {
-	var out []string
-	for _, s := range specs {
-		if s.subdir == "" {
-			out = append(out, ".")
-		} else {
-			out = append(out, s.subdir)
-		}
-	}
-	return strings.Join(out, ", ")
 }
 
 // Render previews the plan. apply=false is the dry-run listing the exact ordered
@@ -261,7 +176,7 @@ func (v *Verify) Render(apply bool) string {
 		return b.String()
 	}
 	for _, app := range v.Apps {
-		fmt.Fprintf(&b, "  app %s (%s)\n", app.name, app.subdirLabel())
+		fmt.Fprintf(&b, "  app %s\n", app.name)
 		for i, s := range app.steps {
 			if s.skip != "" {
 				fmt.Fprintf(&b, "    %d. %-9s [skip] — %s\n", i+1, s.name, s.skip)
@@ -292,12 +207,4 @@ func (v *Verify) Apply(stdout, stderr io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "\nverified: all checks passed\n")
 	return nil
-}
-
-// subdirLabel renders an app's subdir for display, "." for a root-level app.
-func (a appVerify) subdirLabel() string {
-	if a.subdir == "" {
-		return "."
-	}
-	return a.subdir
 }

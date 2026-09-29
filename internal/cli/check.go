@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"path/filepath"
 
 	"github.com/aphrollo/aphrollo-tools/internal/docs"
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
@@ -164,10 +163,10 @@ func checkDoctor(root string, stdout, stderr io.Writer) bool {
 	return false
 }
 
-// checkAppTrio is `check`'s app guard: the same plan `workspace verify` runs,
-// for whichever app --repo's root resolves to — [skip] when the repo
-// declares no app profile at all, so a non-monorepo repo is never charged for
-// a check that does not apply to it.
+// checkAppTrio is `check`'s app guard: each affected npm root's test,
+// typecheck and lint, read from the repo's own data (workspace.BuildVerify) —
+// [skip] when the repo tracks no package.json at all, so a repo without an
+// npm root is never charged for a check that does not apply to it.
 //
 // checkAppTrioResolve resolves the Target checkAppTrio verifies, scoped to
 // root (the --repo the caller named), never the process cwd — a `check
@@ -184,7 +183,7 @@ var checkAppTrioBuildVerify = func(t *workspace.Target, root string) (*workspace
 }
 
 func checkAppTrio(root string, stdout, stderr io.Writer) bool {
-	if !workspace.HasAppProfile(filepath.Base(root)) {
+	if !workspace.HasAppProfile(root) {
 		fmt.Fprintln(stdout, "check: app trio → [skip] no app declared")
 		return true
 	}

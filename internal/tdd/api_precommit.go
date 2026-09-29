@@ -17,11 +17,17 @@ const DiffWorkflowOnly = precommit.DiffWorkflowOnly
 
 type DiffClass = precommit.DiffClass
 
+type NpmVerifyStep = precommit.NpmVerifyStep
+
 func ClassifyDiff(p0 string, p1 string, p2 string) (DiffClass, error) {
 	return precommit.ClassifyDiff(p0, p1, p2)
 }
 
 func Mechanical(p0 string, p1 SuiteRunner) GateResult { return precommit.Mechanical(p0, p1) }
+
+func NpmVerifySteps(p0 string, p1 string) ([]NpmVerifyStep, error) {
+	return precommit.NpmVerifySteps(p0, p1)
+}
 
 func Precommit(p0 string, p1 SuiteRunner) GateResult { return precommit.Precommit(p0, p1) }
 
