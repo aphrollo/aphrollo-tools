@@ -276,14 +276,14 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 	if treatAsEmptyPass(res) {
 		res.Passed = true
 	}
-	return judgeEditResult(runnerFromArgv(j.Runner, j.Dir), j.File, j.EditID, res, root, state, statePath)
+	return judgeEditResult(runnerFromArgv(j.Runner, j.Dir), j.File, j.EditID, res, root, state, statePath, headSHA)
 }
 
 // judgeEditResult is editResultAdvisory's verdict half, for a finished run
 // that is not an infra failure: classify, stamp, log and render, exactly as
 // a foreground run would. Split out so a widened rung a harvest ran itself
 // (harvestAdvisory) is judged by the same code as a harvested job.
-func judgeEditResult(runner Runner, file, editID string, res SuiteResult, root string, state *sessionState, statePath string) string {
+func judgeEditResult(runner Runner, file, editID string, res SuiteResult, root string, state *sessionState, statePath, headSHA string) string {
 	argv := append([]string{runner.Cmd}, runner.Args...)
 	fp := computeFingerprint(root)
 	prev := []string(nil)
@@ -292,6 +292,9 @@ func judgeEditResult(runner Runner, file, editID string, res SuiteResult, root s
 	}
 	if line := foreignBuildAdvisory(root, file, cmdString(runner), res); line != "" {
 		return line
+	}
+	if runnerTimeoutsOnly(res.Output) {
+		return postEditTimedOut(runner, root, headSHA, res, state, statePath)
 	}
 	outcome := classifyRunOutcome(runner, root, res, prev)
 	if state != nil {

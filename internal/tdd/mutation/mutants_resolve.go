@@ -116,9 +116,13 @@ func resolveOne(ctx context.Context, root string, env []string, m MutantOutcome,
 		return unresolved(m, fmt.Sprintf("the overlay could not be written (%v)", err))
 	}
 	for _, pkgs := range stages {
-		verdict, detail := runResolveTests(ctx, root, env, overlay, pkgs, budget)
+		args := packageArgs(pkgs)
+		verdict, detail := runResolveTests(ctx, root, env, overlay, args, budget)
 		switch verdict {
 		case resolveKilled:
+			if why := failsWithoutTheMutant(ctx, root, env, killerArgs(detail, args), budget); why != "" {
+				return unresolved(m, why)
+			}
 			m.Status = "caught"
 			m.Note = "killed by the tests of " + detail + " (settled by running this one mutant)"
 			return m
@@ -155,11 +159,60 @@ const (
 // the whole process tree when its context ends.
 var resolveExecFn = runMutantsTool
 
-// runResolveTests runs the tests of pkgs over the overlay in one `go test`,
-// which builds and runs the packages side by side, within budget. detail
-// names the packages that failed for a kill, and why for a cut-off run.
-func runResolveTests(ctx context.Context, root string, env []string, overlay string, pkgs []string, budget time.Duration) (resolveVerdict, string) {
-	if len(pkgs) == 0 {
+// packageArgs names package directories the way `go test` takes them.
+func packageArgs(dirs []string) []string {
+	args := make([]string, 0, len(dirs))
+	for _, dir := range dirs {
+		args = append(args, "./"+dir)
+	}
+	return args
+}
+
+// packageNames names the packages args runs, as a note says them: a
+// directory without its "./", an import path as it is.
+func packageNames(args []string) string {
+	names := make([]string, 0, len(args))
+	for _, a := range args {
+		names = append(names, strings.TrimPrefix(a, "./"))
+	}
+	return strings.Join(names, ", ")
+}
+
+// killerArgs is the packages a kill run names as failed (their import
+// paths, which `go test` takes as they are), or the whole stage when the run
+// named none.
+func killerArgs(detail string, stage []string) []string {
+	if detail == "" {
+		return stage
+	}
+	return strings.Split(detail, ", ")
+}
+
+// failsWithoutTheMutant runs the packages whose tests failed under the
+// mutant again with no overlay, and says why their failure is not shown to
+// be its kill: they fail on the unmutated code too, or that run did not
+// finish. "" confirms the kill (issue #957). A test that fails whatever the
+// code — a flake, or one that depends on the checkout it runs in — was
+// credited as a kill, and the same diff then passed in one checkout and was
+// refused in another.
+func failsWithoutTheMutant(ctx context.Context, root string, env, args []string, budget time.Duration) string {
+	verdict, detail := runResolveTests(ctx, root, env, "", args, budget)
+	switch verdict {
+	case resolveSurvived:
+		return ""
+	case resolveCutOff:
+		return "the tests of " + packageNames(args) + " failed under the mutant, and without it " + detail +
+			", so the failure is not shown to be its kill"
+	}
+	return "the tests of " + packageNames(args) + " fail without the mutant too, so their failure is not its kill"
+}
+
+// runResolveTests runs the tests of the packages args names over the overlay
+// ("" runs the code as it is) in one `go test`, which builds and runs the
+// packages side by side, within budget. detail names the packages that
+// failed for a kill, and why for a cut-off run.
+func runResolveTests(ctx context.Context, root string, env []string, overlay string, args []string, budget time.Duration) (resolveVerdict, string) {
+	if len(args) == 0 {
 		// Nothing in this stage; `go test` with no package would test the
 		// module root instead.
 		return resolveSurvived, ""
@@ -167,16 +220,17 @@ func runResolveTests(ctx context.Context, root string, env []string, overlay str
 	runCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	var out bytes.Buffer
-	argv := []string{"go", "test", "-count=1", "-failfast", "-overlay", overlay}
-	for _, pkg := range pkgs {
-		argv = append(argv, "./"+pkg)
+	argv := []string{"go", "test", "-count=1", "-failfast"}
+	if overlay != "" {
+		argv = append(argv, "-overlay", overlay)
 	}
+	argv = append(argv, args...)
 	code, err := resolveExecFn(runCtx, root, env, argv, &out)
 	switch {
 	case runCtx.Err() != nil:
-		return resolveCutOff, fmt.Sprintf("the tests of %s did not finish within %s", strings.Join(pkgs, ", "), budget)
+		return resolveCutOff, fmt.Sprintf("the tests of %s did not finish within %s", packageNames(args), budget)
 	case err != nil:
-		return resolveCutOff, fmt.Sprintf("the tests of %s could not start (%v)", strings.Join(pkgs, ", "), err)
+		return resolveCutOff, fmt.Sprintf("the tests of %s could not start (%v)", packageNames(args), err)
 	case code == 0:
 		return resolveSurvived, ""
 	case strings.Contains(out.String(), "[build failed]") || strings.Contains(out.String(), "[setup failed]"):
