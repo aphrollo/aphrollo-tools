@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 )
 
 // homeVars is every variable a Go program, git, or a tool the tests spawn
@@ -60,7 +61,33 @@ func isolateHome(dir string) string {
 	if err := os.Setenv("GIT_CONFIG_NOSYSTEM", "1"); err != nil {
 		panic(err)
 	}
+	disableGitMaintenance()
 	return fake
+}
+
+// disableGitMaintenance switches git's post-commit auto maintenance off for
+// every git a test of this run spawns. Git runs `maintenance run --auto
+// --detach` after each commit; when a task is due it forks a background
+// process that repacks the repo after the commit returned, and it outlives
+// the test whose t.TempDir it writes into (#1004). Set through
+// GIT_CONFIG_COUNT so a fixture repo's own config cannot switch it back on.
+func disableGitMaintenance() {
+	settings := [][2]string{
+		{"maintenance.auto", "false"},
+		{"gc.auto", "0"},
+		{"gc.autoDetach", "false"},
+	}
+	if err := os.Setenv("GIT_CONFIG_COUNT", strconv.Itoa(len(settings))); err != nil {
+		panic(err)
+	}
+	for i, kv := range settings {
+		if err := os.Setenv("GIT_CONFIG_KEY_"+strconv.Itoa(i), kv[0]); err != nil {
+			panic(err)
+		}
+		if err := os.Setenv("GIT_CONFIG_VALUE_"+strconv.Itoa(i), kv[1]); err != nil {
+			panic(err)
+		}
+	}
 }
 
 // pinToolchainHomes writes the Go toolchain's resolved cache and env-file
