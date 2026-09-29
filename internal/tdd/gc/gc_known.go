@@ -23,6 +23,8 @@ const (
 	knownReposMax = 12
 	// knownReposTail is how much of the log's end is read.
 	knownReposTail = 2 << 20
+	// knownReposMaxLine is the longest log line read.
+	knownReposMaxLine = 1 << 20
 )
 
 // KnownGCRepos lists the repositories gate.log names as worked in during the
@@ -34,27 +36,28 @@ func KnownGCRepos() []string {
 	if dir == "" {
 		return nil
 	}
-	return knownReposFrom(filepath.Join(dir, "gate.log"), time.Now())
+	return knownReposFrom(filepath.Join(dir, "gate.log"), time.Now(), knownReposMax)
 }
 
-func knownReposFrom(logPath string, now time.Time) []string {
+// knownReposFrom reads at most limit repositories from logPath's tail.
+func knownReposFrom(logPath string, now time.Time, limit int) []string {
 	f, err := os.Open(logPath)
 	if err != nil {
 		return nil
 	}
 	defer f.Close()
-	if st, err := f.Stat(); err == nil && st.Size() > knownReposTail {
-		_, _ = f.Seek(st.Size()-knownReposTail, 0)
+	if st, err := f.Stat(); err == nil {
+		_, _ = f.Seek(max(st.Size()-knownReposTail, 0), 0)
 	}
 	var lines []string
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	sc.Buffer(nil, knownReposMaxLine)
 	for sc.Scan() {
 		lines = append(lines, sc.Text())
 	}
 	seenRepo := map[string]bool{}
 	var out []string
-	for i := len(lines) - 1; i >= 0 && len(out) < knownReposMax; i-- {
+	for i := len(lines) - 1; i >= 0 && len(out) < limit; i-- {
 		fields := strings.Fields(lines[i])
 		if len(fields) < 3 {
 			continue

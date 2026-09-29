@@ -330,3 +330,76 @@ func TestMemCapFor_ADeclaredCapIsNotMarkedDerived(t *testing.T) {
 		t.Fatal("a cap worked out from the box is derived")
 	}
 }
+
+// The boundaries of the derivation, each pinned at the value where the two
+// sides of a comparison differ.
+
+func TestDeriveMemCap_ZeroAvailableIsUnknownNotAnEmptyBox(t *testing.T) {
+	c := deriveMemCap(MemBox{RAMMB: 31763, AvailMB: 0}, 2, CapSlot)
+	if c.MB != 11911 {
+		t.Fatalf("cap = %dMB (%s), want 11911MB from RAM alone: an unreadable free figure is not zero bytes", c.MB, c.Why)
+	}
+}
+
+func TestDeriveMemCap_AvailableEqualToTheRAMShareIsStillTheRAMTerm(t *testing.T) {
+	c := deriveMemCap(MemBox{RAMMB: 8192, AvailMB: 6144}, 1, CapSlot)
+	if !strings.Contains(c.Why, "ram 8192MB") || strings.Contains(c.Why, "free") {
+		t.Fatalf("why = %q, want the RAM term when free memory only equals it", c.Why)
+	}
+}
+
+func TestDeriveMemCap_ExactlyTheFloorIsNotReportedAsRaised(t *testing.T) {
+	// 2731MB * 75% = 2048MB with one slot.
+	c := deriveMemCap(MemBox{RAMMB: 2731}, 1, CapSlot)
+	if c.MB != 2048 || strings.Contains(c.Why, "floor") {
+		t.Fatalf("cap = %dMB (%s), want 2048MB reached, not raised to the floor", c.MB, c.Why)
+	}
+}
+
+func TestMemCapSplitAmong_TwoShardsHalveAndAnUnsetCapStaysUnset(t *testing.T) {
+	pool := MemCap{MB: 10000, Why: "pool", Derived: true}
+	if got := pool.splitAmong(2); got.MB != 5000 {
+		t.Fatalf("two shards = %dMB, want 5000MB", got.MB)
+	}
+	if got := (MemCap{Derived: true}).splitAmong(4); got.MB != 0 {
+		t.Fatalf("a run with no cap split four ways = %dMB, want it to stay uncapped", got.MB)
+	}
+}
+
+func TestParseMemGB_OneGigabyteIsTheSmallestLegalValue(t *testing.T) {
+	if gb, _, err := parseMemGB("memory-headroom", "1", false); err != nil || gb != 1 {
+		t.Fatalf("parseMemGB(1) = (%d, %v), want 1", gb, err)
+	}
+}
+
+func TestMemCapFor_ADeclaredMutationCapKeepsTheKillLargestPolicy(t *testing.T) {
+	withBox(t, box31)
+	dir := repoWithConfig(t, "[aphrollo]\nmemory-cap = \"6\"\n")
+	if !MemCapFor(dir, CapMutation).KillLargest {
+		t.Error("a declared mutation cap must still end only the runaway worker")
+	}
+	if MemCapFor(dir, CapSlot).KillLargest {
+		t.Error("a declared slot cap must end the whole run")
+	}
+}
+
+func TestMemCapFor_AConfigReachedFromARelativeDirIsFound(t *testing.T) {
+	withBox(t, box31)
+	dir := repoWithConfig(t, "[aphrollo]\nmemory-cap = \"6\"\n")
+	t.Chdir(dir)
+	if c := MemCapFor(".", CapSlot); c.MB != 6144 {
+		t.Fatalf("cap for %q = %dMB (%s), want 6144MB from the repo root's aphrollo.toml", ".", c.MB, c.Why)
+	}
+}
+
+func TestHeadroomVerdict_ZeroAvailableIsUnknownAndStarts(t *testing.T) {
+	if ok, why := headroomVerdict(MemBox{RAMMB: 32768, AvailMB: 0}, 4096); !ok || why != "" {
+		t.Fatalf("got (%v, %q), want a start when free memory could not be read", ok, why)
+	}
+}
+
+func TestHeadroomVerdict_UnknownRAMRequiresNothingSoAnyFreeMemoryStarts(t *testing.T) {
+	if ok, _ := headroomVerdict(MemBox{AvailMB: 1}, 0); !ok {
+		t.Fatal("with no RAM figure there is no derived requirement to fail")
+	}
+}

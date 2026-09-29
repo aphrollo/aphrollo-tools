@@ -47,29 +47,32 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 	if *known {
 		repos = append(repos, tdd.KnownGCRepos()...)
 	}
-	// Scanned and applied one repo at a time, so a later repo's scan sees the
-	// earlier one's deletions, and the OS temp dirs (the same for every repo)
-	// are walked once.
+	// The OS temp dirs are the same for every repo, so their scratch is swept
+	// once, on its own, and every repo's own areas are swept without it. Each
+	// is scanned and then applied before the next, so a later scan sees the
+	// earlier one's deletions.
+	scratch := tdd.GCScope{TempScratch: scope.TempScratch}
+	scope.TempScratch = false
 	var (
 		cands   []tdd.GCCandidate
 		freed   int64
 		refused []string
 		skipped int
 	)
-	for i, r := range repos {
-		sc := scope
-		if i > 0 {
-			sc.TempScratch = false
-		}
+	sweep := func(r string, sc tdd.GCScope) {
 		found := tdd.ScanGC(r, age, sc)
 		cands = append(cands, found...)
 		if !*apply {
-			continue
+			return
 		}
 		f, ref, sk := tdd.ApplyGCFor(r, found)
 		freed += f
 		refused = append(refused, ref...)
 		skipped += sk
+	}
+	sweep(*repo, scratch)
+	for _, r := range repos {
+		sweep(r, scope)
 	}
 	if !*apply {
 		if !*quiet {

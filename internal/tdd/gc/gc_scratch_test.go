@@ -171,3 +171,103 @@ func TestDirHeldByProcess_ALiveProcessInTheDirHoldsIt(t *testing.T) {
 		t.Fatal("a directory no process is in must not read as held")
 	}
 }
+
+// pinTree sets every mtime in the directory tree to at.
+func pinTree(t *testing.T, root string, at time.Time) {
+	t.Helper()
+	var paths []string
+	if err := filepath.WalkDir(root, func(p string, _ os.DirEntry, err error) error {
+		paths = append(paths, p)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range paths {
+		if err := os.Chtimes(p, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// The bar is inclusive: a directory idle for exactly the bar is scratch, one
+// a nanosecond younger is not. The clock is passed in, so the edge is exact.
+func TestGCTempScratch_ExactlyTheBarIsScratchAndOneNanosecondLessIsNot(t *testing.T) {
+	dir := t.TempDir()
+	mkFile(t, filepath.Join(dir, "go-build55", "f"), "x", 0)
+	at := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	pinTree(t, filepath.Join(dir, "go-build55"), at)
+	withScratchHeld(t, func(string) (bool, bool) { return false, true })
+
+	if got := gcTempScratch(dir, at.Add(scratchMinAge)); len(got) != 1 {
+		t.Fatalf("idle exactly %s: %+v, want proposed", scratchMinAge, got)
+	}
+	if got := gcTempScratch(dir, at.Add(scratchMinAge-time.Nanosecond)); len(got) != 0 {
+		t.Fatalf("idle %s less a nanosecond: %+v, want kept", scratchMinAge, got)
+	}
+}
+
+// Proposals come back in path order, whatever order the OS lists them.
+func TestGCTempScratch_ProposalsAreSortedByPath(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"go-build30", "go-build10", "go-build20"} {
+		mkFile(t, filepath.Join(dir, n, "f"), "x", 5*time.Hour)
+	}
+	withScratchHeld(t, func(string) (bool, bool) { return false, true })
+	got := gcTempScratch(dir, time.Now())
+	if len(got) != 3 || filepath.Base(got[0].Path) != "go-build10" || filepath.Base(got[1].Path) != "go-build20" || filepath.Base(got[2].Path) != "go-build30" {
+		t.Fatalf("proposals = %+v, want go-build10, go-build20, go-build30 in that order", got)
+	}
+}
+
+// A run that holds a scratch dir only through an open file, with its working
+// directory and executable elsewhere, still holds it.
+func TestDirHeldByProcess_AnOpenFileInTheDirHoldsIt(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("needs procfs")
+	}
+	dir := t.TempDir()
+	file := filepath.Join(dir, "held.txt")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", "-c", `exec 3<"$1"; exec sleep 30`, "sh", file)
+	cmd.Dir = t.TempDir()
+	if err := cmd.Start(); err != nil {
+		t.Skipf("no sh: %v", err)
+	}
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	t.Cleanup(func() { _ = cmd.Process.Kill(); <-done })
+
+	// The shell opens the file a moment after it starts: wait, bounded, for
+	// the hold to appear.
+	deadline := time.Now().Add(10 * time.Second)
+	held := false
+	for time.Now().Before(deadline) {
+		if held, _ = dirHeldByProcess(dir); held {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !held {
+		t.Fatal("a process with an open file in the dir did not hold it")
+	}
+}
+
+// A repo's own go-scratch dir is scanned too: it is where the gate now points
+// every go and cargo child's temp dir.
+func TestScanGC_TempScratchScopeSweepsTheReposGoScratchDir(t *testing.T) {
+	defer SetLockDirForTest(t.TempDir())()
+	repo := makeCargoRepo(t)
+	root := GoTmpRootDir(repo)
+	if root == "" {
+		t.Fatal("setup: no go-scratch dir for the repo")
+	}
+	mkFile(t, filepath.Join(root, "go-build888", "f"), "x", 4*time.Hour)
+	withScratchHeld(t, func(string) (bool, bool) { return false, true })
+
+	got := ScanGC(repo, 3*24*time.Hour, GCScope{TempScratch: true})
+	if _, found := candidateAt(got, filepath.Join(root, "go-build888")); !found {
+		t.Fatalf("the repo's go-scratch dir was not swept: %+v", got)
+	}
+}

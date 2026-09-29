@@ -207,9 +207,7 @@ func (m *capMonitor) result() CapResult {
 func (m *capMonitor) settle(kills int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if kills > m.kills {
-		m.kills = kills
-	}
+	m.kills = max(m.kills, kills)
 	if kills > 0 && !m.cap.KillLargest {
 		m.killed = true
 	}

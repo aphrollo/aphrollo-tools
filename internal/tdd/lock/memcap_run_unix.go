@@ -18,14 +18,14 @@ import (
 
 // capModeFn is the enforcer this process uses, decided once.
 var capModeFn = sync.OnceValue(func() string {
-	mode, _ := detectCapMode(os.Getenv, os.Getuid(), os.ReadFile, capPathExists, systemdRunPath() != "", runtime.GOOS)
+	mode, _ := detectCapMode(os.Getenv, os.Getuid(), os.ReadFile, capPathExists, systemdRunPath, runtime.GOOS)
 	return mode
 })
 
 // capRuntimeDirFn is where the user manager's sockets live, for the child's
 // environment.
 var capRuntimeDirFn = func() string {
-	_, rt := detectCapMode(os.Getenv, os.Getuid(), os.ReadFile, capPathExists, systemdRunPath() != "", runtime.GOOS)
+	_, rt := detectCapMode(os.Getenv, os.Getuid(), os.ReadFile, capPathExists, systemdRunPath, runtime.GOOS)
 	return rt
 }
 
@@ -34,21 +34,18 @@ func capPathExists(p string) bool {
 	return err == nil
 }
 
-func capShellPath() string {
-	p, err := exec.LookPath("sh")
+// capLookPath is where name is on PATH, "" when it is not.
+func capLookPath(name string) string {
+	p, err := exec.LookPath(name)
 	if err != nil {
 		return ""
 	}
 	return p
 }
 
-func systemdRunPath() string {
-	p, err := exec.LookPath("systemd-run")
-	if err != nil {
-		return ""
-	}
-	return p
-}
+func capShellPath() string { return capLookPath("sh") }
+
+func systemdRunPath() string { return capLookPath("systemd-run") }
 
 // detectCapMode decides between the kernel-enforced scope and the watchdog
 // from facts about the box, injected: a user manager whose runtime dir
@@ -56,8 +53,8 @@ func systemdRunPath() string {
 // cgroup. Anything short of both is the watchdog, because a scope started
 // without the controller silently applies no limit at all.
 func detectCapMode(getenv func(string) string, uid int, readFile func(string) ([]byte, error),
-	exists func(string) bool, haveSystemdRun bool, goos string) (mode, runtimeDir string) {
-	if goos != "linux" || !haveSystemdRun {
+	exists func(string) bool, systemdRun func() string, goos string) (mode, runtimeDir string) {
+	if goos != "linux" || systemdRun() == "" {
 		return modeWatchdog, ""
 	}
 	rt := getenv("XDG_RUNTIME_DIR")
@@ -148,22 +145,15 @@ func launchCapped(cmd *exec.Cmd, c MemCap) (CapResult, error) {
 			_ = syscall.Kill(p, syscall.SIGKILL)
 		}
 	}
+	events := &scopeEvents{find: scopeEventsPath, count: readOOMKills}
 	if mode == modeCgroup {
-		var events string
-		m.probe.oomKills = func() (int, bool) {
-			if events == "" {
-				events = scopeEventsPath(pid)
-				if events == "" {
-					return 0, false
-				}
-			}
-			return readOOMKills(events)
-		}
+		m.probe.oomKills = events.oomKills
 	}
 	if err := cmd.Start(); err != nil {
 		return CapResult{Cap: c, Mode: mode}, err
 	}
 	pid = cmd.Process.Pid
+	events.pid = pid
 	m.pgrp = pid
 	return waitMonitored(cmd, m, final)
 }
@@ -183,10 +173,34 @@ func withEnv(env []string, key, val string) []string {
 	return append(env, prefix+val)
 }
 
+// scopeEvents reads the kill counter of the scope pid runs in. The scope is
+// found on first use — systemd-run moves itself into it a moment after it
+// starts — and remembered, so each look after that is one file read.
+type scopeEvents struct {
+	pid   int
+	path  string
+	find  func(pid int) string
+	count func(path string) (int, bool)
+}
+
+// oomKills is the count, ok=false while the scope cannot be found or read.
+func (s *scopeEvents) oomKills() (int, bool) {
+	if s.path == "" {
+		s.path = s.find(s.pid)
+		if s.path == "" {
+			return 0, false
+		}
+	}
+	return s.count(s.path)
+}
+
 // scopeEventsPath is the memory.events file of the transient scope pid runs
 // in, "" until systemd-run has moved itself into it.
-func scopeEventsPath(pid int) string {
-	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
+func scopeEventsPath(pid int) string { return scopeEventsPathFrom(pid, os.ReadFile) }
+
+// scopeEventsPathFrom is scopeEventsPath reading /proc through readFile.
+func scopeEventsPathFrom(pid int, readFile func(string) ([]byte, error)) string {
+	data, err := readFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
 	if err != nil {
 		return ""
 	}

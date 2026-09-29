@@ -142,3 +142,20 @@ func TestRunMutantsProve_ATimeoutIsStillATimeoutNotAnEmptySelection(t *testing.T
 		t.Fatalf("exit = %d, want ExitMutantsProveTimedOut (%d):\n%s", code, ExitMutantsProveTimedOut, report)
 	}
 }
+
+// A prove run the memory cap ended reaches no verdict either, and the report
+// says so in the cap's words — OOM-KILLED at the cap, never TIMED OUT — with
+// the same inconclusive exit.
+func TestRunMutantsProve_ACapKilledRunIsReportedAsOOMKilledNotATimeout(t *testing.T) {
+	code, report, _ := proveOverASelection(t, SuiteResult{
+		TimedOut:     true,
+		Inconclusive: "OOM-KILLED at 11.6 GB",
+		Output:       "signal: killed\n",
+	})
+	if code != ExitMutantsProveTimedOut {
+		t.Fatalf("exit = %d, want the inconclusive exit %d:\n%s", code, ExitMutantsProveTimedOut, report)
+	}
+	if !strings.Contains(report, "mutants prove OOM-KILLED at 11.6 GB") || strings.Contains(report, "TIMED OUT") {
+		t.Fatalf("report = %q, want the cap kill named and no timeout wording", report)
+	}
+}

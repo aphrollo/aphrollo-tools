@@ -108,9 +108,7 @@ func deriveMemCap(box MemBox, slots int, kind CapKind) MemCap {
 	if box.RAMMB <= 0 {
 		return MemCap{Why: "memory unreadable, no cap"}
 	}
-	if slots < 1 {
-		slots = 1
-	}
+	slots = max(slots, 1)
 	pool := box.RAMMB * memCapRAMPercent / 100
 	term := fmt.Sprintf("ram %dMB*%d%%", box.RAMMB, memCapRAMPercent)
 	if box.AvailMB > 0 && box.AvailMB < pool {
@@ -233,7 +231,7 @@ func headroomVerdict(box MemBox, needMB int64) (ok bool, reason string) {
 	if needMB <= 0 {
 		needMB = deriveHeadroomMB(box)
 	}
-	if box.AvailMB <= 0 || needMB <= 0 {
+	if box.AvailMB <= 0 {
 		return true, "" // unreadable is not scarce
 	}
 	swap := ""

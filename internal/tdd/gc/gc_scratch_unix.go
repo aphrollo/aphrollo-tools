@@ -5,6 +5,7 @@ package gc
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -30,8 +31,8 @@ func dirHeldByProcess(dir string) (held, known bool) {
 		return target == dir || strings.HasPrefix(target, dir+string(filepath.Separator))
 	}
 	for _, p := range procs {
-		if len(p.Name()) == 0 || p.Name()[0] < '0' || p.Name()[0] > '9' {
-			continue
+		if _, err := strconv.Atoi(p.Name()); err != nil {
+			continue // not a process directory
 		}
 		base := filepath.Join("/proc", p.Name())
 		for _, link := range []string{"cwd", "exe"} {

@@ -183,3 +183,13 @@ func TestCapMonitor_SettleCountsAKillNoPollSaw(t *testing.T) {
 		t.Fatalf("clean result %+v, want nothing", res)
 	}
 }
+
+// Two processes holding the same amount tie for largest: the first one seen
+// is the runaway named, never the last.
+func TestWatchdogVerdict_ATieForLargestNamesTheFirstProcess(t *testing.T) {
+	procs := []procRSS{{PID: 10, PGRP: 10, Bytes: 600 << 20}, {PID: 11, PGRP: 10, Bytes: 600 << 20}}
+	_, victims, _ := watchdogVerdict(procs, 10, 1000<<20, true)
+	if !slices.Equal(victims, []int{10}) {
+		t.Fatalf("victims = %v, want pid 10, the first of the two equal processes", victims)
+	}
+}
