@@ -99,8 +99,8 @@ func TestEffectiveRunRoot_NoSuiteRunFallsBackToTheCwdsRoot(t *testing.T) {
 	}
 }
 
-// A directory change the scanner does not follow leaves the run directory
-// unknown; a plain word or a lone bracket changes nothing.
+// The directory changes the scanner does not follow are `pushd` and `popd`;
+// a `cd` (bare or in a group) is followed by suiteRunDirs, so it is not one.
 func TestMovesShellUnfollowed_NamesOnlyTheDirectoryChangesItDoesNotFollow(t *testing.T) {
 	for _, tc := range []struct {
 		words []string
@@ -108,12 +108,8 @@ func TestMovesShellUnfollowed_NamesOnlyTheDirectoryChangesItDoesNotFollow(t *tes
 	}{
 		{[]string{"pushd", "x"}, true},
 		{[]string{"popd"}, true},
-		{[]string{"(cd", "x"}, true},
-		{[]string{"{", "cd", "x"}, true},
-		{[]string{"(", "cd", "x"}, true},
+		{[]string{"cd", "x"}, false},
 		{[]string{"go", "test"}, false},
-		{[]string{"(go", "test"}, false},
-		{[]string{"(", "go", "test"}, false},
 		{[]string{"("}, false},
 		{nil, false},
 	} {

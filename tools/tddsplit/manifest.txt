@@ -745,6 +745,7 @@ retro_test.go                                      merge
 review_yellows_test.go                             precommit
 runcheckout.go                                     suite
 runcheckout_cdtilde_test.go                        suite
+runcheckout_groups_test.go                       suite
 runcheckout_test.go                                postedit  # prefix says suite; its test body reaches postedit
 runner.go                                          suite
 runner_core.go                                     core      # created by P2
@@ -781,6 +782,8 @@ sessionline.go                                     tdd
 sessionline_core.go                                core      # created by P2
 sessionline_test.go                                tdd
 sessionstart_test.go                               tdd
+shellgroups.go                                     shell
+shellgroups_test.go                                shell
 shellwrite.go                                      shell
 shellwrite_fuzz_test.go                            shell
 shellwrite_nul_test.go                             shell

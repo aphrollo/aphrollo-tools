@@ -3,6 +3,7 @@ package suite
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -97,41 +98,79 @@ func runDirExists(dir string) bool {
 func suiteRunDirs(cwd, cmd string) []string {
 	cur := cwd
 	var dirs []string
+	// outer holds the directory to restore at each open subshell's `)`.
+	var outer []string
 	for _, seg := range shellSegmentsTokens(stripHeredocBodies(cmd)) {
-		trimmed := dropLeadingEnvAssignmentWords(seg)
-		if target, isCd := cdTargetTilde(trimmed); isCd {
-			cur = resolveAgainst(cur, target)
-			continue
+		inner, opened, closed := unwrapGroups(seg, len(outer))
+		for i := 0; i < opened; i++ {
+			outer = append(outer, cur)
 		}
-		words := wordTexts(trimmed)
-		if movesShellUnfollowed(words) {
-			cur = ""
-			continue
+		cur = followSegment(cur, inner, &dirs)
+		for i := 0; i < closed; i++ {
+			cur = outer[len(outer)-1]
+			outer = outer[:len(outer)-1]
 		}
-		if classifySuiteSegment(words) == notSuiteInvocation {
-			continue
-		}
-		dirs = append(dirs, invocationDir(cur, words))
 	}
 	return dirs
 }
 
+// followSegment applies one segment (group syntax already stripped) to the
+// tracked directory, appending to dirs the directory of a runner invocation
+// in it, and returns the directory the shell is in afterwards.
+func followSegment(cur string, seg []shellWord, dirs *[]string) string {
+	trimmed := dropLeadingEnvAssignmentWords(seg)
+	if target, isCd := cdTargetTilde(trimmed); isCd {
+		return resolveRunDir(cur, target)
+	}
+	words := wordTexts(trimmed)
+	if movesShellUnfollowed(words) {
+		return ""
+	}
+	if classifySuiteSegment(words) != notSuiteInvocation {
+		*dirs = append(*dirs, invocationDir(cur, words))
+	}
+	return cur
+}
+
 // movesShellUnfollowed reports whether a segment changes the shell's
-// directory in a way this scanner does not model: `pushd`/`popd`, and a `cd`
-// opened inside a subshell or group (`(cd dir && …`, `{ cd dir; …`), whose
-// first word carries the bracket. The directory after it is unknown, and an
-// unknown one must never be read as the directory before it.
+// directory in a way this scanner does not model: `pushd` and `popd`. The
+// directory after it is unknown, and an unknown one must never be read as the
+// directory before it. A `cd` inside a subshell is followed and scoped to it
+// (unwrapGroups); one inside a `{ …; }` group runs in the current shell and
+// persists like any other.
 func movesShellUnfollowed(words []string) bool {
-	if len(words) == 0 {
-		return false
+	return len(words) > 0 && (words[0] == "pushd" || words[0] == "popd")
+}
+
+// pathStyleGOOS is the platform whose path spelling a run directory is read
+// in; a variable so a test can spell Windows on any host.
+var pathStyleGOOS = runtime.GOOS
+
+// resolveRunDir is resolveAgainst after mapping an MSYS drive path.
+func resolveRunDir(cwd, p string) string {
+	return resolveAgainst(cwd, msysToWindows(pathStyleGOOS, p))
+}
+
+// msysToWindows maps a Git-Bash drive path (`/c/Users/x`, `/c`) to its
+// Windows spelling (`C:\Users\x`, `C:\`) on goos "windows"; every other path,
+// and every other platform, passes through. Without it a bash `cd /c/lane`
+// resolves against the current drive's root and the run reads as a directory
+// that does not exist.
+func msysToWindows(goos, p string) string {
+	if goos != "windows" || len(p) < 2 || p[0] != '/' || !isASCIILetter(p[1]) {
+		return p
 	}
-	switch strings.TrimLeft(words[0], "({") {
-	case "pushd", "popd", "cd":
-		return true
-	case "":
-		return len(words) > 1 && strings.TrimLeft(words[1], "({") == "cd"
+	if len(p) == 2 {
+		return strings.ToUpper(p[1:2]) + `:\`
 	}
-	return false
+	if p[2] != '/' {
+		return p
+	}
+	return strings.ToUpper(p[1:2]) + ":" + strings.ReplaceAll(p[2:], "/", `\`)
+}
+
+func isASCIILetter(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
 }
 
 // dropLeadingEnvAssignmentWords is dropLeadingEnvAssignments over a
@@ -169,7 +208,7 @@ func invocationDir(cur string, words []string) string {
 		if manifestFileFlags[name] {
 			val = filepath.Dir(filepath.FromSlash(val))
 		}
-		return resolveAgainst(cur, val)
+		return resolveRunDir(cur, val)
 	}
 	return cur
 }
