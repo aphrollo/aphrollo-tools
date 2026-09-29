@@ -4,6 +4,7 @@ package suite
 
 import (
 	lock "github.com/aphrollo/aphrollo-tools/internal/tdd/lock"
+	exec "os/exec"
 	time "time"
 )
 
@@ -13,15 +14,23 @@ type BuildLockOwner = lock.BuildLockOwner
 
 type BuildSlot = lock.BuildSlot
 
+type CapResult = lock.CapResult
+
 func ReadBuildSlotOwner(p0 string) (BuildLockOwner, bool) { return lock.ReadBuildSlotOwner(p0) }
 
 func ResolveCargoTargetDir(p0 string) string { return lock.ResolveCargoTargetDir(p0) }
+
+func RunSlotChild(p0 *exec.Cmd, p1 string) (CapResult, error) { return lock.RunSlotChild(p0, p1) }
+
+func WaitForHeadroom(p0 string, p1 time.Duration) string { return lock.WaitForHeadroom(p0, p1) }
 
 func acquireBuildSlot(p0 string, p1 time.Duration, p2 string, p3 string) (BuildSlot, func(), bool) {
 	return lock.AcquireBuildSlot(p0, p1, p2, p3)
 }
 
 func cappedFloor(p0 time.Duration, p1 time.Duration) time.Duration { return lock.CappedFloor(p0, p1) }
+
+func cargoTmpEnv(p0 string) []string { return lock.CargoTmpEnv(p0) }
 
 func cargoTomlHasWorkspaceTable(p0 string) bool { return lock.CargoTomlHasWorkspaceTable(p0) }
 

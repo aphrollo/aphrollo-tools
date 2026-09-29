@@ -4,11 +4,21 @@ package mutation
 
 import (
 	lock "github.com/aphrollo/aphrollo-tools/internal/tdd/lock"
+	exec "os/exec"
+	time "time"
 )
 
 type BuildLockOwner = lock.BuildLockOwner
 
+type CapResult = lock.CapResult
+
 func ResolveCargoTargetDir(p0 string) string { return lock.ResolveCargoTargetDir(p0) }
+
+func RunMutationChild(p0 *exec.Cmd, p1 string, p2 int) (CapResult, error) {
+	return lock.RunMutationChild(p0, p1, p2)
+}
+
+func WaitForHeadroom(p0 string, p1 time.Duration) string { return lock.WaitForHeadroom(p0, p1) }
 
 func buildToolPids() ([]int, bool) { return lock.BuildToolPids() }
 

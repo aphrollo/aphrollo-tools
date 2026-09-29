@@ -328,6 +328,7 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 	// other lane's worktree is a candidate; this one, still running the
 	// merge, is excluded regardless of its own branch's state.
 	tdd.PruneMergedLanesAfterMerge(t.MainRepo, t.Worktree, stdout, stderr)
+	sweepAfterRun(t.MainRepo)
 	return 0
 }
 

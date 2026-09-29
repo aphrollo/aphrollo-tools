@@ -2,11 +2,14 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // mkAgedFile writes a file (with parents) and back-dates it, so a test can
@@ -140,5 +143,63 @@ func TestGCFlags_LockAgeReachesTheScan(t *testing.T) {
 	}
 	if _, err := gcScopeFromFlags("soon"); err == nil {
 		t.Fatal("a junk --lock-age must be rejected, never silently defaulted")
+	}
+}
+
+// A session opened outside any repo sweeps nothing of its own, so the
+// detached sweep asks for --known: every repo gate.log names as worked in
+// lately is swept as well, and the OS temp dirs' scratch is walked once.
+func TestRunTDDGC_KnownAlsoSweepsTheReposTheGateWorkedIn(t *testing.T) {
+	cfg := gateConfigDir(t)
+	defer tdd.SetLockDirForTest(t.TempDir())()
+	other := gitInit(t, map[string]string{"a.txt": "x"})
+	stale := filepath.Join(other, "target", "debug", "incremental", "stale-9z")
+	mkAgedFile(t, filepath.Join(stale, "dep-graph.bin"), "0123456789", 30*24*time.Hour)
+	here := t.TempDir() // the session's cwd, no repo
+	if err := os.MkdirAll(filepath.Join(cfg, "gate-state"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line := fmt.Sprintf("%s precommit %s go vet ./... green 1.0s\n", time.Now().UTC().Format(time.RFC3339), other)
+	if err := os.WriteFile(filepath.Join(cfg, "gate-state", "gate.log"), []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var without, with, stderr bytes.Buffer
+	if code := runGateGC([]string{"--repo", here}, &without, &stderr); code != 0 {
+		t.Fatalf("exit = %d; stderr=%s", code, stderr.String())
+	}
+	if strings.Contains(without.String(), "stale-9z") {
+		t.Fatalf("without --known the other repo must not be swept:\n%s", without.String())
+	}
+	if code := runGateGC([]string{"--repo", here, "--known"}, &with, &stderr); code != 0 {
+		t.Fatalf("exit = %d; stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(with.String(), "stale-9z") {
+		t.Fatalf("--known must sweep the repo gate.log names:\n%s", with.String())
+	}
+}
+
+// The scratch of runs that are over is swept once however many repos there
+// are: the OS temp dirs are the same for every one of them.
+func TestRunTDDGC_KnownWalksTheTempDirScratchOnce(t *testing.T) {
+	cfg := gateConfigDir(t)
+	temp := t.TempDir()
+	defer tdd.SetLockDirForTest(temp)()
+	mkAgedFile(t, filepath.Join(temp, "go-build4242", "b001", "x.test"), "bin", 40*time.Hour)
+	other := gitInit(t, map[string]string{"a.txt": "x"})
+	if err := os.MkdirAll(filepath.Join(cfg, "gate-state"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line := fmt.Sprintf("%s precommit %s go vet ./... green 1.0s\n", time.Now().UTC().Format(time.RFC3339), other)
+	if err := os.WriteFile(filepath.Join(cfg, "gate-state", "gate.log"), []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, stderr bytes.Buffer
+	if code := runGateGC([]string{"--repo", t.TempDir(), "--known"}, &out, &stderr); code != 0 {
+		t.Fatalf("exit = %d; stderr=%s", code, stderr.String())
+	}
+	if got := strings.Count(out.String(), "go-build4242"); got != 1 {
+		t.Fatalf("the scratch dir is listed %d times, want once:\n%s", got, out.String())
 	}
 }

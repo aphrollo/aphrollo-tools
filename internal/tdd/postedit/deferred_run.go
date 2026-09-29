@@ -178,6 +178,14 @@ func RunPhase(jobPath string) int {
 		defer release()
 	}
 
+	// A slot is not memory: the box may still have none to give this phase.
+	if why := WaitForHeadroom(j.Dir, deferredSlotWait()); why != "" {
+		why = "SKIPPED — " + why
+		fmt.Fprintf(log, "aphrollo: %s\n", why)
+		writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure, Seconds: time.Since(start).Seconds(), Inconclusive: why})
+		return 0
+	}
+
 	// The abandon clock starts HERE, not when the hook spawned this: time
 	// spent queuing is not time spent building, and charging it made a phase
 	// killable the moment it finally started.
@@ -196,12 +204,17 @@ func RunPhase(jobPath string) int {
 		os.Unsetenv(BuildLockHeldEnv)
 	}
 	code := 0
+	var killedByCap CapResult
 	for _, args := range argvbatch.SplitCommand(j.Runner[0], j.Runner[1:], phaseArgvBudgetFn(j.Runner[0])) {
 		cmd := exec.Command(j.Runner[0], args...)
 		cmd.Dir = j.Dir
 		cmd.Env = env
 		cmd.Stdout, cmd.Stderr = log, log
-		if err = cmd.Run(); err == nil {
+		capped, runErr := RunSlotChild(cmd, j.Dir)
+		if capped.Killed {
+			killedByCap = capped
+		}
+		if err = runErr; err == nil {
 			continue
 		}
 		code = 1
@@ -211,7 +224,12 @@ func RunPhase(jobPath string) int {
 		}
 		break
 	}
-	writePhaseResult(j.Result, PhaseOutcome{ExitCode: code, Seconds: time.Since(start).Seconds()})
+	out := PhaseOutcome{ExitCode: code, Seconds: time.Since(start).Seconds()}
+	if killedByCap.Killed {
+		out.Inconclusive = killedByCap.Line()
+		fmt.Fprintf(log, "aphrollo: %s\n", out.Inconclusive)
+	}
+	writePhaseResult(j.Result, out)
 	return 0
 }
 

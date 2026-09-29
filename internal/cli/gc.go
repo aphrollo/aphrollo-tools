@@ -26,6 +26,7 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 		apply     = fs.Bool("apply", false, "delete the candidates (default: print them and stop)")
 		quiet     = fs.Bool("quiet", false, "print nothing (the detached session-start sweep)")
 		lockAge   = fs.String("lock-age", "1d", "reclaim unheld aphrollo lock files idle longer than this")
+		known     = fs.Bool("known", false, "also sweep every repo the gate has worked in lately (the detached session-start sweep)")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -42,7 +43,37 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	cands := tdd.ScanGC(*repo, age, scope)
+	repos := []string{*repo}
+	if *known {
+		repos = append(repos, tdd.KnownGCRepos()...)
+	}
+	// The OS temp dirs are the same for every repo, so their scratch is swept
+	// once, on its own, and every repo's own areas are swept without it. Each
+	// is scanned and then applied before the next, so a later scan sees the
+	// earlier one's deletions.
+	scratch := tdd.GCScope{TempScratch: scope.TempScratch}
+	scope.TempScratch = false
+	var (
+		cands   []tdd.GCCandidate
+		freed   int64
+		refused []string
+		skipped int
+	)
+	sweep := func(r string, sc tdd.GCScope) {
+		found := tdd.ScanGC(r, age, sc)
+		cands = append(cands, found...)
+		if !*apply {
+			return
+		}
+		f, ref, sk := tdd.ApplyGCFor(r, found)
+		freed += f
+		refused = append(refused, ref...)
+		skipped += sk
+	}
+	sweep(*repo, scratch)
+	for _, r := range repos {
+		sweep(r, scope)
+	}
 	if !*apply {
 		if !*quiet {
 			fmt.Fprint(stdout, tdd.RenderGC(cands, false, 0))
@@ -52,7 +83,6 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	freed, refused, skipped := tdd.ApplyGCFor(*repo, cands)
 	tdd.RecordGCSweep(freed, len(cands)-skipped-len(refused))
 	if *quiet {
 		return 0

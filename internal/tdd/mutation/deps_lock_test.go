@@ -6,6 +6,14 @@ import (
 	lock "github.com/aphrollo/aphrollo-tools/internal/tdd/lock"
 )
 
+type MemBox = lock.MemBox
+
+type MemCap = lock.MemCap
+
 func SetLockDirForTest(p0 string) func() { return lock.SetLockDirForTest(p0) }
+
+func SetMemBoxForTest(p0 MemBox) func() { return lock.SetMemBoxForTest(p0) }
+
+func SetMemCapForTest(p0 MemCap) func() { return lock.SetMemCapForTest(p0) }
 
 func mutantsBudgetMemoryGB(p0 int, p1 int) (int, string) { return lock.MutantsBudgetMemoryGB(p0, p1) }

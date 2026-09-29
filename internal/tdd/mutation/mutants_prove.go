@@ -354,6 +354,11 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	}
 
 	if res.TimedOut {
+		if res.Inconclusive != "" {
+			fmt.Fprintf(stdout, "gate: mutants prove %s — %s in %s never reached a verdict; restored, "+
+				"not proven either way\n", res.Inconclusive, cmdString(runner), laneRoot)
+			return retainProveRun(laneRoot, runner, res, ExitMutantsProveTimedOut)
+		}
 		fmt.Fprintf(stdout, "gate: mutants prove TIMED OUT — %s in %s never reached a verdict; restored, "+
 			"not proven either way\n", cmdString(runner), laneRoot)
 		return retainProveRun(laneRoot, runner, res, ExitMutantsProveTimedOut)

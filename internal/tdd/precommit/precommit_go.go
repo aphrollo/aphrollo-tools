@@ -190,11 +190,9 @@ func lintCheckStage(gateName, root string, r Runner, run SuiteRunner) GateResult
 	switch {
 	case res.TimedOut:
 		return verdictFor(gateName, "lint", root, cmdString(r), stageOutcome{
-			Kind:   outcomeTimeout,
-			Result: res,
-			Message: fmt.Sprintf(
-				"gate %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused; retry once it finishes.",
-				gateName, cmdString(r), res.Duration.Seconds()),
+			Kind:    outcomeTimeout,
+			Result:  res,
+			Message: unfinishedMessage(gateName, r, res, "retry once it finishes"),
 		})
 	case !res.Passed && strings.Contains(res.Output, lintContentionSignature):
 		return verdictFor(gateName, "lint", root, cmdString(r), stageOutcome{
@@ -387,11 +385,9 @@ func goCheckStage(gateName, stage, root string, r Runner, run SuiteRunner) GateR
 	switch {
 	case res.TimedOut:
 		return verdictFor(gateName, stage, root, cmdString(r), stageOutcome{
-			Kind:   outcomeTimeout,
-			Result: res,
-			Message: fmt.Sprintf(
-				"gate %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused; retry once it finishes.",
-				gateName, cmdString(r), res.Duration.Seconds()),
+			Kind:    outcomeTimeout,
+			Result:  res,
+			Message: unfinishedMessage(gateName, r, res, "retry once it finishes"),
 		})
 	case !res.Passed:
 		fmt.Fprintf(os.Stderr, "gate %s: %s in %s → blocked\n", gateName, stage, root)
@@ -485,4 +481,16 @@ func docsCheckStage(gateName, repoRoot string) GateResult {
 	return GateResult{Blocked: true, Message: fmt.Sprintf(
 		"gate %s: docs → REJECTED\n  %s\n  a cited path must resolve; fix the link or add the file",
 		gateName, strings.Join(lines, "\n  "))}
+}
+
+// unfinishedMessage is the refusal for a check that never reached a verdict:
+// it did not finish in its budget, or (Inconclusive) the memory cap ended it
+// or the box had none to start it. Either way nothing was checked.
+func unfinishedMessage(gateName string, r Runner, res SuiteResult, advice string) string {
+	if res.Inconclusive != "" {
+		return fmt.Sprintf("gate %s: %s ended as %s, so nothing was tested and the commit is refused; raise `memory-cap` in aphrollo.toml if it honestly needs more.",
+			gateName, cmdString(r), res.Inconclusive)
+	}
+	return fmt.Sprintf("gate %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused; %s.",
+		gateName, cmdString(r), res.Duration.Seconds(), advice)
 }

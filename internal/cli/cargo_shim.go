@@ -499,7 +499,21 @@ func execCargoEnv(realCargo string, args []string, stdin io.Reader, stdout, stde
 		// STRICTER of the slot's cap and a caller's own value wins.
 		cmd.Env = tdd.EnvWithBuildJobs(cmd.Env, jobs)
 	}
-	err := cmd.Run()
+	if cargoRunsAnApp(args) {
+		// `cargo run` is the application itself, which may honestly hold more
+		// than a build; the cap is for what the gate builds and tests.
+		return cargoExit(stderr, cmd.Run())
+	}
+	capped, err := tdd.RunSlotChild(cmd, ".")
+	if capped.Killed {
+		fmt.Fprintf(stderr, "cargo: %s — inconclusive, nothing was built or tested\n", capped.Line())
+		return exitOOMKilled
+	}
+	return cargoExit(stderr, err)
+}
+
+// cargoExit turns a finished cargo child's error into the shim's exit code.
+func cargoExit(stderr io.Writer, err error) int {
 	if err == nil {
 		return 0
 	}
@@ -509,6 +523,18 @@ func execCargoEnv(realCargo string, args []string, stdin io.Reader, stdout, stde
 	}
 	fmt.Fprintf(stderr, "aphrollo tdd cargo: %v\n", err)
 	return 1
+}
+
+// cargoRunsAnApp reports a `cargo run` invocation: the verb is the first
+// argument that is neither a +toolchain nor a flag.
+func cargoRunsAnApp(args []string) bool {
+	for _, a := range args {
+		if strings.HasPrefix(a, "+") || strings.HasPrefix(a, "-") {
+			continue
+		}
+		return a == "run"
+	}
+	return false
 }
 
 // queuedLine composes the ONE-SHOT "queued behind" message printed the

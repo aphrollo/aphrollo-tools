@@ -41,6 +41,7 @@ func runBatched(r Runner, root string, limit time.Duration, budget int, one Suit
 		merged.Dir = res.Dir
 		merged.Passed = res.Passed
 		merged.TimedOut = res.TimedOut
+		merged.Inconclusive = res.Inconclusive
 		if merged.Err == "" {
 			merged.Err = res.Err
 		}

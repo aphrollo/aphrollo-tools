@@ -4,6 +4,7 @@ package postedit
 
 import (
 	lock "github.com/aphrollo/aphrollo-tools/internal/tdd/lock"
+	exec "os/exec"
 	time "time"
 )
 
@@ -17,9 +18,15 @@ type BuildLockOwner = lock.BuildLockOwner
 
 type BuildSlot = lock.BuildSlot
 
+type CapResult = lock.CapResult
+
 type SlotWait = lock.SlotWait
 
 func ReadBuildSlotOwner(p0 string) (BuildLockOwner, bool) { return lock.ReadBuildSlotOwner(p0) }
+
+func RunSlotChild(p0 *exec.Cmd, p1 string) (CapResult, error) { return lock.RunSlotChild(p0, p1) }
+
+func WaitForHeadroom(p0 string, p1 time.Duration) string { return lock.WaitForHeadroom(p0, p1) }
 
 func acquireGlobalSlot(p0 time.Duration, p1 string, p2 string) (BuildSlot, func(), bool) {
 	return lock.AcquireGlobalSlot(p0, p1, p2)

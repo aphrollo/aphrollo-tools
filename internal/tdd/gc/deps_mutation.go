@@ -45,6 +45,8 @@ func gcTempTargetDirs(p0 []string, p1 time.Time) []GCCandidate {
 
 func measureTempDir(p0 string) string { return mutation.MeasureTempDir(p0) }
 
+func mutantsRunHeld() bool { return mutation.MutantsRunHeld() }
+
 func pathKey(p0 string) string { return mutation.PathKey(p0) }
 
 func proveAreaHeld(p0 string) bool { return mutation.ProveAreaHeld(p0) }

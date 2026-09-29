@@ -290,7 +290,7 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 		// A killed run reaches no verdict either way — and measured
 		// nothing, so the caller refuses rather than landing the commit on
 		// an unproven test (#561).
-		return failFirstOutcome{dur: res.Duration, cmd: cmdString(execRunner), standDown: failFirstOverBudget}
+		return failFirstOutcome{dur: res.Duration, cmd: cmdString(execRunner), standDown: failFirstOverBudget, inconclusive: res.Inconclusive}
 	}
 	// #317: the proof worktree exited 0 having executed zero tests — a
 	// narrowed -run/-k/name filter matching nothing, say. That is not a red

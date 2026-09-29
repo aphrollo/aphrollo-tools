@@ -211,7 +211,7 @@ func startDetachedGC(cmd *exec.Cmd) {
 // carries one more generation of spawn depth (see proc.SpawnableSelf, which
 // decides whether exe may be started at all).
 func backgroundGCCommand(exe string, parentEnv []string, cwd string) *exec.Cmd {
-	cmd := exec.Command(exe, CmdName, "gc", "--apply", "--quiet", "--repo", cwd)
+	cmd := exec.Command(exe, CmdName, "gc", "--apply", "--quiet", "--known", "--repo", cwd)
 	cmd.Dir = cwd
 	cmd.Env = proc.ChildEnv(parentEnv, cleanGitEnv())
 	return cmd

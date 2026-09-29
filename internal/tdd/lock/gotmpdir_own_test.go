@@ -94,3 +94,31 @@ func TestGoTmpEnv_EmptyDirYieldsNoEnvAtAll(t *testing.T) {
 		t.Fatalf("goTmpEnv(\"\") = %v, want nil — nothing to set when there is no resolved scratch dir", env)
 	}
 }
+
+// TestCargoTmpEnv_RedirectsTheThreeTempVarsAndLeavesGoTmpdirAlone: rustc's
+// scratch follows TMPDIR/TMP/TEMP; GOTMPDIR is the go tool's own variable and
+// a cargo child has no use for it.
+func TestCargoTmpEnv_RedirectsTheThreeTempVarsAndLeavesGoTmpdirAlone(t *testing.T) {
+	dir := tddtest.MakeGoRepo(t)
+	want := GoTmpRootDir(dir)
+	env := cargoTmpEnv(dir)
+	if len(env) != 3 {
+		t.Fatalf("cargoTmpEnv = %v, want exactly TMPDIR, TMP and TEMP", env)
+	}
+	for i, key := range []string{"TMPDIR", "TMP", "TEMP"} {
+		if env[i] != key+"="+want {
+			t.Errorf("env[%d] = %q, want %q", i, env[i], key+"="+want)
+		}
+	}
+	for _, e := range env {
+		if strings.HasPrefix(e, "GOTMPDIR=") {
+			t.Errorf("cargoTmpEnv carries %q", e)
+		}
+	}
+}
+
+func TestCargoTmpEnv_OutsideAnyRepoIsNothing(t *testing.T) {
+	if env := cargoTmpEnv(t.TempDir()); env != nil {
+		t.Fatalf("cargoTmpEnv outside a git checkout = %v, want nil (refuse rather than guess)", env)
+	}
+}

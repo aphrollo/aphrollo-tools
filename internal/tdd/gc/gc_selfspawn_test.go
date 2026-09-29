@@ -36,11 +36,13 @@ func TestBackgroundGCCommand_StartsTheSweepOneGenerationDeeper(t *testing.T) {
 		t.Fatalf("started %d sweeps, want 1", len(started))
 	}
 	cmd := started[0]
-	if got, want := strings.Join(cmd.Args[:6], " "), "/usr/local/bin/aphrollo "+CmdName+" gc --apply --quiet --repo"; got != want {
+	// --known: a session opened outside any repo still sweeps the repos the
+	// gate has worked in (issue #1005).
+	if got, want := strings.Join(cmd.Args[:7], " "), "/usr/local/bin/aphrollo "+CmdName+" gc --apply --quiet --known --repo"; got != want {
 		t.Fatalf("argv = %q, want %q", got, want)
 	}
-	if cmd.Dir != cmd.Args[6] {
-		t.Fatalf("Dir = %q, want the repo %q", cmd.Dir, cmd.Args[6])
+	if cmd.Dir != cmd.Args[7] {
+		t.Fatalf("Dir = %q, want the repo %q", cmd.Dir, cmd.Args[7])
 	}
 	var depth []string
 	for _, kv := range cmd.Env {

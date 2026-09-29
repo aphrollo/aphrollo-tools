@@ -110,6 +110,17 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		// "something unrelated ate the cores" without reasoning about it
 		// from the log alone.
 		load := foreignLoadReport(os.Getpid())
+		if res.Inconclusive != "" {
+			// The memory cap ended the run, or the box had none to start it:
+			// not a slow suite, so no budget floor to quote and no timeout
+			// word, but the commit is just as untested.
+			line := fmt.Sprintf("[%s] gate %s: %s in %s %s REJECTED (nothing was tested)", stage, gateName, cmdString(runner), root, res.Inconclusive)
+			fmt.Fprintln(os.Stderr, line)
+			AppendGateLog(gateName, root, cmdString(runner), "inconclusive-rejected", res.Duration)
+			return GateResult{Blocked: true, Message: fmt.Sprintf(
+				"gate %s: %s ended as %s, so nothing was tested and the commit is refused. Raise `memory-cap` in aphrollo.toml if the suite honestly needs more.",
+				gateName, cmdString(runner), res.Inconclusive)}
+		}
 		line := fmt.Sprintf("[%s] gate %s: %s in %s TIMEOUT after %.0fs REJECTED (nothing was tested)\n%s", stage, gateName, cmdString(runner), root, res.Duration.Seconds(), load)
 		fmt.Fprintln(os.Stderr, line)
 		AppendGateLog(gateName, root, cmdString(runner), "timeout-rejected", res.Duration)

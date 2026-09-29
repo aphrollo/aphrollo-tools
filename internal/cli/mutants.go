@@ -134,6 +134,9 @@ func runGateMutantsRun(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo gate mutants run: %v\n", err)
 		return 1
 	}
+	// A run that ends leaves its temp copies and scratch behind whether or not
+	// it reached a verdict, so the sweep follows every exit below.
+	defer sweepAfterRun(root)
 	v, err := tdd.MeasureLane(root, cfg, tdd.MeasureOpts{Base: *base, Log: stderr, ReportOut: *report})
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo gate mutants run: %v\n", err)

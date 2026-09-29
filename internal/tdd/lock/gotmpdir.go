@@ -61,3 +61,16 @@ func goTmpEnv(dir string) []string {
 	_ = os.MkdirAll(tmp, 0o755)
 	return []string{"GOTMPDIR=" + tmp, "TMPDIR=" + tmp, "TMP=" + tmp, "TEMP=" + tmp}
 }
+
+// cargoTmpEnv is goTmpEnv for a cargo child: the same directory, without the
+// go tool's own variable. rustc stages its linker inputs and rmeta scratch in
+// the OS temp dir, and on a box whose /tmp is a RAM-backed tmpfs a workspace
+// build's scratch is memory the build's own cap then has to count (issue
+// #1005); the repo-local directory is on disk.
+func cargoTmpEnv(dir string) []string {
+	env := goTmpEnv(dir)
+	if len(env) == 0 {
+		return nil
+	}
+	return env[1:] // GOTMPDIR is first
+}

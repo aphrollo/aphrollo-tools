@@ -91,6 +91,10 @@ type PhaseOutcome struct {
 	// overloading one integer for both meanings made a genuine red exiting
 	// 125 indistinguishable from "no build slot came free".
 	SetupFailed bool `json:"setup_failed,omitempty"`
+	// Inconclusive is why the phase reached no verdict on the code although
+	// its command ran or was about to: the memory cap ended it, or the box had
+	// no memory to start it. See SuiteResult.Inconclusive, which it becomes.
+	Inconclusive string `json:"inconclusive,omitempty"`
 }
 
 // deferredMaxEnv bounds how long a detached phase may run before the next
