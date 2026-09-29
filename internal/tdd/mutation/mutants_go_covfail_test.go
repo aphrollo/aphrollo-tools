@@ -180,3 +180,20 @@ func TestGoCoverageNoVerdict_FallsBackToNoVerdictWhenNoTestIsNamed(t *testing.T)
 		t.Fatalf("verdict = %+v, want no coverage diagnosis attached", v)
 	}
 }
+
+// A gather that failed in several packages names every one of them, sorted:
+// fixing the first and re-measuring only to meet the second costs a whole
+// coverage run per package.
+func TestCoverageRunFailedPackages_NamesEveryFailingPackageSorted(t *testing.T) {
+	output := "FAIL\texample.com/lane/zeta\t0.004s\n" +
+		"ok  \texample.com/lane/ok\t0.001s\n" +
+		"FAIL\texample.com/lane/alpha [build failed]\n" +
+		"FAIL\n"
+
+	got := coverageRunFailedPackages(output)
+
+	want := []string{"example.com/lane/alpha", "example.com/lane/zeta"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("coverageRunFailedPackages = %v, want %v", got, want)
+	}
+}
