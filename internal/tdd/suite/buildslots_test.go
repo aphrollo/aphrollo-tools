@@ -208,18 +208,21 @@ func envValue(env []string, key string) string {
 }
 
 // TestRunCargoLocked_InjectsBuildJobsForTheChild pins that the jobs cap
-// actually reaches the suite subprocess: RunSuite builds the child env from
-// os.Environ(), so runCargoLocked must have CARGO_BUILD_JOBS set in THIS
-// process while run() executes — and must put the environment back
-// afterwards, since one hook process handles many roots.
+// actually reaches the suite subprocess: RunSuite applies the runner's Env
+// after everything the child inherits, so runCargoLocked must hand run() a
+// runner carrying CARGO_BUILD_JOBS — and must leave THIS process's
+// environment alone, since one hook process handles many roots and two
+// builds in it each have their own slot's share.
 func TestRunCargoLocked_InjectsBuildJobsForTheChild(t *testing.T) {
 	withIsolatedBuildLock(t)
 	t.Setenv(buildSlotsEnv, "2")
 	os.Unsetenv("CARGO_BUILD_JOBS")
 
 	var seen string
-	stub := func(Runner, string) SuiteResult {
-		seen = os.Getenv("CARGO_BUILD_JOBS")
+	var processSaw bool
+	stub := func(r Runner, _ string) SuiteResult {
+		seen = envValue(r.Env, "CARGO_BUILD_JOBS")
+		_, processSaw = os.LookupEnv("CARGO_BUILD_JOBS")
 		return SuiteResult{Passed: true}
 	}
 	if _, _, acquired := runCargoLocked(stub, Runner{Cmd: "cargo"}, t.TempDir(), time.Second, time.Second, 0); !acquired {
@@ -232,30 +235,49 @@ func TestRunCargoLocked_InjectsBuildJobsForTheChild(t *testing.T) {
 	if want := slotJobs(totalCargoJobs(), 2); n != want {
 		t.Fatalf("suite saw CARGO_BUILD_JOBS=%d, want the per-slot share %d", n, want)
 	}
-	if _, set := os.LookupEnv("CARGO_BUILD_JOBS"); set {
-		t.Fatal("CARGO_BUILD_JOBS must be restored (unset) once runCargoLocked returns")
+	if processSaw {
+		t.Fatal("CARGO_BUILD_JOBS must not be written into the process environment")
 	}
 }
 
 // TestRunCargoLocked_CapsACallerSetJobsValue pins the same stricter-wins
 // rule at the hook/gate layer. It USED to keep a caller's larger value,
 // which is how a lane shell's exported CARGO_BUILD_JOBS disengaged the
-// governor for every build that shell started.
+// governor for every build that shell started. The child's Env binding wins
+// over the inherited 1000, and the caller's own value stays as it was.
 func TestRunCargoLocked_CapsACallerSetJobsValue(t *testing.T) {
 	withIsolatedBuildLock(t)
 	t.Setenv("CARGO_BUILD_JOBS", "1000")
 
 	var seen string
-	stub := func(Runner, string) SuiteResult {
-		seen = os.Getenv("CARGO_BUILD_JOBS")
+	stub := func(r Runner, _ string) SuiteResult {
+		seen = envValue(r.Env, "CARGO_BUILD_JOBS")
 		return SuiteResult{Passed: true}
 	}
 	runCargoLocked(stub, Runner{Cmd: "cargo"}, t.TempDir(), time.Second, time.Second, 0)
-	if seen == "1000" {
-		t.Fatal("the slot's cap must win over a caller's larger CARGO_BUILD_JOBS")
+	if seen == "" || seen == "1000" {
+		t.Fatalf("the slot's cap must win over a caller's larger CARGO_BUILD_JOBS, child got %q", seen)
 	}
 	if got := os.Getenv("CARGO_BUILD_JOBS"); got != "1000" {
-		t.Fatalf("CARGO_BUILD_JOBS = %q after the run, want the caller's own value restored", got)
+		t.Fatalf("CARGO_BUILD_JOBS = %q after the run, want the caller's own value untouched", got)
+	}
+}
+
+// TestRunCargoLocked_KeepsACallersSmallerJobsValue is the other half: a
+// process that already divided the box itself and asked for LESS keeps that,
+// the runner's binding carries the stricter number.
+func TestRunCargoLocked_KeepsACallersSmallerJobsValue(t *testing.T) {
+	withIsolatedBuildLock(t)
+	t.Setenv("CARGO_BUILD_JOBS", "1")
+
+	var seen string
+	stub := func(r Runner, _ string) SuiteResult {
+		seen = envValue(r.Env, "CARGO_BUILD_JOBS")
+		return SuiteResult{Passed: true}
+	}
+	runCargoLocked(stub, Runner{Cmd: "cargo"}, t.TempDir(), time.Second, time.Second, 0)
+	if seen != "1" {
+		t.Fatalf("child CARGO_BUILD_JOBS = %q, want the caller's stricter 1", seen)
 	}
 }
 

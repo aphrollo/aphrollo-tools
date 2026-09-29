@@ -39,4 +39,4 @@ func lockWaitLogAfter() time.Duration { return lock.LockWaitLogAfter() }
 
 func runnerTargetDir(p0 Runner, p1 string) string { return lock.RunnerTargetDir(p0, p1) }
 
-func setBuildJobs(p0 int) func() { return lock.SetBuildJobs(p0) }
+func runnerWithBuildJobs(p0 Runner, p1 int) Runner { return lock.RunnerWithBuildJobs(p0, p1) }

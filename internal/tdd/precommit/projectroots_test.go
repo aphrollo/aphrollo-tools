@@ -148,7 +148,7 @@ func TestPrecommit_MultiRoot_MixedCommit_BothRootsRun(t *testing.T) {
 		switch r.runner.Cmd {
 		case "cargo":
 			sawCargo = true
-			if !reflect.DeepEqual(r.runner, Runner{Cmd: "cargo", Args: []string{"test", "-p", "a"}, Dir: root}) {
+			if !reflect.DeepEqual(withoutGateEnv(r.runner), Runner{Cmd: "cargo", Args: []string{"test", "-p", "a"}, Dir: root}) {
 				t.Fatalf("cargo run = %+v, want -p a from the workspace root %s", r.runner, root)
 			}
 		case "pytest":

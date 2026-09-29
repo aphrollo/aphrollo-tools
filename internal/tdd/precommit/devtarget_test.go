@@ -17,9 +17,8 @@ func TestPinMechCargoTarget_UsesTheReposOwnDevTarget(t *testing.T) {
 	os.Unsetenv("CARGO_TARGET_DIR")
 	repo := t.TempDir()
 
-	restore := pinMechCargoTarget(Runner{Cmd: "cargo"}, repo)
-	got := os.Getenv("CARGO_TARGET_DIR")
-	restore()
+	pinned := pinMechCargoTarget(Runner{Cmd: "cargo"}, repo)
+	got := envBinding(pinned, "CARGO_TARGET_DIR")
 
 	if want := filepath.Join(repo, "target"); filepath.Clean(got) != filepath.Clean(want) {
 		t.Fatalf("CARGO_TARGET_DIR = %q, want the repo's own %q", got, want)
@@ -27,6 +26,44 @@ func TestPinMechCargoTarget_UsesTheReposOwnDevTarget(t *testing.T) {
 	if strings.Contains(got, "cargo-target") {
 		t.Fatalf("CARGO_TARGET_DIR = %q, want no gate-owned cache", got)
 	}
+	if _, set := os.LookupEnv("CARGO_TARGET_DIR"); set {
+		t.Fatal("pinning the target must not write the process environment")
+	}
+}
+
+// TestPinMechCargoTarget_LeavesANonCargoRunnerAlone pins that the target dir
+// is a cargo concept: a go or npm runner comes back with no binding at all.
+func TestPinMechCargoTarget_LeavesANonCargoRunnerAlone(t *testing.T) {
+	t.Parallel()
+	got := pinMechCargoTarget(Runner{Cmd: "go", Args: []string{"test"}}, t.TempDir())
+	if len(got.Env) != 0 {
+		t.Fatalf("a go runner came back with Env %v, want none", got.Env)
+	}
+}
+
+// TestPinMechCargoTarget_KeepsTheRunnersOtherBindings pins that the target
+// binding is added beside a runner's own Env, not over it.
+func TestPinMechCargoTarget_KeepsTheRunnersOtherBindings(t *testing.T) {
+	t.Parallel()
+	got := pinMechCargoTarget(Runner{Cmd: "cargo", Env: []string{"RUSTFLAGS=-Dwarnings"}}, t.TempDir())
+	if envBinding(got, "RUSTFLAGS") != "-Dwarnings" {
+		t.Fatalf("Env = %v, want RUSTFLAGS kept", got.Env)
+	}
+	if envBinding(got, "CARGO_TARGET_DIR") == "" {
+		t.Fatalf("Env = %v, want a CARGO_TARGET_DIR binding", got.Env)
+	}
+}
+
+// envBinding is the value a runner's Env binds key to (the last binding wins,
+// as it does in the child), "" when it binds none.
+func envBinding(r Runner, key string) string {
+	val := ""
+	for _, kv := range r.Env {
+		if v, ok := strings.CutPrefix(kv, key+"="); ok {
+			val = v
+		}
+	}
+	return val
 }
 
 // TestPinMechCargoTarget_HonoursAnOperatorsTargetDir pins the other half:
@@ -38,15 +75,14 @@ func TestPinMechCargoTarget_HonoursAnOperatorsTargetDir(t *testing.T) {
 	t.Setenv("CARGO_TARGET_DIR", shared)
 	repo := t.TempDir()
 
-	restore := pinMechCargoTarget(Runner{Cmd: "cargo"}, repo)
-	got := os.Getenv("CARGO_TARGET_DIR")
-	restore()
+	pinned := pinMechCargoTarget(Runner{Cmd: "cargo"}, repo)
+	got := envBinding(pinned, "CARGO_TARGET_DIR")
 
 	if filepath.Clean(got) != filepath.Clean(shared) {
 		t.Fatalf("CARGO_TARGET_DIR = %q, want the operator's own %q", got, shared)
 	}
 	if os.Getenv("CARGO_TARGET_DIR") != shared {
-		t.Fatal("the operator's value must be restored")
+		t.Fatal("the operator's value must be left as it was")
 	}
 }
 
@@ -69,7 +105,7 @@ func TestFailFirstRun_ExportsTheResolvedTarget(t *testing.T) {
 
 	var seen string
 	failFirstViolatedAt(repo, repo, []string{"tests/b.rs"}, nil, func(r Runner, root string) SuiteResult {
-		seen = os.Getenv("CARGO_TARGET_DIR")
+		seen = envBinding(r, "CARGO_TARGET_DIR")
 		return SuiteResult{Passed: false}
 	})
 	if want := filepath.Join(repo, "target"); filepath.Clean(seen) != filepath.Clean(want) {

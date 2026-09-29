@@ -28,10 +28,10 @@ func TestPrecommit_FailFirst_ExportsTheResolvedTargetDir(t *testing.T) {
 	var worktreeTarget, mechanicalTarget string
 	run := func(r Runner, dir string) SuiteResult {
 		if dir == root {
-			mechanicalTarget = os.Getenv("CARGO_TARGET_DIR")
+			mechanicalTarget = envBinding(r, "CARGO_TARGET_DIR")
 			return SuiteResult{Passed: true}
 		}
-		worktreeTarget = os.Getenv("CARGO_TARGET_DIR")
+		worktreeTarget = envBinding(r, "CARGO_TARGET_DIR")
 		// The applied test cannot compile without the staged source -> RED,
 		// which satisfies fail-first.
 		return SuiteResult{Passed: false, Output: "error[E0425]: cannot find function `widget`"}
@@ -46,7 +46,7 @@ func TestPrecommit_FailFirst_ExportsTheResolvedTargetDir(t *testing.T) {
 		t.Fatalf("mechanical run built in %q, want the resolved target %q", mechanicalTarget, shared)
 	}
 	if got := os.Getenv("CARGO_TARGET_DIR"); got != shared {
-		t.Fatalf("CARGO_TARGET_DIR must be restored after the gate, got %q", got)
+		t.Fatalf("CARGO_TARGET_DIR must be left as it was by the gate, got %q", got)
 	}
 }
 

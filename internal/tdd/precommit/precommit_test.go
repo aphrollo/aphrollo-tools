@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/lock"
 )
 
 const precommitTestTimeout = tddtest.PrecommitTestTimeout
@@ -184,14 +185,30 @@ func recordRunner(seen *[]Runner, root string) SuiteRunner {
 	return tddtest.RecordRunner(seen, root, recordableRun, SuiteResult{Passed: true})
 }
 
-// recordableRun keeps a suite run for recordRunner, Deadline stripped, and
-// drops a quality run.
+// recordableRun keeps a suite run for recordRunner, Deadline and the gate's
+// own child-build bindings stripped,
+// and drops a quality run.
 func recordableRun(r Runner) (Runner, bool) {
 	if isQualityRunner(r) {
 		return r, false
 	}
 	r.Deadline = time.Time{}
-	return r, true
+	return withoutGateEnv(r), true
+}
+
+// withoutGateEnv is r without the bindings the gate adds for the child build:
+// the target dir, its slot's job share and the lock-held marker. Each has its
+// own tests (devtarget_test.go, the suite package's buildslots and buildlock).
+func withoutGateEnv(r Runner) Runner {
+	var env []string
+	for _, kv := range r.Env {
+		if !strings.HasPrefix(kv, "CARGO_TARGET_DIR=") && !strings.HasPrefix(kv, "CARGO_BUILD_JOBS=") &&
+			!strings.HasPrefix(kv, lock.BuildLockHeldEnv+"=") {
+			env = append(env, kv)
+		}
+	}
+	r.Env = env
+	return r
 }
 
 func TestPrecommit_Mechanical_ScopedToStagedGoPackages(t *testing.T) {

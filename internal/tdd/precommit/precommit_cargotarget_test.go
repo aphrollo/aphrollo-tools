@@ -19,7 +19,7 @@ import (
 func TestPrecommit_MechanicalCargoRun_BuildsInTheReposOwnTarget(t *testing.T) {
 	record := func(seen *string) SuiteRunner {
 		return func(r Runner, dir string) SuiteResult {
-			*seen = os.Getenv("CARGO_TARGET_DIR")
+			*seen = envBinding(r, "CARGO_TARGET_DIR")
 			return SuiteResult{Passed: true, Output: "test result: ok. 1 passed; 0 failed"}
 		}
 	}
@@ -41,7 +41,7 @@ func TestPrecommit_MechanicalCargoRun_BuildsInTheReposOwnTarget(t *testing.T) {
 			t.Fatalf("mechanical run built in %q, want the operator's own %q", seen, shared)
 		}
 		if os.Getenv("CARGO_TARGET_DIR") != shared {
-			t.Fatal("the operator's CARGO_TARGET_DIR must be restored after the run")
+			t.Fatal("the operator's CARGO_TARGET_DIR must be left as it was by the run")
 		}
 	})
 
@@ -57,7 +57,7 @@ func TestPrecommit_MechanicalCargoRun_BuildsInTheReposOwnTarget(t *testing.T) {
 			t.Fatalf("mechanical run built in %q, want the repo's own %q", seen, want)
 		}
 		if _, set := os.LookupEnv("CARGO_TARGET_DIR"); set {
-			t.Fatal("CARGO_TARGET_DIR must be unset again after the run — the operator never set one")
+			t.Fatal("the run must not set CARGO_TARGET_DIR — the operator never set one")
 		}
 	})
 }

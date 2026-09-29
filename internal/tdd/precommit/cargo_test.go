@@ -359,7 +359,7 @@ func TestPrecommit_Mechanical_CargoWorkspaceScopedToStagedPackages(t *testing.T)
 		betaDir := filepath.Join(root, "crates", "beta")
 		byDir := map[string]Runner{}
 		for _, r := range seen {
-			byDir[r.dir] = r.runner
+			byDir[r.dir] = withoutGateEnv(r.runner)
 		}
 		if want := (Runner{Cmd: "cargo", Args: []string{"test", "-p", "alpha"}, Dir: root}); !reflect.DeepEqual(byDir[alphaDir], want) {
 			t.Fatalf("alpha run = %+v, want %+v (all runs: %+v)", byDir[alphaDir], want, seen)

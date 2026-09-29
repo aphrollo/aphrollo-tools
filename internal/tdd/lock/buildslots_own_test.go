@@ -47,3 +47,19 @@ func TestRunnerTargetDir_FallsBackToRootWhenRunnerDirEmpty(t *testing.T) {
 		t.Fatalf("runnerTargetDir with no Runner.Dir = %q, want %q", got, want)
 	}
 }
+
+// TestRunnerTargetDir_TheRunnersOwnTargetBindingWins pins that a Runner naming
+// its own CARGO_TARGET_DIR is locked under THAT directory, not the process
+// environment's: the binding is what the child build will see (Runner.Env
+// comes last in its environment), so a lock keyed on any other directory would
+// let two builds into one target through.
+func TestRunnerTargetDir_TheRunnersOwnTargetBindingWins(t *testing.T) {
+	t.Setenv("CARGO_TARGET_DIR", filepath.Join(t.TempDir(), "process-target"))
+	root := t.TempDir()
+	bound := filepath.Join(t.TempDir(), "bound-target")
+
+	r := Runner{Env: []string{"FOO=1", "CARGO_TARGET_DIR=" + bound}}
+	if got := runnerTargetDir(r, root); got != bound {
+		t.Fatalf("runnerTargetDir = %q, want the runner's own binding %q", got, bound)
+	}
+}

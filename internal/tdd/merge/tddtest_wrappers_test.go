@@ -5,6 +5,8 @@ package merge
 import (
 	context "context"
 	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
+	lock "github.com/aphrollo/aphrollo-tools/internal/tdd/lock"
+	strings "strings"
 	testing "testing"
 	time "time"
 )
@@ -118,7 +120,7 @@ func recordableRun(r Runner) (Runner, bool) {
 		return r, false
 	}
 	r.Deadline = time.Time{}
-	return r, true
+	return withoutGateEnv(r), true
 }
 
 func requireNoMutantsMeasurement(t *testing.T, cfgDir string) {
@@ -129,6 +131,18 @@ func requireNoMutantsMeasurement(t *testing.T, cfgDir string) {
 func stubMutantsExec(t *testing.T, reply func(ctx context.Context, n int, c measuredCall) (int, error)) *[]measuredCall {
 	t.Helper()
 	return tddtest.StubMutantsExec(t, SetMutantsExecForTest, setMutantsListCountForTest, reply)
+}
+
+func withoutGateEnv(r Runner) Runner {
+	var env []string
+	for _, kv := range r.Env {
+		if !strings.HasPrefix(kv, "CARGO_TARGET_DIR=") && !strings.HasPrefix(kv, "CARGO_BUILD_JOBS=") &&
+			!strings.HasPrefix(kv, lock.BuildLockHeldEnv+"=") {
+			env = append(env, kv)
+		}
+	}
+	r.Env = env
+	return r
 }
 
 func write(t *testing.T, dir, rel, content string) { t.Helper(); tddtest.Write(t, dir, rel, content) }

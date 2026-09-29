@@ -31,7 +31,7 @@ func TestPrecommit_WorkspaceManifestOnlyChange_RunsCargoCheckWorkspace(t *testin
 	want := Runner{Cmd: "cargo", Args: []string{"check", "--workspace", "--tests"}, Dir: root}
 	found := false
 	for _, r := range seen {
-		if reflect.DeepEqual(r, want) {
+		if reflect.DeepEqual(withoutGateEnv(r), want) {
 			found = true
 		}
 		if r.Cmd == "cargo" && len(r.Args) > 0 && (r.Args[0] == "test" || r.Args[0] == "nextest") {
@@ -72,10 +72,10 @@ func TestPrecommit_WorkspaceManifestChangeAlongsideTouchedCrate_RunsBoth(t *test
 	wantSuite := Runner{Cmd: "cargo", Args: []string{"test", "-p", "alpha"}, Dir: root}
 	var gotCheck, gotSuite bool
 	for _, r := range seen {
-		if reflect.DeepEqual(r, wantCheck) {
+		if reflect.DeepEqual(withoutGateEnv(r), wantCheck) {
 			gotCheck = true
 		}
-		if reflect.DeepEqual(r, wantSuite) {
+		if reflect.DeepEqual(withoutGateEnv(r), wantSuite) {
 			gotSuite = true
 		}
 	}
@@ -116,7 +116,7 @@ func TestPrecommit_LockfileOnlyChange_NarrowsCargoCheckToMovedPackageDependent(t
 	wantCheck := Runner{Cmd: "cargo", Args: []string{"check", "--tests", "-p", "alpha"}, Dir: root}
 	found := false
 	for _, r := range seen {
-		if reflect.DeepEqual(r, wantCheck) {
+		if reflect.DeepEqual(withoutGateEnv(r), wantCheck) {
 			found = true
 		}
 		if r.Cmd == "cargo" && len(r.Args) > 0 && r.Args[0] == "check" {
