@@ -1,6 +1,8 @@
 package gc
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -221,5 +223,70 @@ func TestScanGC_FindsALaneSiblingsMutationLeftovers(t *testing.T) {
 
 	if _, found := candidateAt(got, leftover); !found {
 		t.Fatalf("scan from the primary checkout missed the lane's own %s:\n%+v", leftover, got)
+	}
+}
+
+// A proof of a lane (mutants_prove_sandbox.go) runs in a copy under
+// `.mutants/prove-<lane>`, a name that never has a checkout beside it, so the
+// orphan-area rule reads it as a dead lane's leftover. The copy of a proof
+// that is running now is the tree its tests are running in, and a sweep that
+// deleted it would end the proof mid-run.
+func proveAreaOf(t *testing.T, repo string) (area, lane string) {
+	t.Helper()
+	lane = filepath.Join(t.TempDir(), "lane-p")
+	gitDo(t, repo, "worktree", "add", "-q", "-b", "lane/p", lane)
+	area = filepath.Join(filepath.Dir(measureTempDir(lane)), "prove-"+filepath.Base(lane))
+	return area, lane
+}
+
+func TestScanGC_LeavesAProofsCopyWhoseHolderIsLiveAlone(t *testing.T) {
+	noMutationRunLive(t)
+	repo := makeCargoRepo(t)
+	area, _ := proveAreaOf(t, repo)
+	id, ok := processIdentityFn(os.Getpid())
+	if !ok {
+		t.Skip("this host cannot name a process's identity")
+	}
+	mkFile(t, filepath.Join(area, "tree", ".aphrollo-prove-holder"),
+		fmt.Sprintf("pid=%d\nidentity=%s\n", os.Getpid(), id), 2*time.Hour)
+	mkFile(t, filepath.Join(area, "tree", "lane", "x.go"), "package x", 2*time.Hour)
+
+	got := ScanGC(repo, 3*24*time.Hour, GCScope{Mutants: true})
+
+	if _, found := candidateAt(got, area); found {
+		t.Fatalf("proposed %s while the proof holding its copy is running", area)
+	}
+}
+
+func TestScanGC_ReclaimsAProofsCopyWhosePidNowNamesAnotherProcess(t *testing.T) {
+	noMutationRunLive(t)
+	repo := makeCargoRepo(t)
+	area, _ := proveAreaOf(t, repo)
+	if _, ok := processIdentityFn(os.Getpid()); !ok {
+		t.Skip("this host cannot name a process's identity")
+	}
+	// This pid is running, but not the process that held the copy: the record
+	// was written in an earlier boot.
+	mkFile(t, filepath.Join(area, "tree", ".aphrollo-prove-holder"),
+		fmt.Sprintf("pid=%d\nidentity=%s\n", os.Getpid(), "an-earlier-boot:1"), 2*time.Hour)
+
+	got := ScanGC(repo, 3*24*time.Hour, GCScope{Mutants: true})
+
+	if _, found := candidateAt(got, area); !found {
+		t.Fatalf("scan kept %s alive because its holder's pid was reused by another process:\n%+v", area, got)
+	}
+}
+
+func TestScanGC_LeavesAProofsCopyWhoseHolderRecordIsUnreadableAlone(t *testing.T) {
+	noMutationRunLive(t)
+	repo := makeCargoRepo(t)
+	area, _ := proveAreaOf(t, repo)
+	// A proof that made its directory and not yet written its record.
+	mkFile(t, filepath.Join(area, "tree", "lane", "x.go"), "package x", 2*time.Hour)
+
+	got := ScanGC(repo, 3*24*time.Hour, GCScope{Mutants: true})
+
+	if _, found := candidateAt(got, area); found {
+		t.Fatalf("proposed %s though a directory in it may belong to a proof that has not yet written its record", area)
 	}
 }

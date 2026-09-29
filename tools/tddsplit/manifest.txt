@@ -508,6 +508,7 @@ mutants_lanebase_test.go                           mutation
 mutants_measure.go                                 mutation
 mutants_measure_argv_test.go                       mutation
 mutants_measure_env_test.go                        mutation
+mutants_measure_gitdir_test.go                     mutation
 mutants_measure_judge.go                           mutation
 mutants_measure_rerun.go                           mutation
 mutants_measure_test.go                            mutation
@@ -527,6 +528,7 @@ mutants_prove.go                                   mutation
 mutants_prove_emptyselection_test.go               mutation
 mutants_prove_eol.go                               mutation
 mutants_prove_eol_test.go                          mutation
+mutants_prove_holder_test.go                        mutation
 mutants_prove_landed.go                            mutation
 mutants_prove_landed_test.go                       mutation
 mutants_prove_retain.go                            mutation
@@ -549,6 +551,7 @@ mutants_ram_unix_own_test.go                       lock
 mutants_ram_windows.go                             lock
 mutants_resolve.go                                 mutation
 mutants_resolve_confirm_test.go                    mutation
+mutants_resolve_sandbox_test.go                    mutation
 mutants_resolve_test.go                            mutation
 mutants_runlock.go                                 mutation
 mutants_runlock_test.go                            mutation

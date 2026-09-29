@@ -42,6 +42,8 @@ func MutantsStage(p0 string, p1 string) GateResult { return mutantsStage(p0, p1)
 
 func PathKey(p0 string) string { return pathKey(p0) }
 
+func ProveAreaHeld(p0 string) bool { return proveAreaHeld(p0) }
+
 func SetMutantsJobsForTest(p0 int, p1 string) func() { return setMutantsJobsForTest(p0, p1) }
 
 func SetMutantsListCountForTest(p0 int, p1 bool) func() { return setMutantsListCountForTest(p0, p1) }
