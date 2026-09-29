@@ -91,3 +91,16 @@ func TestSuiteEnv_NonGoRunnerLeavesTempVarsAlone(t *testing.T) {
 		}
 	}
 }
+
+// A runner's own Env is the caller's word on where its build goes, so it
+// wins over whatever the process inherited: a proof points cargo at a target
+// outside the lane it copied, and an inherited value must not undo that.
+func TestSuiteEnv_ARunnersOwnEnvOverridesTheInheritedValue(t *testing.T) {
+	t.Setenv("CARGO_TARGET_DIR", "/inherited/target")
+
+	env := suiteEnv(Runner{Cmd: "cargo", Args: []string{"test"}, Env: []string{"CARGO_TARGET_DIR=/runner/target"}}, t.TempDir())
+
+	if got := lastEnvValue(env, "CARGO_TARGET_DIR"); got != "/runner/target" {
+		t.Fatalf("CARGO_TARGET_DIR = %q, want the runner's own /runner/target", got)
+	}
+}

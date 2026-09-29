@@ -148,10 +148,13 @@ func RunSuite(timeout time.Duration) SuiteRunner {
 // #520). Every other runner (cargo, pytest, vitest, ...) is left exactly as
 // it was — cargo's own target dir already lands inside the project, so it has
 // no analogous problem to fix.
+//
+// The runner's own Env comes last, so a binding there wins over an inherited
+// one.
 func suiteEnv(r Runner, dir string) []string {
 	env := append(cleanGitEnv(), "CI=1", "NO_COLOR=1")
 	if r.Cmd == "go" {
 		env = append(env, goTmpEnv(dir)...)
 	}
-	return env
+	return append(env, r.Env...)
 }
